@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { CompleteButton } from "@/components/course/CompleteButton";
 import lessonsData from "@/data/lessons.json";
 
 type LessonBlock = {
@@ -308,22 +309,20 @@ export default async function LessonPage({ params }: LessonPageProps) {
                 Все {totalLessons} уроков позади. Осталось собрать свою первую
                 модель: вазу, брелок или светильник.
               </p>
-              <Link
-                href="/constructor"
-                className="mt-8 inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              >
-                Перейти в конструктор
-                <span aria-hidden>→</span>
-              </Link>
+              <div className="mt-8">
+                <CompleteButton
+                  lessonId={lesson.id}
+                  href="/constructor"
+                  label="Перейти в конструктор"
+                />
+              </div>
             </div>
           ) : (
-            <Link
+            <CompleteButton
+              lessonId={lesson.id}
               href={lessonHref(lesson.id + 1)}
-              className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-            >
-              Пройти урок
-              <span aria-hidden>→</span>
-            </Link>
+              label="Пройти урок"
+            />
           )}
         </div>
       </main>

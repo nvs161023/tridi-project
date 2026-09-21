@@ -3,23 +3,30 @@ import { type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
 /**
- * Прослойка между пользователем и страницами сайта.
+ * Прослойка для путей, где важна авторизация.
  *
- * Работает на каждом подходящем запросе ДО того, как Next.js начнёт отдавать
- * страницу, и занимается только одним: продлевает сессию Supabase, если
- * access-токен пользователя успел истечь.
+ * Работает только на защищённых страницах (/dashboard и /auth/*) и делает
+ * ровно одно: продлевает сессию Supabase, если access-токен истёк.
  *
- * Сама логика лежит в lib/supabase/middleware.ts (функция updateSession) —
- * здесь только подключение. Ничего не рендерим и не удаляем:
- * always возвращаем тот ответ, который пришёл из updateSession, иначе
- * обновлённые cookies сессии потеряются и пользователя будет разлогинивать.
+ * Публичные страницы (главная, /course/*) сюда не попадают — им сессия не
+ * нужна, а каждый вызов updateSession это сетевой запрос к Supabase. Раньше
+ * он выполнялся на каждом переходе по сайту и заметно тормозил навигацию.
+ *
+ * Логика лежит в lib/supabase/middleware.ts (функция updateSession) — здесь
+ * только подключение. Не заменяйте возвращаемый ответ: в нём едут обновлённые
+ * cookies, потеряв их, пользователя будет разлогинивать.
  */
 export async function middleware(request: NextRequest) {
   return await updateSession(request);
 }
 
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
-  ],
+  /**
+   * Покрываем только защищённые разделы:
+   *  - /dashboard и всё, что внутри;
+   *  - /auth/* (вход и регистрация).
+   * Когда появится /constructor — добавьте "/constructor/:path*".
+   */
+  matcher: ["/dashboard", "/dashboard/:path*", "/auth/:path*"],
 };
+

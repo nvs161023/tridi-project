@@ -12,12 +12,6 @@ type Profile = {
 
 const totalLessons = lessonsData.length;
 
-/**
- * Пока прогресс не читаем из базы — на шаге 5 подключим таблицу
- * lesson_progress и посчитаем реальное количество пройденных уроков.
- */
-const completedLessons = 0;
-
 export default async function DashboardPage() {
   const supabase = await createClient();
 
@@ -35,6 +29,11 @@ export default async function DashboardPage() {
     .eq("id", user.id)
     .single();
 
+  const { data: progressRows, error: progressError } = await supabase
+    .from("lesson_progress")
+    .select("lesson_id")
+    .eq("user_id", user.id);
+
   const profile = (data as Profile | null) ?? null;
 
   const displayName =
@@ -45,6 +44,8 @@ export default async function DashboardPage() {
     user.email ||
     "друг";
 
+  const completedLessons = progressRows?.length ?? 0;
+  const isCourseCompleted = completedLessons >= totalLessons;
   const progressPercent = Math.round((completedLessons / totalLessons) * 100);
 
   async function logout() {
@@ -91,10 +92,10 @@ export default async function DashboardPage() {
           поэтому можно продолжать с любого устройства.
         </p>
 
-        {profileError ? (
+        {profileError || progressError ? (
           <p className="mt-6 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-            <span aria-hidden>⚠️</span> Профиль не загрузился, показываем данные
-            из аккаунта.
+            <span aria-hidden>⚠️</span> Часть данных не загрузилась — показываем
+            то, что удалось получить.
           </p>
         ) : null}
 
@@ -126,17 +127,25 @@ export default async function DashboardPage() {
             />
           </div>
 
-          <p className="mt-4 text-sm text-slate-500">
-            Пройди первый урок — и полоска начнёт заполняться.
-          </p>
+          {isCourseCompleted ? (
+            <p className="mt-6 rounded-2xl border border-blue-500/40 bg-blue-500/10 px-4 py-4 text-center text-lg font-bold text-white sm:text-xl">
+              <span aria-hidden>🎉</span> Курс пройден!
+            </p>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500">
+              {completedLessons === 0
+                ? "Пройди первый урок — и полоска начнёт заполняться."
+                : "Так держать! Продолжай в своём темпе."}
+            </p>
+          )}
         </section>
 
         <div className="mt-10 sm:mt-12">
           <Link
-            href="/course/lesson-1"
+            href={isCourseCompleted ? "/constructor" : "/course/lesson-1"}
             className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
           >
-            Продолжить курс
+            {isCourseCompleted ? "Перейти в конструктор" : "Продолжить курс"}
             <span aria-hidden>→</span>
           </Link>
         </div>
