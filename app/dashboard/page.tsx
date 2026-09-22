@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import lessonsData from "@/data/lessons.json";
 import { createClient } from "@/lib/supabase/server";
+import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 
 type Profile = {
   id: string;
@@ -13,36 +15,35 @@ type Profile = {
 const totalLessons = lessonsData.length;
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
+  // Пользователя проверил middleware — одним сетевым getUser() на весь запрос.
+  // Здесь только читаем то, что он передал: второй getUser() был бы лишним
+  // кругом до Supabase (десятки-сотни миллисекунд на каждом переходе).
+  const identity = decodeRequestUser((await headers()).get(USER_HEADER));
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  if (!identity) {
+    // Страховка: сюда попадаем, только если запрос прошёл мимо middleware.
     redirect("/auth/login");
   }
 
-  const { data, error: profileError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .single();
+  const supabase = await createClient();
 
-  const { data: progressRows, error: progressError } = await supabase
-    .from("lesson_progress")
-    .select("lesson_id")
-    .eq("user_id", user.id);
+  // Профиль и прогресс друг от друга не зависят, поэтому забираем их
+  // параллельно: вместо двух кругов до Supabase получается один.
+  const [profileResult, progressResult] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", identity.id).single(),
+    supabase
+      .from("lesson_progress")
+      .select("lesson_id")
+      .eq("user_id", identity.id),
+  ]);
 
-  const profile = (data as Profile | null) ?? null;
+  const profile = (profileResult.data as Profile | null) ?? null;
+  const progressRows = progressResult.data;
+  // Часть данных могла не загрузиться — покажем то, что есть, и предупредим.
+  const hasDataError = Boolean(profileResult.error || progressResult.error);
 
   const displayName =
-    profile?.name?.trim() ||
-    (typeof user.user_metadata?.name === "string"
-      ? user.user_metadata.name.trim()
-      : "") ||
-    user.email ||
-    "друг";
+    profile?.name?.trim() || identity.name?.trim() || identity.email || "друг";
 
   const completedLessons = progressRows?.length ?? 0;
   const isCourseCompleted = completedLessons >= totalLessons;
@@ -92,7 +93,7 @@ export default async function DashboardPage() {
           поэтому можно продолжать с любого устройства.
         </p>
 
-        {profileError || progressError ? (
+        {hasDataError ? (
           <p className="mt-6 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
             <span aria-hidden>⚠️</span> Часть данных не загрузилась — показываем
             то, что удалось получить.

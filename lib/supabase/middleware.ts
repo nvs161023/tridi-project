@@ -1,15 +1,35 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import {
+  USER_HEADER,
+  encodeRequestUser,
+  type RequestUser,
+} from "@/lib/supabase/user-headers";
+
+/** Страницы, где нужен авторизованный пользователь. */
+const PROTECTED_PATH_PREFIXES = ["/dashboard"]; // + "/constructor", когда появится
+
+/** Cookie, которую Supabase попросил записать в ответ. */
+type PendingCookie = {
+  name: string;
+  value: string;
+  options?: CookieOptions;
+};
+
 /**
- * Обновляет сессию пользователя на каждом запросе.
+ * Обновляет сессию пользователя и решает, что с запросом делать дальше.
  *
  * Что происходит по шагам:
  * 1. берём cookies из входящего запроса;
  * 2. создаём Supabase-клиент, который умеет их читать и перезаписывать;
- * 3. вызываем getUser() — если access-токен истёк, Supabase сам обменяет
- *    refresh-токен на новый и положит обновлённые cookies в ответ;
- * 4. возвращаем NextResponse, который нужно вернуть из middleware.ts в корне.
+ * 3. ОДИН раз вызываем getUser(): если access-токен истёк, Supabase обменяет
+ *    refresh-токен на новый и обновлённые cookies попадут в этот же ответ;
+ * 4. гостя на защищённой странице отправляем на /auth/login, а авторизованного
+ *    на /auth/* — в /dashboard (проверка живёт в одном месте);
+ * 5. авторизованному подкладываем его данные в заголовок USER_HEADER, чтобы
+ *    страницы не вызывали getUser() второй раз (см. user-headers.ts);
+ * 6. возвращаем NextResponse, который нужно вернуть из middleware.ts в корне.
  *
  * Пример будущего middleware.ts в корне проекта:
  *
@@ -21,7 +41,7 @@ import { NextResponse, type NextRequest } from "next/server";
  *   }
  *
  *   export const config = {
- *     matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+ *     matcher: ["/dashboard/:path*", "/auth/:path*"],
  *   };
  */
 export async function updateSession(request: NextRequest) {
@@ -34,37 +54,100 @@ export async function updateSession(request: NextRequest) {
     );
   }
 
-  let response = NextResponse.next({ request });
+  // Cookies и служебные заголовки, которые попросит записать Supabase.
+  // Ответ собираем один раз — в конце, когда уже знаем пользователя.
+  const cookiesToSet: PendingCookie[] = [];
+  const headersToSet = new Headers();
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();
       },
-      setAll(cookiesToSet, headers) {
-        for (const { name, value } of cookiesToSet) {
-          request.cookies.set(name, value);
-        }
-
-        response = NextResponse.next({ request });
-
-        for (const { name, value, options } of cookiesToSet) {
-          response.cookies.set(name, value, options);
+      setAll(cookies, headers) {
+        for (const cookie of cookies) {
+          // Обновлённые cookies должны попасть не только в ответ, но и в рендер
+          // этого же запроса: иначе страница увидит старый access-токен.
+          request.cookies.set(cookie.name, cookie.value);
+          cookiesToSet.push(cookie);
         }
 
         // Заголовки кеширования от Supabase: ответ с токенами нельзя
         // кэшировать на CDN/прокси, иначе чужие сессии могут «слипнуться».
         for (const [key, value] of Object.entries(headers)) {
-          response.headers.set(key, value);
+          headersToSet.set(key, value);
         }
       },
     },
   });
 
   // ВАЖНО: не удаляйте этот вызов — именно он продлевает сессию.
-  // Не вызывайте getUser() между созданием клиента и возвратом response:
-  // обновлённые cookies должны попасть в тот же ответ.
-  await supabase.auth.getUser();
+  // Он же — единственная проверка пользователя: страницы берут пользователя из
+  // заголовка USER_HEADER, а не вызывают getUser() повторно.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  return response;
+  const { pathname } = request.nextUrl;
+
+  /** Переносит в ответ обновлённые cookies и заголовки Supabase. */
+  const withSessionData = (response: NextResponse) => {
+    for (const { name, value, options } of cookiesToSet) {
+      response.cookies.set(name, value, options);
+    }
+
+    for (const [key, value] of headersToSet) {
+      response.headers.set(key, value);
+    }
+
+    return response;
+  };
+
+  // Гость на защищённой странице — сразу на вход. Проверка ровно в одном месте:
+  // страницам не нужно повторять её ещё раз.
+  const isProtectedPage = PROTECTED_PATH_PREFIXES.some((prefix) =>
+    pathname.startsWith(prefix),
+  );
+
+  if (!user && isProtectedPage) {
+    return withSessionData(
+      NextResponse.redirect(new URL("/auth/login", request.url)),
+    );
+  }
+
+  // Страховка «после входа всегда оказываемся в личном кабинете»: если сессия
+  // уже есть, а пользователь открывает /auth/*, отправляем его в /dashboard.
+  // Плюс авторизованному человеку не нужно видеть форму входа.
+  const isAuthPage = pathname.startsWith("/auth");
+
+  if (user && isAuthPage) {
+    return withSessionData(
+      NextResponse.redirect(new URL("/dashboard", request.url)),
+    );
+  }
+
+  // Заголовки копируем уже после работы Supabase-клиента: в них лежат
+  // обновлённые cookies (auth-js пишет их через request.cookies).
+  const requestHeaders = new Headers(request.headers);
+
+  // Заголовок с пользователем подставляем сами и всегда чистим пришедший
+  // снаружи: иначе клиент мог бы подделать его и выдать себя за другого.
+  requestHeaders.delete(USER_HEADER);
+
+  if (user) {
+    const identity: RequestUser = {
+      id: user.id,
+      email: user.email ?? null,
+      name:
+        typeof user.user_metadata?.name === "string"
+          ? user.user_metadata.name
+          : null,
+    };
+
+    requestHeaders.set(USER_HEADER, encodeRequestUser(identity));
+  }
+
+  return withSessionData(
+    NextResponse.next({ request: { headers: requestHeaders } }),
+  );
 }

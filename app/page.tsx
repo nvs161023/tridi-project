@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { Header } from "@/components/Header";
 import courseData from "@/data/course.json";
 
 type Benefit = {
@@ -61,25 +62,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4 sm:px-8">
-          <Link href="/" className="flex items-center gap-2 text-base font-bold">
-            <span aria-hidden>🖨️</span>
-            <span>3D-печать с нуля</span>
-          </Link>
-          <nav className="hidden items-center gap-8 text-sm font-medium text-slate-300 sm:flex">
-            <a className="transition-colors hover:text-blue-400" href="#benefits">
-              Что вы получите
-            </a>
-            <a className="transition-colors hover:text-blue-400" href="#program">
-              Программа
-            </a>
-            <a className="transition-colors hover:text-blue-400" href="#about">
-              О проекте
-            </a>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <main>
         <section className="relative overflow-hidden">
