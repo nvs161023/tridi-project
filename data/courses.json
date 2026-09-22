@@ -1,0 +1,15 @@
+{
+  "basic": {
+    "title": "3D-печать с нуля",
+    "subtitle": "Базовый курс для новичков",
+    "tier": "free",
+    "totalLessons": 12
+  },
+  "pro": {
+    "title": "Инженер 3D-печати",
+    "subtitle": "Продвинутый курс для тех, кто хочет большего",
+    "tier": "paid",
+    "totalLessons": 17,
+    "price": 990
+  }
+}
