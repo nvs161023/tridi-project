@@ -4,49 +4,19 @@ import { Header } from "@/components/Header";
 import coursesData from "@/data/courses.json";
 import lessonsData from "@/data/lessons.json";
 import proLessonsData from "@/data/lessons-pro.json";
+import {
+  LESSON_FORMS,
+  MODULE_FORMS,
+  formatHours,
+  groupByModule,
+  pluralize,
+} from "@/lib/course-stats";
 
 type Benefit = {
   icon: string;
   title: string;
   description: string;
 };
-
-type ModulePreview = {
-  title: string;
-  lessons: number;
-};
-
-type LessonLike = {
-  module: string;
-  duration: string;
-};
-
-const LESSON_FORMS: [string, string, string] = ["урок", "урока", "уроков"];
-const MODULE_FORMS: [string, string, string] = ["модуль", "модуля", "модулей"];
-const HOUR_FORMS: [string, string, string] = ["час", "часа", "часов"];
-
-/**
- * Русская форма слова по числу: 1 урок, 2 урока, 5 уроков.
- * forms — это [для 1, для 2–4, для 5 и больше].
- */
-function pluralize(count: number, forms: [string, string, string]): string {
-  const mod100 = count % 100;
-  const mod10 = count % 10;
-
-  if (mod100 >= 11 && mod100 <= 14) {
-    return forms[2];
-  }
-
-  if (mod10 === 1) {
-    return forms[0];
-  }
-
-  if (mod10 >= 2 && mod10 <= 4) {
-    return forms[1];
-  }
-
-  return forms[2];
-}
 
 /** Названия, подзаголовки и цена курсов — из метаданных курсов. */
 const { basic: basicCourse, pro: proCourse } = coursesData;
@@ -56,39 +26,14 @@ const basicLessons = lessonsData;
 const proLessons = proLessonsData;
 
 /**
- * Собирает модули из уроков: группирует по полю module, сохраняя порядок
- * появления в файле. Поэтому счётчики на главной не нужно обновлять руками —
- * они пересчитываются из data/lessons.json и data/lessons-pro.json.
+ * Модули, число уроков и часы считаются в lib/course-stats по файлам уроков —
+ * поэтому витрина не может «отстать» от содержимого курсов.
  */
-function groupByModule(lessons: LessonLike[]): ModulePreview[] {
-  const counts = new Map<string, number>();
-
-  for (const lesson of lessons) {
-    counts.set(lesson.module, (counts.get(lesson.module) ?? 0) + 1);
-  }
-
-  return [...counts].map(([title, lessonsCount]) => ({
-    title,
-    lessons: lessonsCount,
-  }));
-}
-
 const basicModules = groupByModule(basicLessons);
 const proModules = groupByModule(proLessons);
 
 /** Сколько уроков в базовом курсе — считаем по файлу уроков. */
 const totalLessons = basicLessons.length;
-
-/** «~4 часа» — округляем суммарную длительность уроков до часов. */
-function formatHours(lessons: LessonLike[]): string {
-  const minutes = lessons.reduce(
-    (sum, lesson) => sum + Number.parseInt(lesson.duration, 10),
-    0,
-  );
-  const hours = Math.max(1, Math.round(minutes / 60));
-
-  return `~${hours} ${pluralize(hours, HOUR_FORMS)}`;
-}
 
 /** Шесть ключевых тем продвинутого курса — витрина для главной. */
 const proTopics: string[] = [
