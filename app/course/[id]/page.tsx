@@ -1,17 +1,10 @@
-import Image from "next/image";
 import Link from "next/link";
 
 import { CompleteButton } from "@/components/course/CompleteButton";
+import { LessonBlocks, type LessonBlock } from "@/components/course/LessonBlocks";
 import lessonsData from "@/data/lessons.json";
-
-type LessonBlock = {
-  type: string;
-  title?: string;
-  src?: string;
-  content?: string;
-  items?: string[];
-  steps?: { title: string; text: string }[];
-};
+import proLessonsData from "@/data/lessons-pro.json";
+import { LESSON_FORMS, formatHours, pluralize } from "@/lib/course-stats";
 
 type Lesson = {
   id: number;
@@ -24,47 +17,13 @@ type Lesson = {
 const lessons: Lesson[] = lessonsData;
 const totalLessons = lessons.length;
 
-const calloutStyles = {
-  tip: {
-    icon: "💡",
-    card: "border-emerald-500/30 bg-emerald-500/10",
-    title: "text-emerald-200",
-    body: "text-emerald-100/85",
-  },
-  warning: {
-    icon: "⚠️",
-    card: "border-amber-500/40 bg-amber-500/10",
-    title: "text-amber-200",
-    body: "text-amber-100/85",
-  },
-  analogy: {
-    icon: "🧩",
-    card: "border-violet-500/30 bg-violet-500/10",
-    title: "text-violet-200",
-    body: "text-violet-100/85",
-  },
-} as const;
-
-type CalloutType = keyof typeof calloutStyles;
-
-const mediaStyles = {
-  image: {
-    icon: "🖼️",
-    label: "Иллюстрация",
-    card: "border-sky-500/25 bg-sky-500/5",
-    title: "text-sky-200",
-    body: "text-slate-300",
-  },
-  animation: {
-    icon: "🎬",
-    label: "Анимация",
-    card: "border-indigo-500/25 bg-indigo-500/5",
-    title: "text-indigo-200",
-    body: "text-slate-300",
-  },
-} as const;
-
-type MediaType = keyof typeof mediaStyles;
+/** Что даёт продвинутый курс — пункты золотого блока-приглашения. */
+const proPromoItems: string[] = [
+  "физика процессов",
+  "любые материалы: от PLA до PEEK",
+  "тонкая калибровка и диагностика",
+  "печатная ферма",
+];
 
 type LessonPageProps = {
   params: Promise<{ id: string }>;
@@ -102,157 +61,55 @@ export async function generateMetadata({ params }: LessonPageProps) {
   };
 }
 
-function BlockTitle({ children }: { children?: string }) {
-  if (!children) {
-    return null;
-  }
-
+/**
+ * Золотой блок-приглашение в продвинутый курс.
+ *
+ * Показывается на последнем уроке базового курса: человек только что закончил
+ * бесплатную часть — это лучшее место предложить продолжение.
+ */
+function ProCoursePromo() {
   return (
-    <h2 className="text-2xl font-bold text-white sm:text-3xl">{children}</h2>
-  );
-}
+    <section className="relative mt-12 overflow-hidden rounded-3xl border-2 border-yellow-500/50 bg-gradient-to-b from-amber-500/10 via-slate-900/70 to-slate-900/80 p-7 sm:mt-16 sm:p-9">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-amber-400/10 blur-3xl"
+      />
 
-function BlockView({ block }: { block: LessonBlock }) {
-  switch (block.type) {
-    case "text":
-      return (
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
-          <BlockTitle>{block.title}</BlockTitle>
-          <p className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg">
-            {block.content}
-          </p>
-        </section>
-      );
+      <p className="relative text-2xl font-extrabold text-white sm:text-3xl">
+        <span aria-hidden>🎉</span> Базовый курс пройден! Теперь ты готов к
+        продвинутому:
+      </p>
 
-    case "list":
-      if (!block.items || block.items.length === 0) {
-        return null;
-      }
-
-      return (
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
-          <BlockTitle>{block.title}</BlockTitle>
-          <ul className="mt-6 space-y-4">
-            {block.items.map((item) => (
-              <li key={item} className="flex items-start gap-3">
-                <span
-                  aria-hidden
-                  className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500"
-                />
-                <span className="text-base leading-relaxed text-slate-300">
-                  {item}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      );
-
-    case "steps":
-      if (!block.steps || block.steps.length === 0) {
-        return null;
-      }
-
-      return (
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
-          <BlockTitle>{block.title}</BlockTitle>
-          <ol className="mt-6 space-y-6">
-            {block.steps.map((step, index) => (
-              <li key={step.title} className="flex items-start gap-4">
-                <span
-                  aria-hidden
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-base font-extrabold text-white"
-                >
-                  {index + 1}
-                </span>
-                <div>
-                  <h3 className="text-lg font-bold text-white sm:text-xl">
-                    {step.title}
-                  </h3>
-                  <p className="mt-2 text-base leading-relaxed text-slate-400">
-                    {step.text}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </section>
-      );
-
-    case "tip":
-    case "warning":
-    case "analogy": {
-      const style = calloutStyles[block.type as CalloutType];
-
-      return (
-        <aside
-          className={`flex items-start gap-4 rounded-3xl border p-7 sm:p-9 ${style.card}`}
-        >
-          <span aria-hidden className="text-2xl">
-            {style.icon}
-          </span>
-          <div>
-            <h2 className={`text-lg font-bold sm:text-xl ${style.title}`}>
-              {block.title}
-            </h2>
-            <p className={`mt-2 text-base leading-relaxed ${style.body}`}>
-              {block.content}
-            </p>
-          </div>
-        </aside>
-      );
-    }
-
-    case "image":
-    case "animation": {
-      const style = mediaStyles[block.type as MediaType];
-
-      return (
-        <figure
-          className={`overflow-hidden rounded-3xl border ${style.card}`}
-        >
-          {block.src ? (
-            <Image
-              src={block.src}
-              alt={block.title ?? style.label}
-              width={800}
-              height={450}
-              unoptimized
-              className="h-auto w-full border-b border-white/10 bg-slate-950/40"
-            />
-          ) : (
-            <div
-              aria-hidden
-              className="flex items-center justify-center border-b border-white/10 bg-slate-950/40 py-8 text-4xl sm:py-10 sm:text-5xl"
-            >
-              {style.icon}
-            </div>
-          )}
-          <figcaption className="p-7 sm:p-9">
-            <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-slate-400">
-              <span aria-hidden className="text-base">
-                {style.icon}
-              </span>
-              {style.label}
+      <ul className="relative mt-6 space-y-3">
+        {proPromoItems.map((item) => (
+          <li
+            key={item}
+            className="flex items-start gap-3 text-base leading-relaxed text-slate-200"
+          >
+            <span aria-hidden className="text-amber-300">
+              —
             </span>
-            <h2
-              className={`mt-3 text-2xl font-bold sm:text-3xl ${style.title}`}
-            >
-              {block.title}
-            </h2>
-            <p
-              className={`mt-4 text-base leading-relaxed sm:text-lg ${style.body}`}
-            >
-              {block.content}
-            </p>
-          </figcaption>
-        </figure>
-      );
-    }
+            {item}
+          </li>
+        ))}
+      </ul>
 
-    default:
-      return null;
-  }
+      <p className="relative mt-6 text-sm font-semibold text-amber-200">
+        {proLessonsData.length} {pluralize(proLessonsData.length, LESSON_FORMS)}{" "}
+        · {formatHours(proLessonsData)} · входит в тариф Pro
+      </p>
+
+      <div className="relative mt-8">
+        <Link
+          href="/course/pro/lesson-1"
+          className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-9 text-lg font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
+        >
+          Открыть продвинутый курс
+          <span aria-hidden>→</span>
+        </Link>
+      </div>
+    </section>
+  );
 }
 
 function LessonNotFound() {
@@ -357,14 +214,9 @@ export default async function LessonPage({ params }: LessonPageProps) {
           </span>
         </div>
 
-        <div className="mt-12 space-y-8 sm:mt-16 sm:space-y-10">
-          {lesson.blocks.map((block, index) => (
-            <BlockView
-              key={`${lesson.id}-${index}-${block.type}`}
-              block={block}
-            />
-          ))}
-        </div>
+        <LessonBlocks blocks={lesson.blocks} />
+
+        {isLastLesson ? <ProCoursePromo /> : null}
 
         <div className="mt-12 sm:mt-16">
           {isLastLesson ? (
@@ -380,6 +232,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
               <div className="mt-8">
                 <CompleteButton
                   lessonId={lesson.id}
+                  courseType="basic"
                   href="/constructor"
                   label="Перейти в конструктор"
                 />
@@ -388,6 +241,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
           ) : (
             <CompleteButton
               lessonId={lesson.id}
+              courseType="basic"
               href={lessonHref(lesson.id + 1)}
               label="Пройти урок"
             />

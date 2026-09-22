@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
-import { completeLesson } from "@/app/actions/complete-lesson";
+import { completeLesson, type CourseType } from "@/app/actions/complete-lesson";
 
 type CompleteButtonProps = {
   /** Номер урока, который отмечаем пройденным. */
@@ -12,6 +12,11 @@ type CompleteButtonProps = {
   href: string;
   /** Текст кнопки в обычном состоянии. */
   label: string;
+  /**
+   * Какой это курс: базовый или продвинутый. По умолчанию базовый — так кнопка
+   * работает на страницах /course/lesson-*, а продвинутые уроки передают "pro".
+   */
+  courseType?: CourseType;
 };
 
 /**
@@ -19,15 +24,22 @@ type CompleteButtonProps = {
  * затем ведёт на следующую страницу.
  *
  * Если пользователь не авторизован (или сохранение не удалось) — просто
- * переходим дальше: прохождение курса важнее, чем запись прогресса.
+ * переходим дальше: прохождение курса важнее, чем запись прогресса. Поэтому и
+ * незакрытая миграция с колонкой course_type (см. supabase/pro_course_access.sql)
+ * не мешает пройти урок — прогресс просто не запишется.
  */
-export function CompleteButton({ lessonId, href, label }: CompleteButtonProps) {
+export function CompleteButton({
+  lessonId,
+  href,
+  label,
+  courseType = "basic",
+}: CompleteButtonProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   function handleClick() {
     startTransition(async () => {
-      const result = await completeLesson(lessonId);
+      const result = await completeLesson(lessonId, courseType);
 
       if ("error" in result) {
         console.warn("Прогресс не сохранён:", result.error);
