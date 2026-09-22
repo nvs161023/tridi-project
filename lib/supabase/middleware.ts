@@ -6,9 +6,13 @@ import {
   encodeRequestUser,
   type RequestUser,
 } from "@/lib/supabase/user-headers";
+import { isAuthPath, resolveAfterAuthPath } from "@/lib/auth-redirect";
 
-/** Страницы, где нужен авторизованный пользователь. */
-const PROTECTED_PATH_PREFIXES = ["/dashboard"]; // + "/constructor", когда появится
+/**
+ * Страницы, где нужен авторизованный пользователь.
+ * Уроки (/course/*) тоже защищены: без входа курс не открыть.
+ */
+const PROTECTED_PATH_PREFIXES = ["/dashboard", "/course"]; // + "/constructor", когда появится
 
 /** Cookie, которую Supabase попросил записать в ответ. */
 type PendingCookie = {
@@ -25,8 +29,9 @@ type PendingCookie = {
  * 2. создаём Supabase-клиент, который умеет их читать и перезаписывать;
  * 3. ОДИН раз вызываем getUser(): если access-токен истёк, Supabase обменяет
  *    refresh-токен на новый и обновлённые cookies попадут в этот же ответ;
- * 4. гостя на защищённой странице отправляем на /auth/login, а авторизованного
- *    на /auth/* — в /dashboard (проверка живёт в одном месте);
+ * 4. гостя на защищённой странице отправляем на /auth/login?next=<куда он шёл>,
+ *    а авторизованного на /auth/* — на тот же next (обычно это урок) или
+ *    в /dashboard; проверка живёт в одном месте;
  * 5. авторизованному подкладываем его данные в заголовок USER_HEADER, чтобы
  *    страницы не вызывали getUser() второй раз (см. user-headers.ts);
  * 6. возвращаем NextResponse, который нужно вернуть из middleware.ts в корне.
@@ -110,19 +115,26 @@ export async function updateSession(request: NextRequest) {
   );
 
   if (!user && isProtectedPage) {
-    return withSessionData(
-      NextResponse.redirect(new URL("/auth/login", request.url)),
-    );
+    // Запоминаем, куда человек шёл: после входа вернём его на этот адрес
+    // (обычно это урок), а не в личный кабинет. searchParams.set сам кодирует
+    // значение, поэтому в адресе получается next=%2Fcourse%2Flesson-1.
+    const loginUrl = new URL("/auth/login", request.url);
+    loginUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
+
+    return withSessionData(NextResponse.redirect(loginUrl));
   }
 
-  // Страховка «после входа всегда оказываемся в личном кабинете»: если сессия
-  // уже есть, а пользователь открывает /auth/*, отправляем его в /dashboard.
-  // Плюс авторизованному человеку не нужно видеть форму входа.
-  const isAuthPage = pathname.startsWith("/auth");
+  // Авторизованному человеку форма входа не нужна: если он открыл /auth/*,
+  // отправляем его на next (обычно это урок, с которого его увели гостем),
+  // а если next нет или он ведёт на /auth/* — в личный кабинет.
+  // Так работает возврат после входа по прямой ссылке и не возникает петель.
+  if (user && isAuthPath(pathname)) {
+    const afterAuth = resolveAfterAuthPath(
+      request.nextUrl.searchParams.get("next"),
+    );
 
-  if (user && isAuthPage) {
     return withSessionData(
-      NextResponse.redirect(new URL("/dashboard", request.url)),
+      NextResponse.redirect(new URL(afterAuth, request.url)),
     );
   }
 

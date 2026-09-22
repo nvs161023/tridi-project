@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 
+import { resolveAfterAuthPath } from "@/lib/auth-redirect";
 import { createClient } from "@/lib/supabase/server";
 import type { AuthFormState } from "@/app/actions/auth-state";
 
@@ -15,7 +16,8 @@ import type { AuthFormState } from "@/app/actions/auth-state";
  * навигацией.
  *
  * Наружу возвращаем только текст для пользователя: ошибки Supabase переводим на
- * русский, а при успехе сразу уходим в личный кабинет.
+ * русский, а при успехе сразу уходим дальше — на страницу, с которой человека
+ * отправил middleware (скрытое поле next), или в личный кабинет.
  */
 
 const NETWORK_ERROR_MESSAGE =
@@ -78,7 +80,8 @@ function translateSignUpError(message: string): string {
  * Вход по email и паролю.
  *
  * При успехе сервер записывает cookies сессии в ответ и переводит пользователя
- * в /dashboard — браузеру не нужно ничего решать про навигацию.
+ * дальше — на страницу из скрытого поля next (туда, откуда его увели на вход)
+ * или в личный кабинет. Браузеру не нужно ничего решать про навигацию.
  */
 export async function signInAction(
   _prevState: AuthFormState,
@@ -86,6 +89,8 @@ export async function signInAction(
 ): Promise<AuthFormState> {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  // Куда вернуться после входа: путь проверяем, чтобы не уехать на чужой сайт.
+  const afterAuth = resolveAfterAuthPath(String(formData.get("next") ?? ""));
 
   if (email.length === 0 || password.length === 0) {
     return { error: "Заполните email и пароль.", values: { email } };
@@ -106,15 +111,16 @@ export async function signInAction(
 
   // ВАЖНО: redirect() бросает служебное исключение Next.js, поэтому вызываем его
   // вне try/catch — иначе catch перехватит переход и он не состоится.
-  redirect("/dashboard");
+  redirect(afterAuth);
 }
 
 /**
  * Регистрация.
  *
  * Если в проекте Supabase выключено подтверждение email, signUp() сразу отдаёт
- * сессию — тогда уходим в личный кабинет. Если подтверждение включено, сессии
- * нет: показываем просьбу подтвердить адрес и остаёмся на странице.
+ * сессию — тогда уходим дальше: на страницу из next (например, в урок) или
+ * в личный кабинет. Если подтверждение включено, сессии нет: показываем просьбу
+ * подтвердить адрес и остаёмся на странице.
  */
 export async function signUpAction(
   _prevState: AuthFormState,
@@ -123,6 +129,8 @@ export async function signUpAction(
   const name = String(formData.get("name") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  // Куда вернуться после регистрации: путь проверяем, чтобы не уехать на чужой сайт.
+  const afterAuth = resolveAfterAuthPath(String(formData.get("next") ?? ""));
 
   if (name.length === 0) {
     return {
@@ -168,5 +176,5 @@ export async function signUpAction(
     return { error: NETWORK_ERROR_MESSAGE, values: { name, email } };
   }
 
-  redirect("/dashboard");
+  redirect(afterAuth);
 }

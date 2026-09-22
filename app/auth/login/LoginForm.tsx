@@ -8,6 +8,15 @@ import { emptyAuthFormState } from "@/app/actions/auth-state";
 const inputClassName =
   "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
 
+type LoginFormProps = {
+  /**
+   * Куда вернуться после входа: страница, с которой middleware увёл гостя на
+   * вход (обычно урок, например /course/lesson-3). Значение уже проверено на
+   * сервере — см. lib/auth-redirect.ts.
+   */
+  next?: string | null;
+};
+
 /**
  * Форма входа — единственная клиентская часть страницы.
  *
@@ -20,7 +29,7 @@ const inputClassName =
  * на сервере они читаются через formData.get("email"). Поэтому форма работает
  * даже без JavaScript — это встроенное свойство Server Actions.
  */
-export function LoginForm() {
+export function LoginForm({ next = null }: LoginFormProps) {
   const [state, formAction, isPending] = useActionState(
     signInAction,
     emptyAuthFormState,
@@ -28,6 +37,10 @@ export function LoginForm() {
 
   return (
     <form action={formAction} className="mt-8 space-y-6">
+      {/* Куда вернуться после входа: Server Action прочитает это поле и уйдёт
+          на урок, с которого человека увели. defaultValue, а не value — поле
+          неконтролируемое, как и остальные в форме. */}
+      {next ? <input type="hidden" name="next" defaultValue={next} /> : null}
       <div>
         <label
           htmlFor="email"

@@ -8,6 +8,15 @@ import { emptyAuthFormState } from "@/app/actions/auth-state";
 const inputClassName =
   "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
 
+type SignUpFormProps = {
+  /**
+   * Куда вернуться после регистрации: страница, с которой middleware увёл гостя
+   * на вход (обычно урок, например /course/lesson-3). Значение уже проверено на
+   * сервере — см. lib/auth-redirect.ts.
+   */
+  next?: string | null;
+};
+
 /**
  * Форма регистрации — клиентская часть страницы.
  *
@@ -16,7 +25,7 @@ const inputClassName =
  * Все данные читает Server Action на сервере, поэтому клиент Supabase в браузер
  * не попадает.
  */
-export function SignUpForm() {
+export function SignUpForm({ next = null }: SignUpFormProps) {
   const [state, formAction, isPending] = useActionState(
     signUpAction,
     emptyAuthFormState,
@@ -24,6 +33,9 @@ export function SignUpForm() {
 
   return (
     <form action={formAction} className="mt-8 space-y-6">
+      {/* Куда вернуться после регистрации: Server Action прочитает это поле
+          и уйдёт на урок, с которого человека увели. */}
+      {next ? <input type="hidden" name="next" defaultValue={next} /> : null}
       <div>
         <label
           htmlFor="name"

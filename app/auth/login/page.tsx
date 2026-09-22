@@ -1,6 +1,13 @@
 import Link from "next/link";
 
+import { authHref, safeNextPath } from "@/lib/auth-redirect";
+
 import { LoginForm } from "./LoginForm";
+
+type LoginPageProps = {
+  /** Параметры адреса: ?next= — страница, куда вернуться после входа. */
+  searchParams: Promise<{ next?: string }>;
+};
 
 /**
  * Страница входа — серверный компонент.
@@ -10,10 +17,15 @@ import { LoginForm } from "./LoginForm";
  * попадает ни клиент Supabase (~70 КБ), ни логика авторизации — только маленький
  * компонент формы.
  *
- * Авторизованного пользователя сюда не пустит middleware: он уведёт его в
- * /dashboard (см. lib/supabase/middleware.ts).
+ * Сюда гостя приводит middleware с адресом страницы, которую он хотел открыть
+ * (?next=/course/lesson-3): после входа человек возвращается на неё. Того, у кого
+ * сессия уже есть, middleware отсюда уводит на тот же next (см.
+ * lib/supabase/middleware.ts).
  */
-export default function LoginPage() {
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  // Путь из адреса проверяем: он приходит из браузера, и без проверки вход мог бы
+  // выбрасывать человека на чужой сайт (см. lib/auth-redirect.ts).
+  const next = safeNextPath((await searchParams).next);
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16 sm:px-8">
@@ -33,12 +45,12 @@ export default function LoginPage() {
             Войдите, чтобы продолжить курс с того места, где остановились
           </p>
 
-          <LoginForm />
+          <LoginForm next={next} />
 
           <p className="mt-8 text-center text-sm text-slate-400">
             Нет аккаунта?{" "}
             <Link
-              href="/auth/sign-up"
+              href={authHref("/auth/sign-up", next)}
               className="font-semibold text-blue-400 transition-colors hover:text-blue-300"
             >
               Зарегистрироваться

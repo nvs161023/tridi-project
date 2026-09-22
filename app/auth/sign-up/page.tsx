@@ -1,6 +1,13 @@
 import Link from "next/link";
 
+import { authHref, safeNextPath } from "@/lib/auth-redirect";
+
 import { SignUpForm } from "./SignUpForm";
+
+type SignUpPageProps = {
+  /** Параметры адреса: ?next= — страница, куда вернуться после регистрации. */
+  searchParams: Promise<{ next?: string }>;
+};
 
 /**
  * Страница регистрации — серверный компонент.
@@ -8,9 +15,15 @@ import { SignUpForm } from "./SignUpForm";
  * Форму отправляет Server Action (см. SignUpForm и app/actions/auth.ts), поэтому
  * клиент Supabase в браузер не загружается. Если в проекте включено
  * подтверждение email, Server Action вернёт сообщение «проверьте почту»; если
- * выключено — сразу авторизует и переведёт в /dashboard.
+ * выключено — сразу авторизует и переведёт дальше.
+ *
+ * Страница принимает ?next= — адрес, с которого гостя увёл middleware (обычно
+ * урок). После регистрации человек оказывается там, а не в личном кабинете.
  */
-export default function SignUpPage() {
+export default async function SignUpPage({ searchParams }: SignUpPageProps) {
+  // Путь из адреса проверяем: он приходит из браузера, и без проверки регистрация
+  // могла бы выбрасывать человека на чужой сайт (см. lib/auth-redirect.ts).
+  const next = safeNextPath((await searchParams).next);
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16 sm:px-8">
@@ -30,12 +43,12 @@ export default function SignUpPage() {
             Создайте аккаунт, чтобы сохранять прогресс курса
           </p>
 
-          <SignUpForm />
+          <SignUpForm next={next} />
 
           <p className="mt-8 text-center text-sm text-slate-400">
             Уже есть аккаунт?{" "}
             <Link
-              href="/auth/login"
+              href={authHref("/auth/login", next)}
               className="font-semibold text-blue-400 transition-colors hover:text-blue-300"
             >
               Войти
