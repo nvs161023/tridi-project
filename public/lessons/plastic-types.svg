@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#070c17"/>
+      <stop offset="1" stop-color="#12203a"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="450" fill="url(#bg)"/>
+
+  <g fill="#111c33" stroke="#334155" stroke-width="2">
+    <rect x="20" y="40" width="140" height="370" rx="16"/>
+    <rect x="175" y="40" width="140" height="370" rx="16"/>
+    <rect x="330" y="40" width="140" height="370" rx="16"/>
+    <rect x="485" y="40" width="140" height="370" rx="16"/>
+    <rect x="640" y="40" width="140" height="370" rx="16"/>
+  </g>
+
+  <!-- PLA -->
+  <g>
+    <circle cx="90" cy="118" r="40" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+    <circle cx="90" cy="118" r="28" fill="none" stroke="#38bdf8" stroke-width="9"/>
+    <circle cx="90" cy="118" r="9" fill="#070c17" stroke="#334155" stroke-width="2"/>
+    <text x="90" y="196" text-anchor="middle" font-size="24" font-weight="bold" fill="#38bdf8">PLA</text>
+    <text x="90" y="228" text-anchor="middle" font-size="13" fill="#94a3b8">легко печатать</text>
+    <text x="90" y="250" text-anchor="middle" font-size="13" fill="#94a3b8">почти без запаха</text>
+    <text x="90" y="272" text-anchor="middle" font-size="13" fill="#94a3b8">игрушки, декор</text>
+    <rect x="38" y="300" width="104" height="34" rx="10" fill="#070c17" stroke="#334155" stroke-width="2"/>
+    <text x="90" y="323" text-anchor="middle" font-size="14" font-weight="bold" fill="#e2e8f0">200–210 °C</text>
+    <rect x="28" y="48" width="58" height="22" rx="11" fill="#10b981"/>
+    <text x="57" y="64" text-anchor="middle" font-size="12" font-weight="bold" fill="#04121f">старт</text>
+  </g>
+
+  <!-- PETG -->
+  <g>
+    <circle cx="245" cy="118" r="40" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+    <circle cx="245" cy="118" r="28" fill="none" stroke="#34d399" stroke-width="9"/>
+    <circle cx="245" cy="118" r="9" fill="#070c17" stroke="#334155" stroke-width="2"/>
+    <text x="245" y="196" text-anchor="middle" font-size="24" font-weight="bold" fill="#34d399">PETG</text>
+    <text x="245" y="228" text-anchor="middle" font-size="13" fill="#94a3b8">прочный</text>
+    <text x="245" y="250" text-anchor="middle" font-size="13" fill="#94a3b8">термостойкий</text>
+    <text x="245" y="272" text-anchor="middle" font-size="13" fill="#94a3b8">рабочие детали</text>
+    <rect x="193" y="300" width="104" height="34" rx="10" fill="#070c17" stroke="#334155" stroke-width="2"/>
+    <text x="245" y="323" text-anchor="middle" font-size="14" font-weight="bold" fill="#e2e8f0">230–240 °C</text>
+  </g>
+
+  <!-- ABS -->
+  <g>
+    <circle cx="400" cy="118" r="40" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+    <circle cx="400" cy="118" r="28" fill="none" stroke="#f59e0b" stroke-width="9"/>
+    <circle cx="400" cy="118" r="9" fill="#070c17" stroke="#334155" stroke-width="2"/>
+    <text x="400" y="196" text-anchor="middle" font-size="24" font-weight="bold" fill="#f59e0b">ABS</text>
+    <text x="400" y="228" text-anchor="middle" font-size="13" fill="#94a3b8">очень крепкий</text>
+    <text x="400" y="250" text-anchor="middle" font-size="13" fill="#94a3b8">пахнет, нужна</text>
+    <text x="400" y="272" text-anchor="middle" font-size="13" fill="#94a3b8">вентиляция</text>
+    <rect x="348" y="300" width="104" height="34" rx="10" fill="#070c17" stroke="#334155" stroke-width="2"/>
+    <text x="400" y="323" text-anchor="middle" font-size="14" font-weight="bold" fill="#e2e8f0">240–250 °C</text>
+  </g>
+
+  <!-- TPU -->
+  <g>
+    <circle cx="555" cy="118" r="40" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+    <circle cx="555" cy="118" r="28" fill="none" stroke="#a78bfa" stroke-width="9"/>
+    <circle cx="555" cy="118" r="9" fill="#070c17" stroke="#334155" stroke-width="2"/>
+    <text x="555" y="196" text-anchor="middle" font-size="24" font-weight="bold" fill="#a78bfa">TPU</text>
+    <text x="555" y="228" text-anchor="middle" font-size="13" fill="#94a3b8">гибкий, как</text>
+    <text x="555" y="250" text-anchor="middle" font-size="13" fill="#94a3b8">резинка</text>
+    <text x="555" y="272" text-anchor="middle" font-size="13" fill="#94a3b8">чехлы, прокладки</text>
+    <rect x="503" y="300" width="104" height="34" rx="10" fill="#070c17" stroke="#334155" stroke-width="2"/>
+    <text x="555" y="323" text-anchor="middle" font-size="14" font-weight="bold" fill="#e2e8f0">230–240 °C</text>
+  </g>
+
+  <!-- ASA -->
+  <g>
+    <circle cx="710" cy="118" r="40" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+    <circle cx="710" cy="118" r="28" fill="none" stroke="#f472b6" stroke-width="9"/>
+    <circle cx="710" cy="118" r="9" fill="#070c17" stroke="#334155" stroke-width="2"/>
+    <text x="710" y="196" text-anchor="middle" font-size="24" font-weight="bold" fill="#f472b6">ASA</text>
+    <text x="710" y="228" text-anchor="middle" font-size="13" fill="#94a3b8">для улицы</text>
+    <text x="710" y="250" text-anchor="middle" font-size="13" fill="#94a3b8">не боится солнца</text>
+    <text x="710" y="272" text-anchor="middle" font-size="13" fill="#94a3b8">садовые детали</text>
+    <rect x="658" y="300" width="104" height="34" rx="10" fill="#070c17" stroke="#334155" stroke-width="2"/>
+    <text x="710" y="323" text-anchor="middle" font-size="14" font-weight="bold" fill="#e2e8f0">240–260 °C</text>
+  </g>
+</svg>

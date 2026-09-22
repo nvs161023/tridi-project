@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#070c17"/>
+      <stop offset="1" stop-color="#12203a"/>
+    </linearGradient>
+    <linearGradient id="matte" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#64748b"/>
+      <stop offset="1" stop-color="#cbd5e1"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="450" fill="url(#bg)"/>
+
+  <!-- ваза сразу после печати -->
+  <rect x="30" y="40" width="225" height="370" rx="18" fill="#111c33" stroke="#334155" stroke-width="2"/>
+  <text x="142" y="82" text-anchor="middle" font-size="15" font-weight="bold" fill="#e2e8f0">сразу после печати</text>
+  <g stroke="#475569" stroke-width="4" stroke-linecap="round">
+    <path d="M112 300 L112 322M132 296 L132 322M152 292 L152 322"/>
+  </g>
+  <path d="M100 322 C100 286 124 284 124 252 L124 240 L156 240 L156 252 C156 284 180 286 180 322 Z" fill="#2563eb" opacity="0.85"/>
+  <g stroke="#94a3b8" stroke-width="1.4" opacity="0.85">
+    <path d="M150 210 C160 230 168 250 172 268"/>
+    <path d="M144 206 C152 226 158 244 160 262"/>
+    <path d="M120 214 C112 234 106 252 104 270"/>
+  </g>
+  <rect x="66" y="322" width="152" height="12" rx="5" fill="#1e293b" stroke="#334155" stroke-width="2"/>
+  <text x="142" y="360" text-anchor="middle" font-size="13" fill="#94a3b8">поддержки, заусенцы, нити</text>
+  <g stroke="#475569" stroke-width="1.6" opacity="0.9">
+    <path d="M128 206 L140 214M136 200 L148 208"/>
+  </g>
+
+  <!-- стрелка -->
+  <g stroke="#475569" stroke-width="3">
+    <path d="M264 232 L280 232"/>
+  </g>
+  <path d="M280 226 L292 232 L280 238 Z" fill="#475569"/>
+
+  <!-- после шкурки -->
+  <rect x="292" y="40" width="225" height="370" rx="18" fill="#111c33" stroke="#334155" stroke-width="2"/>
+  <text x="404" y="82" text-anchor="middle" font-size="15" font-weight="bold" fill="#e2e8f0">после шкурки</text>
+  <path d="M362 322 C362 286 386 284 386 252 L386 240 L418 240 L418 252 C418 284 440 286 440 322 Z" fill="url(#matte)"/>
+  <g stroke="#0b1220" stroke-width="1.2" opacity="0.35">
+    <path d="M368 300h64M370 286h60M374 272h52M380 258h40"/>
+  </g>
+  <rect x="328" y="322" width="152" height="12" rx="5" fill="#1e293b" stroke="#334155" stroke-width="2"/>
+  <text x="404" y="360" text-anchor="middle" font-size="13" fill="#94a3b8">гладкая, но матовая</text>
+  <g stroke="#e2e8f0" stroke-width="2" opacity="0.5">
+    <path d="M418 230 L426 222M430 226 L438 218"/>
+  </g>
+
+  <!-- стрелка -->
+  <g stroke="#475569" stroke-width="3">
+    <path d="M526 232 L542 232"/>
+  </g>
+  <path d="M542 226 L554 232 L542 238 Z" fill="#475569"/>
+
+  <!-- после краски и лака -->
+  <rect x="554" y="40" width="216" height="370" rx="18" fill="#111c33" stroke="#334155" stroke-width="2"/>
+  <text x="662" y="82" text-anchor="middle" font-size="15" font-weight="bold" fill="#e2e8f0">после краски и лака</text>
+  <path d="M620 322 C620 286 644 284 644 252 L644 240 L676 240 L676 252 C676 284 698 286 698 322 Z" fill="url(#gloss)"/>
+  <ellipse cx="640" cy="278" rx="8" ry="34" fill="#ffffff" opacity="0.4"/>
+  <circle cx="684" cy="256" r="5" fill="#ffffff" opacity="0.85"/>
+  <rect x="586" y="322" width="152" height="12" rx="5" fill="#1e293b" stroke="#334155" stroke-width="2"/>
+  <text x="662" y="360" text-anchor="middle" font-size="13" fill="#94a3b8">глянцевая и яркая</text>
+  <g fill="#fbbf24">
+    <path d="M600 200 L604 210 L614 214 L604 218 L600 228 L596 218 L586 214 L596 210 Z"/>
+    <path d="M716 226 L719 233 L726 236 L719 239 L716 246 L713 239 L706 236 L713 233 Z"/>
+  </g>
+
+  <text x="400" y="436" text-anchor="middle" font-size="13" fill="#64748b">Постобработка не обязательна, но именно она делает вещь «как из магазина»</text>
+</svg>

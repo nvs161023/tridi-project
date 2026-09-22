@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import { CompleteButton } from "@/components/course/CompleteButton";
@@ -6,6 +7,7 @@ import lessonsData from "@/data/lessons.json";
 type LessonBlock = {
   type: string;
   title?: string;
+  src?: string;
   content?: string;
   items?: string[];
   steps?: { title: string; text: string }[];
@@ -44,6 +46,25 @@ const calloutStyles = {
 } as const;
 
 type CalloutType = keyof typeof calloutStyles;
+
+const mediaStyles = {
+  image: {
+    icon: "🖼️",
+    label: "Иллюстрация",
+    card: "border-sky-500/25 bg-sky-500/5",
+    title: "text-sky-200",
+    body: "text-slate-300",
+  },
+  animation: {
+    icon: "🎬",
+    label: "Анимация",
+    card: "border-indigo-500/25 bg-indigo-500/5",
+    title: "text-indigo-200",
+    body: "text-slate-300",
+  },
+} as const;
+
+type MediaType = keyof typeof mediaStyles;
 
 type LessonPageProps = {
   params: Promise<{ id: string }>;
@@ -179,6 +200,53 @@ function BlockView({ block }: { block: LessonBlock }) {
             </p>
           </div>
         </aside>
+      );
+    }
+
+    case "image":
+    case "animation": {
+      const style = mediaStyles[block.type as MediaType];
+
+      return (
+        <figure
+          className={`overflow-hidden rounded-3xl border ${style.card}`}
+        >
+          {block.src ? (
+            <Image
+              src={block.src}
+              alt={block.title ?? style.label}
+              width={800}
+              height={450}
+              unoptimized
+              className="h-auto w-full border-b border-white/10 bg-slate-950/40"
+            />
+          ) : (
+            <div
+              aria-hidden
+              className="flex items-center justify-center border-b border-white/10 bg-slate-950/40 py-8 text-4xl sm:py-10 sm:text-5xl"
+            >
+              {style.icon}
+            </div>
+          )}
+          <figcaption className="p-7 sm:p-9">
+            <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-slate-400">
+              <span aria-hidden className="text-base">
+                {style.icon}
+              </span>
+              {style.label}
+            </span>
+            <h2
+              className={`mt-3 text-2xl font-bold sm:text-3xl ${style.title}`}
+            >
+              {block.title}
+            </h2>
+            <p
+              className={`mt-4 text-base leading-relaxed sm:text-lg ${style.body}`}
+            >
+              {block.content}
+            </p>
+          </figcaption>
+        </figure>
       );
     }
 

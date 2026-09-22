@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#070c17"/>
+      <stop offset="1" stop-color="#12203a"/>
+    </linearGradient>
+    <linearGradient id="vase" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="450" fill="url(#bg)"/>
+
+  <!-- рама -->
+  <rect x="188" y="70" width="16" height="256" rx="5" fill="#111c33" stroke="#334155" stroke-width="2"/>
+  <rect x="596" y="70" width="16" height="256" rx="5" fill="#111c33" stroke="#334155" stroke-width="2"/>
+  <rect x="188" y="52" width="424" height="18" rx="6" fill="#16233d" stroke="#334155" stroke-width="2"/>
+
+  <!-- балка X и каретка с экструдером -->
+  <rect x="204" y="150" width="392" height="12" rx="5" fill="#334155"/>
+  <rect x="450" y="134" width="38" height="44" rx="10" fill="#2563eb"/>
+  <rect x="456" y="170" width="26" height="12" rx="4" fill="#94a3b8"/>
+  <path d="M462 182h14l-4 18h-6z" fill="#cbd5e1"/>
+  <circle cx="469" cy="198" r="12" fill="#f59e0b" opacity="0.22"/>
+
+  <!-- стол и напечатанная модель -->
+  <rect x="200" y="322" width="400" height="16" rx="6" fill="#1e293b" stroke="#334155" stroke-width="2"/>
+  <rect x="206" y="319" width="388" height="5" rx="2.5" fill="#3b82f6" opacity="0.85"/>
+  <path d="M308 322 C308 288 336 286 336 256 L336 244 L356 244 L356 256 C356 286 376 288 376 322 Z" fill="url(#vase)"/>
+  <g stroke="#070c17" stroke-width="1.6" opacity="0.45">
+    <path d="M311 300h62M313 288h58M317 276h50M322 264h40M330 252h24"/>
+  </g>
+
+  <!-- катушка с пластиком и нить -->
+  <circle cx="680" cy="118" r="48" fill="#111c33" stroke="#334155" stroke-width="2"/>
+  <circle cx="680" cy="118" r="35" fill="none" stroke="#38bdf8" stroke-width="10" opacity="0.9"/>
+  <circle cx="680" cy="118" r="12" fill="#070c17" stroke="#334155" stroke-width="2"/>
+  <path d="M680 166 C604 208 522 170 472 158" fill="none" stroke="#38bdf8" stroke-width="4" opacity="0.9"/>
+
+  <!-- подписи -->
+  <g font-size="15" fill="#cbd5e1">
+    <path d="M176 118 L186 104" stroke="#475569" stroke-width="2"/>
+    <text x="100" y="134">Рама</text>
+
+    <path d="M628 66 L648 82" stroke="#475569" stroke-width="2"/>
+    <text x="548" y="60">Катушка с пластиком</text>
+
+    <path d="M600 206 L494 176" stroke="#475569" stroke-width="2"/>
+    <text x="604" y="212">Экструдер</text>
+
+    <path d="M470 226 L470 206" stroke="#475569" stroke-width="2"/>
+    <text x="470" y="244">Сопло (hotend)</text>
+
+    <path d="M400 342 L400 358" stroke="#475569" stroke-width="2"/>
+    <text x="400" y="378" text-anchor="middle">Стол (platform)</text>
+
+    <path d="M296 226 L322 244" stroke="#475569" stroke-width="2"/>
+    <text x="290" y="220" text-anchor="end">Напечатанная модель</text>
+  </g>
+</svg>
