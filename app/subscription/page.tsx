@@ -84,6 +84,24 @@ function FeatureList({ features }: { features: string[] }) {
   );
 }
 
+/**
+ * Обещание результата курса — строка над списком возможностей.
+ *
+ * Текст берём из data/courses.json (поле goal), а не пишем здесь: тогда на
+ * витрине курса и на тарифах обещание одинаковое, и править его нужно только в
+ * данных.
+ *
+ * relative — чтобы текст не оказался под декоративным свечением (оно есть в
+ * золотой карточке Pro и лежит в разметке раньше).
+ */
+function GoalNote({ icon, goal }: { icon: string; goal: string }) {
+  return (
+    <p className="relative mt-3 text-sm leading-relaxed text-slate-400 italic sm:text-base">
+      <span aria-hidden>{icon}</span> Что ты получишь: {goal}
+    </p>
+  );
+}
+
 export default function SubscriptionPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -115,6 +133,8 @@ export default function SubscriptionPage() {
               <span className="text-4xl font-extrabold text-white">0 ₽</span>
               <span className="text-sm text-slate-400">навсегда</span>
             </p>
+
+            <GoalNote icon="📘" goal={basicCourse.goal} />
 
             <FeatureList features={freeFeatures} />
 
@@ -164,6 +184,8 @@ export default function SubscriptionPage() {
               <span className="text-4xl font-extrabold text-white">1490 ₽</span>
               <span className="text-sm text-slate-400">/мес</span>
             </p>
+
+            <GoalNote icon="🎓" goal={proCourse.goal} />
 
             <FeatureList features={proFeatures} />
 
