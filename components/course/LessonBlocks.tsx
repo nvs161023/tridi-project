@@ -10,9 +10,9 @@ import { getVisualComponent } from "@/components/lesson-visuals";
  * компонент на оба курса — значит, любой новый тип блока достаточно добавить
  * здесь, и он сразу появится и в базовом курсе, и в продвинутом.
  *
- * Блоки image/animation подбирают SVG-визуализацию через
- * components/lesson-visuals (getVisualComponent по ключевым словам в title и
- * content). Если подходящего шаблона нет — в карточке остаётся заглушка.
+ * Блоки image/animation получают SVG-визуализацию из components/lesson-visuals:
+ * у каждого блока свой компонент (один блок — один файл, без повторов между
+ * уроками). Пока своей визуализации нет — в карточке остаётся заглушка.
  */
 
 export type LessonBlock = {
@@ -68,11 +68,25 @@ type MediaType = keyof typeof mediaStyles;
  * Продвинутая страница передаёт сюда только часть блоков, когда у пользователя
  * нет подписки: превью — это те же самые блоки, просто обрезанный массив.
  */
-export function LessonBlocks({ blocks }: { blocks: LessonBlock[] }) {
+export function LessonBlocks({
+  blocks,
+  courseType,
+  lessonId,
+}: {
+  blocks: LessonBlock[];
+  courseType?: "basic" | "pro";
+  lessonId?: number;
+}) {
   return (
     <div className="mt-12 space-y-8 sm:mt-16 sm:space-y-10">
       {blocks.map((block, index) => (
-        <BlockView key={`${index}-${block.type}`} block={block} />
+        <BlockView
+          key={`${index}-${block.type}`}
+          block={block}
+          blockIndex={index}
+          courseType={courseType}
+          lessonId={lessonId}
+        />
       ))}
     </div>
   );
@@ -88,7 +102,17 @@ function BlockTitle({ children }: { children?: string }) {
   );
 }
 
-function BlockView({ block }: { block: LessonBlock }) {
+function BlockView({
+  block,
+  blockIndex,
+  courseType,
+  lessonId,
+}: {
+  block: LessonBlock;
+  blockIndex: number;
+  courseType?: "basic" | "pro";
+  lessonId?: number;
+}) {
   switch (block.type) {
     case "text":
       return (
@@ -182,11 +206,11 @@ function BlockView({ block }: { block: LessonBlock }) {
     case "image":
     case "animation": {
       const style = mediaStyles[block.type as MediaType];
-      const Visual = getVisualComponent(block);
+      const Visual = getVisualComponent({ course: courseType, lessonId, blockIndex });
       const preview = block.content?.slice(0, 100);
 
       return (
-        <figure className="overflow-hidden rounded-3xl border border-slate-700/50 bg-slate-900/40 p-4 sm:p-6">
+        <section>
           <span
             className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-widest ${style.title}`}
           >
@@ -195,10 +219,7 @@ function BlockView({ block }: { block: LessonBlock }) {
             </span>
             {style.label}
           </span>
-          <h2 className="mt-3 text-xl font-bold text-slate-300 sm:text-2xl">
-            {block.title}
-          </h2>
-          <div className="mt-4">
+          <div>
             {block.src ? (
               <Image
                 src={block.src}
@@ -209,23 +230,29 @@ function BlockView({ block }: { block: LessonBlock }) {
                 className="h-auto w-full rounded-xl border border-slate-700/50 bg-slate-950/40"
               />
             ) : Visual ? (
-              <Visual animated={block.type === "animation"} />
+              <Visual
+                title={block.title ?? style.label}
+                animated={block.type === "animation"}
+              />
             ) : (
-              <div
-                aria-hidden
-                className="flex aspect-[16/9] w-full max-w-[600px] items-center justify-center rounded-xl border border-slate-700/50 bg-slate-800/50 text-4xl"
-              >
-                {style.icon}
+              <div className="my-4 rounded-xl border border-slate-700/50 bg-slate-800/50 p-4 sm:p-6">
+                <p className="mb-3 text-sm text-slate-300">{block.title}</p>
+                <div
+                  aria-hidden
+                  className="mx-auto flex aspect-[16/9] w-full max-w-[600px] items-center justify-center rounded-xl border border-slate-700/50 bg-slate-900/40 text-4xl"
+                >
+                  {style.icon}
+                </div>
               </div>
             )}
           </div>
           {preview ? (
-            <p className="mt-4 text-sm leading-relaxed text-slate-500">
+            <p className="mt-3 text-sm leading-relaxed text-slate-500">
               {preview}
               {block.content && block.content.length > 100 ? "…" : ""}
             </p>
           ) : null}
-        </figure>
+        </section>
       );
     }
 

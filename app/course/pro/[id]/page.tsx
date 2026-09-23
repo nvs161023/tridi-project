@@ -350,7 +350,11 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
 
         {hasAccess ? (
           <>
-            <LessonBlocks blocks={lesson.blocks} />
+            <LessonBlocks
+              blocks={lesson.blocks}
+              courseType="pro"
+              lessonId={lesson.id}
+            />
 
             {lesson.blocks.length === 0 ? <ComingSoonBlock /> : null}
 
@@ -388,7 +392,11 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
           <>
             {/* Превью: в разметку попадают только первые блоки урока, остальное
                 остаётся на сервере — «посмотреть код страницы» не поможет. */}
-            <LessonBlocks blocks={lesson.blocks.slice(0, PREVIEW_BLOCKS)} />
+            <LessonBlocks
+              blocks={lesson.blocks.slice(0, PREVIEW_BLOCKS)}
+              courseType="pro"
+              lessonId={lesson.id}
+            />
 
             <LockedNotice refreshHref={lessonHref(lesson.id)} />
           </>

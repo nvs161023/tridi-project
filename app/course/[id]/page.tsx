@@ -214,7 +214,11 @@ export default async function LessonPage({ params }: LessonPageProps) {
           </span>
         </div>
 
-        <LessonBlocks blocks={lesson.blocks} />
+        <LessonBlocks
+          blocks={lesson.blocks}
+          courseType="basic"
+          lessonId={lesson.id}
+        />
 
         {isLastLesson ? <ProCoursePromo /> : null}
 

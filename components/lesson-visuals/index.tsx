@@ -1,84 +1,56 @@
 import type { ComponentType } from "react";
 
-import { BeltPulley } from "./BeltPulley";
-import { CoreXYMotion } from "./CoreXYMotion";
-import { DirectVsBowden } from "./DirectVsBowden";
-import { FilamentDrying } from "./FilamentDrying";
-import { FirstLayerGoodBad } from "./FirstLayerGoodBad";
-import { HotendCrossSection } from "./HotendCrossSection";
-import { InfillPatterns } from "./InfillPatterns";
-import { IroningDemo } from "./IroningDemo";
-import { LayerStack } from "./LayerStack";
-import { MaterialShrinkage } from "./MaterialShrinkage";
-import { NozzleLayering } from "./NozzleLayering";
-import { NozzleSizes } from "./NozzleSizes";
-import { PrintFarmScheme } from "./PrintFarmScheme";
-import { ProgressiveDefects } from "./ProgressiveDefects";
-import { RetractionPull } from "./RetractionPull";
-import { SlicerComparison } from "./SlicerComparison";
-import { SpeedComparison } from "./SpeedComparison";
-import { StringingDemo } from "./StringingDemo";
-import { SupportTree } from "./SupportTree";
-import { TemperatureZones } from "./TemperatureZones";
-import { VariableLayerHeight } from "./VariableLayerHeight";
-import { WarpingDemo } from "./WarpingDemo";
+import { Basic01Building } from "./basic-01-building";
+import { Basic01Device } from "./basic-01-device";
+import { Basic02Plastics } from "./basic-02-plastics";
+import { Basic03SlicerUi } from "./basic-03-slicer-ui";
+import { Basic03Slicing } from "./basic-03-slicing";
+import { Basic04Temperatures } from "./basic-04-temperatures";
+import { Basic04ThreeTemps } from "./basic-04-three-temps";
+import { Basic05FirstLayer } from "./basic-05-first-layer";
+import { Basic05SlowLayer } from "./basic-05-slow-layer";
+import { Basic06Flow } from "./basic-06-flow";
+import type { VisualProps } from "./_Wrapper";
 
 /**
- * SVG-визуализации для блоков image/animation.
+ * Визуализации блоков image/animation: один блок — один компонент — один файл.
  *
- * Компоненты не зависят от данных урока: подписи и цифры внутри SVG взяты из
- * описаний блоков, одинаковых для базового и продвинутого курса. `animated`
- * включает CSS-анимации (блок type="animation"); при false остаётся статичный
- * кадр (блок type="image").
+ * Повторов между уроками быть не должно: каждый блок получает собственную
+ * картинку, даже если процессы похожи. Поэтому здесь нет подбора «по ключевым
+ * словам» — визуализация привязана к конкретному блоку урока (курс + номер
+ * урока + номер блока в уроке) и лежит в отдельном файле.
+ *
+ * Этап 1 — базовый курс, уроки 1–6 (10 визуализаций). Для блоков без своей
+ * визуализации возвращается null, и в карточке показывается заглушка: лучше
+ * заглушка, чем одинаковая картинка в двух уроках. Новая визуализация = новый
+ * файл + одна строка в VISUALS.
  */
-export type VisualProps = { animated?: boolean };
+export type { VisualProps } from "./_Wrapper";
 
 export type VisualComponent = ComponentType<VisualProps>;
 
-export type VisualBlock = { title?: string; content?: string };
+/** Адрес блока: курс, номер урока и номер блока внутри урока. */
+export type VisualBlockRef = {
+  course?: "basic" | "pro";
+  lessonId?: number;
+  blockIndex: number;
+};
 
-/**
- * Правила подбора визуализации: первое совпавшее выигрывает, поэтому порядок
- * важен — узкие темы идут раньше общих. `any` — обязательное совпадение,
- * `all` — дополнительное условие для составных правил.
- */
-const RULES: { any: RegExp; all?: RegExp; component: VisualComponent }[] = [
-  { any: /хотэнд|heatbreak|термобарьер/, component: HotendCrossSection },
-  { any: /corexy|крест-накрест|кинематика/, component: CoreXYMotion },
-  { any: /шкив|ремень gt2|20 зубьев/, component: BeltPulley },
-  { any: /усадк/, component: MaterialShrinkage },
-  { any: /сушк|влажност|силикагел|просуш/, component: FilamentDrying },
-  { any: /сопл/, all: /0,2|0,4|0,6|0,8/, component: NozzleSizes },
-  { any: /direct|bowden/, component: DirectVsBowden },
-  { any: /cura|orca/, all: /сравнени/, component: SlicerComparison },
-  { any: /переменная высота|variable layer|модификатор/, component: VariableLayerHeight },
-  { any: /ironing|проглаживани|разглажива/, component: IroningDemo },
-  { any: /дефект/, all: /сетка|карта|20|3×3/, component: ProgressiveDefects },
-  { any: /ферм|octofarm/, component: PrintFarmScheme },
-  { any: /температур/, all: /зоны|сопла|180|210|240/, component: TemperatureZones },
-  { any: /ретракт|втягива/, component: RetractionPull },
-  { any: /заполнени|infill|gyroid/, component: InfillPatterns },
-  { any: /древовидн|поддержк/, component: SupportTree },
-  { any: /первый слой/, component: FirstLayerGoodBad },
-  { any: /warping|отклеива/, component: WarpingDemo },
-  { any: /паутинк|стринг|stringing/, component: StringingDemo },
-  { any: /скорост/, all: /мм\/с|сравнени/, component: SpeedComparison },
-  { any: /сопло/, all: /едет|движет|стол|полоск/, component: NozzleLayering },
-  { any: /слои|слой за слоем|растёт/, component: LayerStack },
-];
+const VISUALS: Record<string, VisualComponent> = {
+  "basic:1:2": Basic01Device,
+  "basic:1:3": Basic01Building,
+  "basic:2:1": Basic02Plastics,
+  "basic:3:1": Basic03SlicerUi,
+  "basic:3:3": Basic03Slicing,
+  "basic:4:2": Basic04Temperatures,
+  "basic:4:3": Basic04ThreeTemps,
+  "basic:5:2": Basic05FirstLayer,
+  "basic:5:3": Basic05SlowLayer,
+  "basic:6:2": Basic06Flow,
+};
 
-/**
- * Возвращает визуализацию для блока image/animation или null, если подходящего
- * шаблона нет — тогда в карточке остаётся заглушка.
- */
-export function getVisualComponent(block: VisualBlock): VisualComponent | null {
-  const text = `${block.title ?? ""} ${block.content ?? ""}`.toLowerCase();
-
-  for (const rule of RULES) {
-    if (rule.any.test(text) && (!rule.all || rule.all.test(text))) {
-      return rule.component;
-    }
-  }
-
-  return null;
+/** Визуализация конкретного блока или null, если она ещё не нарисована. */
+export function getVisualComponent(ref: VisualBlockRef): VisualComponent | null {
+  const key = `${ref.course ?? ""}:${ref.lessonId ?? ""}:${ref.blockIndex}`;
+  return VISUALS[key] ?? null;
 }
