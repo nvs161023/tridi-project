@@ -1,5 +1,7 @@
 import Image from "next/image";
 
+import { getVisualComponent } from "@/components/lesson-visuals";
+
 /**
  * Отрисовка блоков урока — общая для базового и продвинутого курса.
  *
@@ -7,6 +9,10 @@ import Image from "next/image";
  * лежит их внешний вид: текст, список, шаги, подсказки, иллюстрации. Один
  * компонент на оба курса — значит, любой новый тип блока достаточно добавить
  * здесь, и он сразу появится и в базовом курсе, и в продвинутом.
+ *
+ * Блоки image/animation подбирают SVG-визуализацию через
+ * components/lesson-visuals (getVisualComponent по ключевым словам в title и
+ * content). Если подходящего шаблона нет — в карточке остаётся заглушка.
  */
 
 export type LessonBlock = {
@@ -45,16 +51,12 @@ const mediaStyles = {
   image: {
     icon: "🖼️",
     label: "Иллюстрация",
-    card: "border-sky-500/25 bg-sky-500/5",
     title: "text-sky-200",
-    body: "text-slate-300",
   },
   animation: {
     icon: "🎬",
     label: "Анимация",
-    card: "border-indigo-500/25 bg-indigo-500/5",
     title: "text-indigo-200",
-    body: "text-slate-300",
   },
 } as const;
 
@@ -180,46 +182,49 @@ function BlockView({ block }: { block: LessonBlock }) {
     case "image":
     case "animation": {
       const style = mediaStyles[block.type as MediaType];
+      const Visual = getVisualComponent(block);
+      const preview = block.content?.slice(0, 100);
 
       return (
-        <figure
-          className={`overflow-hidden rounded-3xl border ${style.card}`}
-        >
-          {block.src ? (
-            <Image
-              src={block.src}
-              alt={block.title ?? style.label}
-              width={800}
-              height={450}
-              unoptimized
-              className="h-auto w-full border-b border-white/10 bg-slate-950/40"
-            />
-          ) : (
-            <div
-              aria-hidden
-              className="flex items-center justify-center border-b border-white/10 bg-slate-950/40 py-8 text-4xl sm:py-10 sm:text-5xl"
-            >
+        <figure className="overflow-hidden rounded-3xl border border-slate-700/50 bg-slate-900/40 p-4 sm:p-6">
+          <span
+            className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-widest ${style.title}`}
+          >
+            <span aria-hidden className="text-base">
               {style.icon}
-            </div>
-          )}
-          <figcaption className="p-7 sm:p-9">
-            <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-slate-400">
-              <span aria-hidden className="text-base">
-                {style.icon}
-              </span>
-              {style.label}
             </span>
-            <h2
-              className={`mt-3 text-2xl font-bold sm:text-3xl ${style.title}`}
-            >
-              {block.title}
-            </h2>
-            <p
-              className={`mt-4 text-base leading-relaxed sm:text-lg ${style.body}`}
-            >
-              {block.content}
+            {style.label}
+          </span>
+          <h2 className="mt-3 text-xl font-bold text-slate-300 sm:text-2xl">
+            {block.title}
+          </h2>
+          <div className="mt-4">
+            {block.src ? (
+              <Image
+                src={block.src}
+                alt={block.title ?? style.label}
+                width={800}
+                height={450}
+                unoptimized
+                className="h-auto w-full rounded-xl border border-slate-700/50 bg-slate-950/40"
+              />
+            ) : Visual ? (
+              <Visual animated={block.type === "animation"} />
+            ) : (
+              <div
+                aria-hidden
+                className="flex aspect-[16/9] w-full max-w-[600px] items-center justify-center rounded-xl border border-slate-700/50 bg-slate-800/50 text-4xl"
+              >
+                {style.icon}
+              </div>
+            )}
+          </div>
+          {preview ? (
+            <p className="mt-4 text-sm leading-relaxed text-slate-500">
+              {preview}
+              {block.content && block.content.length > 100 ? "…" : ""}
             </p>
-          </figcaption>
+          ) : null}
         </figure>
       );
     }
