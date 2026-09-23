@@ -67,6 +67,9 @@ type MediaType = keyof typeof mediaStyles;
  *
  * Продвинутая страница передаёт сюда только часть блоков, когда у пользователя
  * нет подписки: превью — это те же самые блоки, просто обрезанный массив.
+ *
+ * Адрес визуализации — курс + номер урока + тип блока + порядковый номер среди
+ * блоков этого же типа: так адрес не сдвигается, если в урок добавят текст.
  */
 export function LessonBlocks({
   blocks,
@@ -83,7 +86,7 @@ export function LessonBlocks({
         <BlockView
           key={`${index}-${block.type}`}
           block={block}
-          blockIndex={index}
+          typeOrdinal={blocks.slice(0, index).filter((item) => item.type === block.type).length}
           courseType={courseType}
           lessonId={lessonId}
         />
@@ -104,12 +107,12 @@ function BlockTitle({ children }: { children?: string }) {
 
 function BlockView({
   block,
-  blockIndex,
+  typeOrdinal,
   courseType,
   lessonId,
 }: {
   block: LessonBlock;
-  blockIndex: number;
+  typeOrdinal: number;
   courseType?: "basic" | "pro";
   lessonId?: number;
 }) {
@@ -206,7 +209,12 @@ function BlockView({
     case "image":
     case "animation": {
       const style = mediaStyles[block.type as MediaType];
-      const Visual = getVisualComponent({ course: courseType, lessonId, blockIndex });
+      const Visual = getVisualComponent({
+        course: courseType,
+        lessonId,
+        type: block.type,
+        typeOrdinal,
+      });
       const preview = block.content?.slice(0, 100);
 
       return (
