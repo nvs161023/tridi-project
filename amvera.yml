@@ -1,0 +1,13 @@
+meta:
+  environment: node
+  toolchain:
+    name: npm
+    version: 18
+build:
+  additionalCommands: npm run build
+  artifacts:
+    "*": /
+run:
+  scriptName: node_modules/next/dist/bin/next
+  scriptArguments: start
+  containerPort: 3000
