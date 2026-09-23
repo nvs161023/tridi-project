@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
+    "build:amvera": "npm install --include=dev --include=optional --no-audit --no-fund && next build --turbopack",
     "start": "next start",
     "lint": "eslint"
   },
@@ -17,6 +18,9 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "three": "^0.186.0"
+  },
+  "optionalDependencies": {
+    "@tailwindcss/oxide-linux-x64-gnu": "4.3.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
