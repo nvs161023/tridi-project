@@ -139,7 +139,59 @@ for (const file of collectSourceFiles()) {
   }
 }
 
-console.log(`Проверено импортов: ${checkedImports}`);
+/**
+ * Что именно доехало до стадии сборки — по этим строкам сразу видно причину, если
+ * что-то не так (например, в контейнере сборки нет tsconfig.json, и тогда алиас
+ * "@/*" не работает, хотя файлы на месте).
+ */
+function printEnvironment() {
+  const tsconfigPath = path.join(root, "tsconfig.json");
+  let tsconfigState = "НЕТ ФАЙЛА — алиас @/* не работает, сборка упадёт";
+
+  if (fs.existsSync(tsconfigPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(tsconfigPath, "utf8"));
+      tsconfigState = config?.compilerOptions?.paths?.["@/*"]
+        ? "есть, алиас @/* настроен"
+        : "есть, но алиаса @/* нет — сборка упадёт";
+    } catch {
+      tsconfigState = "есть, но не читается (битый JSON)";
+    }
+  }
+
+  console.log("--- Что в дереве сборки ---");
+  console.log(`tsconfig.json: ${tsconfigState}`);
+  console.log(
+    `файлы в корне: ${entriesOf(root)
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name)
+      .sort()
+      .join(", ")}`,
+  );
+
+  const dirs = [
+    "lib",
+    "lib/supabase",
+    "data",
+    "components",
+    "components/course",
+    "components/lesson-visuals",
+    "app/actions",
+    "scripts",
+  ];
+
+  for (const dir of dirs) {
+    const names = entriesOf(path.join(root, dir))
+      .map((entry) => entry.name)
+      .sort()
+      .join(", ");
+    console.log(`${dir}/: ${names || "— папки нет —"}`);
+  }
+}
+
+printEnvironment();
+
+console.log(`\nПроверено импортов: ${checkedImports}`);
 
 if (problems.length === 0) {
   console.log("Битых импортов нет.");
@@ -148,11 +200,4 @@ if (problems.length === 0) {
 
 console.log(`Найдено проблем: ${problems.length}`);
 console.log(problems.join("\n"));
-console.log("\nЧто лежит в проекте (для сравнения со сборкой на CI):");
-for (const dir of ["lib", "lib/supabase", "data", "components/course", "components/lesson-visuals"]) {
-  const names = entriesOf(path.join(root, dir))
-    .map((entry) => entry.name)
-    .join(", ");
-  console.log(`  ${dir}/: ${names || "— папки нет —"}`);
-}
 process.exit(1);
