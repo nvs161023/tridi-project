@@ -77,6 +77,18 @@ const benefits: Benefit[] = [
   },
 ];
 
+/**
+ * Главная отдаётся на каждый запрос, а не готовится на этапе сборки.
+ *
+ * <Header /> читает cookies пользователя, так что страница и так персональная.
+ * Но при статической генерации Next.js выполняет Header во время сборки, а ему
+ * нужны NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY. Файл .env.local
+ * в .gitignore, поэтому в контейнере сборки (Amvera) этих переменных может не
+ * быть — и сборка падала с ошибкой «Не заданы NEXT_PUBLIC_SUPABASE_URL…».
+ * С force-dynamic сборка не зависит от секретов: они нужны только в рантайме.
+ */
+export const dynamic = "force-dynamic";
+
 export default function Home() {
   const currentYear = new Date().getFullYear();
 

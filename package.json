@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
-    "build:amvera": "npm install --include=dev --include=optional --no-audit --no-fund && next build --turbopack",
+    "build:amvera": "npm run clean && npm run check:imports && npm ci --include=dev --include=optional --no-audit --no-fund && next build --turbopack",
+    "check:imports": "node scripts/check-imports.mjs",
+    "clean": "node -e \"require('node:fs').rmSync('.next',{recursive:true,force:true})\"",
     "start": "next start",
     "lint": "eslint"
   },
