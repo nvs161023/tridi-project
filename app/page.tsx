@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Header } from "@/components/Header";
 import coursesData from "@/data/courses.json";
 import courseProData from "@/data/course-pro.json";
-import lessonsData from "@/data/lessons.json";
+import { basicLessons } from "@/lib/basic-course";
 import {
   LESSON_FORMS,
   MODULE_FORMS,
@@ -22,15 +22,13 @@ type Benefit = {
 /** Названия, подзаголовки и цена курсов — из метаданных курсов. */
 const { basic: basicCourse, pro: proCourse } = coursesData;
 
-/** Уроки — из файлов курсов, чтобы витрина совпадала с содержимым. */
-const basicLessons = lessonsData;
-
 /**
- * Модули, число уроков и часы считаются в lib/course-stats по файлам курсов —
- * поэтому витрина не может «отстать» от содержимого.
+ * Модули, число уроков и часы считаются по файлам курсов — поэтому витрина не
+ * может «отстать» от содержимого.
  *
- * Базовый курс лежит плоским списком уроков (модули собираем группировкой),
- * продвинутый — уже модулями, поэтому для него достаточно summarizeCourse.
+ * Уроки базового курса разворачивает lib/basic-course: в файле они лежат
+ * модулями, а карточке нужен список уроков и модули с числом уроков в каждом. Для
+ * продвинутого курса чисел из его файла достаточно — summarizeCourse.
  */
 const basicModules = groupByModule(basicLessons);
 const proSummary = summarizeCourse(courseProData);
@@ -55,7 +53,7 @@ const proTopics: string[] = PRO_PREVIEW_MODULE_IDS.flatMap((moduleId) => {
 const benefits: Benefit[] = [
   {
     icon: "🎓",
-    title: "12 уроков с практикой",
+    title: `${basicLessons.length} ${pluralize(basicLessons.length, LESSON_FORMS)} с практикой`,
     description:
       "Короткие видео и задания после каждого урока: печатаете детали своими руками, а не просто смотрите.",
   },
@@ -102,7 +100,9 @@ export default function Home() {
               3D-печать с нуля
             </h1>
             <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-300 sm:mt-8 sm:text-2xl">
-              От распаковки принтера до своей первой модели за 12 уроков
+              От распаковки принтера до своей первой модели за{" "}
+              {basicLessons.length}{" "}
+              {pluralize(basicLessons.length, LESSON_FORMS)}
             </p>
             <div className="mt-10 flex flex-col items-stretch justify-center gap-4 sm:mt-12 sm:flex-row sm:items-center sm:gap-5">
               <Link

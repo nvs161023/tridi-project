@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 export type CompleteLessonResult = { success: true } | { error: string };
 
 /**
- * Какой курс проходим: базовый (12 уроков) или продвинутый (17 уроков).
+ * Какой курс проходим: базовый (15 уроков) или продвинутый (109 уроков).
  * Прогресс хранится отдельно по курсам: урок №1 есть и в базовом, и в pro.
  */
 export type CourseType = "basic" | "pro";

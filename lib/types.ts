@@ -1,10 +1,11 @@
 /**
  * Типы данных курсов.
  *
- * Здесь только форма данных: базовый курс (data/lessons.json) — плоский список
- * уроков, продвинутый (data/course-pro.json) — модули с уроками и тестами.
- * Внешний вид блоков живёт в components/course/LessonBlocks.tsx, а цифры для
- * витрины считает lib/course-stats.ts.
+ * Здесь только форма данных: и базовый (data/lessons.json), и продвинутый
+ * (data/course-pro.json) курс лежат модулями — модуль, уроки внутри него и тест по
+ * модулю. Внешний вид блоков живёт в components/course/LessonBlocks.tsx, цифры для
+ * витрины считает lib/course-stats.ts, а разворот базового курса в плоский список
+ * уроков — lib/basic-course.ts.
  */
 
 /**
@@ -107,4 +108,57 @@ export type ProCourse = {
   total_modules: number;
   total_lessons: number;
   modules: ProModule[];
+};
+
+/**
+ * Урок базового курса (data/lessons.json).
+ *
+ * Форма та же, что у продвинутого урока, плюс уровень доступа: базовый курс
+ * бесплатный, поэтому у всех уроков tier = "basic".
+ */
+export type BaseLesson = {
+  /** Номер урока строкой: "1"…"15" — он же номер в адресе /course/lesson-N. */
+  lesson_id: string;
+  /** Место урока внутри модуля, с единицы. */
+  lesson_order: number;
+  lesson_title: string;
+  /** Длительность строкой: «15 мин». */
+  duration: string;
+  /** Уровень доступа урока. */
+  tier?: string;
+  blocks: LessonBlock[];
+};
+
+/** Модуль базового курса — та же форма, что у продвинутого. */
+export type BaseModule = {
+  /** Номер модуля строкой: "1"…"6". */
+  module_id: string;
+  /** Место модуля в курсе, с единицы. */
+  module_order: number;
+  module_title: string;
+  module_description: string;
+  lessons: BaseLesson[];
+  module_test?: ProModuleTest;
+};
+
+/**
+ * Файл базового курса целиком (data/lessons.json).
+ *
+ * Как и у продвинутого курса, число уроков считаем по модулям, а не по
+ * total_lessons: заявленные числа — это метаданные витрины, они легко отстают от
+ * содержимого.
+ */
+export type BaseCourse = {
+  course_id: string;
+  course_title: string;
+  version: string;
+  /** Назначение курса в воронке, например "free_funnel". */
+  type?: string;
+  total_modules: number;
+  total_lessons: number;
+  /** Сколько практикумов, тестов по модулям и мини-проверок заявлено в файле. */
+  total_practicums?: number;
+  total_module_tests?: number;
+  total_mini_checks?: number;
+  modules: BaseModule[];
 };

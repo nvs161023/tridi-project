@@ -3,7 +3,7 @@ import Link from "next/link";
 import { CompleteButton } from "@/components/course/CompleteButton";
 import { LessonBlocks, type LessonBlock } from "@/components/course/LessonBlocks";
 import courseProData from "@/data/course-pro.json";
-import lessonsData from "@/data/lessons.json";
+import { basicLessons } from "@/lib/basic-course";
 import { LESSON_FORMS, pluralize, summarizeCourse } from "@/lib/course-stats";
 
 type Lesson = {
@@ -14,7 +14,11 @@ type Lesson = {
   blocks: LessonBlock[];
 };
 
-const lessons: Lesson[] = lessonsData;
+/**
+ * Уроки базового курса в плоском виде: lib/basic-course разворачивает модули из
+ * data/lessons.json, поэтому страница работает как раньше — /course/lesson-N.
+ */
+const lessons: Lesson[] = basicLessons;
 const totalLessons = lessons.length;
 
 /** Сводка продвинутого курса для приглашения — считается по файлу курса. */

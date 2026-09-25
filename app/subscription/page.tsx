@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import coursesData from "@/data/courses.json";
 import courseProData from "@/data/course-pro.json";
+import lessonsData from "@/data/lessons.json";
 import {
   LESSON_FORMS,
   MODULE_FORMS,
@@ -21,11 +22,13 @@ export const metadata: Metadata = {
 const { basic: basicCourse, pro: proCourse } = coursesData;
 
 /**
- * Числа считаем, а не пишем текстом: базовый курс — из его метаданных,
- * продвинутый — прямо из data/course-pro.json (как на главной). Так тарифы не
- * разойдутся с содержимым курсов.
+ * Числа считаем, а не пишем текстом: и базовый, и продвинутый курс — прямо из их
+ * файлов (как на главной). Так тарифы не разойдутся с содержимым курсов.
  */
-const basicLessonsLabel = `${basicCourse.totalLessons} ${pluralize(basicCourse.totalLessons, LESSON_FORMS)}`;
+const basicSummary = summarizeCourse(lessonsData);
+const basicModulesLabel = `${basicSummary.modules} ${pluralize(basicSummary.modules, MODULE_FORMS)}`;
+const basicLessonsLabel = `${basicSummary.lessons} ${pluralize(basicSummary.lessons, LESSON_FORMS)}`;
+const basicHoursLabel = basicSummary.hours;
 
 const proSummary = summarizeCourse(courseProData);
 const proModulesLabel = `${proSummary.modules} ${pluralize(proSummary.modules, MODULE_FORMS)}`;
@@ -33,7 +36,7 @@ const proLessonsLabel = `${proSummary.lessons} ${pluralize(proSummary.lessons, L
 const proHoursLabel = proSummary.hours;
 
 const freeFeatures: string[] = [
-  `Базовый курс (${basicLessonsLabel})`,
+  `Базовый курс (${basicModulesLabel}, ${basicLessonsLabel}, ${basicHoursLabel})`,
   "Конструктор 3D-моделей — 3 скачивания/мес",
   "AI-диагностика — 1 запрос/мес",
 ];

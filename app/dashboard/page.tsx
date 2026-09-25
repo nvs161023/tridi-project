@@ -2,7 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import lessonsData from "@/data/lessons.json";
+import { basicLessons } from "@/lib/basic-course";
 import { createClient } from "@/lib/supabase/server";
 import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 
@@ -12,7 +12,7 @@ type Profile = {
   name: string | null;
 };
 
-const totalLessons = lessonsData.length;
+const totalLessons = basicLessons.length;
 
 export default async function DashboardPage() {
   // Пользователя проверил middleware — одним сетевым getUser() на весь запрос.
@@ -25,27 +25,53 @@ export default async function DashboardPage() {
     redirect("/auth/login");
   }
 
+  // Дальше работаем с id: внутри вложенной функции TypeScript уже не помнит, что
+  // identity проверен выше.
+  const userId = identity.id;
+
   const supabase = await createClient();
+
+  /**
+   * Прогресс по одному курсу.
+   *
+   * /dashboard показывает базовый курс, поэтому фильтруем по course_type: урок №1
+   * есть и в базовом, и в продвинутом, и без фильтра строки двух курсов
+   * складывались бы — «пройдено» могло перевалить за число уроков курса.
+   */
+  async function loadProgress(courseType: string) {
+    return supabase
+      .from("lesson_progress")
+      .select("lesson_id")
+      .eq("user_id", userId)
+      .eq("course_type", courseType);
+  }
 
   // Профиль и прогресс друг от друга не зависят, поэтому забираем их
   // параллельно: вместо двух кругов до Supabase получается один.
   const [profileResult, progressResult] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", identity.id).single(),
-    supabase
-      .from("lesson_progress")
-      .select("lesson_id")
-      .eq("user_id", identity.id),
+    loadProgress("basic"),
   ]);
 
   const profile = (profileResult.data as Profile | null) ?? null;
-  const progressRows = progressResult.data;
+
+  // Страховка для баз без колонки course_type (миграция
+  // supabase/pro_course_access.sql применяется вручную): запрос к колонке падает,
+  // и тогда читаем прогресс как раньше — без фильтра, а не показываем ноль.
+  const progress = progressResult.error
+    ? await supabase
+        .from("lesson_progress")
+        .select("lesson_id")
+        .eq("user_id", identity.id)
+    : progressResult;
+
   // Часть данных могла не загрузиться — покажем то, что есть, и предупредим.
-  const hasDataError = Boolean(profileResult.error || progressResult.error);
+  const hasDataError = Boolean(profileResult.error || progress.error);
 
   const displayName =
     profile?.name?.trim() || identity.name?.trim() || identity.email || "друг";
 
-  const completedLessons = progressRows?.length ?? 0;
+  const completedLessons = progress.data?.length ?? 0;
   const isCourseCompleted = completedLessons >= totalLessons;
   const progressPercent = Math.round((completedLessons / totalLessons) * 100);
 
