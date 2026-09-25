@@ -2,9 +2,12 @@
  * Помощники для витрин курсов.
  *
  * Цифры на страницах (сколько уроков в модуле, сколько всего уроков, сколько
- * часов идёт курс) считаются из data/lessons.json и data/lessons-pro.json,
+ * часов идёт курс) считаются из data/lessons.json и data/course-pro.json,
  * а не хранятся текстом. Поэтому витрина не может «отстать» от содержимого
  * курсов, и главная со страницей тарифов показывают одинаковые числа.
+ *
+ * Базовый курс лежит плоским списком уроков (groupByModule + formatHours),
+ * продвинутый — модулями, поэтому для него есть summarizeCourse.
  */
 
 /** Минимум, который нужен от урока: модуль и длительность. */
@@ -63,8 +66,14 @@ export function groupByModule(lessons: LessonLike[]): ModulePreview[] {
   }));
 }
 
-/** «~9 часов» — округляем суммарную длительность уроков до часов. */
-export function formatHours(lessons: LessonLike[]): string {
+/**
+ * «~9 часов» — округляем суммарную длительность уроков до часов.
+ *
+ * Принимаем не LessonLike целиком, а только duration: продвинутый курс приходит
+ * модулями (data/course-pro.json), и модуль лежит не в уроке, а рядом с ним —
+ * см. summarizeCourse ниже.
+ */
+export function formatHours(lessons: { duration: string }[]): string {
   const minutes = lessons.reduce(
     (sum, lesson) => sum + Number.parseInt(lesson.duration, 10),
     0,
@@ -72,4 +81,33 @@ export function formatHours(lessons: LessonLike[]): string {
   const hours = Math.max(1, Math.round(minutes / 60));
 
   return `~${hours} ${pluralize(hours, HOUR_FORMS)}`;
+}
+
+/** Курс, разложенный по модулям: минимум, нужный витрине для подсчёта чисел. */
+export type ModularCourseLike = {
+  modules: { lessons: { duration: string }[] }[];
+};
+
+/**
+ * Сводка продвинутого курса для витрины: модули, уроки и часы.
+ *
+ * В data/course-pro.json курс уже лежит модулями, поэтому группировать нечего —
+ * считаем прямо по файлу. Так главная, тарифы и финал базового курса показывают
+ * те же числа, что лежат в курсе, и не могут «отстать» от него.
+ *
+ * Уроки считаем по самим модулям, а не по полю total_lessons: в текущей версии
+ * файла заявлено 110 уроков, а лежит 109.
+ */
+export function summarizeCourse(course: ModularCourseLike): {
+  modules: number;
+  lessons: number;
+  hours: string;
+} {
+  const lessons = course.modules.flatMap((courseModule) => courseModule.lessons);
+
+  return {
+    modules: course.modules.length,
+    lessons: lessons.length,
+    hours: formatHours(lessons),
+  };
 }

@@ -2,14 +2,15 @@ import Link from "next/link";
 
 import { Header } from "@/components/Header";
 import coursesData from "@/data/courses.json";
+import courseProData from "@/data/course-pro.json";
 import lessonsData from "@/data/lessons.json";
-import proLessonsData from "@/data/lessons-pro.json";
 import {
   LESSON_FORMS,
   MODULE_FORMS,
   formatHours,
   groupByModule,
   pluralize,
+  summarizeCourse,
 } from "@/lib/course-stats";
 
 type Benefit = {
@@ -23,27 +24,33 @@ const { basic: basicCourse, pro: proCourse } = coursesData;
 
 /** Уроки — из файлов курсов, чтобы витрина совпадала с содержимым. */
 const basicLessons = lessonsData;
-const proLessons = proLessonsData;
 
 /**
- * Модули, число уроков и часы считаются в lib/course-stats по файлам уроков —
- * поэтому витрина не может «отстать» от содержимого курсов.
+ * Модули, число уроков и часы считаются в lib/course-stats по файлам курсов —
+ * поэтому витрина не может «отстать» от содержимого.
+ *
+ * Базовый курс лежит плоским списком уроков (модули собираем группировкой),
+ * продвинутый — уже модулями, поэтому для него достаточно summarizeCourse.
  */
 const basicModules = groupByModule(basicLessons);
-const proModules = groupByModule(proLessons);
+const proSummary = summarizeCourse(courseProData);
 
 /** Сколько уроков в базовом курсе — считаем по файлу уроков. */
 const totalLessons = basicLessons.length;
 
-/** Шесть ключевых тем продвинутого курса — витрина для главной. */
-const proTopics: string[] = [
-  "Устройство принтера и кинематика",
-  "Хотэнды и термодинамика",
-  "Материалы: от PLA до PEEK",
-  "Продвинутая калибровка и диагностика",
-  "Постобработка и апгрейды",
-  "Печатная ферма и наставничество",
-];
+/**
+ * Модули продвинутого курса, которые показываем на витрине. Названия берём из
+ * файла курса по коду модуля, а не пишем текстом: иначе список тем «отстанет»
+ * от содержимого курса.
+ */
+const PRO_PREVIEW_MODULE_IDS: string[] = ["B", "E2", "J", "K", "O", "T"];
+const proTopics: string[] = PRO_PREVIEW_MODULE_IDS.flatMap((moduleId) => {
+  const courseModule = courseProData.modules.find(
+    (item) => item.module_id === moduleId,
+  );
+
+  return courseModule ? [courseModule.module_title] : [];
+});
 
 const benefits: Benefit[] = [
   {
@@ -251,15 +258,17 @@ export default function Home() {
                 </p>
 
                 <p className="relative mt-6 text-sm font-semibold tracking-wide text-amber-200">
-                  {proLessons.length}{" "}
-                  {pluralize(proLessons.length, LESSON_FORMS)} ·{" "}
-                  {proModules.length} {pluralize(proModules.length, MODULE_FORMS)}{" "}
-                  · {formatHours(proLessons)}
+                  {proSummary.lessons}{" "}
+                  {pluralize(proSummary.lessons, LESSON_FORMS)} ·{" "}
+                  {proSummary.modules}{" "}
+                  {pluralize(proSummary.modules, MODULE_FORMS)} ·{" "}
+                  {proSummary.hours}
                 </p>
 
                 <p className="relative mt-5 text-base leading-relaxed text-slate-300">
-                  Физика процессов, работа с любыми материалами, тонкая
-                  калибровка, печатная ферма.
+                  Безопасность и химия, устройство принтера, слайсеры, ремонт и
+                  ТО, инженерные расчёты, контроль качества и заработок на
+                  печати.
                 </p>
 
                 <ul className="relative mt-7 space-y-3">

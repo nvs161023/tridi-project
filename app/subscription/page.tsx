@@ -2,8 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import coursesData from "@/data/courses.json";
-import proLessonsData from "@/data/lessons-pro.json";
-import { LESSON_FORMS, formatHours, pluralize } from "@/lib/course-stats";
+import courseProData from "@/data/course-pro.json";
+import {
+  LESSON_FORMS,
+  MODULE_FORMS,
+  pluralize,
+  summarizeCourse,
+} from "@/lib/course-stats";
 
 import { PlanButton } from "./PlanButton";
 
@@ -16,13 +21,16 @@ export const metadata: Metadata = {
 const { basic: basicCourse, pro: proCourse } = coursesData;
 
 /**
- * Числа считаем, а не пишем текстом: количество уроков — из метаданных курсов,
- * длительность продвинутого курса — из data/lessons-pro.json (как на главной).
- * Так тарифы не разойдутся с содержимым курсов.
+ * Числа считаем, а не пишем текстом: базовый курс — из его метаданных,
+ * продвинутый — прямо из data/course-pro.json (как на главной). Так тарифы не
+ * разойдутся с содержимым курсов.
  */
 const basicLessonsLabel = `${basicCourse.totalLessons} ${pluralize(basicCourse.totalLessons, LESSON_FORMS)}`;
-const proLessonsLabel = `${proCourse.totalLessons} ${pluralize(proCourse.totalLessons, LESSON_FORMS)}`;
-const proHoursLabel = formatHours(proLessonsData);
+
+const proSummary = summarizeCourse(courseProData);
+const proModulesLabel = `${proSummary.modules} ${pluralize(proSummary.modules, MODULE_FORMS)}`;
+const proLessonsLabel = `${proSummary.lessons} ${pluralize(proSummary.lessons, LESSON_FORMS)}`;
+const proHoursLabel = proSummary.hours;
 
 const freeFeatures: string[] = [
   `Базовый курс (${basicLessonsLabel})`,
@@ -41,7 +49,7 @@ const makerFeatures: string[] = [
 
 const proFeatures: string[] = [
   "Всё из Maker",
-  `Продвинутый курс (${proLessonsLabel}, ${proHoursLabel})`,
+  `Продвинутый курс (${proModulesLabel}, ${proLessonsLabel}, ${proHoursLabel})`,
   "Пакетная генерация (50 моделей за раз)",
   "API-доступ",
   "Ранний доступ к новым функциям",

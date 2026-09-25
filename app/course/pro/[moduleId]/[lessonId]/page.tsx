@@ -3,17 +3,16 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { CompleteButton } from "@/components/course/CompleteButton";
-import {
-  LessonBlocks,
-  type LessonBlock,
-} from "@/components/course/LessonBlocks";
-import proLessonsData from "@/data/lessons-pro.json";
+import { LessonBlocks } from "@/components/course/LessonBlocks";
+import courseData from "@/data/course-pro.json";
 import { LESSON_FORMS, formatHours, pluralize } from "@/lib/course-stats";
+import type { ProCourse, ProLesson, ProModule } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 
 /**
- * Урок продвинутого курса: /course/pro/lesson-N.
+ * Урок продвинутого курса: /course/pro/<модуль>/<урок> — например
+ * /course/pro/A/A1, /course/pro/B/B1, /course/pro/T/T14.
  *
  * Чем эта страница отличается от базовой: доступ к содержимому решает ПОДПИСКА,
  * а не вход. Гостя сюда не пускает middleware (см. lib/supabase/middleware.ts) —
@@ -33,17 +32,14 @@ import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
  * закрыв доступ по подписке, заодно закрыл бы и бесплатный курс. Плюс подписка
  * меняется прямо во время сессии (оформили, отменили, кончился триал) — её нужно
  * проверять на каждый запрос рядом с данными, а не один раз на входе.
+ *
+ * Прогресс. В lesson_progress.lesson_id — число, а у уроков нового курса коды
+ * (A1, C1-1, T14). Поэтому в базу уходит СКВОЗНОЙ номер урока в курсе (1…N):
+ * схему таблицы менять не нужно, а старые записи с course_type='pro' остаются
+ * как есть. Этот же номер показывается в шапке: «Урок X из N».
  */
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
-
-type ProLesson = {
-  id: number;
-  title: string;
-  duration: string;
-  module: string;
-  blocks: LessonBlock[];
-};
 
 /** Из таблицы subscriptions читаем только то, что нужно для решения о доступе. */
 type SubscriptionRow = {
@@ -51,40 +47,81 @@ type SubscriptionRow = {
   trial_ends_at: string | null;
 };
 
-const lessons: ProLesson[] = proLessonsData;
-const totalLessons = lessons.length;
+const course: ProCourse = courseData;
+
+/**
+ * Модули по module_order, уроки внутри — по lesson_order: в файле курса порядок
+ * уже такой, но сортировка делает навигацию «предыдущий/следующий» независимой
+ * от того, как модули разложены в JSON.
+ */
+const modules: ProModule[] = [...course.modules]
+  .sort((a, b) => a.module_order - b.module_order)
+  .map((module) => ({
+    ...module,
+    lessons: [...module.lessons].sort((a, b) => a.lesson_order - b.lesson_order),
+  }));
+
+/** Урок вместе с модулем, в котором он лежит. */
+type LessonPosition = {
+  module: ProModule;
+  lesson: ProLesson;
+};
+
+/** Все уроки курса по порядку — по этому списку идут «предыдущий/следующий». */
+const positions: LessonPosition[] = modules.flatMap((module) =>
+  module.lessons.map((lesson) => ({ module, lesson })),
+);
+
+const totalLessons = positions.length;
+const totalHours = formatHours(positions.map((position) => position.lesson));
 
 /** Сколько блоков урока показываем без подписки. */
 const PREVIEW_BLOCKS = 2;
 
 type ProLessonPageProps = {
-  params: Promise<{ id: string }>;
+  params: Promise<{ moduleId: string; lessonId: string }>;
 };
 
-function parseLessonId(rawId: string): number | null {
-  const match = rawId.match(/\d+/);
-
-  if (!match) {
-    return null;
+/**
+ * Код модуля или урока из адреса.
+ *
+ * Next.js отдаёт сегменты уже раскодированными, но коды курса бывают с
+ * кириллицей (A-без, E-хим, T-тизер): лишний decodeURIComponent для обычных кодов
+ * ничего не меняет, а урок с непривычным кодом не потеряется.
+ */
+function normalizeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
   }
-
-  const parsed = Number(match[0]);
-
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function lessonHref(id: number): string {
-  return `/course/pro/lesson-${id}`;
+/** Адрес урока. Коды кодируются: кириллица в адресе должна быть процентной. */
+function lessonHref(moduleId: string, lessonId: string): string {
+  return `/course/pro/${encodeURIComponent(moduleId)}/${encodeURIComponent(lessonId)}`;
+}
+
+/** Номер урока в списке курса или -1, если такого урока нет. */
+function findPositionIndex(moduleId: string, lessonId: string): number {
+  return positions.findIndex(
+    (position) =>
+      position.module.module_id === moduleId &&
+      position.lesson.lesson_id === lessonId,
+  );
 }
 
 export async function generateMetadata({ params }: ProLessonPageProps) {
-  const { id } = await params;
-  const lessonId = parseLessonId(id);
-  const lesson = lessons.find((item) => item.id === lessonId);
+  const { moduleId, lessonId } = await params;
+  const index = findPositionIndex(
+    normalizeSegment(moduleId),
+    normalizeSegment(lessonId),
+  );
+  const lesson = index === -1 ? null : positions[index].lesson;
 
   return {
     title: lesson
-      ? `${lesson.title} — продвинутый курс — 3D-печать с нуля`
+      ? `${lesson.lesson_title} — продвинутый курс — 3D-печать с нуля`
       : "Урок не найден — 3D-печать с нуля",
   };
 }
@@ -150,22 +187,6 @@ async function hasProSubscription(
   );
 }
 
-
-/** Заглушка вместо содержимого: блоки продвинутых уроков ещё наполняются. */
-function ComingSoonBlock() {
-  return (
-    <section className="mt-12 rounded-3xl border border-white/10 bg-white/5 p-7 sm:mt-16 sm:p-9">
-      <p className="text-lg font-bold text-white sm:text-xl">
-        <span aria-hidden>📝</span> Материал урока готовится
-      </p>
-      <p className="mt-3 text-base leading-relaxed text-slate-400">
-        Скоро здесь появятся разбор, схемы и практическое задание. Программа
-        курса уже собрана — уроки открываются по мере публикации.
-      </p>
-    </section>
-  );
-}
-
 function LessonNotFound() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -178,7 +199,8 @@ function LessonNotFound() {
         </h1>
         <p className="mt-6 text-base leading-relaxed text-slate-400 sm:text-lg">
           Такого урока нет или ссылка устарела. Вернитесь на главную — там
-          программа продвинутого курса из {totalLessons} уроков.
+          программа продвинутого курса из {totalLessons}{" "}
+          {pluralize(totalLessons, LESSON_FORMS)}.
         </p>
         <Link
           href="/"
@@ -215,9 +237,9 @@ function LockedNotice({ refreshHref }: { refreshHref: string }) {
       </h2>
 
       <p className="relative mx-auto mt-4 max-w-xl text-base leading-relaxed text-slate-300">
-        Продвинутый курс входит в тариф Pro. {totalLessons}{" "}
-        {pluralize(totalLessons, LESSON_FORMS)}, {formatHours(proLessonsData)},
-        все материалы, тонкая калибровка, работа с любыми материалами.
+        Продвинутый курс входит в тариф Pro: {totalLessons}{" "}
+        {pluralize(totalLessons, LESSON_FORMS)}, {totalHours}, визуализации к
+        каждому блоку и практика после урока.
       </p>
 
       <div className="relative mt-8">
@@ -245,15 +267,30 @@ function LockedNotice({ refreshHref }: { refreshHref: string }) {
   );
 }
 
-
 export default async function ProLessonPage({ params }: ProLessonPageProps) {
-  const { id } = await params;
-  const lessonId = parseLessonId(id);
-  const lesson = lessons.find((item) => item.id === lessonId);
+  const { moduleId, lessonId } = await params;
 
-  if (!lesson) {
+  const index = findPositionIndex(
+    normalizeSegment(moduleId),
+    normalizeSegment(lessonId),
+  );
+
+  if (index === -1) {
     return <LessonNotFound />;
   }
+
+  const { module: currentModule, lesson } = positions[index];
+
+  // Сквозной номер урока: он же lesson_id в lesson_progress и «Урок X из N».
+  const lessonNumber = index + 1;
+  const previous = index > 0 ? positions[index - 1] : null;
+  const next = index + 1 < totalLessons ? positions[index + 1] : null;
+  const isLastLesson = next === null;
+  const nextHref = next
+    ? lessonHref(next.module.module_id, next.lesson.lesson_id)
+    : "/constructor";
+  const progressPercent = Math.round((lessonNumber / totalLessons) * 100);
+  const currentHref = lessonHref(currentModule.module_id, lesson.lesson_id);
 
   const supabase = await createClient();
 
@@ -262,15 +299,12 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
   const userId = await resolveUserId(supabase);
 
   if (!userId) {
-    redirect(`/auth/login?next=${encodeURIComponent(lessonHref(lesson.id))}`);
+    redirect(`/auth/login?next=${encodeURIComponent(currentHref)}`);
   }
 
   // Главный вопрос страницы: есть ли действующая подписка у ЭТОГО пользователя.
   // От ответа зависит, какие блоки урока вообще попадут в HTML.
   const hasAccess = await hasProSubscription(supabase, userId);
-
-  const progressPercent = Math.round((lesson.id / totalLessons) * 100);
-  const isLastLesson = lesson.id === totalLessons;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -284,13 +318,16 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
               <span aria-hidden>←</span>
               {hasAccess ? "Назад к курсу" : "Назад на главную"}
             </Link>
-            {hasAccess && lesson.id > 1 ? (
+            {hasAccess && previous ? (
               <Link
-                href={lessonHref(lesson.id - 1)}
+                href={lessonHref(
+                  previous.module.module_id,
+                  previous.lesson.lesson_id,
+                )}
                 className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               >
                 <span aria-hidden>←</span>
-                Предыдущий урок
+                Предыдущий
               </Link>
             ) : null}
           </div>
@@ -298,7 +335,7 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
           <div className="mt-4">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-400 sm:text-sm">
               <span>
-                Урок {lesson.id} из {totalLessons}
+                Урок {lessonNumber} из {totalLessons}
               </span>
               {hasAccess ? (
                 <span className="text-amber-300">{progressPercent}%</span>
@@ -329,10 +366,10 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
 
       <main className="mx-auto max-w-3xl px-5 py-12 sm:px-8 sm:py-16">
         <p className="text-sm font-semibold uppercase tracking-widest text-amber-300">
-          {lesson.module}
+          Модуль {currentModule.module_id} · {currentModule.module_title}
         </p>
         <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-          {lesson.title}
+          {lesson.lesson_title}
         </h1>
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <span className="inline-flex items-center gap-2 rounded-full border border-yellow-500/40 bg-yellow-500/10 px-4 py-1.5 text-xs font-semibold text-amber-200 sm:text-sm">
@@ -344,62 +381,55 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
             {lesson.duration}
           </span>
           <span className="text-sm text-slate-400">
-            Урок {lesson.id} из {totalLessons}
+            Урок {lessonNumber} из {totalLessons}
           </span>
         </div>
 
+        {/* Без подписки в разметку попадают только первые блоки урока, остальное
+            остаётся на сервере — «посмотреть код страницы» не поможет. */}
+        <LessonBlocks
+          blocks={
+            hasAccess ? lesson.blocks : lesson.blocks.slice(0, PREVIEW_BLOCKS)
+          }
+          courseType="pro"
+          moduleId={currentModule.module_id}
+          lessonId={lesson.lesson_id}
+        />
+
         {hasAccess ? (
-          <>
-            <LessonBlocks
-              blocks={lesson.blocks}
-              courseType="pro"
-              lessonId={lesson.id}
-            />
-
-            {lesson.blocks.length === 0 ? <ComingSoonBlock /> : null}
-
-            <div className="mt-12 sm:mt-16">
-              {isLastLesson ? (
-                <div className="relative overflow-hidden rounded-3xl border-2 border-yellow-500/50 bg-gradient-to-b from-amber-500/10 via-slate-900/70 to-slate-900/80 p-7 text-center sm:p-9">
-                  <p className="text-2xl font-extrabold text-white sm:text-3xl">
-                    <span aria-hidden>🏆</span> Полный курс пройден!
-                  </p>
-                  <p className="mt-4 text-base leading-relaxed text-slate-300">
-                    Позади все {totalLessons} уроков продвинутого уровня: физика
-                    экструзии, материалы от PLA до PEEK, тонкая калибровка и
-                    диагностика. Дальше — практика в конструкторе.
-                  </p>
-                  <div className="mt-8">
-                    <CompleteButton
-                      lessonId={lesson.id}
-                      courseType="pro"
-                      href="/constructor"
-                      label="Перейти в конструктор"
-                    />
-                  </div>
+          <div className="mt-12 sm:mt-16">
+            {isLastLesson ? (
+              <div className="relative overflow-hidden rounded-3xl border-2 border-yellow-500/50 bg-gradient-to-b from-amber-500/10 via-slate-900/70 to-slate-900/80 p-7 text-center sm:p-9">
+                <p className="text-2xl font-extrabold text-white sm:text-3xl">
+                  <span aria-hidden>🏆</span> Полный курс пройден!
+                </p>
+                <p className="mt-4 text-base leading-relaxed text-slate-300">
+                  Позади все {totalLessons}{" "}
+                  {pluralize(totalLessons, LESSON_FORMS)} продвинутого уровня:
+                  безопасность, устройство принтера, материалы, слайсеры, ремонт,
+                  инженерные расчёты и заработок на печати. Дальше — практика в
+                  конструкторе.
+                </p>
+                <div className="mt-8">
+                  <CompleteButton
+                    lessonId={lessonNumber}
+                    courseType="pro"
+                    href="/constructor"
+                    label="Перейти в конструктор"
+                  />
                 </div>
-              ) : (
-                <CompleteButton
-                  lessonId={lesson.id}
-                  courseType="pro"
-                  href={lessonHref(lesson.id + 1)}
-                  label="Пройти урок"
-                />
-              )}
-            </div>
-          </>
+              </div>
+            ) : (
+              <CompleteButton
+                lessonId={lessonNumber}
+                courseType="pro"
+                href={nextHref}
+                label="Пройти урок"
+              />
+            )}
+          </div>
         ) : (
-          <>
-            {/* Превью: в разметку попадают только первые блоки урока, остальное
-                остаётся на сервере — «посмотреть код страницы» не поможет. */}
-            <LessonBlocks
-              blocks={lesson.blocks.slice(0, PREVIEW_BLOCKS)}
-              courseType="pro"
-              lessonId={lesson.id}
-            />
-
-            <LockedNotice refreshHref={lessonHref(lesson.id)} />
-          </>
+          <LockedNotice refreshHref={currentHref} />
         )}
       </main>
     </div>

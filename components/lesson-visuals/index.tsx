@@ -42,10 +42,19 @@ export type { VisualProps } from "./_Wrapper";
 
 export type VisualComponent = ComponentType<VisualProps>;
 
-/** Адрес блока: курс, номер урока, тип блока и порядковый номер среди блоков этого типа. */
+/**
+ * Адрес блока: курс, урок, тип блока и порядковый номер среди блоков этого типа.
+ *
+ * Базовый курс адресуется номером урока (basic-1-image-0), продвинутый — кодами
+ * модуля и урока (pro-A-A1-image-0): в новом курсе номера уроков строковые —
+ * A1, C1-1, T14.
+ */
 export type VisualBlockRef = {
   course?: "basic" | "pro";
-  lessonId?: number;
+  /** Код модуля — нужен только продвинутому курсу. */
+  moduleId?: string;
+  /** Номер урока базового курса или код урока продвинутого (A1, C1-1). */
+  lessonId?: number | string;
   type: string;
   typeOrdinal: number;
 };
@@ -76,8 +85,35 @@ const VISUALS: Record<string, VisualComponent> = {
   "basic-12-image-0": Basic12Journey,
 };
 
+/**
+ * Визуализации продвинутого курса — Этап 2.
+ *
+ * Ключ: `pro-{модуль}-{урок}-{тип}-{номер}`, например `pro-A-A1-image-0` или
+ * `pro-B-B1-animation-0`. Номер — порядковый номер блока этого типа внутри урока,
+ * как и в базовом курсе.
+ *
+ * Пока раздел пуст: каждый блок image/animation/screenshot/diagram рисуется в
+ * карточке заглушкой с иконкой своего типа. Новая визуализация = новый файл
+ * (components/lesson-visuals/pro-A-A1-image-0.tsx) плюс одна строка здесь.
+ */
+const PRO_VISUALS: Record<string, VisualComponent> = {
+  // Этап 2: сюда добавляются pro-ключи.
+};
+
+/** Ключ визуализации — адрес блока одной строкой. */
+function visualKey(ref: VisualBlockRef): string {
+  if (ref.course === "pro") {
+    return `pro-${ref.moduleId ?? ""}-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
+  }
+
+  return `${ref.course ?? ""}-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
+}
+
 /** Визуализация конкретного блока или null, если она ещё не нарисована. */
 export function getVisualComponent(ref: VisualBlockRef): VisualComponent | null {
-  const key = `${ref.course ?? ""}-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
-  return VISUALS[key] ?? null;
+  // Продвинутый курс смотрит только в свой раздел, базовый — только в свой:
+  // так ключи двух курсов не могут случайно совпасть.
+  const registry = ref.course === "pro" ? PRO_VISUALS : VISUALS;
+
+  return registry[visualKey(ref)] ?? null;
 }

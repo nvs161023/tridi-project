@@ -1,28 +1,25 @@
 import Image from "next/image";
 
+import { MiniCheck } from "@/components/course/MiniCheck";
 import { getVisualComponent } from "@/components/lesson-visuals";
+import type { LessonBlock, LessonBlockStep } from "@/lib/types";
 
 /**
  * Отрисовка блоков урока — общая для базового и продвинутого курса.
  *
- * Блоки описаны данными в data/lessons.json и data/lessons-pro.json, а здесь
- * лежит их внешний вид: текст, список, шаги, подсказки, иллюстрации. Один
- * компонент на оба курса — значит, любой новый тип блока достаточно добавить
- * здесь, и он сразу появится и в базовом курсе, и в продвинутом.
+ * Блоки описаны данными в data/lessons.json и data/course-pro.json, а здесь
+ * лежит их внешний вид: текст, список, шаги, подсказки, визуализации и проверка
+ * знаний. Один компонент на оба курса — значит, любой новый тип блока достаточно
+ * добавить здесь, и он сразу появится и в базовом курсе, и в продвинутом.
  *
- * Блоки image/animation получают SVG-визуализацию из components/lesson-visuals:
- * у каждого блока свой компонент (один блок — один файл, без повторов между
- * уроками). Пока своей визуализации нет — в карточке остаётся заглушка.
+ * Блоки image/animation/screenshot/diagram получают SVG-визуализацию из
+ * components/lesson-visuals: у каждого блока свой компонент (один блок — один
+ * файл, без повторов между уроками). Пока своей визуализации нет — в карточке
+ * остаётся заглушка с иконкой типа блока.
+ *
+ * Типы данных — в lib/types.ts (LessonBlock). Здесь только внешний вид.
  */
-
-export type LessonBlock = {
-  type: string;
-  title?: string;
-  src?: string;
-  content?: string;
-  items?: string[];
-  steps?: { title: string; text: string }[];
-};
+export type { LessonBlock, LessonBlockStep } from "@/lib/types";
 
 const calloutStyles = {
   tip: {
@@ -47,9 +44,10 @@ const calloutStyles = {
 
 type CalloutType = keyof typeof calloutStyles;
 
+/** Как выглядит блок с визуализацией: иконка заглушки, подпись и цвет подписи. */
 const mediaStyles = {
   image: {
-    icon: "🖼️",
+    icon: "🖼",
     label: "Иллюстрация",
     title: "text-sky-200",
   },
@@ -57,6 +55,16 @@ const mediaStyles = {
     icon: "🎬",
     label: "Анимация",
     title: "text-indigo-200",
+  },
+  screenshot: {
+    icon: "📸",
+    label: "Скриншот",
+    title: "text-teal-200",
+  },
+  diagram: {
+    icon: "📊",
+    label: "Схема",
+    title: "text-fuchsia-200",
   },
 } as const;
 
@@ -68,17 +76,22 @@ type MediaType = keyof typeof mediaStyles;
  * Продвинутая страница передаёт сюда только часть блоков, когда у пользователя
  * нет подписки: превью — это те же самые блоки, просто обрезанный массив.
  *
- * Адрес визуализации — курс + номер урока + тип блока + порядковый номер среди
- * блоков этого же типа: так адрес не сдвигается, если в урок добавят текст.
+ * Адрес визуализации — курс + урок + тип блока + порядковый номер среди блоков
+ * этого же типа: так адрес не сдвигается, если в урок добавят текст. Для
+ * продвинутого курса в адрес входит ещё и код модуля (pro-A-A1-image-0).
  */
 export function LessonBlocks({
   blocks,
   courseType,
+  moduleId,
   lessonId,
 }: {
   blocks: LessonBlock[];
   courseType?: "basic" | "pro";
-  lessonId?: number;
+  /** Код модуля продвинутого курса — он нужен в адресе визуализации. */
+  moduleId?: string;
+  /** Номер урока базового курса или код урока продвинутого (A1, C1-1). */
+  lessonId?: number | string;
 }) {
   return (
     <div className="mt-12 space-y-8 sm:mt-16 sm:space-y-10">
@@ -88,6 +101,7 @@ export function LessonBlocks({
           block={block}
           typeOrdinal={blocks.slice(0, index).filter((item) => item.type === block.type).length}
           courseType={courseType}
+          moduleId={moduleId}
           lessonId={lessonId}
         />
       ))}
@@ -109,12 +123,14 @@ function BlockView({
   block,
   typeOrdinal,
   courseType,
+  moduleId,
   lessonId,
 }: {
   block: LessonBlock;
   typeOrdinal: number;
   courseType?: "basic" | "pro";
-  lessonId?: number;
+  moduleId?: string;
+  lessonId?: number | string;
 }) {
   switch (block.type) {
     case "text":
@@ -151,17 +167,23 @@ function BlockView({
         </section>
       );
 
-    case "steps":
+    case "steps": {
       if (!block.steps || block.steps.length === 0) {
         return null;
       }
+
+      // В базовом курсе шаг — пара «заголовок + пояснение», в продвинутом —
+      // просто строка с действием. Оба вида приводим к одному списку.
+      const steps: LessonBlockStep[] = block.steps.map((step) =>
+        typeof step === "string" ? { title: step, text: "" } : step,
+      );
 
       return (
         <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
           <BlockTitle>{block.title}</BlockTitle>
           <ol className="mt-6 space-y-6">
-            {block.steps.map((step, index) => (
-              <li key={step.title} className="flex items-start gap-4">
+            {steps.map((step, index) => (
+              <li key={`${index}-${step.title}`} className="flex items-start gap-4">
                 <span
                   aria-hidden
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-base font-extrabold text-white"
@@ -172,15 +194,18 @@ function BlockView({
                   <h3 className="text-lg font-bold text-white sm:text-xl">
                     {step.title}
                   </h3>
-                  <p className="mt-2 text-base leading-relaxed text-slate-400">
-                    {step.text}
-                  </p>
+                  {step.text ? (
+                    <p className="mt-2 text-base leading-relaxed text-slate-400">
+                      {step.text}
+                    </p>
+                  ) : null}
                 </div>
               </li>
             ))}
           </ol>
         </section>
       );
+    }
 
     case "tip":
     case "warning":
@@ -207,10 +232,13 @@ function BlockView({
     }
 
     case "image":
-    case "animation": {
+    case "animation":
+    case "screenshot":
+    case "diagram": {
       const style = mediaStyles[block.type as MediaType];
       const Visual = getVisualComponent({
         course: courseType,
+        moduleId,
         lessonId,
         type: block.type,
         typeOrdinal,
@@ -264,8 +292,15 @@ function BlockView({
       );
     }
 
+    case "mini_check": {
+      if (!block.questions || block.questions.length === 0) {
+        return null;
+      }
+
+      return <MiniCheck title={block.title} questions={block.questions} />;
+    }
+
     default:
       return null;
   }
 }
-

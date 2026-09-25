@@ -2,9 +2,9 @@ import Link from "next/link";
 
 import { CompleteButton } from "@/components/course/CompleteButton";
 import { LessonBlocks, type LessonBlock } from "@/components/course/LessonBlocks";
+import courseProData from "@/data/course-pro.json";
 import lessonsData from "@/data/lessons.json";
-import proLessonsData from "@/data/lessons-pro.json";
-import { LESSON_FORMS, formatHours, pluralize } from "@/lib/course-stats";
+import { LESSON_FORMS, pluralize, summarizeCourse } from "@/lib/course-stats";
 
 type Lesson = {
   id: number;
@@ -17,13 +17,22 @@ type Lesson = {
 const lessons: Lesson[] = lessonsData;
 const totalLessons = lessons.length;
 
-/** Что даёт продвинутый курс — пункты золотого блока-приглашения. */
-const proPromoItems: string[] = [
-  "физика процессов",
-  "любые материалы: от PLA до PEEK",
-  "тонкая калибровка и диагностика",
-  "печатная ферма",
-];
+/** Сводка продвинутого курса для приглашения — считается по файлу курса. */
+const proSummary = summarizeCourse(courseProData);
+
+/**
+ * Что даёт продвинутый курс — модули золотого блока-приглашения. Названия берём
+ * из файла курса по коду модуля, а не пишем текстом: так приглашение не
+ * разойдётся с программой курса.
+ */
+const PRO_PROMO_MODULE_IDS: string[] = ["A-без", "B", "E2", "C2", "J", "T"];
+const proPromoItems: string[] = PRO_PROMO_MODULE_IDS.flatMap((moduleId) => {
+  const courseModule = courseProData.modules.find(
+    (item) => item.module_id === moduleId,
+  );
+
+  return courseModule ? [courseModule.module_title] : [];
+});
 
 type LessonPageProps = {
   params: Promise<{ id: string }>;
@@ -95,13 +104,13 @@ function ProCoursePromo() {
       </ul>
 
       <p className="relative mt-6 text-sm font-semibold text-amber-200">
-        {proLessonsData.length} {pluralize(proLessonsData.length, LESSON_FORMS)}{" "}
-        · {formatHours(proLessonsData)} · входит в тариф Pro
+        {proSummary.lessons} {pluralize(proSummary.lessons, LESSON_FORMS)} ·{" "}
+        {proSummary.hours} · входит в тариф Pro
       </p>
 
       <div className="relative mt-8">
         <Link
-          href="/course/pro/lesson-1"
+          href="/course/pro/A/A1"
           className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-9 text-lg font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
         >
           Открыть продвинутый курс
