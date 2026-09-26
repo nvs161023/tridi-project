@@ -1,5 +1,10 @@
 import type { ComponentType } from "react";
 
+import { Basic1Animation0 } from "./basic-1-animation-0";
+import { Basic1Image0 } from "./basic-1-image-0";
+import { Basic2Image0 } from "./basic-2-image-0";
+import { Basic3Animation0 } from "./basic-3-animation-0";
+import { Basic3Image0 } from "./basic-3-image-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -51,7 +56,11 @@ export type VisualBlockRef = {
  * одна строка здесь.
  */
 const BASE_VISUALS: Record<string, VisualComponent> = {
-  // Этап 2: сюда добавляются basic-ключи.
+  "basic-1-image-0": Basic1Image0,
+  "basic-1-animation-0": Basic1Animation0,
+  "basic-2-image-0": Basic2Image0,
+  "basic-3-image-0": Basic3Image0,
+  "basic-3-animation-0": Basic3Animation0,
 };
 
 /**
