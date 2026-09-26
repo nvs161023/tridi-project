@@ -35,6 +35,12 @@ import { ProAA2Image1 } from "./pro-A-A2-image-1";
 import { ProABezABez1Animation0 } from "./pro-A-без-A-без1-animation-0";
 import { ProABezABez1Image0 } from "./pro-A-без-A-без1-image-0";
 import { ProABezABez2Image0 } from "./pro-A-без-A-без2-image-0";
+import { ProB1Animation0 } from "./pro-B-B1-animation-0";
+import { ProB1Image0 } from "./pro-B-B1-image-0";
+import { ProB2Animation0 } from "./pro-B-B2-animation-0";
+import { ProB2Image0 } from "./pro-B-B2-image-0";
+import { ProB4Animation0 } from "./pro-B-B4-animation-0";
+import { ProB4Image0 } from "./pro-B-B4-image-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -47,8 +53,9 @@ import type { VisualProps } from "./_Wrapper";
  * урока + номер блока в уроке) и лежит в отдельном файле.
  *
  * Базовый курс заполнен целиком: модули 1–6, уроки 1–15 — 27 визуализаций, у
- * каждого блока image/animation своя картинка. В продвинутом курсе начат пилот:
- * модули A «Основы и история» и A-без «Безопасность база» — 8 визуализаций.
+ * каждого блока image/animation своя картинка. В продвинутом курсе нарисованы
+ * модули A (уроки A1, A2), A-без (уроки A-без1, A-без2) и B (уроки B1, B2, B4)
+ * — 14 визуализаций.
  * Остальные блоки продвинутого курса пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
@@ -125,9 +132,9 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
  * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Заполнены два пилотных модуля: A (уроки A1, A2) и A-без (уроки A-без1, A-без2)
- * — 8 визуализаций. Остальные блоки продвинутого курса рисуются заглушкой с
- * иконкой своего типа. Новая визуализация = новый файл
+ * Заполнены три модуля: A (уроки A1, A2), A-без (уроки A-без1, A-без2) и B
+ * (уроки B1, B2, B4) — 14 визуализаций. Остальные блоки продвинутого курса
+ * рисуются заглушкой с иконкой своего типа. Новая визуализация = новый файл
  * (components/lesson-visuals/pro-B-B1-image-0.tsx) плюс одна строка здесь.
  */
 const PRO_VISUALS: Record<string, VisualComponent> = {
@@ -141,6 +148,13 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-A-без-A-без1-image-0": ProABezABez1Image0,
   "pro-A-без-A-без1-animation-0": ProABezABez1Animation0,
   "pro-A-без-A-без2-image-0": ProABezABez2Image0,
+  // Модуль B «Устройство и механика»: хотэнды, стол и адгезия, прошивки.
+  "pro-B-B1-image-0": ProB1Image0,
+  "pro-B-B1-animation-0": ProB1Animation0,
+  "pro-B-B2-image-0": ProB2Image0,
+  "pro-B-B2-animation-0": ProB2Animation0,
+  "pro-B-B4-image-0": ProB4Image0,
+  "pro-B-B4-animation-0": ProB4Animation0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
