@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 
 import { CompleteButton } from "@/components/course/CompleteButton";
 import { LessonBlocks } from "@/components/course/LessonBlocks";
+import { ModuleTestGate } from "@/components/course/ModuleTestGate";
+import { TestOverlay } from "@/components/course/TestOverlay";
 import courseData from "@/data/course-pro.json";
 import coursesData from "@/data/courses.json";
 import { resolveUserId } from "@/lib/current-user";
@@ -13,7 +15,7 @@ import {
 } from "@/lib/module-test";
 import { loadPassedModuleTests } from "@/lib/module-test-progress";
 import { createClient } from "@/lib/supabase/server";
-import type { ProCourse, ProLesson, ProModule } from "@/lib/types";
+import type { MiniCheckQuestion, ProCourse, ProLesson, ProModule } from "@/lib/types";
 
 /**
  * Урок продвинутого курса: /course/pro/<модуль>/<урок> — например
@@ -267,43 +269,29 @@ function LockedNotice({ refreshHref }: { refreshHref: string }) {
 }
 
 /**
- * Заглушка вместо перехода на следующий урок: тест модуля ещё не сдан.
- *
- * Тест обязателен и в продвинутом курсе (см. lib/module-test.ts): пока он не сдан,
- * следующий модуль закрыт, поэтому кнопка «Пройти урок» не работает, а ссылка на
- * тест стоит под этим блоком.
- */
-function TestGate({ isLastLesson }: { isLastLesson?: boolean }) {
-  return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-7 text-center sm:p-9">
-      <p className="text-lg font-bold text-white sm:text-xl">
-        <span aria-hidden>🔒</span> Сначала пройди тест модуля
-      </p>
-      <p className="mt-3 text-base leading-relaxed text-slate-400">
-        {isLastLesson
-          ? "Тест последнего модуля тоже обязателен: только после него курс считается пройденным."
-          : "Следующий модуль откроется после сданного теста — это 10 вопросов по урокам модуля."}
-      </p>
-      <p className="mt-6 inline-flex min-h-14 w-full cursor-not-allowed items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-9 text-lg font-semibold text-slate-500">
-        Пройти урок
-        <span aria-hidden>→</span>
-      </p>
-    </div>
-  );
-}
-
-/**
  * Первый урок модуля, у которого не сдан тест предыдущего модуля.
  *
  * Показываем это вместо содержимого урока: иначе порядок курса обходился бы
  * простой перестановкой кода модуля в адресе.
+ *
+ * Тест открывается здесь же слайдом (components/course/TestOverlay): после сдачи
+ * страница обновляется, и вместо этого экрана появляется сам урок.
  */
 function LessonLockedByTest({
   moduleId,
+  moduleNumber,
   moduleLabel,
+  moduleLessonsHref,
+  questions,
+  lockedLessonHref,
 }: {
   moduleId: string;
+  /** Место модуля в курсе: у pro результат ложится в базу именно им. */
+  moduleNumber: number;
   moduleLabel: string;
+  moduleLessonsHref: string;
+  questions: MiniCheckQuestion[];
+  lockedLessonHref: string;
 }) {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -316,27 +304,40 @@ function LessonLockedByTest({
         </h1>
         <p className="mt-6 text-base leading-relaxed text-slate-400 sm:text-lg">
           Этот урок открывается после сданного теста модуля «{moduleLabel}».
-          Тесты в курсе обязательны: они открывают следующий модуль.
+          Тесты в курсе обязательны: они открывают следующий модуль. Начать
+          можно прямо здесь, слайдом.
         </p>
-        <Link
-          href={checkHref(moduleId)}
-          className="mt-10 inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-9 text-lg font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
-        >
-          <span aria-hidden>🎯</span>
-          Пройти тест модуля {moduleId}
-          <span aria-hidden>→</span>
-        </Link>
+
+        <div className="mt-10 w-full sm:max-w-md">
+          <TestOverlay
+            courseType="pro"
+            moduleNumber={moduleNumber}
+            moduleLabel={moduleLabel}
+            questions={questions}
+            lessonsHref={moduleLessonsHref}
+            nextHref={lockedLessonHref}
+            continueLabel="Открыть урок"
+            triggerLabel={`Пройти тест модуля ${moduleId}`}
+            hint={`${questions.length} вопросов по урокам модуля. Без сданного теста урок останется закрытым.`}
+          />
+        </div>
+
         <Link
           href="/"
           className="mt-6 text-sm font-medium text-slate-400 transition-colors hover:text-amber-300"
         >
           <span aria-hidden>←</span> Назад к курсу
         </Link>
+        <Link
+          href={checkHref(moduleId)}
+          className="mt-3 text-sm font-medium text-slate-500 transition-colors hover:text-amber-300"
+        >
+          Открыть тест отдельной страницей
+        </Link>
       </main>
     </div>
   );
 }
-
 export default async function ProLessonPage({ params }: ProLessonPageProps) {
   const { moduleId, lessonId } = await params;
 
@@ -415,7 +416,14 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
       return (
         <LessonLockedByTest
           moduleId={previousModule.module_id}
+          moduleNumber={previousModule.module_order}
           moduleLabel={previousModule.module_title}
+          moduleLessonsHref={lessonHref(
+            previousModule.module_id,
+            previousModule.lessons[0].lesson_id,
+          )}
+          questions={previousModule.module_test?.questions ?? []}
+          lockedLessonHref={currentHref}
         />
       );
     }
@@ -513,36 +521,31 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
 
         {hasAccess ? (
           <div className="mt-12 sm:mt-16">
-            {isLastLesson ? (
-              // Последний урок курса: тест последнего модуля тоже обязателен,
-              // поэтому блок «Курс пройден!» показываем только после сдачи.
-              isTestPassed ? (
-                <div className="relative overflow-hidden rounded-3xl border-2 border-yellow-500/50 bg-gradient-to-b from-amber-500/10 via-slate-900/70 to-slate-900/80 p-7 text-center sm:p-9">
-                  <p className="text-2xl font-extrabold text-white sm:text-3xl">
-                    <span aria-hidden>🏆</span> Полный курс пройден!
-                  </p>
-                  <p className="mt-4 text-base leading-relaxed text-slate-300">
-                    Позади все {totalLessons}{" "}
-                    {pluralize(totalLessons, LESSON_FORMS)} продвинутого уровня:
-                    безопасность, устройство принтера, материалы, слайсеры,
-                    ремонт, инженерные расчёты и заработок на печати. Дальше —
-                    практика в конструкторе.
-                  </p>
-                  <div className="mt-8">
-                    <CompleteButton
-                      lessonId={lessonNumber}
-                      courseType="pro"
-                      href="/constructor"
-                      label="Перейти в конструктор"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <TestGate isLastLesson />
-              )
-            ) : isModuleLast && !isTestPassed ? (
-              // Последний урок модуля: дальше только через сданный тест.
-              <TestGate />
+            {isModuleLast ? (
+              // Последний урок модуля: тест обязателен и здесь, поэтому вместо
+              // перехода показываем карточку «Проверь себя» со слайдом теста и
+              // заблокированной кнопкой продолжения — пока тест не сдан, дальше
+              // не пустим. У последнего урока курса внутри карточки появляется
+              // поздравление «Полный курс пройден!».
+              <ModuleTestGate
+                courseType="pro"
+                moduleNumber={currentModule.module_order}
+                moduleLabel={`Модуль ${currentModule.module_order}: ${currentModule.module_title}`}
+                questions={currentModule.module_test?.questions ?? []}
+                lessonsHref={lessonHref(
+                  currentModule.module_id,
+                  currentModule.lessons[0].lesson_id,
+                )}
+                testPageHref={checkHref(currentModule.module_id)}
+                lessonId={lessonNumber}
+                nextHref={nextHref}
+                nextLabel={
+                  isLastLesson ? "Перейти в конструктор" : "Продолжить курс"
+                }
+                isPassed={isTestPassed}
+                isCourseFinal={isLastLesson}
+                courseFinishNote={`Позади все ${totalLessons} ${pluralize(totalLessons, LESSON_FORMS)} продвинутого уровня: безопасность, устройство принтера, материалы, слайсеры, ремонт, инженерные расчёты и заработок на печати. Дальше — практика в конструкторе.`}
+              />
             ) : (
               <CompleteButton
                 lessonId={lessonNumber}
@@ -551,24 +554,6 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
                 label="Пройти урок"
               />
             )}
-
-            {/* Последний урок модуля: проверка знаний живёт на отдельной странице
-                /course/pro/<модуль>/check. Пока тест не сдан, это главная кнопка
-                страницы. */}
-            {isModuleLast ? (
-              <Link
-                href={checkHref(currentModule.module_id)}
-                className={`mt-4 inline-flex min-h-16 w-full items-center justify-center gap-3 rounded-full px-9 text-lg font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
-                  isTestPassed
-                    ? "border-2 border-amber-400/60 bg-amber-400/10 text-white hover:border-amber-300 hover:bg-amber-400/20"
-                    : "bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 shadow-lg shadow-amber-500/25 hover:from-amber-300 hover:to-amber-400"
-                }`}
-              >
-                <span aria-hidden>🎯</span>
-                {isTestPassed ? "Пройти тест ещё раз" : "Пройти тест модуля"}
-                <span aria-hidden>→</span>
-              </Link>
-            ) : null}
           </div>
         ) : (
           <LockedNotice refreshHref={currentHref} />

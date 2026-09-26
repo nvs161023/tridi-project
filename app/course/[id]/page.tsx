@@ -2,11 +2,14 @@ import Link from "next/link";
 
 import { CompleteButton } from "@/components/course/CompleteButton";
 import { LessonBlocks } from "@/components/course/LessonBlocks";
+import { ModuleTestGate } from "@/components/course/ModuleTestGate";
+import { TestOverlay } from "@/components/course/TestOverlay";
 import courseProData from "@/data/course-pro.json";
 import { basicCourseModules, basicLessons } from "@/lib/basic-course";
 import { LESSON_FORMS, pluralize, summarizeCourse } from "@/lib/course-stats";
 import { isModuleTestCompleted } from "@/lib/module-test";
 import { loadPassedModuleTests } from "@/lib/module-test-progress";
+import type { MiniCheckQuestion } from "@/lib/types";
 
 /**
  * Уроки базового курса в плоском виде: lib/basic-course разворачивает модули из
@@ -149,50 +152,35 @@ function LessonNotFound() {
 }
 
 /**
- * Заглушка вместо перехода на следующий урок: тест модуля ещё не сдан.
- *
- * Тест обязателен (см. lib/module-test.ts): пока он не сдан, следующий модуль
- * закрыт, поэтому кнопка «Пройти урок» не работает, а ссылка на тест стоит под
- * этим блоком.
- */
-function TestGate({
-  isLastLesson,
-}: {
-  /** Последний урок курса: тест нужен, чтобы курс засчитался. */
-  isLastLesson?: boolean;
-}) {
-  return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-7 text-center sm:p-9">
-      <p className="text-lg font-bold text-white sm:text-xl">
-        <span aria-hidden>🔒</span> Сначала пройди тест модуля
-      </p>
-      <p className="mt-3 text-base leading-relaxed text-slate-400">
-        {isLastLesson
-          ? "Тест последнего модуля тоже обязателен: без него курс не засчитается."
-          : "Следующий урок откроется после сданного теста — это 10 вопросов по урокам модуля."}
-      </p>
-      <p className="mt-6 inline-flex min-h-14 w-full cursor-not-allowed items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-9 text-lg font-semibold text-slate-500">
-        Пройти урок
-        <span aria-hidden>→</span>
-      </p>
-    </div>
-  );
-}
-
-/**
  * Первый урок модуля, у которого не сдан тест предыдущего модуля.
  *
  * Показываем это вместо содержимого урока: тесты обязательны, поэтому обойти их
  * прямой ссылкой на урок тоже нельзя.
+ *
+ * Тест открывается здесь же слайдом (components/course/TestOverlay): после сдачи
+ * страница обновляется, и вместо этого экрана появляется сам урок — никуда
+ * переходить не нужно. Ссылка на отдельную страницу теста остаётся запасным
+ * входом.
  */
 function LessonLockedByTest({
   moduleId,
+  moduleNumber,
   moduleLabel,
+  moduleLessonsHref,
+  questions,
+  lockedLessonHref,
 }: {
   /** Код модуля, тест которого нужно сдать. */
   moduleId: string;
+  /** Тот же модуль числом: только так результат ложится в базу. */
+  moduleNumber: number;
   /** «Модуль 1: Знакомство» — название модуля для текста. */
   moduleLabel: string;
+  /** Первый урок модуля с тестом — ссылка «к урокам» на странице теста. */
+  moduleLessonsHref: string;
+  questions: MiniCheckQuestion[];
+  /** Адрес закрытого урока: туда ведём после сдачи. */
+  lockedLessonHref: string;
 }) {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -204,27 +192,41 @@ function LessonLockedByTest({
           Сначала пройди тест модуля
         </h1>
         <p className="mt-6 text-base leading-relaxed text-slate-400 sm:text-lg">
-          {moduleLabel} ещё не сдан. Ответь на 10 вопросов — и уроки следующего
-          модуля откроются.
+          {moduleLabel} ещё не сдан. Ответь на {questions.length} вопросов — и
+          уроки следующего модуля откроются. Тест открывается прямо здесь,
+          слайдом: закрыть можно в любой момент.
         </p>
-        <Link
-          href={`/course/check/${moduleId}`}
-          className="mt-10 inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
-        >
-          Пройти тест модуля
-          <span aria-hidden>→</span>
-        </Link>
+
+        <div className="mt-10 w-full sm:max-w-md">
+          <TestOverlay
+            courseType="basic"
+            moduleNumber={moduleNumber}
+            moduleLabel={moduleLabel}
+            questions={questions}
+            lessonsHref={moduleLessonsHref}
+            nextHref={lockedLessonHref}
+            continueLabel="Открыть урок"
+            triggerLabel="Пройти тест модуля"
+            hint={`${questions.length} вопросов по урокам модуля. Без сданного теста урок останется закрытым.`}
+          />
+        </div>
+
         <Link
           href="/"
           className="mt-6 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400"
         >
           <span aria-hidden>←</span> Назад к курсу
         </Link>
+        <Link
+          href={`/course/check/${moduleId}`}
+          className="mt-3 text-sm font-medium text-slate-500 transition-colors hover:text-blue-400"
+        >
+          Открыть тест отдельной страницей
+        </Link>
       </main>
     </div>
   );
 }
-
 export default async function LessonPage({ params }: LessonPageProps) {
   const { id } = await params;
   const lessonId = parseLessonId(id);
@@ -253,10 +255,23 @@ export default async function LessonPage({ params }: LessonPageProps) {
     return (
       <LessonLockedByTest
         moduleId={previousModule.moduleId}
+        moduleNumber={Number(previousModule.moduleId)}
         moduleLabel={previousModule.label}
+        moduleLessonsHref={lessonHref(previousModule.lessonIds[0])}
+        questions={previousModule.questions}
+        lockedLessonHref={lessonHref(lesson.id)}
       />
     );
   }
+
+  /**
+   * Вопросы теста модуля текущего урока: их показывает карточка «Проверь себя»
+   * на последнем уроке модуля.
+   */
+  const moduleQuestions =
+    basicCourseModules.find(
+      (courseModule) => courseModule.moduleId === lesson.moduleId,
+    )?.questions ?? [];
 
   const progressPercent = Math.round((lesson.id / totalLessons) * 100);
   const isLastLesson = lesson.id === totalLessons;
@@ -334,33 +349,26 @@ export default async function LessonPage({ params }: LessonPageProps) {
         {isLastLesson ? <ProCoursePromo /> : null}
 
         <div className="mt-12 sm:mt-16">
-          {isLastLesson ? (
-            // Последний урок курса: тест модуля 6 тоже обязателен, поэтому блок
-            // «Курс пройден!» показываем только после сданного теста.
-            isTestPassed ? (
-              <div className="rounded-3xl border border-blue-500/40 bg-blue-500/10 p-7 text-center sm:p-9">
-                <p className="text-2xl font-extrabold text-white sm:text-3xl">
-                  <span aria-hidden>🏆</span> Курс пройден!
-                </p>
-                <p className="mt-4 text-base leading-relaxed text-slate-300">
-                  Все {totalLessons} уроков позади. Осталось собрать свою первую
-                  модель: вазу, брелок или светильник.
-                </p>
-                <div className="mt-8">
-                  <CompleteButton
-                    lessonId={lesson.id}
-                    courseType="basic"
-                    href="/constructor"
-                    label="Перейти в конструктор"
-                  />
-                </div>
-              </div>
-            ) : (
-              <TestGate isLastLesson />
-            )
-          ) : lesson.isModuleLast && !isTestPassed ? (
-            // Последний урок модуля: дальше только через сданный тест.
-            <TestGate />
+          {lesson.isModuleLast ? (
+            // Последний урок модуля: тест обязателен, поэтому вместо перехода
+            // показываем карточку «Проверь себя» со слайдом теста и заблокированной
+            // кнопкой продолжения — пока тест не сдан, дальше не пустим.
+            <ModuleTestGate
+              courseType="basic"
+              moduleNumber={Number(lesson.moduleId)}
+              moduleLabel={lesson.module}
+              questions={moduleQuestions}
+              lessonsHref={lessonHref(lesson.id)}
+              testPageHref={`/course/check/${lesson.moduleId}`}
+              lessonId={lesson.id}
+              nextHref={isLastLesson ? "/constructor" : lessonHref(lesson.id + 1)}
+              nextLabel={
+                isLastLesson ? "Перейти в конструктор" : "Продолжить курс"
+              }
+              isPassed={isTestPassed}
+              isCourseFinal={isLastLesson}
+              courseFinishNote={`Все ${totalLessons} уроков позади. Осталось собрать свою первую модель: вазу, брелок или светильник.`}
+            />
           ) : (
             <CompleteButton
               lessonId={lesson.id}
@@ -369,24 +377,6 @@ export default async function LessonPage({ params }: LessonPageProps) {
               label="Пройти урок"
             />
           )}
-
-          {/* Последний урок модуля: проверка знаний по модулю живёт на отдельной
-              странице /course/check/<код модуля>. Пока тест не сдан, это главная
-              кнопка страницы. */}
-          {lesson.isModuleLast ? (
-            <Link
-              href={`/course/check/${lesson.moduleId}`}
-              className={`mt-4 inline-flex min-h-16 w-full items-center justify-center gap-3 rounded-full px-9 text-lg font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
-                isTestPassed
-                  ? "border-2 border-blue-500/60 bg-blue-500/10 text-white hover:border-blue-400 hover:bg-blue-500/20"
-                  : "bg-blue-600 text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500"
-              }`}
-            >
-              <span aria-hidden>🎯</span>
-              {isTestPassed ? "Пройти тест ещё раз" : "Пройти тест модуля"}
-              <span aria-hidden>→</span>
-            </Link>
-          ) : null}
         </div>
       </main>
     </div>

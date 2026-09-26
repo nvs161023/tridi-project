@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 
 import { completeModuleTest } from "@/app/actions/complete-module-test";
+import { moduleTestThemes } from "@/components/course/module-test-theme";
 import {
   MODULE_TEST_EXCELLENT_FROM,
   MODULE_TEST_PASS_FROM,
@@ -11,36 +12,6 @@ import {
   type CourseTestVariant,
 } from "@/lib/module-test";
 import type { MiniCheckQuestion } from "@/lib/types";
-
-/**
- * Оформление теста зависит от курса: базовый — синий, продвинутый — янтарный.
- * Кнопки, полоса прогресса и акцентные подписи берут цвета отсюда, чтобы один
- * компонент обслуживал оба курса и они не разъезжались по стилю.
- */
-const themes = {
-  basic: {
-    primary:
-      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
-    secondary:
-      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-9 text-lg font-semibold text-slate-100 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
-    accentText: "text-blue-300",
-    eyebrow: "text-blue-400",
-    bar: "bg-blue-600",
-    ring: "focus-visible:ring-blue-400",
-    optionHover: "hover:border-blue-400/60",
-  },
-  pro: {
-    primary:
-      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-9 text-lg font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
-    secondary:
-      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full border border-amber-400/40 bg-white/5 px-9 text-lg font-semibold text-amber-100 transition-colors hover:bg-amber-400/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
-    accentText: "text-amber-300",
-    eyebrow: "text-amber-300",
-    bar: "bg-gradient-to-r from-amber-400 to-amber-500",
-    ring: "focus-visible:ring-amber-300",
-    optionHover: "hover:border-amber-300/60",
-  },
-} as const;
 
 /**
  * Тест по модулю на странице «Проверь себя» — общий для базового и продвинутого
@@ -60,6 +31,20 @@ const themes = {
 type ModuleTestProps = {
   /** Какой курс проходим: от этого зависят цвета и тип строки в базе. */
   courseType: CourseTestVariant;
+  /**
+   * Где тест показан: на отдельной странице или слайдом поверх урока.
+   *
+   * На странице это карточка с рамкой, в оверлее — содержимое без рамки и с
+   * кнопкой «Закрыть» вместо ссылки на уроки модуля: саму рамку и выход рисует
+   * components/course/TestOverlay.tsx.
+   */
+  layout?: "page" | "overlay";
+  /** Сданный тест сохранился: родитель может обновить страницу под собой. */
+  onSaved?: () => void;
+  /** Закрыть оверлей (в режиме overlay). */
+  onClose?: () => void;
+  /** Подпись кнопки продолжения после сдачи (в оверлее — «Продолжить курс»). */
+  continueLabel?: string;
   /**
    * Номер модуля в курсе (1…26) — он уходит в базу как результат теста.
    *
@@ -84,9 +69,19 @@ export function ModuleTest({
   lessonsHref,
   nextLessonHref,
   questions,
+  layout = "page",
+  onSaved,
+  onClose,
+  continueLabel = "Следующий урок",
 }: ModuleTestProps) {
   const total = questions.length;
-  const theme = themes[courseType];
+  const theme = moduleTestThemes[courseType];
+  const isOverlay = layout === "overlay";
+
+  /** Оболочка: на странице — карточка с рамкой, в оверлее рамку рисует сам слайд. */
+  const shell = isOverlay
+    ? ""
+    : "rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9";
 
   const [questionIndex, setQuestionIndex] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
@@ -136,7 +131,9 @@ export function ModuleTest({
    * Тест закончен: показываем итог и сохраняем результат, если он сдан.
    *
    * Сохранение идёт через Server Action: без него страница урока не узнает, что
-   * модуль сдан, и следующий модуль останется закрытым.
+   * модуль сдан, и следующий модуль останется закрытым. После удачного
+   * сохранения сообщаем родителю (onSaved): карточка на уроке обновляет страницу,
+   * чтобы кнопка «Продолжить курс» разблокировалась без перезагрузки вручную.
    */
   function finish() {
     setIsFinished(true);
@@ -160,6 +157,7 @@ export function ModuleTest({
       }
 
       setSaveError(null);
+      onSaved?.();
     });
   }
 
@@ -219,11 +217,11 @@ export function ModuleTest({
       : `Без сданного теста следующий модуль закрыт: нужно ${MODULE_TEST_PASS_FROM} правильных из ${total}.`;
 
     return (
-      <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
+      <section className={shell}>
         <p
           className={`text-sm font-semibold uppercase tracking-widest ${theme.eyebrow}`}
         >
-          {moduleLabel}
+          {isOverlay ? "Результат теста" : moduleLabel}
         </p>
 
         <p className="mt-4 text-2xl font-extrabold text-white sm:text-3xl">
@@ -260,7 +258,7 @@ export function ModuleTest({
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
           {isPassed && nextLessonHref ? (
             <Link href={nextLessonHref} className={theme.primary}>
-              Следующий урок
+              {isOverlay ? continueLabel : "Следующий урок"}
               <span aria-hidden>→</span>
             </Link>
           ) : null}
@@ -276,18 +274,34 @@ export function ModuleTest({
             Пройти ещё раз
           </button>
 
-          <Link href={lessonsHref} className={theme.secondary}>
-            К урокам модуля
-          </Link>
+          {/* В оверлее выхода «к урокам модуля» нет: слайд нужно просто закрыть. */}
+          {isOverlay ? (
+            <button type="button" onClick={onClose} className={theme.secondary}>
+              Закрыть
+            </button>
+          ) : (
+            <Link href={lessonsHref} className={theme.secondary}>
+              К урокам модуля
+            </Link>
+          )}
         </div>
       </section>
     );
   }
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-bold text-white sm:text-xl">{moduleLabel}</h2>
+    <section className={shell}>
+      <div
+        className={`flex flex-wrap items-center gap-3 ${
+          isOverlay ? "justify-end" : "justify-between"
+        }`}
+      >
+        {/* В оверлее название модуля уже стоит в шапке слайда — не повторяем. */}
+        {isOverlay ? null : (
+          <h2 className="text-lg font-bold text-white sm:text-xl">
+            {moduleLabel}
+          </h2>
+        )}
         <span className={`text-sm font-semibold ${theme.accentText}`}>
           {correctCount} из {total} верных
         </span>
