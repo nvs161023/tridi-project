@@ -120,7 +120,7 @@ export function Basic1Image0({ title, animated }: VisualProps) {
         />
         <circle cx="157" cy="43" r="2" fill="#94a3b8" />
         <polyline
-          points="248,68 222,74 206,96"
+          points="236,68 222,74 206,96"
           fill="none"
           stroke="#475569"
           strokeWidth="0.9"

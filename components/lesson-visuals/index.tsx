@@ -5,6 +5,15 @@ import { Basic1Image0 } from "./basic-1-image-0";
 import { Basic2Image0 } from "./basic-2-image-0";
 import { Basic3Animation0 } from "./basic-3-animation-0";
 import { Basic3Image0 } from "./basic-3-image-0";
+import { Basic4Animation0 } from "./basic-4-animation-0";
+import { Basic4Image0 } from "./basic-4-image-0";
+import { Basic5Animation0 } from "./basic-5-animation-0";
+import { Basic5Image0 } from "./basic-5-image-0";
+import { Basic6Animation0 } from "./basic-6-animation-0";
+import { Basic6Image0 } from "./basic-6-image-0";
+import { Basic7Animation0 } from "./basic-7-animation-0";
+import { Basic7Image0 } from "./basic-7-image-0";
+import { Basic7Image1 } from "./basic-7-image-1";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -16,10 +25,10 @@ import type { VisualProps } from "./_Wrapper";
  * словам» — визуализация привязана к конкретному блоку урока (курс + номер
  * урока + номер блока в уроке) и лежит в отдельном файле.
  *
- * Оба раздела пока пусты: и базовый курс (15 уроков), и продвинутый (26 модулей)
- * заменены новым содержимым, а визуализации под них рисуются на Этапе 2. Для
- * блока без своей визуализации возвращается null, и в карточке показывается
- * заглушка с иконкой типа блока: лучше заглушка, чем чужая картинка в уроке.
+ * Базовый курс заполняется по модулям: готовы модуль 1 (уроки 1–3) и модуль 2
+ * (уроки 4–7) — 14 визуализаций. Продвинутый раздел пока пуст. Для блока без своей
+ * визуализации возвращается null, и в карточке показывается заглушка с иконкой типа
+ * блока: лучше заглушка, чем чужая картинка в уроке.
  * Новая визуализация = новый файл + одна строка в BASE_VISUALS или PRO_VISUALS.
  */
 export type { VisualProps } from "./_Wrapper";
@@ -49,11 +58,11 @@ export type VisualBlockRef = {
  * Ключ: `basic-{номер урока}-{тип блока}-{номер}`, например `basic-1-image-0` или
  * `basic-5-animation-0`. Номер — порядковый номер блока этого типа внутри урока.
  *
- * Пока раздел пуст: базовый курс заменён новым содержимым (15 уроков, 6 модулей),
- * а визуализации под него рисуются на Этапе 2. До этого каждый блок
- * image/animation рисуется в карточке заглушкой с иконкой своего типа. Новая
- * визуализация = новый файл (components/lesson-visuals/basic-1-image-0.tsx) плюс
- * одна строка здесь.
+ * Заполнены уроки 1–7: модуль 1 «Знакомство» (уроки 1–3) и модуль 2 «Настройка
+ * печати» (уроки 4–7). Остальные модули базового курса рисуются дальше — до этого
+ * каждый блок image/animation показывается заглушкой с иконкой своего типа.
+ * Новая визуализация = новый файл (components/lesson-visuals/basic-8-image-0.tsx)
+ * плюс одна строка здесь.
  */
 const BASE_VISUALS: Record<string, VisualComponent> = {
   "basic-1-image-0": Basic1Image0,
@@ -61,6 +70,15 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
   "basic-2-image-0": Basic2Image0,
   "basic-3-image-0": Basic3Image0,
   "basic-3-animation-0": Basic3Animation0,
+  "basic-4-image-0": Basic4Image0,
+  "basic-4-animation-0": Basic4Animation0,
+  "basic-5-image-0": Basic5Image0,
+  "basic-5-animation-0": Basic5Animation0,
+  "basic-6-image-0": Basic6Image0,
+  "basic-6-animation-0": Basic6Animation0,
+  "basic-7-image-0": Basic7Image0,
+  "basic-7-animation-0": Basic7Animation0,
+  "basic-7-image-1": Basic7Image1,
 };
 
 /**
