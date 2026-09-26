@@ -90,8 +90,6 @@ const benefits: Benefit[] = [
 export const dynamic = "force-dynamic";
 
 export default function Home() {
-  const currentYear = new Date().getFullYear();
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <Header />
@@ -354,20 +352,6 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className="border-t border-white/10 bg-slate-950">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-5 py-10 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-          <p>
-            <span aria-hidden>🖨️</span> © {currentYear} 3D-печать с нуля. Все
-            права защищены.
-          </p>
-          <a
-            className="transition-colors hover:text-blue-400"
-            href="mailto:hello@3d-printing-course.ru"
-          >
-            hello@3d-printing-course.ru
-          </a>
-        </div>
-      </footer>
     </div>
   );
 }

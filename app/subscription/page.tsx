@@ -229,6 +229,28 @@ export default function SubscriptionPage() {
             ))}
           </dl>
         </section>
+        {/* Условия оплаты — рядом с тарифами, а не только в футере: человек
+            принимает оферту именно в момент оплаты. */}
+        <section className="mt-12 border-t border-white/10 pt-8">
+          <p className="text-sm leading-relaxed text-slate-400">
+            Оплачивая подписку, вы соглашаетесь с{" "}
+            <Link
+              href="/legal/offer"
+              className="font-semibold text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+            >
+              Публичной офертой
+            </Link>{" "}
+            и{" "}
+            <Link
+              href="/legal/privacy"
+              className="font-semibold text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+            >
+              Политикой обработки персональных данных
+            </Link>
+            . Чек по оплате формируется в приложении «Мой налог» — Исполнитель
+            работает как плательщик НПД.
+          </p>
+        </section>
       </main>
     </div>
   );

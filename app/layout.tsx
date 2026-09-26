@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+
+import { CookieBanner } from "@/components/CookieBanner";
+import { Footer } from "@/components/Footer";
+
 import "./globals.css";
 
 const geistSans = Geist({
@@ -18,6 +22,14 @@ export const metadata: Metadata = {
     "Онлайн-курс по 3D-печати для новичков. Практика с первого урока, тесты по модулям с пояснениями, AI-диагностика и конструктор 3D-моделей.",
 };
 
+/**
+ * Корневой layout: шрифты, общий футер с юридическими документами и баннер
+ * согласия на cookie.
+ *
+ * Футер и баннер живут здесь, а не на каждой странице: ссылки на политику,
+ * согласие, соглашение и оферту должны быть доступны с любого экрана, а cookie-
+ * баннер должен показываться один раз на весь сайт.
+ */
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -29,6 +41,8 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
+        <Footer />
+        <CookieBanner />
       </body>
     </html>
   );
