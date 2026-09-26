@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 
 import { signInAction } from "@/app/actions/auth";
 import { emptyAuthFormState } from "@/app/actions/auth-state";
+import { authHref } from "@/lib/auth-redirect";
 
 const inputClassName =
   "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
@@ -97,6 +99,18 @@ export function LoginForm({ next = null }: LoginFormProps) {
         {isPending ? "Входим…" : "Войти"}
         {isPending ? null : <span aria-hidden>→</span>}
       </button>
+
+      {/* Частый случай: человек зарегистрировался, но письмо не нашёл или ссылка
+          в нём устарела. Даём прямой путь к повторной отправке. */}
+      <p className="text-center text-sm text-slate-400">
+        Зарегистрировались, но письмо не пришло?{" "}
+        <Link
+          href={authHref("/auth/verify-email", next)}
+          className="font-semibold text-blue-400 transition-colors hover:text-blue-300"
+        >
+          Отправить письмо ещё раз
+        </Link>
+      </p>
     </form>
   );
 }

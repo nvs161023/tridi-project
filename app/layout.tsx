@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import { CookieBanner } from "@/components/CookieBanner";
+import { EmailLinkHandler } from "@/components/EmailLinkHandler";
 import { Footer } from "@/components/Footer";
 
 import "./globals.css";
@@ -43,6 +44,9 @@ export default function RootLayout({
         {children}
         <Footer />
         <CookieBanner />
+        {/* Ссылка из письма Supabase может прийти с токенами во фрагменте адреса —
+            разбирает его этот обработчик (см. components/EmailLinkHandler.tsx). */}
+        <EmailLinkHandler />
       </body>
     </html>
   );

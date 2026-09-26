@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { resolveAfterAuthPath } from "@/lib/auth-redirect";
+import { buildEmailRedirectUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/server";
 import type { AuthFormState } from "@/app/actions/auth-state";
 
@@ -114,13 +115,22 @@ export async function signInAction(
   redirect(afterAuth);
 }
 
+/** Адрес страницы «проверьте почту» с сохранением возврата. */
+function verifyEmailHref(next: string): string {
+  return `/auth/verify-email?next=${encodeURIComponent(next)}`;
+}
+
 /**
  * Регистрация.
  *
  * Если в проекте Supabase выключено подтверждение email, signUp() сразу отдаёт
  * сессию — тогда уходим дальше: на страницу из next (например, в урок) или
- * в личный кабинет. Если подтверждение включено, сессии нет: показываем просьбу
- * подтвердить адрес и остаёмся на странице.
+ * в личный кабинет.
+ *
+ * Если подтверждение включено, сессии нет: показываем страницу «проверьте почту»
+ * с формой повторной отправки. Ссылка из письма ведёт на /auth/confirm (её
+ * подставляет Supabase через emailRedirectTo), где токен проверяется и адрес
+ * помечается подтверждённым (см. app/auth/confirm/route.ts).
  */
 export async function signUpAction(
   _prevState: AuthFormState,
@@ -166,26 +176,92 @@ export async function signUpAction(
 
   const supabase = await createClient();
 
+  // Куда Supabase вернёт человека после подтверждения: на /auth/confirm, а оттуда
+  // он попадёт туда, куда шёл (обычно в урок).
+  const emailRedirectTo = await buildEmailRedirectUrl(afterAuth);
+
+  // Флаг вместо redirect() внутри try: redirect бросает служебное исключение, и
+  // catch перехватил бы его, отменив переход.
+  let needsEmailConfirmation = false;
+
   try {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name } },
+      options: { data: { name }, emailRedirectTo },
     });
 
     if (error) {
       return { error: translateSignUpError(error.message), values: { name, email } };
     }
 
-    if (!data.session) {
-      // Подтверждение email включено: аккаунт создан, но сессии пока нет.
-      return {
-        info: `Аккаунт создан! Мы отправили письмо на ${email} — подтвердите адрес, и после этого сможете войти.`,
-      };
-    }
+    needsEmailConfirmation = !data.session;
   } catch {
     return { error: NETWORK_ERROR_MESSAGE, values: { name, email } };
   }
 
+  if (needsEmailConfirmation) {
+    // Подтверждение email включено: аккаунт создан, сессии пока нет. Уводим на
+    // страницу «проверьте почту» — там объяснение и повторная отправка письма.
+    redirect(verifyEmailHref(afterAuth));
+  }
+
   redirect(afterAuth);
+}
+
+/**
+ * Повторная отправка письма для подтверждения адреса.
+ *
+ * Нужна, когда письмо не пришло, улетело в спам или ссылка в нём устарела.
+ * Ответ всегда нейтральный: Supabase не сообщает, зарегистрирован ли адрес, и
+ * форма не должна превращаться в способ проверять чужие адреса.
+ */
+export async function resendVerificationAction(
+  _prevState: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  const email = String(formData.get("email") ?? "").trim();
+
+  if (email.length === 0) {
+    return { error: "Укажите email, на который регистрировались." };
+  }
+
+  const supabase = await createClient();
+  const emailRedirectTo = await buildEmailRedirectUrl("/dashboard");
+
+  try {
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo },
+    });
+
+    if (error) {
+      const normalized = error.message.toLowerCase();
+
+      if (
+        normalized.includes("rate limit") ||
+        normalized.includes("too many requests")
+      ) {
+        return {
+          error: "Письмо уже отправлено. Подождите минуту и попробуйте снова.",
+          values: { email },
+        };
+      }
+
+      console.warn("Повторная отправка письма не удалась:", error.message);
+
+      return {
+        error: "Не удалось отправить письмо. Проверьте адрес и попробуйте ещё раз.",
+        values: { email },
+      };
+    }
+  } catch {
+    return { error: NETWORK_ERROR_MESSAGE, values: { email } };
+  }
+
+  return {
+    info: `Если адрес ${email} зарегистрирован и ещё не подтверждён, письмо отправлено — проверьте почту и папку «Спам».`,
+    values: { email },
+  };
 }

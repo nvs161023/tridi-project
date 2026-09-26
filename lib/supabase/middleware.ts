@@ -1,4 +1,5 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import type { User } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 
 import {
@@ -13,6 +14,31 @@ import { isAuthPath, resolveAfterAuthPath } from "@/lib/auth-redirect";
  * Уроки (/course/*) тоже защищены: без входа курс не открыть.
  */
 const PROTECTED_PATH_PREFIXES = ["/dashboard", "/course"]; // + "/constructor", когда появится
+
+/** Страница, куда отправляем неподтверждённых пользователей. */
+const VERIFY_EMAIL_PATH = "/auth/verify-email";
+
+/**
+ * Страницы /auth/*, которые открыты и авторизованным пользователям.
+ *
+ * /auth/verify-email нужен тем, кто ещё не подтвердил адрес (иначе получилась бы
+ * петля: middleware возвращал бы в кабинет, а кабинет — сюда). /auth/confirm —
+ * ссылка из письма: её должен уметь открыть и человек, у которого уже есть сессия,
+ * иначе токен не будет использован и адрес останется неподтверждённым.
+ */
+const AUTH_PAGES_FOR_SIGNED_IN = [VERIFY_EMAIL_PATH, "/auth/confirm"];
+
+/**
+ * Подтверждён ли адрес электронной почты.
+ *
+ * Supabase заполняет email_confirmed_at, когда человек перешёл по ссылке из письма;
+ * confirmed_at — старое поле, оно ещё встречается у аккаунтов, созданных раньше.
+ * Если в проекте подтверждение email выключено, поле заполняется сразу при
+ * регистрации, и проверка ничего не меняет.
+ */
+function isEmailConfirmed(user: User): boolean {
+  return Boolean(user.email_confirmed_at ?? user.confirmed_at);
+}
 
 /** Cookie, которую Supabase попросил записать в ответ. */
 type PendingCookie = {
@@ -124,11 +150,30 @@ export async function updateSession(request: NextRequest) {
     return withSessionData(NextResponse.redirect(loginUrl));
   }
 
+  // Адрес не подтверждён — закрываем доступ к урокам и кабинету. Без этой проверки
+  // подтверждение по ссылке остаётся формальностью: человек с неподтверждённой
+  // почтой всё равно попадает в учебный и платный контент.
+  if (user && isProtectedPage && !isEmailConfirmed(user)) {
+    const verifyUrl = new URL(VERIFY_EMAIL_PATH, request.url);
+    verifyUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
+
+    return withSessionData(NextResponse.redirect(verifyUrl));
+  }
+
   // Авторизованному человеку форма входа не нужна: если он открыл /auth/*,
   // отправляем его на next (обычно это урок, с которого его увели гостем),
   // а если next нет или он ведёт на /auth/* — в личный кабинет.
   // Так работает возврат после входа по прямой ссылке и не возникает петель.
-  if (user && isAuthPath(pathname)) {
+  //
+  // Исключение — /auth/verify-email и /auth/confirm: туда приходят и
+  // неподтверждённые пользователи, и те, кто только что перешёл по ссылке из
+  // письма. Если уводить их отсюда, получится петля (middleware → кабинет →
+  // middleware), а токен из письма останется неиспользованным.
+  if (
+    user &&
+    isAuthPath(pathname) &&
+    !AUTH_PAGES_FOR_SIGNED_IN.includes(pathname)
+  ) {
     const afterAuth = resolveAfterAuthPath(
       request.nextUrl.searchParams.get("next"),
     );
