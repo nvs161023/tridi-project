@@ -37,6 +37,8 @@ export function MiniCheck({ title, questions }: MiniCheckProps) {
   const isAnswered = picked !== null;
   const isCorrect = isAnswered && picked === question.correct;
   const isLastQuestion = questionIndex + 1 >= total;
+  /** Пояснение к выбранному варианту: почему он не подходит или почему верен. */
+  const explanation = picked === null ? undefined : question.explanations?.[picked];
 
   /** Сколько вопросов закрыто — вместе с текущим, если на него уже ответили. */
   const answeredCount = isFinished ? total : questionIndex + (isAnswered ? 1 : 0);
@@ -198,6 +200,19 @@ export function MiniCheck({ title, questions }: MiniCheckProps) {
             : `Мимо. Правильный ответ: ${question.answers[question.correct]}`
           : "Ответ ещё не выбран."}
       </p>
+
+      {/* Пояснение к выбранному варианту. Пояснений может не быть (например, в
+          продвинутом курсе) — тогда блок не выводим. */}
+      {isAnswered && explanation ? (
+        <p className="mt-3 rounded-2xl border border-white/10 bg-slate-950/40 px-5 py-4 text-sm leading-relaxed text-slate-300 sm:text-base">
+          <span className="font-semibold text-slate-100">
+            {isCorrect
+              ? "Почему это верно: "
+              : "Почему этот вариант не подходит: "}
+          </span>
+          {explanation}
+        </p>
+      ) : null}
 
       {isAnswered ? (
         <button

@@ -23,6 +23,10 @@ export type BasicLesson = {
   module: string;
   /** Код модуля («1»…«6»): он же адрес проверки — /course/check/<код>. */
   moduleId: string;
+  /** Порядковый номер модуля (1…6): модули идут по нему. */
+  moduleOrder: number;
+  /** Первый урок модуля: перед ним обязателен тест предыдущего модуля. */
+  isModuleFirst: boolean;
   /** Последний урок модуля: после него предлагаем «Проверь себя». */
   isModuleLast: boolean;
   /** Уровень доступа: базовый курс бесплатный, у всех уроков "basic". */
@@ -33,6 +37,8 @@ export type BasicLesson = {
 /** Модуль курса: название, уроки и тест по модулю. */
 export type BasicModuleInfo = {
   moduleId: string;
+  /** Порядковый номер модуля (1…6). */
+  moduleOrder: number;
   /** «Модуль 1: Знакомство» — так модуль подписан и в уроках. */
   label: string;
   title: string;
@@ -68,6 +74,8 @@ export const basicLessons: BasicLesson[] = modules.flatMap((courseModule) =>
     duration: lesson.duration,
     module: `Модуль ${courseModule.module_order}: ${courseModule.module_title}`,
     moduleId: courseModule.module_id,
+    moduleOrder: courseModule.module_order,
+    isModuleFirst: index === 0,
     isModuleLast: index === courseModule.lessons.length - 1,
     tier: lesson.tier ?? "basic",
     blocks: lesson.blocks,
@@ -78,6 +86,7 @@ export const basicLessons: BasicLesson[] = modules.flatMap((courseModule) =>
 export const basicCourseModules: BasicModuleInfo[] = modules.map(
   (courseModule) => ({
     moduleId: courseModule.module_id,
+    moduleOrder: courseModule.module_order,
     label: `Модуль ${courseModule.module_order}: ${courseModule.module_title}`,
     title: courseModule.module_title,
     description: courseModule.module_description,

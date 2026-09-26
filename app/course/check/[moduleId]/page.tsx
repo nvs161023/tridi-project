@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { ModuleTest } from "@/components/course/ModuleTest";
-import { findBasicModule } from "@/lib/basic-course";
+import { basicLessons, findBasicModule } from "@/lib/basic-course";
+import { resolveUserId } from "@/lib/current-user";
 import { createClient } from "@/lib/supabase/server";
-import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 
 /**
  * Страница «Проверь себя»: тест по модулю базового курса — /course/check/1…6.
@@ -15,11 +14,10 @@ import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
  * урокам: middleware не пускает гостя, и страница дополнительно проверяет
  * пользователя, если запрос прошёл мимо middleware.
  *
- * Результат никуда не сохраняется: это самопроверка. Прогресс курса отмечает
- * кнопка «Пройти урок» на странице урока.
+ * Тест обязателен: сданный результат сохраняется на сервере (см.
+ * app/actions/complete-module-test.ts), и по нему страница урока открывает
+ * следующий модуль. Проваленная попытка ничего не сохраняет.
  */
-
-type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 type CheckPageProps = {
   params: Promise<{ moduleId: string }>;
@@ -48,24 +46,6 @@ export async function generateMetadata({ params }: CheckPageProps) {
       ? `Проверь себя: ${courseModule.label} — 3D-печать с нуля`
       : "Модуль не найден — 3D-печать с нуля",
   };
-}
-
-/**
- * Кто открыл страницу: из заголовка middleware, а если его нет — из сессии.
- * Так же, как на странице урока (app/course/[id]/page.tsx).
- */
-async function resolveUserId(supabase: Supabase): Promise<string | null> {
-  const identity = decodeRequestUser((await headers()).get(USER_HEADER));
-
-  if (identity) {
-    return identity.id;
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  return user?.id ?? null;
 }
 
 function ModuleNotFound() {
@@ -116,6 +96,11 @@ export default async function ModuleCheckPage({ params }: CheckPageProps) {
 
   const firstLessonHref = `/course/lesson-${courseModule.lessonIds[0]}`;
 
+  // Сдал тест — открывается следующий урок курса (у последнего модуля его нет).
+  const lastLessonId = courseModule.lessonIds[courseModule.lessonIds.length - 1];
+  const nextLesson = basicLessons.find((lesson) => lesson.id === lastLessonId + 1);
+  const nextLessonHref = nextLesson ? `/course/lesson-${nextLesson.id}` : undefined;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur">
@@ -145,13 +130,16 @@ export default async function ModuleCheckPage({ params }: CheckPageProps) {
         </h1>
         <p className="mt-4 text-base leading-relaxed text-slate-400 sm:text-lg">
           {courseModule.description} {courseModule.questions.length} вопросов по
-          урокам модуля: отвечай по одному, правильность видно сразу.
+          урокам модуля: отвечай по одному, правильность видно сразу. Тест
+          обязателен — он открывает следующий модуль.
         </p>
 
         <div className="mt-10 sm:mt-12">
           <ModuleTest
+            moduleId={courseModule.moduleId}
             moduleLabel={courseModule.label}
             lessonsHref={firstLessonHref}
+            nextLessonHref={nextLessonHref}
             questions={courseModule.questions}
           />
         </div>
