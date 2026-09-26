@@ -259,7 +259,7 @@ export default function Home() {
                     {proCourse.title}
                   </h3>
                   <span className="rounded-full border border-amber-400/50 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
-                    {proCourse.price} ₽ · включён в Pro
+                    {proCourse.price} ₽/мес · входит в Pro
                   </span>
                 </div>
 

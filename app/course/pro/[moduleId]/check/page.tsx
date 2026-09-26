@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { ModuleTest } from "@/components/course/ModuleTest";
 import courseData from "@/data/course-pro.json";
+import coursesData from "@/data/courses.json";
 import { resolveUserId } from "@/lib/current-user";
 import { LESSON_FORMS, pluralize } from "@/lib/course-stats";
 import { createClient } from "@/lib/supabase/server";
@@ -37,6 +38,9 @@ type SubscriptionRow = {
 };
 
 const course: ProCourse = courseData;
+
+/** Цена подписки Pro — из data/courses.json, чтобы не расходиться с витриной. */
+const proPrice = coursesData.pro.price;
 
 /** Модули по module_order: навигация не должна зависеть от порядка в JSON. */
 const modules: ProModule[] = [...course.modules].sort(
@@ -174,7 +178,7 @@ function LockedNotice({ refreshHref }: { refreshHref: string }) {
           href="/subscription"
           className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-9 text-lg font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
         >
-          Открыть доступ — 1490 ₽/мес
+          Открыть доступ — {proPrice} ₽/мес
           <span aria-hidden>→</span>
         </Link>
       </div>

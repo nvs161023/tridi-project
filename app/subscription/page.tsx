@@ -194,7 +194,9 @@ export default function SubscriptionPage() {
               Pro
             </h2>
             <p className="relative mt-4 flex items-baseline gap-2">
-              <span className="text-4xl font-extrabold text-white">1490 ₽</span>
+              <span className="text-4xl font-extrabold text-white">
+                {proCourse.price} ₽
+              </span>
               <span className="text-sm text-slate-400">/мес</span>
             </p>
 
