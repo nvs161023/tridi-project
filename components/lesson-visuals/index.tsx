@@ -41,6 +41,10 @@ import { ProB2Animation0 } from "./pro-B-B2-animation-0";
 import { ProB2Image0 } from "./pro-B-B2-image-0";
 import { ProB4Animation0 } from "./pro-B-B4-animation-0";
 import { ProB4Image0 } from "./pro-B-B4-image-0";
+import { ProE1E11Animation0 } from "./pro-E1-E1-1-animation-0";
+import { ProE1E11Image0 } from "./pro-E1-E1-1-image-0";
+import { ProE1E12Animation0 } from "./pro-E1-E1-2-animation-0";
+import { ProE1E12Image0 } from "./pro-E1-E1-2-image-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -54,8 +58,8 @@ import type { VisualProps } from "./_Wrapper";
  *
  * Базовый курс заполнен целиком: модули 1–6, уроки 1–15 — 27 визуализаций, у
  * каждого блока image/animation своя картинка. В продвинутом курсе нарисованы
- * модули A (уроки A1, A2), A-без (уроки A-без1, A-без2) и B (уроки B1, B2, B4)
- * — 14 визуализаций.
+ * модули A (уроки A1, A2), A-без (уроки A-без1, A-без2), B (уроки B1, B2, B4) и
+ * E1 (уроки E1-1, E1-2) — 18 визуализаций.
  * Остальные блоки продвинутого курса пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
@@ -132,9 +136,10 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
  * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Заполнены три модуля: A (уроки A1, A2), A-без (уроки A-без1, A-без2) и B
- * (уроки B1, B2, B4) — 14 визуализаций. Остальные блоки продвинутого курса
- * рисуются заглушкой с иконкой своего типа. Новая визуализация = новый файл
+ * Заполнены четыре модуля: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
+ * B (уроки B1, B2, B4) и E1 (уроки E1-1, E1-2) — 18 визуализаций. Остальные
+ * блоки продвинутого курса рисуются заглушкой с иконкой своего типа. Новая
+ * визуализация = новый файл
  * (components/lesson-visuals/pro-B-B1-image-0.tsx) плюс одна строка здесь.
  */
 const PRO_VISUALS: Record<string, VisualComponent> = {
@@ -155,6 +160,11 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-B-B2-animation-0": ProB2Animation0,
   "pro-B-B4-image-0": ProB4Image0,
   "pro-B-B4-animation-0": ProB4Animation0,
+  // Модуль E1 «Материалы база»: сравнение пластиков, строение и усадка.
+  "pro-E1-E1-1-image-0": ProE1E11Image0,
+  "pro-E1-E1-1-animation-0": ProE1E11Animation0,
+  "pro-E1-E1-2-image-0": ProE1E12Image0,
+  "pro-E1-E1-2-animation-0": ProE1E12Animation0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
