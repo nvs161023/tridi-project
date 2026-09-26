@@ -29,6 +29,25 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Деплой на Amvera
+
+Сборка запускается командой `npm run build:amvera` (см. `amvera.yml`): она чистит
+`.next`, восстанавливает `tsconfig.json` (`scripts/ensure-tsconfig.mjs`), проверяет
+импорты (`scripts/check-imports.mjs`), ставит зависимости через `npm ci` и собирает
+проект.
+
+Что важно знать при разборе логов сборки:
+
+- **`tsconfig.json` должен быть в исходниках.** В нём живёт алиас `@/*`; без него
+  проверка типов падает на каждом `@/...`-импорте. Если этот файл попал в
+  исключения проекта на Amvera — уберите его оттуда, иначе в логах будет
+  `[ensure-tsconfig] tsconfig.json НЕ НАЙДЕН в дереве сборки!` на каждой сборке.
+- Алиас `@/*` продублирован в `next.config.ts` (`turbopack.resolveAlias`), поэтому
+  даже без `tsconfig.json` сборщик находит модули, и проблема выглядит как ошибка
+  типов (`Type error: Cannot find module '@/...'`), а не как «Module not found».
+- Переменные `NEXT_PUBLIC_SUPABASE_URL` и `NEXT_PUBLIC_SUPABASE_ANON_KEY` задаются
+  в настройках окружения Amvera: `.env.local` в репозиторий не попадает.
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.

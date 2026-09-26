@@ -37,5 +37,3 @@ export async function loadPassedModuleTests(): Promise<Set<number> | null> {
 
   return new Set((data ?? []).map((row) => Number(row.lesson_id)));
 }
-
-export type { Supabase };
