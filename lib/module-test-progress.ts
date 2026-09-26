@@ -9,11 +9,16 @@ import { createClient } from "@/lib/supabase/server";
  * lib/module-test.ts): строка появляется только после сданного теста, поэтому
  * наличие номера = модуль сдан.
  *
+ * courseType выбирает курс: у базового "basic-test" (номера модулей 1…6), у
+ * продвинутого "pro-test" (места модулей в курсе 1…26).
+ *
  * null означает «прочитать не удалось» (нет сети, нет таблицы, нет пользователя).
  * Вызывающий код в этом случае считает тесты сданными: запереть ученика из-за
  * сбоя чтения хуже, чем показать урок (см. isModuleTestCompleted).
  */
-export async function loadPassedModuleTests(): Promise<Set<number> | null> {
+export async function loadPassedModuleTests(
+  courseType: string = MODULE_TEST_COURSE_TYPE,
+): Promise<Set<number> | null> {
   const supabase = await createClient();
   const userId = await resolveUserId(supabase);
 
@@ -25,7 +30,7 @@ export async function loadPassedModuleTests(): Promise<Set<number> | null> {
     .from("lesson_progress")
     .select("lesson_id")
     .eq("user_id", userId)
-    .eq("course_type", MODULE_TEST_COURSE_TYPE);
+    .eq("course_type", courseType);
 
   if (error) {
     console.warn(

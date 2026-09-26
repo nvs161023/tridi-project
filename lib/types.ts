@@ -15,6 +15,11 @@
  * image, animation, screenshot, diagram — визуализация (на Этапе 2 свой SVG,
  * пока — заглушка с иконкой);
  * mini_check — мини-проверка в конце урока (components/course/MiniCheck.tsx).
+ *
+ * В данных обоих курсов mini_check сейчас не используется: проверки живут на
+ * страницах «Проверь себя» (/course/check/<модуль> и /course/pro/<модуль>/check),
+ * а в уроке остаётся только материал. Поддержку блока оставили: она пригодится,
+ * если понадобится короткая проверка прямо в уроке.
  */
 export type LessonBlockType =
   | "text"
@@ -76,7 +81,12 @@ export type LessonBlock = {
 export type ProLesson = {
   /** Код урока: A1, C1-1, T14 — он же последний сегмент адреса. */
   lesson_id: string;
-  /** Место урока внутри модуля, с единицы. */
+  /**
+   * Номер урока в курсе целиком (1…109): в файле курса lesson_order сквозной, а не
+   * внутри модуля. Место урока внутри модуля считаем по порядку в массиве lessons
+   * (см. app/course/pro/[moduleId]/[lessonId]/page.tsx) — по нему страница решает,
+   * первый это урок модуля или последний.
+   */
   lesson_order: number;
   lesson_title: string;
   /** Длительность строкой: «25 мин». */
@@ -125,7 +135,7 @@ export type ProCourse = {
 export type BaseLesson = {
   /** Номер урока строкой: "1"…"15" — он же номер в адресе /course/lesson-N. */
   lesson_id: string;
-  /** Место урока внутри модуля, с единицы. */
+  /** Номер урока в курсе целиком (1…15): как и в pro, lesson_order сквозной. */
   lesson_order: number;
   lesson_title: string;
   /** Длительность строкой: «15 мин». */

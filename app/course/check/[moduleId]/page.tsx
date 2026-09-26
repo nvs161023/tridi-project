@@ -136,7 +136,8 @@ export default async function ModuleCheckPage({ params }: CheckPageProps) {
 
         <div className="mt-10 sm:mt-12">
           <ModuleTest
-            moduleId={courseModule.moduleId}
+            courseType="basic"
+            moduleNumber={Number(courseModule.moduleId)}
             moduleLabel={courseModule.label}
             lessonsHref={firstLessonHref}
             nextLessonHref={nextLessonHref}

@@ -8,32 +8,66 @@ import {
   MODULE_TEST_EXCELLENT_FROM,
   MODULE_TEST_PASS_FROM,
   isModuleTestPassed,
+  type CourseTestVariant,
 } from "@/lib/module-test";
 import type { MiniCheckQuestion } from "@/lib/types";
 
-/** Главная и второстепенная кнопки — одни и те же во всех состояниях теста. */
-const primaryButtonClassName =
-  "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
-
-const secondaryButtonClassName =
-  "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-9 text-lg font-semibold text-slate-100 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
+/**
+ * Оформление теста зависит от курса: базовый — синий, продвинутый — янтарный.
+ * Кнопки, полоса прогресса и акцентные подписи берут цвета отсюда, чтобы один
+ * компонент обслуживал оба курса и они не разъезжались по стилю.
+ */
+const themes = {
+  basic: {
+    primary:
+      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
+    secondary:
+      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-9 text-lg font-semibold text-slate-100 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
+    accentText: "text-blue-300",
+    eyebrow: "text-blue-400",
+    bar: "bg-blue-600",
+    ring: "focus-visible:ring-blue-400",
+    optionHover: "hover:border-blue-400/60",
+  },
+  pro: {
+    primary:
+      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-9 text-lg font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
+    secondary:
+      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full border border-amber-400/40 bg-white/5 px-9 text-lg font-semibold text-amber-100 transition-colors hover:bg-amber-400/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
+    accentText: "text-amber-300",
+    eyebrow: "text-amber-300",
+    bar: "bg-gradient-to-r from-amber-400 to-amber-500",
+    ring: "focus-visible:ring-amber-300",
+    optionHover: "hover:border-amber-300/60",
+  },
+} as const;
 
 /**
- * Тест по модулю на странице «Проверь себя».
+ * Тест по модулю на странице «Проверь себя» — общий для базового и продвинутого
+ * курса (components/course/MiniCheck.tsx остаётся поддержкой «проверки внутри
+ * урока», но в данных курсов таких блоков больше нет).
  *
- * Отличие от мини-проверки внутри урока (components/course/MiniCheck.tsx): вопросов
- * больше, а в конце — оценка модуля и путь дальше. Тест обязателен: сданный
- * результат сохраняется на сервере (только сданный!), и по нему страница урока
- * открывает следующий модуль. Проваленную попытку не сохраняем — иначе модуль
- * откроется сам.
+ * Проверка знаний живёт здесь: вопросы теста модуля плюс вопросы, которые раньше
+ * стояли мини-проверками в уроках. В конце — оценка модуля и путь дальше. Тест
+ * обязателен: сданный результат сохраняется на сервере (только сданный!), и по
+ * нему страница урока открывает следующий модуль. Проваленную попытку не
+ * сохраняем — иначе модуль откроется сам.
  *
  * Пока на вопрос не ответили, варианты выглядят обычно. После ответа выбранный
  * вариант зеленеет или краснеет, правильный подсвечивается зелёным, а под ними
  * появляется пояснение: почему выбранный ответ не подходит (или почему верен).
  */
 type ModuleTestProps = {
-  /** Код модуля («1»…«6») — он уходит в базу как результат теста. */
-  moduleId: string;
+  /** Какой курс проходим: от этого зависят цвета и тип строки в базе. */
+  courseType: CourseTestVariant;
+  /**
+   * Номер модуля в курсе (1…26) — он уходит в базу как результат теста.
+   *
+   * У базового курса это код модуля («1»…«6»), у продвинутого — место модуля в
+   * курсе: коды pro буквенные («A», «T-тизер»), в числовую колонку lesson_id их
+   * не записать.
+   */
+  moduleNumber: number;
   /** Название модуля — показываем в шапке теста. */
   moduleLabel: string;
   /** Куда вернуться: первый урок модуля. */
@@ -44,13 +78,15 @@ type ModuleTestProps = {
 };
 
 export function ModuleTest({
-  moduleId,
+  courseType,
+  moduleNumber,
   moduleLabel,
   lessonsHref,
   nextLessonHref,
   questions,
 }: ModuleTestProps) {
   const total = questions.length;
+  const theme = themes[courseType];
 
   const [questionIndex, setQuestionIndex] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
@@ -111,7 +147,8 @@ export function ModuleTest({
 
     startSaving(async () => {
       const result = await completeModuleTest(
-        Number(moduleId),
+        courseType,
+        moduleNumber,
         correctCount,
         total,
       );
@@ -137,10 +174,10 @@ export function ModuleTest({
   /** Вид кнопки-варианта: обычный, верный, выбранный неверный или погашенный. */
   function answerClassName(answerIndex: number): string {
     const base =
-      "flex w-full items-start gap-3 rounded-2xl border px-5 py-4 text-left text-base font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
+      `flex w-full items-start gap-3 rounded-2xl border px-5 py-4 text-left text-base font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${theme.ring}`;
 
     if (!isAnswered) {
-      return `${base} border-white/15 bg-white/5 text-slate-200 hover:border-blue-400/60 hover:bg-white/10`;
+      return `${base} border-white/15 bg-white/5 text-slate-200 ${theme.optionHover} hover:bg-white/10`;
     }
 
     if (answerIndex === question.correct) {
@@ -183,7 +220,9 @@ export function ModuleTest({
 
     return (
       <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
-        <p className="text-sm font-semibold uppercase tracking-widest text-blue-400">
+        <p
+          className={`text-sm font-semibold uppercase tracking-widest ${theme.eyebrow}`}
+        >
           {moduleLabel}
         </p>
 
@@ -220,7 +259,7 @@ export function ModuleTest({
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
           {isPassed && nextLessonHref ? (
-            <Link href={nextLessonHref} className={primaryButtonClassName}>
+            <Link href={nextLessonHref} className={theme.primary}>
               Следующий урок
               <span aria-hidden>→</span>
             </Link>
@@ -230,16 +269,14 @@ export function ModuleTest({
             type="button"
             onClick={restart}
             className={
-              isPassed && nextLessonHref
-                ? secondaryButtonClassName
-                : primaryButtonClassName
+              isPassed && nextLessonHref ? theme.secondary : theme.primary
             }
           >
             <span aria-hidden>↻</span>
             Пройти ещё раз
           </button>
 
-          <Link href={lessonsHref} className={secondaryButtonClassName}>
+          <Link href={lessonsHref} className={theme.secondary}>
             К урокам модуля
           </Link>
         </div>
@@ -251,7 +288,7 @@ export function ModuleTest({
     <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-bold text-white sm:text-xl">{moduleLabel}</h2>
-        <span className="text-sm font-semibold text-blue-300">
+        <span className={`text-sm font-semibold ${theme.accentText}`}>
           {correctCount} из {total} верных
         </span>
       </div>
@@ -265,7 +302,7 @@ export function ModuleTest({
         className="mt-5 h-1.5 w-full overflow-hidden rounded-full bg-white/10"
       >
         <div
-          className="h-full rounded-full bg-blue-600 transition-[width] duration-500"
+          className={`h-full rounded-full transition-[width] duration-500 ${theme.bar}`}
           style={{ width: `${progressPercent}%` }}
         />
       </div>
@@ -329,7 +366,7 @@ export function ModuleTest({
         <button
           type="button"
           onClick={goNext}
-          className="mt-6 inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
+          className={`mt-6 w-full sm:w-auto ${theme.primary}`}
         >
           {isLastQuestion ? "Завершить" : "Дальше"}
           <span aria-hidden>→</span>
