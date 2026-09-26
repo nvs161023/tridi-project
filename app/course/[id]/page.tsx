@@ -1,24 +1,19 @@
 import Link from "next/link";
 
 import { CompleteButton } from "@/components/course/CompleteButton";
-import { LessonBlocks, type LessonBlock } from "@/components/course/LessonBlocks";
+import { LessonBlocks } from "@/components/course/LessonBlocks";
 import courseProData from "@/data/course-pro.json";
 import { basicLessons } from "@/lib/basic-course";
 import { LESSON_FORMS, pluralize, summarizeCourse } from "@/lib/course-stats";
 
-type Lesson = {
-  id: number;
-  title: string;
-  duration: string;
-  module: string;
-  blocks: LessonBlock[];
-};
-
 /**
  * Уроки базового курса в плоском виде: lib/basic-course разворачивает модули из
  * data/lessons.json, поэтому страница работает как раньше — /course/lesson-N.
+ *
+ * Тип BasicLesson уже знает код модуля и признак последнего урока в модуле: по ним
+ * на последнем уроке модуля появляется кнопка «Проверь себя».
  */
-const lessons: Lesson[] = basicLessons;
+const lessons = basicLessons;
 const totalLessons = lessons.length;
 
 /** Сводка продвинутого курса для приглашения — считается по файлу курса. */
@@ -239,8 +234,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
           {isLastLesson ? (
             <div className="rounded-3xl border border-blue-500/40 bg-blue-500/10 p-7 text-center sm:p-9">
               <p className="text-2xl font-extrabold text-white sm:text-3xl">
-                <span aria-hidden>🎉</span> Курс пройден! Доступ к конструктору
-                открыт
+                <span aria-hidden>🏆</span> Курс пройден!
               </p>
               <p className="mt-4 text-base leading-relaxed text-slate-300">
                 Все {totalLessons} уроков позади. Осталось собрать свою первую
@@ -263,6 +257,19 @@ export default async function LessonPage({ params }: LessonPageProps) {
               label="Пройти урок"
             />
           )}
+
+          {/* Последний урок модуля: проверка знаний по модулю живёт на отдельной
+              странице /course/check/<код модуля>. */}
+          {lesson.isModuleLast ? (
+            <Link
+              href={`/course/check/${lesson.moduleId}`}
+              className="mt-4 inline-flex min-h-16 w-full items-center justify-center gap-3 rounded-full border-2 border-blue-500/60 bg-blue-500/10 px-9 text-lg font-semibold text-white transition-colors hover:border-blue-400 hover:bg-blue-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            >
+              <span aria-hidden>🎯</span>
+              Проверь себя
+              <span aria-hidden>→</span>
+            </Link>
+          ) : null}
         </div>
       </main>
     </div>

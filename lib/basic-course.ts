@@ -11,7 +11,7 @@
  * lesson_progress с lesson_id = 1…12 продолжают работать без миграций.
  */
 import lessonsData from "@/data/lessons.json";
-import type { BaseCourse, LessonBlock } from "@/lib/types";
+import type { BaseCourse, LessonBlock, MiniCheckQuestion } from "@/lib/types";
 
 /** Урок в том виде, в каком его ждут страницы базового курса. */
 export type BasicLesson = {
@@ -21,9 +21,26 @@ export type BasicLesson = {
   duration: string;
   /** Название модуля строкой — «Модуль 1: Знакомство». */
   module: string;
+  /** Код модуля («1»…«6»): он же адрес проверки — /course/check/<код>. */
+  moduleId: string;
+  /** Последний урок модуля: после него предлагаем «Проверь себя». */
+  isModuleLast: boolean;
   /** Уровень доступа: базовый курс бесплатный, у всех уроков "basic". */
   tier: string;
   blocks: LessonBlock[];
+};
+
+/** Модуль курса: название, уроки и тест по модулю. */
+export type BasicModuleInfo = {
+  moduleId: string;
+  /** «Модуль 1: Знакомство» — так модуль подписан и в уроках. */
+  label: string;
+  title: string;
+  description: string;
+  /** Номера уроков модуля по порядку. */
+  lessonIds: number[];
+  /** Тест по модулю: 10 вопросов, вынесены из уроков на страницу проверки. */
+  questions: MiniCheckQuestion[];
 };
 
 const course: BaseCourse = lessonsData;
@@ -45,12 +62,35 @@ const modules = [...course.modules]
  * старом файле курса, поэтому страницам не пришлось меняться.
  */
 export const basicLessons: BasicLesson[] = modules.flatMap((courseModule) =>
-  courseModule.lessons.map((lesson) => ({
+  courseModule.lessons.map((lesson, index) => ({
     id: Number(lesson.lesson_id),
     title: lesson.lesson_title,
     duration: lesson.duration,
     module: `Модуль ${courseModule.module_order}: ${courseModule.module_title}`,
+    moduleId: courseModule.module_id,
+    isModuleLast: index === courseModule.lessons.length - 1,
     tier: lesson.tier ?? "basic",
     blocks: lesson.blocks,
   })),
 );
+
+/** Модули курса по порядку — для страниц «Проверь себя» (/course/check/<код>). */
+export const basicCourseModules: BasicModuleInfo[] = modules.map(
+  (courseModule) => ({
+    moduleId: courseModule.module_id,
+    label: `Модуль ${courseModule.module_order}: ${courseModule.module_title}`,
+    title: courseModule.module_title,
+    description: courseModule.module_description,
+    lessonIds: courseModule.lessons.map((lesson) => Number(lesson.lesson_id)),
+    questions: courseModule.module_test?.questions ?? [],
+  }),
+);
+
+/** Модуль по коду из адреса или null, если такого модуля нет. */
+export function findBasicModule(moduleId: string): BasicModuleInfo | null {
+  return (
+    basicCourseModules.find(
+      (courseModule) => courseModule.moduleId === moduleId,
+    ) ?? null
+  );
+}
