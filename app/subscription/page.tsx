@@ -37,6 +37,7 @@ const proHoursLabel = proSummary.hours;
 
 const freeFeatures: string[] = [
   `Базовый курс (${basicModulesLabel}, ${basicLessonsLabel}, ${basicHoursLabel})`,
+  "Тесты модулей базового курса с пояснениями к каждому ответу",
   "Конструктор 3D-моделей — 3 скачивания/мес",
   "AI-диагностика — 1 запрос/мес",
 ];
@@ -53,6 +54,7 @@ const makerFeatures: string[] = [
 const proFeatures: string[] = [
   "Всё из Maker",
   `Продвинутый курс (${proModulesLabel}, ${proLessonsLabel}, ${proHoursLabel})`,
+  "Тесты модулей продвинутого курса с пояснениями к каждому ответу",
   "Пакетная генерация (50 моделей за раз)",
   "API-доступ",
   "Ранний доступ к новым функциям",
