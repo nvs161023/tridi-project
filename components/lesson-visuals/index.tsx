@@ -27,6 +27,14 @@ import { Basic7Image1 } from "./basic-7-image-1";
 import { Basic8Image0 } from "./basic-8-image-0";
 import { Basic9Image0 } from "./basic-9-image-0";
 import { Basic9Image1 } from "./basic-9-image-1";
+import { ProAA1Animation0 } from "./pro-A-A1-animation-0";
+import { ProAA1Image0 } from "./pro-A-A1-image-0";
+import { ProAA2Animation0 } from "./pro-A-A2-animation-0";
+import { ProAA2Image0 } from "./pro-A-A2-image-0";
+import { ProAA2Image1 } from "./pro-A-A2-image-1";
+import { ProABezABez1Animation0 } from "./pro-A-без-A-без1-animation-0";
+import { ProABezABez1Image0 } from "./pro-A-без-A-без1-image-0";
+import { ProABezABez2Image0 } from "./pro-A-без-A-без2-image-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -39,9 +47,11 @@ import type { VisualProps } from "./_Wrapper";
  * урока + номер блока в уроке) и лежит в отдельном файле.
  *
  * Базовый курс заполнен целиком: модули 1–6, уроки 1–15 — 27 визуализаций, у
- * каждого блока image/animation своя картинка. Продвинутый раздел пока пуст: для
- * его блоков возвращается null, и в карточке показывается заглушка с иконкой типа
- * блока — лучше заглушка, чем чужая картинка.
+ * каждого блока image/animation своя картинка. В продвинутом курсе начат пилот:
+ * модули A «Основы и история» и A-без «Безопасность база» — 8 визуализаций.
+ * Остальные блоки продвинутого курса пока без картинки: для них возвращается
+ * null, и в карточке показывается заглушка с иконкой типа блока — лучше
+ * заглушка, чем чужая картинка.
  * Новая визуализация = новый файл + одна строка в BASE_VISUALS или PRO_VISUALS.
  */
 export type { VisualProps } from "./_Wrapper";
@@ -111,15 +121,26 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * Визуализации продвинутого курса — Этап 2.
  *
  * Ключ: `pro-{модуль}-{урок}-{тип}-{номер}`, например `pro-A-A1-image-0` или
- * `pro-B-B1-animation-0`. Номер — порядковый номер блока этого типа внутри урока,
- * как и в базовом курсе.
+ * `pro-A-без-A-без1-image-0`. Номер — порядковый номер блока этого типа внутри
+ * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
+ * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Пока раздел пуст: каждый блок image/animation/screenshot/diagram рисуется в
- * карточке заглушкой с иконкой своего типа. Новая визуализация = новый файл
- * (components/lesson-visuals/pro-A-A1-image-0.tsx) плюс одна строка здесь.
+ * Заполнены два пилотных модуля: A (уроки A1, A2) и A-без (уроки A-без1, A-без2)
+ * — 8 визуализаций. Остальные блоки продвинутого курса рисуются заглушкой с
+ * иконкой своего типа. Новая визуализация = новый файл
+ * (components/lesson-visuals/pro-B-B1-image-0.tsx) плюс одна строка здесь.
  */
 const PRO_VISUALS: Record<string, VisualComponent> = {
-  // Этап 2: сюда добавляются pro-ключи.
+  // Модуль A «Основы и история»: история FDM и кинематика.
+  "pro-A-A1-image-0": ProAA1Image0,
+  "pro-A-A1-animation-0": ProAA1Animation0,
+  "pro-A-A2-image-0": ProAA2Image0,
+  "pro-A-A2-animation-0": ProAA2Animation0,
+  "pro-A-A2-image-1": ProAA2Image1,
+  // Модуль A-без «Безопасность база»: выбросы и вентиляция.
+  "pro-A-без-A-без1-image-0": ProABezABez1Image0,
+  "pro-A-без-A-без1-animation-0": ProABezABez1Animation0,
+  "pro-A-без-A-без2-image-0": ProABezABez2Image0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
