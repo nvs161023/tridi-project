@@ -118,8 +118,9 @@ export type ProCourse = {
   version: string;
   /**
    * Заявленные в файле числа. Показывать их нельзя — считать надёжнее по самим
-   * модулям: в текущей версии файла total_lessons заявляет 110 уроков, а лежит
-   * 109 (см. lib/course-stats.ts, summarizeCourse).
+   * модулям: поля легко отстают от содержимого (так уже было: total_lessons
+   * заявлял 110 уроков при 109 реальных). Совпадение полей с содержимым
+   * проверяет `npm run check:docs` (см. lib/course-stats.ts, summarizeCourse).
    */
   total_modules: number;
   total_lessons: number;

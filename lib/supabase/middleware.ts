@@ -12,8 +12,9 @@ import { isAuthPath, resolveAfterAuthPath } from "@/lib/auth-redirect";
 /**
  * Страницы, где нужен авторизованный пользователь.
  * Уроки (/course/*) тоже защищены: без входа курс не открыть.
+ * Конструктор (/constructor) — раздел подписки, вход нужен обязательно.
  */
-const PROTECTED_PATH_PREFIXES = ["/dashboard", "/course"]; // + "/constructor", когда появится
+const PROTECTED_PATH_PREFIXES = ["/dashboard", "/course", "/constructor"];
 
 /** Страница, куда отправляем неподтверждённых пользователей. */
 const VERIFY_EMAIL_PATH = "/auth/verify-email";
