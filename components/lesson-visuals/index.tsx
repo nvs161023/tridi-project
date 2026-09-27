@@ -77,6 +77,17 @@ import { ProHH3Image0 } from "./pro-H-H3-image-0";
 import { ProHH3Screenshot0 } from "./pro-H-H3-screenshot-0";
 import { ProHH4Animation0 } from "./pro-H-H4-animation-0";
 import { ProHH4Screenshot0 } from "./pro-H-H4-screenshot-0";
+import { ProII1Image0 } from "./pro-I-I1-image-0";
+import { ProII1Image1 } from "./pro-I-I1-image-1";
+import { ProII2Animation0 } from "./pro-I-I2-animation-0";
+import { ProII2Diagram0 } from "./pro-I-I2-diagram-0";
+import { ProII2Image0 } from "./pro-I-I2-image-0";
+import { ProII3Image0 } from "./pro-I-I3-image-0";
+import { ProII3Image1 } from "./pro-I-I3-image-1";
+import { ProII4Animation0 } from "./pro-I-I4-animation-0";
+import { ProII4Image0 } from "./pro-I-I4-image-0";
+import { ProII5Animation0 } from "./pro-I-I5-animation-0";
+import { ProII5Diagram0 } from "./pro-I-I5-diagram-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -168,11 +179,12 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
  * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Заполнены семь модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
+ * Заполнены восемь модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
  * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2), F (уроки F1–F5), G (уроки
- * G1–G4) и H (уроки H1–H4) — 50 визуализаций. Остальные блоки продвинутого
- * курса рисуются заглушкой с иконкой своего типа. Новая визуализация = новый
- * файл (components/lesson-visuals/pro-B-B1-image-0.tsx) плюс одна строка здесь.
+ * G1–G4), H (уроки H1–H4) и I (уроки I1–I5) — 61 визуализация. Остальные
+ * блоки продвинутого курса рисуются заглушкой с иконкой своего типа. Новая
+ * визуализация = новый файл (components/lesson-visuals/pro-B-B1-image-0.tsx)
+ * плюс одна строка здесь.
  */
 const PRO_VISUALS: Record<string, VisualComponent> = {
   // Модуль A «Основы и история»: история FDM и кинематика.
@@ -231,6 +243,18 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-H-H3-image-0": ProHH3Image0,
   "pro-H-H4-screenshot-0": ProHH4Screenshot0,
   "pro-H-H4-animation-0": ProHH4Animation0,
+  // Модуль I «Качество печати»: калибровки, заполнение, деление, дефекты.
+  "pro-I-I1-image-0": ProII1Image0,
+  "pro-I-I1-image-1": ProII1Image1,
+  "pro-I-I2-diagram-0": ProII2Diagram0,
+  "pro-I-I2-animation-0": ProII2Animation0,
+  "pro-I-I2-image-0": ProII2Image0,
+  "pro-I-I3-image-0": ProII3Image0,
+  "pro-I-I3-image-1": ProII3Image1,
+  "pro-I-I4-image-0": ProII4Image0,
+  "pro-I-I4-animation-0": ProII4Animation0,
+  "pro-I-I5-diagram-0": ProII5Diagram0,
+  "pro-I-I5-animation-0": ProII5Animation0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
