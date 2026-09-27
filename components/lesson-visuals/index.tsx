@@ -107,6 +107,10 @@ import { ProDD3Screenshot0 } from "./pro-D-D3-screenshot-0";
 import { ProDD3Animation0 } from "./pro-D-D3-animation-0";
 import { ProDD4Screenshot0 } from "./pro-D-D4-screenshot-0";
 import { ProDD4Animation0 } from "./pro-D-D4-animation-0";
+import { ProKK1Image0 } from "./pro-K-K1-image-0";
+import { ProKK1Image1 } from "./pro-K-K1-image-1";
+import { ProKK2Image0 } from "./pro-K-K2-image-0";
+import { ProKK2Image1 } from "./pro-K-K2-image-1";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -120,8 +124,8 @@ import type { VisualProps } from "./_Wrapper";
  *
  * Базовый курс заполнен целиком: модули 1–6, уроки 1–15 — 27 визуализаций, у
  * каждого блока image/animation своя картинка. В продвинутом курсе нарисованы
- * двенадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2, E-хим и D,
- * всего 80 визуализаций.
+ * тринадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2, E-хим, D и K,
+ * всего 84 визуализации.
  * Остальные блоки продвинутого курса пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
@@ -198,11 +202,11 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
  * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Заполнены двенадцать модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
+ * Заполнены тринадцать модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
  * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2), F (уроки F1–F5), G (уроки
  * G1–G4), H (уроки H1–H4), I (уроки I1–I5), C1 (уроки C1-1, C1-2), E2
- * (уроки E2-1–E2-4), E-хим (уроки E-хим1, E-хим2) и D (уроки D1–D4) —
- * 80 визуализаций. Остальные
+ * (уроки E2-1–E2-4), E-хим (уроки E-хим1, E-хим2), D (уроки D1–D4) и
+ * K (уроки K1, K2) — 84 визуализации. Остальные
  * блоки продвинутого курса рисуются заглушкой с иконкой своего типа. Новая
  * визуализация = новый файл (components/lesson-visuals/pro-B-B1-image-0.tsx)
  * плюс одна строка здесь.
@@ -299,6 +303,11 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-D-D3-animation-0": ProDD3Animation0,
   "pro-D-D4-screenshot-0": ProDD4Screenshot0,
   "pro-D-D4-animation-0": ProDD4Animation0,
+  // Модуль K «Постобработка»: способы финиша и покраска.
+  "pro-K-K1-image-0": ProKK1Image0,
+  "pro-K-K1-image-1": ProKK1Image1,
+  "pro-K-K2-image-0": ProKK2Image0,
+  "pro-K-K2-image-1": ProKK2Image1,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
