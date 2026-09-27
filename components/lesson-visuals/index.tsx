@@ -97,6 +97,8 @@ import { ProE2E22Animation0 } from "./pro-E2-E2-2-animation-0";
 import { ProE2E23Animation0 } from "./pro-E2-E2-3-animation-0";
 import { ProE2E23Image0 } from "./pro-E2-E2-3-image-0";
 import { ProE2E24Image0 } from "./pro-E2-E2-4-image-0";
+import { ProEHimEHim1Image0 } from "./pro-E-хим-E-хим1-image-0";
+import { ProEHimEHim2Image0 } from "./pro-E-хим-E-хим2-image-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -110,7 +112,8 @@ import type { VisualProps } from "./_Wrapper";
  *
  * Базовый курс заполнен целиком: модули 1–6, уроки 1–15 — 27 визуализаций, у
  * каждого блока image/animation своя картинка. В продвинутом курсе нарисованы
- * десять модулей — A, A-без, B, E1, F, G, H, I, C1 и E2, всего 70 визуализаций.
+ * одиннадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2 и E-хим, всего
+ * 72 визуализации.
  * Остальные блоки продвинутого курса пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
@@ -189,8 +192,8 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  *
  * Заполнены десять модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
  * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2), F (уроки F1–F5), G (уроки
- * G1–G4), H (уроки H1–H4), I (уроки I1–I5), C1 (уроки C1-1, C1-2) и E2
- * (уроки E2-1–E2-4) — 70 визуализаций. Остальные
+ * G1–G4), H (уроки H1–H4), I (уроки I1–I5), C1 (уроки C1-1, C1-2), E2
+ * (уроки E2-1–E2-4) и E-хим (уроки E-хим1, E-хим2) — 72 визуализации. Остальные
  * блоки продвинутого курса рисуются заглушкой с иконкой своего типа. Новая
  * визуализация = новый файл (components/lesson-visuals/pro-B-B1-image-0.tsx)
  * плюс одна строка здесь.
@@ -275,6 +278,9 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-E2-E2-3-animation-0": ProE2E23Animation0,
   "pro-E2-E2-3-image-0": ProE2E23Image0,
   "pro-E2-E2-4-image-0": ProE2E24Image0,
+  // Модуль E-хим «Химия и VOC»: СИЗ и утилизация отходов.
+  "pro-E-хим-E-хим1-image-0": ProEHimEHim1Image0,
+  "pro-E-хим-E-хим2-image-0": ProEHimEHim2Image0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
