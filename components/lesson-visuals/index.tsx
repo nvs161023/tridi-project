@@ -57,6 +57,17 @@ import { ProFF4Image0 } from "./pro-F-F4-image-0";
 import { ProFF4Screenshot0 } from "./pro-F-F4-screenshot-0";
 import { ProFF5Animation0 } from "./pro-F-F5-animation-0";
 import { ProFF5Screenshot0 } from "./pro-F-F5-screenshot-0";
+import { ProGG1Animation0 } from "./pro-G-G1-animation-0";
+import { ProGG1Image0 } from "./pro-G-G1-image-0";
+import { ProGG1Screenshot0 } from "./pro-G-G1-screenshot-0";
+import { ProGG2Image0 } from "./pro-G-G2-image-0";
+import { ProGG2Screenshot0 } from "./pro-G-G2-screenshot-0";
+import { ProGG3Animation0 } from "./pro-G-G3-animation-0";
+import { ProGG3Image0 } from "./pro-G-G3-image-0";
+import { ProGG3Screenshot0 } from "./pro-G-G3-screenshot-0";
+import { ProGG4Animation0 } from "./pro-G-G4-animation-0";
+import { ProGG4Image0 } from "./pro-G-G4-image-0";
+import { ProGG4Screenshot0 } from "./pro-G-G4-screenshot-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -148,10 +159,10 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
  * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Заполнены пять модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
- * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2) и F (уроки F1–F5) — 30
- * визуализаций. Остальные блоки продвинутого курса рисуются заглушкой с иконкой
- * своего типа. Новая визуализация = новый файл
+ * Заполнены шесть модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
+ * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2), F (уроки F1–F5) и G (уроки
+ * G1–G4) — 41 визуализация. Остальные блоки продвинутого курса
+ * рисуются заглушкой с иконкой своего типа. Новая визуализация = новый файл
  * (components/lesson-visuals/pro-B-B1-image-0.tsx) плюс одна строка здесь.
  */
 const PRO_VISUALS: Record<string, VisualComponent> = {
@@ -190,6 +201,18 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-F-F4-screenshot-0": ProFF4Screenshot0,
   "pro-F-F5-screenshot-0": ProFF5Screenshot0,
   "pro-F-F5-animation-0": ProFF5Animation0,
+  // Модуль G «Слайсеры — рельеф, швы, поверхности»: высота слоя и швы.
+  "pro-G-G1-image-0": ProGG1Image0,
+  "pro-G-G1-animation-0": ProGG1Animation0,
+  "pro-G-G1-screenshot-0": ProGG1Screenshot0,
+  "pro-G-G2-image-0": ProGG2Image0,
+  "pro-G-G2-screenshot-0": ProGG2Screenshot0,
+  "pro-G-G3-image-0": ProGG3Image0,
+  "pro-G-G3-animation-0": ProGG3Animation0,
+  "pro-G-G3-screenshot-0": ProGG3Screenshot0,
+  "pro-G-G4-image-0": ProGG4Image0,
+  "pro-G-G4-animation-0": ProGG4Animation0,
+  "pro-G-G4-screenshot-0": ProGG4Screenshot0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
