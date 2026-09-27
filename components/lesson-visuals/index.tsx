@@ -90,6 +90,13 @@ import { ProII5Animation0 } from "./pro-I-I5-animation-0";
 import { ProII5Diagram0 } from "./pro-I-I5-diagram-0";
 import { ProC1C11Image0 } from "./pro-C1-C1-1-image-0";
 import { ProC1C12Image0 } from "./pro-C1-C1-2-image-0";
+import { ProE2E21Image0 } from "./pro-E2-E2-1-image-0";
+import { ProE2E21Animation0 } from "./pro-E2-E2-1-animation-0";
+import { ProE2E22Image0 } from "./pro-E2-E2-2-image-0";
+import { ProE2E22Animation0 } from "./pro-E2-E2-2-animation-0";
+import { ProE2E23Animation0 } from "./pro-E2-E2-3-animation-0";
+import { ProE2E23Image0 } from "./pro-E2-E2-3-image-0";
+import { ProE2E24Image0 } from "./pro-E2-E2-4-image-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -103,7 +110,7 @@ import type { VisualProps } from "./_Wrapper";
  *
  * Базовый курс заполнен целиком: модули 1–6, уроки 1–15 — 27 визуализаций, у
  * каждого блока image/animation своя картинка. В продвинутом курсе нарисованы
- * девять модулей — A, A-без, B, E1, F, G, H, I и C1, всего 63 визуализации.
+ * десять модулей — A, A-без, B, E1, F, G, H, I, C1 и E2, всего 70 визуализаций.
  * Остальные блоки продвинутого курса пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
@@ -180,10 +187,10 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
  * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Заполнены девять модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
+ * Заполнены десять модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
  * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2), F (уроки F1–F5), G (уроки
- * G1–G4), H (уроки H1–H4), I (уроки I1–I5) и C1 (уроки C1-1, C1-2) —
- * 63 визуализации. Остальные
+ * G1–G4), H (уроки H1–H4), I (уроки I1–I5), C1 (уроки C1-1, C1-2) и E2
+ * (уроки E2-1–E2-4) — 70 визуализаций. Остальные
  * блоки продвинутого курса рисуются заглушкой с иконкой своего типа. Новая
  * визуализация = новый файл (components/lesson-visuals/pro-B-B1-image-0.tsx)
  * плюс одна строка здесь.
@@ -260,6 +267,14 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   // Модуль C1 «Базовое ТО»: смазки и карта обслуживания.
   "pro-C1-C1-1-image-0": ProC1C11Image0,
   "pro-C1-C1-2-image-0": ProC1C12Image0,
+  // Модуль E2 «Материалы продвинутые»: специальные материалы и термостойкость.
+  "pro-E2-E2-1-image-0": ProE2E21Image0,
+  "pro-E2-E2-1-animation-0": ProE2E21Animation0,
+  "pro-E2-E2-2-image-0": ProE2E22Image0,
+  "pro-E2-E2-2-animation-0": ProE2E22Animation0,
+  "pro-E2-E2-3-animation-0": ProE2E23Animation0,
+  "pro-E2-E2-3-image-0": ProE2E23Image0,
+  "pro-E2-E2-4-image-0": ProE2E24Image0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
