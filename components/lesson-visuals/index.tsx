@@ -99,6 +99,14 @@ import { ProE2E23Image0 } from "./pro-E2-E2-3-image-0";
 import { ProE2E24Image0 } from "./pro-E2-E2-4-image-0";
 import { ProEHimEHim1Image0 } from "./pro-E-хим-E-хим1-image-0";
 import { ProEHimEHim2Image0 } from "./pro-E-хим-E-хим2-image-0";
+import { ProDD1Screenshot0 } from "./pro-D-D1-screenshot-0";
+import { ProDD1Animation0 } from "./pro-D-D1-animation-0";
+import { ProDD2Screenshot0 } from "./pro-D-D2-screenshot-0";
+import { ProDD2Animation0 } from "./pro-D-D2-animation-0";
+import { ProDD3Screenshot0 } from "./pro-D-D3-screenshot-0";
+import { ProDD3Animation0 } from "./pro-D-D3-animation-0";
+import { ProDD4Screenshot0 } from "./pro-D-D4-screenshot-0";
+import { ProDD4Animation0 } from "./pro-D-D4-animation-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -112,8 +120,8 @@ import type { VisualProps } from "./_Wrapper";
  *
  * Базовый курс заполнен целиком: модули 1–6, уроки 1–15 — 27 визуализаций, у
  * каждого блока image/animation своя картинка. В продвинутом курсе нарисованы
- * одиннадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2 и E-хим, всего
- * 72 визуализации.
+ * двенадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2, E-хим и D,
+ * всего 80 визуализаций.
  * Остальные блоки продвинутого курса пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
@@ -190,10 +198,11 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
  * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Заполнены десять модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
+ * Заполнены двенадцать модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
  * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2), F (уроки F1–F5), G (уроки
  * G1–G4), H (уроки H1–H4), I (уроки I1–I5), C1 (уроки C1-1, C1-2), E2
- * (уроки E2-1–E2-4) и E-хим (уроки E-хим1, E-хим2) — 72 визуализации. Остальные
+ * (уроки E2-1–E2-4), E-хим (уроки E-хим1, E-хим2) и D (уроки D1–D4) —
+ * 80 визуализаций. Остальные
  * блоки продвинутого курса рисуются заглушкой с иконкой своего типа. Новая
  * визуализация = новый файл (components/lesson-visuals/pro-B-B1-image-0.tsx)
  * плюс одна строка здесь.
@@ -281,6 +290,15 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   // Модуль E-хим «Химия и VOC»: СИЗ и утилизация отходов.
   "pro-E-хим-E-хим1-image-0": ProEHimEHim1Image0,
   "pro-E-хим-E-хим2-image-0": ProEHimEHim2Image0,
+  // Модуль D «G-код и скрипты»: структура G-кода, стартовый код, макросы, постобработка.
+  "pro-D-D1-screenshot-0": ProDD1Screenshot0,
+  "pro-D-D1-animation-0": ProDD1Animation0,
+  "pro-D-D2-screenshot-0": ProDD2Screenshot0,
+  "pro-D-D2-animation-0": ProDD2Animation0,
+  "pro-D-D3-screenshot-0": ProDD3Screenshot0,
+  "pro-D-D3-animation-0": ProDD3Animation0,
+  "pro-D-D4-screenshot-0": ProDD4Screenshot0,
+  "pro-D-D4-animation-0": ProDD4Animation0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
