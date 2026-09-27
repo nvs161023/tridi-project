@@ -45,6 +45,18 @@ import { ProE1E11Animation0 } from "./pro-E1-E1-1-animation-0";
 import { ProE1E11Image0 } from "./pro-E1-E1-1-image-0";
 import { ProE1E12Animation0 } from "./pro-E1-E1-2-animation-0";
 import { ProE1E12Image0 } from "./pro-E1-E1-2-image-0";
+import { ProFF1Image0 } from "./pro-F-F1-image-0";
+import { ProFF1Screenshot0 } from "./pro-F-F1-screenshot-0";
+import { ProFF2Animation0 } from "./pro-F-F2-animation-0";
+import { ProFF2Diagram0 } from "./pro-F-F2-diagram-0";
+import { ProFF2Image0 } from "./pro-F-F2-image-0";
+import { ProFF3Diagram0 } from "./pro-F-F3-diagram-0";
+import { ProFF3Image0 } from "./pro-F-F3-image-0";
+import { ProFF3Screenshot0 } from "./pro-F-F3-screenshot-0";
+import { ProFF4Image0 } from "./pro-F-F4-image-0";
+import { ProFF4Screenshot0 } from "./pro-F-F4-screenshot-0";
+import { ProFF5Animation0 } from "./pro-F-F5-animation-0";
+import { ProFF5Screenshot0 } from "./pro-F-F5-screenshot-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -136,10 +148,10 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
  * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Заполнены четыре модуля: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
- * B (уроки B1, B2, B4) и E1 (уроки E1-1, E1-2) — 18 визуализаций. Остальные
- * блоки продвинутого курса рисуются заглушкой с иконкой своего типа. Новая
- * визуализация = новый файл
+ * Заполнены пять модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
+ * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2) и F (уроки F1–F5) — 30
+ * визуализаций. Остальные блоки продвинутого курса рисуются заглушкой с иконкой
+ * своего типа. Новая визуализация = новый файл
  * (components/lesson-visuals/pro-B-B1-image-0.tsx) плюс одна строка здесь.
  */
 const PRO_VISUALS: Record<string, VisualComponent> = {
@@ -165,6 +177,19 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-E1-E1-1-animation-0": ProE1E11Animation0,
   "pro-E1-E1-2-image-0": ProE1E12Image0,
   "pro-E1-E1-2-animation-0": ProE1E12Animation0,
+  // Модуль F «Слайсеры — базовые операции»: обзор программ и калибровки.
+  "pro-F-F1-image-0": ProFF1Image0,
+  "pro-F-F1-screenshot-0": ProFF1Screenshot0,
+  "pro-F-F2-diagram-0": ProFF2Diagram0,
+  "pro-F-F2-animation-0": ProFF2Animation0,
+  "pro-F-F2-image-0": ProFF2Image0,
+  "pro-F-F3-diagram-0": ProFF3Diagram0,
+  "pro-F-F3-screenshot-0": ProFF3Screenshot0,
+  "pro-F-F3-image-0": ProFF3Image0,
+  "pro-F-F4-image-0": ProFF4Image0,
+  "pro-F-F4-screenshot-0": ProFF4Screenshot0,
+  "pro-F-F5-screenshot-0": ProFF5Screenshot0,
+  "pro-F-F5-animation-0": ProFF5Animation0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
