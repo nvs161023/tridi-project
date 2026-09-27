@@ -112,7 +112,10 @@ export async function signInAction(
 
   // ВАЖНО: redirect() бросает служебное исключение Next.js, поэтому вызываем его
   // вне try/catch — иначе catch перехватит переход и он не состоится.
-  redirect(afterAuth);
+  // Путь кодируем: у нас есть кириллические модули (A-без, E-хим), а Node
+  // запрещает не-ASCII символы в заголовке Location — без encodeURI вход
+  // с возвратом в такой урок падал бы с 500 (ERR_INVALID_CHAR).
+  redirect(encodeURI(afterAuth));
 }
 
 /** Адрес страницы «проверьте почту» с сохранением возврата. */
@@ -206,7 +209,8 @@ export async function signUpAction(
     redirect(verifyEmailHref(afterAuth));
   }
 
-  redirect(afterAuth);
+  // Та же причина, что и во входе: кириллический путь кодируем для заголовка Location.
+  redirect(encodeURI(afterAuth));
 }
 
 /**
