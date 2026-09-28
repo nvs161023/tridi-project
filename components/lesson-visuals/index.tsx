@@ -111,6 +111,20 @@ import { ProKK1Image0 } from "./pro-K-K1-image-0";
 import { ProKK1Image1 } from "./pro-K-K1-image-1";
 import { ProKK2Image0 } from "./pro-K-K2-image-0";
 import { ProKK2Image1 } from "./pro-K-K2-image-1";
+import { ProMM1Image0 } from "./pro-M-M1-image-0";
+import { ProMM1Animation0 } from "./pro-M-M1-animation-0";
+import { ProMM2Image0 } from "./pro-M-M2-image-0";
+import { ProMM2Animation0 } from "./pro-M-M2-animation-0";
+import { ProMM3Image0 } from "./pro-M-M3-image-0";
+import { ProMM3Animation0 } from "./pro-M-M3-animation-0";
+import { ProMM4Image0 } from "./pro-M-M4-image-0";
+import { ProMM4Animation0 } from "./pro-M-M4-animation-0";
+import { ProMM5Image0 } from "./pro-M-M5-image-0";
+import { ProMM5Animation0 } from "./pro-M-M5-animation-0";
+import { ProMM6Image0 } from "./pro-M-M6-image-0";
+import { ProMM6Animation0 } from "./pro-M-M6-animation-0";
+import { ProMM7Image0 } from "./pro-M-M7-image-0";
+import { ProMM7Animation0 } from "./pro-M-M7-animation-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -124,8 +138,8 @@ import type { VisualProps } from "./_Wrapper";
  *
  * Базовый курс заполнен целиком: модули 1–6, уроки 1–15 — 27 визуализаций, у
  * каждого блока image/animation своя картинка. В продвинутом курсе нарисованы
- * тринадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2, E-хим, D и K,
- * всего 84 визуализации.
+ * четырнадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2, E-хим, D, K и M
+ * (все семь уроков), всего 98 визуализаций.
  * Остальные блоки продвинутого курса пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
@@ -202,11 +216,11 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
  * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Заполнены тринадцать модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
+ * Заполнены четырнадцать модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
  * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2), F (уроки F1–F5), G (уроки
  * G1–G4), H (уроки H1–H4), I (уроки I1–I5), C1 (уроки C1-1, C1-2), E2
- * (уроки E2-1–E2-4), E-хим (уроки E-хим1, E-хим2), D (уроки D1–D4) и
- * K (уроки K1, K2) — 84 визуализации. Остальные
+ * (уроки E2-1–E2-4), E-хим (уроки E-хим1, E-хим2), D (уроки D1–D4),
+ * K (уроки K1, K2) и M (уроки M1–M7) — 98 визуализаций. Остальные
  * блоки продвинутого курса рисуются заглушкой с иконкой своего типа. Новая
  * визуализация = новый файл (components/lesson-visuals/pro-B-B1-image-0.tsx)
  * плюс одна строка здесь.
@@ -308,6 +322,21 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-K-K1-image-1": ProKK1Image1,
   "pro-K-K2-image-0": ProKK2Image0,
   "pro-K-K2-image-1": ProKK2Image1,
+  // Модуль M «Дополнительное оборудование»: сканеры и фотограмметрия (партия 1 из 3).
+  "pro-M-M1-image-0": ProMM1Image0,
+  "pro-M-M1-animation-0": ProMM1Animation0,
+  "pro-M-M2-image-0": ProMM2Image0,
+  "pro-M-M2-animation-0": ProMM2Animation0,
+  "pro-M-M3-image-0": ProMM3Image0,
+  "pro-M-M3-animation-0": ProMM3Animation0,
+  "pro-M-M4-image-0": ProMM4Image0,
+  "pro-M-M4-animation-0": ProMM4Animation0,
+  "pro-M-M5-image-0": ProMM5Image0,
+  "pro-M-M5-animation-0": ProMM5Animation0,
+  "pro-M-M6-image-0": ProMM6Image0,
+  "pro-M-M6-animation-0": ProMM6Animation0,
+  "pro-M-M7-image-0": ProMM7Image0,
+  "pro-M-M7-animation-0": ProMM7Animation0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
