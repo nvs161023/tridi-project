@@ -125,6 +125,10 @@ import { ProMM6Image0 } from "./pro-M-M6-image-0";
 import { ProMM6Animation0 } from "./pro-M-M6-animation-0";
 import { ProMM7Image0 } from "./pro-M-M7-image-0";
 import { ProMM7Animation0 } from "./pro-M-M7-animation-0";
+import { ProLL1Image0 } from "./pro-L-L1-image-0";
+import { ProLL2Image0 } from "./pro-L-L2-image-0";
+import { ProLL3Animation0 } from "./pro-L-L3-animation-0";
+import { ProLL4Screenshot0 } from "./pro-L-L4-screenshot-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -138,8 +142,8 @@ import type { VisualProps } from "./_Wrapper";
  *
  * Базовый курс заполнен целиком: модули 1–6, уроки 1–15 — 27 визуализаций, у
  * каждого блока image/animation своя картинка. В продвинутом курсе нарисованы
- * четырнадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2, E-хим, D, K и M
- * (все семь уроков), всего 98 визуализаций.
+ * пятнадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2, E-хим, D, K, M и L
+ * (в последнем все четыре урока), всего 102 визуализации.
  * Остальные блоки продвинутого курса пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
@@ -220,7 +224,7 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2), F (уроки F1–F5), G (уроки
  * G1–G4), H (уроки H1–H4), I (уроки I1–I5), C1 (уроки C1-1, C1-2), E2
  * (уроки E2-1–E2-4), E-хим (уроки E-хим1, E-хим2), D (уроки D1–D4),
- * K (уроки K1, K2) и M (уроки M1–M7) — 98 визуализаций. Остальные
+ * K (уроки K1, K2), M (уроки M1–M7) и L (уроки L1–L4) — 102 визуализации. Остальные
  * блоки продвинутого курса рисуются заглушкой с иконкой своего типа. Новая
  * визуализация = новый файл (components/lesson-visuals/pro-B-B1-image-0.tsx)
  * плюс одна строка здесь.
@@ -337,6 +341,12 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-M-M6-animation-0": ProMM6Animation0,
   "pro-M-M7-image-0": ProMM7Image0,
   "pro-M-M7-animation-0": ProMM7Animation0,
+  // Модуль L «3D-моделирование — обзор»: дорожки программ, примеры моделей,
+  // морфинг прогресса и жест перетаскивания в Tinkercad.
+  "pro-L-L1-image-0": ProLL1Image0,
+  "pro-L-L2-image-0": ProLL2Image0,
+  "pro-L-L3-animation-0": ProLL3Animation0,
+  "pro-L-L4-screenshot-0": ProLL4Screenshot0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
