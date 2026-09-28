@@ -129,6 +129,14 @@ import { ProLL1Image0 } from "./pro-L-L1-image-0";
 import { ProLL2Image0 } from "./pro-L-L2-image-0";
 import { ProLL3Animation0 } from "./pro-L-L3-animation-0";
 import { ProLL4Screenshot0 } from "./pro-L-L4-screenshot-0";
+import { ProNN1Image0 } from "./pro-N-N1-image-0";
+import { ProNN2Image0 } from "./pro-N-N2-image-0";
+import { ProNN2Animation0 } from "./pro-N-N2-animation-0";
+import { ProNN3Image0 } from "./pro-N-N3-image-0";
+import { ProNN3Animation0 } from "./pro-N-N3-animation-0";
+import { ProNN4Screenshot0 } from "./pro-N-N4-screenshot-0";
+import { ProNN5Image0 } from "./pro-N-N5-image-0";
+import { ProNN6Image0 } from "./pro-N-N6-image-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -347,6 +355,16 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-L-L2-image-0": ProLL2Image0,
   "pro-L-L3-animation-0": ProLL3Animation0,
   "pro-L-L4-screenshot-0": ProLL4Screenshot0,
+  // Модуль N «Реверс-инжиниринг»: процесс съёма модели, подготовка и сканирование
+  // (партия 1 из 2: N1–N3).
+  "pro-N-N1-image-0": ProNN1Image0,
+  "pro-N-N2-image-0": ProNN2Image0,
+  "pro-N-N2-animation-0": ProNN2Animation0,
+  "pro-N-N3-image-0": ProNN3Image0,
+  "pro-N-N3-animation-0": ProNN3Animation0,
+  "pro-N-N4-screenshot-0": ProNN4Screenshot0,
+  "pro-N-N5-image-0": ProNN5Image0,
+  "pro-N-N6-image-0": ProNN6Image0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
