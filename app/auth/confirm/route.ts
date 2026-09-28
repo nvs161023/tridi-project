@@ -34,7 +34,8 @@ const ALLOWED_TYPES: EmailOtpType[] = [
 
 /** Адрес страницы статуса с параметрами: status=ok|error, next=куда вернуться. */
 function statusUrl(request: NextRequest, status: string, next: string): URL {
-  const url = new URL(VERIFY_EMAIL_PATH, request.url);
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? request.url;
+  const url = new URL(VERIFY_EMAIL_PATH, baseUrl);
   url.searchParams.set("status", status);
   url.searchParams.set("next", next);
 
