@@ -156,6 +156,17 @@ import { ProJJ5Image1 } from "./pro-J-J5-image-1";
 import { ProJJ5Image2 } from "./pro-J-J5-image-2";
 // Модуль T-тизер «Что можно продавать»: витрина с шестью товарами и ценниками.
 import { ProTTizerTTizer1Image0 } from "./pro-T-тизер-T-тизер1-image-0";
+// Модуль C2 «Серьёзный ремонт»: устройство платы и диагностика мультиметром,
+// замена деталей головы, разъёмы, пайка и замена ремня (уроки C2-1 — C2-5).
+import { ProC2C21Image0 } from "./pro-C2-C2-1-image-0";
+import { ProC2C21Animation0 } from "./pro-C2-C2-1-animation-0";
+import { ProC2C22Image0 } from "./pro-C2-C2-2-image-0";
+import { ProC2C22Animation0 } from "./pro-C2-C2-2-animation-0";
+import { ProC2C23Image0 } from "./pro-C2-C2-3-image-0";
+import { ProC2C23Animation0 } from "./pro-C2-C2-3-animation-0";
+import { ProC2C24Image0 } from "./pro-C2-C2-4-image-0";
+import { ProC2C24Animation0 } from "./pro-C2-C2-4-animation-0";
+import { ProC2C25Animation0 } from "./pro-C2-C2-5-animation-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -171,8 +182,9 @@ import type { VisualProps } from "./_Wrapper";
  * каждого блока image/animation своя картинка. В продвинутом курсе нарисованы
  * восемнадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2, E-хим, D, K, M,
  * L, N, U и J (в L нарисованы все четыре урока, в N — все восемь блоков, в U —
- * все три, в J — все пять уроков и все 12 блоков), плюс модуль T-тизер (единственный
- * его урок и единственный визуальный блок), всего 126 визуализаций.
+ * все три, в J — все пять уроков и все 12 блоков), плюс модуль T-тизер
+ * (единственный его урок и единственный визуальный блок) и первые два урока
+ * модуля C2 «Серьёзный ремонт» (партия 1 из 2) — всего 130 визуализаций.
  * Остальные блоки продвинутого курса пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
@@ -254,7 +266,9 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * G1–G4), H (уроки H1–H4), I (уроки I1–I5), C1 (уроки C1-1, C1-2), E2
  * (уроки E2-1–E2-4), E-хим (уроки E-хим1, E-хим2), D (уроки D1–D4),
  * K (уроки K1, K2), M (уроки M1–M7), L (уроки L1–L4), N (уроки N1–N6), U
- * (уроки U1–U3) и J (уроки J1–J5) — 125 визуализаций. Остальные блоки
+ * (уроки U1–U3) и J (уроки J1–J5), плюс модуль T-тизер (единственный его урок) —
+ * 126 визуализаций; модуль C2 «Серьёзный ремонт» нарисован целиком, все пять
+ * уроков (C2-1 — C2-5) — всего 135 визуализаций. Остальные блоки
  * продвинутого курса рисуются заглушкой с иконкой своего типа. Новая визуализация = новый файл
  * (components/lesson-visuals/pro-B-B1-image-0.tsx) плюс одна строка здесь.
  */
@@ -408,6 +422,18 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   // Модуль T-тизер «Что можно продавать»: витрина товаров с ценниками — шесть
   // ниш из списка урока (блоков в модуле всего один).
   "pro-T-тизер-T-тизер1-image-0": ProTTizerTTizer1Image0,
+  // Модуль C2 «Серьёзный ремонт»: устройство платы, диагностика мультиметром,
+  // замена деталей головы, разъёмы, пайка в разрезе и натяжение ремня (уроки
+  // C2-1 — C2-5).
+  "pro-C2-C2-1-image-0": ProC2C21Image0,
+  "pro-C2-C2-1-animation-0": ProC2C21Animation0,
+  "pro-C2-C2-2-image-0": ProC2C22Image0,
+  "pro-C2-C2-2-animation-0": ProC2C22Animation0,
+  "pro-C2-C2-3-image-0": ProC2C23Image0,
+  "pro-C2-C2-3-animation-0": ProC2C23Animation0,
+  "pro-C2-C2-4-image-0": ProC2C24Image0,
+  "pro-C2-C2-4-animation-0": ProC2C24Animation0,
+  "pro-C2-C2-5-animation-0": ProC2C25Animation0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
