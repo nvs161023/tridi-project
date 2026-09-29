@@ -142,6 +142,18 @@ import { ProNN6Image0 } from "./pro-N-N6-image-0";
 import { ProUU1Image0 } from "./pro-U-U1-image-0";
 import { ProUU2Image0 } from "./pro-U-U2-image-0";
 import { ProUU3Image0 } from "./pro-U-U3-image-0";
+import { ProJJ1Image0 } from "./pro-J-J1-image-0";
+import { ProJJ1Animation0 } from "./pro-J-J1-animation-0";
+import { ProJJ2Image0 } from "./pro-J-J2-image-0";
+import { ProJJ2Animation0 } from "./pro-J-J2-animation-0";
+import { ProJJ2Image1 } from "./pro-J-J2-image-1";
+import { ProJJ3Image0 } from "./pro-J-J3-image-0";
+import { ProJJ3Animation0 } from "./pro-J-J3-animation-0";
+import { ProJJ4Screenshot0 } from "./pro-J-J4-screenshot-0";
+import { ProJJ4Image0 } from "./pro-J-J4-image-0";
+import { ProJJ5Image0 } from "./pro-J-J5-image-0";
+import { ProJJ5Image1 } from "./pro-J-J5-image-1";
+import { ProJJ5Image2 } from "./pro-J-J5-image-2";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -234,13 +246,13 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
  * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Заполнены семнадцать модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
+ * Заполнены восемнадцать модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
  * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2), F (уроки F1–F5), G (уроки
  * G1–G4), H (уроки H1–H4), I (уроки I1–I5), C1 (уроки C1-1, C1-2), E2
  * (уроки E2-1–E2-4), E-хим (уроки E-хим1, E-хим2), D (уроки D1–D4),
- * K (уроки K1, K2), M (уроки M1–M7), L (уроки L1–L4), N (уроки N1–N6) и U
- * (уроки U1–U3) — 113 визуализаций. Остальные блоки продвинутого курса
- * рисуются заглушкой с иконкой своего типа. Новая визуализация = новый файл
+ * K (уроки K1, K2), M (уроки M1–M7), L (уроки L1–L4), N (уроки N1–N6), U
+ * (уроки U1–U3) и J (уроки J1–J5) — 125 визуализаций. Остальные блоки
+ * продвинутого курса рисуются заглушкой с иконкой своего типа. Новая визуализация = новый файл
  * (components/lesson-visuals/pro-B-B1-image-0.tsx) плюс одна строка здесь.
  */
 const PRO_VISUALS: Record<string, VisualComponent> = {
@@ -376,6 +388,20 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-U-U1-image-0": ProUU1Image0,
   "pro-U-U2-image-0": ProUU2Image0,
   "pro-U-U3-image-0": ProUU3Image0,
+  // Модуль J «Инженерные расчёты и прочность»: типы нагрузки, рёбра жёсткости,
+  // анизотропия, симуляция в Fusion 360 и разбор примеров (уроки J1–J5, все 12 блоков).
+  "pro-J-J1-image-0": ProJJ1Image0,
+  "pro-J-J1-animation-0": ProJJ1Animation0,
+  "pro-J-J2-image-0": ProJJ2Image0,
+  "pro-J-J2-animation-0": ProJJ2Animation0,
+  "pro-J-J2-image-1": ProJJ2Image1,
+  "pro-J-J3-image-0": ProJJ3Image0,
+  "pro-J-J3-animation-0": ProJJ3Animation0,
+  "pro-J-J4-screenshot-0": ProJJ4Screenshot0,
+  "pro-J-J4-image-0": ProJJ4Image0,
+  "pro-J-J5-image-0": ProJJ5Image0,
+  "pro-J-J5-image-1": ProJJ5Image1,
+  "pro-J-J5-image-2": ProJJ5Image2,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
