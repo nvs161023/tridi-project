@@ -38,6 +38,16 @@ const PANELS: Panel[] = [
 const PANEL_W = 145;
 const PANEL_H = 118;
 
+/** Плашка счётчика напряжения в нижнем правом углу кадра: подложка 86×30. */
+const METER = { x: 196, y: 148, w: 86, h: 30 };
+
+/** Шаги счётчика — по 10 МПа до предела PLA из блока «Формулы» урока: 50 МПа. */
+const STRESS_STEPS = [0, 10, 20, 30, 40, 50];
+
+/** Числа счётчика стоят в ряд с шагом 17 px: окно 17 px показывает одно значение. */
+const STRESS_STEP_X = 17;
+const STRESS_X = 210;
+
 /** Пластина: одна и та же деталь в обеих панелях, меняется только рисунок слоёв. */
 const PLATE = { dx: 48, dy: 33, w: 52, h: 56 };
 
@@ -83,7 +93,15 @@ function Plate({ panel }: { panel: Panel }) {
             />
           ))}
       {broken ? (
-        <path d={`M${x + 72},${plateY} ${CRACK}`} fill="none" stroke={accent} strokeWidth="2" />
+        <path
+          className="v-jj1a-crack"
+          d={`M${x + 72},${plateY} ${CRACK}`}
+          pathLength={1}
+          fill="none"
+          stroke={accent}
+          strokeWidth="2"
+          strokeDasharray="1"
+        />
       ) : null}
       <line x1={x + 26} y1={plateY} x2={x + 26} y2={plateY + PLATE.h} stroke="#94a3b8" strokeWidth="1.4" />
       <polygon points={`${x + 21},${plateY + 11} ${x + 31},${plateY + 11} ${x + 26},${plateY}`} fill="#94a3b8" />
@@ -100,17 +118,68 @@ function Plate({ panel }: { panel: Panel }) {
  * Внизу — вывод урока. Стрелки разрыва в обеих панелях одинаковые: меняется
  * только ориентация слоёв.
  *
+ * Анимация 8 с, по кругу: трещина на левой пластине растёт сверху вниз вдоль
+ * границы слоя, счётчик внизу справа отсчитывает напряжение от 0 до 50 МПа —
+ * предел PLA из блока «Формулы» этого же урока, — а после четвёртой секунды в
+ * правой панели проявляется врезка «держит». К концу цикла кадр возвращается в
+ * начало: трещины нет, счётчик на нуле. При prefers-reduced-motion показан финал:
+ * трещина доросла, счётчик стоит на 50 МПа, врезка видна.
+ *
+ * Счётчик устроен как окно: числа стоят в ряд с шагом 17 px и ползут влево, в
+ * окне 17 px видно только текущее значение. Окно — clipPath, само оно в кадре не
+ * рисуется. Клип висит на неподвижной обёртке, едет внутренняя группа: иначе окно
+ * уезжало бы вместе со строкой чисел.
+ *
  * От pro-J-J1-image-0 отличается тем, что там четыре схемы нагрузки и правила к
  * ним, а здесь одна деталь до и после поворота — с трещиной и без.
+ *
+ * Классы с префиксом v-jj1a: <style> внутри SVG действует на всю страницу.
  */
 export function ProJJ1Animation0({ title, animated }: VisualProps) {
   return (
     <VisualWrapper
       title={title}
-      ariaLabel="Как ломается деталь, диптих из одной и той же пластины: слева нагрузка идёт по слоям и трещина проходит вдоль слоя — деталь ломается; справа та же деталь повёрнута на 90 градусов, нагрузка идёт поперёк слоёв — пластина держит; внизу вывод: ориентация важнее заполнения, поворот на 90 градусов меняет всё"
+      ariaLabel="Анимация: трещина растёт вдоль границы слоя и ломает деталь, счётчик напряжения поднимается с нуля до 50 МПа, а после четвёртой секунды появляется врезка «держит» — та же деталь, повёрнутая на 90 градусов, держит нагрузку; внизу вывод: ориентация важнее заполнения, поворот на 90 градусов меняет всё"
       animated={animated}
     >
       <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true" fontFamily={FONT}>
+        <style>{`
+          .v-jj1a-crack { animation: v-jj1a-crack 8s linear infinite; }
+          @keyframes v-jj1a-crack {
+            0%, 6% { stroke-dashoffset: 1; }
+            50%, 96% { stroke-dashoffset: 0; }
+            100% { stroke-dashoffset: 1; }
+          }
+          .v-jj1a-hold { animation: v-jj1a-hold 8s linear infinite; }
+          @keyframes v-jj1a-hold {
+            0%, 48% { opacity: 0.25; }
+            52%, 94% { opacity: 1; }
+            100% { opacity: 0.25; }
+          }
+          .v-jj1a-value { animation: v-jj1a-value 8s linear infinite; }
+          @keyframes v-jj1a-value {
+            0%, 6% { transform: translateX(0); }
+            12%, 17% { transform: translateX(-17px); }
+            23%, 28% { transform: translateX(-34px); }
+            34%, 39% { transform: translateX(-51px); }
+            45%, 49% { transform: translateX(-68px); }
+            54%, 94% { transform: translateX(-85px); }
+            100% { transform: translateX(0); }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .v-jj1a-crack { animation: none; stroke-dashoffset: 0; }
+            .v-jj1a-hold { animation: none; opacity: 1; }
+            .v-jj1a-value { animation: none; transform: translateX(-85px); }
+          }
+        `}</style>
+
+        {/* Окно счётчика: clipPath в кадре не рисуется, rect задаёт видимую рамку окна. */}
+        <defs>
+          <clipPath id="v-jj1a-window">
+            <rect x="202" y="163" width="17" height="13" />
+          </clipPath>
+        </defs>
+
         <rect x="0.5" y="0.5" width="319" height="179" rx="12" fill="#1e293b" fillOpacity="0.5" stroke="#475569" />
         <text x="12" y="16" fontSize="10" fill="#94a3b8">
           одна и та же деталь, две ориентации
@@ -124,6 +193,7 @@ export function ProJJ1Animation0({ title, animated }: VisualProps) {
             </text>
             <Plate panel={panel} />
             <text
+              className={panel.broken ? undefined : "v-jj1a-hold"}
               x={panel.x + 72}
               y={panel.y + 106}
               fontSize="10"
@@ -136,9 +206,35 @@ export function ProJJ1Animation0({ title, animated }: VisualProps) {
           </g>
         ))}
 
-        <text x="12" y="168" fontSize="9" fill="#94a3b8">
-          ориентация важнее заполнения — поворот на 90° меняет всё
+        <text x="12" y="156" fontSize="9" fill="#94a3b8">
+          ориентация важнее заполнения —
         </text>
+        <text x="12" y="170" fontSize="9" fill="#94a3b8">
+          поворот на 90° меняет всё
+        </text>
+
+        {/* Счётчик напряжения: число ползёт от 0 до 50 МПа по мере роста трещины */}
+        <rect x={METER.x} y={METER.y} width={METER.w} height={METER.h} rx="6" fill="#0f172a" stroke="#334155" />
+        <text x="204" y="158" fontSize="8.5" fill="#94a3b8">
+          напряжение, МПа
+        </text>
+        <g clipPath="url(#v-jj1a-window)">
+          <g className="v-jj1a-value">
+            {STRESS_STEPS.map((value, index) => (
+              <text
+                key={`stress-${value}`}
+                x={STRESS_X + index * STRESS_STEP_X}
+                y="173"
+                fontSize="10"
+                fontWeight="bold"
+                fill="#6ee7b7"
+                textAnchor="middle"
+              >
+                {value}
+              </text>
+            ))}
+          </g>
+        </g>
       </svg>
     </VisualWrapper>
   );

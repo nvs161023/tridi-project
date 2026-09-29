@@ -56,6 +56,12 @@ const RIBS: Rib[] = [
 const PANEL_W = 145;
 const PANEL_H = 60;
 
+/** Шаг строк «применение»: кегль 8,5 плюс просвет 5 px, чтобы строки не слипались. */
+const RULE_STEP = 13.5;
+
+/** Верхняя строка колонки: две строки стоят по обе стороны от центра панели. */
+const RULE_START = 42 - RULE_STEP / 2;
+
 /** Пластина, на которой видны рёбра: 56×28 внутри панели. */
 const PLATE = { dx: 10, dy: 28, w: 56, h: 28 };
 
@@ -223,7 +229,7 @@ export function ProJJ2Image0({ title, animated }: VisualProps) {
               <text
                 key={`${rib.name}-${line}`}
                 x={rib.x + 74}
-                y={rib.y + 36 + index * 12}
+                y={rib.y + RULE_START + index * RULE_STEP}
                 fontSize="8.5"
                 fill="#cbd5e1"
               >
