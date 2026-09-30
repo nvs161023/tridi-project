@@ -19,6 +19,10 @@ import { createClient } from "@/lib/supabase/server";
  * клиентский components/EmailLinkHandler.tsx: фрагмент не доходит до сервера.
  * Поэтому при отсутствии параметров ошибку не показываем, а уводим на страницу
  * статуса: она скажет «завершаем подтверждение» и даст запросить новое письмо.
+ *
+ * Если Supabase сообщил об ошибке прямо в адресе (?error=…&error_code=…), токен
+ * проверять уже нечего (так бывает, когда ссылку открыл почтовый сервис) — сразу
+ * показываем форму ввода кода из письма (status=link_failed).
  */
 const VERIFY_EMAIL_PATH = "/auth/verify-email";
 
@@ -32,7 +36,7 @@ const ALLOWED_TYPES: EmailOtpType[] = [
   "magiclink",
 ];
 
-/** Адрес страницы статуса с параметрами: status=ok|error, next=куда вернуться. */
+/** Адрес страницы статуса с параметрами: status=ok|error|link_failed|checking, next=куда вернуться. */
 function statusUrl(request: NextRequest, status: string, next: string): URL {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? request.url;
   const url = new URL(VERIFY_EMAIL_PATH, baseUrl);
@@ -53,6 +57,21 @@ export async function GET(request: NextRequest) {
   const afterConfirm = resolveAfterAuthPath(
     searchParams.get("next") ?? searchParams.get("redirect_to"),
   );
+
+  // Supabase умеет сообщать о неудаче прямо в адресе — например,
+  // ?error=access_denied&error_code=otp_expired. Это типичный случай, когда ссылку
+  // уже открыл почтовый сервис (Mail.ru и подобные) и одноразовый токен сгорел.
+  // Проверять здесь нечего: уводим на страницу статуса, где есть форма ввода кода.
+  const supabaseError =
+    searchParams.get("error") ?? searchParams.get("error_code");
+
+  if (supabaseError) {
+    console.warn("Ссылка из письма пришла с ошибкой Supabase:", supabaseError);
+
+    return NextResponse.redirect(
+      statusUrl(request, "link_failed", afterConfirm),
+    );
+  }
 
   if (!tokenHash && !code) {
     // Токены, скорее всего, во фрагменте — их обработает клиентский обработчик.

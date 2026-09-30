@@ -4,6 +4,7 @@ import Link from "next/link";
 import { authHref, safeNextPath } from "@/lib/auth-redirect";
 import { LEGAL_OPERATOR } from "@/lib/legal";
 
+import { OtpForm } from "./OtpForm";
 import { ResendForm } from "./ResendForm";
 
 export const metadata: Metadata = {
@@ -31,7 +32,9 @@ type VerifyEmailPageProps = {
  *     закрыт и человека отправляют сюда.
  *
  * Полезное действие на любой из этих случаев одно: запросить новое письмо, если
- * прежнее не пришло или ссылка испортилась.
+ * прежнее не пришло или ссылка испортилась. Если ссылка уже сгорела (например,
+ * её открыл почтовый сервис), адрес можно подтвердить кодом из письма — форма
+ * ввода кода показана в состоянии «ссылка не сработала».
  */
 export default async function VerifyEmailPage({
   searchParams,
@@ -39,10 +42,19 @@ export default async function VerifyEmailPage({
   const { status, next: rawNext } = await searchParams;
   const next = safeNextPath(rawNext);
   const continueHref = next ?? "/dashboard";
+  // Прямая ссылка на ввод кода: нужна, когда ссылка уже использована, а статус
+  // остался «завершаем подтверждение» (например, ошибка пришла во фрагменте
+  // адреса, который видит только браузер).
+  const manualCodeHref = next
+    ? `/auth/verify-email?status=link_failed&next=${encodeURIComponent(next)}`
+    : "/auth/verify-email?status=link_failed";
 
   const isConfirmed = status === "ok";
   const isChecking = status === "checking";
-  const hasError = status === "error";
+  // status=error приходит, когда /auth/confirm не смог проверить токен, а
+  // link_failed — когда Supabase сам сообщил об ошибке в адресе (?error=…).
+  // Ссылка в обоих случаях уже непригодна, поэтому её заменяет ввод кода.
+  const hasError = status === "error" || status === "link_failed";
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -90,9 +102,10 @@ export default async function VerifyEmailPage({
 
               {hasError ? (
                 <p className="mt-3 text-base leading-relaxed text-slate-300">
-                  Возможно, ссылка истекла или уже была использована — так бывает,
-                  если открыть письмо повторно. Запросите новое письмо: оно придёт
-                  на тот же адрес.
+                  Возможно, ссылка уже была использована или устарела. Это часто
+                  случается с почтовыми сервисами (например, Mail.ru), которые
+                  автоматически проверяют ссылки в письмах. Введите код
+                  подтверждения из письма.
                 </p>
               ) : isChecking ? (
                 <p className="mt-3 text-base leading-relaxed text-slate-300">
@@ -106,10 +119,21 @@ export default async function VerifyEmailPage({
                 </p>
               )}
 
-              {isChecking ? (
+              {hasError ? (
+                // Ссылка уже сгорела: подтверждаем адрес кодом из письма — он
+                // действует отдельно от ссылки.
+                <OtpForm next={continueHref} />
+              ) : isChecking ? (
                 <p className="mt-4 text-sm leading-relaxed text-slate-400">
                   Если через несколько секунд ничего не произошло, ссылка, скорее
-                  всего, уже использована — запросите новое письмо ниже.
+                  всего, уже использована — введите код из письма{" "}
+                  <Link
+                    href={manualCodeHref}
+                    className="font-semibold text-blue-400 transition-colors hover:text-blue-300"
+                  >
+                    вручную
+                  </Link>
+                  .
                 </p>
               ) : (
                 <ul className="mt-5 list-disc space-y-2 pl-6 text-sm leading-relaxed text-slate-400 marker:text-slate-500">
