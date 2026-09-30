@@ -80,6 +80,17 @@ export function LoginForm({ next = null }: LoginFormProps) {
         />
       </div>
 
+      {/* Частый случай: пароль забыт. Ведём на страницу, где можно запросить письмо
+          со ссылкой для сброса: ответ формы там всегда нейтральный. */}
+      <p className="text-right text-sm">
+        <Link
+          href="/auth/forgot-password"
+          className="font-semibold text-blue-400 transition-colors hover:text-blue-300"
+        >
+          Забыли пароль?
+        </Link>
+      </p>
+
       {state.error ? (
         <p
           role="alert"

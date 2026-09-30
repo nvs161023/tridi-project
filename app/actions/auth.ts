@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { resolveAfterAuthPath } from "@/lib/auth-redirect";
-import { buildEmailRedirectUrl } from "@/lib/site-url";
+import { buildEmailRedirectUrl, resolveSiteUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/server";
 import type { AuthFormState } from "@/app/actions/auth-state";
 
@@ -267,6 +267,70 @@ export async function resendVerificationAction(
 
   return {
     info: `Если адрес ${email} зарегистрирован и ещё не подтверждён, письмо отправлено — проверьте почту и папку «Спам».`,
+    values: { email },
+  };
+}
+
+/**
+ * Письмо со ссылкой для сброса пароля.
+ *
+ * Ответ всегда нейтральный: Supabase не сообщает, зарегистрирован ли адрес, и форма
+ * не должна превращаться в способ проверять чужие адреса. Отдельно показываем
+ * только лимит отправок — он не выдаёт существование аккаунта, зато объясняет, что
+ * делать дальше.
+ *
+ * redirectTo ведёт на нашу страницу /auth/reset-password — там ссылку подтверждает
+ * кнопка. Причина та же, что и у подтверждения email: ссылку из письма может
+ * открыть почтовый сервис, который проверяет письма автоматически, и одноразовый
+ * токен сгорел бы раньше, чем письмо прочитает человек.
+ */
+export async function resetPasswordAction(
+  _prevState: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  const email = String(formData.get("email") ?? "").trim();
+
+  if (email.length === 0) {
+    return { error: "Укажите email, на который зарегистрирован аккаунт." };
+  }
+
+  const supabase = await createClient();
+  // Адрес сайта определяет lib/site-url.ts: NEXT_PUBLIC_SITE_URL → (в разработке)
+  // хост запроса → боевой домен. Так письмо с локального сервера не уводит человека
+  // на продовый домен и наоборот.
+  const siteUrl = await resolveSiteUrl();
+
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${siteUrl}/auth/reset-password`,
+    });
+
+    if (error) {
+      const normalized = error.message.toLowerCase();
+
+      if (
+        normalized.includes("rate limit") ||
+        normalized.includes("too many requests")
+      ) {
+        return {
+          error: "Письмо уже отправлено. Подождите минуту и попробуйте снова.",
+          values: { email },
+        };
+      }
+
+      console.warn("Письмо для сброса пароля не отправлено:", error.message);
+
+      return {
+        error: "Не удалось отправить письмо. Проверьте адрес и попробуйте ещё раз.",
+        values: { email },
+      };
+    }
+  } catch {
+    return { error: NETWORK_ERROR_MESSAGE, values: { email } };
+  }
+
+  return {
+    info: "Если аккаунт существует, мы отправили письмо. Проверьте почту.",
     values: { email },
   };
 }
