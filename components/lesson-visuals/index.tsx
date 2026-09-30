@@ -173,6 +173,19 @@ import { ProCPozhCPozh1Image0 } from "./pro-C-пож-C-пож1-image-0";
 import { ProCPozhCPozh1Animation0 } from "./pro-C-пож-C-пож1-animation-0";
 import { ProCPozhCPozh2Image0 } from "./pro-C-пож-C-пож2-image-0";
 import { ProCPozhCPozh2Animation0 } from "./pro-C-пож-C-пож2-animation-0";
+// Модуль O «Апгрейды и производство»: схема апгрейдов по узлам принтера, бег
+// головы со шлейфом, четыре системы смены пластин и циклограмма смены
+// (партия 1 из 2: O1–O2).
+import { ProOO1Image0 } from "./pro-O-O1-image-0";
+import { ProOO1Animation0 } from "./pro-O-O1-animation-0";
+import { ProOO2Image0 } from "./pro-O-O2-image-0";
+import { ProOO2Animation0 } from "./pro-O-O2-animation-0";
+import { ProOO3Image0 } from "./pro-O-O3-image-0";
+import { ProOO3Animation0 } from "./pro-O-O3-animation-0";
+import { ProOO4Image0 } from "./pro-O-O4-image-0";
+import { ProOO4Animation0 } from "./pro-O-O4-animation-0";
+import { ProOO5Image0 } from "./pro-O-O5-image-0";
+import { ProOO5Animation0 } from "./pro-O-O5-animation-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -449,6 +462,20 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-C-пож-C-пож1-animation-0": ProCPozhCPozh1Animation0,
   "pro-C-пож-C-пож2-image-0": ProCPozhCPozh2Image0,
   "pro-C-пож-C-пож2-animation-0": ProCPozhCPozh2Animation0,
+  // Модуль O «Апгрейды и производство»: точки апгрейдов, сгруппированные по узлам
+  // машины, шлейф за головой на двух скоростях, четыре съёмника пластины вокруг
+  // пластины-героя и циклограмма «с оператором против 24/7»
+  // (уроки O1 и O2 — партия 1 из 2, 4 блока из 10).
+  "pro-O-O1-image-0": ProOO1Image0,
+  "pro-O-O1-animation-0": ProOO1Animation0,
+  "pro-O-O2-image-0": ProOO2Image0,
+  "pro-O-O2-animation-0": ProOO2Animation0,
+  "pro-O-O3-image-0": ProOO3Image0,
+  "pro-O-O3-animation-0": ProOO3Animation0,
+  "pro-O-O4-image-0": ProOO4Image0,
+  "pro-O-O4-animation-0": ProOO4Animation0,
+  "pro-O-O5-image-0": ProOO5Image0,
+  "pro-O-O5-animation-0": ProOO5Animation0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
