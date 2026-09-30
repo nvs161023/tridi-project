@@ -188,13 +188,20 @@ import { ProOO5Image0 } from "./pro-O-O5-image-0";
 import { ProOO5Animation0 } from "./pro-O-O5-animation-0";
 // Модуль P «Сетевые технологии и мониторинг»: окно OctoPrint в браузере, запуск
 // печати с телефона, панель Mainsail с пультом макросов, каркас printer.cfg с
-// видимыми пробелами и окно просчёта вперёд у Klipper
-// (партия 1 из 2: уроки P1–P2, 5 блоков из 11).
+// видимыми пробелами, окно просчёта вперёд у Klipper, схема доступа через VPN,
+// окно AI-мониторинга Obico со «спагетти», уведомление в Telegram и ползунок
+// в конце печати (уроки P1–P5 — все 11 визуальных блоков модуля).
 import { ProPP1Image0 } from "./pro-P-P1-image-0";
 import { ProPP1Animation0 } from "./pro-P-P1-animation-0";
 import { ProPP2Screenshot0 } from "./pro-P-P2-screenshot-0";
 import { ProPP2Screenshot1 } from "./pro-P-P2-screenshot-1";
 import { ProPP2Animation0 } from "./pro-P-P2-animation-0";
+import { ProPP3Image0 } from "./pro-P-P3-image-0";
+import { ProPP3Animation0 } from "./pro-P-P3-animation-0";
+import { ProPP4Image0 } from "./pro-P-P4-image-0";
+import { ProPP4Animation0 } from "./pro-P-P4-animation-0";
+import { ProPP5Screenshot0 } from "./pro-P-P5-screenshot-0";
+import { ProPP5Animation0 } from "./pro-P-P5-animation-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -214,8 +221,8 @@ import type { VisualProps } from "./_Wrapper";
  * (единственный его урок и единственный визуальный блок), модули C2 «Серьёзный
  * ремонт» (все пять уроков, 9 блоков) и C-пож «Пожарная безопасность» (оба урока,
  * 4 блока), модуль O «Апгрейды и производство» (все пять уроков, 10 блоков) и
- * модуль P «Сетевые технологии и мониторинг» (уроки P1 и P2 — партия 1 из 2,
- * 5 блоков из 11) — всего 154 визуализации.
+ * модуль P «Сетевые технологии и мониторинг» (уроки P1–P5 — все 11 блоков
+ * модуля) — всего 160 визуализаций.
  * Остальные блоки продвинутого курса пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
@@ -292,16 +299,14 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * урока, как и в базовом курсе. Коды модулей берутся из данных как есть, поэтому
  * в них бывает кириллица («A-без», «C-пож»), а в именах файлов — тоже.
  *
- * Заполнены восемнадцать модулей: A (уроки A1, A2), A-без (уроки A-без1, A-без2),
- * B (уроки B1, B2, B4), E1 (уроки E1-1, E1-2), F (уроки F1–F5), G (уроки
- * G1–G4), H (уроки H1–H4), I (уроки I1–I5), C1 (уроки C1-1, C1-2), E2
- * (уроки E2-1–E2-4), E-хим (уроки E-хим1, E-хим2), D (уроки D1–D4),
- * K (уроки K1, K2), M (уроки M1–M7), L (уроки L1–L4), N (уроки N1–N6), U
- * (уроки U1–U3) и J (уроки J1–J5), плюс модуль T-тизер (единственный его урок) —
- * 126 визуализаций; модули C2 «Серьёзный ремонт» (все пять уроков C2-1 — C2-5) и
- * C-пож «Пожарная безопасность» (оба урока C-пож1 и C-пож2) нарисованы целиком —
- * всего 139 визуализаций. Остальные блоки
- * продвинутого курса рисуются заглушкой с иконкой своего типа. Новая визуализация = новый файл
+ * Заполнены модули A (уроки A1, A2), A-без (A-без1, A-без2), B (B1, B2, B4),
+ * E1 (E1-1, E1-2), F (F1–F5), G (G1–G4), H (H1–H4), I (I1–I5), C1 (C1-1, C1-2),
+ * E2 (E2-1–E2-4), E-хим (E-хим1, E-хим2), D (D1–D4), K (K1, K2), M (M1–M7),
+ * L (L1–L4), N (N1–N6), U (U1–U3), J (J1–J5), T-тизер (единственный его урок),
+ * C2 «Серьёзный ремонт» (C2-1 — C2-5), C-пож «Пожарная безопасность» (C-пож1,
+ * C-пож2), O «Апгрейды и производство» (O1–O5) и P «Сетевые технологии и
+ * мониторинг» (P1–P5) — 160 визуализаций. Остальные блоки продвинутого курса
+ * рисуются заглушкой с иконкой своего типа. Новая визуализация = новый файл
  * (components/lesson-visuals/pro-C-пож-C-пож1-image-0.tsx) плюс одна строка здесь.
  */
 const PRO_VISUALS: Record<string, VisualComponent> = {
@@ -489,13 +494,22 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-O-O5-animation-0": ProOO5Animation0,
   // Модуль P «Сетевые технологии и мониторинг»: окно браузера с адресной строкой
   // octopi.local, запуск печати с телефона, панель Mainsail с пультом макросов
-  // START_PRINT/PAUSE/RESUME/END_PRINT, каркас printer.cfg с пробелами-точками
-  // и окно просчёта вперёд (уроки P1 и P2 — партия 1 из 2, 5 блоков из 11).
+  // START_PRINT/PAUSE/RESUME/END_PRINT, каркас printer.cfg с пробелами-точками,
+  // окно просчёта вперёд, схема «телефон → VPN → домашняя сеть → принтер»,
+  // подключение по туннелю, окно Obico со «спагетти», четыре ступени
+  // «дефект → камера → AI → стоп», окно переписки с ботом и ползунок в конце
+  // печати (уроки P1–P5 — все 11 визуальных блоков модуля).
   "pro-P-P1-image-0": ProPP1Image0,
   "pro-P-P1-animation-0": ProPP1Animation0,
   "pro-P-P2-screenshot-0": ProPP2Screenshot0,
   "pro-P-P2-screenshot-1": ProPP2Screenshot1,
   "pro-P-P2-animation-0": ProPP2Animation0,
+  "pro-P-P3-image-0": ProPP3Image0,
+  "pro-P-P3-animation-0": ProPP3Animation0,
+  "pro-P-P4-image-0": ProPP4Image0,
+  "pro-P-P4-animation-0": ProPP4Animation0,
+  "pro-P-P5-screenshot-0": ProPP5Screenshot0,
+  "pro-P-P5-animation-0": ProPP5Animation0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
