@@ -186,6 +186,15 @@ import { ProOO4Image0 } from "./pro-O-O4-image-0";
 import { ProOO4Animation0 } from "./pro-O-O4-animation-0";
 import { ProOO5Image0 } from "./pro-O-O5-image-0";
 import { ProOO5Animation0 } from "./pro-O-O5-animation-0";
+// Модуль P «Сетевые технологии и мониторинг»: окно OctoPrint в браузере, запуск
+// печати с телефона, панель Mainsail с пультом макросов, каркас printer.cfg с
+// видимыми пробелами и окно просчёта вперёд у Klipper
+// (партия 1 из 2: уроки P1–P2, 5 блоков из 11).
+import { ProPP1Image0 } from "./pro-P-P1-image-0";
+import { ProPP1Animation0 } from "./pro-P-P1-animation-0";
+import { ProPP2Screenshot0 } from "./pro-P-P2-screenshot-0";
+import { ProPP2Screenshot1 } from "./pro-P-P2-screenshot-1";
+import { ProPP2Animation0 } from "./pro-P-P2-animation-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -204,7 +213,9 @@ import type { VisualProps } from "./_Wrapper";
  * все три, в J — все пять уроков и все 12 блоков), плюс модуль T-тизер
  * (единственный его урок и единственный визуальный блок), модули C2 «Серьёзный
  * ремонт» (все пять уроков, 9 блоков) и C-пож «Пожарная безопасность» (оба урока,
- * 4 блока) — всего 139 визуализаций.
+ * 4 блока), модуль O «Апгрейды и производство» (все пять уроков, 10 блоков) и
+ * модуль P «Сетевые технологии и мониторинг» (уроки P1 и P2 — партия 1 из 2,
+ * 5 блоков из 11) — всего 154 визуализации.
  * Остальные блоки продвинутого курса пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
@@ -476,6 +487,15 @@ const PRO_VISUALS: Record<string, VisualComponent> = {
   "pro-O-O4-animation-0": ProOO4Animation0,
   "pro-O-O5-image-0": ProOO5Image0,
   "pro-O-O5-animation-0": ProOO5Animation0,
+  // Модуль P «Сетевые технологии и мониторинг»: окно браузера с адресной строкой
+  // octopi.local, запуск печати с телефона, панель Mainsail с пультом макросов
+  // START_PRINT/PAUSE/RESUME/END_PRINT, каркас printer.cfg с пробелами-точками
+  // и окно просчёта вперёд (уроки P1 и P2 — партия 1 из 2, 5 блоков из 11).
+  "pro-P-P1-image-0": ProPP1Image0,
+  "pro-P-P1-animation-0": ProPP1Animation0,
+  "pro-P-P2-screenshot-0": ProPP2Screenshot0,
+  "pro-P-P2-screenshot-1": ProPP2Screenshot1,
+  "pro-P-P2-animation-0": ProPP2Animation0,
 };
 
 /** Ключ визуализации — адрес блока одной строкой. */
