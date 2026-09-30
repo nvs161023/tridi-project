@@ -132,8 +132,9 @@ function verifyEmailHref(next: string): string {
  *
  * Если подтверждение включено, сессии нет: показываем страницу «проверьте почту»
  * с формой повторной отправки. Ссылка из письма ведёт на /auth/confirm (её
- * подставляет Supabase через emailRedirectTo), где токен проверяется и адрес
- * помечается подтверждённым (см. app/auth/confirm/route.ts).
+ * подставляет Supabase через emailRedirectTo): адрес подтверждает страница
+ * app/auth/confirm/page.tsx — и только после нажатия кнопки, чтобы одноразовый
+ * токен не сгорел от почтового сервиса, который открывает письма автоматически.
  */
 export async function signUpAction(
   _prevState: AuthFormState,

@@ -40,10 +40,12 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
    `emailRedirectTo` — адрес `/auth/confirm` на нашем сайте (плюс `next`, куда
    вернуть человека после подтверждения).
 2. Supabase отправляет письмо со ссылкой.
-3. По ссылке работает Route Handler `app/auth/confirm/route.ts`: принимает
-   `?token_hash=&type=` (проверяет `verifyOtp`) и `?code=` (`exchangeCodeForSession`)
-   и записывает cookies сессии. Именно Route Handler, а не страница: в Server
-   Component запись cookies запрещена, и сессия не сохранилась бы.
+3. По ссылке открывается страница `app/auth/confirm/page.tsx`. Она сама ничего не
+   подтверждает: токен уходит в Supabase только после нажатия кнопки «Подтвердить
+   email» (`supabase.auth.verifyOtp`), а сессию записывает браузерный клиент
+   `lib/supabase/client.ts`. Поэтому адрес может открыть кто угодно — включая
+   почтовый сервис, который проверяет ссылки в письмах (Mail.ru и подобные), —
+   и одноразовый токен при этом не сгорит.
 4. Для «старого» формата ссылки (токены во фрагменте адреса, `#access_token=…`)
    в корневом layout подключён `components/EmailLinkHandler.tsx`: фрагмент не
    уходит на сервер, поэтому браузер разбирает его и передаёт токены в Server
@@ -58,8 +60,8 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 - Authentication → URL Configuration: Site URL — боевой домен
   (`https://tridi-print.ru`), в Redirect URLs добавьте `https://tridi-print.ru/**`.
-- Email Templates → **Confirm signup** — рекомендуемая ссылка (работает без
-  JavaScript, `type` соответствует типу письма):
+- Email Templates → **Confirm signup** — рекомендуемая ссылка (подтверждение
+  запускает кнопка на странице, `type` соответствует типу письма):
 
   ```html
   <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup">
@@ -67,8 +69,9 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
   </a>
   ```
 
-- Шаблон по умолчанию (`{{ .ConfirmationURL }}`) тоже работает — через
-  `EmailLinkHandler`, но требует JavaScript в браузере.
+- Шаблон по умолчанию (`{{ .ConfirmationURL }}`) для этой схемы не подходит: он ведёт
+  на `/auth/v1/verify` в Supabase, который подтверждает адрес по GET — одноразовый
+  токен сгорит от первого же автоматического открытия ссылки.
 - Переменную `NEXT_PUBLIC_SITE_URL` задайте на хостинге: по ней строится
   `emailRedirectTo` (см. `lib/site-url.ts`).
 

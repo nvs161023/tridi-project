@@ -4,7 +4,6 @@ import Link from "next/link";
 import { authHref, safeNextPath } from "@/lib/auth-redirect";
 import { LEGAL_OPERATOR } from "@/lib/legal";
 
-import { OtpForm } from "./OtpForm";
 import { ResendForm } from "./ResendForm";
 
 export const metadata: Metadata = {
@@ -25,16 +24,17 @@ type VerifyEmailPageProps = {
  *
  * Сюда попадают в трёх случаях:
  *   • сразу после регистрации — «проверьте почту» и форма повторной отправки;
- *   • по ссылке из письма — маршрут /auth/confirm проверил токен и вернул статус
- *     (ok или error); для ссылок старого формата здесь срабатывает клиентский
- *     обработчик EmailLinkHandler, подключённый в корневом layout;
+ *   • со страницы /auth/confirm — подтверждение по кнопке не удалось либо ссылка
+ *     пришла без токена (status=error); для ссылок старого формата здесь
+ *     срабатывает клиентский обработчик EmailLinkHandler, подключённый в
+ *     корневом layout;
  *   • из middleware — если адрес ещё не подтверждён, доступ к урокам и кабинету
  *     закрыт и человека отправляют сюда.
  *
  * Полезное действие на любой из этих случаев одно: запросить новое письмо, если
- * прежнее не пришло или ссылка испортилась. Если ссылка уже сгорела (например,
- * её открыл почтовый сервис), адрес можно подтвердить кодом из письма — форма
- * ввода кода показана в состоянии «ссылка не сработала».
+ * прежнее не пришло или ссылка испортилась. Само подтверждение происходит на
+ * /auth/confirm по кнопке — так ссылку не «съедает» почтовый сервис, который
+ * открывает письма автоматически.
  */
 export default async function VerifyEmailPage({
   searchParams,
@@ -42,19 +42,11 @@ export default async function VerifyEmailPage({
   const { status, next: rawNext } = await searchParams;
   const next = safeNextPath(rawNext);
   const continueHref = next ?? "/dashboard";
-  // Прямая ссылка на ввод кода: нужна, когда ссылка уже использована, а статус
-  // остался «завершаем подтверждение» (например, ошибка пришла во фрагменте
-  // адреса, который видит только браузер).
-  const manualCodeHref = next
-    ? `/auth/verify-email?status=link_failed&next=${encodeURIComponent(next)}`
-    : "/auth/verify-email?status=link_failed";
-
   const isConfirmed = status === "ok";
   const isChecking = status === "checking";
-  // status=error приходит, когда /auth/confirm не смог проверить токен, а
-  // link_failed — когда Supabase сам сообщил об ошибке в адресе (?error=…).
-  // Ссылка в обоих случаях уже непригодна, поэтому её заменяет ввод кода.
-  const hasError = status === "error" || status === "link_failed";
+  // status=error ставит страница /auth/confirm: подтвердить адрес не удалось —
+  // ссылка пришла испорченной, устарела или её уже открыл почтовый сервис.
+  const hasError = status === "error";
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -102,10 +94,7 @@ export default async function VerifyEmailPage({
 
               {hasError ? (
                 <p className="mt-3 text-base leading-relaxed text-slate-300">
-                  Возможно, ссылка уже была использована или устарела. Это часто
-                  случается с почтовыми сервисами (например, Mail.ru), которые
-                  автоматически проверяют ссылки в письмах. Введите код
-                  подтверждения из письма.
+                  Ссылка не сработала или устарела. Запросите новое письмо.
                 </p>
               ) : isChecking ? (
                 <p className="mt-3 text-base leading-relaxed text-slate-300">
@@ -119,21 +108,10 @@ export default async function VerifyEmailPage({
                 </p>
               )}
 
-              {hasError ? (
-                // Ссылка уже сгорела: подтверждаем адрес кодом из письма — он
-                // действует отдельно от ссылки.
-                <OtpForm next={continueHref} />
-              ) : isChecking ? (
+              {isChecking ? (
                 <p className="mt-4 text-sm leading-relaxed text-slate-400">
                   Если через несколько секунд ничего не произошло, ссылка, скорее
-                  всего, уже использована — введите код из письма{" "}
-                  <Link
-                    href={manualCodeHref}
-                    className="font-semibold text-blue-400 transition-colors hover:text-blue-300"
-                  >
-                    вручную
-                  </Link>
-                  .
+                  всего, уже использована — запросите новое письмо ниже.
                 </p>
               ) : (
                 <ul className="mt-5 list-disc space-y-2 pl-6 text-sm leading-relaxed text-slate-400 marker:text-slate-500">

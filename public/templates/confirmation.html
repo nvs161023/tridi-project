@@ -11,15 +11,7 @@
 <p style="color:#555; font-size:16px;">Чтобы завершить создание аккаунта, нажмите на кнопку ниже:</p>
 
 <p style="text-align:center; margin:30px 0;">
-<a href="{{ .ConfirmationURL }}" style="background:#2563eb; color:#fff; padding:14px 28px; text-decoration:none; border-radius:6px; font-size:16px; display:inline-block;">Подтвердить email</a>
-</p>
-
-<hr style="border:none; border-top:1px solid #eee; margin:30px 0;">
-
-<p style="color:#555; font-size:16px;">Если ссылка не сработала (это бывает с Mail.ru и другими почтами), введите этот код на сайте:</p>
-
-<p style="font-size:32px; font-weight:bold; letter-spacing:6px; color:#2563eb; text-align:center; background:#f0f4ff; padding:15px; border-radius:6px; margin:20px 0;">
-{{ .Token }}
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup" style="background:#2563eb; color:#fff; padding:14px 28px; text-decoration:none; border-radius:6px; font-size:16px; display:inline-block;">Подтвердить email</a>
 </p>
 
 <hr style="border:none; border-top:1px solid #eee; margin:30px 0;">

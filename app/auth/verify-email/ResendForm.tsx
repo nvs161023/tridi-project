@@ -12,8 +12,8 @@ const inputClassName =
  * Повторная отправка письма для подтверждения адреса.
  *
  * Работает через Server Action: письмо отправляет сервер, клиентский Supabase в
- * браузер не загружается. Ссылку в письме и её проверку обрабатывает
- * app/auth/confirm/route.ts.
+ * браузер не загружается. Ссылка в письме ведёт на страницу
+ * app/auth/confirm/page.tsx, и подтверждение запускает кнопка на ней.
  */
 export function ResendForm() {
   const [state, formAction, isPending] = useActionState(
