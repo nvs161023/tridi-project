@@ -17,6 +17,11 @@ import type { CourseKind, LessonBlock, LessonBlockStep } from "@/lib/types";
  * файл, без повторов между уроками). Пока своей визуализации нет — в карточке
  * остаётся заглушка с иконкой типа блока.
  *
+ * Карточка визуализации показывается не только у медийных типов: если у блока
+ * другого типа (например, у списка пунктов) есть visual_file, кадр встаёт рядом
+ * с содержимым — так у списка может быть схема-обзор. В базовом и продвинутом
+ * курсах visual_file есть только у медийных блоков, поэтому их вид не меняется.
+ *
  * Типы данных — в lib/types.ts (LessonBlock). Здесь только внешний вид.
  */
 export type { LessonBlock, LessonBlockStep } from "@/lib/types";
@@ -121,6 +126,90 @@ function BlockTitle({ children }: { children?: string }) {
   );
 }
 
+/**
+ * Карточка визуализации блока: подпись типа, кадр и первые 100 символов описания.
+ *
+ * Подпись и иконка берутся у типа блока, а у немедийного типа (список с кадром) —
+ * у иллюстрации: схема рядом со списком всё равно картинка, а своего набора
+ * подписей у списка нет. Адрес кадра считает LessonBlocks по типу блока и его
+ * порядковому номеру среди блоков этого типа (см. visualKey).
+ */
+function BlockVisual({
+  block,
+  typeOrdinal,
+  courseType,
+  moduleId,
+  lessonId,
+  className,
+}: {
+  block: LessonBlock;
+  typeOrdinal: number;
+  courseType?: CourseKind;
+  moduleId?: string;
+  lessonId?: number | string;
+  /** Класс обёртки — внутри карточки списка кадру нужен отступ от заголовка. */
+  className?: string;
+}) {
+  const style =
+    block.type in mediaStyles
+      ? mediaStyles[block.type as MediaType]
+      : mediaStyles.image;
+  const Visual = getVisualComponent({
+    course: courseType,
+    moduleId,
+    lessonId,
+    type: block.type,
+    typeOrdinal,
+  });
+  const preview = block.content?.slice(0, 100);
+
+  return (
+    <section className={className}>
+      <span
+        className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-widest ${style.title}`}
+      >
+        <span aria-hidden className="text-base">
+          {style.icon}
+        </span>
+        {style.label}
+      </span>
+      <div>
+        {block.src ? (
+          <Image
+            src={block.src}
+            alt={block.title ?? style.label}
+            width={800}
+            height={450}
+            unoptimized
+            className="h-auto w-full rounded-xl border border-slate-700/50 bg-slate-950/40"
+          />
+        ) : Visual ? (
+          <Visual
+            title={block.title ?? style.label}
+            animated={block.type === "animation"}
+          />
+        ) : (
+          <div className="my-4 rounded-xl border border-slate-700/50 bg-slate-800/50 p-4 sm:p-6">
+            <p className="mb-3 text-sm text-slate-300">{block.title}</p>
+            <div
+              aria-hidden
+              className="mx-auto flex aspect-[16/9] w-full max-w-[600px] items-center justify-center rounded-xl border border-slate-700/50 bg-slate-900/40 text-4xl"
+            >
+              {style.icon}
+            </div>
+          </div>
+        )}
+      </div>
+      {preview ? (
+        <p className="mt-3 text-sm leading-relaxed text-slate-500">
+          {preview}
+          {block.content && block.content.length > 100 ? "…" : ""}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 function BlockView({
   block,
   typeOrdinal,
@@ -139,6 +228,16 @@ function BlockView({
       return (
         <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
           <BlockTitle>{block.title}</BlockTitle>
+          {block.visual_file || block.src ? (
+            <BlockVisual
+              block={block}
+              typeOrdinal={typeOrdinal}
+              courseType={courseType}
+              moduleId={moduleId}
+              lessonId={lessonId}
+              className="mt-6"
+            />
+          ) : null}
           <p className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg">
             {block.content}
           </p>
@@ -153,6 +252,16 @@ function BlockView({
       return (
         <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
           <BlockTitle>{block.title}</BlockTitle>
+          {block.visual_file || block.src ? (
+            <BlockVisual
+              block={block}
+              typeOrdinal={typeOrdinal}
+              courseType={courseType}
+              moduleId={moduleId}
+              lessonId={lessonId}
+              className="mt-6"
+            />
+          ) : null}
           <ul className="mt-6 space-y-4">
             {block.items.map((item) => (
               <li key={item} className="flex items-start gap-3">
@@ -236,63 +345,16 @@ function BlockView({
     case "image":
     case "animation":
     case "screenshot":
-    case "diagram": {
-      const style = mediaStyles[block.type as MediaType];
-      const Visual = getVisualComponent({
-        course: courseType,
-        moduleId,
-        lessonId,
-        type: block.type,
-        typeOrdinal,
-      });
-      const preview = block.content?.slice(0, 100);
-
+    case "diagram":
       return (
-        <section>
-          <span
-            className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-widest ${style.title}`}
-          >
-            <span aria-hidden className="text-base">
-              {style.icon}
-            </span>
-            {style.label}
-          </span>
-          <div>
-            {block.src ? (
-              <Image
-                src={block.src}
-                alt={block.title ?? style.label}
-                width={800}
-                height={450}
-                unoptimized
-                className="h-auto w-full rounded-xl border border-slate-700/50 bg-slate-950/40"
-              />
-            ) : Visual ? (
-              <Visual
-                title={block.title ?? style.label}
-                animated={block.type === "animation"}
-              />
-            ) : (
-              <div className="my-4 rounded-xl border border-slate-700/50 bg-slate-800/50 p-4 sm:p-6">
-                <p className="mb-3 text-sm text-slate-300">{block.title}</p>
-                <div
-                  aria-hidden
-                  className="mx-auto flex aspect-[16/9] w-full max-w-[600px] items-center justify-center rounded-xl border border-slate-700/50 bg-slate-900/40 text-4xl"
-                >
-                  {style.icon}
-                </div>
-              </div>
-            )}
-          </div>
-          {preview ? (
-            <p className="mt-3 text-sm leading-relaxed text-slate-500">
-              {preview}
-              {block.content && block.content.length > 100 ? "…" : ""}
-            </p>
-          ) : null}
-        </section>
+        <BlockVisual
+          block={block}
+          typeOrdinal={typeOrdinal}
+          courseType={courseType}
+          moduleId={moduleId}
+          lessonId={lessonId}
+        />
       );
-    }
 
     case "mini_check": {
       if (!block.questions || block.questions.length === 0) {

@@ -254,9 +254,12 @@ const BASE_VISUALS: Record<string, VisualComponent> = {};
  * коды уроков (C1…C12) уникальны внутри уровня, в отличие от pro, где номера
  * уроков повторяются между модулями (A1, B1, C1-1).
  *
- * Реестр пуст: все 72 визуальных блока уровня рисуются заглушкой по типу, а файлы
- * кадров (`C5_z_gap.png` и т.п.) появятся вместе с уроками. Первая визуализация =
- * новый файл (components/lesson-visuals/confident-C5-image-0.tsx) плюс одна строка
+ * Реестр пуст: нарисованных кадров у уровня пока нет, поэтому все 72 визуальных
+ * блока рисуются заглушкой по типу. Написан первый урок — C1 (32 блока и 7 кадров:
+ * `C1_emissions_ladder.png`, `C1_materials_chart.png`, `C1_spread.png`,
+ * `C1_measure.png`, `C1_hierarchy.png`, `C1_siz_kit.png`, `C1_respirators.png`),
+ * остальные уроки ждут текста. Первая визуализация =
+ * новый файл (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка
  * здесь.
  */
 const CONFIDENT_VISUALS: Record<string, VisualComponent> = {};
