@@ -1,5 +1,7 @@
 import type { ComponentType } from "react";
 
+import type { CourseKind } from "@/lib/types";
+
 import { ProAA1Animation0 } from "./pro-A-A1-animation-0";
 import { ProAA1Image0 } from "./pro-A-A1-image-0";
 import { ProAA2Animation0 } from "./pro-A-A2-animation-0";
@@ -203,7 +205,8 @@ import type { VisualProps } from "./_Wrapper";
  * Остальные блоки обоих курсов пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
- * Новая визуализация = новый файл + одна строка в BASE_VISUALS или PRO_VISUALS.
+ * Новая визуализация = новый файл + одна строка в BASE_VISUALS, CONFIDENT_VISUALS
+ * или PRO_VISUALS.
  */
 export type { VisualProps } from "./_Wrapper";
 
@@ -212,15 +215,15 @@ export type VisualComponent = ComponentType<VisualProps>;
 /**
  * Адрес блока: курс, урок, тип блока и порядковый номер среди блоков этого типа.
  *
- * Базовый курс адресуется номером урока (basic-1-image-0), продвинутый — кодами
- * модуля и урока (pro-A-A1-image-0): в продвинутом курсе номера уроков строковые
- * — A1, C1-1, T14.
+ * Базовый курс адресуется номером урока (basic-1-image-0), «Уверенный» — кодом
+ * урока (confident-C5-image-0), продвинутый — кодами модуля и урока
+ * (pro-A-A1-image-0): в продвинутом курсе номера уроков строковые — A1, C1-1, T14.
  */
 export type VisualBlockRef = {
-  course?: "basic" | "pro";
+  course?: CourseKind;
   /** Код модуля — нужен только продвинутому курсу. */
   moduleId?: string;
-  /** Номер урока базового курса или код урока продвинутого (A1, C1-1). */
+  /** Номер урока базового курса или код урока (C1, A1, C1-1). */
   lessonId?: number | string;
   type: string;
   typeOrdinal: number;
@@ -242,6 +245,21 @@ export type VisualBlockRef = {
  * (components/lesson-visuals/basic-1-image-0.tsx) плюс одна строка здесь.
  */
 const BASE_VISUALS: Record<string, VisualComponent> = {};
+
+/**
+ * Визуализации уровня «Уверенный» — Этап 2, ждут своих кадров.
+ *
+ * Ключ: `confident-{код урока}-{тип блока}-{номер}`, например
+ * `confident-C5-image-0` или `confident-C8-diagram-1`. Кода модуля в ключе нет:
+ * коды уроков (C1…C12) уникальны внутри уровня, в отличие от pro, где номера
+ * уроков повторяются между модулями (A1, B1, C1-1).
+ *
+ * Реестр пуст: все 72 визуальных блока уровня рисуются заглушкой по типу, а файлы
+ * кадров (`C5_z_gap.png` и т.п.) появятся вместе с уроками. Первая визуализация =
+ * новый файл (components/lesson-visuals/confident-C5-image-0.tsx) плюс одна строка
+ * здесь.
+ */
+const CONFIDENT_VISUALS: Record<string, VisualComponent> = {};
 
 /**
  * Визуализации продвинутого курса — Этап 2.
@@ -470,14 +488,23 @@ function visualKey(ref: VisualBlockRef): string {
     return `pro-${ref.moduleId ?? ""}-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
   }
 
+  if (ref.course === "confident") {
+    return `confident-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
+  }
+
   return `basic-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
 }
 
 /** Визуализация конкретного блока или null, если она ещё не нарисована. */
 export function getVisualComponent(ref: VisualBlockRef): VisualComponent | null {
-  // Продвинутый курс смотрит только в свой раздел, базовый — только в свой:
-  // так ключи двух курсов не могут случайно совпасть.
-  const registry = ref.course === "pro" ? PRO_VISUALS : BASE_VISUALS;
+  // Каждый курс смотрит только в свой раздел: так ключи трёх курсов не могут
+  // случайно совпасть и в блоке не появится чужая схема.
+  const registry =
+    ref.course === "pro"
+      ? PRO_VISUALS
+      : ref.course === "confident"
+        ? CONFIDENT_VISUALS
+        : BASE_VISUALS;
 
   return registry[visualKey(ref)] ?? null;
 }

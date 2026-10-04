@@ -3,6 +3,7 @@
 import {
   isModuleTestPassed,
   moduleTestCourseType,
+  moduleTestPassFrom,
   type CourseTestVariant,
 } from "@/lib/module-test";
 import { createClient } from "@/lib/supabase/server";
@@ -17,14 +18,15 @@ export type CompleteModuleTestResult = { success: true } | { error: string };
  * попытка ничего не сохраняет, поэтому закрытый модуль остаётся закрытым.
  *
  * У каждого курса свой тип строки (см. lib/module-test.ts): базовый пишет
- * "basic-test", продвинутый — "pro-test". Так результаты тестов не попадают в
- * прогресс уроков и не ломают счётчики «пройдено X из 15» и «урок X из 109».
+ * "basic-test", «Уверенный» — "confident-test", продвинутый — "pro-test". Так
+ * результаты тестов не попадают в прогресс уроков и не ломают счётчики
+ * «пройдено X из 8», «урок X из 12» и «урок X из 109».
  *
  * ВАЖНО: lesson_id в lesson_progress — число. Базовый курс пишет туда код модуля
- * (1…6), продвинутый — место модуля в курсе (1…26): у pro коды буквенные
- * («A», «T-тизер»), числом их не выразить. Идемпотентно: повторная сдача
- * обновляет ту же строку благодаря уникальному индексу
- * (user_id, course_type, lesson_id).
+ * (1…6), «Уверенный» — место модуля в уровне (1…3), продвинутый — место модуля в
+ * курсе (1…26): у pro коды буквенные («A», «T-тизер»), числом их не выразить.
+ * Идемпотентно: повторная сдача обновляет ту же строку благодаря уникальному
+ * индексу (user_id, course_type, lesson_id).
  */
 export async function completeModuleTest(
   variant: CourseTestVariant,
@@ -44,7 +46,7 @@ export async function completeModuleTest(
 
   // Server Action — публичный адрес: значения приходят из браузера, поэтому
   // проверяем их здесь, а не полагаемся на типы TypeScript.
-  if (variant !== "basic" && variant !== "pro") {
+  if (variant !== "basic" && variant !== "confident" && variant !== "pro") {
     return { error: "Неизвестный тип курса" };
   }
 
@@ -62,7 +64,10 @@ export async function completeModuleTest(
     return { error: "Некорректный результат теста" };
   }
 
-  if (!isModuleTestPassed(correct, total)) {
+  // Порог сдачи зависит от уровня: 5 в бесплатном курсе, 7 в платных. Клиент
+  // присылает уже посчитанное число правильных, поэтому порог пересчитываем здесь
+  // повторно.
+  if (!isModuleTestPassed(correct, total, moduleTestPassFrom(variant))) {
     return { error: "Тест не сдан" };
   }
 

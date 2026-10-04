@@ -2,7 +2,7 @@ import Image from "next/image";
 
 import { MiniCheck } from "@/components/course/MiniCheck";
 import { getVisualComponent } from "@/components/lesson-visuals";
-import type { LessonBlock, LessonBlockStep } from "@/lib/types";
+import type { CourseKind, LessonBlock, LessonBlockStep } from "@/lib/types";
 
 /**
  * Отрисовка блоков урока — общая для базового и продвинутого курса.
@@ -78,7 +78,9 @@ type MediaType = keyof typeof mediaStyles;
  *
  * Адрес визуализации — курс + урок + тип блока + порядковый номер среди блоков
  * этого же типа: так адрес не сдвигается, если в урок добавят текст. Для
- * продвинутого курса в адрес входит ещё и код модуля (pro-A-A1-image-0).
+ * продвинутого курса в адрес входит ещё и код модуля (pro-A-A1-image-0), а для
+ * «Уверенного» и базового кода модуля нет: коды уроков (C5, 3) уникальны внутри
+ * уровня, поэтому хватает confident-C5-image-0 и basic-3-image-0.
  */
 export function LessonBlocks({
   blocks,
@@ -87,7 +89,7 @@ export function LessonBlocks({
   lessonId,
 }: {
   blocks: LessonBlock[];
-  courseType?: "basic" | "pro";
+  courseType?: CourseKind;
   /** Код модуля продвинутого курса — он нужен в адресе визуализации. */
   moduleId?: string;
   /** Номер урока базового курса или код урока продвинутого (A1, C1-1). */
@@ -128,7 +130,7 @@ function BlockView({
 }: {
   block: LessonBlock;
   typeOrdinal: number;
-  courseType?: "basic" | "pro";
+  courseType?: CourseKind;
   moduleId?: string;
   lessonId?: number | string;
 }) {

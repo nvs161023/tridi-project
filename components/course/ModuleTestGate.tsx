@@ -3,7 +3,7 @@ import Link from "next/link";
 import { CompleteButton } from "@/components/course/CompleteButton";
 import { moduleTestThemes } from "@/components/course/module-test-theme";
 import { TestOverlay } from "@/components/course/TestOverlay";
-import { MODULE_TEST_PASS_FROM, type CourseTestVariant } from "@/lib/module-test";
+import { moduleTestPassFrom, type CourseTestVariant } from "@/lib/module-test";
 import type { MiniCheckQuestion } from "@/lib/types";
 
 /**
@@ -61,7 +61,9 @@ export function ModuleTestGate({
 }: ModuleTestGateProps) {
   const theme = moduleTestThemes[courseType];
   const total = questions.length;
-  const hint = `${total} вопросов, порог — ${MODULE_TEST_PASS_FROM} правильных из ${total}. Без сданного теста дальше не пустим.`;
+  // Порог у каждого уровня свой: 5 в бесплатном курсе, 7 в платных (см.
+  // lib/module-test.ts) — подпись должна совпадать с тем, как считает тест.
+  const hint = `${total} вопросов, порог — ${moduleTestPassFrom(courseType)} правильных из ${total}. Без сданного теста дальше не пустим.`;
 
   return (
     <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">

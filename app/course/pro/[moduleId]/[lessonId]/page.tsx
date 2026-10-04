@@ -14,6 +14,7 @@ import {
   isModuleTestCompletedByOrder,
 } from "@/lib/module-test";
 import { loadPassedModuleTests } from "@/lib/module-test-progress";
+import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 import type { MiniCheckQuestion, ProCourse, ProLesson, ProModule } from "@/lib/types";
 
@@ -45,14 +46,6 @@ import type { MiniCheckQuestion, ProCourse, ProLesson, ProModule } from "@/lib/t
  * схему таблицы менять не нужно, а старые записи с course_type='pro' остаются
  * как есть. Этот же номер показывается в шапке: «Урок X из N».
  */
-
-type Supabase = Awaited<ReturnType<typeof createClient>>;
-
-/** Из таблицы subscriptions читаем только то, что нужно для решения о доступе. */
-type SubscriptionRow = {
-  status: string | null;
-  trial_ends_at: string | null;
-};
 
 const course: ProCourse = courseData;
 
@@ -149,43 +142,6 @@ export async function generateMetadata({ params }: ProLessonPageProps) {
       ? `${lesson.lesson_title} — продвинутый курс — 3D-печать с нуля`
       : "Урок не найден — 3D-печать с нуля",
   };
-}
-
-/**
- * Есть ли у пользователя доступ к продвинутому курсу.
- *
- * Доступ даёт либо активная подписка, либо незакончившийся пробный период.
- * Любая ошибка (строки нет, таблицы нет, сеть отвалилась) означает «доступа
- * нет»: сбой проверки не должен открывать платный контент.
- */
-async function hasProSubscription(
-  supabase: Supabase,
-  userId: string,
-): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("subscriptions")
-    .select("status, trial_ends_at")
-    .eq("user_id", userId)
-    .maybeSingle<SubscriptionRow>();
-
-  if (error) {
-    console.warn("Не удалось проверить подписку:", error.message);
-    return false;
-  }
-
-  if (!data) {
-    return false;
-  }
-
-  if (data.status === "active") {
-    return true;
-  }
-
-  return (
-    data.status === "trial" &&
-    data.trial_ends_at !== null &&
-    new Date(data.trial_ends_at) > new Date()
-  );
 }
 
 function LessonNotFound() {
@@ -387,7 +343,7 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
 
   // Главный вопрос страницы: есть ли действующая подписка у ЭТОГО пользователя.
   // От ответа зависит, какие блоки урока вообще попадут в HTML.
-  const hasAccess = await hasProSubscription(supabase, userId);
+  const hasAccess = await hasActiveSubscription(supabase, userId);
 
   // Тесты модулей обязательны и в продвинутом курсе: сданные результаты лежат в
   // lesson_progress отдельным типом курса (см. lib/module-test.ts). Результаты

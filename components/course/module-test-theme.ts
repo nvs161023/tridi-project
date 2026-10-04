@@ -1,5 +1,6 @@
 /**
- * Оформление тестов модуля: базовый курс — синий, продвинутый — янтарный.
+ * Оформление тестов модуля: базовый курс — синий, «Уверенный» — изумрудный,
+ * продвинутый — янтарный.
  *
  * Живёт отдельным модулем без "use client", потому что цвета нужны и клиентским
  * компонентам (ModuleTest, TestOverlay), и серверным (ModuleTestGate на странице
@@ -20,6 +21,17 @@ export const moduleTestThemes = {
     bar: "bg-blue-600",
     ring: "focus-visible:ring-blue-400",
     optionHover: "hover:border-blue-400/60",
+  },
+  confident: {
+    primary:
+      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-teal-500 px-9 text-lg font-semibold text-slate-950 shadow-lg shadow-emerald-500/25 transition-colors hover:from-emerald-300 hover:to-teal-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
+    secondary:
+      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full border border-emerald-400/40 bg-white/5 px-9 text-lg font-semibold text-emerald-100 transition-colors hover:bg-emerald-400/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
+    accentText: "text-emerald-300",
+    eyebrow: "text-emerald-300",
+    bar: "bg-gradient-to-r from-emerald-400 to-teal-500",
+    ring: "focus-visible:ring-emerald-300",
+    optionHover: "hover:border-emerald-300/60",
   },
   pro: {
     primary:

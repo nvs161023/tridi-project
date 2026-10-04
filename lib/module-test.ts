@@ -4,27 +4,47 @@
  * Тест модуля обязателен: пока он не сдан, следующий модуль закрыт (см.
  * app/course/[id]/page.tsx). Пороги лежат здесь, а не в компоненте теста: их
  * используют и клиентский тест, и серверный action, и страницы уроков.
+ *
+ * Порог зависит от уровня: в бесплатном базовом курсе сдано с 5 правильных, в
+ * платных уровнях («Уверенный», «Инженер») — с 7 из 10. Так проверка знаний в
+ * платной части строже, а бесплатная остаётся дружелюбной.
  */
 
-/** С какого числа правильных ответов тест считается сданным. */
+/** С какого числа правильных ответов сдаётся тест бесплатного курса. */
 export const MODULE_TEST_PASS_FROM = 5;
+
+/** С какого числа правильных ответов сдаётся тест платных уровней. */
+export const MODULE_TEST_PASS_FROM_PAID = 7;
 
 /** С какого числа правильных ответов ставим «отлично». */
 export const MODULE_TEST_EXCELLENT_FROM = 8;
 
 /**
  * К какому курсу относится тест. От варианта зависит и тип строки в базе, и
- * оформление страницы теста (базовый — синий, продвинутый — янтарный).
+ * оформление страницы теста: базовый — синий, «Уверенный» — изумрудный,
+ * продвинутый — янтарный.
  */
-export type CourseTestVariant = "basic" | "pro";
+export type CourseTestVariant = "basic" | "confident" | "pro";
 
 /**
  * Тип курса для результатов тестов модулей базового курса в lesson_progress.
  *
  * Отдельный от "basic": иначе строки тестов попадали бы в прогресс уроков и
- * «пройдено X из 15» на дашборде считалось бы неверно.
+ * «пройдено X из 8» на дашборде считалось бы неверно.
  */
 export const MODULE_TEST_COURSE_TYPE = "basic-test";
+
+/**
+ * Тип курса для результатов тестов модулей уровня «Уверенный».
+ *
+ * Тоже отдельный — и от "confident", и от остальных: прогресс уроков уровня
+ * считается по course_type="confident" (уроки 1…12), а тесты модулей пишутся
+ * сюда, чтобы не сдвигать счётчик уроков. Номер модуля лежит в lesson_id (1…3).
+ *
+ * Значение разрешено ограничением lesson_progress_course_type_check — см.
+ * supabase/confident_course_access.sql.
+ */
+export const CONFIDENT_MODULE_TEST_COURSE_TYPE = "confident-test";
 
 /**
  * Тип курса для результатов тестов модулей продвинутого курса.
@@ -35,18 +55,34 @@ export const MODULE_TEST_COURSE_TYPE = "basic-test";
  */
 export const PRO_MODULE_TEST_COURSE_TYPE = "pro-test";
 
+/** Тип строки в lesson_progress для каждого варианта теста. */
+export const MODULE_TEST_COURSE_TYPES: Record<CourseTestVariant, string> = {
+  basic: MODULE_TEST_COURSE_TYPE,
+  confident: CONFIDENT_MODULE_TEST_COURSE_TYPE,
+  pro: PRO_MODULE_TEST_COURSE_TYPE,
+};
+
 /**
- * Тип курса для записи результата теста: у базового и продвинутого курса свои
- * строки в lesson_progress.
+ * Тип курса для записи результата теста: у каждого уровня свои строки в
+ * lesson_progress.
  */
 export function moduleTestCourseType(variant: CourseTestVariant): string {
-  return variant === "pro" ? PRO_MODULE_TEST_COURSE_TYPE : MODULE_TEST_COURSE_TYPE;
+  return MODULE_TEST_COURSE_TYPES[variant];
+}
+
+/** Порог сдачи для уровня: бесплатный курс мягче, платные строже. */
+export function moduleTestPassFrom(variant: CourseTestVariant): number {
+  return variant === "basic" ? MODULE_TEST_PASS_FROM : MODULE_TEST_PASS_FROM_PAID;
 }
 
 /** Сдан ли тест модуля по числу правильных ответов. */
-export function isModuleTestPassed(correct: number, total: number): boolean {
+export function isModuleTestPassed(
+  correct: number,
+  total: number,
+  passFrom: number = MODULE_TEST_PASS_FROM,
+): boolean {
   // Если вопросов меньше порога, требовать больше правильных нельзя.
-  return correct >= Math.min(MODULE_TEST_PASS_FROM, Math.max(total, 1));
+  return correct >= Math.min(passFrom, Math.max(total, 1));
 }
 
 /**

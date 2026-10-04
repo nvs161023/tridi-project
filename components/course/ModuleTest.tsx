@@ -7,8 +7,8 @@ import { completeModuleTest } from "@/app/actions/complete-module-test";
 import { moduleTestThemes } from "@/components/course/module-test-theme";
 import {
   MODULE_TEST_EXCELLENT_FROM,
-  MODULE_TEST_PASS_FROM,
   isModuleTestPassed,
+  moduleTestPassFrom,
   type CourseTestVariant,
 } from "@/lib/module-test";
 import type { MiniCheckQuestion } from "@/lib/types";
@@ -78,6 +78,13 @@ export function ModuleTest({
   const theme = moduleTestThemes[courseType];
   const isOverlay = layout === "overlay";
 
+  /**
+   * Порог сдачи для этого уровня: в бесплатном базовом курсе — 5 правильных, в
+   * платных уровнях — 7 (см. lib/module-test.ts). Порог проверяет и клиент, и
+   * серверный action: он пересчитывает результат сам.
+   */
+  const passFrom = moduleTestPassFrom(courseType);
+
   /** Оболочка: на странице — карточка с рамкой, в оверлее рамку рисует сам слайд. */
   const shell = isOverlay
     ? ""
@@ -98,7 +105,7 @@ export function ModuleTest({
   const isAnswered = picked !== null;
   const isCorrect = isAnswered && picked === question.correct;
   const isLastQuestion = questionIndex + 1 >= total;
-  const isPassed = isModuleTestPassed(correctCount, total);
+  const isPassed = isModuleTestPassed(correctCount, total, passFrom);
   const explanation = picked === null ? undefined : question.explanations?.[picked];
 
   /** Сколько вопросов закрыто — вместе с текущим, если на него уже ответили. */
@@ -138,7 +145,7 @@ export function ModuleTest({
   function finish() {
     setIsFinished(true);
 
-    if (!isModuleTestPassed(correctCount, total)) {
+    if (!isModuleTestPassed(correctCount, total, passFrom)) {
       return;
     }
 
@@ -214,7 +221,7 @@ export function ModuleTest({
     /** Что дальше: сданный тест открывает следующий модуль. */
     const nextStep = isPassed
       ? "Следующий модуль открыт."
-      : `Без сданного теста следующий модуль закрыт: нужно ${MODULE_TEST_PASS_FROM} правильных из ${total}.`;
+      : `Без сданного теста следующий модуль закрыт: нужно ${passFrom} правильных из ${total}.`;
 
     return (
       <section className={shell}>

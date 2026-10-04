@@ -1,0 +1,48 @@
+{
+  "course_id": "confident",
+  "course_title": "Уверенный уровень",
+  "version": "1.0",
+  "total_modules": 3,
+  "total_lessons": 12,
+  "modules": [
+    {
+      "module_id": "1",
+      "module_order": 1,
+      "module_title": "Безопасность и контроль",
+      "module_description": "Печатать, не вредя себе: воздух, вентиляция, пожар, химия.",
+      "lessons": [
+        { "lesson_id": "C1", "lesson_order": 1, "lesson_title": "Что летит в воздух: UFP, VOC и защита дыхания", "duration": "20 мин", "tier": "confident", "blocks": [] },
+        { "lesson_id": "C2", "lesson_order": 2, "lesson_title": "Вентиляция и рабочее место", "duration": "20 мин", "tier": "confident", "blocks": [] },
+        { "lesson_id": "C3", "lesson_order": 3, "lesson_title": "Пожарная безопасность и аварийные сценарии", "duration": "20 мин", "tier": "confident", "blocks": [] },
+        { "lesson_id": "C4", "lesson_order": 4, "lesson_title": "Химия, СИЗ и утилизация отходов", "duration": "20 мин", "tier": "confident", "blocks": [] }
+      ],
+      "module_test": { "questions": [] }
+    },
+    {
+      "module_id": "2",
+      "module_order": 2,
+      "module_title": "Мастерство слайсера",
+      "module_description": "Печатать то, что в базовом не получалось: поддержки, модификаторы, разрез, поверхность.",
+      "lessons": [
+        { "lesson_id": "C5", "lesson_order": 5, "lesson_title": "Поддержки, которые отделяются сами", "duration": "20 мин", "tier": "confident", "blocks": [] },
+        { "lesson_id": "C6", "lesson_order": 6, "lesson_title": "Модификаторы и переменная высота слоя", "duration": "20 мин", "tier": "confident", "blocks": [] },
+        { "lesson_id": "C7", "lesson_order": 7, "lesson_title": "Модель больше стола: разрез, соединения, допуски", "duration": "20 мин", "tier": "confident", "blocks": [] },
+        { "lesson_id": "C8", "lesson_order": 8, "lesson_title": "Идеальная поверхность: шов, ironing, округлость, рельеф", "duration": "20 мин", "tier": "confident", "blocks": [] }
+      ],
+      "module_test": { "questions": [] }
+    },
+    {
+      "module_id": "3",
+      "module_order": 3,
+      "module_title": "Автоматизация и качество",
+      "module_description": "Управлять принтером: калибровка, сложные геометрии, G-код, удалённая печать.",
+      "lessons": [
+        { "lesson_id": "C9", "lesson_order": 9, "lesson_title": "Продвинутая калибровка принтера", "duration": "20 мин", "tier": "confident", "blocks": [] },
+        { "lesson_id": "C10", "lesson_order": 10, "lesson_title": "Заполнение и сложные геометрии", "duration": "20 мин", "tier": "confident", "blocks": [] },
+        { "lesson_id": "C11", "lesson_order": 11, "lesson_title": "G-код: читать, писать, менять на лету", "duration": "20 мин", "tier": "confident", "blocks": [] },
+        { "lesson_id": "C12", "lesson_order": 12, "lesson_title": "Сеть, мониторинг и печать без присмотра", "duration": "20 мин", "tier": "confident", "blocks": [] }
+      ],
+      "module_test": { "questions": [] }
+    }
+  ]
+}

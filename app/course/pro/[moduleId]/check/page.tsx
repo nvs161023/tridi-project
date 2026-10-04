@@ -6,6 +6,7 @@ import courseData from "@/data/course-pro.json";
 import coursesData from "@/data/courses.json";
 import { resolveUserId } from "@/lib/current-user";
 import { LESSON_FORMS, pluralize } from "@/lib/course-stats";
+import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 import type { ProCourse, ProModule } from "@/lib/types";
 
@@ -28,14 +29,6 @@ import type { ProCourse, ProModule } from "@/lib/types";
  * "check" выигрывает у динамического [lessonId], поэтому тест нельзя перепутать с
  * уроком с кодом "check".
  */
-
-type Supabase = Awaited<ReturnType<typeof createClient>>;
-
-/** Из таблицы subscriptions читаем только то, что нужно для решения о доступе. */
-type SubscriptionRow = {
-  status: string | null;
-  trial_ends_at: string | null;
-};
 
 const course: ProCourse = courseData;
 
@@ -73,43 +66,6 @@ function checkHref(moduleId: string): string {
 /** Адрес урока продвинутого курса. */
 function lessonHref(moduleId: string, lessonId: string): string {
   return `/course/pro/${encodeURIComponent(moduleId)}/${encodeURIComponent(lessonId)}`;
-}
-
-/**
- * Есть ли у пользователя доступ к продвинутому курсу.
- *
- * Доступ даёт либо активная подписка, либо незакончившийся пробный период.
- * Любая ошибка (строки нет, таблицы нет, сеть отвалилась) означает «доступа нет»:
- * сбой проверки не должен открывать платный контент.
- */
-async function hasProSubscription(
-  supabase: Supabase,
-  userId: string,
-): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("subscriptions")
-    .select("status, trial_ends_at")
-    .eq("user_id", userId)
-    .maybeSingle<SubscriptionRow>();
-
-  if (error) {
-    console.warn("Не удалось проверить подписку:", error.message);
-    return false;
-  }
-
-  if (!data) {
-    return false;
-  }
-
-  if (data.status === "active") {
-    return true;
-  }
-
-  return (
-    data.status === "trial" &&
-    data.trial_ends_at !== null &&
-    new Date(data.trial_ends_at) > new Date()
-  );
 }
 
 export async function generateMetadata({ params }: ProCheckPageProps) {
@@ -222,7 +178,7 @@ export default async function ProModuleCheckPage({ params }: ProCheckPageProps) 
 
   // Главный вопрос страницы: есть ли действующая подписка у ЭТОГО пользователя.
   // Без неё в разметку не попадёт ни один вопрос теста.
-  const hasAccess = await hasProSubscription(supabase, userId);
+  const hasAccess = await hasActiveSubscription(supabase, userId);
 
   const firstLesson = courseModule.lessons[0];
   const lessonsHref = firstLesson

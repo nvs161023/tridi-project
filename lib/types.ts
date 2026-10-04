@@ -179,3 +179,53 @@ export type BaseCourse = {
   total_mini_checks?: number;
   modules: BaseModule[];
 };
+
+/**
+ * Урок уровня «Уверенный» (data/course-confident.json).
+ *
+ * Форма та же, что у продвинутого урока, плюс уровень доступа (tier) и признак
+ * того, что материалы уровня платные. Код урока строковый (C1…C12), а сквозной
+ * номер лежит в lesson_order (1…12) — он уходит в lesson_progress.lesson_id.
+ */
+export type ConfidentLesson = {
+  /** Код урока: C1…C12 — он же последний сегмент адреса. */
+  lesson_id: string;
+  /** Сквозной номер урока в уровне (1…12), а не место внутри модуля. */
+  lesson_order: number;
+  lesson_title: string;
+  /** Длительность строкой: «20 мин». */
+  duration: string;
+  /** Уровень доступа урока: у «Уверенного» он платный. */
+  tier?: string;
+  blocks: LessonBlock[];
+};
+
+/** Модуль уровня «Уверенный» — та же форма, что у модулей других курсов. */
+export type ConfidentModule = {
+  /** Код модуля («1»…«3») — он же предпоследний сегмент адреса. */
+  module_id: string;
+  /** Место модуля в уровне, с единицы. */
+  module_order: number;
+  module_title: string;
+  module_description: string;
+  lessons: ConfidentLesson[];
+  module_test?: ProModuleTest;
+};
+
+/** Файл уровня «Уверенный» целиком (data/course-confident.json). */
+export type ConfidentCourse = {
+  course_id: string;
+  course_title: string;
+  version: string;
+  /** Заявленные числа: совпадение с содержимым проверяет `npm run check:docs`. */
+  total_modules: number;
+  total_lessons: number;
+  modules: ConfidentModule[];
+};
+
+/**
+ * Какой курс (уровень) открыт: базовый (бесплатный), «Уверенный» или
+ * продвинутый «Инженер». По этому признаку страницы выбирают реестр визуализаций,
+ * цвета тестов и тип строки в базе.
+ */
+export type CourseKind = "basic" | "confident" | "pro";
