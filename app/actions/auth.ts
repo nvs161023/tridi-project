@@ -203,7 +203,11 @@ export async function signUpAction(
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name }, emailRedirectTo },
+      // Кроме имени в метаданные аккаунта пишем факт подтверждения возраста: 18+ —
+      // обязательное условие сервиса, и отметка остаётся в самом аккаунте (видна
+      // через Admin API), а не только в разметке формы, которую можно подменить.
+      // Это подтверждение по 152-ФЗ: видно, что человек дал его при регистрации.
+      options: { data: { name, age_confirmed: true }, emailRedirectTo },
     });
 
     if (error) {

@@ -216,7 +216,7 @@ export function SignUpForm({ next = null }: SignUpFormProps) {
               rel="noopener noreferrer"
               className={legalLinkClassName}
             >
-              Политику конфиденциальности
+              Политику обработки персональных данных
             </Link>
             .
           </span>
