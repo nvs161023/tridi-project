@@ -1,32 +1,5 @@
 import type { ComponentType } from "react";
 
-import { Basic1Animation0 } from "./basic-1-animation-0";
-import { Basic1Image0 } from "./basic-1-image-0";
-import { Basic10Image0 } from "./basic-10-image-0";
-import { Basic11Image0 } from "./basic-11-image-0";
-import { Basic11Image1 } from "./basic-11-image-1";
-import { Basic12Image0 } from "./basic-12-image-0";
-import { Basic12Image1 } from "./basic-12-image-1";
-import { Basic13Image0 } from "./basic-13-image-0";
-import { Basic13Image1 } from "./basic-13-image-1";
-import { Basic14Image0 } from "./basic-14-image-0";
-import { Basic15Image0 } from "./basic-15-image-0";
-import { Basic15Image1 } from "./basic-15-image-1";
-import { Basic2Image0 } from "./basic-2-image-0";
-import { Basic3Animation0 } from "./basic-3-animation-0";
-import { Basic3Image0 } from "./basic-3-image-0";
-import { Basic4Animation0 } from "./basic-4-animation-0";
-import { Basic4Image0 } from "./basic-4-image-0";
-import { Basic5Animation0 } from "./basic-5-animation-0";
-import { Basic5Image0 } from "./basic-5-image-0";
-import { Basic6Animation0 } from "./basic-6-animation-0";
-import { Basic6Image0 } from "./basic-6-image-0";
-import { Basic7Animation0 } from "./basic-7-animation-0";
-import { Basic7Image0 } from "./basic-7-image-0";
-import { Basic7Image1 } from "./basic-7-image-1";
-import { Basic8Image0 } from "./basic-8-image-0";
-import { Basic9Image0 } from "./basic-9-image-0";
-import { Basic9Image1 } from "./basic-9-image-1";
 import { ProAA1Animation0 } from "./pro-A-A1-animation-0";
 import { ProAA1Image0 } from "./pro-A-A1-image-0";
 import { ProAA2Animation0 } from "./pro-A-A2-animation-0";
@@ -213,8 +186,12 @@ import type { VisualProps } from "./_Wrapper";
  * словам» — визуализация привязана к конкретному блоку урока (курс + номер
  * урока + номер блока в уроке) и лежит в отдельном файле.
  *
- * Базовый курс заполнен целиком: модули 1–6, уроки 1–15 — 27 визуализаций, у
- * каждого блока image/animation своя картинка. В продвинутом курсе нарисованы
+ * Базовый курс переписан, и его картинки ещё не нарисованы: реестр базового курса
+ * пуст (BASE_VISUALS), поэтому все блоки с visual_file показывают заглушку с
+ * иконкой своего типа. Прежние 27 кадров (basic-1-…–basic-15-…) рисовались под
+ * контент старой программы, а три из них совпадали по ключу с новыми уроками и
+ * подменяли заглушку чужой схемой — поэтому кадры удалены вместе с файлами.
+ * В продвинутом курсе нарисованы
  * восемнадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2, E-хим, D, K, M,
  * L, N, U и J (в L нарисованы все четыре урока, в N — все восемь блоков, в U —
  * все три, в J — все пять уроков и все 12 блоков), плюс модуль T-тизер
@@ -223,7 +200,7 @@ import type { VisualProps } from "./_Wrapper";
  * 4 блока), модуль O «Апгрейды и производство» (все пять уроков, 10 блоков) и
  * модуль P «Сетевые технологии и мониторинг» (уроки P1–P5 — все 11 блоков
  * модуля) — всего 160 визуализаций.
- * Остальные блоки продвинутого курса пока без картинки: для них возвращается
+ * Остальные блоки обоих курсов пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
  * Новая визуализация = новый файл + одна строка в BASE_VISUALS или PRO_VISUALS.
@@ -250,46 +227,21 @@ export type VisualBlockRef = {
 };
 
 /**
- * Визуализации базового курса — Этап 2.
+ * Визуализации базового курса — Этап 2, рисуются заново.
  *
  * Ключ: `basic-{номер урока}-{тип блока}-{номер}`, например `basic-1-image-0` или
  * `basic-5-animation-0`. Номер — порядковый номер блока этого типа внутри урока.
  *
- * Заполнены все уроки 1–15: модуль 1 «Знакомство» (1–3), модуль 2 «Настройка
- * печати» (4–7), модуль 3 «Практика» (8–9), модуль 4 «Проблемы и решения» (10–11),
- * модуль 5 «Быстрые победы» (12–13) и модуль 6 «Финал» (14–15) — 27 из 27. Дальше
- * рисуется продвинутый курс: новая визуализация = новый файл
- * (components/lesson-visuals/pro-A-A1-image-0.tsx) плюс одна строка здесь.
+ * Реестр пуст: 27 кадров (модули «Знакомство» — «Финал», уроки 1–15) рисовались
+ * под контент старой программы, и три из них (`basic-1-image-0`,
+ * `basic-3-image-0`, `basic-4-image-0`) совпадали по ключу с новыми уроками 1, 3 и
+ * 4 — в блоке показывалась чужая схема вместо заглушки. Кадры удалены вместе с
+ * файлами (достать обратно можно из истории git; коммит до удаления — `b22da38`).
+ *
+ * Первая визуализация нового курса = новый файл
+ * (components/lesson-visuals/basic-1-image-0.tsx) плюс одна строка здесь.
  */
-const BASE_VISUALS: Record<string, VisualComponent> = {
-  "basic-1-image-0": Basic1Image0,
-  "basic-1-animation-0": Basic1Animation0,
-  "basic-2-image-0": Basic2Image0,
-  "basic-3-image-0": Basic3Image0,
-  "basic-3-animation-0": Basic3Animation0,
-  "basic-4-image-0": Basic4Image0,
-  "basic-4-animation-0": Basic4Animation0,
-  "basic-5-image-0": Basic5Image0,
-  "basic-5-animation-0": Basic5Animation0,
-  "basic-6-image-0": Basic6Image0,
-  "basic-6-animation-0": Basic6Animation0,
-  "basic-7-image-0": Basic7Image0,
-  "basic-7-animation-0": Basic7Animation0,
-  "basic-7-image-1": Basic7Image1,
-  "basic-8-image-0": Basic8Image0,
-  "basic-9-image-0": Basic9Image0,
-  "basic-9-image-1": Basic9Image1,
-  "basic-10-image-0": Basic10Image0,
-  "basic-11-image-0": Basic11Image0,
-  "basic-11-image-1": Basic11Image1,
-  "basic-12-image-0": Basic12Image0,
-  "basic-12-image-1": Basic12Image1,
-  "basic-13-image-0": Basic13Image0,
-  "basic-13-image-1": Basic13Image1,
-  "basic-14-image-0": Basic14Image0,
-  "basic-15-image-0": Basic15Image0,
-  "basic-15-image-1": Basic15Image1,
-};
+const BASE_VISUALS: Record<string, VisualComponent> = {};
 
 /**
  * Визуализации продвинутого курса — Этап 2.

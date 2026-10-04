@@ -23,12 +23,6 @@ const root = process.cwd();
 const DOCS_PATH = "PROJECT.md";
 
 /**
- * Примеры путей, которые в сводке описывают то, чего ещё нет (визуализации
- * Этапа 2). Отсутствие такого файла — ожидаемый результат, а не ошибка.
- */
-const EXAMPLE_PATHS = new Set(["components/lesson-visuals/basic-1-image-0.tsx"]);
-
-/**
  * Пути, которые сводка упоминает как удалённые (раздел «Закрыто в P0»).
  * Их отсутствие в репозитории — правильное состояние.
  */
@@ -153,15 +147,15 @@ const mentionedPaths = [
 
 const missingPaths = [];
 let directories = 0;
-let examples = 0;
+let removed = 0;
 
 for (const candidate of mentionedPaths) {
   if (tracked.has(candidate)) {
     continue;
   }
 
-  if (EXAMPLE_PATHS.has(candidate) || REMOVED_PATHS.has(candidate)) {
-    examples += 1;
+  if (REMOVED_PATHS.has(candidate)) {
+    removed += 1;
     continue;
   }
 
@@ -176,7 +170,7 @@ for (const candidate of mentionedPaths) {
 
 console.log(`\n=== 1. Пути из ${DOCS_PATH} ===`);
 console.log(
-  `Упомянуто путей: ${mentionedPaths.length} (каталогов: ${directories}, исключений: ${examples})`,
+  `Упомянуто путей: ${mentionedPaths.length} (каталогов: ${directories}, удалённых: ${removed})`,
 );
 
 if (missingPaths.length === 0) {
