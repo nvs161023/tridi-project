@@ -19,7 +19,7 @@ export const LEGAL_OPERATOR = {
 } as const;
 
 /** Дата, когда документы правились в последний раз (по ней видно актуальность). */
-export const LEGAL_UPDATED_AT = "26.09.2026";
+export const LEGAL_UPDATED_AT = "04.10.2026";
 
 /** Юридические документы сервиса: адрес и короткое название для меню и футера. */
 export const LEGAL_DOCUMENTS = [

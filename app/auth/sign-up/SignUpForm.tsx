@@ -44,6 +44,14 @@ export function SignUpForm({ next = null }: SignUpFormProps) {
    */
   const [isAccepted, setIsAccepted] = useState(false);
 
+  /**
+   * Подтверждение возраста. Своё состояние по той же причине, что и у согласия:
+   * кнопка регистрации неактивна, пока отметка не поставлена. Сервер проверяет
+   * поле ageConfirmed сам (см. app/actions/auth.ts) — сервис предназначен для
+   * лиц от 18 лет, и полагаться на одну разметку нельзя.
+   */
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
+
   return (
     <form action={formAction} className="mt-8 space-y-6">
       {/* Куда вернуться после регистрации: Server Action прочитает это поле
@@ -174,9 +182,57 @@ export function SignUpForm({ next = null }: SignUpFormProps) {
         )}
       </div>
 
+      {/* Подтверждение возраста — вторая обязательная отметка. Сервис
+          предназначен для лиц от 18 лет: п. 2.4 Пользовательского соглашения и
+          раздел 3.6 Политики обработки персональных данных. */}
+      <div className="rounded-2xl border border-white/10 bg-slate-900/40 px-4 py-4">
+        <label
+          htmlFor="age-confirmed"
+          className="flex cursor-pointer items-start gap-3 text-sm leading-relaxed text-slate-300"
+        >
+          <input
+            id="age-confirmed"
+            name="ageConfirmed"
+            type="checkbox"
+            required
+            checked={ageConfirmed}
+            onChange={(event) => setAgeConfirmed(event.target.checked)}
+            className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border-white/20 bg-slate-900 accent-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          />
+          <span>
+            Мне исполнилось 18 лет. Я принимаю{" "}
+            <Link
+              href="/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={legalLinkClassName}
+            >
+              Пользовательское соглашение
+            </Link>{" "}
+            и{" "}
+            <Link
+              href="/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={legalLinkClassName}
+            >
+              Политику конфиденциальности
+            </Link>
+            .
+          </span>
+        </label>
+
+        {ageConfirmed ? null : (
+          <p aria-live="polite" className="mt-3 text-sm text-amber-200">
+            <span aria-hidden>⚠️</span> Подтвердите, что вам исполнилось 18 лет —
+            без этого регистрация недоступна.
+          </p>
+        )}
+      </div>
+
       <button
         type="submit"
-        disabled={isPending || !isAccepted}
+        disabled={isPending || !isAccepted || !ageConfirmed}
         aria-busy={isPending}
         className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
       >

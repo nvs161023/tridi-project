@@ -58,6 +58,35 @@ export function LegalSection({
   );
 }
 
+/**
+ * Подраздел внутри раздела: «2.4. Возраст пользователя».
+ *
+ * Нужен там, где пункт относится к теме родительского раздела, но заслуживает
+ * своего заголовка: в документе он остаётся частью нумерации раздела, а читатель
+ * видит отдельный заголовок и может на него сослаться.
+ */
+export function LegalSubsection({
+  number,
+  title,
+  children,
+}: {
+  number: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mt-8">
+      <h3 className="text-base font-bold text-white sm:text-lg">
+        <span aria-hidden className="text-slate-500">
+          {number}.{" "}
+        </span>
+        {title}
+      </h3>
+      <div className="mt-3 space-y-4 leading-relaxed">{children}</div>
+    </div>
+  );
+}
+
 /** Список внутри раздела (маркеры не мешают, когда пункты — целые фразы). */
 export function LegalList({ items }: { items: ReactNode[] }) {
   return (

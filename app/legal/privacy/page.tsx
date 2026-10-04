@@ -6,6 +6,7 @@ import {
   LegalList,
   LegalRequisites,
   LegalSection,
+  LegalSubsection,
   LegalTerm,
 } from "@/components/legal/LegalText";
 import { LEGAL_OPERATOR, LEGAL_UPDATED_AT } from "@/lib/legal";
@@ -184,6 +185,18 @@ export default function PrivacyPolicyPage() {
           карты вводится на стороне платёжного сервиса ЮKassa и Оператору не
           передаётся.
         </p>
+        <LegalSubsection
+          number="3.6"
+          title="Обработка данных несовершеннолетних"
+        >
+          <p>
+            Обработка персональных данных несовершеннолетних не осуществляется.
+            Сервис не предназначен для лиц младше 18 лет. Если Сервису станет
+            известно, что персональные данные были предоставлены
+            несовершеннолетним без согласия законного представителя, такие данные
+            будут удалены в течение 3 (трёх) рабочих дней.
+          </p>
+        </LegalSubsection>
       </LegalSection>
 
       <LegalSection number={4} title="Цели обработки персональных данных">
