@@ -8,6 +8,7 @@
     "build:amvera": "npm run clean && npm run ensure:tsconfig && npm run check:imports && npm ci --include=dev --include=optional --no-audit --no-fund && next build --turbopack",
     "check:docs": "node scripts/check-docs.mjs",
     "check:imports": "node scripts/check-imports.mjs",
+    "stats:lesson": "node scripts/lesson-stats.mjs",
     "ensure:tsconfig": "node scripts/ensure-tsconfig.mjs",
     "clean": "node -e \"require('node:fs').rmSync('.next',{recursive:true,force:true})\"",
     "start": "next start",
