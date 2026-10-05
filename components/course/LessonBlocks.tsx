@@ -7,7 +7,8 @@ import type { CourseKind, LessonBlock, LessonBlockStep } from "@/lib/types";
 /**
  * Отрисовка блоков урока — общая для базового и продвинутого курса.
  *
- * Блоки описаны данными в data/lessons.json и data/course-pro.json, а здесь
+ * Блоки описаны данными в data/lessons.json, data/course-pro.json и
+ * data/course-confident.json, а здесь
  * лежит их внешний вид: текст, список, шаги, подсказки, визуализации и проверка
  * знаний. Один компонент на оба курса — значит, любой новый тип блока достаточно
  * добавить здесь, и он сразу появится и в базовом курсе, и в продвинутом.
@@ -22,6 +23,11 @@ import type { CourseKind, LessonBlock, LessonBlockStep } from "@/lib/types";
  * встаёт рядом с содержимым — так у списка может быть схема-обзор, а у шагов
  * сборки — схема движения воздуха. В базовом и продвинутом курсах visual_file
  * есть только у медийных блоков, поэтому их вид не меняется.
+ *
+ * Тексты блоков приходят абзацами: пустая строка в данных — граница абзаца, а
+ * **звёздочки** в тексте — жирный термин (см. BlockText). Это правило стиля
+ * от 04.10: короткие предложения, одна мысль на абзац. В базовом и продвинутом
+ * курсах пустых строк в текстах нет, поэтому их вид не меняется.
  *
  * Типы данных — в lib/types.ts (LessonBlock). Здесь только внешний вид.
  */
@@ -75,6 +81,56 @@ const mediaStyles = {
 } as const;
 
 type MediaType = keyof typeof mediaStyles;
+
+/**
+ * Разбор строки на обычный текст и **жирные** вставки: звёздочки из данных
+ * превращаются в <strong>.
+ *
+ * Жирным помечаем термин и главное число — так объяснение термина видно в самом
+ * тексте, а не в сноске. Разметка разбирается вручную (библиотеки markdown в
+ * проекте нет), но только в React-узлы: dangerouslySetInnerHTML не нужен, значит,
+ * вставка из данных не может принести с собой разметку.
+ */
+function inlineText(text: string) {
+  return text
+    .split(/(\*\*[^*]+\*\*)/g)
+    .filter(Boolean)
+    .map((part, index) =>
+      part.startsWith("**") && part.endsWith("**") ? (
+        <strong key={index} className="font-semibold text-white">
+          {part.slice(2, -2)}
+        </strong>
+      ) : (
+        part
+      ),
+    );
+}
+
+/**
+ * Текст блока абзацами: пустая строка — граница абзаца.
+ *
+ * Зачем: уроки уровня «Уверенный» пишутся короткими абзацами по 2–4 предложения,
+ * и границу абзаца автор ставит пустой строкой в самих данных. В разметке абзацы
+ * разводит этот компонент — иначе браузер схлопнул бы пустую строку в пробел и
+ * весь блок снова стал бы одним полотном. Одиночный перевод строки внутри абзаца
+ * остаётся пробелом: так блок, записанный одной строкой, выглядит как раньше.
+ */
+function BlockText({ text, className }: { text: string; className?: string }) {
+  const parts = text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/\n/g, " ").trim())
+    .filter(Boolean);
+
+  return (
+    <div className={className}>
+      {parts.map((paragraph, index) => (
+        <p key={index} className={index === 0 ? undefined : "mt-3"}>
+          {inlineText(paragraph)}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 /**
  * Список блоков урока с отступами между ними.
@@ -239,9 +295,12 @@ function BlockView({
               className="mt-6"
             />
           ) : null}
-          <p className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg">
-            {block.content}
-          </p>
+          {block.content ? (
+            <BlockText
+              text={block.content}
+              className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg"
+            />
+          ) : null}
         </section>
       );
 
@@ -271,7 +330,7 @@ function BlockView({
                   className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500"
                 />
                 <span className="text-base leading-relaxed text-slate-300">
-                  {item}
+                  {inlineText(item)}
                 </span>
               </li>
             ))}
@@ -317,9 +376,10 @@ function BlockView({
                     {step.title}
                   </h3>
                   {step.text ? (
-                    <p className="mt-2 text-base leading-relaxed text-slate-400">
-                      {step.text}
-                    </p>
+                    <BlockText
+                      text={step.text}
+                      className="mt-2 text-base leading-relaxed text-slate-400"
+                    />
                   ) : null}
                 </div>
               </li>
@@ -345,9 +405,12 @@ function BlockView({
             <h2 className={`text-lg font-bold sm:text-xl ${style.title}`}>
               {block.title}
             </h2>
-            <p className={`mt-2 text-base leading-relaxed ${style.body}`}>
-              {block.content}
-            </p>
+            {block.content ? (
+              <BlockText
+                text={block.content}
+                className={`mt-2 text-base leading-relaxed ${style.body}`}
+              />
+            ) : null}
           </div>
         </aside>
       );
