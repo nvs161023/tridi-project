@@ -18,9 +18,10 @@ import type { CourseKind, LessonBlock, LessonBlockStep } from "@/lib/types";
  * остаётся заглушка с иконкой типа блока.
  *
  * Карточка визуализации показывается не только у медийных типов: если у блока
- * другого типа (например, у списка пунктов) есть visual_file, кадр встаёт рядом
- * с содержимым — так у списка может быть схема-обзор. В базовом и продвинутом
- * курсах visual_file есть только у медийных блоков, поэтому их вид не меняется.
+ * другого типа (например, у списка пунктов или у шагов) есть visual_file, кадр
+ * встаёт рядом с содержимым — так у списка может быть схема-обзор, а у шагов
+ * сборки — схема движения воздуха. В базовом и продвинутом курсах visual_file
+ * есть только у медийных блоков, поэтому их вид не меняется.
  *
  * Типы данных — в lib/types.ts (LessonBlock). Здесь только внешний вид.
  */
@@ -292,6 +293,16 @@ function BlockView({
       return (
         <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
           <BlockTitle>{block.title}</BlockTitle>
+          {block.visual_file || block.src ? (
+            <BlockVisual
+              block={block}
+              typeOrdinal={typeOrdinal}
+              courseType={courseType}
+              moduleId={moduleId}
+              lessonId={lessonId}
+              className="mt-6"
+            />
+          ) : null}
           <ol className="mt-6 space-y-6">
             {steps.map((step, index) => (
               <li key={`${index}-${step.title}`} className="flex items-start gap-4">
