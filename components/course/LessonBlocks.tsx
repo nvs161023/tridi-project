@@ -324,6 +324,12 @@ function BlockView({
               className="mt-6"
             />
           ) : null}
+          {block.content ? (
+            <BlockText
+              text={block.content}
+              className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg"
+            />
+          ) : null}
           <ul className="mt-6 space-y-4">
             {block.items.map((item) => (
               <li key={item} className="flex items-start gap-3">
@@ -363,6 +369,12 @@ function BlockView({
               moduleId={moduleId}
               lessonId={lessonId}
               className="mt-6"
+            />
+          ) : null}
+          {block.content ? (
+            <BlockText
+              text={block.content}
+              className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg"
             />
           ) : null}
           <ol className="mt-6 space-y-6">
