@@ -21,7 +21,7 @@
  * даже если он в списке: так видно, сколько в нём нарушений сейчас.
  *
  * Запуск:
- *   npm run check:style                                    — уроки «Уверенного»
+ *   npm run check:style                                    — уроки «Уверенного» и «Инженера»
  *   npm run check:style -- data/course-confident.json C3    — один урок
  *   npm run check:style -- data/lessons.json                — другой файл курса
  *
@@ -32,8 +32,11 @@ import path from "node:path";
 
 const root = process.cwd();
 
-/** Что проверяется без аргументов: новый стиль пишется в уровне «Уверенный». */
-const DEFAULT_FILE = "data/course-confident.json";
+/** Что проверяется без аргументов: новый стиль пишется в платных уровнях. */
+const DEFAULT_FILES = [
+  "data/course-confident.json",
+  "data/course-engineer.json",
+];
 
 /** Правило стиля от 04.10: предложение — не длиннее 12 слов. */
 const MAX_WORDS = 12;
@@ -191,49 +194,53 @@ function printLesson(file, lesson, result) {
 }
 
 const [fileArg, lessonArg] = process.argv.slice(2);
-const file = fileArg ?? DEFAULT_FILE;
+const files = fileArg ? [fileArg] : DEFAULT_FILES;
 
-if (fileArg && !fs.existsSync(path.join(root, fileArg))) {
-  console.error(
-    `Файл ${fileArg} не найден. Без аргументов проверяется ${DEFAULT_FILE}.`,
-  );
-  process.exit(1);
-}
-
-const lessons = courseLessons(readJson(file));
-const selected = lessonArg
-  ? lessons.filter(
-      (lesson) =>
-        String(lesson.lesson_id).toLowerCase() === lessonArg.toLowerCase(),
-    )
-  : lessons;
-
-if (lessonArg && selected.length === 0) {
-  console.error(
-    `Урок «${lessonArg}» не найден в ${file}. Доступны: ${lessons
-      .map((lesson) => lesson.lesson_id)
-      .join(", ")}.`,
-  );
-  process.exit(1);
+for (const file of files) {
+  if (!fs.existsSync(path.join(root, file))) {
+    console.error(
+      `Файл ${file} не найден. Без аргументов проверяются ${DEFAULT_FILES.join(", ")}.`,
+    );
+    process.exit(1);
+  }
 }
 
 console.log(
-  `Стиль урока (${file}): предложение — не длиннее ${MAX_WORDS} слов, абзац — не длиннее ${MAX_SENTENCES} предложений.`,
+  `Стиль урока (${files.join(", ")}): предложение — не длиннее ${MAX_WORDS} слов, абзац — не длиннее ${MAX_SENTENCES} предложений.`,
 );
 
 let violations = 0;
 let checked = 0;
 const skipped = [];
 
-for (const lesson of selected) {
-  // Урок, названный аргументом, проверяется всегда — даже если он старого стиля.
-  if (!lessonArg && LEGACY_LESSONS.has(lesson.lesson_id)) {
-    skipped.push(lesson.lesson_id);
-    continue;
+for (const file of files) {
+  const lessons = courseLessons(readJson(file));
+  const selected = lessonArg
+    ? lessons.filter(
+        (lesson) =>
+          String(lesson.lesson_id).toLowerCase() === lessonArg.toLowerCase(),
+      )
+    : lessons;
+
+  if (lessonArg && selected.length === 0) {
+    console.error(
+      `Урок «${lessonArg}» не найден в ${file}. Доступны: ${lessons
+        .map((lesson) => lesson.lesson_id)
+        .join(", ")}.`,
+    );
+    process.exit(1);
   }
 
-  checked += 1;
-  violations += printLesson(file, lesson, checkLesson(lesson));
+  for (const lesson of selected) {
+    // Урок, названный аргументом, проверяется всегда — даже если он старого стиля.
+    if (!lessonArg && LEGACY_LESSONS.has(lesson.lesson_id)) {
+      skipped.push(lesson.lesson_id);
+      continue;
+    }
+
+    checked += 1;
+    violations += printLesson(file, lesson, checkLesson(lesson));
+  }
 }
 
 if (skipped.length > 0) {

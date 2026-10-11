@@ -228,8 +228,51 @@ export type ConfidentCourse = {
 };
 
 /**
- * Какой курс (уровень) открыт: базовый (бесплатный), «Уверенный» или
- * продвинутый «Инженер». По этому признаку страницы выбирают реестр визуализаций,
+ * Урок уровня «Инженер» (data/course-engineer.json).
+ *
+ * Форма та же, что у урока «Уверенного», плюс свой уровень доступа. Код урока
+ * строковый (IN1…IN10), а сквозной номер лежит в lesson_order (1…10) — он уходит
+ * в lesson_progress.lesson_id.
+ */
+export type EngineerLesson = {
+  /** Код урока: IN1…IN10 — он же последний сегмент адреса. */
+  lesson_id: string;
+  /** Сквозной номер урока в уровне (1…10), а не место внутри модуля. */
+  lesson_order: number;
+  lesson_title: string;
+  /** Длительность строкой: «20 мин». */
+  duration: string;
+  /** Уровень доступа урока: у «Инженера» он платный. */
+  tier?: string;
+  blocks: LessonBlock[];
+};
+
+/** Модуль уровня «Инженер» — та же форма, что у модулей других курсов. */
+export type EngineerModule = {
+  /** Код модуля («1»…«2») — он же предпоследний сегмент адреса. */
+  module_id: string;
+  /** Место модуля в уровне, с единицы. */
+  module_order: number;
+  module_title: string;
+  module_description: string;
+  lessons: EngineerLesson[];
+  module_test?: ProModuleTest;
+};
+
+/** Файл уровня «Инженер» целиком (data/course-engineer.json). */
+export type EngineerCourse = {
+  course_id: string;
+  course_title: string;
+  version: string;
+  /** Заявленные числа: совпадение с содержимым проверяет `npm run check:docs`. */
+  total_modules: number;
+  total_lessons: number;
+  modules: EngineerModule[];
+};
+
+/**
+ * Какой курс (уровень) открыт: базовый (бесплатный), «Уверенный», «Инженер» или
+ * продвинутый курс. По этому признаку страницы выбирают реестр визуализаций,
  * цвета тестов и тип строки в базе.
  */
-export type CourseKind = "basic" | "confident" | "pro";
+export type CourseKind = "basic" | "confident" | "engineer" | "pro";

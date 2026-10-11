@@ -117,6 +117,7 @@ const docs = fs.readFileSync(path.join(root, DOCS_PATH), "utf8");
 const basic = summarizeCourse(readJson("data/lessons.json"));
 const pro = summarizeCourse(readJson("data/course-pro.json"));
 const confident = summarizeCourse(readJson("data/course-confident.json"));
+const engineer = summarizeCourse(readJson("data/course-engineer.json"));
 
 /** Проверка «в сводке есть такая строка». */
 function expectInDocs(needle, label) {
@@ -198,6 +199,10 @@ expectInDocs(
   `${withCount(confident.modules, MODULE_FORMS)}, ${withCount(confident.lessons, LESSON_FORMS)}`,
   "Сводка по уровню «Уверенный»",
 );
+expectInDocs(
+  `${withCount(engineer.modules, MODULE_FORMS)}, ${withCount(engineer.lessons, LESSON_FORMS)}`,
+  "Сводка по уровню «Инженер»",
+);
 expectInDocs(withCount(basic.questions, QUESTION_FORMS), "Вопросы базового курса");
 expectInDocs(
   withCount(basic.explanations, EXPLANATION_FORMS),
@@ -209,7 +214,7 @@ expectInDocs(
   "Пояснения продвинутого курса",
 );
 expectInDocs(
-  `${withCount(basic.visualBlocks + confident.visualBlocks + pro.visualBlocks, BLOCK_FORMS)} ссылаются на будущий файл визуализации`,
+  `${withCount(basic.visualBlocks + confident.visualBlocks + engineer.visualBlocks + pro.visualBlocks, BLOCK_FORMS)} ссылаются на будущий файл визуализации`,
   "Блоки с визуализациями",
 );
 
@@ -233,6 +238,7 @@ function expectDeclared(relativePath, course) {
 expectDeclared("data/lessons.json", basic);
 expectDeclared("data/course-pro.json", pro);
 expectDeclared("data/course-confident.json", confident);
+expectDeclared("data/course-engineer.json", engineer);
 
 /** Метаданные витрины: там числа уроков лежат в totalLessons. */
 const coursesMeta = readJson("data/courses.json");
@@ -241,6 +247,7 @@ for (const [key, course, summary] of [
   ["basic", coursesMeta.basic, basic],
   ["pro", coursesMeta.pro, pro],
   ["confident", coursesMeta.confident, confident],
+  ["engineer", coursesMeta.engineer, engineer],
 ]) {
   if (course.totalLessons === summary.lessons) {
     console.log(`✓ data/courses.json: ${key}.totalLessons=${course.totalLessons}`);

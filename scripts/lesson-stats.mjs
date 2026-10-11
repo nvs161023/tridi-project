@@ -27,28 +27,40 @@ import path from "node:path";
 
 const root = process.cwd();
 
-/** Курсы, которые показываются без аргументов: базовый, продвинутый, платный. */
+/** Курсы, которые показываются без аргументов: базовый, продвинутый, платные уровни. */
 const COURSE_FILES = [
   "data/lessons.json",
   "data/course-pro.json",
   "data/course-confident.json",
+  "data/course-engineer.json",
 ];
 
 /** База — точка отсчёта: с ней сравниваем объём любого другого уровня. */
 const BASE_FILE = "data/lessons.json";
 
 /**
- * Ориентир уровня «Уверенный» (правило от 04.10): уверенный пользователь, а не
- * инженер — поэтому 28–35 блоков и 4 500–6 000 слов на урок. Действует с C2;
- * C1 написан раньше и в ориентир по словам не попадает — это видно в отчёте.
+ * Ориентир платных уровней (правило от 04.10): 28–35 блоков и 4 500–6 000 слов на
+ * урок. У «Уверенного» действует с C2, у «Инженера» — с IN1: C1 написан раньше
+ * ориентира и в него по словам не попадает — это видно в отчёте.
  */
-const CONFIDENT_TARGET = {
-  file: "data/course-confident.json",
-  minBlocks: 28,
-  maxBlocks: 35,
-  minWords: 4500,
-  maxWords: 6000,
-};
+const TARGETS = [
+  {
+    file: "data/course-confident.json",
+    label: "«Уверенного»",
+    minBlocks: 28,
+    maxBlocks: 35,
+    minWords: 4500,
+    maxWords: 6000,
+  },
+  {
+    file: "data/course-engineer.json",
+    label: "«Инженера»",
+    minBlocks: 28,
+    maxBlocks: 35,
+    minWords: 4500,
+    maxWords: 6000,
+  },
+];
 
 /** Число с разделителем разрядов: 10338 → «10 338». */
 function formatNumber(value) {
@@ -210,25 +222,25 @@ function printComparison(stats, baseLessons) {
   );
 }
 
-/** Ориентир платного уровня: печатается только для файла «Уверенного». */
+/** Ориентир платного уровня: печатается только для файлов из TARGETS. */
 function printTarget(stats, file) {
-  if (file !== CONFIDENT_TARGET.file) {
+  const target = TARGETS.find((item) => item.file === file);
+
+  if (!target) {
     return;
   }
 
   const blocksOk =
-    stats.blocks >= CONFIDENT_TARGET.minBlocks &&
-    stats.blocks <= CONFIDENT_TARGET.maxBlocks;
+    stats.blocks >= target.minBlocks && stats.blocks <= target.maxBlocks;
   const wordsOk =
-    stats.words >= CONFIDENT_TARGET.minWords &&
-    stats.words <= CONFIDENT_TARGET.maxWords;
+    stats.words >= target.minWords && stats.words <= target.maxWords;
 
   console.log(
-    `Ориентир «Уверенного»: ${CONFIDENT_TARGET.minBlocks}–${
-      CONFIDENT_TARGET.maxBlocks
+    `Ориентир ${target.label}: ${target.minBlocks}–${
+      target.maxBlocks
     } блоков — ${blocksOk ? "в норме" : "вне нормы"}, ${formatNumber(
-      CONFIDENT_TARGET.minWords,
-    )}–${formatNumber(CONFIDENT_TARGET.maxWords)} слов — ${
+      target.minWords,
+    )}–${formatNumber(target.maxWords)} слов — ${
       wordsOk ? "в норме" : "вне нормы"
     }`,
   );

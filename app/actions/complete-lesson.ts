@@ -5,11 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 export type CompleteLessonResult = { success: true } | { error: string };
 
 /**
- * Какой курс проходим: базовый (8 уроков), «Уверенный» (12 уроков) или
- * продвинутый «Инженер» (109 уроков). Прогресс хранится отдельно по курсам:
- * урок №1 есть и в базовом, и в других уровнях.
+ * Какой курс проходим: базовый (8 уроков), «Уверенный» (12 уроков), «Инженер»
+ * (10 уроков) или продвинутый курс (109 уроков). Прогресс хранится отдельно по
+ * курсам: урок №1 есть и в базовом, и в других уровнях.
  */
-export type CourseType = "basic" | "confident" | "pro";
+export type CourseType = "basic" | "confident" | "engineer" | "pro";
 
 /**
  * Отмечает урок пройденным для текущего пользователя.
@@ -47,7 +47,12 @@ export async function completeLesson(
 
   // Server Action — публичный адрес: значение приходит из браузера, поэтому
   // проверяем его здесь, а не полагаемся на типы TypeScript.
-  if (courseType !== "basic" && courseType !== "confident" && courseType !== "pro") {
+  if (
+    courseType !== "basic" &&
+    courseType !== "confident" &&
+    courseType !== "engineer" &&
+    courseType !== "pro"
+  ) {
     return { error: "Неизвестный тип курса" };
   }
 

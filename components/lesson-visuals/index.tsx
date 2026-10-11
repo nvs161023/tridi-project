@@ -205,8 +205,8 @@ import type { VisualProps } from "./_Wrapper";
  * Остальные блоки обоих курсов пока без картинки: для них возвращается
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
- * Новая визуализация = новый файл + одна строка в BASE_VISUALS, CONFIDENT_VISUALS
- * или PRO_VISUALS.
+ * Новая визуализация = новый файл + одна строка в BASE_VISUALS, CONFIDENT_VISUALS,
+ * ENGINEER_VISUALS или PRO_VISUALS.
  */
 export type { VisualProps } from "./_Wrapper";
 
@@ -216,8 +216,10 @@ export type VisualComponent = ComponentType<VisualProps>;
  * Адрес блока: курс, урок, тип блока и порядковый номер среди блоков этого типа.
  *
  * Базовый курс адресуется номером урока (basic-1-image-0), «Уверенный» — кодом
- * урока (confident-C5-image-0), продвинутый — кодами модуля и урока
- * (pro-A-A1-image-0): в продвинутом курсе номера уроков строковые — A1, C1-1, T14.
+ * урока (confident-C5-image-0), «Инженер» — тоже кодом урока
+ * (engineer-1-image-0, коды IN1…IN10 уникальны внутри уровня), продвинутый —
+ * кодами модуля и урока (pro-A-A1-image-0): в продвинутом курсе номера уроков
+ * строковые — A1, C1-1, T14.
  */
 export type VisualBlockRef = {
   course?: CourseKind;
@@ -263,6 +265,23 @@ const BASE_VISUALS: Record<string, VisualComponent> = {};
  * здесь.
  */
 const CONFIDENT_VISUALS: Record<string, VisualComponent> = {};
+
+/**
+ * Визуализации уровня «Инженер» — Этап 2, ждут своих кадров.
+ *
+ * Ключ: `engineer-{номер}-{тип блока}-{номер по типу}`, например
+ * `engineer-1-image-0` или `engineer-10-diagram-1`. Кода модуля в ключе нет:
+ * коды уроков (IN1…IN10) уникальны внутри уровня, как у «Уверенного».
+ *
+ * Реестр пуст: нарисованных кадров у уровня пока нет, поэтому все визуальные
+ * блоки рисуются заглушкой по типу. Написан первый урок — IN1 (32 блока и 7
+ * кадров: `I1_heat_ladder.png`, `I1_strength_table.png`, `I1_abrasive.png`,
+ * `I1_ht_printer.png`, `I1_chem_table.png`, `I1_inserts.png`,
+ * `I1_choose_material.png`), остальные уроки ждут текста. Первая визуализация =
+ * новый файл (components/lesson-visuals/engineer-1-image-0.tsx) плюс одна строка
+ * здесь.
+ */
+const ENGINEER_VISUALS: Record<string, VisualComponent> = {};
 
 /**
  * Визуализации продвинутого курса — Этап 2.
@@ -491,6 +510,10 @@ function visualKey(ref: VisualBlockRef): string {
     return `pro-${ref.moduleId ?? ""}-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
   }
 
+  if (ref.course === "engineer") {
+    return `engineer-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
+  }
+
   if (ref.course === "confident") {
     return `confident-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
   }
@@ -500,14 +523,16 @@ function visualKey(ref: VisualBlockRef): string {
 
 /** Визуализация конкретного блока или null, если она ещё не нарисована. */
 export function getVisualComponent(ref: VisualBlockRef): VisualComponent | null {
-  // Каждый курс смотрит только в свой раздел: так ключи трёх курсов не могут
+  // Каждый курс смотрит только в свой раздел: так ключи четырёх курсов не могут
   // случайно совпасть и в блоке не появится чужая схема.
   const registry =
     ref.course === "pro"
       ? PRO_VISUALS
-      : ref.course === "confident"
-        ? CONFIDENT_VISUALS
-        : BASE_VISUALS;
+      : ref.course === "engineer"
+        ? ENGINEER_VISUALS
+        : ref.course === "confident"
+          ? CONFIDENT_VISUALS
+          : BASE_VISUALS;
 
   return registry[visualKey(ref)] ?? null;
 }
