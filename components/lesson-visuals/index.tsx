@@ -274,10 +274,13 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {};
  * коды уроков (IN1…IN10) уникальны внутри уровня, как у «Уверенного».
  *
  * Реестр пуст: нарисованных кадров у уровня пока нет, поэтому все визуальные
- * блоки рисуются заглушкой по типу. Написан первый урок — IN1 (32 блока и 7
- * кадров: `I1_heat_ladder.png`, `I1_strength_table.png`, `I1_abrasive.png`,
- * `I1_ht_printer.png`, `I1_chem_table.png`, `I1_inserts.png`,
- * `I1_choose_material.png`), остальные уроки ждут текста. Первая визуализация =
+ * блоки рисуются заглушкой по типу. Написаны первые уроки — IN1 (32 блока и 7
+ * кадров: `IN1_heat_ladder.png`, `IN1_strength_table.png`, `IN1_abrasive.png`,
+ * `IN1_ht_printer.png`, `IN1_chem_table.png`, `IN1_inserts.png`,
+ * `IN1_choose_material.png`) и IN2 (7 кадров: `IN2_load_types.png`,
+ * `IN2_stress_table.png`, `IN2_anisotropy.png`, `IN2_orientation.png`,
+ * `IN2_bending.png`, `IN2_walls_fill.png`, `IN2_test_coupon.png`), остальные
+ * уроки ждут текста. Первая визуализация =
  * новый файл (components/lesson-visuals/engineer-1-image-0.tsx) плюс одна строка
  * здесь.
  */
