@@ -1,6 +1,6 @@
 /**
  * Оформление тестов модуля: базовый курс — синий, «Уверенный» — изумрудный,
- * «Инженер» — фиалковый, продвинутый — янтарный.
+ * «Инженер» — фиалковый, «Заработок» — розовый, продвинутый — янтарный.
  *
  * Живёт отдельным модулем без "use client", потому что цвета нужны и клиентским
  * компонентам (ModuleTest, TestOverlay), и серверным (ModuleTestGate на странице
@@ -54,5 +54,16 @@ export const moduleTestThemes = {
     bar: "bg-gradient-to-r from-violet-400 to-indigo-500",
     ring: "focus-visible:ring-violet-300",
     optionHover: "hover:border-violet-300/60",
+  },
+  profit: {
+    primary:
+      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-rose-400 to-pink-500 px-9 text-lg font-semibold text-slate-950 shadow-lg shadow-rose-500/25 transition-colors hover:from-rose-300 hover:to-pink-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
+    secondary:
+      "inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full border border-rose-400/40 bg-white/5 px-9 text-lg font-semibold text-rose-100 transition-colors hover:bg-rose-400/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
+    accentText: "text-rose-300",
+    eyebrow: "text-rose-300",
+    bar: "bg-gradient-to-r from-rose-400 to-pink-500",
+    ring: "focus-visible:ring-rose-300",
+    optionHover: "hover:border-rose-300/60",
   },
 } as const;

@@ -21,7 +21,7 @@
  * даже если он в списке: так видно, сколько в нём нарушений сейчас.
  *
  * Запуск:
- *   npm run check:style                                    — уроки «Уверенного» и «Инженера»
+ *   npm run check:style                                    — уроки «Уверенного», «Инженера» и «Заработка»
  *   npm run check:style -- data/course-confident.json C3    — один урок
  *   npm run check:style -- data/lessons.json                — другой файл курса
  *
@@ -36,6 +36,7 @@ const root = process.cwd();
 const DEFAULT_FILES = [
   "data/course-confident.json",
   "data/course-engineer.json",
+  "data/course-profit.json",
 ];
 
 /** Правило стиля от 04.10: предложение — не длиннее 12 слов. */

@@ -22,9 +22,14 @@ export const MODULE_TEST_EXCELLENT_FROM = 8;
 /**
  * К какому курсу относится тест. От варианта зависит и тип строки в базе, и
  * оформление страницы теста: базовый — синий, «Уверенный» — изумрудный,
- * «Инженер» — фиалковый, продвинутый — янтарный.
+ * «Инженер» — фиалковый, «Заработок» — розовый, продвинутый — янтарный.
  */
-export type CourseTestVariant = "basic" | "confident" | "engineer" | "pro";
+export type CourseTestVariant =
+  | "basic"
+  | "confident"
+  | "engineer"
+  | "profit"
+  | "pro";
 
 /**
  * Тип курса для результатов тестов модулей базового курса в lesson_progress.
@@ -59,6 +64,18 @@ export const CONFIDENT_MODULE_TEST_COURSE_TYPE = "confident-test";
 export const ENGINEER_MODULE_TEST_COURSE_TYPE = "engineer-test";
 
 /**
+ * Тип курса для результатов тестов модулей уровня «Заработок».
+ *
+ * Тоже отдельный — и от "profit", и от остальных: прогресс уроков уровня
+ * считается по course_type="profit" (уроки 1…8), а тесты модулей пишутся сюда,
+ * чтобы не сдвигать счётчик уроков. Номер модуля лежит в lesson_id (1…2).
+ *
+ * Значение разрешено ограничением lesson_progress_course_type_check — см.
+ * supabase/profit_course_access.sql.
+ */
+export const PROFIT_MODULE_TEST_COURSE_TYPE = "profit-test";
+
+/**
  * Тип курса для результатов тестов модулей продвинутого курса.
  *
  * Тоже отдельный — и от "pro", и от "basic-test": прогресс уроков pro считается
@@ -72,6 +89,7 @@ export const MODULE_TEST_COURSE_TYPES: Record<CourseTestVariant, string> = {
   basic: MODULE_TEST_COURSE_TYPE,
   confident: CONFIDENT_MODULE_TEST_COURSE_TYPE,
   engineer: ENGINEER_MODULE_TEST_COURSE_TYPE,
+  profit: PROFIT_MODULE_TEST_COURSE_TYPE,
   pro: PRO_MODULE_TEST_COURSE_TYPE,
 };
 

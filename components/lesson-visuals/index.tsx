@@ -206,7 +206,7 @@ import type { VisualProps } from "./_Wrapper";
  * null, и в карточке показывается заглушка с иконкой типа блока — лучше
  * заглушка, чем чужая картинка.
  * Новая визуализация = новый файл + одна строка в BASE_VISUALS, CONFIDENT_VISUALS,
- * ENGINEER_VISUALS или PRO_VISUALS.
+ * ENGINEER_VISUALS, PROFIT_VISUALS или PRO_VISUALS.
  */
 export type { VisualProps } from "./_Wrapper";
 
@@ -285,6 +285,22 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {};
  * здесь.
  */
 const ENGINEER_VISUALS: Record<string, VisualComponent> = {};
+
+/**
+ * Визуализации уровня «Заработок» — Этап 2, ждут своих кадров.
+ *
+ * Ключ: `profit-{номер}-{тип блока}-{номер по типу}`, например
+ * `profit-1-image-0` или `profit-8-diagram-1`. Кода модуля в ключе нет: коды
+ * уроков (Z1…Z8) уникальны внутри уровня, как у «Уверенного» и «Инженера».
+ *
+ * Реестр пуст: нарисованных кадров у уровня пока нет, поэтому все визуальные
+ * блоки рисуются заглушкой по типу. Уровень задуман на 48 кадров (5–7 на урок),
+ * первый урок — Z1 — получит шесть: `Z1_niche_map.png`, `Z1_products_grid.png`,
+ * `Z1_margin_table.png`, `Z1_price_floor.png`, `Z1_competition.png`,
+ * `Z1_pick_niche.png`. Первая визуализация = новый файл
+ * (components/lesson-visuals/profit-1-image-0.tsx) плюс одна строка здесь.
+ */
+const PROFIT_VISUALS: Record<string, VisualComponent> = {};
 
 /**
  * Визуализации продвинутого курса — Этап 2.
@@ -517,6 +533,10 @@ function visualKey(ref: VisualBlockRef): string {
     return `engineer-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
   }
 
+  if (ref.course === "profit") {
+    return `profit-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
+  }
+
   if (ref.course === "confident") {
     return `confident-${ref.lessonId ?? ""}-${ref.type}-${ref.typeOrdinal}`;
   }
@@ -526,16 +546,18 @@ function visualKey(ref: VisualBlockRef): string {
 
 /** Визуализация конкретного блока или null, если она ещё не нарисована. */
 export function getVisualComponent(ref: VisualBlockRef): VisualComponent | null {
-  // Каждый курс смотрит только в свой раздел: так ключи четырёх курсов не могут
+  // Каждый курс смотрит только в свой раздел: так ключи пяти курсов не могут
   // случайно совпасть и в блоке не появится чужая схема.
   const registry =
     ref.course === "pro"
       ? PRO_VISUALS
       : ref.course === "engineer"
         ? ENGINEER_VISUALS
-        : ref.course === "confident"
-          ? CONFIDENT_VISUALS
-          : BASE_VISUALS;
+        : ref.course === "profit"
+          ? PROFIT_VISUALS
+          : ref.course === "confident"
+            ? CONFIDENT_VISUALS
+            : BASE_VISUALS;
 
   return registry[visualKey(ref)] ?? null;
 }

@@ -271,8 +271,51 @@ export type EngineerCourse = {
 };
 
 /**
- * Какой курс (уровень) открыт: базовый (бесплатный), «Уверенный», «Инженер» или
- * продвинутый курс. По этому признаку страницы выбирают реестр визуализаций,
- * цвета тестов и тип строки в базе.
+ * Урок уровня «Заработок» (data/course-profit.json).
+ *
+ * Форма та же, что у уроков «Уверенного» и «Инженера», плюс свой уровень доступа.
+ * Код урока строковый (Z1…Z8), а сквозной номер лежит в lesson_order (1…8) — он
+ * уходит в lesson_progress.lesson_id.
  */
-export type CourseKind = "basic" | "confident" | "engineer" | "pro";
+export type ProfitLesson = {
+  /** Код урока: Z1…Z8 — он же последний сегмент адреса. */
+  lesson_id: string;
+  /** Сквозной номер урока в уровне (1…8), а не место внутри модуля. */
+  lesson_order: number;
+  lesson_title: string;
+  /** Длительность строкой: «20 мин». */
+  duration: string;
+  /** Уровень доступа урока: у «Заработка» он платный. */
+  tier?: string;
+  blocks: LessonBlock[];
+};
+
+/** Модуль уровня «Заработок» — та же форма, что у модулей других курсов. */
+export type ProfitModule = {
+  /** Код модуля («1»…«2») — он же предпоследний сегмент адреса. */
+  module_id: string;
+  /** Место модуля в уровне, с единицы. */
+  module_order: number;
+  module_title: string;
+  module_description: string;
+  lessons: ProfitLesson[];
+  module_test?: ProModuleTest;
+};
+
+/** Файл уровня «Заработок» целиком (data/course-profit.json). */
+export type ProfitCourse = {
+  course_id: string;
+  course_title: string;
+  version: string;
+  /** Заявленные числа: совпадение с содержимым проверяет `npm run check:docs`. */
+  total_modules: number;
+  total_lessons: number;
+  modules: ProfitModule[];
+};
+
+/**
+ * Какой курс (уровень) открыт: базовый (бесплатный), «Уверенный», «Инженер»,
+ * «Заработок» или продвинутый курс. По этому признаку страницы выбирают реестр
+ * визуализаций, цвета тестов и тип строки в базе.
+ */
+export type CourseKind = "basic" | "confident" | "engineer" | "profit" | "pro";

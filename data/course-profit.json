@@ -1,0 +1,89 @@
+{
+  "course_id": "profit",
+  "course_title": "Заработок на 3D-печати",
+  "version": "1.0",
+  "total_modules": 2,
+  "total_lessons": 8,
+  "modules": [
+    {
+      "module_id": "1",
+      "module_order": 1,
+      "module_title": "Продукт и цена",
+      "module_description": "Понять, что продавать, посчитать цену до печати, договориться с клиентом и повторить деталь партией.",
+      "lessons": [
+        {
+          "lesson_id": "Z1",
+          "lesson_order": 1,
+          "lesson_title": "Что продавать: ниши и маржа",
+          "duration": "20 мин",
+          "tier": "profit",
+          "blocks": []
+        },
+        {
+          "lesson_id": "Z2",
+          "lesson_order": 2,
+          "lesson_title": "Расчёт стоимости и цены",
+          "duration": "20 мин",
+          "tier": "profit",
+          "blocks": []
+        },
+        {
+          "lesson_id": "Z3",
+          "lesson_order": 3,
+          "lesson_title": "Клиенты: бриф, ТЗ, споры",
+          "duration": "20 мин",
+          "tier": "profit",
+          "blocks": []
+        },
+        {
+          "lesson_id": "Z4",
+          "lesson_order": 4,
+          "lesson_title": "Серия: повторяемость, QC, допуски",
+          "duration": "20 мин",
+          "tier": "profit",
+          "blocks": []
+        }
+      ]
+    },
+    {
+      "module_id": "2",
+      "module_order": 2,
+      "module_title": "Продажи и право",
+      "module_description": "Показать товар людям, отправить его, оформить доход и собрать всё в один продукт.",
+      "lessons": [
+        {
+          "lesson_id": "Z5",
+          "lesson_order": 5,
+          "lesson_title": "Фото, маркетинг, продвижение",
+          "duration": "20 мин",
+          "tier": "profit",
+          "blocks": []
+        },
+        {
+          "lesson_id": "Z6",
+          "lesson_order": 6,
+          "lesson_title": "Упаковка, логистика, отправка",
+          "duration": "20 мин",
+          "tier": "profit",
+          "blocks": []
+        },
+        {
+          "lesson_id": "Z7",
+          "lesson_order": 7,
+          "lesson_title": "Юр. оформление, налоги, лицензии",
+          "duration": "20 мин",
+          "tier": "profit",
+          "blocks": []
+        },
+        {
+          "lesson_id": "Z8",
+          "lesson_order": 8,
+          "lesson_title": "Финальный проект: свой продукт",
+          "duration": "20 мин",
+          "tier": "profit",
+          "blocks": []
+        }
+      ]
+    }
+  ]
+}

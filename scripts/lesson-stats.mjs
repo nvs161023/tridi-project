@@ -33,6 +33,7 @@ const COURSE_FILES = [
   "data/course-pro.json",
   "data/course-confident.json",
   "data/course-engineer.json",
+  "data/course-profit.json",
 ];
 
 /** База — точка отсчёта: с ней сравниваем объём любого другого уровня. */
@@ -40,8 +41,8 @@ const BASE_FILE = "data/lessons.json";
 
 /**
  * Ориентир платных уровней (правило от 04.10): 28–35 блоков и 4 500–6 000 слов на
- * урок. У «Уверенного» действует с C2, у «Инженера» — с IN1: C1 написан раньше
- * ориентира и в него по словам не попадает — это видно в отчёте.
+ * урок. У «Уверенного» действует с C2, у «Инженера» — с IN1, у «Заработка» — с Z1:
+ * C1 написан раньше ориентира и в него по словам не попадает — это видно в отчёте.
  */
 const TARGETS = [
   {
@@ -55,6 +56,14 @@ const TARGETS = [
   {
     file: "data/course-engineer.json",
     label: "«Инженера»",
+    minBlocks: 28,
+    maxBlocks: 35,
+    minWords: 4500,
+    maxWords: 6000,
+  },
+  {
+    file: "data/course-profit.json",
+    label: "«Заработка»",
     minBlocks: 28,
     maxBlocks: 35,
     minWords: 4500,
