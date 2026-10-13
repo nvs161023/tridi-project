@@ -293,12 +293,12 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {};
  * `profit-1-image-0` или `profit-8-diagram-1`. Кода модуля в ключе нет: коды
  * уроков (Z1…Z8) уникальны внутри уровня, как у «Уверенного» и «Инженера».
  *
- * Реестр пуст: нарисованных кадров у уровня пока нет, поэтому все визуальные
- * блоки рисуются заглушкой по типу. Уровень задуман на 48 кадров (5–7 на урок),
- * первый урок — Z1 — получит шесть: `Z1_niche_map.png`, `Z1_products_grid.png`,
- * `Z1_margin_table.png`, `Z1_price_floor.png`, `Z1_competition.png`,
- * `Z1_pick_niche.png`. Первая визуализация = новый файл
- * (components/lesson-visuals/profit-1-image-0.tsx) плюс одна строка здесь.
+ * Реестр пуст: нарисованных кадров у уровня пока нет, поэтому все визуальные блоки рисуются
+ * заглушкой по типу. Уровень задуман на 48 кадров (5–7 на урок), написан первый урок — Z1
+ * (32 блока и 6 кадров: `Z1_niche_map.png`, `Z1_products_grid.png`, `Z1_margin_table.png`,
+ * `Z1_price_floor.png`, `Z1_competition.png`, `Z1_pick_niche.png`), остальные уроки ждут текста.
+ * Первая визуализация = новый файл (components/lesson-visuals/profit-1-image-0.tsx) плюс одна
+ * строка здесь.
  */
 const PROFIT_VISUALS: Record<string, VisualComponent> = {};
 
