@@ -3,6 +3,10 @@ import type { ComponentType } from "react";
 import type { CourseKind } from "@/lib/types";
 
 import { Basic1Image0 } from "./basic-1-image-0";
+import { Basic2Diagram0 } from "./basic-2-diagram-0";
+import { Basic2Diagram1 } from "./basic-2-diagram-1";
+import { Basic2Diagram2 } from "./basic-2-diagram-2";
+import { Basic2Diagram3 } from "./basic-2-diagram-3";
 import { ProAA1Animation0 } from "./pro-A-A1-animation-0";
 import { ProAA1Image0 } from "./pro-A-A1-image-0";
 import { ProAA2Animation0 } from "./pro-A-A2-animation-0";
@@ -239,8 +243,10 @@ export type VisualBlockRef = {
  * Ключ: `basic-{номер урока}-{тип блока}-{номер}`, например `basic-1-image-0` или
  * `basic-5-animation-0`. Номер — порядковый номер блока этого типа внутри урока.
  *
- * Нарисован первый кадр нового курса — `basic-1-image-0` (сравнение FDM, SLA и
- * SLS, урок 1). 27 кадров старого курса (модули «Знакомство» — «Финал», уроки
+ * Нарисованы кадры уроков 1 и 2: `basic-1-image-0` (сравнение FDM, SLA и SLS) и
+ * два кадра механики L2 — `basic-2-diagram-0` (три кинематики) и
+ * `basic-2-diagram-1` (разрез шагового мотора и сетка микрошага). 27 кадров
+ * старого курса (модули «Знакомство» — «Финал», уроки
  * 1–15) рисовались под контент старой программы, и три из них (`basic-1-image-0`,
  * `basic-3-image-0`, `basic-4-image-0`) совпадали по ключу с новыми уроками 1, 3 и
  * 4 — в блоке показывалась чужая схема вместо заглушки. Кадры удалены вместе с
@@ -254,6 +260,15 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
   // одной схеме — FDM со соплом и слоями, SLA с ванной и лучом, SLS с порошком и
   // валиком (блок 5, единственный визуальный блок урока).
   "basic-1-image-0": Basic1Image0,
+  // Урок L2 «Как устроен принтер»: три кинематики на одной схеме (блок 4) и
+  // разрез шагового мотора с сеткой микрошага (блок 9). Дальше в этом уроке
+  // идут ремень GT2, Direct против Bowden, разрез хотэнда и покрытия стола.
+  "basic-2-diagram-0": Basic2Diagram0,
+  "basic-2-diagram-1": Basic2Diagram1,
+  // Ремень GT2 со шкивом на 20 зубьев и расчётом 0,0125 мм на шаг (блок 13) и
+  // сравнение Direct с Bowden по пути нити и ретракту (блок 16).
+  "basic-2-diagram-2": Basic2Diagram2,
+  "basic-2-diagram-3": Basic2Diagram3,
 };
 
 /**
