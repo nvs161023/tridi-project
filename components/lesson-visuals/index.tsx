@@ -7,6 +7,8 @@ import { Basic2Diagram0 } from "./basic-2-diagram-0";
 import { Basic2Diagram1 } from "./basic-2-diagram-1";
 import { Basic2Diagram2 } from "./basic-2-diagram-2";
 import { Basic2Diagram3 } from "./basic-2-diagram-3";
+import { Basic2Diagram4 } from "./basic-2-diagram-4";
+import { Basic2Diagram5 } from "./basic-2-diagram-5";
 import { ProAA1Animation0 } from "./pro-A-A1-animation-0";
 import { ProAA1Image0 } from "./pro-A-A1-image-0";
 import { ProAA2Animation0 } from "./pro-A-A2-animation-0";
@@ -269,6 +271,10 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
   // сравнение Direct с Bowden по пути нити и ретракту (блок 16).
   "basic-2-diagram-2": Basic2Diagram2,
   "basic-2-diagram-3": Basic2Diagram3,
+  // Разрез хотэнда с выносками к пяти узлам (блок 20) и пять покрытий стола по
+  // подписи блока 25.
+  "basic-2-diagram-4": Basic2Diagram4,
+  "basic-2-diagram-5": Basic2Diagram5,
 };
 
 /**
