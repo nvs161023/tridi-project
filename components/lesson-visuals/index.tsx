@@ -9,6 +9,12 @@ import { Basic2Diagram2 } from "./basic-2-diagram-2";
 import { Basic2Diagram3 } from "./basic-2-diagram-3";
 import { Basic2Diagram4 } from "./basic-2-diagram-4";
 import { Basic2Diagram5 } from "./basic-2-diagram-5";
+import { Basic3Diagram0 } from "./basic-3-diagram-0";
+import { Basic3Diagram1 } from "./basic-3-diagram-1";
+import { Basic3Image0 } from "./basic-3-image-0";
+import { Basic3Image1 } from "./basic-3-image-1";
+import { Basic3Image2 } from "./basic-3-image-2";
+import { Basic3Diagram2 } from "./basic-3-diagram-2";
 import { ProAA1Animation0 } from "./pro-A-A1-animation-0";
 import { ProAA1Image0 } from "./pro-A-A1-image-0";
 import { ProAA2Animation0 } from "./pro-A-A2-animation-0";
@@ -275,6 +281,15 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
   // подписи блока 25.
   "basic-2-diagram-4": Basic2Diagram4,
   "basic-2-diagram-5": Basic2Diagram5,
+  // Урок L3 «Материалы: полный гид»: шесть кадров — путь филамента (блок 3),
+  // карточки PLA и PETG (блоки 5 и 8), шкалы Tg/HDT (блок 10) и усадки (блок 22)
+  // и сравнение сухой и влажной катушки (блок 30).
+  "basic-3-diagram-0": Basic3Diagram0,
+  "basic-3-image-0": Basic3Image0,
+  "basic-3-image-1": Basic3Image1,
+  "basic-3-diagram-1": Basic3Diagram1,
+  "basic-3-image-2": Basic3Image2,
+  "basic-3-diagram-2": Basic3Diagram2,
 };
 
 /**
