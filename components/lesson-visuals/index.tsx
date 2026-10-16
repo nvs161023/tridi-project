@@ -244,6 +244,17 @@ import { ConfidentC1Image0 } from "./confident-C1-image-0";
 import { ConfidentC1Image1 } from "./confident-C1-image-1";
 import { ConfidentC1List7 } from "./confident-C1-list-7";
 import { ConfidentC1Image2 } from "./confident-C1-image-2";
+// Уровень «Уверенный», урок C2 «Вентиляция и рабочее место»: три схемы вентиляции
+// с ценами (блок 3), планировка комнаты под три варианта (блок 7), разрез фильтров
+// по потоку с ресурсами (блок 10), шесть шагов сборки бокса (блок 12), разрез
+// бокса с принтером и путь воздуха (блок 13) и зоны мастерской (блок 19) —
+// все 6 кадров урока.
+import { ConfidentC2Diagram0 } from "./confident-C2-diagram-0";
+import { ConfidentC2Image0 } from "./confident-C2-image-0";
+import { ConfidentC2Image1 } from "./confident-C2-image-1";
+import { ConfidentC2Steps0 } from "./confident-C2-steps-0";
+import { ConfidentC2Image2 } from "./confident-C2-image-2";
+import { ConfidentC2Image3 } from "./confident-C2-image-3";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -414,7 +425,7 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Уверенный» — Этап 2: пилот уровня нарисован.
+ * Визуализации уровня «Уверенный» — Этап 2: нарисованы два урока уровня.
  *
  * Ключ: `confident-{код урока}-{тип блока}-{номер}`, например
  * `confident-C5-image-0` или `confident-C8-diagram-1`. Кода модуля в ключе нет:
@@ -424,8 +435,12 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * Нарисованы семь кадров урока C1 (32 блока: `C1_emissions_ladder.png` из блока
  * 5, `C1_materials_chart.png` из блока 6, `C1_spread.png` из блока 9,
  * `C1_measure.png` из блока 16, `C1_hierarchy.png` из блока 28,
- * `C1_siz_kit.png` из блока 29 и `C1_respirators.png` из блока 30).
- * Остальные 65 кадров уровня (C2…C12) ждут своей очереди и рисуются заглушкой по
+ * `C1_siz_kit.png` из блока 29 и `C1_respirators.png` из блока 30) и все шесть
+ * кадров урока C2 (31 блок: `C2_vent_schemes.png` из блока 4,
+ * `C2_place_room.png` из блока 8, `C2_filters.png` из блока 11,
+ * `C2_airflow.png` из блока 13, `C2_box_diy.png` из блока 14 и
+ * `C2_workplace_layout.png` из блока 20).
+ * Остальные 59 кадров уровня (C3…C12) ждут своей очереди и рисуются заглушкой по
  * типу. Первая визуализация = новый файл
  * (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка здесь.
  */
@@ -441,6 +456,16 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
   "confident-C1-image-1": ConfidentC1Image1,
   "confident-C1-list-7": ConfidentC1List7,
   "confident-C1-image-2": ConfidentC1Image2,
+  // Урок C2 «Вентиляция и рабочее место»: три схемы вентиляции, планировка
+  // комнаты под три варианта, разрез фильтров по потоку, шесть шагов сборки
+  // фильтр-бокса, разрез бокса с принтером и план мастерской по зонам
+  // (все 6 кадров урока).
+  "confident-C2-diagram-0": ConfidentC2Diagram0,
+  "confident-C2-image-0": ConfidentC2Image0,
+  "confident-C2-image-1": ConfidentC2Image1,
+  "confident-C2-steps-0": ConfidentC2Steps0,
+  "confident-C2-image-2": ConfidentC2Image2,
+  "confident-C2-image-3": ConfidentC2Image3,
 };
 
 /**
