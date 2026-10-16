@@ -15,6 +15,13 @@ import { Basic3Image0 } from "./basic-3-image-0";
 import { Basic3Image1 } from "./basic-3-image-1";
 import { Basic3Image2 } from "./basic-3-image-2";
 import { Basic3Diagram2 } from "./basic-3-diagram-2";
+import { Basic4Diagram0 } from "./basic-4-diagram-0";
+import { Basic4Diagram1 } from "./basic-4-diagram-1";
+import { Basic4Diagram2 } from "./basic-4-diagram-2";
+import { Basic4Diagram3 } from "./basic-4-diagram-3";
+import { Basic4Image0 } from "./basic-4-image-0";
+import { Basic4Image1 } from "./basic-4-image-1";
+import { Basic4Image2 } from "./basic-4-image-2";
 import { ProAA1Animation0 } from "./pro-A-A1-animation-0";
 import { ProAA1Image0 } from "./pro-A-A1-image-0";
 import { ProAA2Animation0 } from "./pro-A-A2-animation-0";
@@ -290,6 +297,18 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
   "basic-3-diagram-1": Basic3Diagram1,
   "basic-3-image-2": Basic3Image2,
   "basic-3-diagram-2": Basic3Diagram2,
+  // Урок L4 «Слайсер: от модели до G-кода»: семь кадров, все нарисованы.
+  // Конвейер из пяти шагов (блок 4), предпросмотр с цветами по типу линии
+  // (блок 6), кубики 0,1 / 0,2 / 0,3 мм (блок 9), разрез стенки с периметрами,
+  // решёткой и потолками (блок 13), ретракт с паутиной (блок 22), три
+  // ориентации кронштейна (блок 30) и юбка с каймой и плотом (блок 35).
+  "basic-4-diagram-0": Basic4Diagram0,
+  "basic-4-image-0": Basic4Image0,
+  "basic-4-image-1": Basic4Image1,
+  "basic-4-diagram-1": Basic4Diagram1,
+  "basic-4-diagram-2": Basic4Diagram2,
+  "basic-4-diagram-3": Basic4Diagram3,
+  "basic-4-image-2": Basic4Image2,
 };
 
 /**
