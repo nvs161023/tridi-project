@@ -265,6 +265,16 @@ import { ConfidentC3Image1 } from "./confident-C3-image-1";
 import { ConfidentC3Diagram1 } from "./confident-C3-diagram-1";
 import { ConfidentC3Image2 } from "./confident-C3-image-2";
 import { ConfidentC3List5 } from "./confident-C3-list-5";
+// Уровень «Уверенный», урок C4 «Химия, СИЗ и утилизация отходов»: три пути химии
+// в тело (блок 4), перчатки и их проницаемость (блок 13), карта СИЗ по операциям
+// (блок 16), промывка двумя банками (блок 19), три корзины на столе (блок 26) и
+// хранение в закрытом шкафу (блок 30) — все 6 кадров.
+import { ConfidentC4Diagram0 } from "./confident-C4-diagram-0";
+import { ConfidentC4Image0 } from "./confident-C4-image-0";
+import { ConfidentC4Diagram1 } from "./confident-C4-diagram-1";
+import { ConfidentC4Diagram2 } from "./confident-C4-diagram-2";
+import { ConfidentC4Image1 } from "./confident-C4-image-1";
+import { ConfidentC4Steps1 } from "./confident-C4-steps-1";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -453,8 +463,11 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * безопасность и аварийные сценарии» (30 блоков: `C3_fire_sources.png` из блока 3,
  * `C3_detectors.png` из блока 7, `C3_extinguishers.png` из блока 11,
  * `C3_first_minute.png` из блока 14, `C3_electric_check.png` из блока 20 и
- * `C3_unattended.png` из блока 24).
- * Остальные 53 кадра уровня (C4…C12) ждут своей очереди и рисуются заглушкой по
+ * `C3_unattended.png` из блока 24) и все шесть кадров урока C4 «Химия, СИЗ и
+ * утилизация отходов» (32 блока: `C4_exposure_routes.png` из блока 4,
+ * `C4_gloves.png` из блока 13, `C4_ppe_map.png` из блока 16, `C4_wash.png` из
+ * блока 19, `C4_waste_bins.png` из блока 26 и `C4_storage.png` из блока 30).
+ * Остальные 47 кадров уровня (C5…C12) ждут своей очереди и рисуются заглушкой по
  * типу. Первая визуализация = новый файл
  * (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка здесь.
  */
@@ -490,6 +503,15 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
   "confident-C3-diagram-1": ConfidentC3Diagram1,
   "confident-C3-image-2": ConfidentC3Image2,
   "confident-C3-list-5": ConfidentC3List5,
+  // Урок C4 «Химия, СИЗ и утилизация отходов»: три пути химии в тело, перчатки
+  // и их проницаемость, карта СИЗ по операциям, промывка двумя банками, три
+  // корзины на столе и восемь шагов хранения химии (все 6 кадров урока).
+  "confident-C4-diagram-0": ConfidentC4Diagram0,
+  "confident-C4-image-0": ConfidentC4Image0,
+  "confident-C4-diagram-1": ConfidentC4Diagram1,
+  "confident-C4-diagram-2": ConfidentC4Diagram2,
+  "confident-C4-image-1": ConfidentC4Image1,
+  "confident-C4-steps-1": ConfidentC4Steps1,
 };
 
 /**
