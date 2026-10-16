@@ -22,6 +22,14 @@ import { Basic4Diagram3 } from "./basic-4-diagram-3";
 import { Basic4Image0 } from "./basic-4-image-0";
 import { Basic4Image1 } from "./basic-4-image-1";
 import { Basic4Image2 } from "./basic-4-image-2";
+import { Basic5Diagram0 } from "./basic-5-diagram-0";
+import { Basic5Image0 } from "./basic-5-image-0";
+import { Basic5Diagram1 } from "./basic-5-diagram-1";
+import { Basic5Image1 } from "./basic-5-image-1";
+import { Basic5Image2 } from "./basic-5-image-2";
+import { Basic5Diagram2 } from "./basic-5-diagram-2";
+import { Basic5Diagram3 } from "./basic-5-diagram-3";
+import { Basic5Image3 } from "./basic-5-image-3";
 import { ProAA1Animation0 } from "./pro-A-A1-animation-0";
 import { ProAA1Image0 } from "./pro-A-A1-image-0";
 import { ProAA2Animation0 } from "./pro-A-A2-animation-0";
@@ -309,6 +317,19 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
   "basic-4-diagram-2": Basic4Diagram2,
   "basic-4-diagram-3": Basic4Diagram3,
   "basic-4-image-2": Basic4Image2,
+  // Урок L5 «Первый слой: физика адгезии»: восемь кадров, все нарисованы.
+  // Четыре причины адгезии (блок 3), сечение первого слоя (блок 6), три стола
+  // под задачу (блок 10), бумага против щупа (блок 17), Z-offset в триптихе
+  // (блок 19), три скорости одного контура (блок 23), юбка с каймой и плотом
+  // (блок 27) и тест-квадрат 20 на 20 (блок 31).
+  "basic-5-diagram-0": Basic5Diagram0,
+  "basic-5-image-0": Basic5Image0,
+  "basic-5-diagram-1": Basic5Diagram1,
+  "basic-5-image-1": Basic5Image1,
+  "basic-5-image-2": Basic5Image2,
+  "basic-5-diagram-2": Basic5Diagram2,
+  "basic-5-diagram-3": Basic5Diagram3,
+  "basic-5-image-3": Basic5Image3,
 };
 
 /**
