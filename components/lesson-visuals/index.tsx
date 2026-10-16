@@ -40,6 +40,16 @@ import { Basic6Image1 } from "./basic-6-image-1";
 import { Basic6Image2 } from "./basic-6-image-2";
 import { Basic6Image3 } from "./basic-6-image-3";
 import { Basic6Image4 } from "./basic-6-image-4";
+import { Basic7Diagram0 } from "./basic-7-diagram-0";
+import { Basic7Diagram1 } from "./basic-7-diagram-1";
+import { Basic7Diagram2 } from "./basic-7-diagram-2";
+import { Basic7Diagram3 } from "./basic-7-diagram-3";
+import { Basic7Diagram4 } from "./basic-7-diagram-4";
+import { Basic7Diagram5 } from "./basic-7-diagram-5";
+import { Basic7Diagram6 } from "./basic-7-diagram-6";
+import { Basic7Diagram7 } from "./basic-7-diagram-7";
+import { Basic7Diagram8 } from "./basic-7-diagram-8";
+import { Basic7Diagram9 } from "./basic-7-diagram-9";
 import { ProAA1Animation0 } from "./pro-A-A1-animation-0";
 import { ProAA1Image0 } from "./pro-A-A1-image-0";
 import { ProAA2Animation0 } from "./pro-A-A2-animation-0";
@@ -354,6 +364,22 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
   "basic-6-image-4": Basic6Image4,
   "basic-6-diagram-3": Basic6Diagram3,
   "basic-6-diagram-4": Basic6Diagram4,
+  // Урок L7 «Диагностика: 15 проблем»: десять кадров, все нарисованы.
+  // Коробление с каймой (блок 6), сдвиг слоёв ступенькой (блок 8), щели и
+  // пористые стенки (блок 10), перелив и волны (блок 12), паутина на башне
+  // струн (блок 14), наплывы и точки (блок 16), звон от углов (блок 18),
+  // оплывший верх (блок 20), мост с провисом (блок 22) и пропуски слоя
+  // (блок 24).
+  "basic-7-diagram-0": Basic7Diagram0,
+  "basic-7-diagram-1": Basic7Diagram1,
+  "basic-7-diagram-2": Basic7Diagram2,
+  "basic-7-diagram-3": Basic7Diagram3,
+  "basic-7-diagram-4": Basic7Diagram4,
+  "basic-7-diagram-5": Basic7Diagram5,
+  "basic-7-diagram-6": Basic7Diagram6,
+  "basic-7-diagram-7": Basic7Diagram7,
+  "basic-7-diagram-8": Basic7Diagram8,
+  "basic-7-diagram-9": Basic7Diagram9,
 };
 
 /**
