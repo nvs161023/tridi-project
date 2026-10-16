@@ -232,6 +232,18 @@ import { ProPP4Image0 } from "./pro-P-P4-image-0";
 import { ProPP4Animation0 } from "./pro-P-P4-animation-0";
 import { ProPP5Screenshot0 } from "./pro-P-P5-screenshot-0";
 import { ProPP5Animation0 } from "./pro-P-P5-animation-0";
+// Уровень «Уверенный», урок C1 «Что летит в воздух: UFP, VOC и защита дыхания»:
+// пирамида выбросов от PLA к PC (блок 5), что выделяет каждый материал (блок 6),
+// как частицы расходятся по комнате (блок 9), график замера «фон и печать»
+// с вытяжкой и без (блок 16), схема защиты мастерской (блок 28), набор СИЗ
+// (блок 29) и картридж A2P3 (блок 30) — все 7 кадров урока.
+import { ConfidentC1Diagram0 } from "./confident-C1-diagram-0";
+import { ConfidentC1List0 } from "./confident-C1-list-0";
+import { ConfidentC1Diagram1 } from "./confident-C1-diagram-1";
+import { ConfidentC1Image0 } from "./confident-C1-image-0";
+import { ConfidentC1Image1 } from "./confident-C1-image-1";
+import { ConfidentC1List7 } from "./confident-C1-list-7";
+import { ConfidentC1Image2 } from "./confident-C1-image-2";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -402,22 +414,34 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Уверенный» — Этап 2, ждут своих кадров.
+ * Визуализации уровня «Уверенный» — Этап 2: пилот уровня нарисован.
  *
  * Ключ: `confident-{код урока}-{тип блока}-{номер}`, например
  * `confident-C5-image-0` или `confident-C8-diagram-1`. Кода модуля в ключе нет:
  * коды уроков (C1…C12) уникальны внутри уровня, в отличие от pro, где номера
  * уроков повторяются между модулями (A1, B1, C1-1).
  *
- * Реестр пуст: нарисованных кадров у уровня пока нет, поэтому все 72 визуальных
- * блока рисуются заглушкой по типу. Написан первый урок — C1 (32 блока и 7 кадров:
- * `C1_emissions_ladder.png`, `C1_materials_chart.png`, `C1_spread.png`,
- * `C1_measure.png`, `C1_hierarchy.png`, `C1_siz_kit.png`, `C1_respirators.png`),
- * остальные уроки ждут текста. Первая визуализация =
- * новый файл (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка
- * здесь.
+ * Нарисованы семь кадров урока C1 (32 блока: `C1_emissions_ladder.png` из блока
+ * 5, `C1_materials_chart.png` из блока 6, `C1_spread.png` из блока 9,
+ * `C1_measure.png` из блока 16, `C1_hierarchy.png` из блока 28,
+ * `C1_siz_kit.png` из блока 29 и `C1_respirators.png` из блока 30).
+ * Остальные 65 кадров уровня (C2…C12) ждут своей очереди и рисуются заглушкой по
+ * типу. Первая визуализация = новый файл
+ * (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка здесь.
  */
-const CONFIDENT_VISUALS: Record<string, VisualComponent> = {};
+const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
+  // Урок C1 «Что летит в воздух: UFP, VOC и защита дыхания»: пирамида выбросов
+  // от PLA к PC, что выделяет каждый материал, как частицы расходятся по комнате,
+  // график замера с вытяжкой и без, схема защиты мастерской, набор СИЗ и картридж
+  // A2P3 с правилами ресурса (все 7 кадров урока).
+  "confident-C1-diagram-0": ConfidentC1Diagram0,
+  "confident-C1-list-0": ConfidentC1List0,
+  "confident-C1-diagram-1": ConfidentC1Diagram1,
+  "confident-C1-image-0": ConfidentC1Image0,
+  "confident-C1-image-1": ConfidentC1Image1,
+  "confident-C1-list-7": ConfidentC1List7,
+  "confident-C1-image-2": ConfidentC1Image2,
+};
 
 /**
  * Визуализации уровня «Инженер» — Этап 2, ждут своих кадров.
