@@ -50,6 +50,13 @@ import { Basic7Diagram6 } from "./basic-7-diagram-6";
 import { Basic7Diagram7 } from "./basic-7-diagram-7";
 import { Basic7Diagram8 } from "./basic-7-diagram-8";
 import { Basic7Diagram9 } from "./basic-7-diagram-9";
+import { Basic8Diagram0 } from "./basic-8-diagram-0";
+import { Basic8Diagram1 } from "./basic-8-diagram-1";
+import { Basic8Diagram2 } from "./basic-8-diagram-2";
+import { Basic8Image0 } from "./basic-8-image-0";
+import { Basic8Diagram3 } from "./basic-8-diagram-3";
+import { Basic8Image1 } from "./basic-8-image-1";
+import { Basic8Diagram4 } from "./basic-8-diagram-4";
 import { ProAA1Animation0 } from "./pro-A-A1-animation-0";
 import { ProAA1Image0 } from "./pro-A-A1-image-0";
 import { ProAA2Animation0 } from "./pro-A-A2-animation-0";
@@ -380,6 +387,18 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
   "basic-7-diagram-7": Basic7Diagram7,
   "basic-7-diagram-8": Basic7Diagram8,
   "basic-7-diagram-9": Basic7Diagram9,
+  // Урок L8 «Первый проект»: семь кадров, все нарисованы. Четыре детали
+  // первого проекта (блок 5), ориентация и поддержки (блок 11), пять проверок
+  // в предпросмотре (блок 15), четыре состояния первого слоя (блок 18), четыре
+  // сценария сбоя (блок 21), поддержки, следы и шкурка (блок 26) и четыре
+  // замера штангенциркулем (блок 29).
+  "basic-8-diagram-0": Basic8Diagram0,
+  "basic-8-diagram-1": Basic8Diagram1,
+  "basic-8-diagram-2": Basic8Diagram2,
+  "basic-8-image-0": Basic8Image0,
+  "basic-8-diagram-3": Basic8Diagram3,
+  "basic-8-image-1": Basic8Image1,
+  "basic-8-diagram-4": Basic8Diagram4,
 };
 
 /**
