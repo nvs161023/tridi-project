@@ -255,6 +255,16 @@ import { ConfidentC2Image1 } from "./confident-C2-image-1";
 import { ConfidentC2Steps0 } from "./confident-C2-steps-0";
 import { ConfidentC2Image2 } from "./confident-C2-image-2";
 import { ConfidentC2Image3 } from "./confident-C2-image-3";
+// Уровень «Уверенный», урок C3 «Пожарная безопасность и аварийные сценарии»: три
+// места нагрева и температуры (блок 3), датчик дыма над принтером (блок 7), три
+// средства тушения с ценой (блок 11), таймлайн первой минуты (блок 14), осмотр
+// вилки, шнура и розетки (блок 20) и печать без присмотра (блок 24) — все 6 кадров.
+import { ConfidentC3Diagram0 } from "./confident-C3-diagram-0";
+import { ConfidentC3Image0 } from "./confident-C3-image-0";
+import { ConfidentC3Image1 } from "./confident-C3-image-1";
+import { ConfidentC3Diagram1 } from "./confident-C3-diagram-1";
+import { ConfidentC3Image2 } from "./confident-C3-image-2";
+import { ConfidentC3List5 } from "./confident-C3-list-5";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -425,7 +435,7 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Уверенный» — Этап 2: нарисованы два урока уровня.
+ * Визуализации уровня «Уверенный» — Этап 2: нарисованы три урока уровня.
  *
  * Ключ: `confident-{код урока}-{тип блока}-{номер}`, например
  * `confident-C5-image-0` или `confident-C8-diagram-1`. Кода модуля в ключе нет:
@@ -439,8 +449,12 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * кадров урока C2 (31 блок: `C2_vent_schemes.png` из блока 4,
  * `C2_place_room.png` из блока 8, `C2_filters.png` из блока 11,
  * `C2_airflow.png` из блока 13, `C2_box_diy.png` из блока 14 и
- * `C2_workplace_layout.png` из блока 20).
- * Остальные 59 кадров уровня (C3…C12) ждут своей очереди и рисуются заглушкой по
+ * `C2_workplace_layout.png` из блока 20) и все шесть кадров урока C3 «Пожарная
+ * безопасность и аварийные сценарии» (30 блоков: `C3_fire_sources.png` из блока 3,
+ * `C3_detectors.png` из блока 7, `C3_extinguishers.png` из блока 11,
+ * `C3_first_minute.png` из блока 14, `C3_electric_check.png` из блока 20 и
+ * `C3_unattended.png` из блока 24).
+ * Остальные 53 кадра уровня (C4…C12) ждут своей очереди и рисуются заглушкой по
  * типу. Первая визуализация = новый файл
  * (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка здесь.
  */
@@ -466,6 +480,16 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
   "confident-C2-steps-0": ConfidentC2Steps0,
   "confident-C2-image-2": ConfidentC2Image2,
   "confident-C2-image-3": ConfidentC2Image3,
+  // Урок C3 «Пожарная безопасность и аварийные сценарии»: три места нагрева и
+  // температуры, датчик дыма над принтером, три средства тушения с ценой,
+  // таймлайн первой минуты, осмотр вилки, шнура и розетки и печать без
+  // присмотра (все 6 кадров урока).
+  "confident-C3-diagram-0": ConfidentC3Diagram0,
+  "confident-C3-image-0": ConfidentC3Image0,
+  "confident-C3-image-1": ConfidentC3Image1,
+  "confident-C3-diagram-1": ConfidentC3Diagram1,
+  "confident-C3-image-2": ConfidentC3Image2,
+  "confident-C3-list-5": ConfidentC3List5,
 };
 
 /**
