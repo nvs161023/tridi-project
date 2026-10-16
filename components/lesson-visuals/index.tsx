@@ -30,6 +30,16 @@ import { Basic5Image2 } from "./basic-5-image-2";
 import { Basic5Diagram2 } from "./basic-5-diagram-2";
 import { Basic5Diagram3 } from "./basic-5-diagram-3";
 import { Basic5Image3 } from "./basic-5-image-3";
+import { Basic6Diagram0 } from "./basic-6-diagram-0";
+import { Basic6Diagram1 } from "./basic-6-diagram-1";
+import { Basic6Diagram2 } from "./basic-6-diagram-2";
+import { Basic6Diagram3 } from "./basic-6-diagram-3";
+import { Basic6Diagram4 } from "./basic-6-diagram-4";
+import { Basic6Image0 } from "./basic-6-image-0";
+import { Basic6Image1 } from "./basic-6-image-1";
+import { Basic6Image2 } from "./basic-6-image-2";
+import { Basic6Image3 } from "./basic-6-image-3";
+import { Basic6Image4 } from "./basic-6-image-4";
 import { ProAA1Animation0 } from "./pro-A-A1-animation-0";
 import { ProAA1Image0 } from "./pro-A-A1-image-0";
 import { ProAA2Animation0 } from "./pro-A-A2-animation-0";
@@ -217,11 +227,11 @@ import type { VisualProps } from "./_Wrapper";
  * урока + номер блока в уроке) и лежит в отдельном файле.
  *
  * Базовый курс переписан, и его картинки рисуются заново: в BASE_VISUALS сейчас
- * одна схема — сравнение FDM, SLA и SLS в уроке 1. Остальные блоки с visual_file
- * показывают заглушку с иконкой своего типа. Прежние 27 кадров (basic-1-…–
- * basic-15-…) рисовались под контент старой программы, а три из них совпадали по
- * ключу с новыми уроками и подменяли заглушку чужой схемой — поэтому кадры
- * удалены вместе с файлами.
+ * тридцать восемь кадров — уроки L1–L6 нарисованы целиком. Остальные блоки с
+ * visual_file показывают заглушку с иконкой своего типа. Прежние 27 кадров
+ * (basic-1-…–basic-15-…) рисовались под контент старой программы, а три из них
+ * совпадали по ключу с новыми уроками и подменяли заглушку чужой схемой —
+ * поэтому кадры удалены вместе с файлами.
  * В продвинутом курсе нарисованы
  * восемнадцать модулей — A, A-без, B, E1, F, G, H, I, C1, E2, E-хим, D, K, M,
  * L, N, U и J (в L нарисованы все четыре урока, в N — все восемь блоков, в U —
@@ -266,10 +276,8 @@ export type VisualBlockRef = {
  * Ключ: `basic-{номер урока}-{тип блока}-{номер}`, например `basic-1-image-0` или
  * `basic-5-animation-0`. Номер — порядковый номер блока этого типа внутри урока.
  *
- * Нарисованы кадры уроков 1 и 2: `basic-1-image-0` (сравнение FDM, SLA и SLS) и
- * два кадра механики L2 — `basic-2-diagram-0` (три кинематики) и
- * `basic-2-diagram-1` (разрез шагового мотора и сетка микрошага). 27 кадров
- * старого курса (модули «Знакомство» — «Финал», уроки
+ * Нарисованы тридцать восемь кадров: уроки L1–L6 целиком (пилот L1, все кадры L2,
+ * L3, L4, L5 и L6). 27 кадров старого курса (модули «Знакомство» — «Финал», уроки
  * 1–15) рисовались под контент старой программы, и три из них (`basic-1-image-0`,
  * `basic-3-image-0`, `basic-4-image-0`) совпадали по ключу с новыми уроками 1, 3 и
  * 4 — в блоке показывалась чужая схема вместо заглушки. Кадры удалены вместе с
@@ -330,6 +338,22 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
   "basic-5-diagram-2": Basic5Diagram2,
   "basic-5-diagram-3": Basic5Diagram3,
   "basic-5-image-3": Basic5Image3,
+  // Урок L6 «Скорость, температура и поток»: десять кадров, все нарисованы.
+  // Пять причин ускорения (блок 2), разрез хотэнда с зоной плавления (блок 5),
+  // три режима одной стенки (блок 7), температурная башня (блок 9),
+  // одностенный куб и пересчёт множителя (блок 15), три вентиля (блок 20),
+  // карты скорости и потока (блок 22), лестница скорости (блок 24),
+  // профиль обдува по высоте (блок 26) и лестница калибровки (блок 31).
+  "basic-6-diagram-0": Basic6Diagram0,
+  "basic-6-image-0": Basic6Image0,
+  "basic-6-diagram-1": Basic6Diagram1,
+  "basic-6-image-1": Basic6Image1,
+  "basic-6-image-2": Basic6Image2,
+  "basic-6-diagram-2": Basic6Diagram2,
+  "basic-6-image-3": Basic6Image3,
+  "basic-6-image-4": Basic6Image4,
+  "basic-6-diagram-3": Basic6Diagram3,
+  "basic-6-diagram-4": Basic6Diagram4,
 };
 
 /**
