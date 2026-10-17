@@ -456,6 +456,16 @@ import { ProfitZ1Image1 } from "./profit-Z1-image-1";
 import { ProfitZ1Image2 } from "./profit-Z1-image-2";
 import { ProfitZ1Image3 } from "./profit-Z1-image-3";
 import { ProfitZ1Image4 } from "./profit-Z1-image-4";
+// Урок Z2 «Расчёт стоимости и цены»: себестоимость (блок 5), час принтера
+// (блок 10), процент брака (блок 15), формула цены (блок 20), таблица расчёта
+// (блок 23), лестница цен (блок 27) и окупаемость (блок 31) — все 7 кадров.
+import { ProfitZ2Image0 } from "./profit-Z2-image-0";
+import { ProfitZ2Image1 } from "./profit-Z2-image-1";
+import { ProfitZ2Image2 } from "./profit-Z2-image-2";
+import { ProfitZ2Image3 } from "./profit-Z2-image-3";
+import { ProfitZ2Image4 } from "./profit-Z2-image-4";
+import { ProfitZ2Image5 } from "./profit-Z2-image-5";
+import { ProfitZ2Image6 } from "./profit-Z2-image-6";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -918,12 +928,15 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
  * `profit-Z1-image-0` или `profit-Z8-diagram-1`. Кода модуля в ключе нет: коды
  * уроков (Z1…Z8) уникальны внутри уровня, как у «Уверенного» и «Инженера».
  *
- * Заполнен урок Z1 «Что продавать: ниши и маржа» — все шесть кадров
+ * Заполнены уроки Z1 «Что продавать: ниши и маржа» — все шесть кадров
  * (`Z1_niche_map.png`, `Z1_products_grid.png`, `Z1_margin_table.png`,
- * `Z1_price_floor.png`, `Z1_competition.png`, `Z1_pick_niche.png`).
+ * `Z1_price_floor.png`, `Z1_competition.png`, `Z1_pick_niche.png`) — и Z2
+ * «Расчёт стоимости и цены» — все семь кадров (`Z2_cost_parts.png`,
+ * `Z2_machine_hour.png`, `Z2_fail_rate.png`, `Z2_price_formula.png`,
+ * `Z2_calc_sheet.png`, `Z2_price_ladder.png`, `Z2_break_even.png`).
  * Остальные уроки ждут своих кадров, их блоки рисуются заглушкой по типу.
- * Уровень задуман на 55 кадров (5–7 на урок).
- * Первая визуализация = новый файл (components/lesson-visuals/profit-Z1-image-0.tsx) плюс одна
+ * Уровень задуман на 55 кадров (5–7 на урок), нарисовано 13.
+ * Первая визуализация = новый файл (components/lesson-visuals/profit-Z2-image-0.tsx) плюс одна
  * строка здесь.
  */
 const PROFIT_VISUALS: Record<string, VisualComponent> = {
@@ -933,6 +946,13 @@ const PROFIT_VISUALS: Record<string, VisualComponent> = {
   "profit-Z1-image-2": ProfitZ1Image2,
   "profit-Z1-image-3": ProfitZ1Image3,
   "profit-Z1-image-4": ProfitZ1Image4,
+  "profit-Z2-image-0": ProfitZ2Image0,
+  "profit-Z2-image-1": ProfitZ2Image1,
+  "profit-Z2-image-2": ProfitZ2Image2,
+  "profit-Z2-image-3": ProfitZ2Image3,
+  "profit-Z2-image-4": ProfitZ2Image4,
+  "profit-Z2-image-5": ProfitZ2Image5,
+  "profit-Z2-image-6": ProfitZ2Image6,
 };
 
 /**
