@@ -275,6 +275,16 @@ import { ConfidentC4Diagram1 } from "./confident-C4-diagram-1";
 import { ConfidentC4Diagram2 } from "./confident-C4-diagram-2";
 import { ConfidentC4Image1 } from "./confident-C4-image-1";
 import { ConfidentC4Steps1 } from "./confident-C4-steps-1";
+// Уровень «Уверенный», урок C5 «Поддержки, которые отделяются сами»: разрез
+// щели по Z (блок 4), три зоны опоры (блок 12), дерево против решётки (блок 18),
+// одна деталь до и после разворота (блок 22), порядок снятия поддержек (блок 30)
+// и окно поддержек в слайсере (блок 31) — все 6 кадров.
+import { ConfidentC5Diagram0 } from "./confident-C5-diagram-0";
+import { ConfidentC5Diagram1 } from "./confident-C5-diagram-1";
+import { ConfidentC5Image0 } from "./confident-C5-image-0";
+import { ConfidentC5Diagram2 } from "./confident-C5-diagram-2";
+import { ConfidentC5Steps1 } from "./confident-C5-steps-1";
+import { ConfidentC5Screenshot0 } from "./confident-C5-screenshot-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -445,7 +455,7 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Уверенный» — Этап 2: нарисованы три урока уровня.
+ * Визуализации уровня «Уверенный» — Этап 2: нарисованы пять уроков уровня.
  *
  * Ключ: `confident-{код урока}-{тип блока}-{номер}`, например
  * `confident-C5-image-0` или `confident-C8-diagram-1`. Кода модуля в ключе нет:
@@ -466,8 +476,12 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * `C3_unattended.png` из блока 24) и все шесть кадров урока C4 «Химия, СИЗ и
  * утилизация отходов» (32 блока: `C4_exposure_routes.png` из блока 4,
  * `C4_gloves.png` из блока 13, `C4_ppe_map.png` из блока 16, `C4_wash.png` из
- * блока 19, `C4_waste_bins.png` из блока 26 и `C4_storage.png` из блока 30).
- * Остальные 47 кадров уровня (C5…C12) ждут своей очереди и рисуются заглушкой по
+ * блока 19, `C4_waste_bins.png` из блока 26 и `C4_storage.png` из блока 30) и все
+ * шесть кадров урока C5 «Поддержки, которые отделяются сами» (35 блоков:
+ * `C5_z_gap.png` из блока 4, `C5_interface.png` из блока 12, `C5_tree.png` из
+ * блока 18, `C5_orientation.png` из блока 22, `C5_detach.png` из блока 30 и
+ * `C5_settings.png` из блока 31).
+ * Остальные 41 кадр уровня (C6…C12) ждут своей очереди и рисуются заглушкой по
  * типу. Первая визуализация = новый файл
  * (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка здесь.
  */
@@ -512,6 +526,15 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
   "confident-C4-diagram-2": ConfidentC4Diagram2,
   "confident-C4-image-1": ConfidentC4Image1,
   "confident-C4-steps-1": ConfidentC4Steps1,
+  // Урок C5 «Поддержки, которые отделяются сами»: щель по Z и её значения,
+  // три зоны опоры, дерево против решётки, одна деталь до и после разворота,
+  // шесть шагов снятия поддержек и окно поддержек в слайсере (все 6 кадров).
+  "confident-C5-diagram-0": ConfidentC5Diagram0,
+  "confident-C5-diagram-1": ConfidentC5Diagram1,
+  "confident-C5-image-0": ConfidentC5Image0,
+  "confident-C5-diagram-2": ConfidentC5Diagram2,
+  "confident-C5-steps-1": ConfidentC5Steps1,
+  "confident-C5-screenshot-0": ConfidentC5Screenshot0,
 };
 
 /**
