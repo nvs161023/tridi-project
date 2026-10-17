@@ -325,6 +325,16 @@ import { ConfidentC9Image0 } from "./confident-C9-image-0";
 import { ConfidentC9Diagram1 } from "./confident-C9-diagram-1";
 import { ConfidentC9Image1 } from "./confident-C9-image-1";
 import { ConfidentC9Screenshot1 } from "./confident-C9-screenshot-1";
+// Уровень «Уверенный», урок C10 «Заполнение и сложные геометрии»: пять форм
+// заполнения (блок 5), разрез детали (блок 7), окно заполнения (блок 15), четыре
+// угла нависания (блок 20), мост до и после (блок 25) и Print Thin Walls
+// (блок 29) — все 6 кадров.
+import { ConfidentC10Diagram0 } from "./confident-C10-diagram-0";
+import { ConfidentC10Image0 } from "./confident-C10-image-0";
+import { ConfidentC10Screenshot0 } from "./confident-C10-screenshot-0";
+import { ConfidentC10Diagram1 } from "./confident-C10-diagram-1";
+import { ConfidentC10Image1 } from "./confident-C10-image-1";
+import { ConfidentC10Screenshot1 } from "./confident-C10-screenshot-1";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -535,8 +545,12 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * также все шесть кадров урока C9 «Продвинутая калибровка принтера» (35 блоков:
  * `C9_pid_loop.png` из блока 4, `C9_pid_tune_ui.png` из блока 7,
  * `C9_esteps_measure.png` из блока 12, `C9_linear_advance.png` из блока 18,
- * `C9_ringing.png` из блока 23 и `C9_resonance_ui.png` из блока 25).
- * Остальные 17 кадров уровня (C10…C12) ждут своей очереди и рисуются заглушкой по
+ * `C9_ringing.png` из блока 23 и `C9_resonance_ui.png` из блока 25), а также все
+ * шесть кадров урока C10 «Заполнение и сложные геометрии» (35 блоков:
+ * `C10_infill_shapes.png` из блока 5, `C10_infill_cut.png` из блока 7,
+ * `C10_infill_ui.png` из блока 15, `C10_overhang_angles.png` из блока 20,
+ * `C10_bridge_compare.png` из блока 25 и `C10_thin_walls_ui.png` из блока 29).
+ * Остальные 11 кадров уровня (C11…C12) ждут своей очереди и рисуются заглушкой по
  * типу. Первая визуализация = новый файл
  * (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка здесь.
  */
@@ -626,6 +640,15 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
   "confident-C9-diagram-1": ConfidentC9Diagram1,
   "confident-C9-image-1": ConfidentC9Image1,
   "confident-C9-screenshot-1": ConfidentC9Screenshot1,
+  // Урок C10 «Заполнение и сложные геометрии»: пять форм решётки, разрез
+  // детали, окно заполнения, четыре угла нависания, мост и Print Thin Walls
+  // (все 6 кадров).
+  "confident-C10-diagram-0": ConfidentC10Diagram0,
+  "confident-C10-image-0": ConfidentC10Image0,
+  "confident-C10-screenshot-0": ConfidentC10Screenshot0,
+  "confident-C10-diagram-1": ConfidentC10Diagram1,
+  "confident-C10-image-1": ConfidentC10Image1,
+  "confident-C10-screenshot-1": ConfidentC10Screenshot1,
 };
 
 /**
