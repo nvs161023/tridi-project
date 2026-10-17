@@ -401,6 +401,16 @@ import { EngineerIN5Image2 } from "./engineer-IN5-image-2";
 import { EngineerIN5Image3 } from "./engineer-IN5-image-3";
 import { EngineerIN5Image4 } from "./engineer-IN5-image-4";
 import { EngineerIN5Image5 } from "./engineer-IN5-image-5";
+// Уровень «Инженер», урок IN6 «Реверс-инжиниринг: измерение и воспроизведение»:
+// цикл воспроизведения (блок 4), инструменты (блок 8), ключевые размеры
+// (блок 11), усадка и припуски (блок 15), посадки (блок 18) и сломанная деталь
+// (блок 22) — все 6 кадров.
+import { EngineerIN6Diagram0 } from "./engineer-IN6-diagram-0";
+import { EngineerIN6Image0 } from "./engineer-IN6-image-0";
+import { EngineerIN6Image1 } from "./engineer-IN6-image-1";
+import { EngineerIN6Image2 } from "./engineer-IN6-image-2";
+import { EngineerIN6Image3 } from "./engineer-IN6-image-3";
+import { EngineerIN6Image4 } from "./engineer-IN6-image-4";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -742,20 +752,20 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Инженер» — IN1–IN5 нарисованы целиком.
+ * Визуализации уровня «Инженер» — IN1–IN6 нарисованы целиком.
  *
  * Ключ: `engineer-{код урока}-{тип блока}-{номер по типу}`, например
  * `engineer-IN1-image-0` или `engineer-IN10-diagram-1`. Кода модуля в ключе нет:
  * коды уроков (IN1…IN10) уникальны внутри уровня, как у «Уверенного».
  *
- * Нарисовано 34 кадра: по семь IN1 (32 блока), IN2 (33 блока), IN3 (33 блока)
- * и IN4 (33 блока), шесть IN5 (34 блока). У IN5 это `IN5_bracket.png` из блока 4,
- * `IN5_gear.png` из блока 9, `IN5_shaft.png` из блока 14,
- * `IN5_vessel.png` из блока 18, `IN5_case_table.png` из блока 22
- * и `IN5_outdoor.png` из блока 29.
+ * Нарисовано 40 кадров: по семь IN1 (32 блока), IN2 (33 блока), IN3 (33 блока)
+ * и IN4 (33 блока), шесть IN5 (34 блока) и шесть IN6 (32 блока). У IN6 это
+ * `IN6_reverse_cycle.png` из блока 4, `IN6_measure_tools.png` из блока 8,
+ * `IN6_key_dims.png` из блока 11, `IN6_wear_shrink.png` из блока 15,
+ * `IN6_tolerance_fit.png` из блока 18 и `IN6_broken_part.png` из блока 22.
  * Остальные уроки уровня ждут своих кадров и рисуются заглушкой по типу блока.
- * Модуль 1 «Расчёт и проектирование» (IN1–IN5) визуализирован полностью.
- * Новая визуализация = новый файл (components/lesson-visuals/engineer-IN5-image-0.tsx)
+ * Уроки IN1–IN6 визуализированы полностью.
+ * Новая визуализация = новый файл (components/lesson-visuals/engineer-IN6-image-0.tsx)
  * плюс одна строка здесь.
  */
 const ENGINEER_VISUALS: Record<string, VisualComponent> = {
@@ -798,6 +808,14 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
   "engineer-IN5-image-3": EngineerIN5Image3,
   "engineer-IN5-image-4": EngineerIN5Image4,
   "engineer-IN5-image-5": EngineerIN5Image5,
+  // Урок IN6 «Реверс-инжиниринг: измерение и воспроизведение»: шесть кадров,
+  // все нарисованы.
+  "engineer-IN6-diagram-0": EngineerIN6Diagram0,
+  "engineer-IN6-image-0": EngineerIN6Image0,
+  "engineer-IN6-image-1": EngineerIN6Image1,
+  "engineer-IN6-image-2": EngineerIN6Image2,
+  "engineer-IN6-image-3": EngineerIN6Image3,
+  "engineer-IN6-image-4": EngineerIN6Image4,
 };
 
 /**
