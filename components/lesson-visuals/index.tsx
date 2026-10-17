@@ -395,6 +395,12 @@ import { EngineerIN4Image3 } from "./engineer-IN4-image-3";
 import { EngineerIN4Image4 } from "./engineer-IN4-image-4";
 import { EngineerIN4Screenshot0 } from "./engineer-IN4-screenshot-0";
 import { EngineerIN4Image5 } from "./engineer-IN4-image-5";
+import { EngineerIN5Image0 } from "./engineer-IN5-image-0";
+import { EngineerIN5Image1 } from "./engineer-IN5-image-1";
+import { EngineerIN5Image2 } from "./engineer-IN5-image-2";
+import { EngineerIN5Image3 } from "./engineer-IN5-image-3";
+import { EngineerIN5Image4 } from "./engineer-IN5-image-4";
+import { EngineerIN5Image5 } from "./engineer-IN5-image-5";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -736,19 +742,20 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Инженер» — IN1–IN4 нарисованы целиком.
+ * Визуализации уровня «Инженер» — IN1–IN5 нарисованы целиком.
  *
  * Ключ: `engineer-{код урока}-{тип блока}-{номер по типу}`, например
  * `engineer-IN1-image-0` или `engineer-IN10-diagram-1`. Кода модуля в ключе нет:
  * коды уроков (IN1…IN10) уникальны внутри уровня, как у «Уверенного».
  *
- * Нарисовано 28 кадров: по семь IN1 (32 блока), IN2 (33 блока), IN3 (33 блока)
- * и IN4 (33 блока). У IN4 это `IN4_idea.png` из блока 4,
- * `IN4_material.png` из блока 7, `IN4_loads.png` из блока 12,
- * `IN4_simplify.png` из блока 14, `IN4_stress_map.png` из блока 18,
- * `IN4_fusion_ui.png` из блока 20 и `IN4_cycle.png` из блока 26.
+ * Нарисовано 34 кадра: по семь IN1 (32 блока), IN2 (33 блока), IN3 (33 блока)
+ * и IN4 (33 блока), шесть IN5 (34 блока). У IN5 это `IN5_bracket.png` из блока 4,
+ * `IN5_gear.png` из блока 9, `IN5_shaft.png` из блока 14,
+ * `IN5_vessel.png` из блока 18, `IN5_case_table.png` из блока 22
+ * и `IN5_outdoor.png` из блока 29.
  * Остальные уроки уровня ждут своих кадров и рисуются заглушкой по типу блока.
- * Новая визуализация = новый файл (components/lesson-visuals/engineer-IN4-image-0.tsx)
+ * Модуль 1 «Расчёт и проектирование» (IN1–IN5) визуализирован полностью.
+ * Новая визуализация = новый файл (components/lesson-visuals/engineer-IN5-image-0.tsx)
  * плюс одна строка здесь.
  */
 const ENGINEER_VISUALS: Record<string, VisualComponent> = {
@@ -784,6 +791,13 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
   "engineer-IN4-image-4": EngineerIN4Image4,
   "engineer-IN4-screenshot-0": EngineerIN4Screenshot0,
   "engineer-IN4-image-5": EngineerIN4Image5,
+  // Урок IN5 «Кейсы: кронштейн, шестерня, вал, корпус»: шесть кадров, все нарисованы.
+  "engineer-IN5-image-0": EngineerIN5Image0,
+  "engineer-IN5-image-1": EngineerIN5Image1,
+  "engineer-IN5-image-2": EngineerIN5Image2,
+  "engineer-IN5-image-3": EngineerIN5Image3,
+  "engineer-IN5-image-4": EngineerIN5Image4,
+  "engineer-IN5-image-5": EngineerIN5Image5,
 };
 
 /**
