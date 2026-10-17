@@ -422,6 +422,17 @@ import { EngineerIN7Image1 } from "./engineer-IN7-image-1";
 import { EngineerIN7Image2 } from "./engineer-IN7-image-2";
 import { EngineerIN7Image3 } from "./engineer-IN7-image-3";
 import { EngineerIN7Image4 } from "./engineer-IN7-image-4";
+// Уровень «Инженер», урок IN8 «Из скана в CAD: параметрическая деталь»: путь от меша
+// к детали (блок 3), три программы чистки (блок 6), шум и дыры (блок 9), сетка до и
+// после упрощения (блок 11), сшивка проходов (блок 14), автомат и ручная перемодель
+// (блок 16) и дерево параметров (блок 22) — все 7 кадров.
+import { EngineerIN8Diagram0 } from "./engineer-IN8-diagram-0";
+import { EngineerIN8Image0 } from "./engineer-IN8-image-0";
+import { EngineerIN8Image1 } from "./engineer-IN8-image-1";
+import { EngineerIN8Image2 } from "./engineer-IN8-image-2";
+import { EngineerIN8Image3 } from "./engineer-IN8-image-3";
+import { EngineerIN8Image4 } from "./engineer-IN8-image-4";
+import { EngineerIN8Diagram1 } from "./engineer-IN8-diagram-1";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -763,14 +774,15 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Инженер» — IN1–IN7 нарисованы целиком.
+ * Визуализации уровня «Инженер» — IN1–IN8 нарисованы целиком.
  *
  * Ключ: `engineer-{код урока}-{тип блока}-{номер по типу}`, например
  * `engineer-IN1-image-0` или `engineer-IN10-diagram-1`. Кода модуля в ключе нет:
  * коды уроков (IN1…IN10) уникальны внутри уровня, как у «Уверенного».
  *
- * Нарисовано 47 кадров: по семь IN1 (32 блока), IN2 (33 блока), IN3 (33 блока),
- * IN4 (33 блока) и IN7 (35 блоков), шесть IN5 (34 блока) и шесть IN6 (32 блока).
+ * Нарисовано 54 кадра: по семь IN1 (32 блока), IN2 (33 блока), IN3 (33 блока),
+ * IN4 (33 блока), IN7 (35 блоков) и IN8 (35 блоков), шесть IN5 (34 блока) и шесть
+ * IN6 (32 блока).
  * У IN6 это `IN6_reverse_cycle.png` из блока 4, `IN6_measure_tools.png` из блока 8,
  * `IN6_key_dims.png` из блока 11, `IN6_wear_shrink.png` из блока 15,
  * `IN6_tolerance_fit.png` из блока 18 и `IN6_broken_part.png` из блока 22.
@@ -778,9 +790,13 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
  * `IN7_scanner_types.png` из блока 10, `IN7_shoot_orbit.png` из блока 14,
  * `IN7_prepare_object.png` из блока 17, `IN7_scale_marks.png` из блока 20 и
  * `IN7_pointcloud_mesh.png` из блока 27.
+ * У IN8 это `IN8_mesh_to_cad.png` из блока 3, `IN8_clean_tools.png` из блока 6,
+ * `IN8_noise_holes.png` из блока 9, `IN8_decimate.png` из блока 11,
+ * `IN8_stitch.png` из блока 14, `IN8_mesh_to_brep.png` из блока 16 и
+ * `IN8_param_tree.png` из блока 22.
  * Остальные уроки уровня ждут своих кадров и рисуются заглушкой по типу блока.
- * Уроки IN1–IN7 визуализированы полностью.
- * Новая визуализация = новый файл (components/lesson-visuals/engineer-IN7-image-0.tsx)
+ * Уроки IN1–IN8 визуализированы полностью.
+ * Новая визуализация = новый файл (components/lesson-visuals/engineer-IN8-image-0.tsx)
  * плюс одна строка здесь.
  */
 const ENGINEER_VISUALS: Record<string, VisualComponent> = {
@@ -839,6 +855,14 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
   "engineer-IN7-image-2": EngineerIN7Image2,
   "engineer-IN7-image-3": EngineerIN7Image3,
   "engineer-IN7-image-4": EngineerIN7Image4,
+  // Урок IN8 «Из скана в CAD: параметрическая деталь»: семь кадров, все нарисованы.
+  "engineer-IN8-diagram-0": EngineerIN8Diagram0,
+  "engineer-IN8-image-0": EngineerIN8Image0,
+  "engineer-IN8-image-1": EngineerIN8Image1,
+  "engineer-IN8-image-2": EngineerIN8Image2,
+  "engineer-IN8-image-3": EngineerIN8Image3,
+  "engineer-IN8-image-4": EngineerIN8Image4,
+  "engineer-IN8-diagram-1": EngineerIN8Diagram1,
 };
 
 /**
