@@ -366,6 +366,13 @@ import { EngineerIN1Image3 } from "./engineer-IN1-image-3";
 import { EngineerIN1Image4 } from "./engineer-IN1-image-4";
 import { EngineerIN1Image5 } from "./engineer-IN1-image-5";
 import { EngineerIN1Image6 } from "./engineer-IN1-image-6";
+import { EngineerIN2Image0 } from "./engineer-IN2-image-0";
+import { EngineerIN2Image1 } from "./engineer-IN2-image-1";
+import { EngineerIN2Image2 } from "./engineer-IN2-image-2";
+import { EngineerIN2Image3 } from "./engineer-IN2-image-3";
+import { EngineerIN2Image4 } from "./engineer-IN2-image-4";
+import { EngineerIN2Image5 } from "./engineer-IN2-image-5";
+import { EngineerIN2Image6 } from "./engineer-IN2-image-6";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -730,6 +737,14 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
   "engineer-IN1-image-4": EngineerIN1Image4,
   "engineer-IN1-image-5": EngineerIN1Image5,
   "engineer-IN1-image-6": EngineerIN1Image6,
+  // Урок IN2 «Нагрузки и прочность детали»: семь кадров, все нарисованы.
+  "engineer-IN2-image-0": EngineerIN2Image0,
+  "engineer-IN2-image-1": EngineerIN2Image1,
+  "engineer-IN2-image-2": EngineerIN2Image2,
+  "engineer-IN2-image-3": EngineerIN2Image3,
+  "engineer-IN2-image-4": EngineerIN2Image4,
+  "engineer-IN2-image-5": EngineerIN2Image5,
+  "engineer-IN2-image-6": EngineerIN2Image6,
 };
 
 /**
