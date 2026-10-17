@@ -315,6 +315,16 @@ import { ConfidentC8Diagram1 } from "./confident-C8-diagram-1";
 import { ConfidentC8Screenshot1 } from "./confident-C8-screenshot-1";
 import { ConfidentC8Diagram2 } from "./confident-C8-diagram-2";
 import { ConfidentC8Image0 } from "./confident-C8-image-0";
+// Уровень «Уверенный», урок C9 «Продвинутая калибровка принтера»: график PID
+// (блок 4), консоль автоподбора (блок 7), замер E-steps (блок 12), угол с
+// наплывом и ровный угол (блок 18), звон у угла (блок 23) и таблица резонансов
+// (блок 25) — все 6 кадров.
+import { ConfidentC9Diagram0 } from "./confident-C9-diagram-0";
+import { ConfidentC9Screenshot0 } from "./confident-C9-screenshot-0";
+import { ConfidentC9Image0 } from "./confident-C9-image-0";
+import { ConfidentC9Diagram1 } from "./confident-C9-diagram-1";
+import { ConfidentC9Image1 } from "./confident-C9-image-1";
+import { ConfidentC9Screenshot1 } from "./confident-C9-screenshot-1";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -521,8 +531,12 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * все шесть кадров урока C8 «Поверхность: шов, ironing, округлость и текстура»
  * (35 блоков: `C8_surface_zones.png` из блока 4, `C8_seam_ui.png` из блока 7,
  * `C8_ironing_zones.png` из блока 16, `C8_ironing_ui.png` из блока 18,
- * `C8_circle_segments.png` из блока 22 и `C8_fuzzy_skin.png` из блока 27).
- * Остальные 23 кадра уровня (C9…C12) ждут своей очереди и рисуются заглушкой по
+ * `C8_circle_segments.png` из блока 22 и `C8_fuzzy_skin.png` из блока 27), а
+ * также все шесть кадров урока C9 «Продвинутая калибровка принтера» (35 блоков:
+ * `C9_pid_loop.png` из блока 4, `C9_pid_tune_ui.png` из блока 7,
+ * `C9_esteps_measure.png` из блока 12, `C9_linear_advance.png` из блока 18,
+ * `C9_ringing.png` из блока 23 и `C9_resonance_ui.png` из блока 25).
+ * Остальные 17 кадров уровня (C10…C12) ждут своей очереди и рисуются заглушкой по
  * типу. Первая визуализация = новый файл
  * (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка здесь.
  */
@@ -603,6 +617,15 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
   "confident-C8-screenshot-1": ConfidentC8Screenshot1,
   "confident-C8-diagram-2": ConfidentC8Diagram2,
   "confident-C8-image-0": ConfidentC8Image0,
+  // Урок C9 «Продвинутая калибровка принтера»: температура сопла до и после
+  // автоподбора, консоль PID, замер E-steps, наплыв и ровный угол Linear
+  // Advance, звон у угла и таблица резонансов (все 6 кадров).
+  "confident-C9-diagram-0": ConfidentC9Diagram0,
+  "confident-C9-screenshot-0": ConfidentC9Screenshot0,
+  "confident-C9-image-0": ConfidentC9Image0,
+  "confident-C9-diagram-1": ConfidentC9Diagram1,
+  "confident-C9-image-1": ConfidentC9Image1,
+  "confident-C9-screenshot-1": ConfidentC9Screenshot1,
 };
 
 /**
