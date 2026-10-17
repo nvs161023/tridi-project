@@ -373,6 +373,17 @@ import { EngineerIN2Image3 } from "./engineer-IN2-image-3";
 import { EngineerIN2Image4 } from "./engineer-IN2-image-4";
 import { EngineerIN2Image5 } from "./engineer-IN2-image-5";
 import { EngineerIN2Image6 } from "./engineer-IN2-image-6";
+// Уровень «Инженер», урок IN3 «Рёбра жёсткости и усиление деталей»: сечение
+// (блок 4), высота против толщины (блок 8), путь нагрузки (блок 14), профиль
+// ребра (блок 17), слои и рёбра (блок 21), косынка и сдвиг (блок 27), образец
+// с ребром и без (блок 31) — все 7 кадров.
+import { EngineerIN3Image0 } from "./engineer-IN3-image-0";
+import { EngineerIN3Image1 } from "./engineer-IN3-image-1";
+import { EngineerIN3Image2 } from "./engineer-IN3-image-2";
+import { EngineerIN3Image3 } from "./engineer-IN3-image-3";
+import { EngineerIN3Image4 } from "./engineer-IN3-image-4";
+import { EngineerIN3Image5 } from "./engineer-IN3-image-5";
+import { EngineerIN3Image6 } from "./engineer-IN3-image-6";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -714,19 +725,20 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Инженер» — IN1 нарисован целиком.
+ * Визуализации уровня «Инженер» — IN1–IN3 нарисованы целиком.
  *
  * Ключ: `engineer-{код урока}-{тип блока}-{номер по типу}`, например
  * `engineer-IN1-image-0` или `engineer-IN10-diagram-1`. Кода модуля в ключе нет:
  * коды уроков (IN1…IN10) уникальны внутри уровня, как у «Уверенного».
  *
- * Нарисованы семь кадров урока IN1 (32 блока, все кадры — блоки типа image:
- * `IN1_heat_ladder.png` из блока 4, `IN1_strength_table.png` из блока 7,
- * `IN1_abrasive.png` из блока 10, `IN1_ht_printer.png` из блока 12,
- * `IN1_chem_table.png` из блока 16, `IN1_inserts.png` из блока 23 и
- * `IN1_choose_material.png` из блока 25). Остальные уроки уровня ждут своих
- * кадров и рисуются заглушкой по типу блока. Новая визуализация = новый файл
- * (components/lesson-visuals/engineer-IN1-image-0.tsx) плюс одна строка здесь.
+ * Нарисован 21 кадр: семь IN1 (32 блока), семь IN2 (33 блока) и семь IN3
+ * (33 блока). У IN3 это `IN3_rib_basics.png` из блока 4,
+ * `IN3_rib_height.png` из блока 8, `IN3_load_path.png` из блока 14,
+ * `IN3_rib_profile.png` из блока 17, `IN3_layers_vs_ribs.png` из блока 21,
+ * `IN3_gusset_shear.png` из блока 27 и `IN3_test_sample.png` из блока 31.
+ * Остальные уроки уровня ждут своих кадров и рисуются заглушкой по типу блока.
+ * Новая визуализация = новый файл (components/lesson-visuals/engineer-IN3-image-0.tsx)
+ * плюс одна строка здесь.
  */
 const ENGINEER_VISUALS: Record<string, VisualComponent> = {
   // Урок IN1 «Инженерные материалы и совместимость»: семь кадров, все нарисованы.
@@ -745,6 +757,14 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
   "engineer-IN2-image-4": EngineerIN2Image4,
   "engineer-IN2-image-5": EngineerIN2Image5,
   "engineer-IN2-image-6": EngineerIN2Image6,
+  // Урок IN3 «Рёбра жёсткости и усиление деталей»: семь кадров, все нарисованы.
+  "engineer-IN3-image-0": EngineerIN3Image0,
+  "engineer-IN3-image-1": EngineerIN3Image1,
+  "engineer-IN3-image-2": EngineerIN3Image2,
+  "engineer-IN3-image-3": EngineerIN3Image3,
+  "engineer-IN3-image-4": EngineerIN3Image4,
+  "engineer-IN3-image-5": EngineerIN3Image5,
+  "engineer-IN3-image-6": EngineerIN3Image6,
 };
 
 /**
