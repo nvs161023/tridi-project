@@ -498,6 +498,14 @@ import { ProfitZ5Image3 } from "./profit-Z5-image-3";
 import { ProfitZ5Image4 } from "./profit-Z5-image-4";
 import { ProfitZ5Image5 } from "./profit-Z5-image-5";
 import { ProfitZ5Image6 } from "./profit-Z5-image-6";
+// Урок Z6 «Упаковка, логистика, отправка»: семь кадров, все нарисованы.
+import { ProfitZ6Image0 } from "./profit-Z6-image-0";
+import { ProfitZ6Image1 } from "./profit-Z6-image-1";
+import { ProfitZ6Image2 } from "./profit-Z6-image-2";
+import { ProfitZ6Image3 } from "./profit-Z6-image-3";
+import { ProfitZ6Image4 } from "./profit-Z6-image-4";
+import { ProfitZ6Image5 } from "./profit-Z6-image-5";
+import { ProfitZ6Image6 } from "./profit-Z6-image-6";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -974,10 +982,13 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
  * `Z4_defect_map.png`, `Z4_strength_tests.png`, `Z4_batch_passport.png`) и Z5
  * «Фото, маркетинг, продвижение» — все семь кадров (`Z5_photo_layers.png`,
  * `Z5_shot_list.png`, `Z5_card_anatomy.png`, `Z5_channel_map.png`,
- * `Z5_marketplaces.png`, `Z5_funnel.png`, `Z5_ad_money.png`).
+ * `Z5_marketplaces.png`, `Z5_funnel.png`, `Z5_ad_money.png`), Z6 «Упаковка,
+ * логистика, отправка» — все семь кадров (`Z6_layers.png`,
+ * `Z6_packaging_cost.png`, `Z6_carrier_choice.png`, `Z6_fbo_fbs.png`,
+ * `Z6_track_messages.png`, `Z6_docs_flow.png`, `Z6_claim_path.png`).
  * Остальные уроки ждут своих кадров, их блоки рисуются заглушкой по типу.
  * Уровень задуман на 55 кадров (5–7 на урок), нарисовано 41.
- * Первая визуализация = новый файл (components/lesson-visuals/profit-Z5-image-0.tsx) плюс одна
+ * Первая визуализация = новый файл (components/lesson-visuals/profit-Z6-image-0.tsx) плюс одна
  * строка здесь.
  */
 const PROFIT_VISUALS: Record<string, VisualComponent> = {
@@ -1015,6 +1026,14 @@ const PROFIT_VISUALS: Record<string, VisualComponent> = {
   "profit-Z5-image-4": ProfitZ5Image4,
   "profit-Z5-image-5": ProfitZ5Image5,
   "profit-Z5-image-6": ProfitZ5Image6,
+  // Урок Z6 «Упаковка, логистика, отправка»: семь кадров, все нарисованы.
+  "profit-Z6-image-0": ProfitZ6Image0,
+  "profit-Z6-image-1": ProfitZ6Image1,
+  "profit-Z6-image-2": ProfitZ6Image2,
+  "profit-Z6-image-3": ProfitZ6Image3,
+  "profit-Z6-image-4": ProfitZ6Image4,
+  "profit-Z6-image-5": ProfitZ6Image5,
+  "profit-Z6-image-6": ProfitZ6Image6,
 };
 
 /**
