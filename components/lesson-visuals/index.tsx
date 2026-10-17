@@ -335,6 +335,16 @@ import { ConfidentC10Screenshot0 } from "./confident-C10-screenshot-0";
 import { ConfidentC10Diagram1 } from "./confident-C10-diagram-1";
 import { ConfidentC10Image1 } from "./confident-C10-image-1";
 import { ConfidentC10Screenshot1 } from "./confident-C10-screenshot-1";
+// Уровень «Уверенный», урок C11 «G-код: читать, писать, менять на лету»: четыре
+// части файла .gcode (блок 4), закладка слоя в тексте (блок 7), старт в слайсере
+// (блок 10), вызов макроса и его тело (блок 18), окно постобработки (блок 22) и
+// шаги M600 (блок 25) — все 6 кадров.
+import { ConfidentC11Diagram0 } from "./confident-C11-diagram-0";
+import { ConfidentC11Image0 } from "./confident-C11-image-0";
+import { ConfidentC11Screenshot0 } from "./confident-C11-screenshot-0";
+import { ConfidentC11Image1 } from "./confident-C11-image-1";
+import { ConfidentC11Screenshot1 } from "./confident-C11-screenshot-1";
+import { ConfidentC11Diagram1 } from "./confident-C11-diagram-1";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -549,9 +559,13 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * шесть кадров урока C10 «Заполнение и сложные геометрии» (35 блоков:
  * `C10_infill_shapes.png` из блока 5, `C10_infill_cut.png` из блока 7,
  * `C10_infill_ui.png` из блока 15, `C10_overhang_angles.png` из блока 20,
- * `C10_bridge_compare.png` из блока 25 и `C10_thin_walls_ui.png` из блока 29).
- * Остальные 11 кадров уровня (C11…C12) ждут своей очереди и рисуются заглушкой по
- * типу. Первая визуализация = новый файл
+ * `C10_bridge_compare.png` из блока 25 и `C10_thin_walls_ui.png` из блока 29), а
+ * также все шесть кадров урока C11 «G-код: читать, писать, менять на лету»
+ * (35 блоков: `C11_gcode_anatomy.png` из блока 4, `C11_layer_marker.png` из
+ * блока 7, `C11_start_code_ui.png` из блока 10, `C11_macro_map.png` из блока 18,
+ * `C11_post_ui.png` из блока 22 и `C11_m600_flow.png` из блока 25). Остальные
+ * 5 кадров урока C12 ждут своей очереди и рисуются заглушкой по типу.
+ * Первая визуализация = новый файл
  * (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка здесь.
  */
 const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
@@ -649,6 +663,15 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
   "confident-C10-diagram-1": ConfidentC10Diagram1,
   "confident-C10-image-1": ConfidentC10Image1,
   "confident-C10-screenshot-1": ConfidentC10Screenshot1,
+  // Урок C11 «G-код: читать, писать, менять на лету»: четыре части файла,
+  // закладка слоя, стартовый код в слайсере, тело макроса, окно постобработки и
+  // пять шагов M600 (все 6 кадров).
+  "confident-C11-diagram-0": ConfidentC11Diagram0,
+  "confident-C11-image-0": ConfidentC11Image0,
+  "confident-C11-screenshot-0": ConfidentC11Screenshot0,
+  "confident-C11-image-1": ConfidentC11Image1,
+  "confident-C11-screenshot-1": ConfidentC11Screenshot1,
+  "confident-C11-diagram-1": ConfidentC11Diagram1,
 };
 
 /**
