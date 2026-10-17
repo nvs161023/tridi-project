@@ -305,6 +305,16 @@ import { ConfidentC7Diagram1 } from "./confident-C7-diagram-1";
 import { ConfidentC7Diagram2 } from "./confident-C7-diagram-2";
 import { ConfidentC7Image0 } from "./confident-C7-image-0";
 import { ConfidentC7Diagram3 } from "./confident-C7-diagram-3";
+// Уровень «Уверенный», урок C8 «Поверхность: шов, ironing, округлость и текстура»:
+// три зоны поверхности (блок 4), окно шва (блок 7), где работает ironing (блок 16),
+// настройки ironing (блок 18), окружность из сегментов (блок 22) и сравнение гладкой
+// и шершавой стенки (блок 27) — все 6 кадров.
+import { ConfidentC8Diagram0 } from "./confident-C8-diagram-0";
+import { ConfidentC8Screenshot0 } from "./confident-C8-screenshot-0";
+import { ConfidentC8Diagram1 } from "./confident-C8-diagram-1";
+import { ConfidentC8Screenshot1 } from "./confident-C8-screenshot-1";
+import { ConfidentC8Diagram2 } from "./confident-C8-diagram-2";
+import { ConfidentC8Image0 } from "./confident-C8-image-0";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -507,8 +517,12 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * а также все шесть кадров урока C7 «Модель больше стола: разрез, соединения,
  * допуски» (35 блоков: `C7_split_zones.png` из блока 4, `C7_cut_ui.png` из
  * блока 11, `C7_joints.png` из блока 14, `C7_tolerance_table.png` из блока 21,
- * `C7_glue_clamp.png` из блока 27 и `C7_time_compare.png` из блока 33).
- * Остальные 29 кадров уровня (C8…C12) ждут своей очереди и рисуются заглушкой по
+ * `C7_glue_clamp.png` из блока 27 и `C7_time_compare.png` из блока 33), а также
+ * все шесть кадров урока C8 «Поверхность: шов, ironing, округлость и текстура»
+ * (35 блоков: `C8_surface_zones.png` из блока 4, `C8_seam_ui.png` из блока 7,
+ * `C8_ironing_zones.png` из блока 16, `C8_ironing_ui.png` из блока 18,
+ * `C8_circle_segments.png` из блока 22 и `C8_fuzzy_skin.png` из блока 27).
+ * Остальные 23 кадра уровня (C9…C12) ждут своей очереди и рисуются заглушкой по
  * типу. Первая визуализация = новый файл
  * (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка здесь.
  */
@@ -580,6 +594,15 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
   "confident-C7-diagram-2": ConfidentC7Diagram2,
   "confident-C7-image-0": ConfidentC7Image0,
   "confident-C7-diagram-3": ConfidentC7Diagram3,
+  // Урок C8 «Поверхность: шов, ironing, округлость и текстура»: три зоны
+  // поверхности, окно шва, плоские площадки под ironing, настройки ironing,
+  // три допуска круга и сравнение гладкой и шершавой стенки (все 6 кадров).
+  "confident-C8-diagram-0": ConfidentC8Diagram0,
+  "confident-C8-screenshot-0": ConfidentC8Screenshot0,
+  "confident-C8-diagram-1": ConfidentC8Diagram1,
+  "confident-C8-screenshot-1": ConfidentC8Screenshot1,
+  "confident-C8-diagram-2": ConfidentC8Diagram2,
+  "confident-C8-image-0": ConfidentC8Image0,
 };
 
 /**
