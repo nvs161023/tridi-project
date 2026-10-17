@@ -447,6 +447,15 @@ import { EngineerIN10Diagram3 } from "./engineer-IN10-diagram-3";
 import { EngineerIN10Image0 } from "./engineer-IN10-image-0";
 import { EngineerIN10Image1 } from "./engineer-IN10-image-1";
 import { EngineerIN10Image2 } from "./engineer-IN10-image-2";
+// Уровень «Заработок», урок Z1 «Что продавать: ниши и маржа»: карта ниш
+// (блок 5), двенадцать товаров (блок 9), таблица маржи (блок 17), пол в цене
+// (блок 20), конкуренция (блок 22) и выбор ниши (блок 29) — все 6 кадров.
+import { ProfitZ1Diagram0 } from "./profit-Z1-diagram-0";
+import { ProfitZ1Image0 } from "./profit-Z1-image-0";
+import { ProfitZ1Image1 } from "./profit-Z1-image-1";
+import { ProfitZ1Image2 } from "./profit-Z1-image-2";
+import { ProfitZ1Image3 } from "./profit-Z1-image-3";
+import { ProfitZ1Image4 } from "./profit-Z1-image-4";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -903,20 +912,28 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Заработок» — Этап 2, ждут своих кадров.
+ * Визуализации уровня «Заработок».
  *
- * Ключ: `profit-{номер}-{тип блока}-{номер по типу}`, например
- * `profit-1-image-0` или `profit-8-diagram-1`. Кода модуля в ключе нет: коды
+ * Ключ: `profit-{код урока}-{тип блока}-{номер по типу}`, например
+ * `profit-Z1-image-0` или `profit-Z8-diagram-1`. Кода модуля в ключе нет: коды
  * уроков (Z1…Z8) уникальны внутри уровня, как у «Уверенного» и «Инженера».
  *
- * Реестр пуст: нарисованных кадров у уровня пока нет, поэтому все визуальные блоки рисуются
- * заглушкой по типу. Уровень задуман на 48 кадров (5–7 на урок), написан первый урок — Z1
- * (32 блока и 6 кадров: `Z1_niche_map.png`, `Z1_products_grid.png`, `Z1_margin_table.png`,
- * `Z1_price_floor.png`, `Z1_competition.png`, `Z1_pick_niche.png`), остальные уроки ждут текста.
- * Первая визуализация = новый файл (components/lesson-visuals/profit-1-image-0.tsx) плюс одна
+ * Заполнен урок Z1 «Что продавать: ниши и маржа» — все шесть кадров
+ * (`Z1_niche_map.png`, `Z1_products_grid.png`, `Z1_margin_table.png`,
+ * `Z1_price_floor.png`, `Z1_competition.png`, `Z1_pick_niche.png`).
+ * Остальные уроки ждут своих кадров, их блоки рисуются заглушкой по типу.
+ * Уровень задуман на 55 кадров (5–7 на урок).
+ * Первая визуализация = новый файл (components/lesson-visuals/profit-Z1-image-0.tsx) плюс одна
  * строка здесь.
  */
-const PROFIT_VISUALS: Record<string, VisualComponent> = {};
+const PROFIT_VISUALS: Record<string, VisualComponent> = {
+  "profit-Z1-diagram-0": ProfitZ1Diagram0,
+  "profit-Z1-image-0": ProfitZ1Image0,
+  "profit-Z1-image-1": ProfitZ1Image1,
+  "profit-Z1-image-2": ProfitZ1Image2,
+  "profit-Z1-image-3": ProfitZ1Image3,
+  "profit-Z1-image-4": ProfitZ1Image4,
+};
 
 /**
  * Визуализации продвинутого курса — Этап 2.
