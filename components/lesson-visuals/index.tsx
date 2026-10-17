@@ -345,6 +345,15 @@ import { ConfidentC11Screenshot0 } from "./confident-C11-screenshot-0";
 import { ConfidentC11Image1 } from "./confident-C11-image-1";
 import { ConfidentC11Screenshot1 } from "./confident-C11-screenshot-1";
 import { ConfidentC11Diagram1 } from "./confident-C11-diagram-1";
+// Уровень «Уверенный», урок C12 «Сеть, мониторинг и печать без присмотра»: схема
+// связки принтер-плата-роутер-телефон (блок 4), веб-панель в браузере (блок 7),
+// туннель вместо открытого порта (блок 16), камера над столом (блок 21) и рамка
+// обнаружения на кадре (блок 23) — все 5 кадров.
+import { ConfidentC12Diagram0 } from "./confident-C12-diagram-0";
+import { ConfidentC12Screenshot0 } from "./confident-C12-screenshot-0";
+import { ConfidentC12Diagram1 } from "./confident-C12-diagram-1";
+import { ConfidentC12Image0 } from "./confident-C12-image-0";
+import { ConfidentC12Screenshot1 } from "./confident-C12-screenshot-1";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -563,8 +572,11 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * также все шесть кадров урока C11 «G-код: читать, писать, менять на лету»
  * (35 блоков: `C11_gcode_anatomy.png` из блока 4, `C11_layer_marker.png` из
  * блока 7, `C11_start_code_ui.png` из блока 10, `C11_macro_map.png` из блока 18,
- * `C11_post_ui.png` из блока 22 и `C11_m600_flow.png` из блока 25). Остальные
- * 5 кадров урока C12 ждут своей очереди и рисуются заглушкой по типу.
+ * `C11_post_ui.png` из блока 22 и `C11_m600_flow.png` из блока 25), а также все
+ * пять кадров урока C12 «Сеть, мониторинг и печать без присмотра» (35 блоков:
+ * `C12_net_map.png` из блока 4, `C12_web_ui.png` из блока 7,
+ * `C12_tunnel_map.png` из блока 16, `C12_camera_place.png` из блока 21 и
+ * `C12_ai_detect.png` из блока 23). Уровень «Уверенный» визуализирован целиком.
  * Первая визуализация = новый файл
  * (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка здесь.
  */
@@ -672,6 +684,14 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
   "confident-C11-image-1": ConfidentC11Image1,
   "confident-C11-screenshot-1": ConfidentC11Screenshot1,
   "confident-C11-diagram-1": ConfidentC11Diagram1,
+  // Урок C12 «Сеть, мониторинг и печать без присмотра»: схема связки, веб-панель,
+  // туннель вместо открытого порта, камера над столом и рамка обнаружения (все 5
+  // кадров).
+  "confident-C12-diagram-0": ConfidentC12Diagram0,
+  "confident-C12-screenshot-0": ConfidentC12Screenshot0,
+  "confident-C12-diagram-1": ConfidentC12Diagram1,
+  "confident-C12-image-0": ConfidentC12Image0,
+  "confident-C12-screenshot-1": ConfidentC12Screenshot1,
 };
 
 /**
