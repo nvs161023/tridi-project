@@ -440,6 +440,13 @@ import { EngineerIN9Diagram3 } from "./engineer-IN9-diagram-3";
 import { EngineerIN9Image0 } from "./engineer-IN9-image-0";
 import { EngineerIN9Image1 } from "./engineer-IN9-image-1";
 import { EngineerIN9Image2 } from "./engineer-IN9-image-2";
+import { EngineerIN10Diagram0 } from "./engineer-IN10-diagram-0";
+import { EngineerIN10Diagram1 } from "./engineer-IN10-diagram-1";
+import { EngineerIN10Diagram2 } from "./engineer-IN10-diagram-2";
+import { EngineerIN10Diagram3 } from "./engineer-IN10-diagram-3";
+import { EngineerIN10Image0 } from "./engineer-IN10-image-0";
+import { EngineerIN10Image1 } from "./engineer-IN10-image-1";
+import { EngineerIN10Image2 } from "./engineer-IN10-image-2";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -781,15 +788,15 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Инженер» — IN1–IN9 нарисованы целиком.
+ * Визуализации уровня «Инженер» — IN1–IN10 нарисованы целиком.
  *
  * Ключ: `engineer-{код урока}-{тип блока}-{номер по типу}`, например
  * `engineer-IN1-image-0` или `engineer-IN10-diagram-1`. Кода модуля в ключе нет:
  * коды уроков (IN1…IN10) уникальны внутри уровня, как у «Уверенного».
  *
- * Нарисовано 61 кадр: по семь IN1 (32 блока), IN2 (33 блока), IN3 (33 блока),
- * IN4 (33 блока), IN7 (35 блоков), IN8 (35 блоков) и IN9 (35 блоков), шесть IN5
- * (34 блока) и шесть IN6 (32 блока).
+ * Нарисовано 68 кадров: по семь IN1 (32 блока), IN2 (34 блока), IN3 (33 блока),
+ * IN4 (33 блока), IN7 (35 блоков), IN8 (35 блоков), IN9 (35 блоков) и IN10
+ * (35 блоков), шесть IN5 (34 блока) и шесть IN6 (32 блока).
  * У IN6 это `IN6_reverse_cycle.png` из блока 4, `IN6_measure_tools.png` из блока 8,
  * `IN6_key_dims.png` из блока 11, `IN6_wear_shrink.png` из блока 15,
  * `IN6_tolerance_fit.png` из блока 18 и `IN6_broken_part.png` из блока 22.
@@ -805,9 +812,12 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
  * `IN9_modes.png` из блока 12, `IN9_arcs.png` из блока 14,
  * `IN9_feed_extrude.png` из блока 19, `IN9_dry_run.png` из блока 23 и
  * `IN9_heat_time.png` из блока 28.
- * Остальные уроки уровня ждут своих кадров и рисуются заглушкой по типу блока.
- * Уроки IN1–IN9 визуализированы полностью.
- * Новая визуализация = новый файл (components/lesson-visuals/engineer-IN9-image-0.tsx)
+ * У IN10 это `IN10_macro_anatomy.png` из блока 4, `IN10_params_flow.png` из блока 11,
+ * `IN10_control_macros.png` из блока 16, `IN10_calibration_map.png` из блока 21,
+ * `IN10_insert_pause.png` из блока 24, `IN10_annealing_curve.png` из блока 27 и
+ * `IN10_fit_finish.png` из блока 30.
+ * Все уроки уровня визуализированы: 68/68.
+ * Новая визуализация = новый файл (components/lesson-visuals/engineer-IN10-image-0.tsx)
  * плюс одна строка здесь.
  */
 const ENGINEER_VISUALS: Record<string, VisualComponent> = {
@@ -882,6 +892,14 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
   "engineer-IN9-image-0": EngineerIN9Image0,
   "engineer-IN9-image-1": EngineerIN9Image1,
   "engineer-IN9-image-2": EngineerIN9Image2,
+  // Урок IN10 «Макросы Klipper и постобработка»: семь кадров, все нарисованы.
+  "engineer-IN10-diagram-0": EngineerIN10Diagram0,
+  "engineer-IN10-diagram-1": EngineerIN10Diagram1,
+  "engineer-IN10-diagram-2": EngineerIN10Diagram2,
+  "engineer-IN10-diagram-3": EngineerIN10Diagram3,
+  "engineer-IN10-image-0": EngineerIN10Image0,
+  "engineer-IN10-image-1": EngineerIN10Image1,
+  "engineer-IN10-image-2": EngineerIN10Image2,
 };
 
 /**
