@@ -514,6 +514,14 @@ import { ProfitZ7Image3 } from "./profit-Z7-image-3";
 import { ProfitZ7Image4 } from "./profit-Z7-image-4";
 import { ProfitZ7Image5 } from "./profit-Z7-image-5";
 import { ProfitZ7Image6 } from "./profit-Z7-image-6";
+// Урок Z8 «Финальный проект: свой продукт»: семь кадров, все нарисованы.
+import { ProfitZ8Image0 } from "./profit-Z8-image-0";
+import { ProfitZ8Image1 } from "./profit-Z8-image-1";
+import { ProfitZ8Image2 } from "./profit-Z8-image-2";
+import { ProfitZ8Image3 } from "./profit-Z8-image-3";
+import { ProfitZ8Image4 } from "./profit-Z8-image-4";
+import { ProfitZ8Image5 } from "./profit-Z8-image-5";
+import { ProfitZ8Image6 } from "./profit-Z8-image-6";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -996,9 +1004,13 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
  * `Z6_track_messages.png`, `Z6_docs_flow.png`, `Z6_claim_path.png`), Z7 «Юр.
  * оформление, налоги, лицензии» — все семь кадров (`Z7_three_statuses.png`,
  * `Z7_usn_choice.png`, `Z7_registration.png`, `Z7_tax_calendar.png`,
- * `Z7_receipt_flow.png`, `Z7_certification.png`, `Z7_license_table.png`).
- * Остальные уроки ждут своих кадров, их блоки рисуются заглушкой по типу.
- * Уровень задуман на 55 кадров (5–7 на урок), нарисовано 48.
+ * `Z7_receipt_flow.png`, `Z7_certification.png`, `Z7_license_table.png`), Z8
+ * «Финальный проект: свой продукт» — все семь кадров
+ * (`Z8_product_criteria.png`, `Z8_calc_chain.png`, `Z8_first_batch.png`,
+ * `Z8_channel_doors.png`, `Z8_order_path.png`, `Z8_week_metrics.png`,
+ * `Z8_scale_ladder.png`).
+ * Уровень задуман на 55 кадров (5–7 на урок), нарисованы все 55: заглушек по
+ * типу блока в «Заработке» больше нет.
  * Первая визуализация = новый файл (components/lesson-visuals/profit-Z8-image-0.tsx) плюс одна
  * строка здесь.
  */
@@ -1053,6 +1065,14 @@ const PROFIT_VISUALS: Record<string, VisualComponent> = {
   "profit-Z7-image-4": ProfitZ7Image4,
   "profit-Z7-image-5": ProfitZ7Image5,
   "profit-Z7-image-6": ProfitZ7Image6,
+  // Урок Z8 «Финальный проект: свой продукт»: семь кадров, все нарисованы.
+  "profit-Z8-image-0": ProfitZ8Image0,
+  "profit-Z8-image-1": ProfitZ8Image1,
+  "profit-Z8-image-2": ProfitZ8Image2,
+  "profit-Z8-image-3": ProfitZ8Image3,
+  "profit-Z8-image-4": ProfitZ8Image4,
+  "profit-Z8-image-5": ProfitZ8Image5,
+  "profit-Z8-image-6": ProfitZ8Image6,
 };
 
 /**
