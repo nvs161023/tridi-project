@@ -354,6 +354,18 @@ import { ConfidentC12Screenshot0 } from "./confident-C12-screenshot-0";
 import { ConfidentC12Diagram1 } from "./confident-C12-diagram-1";
 import { ConfidentC12Image0 } from "./confident-C12-image-0";
 import { ConfidentC12Screenshot1 } from "./confident-C12-screenshot-1";
+// Уровень «Инженер», урок IN1 «Инженерные материалы и совместимость»: шкала
+// теплостойкости (блок 4), сила и жёсткость (блок 7), абразив против латуни
+// (блок 10), высокотемпературный принтер (блок 12), матрица совместимости
+// (блок 16), крепёж и вставки (блок 23), дерево выбора материала (блок 25) —
+// все 7 кадров.
+import { EngineerIN1Image0 } from "./engineer-IN1-image-0";
+import { EngineerIN1Image1 } from "./engineer-IN1-image-1";
+import { EngineerIN1Image2 } from "./engineer-IN1-image-2";
+import { EngineerIN1Image3 } from "./engineer-IN1-image-3";
+import { EngineerIN1Image4 } from "./engineer-IN1-image-4";
+import { EngineerIN1Image5 } from "./engineer-IN1-image-5";
+import { EngineerIN1Image6 } from "./engineer-IN1-image-6";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -695,24 +707,30 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Инженер» — Этап 2, ждут своих кадров.
+ * Визуализации уровня «Инженер» — IN1 нарисован целиком.
  *
- * Ключ: `engineer-{номер}-{тип блока}-{номер по типу}`, например
- * `engineer-1-image-0` или `engineer-10-diagram-1`. Кода модуля в ключе нет:
+ * Ключ: `engineer-{код урока}-{тип блока}-{номер по типу}`, например
+ * `engineer-IN1-image-0` или `engineer-IN10-diagram-1`. Кода модуля в ключе нет:
  * коды уроков (IN1…IN10) уникальны внутри уровня, как у «Уверенного».
  *
- * Реестр пуст: нарисованных кадров у уровня пока нет, поэтому все визуальные
- * блоки рисуются заглушкой по типу. Написаны первые уроки — IN1 (32 блока и 7
- * кадров: `IN1_heat_ladder.png`, `IN1_strength_table.png`, `IN1_abrasive.png`,
- * `IN1_ht_printer.png`, `IN1_chem_table.png`, `IN1_inserts.png`,
- * `IN1_choose_material.png`) и IN2 (7 кадров: `IN2_load_types.png`,
- * `IN2_stress_table.png`, `IN2_anisotropy.png`, `IN2_orientation.png`,
- * `IN2_bending.png`, `IN2_walls_fill.png`, `IN2_test_coupon.png`), остальные
- * уроки ждут текста. Первая визуализация =
- * новый файл (components/lesson-visuals/engineer-1-image-0.tsx) плюс одна строка
- * здесь.
+ * Нарисованы семь кадров урока IN1 (32 блока, все кадры — блоки типа image:
+ * `IN1_heat_ladder.png` из блока 4, `IN1_strength_table.png` из блока 7,
+ * `IN1_abrasive.png` из блока 10, `IN1_ht_printer.png` из блока 12,
+ * `IN1_chem_table.png` из блока 16, `IN1_inserts.png` из блока 23 и
+ * `IN1_choose_material.png` из блока 25). Остальные уроки уровня ждут своих
+ * кадров и рисуются заглушкой по типу блока. Новая визуализация = новый файл
+ * (components/lesson-visuals/engineer-IN1-image-0.tsx) плюс одна строка здесь.
  */
-const ENGINEER_VISUALS: Record<string, VisualComponent> = {};
+const ENGINEER_VISUALS: Record<string, VisualComponent> = {
+  // Урок IN1 «Инженерные материалы и совместимость»: семь кадров, все нарисованы.
+  "engineer-IN1-image-0": EngineerIN1Image0,
+  "engineer-IN1-image-1": EngineerIN1Image1,
+  "engineer-IN1-image-2": EngineerIN1Image2,
+  "engineer-IN1-image-3": EngineerIN1Image3,
+  "engineer-IN1-image-4": EngineerIN1Image4,
+  "engineer-IN1-image-5": EngineerIN1Image5,
+  "engineer-IN1-image-6": EngineerIN1Image6,
+};
 
 /**
  * Визуализации уровня «Заработок» — Этап 2, ждут своих кадров.
