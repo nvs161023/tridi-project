@@ -506,6 +506,14 @@ import { ProfitZ6Image3 } from "./profit-Z6-image-3";
 import { ProfitZ6Image4 } from "./profit-Z6-image-4";
 import { ProfitZ6Image5 } from "./profit-Z6-image-5";
 import { ProfitZ6Image6 } from "./profit-Z6-image-6";
+// Урок Z7 «Юр. оформление, налоги, лицензии»: семь кадров, все нарисованы.
+import { ProfitZ7Image0 } from "./profit-Z7-image-0";
+import { ProfitZ7Image1 } from "./profit-Z7-image-1";
+import { ProfitZ7Image2 } from "./profit-Z7-image-2";
+import { ProfitZ7Image3 } from "./profit-Z7-image-3";
+import { ProfitZ7Image4 } from "./profit-Z7-image-4";
+import { ProfitZ7Image5 } from "./profit-Z7-image-5";
+import { ProfitZ7Image6 } from "./profit-Z7-image-6";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -985,10 +993,13 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
  * `Z5_marketplaces.png`, `Z5_funnel.png`, `Z5_ad_money.png`), Z6 «Упаковка,
  * логистика, отправка» — все семь кадров (`Z6_layers.png`,
  * `Z6_packaging_cost.png`, `Z6_carrier_choice.png`, `Z6_fbo_fbs.png`,
- * `Z6_track_messages.png`, `Z6_docs_flow.png`, `Z6_claim_path.png`).
+ * `Z6_track_messages.png`, `Z6_docs_flow.png`, `Z6_claim_path.png`), Z7 «Юр.
+ * оформление, налоги, лицензии» — все семь кадров (`Z7_three_statuses.png`,
+ * `Z7_usn_choice.png`, `Z7_registration.png`, `Z7_tax_calendar.png`,
+ * `Z7_receipt_flow.png`, `Z7_certification.png`, `Z7_license_table.png`).
  * Остальные уроки ждут своих кадров, их блоки рисуются заглушкой по типу.
- * Уровень задуман на 55 кадров (5–7 на урок), нарисовано 41.
- * Первая визуализация = новый файл (components/lesson-visuals/profit-Z6-image-0.tsx) плюс одна
+ * Уровень задуман на 55 кадров (5–7 на урок), нарисовано 48.
+ * Первая визуализация = новый файл (components/lesson-visuals/profit-Z8-image-0.tsx) плюс одна
  * строка здесь.
  */
 const PROFIT_VISUALS: Record<string, VisualComponent> = {
@@ -1034,6 +1045,14 @@ const PROFIT_VISUALS: Record<string, VisualComponent> = {
   "profit-Z6-image-4": ProfitZ6Image4,
   "profit-Z6-image-5": ProfitZ6Image5,
   "profit-Z6-image-6": ProfitZ6Image6,
+  // Урок Z7 «Юр. оформление, налоги, лицензии»: семь кадров, все нарисованы.
+  "profit-Z7-image-0": ProfitZ7Image0,
+  "profit-Z7-image-1": ProfitZ7Image1,
+  "profit-Z7-image-2": ProfitZ7Image2,
+  "profit-Z7-image-3": ProfitZ7Image3,
+  "profit-Z7-image-4": ProfitZ7Image4,
+  "profit-Z7-image-5": ProfitZ7Image5,
+  "profit-Z7-image-6": ProfitZ7Image6,
 };
 
 /**
