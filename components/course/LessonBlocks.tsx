@@ -435,6 +435,23 @@ function BlockView({
     case "animation":
     case "screenshot":
     case "diagram":
+      // Медиа-блок без кадра (такие остались в модулях, у которых визуализации
+      // убраны из данных): показываем заголовок и полный текст — это честнее
+      // серой заглушки с иконкой.
+      if (!block.visual_file && !block.src) {
+        return (
+          <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
+            <BlockTitle>{block.title}</BlockTitle>
+            {block.content ? (
+              <BlockText
+                text={block.content}
+                className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg"
+              />
+            ) : null}
+          </section>
+        );
+      }
+
       return (
         <BlockVisual
           block={block}
