@@ -488,6 +488,16 @@ import { ProfitZ4Image3 } from "./profit-Z4-image-3";
 import { ProfitZ4Image4 } from "./profit-Z4-image-4";
 import { ProfitZ4Image5 } from "./profit-Z4-image-5";
 import { ProfitZ4Image6 } from "./profit-Z4-image-6";
+// Урок Z5 «Фото, маркетинг, продвижение»: слои кадра (блок 5), кадровый лист
+// (блок 9), анатомия карточки (блок 12), карта каналов (блок 20), две дороги
+// продаж (блок 23), воронка (блок 26) и деньги в рекламу (блок 29) — 7 кадров.
+import { ProfitZ5Image0 } from "./profit-Z5-image-0";
+import { ProfitZ5Image1 } from "./profit-Z5-image-1";
+import { ProfitZ5Image2 } from "./profit-Z5-image-2";
+import { ProfitZ5Image3 } from "./profit-Z5-image-3";
+import { ProfitZ5Image4 } from "./profit-Z5-image-4";
+import { ProfitZ5Image5 } from "./profit-Z5-image-5";
+import { ProfitZ5Image6 } from "./profit-Z5-image-6";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -958,13 +968,16 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
  * `Z2_calc_sheet.png`, `Z2_price_ladder.png`, `Z2_break_even.png`), Z3
  * «Клиенты: бриф, ТЗ, споры» — все семь кадров (`Z3_order_path.png`,
  * `Z3_brief_card.png`, `Z3_spec_message.png`, `Z3_prepay_ladder.png`,
- * `Z3_revision_limit.png`, `Z3_dispute_map.png`, `Z3_repeat_loop.png`) и Z4
+ * `Z3_revision_limit.png`, `Z3_dispute_map.png`, `Z3_repeat_loop.png`), Z4
  * «Серия: повторяемость, QC, допуски» — все семь кадров (`Z4_factors.png`,
  * `Z4_preflight.png`, `Z4_tolerances.png`, `Z4_sampling.png`,
- * `Z4_defect_map.png`, `Z4_strength_tests.png`, `Z4_batch_passport.png`).
+ * `Z4_defect_map.png`, `Z4_strength_tests.png`, `Z4_batch_passport.png`) и Z5
+ * «Фото, маркетинг, продвижение» — все семь кадров (`Z5_photo_layers.png`,
+ * `Z5_shot_list.png`, `Z5_card_anatomy.png`, `Z5_channel_map.png`,
+ * `Z5_marketplaces.png`, `Z5_funnel.png`, `Z5_ad_money.png`).
  * Остальные уроки ждут своих кадров, их блоки рисуются заглушкой по типу.
- * Уровень задуман на 55 кадров (5–7 на урок), нарисовано 34.
- * Первая визуализация = новый файл (components/lesson-visuals/profit-Z4-image-0.tsx) плюс одна
+ * Уровень задуман на 55 кадров (5–7 на урок), нарисовано 41.
+ * Первая визуализация = новый файл (components/lesson-visuals/profit-Z5-image-0.tsx) плюс одна
  * строка здесь.
  */
 const PROFIT_VISUALS: Record<string, VisualComponent> = {
@@ -995,6 +1008,13 @@ const PROFIT_VISUALS: Record<string, VisualComponent> = {
   "profit-Z4-image-4": ProfitZ4Image4,
   "profit-Z4-image-5": ProfitZ4Image5,
   "profit-Z4-image-6": ProfitZ4Image6,
+  "profit-Z5-image-0": ProfitZ5Image0,
+  "profit-Z5-image-1": ProfitZ5Image1,
+  "profit-Z5-image-2": ProfitZ5Image2,
+  "profit-Z5-image-3": ProfitZ5Image3,
+  "profit-Z5-image-4": ProfitZ5Image4,
+  "profit-Z5-image-5": ProfitZ5Image5,
+  "profit-Z5-image-6": ProfitZ5Image6,
 };
 
 /**
