@@ -384,6 +384,17 @@ import { EngineerIN3Image3 } from "./engineer-IN3-image-3";
 import { EngineerIN3Image4 } from "./engineer-IN3-image-4";
 import { EngineerIN3Image5 } from "./engineer-IN3-image-5";
 import { EngineerIN3Image6 } from "./engineer-IN3-image-6";
+// Уровень «Инженер», урок IN4 «Симуляция в CAD (Stress Analysis)»: идея МКЭ
+// (блок 4), материал (блок 7), типы нагрузок (блок 12), упрощение (блок 14),
+// карта напряжений (блок 18), окно Fusion 360 (блок 20) и цикл усиления
+// (блок 26) — все 7 кадров.
+import { EngineerIN4Image0 } from "./engineer-IN4-image-0";
+import { EngineerIN4Image1 } from "./engineer-IN4-image-1";
+import { EngineerIN4Image2 } from "./engineer-IN4-image-2";
+import { EngineerIN4Image3 } from "./engineer-IN4-image-3";
+import { EngineerIN4Image4 } from "./engineer-IN4-image-4";
+import { EngineerIN4Screenshot0 } from "./engineer-IN4-screenshot-0";
+import { EngineerIN4Image5 } from "./engineer-IN4-image-5";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -725,19 +736,19 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
 };
 
 /**
- * Визуализации уровня «Инженер» — IN1–IN3 нарисованы целиком.
+ * Визуализации уровня «Инженер» — IN1–IN4 нарисованы целиком.
  *
  * Ключ: `engineer-{код урока}-{тип блока}-{номер по типу}`, например
  * `engineer-IN1-image-0` или `engineer-IN10-diagram-1`. Кода модуля в ключе нет:
  * коды уроков (IN1…IN10) уникальны внутри уровня, как у «Уверенного».
  *
- * Нарисован 21 кадр: семь IN1 (32 блока), семь IN2 (33 блока) и семь IN3
- * (33 блока). У IN3 это `IN3_rib_basics.png` из блока 4,
- * `IN3_rib_height.png` из блока 8, `IN3_load_path.png` из блока 14,
- * `IN3_rib_profile.png` из блока 17, `IN3_layers_vs_ribs.png` из блока 21,
- * `IN3_gusset_shear.png` из блока 27 и `IN3_test_sample.png` из блока 31.
+ * Нарисовано 28 кадров: по семь IN1 (32 блока), IN2 (33 блока), IN3 (33 блока)
+ * и IN4 (33 блока). У IN4 это `IN4_idea.png` из блока 4,
+ * `IN4_material.png` из блока 7, `IN4_loads.png` из блока 12,
+ * `IN4_simplify.png` из блока 14, `IN4_stress_map.png` из блока 18,
+ * `IN4_fusion_ui.png` из блока 20 и `IN4_cycle.png` из блока 26.
  * Остальные уроки уровня ждут своих кадров и рисуются заглушкой по типу блока.
- * Новая визуализация = новый файл (components/lesson-visuals/engineer-IN3-image-0.tsx)
+ * Новая визуализация = новый файл (components/lesson-visuals/engineer-IN4-image-0.tsx)
  * плюс одна строка здесь.
  */
 const ENGINEER_VISUALS: Record<string, VisualComponent> = {
@@ -765,6 +776,14 @@ const ENGINEER_VISUALS: Record<string, VisualComponent> = {
   "engineer-IN3-image-4": EngineerIN3Image4,
   "engineer-IN3-image-5": EngineerIN3Image5,
   "engineer-IN3-image-6": EngineerIN3Image6,
+  // Урок IN4 «Симуляция в CAD (Stress Analysis)»: семь кадров, все нарисованы.
+  "engineer-IN4-image-0": EngineerIN4Image0,
+  "engineer-IN4-image-1": EngineerIN4Image1,
+  "engineer-IN4-image-2": EngineerIN4Image2,
+  "engineer-IN4-image-3": EngineerIN4Image3,
+  "engineer-IN4-image-4": EngineerIN4Image4,
+  "engineer-IN4-screenshot-0": EngineerIN4Screenshot0,
+  "engineer-IN4-image-5": EngineerIN4Image5,
 };
 
 /**
