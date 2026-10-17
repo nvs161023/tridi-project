@@ -295,6 +295,16 @@ import { ConfidentC6Image0 } from "./confident-C6-image-0";
 import { ConfidentC6Diagram1 } from "./confident-C6-diagram-1";
 import { ConfidentC6Screenshot1 } from "./confident-C6-screenshot-1";
 import { ConfidentC6Diagram2 } from "./confident-C6-diagram-2";
+// Уровень «Уверенный», урок C7 «Модель больше стола: разрез, соединения,
+// допуски»: панель и две линии реза (блок 4), окно Cut (блок 11), пять
+// соединений и их работа (блок 14), таблица зазоров (блок 21), склейка двух
+// частей со стяжкой (блок 27) и сравнение времени (блок 33) — все 6 кадров.
+import { ConfidentC7Diagram0 } from "./confident-C7-diagram-0";
+import { ConfidentC7Screenshot0 } from "./confident-C7-screenshot-0";
+import { ConfidentC7Diagram1 } from "./confident-C7-diagram-1";
+import { ConfidentC7Diagram2 } from "./confident-C7-diagram-2";
+import { ConfidentC7Image0 } from "./confident-C7-image-0";
+import { ConfidentC7Diagram3 } from "./confident-C7-diagram-3";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -490,8 +500,15 @@ const BASE_VISUALS: Record<string, VisualComponent> = {
  * шесть кадров урока C5 «Поддержки, которые отделяются сами» (35 блоков:
  * `C5_z_gap.png` из блока 4, `C5_interface.png` из блока 12, `C5_tree.png` из
  * блока 18, `C5_orientation.png` из блока 22, `C5_detach.png` из блока 30 и
- * `C5_settings.png` из блока 31).
- * Остальные 41 кадр уровня (C6…C12) ждут своей очереди и рисуются заглушкой по
+ * `C5_settings.png` из блока 31) и все шесть кадров урока C6 «Модификаторы и
+ * переменная высота слоя» (35 блоков: `C6_modifier_zones.png` из блока 4,
+ * `C6_interface.png` из блока 8, `C6_bracket.png` из блока 12, `C6_layer_compare.png`
+ * из блока 20, `C6_variable_ui.png` из блока 25 и `C6_compare.png` из блока 30),
+ * а также все шесть кадров урока C7 «Модель больше стола: разрез, соединения,
+ * допуски» (35 блоков: `C7_split_zones.png` из блока 4, `C7_cut_ui.png` из
+ * блока 11, `C7_joints.png` из блока 14, `C7_tolerance_table.png` из блока 21,
+ * `C7_glue_clamp.png` из блока 27 и `C7_time_compare.png` из блока 33).
+ * Остальные 29 кадров уровня (C8…C12) ждут своей очереди и рисуются заглушкой по
  * типу. Первая визуализация = новый файл
  * (components/lesson-visuals/confident-C1-image-0.tsx) плюс одна строка здесь.
  */
@@ -554,6 +571,15 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
   "confident-C6-diagram-1": ConfidentC6Diagram1,
   "confident-C6-screenshot-1": ConfidentC6Screenshot1,
   "confident-C6-diagram-2": ConfidentC6Diagram2,
+  // Урок C7 «Модель больше стола: разрез, соединения, допуски»: панель и две
+  // линии реза, окно Cut, пять соединений, таблица зазоров, склейка со
+  // стяжкой и сравнение времени (все 6 кадров).
+  "confident-C7-diagram-0": ConfidentC7Diagram0,
+  "confident-C7-screenshot-0": ConfidentC7Screenshot0,
+  "confident-C7-diagram-1": ConfidentC7Diagram1,
+  "confident-C7-diagram-2": ConfidentC7Diagram2,
+  "confident-C7-image-0": ConfidentC7Image0,
+  "confident-C7-diagram-3": ConfidentC7Diagram3,
 };
 
 /**
