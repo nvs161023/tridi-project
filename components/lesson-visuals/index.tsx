@@ -285,6 +285,16 @@ import { ConfidentC5Image0 } from "./confident-C5-image-0";
 import { ConfidentC5Diagram2 } from "./confident-C5-diagram-2";
 import { ConfidentC5Steps1 } from "./confident-C5-steps-1";
 import { ConfidentC5Screenshot0 } from "./confident-C5-screenshot-0";
+// Уровень «Уверенный», урок C6 «Модификаторы и переменная высота слоя»: три зоны
+// кронштейна (блок 4), модификатор в слайсере (блок 8), кронштейн с зоной
+// нагрузки (блок 12), разрез с толстыми и тонкими слоями (блок 20), окно
+// переменной высоты (блок 25) и сравнение двух подходов (блок 30) — все 6 кадров.
+import { ConfidentC6Diagram0 } from "./confident-C6-diagram-0";
+import { ConfidentC6Screenshot0 } from "./confident-C6-screenshot-0";
+import { ConfidentC6Image0 } from "./confident-C6-image-0";
+import { ConfidentC6Diagram1 } from "./confident-C6-diagram-1";
+import { ConfidentC6Screenshot1 } from "./confident-C6-screenshot-1";
+import { ConfidentC6Diagram2 } from "./confident-C6-diagram-2";
 import type { VisualProps } from "./_Wrapper";
 
 /**
@@ -535,6 +545,15 @@ const CONFIDENT_VISUALS: Record<string, VisualComponent> = {
   "confident-C5-diagram-2": ConfidentC5Diagram2,
   "confident-C5-steps-1": ConfidentC5Steps1,
   "confident-C5-screenshot-0": ConfidentC5Screenshot0,
+  // Урок C6 «Модификаторы и переменная высота слоя»: три зоны кронштейна, окно
+  // модификатора, пример с зоной нагрузки, разрез по высоте, окно переменной
+  // высоты и сравнение постоянной и переменной высоты (все 6 кадров).
+  "confident-C6-diagram-0": ConfidentC6Diagram0,
+  "confident-C6-screenshot-0": ConfidentC6Screenshot0,
+  "confident-C6-image-0": ConfidentC6Image0,
+  "confident-C6-diagram-1": ConfidentC6Diagram1,
+  "confident-C6-screenshot-1": ConfidentC6Screenshot1,
+  "confident-C6-diagram-2": ConfidentC6Diagram2,
 };
 
 /**
