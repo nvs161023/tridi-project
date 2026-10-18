@@ -70,8 +70,8 @@ export async function Header() {
             >
               Галерея
             </Link>
-            <Link className="transition-colors hover:text-blue-400" href="/#how">
-              Как учим
+            <Link className="transition-colors hover:text-blue-400" href="/#faq">
+              Вопросы
             </Link>
             <Link
               className="transition-colors hover:text-blue-400"
