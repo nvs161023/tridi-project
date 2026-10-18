@@ -46,7 +46,7 @@
 ## Voron 2.4
 
 - Репозиторий: [OrcaSlicer/OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)
-- Commit: `1ee0b730a1e6484e55a631dd567b41c986fc1d6a` (18.10.2026)
+- Commit: `1ee0b730a1e6484e55a631dd567b41c986fc1d6a` (17.10.2026)
 - Лицензия: AGPL-3.0
 - Формат: JSON OrcaSlicer
 - Каталог: `resources/profiles/Voron`
@@ -67,7 +67,7 @@
 ## Creality Ender-3 и Anycubic Kobra
 
 - Репозиторий: [OrcaSlicer/OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)
-- Commit: `1ee0b730a1e6484e55a631dd567b41c986fc1d6a` (18.10.2026)
+- Commit: `1ee0b730a1e6484e55a631dd567b41c986fc1d6a` (17.10.2026)
 - Лицензия: AGPL-3.0
 - Формат: JSON OrcaSlicer
 - Каталоги: `resources/profiles/Creality` и `resources/profiles/Anycubic`
