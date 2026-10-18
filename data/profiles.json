@@ -8,6 +8,10 @@
       "profiles": [
         {
           "id": "bambu-x1c-reduce-current",
+          "category": "printer",
+          "manufacturer": "Bambu Lab",
+          "model": "X1C",
+          "material": "Universal",
           "title": "Bambu Lab X1 Carbon 0.4 — REDUCE CURRENT",
           "description": "Профиль машины для Bambu Studio и OrcaSlicer с уменьшенным током очистки сопла. Меньше нагара и «соплей» при смене филамента, остальные заводские настройки не меняются.",
           "device": "Bambu Lab X1 Carbon",
@@ -18,6 +22,10 @@
         },
         {
           "id": "bambu-x1c-reduce-purge",
+          "category": "printer",
+          "manufacturer": "Bambu Lab",
+          "model": "X1C",
+          "material": "Universal",
           "title": "Bambu Lab X1 Carbon 0.4 — REDUCE PURGE",
           "description": "Профиль машины с уменьшенным объёмом продувки при смене филамента. Экономит пластик и время на многоцветной печати.",
           "device": "Bambu Lab X1 Carbon",
@@ -28,6 +36,10 @@
         },
         {
           "id": "prusa-mk3s-plus-printer",
+          "category": "printer",
+          "manufacturer": "Prusa",
+          "model": "MK3S+",
+          "material": "Universal",
           "title": "Original Prusa i3 MK3S & MK3S+",
           "description": "Секция принтера из официального бандла PrusaResearch 2.5.12. Наследует Original Prusa i3 MK3, поэтому для импорта нужен установленный бандл PrusaSlicer.",
           "device": "Original Prusa i3 MK3S & MK3S+",
@@ -38,6 +50,10 @@
         },
         {
           "id": "voron-2-4-printer",
+          "category": "printer",
+          "manufacturer": "Generic",
+          "model": "Voron 2.4",
+          "material": "Universal",
           "title": "Voron 2.4 300, сопло 0.4",
           "description": "Профиль машины Voron 2.4 300 с соплом 0.4 из библиотеки OrcaSlicer. Наследует fdm_klipper_common, поэтому базовые профили Orca должны быть установлены.",
           "device": "Voron 2.4 300",
@@ -55,6 +71,10 @@
       "profiles": [
         {
           "id": "polylite-pla-base",
+          "category": "material",
+          "manufacturer": "Generic",
+          "model": "Universal",
+          "material": "PLA",
           "title": "PolyLite PLA @base",
           "description": "Абстрактная основа материала: общие температуры и охлаждение для PLA. В слайсере не выбирается — нужна как база для @System.",
           "device": "Polymaker PolyLite PLA",
@@ -65,6 +85,10 @@
         },
         {
           "id": "polylite-pla-system",
+          "category": "material",
+          "manufacturer": "Generic",
+          "model": "Universal",
+          "material": "PLA",
           "title": "PolyLite PLA @System",
           "description": "Готовый к выбору пресет PolyLite PLA. Наследует @base, поэтому импортируйте оба файла вместе.",
           "device": "Polymaker PolyLite PLA",
@@ -75,6 +99,10 @@
         },
         {
           "id": "polylite-petg-base",
+          "category": "material",
+          "manufacturer": "Generic",
+          "model": "Universal",
+          "material": "PETG",
           "title": "PolyLite PETG @base",
           "description": "Абстрактная основа PETG: температуры сопла и стола, охлаждение и скорость. Служит базой для выбираемого пресета @System.",
           "device": "Polymaker PolyLite PETG",
@@ -85,6 +113,10 @@
         },
         {
           "id": "polylite-petg-system",
+          "category": "material",
+          "manufacturer": "Generic",
+          "model": "Universal",
+          "material": "PETG",
           "title": "PolyLite PETG @System",
           "description": "Готовый пресет PolyLite PETG. Наследует @base — импортируйте пару файлов вместе.",
           "device": "Polymaker PolyLite PETG",
@@ -95,6 +127,10 @@
         },
         {
           "id": "prusament-pla",
+          "category": "material",
+          "manufacturer": "Prusa",
+          "model": "MK3S+",
+          "material": "PLA",
           "title": "Prusament PLA",
           "description": "Секция филамента Prusament PLA из бандла PrusaResearch 2.5.12: температура 215 °C, плотность и стоимость. Наследует *PLA* из системного бандла PrusaSlicer.",
           "device": "Prusament PLA",
@@ -112,6 +148,10 @@
       "profiles": [
         {
           "id": "bambu-x1c-020-slowed",
+          "category": "process",
+          "manufacturer": "Bambu Lab",
+          "model": "X1C",
+          "material": "Universal",
           "title": "0.20 мм Standard @BBL X1C — SLOWED",
           "description": "Замедленная версия стандартного процесса 0.20 мм для X1 Carbon: ниже скорости, аккуратнее стенки и мосты. Наследует 0.20mm Standard @BBL X1C.",
           "device": "Bambu Lab X1 Carbon",
@@ -122,6 +162,10 @@
         },
         {
           "id": "prusa-mk3s-plus-020-quality",
+          "category": "process",
+          "manufacturer": "Prusa",
+          "model": "MK3S+",
+          "material": "Universal",
           "title": "0.20 мм QUALITY @MK3",
           "description": "Процесс качества 0.20 мм для MK3S+ из официального бандла PrusaSlicer. Наследует *0.20mm*; *MK3*, поэтому нужен бандл PrusaResearch 2.5.12.",
           "device": "Original Prusa i3 MK3S & MK3S+",
@@ -132,6 +176,10 @@
         },
         {
           "id": "voron-2-4-020-standard",
+          "category": "process",
+          "manufacturer": "Generic",
+          "model": "Voron 2.4",
+          "material": "Universal",
           "title": "0.20 мм Standard @Voron",
           "description": "Стандартный процесс 0.20 мм для Voron 2.4 из библиотеки OrcaSlicer. Наследует fdm_process_voron_common.",
           "device": "Voron 2.4 300",
@@ -142,6 +190,10 @@
         },
         {
           "id": "voron-2-4-024-draft",
+          "category": "process",
+          "manufacturer": "Generic",
+          "model": "Voron 2.4",
+          "material": "Universal",
           "title": "0.24 мм Draft @Voron",
           "description": "Черновой процесс 0.24 мм для Voron 2.4: печать быстрее, слой крупнее. Наследует fdm_process_voron_common.",
           "device": "Voron 2.4 300",

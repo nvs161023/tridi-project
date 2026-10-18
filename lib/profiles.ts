@@ -12,10 +12,21 @@ import profilesData from "@/data/profiles.json";
 
 export type ProfileFormat = "JSON" | "INI";
 
+/** Категории профилей для каскадного фильтра. */
+export type ProfileCategoryKey = "printer" | "material" | "process";
+
 /** Один профиль: описание для карточки и путь к файлу внутри profiles/. */
 export type PrintProfile = {
   /** Стабильный идентификатор для ссылки на скачивание. */
   id: string;
+  /** Категория для каскадного фильтра: принтер, материал или процесс. */
+  category: ProfileCategoryKey;
+  /** Бренд принтера или Generic для универсальных профилей. */
+  manufacturer: string;
+  /** Модель принтера или Universal для универсальных профилей. */
+  model: string;
+  /** Пластик материала или Universal для принтеров и процессов. */
+  material: string;
   title: string;
   description: string;
   /** Принтер или производитель материала. */
