@@ -49,15 +49,16 @@ const LEVEL_ACCESS: Record<PaidCourseId, readonly string[]> = {
   profit: ["profit", "pro", "pro-subscription"],
 };
 
+/** Дата в будущем: срок покупки или пробного периода ещё не истёк. */
+function isFutureDate(value: string): boolean {
+  const date = new Date(value);
+
+  return !Number.isNaN(date.getTime()) && date > new Date();
+}
+
 /** Срок покупки не истёк; null означает «навсегда». */
 function isPurchaseActive(purchase: PurchaseRow): boolean {
-  if (purchase.expires_at === null) {
-    return true;
-  }
-
-  const expiresAt = new Date(purchase.expires_at);
-
-  return !Number.isNaN(expiresAt.getTime()) && expiresAt > new Date();
+  return purchase.expires_at === null || isFutureDate(purchase.expires_at);
 }
 
 /**
@@ -73,9 +74,24 @@ function isSubscriptionActive(subscription: SubscriptionRow): boolean {
     return false;
   }
 
-  const trialEndsAt = new Date(subscription.trial_ends_at);
+  return isFutureDate(subscription.trial_ends_at);
+}
 
-  return !Number.isNaN(trialEndsAt.getTime()) && trialEndsAt > new Date();
+/** Самая поздняя дата из списка: при нескольких покупках показываем последнюю. */
+function latestDate(values: readonly string[]): string | null {
+  let latest: string | null = null;
+  let latestTime = Number.NEGATIVE_INFINITY;
+
+  for (const value of values) {
+    const time = new Date(value).getTime();
+
+    if (!Number.isNaN(time) && time > latestTime) {
+      latest = value;
+      latestTime = time;
+    }
+  }
+
+  return latest;
 }
 
 async function hasAnyPurchase(
@@ -97,6 +113,93 @@ async function hasAnyPurchase(
   return ((data as PurchaseRow[] | null) ?? []).some(isPurchaseActive);
 }
 
+/** Состояние подписки Pro: есть ли доступ и до какой даты. */
+export type ActiveSubscription = {
+  active: boolean;
+  /**
+   * Дата окончания доступа (expires_at покупки или trial_ends_at подписки).
+   * null — доступ бессрочный либо дата не задана: подписка active может жить
+   * без trial_ends_at.
+   */
+  expiresAt: string | null;
+};
+
+/**
+ * Действующая подписка Pro с датой окончания.
+ *
+ * Проверяет те же два источника, что и hasActiveSubscription(), но ещё
+ * возвращает срок для кабинета: «Pro-подписка активна до …». Если покупок
+ * несколько, показываем самую позднюю дату; бессрочная запись (expires_at =
+ * null) важнее любой даты.
+ */
+export async function getActiveSubscription(
+  supabase: Supabase,
+  userId: string,
+): Promise<ActiveSubscription> {
+  const [purchasesResult, subscriptionsResult] = await Promise.all([
+    supabase
+      .from("purchases")
+      .select("course_id, expires_at")
+      .eq("user_id", userId)
+      .eq("course_id", "pro-subscription"),
+    supabase
+      .from("subscriptions")
+      .select("status, trial_ends_at")
+      .eq("user_id", userId),
+  ]);
+
+  if (purchasesResult.error) {
+    console.warn(
+      "Не удалось проверить подписку в purchases:",
+      purchasesResult.error.message,
+    );
+  } else {
+    const purchases = (
+      (purchasesResult.data as PurchaseRow[] | null) ?? []
+    ).filter(isPurchaseActive);
+
+    if (purchases.length > 0) {
+      if (purchases.some((purchase) => purchase.expires_at === null)) {
+        return { active: true, expiresAt: null };
+      }
+
+      return {
+        active: true,
+        expiresAt: latestDate(
+          purchases
+            .map((purchase) => purchase.expires_at)
+            .filter((value): value is string => value !== null),
+        ),
+      };
+    }
+  }
+
+  if (subscriptionsResult.error) {
+    // Таблицы subscriptions может не быть в старой базе — тогда доступа нет.
+    console.warn("Не удалось проверить подписку:", subscriptionsResult.error.message);
+    return { active: false, expiresAt: null };
+  }
+
+  const subscriptions = (
+    (subscriptionsResult.data as SubscriptionRow[] | null) ?? []
+  ).filter(isSubscriptionActive);
+
+  if (subscriptions.length === 0) {
+    return { active: false, expiresAt: null };
+  }
+
+  return {
+    active: true,
+    expiresAt: latestDate(
+      subscriptions
+        .map((subscription) => subscription.trial_ends_at)
+        .filter(
+          (value): value is string => value !== null && isFutureDate(value),
+        ),
+    ),
+  };
+}
+
 /**
  * Есть ли доступ к платному уровню.
  *
@@ -114,6 +217,22 @@ export async function hasCourseAccess(
       : LEVEL_ACCESS[courseId];
 
   return hasAnyPurchase(supabase, userId, acceptedIds);
+}
+
+/**
+ * Куплен ли конкретный платный уровень — имя для кабинета.
+ *
+ * Правила те же, что у hasCourseAccess(): отдельная покупка уровня, пакет
+ * `pro` или подписка `pro-subscription`. Обёртка нужна, чтобы карточки
+ * кабинета читались как «куплен / не куплен», а логика доступа оставалась в
+ * одном месте.
+ */
+export async function hasPurchasedCourse(
+  supabase: Supabase,
+  userId: string,
+  courseId: PaidCourseId,
+): Promise<boolean> {
+  return hasCourseAccess(supabase, userId, courseId);
 }
 
 /**
@@ -138,25 +257,13 @@ export async function hasProCourseAccess(
  *
  * Вторая проверка нужна, пока схема purchases не применена в живой базе:
  * без неё оплаченная подписка не открывала бы профили.
+ *
+ * Дата окончания не нужна — только факт доступа. Если нужна и дата, используйте
+ * getActiveSubscription(): это та же проверка с подробностями.
  */
 export async function hasActiveSubscription(
   supabase: Supabase,
   userId: string,
 ): Promise<boolean> {
-  if (await hasAnyPurchase(supabase, userId, ["pro-subscription"])) {
-    return true;
-  }
-
-  const { data, error } = await supabase
-    .from("subscriptions")
-    .select("status, trial_ends_at")
-    .eq("user_id", userId);
-
-  if (error) {
-    // Таблицы subscriptions может не быть в старой базе — тогда доступа нет.
-    console.warn("Не удалось проверить подписку:", error.message);
-    return false;
-  }
-
-  return ((data as SubscriptionRow[] | null) ?? []).some(isSubscriptionActive);
+  return (await getActiveSubscription(supabase, userId)).active;
 }
