@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Header } from "@/components/Header";
+import { ProBundleCard } from "@/components/landing/ProBundleCard";
 import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
 import { resolveUserId } from "@/lib/current-user";
@@ -52,11 +53,6 @@ const priceWithOld = (level: CourseLevel) =>
 /** Цены из data/courses.json: тот же источник, что и на главной. */
 const proSubscriptionPrice = formatPrice(proCourse.subscriptionPrice);
 const proBundlePrice = formatPrice(proCourse.price);
-const bundleSeparatePrice = PAID_LEVELS.reduce(
-  (sum, level) => sum + level.price,
-  0,
-);
-const bundleSaving = bundleSeparatePrice - proCourse.price;
 
 /** Акция базового уровня: старая цена и бейдж берутся из data/courses.json. */
 const basicLevel = LEVELS[0];
@@ -565,7 +561,7 @@ export default async function SubscriptionPage() {
                 </p>
               </div>
 
-              <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {/* Новичок — 0 ₽ */}
               <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-blue-500/30 bg-slate-900/60 p-5">
                 <div
@@ -751,7 +747,7 @@ export default async function SubscriptionPage() {
                           />
                           <Link
                             href={level.href}
-                            className="mt-2 inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full border border-white/15 px-4 text-xs font-semibold text-slate-200 transition-colors hover:border-white/30 hover:text-white"
+                            className="mt-2 inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full border border-blue-400/40 bg-blue-500/10 px-4 text-xs font-semibold text-blue-200 transition-colors hover:border-blue-300/60 hover:bg-blue-500/20"
                           >
                             Подробнее о курсе
                             <span aria-hidden>→</span>
@@ -766,98 +762,10 @@ export default async function SubscriptionPage() {
                 );
               })}
 
-              {/* Пакет трёх уровней — главный акцент */}
-              <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border-2 border-amber-400/60 bg-gradient-to-b from-amber-400/20 via-slate-900 to-slate-900 p-5 shadow-xl shadow-amber-950/40 ring-1 ring-amber-300/20">
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute -top-20 -right-12 h-44 w-44 rounded-full bg-amber-400/15 blur-3xl"
-                />
-
-                <div className="relative flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold tracking-[0.16em] text-amber-300 uppercase">
-                    Пакет
-                  </span>
-                  <span className={DISCOUNT_BADGE}>
-                    {proCourse.badge ?? `Экономия ${formatPrice(bundleSaving)} ₽`}
-                  </span>
-                </div>
-
-                <h3 className="relative mt-3 text-xl font-extrabold tracking-tight text-white">
-                  {proCourse.bundleTitle}
-                </h3>
-                <p className="relative mt-1 text-xs leading-relaxed text-amber-100/80">
-                  {proCourse.bundleSubtitle} навсегда
-                </p>
-                <p className="relative mt-3 rounded-2xl border border-amber-300/20 bg-amber-300/5 px-3 py-2 text-[11px] font-semibold leading-relaxed text-amber-100">
-                  Доступ ко всем курсам и ко всем Pro-инструментам навсегда
-                </p>
-
-                <p className="relative mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                  <span className="text-3xl font-extrabold text-white">
-                    {proBundlePrice} ₽
-                  </span>
-                  <s
-                    className="text-sm font-semibold text-slate-400"
-                    aria-label={`Старая цена: ${formatPrice(proCourse.oldPrice)} ₽`}
-                  >
-                    {formatPrice(proCourse.oldPrice)} ₽
-                  </s>
-                  <span className="text-xs text-slate-400">разово</span>
-                </p>
-                <p className="relative mt-1.5 text-[11px] leading-relaxed text-amber-100/80">
-                  По отдельности — {formatPrice(bundleSeparatePrice)} ₽. Экономия{" "}
-                  {formatPrice(bundleSaving)} ₽.
-                </p>
-
-                <ul className="relative mt-4 space-y-2 border-t border-amber-300/20 pt-4 text-xs leading-relaxed text-slate-200">
-                  {PAID_LEVELS.map((level) => (
-                    <li key={level.key} className="flex items-start gap-2">
-                      <span aria-hidden className="text-amber-300">
-                        ✓
-                      </span>
-                      {level.shortTitle} — {level.lessons}{" "}
-                      {pluralize(level.lessons, LESSON_FORMS)}
-                    </li>
-                  ))}
-                  <li className="flex items-start gap-2">
-                    <span aria-hidden className="text-amber-300">
-                      ✓
-                    </span>
-                    Все схемы и тесты модулей
-                  </li>
-                </ul>
-
-                <div className="relative mt-auto pt-5">
-                  {hasBundle ? (
-                    <>
-                      <p className="flex items-center justify-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200">
-                        <span aria-hidden>✓</span>
-                        Доступ открыт
-                      </p>
-                      <Link
-                        href="/dashboard"
-                        className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/25 transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                      >
-                        Продолжить обучение
-                        <span aria-hidden>→</span>
-                      </Link>
-                    </>
-                  ) : (
-                    <>
-                      <Link
-                        href="/courses/pro"
-                        className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-5 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                      >
-                        Подробнее о курсе
-                        <span aria-hidden>→</span>
-                      </Link>
-                      <p className="mt-2 text-center text-[11px] font-medium text-amber-100/80">
-                        Доступ навсегда
-                      </p>
-                    </>
-                  )}
-                </div>
-              </article>
+              <ProBundleCard
+                hasBundle={hasBundle}
+                className="sm:col-span-2"
+              />
             </div>
             </div>
           </div>

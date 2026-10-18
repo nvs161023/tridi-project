@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Header } from "@/components/Header";
+import { ProBundleCard } from "@/components/landing/ProBundleCard";
 import {
   VisualPlaceholder,
   type VisualAccent,
@@ -26,7 +27,7 @@ import {
   VISUAL_FORMS,
   pluralize,
 } from "@/lib/course-stats";
-import { getPurchasedCourses } from "@/lib/subscription";
+import { getPurchasedCourses, hasCourseAccess } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -309,6 +310,9 @@ export default async function Home() {
   const purchasedCourses = userId
     ? await getPurchasedCourses(supabase, userId)
     : { confident: false, engineer: false, profit: false };
+  const hasBundle = userId
+    ? await hasCourseAccess(supabase, userId, "pro")
+    : false;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -556,7 +560,7 @@ export default async function Home() {
               </p>
             </div>
 
-            <div className="mt-10 grid gap-5 sm:mt-12 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+            <div className="mt-10 grid gap-5 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
               {LEVELS.map((level) => {
                 const style = LEVEL_STYLES[level.key];
                 const isPurchased =
@@ -675,7 +679,7 @@ export default async function Home() {
                           className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
                             level.isFree
                               ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25 hover:bg-blue-500"
-                              : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
+                              : "border border-blue-400/40 bg-blue-500/10 text-blue-200 hover:border-blue-300/60 hover:bg-blue-500/20"
                           }`}
                         >
                           {level.isFree ? "Начать бесплатно" : "Подробнее о курсе"}
@@ -686,6 +690,11 @@ export default async function Home() {
                   </article>
                 );
               })}
+
+              <ProBundleCard
+                hasBundle={hasBundle}
+                className="sm:col-span-2"
+              />
             </div>
           </div>
         </section>
