@@ -13,6 +13,11 @@ type PlanButtonProps = {
   variant?: "blue" | "gold";
   /** Размер: компактный для узких карточек, обычный для широкого блока. */
   size?: "compact" | "default";
+  /**
+   * Куда вернуть гостя после входа. Лендинг курса передаёт свой адрес, чтобы
+   * после регистрации человек попал обратно на страницу курса, а не в тарифы.
+   */
+  loginHref?: string;
 };
 
 const baseClassName =
@@ -39,6 +44,7 @@ export function PlanButton({
   courseId,
   variant = "blue",
   size = "default",
+  loginHref,
 }: PlanButtonProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<{
@@ -53,7 +59,10 @@ export function PlanButton({
       const result = await createRobokassaPayment(courseId);
 
       if ("error" in result) {
-        setError({ message: result.error, loginHref: result.loginHref });
+        setError({
+          message: result.error,
+          loginHref: result.loginHref ? loginHref ?? result.loginHref : undefined,
+        });
         return;
       }
 

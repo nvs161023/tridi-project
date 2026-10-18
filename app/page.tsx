@@ -647,14 +647,14 @@ export default function Home() {
 
                     <div className="mt-auto pt-7">
                       <Link
-                        href={level.isFree ? START_FREE_HREF : "/subscription"}
+                        href={level.isFree ? START_FREE_HREF : level.href}
                         className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
                           level.isFree
                             ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25 hover:bg-blue-500"
                             : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
                         }`}
                       >
-                        {level.isFree ? "Начать бесплатно" : "Смотреть тарифы"}
+                        {level.isFree ? "Начать бесплатно" : "Подробнее о курсе"}
                         <span aria-hidden>→</span>
                       </Link>
                     </div>

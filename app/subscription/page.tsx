@@ -359,14 +359,14 @@ export default function SubscriptionPage() {
                         className="border-l border-white/10 px-4 py-4"
                       >
                         <Link
-                          href={level.isFree ? START_FREE_HREF : "#pricing"}
+                          href={level.isFree ? START_FREE_HREF : level.href}
                           className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
                             level.isFree
                               ? "bg-blue-600 text-white hover:bg-blue-500"
                               : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
                           }`}
                         >
-                          {level.isFree ? "Начать бесплатно" : "Купить"}
+                          {level.isFree ? "Начать бесплатно" : "Подробнее о курсе"}
                         </Link>
                       </td>
                     ))}
@@ -449,14 +449,14 @@ export default function SubscriptionPage() {
                     </dl>
 
                     <Link
-                      href={level.isFree ? START_FREE_HREF : "#pricing"}
+                      href={level.isFree ? START_FREE_HREF : level.href}
                       className={`mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
                         level.isFree
                           ? "bg-blue-600 text-white hover:bg-blue-500"
                           : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
                       }`}
                     >
-                      {level.isFree ? "Начать бесплатно" : "Купить"}
+                      {level.isFree ? "Начать бесплатно" : "Подробнее о курсе"}
                     </Link>
                   </article>
                 );
@@ -668,6 +668,13 @@ export default function SubscriptionPage() {
                         courseId={level.key}
                         size="compact"
                       />
+                      <Link
+                        href={level.href}
+                        className="mt-2 inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full border border-white/15 px-4 text-xs font-semibold text-slate-200 transition-colors hover:border-white/30 hover:text-white"
+                      >
+                        Подробнее о курсе
+                        <span aria-hidden>→</span>
+                      </Link>
                       <p className="mt-2 text-center text-[11px] font-medium text-slate-400">
                         Доступ навсегда
                       </p>
@@ -735,12 +742,13 @@ export default function SubscriptionPage() {
                 </ul>
 
                 <div className="relative mt-auto pt-5">
-                  <PlanButton
-                    label="Купить пакет"
-                    courseId="pro"
-                    variant="gold"
-                    size="compact"
-                  />
+                  <Link
+                    href="/courses/pro"
+                    className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-5 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  >
+                    Подробнее о курсе
+                    <span aria-hidden>→</span>
+                  </Link>
                   <p className="mt-2 text-center text-[11px] font-medium text-amber-100/80">
                     Доступ навсегда
                   </p>

@@ -27,6 +27,9 @@ import {
 
 export type LevelKey = "basic" | "confident" | "engineer" | "profit";
 
+/** Платные уровни: всё, что покупается по отдельности или пакетом. */
+export type PaidLevelKey = Exclude<LevelKey, "basic">;
+
 /** Уровень в том виде, в каком его показывает витрина. */
 export type CourseLevel = {
   key: LevelKey;
@@ -138,7 +141,7 @@ function buildLevel(key: LevelKey): CourseLevel {
     audience: copy.audience,
     goal: meta.goal,
     outcomes: copy.outcomes,
-    href: key === "basic" ? "/course/lesson-1" : "/subscription",
+    href: key === "basic" ? "/course/lesson-1" : `/courses/${key}`,
     isFree: key === "basic",
     price: "price" in meta ? meta.price : 0,
     oldPrice: "oldPrice" in meta ? meta.oldPrice : undefined,
@@ -161,7 +164,9 @@ export const LEVELS: CourseLevel[] = [
 ];
 
 /** Всё, что открывает подписка: три платных уровня без базового. */
-export const PAID_LEVELS: CourseLevel[] = LEVELS.filter((level) => !level.isFree);
+export const PAID_LEVELS = LEVELS.filter(
+  (level): level is CourseLevel & { key: PaidLevelKey } => !level.isFree,
+);
 
 /** Продвинутый курс — бонус подписки и часть общего счётчика 410 схем. */
 const proSummary = summarizeCourse(courseProData);
