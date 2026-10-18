@@ -38,7 +38,7 @@ const BRAND_MODELS: Record<Brand, readonly string[]> = {
   "Bambu Lab": ["X1C", "P1P"],
   Prusa: ["MK3S+"],
   Creality: ["Ender 3"],
-  Anycubic: ["Kobra 2"],
+  Anycubic: ["Kobra", "Kobra 2"],
   Generic: ["Universal", "Voron 2.4"],
 };
 

@@ -64,7 +64,27 @@
 `printer_model: Voron 2.4 300` ссылается на описание модели; и то и другое
 остаётся в системной библиотеке OrcaSlicer.
 
-## Polymaker PolyLite
+## Creality Ender-3 и Anycubic Kobra
+
+- Репозиторий: [OrcaSlicer/OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)
+- Commit: `1ee0b730a1e6484e55a631dd567b41c986fc1d6a` (18.10.2026)
+- Лицензия: AGPL-3.0
+- Формат: JSON OrcaSlicer
+- Каталоги: `resources/profiles/Creality` и `resources/profiles/Anycubic`
+
+| Файл в библиотеке | Путь в источнике |
+| --- | --- |
+| `profiles/printers/creality-ender-3/Creality Ender-3 0.4 nozzle.json` | `resources/profiles/Creality/machine/Creality Ender-3 0.4 nozzle.json` |
+| `profiles/process/creality-ender-3/0.20mm Standard @Creality Ender3.json` | `resources/profiles/Creality/process/0.20mm Standard @Creality Ender3.json` |
+| `profiles/printers/anycubic-kobra/Anycubic Kobra 0.4 nozzle.json` | `resources/profiles/Anycubic/machine/Anycubic Kobra 0.4 nozzle.json` |
+| `profiles/process/anycubic-kobra/0.20mm Standard @Anycubic Kobra.json` | `resources/profiles/Anycubic/process/0.20mm Standard @Anycubic Kobra.json` |
+
+Оба профиля машины рассчитаны на стол 220 × 220 мм, высоту 250 мм и сопло
+0.4 мм. Ender-3 наследует `fdm_creality_common`, Kobra — `fdm_machine_common`;
+процессы ссылаются на `fdm_process_creality_common` и `fdm_process_common`
+соответственно. Базовые пресеты остаются в системной библиотеке OrcaSlicer.
+
+
 
 - Репозиторий: [OrcaSlicer/OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)
 - Commit: `1ee0b730a1e6484e55a631dd567b41c986fc1d6a` (18.10.2026)
@@ -100,7 +120,7 @@
 ```bash
 git clone --depth 1 https://github.com/DRIgnazGortngschirl/bambulab-studio-orca-slicer-presets.git
 git clone --depth 1 --filter=blob:none --sparse https://github.com/OrcaSlicer/OrcaSlicer.git
-git -C OrcaSlicer sparse-checkout set resources/profiles/Voron resources/profiles/OrcaFilamentLibrary
+git -C OrcaSlicer sparse-checkout set resources/profiles/Voron resources/profiles/Creality resources/profiles/Anycubic resources/profiles/OrcaFilamentLibrary
 git clone --depth 1 https://github.com/prusa3d/PrusaSlicer-settings-prusa-fff.git
 ```
 

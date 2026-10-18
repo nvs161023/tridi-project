@@ -27,7 +27,7 @@ import { createClient } from "@/lib/supabase/server";
 export const metadata: Metadata = {
   title: "Библиотека профилей печати — TriDi",
   description:
-    "Готовые профили Bambu Lab X1 Carbon, Prusa MK3S+, Voron 2.4 и материалов Polymaker для Bambu Studio, OrcaSlicer и PrusaSlicer. Скачивание входит в подписку Pro.",
+    "Готовые профили Bambu Lab X1 Carbon, Prusa MK3S+, Voron 2.4, Creality Ender-3, Anycubic Kobra и материалов Polymaker для Bambu Studio, OrcaSlicer и PrusaSlicer. Скачивание входит в подписку Pro.",
 };
 
 /** Страница зависит от cookies пользователя — собираем её на каждый запрос. */

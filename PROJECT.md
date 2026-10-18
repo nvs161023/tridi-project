@@ -62,7 +62,7 @@
 |---|---|---|
 | `/` | `app/page.tsx` | Витрина: герой с цифрами, четыре уровня, галерея схем, «Как учим», программа, тарифы, «О проекте». `force-dynamic` из-за кнопки авторизации в шапке |
 | `/subscription` | `app/subscription/page.tsx` | Сравнение четырёх уровней (таблица и мобильные карточки), пять карточек тарифов (Free, три уровня навсегда и выделенный пакет), отдельный блок подписки Pro, FAQ, примечание про оферту и чек НПД |
-| `/profiles` | `app/profiles/page.tsx` | Библиотека профилей печати (13 файлов в трёх категориях) с каскадным фильтром «бренд → модель → материал» (`components/profiles/ProfilesClient.tsx`). Открыта всем, но без подписки Pro карточки размыты и ведут на `/subscription#tools`; скачивание — через `/api/profiles/download` только с активной подпиской |
+| `/profiles` | `app/profiles/page.tsx` | Библиотека профилей печати (17 файлов в трёх категориях) с каскадным фильтром «бренд → модель → материал» (`components/profiles/ProfilesClient.tsx`). Открыта всем, но без подписки Pro карточки размыты и ведут на `/subscription#tools`; скачивание — через `/api/profiles/download` только с активной подпиской |
 | `/forum` | `app/forum/page.tsx` | Публичный форум: категории, счётчики и последние одобренные темы. Читать может гость и поисковый робот; pending-материалы RLS не отдаёт |
 | `/forum/[slug]` | `app/forum/[slug]/page.tsx` | Тема и одобренные ответы, `generateMetadata` и JSON-LD (`DiscussionForumPosting`); форма ответа — только вошедшему, с проверкой бана |
 | `/forum/rules` | `app/forum/rules/page.tsx` | Правила сообщества, модерация и предупреждение: бан форума не закрывает доступ к курсам |
@@ -1005,12 +1005,13 @@ M117, моторы) и правило «без отвода — вмятина �
 материалов для OrcaSlicer/Bambu Studio (JSON) и PrusaSlicer (INI). Приложение
 читает каталог через `lib/profiles.ts`: `app/profiles/page.tsx` проверяет сессию
 и подписку, а `components/profiles/ProfilesClient.tsx` рисует каскадный фильтр и
-карточки. Первый этап — Bambu Lab X1 Carbon, Prusa MK3S+, Voron 2.4 и материалы
-Polymaker.
+карточки. Первый этап — Bambu Lab X1 Carbon, Prusa MK3S+, Voron 2.4, Creality
+Ender-3, Anycubic Kobra и материалы Polymaker.
 
-- Состав: `profiles/printers/` — 4 профиля (два варианта X1C, MK3S+ и Voron 2.4 300);
-  `profiles/process/` — 4 процесса; `profiles/filaments/` — 5 файлов (PolyLite PLA
-  и PETG в паре `@base` + `@System`, плюс Prusament PLA). Всего 13 файлов.
+- Состав: `profiles/printers/` — 6 профилей (два варианта X1C, MK3S+, Voron 2.4 300,
+  Ender-3 и Kobra); `profiles/process/` — 6 процессов; `profiles/filaments/` —
+  5 файлов (PolyLite PLA и PETG в паре `@base` + `@System`, плюс Prusament PLA).
+  Всего 17 файлов.
 - Метаданные: у каждой записи `data/profiles.json` есть `category` (`printer`,
   `material` или `process`), `manufacturer`, `model` и `material`. Универсальные
   пресеты помечены `Generic` / `Universal`; у принтеров и процессов
@@ -1018,7 +1019,8 @@ Polymaker.
 - Каскад: бренд и модель оставляют профили принтеров и процессов для этой
   модели; выбранный материал добавляет пресеты пластика. В селекте брендов —
   Bambu Lab, Prusa, Creality, Anycubic и Generic; модели зависят от бренда
-  (Bambu Lab — X1C/P1P, Generic — Universal/Voron 2.4). Для бренда без файлов
+  (Bambu Lab — X1C/P1P, Creality — Ender 3, Anycubic — Kobra/Kobra 2,
+  Generic — Universal/Voron 2.4). Для бренда без файлов
   показывается пустое состояние, а без фильтров видна вся библиотека.
 - Доступ: страница открыта всем, но без активной подписки Pro карточки размыты,
   а вместо ссылок на скачивание рендерится только CTA. Файлы лежат в корне

@@ -1,7 +1,8 @@
 # Библиотека профилей печати
 
 Курируемый склад профилей принтеров, материалов и настроек печати для слайсеров.
-Первый этап — Bambu Lab X1 Carbon, Prusa MK3S+, Voron 2.4 и материалы Polymaker.
+Первый этап — Bambu Lab X1 Carbon, Prusa MK3S+, Voron 2.4, Creality Ender-3,
+Anycubic Kobra и материалы Polymaker.
 Точные источники, версии и лицензии — в [`SOURCES.md`](./SOURCES.md).
 
 > Библиотека подключена к приложению: каталог `data/profiles.json` строит карточки на
@@ -15,16 +16,24 @@ profiles/
 ├── README.md
 ├── SOURCES.md
 ├── printers/
+│   ├── anycubic-kobra/
+│   │   └── Anycubic Kobra 0.4 nozzle.json
 │   ├── bambu-lab-x1c/
 │   │   ├── Bambu Lab X1 Carbon 0.4 nozzle - REDUCE CURRENT.json
 │   │   └── Bambu Lab X1 Carbon 0.4 nozzle - REDUCE PURGE.json
+│   ├── creality-ender-3/
+│   │   └── Creality Ender-3 0.4 nozzle.json
 │   ├── prusa-mk3s-plus/
 │   │   └── Original Prusa i3 MK3S & MK3S+.ini
 │   └── voron-2.4/
 │       └── Voron 2.4 300 0.4 nozzle.json
 ├── process/
+│   ├── anycubic-kobra/
+│   │   └── 0.20mm Standard @Anycubic Kobra.json
 │   ├── bambu-lab-x1c/
 │   │   └── 0.20mm Standard @BBL X1C - SLOWED.json
+│   ├── creality-ender-3/
+│   │   └── 0.20mm Standard @Creality Ender3.json
 │   ├── prusa-mk3s-plus/
 │   │   └── 0.20mm QUALITY @MK3.ini
 │   └── voron-2.4/
@@ -100,9 +109,11 @@ inherits = Original Prusa i3 MK3
 | Bambu Lab X1 Carbon, сопло 0.4 | `REDUCE CURRENT`, `REDUCE PURGE` | `0.20mm Standard - SLOWED` | — |
 | Prusa MK3S+ | `Original Prusa i3 MK3S & MK3S+` | `0.20mm QUALITY @MK3` | `Prusament PLA` |
 | Voron 2.4 300, сопло 0.4 | `Voron 2.4 300 0.4 nozzle` | `0.20mm Standard @Voron`, `0.24mm Draft @Voron` | — |
+| Creality Ender-3, сопло 0.4 | `Creality Ender-3 0.4 nozzle` | `0.20mm Standard @Creality Ender3` | — |
+| Anycubic Kobra, сопло 0.4 | `Anycubic Kobra 0.4 nozzle` | `0.20mm Standard @Anycubic Kobra` | — |
 | Универсальные | — | — | Polymaker `PolyLite PLA`, `PolyLite PETG` (`@base` + `@System`) |
 
-Итого 13 файлов: 4 профиля принтеров, 4 процесса и 5 материалов.
+Итого 17 файлов: 6 профилей принтеров, 6 процессов и 5 материалов.
 Это не «лучшие настройки для вазы», а исходные заводские и community-пресеты:
 перед печатью их нужно проверить на конкретном принтере и пластике.
 
@@ -142,7 +153,7 @@ inherits = Original Prusa i3 MK3
   версии 2.5.12 должен быть установлен: без него фрагменты MK3S+ неполны.
 - **Перед печатью.** Проверьте диаметр сопла, тип стола, температуру и
   максимальный объёмный расход. Профили X1C рассчитаны на 0.4 мм, Voron — на
-  300 мм стол и 0.4 мм, MK3S+ — на 0.4 мм.
+  300 мм стол и 0.4 мм, MK3S+, Ender-3 и Kobra — на 0.4 мм.
 
 ## Источники
 

@@ -61,6 +61,34 @@
           "format": "JSON",
           "requires": "fdm_klipper_common",
           "file": "printers/voron-2.4/Voron 2.4 300 0.4 nozzle.json"
+        },
+        {
+          "id": "creality-ender-3-printer",
+          "category": "printer",
+          "manufacturer": "Creality",
+          "model": "Ender 3",
+          "material": "Universal",
+          "title": "Creality Ender-3, сопло 0.4",
+          "description": "Профиль машины Creality Ender-3 с соплом 0.4 из библиотеки OrcaSlicer: стол 220 × 220 мм, высота 250 мм и заводские ограничения по осям. Наследует fdm_creality_common, поэтому базовые профили Creality должны быть установлены в OrcaSlicer.",
+          "device": "Creality Ender-3",
+          "slicer": "OrcaSlicer",
+          "format": "JSON",
+          "requires": "fdm_creality_common",
+          "file": "printers/creality-ender-3/Creality Ender-3 0.4 nozzle.json"
+        },
+        {
+          "id": "anycubic-kobra-printer",
+          "category": "printer",
+          "manufacturer": "Anycubic",
+          "model": "Kobra",
+          "material": "Universal",
+          "title": "Anycubic Kobra, сопло 0.4",
+          "description": "Профиль машины Anycubic Kobra с соплом 0.4 из библиотеки OrcaSlicer: стол 220 × 220 мм, высота 250 мм, стартовый и финальный G-code производителя. Наследует fdm_machine_common из системной библиотеки OrcaSlicer.",
+          "device": "Anycubic Kobra",
+          "slicer": "OrcaSlicer",
+          "format": "JSON",
+          "requires": "fdm_machine_common",
+          "file": "printers/anycubic-kobra/Anycubic Kobra 0.4 nozzle.json"
         }
       ]
     },
@@ -201,6 +229,34 @@
           "format": "JSON",
           "requires": "fdm_process_voron_common",
           "file": "process/voron-2.4/0.24mm Draft @Voron.json"
+        },
+        {
+          "id": "creality-ender-3-020-standard",
+          "category": "process",
+          "manufacturer": "Creality",
+          "model": "Ender 3",
+          "material": "Universal",
+          "title": "0.20 мм Standard @Creality Ender3",
+          "description": "Стандартный процесс 0.20 мм для Ender-3 из библиотеки OrcaSlicer: слой 0.2 мм, две стенки, заполнение 15 % и скорость печати до 60 мм/с. Наследует fdm_process_creality_common и рассчитан на сопло 0.4.",
+          "device": "Creality Ender-3",
+          "slicer": "OrcaSlicer",
+          "format": "JSON",
+          "requires": "fdm_process_creality_common",
+          "file": "process/creality-ender-3/0.20mm Standard @Creality Ender3.json"
+        },
+        {
+          "id": "anycubic-kobra-020-standard",
+          "category": "process",
+          "manufacturer": "Anycubic",
+          "model": "Kobra",
+          "material": "Universal",
+          "title": "0.20 мм Standard @Anycubic Kobra",
+          "description": "Стандартный процесс 0.20 мм для Anycubic Kobra из библиотеки OrcaSlicer: слой 0.2 мм, две стенки, заполнение 15 % и скорость печати до 90 мм/с. Наследует fdm_process_common и рассчитан на сопло 0.4.",
+          "device": "Anycubic Kobra",
+          "slicer": "OrcaSlicer",
+          "format": "JSON",
+          "requires": "fdm_process_common",
+          "file": "process/anycubic-kobra/0.20mm Standard @Anycubic Kobra.json"
         }
       ]
     }
