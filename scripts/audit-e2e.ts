@@ -2,8 +2,13 @@
 /**
  * E2E-аудит TriDi перед релизом.
  *
- * Запуск (dev-сервер уже слушает 127.0.0.1:3117):
+ * Запуск (сервер уже слушает 127.0.0.1:3117):
  *   node scripts/audit-e2e.ts
+ *
+ * Для production-сборки задайте ADMIN_EMAIL явно:
+ *   AUDIT_ADMIN_EMAIL=admin@example.com node scripts/audit-e2e.ts
+ * Иначе скрипт возьмёт админа из .env.development.local, а production-сервер
+ * прочитает .env.local — сценарии модерации форума получат ложный FAIL.
  *
  * Что делает:
  *  - создаёт обычного и Pro-тестового пользователя через Supabase Admin API;
@@ -17,7 +22,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { execSync } from "node:child_process";
 import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
@@ -35,7 +40,7 @@ type Check = {
 };
 
 type Scenario = {
-  id: "A" | "B" | "C" | "D" | "E" | "F";
+  id: "A" | "B" | "C" | "D" | "E" | "F" | "G";
   title: string;
   status: "PASS" | "FAIL";
   checks: Check[];
@@ -139,6 +144,7 @@ const THREAD_BODY =
 const createdUserIds: string[] = [];
 const createdSubscriptionIds: string[] = [];
 const createdPurchaseIds: string[] = [];
+const createdWebhookInvIds: number[] = [];
 
 function loadEnvFile(file: string) {
   try {
@@ -761,6 +767,107 @@ async function attemptPurchase(
   return { ok: true, id: data?.id ?? null, error: "", warning };
 }
 
+/** MD5 в нижнем регистре — формат подписи Robokassa. */
+function md5(value: string): string {
+  return createHash("md5").update(value, "utf8").digest("hex");
+}
+
+/**
+ * `Shp_*`-часть подписи. Robokassa требует сортировать параметры по имени и
+ * добавлять их как `:Shp_key=value`.
+ */
+function buildShpSignaturePart(shp: Record<string, string>): string {
+  return Object.keys(shp)
+    .sort()
+    .map((key) => `:Shp_${key}=${shp[key]}`)
+    .join("");
+}
+
+/** Подпись ссылки на оплату: логин, сумма, InvId, пароль №1 и Shp_*. */
+function buildPaymentSignature(
+  login: string,
+  outSum: string,
+  invId: string,
+  shp: Record<string, string>,
+  password1: string,
+): string {
+  return md5(
+    `${login}:${outSum}:${invId}:${password1}${buildShpSignaturePart(shp)}`,
+  );
+}
+
+/** Подпись уведомления ResultURL: сумма, InvId, пароль №2 и Shp_*. */
+function buildResultSignature(
+  outSum: string,
+  invId: string,
+  shp: Record<string, string>,
+  password2: string,
+): string {
+  return md5(`${outSum}:${invId}:${password2}${buildShpSignaturePart(shp)}`);
+}
+
+/**
+ * Отправляет в приложение подписанное уведомление Robokassa. Реальная оплата
+ * не проводится: запрос имитирует ResultURL после успешного платежа.
+ */
+async function postRobokassaResult(
+  outSum: string,
+  invId: number,
+  shp: Record<string, string>,
+): Promise<{ status: number; body: string; error: string }> {
+  const password2 =
+    readEnvValue(path.join(ROOT, ".env.local"), "ROBOKASSA_PASSWORD2") ||
+    process.env.ROBOKASSA_PASSWORD2 ||
+    "";
+
+  if (!password2) {
+    return {
+      status: 0,
+      body: "",
+      error: "В .env.local не задан ROBOKASSA_PASSWORD2",
+    };
+  }
+
+  const body = new URLSearchParams({
+    OutSum: outSum,
+    InvId: String(invId),
+    SignatureValue: buildResultSignature(outSum, String(invId), shp, password2),
+    Shp_course: shp.course,
+    Shp_user: shp.user,
+  });
+
+  try {
+    const response = await fetch(`${BASE_URL}/api/payments/robokassa/result`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+      signal: AbortSignal.timeout(30000),
+    });
+
+    return {
+      status: response.status,
+      body: (await response.text()).trim(),
+      error: "",
+    };
+  } catch (error: any) {
+    return {
+      status: 0,
+      body: "",
+      error: error?.message || String(error),
+    };
+  }
+}
+
+/** Ищет покупку по номеру заказа: вебхук мог записать её, а сценарий — нет. */
+async function findPurchaseByInvId(invId: number) {
+  const { data, error } = await adminClient
+    .from("purchases")
+    .select("id, course_id, amount")
+    .eq("inv_id", invId);
+
+  return { rows: data ?? [], error: error?.message ?? "" };
+}
+
 async function deleteForumArtifacts() {
   const lines: string[] = [];
 
@@ -856,6 +963,20 @@ async function cleanupAll() {
       error
         ? `purchase ${id} не удалена: ${error.message}`
         : `purchase ${id} удалена`,
+    );
+  }
+
+  // Покупку из сценария G создаёт сам вебхук, поэтому её id может быть
+  // неизвестен. Дополнительно страхуемся номером заказа Robokassa.
+  for (const invId of [...new Set(createdWebhookInvIds)]) {
+    const { error } = await adminClient
+      .from("purchases")
+      .delete()
+      .eq("inv_id", invId);
+    lines.push(
+      error
+        ? `purchase inv_id=${invId} не удалена: ${error.message}`
+        : `purchase inv_id=${invId} удалена`,
     );
   }
 
@@ -1902,6 +2023,7 @@ async function scenarioE(
     let outcome = "timeout";
     let alertText = "";
     let redirectUrl = "";
+    let paymentRequestUrl = "";
     let ageDialogVisible = false;
     let agePayEnabled = false;
 
@@ -1931,21 +2053,38 @@ async function scenarioE(
         .first()
         .waitFor({ state: "visible", timeout: 20000 })
         .then(() => "alert");
+      // Переход на Robokassa в этом сценарии намеренно обрывается, поэтому
+      // waitForURL не сработает. Ждём сам запрос: он уже содержит подпись.
       const redirectPromise = session.page
-        .waitForURL(/auth\.robokassa\.ru/, { timeout: 20000 })
-        .then(() => "redirect");
+        .waitForRequest(
+          (request: any) => request.url().includes("auth.robokassa.ru"),
+          { timeout: 20000 },
+        )
+        .then((request: any) => {
+          paymentRequestUrl = request.url();
+          return "redirect";
+        });
 
       outcome = await Promise.race([alertPromise, redirectPromise]).catch(
         () => "timeout",
       );
       await session.page.waitForTimeout(500);
 
+      // У Next.js есть собственный route announcer с role="alert": он может
+      // выиграть гонку, хотя запрос на оплату уже сформирован. Приоритет —
+      // фактически перехваченный запрос Robokassa.
+      if (paymentRequestUrl) {
+        outcome = "redirect";
+      }
+
       alertText = await session.page
         .locator('[role="alert"]')
         .first()
         .innerText()
         .catch(() => "");
-      redirectUrl = new URL(session.page.url()).host;
+      redirectUrl = paymentRequestUrl
+        ? new URL(paymentRequestUrl).host
+        : new URL(session.page.url()).host;
     }
 
     addCheck(
@@ -2118,6 +2257,418 @@ async function scenarioF(
     await admin.context.close();
   });
 }
+
+async function scenarioG(
+  browser: any,
+  state: { normalUser: UserInfo },
+): Promise<Scenario> {
+  return runScenario(
+    "G",
+    "Воронка: главная → курс → 18+ → Robokassa → вебхук → доступ",
+    async (scenario) => {
+      const session = await loginSession(browser, "desktop", state.normalUser);
+      const { page } = session;
+
+      const cardByHeading = (title: string) =>
+        page
+          .locator("article")
+          .filter({
+            has: page.getByRole("heading", { name: title, exact: true }),
+          })
+          .first();
+
+      try {
+        addStep(scenario, "Открываю главную и считаю карточки витрины.");
+        await openPath(page, "/");
+
+        const cardsCount = await page.locator("#levels article").count();
+        addCheck(
+          scenario,
+          "На главной пять карточек: четыре уровня и пакет",
+          cardsCount === 5,
+          "5 карточек в блоке #levels",
+          `${cardsCount} карточек`,
+        );
+
+        const bundleBefore = cardByHeading("Всё включено");
+        const bundleTextBefore = (
+          await bundleBefore.innerText().catch(() => "")
+        ).replace(/\s+/g, " ");
+        addCheck(
+          scenario,
+          "Карточка пакета показывает цену и «Купить пакет»",
+          /9\s?900\s?₽/.test(bundleTextBefore) &&
+            /Купить пакет/.test(bundleTextBefore),
+          "9 900 ₽ и кнопка «Купить пакет»",
+          bundleTextBefore || "карточка пакета не найдена",
+        );
+
+        addStep(
+          scenario,
+          "В карточке «Уверенный» нажимаю «Подробнее о курсе» и проверяю текст.",
+        );
+        const confidentCard = cardByHeading("Уверенный");
+        const detailsLink = confidentCard.getByRole("link", {
+          name: /Подробнее о курсе/,
+        });
+        const detailsCount = await detailsLink.count();
+
+        addCheck(
+          scenario,
+          "У платного уровня есть «Подробнее о курсе»",
+          detailsCount > 0,
+          "ссылка «Подробнее о курсе»",
+          `${detailsCount} ссылок`,
+        );
+
+        let detailPath = "";
+        let detailHeading = "";
+        let detailText = "";
+
+        if (detailsCount > 0) {
+          await Promise.all([
+            page.waitForURL(/\/courses\/confident$/, { timeout: 30000 }),
+            detailsLink.click(),
+          ]);
+          await page
+            .waitForLoadState("networkidle", { timeout: 15000 })
+            .catch(() => {});
+          detailPath = new URL(page.url()).pathname;
+          detailHeading = await page
+            .locator("h1")
+            .first()
+            .innerText()
+            .catch(() => "");
+          detailText = (
+            await page.locator("main").innerText().catch(() => "")
+          ).replace(/\s+/g, " ");
+        }
+
+        addCheck(
+          scenario,
+          "«Подробнее о курсе» ведёт на /courses/confident",
+          detailPath === "/courses/confident",
+          "/courses/confident",
+          detailPath || "переход не выполнен",
+        );
+        addCheck(
+          scenario,
+          "Страница курса показывает заголовок, описание и цену",
+          detailHeading.includes("Уверенный уровень") &&
+            /Продолжение базового курса/.test(detailText) &&
+            /Купить за 2\s?990\s?₽/.test(detailText),
+          "«Уверенный уровень», «Продолжение базового курса», «Купить за 2 990 ₽»",
+          `h1="${detailHeading}", текст=${detailText.slice(0, 240)}`,
+        );
+        await screenshot(scenario, page, "funnel-course-detail.png");
+
+        addStep(
+          scenario,
+          "Возвращаюсь на главную, открываю окно 18+ и генерирую ссылку на пакет pro.",
+        );
+        await openPath(page, "/");
+        const bundle = cardByHeading("Всё включено");
+        await bundle.scrollIntoViewIfNeeded().catch(() => {});
+        await screenshot(scenario, page, "funnel-home-before.png");
+
+        const buyBundle = bundle.getByRole("button", {
+          name: /Купить пакет/,
+        });
+        const buyCount = await buyBundle.count();
+        const dialog = page.getByRole("dialog", {
+          name: "Подтвердите возраст",
+        });
+        let dialogVisible = false;
+        let payEnabled = false;
+        let paymentUrl = "";
+        let paymentRequestSeen = false;
+
+        if (buyCount > 0) {
+          await buyBundle.click();
+          dialogVisible = await dialog
+            .waitFor({ state: "visible", timeout: 8000 })
+            .then(() => true)
+            .catch(() => false);
+        }
+
+        if (dialogVisible) {
+          await screenshot(scenario, page, "funnel-age-dialog.png");
+          await dialog.getByRole("checkbox").first().check();
+          const payButton = dialog.getByRole("button", {
+            name: /Перейти к оплате/,
+          });
+          payEnabled = await payButton.isEnabled();
+
+          // Реальную оплату не запускаем: перехватываем переход и сохраняем
+          // URL, чтобы проверить его параметры и подпись.
+          await page
+            .context()
+            .route("https://auth.robokassa.ru/**", (route: any) =>
+              route.abort(),
+            );
+          const paymentRequestPromise = page
+            .waitForRequest(
+              (request: any) => request.url().includes("auth.robokassa.ru"),
+              { timeout: 25000 },
+            )
+            .catch(() => null);
+
+          await payButton.click();
+          const paymentRequest = await paymentRequestPromise;
+          paymentUrl = paymentRequest?.url() ?? "";
+          paymentRequestSeen = Boolean(paymentRequest);
+        }
+
+        addCheck(
+          scenario,
+          "Кнопка «Купить пакет» открывает окно 18+",
+          buyCount > 0 && dialogVisible,
+          "модальное окно «Подтвердите возраст»",
+          dialogVisible ? "окно открылось" : "окно не появилось",
+        );
+        addCheck(
+          scenario,
+          "После отметки 18+ кнопка «Перейти к оплате» активна",
+          payEnabled,
+          "кнопка доступна",
+          payEnabled ? "доступна" : "недоступна",
+        );
+        addCheck(
+          scenario,
+          "Приложение формирует переход на Robokassa",
+          paymentRequestSeen &&
+            paymentUrl.startsWith("https://auth.robokassa.ru/"),
+          "запрос на https://auth.robokassa.ru/Merchant/Index.aspx",
+          paymentRequestSeen ? "запрос перехвачен" : "запроса не было",
+        );
+
+        const courses = readCoursesData();
+        const expectedOutSum = Number(courses.pro.price).toFixed(2);
+        const login =
+          readEnvValue(path.join(ROOT, ".env.local"), "ROBOKASSA_LOGIN") ||
+          process.env.ROBOKASSA_LOGIN ||
+          "";
+        const password1 =
+          readEnvValue(path.join(ROOT, ".env.local"), "ROBOKASSA_PASSWORD1") ||
+          process.env.ROBOKASSA_PASSWORD1 ||
+          "";
+
+        let invId = 0;
+        let outSum = "";
+        let shp: Record<string, string> = { course: "", user: "" };
+        let signatureValid = false;
+
+        if (paymentUrl) {
+          const payment = new URL(paymentUrl);
+          const params = payment.searchParams;
+          invId = Number(params.get("InvId") || 0);
+          outSum = params.get("OutSum") || "";
+          shp = {
+            course: params.get("Shp_course") || "",
+            user: params.get("Shp_user") || "",
+          };
+          signatureValid =
+            Boolean(login && password1) &&
+            params.get("SignatureValue") ===
+              buildPaymentSignature(
+                login,
+                outSum,
+                String(invId),
+                shp,
+                password1,
+              );
+        }
+
+        addCheck(
+          scenario,
+          "Ссылка Robokassa содержит пакет pro, сумму и пользователя",
+          invId > 0 &&
+            outSum === expectedOutSum &&
+            shp.course === "pro" &&
+            shp.user === state.normalUser.id,
+          `OutSum=${expectedOutSum}, Shp_course=pro, Shp_user=${state.normalUser.id}`,
+          `InvId=${invId || "—"}, OutSum=${outSum || "—"}, Shp_course=${
+            shp.course || "—"
+          }, Shp_user=${shp.user || "—"}`,
+        );
+        addCheck(
+          scenario,
+          "Подпись ссылки Robokassa сходится",
+          signatureValid,
+          "MD5(login:OutSum:InvId:password1:Shp_*)",
+          signatureValid ? "подпись верна" : "подпись не совпала",
+        );
+
+        addStep(
+          scenario,
+          "Имитирую успешный ResultURL с подписью пароля №2 и проверяю покупку.",
+        );
+        let webhookStatus = 0;
+        let webhookBody = "";
+        let webhookError = "";
+        let purchaseRows: any[] = [];
+        let purchaseError = "";
+        let duplicateStatus = 0;
+        let duplicateBody = "";
+        let duplicateRows = 0;
+
+        if (invId > 0) {
+          createdWebhookInvIds.push(invId);
+
+          const first = await postRobokassaResult(outSum, invId, shp);
+          webhookStatus = first.status;
+          webhookBody = first.body;
+          webhookError = first.error;
+
+          const purchase = await findPurchaseByInvId(invId);
+          purchaseRows = purchase.rows;
+          purchaseError = purchase.error;
+
+          if (purchaseRows[0]?.id) {
+            createdPurchaseIds.push(purchaseRows[0].id);
+          }
+
+          // Robokassa может повторить уведомление: уникальный inv_id должен
+          // сделать обработку идемпотентной.
+          const duplicate = await postRobokassaResult(outSum, invId, shp);
+          duplicateStatus = duplicate.status;
+          duplicateBody = duplicate.body;
+          const duplicatePurchase = await findPurchaseByInvId(invId);
+          duplicateRows = duplicatePurchase.rows.length;
+        }
+
+        addCheck(
+          scenario,
+          "Подписанный вебхук возвращает OK{InvId}",
+          webhookStatus === 200 && webhookBody === `OK${invId}`,
+          `HTTP 200, тело OK${invId || "{InvId}"}`,
+          webhookError ||
+            `HTTP ${webhookStatus || "—"}, тело "${webhookBody || "—"}"`,
+        );
+        addCheck(
+          scenario,
+          "Вебхук записал покупку pro на нужную сумму",
+          !purchaseError &&
+            purchaseRows.length === 1 &&
+            purchaseRows[0]?.course_id === "pro" &&
+            Math.round(Number(purchaseRows[0]?.amount) * 100) ===
+              Math.round(Number(expectedOutSum) * 100),
+          `1 запись purchases: course_id=pro, amount=${expectedOutSum}`,
+          purchaseError ||
+            JSON.stringify(
+              purchaseRows.map((row: any) => ({
+                course_id: row.course_id,
+                amount: row.amount,
+              })),
+            ),
+        );
+        addCheck(
+          scenario,
+          "Повторный вебхук идемпотентен",
+          duplicateStatus === 200 &&
+            duplicateBody === `OK${invId}` &&
+            duplicateRows === 1,
+          "повторный OK{InvId} и одна запись purchases",
+          `HTTP ${duplicateStatus || "—"}, тело "${
+            duplicateBody || "—"
+          }", записей ${duplicateRows}`,
+        );
+
+        addStep(
+          scenario,
+          "Открываю главную после оплаты: проверяю «Доступ открыт» и «Продолжить обучение».",
+        );
+        await openPath(page, "/");
+
+        const bundleAfter = cardByHeading("Всё включено");
+        const bundleTextAfter = (
+          await bundleAfter.innerText().catch(() => "")
+        ).replace(/\s+/g, " ");
+        const bundleDashboardLink = bundleAfter.getByRole("link", {
+          name: /Перейти в кабинет/,
+        });
+        const bundleDashboardCount = await bundleDashboardLink.count();
+
+        addCheck(
+          scenario,
+          "Пакет на главной показывает «Доступ открыт»",
+          /Доступ открыт/.test(bundleTextAfter) &&
+            !/Купить пакет/.test(bundleTextAfter),
+          "плашка «Доступ открыт» без кнопки покупки",
+          bundleTextAfter || "карточка пакета не найдена",
+        );
+        addCheck(
+          scenario,
+          "Пакет ведёт в кабинет кнопкой «Перейти в кабинет»",
+          bundleDashboardCount > 0,
+          "ссылка «Перейти в кабинет» → /dashboard",
+          `${bundleDashboardCount} ссылок`,
+        );
+
+        const levelResults = [];
+
+        for (const title of ["Уверенный", "Инженер", "Заработок"]) {
+          const card = cardByHeading(title);
+          const text = (await card.innerText().catch(() => "")).replace(
+            /\s+/g,
+            " ",
+          );
+          const continueLink = card.getByRole("link", {
+            name: /Продолжить обучение/,
+          });
+          const continueHref =
+            (await continueLink.getAttribute("href").catch(() => null)) || "";
+
+          levelResults.push({
+            title,
+            access: /Доступ открыт/.test(text),
+            continueHref,
+            noBuy: !/Подробнее о курсе/.test(text) && !/Купить/.test(text),
+          });
+        }
+
+        addCheck(
+          scenario,
+          "Три платных уровня открыты после покупки пакета",
+          levelResults.every(
+            (level) =>
+              level.access &&
+              /^\/course\/(confident|engineer|profit)$/.test(
+                level.continueHref,
+              ) &&
+              level.noBuy,
+          ),
+          "«Доступ открыт» + «Продолжить обучение» у трёх уровней",
+          JSON.stringify(levelResults),
+        );
+        await screenshot(scenario, page, "funnel-home-after.png");
+
+        addStep(scenario, "Проверяю статус пакета в личном кабинете.");
+        await openPath(page, "/dashboard");
+        const dashboardText = (
+          await page.locator("main").innerText().catch(() => "")
+        ).replace(/\s+/g, " ");
+        addCheck(
+          scenario,
+          "В кабинете пакет показан активным навсегда",
+          /Пакет «Всё включено» активен навсегда/.test(dashboardText),
+          "«Пакет «Всё включено» активен навсегда»",
+          dashboardText.slice(0, 300) || "текст кабинета не найден",
+        );
+        await screenshot(scenario, page, "funnel-dashboard-after.png");
+
+        addNote(
+          scenario,
+          "Реальная оплата не проводилась: переход на auth.robokassa.ru перехвачен и оборван, ResultURL подписан локально паролем №2.",
+        );
+      } finally {
+        collectErrors(scenario, session);
+        await session.context.close().catch(() => {});
+      }
+    },
+  );
+}
+
 
 function buildReport(
   scenarios: Scenario[],
@@ -2428,6 +2979,9 @@ async function main() {
         adminCookies,
       }),
     );
+
+    console.log("Сценарий G: воронка оплаты...");
+    scenarios.push(await scenarioG(browser, { normalUser }));
   } catch (error: any) {
     fatalError = error?.stack || String(error);
     console.error("\nE2E-аудит остановлен:");
