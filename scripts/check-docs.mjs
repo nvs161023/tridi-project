@@ -23,10 +23,10 @@ const root = process.cwd();
 const DOCS_PATH = "PROJECT.md";
 
 /**
- * Пути, которые сводка упоминает как удалённые (раздел «Закрыто в P0»).
+ * Пути, которые сводка упоминает как удалённые.
  * Их отсутствие в репозитории — правильное состояние.
  */
-const REMOVED_PATHS = new Set(["data/course.json"]);
+const REMOVED_PATHS = new Set(["data/course.json", "app/favicon.ico"]);
 
 /** Префиксы, по которым отличаем путь к файлу проекта от обычного слова. */
 const PATH_PREFIXES = [
@@ -34,6 +34,7 @@ const PATH_PREFIXES = [
   "components/",
   "data/",
   "lib/",
+  "profiles/",
   "public/",
   "scripts/",
   "supabase/",
