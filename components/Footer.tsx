@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { Logo } from "@/components/Logo";
 import { LEGAL_DOCUMENTS, LEGAL_OPERATOR } from "@/lib/legal";
 
 /**
@@ -32,10 +33,11 @@ export function Footer() {
         </nav>
 
         <div className="mt-6 flex flex-col gap-2 text-xs leading-relaxed text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-          <p>
-            <span aria-hidden>🖨️</span> © {currentYear} TriDi — 3D-печать с нуля.
-            Все права защищены.
-          </p>
+          <div className="flex flex-wrap items-center gap-x-1.5">
+            <span>© {currentYear}</span>
+            <Logo variant="wordmark" />
+            <span>— 3D-печать с нуля. Все права защищены.</span>
+          </div>
           <p>
             {LEGAL_OPERATOR.fullName} · ИНН {LEGAL_OPERATOR.inn} ·{" "}
             <a

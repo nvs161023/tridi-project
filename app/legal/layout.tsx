@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { Logo } from "@/components/Logo";
 import { LEGAL_DOCUMENTS, LEGAL_OPERATOR, LEGAL_UPDATED_AT } from "@/lib/legal";
 
 /**
@@ -8,7 +9,9 @@ import { LEGAL_DOCUMENTS, LEGAL_OPERATOR, LEGAL_UPDATED_AT } from "@/lib/legal";
  *
  * Своя шапка, а не components/Header: тот читает сессию из cookies и требует
  * переменных Supabase, а юридические документы должны открываться всегда и
- * статически — в том числе когда база недоступна.
+ * статически — в том числе когда база недоступна. Векторный логотип берём из
+ * components/Logo: он статический и тоже не обращается к Supabase; плашки
+ * быстрых ссылок в узком юридическом разделе не нужны.
  */
 export const metadata: Metadata = {
   title: {
@@ -29,13 +32,7 @@ export default function LegalLayout({
       <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto max-w-3xl px-5 py-5 sm:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-2 text-base font-bold text-white transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-            >
-              <span aria-hidden>🖨️</span>
-              TriDi — 3D-печать с нуля
-            </Link>
+            <Logo showBadges={false} />
             <Link
               href="/"
               className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"

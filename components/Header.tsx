@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { Logo } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -50,15 +51,12 @@ export async function Header() {
   return (
     <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4 sm:px-8">
-        <Link href="/" className="flex items-center gap-2 text-base font-bold">
-          <span aria-hidden>🖨️</span>
-          <span>3D-печать с нуля</span>
-        </Link>
+        <Logo lessonsHref={isAuthorized ? "/dashboard" : "/course/lesson-1"} />
 
         <div className="flex items-center gap-4 sm:gap-8">
           <nav
             aria-label="Основная навигация"
-            className="hidden items-center gap-7 text-sm font-medium text-slate-300 sm:flex"
+            className="hidden items-center gap-5 text-sm font-medium text-slate-300 lg:flex xl:gap-7"
           >
             <Link
               className="transition-colors hover:text-blue-400"
