@@ -9,6 +9,7 @@ import {
   getApprovedThreads,
   getForumAuthors,
   getForumCategories,
+  pluralizeForumCount,
 } from "@/lib/forum";
 import { resolveSiteUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/server";
@@ -23,24 +24,16 @@ export const metadata: Metadata = {
 /** Страница читает сессию и свежие темы — собираем её на каждый запрос. */
 export const dynamic = "force-dynamic";
 
-const CATEGORY_ICONS: Record<string, string> = {
-  printers: "🖨️",
-  materials: "🧵",
-  problems: "🛠️",
-  general: "💬",
-};
-
 const THREAD_FORMS = ["тема", "темы", "тем"] as const;
 
-/** Русская форма слова по числу. */
-function pluralize(count: number, forms: readonly [string, string, string]) {
-  const mod100 = count % 100;
-  const mod10 = count % 10;
-
-  if (mod100 >= 11 && mod100 <= 14) return forms[2];
-  if (mod10 === 1) return forms[0];
-  if (mod10 >= 2 && mod10 <= 4) return forms[1];
-  return forms[2];
+/** Иконка раздела: в базе слаги сгруппированы по темам. */
+function categoryIcon(slug: string): string {
+  if (slug.startsWith("printers")) return "🖨️";
+  if (slug.startsWith("materials")) return "🧵";
+  if (slug.startsWith("problems")) return "🛠️";
+  if (slug === "general-business") return "💼";
+  if (slug === "general-modeling") return "📐";
+  return "💬";
 }
 
 /**
@@ -164,30 +157,44 @@ export default async function ForumPage() {
                 const count = threadCounts.get(category.id) ?? 0;
 
                 return (
-                  <article
+                  <Link
                     key={category.id}
-                    className="rounded-3xl border border-white/10 bg-white/5 p-6 transition-colors hover:border-blue-400/30"
+                    href={`/forum/category/${category.slug}`}
+                    className="group block rounded-3xl border border-white/10 bg-white/5 transition-colors hover:border-blue-400/40 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                   >
-                    <div className="flex items-start gap-4">
-                      <span
-                        aria-hidden
-                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-blue-400/30 bg-blue-500/10 text-xl"
-                      >
-                        {CATEGORY_ICONS[category.slug] ?? "💬"}
-                      </span>
-                      <div className="min-w-0">
-                        <h3 className="text-lg font-bold text-white">
-                          {category.title}
-                        </h3>
-                        <p className="mt-1 text-sm leading-relaxed text-slate-400">
-                          {category.description}
-                        </p>
-                        <p className="mt-3 text-xs font-semibold tracking-wide text-blue-300 uppercase">
-                          {count} {pluralize(count, THREAD_FORMS)}
-                        </p>
+                    <article className="p-6">
+                      <div className="flex items-start gap-4">
+                        <span
+                          aria-hidden
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-blue-400/30 bg-blue-500/10 text-xl"
+                        >
+                          {categoryIcon(category.slug)}
+                        </span>
+                        <div className="min-w-0">
+                          <h3 className="text-lg font-bold text-white transition-colors group-hover:text-blue-200">
+                            {category.title}
+                          </h3>
+                          <p className="mt-1 text-sm leading-relaxed text-slate-400">
+                            {category.description}
+                          </p>
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs font-semibold tracking-wide text-blue-300 uppercase">
+                              {count} {pluralizeForumCount(count, THREAD_FORMS)}
+                            </p>
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 transition-colors group-hover:text-blue-300">
+                              Открыть раздел
+                              <span
+                                aria-hidden
+                                className="transition-transform group-hover:translate-x-0.5"
+                              >
+                                →
+                              </span>
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </article>
+                    </article>
+                  </Link>
                 );
               })}
             </div>

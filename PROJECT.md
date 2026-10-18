@@ -63,7 +63,8 @@
 | `/` | `app/page.tsx` | Витрина: герой с цифрами, четыре уровня, галерея схем, «Как учим», программа, тарифы, «О проекте». `force-dynamic` из-за кнопки авторизации в шапке |
 | `/subscription` | `app/subscription/page.tsx` | Сравнение четырёх уровней (таблица и мобильные карточки), пять карточек тарифов (Free, три уровня навсегда и выделенный пакет), отдельный блок подписки Pro, FAQ, примечание про оферту и чек НПД |
 | `/profiles` | `app/profiles/page.tsx` | Библиотека профилей печати (17 файлов в трёх категориях) с каскадным фильтром «бренд → модель → материал» (`components/profiles/ProfilesClient.tsx`). Открыта всем, но без подписки Pro карточки размыты и ведут на `/subscription#tools`; скачивание — через `/api/profiles/download` только с активной подпиской |
-| `/forum` | `app/forum/page.tsx` | Публичный форум: категории, счётчики и последние одобренные темы. Читать может гость и поисковый робот; pending-материалы RLS не отдаёт |
+| `/forum` | `app/forum/page.tsx` | Публичный форум: кликабельные карточки категорий, счётчики и последние одобренные темы. Читать может гость и поисковый робот; pending-материалы RLS не отдаёт |
+| `/forum/category/[slug]` | `app/forum/category/[slug]/page.tsx` | Раздел форума: approved-темы с автором, датой и числом ответов, пустое состояние и кнопка создания темы с предвыбранной категорией. `generateMetadata`, canonical и JSON-LD |
 | `/forum/[slug]` | `app/forum/[slug]/page.tsx` | Тема и одобренные ответы, `generateMetadata` и JSON-LD (`DiscussionForumPosting`); форма ответа — только вошедшему, с проверкой бана |
 | `/forum/rules` | `app/forum/rules/page.tsx` | Правила сообщества, модерация и предупреждение: бан форума не закрывает доступ к курсам |
 | `/legal` | `app/legal/page.tsx` | Оглавление юридических документов |
@@ -1051,10 +1052,10 @@ Ender-3, Anycubic Kobra и материалы Polymaker.
   `pending`/`rejected`. При вставке политика требует `author_id = auth.uid()` и
   `status = 'pending'`, поэтому опубликовать материал или подменить автора прямым запросом нельзя.
   Статусы и баны меняет только `service_role` из `/admin/forum`.
-- **Данные:** `lib/forum.ts` — типы, выборки approved-тем/ответов, имена авторов, транслитерация
-  заголовка в slug, краткое описание и форматирование дат. `lib/forum-moderation.ts` — стоп-слова и
-  `checkForumBan`; ошибка чтения бана трактуется как «бана нет», чтобы недоступная таблица не
-  роняла форум.
+- **Данные:** `lib/forum.ts` — типы, выборки approved-тем/ответов, категория по slug, темы раздела и
+  счётчики approved-ответов, имена авторов, транслитерация заголовка в slug, краткое описание и
+  форматирование дат. `lib/forum-moderation.ts` — стоп-слова и `checkForumBan`; ошибка чтения бана
+  трактуется как «бана нет», чтобы недоступная таблица не роняла форум.
 - **Изоляция бана:** `forum_bans` читается только `checkForumBan`, и только на страницах и в
   действиях форума. `lib/subscription.ts`, middleware и страницы курсов этот модуль не импортируют:
   бан форума не закрывает уроки, покупки и подписку Pro.
@@ -1062,10 +1063,12 @@ Ender-3, Anycubic Kobra и материалы Polymaker.
   `getUser()`, бан, согласие с правилами, длины полей и стоп-слова. `app/actions/forum-admin.ts`
   (`approveThread`, `rejectThread`, `approveReply`, `rejectReply`, `banForumAuthor`,
   `liftForumBan`) сначала проверяют `ADMIN_EMAIL`, затем работают service_role-клиентом.
-- **SEO:** `/forum` и `/forum/[slug]` — серверный HTML с `generateMetadata`, canonical и JSON-LD;
-  `robots` закрывает только `/forum/new` и `/admin/forum`. В форме темы есть honeypot `website`.
-- **Навигация:** ссылка «Форум» в `components/Header.tsx` и карточка «Форум сообщества» в
-  `app/dashboard/page.tsx`.
+- **SEO:** `/forum`, `/forum/category/[slug]` и `/forum/[slug]` — серверный HTML с
+  `generateMetadata`, canonical и JSON-LD; `robots` закрывает только `/forum/new` и
+  `/admin/forum`. В форме темы есть honeypot `website`.
+- **Навигация:** карточки разделов на `/forum` ведут на `/forum/category/[slug]`; кнопка создания
+  темы передаёт категорию через `?category=<slug>` и подставляет её в выпадающий список. Ссылка
+  «Форум» есть в `components/Header.tsx`, карточка «Форум сообщества» — в `app/dashboard/page.tsx`.
 
 ---
 
@@ -1284,7 +1287,7 @@ Ender-3, Anycubic Kobra и материалы Polymaker.
 | `app/subscription/PlanButton.tsx` | клиентский | Кнопка тарифа: вызывает Server Action `createRobokassaPayment` с `courseId` и переходит по ссылке Robokassa; показывает ошибку и ссылку на вход |
 | `app/auth/login/LoginForm.tsx`, `app/auth/sign-up/SignUpForm.tsx`, `app/auth/verify-email/ResendForm.tsx` | клиентские | Формы: `useActionState` + `useFormStatus`-подобное состояние ожидания, показ ошибок и сохранение введённого email после ошибки |
 | `app/auth/forgot-password/ForgotPasswordForm.tsx`, `app/auth/reset-password/page.tsx` | клиентские | Сброс пароля: форма запроса письма (Server Action, нейтральный ответ) и двухшаговая смена пароля браузерным клиентом Supabase (`verifyOtp` по кнопке + `updateUser`) |
-| `components/forum/CreateThreadForm.tsx` | клиентский | Форма новой темы: `useActionState`, выбор категории, honeypot, согласие с правилами, сообщение о премодерации |
+| `components/forum/CreateThreadForm.tsx` | клиентский | Форма новой темы: `useActionState`, выбор категории с предвыбором из `?category=<slug>`, honeypot, согласие с правилами, сообщение о премодерации |
 | `components/forum/ReplyForm.tsx` | клиентский | Ответ в теме: `useActionState`, `threadId` скрытым полем, ошибки и статус «отправлено на модерацию» |
 | `components/forum/admin/ModerationControls.tsx` | клиентский | Кнопки «Одобрить/Отклонить», форма бана автора и снятие бана; действия приходят из `app/actions/forum-admin.ts` |
 

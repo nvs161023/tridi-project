@@ -23,14 +23,22 @@ type CategoryOption = {
  */
 export function CreateThreadForm({
   categories,
+  defaultCategoryId,
 }: {
   categories: readonly CategoryOption[];
+  defaultCategoryId?: string;
 }) {
   const [state, formAction, isPending] = useActionState(
     createThread,
     emptyForumFormState,
   );
   const formRef = useRef<HTMLFormElement>(null);
+  const fallbackCategoryId = categories[0]?.id ?? "";
+  const initialCategoryId =
+    defaultCategoryId &&
+    categories.some((category) => category.id === defaultCategoryId)
+      ? defaultCategoryId
+      : fallbackCategoryId;
 
   useEffect(() => {
     if (state.success) {
@@ -93,7 +101,7 @@ export function CreateThreadForm({
           id="thread-category"
           name="categoryId"
           required
-          defaultValue={categories[0]?.id ?? ""}
+          defaultValue={initialCategoryId}
           className={fieldClassName}
         >
           {categories.map((category) => (

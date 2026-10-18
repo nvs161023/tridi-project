@@ -53,6 +53,20 @@ export type ForumAuthor = {
 /** Если профиль не найден или имя пустое. */
 export const FORUM_AUTHOR_FALLBACK = "Участник";
 
+/** Русская форма слова по числу: 1 тема, 2 темы, 5 тем. */
+export function pluralizeForumCount(
+  count: number,
+  forms: readonly [string, string, string],
+): string {
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+
+  if (mod100 >= 11 && mod100 <= 14) return forms[2];
+  if (mod10 === 1) return forms[0];
+  if (mod10 >= 2 && mod10 <= 4) return forms[1];
+  return forms[2];
+}
+
 /** Тема вместе с категорией — для страницы темы и хлебных крошек. */
 export type ForumThreadPage = {
   thread: ForumThread;
@@ -188,6 +202,25 @@ export async function getForumCategories(
   );
 }
 
+/** Одна категория по slug из адреса. null — если её нет или БД недоступна. */
+export async function getForumCategoryBySlug(
+  supabase: Supabase,
+  slug: string,
+): Promise<ForumCategory | null> {
+  const { data, error } = await supabase
+    .from("forum_categories")
+    .select("*")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  if (error) {
+    warnForumQuery("загрузить категорию", error.message);
+    return null;
+  }
+
+  return data ? (data as ForumCategory) : null;
+}
+
 /**
  * Публичный список тем: только approved, свежие сверху.
  *
@@ -207,6 +240,32 @@ export async function getApprovedThreads(
 
   if (error) {
     warnForumQuery("загрузить темы", error.message);
+    return [];
+  }
+
+  return (data as ForumThread[] | null) ?? [];
+}
+
+/**
+ * Одобренные темы одного раздела — свежие сверху.
+ *
+ * Лимит тот же, что у общего списка: страница раздела не должна выгружать всю
+ * базу. Когда тем станет больше, здесь появится пагинация.
+ */
+export async function getApprovedThreadsByCategory(
+  supabase: Supabase,
+  categoryId: string,
+): Promise<ForumThread[]> {
+  const { data, error } = await supabase
+    .from("forum_threads")
+    .select("*")
+    .eq("category_id", categoryId)
+    .eq("status", "approved")
+    .order("created_at", { ascending: false })
+    .limit(300);
+
+  if (error) {
+    warnForumQuery("загрузить темы раздела", error.message);
     return [];
   }
 
@@ -269,6 +328,44 @@ export async function getApprovedReplies(
   }
 
   return (data as ForumReply[] | null) ?? [];
+}
+
+/**
+ * Число одобренных ответов по каждой теме.
+ *
+ * Считаем по строкам, а не через агрегат: PostgREST на self-hosted Supabase может
+ * быть собран без поддержки `count` в select. Запросы идут порциями — длинный
+ * `in` превращается в URL, который прокси вправе отклонить.
+ */
+export async function getApprovedReplyCounts(
+  supabase: Supabase,
+  threadIds: readonly string[],
+): Promise<Map<string, number>> {
+  const uniqueIds = [...new Set(threadIds.filter(Boolean))];
+  const counts = new Map<string, number>();
+  const chunkSize = 100;
+
+  for (let start = 0; start < uniqueIds.length; start += chunkSize) {
+    const chunk = uniqueIds.slice(start, start + chunkSize);
+    const { data, error } = await supabase
+      .from("forum_replies")
+      .select("thread_id")
+      .eq("status", "approved")
+      .in("thread_id", chunk);
+
+    if (error) {
+      warnForumQuery("посчитать ответы", error.message);
+      return counts;
+    }
+
+    const replies = (data as Pick<ForumReply, "thread_id">[] | null) ?? [];
+
+    for (const reply of replies) {
+      counts.set(reply.thread_id, (counts.get(reply.thread_id) ?? 0) + 1);
+    }
+  }
+
+  return counts;
 }
 
 /**

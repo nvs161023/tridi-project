@@ -22,6 +22,10 @@ export const metadata: Metadata = {
 /** Нужна сессия и свежий список категорий. */
 export const dynamic = "force-dynamic";
 
+type NewForumThreadPageProps = {
+  searchParams: Promise<{ category?: string | string[] }>;
+};
+
 /**
  * Создание темы: только для авторизованных.
  *
@@ -29,18 +33,28 @@ export const dynamic = "force-dynamic";
  * страховка: если matcher изменят или запрос пройдёт мимо middleware, страница
  * не должна открыться гостю с рабочей формой.
  */
-export default async function NewForumThreadPage() {
+export default async function NewForumThreadPage({
+  searchParams,
+}: NewForumThreadPageProps) {
+  const { category } = await searchParams;
+  const categorySlug = Array.isArray(category) ? category[0] : category;
+  const returnTo = categorySlug
+    ? `/forum/new?category=${encodeURIComponent(categorySlug)}`
+    : "/forum/new";
   const supabase = await createClient();
   const userId = await resolveUserId(supabase);
 
   if (!userId) {
-    redirect(authHref("/auth/login", "/forum/new"));
+    redirect(authHref("/auth/login", returnTo));
   }
 
   const [categories, ban] = await Promise.all([
     getForumCategories(supabase),
     checkForumBan(supabase, userId),
   ]);
+  const defaultCategory = categorySlug
+    ? categories.find((item) => item.slug === categorySlug)
+    : undefined;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -51,7 +65,7 @@ export default async function NewForumThreadPage() {
           href="/forum"
           className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
         >
-          <span aria-hidden>←</span> К форуму
+          <span aria-hidden>←</span> Назад ко всем разделам
         </Link>
 
         <p className="mt-8 text-sm font-semibold tracking-widest text-blue-400 uppercase">
@@ -101,6 +115,7 @@ export default async function NewForumThreadPage() {
               id: category.id,
               title: category.title,
             }))}
+            defaultCategoryId={defaultCategory?.id}
           />
         )}
 

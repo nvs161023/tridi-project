@@ -160,7 +160,14 @@ export default async function ForumThreadPage({ params }: ThreadPageProps) {
       />
 
       <main className="mx-auto max-w-4xl px-5 py-12 sm:px-8 sm:py-16">
-        <nav aria-label="Хлебные крошки" className="text-sm text-slate-400">
+        <Link
+          href="/forum"
+          className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+        >
+          <span aria-hidden>←</span> Назад ко всем разделам
+        </Link>
+
+        <nav aria-label="Хлебные крошки" className="mt-5 text-sm text-slate-400">
           <ol className="flex flex-wrap items-center gap-2">
             <li>
               <Link
@@ -172,7 +179,16 @@ export default async function ForumThreadPage({ params }: ThreadPageProps) {
             </li>
             <li aria-hidden>→</li>
             <li className="text-slate-500">
-              {category?.title ?? "Тема"}
+              {category ? (
+                <Link
+                  href={`/forum/category/${category.slug}`}
+                  className="transition-colors hover:text-blue-400"
+                >
+                  {category.title}
+                </Link>
+              ) : (
+                "Тема"
+              )}
             </li>
           </ol>
         </nav>
@@ -305,7 +321,7 @@ export default async function ForumThreadPage({ params }: ThreadPageProps) {
             href="/forum"
             className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400"
           >
-            <span aria-hidden>←</span> Все темы
+            <span aria-hidden>←</span> Назад ко всем разделам
           </Link>
         </div>
       </main>
