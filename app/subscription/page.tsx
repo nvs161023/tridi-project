@@ -7,6 +7,7 @@ import { authHref } from "@/lib/auth-redirect";
 import { LEGAL_OPERATOR } from "@/lib/legal";
 import {
   LEVELS,
+  PAID_LEVELS,
   PAID_LESSONS,
   PAID_TESTS,
   PAID_VISUALS,
@@ -30,13 +31,22 @@ import { PlanButton } from "./PlanButton";
 export const metadata: Metadata = {
   title: "Тарифы — 3D-печать с нуля",
   description:
-    "Первый уровень бесплатно, подписка Pro открывает три платных уровня, тесты и продвинутый курс. Цены, сравнение уровней, отзывы и частые вопросы.",
+    "Первый уровень бесплатно, три платных курса можно купить навсегда или открыть все по подписке Pro. Цены, сравнение уровней, пакет и частые вопросы.",
 };
 
 const { pro: proCourse } = coursesData;
 
-/** Цена Pro — из data/courses.json: тот же источник, что и на главной. */
-const proPrice = new Intl.NumberFormat("ru-RU").format(proCourse.price);
+const formatPrice = (price: number) =>
+  new Intl.NumberFormat("ru-RU").format(price);
+
+/** Цены из data/courses.json: тот же источник, что и на главной. */
+const proSubscriptionPrice = formatPrice(proCourse.subscriptionPrice);
+const proBundlePrice = formatPrice(proCourse.price);
+const bundleSeparatePrice = PAID_LEVELS.reduce(
+  (sum, level) => sum + level.price,
+  0,
+);
+const bundleSaving = bundleSeparatePrice - proCourse.price;
 
 /** Регистрация с возвратом в первый бесплатный урок. */
 const START_FREE_HREF = authHref("/auth/sign-up", "/course/lesson-1");
@@ -77,7 +87,9 @@ const COMPARISON_ROWS: { label: string; values: string[] }[] = [
   {
     label: "Стоимость",
     values: LEVELS.map((level) =>
-      level.isFree ? "0 ₽ навсегда" : "Входит в Pro",
+      level.isFree
+        ? "0 ₽ навсегда"
+        : `${formatPrice(level.price)} ₽ навсегда`,
     ),
   },
   {
@@ -109,20 +121,24 @@ const COMPARISON_ROWS: { label: string; values: string[] }[] = [
 ];
 
 /**
- * Четыре вопроса, которые чаще всего задают перед оплатой.
+ * Вопросы, которые чаще всего задают перед оплатой.
  *
- * Числа бесплатного уровня берём из LEVELS, а не пишем руками: если курс
- * изменится, FAQ не начнёт обещать старое количество уроков и схем.
+ * Числа и цены берём из LEVELS и data/courses.json, а не пишем руками: если
+ * курс или тариф изменится, FAQ не начнёт обещать старое.
  */
 const FAQ: { question: string; answer: string }[] = [
   {
-    question: "Чем бесплатный уровень отличается от Pro?",
-    answer: `Бесплатно открыт уровень «Новичок» целиком: ${LEVELS[0].lessons} ${pluralize(LEVELS[0].lessons, LESSON_FORMS)}, ${LEVELS[0].visuals} ${pluralize(LEVELS[0].visuals, VISUAL_FORMS)} и ${LEVELS[0].tests} ${pluralize(LEVELS[0].tests, TEST_FORMS)} модулей. Pro открывает три платных уровня — «Уверенный», «Инженер» и «Заработок» — и продвинутый курс. Всё это входит в одну подписку.`,
+    question: "Чем бесплатный уровень отличается от платных?",
+    answer: `Бесплатно открыт уровень «Новичок» целиком: ${LEVELS[0].lessons} ${pluralize(LEVELS[0].lessons, LESSON_FORMS)}, ${LEVELS[0].visuals} ${pluralize(LEVELS[0].visuals, VISUAL_FORMS)} и ${LEVELS[0].tests} ${pluralize(LEVELS[0].tests, TEST_FORMS)} модулей. Платные уровни можно купить по отдельности или пакетом. Подписка Pro открывает всё сразу, включая продвинутый курс.`,
+  },
+  {
+    question: "Можно ли купить курс навсегда?",
+    answer: `Да. «Уверенный» стоит ${formatPrice(LEVELS[1].price)} ₽, «Инженер» — ${formatPrice(LEVELS[2].price)} ₽, «Заработок» — ${formatPrice(LEVELS[3].price)} ₽. Пакет из трёх уровней — ${proBundlePrice} ₽ вместо ${formatPrice(bundleSeparatePrice)} ₽. Это разовый платёж, доступ остаётся навсегда.`,
   },
   {
     question: "Как работает подписка?",
     answer:
-      "Оплата за 30 дней доступа. Одна действующая подписка открывает все платные материалы сразу — покупать уровни по отдельности не нужно. Продление — по желанию, в личном кабинете.",
+      "Оплата за 30 дней доступа. Одна действующая подписка открывает все платные материалы сразу, включая продвинутый курс. Продление — по желанию, в личном кабинете.",
   },
   {
     question: "Можно ли отменить подписку?",
@@ -173,8 +189,8 @@ export default function SubscriptionPage() {
               Четыре уровня.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-relaxed text-slate-300 sm:text-xl">
-              Первый уровень — бесплатно и без карты. Подписка Pro открывает
-              «Уверенный», «Инженер» и «Заработок», их тесты и продвинутый курс.
+              Первый уровень — бесплатно и без карты. Купи нужный платный курс
+              навсегда или открой все материалы по подписке Pro.
             </p>
 
             <div className="mt-7 flex flex-wrap gap-2.5 text-xs font-semibold sm:text-sm">
@@ -182,10 +198,10 @@ export default function SubscriptionPage() {
                 0 ₽ на старте
               </span>
               <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-3.5 py-1.5 text-amber-200">
-                {proPrice} ₽/мес — Pro
+                Курсы от {formatPrice(LEVELS[1].price)} ₽ навсегда
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                Отмена в кабинете
+                Pro — {proSubscriptionPrice} ₽/мес
               </span>
             </div>
 
@@ -198,16 +214,18 @@ export default function SubscriptionPage() {
                 <span aria-hidden>→</span>
               </Link>
               <a
-                href="#pro"
+                href="#pricing"
                 className="inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-8 text-lg font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               >
-                Оформить подписку Pro
+                Выбрать тариф
+                <span aria-hidden>→</span>
               </a>
             </div>
 
             <p className="mt-6 text-sm text-slate-400">
-              <span aria-hidden>✅</span> На бесплатном уровне карта не нужна. Pro
-              — 30 дней доступа, чек НПД на email.
+              <span aria-hidden>✅</span> На бесплатном уровне карта не нужна.
+              Курс можно купить навсегда, подписка Pro — 30 дней доступа. Чек НПД
+              на email.
             </p>
           </div>
         </section>
@@ -236,8 +254,9 @@ export default function SubscriptionPage() {
               </span>
               <span>
                 <strong className="text-white">Подписка Pro</strong> —{" "}
-                {proPrice} ₽/мес. Открывает все три платных уровня сразу:{" "}
-                {PAID_LESSONS} уроков, {PAID_VISUALS} схем и {PAID_TESTS} тестов.
+                {proSubscriptionPrice} ₽/мес. Открывает все три платных уровня
+                сразу: {PAID_LESSONS} уроков, {PAID_VISUALS} схем и {PAID_TESTS}{" "}
+                тестов. Или купи нужный уровень навсегда.
               </span>
             </div>
 
@@ -280,7 +299,9 @@ export default function SubscriptionPage() {
                           <span
                             className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${style.badge}`}
                           >
-                            {level.isFree ? "0 ₽" : "В Pro"}
+                            {level.isFree
+                              ? "0 ₽"
+                              : `${formatPrice(level.price)} ₽`}
                           </span>
                         </th>
                       );
@@ -319,14 +340,14 @@ export default function SubscriptionPage() {
                         className="border-l border-white/10 px-4 py-4"
                       >
                         <Link
-                          href={level.isFree ? START_FREE_HREF : "#pro"}
+                          href={level.isFree ? START_FREE_HREF : "#pricing"}
                           className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
                             level.isFree
                               ? "bg-blue-600 text-white hover:bg-blue-500"
                               : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
                           }`}
                         >
-                          {level.isFree ? "Начать бесплатно" : "Выбрать Pro"}
+                          {level.isFree ? "Начать бесплатно" : "Купить"}
                         </Link>
                       </td>
                     ))}
@@ -358,7 +379,7 @@ export default function SubscriptionPage() {
                       <span
                         className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${style.badge}`}
                       >
-                        {level.isFree ? "Бесплатно" : "В Pro"}
+                        {level.isFree ? "Бесплатно" : "Навсегда"}
                       </span>
                     </div>
 
@@ -401,20 +422,22 @@ export default function SubscriptionPage() {
                             level.isFree ? "text-blue-300" : "text-amber-300"
                           }`}
                         >
-                          {level.isFree ? "0 ₽" : "В Pro"}
+                          {level.isFree
+                            ? "0 ₽"
+                            : `${formatPrice(level.price)} ₽`}
                         </dd>
                       </div>
                     </dl>
 
                     <Link
-                      href={level.isFree ? START_FREE_HREF : "#pro"}
+                      href={level.isFree ? START_FREE_HREF : "#pricing"}
                       className={`mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
                         level.isFree
                           ? "bg-blue-600 text-white hover:bg-blue-500"
                           : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
                       }`}
                     >
-                      {level.isFree ? "Начать бесплатно" : "Выбрать Pro"}
+                      {level.isFree ? "Начать бесплатно" : "Купить"}
                     </Link>
                   </article>
                 );
@@ -423,156 +446,312 @@ export default function SubscriptionPage() {
           </div>
         </section>
 
-        {/* Два способа начать: бесплатно или Pro */}
-        <section id="pro" className="scroll-mt-20 border-b border-white/10">
+        {/* Тарифы: бесплатный старт, три курса навсегда и пакет */}
+        <section id="pricing" className="scroll-mt-20 border-b border-white/10">
           <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-24">
             <p className="text-sm font-semibold tracking-widest text-amber-400 uppercase">
-              Подписка
+              Тарифы
             </p>
             <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-              Начни бесплатно. Открой всё — когда будешь готов
+              Купи нужный курс. Или открой всё сразу
             </h2>
             <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
-              Одна подписка Pro вместо трёх отдельных покупок. Бесплатный уровень
-              остаётся доступен всегда — даже без подписки.
+              Начни с бесплатного «Новичка», купи один уровень навсегда или
+              забери все три со скидкой. Подписка Pro открывает ещё и продвинутый
+              курс, пока действует.
             </p>
 
-            <div className="mt-12 grid gap-6 lg:grid-cols-2 lg:gap-8">
+            <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               {/* Новичок — 0 ₽ */}
-              <article className="flex flex-col rounded-3xl border border-blue-500/30 bg-slate-900/60 p-7 sm:p-9">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
-                    Новичок
-                  </h3>
-                  <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200">
-                    Бесплатно навсегда
+              <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-blue-500/30 bg-slate-900/60 p-5">
+                <div
+                  aria-hidden
+                  className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-500 to-cyan-400"
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold tracking-[0.16em] text-blue-300 uppercase">
+                    {LEVELS[0].code}
+                  </span>
+                  <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-200">
+                    Бесплатно
                   </span>
                 </div>
 
-                <p className="mt-5 flex items-baseline gap-2">
-                  <span className="text-4xl font-extrabold text-white">0 ₽</span>
-                  <span className="text-sm text-slate-400">без карты</span>
+                <h3 className="mt-3 text-xl font-extrabold tracking-tight text-white">
+                  {LEVELS[0].shortTitle}
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                  {LEVELS[0].audience}
                 </p>
 
-                <p className="mt-4 text-sm leading-relaxed text-slate-400 sm:text-base">
-                  {LEVELS[0].goal}
+                <p className="mt-4 flex items-baseline gap-1.5">
+                  <span className="text-3xl font-extrabold text-white">0 ₽</span>
+                  <span className="text-xs text-slate-500">без карты</span>
                 </p>
 
-                <ul className="mt-6 space-y-3 text-sm leading-relaxed text-slate-300 sm:text-base">
-                  <li className="flex items-start gap-3">
+                <ul className="mt-4 space-y-2 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-300">
+                  <li className="flex items-start gap-2">
                     <span aria-hidden className="text-blue-300">
                       ✓
                     </span>
-                    {LEVELS[0].lessons} уроков, {LEVELS[0].visuals} схем и{" "}
-                    {LEVELS[0].tests} теста модулей
+                    {LEVELS[0].lessons} уроков и {LEVELS[0].visuals} схем
                   </li>
-                  <li className="flex items-start gap-3">
+                  <li className="flex items-start gap-2">
                     <span aria-hidden className="text-blue-300">
                       ✓
                     </span>
-                    Тесты с пояснениями к каждому ответу
+                    {LEVELS[0].tests} теста модулей с пояснениями
                   </li>
-                  <li className="flex items-start gap-3">
+                  <li className="flex items-start gap-2">
                     <span aria-hidden className="text-blue-300">
                       ✓
                     </span>
-                    Первый проект целиком: от детали до замеров
+                    {LEVELS[0].outcomes[0]}
                   </li>
-                  <li className="flex items-start gap-3">
+                  <li className="flex items-start gap-2">
                     <span aria-hidden className="text-blue-300">
                       ✓
                     </span>
-                    Прогресс уроков и тестов в личном кабинете
+                    {LEVELS[0].outcomes[1]}
                   </li>
                 </ul>
 
-                <div className="mt-auto pt-8">
+                <div className="mt-auto pt-5">
                   <Link
                     href={START_FREE_HREF}
-                    className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-8 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-base font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                   >
                     Начать бесплатно
                     <span aria-hidden>→</span>
                   </Link>
-                  <p className="mt-3 text-center text-xs text-slate-500">
-                    Регистрация нужна, чтобы сохранять прогресс. Карта — нет.
+                  <p className="mt-2 text-center text-[11px] font-medium text-slate-400">
+                    Доступ навсегда
                   </p>
                 </div>
               </article>
 
-              {/* Pro — 1 490 ₽/мес */}
-              <article className="relative flex flex-col overflow-hidden rounded-3xl border-2 border-amber-400/50 bg-gradient-to-b from-amber-500/10 via-slate-900/80 to-slate-900/90 p-7 shadow-xl shadow-amber-950/30 sm:p-9">
+              {PAID_LEVELS.map((level) => {
+                const style = LEVEL_STYLES[level.key];
+
+                return (
+                  <article
+                    key={level.key}
+                    className={`relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b ${style.soft} to-slate-900/60 p-5`}
+                  >
+                    <div
+                      aria-hidden
+                      className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${style.line}`}
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={`text-[11px] font-semibold tracking-[0.16em] uppercase ${style.text}`}
+                      >
+                        {level.code}
+                      </span>
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${style.badge}`}
+                      >
+                        Навсегда
+                      </span>
+                    </div>
+
+                    <h3 className="mt-3 text-xl font-extrabold tracking-tight text-white">
+                      {level.shortTitle}
+                    </h3>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                      {level.audience}
+                    </p>
+
+                    <p className="mt-4 flex items-baseline gap-1.5">
+                      <span className="text-3xl font-extrabold text-white">
+                        {formatPrice(level.price)} ₽
+                      </span>
+                      <span className="text-xs text-slate-500">разово</span>
+                    </p>
+
+                    <ul className="mt-4 space-y-2 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-300">
+                      <li className="flex items-start gap-2">
+                        <span aria-hidden className={style.text}>
+                          ✓
+                        </span>
+                        {level.lessons} {pluralize(level.lessons, LESSON_FORMS)} и{" "}
+                        {level.visuals} {pluralize(level.visuals, VISUAL_FORMS)}
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span aria-hidden className={style.text}>
+                          ✓
+                        </span>
+                        {level.tests} {pluralize(level.tests, TEST_FORMS)} модулей
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span aria-hidden className={style.text}>
+                          ✓
+                        </span>
+                        {level.outcomes[0]}
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span aria-hidden className={style.text}>
+                          ✓
+                        </span>
+                        {level.outcomes[1]}
+                      </li>
+                    </ul>
+
+                    <div className="mt-auto pt-5">
+                      <PlanButton
+                        label="Купить навсегда"
+                        courseId={level.key}
+                        price={level.price}
+                        size="compact"
+                      />
+                      <p className="mt-2 text-center text-[11px] font-medium text-slate-400">
+                        Доступ навсегда
+                      </p>
+                    </div>
+                  </article>
+                );
+              })}
+
+              {/* Пакет трёх уровней — главный акцент */}
+              <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border-2 border-amber-400/60 bg-gradient-to-b from-amber-400/20 via-slate-900 to-slate-900 p-5 shadow-xl shadow-amber-950/40 ring-1 ring-amber-300/20">
                 <div
                   aria-hidden
-                  className="pointer-events-none absolute -top-24 -right-16 h-56 w-56 rounded-full bg-amber-400/10 blur-3xl"
+                  className="pointer-events-none absolute -top-20 -right-12 h-44 w-44 rounded-full bg-amber-400/15 blur-3xl"
                 />
 
-                <div className="relative flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
-                    Подписка Pro
-                  </h3>
-                  <span className="rounded-full border border-amber-400/50 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
-                    30 дней доступа
+                <div className="relative flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold tracking-[0.16em] text-amber-300 uppercase">
+                    Пакет
+                  </span>
+                  <span className="rounded-full bg-amber-400 px-2.5 py-1 text-[10px] font-extrabold tracking-wide text-slate-950 uppercase">
+                    Выгодно
                   </span>
                 </div>
 
-                <p className="relative mt-5 flex items-baseline gap-2">
-                  <span className="text-4xl font-extrabold text-white">
-                    {proPrice} ₽
+                <h3 className="relative mt-3 text-xl font-extrabold tracking-tight text-white">
+                  {proCourse.bundleTitle}
+                </h3>
+                <p className="relative mt-1 text-xs leading-relaxed text-amber-100/80">
+                  {proCourse.bundleSubtitle} навсегда
+                </p>
+
+                <p className="relative mt-4 flex items-baseline gap-1.5">
+                  <span className="text-3xl font-extrabold text-white">
+                    {proBundlePrice} ₽
                   </span>
-                  <span className="text-sm text-slate-400">/мес</span>
+                  <span className="text-xs text-slate-400">разово</span>
+                </p>
+                <p className="relative mt-1 text-[11px] text-amber-200/80">
+                  <s>{formatPrice(bundleSeparatePrice)} ₽</s> · экономия{" "}
+                  {formatPrice(bundleSaving)} ₽
                 </p>
 
-                <p className="relative mt-4 text-sm leading-relaxed text-slate-300 sm:text-base">
-                  {proCourse.goal}
-                </p>
-
-                <ul className="relative mt-6 space-y-3 text-sm leading-relaxed text-slate-300 sm:text-base">
-                  <li className="flex items-start gap-3">
+                <ul className="relative mt-4 space-y-2 border-t border-amber-300/20 pt-4 text-xs leading-relaxed text-slate-200">
+                  {PAID_LEVELS.map((level) => (
+                    <li key={level.key} className="flex items-start gap-2">
+                      <span aria-hidden className="text-amber-300">
+                        ✓
+                      </span>
+                      {level.shortTitle} — {level.lessons}{" "}
+                      {pluralize(level.lessons, LESSON_FORMS)}
+                    </li>
+                  ))}
+                  <li className="flex items-start gap-2">
                     <span aria-hidden className="text-amber-300">
                       ✓
                     </span>
-                    Все три платных уровня: {PAID_LESSONS} уроков и{" "}
-                    {PAID_VISUALS} схем
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span aria-hidden className="text-amber-300">
-                      ✓
-                    </span>
-                    {PAID_TESTS} тестов модулей с пояснениями к ответам
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span aria-hidden className="text-amber-300">
-                      ✓
-                    </span>
-                    Продвинутый курс: {PRO_LESSONS} уроков, {PRO_VISUALS} схем,{" "}
-                    {PRO_HOURS}
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span aria-hidden className="text-amber-300">
-                      ✓
-                    </span>
-                    Одна подписка на все платные материалы — без доплат за уровни
+                    Все схемы и тесты модулей
                   </li>
                 </ul>
 
-                <div className="relative mt-auto pt-8">
+                <div className="relative mt-auto pt-5">
                   <PlanButton
-                    label="Оформить подписку Pro"
+                    label="Купить пакет"
+                    courseId="pro"
+                    price={proCourse.price}
                     variant="gold"
-                    message="Оплата подключается — скоро здесь будет ЮKassa"
+                    size="compact"
                   />
-                  <p className="mt-3 text-center text-xs leading-relaxed text-slate-500">
-                    Онлайн-оплата подключается: кнопка пока показывает заглушку.
-                    Условия оплаты, чеков и возврата — в{" "}
-                    <Link
-                      href="/legal/offer"
-                      className="text-slate-400 underline underline-offset-2 transition-colors hover:text-amber-200"
-                    >
-                      оферте
-                    </Link>
-                    .
+                  <p className="mt-2 text-center text-[11px] font-medium text-amber-100/80">
+                    Доступ навсегда
                   </p>
+                </div>
+              </article>
+            </div>
+
+            <div className="mt-6">
+
+              {/* Pro — подписка на всё, пока она активна */}
+              <article className="relative overflow-hidden rounded-3xl border border-blue-400/30 bg-gradient-to-r from-blue-600/15 via-slate-900/90 to-slate-900/95 p-6 sm:p-8">
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute top-1/2 -right-20 h-56 w-56 -translate-y-1/2 rounded-full bg-blue-500/10 blur-3xl"
+                />
+
+                <div className="relative grid gap-6 lg:grid-cols-[1fr_20rem] lg:items-center">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div>
+                        <p className="text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase">
+                          Подписка
+                        </p>
+                        <h3 className="mt-1 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+                          Подписка Pro
+                        </h3>
+                      </div>
+                      <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200">
+                        30 дней доступа
+                      </span>
+                    </div>
+
+                    <p className="mt-4 flex items-baseline gap-2">
+                      <span className="text-4xl font-extrabold text-white">
+                        {proSubscriptionPrice} ₽
+                      </span>
+                      <span className="text-sm text-slate-400">/мес</span>
+                    </p>
+
+                    <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
+                      {proCourse.goal}
+                    </p>
+
+                    <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm leading-relaxed text-slate-300">
+                      <li className="flex items-center gap-2">
+                        <span aria-hidden className="text-blue-300">
+                          ✓
+                        </span>
+                        Все три уровня: {PAID_LESSONS} уроков и {PAID_VISUALS} схем
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span aria-hidden className="text-blue-300">
+                          ✓
+                        </span>
+                        Продвинутый курс: {PRO_LESSONS} уроков, {PRO_VISUALS} схем,{" "}
+                        {PRO_HOURS}
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span aria-hidden className="text-blue-300">
+                          ✓
+                        </span>
+                        {PAID_TESTS} тестов модулей с пояснениями
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <PlanButton
+                      label="Оформить подписку Pro"
+                      courseId="pro-subscription"
+                      price={proCourse.subscriptionPrice}
+                      variant="blue"
+                    />
+                    <p className="mt-3 text-center text-xs leading-relaxed text-slate-400">
+                      Доступ ко всем курсам, пока активна подписка
+                    </p>
+                    <p className="mt-2 text-center text-xs leading-relaxed text-slate-500">
+                      Чек НПД на email · отмена в кабинете
+                    </p>
+                  </div>
                 </div>
               </article>
             </div>
@@ -687,7 +866,7 @@ export default function SubscriptionPage() {
                 Оплата, чеки и возврат
               </h2>
               <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-400">
-                Оплачивая подписку, вы соглашаетесь с{" "}
+                Оплачивая курс или подписку, вы соглашаетесь с{" "}
                 <Link
                   href="/legal/offer"
                   className="font-semibold text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"

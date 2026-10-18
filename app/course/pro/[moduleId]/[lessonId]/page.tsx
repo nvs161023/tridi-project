@@ -54,7 +54,7 @@ const course: ProCourse = courseData;
  * используют главная и страница тарифов. Так цена в интерфейсе не может
  * разойтись с витриной и офертой.
  */
-const proPrice = coursesData.pro.price;
+const proPrice = coursesData.pro.subscriptionPrice;
 
 /**
  * Модули по module_order, уроки внутри — по lesson_order: в файле курса порядок

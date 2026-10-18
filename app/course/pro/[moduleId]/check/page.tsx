@@ -33,7 +33,7 @@ import type { ProCourse, ProModule } from "@/lib/types";
 const course: ProCourse = courseData;
 
 /** Цена подписки Pro — из data/courses.json, чтобы не расходиться с витриной. */
-const proPrice = coursesData.pro.price;
+const proPrice = coursesData.pro.subscriptionPrice;
 
 /** Модули по module_order: навигация не должна зависеть от порядка в JSON. */
 const modules: ProModule[] = [...course.modules].sort(

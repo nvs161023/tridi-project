@@ -35,8 +35,11 @@ export const metadata: Metadata = {
 
 const { pro: proCourse } = coursesData;
 
-/** Цена Pro — из data/courses.json, как и на странице тарифов. */
-const proPrice = new Intl.NumberFormat("ru-RU").format(proCourse.price);
+const formatPrice = (price: number) =>
+  new Intl.NumberFormat("ru-RU").format(price);
+
+/** Цена подписки Pro — из data/courses.json, как и на странице тарифов. */
+const proPrice = formatPrice(proCourse.subscriptionPrice);
 
 /** Регистрация с возвратом в первый бесплатный урок. */
 const START_FREE_HREF = authHref("/auth/sign-up", "/course/lesson-1");
@@ -181,12 +184,12 @@ const FAQ: { question: string; answer: string }[] = [
   },
   {
     question: "Как проходит оплата?",
-    answer: `Подписка Pro стоит ${proPrice} ₽ за 30 дней. Одна оплата открывает все платные уровни и продвинутый курс. Чек НПД приходит на email, указанный при оплате.`,
+    answer: `Можно купить нужный платный уровень навсегда или оформить подписку Pro за ${proPrice} ₽ на 30 дней. Подписка открывает все платные уровни и продвинутый курс. Чек НПД приходит на email, указанный при оплате.`,
   },
   {
     question: "Как работает подписка?",
     answer:
-      "Доступ действует 30 дней. Продление — по желанию, в личном кабинете. Покупать уровни по отдельности не нужно: Pro открывает всё сразу.",
+      "Доступ действует 30 дней. Продление — по желанию, в личном кабинете. Если не нужен весь курс сразу, купите только нужный уровень навсегда.",
   },
   {
     question: "Можно ли отменить подписку?",
@@ -195,7 +198,7 @@ const FAQ: { question: string; answer: string }[] = [
   },
 ];
 
-/** Три шага воронки: бесплатный старт → первая деталь → Pro. */
+/** Три шага воронки: бесплатный старт → первая деталь → платный курс или Pro. */
 const FUNNEL_STEPS = [
   {
     step: "01",
@@ -211,9 +214,9 @@ const FUNNEL_STEPS = [
   },
   {
     step: "03",
-    title: "Pro и профессия",
-    text: `Все платные уровни, ${PRO_LESSONS} ${pluralize(PRO_LESSONS, LESSON_FORMS)} продвинутого курса и ${PRO_VISUALS} схем.`,
-    note: `${proPrice} ₽/мес`,
+    title: "Курс или Pro",
+    text: `Купи нужный уровень навсегда или открой всё по подписке Pro: ${PRO_LESSONS} ${pluralize(PRO_LESSONS, LESSON_FORMS)} продвинутого курса и ${PRO_VISUALS} схем.`,
+    note: `от ${formatPrice(LEVELS[1].price)} ₽`,
   },
 ];
 
@@ -450,7 +453,9 @@ export default function Home() {
                             : "border-amber-400/40 bg-amber-500/10 text-amber-200"
                         }`}
                       >
-                        {level.isFree ? "Бесплатно" : "В Pro"}
+                        {level.isFree
+                          ? "Бесплатно"
+                          : `${formatPrice(level.price)} ₽`}
                       </span>
                     </div>
 
@@ -590,13 +595,13 @@ export default function Home() {
                   <h2 className="mt-4 max-w-xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
                     Начни бесплатно.{" "}
                     <span className="bg-gradient-to-r from-blue-300 to-amber-300 bg-clip-text text-transparent">
-                      Продолжи в Pro.
+                      Продолжи дальше.
                     </span>
                   </h2>
                   <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-300 sm:text-lg">
                     Начни с бесплатного уровня «Новичок». Освой базу, напечатай
-                    первую деталь, а затем переходи на Pro и становись
-                    профессионалом.
+                    первую деталь, а затем купи нужный уровень навсегда или
+                    открой всё по подписке Pro.
                   </p>
 
                   <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-4">
@@ -616,7 +621,7 @@ export default function Home() {
                   </div>
 
                   <p className="mt-6 text-sm leading-relaxed text-slate-400">
-                    Отмена в кабинете · Чек НПД на email · 30 дней доступа
+                    Курсы навсегда · Подписка Pro — 30 дней · Чек НПД на email
                   </p>
                 </div>
 
