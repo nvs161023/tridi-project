@@ -1052,8 +1052,8 @@ Ender-3, Anycubic Kobra и материалы Polymaker.
 - **RLS:** анонимный и вошедший читатель видят только `approved`; автор дополнительно видит свои
   `pending`/`rejected`. При вставке политика требует `author_id = auth.uid()`: для темы —
   `status = 'pending'`, для ответа — `status = 'approved'`. Подменить автора или опубликовать тему
-  прямым запросом нельзя. Статусы, удаление ответов и баны меняет только `service_role` из
-  `/admin/forum`.
+  прямым запросом нельзя. Статусы, удаление тем и ответов, а также баны меняет только
+  `service_role` из `/admin/forum`.
 - **Данные:** `lib/forum.ts` — типы, выборки approved-тем/ответов, категория по slug, темы раздела и
   счётчики approved-ответов, имена авторов, транслитерация заголовка в slug, краткое описание и
   форматирование дат. `lib/forum-moderation.ts` — стоп-слова и `checkForumBan`; ошибка чтения бана
@@ -1063,9 +1063,11 @@ Ender-3, Anycubic Kobra и материалы Polymaker.
   бан форума не закрывает уроки, покупки и подписку Pro.
 - **Server Actions:** `app/actions/forum.ts` (`createThread`, `createReply`) заново проверяют
   `getUser()`, бан, согласие с правилами, длины полей и стоп-слова. Тема сохраняется в `pending`,
-  ответ — в `approved`. `app/actions/forum-admin.ts` (`approveThread`, `rejectThread`,
-  `approveReply`, `rejectReply`, `deleteForumReply`, `banForumAuthor`, `liftForumBan`) сначала
-  проверяют `ADMIN_EMAIL`, затем работают service_role-клиентом.
+  ответ — в `approved`. Там же `deleteThread` проверяет `ADMIN_EMAIL` и удаляет тему
+  service_role-клиентом; ответы уходят каскадом по `ON DELETE CASCADE`. `app/actions/forum-admin.ts`
+  (`approveThread`, `rejectThread`, `approveReply`, `rejectReply`, `deleteForumReply`,
+  `banForumAuthor`, `liftForumBan`) сначала проверяют `ADMIN_EMAIL`, затем работают
+  service_role-клиентом.
 - **SEO:** `/forum`, `/forum/category/[slug]` и `/forum/[slug]` — серверный HTML с
   `generateMetadata`, canonical и JSON-LD; `robots` закрывает только `/forum/new` и
   `/admin/forum`. В форме темы есть honeypot `website`.
@@ -1262,6 +1264,7 @@ Ender-3, Anycubic Kobra и материалы Polymaker.
 | `completeModuleTest` | `app/actions/complete-module-test.ts` | Принимает результат теста, повторно проверяет порог сдачи (5 в бесплатном курсе, 7 в платных), пишет **только сданный** тест (`basic-test` / `confident-test` / `pro-test`) |
 | `createRobokassaPayment` | `app/actions/payments.ts` | Берёт пользователя из сессии и цену из `data/courses.json`, проверяет `courseId` и возвращает подписанную ссылку Robokassa |
 | `createThread`, `createReply` | `app/actions/forum.ts` | Создание темы и ответа: `getUser()`, бан форума, правила, длины полей, стоп-слова, honeypot; тема — `pending`, ответ — `approved` |
+| `deleteThread` | `app/actions/forum.ts` | Удаление темы из админки: проверка `ADMIN_EMAIL`, удаление service_role-клиентом; ответы удаляются каскадом (`ON DELETE CASCADE`) |
 | `approveThread`, `rejectThread`, `approveReply`, `rejectReply`, `deleteForumReply` | `app/actions/forum-admin.ts` | Модерация: проверка `ADMIN_EMAIL`, смена статуса или удаление ответа service_role-клиентом, `revalidatePath` публичных страниц |
 | `banForumAuthor`, `liftForumBan` | `app/actions/forum-admin.ts` | Бан на форуме на срок/бессрочно и снятие бана; только `forum_bans`, без влияния на покупки и подписку |
 

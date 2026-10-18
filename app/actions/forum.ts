@@ -2,15 +2,20 @@
 
 import { revalidatePath } from "next/cache";
 
+import { isAdminEmail } from "@/lib/admin";
 import {
   checkForumBan,
   findForumStopWord,
   formatForumBanMessage,
 } from "@/lib/forum-moderation";
 import { buildForumThreadSlug } from "@/lib/forum";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
-import type { ForumFormState } from "@/app/actions/forum-state";
+import type {
+  ForumAdminFormState,
+  ForumFormState,
+} from "@/app/actions/forum-state";
 
 /** UUID из формы: значение приходит из браузера, доверять ему нельзя. */
 const UUID_PATTERN =
@@ -176,6 +181,69 @@ export async function createThread(
   };
 }
 
+
+/**
+ * Удаляет тему из админки вместе со всеми ответами.
+ *
+ * Доступ проверяется по реальной сессии и ADMIN_EMAIL, как в остальных
+ * админских действиях. Само удаление выполняется service_role-клиентом:
+ * forum_threads закрыта RLS, а forum_replies удаляются каскадом по внешнему
+ * ключу ON DELETE CASCADE.
+ */
+export async function deleteThread(
+  _prevState: ForumAdminFormState,
+  formData: FormData,
+): Promise<ForumAdminFormState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user || !isAdminEmail(user.email)) {
+    return { error: "Недостаточно прав. Войдите под администратором форума." };
+  }
+
+  const threadId = String(formData.get("threadId") ?? "").trim();
+
+  if (!UUID_PATTERN.test(threadId)) {
+    return { error: "Некорректная тема." };
+  }
+
+  const admin = createAdminClient();
+  const { data: thread, error: readError } = await admin
+    .from("forum_threads")
+    .select("slug")
+    .eq("id", threadId)
+    .maybeSingle();
+
+  if (readError) {
+    console.warn("Не удалось прочитать тему для удаления:", readError.message);
+    return { error: "Не удалось удалить тему. Попробуйте ещё раз." };
+  }
+
+  if (!thread) {
+    return { error: "Тема не найдена." };
+  }
+
+  const { error } = await admin
+    .from("forum_threads")
+    .delete()
+    .eq("id", threadId);
+
+  if (error) {
+    console.warn("Не удалось удалить тему форума:", error.message);
+    return { error: "Не удалось удалить тему. Попробуйте ещё раз." };
+  }
+
+  const slug = (thread as { slug: string }).slug;
+
+  revalidatePath("/forum");
+  revalidatePath(`/forum/${slug}`);
+  revalidatePath("/admin/forum");
+
+  return { success: "Тема удалена вместе с ответами." };
+}
 
 /**
  * Создаёт ответ и публикует его сразу (пост-модерация).
