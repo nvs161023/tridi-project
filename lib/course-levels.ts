@@ -6,15 +6,13 @@
  * data/courses.json. Поэтому главная и тарифы не могут разойтись с содержимым:
  * оба экрана читают этот модуль, а не собственные копии чисел.
  *
- * Продвинутый курс (data/course-pro.json) в четыре уровня не входит: это
- * отдельный большой курс, который открывается той же подпиской Pro. Его схемы
- * нужны только для общего счётчика проекта — 410 кадров.
+ * Старый продвинутый курс (data/course-pro.json) выведен из доступа и витрины:
+ * его данные остаются в репозитории как архив, но в счётчики не входят.
  */
 import confidentData from "@/data/course-confident.json";
 import engineerData from "@/data/course-engineer.json";
 import coursesData from "@/data/courses.json";
 import lessonsData from "@/data/lessons.json";
-import courseProData from "@/data/course-pro.json";
 import profitData from "@/data/course-profit.json";
 import {
   countExplanations,
@@ -168,12 +166,7 @@ export const PAID_LEVELS = LEVELS.filter(
   (level): level is CourseLevel & { key: PaidLevelKey } => !level.isFree,
 );
 
-/** Продвинутый курс — бонус подписки и часть общего счётчика 410 схем. */
-const proSummary = summarizeCourse(courseProData);
-export const PRO_VISUALS = countVisualBlocks(courseProData);
-export const PRO_LESSONS = proSummary.lessons;
-export const PRO_HOURS = proSummary.hours;
-
+/** Продвинутый курс выведен из доступа, поэтому витрина считает только уровни. */
 export const TOTAL_LESSONS = LEVELS.reduce((sum, level) => sum + level.lessons, 0);
 export const TOTAL_LEVEL_VISUALS = LEVELS.reduce(
   (sum, level) => sum + level.visuals,
@@ -189,8 +182,8 @@ export const TOTAL_EXPLANATIONS = LEVELS.reduce(
   0,
 );
 
-/** 410 схем проекта: 250 в четырёх уровнях + 160 в продвинутом курсе. */
-export const TOTAL_VISUALS = TOTAL_LEVEL_VISUALS + PRO_VISUALS;
+/** Все схемы относятся к четырём доступным уровням. */
+export const TOTAL_VISUALS = TOTAL_LEVEL_VISUALS;
 
 export const PAID_LESSONS = PAID_LEVELS.reduce(
   (sum, level) => sum + level.lessons,

@@ -151,7 +151,7 @@ export default async function EngineerCheckPage({
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-slate-300">
                 Тесты модулей уровня «Инженер» входят в платный доступ:
-                купите уровень навсегда или откройте его по подписке Pro.
+                купите уровень навсегда.
               </p>
               <div className="mt-8">
                 <Link

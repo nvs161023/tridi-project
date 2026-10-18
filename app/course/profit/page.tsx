@@ -91,7 +91,7 @@ export default async function ProfitCoursePage() {
         </div>
 
         <p className="mt-8 rounded-2xl border border-rose-500/30 bg-rose-500/5 px-5 py-4 text-sm leading-relaxed text-rose-100/85">
-          Уровень можно купить навсегда или открыть по подписке Pro.{" "}
+          Уровень можно купить навсегда.{" "}
           <Link
             href="/subscription"
             className="font-semibold text-rose-200 underline-offset-4 transition-colors hover:text-rose-100 hover:underline"

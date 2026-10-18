@@ -4,9 +4,7 @@ import { CompleteButton } from "@/components/course/CompleteButton";
 import { LessonBlocks } from "@/components/course/LessonBlocks";
 import { ModuleTestGate } from "@/components/course/ModuleTestGate";
 import { TestOverlay } from "@/components/course/TestOverlay";
-import courseProData from "@/data/course-pro.json";
 import { basicCourseModules, basicLessons } from "@/lib/basic-course";
-import { LESSON_FORMS, pluralize, summarizeCourse } from "@/lib/course-stats";
 import { isModuleTestCompleted } from "@/lib/module-test";
 import { loadPassedModuleTests } from "@/lib/module-test-progress";
 import type { MiniCheckQuestion } from "@/lib/types";
@@ -20,23 +18,6 @@ import type { MiniCheckQuestion } from "@/lib/types";
  */
 const lessons = basicLessons;
 const totalLessons = lessons.length;
-
-/** Сводка продвинутого курса для приглашения — считается по файлу курса. */
-const proSummary = summarizeCourse(courseProData);
-
-/**
- * Что даёт продвинутый курс — модули золотого блока-приглашения. Названия берём
- * из файла курса по коду модуля, а не пишем текстом: так приглашение не
- * разойдётся с программой курса.
- */
-const PRO_PROMO_MODULE_IDS: string[] = ["A-без", "B", "E2", "C2", "J", "T"];
-const proPromoItems: string[] = PRO_PROMO_MODULE_IDS.flatMap((moduleId) => {
-  const courseModule = courseProData.modules.find(
-    (item) => item.module_id === moduleId,
-  );
-
-  return courseModule ? [courseModule.module_title] : [];
-});
 
 type LessonPageProps = {
   params: Promise<{ id: string }>;
@@ -72,57 +53,6 @@ export async function generateMetadata({ params }: LessonPageProps) {
       ? `${lesson.title} — 3D-печать с нуля`
       : "Урок не найден — 3D-печать с нуля",
   };
-}
-
-/**
- * Золотой блок-приглашение в продвинутый курс.
- *
- * Показывается на последнем уроке базового курса: человек только что закончил
- * бесплатную часть — это лучшее место предложить продолжение.
- */
-function ProCoursePromo() {
-  return (
-    <section className="relative mt-12 overflow-hidden rounded-3xl border-2 border-yellow-500/50 bg-gradient-to-b from-amber-500/10 via-slate-900/70 to-slate-900/80 p-7 sm:mt-16 sm:p-9">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-amber-400/10 blur-3xl"
-      />
-
-      <p className="relative text-2xl font-extrabold text-white sm:text-3xl">
-        <span aria-hidden>🎉</span> Базовый курс пройден! Теперь ты готов к
-        продвинутому:
-      </p>
-
-      <ul className="relative mt-6 space-y-3">
-        {proPromoItems.map((item) => (
-          <li
-            key={item}
-            className="flex items-start gap-3 text-base leading-relaxed text-slate-200"
-          >
-            <span aria-hidden className="text-amber-300">
-              —
-            </span>
-            {item}
-          </li>
-        ))}
-      </ul>
-
-      <p className="relative mt-6 text-sm font-semibold text-amber-200">
-        {proSummary.lessons} {pluralize(proSummary.lessons, LESSON_FORMS)} ·{" "}
-        {proSummary.hours} · входит в тариф Pro
-      </p>
-
-      <div className="relative mt-8">
-        <Link
-          href="/course/pro/A/A1"
-          className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-9 text-lg font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
-        >
-          Открыть продвинутый курс
-          <span aria-hidden>→</span>
-        </Link>
-      </div>
-    </section>
-  );
 }
 
 function LessonNotFound() {
@@ -345,8 +275,6 @@ export default async function LessonPage({ params }: LessonPageProps) {
           courseType="basic"
           lessonId={lesson.id}
         />
-
-        {isLastLesson ? <ProCoursePromo /> : null}
 
         <div className="mt-12 sm:mt-16">
           {lesson.isModuleLast ? (

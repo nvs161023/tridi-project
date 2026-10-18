@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 
 import { Logo } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/server";
@@ -35,10 +34,10 @@ function getInitials(email: string | null): string {
  *
  * На защищённых страницах middleware уже проверил пользователя и положил его
  * данные в USER_HEADER. Здесь читаем этот заголовок, чтобы не делать второй
- * сетевой getUser(). На публичных страницах заголовка нет — тогда для выбора
- * кнопки достаточно getSession(): он разбирает cookie и не ходит в сеть.
- * Email из сессии используется только для подписи в шапке, но не для решения о
- * доступе: доступ к кабинету и урокам проверяет middleware через getUser().
+ * сетевой getUser(). На публичных страницах заголовка нет — тогда проверяем
+ * сессию через getUser(): он валидирует токен на сервере, а не доверяет
+ * данным cookie. Email используется только для подписи в шапке; доступ к
+ * кабинету и урокам по-прежнему проверяет middleware.
  *
  * Важно: cookies() делает страницу, где стоит шапка, динамической — Next.js
  * отдаёт её на каждый запрос, без статической генерации. Для страницы с
@@ -53,20 +52,11 @@ export async function Header() {
 
   if (!isAuthorized) {
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    isAuthorized = Boolean(session?.user);
-    userEmail = session?.user.email ?? null;
-  }
-
-  /** Выход из аккаунта доступен из общей шапки на любой странице. */
-  async function logout() {
-    "use server";
-
-    const serverSupabase = await createClient();
-    await serverSupabase.auth.signOut();
-    redirect("/");
+    isAuthorized = Boolean(user);
+    userEmail = user?.email ?? null;
   }
 
   return (
@@ -145,7 +135,7 @@ export async function Header() {
                 </span>
               </Link>
 
-              <form action={logout}>
+              <form action="/logout" method="post">
                 <button
                   type="submit"
                   className="inline-flex shrink-0 items-center rounded-full border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:px-4 sm:text-sm"

@@ -91,7 +91,7 @@ export default async function ConfidentCoursePage() {
         </div>
 
         <p className="mt-8 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 px-5 py-4 text-sm leading-relaxed text-emerald-100/85">
-          Уровень можно купить навсегда или открыть по подписке Pro.{" "}
+          Уровень можно купить навсегда.{" "}
           <Link
             href="/subscription"
             className="font-semibold text-emerald-200 underline-offset-4 transition-colors hover:text-emerald-100 hover:underline"

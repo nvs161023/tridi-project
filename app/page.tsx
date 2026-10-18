@@ -15,9 +15,7 @@ import {
   PAID_LESSONS,
   PAID_TESTS,
   PAID_VISUALS,
-  PRO_VISUALS,
   TOTAL_LESSONS,
-  TOTAL_LEVEL_VISUALS,
   TOTAL_TESTS,
   TOTAL_VISUALS,
   type CourseLevel,
@@ -763,9 +761,8 @@ export default async function Home() {
             </div>
 
             <p className="mt-8 text-sm leading-relaxed text-slate-500">
-              Показали 4 из {TOTAL_VISUALS}. {TOTAL_LEVEL_VISUALS} схем
-              нарисованы под {TOTAL_LESSONS} уроков четырёх уровней, ещё{" "}
-              {PRO_VISUALS} — в продвинутом курсе. Остальные открываются внутри
+              Показали 4 из {TOTAL_VISUALS}. Все схемы нарисованы под{" "}
+              {TOTAL_LESSONS} уроков четырёх уровней и открываются внутри
               уроков вместе с подписями и пояснениями.
             </p>
           </div>

@@ -91,12 +91,12 @@ export default async function ForumThreadPage({ params }: ThreadPageProps) {
     ...replies.map((reply) => reply.author_id),
   ]);
 
-  // getSession только разбирает cookie и не ходит в сеть. Это подсказка для
-  // интерфейса, а не проверка прав: createReply вызовет getUser() заново.
+  // getUser проверяет токен на сервере. Это подсказка для интерфейса, а не
+  // проверка прав: createReply вызовет getUser() заново.
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const userId = session?.user.id ?? null;
+    data: { user },
+  } = await supabase.auth.getUser();
+  const userId = user?.id ?? null;
   const ban = userId ? await checkForumBan(supabase, userId) : null;
 
   const siteUrl = await resolveSiteUrl();

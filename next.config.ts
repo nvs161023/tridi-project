@@ -43,6 +43,17 @@ const nextConfig: NextConfig = {
       /** Вариант написания адреса оферты: люди ищут её как «/legal/oferta». */
       { source: "/legal/oferta", destination: "/legal/offer", permanent: true },
       { source: "/register", destination: "/auth/sign-up", permanent: true },
+      /**
+       * Выведенный из платформы продвинутый курс: старые закладки и ссылки
+       * ведут на актуальный пакет трёх уровней. Редиректы из конфига
+       * срабатывают раньше middleware, поэтому работают и для гостя.
+       */
+      { source: "/course/pro", destination: "/courses/pro", permanent: true },
+      {
+        source: "/course/pro/:path*",
+        destination: "/courses/pro",
+        permanent: true,
+      },
     ];
   },
 };

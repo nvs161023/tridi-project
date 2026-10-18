@@ -1,11 +1,11 @@
 /**
  * Типы данных курсов.
  *
- * Здесь только форма данных: и базовый (data/lessons.json), и продвинутый
- * (data/course-pro.json) курс лежат модулями — модуль, уроки внутри него и тест по
- * модулю. Внешний вид блоков живёт в components/course/LessonBlocks.tsx, цифры для
- * витрины считает lib/course-stats.ts, а разворот базового курса в плоский список
- * уроков — lib/basic-course.ts.
+ * Здесь только форма данных: базовый курс и платные уровни лежат модулями —
+ * модуль, уроки внутри него и тест по модулю. Внешний вид блоков живёт в
+ * components/course/LessonBlocks.tsx, цифры для витрины считает
+ * lib/course-stats.ts, а разворот курса в плоский список уроков —
+ * lib/basic-course.ts, lib/confident-course.ts и соседние модули уровней.
  */
 
 /**
@@ -16,8 +16,8 @@
  * пока — заглушка с иконкой);
  * mini_check — мини-проверка в конце урока (components/course/MiniCheck.tsx).
  *
- * В данных обоих курсов mini_check сейчас не используется: проверки живут на
- * страницах «Проверь себя» (/course/check/<модуль> и /course/pro/<модуль>/check),
+ * В данных курсов mini_check сейчас не используется: проверки живут на страницах
+ * «Проверь себя» (/course/check/<модуль> и /course/<уровень>/<модуль>/check),
  * а в уроке остаётся только материал. Поддержку блока оставили: она пригодится,
  * если понадобится короткая проверка прямо в уроке.
  */
@@ -81,54 +81,9 @@ export type LessonBlock = {
   questions?: MiniCheckQuestion[];
 };
 
-/** Урок продвинутого курса. */
-export type ProLesson = {
-  /** Код урока: A1, C1-1, T14 — он же последний сегмент адреса. */
-  lesson_id: string;
-  /**
-   * Номер урока в курсе целиком (1…109): в файле курса lesson_order сквозной, а не
-   * внутри модуля. Место урока внутри модуля считаем по порядку в массиве lessons
-   * (см. app/course/pro/[moduleId]/[lessonId]/page.tsx) — по нему страница решает,
-   * первый это урок модуля или последний.
-   */
-  lesson_order: number;
-  lesson_title: string;
-  /** Длительность строкой: «25 мин». */
-  duration: string;
-  blocks: LessonBlock[];
-};
-
 /** Тест по модулю: та же форма, что у mini_check. */
 export type ProModuleTest = {
   questions: MiniCheckQuestion[];
-};
-
-/** Модуль продвинутого курса. */
-export type ProModule = {
-  /** Код модуля: A, C1, T-тизер — он же предпоследний сегмент адреса. */
-  module_id: string;
-  /** Место модуля в курсе, с единицы. */
-  module_order: number;
-  module_title: string;
-  module_description: string;
-  lessons: ProLesson[];
-  module_test?: ProModuleTest;
-};
-
-/** Файл продвинутого курса целиком (data/course-pro.json). */
-export type ProCourse = {
-  course_id: string;
-  course_title: string;
-  version: string;
-  /**
-   * Заявленные в файле числа. Показывать их нельзя — считать надёжнее по самим
-   * модулям: поля легко отстают от содержимого (так уже было: total_lessons
-   * заявлял 110 уроков при 109 реальных). Совпадение полей с содержимым
-   * проверяет `npm run check:docs` (см. lib/course-stats.ts, summarizeCourse).
-   */
-  total_modules: number;
-  total_lessons: number;
-  modules: ProModule[];
 };
 
 /**

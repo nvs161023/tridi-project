@@ -106,7 +106,7 @@ function LessonNotFound() {
 }
 
 /**
- * Замок без доступа: уровень можно купить навсегда или открыть подпиской Pro.
+ * Замок без доступа: уровень покупается навсегда.
  * Цену здесь не показываем — состав тарифов живёт на /subscription.
  */
 function LockedNotice({ refreshHref }: { refreshHref: string }) {
@@ -117,8 +117,8 @@ function LockedNotice({ refreshHref }: { refreshHref: string }) {
       </h2>
 
       <p className="relative mx-auto mt-4 max-w-xl text-base leading-relaxed text-slate-300">
-        Уровень «Инженер» можно купить навсегда или открыть по подписке
-        Pro: {totalLessons} {pluralize(totalLessons, LESSON_FORMS)}, {totalHours},
+        Уровень «Инженер» покупается навсегда: {totalLessons}{" "}
+        {pluralize(totalLessons, LESSON_FORMS)}, {totalHours},
         визуализации к каждому блоку и практика после урока.
       </p>
 
