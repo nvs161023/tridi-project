@@ -8,6 +8,7 @@ import {
 } from "@/components/landing/VisualPlaceholder";
 import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
+import { resolveUserId } from "@/lib/current-user";
 import { LEGAL_OPERATOR } from "@/lib/legal";
 import {
   LEVELS,
@@ -27,6 +28,8 @@ import {
   VISUAL_FORMS,
   pluralize,
 } from "@/lib/course-stats";
+import { getPurchasedCourses } from "@/lib/subscription";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
   title: "TriDi — освой 3D-печать: от первой детали до бизнеса",
@@ -302,7 +305,13 @@ const GOLD_CTA = `${CTA_BASE} bg-gradient-to-r from-amber-400 to-amber-500 text-
  */
 export const dynamic = "force-dynamic";
 
-export default function Home() {
+export default async function Home() {
+  const supabase = await createClient();
+  const userId = await resolveUserId(supabase);
+  const purchasedCourses = userId
+    ? await getPurchasedCourses(supabase, userId)
+    : { confident: false, engineer: false, profit: false };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <Header />
@@ -552,6 +561,8 @@ export default function Home() {
             <div className="mt-10 grid gap-5 sm:mt-12 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
               {LEVELS.map((level) => {
                 const style = LEVEL_STYLES[level.key];
+                const isPurchased =
+                  level.key !== "basic" && purchasedCourses[level.key];
 
                 return (
                   <article
@@ -646,17 +657,33 @@ export default function Home() {
                     </ul>
 
                     <div className="mt-auto pt-7">
-                      <Link
-                        href={level.isFree ? START_FREE_HREF : level.href}
-                        className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
-                          level.isFree
-                            ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25 hover:bg-blue-500"
-                            : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
-                        }`}
-                      >
-                        {level.isFree ? "Начать бесплатно" : "Подробнее о курсе"}
-                        <span aria-hidden>→</span>
-                      </Link>
+                      {isPurchased ? (
+                        <>
+                          <p className="flex items-center justify-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200">
+                            <span aria-hidden>✓</span>
+                            Доступ открыт
+                          </p>
+                          <Link
+                            href={`/course/${level.key}`}
+                            className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/25 transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                          >
+                            Продолжить обучение
+                            <span aria-hidden>→</span>
+                          </Link>
+                        </>
+                      ) : (
+                        <Link
+                          href={level.isFree ? START_FREE_HREF : level.href}
+                          className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+                            level.isFree
+                              ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25 hover:bg-blue-500"
+                              : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
+                          }`}
+                        >
+                          {level.isFree ? "Начать бесплатно" : "Подробнее о курсе"}
+                          <span aria-hidden>→</span>
+                        </Link>
+                      )}
                     </div>
                   </article>
                 );

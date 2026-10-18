@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Header } from "@/components/Header";
 import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
+import { resolveUserId } from "@/lib/current-user";
 import { LEGAL_OPERATOR } from "@/lib/legal";
 import {
   LEVELS,
@@ -22,6 +23,8 @@ import {
   VISUAL_FORMS,
   pluralize,
 } from "@/lib/course-stats";
+import { getPurchasedCourses, hasCourseAccess } from "@/lib/subscription";
+import { createClient } from "@/lib/supabase/server";
 
 import { PlanButton } from "./PlanButton";
 
@@ -180,7 +183,16 @@ const FAQ: { question: string; answer: string }[] = [
  */
 export const dynamic = "force-dynamic";
 
-export default function SubscriptionPage() {
+export default async function SubscriptionPage() {
+  const supabase = await createClient();
+  const userId = await resolveUserId(supabase);
+  const purchasedCourses = userId
+    ? await getPurchasedCourses(supabase, userId)
+    : { confident: false, engineer: false, profit: false };
+  const hasBundle = userId
+    ? await hasCourseAccess(supabase, userId, "pro")
+    : false;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <Header />
@@ -297,6 +309,8 @@ export default function SubscriptionPage() {
                     </th>
                     {LEVELS.map((level) => {
                       const style = LEVEL_STYLES[level.key];
+                      const isPurchased =
+                        level.key !== "basic" && purchasedCourses[level.key];
 
                       return (
                         <th
@@ -316,13 +330,19 @@ export default function SubscriptionPage() {
                           <span className="mt-1 block text-lg font-bold text-white">
                             {level.shortTitle}
                           </span>
-                          <span
-                            className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${style.badge}`}
-                          >
-                            {level.isFree
-                              ? "0 ₽"
-                              : `${formatPrice(level.price)} ₽`}
-                          </span>
+                          {isPurchased ? (
+                            <span className="mt-2 inline-flex rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+                              Доступ открыт
+                            </span>
+                          ) : (
+                            <span
+                              className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${style.badge}`}
+                            >
+                              {level.isFree
+                                ? "0 ₽"
+                                : `${formatPrice(level.price)} ₽`}
+                            </span>
+                          )}
                         </th>
                       );
                     })}
@@ -354,23 +374,44 @@ export default function SubscriptionPage() {
                     >
                       Старт
                     </th>
-                    {LEVELS.map((level) => (
-                      <td
-                        key={level.key}
-                        className="border-l border-white/10 px-4 py-4"
-                      >
-                        <Link
-                          href={level.isFree ? START_FREE_HREF : level.href}
-                          className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
-                            level.isFree
-                              ? "bg-blue-600 text-white hover:bg-blue-500"
-                              : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
-                          }`}
+                    {LEVELS.map((level) => {
+                      const isPurchased =
+                        level.key !== "basic" && purchasedCourses[level.key];
+
+                      return (
+                        <td
+                          key={level.key}
+                          className="border-l border-white/10 px-4 py-4"
                         >
-                          {level.isFree ? "Начать бесплатно" : "Подробнее о курсе"}
-                        </Link>
-                      </td>
-                    ))}
+                          {isPurchased ? (
+                            <div className="flex flex-col items-center gap-2">
+                              <span className="inline-flex rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-200">
+                                Доступ открыт
+                              </span>
+                              <Link
+                                href={`/course/${level.key}`}
+                                className="inline-flex min-h-10 items-center justify-center rounded-full bg-emerald-600 px-4 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                              >
+                                Продолжить обучение
+                              </Link>
+                            </div>
+                          ) : (
+                            <Link
+                              href={level.isFree ? START_FREE_HREF : level.href}
+                              className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+                                level.isFree
+                                  ? "bg-blue-600 text-white hover:bg-blue-500"
+                                  : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
+                              }`}
+                            >
+                              {level.isFree
+                                ? "Начать бесплатно"
+                                : "Подробнее о курсе"}
+                            </Link>
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 </tbody>
               </table>
@@ -380,6 +421,8 @@ export default function SubscriptionPage() {
             <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:hidden">
               {LEVELS.map((level) => {
                 const style = LEVEL_STYLES[level.key];
+                const isPurchased =
+                  level.key !== "basic" && purchasedCourses[level.key];
 
                 return (
                   <article
@@ -396,11 +439,17 @@ export default function SubscriptionPage() {
                       >
                         {level.code}
                       </span>
-                      <span
-                        className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${style.badge}`}
-                      >
-                        {level.isFree ? "Бесплатно" : "Навсегда"}
-                      </span>
+                      {isPurchased ? (
+                        <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+                          Доступ открыт
+                        </span>
+                      ) : (
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${style.badge}`}
+                        >
+                          {level.isFree ? "Бесплатно" : "Навсегда"}
+                        </span>
+                      )}
                     </div>
 
                     <h3 className="mt-3 text-xl font-extrabold text-white">
@@ -449,16 +498,26 @@ export default function SubscriptionPage() {
                       </div>
                     </dl>
 
-                    <Link
-                      href={level.isFree ? START_FREE_HREF : level.href}
-                      className={`mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
-                        level.isFree
-                          ? "bg-blue-600 text-white hover:bg-blue-500"
-                          : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
-                      }`}
-                    >
-                      {level.isFree ? "Начать бесплатно" : "Подробнее о курсе"}
-                    </Link>
+                    {isPurchased ? (
+                      <Link
+                        href={`/course/${level.key}`}
+                        className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                      >
+                        Продолжить обучение
+                        <span aria-hidden>→</span>
+                      </Link>
+                    ) : (
+                      <Link
+                        href={level.isFree ? START_FREE_HREF : level.href}
+                        className={`mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+                          level.isFree
+                            ? "bg-blue-600 text-white hover:bg-blue-500"
+                            : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
+                        }`}
+                      >
+                        {level.isFree ? "Начать бесплатно" : "Подробнее о курсе"}
+                      </Link>
+                    )}
                   </article>
                 );
               })}
@@ -586,6 +645,7 @@ export default function SubscriptionPage() {
 
               {PAID_LEVELS.map((level) => {
                 const style = LEVEL_STYLES[level.key];
+                const isPurchased = purchasedCourses[level.key];
 
                 return (
                   <article
@@ -602,7 +662,11 @@ export default function SubscriptionPage() {
                       >
                         {level.code}
                       </span>
-                      {level.badge ? (
+                      {isPurchased ? (
+                        <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">
+                          Доступ открыт
+                        </span>
+                      ) : level.badge ? (
                         <span className={DISCOUNT_BADGE}>{level.badge}</span>
                       ) : (
                         <span
@@ -664,21 +728,39 @@ export default function SubscriptionPage() {
                     </ul>
 
                     <div className="mt-auto pt-5">
-                      <PlanButton
-                        label="Купить навсегда"
-                        courseId={level.key}
-                        size="compact"
-                      />
-                      <Link
-                        href={level.href}
-                        className="mt-2 inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full border border-white/15 px-4 text-xs font-semibold text-slate-200 transition-colors hover:border-white/30 hover:text-white"
-                      >
-                        Подробнее о курсе
-                        <span aria-hidden>→</span>
-                      </Link>
-                      <p className="mt-2 text-center text-[11px] font-medium text-slate-400">
-                        Доступ навсегда
-                      </p>
+                      {isPurchased ? (
+                        <>
+                          <p className="flex items-center justify-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200">
+                            <span aria-hidden>✓</span>
+                            Доступ открыт
+                          </p>
+                          <Link
+                            href={`/course/${level.key}`}
+                            className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/25 transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                          >
+                            Продолжить обучение
+                            <span aria-hidden>→</span>
+                          </Link>
+                        </>
+                      ) : (
+                        <>
+                          <PlanButton
+                            label="Купить навсегда"
+                            courseId={level.key}
+                            size="compact"
+                          />
+                          <Link
+                            href={level.href}
+                            className="mt-2 inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full border border-white/15 px-4 text-xs font-semibold text-slate-200 transition-colors hover:border-white/30 hover:text-white"
+                          >
+                            Подробнее о курсе
+                            <span aria-hidden>→</span>
+                          </Link>
+                          <p className="mt-2 text-center text-[11px] font-medium text-slate-400">
+                            Доступ навсегда
+                          </p>
+                        </>
+                      )}
                     </div>
                   </article>
                 );
@@ -746,16 +828,34 @@ export default function SubscriptionPage() {
                 </ul>
 
                 <div className="relative mt-auto pt-5">
-                  <Link
-                    href="/courses/pro"
-                    className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-5 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  >
-                    Подробнее о курсе
-                    <span aria-hidden>→</span>
-                  </Link>
-                  <p className="mt-2 text-center text-[11px] font-medium text-amber-100/80">
-                    Доступ навсегда
-                  </p>
+                  {hasBundle ? (
+                    <>
+                      <p className="flex items-center justify-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200">
+                        <span aria-hidden>✓</span>
+                        Доступ открыт
+                      </p>
+                      <Link
+                        href="/dashboard"
+                        className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/25 transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                      >
+                        Продолжить обучение
+                        <span aria-hidden>→</span>
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <Link
+                        href="/courses/pro"
+                        className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-5 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                      >
+                        Подробнее о курсе
+                        <span aria-hidden>→</span>
+                      </Link>
+                      <p className="mt-2 text-center text-[11px] font-medium text-amber-100/80">
+                        Доступ навсегда
+                      </p>
+                    </>
+                  )}
                 </div>
               </article>
             </div>

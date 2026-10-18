@@ -27,13 +27,32 @@ function text(body: string, status = 200): Response {
 }
 
 /**
+ * Все параметры уведомления одной строкой для логов.
+ *
+ * Robokassa присылает `OutSum`, `InvId`, `SignatureValue` и `Shp_*`; пароли
+ * магазина в запросе не приходят, поэтому логировать параметры безопасно.
+ */
+function logIncoming(method: string, params: URLSearchParams): void {
+  console.log(
+    "[Robokassa] Входящий запрос:",
+    method,
+    Object.fromEntries(params.entries()),
+  );
+}
+
+/**
  * Разбирает уведомление Robokassa и записывает покупку.
  *
  * Ответ `OK{InvId}` — единственный признак успешной обработки для Robokassa.
  * При ошибке базы возвращаем 500, чтобы платёж не потерялся и уведомление
  * пришло повторно.
  */
-async function handleResult(params: URLSearchParams): Promise<Response> {
+async function handleResult(
+  method: string,
+  params: URLSearchParams,
+): Promise<Response> {
+  logIncoming(method, params);
+
   const outSum = params.get("OutSum")?.trim() ?? "";
   const invIdRaw = params.get("InvId")?.trim() ?? "";
   const signatureValue = params.get("SignatureValue")?.trim() ?? "";
@@ -59,7 +78,7 @@ async function handleResult(params: URLSearchParams): Promise<Response> {
     password2 = getRobokassaPassword2();
   } catch (error) {
     console.error(
-      "Robokassa ResultURL: не настроен пароль №2:",
+      "[Robokassa] Ошибка конфигурации: не задан ROBOKASSA_PASSWORD2:",
       error instanceof Error ? error.message : "неизвестная ошибка",
     );
     return text("payment configuration error", 500);
@@ -67,15 +86,17 @@ async function handleResult(params: URLSearchParams): Promise<Response> {
 
   // Подпись включает Shp_*-параметры и сортирует их по имени — см.
   // buildShpSignaturePart в lib/payments.ts.
-  if (
-    !verifyResultSignature(
-      outSum,
-      invIdRaw,
-      signatureValue,
-      shp,
-      password2,
-    )
-  ) {
+  const signatureIsValid = verifyResultSignature(
+    outSum,
+    invIdRaw,
+    signatureValue,
+    shp,
+    password2,
+  );
+
+  console.log("[Robokassa] Подпись верна:", signatureIsValid);
+
+  if (!signatureIsValid) {
     return text("invalid signature", 400);
   }
 
@@ -114,8 +135,8 @@ async function handleResult(params: URLSearchParams): Promise<Response> {
     admin = createAdminClient();
   } catch (error) {
     console.error(
-      "Robokassa ResultURL: не настроен service_role:",
-      error instanceof Error ? error.message : "неизвестная ошибка",
+      "[Robokassa] Ошибка конфигурации: не удалось создать service_role:",
+      error,
     );
     return text("payment configuration error", 500);
   }
@@ -133,10 +154,7 @@ async function handleResult(params: URLSearchParams): Promise<Response> {
 
     insertError = error;
   } catch (error) {
-    console.error(
-      "Robokassa ResultURL: сеть базы недоступна:",
-      error instanceof Error ? error.message : "неизвестная ошибка",
-    );
+    console.error("[Robokassa] Ошибка БД:", error);
     return text("database error", 500);
   }
 
@@ -144,24 +162,32 @@ async function handleResult(params: URLSearchParams): Promise<Response> {
     // Robokassa может прислать одно и то же уведомление несколько раз.
     // Уникальный inv_id делает обработку идемпотентной.
     if (insertError.code === "23505") {
+      console.log(
+        "[Robokassa] Повторное уведомление, покупка уже записана:",
+        invId,
+      );
       return text(`OK${invId}`);
     }
 
-    console.error(
-      "Robokassa ResultURL: не удалось записать покупку:",
-      insertError.code,
-      insertError.message,
-    );
+    console.error("[Robokassa] Ошибка БД:", insertError);
 
     return text("database error", 500);
   }
+
+  console.log("[Robokassa] Покупка записана:", {
+    invId,
+    userId,
+    courseId,
+    amount: expectedAmount,
+    expiresAt,
+  });
 
   return text(`OK${invId}`);
 }
 
 /** ResultURL может быть настроен на GET — поддерживаем оба метода. */
 export async function GET(request: NextRequest): Promise<Response> {
-  return handleResult(new URL(request.url).searchParams);
+  return handleResult("GET", new URL(request.url).searchParams);
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -171,10 +197,22 @@ export async function POST(request: NextRequest): Promise<Response> {
     !contentType.includes("application/x-www-form-urlencoded") &&
     !contentType.includes("multipart/form-data")
   ) {
+    console.error(
+      "[Robokassa] Неподдерживаемый Content-Type:",
+      contentType || "(пусто)",
+    );
     return text("unsupported content type", 415);
   }
 
-  const formData = await request.formData();
+  let formData: FormData;
+
+  try {
+    formData = await request.formData();
+  } catch (error) {
+    console.error("[Robokassa] Не удалось разобрать тело запроса:", error);
+    return text("invalid request body", 400);
+  }
+
   const params = new URLSearchParams();
 
   for (const [key, value] of formData.entries()) {
@@ -183,5 +221,5 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
   }
 
-  return handleResult(params);
+  return handleResult("POST", params);
 }

@@ -263,6 +263,30 @@ export async function hasPurchasedCourse(
   return hasCourseAccess(supabase, userId, courseId);
 }
 
+/** Состояние трёх платных уровней — для витрины и карточек тарифов. */
+export type PurchasedCourses = Record<PaidCourseId, boolean>;
+
+/**
+ * Проверяет все три платных уровня одним вызовом.
+ *
+ * Запросы идут параллельно, а правила доступа остаются в hasPurchasedCourse:
+ * пакет `pro` открывает каждый уровень, отдельная покупка — только свой.
+ * Витрина использует результат, чтобы вместо «Купить» показать «Продолжить
+ * обучение» и плашку «Доступ открыт».
+ */
+export async function getPurchasedCourses(
+  supabase: Supabase,
+  userId: string,
+): Promise<PurchasedCourses> {
+  const [confident, engineer, profit] = await Promise.all([
+    hasPurchasedCourse(supabase, userId, "confident"),
+    hasPurchasedCourse(supabase, userId, "engineer"),
+    hasPurchasedCourse(supabase, userId, "profit"),
+  ]);
+
+  return { confident, engineer, profit };
+}
+
 /**
  * Доступ к продвинутому курсу (109 уроков).
  *
