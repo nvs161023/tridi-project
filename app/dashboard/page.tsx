@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { Logo } from "@/components/Logo";
 import { basicLessons } from "@/lib/basic-course";
 import { createClient } from "@/lib/supabase/server";
 import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
@@ -13,6 +14,15 @@ type Profile = {
 };
 
 const totalLessons = basicLessons.length;
+
+/**
+ * Уроки, которые существуют в текущей программе.
+ *
+ * В lesson_progress могли остаться старые записи: удалённые уроки, дубли или
+ * строки продвинутого курса с теми же номерами. Считаем только уникальные
+ * lesson_id, которые есть в basicLessons, иначе прогресс переваливает за 100%.
+ */
+const validLessonIds = new Set(basicLessons.map((lesson) => lesson.id));
 
 export default async function DashboardPage() {
   // Пользователя проверил middleware — одним сетевым getUser() на весь запрос.
@@ -71,9 +81,24 @@ export default async function DashboardPage() {
   const displayName =
     profile?.name?.trim() || identity.name?.trim() || identity.email || "друг";
 
-  const completedLessons = progress.data?.length ?? 0;
-  const isCourseCompleted = completedLessons >= totalLessons;
-  const progressPercent = Math.round((completedLessons / totalLessons) * 100);
+  // Set отбрасывает дубли, а validLessonIds — записи удалённых уроков и чужих
+  // курсов. Так «пройдено» не может быть больше числа уроков программы.
+  const completedLessons = new Set(
+    (progress.data ?? [])
+      .map((row) => Number(row.lesson_id))
+      .filter(
+        (lessonId) =>
+          Number.isFinite(lessonId) && validLessonIds.has(lessonId),
+      ),
+  ).size;
+
+  // Даже если база вернула больше строк, чем уроков, показываем честные 100%.
+  const shownCompletedLessons = Math.min(completedLessons, totalLessons);
+  const isCourseCompleted = totalLessons > 0 && completedLessons >= totalLessons;
+  const progressPercent =
+    totalLessons === 0
+      ? 0
+      : Math.min(100, Math.round((completedLessons / totalLessons) * 100));
 
   async function logout() {
     "use server";
@@ -87,13 +112,7 @@ export default async function DashboardPage() {
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-5 py-5 sm:px-8">
-          <Link
-            href="/"
-            className="flex items-center gap-2 text-base font-bold transition-colors hover:text-blue-400"
-          >
-            <span aria-hidden>🖨️</span>
-            <span>3D-печать с нуля</span>
-          </Link>
+          <Logo lessonsHref="/dashboard" showBadges={false} />
 
           <form action={logout}>
             <button
@@ -137,7 +156,7 @@ export default async function DashboardPage() {
           </div>
 
           <p className="mt-4 text-base text-slate-300 sm:text-lg">
-            Ты прошёл {completedLessons} из {totalLessons} уроков
+            Ты прошёл {shownCompletedLessons} из {totalLessons} уроков
           </p>
 
           <div
@@ -167,13 +186,44 @@ export default async function DashboardPage() {
           )}
         </section>
 
-        <div className="mt-10 sm:mt-12">
+        {/* Два следующих шага: продолжить обучение или открыть Pro-инструменты */}
+        <div className="mt-10 grid items-start gap-4 sm:mt-12 sm:grid-cols-2">
           <Link
             href={isCourseCompleted ? "/constructor" : "/course/lesson-1"}
-            className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
+            className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
           >
             {isCourseCompleted ? "Перейти в конструктор" : "Продолжить курс"}
             <span aria-hidden>→</span>
+          </Link>
+
+          <Link
+            href="/profiles"
+            className="group flex flex-col rounded-3xl border border-white/10 bg-white/5 p-6 transition-colors hover:border-blue-400/50 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <span
+                aria-hidden
+                className="flex h-10 w-10 items-center justify-center rounded-2xl border border-blue-400/30 bg-blue-500/10 text-xl"
+              >
+                📦
+              </span>
+              <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-2.5 py-1 text-[11px] font-bold tracking-wide text-blue-200 uppercase">
+                Pro
+              </span>
+            </div>
+
+            <h2 className="mt-4 text-lg font-bold text-white">
+              Библиотека профилей
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+              Готовые профили принтеров, материалов и настроек для Bambu Studio,
+              OrcaSlicer и PrusaSlicer.
+            </p>
+
+            <span className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-blue-300 transition-colors group-hover:text-blue-200">
+              Открыть библиотеку
+              <span aria-hidden>→</span>
+            </span>
           </Link>
         </div>
       </main>

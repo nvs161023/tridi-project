@@ -79,6 +79,14 @@ export async function Header() {
             >
               Тарифы
             </Link>
+            {isAuthorized ? (
+              <Link
+                className="transition-colors hover:text-blue-400"
+                href="/profiles"
+              >
+                Профили
+              </Link>
+            ) : null}
           </nav>
 
           {isAuthorized ? (

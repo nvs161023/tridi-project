@@ -61,6 +61,7 @@
 |---|---|---|
 | `/` | `app/page.tsx` | Витрина: герой с цифрами, четыре уровня, галерея схем, «Как учим», программа, тарифы, «О проекте». `force-dynamic` из-за кнопки авторизации в шапке |
 | `/subscription` | `app/subscription/page.tsx` | Сравнение четырёх уровней (таблица и мобильные карточки), пять карточек тарифов (Free, три уровня навсегда и выделенный пакет), отдельный блок подписки Pro, FAQ, примечание про оферту и чек НПД |
+| `/profiles` | `app/profiles/page.tsx` | Библиотека профилей печати (13 файлов в трёх категориях). Открыта всем, но без подписки Pro карточки размыты и ведут на `/subscription#tools`; скачивание — через `/api/profiles/download` только с активной подпиской |
 | `/legal` | `app/legal/page.tsx` | Оглавление юридических документов |
 | `/legal/privacy`, `/legal/consent`, `/legal/terms`, `/legal/offer`, `/legal/cookies` | `app/legal/*/page.tsx` | Пять документов (статически пререндерятся, открываются даже когда база недоступна) |
 | `/terms`, `/privacy`, `/register` | `next.config.ts` | Короткие адреса: постоянные редиректы (308) на `/legal/terms`, `/legal/privacy` и `/auth/sign-up` |
@@ -86,7 +87,7 @@
 
 | URL | Файл | Что показывает |
 |---|---|---|
-| `/dashboard` | `app/dashboard/page.tsx` | Личный кабинет: имя, прогресс базового курса «X из 8», процент, выход |
+| `/dashboard` | `app/dashboard/page.tsx` | Личный кабинет: имя, прогресс базового курса «X из 8» (только уникальные существующие уроки, не больше 100%), кнопка продолжения и карточка «Библиотека профилей», выход |
 | `/course/lesson-1…8` | `app/course/[id]/page.tsx` | Урок базового курса: блоки, прогресс, кнопка «Пройти урок»; на последнем уроке модуля — карточка «Проверь себя» со слайдом теста и заблокированным продолжением |
 | `/course/check/1…2` | `app/course/check/[moduleId]/page.tsx` | Тест модуля базового курса (10 вопросов с пояснениями); тот же тест открывается слайдом прямо с урока |
 | `/course/pro/<модуль>/<урок>` | `app/course/pro/[moduleId]/[lessonId]/page.tsx` | Урок продвинутого курса: превью 2 блоков без подписки, замок, гейт по тестам модулей |
@@ -197,9 +198,13 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает �
 Доступ решается в нескольких слоях, чтобы платный контент нельзя было получить в обход:
 
 1. **Аккаунт** — есть ли вход (`lib/current-user.ts`).
-2. **Покупка** — таблица `purchases`: разовый курс, пакет или подписка. Проверка живёт в
-   `lib/subscription.ts`: `hasCourseAccess` для трёх уровней и `hasProCourseAccess` для
-   продвинутого курса. Срок записи проверяется по `expires_at`; `null` означает «навсегда».
+2. **Покупка и подписка** — таблица `purchases`: разовый курс, пакет или подписка; срок
+   записи проверяется по `expires_at`, `null` означает «навсегда». Для Pro дополнительно
+   читается `subscriptions` (`status = active` или действующий `trial`): схема `purchases`
+   применяется вручную, и без второй проверки оплаченная подписка не открывала бы
+   инструменты. Проверка живёт в `lib/subscription.ts`: `hasCourseAccess` для трёх уровней,
+   `hasProCourseAccess` для продвинутого курса и `hasActiveSubscription` для инструментов
+   (профили и конструктор).
 3. **Правила доступа** — покупка `confident`/`engineer`/`profit` открывает свой уровень,
    `pro` (пакет) открывает все три уровня, активная `pro-subscription` — тоже все три и
    дополнительно продвинутый курс. Пакет `pro` продвинутый курс не открывает: он входит
@@ -341,7 +346,9 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает �
 
 `app/dashboard/page.tsx`: приветствие по имени (или email), прогресс базового курса
 («X из 8», процент, полоса), кнопка «Продолжить обучение» на следующий непройденный урок,
-итоги тестов, ссылка на юридические документы, выход. Счётчики для кабинета и витрины считает
+карточка «Библиотека профилей» (ведёт на `/profiles`), итоги тестов, ссылка на юридические
+документы, выход. Прогресс считает только уникальные `lesson_id`, которые есть в текущей
+программе, поэтому старые записи и дубли не дают больше 100%. Счётчики для витрины считает
 `lib/course-stats.ts`.
 
 ### 3.8 Юридический контур
@@ -1141,7 +1148,7 @@ runtime-каталог. Первый этап — Bambu Lab X1 Carbon, Prusa MK3
 | `lib/course-levels.ts` | Четыре уровня витрины (`LEVELS`): названия, `goal` и разовая цена `price` из `data/courses.json`, уроки, схемы, тесты и часы — из файлов курсов; `PAID_LEVELS`, `PAID_LESSONS`, `PAID_VISUALS`, `PAID_TESTS`, `TOTAL_LESSONS`, `TOTAL_VISUALS`, `TOTAL_TESTS` — те же числа для главной и `/subscription` |
 | `lib/payments.ts` | Robokassa: `initializePayment` собирает подписанную ссылку с `InvId` и `Shp_*`, проверяет сумму по `data/courses.json`; `verifyResultSignature` проверяет MD5 уведомления с паролем №2 |
 | `lib/module-test.ts` | Правила тестов: пороги сдачи (5 в бесплатном курсе, 7 в платных) и «отлично» (8), типы записей (`basic-test`, `confident-test`, `engineer-test`, `pro-test`), проверки `isModuleTestPassed`, `isModuleTestCompleted`, `isModuleTestCompletedByOrder` |
-| `lib/subscription.ts` | `hasCourseAccess` проверяет покупку уровня, пакета `pro` или активной подписки `pro-subscription`; `hasProCourseAccess` — только активную подписку для продвинутого курса; срок записи — по `expires_at` |
+| `lib/subscription.ts` | `hasCourseAccess` проверяет покупку уровня, пакета `pro` или активной подписки `pro-subscription`; `hasProCourseAccess` — `pro-subscription` в `purchases` для продвинутого курса; `hasActiveSubscription` — подписку Pro для инструментов: `purchases` по `expires_at` или `active`/действующий `trial` в `subscriptions` |
 | `lib/module-test-progress.ts` | Загружает из базы номера сданных модулей (`Set<number>`); `null` — если прочитать не удалось (тогда модуль не запираем) |
 | `lib/current-user.ts` | Кто открыл страницу: берёт пользователя из заголовка middleware, при его отсутствии сам вызывает `getUser()` |
 | `lib/auth-redirect.ts` | `authHref(path, next)` — ссылка на вход с возвратом; `resolveAfterAuthPath` / `safeNextPath` — санитизация `next` (только внутренние пути, отсекаем `//evil.com`) |
@@ -1211,7 +1218,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `profiles` | `id uuid` (= `auth.users.id`), `email`, `name`, `created_at` | Имя и почта для кабинета |
 | `lesson_progress` | `id uuid`, `user_id uuid`, `lesson_id integer`, `course_type text not null default 'basic'`, `completed_at` | Прогресс уроков и результаты тестов |
 | `purchases` | `id uuid`, `inv_id bigint unique`, `user_id uuid`, `course_id text`, `amount numeric(10,2)`, `created_at`, `expires_at` | Покупки курсов, пакета и подписки; `expires_at = null` — навсегда |
-| `subscriptions` | `id uuid`, `user_id uuid`, `status text`, `trial_ends_at`, `created_at`, `updated_at` | Старая таблица подписки; проверка доступа теперь читает `purchases` |
+| `subscriptions` | `id uuid`, `user_id uuid`, `status text`, `trial_ends_at`, `created_at`, `updated_at` | Подписка Pro: `active` — доступ есть, `trial` — пока `trial_ends_at` в будущем; используется, если в `purchases` нет записи `pro-subscription` |
 
 Как это работает:
 

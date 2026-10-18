@@ -1,10 +1,16 @@
 /**
- * Доступ к платным материалам по таблице purchases.
+ * Доступ к платным материалам: покупки в purchases и подписка Pro.
  *
  * После оплаты Robokassa вебхук записывает покупку:
  *   - confident / engineer / profit — один уровень навсегда;
  *   - pro — пакет трёх уровней навсегда;
  *   - pro-subscription — подписка Pro на 30 дней.
+ *
+ * Подписка Pro дополнительно проверяется по таблице subscriptions: она уже
+ * настроена в живой базе и хранит статус (active / trial) и trial_ends_at.
+ * Это нужно, потому что схема purchases применяется вручную и на момент
+ * подключения библиотеки профилей её в базе ещё не было: без второй проверки
+ * оплаченная подписка не открывала бы ни профили, ни Pro-курс.
  *
  * Любая ошибка (строки нет, таблицы нет, сеть отвалилась) означает «доступа
  * нет»: сбой проверки не должен открывать платный контент.
@@ -27,6 +33,12 @@ type PurchaseRow = {
   expires_at: string | null;
 };
 
+/** Из subscriptions читаем статус и конец пробного периода. */
+type SubscriptionRow = {
+  status: string | null;
+  trial_ends_at: string | null;
+};
+
 /**
  * Покупки, которые открывают конкретный уровень:
  * свой курс, пакет «Все 3 уровня» или действующая подписка Pro.
@@ -46,6 +58,24 @@ function isPurchaseActive(purchase: PurchaseRow): boolean {
   const expiresAt = new Date(purchase.expires_at);
 
   return !Number.isNaN(expiresAt.getTime()) && expiresAt > new Date();
+}
+
+/**
+ * Подписка действует, если статус active или пробный период ещё не закончился.
+ * Остальные статусы (inactive, canceled, past_due) доступа не дают.
+ */
+function isSubscriptionActive(subscription: SubscriptionRow): boolean {
+  if (subscription.status === "active") {
+    return true;
+  }
+
+  if (subscription.status !== "trial" || !subscription.trial_ends_at) {
+    return false;
+  }
+
+  const trialEndsAt = new Date(subscription.trial_ends_at);
+
+  return !Number.isNaN(trialEndsAt.getTime()) && trialEndsAt > new Date();
 }
 
 async function hasAnyPurchase(
@@ -100,14 +130,33 @@ export async function hasProCourseAccess(
 }
 
 /**
- * Старое имя проверки подписки.
+ * Действующая подписка Pro для инструментов (профили, конструктор).
  *
- * Оставлено для совместимости: теперь оно означает именно действующую
- * подписку Pro, а не любой платный доступ.
+ * Проверяет два источника:
+ *   1. purchases — запись `pro-subscription` со сроком в expires_at;
+ *   2. subscriptions — статус active или неистёкший trial.
+ *
+ * Вторая проверка нужна, пока схема purchases не применена в живой базе:
+ * без неё оплаченная подписка не открывала бы профили.
  */
 export async function hasActiveSubscription(
   supabase: Supabase,
   userId: string,
 ): Promise<boolean> {
-  return hasProCourseAccess(supabase, userId);
+  if (await hasAnyPurchase(supabase, userId, ["pro-subscription"])) {
+    return true;
+  }
+
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .select("status, trial_ends_at")
+    .eq("user_id", userId);
+
+  if (error) {
+    // Таблицы subscriptions может не быть в старой базе — тогда доступа нет.
+    console.warn("Не удалось проверить подписку:", error.message);
+    return false;
+  }
+
+  return ((data as SubscriptionRow[] | null) ?? []).some(isSubscriptionActive);
 }
