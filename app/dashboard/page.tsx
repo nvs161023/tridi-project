@@ -606,6 +606,56 @@ export default async function DashboardPage() {
           </div>
         </section>
 
+        <section aria-labelledby="forum-title" className="mt-12">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold tracking-widest text-blue-400 uppercase">
+                Сообщество
+              </p>
+              <h2
+                id="forum-title"
+                className="mt-3 text-2xl font-extrabold tracking-tight text-white sm:text-3xl"
+              >
+                Форум
+              </h2>
+            </div>
+            <p className="max-w-md text-sm leading-relaxed text-slate-400">
+              Вопросы по принтерам, материалам и настройкам. Читать может каждый,
+              писать — после входа.
+            </p>
+          </div>
+
+          <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-6 sm:p-8">
+            <div className="flex flex-wrap items-center justify-between gap-5">
+              <div className="max-w-2xl">
+                <h3 className="text-lg font-bold text-white">
+                  Форум сообщества TriDi
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                  Задайте вопрос или помогите другому. Все темы и ответы проходят
+                  модерацию, поэтому в публичном списке только проверенные
+                  материалы.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Link
+                  href="/forum"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                >
+                  Открыть форум
+                  <span aria-hidden>→</span>
+                </Link>
+                <Link
+                  href="/forum/new"
+                  className="inline-flex min-h-11 items-center justify-center rounded-full border border-white/15 px-5 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                >
+                  Создать тему
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section aria-labelledby="pro-tools-title" className="mt-12">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>

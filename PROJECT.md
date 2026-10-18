@@ -28,7 +28,8 @@
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | URL проекта Supabase |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Публичный ключ (anon) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Приватный ключ service_role: вебхук Robokassa записывает покупки в обход RLS |
+| `SUPABASE_SERVICE_ROLE_KEY` | Приватный ключ service_role: вебхук Robokassa записывает покупки в обход RLS, админ-панель форума меняет статусы и баны |
+| `ADMIN_EMAIL` | Email администратора форума (можно несколько через запятую). Если пусто, `/admin/forum` недоступна |
 | `ROBOKASSA_LOGIN` | Логин магазина из технических настроек Robokassa |
 | `ROBOKASSA_PASSWORD1` | Пароль №1: подпись ссылки на оплату |
 | `ROBOKASSA_PASSWORD2` | Пароль №2: проверка уведомления ResultURL |
@@ -62,6 +63,9 @@
 | `/` | `app/page.tsx` | Витрина: герой с цифрами, четыре уровня, галерея схем, «Как учим», программа, тарифы, «О проекте». `force-dynamic` из-за кнопки авторизации в шапке |
 | `/subscription` | `app/subscription/page.tsx` | Сравнение четырёх уровней (таблица и мобильные карточки), пять карточек тарифов (Free, три уровня навсегда и выделенный пакет), отдельный блок подписки Pro, FAQ, примечание про оферту и чек НПД |
 | `/profiles` | `app/profiles/page.tsx` | Библиотека профилей печати (13 файлов в трёх категориях) с каскадным фильтром «бренд → модель → материал» (`components/profiles/ProfilesClient.tsx`). Открыта всем, но без подписки Pro карточки размыты и ведут на `/subscription#tools`; скачивание — через `/api/profiles/download` только с активной подпиской |
+| `/forum` | `app/forum/page.tsx` | Публичный форум: категории, счётчики и последние одобренные темы. Читать может гость и поисковый робот; pending-материалы RLS не отдаёт |
+| `/forum/[slug]` | `app/forum/[slug]/page.tsx` | Тема и одобренные ответы, `generateMetadata` и JSON-LD (`DiscussionForumPosting`); форма ответа — только вошедшему, с проверкой бана |
+| `/forum/rules` | `app/forum/rules/page.tsx` | Правила сообщества, модерация и предупреждение: бан форума не закрывает доступ к курсам |
 | `/legal` | `app/legal/page.tsx` | Оглавление юридических документов |
 | `/legal/privacy`, `/legal/consent`, `/legal/terms`, `/legal/offer`, `/legal/cookies` | `app/legal/*/page.tsx` | Пять документов (статически пререндерятся, открываются даже когда база недоступна) |
 | `/terms`, `/privacy`, `/register` | `next.config.ts` | Короткие адреса: постоянные редиректы (308) на `/legal/terms`, `/legal/privacy` и `/auth/sign-up` |
@@ -102,14 +106,17 @@
 | `/course/profit/<модуль>/<урок>` | `app/course/profit/[moduleId]/[lessonId]/page.tsx` | Урок уровня «Заработок»: превью 2 блоков без доступа, замок, гейт по тестам модулей |
 | `/course/profit/<модуль>/check` | `app/course/profit/[moduleId]/check/page.tsx` | Тест модуля уровня «Заработок» (проверка покупки или подписки; тесты обоих модулей написаны) |
 | `/constructor` | `app/constructor/page.tsx` | Конструктор 3D-моделей — пока **заглушка**: «Раздел в разработке» и три карточки шаблонов (Вазы, Брелоки, Светильники) со статусом «Скоро»; `robots: noindex` |
+| `/forum/new` | `app/forum/new/page.tsx` + `components/forum/CreateThreadForm.tsx` | Создание темы: middleware закрывает от гостя, страница повторно проверяет сессию и бан. Категории читаются из `forum_categories`, тема уходит в `pending` |
+| `/admin/forum` | `app/admin/forum/page.tsx` | Модерация: очередь pending-тем и ответов, одобрение/отклонение, бан автора и снятие бана. Доступ — только email из `ADMIN_EMAIL`, данные — service_role |
 
-Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает только на `/dashboard/*`,
-`/course/*`, `/constructor/*` и `/auth/*`: продлевает сессию, отправляет гостя на вход с
-запоминанием адреса (`next=`), не пускает в курсы, конструктор и кабинет пользователя с
-**неподтверждённой почтой** (`email_confirmed_at`), а авторизованного уводит со страниц входа.
-Список закрытых префиксов лежит в `PROTECTED_PATH_PREFIXES` (`lib/supabase/middleware.ts`),
-а сам matcher — в `middleware.ts`. Публичные страницы (главная, тарифы, `/legal`) middleware не
-трогает — им сессия не нужна.
+Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает на `/dashboard/*`,
+`/course/*`, `/constructor/*`, `/forum/new`, `/admin/*` и `/auth/*`: продлевает сессию, отправляет
+гостя на вход с запоминанием адреса (`next=`), не пускает в курсы, конструктор, кабинет и создание
+темы пользователя с **неподтверждённой почтой** (`email_confirmed_at`), а авторизованного уводит
+со страниц входа. Список закрытых префиксов лежит в `PROTECTED_PATH_PREFIXES`
+(`lib/supabase/middleware.ts`), а сам matcher — в `middleware.ts`.
+Публичные страницы (главная, тарифы, `/legal`, `/forum`, темы форума и правила) middleware не
+трогает — им сессия не нужна, а форум должен быстро отдаваться поисковым роботам.
 
 ---
 
@@ -1028,6 +1035,36 @@ Polymaker.
 - Проверка: `scripts/check-docs.mjs` знает префикс `profiles/`, поэтому пути из
   этой сводки проверяются наравне с `app/` и `data/`.
 
+### 3.16 Форум сообщества
+
+Публичный форум с премодерацией и отдельными банами. Читать может любой, создавать темы и
+ответы — только вошедший пользователь; материал сначала получает `pending` и появляется в
+публичном списке после одобрения администратором.
+
+- **Схема:** `supabase/forum.sql` — `forum_categories`, `forum_threads`, `forum_replies`,
+  `forum_bans` и представление `forum_authors` (только `id` и `display_name`, без email).
+  Файл, как и остальные `supabase/*.sql`, применяется вручную в SQL Editor. Категории в миграцию
+  намеренно не зашиты: их добавляют отдельным запросом.
+- **RLS:** анонимный и вошедший читатель видят только `approved`; автор дополнительно видит свои
+  `pending`/`rejected`. При вставке политика требует `author_id = auth.uid()` и
+  `status = 'pending'`, поэтому опубликовать материал или подменить автора прямым запросом нельзя.
+  Статусы и баны меняет только `service_role` из `/admin/forum`.
+- **Данные:** `lib/forum.ts` — типы, выборки approved-тем/ответов, имена авторов, транслитерация
+  заголовка в slug, краткое описание и форматирование дат. `lib/forum-moderation.ts` — стоп-слова и
+  `checkForumBan`; ошибка чтения бана трактуется как «бана нет», чтобы недоступная таблица не
+  роняла форум.
+- **Изоляция бана:** `forum_bans` читается только `checkForumBan`, и только на страницах и в
+  действиях форума. `lib/subscription.ts`, middleware и страницы курсов этот модуль не импортируют:
+  бан форума не закрывает уроки, покупки и подписку Pro.
+- **Server Actions:** `app/actions/forum.ts` (`createThread`, `createReply`) заново проверяют
+  `getUser()`, бан, согласие с правилами, длины полей и стоп-слова. `app/actions/forum-admin.ts`
+  (`approveThread`, `rejectThread`, `approveReply`, `rejectReply`, `banForumAuthor`,
+  `liftForumBan`) сначала проверяют `ADMIN_EMAIL`, затем работают service_role-клиентом.
+- **SEO:** `/forum` и `/forum/[slug]` — серверный HTML с `generateMetadata`, canonical и JSON-LD;
+  `robots` закрывает только `/forum/new` и `/admin/forum`. В форме темы есть honeypot `website`.
+- **Навигация:** ссылка «Форум» в `components/Header.tsx` и карточка «Форум сообщества» в
+  `app/dashboard/page.tsx`.
+
 ---
 
 Все блоки рисует `components/course/LessonBlocks.tsx`; незнакомый тип блока не ломает страницу —
@@ -1188,12 +1225,15 @@ Polymaker.
 | `lib/auth-redirect.ts` | `authHref(path, next)` — ссылка на вход с возвратом; `resolveAfterAuthPath` / `safeNextPath` — санитизация `next` (только внутренние пути, отсекаем `//evil.com`) |
 | `lib/legal.ts` | Реквизиты владельца (`LEGAL_OPERATOR`), дата редакции документов, список юридических документов |
 | `lib/site-url.ts` | Публичный адрес сайта и `buildEmailRedirectUrl(next)` для ссылок в письмах: `NEXT_PUBLIC_SITE_URL` → (в dev) хост запроса → боевой домен |
+| `lib/admin.ts` | `ADMIN_EMAIL` → список администраторов (`getAdminEmails`, `isAdminEmail`); пустая переменная означает «админов нет» |
+| `lib/forum.ts` | Типы и выборки форума: approved-темы/ответы, категории, имена из `forum_authors`, `buildForumThreadSlug`, `forumExcerpt`, форматирование дат |
+| `lib/forum-moderation.ts` | Стоп-слова форума и `checkForumBan` (только `forum_bans`); не связан с подпиской и доступом к курсам |
 | `lib/supabase/server.ts` | Серверный клиент Supabase с cookies (Server Components и Server Actions) |
 | `lib/supabase/admin.ts` | Клиент с ключом `service_role` для вебхука Robokassa: записывает покупки в обход RLS |
 | `lib/supabase/client.ts` | Браузерный клиент: страницы `/auth/confirm` и `/auth/reset-password` — сессию после клика по кнопке записывает браузер |
 | `lib/supabase/middleware.ts` | `updateSession`: обновление сессии, защита закрытых маршрутов, гейт неподтверждённой почты, проброс пользователя заголовком, редиректы авторизованных со страниц входа |
 | `lib/supabase/user-headers.ts` | Кодирование и чтение заголовка `x-supabase-user`: страницы не делают лишний сетевой `getUser()`. Заголовок всегда перезаписывается middleware, поэтому подделать его нельзя |
-| `middleware.ts` (корень) | Точка входа Next.js с `matcher`: только `/dashboard/:path*`, `/course/:path*`, `/auth/:path*` — публичные страницы middleware не трогает |
+| `middleware.ts` (корень) | Точка входа Next.js с `matcher`: `/dashboard/:path*`, `/course/:path*`, `/constructor/:path*`, `/forum/new`, `/admin/:path*`, `/auth/:path*` — публичные страницы middleware не трогает |
 
 ---
 
@@ -1213,6 +1253,9 @@ Polymaker.
 | `completeLesson` | `app/actions/complete-lesson.ts` | Отмечает урок пройденным: `upsert` в `lesson_progress` по (user_id, course_type, lesson_id). Идемпотентно; значения из браузера проверяются (`courseType` только `basic`/`confident`/`pro`) |
 | `completeModuleTest` | `app/actions/complete-module-test.ts` | Принимает результат теста, повторно проверяет порог сдачи (5 в бесплатном курсе, 7 в платных), пишет **только сданный** тест (`basic-test` / `confident-test` / `pro-test`) |
 | `createRobokassaPayment` | `app/actions/payments.ts` | Берёт пользователя из сессии и цену из `data/courses.json`, проверяет `courseId` и возвращает подписанную ссылку Robokassa |
+| `createThread`, `createReply` | `app/actions/forum.ts` | Создание темы и ответа: `getUser()`, бан форума, правила, длины полей, стоп-слова, honeypot; запись только в `pending` |
+| `approveThread`, `rejectThread`, `approveReply`, `rejectReply` | `app/actions/forum-admin.ts` | Модерация: проверка `ADMIN_EMAIL`, смена статуса service_role-клиентом, `revalidatePath` публичных страниц |
+| `banForumAuthor`, `liftForumBan` | `app/actions/forum-admin.ts` | Бан на форуме на срок/бессрочно и снятие бана; только `forum_bans`, без влияния на покупки и подписку |
 
 Типы результатов описаны рядом с функциями (`CompleteLessonResult`, `CompleteModuleTestResult`,
 `ConfirmSessionResult`), состояние формы авторизации — `app/actions/auth-state.ts`
@@ -1222,7 +1265,7 @@ Polymaker.
 
 | Компонент | Тип | Роль |
 |---|---|---|
-| `components/Header.tsx` | серверный | Шапка: логотип, навигация, кнопка «Войти» или «Личный кабинет» в зависимости от сессии |
+| `components/Header.tsx` | серверный | Шапка: логотип, навигация (включая «Форум»), кнопка «Войти» или «Личный кабинет» в зависимости от сессии |
 | `components/Logo.tsx` | серверный | Векторный логотип: SVG-принтер с синей шестерёнкой, слово `tridi-print.ru`, плашки «Уроки» и «Конструктор моделей»; вариант `wordmark` — только текст для подвала |
 | `components/Footer.tsx` | серверный | Подвал: ссылки на все юридические документы, копирайт, реквизиты владельца и почта |
 | `components/CookieBanner.tsx` | клиентский | Баннер согласия на cookie: два варианта, запоминание выбора в `localStorage`, не показывается повторно |
@@ -1239,12 +1282,15 @@ Polymaker.
 | `app/subscription/PlanButton.tsx` | клиентский | Кнопка тарифа: вызывает Server Action `createRobokassaPayment` с `courseId` и переходит по ссылке Robokassa; показывает ошибку и ссылку на вход |
 | `app/auth/login/LoginForm.tsx`, `app/auth/sign-up/SignUpForm.tsx`, `app/auth/verify-email/ResendForm.tsx` | клиентские | Формы: `useActionState` + `useFormStatus`-подобное состояние ожидания, показ ошибок и сохранение введённого email после ошибки |
 | `app/auth/forgot-password/ForgotPasswordForm.tsx`, `app/auth/reset-password/page.tsx` | клиентские | Сброс пароля: форма запроса письма (Server Action, нейтральный ответ) и двухшаговая смена пароля браузерным клиентом Supabase (`verifyOtp` по кнопке + `updateUser`) |
+| `components/forum/CreateThreadForm.tsx` | клиентский | Форма новой темы: `useActionState`, выбор категории, honeypot, согласие с правилами, сообщение о премодерации |
+| `components/forum/ReplyForm.tsx` | клиентский | Ответ в теме: `useActionState`, `threadId` скрытым полем, ошибки и статус «отправлено на модерацию» |
+| `components/forum/admin/ModerationControls.tsx` | клиентский | Кнопки «Одобрить/Отклонить», форма бана автора и снятие бана; действия приходят из `app/actions/forum-admin.ts` |
 
 ---
 
 ## 9. База данных (Supabase)
 
-Self-hosted Supabase на сервере в РФ: используются только Auth и Postgres. Таблиц четыре, все с
+Self-hosted Supabase на сервере в РФ: используются только Auth и Postgres. Восемь таблиц, все с
 включённым RLS.
 
 | Таблица | Колонки | Назначение |
@@ -1253,6 +1299,10 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `lesson_progress` | `id uuid`, `user_id uuid`, `lesson_id integer`, `course_type text not null default 'basic'`, `completed_at` | Прогресс уроков и результаты тестов |
 | `purchases` | `id uuid`, `inv_id bigint unique`, `user_id uuid`, `course_id text`, `amount numeric(10,2)`, `created_at`, `expires_at` | Покупки курсов, пакета и подписки; `expires_at = null` — навсегда |
 | `subscriptions` | `id uuid`, `user_id uuid`, `status text`, `trial_ends_at`, `created_at`, `updated_at` | Подписка Pro: `active` — доступ есть, `trial` — пока `trial_ends_at` в будущем; используется, если в `purchases` нет записи `pro-subscription` |
+| `forum_categories` | `id uuid`, `slug text unique`, `title`, `description`, `"order" integer` | Разделы форума; наполняются отдельно после применения `supabase/forum.sql` |
+| `forum_threads` | `id uuid`, `category_id`, `slug text unique`, `title`, `content`, `author_id`, `created_at`, `views`, `status` | Темы форума; публично видны только `approved`, автор видит свои |
+| `forum_replies` | `id uuid`, `thread_id`, `content`, `author_id`, `created_at`, `status` | Ответы; та же схема премодерации, что у тем |
+| `forum_bans` | `id uuid`, `user_id`, `reason`, `expires_at`, `created_at` | Баны **только форума**; `expires_at = null` — бессрочно. Не влияет на курсы и подписку |
 
 Как это работает:
 
@@ -1283,13 +1333,18 @@ Self-hosted Supabase на сервере в РФ: используются то�
   (`MODULE_TEST_PASS_FROM` и `MODULE_TEST_PASS_FROM_PAID` в `lib/module-test.ts`).
 - **Статусы подписки**: `active` — доступ всегда; `trial` — пока `trial_ends_at` в будущем;
   остальные (`inactive`, `canceled`, `past_due` и т.п.) — доступа нет.
+- **Форум**: `anon` и `authenticated` читают только `approved`-темы и ответы; автор видит свои
+  `pending`. Вставка разрешена лишь с `author_id = auth.uid()` и `status = 'pending'`, обновление
+  статусов и `forum_bans` — только `service_role`. Имена авторов отдаёт представление
+  `forum_authors` (только `id` и `display_name`), а не `profiles`. Бан форума — отдельная запись,
+  которую не читают проверки курсов, покупок и подписки.
 - **SQL лежит в `supabase/*.sql`** — это справочные копии того, что применено вручную в
   Supabase → SQL Editor: `grants_and_policies.sql` (гранты и RLS), `pro_course_access.sql`
   (колонка `course_type`, уникальный индекс, инструкция как выдать себе trial и как отключить
-  доступ), `module_test_course_types.sql`, `confident_course_access.sql` и
+  доступ), `module_test_course_types.sql`, `confident_course_access.sql`,
   `engineer_course_access.sql` (ограничение на значения
   `course_type`: восемь значений, включая `confident`, `confident-test`, `engineer` и
-  `engineer-test`).
+  `engineer-test`) и `forum.sql` (таблицы и RLS форума).
   Автоматически эти файлы не выполняются. Оба ограничения уже применены в живой базе:
   `confident_course_access.sql` — вручную владельцем до первого урока «Уверенного»
   (`docker exec -it supabase-db` + `psql`), `engineer_course_access.sql` — так же, перед первым

@@ -37,15 +37,25 @@ export const config = {
    *  - /dashboard и всё, что внутри;
    *  - /course/* — уроки курса, без входа недоступны;
    *  - /constructor — конструктор моделей (пока заглушка «Раздел в разработке»);
+   *  - /forum/new — создание темы: гостя уводим на вход, остальной форум
+   *    остаётся публичным и быстрым для поисковых роботов;
+   *  - /admin/* — админ-панель; дополнительно страница проверяет ADMIN_EMAIL;
    *  - /auth/* (вход, регистрация и всё, что внутри).
    *
    * `:path*` означает «ноль и более сегментов», поэтому "/dashboard/:path*"
    * захватывает и сам /dashboard — отдельная запись "/dashboard" не нужна.
    *
-   * Публичные страницы (/, /subscription) в matcher не перечислены: для них
-   * middleware не запускается вообще, то есть нет ни обращения к Supabase,
-   * ни задержки перед отдачей HTML.
+   * Публичные страницы (/, /subscription, /forum, /forum/[slug], /forum/rules)
+   * в matcher не перечислены: для них middleware не запускается вообще, то есть
+   * нет ни обращения к Supabase, ни задержки перед отдачей HTML.
    */
-  matcher: ["/dashboard/:path*", "/course/:path*", "/constructor/:path*", "/auth/:path*"],
+  matcher: [
+    "/dashboard/:path*",
+    "/course/:path*",
+    "/constructor/:path*",
+    "/forum/new",
+    "/admin/:path*",
+    "/auth/:path*",
+  ],
 };
 

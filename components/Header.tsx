@@ -75,6 +75,12 @@ export async function Header() {
             </Link>
             <Link
               className="transition-colors hover:text-blue-400"
+              href="/forum"
+            >
+              Форум
+            </Link>
+            <Link
+              className="transition-colors hover:text-blue-400"
               href="/subscription"
             >
               Тарифы

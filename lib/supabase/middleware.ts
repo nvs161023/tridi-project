@@ -13,8 +13,16 @@ import { isAuthPath, resolveAfterAuthPath } from "@/lib/auth-redirect";
  * Страницы, где нужен авторизованный пользователь.
  * Уроки (/course/*) тоже защищены: без входа курс не открыть.
  * Конструктор (/constructor) — раздел подписки, вход нужен обязательно.
+ * /forum/new — создание темы; сам форум остаётся публичным.
+ * /admin — служебный раздел; кроме входа страница проверяет ADMIN_EMAIL.
  */
-const PROTECTED_PATH_PREFIXES = ["/dashboard", "/course", "/constructor"];
+const PROTECTED_PATH_PREFIXES = [
+  "/dashboard",
+  "/course",
+  "/constructor",
+  "/forum/new",
+  "/admin",
+];
 
 /** Страница, куда отправляем неподтверждённых пользователей. */
 const VERIFY_EMAIL_PATH = "/auth/verify-email";
