@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Баннер согласия на использование cookie.
@@ -18,6 +18,10 @@ import { useEffect, useState } from "react";
  * Баннер не показывается, если выбор уже сделан. Проверка идёт в useEffect, а не
  * при отрисовке: localStorage доступен только в браузере, и до гидратации мы не
  * знаем ответа — иначе разметка сервера и клиента разошлись бы.
+ *
+ * Пока баннер виден, он резервирует свою высоту внизу body. Иначе на телефоне
+ * фиксированная плашка перекрывает последние строки подвала — телефон и email
+ * продавца, которые должны быть видны при прокрутке в самый низ.
  */
 const STORAGE_KEY = "tridi-cookie-consent";
 
@@ -70,10 +74,35 @@ function saveConsent(scope: CookieConsentScope) {
 
 export function CookieBanner() {
   const [isVisible, setIsVisible] = useState(false);
+  const bannerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIsVisible(readCookieConsent() === null);
   }, []);
+
+  useEffect(() => {
+    const banner = bannerRef.current;
+
+    if (!isVisible || !banner) {
+      return;
+    }
+
+    const previousPaddingBottom = document.body.style.paddingBottom;
+
+    function reserveSpace() {
+      document.body.style.paddingBottom = `${banner?.offsetHeight ?? 0}px`;
+    }
+
+    reserveSpace();
+
+    const observer = new ResizeObserver(reserveSpace);
+    observer.observe(banner);
+
+    return () => {
+      observer.disconnect();
+      document.body.style.paddingBottom = previousPaddingBottom;
+    };
+  }, [isVisible]);
 
   function choose(scope: CookieConsentScope) {
     saveConsent(scope);
@@ -92,6 +121,7 @@ export function CookieBanner() {
 
   return (
     <div
+      ref={bannerRef}
       role="dialog"
       aria-label="Согласие на использование cookie"
       className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-slate-900/95 px-4 py-5 backdrop-blur sm:px-6"
