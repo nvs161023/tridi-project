@@ -48,6 +48,13 @@ export type CourseLevel = {
   isFree: boolean;
   /** Разовая цена курса из data/courses.json; у бесплатного уровня — 0. */
   price: number;
+  /**
+   * Старая цена до акции из data/courses.json.
+   * Показывается зачёркнутой рядом с текущей ценой.
+   */
+  oldPrice?: number;
+  /** Маркетинговый бейдж из data/courses.json: «Акция», «Выгодно». */
+  badge?: string;
   modules: number;
   lessons: number;
   hours: string;
@@ -134,6 +141,8 @@ function buildLevel(key: LevelKey): CourseLevel {
     href: key === "basic" ? "/course/lesson-1" : "/subscription",
     isFree: key === "basic",
     price: "price" in meta ? meta.price : 0,
+    oldPrice: "oldPrice" in meta ? meta.oldPrice : undefined,
+    badge: "badge" in meta ? meta.badge : undefined,
     modules: summary.modules,
     lessons: summary.lessons,
     hours: summary.hours,

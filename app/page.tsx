@@ -8,12 +8,12 @@ import {
 } from "@/components/landing/VisualPlaceholder";
 import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
+import { LEGAL_OPERATOR } from "@/lib/legal";
 import {
   LEVELS,
   PAID_LESSONS,
   PAID_TESTS,
   PAID_VISUALS,
-  PRO_LESSONS,
   PRO_VISUALS,
   TOTAL_LESSONS,
   TOTAL_LEVEL_VISUALS,
@@ -34,9 +34,14 @@ export const metadata: Metadata = {
 };
 
 const { pro: proCourse } = coursesData;
+const basicCourse = coursesData.basic;
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
+
+/** Акция базового уровня: старая цена и бейдж — из data/courses.json. */
+const basicOldPrice = formatPrice(basicCourse.oldPrice);
+const basicBadge = basicCourse.badge;
 
 /** Цена подписки Pro — из data/courses.json, как и на странице тарифов. */
 const proPrice = formatPrice(proCourse.subscriptionPrice);
@@ -129,6 +134,58 @@ const PAIN_POINTS = [
 ];
 
 /**
+ * Методология: один и тот же цикл на каждом уровне.
+ *
+ * Это описание подхода, а не состав программы, поэтому текст живёт здесь,
+ * рядом с другими маркетинговыми блоками витрины.
+ */
+const METHOD_STEPS = [
+  {
+    step: "01",
+    title: "Разобраться в причине",
+    text: "Не «попробуйте так», а объяснение физики: почему слой не держится, откуда сопли и деформации.",
+    accent: "text-blue-300",
+  },
+  {
+    step: "02",
+    title: "Настроить под задачу",
+    text: "Профили, температуры, скорости и ретракт подбираются по алгоритму, а не наугад.",
+    accent: "text-violet-300",
+  },
+  {
+    step: "03",
+    title: "Напечатать и проверить",
+    text: "Каждый модуль заканчивается тестом: понимаете ли вы, почему деталь получилась именно такой.",
+    accent: "text-emerald-300",
+  },
+  {
+    step: "04",
+    title: "Посчитать результат",
+    text: "Себестоимость, время и цена продажи — чтобы печать была ремеслом с маржой, а не хобби в минус.",
+    accent: "text-amber-300",
+  },
+];
+
+/** Кому подойдёт курс: три понятных портрета ученика. */
+const AUDIENCE = [
+  {
+    title: "Новичкам",
+    text: "Купили первый принтер и не понимаете, почему детали отваливаются. Начните с бесплатного уровня.",
+    accent: "text-blue-300",
+  },
+  {
+    title: "Практикующим",
+    text: "Печатаете давно, но настройки подбираете наугад. Получите систему вместо десятка разрозненных советов.",
+    accent: "text-violet-300",
+  },
+  {
+    title: "Тем, кто хочет зарабатывать",
+    text: "Хотите считать себестоимость и называть цену без страха. Уровень «Заработок» — про это.",
+    accent: "text-amber-300",
+  },
+];
+
+/**
  * Четыре схемы для галереи — по одной с каждого уровня.
  *
  * Это стилизованные заглушки, а не SVG-кадры уроков: витрине нужен ритм сетки
@@ -180,16 +237,16 @@ const GALLERY: {
 const FAQ: { question: string; answer: string }[] = [
   {
     question: "С чего начать?",
-    answer: `Зарегистрируйтесь и откройте уровень «Новичок»: ${LEVELS[0].lessons} ${pluralize(LEVELS[0].lessons, LESSON_FORMS)}, ${LEVELS[0].visuals} ${pluralize(LEVELS[0].visuals, VISUAL_FORMS)} и ${LEVELS[0].tests} ${pluralize(LEVELS[0].tests, TEST_FORMS)} модулей. Это бесплатно, карта не нужна.`,
+    answer: `Зарегистрируйтесь и откройте уровень «Новичок»: ${LEVELS[0].lessons} ${pluralize(LEVELS[0].lessons, LESSON_FORMS)}, ${LEVELS[0].visuals} ${pluralize(LEVELS[0].visuals, VISUAL_FORMS)} и ${LEVELS[0].tests} ${pluralize(LEVELS[0].tests, TEST_FORMS)} модулей. Сейчас он открыт бесплатно по акции, карта не нужна. Потом уровень будет стоить ${basicOldPrice} ₽.`,
   },
   {
     question: "Как проходит оплата?",
-    answer: `Можно купить нужный платный уровень навсегда или оформить подписку Pro за ${proPrice} ₽ на 30 дней. Подписка открывает все платные уровни и продвинутый курс. Чек НПД приходит на email, указанный при оплате.`,
+    answer: `Курсы покупаются навсегда: уровень или пакет «Всё включено». Подписка Pro за ${proPrice} ₽ на 30 дней открывает инструменты — Конструктор и Профили, — но не уроки. Чек НПД приходит на email, указанный при оплате.`,
   },
   {
     question: "Как работает подписка?",
     answer:
-      "Доступ действует 30 дней. Продление — по желанию, в личном кабинете. Если не нужен весь курс сразу, купите только нужный уровень навсегда.",
+      "Подписка Pro открывает Конструктор 3D-моделей и библиотеку Профилей на 30 дней. Уроки в неё не входят: курсы покупаются отдельно и остаются навсегда. Продление — по желанию, в личном кабинете.",
   },
   {
     question: "Можно ли отменить подписку?",
@@ -215,7 +272,7 @@ const FUNNEL_STEPS = [
   {
     step: "03",
     title: "Курс или Pro",
-    text: `Купи нужный уровень навсегда или открой всё по подписке Pro: ${PRO_LESSONS} ${pluralize(PRO_LESSONS, LESSON_FORMS)} продвинутого курса и ${PRO_VISUALS} схем.`,
+    text: "Купи нужный уровень навсегда или забери все три пакетом «Всё включено» со скидкой.",
     note: `от ${formatPrice(LEVELS[1].price)} ₽`,
   },
 ];
@@ -283,6 +340,13 @@ export default function Home() {
                 и система проверки знаний. Без воды и сломанных принтеров.
               </p>
 
+              <p className="mt-5 inline-flex flex-wrap items-center gap-2 rounded-full border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-100">
+                <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-slate-950 uppercase">
+                  {basicBadge}
+                </span>
+                Первый уровень сейчас бесплатно — потом {basicOldPrice} ₽
+              </p>
+
               <div className="mt-9 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-4">
                 <Link
                   href={START_FREE_HREF}
@@ -307,7 +371,7 @@ export default function Home() {
                   Карта не нужна
                 </li>
                 <li className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                  Одна подписка на всё
+                  Курсы остаются навсегда
                 </li>
               </ul>
             </div>
@@ -409,6 +473,52 @@ export default function Home() {
           </div>
         </section>
 
+        {/* 2b. Методология: один цикл обучения на каждом уровне */}
+        <section
+          id="methodology"
+          className="scroll-mt-20 border-b border-white/10"
+        >
+          <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
+            <p className="text-sm font-semibold tracking-widest text-emerald-400 uppercase">
+              Методология
+            </p>
+            <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+              Не смотреть, а делать
+            </h2>
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+              Один и тот же цикл на каждом уровне: разобраться в причине,
+              настроить принтер, напечатать деталь и проверить результат тестом.
+            </p>
+
+            <ol className="mt-12 grid gap-4 sm:mt-14 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
+              {METHOD_STEPS.map((item) => (
+                <li
+                  key={item.step}
+                  className="relative flex h-full flex-col rounded-3xl border border-white/10 bg-slate-900/60 p-6 transition-colors hover:border-white/20 sm:p-7"
+                >
+                  <span
+                    aria-hidden
+                    className={`text-xs font-semibold tracking-[0.2em] ${item.accent}`}
+                  >
+                    {item.step}
+                  </span>
+                  <h3 className="mt-4 text-lg font-bold text-white">
+                    {item.title}
+                  </h3>
+                  <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                    {item.text}
+                  </p>
+                </li>
+              ))}
+            </ol>
+
+            <p className="mt-8 max-w-2xl text-sm leading-relaxed text-slate-500">
+              В конце каждого модуля — тест с пояснениями. Он показывает, что вы
+              действительно поняли, а не просто пролистали урок.
+            </p>
+          </div>
+        </section>
+
         {/* 3. Демонстрация ценности: четыре уровня и их проблемы */}
         <section
           id="levels"
@@ -446,17 +556,22 @@ export default function Home() {
                       >
                         {level.code}
                       </span>
-                      <span
-                        className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                          level.isFree
-                            ? "border-blue-400/40 bg-blue-500/10 text-blue-200"
-                            : "border-amber-400/40 bg-amber-500/10 text-amber-200"
-                        }`}
-                      >
-                        {level.isFree
-                          ? "Бесплатно"
-                          : `${formatPrice(level.price)} ₽`}
-                      </span>
+                      {level.isFree ? (
+                        <span className="flex items-center gap-2">
+                          {level.oldPrice ? (
+                            <s className="text-[11px] font-semibold text-slate-500">
+                              {formatPrice(level.oldPrice)} ₽
+                            </s>
+                          ) : null}
+                          <span className="rounded-full bg-amber-400 px-2.5 py-1 text-[11px] font-extrabold tracking-wide text-slate-950 uppercase">
+                            {level.badge ?? "Бесплатно"}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-200">
+                          {formatPrice(level.price)} ₽
+                        </span>
+                      )}
                     </div>
 
                     <h3 className="mt-5 text-2xl font-extrabold tracking-tight text-white">
@@ -533,6 +648,47 @@ export default function Home() {
           </div>
         </section>
 
+        {/* 3b. Кому подойдёт: три портрета ученика */}
+        <section
+          id="audience"
+          className="scroll-mt-20 border-b border-white/10 bg-gradient-to-b from-slate-900/40 to-transparent"
+        >
+          <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
+            <p className="text-sm font-semibold tracking-widest text-violet-400 uppercase">
+              Кому подойдёт
+            </p>
+            <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+              Три сценария — один результат
+            </h2>
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+              Уровни можно проходить подряд или взять только тот, который решает
+              вашу задачу. Начать в любом случае можно бесплатно.
+            </p>
+
+            <div className="mt-12 grid gap-4 sm:mt-14 sm:grid-cols-3 sm:gap-5">
+              {AUDIENCE.map((item, index) => (
+                <article
+                  key={item.title}
+                  className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900/60 p-6 transition-colors hover:border-white/20 sm:p-7"
+                >
+                  <span
+                    aria-hidden
+                    className={`text-xs font-semibold tracking-[0.2em] ${item.accent}`}
+                  >
+                    0{index + 1}
+                  </span>
+                  <h3 className="mt-4 text-xl font-bold text-white">
+                    {item.title}
+                  </h3>
+                  <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                    {item.text}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* 4. Доказательство: как выглядят схемы внутри уроков */}
         <section
           id="gallery"
@@ -601,7 +757,8 @@ export default function Home() {
                   <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-300 sm:text-lg">
                     Начни с бесплатного уровня «Новичок». Освой базу, напечатай
                     первую деталь, а затем купи нужный уровень навсегда или
-                    открой всё по подписке Pro.
+                    забери все три пакетом со скидкой. Инструменты — по подписке
+                    Pro, если понадобятся.
                   </p>
 
                   <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-4">
@@ -693,7 +850,37 @@ export default function Home() {
           </div>
         </section>
 
-        {/* 6. Доверие: короткий FAQ об оплате и подписке */}
+        {/* 6. Отзывы: честный плейсхолдер без выдуманных историй */}
+        <section id="reviews" className="scroll-mt-20 border-b border-white/10">
+          <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
+            <p className="text-sm font-semibold tracking-widest text-violet-400 uppercase">
+              Отзывы
+            </p>
+            <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+              Отзывы учеников
+            </h2>
+
+            <div className="mt-10 max-w-2xl rounded-3xl border border-dashed border-white/15 bg-slate-900/40 p-6 sm:p-8">
+              <p className="text-base leading-relaxed text-slate-400">
+                Платформа только запустилась, поэтому мы не публикуем выдуманные
+                истории. Здесь появятся реальные отзывы первых учеников — с их
+                разрешения и ссылками на проекты.
+              </p>
+              <p className="mt-4 text-sm leading-relaxed text-slate-500">
+                Прошли уровень и хотите поделиться результатом? Напишите на{" "}
+                <a
+                  href={`mailto:${LEGAL_OPERATOR.email}`}
+                  className="font-medium text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+                >
+                  {LEGAL_OPERATOR.email}
+                </a>
+                .
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* 7. Доверие: короткий FAQ об оплате и подписке */}
         <section id="faq" className="scroll-mt-20">
           <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
             <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-start lg:gap-16">
@@ -711,8 +898,9 @@ export default function Home() {
 
                 <ul className="mt-7 space-y-3 text-sm leading-relaxed text-slate-300">
                   {[
-                    "Старт — 0 ₽, карта не нужна",
-                    "Одна подписка на все платные материалы",
+                    "Старт — 0 ₽ по акции, карта не нужна",
+                    "Курсы покупаются навсегда",
+                    "Подписка Pro — только инструменты",
                     "Чек НПД приходит на email",
                     "Отмена — в личном кабинете",
                   ].map((item) => (
