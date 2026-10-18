@@ -178,10 +178,11 @@ export async function createThread(
 
 
 /**
- * Создаёт ответ на модерацию.
+ * Создаёт ответ и публикует его сразу (пост-модерация).
  *
  * Отвечать можно только в approved-тему: pending ещё не опубликована, и ответ
- * к ней никто не увидит. Бан форума проверяется тем же изолированным модулем.
+ * к ней никто не увидит. Бан форума и стоп-слова проверяются до вставки, а
+ * прошедший проверку ответ получает status = 'approved' и сразу виден читателям.
  */
 export async function createReply(
   _prevState: ForumFormState,
@@ -250,7 +251,7 @@ export async function createReply(
     thread_id: threadId,
     content,
     author_id: user.id,
-    status: "pending",
+    status: "approved",
   });
 
   if (error) {
@@ -264,9 +265,6 @@ export async function createReply(
   revalidatePath(`/forum/${slug}`);
   revalidatePath("/admin/forum");
 
-  return {
-    success:
-      "Ответ отправлен на модерацию. После проверки он появится в теме.",
-  };
+  return { success: "Ответ опубликован." };
 }
 

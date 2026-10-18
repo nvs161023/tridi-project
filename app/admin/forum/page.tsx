@@ -4,11 +4,17 @@ import { notFound } from "next/navigation";
 
 import {
   BanAuthorForm,
+  DeleteReplyButton,
   LiftBanButton,
   ModerationButton,
 } from "@/components/forum/admin/ModerationControls";
 import { Header } from "@/components/Header";
-import { approveReply, approveThread, rejectReply, rejectThread } from "@/app/actions/forum-admin";
+import {
+  approveReply,
+  approveThread,
+  rejectReply,
+  rejectThread,
+} from "@/app/actions/forum-admin";
 import { isAdminEmail } from "@/lib/admin";
 import {
   formatForumDateTime,
@@ -36,7 +42,7 @@ type PendingThread = {
   created_at: string;
 };
 
-type PendingReply = {
+type ReplyRow = {
   id: string;
   content: string;
   author_id: string;
@@ -132,7 +138,8 @@ export default async function AdminForumPage() {
 
   const [
     threadsResult,
-    repliesResult,
+    pendingRepliesResult,
+    publishedRepliesResult,
     categoriesResult,
     bansResult,
   ] = await Promise.all([
@@ -148,6 +155,12 @@ export default async function AdminForumPage() {
       .eq("status", "pending")
       .order("created_at", { ascending: true })
       .limit(50),
+    admin
+      .from("forum_replies")
+      .select("id, content, author_id, thread_id, created_at")
+      .eq("status", "approved")
+      .order("created_at", { ascending: false })
+      .limit(50),
     admin.from("forum_categories").select("id, title").order("order"),
     admin
       .from("forum_bans")
@@ -157,7 +170,8 @@ export default async function AdminForumPage() {
   ]);
 
   const pendingThreads = (threadsResult.data ?? []) as PendingThread[];
-  const pendingReplies = (repliesResult.data ?? []) as PendingReply[];
+  const pendingReplies = (pendingRepliesResult.data ?? []) as ReplyRow[];
+  const publishedReplies = (publishedRepliesResult.data ?? []) as ReplyRow[];
   const categories = (categoriesResult.data ?? []) as {
     id: string;
     title: string;
@@ -165,7 +179,8 @@ export default async function AdminForumPage() {
   const bans = (bansResult.data ?? []) as BanRow[];
   const loadError = Boolean(
     threadsResult.error ||
-      repliesResult.error ||
+      pendingRepliesResult.error ||
+      publishedRepliesResult.error ||
       categoriesResult.error ||
       bansResult.error,
   );
@@ -174,7 +189,11 @@ export default async function AdminForumPage() {
     categories.map((category) => [category.id, category.title]),
   );
 
-  const replyThreadIds = [...new Set(pendingReplies.map((reply) => reply.thread_id))];
+  const replyThreadIds = [
+    ...new Set(
+      [...pendingReplies, ...publishedReplies].map((reply) => reply.thread_id),
+    ),
+  ];
   const { data: threadRefs } = replyThreadIds.length
     ? await admin
         .from("forum_threads")
@@ -190,6 +209,7 @@ export default async function AdminForumPage() {
     ...new Set([
       ...pendingThreads.map((thread) => thread.author_id),
       ...pendingReplies.map((reply) => reply.author_id),
+      ...publishedReplies.map((reply) => reply.author_id),
       ...bans.map((ban) => ban.user_id),
     ]),
   ];
@@ -224,8 +244,8 @@ export default async function AdminForumPage() {
               Форум
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
-              Очередь тем и ответов на проверке. Публичный форум показывает
-              только одобренные материалы.
+              Новые темы проходят премодерацию, ответы публикуются сразу.
+              Публичный форум показывает только одобренные материалы.
             </p>
           </div>
           <Link
@@ -246,10 +266,11 @@ export default async function AdminForumPage() {
           </p>
         ) : null}
 
-        <div className="mt-8 grid gap-4 sm:grid-cols-3">
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
             { label: "Тем на проверке", value: pendingThreads.length },
-            { label: "Ответов на проверке", value: pendingReplies.length },
+            { label: "Старых ответов в очереди", value: pendingReplies.length },
+            { label: "Последних ответов", value: publishedReplies.length },
             { label: "Активных банов", value: activeBans.length },
           ].map((item) => (
             <div
@@ -342,27 +363,38 @@ export default async function AdminForumPage() {
         </section>
 
 
-        <section aria-labelledby="pending-replies" className="mt-12">
+        <section aria-labelledby="forum-replies" className="mt-12">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <h2
-              id="pending-replies"
-              className="text-2xl font-extrabold tracking-tight text-white"
-            >
-              Ответы на модерации
-            </h2>
-            {pendingReplies.length > 50 ? (
+            <div>
+              <h2
+                id="forum-replies"
+                className="text-2xl font-extrabold tracking-tight text-white"
+              >
+                Ответы
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-400">
+                Ответы публикуются сразу. Ниже — последние 50: если комментарий
+                нарушает правила, удалите его.
+              </p>
+            </div>
+            {publishedReplies.length === 50 ? (
               <span className="text-xs text-slate-500">
-                Показаны первые 50
+                Показаны последние 50
               </span>
             ) : null}
           </div>
 
-          {pendingReplies.length === 0 ? (
-            <p className="mt-4 rounded-3xl border border-dashed border-white/15 bg-slate-950/40 p-6 text-sm text-slate-400">
-              Новых ответов нет. Очередь пуста.
-            </p>
-          ) : (
-            <ul className="mt-4 space-y-4">
+          {pendingReplies.length > 0 ? (
+            <div className="mt-6 rounded-3xl border border-amber-400/25 bg-amber-500/5 p-5 sm:p-6">
+              <h3 className="text-lg font-bold text-amber-100">
+                Старые ответы на проверке
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-amber-100/80">
+                Они пришли до перехода на пост-модерацию. Одобрите или отклоните
+                их, чтобы закрыть очередь.
+              </p>
+
+              <ul className="mt-4 space-y-4">
               {pendingReplies.map((reply) => {
                 const thread = threadRefsById.get(reply.thread_id);
 
@@ -411,6 +443,69 @@ export default async function AdminForumPage() {
                         label="Отклонить"
                         tone="reject"
                       />
+                    </div>
+
+                    <details className="mt-3">
+                      <summary className="cursor-pointer text-xs font-semibold text-slate-400 transition-colors hover:text-red-300">
+                        Заблокировать автора
+                      </summary>
+                      <BanAuthorForm userId={reply.author_id} />
+                    </details>
+                  </li>
+                );
+              })}
+              </ul>
+            </div>
+          ) : null}
+
+          <h3 className="mt-8 text-lg font-bold text-white">
+            Последние опубликованные
+          </h3>
+
+          {publishedReplies.length === 0 ? (
+            <p className="mt-4 rounded-3xl border border-dashed border-white/15 bg-slate-950/40 p-6 text-sm text-slate-400">
+              Опубликованных ответов пока нет.
+            </p>
+          ) : (
+            <ul className="mt-4 space-y-4">
+              {publishedReplies.map((reply) => {
+                const thread = threadRefsById.get(reply.thread_id);
+
+                return (
+                  <li
+                    key={reply.id}
+                    className="rounded-3xl border border-white/10 bg-white/5 p-5 sm:p-6"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 font-semibold text-emerald-200">
+                        Опубликован
+                      </span>
+                      <time dateTime={reply.created_at}>
+                        {formatForumDateTime(reply.created_at)}
+                      </time>
+                      <span aria-hidden>·</span>
+                      <span>Автор: {authorLabel(profiles, reply.author_id)}</span>
+                    </div>
+
+                    <p className="mt-2 text-sm font-semibold text-white">
+                      Тема:{" "}
+                      {thread ? (
+                        <Link
+                          href={`/forum/${thread.slug}`}
+                          className="text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+                        >
+                          {thread.title}
+                        </Link>
+                      ) : (
+                        "Тема не найдена"
+                      )}
+                    </p>
+                    <p className="mt-3 text-sm leading-relaxed whitespace-pre-line text-slate-300">
+                      {forumExcerpt(reply.content, 500)}
+                    </p>
+
+                    <div className="mt-5">
+                      <DeleteReplyButton replyId={reply.id} />
                     </div>
 
                     <details className="mt-3">

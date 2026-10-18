@@ -6,6 +6,7 @@ import type { ForumAdminFormState } from "@/app/actions/forum-state";
 import { emptyForumAdminFormState } from "@/app/actions/forum-state";
 import {
   banForumAuthor,
+  deleteForumReply,
   liftForumBan,
 } from "@/app/actions/forum-admin";
 
@@ -54,6 +55,45 @@ export function ModerationButton({
       {state.error ? (
         <p role="alert" className="mt-2 text-xs leading-relaxed text-red-300">
           {state.error}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
+/** Удаление опубликованного ответа: действие необратимо, поэтому спрашиваем. */
+export function DeleteReplyButton({ replyId }: { replyId: string }) {
+  const [state, formAction, isPending] = useActionState(
+    deleteForumReply,
+    emptyForumAdminFormState,
+  );
+
+  return (
+    <form
+      action={formAction}
+      onSubmit={(event) => {
+        if (!window.confirm("Удалить ответ безвозвратно?")) {
+          event.preventDefault();
+        }
+      }}
+    >
+      <input type="hidden" name="replyId" value={replyId} />
+      <button
+        type="submit"
+        disabled={isPending}
+        aria-busy={isPending}
+        className="inline-flex min-h-9 items-center justify-center rounded-full border border-red-400/40 bg-red-500/10 px-4 text-xs font-semibold text-red-200 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isPending ? "Удаляем…" : "Удалить"}
+      </button>
+      {state.error ? (
+        <p role="alert" className="mt-2 text-xs leading-relaxed text-red-300">
+          {state.error}
+        </p>
+      ) : null}
+      {state.success ? (
+        <p role="status" className="mt-2 text-xs leading-relaxed text-emerald-300">
+          {state.success}
         </p>
       ) : null}
     </form>

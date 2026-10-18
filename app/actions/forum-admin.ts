@@ -189,6 +189,65 @@ export async function rejectReply(
   return setReplyStatus(prevState, formData, "rejected");
 }
 
+/**
+ * Удаляет опубликованный ответ из админки.
+ *
+ * Ответы теперь публикуются сразу, поэтому нарушение можно убрать только
+ * вручную. Удаление необратимо: кнопка в интерфейсе сначала просит подтверждение.
+ */
+export async function deleteForumReply(
+  _prevState: ForumAdminFormState,
+  formData: FormData,
+): Promise<ForumAdminFormState> {
+  const denied = await requireAdmin();
+
+  if (denied) {
+    return { error: denied };
+  }
+
+  const replyId = String(formData.get("replyId") ?? "").trim();
+
+  if (!UUID_PATTERN.test(replyId)) {
+    return { error: "Некорректный ответ." };
+  }
+
+  const admin = createAdminClient();
+  const { data: reply, error: readError } = await admin
+    .from("forum_replies")
+    .select("thread_id")
+    .eq("id", replyId)
+    .maybeSingle();
+
+  if (readError) {
+    console.warn("Не удалось прочитать ответ для удаления:", readError.message);
+    return { error: "Не удалось удалить ответ. Попробуйте ещё раз." };
+  }
+
+  if (!reply) {
+    return { error: "Ответ не найден." };
+  }
+
+  const { data: thread } = await admin
+    .from("forum_threads")
+    .select("slug")
+    .eq("id", (reply as { thread_id: string }).thread_id)
+    .maybeSingle();
+
+  const { error } = await admin
+    .from("forum_replies")
+    .delete()
+    .eq("id", replyId);
+
+  if (error) {
+    console.warn("Не удалось удалить ответ форума:", error.message);
+    return { error: "Не удалось удалить ответ. Попробуйте ещё раз." };
+  }
+
+  revalidateForum((thread as { slug: string } | null)?.slug);
+
+  return { success: "Ответ удалён." };
+}
+
 
 /**
  * Блокирует автора на форуме.

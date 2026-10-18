@@ -52,7 +52,7 @@ export function ReplyForm({ threadId }: { threadId: string }) {
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs leading-relaxed text-slate-500">
-          Ответ появится после проверки.{" "}
+          Ответ публикуется сразу.{" "}
           <Link
             href="/forum/rules"
             className="text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"

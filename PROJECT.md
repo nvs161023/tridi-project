@@ -108,7 +108,7 @@
 | `/course/profit/<модуль>/check` | `app/course/profit/[moduleId]/check/page.tsx` | Тест модуля уровня «Заработок» (проверка покупки или подписки; тесты обоих модулей написаны) |
 | `/constructor` | `app/constructor/page.tsx` | Конструктор 3D-моделей — пока **заглушка**: «Раздел в разработке» и три карточки шаблонов (Вазы, Брелоки, Светильники) со статусом «Скоро»; `robots: noindex` |
 | `/forum/new` | `app/forum/new/page.tsx` + `components/forum/CreateThreadForm.tsx` | Создание темы: middleware закрывает от гостя, страница повторно проверяет сессию и бан. Категории читаются из `forum_categories`, тема уходит в `pending` |
-| `/admin/forum` | `app/admin/forum/page.tsx` | Модерация: очередь pending-тем и ответов, одобрение/отклонение, бан автора и снятие бана. Доступ — только email из `ADMIN_EMAIL`, данные — service_role |
+| `/admin/forum` | `app/admin/forum/page.tsx` | Модерация: очередь pending-тем, последние опубликованные ответы с удалением, одобрение/отклонение старых ответов, бан автора и снятие бана. Доступ — только email из `ADMIN_EMAIL`, данные — service_role |
 
 Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает на `/dashboard/*`,
 `/course/*`, `/constructor/*`, `/forum/new`, `/admin/*` и `/auth/*`: продлевает сессию, отправляет
@@ -1040,18 +1040,20 @@ Ender-3, Anycubic Kobra и материалы Polymaker.
 
 ### 3.16 Форум сообщества
 
-Публичный форум с премодерацией и отдельными банами. Читать может любой, создавать темы и
-ответы — только вошедший пользователь; материал сначала получает `pending` и появляется в
-публичном списке после одобрения администратором.
+Публичный форум с премодерацией тем, пост-модерацией ответов и отдельными банами. Читать может
+любой, создавать темы и ответы — только вошедший пользователь; новая тема получает `pending` и
+появляется в публичном списке после одобрения, а ответы публикуются сразу (`approved`) и
+проверяются уже после публикации.
 
 - **Схема:** `supabase/forum.sql` — `forum_categories`, `forum_threads`, `forum_replies`,
   `forum_bans` и представление `forum_authors` (только `id` и `display_name`, без email).
   Файл, как и остальные `supabase/*.sql`, применяется вручную в SQL Editor. Категории в миграцию
   намеренно не зашиты: их добавляют отдельным запросом.
 - **RLS:** анонимный и вошедший читатель видят только `approved`; автор дополнительно видит свои
-  `pending`/`rejected`. При вставке политика требует `author_id = auth.uid()` и
-  `status = 'pending'`, поэтому опубликовать материал или подменить автора прямым запросом нельзя.
-  Статусы и баны меняет только `service_role` из `/admin/forum`.
+  `pending`/`rejected`. При вставке политика требует `author_id = auth.uid()`: для темы —
+  `status = 'pending'`, для ответа — `status = 'approved'`. Подменить автора или опубликовать тему
+  прямым запросом нельзя. Статусы, удаление ответов и баны меняет только `service_role` из
+  `/admin/forum`.
 - **Данные:** `lib/forum.ts` — типы, выборки approved-тем/ответов, категория по slug, темы раздела и
   счётчики approved-ответов, имена авторов, транслитерация заголовка в slug, краткое описание и
   форматирование дат. `lib/forum-moderation.ts` — стоп-слова и `checkForumBan`; ошибка чтения бана
@@ -1060,9 +1062,10 @@ Ender-3, Anycubic Kobra и материалы Polymaker.
   действиях форума. `lib/subscription.ts`, middleware и страницы курсов этот модуль не импортируют:
   бан форума не закрывает уроки, покупки и подписку Pro.
 - **Server Actions:** `app/actions/forum.ts` (`createThread`, `createReply`) заново проверяют
-  `getUser()`, бан, согласие с правилами, длины полей и стоп-слова. `app/actions/forum-admin.ts`
-  (`approveThread`, `rejectThread`, `approveReply`, `rejectReply`, `banForumAuthor`,
-  `liftForumBan`) сначала проверяют `ADMIN_EMAIL`, затем работают service_role-клиентом.
+  `getUser()`, бан, согласие с правилами, длины полей и стоп-слова. Тема сохраняется в `pending`,
+  ответ — в `approved`. `app/actions/forum-admin.ts` (`approveThread`, `rejectThread`,
+  `approveReply`, `rejectReply`, `deleteForumReply`, `banForumAuthor`, `liftForumBan`) сначала
+  проверяют `ADMIN_EMAIL`, затем работают service_role-клиентом.
 - **SEO:** `/forum`, `/forum/category/[slug]` и `/forum/[slug]` — серверный HTML с
   `generateMetadata`, canonical и JSON-LD; `robots` закрывает только `/forum/new` и
   `/admin/forum`. В форме темы есть honeypot `website`.
@@ -1258,8 +1261,8 @@ Ender-3, Anycubic Kobra и материалы Polymaker.
 | `completeLesson` | `app/actions/complete-lesson.ts` | Отмечает урок пройденным: `upsert` в `lesson_progress` по (user_id, course_type, lesson_id). Идемпотентно; значения из браузера проверяются (`courseType` только `basic`/`confident`/`pro`) |
 | `completeModuleTest` | `app/actions/complete-module-test.ts` | Принимает результат теста, повторно проверяет порог сдачи (5 в бесплатном курсе, 7 в платных), пишет **только сданный** тест (`basic-test` / `confident-test` / `pro-test`) |
 | `createRobokassaPayment` | `app/actions/payments.ts` | Берёт пользователя из сессии и цену из `data/courses.json`, проверяет `courseId` и возвращает подписанную ссылку Robokassa |
-| `createThread`, `createReply` | `app/actions/forum.ts` | Создание темы и ответа: `getUser()`, бан форума, правила, длины полей, стоп-слова, honeypot; запись только в `pending` |
-| `approveThread`, `rejectThread`, `approveReply`, `rejectReply` | `app/actions/forum-admin.ts` | Модерация: проверка `ADMIN_EMAIL`, смена статуса service_role-клиентом, `revalidatePath` публичных страниц |
+| `createThread`, `createReply` | `app/actions/forum.ts` | Создание темы и ответа: `getUser()`, бан форума, правила, длины полей, стоп-слова, honeypot; тема — `pending`, ответ — `approved` |
+| `approveThread`, `rejectThread`, `approveReply`, `rejectReply`, `deleteForumReply` | `app/actions/forum-admin.ts` | Модерация: проверка `ADMIN_EMAIL`, смена статуса или удаление ответа service_role-клиентом, `revalidatePath` публичных страниц |
 | `banForumAuthor`, `liftForumBan` | `app/actions/forum-admin.ts` | Бан на форуме на срок/бессрочно и снятие бана; только `forum_bans`, без влияния на покупки и подписку |
 
 Типы результатов описаны рядом с функциями (`CompleteLessonResult`, `CompleteModuleTestResult`,
@@ -1306,7 +1309,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `subscriptions` | `id uuid`, `user_id uuid`, `status text`, `trial_ends_at`, `created_at`, `updated_at` | Подписка Pro: `active` — доступ есть, `trial` — пока `trial_ends_at` в будущем; используется, если в `purchases` нет записи `pro-subscription` |
 | `forum_categories` | `id uuid`, `slug text unique`, `title`, `description`, `"order" integer` | Разделы форума; наполняются отдельно после применения `supabase/forum.sql` |
 | `forum_threads` | `id uuid`, `category_id`, `slug text unique`, `title`, `content`, `author_id`, `created_at`, `views`, `status` | Темы форума; публично видны только `approved`, автор видит свои |
-| `forum_replies` | `id uuid`, `thread_id`, `content`, `author_id`, `created_at`, `status` | Ответы; та же схема премодерации, что у тем |
+| `forum_replies` | `id uuid`, `thread_id`, `content`, `author_id`, `created_at`, `status` | Ответы; публикуются сразу (`approved`), проверяются после публикации, нарушения удаляются из админки |
 | `forum_bans` | `id uuid`, `user_id`, `reason`, `expires_at`, `created_at` | Баны **только форума**; `expires_at = null` — бессрочно. Не влияет на курсы и подписку |
 
 Как это работает:

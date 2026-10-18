@@ -6,13 +6,15 @@
 --
 -- Модель доступа:
 --   1. Читать форум может кто угодно, но только ОДОБРЕННЫЕ темы и ответы.
---      Автор дополнительно видит свои темы/ответы на модерации — это нужно
---      странице создания, чтобы не терять только что отправленный текст.
+--      Автор дополнительно видит свои темы на модерации — это нужно странице
+--      создания, чтобы не терять только что отправленный текст.
 --   2. Создавать темы и ответы может только авторизованный пользователь.
---      RLS принудительно ставит author_id = auth.uid() и status = 'pending':
---      подменить автора или сразу опубликовать материал нельзя даже прямым
---      запросом к PostgREST.
---   3. Менять статусы и выдавать баны может только service_role (админ-панель).
+--      Темы уходят на премодерацию со status = 'pending', ответы публикуются
+--      сразу со status = 'approved' (пост-модерация). RLS принудительно ставит
+--      author_id = auth.uid() и проверяет ожидаемый статус, поэтому подменить
+--      автора или опубликовать тему прямым запросом к PostgREST нельзя.
+--   3. Менять статусы, удалять ответы и выдавать баны может только service_role
+--      (админ-панель).
 --   4. forum_bans — отдельная таблица. Она НЕ связана с subscriptions и
 --      purchases: бан на форуме не должен закрывать курсы или подписку Pro.
 --
@@ -142,10 +144,13 @@ drop policy if exists "forum_replies_select_own" on public.forum_replies;
 create policy "forum_replies_select_own" on public.forum_replies
   for select to authenticated using (author_id = auth.uid());
 
+-- Ответы публикуются сразу: автор может вставить только approved-ответ.
+-- Темы по-прежнему создаются со status = 'pending' (политика выше).
 drop policy if exists "forum_replies_insert_own_pending" on public.forum_replies;
-create policy "forum_replies_insert_own_pending" on public.forum_replies
+drop policy if exists "forum_replies_insert_own_approved" on public.forum_replies;
+create policy "forum_replies_insert_own_approved" on public.forum_replies
   for insert to authenticated
-  with check (author_id = auth.uid() and status = 'pending');
+  with check (author_id = auth.uid() and status = 'approved');
 
 -- Баны: пользователь видит только свой бан. Создавать и снимать их может
 -- service_role из админ-панели; политик insert/update/delete для пользователей

@@ -634,9 +634,8 @@ export default async function DashboardPage() {
                   Форум сообщества TriDi
                 </h3>
                 <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                  Задайте вопрос или помогите другому. Все темы и ответы проходят
-                  модерацию, поэтому в публичном списке только проверенные
-                  материалы.
+                  Задайте вопрос или помогите другому. Новые темы проходят
+                  проверку, а ответы публикуются сразу.
                 </p>
               </div>
               <div className="flex flex-wrap gap-3">
