@@ -56,16 +56,31 @@ export async function Header() {
         </Link>
 
         <div className="flex items-center gap-4 sm:gap-8">
-          <nav className="hidden items-center gap-8 text-sm font-medium text-slate-300 sm:flex">
-            <a className="transition-colors hover:text-blue-400" href="#benefits">
-              Что вы получите
-            </a>
-            <a className="transition-colors hover:text-blue-400" href="#program">
-              Программа
-            </a>
-            <a className="transition-colors hover:text-blue-400" href="#about">
-              О проекте
-            </a>
+          <nav
+            aria-label="Основная навигация"
+            className="hidden items-center gap-7 text-sm font-medium text-slate-300 sm:flex"
+          >
+            <Link
+              className="transition-colors hover:text-blue-400"
+              href="/#levels"
+            >
+              Уровни
+            </Link>
+            <Link
+              className="transition-colors hover:text-blue-400"
+              href="/#gallery"
+            >
+              Галерея
+            </Link>
+            <Link className="transition-colors hover:text-blue-400" href="/#how">
+              Как учим
+            </Link>
+            <Link
+              className="transition-colors hover:text-blue-400"
+              href="/subscription"
+            >
+              Тарифы
+            </Link>
           </nav>
 
           {isAuthorized ? (

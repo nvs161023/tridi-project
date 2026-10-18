@@ -26,6 +26,8 @@ export type ModulePreview = {
 export const LESSON_FORMS: [string, string, string] = ["урок", "урока", "уроков"];
 export const MODULE_FORMS: [string, string, string] = ["модуль", "модуля", "модулей"];
 export const HOUR_FORMS: [string, string, string] = ["час", "часа", "часов"];
+export const VISUAL_FORMS: [string, string, string] = ["схема", "схемы", "схем"];
+export const TEST_FORMS: [string, string, string] = ["тест", "теста", "тестов"];
 
 /**
  * Русская форма слова по числу: 1 урок, 2 урока, 5 уроков.
@@ -88,6 +90,58 @@ export function formatHours(lessons: { duration: string }[]): string {
 export type ModularCourseLike = {
   modules: { lessons: { duration: string }[] }[];
 };
+
+/**
+ * Курс, из которого витрина считает схемы и тесты.
+ *
+ * Блок с полем visual_file — это блок, для которого нарисован кадр. Считаем
+ * именно такие блоки: витрина не должна обещать больше картинок, чем лежит в
+ * курсе. Тест модуля считается написанным, если в нём есть вопросы.
+ */
+export type CourseContentLike = {
+  modules: {
+    lessons: { duration: string; blocks: { visual_file?: string | null }[] }[];
+    module_test?: { questions: { explanations?: unknown[] }[] } | null;
+  }[];
+};
+
+/** Сколько блоков курса обеспечены собственной нарисованной схемой. */
+export function countVisualBlocks(course: CourseContentLike): number {
+  return course.modules
+    .flatMap((courseModule) => courseModule.lessons)
+    .flatMap((lesson) => lesson.blocks)
+    .filter((block) => Boolean(block.visual_file)).length;
+}
+
+/** Сколько тестов модулей написано (в модуле есть хотя бы один вопрос). */
+export function countModuleTests(course: CourseContentLike): number {
+  return course.modules.filter(
+    (courseModule) => (courseModule.module_test?.questions.length ?? 0) > 0,
+  ).length;
+}
+
+/** Сколько вопросов во всех тестах курса. */
+export function countQuestions(course: CourseContentLike): number {
+  return course.modules.reduce(
+    (sum, courseModule) =>
+      sum + (courseModule.module_test?.questions.length ?? 0),
+    0,
+  );
+}
+
+/** Сколько пояснений к ответам лежит во всех тестах курса. */
+export function countExplanations(course: CourseContentLike): number {
+  return course.modules.reduce(
+    (sum, courseModule) =>
+      sum +
+      (courseModule.module_test?.questions ?? []).reduce(
+        (questionSum, question) =>
+          questionSum + (question.explanations?.length ?? 0),
+        0,
+      ),
+    0,
+  );
+}
 
 /**
  * Сводка продвинутого курса для витрины: модули, уроки и часы.
