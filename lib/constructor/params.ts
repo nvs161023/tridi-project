@@ -31,7 +31,22 @@ export const CONSTRUCTOR_LIMITS = {
   wall: { min: 0.8, max: 4, step: 0.1, defaultValue: 1.6, decimals: 1 },
 } as const satisfies Record<string, NumericLimit>;
 
-/** Настраиваемые размеры вазы. Форма силуэта появится следующим шагом. */
+/**
+ * Пресеты силуэта. Значение — часть состояния модели, а не размер: профиль
+ * строится в lib/constructor/vase-profile.ts по этим идентификаторам.
+ */
+export const VASE_SHAPES = ["classic", "cone", "cylinder"] as const;
+
+export type VaseShape = (typeof VASE_SHAPES)[number];
+
+/** Подписи для интерфейса: одни и те же в панели и в подписи предпросмотра. */
+export const VASE_SHAPE_LABELS = {
+  classic: "Классика",
+  cone: "Конус",
+  cylinder: "Цилиндр",
+} as const satisfies Record<VaseShape, string>;
+
+/** Настраиваемые размеры и форма вазы. */
 export type VaseParams = {
   /** Высота готовой модели, мм. */
   height: number;
@@ -39,6 +54,8 @@ export type VaseParams = {
   diameter: number;
   /** Толщина стенки, мм. */
   wall: number;
+  /** Пресет силуэта: классическая ваза, конус или цилиндр. */
+  shape: VaseShape;
 };
 
 /** Значения, с которыми открывается конструктор. */
@@ -46,7 +63,16 @@ export const DEFAULT_VASE_PARAMS: VaseParams = {
   height: CONSTRUCTOR_LIMITS.height.defaultValue,
   diameter: CONSTRUCTOR_LIMITS.diameter.defaultValue,
   wall: CONSTRUCTOR_LIMITS.wall.defaultValue,
+  shape: "classic",
 };
+
+/** Проверка незнакомого значения из формы, ссылки или API. */
+export function isVaseShape(value: unknown): value is VaseShape {
+  return (
+    typeof value === "string" &&
+    (VASE_SHAPES as readonly string[]).includes(value)
+  );
+}
 
 /** Значение внутри границ. */
 function clamp(value: number, min: number, max: number): number {
@@ -83,5 +109,6 @@ export function normalizeVaseParams(params: Partial<VaseParams>): VaseParams {
       CONSTRUCTOR_LIMITS.diameter,
     ),
     wall: snap(params.wall ?? DEFAULT_VASE_PARAMS.wall, CONSTRUCTOR_LIMITS.wall),
+    shape: isVaseShape(params.shape) ? params.shape : DEFAULT_VASE_PARAMS.shape,
   };
 }
