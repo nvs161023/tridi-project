@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { Logo } from "@/components/Logo";
+import { isAdminEmail } from "@/lib/admin";
 import { basicLessons } from "@/lib/basic-course";
 import { confidentLessons } from "@/lib/confident-course";
 import {
@@ -387,6 +388,7 @@ export default async function DashboardPage() {
   }
 
   const userId = identity.id;
+  const isAdmin = isAdminEmail(identity.email);
   const supabase = await createClient();
 
   // Профиль, прогресс по четырём курсам, доступ к платным уровням и статус
@@ -682,6 +684,56 @@ export default async function DashboardPage() {
             ))}
           </div>
         </section>
+
+        {isAdmin ? (
+          <section aria-labelledby="admin-title" className="mt-12">
+            <div>
+              <p className="text-sm font-semibold tracking-widest text-violet-300 uppercase">
+                Только для администраторов
+              </p>
+              <h2
+                id="admin-title"
+                className="mt-3 text-2xl font-extrabold tracking-tight text-white sm:text-3xl"
+              >
+                Администрирование
+              </h2>
+            </div>
+
+            <article className="mt-6 overflow-hidden rounded-3xl border border-violet-400/30 bg-violet-500/10 p-7 sm:p-8">
+              <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-start gap-4">
+                  <span
+                    aria-hidden
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-violet-400/30 bg-violet-500/10 text-2xl"
+                  >
+                    🛡️
+                  </span>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h3 className="text-xl font-extrabold tracking-tight text-white">
+                        Панель модератора
+                      </h3>
+                      <span className="rounded-full border border-violet-400/40 bg-violet-500/10 px-2.5 py-1 text-[11px] font-bold tracking-wide text-violet-200 uppercase">
+                        Admin
+                      </span>
+                    </div>
+                    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+                      Управление темами форума, баны и модерация
+                    </p>
+                  </div>
+                </div>
+
+                <Link
+                  href="/admin/forum"
+                  className="inline-flex min-h-12 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-violet-600 px-6 text-sm font-semibold text-white shadow-lg shadow-violet-600/25 transition-colors hover:bg-violet-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 md:w-auto"
+                >
+                  Открыть админку
+                  <span aria-hidden>→</span>
+                </Link>
+              </div>
+            </article>
+          </section>
+        ) : null}
 
       </main>
     </div>
