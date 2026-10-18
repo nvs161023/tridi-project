@@ -6,6 +6,9 @@ import { LEGAL_DOCUMENTS, LEGAL_OPERATOR } from "@/lib/legal";
 /** Телефон для ссылки `tel:`: оставляем только цифры и ведущий плюс. */
 const PHONE_HREF = `tel:${LEGAL_OPERATOR.phone.replace(/[^\d+]/g, "")}`;
 
+/** Готовая строка реквизитов: её проверяют платёжные сервисы при активации. */
+const SELLER_REQUISITES = `Самозанятый ${LEGAL_OPERATOR.shortName}, ИНН ${LEGAL_OPERATOR.inn}`;
+
 const legalLinkClassName =
   "transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
 
@@ -38,6 +41,9 @@ export function Footer() {
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-400">
               Онлайн-курс по 3D-печати: практика, тесты и профили для слайсеров.
             </p>
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-slate-400">
+              Сервис предназначен для лиц старше 18 лет.
+            </p>
           </div>
 
           <nav aria-label="Юридические документы">
@@ -69,16 +75,11 @@ export function Footer() {
               Реквизиты и контакты
             </h2>
 
-            <dl className="mt-4 grid gap-x-8 gap-y-3.5 text-sm md:grid-cols-2 lg:grid-cols-1">
-              <div>
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-500 uppercase">
-                  Продавец
-                </dt>
-                <dd className="mt-1 font-semibold text-slate-100">
-                  {LEGAL_OPERATOR.shortName}
-                </dd>
-              </div>
+            <p className="mt-4 text-base font-semibold leading-relaxed text-slate-100">
+              {SELLER_REQUISITES}
+            </p>
 
+            <dl className="mt-4 grid gap-x-8 gap-y-3.5 text-sm md:grid-cols-2 lg:grid-cols-1">
               <div>
                 <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-500 uppercase">
                   Статус

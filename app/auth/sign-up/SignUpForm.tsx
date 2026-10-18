@@ -153,24 +153,16 @@ export function SignUpForm({ next = null }: SignUpFormProps) {
             className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border-white/20 bg-slate-900 accent-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
           />
           <span>
-            Я принимаю{" "}
+            Я согласен на обработку персональных данных в соответствии с{" "}
             <Link
-              href="/legal/terms"
+              href="/legal/privacy"
               target="_blank"
               rel="noopener noreferrer"
               className={legalLinkClassName}
             >
-              Пользовательское соглашение
-            </Link>{" "}
-            и даю{" "}
-            <Link
-              href="/legal/consent"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={legalLinkClassName}
-            >
-              согласие на обработку персональных данных
+              Политикой обработки персональных данных
             </Link>
+            .
           </span>
         </label>
 

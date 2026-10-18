@@ -134,6 +134,13 @@ export function CookieBanner() {
             className="font-semibold text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
           >
             Политике использования cookie
+          </Link>{" "}
+          и{" "}
+          <Link
+            href="/legal/privacy"
+            className="font-semibold text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+          >
+            Политике обработки персональных данных
           </Link>
           .
         </p>

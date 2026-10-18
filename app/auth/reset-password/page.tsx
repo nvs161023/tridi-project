@@ -347,6 +347,17 @@ function ResetPasswordScreen() {
             {isSaving ? "Сохраняем…" : "Сохранить пароль"}
             {isSaving ? null : <span aria-hidden>→</span>}
           </button>
+
+          <p className="text-center text-xs leading-relaxed text-slate-500">
+            Сохраняя пароль, вы подтверждаете, что ознакомлены с{" "}
+            <Link
+              href="/legal/privacy"
+              className="text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+            >
+              Политикой обработки персональных данных
+            </Link>
+            .
+          </p>
         </form>
       </ResetShell>
     );

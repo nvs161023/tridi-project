@@ -111,6 +111,17 @@ export function LoginForm({ next = null }: LoginFormProps) {
         {isPending ? null : <span aria-hidden>→</span>}
       </button>
 
+      <p className="text-center text-xs leading-relaxed text-slate-500">
+        Входя в аккаунт, вы подтверждаете, что ознакомлены с{" "}
+        <Link
+          href="/legal/privacy"
+          className="text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+        >
+          Политикой обработки персональных данных
+        </Link>
+        .
+      </p>
+
       {/* Частый случай: человек зарегистрировался, но письмо не нашёл или ссылка
           в нём устарела. Даём прямой путь к повторной отправке. */}
       <p className="text-center text-sm text-slate-400">

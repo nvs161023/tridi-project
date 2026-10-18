@@ -183,6 +183,15 @@ export function PlanButton({
                 className="font-semibold text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
               >
                 условиями Публичной оферты
+              </Link>{" "}
+              и{" "}
+              <Link
+                href="/legal/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+              >
+                Политикой обработки персональных данных
               </Link>
               .
             </p>

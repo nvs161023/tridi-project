@@ -59,6 +59,13 @@ export function ReplyForm({ threadId }: { threadId: string }) {
           >
             Правила форума
           </Link>
+          {" · "}
+          <Link
+            href="/legal/privacy"
+            className="text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+          >
+            Политика обработки персональных данных
+          </Link>
         </p>
         <button
           type="submit"

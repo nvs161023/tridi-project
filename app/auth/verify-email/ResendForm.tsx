@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 
 import { resendVerificationAction } from "@/app/actions/auth";
@@ -61,6 +62,17 @@ export function ResendForm() {
           {state.info}
         </p>
       ) : null}
+
+      <p className="text-xs leading-relaxed text-slate-500">
+        Указывая email, вы подтверждаете, что ознакомлены с{" "}
+        <Link
+          href="/legal/privacy"
+          className="text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+        >
+          Политикой обработки персональных данных
+        </Link>
+        .
+      </p>
 
       <button
         type="submit"

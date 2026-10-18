@@ -173,6 +173,17 @@ export function CreateThreadForm({
         </span>
       </label>
 
+      <p className="text-xs leading-relaxed text-slate-500">
+        Отправляя тему, вы подтверждаете, что ознакомлены с{" "}
+        <Link
+          href="/legal/privacy"
+          className="text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+        >
+          Политикой обработки персональных данных
+        </Link>
+        .
+      </p>
+
       <div aria-live="polite" className="space-y-2">
         {state.error ? (
           <p
