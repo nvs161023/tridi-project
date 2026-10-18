@@ -41,3 +41,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# audit artifacts
+audit-screenshots/
+audit-e2e/
+audit-report.md
+audit-e2e-report.md
