@@ -20,9 +20,9 @@ import { createClient } from "@/lib/supabase/server";
  * app/api/profiles/download/route.ts проверяет сессию и подписку. Прятать файлы
  * только за CSS нельзя: адрес API можно открыть и руками.
  *
- * Доступ проверяется через hasActiveSubscription() — это действующая подписка
- * pro-subscription с неистёкшим expires_at. Пакет трёх курсов (pro) и отдельные
- * уровни инструменты не открывают.
+ * Доступ проверяется через hasActiveSubscription() — это бессрочный пакет
+ * `pro` или действующая подписка `pro-subscription`. Отдельные уровни
+ * инструменты не открывают.
  */
 export const metadata: Metadata = {
   title: "Библиотека профилей печати — TriDi",

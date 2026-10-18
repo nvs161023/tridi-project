@@ -213,12 +213,14 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает �
    инструменты. Проверка живёт в `lib/subscription.ts`: `hasCourseAccess` для трёх уровней,
    `hasProCourseAccess` для продвинутого курса, `hasActiveSubscription` для инструментов
    (профили и конструктор) и `getActiveSubscription`, которая делает ту же проверку, но ещё
-   возвращает дату окончания для кабинета. В кабинете доступ к уровню спрашивается через
-   `hasPurchasedCourse` — семантический алиас `hasCourseAccess` с теми же правилами.
+   возвращает дату окончания и источник доступа для кабинета. В кабинете доступ к уровню
+   спрашивается через `hasPurchasedCourse` — семантический алиас `hasCourseAccess` с теми же
+   правилами. Бессрочный пакет `pro` открывает и инструменты: `hasActiveSubscription`
+   проверяет его запись с `expires_at = null`.
 3. **Правила доступа** — покупка `confident`/`engineer`/`profit` открывает свой уровень,
-   `pro` (пакет) открывает все три уровня, активная `pro-subscription` — тоже все три и
-   дополнительно продвинутый курс. Пакет `pro` продвинутый курс не открывает: он входит
-   только в подписку Pro.
+   `pro` (пакет) открывает все три уровня и навсегда — инструменты Pro. Активная
+   `pro-subscription` открывает инструменты и продвинутый курс; три платных уровня в неё
+   не входят. Пакет `pro` продвинутый курс не открывает: он входит только в подписку Pro.
 4. **Закрытый контент** — без доступа отдаются только первые **2 блока** урока
    (`PREVIEW_BLOCKS` в `app/course/pro/[moduleId]/[lessonId]/page.tsx` и страницах уровней),
    дальше — замок со ссылкой на тарифы. Названия уроков и программа видны полностью: человек
@@ -360,18 +362,20 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает �
 `app/dashboard/page.tsx` состоит из трёх секций:
 
 - **Статус подписки** — «Бесплатный аккаунт» с кнопкой «Оформить Pro» на
-  `/subscription#tools` или «Pro-подписка активна до [дата]». Статус и дату даёт
+  `/subscription#tools`, «Пакет «Всё включено» активен навсегда» после покупки пакета
+  или «Pro-подписка активна до [дата]». Статус, дату и источник даёт
   `getActiveSubscription()`: та же проверка, что у `hasActiveSubscription()`, но с
   `expires_at` покупки или `trial_ends_at` подписки. Если срок не задан, дата не
   выдумывается — остаётся «Pro-подписка активна».
 - **Мои курсы** — четыре карточки: «Новичок», «Уверенный», «Инженер», «Заработок».
   Базовый уровень открыт всегда; платные проверяются через `hasPurchasedCourse()`
-  (`hasCourseAccess`: отдельная покупка, пакет `pro` или `pro-subscription`). У открытого
+  (`hasCourseAccess`: отдельная покупка или пакет `pro`). У открытого
   курса видны «X из N уроков», полоса прогресса и кнопка «Продолжить» на первый
   непройденный урок; у закрытого — замок, цена и кнопка «Купить курс» на `/subscription`.
 - **Инструменты Pro** — «Конструктор 3D» и «Библиотека профилей». При активной подписке
-  кнопки ведут на `/constructor` и `/profiles`; без неё содержимое карточек размыто,
-  поверх стоит призыв «Доступно по подписке Pro» и кнопка «Оформить Pro».
+  или купленном пакете `pro` кнопки ведут на `/constructor` и `/profiles`; без доступа
+  содержимое карточек размыто, поверх стоит призыв «Доступно по подписке Pro» и кнопка
+  «Оформить Pro».
 
 Прогресс читается одним запросом к `lesson_progress` по четырём `course_type`; для базы
 без колонки `course_type` остаётся прежний fallback без фильтра (старые записи принадлежат
@@ -1229,7 +1233,7 @@ Ender-3, Anycubic Kobra и материалы Polymaker.
 | `lib/course-levels.ts` | Четыре уровня витрины (`LEVELS`): названия, `goal` и разовая цена `price` из `data/courses.json`, уроки, схемы, тесты и часы — из файлов курсов; `PAID_LEVELS`, `PAID_LESSONS`, `PAID_VISUALS`, `PAID_TESTS`, `TOTAL_LESSONS`, `TOTAL_VISUALS`, `TOTAL_TESTS` — те же числа для главной и `/subscription` |
 | `lib/payments.ts` | Robokassa: `initializePayment` собирает подписанную ссылку с `InvId` и `Shp_*`, проверяет сумму по `data/courses.json`; `verifyResultSignature` проверяет MD5 уведомления с паролем №2 |
 | `lib/module-test.ts` | Правила тестов: пороги сдачи (5 в бесплатном курсе, 7 в платных) и «отлично» (8), типы записей (`basic-test`, `confident-test`, `engineer-test`, `pro-test`), проверки `isModuleTestPassed`, `isModuleTestCompleted`, `isModuleTestCompletedByOrder` |
-| `lib/subscription.ts` | `hasCourseAccess` проверяет покупку уровня, пакета `pro` или активной подписки `pro-subscription`; `hasProCourseAccess` — `pro-subscription` в `purchases` для продвинутого курса; `hasActiveSubscription` — подписку Pro для инструментов: `purchases` по `expires_at` или `active`/действующий `trial` в `subscriptions` |
+| `lib/subscription.ts` | `hasCourseAccess` проверяет покупку уровня или пакета `pro`; `hasProCourseAccess` — `pro-subscription` в `purchases` для продвинутого курса; `hasActiveSubscription` — доступ к инструментам: бессрочный `pro` или `pro-subscription` в `purchases` либо `active`/действующий `trial` в `subscriptions` |
 | `lib/module-test-progress.ts` | Загружает из базы номера сданных модулей (`Set<number>`); `null` — если прочитать не удалось (тогда модуль не запираем) |
 | `lib/current-user.ts` | Кто открыл страницу: берёт пользователя из заголовка middleware, при его отсутствии сам вызывает `getUser()` |
 | `lib/auth-redirect.ts` | `authHref(path, next)` — ссылка на вход с возвратом; `resolveAfterAuthPath` / `safeNextPath` — санитизация `next` (только внутренние пути, отсекаем `//evil.com`) |

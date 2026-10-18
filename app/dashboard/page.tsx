@@ -3,7 +3,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { Logo } from "@/components/Logo";
+import { Header } from "@/components/Header";
 import { isAdminEmail } from "@/lib/admin";
 import { basicLessons } from "@/lib/basic-course";
 import { confidentLessons } from "@/lib/confident-course";
@@ -475,40 +475,21 @@ export default async function DashboardPage() {
   const hasDataError = Boolean(profileResult.error || progressError);
   const hasPro = subscription.active;
   const subscriptionDate = formatDate(subscription.expiresAt);
+  const hasBundle = hasPro && subscription.source === "bundle";
   const subscriptionTitle = hasPro
-    ? subscriptionDate
-      ? `Pro-подписка активна до ${subscriptionDate}`
-      : "Pro-подписка активна"
+    ? hasBundle
+      ? "Пакет «Всё включено» активен навсегда"
+      : subscriptionDate
+        ? `Pro-подписка активна до ${subscriptionDate}`
+        : "Pro-подписка активна"
     : "Бесплатный аккаунт";
   const openCourses = COURSE_TYPES.filter(
     (courseType) => accessByCourse[courseType],
   ).length;
 
-  async function logout() {
-    "use server";
-
-    const serverSupabase = await createClient();
-    await serverSupabase.auth.signOut();
-    redirect("/");
-  }
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-5 sm:px-8">
-          <Logo lessonsHref="/dashboard" showBadges={false} />
-
-          <form action={logout}>
-            <button
-              type="submit"
-              className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-            >
-              <span aria-hidden>←</span>
-              Выйти
-            </button>
-          </form>
-        </div>
-      </header>
+      <Header />
 
       <main className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-16">
         <p className="text-sm font-semibold tracking-widest text-blue-400 uppercase">
@@ -554,7 +535,9 @@ export default async function DashboardPage() {
               </h2>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
                 {hasPro
-                  ? "Конструктор 3D и библиотека профилей открыты. Подписка действует на инструменты платформы, курсы остаются доступны навсегда после покупки."
+                  ? hasBundle
+                    ? "Все три платных курса и Pro-инструменты открыты навсегда. Это разовая покупка пакета — продлевать ничего не нужно."
+                    : "Конструктор 3D и библиотека профилей открыты. Подписка действует на инструменты платформы, курсы остаются доступны навсегда после покупки."
                   : "Курсы можно купить навсегда, а Конструктор 3D и библиотеку профилей открывает подписка Pro. Начните с бесплатного уровня — карта не нужна."}
               </p>
             </div>
@@ -563,7 +546,7 @@ export default async function DashboardPage() {
               {hasPro ? (
                 <span className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-6 text-sm font-bold tracking-wide text-emerald-200 uppercase">
                   <span aria-hidden>✓</span>
-                  Pro активна
+                  {hasBundle ? "Пакет активен" : "Pro активна"}
                 </span>
               ) : (
                 <Link

@@ -1,62 +1,83 @@
 import Link from "next/link";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { Logo } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/server";
+import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 
 /**
- * Стиль кнопки в шапке: синий акцент, компактный размер, скруглённые углы.
- * Один и тот же класс для «Войти» и «Личный кабинет», чтобы кнопка не
- * «прыгала» при смене состояния.
+ * Стиль гостевой кнопки в шапке: синий акцент, компактный размер, скруглённые
+ * углы.
  */
 const authButtonClassName =
   "inline-flex shrink-0 items-center rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
 
+/** Две буквы email для кружка-аватара: «e2e.audit@…» → «EA». */
+function getInitials(email: string | null): string {
+  const localPart = email?.split("@")[0] ?? "";
+  const parts = localPart.split(/[._-]+/).filter(Boolean);
+
+  if (parts.length > 1) {
+    return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase() || "ID";
+  }
+
+  return localPart.slice(0, 2).toUpperCase() || "ID";
+}
+
 /**
- * Шапка сайта с «умной» кнопкой авторизации.
+ * Шапка сайта с навигацией и данными авторизованного пользователя.
  *
  * Это серверный компонент: он читает cookies текущего запроса через
  * Supabase-клиент (@/lib/supabase/server) и знает, кто открыл страницу, ещё до
- * отправки HTML. Поэтому нужная кнопка уже стоит в готовой разметке — браузеру
- * не нужно досчитывать её на клиенте и нет мигания «Войти» → «Личный кабинет».
+ * отправки HTML. Поэтому нужные ссылки уже стоят в готовой разметке — браузеру
+ * не нужно досчитывать их на клиенте и нет мигания «Войти» → «Аккаунт».
  *
- * Сессию читаем через getSession(): он только разбирает cookie и НЕ ходит в
- * сеть, поэтому главная отрисовывается сразу. Для выбора кнопки этого
- * достаточно: доступ в кабинет всё равно проверяет middleware на защищённых
- * путях, и там используется проверенный getUser().
- *
- * Нюанс: если access-токен успел истечь, getSession() сам обменяет
- * refresh-токен — тогда один сетевой запрос всё же случится. Но у getUser() он
- * был бы при каждом заходе, так что это всё равно выигрыш. Сохранить обновлённые
- * cookies Server Component не может — этим занимается middleware, когда
- * пользователь возвращается в кабинет.
- *
- * Из сессии мы только проверяем наличие пользователя и не читаем его поля:
- * на сервере auth-js намеренно предупреждает, что данные из getSession() не
- * проверены на стороне Supabase (для подписи имени в шапке это было бы
- * небезопасно, для выбора кнопки — совершенно нормально).
+ * На защищённых страницах middleware уже проверил пользователя и положил его
+ * данные в USER_HEADER. Здесь читаем этот заголовок, чтобы не делать второй
+ * сетевой getUser(). На публичных страницах заголовка нет — тогда для выбора
+ * кнопки достаточно getSession(): он разбирает cookie и не ходит в сеть.
+ * Email из сессии используется только для подписи в шапке, но не для решения о
+ * доступе: доступ к кабинету и урокам проверяет middleware через getUser().
  *
  * Важно: cookies() делает страницу, где стоит шапка, динамической — Next.js
  * отдаёт её на каждый запрос, без статической генерации. Для страницы с
- * персональной кнопкой это ожидаемая цена.
+ * персональной шапкой это ожидаемая цена.
  */
 export async function Header() {
+  const requestUser = decodeRequestUser((await headers()).get(USER_HEADER));
   const supabase = await createClient();
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  let isAuthorized = Boolean(requestUser);
+  let userEmail = requestUser?.email ?? null;
 
-  const isAuthorized = Boolean(session?.user);
+  if (!isAuthorized) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    isAuthorized = Boolean(session?.user);
+    userEmail = session?.user.email ?? null;
+  }
+
+  /** Выход из аккаунта доступен из общей шапки на любой странице. */
+  async function logout() {
+    "use server";
+
+    const serverSupabase = await createClient();
+    await serverSupabase.auth.signOut();
+    redirect("/");
+  }
 
   return (
     <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4 sm:px-8">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 sm:px-8">
         <Logo lessonsHref={isAuthorized ? "/dashboard" : "/course/lesson-1"} />
 
-        <div className="flex items-center gap-4 sm:gap-8">
+        <div className="flex items-center gap-3 sm:gap-5">
           <nav
             aria-label="Основная навигация"
-            className="hidden items-center gap-5 text-sm font-medium text-slate-300 lg:flex xl:gap-7"
+            className="hidden items-center gap-5 text-sm font-medium text-slate-300 xl:flex xl:gap-7"
           >
             <Link
               className="transition-colors hover:text-blue-400"
@@ -96,9 +117,43 @@ export async function Header() {
           </nav>
 
           {isAuthorized ? (
-            <Link href="/dashboard" className={authButtonClassName}>
-              Личный кабинет
-            </Link>
+            <>
+              <Link
+                href="/dashboard"
+                aria-label={
+                  userEmail
+                    ? `Личный кабинет: ${userEmail}`
+                    : "Личный кабинет"
+                }
+                className="group flex min-w-0 items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pr-2.5 pl-1.5 transition-colors hover:border-blue-400/40 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              >
+                <span
+                  data-avatar
+                  role="img"
+                  aria-label="Аватар пользователя"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-violet-500 text-xs font-extrabold tracking-wide text-white shadow-inner"
+                >
+                  {getInitials(userEmail)}
+                </span>
+                <span className="hidden min-w-0 text-left lg:block">
+                  <span className="block text-[10px] font-semibold tracking-[0.14em] text-slate-400 uppercase">
+                    Аккаунт
+                  </span>
+                  <span className="block max-w-36 truncate text-xs font-semibold text-slate-200">
+                    {userEmail ?? "Профиль"}
+                  </span>
+                </span>
+              </Link>
+
+              <form action={logout}>
+                <button
+                  type="submit"
+                  className="inline-flex shrink-0 items-center rounded-full border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:px-4 sm:text-sm"
+                >
+                  Выйти
+                </button>
+              </form>
+            </>
           ) : (
             <Link href="/auth/login" className={authButtonClassName}>
               Войти

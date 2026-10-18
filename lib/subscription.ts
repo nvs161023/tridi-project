@@ -3,8 +3,9 @@
  *
  * После оплаты Robokassa вебхук записывает покупку:
  *   - confident / engineer / profit — один уровень навсегда;
- *   - pro — пакет трёх уровней навсегда;
- *   - pro-subscription — подписка Pro на 30 дней.
+ *   - pro — пакет трёх уровней навсегда (он же открывает инструменты Pro);
+ *   - pro-subscription — подписка Pro на 30 дней (инструменты и продвинутый
+ *     курс, но не три платных уровня).
  *
  * Подписка Pro дополнительно проверяется по таблице subscriptions: она уже
  * настроена в живой базе и хранит статус (active / trial) и trial_ends_at.
@@ -40,13 +41,14 @@ type SubscriptionRow = {
 };
 
 /**
- * Покупки, которые открывают конкретный уровень:
- * свой курс, пакет «Все 3 уровня» или действующая подписка Pro.
+ * Покупки, которые открывают конкретный уровень: свой курс или пакет
+ * «Все 3 уровня». Подписка Pro (pro-subscription) сюда не входит: она даёт
+ * доступ к инструментам и отдельному продвинутому курсу, но не к этим уровням.
  */
 const LEVEL_ACCESS: Record<PaidCourseId, readonly string[]> = {
-  confident: ["confident", "pro", "pro-subscription"],
-  engineer: ["engineer", "pro", "pro-subscription"],
-  profit: ["profit", "pro", "pro-subscription"],
+  confident: ["confident", "pro"],
+  engineer: ["engineer", "pro"],
+  profit: ["profit", "pro"],
 };
 
 /** Дата в будущем: срок покупки или пробного периода ещё не истёк. */
@@ -59,6 +61,23 @@ function isFutureDate(value: string): boolean {
 /** Срок покупки не истёк; null означает «навсегда». */
 function isPurchaseActive(purchase: PurchaseRow): boolean {
   return purchase.expires_at === null || isFutureDate(purchase.expires_at);
+}
+
+/**
+ * Покупка открывает инструменты Pro.
+ *
+ * Пакет `pro` — разовый платёж, поэтому инструменты он открывает только при
+ * expires_at = null. У `pro-subscription` срок обязателен: после 30 дней
+ * доступ закрывается сам.
+ */
+function isToolsPurchaseActive(purchase: PurchaseRow): boolean {
+  if (purchase.course_id === "pro") {
+    return purchase.expires_at === null;
+  }
+
+  return (
+    purchase.course_id === "pro-subscription" && isPurchaseActive(purchase)
+  );
 }
 
 /**
@@ -113,7 +132,7 @@ async function hasAnyPurchase(
   return ((data as PurchaseRow[] | null) ?? []).some(isPurchaseActive);
 }
 
-/** Состояние подписки Pro: есть ли доступ и до какой даты. */
+/** Состояние доступа Pro: есть ли доступ, до какой даты и откуда он взялся. */
 export type ActiveSubscription = {
   active: boolean;
   /**
@@ -122,15 +141,21 @@ export type ActiveSubscription = {
    * без trial_ends_at.
    */
   expiresAt: string | null;
+  /**
+   * Источник доступа: разовый пакет `pro` или подписка. Кабинет показывает
+   * разные формулировки: «Пакет активен навсегда» и «Подписка активна до …».
+   */
+  source: "bundle" | "subscription" | null;
 };
 
 /**
- * Действующая подписка Pro с датой окончания.
+ * Действующий доступ Pro с датой окончания.
  *
- * Проверяет те же два источника, что и hasActiveSubscription(), но ещё
- * возвращает срок для кабинета: «Pro-подписка активна до …». Если покупок
- * несколько, показываем самую позднюю дату; бессрочная запись (expires_at =
- * null) важнее любой даты.
+ * Проверяет те же источники, что и hasActiveSubscription(), но ещё возвращает
+ * срок и источник для кабинета: «Пакет «Всё включено» активен навсегда» или
+ * «Pro-подписка активна до …». Пакет `pro` учитывается только при
+ * expires_at = null — это разовая бессрочная покупка. Если подписок несколько,
+ * показываем самую позднюю дату; бессрочная запись важнее любой даты.
  */
 export async function getActiveSubscription(
   supabase: Supabase,
@@ -141,7 +166,7 @@ export async function getActiveSubscription(
       .from("purchases")
       .select("course_id, expires_at")
       .eq("user_id", userId)
-      .eq("course_id", "pro-subscription"),
+      .in("course_id", ["pro", "pro-subscription"]),
     supabase
       .from("subscriptions")
       .select("status, trial_ends_at")
@@ -156,13 +181,13 @@ export async function getActiveSubscription(
   } else {
     const purchases = (
       (purchasesResult.data as PurchaseRow[] | null) ?? []
-    ).filter(isPurchaseActive);
+    ).filter(isToolsPurchaseActive);
+
+    if (purchases.some((purchase) => purchase.course_id === "pro")) {
+      return { active: true, expiresAt: null, source: "bundle" };
+    }
 
     if (purchases.length > 0) {
-      if (purchases.some((purchase) => purchase.expires_at === null)) {
-        return { active: true, expiresAt: null };
-      }
-
       return {
         active: true,
         expiresAt: latestDate(
@@ -170,6 +195,7 @@ export async function getActiveSubscription(
             .map((purchase) => purchase.expires_at)
             .filter((value): value is string => value !== null),
         ),
+        source: "subscription",
       };
     }
   }
@@ -177,7 +203,7 @@ export async function getActiveSubscription(
   if (subscriptionsResult.error) {
     // Таблицы subscriptions может не быть в старой базе — тогда доступа нет.
     console.warn("Не удалось проверить подписку:", subscriptionsResult.error.message);
-    return { active: false, expiresAt: null };
+    return { active: false, expiresAt: null, source: null };
   }
 
   const subscriptions = (
@@ -185,7 +211,7 @@ export async function getActiveSubscription(
   ).filter(isSubscriptionActive);
 
   if (subscriptions.length === 0) {
-    return { active: false, expiresAt: null };
+    return { active: false, expiresAt: null, source: null };
   }
 
   return {
@@ -197,14 +223,16 @@ export async function getActiveSubscription(
           (value): value is string => value !== null && isFutureDate(value),
         ),
     ),
+    source: "subscription",
   };
 }
 
 /**
  * Есть ли доступ к платному уровню.
  *
- * Пакет `pro` и подписка `pro-subscription` открывают все три уровня. Запись
- * подписки проверяется по expires_at: после 30 дней доступ закрывается сам.
+ * Пакет `pro` открывает все три уровня. Подписка `pro-subscription` — нет:
+ * она относится к инструментам и отдельному продвинутому курсу. Срок покупки
+ * проверяется по expires_at: null означает «навсегда».
  */
 export async function hasCourseAccess(
   supabase: Supabase,
@@ -249,14 +277,15 @@ export async function hasProCourseAccess(
 }
 
 /**
- * Действующая подписка Pro для инструментов (профили, конструктор).
+ * Действующий доступ Pro для инструментов (профили, конструктор).
  *
- * Проверяет два источника:
- *   1. purchases — запись `pro-subscription` со сроком в expires_at;
- *   2. subscriptions — статус active или неистёкший trial.
+ * Проверяет три источника:
+ *   1. purchases — бессрочная запись `pro` (пакет трёх уровней);
+ *   2. purchases — запись `pro-subscription` со сроком в expires_at;
+ *   3. subscriptions — статус active или неистёкший trial.
  *
- * Вторая проверка нужна, пока схема purchases не применена в живой базе:
- * без неё оплаченная подписка не открывала бы профили.
+ * Вторая и третья проверки нужны, пока схема purchases не применена в живой
+ * базе: без них оплаченная подписка не открывала бы профили.
  *
  * Дата окончания не нужна — только факт доступа. Если нужна и дата, используйте
  * getActiveSubscription(): это та же проверка с подробностями.

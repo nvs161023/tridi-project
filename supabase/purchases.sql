@@ -35,6 +35,15 @@ create table if not exists public.purchases (
   expires_at timestamptz
 );
 
+-- Если таблица уже существовала без inv_id, `create table if not exists` её не
+-- изменит. Добавляем колонку отдельно: она нужна вебхуку Robokassa, а
+-- уникальный индекс защищает от повторной выдачи доступа по тому же заказу.
+alter table public.purchases
+  add column if not exists inv_id bigint;
+
+create unique index if not exists purchases_inv_id_key
+  on public.purchases (inv_id);
+
 -- Быстрый поиск доступа: «есть ли у пользователя покупка этого курса».
 create index if not exists purchases_user_course_idx
   on public.purchases (user_id, course_id);

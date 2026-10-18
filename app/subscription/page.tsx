@@ -28,7 +28,7 @@ import { PlanButton } from "./PlanButton";
 export const metadata: Metadata = {
   title: "Тарифы — 3D-печать с нуля",
   description:
-    "Первый уровень бесплатно, три платных курса и пакет «Всё включено» — со скидкой в честь запуска платформы. Инструменты открываются подпиской Pro. Цены, сравнение уровней и частые вопросы.",
+    "Первый уровень бесплатно, три платных курса и пакет «Всё включено» — со скидкой в честь запуска платформы. Пакет открывает все курсы и Pro-инструменты навсегда, подписка Pro — инструменты на 30 дней. Цены, сравнение уровней и частые вопросы.",
 };
 
 const { pro: proCourse } = coursesData;
@@ -151,7 +151,7 @@ const FAQ: { question: string; answer: string }[] = [
   },
   {
     question: "Можно ли купить курс навсегда?",
-    answer: `Да. Со скидкой к запуску платформы «Уверенный» стоит ${priceWithOld(LEVELS[1])}, «Инженер» — ${priceWithOld(LEVELS[2])}, «Заработок» — ${priceWithOld(LEVELS[3])}. Пакет из трёх уровней — ${proBundlePrice} ₽ вместо ${formatPrice(proCourse.oldPrice)} ₽. Это разовый платёж, доступ остаётся навсегда.`,
+    answer: `Да. Со скидкой к запуску платформы «Уверенный» стоит ${priceWithOld(LEVELS[1])}, «Инженер» — ${priceWithOld(LEVELS[2])}, «Заработок» — ${priceWithOld(LEVELS[3])}. Пакет из трёх уровней — ${proBundlePrice} ₽ вместо ${formatPrice(proCourse.oldPrice)} ₽. Он открывает все три курса и Pro-инструменты навсегда: это разовый платёж.`,
   },
   {
     question: "Как работает подписка?",
@@ -208,8 +208,9 @@ export default function SubscriptionPage() {
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-relaxed text-slate-300 sm:text-xl">
               Первый уровень — бесплатно по акции и без карты. Платные курсы
-              покупаются навсегда, а инструменты — Конструктор и Профили —
-              открываются подпиской Pro.
+              покупаются навсегда, а пакет «Всё включено» открывает все три
+              уровня и Pro-инструменты. Подписка Pro — доступ к инструментам на
+              30 дней.
             </p>
 
             <div className="mt-7 flex flex-wrap gap-2.5 text-xs font-semibold sm:text-sm">
@@ -704,6 +705,9 @@ export default function SubscriptionPage() {
                 </h3>
                 <p className="relative mt-1 text-xs leading-relaxed text-amber-100/80">
                   {proCourse.bundleSubtitle} навсегда
+                </p>
+                <p className="relative mt-3 rounded-2xl border border-amber-300/20 bg-amber-300/5 px-3 py-2 text-[11px] font-semibold leading-relaxed text-amber-100">
+                  Доступ ко всем курсам и ко всем Pro-инструментам навсегда
                 </p>
 
                 <p className="relative mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
