@@ -14,7 +14,7 @@ import {
   isModuleTestCompletedByOrder,
 } from "@/lib/module-test";
 import { loadPassedModuleTests } from "@/lib/module-test-progress";
-import { hasActiveSubscription } from "@/lib/subscription";
+import { hasProCourseAccess } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 import type { MiniCheckQuestion, ProCourse, ProLesson, ProModule } from "@/lib/types";
 
@@ -343,7 +343,7 @@ export default async function ProLessonPage({ params }: ProLessonPageProps) {
 
   // Главный вопрос страницы: есть ли действующая подписка у ЭТОГО пользователя.
   // От ответа зависит, какие блоки урока вообще попадут в HTML.
-  const hasAccess = await hasActiveSubscription(supabase, userId);
+  const hasAccess = await hasProCourseAccess(supabase, userId);
 
   // Тесты модулей обязательны и в продвинутом курсе: сданные результаты лежат в
   // lesson_progress отдельным типом курса (см. lib/module-test.ts). Результаты

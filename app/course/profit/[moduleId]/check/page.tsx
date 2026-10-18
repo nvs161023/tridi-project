@@ -8,15 +8,15 @@ import {
   findProfitModule,
 } from "@/lib/profit-course";
 import { resolveUserId } from "@/lib/current-user";
-import { hasActiveSubscription } from "@/lib/subscription";
+import { hasCourseAccess } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 /**
  * Страница «Проверь себя» уровня «Заработок»: тест по модулю —
  * /course/profit/<модуль>/check, например /course/profit/1/check.
  *
- * Доступ тот же, что и к урокам уровня: нужен вход и действующая подписка.
- * middleware гостя не пустит, но про подписку он не знает — её спрашиваем у базы.
+ * Доступ тот же, что и к урокам уровня: вход и покупка курса, пакета или подписка.
+ * middleware гостя не пустит, но про покупки он не знает — их спрашиваем у базы.
  *
  * Тесты модулей пишутся вместе с материалами, поэтому возможны два состояния:
  * вопросы уже есть — показываем тест; вопросов нет — говорим, что тест готовится,
@@ -106,7 +106,7 @@ export default async function ProfitCheckPage({
     );
   }
 
-  const hasAccess = await hasActiveSubscription(supabase, userId);
+  const hasAccess = await hasCourseAccess(supabase, userId, "profit");
 
   const nextModule = profitModules.find(
     (item) => item.module_order === courseModule.module_order + 1,
@@ -147,11 +147,11 @@ export default async function ProfitCheckPage({
           {!hasAccess ? (
             <section className="rounded-3xl border-2 border-rose-500/40 bg-gradient-to-b from-rose-500/10 via-slate-900/70 to-slate-900/80 p-7 text-center sm:p-9">
               <h2 className="text-2xl font-extrabold text-white sm:text-3xl">
-                <span aria-hidden>🔒</span> Доступно по подписке
+                <span aria-hidden>🔒</span> Доступ к тестам закрыт
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-slate-300">
-                Тесты модулей уровня «Заработок» входят в подписку вместе с
-                уроками.
+                Тесты модулей уровня «Заработок» входят в платный доступ:
+                купите уровень навсегда или откройте его по подписке Pro.
               </p>
               <div className="mt-8">
                 <Link

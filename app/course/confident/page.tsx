@@ -18,7 +18,7 @@ import { createClient } from "@/lib/supabase/server";
  *
  * Страница открывается любому вошедшему человеку: она показывает, что за уровень
  * и какие в нём уроки. Сам материал уроков — платный, его отдаёт страница урока
- * (/course/confident/<модуль>/<урок>), где доступ решает подписка.
+ * (/course/confident/<модуль>/<урок>), где доступ решает покупка или подписка.
  *
  * Материалы уровня пишутся по частям, поэтому у урока может быть пустой blocks:
  * такой урок не ссылка, а строка с отметкой «Готовится». Отметка исчезает сама,
@@ -91,7 +91,7 @@ export default async function ConfidentCoursePage() {
         </div>
 
         <p className="mt-8 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 px-5 py-4 text-sm leading-relaxed text-emerald-100/85">
-          Уровень входит в подписку: доступ к урокам открывается вместе с ней.{" "}
+          Уровень можно купить навсегда или открыть по подписке Pro.{" "}
           <Link
             href="/subscription"
             className="font-semibold text-emerald-200 underline-offset-4 transition-colors hover:text-emerald-100 hover:underline"

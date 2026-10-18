@@ -28,7 +28,11 @@
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | URL проекта Supabase |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Публичный ключ (anon) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Приватный ключ; в коде пока не используется (задел для серверных задач) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Приватный ключ service_role: вебхук Robokassa записывает покупки в обход RLS |
+| `ROBOKASSA_LOGIN` | Логин магазина из технических настроек Robokassa |
+| `ROBOKASSA_PASSWORD1` | Пароль №1: подпись ссылки на оплату |
+| `ROBOKASSA_PASSWORD2` | Пароль №2: проверка уведомления ResultURL |
+| `ROBOKASSA_IS_TEST` | `true` — тестовые платежи, `false` — боевые (по умолчанию тестовые) |
 | `NEXT_PUBLIC_SITE_URL` | Публичный адрес сайта для ссылок в письмах (подтверждение email) |
 
 Команды (`package.json`):
@@ -61,6 +65,12 @@
 | `/legal/privacy`, `/legal/consent`, `/legal/terms`, `/legal/offer`, `/legal/cookies` | `app/legal/*/page.tsx` | Пять документов (статически пререндерятся, открываются даже когда база недоступна) |
 | `/terms`, `/privacy`, `/register` | `next.config.ts` | Короткие адреса: постоянные редиректы (308) на `/legal/terms`, `/legal/privacy` и `/auth/sign-up` |
 
+Служебные (без сессии, вызываются платёжным сервисом):
+
+| URL | Файл | Что делает |
+|---|---|---|
+| `/api/payments/robokassa/result` | `app/api/payments/robokassa/result/route.ts` | ResultURL Robokassa: проверяет подпись с `Shp_*`, сумму и записывает покупку в `purchases`, возвращает `OK{InvId}` |
+
 Авторизация и верификация:
 
 | URL | Файл | Что делает |
@@ -72,7 +82,7 @@
 | `/auth/forgot-password` | `app/auth/forgot-password/page.tsx` + `ForgotPasswordForm.tsx` | Запрос письма для сброса пароля (`resetPasswordAction`); ответ всегда нейтральный — по форме нельзя понять, зарегистрирован ли адрес |
 | `/auth/reset-password` | `app/auth/reset-password/page.tsx` | Сброс пароля в два шага: ссылку подтверждает кнопка (`verifyOtp`, `type=recovery`), затем на той же странице форма нового пароля (`updateUser`) |
 
-Закрытые (нужен вход; для платного контента — ещё и подписка):
+Закрытые (нужен вход; для платного контента — ещё и купленный курс, пакет или подписка):
 
 | URL | Файл | Что показывает |
 |---|---|---|
@@ -82,14 +92,14 @@
 | `/course/pro/<модуль>/<урок>` | `app/course/pro/[moduleId]/[lessonId]/page.tsx` | Урок продвинутого курса: превью 2 блоков без подписки, замок, гейт по тестам модулей |
 | `/course/pro/<модуль>/check` | `app/course/pro/[moduleId]/check/page.tsx` | Тест модуля продвинутого курса (проверка подписки) |
 | `/course/confident` | `app/course/confident/page.tsx` | Программа уровня «Уверенный»: три модуля и 12 уроков, все уроки написаны |
-| `/course/confident/<модуль>/<урок>` | `app/course/confident/[moduleId]/[lessonId]/page.tsx` | Урок уровня «Уверенный»: превью 2 блоков без подписки, замок, гейт по тестам модулей |
-| `/course/confident/<модуль>/check` | `app/course/confident/[moduleId]/check/page.tsx` | Тест модуля уровня «Уверенный» (проверка подписки; тесты всех трёх модулей написаны) |
+| `/course/confident/<модуль>/<урок>` | `app/course/confident/[moduleId]/[lessonId]/page.tsx` | Урок уровня «Уверенный»: превью 2 блоков без доступа, замок, гейт по тестам модулей |
+| `/course/confident/<модуль>/check` | `app/course/confident/[moduleId]/check/page.tsx` | Тест модуля уровня «Уверенный» (проверка покупки или подписки; тесты всех трёх модулей написаны) |
 | `/course/engineer` | `app/course/engineer/page.tsx` | Программа уровня «Инженер 3D-печати»: два модуля и 10 уроков, все уроки написаны |
-| `/course/engineer/<модуль>/<урок>` | `app/course/engineer/[moduleId]/[lessonId]/page.tsx` | Урок уровня «Инженер»: превью 2 блоков без подписки, замок, гейт по тестам модулей |
-| `/course/engineer/<модуль>/check` | `app/course/engineer/[moduleId]/check/page.tsx` | Тест модуля уровня «Инженер» (проверка подписки; тесты обоих модулей написаны) |
+| `/course/engineer/<модуль>/<урок>` | `app/course/engineer/[moduleId]/[lessonId]/page.tsx` | Урок уровня «Инженер»: превью 2 блоков без доступа, замок, гейт по тестам модулей |
+| `/course/engineer/<модуль>/check` | `app/course/engineer/[moduleId]/check/page.tsx` | Тест модуля уровня «Инженер» (проверка покупки или подписки; тесты обоих модулей написаны) |
 | `/course/profit` | `app/course/profit/page.tsx` | Программа уровня «Заработок на 3D-печати»: два модуля и 8 уроков, материал написан целиком (Z1…Z8) |
-| `/course/profit/<модуль>/<урок>` | `app/course/profit/[moduleId]/[lessonId]/page.tsx` | Урок уровня «Заработок»: превью 2 блоков без подписки, замок, гейт по тестам модулей |
-| `/course/profit/<модуль>/check` | `app/course/profit/[moduleId]/check/page.tsx` | Тест модуля уровня «Заработок» (проверка подписки; тесты обоих модулей написаны) |
+| `/course/profit/<модуль>/<урок>` | `app/course/profit/[moduleId]/[lessonId]/page.tsx` | Урок уровня «Заработок»: превью 2 блоков без доступа, замок, гейт по тестам модулей |
+| `/course/profit/<модуль>/check` | `app/course/profit/[moduleId]/check/page.tsx` | Тест модуля уровня «Заработок» (проверка покупки или подписки; тесты обоих модулей написаны) |
 | `/constructor` | `app/constructor/page.tsx` | Конструктор 3D-моделей — пока **заглушка**: «Раздел в разработке» и три карточки шаблонов (Вазы, Брелоки, Светильники) со статусом «Скоро»; `robots: noindex` |
 
 Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает только на `/dashboard/*`,
@@ -182,34 +192,48 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает �
   `/auth/login?error=reset_link_invalid`; сообщения по этому параметру на входе пока нет — он
   зарезервирован под подсказку.
 
-### 3.3 Доступ и подписка
+### 3.3 Доступ и оплата
 
-Доступ решается в четырёх слоях, чтобы платный контент нельзя было получить в обход:
+Доступ решается в нескольких слоях, чтобы платный контент нельзя было получить в обход:
 
 1. **Аккаунт** — есть ли вход (`lib/current-user.ts`).
-2. **Подписка** — `subscriptions.status`: `active`, либо `trial` с `trial_ends_at` в будущем.
-   Эту проверку делают страницы продвинутого курса (`canAccessProCourse` в `lib/basic-course.ts`
-   и одноимённая локальная функция на странице урока/теста).
-3. **Закрытый контент** — без подписки отдаются только первые **2 блока** урока
-   (`PREVIEW_BLOCKS` в `app/course/pro/[moduleId]/[lessonId]/page.tsx`), дальше — замок со ссылкой
-   на тарифы. Названия уроков и программа видны полностью: это осознанное решение — человек
+2. **Покупка** — таблица `purchases`: разовый курс, пакет или подписка. Проверка живёт в
+   `lib/subscription.ts`: `hasCourseAccess` для трёх уровней и `hasProCourseAccess` для
+   продвинутого курса. Срок записи проверяется по `expires_at`; `null` означает «навсегда».
+3. **Правила доступа** — покупка `confident`/`engineer`/`profit` открывает свой уровень,
+   `pro` (пакет) открывает все три уровня, активная `pro-subscription` — тоже все три и
+   дополнительно продвинутый курс. Пакет `pro` продвинутый курс не открывает: он входит
+   только в подписку Pro.
+4. **Закрытый контент** — без доступа отдаются только первые **2 блока** урока
+   (`PREVIEW_BLOCKS` в `app/course/pro/[moduleId]/[lessonId]/page.tsx` и страницах уровней),
+   дальше — замок со ссылкой на тарифы. Названия уроков и программа видны полностью: человек
    понимает, что покупает, но контента не получает.
-4. **Прогрессия** — следующий модуль продвинутого курса открывается только после сданного теста
-   предыдущего (`lib/module-test-progress.ts`).
-5. **База** — `supabase/pro_course_access.sql` и `supabase/grants_and_policies.sql` (RLS-политики
-   и гранты): анонимный доступ закрыт, строки прогресса видны только владельцу.
+5. **Прогрессия** — следующий модуль открывается только после сданного теста предыдущего
+   (`lib/module-test-progress.ts`).
+6. **База** — `supabase/purchases.sql`, `supabase/pro_course_access.sql` и
+   `supabase/grants_and_policies.sql` (RLS-политики и гранты): анонимный доступ закрыт,
+   покупки и прогресс видны только владельцу, а записывает покупки только `service_role`.
 
 Тарифы: Free — 0 ₽ (уровень «Новичок»: 8 уроков, 55 схем и 2 теста модулей, прогресс в
 кабинете). Платные уровни можно купить навсегда: «Уверенный» — 2 990 ₽, «Инженер» — 3 990 ₽,
 «Заработок» — 4 990 ₽; пакет трёх уровней — 9 900 ₽ вместо 11 970 ₽. Подписка Pro —
 1 490 ₽/мес: три платных уровня (30 уроков, 195 схем и 7 тестов) и продвинутый курс
 (109 уроков и 160 схем), пока подписка активна.
+
 Состав тарифов и FAQ — в `app/subscription/page.tsx`; цены берутся из `data/courses.json`:
-`price` у каждого платного уровня и пакета `pro`, `subscriptionPrice` у подписки. Тот же файл
-использует страница урока продвинутого курса, чтобы цена в замке и на витрине не разошлась.
-Кнопка оплаты (`app/subscription/PlanButton.tsx`) передаёт `courseId` и `price` в
-`initializePayment` (`lib/payments.ts`) и пока показывает заглушку: платёжный провайдер не
-подключён, следующий шаг — Робокасса. Порядок оплаты, чеки НПД и возврат описаны в оферте.
+`price` у каждого платного уровня и пакета `pro`, `subscriptionPrice` у подписки.
+
+Оплата Robokassa:
+
+1. `PlanButton` (`app/subscription/PlanButton.tsx`) отправляет на сервер только `courseId`.
+2. Server Action `createRobokassaPayment` (`app/actions/payments.ts`) берёт пользователя из
+   сессии, цену — из `data/courses.json`, и вызывает `initializePayment` (`lib/payments.ts`).
+3. `initializePayment` формирует `InvId`, подпись MD5 и ссылку с `Shp_course`/`Shp_user`.
+4. ResultURL `/api/payments/robokassa/result` проверяет подпись с `Shp_*`, сумму и
+   записывает покупку через `lib/supabase/admin.ts`; на успех отвечает `OK{InvId}`.
+   Повторное уведомление не создаёт дубль благодаря уникальному `inv_id`.
+
+Порядок оплаты, чеки НПД и возврат описаны в оферте.
 Функции «конструктор» и «AI-диагностика» из прежнего описания тарифов ещё не реализованы —
 см. раздел 12.
 
@@ -740,9 +764,9 @@ M117, моторы) и правило «без отвода — вмятина �
   написаны — 30 вопросов и 90 пояснений.
 - Страницы: `app/course/confident/page.tsx` (программа уровня), `app/course/confident/[moduleId]/[lessonId]/page.tsx`
   (урок), `app/course/confident/[moduleId]/check/page.tsx` (тест модуля).
-- Доступ: уроки и тесты уровней «Уверенный» и «Инженер» открывает одна подписка, поэтому проверка
-  одна на всех — `lib/subscription.ts` (`hasActiveSubscription`). Без подписки страница урока отдаёт
-  2 блока превью и замок, как и продвинутый курс.
+- Доступ: покупки уровней, пакета и подписки проверяет `lib/subscription.ts`
+  (`hasCourseAccess` для «Уверенного», «Инженера» и «Заработка»; `hasProCourseAccess` для
+  продвинутого курса). Без доступа страница урока отдаёт 2 блока превью и замок.
 - Прогресс: уроки пишутся с `course_type = "confident"` (номер урока 1…12), тесты модулей — с
   `"confident-test"` (номер модуля 1…3). Тип строки заведён в `lib/module-test.ts`, а значение
   `course_type` в базе разрешает `supabase/confident_course_access.sql` (применяется вручную).
@@ -1110,20 +1134,21 @@ runtime-каталог. Первый этап — Bambu Lab X1 Carbon, Prusa MK3
 | Файл | Назначение |
 |---|---|
 | `lib/types.ts` | Типы данных курсов: блоки, уроки, модули, курсы, вопросы тестов |
-| `lib/basic-course.ts` | Разворачивает базовый курс из модулей в плоский список уроков (`basicLessons`), собирает `basicCourseModules`, ищет модуль по коду (`findBasicModule`); проверяет доступ к продвинутому курсу (`canAccessProCourse`) |
+| `lib/basic-course.ts` | Разворачивает базовый курс из модулей в плоский список уроков (`basicLessons`), собирает `basicCourseModules`, ищет модуль по коду (`findBasicModule`) |
 | `lib/confident-course.ts` | То же для уровня «Уверенный»: модули и уроки из `data/course-confident.json` (`confidentModules`, `confidentLessons`), поиск модуля и урока (`findConfidentModule`, `findConfidentLesson`), вопросы теста модуля (`confidentModuleQuestions`) |
 | `lib/engineer-course.ts` | То же для уровня «Инженер»: модули и уроки из `data/course-engineer.json` (`engineerModules`, `engineerLessons`), поиск модуля и урока (`findEngineerModule`, `findEngineerLesson`), вопросы теста модуля (`engineerModuleQuestions`) |
 | `lib/course-stats.ts` | Числа и слова для витрины: `summarizeCourse`, `formatHours`, `groupByModule`, `pluralize` и формы слов («1 урок / 2 урока / 5 уроков»); `countVisualBlocks`, `countModuleTests`, `countQuestions`, `countExplanations` считают схемы и тесты по данным курсов |
 | `lib/course-levels.ts` | Четыре уровня витрины (`LEVELS`): названия, `goal` и разовая цена `price` из `data/courses.json`, уроки, схемы, тесты и часы — из файлов курсов; `PAID_LEVELS`, `PAID_LESSONS`, `PAID_VISUALS`, `PAID_TESTS`, `TOTAL_LESSONS`, `TOTAL_VISUALS`, `TOTAL_TESTS` — те же числа для главной и `/subscription` |
-| `lib/payments.ts` | Заглушка `initializePayment({ courseId, price })`: принимает данные тарифа и возвращает намерение платежа `pending`; следующий шаг — Server Action Робокассы |
+| `lib/payments.ts` | Robokassa: `initializePayment` собирает подписанную ссылку с `InvId` и `Shp_*`, проверяет сумму по `data/courses.json`; `verifyResultSignature` проверяет MD5 уведомления с паролем №2 |
 | `lib/module-test.ts` | Правила тестов: пороги сдачи (5 в бесплатном курсе, 7 в платных) и «отлично» (8), типы записей (`basic-test`, `confident-test`, `engineer-test`, `pro-test`), проверки `isModuleTestPassed`, `isModuleTestCompleted`, `isModuleTestCompletedByOrder` |
-| `lib/subscription.ts` | `hasActiveSubscription` — одна проверка подписки на все платные уровни: активная подписка или незакончившийся триал даёт доступ к «Уверенному» и «Инженеру» |
+| `lib/subscription.ts` | `hasCourseAccess` проверяет покупку уровня, пакета `pro` или активной подписки `pro-subscription`; `hasProCourseAccess` — только активную подписку для продвинутого курса; срок записи — по `expires_at` |
 | `lib/module-test-progress.ts` | Загружает из базы номера сданных модулей (`Set<number>`); `null` — если прочитать не удалось (тогда модуль не запираем) |
 | `lib/current-user.ts` | Кто открыл страницу: берёт пользователя из заголовка middleware, при его отсутствии сам вызывает `getUser()` |
 | `lib/auth-redirect.ts` | `authHref(path, next)` — ссылка на вход с возвратом; `resolveAfterAuthPath` / `safeNextPath` — санитизация `next` (только внутренние пути, отсекаем `//evil.com`) |
 | `lib/legal.ts` | Реквизиты владельца (`LEGAL_OPERATOR`), дата редакции документов, список юридических документов |
 | `lib/site-url.ts` | Публичный адрес сайта и `buildEmailRedirectUrl(next)` для ссылок в письмах: `NEXT_PUBLIC_SITE_URL` → (в dev) хост запроса → боевой домен |
 | `lib/supabase/server.ts` | Серверный клиент Supabase с cookies (Server Components и Server Actions) |
+| `lib/supabase/admin.ts` | Клиент с ключом `service_role` для вебхука Robokassa: записывает покупки в обход RLS |
 | `lib/supabase/client.ts` | Браузерный клиент: страницы `/auth/confirm` и `/auth/reset-password` — сессию после клика по кнопке записывает браузер |
 | `lib/supabase/middleware.ts` | `updateSession`: обновление сессии, защита закрытых маршрутов, гейт неподтверждённой почты, проброс пользователя заголовком, редиректы авторизованных со страниц входа |
 | `lib/supabase/user-headers.ts` | Кодирование и чтение заголовка `x-supabase-user`: страницы не делают лишний сетевой `getUser()`. Заголовок всегда перезаписывается middleware, поэтому подделать его нельзя |
@@ -1146,6 +1171,7 @@ runtime-каталог. Первый этап — Bambu Lab X1 Carbon, Prusa MK3
 | `confirmSessionFromTokens` | `app/actions/confirm-session.ts` | Завершает вход по токенам из фрагмента адреса (`#access_token=…`) — вариант для шаблона письма Supabase по умолчанию |
 | `completeLesson` | `app/actions/complete-lesson.ts` | Отмечает урок пройденным: `upsert` в `lesson_progress` по (user_id, course_type, lesson_id). Идемпотентно; значения из браузера проверяются (`courseType` только `basic`/`confident`/`pro`) |
 | `completeModuleTest` | `app/actions/complete-module-test.ts` | Принимает результат теста, повторно проверяет порог сдачи (5 в бесплатном курсе, 7 в платных), пишет **только сданный** тест (`basic-test` / `confident-test` / `pro-test`) |
+| `createRobokassaPayment` | `app/actions/payments.ts` | Берёт пользователя из сессии и цену из `data/courses.json`, проверяет `courseId` и возвращает подписанную ссылку Robokassa |
 
 Типы результатов описаны рядом с функциями (`CompleteLessonResult`, `CompleteModuleTestResult`,
 `ConfirmSessionResult`), состояние формы авторизации — `app/actions/auth-state.ts`
@@ -1169,7 +1195,7 @@ runtime-каталог. Первый этап — Bambu Lab X1 Carbon, Prusa MK3
 | `components/course/MiniCheck.tsx` | клиентский | Мини-проверка внутри урока (`mini_check`) — сейчас в данных не используется, компонент рабочий |
 | `components/legal/LegalText.tsx` | серверный | Типографика юридических документов: заголовки, списки, врезки, внутренние ссылки |
 | `components/lesson-visuals/index.tsx`, `_Wrapper.tsx` | серверный | Реестр визуализаций уроков и общая обёртка (карточка с подписью и рамкой); в базовом реестре пятьдесят пять кадров — `basic-1-image-0`, все шесть кадров урока L2 (`basic-2-diagram-0`…`5`) и все шесть кадров урока L3 (`basic-3-diagram-0`…`2`, `basic-3-image-0`…`2`), все семь кадров урока L4 (`basic-4-diagram-0`…`3`, `basic-4-image-0`…`2`), все восемь кадров урока L5 (`basic-5-diagram-0`…`3`, `basic-5-image-0`…`3`) и все десять кадров урока L6 (`basic-6-diagram-0`…`4`, `basic-6-image-0`…`4`) и все десять кадров урока L7 (`basic-7-diagram-0`…`9`) и все семь кадров урока L8 (`basic-8-diagram-0`…`4`, `basic-8-image-0`…`1`); в базовом курсе заглушек не осталось (имена медиаблоков `B1_…`–`B8_…` — задел на Этап 2), в продвинутом 160 (модули A, A-без, B, E1, F, G, H, I, C1, E2, E-хим, D, K, M, L, N, U, J, O, P, C2 и C-пож — все 12 блоков модуля J, все 10 блоков модуля O, все 11 блоков модуля P, все 9 блоков модуля C2 и все 4 блока модуля C-пож); у «Уверенного» третья ветка реестра (`CONFIDENT_VISUALS`) пока пуста — 72 визуальных блока уроков C1–C12 (кадры `C1_…`–`C12_…`) рисуются заглушкой по типу; все 72 кадра уроков C1–C12 уже описаны в данных |
-| `app/subscription/PlanButton.tsx` | клиентский | Кнопка тарифа: передаёт `courseId` и `price` в `initializePayment` и пока показывает уведомление «оплата подключается» |
+| `app/subscription/PlanButton.tsx` | клиентский | Кнопка тарифа: вызывает Server Action `createRobokassaPayment` с `courseId` и переходит по ссылке Robokassa; показывает ошибку и ссылку на вход |
 | `app/auth/login/LoginForm.tsx`, `app/auth/sign-up/SignUpForm.tsx`, `app/auth/verify-email/ResendForm.tsx` | клиентские | Формы: `useActionState` + `useFormStatus`-подобное состояние ожидания, показ ошибок и сохранение введённого email после ошибки |
 | `app/auth/forgot-password/ForgotPasswordForm.tsx`, `app/auth/reset-password/page.tsx` | клиентские | Сброс пароля: форма запроса письма (Server Action, нейтральный ответ) и двухшаговая смена пароля браузерным клиентом Supabase (`verifyOtp` по кнопке + `updateUser`) |
 
@@ -1177,20 +1203,24 @@ runtime-каталог. Первый этап — Bambu Lab X1 Carbon, Prusa MK3
 
 ## 9. База данных (Supabase)
 
-Self-hosted Supabase на сервере в РФ: используются только Auth и Postgres. Таблиц три, все с
+Self-hosted Supabase на сервере в РФ: используются только Auth и Postgres. Таблиц четыре, все с
 включённым RLS.
 
 | Таблица | Колонки | Назначение |
 |---|---|---|
 | `profiles` | `id uuid` (= `auth.users.id`), `email`, `name`, `created_at` | Имя и почта для кабинета |
 | `lesson_progress` | `id uuid`, `user_id uuid`, `lesson_id integer`, `course_type text not null default 'basic'`, `completed_at` | Прогресс уроков и результаты тестов |
-| `subscriptions` | `id uuid`, `user_id uuid`, `status text`, `trial_ends_at`, `created_at`, `updated_at` | Доступ к продвинутому курсу |
+| `purchases` | `id uuid`, `inv_id bigint unique`, `user_id uuid`, `course_id text`, `amount numeric(10,2)`, `created_at`, `expires_at` | Покупки курсов, пакета и подписки; `expires_at = null` — навсегда |
+| `subscriptions` | `id uuid`, `user_id uuid`, `status text`, `trial_ends_at`, `created_at`, `updated_at` | Старая таблица подписки; проверка доступа теперь читает `purchases` |
 
 Как это работает:
 
 - **Политики «только свои строки»**: `auth.uid() = id` для `profiles`, `auth.uid() = user_id` для
-  `lesson_progress` и `subscriptions`. Для `subscriptions` есть **только `select`** — менять статус
-  может исключительно `service_role`, то есть подписку нельзя выдать себе из браузера.
+  `lesson_progress`, `purchases` и `subscriptions`. Для `purchases` и `subscriptions` есть
+  **только `select`** — записывать покупки может исключительно `service_role` из вебхука
+  Robokassa, то есть выдать себе доступ из браузера нельзя.
+- **`inv_id` уникален**: повторное уведомление ResultURL не создаёт вторую покупку. Для подписки
+  `expires_at` выставляется на 30 дней вперёд, у разовых курсов и пакета остаётся `null`.
 - **`anon` доступа не имеет** (PostgREST отвечает `401 permission denied`): таблицы читаются только
   вошедшим пользователем или сервисной ролью. Гранты выданы ролям `authenticated` и `service_role`.
 - **Уникальный индекс** `(user_id, course_type, lesson_id)` — на него опирается `upsert` в
@@ -1265,7 +1295,9 @@ Self-hosted Supabase на сервере в РФ: используются то�
 сборке платформа оставляет прошлый контейнер.
 
 Переменные окружения на хостинге: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-`SUPABASE_SERVICE_ROLE_KEY` (пока не используется в коде), `NEXT_PUBLIC_SITE_URL`.
+`SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SITE_URL`, `ROBOKASSA_LOGIN`, `ROBOKASSA_PASSWORD1`,
+`ROBOKASSA_PASSWORD2`, `ROBOKASSA_IS_TEST`. В боевом режиме `ROBOKASSA_IS_TEST=false`; при
+`true` используются тестовые пароли Robokassa и реальные деньги не списываются.
 
 ---
 
@@ -1279,7 +1311,10 @@ Self-hosted Supabase на сервере в РФ: используются то�
   после клика записывает браузерный клиент (`lib/supabase/client.ts`), в бандле оказались только
   публичный anon-ключ и одноразовый токен из адреса.
 - **RLS + отсутствие грантов у `anon`**: без входа таблицы недоступны, вошедший видит только свои
-  строки. Статус подписки меняет только `service_role` — выдать себе Pro через API нельзя.
+  строки. Покупки меняет только `service_role` из подписанного вебхука — выдать себе доступ
+  через API нельзя.
+- **Вебхук Robokassa** проверяет MD5-подпись с `Shp_*` и паролем №2, сумму по `data/courses.json`
+  и пользователя из `Shp_user`. Без совпадения подписи покупка не записывается.
 - **Заголовок `x-supabase-user`** всегда удаляется и заново подставляется middleware, поэтому
   подделать личность через заголовок нельзя (в нём нет токенов — только id, email, имя).
 - **Защита от открытого редиректа**: `resolveAfterAuthPath` пускает только внутренние пути, поэтому
@@ -1301,10 +1336,11 @@ Self-hosted Supabase на сервере в РФ: используются то�
    статус, но самих шаблонов (вазы, брелоки, светильники) и скачивания моделей пока нет. Вместе
    с ней в тарифах упомянуты и не реализованы AI-диагностика и библиотека моделей — это нужно
    закрыть до старта продаж.
-2. **Платежи не подключены**: `PlanButton` передаёт `courseId` и `price` в заглушку
-   `initializePayment`, но показывает только уведомление. Статус подписки выставляется вручную
-   в БД; выдачи доступа к разово купленным курсам пока нет. Следующий шаг — Робокасса и проверка
-   суммы на сервере по `data/courses.json`.
+2. **Платежи Robokassa требуют настроек**: применить `supabase/purchases.sql`, заполнить
+   `ROBOKASSA_LOGIN`, `ROBOKASSA_PASSWORD1`, `ROBOKASSA_PASSWORD2` и выключить тестовый режим
+   (`ROBOKASSA_IS_TEST=false`) на боевом сервере. В кабинете Robokassa нужно указать ResultURL
+   `https://<домен>/api/payments/robokassa/result`, а также SuccessURL/FailURL. Подписка Pro
+   сейчас не продлевается автоматически: повторная оплата создаёт новый период на 30 дней.
 3. **Визуализации уроков** (Этап 2): базовый курс переписан (раздел 3.4) — его 55 визуальных блоков
    (уроки 1–8) получают файлы `B1_…`–`B8_…`; нарисованы тридцать восемь кадров (пилот L1, все кадры L2, L3 и
    L4 — модуль «Основы 3D-печати» закрыт целиком, и все кадры L5 и L6 — второй модуль «Печать и первый
@@ -1404,7 +1440,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | Проверки знаний | Тесты модулей с пояснениями к каждому ответу, обязательность теста перед следующим модулем, перенос проверок из уроков на страницы модулей |
 | Юридический контур | Пять документов (152-ФЗ), cookie-баннер, обязательные чекбоксы согласия и возраста 18+, футер со ссылками, реквизиты в одном файле |
 | Цены | Приведение цены Pro к 1 490 ₽ во всех местах (витрина, замок в уроке, оферта) |
-| Разовые тарифы | Цены курсов в `data/courses.json` (2 990 / 3 990 / 4 990 ₽), пакет трёх уровней за 9 900 ₽ и подписка Pro за 1 490 ₽/мес; на `/subscription` — пять карточек, выделенный бейджем «Выгодно» пакет и отдельный блок подписки; `PlanButton` передаёт `courseId` и `price` в `initializePayment` |
+| Разовые тарифы | Цены курсов в `data/courses.json` (2 990 / 3 990 / 4 990 ₽), пакет трёх уровней за 9 900 ₽ и подписка Pro за 1 490 ₽/мес; на `/subscription` — пять карточек, выделенный бейджем «Выгодно» пакет и отдельный блок подписки; `PlanButton` вызывает Server Action `createRobokassaPayment` с `courseId` |
 | Подтверждение email | Ссылка из письма → сессия: страница `/auth/confirm` с кнопкой (токен тратится только по клику, обход ссылок почтовым сканером больше ничего не сжигает), страница статуса с повторной отправкой, клиентский обработчик `#access_token`, гейт неподтверждённой почты в middleware, README с настройкой шаблона письма |
 | Сброс пароля | Двухшаговый сброс пароля по письму: `/auth/forgot-password` (`resetPasswordAction`, ответ нейтральный) → `/auth/reset-password` (кнопка подтверждает ссылку, затем форма нового пароля), ссылка «Забыли пароль?» на входе, `noindex` на обеих страницах, шаблон письма `public/templates/recovery.html`, `/auth/reset-password` добавлен в `AUTH_PAGES_FOR_SIGNED_IN` — перезагрузка после подтверждения больше не уводит во `/dashboard` |
 | Сводка по проекту | `PROJECT.md` — единый обзор: функции, блоки, маршруты, данные, база, ограничения; ссылка из README |

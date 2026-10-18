@@ -6,7 +6,7 @@ import courseData from "@/data/course-pro.json";
 import coursesData from "@/data/courses.json";
 import { resolveUserId } from "@/lib/current-user";
 import { LESSON_FORMS, pluralize } from "@/lib/course-stats";
-import { hasActiveSubscription } from "@/lib/subscription";
+import { hasProCourseAccess } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 import type { ProCourse, ProModule } from "@/lib/types";
 
@@ -178,7 +178,7 @@ export default async function ProModuleCheckPage({ params }: ProCheckPageProps) 
 
   // Главный вопрос страницы: есть ли действующая подписка у ЭТОГО пользователя.
   // Без неё в разметку не попадёт ни один вопрос теста.
-  const hasAccess = await hasActiveSubscription(supabase, userId);
+  const hasAccess = await hasProCourseAccess(supabase, userId);
 
   const firstLesson = courseModule.lessons[0];
   const lessonsHref = firstLesson

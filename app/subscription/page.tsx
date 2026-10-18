@@ -601,7 +601,6 @@ export default function SubscriptionPage() {
                       <PlanButton
                         label="Купить навсегда"
                         courseId={level.key}
-                        price={level.price}
                         size="compact"
                       />
                       <p className="mt-2 text-center text-[11px] font-medium text-slate-400">
@@ -668,7 +667,6 @@ export default function SubscriptionPage() {
                   <PlanButton
                     label="Купить пакет"
                     courseId="pro"
-                    price={proCourse.price}
                     variant="gold"
                     size="compact"
                   />
@@ -742,7 +740,6 @@ export default function SubscriptionPage() {
                     <PlanButton
                       label="Оформить подписку Pro"
                       courseId="pro-subscription"
-                      price={proCourse.subscriptionPrice}
                       variant="blue"
                     />
                     <p className="mt-3 text-center text-xs leading-relaxed text-slate-400">

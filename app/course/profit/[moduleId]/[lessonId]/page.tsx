@@ -20,7 +20,7 @@ import {
   isModuleTestCompletedByOrder,
 } from "@/lib/module-test";
 import { loadPassedModuleTests } from "@/lib/module-test-progress";
-import { hasActiveSubscription } from "@/lib/subscription";
+import { hasCourseAccess } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 import type { MiniCheckQuestion } from "@/lib/types";
 
@@ -28,9 +28,9 @@ import type { MiniCheckQuestion } from "@/lib/types";
  * Урок уровня «Заработок»: /course/profit/<модуль>/<урок> — например
  * /course/profit/1/Z1, /course/profit/2/Z8.
  *
- * Доступ к содержимому решает ПОДПИСКА, как и в продвинутом курсе: гостя не
- * пускает middleware, а вошедшему без подписки страница отдаёт только первые два
- * блока и карточку «Доступно по подписке». Проверка выполняется на сервере, под
+ * Доступ к содержимому решает покупка курса, пакета или подписка Pro: гостя не
+ * пускает middleware, а вошедшему без доступа страница отдаёт только первые два
+ * блока и карточку с условиями покупки. Проверка выполняется на сервере, под
  * сессией пользователя, поэтому в HTTP-ответ платные блоки просто не попадают.
  *
  * Порядок уровня. Первый урок модуля открывается после сданного теста предыдущего
@@ -106,20 +106,20 @@ function LessonNotFound() {
 }
 
 /**
- * Замок без подписки: та же карточка, что в продвинутом курсе, но про уровень
- * «Заработок» — цену здесь не показываем, состав тарифов живёт на /subscription.
+ * Замок без доступа: уровень можно купить навсегда или открыть подпиской Pro.
+ * Цену здесь не показываем — состав тарифов живёт на /subscription.
  */
 function LockedNotice({ refreshHref }: { refreshHref: string }) {
   return (
     <section className="relative mt-12 overflow-hidden rounded-3xl border-2 border-rose-500/40 bg-gradient-to-b from-rose-500/10 via-slate-900/70 to-slate-900/80 p-7 text-center sm:mt-16 sm:p-9">
       <h2 className="relative text-2xl font-extrabold text-white sm:text-3xl">
-        <span aria-hidden>🔒</span> Доступно по подписке
+        <span aria-hidden>🔒</span> Доступ к уровню закрыт
       </h2>
 
       <p className="relative mx-auto mt-4 max-w-xl text-base leading-relaxed text-slate-300">
-        Уровень «Заработок» входит в подписку: {totalLessons}{" "}
-        {pluralize(totalLessons, LESSON_FORMS)}, {totalHours}, визуализации к
-        каждому блоку и практика после урока.
+        Уровень «Заработок» можно купить навсегда или открыть по подписке
+        Pro: {totalLessons} {pluralize(totalLessons, LESSON_FORMS)}, {totalHours},
+        визуализации к каждому блоку и практика после урока.
       </p>
 
       <div className="relative mt-8">
@@ -133,9 +133,9 @@ function LockedNotice({ refreshHref }: { refreshHref: string }) {
       </div>
 
       <p className="relative mt-6 text-sm text-slate-400">
-        Уже есть подписка?{" "}
+        Уже купили доступ?{" "}
         {/* Обычная ссылка, а не <Link>: нужна полная перезагрузка, чтобы сервер
-            заново сходил в базу и проверил подписку. Работает и без JavaScript. */}
+            заново сходил в базу и проверил покупки. Работает и без JavaScript. */}
         <a
           href={refreshHref}
           className="font-semibold text-rose-200 underline-offset-4 transition-colors hover:text-rose-100 hover:underline"
@@ -307,10 +307,10 @@ export default async function ProfitLessonPage({
     redirect(`/auth/login?next=${encodeURIComponent(currentHref)}`);
   }
 
-  // Главный вопрос страницы: есть ли действующая подписка у ЭТОГО пользователя.
-  const hasAccess = await hasActiveSubscription(supabase, userId);
+  // Главный вопрос страницы: есть ли доступ у ЭТОГО пользователя.
+  const hasAccess = await hasCourseAccess(supabase, userId, "profit");
 
-  // Результаты тестов читаем только тем, у кого есть доступ: без подписки важнее
+  // Результаты тестов читаем только тем, у кого есть доступ: без доступа важнее
   // показать её, чем порядок уровня, да и лишний запрос к базе ни к чему.
   const passedTests = hasAccess
     ? await loadPassedModuleTests(PROFIT_MODULE_TEST_COURSE_TYPE)
