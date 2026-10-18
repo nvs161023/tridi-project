@@ -28,13 +28,23 @@ import { PlanButton } from "./PlanButton";
 export const metadata: Metadata = {
   title: "Тарифы — 3D-печать с нуля",
   description:
-    "Первый уровень бесплатно по акции, три платных курса можно купить навсегда, пакет «Всё включено» — со скидкой. Инструменты открываются подпиской Pro. Цены, сравнение уровней и частые вопросы.",
+    "Первый уровень бесплатно, три платных курса и пакет «Всё включено» — со скидкой в честь запуска платформы. Инструменты открываются подпиской Pro. Цены, сравнение уровней и частые вопросы.",
 };
 
 const { pro: proCourse } = coursesData;
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
+
+/** Единый стиль ярких бейджей скидок на карточках тарифов. */
+const DISCOUNT_BADGE =
+  "rounded-full bg-amber-400 px-2.5 py-1 text-center text-[10px] font-extrabold tracking-wide text-slate-950 uppercase shadow-lg shadow-amber-500/20";
+
+/** Цена со старой ценой для FAQ: «2 990 ₽ вместо 4 990 ₽». */
+const priceWithOld = (level: CourseLevel) =>
+  level.oldPrice
+    ? `${formatPrice(level.price)} ₽ вместо ${formatPrice(level.oldPrice)} ₽`
+    : `${formatPrice(level.price)} ₽`;
 
 /** Цены из data/courses.json: тот же источник, что и на главной. */
 const proSubscriptionPrice = formatPrice(proCourse.subscriptionPrice);
@@ -141,7 +151,7 @@ const FAQ: { question: string; answer: string }[] = [
   },
   {
     question: "Можно ли купить курс навсегда?",
-    answer: `Да. «Уверенный» стоит ${formatPrice(LEVELS[1].price)} ₽, «Инженер» — ${formatPrice(LEVELS[2].price)} ₽, «Заработок» — ${formatPrice(LEVELS[3].price)} ₽. Пакет из трёх уровней — ${proBundlePrice} ₽ вместо ${formatPrice(bundleSeparatePrice)} ₽. Это разовый платёж, доступ остаётся навсегда.`,
+    answer: `Да. Со скидкой к запуску платформы «Уверенный» стоит ${priceWithOld(LEVELS[1])}, «Инженер» — ${priceWithOld(LEVELS[2])}, «Заработок» — ${priceWithOld(LEVELS[3])}. Пакет из трёх уровней — ${proBundlePrice} ₽ вместо ${formatPrice(proCourse.oldPrice)} ₽. Это разовый платёж, доступ остаётся навсегда.`,
   },
   {
     question: "Как работает подписка?",
@@ -470,6 +480,15 @@ export default function SubscriptionPage() {
               навсегда — без продлений.
             </p>
 
+            <div className="mt-8 flex max-w-2xl items-start gap-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-5 py-4 text-amber-100">
+              <span aria-hidden className="text-lg leading-none">
+                🔥
+              </span>
+              <p className="text-sm font-semibold leading-relaxed">
+                Цены со скидкой в честь запуска платформы
+              </p>
+            </div>
+
             <div className="mt-10 rounded-[2rem] border border-white/10 bg-white/[0.02] p-4 sm:p-6 lg:p-8">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
@@ -497,9 +516,7 @@ export default function SubscriptionPage() {
                   <span className="text-[11px] font-semibold tracking-[0.16em] text-blue-300 uppercase">
                     {basicLevel.code}
                   </span>
-                  <span className="rounded-full bg-amber-400 px-2.5 py-1 text-[10px] font-extrabold tracking-wide text-slate-950 uppercase shadow-lg shadow-amber-500/20">
-                    {basicBadge}
-                  </span>
+                  <span className={DISCOUNT_BADGE}>{basicBadge}</span>
                 </div>
 
                 <h3 className="mt-3 text-xl font-extrabold tracking-tight text-white">
@@ -584,11 +601,15 @@ export default function SubscriptionPage() {
                       >
                         {level.code}
                       </span>
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${style.badge}`}
-                      >
-                        Навсегда
-                      </span>
+                      {level.badge ? (
+                        <span className={DISCOUNT_BADGE}>{level.badge}</span>
+                      ) : (
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${style.badge}`}
+                        >
+                          Навсегда
+                        </span>
+                      )}
                     </div>
 
                     <h3 className="mt-3 text-xl font-extrabold tracking-tight text-white">
@@ -598,10 +619,18 @@ export default function SubscriptionPage() {
                       {level.audience}
                     </p>
 
-                    <p className="mt-4 flex items-baseline gap-1.5">
+                    <p className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
                       <span className="text-3xl font-extrabold text-white">
                         {formatPrice(level.price)} ₽
                       </span>
+                      {level.oldPrice ? (
+                        <s
+                          className="text-sm font-semibold text-slate-500"
+                          aria-label={`Старая цена: ${formatPrice(level.oldPrice)} ₽`}
+                        >
+                          {formatPrice(level.oldPrice)} ₽
+                        </s>
+                      ) : null}
                       <span className="text-xs text-slate-500">разово</span>
                     </p>
 
@@ -658,8 +687,8 @@ export default function SubscriptionPage() {
                   <span className="text-[11px] font-semibold tracking-[0.16em] text-amber-300 uppercase">
                     Пакет
                   </span>
-                  <span className="rounded-full bg-amber-400 px-2.5 py-1 text-[10px] font-extrabold tracking-wide text-slate-950 uppercase">
-                    Экономия {formatPrice(bundleSaving)} ₽
+                  <span className={DISCOUNT_BADGE}>
+                    {proCourse.badge ?? `Экономия ${formatPrice(bundleSaving)} ₽`}
                   </span>
                 </div>
 
@@ -674,10 +703,17 @@ export default function SubscriptionPage() {
                   <span className="text-3xl font-extrabold text-white">
                     {proBundlePrice} ₽
                   </span>
-                  <s className="text-sm font-semibold text-slate-400">
-                    {formatPrice(bundleSeparatePrice)} ₽
+                  <s
+                    className="text-sm font-semibold text-slate-400"
+                    aria-label={`Старая цена: ${formatPrice(proCourse.oldPrice)} ₽`}
+                  >
+                    {formatPrice(proCourse.oldPrice)} ₽
                   </s>
                   <span className="text-xs text-slate-400">разово</span>
+                </p>
+                <p className="relative mt-1.5 text-[11px] leading-relaxed text-amber-100/80">
+                  По отдельности — {formatPrice(bundleSeparatePrice)} ₽. Экономия{" "}
+                  {formatPrice(bundleSaving)} ₽.
                 </p>
 
                 <ul className="relative mt-4 space-y-2 border-t border-amber-300/20 pt-4 text-xs leading-relaxed text-slate-200">

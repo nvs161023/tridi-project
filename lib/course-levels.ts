@@ -53,7 +53,7 @@ export type CourseLevel = {
    * Показывается зачёркнутой рядом с текущей ценой.
    */
   oldPrice?: number;
-  /** Маркетинговый бейдж из data/courses.json: «Акция», «Выгодно». */
+  /** Маркетинговый бейдж из data/courses.json: «Акция», «-40%». */
   badge?: string;
   modules: number;
   lessons: number;

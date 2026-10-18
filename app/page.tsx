@@ -39,6 +39,10 @@ const basicCourse = coursesData.basic;
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
 
+/** Единый стиль ярких бейджей скидок на карточках уровней. */
+const DISCOUNT_BADGE =
+  "rounded-full bg-amber-400 px-2.5 py-1 text-center text-[10px] font-extrabold tracking-wide text-slate-950 uppercase shadow-lg shadow-amber-500/20";
+
 /** Акция базового уровня: старая цена и бейдж — из data/courses.json. */
 const basicOldPrice = formatPrice(basicCourse.oldPrice);
 const basicBadge = basicCourse.badge;
@@ -536,7 +540,16 @@ export default function Home() {
               расчёта цены и продаж.
             </p>
 
-            <div className="mt-12 grid gap-5 sm:mt-14 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+            <div className="mt-8 flex max-w-2xl items-start gap-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-5 py-4 text-amber-100">
+              <span aria-hidden className="text-lg leading-none">
+                🔥
+              </span>
+              <p className="text-sm font-semibold leading-relaxed">
+                Цены со скидкой в честь запуска платформы
+              </p>
+            </div>
+
+            <div className="mt-10 grid gap-5 sm:mt-12 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
               {LEVELS.map((level) => {
                 const style = LEVEL_STYLES[level.key];
 
@@ -556,28 +569,32 @@ export default function Home() {
                       >
                         {level.code}
                       </span>
-                      {level.isFree ? (
-                        <span className="flex items-center gap-2">
-                          {level.oldPrice ? (
-                            <s className="text-[11px] font-semibold text-slate-500">
-                              {formatPrice(level.oldPrice)} ₽
-                            </s>
-                          ) : null}
-                          <span className="rounded-full bg-amber-400 px-2.5 py-1 text-[11px] font-extrabold tracking-wide text-slate-950 uppercase">
-                            {level.badge ?? "Бесплатно"}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-200">
-                          {formatPrice(level.price)} ₽
-                        </span>
-                      )}
+                      {level.badge ? (
+                        <span className={DISCOUNT_BADGE}>{level.badge}</span>
+                      ) : null}
                     </div>
 
                     <h3 className="mt-5 text-2xl font-extrabold tracking-tight text-white">
                       {level.shortTitle}
                     </h3>
                     <p className="mt-1 text-sm text-slate-400">{level.title}</p>
+
+                    <p className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <span className="text-2xl font-extrabold text-white">
+                        {formatPrice(level.price)} ₽
+                      </span>
+                      {level.oldPrice ? (
+                        <s
+                          className="text-sm font-semibold text-slate-500"
+                          aria-label={`Старая цена: ${formatPrice(level.oldPrice)} ₽`}
+                        >
+                          {formatPrice(level.oldPrice)} ₽
+                        </s>
+                      ) : null}
+                      <span className="text-xs text-slate-500">
+                        {level.isFree ? "сейчас" : "навсегда"}
+                      </span>
+                    </p>
 
                     <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
                       <p
