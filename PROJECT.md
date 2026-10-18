@@ -88,7 +88,7 @@
 |---|---|---|
 | `/` | `app/page.tsx` | Витрина: герой с цифрами, четыре уровня, галерея схем, «Как учим», программа, тарифы, «О проекте». `force-dynamic` из-за кнопки авторизации в шапке |
 | `/subscription` | `app/subscription/page.tsx` | Сравнение четырёх уровней (таблица и мобильные карточки), пять карточек тарифов (Free, три уровня навсегда и выделенный пакет), отдельный блок подписки Pro, FAQ, примечание про оферту, чек НПД и возраст 18+ |
-| `/profiles` | `app/profiles/page.tsx` | Библиотека профилей печати (17 файлов в трёх категориях) с каскадным фильтром «бренд → модель → материал» (`components/profiles/ProfilesClient.tsx`). Открыта всем, но без подписки Pro карточки размыты и ведут на `/subscription#tools`; скачивание — через `/api/profiles/download` только с активной подпиской |
+| `/profiles` | `app/profiles/page.tsx` | Библиотека профилей печати (193 файла в трёх категориях, включая 86 принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge и Qidi) с каскадным фильтром «бренд → модель → материал» (`components/profiles/ProfilesClient.tsx`). Открыта всем, но без подписки Pro карточки размыты и ведут на `/subscription#tools`; скачивание — через `/api/profiles/download` только с активной подпиской |
 | `/forum` | `app/forum/page.tsx` | Публичный форум: кликабельные карточки категорий, счётчики и последние одобренные темы. Читать может гость и поисковый робот; pending-материалы RLS не отдаёт |
 | `/forum/category/[slug]` | `app/forum/category/[slug]/page.tsx` | Раздел форума: approved-темы с автором, датой и числом ответов, пустое состояние и кнопка создания темы с предвыбранной категорией. `generateMetadata`, canonical и JSON-LD |
 | `/forum/[slug]` | `app/forum/[slug]/page.tsx` | Тема и одобренные ответы, `generateMetadata` и JSON-LD (`DiscussionForumPosting`); форма ответа — только вошедшему, с проверкой бана |
@@ -1059,23 +1059,24 @@ M117, моторы) и правило «без отвода — вмятина �
 материалов для OrcaSlicer/Bambu Studio (JSON) и PrusaSlicer (INI). Приложение
 читает каталог через `lib/profiles.ts`: `app/profiles/page.tsx` проверяет сессию
 и подписку, а `components/profiles/ProfilesClient.tsx` рисует каскадный фильтр и
-карточки. Первый этап — Bambu Lab X1 Carbon, Prusa MK3S+, Voron 2.4, Creality
-Ender-3, Anycubic Kobra и материалы Polymaker.
+карточки. В библиотеке 193 профиля: 92 принтера, 92 процесса и 9 материалов.
 
-- Состав: `profiles/printers/` — 6 профилей (два варианта X1C, MK3S+, Voron 2.4 300,
-  Ender-3 и Kobra); `profiles/process/` — 6 процессов; `profiles/filaments/` —
-  5 файлов (PolyLite PLA и PETG в паре `@base` + `@System`, плюс Prusament PLA).
-  Всего 17 файлов.
+- Состав: `profiles/printers/` — 92 профиля машин; `profiles/process/` — 92
+  процесса; `profiles/filaments/` — 9 файлов. Кроме профилей первого этапа
+  (Bambu Lab X1C, Prusa MK3S+, Voron 2.4, Creality Ender-3, Anycubic Kobra и
+  Polymaker), добавлены все машины с соплом 0.4 и их `default_print_profile`
+  для Anycubic, Elegoo, Sovol, Artillery, Flashforge и Qidi, а также Generic
+  ABS, ASA, TPU и PA. Источник — OrcaSlicer commit
+  `06665d05582f29acc84cb63cfeb1f719a7f904fd`.
 - Метаданные: у каждой записи `data/profiles.json` есть `category` (`printer`,
   `material` или `process`), `manufacturer`, `model` и `material`. Универсальные
   пресеты помечены `Generic` / `Universal`; у принтеров и процессов
   `material: "Universal"`.
 - Каскад: бренд и модель оставляют профили принтеров и процессов для этой
-  модели; выбранный материал добавляет пресеты пластика. В селекте брендов —
-  Bambu Lab, Prusa, Creality, Anycubic и Generic; модели зависят от бренда
-  (Bambu Lab — X1C/P1P, Creality — Ender 3, Anycubic — Kobra/Kobra 2,
-  Generic — Universal/Voron 2.4). Для бренда без файлов
-  показывается пустое состояние, а без фильтров видна вся библиотека.
+  модели; выбранный материал добавляет пресеты пластика. Бренды, модели и
+  материалы собираются из каталога, поэтому новые значения появляются в селектах
+  автоматически; бренд без моделей в список не попадает. Без фильтров видна вся
+  библиотека.
 - Доступ: страница открыта всем, но без активной подписки Pro карточки размыты,
   а вместо ссылок на скачивание рендерится только CTA. Файлы лежат в корне
   `profiles/`, не в `public/`; `/api/profiles/download` проверяет сессию и
@@ -2389,6 +2390,7 @@ email; старые адреса редиректят на `/courses/pro`; на 
 тёмная плашка с синей обводкой и синим текстом. В герое и галерее остаются актуальные `250` схем:
 захардкоженных `410` в витрине нет.
 
+
 Живая проверка прод-сборки на порту 3000: гостевая — 18 из 18 (на обеих страницах пять карточек,
 пакет шириной в две колонки, цена и цифры сходятся, кнопки «Купить пакет» открывают подтверждение
 18+); с временным пользователем и покупкой `pro` через Supabase Admin API — 12 из 12 (зелёная
@@ -2648,4 +2650,23 @@ E2E-аудит `scripts/audit-e2e.ts` прошёл **7 из 7 сценариев
 покупки и тема форума удалены после прогона. Проверки перед коммитом: `npx tsc --noEmit` — 0
 ошибок, `npm run lint` — чисто, `npm run check:imports` — 1116 импортов без битых,
 `npm run check:docs` — сводка сходится, `npm run build` — `Compiled successfully`.
+
+**Расширение библиотеки профилей (18 октября 2026).** Библиотека выросла с 17 до
+**193 профиля**: 92 принтера, 92 процесса и 9 материалов. Из OrcaSlicer commit
+`06665d05582f29acc84cb63cfeb1f719a7f904fd` добавлены все профили машин с соплом
+0.4 и их штатные `default_print_profile` для Anycubic, Elegoo, Sovol, Artillery,
+Flashforge и Qidi: 86 принтеров и 86 процессов. Для материалов добавлены
+системные `Generic ABS`, `ASA`, `TPU` и `PA` (`@System`). Файлы лежат в
+`profiles/filaments/generic/`, а не в `public/`; скачивание по-прежнему идёт через
+`/api/profiles/download` с проверкой Pro. Каскадный фильтр
+`components/profiles/ProfilesClient.tsx` больше не использует статические списки:
+бренды, модели и материалы собираются из `data/profiles.json`, пустые бренды
+скрываются, известные бренды сохраняют привычный порядок. Живая проверка
+production-сборки: в списке брендов есть новые шесть, у Elegoo 18 моделей,
+материалы включают ABS/ASA/TPU/PA; цепочка Elegoo → Neptune 4 Pro → ABS дала три
+карточки, скачался `Elegoo Neptune 4 Pro 0.4 nozzle.json`, API ответил 200,
+ошибок в консоли и на странице нет. Временный пользователь и запись `purchases`
+удалены после проверки, временный импортёр и sparse-клон OrcaSlicer удалены.
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто,
+`npm run check:style` — 0 нарушений, `npm run build` — `Compiled successfully`.
 

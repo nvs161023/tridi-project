@@ -64,6 +64,42 @@
 `printer_model: Voron 2.4 300` ссылается на описание модели; и то и другое
 остаётся в системной библиотеке OrcaSlicer.
 
+## Anycubic, Elegoo, Sovol, Artillery, Flashforge, Qidi
+
+- Репозиторий: [OrcaSlicer/OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)
+- Commit: `06665d05582f29acc84cb63cfeb1f719a7f904fd` (18.10.2026)
+- Лицензия: AGPL-3.0
+- Формат: JSON OrcaSlicer
+- Каталоги: `resources/profiles/Anycubic`, `Elegoo`, `Sovol`, `Artillery`,
+  `Flashforge`, `Qidi`
+- В библиотеке: 86 профилей машин и 86 процессов.
+
+Для этих брендов взяты все профили машин с соплом 0.4 и их штатный
+`default_print_profile` (в основном `0.20mm Standard`). Файлы лежат в
+`profiles/printers/<бренд>/` и `profiles/process/<бренд>/`; имена сохранены
+байт-в-байт. Вложенные серии Elegoo (`EN4SERIES`, `ECC` и другие) схлопнуты
+в один каталог бренда. Процессы, совместимые сразу с двумя моделями, хранятся
+одним файлом и описаны в каталоге для каждой модели.
+
+## Generic ABS, ASA, TPU и PA
+
+- Репозиторий: [OrcaSlicer/OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)
+- Commit: `06665d05582f29acc84cb63cfeb1f719a7f904fd` (18.10.2026)
+- Лицензия: AGPL-3.0
+- Формат: JSON OrcaSlicer
+- Каталог: `resources/profiles/OrcaFilamentLibrary/filament`
+
+| Файл в библиотеке | Путь в источнике |
+| --- | --- |
+| `profiles/filaments/generic/Generic ABS @System.json` | `.../filament/Generic ABS @System.json` |
+| `profiles/filaments/generic/Generic ASA @System.json` | `.../filament/Generic ASA @System.json` |
+| `profiles/filaments/generic/Generic TPU @System.json` | `.../filament/Generic TPU @System.json` |
+| `profiles/filaments/generic/Generic PA @System.json` | `.../filament/Generic PA @System.json` |
+
+Это системные пресеты OrcaSlicer: они наследуют `fdm_filament_abs`,
+`fdm_filament_asa`, `fdm_filament_tpu` и `fdm_filament_pa` из системной
+библиотеки слайсера. Отдельные `@base`-файлы для них не нужны.
+
 ## Creality Ender-3 и Anycubic Kobra
 
 - Репозиторий: [OrcaSlicer/OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)
@@ -84,7 +120,7 @@
 процессы ссылаются на `fdm_process_creality_common` и `fdm_process_common`
 соответственно. Базовые пресеты остаются в системной библиотеке OrcaSlicer.
 
-
+## Polymaker
 
 - Репозиторий: [OrcaSlicer/OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)
 - Commit: `1ee0b730a1e6484e55a631dd567b41c986fc1d6a` (18.10.2026)
@@ -120,7 +156,7 @@
 ```bash
 git clone --depth 1 https://github.com/DRIgnazGortngschirl/bambulab-studio-orca-slicer-presets.git
 git clone --depth 1 --filter=blob:none --sparse https://github.com/OrcaSlicer/OrcaSlicer.git
-git -C OrcaSlicer sparse-checkout set resources/profiles/Voron resources/profiles/Creality resources/profiles/Anycubic resources/profiles/OrcaFilamentLibrary
+git -C OrcaSlicer sparse-checkout set resources/profiles/Anycubic/machine resources/profiles/Anycubic/process resources/profiles/Elegoo/machine resources/profiles/Elegoo/process resources/profiles/Sovol/machine resources/profiles/Sovol/process resources/profiles/Artillery/machine resources/profiles/Artillery/process resources/profiles/Flashforge/machine resources/profiles/Flashforge/process resources/profiles/Qidi/machine resources/profiles/Qidi/process resources/profiles/OrcaFilamentLibrary/filament
 git clone --depth 1 https://github.com/prusa3d/PrusaSlicer-settings-prusa-fff.git
 ```
 
@@ -128,3 +164,8 @@ git clone --depth 1 https://github.com/prusa3d/PrusaSlicer-settings-prusa-fff.gi
 `[printer:...]`, `[print:...]`, `[filament:...]`; в полученный файл
 добавляются только комментарии с источником и commit. Для Orca/Bambu файлы
 копируются байт-в-байт, без переформатирования JSON.
+
+Для шести новых брендов берутся все файлы `machine/*0.4 nozzle*.json` и файл
+процесса с именем из `default_print_profile` этой машины. Вложенные каталоги
+Elegoo обходятся рекурсивно. `.ini` для PrusaSlicer и старые ручные профили
+при повторном импорте не перезаписываются.

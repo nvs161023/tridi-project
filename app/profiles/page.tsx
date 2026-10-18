@@ -27,13 +27,20 @@ import { createClient } from "@/lib/supabase/server";
 export const metadata: Metadata = {
   title: "Библиотека профилей печати — TriDi",
   description:
-    "Готовые профили Bambu Lab X1 Carbon, Prusa MK3S+, Voron 2.4, Creality Ender-3, Anycubic Kobra и материалов Polymaker для Bambu Studio, OrcaSlicer и PrusaSlicer. Скачивание входит в подписку Pro.",
+    "Готовые профили принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge, Qidi, Bambu Lab, Prusa и Creality, а также материалов PLA, PETG, ABS, ASA, TPU и PA для OrcaSlicer, Bambu Studio и PrusaSlicer. Скачивание входит в подписку Pro.",
 };
 
 /** Страница зависит от cookies пользователя — собираем её на каждый запрос. */
 export const dynamic = "force-dynamic";
 
 const PROFILE_FORMS = ["профиль", "профиля", "профилей"] as const;
+const BRAND_FORMS = ["бренд", "бренда", "брендов"] as const;
+
+const brandCount = new Set(
+  profileCategories.flatMap((category) =>
+    category.profiles.map((profile) => profile.manufacturer),
+  ),
+).size;
 
 /** Русская форма слова по числу: 1 профиль, 2 профиля, 5 профилей. */
 function pluralize(count: number, forms: readonly [string, string, string]) {
@@ -125,7 +132,7 @@ export default async function ProfilesPage() {
                 {profileCategories.length} категории
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                Bambu Lab · Prusa · Voron
+                {brandCount} {pluralize(brandCount, BRAND_FORMS)}
               </span>
             </div>
           </div>

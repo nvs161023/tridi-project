@@ -19,30 +19,37 @@ const CATEGORY_ICONS: Record<string, string> = {
 
 const PROFILE_FORMS = ["профиль", "профиля", "профилей"] as const;
 
-/** Бренды в порядке показа. Generic — универсальные и community-профили. */
-const BRANDS = [
+/**
+ * Порядок брендов в выпадающем списке. Список только задаёт приоритет:
+ * новые бренды из data/profiles.json добавляются автоматически и встают
+ * после известных, по алфавиту. Generic — универсальные профили.
+ */
+const BRAND_ORDER = [
   "Bambu Lab",
   "Prusa",
   "Creality",
   "Anycubic",
+  "Elegoo",
+  "Sovol",
+  "Artillery",
+  "Flashforge",
+  "Qidi",
   "Generic",
 ] as const;
 
-type Brand = (typeof BRANDS)[number];
+/** Привычный порядок материалов; незнакомые добавляются по алфавиту. */
+const MATERIAL_ORDER = ["PLA", "PETG", "ABS", "ASA", "TPU", "PA"] as const;
 
-/**
- * Модели по бренду. Список шире данных: пустые модели показывают честное
- * пустое состояние, а не пропадают из выбора.
- */
-const BRAND_MODELS: Record<Brand, readonly string[]> = {
-  "Bambu Lab": ["X1C", "P1P"],
-  Prusa: ["MK3S+"],
-  Creality: ["Ender 3"],
-  Anycubic: ["Kobra", "Kobra 2"],
-  Generic: ["Universal", "Voron 2.4"],
-};
+const OPTION_COLLATOR = new Intl.Collator("ru", {
+  numeric: true,
+  sensitivity: "base",
+});
 
-const MATERIALS = ["PLA", "PETG", "ABS", "TPU", "Universal"] as const;
+/** Индекс в списке приоритетов или конец списка для новых значений. */
+function orderIndex(value: string, order: readonly string[]): number {
+  const index = order.indexOf(value);
+  return index === -1 ? order.length : index;
+}
 
 /** Русская форма слова по числу: 1 профиль, 2 профиля, 5 профилей. */
 function pluralize(count: number, forms: readonly [string, string, string]) {
@@ -180,7 +187,65 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
   const [model, setModel] = useState("");
   const [material, setMaterial] = useState("");
 
-  const models = brand ? BRAND_MODELS[brand as Brand] ?? [] : [];
+  /**
+   * Бренды и модели собираются из каталога, а не из статического списка:
+   * после импорта новых профилей выпадающие списки обновляются сами.
+   * Бренд без моделей (например, только материалы) в список не попадает.
+   */
+  const brandOptions = useMemo(() => {
+    const modelsByBrand = new Map<string, Set<string>>();
+
+    for (const category of categories) {
+      for (const profile of category.profiles) {
+        if (
+          profile.category === "material" ||
+          !profile.model ||
+          profile.model === "Universal"
+        ) {
+          continue;
+        }
+
+        const models = modelsByBrand.get(profile.manufacturer) ?? new Set();
+        models.add(profile.model);
+        modelsByBrand.set(profile.manufacturer, models);
+      }
+    }
+
+    return [...modelsByBrand.entries()]
+      .filter(([, models]) => models.size > 0)
+      .map(([name, models]) => ({
+        name,
+        models: [...models].sort((a, b) => OPTION_COLLATOR.compare(a, b)),
+      }))
+      .sort(
+        (a, b) =>
+          orderIndex(a.name, BRAND_ORDER) - orderIndex(b.name, BRAND_ORDER) ||
+          OPTION_COLLATOR.compare(a.name, b.name),
+      );
+  }, [categories]);
+
+  /** Материалы тоже берутся из каталога: ABS, ASA, TPU и PA появляются сами. */
+  const materialOptions = useMemo(() => {
+    const values = new Set<string>();
+
+    for (const category of categories) {
+      for (const profile of category.profiles) {
+        if (profile.category === "material" && profile.material !== "Universal") {
+          values.add(profile.material);
+        }
+      }
+    }
+
+    return [...values].sort(
+      (a, b) =>
+        orderIndex(a, MATERIAL_ORDER) - orderIndex(b, MATERIAL_ORDER) ||
+        OPTION_COLLATOR.compare(a, b),
+    );
+  }, [categories]);
+
+  const models = brand
+    ? brandOptions.find((option) => option.name === brand)?.models ?? []
+    : [];
   const hasFilters = Boolean(brand || model || material);
 
   const filteredCategories = useMemo(
@@ -254,9 +319,9 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
               value={brand}
             >
               <option value="">Все бренды</option>
-              {BRANDS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
+              {brandOptions.map((option) => (
+                <option key={option.name} value={option.name}>
+                  {option.name}
                 </option>
               ))}
             </select>
@@ -293,7 +358,7 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
               value={material}
             >
               <option value="">Все материалы</option>
-              {MATERIALS.map((option) => (
+              {materialOptions.map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>

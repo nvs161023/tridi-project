@@ -1,8 +1,10 @@
 # Библиотека профилей печати
 
 Курируемый склад профилей принтеров, материалов и настроек печати для слайсеров.
-Первый этап — Bambu Lab X1 Carbon, Prusa MK3S+, Voron 2.4, Creality Ender-3,
-Anycubic Kobra и материалы Polymaker.
+Сейчас в библиотеке **193 профиля**: 92 принтера, 92 процесса и 9 материалов.
+Основу составляют официальные профили OrcaSlicer для Anycubic, Elegoo, Sovol,
+Artillery, Flashforge и Qidi, а также ранее добавленные Bambu Lab X1 Carbon,
+Prusa MK3S+, Voron 2.4, Creality Ender-3 и Anycubic Kobra.
 Точные источники, версии и лицензии — в [`SOURCES.md`](./SOURCES.md).
 
 > Библиотека подключена к приложению: каталог `data/profiles.json` строит карточки на
@@ -16,38 +18,38 @@ profiles/
 ├── README.md
 ├── SOURCES.md
 ├── printers/
-│   ├── anycubic-kobra/
-│   │   └── Anycubic Kobra 0.4 nozzle.json
+│   ├── anycubic/         # 21 модель, сопло 0.4
+│   ├── anycubic-kobra/   # ручной профиль первого этапа
+│   ├── artillery/        # 10 моделей
 │   ├── bambu-lab-x1c/
-│   │   ├── Bambu Lab X1 Carbon 0.4 nozzle - REDUCE CURRENT.json
-│   │   └── Bambu Lab X1 Carbon 0.4 nozzle - REDUCE PURGE.json
 │   ├── creality-ender-3/
-│   │   └── Creality Ender-3 0.4 nozzle.json
+│   ├── elegoo/           # 18 моделей
+│   ├── flashforge/       # 13 моделей
 │   ├── prusa-mk3s-plus/
-│   │   └── Original Prusa i3 MK3S & MK3S+.ini
+│   ├── qidi/             # 12 моделей
+│   ├── sovol/            # 13 моделей
 │   └── voron-2.4/
-│       └── Voron 2.4 300 0.4 nozzle.json
 ├── process/
+│   ├── anycubic/         # штатный процесс каждой модели
 │   ├── anycubic-kobra/
-│   │   └── 0.20mm Standard @Anycubic Kobra.json
+│   ├── artillery/
 │   ├── bambu-lab-x1c/
-│   │   └── 0.20mm Standard @BBL X1C - SLOWED.json
 │   ├── creality-ender-3/
-│   │   └── 0.20mm Standard @Creality Ender3.json
+│   ├── elegoo/
+│   ├── flashforge/
 │   ├── prusa-mk3s-plus/
-│   │   └── 0.20mm QUALITY @MK3.ini
+│   ├── qidi/
+│   ├── sovol/
 │   └── voron-2.4/
-│       ├── 0.20mm Standard @Voron.json
-│       └── 0.24mm Draft @Voron.json
 └── filaments/
+    ├── generic/          # Generic ABS, ASA, TPU и PA @System
     ├── polymaker/
-    │   ├── PolyLite PLA @base.json
-    │   ├── PolyLite PLA @System.json
-    │   ├── PolyLite PETG @base.json
-    │   └── PolyLite PETG @System.json
     └── prusa/
-        └── Prusament PLA.ini
 ```
+
+В каталогах брендов лежат все профили машин с соплом 0.4 из OrcaSlicer и
+штатный `default_print_profile` каждой машины. Для Elegoo исходные подпапки
+серий схлопнуты в один каталог; имена файлов сохранены.
 
 Правило именования: `<тип>/<принтер или производитель>/<исходное имя файла>`.
 Имя профиля внутри файла не переводится и не сокращается, иначе рвётся `inherits`
@@ -111,9 +113,15 @@ inherits = Original Prusa i3 MK3
 | Voron 2.4 300, сопло 0.4 | `Voron 2.4 300 0.4 nozzle` | `0.20mm Standard @Voron`, `0.24mm Draft @Voron` | — |
 | Creality Ender-3, сопло 0.4 | `Creality Ender-3 0.4 nozzle` | `0.20mm Standard @Creality Ender3` | — |
 | Anycubic Kobra, сопло 0.4 | `Anycubic Kobra 0.4 nozzle` | `0.20mm Standard @Anycubic Kobra` | — |
-| Универсальные | — | — | Polymaker `PolyLite PLA`, `PolyLite PETG` (`@base` + `@System`) |
+| Anycubic — 21 модель, сопло 0.4 | 21 профиль машин | 21 штатный процесс | Generic ABS/ASA/TPU/PA |
+| Elegoo — 18 моделей, сопло 0.4 | 18 профилей машин | 18 штатных процессов | Generic ABS/ASA/TPU/PA |
+| Sovol — 13 моделей, сопло 0.4 | 13 профилей машин | 13 штатных процессов | Generic ABS/ASA/TPU/PA |
+| Artillery — 10 моделей, сопло 0.4 | 10 профилей машин | 10 штатных процессов | Generic ABS/ASA/TPU/PA |
+| Flashforge — 13 моделей, сопло 0.4 | 13 профилей машин | 13 штатных процессов | Generic ABS/ASA/TPU/PA |
+| Qidi — 12 моделей, сопло 0.4 | 12 профилей машин | 12 штатных процессов | Generic ABS/ASA/TPU/PA |
+| Универсальные | — | — | Polymaker `PolyLite PLA`, `PolyLite PETG` (`@base` + `@System`), Generic `ABS`, `ASA`, `TPU`, `PA` |
 
-Итого 17 файлов: 6 профилей принтеров, 6 процессов и 5 материалов.
+Итого 193 профиля: 92 принтера, 92 процесса и 9 материалов.
 Это не «лучшие настройки для вазы», а исходные заводские и community-пресеты:
 перед печатью их нужно проверить на конкретном принтере и пластике.
 
