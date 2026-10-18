@@ -183,8 +183,9 @@ export function SignUpForm({ next = null }: SignUpFormProps) {
       </div>
 
       {/* Подтверждение возраста — вторая обязательная отметка. Сервис
-          предназначен для лиц от 18 лет: п. 2.4 Пользовательского соглашения и
-          раздел 3.6 Политики обработки персональных данных. */}
+          предназначен для лиц от 18 лет: п. 2.5 Публичной оферты, п. 2.4
+          Пользовательского соглашения и раздел 3.6 Политики обработки
+          персональных данных. */}
       <div className="rounded-2xl border border-white/10 bg-slate-900/40 px-4 py-4">
         <label
           htmlFor="age-confirmed"
@@ -200,32 +201,41 @@ export function SignUpForm({ next = null }: SignUpFormProps) {
             className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border-white/20 bg-slate-900 accent-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
           />
           <span>
-            Мне исполнилось 18 лет. Я принимаю{" "}
+            Мне исполнилось 18 лет, и я согласен с условиями{" "}
             <Link
-              href="/terms"
+              href="/legal/offer"
               target="_blank"
               rel="noopener noreferrer"
               className={legalLinkClassName}
             >
-              Пользовательское соглашение
+              Публичной оферты
             </Link>{" "}
             и{" "}
             <Link
-              href="/privacy"
+              href="/legal/terms"
               target="_blank"
               rel="noopener noreferrer"
               className={legalLinkClassName}
             >
-              Политику обработки персональных данных
+              Пользовательского соглашения
             </Link>
-            .
+            . С{" "}
+            <Link
+              href="/legal/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={legalLinkClassName}
+            >
+              Политикой обработки персональных данных
+            </Link>{" "}
+            ознакомлен.
           </span>
         </label>
 
         {ageConfirmed ? null : (
           <p aria-live="polite" className="mt-3 text-sm text-amber-200">
-            <span aria-hidden>⚠️</span> Подтвердите, что вам исполнилось 18 лет —
-            без этого регистрация недоступна.
+            <span aria-hidden>⚠️</span> Подтвердите, что вам исполнилось 18 лет и
+            вы принимаете условия оферты, — без этого регистрация недоступна.
           </p>
         )}
       </div>

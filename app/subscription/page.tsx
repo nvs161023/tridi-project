@@ -995,6 +995,9 @@ export default function SubscriptionPage() {
                   {LEGAL_OPERATOR.email}
                 </a>
               </p>
+              <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">
+                Сервис предназначен для лиц старше 18 лет.
+              </p>
             </div>
           </div>
         </section>

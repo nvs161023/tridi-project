@@ -1902,9 +1902,29 @@ async function scenarioE(
     let outcome = "timeout";
     let alertText = "";
     let redirectUrl = "";
+    let ageDialogVisible = false;
+    let agePayEnabled = false;
 
     if (buyCount > 0) {
       await buyButton.click();
+
+      // Новый обязательный шаг: перед созданием платежа открывается окно 18+.
+      const dialog = session.page.getByRole("dialog", {
+        name: "Подтвердите возраст",
+      });
+      ageDialogVisible = await dialog
+        .waitFor({ state: "visible", timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+
+      if (ageDialogVisible) {
+        await dialog.getByRole("checkbox").first().check();
+        const payButton = dialog.getByRole("button", {
+          name: /Перейти к оплате/,
+        });
+        agePayEnabled = await payButton.isEnabled();
+        await payButton.click();
+      }
 
       const alertPromise = session.page
         .locator('[role="alert"]')
@@ -1927,6 +1947,22 @@ async function scenarioE(
         .catch(() => "");
       redirectUrl = new URL(session.page.url()).host;
     }
+
+    addCheck(
+      scenario,
+      "Клик «Купить» открывает подтверждение 18+",
+      ageDialogVisible,
+      "модальное окно с чекбоксом возраста",
+      ageDialogVisible ? "окно открылось" : "окно не появилось",
+    );
+
+    addCheck(
+      scenario,
+      "После отметки 18+ кнопка оплаты активна",
+      agePayEnabled,
+      "кнопка «Перейти к оплате» доступна",
+      agePayEnabled ? "доступна" : "осталась заблокированной",
+    );
 
     addCheck(
       scenario,

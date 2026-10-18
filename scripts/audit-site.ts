@@ -830,6 +830,26 @@ async function auditRoute(
       if ((await button.count()) > 0) {
         await button.click({ timeout: 8000 });
 
+        // Сначала открывается обязательное окно подтверждения 18+. Без отметки
+        // кнопка «Перейти к оплате» заблокирована, поэтому гостевой сценарий
+        // проходит его так же, как обычный пользователь.
+        const dialog = page.getByRole("dialog", {
+          name: "Подтвердите возраст",
+        });
+        const dialogVisible = await dialog
+          .waitFor({ state: "visible", timeout: 5000 })
+          .then(() => true)
+          .catch(() => false);
+
+        if (!dialogVisible) {
+          buy.guestClickError = "окно подтверждения 18+ не появилось";
+        } else {
+          await dialog.getByRole("checkbox").first().check();
+          await dialog
+            .getByRole("button", { name: /Перейти к оплате/ })
+            .click();
+        }
+
         // Server Action гостя возвращает сообщение «войдите в аккаунт» в
         // inline-alert. Ждём именно его, чтобы не поймать служебный alert
         // dev-оверлея Next.js.

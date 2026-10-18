@@ -30,15 +30,18 @@ const nextConfig: NextConfig = {
    * Короткие адреса документов и регистрации.
    *
    * Юридические документы живут в разделе /legal, а форма регистрации — на
-   * /auth/sign-up. Короткие адреса (/terms, /privacy, /register) люди пишут и
-   * запоминают, поэтому они ведут на настоящие страницы постоянным редиректом
-   * (308), а не отдают 404. Редиректы из конфига срабатывают раньше middleware,
-   * поэтому работают и для гостя.
+   * /auth/sign-up. Короткие адреса (/terms, /privacy, /register) и вариант
+   * написания оферты (/legal/oferta) люди пишут и запоминают, поэтому они ведут
+   * на настоящие страницы постоянным редиректом (308), а не отдают 404.
+   * Редиректы из конфига срабатывают раньше middleware, поэтому работают и для
+   * гостя.
    */
   async redirects() {
     return [
       { source: "/terms", destination: "/legal/terms", permanent: true },
       { source: "/privacy", destination: "/legal/privacy", permanent: true },
+      /** Вариант написания адреса оферты: люди ищут её как «/legal/oferta». */
+      { source: "/legal/oferta", destination: "/legal/offer", permanent: true },
       { source: "/register", destination: "/auth/sign-up", permanent: true },
     ];
   },
