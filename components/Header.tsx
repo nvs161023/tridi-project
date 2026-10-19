@@ -2,6 +2,8 @@ import Link from "next/link";
 import { headers } from "next/headers";
 
 import { Logo } from "@/components/Logo";
+import { MobileMenu } from "@/components/navigation/MobileMenu";
+import { ToolsDropdown } from "@/components/navigation/ToolsDropdown";
 import { createClient } from "@/lib/supabase/server";
 import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 
@@ -96,15 +98,13 @@ export async function Header() {
             >
               Тарифы
             </Link>
-            {isAuthorized ? (
-              <Link
-                className="transition-colors hover:text-blue-400"
-                href="/profiles"
-              >
-                Профили
-              </Link>
-            ) : null}
+            <ToolsDropdown />
           </nav>
+
+          <MobileMenu
+            isAuthorized={isAuthorized}
+            lessonsHref={isAuthorized ? "/dashboard" : "/course/lesson-1"}
+          />
 
           {isAuthorized ? (
             <>

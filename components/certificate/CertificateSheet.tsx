@@ -31,10 +31,21 @@ const CERTIFICATE_STYLES = `
   font-size: clamp(0.68rem, 1.7cqw, 1.55rem);
 }
 .certificate-signature-image {
-  /* Чёрные штрихи на прозрачном фоне: инверсия делает подпись белой. */
-  filter: brightness(0) invert(1);
+  /*
+   * Чёрные штрихи на прозрачном фоне: инверсия делает подпись белой, а
+   * drop-shadow добавляет мягкое свечение — тонкие штрихи не сливаются с
+   * тёмно-синим бланком.
+   *
+   * Ширина задана в cqw, а не фиксированными классами w-48/w-64: бланк
+   * масштабируется целиком, поэтому подпись остаётся крупной на мониторе и
+   * в PDF, но не вылезает на печать и QR-код на телефоне. max-width: 100%
+   * страхует от переполнения центральной колонки футера.
+   */
+  filter: brightness(0) invert(1) drop-shadow(0 0 8px rgba(255, 255, 255, 0.4));
   height: auto;
-  width: clamp(84px, 14.5cqw, 168px);
+  width: clamp(80px, 21cqw, 250px);
+  max-width: 100%;
+  object-fit: contain;
 }
 @page {
   size: A4 landscape;
@@ -345,7 +356,7 @@ export function CertificateSheet({
                     priority
                     className="certificate-signature-image mx-auto"
                   />
-                  <p className="mt-[0.45em] text-[clamp(0.42rem,0.95cqw,0.76rem)] leading-tight font-semibold text-white">
+                  <p className="mt-[0.45em] text-[clamp(0.5rem,1.15cqw,1rem)] leading-tight font-bold text-white">
                     Накоряков В.С.
                   </p>
                   <p className="mt-[0.35em] text-[clamp(0.34rem,0.78cqw,0.6rem)] tracking-[0.1em] text-slate-400 uppercase">
