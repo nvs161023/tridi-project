@@ -14,6 +14,7 @@ import {
   VISUAL_FORMS,
   pluralize,
 } from "@/lib/course-stats";
+import { profileCount } from "@/lib/profiles";
 
 const { pro: proCourse } = coursesData;
 
@@ -30,11 +31,21 @@ const BUNDLE_FEATURES = [
     (level) =>
       `${level.shortTitle} — ${level.lessons} ${pluralize(level.lessons, LESSON_FORMS)}`,
   ),
-  "Конструктор 3D",
   "Безлимитная генерация в Конструкторе",
-  "Библиотека профилей",
   "Коммерческая лицензия (можно продавать напечатанное)",
   "Доступ навсегда",
+];
+
+/**
+ * Главные фишки пакета — отдельными зелёными строками.
+ *
+ * Состав курсов остаётся в BUNDLE_FEATURES, а сертификат и инструменты
+ * вынесены наверх: именно они отличают пакет от покупки отдельных уроков.
+ * Число профилей берётся из каталога, а не вписано руками.
+ */
+const BUNDLE_HIGHLIGHTS = [
+  "Именной сертификат",
+  `Доступ к ${profileCount} профилям печати и Конструктору`,
 ];
 
 type ProBundleCardProps = {
@@ -86,6 +97,20 @@ export function ProBundleCard({
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-300">
             {BUNDLE_DESCRIPTION}
           </p>
+
+          <ul className="mt-3 space-y-1.5">
+            {BUNDLE_HIGHLIGHTS.map((highlight) => (
+              <li
+                key={highlight}
+                className="flex items-start gap-2 text-xs font-semibold leading-relaxed text-emerald-300"
+              >
+                <span aria-hidden className="mt-px">
+                  ✅
+                </span>
+                {highlight}
+              </li>
+            ))}
+          </ul>
 
           <p className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <span className="text-3xl font-extrabold text-white">

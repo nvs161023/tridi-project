@@ -23,6 +23,7 @@ import {
   VISUAL_FORMS,
   pluralize,
 } from "@/lib/course-stats";
+import { profileCount } from "@/lib/profiles";
 import { organizationJsonLd } from "@/lib/seo";
 import { resolveSiteUrl } from "@/lib/site-url";
 import { getPurchasedCourses, hasCourseAccess } from "@/lib/subscription";
@@ -30,7 +31,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
   title: "TriDi — освой 3D-печать: от первой детали до бизнеса",
-  description: `Практический курс по 3D-печати: ${TOTAL_LESSONS} глубоких уроков, ${TOTAL_VISUALS} наглядных схем и проверка знаний. Старт бесплатно, без карты.`,
+  description: `Практический курс по 3D-печати: ${TOTAL_LESSONS} глубоких уроков, ${TOTAL_VISUALS} наглядных схем, именной сертификат и проверка знаний. Старт бесплатно, без карты.`,
 };
 
 const { pro: proCourse } = coursesData;
@@ -134,6 +135,46 @@ const PAIN_POINTS = [
     detail:
       "Трещины под нагрузкой: ориентация, стенки и режим печати выбираются вслепую.",
     accent: "text-amber-300",
+  },
+];
+
+const PROFILE_SETTING_FORMS: [string, string, string] = [
+  "настройка",
+  "настройки",
+  "настроек",
+];
+
+/**
+ * Дополнительная ценность курсов и подписки Pro.
+ *
+ * Сертификат и библиотека профилей уже существуют в продукте, поэтому витрина
+ * называет их рядом с уроками: без этого ценность пакета выглядит как «ещё
+ * несколько курсов», а не как готовый набор инструментов.
+ */
+const EXTRAS = [
+  {
+    icon: "🎓",
+    title: "Сертификат",
+    text: "Именной документ с проверкой подлинности по публичной ссылке.",
+    iconClassName: "border-emerald-400/25 bg-emerald-500/10 text-emerald-200",
+  },
+  {
+    icon: "🖨️",
+    title: "Библиотека профилей",
+    text: `${profileCount} ${pluralize(profileCount, PROFILE_SETTING_FORMS)} для Anycubic, Elegoo, Creality и др.`,
+    iconClassName: "border-blue-400/25 bg-blue-500/10 text-blue-200",
+  },
+  {
+    icon: "📐",
+    title: "3D-Конструктор",
+    text: "Генератор ваз и брелоков с экспортом в STL и коммерческой лицензией.",
+    iconClassName: "border-violet-400/25 bg-violet-500/10 text-violet-200",
+  },
+  {
+    icon: "🛠️",
+    title: "Диагностика",
+    text: "Справочник дефектов: почему сопливит или отклеивается.",
+    iconClassName: "border-amber-400/25 bg-amber-500/10 text-amber-200",
   },
 ];
 
@@ -313,7 +354,8 @@ export default async function Home() {
 
               <p className="mt-6 max-w-xl text-lg leading-relaxed text-slate-300 sm:mt-8 sm:text-xl">
                 {TOTAL_LESSONS} глубоких уроков, {TOTAL_VISUALS} наглядных схем
-                и система проверки знаний. Без воды и сломанных принтеров.
+                и именной сертификат, подтверждающий ваши навыки. Без воды и
+                сломанных принтеров.
               </p>
 
               <p className="mt-5 inline-flex flex-wrap items-center gap-2 rounded-full border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-100">
@@ -339,7 +381,12 @@ export default async function Home() {
                 </Link>
               </div>
 
-              <ul className="mt-7 flex flex-wrap gap-2.5 text-xs font-semibold sm:text-sm">
+              <p className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200">
+                <span aria-hidden>🎓</span>
+                Именной сертификат по окончании
+              </p>
+
+              <ul className="mt-4 flex flex-wrap gap-2.5 text-xs font-semibold sm:text-sm">
                 <li className="rounded-full border border-blue-400/30 bg-blue-500/10 px-3.5 py-1.5 text-blue-200">
                   0 ₽ на старте
                 </li>
@@ -527,6 +574,10 @@ export default async function Home() {
                   Купите конкретный курс навсегда или оформите Pro-подписку для
                   доступа ко всем инструментам.
                 </p>
+                <p className="mt-3 text-xs leading-relaxed text-slate-300 italic">
+                  Завершите обучение и получите именной сертификат, который
+                  можно добавить в резюме.
+                </p>
                 <div className="mt-auto grid gap-2.5 pt-7 sm:grid-cols-2">
                   <Link
                     href="#levels"
@@ -671,6 +722,13 @@ export default async function Home() {
                       ))}
                     </ul>
 
+                    {!level.isFree ? (
+                      <p className="mt-4 flex items-center gap-2 text-xs font-semibold text-emerald-300">
+                        <span aria-hidden>✅</span>
+                        Именной сертификат
+                      </p>
+                    ) : null}
+
                     <div className="mt-auto pt-7">
                       {isPurchased ? (
                         <>
@@ -779,7 +837,50 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* 6. FAQ: четыре вопроса об оплате, подписке и старте */}
+        {/* 6. Дополнительная ценность: сертификат и Pro-инструменты */}
+        <section
+          id="extras"
+          className="scroll-mt-20 border-b border-white/10 bg-slate-950"
+        >
+          <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
+            <div className="max-w-2xl">
+              <p className="text-sm font-semibold tracking-widest text-amber-400 uppercase">
+                Кроме уроков
+              </p>
+              <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+                Что вы получаете помимо знаний
+              </h2>
+              <p className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg">
+                Сертификат выдаётся после сдачи всех тестов уровня, а
+                инструменты открываются в пакете «Всё включено» и подписке Pro.
+              </p>
+            </div>
+
+            <div className="mt-10 grid grid-cols-2 gap-3 sm:mt-12 sm:gap-4 lg:grid-cols-4">
+              {EXTRAS.map((item) => (
+                <article
+                  key={item.title}
+                  className="flex h-full min-w-0 flex-col rounded-2xl border border-white/10 bg-slate-900/60 p-4 transition-colors hover:border-white/20 sm:p-5"
+                >
+                  <span
+                    aria-hidden
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-lg sm:h-11 sm:w-11 sm:text-xl ${item.iconClassName}`}
+                  >
+                    {item.icon}
+                  </span>
+                  <h3 className="mt-4 text-sm leading-snug font-bold text-white sm:text-base">
+                    {item.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                    {item.text}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* 7. FAQ: четыре вопроса об оплате, подписке и старте */}
         <section id="faq" className="scroll-mt-20 border-b border-white/10">
           <div className="mx-auto max-w-3xl px-5 py-20 sm:px-8 sm:py-28">
             <div className="text-center">
@@ -819,7 +920,7 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* 7. Финальный CTA: простая полоса призыва */}
+        {/* 8. Финальный CTA: простая полоса призыва */}
         <section>
           <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-20">
             <div className="flex flex-col gap-6 overflow-hidden rounded-3xl border border-blue-400/25 bg-gradient-to-r from-blue-600/20 via-slate-900 to-amber-500/10 px-6 py-8 shadow-2xl shadow-slate-950/30 sm:px-10 sm:py-10 lg:flex-row lg:items-center lg:justify-between">
@@ -830,6 +931,10 @@ export default async function Home() {
                 <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-300 sm:text-base">
                   Первый уровень бесплатно: зарегистрируйтесь и напечатайте
                   первую деталь.
+                </p>
+                <p className="mt-3 max-w-xl text-xs leading-relaxed text-slate-300">
+                  Пройди первый уровень бесплатно. Получи сертификат после сдачи
+                  всех тестов.
                 </p>
               </div>
               <Link
