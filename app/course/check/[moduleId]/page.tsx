@@ -99,7 +99,9 @@ export default async function ModuleCheckPage({ params }: CheckPageProps) {
   // Сдал тест — открывается следующий урок курса (у последнего модуля его нет).
   const lastLessonId = courseModule.lessonIds[courseModule.lessonIds.length - 1];
   const nextLesson = basicLessons.find((lesson) => lesson.id === lastLessonId + 1);
-  const nextLessonHref = nextLesson ? `/course/lesson-${nextLesson.id}` : undefined;
+  const nextLessonHref = nextLesson
+    ? `/course/lesson-${nextLesson.id}`
+    : "/course/basic/complete";
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -141,6 +143,9 @@ export default async function ModuleCheckPage({ params }: CheckPageProps) {
             moduleLabel={courseModule.label}
             lessonsHref={firstLessonHref}
             nextLessonHref={nextLessonHref}
+            continueLabel={
+              nextLesson ? "Следующий урок" : "Центр выпускника"
+            }
             questions={courseModule.questions}
           />
         </div>

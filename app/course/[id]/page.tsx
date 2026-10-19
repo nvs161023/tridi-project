@@ -289,13 +289,17 @@ export default async function LessonPage({ params }: LessonPageProps) {
               lessonsHref={lessonHref(lesson.id)}
               testPageHref={`/course/check/${lesson.moduleId}`}
               lessonId={lesson.id}
-              nextHref={isLastLesson ? "/constructor" : lessonHref(lesson.id + 1)}
+              nextHref={
+                isLastLesson
+                  ? "/course/basic/complete"
+                  : lessonHref(lesson.id + 1)
+              }
               nextLabel={
-                isLastLesson ? "Перейти в конструктор" : "Продолжить курс"
+                isLastLesson ? "Центр выпускника" : "Продолжить курс"
               }
               isPassed={isTestPassed}
               isCourseFinal={isLastLesson}
-              courseFinishNote={`Все ${totalLessons} уроков позади. Осталось собрать свою первую модель: вазу, брелок или светильник.`}
+              courseFinishNote={`Все ${totalLessons} уроков позади. В Центре выпускника ждут сертификат, конструктор и отзыв о курсе.`}
             />
           ) : (
             <CompleteButton

@@ -8,7 +8,7 @@ import { completeLesson, type CourseType } from "@/app/actions/complete-lesson";
 type CompleteButtonProps = {
   /** Номер урока, который отмечаем пройденным. */
   lessonId: number;
-  /** Куда перейти после сохранения (следующий урок или конструктор). */
+  /** Куда перейти после сохранения (следующий урок или «Центр выпускника»). */
   href: string;
   /** Текст кнопки в обычном состоянии. */
   label: string;

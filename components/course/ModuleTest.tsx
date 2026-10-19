@@ -43,7 +43,7 @@ type ModuleTestProps = {
   onSaved?: () => void;
   /** Закрыть оверлей (в режиме overlay). */
   onClose?: () => void;
-  /** Подпись кнопки продолжения после сдачи (в оверлее — «Продолжить курс»). */
+  /** Подпись кнопки продолжения после сдачи: её передаёт страница или оверлей. */
   continueLabel?: string;
   /**
    * Номер модуля в курсе (1…26) — он уходит в базу как результат теста.
@@ -265,7 +265,7 @@ export function ModuleTest({
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
           {isPassed && nextLessonHref ? (
             <Link href={nextLessonHref} className={theme.primary}>
-              {isOverlay ? continueLabel : "Следующий урок"}
+              {continueLabel}
               <span aria-hidden>→</span>
             </Link>
           ) : null}

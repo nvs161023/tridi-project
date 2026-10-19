@@ -113,7 +113,7 @@ export default async function ProfitCheckPage({
   );
   const nextLessonHref = nextModule
     ? lessonHref(nextModule.module_id, nextModule.lessons[0].lesson_id)
-    : "/constructor";
+    : "/course/profit/complete";
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -170,6 +170,9 @@ export default async function ProfitCheckPage({
               moduleLabel={moduleLabel}
               lessonsHref={firstLessonHref}
               nextLessonHref={nextLessonHref}
+              continueLabel={
+                nextModule ? "Следующий урок" : "Центр выпускника"
+              }
               questions={questions}
             />
           ) : (

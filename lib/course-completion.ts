@@ -14,6 +14,8 @@
  * завершения — в getCourseCompletionFromRows: её используют и кабинет, и
  * страница сертификата, поэтому правила не расходятся.
  */
+import type { createClient } from "@/lib/supabase/server";
+
 import { basicCourseModules, basicLessons } from "./basic-course";
 import { confidentLessons, confidentModules } from "./confident-course";
 import type { LevelKey } from "./course-levels";
@@ -54,6 +56,11 @@ export type CourseProgressRow = {
   lesson_id: number | string | null;
   completed_at?: string | null;
 };
+
+/** Результат чтения прогресса: строки либо честная ошибка без выдуманных нулей. */
+export type CourseProgressRead =
+  | { rows: CourseProgressRow[]; failed: false }
+  | { rows: []; failed: true };
 
 /** Тип строки с результатами тестов для каждого уровня. */
 export const COURSE_TEST_TYPES: Record<LevelKey, string> = {
@@ -199,4 +206,48 @@ export function getCourseCompletionFromRows(
   }
 
   return getCourseCompletion(level, lessonIds, testOrders, issuedAt);
+}
+
+/**
+ * Читает строки прогресса одного уровня из lesson_progress.
+ *
+ * Сначала пробуем полный набор колонок. Если база ещё без миграции
+ * pro_course_access.sql (нет course_type), повторяем запрос без него: старые
+ * строки относятся к базовому курсу, и завершение по ним не подтвердится, пока
+ * нет строк тестов. Так страница не падает, а честно показывает незавершённость.
+ *
+ * Функция используется и страницей сертификата, и проверкой права на отзыв:
+ * правила завершения курса должны совпадать.
+ */
+export async function readCourseProgressRows(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  level: LevelKey,
+): Promise<CourseProgressRead> {
+  const fullResult = await supabase
+    .from("lesson_progress")
+    .select("course_type, lesson_id, completed_at")
+    .eq("user_id", userId)
+    .in("course_type", [level, COURSE_TEST_TYPES[level]]);
+
+  if (!fullResult.error) {
+    return {
+      rows: (fullResult.data as CourseProgressRow[] | null) ?? [],
+      failed: false,
+    };
+  }
+
+  const fallbackResult = await supabase
+    .from("lesson_progress")
+    .select("lesson_id, completed_at")
+    .eq("user_id", userId);
+
+  if (fallbackResult.error) {
+    return { rows: [], failed: true };
+  }
+
+  return {
+    rows: (fallbackResult.data as CourseProgressRow[] | null) ?? [],
+    failed: false,
+  };
 }

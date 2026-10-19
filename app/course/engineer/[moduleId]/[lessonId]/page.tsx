@@ -293,7 +293,7 @@ export default async function EngineerLessonPage({
   const isLastLesson = next === null;
   const nextHref = next
     ? lessonHref(next.moduleId, next.lessonId)
-    : "/constructor";
+    : "/course/engineer/complete";
   const currentHref = lessonHref(lesson.moduleId, lesson.lessonId);
   const progressPercent = Math.round((lesson.lessonNumber / totalLessons) * 100);
 
@@ -477,7 +477,7 @@ export default async function EngineerLessonPage({
                 lessonId={lesson.lessonNumber}
                 nextHref={nextHref}
                 nextLabel={
-                  isLastLesson ? "Перейти в конструктор" : "Продолжить курс"
+                  isLastLesson ? "Центр выпускника" : "Продолжить курс"
                 }
                 isPassed={isTestPassed}
                 isCourseFinal={isLastLesson}
@@ -503,7 +503,7 @@ export default async function EngineerLessonPage({
                     courseType="engineer"
                     href={nextHref}
                     label={
-                      isLastLesson ? "Перейти в конструктор" : "Продолжить курс"
+                      isLastLesson ? "Центр выпускника" : "Продолжить курс"
                     }
                   />
                 </div>

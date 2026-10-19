@@ -8,10 +8,9 @@ import { CertificateSheet } from "@/components/certificate/CertificateSheet";
 import { PartnerBonus } from "@/components/certificate/PartnerBonus";
 import { createCertificate, type Certificate } from "@/lib/certificates";
 import {
-  COURSE_TEST_TYPES,
   getCourseCompletionFromRows,
+  readCourseProgressRows,
   type CourseCompletion,
-  type CourseProgressRow,
 } from "@/lib/course-completion";
 import { LEVELS, type CourseLevel } from "@/lib/course-levels";
 import { LESSON_FORMS, TEST_FORMS, pluralize } from "@/lib/course-stats";
@@ -53,52 +52,6 @@ export async function generateMetadata({
     // Личный документ не должен попадать в поиск, даже если ссылку кто-то
     // опубликует: в нём имя ученика.
     robots: { index: false, follow: false },
-  };
-}
-
-/** Результат чтения прогресса: строки либо честная ошибка без выдуманных нулей. */
-type ProgressRead =
-  | { rows: CourseProgressRow[]; failed: false }
-  | { rows: []; failed: true };
-
-/**
- * Читает уроки и тесты одного курса.
- *
- * Сначала пробуем полный набор колонок. Если база ещё без миграции
- * pro_course_access.sql (нет course_type), повторяем запрос без него: старые
- * строки относятся к базовому курсу, и сертификат по ним не выдаётся, пока нет
- * строк тестов. Так страница не падает, а честно показывает незавершённость.
- */
-async function readProgress(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
-  level: CourseLevel,
-): Promise<ProgressRead> {
-  const fullResult = await supabase
-    .from("lesson_progress")
-    .select("course_type, lesson_id, completed_at")
-    .eq("user_id", userId)
-    .in("course_type", [level.key, COURSE_TEST_TYPES[level.key]]);
-
-  if (!fullResult.error) {
-    return {
-      rows: (fullResult.data as CourseProgressRow[] | null) ?? [],
-      failed: false,
-    };
-  }
-
-  const fallbackResult = await supabase
-    .from("lesson_progress")
-    .select("lesson_id, completed_at")
-    .eq("user_id", userId);
-
-  if (fallbackResult.error) {
-    return { rows: [], failed: true };
-  }
-
-  return {
-    rows: (fallbackResult.data as CourseProgressRow[] | null) ?? [],
-    failed: false,
   };
 }
 
@@ -300,7 +253,11 @@ export default async function CertificatePage({
     );
   }
 
-  const progress = await readProgress(supabase, identity.id, level);
+  const progress = await readCourseProgressRows(
+    supabase,
+    identity.id,
+    level.key,
+  );
 
   if (progress.failed) {
     return <ProgressProblem level={level} />;

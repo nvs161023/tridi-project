@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { CertificateQr } from "@/components/certificate/CertificateQr";
 import { Logo } from "@/components/Logo";
 import {
@@ -8,7 +10,7 @@ import type { CourseLevel } from "@/lib/course-levels";
 
 /**
  * Стили, которые нельзя выразить Tailwind-классами: масштабирование логотипа
- * внутри бланка, рукописная подпись и правила печати.
+ * внутри бланка, белая подпись поверх тёмного фона и правила печати.
  *
  * Размеры в `cqw` считаются от ширины самого сертификата, а не окна. Поэтому
  * композиция одинаково выглядит на телефоне, широком мониторе и листе A4:
@@ -28,8 +30,11 @@ const CERTIFICATE_STYLES = `
 .certificate-logo a > span {
   font-size: clamp(0.68rem, 1.7cqw, 1.55rem);
 }
-.certificate-signature {
-  font-family: "Segoe Script", "Brush Script MT", "Lucida Handwriting", cursive;
+.certificate-signature-image {
+  /* Чёрные штрихи на прозрачном фоне: инверсия делает подпись белой. */
+  filter: brightness(0) invert(1);
+  height: auto;
+  width: clamp(84px, 14.5cqw, 168px);
 }
 @page {
   size: A4 landscape;
@@ -214,7 +219,6 @@ function nameSizeClass(length: number): string {
   return "text-[clamp(1.28rem,6.8cqw,4.9rem)]";
 }
 
-
 /**
  * Премиальный бланк сертификата в пропорциях A4 Landscape.
  *
@@ -320,11 +324,19 @@ export function CertificateSheet({
               <div className="flex min-w-0 items-center justify-center gap-[clamp(4px,1.1cqw,14px)]">
                 <CertificateSeal className="h-[clamp(37px,8.4cqw,94px)] w-[clamp(37px,8.4cqw,94px)] shrink-0 -rotate-6 opacity-90" />
                 <div className="min-w-0 text-center">
-                  <p className="certificate-signature truncate text-[clamp(0.61rem,1.7cqw,1.4rem)] leading-none text-white">
-                    Вадим Накоряков
+                  <Image
+                    src="/signature.png"
+                    alt="Подпись Вадима Накорякова"
+                    width={1404}
+                    height={889}
+                    priority
+                    className="certificate-signature-image mx-auto"
+                  />
+                  <p className="mt-[0.45em] text-[clamp(0.42rem,0.95cqw,0.76rem)] leading-tight font-semibold text-white">
+                    Накоряков В.С.
                   </p>
-                  <p className="mt-[0.65em] text-[clamp(0.36rem,0.82cqw,0.64rem)] tracking-[0.14em] text-slate-400 uppercase">
-                    Основатель TriDi
+                  <p className="mt-[0.35em] text-[clamp(0.34rem,0.78cqw,0.6rem)] tracking-[0.1em] text-slate-400 uppercase">
+                    Основатель школы 3D-печати tridi-print.ru
                   </p>
                 </div>
               </div>
