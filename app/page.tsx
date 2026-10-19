@@ -406,7 +406,7 @@ export default async function Home() {
               </ul>
             </div>
 
-            <div className="relative mx-auto w-full max-w-sm pb-0 sm:max-w-md sm:pb-8 lg:max-w-none">
+            <div className="relative mx-auto w-full max-w-sm sm:max-w-md lg:max-w-none">
               <div
                 aria-hidden
                 className="absolute -inset-4 rotate-2 rounded-[2rem] bg-gradient-to-br from-amber-400/20 via-violet-500/10 to-blue-500/25 blur-2xl"
@@ -419,7 +419,7 @@ export default async function Home() {
                 className="relative shadow-2xl shadow-slate-950/60"
               />
 
-              <div className="mt-4 rounded-2xl border border-white/15 bg-slate-950/90 px-4 py-3.5 leading-relaxed shadow-xl shadow-slate-950/60 backdrop-blur sm:absolute sm:-bottom-1 sm:left-6 sm:right-auto sm:mt-0 sm:w-72">
+              <div className="mt-4 w-full rounded-2xl border border-white/15 bg-slate-950/90 px-4 py-3.5 leading-relaxed shadow-xl shadow-slate-950/60 backdrop-blur sm:max-w-xs">
                 <p className="text-[11px] font-semibold tracking-[0.2em] text-amber-300 uppercase sm:text-xs">
                   Путь курса
                 </p>
