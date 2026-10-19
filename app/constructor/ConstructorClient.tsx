@@ -26,8 +26,10 @@ import {
 } from "@/lib/constructor/params";
 
 type ConstructorClientProps = {
-  /** Есть ли действующий доступ Pro: от него зависит только скачивание STL. */
+  /** Есть ли действующий доступ Pro: у Pro лимита на STL нет. */
   hasPro: boolean;
+  /** Сколько бесплатных скачиваний осталось в текущем месяце (0 для Pro). */
+  freeDownloadsLeft: number;
 };
 
 /** Числовые параметры: форму, узор и текст меняют отдельные обработчики. */
@@ -124,12 +126,18 @@ function ViewportSkeleton() {
  * выполняется на каждом изменении, поэтому в профиль и геометрию не попадают
  * значения вне границ слайдеров.
  */
-export function ConstructorClient({ hasPro }: ConstructorClientProps) {
+export function ConstructorClient({
+  hasPro,
+  freeDownloadsLeft: initialFreeDownloadsLeft,
+}: ConstructorClientProps) {
   const [params, setParams] = useState<ConstructorParams>(
     DEFAULT_CONSTRUCTOR_PARAMS,
   );
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<StlExportError | null>(null);
+  const [freeDownloadsLeft, setFreeDownloadsLeft] = useState(
+    initialFreeDownloadsLeft,
+  );
 
   function updateParam(key: SizeParam, value: number) {
     setParams((current) =>
@@ -196,6 +204,12 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
       });
 
       if (response.status === 200) {
+        // Сервер уже записал бесплатное скачивание — уменьшаем остаток до
+        // сохранения файла, чтобы кнопка не позволила четвёртую попытку.
+        if (!hasPro) {
+          setFreeDownloadsLeft((left) => Math.max(0, left - 1));
+        }
+
         const blob = await response.blob();
         const objectUrl = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -218,8 +232,18 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
       }
 
       if (response.status === 403) {
+        const serverMessage = await readServerMessage(response);
+
+        // 403 теперь означает исчерпанный бесплатный лимит. Синхронизируем
+        // счётчик с сервером, даже если страница была открыта давно.
+        if (!hasPro) {
+          setFreeDownloadsLeft(0);
+        }
+
         setExportError({
-          message: "Для скачивания нужна подписка Pro",
+          message:
+            serverMessage ??
+            "Лимит бесплатных скачиваний исчерпан. Оформите подписку Pro для безлимитного доступа.",
           action: "pro",
         });
 
@@ -305,6 +329,7 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
       <div className="mt-8 grid gap-5 lg:grid-cols-[22rem_minmax(0,1fr)] lg:items-start xl:gap-6">
         <ParameterPanel
           exportError={exportError}
+          freeDownloadsLeft={freeDownloadsLeft}
           hasPro={hasPro}
           isExporting={isExporting}
           onExport={exportStl}

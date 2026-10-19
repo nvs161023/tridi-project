@@ -7,6 +7,10 @@ import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import type { Font, FontData } from "three/examples/jsm/loaders/FontLoader.js";
 
 import {
+  FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH,
+  countConstructorDownloadsThisMonth,
+} from "@/lib/constructor/downloads";
+import {
   CONSTRUCTOR_LIMITS,
   DEFAULT_VASE_PARAMS,
   isKeychainShape,
@@ -27,6 +31,7 @@ import {
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
 import { hasActiveSubscription } from "@/lib/subscription";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -34,13 +39,15 @@ import { createClient } from "@/lib/supabase/server";
  *
  * Проверки идут строго по порядку, как у скачивания профилей:
  *   1. сессия — getUser(), потому что /api/* не покрыт middleware;
- *   2. Pro — hasActiveSubscription() по purchases и subscriptions;
+ *   2. доступ — Pro проходит сразу, Free получает три скачивания в
+ *      календарный месяц по UTC (countConstructorDownloadsThisMonth);
  *   3. параметры — только числа внутри границ слайдеров, известная форма и
  *      узор вазы либо известная форма и имя брелока.
  *
- * Гость получает 401, вошедший без подписки — 403, испорченное тело — 422.
- * Проверка в интерфейсе нужна только для удобства: адрес API можно вызвать
- * руками, поэтому без подписки файл отсюда не уйдёт.
+ * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
+ * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
+ * скачивании появляется только после успешной сборки STL и пишется
+ * service-role клиентом: RLS не даёт браузеру подделать счётчик.
  */
 
 /** three.js и STLExporter работают в Node.js, Edge для них не нужен. */
@@ -278,12 +285,34 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  if (!(await hasActiveSubscription(supabase, user.id))) {
-    return errorResponse(
-      403,
-      "pro_required",
-      "Экспорт доступен только по подписке Pro",
+  const isPro = await hasActiveSubscription(supabase, user.id);
+
+  if (!isPro) {
+    const usage = await countConstructorDownloadsThisMonth(
+      supabase,
+      user.id,
     );
+
+    if (usage.count === null) {
+      console.error(
+        "Не удалось проверить лимит бесплатных скачиваний:",
+        usage.error,
+      );
+
+      return errorResponse(
+        503,
+        "limit_unavailable",
+        "Не удалось проверить лимит бесплатных скачиваний. Попробуйте ещё раз.",
+      );
+    }
+
+    if (usage.count >= FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH) {
+      return errorResponse(
+        403,
+        "free_limit_reached",
+        "Лимит бесплатных скачиваний (3 в месяц) исчерпан. Оформите подписку Pro для безлимитного доступа.",
+      );
+    }
   }
 
   let body: unknown;
@@ -326,6 +355,33 @@ export async function POST(request: Request): Promise<Response> {
         parsed.model === "keychain"
           ? keychainStlFileName(parsed.params)
           : vaseStlFileName(parsed.params);
+
+      // Запись появляется после успешной генерации: упавшая сборка не должна
+      // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —
+      // иначе счётчик можно было бы обойти, отключив таблицу.
+      if (!isPro) {
+        try {
+          const admin = createAdminClient();
+          const { error: insertError } = await admin
+            .from("constructor_downloads")
+            .insert({ user_id: user.id });
+
+          if (insertError) {
+            throw insertError;
+          }
+        } catch (error) {
+          console.error(
+            "Не удалось записать бесплатное скачивание:",
+            error,
+          );
+
+          return errorResponse(
+            500,
+            "download_not_recorded",
+            "Не удалось учесть скачивание. Попробуйте ещё раз.",
+          );
+        }
+      }
 
       return new Response(bytes, {
         status: 200,

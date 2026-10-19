@@ -845,6 +845,18 @@ export default async function SubscriptionPage() {
                         <span aria-hidden className="text-blue-300">
                           ✓
                         </span>
+                        Безлимитная генерация в Конструкторе
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span aria-hidden className="text-blue-300">
+                          ✓
+                        </span>
+                        Коммерческая лицензия (можно продавать напечатанное)
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <span aria-hidden className="text-blue-300">
+                          ✓
+                        </span>
                         Новые инструменты по мере выхода
                       </li>
                     </ul>

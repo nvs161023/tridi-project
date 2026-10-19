@@ -31,7 +31,9 @@ const BUNDLE_FEATURES = [
       `${level.shortTitle} — ${level.lessons} ${pluralize(level.lessons, LESSON_FORMS)}`,
   ),
   "Конструктор 3D",
+  "Безлимитная генерация в Конструкторе",
   "Библиотека профилей",
+  "Коммерческая лицензия (можно продавать напечатанное)",
   "Доступ навсегда",
 ];
 

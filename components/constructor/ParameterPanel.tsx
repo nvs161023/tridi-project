@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useId } from "react";
 
 import { NumberSlider } from "@/components/constructor/NumberSlider";
+import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
 import {
   CONSTRUCTOR_LIMITS,
   KEYCHAIN_SHAPES,
@@ -36,8 +37,10 @@ export type StlExportError = {
 
 type ParameterPanelProps = {
   params: ConstructorParams;
-  /** Есть ли действующий доступ Pro: от него зависит только скачивание STL. */
+  /** Есть ли действующий доступ Pro: у Pro лимита на STL нет. */
   hasPro: boolean;
+  /** Остаток бесплатных скачиваний; у Pro не используется. */
+  freeDownloadsLeft: number;
   /** Идёт запрос к серверу: кнопка заблокирована и показывает спиннер. */
   isExporting: boolean;
   /** Ошибка последней попытки скачивания; null — ошибок нет. */
@@ -52,6 +55,38 @@ type ParameterPanelProps = {
   onTextChange: (text: string) => void;
   onReset: () => void;
 };
+
+/** Ошибка экспорта с подсказкой: войти заново или оформить Pro. */
+function ExportErrorAlert({ error }: { error: StlExportError | null }) {
+  if (!error) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mt-3 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm leading-relaxed text-amber-100"
+      role="alert"
+    >
+      <p>{error.message}</p>
+      {error.action === "pro" ? (
+        <Link
+          className="mt-2 inline-flex font-semibold text-amber-200 underline underline-offset-4 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+          href="/subscription#tools"
+        >
+          Оформить подписку Pro
+        </Link>
+      ) : null}
+      {error.action === "login" ? (
+        <Link
+          className="mt-2 inline-flex font-semibold text-amber-200 underline underline-offset-4 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+          href="/auth/login?next=%2Fconstructor"
+        >
+          Войти заново
+        </Link>
+      ) : null}
+    </div>
+  );
+}
 
 /** Доступная карточка модели или будущий светильник со статусом «Скоро». */
 type ModelCard =
@@ -104,6 +139,7 @@ const PATTERN_HINTS: Record<VasePattern, string> = {
 export function ParameterPanel({
   params,
   hasPro,
+  freeDownloadsLeft,
   isExporting,
   exportError,
   onExport,
@@ -511,43 +547,80 @@ export function ParameterPanel({
                 ? "Собираем геометрию и упаковываем её в бинарный STL…"
                 : "Подписка Pro активна. Файл скачается с именем по вашим параметрам."}
             </p>
-            {exportError ? (
-              <div
-                className="mt-3 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm leading-relaxed text-amber-100"
-                role="alert"
-              >
-                <p>{exportError.message}</p>
-                {exportError.action === "pro" ? (
-                  <Link
-                    className="mt-2 inline-flex font-semibold text-amber-200 underline underline-offset-4 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
-                    href="/subscription#tools"
-                  >
-                    Оформить подписку Pro
-                  </Link>
-                ) : null}
-                {exportError.action === "login" ? (
-                  <Link
-                    className="mt-2 inline-flex font-semibold text-amber-200 underline underline-offset-4 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
-                    href="/auth/login?next=%2Fconstructor"
-                  >
-                    Войти заново
-                  </Link>
-                ) : null}
-              </div>
-            ) : null}
+            <ExportErrorAlert error={exportError} />
+          </>
+        ) : freeDownloadsLeft > 0 ? (
+          <>
+            <div
+              aria-live="polite"
+              className="rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3"
+            >
+              <p className="text-sm font-semibold text-amber-100">
+                Осталось бесплатных скачиваний:{" "}
+                <span className="tabular-nums text-white">
+                  {freeDownloadsLeft} из {FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH}
+                </span>
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
+                Лимит обновляется 1-го числа каждого месяца по UTC.
+              </p>
+            </div>
+
+            <button
+              aria-busy={isExporting}
+              className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-base font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-wait disabled:bg-blue-600/60 disabled:text-white/80 disabled:shadow-none"
+              disabled={isExporting}
+              onClick={onExport}
+              type="button"
+            >
+              {isExporting ? (
+                <>
+                  <span
+                    aria-hidden
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                  />
+                  Генерация…
+                </>
+              ) : (
+                "Скачать STL"
+              )}
+            </button>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+              {isExporting
+                ? "Собираем геометрию и упаковываем её в бинарный STL…"
+                : "Бесплатный лимит: 3 скачивания в календарный месяц."}
+            </p>
+            <ExportErrorAlert error={exportError} />
           </>
         ) : (
           <>
+            <div
+              aria-live="polite"
+              className="rounded-2xl border-2 border-amber-400/60 bg-gradient-to-br from-amber-400/20 to-orange-500/10 px-4 py-3"
+            >
+              <p className="text-sm font-semibold text-amber-100">
+                Осталось бесплатных скачиваний:{" "}
+                <span className="tabular-nums text-white">
+                  0 из {FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH}
+                </span>
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
+                Лимит на этот месяц исчерпан. Pro открывает безлимитную
+                генерацию STL.
+              </p>
+            </div>
+
             <Link
-              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-base font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-amber-400 px-5 text-base font-extrabold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               href="/subscription#tools"
             >
-              <span aria-hidden>🔒</span>
-              Скачать STL — Pro
+              <span aria-hidden>⚡</span>
+              Оформить Pro для безлимита
             </Link>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">
-              Предпросмотр бесплатный. Скачивание STL входит в подписку Pro.
+              Оформите подписку Pro для безлимитного доступа.
             </p>
+            <ExportErrorAlert error={exportError} />
           </>
         )}
       </div>

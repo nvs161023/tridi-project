@@ -143,8 +143,9 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает �
 (`lib/supabase/middleware.ts`), а сам matcher — в `middleware.ts`.
 
 Экспорт STL — `POST /api/constructor/stl` (`app/api/constructor/stl/route.ts`): проверяет сессию
-(401), активную подписку Pro (403), параметры выбранной модели (422), затем собирает бинарный
-файл `model/stl`. Для вазы имя —
+(401), доступ Pro или бесплатный лимит 3 скачивания в календарный месяц по UTC (403 после
+исчерпания, 503 если счётчик недоступен), параметры выбранной модели (422), затем собирает
+бинарный файл `model/stl`. Для вазы имя —
 `tridi-vaza-{shape}[-{pattern}]-h{height}-d{diameter}-w{wall}.stl` (суффикс узора не добавляется
 только для гладкой стенки), для брелока — `tridi-brelyok-{shapeType}-l{length}-w{width}-t{thickness}.stl`.
 Публичные страницы (главная, тарифы, `/legal`, `/forum`, темы форума и правила) middleware не
@@ -891,12 +892,19 @@ M117, моторы) и правило «без отвода — вмятина �
   сходится с формулой `84 + 50 × число треугольников`. Шрифт брелока читается с диска один раз
   на процесс и кэшируется промисом. Временный Blob на клиенте скачивается скрытой ссылкой,
   поэтому страница не уходит с конструктора.
+- **Бесплатный лимит:** `lib/constructor/downloads.ts` считает записи
+  `constructor_downloads` за текущий календарный месяц по UTC. Free-пользователь получает три
+  успешные генерации; запись добавляется только после сборки STL, service-role клиентом. Если
+  счётчик прочитать нельзя, API отвечает 503 и файл не отдаёт. Pro не расходует лимит и не
+  оставляет записей. Схема и RLS — в `supabase/constructor_downloads.sql`.
 - **Доступ:** страница под авторизацией (путь есть и в `matcher` middleware, и в
-  `PROTECTED_PATH_PREFIXES`) и с `robots: noindex`. Предпросмотр бесплатный. Кнопка STL без Pro
-  ведёт на `/subscription#tools`; с Pro она активна, на время запроса показывает «Генерация…» и
-  спиннер, а после ошибки 403 предлагает оформить подписку. Интерфейсом доступ не ограничен:
-  серверный роут повторно проверяет `getUser()` (401) и `hasActiveSubscription()` (403), а
-  невалидные или вышедшие за границы параметры отклоняет с 422.
+  `PROTECTED_PATH_PREFIXES`) и с `robots: noindex`. Предпросмотр бесплатный. Free видит остаток
+  «X из 3» и кнопку STL; после третьего скачивания вместо неё появляется яркая ссылка
+  «Оформить Pro для безлимита» на `/subscription#tools`. С Pro кнопка активна всегда, на время
+  запроса показывает «Генерация…» и спиннер, а после ошибки 403 предлагает оформить подписку.
+  Интерфейсом доступ не ограничен: серверный роут повторно проверяет `getUser()` (401),
+  `hasActiveSubscription()` и месячный счётчик (403), а невалидные или вышедшие за границы
+  параметры отклоняет с 422.
 
 ---
 
@@ -1409,8 +1417,8 @@ M117, моторы) и правило «без отвода — вмятина �
 | `components/Logo.tsx` | серверный | Векторный логотип: SVG-принтер с синей шестерёнкой, слово `tridi-print.ru`, плашки «Уроки» и «Конструктор моделей»; вариант `wordmark` — только текст для подвала |
 | `components/Footer.tsx` | серверный | Подвал: ссылки на все юридические документы, копирайт, карточка «Реквизиты и контакты» со статусом НПД, ИНН, телефоном и email |
 | `components/CookieBanner.tsx` | клиентский | Баннер согласия на cookie: два варианта, запоминание выбора в `localStorage`, не показывается повторно; пока виден, резервирует свою высоту внизу `body`, чтобы не перекрывать подвал |
-| `app/constructor/ConstructorClient.tsx` | клиентский | Оболочка конструктора: единый объект параметров вазы и брелока, переключение модели, запрос `POST /api/constructor/stl`, Blob-скачивание с именем из `Content-Disposition`, состояния «Генерация…» и ошибок Pro/сервера |
-| `components/constructor/ParameterPanel.tsx` | клиентский | Панель конструктора: тип модели, шесть пресетов силуэта, четыре узора, слайдеры размеров и узора вазы; для брелока — форма, имя до 10 символов и длина/ширина/толщина; сводка, сброс и Pro-гейт на скачивание STL |
+| `app/constructor/ConstructorClient.tsx` | клиентский | Оболочка конструктора: единый объект параметров вазы и брелока, переключение модели, запрос `POST /api/constructor/stl`, Blob-скачивание с именем из `Content-Disposition`, локальный остаток бесплатных скачиваний, состояния «Генерация…» и ошибок лимита/сервера |
+| `components/constructor/ParameterPanel.tsx` | клиентский | Панель конструктора: тип модели, шесть пресетов силуэта, четыре узора, слайдеры размеров и узора вазы; для брелока — форма, имя до 10 символов и длина/ширина/толщина; сводка, сброс, плашка «Осталось бесплатных скачиваний: X из 3» и Pro-CTA при нуле |
 | `components/constructor/NumberSlider.tsx` | клиентский | Слайдер размера с текущим значением, границами, шагом, единицами и подсказкой; значение хранит родитель, компонент только сообщает об изменении |
 | `components/constructor/Viewport.tsx` | клиентский, только браузер | 3D-сцена three.js: ваза из `LatheGeometry` с узором или брелок из `ExtrudeGeometry` и `TextGeometry`, свет, контактная тень, вращение и зум; шрифт грузится через `FontLoader`, геометрия пересобирается при смене параметров, подпись показывает объём материала |
 | `components/EmailLinkHandler.tsx` | клиентский | Разбирает `#access_token=…&refresh_token=…` из ссылки письма и завершает вход через `confirmSessionFromTokens`; подключён один раз в корневом layout |
@@ -1434,7 +1442,7 @@ M117, моторы) и правило «без отвода — вмятина �
 
 ## 9. База данных (Supabase)
 
-Self-hosted Supabase на сервере в РФ: используются только Auth и Postgres. Восемь таблиц, все с
+Self-hosted Supabase на сервере в РФ: используются только Auth и Postgres. Девять таблиц, все с
 включённым RLS.
 
 | Таблица | Колонки | Назначение |
@@ -1443,6 +1451,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `lesson_progress` | `id uuid`, `user_id uuid`, `lesson_id integer`, `course_type text not null default 'basic'`, `completed_at` | Прогресс уроков и результаты тестов |
 | `purchases` | `id uuid`, `inv_id bigint unique`, `user_id uuid`, `course_id text`, `amount numeric(10,2)`, `created_at`, `expires_at` | Покупки курсов, пакета и подписки; `expires_at = null` — навсегда |
 | `subscriptions` | `id uuid`, `user_id uuid`, `status text`, `trial_ends_at`, `created_at`, `updated_at` | Подписка Pro: `active` — доступ есть, `trial` — пока `trial_ends_at` в будущем; используется, если в `purchases` нет записи `pro-subscription` |
+| `constructor_downloads` | `id uuid`, `user_id uuid`, `created_at timestamptz` | Успешные бесплатные скачивания STL; владелец видит только свои записи, вставка — только `service_role`, лимит считается за месяц по UTC |
 | `forum_categories` | `id uuid`, `slug text unique`, `title`, `description`, `"order" integer` | Разделы форума; наполняются отдельно после применения `supabase/forum.sql` |
 | `forum_threads` | `id uuid`, `category_id`, `slug text unique`, `title`, `content`, `author_id`, `created_at`, `views`, `status` | Темы форума; публично видны только `approved`, автор видит свои |
 | `forum_replies` | `id uuid`, `thread_id`, `content`, `author_id`, `created_at`, `status` | Ответы; публикуются сразу (`approved`), проверяются после публикации, нарушения удаляются из админки |
@@ -1488,7 +1497,8 @@ Self-hosted Supabase на сервере в РФ: используются то�
   доступ), `module_test_course_types.sql`, `confident_course_access.sql`,
   `engineer_course_access.sql` (ограничение на значения
   `course_type`: восемь значений, включая `confident`, `confident-test`, `engineer` и
-  `engineer-test`) и `forum.sql` (таблицы и RLS форума).
+  `engineer-test`), `forum.sql` (таблицы и RLS форума) и `constructor_downloads.sql`
+  (месячный счётчик бесплатных STL, RLS и гранты).
   Автоматически эти файлы не выполняются. Оба ограничения уже применены в живой базе:
   `confident_course_access.sql` — вручную владельцем до первого урока «Уверенного»
   (`docker exec -it supabase-db` + `psql`), `engineer_course_access.sql` — так же, перед первым
