@@ -10,12 +10,8 @@ import {
 import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
 import { resolveUserId } from "@/lib/current-user";
-import { LEGAL_OPERATOR } from "@/lib/legal";
 import {
   LEVELS,
-  PAID_LESSONS,
-  PAID_TESTS,
-  PAID_VISUALS,
   TOTAL_LESSONS,
   TOTAL_TESTS,
   TOTAL_VISUALS,
@@ -119,24 +115,24 @@ const STATS = [
   { value: TOTAL_TESTS, label: "тестов модулей" },
 ];
 
-/** Три боли, с которых начинается продающая воронка. */
+/** Три короткие боли, с которых начинается продающая воронка. */
 const PAIN_POINTS = [
   {
-    question: "Стол отклеивается на 10-м слое?",
+    title: "Отклеивается стол",
     detail:
-      "Деталь отрывается, принтер печатает «спагетти», а причина каждый раз новая: стол, температура, поток или первый слой.",
+      "Первая деталь срывается, и непонятно, что менять: адгезию, температуру или поток.",
     accent: "text-blue-300",
   },
   {
-    question: "Не понимаете, почему деталь расслоилась?",
+    title: "Не знаете цен",
     detail:
-      "Слой треснул, но непонятно, что виновато: температура, влажность пластика, охлаждение или настройки слайсера.",
+      "Пластик, электричество, брак и время — считать нечем, поэтому цена берётся наугад.",
     accent: "text-violet-300",
   },
   {
-    question: "Хотите зарабатывать печатью, но не знаете цен?",
+    title: "Ломаются детали",
     detail:
-      "Страшно назвать цену: непонятно, как считать пластик, электричество, брак и собственное время.",
+      "Трещины под нагрузкой: ориентация, стенки и режим печати выбираются вслепую.",
     accent: "text-amber-300",
   },
 ];
@@ -150,55 +146,36 @@ const PAIN_POINTS = [
 const METHOD_STEPS = [
   {
     step: "01",
-    title: "Разобраться в причине",
-    text: "Не «попробуйте так», а объяснение физики: почему слой не держится, откуда сопли и деформации.",
+    title: "Теория",
+    text: "Короткая физика процесса: почему деталь ведёт себя именно так.",
     accent: "text-blue-300",
   },
   {
     step: "02",
-    title: "Настроить под задачу",
-    text: "Профили, температуры, скорости и ретракт подбираются по алгоритму, а не наугад.",
+    title: "Схемы",
+    text: "Визуальный разбор настроек, нагрузок и дефектов печати.",
     accent: "text-violet-300",
   },
   {
     step: "03",
-    title: "Напечатать и проверить",
-    text: "Каждый модуль заканчивается тестом: понимаете ли вы, почему деталь получилась именно такой.",
+    title: "Тесты",
+    text: "Проверка понимания после каждого модуля, с пояснениями.",
     accent: "text-emerald-300",
   },
   {
     step: "04",
-    title: "Посчитать результат",
-    text: "Себестоимость, время и цена продажи — чтобы печать была ремеслом с маржой, а не хобби в минус.",
-    accent: "text-amber-300",
-  },
-];
-
-/** Кому подойдёт курс: три понятных портрета ученика. */
-const AUDIENCE = [
-  {
-    title: "Новичкам",
-    text: "Купили первый принтер и не понимаете, почему детали отваливаются. Начните с бесплатного уровня.",
-    accent: "text-blue-300",
-  },
-  {
-    title: "Практикующим",
-    text: "Печатаете давно, но настройки подбираете наугад. Получите систему вместо десятка разрозненных советов.",
-    accent: "text-violet-300",
-  },
-  {
-    title: "Тем, кто хочет зарабатывать",
-    text: "Хотите считать себестоимость и называть цену без страха. Уровень «Заработок» — про это.",
+    title: "Проект",
+    text: "Своя деталь в конце уровня — от расчёта до готовой печати.",
     accent: "text-amber-300",
   },
 ];
 
 /**
- * Четыре схемы для галереи — по одной с каждого уровня.
+ * Три крупные схемы для блока методологии.
  *
- * Это стилизованные заглушки, а не SVG-кадры уроков: витрине нужен ритм сетки
- * и понятные названия, а сами визуализации остаются внутри уроков. Код (L1, C5,
- * IN4, Z8) связывает карточку с уроком, где схема открывается.
+ * Это стилизованные превью, а не кадры уроков: витрине нужен ритм и понятные
+ * названия, а сами визуализации остаются внутри уроков. Код (L1, C5, IN4)
+ * связывает карточку с уроком, где схема открывается.
  */
 const GALLERY: {
   code: string;
@@ -226,13 +203,6 @@ const GALLERY: {
     caption:
       "Нагрузка на деталь до печати: где слабее всего и зачем добавлять рёбра.",
     accent: "emerald",
-  },
-  {
-    code: "Z8",
-    title: "Финальный проект",
-    caption:
-      "От критериев продукта до партии, фото и продаж — весь путь на одной схеме.",
-    accent: "amber",
   },
 ];
 
@@ -263,36 +233,12 @@ const FAQ: { question: string; answer: string }[] = [
   },
 ];
 
-/** Три шага воронки: бесплатный старт → первая деталь → платный курс или Pro. */
-const FUNNEL_STEPS = [
-  {
-    step: "01",
-    title: "Бесплатный «Новичок»",
-    text: `Регистрация без карты и ${LEVELS[0].lessons} ${pluralize(LEVELS[0].lessons, LESSON_FORMS)} базы.`,
-    note: "0 ₽",
-  },
-  {
-    step: "02",
-    title: "Первая готовая деталь",
-    text: "Калибровка, первый слой и разбор дефектов — на своём принтере.",
-    note: "Практика",
-  },
-  {
-    step: "03",
-    title: "Курс или Pro",
-    text: "Купи нужный уровень навсегда или забери все три пакетом «Всё включено» со скидкой.",
-    note: `от ${formatPrice(LEVELS[1].price)} ₽`,
-  },
-];
-
 const CTA_BASE =
   "inline-flex min-h-14 items-center justify-center gap-2 rounded-full px-6 text-base font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 xl:px-8 xl:text-lg";
 
 const PRIMARY_CTA = `${CTA_BASE} bg-blue-600 text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 focus-visible:ring-blue-400`;
 
 const SECONDARY_CTA = `${CTA_BASE} border border-white/15 bg-white/5 text-white hover:bg-white/10 focus-visible:ring-blue-400`;
-
-const GOLD_CTA = `${CTA_BASE} bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 shadow-lg shadow-amber-500/25 hover:from-amber-300 hover:to-amber-400 focus-visible:ring-amber-300`;
 
 /**
  * Главная отдаётся на каждый запрос, а не готовится на этапе сборки.
@@ -452,8 +398,8 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* 2. Агитация: знакомые боли и обещание решения */}
-        <section className="scroll-mt-20 border-b border-white/10 bg-gradient-to-b from-slate-900/50 to-transparent">
+        {/* 2. Боль: три коротких тезиса и обещание решения */}
+        <section className="border-b border-white/10 bg-gradient-to-b from-slate-900/50 to-transparent">
           <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
             <p className="text-sm font-semibold tracking-widest text-violet-400 uppercase">
               Знакомая боль?
@@ -461,16 +407,12 @@ export default async function Home() {
             <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
               Если хотя бы один пункт — про вас
             </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
-              Курс сэкономит месяцы проб, ошибок и испорченного пластика. Вот с
-              чего начинается большинство проблем.
-            </p>
 
-            <div className="mt-12 grid gap-4 sm:mt-14 sm:grid-cols-3 sm:gap-5">
+            <div className="mt-9 grid gap-3 sm:mt-10 sm:grid-cols-3 sm:gap-4">
               {PAIN_POINTS.map((pain, index) => (
                 <article
-                  key={pain.question}
-                  className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900/60 p-6 transition-colors hover:border-white/20 sm:p-7"
+                  key={pain.title}
+                  className="relative flex h-full flex-col rounded-2xl border border-white/10 bg-slate-900/60 p-5 transition-colors hover:border-white/20 sm:p-6"
                 >
                   <span
                     aria-hidden
@@ -478,78 +420,134 @@ export default async function Home() {
                   >
                     0{index + 1}
                   </span>
-                  <h3 className="mt-4 text-xl font-bold text-white">
-                    {pain.question}
+                  <h3 className="mt-3 text-lg font-bold text-white sm:text-xl">
+                    {pain.title}
                   </h3>
-                  <p className="mt-3 text-sm leading-relaxed text-slate-300">
+                  <p className="mt-2 text-sm leading-relaxed text-slate-300">
                     {pain.detail}
                   </p>
                 </article>
               ))}
             </div>
 
-            <div className="mt-8 flex flex-col gap-4 rounded-3xl border border-blue-400/25 bg-gradient-to-r from-blue-500/10 via-slate-900 to-violet-500/10 px-6 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-              <p className="text-lg font-semibold text-white sm:text-xl">
-                Мы собрали решение этих проблем в одном курсе.
+            <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-blue-400/25 bg-gradient-to-r from-blue-500/10 via-slate-900 to-violet-500/10 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+              <p className="text-base font-semibold text-white sm:text-lg">
+                Мы собрали решение в одном курсе.
               </p>
               <Link
-                href="#levels"
+                href="#path"
                 className="inline-flex w-fit items-center gap-2 text-sm font-semibold text-blue-300 transition-colors hover:text-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               >
-                Посмотреть программу
+                Как это работает
                 <span aria-hidden>↓</span>
               </Link>
             </div>
           </div>
         </section>
 
-        {/* 2b. Методология: один цикл обучения на каждом уровне */}
-        <section
-          id="methodology"
-          className="scroll-mt-20 border-b border-white/10"
-        >
+        {/* 3. Визуальная воронка: бесплатный старт → следующий уровень */}
+        <section id="path" className="scroll-mt-20 border-b border-white/10">
           <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
-            <p className="text-sm font-semibold tracking-widest text-emerald-400 uppercase">
-              Методология
-            </p>
-            <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-              Не смотреть, а делать
-            </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
-              Один и тот же цикл на каждом уровне: разобраться в причине,
-              настроить принтер, напечатать деталь и проверить результат тестом.
-            </p>
+            <div className="max-w-2xl">
+              <p className="text-sm font-semibold tracking-widest text-blue-400 uppercase">
+                Ваш путь
+              </p>
+              <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+                Два шага — и вы уже печатаете
+              </h2>
+              <p className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg">
+                Начните бесплатно, а следующий уровень выберите только тогда,
+                когда увидите результат.
+              </p>
+            </div>
 
-            <ol className="mt-12 grid gap-4 sm:mt-14 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5">
-              {METHOD_STEPS.map((item) => (
-                <li
-                  key={item.step}
-                  className="relative flex h-full flex-col rounded-3xl border border-white/10 bg-slate-900/60 p-6 transition-colors hover:border-white/20 sm:p-7"
-                >
-                  <span
-                    aria-hidden
-                    className={`text-xs font-semibold tracking-[0.2em] ${item.accent}`}
-                  >
-                    {item.step}
+            <div className="mt-10 grid items-stretch gap-4 sm:mt-12 lg:grid-cols-[1fr_auto_1fr] lg:gap-0">
+              <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-blue-400/30 bg-gradient-to-br from-blue-600/15 via-slate-900 to-slate-950 p-6 sm:p-8">
+                <div
+                  aria-hidden
+                  className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-500 to-cyan-400"
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200">
+                    Шаг 1
                   </span>
-                  <h3 className="mt-4 text-lg font-bold text-white">
-                    {item.title}
-                  </h3>
-                  <p className="mt-3 text-sm leading-relaxed text-slate-300">
-                    {item.text}
+                  <span className="text-sm font-extrabold text-blue-300">
+                    0 ₽
+                  </span>
+                </div>
+                <h3 className="mt-5 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+                  Бесплатный «Новичок»
+                </h3>
+                <p className="mt-3 text-sm leading-relaxed text-slate-300 sm:text-base">
+                  {LEVELS[0].lessons}{" "}
+                  {pluralize(LEVELS[0].lessons, LESSON_FORMS)}, калибровка и
+                  первая готовая деталь — без карты и обязательств.
+                </p>
+                <div className="mt-auto pt-7">
+                  <Link
+                    href={START_FREE_HREF}
+                    className={`${PRIMARY_CTA} w-full`}
+                  >
+                    Начать бесплатно
+                    <span aria-hidden>→</span>
+                  </Link>
+                  <p className="mt-3 text-xs leading-relaxed text-slate-300">
+                    Доступ сразу после регистрации
                   </p>
-                </li>
-              ))}
-            </ol>
+                </div>
+              </article>
 
-            <p className="mt-8 max-w-2xl text-sm leading-relaxed text-slate-300">
-              В конце каждого модуля — тест с пояснениями. Он показывает, что вы
-              действительно поняли, а не просто пролистали урок.
-            </p>
+              <div
+                aria-hidden
+                className="flex items-center justify-center py-1 lg:px-5 lg:py-0"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-slate-900 text-lg font-bold text-blue-300 shadow-lg shadow-slate-950/40 lg:h-12 lg:w-12">
+                  <span className="lg:hidden">↓</span>
+                  <span className="hidden lg:inline">→</span>
+                </span>
+              </div>
+
+              <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-amber-400/25 bg-gradient-to-br from-amber-500/10 via-slate-900 to-violet-500/10 p-6 sm:p-8">
+                <div
+                  aria-hidden
+                  className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-400 to-violet-400"
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
+                    Шаг 2
+                  </span>
+                  <span className="text-xs font-semibold text-slate-300">
+                    когда будете готовы
+                  </span>
+                </div>
+                <h3 className="mt-5 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+                  Твой следующий уровень
+                </h3>
+                <p className="mt-3 text-sm leading-relaxed text-slate-300 sm:text-base">
+                  Купите конкретный курс навсегда или оформите Pro-подписку для
+                  доступа ко всем инструментам.
+                </p>
+                <div className="mt-auto grid gap-2.5 pt-7 sm:grid-cols-2">
+                  <Link
+                    href="#levels"
+                    className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-amber-400 px-5 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/20 transition-colors hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  >
+                    Выбрать курс
+                    <span aria-hidden>→</span>
+                  </Link>
+                  <Link
+                    href="/subscription"
+                    className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 text-sm font-semibold text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  >
+                    Pro-подписка
+                  </Link>
+                </div>
+              </article>
+            </div>
           </div>
         </section>
 
-        {/* 3. Демонстрация ценности: четыре уровня и их проблемы */}
+        {/* 4. Оффер: четыре уровня и пакет «Всё включено» */}
         <section
           id="levels"
           className="scroll-mt-20 border-b border-white/10 bg-gradient-to-b from-slate-900/40 to-transparent"
@@ -714,306 +712,133 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* 3b. Кому подойдёт: три портрета ученика */}
+        {/* 5. Методология: четыре шага и крупные превью схем */}
         <section
-          id="audience"
+          id="methodology"
           className="scroll-mt-20 border-b border-white/10 bg-gradient-to-b from-slate-900/40 to-transparent"
         >
           <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
-            <p className="text-sm font-semibold tracking-widest text-violet-400 uppercase">
-              Кому подойдёт
-            </p>
-            <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-              Три сценария — один результат
-            </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
-              Уровни можно проходить подряд или взять только тот, который решает
-              вашу задачу. Начать в любом случае можно бесплатно.
-            </p>
-
-            <div className="mt-12 grid gap-4 sm:mt-14 sm:grid-cols-3 sm:gap-5">
-              {AUDIENCE.map((item, index) => (
-                <article
-                  key={item.title}
-                  className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900/60 p-6 transition-colors hover:border-white/20 sm:p-7"
-                >
-                  <span
-                    aria-hidden
-                    className={`text-xs font-semibold tracking-[0.2em] ${item.accent}`}
-                  >
-                    0{index + 1}
-                  </span>
-                  <h3 className="mt-4 text-xl font-bold text-white">
-                    {item.title}
-                  </h3>
-                  <p className="mt-3 text-sm leading-relaxed text-slate-300">
-                    {item.text}
-                  </p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* 4. Доказательство: как выглядят схемы внутри уроков */}
-        <section
-          id="gallery"
-          className="scroll-mt-20 border-b border-white/10"
-        >
-          <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
-            <p className="text-sm font-semibold tracking-widest text-violet-400 uppercase">
-              Галерея качества
-            </p>
-            <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-              Так выглядят уроки
-            </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
-              Посмотрите, как выглядят уроки. Каждая схема — это шаг к
-              пониманию процесса.
-            </p>
-
-            <div className="mt-12 grid gap-4 sm:mt-14 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5">
-              {GALLERY.map((item) => (
-                <VisualPlaceholder
-                  key={item.code}
-                  code={item.code}
-                  title={item.title}
-                  caption={item.caption}
-                  accent={item.accent}
-                />
-              ))}
-            </div>
-
-            <p className="mt-8 text-sm leading-relaxed text-slate-300">
-              Показали 4 из {TOTAL_VISUALS}. Все схемы нарисованы под{" "}
-              {TOTAL_LESSONS} уроков четырёх уровней и открываются внутри
-              уроков вместе с подписями и пояснениями.
-            </p>
-          </div>
-        </section>
-
-        {/* 5. Предложение: бесплатный старт и переход в Pro */}
-        <section
-          id="pricing"
-          className="scroll-mt-20 border-b border-white/10"
-        >
-          <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-24">
-            <div className="relative overflow-hidden rounded-[2rem] border border-blue-400/20 bg-gradient-to-br from-blue-600/20 via-slate-900 to-amber-500/10 p-6 shadow-2xl shadow-slate-950/40 sm:p-10 lg:p-12">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute -top-32 left-1/3 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl"
-              />
-              <div
-                aria-hidden
-                className="pointer-events-none absolute -right-16 -bottom-24 h-64 w-64 rounded-full bg-amber-500/15 blur-3xl"
-              />
-
-              <div className="relative grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-14">
-                <div>
-                  <p className="text-sm font-semibold tracking-widest text-amber-300 uppercase">
-                    Следующий шаг
-                  </p>
-                  <h2 className="mt-4 max-w-xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-                    Начни бесплатно.{" "}
-                    <span className="bg-gradient-to-r from-blue-300 to-amber-300 bg-clip-text text-transparent">
-                      Продолжи дальше.
-                    </span>
-                  </h2>
-                  <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-300 sm:text-lg">
-                    Начни с бесплатного уровня «Новичок». Освой базу, напечатай
-                    первую деталь, а затем купи нужный уровень навсегда или
-                    забери все три пакетом со скидкой. Инструменты — по подписке
-                    Pro, если понадобятся.
-                  </p>
-
-                  <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-4">
-                    <Link
-                      href={START_FREE_HREF}
-                      className={`${PRIMARY_CTA} w-full sm:w-auto`}
-                    >
-                      Начать бесплатно
-                      <span aria-hidden>→</span>
-                    </Link>
-                    <Link
-                      href="/subscription"
-                      className={`${GOLD_CTA} w-full sm:w-auto`}
-                    >
-                      Смотреть тарифы
-                    </Link>
-                  </div>
-
-                  <p className="mt-6 text-sm leading-relaxed text-slate-300">
-                    Курсы навсегда · Подписка Pro — 30 дней · Чек НПД на email
-                  </p>
-                </div>
-
-                <div>
-                  <ol className="space-y-3">
-                    {FUNNEL_STEPS.map((step, index) => (
-                      <li
-                        key={step.step}
-                        className="flex gap-4 rounded-2xl border border-white/10 bg-slate-950/50 p-4 sm:p-5"
-                      >
-                        <span
-                          aria-hidden
-                          className="text-xs font-semibold tracking-[0.16em] text-slate-300"
-                        >
-                          {step.step}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                            <p className="font-semibold text-white">
-                              {step.title}
-                            </p>
-                            <span
-                              className={`text-xs font-semibold ${
-                                index === 0
-                                  ? "text-blue-300"
-                                  : index === 2
-                                    ? "text-amber-300"
-                                    : "text-slate-300"
-                              }`}
-                            >
-                              {step.note}
-                            </span>
-                          </div>
-                          <p className="mt-1.5 text-sm leading-relaxed text-slate-300">
-                            {step.text}
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-
-                  <dl className="mt-4 grid grid-cols-3 gap-2 text-center">
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-3">
-                      <dt className="text-lg font-bold text-white">
-                        {PAID_LESSONS}
-                      </dt>
-                      <dd className="text-[11px] text-slate-300">
-                        уроков в Pro
-                      </dd>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-3">
-                      <dt className="text-lg font-bold text-white">
-                        {PAID_VISUALS}
-                      </dt>
-                      <dd className="text-[11px] text-slate-300">
-                        схем в Pro
-                      </dd>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-3">
-                      <dt className="text-lg font-bold text-white">
-                        {PAID_TESTS}
-                      </dt>
-                      <dd className="text-[11px] text-slate-300">тестов</dd>
-                    </div>
-                  </dl>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 6. Отзывы: честный плейсхолдер без выдуманных историй */}
-        <section id="reviews" className="scroll-mt-20 border-b border-white/10">
-          <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
-            <p className="text-sm font-semibold tracking-widest text-violet-400 uppercase">
-              Отзывы
-            </p>
-            <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-              Отзывы учеников
-            </h2>
-
-            <div className="mt-10 max-w-2xl rounded-3xl border border-dashed border-white/15 bg-slate-900/40 p-6 sm:p-8">
-              <p className="text-base leading-relaxed text-slate-300">
-                Платформа только запустилась, поэтому мы не публикуем выдуманные
-                истории. Здесь появятся реальные отзывы первых учеников — с их
-                разрешения и ссылками на проекты.
-              </p>
-              <p className="mt-4 text-sm leading-relaxed text-slate-300">
-                Прошли уровень и хотите поделиться результатом? Напишите на{" "}
-                <a
-                  href={`mailto:${LEGAL_OPERATOR.email}`}
-                  className="font-medium text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
-                >
-                  {LEGAL_OPERATOR.email}
-                </a>
-                .
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* 7. Доверие: короткий FAQ об оплате и подписке */}
-        <section id="faq" className="scroll-mt-20">
-          <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
-            <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-start lg:gap-16">
+            <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:items-start lg:gap-14">
               <div>
                 <p className="text-sm font-semibold tracking-widest text-emerald-400 uppercase">
-                  FAQ
+                  Методология
                 </p>
-                <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-                  Коротко о главном
+                <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+                  Почему это работает
                 </h2>
-                <p className="mt-5 text-base leading-relaxed text-slate-300">
-                  Оплата, подписка и старт без карты — без мелкого шрифта и
-                  скрытых условий.
+                <p className="mt-5 max-w-xl text-base leading-relaxed text-slate-300 sm:text-lg">
+                  Один цикл на каждом уровне: понять теорию, разобрать схему,
+                  проверить себя и сделать свой проект.
                 </p>
 
-                <ul className="mt-7 space-y-3 text-sm leading-relaxed text-slate-300">
-                  {[
-                    "Старт — 0 ₽ по акции, карта не нужна",
-                    "Курсы покупаются навсегда",
-                    "Подписка Pro — только инструменты",
-                    "Чек НПД приходит на email",
-                    "Отмена — в личном кабинете",
-                  ].map((item) => (
-                    <li key={item} className="flex items-start gap-3">
-                      <span aria-hidden className="mt-0.5 text-emerald-300">
-                        ✓
-                      </span>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-
-                <div className="mt-8 rounded-2xl border border-blue-400/20 bg-blue-500/5 p-5">
-                  <p className="text-sm leading-relaxed text-slate-300">
-                    Начните с бесплатного уровня и решите про Pro после первой
-                    готовой детали.
-                  </p>
-                  <Link
-                    href={START_FREE_HREF}
-                    className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-blue-300 transition-colors hover:text-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  >
-                    Начать бесплатно
-                    <span aria-hidden>→</span>
-                  </Link>
-                </div>
-              </div>
-
-              <div className="grid items-start gap-3">
-                {FAQ.map((item) => (
-                  <details
-                    key={item.question}
-                    className="group rounded-2xl border border-white/10 bg-white/5 px-5 py-4 transition-colors open:border-white/20 sm:px-6 sm:py-5"
-                  >
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-semibold text-white [&::-webkit-details-marker]:hidden">
-                      {item.question}
+                <ol className="mt-8 space-y-2.5">
+                  {METHOD_STEPS.map((item) => (
+                    <li
+                      key={item.step}
+                      className="flex gap-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4 transition-colors hover:border-white/20 sm:p-5"
+                    >
                       <span
                         aria-hidden
-                        className="shrink-0 text-slate-300 transition-transform duration-200 group-open:rotate-180"
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-xs font-semibold ${item.accent}`}
                       >
-                        ⌄
+                        {item.step}
                       </span>
-                    </summary>
-                    <p className="mt-3 text-sm leading-relaxed text-slate-300">
-                      {item.answer}
-                    </p>
-                  </details>
-                ))}
+                      <div className="min-w-0">
+                        <h3 className="text-base font-bold text-white">
+                          {item.title}
+                        </h3>
+                        <p className="mt-1 text-sm leading-relaxed text-slate-300">
+                          {item.text}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
               </div>
+
+              <div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {GALLERY.map((item, index) => (
+                    <VisualPlaceholder
+                      key={item.code}
+                      code={item.code}
+                      title={item.title}
+                      caption={item.caption}
+                      accent={item.accent}
+                      showCaption={false}
+                      className={index === 0 ? "sm:col-span-2" : ""}
+                    />
+                  ))}
+                </div>
+                <p className="mt-4 text-sm leading-relaxed text-slate-300">
+                  Три из {TOTAL_VISUALS} схем. Остальные открываются внутри
+                  уроков вместе с пояснениями.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 6. FAQ: четыре вопроса об оплате, подписке и старте */}
+        <section id="faq" className="scroll-mt-20 border-b border-white/10">
+          <div className="mx-auto max-w-3xl px-5 py-20 sm:px-8 sm:py-28">
+            <div className="text-center">
+              <p className="text-sm font-semibold tracking-widest text-emerald-400 uppercase">
+                FAQ
+              </p>
+              <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+                Коротко о главном
+              </h2>
+              <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-slate-300">
+                Оплата, подписка и старт без карты — без мелкого шрифта и
+                скрытых условий.
+              </p>
+            </div>
+
+            <div className="mt-8 grid items-start gap-3 sm:mt-10">
+              {FAQ.map((item) => (
+                <details
+                  key={item.question}
+                  className="group rounded-2xl border border-white/10 bg-white/5 px-5 py-4 transition-colors open:border-white/20 sm:px-6 sm:py-5"
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-semibold text-white [&::-webkit-details-marker]:hidden">
+                    {item.question}
+                    <span
+                      aria-hidden
+                      className="shrink-0 text-slate-300 transition-transform duration-200 group-open:rotate-180"
+                    >
+                      ⌄
+                    </span>
+                  </summary>
+                  <p className="mt-3 text-sm leading-relaxed text-slate-300">
+                    {item.answer}
+                  </p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* 7. Финальный CTA: простая полоса призыва */}
+        <section>
+          <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-20">
+            <div className="flex flex-col gap-6 overflow-hidden rounded-3xl border border-blue-400/25 bg-gradient-to-r from-blue-600/20 via-slate-900 to-amber-500/10 px-6 py-8 shadow-2xl shadow-slate-950/30 sm:px-10 sm:py-10 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-2xl font-extrabold tracking-tight text-white sm:text-4xl">
+                  Начни печатать уже сегодня
+                </h2>
+                <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-300 sm:text-base">
+                  Первый уровень бесплатно: зарегистрируйтесь и напечатайте
+                  первую деталь.
+                </p>
+              </div>
+              <Link
+                href={START_FREE_HREF}
+                className={`${PRIMARY_CTA} w-full shrink-0 sm:w-auto`}
+              >
+                Начать бесплатно
+                <span aria-hidden>→</span>
+              </Link>
             </div>
           </div>
         </section>

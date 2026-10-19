@@ -77,9 +77,9 @@ export async function Header() {
             </Link>
             <Link
               className="transition-colors hover:text-blue-400"
-              href="/#gallery"
+              href="/#methodology"
             >
-              Галерея
+              Методология
             </Link>
             <Link className="transition-colors hover:text-blue-400" href="/#faq">
               Вопросы
