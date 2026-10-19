@@ -4,12 +4,9 @@ import { notFound, redirect } from "next/navigation";
 
 import { CertificateActions } from "@/app/certificate/[courseId]/CertificateActions";
 import { Header } from "@/components/Header";
+import { CertificateSheet } from "@/components/certificate/CertificateSheet";
 import { PartnerBonus } from "@/components/certificate/PartnerBonus";
-import {
-  createCertificate,
-  formatCertificateDate,
-  type Certificate,
-} from "@/lib/certificates";
+import { createCertificate, type Certificate } from "@/lib/certificates";
 import {
   COURSE_TEST_TYPES,
   getCourseCompletionFromRows,
@@ -263,149 +260,6 @@ function ProgressProblem({ level }: { level: CourseLevel }) {
   );
 }
 
-/** CSS печати: один лист A4 в альбомной ориентации без полей браузера. */
-const PRINT_STYLES = `
-@page { size: A4 landscape; margin: 0; }
-@media print {
-  html, body {
-    margin: 0 !important;
-    padding: 0 !important;
-    background: #ffffff !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-  .certificate-sheet {
-    width: 297mm !important;
-    height: 208mm !important;
-    min-height: 0 !important;
-    max-width: none !important;
-    margin: 0 !important;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-    aspect-ratio: auto !important;
-  }
-}
-`;
-
-/**
- * Сам бланк сертификата.
- *
- * На экране это карточка с пропорциями листа A4 (альбомная ориентация), при
- * печати — ровно 297×208 мм. Высота чуть меньше 210 мм: некоторые браузеры
- * добавляют доли миллиметра и создают вторую пустую страницу.
- *
- * Ссылка проверки печатается мелко внизу: по ней любой человек может открыть
- * /verify/[id] и убедиться, что имя и курс не подделаны.
- */
-function CertificateSheet({
-  level,
-  certificate,
-  verifyUrl,
-}: {
-  level: CourseLevel;
-  certificate: Certificate;
-  verifyUrl: string;
-}) {
-  return (
-    <>
-      <style>{PRINT_STYLES}</style>
-
-      <article
-        aria-label={`Сертификат TriDi: ${level.title}, ${certificate.name}`}
-        className="certificate-sheet relative mx-auto mt-8 min-h-[560px] w-full max-w-[1100px] overflow-hidden rounded-[1.75rem] bg-[#fbf6e8] text-[#14243f] shadow-2xl shadow-black/40 sm:aspect-[297/210] sm:min-h-0 print:mt-0"
-      >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 border-[10px] border-[#13233f] sm:border-[14px] print:border-[12mm]"
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-[18px] border border-[#c1993f] sm:inset-[26px] print:inset-[17mm]"
-        />
-
-        <div className="relative flex h-full flex-col px-[9%] py-[6%] print:px-[12mm] print:py-[9mm]">
-          <div className="flex items-center justify-between gap-4 border-b border-[#14243f]/15 pb-2 text-[7px] uppercase tracking-[0.2em] text-[#14243f]/65 sm:pb-3 sm:text-[10px] print:text-[9pt]">
-            <span className="text-[16px] font-black tracking-[0.32em] text-[#14243f] sm:text-[22px] print:text-[21pt]">
-              TRIDI
-            </span>
-            <span>Онлайн-школа 3D-печати</span>
-          </div>
-
-          <div className="flex flex-1 flex-col items-center justify-center py-4 text-center sm:py-[2%]">
-            <p className="text-[9px] font-semibold uppercase tracking-[0.48em] text-[#a17c28] sm:text-xs print:text-[11pt]">
-              Сертификат
-            </p>
-
-            <div className="mt-2 flex w-[62%] items-center gap-3 sm:mt-[2%]">
-              <span className="h-px flex-1 bg-[#c1993f]/70" />
-              <span aria-hidden className="text-[8px] text-[#c1993f]">
-                ◆
-              </span>
-              <span className="h-px flex-1 bg-[#c1993f]/70" />
-            </div>
-
-            <p className="mt-2 text-[8px] uppercase tracking-[0.3em] text-[#14243f]/60 sm:mt-[2%] sm:text-[10px] print:text-[9.5pt]">
-              о прохождении курса
-            </p>
-            <h2 className="mt-1 max-w-[92%] text-[clamp(0.95rem,2.3vw,1.85rem)] font-bold leading-snug print:text-[19pt]">
-              {level.title}
-            </h2>
-
-            <p className="mt-3 text-[7px] uppercase tracking-[0.26em] text-[#14243f]/55 sm:mt-[2.5%] sm:text-[9px] print:text-[8.5pt]">
-              выдан
-            </p>
-            <p className="mt-1 max-w-[94%] break-words text-[clamp(1.45rem,4vw,3.1rem)] font-bold leading-tight print:text-[31pt]">
-              {certificate.name}
-            </p>
-            <div className="mt-2 h-px w-[48%] bg-[#c1993f]/70" />
-
-            <p className="mt-3 max-w-[50rem] text-[clamp(0.55rem,1.05vw,0.9rem)] leading-relaxed text-[#33415c] sm:mt-[2.5%] print:text-[10.5pt]">
-              Курс пройден полностью: все уроки с материалом изучены, все тесты
-              модулей сданы.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3 border-t border-[#14243f]/15 pt-3 text-[7px] sm:pt-[2%] sm:text-[10px] print:text-[9.5pt]">
-            <div>
-              <p className="uppercase tracking-[0.18em] text-[#14243f]/55">
-                Дата выдачи
-              </p>
-              <p className="mt-1 font-semibold">
-                {formatCertificateDate(certificate.issuedAt)}
-              </p>
-            </div>
-
-            <div className="min-w-[90px] text-center sm:min-w-[150px]">
-              <p className="font-serif text-[clamp(0.9rem,2vw,1.6rem)] italic leading-none text-[#14243f] print:text-[17pt]">
-                TriDi
-              </p>
-              <p className="mt-1 border-t border-[#14243f]/35 px-2 pt-1 text-[6px] uppercase tracking-[0.16em] text-[#14243f]/55 sm:text-[8px] print:text-[7.5pt]">
-                Основатель школы
-              </p>
-            </div>
-
-            <div className="text-right">
-              <p className="uppercase tracking-[0.18em] text-[#14243f]/55">
-                Номер
-              </p>
-              <p className="mt-1 font-mono font-semibold tracking-[0.04em]">
-                {certificate.number}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-2 flex flex-wrap items-baseline justify-center gap-x-2 text-[5.5px] leading-snug text-[#14243f]/55 sm:mt-[1.5%] sm:text-[7px] print:text-[6.5pt]">
-            <span className="uppercase tracking-[0.14em]">
-              Проверка подлинности:
-            </span>
-            <span className="break-all font-mono">{verifyUrl}</span>
-          </div>
-        </div>
-      </article>
-    </>
-  );
-}
-
 /** Сервер без секрета подписи: лучше ошибка, чем документ, который можно подделать. */
 function CertificateUnavailable({ level }: { level: CourseLevel }) {
   return (
@@ -495,7 +349,7 @@ export default async function CertificatePage({
 
         <ScreenIntro
           title={`Курс «${level.shortTitle}» пройден`}
-          description={`Сертификат выдан на имя ${certificate.name}. Его можно сохранить в PDF, распечатать или отправить ссылку на публичную проверку — работодателю не нужен доступ к вашему аккаунту.`}
+          description={`Сертификат выдан на имя ${certificate.name}. Его можно сохранить в PDF, распечатать или отправить ссылку на публичную проверку — QR-код и подпись подтвердят документ без доступа к вашему аккаунту.`}
         />
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -520,11 +374,10 @@ export default async function CertificatePage({
       />
 
       <p className="mx-auto mt-6 max-w-2xl text-center text-xs leading-relaxed text-slate-300 print:hidden">
-        При печати выберите «Сохранить как PDF», если нужен файл. Ссылка внизу
-        сертификата ведёт на страницу проверки: подпись подтверждает имя, курс и
-        дату выдачи.
+        При печати выберите «Сохранить как PDF» и альбомную ориентацию A4. QR-код
+        на сертификате ведёт на страницу публичной проверки: подпись подтверждает
+        имя, курс и дату выдачи.
       </p>
     </CertificatePageShell>
   );
 }
-
