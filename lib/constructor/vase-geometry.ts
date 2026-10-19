@@ -287,17 +287,6 @@ function signedVolumeTimesSix(geometry: BufferGeometry): number {
 }
 
 /**
- * Объём материала по готовой сетке, мм³.
- *
- * abs() нужен на случай, если обход ещё не развёрнут: для интерфейса важен
- * модуль. В createVaseGeometry ориентация уже проверена, поэтому значение
- * совпадает с расчётом по профилю.
- */
-export function calculateGeometryVolumeMm3(geometry: BufferGeometry): number {
-  return Math.abs(signedVolumeTimesSix(geometry)) / 6;
-}
-
-/**
  * Строит сетку вазы из профиля.
  *
  * Порядок важен: сначала LatheGeometry, затем смещение вершин узором, сварка

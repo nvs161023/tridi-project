@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 
 /**
- * Конструктор 3D-моделей: параметрическая ваза с предпросмотром и STL.
+ * Конструктор 3D-моделей: ваза и брелок с предпросмотром и STL.
  *
  * Страница под авторизацией: путь перечислен в config.matcher (middleware.ts)
  * и в PROTECTED_PATH_PREFIXES, поэтому гостя middleware уводит на вход.
@@ -29,7 +29,7 @@ import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 export const metadata: Metadata = {
   title: "Конструктор 3D — TriDi",
   description:
-    "Параметрические вазы TriDi: шесть силуэтов, математические узоры, настройка высоты, диаметра и толщины стенки. Проверьте модель в 3D и скачайте STL для печати — экспорт входит в подписку Pro.",
+    "Параметрические модели TriDi: вазы с шестью силуэтами и математическими узорами, брелоки с именем из кириллицы. Настройте размеры, проверьте модель в 3D и скачайте STL для печати — экспорт входит в подписку Pro.",
   robots: {
     index: false,
     follow: false,

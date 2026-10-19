@@ -2,40 +2,41 @@
 
 import { ContactShadows, OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Vector3 } from "three";
 import type { BufferGeometry, PerspectiveCamera } from "three";
+import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
+import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 
 import {
+  KEYCHAIN_SHAPE_LABELS,
   VASE_PATTERN_LABELS,
+  type ConstructorParams,
+  type KeychainShape,
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
+import { calculateGeometryVolumeMm3 } from "@/lib/constructor/geometry-volume";
 import {
-  calculateGeometryVolumeMm3,
-  createVaseGeometry,
-} from "@/lib/constructor/vase-geometry";
+  KEYCHAIN_FONT_URL,
+  createKeychainGeometry,
+} from "@/lib/constructor/keychain-geometry";
+import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
 
 type ViewportProps = {
-  /** Высота модели, мм. */
-  height: number;
-  /** Внешний диаметр, мм. */
-  diameter: number;
-  /** Толщина стенки, мм. */
-  wall: number;
-  /** Пресет силуэта. */
-  shape: VaseShape;
-  /** Математический узор стенки. */
-  pattern: VasePattern;
-  /** Амплитуда узора, мм. */
-  patternIntensity: number;
-  /** Частота повторов узора. */
-  patternFrequency: number;
+  /** Все параметры выбранной модели: ваза или брелок. */
+  params: ConstructorParams;
 };
 
-/** Для камеры важны только габариты: форма и стенка не меняют кадр. */
-type CameraRigProps = Pick<ViewportProps, "height" | "diameter">;
+/** Для камеры важны только габариты: форма и материал не меняют кадр. */
+type CameraRigProps = {
+  height: number;
+  /** Наибольший горизонтальный размер модели. */
+  footprint: number;
+  /** Брелок лежит на столе, поэтому камера смотрит на него круче. */
+  flat: boolean;
+};
 
 /**
  * Направление, с которого камера смотрит на модель при первом открытии:
@@ -43,6 +44,13 @@ type CameraRigProps = Pick<ViewportProps, "height" | "diameter">;
  * это направление при изменении размеров — камера не прыгает в исходную точку.
  */
 const INITIAL_DIRECTION = new Vector3(0.62, 0.3, 0.94).normalize();
+
+/**
+ * Для лежащего брелока взгляд должен быть круче: при 15° над столом тонкая
+ * пластина видна почти с ребра, и имя не читается. При смене модели камера
+ * возвращается к подходящему ракурсу, а слайдеры направление не сбивают.
+ */
+const FLAT_DIRECTION = new Vector3(0.55, 0.85, 0.75).normalize();
 
 /** Запас вокруг модели, чтобы она не касалась краёв кадра. */
 const FRAME_MARGIN = 1.35;
@@ -70,11 +78,13 @@ type OrbitControlsLike = {
  * а вращение мышью не вызывает пересчёт — эффект зависит только от размеров
  * и размеров окна.
  */
-function CameraRig({ height, diameter }: CameraRigProps) {
+function CameraRig({ height, footprint, flat }: CameraRigProps) {
   const camera = useThree((state) => state.camera);
   const size = useThree((state) => state.size);
-  const controls = useThree((state) => state.controls) as OrbitControlsLike | null;
-  const previous = useRef<{ height: number } | null>(null);
+  const controls = useThree(
+    (state) => state.controls,
+  ) as OrbitControlsLike | null;
+  const previous = useRef<{ height: number; flat: boolean } | null>(null);
 
   useEffect(() => {
     const perspective = camera as PerspectiveCamera;
@@ -83,7 +93,7 @@ function CameraRig({ height, diameter }: CameraRigProps) {
 
     // Дистанция, при которой модель целиком помещается по высоте и по ширине.
     const fitHeight = height / 2 / Math.tan(verticalFov / 2);
-    const fitWidth = diameter / 2 / (Math.tan(verticalFov / 2) * aspect);
+    const fitWidth = footprint / 2 / (Math.tan(verticalFov / 2) * aspect);
     const distance = Math.max(fitHeight, fitWidth) * FRAME_MARGIN;
 
     // Центр вращения — середина модели по высоте.
@@ -96,8 +106,14 @@ function CameraRig({ height, diameter }: CameraRigProps) {
       direction.copy(camera.position).sub(previousTarget);
     }
 
-    if (direction.lengthSq() < 1e-6) {
-      direction.copy(INITIAL_DIRECTION);
+    // Смена модели — новый ракурс: ваза стоит, брелок лежит. Внутри одной
+    // модели слайдеры направление не сбивают.
+    if (
+      !previous.current ||
+      previous.current.flat !== flat ||
+      direction.lengthSq() < 1e-6
+    ) {
+      direction.copy(flat ? FLAT_DIRECTION : INITIAL_DIRECTION);
     } else {
       direction.normalize();
     }
@@ -114,14 +130,21 @@ function CameraRig({ height, diameter }: CameraRigProps) {
       controls.update();
     }
 
-    previous.current = { height };
-  }, [camera, controls, diameter, height, size.height, size.width]);
+    previous.current = { height, flat };
+  }, [camera, controls, flat, footprint, height, size.height, size.width]);
 
   return null;
 }
 
-type VaseModelProps = ViewportProps & {
+type VaseModelProps = {
   geometry: BufferGeometry;
+  height: number;
+  diameter: number;
+  wall: number;
+  shape: VaseShape;
+  pattern: VasePattern;
+  patternIntensity: number;
+  patternFrequency: number;
 };
 
 /**
@@ -144,11 +167,19 @@ function VaseModel({
   return (
     <group>
       <mesh castShadow geometry={geometry} receiveShadow>
-        <meshStandardMaterial color="#60a5fa" metalness={0.05} roughness={0.38} />
+        <meshStandardMaterial
+          color="#60a5fa"
+          metalness={0.05}
+          roughness={0.38}
+        />
       </mesh>
 
       {/* Тёмный пол: на нём читаются контактные тени. */}
-      <mesh position={[0, -0.3, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh
+        position={[0, -0.3, 0]}
+        receiveShadow
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
         <circleGeometry args={[Math.max(diameter * 2.2, 320), 64]} />
         <meshStandardMaterial color="#0b1220" roughness={1} />
       </mesh>
@@ -177,6 +208,74 @@ function VaseModel({
   );
 }
 
+type KeychainModelProps = {
+  geometry: BufferGeometry;
+  length: number;
+  width: number;
+  thickness: number;
+  shapeType: KeychainShape;
+  text: string;
+};
+
+/**
+ * Брелок лежит на столе лицевой стороной вверх.
+ *
+ * Геометрия построена в плоскости XY с толщиной по Z — так её удобно печатать.
+ * Поворот на -90° вокруг X ставит толщину по Y: нижняя грань касается стола,
+ * а имя смотрит на камеру. Тень пересчитывается при смене размеров, формы и
+ * текста, потому что силуэт и рельеф меняются.
+ */
+function KeychainModel({
+  geometry,
+  length,
+  width,
+  thickness,
+  shapeType,
+  text,
+}: KeychainModelProps) {
+  const footprint = Math.max(length, width);
+
+  return (
+    <group>
+      <group rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh castShadow geometry={geometry} receiveShadow>
+          <meshStandardMaterial
+            color="#f59e0b"
+            metalness={0.08}
+            roughness={0.34}
+          />
+        </mesh>
+      </group>
+
+      {/* Тёмный пол: на нём читаются контактные тени. */}
+      <mesh
+        position={[0, -0.3, 0]}
+        receiveShadow
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
+        <circleGeometry args={[Math.max(footprint * 2.2, 160), 64]} />
+        <meshStandardMaterial color="#0b1220" roughness={1} />
+      </mesh>
+
+      <gridHelper
+        args={[Math.max(footprint * 6, 480), 24, "#1e293b", "#0f172a"]}
+        position={[0, 0.01, 0]}
+      />
+
+      <ContactShadows
+        blur={2.6}
+        far={Math.max(thickness * 20, 80)}
+        frames={1}
+        key={`keychain-${length}-${width}-${thickness}-${shapeType}-${text}`}
+        opacity={0.5}
+        position={[0, 0.02, 0]}
+        resolution={512}
+        scale={Math.max(footprint * 2.6, 320)}
+      />
+    </group>
+  );
+}
+
 /** Свет без внешних HDR: сцена должна работать без обращений к CDN. */
 function Lights() {
   return (
@@ -184,41 +283,54 @@ function Lights() {
       <ambientLight intensity={0.45} />
       <hemisphereLight args={["#bfdbfe", "#020617", 0.6]} />
       <directionalLight intensity={2.4} position={[200, 320, 260]} />
-      <directionalLight color="#93c5fd" intensity={1.1} position={[-260, 180, -220]} />
+      <directionalLight
+        color="#93c5fd"
+        intensity={1.1}
+        position={[-260, 180, -220]}
+      />
     </>
   );
 }
 
-type SceneProps = ViewportProps & {
+type SceneProps = {
+  params: ConstructorParams;
   geometry: BufferGeometry;
 };
 
-function Scene({
-  geometry,
-  height,
-  diameter,
-  wall,
-  shape,
-  pattern,
-  patternIntensity,
-  patternFrequency,
-}: SceneProps) {
+function Scene({ params, geometry }: SceneProps) {
+  const isVase = params.model === "vase";
+  const footprint = isVase
+    ? params.diameter
+    : Math.max(params.length, params.width);
+  const stageHeight = isVase ? params.height : params.thickness;
+
   return (
     <>
       <color args={["#020617"]} attach="background" />
 
       <Lights />
-      <VaseModel
-        diameter={diameter}
-        geometry={geometry}
-        height={height}
-        pattern={pattern}
-        patternFrequency={patternFrequency}
-        patternIntensity={patternIntensity}
-        shape={shape}
-        wall={wall}
-      />
-      <CameraRig diameter={diameter} height={height} />
+      {isVase ? (
+        <VaseModel
+          diameter={params.diameter}
+          geometry={geometry}
+          height={params.height}
+          pattern={params.pattern}
+          patternFrequency={params.patternFrequency}
+          patternIntensity={params.patternIntensity}
+          shape={params.shape}
+          wall={params.wall}
+        />
+      ) : (
+        <KeychainModel
+          geometry={geometry}
+          length={params.length}
+          shapeType={params.shapeType}
+          text={params.text}
+          thickness={params.thickness}
+          width={params.width}
+        />
+      )}
+      <CameraRig flat={!isVase} footprint={footprint} height={stageHeight} />
 
       <OrbitControls
         dampingFactor={0.08}
@@ -244,36 +356,58 @@ function Scene({
  * высоту сцены, поэтому Canvas не схлопывается до нуля и не растягивает
  * страницу по горизонтали.
  */
-export function Viewport({
-  height,
-  diameter,
-  wall,
-  shape,
-  pattern,
-  patternIntensity,
-  patternFrequency,
-}: ViewportProps) {
+export function Viewport({ params }: ViewportProps) {
+  const isKeychain = params.model === "keychain";
+  const [font, setFont] = useState<Font | null>(null);
+  const [fontFailed, setFontFailed] = useState(false);
+
   /**
-   * Профиль и сетка пересчитываются только при изменении размеров, формы или
-   * узора. Смена камеры, света или материала не создаёт новую геометрию.
+   * Шрифт грузим только при открытии брелока: вазе он не нужен, а лишние
+   * 130 КБ JSON незачем тянуть на первый экран. После загрузки состояние
+   * живёт до перезагрузки страницы, поэтому повторное переключение вкладки
+   * не делает новый запрос.
+   */
+  useEffect(() => {
+    if (!isKeychain || font) {
+      return;
+    }
+
+    let active = true;
+    const loader = new FontLoader();
+
+    loader.load(
+      KEYCHAIN_FONT_URL,
+      (loaded) => {
+        if (active) {
+          setFont(loaded);
+          setFontFailed(false);
+        }
+      },
+      undefined,
+      () => {
+        if (active) {
+          setFontFailed(true);
+        }
+      },
+    );
+
+    return () => {
+      active = false;
+    };
+  }, [font, isKeychain]);
+
+  /**
+   * Профиль и сетка пересчитываются только при изменении параметров или
+   * загрузке шрифта. Смена камеры, света или материала не создаёт новую
+   * геометрию. Пока шрифт не пришёл, брелок показывается без имени.
    */
   const geometry = useMemo(() => {
-    const profile = createVaseProfile({ height, diameter, wall, shape });
+    if (params.model === "keychain") {
+      return createKeychainGeometry(params, font);
+    }
 
-    return createVaseGeometry(profile, {
-      pattern,
-      patternIntensity,
-      patternFrequency,
-    });
-  }, [
-    height,
-    diameter,
-    wall,
-    shape,
-    pattern,
-    patternIntensity,
-    patternFrequency,
-  ]);
+    return createVaseGeometry(createVaseProfile(params), params);
+  }, [font, params]);
 
   // Старая сетка живёт в GPU-буфере: без dispose каждая правка слайдера
   // оставляла бы мусор до перезагрузки страницы.
@@ -284,10 +418,17 @@ export function Viewport({
     [geometry],
   );
 
+  const sizeLabel = isKeychain
+    ? `${params.length} × ${params.width} × ${params.thickness} мм`
+    : `${params.height} × Ø ${params.diameter} мм`;
+  const ariaLabel = isKeychain
+    ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${KEYCHAIN_SHAPE_LABELS[params.shapeType]}», имя «${params.text.trim() || "без имени"}»`
+    : `3D-предпросмотр вазы высотой ${params.height} миллиметров и диаметром ${params.diameter} миллиметров, узор «${VASE_PATTERN_LABELS[params.pattern]}»`;
+
   return (
     <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950 sm:h-[32rem] lg:h-[38rem]">
       <Canvas
-        aria-label={`3D-предпросмотр вазы высотой ${height} миллиметров и диаметром ${diameter} миллиметров, узор «${VASE_PATTERN_LABELS[pattern]}»`}
+        aria-label={ariaLabel}
         camera={{ fov: 35, near: 1, far: 6000, position: [0, 180, 320] }}
         dpr={[1, 1.75]}
         fallback={
@@ -300,23 +441,27 @@ export function Viewport({
         }
         gl={{ antialias: true }}
       >
-        <Scene
-          diameter={diameter}
-          geometry={geometry}
-          height={height}
-          pattern={pattern}
-          patternFrequency={patternFrequency}
-          patternIntensity={patternIntensity}
-          shape={shape}
-          wall={wall}
-        />
+        <Scene geometry={geometry} params={params} />
       </Canvas>
+
+      {isKeychain && !font ? (
+        <div
+          className={
+            fontFailed
+              ? "pointer-events-none absolute top-3 right-3 rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-100"
+              : "pointer-events-none absolute top-3 right-3 rounded-full border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs font-medium text-slate-300"
+          }
+          role={fontFailed ? "alert" : "status"}
+        >
+          {fontFailed
+            ? "Шрифт не загрузился: предпросмотр без имени, STL соберётся на сервере"
+            : "Загружаем шрифт…"}
+        </div>
+      ) : null}
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-between gap-2 bg-gradient-to-t from-slate-950/80 to-transparent px-4 pt-10 pb-3 text-xs text-slate-400">
         <span className="flex flex-wrap items-center gap-x-2">
-          <span>
-            {height} × Ø {diameter} мм
-          </span>
+          <span>{sizeLabel}</span>
           <span aria-hidden className="text-slate-600">
             •
           </span>
@@ -327,8 +472,7 @@ export function Viewport({
 
       <p className="sr-only">
         Сцена вращается перетаскиванием, приближается колесом мыши или жестом
-        двух пальцев. Модель высотой {height} миллиметров, диаметром {diameter}{" "}
-        миллиметров.
+        двух пальцев. {ariaLabel}.
       </p>
     </div>
   );

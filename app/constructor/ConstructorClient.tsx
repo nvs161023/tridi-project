@@ -9,12 +9,18 @@ import {
   type StlExportError,
 } from "@/components/constructor/ParameterPanel";
 import {
+  DEFAULT_CONSTRUCTOR_PARAMS,
+  DEFAULT_KEYCHAIN_PARAMS,
   DEFAULT_VASE_PARAMS,
+  KEYCHAIN_SHAPE_LABELS,
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
-  normalizeVaseParams,
+  keychainStlFileName,
+  normalizeConstructorParams,
   vaseStlFileName,
-  type VaseParams,
+  type ConstructorParams,
+  type KeychainShape,
+  type ModelType,
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
@@ -24,8 +30,11 @@ type ConstructorClientProps = {
   hasPro: boolean;
 };
 
-/** Числовые параметры: форму и узор меняют отдельные обработчики. */
-type SizeParam = Exclude<keyof VaseParams, "shape" | "pattern">;
+/** Числовые параметры: форму, узор и текст меняют отдельные обработчики. */
+type SizeParam = Exclude<
+  keyof ConstructorParams,
+  "model" | "shape" | "pattern" | "shapeType" | "text"
+>;
 
 /**
  * Имя файла из Content-Disposition.
@@ -34,7 +43,10 @@ type SizeParam = Exclude<keyof VaseParams, "shape" | "pattern">;
  * самим. Сервер отдаёт простой ASCII filename; filename* поддерживаем на
  * случай, если имя когда-нибудь станет не-ASCII.
  */
-function stlFileNameFromDisposition(header: string | null, fallback: string): string {
+function stlFileNameFromDisposition(
+  header: string | null,
+  fallback: string,
+): string {
   if (!header) {
     return fallback;
   }
@@ -81,7 +93,10 @@ async function readServerMessage(response: Response): Promise<string | null> {
  * показываем заглушку того же размера — макет не прыгает.
  */
 const Viewport = dynamic(
-  () => import("@/components/constructor/Viewport").then((module) => module.Viewport),
+  () =>
+    import("@/components/constructor/Viewport").then(
+      (module) => module.Viewport,
+    ),
   {
     ssr: false,
     loading: () => <ViewportSkeleton />,
@@ -110,20 +125,50 @@ function ViewportSkeleton() {
  * значения вне границ слайдеров.
  */
 export function ConstructorClient({ hasPro }: ConstructorClientProps) {
-  const [params, setParams] = useState<VaseParams>(DEFAULT_VASE_PARAMS);
+  const [params, setParams] = useState<ConstructorParams>(
+    DEFAULT_CONSTRUCTOR_PARAMS,
+  );
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<StlExportError | null>(null);
 
   function updateParam(key: SizeParam, value: number) {
-    setParams((current) => normalizeVaseParams({ ...current, [key]: value }));
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, [key]: value }),
+    );
+  }
+
+  function updateModel(model: ModelType) {
+    setParams((current) => normalizeConstructorParams({ ...current, model }));
   }
 
   function updateShape(shape: VaseShape) {
-    setParams((current) => normalizeVaseParams({ ...current, shape }));
+    setParams((current) => normalizeConstructorParams({ ...current, shape }));
   }
 
   function updatePattern(pattern: VasePattern) {
-    setParams((current) => normalizeVaseParams({ ...current, pattern }));
+    setParams((current) => normalizeConstructorParams({ ...current, pattern }));
+  }
+
+  function updateKeychainShape(shapeType: KeychainShape) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, shapeType }),
+    );
+  }
+
+  function updateKeychainText(text: string) {
+    setParams((current) => normalizeConstructorParams({ ...current, text }));
+  }
+
+  /** Сброс возвращает к старту только текущую модель, не трогая вторую. */
+  function resetParams() {
+    setParams((current) =>
+      normalizeConstructorParams({
+        ...current,
+        ...(current.model === "vase"
+          ? DEFAULT_VASE_PARAMS
+          : DEFAULT_KEYCHAIN_PARAMS),
+      }),
+    );
   }
 
   /**
@@ -158,7 +203,9 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
         link.href = objectUrl;
         link.download = stlFileNameFromDisposition(
           response.headers.get("content-disposition"),
-          vaseStlFileName(params),
+          params.model === "vase"
+            ? vaseStlFileName(params)
+            : keychainStlFileName(params),
         );
         link.hidden = true;
         document.body.appendChild(link);
@@ -223,8 +270,7 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
             className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             href="/dashboard"
           >
-            <span aria-hidden>←</span>
-            В кабинет
+            <span aria-hidden>←</span>В кабинет
           </Link>
 
           <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
@@ -232,9 +278,9 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
           </h1>
 
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-400">
-            Параметрическая ваза под ваш принтер: выберите форму, задайте высоту,
-            диаметр, толщину стенки и математический узор, проверьте результат в
-            3D и скачайте STL.
+            Параметрические модели под ваш принтер: ваза с математическим узором
+            или брелок с именем. Настройте размеры, проверьте результат в 3D и
+            скачайте STL.
           </p>
         </div>
 
@@ -262,10 +308,13 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
           hasPro={hasPro}
           isExporting={isExporting}
           onExport={exportStl}
+          onKeychainShapeChange={updateKeychainShape}
+          onModelChange={updateModel}
           onParamChange={updateParam}
           onPatternChange={updatePattern}
-          onReset={() => setParams(DEFAULT_VASE_PARAMS)}
+          onReset={resetParams}
           onShapeChange={updateShape}
+          onTextChange={updateKeychainText}
           params={params}
         />
 
@@ -281,22 +330,24 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
               Предпросмотр
             </h2>
             <span className="text-xs tabular-nums text-slate-500">
-              {VASE_SHAPE_LABELS[params.shape]} ·{" "}
-              {VASE_PATTERN_LABELS[params.pattern]} · {params.height} × Ø{" "}
-              {params.diameter} мм
+              {params.model === "vase" ? (
+                <>
+                  {VASE_SHAPE_LABELS[params.shape]} ·{" "}
+                  {VASE_PATTERN_LABELS[params.pattern]} · {params.height} × Ø{" "}
+                  {params.diameter} мм
+                </>
+              ) : (
+                <>
+                  {KEYCHAIN_SHAPE_LABELS[params.shapeType]} · {params.length} ×{" "}
+                  {params.width} × {params.thickness} мм
+                  {params.text.trim() ? ` · «${params.text.trim()}»` : ""}
+                </>
+              )}
             </span>
           </div>
 
           <div className="mt-3">
-            <Viewport
-              diameter={params.diameter}
-              height={params.height}
-              pattern={params.pattern}
-              patternFrequency={params.patternFrequency}
-              patternIntensity={params.patternIntensity}
-              shape={params.shape}
-              wall={params.wall}
-            />
+            <Viewport params={params} />
           </div>
 
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
