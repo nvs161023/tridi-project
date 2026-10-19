@@ -3,6 +3,11 @@
 import { redirect } from "next/navigation";
 
 import { resolveAfterAuthPath } from "@/lib/auth-redirect";
+import {
+  formatFullName,
+  validateFirstName,
+  validateLastName,
+} from "@/lib/person-name";
 import { buildEmailRedirectUrl, resolveSiteUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/server";
 import type { AuthFormState } from "@/app/actions/auth-state";
@@ -126,6 +131,10 @@ function verifyEmailHref(next: string): string {
 /**
  * Регистрация.
  *
+ * Имя и фамилия обязательны: по ним кабинет здоровается с человеком, а
+ * сертификат печатает имя владельца. Проверка повторяется на сервере — форму
+ * можно подменить, а Server Action доступен по публичному адресу.
+ *
  * Если в проекте Supabase выключено подтверждение email, signUp() сразу отдаёт
  * сессию — тогда уходим дальше: на страницу из next (например, в урок) или
  * в личный кабинет.
@@ -140,30 +149,38 @@ export async function signUpAction(
   _prevState: AuthFormState,
   formData: FormData,
 ): Promise<AuthFormState> {
-  const name = String(formData.get("name") ?? "").trim();
+  const firstName = String(formData.get("firstName") ?? "").trim();
+  const lastName = String(formData.get("lastName") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   // Куда вернуться после регистрации: путь проверяем, чтобы не уехать на чужой сайт.
   const afterAuth = resolveAfterAuthPath(String(formData.get("next") ?? ""));
+  const values = { firstName, lastName, email };
 
-  if (name.length === 0) {
+  const firstNameError = validateFirstName(firstName);
+  const lastNameError = validateLastName(lastName);
+
+  if (firstNameError || lastNameError) {
     return {
-      error: "Укажите имя — мы будем обращаться к вам по нему.",
-      values: { name, email },
+      fieldErrors: {
+        firstName: firstNameError ?? undefined,
+        lastName: lastNameError ?? undefined,
+      },
+      values,
     };
   }
 
   if (email.length === 0) {
     return {
       error: "Укажите email — на него придёт письмо для входа.",
-      values: { name, email },
+      values,
     };
   }
 
   if (password.length < 6) {
     return {
       error: "Пароль должен содержать минимум 6 символов.",
-      values: { name, email },
+      values,
     };
   }
 
@@ -174,7 +191,7 @@ export async function signUpAction(
     return {
       error:
         "Чтобы зарегистрироваться, отметьте согласие на обработку персональных данных.",
-      values: { name, email },
+      values,
     };
   }
 
@@ -187,7 +204,7 @@ export async function signUpAction(
     return {
       error:
         "Подтвердите, что вам исполнилось 18 лет и вы принимаете условия оферты.",
-      values: { name, email },
+      values,
     };
   }
 
@@ -196,6 +213,7 @@ export async function signUpAction(
   // Куда Supabase вернёт человека после подтверждения: на /auth/confirm, а оттуда
   // он попадёт туда, куда шёл (обычно в урок).
   const emailRedirectTo = await buildEmailRedirectUrl(afterAuth);
+  const fullName = formatFullName(firstName, lastName);
 
   // Флаг вместо redirect() внутри try: redirect бросает служебное исключение, и
   // catch перехватил бы его, отменив переход.
@@ -205,24 +223,34 @@ export async function signUpAction(
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      // Имя и фамилию храним отдельными полями: по ним кабинет строит обращение,
+      // а сертификат — подпись владельца. `name` оставляем для старых мест, где
+      // читается полное имя одной строкой (например, письма Supabase).
+      //
       // Кроме имени в метаданные аккаунта пишем факт подтверждения возраста и
       // принятия оферты: 18+ — обязательное условие сервиса, и отметка остаётся
       // в самом аккаунте (видна через Admin API), а не только в разметке формы,
       // которую можно подменить. Это доказательство по 152-ФЗ: видно, что
       // человек дал его при регистрации.
       options: {
-        data: { name, age_confirmed: true, offer_accepted: true },
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+          name: fullName,
+          age_confirmed: true,
+          offer_accepted: true,
+        },
         emailRedirectTo,
       },
     });
 
     if (error) {
-      return { error: translateSignUpError(error.message), values: { name, email } };
+      return { error: translateSignUpError(error.message), values };
     }
 
     needsEmailConfirmation = !data.session;
   } catch {
-    return { error: NETWORK_ERROR_MESSAGE, values: { name, email } };
+    return { error: NETWORK_ERROR_MESSAGE, values };
   }
 
   if (needsEmailConfirmation) {

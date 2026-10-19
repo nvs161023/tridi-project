@@ -51,6 +51,7 @@ export const config = {
    */
   matcher: [
     "/dashboard/:path*",
+    "/certificate/:path*",
     "/course/:path*",
     "/constructor/:path*",
     "/forum/new",

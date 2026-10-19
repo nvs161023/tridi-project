@@ -10,15 +10,25 @@ export type AuthFormState = {
   error?: string;
   info?: string;
   /**
+   * Ошибки конкретных полей. Показываются под полем, а не одной общей плашкой:
+   * так человек сразу видит, что именно исправить.
+   */
+  fieldErrors?: {
+    firstName?: string;
+    lastName?: string;
+  };
+  /**
    * То, что пользователь уже ввёл. Нужно потому, что React сбрасывает обычные
    * (неконтролируемые) поля после отправки формы — без этого после ошибки входа
    * человеку пришлось бы заново печатать email. Пароль сюда НЕ попадает.
    */
   values?: {
-    name?: string;
+    firstName?: string;
+    lastName?: string;
     email?: string;
   };
 };
+
 
 /** Стартовое состояние формы: сообщать нечего. */
 export const emptyAuthFormState: AuthFormState = {};

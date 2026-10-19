@@ -4,15 +4,22 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { Header } from "@/components/Header";
+import { ProfileEditor } from "@/app/dashboard/ProfileEditor";
 import { isAdminEmail } from "@/lib/admin";
 import { basicLessons } from "@/lib/basic-course";
 import { confidentLessons } from "@/lib/confident-course";
+import {
+  COURSE_TEST_TYPES,
+  getCourseCompletionFromRows,
+  type CourseCompletion,
+} from "@/lib/course-completion";
 import {
   LEVELS,
   type CourseLevel,
   type LevelKey,
 } from "@/lib/course-levels";
 import { engineerLessons } from "@/lib/engineer-course";
+import { splitPersonName } from "@/lib/person-name";
 import { profitLessons } from "@/lib/profit-course";
 import {
   getActiveSubscription,
@@ -37,6 +44,7 @@ type Profile = {
 type ProgressRow = {
   course_type?: string | null;
   lesson_id: number | string | null;
+  completed_at?: string | null;
 };
 
 /** Урок в том виде, в каком кабинет считает прогресс и строит ссылку. */
@@ -58,6 +66,16 @@ const COURSE_TYPES: readonly LevelKey[] = [
   "confident",
   "engineer",
   "profit",
+];
+
+/**
+ * Что читаем из lesson_progress: уроки и отдельные строки тестов модулей.
+ * Типы тестов («basic-test», …) не попадают в счётчик уроков, но без них нельзя
+ * понять, можно ли выдавать сертификат.
+ */
+const PROGRESS_COURSE_TYPES: readonly string[] = [
+  ...COURSE_TYPES,
+  ...Object.values(COURSE_TEST_TYPES),
 ];
 
 /**
@@ -196,10 +214,12 @@ function CourseCard({
   level,
   isOpen,
   progress,
+  completion,
 }: {
   level: CourseLevel;
   isOpen: boolean;
   progress: CourseProgress;
+  completion: CourseCompletion;
 }) {
   const style = COURSE_STYLES[level.key];
   const percent =
@@ -270,10 +290,23 @@ function CourseCard({
               />
             </div>
 
-            <p className="mt-3 text-xs leading-relaxed text-slate-500">
-              {percent === 100
-                ? "Курс пройден — можно повторить в своём темпе."
-                : "Прогресс сохраняется за аккаунтом на любом устройстве."}
+            {completion.totalTests > 0 ? (
+              <p className="mt-3 text-xs leading-relaxed text-slate-400">
+                Тесты модулей:{" "}
+                <span className="font-semibold text-slate-200">
+                  {completion.passedTests} из {completion.totalTests}
+                </span>
+              </p>
+            ) : null}
+
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+              {completion.isComplete
+                ? "Курс завершён: уроки и тесты пройдены. Сертификат готов."
+                : percent === 100 && completion.totalTests > 0
+                  ? `Уроки пройдены. Осталось сдать тесты модулей: ${completion.passedTests} из ${completion.totalTests}.`
+                  : percent === 100
+                    ? "Все уроки пройдены."
+                    : "Прогресс сохраняется за аккаунтом на любом устройстве."}
             </p>
 
             <Link
@@ -283,6 +316,16 @@ function CourseCard({
               Продолжить
               <span aria-hidden>→</span>
             </Link>
+
+            {completion.isComplete ? (
+              <Link
+                href={`/certificate/${level.key}`}
+                className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-white/15 px-5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/30 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              >
+                <span aria-hidden>🏅</span>
+                Сертификат
+              </Link>
+            ) : null}
           </>
         ) : (
           <>
@@ -404,9 +447,9 @@ export default async function DashboardPage() {
     supabase.from("profiles").select("*").eq("id", userId).single(),
     supabase
       .from("lesson_progress")
-      .select("course_type, lesson_id")
+      .select("course_type, lesson_id, completed_at")
       .eq("user_id", userId)
-      .in("course_type", [...COURSE_TYPES]),
+      .in("course_type", PROGRESS_COURSE_TYPES),
     hasPurchasedCourse(supabase, userId, "confident"),
     hasPurchasedCourse(supabase, userId, "engineer"),
     hasPurchasedCourse(supabase, userId, "profit"),
@@ -423,7 +466,7 @@ export default async function DashboardPage() {
   if (progressError) {
     const fallbackResult = await supabase
       .from("lesson_progress")
-      .select("lesson_id")
+      .select("lesson_id, completed_at")
       .eq("user_id", userId);
 
     progressRows = (fallbackResult.data as ProgressRow[] | null) ?? [];
@@ -431,8 +474,13 @@ export default async function DashboardPage() {
   }
 
   const profile = (profileResult.data as Profile | null) ?? null;
-  const displayName =
-    profile?.name?.trim() || identity.name?.trim() || identity.email || "друг";
+  // Приветствие — по имени, а не по email. У старых аккаунтов отдельного имени
+  // нет, поэтому разбираем сохранённое полное имя: фамилия в кабинете не нужна.
+  const savedFullName = profile?.name?.trim() || identity.name?.trim() || "";
+  const savedNameParts = splitPersonName(savedFullName);
+  const firstName = identity.firstName || savedNameParts.firstName;
+  const lastName = identity.lastName || savedNameParts.lastName;
+  const displayName = firstName || identity.email || "друг";
 
   // Прогресс раскладываем по курсам. Set отбрасывает дубли, а progressFor
   // считает только уроки текущей программы — старые записи не дают больше 100%.
@@ -463,6 +511,15 @@ export default async function DashboardPage() {
       progressFor(COURSE_LESSONS[courseType], completedByCourse[courseType]),
     ]),
   ) as Record<LevelKey, CourseProgress>;
+
+  // Сертификат выдаём только после уроков и тестов. Расчёт общий со страницей
+  // сертификата — lib/course-completion.ts, поэтому условия не разойдутся.
+  const completionByCourse = Object.fromEntries(
+    COURSE_TYPES.map((courseType) => [
+      courseType,
+      getCourseCompletionFromRows(courseType, progressRows),
+    ]),
+  ) as Record<LevelKey, CourseCompletion>;
 
   const accessByCourse: Record<LevelKey, boolean> = {
     basic: true,
@@ -498,9 +555,16 @@ export default async function DashboardPage() {
         <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
           Личный кабинет
         </h1>
-        <p className="mt-4 text-xl font-semibold text-blue-300 sm:text-2xl">
-          Привет, {displayName}!
-        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <p className="text-xl font-semibold text-blue-300 sm:text-2xl">
+            Привет, {displayName}!
+          </p>
+          <ProfileEditor
+            email={identity.email}
+            firstName={firstName}
+            lastName={lastName}
+          />
+        </div>
         <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-400 sm:text-lg">
           Здесь собрано всё для обучения: статус подписки, прогресс по четырём
           уровням и инструменты Pro. Прогресс сохраняется за аккаунтом, поэтому
@@ -586,6 +650,7 @@ export default async function DashboardPage() {
                 level={level}
                 isOpen={accessByCourse[level.key]}
                 progress={progressByCourse[level.key]}
+                completion={completionByCourse[level.key]}
               />
             ))}
           </div>

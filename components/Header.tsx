@@ -60,7 +60,7 @@ export async function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur">
+    <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur print:hidden">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 sm:px-8">
         <Logo lessonsHref={isAuthorized ? "/dashboard" : "/course/lesson-1"} />
 

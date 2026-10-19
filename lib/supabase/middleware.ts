@@ -8,6 +8,7 @@ import {
   type RequestUser,
 } from "@/lib/supabase/user-headers";
 import { isAuthPath, resolveAfterAuthPath } from "@/lib/auth-redirect";
+import { formatFullName, splitPersonName } from "@/lib/person-name";
 
 /**
  * Страницы, где нужен авторизованный пользователь.
@@ -18,6 +19,7 @@ import { isAuthPath, resolveAfterAuthPath } from "@/lib/auth-redirect";
  */
 const PROTECTED_PATH_PREFIXES = [
   "/dashboard",
+  "/certificate",
   "/course",
   "/constructor",
   "/forum/new",
@@ -210,13 +212,30 @@ export async function updateSession(request: NextRequest) {
   requestHeaders.delete(USER_HEADER);
 
   if (user) {
+    // Имя и фамилия появились в метаданных позже, чем `name`: у старых аккаунтов
+    // есть только полное имя одной строкой. Разбираем его, чтобы кабинет мог
+    // поздороваться по имени, а сертификат — напечатать имя и фамилию.
+    const metadata = user.user_metadata ?? {};
+    const savedFirstName =
+      typeof metadata.first_name === "string" ? metadata.first_name.trim() : "";
+    const savedLastName =
+      typeof metadata.last_name === "string" ? metadata.last_name.trim() : "";
+    const savedFullName =
+      typeof metadata.name === "string" ? metadata.name.trim() : "";
+    const fallbackParts = splitPersonName(savedFullName);
+    const firstName = savedFirstName || fallbackParts.firstName || null;
+    const lastName = savedLastName || fallbackParts.lastName || null;
+    const fullName =
+      firstName || lastName
+        ? formatFullName(firstName ?? "", lastName ?? "") || null
+        : savedFullName || null;
+
     const identity: RequestUser = {
       id: user.id,
       email: user.email ?? null,
-      name:
-        typeof user.user_metadata?.name === "string"
-          ? user.user_metadata.name
-          : null,
+      name: fullName,
+      firstName,
+      lastName,
     };
 
     requestHeaders.set(USER_HEADER, encodeRequestUser(identity));

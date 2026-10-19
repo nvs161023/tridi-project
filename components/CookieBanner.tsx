@@ -124,7 +124,7 @@ export function CookieBanner() {
       ref={bannerRef}
       role="dialog"
       aria-label="Согласие на использование cookie"
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-slate-900/95 px-4 py-5 backdrop-blur sm:px-6"
+      className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-slate-900/95 px-4 py-5 backdrop-blur print:hidden sm:px-6"
     >
       <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <p className="text-sm leading-relaxed text-slate-300 sm:text-base">

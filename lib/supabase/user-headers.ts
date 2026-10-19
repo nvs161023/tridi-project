@@ -20,7 +20,12 @@
 export type RequestUser = {
   id: string;
   email: string | null;
+  /** Полное имя одной строкой — из `name` или собранное из имени и фамилии. */
   name: string | null;
+  /** Имя отдельно: по нему кабинет здоровается с человеком. */
+  firstName: string | null;
+  /** Фамилия отдельно: она нужна сертификату. */
+  lastName: string | null;
 };
 
 /** Заголовок, через который передаются данные пользователя. */
@@ -56,6 +61,9 @@ export function decodeRequestUser(rawValue: string | null | undefined): RequestU
       id: parsed.id,
       email: typeof parsed.email === "string" ? parsed.email : null,
       name: typeof parsed.name === "string" ? parsed.name : null,
+      // Заголовок мог быть выпущен старой версией middleware — тогда полей нет.
+      firstName: typeof parsed.firstName === "string" ? parsed.firstName : null,
+      lastName: typeof parsed.lastName === "string" ? parsed.lastName : null,
     };
   } catch {
     return null;

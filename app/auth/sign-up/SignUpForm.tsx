@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useActionState, useState, type FormEvent } from "react";
 
 import { signUpAction } from "@/app/actions/auth";
 import { emptyAuthFormState } from "@/app/actions/auth-state";
+import { validateFirstName, validateLastName } from "@/lib/person-name";
 
 const inputClassName =
   "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
@@ -52,29 +53,136 @@ export function SignUpForm({ next = null }: SignUpFormProps) {
    */
   const [ageConfirmed, setAgeConfirmed] = useState(false);
 
+  /**
+   * Ошибки имени и фамилии. `undefined` — поле ещё не трогали (показываем ответ
+   * сервера, если он есть), `null` — человек начал править или проверка прошла,
+   * `string` — текст ошибки. Так подсказка исчезает, как только поле исправляют,
+   * и не возвращается из старого ответа Server Action.
+   */
+  const [fieldErrors, setFieldErrors] = useState<{
+    firstName?: string | null;
+    lastName?: string | null;
+  }>({});
+
+  function errorFor(field: "firstName" | "lastName"): string {
+    const local = fieldErrors[field];
+
+    if (local !== undefined) {
+      return local ?? "";
+    }
+
+    return state.fieldErrors?.[field] ?? "";
+  }
+
+  const firstNameError = errorFor("firstName");
+  const lastNameError = errorFor("lastName");
+
+  /**
+   * Проверяем имя и фамилию до отправки: ошибка появляется рядом с полем, и
+   * человек не ждёт ответа сервера. Та же проверка есть в Server Action — см.
+   * app/actions/auth.ts.
+   */
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    const formData = new FormData(event.currentTarget);
+    const firstName = String(formData.get("firstName") ?? "");
+    const lastName = String(formData.get("lastName") ?? "");
+    const firstNameError = validateFirstName(firstName);
+    const lastNameError = validateLastName(lastName);
+
+    setFieldErrors({ firstName: firstNameError, lastName: lastNameError });
+
+    if (firstNameError || lastNameError) {
+      event.preventDefault();
+    }
+  }
+
   return (
-    <form action={formAction} className="mt-8 space-y-6">
+    <form action={formAction} onSubmit={handleSubmit} className="mt-8 space-y-6">
       {/* Куда вернуться после регистрации: Server Action прочитает это поле
           и уйдёт на урок, с которого человека увели. */}
       {next ? <input type="hidden" name="next" defaultValue={next} /> : null}
-      <div>
-        <label
-          htmlFor="name"
-          className="block text-sm font-semibold text-slate-200"
-        >
-          Имя
-        </label>
-        <input
-          id="name"
-          name="name"
-          type="text"
-          autoComplete="name"
-          required
-          defaultValue={state.values?.name ?? ""}
-          placeholder="Как к вам обращаться"
-          className={inputClassName}
-        />
+      <div className="grid gap-6 sm:grid-cols-2">
+        <div>
+          <label
+            htmlFor="first-name"
+            className="block text-sm font-semibold text-slate-200"
+          >
+            Имя
+          </label>
+          <input
+            id="first-name"
+            name="firstName"
+            type="text"
+            autoComplete="given-name"
+            aria-required="true"
+            defaultValue={state.values?.firstName ?? ""}
+            placeholder="Иван"
+            aria-invalid={firstNameError ? true : undefined}
+            aria-describedby={firstNameError ? "first-name-error" : undefined}
+            onChange={() =>
+              setFieldErrors((prev) => ({ ...prev, firstName: null }))
+            }
+            onBlur={(event) =>
+              setFieldErrors((prev) => ({
+                ...prev,
+                firstName: validateFirstName(event.target.value),
+              }))
+            }
+            className={inputClassName}
+          />
+          {firstNameError ? (
+            <p
+              id="first-name-error"
+              role="alert"
+              className="mt-2 text-sm text-red-300"
+            >
+              {firstNameError}
+            </p>
+          ) : null}
+        </div>
+
+        <div>
+          <label
+            htmlFor="last-name"
+            className="block text-sm font-semibold text-slate-200"
+          >
+            Фамилия
+          </label>
+          <input
+            id="last-name"
+            name="lastName"
+            type="text"
+            autoComplete="family-name"
+            aria-required="true"
+            defaultValue={state.values?.lastName ?? ""}
+            placeholder="Иванов"
+            aria-invalid={lastNameError ? true : undefined}
+            aria-describedby={lastNameError ? "last-name-error" : undefined}
+            onChange={() =>
+              setFieldErrors((prev) => ({ ...prev, lastName: null }))
+            }
+            onBlur={(event) =>
+              setFieldErrors((prev) => ({
+                ...prev,
+                lastName: validateLastName(event.target.value),
+              }))
+            }
+            className={inputClassName}
+          />
+          {lastNameError ? (
+            <p
+              id="last-name-error"
+              role="alert"
+              className="mt-2 text-sm text-red-300"
+            >
+              {lastNameError}
+            </p>
+          ) : null}
+        </div>
       </div>
+      <p className="text-xs text-slate-500">
+        Имя и фамилия попадут в сертификат о прохождении курса.
+      </p>
 
       <div>
         <label
