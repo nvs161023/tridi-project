@@ -286,7 +286,7 @@ const FUNNEL_STEPS = [
 ];
 
 const CTA_BASE =
-  "inline-flex min-h-14 items-center justify-center gap-2 rounded-full px-8 text-lg font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
+  "inline-flex min-h-14 items-center justify-center gap-2 rounded-full px-6 text-base font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 xl:px-8 xl:text-lg";
 
 const PRIMARY_CTA = `${CTA_BASE} bg-blue-600 text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 focus-visible:ring-blue-400`;
 
@@ -356,7 +356,7 @@ export default async function Home() {
                 {TOTAL_LESSONS} глубоких уроков · {TOTAL_VISUALS} схем
               </span>
 
-              <h1 className="mt-7 text-4xl leading-[1.05] font-extrabold tracking-tight text-white sm:text-6xl">
+              <h1 className="mt-7 text-4xl leading-[1.05] font-extrabold tracking-tight text-white sm:text-5xl xl:text-6xl">
                 Освой 3D-печать:
                 <br />
                 от первой детали{" "}
@@ -520,7 +520,7 @@ export default async function Home() {
               настроить принтер, напечатать деталь и проверить результат тестом.
             </p>
 
-            <ol className="mt-12 grid gap-4 sm:mt-14 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
+            <ol className="mt-12 grid gap-4 sm:mt-14 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5">
               {METHOD_STEPS.map((item) => (
                 <li
                   key={item.step}
@@ -575,7 +575,7 @@ export default async function Home() {
               </p>
             </div>
 
-            <div className="mt-10 grid gap-5 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
+            <div className="mt-10 grid gap-5 sm:mt-12 sm:grid-cols-2 xl:grid-cols-3 xl:gap-6">
               {LEVELS.map((level) => {
                 const style = LEVEL_STYLES[level.key];
                 const isPurchased =
@@ -772,7 +772,7 @@ export default async function Home() {
               пониманию процесса.
             </p>
 
-            <div className="mt-12 grid gap-4 sm:mt-14 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
+            <div className="mt-12 grid gap-4 sm:mt-14 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5">
               {GALLERY.map((item) => (
                 <VisualPlaceholder
                   key={item.code}

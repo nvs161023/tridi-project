@@ -258,7 +258,7 @@ function BlockVisual({
             animated={block.type === "animation"}
           />
         ) : (
-          <div className="my-4 rounded-xl border border-slate-700/50 bg-slate-800/50 p-4 sm:p-6">
+          <div className="my-6 rounded-xl border border-slate-700/50 bg-slate-800/50 p-4 sm:p-6 md:my-8">
             <p className="mb-3 text-sm text-slate-300">{block.title}</p>
             <div
               aria-hidden

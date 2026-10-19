@@ -561,7 +561,7 @@ export default async function SubscriptionPage() {
                 </p>
               </div>
 
-              <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {/* Новичок — 0 ₽ */}
               <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-blue-500/30 bg-slate-900/60 p-5">
                 <div
