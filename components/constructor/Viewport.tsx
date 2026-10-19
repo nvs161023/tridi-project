@@ -6,7 +6,11 @@ import { useEffect, useMemo, useRef } from "react";
 import { Vector3 } from "three";
 import type { BufferGeometry, PerspectiveCamera } from "three";
 
-import type { VaseShape } from "@/lib/constructor/params";
+import {
+  VASE_PATTERN_LABELS,
+  type VasePattern,
+  type VaseShape,
+} from "@/lib/constructor/params";
 import {
   calculateGeometryVolumeMm3,
   createVaseGeometry,
@@ -22,6 +26,12 @@ type ViewportProps = {
   wall: number;
   /** Пресет силуэта. */
   shape: VaseShape;
+  /** Математический узор стенки. */
+  pattern: VasePattern;
+  /** Амплитуда узора, мм. */
+  patternIntensity: number;
+  /** Частота повторов узора. */
+  patternFrequency: number;
 };
 
 /** Для камеры важны только габариты: форма и стенка не меняют кадр. */
@@ -127,6 +137,9 @@ function VaseModel({
   diameter,
   wall,
   shape,
+  pattern,
+  patternIntensity,
+  patternFrequency,
 }: VaseModelProps) {
   return (
     <group>
@@ -154,7 +167,7 @@ function VaseModel({
         blur={2.6}
         far={Math.max(height * 0.9, 120)}
         frames={1}
-        key={`${height}-${diameter}-${wall}-${shape}`}
+        key={`${height}-${diameter}-${wall}-${shape}-${pattern}-${patternIntensity}-${patternFrequency}`}
         opacity={0.55}
         position={[0, 0.02, 0]}
         resolution={512}
@@ -180,7 +193,16 @@ type SceneProps = ViewportProps & {
   geometry: BufferGeometry;
 };
 
-function Scene({ geometry, height, diameter, wall, shape }: SceneProps) {
+function Scene({
+  geometry,
+  height,
+  diameter,
+  wall,
+  shape,
+  pattern,
+  patternIntensity,
+  patternFrequency,
+}: SceneProps) {
   return (
     <>
       <color args={["#020617"]} attach="background" />
@@ -190,6 +212,9 @@ function Scene({ geometry, height, diameter, wall, shape }: SceneProps) {
         diameter={diameter}
         geometry={geometry}
         height={height}
+        pattern={pattern}
+        patternFrequency={patternFrequency}
+        patternIntensity={patternIntensity}
         shape={shape}
         wall={wall}
       />
@@ -219,30 +244,50 @@ function Scene({ geometry, height, diameter, wall, shape }: SceneProps) {
  * высоту сцены, поэтому Canvas не схлопывается до нуля и не растягивает
  * страницу по горизонтали.
  */
-export function Viewport({ height, diameter, wall, shape }: ViewportProps) {
+export function Viewport({
+  height,
+  diameter,
+  wall,
+  shape,
+  pattern,
+  patternIntensity,
+  patternFrequency,
+}: ViewportProps) {
   /**
-   * Профиль и сетка пересчитываются только при изменении размеров или формы.
-   * Смена камеры, света или материала не создаёт новую геометрию.
+   * Профиль и сетка пересчитываются только при изменении размеров, формы или
+   * узора. Смена камеры, света или материала не создаёт новую геометрию.
    */
   const geometry = useMemo(() => {
     const profile = createVaseProfile({ height, diameter, wall, shape });
 
-    return createVaseGeometry(profile);
-  }, [height, diameter, wall, shape]);
+    return createVaseGeometry(profile, {
+      pattern,
+      patternIntensity,
+      patternFrequency,
+    });
+  }, [
+    height,
+    diameter,
+    wall,
+    shape,
+    pattern,
+    patternIntensity,
+    patternFrequency,
+  ]);
 
   // Старая сетка живёт в GPU-буфере: без dispose каждая правка слайдера
   // оставляла бы мусор до перезагрузки страницы.
   useEffect(() => () => geometry.dispose(), [geometry]);
 
   const materialVolumeCm3 = useMemo(
-    () => Math.round(calculateGeometryVolumeMm3(geometry) / 1000),
+    () => Math.round(calculateGeometryVolumeMm3(geometry) / 100) / 10,
     [geometry],
   );
 
   return (
     <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950 sm:h-[32rem] lg:h-[38rem]">
       <Canvas
-        aria-label={`3D-предпросмотр вазы высотой ${height} миллиметров и диаметром ${diameter} миллиметров`}
+        aria-label={`3D-предпросмотр вазы высотой ${height} миллиметров и диаметром ${diameter} миллиметров, узор «${VASE_PATTERN_LABELS[pattern]}»`}
         camera={{ fov: 35, near: 1, far: 6000, position: [0, 180, 320] }}
         dpr={[1, 1.75]}
         fallback={
@@ -259,6 +304,9 @@ export function Viewport({ height, diameter, wall, shape }: ViewportProps) {
           diameter={diameter}
           geometry={geometry}
           height={height}
+          pattern={pattern}
+          patternFrequency={patternFrequency}
+          patternIntensity={patternIntensity}
           shape={shape}
           wall={wall}
         />
@@ -272,7 +320,7 @@ export function Viewport({ height, diameter, wall, shape }: ViewportProps) {
           <span aria-hidden className="text-slate-600">
             •
           </span>
-          <span>≈ {materialVolumeCm3} см³ материала</span>
+          <span>≈ {materialVolumeCm3.toFixed(1)} см³ материала</span>
         </span>
         <span className="hidden sm:inline">Вращение — мышь, зум — колесо</span>
       </div>

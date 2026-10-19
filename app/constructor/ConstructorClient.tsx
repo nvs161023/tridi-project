@@ -10,10 +10,12 @@ import {
 } from "@/components/constructor/ParameterPanel";
 import {
   DEFAULT_VASE_PARAMS,
+  VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
   normalizeVaseParams,
   vaseStlFileName,
   type VaseParams,
+  type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
 
@@ -22,8 +24,8 @@ type ConstructorClientProps = {
   hasPro: boolean;
 };
 
-/** Числовые параметры: форму меняет отдельный обработчик. */
-type SizeParam = Exclude<keyof VaseParams, "shape">;
+/** Числовые параметры: форму и узор меняют отдельные обработчики. */
+type SizeParam = Exclude<keyof VaseParams, "shape" | "pattern">;
 
 /**
  * Имя файла из Content-Disposition.
@@ -118,6 +120,10 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
 
   function updateShape(shape: VaseShape) {
     setParams((current) => normalizeVaseParams({ ...current, shape }));
+  }
+
+  function updatePattern(pattern: VasePattern) {
+    setParams((current) => normalizeVaseParams({ ...current, pattern }));
   }
 
   /**
@@ -227,7 +233,8 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
 
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-400">
             Параметрическая ваза под ваш принтер: выберите форму, задайте высоту,
-            диаметр и толщину стенки, проверьте результат в 3D и скачайте STL.
+            диаметр, толщину стенки и математический узор, проверьте результат в
+            3D и скачайте STL.
           </p>
         </div>
 
@@ -256,6 +263,7 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
           isExporting={isExporting}
           onExport={exportStl}
           onParamChange={updateParam}
+          onPatternChange={updatePattern}
           onReset={() => setParams(DEFAULT_VASE_PARAMS)}
           onShapeChange={updateShape}
           params={params}
@@ -273,7 +281,8 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
               Предпросмотр
             </h2>
             <span className="text-xs tabular-nums text-slate-500">
-              {VASE_SHAPE_LABELS[params.shape]} · {params.height} × Ø{" "}
+              {VASE_SHAPE_LABELS[params.shape]} ·{" "}
+              {VASE_PATTERN_LABELS[params.pattern]} · {params.height} × Ø{" "}
               {params.diameter} мм
             </span>
           </div>
@@ -282,6 +291,9 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
             <Viewport
               diameter={params.diameter}
               height={params.height}
+              pattern={params.pattern}
+              patternFrequency={params.patternFrequency}
+              patternIntensity={params.patternIntensity}
               shape={params.shape}
               wall={params.wall}
             />

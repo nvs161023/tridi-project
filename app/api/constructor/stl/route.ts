@@ -3,6 +3,8 @@ import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 
 import {
   CONSTRUCTOR_LIMITS,
+  DEFAULT_VASE_PARAMS,
+  isVasePattern,
   isVaseShape,
   normalizeVaseParams,
   vaseStlFileName,
@@ -19,7 +21,8 @@ import { createClient } from "@/lib/supabase/server";
  * Проверки идут строго по порядку, как у скачивания профилей:
  *   1. сессия — getUser(), потому что /api/* не покрыт middleware;
  *   2. Pro — hasActiveSubscription() по purchases и subscriptions;
- *   3. параметры — только числа внутри границ слайдеров и известная форма.
+ *   3. параметры — только числа внутри границ слайдеров, известная форма и
+ *      известный узор.
  *
  * Гость получает 401, вошедший без подписки — 403, испорченное тело — 422.
  * Проверка в интерфейсе нужна только для удобства: адрес API можно вызвать
@@ -66,15 +69,27 @@ function isNumberInRange(value: unknown, min: number, max: number): value is num
  *
  * normalizeVaseParams() умеет дополнять и обрезать значения, но для API этого
  * мало: молча подменять height=100000 на максимум нельзя. Поэтому сначала
- * отклоняем отсутствующие поля, NaN/Infinity, чужие формы и выход за границы,
- * и только потом выравниваем валидные числа по шагу слайдеров.
+ * отклоняем отсутствующие размеры, NaN/Infinity, чужие формы и узоры, выход за
+ * границы, и только потом выравниваем валидные числа по шагу слайдеров.
+ *
+ * Поля узора необязательны: старые клиенты без них получают гладкую стенку с
+ * амплитудой 0. Если же поле передано, оно проверяется так же строго, как
+ * размеры, — иначе экспорт молча подменил бы узор.
  */
 function parseVaseParams(body: unknown): VaseParams | null {
   if (!isRecord(body)) {
     return null;
   }
 
-  const { height, diameter, wall, shape } = body;
+  const {
+    height,
+    diameter,
+    wall,
+    shape,
+    pattern = DEFAULT_VASE_PARAMS.pattern,
+    patternIntensity = DEFAULT_VASE_PARAMS.patternIntensity,
+    patternFrequency = DEFAULT_VASE_PARAMS.patternFrequency,
+  } = body;
 
   if (
     !isNumberInRange(
@@ -92,12 +107,31 @@ function parseVaseParams(body: unknown): VaseParams | null {
       CONSTRUCTOR_LIMITS.wall.min,
       CONSTRUCTOR_LIMITS.wall.max,
     ) ||
-    !isVaseShape(shape)
+    !isVaseShape(shape) ||
+    !isVasePattern(pattern) ||
+    !isNumberInRange(
+      patternIntensity,
+      CONSTRUCTOR_LIMITS.patternIntensity.min,
+      CONSTRUCTOR_LIMITS.patternIntensity.max,
+    ) ||
+    !isNumberInRange(
+      patternFrequency,
+      CONSTRUCTOR_LIMITS.patternFrequency.min,
+      CONSTRUCTOR_LIMITS.patternFrequency.max,
+    )
   ) {
     return null;
   }
 
-  return normalizeVaseParams({ height, diameter, wall, shape });
+  return normalizeVaseParams({
+    height,
+    diameter,
+    wall,
+    shape,
+    pattern,
+    patternIntensity,
+    patternFrequency,
+  });
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -142,12 +176,12 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте высоту, диаметр, толщину стенки и форму вазы.",
+      "Проверьте высоту, диаметр, толщину стенки, форму и узор вазы.",
     );
   }
 
   try {
-    const geometry = createVaseGeometry(createVaseProfile(params));
+    const geometry = createVaseGeometry(createVaseProfile(params), params);
 
     try {
       const mesh = new Mesh(geometry);

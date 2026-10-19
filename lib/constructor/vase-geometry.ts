@@ -2,6 +2,14 @@ import { LatheGeometry } from "three";
 import type { BufferGeometry, Vector2 } from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
+import {
+  CONSTRUCTOR_LIMITS,
+  DEFAULT_VASE_PARAMS,
+  isVasePattern,
+  type VaseParams,
+  type VasePattern,
+} from "@/lib/constructor/params";
+
 /**
  * Превращает осевой профиль в замкнутую геометрию вазы.
  *
@@ -9,8 +17,8 @@ import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
  * радиальном сегменте. На оси вращения и на шве окружности (φ = 0 и φ = 2π)
  * появляются совпадающие вершины и треугольники нулевой площади. Для
  * предпросмотра они безвредны, но STL и слайсеры любят чистую сетку, поэтому
- * здесь три шага: сварка по координатам, удаление вырожденных треугольников и
- * пересчёт нормалей по итоговому обходу.
+ * здесь четыре шага: смещение вершин узором, сварка по координатам, удаление
+ * вырожденных треугольников и пересчёт нормалей по итоговому обходу.
  */
 
 /** 128 сегментов: при диаметре 200 мм хорда около 4.9 мм, силуэт гладкий. */
@@ -18,6 +26,141 @@ export const LATHE_SEGMENTS = 128;
 
 /** Допуск сварки: координаты ближе 0.0001 мм считаем одной вершиной. */
 const WELD_TOLERANCE_MM = 1e-4;
+
+/**
+ * Какую долю минимального радиуса может занимать амплитуда узора.
+ *
+ * Если сместить стенку внутрь сильнее радиуса, кольцо вывернется через ось.
+ * Ограничение общее для всех вершин, поэтому внешняя и внутренняя стенки
+ * получают одинаковое смещение и толщина остаётся прежней.
+ */
+const MAX_PATTERN_RADIUS_SHARE = 0.45;
+
+/** Настройки рельефа, которые нужны геометрии. */
+export type VasePatternParams = Pick<
+  VaseParams,
+  "pattern" | "patternIntensity" | "patternFrequency"
+>;
+
+/** Минимум полей BufferAttribute, которые нужны для чтения радиуса. */
+type PositionAttribute = {
+  readonly count: number;
+  getX(index: number): number;
+  getZ(index: number): number;
+};
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+/** Минимальный радиус профиля без вершин на оси вращения. */
+function findMinRadius(position: PositionAttribute): number {
+  let minimum = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const radius = Math.hypot(position.getX(index), position.getZ(index));
+
+    if (radius > WELD_TOLERANCE_MM) {
+      minimum = Math.min(minimum, radius);
+    }
+  }
+
+  return Number.isFinite(minimum) ? minimum : 0;
+}
+
+/** Значение узора в диапазоне [-1, 1] для угла и высоты вершины. */
+function patternWave(
+  pattern: VasePattern,
+  angle: number,
+  height: number,
+  frequency: number,
+): number {
+  switch (pattern) {
+    case "spiral":
+      return Math.sin(angle * frequency + height * 0.1);
+    case "ribs":
+      return Math.sin(angle * frequency);
+    case "waves":
+      return Math.sin(height * frequency);
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Смещает вершины LatheGeometry по математическому узору.
+ *
+ * Функция работает до сварки: шов окружности и ось ещё продублированы, но
+ * смещение зависит только от угла и высоты, поэтому совпадающие вершины
+ * остаются совпадающими и после mergeVertices. Внешняя и внутренняя стенки на
+ * одной высоте получают одинаковый сдвиг радиуса — толщина стенки сохраняется.
+ * Вершины на оси не двигаются, иначе дно и кромка отошли бы от центра.
+ *
+ * Топология не меняется: вершины только переставляются, число треугольников
+ * остаётся прежним. Нормали считаются позже, после сварки и очистки.
+ */
+function applyPattern(
+  lathe: LatheGeometry,
+  params: Partial<VasePatternParams>,
+): void {
+  const pattern = isVasePattern(params.pattern)
+    ? params.pattern
+    : DEFAULT_VASE_PARAMS.pattern;
+
+  if (pattern === "smooth") {
+    return;
+  }
+
+  const intensity = clamp(
+    params.patternIntensity ?? DEFAULT_VASE_PARAMS.patternIntensity,
+    CONSTRUCTOR_LIMITS.patternIntensity.min,
+    CONSTRUCTOR_LIMITS.patternIntensity.max,
+  );
+  const frequency = clamp(
+    Math.round(
+      params.patternFrequency ?? DEFAULT_VASE_PARAMS.patternFrequency,
+    ),
+    CONSTRUCTOR_LIMITS.patternFrequency.min,
+    CONSTRUCTOR_LIMITS.patternFrequency.max,
+  );
+
+  if (intensity <= 0) {
+    return;
+  }
+
+  const position = lathe.getAttribute("position");
+  const minRadius = findMinRadius(position);
+  const safeIntensity = Math.min(
+    intensity,
+    minRadius * MAX_PATTERN_RADIUS_SHARE,
+  );
+
+  if (safeIntensity <= 0) {
+    return;
+  }
+
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index);
+    const y = position.getY(index);
+    const z = position.getZ(index);
+    const radius = Math.hypot(x, z);
+
+    // Точки на оси вращения должны остаться в центре: иначе дно и горловина
+    // потеряют герметичность, а сварка склеит смещённые копии в стороне.
+    if (radius <= WELD_TOLERANCE_MM) {
+      continue;
+    }
+
+    const angle = Math.atan2(z, x);
+    const offset = patternWave(pattern, angle, y, frequency) * safeIntensity;
+    const scale = (radius + offset) / radius;
+
+    position.setX(index, x * scale);
+    position.setZ(index, z * scale);
+  }
+
+  position.needsUpdate = true;
+}
 
 /**
  * Порог площади вырожденного треугольника. Сравниваем квадрат длины
@@ -157,17 +300,23 @@ export function calculateGeometryVolumeMm3(geometry: BufferGeometry): number {
 /**
  * Строит сетку вазы из профиля.
  *
- * Порядок важен: сначала сварка и очистка, затем проверка знака объёма (при
- * необходимости разворачиваем индексы), и только потом computeVertexNormals —
- * он считает нормали по итоговому обходу треугольников. Благодаря этому
- * внешние стенки смотрят наружу, а внутренние — в полость.
+ * Порядок важен: сначала LatheGeometry, затем смещение вершин узором, сварка
+ * и очистка, проверка знака объёма (при необходимости разворачиваем индексы),
+ * и только потом computeVertexNormals — он считает нормали по итоговому обходу
+ * треугольников уже с рельефом. Благодаря этому внешние стенки смотрят наружу,
+ * а внутренние — в полость.
  */
-export function createVaseGeometry(profile: Vector2[]): BufferGeometry {
+export function createVaseGeometry(
+  profile: Vector2[],
+  pattern: Partial<VasePatternParams> = {},
+): BufferGeometry {
   if (profile.length < 3) {
     throw new Error("Профиль вазы должен содержать минимум три точки");
   }
 
   const lathe = new LatheGeometry(profile, LATHE_SEGMENTS);
+  applyPattern(lathe, pattern);
+
   const geometry = weldAndClean(lathe);
 
   if (signedVolumeTimesSix(geometry) < 0) {

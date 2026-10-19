@@ -29,7 +29,7 @@ import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 export const metadata: Metadata = {
   title: "Конструктор 3D — TriDi",
   description:
-    "Параметрические вазы TriDi: настройте высоту, диаметр и толщину стенки, проверьте модель в 3D и скачайте STL для печати. Экспорт входит в подписку Pro.",
+    "Параметрические вазы TriDi: шесть силуэтов, математические узоры, настройка высоты, диаметра и толщины стенки. Проверьте модель в 3D и скачайте STL для печати — экспорт входит в подписку Pro.",
   robots: {
     index: false,
     follow: false,

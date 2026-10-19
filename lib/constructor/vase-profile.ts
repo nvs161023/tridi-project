@@ -35,6 +35,12 @@ const MIN_FLOOR_MM = 1.2;
 /** Допуск, ниже которого соседние точки профиля считаем совпавшими. */
 const PROFILE_EPSILON = 1e-4;
 
+/** Параметры, из которых строится осевое сечение: узор на профиль не влияет. */
+export type VaseProfileParams = Pick<
+  VaseParams,
+  "height" | "diameter" | "wall" | "shape"
+>;
+
 /** Точка пресета: доля высоты и доля максимального радиуса. */
 type PresetPoint = readonly [heightShare: number, radiusShare: number];
 
@@ -44,7 +50,9 @@ type PresetPoint = readonly [heightShare: number, radiusShare: number];
  *
  * classic — широкая нижняя часть, плавное сужение и небольшой раструб кромки;
  * cone — почти прямой конус с широким основанием; cylinder — вертикальные
- * стенки.
+ * стенки; hourglass — широкая верхняя и нижняя часть с узкой талией;
+ * teardrop — массивное основание и плавно закруглённая верхняя часть;
+ * double_bulb — две выпуклости, разделённые мягкой талией.
  */
 const SHAPE_PRESETS: Record<VaseShape, readonly PresetPoint[]> = {
   classic: [
@@ -71,6 +79,46 @@ const SHAPE_PRESETS: Record<VaseShape, readonly PresetPoint[]> = {
     [0.35, 1],
     [0.7, 1],
     [1, 1],
+  ],
+  hourglass: [
+    [0, 0.68],
+    [0.08, 0.86],
+    [0.2, 0.98],
+    [0.3, 0.94],
+    [0.4, 0.68],
+    [0.5, 0.42],
+    [0.6, 0.68],
+    [0.7, 0.94],
+    [0.8, 0.99],
+    [0.9, 0.92],
+    [1, 0.82],
+  ],
+  teardrop: [
+    [0, 0.58],
+    [0.08, 0.82],
+    [0.18, 0.96],
+    [0.3, 1],
+    [0.44, 0.92],
+    [0.58, 0.78],
+    [0.7, 0.62],
+    [0.8, 0.46],
+    [0.9, 0.34],
+    [1, 0.3],
+  ],
+  double_bulb: [
+    [0, 0.58],
+    [0.07, 0.78],
+    [0.17, 0.94],
+    [0.27, 1],
+    [0.37, 0.92],
+    [0.46, 0.68],
+    [0.52, 0.62],
+    [0.6, 0.78],
+    [0.7, 0.96],
+    [0.8, 1],
+    [0.88, 0.92],
+    [0.95, 0.72],
+    [1, 0.58],
   ],
 };
 
@@ -101,7 +149,7 @@ function pushUnique(points: Vector2[], point: Vector2): void {
  * радиус каждый раз ограничиваем диапазоном [минимум, diameter / 2], а высоту
  * держим неубывающей: точки идут строго снизу вверх, без петель.
  */
-function createOuterProfile(params: VaseParams): Vector2[] {
+function createOuterProfile(params: VaseProfileParams): Vector2[] {
   const height = Math.max(params.height, MIN_FLOOR_MM * 2);
   const maxRadius = Math.max(params.diameter / 2, MIN_OUTER_RADIUS_MM);
   const minRadius = Math.min(MIN_OUTER_RADIUS_MM, maxRadius * 0.5);
@@ -170,7 +218,7 @@ function radiusAtHeight(profile: Vector2[], height: number): number {
  * Дно имеет толщину max(wall, 1.2 мм): более тонкое дно сложно снять со стола
  * без повреждений.
  */
-export function createVaseProfile(params: VaseParams): Vector2[] {
+export function createVaseProfile(params: VaseProfileParams): Vector2[] {
   const height = Math.max(params.height, MIN_FLOOR_MM * 2);
   const outer = createOuterProfile(params);
   const minOuterRadius = outer.reduce(

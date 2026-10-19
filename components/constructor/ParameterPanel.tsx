@@ -5,14 +5,17 @@ import Link from "next/link";
 import { NumberSlider } from "@/components/constructor/NumberSlider";
 import {
   CONSTRUCTOR_LIMITS,
+  VASE_PATTERNS,
+  VASE_PATTERN_LABELS,
   VASE_SHAPES,
   VASE_SHAPE_LABELS,
   type VaseParams,
+  type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
 
-/** Числовые параметры: форму меняет отдельный обработчик. */
-type SizeParam = Exclude<keyof VaseParams, "shape">;
+/** Числовые параметры: форму и узор меняют отдельные обработчики. */
+type SizeParam = Exclude<keyof VaseParams, "shape" | "pattern">;
 
 /** Ошибка экспорта и действие, которое поможет её исправить. */
 export type StlExportError = {
@@ -32,6 +35,7 @@ type ParameterPanelProps = {
   onExport: () => void;
   onParamChange: (key: SizeParam, value: number) => void;
   onShapeChange: (shape: VaseShape) => void;
+  onPatternChange: (pattern: VasePattern) => void;
   onReset: () => void;
 };
 
@@ -55,14 +59,30 @@ const SHAPE_HINTS: Record<VaseShape, string> = {
     "Плавный силуэт: широкая нижняя часть, мягкое сужение и небольшой раструб кромки.",
   cone: "Почти прямой конус: широкое основание и узкая верхняя часть.",
   cylinder: "Ровные вертикальные стенки без сужения и раструба.",
+  hourglass:
+    "Песочные часы: широкая нижняя и верхняя часть с узкой талией посередине.",
+  teardrop:
+    "Капля: массивное основание, плавное сужение и округлённая верхняя часть.",
+  double_bulb:
+    "Двойная сфера: две выпуклости, разделённые мягкой талией.",
+};
+
+/** Пояснение к узору: что произойдёт со стенкой. */
+const PATTERN_HINTS: Record<VasePattern, string> = {
+  smooth: "Ровная стенка без рельефа — самый простой вариант для печати.",
+  spiral:
+    "Косая спираль: узор поднимается по стенке и дополнительно закручивается по высоте.",
+  ribs: "Вертикальные рёбра: частота задаёт число гребней по окружности.",
+  waves: "Горизонтальные волны: частота задаёт частоту кольцевых гребней по высоте.",
 };
 
 /**
  * Панель параметров модели.
  *
- * Слайдеры меняют размеры, кнопки формы — пресет силуэта. Компонент не хранит
- * состояние: значения приходят из ConstructorClient, поэтому 3D-сцена и
- * подписи всегда читают один и тот же объект параметров.
+ * Слайдеры меняют размеры, кнопки формы — пресет силуэта, кнопки узора —
+ * математический рельеф стенки. Компонент не хранит состояние: значения
+ * приходят из ConstructorClient, поэтому 3D-сцена и подписи всегда читают
+ * один и тот же объект параметров.
  */
 export function ParameterPanel({
   params,
@@ -72,6 +92,7 @@ export function ParameterPanel({
   onExport,
   onParamChange,
   onShapeChange,
+  onPatternChange,
   onReset,
 }: ParameterPanelProps) {
   return (
@@ -127,7 +148,7 @@ export function ParameterPanel({
       <fieldset className="mt-6 border-t border-white/10 pt-5">
         <legend className="text-sm font-medium text-slate-200">Форма</legend>
 
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2">
           {VASE_SHAPES.map((shape) => {
             const selected = params.shape === shape;
 
@@ -152,6 +173,62 @@ export function ParameterPanel({
         <p className="mt-2 text-xs leading-relaxed text-slate-500">
           {SHAPE_HINTS[params.shape]}
         </p>
+      </fieldset>
+
+      <fieldset className="mt-6 border-t border-white/10 pt-5">
+        <legend className="text-sm font-medium text-slate-200">Узор</legend>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {VASE_PATTERNS.map((pattern) => {
+            const selected = params.pattern === pattern;
+
+            return (
+              <button
+                aria-pressed={selected}
+                className={
+                  selected
+                    ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-emerald-400/60 bg-emerald-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                }
+                key={pattern}
+                onClick={() => onPatternChange(pattern)}
+                type="button"
+              >
+                {VASE_PATTERN_LABELS[pattern]}
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="mt-2 text-xs leading-relaxed text-slate-500">
+          {PATTERN_HINTS[params.pattern]}
+        </p>
+
+        <div className="mt-4 space-y-5">
+          <NumberSlider
+            decimals={CONSTRUCTOR_LIMITS.patternIntensity.decimals}
+            hint="0 — ровная стенка, 5 мм — глубокий рельеф. В узкой горловине амплитуда ограничивается автоматически, чтобы стенка не разорвалась."
+            label="Сила узора"
+            max={CONSTRUCTOR_LIMITS.patternIntensity.max}
+            min={CONSTRUCTOR_LIMITS.patternIntensity.min}
+            onChange={(value) => onParamChange("patternIntensity", value)}
+            step={CONSTRUCTOR_LIMITS.patternIntensity.step}
+            unit="мм"
+            value={params.patternIntensity}
+          />
+
+          <NumberSlider
+            decimals={CONSTRUCTOR_LIMITS.patternFrequency.decimals}
+            hint="1 — крупный узор, 20 — частый. Для рёбер это число гребней по окружности; волны и спираль считают фазу от высоты в миллиметрах."
+            label="Частота узора"
+            max={CONSTRUCTOR_LIMITS.patternFrequency.max}
+            min={CONSTRUCTOR_LIMITS.patternFrequency.min}
+            onChange={(value) => onParamChange("patternFrequency", value)}
+            step={CONSTRUCTOR_LIMITS.patternFrequency.step}
+            unit="раз"
+            value={params.patternFrequency}
+          />
+        </div>
       </fieldset>
 
       <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
