@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { CertificateActions } from "@/app/certificate/[courseId]/CertificateActions";
 import { Header } from "@/components/Header";
+import { PartnerBonus } from "@/components/certificate/PartnerBonus";
 import {
   createCertificate,
   formatCertificateDate,
@@ -508,6 +509,8 @@ export default async function CertificatePage({
             Открыть публичную проверку ↗
           </a>
         </div>
+
+        <PartnerBonus />
       </div>
 
       <CertificateSheet

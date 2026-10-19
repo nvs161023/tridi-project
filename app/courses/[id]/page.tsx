@@ -7,6 +7,12 @@ import { Header } from "@/components/Header";
 import { authHref } from "@/lib/auth-redirect";
 import { getCourseLanding } from "@/lib/course-landing";
 import {
+  absoluteUrl,
+  OG_IMAGE,
+  organizationJsonLd,
+} from "@/lib/seo";
+import { resolveSiteUrl } from "@/lib/site-url";
+import {
   LESSON_FORMS,
   MODULE_FORMS,
   TEST_FORMS,
@@ -72,11 +78,13 @@ export async function generateMetadata({
       description,
       type: "website",
       url: `/courses/${course.id}`,
+      images: [{ ...OG_IMAGE, alt: title }],
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title,
       description,
+      images: [OG_IMAGE.url],
     },
   };
 }
@@ -111,8 +119,50 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
     { value: course.tests, label: pluralize(course.tests, TEST_FORMS) },
   ];
 
+  const siteUrl = await resolveSiteUrl();
+  const courseUrl = `${siteUrl}/courses/${course.id}`;
+
+  /**
+   * Course для поиска: цена, описание, провайдер и формат обучения.
+   *
+   * aggregateRating здесь сознательно нет: на платформе пока нет реальных
+   * оценок, а выдуманные звёзды нарушают правила Google и доверие учеников.
+   * Рейтинг появится в разметке, когда оценки начнут собираться по-настоящему.
+   */
+  const courseJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Course",
+    name: course.title,
+    description: course.goal,
+    url: courseUrl,
+    image: absoluteUrl("/icon.svg", siteUrl),
+    inLanguage: "ru-RU",
+    isAccessibleForFree: false,
+    provider: organizationJsonLd(siteUrl),
+    offers: {
+      "@type": "Offer",
+      url: courseUrl,
+      price: course.price,
+      priceCurrency: "RUB",
+      availability: "https://schema.org/InStock",
+    },
+    hasCourseInstance: {
+      "@type": "CourseInstance",
+      courseMode: "online",
+      inLanguage: "ru-RU",
+    },
+    teaches: course.results,
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(courseJsonLd).replace(/</g, "\\u003c"),
+        }}
+      />
+
       <Header />
 
       <main>

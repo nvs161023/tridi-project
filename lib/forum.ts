@@ -34,6 +34,9 @@ export type ForumThread = {
   status: ForumStatus;
 };
 
+/** Поля темы, которые нужны карте сайта. */
+export type ForumSitemapEntry = Pick<ForumThread, "slug" | "created_at">;
+
 /** Ответ в теме. */
 export type ForumReply = {
   id: string;
@@ -244,6 +247,44 @@ export async function getApprovedThreads(
   }
 
   return (data as ForumThread[] | null) ?? [];
+}
+
+/**
+ * Все одобренные темы для sitemap — только slug и дата.
+ *
+ * В отличие от списка на /forum, карта сайта не может молча остановиться на
+ * 300 темах: поисковик должен видеть архив целиком. Идём страницами по 500
+ * строк, пока база не вернёт неполную страницу.
+ */
+export async function getApprovedThreadsForSitemap(
+  supabase: Supabase,
+): Promise<ForumSitemapEntry[]> {
+  const pageSize = 500;
+  const entries: ForumSitemapEntry[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("forum_threads")
+      .select("slug, created_at")
+      .eq("status", "approved")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      warnForumQuery("загрузить темы для sitemap", error.message);
+      break;
+    }
+
+    const page = (data as ForumSitemapEntry[] | null) ?? [];
+    entries.push(...page);
+
+    if (page.length < pageSize) {
+      break;
+    }
+  }
+
+  return entries;
 }
 
 /**

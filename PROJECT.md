@@ -61,7 +61,8 @@
 | `ROBOKASSA_PASSWORD1` | Пароль №1: подпись ссылки на оплату |
 | `ROBOKASSA_PASSWORD2` | Пароль №2: проверка уведомления ResultURL |
 | `ROBOKASSA_IS_TEST` | `true` — тестовые платежи, `false` — боевые (по умолчанию тестовые) |
-| `NEXT_PUBLIC_SITE_URL` | Публичный адрес сайта для ссылок в письмах (подтверждение email) |
+| `NEXT_PUBLIC_SITE_URL` | Публичный адрес сайта для ссылок в письмах (подтверждение email), sitemap, robots и абсолютных URL в метаданных |
+| `NEXT_PUBLIC_ENABLE_PARTNER_PROMO` | `true` — на странице готового сертификата показывается промокод «Слойтек»; `false` — заглушка «Партнерская программа скоро» |
 
 Команды (`package.json`):
 
@@ -97,6 +98,9 @@
 | `/legal` | `app/legal/page.tsx` | Оглавление юридических документов |
 | `/legal/privacy`, `/legal/consent`, `/legal/terms`, `/legal/offer`, `/legal/cookies` | `app/legal/*/page.tsx` | Пять документов (статически пререндерятся, открываются даже когда база недоступна) |
 | `/terms`, `/privacy`, `/legal/oferta`, `/register` | `next.config.ts` | Короткие адреса и вариант написания оферты: постоянные редиректы (308) на `/legal/terms`, `/legal/privacy`, `/legal/offer` и `/auth/sign-up` |
+| `/sitemap.xml` | `app/sitemap.ts` | Динамическая карта сайта: главная, `/subscription`, четыре страницы `/courses/*`, `/forum` и все approved-темы форума; адрес берётся из запроса или `NEXT_PUBLIC_SITE_URL` |
+| `/robots.txt` | `app/robots.ts` | Разрешает индексацию публичных страниц и закрывает `/dashboard`, `/admin`, `/api`, `/constructor` и `/verify`; ссылается на sitemap |
+| `/opengraph-image` | `app/opengraph-image.tsx` | PNG 1200×630 для `og:image` и `twitter:image`: тёмно-синий фон, логотип TriDi и абстрактные окружности |
 
 Служебные (без сессии, вызываются платёжным сервисом):
 
@@ -1207,6 +1211,28 @@ M117, моторы) и правило «без отвода — вмятина �
   темы передаёт категорию через `?category=<slug>` и подставляет её в выпадающий список. Ссылка
   «Форум» есть в `components/Header.tsx`, карточка «Форум сообщества» — в `app/dashboard/page.tsx`.
 
+### 3.17 SEO, OpenGraph и партнёрские бонусы
+
+- **Карта сайта:** `app/sitemap.ts` собирается на каждый запрос (`force-dynamic`) и включает
+  главную, `/subscription`, `/courses/confident`, `/courses/engineer`, `/courses/profit`,
+  `/courses/pro`, `/forum` и все approved-темы. Для тем добавлена постраничная выборка
+  `getApprovedThreadsForSitemap` в `lib/forum.ts`: карта сайта не обрезается на 300 записях, как
+  публичный список форума.
+- **robots.txt:** `app/robots.ts` разрешает `/` и закрывает `/dashboard`, `/admin`, `/api`,
+  `/constructor` и `/verify`. Запрет не заменяет middleware: личные разделы всё равно требуют
+  сессию и проверяют доступ на сервере.
+- **OpenGraph:** `app/opengraph-image.tsx` генерирует PNG 1200×630; `app/layout.tsx` задаёт
+  `metadataBase`, `og:title`, `og:description`, `og:image`, `twitter:card` и `siteName`. Страницы
+  курсов переопределяют заголовок, описание и alt картинки в `generateMetadata`.
+- **Schema.org:** на главной выводится JSON-LD `Organization` с логотипом, email, телефоном,
+  реквизитами НПД и `contactPoint`; на `/courses/[id]` — `Course` с ценой в рублях, описанием,
+  провайдером, форматом обучения и результатами. `aggregateRating` сознательно не выводится:
+  реальных оценок пока нет, а выдуманный рейтинг нарушает правила поиска.
+- **Партнёрский промокод:** `components/certificate/PartnerBonus.tsx` показывается на странице
+  готового сертификата (`/certificate/[courseId]`) и не попадает на печать. При
+  `NEXT_PUBLIC_ENABLE_PARTNER_PROMO=true` выводится «Ваш промокод на пластик: TRIDI-SLOYTECH»,
+  иначе — «Партнерская программа скоро».
+
 ---
 
 Все блоки рисует `components/course/LessonBlocks.tsx`; незнакомый тип блока не ломает страницу —
@@ -1367,8 +1393,9 @@ M117, моторы) и правило «без отвода — вмятина �
 | `lib/auth-redirect.ts` | `authHref(path, next)` — ссылка на вход с возвратом; `resolveAfterAuthPath` / `safeNextPath` — санитизация `next` (только внутренние пути, отсекаем `//evil.com`) |
 | `lib/legal.ts` | Реквизиты владельца (`LEGAL_OPERATOR`), дата редакции документов, список юридических документов |
 | `lib/site-url.ts` | Публичный адрес сайта и `buildEmailRedirectUrl(next)` для ссылок в письмах: `NEXT_PUBLIC_SITE_URL` → (в dev) хост запроса → боевой домен |
+| `lib/seo.ts` | `SITE_URL`, `OG_IMAGE`, `absoluteUrl` и `organizationJsonLd`: общие абсолютные адреса и микроразметка организации для layout, sitemap, robots и страниц курсов |
 | `lib/admin.ts` | `ADMIN_EMAIL` → список администраторов (`getAdminEmails`, `isAdminEmail`); пустая переменная означает «админов нет» |
-| `lib/forum.ts` | Типы и выборки форума: approved-темы/ответы, категории, имена из `forum_authors`, `buildForumThreadSlug`, `forumExcerpt`, форматирование дат |
+| `lib/forum.ts` | Типы и выборки форума: approved-темы/ответы, категории, имена из `forum_authors`, `buildForumThreadSlug`, `forumExcerpt`, форматирование дат, постраничная выборка `getApprovedThreadsForSitemap` для карты сайта |
 | `lib/forum-moderation.ts` | Стоп-слова форума и `checkForumBan` (только `forum_bans`); не связан с подпиской и доступом к курсам |
 | `lib/supabase/server.ts` | Серверный клиент Supabase с cookies (Server Components и Server Actions) |
 | `lib/supabase/admin.ts` | Клиент с ключом `service_role` для вебхука Robokassa: записывает покупки в обход RLS |
@@ -1416,6 +1443,7 @@ M117, моторы) и правило «без отвода — вмятина �
 | `components/Header.tsx` | серверный | Шапка: логотип, навигация (включая «Форум»), кнопка «Войти» или «Личный кабинет» в зависимости от сессии |
 | `components/Logo.tsx` | серверный | Векторный логотип: SVG-принтер с синей шестерёнкой, слово `tridi-print.ru`, плашки «Уроки» и «Конструктор моделей»; вариант `wordmark` — только текст для подвала |
 | `components/Footer.tsx` | серверный | Подвал: ссылки на все юридические документы, копирайт, карточка «Реквизиты и контакты» со статусом НПД, ИНН, телефоном и email |
+| `components/certificate/PartnerBonus.tsx` | серверный | Блок «Бонусы от партнеров» на странице готового сертификата: промокод «Слойтек» при `NEXT_PUBLIC_ENABLE_PARTNER_PROMO=true`, иначе заглушка; скрыт при печати |
 | `components/CookieBanner.tsx` | клиентский | Баннер согласия на cookie: два варианта, запоминание выбора в `localStorage`, не показывается повторно; пока виден, резервирует свою высоту внизу `body`, чтобы не перекрывать подвал |
 | `app/constructor/ConstructorClient.tsx` | клиентский | Оболочка конструктора: единый объект параметров вазы и брелока, переключение модели, запрос `POST /api/constructor/stl`, Blob-скачивание с именем из `Content-Disposition`, локальный остаток бесплатных скачиваний, состояния «Генерация…» и ошибок лимита/сервера |
 | `components/constructor/ParameterPanel.tsx` | клиентский | Панель конструктора: тип модели, шесть пресетов силуэта, четыре узора, слайдеры размеров и узора вазы; для брелока — форма, имя до 10 символов и длина/ширина/толщина; сводка, сброс, плашка «Осталось бесплатных скачиваний: X из 3» и Pro-CTA при нуле |

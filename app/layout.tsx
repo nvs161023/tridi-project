@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { CookieBanner } from "@/components/CookieBanner";
 import { EmailLinkHandler } from "@/components/EmailLinkHandler";
 import { Footer } from "@/components/Footer";
+import { OG_IMAGE, SITE_URL } from "@/lib/seo";
 
 import "./globals.css";
 
@@ -17,10 +18,31 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_TITLE = "3D-печать с нуля — курс для новичков";
+const SITE_DESCRIPTION =
+  "Онлайн-курс по 3D-печати для новичков. Практика с первого урока, тесты по модулям с пояснениями, AI-диагностика и конструктор 3D-моделей.";
+
 export const metadata: Metadata = {
-  title: "3D-печать с нуля — курс для новичков",
-  description:
-    "Онлайн-курс по 3D-печати для новичков. Практика с первого урока, тесты по модулям с пояснениями, AI-диагностика и конструктор 3D-моделей.",
+  // Абсолютные адреса для canonical, og:image и twitter:image собираются из
+  // этого домена. На хостинге его задаёт NEXT_PUBLIC_SITE_URL.
+  metadataBase: new URL(SITE_URL),
+  applicationName: "TriDi",
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
+  openGraph: {
+    type: "website",
+    locale: "ru_RU",
+    siteName: "TriDi",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: [OG_IMAGE],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: [OG_IMAGE.url],
+  },
 };
 
 /**

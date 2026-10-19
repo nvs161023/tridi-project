@@ -27,6 +27,8 @@ import {
   VISUAL_FORMS,
   pluralize,
 } from "@/lib/course-stats";
+import { organizationJsonLd } from "@/lib/seo";
+import { resolveSiteUrl } from "@/lib/site-url";
 import { getPurchasedCourses, hasCourseAccess } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
@@ -314,8 +316,21 @@ export default async function Home() {
     ? await hasCourseAccess(supabase, userId, "pro")
     : false;
 
+  const siteUrl = await resolveSiteUrl();
+  const organization = {
+    "@context": "https://schema.org",
+    ...organizationJsonLd(siteUrl),
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(organization).replace(/</g, "\\u003c"),
+        }}
+      />
+
       <Header />
 
       <main>
