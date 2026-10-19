@@ -14,10 +14,22 @@ import {
 /** Числовые параметры: форму меняет отдельный обработчик. */
 type SizeParam = Exclude<keyof VaseParams, "shape">;
 
+/** Ошибка экспорта и действие, которое поможет её исправить. */
+export type StlExportError = {
+  message: string;
+  action: "pro" | "login" | null;
+};
+
 type ParameterPanelProps = {
   params: VaseParams;
   /** Есть ли действующий доступ Pro: от него зависит только скачивание STL. */
   hasPro: boolean;
+  /** Идёт запрос к серверу: кнопка заблокирована и показывает спиннер. */
+  isExporting: boolean;
+  /** Ошибка последней попытки скачивания; null — ошибок нет. */
+  exportError: StlExportError | null;
+  /** Запрос к серверному экспорту STL. */
+  onExport: () => void;
   onParamChange: (key: SizeParam, value: number) => void;
   onShapeChange: (shape: VaseShape) => void;
   onReset: () => void;
@@ -55,6 +67,9 @@ const SHAPE_HINTS: Record<VaseShape, string> = {
 export function ParameterPanel({
   params,
   hasPro,
+  isExporting,
+  exportError,
+  onExport,
   onParamChange,
   onShapeChange,
   onReset,
@@ -214,18 +229,53 @@ export function ParameterPanel({
         {hasPro ? (
           <>
             <button
-              className="inline-flex min-h-12 w-full cursor-not-allowed items-center justify-center gap-2 rounded-full bg-blue-600/40 px-5 text-base font-semibold text-white/70"
-              disabled
+              aria-busy={isExporting}
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-base font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-wait disabled:bg-blue-600/60 disabled:text-white/80 disabled:shadow-none"
+              disabled={isExporting}
+              onClick={onExport}
               type="button"
             >
-              Скачать STL
-              <span className="rounded-full border border-white/20 px-2 py-0.5 text-[0.65rem] font-semibold tracking-wide uppercase">
-                Скоро
-              </span>
+              {isExporting ? (
+                <>
+                  <span
+                    aria-hidden
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                  />
+                  Генерация…
+                </>
+              ) : (
+                "Скачать STL"
+              )}
             </button>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">
-              Подписка Pro активна. Экспорт STL подключим следующим шагом.
+              {isExporting
+                ? "Собираем геометрию и упаковываем её в бинарный STL…"
+                : "Подписка Pro активна. Файл скачается с именем по вашим параметрам."}
             </p>
+            {exportError ? (
+              <div
+                className="mt-3 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm leading-relaxed text-amber-100"
+                role="alert"
+              >
+                <p>{exportError.message}</p>
+                {exportError.action === "pro" ? (
+                  <Link
+                    className="mt-2 inline-flex font-semibold text-amber-200 underline underline-offset-4 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                    href="/subscription#tools"
+                  >
+                    Оформить подписку Pro
+                  </Link>
+                ) : null}
+                {exportError.action === "login" ? (
+                  <Link
+                    className="mt-2 inline-flex font-semibold text-amber-200 underline underline-offset-4 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                    href="/auth/login?next=%2Fconstructor"
+                  >
+                    Войти заново
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
           </>
         ) : (
           <>

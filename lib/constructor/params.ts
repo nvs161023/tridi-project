@@ -66,6 +66,17 @@ export const DEFAULT_VASE_PARAMS: VaseParams = {
   shape: "classic",
 };
 
+/**
+ * Имя файла STL для набора параметров.
+ *
+ * Функция общая для серверного ответа и клиентской запасной подписи ссылки:
+ * имя в Content-Disposition и в атрибуте download должно совпадать. Значение
+ * wall уже выровнено normalizeVaseParams, поэтому лишние нули не появляются.
+ */
+export function vaseStlFileName(params: VaseParams): string {
+  return `tridi-vaza-${params.shape}-h${params.height}-d${params.diameter}-w${params.wall}.stl`;
+}
+
 /** Проверка незнакомого значения из формы, ссылки или API. */
 export function isVaseShape(value: unknown): value is VaseShape {
   return (

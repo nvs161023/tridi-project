@@ -4,11 +4,15 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState } from "react";
 
-import { ParameterPanel } from "@/components/constructor/ParameterPanel";
+import {
+  ParameterPanel,
+  type StlExportError,
+} from "@/components/constructor/ParameterPanel";
 import {
   DEFAULT_VASE_PARAMS,
   VASE_SHAPE_LABELS,
   normalizeVaseParams,
+  vaseStlFileName,
   type VaseParams,
   type VaseShape,
 } from "@/lib/constructor/params";
@@ -20,6 +24,53 @@ type ConstructorClientProps = {
 
 /** Числовые параметры: форму меняет отдельный обработчик. */
 type SizeParam = Exclude<keyof VaseParams, "shape">;
+
+/**
+ * Имя файла из Content-Disposition.
+ *
+ * Blob-ссылка не сохраняет заголовки ответа, поэтому имя приходится разбирать
+ * самим. Сервер отдаёт простой ASCII filename; filename* поддерживаем на
+ * случай, если имя когда-нибудь станет не-ASCII.
+ */
+function stlFileNameFromDisposition(header: string | null, fallback: string): string {
+  if (!header) {
+    return fallback;
+  }
+
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      // Испорченный filename* не должен ломать скачивание.
+    }
+  }
+
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+
+  return plain?.[1]?.trim() || fallback;
+}
+
+/** Сообщение из JSON-ошибки API; null, если тело не JSON. */
+async function readServerMessage(response: Response): Promise<string | null> {
+  try {
+    const data: unknown = await response.json();
+
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "message" in data &&
+      typeof data.message === "string"
+    ) {
+      return data.message;
+    }
+  } catch {
+    // 500 от прокси может прийти HTML — показываем свой текст.
+  }
+
+  return null;
+}
 
 /**
  * Сцену грузим только в браузере: three.js и WebGL не нужны на сервере.
@@ -58,6 +109,8 @@ function ViewportSkeleton() {
  */
 export function ConstructorClient({ hasPro }: ConstructorClientProps) {
   const [params, setParams] = useState<VaseParams>(DEFAULT_VASE_PARAMS);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<StlExportError | null>(null);
 
   function updateParam(key: SizeParam, value: number) {
     setParams((current) => normalizeVaseParams({ ...current, [key]: value }));
@@ -65,6 +118,95 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
 
   function updateShape(shape: VaseShape) {
     setParams((current) => normalizeVaseParams({ ...current, shape }));
+  }
+
+  /**
+   * Скачивание STL через сервер.
+   *
+   * Геометрия собирается на сервере, а браузер получает готовый бинарный файл:
+   * подписку проверяет API, поэтому обойти гейт через DevTools нельзя. Blob
+   * нужен, чтобы не уводить страницу на ответ API и сохранить имя из
+   * Content-Disposition.
+   */
+  async function exportStl() {
+    if (isExporting) {
+      return;
+    }
+
+    setIsExporting(true);
+    setExportError(null);
+
+    try {
+      const response = await fetch("/api/constructor/stl", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(params),
+      });
+
+      if (response.status === 200) {
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+
+        link.href = objectUrl;
+        link.download = stlFileNameFromDisposition(
+          response.headers.get("content-disposition"),
+          vaseStlFileName(params),
+        );
+        link.hidden = true;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        // Даём браузеру начать сохранение, затем освобождаем память.
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+
+        return;
+      }
+
+      if (response.status === 403) {
+        setExportError({
+          message: "Для скачивания нужна подписка Pro",
+          action: "pro",
+        });
+
+        return;
+      }
+
+      if (response.status === 401) {
+        setExportError({
+          message: "Сессия истекла. Войдите в аккаунт заново.",
+          action: "login",
+        });
+
+        return;
+      }
+
+      if (response.status >= 500) {
+        setExportError({
+          message: "Ошибка сервера, попробуйте еще раз",
+          action: null,
+        });
+
+        return;
+      }
+
+      const serverMessage = await readServerMessage(response);
+
+      setExportError({
+        message:
+          serverMessage ??
+          "Не удалось подготовить STL. Проверьте параметры модели.",
+        action: null,
+      });
+    } catch {
+      setExportError({
+        message: "Ошибка сервера, попробуйте еще раз",
+        action: null,
+      });
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   return (
@@ -109,7 +251,10 @@ export function ConstructorClient({ hasPro }: ConstructorClientProps) {
       */}
       <div className="mt-8 grid gap-5 lg:grid-cols-[22rem_minmax(0,1fr)] lg:items-start xl:gap-6">
         <ParameterPanel
+          exportError={exportError}
           hasPro={hasPro}
+          isExporting={isExporting}
+          onExport={exportStl}
           onParamChange={updateParam}
           onReset={() => setParams(DEFAULT_VASE_PARAMS)}
           onShapeChange={updateShape}
