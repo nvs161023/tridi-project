@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "npm run ensure:tsconfig && next build --turbopack",
+    "build": "npm run ensure:tsconfig && next build --webpack",
     "build:amvera": "npm run clean && npm run ensure:tsconfig && npm run check:imports && npm ci --include=dev --include=optional --no-audit --no-fund && next build --turbopack",
     "check:docs": "node scripts/check-docs.mjs",
     "check:imports": "node scripts/check-imports.mjs",
