@@ -85,6 +85,16 @@ const mediaStyles = {
 type MediaType = keyof typeof mediaStyles;
 
 /**
+ * Типографика текста урока: крупнее базового 16px, свободный интерлиньяж и
+ * ограничение длины строки. На широком ноутбуке строка не растягивается на весь
+ * экран, а глаз не теряет начало следующей строки.
+ */
+const LESSON_TEXT =
+  "max-w-3xl text-[17px] leading-8 text-slate-200 sm:text-lg";
+const LESSON_TEXT_MUTED =
+  "max-w-3xl text-[17px] leading-8 text-slate-300 sm:text-lg";
+
+/**
  * Разбор строки на обычный текст и **жирные** вставки: звёздочки из данных
  * превращаются в <strong>.
  *
@@ -126,7 +136,7 @@ function BlockText({ text, className }: { text: string; className?: string }) {
   return (
     <div className={className}>
       {parts.map((paragraph, index) => (
-        <p key={index} className={index === 0 ? undefined : "mt-3"}>
+        <p key={index} className={index === 0 ? undefined : "mt-4"}>
           {inlineText(paragraph)}
         </p>
       ))}
@@ -260,7 +270,7 @@ function BlockVisual({
         )}
       </div>
       {preview ? (
-        <p className="mt-3 text-sm leading-relaxed text-slate-500">
+        <p className="mt-3 text-[15px] leading-7 text-slate-300">
           {preview}
           {block.content && block.content.length > 100 ? "…" : ""}
         </p>
@@ -300,7 +310,7 @@ function BlockView({
           {block.content ? (
             <BlockText
               text={block.content}
-              className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg"
+              className={`mt-5 ${LESSON_TEXT}`}
             />
           ) : null}
         </section>
@@ -327,10 +337,10 @@ function BlockView({
           {block.content ? (
             <BlockText
               text={block.content}
-              className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg"
+              className={`mt-5 ${LESSON_TEXT}`}
             />
           ) : null}
-          <ul className="mt-6 space-y-4">
+          <ul className="mt-6 space-y-5">
             {block.items.map((item) => (
               <li key={item} className="flex items-start gap-3">
                 <span
@@ -339,7 +349,7 @@ function BlockView({
                 />
                 <BlockText
                   text={item}
-                  className="text-base leading-relaxed text-slate-300"
+                  className={LESSON_TEXT}
                 />
               </li>
             ))}
@@ -374,10 +384,10 @@ function BlockView({
           {block.content ? (
             <BlockText
               text={block.content}
-              className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg"
+              className={`mt-5 ${LESSON_TEXT}`}
             />
           ) : null}
-          <ol className="mt-6 space-y-6">
+          <ol className="mt-6 space-y-8">
             {steps.map((step, index) => (
               <li key={`${index}-${step.title}`} className="flex items-start gap-4">
                 <span
@@ -393,7 +403,7 @@ function BlockView({
                   {step.text ? (
                     <BlockText
                       text={step.text}
-                      className="mt-2 text-base leading-relaxed text-slate-400"
+                      className={`mt-2 ${LESSON_TEXT_MUTED}`}
                     />
                   ) : null}
                 </div>
@@ -423,7 +433,7 @@ function BlockView({
             {block.content ? (
               <BlockText
                 text={block.content}
-                className={`mt-2 text-base leading-relaxed ${style.body}`}
+                className={`mt-2 max-w-3xl text-[17px] leading-8 sm:text-lg ${style.body}`}
               />
             ) : null}
           </div>
@@ -445,7 +455,7 @@ function BlockView({
             {block.content ? (
               <BlockText
                 text={block.content}
-                className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg"
+                className={`mt-5 ${LESSON_TEXT}`}
               />
             ) : null}
           </section>

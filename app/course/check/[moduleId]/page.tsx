@@ -58,7 +58,7 @@ function ModuleNotFound() {
         <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
           Тест не найден
         </h1>
-        <p className="mt-6 text-base leading-relaxed text-slate-400 sm:text-lg">
+        <p className="mt-6 text-base leading-relaxed text-slate-300 sm:text-lg">
           Такого модуля нет или ссылка устарела. Вернитесь на главную — там
           программа базового курса.
         </p>
@@ -128,7 +128,7 @@ export default async function ModuleCheckPage({ params }: CheckPageProps) {
         <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
           {courseModule.label}
         </h1>
-        <p className="mt-4 text-base leading-relaxed text-slate-400 sm:text-lg">
+        <p className="mt-4 text-base leading-relaxed text-slate-300 sm:text-lg">
           {courseModule.description} {courseModule.questions.length} вопросов по
           урокам модуля: отвечай по одному, правильность видно сразу. Тест
           обязателен — он открывает следующий модуль.

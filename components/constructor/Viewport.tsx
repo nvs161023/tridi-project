@@ -433,7 +433,7 @@ export function Viewport({ params }: ViewportProps) {
         dpr={[1, 1.75]}
         fallback={
           <div className="flex h-[24rem] items-center justify-center p-6 text-center sm:h-[32rem] lg:h-[38rem]">
-            <p className="max-w-sm text-sm leading-relaxed text-slate-400">
+            <p className="max-w-sm text-sm leading-relaxed text-slate-300">
               Браузер не поддерживает WebGL, поэтому 3D-предпросмотр недоступен.
               Попробуйте открыть страницу в другом браузере.
             </p>
@@ -459,7 +459,7 @@ export function Viewport({ params }: ViewportProps) {
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-between gap-2 bg-gradient-to-t from-slate-950/80 to-transparent px-4 pt-10 pb-3 text-xs text-slate-400">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-between gap-2 bg-gradient-to-t from-slate-950/80 to-transparent px-4 pt-10 pb-3 text-xs text-slate-300">
         <span className="flex flex-wrap items-center gap-x-2">
           <span>{sizeLabel}</span>
           <span aria-hidden className="text-slate-600">

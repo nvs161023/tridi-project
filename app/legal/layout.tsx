@@ -35,7 +35,7 @@ export default function LegalLayout({
             <Logo showBadges={false} />
             <Link
               href="/"
-              className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             >
               <span aria-hidden>←</span> На главную
             </Link>
@@ -47,7 +47,7 @@ export default function LegalLayout({
                 <li key={document.href}>
                   <Link
                     href={document.href}
-                    className="text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    className="text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                   >
                     {document.label}
                   </Link>
@@ -61,7 +61,7 @@ export default function LegalLayout({
       <main className="mx-auto max-w-3xl px-5 py-12 sm:px-8 sm:py-16">
         {children}
 
-        <footer className="mt-14 border-t border-white/10 pt-8 text-sm leading-relaxed text-slate-400">
+        <footer className="mt-14 border-t border-white/10 pt-8 text-sm leading-relaxed text-slate-300">
           <p>
             Оператор и владелец сервиса: {LEGAL_OPERATOR.fullName}, ИНН{" "}
             {LEGAL_OPERATOR.inn}. Налоговый режим: {LEGAL_OPERATOR.taxStatus}.

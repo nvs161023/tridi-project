@@ -181,7 +181,7 @@ export default async function ProfilesPage() {
               </div>
 
               {!userId ? (
-                <p className="mt-4 text-sm text-slate-400">
+                <p className="mt-4 text-sm text-slate-300">
                   Подписка привязывается к аккаунту — сначала войдите или
                   зарегистрируйтесь.
                 </p>
@@ -237,7 +237,7 @@ export default async function ProfilesPage() {
                 <h3 className="mt-3 text-lg font-bold text-white">
                   JSON-профили
                 </h3>
-                <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                <p className="mt-3 text-sm leading-relaxed text-slate-300">
                   Откройте File → Import → Import Configs и выберите файл. Для
                   материалов импортируйте пару @base + @System: второй наследует
                   настройки первого.
@@ -249,7 +249,7 @@ export default async function ProfilesPage() {
                   PrusaSlicer
                 </p>
                 <h3 className="mt-3 text-lg font-bold text-white">INI-профили</h3>
-                <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                <p className="mt-3 text-sm leading-relaxed text-slate-300">
                   File → Import → Import Config. Фрагменты MK3S+ наследуют
                   базовые секции, поэтому нужен установленный бандл
                   PrusaResearch 2.5.12 или новее.
@@ -263,7 +263,7 @@ export default async function ProfilesPage() {
                 <h3 className="mt-3 text-lg font-bold text-white">
                   Проверьте настройки
                 </h3>
-                <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                <p className="mt-3 text-sm leading-relaxed text-slate-300">
                   Сверьте диаметр сопла, тип стола, температуру и максимальный
                   объёмный расход. Профили — стартовая точка, а не гарантия:
                   прогоните тестовую модель на своём пластике.
@@ -271,7 +271,7 @@ export default async function ProfilesPage() {
               </article>
             </div>
 
-            <p className="mt-8 max-w-4xl text-xs leading-relaxed text-slate-500 sm:text-sm">
+            <p className="mt-8 max-w-4xl text-xs leading-relaxed text-slate-300 sm:text-sm">
               Файлы — снимки заводских и community-пресетов: имена и
               наследование сохранены. Если правите профиль под себя, сделайте
               копию с новым name и укажите исходник в inherits. Источники: Bambu

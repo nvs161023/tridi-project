@@ -406,7 +406,7 @@ export default async function Home() {
               </ul>
             </div>
 
-            <div className="relative mx-auto w-full max-w-sm pb-8 sm:max-w-md lg:max-w-none">
+            <div className="relative mx-auto w-full max-w-sm pb-0 sm:max-w-md sm:pb-8 lg:max-w-none">
               <div
                 aria-hidden
                 className="absolute -inset-4 rotate-2 rounded-[2rem] bg-gradient-to-br from-amber-400/20 via-violet-500/10 to-blue-500/25 blur-2xl"
@@ -419,14 +419,14 @@ export default async function Home() {
                 className="relative shadow-2xl shadow-slate-950/60"
               />
 
-              <div className="absolute -bottom-1 left-3 right-3 rounded-2xl border border-white/15 bg-slate-950/90 px-4 py-3.5 shadow-xl shadow-slate-950/60 backdrop-blur sm:left-6 sm:right-auto sm:w-72">
-                <p className="text-[10px] font-semibold tracking-[0.2em] text-amber-300 uppercase">
+              <div className="mt-4 rounded-2xl border border-white/15 bg-slate-950/90 px-4 py-3.5 leading-relaxed shadow-xl shadow-slate-950/60 backdrop-blur sm:absolute sm:-bottom-1 sm:left-6 sm:right-auto sm:mt-0 sm:w-72">
+                <p className="text-[11px] font-semibold tracking-[0.2em] text-amber-300 uppercase sm:text-xs">
                   Путь курса
                 </p>
-                <p className="mt-1.5 text-sm font-bold text-white">
+                <p className="mt-1.5 text-[15px] font-bold text-white sm:text-sm">
                   Новичок → Уверенный
                 </p>
-                <p className="text-sm font-bold text-white">
+                <p className="text-[15px] font-bold text-white sm:text-sm">
                   Инженер → Заработок
                 </p>
               </div>
@@ -434,16 +434,16 @@ export default async function Home() {
           </div>
 
           <div className="relative mx-auto max-w-6xl px-5 pb-16 sm:px-8 sm:pb-24">
-            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+            <dl className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
               {STATS.map((stat) => (
                 <div
                   key={stat.label}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-5 text-center"
+                  className="flex min-h-28 min-w-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-3 py-5 text-center sm:min-h-32 sm:px-4"
                 >
-                  <dt className="text-2xl font-extrabold text-white sm:text-3xl">
+                  <dt className="text-3xl font-extrabold text-white sm:text-4xl">
                     {stat.value}
                   </dt>
-                  <dd className="mt-1 text-xs text-slate-400 sm:text-sm">
+                  <dd className="mt-2 max-w-full text-sm leading-relaxed text-balance text-slate-200 sm:text-base">
                     {stat.label}
                   </dd>
                 </div>
@@ -461,7 +461,7 @@ export default async function Home() {
             <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
               Если хотя бы один пункт — про вас
             </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
               Курс сэкономит месяцы проб, ошибок и испорченного пластика. Вот с
               чего начинается большинство проблем.
             </p>
@@ -481,7 +481,7 @@ export default async function Home() {
                   <h3 className="mt-4 text-xl font-bold text-white">
                     {pain.question}
                   </h3>
-                  <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                  <p className="mt-3 text-sm leading-relaxed text-slate-300">
                     {pain.detail}
                   </p>
                 </article>
@@ -515,7 +515,7 @@ export default async function Home() {
             <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
               Не смотреть, а делать
             </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
               Один и тот же цикл на каждом уровне: разобраться в причине,
               настроить принтер, напечатать деталь и проверить результат тестом.
             </p>
@@ -535,14 +535,14 @@ export default async function Home() {
                   <h3 className="mt-4 text-lg font-bold text-white">
                     {item.title}
                   </h3>
-                  <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                  <p className="mt-3 text-sm leading-relaxed text-slate-300">
                     {item.text}
                   </p>
                 </li>
               ))}
             </ol>
 
-            <p className="mt-8 max-w-2xl text-sm leading-relaxed text-slate-500">
+            <p className="mt-8 max-w-2xl text-sm leading-relaxed text-slate-300">
               В конце каждого модуля — тест с пояснениями. Он показывает, что вы
               действительно поняли, а не просто пролистали урок.
             </p>
@@ -561,7 +561,7 @@ export default async function Home() {
             <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
               Четыре уровня — четыре решённые проблемы
             </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
               Не набор разрозненных уроков, а путь: от адгезии первого слоя до
               расчёта цены и продаж.
             </p>
@@ -605,7 +605,7 @@ export default async function Home() {
                     <h3 className="mt-5 text-2xl font-extrabold tracking-tight text-white">
                       {level.shortTitle}
                     </h3>
-                    <p className="mt-1 text-sm text-slate-400">{level.title}</p>
+                    <p className="mt-1 text-sm text-slate-300">{level.title}</p>
 
                     <p className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
                       <span className="text-2xl font-extrabold text-white">
@@ -613,13 +613,13 @@ export default async function Home() {
                       </span>
                       {level.oldPrice ? (
                         <s
-                          className="text-sm font-semibold text-slate-500"
+                          className="text-sm font-semibold text-slate-300"
                           aria-label={`Старая цена: ${formatPrice(level.oldPrice)} ₽`}
                         >
                           {formatPrice(level.oldPrice)} ₽
                         </s>
                       ) : null}
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-slate-300">
                         {level.isFree ? "сейчас" : "навсегда"}
                       </span>
                     </p>
@@ -640,7 +640,7 @@ export default async function Home() {
                         <dt className="text-lg font-bold text-white">
                           {level.lessons}
                         </dt>
-                        <dd className="text-[11px] text-slate-400">
+                        <dd className="text-[11px] text-slate-300">
                           {pluralize(level.lessons, LESSON_FORMS)}
                         </dd>
                       </div>
@@ -648,7 +648,7 @@ export default async function Home() {
                         <dt className="text-lg font-bold text-white">
                           {level.visuals}
                         </dt>
-                        <dd className="text-[11px] text-slate-400">
+                        <dd className="text-[11px] text-slate-300">
                           {pluralize(level.visuals, VISUAL_FORMS)}
                         </dd>
                       </div>
@@ -656,7 +656,7 @@ export default async function Home() {
                         <dt className="text-lg font-bold text-white">
                           {level.tests}
                         </dt>
-                        <dd className="text-[11px] text-slate-400">
+                        <dd className="text-[11px] text-slate-300">
                           {pluralize(level.tests, TEST_FORMS)}
                         </dd>
                       </div>
@@ -726,7 +726,7 @@ export default async function Home() {
             <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
               Три сценария — один результат
             </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
               Уровни можно проходить подряд или взять только тот, который решает
               вашу задачу. Начать в любом случае можно бесплатно.
             </p>
@@ -746,7 +746,7 @@ export default async function Home() {
                   <h3 className="mt-4 text-xl font-bold text-white">
                     {item.title}
                   </h3>
-                  <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                  <p className="mt-3 text-sm leading-relaxed text-slate-300">
                     {item.text}
                   </p>
                 </article>
@@ -767,7 +767,7 @@ export default async function Home() {
             <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
               Так выглядят уроки
             </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
               Посмотрите, как выглядят уроки. Каждая схема — это шаг к
               пониманию процесса.
             </p>
@@ -784,7 +784,7 @@ export default async function Home() {
               ))}
             </div>
 
-            <p className="mt-8 text-sm leading-relaxed text-slate-500">
+            <p className="mt-8 text-sm leading-relaxed text-slate-300">
               Показали 4 из {TOTAL_VISUALS}. Все схемы нарисованы под{" "}
               {TOTAL_LESSONS} уроков четырёх уровней и открываются внутри
               уроков вместе с подписями и пояснениями.
@@ -842,7 +842,7 @@ export default async function Home() {
                     </Link>
                   </div>
 
-                  <p className="mt-6 text-sm leading-relaxed text-slate-400">
+                  <p className="mt-6 text-sm leading-relaxed text-slate-300">
                     Курсы навсегда · Подписка Pro — 30 дней · Чек НПД на email
                   </p>
                 </div>
@@ -856,7 +856,7 @@ export default async function Home() {
                       >
                         <span
                           aria-hidden
-                          className="text-xs font-semibold tracking-[0.16em] text-slate-500"
+                          className="text-xs font-semibold tracking-[0.16em] text-slate-300"
                         >
                           {step.step}
                         </span>
@@ -871,13 +871,13 @@ export default async function Home() {
                                   ? "text-blue-300"
                                   : index === 2
                                     ? "text-amber-300"
-                                    : "text-slate-400"
+                                    : "text-slate-300"
                               }`}
                             >
                               {step.note}
                             </span>
                           </div>
-                          <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
+                          <p className="mt-1.5 text-sm leading-relaxed text-slate-300">
                             {step.text}
                           </p>
                         </div>
@@ -890,7 +890,7 @@ export default async function Home() {
                       <dt className="text-lg font-bold text-white">
                         {PAID_LESSONS}
                       </dt>
-                      <dd className="text-[11px] text-slate-400">
+                      <dd className="text-[11px] text-slate-300">
                         уроков в Pro
                       </dd>
                     </div>
@@ -898,7 +898,7 @@ export default async function Home() {
                       <dt className="text-lg font-bold text-white">
                         {PAID_VISUALS}
                       </dt>
-                      <dd className="text-[11px] text-slate-400">
+                      <dd className="text-[11px] text-slate-300">
                         схем в Pro
                       </dd>
                     </div>
@@ -906,7 +906,7 @@ export default async function Home() {
                       <dt className="text-lg font-bold text-white">
                         {PAID_TESTS}
                       </dt>
-                      <dd className="text-[11px] text-slate-400">тестов</dd>
+                      <dd className="text-[11px] text-slate-300">тестов</dd>
                     </div>
                   </dl>
                 </div>
@@ -926,12 +926,12 @@ export default async function Home() {
             </h2>
 
             <div className="mt-10 max-w-2xl rounded-3xl border border-dashed border-white/15 bg-slate-900/40 p-6 sm:p-8">
-              <p className="text-base leading-relaxed text-slate-400">
+              <p className="text-base leading-relaxed text-slate-300">
                 Платформа только запустилась, поэтому мы не публикуем выдуманные
                 истории. Здесь появятся реальные отзывы первых учеников — с их
                 разрешения и ссылками на проекты.
               </p>
-              <p className="mt-4 text-sm leading-relaxed text-slate-500">
+              <p className="mt-4 text-sm leading-relaxed text-slate-300">
                 Прошли уровень и хотите поделиться результатом? Напишите на{" "}
                 <a
                   href={`mailto:${LEGAL_OPERATOR.email}`}
@@ -956,7 +956,7 @@ export default async function Home() {
                 <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
                   Коротко о главном
                 </h2>
-                <p className="mt-5 text-base leading-relaxed text-slate-400">
+                <p className="mt-5 text-base leading-relaxed text-slate-300">
                   Оплата, подписка и старт без карты — без мелкого шрифта и
                   скрытых условий.
                 </p>
@@ -1003,12 +1003,12 @@ export default async function Home() {
                       {item.question}
                       <span
                         aria-hidden
-                        className="shrink-0 text-slate-400 transition-transform duration-200 group-open:rotate-180"
+                        className="shrink-0 text-slate-300 transition-transform duration-200 group-open:rotate-180"
                       >
                         ⌄
                       </span>
                     </summary>
-                    <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                    <p className="mt-3 text-sm leading-relaxed text-slate-300">
                       {item.answer}
                     </p>
                   </details>

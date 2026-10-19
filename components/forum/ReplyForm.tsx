@@ -7,7 +7,7 @@ import { createReply } from "@/app/actions/forum";
 import { emptyForumFormState } from "@/app/actions/forum-state";
 
 const textareaClassName =
-  "mt-2 w-full resize-y rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
+  "mt-2 w-full resize-y rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
 
 /**
  * Форма ответа в теме.
@@ -51,7 +51,7 @@ export function ReplyForm({ threadId }: { threadId: string }) {
       />
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs leading-relaxed text-slate-500">
+        <p className="text-xs leading-relaxed text-slate-300">
           Ответ публикуется сразу.{" "}
           <Link
             href="/forum/rules"

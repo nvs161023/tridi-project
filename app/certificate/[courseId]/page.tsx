@@ -133,7 +133,7 @@ function ScreenIntro({
       <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
         {title}
       </h1>
-      <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-400">
+      <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-300">
         {description}
       </p>
     </div>
@@ -182,7 +182,7 @@ function ProgressMeter({
     <div>
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-sm font-semibold text-slate-200">{label}</p>
-        <p className="text-sm tabular-nums text-slate-400">
+        <p className="text-sm tabular-nums text-slate-300">
           {done} из {total}
         </p>
       </div>
@@ -192,7 +192,7 @@ function ProgressMeter({
           style={{ width: `${percent}%` }}
         />
       </div>
-      <p className="mt-3 text-sm text-slate-400">{hint}</p>
+      <p className="mt-3 text-sm text-slate-300">{hint}</p>
     </div>
   );
 }
@@ -519,7 +519,7 @@ export default async function CertificatePage({
         verifyUrl={verifyUrl}
       />
 
-      <p className="mx-auto mt-6 max-w-2xl text-center text-xs leading-relaxed text-slate-500 print:hidden">
+      <p className="mx-auto mt-6 max-w-2xl text-center text-xs leading-relaxed text-slate-300 print:hidden">
         При печати выберите «Сохранить как PDF», если нужен файл. Ссылка внизу
         сертификата ведёт на страницу проверки: подпись подтверждает имя, курс и
         дату выдачи.

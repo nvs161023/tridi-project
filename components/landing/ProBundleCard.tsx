@@ -92,30 +92,30 @@ export function ProBundleCard({
               {formatPrice(proCourse.price)} ₽
             </span>
             <s
-              className="text-sm font-semibold text-slate-400"
+              className="text-sm font-semibold text-slate-300"
               aria-label={`Старая цена: ${formatPrice(proCourse.oldPrice)} ₽`}
             >
               {formatPrice(proCourse.oldPrice)} ₽
             </s>
-            <span className="text-xs text-slate-400">навсегда</span>
+            <span className="text-xs text-slate-300">навсегда</span>
           </p>
 
           <dl className="mt-5 grid grid-cols-3 gap-2 border-y border-white/10 py-4 text-center">
             <div>
               <dt className="text-lg font-bold text-white">{PAID_LESSONS}</dt>
-              <dd className="text-[11px] text-slate-400">
+              <dd className="text-[11px] text-slate-300">
                 {pluralize(PAID_LESSONS, LESSON_FORMS)}
               </dd>
             </div>
             <div>
               <dt className="text-lg font-bold text-white">{PAID_VISUALS}</dt>
-              <dd className="text-[11px] text-slate-400">
+              <dd className="text-[11px] text-slate-300">
                 {pluralize(PAID_VISUALS, VISUAL_FORMS)}
               </dd>
             </div>
             <div>
               <dt className="text-lg font-bold text-white">{PAID_TESTS}</dt>
-              <dd className="text-[11px] text-slate-400">
+              <dd className="text-[11px] text-slate-300">
                 {pluralize(PAID_TESTS, TEST_FORMS)}
               </dd>
             </div>

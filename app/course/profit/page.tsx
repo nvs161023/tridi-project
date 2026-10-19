@@ -71,7 +71,7 @@ export default async function ProfitCoursePage() {
         <p className="mt-4 text-lg text-slate-300 sm:text-xl">
           {courseMeta.subtitle}
         </p>
-        <p className="mt-4 text-base leading-relaxed text-slate-400 sm:text-lg">
+        <p className="mt-4 text-base leading-relaxed text-slate-300 sm:text-lg">
           {courseMeta.goal}
         </p>
 
@@ -112,7 +112,7 @@ export default async function ProfitCoursePage() {
               <h2 className="mt-3 text-xl font-extrabold tracking-tight text-white sm:text-2xl">
                 {courseModule.module_title}
               </h2>
-              <p className="mt-3 text-base leading-relaxed text-slate-400">
+              <p className="mt-3 text-base leading-relaxed text-slate-300">
                 {courseModule.module_description}
               </p>
 
@@ -127,16 +127,16 @@ export default async function ProfitCoursePage() {
                         <span>
                           {lesson.lesson_id} · {lesson.lesson_title}
                         </span>
-                        <span className="text-sm text-slate-400">
+                        <span className="text-sm text-slate-300">
                           {lesson.duration} <span aria-hidden>→</span>
                         </span>
                       </Link>
                     ) : (
-                      <span className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-slate-950/40 px-5 py-4 text-base font-medium text-slate-400">
+                      <span className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-slate-950/40 px-5 py-4 text-base font-medium text-slate-300">
                         <span>
                           {lesson.lesson_id} · {lesson.lesson_title}
                         </span>
-                        <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+                        <span className="text-xs font-semibold uppercase tracking-widest text-slate-300">
                           Готовится
                         </span>
                       </span>
@@ -148,7 +148,7 @@ export default async function ProfitCoursePage() {
           ))}
         </div>
 
-        <p className="mt-10 text-sm leading-relaxed text-slate-500">
+        <p className="mt-10 text-sm leading-relaxed text-slate-300">
           Уровень продолжает «Инженера»: там деталь считается до печати и
           повторяется по замерам, здесь — что продавать, сколько просить,
           как договориться с заказчиком и как оформить доход.

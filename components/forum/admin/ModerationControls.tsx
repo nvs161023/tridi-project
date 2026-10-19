@@ -17,7 +17,7 @@ type AdminAction = (
 ) => Promise<ForumAdminFormState>;
 
 const fieldClassName =
-  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
+  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
 
 /** Компактная кнопка «Одобрить» / «Отклонить» с результатом действия. */
 export function ModerationButton({

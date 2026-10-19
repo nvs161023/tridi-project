@@ -193,7 +193,7 @@ export function ModuleTest({
       return `${base} border-red-500/60 bg-red-500/15 text-red-100`;
     }
 
-    return `${base} border-white/10 bg-white/5 text-slate-400 opacity-60`;
+    return `${base} border-white/10 bg-white/5 text-slate-300 opacity-60`;
   }
 
   /** Значок перед вариантом: после ответа — галочка или крестик. */
@@ -247,12 +247,12 @@ export function ModuleTest({
           {verdict}
         </p>
 
-        <p className="mt-2 text-base leading-relaxed text-slate-400">
+        <p className="mt-2 text-base leading-relaxed text-slate-300">
           {nextStep}
         </p>
 
         {isSaving ? (
-          <p className="mt-4 text-sm text-slate-400">Сохраняем результат…</p>
+          <p className="mt-4 text-sm text-slate-300">Сохраняем результат…</p>
         ) : null}
 
         {saveError ? (
@@ -328,7 +328,7 @@ export function ModuleTest({
         />
       </div>
 
-      <p className="mt-6 text-xs font-semibold uppercase tracking-widest text-slate-400">
+      <p className="mt-6 text-xs font-semibold uppercase tracking-widest text-slate-300">
         Вопрос {questionIndex + 1} из {total}
       </p>
       <h3 className="mt-2 text-base font-bold text-white sm:text-lg">

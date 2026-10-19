@@ -142,7 +142,7 @@ export function TestOverlay({
                   {moduleLabel}
                 </h2>
                 {hint ? (
-                  <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                  <p className="mt-2 text-sm leading-relaxed text-slate-300">
                     {hint}
                   </p>
                 ) : null}

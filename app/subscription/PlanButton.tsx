@@ -131,7 +131,7 @@ export function PlanButton({
         {isPending ? null : <span aria-hidden>→</span>}
       </button>
 
-      <p className="mt-2 text-center text-[11px] leading-relaxed text-slate-500">
+      <p className="mt-2 text-center text-[11px] leading-relaxed text-slate-300">
         Для оплаты нужно подтвердить, что вам исполнилось 18 лет.
       </p>
 

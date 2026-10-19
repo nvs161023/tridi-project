@@ -250,7 +250,7 @@ export default async function SubscriptionPage() {
               </a>
             </div>
 
-            <p className="mt-6 text-sm text-slate-400">
+            <p className="mt-6 text-sm text-slate-300">
               <span aria-hidden>✅</span> На бесплатном уровне карта не нужна.
               Курсы покупаются навсегда, подписка Pro — доступ к инструментам на
               30 дней. Чек НПД на email.
@@ -270,7 +270,7 @@ export default async function SubscriptionPage() {
             >
               Сравнение четырёх уровней
             </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
               В проекте {TOTAL_LESSONS} уроков, {TOTAL_VISUALS} схем и{" "}
               {TOTAL_TESTS} тестов модулей. В таблице — только то, что входит в
               каждый уровень.
@@ -299,7 +299,7 @@ export default async function SubscriptionPage() {
                   <tr className="bg-white/5">
                     <th
                       scope="col"
-                      className="w-1/5 px-4 py-5 text-xs font-semibold tracking-widest text-slate-400 uppercase"
+                      className="w-1/5 px-4 py-5 text-xs font-semibold tracking-widest text-slate-300 uppercase"
                     >
                       Уровень
                     </th>
@@ -349,7 +349,7 @@ export default async function SubscriptionPage() {
                     <tr key={row.label} className="border-t border-white/10">
                       <th
                         scope="row"
-                        className="px-4 py-3.5 text-sm font-medium text-slate-400"
+                        className="px-4 py-3.5 text-sm font-medium text-slate-300"
                       >
                         {row.label}
                       </th>
@@ -366,7 +366,7 @@ export default async function SubscriptionPage() {
                   <tr className="border-t border-white/10 bg-white/[0.03]">
                     <th
                       scope="row"
-                      className="px-4 py-4 text-sm font-medium text-slate-400"
+                      className="px-4 py-4 text-sm font-medium text-slate-300"
                     >
                       Старт
                     </th>
@@ -451,37 +451,37 @@ export default async function SubscriptionPage() {
                     <h3 className="mt-3 text-xl font-extrabold text-white">
                       {level.shortTitle}
                     </h3>
-                    <p className="mt-1 text-sm text-slate-400">
+                    <p className="mt-1 text-sm text-slate-300">
                       {level.audience}
                     </p>
 
                     <dl className="mt-4 space-y-2 border-y border-white/10 py-3 text-sm">
                       <div className="flex items-center justify-between gap-4">
-                        <dt className="text-slate-500">Уроки</dt>
+                        <dt className="text-slate-300">Уроки</dt>
                         <dd className="font-medium text-slate-200">
                           {level.lessons}
                         </dd>
                       </div>
                       <div className="flex items-center justify-between gap-4">
-                        <dt className="text-slate-500">Схемы</dt>
+                        <dt className="text-slate-300">Схемы</dt>
                         <dd className="font-medium text-slate-200">
                           {level.visuals}
                         </dd>
                       </div>
                       <div className="flex items-center justify-between gap-4">
-                        <dt className="text-slate-500">Тесты</dt>
+                        <dt className="text-slate-300">Тесты</dt>
                         <dd className="font-medium text-slate-200">
                           {level.tests}
                         </dd>
                       </div>
                       <div className="flex items-center justify-between gap-4">
-                        <dt className="text-slate-500">Длительность</dt>
+                        <dt className="text-slate-300">Длительность</dt>
                         <dd className="font-medium text-slate-200">
                           {level.hours}
                         </dd>
                       </div>
                       <div className="flex items-center justify-between gap-4">
-                        <dt className="text-slate-500">Стоимость</dt>
+                        <dt className="text-slate-300">Стоимость</dt>
                         <dd
                           className={`font-semibold ${
                             level.isFree ? "text-blue-300" : "text-amber-300"
@@ -530,7 +530,7 @@ export default async function SubscriptionPage() {
             <h2 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
               Купить курсы (навсегда)
             </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
               Начни с бесплатного «Новичка» по акции, купи нужный уровень
               навсегда или забери все три со скидкой. Доступ остаётся у вас
               навсегда — без продлений.
@@ -555,7 +555,7 @@ export default async function SubscriptionPage() {
                     Уровни и пакет «Всё включено»
                   </h3>
                 </div>
-                <p className="text-sm text-slate-400">
+                <p className="text-sm text-slate-300">
                   {PAID_LESSONS} уроков · {PAID_VISUALS} схем · {PAID_TESTS} тестов
                   в трёх платных уровнях
                 </p>
@@ -578,18 +578,18 @@ export default async function SubscriptionPage() {
                 <h3 className="mt-3 text-xl font-extrabold tracking-tight text-white">
                   {LEVELS[0].shortTitle}
                 </h3>
-                <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                <p className="mt-1 text-xs leading-relaxed text-slate-300">
                   {LEVELS[0].audience}
                 </p>
 
                 <p className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <span className="text-3xl font-extrabold text-white">0 ₽</span>
                   {basicOldPrice ? (
-                    <s className="text-sm font-semibold text-slate-500">
+                    <s className="text-sm font-semibold text-slate-300">
                       {basicOldPrice} ₽
                     </s>
                   ) : null}
-                  <span className="text-xs text-slate-500">без карты</span>
+                  <span className="text-xs text-slate-300">без карты</span>
                 </p>
                 {basicOldPrice ? (
                   <p className="mt-1.5 text-[11px] leading-relaxed text-amber-200/90">
@@ -633,7 +633,7 @@ export default async function SubscriptionPage() {
                     Начать бесплатно
                     <span aria-hidden>→</span>
                   </Link>
-                  <p className="mt-2 text-center text-[11px] font-medium text-slate-400">
+                  <p className="mt-2 text-center text-[11px] font-medium text-slate-300">
                     Доступ навсегда
                   </p>
                 </div>
@@ -676,7 +676,7 @@ export default async function SubscriptionPage() {
                     <h3 className="mt-3 text-xl font-extrabold tracking-tight text-white">
                       {level.shortTitle}
                     </h3>
-                    <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                    <p className="mt-1 text-xs leading-relaxed text-slate-300">
                       {level.audience}
                     </p>
 
@@ -686,13 +686,13 @@ export default async function SubscriptionPage() {
                       </span>
                       {level.oldPrice ? (
                         <s
-                          className="text-sm font-semibold text-slate-500"
+                          className="text-sm font-semibold text-slate-300"
                           aria-label={`Старая цена: ${formatPrice(level.oldPrice)} ₽`}
                         >
                           {formatPrice(level.oldPrice)} ₽
                         </s>
                       ) : null}
-                      <span className="text-xs text-slate-500">разово</span>
+                      <span className="text-xs text-slate-300">разово</span>
                     </p>
 
                     <ul className="mt-4 space-y-2 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-300">
@@ -752,7 +752,7 @@ export default async function SubscriptionPage() {
                             Подробнее о курсе
                             <span aria-hidden>→</span>
                           </Link>
-                          <p className="mt-2 text-center text-[11px] font-medium text-slate-400">
+                          <p className="mt-2 text-center text-[11px] font-medium text-slate-300">
                             Доступ навсегда
                           </p>
                         </>
@@ -787,7 +787,7 @@ export default async function SubscriptionPage() {
             >
               Инструменты (Подписка Pro)
             </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
               Отдельная подписка для работы с моделями: Конструктор 3D-моделей и
               библиотека Профилей. Уроки в неё не входят — курсы покупаются
               отдельно и остаются навсегда.
@@ -819,7 +819,7 @@ export default async function SubscriptionPage() {
                       <span className="text-4xl font-extrabold text-white">
                         {proSubscriptionPrice} ₽
                       </span>
-                      <span className="text-sm text-slate-400">/мес</span>
+                      <span className="text-sm text-slate-300">/мес</span>
                     </p>
 
                     <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
@@ -868,10 +868,10 @@ export default async function SubscriptionPage() {
                       courseId="pro-subscription"
                       variant="blue"
                     />
-                    <p className="mt-3 text-center text-xs leading-relaxed text-slate-400">
+                    <p className="mt-3 text-center text-xs leading-relaxed text-slate-300">
                       Инструменты доступны, пока активна подписка
                     </p>
-                    <p className="mt-2 text-center text-xs leading-relaxed text-slate-500">
+                    <p className="mt-2 text-center text-xs leading-relaxed text-slate-300">
                       Уроки не входят · Чек НПД на email · отмена в кабинете
                     </p>
                   </div>
@@ -895,7 +895,7 @@ export default async function SubscriptionPage() {
             >
               Здесь будут реальные истории
             </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
               Мы не публикуем выдуманные отзывы. Места подготовлены под первые
               потоки: человек расскажет, что напечатал, где застрял и что
               изменилось в его мастерской.
@@ -913,18 +913,18 @@ export default async function SubscriptionPage() {
                   >
                     ★★★★★
                   </div>
-                  <blockquote className="mt-4 text-sm leading-relaxed text-slate-500 italic">
+                  <blockquote className="mt-4 text-sm leading-relaxed text-slate-300 italic">
                     «{slot} отзыв: что получилось напечатать, что оказалось
                     сложным и чем помог курс».
                   </blockquote>
                   <figcaption className="mt-auto flex items-center gap-3 pt-6">
                     <span
                       aria-hidden
-                      className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-500"
+                      className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-300"
                     >
                       ?
                     </span>
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-slate-300">
                       Имя · уровень · дата
                     </span>
                   </figcaption>
@@ -932,7 +932,7 @@ export default async function SubscriptionPage() {
               ))}
             </div>
 
-            <p className="mt-6 text-xs leading-relaxed text-slate-500">
+            <p className="mt-6 text-xs leading-relaxed text-slate-300">
               Плейсхолдеры уберём, когда появятся настоящие отзывы с согласием
               авторов на публикацию.
             </p>
@@ -951,7 +951,7 @@ export default async function SubscriptionPage() {
             >
               Частые вопросы
             </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-lg">
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
               Коротко о подписке, доступе и оплате. Если вопроса нет в списке —
               напишите на почту из футера.
             </p>
@@ -966,12 +966,12 @@ export default async function SubscriptionPage() {
                     {item.question}
                     <span
                       aria-hidden
-                      className="shrink-0 text-slate-400 transition-transform duration-200 group-open:rotate-180"
+                      className="shrink-0 text-slate-300 transition-transform duration-200 group-open:rotate-180"
                     >
                       ⌄
                     </span>
                   </summary>
-                  <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                  <p className="mt-3 text-sm leading-relaxed text-slate-300">
                     {item.answer}
                   </p>
                 </details>
@@ -987,7 +987,7 @@ export default async function SubscriptionPage() {
               <h2 className="text-xl font-extrabold tracking-tight text-white sm:text-2xl">
                 Оплата, чеки и возврат
               </h2>
-              <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-400">
+              <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-300">
                 Оплачивая курс или подписку, вы соглашаетесь с{" "}
                 <Link
                   href="/legal/offer"
@@ -1006,7 +1006,7 @@ export default async function SubscriptionPage() {
                 приложении «Мой налог» и приходит на email. Отмена подписки — в
                 личном кабинете, доступ сохраняется до конца оплаченного периода.
               </p>
-              <p className="mt-3 text-sm text-slate-400">
+              <p className="mt-3 text-sm text-slate-300">
                 Вопросы по оплате и доступу:{" "}
                 <a
                   href={`mailto:${LEGAL_OPERATOR.email}`}
@@ -1015,7 +1015,7 @@ export default async function SubscriptionPage() {
                   {LEGAL_OPERATOR.email}
                 </a>
               </p>
-              <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">
+              <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-300">
                 Сервис предназначен для лиц старше 18 лет.
               </p>
             </div>

@@ -180,7 +180,7 @@ function DownloadIcon() {
 }
 
 const SELECT_CLASS =
-  "mt-2 min-h-12 w-full rounded-2xl border border-white/15 bg-slate-900 px-4 text-sm font-semibold text-white outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-400/30 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-slate-900/60 disabled:text-slate-500";
+  "mt-2 min-h-12 w-full rounded-2xl border border-white/15 bg-slate-900 px-4 text-sm font-semibold text-white outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-400/30 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-slate-900/60 disabled:text-slate-300";
 
 export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
   const [brand, setBrand] = useState("");
@@ -289,7 +289,7 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
             >
               Бренд → модель → материал
             </h2>
-            <p className="mt-3 text-sm leading-relaxed text-slate-400 sm:text-base">
+            <p className="mt-3 text-sm leading-relaxed text-slate-300 sm:text-base">
               Выберите принтер, чтобы увидеть его профили машины и процессов.
               Материал добавит пресеты пластика для этого принтера.
             </p>
@@ -307,7 +307,7 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
 
         <div className="mt-7 grid gap-4 sm:grid-cols-3">
           <label className="block">
-            <span className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+            <span className="text-xs font-semibold tracking-widest text-slate-300 uppercase">
               Бренд
             </span>
             <select
@@ -328,7 +328,7 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
           </label>
 
           <label className="block">
-            <span className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+            <span className="text-xs font-semibold tracking-widest text-slate-300 uppercase">
               Модель
             </span>
             <select
@@ -349,7 +349,7 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
           </label>
 
           <label className="block">
-            <span className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+            <span className="text-xs font-semibold tracking-widest text-slate-300 uppercase">
               Материал
             </span>
             <select
@@ -374,7 +374,7 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
           >
             Найдено {visibleCount} {pluralize(visibleCount, PROFILE_FORMS)}
           </p>
-          <p className="text-xs leading-relaxed text-slate-500">
+          <p className="text-xs leading-relaxed text-slate-300">
             {hasFilters
               ? "Показаны только профили, подходящие под выбранную цепочку."
               : "Пока показываем всю библиотеку — выберите бренд, чтобы сузить список."}
@@ -387,7 +387,7 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
           <p className="text-lg font-bold text-white">
             Под эти фильтры профилей нет
           </p>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-slate-400">
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-slate-300">
             Для выбранного бренда или материала библиотека пока пуста.
             Попробуйте другую модель либо сбросьте фильтры.
           </p>
@@ -431,7 +431,7 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
                       >
                         {category.title}
                       </h3>
-                      <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-400 sm:text-base">
+                      <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-300 sm:text-base">
                         {category.description}
                       </p>
                     </div>
@@ -463,7 +463,7 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
                             <span className="rounded-full border border-blue-400/30 bg-blue-500/10 px-2.5 py-1 text-[11px] font-bold tracking-wide text-blue-200">
                               {profile.format}
                             </span>
-                            <span className="text-right text-[11px] leading-snug text-slate-500">
+                            <span className="text-right text-[11px] leading-snug text-slate-300">
                               {profile.device}
                             </span>
                           </div>
@@ -472,13 +472,13 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
                             {profile.title}
                           </h4>
 
-                          <p className="mt-3 text-sm leading-relaxed text-slate-400">
+                          <p className="mt-3 text-sm leading-relaxed text-slate-300">
                             {profile.description}
                           </p>
 
                           <dl className="mt-5 space-y-2 border-t border-white/10 pt-4 text-xs">
                             <div className="flex items-start justify-between gap-3">
-                              <dt className="shrink-0 text-slate-500">
+                              <dt className="shrink-0 text-slate-300">
                                 Слайсер
                               </dt>
                               <dd className="text-right font-medium text-slate-300">
@@ -486,7 +486,7 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
                               </dd>
                             </div>
                             <div className="flex items-start justify-between gap-3">
-                              <dt className="shrink-0 text-slate-500">База</dt>
+                              <dt className="shrink-0 text-slate-300">База</dt>
                               <dd className="text-right font-medium text-slate-300">
                                 {profile.requires}
                               </dd>

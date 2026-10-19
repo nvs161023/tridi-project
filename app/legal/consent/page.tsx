@@ -180,7 +180,7 @@ export default function ConsentPage() {
             Политики обработки персональных данных
           </Link>
         </p>
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-300">
           Без согласия и без подтверждения возраста регистрация невозможна:
           форма не отправится, пока обе отметки не поставлены.
         </p>

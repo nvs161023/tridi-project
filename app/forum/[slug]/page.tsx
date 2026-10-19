@@ -162,12 +162,12 @@ export default async function ForumThreadPage({ params }: ThreadPageProps) {
       <main className="mx-auto max-w-4xl px-5 py-12 sm:px-8 sm:py-16">
         <Link
           href="/forum"
-          className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
         >
           <span aria-hidden>←</span> Назад ко всем разделам
         </Link>
 
-        <nav aria-label="Хлебные крошки" className="mt-5 text-sm text-slate-400">
+        <nav aria-label="Хлебные крошки" className="mt-5 text-sm text-slate-300">
           <ol className="flex flex-wrap items-center gap-2">
             <li>
               <Link
@@ -178,7 +178,7 @@ export default async function ForumThreadPage({ params }: ThreadPageProps) {
               </Link>
             </li>
             <li aria-hidden>→</li>
-            <li className="text-slate-500">
+            <li className="text-slate-300">
               {category ? (
                 <Link
                   href={`/forum/category/${category.slug}`}
@@ -198,7 +198,7 @@ export default async function ForumThreadPage({ params }: ThreadPageProps) {
             <span className="rounded-full border border-blue-400/30 bg-blue-500/10 px-2.5 py-1 font-semibold text-blue-200">
               {category?.title ?? "Форум"}
             </span>
-            <time dateTime={thread.created_at} className="text-slate-500">
+            <time dateTime={thread.created_at} className="text-slate-300">
               {formatForumDateTime(thread.created_at)}
             </time>
           </div>
@@ -207,7 +207,7 @@ export default async function ForumThreadPage({ params }: ThreadPageProps) {
             {thread.title}
           </h1>
 
-          <p className="mt-3 text-sm text-slate-400">
+          <p className="mt-3 text-sm text-slate-300">
             Автор: <span className="text-slate-200">{authorName}</span>
           </p>
 
@@ -226,21 +226,21 @@ export default async function ForumThreadPage({ params }: ThreadPageProps) {
             >
               Ответы
               {replies.length > 0 ? (
-                <span className="ml-2 text-base font-semibold text-slate-400">
+                <span className="ml-2 text-base font-semibold text-slate-300">
                   {replies.length}
                 </span>
               ) : null}
             </h2>
             <Link
               href="/forum/rules"
-              className="text-sm font-medium text-slate-400 transition-colors hover:text-blue-400"
+              className="text-sm font-medium text-slate-300 transition-colors hover:text-blue-400"
             >
               Правила форума
             </Link>
           </div>
 
           {replies.length === 0 ? (
-            <p className="mt-4 rounded-3xl border border-dashed border-white/15 bg-slate-950/40 p-6 text-sm leading-relaxed text-slate-400">
+            <p className="mt-4 rounded-3xl border border-dashed border-white/15 bg-slate-950/40 p-6 text-sm leading-relaxed text-slate-300">
               Ответов пока нет. Если знаете решение — напишите: это поможет не
               только автору темы.
             </p>
@@ -257,7 +257,7 @@ export default async function ForumThreadPage({ params }: ThreadPageProps) {
                     </span>
                     <time
                       dateTime={reply.created_at}
-                      className="text-slate-500"
+                      className="text-slate-300"
                     >
                       {formatForumDateTime(reply.created_at)}
                     </time>
@@ -319,7 +319,7 @@ export default async function ForumThreadPage({ params }: ThreadPageProps) {
         <div className="mt-8">
           <Link
             href="/forum"
-            className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400"
+            className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400"
           >
             <span aria-hidden>←</span> Назад ко всем разделам
           </Link>

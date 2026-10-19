@@ -8,7 +8,7 @@ import { emptyAuthFormState } from "@/app/actions/auth-state";
 import { validateFirstName, validateLastName } from "@/lib/person-name";
 
 const inputClassName =
-  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
+  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
 
 /** Ссылка на юридический документ внутри текста согласия. */
 const legalLinkClassName =
@@ -180,7 +180,7 @@ export function SignUpForm({ next = null }: SignUpFormProps) {
           ) : null}
         </div>
       </div>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-slate-300">
         Имя и фамилия попадут в сертификат о прохождении курса.
       </p>
 
@@ -220,7 +220,7 @@ export function SignUpForm({ next = null }: SignUpFormProps) {
           placeholder="Минимум 6 символов"
           className={inputClassName}
         />
-        <p className="mt-2 text-xs text-slate-500">Минимум 6 символов</p>
+        <p className="mt-2 text-xs text-slate-300">Минимум 6 символов</p>
       </div>
 
       {state.error ? (

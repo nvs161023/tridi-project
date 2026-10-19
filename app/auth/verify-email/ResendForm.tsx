@@ -7,7 +7,7 @@ import { resendVerificationAction } from "@/app/actions/auth";
 import { emptyAuthFormState } from "@/app/actions/auth-state";
 
 const inputClassName =
-  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
+  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
 
 /**
  * Повторная отправка письма для подтверждения адреса.
@@ -63,7 +63,7 @@ export function ResendForm() {
         </p>
       ) : null}
 
-      <p className="text-xs leading-relaxed text-slate-500">
+      <p className="text-xs leading-relaxed text-slate-300">
         Указывая email, вы подтверждаете, что ознакомлены с{" "}
         <Link
           href="/legal/privacy"

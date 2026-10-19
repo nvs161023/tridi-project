@@ -235,7 +235,7 @@ export function Logo({
           <span className="text-slate-100">tridi</span>
           <span className="text-[#0055FF]">-print</span>
           <span
-            className={`ml-0.5 text-[10px] font-semibold tracking-normal text-slate-400 ${
+            className={`ml-0.5 text-[10px] font-semibold tracking-normal text-slate-300 ${
               isFull ? "hidden md:inline" : ""
             }`}
           >

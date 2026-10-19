@@ -34,13 +34,13 @@ export function PartnerBonus() {
                   TRIDI-SLOYTECH
                 </span>
               </p>
-              <p className="mt-2 text-xs leading-relaxed text-slate-400">
+              <p className="mt-2 text-xs leading-relaxed text-slate-300">
                 Назовите промокод при заказе у партнёра — он действует для
                 выпускников курса TriDi.
               </p>
             </>
           ) : (
-            <p className="mt-3 text-sm leading-relaxed text-slate-400">
+            <p className="mt-3 text-sm leading-relaxed text-slate-300">
               Партнерская программа скоро.
             </p>
           )}

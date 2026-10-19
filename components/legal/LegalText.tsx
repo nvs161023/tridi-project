@@ -26,7 +26,7 @@ export function LegalDocumentHeader({
       <p className="mt-4 text-base leading-relaxed text-slate-300 sm:text-lg">
         {description}
       </p>
-      <p className="mt-4 text-sm text-slate-500">
+      <p className="mt-4 text-sm text-slate-300">
         Редакция от {updatedAt}
       </p>
     </header>
@@ -46,7 +46,7 @@ export function LegalSection({
   return (
     <section className="mt-10 border-t border-white/10 pt-8 sm:mt-12">
       <h2 className="text-xl font-bold text-white sm:text-2xl">
-        <span aria-hidden className="text-slate-500">
+        <span aria-hidden className="text-slate-300">
           {number}.{" "}
         </span>
         {title}
@@ -77,7 +77,7 @@ export function LegalSubsection({
   return (
     <div className="mt-8">
       <h3 className="text-base font-bold text-white sm:text-lg">
-        <span aria-hidden className="text-slate-500">
+        <span aria-hidden className="text-slate-300">
           {number}.{" "}
         </span>
         {title}
@@ -90,7 +90,7 @@ export function LegalSubsection({
 /** Список внутри раздела (маркеры не мешают, когда пункты — целые фразы). */
 export function LegalList({ items }: { items: ReactNode[] }) {
   return (
-    <ul className="list-disc space-y-2 pl-6 marker:text-slate-500">
+    <ul className="list-disc space-y-2 pl-6 marker:text-slate-300">
       {items.map((item, index) => (
         <li key={index}>{item}</li>
       ))}
@@ -126,7 +126,7 @@ export function LegalRequisites({
     <dl className="mt-6 grid gap-2 rounded-3xl border border-white/10 bg-white/5 p-6 sm:grid-cols-[auto_1fr] sm:gap-x-6">
       {items.map((item) => (
         <div key={item.label} className="contents">
-          <dt className="text-sm font-semibold text-slate-400">{item.label}</dt>
+          <dt className="text-sm font-semibold text-slate-300">{item.label}</dt>
           <dd className="text-sm text-slate-200 sm:text-base">{item.value}</dd>
         </div>
       ))}

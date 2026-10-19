@@ -14,7 +14,7 @@ const LOGIN_ERROR_HREF = "/auth/login?error=reset_link_invalid";
 const FORGOT_PASSWORD_HREF = "/auth/forgot-password";
 
 const inputClassName =
-  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
+  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
 
 /** Главная кнопка страницы: тот же вид, что «Подтвердить email» на /auth/confirm. */
 const buttonClassName =
@@ -57,7 +57,7 @@ function ResetShell({ children }: { children: ReactNode }) {
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16 sm:px-8">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 self-start text-sm font-medium text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          className="inline-flex items-center gap-2 self-start text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
         >
           <span aria-hidden>←</span>
           На главную
@@ -239,7 +239,7 @@ function ResetPasswordScreen() {
           <span aria-hidden>→</span>
         </Link>
 
-        <p className="mt-6 text-center text-sm text-slate-400">
+        <p className="mt-6 text-center text-sm text-slate-300">
           Вспомнили пароль?{" "}
           <Link
             href="/auth/login"
@@ -279,7 +279,7 @@ function ResetPasswordScreen() {
         <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
           Новый пароль
         </h1>
-        <p className="mt-3 text-base leading-relaxed text-slate-400">
+        <p className="mt-3 text-base leading-relaxed text-slate-300">
           Ссылка подтверждена. Придумайте новый пароль и сохраните его.
         </p>
 
@@ -305,7 +305,7 @@ function ResetPasswordScreen() {
               placeholder="Минимум 6 символов"
               className={inputClassName}
             />
-            <p className="mt-2 text-xs text-slate-500">Минимум 6 символов</p>
+            <p className="mt-2 text-xs text-slate-300">Минимум 6 символов</p>
           </div>
 
           <div>
@@ -348,7 +348,7 @@ function ResetPasswordScreen() {
             {isSaving ? null : <span aria-hidden>→</span>}
           </button>
 
-          <p className="text-center text-xs leading-relaxed text-slate-500">
+          <p className="text-center text-xs leading-relaxed text-slate-300">
             Сохраняя пароль, вы подтверждаете, что ознакомлены с{" "}
             <Link
               href="/legal/privacy"
@@ -393,7 +393,7 @@ function ResetPasswordScreen() {
         {isVerifying ? null : <span aria-hidden>→</span>}
       </button>
 
-      <p className="mt-6 text-sm leading-relaxed text-slate-400">
+      <p className="mt-6 text-sm leading-relaxed text-slate-300">
         Кнопка нужна, чтобы ссылку не сожгли до вас: письма иногда открывают почтовые
         сервисы, которые проверяют ссылки автоматически, — токен уходит в Supabase
         только после нажатия.

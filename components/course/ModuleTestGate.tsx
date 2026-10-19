@@ -75,7 +75,7 @@ export function ModuleTestGate({
         {moduleLabel}
       </h2>
 
-      <p className="mt-3 text-base leading-relaxed text-slate-400">
+      <p className="mt-3 text-base leading-relaxed text-slate-300">
         {hint}
       </p>
 
@@ -150,12 +150,12 @@ export function ModuleTestGate({
             type="button"
             disabled
             aria-disabled="true"
-            className="inline-flex min-h-14 w-full cursor-not-allowed items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-9 text-lg font-semibold text-slate-500"
+            className="inline-flex min-h-14 w-full cursor-not-allowed items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-9 text-lg font-semibold text-slate-300"
           >
             {nextLabel}
             <span aria-hidden>→</span>
           </button>
-          <p className="mt-3 text-sm text-slate-400">
+          <p className="mt-3 text-sm text-slate-300">
             Сначала сдай тест — без него следующий модуль закрыт.
           </p>
         </div>
@@ -164,7 +164,7 @@ export function ModuleTestGate({
       <p className="mt-5">
         <Link
           href={testPageHref}
-          className="text-sm font-medium text-slate-400 transition-colors hover:text-blue-400"
+          className="text-sm font-medium text-slate-300 transition-colors hover:text-blue-400"
         >
           Открыть тест отдельной страницей
         </Link>

@@ -157,7 +157,7 @@ export function VisualPlaceholder({
 
       {showCaption && caption ? (
         <figcaption className="relative mt-auto border-t border-white/10 px-4 py-3.5">
-          <p className="text-xs leading-relaxed text-slate-400">{caption}</p>
+          <p className="text-xs leading-relaxed text-slate-300">{caption}</p>
         </figcaption>
       ) : null}
     </figure>

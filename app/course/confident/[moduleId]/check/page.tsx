@@ -74,7 +74,7 @@ export default async function ConfidentCheckPage({
           <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
             <span aria-hidden>🔍</span> Такого модуля нет
           </h1>
-          <p className="mt-6 text-base leading-relaxed text-slate-400 sm:text-lg">
+          <p className="mt-6 text-base leading-relaxed text-slate-300 sm:text-lg">
             Проверка знаний есть у каждого модуля уровня — открой программу и
             выбери нужный.
           </p>

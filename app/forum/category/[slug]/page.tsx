@@ -166,7 +166,7 @@ export default async function ForumCategoryPage({ params }: CategoryPageProps) {
           />
 
           <div className="relative mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-16">
-            <nav aria-label="Хлебные крошки" className="text-sm text-slate-400">
+            <nav aria-label="Хлебные крошки" className="text-sm text-slate-300">
               <ol className="flex flex-wrap items-center gap-2">
                 <li>
                   <Link
@@ -177,7 +177,7 @@ export default async function ForumCategoryPage({ params }: CategoryPageProps) {
                   </Link>
                 </li>
                 <li aria-hidden>→</li>
-                <li className="text-slate-500" aria-current="page">
+                <li className="text-slate-300" aria-current="page">
                   {category.title}
                 </li>
               </ol>
@@ -203,7 +203,7 @@ export default async function ForumCategoryPage({ params }: CategoryPageProps) {
                 <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
                   {description}
                 </p>
-                <p className="mt-3 text-sm text-slate-500">
+                <p className="mt-3 text-sm text-slate-300">
                   {threads.length}{" "}
                   {pluralizeForumCount(threads.length, THREAD_FORMS)} в разделе
                 </p>
@@ -232,7 +232,7 @@ export default async function ForumCategoryPage({ params }: CategoryPageProps) {
               >
                 Темы раздела
               </h2>
-              <p className="mt-2 text-sm text-slate-400">
+              <p className="mt-2 text-sm text-slate-300">
                 Опубликованные материалы, свежие сверху.
               </p>
             </div>
@@ -250,7 +250,7 @@ export default async function ForumCategoryPage({ params }: CategoryPageProps) {
               <p className="mx-auto mt-5 max-w-2xl text-xl font-bold text-white sm:text-2xl">
                 В этом разделе пока нет тем. Станьте первым, кто задаст вопрос!
               </p>
-              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-slate-400">
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-slate-300">
                 Опишите принтер, материал, слайсер и настройки. После проверки
                 тема появится в этом разделе.
               </p>
@@ -279,11 +279,11 @@ export default async function ForumCategoryPage({ params }: CategoryPageProps) {
                         </Link>
                       </h3>
 
-                      <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-400">
+                      <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-300">
                         {forumExcerpt(thread.content, 220)}
                       </p>
 
-                      <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+                      <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-300">
                         <span>
                           Автор:{" "}
                           <span className="text-slate-300">
@@ -312,7 +312,7 @@ export default async function ForumCategoryPage({ params }: CategoryPageProps) {
           <div className="mt-8">
             <Link
               href="/forum"
-              className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400"
+              className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400"
             >
               <span aria-hidden>←</span> Назад ко всем разделам
             </Link>

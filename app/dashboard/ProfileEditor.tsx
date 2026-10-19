@@ -7,7 +7,7 @@ import { updateProfileAction } from "@/app/actions/profile";
 import { emptyProfileFormState } from "@/app/actions/profile-state";
 
 const inputClassName =
-  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
+  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
 
 type ProfileEditorProps = {
   firstName: string;
@@ -110,7 +110,7 @@ export function ProfileEditor({
                 >
                   Редактировать профиль
                 </h2>
-                <p className="mt-1 text-sm text-slate-400">
+                <p className="mt-1 text-sm text-slate-300">
                   {email ?? "Email не указан"}
                 </p>
               </div>
@@ -197,7 +197,7 @@ export function ProfileEditor({
               </div>
 
 
-              <p className="text-xs leading-relaxed text-slate-500">
+              <p className="text-xs leading-relaxed text-slate-300">
                 Имя и фамилия попадут в сертификат о прохождении курса.
               </p>
 

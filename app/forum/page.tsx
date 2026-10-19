@@ -146,7 +146,7 @@ export default async function ForumPage() {
           </h2>
 
           {categories.length === 0 ? (
-            <p className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-6 text-sm leading-relaxed text-slate-400">
+            <p className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-6 text-sm leading-relaxed text-slate-300">
               Разделы ещё не настроены. Если вы администратор, добавьте записи в
               таблицу forum_categories — после этого форма создания темы станет
               доступной.
@@ -174,14 +174,14 @@ export default async function ForumPage() {
                           <h3 className="text-lg font-bold text-white transition-colors group-hover:text-blue-200">
                             {category.title}
                           </h3>
-                          <p className="mt-1 text-sm leading-relaxed text-slate-400">
+                          <p className="mt-1 text-sm leading-relaxed text-slate-300">
                             {category.description}
                           </p>
                           <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                             <p className="text-xs font-semibold tracking-wide text-blue-300 uppercase">
                               {count} {pluralizeForumCount(count, THREAD_FORMS)}
                             </p>
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 transition-colors group-hover:text-blue-300">
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-300 transition-colors group-hover:text-blue-300">
                               Открыть раздел
                               <span
                                 aria-hidden
@@ -215,13 +215,13 @@ export default async function ForumPage() {
                 >
                   Последние темы
                 </h2>
-                <p className="mt-2 text-sm text-slate-400">
+                <p className="mt-2 text-sm text-slate-300">
                   Опубликованные материалы сообщества, свежие сверху.
                 </p>
               </div>
               <Link
                 href="/forum/rules"
-                className="text-sm font-medium text-slate-400 transition-colors hover:text-blue-400"
+                className="text-sm font-medium text-slate-300 transition-colors hover:text-blue-400"
               >
                 Как проходит модерация
               </Link>
@@ -232,7 +232,7 @@ export default async function ForumPage() {
                 <p className="text-base font-semibold text-white">
                   Пока нет опубликованных тем
                 </p>
-                <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
+                <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-slate-300">
                   Станьте первым: задайте вопрос о принтере, пластике или
                   настройках. После проверки тема появится здесь.
                 </p>
@@ -253,7 +253,7 @@ export default async function ForumPage() {
                         <span className="rounded-full border border-blue-400/30 bg-blue-500/10 px-2.5 py-1 font-semibold text-blue-200">
                           {categoryTitles.get(thread.category_id) ?? "Форум"}
                         </span>
-                        <span className="text-slate-500">
+                        <span className="text-slate-300">
                           {formatForumDate(thread.created_at)}
                         </span>
                       </div>
@@ -267,11 +267,11 @@ export default async function ForumPage() {
                         </Link>
                       </h3>
 
-                      <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-400">
+                      <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-300">
                         {forumExcerpt(thread.content, 220)}
                       </p>
 
-                      <p className="mt-3 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+                      <p className="mt-3 flex flex-wrap items-center gap-x-2 text-xs text-slate-300">
                         <span>{forumAuthorName(names, thread.author_id)}</span>
                         <span aria-hidden>·</span>
                         <span>{thread.views} просмотров</span>
@@ -317,7 +317,7 @@ export default async function ForumPage() {
                 <h2 className="mt-3 text-base font-bold text-white">
                   {item.title}
                 </h2>
-                <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                <p className="mt-2 text-sm leading-relaxed text-slate-300">
                   {item.text}
                 </p>
               </article>

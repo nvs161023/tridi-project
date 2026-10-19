@@ -90,7 +90,7 @@ export function MiniCheck({ title, questions }: MiniCheckProps) {
       return `${base} border-red-500/60 bg-red-500/15 text-red-100`;
     }
 
-    return `${base} border-white/10 bg-white/5 text-slate-400 opacity-60`;
+    return `${base} border-white/10 bg-white/5 text-slate-300 opacity-60`;
   }
 
   /** Значок перед вариантом: после ответа — галочка или крестик. */
@@ -120,7 +120,7 @@ export function MiniCheck({ title, questions }: MiniCheckProps) {
           {total} правильных
         </p>
 
-        <p className="mt-3 text-base leading-relaxed text-slate-400">
+        <p className="mt-3 text-base leading-relaxed text-slate-300">
           {isAllCorrect
             ? "Все ответы верные — можно идти дальше."
             : "Загляни в блоки выше: на каждый вопрос там есть подсказка."}
@@ -159,7 +159,7 @@ export function MiniCheck({ title, questions }: MiniCheckProps) {
         />
       </div>
 
-      <p className="mt-6 text-xs font-semibold uppercase tracking-widest text-slate-400">
+      <p className="mt-6 text-xs font-semibold uppercase tracking-widest text-slate-300">
         Вопрос {questionIndex + 1} из {total}
       </p>
       <h3 className="mt-2 text-base font-bold text-white sm:text-lg">

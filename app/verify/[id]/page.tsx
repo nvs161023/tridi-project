@@ -72,7 +72,7 @@ function DetailRow({
 }) {
   return (
     <div className="flex flex-col gap-1 border-b border-white/10 py-4 last:border-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
-      <dt className="text-sm text-slate-400">{label}</dt>
+      <dt className="text-sm text-slate-300">{label}</dt>
       <dd className="text-base font-semibold text-white sm:text-right">
         {children}
       </dd>
@@ -98,7 +98,7 @@ function ValidCertificate({
       <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
         Сертификат TriDi
       </h1>
-      <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-400">
+      <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300">
         Документ выдан онлайн-школой 3D-печати TriDi. Данные ниже взяты из
         подписанного токена: имя, курс и дату нельзя изменить, не нарушив
         подпись.
@@ -119,7 +119,7 @@ function ValidCertificate({
         </dl>
       </section>
 
-      <div className="mt-8 rounded-2xl border border-white/10 bg-slate-900/60 p-5 text-sm leading-relaxed text-slate-400">
+      <div className="mt-8 rounded-2xl border border-white/10 bg-slate-900/60 p-5 text-sm leading-relaxed text-slate-300">
         Сертификат подтверждает, что курс пройден полностью: изучены все уроки с
         материалом и сданы все тесты модулей. Если данные на бумажной копии
         отличаются от этой страницы, доверяйте этой странице.
@@ -155,13 +155,13 @@ function InvalidCertificate() {
       <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
         Проверить не удалось
       </h1>
-      <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-400">
+      <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-300">
         Ссылка повреждена или сокращена, сертификат подделан, либо сервер
         проверки временно не настроен. Попросите владельца сертификата прислать
         ссылку целиком или сверьте номер документа.
       </p>
 
-      <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-5 text-sm leading-relaxed text-slate-400">
+      <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-5 text-sm leading-relaxed text-slate-300">
         Настоящий сертификат TriDi всегда содержит номер вида
         <span className="font-mono text-slate-200"> TRI-2026-AB12CD34</span> и
         ссылку проверки на этом сайте. По одному номеру проверить документ

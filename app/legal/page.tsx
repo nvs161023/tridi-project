@@ -43,7 +43,7 @@ export default function LegalIndexPage() {
         ))}
       </ul>
 
-      <p className="mt-10 text-sm leading-relaxed text-slate-400">
+      <p className="mt-10 text-sm leading-relaxed text-slate-300">
         Вопросы по документам и обработке данных: {LEGAL_OPERATOR.fullName}, ИНН{" "}
         {LEGAL_OPERATOR.inn},{" "}
         <a

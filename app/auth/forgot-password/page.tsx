@@ -29,7 +29,7 @@ export default function ForgotPasswordPage() {
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16 sm:px-8">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 self-start text-sm font-medium text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          className="inline-flex items-center gap-2 self-start text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
         >
           <span aria-hidden>←</span>
           На главную
@@ -39,14 +39,14 @@ export default function ForgotPasswordPage() {
           <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
             Восстановление пароля
           </h1>
-          <p className="mt-3 text-base leading-relaxed text-slate-400">
+          <p className="mt-3 text-base leading-relaxed text-slate-300">
             Укажите email, на который регистрировались, — пришлём ссылку для нового
             пароля
           </p>
 
           <ForgotPasswordForm />
 
-          <p className="mt-8 text-center text-sm text-slate-400">
+          <p className="mt-8 text-center text-sm text-slate-300">
             Вспомнили пароль?{" "}
             <Link
               href="/auth/login"

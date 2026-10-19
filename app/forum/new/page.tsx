@@ -63,7 +63,7 @@ export default async function NewForumThreadPage({
       <main className="mx-auto max-w-3xl px-5 py-12 sm:px-8 sm:py-16">
         <Link
           href="/forum"
-          className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
         >
           <span aria-hidden>←</span> Назад ко всем разделам
         </Link>
@@ -121,14 +121,14 @@ export default async function NewForumThreadPage({
 
         <aside className="mt-10 rounded-3xl border border-white/10 bg-white/[0.02] p-6">
           <h2 className="text-base font-bold text-white">Что помогает получить ответ</h2>
-          <ul className="mt-3 space-y-2 text-sm leading-relaxed text-slate-400">
+          <ul className="mt-3 space-y-2 text-sm leading-relaxed text-slate-300">
             <li>• модель принтера и его доработки;</li>
             <li>• пластик, цвет и условия хранения;</li>
             <li>• слайсер, профиль и ключевые настройки;</li>
             <li>• фото дефекта или ссылка на модель;</li>
             <li>• что уже пробовали и что изменилось.</li>
           </ul>
-          <p className="mt-4 text-sm leading-relaxed text-slate-500">
+          <p className="mt-4 text-sm leading-relaxed text-slate-300">
             Не публикуйте личные данные и чужие платные файлы.{" "}
             <Link
               href="/forum/rules"

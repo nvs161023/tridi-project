@@ -89,7 +89,7 @@ function LessonNotFound() {
         <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
           <span aria-hidden>🔍</span> Такого урока нет
         </h1>
-        <p className="mt-6 text-base leading-relaxed text-slate-400 sm:text-lg">
+        <p className="mt-6 text-base leading-relaxed text-slate-300 sm:text-lg">
           Возможно, адрес набран с опечаткой или урок ещё не появился в программе
           уровня. Открой программу — там видно все модули и уроки.
         </p>
@@ -132,7 +132,7 @@ function LockedNotice({ refreshHref }: { refreshHref: string }) {
         </Link>
       </div>
 
-      <p className="relative mt-6 text-sm text-slate-400">
+      <p className="relative mt-6 text-sm text-slate-300">
         Уже купили доступ?{" "}
         {/* Обычная ссылка, а не <Link>: нужна полная перезагрузка, чтобы сервер
             заново сходил в базу и проверил покупки. Работает и без JavaScript. */}
@@ -181,7 +181,7 @@ function LessonLockedByTest({
         <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
           <span aria-hidden>🔒</span> Сначала тест: {previousModuleLabel}
         </h1>
-        <p className="mt-6 text-base leading-relaxed text-slate-400 sm:text-lg">
+        <p className="mt-6 text-base leading-relaxed text-slate-300 sm:text-lg">
           Этот урок открывает следующий модуль. Тесты в уровне обязательны: пока
           не сдан тест предыдущего модуля, дальше не пустим. Начать можно прямо
           здесь — слайдом.
@@ -214,7 +214,7 @@ function LessonLockedByTest({
 
         <Link
           href={previousCheckHref}
-          className="mt-4 text-sm font-medium text-slate-500 transition-colors hover:text-rose-300"
+          className="mt-4 text-sm font-medium text-slate-300 transition-colors hover:text-rose-300"
         >
           Открыть тест отдельной страницей
         </Link>
@@ -383,7 +383,7 @@ export default async function ProfitLessonPage({
           </div>
 
           <div className="mt-4">
-            <div className="flex items-center justify-between text-xs font-semibold text-slate-400 sm:text-sm">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-300 sm:text-sm">
               <span>
                 Урок {lesson.lessonNumber} из {totalLessons}
               </span>
@@ -493,7 +493,7 @@ export default async function ProfitLessonPage({
                 <h2 className="mt-3 text-xl font-extrabold tracking-tight text-white sm:text-2xl">
                   {lesson.moduleLabel}
                 </h2>
-                <p className="mt-3 text-base leading-relaxed text-slate-400">
+                <p className="mt-3 text-base leading-relaxed text-slate-300">
                   Тест модуля появится вместе с последними уроками. Пока проверка
                   не написана, следующий модуль открыт — можно идти дальше.
                 </p>

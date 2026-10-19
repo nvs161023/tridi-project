@@ -160,7 +160,7 @@ export function ParameterPanel({
       className="order-2 min-w-0 rounded-3xl border border-white/10 bg-white/5 p-5 sm:p-6 lg:order-1 lg:sticky lg:top-6"
     >
       <h2
-        className="text-xs font-semibold tracking-wide text-slate-400 uppercase"
+        className="text-xs font-semibold tracking-wide text-slate-300 uppercase"
         id="parameters-heading"
       >
         Параметры модели
@@ -183,7 +183,7 @@ export function ParameterPanel({
                     ? "flex w-full items-center gap-3 rounded-2xl border border-blue-400/50 bg-blue-500/10 px-4 py-3 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                     : type.available
                       ? "flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                      : "flex w-full cursor-not-allowed items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 text-slate-500"
+                      : "flex w-full cursor-not-allowed items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 text-slate-300"
                 }
                 disabled={!type.available}
                 key={type.id}
@@ -206,7 +206,7 @@ export function ParameterPanel({
                       ? "rounded-full border border-blue-400/40 bg-blue-500/15 px-2.5 py-0.5 text-[0.7rem] font-semibold tracking-wide text-blue-200 uppercase"
                       : type.available
                         ? "rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[0.7rem] font-semibold tracking-wide text-slate-300 uppercase"
-                        : "rounded-full border border-slate-500/30 bg-slate-500/10 px-2.5 py-0.5 text-[0.7rem] font-semibold tracking-wide text-slate-400 uppercase"
+                        : "rounded-full border border-slate-500/30 bg-slate-500/10 px-2.5 py-0.5 text-[0.7rem] font-semibold tracking-wide text-slate-300 uppercase"
                   }
                 >
                   {selected ? "Выбрано" : type.available ? "Доступно" : "Скоро"}
@@ -246,7 +246,7 @@ export function ParameterPanel({
               })}
             </div>
 
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
               {SHAPE_HINTS[params.shape]}
             </p>
           </fieldset>
@@ -276,7 +276,7 @@ export function ParameterPanel({
               })}
             </div>
 
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
               {PATTERN_HINTS[params.pattern]}
             </p>
 
@@ -372,7 +372,7 @@ export function ParameterPanel({
               })}
             </div>
 
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
               Отверстие под кольцо диаметром 4 мм есть у обеих форм. Выберите
               скруглённый прямоугольник для спокойного вида или шестиугольник
               для более техничного.
@@ -390,7 +390,7 @@ export function ParameterPanel({
             <input
               aria-describedby={textHintId}
               autoComplete="off"
-              className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-medium text-white placeholder:text-slate-600 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               id={textInputId}
               maxLength={KEYCHAIN_TEXT_MAX_LENGTH}
               onChange={(event) =>
@@ -404,13 +404,13 @@ export function ParameterPanel({
 
             <div className="mt-2 flex items-start justify-between gap-3">
               <p
-                className="text-xs leading-relaxed text-slate-500"
+                className="text-xs leading-relaxed text-slate-300"
                 id={textHintId}
               >
                 Кириллица, латиница, цифры и знаки. Имя выступает над основой на
                 0.8 мм и масштабируется под свободное место.
               </p>
-              <span className="shrink-0 text-xs tabular-nums text-slate-500">
+              <span className="shrink-0 text-xs tabular-nums text-slate-300">
                 {textLength}/{KEYCHAIN_TEXT_MAX_LENGTH}
               </span>
             </div>
@@ -458,7 +458,7 @@ export function ParameterPanel({
         {params.model === "vase" ? (
           <>
             <div>
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-500 uppercase">
+              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
                 Высота
               </dt>
               <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
@@ -466,7 +466,7 @@ export function ParameterPanel({
               </dd>
             </div>
             <div className="border-x border-white/10">
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-500 uppercase">
+              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
                 Диаметр
               </dt>
               <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
@@ -474,7 +474,7 @@ export function ParameterPanel({
               </dd>
             </div>
             <div>
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-500 uppercase">
+              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
                 Стенка
               </dt>
               <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
@@ -485,7 +485,7 @@ export function ParameterPanel({
         ) : (
           <>
             <div>
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-500 uppercase">
+              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
                 Длина
               </dt>
               <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
@@ -493,7 +493,7 @@ export function ParameterPanel({
               </dd>
             </div>
             <div className="border-x border-white/10">
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-500 uppercase">
+              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
                 Ширина
               </dt>
               <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
@@ -501,7 +501,7 @@ export function ParameterPanel({
               </dd>
             </div>
             <div>
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-500 uppercase">
+              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
                 Толщина
               </dt>
               <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
@@ -542,7 +542,7 @@ export function ParameterPanel({
                 "Скачать STL"
               )}
             </button>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
               {isExporting
                 ? "Собираем геометрию и упаковываем её в бинарный STL…"
                 : "Подписка Pro активна. Файл скачается с именем по вашим параметрам."}
@@ -585,7 +585,7 @@ export function ParameterPanel({
                 "Скачать STL"
               )}
             </button>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
               {isExporting
                 ? "Собираем геометрию и упаковываем её в бинарный STL…"
                 : "Бесплатный лимит: 3 скачивания в календарный месяц."}
@@ -617,7 +617,7 @@ export function ParameterPanel({
               <span aria-hidden>⚡</span>
               Оформить Pro для безлимита
             </Link>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
               Оформите подписку Pro для безлимитного доступа.
             </p>
             <ExportErrorAlert error={exportError} />

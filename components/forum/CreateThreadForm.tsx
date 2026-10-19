@@ -7,7 +7,7 @@ import { createThread } from "@/app/actions/forum";
 import { emptyForumFormState } from "@/app/actions/forum-state";
 
 const fieldClassName =
-  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
+  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
 
 type CategoryOption = {
   id: string;
@@ -129,7 +129,7 @@ export function CreateThreadForm({
           placeholder="Например: PLA расслаивается на Ender 3 — что проверить?"
           className={fieldClassName}
         />
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-slate-300">
           До 180 символов. Конкретный заголовок помогает найти ответ быстрее.
         </p>
       </div>
@@ -173,7 +173,7 @@ export function CreateThreadForm({
         </span>
       </label>
 
-      <p className="text-xs leading-relaxed text-slate-500">
+      <p className="text-xs leading-relaxed text-slate-300">
         Отправляя тему, вы подтверждаете, что ознакомлены с{" "}
         <Link
           href="/legal/privacy"

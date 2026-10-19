@@ -34,23 +34,23 @@ export function Footer() {
           <div>
             <div className="flex flex-wrap items-center gap-3">
               <Logo variant="wordmark" />
-              <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-semibold text-slate-400">
+              <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-semibold text-slate-300">
                 18+
               </span>
             </div>
-            <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-400">
+            <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-300">
               Онлайн-курс по 3D-печати: практика, тесты и профили для слайсеров.
             </p>
-            <p className="mt-3 max-w-xs text-sm leading-relaxed text-slate-400">
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-slate-300">
               Сервис предназначен для лиц старше 18 лет.
             </p>
           </div>
 
           <nav aria-label="Юридические документы">
-            <h2 className="text-xs font-semibold tracking-[0.14em] text-slate-500 uppercase">
+            <h2 className="text-xs font-semibold tracking-[0.14em] text-slate-300 uppercase">
               Документы
             </h2>
-            <ul className="mt-4 space-y-2.5 text-sm text-slate-400">
+            <ul className="mt-4 space-y-2.5 text-sm text-slate-300">
               {LEGAL_DOCUMENTS.map((document) => (
                 <li key={document.href}>
                   <Link
@@ -70,7 +70,7 @@ export function Footer() {
           >
             <h2
               id="footer-requisites-heading"
-              className="text-xs font-semibold tracking-[0.14em] text-slate-500 uppercase"
+              className="text-xs font-semibold tracking-[0.14em] text-slate-300 uppercase"
             >
               Реквизиты и контакты
             </h2>
@@ -81,7 +81,7 @@ export function Footer() {
 
             <dl className="mt-4 grid gap-x-8 gap-y-3.5 text-sm md:grid-cols-2 lg:grid-cols-1">
               <div>
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-500 uppercase">
+                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-300 uppercase">
                   Статус
                 </dt>
                 <dd className="mt-1 leading-relaxed text-slate-200">
@@ -90,7 +90,7 @@ export function Footer() {
               </div>
 
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 md:border-t md:border-white/10 md:pt-3.5">
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-500 uppercase">
+                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-300 uppercase">
                   ИНН
                 </dt>
                 <dd className="font-mono text-base font-semibold tracking-wide text-slate-100">
@@ -99,7 +99,7 @@ export function Footer() {
               </div>
 
               <div>
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-500 uppercase">
+                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-300 uppercase">
                   Телефон
                 </dt>
                 <dd className="mt-1">
@@ -110,7 +110,7 @@ export function Footer() {
               </div>
 
               <div>
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-500 uppercase">
+                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-300 uppercase">
                   Email
                 </dt>
                 <dd className="mt-1">
@@ -126,7 +126,7 @@ export function Footer() {
           </section>
         </div>
 
-        <div className="mt-10 flex flex-col gap-2 border-t border-white/10 pt-6 text-xs leading-relaxed text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-10 flex flex-col gap-2 border-t border-white/10 pt-6 text-xs leading-relaxed text-slate-300 sm:flex-row sm:items-center sm:justify-between">
           <p>
             © {currentYear} tridi-print.ru — 3D-печать с нуля. Все права защищены.
           </p>

@@ -53,7 +53,7 @@ export default async function VerifyEmailPage({
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16 sm:px-8">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 self-start text-sm font-medium text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          className="inline-flex items-center gap-2 self-start text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
         >
           <span aria-hidden>←</span>
           На главную
@@ -109,12 +109,12 @@ export default async function VerifyEmailPage({
               )}
 
               {isChecking ? (
-                <p className="mt-4 text-sm leading-relaxed text-slate-400">
+                <p className="mt-4 text-sm leading-relaxed text-slate-300">
                   Если через несколько секунд ничего не произошло, ссылка, скорее
                   всего, уже использована — запросите новое письмо ниже.
                 </p>
               ) : (
-                <ul className="mt-5 list-disc space-y-2 pl-6 text-sm leading-relaxed text-slate-400 marker:text-slate-500">
+                <ul className="mt-5 list-disc space-y-2 pl-6 text-sm leading-relaxed text-slate-300 marker:text-slate-300">
                   <li>письмо обычно приходит в течение пары минут;</li>
                   <li>
                     если его не видно — загляните в папки «Спам» и «Промоакции»;
@@ -128,7 +128,7 @@ export default async function VerifyEmailPage({
 
               <ResendForm />
 
-              <p className="mt-6 text-sm leading-relaxed text-slate-400">
+              <p className="mt-6 text-sm leading-relaxed text-slate-300">
                 Письмо не приходит совсем? Напишите на{" "}
                 <a
                   href={`mailto:${LEGAL_OPERATOR.email}`}
@@ -141,7 +141,7 @@ export default async function VerifyEmailPage({
             </>
           )}
 
-          <p className="mt-8 text-center text-sm text-slate-400">
+          <p className="mt-8 text-center text-sm text-slate-300">
             Уже подтвердили адрес?{" "}
             <Link
               href={authHref("/auth/login", next)}

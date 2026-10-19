@@ -68,7 +68,7 @@ export function NumberSlider({
       />
 
       {hint ? (
-        <p className="mt-2 text-xs leading-relaxed text-slate-500" id={hintId}>
+        <p className="mt-2 text-xs leading-relaxed text-slate-300" id={hintId}>
           {hint}
         </p>
       ) : null}

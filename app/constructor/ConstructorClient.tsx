@@ -112,7 +112,7 @@ function ViewportSkeleton() {
         <span aria-hidden className="text-4xl">
           🌀
         </span>
-        <p className="mt-3 text-sm text-slate-400">Загружаем 3D-сцену…</p>
+        <p className="mt-3 text-sm text-slate-300">Загружаем 3D-сцену…</p>
       </div>
     </div>
   );
@@ -291,7 +291,7 @@ export function ConstructorClient({
       <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <Link
-            className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             href="/dashboard"
           >
             <span aria-hidden>←</span>В кабинет
@@ -301,7 +301,7 @@ export function ConstructorClient({
             Конструктор 3D
           </h1>
 
-          <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-400">
+          <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300">
             Параметрические модели под ваш принтер: ваза с математическим узором
             или брелок с именем. Настройте размеры, проверьте результат в 3D и
             скачайте STL.
@@ -349,12 +349,12 @@ export function ConstructorClient({
         >
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2
-              className="text-xs font-semibold tracking-wide text-slate-400 uppercase"
+              className="text-xs font-semibold tracking-wide text-slate-300 uppercase"
               id="preview-heading"
             >
               Предпросмотр
             </h2>
-            <span className="text-xs tabular-nums text-slate-500">
+            <span className="text-xs tabular-nums text-slate-300">
               {params.model === "vase" ? (
                 <>
                   {VASE_SHAPE_LABELS[params.shape]} ·{" "}
@@ -375,7 +375,7 @@ export function ConstructorClient({
             <Viewport params={params} />
           </div>
 
-          <p className="mt-3 text-xs leading-relaxed text-slate-500">
+          <p className="mt-3 text-xs leading-relaxed text-slate-300">
             Вращение — левая кнопка мыши или один палец, зум — колесо или два
             пальца. Модель стоит на виртуальном столе: заглянуть под пол камера
             не даст.

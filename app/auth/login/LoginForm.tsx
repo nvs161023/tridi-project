@@ -8,7 +8,7 @@ import { emptyAuthFormState } from "@/app/actions/auth-state";
 import { authHref } from "@/lib/auth-redirect";
 
 const inputClassName =
-  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
+  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
 
 type LoginFormProps = {
   /**
@@ -111,7 +111,7 @@ export function LoginForm({ next = null }: LoginFormProps) {
         {isPending ? null : <span aria-hidden>→</span>}
       </button>
 
-      <p className="text-center text-xs leading-relaxed text-slate-500">
+      <p className="text-center text-xs leading-relaxed text-slate-300">
         Входя в аккаунт, вы подтверждаете, что ознакомлены с{" "}
         <Link
           href="/legal/privacy"
@@ -124,7 +124,7 @@ export function LoginForm({ next = null }: LoginFormProps) {
 
       {/* Частый случай: человек зарегистрировался, но письмо не нашёл или ссылка
           в нём устарела. Даём прямой путь к повторной отправке. */}
-      <p className="text-center text-sm text-slate-400">
+      <p className="text-center text-sm text-slate-300">
         Зарегистрировались, но письмо не пришло?{" "}
         <Link
           href={authHref("/auth/verify-email", next)}

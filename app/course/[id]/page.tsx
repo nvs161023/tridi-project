@@ -65,7 +65,7 @@ function LessonNotFound() {
         <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
           Урок не найден
         </h1>
-        <p className="mt-6 text-base leading-relaxed text-slate-400 sm:text-lg">
+        <p className="mt-6 text-base leading-relaxed text-slate-300 sm:text-lg">
           Такого урока нет или ссылка устарела. Вернитесь на главную — там
           программа всего курса из {totalLessons} уроков.
         </p>
@@ -121,7 +121,7 @@ function LessonLockedByTest({
         <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
           Сначала пройди тест модуля
         </h1>
-        <p className="mt-6 text-base leading-relaxed text-slate-400 sm:text-lg">
+        <p className="mt-6 text-base leading-relaxed text-slate-300 sm:text-lg">
           {moduleLabel} ещё не сдан. Ответь на {questions.length} вопросов — и
           уроки следующего модуля откроются. Тест открывается прямо здесь,
           слайдом: закрыть можно в любой момент.
@@ -143,13 +143,13 @@ function LessonLockedByTest({
 
         <Link
           href="/"
-          className="mt-6 text-sm font-medium text-slate-400 transition-colors hover:text-blue-400"
+          className="mt-6 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400"
         >
           <span aria-hidden>←</span> Назад к курсу
         </Link>
         <Link
           href={`/course/check/${moduleId}`}
-          className="mt-3 text-sm font-medium text-slate-500 transition-colors hover:text-blue-400"
+          className="mt-3 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400"
         >
           Открыть тест отдельной страницей
         </Link>
@@ -230,7 +230,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
           </div>
 
           <div className="mt-4">
-            <div className="flex items-center justify-between text-xs font-semibold text-slate-400 sm:text-sm">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-300 sm:text-sm">
               <span>
                 Урок {lesson.id} из {totalLessons}
               </span>
@@ -265,7 +265,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
             <span aria-hidden>⏱️</span>
             {lesson.duration}
           </span>
-          <span className="text-sm text-slate-400">
+          <span className="text-sm text-slate-300">
             Урок {lesson.id} из {totalLessons}
           </span>
         </div>

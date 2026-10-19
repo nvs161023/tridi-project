@@ -126,7 +126,7 @@ export async function Header() {
                   {getInitials(userEmail)}
                 </span>
                 <span className="hidden min-w-0 text-left lg:block">
-                  <span className="block text-[10px] font-semibold tracking-[0.14em] text-slate-400 uppercase">
+                  <span className="block text-[10px] font-semibold tracking-[0.14em] text-slate-300 uppercase">
                     Аккаунт
                   </span>
                   <span className="block max-w-36 truncate text-xs font-semibold text-slate-200">

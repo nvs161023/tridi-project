@@ -262,7 +262,7 @@ function CourseCard({
       <h3 className="mt-2 text-xl font-extrabold tracking-tight text-white">
         {level.shortTitle}
       </h3>
-      <p className="mt-2 text-sm leading-relaxed text-slate-400">
+      <p className="mt-2 text-sm leading-relaxed text-slate-300">
         {level.subtitle}
       </p>
 
@@ -270,7 +270,7 @@ function CourseCard({
         {isOpen ? (
           <>
             <div className="flex items-baseline justify-between gap-3">
-              <span className="text-sm text-slate-400">Пройдено</span>
+              <span className="text-sm text-slate-300">Пройдено</span>
               <span className="text-sm font-semibold text-white">
                 {progress.completed} из {progress.total} уроков
               </span>
@@ -291,7 +291,7 @@ function CourseCard({
             </div>
 
             {completion.totalTests > 0 ? (
-              <p className="mt-3 text-xs leading-relaxed text-slate-400">
+              <p className="mt-3 text-xs leading-relaxed text-slate-300">
                 Тесты модулей:{" "}
                 <span className="font-semibold text-slate-200">
                   {completion.passedTests} из {completion.totalTests}
@@ -299,7 +299,7 @@ function CourseCard({
               </p>
             ) : null}
 
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
               {completion.isComplete
                 ? "Курс завершён: уроки и тесты пройдены. Сертификат готов."
                 : percent === 100 && completion.totalTests > 0
@@ -334,7 +334,7 @@ function CourseCard({
                 <LockIcon className="h-4 w-4 shrink-0" />
                 <span className="text-sm font-semibold">Курс не куплен</span>
               </div>
-              <p className="mt-2 text-xs leading-relaxed text-slate-400">
+              <p className="mt-2 text-xs leading-relaxed text-slate-300">
                 Купите навсегда за {formatPrice(level.price)} ₽ — доступ к
                 урокам откроется сразу после оплаты.
               </p>
@@ -565,7 +565,7 @@ export default async function DashboardPage() {
             lastName={lastName}
           />
         </div>
-        <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-400 sm:text-lg">
+        <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-300 sm:text-lg">
           Здесь собрано всё для обучения: статус подписки, прогресс по четырём
           уровням и инструменты Pro. Прогресс сохраняется за аккаунтом, поэтому
           можно продолжать с любого устройства.
@@ -588,7 +588,7 @@ export default async function DashboardPage() {
         >
           <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-xs font-semibold tracking-[0.16em] text-slate-400 uppercase">
+              <p className="text-xs font-semibold tracking-[0.16em] text-slate-300 uppercase">
                 Статус подписки
               </p>
               <h2
@@ -638,7 +638,7 @@ export default async function DashboardPage() {
                 Мои курсы
               </h2>
             </div>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-slate-300">
               Открыто {openCourses} из {COURSE_TYPES.length} уровней
             </p>
           </div>
@@ -669,7 +669,7 @@ export default async function DashboardPage() {
                 Форум
               </h2>
             </div>
-            <p className="max-w-md text-sm leading-relaxed text-slate-400">
+            <p className="max-w-md text-sm leading-relaxed text-slate-300">
               Вопросы по принтерам, материалам и настройкам. Читать может каждый,
               писать — после входа.
             </p>
@@ -681,7 +681,7 @@ export default async function DashboardPage() {
                 <h3 className="text-lg font-bold text-white">
                   Форум сообщества TriDi
                 </h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                <p className="mt-2 text-sm leading-relaxed text-slate-300">
                   Задайте вопрос или помогите другому. Новые темы проходят
                   проверку, а ответы публикуются сразу.
                 </p>
@@ -718,7 +718,7 @@ export default async function DashboardPage() {
                 Инструменты Pro
               </h2>
             </div>
-            <p className="max-w-md text-sm leading-relaxed text-slate-400">
+            <p className="max-w-md text-sm leading-relaxed text-slate-300">
               {hasPro
                 ? "Подписка активна — оба инструмента открыты."
                 : "Доступ открывается подпиской Pro. Без неё карточки остаются размытыми."}
@@ -764,7 +764,7 @@ export default async function DashboardPage() {
                         Admin
                       </span>
                     </div>
-                    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+                    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
                       Управление темами форума, баны и модерация
                     </p>
                   </div>
@@ -821,7 +821,7 @@ function ProToolCard({ tool, isPro }: { tool: ProTool; isPro: boolean }) {
         <h3 className="mt-5 text-xl font-extrabold tracking-tight text-white">
           {tool.title}
         </h3>
-        <p className="mt-2 text-sm leading-relaxed text-slate-400">
+        <p className="mt-2 text-sm leading-relaxed text-slate-300">
           {tool.description}
         </p>
 

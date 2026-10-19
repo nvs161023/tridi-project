@@ -148,7 +148,7 @@ export function CookieBanner() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Link
             href="/legal/cookies"
-            className="text-sm font-medium text-slate-400 underline underline-offset-4 transition-colors hover:text-slate-200"
+            className="text-sm font-medium text-slate-300 underline underline-offset-4 transition-colors hover:text-slate-200"
           >
             Политика cookie
           </Link>

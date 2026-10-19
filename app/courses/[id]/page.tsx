@@ -181,7 +181,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
             <div>
               <Link
                 href="/subscription"
-                className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-slate-400 transition-colors hover:text-white"
+                className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-slate-300 transition-colors hover:text-white"
               >
                 <span aria-hidden>←</span>
                 Все тарифы
@@ -205,7 +205,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 {course.problem}
               </p>
 
-              <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-400">
+              <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300">
                 {course.goal}
               </p>
 
@@ -218,7 +218,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                     <dt className="text-2xl font-extrabold text-white">
                       {stat.value}
                     </dt>
-                    <dd className="mt-0.5 text-xs text-slate-400">
+                    <dd className="mt-0.5 text-xs text-slate-300">
                       {stat.label}
                     </dd>
                   </div>
@@ -240,12 +240,12 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                   {price} ₽
                 </span>
                 {oldPrice ? (
-                  <span className="text-lg text-slate-500 line-through">
+                  <span className="text-lg text-slate-300 line-through">
                     {oldPrice} ₽
                   </span>
                 ) : null}
               </div>
-              <p className="mt-1 text-sm text-slate-400">
+              <p className="mt-1 text-sm text-slate-300">
                 Разовый платёж. Доступ остаётся навсегда.
               </p>
               {saving ? (
@@ -270,7 +270,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 Сравнить с другими курсами
               </Link>
 
-              <ul className="mt-6 space-y-2 border-t border-white/10 pt-5 text-sm text-slate-400">
+              <ul className="mt-6 space-y-2 border-t border-white/10 pt-5 text-sm text-slate-300">
                 <li className="flex gap-2">
                   <span aria-hidden className={course.theme.text}>
                     ✓
@@ -308,7 +308,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
             <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
               Что вы получите
             </h2>
-            <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-400">
+            <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-300">
               Внутри — {course.lessons}{" "}
               {pluralize(course.lessons, LESSON_FORMS)} с практикой на своём
               принтере, {course.visuals} {pluralize(course.visuals, VISUAL_FORMS)}{" "}
@@ -329,7 +329,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                   key={item.label}
                   className="rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3"
                 >
-                  <dt className="text-xs text-slate-500">{item.label}</dt>
+                  <dt className="text-xs text-slate-300">{item.label}</dt>
                   <dd className="mt-1 text-lg font-bold text-white">
                     {item.value}
                   </dd>
@@ -343,17 +343,17 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                   {course.program.length > 1 ? (
                     <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-white/10 pb-4">
                       <div>
-                        <p className="text-xs font-semibold tracking-widest text-slate-500 uppercase">
+                        <p className="text-xs font-semibold tracking-widest text-slate-300 uppercase">
                           Уровень {groupIndex + 1}
                         </p>
                         <h3 className="mt-1 text-2xl font-extrabold text-white">
                           {group.title}
                         </h3>
-                        <p className="mt-1 text-sm text-slate-400">
+                        <p className="mt-1 text-sm text-slate-300">
                           {group.subtitle}
                         </p>
                       </div>
-                      <p className="text-sm text-slate-400">
+                      <p className="text-sm text-slate-300">
                         {group.lessons}{" "}
                         {pluralize(group.lessons, LESSON_FORMS)} ·{" "}
                         {group.modules.length}{" "}
@@ -379,17 +379,17 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                             <span className="block text-base font-bold text-white sm:text-lg">
                               {courseModule.title}
                             </span>
-                            <span className="mt-1 block text-sm leading-relaxed text-slate-400">
+                            <span className="mt-1 block text-sm leading-relaxed text-slate-300">
                               {courseModule.description}
                             </span>
                           </span>
-                          <span className="hidden shrink-0 text-xs text-slate-500 sm:block">
+                          <span className="hidden shrink-0 text-xs text-slate-300 sm:block">
                             {courseModule.lessons.length}{" "}
                             {pluralize(courseModule.lessons.length, LESSON_FORMS)}
                           </span>
                           <span
                             aria-hidden
-                            className="mt-1 shrink-0 text-slate-500 transition-transform group-open:rotate-180"
+                            className="mt-1 shrink-0 text-slate-300 transition-transform group-open:rotate-180"
                           >
                             ⌄
                           </span>
@@ -414,7 +414,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                                   Готовится
                                 </span>
                               )}
-                              <span className="text-xs text-slate-500">
+                              <span className="text-xs text-slate-300">
                                 {lesson.duration}
                               </span>
                             </li>
@@ -458,7 +458,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                   <h3 className="mt-4 text-lg font-bold text-white">
                     {item.title}
                   </h3>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                  <p className="mt-2 text-sm leading-relaxed text-slate-300">
                     {item.text}
                   </p>
                 </article>
@@ -528,7 +528,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                     key={item.label}
                     className="flex items-start justify-between gap-4 py-2.5"
                   >
-                    <dt className="text-slate-400">{item.label}</dt>
+                    <dt className="text-slate-300">{item.label}</dt>
                     <dd className="text-right font-semibold text-white">
                       {item.value}
                     </dd>
@@ -571,12 +571,12 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                   {price} ₽
                 </span>
                 {oldPrice ? (
-                  <span className="text-lg text-slate-500 line-through">
+                  <span className="text-lg text-slate-300 line-through">
                     {oldPrice} ₽
                   </span>
                 ) : null}
               </div>
-              <p className="mt-1 text-sm text-slate-400">
+              <p className="mt-1 text-sm text-slate-300">
                 Разовый платёж. Доступ остаётся навсегда.
               </p>
 
@@ -596,7 +596,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 Вернуться к тарифам
               </Link>
 
-              <p className="mt-4 text-center text-xs leading-relaxed text-slate-500">
+              <p className="mt-4 text-center text-xs leading-relaxed text-slate-300">
                 Оплата через Robokassa · чек НПД на email · уроки в личном
                 кабинете
               </p>
