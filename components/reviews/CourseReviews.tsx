@@ -53,7 +53,7 @@ function ReviewCard({ review }: { review: CourseReview }) {
         </span>
       </div>
       <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-slate-300">
-        {review.body}
+        {review.text}
       </p>
     </li>
   );
@@ -93,8 +93,12 @@ export function CourseReviews({
             id="course-reviews-title"
             className="text-2xl font-extrabold tracking-tight text-white"
           >
-            Отзывы выпускников
+            Как вам обучение?
           </h2>
+          <p className="mt-2 text-sm text-slate-300">
+            Расскажите, что получилось, — это поможет тем, кто только выбирает
+            курс.
+          </p>
           <p className="mt-2 text-sm text-slate-300">
             {stats.count > 0
               ? `${ratingFormatter.format(stats.average)} из ${REVIEW_MAX_RATING} · ${stats.count} ${pluralizeReviews(stats.count)}`
@@ -127,8 +131,8 @@ export function CourseReviews({
         </ul>
       ) : (
         <p className="mt-6 rounded-2xl border border-dashed border-white/15 px-5 py-6 text-sm leading-relaxed text-slate-300">
-          Отзыв могут оставить выпускники курса. Завершите все уроки и тесты —
-          и расскажите, что получилось.
+          Пока отзывов нет. Оставьте первый — он появится здесь сразу после
+          отправки.
         </p>
       )}
     </section>

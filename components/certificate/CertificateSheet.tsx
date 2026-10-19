@@ -6,7 +6,7 @@ import {
   formatCertificateDate,
   type Certificate,
 } from "@/lib/certificates";
-import type { CourseLevel } from "@/lib/course-levels";
+import { getCertificateProgram, type CourseLevel } from "@/lib/course-levels";
 
 /**
  * Стили, которые нельзя выразить Tailwind-классами: масштабирование логотипа
@@ -235,13 +235,15 @@ export function CertificateSheet({
   certificate,
   verifyUrl,
 }: CertificateSheetProps) {
+  const program = getCertificateProgram(level, certificate.fullCourse);
+
   return (
     <>
       <style>{CERTIFICATE_STYLES}</style>
 
       <div className="certificate-frame mx-auto mt-8 w-full max-w-[1120px] overflow-hidden rounded-[2rem] shadow-[0_32px_110px_-28px_rgba(37,99,235,0.5)] print:mt-0 print:max-w-none print:rounded-none print:shadow-none">
         <article
-          aria-label={`Сертификат TriDi: ${level.title}, ${certificate.name}`}
+          aria-label={`Сертификат TriDi: ${program.title}, ${certificate.name}`}
           className="certificate-sheet relative aspect-[297/210] w-full overflow-hidden rounded-[2rem] bg-[#0f172a] text-slate-100 [container-type:inline-size] print:rounded-none"
           style={{
             backgroundImage:
@@ -303,11 +305,22 @@ export function CertificateSheet({
               </div>
 
               <p className="mt-[1.3cqw] text-[clamp(0.46rem,1.08cqw,0.82rem)] tracking-[0.14em] text-slate-300">
-                успешно завершил(а) курс
+                успешно завершил(а) обучение
               </p>
 
-              <p className="mt-[0.7cqw] max-w-[88%] text-[clamp(0.9rem,3.7cqw,2.85rem)] leading-tight font-semibold break-words text-amber-100">
-                {level.title}
+              <p
+                className={`mt-[0.7cqw] max-w-[88%] leading-tight font-semibold break-words text-amber-100 ${
+                  certificate.fullCourse
+                    ? "text-[clamp(0.68rem,2.35cqw,1.95rem)]"
+                    : "text-[clamp(0.78rem,3.05cqw,2.5rem)]"
+                }`}
+              >
+                {program.title}
+              </p>
+
+              <p className="mt-[0.7cqw] max-w-[88%] text-[clamp(0.42rem,0.98cqw,0.76rem)] leading-snug font-medium tracking-[0.04em] text-slate-300">
+                Объем: {program.lessons} уроков / {program.hours} академических
+                часов
               </p>
             </div>
 

@@ -8,10 +8,10 @@ import {
 } from "@/lib/course-completion";
 import {
   isReviewCourseId,
-  REVIEW_BODY_MAX,
-  REVIEW_BODY_MIN,
   REVIEW_MAX_RATING,
   REVIEW_MIN_RATING,
+  REVIEW_TEXT_MAX,
+  REVIEW_TEXT_MIN,
 } from "@/lib/reviews";
 import { createClient } from "@/lib/supabase/server";
 
@@ -70,16 +70,16 @@ export async function createCourseReview(
     return { error: "Поставьте оценку от 1 до 5 звёзд." };
   }
 
-  const body = String(formData.get("body") ?? "")
+  const text = String(formData.get("text") ?? "")
     .replace(/\r\n/g, "\n")
     .trim();
 
-  if (body.length < REVIEW_BODY_MIN) {
-    return { error: `Расскажите чуть подробнее — минимум ${REVIEW_BODY_MIN} символов.` };
+  if (text.length < REVIEW_TEXT_MIN) {
+    return { error: `Расскажите чуть подробнее — минимум ${REVIEW_TEXT_MIN} символов.` };
   }
 
-  if (body.length > REVIEW_BODY_MAX) {
-    return { error: `Отзыв длиннее ${REVIEW_BODY_MAX} символов. Сократите текст.` };
+  if (text.length > REVIEW_TEXT_MAX) {
+    return { error: `Отзыв длиннее ${REVIEW_TEXT_MAX} символов. Сократите текст.` };
   }
 
   const supabase = await createClient();
@@ -107,7 +107,7 @@ export async function createCourseReview(
     course_id: courseId,
     user_id: user.id,
     rating,
-    body,
+    text,
   });
 
   if (error) {

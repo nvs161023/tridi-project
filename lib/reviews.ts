@@ -33,8 +33,8 @@ export const REVIEW_MIN_RATING = 1;
 export const REVIEW_MAX_RATING = 5;
 
 /** Длина текста отзыва: короткий отзыв бесполезен, длинный не помещается. */
-export const REVIEW_BODY_MIN = 10;
-export const REVIEW_BODY_MAX = 1000;
+export const REVIEW_TEXT_MIN = 10;
+export const REVIEW_TEXT_MAX = 1000;
 
 /** Строка course_reviews в том виде, в каком её отдаёт PostgREST. */
 export type CourseReviewRow = {
@@ -42,7 +42,7 @@ export type CourseReviewRow = {
   course_id: string;
   user_id: string;
   rating: number;
-  body: string;
+  text: string;
   created_at: string;
 };
 
@@ -54,7 +54,7 @@ export type CourseReview = {
   userId: string;
   authorName: string;
   rating: number;
-  body: string;
+  text: string;
   createdAt: string;
 };
 
@@ -95,7 +95,7 @@ export async function getCourseReviews(
 ): Promise<CourseReview[]> {
   const { data, error } = await supabase
     .from("course_reviews")
-    .select("id, course_id, user_id, rating, body, created_at")
+    .select("id, course_id, user_id, rating, text, created_at")
     .eq("course_id", courseId)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -134,7 +134,7 @@ export async function getCourseReviews(
     userId: row.user_id,
     authorName: authors.get(row.user_id) ?? REVIEW_AUTHOR_FALLBACK,
     rating: row.rating,
-    body: row.body,
+    text: row.text,
     createdAt: row.created_at,
   }));
 }

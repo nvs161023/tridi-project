@@ -12,9 +12,9 @@ import {
 import { createCourseReview } from "@/app/actions/reviews";
 import { emptyReviewFormState } from "@/app/actions/reviews-state";
 import {
-  REVIEW_BODY_MAX,
-  REVIEW_BODY_MIN,
   REVIEW_MAX_RATING,
+  REVIEW_TEXT_MAX,
+  REVIEW_TEXT_MIN,
   type ReviewCourseId,
 } from "@/lib/reviews";
 
@@ -30,8 +30,9 @@ const STARS = Array.from({ length: REVIEW_MAX_RATING }, (_, index) => index + 1)
  * после завершения курса, а Server Action повторно проверяет прогресс. Оценка
  * выбирается звёздами, текст уходит в форму вместе со скрытым полем rating.
  *
- * После успешной отправки окно показывает подтверждение, а «Готово» закрывает
- * его и обновляет страницу — новый отзыв появляется в списке без перезагрузки.
+ * После успешной отправки окно показывает «Спасибо за отзыв!» и само
+ * закрывается. Закрытие обновляет страницу — новый отзыв появляется в списке
+ * без ручной перезагрузки.
  */
 export function ReviewFormModal({
   courseId,
@@ -93,6 +94,18 @@ export function ReviewFormModal({
     };
   }, [isOpen]);
 
+  // Подтверждение показываем коротко и закрываем сами: после успеха форма уже
+  // не нужна, а новый отзыв появится в списке благодаря router.refresh().
+  useEffect(() => {
+    if (!isOpen || !state.success) {
+      return;
+    }
+
+    const timeout = window.setTimeout(close, 1800);
+
+    return () => window.clearTimeout(timeout);
+  }, [close, isOpen, state.success]);
+
   return (
     <>
       <button
@@ -122,7 +135,7 @@ export function ReviewFormModal({
             className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-2xl shadow-black/50 sm:p-8"
           >
             {state.success ? (
-              <div>
+              <div role="status" aria-live="polite">
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-300">
                   Готово
                 </p>
@@ -134,14 +147,14 @@ export function ReviewFormModal({
                 </h2>
                 <p className="mt-3 text-base leading-relaxed text-slate-300">
                   {state.success} Он уже виден другим выпускникам курса
-                  «{courseTitle}».
+                  «{courseTitle}». Окно закроется автоматически.
                 </p>
                 <button
                   type="button"
                   onClick={close}
                   className="mt-7 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-blue-600 px-6 text-sm font-semibold text-white transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                 >
-                  Готово
+                  Закрыть
                 </button>
               </div>
             ) : (
@@ -222,24 +235,24 @@ export function ReviewFormModal({
 
                   <div>
                     <label
-                      htmlFor="review-body"
+                      htmlFor="review-text"
                       className="block text-sm font-semibold text-slate-200"
                     >
                       Что запомнилось
                     </label>
                     <textarea
-                      id="review-body"
-                      name="body"
+                      id="review-text"
+                      name="text"
                       rows={6}
                       required
-                      minLength={REVIEW_BODY_MIN}
-                      maxLength={REVIEW_BODY_MAX}
+                      minLength={REVIEW_TEXT_MIN}
+                      maxLength={REVIEW_TEXT_MAX}
                       autoFocus
                       placeholder="Что получилось после курса? Какой урок оказался самым полезным?"
                       className={fieldClassName}
                     />
                     <p className="mt-2 text-xs text-slate-300">
-                      От {REVIEW_BODY_MIN} до {REVIEW_BODY_MAX} символов. Отзыв
+                      От {REVIEW_TEXT_MIN} до {REVIEW_TEXT_MAX} символов. Отзыв
                       публикуется сразу и подписывается именем из профиля.
                     </p>
                   </div>

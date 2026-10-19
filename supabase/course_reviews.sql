@@ -32,8 +32,8 @@ create table if not exists public.course_reviews (
   course_id text not null
     check (course_id in ('basic', 'confident', 'engineer', 'profit')),
   user_id uuid not null references auth.users (id) on delete cascade,
-  rating smallint not null check (rating between 1 and 5),
-  body text not null check (char_length(body) between 10 and 1000),
+  rating integer not null check (rating between 1 and 5),
+  text text not null check (char_length(text) between 10 and 1000),
   created_at timestamptz not null default now(),
   constraint course_reviews_one_per_course unique (user_id, course_id)
 );
@@ -41,6 +41,28 @@ create table if not exists public.course_reviews (
 -- Свежие отзывы одного курса читаются чаще всего.
 create index if not exists course_reviews_course_created_idx
   on public.course_reviews (course_id, created_at desc);
+
+-- Если старую версию миграции уже применяли, текст лежал в колонке body.
+-- Переименование делает обновление безопасным для живой базы.
+do $$
+begin
+  if exists (
+    select 1
+      from information_schema.columns
+     where table_schema = 'public'
+       and table_name = 'course_reviews'
+       and column_name = 'body'
+  ) and not exists (
+    select 1
+      from information_schema.columns
+     where table_schema = 'public'
+       and table_name = 'course_reviews'
+       and column_name = 'text'
+  ) then
+    alter table public.course_reviews rename column body to text;
+  end if;
+end
+$$;
 
 -- 2. RLS ---------------------------------------------------------------------
 alter table public.course_reviews enable row level security;
@@ -83,7 +105,7 @@ notify pgrst, 'reload schema';
 -- Как проверить после применения
 -- =============================================================================
 -- 1) Гость видит отзывы, но не может вставить строку:
---      curl "<SUPABASE_URL>/rest/v1/course_reviews?select=course_id,rating,body" \
+--      curl "<SUPABASE_URL>/rest/v1/course_reviews?select=course_id,rating,text" \
 --        -H "apikey: <ANON_KEY>"
 --      -- POST с anon-ключом должен вернуть 401 / row-level security.
 --
@@ -92,6 +114,6 @@ notify pgrst, 'reload schema';
 --        -H "apikey: <ANON_KEY>" -H "Authorization: Bearer <USER_JWT>"
 --
 -- 3) Второй отзыв по тому же курсу должен упасть с кодом 23505:
---      insert into public.course_reviews (course_id, user_id, rating, body)
+--      insert into public.course_reviews (course_id, user_id, rating, text)
 --      values ('basic', '<USER_ID>', 5, 'Повторный отзыв по тому же курсу');
 -- =============================================================================

@@ -35,6 +35,8 @@ export type Certificate = {
   /** Имя получателя на момент выдачи. */
   name: string;
   course: LevelKey;
+  /** Сертификат выдан за пакет «Все 3 уровня», а не за один курс. */
+  fullCourse: boolean;
   /** Устойчивый идентификатор получателя и курса (16 hex-символов). */
   subject: string;
   /** Дата завершения в формате YYYY-MM-DD. */
@@ -48,6 +50,8 @@ export type CertificateInput = {
   userId: string;
   name: string;
   course: LevelKey;
+  /** Куплен пакет pro: на бланке пишем «Полный курс», а не один уровень. */
+  fullCourse?: boolean;
   /** Полная ISO-дата последнего шага; если нет — берётся текущая дата. */
   issuedAt?: string | null;
 };
@@ -185,6 +189,7 @@ export function createCertificate(input: CertificateInput): Certificate {
 
   const name = normalizeName(input.name) || "Слушатель TriDi";
   const issuedAt = normalizeIssueDate(input.issuedAt);
+  const fullCourse = input.fullCourse === true;
   const subject = buildSubject(input.userId, input.course, secret);
   const payload = JSON.stringify([
     TOKEN_VERSION,
@@ -192,6 +197,7 @@ export function createCertificate(input: CertificateInput): Certificate {
     input.course,
     issuedAt,
     subject,
+    fullCourse,
   ]);
   const payloadPart = Buffer.from(payload, "utf8").toString("base64url");
   const signature = signPayload(payloadPart, secret);
@@ -200,6 +206,7 @@ export function createCertificate(input: CertificateInput): Certificate {
     token: `${payloadPart}.${signature}`,
     name,
     course: input.course,
+    fullCourse,
     subject,
     issuedAt,
     number: certificateNumber(subject, issuedAt),
@@ -252,11 +259,11 @@ export function readCertificateToken(token: string): Certificate | null {
     return null;
   }
 
-  if (!Array.isArray(parsed) || parsed.length !== 5) {
+  if (!Array.isArray(parsed) || (parsed.length !== 5 && parsed.length !== 6)) {
     return null;
   }
 
-  const [version, name, course, issuedAt, subject] = parsed;
+  const [version, name, course, issuedAt, subject, fullCourse] = parsed;
 
   if (
     version !== TOKEN_VERSION ||
@@ -268,7 +275,8 @@ export function readCertificateToken(token: string): Certificate | null {
     typeof issuedAt !== "string" ||
     !isValidIsoDate(issuedAt) ||
     typeof subject !== "string" ||
-    !/^[0-9a-f]{16}$/.test(subject)
+    !/^[0-9a-f]{16}$/.test(subject) ||
+    (fullCourse !== undefined && typeof fullCourse !== "boolean")
   ) {
     return null;
   }
@@ -277,6 +285,8 @@ export function readCertificateToken(token: string): Certificate | null {
     token,
     name,
     course,
+    // Старые токены из пяти полей считаются сертификатом за один уровень.
+    fullCourse: fullCourse === true,
     subject,
     issuedAt,
     number: certificateNumber(subject, issuedAt),

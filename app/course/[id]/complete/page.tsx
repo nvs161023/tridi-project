@@ -224,15 +224,6 @@ function levelHref(level: CourseLevel, hasAccess: boolean): string {
   return hasAccess ? `/course/${level.key}` : `/courses/${level.key}`;
 }
 
-/** Подпись кнопки уровня. */
-function levelCta(level: CourseLevel, hasAccess: boolean): string {
-  if (hasAccess) {
-    return "Продолжить уровень";
-  }
-
-  return level.isFree ? "Начать бесплатно" : "Открыть уровень";
-}
-
 /**
  * «Центр выпускника» — финальная точка уровня: /course/<уровень>/complete.
  *
@@ -335,15 +326,25 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
           (completion.completedLessons / completion.totalLessons) * 100,
         )
       : 0;
+
+  // «Центр выпускника» — экран после последнего урока или теста. Прямой заход
+  // на незавершённый курс возвращает в кабинет: праздновать пока нечего, а
+  // сертификат и отзыв доступны только выпускнику.
+  if (!completion.isComplete) {
+    redirect("/dashboard");
+  }
+
   const completionDate = completion.issuedAt
     ? formatCertificateDate(completion.issuedAt.slice(0, 10))
     : "—";
   const currentIndex = LEVELS.findIndex((item) => item.key === level.key);
-  const nextLevels = LEVELS.slice(currentIndex + 1);
-  const offeredLevels =
-    nextLevels.length > 0
-      ? nextLevels
-      : LEVELS.filter((item) => item.key !== level.key);
+  // Показываем ровно три карточки: сначала следующие уровни, затем остальные,
+  // чтобы блок не превращался в две карточки на «Уверенном» или одну на
+  // «Инженере».
+  const offeredLevels = [
+    ...LEVELS.slice(currentIndex + 1),
+    ...LEVELS.slice(0, currentIndex),
+  ].slice(0, 3);
 
   return (
     <GraduationShell>
@@ -378,12 +379,12 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
             </p>
             <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
               {completion.isComplete
-                ? `«${level.title}» пройден!`
+                ? `Поздравляем! Вы прошли уровень «${level.shortTitle}»!`
                 : level.title}
             </h1>
             <p className="mt-4 text-base leading-relaxed text-slate-200 sm:text-lg">
               {completion.isComplete
-                ? `Позади ${completion.totalLessons} ${pluralize(completion.totalLessons, LESSON_FORMS)} и ${completion.totalTests} ${pluralize(completion.totalTests, TEST_FORMS)}. Сертификат подписан, а внизу можно оставить отзыв — он поможет тем, кто только выбирает курс.`
+                ? `Позади ${completion.totalLessons} ${pluralize(completion.totalLessons, LESSON_FORMS)} и ${completion.totalTests} ${pluralize(completion.totalTests, TEST_FORMS)} курса «${level.title}». Сертификат подписан, а внизу можно оставить отзыв — он поможет тем, кто только выбирает курс.`
                 : `Вы прошли ${completion.completedLessons} из ${completion.totalLessons} ${pluralize(completion.totalLessons, LESSON_FORMS)}. ${describeRemaining(completion)}`}
             </p>
           </div>
@@ -438,7 +439,7 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
               href={certificateHref}
               className={`inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${theme.button}`}
             >
-              Смотреть сертификат
+              Открыть и скачать сертификат
               <span aria-hidden>→</span>
             </Link>
           ) : (
@@ -470,28 +471,28 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
           }
           href={certificateHref}
           linkLabel={
-            completion.isComplete ? "Открыть сертификат" : "Посмотреть прогресс"
+            completion.isComplete ? "Открыть и скачать сертификат" : "Посмотреть прогресс"
           }
           accentText={theme.accentText}
         />
         <HubCard
           icon="🧩"
-          title={proActive ? "Конструктор Pro" : "Подарок выпускнику"}
+          title="Доступ к 3D-Конструктору открыт!"
           description={
             proActive
-              ? "Подписка Pro активна: модели ваз и брелоков можно скачивать в STL без месячного лимита и сразу отправлять на печать."
-              : "Конструктор ваз и брелоков открыт каждому выпускнику: три бесплатные модели в месяц, готовый STL и точные размеры."
+              ? "В честь окончания курса мы дарим вам 3 бесплатные генерации моделей в месяц. Подписка Pro активна — лимит не действует, STL можно скачивать без ограничений."
+              : "В честь окончания курса мы дарим вам 3 бесплатные генерации моделей в месяц. Готовый STL и точные размеры — сразу к печати."
           }
           href="/constructor"
-          linkLabel="Открыть конструктор"
+          linkLabel="Перейти в Конструктор"
           accentText={theme.accentText}
           secondaryHref={proActive ? undefined : "/subscription"}
           secondaryLabel={proActive ? undefined : "Что даёт Pro"}
         />
         <HubCard
           icon="💬"
-          title="Клуб выпускников"
-          description="Покажите напечатанную модель, разберите дефект или помогите новичку: форум открыт и после курса."
+          title="Добро пожаловать в клуб TriDi!"
+          description="Делитесь опытом, показывайте напечатанные модели, разбирайте дефекты и помогайте новичкам — клуб открыт и после курса."
           href="/forum"
           linkLabel="Перейти на форум"
           accentText={theme.accentText}
@@ -519,9 +520,7 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
               id="next-levels-title"
               className="mt-2 text-2xl font-extrabold tracking-tight text-white sm:text-3xl"
             >
-              {nextLevels.length > 0
-                ? "Следующие уровни школы"
-                : "Другие уровни школы"}
+              Готовы к следующему уровню?
             </h2>
           </div>
           <Link
@@ -584,7 +583,7 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
                     href={levelHref(offer, offerAccess)}
                     className={`mt-3 inline-flex items-center gap-2 text-sm font-semibold underline-offset-4 hover:underline ${theme.accentText}`}
                   >
-                    {levelCta(offer, offerAccess)}
+                    Подробнее
                     <span aria-hidden>→</span>
                   </Link>
                 </div>

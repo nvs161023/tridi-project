@@ -16,6 +16,7 @@ import { LEVELS, type CourseLevel } from "@/lib/course-levels";
 import { LESSON_FORMS, TEST_FORMS, pluralize } from "@/lib/course-stats";
 import { resolveCurrentUser } from "@/lib/current-user";
 import { resolveSiteUrl } from "@/lib/site-url";
+import { hasCourseAccess } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 type CertificatePageProps = {
@@ -253,11 +254,12 @@ export default async function CertificatePage({
     );
   }
 
-  const progress = await readCourseProgressRows(
-    supabase,
-    identity.id,
-    level.key,
-  );
+  const [progress, fullCourse] = await Promise.all([
+    readCourseProgressRows(supabase, identity.id, level.key),
+    // Пакет pro — это три платных уровня. На бланке он подписывается как
+    // «Полный курс», поэтому флаг входит в HMAC-токен и не меняется задним числом.
+    hasCourseAccess(supabase, identity.id, "pro"),
+  ]);
 
   if (progress.failed) {
     return <ProgressProblem level={level} />;
@@ -276,6 +278,7 @@ export default async function CertificatePage({
       userId: identity.id,
       name: identity.name ?? "",
       course: level.key,
+      fullCourse,
       issuedAt: completion.issuedAt,
     });
   } catch (error) {

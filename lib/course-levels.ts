@@ -58,6 +58,10 @@ export type CourseLevel = {
   badge?: string;
   modules: number;
   lessons: number;
+  /** Число уроков из data/courses.json (totalLessons). */
+  totalLessons: number;
+  /** Оценка объёма из data/courses.json (estimated_hours), в академических часах. */
+  estimatedHours: number;
   hours: string;
   visuals: number;
   tests: number;
@@ -146,6 +150,8 @@ function buildLevel(key: LevelKey): CourseLevel {
     badge: "badge" in meta ? meta.badge : undefined,
     modules: summary.modules,
     lessons: summary.lessons,
+    totalLessons: meta.totalLessons,
+    estimatedHours: meta.estimated_hours,
     hours: summary.hours,
     visuals: countVisualBlocks(content),
     tests: countModuleTests(content),
@@ -165,6 +171,43 @@ export const LEVELS: CourseLevel[] = [
 export const PAID_LEVELS = LEVELS.filter(
   (level): level is CourseLevel & { key: PaidLevelKey } => !level.isFree,
 );
+
+/** Программа на сертификате: один уровень или весь пакет «Все 3 уровня». */
+export type CertificateProgram = {
+  /** Строка курса: «Уровень «Новичок»: 3D-печать с нуля» или «Полный курс (…)». */
+  title: string;
+  lessons: number;
+  hours: number;
+};
+
+/**
+ * Что напечатать на сертификате.
+ *
+ * Для отдельного уровня берём название из data/courses.json и объём из
+ * totalLessons / estimated_hours. Для пакета pro показываем все три платных
+ * уровня и их суммарный объём — иначе сертификат за пакет выглядел бы как
+ * сертификат за один курс.
+ */
+export function getCertificateProgram(
+  level: CourseLevel,
+  fullCourse: boolean,
+): CertificateProgram {
+  if (fullCourse) {
+    const levels = PAID_LEVELS.map((item) => item.shortTitle).join(", ");
+
+    return {
+      title: `Полный курс (Уровни: ${levels})`,
+      lessons: PAID_LEVELS.reduce((sum, item) => sum + item.totalLessons, 0),
+      hours: PAID_LEVELS.reduce((sum, item) => sum + item.estimatedHours, 0),
+    };
+  }
+
+  return {
+    title: `Уровень «${level.shortTitle}»: ${level.title}`,
+    lessons: level.totalLessons,
+    hours: level.estimatedHours,
+  };
+}
 
 /** Продвинутый курс выведен из доступа, поэтому витрина считает только уровни. */
 export const TOTAL_LESSONS = LEVELS.reduce((sum, level) => sum + level.lessons, 0);

@@ -3,11 +3,15 @@ import Link from "next/link";
 
 import { Header } from "@/components/Header";
 import {
+  LEVELS,
+  getCertificateProgram,
+  type CourseLevel,
+} from "@/lib/course-levels";
+import {
   formatCertificateDate,
   readCertificateToken,
   type Certificate,
 } from "@/lib/certificates";
-import { LEVELS, type CourseLevel } from "@/lib/course-levels";
 
 type VerifyPageProps = {
   params: Promise<{ id: string }>;
@@ -88,6 +92,8 @@ function ValidCertificate({
   certificate: Certificate;
   level: CourseLevel;
 }) {
+  const program = getCertificateProgram(level, certificate.fullCourse);
+
   return (
     <VerifyShell>
       <div className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-300">
@@ -108,8 +114,10 @@ function ValidCertificate({
         <dl>
           <DetailRow label="Номер">{certificate.number}</DetailRow>
           <DetailRow label="Получатель">{certificate.name}</DetailRow>
-          <DetailRow label="Курс">{level.title}</DetailRow>
-          <DetailRow label="Уровень">{level.shortTitle}</DetailRow>
+          <DetailRow label="Программа">{program.title}</DetailRow>
+          <DetailRow label="Объем">
+            {program.lessons} уроков / {program.hours} академических часов
+          </DetailRow>
           <DetailRow label="Дата выдачи">
             {formatCertificateDate(certificate.issuedAt)}
           </DetailRow>
