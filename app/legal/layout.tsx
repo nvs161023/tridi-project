@@ -10,8 +10,7 @@ import { LEGAL_DOCUMENTS, LEGAL_OPERATOR, LEGAL_UPDATED_AT } from "@/lib/legal";
  * Своя шапка, а не components/Header: тот читает сессию из cookies и требует
  * переменных Supabase, а юридические документы должны открываться всегда и
  * статически — в том числе когда база недоступна. Векторный логотип берём из
- * components/Logo: он статический и тоже не обращается к Supabase; плашки
- * быстрых ссылок в узком юридическом разделе не нужны.
+ * components/Logo: он статический и тоже не обращается к Supabase.
  */
 export const metadata: Metadata = {
   title: {
@@ -32,7 +31,7 @@ export default function LegalLayout({
       <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto max-w-3xl px-5 py-5 sm:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Logo showBadges={false} />
+            <Logo />
             <Link
               href="/"
               className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"

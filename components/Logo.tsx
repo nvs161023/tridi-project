@@ -2,74 +2,12 @@ import Link from "next/link";
 
 type LogoProps = {
   /**
-   * Куда ведёт плашка «Уроки».
-   *
-   * Гостю — первый урок (middleware сам отправит на вход и вернёт обратно),
-   * вошедшему — личный кабинет. Значение передаёт шапка, которая уже знает
-   * состояние сессии.
-   */
-  lessonsHref?: string;
-  /**
-   * `full` — иконка, название и быстрые ссылки для шапки.
+   * `full` — иконка и название для шапки.
    * `wordmark` — только текст `tridi-print.ru` для подвала.
    */
   variant?: "full" | "wordmark";
-  /** Показывать ли плашки «Уроки» и «Конструктор моделей» (по умолчанию да). */
-  showBadges?: boolean;
   className?: string;
 };
-
-/** Общий стиль быстрых ссылок: обводка, мягкий фон и синий hover. */
-const badgeClassName =
-  "group inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap text-slate-300 transition-colors duration-200 hover:border-blue-400/60 hover:bg-blue-500/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 xl:text-xs";
-
-/** Иконка Play для ссылки на уроки. */
-function PlayIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-3 w-3 shrink-0 text-blue-400 transition-transform duration-200 group-hover:scale-110"
-      fill="none"
-      focusable="false"
-      viewBox="0 0 16 16"
-    >
-      <circle
-        cx="8"
-        cy="8"
-        r="6.4"
-        stroke="currentColor"
-        strokeWidth="1.3"
-      />
-      <path d="M6.5 5.3 10.7 8l-4.2 2.7V5.3Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-/** Изометрический куб для ссылки на конструктор. */
-function CubeIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-3.5 w-3.5 shrink-0 text-blue-400 transition-transform duration-200 group-hover:-translate-y-0.5"
-      fill="none"
-      focusable="false"
-      viewBox="0 0 16 16"
-    >
-      <path
-        d="M8 1.8 14 5.2v5.6L8 14.2 2 10.8V5.2L8 1.8Z"
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="1.3"
-      />
-      <path
-        d="m2.3 5.3 5.7 3.2 5.7-3.2M8 8.5v5.5"
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="1.3"
-      />
-    </svg>
-  );
-}
 
 /**
  * Изометрический 3D-принтер: тёмный корпус-рама, стол и синяя шестерёнка.
@@ -204,20 +142,17 @@ function PrinterMark({ className }: { className?: string }) {
 /**
  * Логотип проекта.
  *
- * В шапке: изометрический принтер, слово `tridi-print.ru` и две быстрые ссылки
- * («Уроки» и «Конструктор моделей»). В подвале — только слово, без плашек.
- * На узких экранах быстрые ссылки и `.ru` скрываются, чтобы шапка не ломалась.
+ * В шапке: изометрический принтер и слово `tridi-print.ru`. В подвале — только
+ * слово, без знака. На узких экранах `.ru` скрывается, чтобы шапка не ломалась.
  */
 export function Logo({
-  lessonsHref = "/course/lesson-1",
   variant = "full",
-  showBadges = true,
   className = "",
 }: LogoProps) {
   const isFull = variant === "full";
 
   return (
-    <div className={`flex min-w-0 items-center gap-2.5 ${className}`}>
+    <div className={`flex items-center gap-2.5 ${className}`}>
       <Link
         aria-label="tridi-print.ru — на главную"
         className="group flex shrink-0 items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
@@ -243,22 +178,6 @@ export function Logo({
           </span>
         </span>
       </Link>
-
-      {isFull && showBadges ? (
-        <nav
-          aria-label="Быстрый доступ"
-          className="hidden items-center gap-1.5 md:flex"
-        >
-          <Link className={badgeClassName} href={lessonsHref}>
-            <PlayIcon />
-            Уроки
-          </Link>
-          <Link className={badgeClassName} href="/constructor">
-            <CubeIcon />
-            Конструктор моделей
-          </Link>
-        </nav>
-      ) : null}
     </div>
   );
 }

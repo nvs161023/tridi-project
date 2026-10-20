@@ -281,7 +281,7 @@ export function CertificateSheet({
 
           <div className="relative flex h-full flex-col px-[6.4%] pt-[3.6%] pb-[3%]">
             <header className="flex shrink-0 items-center justify-between gap-[3cqw] border-b border-amber-400/30 pb-[1.5%]">
-              <Logo showBadges={false} className="certificate-logo" />
+              <Logo className="certificate-logo" />
               <p className="max-w-[40%] text-right text-[clamp(0.42rem,0.94cqw,0.72rem)] leading-relaxed font-semibold tracking-[0.22em] text-slate-300 uppercase">
                 Онлайн-школа 3D-печати
               </p>

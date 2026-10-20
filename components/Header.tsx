@@ -61,15 +61,17 @@ export async function Header() {
     userEmail = user?.email ?? null;
   }
 
+  const lessonsHref = isAuthorized ? "/dashboard" : "/course/lesson-1";
+
   return (
     <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur print:hidden">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 sm:px-8">
-        <Logo lessonsHref={isAuthorized ? "/dashboard" : "/course/lesson-1"} />
+        <Logo className="shrink-0" />
 
-        <div className="flex items-center gap-3 sm:gap-5">
+        <div className="flex shrink-0 items-center gap-3 sm:gap-4 xl:gap-6">
           <nav
             aria-label="Основная навигация"
-            className="hidden items-center gap-5 text-sm font-medium text-slate-300 xl:flex xl:gap-7"
+            className="hidden shrink-0 items-center gap-4 text-sm font-medium whitespace-nowrap text-slate-300 xl:flex xl:gap-6"
           >
             <Link
               className="transition-colors hover:text-blue-400"
@@ -101,10 +103,7 @@ export async function Header() {
             <ToolsDropdown />
           </nav>
 
-          <MobileMenu
-            isAuthorized={isAuthorized}
-            lessonsHref={isAuthorized ? "/dashboard" : "/course/lesson-1"}
-          />
+          <MobileMenu isAuthorized={isAuthorized} lessonsHref={lessonsHref} />
 
           {isAuthorized ? (
             <>
@@ -115,7 +114,7 @@ export async function Header() {
                     ? `Личный кабинет: ${userEmail}`
                     : "Личный кабинет"
                 }
-                className="group flex min-w-0 items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pr-2.5 pl-1.5 transition-colors hover:border-blue-400/40 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                className="group flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pr-1.5 pl-1.5 transition-colors hover:border-blue-400/40 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 xl:pr-2.5"
               >
                 <span
                   data-avatar
@@ -125,7 +124,7 @@ export async function Header() {
                 >
                   {getInitials(userEmail)}
                 </span>
-                <span className="hidden min-w-0 text-left lg:block">
+                <span className="hidden min-w-0 text-left xl:block">
                   <span className="block text-[10px] font-semibold tracking-[0.14em] text-slate-300 uppercase">
                     Аккаунт
                   </span>
@@ -135,7 +134,7 @@ export async function Header() {
                 </span>
               </Link>
 
-              <form action="/logout" method="post">
+              <form action="/logout" method="post" className="shrink-0">
                 <button
                   type="submit"
                   className="inline-flex shrink-0 items-center rounded-full border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:px-4 sm:text-sm"
