@@ -12,6 +12,7 @@ import {
   CALIBRATION_TYPE_LABELS,
   CALIBRATION_UNITS,
   KEYCHAIN_SHAPE_LABELS,
+  LAMP_BASE_SHAPE_LABELS,
   LAMP_MOUNT_LABELS,
   VASE_PATTERN_LABELS,
   type ConstructorParams,
@@ -310,24 +311,34 @@ function KeychainModel({
 
 type LampModelProps = {
   geometry: BufferGeometry;
+  /** Высота абажура без основания, мм. */
   height: number;
+  /** Высота основания, мм: от неё зависит общий силуэт и тень. */
+  baseHeight: number;
   diameter: number;
+  /** Габарит по полу: у квадрата и шестигранника он больше диаметра абажура. */
+  footprint: number;
   pattern: VasePattern;
   mount: LampMount;
 };
 
 /**
- * Абажур стоит на столе так же, как ваза: гнездо патрона сверху, свет уходит
- * вниз. Материал светлее и с лёгким свечением — по нему видно, что деталь
- * относится к светильнику, а не к вазе.
+ * Светильник стоит на столе собранным: основание снизу, абажур сверху на
+ * посадочном кольце. Сетка приходит целой, поэтому в предпросмотре детали
+ * видны вместе, а скачиваются они по отдельности.
  *
- * Тень пересчитывается при смене высоты, диаметра, узора и патрона: силуэт
- * меняется, а при постоянном расчёте тень стоила бы кадрового времени.
+ * Материал светлее и с лёгким свечением — по нему видно, что деталь относится
+ * к светильнику, а не к вазе.
+ *
+ * Тень пересчитывается при смене высот, диаметра, основания, узора и патрона:
+ * силуэт меняется, а при постоянном расчёте тень стоила бы кадрового времени.
  */
 function LampModel({
   geometry,
   height,
+  baseHeight,
   diameter,
+  footprint,
   pattern,
   mount,
 }: LampModelProps) {
@@ -349,24 +360,24 @@ function LampModel({
         receiveShadow
         rotation={[-Math.PI / 2, 0, 0]}
       >
-        <circleGeometry args={[Math.max(diameter * 2.2, 320), 64]} />
+        <circleGeometry args={[Math.max(footprint * 2.2, 320), 64]} />
         <meshStandardMaterial color="#0b1220" roughness={1} />
       </mesh>
 
       <gridHelper
-        args={[Math.max(diameter * 6, 1200), 24, "#1e293b", "#0f172a"]}
+        args={[Math.max(footprint * 6, 1200), 24, "#1e293b", "#0f172a"]}
         position={[0, 0.01, 0]}
       />
 
       <ContactShadows
         blur={2.6}
-        far={Math.max(height * 0.9, 120)}
+        far={Math.max((height + baseHeight) * 0.9, 120)}
         frames={1}
-        key={`lamp-${height}-${diameter}-${pattern}-${mount}`}
+        key={`lamp-${baseHeight}-${height}-${diameter}-${pattern}-${mount}`}
         opacity={0.55}
         position={[0, 0.02, 0]}
         resolution={512}
-        scale={Math.max(diameter * 3.2, 480)}
+        scale={Math.max(footprint * 3.2, 480)}
       />
     </group>
   );
@@ -514,16 +525,19 @@ type SignModelProps = {
   fontSize: number;
   depth: number;
   channelWidth: number;
+  /** Зазор между буквами: он меняет ширину надписи и силуэт тени. */
+  letterGap: number;
   text: string;
   /** Фактическая ширина с учётом автоподбора кегля, мм. */
   width: number;
 };
 
 /**
- * Вывеска стоит на столе вертикально: плита построена в плоскости XY, поэтому
- * поворот не нужен — так же деталь ложится в STL.
+ * Вывеска собирается из отдельных полых букв, расставленных в одну строку.
+ * Геометрия построена в плоскости XY, поэтому поворот не нужен — так же детали
+ * ложатся в STL.
  *
- * Ключ тени включает текст, кегль, выступ и канал: любая правка меняет
+ * Ключ тени включает текст, кегль, выступ, канал и зазор: любая правка меняет
  * силуэт, и старая тень стала бы неверной.
  */
 function SignModel({
@@ -531,6 +545,7 @@ function SignModel({
   fontSize,
   depth,
   channelWidth,
+  letterGap,
   text,
   width,
 }: SignModelProps) {
@@ -563,7 +578,7 @@ function SignModel({
         blur={2.6}
         far={Math.max(fontSize * 2, 160)}
         frames={1}
-        key={`sign-${text}-${fontSize}-${depth}-${channelWidth}`}
+        key={`sign-${text}-${fontSize}-${depth}-${channelWidth}-${letterGap}`}
         opacity={0.5}
         position={[0, 0.02, 0]}
         resolution={512}
@@ -691,7 +706,9 @@ function Scene({ params, geometry, framing }: SceneProps) {
         />
       ) : params.model === "lamp" ? (
         <LampModel
+          baseHeight={params.lampBaseHeight}
           diameter={params.lampDiameter}
+          footprint={framing.footprint}
           geometry={geometry}
           height={params.lampHeight}
           mount={params.lampMount}
@@ -722,6 +739,7 @@ function Scene({ params, geometry, framing }: SceneProps) {
           depth={params.signDepth}
           fontSize={params.signFontSize}
           geometry={geometry}
+          letterGap={params.signLetterGap}
           text={params.signText}
           width={framing.footprint}
         />
@@ -826,7 +844,7 @@ export function Viewport({ params }: ViewportProps) {
     }
 
     if (params.model === "lamp") {
-      return createLampGeometry(params);
+      return createLampGeometry(params, "all");
     }
 
     if (params.model === "sign") {
@@ -853,10 +871,11 @@ export function Viewport({ params }: ViewportProps) {
   useEffect(() => () => geometry.dispose(), [geometry]);
 
   /**
-   * Габариты для камеры и подписи. У вывески ширина зависит от надписи, а у
-   * калибровки высота — от числа ступеней, поэтому их берём из готовой сетки.
-   * Остальные модели считаются по параметрам: bounding box совпадает со
-   * слайдерами с точностью до амплитуды узора.
+   * Габариты для камеры и подписи. У вывески ширина зависит от надписи, у
+   * светильника — от формы основания, а у калибровки высота — от числа
+   * ступеней, поэтому их берём из готовой сетки. Остальные модели считаются по
+   * параметрам: bounding box совпадает со слайдерами с точностью до амплитуды
+   * узора.
    */
   const framing = useMemo<Framing>(() => {
     if (params.model === "vase") {
@@ -876,9 +895,18 @@ export function Viewport({ params }: ViewportProps) {
     }
 
     if (params.model === "lamp") {
+      geometry.computeBoundingBox();
+      const box = geometry.boundingBox;
+
+      // Квадратное и шестигранное основание шире абажура, поэтому горизонтальный
+      // габарит берём из готовой сетки: по диаметру камера обрезала бы углы.
       return {
-        height: params.lampHeight,
-        footprint: params.lampDiameter,
+        height: box
+          ? Math.max(box.max.y - box.min.y, 1)
+          : params.lampBaseHeight + params.lampHeight,
+        footprint: box
+          ? Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1)
+          : params.lampDiameter,
         flat: false,
       };
     }
@@ -927,7 +955,7 @@ export function Viewport({ params }: ViewportProps) {
       : params.model === "keychain"
         ? `${params.length} × ${params.width} × ${params.thickness} мм`
         : params.model === "lamp"
-          ? `${params.lampHeight} × Ø ${params.lampDiameter} мм`
+          ? `${params.lampBaseHeight + params.lampHeight} × Ø ${params.lampDiameter} мм`
           : params.model === "box"
             ? `${params.boxLength} × ${params.boxWidth} × ${params.boxHeight} мм`
             : params.model === "lithophane"
@@ -940,7 +968,7 @@ export function Viewport({ params }: ViewportProps) {
       : params.model === "keychain"
         ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${KEYCHAIN_SHAPE_LABELS[params.shapeType]}», имя «${params.text.trim() || "без имени"}»`
         : params.model === "lamp"
-          ? `3D-предпросмотр абажура высотой ${params.lampHeight} миллиметров и диаметром ${params.lampDiameter} миллиметров, патрон ${LAMP_MOUNT_LABELS[params.lampMount]}, узор «${VASE_PATTERN_LABELS[params.lampPattern]}»`
+          ? `3D-предпросмотр светильника: основание «${LAMP_BASE_SHAPE_LABELS[params.lampBaseShape]}» высотой ${params.lampBaseHeight} миллиметров и абажур высотой ${params.lampHeight} миллиметров диаметром ${params.lampDiameter} миллиметров, патрон ${LAMP_MOUNT_LABELS[params.lampMount]}, узор «${VASE_PATTERN_LABELS[params.lampPattern]}»`
           : params.model === "calibration"
             ? `3D-предпросмотр калибровочной башни «${CALIBRATION_TYPE_LABELS[params.calibrationType]}» на ${params.steps} ступеней от ${params.startValue} до ${params.endValue} ${CALIBRATION_UNITS[params.calibrationType]}`
             : params.model === "box"

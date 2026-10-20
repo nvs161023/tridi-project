@@ -2,11 +2,12 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   ParameterPanel,
   type StlExportError,
+  type StlExportOption,
 } from "@/components/constructor/ParameterPanel";
 import {
   CALIBRATION_TYPE_LABELS,
@@ -22,13 +23,17 @@ import {
   DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
   KEYCHAIN_SHAPE_LABELS,
+  LAMP_BASE_SHAPE_LABELS,
   LAMP_MOUNT_LABELS,
+  LAMP_PARTS,
+  LAMP_PART_LABELS,
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
   boxStlFileName,
   calibrationStlFileName,
   keychainStlFileName,
   lampStlFileName,
+  listSignLetters,
   lithophaneStlFileName,
   normalizeConstructorParams,
   signStlFileName,
@@ -36,6 +41,7 @@ import {
   type CalibrationType,
   type ConstructorParams,
   type KeychainShape,
+  type LampBaseShape,
   type LampMount,
   type ModelType,
   type SignChannelWidth,
@@ -118,6 +124,78 @@ async function readServerMessage(response: Response): Promise<string | null> {
 }
 
 /**
+ * Файлы, которые можно скачать для текущей модели.
+ *
+ * У светильника и вывески файлов несколько: основание и абажур печатаются
+ * разными деталями, буквы вывески — тоже. Первый элемент — главная кнопка:
+ * сборка светильника или вся надпись одной сеткой. Остальные кнопки несут
+ * `request`, который уходит в API поверх параметров, поэтому геометрия и имя
+ * файла на сервере собираются из тех же значений.
+ *
+ * Имена считаются здесь только как запасные: сервер присылает то же имя в
+ * Content-Disposition, а браузеру оно нужно, если заголовок потеряется.
+ */
+function buildExportOptions(params: ConstructorParams): StlExportOption[] {
+  if (params.model === "lamp") {
+    const parts = LAMP_PARTS.filter((part) => part !== "all");
+
+    return [
+      {
+        id: "lamp-all",
+        label: "Скачать STL",
+        request: { part: "all" },
+        fileName: lampStlFileName(params, "all"),
+      },
+      ...parts.map((part) => ({
+        id: `lamp-${part}`,
+        label: LAMP_PART_LABELS[part],
+        description: `${LAMP_PART_LABELS[part]} светильника отдельным файлом`,
+        request: { part },
+        fileName: lampStlFileName(params, part),
+      })),
+    ];
+  }
+
+  if (params.model === "sign") {
+    const letters = listSignLetters(params.signText);
+
+    return [
+      {
+        id: "sign-all",
+        label: "Скачать STL",
+        request: {},
+        fileName: signStlFileName(params),
+      },
+      ...letters.map((letter) => ({
+        id: `sign-letter-${letter.index}`,
+        label: letter.char,
+        description: `Буква ${letter.index + 1} «${letter.char}» отдельным файлом`,
+        request: { letter: letter.index },
+        fileName: signStlFileName(params, letter.index),
+      })),
+    ];
+  }
+
+  return [
+    {
+      id: params.model,
+      label: "Скачать STL",
+      request: {},
+      fileName:
+        params.model === "vase"
+          ? vaseStlFileName(params)
+          : params.model === "keychain"
+            ? keychainStlFileName(params)
+            : params.model === "box"
+              ? boxStlFileName(params)
+              : params.model === "lithophane"
+                ? lithophaneStlFileName(params)
+                : calibrationStlFileName(params),
+    },
+  ];
+}
+
+/**
  * Сцену грузим только в браузере: three.js и WebGL не нужны на сервере.
  * Условие ssr: false разрешено только внутри клиентского компонента, поэтому
  * dynamic живёт здесь, а не в серверном page.tsx. Пока чанк загружается,
@@ -162,7 +240,7 @@ export function ConstructorClient({
   const [params, setParams] = useState<ConstructorParams>(
     DEFAULT_CONSTRUCTOR_PARAMS,
   );
-  const [isExporting, setIsExporting] = useState(false);
+  const [exportingId, setExportingId] = useState<string | null>(null);
   const [exportError, setExportError] = useState<StlExportError | null>(null);
   const [freeDownloadsLeft, setFreeDownloadsLeft] = useState(
     initialFreeDownloadsLeft,
@@ -205,6 +283,12 @@ export function ConstructorClient({
   function updateLampMount(lampMount: LampMount) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, lampMount }),
+    );
+  }
+
+  function updateLampBaseShape(lampBaseShape: LampBaseShape) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lampBaseShape }),
     );
   }
 
@@ -274,6 +358,9 @@ export function ConstructorClient({
     );
   }
 
+  /** Кнопки экспорта пересобираются только при смене параметров модели. */
+  const exportOptions = useMemo(() => buildExportOptions(params), [params]);
+
   /**
    * Скачивание STL через сервер.
    *
@@ -282,12 +369,12 @@ export function ConstructorClient({
    * нужен, чтобы не уводить страницу на ответ API и сохранить имя из
    * Content-Disposition.
    */
-  async function exportStl() {
-    if (isExporting) {
+  async function exportStl(option: StlExportOption) {
+    if (exportingId) {
       return;
     }
 
-    setIsExporting(true);
+    setExportingId(option.id);
     setExportError(null);
 
     try {
@@ -295,7 +382,9 @@ export function ConstructorClient({
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify(params),
+        // Параметры модели плюс выбор файла: `part` для светильника, `letter`
+        // для вывески. Сервер валидирует их вместе с остальными полями.
+        body: JSON.stringify({ ...params, ...option.request }),
       });
 
       if (response.status === 200) {
@@ -312,19 +401,7 @@ export function ConstructorClient({
         link.href = objectUrl;
         link.download = stlFileNameFromDisposition(
           response.headers.get("content-disposition"),
-          params.model === "vase"
-            ? vaseStlFileName(params)
-            : params.model === "keychain"
-              ? keychainStlFileName(params)
-              : params.model === "lamp"
-                ? lampStlFileName(params)
-                : params.model === "box"
-                  ? boxStlFileName(params)
-                  : params.model === "lithophane"
-                    ? lithophaneStlFileName(params)
-                    : params.model === "sign"
-                      ? signStlFileName(params)
-                      : calibrationStlFileName(params),
+          option.fileName,
         );
         link.hidden = true;
         document.body.appendChild(link);
@@ -387,7 +464,7 @@ export function ConstructorClient({
         action: null,
       });
     } finally {
-      setIsExporting(false);
+      setExportingId(null);
     }
   }
 
@@ -438,11 +515,13 @@ export function ConstructorClient({
           exportError={exportError}
           freeDownloadsLeft={freeDownloadsLeft}
           hasPro={hasPro}
-          isExporting={isExporting}
+          exportingId={exportingId}
+          exportOptions={exportOptions}
           onExport={exportStl}
           onCalibrationTypeChange={updateCalibrationType}
           onHasLidChange={updateHasLid}
           onKeychainShapeChange={updateKeychainShape}
+          onLampBaseShapeChange={updateLampBaseShape}
           onLampMountChange={updateLampMount}
           onLampPatternChange={updateLampPattern}
           onLithophaneBrightnessChange={updateLithophaneBrightness}
@@ -483,9 +562,11 @@ export function ConstructorClient({
                 </>
               ) : params.model === "lamp" ? (
                 <>
+                  {LAMP_BASE_SHAPE_LABELS[params.lampBaseShape]} ·{" "}
                   {LAMP_MOUNT_LABELS[params.lampMount]} ·{" "}
                   {VASE_PATTERN_LABELS[params.lampPattern]} ·{" "}
-                  {params.lampHeight} × Ø {params.lampDiameter} мм
+                  {params.lampBaseHeight + params.lampHeight} × Ø{" "}
+                  {params.lampDiameter} мм
                 </>
               ) : params.model === "calibration" ? (
                 <>
@@ -509,7 +590,9 @@ export function ConstructorClient({
               ) : (
                 <>
                   «{params.signText.trim() || "без надписи"}» · кегль{" "}
-                  {params.signFontSize} мм · канал {params.signChannelWidth} мм
+                  {params.signFontSize} мм · букв{" "}
+                  {listSignLetters(params.signText).length} · выступ{" "}
+                  {params.signDepth} мм
                 </>
               )}
             </span>

@@ -13,12 +13,16 @@ import {
 import {
   CALIBRATION_VALUE_LIMITS,
   CONSTRUCTOR_LIMITS,
+  DEFAULT_LAMP_PARAMS,
+  DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
   boxStlFileName,
   calibrationStlFileName,
   isCalibrationType,
   isKeychainShape,
+  isLampBaseShape,
   isLampMount,
+  isLampPart,
   isLithophaneBrightness,
   isSignChannelWidth,
   isVasePattern,
@@ -27,6 +31,7 @@ import {
   isValidSignText,
   keychainStlFileName,
   lampStlFileName,
+  listSignLetters,
   lithophaneStlFileName,
   normalizeBoxParams,
   normalizeCalibrationParams,
@@ -41,6 +46,7 @@ import {
   type CalibrationParams,
   type KeychainParams,
   type LampParams,
+  type LampPart,
   type LithophaneParams,
   type SignParams,
   type VaseParams,
@@ -53,7 +59,10 @@ import {
 } from "@/lib/constructor/keychain-geometry";
 import { createLampGeometry } from "@/lib/constructor/lamp-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
-import { createSignGeometry } from "@/lib/constructor/sign-geometry";
+import {
+  createSignGeometry,
+  createSignLetterGeometry,
+} from "@/lib/constructor/sign-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
 import { hasActiveSubscription } from "@/lib/subscription";
@@ -68,10 +77,12 @@ import { createClient } from "@/lib/supabase/server";
  *   2. доступ — Pro проходит сразу, Free получает три скачивания в
  *      календарный месяц по UTC (countConstructorDownloadsThisMonth);
  *   3. параметры — только числа внутри границ слайдеров, известная форма и
- *      узор вазы, брелок с именем и формой заготовки, абажур с узором и
- *      патроном E27/E14, вывеска с надписью и шириной канала, калибровочная
- *      башня с диапазоном и числом ступеней, коробка с сеткой и крышкой либо
- *      литофан с размерами, толщинами и сжатым массивом яркости 150 × 150.
+ *      узор вазы, брелок с именем и формой заготовки, светильник с узором,
+ *      патроном, формой основания и выбранной деталью (основание, абажур или
+ *      обе), вывеска с надписью, глубиной, каналом, зазором и номером буквы,
+ *      калибровочная башня с диапазоном и числом ступеней, коробка с сеткой и
+ *      крышкой либо литофан с размерами, толщинами и сжатым массивом яркости
+ *      150 × 150.
  *
  * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
  * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
@@ -238,13 +249,26 @@ function parseKeychainParams(
 /**
  * Строгая проверка параметров светильника.
  *
- * Высота, диаметр и стенка должны лежать в границах слайдеров. Узор берётся
- * из того же списка, что у вазы, а патрон — из известных E27/E14: от него
- * зависит диаметр гнезда, поэтому незнакомое значение отклоняется, а не
- * подменяется E27.
+ * Высота, диаметр, стенка и высота основания должны лежать в границах
+ * слайдеров. Узор берётся из того же списка, что у вазы, патрон — из известных
+ * E27/E14: от него зависит диаметр гнезда, поэтому незнакомое значение
+ * отклоняется, а не подменяется E27. Форма основания тоже проверяется по
+ * списку — от неё зависят контуры оболочки, — а деталь (`part`) решает, что
+ * попадёт в файл: основание, абажур или обе части сразу.
  */
-function parseLampParams(body: Record<string, unknown>): LampParams | null {
-  const { lampHeight, lampDiameter, lampWall, lampPattern, lampMount } = body;
+function parseLampParams(
+  body: Record<string, unknown>,
+): { params: LampParams; part: LampPart } | null {
+  const {
+    lampHeight,
+    lampDiameter,
+    lampWall,
+    lampPattern,
+    lampMount,
+    lampBaseShape = DEFAULT_LAMP_PARAMS.lampBaseShape,
+    lampBaseHeight = DEFAULT_LAMP_PARAMS.lampBaseHeight,
+    part = "all",
+  } = body;
 
   if (
     !isNumberInRange(
@@ -263,30 +287,55 @@ function parseLampParams(body: Record<string, unknown>): LampParams | null {
       CONSTRUCTOR_LIMITS.lampWall.max,
     ) ||
     !isVasePattern(lampPattern) ||
-    !isLampMount(lampMount)
+    !isLampMount(lampMount) ||
+    !isLampBaseShape(lampBaseShape) ||
+    !isNumberInRange(
+      lampBaseHeight,
+      CONSTRUCTOR_LIMITS.lampBaseHeight.min,
+      CONSTRUCTOR_LIMITS.lampBaseHeight.max,
+    ) ||
+    !isLampPart(part)
   ) {
     return null;
   }
 
-  return normalizeLampParams({
-    lampHeight,
-    lampDiameter,
-    lampWall,
-    lampPattern,
-    lampMount,
-  });
+  return {
+    params: normalizeLampParams({
+      lampHeight,
+      lampDiameter,
+      lampWall,
+      lampPattern,
+      lampMount,
+      lampBaseShape,
+      lampBaseHeight,
+    }),
+    part,
+  };
 }
 
 /**
  * Строгая проверка параметров вывески.
  *
- * Надпись — до 15 символов из набора шрифта; пустая строка допустима. Кегль,
- * выступ букв и ширина канала проверяются по границам и списку: геометрия
- * сама уменьшит буквы, если строка не влезает в 800 мм, но канал 9 мм
- * отклонится — такой ленты не бывает.
+ * Надпись — до 15 символов из набора шрифта, но не пустая: каждая буква стала
+ * отдельной деталью, и из пустой строки собирать нечего. Кегль, глубина и зазор
+ * проверяются по границам, ширина канала — по списку: ленты другой ширины не
+ * бывает. Геометрия сама уменьшит буквы, если строка не влезает в 800 мм.
+ *
+ * `letter` — номер буквы с нуля, по listSignLetters; null или отсутствие
+ * означает всю надпись одной сеткой. Номер за границами строки отклоняется,
+ * иначе клиент получил бы пустой STL вместо ошибки.
  */
-function parseSignParams(body: Record<string, unknown>): SignParams | null {
-  const { signText, signFontSize, signDepth, signChannelWidth } = body;
+function parseSignParams(
+  body: Record<string, unknown>,
+): { params: SignParams; letter: number | null } | null {
+  const {
+    signText,
+    signFontSize,
+    signDepth,
+    signChannelWidth,
+    signLetterGap = DEFAULT_SIGN_PARAMS.signLetterGap,
+    letter = null,
+  } = body;
 
   if (
     !isValidSignText(signText) ||
@@ -300,17 +349,41 @@ function parseSignParams(body: Record<string, unknown>): SignParams | null {
       CONSTRUCTOR_LIMITS.signDepth.min,
       CONSTRUCTOR_LIMITS.signDepth.max,
     ) ||
-    !isSignChannelWidth(signChannelWidth)
+    !isSignChannelWidth(signChannelWidth) ||
+    !isNumberInRange(
+      signLetterGap,
+      CONSTRUCTOR_LIMITS.signLetterGap.min,
+      CONSTRUCTOR_LIMITS.signLetterGap.max,
+    )
   ) {
     return null;
   }
 
-  return normalizeSignParams({
+  const params = normalizeSignParams({
     signText,
     signFontSize,
     signDepth,
     signChannelWidth,
+    signLetterGap,
   });
+  const letters = listSignLetters(params.signText);
+
+  if (letters.length === 0) {
+    return null;
+  }
+
+  if (letter !== null) {
+    if (
+      typeof letter !== "number" ||
+      !Number.isInteger(letter) ||
+      letter < 0 ||
+      letter >= letters.length
+    ) {
+      return null;
+    }
+  }
+
+  return { params, letter };
 }
 
 /**
@@ -471,8 +544,8 @@ function parseLithophaneParams(
 type ParsedConstructorRequest =
   | { model: "vase"; params: VaseParams }
   | { model: "keychain"; params: KeychainParams }
-  | { model: "lamp"; params: LampParams }
-  | { model: "sign"; params: SignParams }
+  | { model: "lamp"; params: LampParams; part: LampPart }
+  | { model: "sign"; params: SignParams; letter: number | null }
   | { model: "calibration"; params: CalibrationParams }
   | { model: "box"; params: BoxParams }
   | { model: "lithophane"; params: LithophaneParams };
@@ -506,15 +579,15 @@ function parseConstructorRequest(
   }
 
   if (model === "lamp") {
-    const params = parseLampParams(body);
+    const lamp = parseLampParams(body);
 
-    return params ? { model: "lamp", params } : null;
+    return lamp ? { model: "lamp", ...lamp } : null;
   }
 
   if (model === "sign") {
-    const params = parseSignParams(body);
+    const sign = parseSignParams(body);
 
-    return params ? { model: "sign", params } : null;
+    return sign ? { model: "sign", ...sign } : null;
   }
 
   if (model === "calibration") {
@@ -629,7 +702,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, брелока, абажура, надпись вывески, диапазон калибровки, сетку коробки или изображение литофана.",
+      "Проверьте размеры и узор вазы, брелок, детали и форму основания светильника, надпись вывески (нужна хотя бы одна буква), диапазон калибровки, сетку коробки или изображение литофана.",
     );
   }
 
@@ -642,7 +715,7 @@ export async function POST(request: Request): Promise<Response> {
       parsed.model === "vase"
         ? createVaseGeometry(createVaseProfile(parsed.params), parsed.params)
         : parsed.model === "lamp"
-          ? createLampGeometry(parsed.params)
+          ? createLampGeometry(parsed.params, parsed.part)
           : parsed.model === "box"
             ? createBoxGeometry(parsed.params)
             : parsed.model === "lithophane"
@@ -650,7 +723,13 @@ export async function POST(request: Request): Promise<Response> {
               : parsed.model === "keychain"
                 ? createKeychainGeometry(parsed.params, await loadCyrillicFont())
                 : parsed.model === "sign"
-                  ? createSignGeometry(parsed.params, await loadCyrillicFont())
+                  ? parsed.letter === null
+                    ? createSignGeometry(parsed.params, await loadCyrillicFont())
+                    : createSignLetterGeometry(
+                        parsed.params,
+                        await loadCyrillicFont(),
+                        parsed.letter,
+                      )
                   : createCalibrationGeometry(
                       parsed.params,
                       await loadCyrillicFont(),
@@ -670,13 +749,13 @@ export async function POST(request: Request): Promise<Response> {
           : parsed.model === "keychain"
             ? keychainStlFileName(parsed.params)
             : parsed.model === "lamp"
-              ? lampStlFileName(parsed.params)
+              ? lampStlFileName(parsed.params, parsed.part)
               : parsed.model === "box"
                 ? boxStlFileName(parsed.params)
                 : parsed.model === "lithophane"
                   ? lithophaneStlFileName(parsed.params)
                   : parsed.model === "sign"
-                    ? signStlFileName(parsed.params)
+                    ? signStlFileName(parsed.params, parsed.letter)
                     : calibrationStlFileName(parsed.params);
 
       // Запись появляется после успешной генерации: упавшая сборка не должна

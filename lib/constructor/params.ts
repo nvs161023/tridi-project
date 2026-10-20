@@ -68,8 +68,11 @@ export const CONSTRUCTOR_LIMITS = {
   lampHeight: { min: 60, max: 300, step: 5, defaultValue: 160, decimals: 0 },
   lampDiameter: { min: 60, max: 200, step: 5, defaultValue: 120, decimals: 0 },
   lampWall: { min: 0.8, max: 4, step: 0.1, defaultValue: 1.6, decimals: 1 },
+  lampBaseHeight: { min: 30, max: 140, step: 5, defaultValue: 60, decimals: 0 },
   signFontSize: { min: 20, max: 120, step: 2, defaultValue: 60, decimals: 0 },
-  signDepth: { min: 5, max: 40, step: 1, defaultValue: 15, decimals: 0 },
+  // Меньше 11 мм полость буквы не вмещает ленту: 11 − 2 мм лица = 9 мм канала.
+  signDepth: { min: 11, max: 40, step: 1, defaultValue: 18, decimals: 0 },
+  signLetterGap: { min: 2, max: 20, step: 1, defaultValue: 6, decimals: 0 },
   calibrationSteps: { min: 2, max: 10, step: 1, defaultValue: 5, decimals: 0 },
   boxLength: { min: 60, max: 220, step: 5, defaultValue: 140, decimals: 0 },
   boxWidth: { min: 60, max: 220, step: 5, defaultValue: 100, decimals: 0 },
@@ -206,6 +209,41 @@ export const LAMP_MOUNT_DIAMETERS_MM = {
 /** Радиальный зазор между патроном и стенкой отверстия, мм. */
 export const LAMP_SOCKET_CLEARANCE_MM = 0.3;
 
+/**
+ * Формы основания светильника.
+ *
+ * Основание — та же деталь, что и абажур, только снизу: в нём живёт патрон,
+ * по его верхней кромке абажур центруется посадочным кольцом. Круглое
+ * основание печатается быстрее всех, квадратное и шестигранное дают ровные
+ * грани и стоят устойчивее.
+ */
+export const LAMP_BASE_SHAPES = ["round", "square", "hexagon"] as const;
+
+export type LampBaseShape = (typeof LAMP_BASE_SHAPES)[number];
+
+export const LAMP_BASE_SHAPE_LABELS = {
+  round: "Круглая",
+  square: "Квадратная",
+  hexagon: "Шестигранная",
+} as const satisfies Record<LampBaseShape, string>;
+
+/**
+ * Что выгружать из светильника: основание, абажур или обе детали сразу.
+ *
+ * Детали печатаются по отдельности — абажур ставится на основание уже после
+ * сборки патрона, — поэтому у каждой своя кнопка скачивания.
+ */
+export const LAMP_PARTS = ["base", "shade", "all"] as const;
+
+export type LampPart = (typeof LAMP_PARTS)[number];
+
+/** Подписи кнопок деталей светильника: по ним клиент строит список скачиваний. */
+export const LAMP_PART_LABELS = {
+  base: "Основание",
+  shade: "Абажур",
+  all: "Обе детали",
+} as const satisfies Record<LampPart, string>;
+
 /** Ширина канала под светодиодную ленту, мм: другой не бывает. */
 export const SIGN_CHANNEL_WIDTHS = [8, 10] as const;
 
@@ -290,31 +328,48 @@ export type VaseParams = {
   patternFrequency: number;
 };
 
-/** Настраиваемые размеры абажура: он надевается на патрон сверху. */
+/**
+ * Настраиваемые размеры светильника: основание с патроном и абажур.
+ *
+ * Обе детали строятся из одних параметров, поэтому гнездо под патрон и
+ * посадочное кольцо совпадают без подгонки.
+ */
 export type LampParams = {
-  /** Высота от нижнего края до кромки патрона, мм. */
+  /** Высота абажура от нижнего края до кромки патрона, мм. */
   lampHeight: number;
-  /** Наружный диаметр у нижнего края, мм. */
+  /** Наружный диаметр абажура у нижнего края, мм. */
   lampDiameter: number;
-  /** Толщина стенки, мм. */
+  /** Толщина стенки абажура, мм. */
   lampWall: number;
-  /** Узор на стенке; гладкий пояс под патрон остаётся ровным. */
+  /** Форма основания: круглая, квадратная или шестигранная. */
+  lampBaseShape: LampBaseShape;
+  /** Высота основания от стола до посадочного кольца, мм. */
+  lampBaseHeight: number;
+  /** Узор на стенке абажура; гладкий пояс под патрон остаётся ровным. */
   lampPattern: VasePattern;
-  /** Тип патрона: от него зависит диаметр отверстия. */
+  /** Тип патрона: от него зависит диаметр отверстия в абажуре и основании. */
   lampMount: LampMount;
 };
 
-/** Настройки вывески: текст, кегль и канал под ленту. */
+/**
+ * Настройки вывески: надпись, кегль, глубина и канал под ленту.
+ *
+ * Каждая буква печатается отдельной полой деталью: лицо пропускает свет,
+ * стенка держит форму, а внутренняя полость служит каналом под ленту.
+ */
 export type SignParams = {
-  /** Надпись на вывеске, до 15 символов; пустая строка допустима. */
+  /** Надпись на вывеске, до 15 символов; пустая строка означает «нет букв». */
   signText: string;
   /** Кегль шрифта, мм: заглавные буквы примерно на треть ниже. */
   signFontSize: number;
-  /** Насколько буквы выступают над лицевой плоскостью, мм. */
+  /** Общая толщина буквы от лица до задней плоскости, мм. */
   signDepth: number;
   /** Ширина канала под ленту: 8 или 10 мм. */
   signChannelWidth: SignChannelWidth;
+  /** Зазор между соседними буквами при сборке строки, мм. */
+  signLetterGap: number;
 };
+
 
 /** Настройки калибровочной башни: тест, диапазон и число ступеней. */
 export type CalibrationParams = {
@@ -404,11 +459,13 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   shapeType: "rounded",
 };
 
-/** Абажур по умолчанию: под E27, с гладкой стенкой. */
+/** Светильник по умолчанию: под E27, круглое основание, гладкая стенка. */
 export const DEFAULT_LAMP_PARAMS: LampParams = {
   lampHeight: CONSTRUCTOR_LIMITS.lampHeight.defaultValue,
   lampDiameter: CONSTRUCTOR_LIMITS.lampDiameter.defaultValue,
   lampWall: CONSTRUCTOR_LIMITS.lampWall.defaultValue,
+  lampBaseShape: "round",
+  lampBaseHeight: CONSTRUCTOR_LIMITS.lampBaseHeight.defaultValue,
   lampPattern: "smooth",
   lampMount: "e27",
 };
@@ -419,7 +476,9 @@ export const DEFAULT_SIGN_PARAMS: SignParams = {
   signFontSize: CONSTRUCTOR_LIMITS.signFontSize.defaultValue,
   signDepth: CONSTRUCTOR_LIMITS.signDepth.defaultValue,
   signChannelWidth: 8,
+  signLetterGap: CONSTRUCTOR_LIMITS.signLetterGap.defaultValue,
 };
+
 
 /**
  * Калибровка по умолчанию: башня температуры от горячего низа к холодному
@@ -549,15 +608,17 @@ export function keychainStlFileName(params: KeychainParams): string {
 }
 
 /**
- * Имя файла STL для абажура.
+ * Имя файла STL для светильника.
  *
  * Патрон важнее узора: по имени сразу видно, под какой патрон напечатана
- * деталь. Узор добавляется только когда он не гладкий — как у вазы.
+ * деталь. Форма основания и суффикс детали (`baza` / `abazhur`) позволяют
+ * хранить обе части рядом, не путая их между собой.
  */
-export function lampStlFileName(params: LampParams): string {
+export function lampStlFileName(params: LampParams, part: LampPart = "all"): string {
   const patternSuffix = params.lampPattern === "smooth" ? "" : `-${params.lampPattern}`;
+  const partSuffix = part === "all" ? "" : `-${part === "base" ? "baza" : "abazhur"}`;
 
-  return `tridi-svetilnik-${params.lampMount}${patternSuffix}-h${params.lampHeight}-d${params.lampDiameter}-w${params.lampWall}.stl`;
+  return `tridi-svetilnik-${params.lampBaseShape}-${params.lampMount}${patternSuffix}-h${params.lampHeight}-d${params.lampDiameter}-w${params.lampWall}${partSuffix}.stl`;
 }
 
 /**
@@ -565,11 +626,15 @@ export function lampStlFileName(params: LampParams): string {
  *
  * Текст в имя не попадает: кириллица требует filename*=UTF-8, а запасное имя
  * всё равно должно остаться латинским. Кегль, выступ и канал описывают
- * заготовку однозначно.
+ * заготовку однозначно, номер буквы (`b1`, `b2` …) — отдельную деталь.
+ * Номера в имени человеческие, с единицы, хотя в API буква адресуется с нуля.
  */
-export function signStlFileName(params: SignParams): string {
-  return `tridi-vyveska-s${params.signFontSize}-d${params.signDepth}-c${params.signChannelWidth}.stl`;
+export function signStlFileName(params: SignParams, letterIndex: number | null = null): string {
+  const letterSuffix = letterIndex === null ? "" : `-b${letterIndex + 1}`;
+
+  return `tridi-vyveska-s${params.signFontSize}-d${params.signDepth}-c${params.signChannelWidth}${letterSuffix}.stl`;
 }
+
 
 /**
  * Имя файла STL для калибровочной башни.
@@ -674,6 +739,21 @@ export function isLampMount(value: unknown): value is LampMount {
   );
 }
 
+/** Проверка формы основания светильника из формы или API. */
+export function isLampBaseShape(value: unknown): value is LampBaseShape {
+  return (
+    typeof value === "string" &&
+    (LAMP_BASE_SHAPES as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка детали светильника: основание, абажур или обе сразу. */
+export function isLampPart(value: unknown): value is LampPart {
+  return (
+    typeof value === "string" && (LAMP_PARTS as readonly string[]).includes(value)
+  );
+}
+
 /** Проверка ширины канала: под ленту подходят только 8 и 10 мм. */
 export function isSignChannelWidth(value: unknown): value is SignChannelWidth {
   return value === 8 || value === 10;
@@ -719,7 +799,8 @@ export function isValidKeychainText(value: unknown): value is string {
  * Строгая проверка надписи вывески для API.
  *
  * Правила те же, что у брелока, но лимит — 15 символов. Пустая строка
- * допустима: пустая заготовка с каналом под ленту — нормальная деталь.
+ * допустима в форме: в предпросмотре это просто пустая строка. STL из пустой
+ * надписи не собрать — букв нет, — поэтому API отвечает на неё отказом.
  */
 export function isValidSignText(value: unknown): value is string {
   return (
@@ -728,6 +809,21 @@ export function isValidSignText(value: unknown): value is string {
     Array.from(value).every((char) => TEXT_CHAR.test(char))
   );
 }
+
+/**
+ * Буквы надписи: по одной на каждый непробельный символ.
+ *
+ * `index` — позиция буквы в надписи без пробелов: 0 — первая. Именно она уходит
+ * в API как `letter`, поэтому список в интерфейсе, имена файлов и сборка
+ * геометрии не могут разойтись: все берут буквы отсюда. Пробелы пропускаются —
+ * у них нет контуров, и отдельной детали для них не бывает.
+ */
+export function listSignLetters(signText: string): { index: number; char: string }[] {
+  return Array.from(signText.trim())
+    .filter((char) => char !== " ")
+    .map((char, index) => ({ char, index }));
+}
+
 
 /**
  * Очистка имени для поля ввода: убирает символы, которых нет в шрифте, и
@@ -831,11 +927,12 @@ export function normalizeKeychainParams(
 }
 
 /**
- * Проверяет и выравнивает параметры абажура.
+ * Проверяет и выравнивает параметры светильника.
  *
  * Отверстие под патрон строится по типу патрона, поэтому он проверяется
  * отдельно от чисел. Узор берётся из того же набора, что у вазы: отдельная
- * копия списка разошлась бы с профилем и панелью.
+ * копия списка разошлась бы с профилем и панелью. Форма основания — из своего
+ * набора: у вазы и светильника общего в нём только слово «форма».
  */
 export function normalizeLampParams(params: Partial<LampParams>): LampParams {
   return {
@@ -850,6 +947,13 @@ export function normalizeLampParams(params: Partial<LampParams>): LampParams {
     lampWall: snap(
       params.lampWall ?? DEFAULT_LAMP_PARAMS.lampWall,
       CONSTRUCTOR_LIMITS.lampWall,
+    ),
+    lampBaseShape: isLampBaseShape(params.lampBaseShape)
+      ? params.lampBaseShape
+      : DEFAULT_LAMP_PARAMS.lampBaseShape,
+    lampBaseHeight: snap(
+      params.lampBaseHeight ?? DEFAULT_LAMP_PARAMS.lampBaseHeight,
+      CONSTRUCTOR_LIMITS.lampBaseHeight,
     ),
     lampPattern: isVasePattern(params.lampPattern)
       ? params.lampPattern
@@ -881,6 +985,10 @@ export function normalizeSignParams(params: Partial<SignParams>): SignParams {
     signChannelWidth: isSignChannelWidth(params.signChannelWidth)
       ? params.signChannelWidth
       : DEFAULT_SIGN_PARAMS.signChannelWidth,
+    signLetterGap: snap(
+      params.signLetterGap ?? DEFAULT_SIGN_PARAMS.signLetterGap,
+      CONSTRUCTOR_LIMITS.signLetterGap,
+    ),
   };
 }
 

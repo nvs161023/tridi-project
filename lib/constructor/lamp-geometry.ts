@@ -3,12 +3,15 @@ import {
   Float32BufferAttribute,
   Uint32BufferAttribute,
 } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import {
   LAMP_MOUNT_DIAMETERS_MM,
   LAMP_SOCKET_CLEARANCE_MM,
   normalizeLampParams,
+  type LampBaseShape,
   type LampParams,
+  type LampPart,
   type VasePattern,
 } from "@/lib/constructor/params";
 
@@ -73,7 +76,43 @@ const PATTERN_FREQUENCY = 10;
 /** Период горизонтальных волн, мм. */
 const PATTERN_WAVE_PERIOD_MM = 28;
 
-/** Одна строка профиля: радиус и высота в миллиметрах. */
+/** Сегментов у основания: 2.5° даёт ровные углы квадрата и шестиугольника. */
+export const LAMP_BASE_SEGMENTS = 144;
+
+/** Насколько основание выступает за абажур по радиусу, мм. */
+const BASE_MARGIN_MM = 1.2;
+
+/** Толщина боковой стенки основания, мм. */
+const BASE_WALL_MM = 2.4;
+
+/** Толщина дна основания, мм: в нём сверлится канал под провод. */
+const BASE_BOTTOM_MM = 2.4;
+
+/** Толщина верхней плиты основания, мм: держит патрон и вес абажура. */
+const BASE_TOP_MM = 4;
+
+/** Высота посадочного кольца над плитой, мм. */
+const BASE_SEAT_HEIGHT_MM = 4;
+
+/** Ширина посадочного кольца, мм. */
+const BASE_SEAT_WIDTH_MM = 2.4;
+
+/** Радиальный зазор между кольцом и внутренней стенкой абажура, мм. */
+const BASE_SEAT_CLEARANCE_MM = 0.3;
+
+/** Минимальная ширина кольца вокруг гнезда патрона, мм. */
+const BASE_NECK_MM = 1.2;
+
+/** Радиус канала под провод в дне основания, мм: кабель 3×0.75 входит. */
+const BASE_CABLE_RADIUS_MM = 4;
+
+/** Сколько сторон у формы основания: 0 — круг. */
+const BASE_SHAPE_SIDES = {
+  round: 0,
+  square: 4,
+  hexagon: 6,
+} as const satisfies Record<LampBaseShape, number>;
+
 type ProfileRow = {
   radius: number;
   height: number;
@@ -262,10 +301,7 @@ function addOrientedQuad(
  * оболочка — кольцо (род 1), канал добавляет ещё одну ручку, поэтому у готовой
  * поверхности род 2: она замкнута, без краёв и самопересечений.
  */
-export function createLampGeometry(
-  params: Partial<LampParams>,
-): BufferGeometry {
-  const normalized = normalizeLampParams(params);
+function buildShadeGeometry(normalized: LampParams): BufferGeometry {
   const profile = createLampProfile(normalized);
   const { rows } = profile;
   const angularStep = (Math.PI * 2) / LAMP_SEGMENTS;
@@ -372,9 +408,20 @@ export function createLampGeometry(
     -Math.cos(endAngle),
   );
 
-  // Ориентация профиля проверена, но ошибка в стенке тоннеля развернула бы
-  // часть граней. Отрицательный объём — признак общей инверсии: меняем
-  // обход у всех треугольников сразу.
+  return finalizeGeometry(positions, indices);
+}
+
+/**
+ * Доводит сетку вращения до готовой геометрии.
+ *
+ * Ориентация профиля проверена, но ошибка в стенке тоннеля или в основании
+ * развернула бы часть граней. Отрицательный объём — признак общей инверсии:
+ * меняем обход у всех треугольников сразу.
+ */
+function finalizeGeometry(
+  positions: Float32Array,
+  indices: number[],
+): BufferGeometry {
   let volume6 = 0;
 
   for (let offset = 0; offset < indices.length; offset += 3) {
@@ -414,3 +461,210 @@ export function createLampGeometry(
 
   return geometry;
 }
+
+/** Строка профиля основания: высота, тип радиуса и радиус для круга. */
+type BaseProfileRow = {
+  height: number;
+  kind: "outer" | "inner" | "circle";
+  radius: number;
+};
+
+/**
+ * Радиус формы основания на заданном угле.
+ *
+ * Круг задаётся одним радиусом, квадрат и шестиугольник — апофемой (расстоянием
+ * до середины грани) и числом сторон: на середине грани радиус равен апофеме, на
+ * вершине — апофеме, делённой на косинус половины шага. Плоские грани остаются
+ * плоскими, углы — острыми.
+ */
+function baseShapeRadius(angle: number, sides: number, apothem: number): number {
+  if (sides < 3) {
+    return apothem;
+  }
+
+  const step = (Math.PI * 2) / sides;
+  const wrapped = ((angle % step) + step) % step;
+
+  return apothem / Math.cos(wrapped - step / 2);
+}
+
+/** Радиус строки профиля основания на заданном угле. */
+function baseRowRadius(
+  row: BaseProfileRow,
+  angle: number,
+  sides: number,
+  apothem: number,
+): number {
+  switch (row.kind) {
+    case "outer":
+      return baseShapeRadius(angle, sides, apothem);
+    case "inner":
+      return baseShapeRadius(angle, sides, Math.max(apothem - BASE_WALL_MM, 1));
+    case "circle":
+      return row.radius;
+  }
+}
+
+/**
+ * Профиль основания снизу вверх.
+ *
+ * Обход: наружная стенка вверх, плита к посадочному кольцу, кольцо вверх, его
+ * гребень внутрь, кольцо вниз, плита к гнезду патрона, гнездо вниз до потолка
+ * полости, внутренняя стенка вниз, дно к каналу под провод, канал вниз и
+ * нижняя плоскость наружу. Один замкнутый контур — одна оболочка.
+ *
+ * Кольцо подбирается по внутренней стенке абажура: абажур опускается на плиту,
+ * а кольцо входит внутрь его нижней кромки и не даёт ему съехать. Если абажур
+ * почти равен основанию, кольцо упирается в предел по стенке — тогда зазор до
+ * абажура чуть больше, но деталь остаётся прочной.
+ */
+function createBaseRows(params: LampParams): BaseProfileRow[] {
+  const radius = params.lampDiameter / 2;
+  const height = params.lampBaseHeight;
+  const socketRadius =
+    LAMP_MOUNT_DIAMETERS_MM[params.lampMount] / 2 +
+    LAMP_SOCKET_CLEARANCE_MM;
+  const shadeInner = Math.max(
+    radius - params.lampWall,
+    socketRadius + INNER_GAP_MM,
+  );
+  const apothem = radius + BASE_MARGIN_MM;
+  const seatOuter = Math.max(
+    Math.min(
+      shadeInner - BASE_SEAT_CLEARANCE_MM,
+      apothem - BASE_WALL_MM - BASE_NECK_MM,
+    ),
+    socketRadius + BASE_NECK_MM + BASE_SEAT_WIDTH_MM,
+  );
+  const seatInner = Math.min(
+    Math.max(seatOuter - BASE_SEAT_WIDTH_MM, socketRadius + BASE_NECK_MM),
+    seatOuter - BASE_NECK_MM,
+  );
+
+  return [
+    { height: 0, kind: "outer", radius: 0 },
+    { height, kind: "outer", radius: 0 },
+    { height, kind: "circle", radius: seatOuter },
+    { height: height + BASE_SEAT_HEIGHT_MM, kind: "circle", radius: seatOuter },
+    { height: height + BASE_SEAT_HEIGHT_MM, kind: "circle", radius: seatInner },
+    { height, kind: "circle", radius: seatInner },
+    { height, kind: "circle", radius: socketRadius },
+    { height: height - BASE_TOP_MM, kind: "circle", radius: socketRadius },
+    { height: height - BASE_TOP_MM, kind: "inner", radius: 0 },
+    { height: BASE_BOTTOM_MM, kind: "inner", radius: 0 },
+    { height: BASE_BOTTOM_MM, kind: "circle", radius: BASE_CABLE_RADIUS_MM },
+    { height: 0, kind: "circle", radius: BASE_CABLE_RADIUS_MM },
+  ];
+}
+
+/** Индекс вершины сетки основания: строка профиля и угол. */
+function baseVertexIndex(row: number, segment: number): number {
+  const wrapped =
+    ((segment % LAMP_BASE_SEGMENTS) + LAMP_BASE_SEGMENTS) % LAMP_BASE_SEGMENTS;
+
+  return row * LAMP_BASE_SEGMENTS + wrapped;
+}
+
+
+/**
+ * Собирает основание в индексированную сетку.
+ *
+ * Форму задаёт число сторон: круг, квадрат или шестиугольник. Профиль один и
+ * тот же, меняется только радиус на угле, поэтому основание всегда замкнуто и
+ * имеет ту же топологию, что и круглое.
+ */
+function buildBaseGeometry(normalized: LampParams): BufferGeometry {
+  const rows = createBaseRows(normalized);
+  const sides = BASE_SHAPE_SIDES[normalized.lampBaseShape];
+  const apothem = normalized.lampDiameter / 2 + BASE_MARGIN_MM;
+  const angularStep = (Math.PI * 2) / LAMP_BASE_SEGMENTS;
+  const positions = new Float32Array(rows.length * LAMP_BASE_SEGMENTS * 3);
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex];
+
+    for (let segment = 0; segment < LAMP_BASE_SEGMENTS; segment += 1) {
+      const angle = segment * angularStep;
+      const radius = baseRowRadius(row, angle, sides, apothem);
+      const offset3 = (rowIndex * LAMP_BASE_SEGMENTS + segment) * 3;
+
+      positions[offset3] = Math.cos(angle) * radius;
+      positions[offset3 + 1] = row.height;
+      positions[offset3 + 2] = Math.sin(angle) * radius;
+    }
+  }
+
+  const indices: number[] = [];
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const nextRow = (rowIndex + 1) % rows.length;
+
+    for (let segment = 0; segment < LAMP_BASE_SEGMENTS; segment += 1) {
+      const a = baseVertexIndex(rowIndex, segment);
+      const b = baseVertexIndex(rowIndex, segment + 1);
+      const c = baseVertexIndex(nextRow, segment + 1);
+      const d = baseVertexIndex(nextRow, segment);
+
+      indices.push(a, c, b, a, d, c);
+    }
+  }
+
+  return finalizeGeometry(positions, indices);
+}
+
+/**
+ * Абажур светильника: колокол с гнездом патрона и каналом под провод.
+ *
+ * Стоит на столе так, как печатается: широкой кромкой вниз.
+ */
+export function createLampShadeGeometry(
+  params: Partial<LampParams>,
+): BufferGeometry {
+  return buildShadeGeometry(normalizeLampParams(params));
+}
+
+/**
+ * Основание светильника: полая тумба с гнездом патрона и посадочным кольцом.
+ *
+ * Канал под провод — сквозное отверстие в дне: кабель выходит снизу, а в
+ * полости остаётся место для клеммника и патрона.
+ */
+export function createLampBaseGeometry(
+  params: Partial<LampParams>,
+): BufferGeometry {
+  return buildBaseGeometry(normalizeLampParams(params));
+}
+
+/**
+ * Собирает светильник целиком или отдельную деталь.
+ *
+ * В сборке абажур стоит на верхней плите основания, а посадочное кольцо уходит
+ * внутрь его нижней кромки. Детали для печати возвращаются отдельно и стоят на
+ * столе: так их и режет слайсер, разворачивать не нужно.
+ */
+export function createLampGeometry(
+  params: Partial<LampParams>,
+  part: LampPart = "all",
+): BufferGeometry {
+  const normalized = normalizeLampParams(params);
+
+  if (part === "base") {
+    return buildBaseGeometry(normalized);
+  }
+
+  if (part === "shade") {
+    return buildShadeGeometry(normalized);
+  }
+
+  const base = buildBaseGeometry(normalized);
+  const shade = buildShadeGeometry(normalized);
+  shade.translate(0, normalized.lampBaseHeight, 0);
+
+  const merged = mergeGeometries([base, shade]);
+
+  base.dispose();
+  shade.dispose();
+
+  return merged ?? new BufferGeometry();
+}
+

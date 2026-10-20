@@ -15,6 +15,8 @@ import {
   KEYCHAIN_SHAPES,
   KEYCHAIN_SHAPE_LABELS,
   KEYCHAIN_TEXT_MAX_LENGTH,
+  LAMP_BASE_SHAPES,
+  LAMP_BASE_SHAPE_LABELS,
   LAMP_MOUNTS,
   LITHOPHANE_PIXEL_COUNT,
   LITHOPHANE_RESOLUTION,
@@ -31,6 +33,7 @@ import {
   type CalibrationType,
   type ConstructorParams,
   type KeychainShape,
+  type LampBaseShape,
   type LampMount,
   type ModelType,
   type SignChannelWidth,
@@ -48,6 +51,7 @@ type SizeParam = Exclude<
   | "text"
   | "lampPattern"
   | "lampMount"
+  | "lampBaseShape"
   | "signText"
   | "signChannelWidth"
   | "calibrationType"
@@ -61,18 +65,41 @@ export type StlExportError = {
   action: "pro" | "login" | null;
 };
 
+/**
+ * Файл, который предлагает панель.
+ *
+ * Первый файл в списке — главный: у светильника это сборка, у вывески — вся
+ * надпись. Остальные кнопки отдают детали по отдельности: основание и абажур
+ * печатаются разными деталями, буквы вывески — тоже. `request` уходит в API
+ * поверх параметров модели, поэтому панель не знает, как они называются.
+ */
+export type StlExportOption = {
+  /** Уникальный ключ: по нему видно, на какой кнопке крутится спиннер. */
+  id: string;
+  /** Текст кнопки. */
+  label: string;
+  /** Подпись для скринридера, если текст кнопки слишком короткий («А»). */
+  description?: string;
+  /** Дополнительные поля запроса: `part` светильника или `letter` вывески. */
+  request: Record<string, number | string>;
+  /** Имя файла, если сервер не прислал Content-Disposition. */
+  fileName: string;
+};
+
 type ParameterPanelProps = {
   params: ConstructorParams;
   /** Есть ли действующий доступ Pro: у Pro лимита на STL нет. */
   hasPro: boolean;
   /** Остаток бесплатных скачиваний; у Pro не используется. */
   freeDownloadsLeft: number;
-  /** Идёт запрос к серверу: кнопка заблокирована и показывает спиннер. */
-  isExporting: boolean;
+  /** Какой файл сейчас генерируется; null — запросов нет. */
+  exportingId: string | null;
+  /** Что можно скачать для текущей модели: сборка и отдельные детали. */
+  exportOptions: StlExportOption[];
   /** Ошибка последней попытки скачивания; null — ошибок нет. */
   exportError: StlExportError | null;
-  /** Запрос к серверному экспорту STL. */
-  onExport: () => void;
+  /** Запрос к серверному экспорту STL для выбранного файла. */
+  onExport: (option: StlExportOption) => void;
   onParamChange: (key: SizeParam, value: number) => void;
   onModelChange: (model: ModelType) => void;
   onShapeChange: (shape: VaseShape) => void;
@@ -81,6 +108,7 @@ type ParameterPanelProps = {
   onTextChange: (text: string) => void;
   onLampPatternChange: (pattern: VasePattern) => void;
   onLampMountChange: (mount: LampMount) => void;
+  onLampBaseShapeChange: (shape: LampBaseShape) => void;
   onSignTextChange: (text: string) => void;
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
   onCalibrationTypeChange: (type: CalibrationType) => void;
@@ -119,6 +147,93 @@ function ExportErrorAlert({ error }: { error: StlExportError | null }) {
         </Link>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Кнопки скачивания: главный файл и детали по отдельности.
+ *
+ * Первый файл — сборка целиком: у светильника это основание с абажуром, у
+ * вывески — вся надпись одной сеткой. Остальные кнопки компактные и идут
+ * списком: «Основание», «Абажур» или буквы «Т», «Р», «И». Пока один файл
+ * генерируется, остальные заблокированы, а спиннер крутится только на
+ * нажатой кнопке.
+ */
+function ExportButtons({
+  options,
+  exportingId,
+  partsHeading,
+  onExport,
+}: {
+  options: StlExportOption[];
+  exportingId: string | null;
+  /** Заголовок над компактными кнопками: «Одна деталь» или «Одна буква». */
+  partsHeading: string | null;
+  onExport: (option: StlExportOption) => void;
+}) {
+  const [primary, ...parts] = options;
+
+  if (!primary) {
+    return null;
+  }
+
+  const isExporting = exportingId !== null;
+
+  return (
+    <>
+      <button
+        aria-busy={exportingId === primary.id}
+        className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-base font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-wait disabled:bg-blue-600/60 disabled:text-white/80 disabled:shadow-none"
+        disabled={isExporting}
+        onClick={() => onExport(primary)}
+        type="button"
+      >
+        {exportingId === primary.id ? (
+          <>
+            <span
+              aria-hidden
+              className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+            />
+            Генерация…
+          </>
+        ) : (
+          primary.label
+        )}
+      </button>
+
+      {parts.length > 0 ? (
+        <div className="mt-3">
+          {partsHeading ? (
+            <p className="text-[0.65rem] font-semibold tracking-wide text-slate-300 uppercase">
+              {partsHeading}
+            </p>
+          ) : null}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {parts.map((option) => (
+              <button
+                aria-busy={exportingId === option.id}
+                aria-label={option.description}
+                className="inline-flex min-h-9 min-w-11 items-center justify-center rounded-full border border-white/15 px-3 text-sm font-semibold text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-wait disabled:text-slate-300/60"
+                disabled={isExporting}
+                key={option.id}
+                onClick={() => onExport(option)}
+                title={option.description}
+                type="button"
+              >
+                {exportingId === option.id ? (
+                  <span
+                    aria-hidden
+                    className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white"
+                  />
+                ) : (
+                  option.label
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -272,7 +387,8 @@ export function ParameterPanel({
   params,
   hasPro,
   freeDownloadsLeft,
-  isExporting,
+  exportingId,
+  exportOptions,
   exportError,
   onExport,
   onParamChange,
@@ -283,6 +399,7 @@ export function ParameterPanel({
   onTextChange,
   onLampPatternChange,
   onLampMountChange,
+  onLampBaseShapeChange,
   onSignTextChange,
   onSignChannelWidthChange,
   onCalibrationTypeChange,
@@ -290,6 +407,7 @@ export function ParameterPanel({
   onLithophaneBrightnessChange,
   onReset,
 }: ParameterPanelProps) {
+  const isExporting = exportingId !== null;
   const textInputId = useId();
   const textHintId = `${textInputId}-hint`;
   const textLength = Array.from(params.text).length;
@@ -351,6 +469,18 @@ export function ParameterPanel({
   const calibrationLimit = CALIBRATION_VALUE_LIMITS[params.calibrationType];
   const calibrationUnit = CALIBRATION_UNITS[params.calibrationType];
 
+  /**
+   * Заголовок над компактными кнопками. У светильника и вывески файлов
+   * несколько — детали печатаются по отдельности, — поэтому список кнопок
+   * подписан: иначе буквы «Т» и «Р» выглядели бы загадочно.
+   */
+  const partsHeading =
+    params.model === "lamp"
+      ? "Одна деталь"
+      : params.model === "sign"
+        ? "Одна буква"
+        : null;
+
   /** Три главных размера выбранной модели для нижней сводки. */
   const summary: { label: string; value: string }[] =
     params.model === "vase"
@@ -382,12 +512,15 @@ export function ParameterPanel({
               { label: "Ступени", value: `${params.steps}` },
             ]
           : params.model === "lamp"
-          ? [
-              { label: "Высота", value: `${params.lampHeight} мм` },
-              { label: "Диаметр", value: `Ø ${params.lampDiameter} мм` },
-              { label: "Патрон", value: params.lampMount.toUpperCase() },
-            ]
-          : params.model === "box"
+            ? [
+                {
+                  label: "Высота",
+                  value: `${params.lampBaseHeight + params.lampHeight} мм`,
+                },
+                { label: "Диаметр", value: `Ø ${params.lampDiameter} мм` },
+                { label: "Патрон", value: params.lampMount.toUpperCase() },
+              ]
+            : params.model === "box"
             ? [
                 { label: "Длина", value: `${params.boxLength} мм` },
                 { label: "Ширина", value: `${params.boxWidth} мм` },
@@ -821,10 +954,57 @@ export function ParameterPanel({
               })}
             </div>
 
-            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+            <p className="mt-4 text-xs leading-relaxed text-slate-300">
               Отверстие шире резьбы на 0.3 мм с каждой стороны: после усадки
               патрон входит плотно, но не проваливается. Провод выходит через
               канал в верхнем поясе.
+            </p>
+          </fieldset>
+
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Основание
+            </legend>
+
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {LAMP_BASE_SHAPES.map((shape) => {
+                const selected = params.lampBaseShape === shape;
+
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className={
+                      selected
+                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/20 px-1 text-xs font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-1 text-xs font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    }
+                    key={shape}
+                    onClick={() => onLampBaseShapeChange(shape)}
+                    type="button"
+                  >
+                    {LAMP_BASE_SHAPE_LABELS[shape]}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4">
+              <NumberSlider
+                hint="Высота тумбы под патрон. Внутри остаётся место для клеммника, а абажур ставится на верхнюю плиту и центруется посадочным кольцом."
+                label="Высота основания"
+                max={CONSTRUCTOR_LIMITS.lampBaseHeight.max}
+                min={CONSTRUCTOR_LIMITS.lampBaseHeight.min}
+                onChange={(value) => onParamChange("lampBaseHeight", value)}
+                step={CONSTRUCTOR_LIMITS.lampBaseHeight.step}
+                unit="мм"
+                value={params.lampBaseHeight}
+              />
+            </div>
+
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              Основание скачивается отдельной деталью: квадрат и шестигранник
+              стоят устойчивее круга и дают ровные грани, круг печатается проще
+              всего. Кабель выходит через отверстие в дне.
             </p>
           </fieldset>
 
@@ -864,7 +1044,7 @@ export function ParameterPanel({
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
             <NumberSlider
-              hint="Высота от нижней кромки до пояса патрона. Верхние 18 мм занимает гнездо, поэтому свет уходит вниз."
+              hint="Высота абажура от нижней кромки до пояса патрона. Верхние 18 мм занимает гнездо, поэтому свет уходит вниз."
               label="Высота"
               max={CONSTRUCTOR_LIMITS.lampHeight.max}
               min={CONSTRUCTOR_LIMITS.lampHeight.min}
@@ -1161,8 +1341,9 @@ export function ParameterPanel({
                 className="text-xs leading-relaxed text-slate-300"
                 id={signTextHintId}
               >
-                Кириллица, латиница, цифры и знаки. Буквы выступают над плитой
-                на выбранную глубину и входят в неё на 1.2 мм.
+                Кириллица, латиница, цифры и знаки. Каждая буква — отдельная
+                полая деталь: лицо 2 мм, стенки 1.8 мм, открытая камера под ленту
+                сзади.
               </p>
               <span className="shrink-0 text-xs tabular-nums text-slate-300">
                 {signTextLength}/{SIGN_TEXT_MAX_LENGTH}
@@ -1198,8 +1379,9 @@ export function ParameterPanel({
             </div>
 
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              Лента ложится между направляющими заподлицо: дно канала — лицо
-              плиты. Провод выходит через отверстие снизу.
+              Лента ложится в открытую камеру сзади буквы: стенки держат её по
+              краям, а лицо остаётся сплошным. Провод идёт по тыльной стороне
+              надписи — крепление выбирайте под свою ленту.
             </p>
           </fieldset>
 
@@ -1216,7 +1398,7 @@ export function ParameterPanel({
             />
 
             <NumberSlider
-              hint="Выступ букв над плитой. 5–10 мм читается издалека, 15–40 мм даёт объёмную вывеску."
+              hint="Выступ букв над столом. 11–18 мм — компактная подсветка, 25–40 мм даёт объёмную вывеску с запасом под ленту и диффузор."
               label="Выступ букв"
               max={CONSTRUCTOR_LIMITS.signDepth.max}
               min={CONSTRUCTOR_LIMITS.signDepth.min}
@@ -1225,11 +1407,24 @@ export function ParameterPanel({
               unit="мм"
               value={params.signDepth}
             />
+
+            <NumberSlider
+              hint="Расстояние между буквами в строке. Зазор не масштабируется с кеглем: буквы не слипаются даже в длинной надписи."
+              label="Зазор между буквами"
+              max={CONSTRUCTOR_LIMITS.signLetterGap.max}
+              min={CONSTRUCTOR_LIMITS.signLetterGap.min}
+              onChange={(value) => onParamChange("signLetterGap", value)}
+              step={CONSTRUCTOR_LIMITS.signLetterGap.step}
+              unit="мм"
+              value={params.signLetterGap}
+            />
           </div>
 
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Плита 4 мм со скруглёнными углами, два отверстия 5 мм под крепёж и
-            отверстие 8 мм под провод питания ленты.
+            Буквы печатаются по одной и крепятся на стену или на общий профиль:
+            каждая деталь полая, с лицом 2 мм и стенками 1.8 мм. Слишком тонкие
+            штрихи — например, у «I» или «1» — собираются сплошными: камера под
+            ленту там не помещается.
           </p>
         </>
       )}
@@ -1274,25 +1469,12 @@ export function ParameterPanel({
       <div className="mt-5 border-t border-white/10 pt-5">
         {hasPro ? (
           <>
-            <button
-              aria-busy={isExporting}
-              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-base font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-wait disabled:bg-blue-600/60 disabled:text-white/80 disabled:shadow-none"
-              disabled={isExporting}
-              onClick={onExport}
-              type="button"
-            >
-              {isExporting ? (
-                <>
-                  <span
-                    aria-hidden
-                    className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
-                  />
-                  Генерация…
-                </>
-              ) : (
-                "Скачать STL"
-              )}
-            </button>
+            <ExportButtons
+              exportingId={exportingId}
+              onExport={onExport}
+              options={exportOptions}
+              partsHeading={partsHeading}
+            />
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
               {isExporting
                 ? "Собираем геометрию и упаковываем её в бинарный STL…"
@@ -1317,25 +1499,14 @@ export function ParameterPanel({
               </p>
             </div>
 
-            <button
-              aria-busy={isExporting}
-              className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-base font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-wait disabled:bg-blue-600/60 disabled:text-white/80 disabled:shadow-none"
-              disabled={isExporting}
-              onClick={onExport}
-              type="button"
-            >
-              {isExporting ? (
-                <>
-                  <span
-                    aria-hidden
-                    className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
-                  />
-                  Генерация…
-                </>
-              ) : (
-                "Скачать STL"
-              )}
-            </button>
+            <div className="mt-3">
+              <ExportButtons
+                exportingId={exportingId}
+                onExport={onExport}
+                options={exportOptions}
+                partsHeading={partsHeading}
+              />
+            </div>
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
               {isExporting
                 ? "Собираем геометрию и упаковываем её в бинарный STL…"
