@@ -6,6 +6,10 @@ import { useId } from "react";
 import { NumberSlider } from "@/components/constructor/NumberSlider";
 import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
 import {
+  CALIBRATION_TYPES,
+  CALIBRATION_TYPE_LABELS,
+  CALIBRATION_UNITS,
+  CALIBRATION_VALUE_LIMITS,
   CONSTRUCTOR_LIMITS,
   KEYCHAIN_SHAPES,
   KEYCHAIN_SHAPE_LABELS,
@@ -21,6 +25,7 @@ import {
   VASE_SHAPE_LABELS,
   sanitizeKeychainText,
   sanitizeSignText,
+  type CalibrationType,
   type ConstructorParams,
   type KeychainShape,
   type LampMount,
@@ -42,6 +47,7 @@ type SizeParam = Exclude<
   | "lampMount"
   | "signText"
   | "signChannelWidth"
+  | "calibrationType"
 >;
 
 /** Ошибка экспорта и действие, которое поможет её исправить. */
@@ -72,6 +78,7 @@ type ParameterPanelProps = {
   onLampMountChange: (mount: LampMount) => void;
   onSignTextChange: (text: string) => void;
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
+  onCalibrationTypeChange: (type: CalibrationType) => void;
   onReset: () => void;
 };
 
@@ -115,6 +122,7 @@ const MODEL_CARDS: ModelCard[] = [
   { id: "keychain", icon: "🔑", title: MODEL_TYPE_LABELS.keychain },
   { id: "lamp", icon: "💡", title: MODEL_TYPE_LABELS.lamp },
   { id: "sign", icon: "🪧", title: MODEL_TYPE_LABELS.sign },
+  { id: "calibration", icon: "🌡️", title: MODEL_TYPE_LABELS.calibration },
 ];
 
 /** Пояснение к выбранному силуэту: помогает выбрать форму без 3D-терминов. */
@@ -140,13 +148,22 @@ const PATTERN_HINTS: Record<VasePattern, string> = {
     "Горизонтальные волны: частота задаёт частоту кольцевых гребней по высоте.",
 };
 
+/** Что меняется по высоте башни: подсказка помогает выбрать тест. */
+const CALIBRATION_TYPE_HINTS: Record<CalibrationType, string> = {
+  temperature:
+    "Температура сопла на каждой ступени. Напечатайте башню и сравните пояса: самый прочный и чистый покажет подходящую температуру.",
+  retraction:
+    "Длина ретракта на каждой ступени. Ищите пояс без паутинки и без пропусков подачи — это и есть рабочее значение.",
+};
+
 /**
  * Панель параметров модели.
  *
  * Слайдеры меняют размеры, кнопки формы — пресет силуэта вазы, кнопки узора —
  * математический рельеф стенки, а для брелока появляются длина, ширина,
  * толщина, форма заготовки и имя. У светильника выбирают патрон и узор, у
- * вывески — надпись, кегль, выступ букв и ширину канала под ленту. Компонент
+ * вывески — надпись, кегль, выступ букв и ширину канала под ленту, у
+ * калибровки — тест, диапазон значений и число ступеней. Компонент
  * не хранит состояние: значения приходят из ConstructorClient, поэтому
  * 3D-сцена и подписи всегда читают один и тот же объект параметров.
  */
@@ -167,6 +184,7 @@ export function ParameterPanel({
   onLampMountChange,
   onSignTextChange,
   onSignChannelWidthChange,
+  onCalibrationTypeChange,
   onReset,
 }: ParameterPanelProps) {
   const textInputId = useId();
@@ -175,6 +193,10 @@ export function ParameterPanel({
   const signTextInputId = useId();
   const signTextHintId = `${signTextInputId}-hint`;
   const signTextLength = Array.from(params.signText).length;
+
+  /** Границы и единица текущего калибровочного теста: у температуры и ретракта они разные. */
+  const calibrationLimit = CALIBRATION_VALUE_LIMITS[params.calibrationType];
+  const calibrationUnit = CALIBRATION_UNITS[params.calibrationType];
 
   /** Три главных размера выбранной модели для нижней сводки. */
   const summary: { label: string; value: string }[] =
@@ -190,7 +212,23 @@ export function ParameterPanel({
             { label: "Ширина", value: `${params.width} мм` },
             { label: "Толщина", value: `${params.thickness.toFixed(1)} мм` },
           ]
-        : params.model === "lamp"
+        : params.model === "calibration"
+          ? [
+              {
+                label: "Тест",
+                value: CALIBRATION_TYPE_LABELS[params.calibrationType],
+              },
+              {
+                label: "Диапазон",
+                value: `${params.startValue.toFixed(
+                  CALIBRATION_VALUE_LIMITS[params.calibrationType].decimals,
+                )}–${params.endValue.toFixed(
+                  CALIBRATION_VALUE_LIMITS[params.calibrationType].decimals,
+                )} ${CALIBRATION_UNITS[params.calibrationType]}`,
+              },
+              { label: "Ступени", value: `${params.steps}` },
+            ]
+          : params.model === "lamp"
           ? [
               { label: "Высота", value: `${params.lampHeight} мм` },
               { label: "Диаметр", value: `Ø ${params.lampDiameter} мм` },
@@ -491,6 +529,83 @@ export function ParameterPanel({
             />
           </div>
         </>
+      ) : params.model === "calibration" ? (
+        <>
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Тест
+            </legend>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {CALIBRATION_TYPES.map((type) => {
+                const selected = params.calibrationType === type;
+
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className={
+                      selected
+                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-blue-400/60 bg-blue-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    }
+                    key={type}
+                    onClick={() => onCalibrationTypeChange(type)}
+                    type="button"
+                  >
+                    {CALIBRATION_TYPE_LABELS[type]}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              {CALIBRATION_TYPE_HINTS[params.calibrationType]}
+            </p>
+          </fieldset>
+
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <NumberSlider
+              decimals={calibrationLimit.decimals}
+              hint="Значение на нижней ступени. Направление башни любое: можно подниматься от холодного к горячему или наоборот."
+              label="Внизу"
+              max={calibrationLimit.max}
+              min={calibrationLimit.min}
+              onChange={(value) => onParamChange("startValue", value)}
+              step={calibrationLimit.step}
+              unit={calibrationUnit}
+              value={params.startValue}
+            />
+
+            <NumberSlider
+              decimals={calibrationLimit.decimals}
+              hint="Значение на верхней ступени. Разница делится на равные шаги, а каждое значение печатается выпукло на своей грани."
+              label="Вверху"
+              max={calibrationLimit.max}
+              min={calibrationLimit.min}
+              onChange={(value) => onParamChange("endValue", value)}
+              step={calibrationLimit.step}
+              unit={calibrationUnit}
+              value={params.endValue}
+            />
+
+            <NumberSlider
+              hint="Сколько секций в башне. 5 ступеней — быстрый тест, 10 — подробная карта значений без высокого расхода пластика."
+              label="Ступеней"
+              max={CONSTRUCTOR_LIMITS.calibrationSteps.max}
+              min={CONSTRUCTOR_LIMITS.calibrationSteps.min}
+              onChange={(value) => onParamChange("steps", value)}
+              step={CONSTRUCTOR_LIMITS.calibrationSteps.step}
+              unit="шт."
+              value={params.steps}
+            />
+          </div>
+
+          <p className="mt-4 text-xs leading-relaxed text-slate-300">
+            Ступени сужаются кверху и стоят друг на друге: нависаний нет,
+            поддержки не нужны. Цифры выпуклые: выступают над передней гранью
+            на 0.5 мм — их видно и после печати.
+          </p>
+        </>
       ) : params.model === "lamp" ? (
         <>
           <div
@@ -738,6 +853,19 @@ export function ParameterPanel({
       >
         Сбросить параметры
       </button>
+
+      {params.model === "calibration" ? (
+        <p
+          className="mt-5 rounded-2xl border border-blue-400/40 bg-blue-500/15 p-3 text-xs leading-relaxed text-blue-100"
+          role="note"
+        >
+          <span className="font-semibold">Этот тест требует настройки слайсера
+          на каждом слое.</span>{" "}
+          Скачайте STL и настройте скрипт изменения (ChangeAtZ) в Orca/Prusa,
+          ориентируясь на выпуклые цифры: они подскажут, на каком слое
+          менять температуру или длину ретракта.
+        </p>
+      ) : null}
 
       <div className="mt-5 border-t border-white/10 pt-5">
         {hasPro ? (

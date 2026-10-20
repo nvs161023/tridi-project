@@ -9,6 +9,11 @@ import {
   type StlExportError,
 } from "@/components/constructor/ParameterPanel";
 import {
+  CALIBRATION_TYPE_LABELS,
+  CALIBRATION_UNITS,
+  CALIBRATION_VALUE_LIMITS,
+  DEFAULT_CALIBRATION_PARAMS,
+  DEFAULT_CALIBRATION_VALUES,
   DEFAULT_CONSTRUCTOR_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
   DEFAULT_LAMP_PARAMS,
@@ -18,11 +23,13 @@ import {
   LAMP_MOUNT_LABELS,
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
+  calibrationStlFileName,
   keychainStlFileName,
   lampStlFileName,
   normalizeConstructorParams,
   signStlFileName,
   vaseStlFileName,
+  type CalibrationType,
   type ConstructorParams,
   type KeychainShape,
   type LampMount,
@@ -51,6 +58,7 @@ type SizeParam = Exclude<
   | "lampMount"
   | "signText"
   | "signChannelWidth"
+  | "calibrationType"
 >;
 
 /**
@@ -206,6 +214,23 @@ export function ConstructorClient({
     );
   }
 
+  /**
+   * Смена теста сбрасывает диапазон к его собственным значениям.
+   *
+   * Общие поля `startValue` / `endValue` не могут одновременно хранить °C и
+   * миллиметры: если перенести 230 в ретракт, получится 230 мм и параметры
+   * зажмутся в 5. Поэтому у каждого теста свой стартовый диапазон.
+   */
+  function updateCalibrationType(calibrationType: CalibrationType) {
+    setParams((current) =>
+      normalizeConstructorParams({
+        ...current,
+        calibrationType,
+        ...DEFAULT_CALIBRATION_VALUES[calibrationType],
+      }),
+    );
+  }
+
   /** Сброс возвращает к старту только текущую модель, не трогая остальные. */
   function resetParams() {
     setParams((current) =>
@@ -217,7 +242,9 @@ export function ConstructorClient({
             ? DEFAULT_KEYCHAIN_PARAMS
             : current.model === "lamp"
               ? DEFAULT_LAMP_PARAMS
-              : DEFAULT_SIGN_PARAMS),
+              : current.model === "sign"
+                ? DEFAULT_SIGN_PARAMS
+                : DEFAULT_CALIBRATION_PARAMS),
       }),
     );
   }
@@ -266,7 +293,9 @@ export function ConstructorClient({
               ? keychainStlFileName(params)
               : params.model === "lamp"
                 ? lampStlFileName(params)
-                : signStlFileName(params),
+                : params.model === "sign"
+                  ? signStlFileName(params)
+                  : calibrationStlFileName(params),
         );
         link.hidden = true;
         document.body.appendChild(link);
@@ -350,9 +379,9 @@ export function ConstructorClient({
 
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300">
             Параметрические модели под ваш принтер: ваза с математическим узором,
-            брелок с именем, абажур на патрон E27 или E14 и светодиодная вывеска
-            с надписью. Настройте размеры, проверьте результат в 3D и скачайте
-            STL.
+            брелок с именем, абажур на патрон E27 или E14, светодиодная вывеска
+            с надписью и калибровочная башня для температуры или ретракта.
+            Настройте размеры, проверьте результат в 3D и скачайте STL.
           </p>
         </div>
 
@@ -381,6 +410,7 @@ export function ConstructorClient({
           hasPro={hasPro}
           isExporting={isExporting}
           onExport={exportStl}
+          onCalibrationTypeChange={updateCalibrationType}
           onKeychainShapeChange={updateKeychainShape}
           onLampMountChange={updateLampMount}
           onLampPatternChange={updateLampPattern}
@@ -424,6 +454,19 @@ export function ConstructorClient({
                   {LAMP_MOUNT_LABELS[params.lampMount]} ·{" "}
                   {VASE_PATTERN_LABELS[params.lampPattern]} ·{" "}
                   {params.lampHeight} × Ø {params.lampDiameter} мм
+                </>
+              ) : params.model === "calibration" ? (
+                <>
+                  {CALIBRATION_TYPE_LABELS[params.calibrationType]} ·{" "}
+                  {params.startValue.toFixed(
+                    CALIBRATION_VALUE_LIMITS[params.calibrationType].decimals,
+                  )}
+                  –
+                  {params.endValue.toFixed(
+                    CALIBRATION_VALUE_LIMITS[params.calibrationType].decimals,
+                  )}{" "}
+                  {CALIBRATION_UNITS[params.calibrationType]} · {params.steps}{" "}
+                  ступеней
                 </>
               ) : (
                 <>

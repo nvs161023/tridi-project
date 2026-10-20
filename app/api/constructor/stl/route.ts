@@ -11,8 +11,11 @@ import {
   countConstructorDownloadsThisMonth,
 } from "@/lib/constructor/downloads";
 import {
+  CALIBRATION_VALUE_LIMITS,
   CONSTRUCTOR_LIMITS,
   DEFAULT_VASE_PARAMS,
+  calibrationStlFileName,
+  isCalibrationType,
   isKeychainShape,
   isLampMount,
   isSignChannelWidth,
@@ -22,17 +25,20 @@ import {
   isValidSignText,
   keychainStlFileName,
   lampStlFileName,
+  normalizeCalibrationParams,
   normalizeKeychainParams,
   normalizeLampParams,
   normalizeSignParams,
   normalizeVaseParams,
   signStlFileName,
   vaseStlFileName,
+  type CalibrationParams,
   type KeychainParams,
   type LampParams,
   type SignParams,
   type VaseParams,
 } from "@/lib/constructor/params";
+import { createCalibrationGeometry } from "@/lib/constructor/calibration-geometry";
 import {
   KEYCHAIN_FONT_URL,
   createKeychainGeometry,
@@ -54,7 +60,8 @@ import { createClient } from "@/lib/supabase/server";
  *      календарный месяц по UTC (countConstructorDownloadsThisMonth);
  *   3. параметры — только числа внутри границ слайдеров, известная форма и
  *      узор вазы, брелок с именем и формой заготовки, абажур с узором и
- *      патроном E27/E14 либо вывеска с надписью и шириной канала.
+ *      патроном E27/E14, вывеска с надписью и шириной канала либо
+ *      калибровочная башня с диапазоном и числом ступеней.
  *
  * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
  * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
@@ -296,12 +303,51 @@ function parseSignParams(body: Record<string, unknown>): SignParams | null {
   });
 }
 
+/**
+ * Строгая проверка параметров калибровочной башни.
+ *
+ * Диапазон зависит от теста: температура 190–230 °C, ретракт 0–5 мм. Сначала
+ * проверяем тип, затем границы именно его — иначе 230 прошло бы как 230 мм
+ * ретракта. Число ступеней общее для обоих тестов, от 2 до 10.
+ */
+function parseCalibrationParams(
+  body: Record<string, unknown>,
+): CalibrationParams | null {
+  const { calibrationType, startValue, endValue, steps } = body;
+
+  if (!isCalibrationType(calibrationType)) {
+    return null;
+  }
+
+  const limit = CALIBRATION_VALUE_LIMITS[calibrationType];
+
+  if (
+    !isNumberInRange(startValue, limit.min, limit.max) ||
+    !isNumberInRange(endValue, limit.min, limit.max) ||
+    !isNumberInRange(
+      steps,
+      CONSTRUCTOR_LIMITS.calibrationSteps.min,
+      CONSTRUCTOR_LIMITS.calibrationSteps.max,
+    )
+  ) {
+    return null;
+  }
+
+  return normalizeCalibrationParams({
+    calibrationType,
+    startValue,
+    endValue,
+    steps,
+  });
+}
+
 /** Разобранный запрос: модель и её проверенные параметры. */
 type ParsedConstructorRequest =
   | { model: "vase"; params: VaseParams }
   | { model: "keychain"; params: KeychainParams }
   | { model: "lamp"; params: LampParams }
-  | { model: "sign"; params: SignParams };
+  | { model: "sign"; params: SignParams }
+  | { model: "calibration"; params: CalibrationParams };
 
 /**
  * Выбирает набор параметров по полю model.
@@ -341,6 +387,12 @@ function parseConstructorRequest(
     const params = parseSignParams(body);
 
     return params ? { model: "sign", params } : null;
+  }
+
+  if (model === "calibration") {
+    const params = parseCalibrationParams(body);
+
+    return params ? { model: "calibration", params } : null;
   }
 
   return null;
@@ -437,14 +489,14 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, брелока, абажура или надпись вывески.",
+      "Проверьте размеры и узор вазы, брелока, абажура, надпись вывески или диапазон калибровки.",
     );
   }
 
   try {
-    // Шрифт читается только брелоку и вывеске; ваза и абажур собираются без
-    // него, чтобы не парсить 130 КБ JSON. loadCyrillicFont() кэширует промис,
-    // поэтому второй вызов в ветках ниже ничего не стоит.
+    // Шрифт читается брелоку, вывеске и калибровке; ваза и абажур собираются
+    // без него, чтобы не парсить 130 КБ JSON. loadCyrillicFont() кэширует
+    // промис, поэтому второй вызов в ветках ниже ничего не стоит.
     const geometry =
       parsed.model === "vase"
         ? createVaseGeometry(createVaseProfile(parsed.params), parsed.params)
@@ -452,7 +504,12 @@ export async function POST(request: Request): Promise<Response> {
           ? createLampGeometry(parsed.params)
           : parsed.model === "keychain"
             ? createKeychainGeometry(parsed.params, await loadCyrillicFont())
-            : createSignGeometry(parsed.params, await loadCyrillicFont());
+            : parsed.model === "sign"
+              ? createSignGeometry(parsed.params, await loadCyrillicFont())
+              : createCalibrationGeometry(
+                  parsed.params,
+                  await loadCyrillicFont(),
+                );
 
     try {
       const mesh = new Mesh(geometry);
@@ -469,7 +526,9 @@ export async function POST(request: Request): Promise<Response> {
             ? keychainStlFileName(parsed.params)
             : parsed.model === "lamp"
               ? lampStlFileName(parsed.params)
-              : signStlFileName(parsed.params);
+              : parsed.model === "sign"
+                ? signStlFileName(parsed.params)
+                : calibrationStlFileName(parsed.params);
 
       // Запись появляется после успешной генерации: упавшая сборка не должна
       // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —

@@ -9,6 +9,8 @@ import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 
 import {
+  CALIBRATION_TYPE_LABELS,
+  CALIBRATION_UNITS,
   KEYCHAIN_SHAPE_LABELS,
   LAMP_MOUNT_LABELS,
   VASE_PATTERN_LABELS,
@@ -19,6 +21,10 @@ import {
   type VaseShape,
 } from "@/lib/constructor/params";
 import { calculateGeometryVolumeMm3 } from "@/lib/constructor/geometry-volume";
+import {
+  CALIBRATION_FONT_URL,
+  createCalibrationGeometry,
+} from "@/lib/constructor/calibration-geometry";
 import {
   KEYCHAIN_FONT_URL,
   createKeychainGeometry,
@@ -31,8 +37,9 @@ import {
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
 
+/** Параметры выбранной модели: сцена пересобирается при любом изменении. */
 type ViewportProps = {
-  /** Все параметры выбранной модели: ваза, брелок, светильник или вывеска. */
+  /** Все параметры выбранной модели: ваза, брелок, светильник, вывеска или калибровка. */
   params: ConstructorParams;
 };
 
@@ -427,6 +434,74 @@ function SignModel({
   );
 }
 
+/**
+ * Калибровочная башня стоит на столе, как вывеска: ступени построены вдоль Y,
+ * выпуклые подписи смотрят на камеру. Материал бирюзовый, чтобы башня отличалась
+ * от остальных моделей.
+ *
+ * Ключ тени включает тест, диапазон и число ступеней: любая правка меняет
+ * высоту и силуэт, и старая тень стала бы неверной.
+ */
+function CalibrationModel({
+  geometry,
+  height,
+  footprint,
+  calibrationType,
+  steps,
+  startValue,
+  endValue,
+}: CalibrationModelProps) {
+  return (
+    <group>
+      <mesh castShadow geometry={geometry} receiveShadow>
+        <meshStandardMaterial
+          color="#2dd4bf"
+          metalness={0.06}
+          roughness={0.38}
+        />
+      </mesh>
+
+      {/* Тёмный пол: на нём читаются контактные тени. */}
+      <mesh
+        position={[0, -0.3, 0]}
+        receiveShadow
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
+        <circleGeometry args={[Math.max(footprint * 2.4, 240), 64]} />
+        <meshStandardMaterial color="#0b1220" roughness={1} />
+      </mesh>
+
+      <gridHelper
+        args={[Math.max(footprint * 5, 480), 24, "#1e293b", "#0f172a"]}
+        position={[0, 0.01, 0]}
+      />
+
+      <ContactShadows
+        blur={2.6}
+        far={Math.max(height * 1.2, 160)}
+        frames={1}
+        key={`calibration-${calibrationType}-${steps}-${startValue}-${endValue}`}
+        opacity={0.55}
+        position={[0, 0.02, 0]}
+        resolution={512}
+        scale={Math.max(footprint * 2.6, 320)}
+      />
+    </group>
+  );
+}
+
+type CalibrationModelProps = {
+  geometry: BufferGeometry;
+  /** Высота башни, мм. */
+  height: number;
+  /** Наибольший горизонтальный размер, мм. */
+  footprint: number;
+  calibrationType: ConstructorParams["calibrationType"];
+  steps: number;
+  startValue: number;
+  endValue: number;
+};
+
 /** Свет без внешних HDR: сцена должна работать без обращений к CDN. */
 function Lights() {
   return (
@@ -483,7 +558,7 @@ function Scene({ params, geometry, framing }: SceneProps) {
           mount={params.lampMount}
           pattern={params.lampPattern}
         />
-      ) : (
+      ) : params.model === "sign" ? (
         <SignModel
           channelWidth={params.signChannelWidth}
           depth={params.signDepth}
@@ -491,6 +566,16 @@ function Scene({ params, geometry, framing }: SceneProps) {
           geometry={geometry}
           text={params.signText}
           width={framing.footprint}
+        />
+      ) : (
+        <CalibrationModel
+          calibrationType={params.calibrationType}
+          endValue={params.endValue}
+          footprint={framing.footprint}
+          geometry={geometry}
+          height={framing.height}
+          startValue={params.startValue}
+          steps={params.steps}
         />
       )}
       <CameraRig
@@ -524,15 +609,18 @@ function Scene({ params, geometry, framing }: SceneProps) {
  * страницу по горизонтали.
  */
 export function Viewport({ params }: ViewportProps) {
-  /** Брелок и вывеска подписываются шрифтом, остальным моделям он не нужен. */
-  const needsFont = params.model === "keychain" || params.model === "sign";
+  /** Брелок, вывеска и калибровка подписываются шрифтом, остальным моделям он не нужен. */
+  const needsFont =
+    params.model === "keychain" ||
+    params.model === "sign" ||
+    params.model === "calibration";
   const [font, setFont] = useState<Font | null>(null);
   const [fontFailed, setFontFailed] = useState(false);
 
   /**
-   * Шрифт грузим только при открытии брелока или вывески: вазе и абажуру он
-   * не нужен, а лишние 130 КБ JSON незачем тянуть на первый экран. После
-   * загрузки состояние живёт до перезагрузки страницы, поэтому повторное
+   * Шрифт грузим только при открытии брелока, вывески или калибровки: вазе и
+   * абажуру он не нужен, а лишние 130 КБ JSON незачем тянуть на первый экран.
+   * После загрузки состояние живёт до перезагрузки страницы, поэтому повторное
    * переключение вкладки не делает новый запрос.
    */
   useEffect(() => {
@@ -544,7 +632,11 @@ export function Viewport({ params }: ViewportProps) {
     const loader = new FontLoader();
 
     loader.load(
-      params.model === "sign" ? SIGN_FONT_URL : KEYCHAIN_FONT_URL,
+      params.model === "sign"
+        ? SIGN_FONT_URL
+        : params.model === "calibration"
+          ? CALIBRATION_FONT_URL
+          : KEYCHAIN_FONT_URL,
       (loaded) => {
         if (active) {
           setFont(loaded);
@@ -583,6 +675,10 @@ export function Viewport({ params }: ViewportProps) {
       return createSignGeometry(params, font);
     }
 
+    if (params.model === "calibration") {
+      return createCalibrationGeometry(params, font);
+    }
+
     return createVaseGeometry(createVaseProfile(params), params);
   }, [font, params]);
 
@@ -591,10 +687,10 @@ export function Viewport({ params }: ViewportProps) {
   useEffect(() => () => geometry.dispose(), [geometry]);
 
   /**
-   * Габариты для камеры и подписи. У вывески ширина зависит от надписи, а не
-   * только от слайдеров, поэтому её берём из готовой сетки. Остальные модели
-   * считаются по параметрам: их bounding box совпадает со слайдерами с
-   * точностью до амплитуды узора.
+   * Габариты для камеры и подписи. У вывески ширина зависит от надписи, а у
+   * калибровки высота — от числа ступеней, поэтому их берём из готовой сетки.
+   * Остальные модели считаются по параметрам: bounding box совпадает со
+   * слайдерами с точностью до амплитуды узора.
    */
   const framing = useMemo<Framing>(() => {
     if (params.model === "vase") {
@@ -652,7 +748,9 @@ export function Viewport({ params }: ViewportProps) {
         ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${KEYCHAIN_SHAPE_LABELS[params.shapeType]}», имя «${params.text.trim() || "без имени"}»`
         : params.model === "lamp"
           ? `3D-предпросмотр абажура высотой ${params.lampHeight} миллиметров и диаметром ${params.lampDiameter} миллиметров, патрон ${LAMP_MOUNT_LABELS[params.lampMount]}, узор «${VASE_PATTERN_LABELS[params.lampPattern]}»`
-          : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
+          : params.model === "calibration"
+            ? `3D-предпросмотр калибровочной башни «${CALIBRATION_TYPE_LABELS[params.calibrationType]}» на ${params.steps} ступеней от ${params.startValue} до ${params.endValue} ${CALIBRATION_UNITS[params.calibrationType]}`
+            : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
     <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950 sm:h-[32rem] lg:h-[38rem]">
@@ -683,7 +781,7 @@ export function Viewport({ params }: ViewportProps) {
           role={fontFailed ? "alert" : "status"}
         >
           {fontFailed
-            ? "Шрифт не загрузился: предпросмотр без надписи, STL соберётся на сервере"
+            ? "Шрифт не загрузился: подписи скрыты, STL соберётся на сервере"
             : "Загружаем шрифт…"}
         </div>
       ) : null}
