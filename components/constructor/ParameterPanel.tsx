@@ -48,6 +48,7 @@ type SizeParam = Exclude<
   | "signText"
   | "signChannelWidth"
   | "calibrationType"
+  | "hasLid"
 >;
 
 /** Ошибка экспорта и действие, которое поможет её исправить. */
@@ -79,6 +80,7 @@ type ParameterPanelProps = {
   onSignTextChange: (text: string) => void;
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
   onCalibrationTypeChange: (type: CalibrationType) => void;
+  onHasLidChange: (hasLid: boolean) => void;
   onReset: () => void;
 };
 
@@ -123,6 +125,7 @@ const MODEL_CARDS: ModelCard[] = [
   { id: "lamp", icon: "💡", title: MODEL_TYPE_LABELS.lamp },
   { id: "sign", icon: "🪧", title: MODEL_TYPE_LABELS.sign },
   { id: "calibration", icon: "🌡️", title: MODEL_TYPE_LABELS.calibration },
+  { id: "box", icon: "📦", title: MODEL_TYPE_LABELS.box },
 ];
 
 /** Пояснение к выбранному силуэту: помогает выбрать форму без 3D-терминов. */
@@ -163,7 +166,8 @@ const CALIBRATION_TYPE_HINTS: Record<CalibrationType, string> = {
  * математический рельеф стенки, а для брелока появляются длина, ширина,
  * толщина, форма заготовки и имя. У светильника выбирают патрон и узор, у
  * вывески — надпись, кегль, выступ букв и ширину канала под ленту, у
- * калибровки — тест, диапазон значений и число ступеней. Компонент
+ * калибровки — тест, диапазон значений и число ступеней, у коробки — сетку
+ * ячеек, размеры, стенку и крышку. Компонент
  * не хранит состояние: значения приходят из ConstructorClient, поэтому
  * 3D-сцена и подписи всегда читают один и тот же объект параметров.
  */
@@ -185,6 +189,7 @@ export function ParameterPanel({
   onSignTextChange,
   onSignChannelWidthChange,
   onCalibrationTypeChange,
+  onHasLidChange,
   onReset,
 }: ParameterPanelProps) {
   const textInputId = useId();
@@ -234,11 +239,20 @@ export function ParameterPanel({
               { label: "Диаметр", value: `Ø ${params.lampDiameter} мм` },
               { label: "Патрон", value: params.lampMount.toUpperCase() },
             ]
-          : [
-              { label: "Кегль", value: `${params.signFontSize} мм` },
-              { label: "Выступ", value: `${params.signDepth} мм` },
-              { label: "Канал", value: `${params.signChannelWidth} мм` },
-            ];
+          : params.model === "box"
+            ? [
+                { label: "Длина", value: `${params.boxLength} мм` },
+                { label: "Ширина", value: `${params.boxWidth} мм` },
+                {
+                  label: "Ячейки",
+                  value: `${params.gridX} × ${params.gridY}`,
+                },
+              ]
+            : [
+                { label: "Кегль", value: `${params.signFontSize} мм` },
+                { label: "Выступ", value: `${params.signDepth} мм` },
+                { label: "Канал", value: `${params.signChannelWidth} мм` },
+              ];
 
   return (
     <section
@@ -726,6 +740,108 @@ export function ParameterPanel({
               value={params.lampWall}
             />
           </div>
+        </>
+      ) : params.model === "box" ? (
+        <>
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Сетка ячеек
+            </legend>
+
+            <div className="mt-3 space-y-5">
+              <NumberSlider
+                hint="Сколько секций по длине. Перегородки получают ту же толщину, что и наружные стенки."
+                label="Ячеек по длине"
+                max={CONSTRUCTOR_LIMITS.boxGrid.max}
+                min={CONSTRUCTOR_LIMITS.boxGrid.min}
+                onChange={(value) => onParamChange("gridX", value)}
+                step={CONSTRUCTOR_LIMITS.boxGrid.step}
+                unit="шт."
+                value={params.gridX}
+              />
+
+              <NumberSlider
+                hint="Сколько секций по ширине. 1 × 1 — простая коробка без внутренних перегородок."
+                label="Ячеек по ширине"
+                max={CONSTRUCTOR_LIMITS.boxGrid.max}
+                min={CONSTRUCTOR_LIMITS.boxGrid.min}
+                onChange={(value) => onParamChange("gridY", value)}
+                step={CONSTRUCTOR_LIMITS.boxGrid.step}
+                unit="шт."
+                value={params.gridY}
+              />
+            </div>
+          </fieldset>
+
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <NumberSlider
+              hint="Наружный размер по длинной стороне. 140–180 мм удобны для кабелей, крепежа и канцелярии."
+              label="Длина"
+              max={CONSTRUCTOR_LIMITS.boxLength.max}
+              min={CONSTRUCTOR_LIMITS.boxLength.min}
+              onChange={(value) => onParamChange("boxLength", value)}
+              step={CONSTRUCTOR_LIMITS.boxLength.step}
+              unit="мм"
+              value={params.boxLength}
+            />
+
+            <NumberSlider
+              hint="Наружный размер по короткой стороне. Вместе с длиной задаёт размеры ячеек."
+              label="Ширина"
+              max={CONSTRUCTOR_LIMITS.boxWidth.max}
+              min={CONSTRUCTOR_LIMITS.boxWidth.min}
+              onChange={(value) => onParamChange("boxWidth", value)}
+              step={CONSTRUCTOR_LIMITS.boxWidth.step}
+              unit="мм"
+              value={params.boxWidth}
+            />
+
+            <NumberSlider
+              hint="Высота стенок и перегородок от стола. Высокая коробка вмещает больше, но печатается дольше."
+              label="Высота"
+              max={CONSTRUCTOR_LIMITS.boxHeight.max}
+              min={CONSTRUCTOR_LIMITS.boxHeight.min}
+              onChange={(value) => onParamChange("boxHeight", value)}
+              step={CONSTRUCTOR_LIMITS.boxHeight.step}
+              unit="мм"
+              value={params.boxHeight}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.boxWall.decimals}
+              hint="Толщина наружных стенок и перегородок. 1.2–1.6 мм — прочный бытовой органайзер; 0.8 мм — быстрее, но тоньше."
+              label="Толщина стенки"
+              max={CONSTRUCTOR_LIMITS.boxWall.max}
+              min={CONSTRUCTOR_LIMITS.boxWall.min}
+              onChange={(value) => onParamChange("boxWall", value)}
+              step={CONSTRUCTOR_LIMITS.boxWall.step}
+              unit="мм"
+              value={params.boxWall}
+            />
+          </div>
+
+          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+            <input
+              checked={params.hasLid}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onChange={(event) => onHasLidChange(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-200">
+                Крышка
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                Отдельная плита с бортиком по периметру. Лежит рядом с корпусом
+                в том же STL и печатается без поддержек.
+              </span>
+            </span>
+          </label>
+
+          <p className="mt-4 text-xs leading-relaxed text-slate-300">
+            Корпус и крышка — две отдельные замкнутые детали. Перегородки входят
+            в дно и стенки, поэтому после печати коробка не расслаивается.
+          </p>
         </>
       ) : (
         <>

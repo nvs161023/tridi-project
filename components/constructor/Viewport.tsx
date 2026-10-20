@@ -29,6 +29,7 @@ import {
   KEYCHAIN_FONT_URL,
   createKeychainGeometry,
 } from "@/lib/constructor/keychain-geometry";
+import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import { createLampGeometry } from "@/lib/constructor/lamp-geometry";
 import {
   SIGN_FONT_URL,
@@ -39,7 +40,7 @@ import { createVaseProfile } from "@/lib/constructor/vase-profile";
 
 /** Параметры выбранной модели: сцена пересобирается при любом изменении. */
 type ViewportProps = {
-  /** Все параметры выбранной модели: ваза, брелок, светильник, вывеска или калибровка. */
+  /** Все параметры выбранной модели: ваза, брелок, светильник, вывеска, калибровка или коробка. */
   params: ConstructorParams;
 };
 
@@ -370,6 +371,78 @@ function LampModel({
   );
 }
 
+type BoxModelProps = {
+  geometry: BufferGeometry;
+  length: number;
+  width: number;
+  height: number;
+  wall: number;
+  gridX: number;
+  gridY: number;
+  hasLid: boolean;
+};
+
+/**
+ * Коробка стоит на столе так же, как её печатает слайсер: геометрия построена
+ * в плоскости XY с высотой по Z, поворот на -90° вокруг X поднимает стенки.
+ * Корпус и крышка уже разложены рядом в одной сетке, поэтому меш один.
+ *
+ * Ключ тени включает все размеры, сетку и крышку: каждая правка меняет
+ * силуэт, и старая контактная тень стала бы неверной.
+ */
+function BoxModel({
+  geometry,
+  length,
+  width,
+  height,
+  wall,
+  gridX,
+  gridY,
+  hasLid,
+}: BoxModelProps) {
+  const footprint = Math.max(length, width);
+
+  return (
+    <group>
+      <group rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh castShadow geometry={geometry} receiveShadow>
+          <meshStandardMaterial
+            color="#34d399"
+            metalness={0.05}
+            roughness={0.42}
+          />
+        </mesh>
+      </group>
+
+      {/* Тёмный пол: на нём читаются контактные тени. */}
+      <mesh
+        position={[0, -0.3, 0]}
+        receiveShadow
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
+        <circleGeometry args={[Math.max(footprint * 2.2, 320), 64]} />
+        <meshStandardMaterial color="#0b1220" roughness={1} />
+      </mesh>
+
+      <gridHelper
+        args={[Math.max(footprint * 5, 960), 24, "#1e293b", "#0f172a"]}
+        position={[0, 0.01, 0]}
+      />
+
+      <ContactShadows
+        blur={2.6}
+        far={Math.max(height * 1.2, 120)}
+        frames={1}
+        key={`box-${length}-${width}-${height}-${wall}-${gridX}-${gridY}-${hasLid}`}
+        opacity={0.55}
+        position={[0, 0.02, 0]}
+        resolution={512}
+        scale={Math.max(footprint * 3, 480)}
+      />
+    </group>
+  );
+}
+
 type SignModelProps = {
   geometry: BufferGeometry;
   fontSize: number;
@@ -558,6 +631,17 @@ function Scene({ params, geometry, framing }: SceneProps) {
           mount={params.lampMount}
           pattern={params.lampPattern}
         />
+      ) : params.model === "box" ? (
+        <BoxModel
+          geometry={geometry}
+          gridX={params.gridX}
+          gridY={params.gridY}
+          hasLid={params.hasLid}
+          height={params.boxHeight}
+          length={params.boxLength}
+          wall={params.boxWall}
+          width={params.boxWidth}
+        />
       ) : params.model === "sign" ? (
         <SignModel
           channelWidth={params.signChannelWidth}
@@ -679,6 +763,10 @@ export function Viewport({ params }: ViewportProps) {
       return createCalibrationGeometry(params, font);
     }
 
+    if (params.model === "box") {
+      return createBoxGeometry(params);
+    }
+
     return createVaseGeometry(createVaseProfile(params), params);
   }, [font, params]);
 
@@ -717,6 +805,21 @@ export function Viewport({ params }: ViewportProps) {
       };
     }
 
+    if (params.model === "box") {
+      geometry.computeBoundingBox();
+      const box = geometry.boundingBox;
+
+      // Геометрия коробки построена Z-вверх: после поворота меша высотой
+      // становится Z, а длиной и шириной — X и Y.
+      return {
+        height: box ? Math.max(box.max.z - box.min.z, 1) : 1,
+        footprint: box
+          ? Math.max(box.max.x - box.min.x, box.max.y - box.min.y, 1)
+          : 1,
+        flat: false,
+      };
+    }
+
     geometry.computeBoundingBox();
     const box = geometry.boundingBox;
 
@@ -739,7 +842,9 @@ export function Viewport({ params }: ViewportProps) {
         ? `${params.length} × ${params.width} × ${params.thickness} мм`
         : params.model === "lamp"
           ? `${params.lampHeight} × Ø ${params.lampDiameter} мм`
-          : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
+          : params.model === "box"
+            ? `${params.boxLength} × ${params.boxWidth} × ${params.boxHeight} мм`
+            : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
 
   const ariaLabel =
     params.model === "vase"
@@ -750,7 +855,9 @@ export function Viewport({ params }: ViewportProps) {
           ? `3D-предпросмотр абажура высотой ${params.lampHeight} миллиметров и диаметром ${params.lampDiameter} миллиметров, патрон ${LAMP_MOUNT_LABELS[params.lampMount]}, узор «${VASE_PATTERN_LABELS[params.lampPattern]}»`
           : params.model === "calibration"
             ? `3D-предпросмотр калибровочной башни «${CALIBRATION_TYPE_LABELS[params.calibrationType]}» на ${params.steps} ступеней от ${params.startValue} до ${params.endValue} ${CALIBRATION_UNITS[params.calibrationType]}`
-            : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
+            : params.model === "box"
+              ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
+              : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
     <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950 sm:h-[32rem] lg:h-[38rem]">

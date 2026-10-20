@@ -14,6 +14,7 @@ import {
   CALIBRATION_VALUE_LIMITS,
   CONSTRUCTOR_LIMITS,
   DEFAULT_VASE_PARAMS,
+  boxStlFileName,
   calibrationStlFileName,
   isCalibrationType,
   isKeychainShape,
@@ -25,6 +26,7 @@ import {
   isValidSignText,
   keychainStlFileName,
   lampStlFileName,
+  normalizeBoxParams,
   normalizeCalibrationParams,
   normalizeKeychainParams,
   normalizeLampParams,
@@ -32,12 +34,14 @@ import {
   normalizeVaseParams,
   signStlFileName,
   vaseStlFileName,
+  type BoxParams,
   type CalibrationParams,
   type KeychainParams,
   type LampParams,
   type SignParams,
   type VaseParams,
 } from "@/lib/constructor/params";
+import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import { createCalibrationGeometry } from "@/lib/constructor/calibration-geometry";
 import {
   KEYCHAIN_FONT_URL,
@@ -60,8 +64,8 @@ import { createClient } from "@/lib/supabase/server";
  *      календарный месяц по UTC (countConstructorDownloadsThisMonth);
  *   3. параметры — только числа внутри границ слайдеров, известная форма и
  *      узор вазы, брелок с именем и формой заготовки, абажур с узором и
- *      патроном E27/E14, вывеска с надписью и шириной канала либо
- *      калибровочная башня с диапазоном и числом ступеней.
+ *      патроном E27/E14, вывеска с надписью и шириной канала, калибровочная
+ *      башня с диапазоном и числом ступеней либо коробка с сеткой и крышкой.
  *
  * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
  * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
@@ -341,13 +345,74 @@ function parseCalibrationParams(
   });
 }
 
+/**
+ * Строгая проверка параметров коробки.
+ *
+ * Размеры проверяются в своих границах, сетка — целыми числами от 1 до 8,
+ * крышка — только настоящим boolean. Если клиент прислал `hasLid: "false"`,
+ * это ошибка, а не выключенная крышка: иначе строка включала бы деталь.
+ */
+function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
+  const { boxLength, boxWidth, boxHeight, boxWall, gridX, gridY, hasLid } =
+    body;
+
+  if (
+    !isNumberInRange(
+      boxLength,
+      CONSTRUCTOR_LIMITS.boxLength.min,
+      CONSTRUCTOR_LIMITS.boxLength.max,
+    ) ||
+    !isNumberInRange(
+      boxWidth,
+      CONSTRUCTOR_LIMITS.boxWidth.min,
+      CONSTRUCTOR_LIMITS.boxWidth.max,
+    ) ||
+    !isNumberInRange(
+      boxHeight,
+      CONSTRUCTOR_LIMITS.boxHeight.min,
+      CONSTRUCTOR_LIMITS.boxHeight.max,
+    ) ||
+    !isNumberInRange(
+      boxWall,
+      CONSTRUCTOR_LIMITS.boxWall.min,
+      CONSTRUCTOR_LIMITS.boxWall.max,
+    ) ||
+    !isNumberInRange(
+      gridX,
+      CONSTRUCTOR_LIMITS.boxGrid.min,
+      CONSTRUCTOR_LIMITS.boxGrid.max,
+    ) ||
+    !isNumberInRange(
+      gridY,
+      CONSTRUCTOR_LIMITS.boxGrid.min,
+      CONSTRUCTOR_LIMITS.boxGrid.max,
+    ) ||
+    !Number.isInteger(gridX) ||
+    !Number.isInteger(gridY) ||
+    typeof hasLid !== "boolean"
+  ) {
+    return null;
+  }
+
+  return normalizeBoxParams({
+    boxLength,
+    boxWidth,
+    boxHeight,
+    boxWall,
+    gridX,
+    gridY,
+    hasLid,
+  });
+}
+
 /** Разобранный запрос: модель и её проверенные параметры. */
 type ParsedConstructorRequest =
   | { model: "vase"; params: VaseParams }
   | { model: "keychain"; params: KeychainParams }
   | { model: "lamp"; params: LampParams }
   | { model: "sign"; params: SignParams }
-  | { model: "calibration"; params: CalibrationParams };
+  | { model: "calibration"; params: CalibrationParams }
+  | { model: "box"; params: BoxParams };
 
 /**
  * Выбирает набор параметров по полю model.
@@ -393,6 +458,12 @@ function parseConstructorRequest(
     const params = parseCalibrationParams(body);
 
     return params ? { model: "calibration", params } : null;
+  }
+
+  if (model === "box") {
+    const params = parseBoxParams(body);
+
+    return params ? { model: "box", params } : null;
   }
 
   return null;
@@ -489,27 +560,29 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, брелока, абажура, надпись вывески или диапазон калибровки.",
+      "Проверьте размеры и узор вазы, брелока, абажура, надпись вывески, диапазон калибровки или сетку коробки.",
     );
   }
 
   try {
-    // Шрифт читается брелоку, вывеске и калибровке; ваза и абажур собираются
-    // без него, чтобы не парсить 130 КБ JSON. loadCyrillicFont() кэширует
-    // промис, поэтому второй вызов в ветках ниже ничего не стоит.
+    // Шрифт читается брелоку, вывеске и калибровке; ваза, абажур и коробка
+    // собираются без него, чтобы не парсить 130 КБ JSON. loadCyrillicFont()
+    // кэширует промис, поэтому второй вызов в ветках ниже ничего не стоит.
     const geometry =
       parsed.model === "vase"
         ? createVaseGeometry(createVaseProfile(parsed.params), parsed.params)
         : parsed.model === "lamp"
           ? createLampGeometry(parsed.params)
-          : parsed.model === "keychain"
-            ? createKeychainGeometry(parsed.params, await loadCyrillicFont())
-            : parsed.model === "sign"
-              ? createSignGeometry(parsed.params, await loadCyrillicFont())
-              : createCalibrationGeometry(
-                  parsed.params,
-                  await loadCyrillicFont(),
-                );
+          : parsed.model === "box"
+            ? createBoxGeometry(parsed.params)
+            : parsed.model === "keychain"
+              ? createKeychainGeometry(parsed.params, await loadCyrillicFont())
+              : parsed.model === "sign"
+                ? createSignGeometry(parsed.params, await loadCyrillicFont())
+                : createCalibrationGeometry(
+                    parsed.params,
+                    await loadCyrillicFont(),
+                  );
 
     try {
       const mesh = new Mesh(geometry);
@@ -526,9 +599,11 @@ export async function POST(request: Request): Promise<Response> {
             ? keychainStlFileName(parsed.params)
             : parsed.model === "lamp"
               ? lampStlFileName(parsed.params)
-              : parsed.model === "sign"
-                ? signStlFileName(parsed.params)
-                : calibrationStlFileName(parsed.params);
+              : parsed.model === "box"
+                ? boxStlFileName(parsed.params)
+                : parsed.model === "sign"
+                  ? signStlFileName(parsed.params)
+                  : calibrationStlFileName(parsed.params);
 
       // Запись появляется после успешной генерации: упавшая сборка не должна
       // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —

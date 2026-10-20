@@ -12,6 +12,7 @@ import {
   CALIBRATION_TYPE_LABELS,
   CALIBRATION_UNITS,
   CALIBRATION_VALUE_LIMITS,
+  DEFAULT_BOX_PARAMS,
   DEFAULT_CALIBRATION_PARAMS,
   DEFAULT_CALIBRATION_VALUES,
   DEFAULT_CONSTRUCTOR_PARAMS,
@@ -23,6 +24,7 @@ import {
   LAMP_MOUNT_LABELS,
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
+  boxStlFileName,
   calibrationStlFileName,
   keychainStlFileName,
   lampStlFileName,
@@ -59,6 +61,7 @@ type SizeParam = Exclude<
   | "signText"
   | "signChannelWidth"
   | "calibrationType"
+  | "hasLid"
 >;
 
 /**
@@ -231,6 +234,10 @@ export function ConstructorClient({
     );
   }
 
+  function updateHasLid(hasLid: boolean) {
+    setParams((current) => normalizeConstructorParams({ ...current, hasLid }));
+  }
+
   /** Сброс возвращает к старту только текущую модель, не трогая остальные. */
   function resetParams() {
     setParams((current) =>
@@ -244,7 +251,9 @@ export function ConstructorClient({
               ? DEFAULT_LAMP_PARAMS
               : current.model === "sign"
                 ? DEFAULT_SIGN_PARAMS
-                : DEFAULT_CALIBRATION_PARAMS),
+                : current.model === "box"
+                  ? DEFAULT_BOX_PARAMS
+                  : DEFAULT_CALIBRATION_PARAMS),
       }),
     );
   }
@@ -293,9 +302,11 @@ export function ConstructorClient({
               ? keychainStlFileName(params)
               : params.model === "lamp"
                 ? lampStlFileName(params)
-                : params.model === "sign"
-                  ? signStlFileName(params)
-                  : calibrationStlFileName(params),
+                : params.model === "box"
+                  ? boxStlFileName(params)
+                  : params.model === "sign"
+                    ? signStlFileName(params)
+                    : calibrationStlFileName(params),
         );
         link.hidden = true;
         document.body.appendChild(link);
@@ -380,8 +391,9 @@ export function ConstructorClient({
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300">
             Параметрические модели под ваш принтер: ваза с математическим узором,
             брелок с именем, абажур на патрон E27 или E14, светодиодная вывеска
-            с надписью и калибровочная башня для температуры или ретракта.
-            Настройте размеры, проверьте результат в 3D и скачайте STL.
+            с надписью, калибровочная башня для температуры или ретракта и
+            коробка-органайзер с сеткой и крышкой. Настройте размеры, проверьте
+            результат в 3D и скачайте STL.
           </p>
         </div>
 
@@ -411,6 +423,7 @@ export function ConstructorClient({
           isExporting={isExporting}
           onExport={exportStl}
           onCalibrationTypeChange={updateCalibrationType}
+          onHasLidChange={updateHasLid}
           onKeychainShapeChange={updateKeychainShape}
           onLampMountChange={updateLampMount}
           onLampPatternChange={updateLampPattern}

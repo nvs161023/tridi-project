@@ -22,6 +22,12 @@
  * показывает разницу, больше десяти делает подписи нечитаемыми. Значения идут
  * от нижней ступени к верхней, поэтому начало и конец могут стоять в любом
  * порядке — башня одинаково печатается и с ростом, и с падением параметра.
+ *
+ * Коробка-органайзер вписана в стол 220 × 220 мм: длина и ширина до 220 мм,
+ * высота до 160 мм. Перегородки имеют ту же толщину, что и стенки, поэтому
+ * сетка до 8 × 8 остаётся печатной даже на минимальной коробке. Крышка —
+ * отдельная деталь с бортиком по периметру; она лежит рядом с корпусом в том же
+ * STL, чтобы её можно было напечатать без поддержек.
  */
 
 /** Размерный параметр: границы, шаг и значение по умолчанию. */
@@ -59,6 +65,11 @@ export const CONSTRUCTOR_LIMITS = {
   signFontSize: { min: 20, max: 120, step: 2, defaultValue: 60, decimals: 0 },
   signDepth: { min: 5, max: 40, step: 1, defaultValue: 15, decimals: 0 },
   calibrationSteps: { min: 2, max: 10, step: 1, defaultValue: 5, decimals: 0 },
+  boxLength: { min: 60, max: 220, step: 5, defaultValue: 140, decimals: 0 },
+  boxWidth: { min: 60, max: 220, step: 5, defaultValue: 100, decimals: 0 },
+  boxHeight: { min: 30, max: 160, step: 5, defaultValue: 60, decimals: 0 },
+  boxWall: { min: 0.8, max: 3, step: 0.1, defaultValue: 1.6, decimals: 1 },
+  boxGrid: { min: 1, max: 8, step: 1, defaultValue: 2, decimals: 0 },
 } as const satisfies Record<string, NumericLimit>;
 
 /** Типы моделей, которые умеет собирать конструктор. */
@@ -68,6 +79,7 @@ export const MODEL_TYPES = [
   "lamp",
   "sign",
   "calibration",
+  "box",
 ] as const;
 
 export type ModelType = (typeof MODEL_TYPES)[number];
@@ -79,6 +91,7 @@ export const MODEL_TYPE_LABELS = {
   lamp: "Светильник",
   sign: "Вывеска",
   calibration: "Калибровка",
+  box: "Коробки",
 } as const satisfies Record<ModelType, string>;
 
 /**
@@ -285,6 +298,30 @@ export type CalibrationParams = {
   steps: number;
 };
 
+/**
+ * Коробка-органайзер: наружные габариты, стенка, сетка ячеек и крышка.
+ *
+ * Поля с префиксом `box` не пересекаются с длиной брелока и высотой вазы:
+ * в общем состоянии конструктора у каждой модели свои значения, поэтому
+ * переключение вкладки не переносит 140 мм коробки в 60 мм брелока.
+ */
+export type BoxParams = {
+  /** Наружная длина по X, мм. */
+  boxLength: number;
+  /** Наружная ширина по Y, мм. */
+  boxWidth: number;
+  /** Высота стенок от стола, мм. */
+  boxHeight: number;
+  /** Толщина наружных стенок и перегородок, мм. */
+  boxWall: number;
+  /** Количество ячеек по длине: от 1 до 8. */
+  gridX: number;
+  /** Количество ячеек по ширине: от 1 до 8. */
+  gridY: number;
+  /** Печатать ли отдельную крышку с бортиком. */
+  hasLid: boolean;
+};
+
 /** Значения, с которыми открывается конструктор. */
 export const DEFAULT_VASE_PARAMS: VaseParams = {
   height: CONSTRUCTOR_LIMITS.height.defaultValue,
@@ -333,6 +370,20 @@ export const DEFAULT_CALIBRATION_PARAMS: CalibrationParams = {
   steps: CONSTRUCTOR_LIMITS.calibrationSteps.defaultValue,
 };
 
+/**
+ * Коробка по умолчанию: 140 × 100 × 60 мм, сетка 2 × 2 и крышка.
+ * Такой органайзер сразу показывает и стенки, и перегородки, и обе детали.
+ */
+export const DEFAULT_BOX_PARAMS: BoxParams = {
+  boxLength: CONSTRUCTOR_LIMITS.boxLength.defaultValue,
+  boxWidth: CONSTRUCTOR_LIMITS.boxWidth.defaultValue,
+  boxHeight: CONSTRUCTOR_LIMITS.boxHeight.defaultValue,
+  boxWall: CONSTRUCTOR_LIMITS.boxWall.defaultValue,
+  gridX: CONSTRUCTOR_LIMITS.boxGrid.defaultValue,
+  gridY: CONSTRUCTOR_LIMITS.boxGrid.defaultValue,
+  hasLid: true,
+};
+
 /** Стартовые диапазоны для переключения теста: значения не переносятся. */
 export const DEFAULT_CALIBRATION_VALUES = {
   temperature: { startValue: 230, endValue: 190 },
@@ -354,7 +405,8 @@ export type ConstructorParams = { model: ModelType } & VaseParams &
   KeychainParams &
   LampParams &
   SignParams &
-  CalibrationParams;
+  CalibrationParams &
+  BoxParams;
 
 /** Стартовое состояние: открывается ваза, остальные модели ждут на вкладках. */
 export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
@@ -364,6 +416,7 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   ...DEFAULT_LAMP_PARAMS,
   ...DEFAULT_SIGN_PARAMS,
   ...DEFAULT_CALIBRATION_PARAMS,
+  ...DEFAULT_BOX_PARAMS,
 };
 
 /**
@@ -422,6 +475,19 @@ export function signStlFileName(params: SignParams): string {
  */
 export function calibrationStlFileName(params: CalibrationParams): string {
   return `tridi-kalibrovka-${params.calibrationType}-${params.startValue}-${params.endValue}-s${params.steps}.stl`;
+}
+
+/**
+ * Имя файла STL для коробки.
+ *
+ * Сетка записывается как `g2x3`, крышка — суффиксом `kryshka`: по имени видно,
+ * лежит ли в файле вторая деталь. Толщина стенки важна для печати, поэтому
+ * входит в имя как `t1.6`; значения уже выровнены normalizeBoxParams.
+ */
+export function boxStlFileName(params: BoxParams): string {
+  const lidSuffix = params.hasLid ? "-kryshka" : "";
+
+  return `tridi-korobka-l${params.boxLength}-w${params.boxWidth}-h${params.boxHeight}-t${params.boxWall}-g${params.gridX}x${params.gridY}${lidSuffix}.stl`;
 }
 
 /** Проверка типа модели из формы или API. */
@@ -703,6 +769,47 @@ export function normalizeCalibrationParams(
 }
 
 /**
+ * Проверяет и выравнивает параметры коробки.
+ *
+ * Числа зажимаются в границы слайдеров, сетка — целые ячейки от 1 до 8.
+ * `hasLid` принимается только булевым значением: строка «false» из формы не
+ * должна неожиданно включать крышку. Остальные типы заменяются значением по
+ * умолчанию.
+ */
+export function normalizeBoxParams(params: Partial<BoxParams>): BoxParams {
+  return {
+    boxLength: snap(
+      params.boxLength ?? DEFAULT_BOX_PARAMS.boxLength,
+      CONSTRUCTOR_LIMITS.boxLength,
+    ),
+    boxWidth: snap(
+      params.boxWidth ?? DEFAULT_BOX_PARAMS.boxWidth,
+      CONSTRUCTOR_LIMITS.boxWidth,
+    ),
+    boxHeight: snap(
+      params.boxHeight ?? DEFAULT_BOX_PARAMS.boxHeight,
+      CONSTRUCTOR_LIMITS.boxHeight,
+    ),
+    boxWall: snap(
+      params.boxWall ?? DEFAULT_BOX_PARAMS.boxWall,
+      CONSTRUCTOR_LIMITS.boxWall,
+    ),
+    gridX: snap(
+      params.gridX ?? DEFAULT_BOX_PARAMS.gridX,
+      CONSTRUCTOR_LIMITS.boxGrid,
+    ),
+    gridY: snap(
+      params.gridY ?? DEFAULT_BOX_PARAMS.gridY,
+      CONSTRUCTOR_LIMITS.boxGrid,
+    ),
+    hasLid:
+      typeof params.hasLid === "boolean"
+        ? params.hasLid
+        : DEFAULT_BOX_PARAMS.hasLid,
+  };
+}
+
+/**
  * Нормализует состояние конструктора вместе с выбранной моделью.
  *
  * Каждая группа полей проходит свою проверку: переключение вкладки не должно
@@ -721,5 +828,6 @@ export function normalizeConstructorParams(
     ...normalizeLampParams(params),
     ...normalizeSignParams(params),
     ...normalizeCalibrationParams(params),
+    ...normalizeBoxParams(params),
   };
 }
