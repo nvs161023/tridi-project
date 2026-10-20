@@ -11,16 +11,13 @@ import {
   countConstructorDownloadsThisMonth,
 } from "@/lib/constructor/downloads";
 import {
-  CALIBRATION_VALUE_LIMITS,
   CONSTRUCTOR_LIMITS,
   DEFAULT_LAMP_PARAMS,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
   boxStlFileName,
-  calibrationStlFileName,
   hasDrawableSvgData,
   isBoxCells,
-  isCalibrationType,
   isCustomSvgData,
   isLampBaseShape,
   isLampMount,
@@ -38,7 +35,6 @@ import {
   listSignBlocks,
   lithophaneStlFileName,
   normalizeBoxParams,
-  normalizeCalibrationParams,
   normalizeKeychainParams,
   normalizeKeychainShapeAlias,
   normalizeLampParams,
@@ -48,7 +44,6 @@ import {
   signStlFileName,
   vaseStlFileName,
   type BoxParams,
-  type CalibrationParams,
   type KeychainParams,
   type LampParams,
   type LampPart,
@@ -58,7 +53,6 @@ import {
   type VaseParams,
 } from "@/lib/constructor/params";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
-import { createCalibrationGeometry } from "@/lib/constructor/calibration-geometry";
 import {
   KEYCHAIN_FONT_URL,
   createKeychainGeometry,
@@ -85,10 +79,9 @@ import { createClient } from "@/lib/supabase/server";
  *   3. параметры — только числа внутри границ слайдеров, известная форма и
  *      узор вазы, брелок с именем и формой заготовки, светильник с узором,
  *      патроном, формой основания и выбранной деталью (основание, абажур или
- *      обе), вывеска с надписью, глубиной, каналом, зазором и номером буквы,
- *      калибровочная башня с диапазоном и числом ступеней, коробка с сеткой и
- *      крышкой либо литофан с размерами, толщинами и сжатым массивом яркости
- *      150 × 150.
+ *      обе), вывеска с надписью, глубиной, каналом, зазором, размером блока и
+ *      деталью блока, коробка с сеткой и крышкой либо литофан с размерами,
+ *      толщинами и сжатым массивом яркости 150 × 150.
  *
  * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
  * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
@@ -423,44 +416,6 @@ function parseSignParams(
 }
 
 /**
- * Строгая проверка параметров калибровочной башни.
- *
- * Диапазон зависит от теста: температура 190–230 °C, ретракт 0–5 мм. Сначала
- * проверяем тип, затем границы именно его — иначе 230 прошло бы как 230 мм
- * ретракта. Число ступеней общее для обоих тестов, от 2 до 10.
- */
-function parseCalibrationParams(
-  body: Record<string, unknown>,
-): CalibrationParams | null {
-  const { calibrationType, startValue, endValue, steps } = body;
-
-  if (!isCalibrationType(calibrationType)) {
-    return null;
-  }
-
-  const limit = CALIBRATION_VALUE_LIMITS[calibrationType];
-
-  if (
-    !isNumberInRange(startValue, limit.min, limit.max) ||
-    !isNumberInRange(endValue, limit.min, limit.max) ||
-    !isNumberInRange(
-      steps,
-      CONSTRUCTOR_LIMITS.calibrationSteps.min,
-      CONSTRUCTOR_LIMITS.calibrationSteps.max,
-    )
-  ) {
-    return null;
-  }
-
-  return normalizeCalibrationParams({
-    calibrationType,
-    startValue,
-    endValue,
-    steps,
-  });
-}
-
-/**
  * Строгая проверка параметров коробки.
  *
  * Размеры проверяются в своих границах, крышка — только настоящим boolean.
@@ -598,7 +553,6 @@ type ParsedConstructorRequest =
   | { model: "keychain"; params: KeychainParams }
   | { model: "lamp"; params: LampParams; part: LampPart }
   | { model: "sign"; params: SignParams; block: number; part: SignPart }
-  | { model: "calibration"; params: CalibrationParams }
   | { model: "box"; params: BoxParams }
   | { model: "lithophane"; params: LithophaneParams };
 
@@ -640,12 +594,6 @@ function parseConstructorRequest(
     const sign = parseSignParams(body);
 
     return sign ? { model: "sign", ...sign } : null;
-  }
-
-  if (model === "calibration") {
-    const params = parseCalibrationParams(body);
-
-    return params ? { model: "calibration", params } : null;
   }
 
   if (model === "box") {
@@ -755,13 +703,13 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, детали и форму основания светильника, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, диапазон калибровки, ячейки коробки или изображение литофана.",
+      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, детали и форму основания светильника, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки или изображение литофана.",
     );
   }
 
   try {
-    // Шрифт читается брелоку, вывеске и калибровке; ваза, абажур, коробка и
-    // литофан собираются без него, чтобы не парсить 130 КБ JSON.
+    // Шрифт читается брелоку и вывеске; ваза, абажур, коробка и литофан
+    // собираются без него, чтобы не парсить 130 КБ JSON.
     // loadFont() кэширует промис по пути, поэтому повторный вызов и смена
     // шрифта вывески ничего не стоят.
     const geometry =
@@ -775,17 +723,12 @@ export async function POST(request: Request): Promise<Response> {
               ? createLithophaneGeometry(parsed.params)
               : parsed.model === "keychain"
                 ? createKeychainGeometry(parsed.params, await loadFont(KEYCHAIN_FONT_URL))
-                : parsed.model === "sign"
-                  ? createSignBlockGeometry(
-                      parsed.params,
-                      await loadFont(SIGN_FONT_URLS[parsed.params.signFont]),
-                      parsed.block,
-                      parsed.part,
-                    )
-                  : createCalibrationGeometry(
-                      parsed.params,
-                      await loadFont(KEYCHAIN_FONT_URL),
-                    );
+                : createSignBlockGeometry(
+                    parsed.params,
+                    await loadFont(SIGN_FONT_URLS[parsed.params.signFont]),
+                    parsed.block,
+                    parsed.part,
+                  );
 
     try {
       const mesh = new Mesh(geometry);
@@ -806,9 +749,7 @@ export async function POST(request: Request): Promise<Response> {
                 ? boxStlFileName(parsed.params)
                 : parsed.model === "lithophane"
                   ? lithophaneStlFileName(parsed.params)
-                  : parsed.model === "sign"
-                    ? signStlFileName(parsed.params, parsed.block, parsed.part)
-                    : calibrationStlFileName(parsed.params);
+                  : signStlFileName(parsed.params, parsed.block, parsed.part);
 
       // Запись появляется после успешной генерации: упавшая сборка не должна
       // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —

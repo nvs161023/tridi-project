@@ -17,12 +17,6 @@
  * кеглем 120 мм и пятнадцатью символами: длинная строка крупным кеглем
  * упирается в лимит ширины 800 мм, и геометрия сама уменьшает буквы.
  *
- * Калибровочная башня ограничена реальными диапазонами настройки: температура
- * сопла 190–230 °C, ретракт 0–5 мм. Ступеней от 2 до 10: меньше двух не
- * показывает разницу, больше десяти делает подписи нечитаемыми. Значения идут
- * от нижней ступени к верхней, поэтому начало и конец могут стоять в любом
- * порядке — башня одинаково печатается и с ростом, и с падением параметра.
- *
  * Коробка-органайзер вписана в стол 220 × 220 мм: длина и ширина до 220 мм,
  * высота до 160 мм. Перегородки имеют ту же толщину, что и стенки, поэтому
  * сетка до 8 × 8 остаётся печатной даже на минимальной коробке. Крышка —
@@ -75,7 +69,6 @@ export const CONSTRUCTOR_LIMITS = {
   signLetterGap: { min: 2, max: 20, step: 1, defaultValue: 6, decimals: 0 },
   // Сколько букв печатается одним блоком: больше пяти деталь неудобно вешать.
   signBlockSize: { min: 1, max: 5, step: 1, defaultValue: 3, decimals: 0 },
-  calibrationSteps: { min: 2, max: 10, step: 1, defaultValue: 5, decimals: 0 },
   boxLength: { min: 60, max: 220, step: 5, defaultValue: 140, decimals: 0 },
   boxWidth: { min: 60, max: 220, step: 5, defaultValue: 100, decimals: 0 },
   boxHeight: { min: 30, max: 160, step: 5, defaultValue: 60, decimals: 0 },
@@ -111,7 +104,6 @@ export const MODEL_TYPES = [
   "keychain",
   "lamp",
   "sign",
-  "calibration",
   "box",
   "lithophane",
 ] as const;
@@ -124,7 +116,6 @@ export const MODEL_TYPE_LABELS = {
   keychain: "Брелок",
   lamp: "Светильник",
   sign: "Вывеска",
-  calibration: "Калибровка",
   box: "Коробки",
   lithophane: "Литофан",
 } as const satisfies Record<ModelType, string>;
@@ -362,40 +353,6 @@ export const SIGN_FONT_LABELS = {
   serif: "PT Serif Bold",
 } as const satisfies Record<SignFont, string>;
 
-/**
- * Виды калибровочных тестов.
- *
- * temperature меняет температуру сопла по высоте, retraction — длину ретракта.
- * Оба теста печатаются одной башней: секции отличаются только значением,
- * выпукло напечатанным на передней грани.
- */
-export const CALIBRATION_TYPES = ["temperature", "retraction"] as const;
-
-export type CalibrationType = (typeof CALIBRATION_TYPES)[number];
-
-export const CALIBRATION_TYPE_LABELS = {
-  temperature: "Температура",
-  retraction: "Ретракция",
-} as const satisfies Record<CalibrationType, string>;
-
-/** Единица значения в подписях и на гранях башни. */
-export const CALIBRATION_UNITS = {
-  temperature: "°C",
-  retraction: "мм",
-} as const satisfies Record<CalibrationType, string>;
-
-/**
- * Границы значений калибровки для каждого теста.
- *
- * Температура ниже 190 °C не плавит PLA равномерно, выше 230 °C начинает
- * подгорать. Ретракт длиннее 5 мм рвёт нить и забивает сопло. Шаг температуры
- * 5 °C — стандартный шаг калибровочных башен, ретракта — 0.1 мм.
- */
-export const CALIBRATION_VALUE_LIMITS = {
-  temperature: { min: 190, max: 230, step: 5, defaultValue: 230, decimals: 0 },
-  retraction: { min: 0, max: 5, step: 0.1, defaultValue: 0, decimals: 1 },
-} as const satisfies Record<CalibrationType, NumericLimit>;
-
 /** Сколько символов помещается на вывеске. */
 export const SIGN_TEXT_MAX_LENGTH = 15;
 
@@ -505,18 +462,6 @@ export type SignParams = {
   signBaseMount: boolean;
 };
 
-
-/** Настройки калибровочной башни: тест, диапазон и число ступеней. */
-export type CalibrationParams = {
-  /** Что калибруем: температуру сопла или длину ретракта. */
-  calibrationType: CalibrationType;
-  /** Значение на нижней ступени; для температуры — °C, для ретракта — мм. */
-  startValue: number;
-  /** Значение на верхней ступени. */
-  endValue: number;
-  /** Сколько ступеней в башне: от 2 до 10. */
-  steps: number;
-};
 
 /**
  * Коробка-органайзер: наружные габариты, стенка, сетка ячеек и крышка.
@@ -649,17 +594,6 @@ export const DEFAULT_SIGN_PARAMS: SignParams = {
 
 
 /**
- * Калибровка по умолчанию: башня температуры от горячего низа к холодному
- * верху. Такая башня сразу показывает, на какой температуре стенка прочнее.
- */
-export const DEFAULT_CALIBRATION_PARAMS: CalibrationParams = {
-  calibrationType: "temperature",
-  startValue: CALIBRATION_VALUE_LIMITS.temperature.defaultValue,
-  endValue: 190,
-  steps: CONSTRUCTOR_LIMITS.calibrationSteps.defaultValue,
-};
-
-/**
  * Коробка по умолчанию: 140 × 100 × 60 мм, сетка 2 × 2 и крышка.
  * Такой органайзер сразу показывает и стенки, и перегородки, и обе детали.
  */
@@ -765,15 +699,6 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   lithophaneBrightness: createDemoLithophaneBrightness(),
 };
 
-/** Стартовые диапазоны для переключения теста: значения не переносятся. */
-export const DEFAULT_CALIBRATION_VALUES = {
-  temperature: { startValue: 230, endValue: 190 },
-  retraction: { startValue: 0, endValue: 5 },
-} as const satisfies Record<
-  CalibrationType,
-  { startValue: number; endValue: number }
->;
-
 /**
  * Состояние конструктора целиком.
  *
@@ -786,7 +711,6 @@ export type ConstructorParams = { model: ModelType } & VaseParams &
   KeychainParams &
   LampParams &
   SignParams &
-  CalibrationParams &
   BoxParams &
   LithophaneParams;
 
@@ -797,7 +721,6 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   ...DEFAULT_KEYCHAIN_PARAMS,
   ...DEFAULT_LAMP_PARAMS,
   ...DEFAULT_SIGN_PARAMS,
-  ...DEFAULT_CALIBRATION_PARAMS,
   ...DEFAULT_BOX_PARAMS,
   ...DEFAULT_LITHOPHANE_PARAMS,
 };
@@ -919,17 +842,6 @@ export function signStlFileName(
   return `tridi-vyveska-${signFileSlug(params.signText)}-b${blockIndex + 1}-${part}.stl`;
 }
 
-
-/**
- * Имя файла STL для калибровочной башни.
- *
- * В имени только латиница: тест, диапазон и число ступеней однозначно
- * описывают башню, а кириллические единицы в заголовке ответа не нужны.
- * Значения уже выровнены normalizeCalibrationParams, поэтому лишних нулей нет.
- */
-export function calibrationStlFileName(params: CalibrationParams): string {
-  return `tridi-kalibrovka-${params.calibrationType}-${params.startValue}-${params.endValue}-s${params.steps}.stl`;
-}
 
 /**
  * Имя файла STL для коробки.
@@ -1109,14 +1021,6 @@ export function isSignFont(value: unknown): value is SignFont {
 /** Проверка детали блока вывески из запроса: «face» или «cover». */
 export function isSignPart(value: unknown): value is SignPart {
   return typeof value === "string" && (SIGN_PARTS as readonly string[]).includes(value);
-}
-
-/** Проверка вида калибровочного теста из формы или API. */
-export function isCalibrationType(value: unknown): value is CalibrationType {
-  return (
-    typeof value === "string" &&
-    (CALIBRATION_TYPES as readonly string[]).includes(value)
-  );
 }
 
 /**
@@ -1416,35 +1320,6 @@ export function normalizeSignParams(params: Partial<SignParams>): SignParams {
 }
 
 /**
- * Проверяет и выравнивает параметры калибровочной башни.
- *
- * Диапазон зависит от теста, поэтому тип проверяется первым: при смене
- * температуры на ретракт старые 230 °C не должны стать 230 мм. Значения
- * зажимаются в границы выбранного теста и встают на его шаг; число ступеней
- * берётся из общего лимита. Начало и конец не сортируются — направление
- * башни задаёт пользователь.
- */
-export function normalizeCalibrationParams(
-  params: Partial<CalibrationParams>,
-): CalibrationParams {
-  const calibrationType = isCalibrationType(params.calibrationType)
-    ? params.calibrationType
-    : DEFAULT_CALIBRATION_PARAMS.calibrationType;
-  const limit = CALIBRATION_VALUE_LIMITS[calibrationType];
-  const fallback = DEFAULT_CALIBRATION_VALUES[calibrationType];
-
-  return {
-    calibrationType,
-    startValue: snap(params.startValue ?? fallback.startValue, limit),
-    endValue: snap(params.endValue ?? fallback.endValue, limit),
-    steps: snap(
-      params.steps ?? DEFAULT_CALIBRATION_PARAMS.steps,
-      CONSTRUCTOR_LIMITS.calibrationSteps,
-    ),
-  };
-}
-
-/**
  * Проверяет и выравнивает параметры коробки.
  *
  * Числа зажимаются в границы слайдеров, сетка — целые ячейки от 1 до 8.
@@ -1592,7 +1467,6 @@ export function normalizeConstructorParams(
     ...normalizeKeychainParams(params),
     ...normalizeLampParams(params),
     ...normalizeSignParams(params),
-    ...normalizeCalibrationParams(params),
     ...normalizeBoxParams(params),
     ...normalizeLithophaneParams(params),
   };

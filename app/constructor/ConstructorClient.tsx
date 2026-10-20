@@ -10,12 +10,7 @@ import {
   type StlExportOption,
 } from "@/components/constructor/ParameterPanel";
 import {
-  CALIBRATION_TYPE_LABELS,
-  CALIBRATION_UNITS,
-  CALIBRATION_VALUE_LIMITS,
   DEFAULT_BOX_PARAMS,
-  DEFAULT_CALIBRATION_PARAMS,
-  DEFAULT_CALIBRATION_VALUES,
   DEFAULT_CONSTRUCTOR_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
   DEFAULT_LAMP_PARAMS,
@@ -32,7 +27,6 @@ import {
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
   boxStlFileName,
-  calibrationStlFileName,
   keychainStlFileName,
   lampStlFileName,
   listSignBlocks,
@@ -41,7 +35,6 @@ import {
   normalizeConstructorParams,
   signStlFileName,
   vaseStlFileName,
-  type CalibrationType,
   type ConstructorParams,
   type KeychainShape,
   type LampBaseShape,
@@ -74,7 +67,6 @@ type SizeParam = Exclude<
   | "signFont"
   | "signChannelWidth"
   | "signBaseMount"
-  | "calibrationType"
   | "hasLid"
   | "lithophaneBrightness"
 >;
@@ -202,6 +194,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
     ];
   }
 
+  // Светильник и вывеска собрали набор файлов выше, поэтому здесь остаются
+  // модели с одним STL: ваза, брелок, коробка и литофан.
   return [
     {
       id: params.model,
@@ -214,9 +208,7 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
             ? keychainStlFileName(params)
             : params.model === "box"
               ? boxStlFileName(params)
-              : params.model === "lithophane"
-                ? lithophaneStlFileName(params)
-                : calibrationStlFileName(params),
+              : lithophaneStlFileName(params),
     },
   ];
 }
@@ -342,23 +334,6 @@ export function ConstructorClient({
     );
   }
 
-  /**
-   * Смена теста сбрасывает диапазон к его собственным значениям.
-   *
-   * Общие поля `startValue` / `endValue` не могут одновременно хранить °C и
-   * миллиметры: если перенести 230 в ретракт, получится 230 мм и параметры
-   * зажмутся в 5. Поэтому у каждого теста свой стартовый диапазон.
-   */
-  function updateCalibrationType(calibrationType: CalibrationType) {
-    setParams((current) =>
-      normalizeConstructorParams({
-        ...current,
-        calibrationType,
-        ...DEFAULT_CALIBRATION_VALUES[calibrationType],
-      }),
-    );
-  }
-
   function updateHasLid(hasLid: boolean) {
     setParams((current) => normalizeConstructorParams({ ...current, hasLid }));
   }
@@ -389,9 +364,7 @@ export function ConstructorClient({
                 ? DEFAULT_SIGN_PARAMS
                 : current.model === "box"
                   ? DEFAULT_BOX_PARAMS
-                  : current.model === "lithophane"
-                    ? DEFAULT_LITHOPHANE_PARAMS
-                    : DEFAULT_CALIBRATION_PARAMS),
+                  : DEFAULT_LITHOPHANE_PARAMS),
       }),
     );
   }
@@ -524,9 +497,9 @@ export function ConstructorClient({
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300">
             Параметрические модели под ваш принтер: ваза с математическим узором,
             брелок с именем, абажур на патрон E27 или E14, светодиодная вывеска
-            с надписью, калибровочная башня для температуры или ретракта,
-            коробка-органайзер с сеткой и крышкой и литофан из фотографии.
-            Настройте размеры, проверьте результат в 3D и скачайте STL.
+            с надписью, коробка-органайзер с сеткой и крышкой и литофан из
+            фотографии. Настройте размеры, проверьте результат в 3D и скачайте
+            STL.
           </p>
         </div>
 
@@ -556,7 +529,6 @@ export function ConstructorClient({
           exportingId={exportingId}
           exportOptions={exportOptions}
           onExport={exportStl}
-          onCalibrationTypeChange={updateCalibrationType}
           onHasLidChange={updateHasLid}
           onKeychainShapeChange={updateKeychainShape}
           onLampBaseShapeChange={updateLampBaseShape}
@@ -607,19 +579,6 @@ export function ConstructorClient({
                   {VASE_PATTERN_LABELS[params.lampPattern]} ·{" "}
                   {params.lampBaseHeight + params.lampHeight} × Ø{" "}
                   {params.lampDiameter} мм
-                </>
-              ) : params.model === "calibration" ? (
-                <>
-                  {CALIBRATION_TYPE_LABELS[params.calibrationType]} ·{" "}
-                  {params.startValue.toFixed(
-                    CALIBRATION_VALUE_LIMITS[params.calibrationType].decimals,
-                  )}
-                  –
-                  {params.endValue.toFixed(
-                    CALIBRATION_VALUE_LIMITS[params.calibrationType].decimals,
-                  )}{" "}
-                  {CALIBRATION_UNITS[params.calibrationType]} · {params.steps}{" "}
-                  ступеней
                 </>
               ) : params.model === "lithophane" ? (
                 <>

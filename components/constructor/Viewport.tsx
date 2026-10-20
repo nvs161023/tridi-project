@@ -9,8 +9,6 @@ import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 
 import {
-  CALIBRATION_TYPE_LABELS,
-  CALIBRATION_UNITS,
   KEYCHAIN_SHAPE_LABELS,
   LAMP_BASE_SHAPE_LABELS,
   LAMP_MOUNT_LABELS,
@@ -22,10 +20,6 @@ import {
   type VaseShape,
 } from "@/lib/constructor/params";
 import { calculateGeometryWeightGrams } from "@/lib/constructor/geometry-volume";
-import {
-  CALIBRATION_FONT_URL,
-  createCalibrationGeometry,
-} from "@/lib/constructor/calibration-geometry";
 import {
   KEYCHAIN_FONT_URL,
   createKeychainGeometry,
@@ -42,7 +36,7 @@ import { createVaseProfile } from "@/lib/constructor/vase-profile";
 
 /** Параметры выбранной модели: сцена пересобирается при любом изменении. */
 type ViewportProps = {
-  /** Все параметры выбранной модели: ваза, брелок, светильник, вывеска, калибровка, коробка или литофан. */
+  /** Все параметры выбранной модели: ваза, брелок, светильник, вывеска, коробка или литофан. */
   params: ConstructorParams;
 };
 
@@ -594,74 +588,6 @@ function SignModel({
   );
 }
 
-/**
- * Калибровочная башня стоит на столе, как вывеска: ступени построены вдоль Y,
- * выпуклые подписи смотрят на камеру. Материал бирюзовый, чтобы башня отличалась
- * от остальных моделей.
- *
- * Ключ тени включает тест, диапазон и число ступеней: любая правка меняет
- * высоту и силуэт, и старая тень стала бы неверной.
- */
-function CalibrationModel({
-  geometry,
-  height,
-  footprint,
-  calibrationType,
-  steps,
-  startValue,
-  endValue,
-}: CalibrationModelProps) {
-  return (
-    <group>
-      <mesh castShadow geometry={geometry} receiveShadow>
-        <meshStandardMaterial
-          color="#2dd4bf"
-          metalness={0.06}
-          roughness={0.38}
-        />
-      </mesh>
-
-      {/* Тёмный пол: на нём читаются контактные тени. */}
-      <mesh
-        position={[0, -0.3, 0]}
-        receiveShadow
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <circleGeometry args={[Math.max(footprint * 2.4, 240), 64]} />
-        <meshStandardMaterial color="#0b1220" roughness={1} />
-      </mesh>
-
-      <gridHelper
-        args={[Math.max(footprint * 5, 480), 24, "#1e293b", "#0f172a"]}
-        position={[0, 0.01, 0]}
-      />
-
-      <ContactShadows
-        blur={2.6}
-        far={Math.max(height * 1.2, 160)}
-        frames={1}
-        key={`calibration-${calibrationType}-${steps}-${startValue}-${endValue}`}
-        opacity={0.55}
-        position={[0, 0.02, 0]}
-        resolution={512}
-        scale={Math.max(footprint * 2.6, 320)}
-      />
-    </group>
-  );
-}
-
-type CalibrationModelProps = {
-  geometry: BufferGeometry;
-  /** Высота башни, мм. */
-  height: number;
-  /** Наибольший горизонтальный размер, мм. */
-  footprint: number;
-  calibrationType: ConstructorParams["calibrationType"];
-  steps: number;
-  startValue: number;
-  endValue: number;
-};
-
 /** Свет без внешних HDR: сцена должна работать без обращений к CDN. */
 function Lights() {
   return (
@@ -739,7 +665,7 @@ function Scene({ params, geometry, framing }: SceneProps) {
           minThickness={params.lithophaneMinThickness}
           width={params.lithophaneWidth}
         />
-      ) : params.model === "sign" ? (
+      ) : (
         <SignModel
           baseMount={params.signBaseMount}
           blockSize={params.signBlockSize}
@@ -750,16 +676,6 @@ function Scene({ params, geometry, framing }: SceneProps) {
           letterGap={params.signLetterGap}
           text={params.signText}
           width={framing.footprint}
-        />
-      ) : (
-        <CalibrationModel
-          calibrationType={params.calibrationType}
-          endValue={params.endValue}
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          startValue={params.startValue}
-          steps={params.steps}
         />
       )}
       <CameraRig
@@ -794,18 +710,16 @@ function Scene({ params, geometry, framing }: SceneProps) {
  */
 export function Viewport({ params }: ViewportProps) {
   /**
-   * Брелок, вывеска и калибровка подписываются шрифтом, остальным моделям он
-   * не нужен. У вывески шрифт выбирает пользователь, поэтому путь зависит от
-   * signFont: смена шрифта в панели загружает другой JSON.
+   * Брелок и вывеска подписываются шрифтом, остальным моделям он не нужен.
+   * У вывески шрифт выбирает пользователь, поэтому путь зависит от signFont:
+   * смена шрифта в панели загружает другой JSON.
    */
   const fontUrl =
     params.model === "sign"
       ? SIGN_FONT_URLS[params.signFont]
-      : params.model === "calibration"
-        ? CALIBRATION_FONT_URL
-        : params.model === "keychain"
-          ? KEYCHAIN_FONT_URL
-          : null;
+      : params.model === "keychain"
+        ? KEYCHAIN_FONT_URL
+        : null;
   const needsFont = fontUrl !== null;
   /**
    * Загруженный шрифт помнит свой путь. Пока новый файл не пришёл, сцена
@@ -816,8 +730,8 @@ export function Viewport({ params }: ViewportProps) {
   const font = loaded?.font ?? null;
 
   /**
-   * Шрифт грузим только при открытии брелока, вывески или калибровки: вазе и
-   * абажуру он не нужен, а лишние 130 КБ JSON незачем тянуть на первый экран.
+   * Шрифт грузим только при открытии брелока или вывески: вазе и абажуру он не
+   * нужен, а лишние 130 КБ JSON незачем тянуть на первый экран.
    * После загрузки состояние живёт до перезагрузки страницы, поэтому повторное
    * переключение вкладки не делает новый запрос.
    */
@@ -870,10 +784,6 @@ export function Viewport({ params }: ViewportProps) {
       return createSignGeometry(params, font);
     }
 
-    if (params.model === "calibration") {
-      return createCalibrationGeometry(params, font);
-    }
-
     if (params.model === "box") {
       return createBoxGeometry(params);
     }
@@ -890,11 +800,10 @@ export function Viewport({ params }: ViewportProps) {
   useEffect(() => () => geometry.dispose(), [geometry]);
 
   /**
-   * Габариты для камеры и подписи. У вывески ширина зависит от надписи, у
-   * светильника — от формы основания, а у калибровки высота — от числа
-   * ступеней, поэтому их берём из готовой сетки. Остальные модели считаются по
-   * параметрам: bounding box совпадает со слайдерами с точностью до амплитуды
-   * узора.
+   * Габариты для камеры и подписи. У вывески ширина и высота зависят от
+   * надписи, у светильника — от формы основания, поэтому их берём из готовой
+   * сетки. Остальные модели считаются по параметрам: bounding box совпадает со
+   * слайдерами с точностью до амплитуды узора.
    */
   const framing = useMemo<Framing>(() => {
     if (params.model === "vase") {
@@ -990,13 +899,11 @@ export function Viewport({ params }: ViewportProps) {
         ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${KEYCHAIN_SHAPE_LABELS[params.shapeType]}», имя «${params.text.trim() || "без имени"}»`
         : params.model === "lamp"
           ? `3D-предпросмотр светильника: основание «${LAMP_BASE_SHAPE_LABELS[params.lampBaseShape]}» высотой ${params.lampBaseHeight} миллиметров и абажур высотой ${params.lampHeight} миллиметров диаметром ${params.lampDiameter} миллиметров, патрон ${LAMP_MOUNT_LABELS[params.lampMount]}, узор «${VASE_PATTERN_LABELS[params.lampPattern]}»`
-          : params.model === "calibration"
-            ? `3D-предпросмотр калибровочной башни «${CALIBRATION_TYPE_LABELS[params.calibrationType]}» на ${params.steps} ступеней от ${params.startValue} до ${params.endValue} ${CALIBRATION_UNITS[params.calibrationType]}`
-            : params.model === "box"
-              ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
-              : params.model === "lithophane"
-                ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров`
-                : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
+          : params.model === "box"
+            ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
+            : params.model === "lithophane"
+              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров`
+              : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
     <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950 sm:h-[32rem] lg:h-[38rem]">
