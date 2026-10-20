@@ -11,6 +11,11 @@
  * 0.4 мм. Шаг толщины 0.1 мм, чтобы попадать в привычные 1.2 / 1.6 / 2.0 мм.
  * Брелок ограничен 100 × 50 мм: он печатается плашмя и занимает стол целиком
  * только в самом крупном размере.
+ *
+ * Светильник живёт в тех же габаритах, что и ваза: отверстие под патрон
+ * начинается с 60 мм диаметра, иначе E27 не помещается. Вывеска ограничена
+ * кеглем 120 мм и пятнадцатью символами: длинная строка крупным кеглем
+ * упирается в лимит ширины 800 мм, и геометрия сама уменьшает буквы.
  */
 
 /** Размерный параметр: границы, шаг и значение по умолчанию. */
@@ -42,10 +47,15 @@ export const CONSTRUCTOR_LIMITS = {
   length: { min: 30, max: 100, step: 1, defaultValue: 60, decimals: 0 },
   width: { min: 20, max: 50, step: 1, defaultValue: 30, decimals: 0 },
   thickness: { min: 2, max: 5, step: 0.5, defaultValue: 3, decimals: 1 },
+  lampHeight: { min: 60, max: 300, step: 5, defaultValue: 160, decimals: 0 },
+  lampDiameter: { min: 60, max: 200, step: 5, defaultValue: 120, decimals: 0 },
+  lampWall: { min: 0.8, max: 4, step: 0.1, defaultValue: 1.6, decimals: 1 },
+  signFontSize: { min: 20, max: 120, step: 2, defaultValue: 60, decimals: 0 },
+  signDepth: { min: 5, max: 40, step: 1, defaultValue: 15, decimals: 0 },
 } as const satisfies Record<string, NumericLimit>;
 
 /** Типы моделей, которые умеет собирать конструктор. */
-export const MODEL_TYPES = ["vase", "keychain"] as const;
+export const MODEL_TYPES = ["vase", "keychain", "lamp", "sign"] as const;
 
 export type ModelType = (typeof MODEL_TYPES)[number];
 
@@ -53,6 +63,8 @@ export type ModelType = (typeof MODEL_TYPES)[number];
 export const MODEL_TYPE_LABELS = {
   vase: "Ваза",
   keychain: "Брелок",
+  lamp: "Светильник",
+  sign: "Вывеска",
 } as const satisfies Record<ModelType, string>;
 
 /**
@@ -112,6 +124,39 @@ export const KEYCHAIN_SHAPE_LABELS = {
   hexagon: "Шестиугольник",
 } as const satisfies Record<KeychainShape, string>;
 
+/**
+ * Патроны, под которые строится отверстие в верхней части абажура.
+ *
+ * Диаметр — наружный диаметр резьбы: E27 — 40 мм, E14 — 28 мм. Отверстие шире
+ * на LAMP_SOCKET_CLEARANCE_MM с каждой стороны: после усадки PLA патрон
+ * входит плотно, но не проваливается в абажур.
+ */
+export const LAMP_MOUNTS = ["e27", "e14"] as const;
+
+export type LampMount = (typeof LAMP_MOUNTS)[number];
+
+export const LAMP_MOUNT_LABELS = {
+  e27: "E27 · 40 мм",
+  e14: "E14 · 28 мм",
+} as const satisfies Record<LampMount, string>;
+
+/** Наружный диаметр резьбы патрона, мм. */
+export const LAMP_MOUNT_DIAMETERS_MM = {
+  e27: 40,
+  e14: 28,
+} as const satisfies Record<LampMount, number>;
+
+/** Радиальный зазор между патроном и стенкой отверстия, мм. */
+export const LAMP_SOCKET_CLEARANCE_MM = 0.3;
+
+/** Ширина канала под светодиодную ленту, мм: другой не бывает. */
+export const SIGN_CHANNEL_WIDTHS = [8, 10] as const;
+
+export type SignChannelWidth = (typeof SIGN_CHANNEL_WIDTHS)[number];
+
+/** Сколько символов помещается на вывеске. */
+export const SIGN_TEXT_MAX_LENGTH = 15;
+
 /** Сколько символов имени помещается на брелоке. */
 export const KEYCHAIN_TEXT_MAX_LENGTH = 10;
 
@@ -120,7 +165,7 @@ export const KEYCHAIN_TEXT_MAX_LENGTH = 10;
  * проверка. Латиница и любая кириллица покрывают имена, цифры — даты и
  * номера, пробел и знаки — двойные имена.
  */
-const KEYCHAIN_TEXT_CHAR = /^[A-Za-z0-9 .,'’\-\p{Script=Cyrillic}]$/u;
+const TEXT_CHAR = /^[A-Za-z0-9 .,'’\-\p{Script=Cyrillic}]$/u;
 
 /** Настраиваемые размеры, имя и форма брелока. */
 export type KeychainParams = {
@@ -154,6 +199,32 @@ export type VaseParams = {
   patternFrequency: number;
 };
 
+/** Настраиваемые размеры абажура: он надевается на патрон сверху. */
+export type LampParams = {
+  /** Высота от нижнего края до кромки патрона, мм. */
+  lampHeight: number;
+  /** Наружный диаметр у нижнего края, мм. */
+  lampDiameter: number;
+  /** Толщина стенки, мм. */
+  lampWall: number;
+  /** Узор на стенке; гладкий пояс под патрон остаётся ровным. */
+  lampPattern: VasePattern;
+  /** Тип патрона: от него зависит диаметр отверстия. */
+  lampMount: LampMount;
+};
+
+/** Настройки вывески: текст, кегль и канал под ленту. */
+export type SignParams = {
+  /** Надпись на вывеске, до 15 символов; пустая строка допустима. */
+  signText: string;
+  /** Кегль шрифта, мм: заглавные буквы примерно на треть ниже. */
+  signFontSize: number;
+  /** Насколько буквы выступают над лицевой плоскостью, мм. */
+  signDepth: number;
+  /** Ширина канала под ленту: 8 или 10 мм. */
+  signChannelWidth: SignChannelWidth;
+};
+
 /** Значения, с которыми открывается конструктор. */
 export const DEFAULT_VASE_PARAMS: VaseParams = {
   height: CONSTRUCTOR_LIMITS.height.defaultValue,
@@ -174,22 +245,43 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   shapeType: "rounded",
 };
 
+/** Абажур по умолчанию: под E27, с гладкой стенкой. */
+export const DEFAULT_LAMP_PARAMS: LampParams = {
+  lampHeight: CONSTRUCTOR_LIMITS.lampHeight.defaultValue,
+  lampDiameter: CONSTRUCTOR_LIMITS.lampDiameter.defaultValue,
+  lampWall: CONSTRUCTOR_LIMITS.lampWall.defaultValue,
+  lampPattern: "smooth",
+  lampMount: "e27",
+};
+
+/** Вывеска по умолчанию: короткое имя бренда и канал 8 мм. */
+export const DEFAULT_SIGN_PARAMS: SignParams = {
+  signText: "ТРИ ДИ",
+  signFontSize: CONSTRUCTOR_LIMITS.signFontSize.defaultValue,
+  signDepth: CONSTRUCTOR_LIMITS.signDepth.defaultValue,
+  signChannelWidth: 8,
+};
+
 /**
  * Состояние конструктора целиком.
  *
- * Поля обеих моделей лежат рядом, а `model` говорит, какие из них сейчас
+ * Поля всех моделей лежат рядом, а `model` говорит, какие из них сейчас
  * важны. Так один объект проходит через панель, предпросмотр и API: при
  * переключении вкладки не нужно собирать параметры заново, а сервер может
  * строго проверить только поля выбранной модели.
  */
 export type ConstructorParams = { model: ModelType } & VaseParams &
-  KeychainParams;
+  KeychainParams &
+  LampParams &
+  SignParams;
 
-/** Стартовое состояние: открывается ваза, брелок ждёт на своей вкладке. */
+/** Стартовое состояние: открывается ваза, остальные модели ждут на вкладках. */
 export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   model: "vase",
   ...DEFAULT_VASE_PARAMS,
   ...DEFAULT_KEYCHAIN_PARAMS,
+  ...DEFAULT_LAMP_PARAMS,
+  ...DEFAULT_SIGN_PARAMS,
 };
 
 /**
@@ -214,6 +306,29 @@ export function vaseStlFileName(params: VaseParams): string {
  */
 export function keychainStlFileName(params: KeychainParams): string {
   return `tridi-brelyok-${params.shapeType}-l${params.length}-w${params.width}-t${params.thickness}.stl`;
+}
+
+/**
+ * Имя файла STL для абажура.
+ *
+ * Патрон важнее узора: по имени сразу видно, под какой патрон напечатана
+ * деталь. Узор добавляется только когда он не гладкий — как у вазы.
+ */
+export function lampStlFileName(params: LampParams): string {
+  const patternSuffix = params.lampPattern === "smooth" ? "" : `-${params.lampPattern}`;
+
+  return `tridi-svetilnik-${params.lampMount}${patternSuffix}-h${params.lampHeight}-d${params.lampDiameter}-w${params.lampWall}.stl`;
+}
+
+/**
+ * Имя файла STL для вывески.
+ *
+ * Текст в имя не попадает: кириллица требует filename*=UTF-8, а запасное имя
+ * всё равно должно остаться латинским. Кегль, выступ и канал описывают
+ * заготовку однозначно.
+ */
+export function signStlFileName(params: SignParams): string {
+  return `tridi-vyveska-s${params.signFontSize}-d${params.signDepth}-c${params.signChannelWidth}.stl`;
 }
 
 /** Проверка типа модели из формы или API. */
@@ -248,6 +363,31 @@ export function isKeychainShape(value: unknown): value is KeychainShape {
   );
 }
 
+/** Проверка патрона из формы или API. */
+export function isLampMount(value: unknown): value is LampMount {
+  return (
+    typeof value === "string" && (LAMP_MOUNTS as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка ширины канала: под ленту подходят только 8 и 10 мм. */
+export function isSignChannelWidth(value: unknown): value is SignChannelWidth {
+  return value === 8 || value === 10;
+}
+
+/**
+ * Общая очистка текста для обеих текстовых моделей.
+ *
+ * Длина считается по символам Unicode, а не по единицам UTF-16: иначе редкая
+ * буква вне основной плоскости обходила бы лимит.
+ */
+function cleanText(value: string, maxLength: number): string {
+  return Array.from(value)
+    .filter((char) => TEXT_CHAR.test(char))
+    .slice(0, maxLength)
+    .join("");
+}
+
 /**
  * Строгая проверка имени для API.
  *
@@ -259,7 +399,21 @@ export function isValidKeychainText(value: unknown): value is string {
   return (
     typeof value === "string" &&
     Array.from(value).length <= KEYCHAIN_TEXT_MAX_LENGTH &&
-    Array.from(value).every((char) => KEYCHAIN_TEXT_CHAR.test(char))
+    Array.from(value).every((char) => TEXT_CHAR.test(char))
+  );
+}
+
+/**
+ * Строгая проверка надписи вывески для API.
+ *
+ * Правила те же, что у брелока, но лимит — 15 символов. Пустая строка
+ * допустима: пустая заготовка с каналом под ленту — нормальная деталь.
+ */
+export function isValidSignText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    Array.from(value).length <= SIGN_TEXT_MAX_LENGTH &&
+    Array.from(value).every((char) => TEXT_CHAR.test(char))
   );
 }
 
@@ -270,10 +424,12 @@ export function isValidKeychainText(value: unknown): value is string {
  * браузере так проще: ввод не ломает предпросмотр.
  */
 export function sanitizeKeychainText(value: string): string {
-  return Array.from(value)
-    .filter((char) => KEYCHAIN_TEXT_CHAR.test(char))
-    .slice(0, KEYCHAIN_TEXT_MAX_LENGTH)
-    .join("");
+  return cleanText(value, KEYCHAIN_TEXT_MAX_LENGTH);
+}
+
+/** Очистка надписи вывески для поля ввода: те же символы, лимит 15. */
+export function sanitizeSignText(value: string): string {
+  return cleanText(value, SIGN_TEXT_MAX_LENGTH);
 }
 
 /** Значение внутри границ. */
@@ -363,10 +519,64 @@ export function normalizeKeychainParams(
 }
 
 /**
+ * Проверяет и выравнивает параметры абажура.
+ *
+ * Отверстие под патрон строится по типу патрона, поэтому он проверяется
+ * отдельно от чисел. Узор берётся из того же набора, что у вазы: отдельная
+ * копия списка разошлась бы с профилем и панелью.
+ */
+export function normalizeLampParams(params: Partial<LampParams>): LampParams {
+  return {
+    lampHeight: snap(
+      params.lampHeight ?? DEFAULT_LAMP_PARAMS.lampHeight,
+      CONSTRUCTOR_LIMITS.lampHeight,
+    ),
+    lampDiameter: snap(
+      params.lampDiameter ?? DEFAULT_LAMP_PARAMS.lampDiameter,
+      CONSTRUCTOR_LIMITS.lampDiameter,
+    ),
+    lampWall: snap(
+      params.lampWall ?? DEFAULT_LAMP_PARAMS.lampWall,
+      CONSTRUCTOR_LIMITS.lampWall,
+    ),
+    lampPattern: isVasePattern(params.lampPattern)
+      ? params.lampPattern
+      : DEFAULT_LAMP_PARAMS.lampPattern,
+    lampMount: isLampMount(params.lampMount)
+      ? params.lampMount
+      : DEFAULT_LAMP_PARAMS.lampMount,
+  };
+}
+
+/**
+ * Проверяет и выравнивает параметры вывески.
+ *
+ * Текст очищается от символов вне шрифта и обрезается до 15 знаков. Ширина
+ * канала — только 8 или 10 мм: канал строится под конкретную ленту, и
+ * промежуточное значение дало бы люфт или зажим.
+ */
+export function normalizeSignParams(params: Partial<SignParams>): SignParams {
+  return {
+    signText: sanitizeSignText(params.signText ?? DEFAULT_SIGN_PARAMS.signText),
+    signFontSize: snap(
+      params.signFontSize ?? DEFAULT_SIGN_PARAMS.signFontSize,
+      CONSTRUCTOR_LIMITS.signFontSize,
+    ),
+    signDepth: snap(
+      params.signDepth ?? DEFAULT_SIGN_PARAMS.signDepth,
+      CONSTRUCTOR_LIMITS.signDepth,
+    ),
+    signChannelWidth: isSignChannelWidth(params.signChannelWidth)
+      ? params.signChannelWidth
+      : DEFAULT_SIGN_PARAMS.signChannelWidth,
+  };
+}
+
+/**
  * Нормализует состояние конструктора вместе с выбранной моделью.
  *
- * Обе группы полей проходят свои проверки: переключение вкладки не должно
- * терять настройки второй модели, а незнакомый `model` безопасно
+ * Каждая группа полей проходит свою проверку: переключение вкладки не должно
+ * терять настройки других моделей, а незнакомый `model` безопасно
  * превращается в вазу.
  */
 export function normalizeConstructorParams(
@@ -378,5 +588,7 @@ export function normalizeConstructorParams(
       : DEFAULT_CONSTRUCTOR_PARAMS.model,
     ...normalizeVaseParams(params),
     ...normalizeKeychainParams(params),
+    ...normalizeLampParams(params),
+    ...normalizeSignParams(params),
   };
 }

@@ -10,9 +10,11 @@ import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 
 import {
   KEYCHAIN_SHAPE_LABELS,
+  LAMP_MOUNT_LABELS,
   VASE_PATTERN_LABELS,
   type ConstructorParams,
   type KeychainShape,
+  type LampMount,
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
@@ -21,12 +23,33 @@ import {
   KEYCHAIN_FONT_URL,
   createKeychainGeometry,
 } from "@/lib/constructor/keychain-geometry";
+import { createLampGeometry } from "@/lib/constructor/lamp-geometry";
+import {
+  SIGN_FONT_URL,
+  createSignGeometry,
+} from "@/lib/constructor/sign-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
 
 type ViewportProps = {
-  /** Все параметры выбранной модели: ваза или брелок. */
+  /** Все параметры выбранной модели: ваза, брелок, светильник или вывеска. */
   params: ConstructorParams;
+};
+
+/**
+ * Габариты модели для камеры и подписи под сценой.
+ *
+ * Считаются по фактической сетке: у вывески ширина зависит от надписи и
+ * кегля, а не только от слайдеров, поэтому один источник правды — bounding box
+ * готовой геометрии.
+ */
+type Framing = {
+  /** Высота модели над столом, мм. */
+  height: number;
+  /** Наибольший горизонтальный размер, мм. */
+  footprint: number;
+  /** Модель лежит на столе: камера смотрит круче. */
+  flat: boolean;
 };
 
 /** Для камеры важны только габариты: форма и материал не меняют кадр. */
@@ -276,6 +299,134 @@ function KeychainModel({
   );
 }
 
+type LampModelProps = {
+  geometry: BufferGeometry;
+  height: number;
+  diameter: number;
+  pattern: VasePattern;
+  mount: LampMount;
+};
+
+/**
+ * Абажур стоит на столе так же, как ваза: гнездо патрона сверху, свет уходит
+ * вниз. Материал светлее и с лёгким свечением — по нему видно, что деталь
+ * относится к светильнику, а не к вазе.
+ *
+ * Тень пересчитывается при смене высоты, диаметра, узора и патрона: силуэт
+ * меняется, а при постоянном расчёте тень стоила бы кадрового времени.
+ */
+function LampModel({
+  geometry,
+  height,
+  diameter,
+  pattern,
+  mount,
+}: LampModelProps) {
+  return (
+    <group>
+      <mesh castShadow geometry={geometry} receiveShadow>
+        <meshStandardMaterial
+          color="#fbbf24"
+          emissive="#f59e0b"
+          emissiveIntensity={0.12}
+          metalness={0.05}
+          roughness={0.42}
+        />
+      </mesh>
+
+      {/* Тёмный пол: на нём читаются контактные тени. */}
+      <mesh
+        position={[0, -0.3, 0]}
+        receiveShadow
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
+        <circleGeometry args={[Math.max(diameter * 2.2, 320), 64]} />
+        <meshStandardMaterial color="#0b1220" roughness={1} />
+      </mesh>
+
+      <gridHelper
+        args={[Math.max(diameter * 6, 1200), 24, "#1e293b", "#0f172a"]}
+        position={[0, 0.01, 0]}
+      />
+
+      <ContactShadows
+        blur={2.6}
+        far={Math.max(height * 0.9, 120)}
+        frames={1}
+        key={`lamp-${height}-${diameter}-${pattern}-${mount}`}
+        opacity={0.55}
+        position={[0, 0.02, 0]}
+        resolution={512}
+        scale={Math.max(diameter * 3.2, 480)}
+      />
+    </group>
+  );
+}
+
+type SignModelProps = {
+  geometry: BufferGeometry;
+  fontSize: number;
+  depth: number;
+  channelWidth: number;
+  text: string;
+  /** Фактическая ширина с учётом автоподбора кегля, мм. */
+  width: number;
+};
+
+/**
+ * Вывеска стоит на столе вертикально: плита построена в плоскости XY, поэтому
+ * поворот не нужен — так же деталь ложится в STL.
+ *
+ * Ключ тени включает текст, кегль, выступ и канал: любая правка меняет
+ * силуэт, и старая тень стала бы неверной.
+ */
+function SignModel({
+  geometry,
+  fontSize,
+  depth,
+  channelWidth,
+  text,
+  width,
+}: SignModelProps) {
+  return (
+    <group>
+      <mesh castShadow geometry={geometry} receiveShadow>
+        <meshStandardMaterial
+          color="#a78bfa"
+          metalness={0.08}
+          roughness={0.34}
+        />
+      </mesh>
+
+      {/* Тёмный пол: на нём читаются контактные тени. */}
+      <mesh
+        position={[0, -0.3, 0]}
+        receiveShadow
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
+        <circleGeometry args={[Math.max(width * 2.4, 400), 64]} />
+        <meshStandardMaterial color="#0b1220" roughness={1} />
+      </mesh>
+
+      <gridHelper
+        args={[Math.max(width * 4, 1200), 24, "#1e293b", "#0f172a"]}
+        position={[0, 0.01, 0]}
+      />
+
+      <ContactShadows
+        blur={2.6}
+        far={Math.max(fontSize * 2, 160)}
+        frames={1}
+        key={`sign-${text}-${fontSize}-${depth}-${channelWidth}`}
+        opacity={0.5}
+        position={[0, 0.02, 0]}
+        resolution={512}
+        scale={Math.max(width * 2.6, 480)}
+      />
+    </group>
+  );
+}
+
 /** Свет без внешних HDR: сцена должна работать без обращений к CDN. */
 function Lights() {
   return (
@@ -295,21 +446,16 @@ function Lights() {
 type SceneProps = {
   params: ConstructorParams;
   geometry: BufferGeometry;
+  framing: Framing;
 };
 
-function Scene({ params, geometry }: SceneProps) {
-  const isVase = params.model === "vase";
-  const footprint = isVase
-    ? params.diameter
-    : Math.max(params.length, params.width);
-  const stageHeight = isVase ? params.height : params.thickness;
-
+function Scene({ params, geometry, framing }: SceneProps) {
   return (
     <>
       <color args={["#020617"]} attach="background" />
 
       <Lights />
-      {isVase ? (
+      {params.model === "vase" ? (
         <VaseModel
           diameter={params.diameter}
           geometry={geometry}
@@ -320,7 +466,7 @@ function Scene({ params, geometry }: SceneProps) {
           shape={params.shape}
           wall={params.wall}
         />
-      ) : (
+      ) : params.model === "keychain" ? (
         <KeychainModel
           geometry={geometry}
           length={params.length}
@@ -329,15 +475,36 @@ function Scene({ params, geometry }: SceneProps) {
           thickness={params.thickness}
           width={params.width}
         />
+      ) : params.model === "lamp" ? (
+        <LampModel
+          diameter={params.lampDiameter}
+          geometry={geometry}
+          height={params.lampHeight}
+          mount={params.lampMount}
+          pattern={params.lampPattern}
+        />
+      ) : (
+        <SignModel
+          channelWidth={params.signChannelWidth}
+          depth={params.signDepth}
+          fontSize={params.signFontSize}
+          geometry={geometry}
+          text={params.signText}
+          width={framing.footprint}
+        />
       )}
-      <CameraRig flat={!isVase} footprint={footprint} height={stageHeight} />
+      <CameraRig
+        flat={framing.flat}
+        footprint={framing.footprint}
+        height={framing.height}
+      />
 
       <OrbitControls
         dampingFactor={0.08}
         enableDamping
         enablePan={false}
         makeDefault
-        maxDistance={1400}
+        maxDistance={2400}
         maxPolarAngle={Math.PI / 2 - 0.08}
         minDistance={60}
         minPolarAngle={0.15}
@@ -357,18 +524,19 @@ function Scene({ params, geometry }: SceneProps) {
  * страницу по горизонтали.
  */
 export function Viewport({ params }: ViewportProps) {
-  const isKeychain = params.model === "keychain";
+  /** Брелок и вывеска подписываются шрифтом, остальным моделям он не нужен. */
+  const needsFont = params.model === "keychain" || params.model === "sign";
   const [font, setFont] = useState<Font | null>(null);
   const [fontFailed, setFontFailed] = useState(false);
 
   /**
-   * Шрифт грузим только при открытии брелока: вазе он не нужен, а лишние
-   * 130 КБ JSON незачем тянуть на первый экран. После загрузки состояние
-   * живёт до перезагрузки страницы, поэтому повторное переключение вкладки
-   * не делает новый запрос.
+   * Шрифт грузим только при открытии брелока или вывески: вазе и абажуру он
+   * не нужен, а лишние 130 КБ JSON незачем тянуть на первый экран. После
+   * загрузки состояние живёт до перезагрузки страницы, поэтому повторное
+   * переключение вкладки не делает новый запрос.
    */
   useEffect(() => {
-    if (!isKeychain || font) {
+    if (!needsFont || font) {
       return;
     }
 
@@ -376,7 +544,7 @@ export function Viewport({ params }: ViewportProps) {
     const loader = new FontLoader();
 
     loader.load(
-      KEYCHAIN_FONT_URL,
+      params.model === "sign" ? SIGN_FONT_URL : KEYCHAIN_FONT_URL,
       (loaded) => {
         if (active) {
           setFont(loaded);
@@ -394,16 +562,25 @@ export function Viewport({ params }: ViewportProps) {
     return () => {
       active = false;
     };
-  }, [font, isKeychain]);
+  }, [font, needsFont, params.model]);
 
   /**
    * Профиль и сетка пересчитываются только при изменении параметров или
    * загрузке шрифта. Смена камеры, света или материала не создаёт новую
-   * геометрию. Пока шрифт не пришёл, брелок показывается без имени.
+   * геометрию. Пока шрифт не пришёл, брелок показывается без имени, а
+   * вывеска — без букв: плита и канал уже видны.
    */
   const geometry = useMemo(() => {
     if (params.model === "keychain") {
       return createKeychainGeometry(params, font);
+    }
+
+    if (params.model === "lamp") {
+      return createLampGeometry(params);
+    }
+
+    if (params.model === "sign") {
+      return createSignGeometry(params, font);
     }
 
     return createVaseGeometry(createVaseProfile(params), params);
@@ -413,17 +590,69 @@ export function Viewport({ params }: ViewportProps) {
   // оставляла бы мусор до перезагрузки страницы.
   useEffect(() => () => geometry.dispose(), [geometry]);
 
+  /**
+   * Габариты для камеры и подписи. У вывески ширина зависит от надписи, а не
+   * только от слайдеров, поэтому её берём из готовой сетки. Остальные модели
+   * считаются по параметрам: их bounding box совпадает со слайдерами с
+   * точностью до амплитуды узора.
+   */
+  const framing = useMemo<Framing>(() => {
+    if (params.model === "vase") {
+      return {
+        height: params.height,
+        footprint: params.diameter,
+        flat: false,
+      };
+    }
+
+    if (params.model === "keychain") {
+      return {
+        height: params.thickness,
+        footprint: Math.max(params.length, params.width),
+        flat: true,
+      };
+    }
+
+    if (params.model === "lamp") {
+      return {
+        height: params.lampHeight,
+        footprint: params.lampDiameter,
+        flat: false,
+      };
+    }
+
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox;
+
+    return {
+      height: box ? Math.max(box.max.y - box.min.y, 1) : 1,
+      footprint: box ? Math.max(box.max.x - box.min.x, 1) : 1,
+      flat: false,
+    };
+  }, [geometry, params]);
+
   const materialVolumeCm3 = useMemo(
     () => Math.round(calculateGeometryVolumeMm3(geometry) / 100) / 10,
     [geometry],
   );
 
-  const sizeLabel = isKeychain
-    ? `${params.length} × ${params.width} × ${params.thickness} мм`
-    : `${params.height} × Ø ${params.diameter} мм`;
-  const ariaLabel = isKeychain
-    ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${KEYCHAIN_SHAPE_LABELS[params.shapeType]}», имя «${params.text.trim() || "без имени"}»`
-    : `3D-предпросмотр вазы высотой ${params.height} миллиметров и диаметром ${params.diameter} миллиметров, узор «${VASE_PATTERN_LABELS[params.pattern]}»`;
+  const sizeLabel =
+    params.model === "vase"
+      ? `${params.height} × Ø ${params.diameter} мм`
+      : params.model === "keychain"
+        ? `${params.length} × ${params.width} × ${params.thickness} мм`
+        : params.model === "lamp"
+          ? `${params.lampHeight} × Ø ${params.lampDiameter} мм`
+          : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
+
+  const ariaLabel =
+    params.model === "vase"
+      ? `3D-предпросмотр вазы высотой ${params.height} миллиметров и диаметром ${params.diameter} миллиметров, узор «${VASE_PATTERN_LABELS[params.pattern]}»`
+      : params.model === "keychain"
+        ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${KEYCHAIN_SHAPE_LABELS[params.shapeType]}», имя «${params.text.trim() || "без имени"}»`
+        : params.model === "lamp"
+          ? `3D-предпросмотр абажура высотой ${params.lampHeight} миллиметров и диаметром ${params.lampDiameter} миллиметров, патрон ${LAMP_MOUNT_LABELS[params.lampMount]}, узор «${VASE_PATTERN_LABELS[params.lampPattern]}»`
+          : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
     <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950 sm:h-[32rem] lg:h-[38rem]">
@@ -441,10 +670,10 @@ export function Viewport({ params }: ViewportProps) {
         }
         gl={{ antialias: true }}
       >
-        <Scene geometry={geometry} params={params} />
+        <Scene framing={framing} geometry={geometry} params={params} />
       </Canvas>
 
-      {isKeychain && !font ? (
+      {needsFont && !font ? (
         <div
           className={
             fontFailed
@@ -454,7 +683,7 @@ export function Viewport({ params }: ViewportProps) {
           role={fontFailed ? "alert" : "status"}
         >
           {fontFailed
-            ? "Шрифт не загрузился: предпросмотр без имени, STL соберётся на сервере"
+            ? "Шрифт не загрузился: предпросмотр без надписи, STL соберётся на сервере"
             : "Загружаем шрифт…"}
         </div>
       ) : null}

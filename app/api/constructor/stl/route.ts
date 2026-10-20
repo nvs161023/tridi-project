@@ -14,20 +14,31 @@ import {
   CONSTRUCTOR_LIMITS,
   DEFAULT_VASE_PARAMS,
   isKeychainShape,
+  isLampMount,
+  isSignChannelWidth,
   isVasePattern,
   isVaseShape,
   isValidKeychainText,
+  isValidSignText,
   keychainStlFileName,
+  lampStlFileName,
   normalizeKeychainParams,
+  normalizeLampParams,
+  normalizeSignParams,
   normalizeVaseParams,
+  signStlFileName,
   vaseStlFileName,
   type KeychainParams,
+  type LampParams,
+  type SignParams,
   type VaseParams,
 } from "@/lib/constructor/params";
 import {
   KEYCHAIN_FONT_URL,
   createKeychainGeometry,
 } from "@/lib/constructor/keychain-geometry";
+import { createLampGeometry } from "@/lib/constructor/lamp-geometry";
+import { createSignGeometry } from "@/lib/constructor/sign-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
 import { hasActiveSubscription } from "@/lib/subscription";
@@ -42,7 +53,8 @@ import { createClient } from "@/lib/supabase/server";
  *   2. доступ — Pro проходит сразу, Free получает три скачивания в
  *      календарный месяц по UTC (countConstructorDownloadsThisMonth);
  *   3. параметры — только числа внутри границ слайдеров, известная форма и
- *      узор вазы либо известная форма и имя брелока.
+ *      узор вазы, брелок с именем и формой заготовки, абажур с узором и
+ *      патроном E27/E14 либо вывеска с надписью и шириной канала.
  *
  * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
  * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
@@ -206,17 +218,97 @@ function parseKeychainParams(
   });
 }
 
+/**
+ * Строгая проверка параметров светильника.
+ *
+ * Высота, диаметр и стенка должны лежать в границах слайдеров. Узор берётся
+ * из того же списка, что у вазы, а патрон — из известных E27/E14: от него
+ * зависит диаметр гнезда, поэтому незнакомое значение отклоняется, а не
+ * подменяется E27.
+ */
+function parseLampParams(body: Record<string, unknown>): LampParams | null {
+  const { lampHeight, lampDiameter, lampWall, lampPattern, lampMount } = body;
+
+  if (
+    !isNumberInRange(
+      lampHeight,
+      CONSTRUCTOR_LIMITS.lampHeight.min,
+      CONSTRUCTOR_LIMITS.lampHeight.max,
+    ) ||
+    !isNumberInRange(
+      lampDiameter,
+      CONSTRUCTOR_LIMITS.lampDiameter.min,
+      CONSTRUCTOR_LIMITS.lampDiameter.max,
+    ) ||
+    !isNumberInRange(
+      lampWall,
+      CONSTRUCTOR_LIMITS.lampWall.min,
+      CONSTRUCTOR_LIMITS.lampWall.max,
+    ) ||
+    !isVasePattern(lampPattern) ||
+    !isLampMount(lampMount)
+  ) {
+    return null;
+  }
+
+  return normalizeLampParams({
+    lampHeight,
+    lampDiameter,
+    lampWall,
+    lampPattern,
+    lampMount,
+  });
+}
+
+/**
+ * Строгая проверка параметров вывески.
+ *
+ * Надпись — до 15 символов из набора шрифта; пустая строка допустима. Кегль,
+ * выступ букв и ширина канала проверяются по границам и списку: геометрия
+ * сама уменьшит буквы, если строка не влезает в 800 мм, но канал 9 мм
+ * отклонится — такой ленты не бывает.
+ */
+function parseSignParams(body: Record<string, unknown>): SignParams | null {
+  const { signText, signFontSize, signDepth, signChannelWidth } = body;
+
+  if (
+    !isValidSignText(signText) ||
+    !isNumberInRange(
+      signFontSize,
+      CONSTRUCTOR_LIMITS.signFontSize.min,
+      CONSTRUCTOR_LIMITS.signFontSize.max,
+    ) ||
+    !isNumberInRange(
+      signDepth,
+      CONSTRUCTOR_LIMITS.signDepth.min,
+      CONSTRUCTOR_LIMITS.signDepth.max,
+    ) ||
+    !isSignChannelWidth(signChannelWidth)
+  ) {
+    return null;
+  }
+
+  return normalizeSignParams({
+    signText,
+    signFontSize,
+    signDepth,
+    signChannelWidth,
+  });
+}
+
 /** Разобранный запрос: модель и её проверенные параметры. */
 type ParsedConstructorRequest =
   | { model: "vase"; params: VaseParams }
-  | { model: "keychain"; params: KeychainParams };
+  | { model: "keychain"; params: KeychainParams }
+  | { model: "lamp"; params: LampParams }
+  | { model: "sign"; params: SignParams };
 
 /**
  * Выбирает набор параметров по полю model.
  *
  * Старые клиенты его не передают и получают вазу — так экспорт продолжает
- * работать после появления брелока. Незнакомая модель отклоняется целиком,
- * а не подменяется вазой: иначе клиент получил бы не тот файл.
+ * работать после появления новых моделей. Незнакомая модель отклоняется
+ * целиком, а не подменяется вазой: иначе клиент получил бы не тот файл.
  */
 function parseConstructorRequest(
   body: unknown,
@@ -237,6 +329,18 @@ function parseConstructorRequest(
     const params = parseKeychainParams(body);
 
     return params ? { model: "keychain", params } : null;
+  }
+
+  if (model === "lamp") {
+    const params = parseLampParams(body);
+
+    return params ? { model: "lamp", params } : null;
+  }
+
+  if (model === "sign") {
+    const params = parseSignParams(body);
+
+    return params ? { model: "sign", params } : null;
   }
 
   return null;
@@ -333,15 +437,22 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы или длину, ширину, толщину, имя и форму брелока.",
+      "Проверьте размеры и узор вазы, брелока, абажура или надпись вывески.",
     );
   }
 
   try {
+    // Шрифт читается только брелоку и вывеске; ваза и абажур собираются без
+    // него, чтобы не парсить 130 КБ JSON. loadCyrillicFont() кэширует промис,
+    // поэтому второй вызов в ветках ниже ничего не стоит.
     const geometry =
-      parsed.model === "keychain"
-        ? createKeychainGeometry(parsed.params, await loadCyrillicFont())
-        : createVaseGeometry(createVaseProfile(parsed.params), parsed.params);
+      parsed.model === "vase"
+        ? createVaseGeometry(createVaseProfile(parsed.params), parsed.params)
+        : parsed.model === "lamp"
+          ? createLampGeometry(parsed.params)
+          : parsed.model === "keychain"
+            ? createKeychainGeometry(parsed.params, await loadCyrillicFont())
+            : createSignGeometry(parsed.params, await loadCyrillicFont());
 
     try {
       const mesh = new Mesh(geometry);
@@ -352,9 +463,13 @@ export async function POST(request: Request): Promise<Response> {
       const stl = new STLExporter().parse(mesh, { binary: true });
       const bytes = new Uint8Array(stl.buffer, stl.byteOffset, stl.byteLength);
       const fileName =
-        parsed.model === "keychain"
-          ? keychainStlFileName(parsed.params)
-          : vaseStlFileName(parsed.params);
+        parsed.model === "vase"
+          ? vaseStlFileName(parsed.params)
+          : parsed.model === "keychain"
+            ? keychainStlFileName(parsed.params)
+            : parsed.model === "lamp"
+              ? lampStlFileName(parsed.params)
+              : signStlFileName(parsed.params);
 
       // Запись появляется после успешной генерации: упавшая сборка не должна
       // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —

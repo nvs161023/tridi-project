@@ -10,15 +10,22 @@ import {
   KEYCHAIN_SHAPES,
   KEYCHAIN_SHAPE_LABELS,
   KEYCHAIN_TEXT_MAX_LENGTH,
+  LAMP_MOUNTS,
+  LAMP_MOUNT_LABELS,
   MODEL_TYPE_LABELS,
+  SIGN_CHANNEL_WIDTHS,
+  SIGN_TEXT_MAX_LENGTH,
   VASE_PATTERNS,
   VASE_PATTERN_LABELS,
   VASE_SHAPES,
   VASE_SHAPE_LABELS,
   sanitizeKeychainText,
+  sanitizeSignText,
   type ConstructorParams,
   type KeychainShape,
+  type LampMount,
   type ModelType,
+  type SignChannelWidth,
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
@@ -26,7 +33,15 @@ import {
 /** Числовые параметры: форму, узор и текст меняют отдельные обработчики. */
 type SizeParam = Exclude<
   keyof ConstructorParams,
-  "model" | "shape" | "pattern" | "shapeType" | "text"
+  | "model"
+  | "shape"
+  | "pattern"
+  | "shapeType"
+  | "text"
+  | "lampPattern"
+  | "lampMount"
+  | "signText"
+  | "signChannelWidth"
 >;
 
 /** Ошибка экспорта и действие, которое поможет её исправить. */
@@ -53,6 +68,10 @@ type ParameterPanelProps = {
   onPatternChange: (pattern: VasePattern) => void;
   onKeychainShapeChange: (shape: KeychainShape) => void;
   onTextChange: (text: string) => void;
+  onLampPatternChange: (pattern: VasePattern) => void;
+  onLampMountChange: (mount: LampMount) => void;
+  onSignTextChange: (text: string) => void;
+  onSignChannelWidthChange: (width: SignChannelWidth) => void;
   onReset: () => void;
 };
 
@@ -88,20 +107,14 @@ function ExportErrorAlert({ error }: { error: StlExportError | null }) {
   );
 }
 
-/** Доступная карточка модели или будущий светильник со статусом «Скоро». */
-type ModelCard =
-  | { id: ModelType; icon: string; title: string; available: true }
-  | { id: "lamp"; icon: string; title: string; available: false };
+/** Карточка типа модели во вкладках панели. */
+type ModelCard = { id: ModelType; icon: string; title: string };
 
-const MODEL_TYPES: ModelCard[] = [
-  { id: "vase", icon: "🏺", title: MODEL_TYPE_LABELS.vase, available: true },
-  {
-    id: "keychain",
-    icon: "🔑",
-    title: MODEL_TYPE_LABELS.keychain,
-    available: true,
-  },
-  { id: "lamp", icon: "💡", title: "Светильник", available: false },
+const MODEL_CARDS: ModelCard[] = [
+  { id: "vase", icon: "🏺", title: MODEL_TYPE_LABELS.vase },
+  { id: "keychain", icon: "🔑", title: MODEL_TYPE_LABELS.keychain },
+  { id: "lamp", icon: "💡", title: MODEL_TYPE_LABELS.lamp },
+  { id: "sign", icon: "🪧", title: MODEL_TYPE_LABELS.sign },
 ];
 
 /** Пояснение к выбранному силуэту: помогает выбрать форму без 3D-терминов. */
@@ -132,9 +145,10 @@ const PATTERN_HINTS: Record<VasePattern, string> = {
  *
  * Слайдеры меняют размеры, кнопки формы — пресет силуэта вазы, кнопки узора —
  * математический рельеф стенки, а для брелока появляются длина, ширина,
- * толщина, форма заготовки и имя. Компонент не хранит состояние: значения
- * приходят из ConstructorClient, поэтому 3D-сцена и подписи всегда читают
- * один и тот же объект параметров.
+ * толщина, форма заготовки и имя. У светильника выбирают патрон и узор, у
+ * вывески — надпись, кегль, выступ букв и ширину канала под ленту. Компонент
+ * не хранит состояние: значения приходят из ConstructorClient, поэтому
+ * 3D-сцена и подписи всегда читают один и тот же объект параметров.
  */
 export function ParameterPanel({
   params,
@@ -149,11 +163,45 @@ export function ParameterPanel({
   onPatternChange,
   onKeychainShapeChange,
   onTextChange,
+  onLampPatternChange,
+  onLampMountChange,
+  onSignTextChange,
+  onSignChannelWidthChange,
   onReset,
 }: ParameterPanelProps) {
   const textInputId = useId();
   const textHintId = `${textInputId}-hint`;
   const textLength = Array.from(params.text).length;
+  const signTextInputId = useId();
+  const signTextHintId = `${signTextInputId}-hint`;
+  const signTextLength = Array.from(params.signText).length;
+
+  /** Три главных размера выбранной модели для нижней сводки. */
+  const summary: { label: string; value: string }[] =
+    params.model === "vase"
+      ? [
+          { label: "Высота", value: `${params.height} мм` },
+          { label: "Диаметр", value: `Ø ${params.diameter} мм` },
+          { label: "Стенка", value: `${params.wall.toFixed(1)} мм` },
+        ]
+      : params.model === "keychain"
+        ? [
+            { label: "Длина", value: `${params.length} мм` },
+            { label: "Ширина", value: `${params.width} мм` },
+            { label: "Толщина", value: `${params.thickness.toFixed(1)} мм` },
+          ]
+        : params.model === "lamp"
+          ? [
+              { label: "Высота", value: `${params.lampHeight} мм` },
+              { label: "Диаметр", value: `Ø ${params.lampDiameter} мм` },
+              { label: "Патрон", value: params.lampMount.toUpperCase() },
+            ]
+          : [
+              { label: "Кегль", value: `${params.signFontSize} мм` },
+              { label: "Выступ", value: `${params.signDepth} мм` },
+              { label: "Канал", value: `${params.signChannelWidth} мм` },
+            ];
+
   return (
     <section
       aria-labelledby="parameters-heading"
@@ -172,8 +220,8 @@ export function ParameterPanel({
         </legend>
 
         <div className="mt-3 space-y-2">
-          {MODEL_TYPES.map((type) => {
-            const selected = type.available && params.model === type.id;
+          {MODEL_CARDS.map((type) => {
+            const selected = params.model === type.id;
 
             return (
               <button
@@ -181,17 +229,10 @@ export function ParameterPanel({
                 className={
                   selected
                     ? "flex w-full items-center gap-3 rounded-2xl border border-blue-400/50 bg-blue-500/10 px-4 py-3 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    : type.available
-                      ? "flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                      : "flex w-full cursor-not-allowed items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 text-slate-300"
+                    : "flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                 }
-                disabled={!type.available}
                 key={type.id}
-                onClick={() => {
-                  if (type.id !== "lamp") {
-                    onModelChange(type.id);
-                  }
-                }}
+                onClick={() => onModelChange(type.id)}
                 type="button"
               >
                 <span aria-hidden className="text-xl">
@@ -204,12 +245,10 @@ export function ParameterPanel({
                   className={
                     selected
                       ? "rounded-full border border-blue-400/40 bg-blue-500/15 px-2.5 py-0.5 text-[0.7rem] font-semibold tracking-wide text-blue-200 uppercase"
-                      : type.available
-                        ? "rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[0.7rem] font-semibold tracking-wide text-slate-300 uppercase"
-                        : "rounded-full border border-slate-500/30 bg-slate-500/10 px-2.5 py-0.5 text-[0.7rem] font-semibold tracking-wide text-slate-300 uppercase"
+                      : "rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[0.7rem] font-semibold tracking-wide text-slate-300 uppercase"
                   }
                 >
-                  {selected ? "Выбрано" : type.available ? "Доступно" : "Скоро"}
+                  {selected ? "Выбрано" : "Открыть"}
                 </span>
               </button>
             );
@@ -343,7 +382,7 @@ export function ParameterPanel({
             />
           </div>
         </>
-      ) : (
+      ) : params.model === "keychain" ? (
         <>
           <fieldset className="mt-6 border-t border-white/10 pt-5">
             <legend className="text-sm font-medium text-slate-200">
@@ -452,64 +491,244 @@ export function ParameterPanel({
             />
           </div>
         </>
+      ) : params.model === "lamp" ? (
+        <>
+          <div
+            className="mt-6 rounded-2xl border-2 border-red-400/50 bg-gradient-to-br from-red-500/15 to-amber-400/10 px-4 py-3"
+            role="alert"
+          >
+            <p className="flex items-center gap-2 text-sm font-semibold text-red-100">
+              <span aria-hidden>🔥</span>
+              Только светодиодная лампа
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-red-100/85">
+              Абажур печатается из PLA и размягчается уже при 60 °C. Лампа
+              накаливания или галогенка расплавит деталь над патроном. Берите
+              LED-лампу до 10 Вт и не оставляйте светильник без присмотра.
+            </p>
+          </div>
+
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Патрон
+            </legend>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {LAMP_MOUNTS.map((mount) => {
+                const selected = params.lampMount === mount;
+
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className={
+                      selected
+                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    }
+                    key={mount}
+                    onClick={() => onLampMountChange(mount)}
+                    type="button"
+                  >
+                    {LAMP_MOUNT_LABELS[mount]}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              Отверстие шире резьбы на 0.3 мм с каждой стороны: после усадки
+              патрон входит плотно, но не проваливается. Провод выходит через
+              канал в верхнем поясе.
+            </p>
+          </fieldset>
+
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">Узор</legend>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {VASE_PATTERNS.map((pattern) => {
+                const selected = params.lampPattern === pattern;
+
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className={
+                      selected
+                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    }
+                    key={pattern}
+                    onClick={() => onLampPatternChange(pattern)}
+                    type="button"
+                  >
+                    {VASE_PATTERN_LABELS[pattern]}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              {PATTERN_HINTS[params.lampPattern]}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-300">
+              Глубина рельефа у абажура фиксированная — 1.2 мм. У патрона и у
+              стола стенка остаётся гладкой: гнездо и кромка не деформируются.
+            </p>
+          </fieldset>
+
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <NumberSlider
+              hint="Высота от нижней кромки до пояса патрона. Верхние 18 мм занимает гнездо, поэтому свет уходит вниз."
+              label="Высота"
+              max={CONSTRUCTOR_LIMITS.lampHeight.max}
+              min={CONSTRUCTOR_LIMITS.lampHeight.min}
+              onChange={(value) => onParamChange("lampHeight", value)}
+              step={CONSTRUCTOR_LIMITS.lampHeight.step}
+              unit="мм"
+              value={params.lampHeight}
+            />
+
+            <NumberSlider
+              hint="Наружный диаметр у нижней кромки. Проверьте, что абажур влезает на стол принтера вместе с поддержками."
+              label="Диаметр"
+              max={CONSTRUCTOR_LIMITS.lampDiameter.max}
+              min={CONSTRUCTOR_LIMITS.lampDiameter.min}
+              onChange={(value) => onParamChange("lampDiameter", value)}
+              step={CONSTRUCTOR_LIMITS.lampDiameter.step}
+              unit="мм"
+              value={params.lampDiameter}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.lampWall.decimals}
+              hint="0.8–1.2 мм — декоративный абажур, 1.6–2.4 мм — прочный и лучше держит форму. Толщина не меняется по высоте."
+              label="Толщина стенки"
+              max={CONSTRUCTOR_LIMITS.lampWall.max}
+              min={CONSTRUCTOR_LIMITS.lampWall.min}
+              onChange={(value) => onParamChange("lampWall", value)}
+              step={CONSTRUCTOR_LIMITS.lampWall.step}
+              unit="мм"
+              value={params.lampWall}
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Надпись на вывеске
+            </legend>
+
+            <label className="sr-only" htmlFor={signTextInputId}>
+              Надпись на вывеске
+            </label>
+            <input
+              aria-describedby={signTextHintId}
+              autoComplete="off"
+              className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-violet-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              id={signTextInputId}
+              maxLength={SIGN_TEXT_MAX_LENGTH}
+              onChange={(event) =>
+                onSignTextChange(sanitizeSignText(event.target.value))
+              }
+              placeholder="Например, ТРИ ДИ"
+              spellCheck={false}
+              type="text"
+              value={params.signText}
+            />
+
+            <div className="mt-2 flex items-start justify-between gap-3">
+              <p
+                className="text-xs leading-relaxed text-slate-300"
+                id={signTextHintId}
+              >
+                Кириллица, латиница, цифры и знаки. Буквы выступают над плитой
+                на выбранную глубину и входят в неё на 1.2 мм.
+              </p>
+              <span className="shrink-0 text-xs tabular-nums text-slate-300">
+                {signTextLength}/{SIGN_TEXT_MAX_LENGTH}
+              </span>
+            </div>
+          </fieldset>
+
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Канал под ленту
+            </legend>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {SIGN_CHANNEL_WIDTHS.map((channelWidth) => {
+                const selected = params.signChannelWidth === channelWidth;
+
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className={
+                      selected
+                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-violet-400/60 bg-violet-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    }
+                    key={channelWidth}
+                    onClick={() => onSignChannelWidthChange(channelWidth)}
+                    type="button"
+                  >
+                    {channelWidth} мм
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              Лента ложится между направляющими заподлицо: дно канала — лицо
+              плиты. Провод выходит через отверстие снизу.
+            </p>
+          </fieldset>
+
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <NumberSlider
+              hint="Кегль надписи. Если строка длиннее 800 мм, буквы уменьшаются сами — фактический размер видно по габаритам предпросмотра."
+              label="Кегль"
+              max={CONSTRUCTOR_LIMITS.signFontSize.max}
+              min={CONSTRUCTOR_LIMITS.signFontSize.min}
+              onChange={(value) => onParamChange("signFontSize", value)}
+              step={CONSTRUCTOR_LIMITS.signFontSize.step}
+              unit="мм"
+              value={params.signFontSize}
+            />
+
+            <NumberSlider
+              hint="Выступ букв над плитой. 5–10 мм читается издалека, 15–40 мм даёт объёмную вывеску."
+              label="Выступ букв"
+              max={CONSTRUCTOR_LIMITS.signDepth.max}
+              min={CONSTRUCTOR_LIMITS.signDepth.min}
+              onChange={(value) => onParamChange("signDepth", value)}
+              step={CONSTRUCTOR_LIMITS.signDepth.step}
+              unit="мм"
+              value={params.signDepth}
+            />
+          </div>
+
+          <p className="mt-4 text-xs leading-relaxed text-slate-300">
+            Плита 4 мм со скруглёнными углами, два отверстия 5 мм под крепёж и
+            отверстие 8 мм под провод питания ленты.
+          </p>
+        </>
       )}
 
       <dl className="mt-6 grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-slate-950/50 p-3 text-center">
-        {params.model === "vase" ? (
-          <>
-            <div>
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
-                Высота
-              </dt>
-              <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
-                {params.height} мм
-              </dd>
-            </div>
-            <div className="border-x border-white/10">
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
-                Диаметр
-              </dt>
-              <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
-                Ø {params.diameter} мм
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
-                Стенка
-              </dt>
-              <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
-                {params.wall.toFixed(1)} мм
-              </dd>
-            </div>
-          </>
-        ) : (
-          <>
-            <div>
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
-                Длина
-              </dt>
-              <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
-                {params.length} мм
-              </dd>
-            </div>
-            <div className="border-x border-white/10">
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
-                Ширина
-              </dt>
-              <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
-                {params.width} мм
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
-                Толщина
-              </dt>
-              <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
-                {params.thickness.toFixed(1)} мм
-              </dd>
-            </div>
-          </>
-        )}
+        {summary.map((item, index) => (
+          <div
+            className={index === 1 ? "border-x border-white/10" : undefined}
+            key={item.label}
+          >
+            <dt className="text-[0.65rem] font-medium tracking-wide text-slate-300 uppercase">
+              {item.label}
+            </dt>
+            <dd className="mt-1 text-sm font-semibold tabular-nums text-white">
+              {item.value}
+            </dd>
+          </div>
+        ))}
       </dl>
 
       <button

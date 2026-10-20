@@ -11,16 +11,23 @@ import {
 import {
   DEFAULT_CONSTRUCTOR_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
+  DEFAULT_LAMP_PARAMS,
+  DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
   KEYCHAIN_SHAPE_LABELS,
+  LAMP_MOUNT_LABELS,
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
   keychainStlFileName,
+  lampStlFileName,
   normalizeConstructorParams,
+  signStlFileName,
   vaseStlFileName,
   type ConstructorParams,
   type KeychainShape,
+  type LampMount,
   type ModelType,
+  type SignChannelWidth,
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
@@ -32,10 +39,18 @@ type ConstructorClientProps = {
   freeDownloadsLeft: number;
 };
 
-/** Числовые параметры: форму, узор и текст меняют отдельные обработчики. */
+/** Числовые параметры: форму, узор, патрон и текст меняют отдельные обработчики. */
 type SizeParam = Exclude<
   keyof ConstructorParams,
-  "model" | "shape" | "pattern" | "shapeType" | "text"
+  | "model"
+  | "shape"
+  | "pattern"
+  | "shapeType"
+  | "text"
+  | "lampPattern"
+  | "lampMount"
+  | "signText"
+  | "signChannelWidth"
 >;
 
 /**
@@ -167,14 +182,42 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, text }));
   }
 
-  /** Сброс возвращает к старту только текущую модель, не трогая вторую. */
+  function updateLampPattern(lampPattern: VasePattern) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lampPattern }),
+    );
+  }
+
+  function updateLampMount(lampMount: LampMount) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lampMount }),
+    );
+  }
+
+  function updateSignText(signText: string) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, signText }),
+    );
+  }
+
+  function updateSignChannelWidth(signChannelWidth: SignChannelWidth) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, signChannelWidth }),
+    );
+  }
+
+  /** Сброс возвращает к старту только текущую модель, не трогая остальные. */
   function resetParams() {
     setParams((current) =>
       normalizeConstructorParams({
         ...current,
         ...(current.model === "vase"
           ? DEFAULT_VASE_PARAMS
-          : DEFAULT_KEYCHAIN_PARAMS),
+          : current.model === "keychain"
+            ? DEFAULT_KEYCHAIN_PARAMS
+            : current.model === "lamp"
+              ? DEFAULT_LAMP_PARAMS
+              : DEFAULT_SIGN_PARAMS),
       }),
     );
   }
@@ -219,7 +262,11 @@ export function ConstructorClient({
           response.headers.get("content-disposition"),
           params.model === "vase"
             ? vaseStlFileName(params)
-            : keychainStlFileName(params),
+            : params.model === "keychain"
+              ? keychainStlFileName(params)
+              : params.model === "lamp"
+                ? lampStlFileName(params)
+                : signStlFileName(params),
         );
         link.hidden = true;
         document.body.appendChild(link);
@@ -302,9 +349,10 @@ export function ConstructorClient({
           </h1>
 
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300">
-            Параметрические модели под ваш принтер: ваза с математическим узором
-            или брелок с именем. Настройте размеры, проверьте результат в 3D и
-            скачайте STL.
+            Параметрические модели под ваш принтер: ваза с математическим узором,
+            брелок с именем, абажур на патрон E27 или E14 и светодиодная вывеска
+            с надписью. Настройте размеры, проверьте результат в 3D и скачайте
+            STL.
           </p>
         </div>
 
@@ -334,11 +382,15 @@ export function ConstructorClient({
           isExporting={isExporting}
           onExport={exportStl}
           onKeychainShapeChange={updateKeychainShape}
+          onLampMountChange={updateLampMount}
+          onLampPatternChange={updateLampPattern}
           onModelChange={updateModel}
           onParamChange={updateParam}
           onPatternChange={updatePattern}
           onReset={resetParams}
           onShapeChange={updateShape}
+          onSignChannelWidthChange={updateSignChannelWidth}
+          onSignTextChange={updateSignText}
           onTextChange={updateKeychainText}
           params={params}
         />
@@ -361,11 +413,22 @@ export function ConstructorClient({
                   {VASE_PATTERN_LABELS[params.pattern]} · {params.height} × Ø{" "}
                   {params.diameter} мм
                 </>
-              ) : (
+              ) : params.model === "keychain" ? (
                 <>
                   {KEYCHAIN_SHAPE_LABELS[params.shapeType]} · {params.length} ×{" "}
                   {params.width} × {params.thickness} мм
                   {params.text.trim() ? ` · «${params.text.trim()}»` : ""}
+                </>
+              ) : params.model === "lamp" ? (
+                <>
+                  {LAMP_MOUNT_LABELS[params.lampMount]} ·{" "}
+                  {VASE_PATTERN_LABELS[params.lampPattern]} ·{" "}
+                  {params.lampHeight} × Ø {params.lampDiameter} мм
+                </>
+              ) : (
+                <>
+                  «{params.signText.trim() || "без надписи"}» · кегль{" "}
+                  {params.signFontSize} мм · канал {params.signChannelWidth} мм
                 </>
               )}
             </span>
