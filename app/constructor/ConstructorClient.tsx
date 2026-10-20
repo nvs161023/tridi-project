@@ -45,6 +45,7 @@ import {
   type LampMount,
   type ModelType,
   type SignChannelWidth,
+  type SignFont,
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
@@ -67,6 +68,7 @@ type SizeParam = Exclude<
   | "lampPattern"
   | "lampMount"
   | "signText"
+  | "signFont"
   | "signChannelWidth"
   | "calibrationType"
   | "hasLid"
@@ -295,6 +297,12 @@ export function ConstructorClient({
   function updateSignText(signText: string) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, signText }),
+    );
+  }
+
+  function updateSignFont(signFont: SignFont) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, signFont }),
     );
   }
 
@@ -531,6 +539,7 @@ export function ConstructorClient({
           onReset={resetParams}
           onShapeChange={updateShape}
           onSignChannelWidthChange={updateSignChannelWidth}
+          onSignFontChange={updateSignFont}
           onSignTextChange={updateSignText}
           onTextChange={updateKeychainText}
           params={params}

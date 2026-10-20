@@ -324,6 +324,25 @@ export const SIGN_CHANNEL_WIDTHS = [8, 10] as const;
 export type SignChannelWidth = (typeof SIGN_CHANNEL_WIDTHS)[number];
 
 /**
+ * Шрифты вывески.
+ *
+ * Все три файла лежат в public/fonts в legacy-формате three.js и покрывают
+ * кириллицу: sans-bold — Roboto Bold (тот же, что у брелока), sans — Roboto
+ * Regular, serif — PT Serif Bold. Ключи короткие и латинские: они попадают в
+ * имя STL-файла, поэтому кириллица в заголовок ответа не просачивается.
+ */
+export const SIGN_FONTS = ["sans-bold", "sans", "serif"] as const;
+
+export type SignFont = (typeof SIGN_FONTS)[number];
+
+/** Подписи шрифтов для панели параметров: имена наборов не переводятся. */
+export const SIGN_FONT_LABELS = {
+  "sans-bold": "Roboto Bold",
+  sans: "Roboto Regular",
+  serif: "PT Serif Bold",
+} as const satisfies Record<SignFont, string>;
+
+/**
  * Виды калибровочных тестов.
  *
  * temperature меняет температуру сопла по высоте, retraction — длину ретракта.
@@ -448,6 +467,8 @@ export type LampParams = {
 export type SignParams = {
   /** Надпись на вывеске, до 15 символов; пустая строка означает «нет букв». */
   signText: string;
+  /** Шрифт надписи: у каждого своя ширина штриха и рисунок букв. */
+  signFont: SignFont;
   /** Кегль шрифта, мм: заглавные буквы примерно на треть ниже. */
   signFontSize: number;
   /** Общая толщина буквы от лица до задней плоскости, мм. */
@@ -588,9 +609,10 @@ export const DEFAULT_LAMP_PARAMS: LampParams = {
   lampMount: "e27",
 };
 
-/** Вывеска по умолчанию: короткое имя бренда и канал 8 мм. */
+/** Вывеска по умолчанию: короткое имя бренда, Roboto Bold и канал 8 мм. */
 export const DEFAULT_SIGN_PARAMS: SignParams = {
   signText: "ТРИ ДИ",
+  signFont: "sans-bold",
   signFontSize: CONSTRUCTOR_LIMITS.signFontSize.defaultValue,
   signDepth: CONSTRUCTOR_LIMITS.signDepth.defaultValue,
   signChannelWidth: 8,
@@ -796,14 +818,14 @@ export function lampStlFileName(params: LampParams, part: LampPart = "all"): str
  * Имя файла STL для вывески.
  *
  * Текст в имя не попадает: кириллица требует filename*=UTF-8, а запасное имя
- * всё равно должно остаться латинским. Кегль, выступ и канал описывают
+ * всё равно должно остаться латинским. Шрифт, кегль, выступ и канал описывают
  * заготовку однозначно, номер буквы (`b1`, `b2` …) — отдельную деталь.
  * Номера в имени человеческие, с единицы, хотя в API буква адресуется с нуля.
  */
 export function signStlFileName(params: SignParams, letterIndex: number | null = null): string {
   const letterSuffix = letterIndex === null ? "" : `-b${letterIndex + 1}`;
 
-  return `tridi-vyveska-s${params.signFontSize}-d${params.signDepth}-c${params.signChannelWidth}${letterSuffix}.stl`;
+  return `tridi-vyveska-${params.signFont}-s${params.signFontSize}-d${params.signDepth}-c${params.signChannelWidth}${letterSuffix}.stl`;
 }
 
 
@@ -986,6 +1008,11 @@ export function isLampPart(value: unknown): value is LampPart {
 /** Проверка ширины канала: под ленту подходят только 8 и 10 мм. */
 export function isSignChannelWidth(value: unknown): value is SignChannelWidth {
   return value === 8 || value === 10;
+}
+
+/** Проверка шрифта вывески из формы или API. */
+export function isSignFont(value: unknown): value is SignFont {
+  return typeof value === "string" && (SIGN_FONTS as readonly string[]).includes(value);
 }
 
 /** Проверка вида калибровочного теста из формы или API. */
@@ -1236,6 +1263,9 @@ export function normalizeLampParams(params: Partial<LampParams>): LampParams {
 export function normalizeSignParams(params: Partial<SignParams>): SignParams {
   return {
     signText: sanitizeSignText(params.signText ?? DEFAULT_SIGN_PARAMS.signText),
+    signFont: isSignFont(params.signFont)
+      ? params.signFont
+      : DEFAULT_SIGN_PARAMS.signFont,
     signFontSize: snap(
       params.signFontSize ?? DEFAULT_SIGN_PARAMS.signFontSize,
       CONSTRUCTOR_LIMITS.signFontSize,

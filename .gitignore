@@ -42,6 +42,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# черновая папка конвертации шрифтов (TTF, opentype.js, отчёты проверок)
+/.fonttmp/
+
 # audit artifacts
 audit-screenshots/
 audit-e2e/

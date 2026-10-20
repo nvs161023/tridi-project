@@ -23,6 +23,8 @@ import {
   LAMP_MOUNT_LABELS,
   MODEL_TYPE_LABELS,
   SIGN_CHANNEL_WIDTHS,
+  SIGN_FONTS,
+  SIGN_FONT_LABELS,
   SIGN_TEXT_MAX_LENGTH,
   VASE_PATTERNS,
   VASE_PATTERN_LABELS,
@@ -37,6 +39,7 @@ import {
   type LampMount,
   type ModelType,
   type SignChannelWidth,
+  type SignFont,
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
@@ -53,6 +56,7 @@ type SizeParam = Exclude<
   | "lampMount"
   | "lampBaseShape"
   | "signText"
+  | "signFont"
   | "signChannelWidth"
   | "calibrationType"
   | "hasLid"
@@ -110,6 +114,7 @@ type ParameterPanelProps = {
   onLampMountChange: (mount: LampMount) => void;
   onLampBaseShapeChange: (shape: LampBaseShape) => void;
   onSignTextChange: (text: string) => void;
+  onSignFontChange: (font: SignFont) => void;
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
   onCalibrationTypeChange: (type: CalibrationType) => void;
   onHasLidChange: (hasLid: boolean) => void;
@@ -409,6 +414,7 @@ export function ParameterPanel({
   onLampMountChange,
   onLampBaseShapeChange,
   onSignTextChange,
+  onSignFontChange,
   onSignChannelWidthChange,
   onCalibrationTypeChange,
   onHasLidChange,
@@ -1357,6 +1363,40 @@ export function ParameterPanel({
                 {signTextLength}/{SIGN_TEXT_MAX_LENGTH}
               </span>
             </div>
+          </fieldset>
+
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Шрифт надписи
+            </legend>
+
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {SIGN_FONTS.map((signFont) => {
+                const selected = params.signFont === signFont;
+
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className={
+                      selected
+                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-violet-400/60 bg-violet-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    }
+                    key={signFont}
+                    onClick={() => onSignFontChange(signFont)}
+                    type="button"
+                  >
+                    {SIGN_FONT_LABELS[signFont]}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              Шрифт задаёт рисунок и толщину штриха. Все три набора с
+              кириллицей: у Regular тонкие штрихи чаще собираются сплошными —
+              камера под ленту в них не помещается.
+            </p>
           </fieldset>
 
           <fieldset className="mt-6 border-t border-white/10 pt-5">

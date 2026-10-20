@@ -34,7 +34,7 @@ import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import { createLampGeometry } from "@/lib/constructor/lamp-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
 import {
-  SIGN_FONT_URL,
+  SIGN_FONT_URLS,
   createSignGeometry,
 } from "@/lib/constructor/sign-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
@@ -785,13 +785,27 @@ function Scene({ params, geometry, framing }: SceneProps) {
  * страницу по горизонтали.
  */
 export function Viewport({ params }: ViewportProps) {
-  /** Брелок, вывеска и калибровка подписываются шрифтом, остальным моделям он не нужен. */
-  const needsFont =
-    params.model === "keychain" ||
-    params.model === "sign" ||
-    params.model === "calibration";
-  const [font, setFont] = useState<Font | null>(null);
+  /**
+   * Брелок, вывеска и калибровка подписываются шрифтом, остальным моделям он
+   * не нужен. У вывески шрифт выбирает пользователь, поэтому путь зависит от
+   * signFont: смена шрифта в панели загружает другой JSON.
+   */
+  const fontUrl =
+    params.model === "sign"
+      ? SIGN_FONT_URLS[params.signFont]
+      : params.model === "calibration"
+        ? CALIBRATION_FONT_URL
+        : params.model === "keychain"
+          ? KEYCHAIN_FONT_URL
+          : null;
+  const needsFont = fontUrl !== null;
+  /**
+   * Загруженный шрифт помнит свой путь. Пока новый файл не пришёл, сцена
+   * показывает прежние буквы, а не пустоту: переключение шрифта не мигает.
+   */
+  const [loaded, setLoaded] = useState<{ url: string; font: Font } | null>(null);
   const [fontFailed, setFontFailed] = useState(false);
+  const font = loaded?.font ?? null;
 
   /**
    * Шрифт грузим только при открытии брелока, вывески или калибровки: вазе и
@@ -800,22 +814,19 @@ export function Viewport({ params }: ViewportProps) {
    * переключение вкладки не делает новый запрос.
    */
   useEffect(() => {
-    if (!needsFont || font) {
+    if (!fontUrl || loaded?.url === fontUrl) {
       return;
     }
 
     let active = true;
     const loader = new FontLoader();
 
+    setFontFailed(false);
     loader.load(
-      params.model === "sign"
-        ? SIGN_FONT_URL
-        : params.model === "calibration"
-          ? CALIBRATION_FONT_URL
-          : KEYCHAIN_FONT_URL,
-      (loaded) => {
+      fontUrl,
+      (font) => {
         if (active) {
-          setFont(loaded);
+          setLoaded({ url: fontUrl, font });
           setFontFailed(false);
         }
       },
@@ -830,13 +841,13 @@ export function Viewport({ params }: ViewportProps) {
     return () => {
       active = false;
     };
-  }, [font, needsFont, params.model]);
+  }, [fontUrl, loaded]);
 
   /**
    * Профиль и сетка пересчитываются только при изменении параметров или
    * загрузке шрифта. Смена камеры, света или материала не создаёт новую
    * геометрию. Пока шрифт не пришёл, брелок показывается без имени, а
-   * вывеска — без букв: плита и канал уже видны.
+   * вывеска — без букв: пустая сетка честнее случайной надписи.
    */
   const geometry = useMemo(() => {
     if (params.model === "keychain") {

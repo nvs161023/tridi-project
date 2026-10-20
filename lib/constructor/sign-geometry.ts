@@ -13,6 +13,7 @@ import { KEYCHAIN_FONT_URL } from "@/lib/constructor/keychain-geometry";
 import {
   listSignLetters,
   normalizeSignParams,
+  type SignFont,
   type SignParams,
 } from "@/lib/constructor/params";
 
@@ -41,8 +42,12 @@ import {
  * шириной signChannelWidth, иначе внутри буквы нечего освещать.
  */
 
-/** Публичный путь шрифта: тот же JSON, что у брелока. */
-export const SIGN_FONT_URL = KEYCHAIN_FONT_URL;
+/** Публичные пути шрифтов: те же JSON, что грузит предпросмотр и сервер. */
+export const SIGN_FONT_URLS = {
+  "sans-bold": KEYCHAIN_FONT_URL,
+  sans: "/fonts/roboto-regular.typeface.json",
+  serif: "/fonts/pt-serif-bold.typeface.json",
+} as const satisfies Record<SignFont, string>;
 
 /** Предельная ширина строки: длинная надпись упирается в неё и мельчает. */
 export const SIGN_MAX_WIDTH_MM = 800;
@@ -358,10 +363,35 @@ function appendPoints(path: Path, points: Vector2[]): void {
 }
 
 /**
+ * Контур с нужным направлением обхода: true — против часовой стрелки.
+ *
+ * Возвращается исходный массив, если обход уже верный, иначе его копия:
+ * вызывающий код не должен зависеть от того, как шрифт нарисовал глиф.
+ */
+function orientContour(points: Vector2[], counterClockwise: boolean): Vector2[] {
+  return signedArea(points) > 0 === counterClockwise ? points : [...points].reverse();
+}
+
+/**
  * Замкнутая область с отверстиями, выдавленная на depth от z.
  *
  * Контуры уже разбиты на точки, поэтому кривых в шейпе нет: экструзия получается
  * точной по контуру глифа и не зависит от curveSegments.
+ *
+ * Обход контуров приводится к виду, который ждёт ExtrudeGeometry: внешний — по
+ * часовой стрелке, отверстия — против. Библиотека сама разворачивает внешний
+ * контур, но отверстия правит только в этом же случае: если внешний контур уже
+ * по часовой стрелке, отверстие с тем же обходом остаётся как есть. Earcut
+ * внутри нормализует его сам, поэтому крышки выходят с одним обходом, а стенки
+ * вокруг отверстия — с другим, и в сетке появляются незамкнутые рёбра. Явная
+ * ориентация убирает эту зависимость от направления обхода в шрифте.
+ *
+ * closePath() здесь не вызывается: он дописывает замыкающий отрезок, и
+ * extractPoints() возвращает контур, последняя точка которого повторяет первую.
+ * ShapeUtils.triangulateShape() убирает такую точку из контура и из отверстий
+ * уже после того, как ExtrudeGeometry скопировала их в общий список вершин
+ * крышек, — индексы отверстий съезжают. Полигон замыкается сам: Earcut считает
+ * контур замкнутым, а стенки обходят его по кругу.
  */
 function extrudeRegion(
   outer: Vector2[],
@@ -370,13 +400,11 @@ function extrudeRegion(
   z: number,
 ): BufferGeometry {
   const shape = new Shape();
-  appendPoints(shape, outer);
-  shape.closePath();
+  appendPoints(shape, orientContour(outer, false));
 
   for (const hole of holes) {
     const path = new Path();
-    appendPoints(path, hole);
-    path.closePath();
+    appendPoints(path, orientContour(hole, true));
     shape.holes.push(path);
   }
 

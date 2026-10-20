@@ -27,6 +27,7 @@ import {
   isLampPart,
   isLithophaneBrightness,
   isSignChannelWidth,
+  isSignFont,
   isVasePattern,
   isVaseShape,
   isValidKeychainText,
@@ -63,6 +64,7 @@ import {
 import { createLampGeometry } from "@/lib/constructor/lamp-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
 import {
+  SIGN_FONT_URLS,
   createSignGeometry,
   createSignLetterGeometry,
 } from "@/lib/constructor/sign-geometry";
@@ -340,7 +342,9 @@ function parseLampParams(
  * Строгая проверка параметров вывески.
  *
  * Надпись — до 15 символов из набора шрифта, но не пустая: каждая буква стала
- * отдельной деталью, и из пустой строки собирать нечего. Кегль, глубина и зазор
+ * отдельной деталью, и из пустой строки собирать нечего. Шрифт выбирается из
+ * списка: имя файла подставляется только из SIGN_FONT_URLS, поэтому тело
+ * запроса не может прочитать произвольный путь с диска. Кегль, глубина и зазор
  * проверяются по границам, ширина канала — по списку: ленты другой ширины не
  * бывает. Геометрия сама уменьшит буквы, если строка не влезает в 800 мм.
  *
@@ -353,6 +357,7 @@ function parseSignParams(
 ): { params: SignParams; letter: number | null } | null {
   const {
     signText,
+    signFont = DEFAULT_SIGN_PARAMS.signFont,
     signFontSize,
     signDepth,
     signChannelWidth,
@@ -362,6 +367,7 @@ function parseSignParams(
 
   if (
     !isValidSignText(signText) ||
+    !isSignFont(signFont) ||
     !isNumberInRange(
       signFontSize,
       CONSTRUCTOR_LIMITS.signFontSize.min,
@@ -384,6 +390,7 @@ function parseSignParams(
 
   const params = normalizeSignParams({
     signText,
+    signFont,
     signFontSize,
     signDepth,
     signChannelWidth,
@@ -651,30 +658,31 @@ function parseConstructorRequest(
 }
 
 /**
- * Шрифт читается с диска один раз на процесс.
+ * Шрифты читаются с диска один раз на процесс.
  *
- * Промис кэшируется, поэтому одновременные запросы не парсят 130 КБ JSON
- * каждый раз. При ошибке кэш сбрасывается: следующий запрос попробует снова.
+ * Ключ кэша — путь к JSON: у вывески три шрифта, и переключение между ними не
+ * должно парсить файл заново. Промис кэшируется, поэтому одновременные
+ * запросы не парсят 130 КБ JSON каждый раз. При ошибке запись сбрасывается:
+ * следующий запрос попробует снова.
  */
-let cyrillicFontPromise: Promise<Font> | null = null;
+const fontPromises = new Map<string, Promise<Font>>();
 
-function loadCyrillicFont(): Promise<Font> {
-  if (!cyrillicFontPromise) {
-    const file = path.join(
-      process.cwd(),
-      "public",
-      KEYCHAIN_FONT_URL.replace(/^\/+/, ""),
-    );
+function loadFont(url: string): Promise<Font> {
+  let promise = fontPromises.get(url);
 
-    cyrillicFontPromise = readFile(file, "utf8")
+  if (!promise) {
+    const file = path.join(process.cwd(), "public", url.replace(/^\/+/, ""));
+
+    promise = readFile(file, "utf8")
       .then((json) => new FontLoader().parse(JSON.parse(json) as FontData))
       .catch((error: unknown) => {
-        cyrillicFontPromise = null;
+        fontPromises.delete(url);
         throw error;
       });
+    fontPromises.set(url, promise);
   }
 
-  return cyrillicFontPromise;
+  return promise;
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -748,8 +756,8 @@ export async function POST(request: Request): Promise<Response> {
   try {
     // Шрифт читается брелоку, вывеске и калибровке; ваза, абажур, коробка и
     // литофан собираются без него, чтобы не парсить 130 КБ JSON.
-    // loadCyrillicFont() кэширует промис, поэтому повторный вызов ничего не
-    // стоит.
+    // loadFont() кэширует промис по пути, поэтому повторный вызов и смена
+    // шрифта вывески ничего не стоят.
     const geometry =
       parsed.model === "vase"
         ? createVaseGeometry(createVaseProfile(parsed.params), parsed.params)
@@ -760,18 +768,21 @@ export async function POST(request: Request): Promise<Response> {
             : parsed.model === "lithophane"
               ? createLithophaneGeometry(parsed.params)
               : parsed.model === "keychain"
-                ? createKeychainGeometry(parsed.params, await loadCyrillicFont())
+                ? createKeychainGeometry(parsed.params, await loadFont(KEYCHAIN_FONT_URL))
                 : parsed.model === "sign"
                   ? parsed.letter === null
-                    ? createSignGeometry(parsed.params, await loadCyrillicFont())
+                    ? createSignGeometry(
+                        parsed.params,
+                        await loadFont(SIGN_FONT_URLS[parsed.params.signFont]),
+                      )
                     : createSignLetterGeometry(
                         parsed.params,
-                        await loadCyrillicFont(),
+                        await loadFont(SIGN_FONT_URLS[parsed.params.signFont]),
                         parsed.letter,
                       )
                   : createCalibrationGeometry(
                       parsed.params,
-                      await loadCyrillicFont(),
+                      await loadFont(KEYCHAIN_FONT_URL),
                     );
 
     try {
