@@ -194,17 +194,69 @@ export const VASE_PATTERN_LABELS = {
 } as const satisfies Record<VasePattern, string>;
 
 /**
- * Форма брелока: скруглённый прямоугольник или вытянутый шестиугольник.
- * Круглое отверстие под кольцо есть у обеих форм.
+ * Силуэты брелока.
+ *
+ * Встроенные формы — SVG-контуры из lib/constructor/keychain-shapes.ts: жетон,
+ * шестигранник, животные, транспорт и символы. `custom` означает загруженный
+ * пользователем SVG из `customSvgData`. Прежние значения `rounded` и `hexagon`
+ * остаются совместимыми: `rounded` нормализуется в `dog_tag`, а `hexagon`
+ * остался отдельным силуэтом.
+ *
+ * Ушко под кольцо не входит в SVG: geometry добавляет его в верхнюю точку
+ * контура, поэтому новая форма не может остаться без отверстия.
  */
-export const KEYCHAIN_SHAPES = ["rounded", "hexagon"] as const;
+export const KEYCHAIN_SHAPES = [
+  "dog_tag",
+  "hexagon",
+  "cat",
+  "dog",
+  "car",
+  "gamepad",
+  "heart",
+  "star",
+  "rocket",
+  "fish",
+  "house",
+  "crown",
+  "mushroom",
+  "lightning",
+  "custom",
+] as const;
 
 export type KeychainShape = (typeof KEYCHAIN_SHAPES)[number];
 
 export const KEYCHAIN_SHAPE_LABELS = {
-  rounded: "Скруглённый",
+  dog_tag: "Жетон",
   hexagon: "Шестиугольник",
+  cat: "Кошка",
+  dog: "Собака",
+  car: "Машина",
+  gamepad: "Геймпад",
+  heart: "Сердце",
+  star: "Звезда",
+  rocket: "Ракета",
+  fish: "Рыба",
+  house: "Домик",
+  crown: "Корона",
+  mushroom: "Гриб",
+  lightning: "Молния",
+  custom: "Свой SVG",
 } as const satisfies Record<KeychainShape, string>;
+
+/** Предел размера загруженного SVG: 200 КБ хватает логотипу с контурами. */
+export const KEYCHAIN_SVG_MAX_LENGTH = 200_000;
+
+/**
+ * Прежнее значение формы для совместимости со старыми запросами.
+ * `rounded` был скруглённым прямоугольником — это и есть жетон.
+ */
+export function normalizeKeychainShapeAlias(value: unknown): KeychainShape | null {
+  if (value === "rounded") {
+    return "dog_tag";
+  }
+
+  return isKeychainShape(value) ? value : null;
+}
 
 /**
  * Патроны, под которые строится отверстие в верхней части абажура.
@@ -318,9 +370,9 @@ export const KEYCHAIN_TEXT_MAX_LENGTH = 10;
  */
 const TEXT_CHAR = /^[A-Za-z0-9 .,'’\-\p{Script=Cyrillic}]$/u;
 
-/** Настраиваемые размеры, имя и форма брелока. */
+/** Настраиваемые размеры, имя, силуэт и NFC-углубление брелока. */
 export type KeychainParams = {
-  /** Длина заготовки сверху вниз, мм. */
+  /** Длина заготовки сверху вниз, мм; ушко входит в этот габарит. */
   length: number;
   /** Ширина в самой широкой части, мм. */
   width: number;
@@ -328,7 +380,21 @@ export type KeychainParams = {
   thickness: number;
   /** Имя или надпись на лицевой стороне, до 10 символов. */
   text: string;
-  /** Форма заготовки: скруглённый прямоугольник или шестиугольник. */
+  /** Выбранный силуэт: встроенный SVG или загруженный пользователем. */
+  keychainShape: KeychainShape;
+  /**
+   * Разметка пользовательского SVG. Хранится строкой, потому что файл
+   * разбирается и в браузере, и на сервере одним парсером без DOM.
+   */
+  customSvgData: string;
+  /** Вырезать с обратной стороны карман 25 × 25 мм под NFC-метку. */
+  nfcEnabled: boolean;
+  /**
+   * Прежнее имя той же формы. Оставлено, пока панель параметров обновляется:
+   * нормализация всегда держит `shapeType === keychainShape`.
+   *
+   * @deprecated используйте `keychainShape`.
+   */
   shapeType: KeychainShape;
 };
 
@@ -421,13 +487,40 @@ export type BoxParams = {
   boxHeight: number;
   /** Толщина наружных стенок и перегородок, мм. */
   boxWall: number;
-  /** Количество ячеек по длине: от 1 до 8. */
+  /**
+   * Ширины ячеек по длине, мм. Массив задаёт пропорции: свободное место
+   * делится между ячейками, а перегородки остаются ровно `boxWall`. Поэтому
+   * сумма может не совпадать с внутренним размером — коробку масштабируют
+   * слайдеры габаритов, а не набор ячеек.
+   */
+  cellsX: number[];
+  /** Высоты ячеек по ширине, мм: те же правила, что у `cellsX`. */
+  cellsY: number[];
+  /**
+   * Количество ячеек по длине. Выводится из `cellsX.length`; отдельное поле
+   * нужно старым слайдерам и имени файла.
+   */
   gridX: number;
-  /** Количество ячеек по ширине: от 1 до 8. */
+  /** Количество ячеек по ширине; выводится из `cellsY.length`. */
   gridY: number;
   /** Печатать ли отдельную крышку с бортиком. */
   hasLid: boolean;
 };
+
+/** Минимальная и максимальная ширина одной ячейки, мм. */
+export const BOX_CELL_MIN_MM = 5;
+export const BOX_CELL_MAX_MM = 220;
+
+/** Пресеты коробки: разные наборы ячеек под типовые задачи. */
+export const BOX_PRESET_IDS = ["tools", "batteries", "free"] as const;
+
+export type BoxPresetId = (typeof BOX_PRESET_IDS)[number];
+
+export const BOX_PRESET_LABELS = {
+  tools: "Под инструменты",
+  batteries: "Под батарейки",
+  free: "Свободная сетка",
+} as const satisfies Record<BoxPresetId, string>;
 
 /**
  * Сторона сетки изображения. Браузер сжимает фотографию до 150 × 150 сразу
@@ -478,7 +571,10 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   width: CONSTRUCTOR_LIMITS.width.defaultValue,
   thickness: CONSTRUCTOR_LIMITS.thickness.defaultValue,
   text: "Аня",
-  shapeType: "rounded",
+  keychainShape: "dog_tag",
+  customSvgData: "",
+  nfcEnabled: false,
+  shapeType: "dog_tag",
 };
 
 /** Светильник по умолчанию: под E27, круглое основание, гладкая стенка. */
@@ -522,10 +618,61 @@ export const DEFAULT_BOX_PARAMS: BoxParams = {
   boxWidth: CONSTRUCTOR_LIMITS.boxWidth.defaultValue,
   boxHeight: CONSTRUCTOR_LIMITS.boxHeight.defaultValue,
   boxWall: CONSTRUCTOR_LIMITS.boxWall.defaultValue,
-  gridX: CONSTRUCTOR_LIMITS.boxGrid.defaultValue,
-  gridY: CONSTRUCTOR_LIMITS.boxGrid.defaultValue,
+  cellsX: [68, 68],
+  cellsY: [48, 48],
+  gridX: 2,
+  gridY: 2,
   hasLid: true,
 };
+
+/**
+ * Готовые коробки под три сценария.
+ *
+ * «Инструменты» — длинные ячейки под отвёртки и свёрла; «Батарейки» — шесть
+ * узких отделений в ряд под AA/AAA; «Свободная сетка» — широкая ячейка слева
+ * и две мелкие справа. Габариты тоже входят в пресет: иначе набор ячеек
+ * пришлось бы вручную растягивать слайдерами, чтобы он стал удобным.
+ */
+export const BOX_PRESETS: Record<BoxPresetId, BoxParams> = {
+  tools: {
+    boxLength: 220,
+    boxWidth: 160,
+    boxHeight: 60,
+    boxWall: 1.6,
+    cellsX: [90, 45, 45],
+    cellsY: [70, 70],
+    gridX: 3,
+    gridY: 2,
+    hasLid: true,
+  },
+  batteries: {
+    boxLength: 160,
+    boxWidth: 120,
+    boxHeight: 50,
+    boxWall: 1.2,
+    cellsX: [16, 16, 16, 16, 16, 16],
+    cellsY: [50, 50],
+    gridX: 6,
+    gridY: 2,
+    hasLid: true,
+  },
+  free: {
+    boxLength: 180,
+    boxWidth: 180,
+    boxHeight: 60,
+    boxWall: 1.6,
+    cellsX: [30, 60, 30],
+    cellsY: [45, 45, 45],
+    gridX: 3,
+    gridY: 3,
+    hasLid: false,
+  },
+};
+
+/** Нормализованные параметры пресета: те же границы, что у слайдеров. */
+export function boxPresetParams(preset: BoxPresetId): BoxParams {
+  return normalizeBoxParams(BOX_PRESETS[preset]);
+}
 
 /**
  * Демонстрационный рельеф до загрузки фотографии.
@@ -626,7 +773,9 @@ export function vaseStlFileName(params: VaseParams): string {
  * латинским. Размеры и форма уже однозначно описывают заготовку.
  */
 export function keychainStlFileName(params: KeychainParams): string {
-  return `tridi-brelyok-${params.shapeType}-l${params.length}-w${params.width}-t${params.thickness}.stl`;
+  const nfcSuffix = params.nfcEnabled ? "-nfc" : "";
+
+  return `tridi-brelyok-${params.keychainShape}-l${params.length}-w${params.width}-t${params.thickness}${nfcSuffix}.stl`;
 }
 
 /**
@@ -752,6 +901,64 @@ export function isKeychainShape(value: unknown): value is KeychainShape {
     typeof value === "string" &&
     (KEYCHAIN_SHAPES as readonly string[]).includes(value)
   );
+}
+
+/**
+ * Безопасная строка SVG: размер в пределах лимита и без исполняемых тегов.
+ *
+ * Разметка не вставляется в DOM через innerHTML — из неё только читаются
+ * числа, — но скрипты и внешние документы отклоняются заранее: API не должен
+ * принимать файл, который выглядит как активная страница.
+ */
+const CUSTOM_SVG_FORBIDDEN =
+  /<\s*(script|iframe|object|embed|foreignObject)\b|javascript:/i;
+
+/** Есть ли в разметке хотя бы один поддерживаемый контур. */
+const CUSTOM_SVG_CONTOUR = /<(path|polygon|rect|circle|ellipse)\b/i;
+
+export function isCustomSvgData(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= KEYCHAIN_SVG_MAX_LENGTH &&
+    !CUSTOM_SVG_FORBIDDEN.test(value)
+  );
+}
+
+/** Проверка, что из SVG действительно получится контур. */
+export function hasDrawableSvgData(value: string): boolean {
+  return CUSTOM_SVG_CONTOUR.test(value);
+}
+
+/**
+ * Проверка массива ячеек коробки.
+ *
+ * Каждая ячейка — конечное число от 5 до 220 мм, ячеек от 1 до 8. Массив
+ * задаёт пропорции, но отрицательная или нулевая ширина сломала бы деление
+ * свободного места, поэтому нули отклоняются, а не подменяются.
+ */
+export function isBoxCells(value: unknown): value is number[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < CONSTRUCTOR_LIMITS.boxGrid.min ||
+    value.length > CONSTRUCTOR_LIMITS.boxGrid.max
+  ) {
+    return false;
+  }
+
+  for (let index = 0; index < value.length; index += 1) {
+    const cell = value[index];
+
+    if (
+      typeof cell !== "number" ||
+      !Number.isFinite(cell) ||
+      cell < BOX_CELL_MIN_MM ||
+      cell > BOX_CELL_MAX_MM
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /** Проверка патрона из формы или API. */
@@ -925,9 +1132,38 @@ export function normalizeVaseParams(params: Partial<VaseParams>): VaseParams {
  * очищается от символов вне шрифта и обрезается до 10 знаков; сервер до
  * вызова этой функции проверяет исходную строку строго.
  */
+function resolveKeychainShape(params: Partial<KeychainParams>): KeychainShape {
+  const fromKeychain = normalizeKeychainShapeAlias(params.keychainShape);
+  const fromLegacy = normalizeKeychainShapeAlias(params.shapeType);
+
+  // Панель пока меняет только старое поле shapeType, а normalizeConstructorParams
+  // получает весь объект с прежним keychainShape. Поэтому при расхождении
+  // побеждает shapeType: это признак свежего выбора в интерфейсе. Запросы API
+  // передают согласованные поля (или только keychainShape).
+  if (fromLegacy && fromKeychain && fromLegacy !== fromKeychain) {
+    return fromLegacy;
+  }
+
+  return fromKeychain ?? fromLegacy ?? DEFAULT_KEYCHAIN_PARAMS.keychainShape;
+}
+
+/**
+ * Проверяет и выравнивает параметры брелока.
+ *
+ * Как и у вазы, числа зажимаются в границы и встают на шаг слайдера. Текст
+ * очищается от символов вне шрифта и обрезается до 10 знаков; сервер до
+ * вызова этой функции проверяет исходную строку строго. Силуэт и его прежний
+ * псевдоним всегда совпадают, SVG ограничен размером и безопасными тегами,
+ * а NFC-флаг принимается только настоящим boolean.
+ */
 export function normalizeKeychainParams(
   params: Partial<KeychainParams>,
 ): KeychainParams {
+  const keychainShape = resolveKeychainShape(params);
+  const customSvgData = isCustomSvgData(params.customSvgData)
+    ? params.customSvgData.trim()
+    : "";
+
   return {
     length: snap(
       params.length ?? DEFAULT_KEYCHAIN_PARAMS.length,
@@ -942,9 +1178,13 @@ export function normalizeKeychainParams(
       CONSTRUCTOR_LIMITS.thickness,
     ),
     text: sanitizeKeychainText(params.text ?? DEFAULT_KEYCHAIN_PARAMS.text),
-    shapeType: isKeychainShape(params.shapeType)
-      ? params.shapeType
-      : DEFAULT_KEYCHAIN_PARAMS.shapeType,
+    keychainShape,
+    customSvgData,
+    nfcEnabled:
+      typeof params.nfcEnabled === "boolean"
+        ? params.nfcEnabled
+        : DEFAULT_KEYCHAIN_PARAMS.nfcEnabled,
+    shapeType: keychainShape,
   };
 }
 
@@ -1052,6 +1292,24 @@ export function normalizeCalibrationParams(
  * умолчанию.
  */
 export function normalizeBoxParams(params: Partial<BoxParams>): BoxParams {
+  const limit = CONSTRUCTOR_LIMITS.boxGrid;
+  const rawCellsX = Array.isArray(params.cellsX) ? params.cellsX : null;
+  const rawCellsY = Array.isArray(params.cellsY) ? params.cellsY : null;
+  const gridX = Math.round(
+    clamp(
+      params.gridX ?? rawCellsX?.length ?? DEFAULT_BOX_PARAMS.gridX,
+      limit.min,
+      limit.max,
+    ),
+  );
+  const gridY = Math.round(
+    clamp(
+      params.gridY ?? rawCellsY?.length ?? DEFAULT_BOX_PARAMS.gridY,
+      limit.min,
+      limit.max,
+    ),
+  );
+
   return {
     boxLength: snap(
       params.boxLength ?? DEFAULT_BOX_PARAMS.boxLength,
@@ -1069,19 +1327,42 @@ export function normalizeBoxParams(params: Partial<BoxParams>): BoxParams {
       params.boxWall ?? DEFAULT_BOX_PARAMS.boxWall,
       CONSTRUCTOR_LIMITS.boxWall,
     ),
-    gridX: snap(
-      params.gridX ?? DEFAULT_BOX_PARAMS.gridX,
-      CONSTRUCTOR_LIMITS.boxGrid,
-    ),
-    gridY: snap(
-      params.gridY ?? DEFAULT_BOX_PARAMS.gridY,
-      CONSTRUCTOR_LIMITS.boxGrid,
-    ),
+    cellsX: normalizeBoxCells(rawCellsX, gridX),
+    cellsY: normalizeBoxCells(rawCellsY, gridY),
+    gridX,
+    gridY,
     hasLid:
       typeof params.hasLid === "boolean"
         ? params.hasLid
         : DEFAULT_BOX_PARAMS.hasLid,
   };
+}
+
+/**
+ * Приводит набор ячеек к количеству gridX/gridY.
+ *
+ * Если массив той же длины, его значения зажимаются в 5–220 мм и задают
+ * пропорции. Если длина другая (например, старый слайдер поменял число
+ * ячеек), массив заменяется равными единицами: геометрия всё равно делит
+ * свободное место пропорционально, и ячейки получаются одинаковыми.
+ */
+function normalizeBoxCells(
+  values: readonly unknown[] | null,
+  count: number,
+): number[] {
+  if (!values || values.length !== count) {
+    return Array.from({ length: count }, () => 1);
+  }
+
+  return Array.from({ length: count }, (_, index) => {
+    const value = values[index];
+
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return 1;
+    }
+
+    return Math.round(clamp(value, BOX_CELL_MIN_MM, BOX_CELL_MAX_MM));
+  });
 }
 
 /**

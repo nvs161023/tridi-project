@@ -201,12 +201,16 @@ function addOpenTray(
 }
 
 /**
- * Перегородки по сетке.
+ * Перегородки по сетке с ячейками разного размера.
  *
- * Ширина ячейки считается из внутреннего размера: из него вычитаются все
- * перегородки, остаток делится на число ячеек. Бруски входят в дно и наружные
- * стенки на BOX_JOIN_MM и пересекаются друг с другом в узлах — так после
- * объединения не остаётся щелей, а каждая оболочка замкнута отдельно.
+ * Массивы `cellsX` и `cellsY` задают пропорции, а не абсолютные миллиметры:
+ * из внутреннего размера вычитаются все перегородки, остаток делится между
+ * ячейками по их весам. Поэтому сумма массива может не совпадать с корпусом,
+ * а толщина перегородок всегда равна `boxWall` — она не масштабируется.
+ *
+ * Бруски входят в дно и наружные стенки на BOX_JOIN_MM и пересекаются друг с
+ * другом в узлах: после объединения не остаётся щелей, а каждая оболочка
+ * замкнута отдельно.
  */
 function addGridPartitions(
   positions: number[],
@@ -222,40 +226,63 @@ function addGridPartitions(
   const innerRight = right - wall;
   const innerBottom = bottom + wall;
   const innerTop = top - wall;
-  const innerLength = innerRight - innerLeft;
-  const innerWidth = innerTop - innerBottom;
-  const cellLength =
-    (innerLength - (params.gridX - 1) * wall) / params.gridX;
-  const cellWidth = (innerWidth - (params.gridY - 1) * wall) / params.gridY;
   const floor = Math.max(wall, BOX_MIN_SHEET_MM);
+  const scaleX = cellScale(params.cellsX, innerRight - innerLeft, wall);
+  const scaleY = cellScale(params.cellsY, innerTop - innerBottom, wall);
+  let cursorX = innerLeft;
 
-  for (let index = 1; index < params.gridX; index += 1) {
-    const x0 = innerLeft + index * cellLength + (index - 1) * wall;
+  for (let index = 0; index < params.cellsX.length - 1; index += 1) {
+    cursorX += params.cellsX[index] * scaleX;
 
     addBox(
       positions,
-      x0,
-      x0 + wall,
+      cursorX,
+      cursorX + wall,
       innerBottom - BOX_JOIN_MM,
       innerTop + BOX_JOIN_MM,
       floor - BOX_JOIN_MM,
       params.boxHeight,
     );
+
+    cursorX += wall;
   }
 
-  for (let index = 1; index < params.gridY; index += 1) {
-    const y0 = innerBottom + index * cellWidth + (index - 1) * wall;
+  let cursorY = innerBottom;
+
+  for (let index = 0; index < params.cellsY.length - 1; index += 1) {
+    cursorY += params.cellsY[index] * scaleY;
 
     addBox(
       positions,
       innerLeft - BOX_JOIN_MM,
       innerRight + BOX_JOIN_MM,
-      y0,
-      y0 + wall,
+      cursorY,
+      cursorY + wall,
       floor - BOX_JOIN_MM,
       params.boxHeight,
     );
+
+    cursorY += wall;
   }
+}
+
+/**
+ * Миллиметров на единицу веса ячейки.
+ *
+ * Перегородки имеют фиксированную толщину, поэтому свободное место — это
+ * внутренний размер минус (n − 1) стенок. Если места не осталось, масштаб
+ * равен нулю: перегородки сомкнутся, но сетка останется замкнутой.
+ */
+function cellScale(cells: readonly number[], inner: number, wall: number): number {
+  const partitions = Math.max(cells.length - 1, 0) * wall;
+  const available = inner - partitions;
+  const total = cells.reduce((sum, cell) => sum + Math.max(cell, 0), 0);
+
+  if (available <= 0 || total <= 0) {
+    return 0;
+  }
+
+  return available / total;
 }
 
 /**

@@ -18,8 +18,10 @@ import {
   DEFAULT_VASE_PARAMS,
   boxStlFileName,
   calibrationStlFileName,
+  hasDrawableSvgData,
+  isBoxCells,
   isCalibrationType,
-  isKeychainShape,
+  isCustomSvgData,
   isLampBaseShape,
   isLampMount,
   isLampPart,
@@ -36,6 +38,7 @@ import {
   normalizeBoxParams,
   normalizeCalibrationParams,
   normalizeKeychainParams,
+  normalizeKeychainShapeAlias,
   normalizeLampParams,
   normalizeLithophaneParams,
   normalizeSignParams,
@@ -207,13 +210,27 @@ function parseVaseParams(body: unknown): VaseParams | null {
  * Строгая проверка параметров брелока.
  *
  * Все размеры обязательны и должны лежать в границах слайдеров. Текст — не
- * длиннее 10 символов из набора шрифта; пустая строка допустима. Форму
- * заготовки проверяем по списку, чтобы API не собирал случайный контур.
+ * длиннее 10 символов из набора шрифта; пустая строка допустима. Силуэт
+ * проверяется по списку, причём старое `shapeType` ещё принимается, а
+ * `rounded` превращается в жетон. Пользовательский SVG обязан быть строкой в
+ * пределах 200 КБ, без скриптов и хотя бы с одним контуром: пустой `custom`
+ * дал бы файл-заглушку вместо выбранной формы. NFC-флаг — только boolean,
+ * иначе строка «false» включала бы карман.
  */
 function parseKeychainParams(
   body: Record<string, unknown>,
 ): KeychainParams | null {
-  const { length, width, thickness, text, shapeType } = body;
+  const {
+    length,
+    width,
+    thickness,
+    text,
+    keychainShape,
+    shapeType,
+    customSvgData = "",
+    nfcEnabled = false,
+  } = body;
+  const shape = normalizeKeychainShapeAlias(keychainShape ?? shapeType);
 
   if (
     !isNumberInRange(
@@ -232,7 +249,10 @@ function parseKeychainParams(
       CONSTRUCTOR_LIMITS.thickness.max,
     ) ||
     !isValidKeychainText(text) ||
-    !isKeychainShape(shapeType)
+    !shape ||
+    !isCustomSvgData(customSvgData) ||
+    typeof nfcEnabled !== "boolean" ||
+    (shape === "custom" && !hasDrawableSvgData(customSvgData))
   ) {
     return null;
   }
@@ -242,7 +262,10 @@ function parseKeychainParams(
     width,
     thickness,
     text,
-    shapeType,
+    keychainShape: shape,
+    shapeType: shape,
+    customSvgData,
+    nfcEnabled,
   });
 }
 
@@ -427,13 +450,39 @@ function parseCalibrationParams(
 /**
  * Строгая проверка параметров коробки.
  *
- * Размеры проверяются в своих границах, сетка — целыми числами от 1 до 8,
- * крышка — только настоящим boolean. Если клиент прислал `hasLid: "false"`,
- * это ошибка, а не выключенная крышка: иначе строка включала бы деталь.
+ * Размеры проверяются в своих границах, крышка — только настоящим boolean.
+ * Сетка принимается двумя способами: новые массивы `cellsX`/`cellsY` с
+ * ширинами ячеек 5–220 мм или старые целые `gridX`/`gridY` от 1 до 8.
+ * Если массивы переданы, они главнее старых полей и проверяются поэлементно:
+ * клиент отправляет оба набора сразу, но геометрия строится по ячейкам.
  */
 function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
-  const { boxLength, boxWidth, boxHeight, boxWall, gridX, gridY, hasLid } =
-    body;
+  const {
+    boxLength,
+    boxWidth,
+    boxHeight,
+    boxWall,
+    gridX,
+    gridY,
+    cellsX,
+    cellsY,
+    hasLid,
+  } = body;
+  const hasCells = cellsX !== undefined || cellsY !== undefined;
+  const cellsAreValid = isBoxCells(cellsX) && isBoxCells(cellsY);
+  const gridsAreValid =
+    isNumberInRange(
+      gridX,
+      CONSTRUCTOR_LIMITS.boxGrid.min,
+      CONSTRUCTOR_LIMITS.boxGrid.max,
+    ) &&
+    isNumberInRange(
+      gridY,
+      CONSTRUCTOR_LIMITS.boxGrid.min,
+      CONSTRUCTOR_LIMITS.boxGrid.max,
+    ) &&
+    Number.isInteger(gridX) &&
+    Number.isInteger(gridY);
 
   if (
     !isNumberInRange(
@@ -456,19 +505,8 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
       CONSTRUCTOR_LIMITS.boxWall.min,
       CONSTRUCTOR_LIMITS.boxWall.max,
     ) ||
-    !isNumberInRange(
-      gridX,
-      CONSTRUCTOR_LIMITS.boxGrid.min,
-      CONSTRUCTOR_LIMITS.boxGrid.max,
-    ) ||
-    !isNumberInRange(
-      gridY,
-      CONSTRUCTOR_LIMITS.boxGrid.min,
-      CONSTRUCTOR_LIMITS.boxGrid.max,
-    ) ||
-    !Number.isInteger(gridX) ||
-    !Number.isInteger(gridY) ||
-    typeof hasLid !== "boolean"
+    typeof hasLid !== "boolean" ||
+    (hasCells ? !cellsAreValid : !gridsAreValid)
   ) {
     return null;
   }
@@ -478,9 +516,10 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
     boxWidth,
     boxHeight,
     boxWall,
-    gridX,
-    gridY,
     hasLid,
+    ...(cellsAreValid
+      ? { cellsX: cellsX as number[], cellsY: cellsY as number[] }
+      : { gridX: gridX as number, gridY: gridY as number }),
   });
 }
 
@@ -702,7 +741,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, брелок, детали и форму основания светильника, надпись вывески (нужна хотя бы одна буква), диапазон калибровки, сетку коробки или изображение литофана.",
+      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, детали и форму основания светильника, надпись вывески (нужна хотя бы одна буква), диапазон калибровки, ячейки коробки или изображение литофана.",
     );
   }
 
