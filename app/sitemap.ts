@@ -19,9 +19,17 @@ const STATIC_PAGES: {
   { path: "/", changeFrequency: "weekly", priority: 1 },
   { path: "/subscription", changeFrequency: "weekly", priority: 0.9 },
   { path: "/forum", changeFrequency: "daily", priority: 0.8 },
+  { path: "/tools", changeFrequency: "weekly", priority: 0.8 },
+  { path: "/tools/defects", changeFrequency: "monthly", priority: 0.7 },
 ];
 
-/** Карта сайта: витрина, тарифы, курсы и все опубликованные темы форума. */
+/**
+ * Карта сайта: витрина, тарифы, курсы, центр инструментов и все опубликованные
+ * темы форума.
+ *
+ * Закрытые разделы сюда не попадают: /dashboard и /admin закрыты middleware и
+ * закрыты в robots.txt, а /constructor дополнительно помечен `robots: noindex`.
+ */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const siteUrl = await resolveSiteUrl();
   const supabase = await createClient();

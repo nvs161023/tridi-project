@@ -4,12 +4,63 @@ import Link from "next/link";
 import { Header } from "@/components/Header";
 import { DefectsExplorer } from "@/components/tools/DefectsExplorer";
 import { defects } from "@/lib/defects";
+import { OG_IMAGE } from "@/lib/seo";
+import { resolveSiteUrl } from "@/lib/site-url";
+
+const PAGE_TITLE = "Дефекты 3D-печати: причины и как исправить | TriDi";
+const PAGE_DESCRIPTION =
+  "Дефекты 3D-печати: отрыв от стола, расслоение, стрингинг, смещение слоёв, мосты и недоэкструзия. Причины и пошаговые решения в справочнике TriDi.";
 
 export const metadata: Metadata = {
-  title: "Диагностика дефектов 3D-печати — TriDi",
-  description:
-    "Справочник типичных дефектов FDM-печати: отрыв от стола, расслоение, стрингинг, смещение слоёв, плохие мосты и недоэкструзия. Причины и пошаговые решения.",
+  title: PAGE_TITLE,
+  description: PAGE_DESCRIPTION,
+  alternates: { canonical: "/tools/defects" },
+  // Карточка для мессенджеров: тот же текст, что в выдаче, плюс PNG 1200×630
+  // из OG_IMAGE. Абсолютный адрес og:image собирает metadataBase из layout.
+  openGraph: {
+    type: "website",
+    locale: "ru_RU",
+    siteName: "TriDi",
+    url: "/tools/defects",
+    title: PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    images: [OG_IMAGE],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    images: [OG_IMAGE.url],
+  },
 };
+
+/**
+ * JSON-LD `FAQPage`: каждый дефект — вопрос, а его решения — ответ.
+ *
+ * Разметка собирается из того же массива `defects`, что и карточки, поэтому
+ * не расходится с текстом страницы. Ответ — нумерованный список шагов: так он
+ * читается и в выпадающем блоке поиска, и скринридером.
+ */
+function buildFaqJsonLd(siteUrl: string) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    name: "Дефекты 3D-печати: причины и решения",
+    description: PAGE_DESCRIPTION,
+    url: `${siteUrl}/tools/defects`,
+    inLanguage: "ru",
+    mainEntity: defects.map((defect) => ({
+      "@type": "Question",
+      name: defect.title,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: defect.solutions
+          .map((solution, index) => `${index + 1}. ${solution}`)
+          .join(" "),
+      },
+    })),
+  };
+}
 
 /** Шапка читает cookies, поэтому страница собирается на каждый запрос. */
 export const dynamic = "force-dynamic";
@@ -33,10 +84,20 @@ const HOW_TO_STEPS = [
   },
 ];
 
-export default function DefectsPage() {
+export default async function DefectsPage() {
+  const siteUrl = await resolveSiteUrl();
+  const faqJsonLd = buildFaqJsonLd(siteUrl);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <Header />
+
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(faqJsonLd).replace(/</g, "\\u003c"),
+        }}
+      />
 
       <main>
         <section className="relative overflow-hidden border-b border-white/10">

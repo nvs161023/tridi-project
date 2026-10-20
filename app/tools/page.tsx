@@ -4,11 +4,35 @@ import Link from "next/link";
 import { Header } from "@/components/Header";
 import { defects } from "@/lib/defects";
 import { profileCount } from "@/lib/profiles";
+import { OG_IMAGE } from "@/lib/seo";
+
+const PAGE_TITLE =
+  "3D-инструменты: Конструктор, профили и диагностика | TriDi";
+const PAGE_DESCRIPTION =
+  "Центр инструментов TriDi: 3D-конструктор ваз, брелоков и светильников, библиотека профилей слайсеров и справочник дефектов печати с решениями.";
 
 export const metadata: Metadata = {
-  title: "Центр инструментов — TriDi",
-  description:
-    "Инструменты TriDi для 3D-печати: параметрический конструктор моделей, библиотека профилей слайсеров и справочник дефектов с причинами и решениями.",
+  title: PAGE_TITLE,
+  description: PAGE_DESCRIPTION,
+  alternates: { canonical: "/tools" },
+  // OpenGraph и Twitter повторяют заголовок и описание страницы: при отправке
+  // ссылки в Telegram или WhatsApp разворачивается карточка с тем же текстом,
+  // а картинку 1200×630 Next.js подставляет из OG_IMAGE.
+  openGraph: {
+    type: "website",
+    locale: "ru_RU",
+    siteName: "TriDi",
+    url: "/tools",
+    title: PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    images: [OG_IMAGE],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    images: [OG_IMAGE.url],
+  },
 };
 
 /** Шапка читает cookies, поэтому страница собирается на каждый запрос. */

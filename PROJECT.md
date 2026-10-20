@@ -100,8 +100,8 @@
 | `/` | `app/page.tsx` | Витрина: герой с цифрами, четыре уровня, галерея схем, «Как учим», программа, тарифы, «О проекте». `force-dynamic` из-за кнопки авторизации в шапке |
 | `/subscription` | `app/subscription/page.tsx` | Сравнение четырёх уровней (таблица и мобильные карточки), пять карточек тарифов (Free, три уровня навсегда и выделенный пакет), отдельный блок подписки Pro, FAQ, примечание про оферту, чек НПД и возраст 18+ |
 | `/profiles` | `app/profiles/page.tsx` | Библиотека профилей печати (193 файла в трёх категориях, включая 86 принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge и Qidi) с каскадным фильтром «бренд → модель → материал» (`components/profiles/ProfilesClient.tsx`). Открыта всем, но без подписки Pro карточки размыты и ведут на `/subscription#tools`; скачивание — через `/api/profiles/download` только с активной подпиской |
-| `/tools` | `app/tools/page.tsx` | Центр инструментов: три карточки — 3D-Конструктор, библиотека профилей и диагностика дефектов, а также ссылка на форум. `force-dynamic` из-за кнопки авторизации в шапке |
-| `/tools/defects` | `app/tools/defects/page.tsx`, `components/tools/DefectsExplorer.tsx` | Справочник дефектов FDM-печати: шесть карточек (`lib/defects.ts`) с причинами и пошаговыми решениями в модальном окне; закрытие по Escape, ловушка фокуса, каталог читается и без JavaScript |
+| `/tools` | `app/tools/page.tsx` | Центр инструментов: три карточки — 3D-Конструктор, библиотека профилей и диагностика дефектов, а также ссылка на форум. `force-dynamic` из-за кнопки авторизации в шапке; canonical `/tools`, OpenGraph и Twitter с общей картинкой `OG_IMAGE` |
+| `/tools/defects` | `app/tools/defects/page.tsx`, `components/tools/DefectsExplorer.tsx` | Справочник дефектов FDM-печати: шесть карточек (`lib/defects.ts`) с причинами и пошаговыми решениями в модальном окне; закрытие по Escape, ловушка фокуса, каталог читается и без JavaScript. Canonical `/tools/defects`, OpenGraph/Twitter и JSON-LD `FAQPage`: вопрос — дефект, ответ — нумерованные шаги решений |
 | `/forum` | `app/forum/page.tsx` | Публичный форум: кликабельные карточки категорий, счётчики и последние одобренные темы. Читать может гость и поисковый робот; pending-материалы RLS не отдаёт |
 | `/forum/category/[slug]` | `app/forum/category/[slug]/page.tsx` | Раздел форума: approved-темы с автором, датой и числом ответов, пустое состояние и кнопка создания темы с предвыбранной категорией. `generateMetadata`, canonical и JSON-LD |
 | `/forum/[slug]` | `app/forum/[slug]/page.tsx` | Тема и одобренные ответы, `generateMetadata` и JSON-LD (`DiscussionForumPosting`); форма ответа — только вошедшему, с проверкой бана |
@@ -109,8 +109,8 @@
 | `/legal` | `app/legal/page.tsx` | Оглавление юридических документов |
 | `/legal/privacy`, `/legal/consent`, `/legal/terms`, `/legal/offer`, `/legal/cookies` | `app/legal/*/page.tsx` | Пять документов (статически пререндерятся, открываются даже когда база недоступна) |
 | `/terms`, `/privacy`, `/legal/oferta`, `/register` | `next.config.ts` | Короткие адреса и вариант написания оферты: постоянные редиректы (308) на `/legal/terms`, `/legal/privacy`, `/legal/offer` и `/auth/sign-up` |
-| `/sitemap.xml` | `app/sitemap.ts` | Динамическая карта сайта: главная, `/subscription`, четыре страницы `/courses/*`, `/forum` и все approved-темы форума; адрес берётся из запроса или `NEXT_PUBLIC_SITE_URL` |
-| `/robots.txt` | `app/robots.ts` | Разрешает индексацию публичных страниц и закрывает `/dashboard`, `/admin`, `/api`, `/constructor` и `/verify`; ссылается на sitemap |
+| `/sitemap.xml` | `app/sitemap.ts` | Динамическая карта сайта: главная, `/subscription`, четыре страницы `/courses/*`, `/forum`, `/tools`, `/tools/defects` и все approved-темы форума; адрес берётся из запроса или `NEXT_PUBLIC_SITE_URL` |
+| `/robots.txt` | `app/robots.ts` | Разрешает индексацию публичных страниц (`/` и `/tools`) и закрывает `/dashboard`, `/admin`, `/api`, `/constructor` и `/verify`; ссылается на sitemap |
 | `/verify/[id]` | `app/verify/[id]/page.tsx` | Публичная проверка сертификата по HMAC-токену: имя, курс, дата и номер либо честное «сертификат не найден». Вход не нужен, запросов к базе нет, `noindex` |
 | `/opengraph-image` | `app/opengraph-image.tsx` | PNG 1200×630 для `og:image` и `twitter:image`: тёмно-синий фон, логотип TriDi и абстрактные окружности |
 
@@ -1352,19 +1352,26 @@ M117, моторы) и правило «без отвода — вмятина �
 
 - **Карта сайта:** `app/sitemap.ts` собирается на каждый запрос (`force-dynamic`) и включает
   главную, `/subscription`, `/courses/confident`, `/courses/engineer`, `/courses/profit`,
-  `/courses/pro`, `/forum` и все approved-темы. Для тем добавлена постраничная выборка
-  `getApprovedThreadsForSitemap` в `lib/forum.ts`: карта сайта не обрезается на 300 записях, как
-  публичный список форума.
-- **robots.txt:** `app/robots.ts` разрешает `/` и закрывает `/dashboard`, `/admin`, `/api`,
-  `/constructor` и `/verify`. Запрет не заменяет middleware: личные разделы всё равно требуют
-  сессию и проверяют доступ на сервере.
+  `/courses/pro`, `/forum`, `/tools`, `/tools/defects` и все approved-темы. Для тем добавлена
+  постраничная выборка `getApprovedThreadsForSitemap` в `lib/forum.ts`: карта сайта не обрезается
+  на 300 записях, как публичный список форума. `/constructor` и `/dashboard` в карту не попадают:
+  оба закрыты в robots.txt, а конструктор дополнительно помечен `robots: noindex`.
+- **robots.txt:** `app/robots.ts` разрешает `/` и `/tools` и закрывает `/dashboard`, `/admin`,
+  `/api`, `/constructor` и `/verify`. Запрет не заменяет middleware: личные разделы всё равно
+  требуют сессию и проверяют доступ на сервере. `/tools` перечислен в `allow` явно, чтобы будущий
+  запрет по ошибке не отрезал публичный справочник от поиска.
 - **OpenGraph:** `app/opengraph-image.tsx` генерирует PNG 1200×630; `app/layout.tsx` задаёт
   `metadataBase`, `og:title`, `og:description`, `og:image`, `twitter:card` и `siteName`. Страницы
-  курсов переопределяют заголовок, описание и alt картинки в `generateMetadata`.
+  курсов переопределяют заголовок, описание и alt картинки в `generateMetadata`; `/tools` и
+  `/tools/defects` задают собственные `title`, `description`, canonical, `og:url`, OpenGraph и
+  Twitter-карточку, а картинку берут из общего `OG_IMAGE`.
 - **Schema.org:** на главной выводится JSON-LD `Organization` с логотипом, email, телефоном,
   реквизитами НПД и `contactPoint`; на `/courses/[id]` — `Course` с ценой в рублях, описанием,
-  провайдером, форматом обучения и результатами. `aggregateRating` сознательно не выводится:
-  отзывы живут на странице выпускника, а не в разметке витрины, и смешивать эти источники нельзя.
+  провайдером, форматом обучения и результатами; на `/tools/defects` — `FAQPage`: каждый дефект
+  из `lib/defects.ts` становится `Question`, а его решения — `Answer` с нумерованными шагами.
+  Разметка собирается из того же массива, что и карточки, поэтому не расходится с текстом.
+  `aggregateRating` сознательно не выводится: отзывы живут на странице выпускника, а не в
+  разметке витрины, и смешивать эти источники нельзя.
 - **Партнёрский промокод:** `components/certificate/PartnerBonus.tsx` показывается на странице
   готового сертификата (`/certificate/[courseId]`) и не попадает на печать. При
   `NEXT_PUBLIC_ENABLE_PARTNER_PROMO=true` выводится «Ваш промокод на пластик: TRIDI-SLOYTECH»,
