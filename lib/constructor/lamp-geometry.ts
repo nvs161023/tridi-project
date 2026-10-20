@@ -14,6 +14,11 @@ import {
   type LampPart,
   type VasePattern,
 } from "@/lib/constructor/params";
+import {
+  DETAIL_PATTERN_SCALE,
+  honeycombWave,
+  scalesWave,
+} from "@/lib/constructor/pattern-waves";
 
 /**
  * Геометрия абажура: замкнутая оболочка с отверстием под патрон.
@@ -152,8 +157,28 @@ function patternFade(heightMm: number, y: number): number {
   return top * bottom;
 }
 
-/** Смещение стенки узором в диапазоне −1…1. */
-function patternWave(pattern: VasePattern, angle: number, y: number): number {
+/**
+ * Смещение стенки узором в диапазоне −1…1.
+ *
+ * Соты и чешуйки считаются по дуге окружности, поэтому высота делится на
+ * опорный радиус абажура: иначе ячейки вытянулись бы по высоте. Частота этих
+ * двух узоров умножается на DETAIL_PATTERN_SCALE — при десяти гребнях ячейки
+ * были бы крупнее самого абажура.
+ */
+function patternWave(
+  pattern: VasePattern,
+  angle: number,
+  y: number,
+  referenceRadius: number,
+): number {
+  const phaseFrequency =
+    pattern === "honeycomb" || pattern === "scales"
+      ? PATTERN_FREQUENCY * DETAIL_PATTERN_SCALE
+      : PATTERN_FREQUENCY;
+  const circumferencePhase = angle * phaseFrequency;
+  const verticalPhase =
+    (y / Math.max(referenceRadius, 1)) * phaseFrequency;
+
   switch (pattern) {
     case "spiral":
       return Math.sin(angle * PATTERN_FREQUENCY + y * 0.09);
@@ -161,6 +186,10 @@ function patternWave(pattern: VasePattern, angle: number, y: number): number {
       return Math.cos(angle * PATTERN_FREQUENCY);
     case "waves":
       return Math.sin((y / PATTERN_WAVE_PERIOD_MM) * Math.PI * 2);
+    case "honeycomb":
+      return honeycombWave(circumferencePhase, verticalPhase);
+    case "scales":
+      return scalesWave(circumferencePhase, verticalPhase);
     case "smooth":
       return 0;
   }
@@ -318,7 +347,12 @@ function buildShadeGeometry(normalized: LampParams): BufferGeometry {
       const offset =
         fade === 0
           ? 0
-          : patternWave(normalized.lampPattern, angle, row.height) *
+          : patternWave(
+              normalized.lampPattern,
+              angle,
+              row.height,
+              normalized.lampDiameter / 2,
+            ) *
             fade *
             PATTERN_INTENSITY_MM;
       const radius = Math.max(row.radius + offset, 0.6);

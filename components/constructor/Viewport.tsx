@@ -21,7 +21,7 @@ import {
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
-import { calculateGeometryVolumeMm3 } from "@/lib/constructor/geometry-volume";
+import { calculateGeometryWeightGrams } from "@/lib/constructor/geometry-volume";
 import {
   CALIBRATION_FONT_URL,
   createCalibrationGeometry,
@@ -944,8 +944,10 @@ export function Viewport({ params }: ViewportProps) {
     };
   }, [geometry, params]);
 
-  const materialVolumeCm3 = useMemo(
-    () => Math.round(calculateGeometryVolumeMm3(geometry) / 100) / 10,
+  // Вес в граммах для PLA: объём переводится в см³ и умножается на плотность
+  // 1.24 г/см³. Округляем до десятых при выводе, как и остальные размеры.
+  const materialWeightGrams = useMemo(
+    () => calculateGeometryWeightGrams(geometry),
     [geometry],
   );
 
@@ -1017,7 +1019,7 @@ export function Viewport({ params }: ViewportProps) {
           <span aria-hidden className="text-slate-600">
             •
           </span>
-          <span>≈ {materialVolumeCm3.toFixed(1)} см³ материала</span>
+          <span>≈ {materialWeightGrams.toFixed(1)} г пластика PLA</span>
         </span>
         <span className="hidden sm:inline">Вращение — мышь, зум — колесо</span>
       </div>

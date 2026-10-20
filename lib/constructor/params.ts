@@ -130,6 +130,11 @@ export const MODEL_TYPE_LABELS = {
 /**
  * Пресеты силуэта. Значение — часть состояния модели, а не размер: профиль
  * строится в lib/constructor/vase-profile.ts по этим идентификаторам.
+ *
+ * square и octagon — не просто другой силуэт: их сечение в плане
+ * превращается в правильный многоугольник в lib/constructor/vase-geometry.ts.
+ * Профиль по высоте остаётся плавным, а радиус зависит от угла, поэтому
+ * квадратная ваза сохраняет толщину стенки на гранях и в углах.
  */
 export const VASE_SHAPES = [
   "classic",
@@ -138,6 +143,8 @@ export const VASE_SHAPES = [
   "hourglass",
   "teardrop",
   "double_bulb",
+  "square",
+  "octagon",
 ] as const;
 
 export type VaseShape = (typeof VASE_SHAPES)[number];
@@ -150,16 +157,29 @@ export const VASE_SHAPE_LABELS = {
   hourglass: "Песочные часы",
   teardrop: "Капля",
   double_bulb: "Двойная сфера",
+  square: "Квадратная",
+  octagon: "Восьмигранная",
 } as const satisfies Record<VaseShape, string>;
 
 /**
  * Математические узоры на стенке.
  *
  * smooth — ровная поверхность; spiral — косая спираль; ribs — вертикальные
- * рёбра; waves — горизонтальные волны. Узор не добавляет вершины: он смещает
- * существующие точки LatheGeometry, поэтому число треугольников не меняется.
+ * рёбра; waves — горизонтальные волны; honeycomb — шестиугольные соты из трёх
+ * синусоид, повёрнутых на 60°; scales — перекрывающиеся чешуйки из синуса и
+ * косинуса с разными фазами. Узор не добавляет вершины: он смещает
+ * существующие точки LatheGeometry, поэтому число треугольников не меняется,
+ * а наружная и внутренняя стенки сдвигаются на одну величину — толщина
+ * остаётся прежней.
  */
-export const VASE_PATTERNS = ["smooth", "spiral", "ribs", "waves"] as const;
+export const VASE_PATTERNS = [
+  "smooth",
+  "spiral",
+  "ribs",
+  "waves",
+  "honeycomb",
+  "scales",
+] as const;
 
 export type VasePattern = (typeof VASE_PATTERNS)[number];
 
@@ -169,6 +189,8 @@ export const VASE_PATTERN_LABELS = {
   spiral: "Спираль",
   ribs: "Рёбра",
   waves: "Волны",
+  honeycomb: "Соты",
+  scales: "Чешуйки",
 } as const satisfies Record<VasePattern, string>;
 
 /**
