@@ -19,6 +19,7 @@ import {
   isCalibrationType,
   isKeychainShape,
   isLampMount,
+  isLithophaneBrightness,
   isSignChannelWidth,
   isVasePattern,
   isVaseShape,
@@ -26,10 +27,12 @@ import {
   isValidSignText,
   keychainStlFileName,
   lampStlFileName,
+  lithophaneStlFileName,
   normalizeBoxParams,
   normalizeCalibrationParams,
   normalizeKeychainParams,
   normalizeLampParams,
+  normalizeLithophaneParams,
   normalizeSignParams,
   normalizeVaseParams,
   signStlFileName,
@@ -38,6 +41,7 @@ import {
   type CalibrationParams,
   type KeychainParams,
   type LampParams,
+  type LithophaneParams,
   type SignParams,
   type VaseParams,
 } from "@/lib/constructor/params";
@@ -48,6 +52,7 @@ import {
   createKeychainGeometry,
 } from "@/lib/constructor/keychain-geometry";
 import { createLampGeometry } from "@/lib/constructor/lamp-geometry";
+import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
 import { createSignGeometry } from "@/lib/constructor/sign-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
@@ -65,7 +70,8 @@ import { createClient } from "@/lib/supabase/server";
  *   3. параметры — только числа внутри границ слайдеров, известная форма и
  *      узор вазы, брелок с именем и формой заготовки, абажур с узором и
  *      патроном E27/E14, вывеска с надписью и шириной канала, калибровочная
- *      башня с диапазоном и числом ступеней либо коробка с сеткой и крышкой.
+ *      башня с диапазоном и числом ступеней, коробка с сеткой и крышкой либо
+ *      литофан с размерами, толщинами и сжатым массивом яркости 150 × 150.
  *
  * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
  * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
@@ -405,6 +411,62 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
   });
 }
 
+/**
+ * Строгая проверка параметров литофана.
+ *
+ * Размеры и толщины должны лежать в границах слайдеров, причём максимум
+ * обязан быть больше минимума до выравнивания по шагу: иначе рельеф стал бы
+ * плоским. Массив яркости принимается только целыми числами 0–255 ровно на
+ * 150 × 150 пикселей. Строка base64 здесь не поддерживается: браузер уже
+ * присылает готовую сетку, и серверу не нужно декодировать изображение.
+ */
+function parseLithophaneParams(
+  body: Record<string, unknown>,
+): LithophaneParams | null {
+  const {
+    lithophaneWidth,
+    lithophaneHeight,
+    lithophaneMinThickness,
+    lithophaneMaxThickness,
+    lithophaneBrightness,
+  } = body;
+
+  if (
+    !isNumberInRange(
+      lithophaneWidth,
+      CONSTRUCTOR_LIMITS.lithophaneWidth.min,
+      CONSTRUCTOR_LIMITS.lithophaneWidth.max,
+    ) ||
+    !isNumberInRange(
+      lithophaneHeight,
+      CONSTRUCTOR_LIMITS.lithophaneHeight.min,
+      CONSTRUCTOR_LIMITS.lithophaneHeight.max,
+    ) ||
+    !isNumberInRange(
+      lithophaneMinThickness,
+      CONSTRUCTOR_LIMITS.lithophaneMinThickness.min,
+      CONSTRUCTOR_LIMITS.lithophaneMinThickness.max,
+    ) ||
+    !isNumberInRange(
+      lithophaneMaxThickness,
+      CONSTRUCTOR_LIMITS.lithophaneMaxThickness.min,
+      CONSTRUCTOR_LIMITS.lithophaneMaxThickness.max,
+    ) ||
+    lithophaneMaxThickness <= lithophaneMinThickness ||
+    !isLithophaneBrightness(lithophaneBrightness)
+  ) {
+    return null;
+  }
+
+  return normalizeLithophaneParams({
+    lithophaneWidth,
+    lithophaneHeight,
+    lithophaneMinThickness,
+    lithophaneMaxThickness,
+    lithophaneBrightness,
+  });
+}
+
 /** Разобранный запрос: модель и её проверенные параметры. */
 type ParsedConstructorRequest =
   | { model: "vase"; params: VaseParams }
@@ -412,7 +474,8 @@ type ParsedConstructorRequest =
   | { model: "lamp"; params: LampParams }
   | { model: "sign"; params: SignParams }
   | { model: "calibration"; params: CalibrationParams }
-  | { model: "box"; params: BoxParams };
+  | { model: "box"; params: BoxParams }
+  | { model: "lithophane"; params: LithophaneParams };
 
 /**
  * Выбирает набор параметров по полю model.
@@ -464,6 +527,12 @@ function parseConstructorRequest(
     const params = parseBoxParams(body);
 
     return params ? { model: "box", params } : null;
+  }
+
+  if (model === "lithophane") {
+    const params = parseLithophaneParams(body);
+
+    return params ? { model: "lithophane", params } : null;
   }
 
   return null;
@@ -560,14 +629,15 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, брелока, абажура, надпись вывески, диапазон калибровки или сетку коробки.",
+      "Проверьте размеры и узор вазы, брелока, абажура, надпись вывески, диапазон калибровки, сетку коробки или изображение литофана.",
     );
   }
 
   try {
-    // Шрифт читается брелоку, вывеске и калибровке; ваза, абажур и коробка
-    // собираются без него, чтобы не парсить 130 КБ JSON. loadCyrillicFont()
-    // кэширует промис, поэтому второй вызов в ветках ниже ничего не стоит.
+    // Шрифт читается брелоку, вывеске и калибровке; ваза, абажур, коробка и
+    // литофан собираются без него, чтобы не парсить 130 КБ JSON.
+    // loadCyrillicFont() кэширует промис, поэтому повторный вызов ничего не
+    // стоит.
     const geometry =
       parsed.model === "vase"
         ? createVaseGeometry(createVaseProfile(parsed.params), parsed.params)
@@ -575,14 +645,16 @@ export async function POST(request: Request): Promise<Response> {
           ? createLampGeometry(parsed.params)
           : parsed.model === "box"
             ? createBoxGeometry(parsed.params)
-            : parsed.model === "keychain"
-              ? createKeychainGeometry(parsed.params, await loadCyrillicFont())
-              : parsed.model === "sign"
-                ? createSignGeometry(parsed.params, await loadCyrillicFont())
-                : createCalibrationGeometry(
-                    parsed.params,
-                    await loadCyrillicFont(),
-                  );
+            : parsed.model === "lithophane"
+              ? createLithophaneGeometry(parsed.params)
+              : parsed.model === "keychain"
+                ? createKeychainGeometry(parsed.params, await loadCyrillicFont())
+                : parsed.model === "sign"
+                  ? createSignGeometry(parsed.params, await loadCyrillicFont())
+                  : createCalibrationGeometry(
+                      parsed.params,
+                      await loadCyrillicFont(),
+                    );
 
     try {
       const mesh = new Mesh(geometry);
@@ -601,9 +673,11 @@ export async function POST(request: Request): Promise<Response> {
               ? lampStlFileName(parsed.params)
               : parsed.model === "box"
                 ? boxStlFileName(parsed.params)
-                : parsed.model === "sign"
-                  ? signStlFileName(parsed.params)
-                  : calibrationStlFileName(parsed.params);
+                : parsed.model === "lithophane"
+                  ? lithophaneStlFileName(parsed.params)
+                  : parsed.model === "sign"
+                    ? signStlFileName(parsed.params)
+                    : calibrationStlFileName(parsed.params);
 
       // Запись появляется после успешной генерации: упавшая сборка не должна
       // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —

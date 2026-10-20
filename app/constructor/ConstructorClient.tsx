@@ -18,6 +18,7 @@ import {
   DEFAULT_CONSTRUCTOR_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
   DEFAULT_LAMP_PARAMS,
+  DEFAULT_LITHOPHANE_PARAMS,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
   KEYCHAIN_SHAPE_LABELS,
@@ -28,6 +29,7 @@ import {
   calibrationStlFileName,
   keychainStlFileName,
   lampStlFileName,
+  lithophaneStlFileName,
   normalizeConstructorParams,
   signStlFileName,
   vaseStlFileName,
@@ -62,6 +64,7 @@ type SizeParam = Exclude<
   | "signChannelWidth"
   | "calibrationType"
   | "hasLid"
+  | "lithophaneBrightness"
 >;
 
 /**
@@ -238,6 +241,17 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, hasLid }));
   }
 
+  /**
+   * Браузер уже сжал фотографию до 150 × 150 и отдал яркость. Массив идёт в
+   * общее состояние как есть: API принимает те же 22 500 целых чисел, поэтому
+   * сервер не декодирует картинку повторно.
+   */
+  function updateLithophaneBrightness(lithophaneBrightness: number[]) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lithophaneBrightness }),
+    );
+  }
+
   /** Сброс возвращает к старту только текущую модель, не трогая остальные. */
   function resetParams() {
     setParams((current) =>
@@ -253,7 +267,9 @@ export function ConstructorClient({
                 ? DEFAULT_SIGN_PARAMS
                 : current.model === "box"
                   ? DEFAULT_BOX_PARAMS
-                  : DEFAULT_CALIBRATION_PARAMS),
+                  : current.model === "lithophane"
+                    ? DEFAULT_LITHOPHANE_PARAMS
+                    : DEFAULT_CALIBRATION_PARAMS),
       }),
     );
   }
@@ -304,9 +320,11 @@ export function ConstructorClient({
                 ? lampStlFileName(params)
                 : params.model === "box"
                   ? boxStlFileName(params)
-                  : params.model === "sign"
-                    ? signStlFileName(params)
-                    : calibrationStlFileName(params),
+                  : params.model === "lithophane"
+                    ? lithophaneStlFileName(params)
+                    : params.model === "sign"
+                      ? signStlFileName(params)
+                      : calibrationStlFileName(params),
         );
         link.hidden = true;
         document.body.appendChild(link);
@@ -391,9 +409,9 @@ export function ConstructorClient({
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300">
             Параметрические модели под ваш принтер: ваза с математическим узором,
             брелок с именем, абажур на патрон E27 или E14, светодиодная вывеска
-            с надписью, калибровочная башня для температуры или ретракта и
-            коробка-органайзер с сеткой и крышкой. Настройте размеры, проверьте
-            результат в 3D и скачайте STL.
+            с надписью, калибровочная башня для температуры или ретракта,
+            коробка-органайзер с сеткой и крышкой и литофан из фотографии.
+            Настройте размеры, проверьте результат в 3D и скачайте STL.
           </p>
         </div>
 
@@ -427,6 +445,7 @@ export function ConstructorClient({
           onKeychainShapeChange={updateKeychainShape}
           onLampMountChange={updateLampMount}
           onLampPatternChange={updateLampPattern}
+          onLithophaneBrightnessChange={updateLithophaneBrightness}
           onModelChange={updateModel}
           onParamChange={updateParam}
           onPatternChange={updatePattern}
@@ -480,6 +499,12 @@ export function ConstructorClient({
                   )}{" "}
                   {CALIBRATION_UNITS[params.calibrationType]} · {params.steps}{" "}
                   ступеней
+                </>
+              ) : params.model === "lithophane" ? (
+                <>
+                  {params.lithophaneWidth} × {params.lithophaneHeight} мм · рельеф{" "}
+                  {params.lithophaneMinThickness.toFixed(1)}–
+                  {params.lithophaneMaxThickness.toFixed(1)} мм
                 </>
               ) : (
                 <>

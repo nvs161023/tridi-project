@@ -28,6 +28,12 @@
  * сетка до 8 × 8 остаётся печатной даже на минимальной коробке. Крышка —
  * отдельная деталь с бортиком по периметру; она лежит рядом с корпусом в том же
  * STL, чтобы её можно было напечатать без поддержек.
+ *
+ * Литофан принимает фотографию, сжатую в браузере до сетки 150 × 150, и
+ * превращает яркость пикселей в толщину пластика: тёмные участки дают 3 мм,
+ * светлые — 0.8 мм. Размер панели ограничен 200 × 200 мм, чтобы вместе с
+ * рамкой она влезала на стол 220 × 220; толщины 0.4–2 и 1–6 мм оставляют
+ * запас на настройку контраста, но максимум всегда больше минимума.
  */
 
 /** Размерный параметр: границы, шаг и значение по умолчанию. */
@@ -70,6 +76,28 @@ export const CONSTRUCTOR_LIMITS = {
   boxHeight: { min: 30, max: 160, step: 5, defaultValue: 60, decimals: 0 },
   boxWall: { min: 0.8, max: 3, step: 0.1, defaultValue: 1.6, decimals: 1 },
   boxGrid: { min: 1, max: 8, step: 1, defaultValue: 2, decimals: 0 },
+  lithophaneWidth: { min: 40, max: 200, step: 5, defaultValue: 120, decimals: 0 },
+  lithophaneHeight: {
+    min: 40,
+    max: 200,
+    step: 5,
+    defaultValue: 80,
+    decimals: 0,
+  },
+  lithophaneMinThickness: {
+    min: 0.4,
+    max: 2,
+    step: 0.1,
+    defaultValue: 0.8,
+    decimals: 1,
+  },
+  lithophaneMaxThickness: {
+    min: 1,
+    max: 6,
+    step: 0.1,
+    defaultValue: 3,
+    decimals: 1,
+  },
 } as const satisfies Record<string, NumericLimit>;
 
 /** Типы моделей, которые умеет собирать конструктор. */
@@ -80,6 +108,7 @@ export const MODEL_TYPES = [
   "sign",
   "calibration",
   "box",
+  "lithophane",
 ] as const;
 
 export type ModelType = (typeof MODEL_TYPES)[number];
@@ -92,6 +121,7 @@ export const MODEL_TYPE_LABELS = {
   sign: "Вывеска",
   calibration: "Калибровка",
   box: "Коробки",
+  lithophane: "Литофан",
 } as const satisfies Record<ModelType, string>;
 
 /**
@@ -322,6 +352,38 @@ export type BoxParams = {
   hasLid: boolean;
 };
 
+/**
+ * Сторона сетки изображения. Браузер сжимает фотографию до 150 × 150 сразу
+ * после выбора файла: полный кадр в состоянии конструктора заставил бы
+ * React и three.js пересобирать миллионы вершин на каждое движение слайдера.
+ */
+export const LITHOPHANE_RESOLUTION = 150;
+
+/** Число пикселей в сжатом изображении: 150 × 150. */
+export const LITHOPHANE_PIXEL_COUNT = LITHOPHANE_RESOLUTION ** 2;
+
+/**
+ * Литофан: панель с рельефом фотографии и рамкой по периметру.
+ *
+ * Поля с префиксом `lithophane` не пересекаются с шириной брелока и высотой
+ * вазы в общем объекте ConstructorParams. Яркость хранится построчно сверху
+ * вниз, по 150 значений в строке: 0 — чёрный пиксель (толстый пластик),
+ * 255 — белый (тонкий). Массив передаётся в API как есть, без повторного
+ * декодирования картинки на сервере.
+ */
+export type LithophaneParams = {
+  /** Ширина панели с рамкой, мм. */
+  lithophaneWidth: number;
+  /** Высота панели с рамкой, мм. */
+  lithophaneHeight: number;
+  /** Толщина светлых участков, мм. */
+  lithophaneMinThickness: number;
+  /** Толщина тёмных участков и рамки, мм. */
+  lithophaneMaxThickness: number;
+  /** Яркость 22 500 пикселей: 150 × 150, значения 0–255. */
+  lithophaneBrightness: number[];
+};
+
 /** Значения, с которыми открывается конструктор. */
 export const DEFAULT_VASE_PARAMS: VaseParams = {
   height: CONSTRUCTOR_LIMITS.height.defaultValue,
@@ -384,6 +446,47 @@ export const DEFAULT_BOX_PARAMS: BoxParams = {
   hasLid: true,
 };
 
+/**
+ * Демонстрационный рельеф до загрузки фотографии.
+ *
+ * Радиальные кольца с мягкой виньеткой показывают, как яркость превращается
+ * в толщину: панель не выглядит пустой, а пользователь сразу видит рельеф.
+ * Массив создаётся один раз при импорте модуля и дальше не меняется.
+ */
+function createDemoLithophaneBrightness(): number[] {
+  const result: number[] = [];
+  const center = (LITHOPHANE_RESOLUTION - 1) / 2;
+
+  for (let row = 0; row < LITHOPHANE_RESOLUTION; row += 1) {
+    for (let column = 0; column < LITHOPHANE_RESOLUTION; column += 1) {
+      const x = (column - center) / center;
+      const y = (row - center) / center;
+      const radius = Math.sqrt(x * x + y * y);
+      const rings = 0.5 + 0.5 * Math.sin(radius * 7 * Math.PI);
+      const vignette = Math.max(0, 1 - radius * 0.55);
+      const value = 28 + vignette * (120 + 107 * rings);
+
+      result.push(Math.round(Math.min(255, Math.max(0, value))));
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Литофан по умолчанию: 120 × 80 мм, рельеф 0.8–3 мм и демонстрационная
+ * картинка. После загрузки фотографии массив заменяется яркостью кадра.
+ */
+export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
+  lithophaneWidth: CONSTRUCTOR_LIMITS.lithophaneWidth.defaultValue,
+  lithophaneHeight: CONSTRUCTOR_LIMITS.lithophaneHeight.defaultValue,
+  lithophaneMinThickness:
+    CONSTRUCTOR_LIMITS.lithophaneMinThickness.defaultValue,
+  lithophaneMaxThickness:
+    CONSTRUCTOR_LIMITS.lithophaneMaxThickness.defaultValue,
+  lithophaneBrightness: createDemoLithophaneBrightness(),
+};
+
 /** Стартовые диапазоны для переключения теста: значения не переносятся. */
 export const DEFAULT_CALIBRATION_VALUES = {
   temperature: { startValue: 230, endValue: 190 },
@@ -406,7 +509,8 @@ export type ConstructorParams = { model: ModelType } & VaseParams &
   LampParams &
   SignParams &
   CalibrationParams &
-  BoxParams;
+  BoxParams &
+  LithophaneParams;
 
 /** Стартовое состояние: открывается ваза, остальные модели ждут на вкладках. */
 export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
@@ -417,6 +521,7 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   ...DEFAULT_SIGN_PARAMS,
   ...DEFAULT_CALIBRATION_PARAMS,
   ...DEFAULT_BOX_PARAMS,
+  ...DEFAULT_LITHOPHANE_PARAMS,
 };
 
 /**
@@ -490,12 +595,52 @@ export function boxStlFileName(params: BoxParams): string {
   return `tridi-korobka-l${params.boxLength}-w${params.boxWidth}-h${params.boxHeight}-t${params.boxWall}-g${params.gridX}x${params.gridY}${lidSuffix}.stl`;
 }
 
+/**
+ * Имя файла STL для литофана.
+ *
+ * В имени только размеры и диапазон толщин: исходное имя фотографии может
+ * содержать кириллицу, а Content-Disposition должен оставаться простым ASCII.
+ * Значения уже выровнены normalizeLithophaneParams, поэтому лишних нулей нет.
+ */
+export function lithophaneStlFileName(params: LithophaneParams): string {
+  return `tridi-litofan-w${params.lithophaneWidth}-h${params.lithophaneHeight}-t${params.lithophaneMinThickness}-${params.lithophaneMaxThickness}.stl`;
+}
+
 /** Проверка типа модели из формы или API. */
 export function isModelType(value: unknown): value is ModelType {
   return (
     typeof value === "string" &&
     (MODEL_TYPES as readonly string[]).includes(value)
   );
+}
+
+/**
+ * Проверка сжатого изображения: ровно 150 × 150 целых значений 0–255.
+ *
+ * Строгая проверка нужна и API, и нормализации: массив другого размера дал бы
+ * дыры в сетке, а дробное или отрицательное число — неверную толщину.
+ */
+export function isLithophaneBrightness(value: unknown): value is number[] {
+  if (!Array.isArray(value) || value.length !== LITHOPHANE_PIXEL_COUNT) {
+    return false;
+  }
+
+  // Цикл по индексам, а не every(): разреженный массив every() пропускает
+  // дыры, и undefined попал бы в геометрию как NaN.
+  for (let index = 0; index < LITHOPHANE_PIXEL_COUNT; index += 1) {
+    const pixel = value[index];
+
+    if (
+      typeof pixel !== "number" ||
+      !Number.isInteger(pixel) ||
+      pixel < 0 ||
+      pixel > 255
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /** Проверка незнакомого значения из формы, ссылки или API. */
@@ -810,6 +955,54 @@ export function normalizeBoxParams(params: Partial<BoxParams>): BoxParams {
 }
 
 /**
+ * Проверяет и выравнивает параметры литофана.
+ *
+ * Размеры встают на шаг слайдеров, толщины зажимаются в свои границы.
+ * Максимум всегда остаётся хотя бы на один шаг выше минимума: иначе рельеф
+ * превратился бы в плоскую пластину. Массив яркости принимается только
+ * целым, ровно 150 × 150; испорченные данные заменяются демонстрационным
+ * рельефом, чтобы предпросмотр не падал.
+ */
+export function normalizeLithophaneParams(
+  params: Partial<LithophaneParams>,
+): LithophaneParams {
+  const lithophaneMinThickness = snap(
+    params.lithophaneMinThickness ??
+      DEFAULT_LITHOPHANE_PARAMS.lithophaneMinThickness,
+    CONSTRUCTOR_LIMITS.lithophaneMinThickness,
+  );
+  const minimumGap = CONSTRUCTOR_LIMITS.lithophaneMaxThickness.step;
+  const requestedMaxThickness = snap(
+    params.lithophaneMaxThickness ??
+      DEFAULT_LITHOPHANE_PARAMS.lithophaneMaxThickness,
+    CONSTRUCTOR_LIMITS.lithophaneMaxThickness,
+  );
+  const lithophaneMaxThickness =
+    requestedMaxThickness < lithophaneMinThickness + minimumGap
+      ? snap(
+          lithophaneMinThickness + minimumGap,
+          CONSTRUCTOR_LIMITS.lithophaneMaxThickness,
+        )
+      : requestedMaxThickness;
+
+  return {
+    lithophaneWidth: snap(
+      params.lithophaneWidth ?? DEFAULT_LITHOPHANE_PARAMS.lithophaneWidth,
+      CONSTRUCTOR_LIMITS.lithophaneWidth,
+    ),
+    lithophaneHeight: snap(
+      params.lithophaneHeight ?? DEFAULT_LITHOPHANE_PARAMS.lithophaneHeight,
+      CONSTRUCTOR_LIMITS.lithophaneHeight,
+    ),
+    lithophaneMinThickness,
+    lithophaneMaxThickness,
+    lithophaneBrightness: isLithophaneBrightness(params.lithophaneBrightness)
+      ? params.lithophaneBrightness
+      : DEFAULT_LITHOPHANE_PARAMS.lithophaneBrightness,
+  };
+}
+
+/**
  * Нормализует состояние конструктора вместе с выбранной моделью.
  *
  * Каждая группа полей проходит свою проверку: переключение вкладки не должно
@@ -829,5 +1022,6 @@ export function normalizeConstructorParams(
     ...normalizeSignParams(params),
     ...normalizeCalibrationParams(params),
     ...normalizeBoxParams(params),
+    ...normalizeLithophaneParams(params),
   };
 }

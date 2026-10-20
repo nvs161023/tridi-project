@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useId } from "react";
+import { useId, useState, type ChangeEvent } from "react";
 
 import { NumberSlider } from "@/components/constructor/NumberSlider";
 import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
@@ -11,10 +11,13 @@ import {
   CALIBRATION_UNITS,
   CALIBRATION_VALUE_LIMITS,
   CONSTRUCTOR_LIMITS,
+  DEFAULT_LITHOPHANE_PARAMS,
   KEYCHAIN_SHAPES,
   KEYCHAIN_SHAPE_LABELS,
   KEYCHAIN_TEXT_MAX_LENGTH,
   LAMP_MOUNTS,
+  LITHOPHANE_PIXEL_COUNT,
+  LITHOPHANE_RESOLUTION,
   LAMP_MOUNT_LABELS,
   MODEL_TYPE_LABELS,
   SIGN_CHANNEL_WIDTHS,
@@ -49,6 +52,7 @@ type SizeParam = Exclude<
   | "signChannelWidth"
   | "calibrationType"
   | "hasLid"
+  | "lithophaneBrightness"
 >;
 
 /** Ошибка экспорта и действие, которое поможет её исправить. */
@@ -81,6 +85,8 @@ type ParameterPanelProps = {
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
   onCalibrationTypeChange: (type: CalibrationType) => void;
   onHasLidChange: (hasLid: boolean) => void;
+  /** Готовая яркость 150 × 150 из canvas: 0 — чёрный, 255 — белый. */
+  onLithophaneBrightnessChange: (brightness: number[]) => void;
   onReset: () => void;
 };
 
@@ -126,6 +132,7 @@ const MODEL_CARDS: ModelCard[] = [
   { id: "sign", icon: "🪧", title: MODEL_TYPE_LABELS.sign },
   { id: "calibration", icon: "🌡️", title: MODEL_TYPE_LABELS.calibration },
   { id: "box", icon: "📦", title: MODEL_TYPE_LABELS.box },
+  { id: "lithophane", icon: "🖼️", title: MODEL_TYPE_LABELS.lithophane },
 ];
 
 /** Пояснение к выбранному силуэту: помогает выбрать форму без 3D-терминов. */
@@ -159,6 +166,95 @@ const CALIBRATION_TYPE_HINTS: Record<CalibrationType, string> = {
     "Длина ретракта на каждой ступени. Ищите пояс без паутинки и без пропусков подачи — это и есть рабочее значение.",
 };
 
+/** Сжатая картинка: яркость для API и маленькое превью для панели. */
+type LithophaneImage = {
+  brightness: number[];
+  preview: string;
+};
+
+/**
+ * Сжимает выбранный файл до 150 × 150 и считает яркость пикселей.
+ *
+ * Полное фото нельзя класть в состояние: декодирование многомегапиксельного
+ * кадра и передача его в three.js подвесили бы браузер. Canvas сразу уменьшает
+ * картинку до 150 × 150, поэтому в React попадают только 22 500 чисел. Фон
+ * заливается белым: прозрачные участки PNG не должны стать чёрными и
+ * превратиться в самый толстый пластик. Квадрат вырезается из центра кадра,
+ * чтобы не растягивать пропорции.
+ */
+async function compressLithophaneImage(
+  file: File,
+): Promise<LithophaneImage> {
+  // Пустой MIME встречается у некоторых систем для обычного JPG. Такой файл
+  // пропускаем до декодирования: canvas всё равно отклонит не-картинку.
+  if (file.type && !file.type.startsWith("image/")) {
+    throw new Error("Выберите файл изображения: PNG, JPG или WebP.");
+  }
+
+  const bitmap = await createImageBitmap(file);
+
+  try {
+    if (bitmap.width < 1 || bitmap.height < 1) {
+      throw new Error("Изображение пустое или повреждено.");
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = LITHOPHANE_RESOLUTION;
+    canvas.height = LITHOPHANE_RESOLUTION;
+
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+
+    if (!context) {
+      throw new Error("Браузер не смог подготовить canvas для изображения.");
+    }
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, LITHOPHANE_RESOLUTION, LITHOPHANE_RESOLUTION);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+
+    const sourceSize = Math.min(bitmap.width, bitmap.height);
+
+    context.drawImage(
+      bitmap,
+      (bitmap.width - sourceSize) / 2,
+      (bitmap.height - sourceSize) / 2,
+      sourceSize,
+      sourceSize,
+      0,
+      0,
+      LITHOPHANE_RESOLUTION,
+      LITHOPHANE_RESOLUTION,
+    );
+
+    const pixels = context.getImageData(
+      0,
+      0,
+      LITHOPHANE_RESOLUTION,
+      LITHOPHANE_RESOLUTION,
+    ).data;
+    const brightness = new Array<number>(LITHOPHANE_PIXEL_COUNT);
+
+    for (let index = 0; index < LITHOPHANE_PIXEL_COUNT; index += 1) {
+      const offset = index * 4;
+      // Воспринимаемая яркость, а не среднее RGB: зелёный вносит наибольший
+      // вклад, поэтому лица и трава не становятся неожиданно тёмными.
+      brightness[index] = Math.round(
+        0.2126 * pixels[offset] +
+          0.7152 * pixels[offset + 1] +
+          0.0722 * pixels[offset + 2],
+      );
+    }
+
+    return {
+      brightness,
+      preview: canvas.toDataURL("image/jpeg", 0.82),
+    };
+  } finally {
+    bitmap.close();
+  }
+}
+
 /**
  * Панель параметров модели.
  *
@@ -167,9 +263,10 @@ const CALIBRATION_TYPE_HINTS: Record<CalibrationType, string> = {
  * толщина, форма заготовки и имя. У светильника выбирают патрон и узор, у
  * вывески — надпись, кегль, выступ букв и ширину канала под ленту, у
  * калибровки — тест, диапазон значений и число ступеней, у коробки — сетку
- * ячеек, размеры, стенку и крышку. Компонент
- * не хранит состояние: значения приходят из ConstructorClient, поэтому
- * 3D-сцена и подписи всегда читают один и тот же объект параметров.
+ * ячеек, размеры, стенку и крышку, у литофана — фото, превью и толщины.
+ * Параметры компонент не хранит: они приходят из ConstructorClient, поэтому
+ * 3D-сцена и подписи всегда читают один и тот же объект. Локальное состояние
+ * есть только у загрузки изображения — текст ошибки и превью на время сеанса.
  */
 export function ParameterPanel({
   params,
@@ -190,6 +287,7 @@ export function ParameterPanel({
   onSignChannelWidthChange,
   onCalibrationTypeChange,
   onHasLidChange,
+  onLithophaneBrightnessChange,
   onReset,
 }: ParameterPanelProps) {
   const textInputId = useId();
@@ -198,6 +296,56 @@ export function ParameterPanel({
   const signTextInputId = useId();
   const signTextHintId = `${signTextInputId}-hint`;
   const signTextLength = Array.from(params.signText).length;
+  const lithophaneInputId = useId();
+  const lithophaneHintId = `${lithophaneInputId}-hint`;
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  /**
+   * Демонстрационный массив живёт в DEFAULT_LITHOPHANE_PARAMS и после сброса
+   * возвращается по ссылке. Сравнение ссылок показывает, загружено ли фото,
+   * не копируя 22 500 чисел при каждой отрисовке.
+   */
+  const hasUploadedImage =
+    params.lithophaneBrightness !==
+    DEFAULT_LITHOPHANE_PARAMS.lithophaneBrightness;
+
+  /**
+   * Читает файл, сразу сжимает его и отдаёт яркость наверх.
+   *
+   * Поле очищается до await: иначе повторный выбор того же файла не вызвал бы
+   * change. Ошибка остаётся в панели и не ломает уже загруженный рельеф.
+   */
+  async function handleLithophaneImageChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    setIsProcessingImage(true);
+    setImageError(null);
+
+    try {
+      const image = await compressLithophaneImage(file);
+
+      setImagePreview(image.preview);
+      onLithophaneBrightnessChange(image.brightness);
+    } catch (error) {
+      setImageError(
+        error instanceof Error
+          ? error.message
+          : "Не удалось обработать изображение. Попробуйте другой файл.",
+      );
+    } finally {
+      setIsProcessingImage(false);
+    }
+  }
 
   /** Границы и единица текущего калибровочного теста: у температуры и ретракта они разные. */
   const calibrationLimit = CALIBRATION_VALUE_LIMITS[params.calibrationType];
@@ -248,11 +396,20 @@ export function ParameterPanel({
                   value: `${params.gridX} × ${params.gridY}`,
                 },
               ]
-            : [
-                { label: "Кегль", value: `${params.signFontSize} мм` },
-                { label: "Выступ", value: `${params.signDepth} мм` },
-                { label: "Канал", value: `${params.signChannelWidth} мм` },
-              ];
+            : params.model === "lithophane"
+              ? [
+                  { label: "Ширина", value: `${params.lithophaneWidth} мм` },
+                  { label: "Высота", value: `${params.lithophaneHeight} мм` },
+                  {
+                    label: "Рельеф",
+                    value: `${params.lithophaneMinThickness.toFixed(1)}–${params.lithophaneMaxThickness.toFixed(1)} мм`,
+                  },
+                ]
+              : [
+                  { label: "Кегль", value: `${params.signFontSize} мм` },
+                  { label: "Выступ", value: `${params.signDepth} мм` },
+                  { label: "Канал", value: `${params.signChannelWidth} мм` },
+                ];
 
   return (
     <section
@@ -841,6 +998,137 @@ export function ParameterPanel({
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
             Корпус и крышка — две отдельные замкнутые детали. Перегородки входят
             в дно и стенки, поэтому после печати коробка не расслаивается.
+          </p>
+        </>
+      ) : params.model === "lithophane" ? (
+        <>
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Фотография
+            </legend>
+
+            <div className="mt-3 flex items-start gap-3">
+              {hasUploadedImage && imagePreview ? (
+                <div
+                  aria-label="Превью загруженного изображения"
+                  className="h-24 w-24 shrink-0 rounded-2xl border border-white/15 bg-cover bg-center"
+                  role="img"
+                  style={{ backgroundImage: `url(${imagePreview})` }}
+                />
+              ) : (
+                <div
+                  aria-hidden
+                  className="flex h-24 w-24 shrink-0 flex-col items-center justify-center rounded-2xl border border-dashed border-white/20 bg-slate-950/60 text-center text-[0.65rem] leading-tight font-medium tracking-wide text-slate-300 uppercase"
+                >
+                  <span className="text-2xl">🖼️</span>
+                  <span className="mt-1">
+                    {LITHOPHANE_RESOLUTION} × {LITHOPHANE_RESOLUTION}
+                  </span>
+                </div>
+              )}
+
+              <div className="min-w-0 flex-1">
+                <label
+                  className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-blue-400/60 bg-blue-500/15 px-3 text-center text-sm font-semibold text-white transition-colors hover:bg-blue-500/25 focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
+                  htmlFor={lithophaneInputId}
+                >
+                  {isProcessingImage
+                    ? "Сжимаем…"
+                    : hasUploadedImage
+                      ? "Заменить фото"
+                      : "Загрузить фото"}
+                </label>
+                <input
+                  accept="image/*"
+                  aria-describedby={lithophaneHintId}
+                  className="sr-only"
+                  disabled={isProcessingImage}
+                  id={lithophaneInputId}
+                  onChange={handleLithophaneImageChange}
+                  type="file"
+                />
+                <p
+                  className="mt-2 text-xs leading-relaxed text-slate-300"
+                  id={lithophaneHintId}
+                >
+                  PNG, JPG или WebP. Браузер сразу сжимает кадр до 150 × 150,
+                  поэтому большой файл не подвесит предпросмотр. Берётся
+                  центральная квадратная область.
+                </p>
+              </div>
+            </div>
+
+            {imageError ? (
+              <p
+                className="mt-3 rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
+                role="alert"
+              >
+                {imageError}
+              </p>
+            ) : null}
+
+            <p className="mt-3 text-xs leading-relaxed text-slate-300">
+              {hasUploadedImage
+                ? "Фото загружено. Тёмные участки станут толще, светлые — тоньше."
+                : "Пока показан демонстрационный рельеф. Загрузите фото, чтобы заменить его."}
+            </p>
+          </fieldset>
+
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <NumberSlider
+              hint="Ширина панели вместе с рамкой. 120–160 мм удобно печатать на столе 220 × 220."
+              label="Ширина"
+              max={CONSTRUCTOR_LIMITS.lithophaneWidth.max}
+              min={CONSTRUCTOR_LIMITS.lithophaneWidth.min}
+              onChange={(value) => onParamChange("lithophaneWidth", value)}
+              step={CONSTRUCTOR_LIMITS.lithophaneWidth.step}
+              unit="мм"
+              value={params.lithophaneWidth}
+            />
+
+            <NumberSlider
+              hint="Высота панели вместе с рамкой. Пропорции фото подстраиваются под этот размер."
+              label="Высота"
+              max={CONSTRUCTOR_LIMITS.lithophaneHeight.max}
+              min={CONSTRUCTOR_LIMITS.lithophaneHeight.min}
+              onChange={(value) => onParamChange("lithophaneHeight", value)}
+              step={CONSTRUCTOR_LIMITS.lithophaneHeight.step}
+              unit="мм"
+              value={params.lithophaneHeight}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.lithophaneMinThickness.decimals}
+              hint="Толщина светлых участков. 0.8 мм пропускает свет, но остаётся прочной; ниже 0.6 мм пластик легко ломается."
+              label="Толщина светлого"
+              max={CONSTRUCTOR_LIMITS.lithophaneMinThickness.max}
+              min={CONSTRUCTOR_LIMITS.lithophaneMinThickness.min}
+              onChange={(value) =>
+                onParamChange("lithophaneMinThickness", value)
+              }
+              step={CONSTRUCTOR_LIMITS.lithophaneMinThickness.step}
+              unit="мм"
+              value={params.lithophaneMinThickness}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.lithophaneMaxThickness.decimals}
+              hint="Толщина тёмных участков и рамки. Чем больше разница с минимумом, тем контрастнее рельеф, но дольше печать."
+              label="Толщина тёмного"
+              max={CONSTRUCTOR_LIMITS.lithophaneMaxThickness.max}
+              min={CONSTRUCTOR_LIMITS.lithophaneMaxThickness.min}
+              onChange={(value) =>
+                onParamChange("lithophaneMaxThickness", value)
+              }
+              step={CONSTRUCTOR_LIMITS.lithophaneMaxThickness.step}
+              unit="мм"
+              value={params.lithophaneMaxThickness}
+            />
+          </div>
+
+          <p className="mt-4 text-xs leading-relaxed text-slate-300">
+            Рамка шириной 6 мм идёт по периметру на максимальной толщине.
+            Панель печатается плашмя: рельеф смотрит вверх, поддержки не нужны.
           </p>
         </>
       ) : (

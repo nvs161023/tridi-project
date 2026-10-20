@@ -31,6 +31,7 @@ import {
 } from "@/lib/constructor/keychain-geometry";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import { createLampGeometry } from "@/lib/constructor/lamp-geometry";
+import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
 import {
   SIGN_FONT_URL,
   createSignGeometry,
@@ -40,7 +41,7 @@ import { createVaseProfile } from "@/lib/constructor/vase-profile";
 
 /** Параметры выбранной модели: сцена пересобирается при любом изменении. */
 type ViewportProps = {
-  /** Все параметры выбранной модели: ваза, брелок, светильник, вывеска, калибровка или коробка. */
+  /** Все параметры выбранной модели: ваза, брелок, светильник, вывеска, калибровка, коробка или литофан. */
   params: ConstructorParams;
 };
 
@@ -443,6 +444,71 @@ function BoxModel({
   );
 }
 
+type LithophaneModelProps = {
+  geometry: BufferGeometry;
+  width: number;
+  height: number;
+  minThickness: number;
+  maxThickness: number;
+};
+
+/**
+ * Литофан стоит на столе лицевой стороной к камере.
+ *
+ * Геометрия уже построена в плоскости XY нижней кромкой на Y = 0, поэтому
+ * поворот не нужен: рамка и рельеф смотрят в +Z. Материал почти белый и
+ * матовый — так на выступах читается светотень, а тонкие участки выглядят
+ * светлее. Тень пересчитывается при смене размеров и толщин: каждая правка
+ * меняет силуэт и глубину рельефа.
+ */
+function LithophaneModel({
+  geometry,
+  width,
+  height,
+  minThickness,
+  maxThickness,
+}: LithophaneModelProps) {
+  const footprint = Math.max(width, height);
+
+  return (
+    <group>
+      <mesh castShadow geometry={geometry} receiveShadow>
+        <meshStandardMaterial
+          color="#f1f5f9"
+          metalness={0.02}
+          roughness={0.48}
+        />
+      </mesh>
+
+      {/* Тёмный пол: на нём читаются контактные тени. */}
+      <mesh
+        position={[0, -0.3, 0]}
+        receiveShadow
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
+        <circleGeometry args={[Math.max(footprint * 2.4, 400), 64]} />
+        <meshStandardMaterial color="#0b1220" roughness={1} />
+      </mesh>
+
+      <gridHelper
+        args={[Math.max(footprint * 4, 1200), 24, "#1e293b", "#0f172a"]}
+        position={[0, 0.01, 0]}
+      />
+
+      <ContactShadows
+        blur={2.6}
+        far={Math.max(maxThickness * 24, 120)}
+        frames={1}
+        key={`lithophane-${width}-${height}-${minThickness}-${maxThickness}`}
+        opacity={0.5}
+        position={[0, 0.02, 0]}
+        resolution={512}
+        scale={Math.max(footprint * 2.8, 480)}
+      />
+    </group>
+  );
+}
+
 type SignModelProps = {
   geometry: BufferGeometry;
   fontSize: number;
@@ -642,6 +708,14 @@ function Scene({ params, geometry, framing }: SceneProps) {
           wall={params.boxWall}
           width={params.boxWidth}
         />
+      ) : params.model === "lithophane" ? (
+        <LithophaneModel
+          geometry={geometry}
+          height={params.lithophaneHeight}
+          maxThickness={params.lithophaneMaxThickness}
+          minThickness={params.lithophaneMinThickness}
+          width={params.lithophaneWidth}
+        />
       ) : params.model === "sign" ? (
         <SignModel
           channelWidth={params.signChannelWidth}
@@ -767,6 +841,10 @@ export function Viewport({ params }: ViewportProps) {
       return createBoxGeometry(params);
     }
 
+    if (params.model === "lithophane") {
+      return createLithophaneGeometry(params);
+    }
+
     return createVaseGeometry(createVaseProfile(params), params);
   }, [font, params]);
 
@@ -820,6 +898,14 @@ export function Viewport({ params }: ViewportProps) {
       };
     }
 
+    if (params.model === "lithophane") {
+      return {
+        height: params.lithophaneHeight,
+        footprint: params.lithophaneWidth,
+        flat: false,
+      };
+    }
+
     geometry.computeBoundingBox();
     const box = geometry.boundingBox;
 
@@ -844,7 +930,9 @@ export function Viewport({ params }: ViewportProps) {
           ? `${params.lampHeight} × Ø ${params.lampDiameter} мм`
           : params.model === "box"
             ? `${params.boxLength} × ${params.boxWidth} × ${params.boxHeight} мм`
-            : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
+            : params.model === "lithophane"
+              ? `${params.lithophaneWidth} × ${params.lithophaneHeight} × ${params.lithophaneMaxThickness.toFixed(1)} мм`
+              : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
 
   const ariaLabel =
     params.model === "vase"
@@ -857,7 +945,9 @@ export function Viewport({ params }: ViewportProps) {
             ? `3D-предпросмотр калибровочной башни «${CALIBRATION_TYPE_LABELS[params.calibrationType]}» на ${params.steps} ступеней от ${params.startValue} до ${params.endValue} ${CALIBRATION_UNITS[params.calibrationType]}`
             : params.model === "box"
               ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
-              : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
+              : params.model === "lithophane"
+                ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров`
+                : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
     <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950 sm:h-[32rem] lg:h-[38rem]">
