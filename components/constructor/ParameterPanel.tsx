@@ -58,6 +58,7 @@ type SizeParam = Exclude<
   | "signText"
   | "signFont"
   | "signChannelWidth"
+  | "signBaseMount"
   | "calibrationType"
   | "hasLid"
   | "lithophaneBrightness"
@@ -116,6 +117,7 @@ type ParameterPanelProps = {
   onSignTextChange: (text: string) => void;
   onSignFontChange: (font: SignFont) => void;
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
+  onSignBaseMountChange: (mount: boolean) => void;
   onCalibrationTypeChange: (type: CalibrationType) => void;
   onHasLidChange: (hasLid: boolean) => void;
   /** Готовая яркость 150 × 150 из canvas: 0 — чёрный, 255 — белый. */
@@ -416,6 +418,7 @@ export function ParameterPanel({
   onSignTextChange,
   onSignFontChange,
   onSignChannelWidthChange,
+  onSignBaseMountChange,
   onCalibrationTypeChange,
   onHasLidChange,
   onLithophaneBrightnessChange,
@@ -486,13 +489,13 @@ export function ParameterPanel({
   /**
    * Заголовок над компактными кнопками. У светильника и вывески файлов
    * несколько — детали печатаются по отдельности, — поэтому список кнопок
-   * подписан: иначе буквы «Т» и «Р» выглядели бы загадочно.
+   * подписан: иначе «1 · крышка» и «2 · лицо» выглядели бы загадочно.
    */
   const partsHeading =
     params.model === "lamp"
       ? "Одна деталь"
       : params.model === "sign"
-        ? "Одна буква"
+        ? "Детали блоков"
         : null;
 
   /** Три главных размера выбранной модели для нижней сводки. */
@@ -1355,9 +1358,9 @@ export function ParameterPanel({
                 className="text-xs leading-relaxed text-slate-300"
                 id={signTextHintId}
               >
-                Кириллица, латиница, цифры и знаки. Каждая буква — отдельная
-                полая деталь: лицо 2 мм, стенки 1.8 мм, открытая камера под ленту
-                сзади.
+                Кириллица, латиница, цифры и знаки. Надпись делится на блоки: в
+                каждом — объёмные полые буквы на общей плите, лицо 2 мм, стенки
+                1.8 мм и открытая камера под ленту сзади.
               </p>
               <span className="shrink-0 text-xs tabular-nums text-slate-300">
                 {signTextLength}/{SIGN_TEXT_MAX_LENGTH}
@@ -1428,8 +1431,9 @@ export function ParameterPanel({
 
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
               Лента ложится в открытую камеру сзади буквы: стенки держат её по
-              краям, а лицо остаётся сплошным. Провод идёт по тыльной стороне
-              надписи — крепление выбирайте под свою ленту.
+              краям, а лицо остаётся сплошным. На стыках блоков есть сквозной
+              канал — по нему лента переходит из блока в блок, а провод уходит
+              по тыльной стороне надписи.
             </p>
           </fieldset>
 
@@ -1466,13 +1470,43 @@ export function ParameterPanel({
               unit="мм"
               value={params.signLetterGap}
             />
+
+            <NumberSlider
+              hint="Сколько букв печатается одним блоком. Блок — это лицо с плитой и шипом и отдельная задняя крышка: 2–3 буквы удобно вешать, по одной — если буквы крупные."
+              label="Букв в блоке"
+              max={CONSTRUCTOR_LIMITS.signBlockSize.max}
+              min={CONSTRUCTOR_LIMITS.signBlockSize.min}
+              onChange={(value) => onParamChange("signBlockSize", value)}
+              step={CONSTRUCTOR_LIMITS.signBlockSize.step}
+              unit="шт."
+              value={params.signBlockSize}
+            />
           </div>
 
+          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+            <input
+              checked={params.signBaseMount}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-violet-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onChange={(event) => onSignBaseMountChange(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-200">
+                Общее основание
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                Плита под буквами блока: буквы стоят на ней, а не на узкой рейке.
+                Без основания блок легче, но плита ниже и шип меньше.
+              </span>
+            </span>
+          </label>
+
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Буквы печатаются по одной и крепятся на стену или на общий профиль:
-            каждая деталь полая, с лицом 2 мм и стенками 1.8 мм. Слишком тонкие
-            штрихи — например, у «I» или «1» — собираются сплошными: камера под
-            ленту там не помещается.
+            Блок печатается двумя деталями: лицо с буквами на плите и задняя
+            крышка с бортиком. Плиты соседей стыкуются шипом и пазом, а за плитой
+            на стыке проходит сквозной канал под ленту. Слишком тонкие штрихи —
+            например, у «I» или «1» — собираются сплошными: камера под ленту там
+            не помещается.
           </p>
         </>
       )}

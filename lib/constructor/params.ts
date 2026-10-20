@@ -73,6 +73,8 @@ export const CONSTRUCTOR_LIMITS = {
   // Меньше 11 мм полость буквы не вмещает ленту: 11 − 2 мм лица = 9 мм канала.
   signDepth: { min: 11, max: 40, step: 1, defaultValue: 18, decimals: 0 },
   signLetterGap: { min: 2, max: 20, step: 1, defaultValue: 6, decimals: 0 },
+  // Сколько букв печатается одним блоком: больше пяти деталь неудобно вешать.
+  signBlockSize: { min: 1, max: 5, step: 1, defaultValue: 3, decimals: 0 },
   calibrationSteps: { min: 2, max: 10, step: 1, defaultValue: 5, decimals: 0 },
   boxLength: { min: 60, max: 220, step: 5, defaultValue: 140, decimals: 0 },
   boxWidth: { min: 60, max: 220, step: 5, defaultValue: 100, decimals: 0 },
@@ -324,6 +326,24 @@ export const SIGN_CHANNEL_WIDTHS = [8, 10] as const;
 export type SignChannelWidth = (typeof SIGN_CHANNEL_WIDTHS)[number];
 
 /**
+ * Детали блока вывески.
+ *
+ * Блок печатается двумя деталями: `face` — буквы на общей плите с шипом и
+ * пазом, `cover` — задняя крышка с бортиком, который входит в камеру буквы.
+ * Ключи латинские: они попадают в имя STL-файла, поэтому кириллица в заголовок
+ * ответа не просачивается.
+ */
+export const SIGN_PARTS = ["face", "cover"] as const;
+
+export type SignPart = (typeof SIGN_PARTS)[number];
+
+/** Подписи деталей для панели и имён файлов. */
+export const SIGN_PART_LABELS = {
+  face: "Лицо",
+  cover: "Крышка",
+} as const satisfies Record<SignPart, string>;
+
+/**
  * Шрифты вывески.
  *
  * Все три файла лежат в public/fonts в legacy-формате three.js и покрывают
@@ -459,10 +479,12 @@ export type LampParams = {
 };
 
 /**
- * Настройки вывески: надпись, кегль, глубина и канал под ленту.
+ * Настройки вывески: надпись, кегль, глубина, канал под ленту и блоки.
  *
- * Каждая буква печатается отдельной полой деталью: лицо пропускает свет,
- * стенка держит форму, а внутренняя полость служит каналом под ленту.
+ * Надпись делится на блоки по signBlockSize букв. Каждый блок печатается
+ * двумя деталями: лицо (объёмные полые буквы на общей плите) и задняя крышка.
+ * Плита несёт шип и паз для стыка с соседними блоками, а на стыке остаётся
+ * сквозной канал под ленту.
  */
 export type SignParams = {
   /** Надпись на вывеске, до 15 символов; пустая строка означает «нет букв». */
@@ -477,6 +499,10 @@ export type SignParams = {
   signChannelWidth: SignChannelWidth;
   /** Зазор между соседними буквами при сборке строки, мм. */
   signLetterGap: number;
+  /** Сколько букв печатается одним блоком: от 1 до 5. */
+  signBlockSize: number;
+  /** Общее основание под буквами блока: плита вместо узкой рейки. */
+  signBaseMount: boolean;
 };
 
 
@@ -609,7 +635,7 @@ export const DEFAULT_LAMP_PARAMS: LampParams = {
   lampMount: "e27",
 };
 
-/** Вывеска по умолчанию: короткое имя бренда, Roboto Bold и канал 8 мм. */
+/** Вывеска по умолчанию: короткое имя бренда, Roboto Bold, канал 8 мм, блоки по три буквы. */
 export const DEFAULT_SIGN_PARAMS: SignParams = {
   signText: "ТРИ ДИ",
   signFont: "sans-bold",
@@ -617,6 +643,8 @@ export const DEFAULT_SIGN_PARAMS: SignParams = {
   signDepth: CONSTRUCTOR_LIMITS.signDepth.defaultValue,
   signChannelWidth: 8,
   signLetterGap: CONSTRUCTOR_LIMITS.signLetterGap.defaultValue,
+  signBlockSize: CONSTRUCTOR_LIMITS.signBlockSize.defaultValue,
+  signBaseMount: true,
 };
 
 
@@ -815,17 +843,80 @@ export function lampStlFileName(params: LampParams, part: LampPart = "all"): str
 }
 
 /**
- * Имя файла STL для вывески.
+ * Латинская транслитерация надписи для имени файла.
  *
- * Текст в имя не попадает: кириллица требует filename*=UTF-8, а запасное имя
- * всё равно должно остаться латинским. Шрифт, кегль, выступ и канал описывают
- * заготовку однозначно, номер буквы (`b1`, `b2` …) — отдельную деталь.
- * Номера в имени человеческие, с единицы, хотя в API буква адресуется с нуля.
+ * Кириллица в `Content-Disposition` требует `filename*=UTF-8`, а запасное имя
+ * всё равно должно остаться латинским, поэтому надпись переводится посимвольно.
+ * Таблица — практическая транслитерация без диакритики: «ё» → e, «й» → i,
+ * «ъ» и «ь» пропускаются. Знаки препинания и эмодзи в имя не попадают, поэтому
+ * файл остаётся валидным при любой надписи.
  */
-export function signStlFileName(params: SignParams, letterIndex: number | null = null): string {
-  const letterSuffix = letterIndex === null ? "" : `-b${letterIndex + 1}`;
+const SIGN_FILE_TRANSLIT: Record<string, string> = {
+  а: "a",
+  б: "b",
+  в: "v",
+  г: "g",
+  д: "d",
+  е: "e",
+  ё: "e",
+  ж: "zh",
+  з: "z",
+  и: "i",
+  й: "i",
+  к: "k",
+  л: "l",
+  м: "m",
+  н: "n",
+  о: "o",
+  п: "p",
+  р: "r",
+  с: "s",
+  т: "t",
+  у: "u",
+  ф: "f",
+  х: "kh",
+  ц: "ts",
+  ч: "ch",
+  ш: "sh",
+  щ: "shch",
+  ъ: "",
+  ы: "y",
+  ь: "",
+  э: "e",
+  ю: "yu",
+  я: "ya",
+};
 
-  return `tridi-vyveska-${params.signFont}-s${params.signFontSize}-d${params.signDepth}-c${params.signChannelWidth}${letterSuffix}.stl`;
+/** Латинский слаг надписи: пустая надпись превращается в «nadpis». */
+function signFileSlug(signText: string): string {
+  const letters: string[] = [];
+
+  for (const char of Array.from(signText.toLowerCase())) {
+    const latin = /[a-z0-9]/.test(char) ? char : SIGN_FILE_TRANSLIT[char];
+
+    if (latin) {
+      letters.push(latin);
+    }
+  }
+
+  const slug = letters.join("").slice(0, 16);
+
+  return slug.length > 0 ? slug : "nadpis";
+}
+
+/**
+ * Имя файла STL для блока вывески.
+ *
+ * В имени — надпись латиницей, номер блока с единицы и деталь: `face` (лицо
+ * с буквами и плитой) или `cover` (задняя крышка). В API блок адресуется с
+ * нуля, но человеку привычнее считать блоки с первого.
+ */
+export function signStlFileName(
+  params: SignParams,
+  blockIndex: number,
+  part: SignPart,
+): string {
+  return `tridi-vyveska-${signFileSlug(params.signText)}-b${blockIndex + 1}-${part}.stl`;
 }
 
 
@@ -1015,6 +1106,11 @@ export function isSignFont(value: unknown): value is SignFont {
   return typeof value === "string" && (SIGN_FONTS as readonly string[]).includes(value);
 }
 
+/** Проверка детали блока вывески из запроса: «face» или «cover». */
+export function isSignPart(value: unknown): value is SignPart {
+  return typeof value === "string" && (SIGN_PARTS as readonly string[]).includes(value);
+}
+
 /** Проверка вида калибровочного теста из формы или API. */
 export function isCalibrationType(value: unknown): value is CalibrationType {
   return (
@@ -1069,8 +1165,8 @@ export function isValidSignText(value: unknown): value is string {
 /**
  * Буквы надписи: по одной на каждый непробельный символ.
  *
- * `index` — позиция буквы в надписи без пробелов: 0 — первая. Именно она уходит
- * в API как `letter`, поэтому список в интерфейсе, имена файлов и сборка
+ * `index` — позиция буквы в надписи без пробелов: 0 — первая. По ней блоки
+ * делятся на группы, поэтому список в интерфейсе, имена файлов и сборка
  * геометрии не могут разойтись: все берут буквы отсюда. Пробелы пропускаются —
  * у них нет контуров, и отдельной детали для них не бывает.
  */
@@ -1078,6 +1174,32 @@ export function listSignLetters(signText: string): { index: number; char: string
   return Array.from(signText.trim())
     .filter((char) => char !== " ")
     .map((char, index) => ({ char, index }));
+}
+
+/**
+ * Блоки надписи: буквы, которые печатаются одной деталью.
+ *
+ * Размер блока приходит из signBlockSize и зажат в 1–5, поэтому последний блок
+ * может быть короче остальных. Номер блока (`index`) уходит в API как
+ * `blockIndex` — с нуля, как и номера букв. Пустая надпись даёт пустой список:
+ * собирать блоки не из чего.
+ */
+export function listSignBlocks(
+  signText: string,
+  blockSize: number,
+): { index: number; letters: { index: number; char: string }[] }[] {
+  const letters = listSignLetters(signText);
+  const size = Math.max(1, Math.round(blockSize));
+  const blocks: { index: number; letters: { index: number; char: string }[] }[] = [];
+
+  for (let start = 0; start < letters.length; start += size) {
+    blocks.push({
+      index: blocks.length,
+      letters: letters.slice(start, start + size),
+    });
+  }
+
+  return blocks;
 }
 
 
@@ -1258,7 +1380,8 @@ export function normalizeLampParams(params: Partial<LampParams>): LampParams {
  *
  * Текст очищается от символов вне шрифта и обрезается до 15 знаков. Ширина
  * канала — только 8 или 10 мм: канал строится под конкретную ленту, и
- * промежуточное значение дало бы люфт или зажим.
+ * промежуточное значение дало бы люфт или зажим. Размер блока выравнивается по
+ * шагу 1 и зажимается в 1–5, а общее основание принимается только как boolean.
  */
 export function normalizeSignParams(params: Partial<SignParams>): SignParams {
   return {
@@ -1281,6 +1404,14 @@ export function normalizeSignParams(params: Partial<SignParams>): SignParams {
       params.signLetterGap ?? DEFAULT_SIGN_PARAMS.signLetterGap,
       CONSTRUCTOR_LIMITS.signLetterGap,
     ),
+    signBlockSize: snap(
+      params.signBlockSize ?? DEFAULT_SIGN_PARAMS.signBlockSize,
+      CONSTRUCTOR_LIMITS.signBlockSize,
+    ),
+    signBaseMount:
+      typeof params.signBaseMount === "boolean"
+        ? params.signBaseMount
+        : DEFAULT_SIGN_PARAMS.signBaseMount,
   };
 }
 

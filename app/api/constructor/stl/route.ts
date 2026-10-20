@@ -28,13 +28,14 @@ import {
   isLithophaneBrightness,
   isSignChannelWidth,
   isSignFont,
+  isSignPart,
   isVasePattern,
   isVaseShape,
   isValidKeychainText,
   isValidSignText,
   keychainStlFileName,
   lampStlFileName,
-  listSignLetters,
+  listSignBlocks,
   lithophaneStlFileName,
   normalizeBoxParams,
   normalizeCalibrationParams,
@@ -53,6 +54,7 @@ import {
   type LampPart,
   type LithophaneParams,
   type SignParams,
+  type SignPart,
   type VaseParams,
 } from "@/lib/constructor/params";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
@@ -65,8 +67,7 @@ import { createLampGeometry } from "@/lib/constructor/lamp-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
 import {
   SIGN_FONT_URLS,
-  createSignGeometry,
-  createSignLetterGeometry,
+  createSignBlockGeometry,
 } from "@/lib/constructor/sign-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
@@ -341,20 +342,21 @@ function parseLampParams(
 /**
  * Строгая проверка параметров вывески.
  *
- * Надпись — до 15 символов из набора шрифта, но не пустая: каждая буква стала
- * отдельной деталью, и из пустой строки собирать нечего. Шрифт выбирается из
- * списка: имя файла подставляется только из SIGN_FONT_URLS, поэтому тело
- * запроса не может прочитать произвольный путь с диска. Кегль, глубина и зазор
- * проверяются по границам, ширина канала — по списку: ленты другой ширины не
- * бывает. Геометрия сама уменьшит буквы, если строка не влезает в 800 мм.
+ * Надпись — до 15 символов из набора шрифта, но не пустая: из пустой строки не
+ * собрать ни одного блока. Шрифт выбирается из списка: имя файла подставляется
+ * только из SIGN_FONT_URLS, поэтому тело запроса не может прочитать
+ * произвольный путь с диска. Кегль, глубина, зазор и размер блока проверяются
+ * по границам, ширина канала — по списку: ленты другой ширины не бывает.
+ * Геометрия сама уменьшит буквы, если строка не влезает в 800 мм.
  *
- * `letter` — номер буквы с нуля, по listSignLetters; null или отсутствие
- * означает всю надпись одной сеткой. Номер за границами строки отклоняется,
- * иначе клиент получил бы пустой STL вместо ошибки.
+ * `blockIndex` и `signPart` обязательны: каждая деталь печатается отдельным
+ * файлом — лицо блока или его крышка. Номер блока считается по listSignBlocks,
+ * то есть по тем же правилам, что и в интерфейсе; номер вне списка и незнакомая
+ * деталь отклоняются, иначе клиент получил бы пустой STL вместо ошибки.
  */
 function parseSignParams(
   body: Record<string, unknown>,
-): { params: SignParams; letter: number | null } | null {
+): { params: SignParams; block: number; part: SignPart } | null {
   const {
     signText,
     signFont = DEFAULT_SIGN_PARAMS.signFont,
@@ -362,7 +364,10 @@ function parseSignParams(
     signDepth,
     signChannelWidth,
     signLetterGap = DEFAULT_SIGN_PARAMS.signLetterGap,
-    letter = null,
+    signBlockSize = DEFAULT_SIGN_PARAMS.signBlockSize,
+    signBaseMount = DEFAULT_SIGN_PARAMS.signBaseMount,
+    blockIndex,
+    signPart,
   } = body;
 
   if (
@@ -383,7 +388,17 @@ function parseSignParams(
       signLetterGap,
       CONSTRUCTOR_LIMITS.signLetterGap.min,
       CONSTRUCTOR_LIMITS.signLetterGap.max,
-    )
+    ) ||
+    !isNumberInRange(
+      signBlockSize,
+      CONSTRUCTOR_LIMITS.signBlockSize.min,
+      CONSTRUCTOR_LIMITS.signBlockSize.max,
+    ) ||
+    !Number.isInteger(signBlockSize) ||
+    typeof signBaseMount !== "boolean" ||
+    typeof blockIndex !== "number" ||
+    !Number.isInteger(blockIndex) ||
+    !isSignPart(signPart)
   ) {
     return null;
   }
@@ -395,25 +410,16 @@ function parseSignParams(
     signDepth,
     signChannelWidth,
     signLetterGap,
+    signBlockSize,
+    signBaseMount,
   });
-  const letters = listSignLetters(params.signText);
+  const blocks = listSignBlocks(params.signText, params.signBlockSize);
 
-  if (letters.length === 0) {
+  if (blocks.length === 0 || blockIndex < 0 || blockIndex >= blocks.length) {
     return null;
   }
 
-  if (letter !== null) {
-    if (
-      typeof letter !== "number" ||
-      !Number.isInteger(letter) ||
-      letter < 0 ||
-      letter >= letters.length
-    ) {
-      return null;
-    }
-  }
-
-  return { params, letter };
+  return { params, block: blockIndex, part: signPart };
 }
 
 /**
@@ -591,7 +597,7 @@ type ParsedConstructorRequest =
   | { model: "vase"; params: VaseParams }
   | { model: "keychain"; params: KeychainParams }
   | { model: "lamp"; params: LampParams; part: LampPart }
-  | { model: "sign"; params: SignParams; letter: number | null }
+  | { model: "sign"; params: SignParams; block: number; part: SignPart }
   | { model: "calibration"; params: CalibrationParams }
   | { model: "box"; params: BoxParams }
   | { model: "lithophane"; params: LithophaneParams };
@@ -749,7 +755,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, детали и форму основания светильника, надпись вывески (нужна хотя бы одна буква), диапазон калибровки, ячейки коробки или изображение литофана.",
+      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, детали и форму основания светильника, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, диапазон калибровки, ячейки коробки или изображение литофана.",
     );
   }
 
@@ -770,16 +776,12 @@ export async function POST(request: Request): Promise<Response> {
               : parsed.model === "keychain"
                 ? createKeychainGeometry(parsed.params, await loadFont(KEYCHAIN_FONT_URL))
                 : parsed.model === "sign"
-                  ? parsed.letter === null
-                    ? createSignGeometry(
-                        parsed.params,
-                        await loadFont(SIGN_FONT_URLS[parsed.params.signFont]),
-                      )
-                    : createSignLetterGeometry(
-                        parsed.params,
-                        await loadFont(SIGN_FONT_URLS[parsed.params.signFont]),
-                        parsed.letter,
-                      )
+                  ? createSignBlockGeometry(
+                      parsed.params,
+                      await loadFont(SIGN_FONT_URLS[parsed.params.signFont]),
+                      parsed.block,
+                      parsed.part,
+                    )
                   : createCalibrationGeometry(
                       parsed.params,
                       await loadFont(KEYCHAIN_FONT_URL),
@@ -805,7 +807,7 @@ export async function POST(request: Request): Promise<Response> {
                 : parsed.model === "lithophane"
                   ? lithophaneStlFileName(parsed.params)
                   : parsed.model === "sign"
-                    ? signStlFileName(parsed.params, parsed.letter)
+                    ? signStlFileName(parsed.params, parsed.block, parsed.part)
                     : calibrationStlFileName(parsed.params);
 
       // Запись появляется после успешной генерации: упавшая сборка не должна

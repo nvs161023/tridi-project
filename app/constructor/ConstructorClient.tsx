@@ -27,12 +27,15 @@ import {
   LAMP_MOUNT_LABELS,
   LAMP_PARTS,
   LAMP_PART_LABELS,
+  SIGN_PART_LABELS,
+  SIGN_PARTS,
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
   boxStlFileName,
   calibrationStlFileName,
   keychainStlFileName,
   lampStlFileName,
+  listSignBlocks,
   listSignLetters,
   lithophaneStlFileName,
   normalizeConstructorParams,
@@ -70,6 +73,7 @@ type SizeParam = Exclude<
   | "signText"
   | "signFont"
   | "signChannelWidth"
+  | "signBaseMount"
   | "calibrationType"
   | "hasLid"
   | "lithophaneBrightness"
@@ -129,10 +133,10 @@ async function readServerMessage(response: Response): Promise<string | null> {
  * Файлы, которые можно скачать для текущей модели.
  *
  * У светильника и вывески файлов несколько: основание и абажур печатаются
- * разными деталями, буквы вывески — тоже. Первый элемент — главная кнопка:
- * сборка светильника или вся надпись одной сеткой. Остальные кнопки несут
- * `request`, который уходит в API поверх параметров, поэтому геометрия и имя
- * файла на сервере собираются из тех же значений.
+ * разными деталями, блок вывески — лицом и крышкой. Первый элемент — главная
+ * кнопка: сборка светильника или лицо первого блока вывески. Остальные кнопки
+ * несут `request`, который уходит в API поверх параметров, поэтому геометрия и
+ * имя файла на сервере собираются из тех же значений.
  *
  * Имена считаются здесь только как запасные: сервер присылает то же имя в
  * Content-Disposition, а браузеру оно нужно, если заголовок потеряется.
@@ -159,22 +163,42 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   }
 
   if (params.model === "sign") {
-    const letters = listSignLetters(params.signText);
+    const blocks = listSignBlocks(params.signText, params.signBlockSize);
 
+    // Первый файл — лицо первого блока с буквами: это главная деталь вывески.
+    // Дальше идут остальные детали блоков: у каждого блока своя крышка, а
+    // начиная со второго — и своё лицо.
+    const options = blocks.flatMap((block) =>
+      SIGN_PARTS.map((part) => {
+        const letters = block.letters.map((letter) => letter.char).join("");
+
+        return {
+          id: `sign-block-${block.index}-${part}`,
+          label:
+            block.index === 0 && part === "face"
+              ? "Скачать STL"
+              : `${block.index + 1} · ${SIGN_PART_LABELS[part].toLowerCase()}`,
+          description: `Блок ${block.index + 1} «${letters}»: ${SIGN_PART_LABELS[part].toLowerCase()} отдельным файлом`,
+          request: { blockIndex: block.index, signPart: part },
+          fileName: signStlFileName(params, block.index, part),
+        };
+      }),
+    );
+
+    if (options.length > 0) {
+      return options;
+    }
+
+    // Пустая надпись: кнопка остаётся, но сервер отклонит запрос и панель
+    // покажет подсказку — так пользователь видит, что нужно ввести буквы.
     return [
       {
-        id: "sign-all",
+        id: "sign-empty",
         label: "Скачать STL",
-        request: {},
-        fileName: signStlFileName(params),
+        description: "В надписи нет букв",
+        request: { blockIndex: 0, signPart: "face" },
+        fileName: signStlFileName(params, 0, "face"),
       },
-      ...letters.map((letter) => ({
-        id: `sign-letter-${letter.index}`,
-        label: letter.char,
-        description: `Буква ${letter.index + 1} «${letter.char}» отдельным файлом`,
-        request: { letter: letter.index },
-        fileName: signStlFileName(params, letter.index),
-      })),
     ];
   }
 
@@ -309,6 +333,12 @@ export function ConstructorClient({
   function updateSignChannelWidth(signChannelWidth: SignChannelWidth) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, signChannelWidth }),
+    );
+  }
+
+  function updateSignBaseMount(signBaseMount: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, signBaseMount }),
     );
   }
 
@@ -539,6 +569,7 @@ export function ConstructorClient({
           onReset={resetParams}
           onShapeChange={updateShape}
           onSignChannelWidthChange={updateSignChannelWidth}
+          onSignBaseMountChange={updateSignBaseMount}
           onSignFontChange={updateSignFont}
           onSignTextChange={updateSignText}
           onTextChange={updateKeychainText}
@@ -600,8 +631,9 @@ export function ConstructorClient({
                 <>
                   «{params.signText.trim() || "без надписи"}» · кегль{" "}
                   {params.signFontSize} мм · букв{" "}
-                  {listSignLetters(params.signText).length} · выступ{" "}
-                  {params.signDepth} мм
+                  {listSignLetters(params.signText).length} · блоков{" "}
+                  {listSignBlocks(params.signText, params.signBlockSize).length} ·
+                  выступ {params.signDepth} мм
                 </>
               )}
             </span>

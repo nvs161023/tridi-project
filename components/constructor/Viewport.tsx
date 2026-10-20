@@ -527,18 +527,22 @@ type SignModelProps = {
   channelWidth: number;
   /** Зазор между буквами: он меняет ширину надписи и силуэт тени. */
   letterGap: number;
+  /** Сколько букв в блоке: от него зависят плиты и стыки. */
+  blockSize: number;
+  /** Общее основание под буквами: плита вместо узкой рейки. */
+  baseMount: boolean;
   text: string;
   /** Фактическая ширина с учётом автоподбора кегля, мм. */
   width: number;
 };
 
 /**
- * Вывеска собирается из отдельных полых букв, расставленных в одну строку.
- * Геометрия построена в плоскости XY, поэтому поворот не нужен — так же детали
- * ложатся в STL.
+ * Вывеска собирается из блоков: в каждом полые буквы на общей плите, а плиты
+ * соседей стыкуются шипом и пазом. Геометрия построена в плоскости XY, поэтому
+ * поворот не нужен — так же детали ложатся в STL.
  *
- * Ключ тени включает текст, кегль, выступ, канал и зазор: любая правка меняет
- * силуэт, и старая тень стала бы неверной.
+ * Ключ тени включает текст, кегль, выступ, канал, зазор, размер блока и
+ * основание: любая правка меняет силуэт, и старая тень стала бы неверной.
  */
 function SignModel({
   geometry,
@@ -546,6 +550,8 @@ function SignModel({
   depth,
   channelWidth,
   letterGap,
+  blockSize,
+  baseMount,
   text,
   width,
 }: SignModelProps) {
@@ -578,7 +584,7 @@ function SignModel({
         blur={2.6}
         far={Math.max(fontSize * 2, 160)}
         frames={1}
-        key={`sign-${text}-${fontSize}-${depth}-${channelWidth}-${letterGap}`}
+        key={`sign-${text}-${fontSize}-${depth}-${channelWidth}-${letterGap}-${blockSize}-${baseMount}`}
         opacity={0.5}
         position={[0, 0.02, 0]}
         resolution={512}
@@ -735,6 +741,8 @@ function Scene({ params, geometry, framing }: SceneProps) {
         />
       ) : params.model === "sign" ? (
         <SignModel
+          baseMount={params.signBaseMount}
+          blockSize={params.signBlockSize}
           channelWidth={params.signChannelWidth}
           depth={params.signDepth}
           fontSize={params.signFontSize}

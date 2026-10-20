@@ -1,6 +1,7 @@
 import {
   BufferGeometry,
   ExtrudeGeometry,
+  Matrix4,
   Path,
   Shape,
   ShapeGeometry,
@@ -11,31 +12,42 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 
 import { KEYCHAIN_FONT_URL } from "@/lib/constructor/keychain-geometry";
 import {
-  listSignLetters,
+  listSignBlocks,
   normalizeSignParams,
   type SignFont,
   type SignParams,
+  type SignPart,
 } from "@/lib/constructor/params";
 
 /**
- * Геометрия вывески: по одной полой букве на каждый символ надписи.
+ * Геометрия вывески: блоки по несколько букв, каждый — лицо и крышка.
  *
- * Плиты больше нет — буквы печатаются и вешаются по отдельности, поэтому
- * каждая из них самостоятельная замкнутая деталь. Буква построена в плоскости
- * XY: низ на Y = 0, лицо смотрит в +Z, толщина идёт от 0 до signDepth. В таком
- * виде деталь и попадает в STL — поворачивать её в слайсере не нужно.
+ * Надпись делится на блоки по signBlockSize букв (listSignBlocks), и каждый
+ * блок печатается двумя деталями:
+ *   face  — полые буквы на общей плите с шипом справа и пазом слева;
+ *   cover — задняя крышка с бортиком, который входит в камеру буквы.
+ *
+ * Сборка: плиты соседних блоков стоят с зазором SIGN_BLOCK_JOINT_MM, шип
+ * одного входит в паз другого с натягом SIGN_PIN_FIT_MM, а за плитой на стыке
+ * проходит прямоугольный канал — по нему лента уходит из камеры одного блока в
+ * камеру следующего. Крышка закрывает камеру сзади, бортик повторяет контур
+ * полости и держится в ней за счёт натяга SIGN_COVER_PRESS_MM.
+ *
+ * Буква построена в плоскости XY: низ на Y = 0, лицо смотрит в +Z, толщина идёт
+ * от 0 до signDepth. Печатается деталь лицом вниз, поэтому ни поворот в
+ * слайсере, ни поддержки не нужны.
  *
  * Устройство буквы: сплошное лицо SIGN_LETTER_FRONT_MM, по контуру стенка
  * SIGN_LETTER_WALL_MM и открытая сзади камера под светодиодную ленту. Лицо
  * тонкое, поэтому свет диффузно проходит сквозь него — как у литофана.
- * Открытая камера решает сразу две задачи: буква печатается лицом вниз без
- * поддержек, а при креплении на стену камера оказывается закрытой.
  *
- * Булевых операций в проекте нет, поэтому оболочка собирается из
+ * Булевых операций в проекте нет, поэтому каждая оболочка собирается из
  * пересекающихся замкнутых тел: пластина лица на всю толщину, внешняя стенка
  * (контур минус поджатый внутрь контур) и стенки вокруг отверстий буквы.
  * Каждое тело watertight, а слайсер объединяет их при печати — так же устроен
- * брелок с именем.
+ * брелок с именем. Плита, шип, канал и бортик крышки приходят в ту же сетку
+ * отдельными телами: они входят в буквы и друг в друга, но замкнутость каждого
+ * тела не нарушают.
  *
  * Если штрих буквы тоньше, чем нужно камере, буква печатается сплошной:
  * контур просто не поджимается. Условие одно — камера должна вмещать ленту
@@ -63,6 +75,60 @@ const SIGN_LETTER_MIN_CHAMBER_MM = 3;
 
 /** Насколько стенки входят в лицо, мм: перекрытие надёжнее стыка встык. */
 const SIGN_LETTER_EMBED_MM = 0.2;
+
+/** Зазор между плитами соседних блоков при сборке, мм. */
+export const SIGN_BLOCK_JOINT_MM = 3;
+
+/** Боковой запас плиты за крайними буквами, мм: там живут шип и паз. */
+const SIGN_BLOCK_SIDE_MM = 6;
+
+/** Минимальная ширина плиты блока, мм: иначе паз не помещается. */
+const SIGN_BLOCK_MIN_WIDTH_MM = 24;
+
+/** Толщина плиты под буквами, мм. */
+const SIGN_BASE_PLATE_MM = 3;
+
+/** Насколько плита опускается ниже нуля, мм: перекрывает вылет круглых букв. */
+const SIGN_BASE_BOTTOM_MM = 1;
+
+/** Высота рейки без общего основания, мм. */
+const SIGN_BASE_RAIL_MIN_HEIGHT_MM = 10;
+
+/** Высота плиты общего основания, мм. */
+const SIGN_BASE_MOUNT_MIN_HEIGHT_MM = 14;
+
+/** Длина шипа, мм: половина уходит в паз соседа. */
+const SIGN_PIN_LENGTH_MM = 8;
+
+/** Натяг шипа в пазу на сторону, мм: детали держатся без клея. */
+const SIGN_PIN_FIT_MM = 0.15;
+
+/** Стенка канала под ленту на стыке, мм. */
+const SIGN_LIGHT_WALL_MM = 1.6;
+
+/** Толщина задней крышки, мм. */
+const SIGN_COVER_PLATE_MM = 2;
+
+/** Высота бортика крышки, который входит в камеру буквы, мм. */
+const SIGN_COVER_RIM_MM = 4;
+
+/** Натяг бортика в камере на сторону, мм. */
+const SIGN_COVER_PRESS_MM = 0.15;
+
+/** Запас крышки за верхний край букв, мм. */
+const SIGN_COVER_MARGIN_MM = 2;
+
+/** Полость буквы: контур камеры и отверстия внутри неё. */
+type SignCavity = {
+  outer: Vector2[];
+  holes: Vector2[][];
+};
+
+/** Глиф с полостями: тела буквы в координатах шрифта и контуры камер. */
+type SignGlyph = {
+  geometry: BufferGeometry;
+  cavities: SignCavity[];
+};
 
 /** Сегменты кривых шрифта: восьми хватает для плавных дуг при печати. */
 const SIGN_CURVE_SEGMENTS = 8;
@@ -423,24 +489,25 @@ function extrudeRegion(
 }
 
 /**
- * Тела одной фигуры глифа.
+ * Тела одной фигуры глифа и её полости.
  *
  * Сначала пробуем полую букву. Если стенка или камера не помещаются в штрих,
  * возвращается одно сплошное тело: буква остаётся печатаемой, просто без ленты
- * внутри. У «О» и «В» фигур несколько — отверстия приходят отдельными контурами
- * внутри одной фигуры, так что буква собирается из всех.
+ * внутри и без бортика у крышки. У «О» и «В» фигур несколько — отверстия
+ * приходят отдельными контурами внутри одной фигуры, так что буква собирается
+ * из всех.
  */
 function createShapeBodies(
   shape: Shape,
   depth: number,
   channelWidth: number,
-): BufferGeometry[] {
+): { bodies: BufferGeometry[]; cavities: SignCavity[] } {
   const { shape: shapePoints, holes: holePoints } =
     shape.extractPoints(SIGN_CURVE_SEGMENTS);
   const outer = cleanContour(shapePoints);
 
   if (outer.length < 3) {
-    return [];
+    return { bodies: [], cavities: [] };
   }
 
   const holes = holePoints
@@ -448,7 +515,11 @@ function createShapeBodies(
     .filter((hole) => hole.length >= 3);
   const hollow = createHollowBodies(outer, holes, depth, channelWidth);
 
-  return hollow ?? [extrudeRegion(outer, holes, depth, 0)];
+  if (!hollow) {
+    return { bodies: [extrudeRegion(outer, holes, depth, 0)], cavities: [] };
+  }
+
+  return { bodies: hollow.bodies, cavities: [hollow.cavity] };
 }
 
 /**
@@ -457,14 +528,15 @@ function createShapeBodies(
  * Тела перекрываются на SIGN_LETTER_EMBED_MM — стык встык слайсер иногда
  * оставляет щель, а перекрытие даёт монолит после печати.
  *
- * null означает, что штрих не вмещает стенку с камерой.
+ * Заодно возвращается полость: её контур нужен крышке, бортик которой входит
+ * в камеру. null означает, что штрих не вмещает стенку с камерой.
  */
 function createHollowBodies(
   outer: Vector2[],
   holes: Vector2[][],
   depth: number,
   channelWidth: number,
-): BufferGeometry[] | null {
+): { bodies: BufferGeometry[]; cavity: SignCavity } | null {
   const front = SIGN_LETTER_FRONT_MM;
   const chamberDepth = depth - front;
 
@@ -533,7 +605,7 @@ function createHollowBodies(
     );
   }
 
-  return bodies;
+  return { bodies, cavity: { outer: inset, holes: expandedHoles } };
 }
 
 /** Объединение тел в одну сетку; исходные сетки освобождаются. */
@@ -556,13 +628,13 @@ function mergeBodies(bodies: BufferGeometry[]): BufferGeometry | null {
 }
 
 /** Буква целиком: все фигуры глифа в одной сетке, в координатах шрифта. */
-function createGlyphGeometry(
+function createGlyph(
   char: string,
   size: number,
   font: Font,
   depth: number,
   channelWidth: number,
-): BufferGeometry | null {
+): SignGlyph | null {
   const shapes = font.generateShapes(char, size);
 
   if (shapes.length === 0) {
@@ -570,12 +642,18 @@ function createGlyphGeometry(
   }
 
   const bodies: BufferGeometry[] = [];
+  const cavities: SignCavity[] = [];
 
   for (const shape of shapes) {
-    bodies.push(...createShapeBodies(shape, depth, channelWidth));
+    const created = createShapeBodies(shape, depth, channelWidth);
+
+    bodies.push(...created.bodies);
+    cavities.push(...created.cavities);
   }
 
-  return mergeBodies(bodies);
+  const geometry = mergeBodies(bodies);
+
+  return geometry ? { geometry, cavities } : null;
 }
 
 /**
@@ -623,46 +701,445 @@ function measureGlyphWidth(char: string, font: Font): number {
   return width;
 }
 
+/** Блок надписи: буквы и плита в координатах строки, мм. */
+type SignBlock = {
+  /** Номер блока с нуля: он же blockIndex в API. */
+  index: number;
+  /** Левая граница плиты в координатах строки. */
+  left: number;
+  /** Ширина плиты без шипа. */
+  width: number;
+  /** Высота плиты под буквами. */
+  plateHeight: number;
+  /** Есть ли сосед слева: у первого блока паза нет. */
+  hasPrev: boolean;
+  /** Есть ли сосед справа: у последнего блока нет шипа. */
+  hasNext: boolean;
+  /** Буквы блока: символ и позиция левого края в координатах строки. */
+  letters: { index: number; char: string; left: number }[];
+};
+
 /**
- * Кегль и раскладка строки.
+ * Высота плиты под буквами блока, мм.
  *
- * Зазор задан в миллиметрах и с кеглем не масштабируется, поэтому сначала
- * считается ширина при кегле 1, а потом кегль уменьшается ровно настолько,
- * чтобы строка вместе с зазорами влезла в SIGN_MAX_WIDTH_MM. Позиции — левый
- * край каждой буквы от начала строки.
+ * С общим основанием плита — видимый постамент, без него — узкая рейка, которая
+ * держит шип и канал. Обе не выше трети кегля: иначе плита переросла бы
+ * короткие буквы вроде «Г» и закрыла камеру.
  */
-function layoutSignLetters(
-  params: SignParams,
-  letters: { index: number; char: string }[],
-  font: Font,
-): { size: number; offsets: number[] } {
-  const unitWidths = letters.map((letter) =>
-    measureGlyphWidth(letter.char, font),
-  );
-  const unitTotal = unitWidths.reduce((sum, width) => sum + width, 0);
-  const gapTotal = params.signLetterGap * Math.max(letters.length - 1, 0);
-  const size =
-    unitTotal > 0 && unitTotal * params.signFontSize + gapTotal > SIGN_MAX_WIDTH_MM
-      ? (SIGN_MAX_WIDTH_MM - gapTotal) / unitTotal
-      : params.signFontSize;
-  const offsets: number[] = [];
-  let cursor = 0;
+function blockPlateHeight(params: SignParams, size: number): number {
+  const minHeight = params.signBaseMount
+    ? SIGN_BASE_MOUNT_MIN_HEIGHT_MM
+    : SIGN_BASE_RAIL_MIN_HEIGHT_MM;
+  const ratio = params.signBaseMount ? 0.3 : 0.18;
 
-  for (const width of unitWidths) {
-    offsets.push(cursor);
-    cursor += width * size + params.signLetterGap;
-  }
-
-  return { size, offsets };
+  return Math.max(minHeight, Math.min(48, Math.round(size * ratio)));
 }
 
 /**
- * Буквы надписи одной сеткой: предпросмотр и скачивание всей надписи.
+ * Кегль и раскладка блоков.
  *
- * Буквы стоят в порядке надписи через signLetterGap, низ на Y = 0, строка
- * отцентрована по X. Повторяющиеся символы собираются один раз и копируются:
- * «ТРИ ДИ» строит четыре тела вместо шести. В слайсере такую сетку можно
- * разложить по объектам — тела не пересекаются.
+ * Зазор между буквами задан в миллиметрах и с кеглем не масштабируется, а
+ * плиты, шипы и зазоры стыка от кегля не зависят вовсе. Поэтому ширина строки
+ * считается функцией кегля, а сам кегль подбирается итеративно: каждый шаг
+ * уменьшает его во столько раз, во сколько строка шире SIGN_MAX_WIDTH_MM.
+ * Четырёх шагов хватает даже самому узкому шрифту.
+ *
+ * Плиты блоков идут подряд с зазором SIGN_BLOCK_JOINT_MM. Если букв в блоке
+ * мало и плита вышла бы уже SIGN_BLOCK_MIN_WIDTH_MM, буквы встают по её
+ * центру: шипу и пазу нужно место.
+ */
+function layoutSignBlocks(
+  params: SignParams,
+  letters: { index: number; char: string }[],
+  font: Font,
+): { size: number; blocks: SignBlock[]; width: number } {
+  const cache = new Map<string, number>();
+  const unitWidth = (char: string): number => {
+    const cached = cache.get(char);
+
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const width = measureGlyphWidth(char, font);
+
+    cache.set(char, width);
+
+    return width;
+  };
+  const blockSize = Math.max(1, Math.round(params.signBlockSize));
+  const blockCount = Math.max(1, Math.ceil(letters.length / blockSize));
+
+  const layout = (size: number): { blocks: SignBlock[]; width: number } => {
+    const blocks: SignBlock[] = [];
+    let cursor = 0;
+
+    for (let start = 0; start < letters.length; start += blockSize) {
+      const chunk = letters.slice(start, start + blockSize);
+      const lettersWidth =
+        chunk.reduce((sum, letter) => sum + unitWidth(letter.char) * size, 0) +
+        params.signLetterGap * Math.max(chunk.length - 1, 0);
+      const width = Math.max(
+        lettersWidth + 2 * SIGN_BLOCK_SIDE_MM,
+        SIGN_BLOCK_MIN_WIDTH_MM,
+      );
+      let letterCursor = cursor + (width - lettersWidth) / 2;
+      const placed = chunk.map((letter) => {
+        const item = {
+          index: letter.index,
+          char: letter.char,
+          left: letterCursor,
+        };
+
+        letterCursor += unitWidth(letter.char) * size + params.signLetterGap;
+
+        return item;
+      });
+
+      blocks.push({
+        index: blocks.length,
+        left: cursor,
+        width,
+        plateHeight: blockPlateHeight(params, size),
+        hasPrev: blocks.length > 0,
+        hasNext: blocks.length + 1 < blockCount,
+        letters: placed,
+      });
+      cursor += width + SIGN_BLOCK_JOINT_MM;
+    }
+
+    return { blocks, width: Math.max(cursor - SIGN_BLOCK_JOINT_MM, 0) };
+  };
+
+  let size = params.signFontSize;
+  let result = layout(size);
+
+  for (let step = 0; step < 4 && result.width > SIGN_MAX_WIDTH_MM; step += 1) {
+    size = Math.max(1, size * (SIGN_MAX_WIDTH_MM / result.width));
+    result = layout(size);
+  }
+
+  return { size, ...result };
+}
+
+/** Готовые детали одного блока: лицо и крышка. */
+type SignBlockParts = {
+  block: SignBlock;
+  face: BufferGeometry;
+  cover: BufferGeometry;
+};
+
+/**
+ * Бортик крышки: полость буквы с натягом.
+ *
+ * Тело выдавливается от z = −1 до высоты бортика: миллиметр внутри плиты
+ * крышки нужен для сварки, остальное входит в камеру. Контур полости
+ * расширяется на SIGN_COVER_PRESS_MM, отверстия поджимаются на столько же —
+ * бортик садится в букву с натягом и не выпадает.
+ *
+ * null — контур полости не пережил смещение с натягом: буква останется без
+ * бортика, крышка просто закроет её сзади.
+ */
+function createCoverPlug(
+  cavity: SignCavity,
+  depth: number,
+  shift: number,
+): BufferGeometry | null {
+  const chamber = depth - SIGN_LETTER_FRONT_MM;
+  const rim = Math.min(SIGN_COVER_RIM_MM, chamber - 1);
+
+  if (rim < 1) {
+    return null;
+  }
+
+  const outer = offsetContour(cavity.outer, -SIGN_COVER_PRESS_MM);
+
+  if (!outer || !isSimpleContour(outer)) {
+    return null;
+  }
+
+  const holes: Vector2[][] = [];
+
+  for (const hole of cavity.holes) {
+    const pressed = offsetContour(hole, SIGN_COVER_PRESS_MM);
+
+    if (!pressed || !isSimpleContour(pressed)) {
+      return null;
+    }
+
+    holes.push(pressed);
+  }
+
+  const geometry = extrudeRegion(outer, holes, rim + 1, -1);
+
+  if (shift !== 0) {
+    geometry.translate(shift, 0, 0);
+  }
+
+  return geometry;
+}
+
+/**
+ * Плита блока: основание под буквами с шипом справа и пазом слева.
+ *
+ * Контур обходится снизу вверх по левой кромке (с пазом), по верхней кромке
+ * вправо, вниз по правой (с шипом) и по нижней кромке обратно. Паз и шип —
+ * трапеции в плоскости плиты: шип сужается от основания к острию, паз
+ * повторяет его форму с натягом, поэтому блоки входят друг в друга с усилием и
+ * держатся без клея.
+ *
+ * Плита стоит в передней части детали (z от signDepth − 3 до signDepth), так
+ * что камера букв остаётся открытой сзади.
+ */
+function createBlockPlate(block: SignBlock, params: SignParams): BufferGeometry {
+  const bottom = -SIGN_BASE_BOTTOM_MM;
+  const top = block.plateHeight;
+  const half = (top - bottom) / 2;
+  const center = (top + bottom) / 2;
+  const neck = Math.max(half * 0.62, 1.5);
+  const tip = Math.max(half * 0.37, 0.9);
+  const left = block.left;
+  const right = block.left + block.width;
+  const points: Vector2[] = [new Vector2(left, bottom)];
+
+  if (block.hasPrev) {
+    // Ширина шипа на входе в паз: от основания к острию он сужается, и на
+    // расстоянии стыка от основания шип уже у́же. Натяг снимается с обеих
+    // сторон паза, поэтому детали входят с усилием, но без заклинивания.
+    const mouth =
+      neck +
+      (tip - neck) * (SIGN_BLOCK_JOINT_MM / SIGN_PIN_LENGTH_MM) -
+      SIGN_PIN_FIT_MM;
+    const slot = SIGN_PIN_LENGTH_MM - SIGN_BLOCK_JOINT_MM + 0.6;
+
+    points.push(
+      new Vector2(left, center - mouth),
+      new Vector2(left + slot, center - (tip - SIGN_PIN_FIT_MM)),
+      new Vector2(left + slot, center + (tip - SIGN_PIN_FIT_MM)),
+      new Vector2(left, center + mouth),
+    );
+  }
+
+  points.push(new Vector2(left, top), new Vector2(right, top));
+
+  if (block.hasNext) {
+    points.push(
+      new Vector2(right, center + neck),
+      new Vector2(right + SIGN_PIN_LENGTH_MM, center + tip),
+      new Vector2(right + SIGN_PIN_LENGTH_MM, center - tip),
+      new Vector2(right, center - neck),
+    );
+  }
+
+  points.push(new Vector2(right, bottom));
+
+  return extrudeRegion(
+    points,
+    [],
+    SIGN_BASE_PLATE_MM,
+    params.signDepth - SIGN_BASE_PLATE_MM,
+  );
+}
+
+/**
+ * Канал на стыке: труба за плитой, по которой лента уходит в соседний блок.
+ *
+ * Труба начинается внутри своей плиты (перекрытие 3 мм по X и 1 мм по Z — так
+ * она приваривается к детали) и заканчивается за 0.2 мм до плиты соседа: при
+ * сборке блоки не упираются друг в друга. Отверстие открыто с обоих концов, а
+ * его ширина равна signChannelWidth, поэтому лента проходит насквозь. Со
+ * стенкой SIGN_LIGHT_WALL_MM труба остаётся в габарите плиты.
+ *
+ * Профиль строится в плоскости XY (u — Y детали, v — Z детали) и выдавливается
+ * по нормали; затем матрица переставляет оси, и ось выдавливания становится X.
+ * Определитель перестановки равен +1, поэтому обход граней не переворачивается.
+ */
+function createJointChannel(
+  block: SignBlock,
+  params: SignParams,
+): BufferGeometry | null {
+  if (!block.hasNext) {
+    return null;
+  }
+
+  const wall = SIGN_LIGHT_WALL_MM;
+  const channel = params.signChannelWidth;
+  const front = params.signDepth - SIGN_BASE_PLATE_MM + 1;
+  const outerHeight = channel + 2 * wall;
+
+  if (front - 2 * wall < 2) {
+    return null;
+  }
+
+  const right = block.left + block.width;
+  const from = right - 3;
+  const length = SIGN_BLOCK_JOINT_MM + 3 - 0.2;
+  const outer = [
+    new Vector2(0, 0),
+    new Vector2(outerHeight, 0),
+    new Vector2(outerHeight, front),
+    new Vector2(0, front),
+  ];
+  const hole = [
+    new Vector2(wall, wall),
+    new Vector2(wall, front - wall),
+    new Vector2(wall + channel, front - wall),
+    new Vector2(wall + channel, wall),
+  ];
+  const geometry = extrudeRegion(outer, [hole], length, 0);
+
+  geometry.applyMatrix4(
+    new Matrix4().set(0, 0, 1, from, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1),
+  );
+
+  return geometry;
+}
+
+/**
+ * Задняя крышка блока: плита на весь габарит букв.
+ *
+ * Крышка лежит в z от −SIGN_COVER_PLATE_MM до 0, то есть вплотную к тыльной
+ * плоскости букв: камера закрывается, лента остаётся внутри. По высоте плита
+ * доходит до верхнего края самой высокой буквы плюс запас, снизу — до низа
+ * плиты блока, поэтому блок закрыт целиком.
+ */
+function createBlockCover(block: SignBlock, letterTop: number): BufferGeometry {
+  const bottom = -SIGN_BASE_BOTTOM_MM;
+  const top = Math.max(letterTop + SIGN_COVER_MARGIN_MM, block.plateHeight);
+  const left = block.left;
+  const right = block.left + block.width;
+
+  return extrudeRegion(
+    [
+      new Vector2(left, bottom),
+      new Vector2(right, bottom),
+      new Vector2(right, top),
+      new Vector2(left, top),
+    ],
+    [],
+    SIGN_COVER_PLATE_MM,
+    -SIGN_COVER_PLATE_MM,
+  );
+}
+
+/**
+ * Детали всех блоков надписи.
+ *
+ * Буквы одного символа собираются один раз и копируются: «ТРИ ДИ» строит
+ * четыре глифа вместо пяти. Копия сдвигается так, чтобы левый край совпал с
+ * позицией из раскладки, — тем же сдвигом переводятся контуры полостей, иначе
+ * бортик крышки оказался бы не под буквой.
+ *
+ * null означает, что шрифт не загружен или надпись пуста.
+ */
+function buildSignBlockParts(
+  params: SignParams,
+  font: Font | null,
+): SignBlockParts[] | null {
+  if (!font) {
+    return null;
+  }
+
+  const letters = listSignBlocks(params.signText, params.signBlockSize).flatMap(
+    (block) => block.letters,
+  );
+
+  if (letters.length === 0) {
+    return null;
+  }
+
+  const { size, blocks } = layoutSignBlocks(params, letters, font);
+  const cache = new Map<string, SignGlyph>();
+  const built: SignBlockParts[] = [];
+
+  for (const block of blocks) {
+    const bodies: BufferGeometry[] = [];
+    const plugs: BufferGeometry[] = [];
+    let letterTop = block.plateHeight;
+
+    for (const letter of block.letters) {
+      let glyph = cache.get(letter.char);
+
+      if (!glyph) {
+        const created = createGlyph(
+          letter.char,
+          size,
+          font,
+          params.signDepth,
+          params.signChannelWidth,
+        );
+
+        if (!created) {
+          continue;
+        }
+
+        glyph = created;
+        cache.set(letter.char, glyph);
+      }
+
+      const body = glyph.geometry.clone();
+
+      body.computeBoundingBox();
+
+      const box = body.boundingBox;
+
+      if (!box) {
+        body.dispose();
+        continue;
+      }
+
+      const shift = letter.left - box.min.x;
+
+      body.translate(shift, 0, 0);
+      bodies.push(body);
+      letterTop = Math.max(letterTop, box.max.y);
+
+      for (const cavity of glyph.cavities) {
+        const plug = createCoverPlug(cavity, params.signDepth, shift);
+
+        if (plug) {
+          plugs.push(plug);
+        }
+      }
+    }
+
+    bodies.push(createBlockPlate(block, params));
+
+    const channel = createJointChannel(block, params);
+
+    if (channel) {
+      bodies.push(channel);
+    }
+
+    const face = mergeBodies(bodies);
+
+    if (!face) {
+      continue;
+    }
+
+    const cover = mergeBodies([createBlockCover(block, letterTop), ...plugs]);
+
+    if (!cover) {
+      face.dispose();
+      continue;
+    }
+
+    built.push({ block, face, cover });
+  }
+
+  for (const glyph of cache.values()) {
+    glyph.geometry.dispose();
+  }
+
+  return built;
+}
+
+/**
+ * Собранная надпись одной сеткой: предпросмотр.
+ *
+ * Блоки стоят с зазором стыка, шипы входят в пазы, на стыках видны каналы —
+ * предпросмотр показывает именно то, что получится после печати. Крышки в
+ * сборку не входят: они закрывают камеры сзади и с лицевой стороны не видны.
  *
  * font = null допустим: шрифт ещё грузится, и пустая сетка честнее плиты,
  * которой в модели больше нет.
@@ -671,97 +1148,42 @@ export function createSignGeometry(
   params: Partial<SignParams>,
   font: Font | null = null,
 ): BufferGeometry {
-  if (!font) {
+  const built = buildSignBlockParts(normalizeSignParams(params), font);
+
+  if (!built) {
     return createEmptyGeometry();
   }
 
-  const normalized = normalizeSignParams(params);
-  const letters = listSignLetters(normalized.signText);
-
-  if (letters.length === 0) {
-    return createEmptyGeometry();
-  }
-
-  const { size, offsets } = layoutSignLetters(normalized, letters, font);
-  const cache = new Map<string, BufferGeometry>();
-  const bodies: BufferGeometry[] = [];
-
-  letters.forEach((letter, position) => {
-    let glyph = cache.get(letter.char);
-
-    if (!glyph) {
-      const created = createGlyphGeometry(
-        letter.char,
-        size,
-        font,
-        normalized.signDepth,
-        normalized.signChannelWidth,
-      );
-
-      if (!created) {
-        return;
-      }
-
-      glyph = created;
-      cache.set(letter.char, glyph);
-    }
-
-    const copy = glyph.clone();
-    copy.computeBoundingBox();
-
-    const box = copy.boundingBox;
-
-    if (!box) {
-      copy.dispose();
-      return;
-    }
-
-    copy.translate(offsets[position] - box.min.x, 0, 0);
-    bodies.push(copy);
-  });
-
-  for (const glyph of cache.values()) {
-    glyph.dispose();
-  }
-
-  const merged = mergeBodies(bodies);
+  const merged = mergeBodies(built.map((parts) => parts.face));
 
   return merged ? placeOnBed(merged) : createEmptyGeometry();
 }
 
 /**
- * Одна буква надписи — отдельная деталь для печати.
+ * Деталь блока: лицо с буквами или задняя крышка.
  *
- * Номер буквы тот же, что в listSignLetters: позиция символа в очищенной
- * строке. Кегль считается по всей надписи, чтобы буква из отдельного файла
- * точно совпала с той же буквой в общем файле: иначе длинная строка уменьшила
- * бы буквы только в общей сетке.
+ * Номер блока — как в listSignBlocks, деталь — `face` или `cover`. Геометрия
+ * собирается по всей надписи, потому что кегль зависит от длины строки: файл
+ * блока совпадает с тем блоком, который видно в предпросмотре. Номер вне
+ * списка даёт пустую сетку — API отсекает такие запросы раньше.
  */
-export function createSignLetterGeometry(
+export function createSignBlockGeometry(
   params: Partial<SignParams>,
   font: Font | null = null,
-  letterIndex = 0,
+  blockIndex = 0,
+  part: SignPart = "face",
 ): BufferGeometry {
-  if (!font) {
+  const built = buildSignBlockParts(normalizeSignParams(params), font);
+
+  if (!built) {
     return createEmptyGeometry();
   }
 
-  const normalized = normalizeSignParams(params);
-  const letters = listSignLetters(normalized.signText);
-  const letter = letters[letterIndex];
+  const parts = built.find((item) => item.block.index === blockIndex);
 
-  if (!letter) {
+  if (!parts) {
     return createEmptyGeometry();
   }
 
-  const { size } = layoutSignLetters(normalized, letters, font);
-  const geometry = createGlyphGeometry(
-    letter.char,
-    size,
-    font,
-    normalized.signDepth,
-    normalized.signChannelWidth,
-  );
-
-  return geometry ? placeOnBed(geometry) : createEmptyGeometry();
+  return placeOnBed(part === "cover" ? parts.cover : parts.face);
 }
