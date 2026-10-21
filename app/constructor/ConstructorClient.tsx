@@ -20,14 +20,13 @@ import {
   KEYCHAIN_SHAPE_LABELS,
   LAMP_BASE_SHAPE_LABELS,
   LAMP_MOUNT_LABELS,
-  LAMP_PARTS,
   LAMP_PART_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PART_LABELS,
-  SIGN_PART_LABELS,
   SIGN_PARTS,
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
+  boxPresetParams,
   boxStlFileName,
   keychainStlFileName,
   lampStlFileName,
@@ -37,6 +36,7 @@ import {
   normalizeConstructorParams,
   signStlFileName,
   vaseStlFileName,
+  type BoxPresetId,
   type ConstructorParams,
   type KeychainShape,
   type LampBaseShape,
@@ -157,23 +157,21 @@ async function readServerMessage(response: Response): Promise<string | null> {
  */
 function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   if (params.model === "lamp") {
-    const parts = LAMP_PARTS.filter((part) => part !== "all");
+    // Две детали печатаются отдельно: основание с патроном и абажур, который
+    // ставится на него сверху. Общей сборки в списке нет — иначе пользователь
+    // снова получил бы один файл, который нельзя напечатать без разрыва.
+    const parts = ["base", "shade"] as const;
 
-    return [
-      {
-        id: "lamp-all",
-        label: "Скачать STL",
-        request: { part: "all" },
-        fileName: lampStlFileName(params, "all"),
-      },
-      ...parts.map((part) => ({
-        id: `lamp-${part}`,
-        label: LAMP_PART_LABELS[part],
-        description: `${LAMP_PART_LABELS[part]} светильника отдельным файлом`,
-        request: { part },
-        fileName: lampStlFileName(params, part),
-      })),
-    ];
+    return parts.map((part) => ({
+      id: `lamp-${part}`,
+      label:
+        part === "base"
+          ? "Скачать базу (Base)"
+          : "Скачать плафон (Shade)",
+      description: `${LAMP_PART_LABELS[part]} светильника отдельным файлом`,
+      request: { part },
+      fileName: lampStlFileName(params, part),
+    }));
   }
 
   if (params.model === "sign") {
@@ -188,11 +186,12 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
 
         return {
           id: `sign-block-${block.index}-${part}`,
-          label:
-            block.index === 0 && part === "face"
-              ? "Скачать STL"
-              : `${block.index + 1} · ${SIGN_PART_LABELS[part].toLowerCase()}`,
-          description: `Блок ${block.index + 1} «${letters}»: ${SIGN_PART_LABELS[part].toLowerCase()} отдельным файлом`,
+          label: `Блок ${block.index + 1}: ${
+            part === "face" ? "Лицо" : "Крышка"
+          }`,
+          description: `Блок ${block.index + 1} «${letters}»: ${
+            part === "face" ? "лицо" : "крышка"
+          } отдельным файлом`,
           request: { blockIndex: block.index, signPart: part },
           fileName: signStlFileName(params, block.index, part),
         };
@@ -208,7 +207,7 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
     return [
       {
         id: "sign-empty",
-        label: "Скачать STL",
+        label: "Блок 1: Лицо",
         description: "В надписи нет букв",
         request: { blockIndex: 0, signPart: "face" },
         fileName: signStlFileName(params, 0, "face"),
@@ -370,6 +369,19 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, text }));
   }
 
+  /** Свой контур приходит уже проверенным SVG: текст файла или обводка PNG. */
+  function updateKeychainCustomSvg(customSvgData: string) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, customSvgData }),
+    );
+  }
+
+  function updateKeychainNfc(nfcEnabled: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, nfcEnabled }),
+    );
+  }
+
   function updateLampPattern(lampPattern: VasePattern) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, lampPattern }),
@@ -414,6 +426,31 @@ export function ConstructorClient({
 
   function updateHasLid(hasLid: boolean) {
     setParams((current) => normalizeConstructorParams({ ...current, hasLid }));
+  }
+
+  /**
+   * Ячейки приходят из текстового поля «20, 40, 20».
+   *
+   * Вместе с массивом обновляется gridX/gridY: normalizeBoxParams иначе
+   * сравнит новую длину со старым количеством ячеек, посчитает набор
+   * несовместимым и заменит пропорции равными единицами.
+   */
+  function updateBoxCells(axis: "x" | "y", cells: number[]) {
+    setParams((current) =>
+      normalizeConstructorParams({
+        ...current,
+        ...(axis === "x"
+          ? { cellsX: cells, gridX: cells.length }
+          : { cellsY: cells, gridY: cells.length }),
+      }),
+    );
+  }
+
+  /** Пресет меняет и ячейки, и габариты: набор должен помещаться в коробку. */
+  function updateBoxPreset(preset: BoxPresetId) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, ...boxPresetParams(preset) }),
+    );
   }
 
   function updateLithoFrame(lithoFrame: boolean) {
@@ -473,8 +510,9 @@ export function ConstructorClient({
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "same-origin",
-        // Параметры модели плюс выбор файла: `part` для светильника, `letter`
-        // для вывески. Сервер валидирует их вместе с остальными полями.
+        // Параметры модели плюс выбор файла: `part` для светильника и
+        // литофана, `blockIndex` и `signPart` для деталей вывески. Сервер
+        // валидирует их вместе с остальными полями.
         body: JSON.stringify({ ...params, ...option.request }),
       });
 
@@ -608,6 +646,9 @@ export function ConstructorClient({
           hasPro={hasPro}
           exportingId={exportingId}
           exportOptions={exportOptions}
+          onBoxCellsChange={updateBoxCells}
+          onBoxPresetChange={updateBoxPreset}
+          onCustomSvgChange={updateKeychainCustomSvg}
           onExport={exportStl}
           onHasLidChange={updateHasLid}
           onLithoFrameChange={updateLithoFrame}
@@ -618,6 +659,7 @@ export function ConstructorClient({
           onLampPatternChange={updateLampPattern}
           onLithophaneBrightnessChange={updateLithophaneBrightness}
           onModelChange={updateModel}
+          onNfcChange={updateKeychainNfc}
           onParamChange={updateParam}
           onPatternChange={updatePattern}
           onReset={resetParams}

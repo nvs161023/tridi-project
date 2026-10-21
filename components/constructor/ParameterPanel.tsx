@@ -1,17 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState, type ChangeEvent } from "react";
+import { useId, useRef, useState, useEffect, type ChangeEvent } from "react";
 
 import { NumberSlider } from "@/components/constructor/NumberSlider";
 import { ParameterSelect } from "@/components/constructor/ParameterSelect";
 import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
 import {
+  BOX_CELL_MAX_MM,
+  BOX_CELL_MIN_MM,
+  BOX_PRESET_IDS,
+  BOX_PRESET_LABELS,
   CONSTRUCTOR_LIMITS,
   DEFAULT_LITHOPHANE_PARAMS,
   KEYCHAIN_SHAPES,
   KEYCHAIN_SHAPE_LABELS,
+  KEYCHAIN_SVG_MAX_LENGTH,
   KEYCHAIN_TEXT_MAX_LENGTH,
+  hasDrawableSvgData,
+  isCustomSvgData,
   LAMP_BASE_SHAPES,
   LAMP_BASE_SHAPE_LABELS,
   LAMP_MOUNTS,
@@ -31,6 +38,7 @@ import {
   VASE_SHAPE_LABELS,
   sanitizeKeychainText,
   sanitizeSignText,
+  type BoxPresetId,
   type ConstructorParams,
   type KeychainShape,
   type LampBaseShape,
@@ -110,6 +118,10 @@ type ParameterPanelProps = {
   onShapeChange: (shape: VaseShape) => void;
   onPatternChange: (pattern: VasePattern) => void;
   onKeychainShapeChange: (shape: KeychainShape) => void;
+  /** Свой SVG-контур: текст SVG или SVG, собранный из загруженной картинки. */
+  onCustomSvgChange: (svg: string) => void;
+  /** Карман под NFC-метку в теле брелока. */
+  onNfcChange: (enabled: boolean) => void;
   onTextChange: (text: string) => void;
   onLampPatternChange: (pattern: VasePattern) => void;
   onLampMountChange: (mount: LampMount) => void;
@@ -119,6 +131,10 @@ type ParameterPanelProps = {
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
   onSignBaseMountChange: (mount: boolean) => void;
   onHasLidChange: (hasLid: boolean) => void;
+  /** Ширины или высоты ячеек коробки, введённые через запятую. */
+  onBoxCellsChange: (axis: "x" | "y", cells: number[]) => void;
+  /** Готовый набор ячеек и габаритов коробки. */
+  onBoxPresetChange: (preset: BoxPresetId) => void;
   /** Рамка литофана: отдельная деталь с пазом под плиту. */
   onLithoFrameChange: (hasFrame: boolean) => void;
   /** Крепление литофана: подставка, настенные петли или ничего. */
@@ -163,11 +179,11 @@ function ExportErrorAlert({ error }: { error: StlExportError | null }) {
 /**
  * Кнопки скачивания: главный файл и детали по отдельности.
  *
- * Первый файл — сборка целиком: у светильника это основание с абажуром, у
- * вывески — вся надпись одной сеткой. Остальные кнопки компактные и идут
- * списком: «Основание», «Абажур» или буквы «Т», «Р», «И». Пока один файл
- * генерируется, остальные заблокированы, а спиннер крутится только на
- * нажатой кнопке.
+ * Первый файл — главный: лицо первого блока вывески или собранный литофан.
+ * У светильника сборки нет: база идёт крупной кнопкой, плафон — компактной.
+ * Остальные кнопки подписаны деталью — «Блок 1: Крышка», «Рамка» или
+ * «Подставка». Пока один файл генерируется, остальные заблокированы, а спиннер
+ * крутится только на нажатой кнопке.
  */
 function ExportButtons({
   options,
@@ -177,7 +193,7 @@ function ExportButtons({
 }: {
   options: StlExportOption[];
   exportingId: string | null;
-  /** Заголовок над компактными кнопками: «Одна деталь» или «Одна буква». */
+  /** Заголовок над компактными кнопками: детали светильника или блоков. */
   partsHeading: string | null;
   onExport: (option: StlExportOption) => void;
 }) {
@@ -390,15 +406,255 @@ async function compressLithophaneImage(
   }
 }
 
+/** Сетка перевода растровой картинки в контур: 96 × 96 даёт ровный силуэт. */
+const CONTOUR_GRID_SIZE = 96;
+
+/**
+ * Предел числа прямоугольников контура.
+ *
+ * Сервер принимает SVG не длиннее 200 КБ. Каждый `<rect>` занимает около
+ * 45 байт, поэтому 2400 полос — это ещё безопасный запас, а более подробная
+ * картинка всё равно превратилась бы в кашу после масштабирования под брелок.
+ */
+const CONTOUR_MAX_RECTS = 2400;
+
+/** Читает файл как текст: так приходит исходный SVG. */
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Не удалось прочитать SVG. Попробуйте другой файл."));
+      }
+    };
+    reader.onerror = () => {
+      reject(new Error("Не удалось прочитать файл. Попробуйте ещё раз."));
+    };
+    reader.readAsText(file);
+  });
+}
+
+/** Читает файл как data URL: картинку дальше рисует canvas. */
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Не удалось прочитать изображение."));
+      }
+    };
+    reader.onerror = () => {
+      reject(new Error("Не удалось прочитать файл. Попробуйте ещё раз."));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Декодирует data URL в Image: createImageBitmap есть не во всех браузерах. */
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => resolve(image);
+    image.onerror = () =>
+      reject(new Error("Картинка повреждена или не читается."));
+    image.src = dataUrl;
+  });
+}
+
+/** Пиксель считается контуром, если он непрозрачный и не белый. */
+function isContourPixel(pixels: Uint8ClampedArray, index: number): boolean {
+  const alpha = pixels[index + 3];
+
+  if (alpha < 128) {
+    return false;
+  }
+
+  const luminance =
+    0.299 * pixels[index] +
+    0.587 * pixels[index + 1] +
+    0.114 * pixels[index + 2];
+
+  // Светлый фон фотографии не должен стать силуэтом: контуром считается
+  // только заметно тёмная и непрозрачная часть кадра.
+  return luminance < 200;
+}
+
+/**
+ * Переводит картинку в SVG из горизонтальных полос.
+ *
+ * Полноценная трассировка кривых в браузере не нужна: брелок печатается
+ * размером 30–100 мм, поэтому сетка 96 × 96 и склейка соседних пикселей в
+ * полосы дают узнаваемый контур. Полосы — обычные `<rect>`, которые разбирает
+ * серверный svg-outline.ts, а прозрачный фон PNG и белый фон JPG не попадают
+ * в силуэт.
+ */
+async function rasterToContourSvg(file: File): Promise<string> {
+  const dataUrl = await readFileAsDataUrl(file);
+  const image = await loadImage(dataUrl);
+  const size = Math.min(image.naturalWidth, image.naturalHeight);
+
+  if (size < 1) {
+    throw new Error("Изображение пустое или повреждено.");
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = CONTOUR_GRID_SIZE;
+  canvas.height = CONTOUR_GRID_SIZE;
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+
+  if (!context) {
+    throw new Error("Браузер не смог подготовить canvas для контура.");
+  }
+
+  // Центральный квадрат сохраняет пропорции: вытянутое фото не растянется.
+  context.drawImage(
+    image,
+    (image.naturalWidth - size) / 2,
+    (image.naturalHeight - size) / 2,
+    size,
+    size,
+    0,
+    0,
+    CONTOUR_GRID_SIZE,
+    CONTOUR_GRID_SIZE,
+  );
+
+  const pixels = context.getImageData(
+    0,
+    0,
+    CONTOUR_GRID_SIZE,
+    CONTOUR_GRID_SIZE,
+  ).data;
+  const rects: string[] = [];
+
+  for (let y = 0; y < CONTOUR_GRID_SIZE; y += 1) {
+    let runStart = -1;
+
+    for (let x = 0; x <= CONTOUR_GRID_SIZE; x += 1) {
+      const inked =
+        x < CONTOUR_GRID_SIZE &&
+        isContourPixel(pixels, (y * CONTOUR_GRID_SIZE + x) * 4);
+
+      if (inked && runStart < 0) {
+        runStart = x;
+      }
+
+      if (!inked && runStart >= 0) {
+        rects.push(
+          `<rect x="${runStart}" y="${y}" width="${x - runStart}" height="1"/>`,
+        );
+        runStart = -1;
+      }
+    }
+  }
+
+  if (rects.length === 0) {
+    throw new Error(
+      "На картинке не найден контур: нужен тёмный силуэт на светлом фоне.",
+    );
+  }
+
+  if (rects.length > CONTOUR_MAX_RECTS) {
+    throw new Error(
+      "Слишком сложная картинка. Загрузите логотип с крупным силуэтом или готовый SVG.",
+    );
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CONTOUR_GRID_SIZE} ${CONTOUR_GRID_SIZE}">${rects.join("")}</svg>`;
+}
+
+/** SVG берём как текст, PNG и JPG переводим в контур на клиенте. */
+async function keychainContourFromFile(file: File): Promise<string> {
+  const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+
+  // Лимит сервера считает символы, а file.size — байты. Кириллица в тексте
+  // SVG весит больше, поэтому грубая проверка ловит только явный перебор;
+  // точную проверку всё равно делает isCustomSvgData ниже.
+  if (isSvg && file.size > KEYCHAIN_SVG_MAX_LENGTH) {
+    throw new Error(
+      "SVG больше 200 КБ. Упростите контур или сохраните файл без встроенных картинок.",
+    );
+  }
+
+  const svg = isSvg
+    ? await readFileAsText(file)
+    : await rasterToContourSvg(file);
+
+  if (!isCustomSvgData(svg)) {
+    throw new Error(
+      "Файл слишком большой или содержит скрипты. Нужен SVG до 200 КБ.",
+    );
+  }
+
+  if (!hasDrawableSvgData(svg)) {
+    throw new Error(
+      "В файле нет контура. Нужен SVG с path, polygon, rect, circle или ellipse.",
+    );
+  }
+
+  return svg;
+}
+
+/**
+ * Разбирает строку «20, 40, 20» в ширины ячеек.
+ *
+ * Пустые куски после запятой игнорируются, чтобы «20, » не считался ошибкой
+ * во время набора. Ноль, отрицательное число и выход за 5–220 мм отклоняются:
+ * геометрия делит свободное место пропорционально, и нулевая ячейка сломала бы
+ * расчёт.
+ */
+function parseBoxCellsInput(value: string): number[] | null {
+  const parts = value
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  if (
+    parts.length < CONSTRUCTOR_LIMITS.boxGrid.min ||
+    parts.length > CONSTRUCTOR_LIMITS.boxGrid.max
+  ) {
+    return null;
+  }
+
+  const cells = parts.map((part) => Number(part));
+
+  if (
+    cells.some(
+      (cell) =>
+        !Number.isFinite(cell) ||
+        cell < BOX_CELL_MIN_MM ||
+        cell > BOX_CELL_MAX_MM,
+    )
+  ) {
+    return null;
+  }
+
+  return cells;
+}
+
+/** Обратное представление массива ячеек для поля ввода. */
+function formatBoxCells(cells: readonly number[]): string {
+  return cells.join(", ");
+}
+
 /**
  * Панель параметров модели.
  *
  * Тип модели и её варианты (форма, узор, патрон, шрифт, канал, крепление)
  * выбираются выпадающими списками, размеры меняют слайдеры, а имя, надпись и
  * фото — текстовое поле и загрузка файла. У брелока появляются длина, ширина,
- * толщина, силуэт и имя. У светильника выбирают патрон и узор, у вывески —
- * надпись, кегль, выступ букв и ширину канала под ленту, у коробки — сетку
- * ячеек, размеры, стенку и крышку, у литофана — фото, превью и толщины.
+ * толщина, силуэт, своя загрузка контура и карман под NFC-метку. У светильника
+ * выбирают патрон и узор, у вывески — надпись, кегль, выступ букв и ширину
+ * канала под ленту, у коробки — пресеты, ширины ячеек текстом, размеры, стенку
+ * и крышку, у литофана — фото, превью и толщины.
  * Параметры компонент не хранит: они приходят из ConstructorClient, поэтому
  * 3D-сцена и подписи всегда читают один и тот же объект. Локальное состояние
  * есть только у загрузки изображения — текст ошибки и превью на время сеанса.
@@ -416,6 +672,8 @@ export function ParameterPanel({
   onShapeChange,
   onPatternChange,
   onKeychainShapeChange,
+  onCustomSvgChange,
+  onNfcChange,
   onTextChange,
   onLampPatternChange,
   onLampMountChange,
@@ -425,6 +683,8 @@ export function ParameterPanel({
   onSignChannelWidthChange,
   onSignBaseMountChange,
   onHasLidChange,
+  onBoxCellsChange,
+  onBoxPresetChange,
   onLithoFrameChange,
   onLithoMountChange,
   onLithophaneBrightnessChange,
@@ -439,9 +699,59 @@ export function ParameterPanel({
   const signTextLength = Array.from(params.signText).length;
   const lithophaneInputId = useId();
   const lithophaneHintId = `${lithophaneInputId}-hint`;
+  const keychainContourInputId = useId();
+  const keychainContourHintId = `${keychainContourInputId}-hint`;
+  const boxCellsXInputId = useId();
+  const boxCellsYInputId = useId();
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isProcessingContour, setIsProcessingContour] = useState(false);
+  const [contourError, setContourError] = useState<string | null>(null);
+  const [contourFileName, setContourFileName] = useState<string | null>(null);
+  const [cellsXText, setCellsXText] = useState(() =>
+    formatBoxCells(params.cellsX),
+  );
+  const [cellsYText, setCellsYText] = useState(() =>
+    formatBoxCells(params.cellsY),
+  );
+  /**
+   * Последний набор ячеек, который пришёл в состояние.
+   *
+   * Поле ввода хранит текст как есть, чтобы можно было набрать «20, 40» без
+   * подмены на середине. Синхронизация нужна только когда ячейки поменял не
+   * текст, а пресет или слайдер количества: тогда ref отличается от параметров.
+   */
+  const appliedCellsX = useRef(formatBoxCells(params.cellsX));
+  const appliedCellsY = useRef(formatBoxCells(params.cellsY));
+
+  useEffect(() => {
+    const signature = params.cellsX.join(",");
+
+    if (signature !== appliedCellsX.current) {
+      appliedCellsX.current = signature;
+      setCellsXText(formatBoxCells(params.cellsX));
+    }
+  }, [params.cellsX]);
+
+  useEffect(() => {
+    const signature = params.cellsY.join(",");
+
+    if (signature !== appliedCellsY.current) {
+      appliedCellsY.current = signature;
+      setCellsYText(formatBoxCells(params.cellsY));
+    }
+  }, [params.cellsY]);
+
+  /**
+   * Сброс всех параметров очищает customSvgData, но имя файла живёт в панели.
+   * Без синхронизации плашка «Контур: logo.svg» осталась бы на пустом месте.
+   */
+  useEffect(() => {
+    if (!params.customSvgData) {
+      setContourFileName(null);
+    }
+  }, [params.customSvgData]);
 
   /**
    * Демонстрационный массив живёт в DEFAULT_LITHOPHANE_PARAMS и после сброса
@@ -489,13 +799,99 @@ export function ParameterPanel({
   }
 
   /**
+   * Загружает свой контур брелока.
+   *
+   * SVG читается как текст, картинка — как data URL и сразу переводится в
+   * контур на canvas: серверная геометрия понимает только SVG-примитивы.
+   * После успешного разбора форма переключается на «Свой SVG», иначе выбранный
+   * ранее силуэт остался бы и файл ни на что не влиял.
+   */
+  async function handleKeychainContourChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    setIsProcessingContour(true);
+    setContourError(null);
+
+    try {
+      const svg = await keychainContourFromFile(file);
+
+      onCustomSvgChange(svg);
+      onKeychainShapeChange("custom");
+      setContourFileName(file.name);
+    } catch (error) {
+      setContourError(
+        error instanceof Error
+          ? error.message
+          : "Не удалось обработать файл. Попробуйте другой контур.",
+      );
+    } finally {
+      setIsProcessingContour(false);
+    }
+  }
+
+  /** Возвращает встроенный силуэт: пустой customSvgData сервер не примет. */
+  function resetKeychainContour() {
+    onCustomSvgChange("");
+    setContourFileName(null);
+    setContourError(null);
+
+    if (params.shapeType === "custom") {
+      onKeychainShapeChange("dog_tag");
+    }
+  }
+
+  /**
+   * Текст поля ячеек уходит в состояние только когда строка разобралась.
+   *
+   * Незаконченный ввод («20, ») остаётся в поле и не отправляется в API:
+   * сервер требует от 1 до 8 ячеек по 5–220 мм, а промежуточная строка этому
+   * не соответствует.
+   */
+  function handleBoxCellsTextChange(axis: "x" | "y", value: string) {
+    if (axis === "x") {
+      setCellsXText(value);
+    } else {
+      setCellsYText(value);
+    }
+
+    const cells = parseBoxCellsInput(value);
+
+    if (!cells) {
+      return;
+    }
+
+    if (axis === "x") {
+      appliedCellsX.current = cells.join(",");
+    } else {
+      appliedCellsY.current = cells.join(",");
+    }
+
+    onBoxCellsChange(axis, cells);
+  }
+
+  const cellsXInvalid =
+    cellsXText.trim().length > 0 && parseBoxCellsInput(cellsXText) === null;
+  const cellsYInvalid =
+    cellsYText.trim().length > 0 && parseBoxCellsInput(cellsYText) === null;
+  /** Слой паузы M600: метка ложится под верхней крышкой кармана. */
+  const nfcPauseZ = Math.max(0, params.thickness - 0.4).toFixed(1);
+
+  /**
    * Заголовок над компактными кнопками. У светильника и вывески файлов
    * несколько — детали печатаются по отдельности, — поэтому список кнопок
    * подписан: иначе «1 · крышка» и «2 · лицо» выглядели бы загадочно.
    */
   const partsHeading =
     params.model === "lamp"
-      ? "Одна деталь"
+      ? "Детали светильника"
       : params.model === "sign"
         ? "Детали блоков"
         : null;
@@ -670,6 +1066,95 @@ export function ParameterPanel({
               value={params.shapeType}
             />
           </div>
+
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Свой контур
+            </legend>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <label
+                className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-blue-400/60 bg-blue-500/15 px-3 text-sm font-semibold text-white transition-colors hover:bg-blue-500/25 focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
+                htmlFor={keychainContourInputId}
+              >
+                {isProcessingContour
+                  ? "Обрабатываем…"
+                  : contourFileName
+                    ? "Заменить контур"
+                    : "Загрузить свой контур"}
+              </label>
+              <input
+                accept=".svg,.png,.jpg,.jpeg"
+                aria-describedby={keychainContourHintId}
+                className="sr-only"
+                disabled={isProcessingContour}
+                id={keychainContourInputId}
+                onChange={handleKeychainContourChange}
+                type="file"
+              />
+              {contourFileName ? (
+                <button
+                  className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/15 px-3 text-sm font-semibold text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  onClick={resetKeychainContour}
+                  type="button"
+                >
+                  Сбросить
+                </button>
+              ) : null}
+            </div>
+
+            <p
+              className="mt-2 text-xs leading-relaxed text-slate-300"
+              id={keychainContourHintId}
+            >
+              SVG с контуром или картинка PNG/JPG. Картинка переводится в силуэт
+              в браузере: лучше всего подходит тёмный логотип на светлом фоне.
+              Учтите, что отверстия внутри силуэта при таком переводе
+              заполняются.
+            </p>
+
+            {contourFileName ? (
+              <p className="mt-2 truncate text-xs text-emerald-200">
+                Контур: {contourFileName}
+              </p>
+            ) : null}
+
+            {contourError ? (
+              <p
+                className="mt-2 rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
+                role="alert"
+              >
+                {contourError}
+              </p>
+            ) : null}
+          </fieldset>
+
+          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+            <input
+              checked={params.nfcEnabled}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onChange={(event) => onNfcChange(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-200">
+                Карман под NFC-метку
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                Закрытое углубление с верхней крышкой 0.4 мм. Метку вкладывают
+                в паузу печати, поэтому карман не видно снаружи.
+              </span>
+            </span>
+          </label>
+
+          {params.nfcEnabled ? (
+            <aside className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
+              Добавьте паузу <code className="font-semibold">M600</code> в
+              слайсере на слое{" "}
+              <strong className="font-semibold">Z = {nfcPauseZ} мм</strong>{" "}
+              (толщина минус 0.4 мм), вложите метку и продолжите печать.
+            </aside>
+          ) : null}
 
           <fieldset className="mt-6 border-t border-white/10 pt-5">
             <legend className="text-sm font-medium text-slate-200">
@@ -876,6 +1361,94 @@ export function ParameterPanel({
                 unit="шт."
                 value={params.gridY}
               />
+
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-3">
+                <p className="text-xs font-semibold tracking-wide text-slate-300 uppercase">
+                  Пресеты
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {BOX_PRESET_IDS.map((preset) => (
+                    <button
+                      className="inline-flex min-h-9 items-center justify-center rounded-full border border-white/15 px-3 text-xs font-semibold text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                      key={preset}
+                      onClick={() => onBoxPresetChange(preset)}
+                      type="button"
+                    >
+                      {BOX_PRESET_LABELS[preset]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label
+                  className="text-sm font-medium text-slate-200"
+                  htmlFor={boxCellsXInputId}
+                >
+                  Ширины ячеек по длине, мм
+                </label>
+                <input
+                  aria-describedby={`${boxCellsXInputId}-hint`}
+                  aria-invalid={cellsXInvalid}
+                  autoComplete="off"
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  id={boxCellsXInputId}
+                  inputMode="decimal"
+                  onChange={(event) =>
+                    handleBoxCellsTextChange("x", event.target.value)
+                  }
+                  placeholder="20, 40, 20"
+                  spellCheck={false}
+                  type="text"
+                  value={cellsXText}
+                />
+                <p
+                  className={
+                    cellsXInvalid
+                      ? "mt-2 text-xs leading-relaxed text-rose-200"
+                      : "mt-2 text-xs leading-relaxed text-slate-300"
+                  }
+                  id={`${boxCellsXInputId}-hint`}
+                >
+                  Через запятую, от 1 до 8 чисел по 5–220 мм. Например: 20, 40,
+                  20. Размеры задают пропорции ячеек.
+                </p>
+              </div>
+
+              <div>
+                <label
+                  className="text-sm font-medium text-slate-200"
+                  htmlFor={boxCellsYInputId}
+                >
+                  Высоты ячеек по ширине, мм
+                </label>
+                <input
+                  aria-describedby={`${boxCellsYInputId}-hint`}
+                  aria-invalid={cellsYInvalid}
+                  autoComplete="off"
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  id={boxCellsYInputId}
+                  inputMode="decimal"
+                  onChange={(event) =>
+                    handleBoxCellsTextChange("y", event.target.value)
+                  }
+                  placeholder="45, 45"
+                  spellCheck={false}
+                  type="text"
+                  value={cellsYText}
+                />
+                <p
+                  className={
+                    cellsYInvalid
+                      ? "mt-2 text-xs leading-relaxed text-rose-200"
+                      : "mt-2 text-xs leading-relaxed text-slate-300"
+                  }
+                  id={`${boxCellsYInputId}-hint`}
+                >
+                  Через запятую, от 1 до 8 чисел по 5–220 мм. Например: 45, 45.
+                  Свободное место делится пропорционально.
+                </p>
+              </div>
             </div>
           </fieldset>
 
