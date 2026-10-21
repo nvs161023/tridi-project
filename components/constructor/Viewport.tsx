@@ -12,6 +12,7 @@ import {
   KEYCHAIN_SHAPE_LABELS,
   LAMP_BASE_SHAPE_LABELS,
   LAMP_MOUNT_LABELS,
+  LITHOPHANE_MOUNT_LABELS,
   VASE_PATTERN_LABELS,
   type ConstructorParams,
   type KeychainShape,
@@ -855,6 +856,23 @@ export function Viewport({ params }: ViewportProps) {
     }
 
     if (params.model === "lithophane") {
+      // С подставкой сборка наклонена и стоит на базе 6 мм, поэтому габарит
+      // берём из готовой сетки: камера не должна обрезать верх рамки.
+      if (params.lithoMount === "stand") {
+        geometry.computeBoundingBox();
+        const box = geometry.boundingBox;
+
+        return {
+          height: box
+            ? Math.max(box.max.y - box.min.y, 1)
+            : params.lithophaneHeight,
+          footprint: box
+            ? Math.max(box.max.x - box.min.x, 1)
+            : params.lithophaneWidth,
+          flat: false,
+        };
+      }
+
       return {
         height: params.lithophaneHeight,
         footprint: params.lithophaneWidth,
@@ -902,7 +920,7 @@ export function Viewport({ params }: ViewportProps) {
           : params.model === "box"
             ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
             : params.model === "lithophane"
-              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров`
+              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : "без рамки"}`
               : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (

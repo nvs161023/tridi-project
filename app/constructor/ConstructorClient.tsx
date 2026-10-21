@@ -22,6 +22,8 @@ import {
   LAMP_MOUNT_LABELS,
   LAMP_PARTS,
   LAMP_PART_LABELS,
+  LITHOPHANE_MOUNT_LABELS,
+  LITHOPHANE_PART_LABELS,
   SIGN_PART_LABELS,
   SIGN_PARTS,
   VASE_PATTERN_LABELS,
@@ -39,6 +41,8 @@ import {
   type KeychainShape,
   type LampBaseShape,
   type LampMount,
+  type LithophaneMount,
+  type LithophanePart,
   type ModelType,
   type SignChannelWidth,
   type SignFont,
@@ -68,6 +72,8 @@ type SizeParam = Exclude<
   | "signChannelWidth"
   | "signBaseMount"
   | "hasLid"
+  | "lithoFrame"
+  | "lithoMount"
   | "lithophaneBrightness"
 >;
 
@@ -194,8 +200,51 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
     ];
   }
 
-  // Светильник и вывеска собрали набор файлов выше, поэтому здесь остаются
-  // модели с одним STL: ваза, брелок, коробка и литофан.
+  if (params.model === "lithophane") {
+    // Без рамки печатается одна плита рельефа: крепления вырезаны в рамке,
+    // поэтому дополнительных файлов нет.
+    if (!params.lithoFrame) {
+      return [
+        {
+          id: "lithophane-relief",
+          label: "Скачать STL",
+          description: "Плита рельефа без рамки",
+          request: { part: "relief" },
+          fileName: lithophaneStlFileName(params, "relief"),
+        },
+      ];
+    }
+
+    // Первый файл — собранный литофан: плита уже вставлена в рамку и, если
+    // выбрана подставка, наклонена вместе с ней. Дальше детали по отдельности:
+    // рельеф и рамка есть всегда, подставка — только при своём креплении,
+    // петли подвеса — часть рамки.
+    const parts: LithophanePart[] = ["relief", "frame"];
+
+    if (params.lithoMount === "stand") {
+      parts.push("stand");
+    }
+
+    return [
+      {
+        id: "lithophane-all",
+        label: "Скачать STL",
+        description: "Собранный литофан одним файлом",
+        request: { part: "all" },
+        fileName: lithophaneStlFileName(params, "all"),
+      },
+      ...parts.map((part) => ({
+        id: `lithophane-${part}`,
+        label: LITHOPHANE_PART_LABELS[part],
+        description: `${LITHOPHANE_PART_LABELS[part]} литофана отдельным файлом`,
+        request: { part },
+        fileName: lithophaneStlFileName(params, part),
+      })),
+    ];
+  }
+
+  // Светильник, вывеска и литофан собрали набор файлов выше, поэтому здесь
+  // остаются модели с одним STL: ваза, брелок и коробка.
   return [
     {
       id: params.model,
@@ -206,9 +255,7 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
           ? vaseStlFileName(params)
           : params.model === "keychain"
             ? keychainStlFileName(params)
-            : params.model === "box"
-              ? boxStlFileName(params)
-              : lithophaneStlFileName(params),
+            : boxStlFileName(params),
     },
   ];
 }
@@ -336,6 +383,18 @@ export function ConstructorClient({
 
   function updateHasLid(hasLid: boolean) {
     setParams((current) => normalizeConstructorParams({ ...current, hasLid }));
+  }
+
+  function updateLithoFrame(lithoFrame: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lithoFrame }),
+    );
+  }
+
+  function updateLithoMount(lithoMount: LithophaneMount) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lithoMount }),
+    );
   }
 
   /**
@@ -530,6 +589,8 @@ export function ConstructorClient({
           exportOptions={exportOptions}
           onExport={exportStl}
           onHasLidChange={updateHasLid}
+          onLithoFrameChange={updateLithoFrame}
+          onLithoMountChange={updateLithoMount}
           onKeychainShapeChange={updateKeychainShape}
           onLampBaseShapeChange={updateLampBaseShape}
           onLampMountChange={updateLampMount}
@@ -584,7 +645,10 @@ export function ConstructorClient({
                 <>
                   {params.lithophaneWidth} × {params.lithophaneHeight} мм · рельеф{" "}
                   {params.lithophaneMinThickness.toFixed(1)}–
-                  {params.lithophaneMaxThickness.toFixed(1)} мм
+                  {params.lithophaneMaxThickness.toFixed(1)} мм ·{" "}
+                  {params.lithoFrame
+                    ? `рамка · ${LITHOPHANE_MOUNT_LABELS[params.lithoMount].toLowerCase()}`
+                    : "без рамки"}
                 </>
               ) : (
                 <>

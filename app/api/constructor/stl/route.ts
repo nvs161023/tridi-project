@@ -13,6 +13,7 @@ import {
 import {
   CONSTRUCTOR_LIMITS,
   DEFAULT_LAMP_PARAMS,
+  DEFAULT_LITHOPHANE_PARAMS,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
   boxStlFileName,
@@ -23,6 +24,8 @@ import {
   isLampMount,
   isLampPart,
   isLithophaneBrightness,
+  isLithophaneMount,
+  isLithophanePart,
   isSignChannelWidth,
   isSignFont,
   isSignPart,
@@ -48,6 +51,7 @@ import {
   type LampParams,
   type LampPart,
   type LithophaneParams,
+  type LithophanePart,
   type SignParams,
   type SignPart,
   type VaseParams,
@@ -499,16 +503,27 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
  * плоским. Массив яркости принимается только целыми числами 0–255 ровно на
  * 150 × 150 пикселей. Строка base64 здесь не поддерживается: браузер уже
  * присылает готовую сетку, и серверу не нужно декодировать изображение.
+ *
+ * Рамка и крепление необязательны: старый клиент их не присылает и получает
+ * значения по умолчанию. Крепление проверяется по списку — от него зависит,
+ * появятся ли петли на рамке, — а нормализация сама снимает крепление, когда
+ * рамка выключена. Деталь (`part`) тоже из списка, причём `frame`, `stand` и
+ * `all` без рамки отклоняются: без неё в файле нечего собирать. Подставка
+ * отдельным файлом имеет смысл только при своём креплении — иначе клиент просит
+ * деталь, которой нет в выбранной сборке.
  */
 function parseLithophaneParams(
   body: Record<string, unknown>,
-): LithophaneParams | null {
+): { params: LithophaneParams; part: LithophanePart } | null {
   const {
     lithophaneWidth,
     lithophaneHeight,
     lithophaneMinThickness,
     lithophaneMaxThickness,
     lithophaneBrightness,
+    lithoFrame = DEFAULT_LITHOPHANE_PARAMS.lithoFrame,
+    lithoMount = DEFAULT_LITHOPHANE_PARAMS.lithoMount,
+    part = "all",
   } = body;
 
   if (
@@ -533,18 +548,28 @@ function parseLithophaneParams(
       CONSTRUCTOR_LIMITS.lithophaneMaxThickness.max,
     ) ||
     lithophaneMaxThickness <= lithophaneMinThickness ||
-    !isLithophaneBrightness(lithophaneBrightness)
+    !isLithophaneBrightness(lithophaneBrightness) ||
+    typeof lithoFrame !== "boolean" ||
+    !isLithophaneMount(lithoMount) ||
+    !isLithophanePart(part) ||
+    (!lithoFrame && part !== "relief") ||
+    (part === "stand" && lithoMount !== "stand")
   ) {
     return null;
   }
 
-  return normalizeLithophaneParams({
-    lithophaneWidth,
-    lithophaneHeight,
-    lithophaneMinThickness,
-    lithophaneMaxThickness,
-    lithophaneBrightness,
-  });
+  return {
+    params: normalizeLithophaneParams({
+      lithophaneWidth,
+      lithophaneHeight,
+      lithophaneMinThickness,
+      lithophaneMaxThickness,
+      lithophaneBrightness,
+      lithoFrame,
+      lithoMount,
+    }),
+    part,
+  };
 }
 
 /** Разобранный запрос: модель и её проверенные параметры. */
@@ -554,7 +579,7 @@ type ParsedConstructorRequest =
   | { model: "lamp"; params: LampParams; part: LampPart }
   | { model: "sign"; params: SignParams; block: number; part: SignPart }
   | { model: "box"; params: BoxParams }
-  | { model: "lithophane"; params: LithophaneParams };
+  | { model: "lithophane"; params: LithophaneParams; part: LithophanePart };
 
 /**
  * Выбирает набор параметров по полю model.
@@ -603,9 +628,9 @@ function parseConstructorRequest(
   }
 
   if (model === "lithophane") {
-    const params = parseLithophaneParams(body);
+    const lithophane = parseLithophaneParams(body);
 
-    return params ? { model: "lithophane", params } : null;
+    return lithophane ? { model: "lithophane", ...lithophane } : null;
   }
 
   return null;
@@ -720,7 +745,7 @@ export async function POST(request: Request): Promise<Response> {
           : parsed.model === "box"
             ? createBoxGeometry(parsed.params)
             : parsed.model === "lithophane"
-              ? createLithophaneGeometry(parsed.params)
+              ? createLithophaneGeometry(parsed.params, parsed.part)
               : parsed.model === "keychain"
                 ? createKeychainGeometry(parsed.params, await loadFont(KEYCHAIN_FONT_URL))
                 : createSignBlockGeometry(
@@ -748,7 +773,7 @@ export async function POST(request: Request): Promise<Response> {
               : parsed.model === "box"
                 ? boxStlFileName(parsed.params)
                 : parsed.model === "lithophane"
-                  ? lithophaneStlFileName(parsed.params)
+                  ? lithophaneStlFileName(parsed.params, parsed.part)
                   : signStlFileName(parsed.params, parsed.block, parsed.part);
 
       // Запись появляется после успешной генерации: упавшая сборка не должна

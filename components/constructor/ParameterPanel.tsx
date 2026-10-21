@@ -14,6 +14,8 @@ import {
   LAMP_BASE_SHAPES,
   LAMP_BASE_SHAPE_LABELS,
   LAMP_MOUNTS,
+  LITHOPHANE_MOUNTS,
+  LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PIXEL_COUNT,
   LITHOPHANE_RESOLUTION,
   LAMP_MOUNT_LABELS,
@@ -32,6 +34,7 @@ import {
   type KeychainShape,
   type LampBaseShape,
   type LampMount,
+  type LithophaneMount,
   type ModelType,
   type SignChannelWidth,
   type SignFont,
@@ -55,6 +58,8 @@ type SizeParam = Exclude<
   | "signChannelWidth"
   | "signBaseMount"
   | "hasLid"
+  | "lithoFrame"
+  | "lithoMount"
   | "lithophaneBrightness"
 >;
 
@@ -113,6 +118,10 @@ type ParameterPanelProps = {
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
   onSignBaseMountChange: (mount: boolean) => void;
   onHasLidChange: (hasLid: boolean) => void;
+  /** Рамка литофана: отдельная деталь с пазом под плиту. */
+  onLithoFrameChange: (hasFrame: boolean) => void;
+  /** Крепление литофана: подставка, настенные петли или ничего. */
+  onLithoMountChange: (mount: LithophaneMount) => void;
   /** Готовая яркость 150 × 150 из canvas: 0 — чёрный, 255 — белый. */
   onLithophaneBrightnessChange: (brightness: number[]) => void;
   onReset: () => void;
@@ -403,6 +412,8 @@ export function ParameterPanel({
   onSignChannelWidthChange,
   onSignBaseMountChange,
   onHasLidChange,
+  onLithoFrameChange,
+  onLithoMountChange,
   onLithophaneBrightnessChange,
   onReset,
 }: ParameterPanelProps) {
@@ -1208,9 +1219,72 @@ export function ParameterPanel({
             />
           </div>
 
+          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+            <input
+              checked={params.lithoFrame}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onChange={(event) => onLithoFrameChange(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-200">
+                Рамка
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                Отдельная деталь: задняя полка с пазом, куда входит плита, и
+                передняя накладка по периметру. Без рамки печатается только
+                плита рельефа со своим бортиком.
+              </span>
+            </span>
+          </label>
+
+          {params.lithoFrame ? (
+            <fieldset className="mt-6 border-t border-white/10 pt-5">
+              <legend className="text-sm font-medium text-slate-200">
+                Крепление
+              </legend>
+
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {LITHOPHANE_MOUNTS.map((mount) => {
+                  const selected = params.lithoMount === mount;
+
+                  return (
+                    <button
+                      aria-pressed={selected}
+                      className={
+                        selected
+                          ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-sky-400/60 bg-sky-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                          : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                      }
+                      key={mount}
+                      onClick={() => onLithoMountChange(mount)}
+                      type="button"
+                    >
+                      {LITHOPHANE_MOUNT_LABELS[mount]}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <p className="mt-4 text-xs leading-relaxed text-slate-300">
+                {params.lithoMount === "stand"
+                  ? "Подставка: база 6 мм с передней губой и наклонной задней стенкой. Панель с рамкой ставится в паз сверху и наклонена на 12° — так удобнее рассматривать фото на столе."
+                  : params.lithoMount === "hook"
+                    ? "Петли: две проушины на тыльной стороне верхней планки. Литофан висит на двух шурупах почти вплотную к стене, шляпка прячется в кармане петли."
+                    : "Без крепления: печатается только рамка с плитой. Её можно поставить на полку или вставить в свою подставку."}
+              </p>
+            </fieldset>
+          ) : (
+            <p className="mt-4 text-xs leading-relaxed text-slate-300">
+              Рамка выключена: печатается только плита рельефа, крепления нет —
+              их паз вырезан в рамке.
+            </p>
+          )}
+
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Рамка шириной 6 мм идёт по периметру на максимальной толщине.
-            Панель печатается плашмя: рельеф смотрит вверх, поддержки не нужны.
+            Рельеф смотрит вверх: плита, рамка и подставка печатаются плашмя,
+            поддержки не нужны. Детали собираются без клея — плита входит в паз
+            рамки с зазором 0.2 мм.
           </p>
         </>
       ) : (

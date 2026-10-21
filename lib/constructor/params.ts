@@ -525,13 +525,68 @@ export const LITHOPHANE_RESOLUTION = 150;
 export const LITHOPHANE_PIXEL_COUNT = LITHOPHANE_RESOLUTION ** 2;
 
 /**
- * Литофан: панель с рельефом фотографии и рамкой по периметру.
+ * Сторона сетки рельефа, вершин на сторону.
+ *
+ * Картинка приходит 150 × 150, но печатать её ступеньками нельзя: на панели
+ * 120 мм один пиксель — это 0.8 мм, и границы между толщинами видны глазом.
+ * Сетка 400 × 400 берёт яркость билинейной выборкой, поэтому рельеф получается
+ * плавным, а шаг вершины на панели 120 мм — 0.3 мм, примерно две ширины сопла.
+ * 160 801 вершина ещё помещается в память телефона; выше 500 × 500 сетка
+ * начинает заметно тормозить слайдеры.
+ */
+export const LITHOPHANE_MESH_RESOLUTION = 400;
+
+/**
+ * Как литофан стоит или висит.
+ *
+ * `none` — только плита и рамка, крепление не печатается. `stand` — отдельная
+ * подставка: база с передней губой и задней стенкой под наклоном 12°.
+ * `hook` — две петли на задней полке рамки: литофан висит на шляпках
+ * саморезов вплотную к стене.
+ */
+export const LITHOPHANE_MOUNTS = ["none", "stand", "hook"] as const;
+
+export type LithophaneMount = (typeof LITHOPHANE_MOUNTS)[number];
+
+/** Подписи креплений: по ним клиент строит кнопки выбора. */
+export const LITHOPHANE_MOUNT_LABELS = {
+  none: "Без крепления",
+  stand: "Подставка",
+  hook: "Подвес на стену",
+} as const satisfies Record<LithophaneMount, string>;
+
+/**
+ * Детали литофана: что выгружать в STL.
+ *
+ * Рельеф и рамка печатаются отдельно и собираются без клея: плита входит в
+ * паз рамки с зазором 0.2 мм. Подставка — третья деталь, она нужна только при
+ * `lithoMount === "stand"`. `all` — собранный вид для проверки и печати одним
+ * файлом.
+ */
+export const LITHOPHANE_PARTS = ["relief", "frame", "stand", "all"] as const;
+
+export type LithophanePart = (typeof LITHOPHANE_PARTS)[number];
+
+/** Подписи деталей литофана для панели и имён файлов. */
+export const LITHOPHANE_PART_LABELS = {
+  relief: "Рельеф",
+  frame: "Рамка",
+  stand: "Подставка",
+  all: "Все детали",
+} as const satisfies Record<LithophanePart, string>;
+
+/**
+ * Литофан: панель с рельефом фотографии, рамка и крепление.
  *
  * Поля с префиксом `lithophane` не пересекаются с шириной брелока и высотой
  * вазы в общем объекте ConstructorParams. Яркость хранится построчно сверху
  * вниз, по 150 значений в строке: 0 — чёрный пиксель (толстый пластик),
  * 255 — белый (тонкий). Массив передаётся в API как есть, без повторного
  * декодирования картинки на сервере.
+ *
+ * Размеры `lithophaneWidth` и `lithophaneHeight` — это габарит собранной
+ * рамки. Плита рельефа меньше на ширину бортика и зазор посадки, поэтому
+ * слайдеры не прыгают при включении рамки.
  */
 export type LithophaneParams = {
   /** Ширина панели с рамкой, мм. */
@@ -544,6 +599,10 @@ export type LithophaneParams = {
   lithophaneMaxThickness: number;
   /** Яркость 22 500 пикселей: 150 × 150, значения 0–255. */
   lithophaneBrightness: number[];
+  /** Печатать рамку с пазом отдельной деталью. */
+  lithoFrame: boolean;
+  /** Крепление: без него, подставка на стол или петли под саморезы. */
+  lithoMount: LithophaneMount;
 };
 
 /** Значения, с которыми открывается конструктор. */
@@ -686,8 +745,11 @@ function createDemoLithophaneBrightness(): number[] {
 }
 
 /**
- * Литофан по умолчанию: 120 × 80 мм, рельеф 0.8–3 мм и демонстрационная
- * картинка. После загрузки фотографии массив заменяется яркостью кадра.
+ * Литофан по умолчанию: 120 × 80 мм, рельеф 0.8–3 мм, рамка и подставка.
+ *
+ * Рамка включена сразу: без неё плита 0.8–3 мм стоит только на ребре. Подставка
+ * по умолчанию тоже включена — на вкладке видно готовый предмет, а не заготовку.
+ * После загрузки фотографии массив яркости заменяется яркостью кадра.
  */
 export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   lithophaneWidth: CONSTRUCTOR_LIMITS.lithophaneWidth.defaultValue,
@@ -697,6 +759,8 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   lithophaneMaxThickness:
     CONSTRUCTOR_LIMITS.lithophaneMaxThickness.defaultValue,
   lithophaneBrightness: createDemoLithophaneBrightness(),
+  lithoFrame: true,
+  lithoMount: "stand",
 };
 
 /**
@@ -857,14 +921,19 @@ export function boxStlFileName(params: BoxParams): string {
 }
 
 /**
- * Имя файла STL для литофана.
+ * Имя файла STL для детали литофана.
  *
- * В имени только размеры и диапазон толщин: исходное имя фотографии может
- * содержать кириллицу, а Content-Disposition должен оставаться простым ASCII.
- * Значения уже выровнены normalizeLithophaneParams, поэтому лишних нулей нет.
+ * В имени только размеры, диапазон толщин и имя детали: исходное имя фотографии
+ * может содержать кириллицу, а Content-Disposition должен оставаться простым
+ * ASCII. Суффикс детали нужен всегда — рельеф, рамка и подставка лежат рядом в
+ * папке загрузок, и «(1).stl» в них не должен появиться. Значения уже выровнены
+ * normalizeLithophaneParams, поэтому лишних нулей нет.
  */
-export function lithophaneStlFileName(params: LithophaneParams): string {
-  return `tridi-litofan-w${params.lithophaneWidth}-h${params.lithophaneHeight}-t${params.lithophaneMinThickness}-${params.lithophaneMaxThickness}.stl`;
+export function lithophaneStlFileName(
+  params: LithophaneParams,
+  part: LithophanePart = "all",
+): string {
+  return `tridi-litofan-w${params.lithophaneWidth}-h${params.lithophaneHeight}-t${params.lithophaneMinThickness}-${params.lithophaneMaxThickness}-${part}.stl`;
 }
 
 /** Проверка типа модели из формы или API. */
@@ -902,6 +971,27 @@ export function isLithophaneBrightness(value: unknown): value is number[] {
   }
 
   return true;
+}
+
+/**
+ * Проверка крепления литофана из формы или API.
+ *
+ * Значение приходит строкой из ссылки или запроса: незнакомое лучше заменить
+ * на `none`, чем строить подставку с NaN.
+ */
+export function isLithophaneMount(value: unknown): value is LithophaneMount {
+  return (
+    typeof value === "string" &&
+    (LITHOPHANE_MOUNTS as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка детали литофана: рельеф, рамка, подставка или всё сразу. */
+export function isLithophanePart(value: unknown): value is LithophanePart {
+  return (
+    typeof value === "string" &&
+    (LITHOPHANE_PARTS as readonly string[]).includes(value)
+  );
 }
 
 /** Проверка незнакомого значения из формы, ссылки или API. */
@@ -1409,6 +1499,10 @@ function normalizeBoxCells(
  * превратился бы в плоскую пластину. Массив яркости принимается только
  * целым, ровно 150 × 150; испорченные данные заменяются демонстрационным
  * рельефом, чтобы предпросмотр не падал.
+ *
+ * Крепление без рамки невозможно: паз подставки и петли подвеса вырезаны в
+ * рамке. Поэтому при выключенной рамке `lithoMount` принудительно становится
+ * `none`, и панель не обещает крепление, которого в файле не будет.
  */
 export function normalizeLithophaneParams(
   params: Partial<LithophaneParams>,
@@ -1431,6 +1525,10 @@ export function normalizeLithophaneParams(
           CONSTRUCTOR_LIMITS.lithophaneMaxThickness,
         )
       : requestedMaxThickness;
+  const lithoFrame = params.lithoFrame ?? DEFAULT_LITHOPHANE_PARAMS.lithoFrame;
+  const requestedMount = isLithophaneMount(params.lithoMount)
+    ? params.lithoMount
+    : DEFAULT_LITHOPHANE_PARAMS.lithoMount;
 
   return {
     lithophaneWidth: snap(
@@ -1446,6 +1544,8 @@ export function normalizeLithophaneParams(
     lithophaneBrightness: isLithophaneBrightness(params.lithophaneBrightness)
       ? params.lithophaneBrightness
       : DEFAULT_LITHOPHANE_PARAMS.lithophaneBrightness,
+    lithoFrame,
+    lithoMount: lithoFrame ? requestedMount : "none",
   };
 }
 
