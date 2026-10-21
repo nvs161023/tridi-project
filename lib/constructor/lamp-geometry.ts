@@ -84,6 +84,14 @@ const PATTERN_WAVE_PERIOD_MM = 28;
 /** Сегментов у основания: 2.5° даёт ровные углы квадрата и шестиугольника. */
 export const LAMP_BASE_SEGMENTS = 144;
 
+/**
+ * Толщина верхней крышки закрытого плафона, мм.
+ *
+ * 2.4 мм держат форму крышки над гнездом патрона и не просвечивают: стенка
+ * абажура такой же толщины, и крышка не выглядит тоньше остальных деталей.
+ */
+export const LAMP_CAP_THICKNESS_MM = 2.4;
+
 /** Насколько основание выступает за абажур по радиусу, мм. */
 const BASE_MARGIN_MM = 1.2;
 
@@ -126,6 +134,8 @@ type ProfileRow = {
 /** Профиль и индексы строк, между которыми вырезается канал. */
 type LampProfile = {
   rows: ProfileRow[];
+  /** Вырезан ли в верхнем поясе канал под провод. */
+  hasSlot: boolean;
   outerSlotBottomRow: number;
   outerSlotTopRow: number;
   boreSlotBottomRow: number;
@@ -200,8 +210,12 @@ function patternWave(
  * Профиль абажура и координаты канала.
  *
  * Наружный радиус плавно сужается от нижней кромки к гладкому поясу: так
- * абажур отбрасывает свет вниз, а не в стороны. Верхнее кольцо переходит в
- * цилиндрическое гнездо патрона, под ним — плечо и внутренняя стенка.
+ * абажур отбрасывает свет вниз, а не в стороны. У открытого плафона верхнее
+ * кольцо переходит в цилиндрическое гнездо патрона, под ним — плечо и
+ * внутренняя стенка. У закрытого верх запечатан плоской крышкой
+ * LAMP_CAP_THICKNESS_MM: профиль уходит к оси вращения, спускается по ней на
+ * толщину крышки и возвращается к внутренней стенке, поэтому свет не бьёт в
+ * потолок, а канал под провод не вырезается.
  */
 function createLampProfile(params: LampParams): LampProfile {
   const height = params.lampHeight;
@@ -235,6 +249,40 @@ function createLampProfile(params: LampParams): LampProfile {
   }
 
   const rows: ProfileRow[] = [...bellRows];
+
+  // Закрытый плафон: крышка наглухо перекрывает верхнее отверстие. Внутренний
+  // радиус крышки равен стенке абажура, поэтому толщина по кромке та же, что у
+  // стенки, а в центре — LAMP_CAP_THICKNESS_MM.
+  if (params.lampType === "closed") {
+    const innerTopRadius = Math.max(topRadius - wall, 0.6);
+
+    rows.push({ height, radius: topRadius });
+    rows.push({ height, radius: 0 });
+    rows.push({ height: height - LAMP_CAP_THICKNESS_MM, radius: 0 });
+    rows.push({
+      height: height - LAMP_CAP_THICKNESS_MM,
+      radius: innerTopRadius,
+    });
+
+    for (let index = BELL_ROWS - 1; index >= 0; index -= 1) {
+      const outer = bellRows[index];
+
+      rows.push({
+        height: outer.height,
+        radius: Math.max(outer.radius - wall, 0.6),
+      });
+    }
+
+    return {
+      rows,
+      hasSlot: false,
+      outerSlotBottomRow: -1,
+      outerSlotTopRow: -1,
+      boreSlotBottomRow: -1,
+      boreSlotTopRow: -1,
+    };
+  }
+
   const outerSlotBottomRow = rows.length;
   rows.push({
     height: height - SLOT_TOP_INSET_MM - SLOT_HEIGHT_MM,
@@ -243,6 +291,7 @@ function createLampProfile(params: LampParams): LampProfile {
   const outerSlotTopRow = rows.length;
   rows.push({ height: height - SLOT_TOP_INSET_MM, radius: topRadius });
   rows.push({ height, radius: topRadius });
+
   rows.push({ height, radius: socketRadius });
 
   const boreSlotTopRow = rows.length;
@@ -270,6 +319,7 @@ function createLampProfile(params: LampParams): LampProfile {
 
   return {
     rows,
+    hasSlot: true,
     outerSlotBottomRow,
     outerSlotTopRow,
     boreSlotBottomRow,
@@ -355,7 +405,7 @@ function buildShadeGeometry(normalized: LampParams): BufferGeometry {
             ) *
             fade *
             PATTERN_INTENSITY_MM;
-      const radius = Math.max(row.radius + offset, 0.6);
+      const radius = Math.max(row.radius + offset, 0);
       const offset3 = (rowIndex * LAMP_SEGMENTS + segment) * 3;
 
       positions[offset3] = Math.cos(angle) * radius;
@@ -365,6 +415,7 @@ function buildShadeGeometry(normalized: LampParams): BufferGeometry {
   }
 
   const indices: number[] = [];
+  const hasSlot = profile.hasSlot;
   const slotStart = LAMP_SEGMENTS / 2 - SLOT_SEGMENTS / 2;
   const slotEnd = slotStart + SLOT_SEGMENTS;
   const outerSlotEdge = profile.outerSlotBottomRow;
@@ -372,7 +423,16 @@ function buildShadeGeometry(normalized: LampParams): BufferGeometry {
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
     const nextRow = (rowIndex + 1) % rows.length;
-    const isSlotEdge = rowIndex === outerSlotEdge || rowIndex === boreSlotEdge;
+    const isSlotEdge =
+      hasSlot && (rowIndex === outerSlotEdge || rowIndex === boreSlotEdge);
+    const rowRadius = rows[rowIndex].radius;
+    const nextRadius = rows[nextRow].radius;
+
+    // Два ряда на оси вращения дают только вырожденные треугольники: у
+    // закрытого плафона это вертикальная стенка крышки нулевой площади.
+    if (rowRadius === 0 && nextRadius === 0) {
+      continue;
+    }
 
     for (let segment = 0; segment < LAMP_SEGMENTS; segment += 1) {
       if (isSlotEdge && segment >= slotStart && segment < slotEnd) {
@@ -385,62 +445,74 @@ function buildShadeGeometry(normalized: LampParams): BufferGeometry {
       const d = vertexIndex(nextRow, segment);
 
       // Обход профиля задаёт наружную нормаль: (a, c, b) и (a, d, c).
-      indices.push(a, c, b, a, d, c);
+      if (nextRadius === 0) {
+        // Крышка закрытого плафона сходится на ось: остаётся один
+        // треугольник веера, второй вырождается в точку.
+        indices.push(a, c, b);
+      } else if (rowRadius === 0) {
+        // Обратный веер: от оси к нижнему кольцу крышки.
+        indices.push(a, d, c);
+      } else {
+        indices.push(a, c, b, a, d, c);
+      }
     }
   }
 
   // Стенки тоннеля: потолок канала смотрит вниз, пол — вверх, боковины —
-  // внутрь канала. Вершины уже есть в сетке, новые не нужны.
-  for (let segment = slotStart; segment < slotEnd; segment += 1) {
+  // внутрь канала. Вершины уже есть в сетке, новые не нужны. У закрытого
+  // плафона канала нет: его верх запечатан крышкой.
+  if (hasSlot) {
+    for (let segment = slotStart; segment < slotEnd; segment += 1) {
+      addOrientedQuad(
+        indices,
+        positions,
+        vertexIndex(profile.outerSlotTopRow, segment),
+        vertexIndex(profile.outerSlotTopRow, segment + 1),
+        vertexIndex(profile.boreSlotTopRow, segment + 1),
+        vertexIndex(profile.boreSlotTopRow, segment),
+        0,
+        -1,
+        0,
+      );
+      addOrientedQuad(
+        indices,
+        positions,
+        vertexIndex(profile.outerSlotBottomRow, segment),
+        vertexIndex(profile.outerSlotBottomRow, segment + 1),
+        vertexIndex(profile.boreSlotBottomRow, segment + 1),
+        vertexIndex(profile.boreSlotBottomRow, segment),
+        0,
+        1,
+        0,
+      );
+    }
+
+    const startAngle = slotStart * angularStep;
+    const endAngle = slotEnd * angularStep;
+
     addOrientedQuad(
       indices,
       positions,
-      vertexIndex(profile.outerSlotTopRow, segment),
-      vertexIndex(profile.outerSlotTopRow, segment + 1),
-      vertexIndex(profile.boreSlotTopRow, segment + 1),
-      vertexIndex(profile.boreSlotTopRow, segment),
+      vertexIndex(profile.outerSlotBottomRow, slotStart),
+      vertexIndex(profile.outerSlotTopRow, slotStart),
+      vertexIndex(profile.boreSlotTopRow, slotStart),
+      vertexIndex(profile.boreSlotBottomRow, slotStart),
+      -Math.sin(startAngle),
       0,
-      -1,
-      0,
+      Math.cos(startAngle),
     );
     addOrientedQuad(
       indices,
       positions,
-      vertexIndex(profile.outerSlotBottomRow, segment),
-      vertexIndex(profile.outerSlotBottomRow, segment + 1),
-      vertexIndex(profile.boreSlotBottomRow, segment + 1),
-      vertexIndex(profile.boreSlotBottomRow, segment),
+      vertexIndex(profile.outerSlotBottomRow, slotEnd),
+      vertexIndex(profile.outerSlotTopRow, slotEnd),
+      vertexIndex(profile.boreSlotTopRow, slotEnd),
+      vertexIndex(profile.boreSlotBottomRow, slotEnd),
+      Math.sin(endAngle),
       0,
-      1,
-      0,
+      -Math.cos(endAngle),
     );
   }
-
-  const startAngle = slotStart * angularStep;
-  const endAngle = slotEnd * angularStep;
-
-  addOrientedQuad(
-    indices,
-    positions,
-    vertexIndex(profile.outerSlotBottomRow, slotStart),
-    vertexIndex(profile.outerSlotTopRow, slotStart),
-    vertexIndex(profile.boreSlotTopRow, slotStart),
-    vertexIndex(profile.boreSlotBottomRow, slotStart),
-    -Math.sin(startAngle),
-    0,
-    Math.cos(startAngle),
-  );
-  addOrientedQuad(
-    indices,
-    positions,
-    vertexIndex(profile.outerSlotBottomRow, slotEnd),
-    vertexIndex(profile.outerSlotTopRow, slotEnd),
-    vertexIndex(profile.boreSlotTopRow, slotEnd),
-    vertexIndex(profile.boreSlotBottomRow, slotEnd),
-    Math.sin(endAngle),
-    0,
-    -Math.cos(endAngle),
-  );
 
   return finalizeGeometry(positions, indices);
 }

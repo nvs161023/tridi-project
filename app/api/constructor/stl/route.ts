@@ -23,6 +23,7 @@ import {
   isLampBaseShape,
   isLampMount,
   isLampPart,
+  isLampType,
   isLithophaneBrightness,
   isLithophaneMount,
   isLithophanePart,
@@ -290,6 +291,7 @@ function parseLampParams(
     lampMount,
     lampBaseShape = DEFAULT_LAMP_PARAMS.lampBaseShape,
     lampBaseHeight = DEFAULT_LAMP_PARAMS.lampBaseHeight,
+    lampType = DEFAULT_LAMP_PARAMS.lampType,
     part = "all",
   } = body;
 
@@ -312,6 +314,7 @@ function parseLampParams(
     !isVasePattern(lampPattern) ||
     !isLampMount(lampMount) ||
     !isLampBaseShape(lampBaseShape) ||
+    !isLampType(lampType) ||
     !isNumberInRange(
       lampBaseHeight,
       CONSTRUCTOR_LIMITS.lampBaseHeight.min,
@@ -331,6 +334,7 @@ function parseLampParams(
       lampMount,
       lampBaseShape,
       lampBaseHeight,
+      lampType,
     }),
     part,
   };

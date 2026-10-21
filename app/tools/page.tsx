@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Header } from "@/components/Header";
+import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
+import { CONSTRUCTOR_TOOLS } from "@/lib/constructor/params";
 import { defects } from "@/lib/defects";
 import { profileCount } from "@/lib/profiles";
 import { OG_IMAGE } from "@/lib/seo";
@@ -163,9 +165,9 @@ const TOOLS: Tool[] = [
     href: "/constructor",
     title: "3D-Конструктор",
     description:
-      "Параметрические вазы и брелоки: задайте размеры, силуэт и узор, проверьте модель в 3D и скачайте STL для печати.",
+      "Шесть генераторов в одном окне: вазы, брелоки, светильники, вывески, коробки и литофаны. Задайте размеры и узор, проверьте модель в 3D и скачайте STL.",
     icon: "constructor",
-    badges: ["Вазы и брелоки", "Экспорт STL"],
+    badges: [`${CONSTRUCTOR_TOOLS.length} генераторов`, "Экспорт STL"],
     bullets: [
       "Шесть силуэтов ваз и математические узоры",
       "Брелоки с именем на кириллице",
@@ -252,6 +254,9 @@ export default function ToolsPage() {
             <div className="mt-7 flex flex-wrap gap-2.5 text-xs font-semibold sm:text-sm">
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
                 3 инструмента
+              </span>
+              <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
+                {CONSTRUCTOR_TOOLS.length} генераторов моделей
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
                 {profileCount} профилей печати
@@ -349,6 +354,56 @@ export default function ToolsPage() {
                 </Link>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* Генераторы перечислены из CONSTRUCTOR_TOOLS: новый инструмент
+            появляется здесь сам, без правки разметки. */}
+        <section
+          aria-labelledby="constructor-models-title"
+          className="border-b border-white/10"
+        >
+          <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-16">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold tracking-widest text-blue-400 uppercase">
+                  Внутри Конструктора
+                </p>
+                <h2
+                  id="constructor-models-title"
+                  className="mt-3 text-3xl font-extrabold tracking-tight text-white sm:text-4xl"
+                >
+                  {CONSTRUCTOR_TOOLS.length} генераторов моделей
+                </h2>
+              </div>
+              <p className="max-w-md text-sm leading-relaxed text-slate-300 sm:text-base">
+                Каждый генератор считает геометрию на сервере и отдаёт готовый
+                STL: размеры задаются ползунками, а предпросмотр обновляется
+                сразу.
+              </p>
+            </div>
+
+            <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {CONSTRUCTOR_TOOLS.map((tool) => (
+                <li
+                  key={tool.id}
+                  className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 transition-colors hover:border-blue-400/40 hover:bg-white/[0.07]"
+                >
+                  <p className="text-lg font-bold tracking-tight text-white">
+                    {tool.title}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                    {tool.desc}
+                  </p>
+                </li>
+              ))}
+            </ul>
+
+            <p className="mt-6 text-sm leading-relaxed text-slate-300">
+              Экспорт STL входит в подписку Pro, а первые{" "}
+              {FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH} скачивания в месяц доступны
+              бесплатно после входа.
+            </p>
           </div>
         </section>
 

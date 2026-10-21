@@ -25,6 +25,7 @@ import {
   pluralize,
 } from "@/lib/course-stats";
 import { getPurchasedCourses, hasCourseAccess } from "@/lib/subscription";
+import { CONSTRUCTOR_TOOLS } from "@/lib/constructor/params";
 import { createClient } from "@/lib/supabase/server";
 
 import { PlanButton } from "./PlanButton";
@@ -828,36 +829,74 @@ export default async function SubscriptionPage() {
                       курсы покупаются отдельно и остаются навсегда.
                     </p>
 
-                    <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm leading-relaxed text-slate-300">
-                      <li className="flex items-center gap-2">
-                        <span aria-hidden className="text-blue-300">
+                    <p className="mt-5 text-sm font-semibold text-white">
+                      Оформи Pro и получи доступ к инструментам
+                    </p>
+
+                    <ul className="mt-3 grid gap-x-6 gap-y-3 text-sm leading-relaxed text-slate-300 sm:grid-cols-2">
+                      {CONSTRUCTOR_TOOLS.map((tool) => (
+                        <li key={tool.id} className="flex gap-2">
+                          <span
+                            aria-hidden
+                            className="mt-0.5 shrink-0 text-emerald-400"
+                          >
+                            ✓
+                          </span>
+                          <span>
+                            <span className="font-medium text-white">
+                              {tool.title}
+                            </span>
+                            {" — "}
+                            {tool.desc}
+                          </span>
+                        </li>
+                      ))}
+
+                      <li className="flex gap-2">
+                        <span
+                          aria-hidden
+                          className="mt-0.5 shrink-0 text-emerald-400"
+                        >
                           ✓
                         </span>
-                        Конструктор 3D-моделей: шаблоны и параметры
+                        <span>
+                          <span className="font-medium text-white">
+                            Безлимитные скачивания STL
+                          </span>
+                          {" — "}месячный лимит бесплатных экспортов на Pro не
+                          действует
+                        </span>
                       </li>
-                      <li className="flex items-center gap-2">
-                        <span aria-hidden className="text-blue-300">
+
+                      <li className="flex gap-2">
+                        <span
+                          aria-hidden
+                          className="mt-0.5 shrink-0 text-emerald-400"
+                        >
                           ✓
                         </span>
-                        Библиотека Профилей печати
+                        <span>
+                          <span className="font-medium text-white">
+                            Коммерческая лицензия
+                          </span>
+                          {" — "}напечатанное можно продавать
+                        </span>
                       </li>
-                      <li className="flex items-center gap-2">
-                        <span aria-hidden className="text-blue-300">
+
+                      <li className="flex gap-2">
+                        <span
+                          aria-hidden
+                          className="mt-0.5 shrink-0 text-emerald-400"
+                        >
                           ✓
                         </span>
-                        Безлимитная генерация в Конструкторе
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <span aria-hidden className="text-blue-300">
-                          ✓
+                        <span>
+                          <span className="font-medium text-white">
+                            Библиотека Профилей печати
+                          </span>
+                          {" — "}проверенные настройки принтеров, материалов и
+                          слайсеров
                         </span>
-                        Коммерческая лицензия (можно продавать напечатанное)
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <span aria-hidden className="text-blue-300">
-                          ✓
-                        </span>
-                        Новые инструменты по мере выхода
                       </li>
                     </ul>
                   </div>

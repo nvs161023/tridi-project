@@ -12,11 +12,13 @@ import {
   KEYCHAIN_SHAPE_LABELS,
   LAMP_BASE_SHAPE_LABELS,
   LAMP_MOUNT_LABELS,
+  LAMP_TYPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   VASE_PATTERN_LABELS,
   type ConstructorParams,
   type KeychainShape,
   type LampMount,
+  type LampType,
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
@@ -315,6 +317,8 @@ type LampModelProps = {
   footprint: number;
   pattern: VasePattern;
   mount: LampMount;
+  /** Открытый плафон или закрытый: у закрытого крышка меняет силуэт и тень. */
+  type: LampType;
 };
 
 /**
@@ -336,6 +340,7 @@ function LampModel({
   footprint,
   pattern,
   mount,
+  type,
 }: LampModelProps) {
   return (
     <group>
@@ -368,7 +373,7 @@ function LampModel({
         blur={2.6}
         far={Math.max((height + baseHeight) * 0.9, 120)}
         frames={1}
-        key={`lamp-${baseHeight}-${height}-${diameter}-${pattern}-${mount}`}
+        key={`lamp-${baseHeight}-${height}-${diameter}-${pattern}-${mount}-${type}`}
         opacity={0.55}
         position={[0, 0.02, 0]}
         resolution={512}
@@ -646,6 +651,7 @@ function Scene({ params, geometry, framing }: SceneProps) {
           height={params.lampHeight}
           mount={params.lampMount}
           pattern={params.lampPattern}
+          type={params.lampType}
         />
       ) : params.model === "box" ? (
         <BoxModel
@@ -916,7 +922,7 @@ export function Viewport({ params }: ViewportProps) {
       : params.model === "keychain"
         ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${KEYCHAIN_SHAPE_LABELS[params.shapeType]}», имя «${params.text.trim() || "без имени"}»`
         : params.model === "lamp"
-          ? `3D-предпросмотр светильника: основание «${LAMP_BASE_SHAPE_LABELS[params.lampBaseShape]}» высотой ${params.lampBaseHeight} миллиметров и абажур высотой ${params.lampHeight} миллиметров диаметром ${params.lampDiameter} миллиметров, патрон ${LAMP_MOUNT_LABELS[params.lampMount]}, узор «${VASE_PATTERN_LABELS[params.lampPattern]}»`
+          ? `3D-предпросмотр светильника: основание «${LAMP_BASE_SHAPE_LABELS[params.lampBaseShape]}» высотой ${params.lampBaseHeight} миллиметров и ${LAMP_TYPE_LABELS[params.lampType].toLowerCase()} абажур высотой ${params.lampHeight} миллиметров диаметром ${params.lampDiameter} миллиметров, патрон ${LAMP_MOUNT_LABELS[params.lampMount]}, узор «${VASE_PATTERN_LABELS[params.lampPattern]}»`
           : params.model === "box"
             ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
             : params.model === "lithophane"

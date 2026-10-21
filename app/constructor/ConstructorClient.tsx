@@ -21,6 +21,7 @@ import {
   LAMP_BASE_SHAPE_LABELS,
   LAMP_MOUNT_LABELS,
   LAMP_PART_LABELS,
+  LAMP_TYPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PART_LABELS,
   SIGN_PARTS,
@@ -41,6 +42,7 @@ import {
   type KeychainShape,
   type LampBaseShape,
   type LampMount,
+  type LampType,
   type LithophaneMount,
   type LithophanePart,
   type ModelType,
@@ -394,6 +396,10 @@ export function ConstructorClient({
     );
   }
 
+  function updateLampType(lampType: LampType) {
+    setParams((current) => normalizeConstructorParams({ ...current, lampType }));
+  }
+
   function updateLampBaseShape(lampBaseShape: LampBaseShape) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, lampBaseShape }),
@@ -656,6 +662,7 @@ export function ConstructorClient({
           onKeychainShapeChange={updateKeychainShape}
           onLampBaseShapeChange={updateLampBaseShape}
           onLampMountChange={updateLampMount}
+          onLampTypeChange={updateLampType}
           onLampPatternChange={updateLampPattern}
           onLithophaneBrightnessChange={updateLithophaneBrightness}
           onModelChange={updateModel}
@@ -700,6 +707,7 @@ export function ConstructorClient({
                 <>
                   {LAMP_BASE_SHAPE_LABELS[params.lampBaseShape]} ·{" "}
                   {LAMP_MOUNT_LABELS[params.lampMount]} ·{" "}
+                  {LAMP_TYPE_LABELS[params.lampType].toLowerCase()} ·{" "}
                   {VASE_PATTERN_LABELS[params.lampPattern]} ·{" "}
                   {params.lampBaseHeight + params.lampHeight} × Ø{" "}
                   {params.lampDiameter} мм

@@ -120,6 +120,57 @@ export const MODEL_TYPE_LABELS = {
   lithophane: "Литофан",
 } as const satisfies Record<ModelType, string>;
 
+/** Инструмент конструктора в витринах: идентификатор, название и описание. */
+export type ConstructorTool = {
+  /** Модель конструктора, которую открывает инструмент. */
+  id: ModelType;
+  /** Название в списках Pro и на витрине инструментов. */
+  title: string;
+  /** Одно предложение о том, что инструмент собирает. */
+  desc: string;
+};
+
+/**
+ * Все генераторы конструктора одним массивом.
+ *
+ * Массив — единственный источник списка: страница тарифов, витрина
+ * `/tools` и подписи самих моделей берут инструменты отсюда, поэтому новый
+ * генератор достаточно добавить в `MODEL_TYPES` и в этот массив. Порядок
+ * совпадает с порядком вкладок панели параметров.
+ */
+export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
+  {
+    id: "vase",
+    title: "Генератор ваз",
+    desc: "Параметрические вазы с узорами: шесть силуэтов, математические волны и точные размеры под ваш принтер.",
+  },
+  {
+    id: "keychain",
+    title: "Генератор брелоков",
+    desc: "Брелоки с именем на кириллице, готовыми силуэтами и своим SVG-контуром или картинкой.",
+  },
+  {
+    id: "lamp",
+    title: "Генератор светильников",
+    desc: "Абажуры с открытым или закрытым плафоном, основание под E27 и E14 и канал под провод.",
+  },
+  {
+    id: "sign",
+    title: "Генератор вывесок",
+    desc: "Объёмные буквы с каналом под LED-ленту, разбитые на блоки, которые удобно печатать и вешать.",
+  },
+  {
+    id: "box",
+    title: "Генератор коробок",
+    desc: "Органайзеры с настраиваемой сеткой перегородок и крышкой: корпус и крышка в одном STL.",
+  },
+  {
+    id: "lithophane",
+    title: "Генератор литофанов",
+    desc: "Панели из фотографий: яркость пикселей превращается в толщину пластика, а рамка держит свет.",
+  },
+];
+
 /**
  * Пресеты силуэта. Значение — часть состояния модели, а не размер: профиль
  * строится в lib/constructor/vase-profile.ts по этим идентификаторам.
@@ -275,6 +326,23 @@ export const LAMP_MOUNT_DIAMETERS_MM = {
 
 /** Радиальный зазор между патроном и стенкой отверстия, мм. */
 export const LAMP_SOCKET_CLEARANCE_MM = 0.3;
+
+/**
+ * Тип плафона: открытый абажур или закрытый колпак.
+ *
+ * У открытого верхнее гнездо патрона сквозное: часть света уходит вверх, к
+ * потолку. У закрытого верх наглухо запечатан крышкой, поэтому весь поток идёт
+ * вниз, а гнездо патрона остаётся только в основании. Канал под провод у
+ * закрытого плафона тоже не вырезается: он стал бы щелью для света.
+ */
+export const LAMP_TYPES = ["open", "closed"] as const;
+
+export type LampType = (typeof LAMP_TYPES)[number];
+
+export const LAMP_TYPE_LABELS = {
+  open: "Открытый",
+  closed: "Закрытый",
+} as const satisfies Record<LampType, string>;
 
 /**
  * Формы основания светильника.
@@ -433,6 +501,13 @@ export type LampParams = {
   lampPattern: VasePattern;
   /** Тип патрона: от него зависит диаметр отверстия в абажуре и основании. */
   lampMount: LampMount;
+  /**
+   * Плафон: открытый или закрытый.
+   *
+   * У закрытого верх запечатан крышкой, поэтому свет не бьёт в потолок.
+   * Гнездо патрона при этом остаётся в основании — патрон вставляют снизу.
+   */
+  lampType: LampType;
 };
 
 /**
@@ -628,7 +703,7 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   shapeType: "dog_tag",
 };
 
-/** Светильник по умолчанию: под E27, круглое основание, гладкая стенка. */
+/** Светильник по умолчанию: под E27, круглое основание, гладкая стенка, открытый плафон. */
 export const DEFAULT_LAMP_PARAMS: LampParams = {
   lampHeight: CONSTRUCTOR_LIMITS.lampHeight.defaultValue,
   lampDiameter: CONSTRUCTOR_LIMITS.lampDiameter.defaultValue,
@@ -637,6 +712,7 @@ export const DEFAULT_LAMP_PARAMS: LampParams = {
   lampBaseHeight: CONSTRUCTOR_LIMITS.lampBaseHeight.defaultValue,
   lampPattern: "smooth",
   lampMount: "e27",
+  lampType: "open",
 };
 
 /** Вывеска по умолчанию: короткое имя бренда, Roboto Bold, канал 8 мм, блоки по три буквы. */
@@ -824,9 +900,12 @@ export function keychainStlFileName(params: KeychainParams): string {
  */
 export function lampStlFileName(params: LampParams, part: LampPart = "all"): string {
   const patternSuffix = params.lampPattern === "smooth" ? "" : `-${params.lampPattern}`;
+  // Открытый плафон остаётся в привычном имени без суффикса, а закрытый
+  // помечается: иначе два разных файла нельзя различить в папке загрузок.
+  const typeSuffix = params.lampType === "closed" ? "-closed" : "";
   const partSuffix = part === "all" ? "" : `-${part === "base" ? "baza" : "abazhur"}`;
 
-  return `tridi-svetilnik-${params.lampBaseShape}-${params.lampMount}${patternSuffix}-h${params.lampHeight}-d${params.lampDiameter}-w${params.lampWall}${partSuffix}.stl`;
+  return `tridi-svetilnik-${params.lampBaseShape}-${params.lampMount}${typeSuffix}${patternSuffix}-h${params.lampHeight}-d${params.lampDiameter}-w${params.lampWall}${partSuffix}.stl`;
 }
 
 /**
@@ -1088,6 +1167,13 @@ export function isLampBaseShape(value: unknown): value is LampBaseShape {
   return (
     typeof value === "string" &&
     (LAMP_BASE_SHAPES as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка типа плафона: открытый или закрытый. */
+export function isLampType(value: unknown): value is LampType {
+  return (
+    typeof value === "string" && (LAMP_TYPES as readonly string[]).includes(value)
   );
 }
 
@@ -1366,6 +1452,9 @@ export function normalizeLampParams(params: Partial<LampParams>): LampParams {
     lampMount: isLampMount(params.lampMount)
       ? params.lampMount
       : DEFAULT_LAMP_PARAMS.lampMount,
+    lampType: isLampType(params.lampType)
+      ? params.lampType
+      : DEFAULT_LAMP_PARAMS.lampType,
   };
 }
 

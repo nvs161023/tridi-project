@@ -22,11 +22,13 @@ import {
   LAMP_BASE_SHAPES,
   LAMP_BASE_SHAPE_LABELS,
   LAMP_MOUNTS,
+  LAMP_MOUNT_LABELS,
+  LAMP_TYPES,
+  LAMP_TYPE_LABELS,
   LITHOPHANE_MOUNTS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PIXEL_COUNT,
   LITHOPHANE_RESOLUTION,
-  LAMP_MOUNT_LABELS,
   MODEL_TYPE_LABELS,
   SIGN_CHANNEL_WIDTHS,
   SIGN_FONTS,
@@ -43,6 +45,7 @@ import {
   type KeychainShape,
   type LampBaseShape,
   type LampMount,
+  type LampType,
   type LithophaneMount,
   type ModelType,
   type SignChannelWidth,
@@ -61,6 +64,7 @@ type SizeParam = Exclude<
   | "text"
   | "lampPattern"
   | "lampMount"
+  | "lampType"
   | "lampBaseShape"
   | "signText"
   | "signFont"
@@ -125,6 +129,7 @@ type ParameterPanelProps = {
   onTextChange: (text: string) => void;
   onLampPatternChange: (pattern: VasePattern) => void;
   onLampMountChange: (mount: LampMount) => void;
+  onLampTypeChange: (type: LampType) => void;
   onLampBaseShapeChange: (shape: LampBaseShape) => void;
   onSignTextChange: (text: string) => void;
   onSignFontChange: (font: SignFont) => void;
@@ -677,6 +682,7 @@ export function ParameterPanel({
   onTextChange,
   onLampPatternChange,
   onLampMountChange,
+  onLampTypeChange,
   onLampBaseShapeChange,
   onSignTextChange,
   onSignFontChange,
@@ -918,6 +924,7 @@ export function ParameterPanel({
               },
               { label: "Диаметр", value: `Ø ${params.lampDiameter} мм` },
               { label: "Патрон", value: params.lampMount.toUpperCase() },
+              { label: "Плафон", value: LAMP_TYPE_LABELS[params.lampType] },
             ]
           : params.model === "box"
             ? [
@@ -1248,7 +1255,11 @@ export function ParameterPanel({
 
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Отверстие шире резьбы на 0.3 мм с каждой стороны: после усадки патрон входит плотно, но не проваливается. Провод выходит через канал в верхнем поясе."
+              hint={
+                params.lampType === "closed"
+                  ? "Отверстие шире резьбы на 0.3 мм с каждой стороны: после усадки патрон входит плотно, но не проваливается. У закрытого плафона патрон держит основание, а провод идёт через его дно."
+                  : "Отверстие шире резьбы на 0.3 мм с каждой стороны: после усадки патрон входит плотно, но не проваливается. Провод выходит через канал в верхнем поясе."
+              }
               label="Патрон"
               onChange={onLampMountChange}
               options={LAMP_MOUNTS.map((mount) => ({
@@ -1256,6 +1267,19 @@ export function ParameterPanel({
                 value: mount,
               }))}
               value={params.lampMount}
+            />
+          </div>
+
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Открытый плафон светит и вверх, и вниз, а провод уходит через канал в верхнем поясе. У закрытого верх запечатан крышкой: поток идёт только вниз, канал под провод не вырезается, патрон вставляется снизу."
+              label="Плафон"
+              onChange={onLampTypeChange}
+              options={LAMP_TYPES.map((type) => ({
+                label: LAMP_TYPE_LABELS[type],
+                value: type,
+              }))}
+              value={params.lampType}
             />
           </div>
 
