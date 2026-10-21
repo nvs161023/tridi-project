@@ -783,16 +783,22 @@ function buildShpSignaturePart(shp: Record<string, string>): string {
     .join("");
 }
 
-/** Подпись ссылки на оплату: логин, сумма, InvId, пароль №1 и Shp_*. */
+/**
+ * Подпись ссылки на оплату: логин, сумма, InvId, чек, пароль №1 и Shp_*.
+ *
+ * `receipt` — уже URL-кодированное значение параметра: Robokassa подписывает
+ * чек в том виде, в каком он передан в ссылке.
+ */
 function buildPaymentSignature(
   login: string,
   outSum: string,
   invId: string,
+  receipt: string,
   shp: Record<string, string>,
   password1: string,
 ): string {
   return md5(
-    `${login}:${outSum}:${invId}:${password1}${buildShpSignaturePart(shp)}`,
+    `${login}:${outSum}:${invId}:${receipt}:${password1}${buildShpSignaturePart(shp)}`,
   );
 }
 
@@ -2457,6 +2463,8 @@ async function scenarioG(
         let outSum = "";
         let shp: Record<string, string> = { course: "", user: "" };
         let signatureValid = false;
+        let receiptOk = false;
+        let receiptInfo = "чека нет";
 
         if (paymentUrl) {
           const payment = new URL(paymentUrl);
@@ -2467,6 +2475,38 @@ async function scenarioG(
             course: params.get("Shp_course") || "",
             user: params.get("Shp_user") || "",
           };
+
+          // Receipt дописан последним параметром и уже закодирован: берём его
+          // из строки запроса, потому что searchParams вернул бы раскодированный
+          // JSON, а в подпись входит именно переданное значение.
+          const rawReceipt = paymentUrl.includes("&Receipt=")
+            ? (paymentUrl.split("&Receipt=")[1] ?? "").split("&")[0]
+            : "";
+
+          if (rawReceipt) {
+            try {
+              const receipt = JSON.parse(
+                decodeURIComponent(rawReceipt.replace(/\+/g, " ")),
+              ) as { items?: Array<Record<string, unknown>> };
+              const item = receipt.items?.[0];
+              const sum = Number(item?.sum ?? 0);
+
+              receiptOk =
+                Array.isArray(receipt.items) &&
+                receipt.items.length === 1 &&
+                Math.round(sum * 100) === Number(outSum) * 100 &&
+                Number(item?.quantity ?? 0) === 1 &&
+                item?.payment_method === "full_payment" &&
+                item?.payment_object === "service" &&
+                item?.tax === "none";
+              receiptInfo = `${String(item?.name ?? "—")}, sum=${sum}, tax=${String(
+                item?.tax ?? "—",
+              )}`;
+            } catch {
+              receiptInfo = "чек не разобрался как JSON";
+            }
+          }
+
           signatureValid =
             Boolean(login && password1) &&
             params.get("SignatureValue") ===
@@ -2474,6 +2514,7 @@ async function scenarioG(
                 login,
                 outSum,
                 String(invId),
+                rawReceipt,
                 shp,
                 password1,
               );
@@ -2495,8 +2536,15 @@ async function scenarioG(
           scenario,
           "Подпись ссылки Robokassa сходится",
           signatureValid,
-          "MD5(login:OutSum:InvId:password1:Shp_*)",
+          "MD5(login:OutSum:InvId:Receipt:password1:Shp_*)",
           signatureValid ? "подпись верна" : "подпись не совпала",
+        );
+        addCheck(
+          scenario,
+          "Ссылка содержит чек для ФНС",
+          receiptOk,
+          "одна позиция full_payment/service, tax=none, sum=OutSum",
+          receiptOk ? receiptInfo : "чек не найден или не совпал",
         );
 
         addStep(

@@ -8,10 +8,12 @@
  *     библиотека Профилей, без доступа к урокам.
  *
  * Подписка Pro дополнительно проверяется по таблице subscriptions: она уже
- * настроена в живой базе и хранит статус (active / trial) и trial_ends_at.
- * Это нужно, потому что схема purchases применяется вручную и на момент
- * подключения библиотеки профилей её в базе ещё не было: без второй проверки
- * оплаченная подписка не открывала бы ни профили, ни конструктор.
+ * настроена в живой базе и хранит статус (active / trial), конец пробного
+ * периода trial_ends_at и срок оплаты expires_at. Срок оплаты ставит вебхук
+ * Robokassa и продлевает автопродление. Это нужно, потому что схема purchases
+ * применяется вручную и на момент подключения библиотеки профилей её в базе ещё
+ * не было: без второй проверки оплаченная подписка не открывала бы ни профили,
+ * ни конструктор.
  *
  * Любая ошибка (строки нет, таблицы нет, сеть отвалилась) означает «доступа
  * нет»: сбой проверки не должен открывать платный контент.
@@ -34,10 +36,12 @@ type PurchaseRow = {
   expires_at: string | null;
 };
 
-/** Из subscriptions читаем статус и конец пробного периода. */
+/** Из subscriptions читаем статус, конец пробного периода и срок оплаты. */
 type SubscriptionRow = {
   status: string | null;
   trial_ends_at: string | null;
+  /** Срок оплаченной подписки Pro; null — колонки нет в старой базе. */
+  expires_at: string | null;
 };
 
 /**
@@ -83,17 +87,78 @@ function isToolsPurchaseActive(purchase: PurchaseRow): boolean {
 /**
  * Подписка действует, если статус active или пробный период ещё не закончился.
  * Остальные статусы (inactive, canceled, past_due) доступа не дают.
+ *
+ * `expires_at` — срок оплаты из вебхука Robokassa: его ставит первый платёж и
+ * продлевает автопродление. Если колонки ещё нет в базе, поле остаётся null, и
+ * для active действует прежнее правило «доступ есть».
  */
 function isSubscriptionActive(subscription: SubscriptionRow): boolean {
   if (subscription.status === "active") {
-    return true;
+    return (
+      subscription.expires_at === null || isFutureDate(subscription.expires_at)
+    );
   }
 
-  if (subscription.status !== "trial" || !subscription.trial_ends_at) {
+  if (subscription.status !== "trial") {
     return false;
   }
 
-  return isFutureDate(subscription.trial_ends_at);
+  return (
+    (subscription.trial_ends_at !== null &&
+      isFutureDate(subscription.trial_ends_at)) ||
+    (subscription.expires_at !== null && isFutureDate(subscription.expires_at))
+  );
+}
+
+/** Строка subscriptions из базы, где колонки expires_at ещё нет. */
+type LegacySubscriptionRow = Omit<SubscriptionRow, "expires_at">;
+
+/** Колонку expires_at добавляет supabase/subscriptions_recurring.sql. */
+function isMissingExpiresAtColumn(error: { code?: string }): boolean {
+  return error.code === "42703" || error.code === "PGRST204";
+}
+
+/**
+ * Подписки пользователя с откатом на старую схему.
+ *
+ * Если колонки `expires_at` в базе нет, запрос с ней отвечает ошибкой 42703.
+ * Без отката проверка доступа падала бы целиком, и действующий trial перестал
+ * бы открывать Конструктор и Профили. Поэтому повторяем запрос без колонки:
+ * срок оплаты тогда просто неизвестен, а доступ решается по статусу.
+ */
+async function readSubscriptions(
+  supabase: Supabase,
+  userId: string,
+): Promise<{ rows: SubscriptionRow[]; error: string | null }> {
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .select("status, trial_ends_at, expires_at")
+    .eq("user_id", userId);
+
+  if (!error) {
+    return { rows: (data as SubscriptionRow[] | null) ?? [], error: null };
+  }
+
+  if (!isMissingExpiresAtColumn(error)) {
+    return { rows: [], error: error.message };
+  }
+
+  const legacy = await supabase
+    .from("subscriptions")
+    .select("status, trial_ends_at")
+    .eq("user_id", userId);
+
+  if (legacy.error) {
+    return { rows: [], error: legacy.error.message };
+  }
+
+  return {
+    rows: ((legacy.data as LegacySubscriptionRow[] | null) ?? []).map((row) => ({
+      ...row,
+      expires_at: null,
+    })),
+    error: null,
+  };
 }
 
 /** Самая поздняя дата из списка: при нескольких покупках показываем последнюю. */
@@ -136,9 +201,9 @@ async function hasAnyPurchase(
 export type ActiveSubscription = {
   active: boolean;
   /**
-   * Дата окончания доступа (expires_at покупки или trial_ends_at подписки).
-   * null — доступ бессрочный либо дата не задана: подписка active может жить
-   * без trial_ends_at.
+   * Дата окончания доступа (expires_at покупки, subscriptions.expires_at или
+   * trial_ends_at подписки). null — доступ бессрочный либо дата не задана:
+   * подписка active может жить без trial_ends_at.
    */
   expiresAt: string | null;
   /**
@@ -167,10 +232,7 @@ export async function getActiveSubscription(
       .select("course_id, expires_at")
       .eq("user_id", userId)
       .in("course_id", ["pro", "pro-subscription"]),
-    supabase
-      .from("subscriptions")
-      .select("status, trial_ends_at")
-      .eq("user_id", userId),
+    readSubscriptions(supabase, userId),
   ]);
 
   if (purchasesResult.error) {
@@ -200,28 +262,31 @@ export async function getActiveSubscription(
     }
   }
 
-  if (subscriptionsResult.error) {
+  if (subscriptionsResult.error !== null) {
     // Таблицы subscriptions может не быть в старой базе — тогда доступа нет.
-    console.warn("Не удалось проверить подписку:", subscriptionsResult.error.message);
+    console.warn("Не удалось проверить подписку:", subscriptionsResult.error);
     return { active: false, expiresAt: null, source: null };
   }
 
-  const subscriptions = (
-    (subscriptionsResult.data as SubscriptionRow[] | null) ?? []
-  ).filter(isSubscriptionActive);
+  const subscriptions = subscriptionsResult.rows.filter(isSubscriptionActive);
 
   if (subscriptions.length === 0) {
     return { active: false, expiresAt: null, source: null };
   }
 
+  // Доступ к инструментам даёт и пробный период, и оплаченный срок из
+  // вебхука Robokassa — показываем ту дату, которая наступит позже.
+  const expiresDates = subscriptions.flatMap((subscription) => [
+    subscription.trial_ends_at,
+    subscription.expires_at,
+  ]);
+
   return {
     active: true,
     expiresAt: latestDate(
-      subscriptions
-        .map((subscription) => subscription.trial_ends_at)
-        .filter(
-          (value): value is string => value !== null && isFutureDate(value),
-        ),
+      expiresDates.filter(
+        (value): value is string => value !== null && isFutureDate(value),
+      ),
     ),
     source: "subscription",
   };

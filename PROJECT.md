@@ -28,10 +28,12 @@
   9 тестов модулей; заглушек в ней не осталось. 160 схем старого продвинутого курса сохранены
   только в архиве данных и не входят в витрину и счётчики.
 - **Платежи:** Robokassa полностью интегрирована и протестирована. Сервер формирует подписанную
-  ссылку с `Shp_course` и `Shp_user`, требует подтверждения 18+, проверяет подпись и сумму
-  уведомления ResultURL, идемпотентно записывает покупку в `purchases` и открывает оплаченный
-  уровень или пакет `pro`. E2E-аудит воронки — 7 из 7 сценариев, включая пакет, вебхук и появление
-  «Доступ открыт» на главной.
+  ссылку с `Shp_course`, `Shp_user` и чеком для ФНС (`Receipt`, 54-ФЗ), требует подтверждения 18+,
+  проверяет подпись и сумму уведомления ResultURL, идемпотентно записывает покупку в `purchases`
+  и открывает оплаченный уровень или пакет `pro`. Продление подписки Pro считается от текущей
+  оплаченной даты (`expires_at` в `purchases` и `subscriptions`), автопродление Robokassa
+  включается только флагом `ROBOKASSA_RECURRING=true`. E2E-аудит воронки — 7 из 7 сценариев,
+  включая пакет, вебхук и появление «Доступ открыт» на главной.
 - **Форум:** работает в режиме пост-модерации — темы проходят премодерацию, ответы публикуются
   сразу и проверяются после публикации; баны форума не закрывают доступ к курсам.
 - **Центр выпускника:** последний шаг каждого уровня ведёт на `/course/<уровень>/complete`:
@@ -70,6 +72,7 @@
 | `ROBOKASSA_PASSWORD1` | Пароль №1: подпись ссылки на оплату |
 | `ROBOKASSA_PASSWORD2` | Пароль №2: проверка уведомления ResultURL |
 | `ROBOKASSA_IS_TEST` | `true` — тестовые платежи, `false` — боевые (по умолчанию тестовые) |
+| `ROBOKASSA_RECURRING` | `true` — ссылка на подписку Pro уходит с `Recurring=true` (автопродление на стороне Robokassa). По умолчанию `false`: оферта и FAQ обещают «без автопродления» |
 | `NEXT_PUBLIC_SITE_URL` | Публичный адрес сайта для ссылок в письмах (подтверждение email), sitemap, robots и абсолютных URL в метаданных |
 | `NEXT_PUBLIC_ENABLE_PARTNER_PROMO` | `true` — на странице готового сертификата показывается промокод «Слойтек»; `false` — заглушка «Партнерская программа скоро» |
 
@@ -118,7 +121,7 @@
 
 | URL | Файл | Что делает |
 |---|---|---|
-| `/api/payments/robokassa/result` | `app/api/payments/robokassa/result/route.ts` | ResultURL Robokassa: проверяет подпись с `Shp_*`, сумму и записывает покупку в `purchases`, возвращает `OK{InvId}` |
+| `/api/payments/robokassa/result` | `app/api/payments/robokassa/result/route.ts` | ResultURL Robokassa: проверяет подпись с `Shp_*`, сумму и записывает покупку в `purchases`, продлевает подписку Pro в `subscriptions`, возвращает `OK{InvId}` |
 
 Авторизация и верификация:
 
@@ -270,7 +273,9 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает �
 1. **Аккаунт** — есть ли вход (`lib/current-user.ts`).
 2. **Покупка и подписка** — таблица `purchases`: разовый курс, пакет или подписка; срок
    записи проверяется по `expires_at`, `null` означает «навсегда». Для Pro дополнительно
-   читается `subscriptions` (`status = active` или действующий `trial`): схема `purchases`
+   читается `subscriptions` (`status = active` или действующий `trial`): у неё тоже есть
+   `expires_at`, и `active` без даты или с датой в будущем даёт доступ, а прошедшая дата
+   закрывает его — сюда же вебхук продлевает оплаченную подписку. Схема `purchases`
    применяется вручную, и без второй проверки оплаченная подписка не открывала бы
    инструменты. Проверка живёт в `lib/subscription.ts`: `hasCourseAccess` для трёх уровней,
    `hasActiveSubscription` для инструментов (профили и конструктор) и
@@ -289,9 +294,10 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает �
    понимает, что покупает, но контента не получает.
 5. **Прогрессия** — следующий модуль открывается только после сданного теста предыдущего
    (`lib/module-test-progress.ts`).
-6. **База** — `supabase/purchases.sql`, `supabase/pro_course_access.sql` и
-   `supabase/grants_and_policies.sql` (RLS-политики и гранты): анонимный доступ закрыт,
-   покупки и прогресс видны только владельцу, а записывает покупки только `service_role`.
+6. **База** — `supabase/purchases.sql`, `supabase/subscriptions_recurring.sql`,
+   `supabase/pro_course_access.sql` и `supabase/grants_and_policies.sql` (RLS-политики и
+   гранты): анонимный доступ закрыт, покупки и прогресс видны только владельцу, а записывает
+   покупки только `service_role`.
 
 Тарифы: Free — 0 ₽ (уровень «Новичок»: 8 уроков, 55 схем и 2 теста модулей, прогресс в
 кабинете). Платные уровни можно купить навсегда со скидкой к запуску платформы: «Уверенный» —
@@ -313,10 +319,22 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает �
 2. Server Action `createRobokassaPayment` (`app/actions/payments.ts`) берёт пользователя из
    сессии, цену — из `data/courses.json`, повторно проверяет `courseId` и подтверждение 18+,
    затем вызывает `initializePayment` (`lib/payments.ts`).
-3. `initializePayment` формирует `InvId`, подпись MD5 и ссылку с `Shp_course`/`Shp_user`.
+3. `initializePayment` формирует `InvId`, чек `Receipt` для ФНС, подпись MD5 и ссылку с
+   `Shp_course`/`Shp_user`. Чек — одна позиция: название тарифа, количество 1, сумма из
+   `data/courses.json`, `payment_method = full_payment`, `payment_object = service`, `tax = none`
+   (владелец на НПД, без НДС). Чек кодируется как PHP `urlencode` (пробел — «+») и входит в
+   подпись в том же виде: `MD5(login:OutSum:InvId:Receipt:пароль №1:Shp_*)`. Для подписки Pro
+   при `ROBOKASSA_RECURRING=true` добавляется `Recurring=true`; остальные тарифы его не
+   получают, а в подпись этот признак не входит.
 4. ResultURL `/api/payments/robokassa/result` проверяет подпись с `Shp_*`, сумму и
    записывает покупку через `lib/supabase/admin.ts`; на успех отвечает `OK{InvId}`.
-   Повторное уведомление не создаёт дубль благодаря уникальному `inv_id`.
+   Для `pro-subscription` дата окончания считается от текущей оплаченной даты — максимум из
+   `purchases.expires_at`, `subscriptions.expires_at` и `trial_ends_at` — плюс 30 дней, и
+   дублируется в `purchases.expires_at` и `subscriptions.expires_at`, поэтому продление не
+   сгорает. Повторное уведомление не создаёт дубль благодаря уникальному `inv_id`, а подписка
+   восстанавливается по сохранённой дате покупки, а не пересчитывается заново. Если колонки
+   `expires_at` в `subscriptions` ещё не добавлены (`42703`/`PGRST204`), вебхук пишет покупку,
+   отвечает `OK{InvId}` и только логирует пропуск, а `lib/subscription.ts` читает старую схему.
 
 Порядок оплаты, чеки НПД и возврат описаны в оферте.
 Функции «конструктор» и «AI-диагностика» из прежнего описания тарифов ещё не реализованы —
@@ -1695,9 +1713,9 @@ M117, моторы) и правило «без отвода — вмятина �
 | `lib/certificates.ts` | Сертификат как HMAC-токен: `createCertificate` подписывает имя, курс, дату, subject и признак пакета `fullCourse`, `readCertificateToken` проверяет подпись через `timingSafeEqual` и принимает старые токены без `fullCourse`, `formatCertificateDate` и номер `TRI-2026-…`; секрет — `CERTIFICATE_SECRET` или `SUPABASE_SERVICE_ROLE_KEY` |
 | `lib/reviews.ts` | Отзывы о курсах: `REVIEW_COURSE_IDS`, проверка оценки и длины текста, `getCourseReviews` (свежие сверху, имена из `course_review_authors`), `hasUserReviewedCourse`, `getCourseReviewStats`, `formatReviewDate`, `pluralizeReviews` |
 | `lib/course-levels.ts` | Четыре уровня витрины (`LEVELS`): названия, `goal` и разовая цена `price` из `data/courses.json`, уроки, `totalLessons`, `estimatedHours`, схемы, тесты и часы — из файлов курсов; `getCertificateProgram` собирает строку уровня или пакета и объём для сертификата; `PAID_LEVELS`, `PAID_LESSONS`, `PAID_VISUALS`, `PAID_TESTS`, `TOTAL_LESSONS`, `TOTAL_VISUALS`, `TOTAL_TESTS` — те же числа для главной и `/subscription` |
-| `lib/payments.ts` | Robokassa: `initializePayment` собирает подписанную ссылку с `InvId` и `Shp_*`, проверяет сумму по `data/courses.json`; `verifyResultSignature` проверяет MD5 уведомления с паролем №2 |
+| `lib/payments.ts` | Robokassa: `initializePayment` собирает подписанную ссылку с `InvId`, чеком `Receipt` (54-ФЗ) и `Shp_*`, проверяет сумму по `data/courses.json`; `buildReceipt` описывает позицию чека, `isRecurringEnabled` включает `Recurring=true` только при `ROBOKASSA_RECURRING=true` и только для подписки; `verifyResultSignature` проверяет MD5 уведомления с паролем №2 |
 | `lib/module-test.ts` | Правила тестов: пороги сдачи (5 в бесплатном курсе, 7 в платных) и «отлично» (8), типы записей (`basic-test`, `confident-test`, `engineer-test`, `pro-test`), проверки `isModuleTestPassed`, `isModuleTestCompleted`, `isModuleTestCompletedByOrder` |
-| `lib/subscription.ts` | `hasCourseAccess` проверяет покупку уровня или пакета `pro`; `hasActiveSubscription` — доступ к инструментам: бессрочный `pro` или `pro-subscription` в `purchases` либо `active`/действующий `trial` в `subscriptions` |
+| `lib/subscription.ts` | `hasCourseAccess` проверяет покупку уровня или пакета `pro`; `hasActiveSubscription` — доступ к инструментам: бессрочный `pro` или `pro-subscription` в `purchases` либо `active`/действующий `trial` в `subscriptions` с учётом `expires_at`; если колонки `expires_at` ещё нет, читается старая схема |
 | `lib/module-test-progress.ts` | Загружает из базы номера сданных модулей (`Set<number>`); `null` — если прочитать не удалось (тогда модуль не запираем) |
 | `lib/current-user.ts` | Кто открыл страницу: берёт пользователя из заголовка middleware, при его отсутствии сам вызывает `getUser()` |
 | `lib/auth-redirect.ts` | `authHref(path, next)` — ссылка на вход с возвратом; `resolveAfterAuthPath` / `safeNextPath` — санитизация `next` (только внутренние пути, отсекаем `//evil.com`) |
@@ -1805,7 +1823,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `profiles` | `id uuid` (= `auth.users.id`), `email`, `name`, `created_at` | Имя и почта для кабинета |
 | `lesson_progress` | `id uuid`, `user_id uuid`, `lesson_id integer`, `course_type text not null default 'basic'`, `completed_at` | Прогресс уроков и результаты тестов |
 | `purchases` | `id uuid`, `inv_id bigint unique`, `user_id uuid`, `course_id text`, `amount numeric(10,2)`, `created_at`, `expires_at` | Покупки курсов, пакета и подписки; `expires_at = null` — навсегда |
-| `subscriptions` | `id uuid`, `user_id uuid`, `status text`, `trial_ends_at`, `created_at`, `updated_at` | Подписка Pro: `active` — доступ есть, `trial` — пока `trial_ends_at` в будущем; используется, если в `purchases` нет записи `pro-subscription` |
+| `subscriptions` | `id uuid`, `user_id uuid`, `status text`, `trial_ends_at`, `expires_at timestamptz`, `created_at`, `updated_at` | Подписка Pro: `active` — доступ есть, пока `expires_at` пуст или в будущем, `trial` — пока `trial_ends_at` в будущем; используется, если в `purchases` нет записи `pro-subscription` |
 | `constructor_downloads` | `id uuid`, `user_id uuid`, `created_at timestamptz` | Успешные бесплатные скачивания STL; владелец видит только свои записи, вставка — только `service_role`, лимит считается за месяц по UTC |
 | `forum_categories` | `id uuid`, `slug text unique`, `title`, `description`, `"order" integer` | Разделы форума; наполняются отдельно после применения `supabase/forum.sql` |
 | `forum_threads` | `id uuid`, `category_id`, `slug text unique`, `title`, `content`, `author_id`, `created_at`, `views`, `status` | Темы форума; публично видны только `approved`, автор видит свои |
@@ -1821,6 +1839,10 @@ Self-hosted Supabase на сервере в РФ: используются то�
   Robokassa, то есть выдать себе доступ из браузера нельзя.
 - **`inv_id` уникален**: повторное уведомление ResultURL не создаёт вторую покупку. Для подписки
   `expires_at` выставляется на 30 дней вперёд, у разовых курсов и пакета остаётся `null`.
+  Продление считается от текущей оплаченной даты (максимум из `purchases.expires_at`,
+  `subscriptions.expires_at` и `trial_ends_at`), а не от «сейчас»: оплата за неделю до конца
+  периода добавляет 30 дней к остатку, а не сжигает его. Та же дата ложится в
+  `subscriptions.expires_at`, откуда её читают `hasActiveSubscription` и `getActiveSubscription`.
 - **`anon` доступа не имеет** (PostgREST отвечает `401 permission denied`): таблицы читаются только
   вошедшим пользователем или сервисной ролью. Гранты выданы ролям `authenticated` и `service_role`.
 - **Уникальный индекс** `(user_id, course_type, lesson_id)` — на него опирается `upsert` в
@@ -1840,7 +1862,8 @@ Self-hosted Supabase на сервере в РФ: используются то�
   `supabase/confident_course_access.sql` и `supabase/engineer_course_access.sql`.
 - **Порог сдачи теста**: 5 правильных из 10 в бесплатном базовом курсе и 7 из 10 в платных уровнях
   (`MODULE_TEST_PASS_FROM` и `MODULE_TEST_PASS_FROM_PAID` в `lib/module-test.ts`).
-- **Статусы подписки**: `active` — доступ всегда; `trial` — пока `trial_ends_at` в будущем;
+- **Статусы подписки**: `active` — доступ, пока `expires_at` пуст или в будущем (строки,
+  созданные до появления колонки, читаются как раньше); `trial` — пока `trial_ends_at` в будущем;
   остальные (`inactive`, `canceled`, `past_due` и т.п.) — доступа нет.
 - **Форум**: `anon` и `authenticated` читают только `approved`-темы и ответы; автор видит свои
   `pending`. Вставка разрешена лишь с `author_id = auth.uid()` и `status = 'pending'`, обновление
@@ -1858,8 +1881,10 @@ Self-hosted Supabase на сервере в РФ: используются то�
   доступ), `module_test_course_types.sql`, `confident_course_access.sql`,
   `engineer_course_access.sql` (ограничение на значения
   `course_type`: восемь значений, включая `confident`, `confident-test`, `engineer` и
-  `engineer-test`), `forum.sql` (таблицы и RLS форума), `constructor_downloads.sql`
-  (месячный счётчик бесплатных STL, RLS и гранты) и `course_reviews.sql` (таблица отзывов,
+  `engineer-test`), `subscriptions_recurring.sql` (колонка `expires_at` в `subscriptions` и
+  индекс по ней — без него вебхук не продлевает подписку), `forum.sql` (таблицы и RLS форума),
+  `constructor_downloads.sql` (месячный счётчик бесплатных STL, RLS и гранты) и
+  `course_reviews.sql` (таблица отзывов,
   политики `select`/`insert`, представление `course_review_authors` и гранты).
   Автоматически эти файлы не выполняются. Оба ограничения уже применены в живой базе:
   `confident_course_access.sql` — вручную владельцем до первого урока «Уверенного»
@@ -3533,4 +3558,44 @@ SVG. После успешного разбора форма переключа�
 30 уроков, 0 нарушений, `npm run build` — `Compiled successfully`, 33 страницы. Живая проверка в
 браузере не проводилась: `/constructor` закрыт middleware и требует сессии; разметка проверена
 сборкой Next.js и типами пропсов.
+
+**Чек для ФНС и срок подписки Pro (21 октября 2026).** Магазин Robokassa активирован, поэтому
+ссылка на оплату теперь всегда уходит с параметром `Receipt` (54-ФЗ). `buildReceipt` в
+`lib/payments.ts` собирает одну позицию: название тарифа из `PAYMENT_PLANS`, `quantity: 1`,
+`sum` — сумма из `data/courses.json`, `payment_method: "full_payment"`, `payment_object: "service"`
+и `tax: "none"` (владелец на НПД, чек без НДС). Сумма позиции равна `OutSum`: расхождение
+Robokassa отклонила бы. Чек кодируется в PHP-совместимый `urlencode` (пробел — «+», а не «%20»,
+потому что в названиях курсов пробелы есть) и входит в подпись в том же виде:
+`MD5(MerchantLogin:OutSum:InvId:Receipt:Пароль №1:Shp_*)`. Значение дописывается в ссылку один раз
+и не перекодируется вместе с `params.toString()`; `Recurring` в подпись не входит. Оферта, FAQ и
+`LEGAL_UPDATED_AT` не менялись.
+
+Автопродление вынесено за флаг `ROBOKASSA_RECURRING` (по умолчанию `false`, значение читает
+`isRecurringEnabled`): пока в оферте написано «без автопродления», а кнопки отмены нет, ссылка
+на подписку уходит без `Recurring`. Флаг добавляет `Recurring=true` только к `pro-subscription`,
+разовые курсы и пакет его не получают даже при включённом флаге.
+
+Вебхук ResultURL считает срок подписки, а не просто пишет покупку. Дата окончания —
+максимум из `purchases.expires_at`, `subscriptions.expires_at` и `trial_ends_at` плюс
+`SUBSCRIPTION_PERIOD_DAYS` (30 дней), то есть продление добавляется к остатку, а не начинается
+заново. Та же дата пишется в `purchases.expires_at` и `subscriptions.expires_at`; повторное
+уведомление по уникальному `inv_id` (код `23505`) не создаёт дубль, а восстанавливает подписку
+по сохранённой дате покупки. `lib/subscription.ts` читает `expires_at`: `active` даёт доступ,
+пока дата пуста или в будущем, `trial` — пока в будущем `trial_ends_at` или `expires_at`.
+Колонка добавляется вручную файлом `supabase/subscriptions_recurring.sql` (колонка, индекс,
+заметки); пока её нет, ошибки `42703`, `42P01` и `PGRST204` не роняют платёж — вебхук
+логирует пропуск и всё равно отвечает `OK{InvId}`, а проверка доступа откатывается на старую
+схему без `expires_at`. Поэтому миграция не блокирует деплой.
+
+`scripts/audit-e2e.ts` проверяет ссылку по новым правилам: подпись пересчитывается с `Receipt`
+(значение берётся из строки запроса, а не из `searchParams`, где оно уже раскодировано) и
+добавлена проверка «Ссылка содержит чек для ФНС» — одна позиция, `full_payment`, `service`,
+`tax=none`, `sum = OutSum`. Временный скрипт (удалён после прогона) собрал ссылки для
+`confident`, `pro`, подписки с флагом и без: `Receipt` на месте, пробелы закодированы как «+»,
+`Recurring` появляется только у подписки при `ROBOKASSA_RECURRING=true`, подпись MD5 сошлась с
+ручным пересчётом во всех четырёх случаях.
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:imports` —
+1 247 импортов без битых, `npm run check:docs` — 162 пути и сводка сходятся, `npm run check:style` —
+30 уроков, 0 нарушений, `npm run build` — `Compiled successfully`, 33 страницы.
 

@@ -52,4 +52,8 @@ create policy "subscriptions_select_own" on public.subscriptions
 --   profiles        (id uuid, email text, name text, created_at timestamptz)
 --   lesson_progress (id uuid, user_id uuid, lesson_id integer, completed_at timestamptz)
 --   subscriptions   (id uuid, user_id uuid, status text, trial_ends_at timestamptz,
---                    created_at timestamptz, updated_at timestamptz)
+--                    expires_at timestamptz, created_at timestamptz,
+--                    updated_at timestamptz),
+--   где expires_at добавляет supabase/subscriptions_recurring.sql: срок
+--   оплаченной подписки Pro, который продлевает вебхук Robokassa. Изменять
+--   статус и срок может только service_role.

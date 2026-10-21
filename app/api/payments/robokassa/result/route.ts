@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import {
+  SUBSCRIPTION_PERIOD_DAYS,
   extractShpParams,
   getPaymentAmount,
   getRobokassaPassword2,
@@ -14,6 +15,29 @@ export const runtime = "nodejs";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Длина оплаченного периода подписки Pro — та же, что в ссылке на оплату. */
+const SUBSCRIPTION_PERIOD_MS = SUBSCRIPTION_PERIOD_DAYS * 24 * 60 * 60 * 1000;
+
+type AdminClient = ReturnType<typeof createAdminClient>;
+
+/** Ошибка Supabase/PostgREST: код нужен, чтобы отличить старую схему базы. */
+type DatabaseError = { code?: string; message: string };
+
+/** Из subscriptions читаем срок оплаты и запасной trial_ends_at. */
+type SubscriptionRow = {
+  id: string;
+  status: string | null;
+  expires_at: string | null;
+  trial_ends_at: string | null;
+};
+
+/** Покупка, по которой пришло повторное уведомление. */
+type PurchaseRow = {
+  user_id: string;
+  course_id: string;
+  expires_at: string | null;
+};
 
 /** Robokassa ждёт обычный текст `OK{InvId}` или ошибку. */
 function text(body: string, status = 200): Response {
@@ -38,6 +62,212 @@ function logIncoming(method: string, params: URLSearchParams): void {
     method,
     Object.fromEntries(params.entries()),
   );
+}
+
+/** Время даты в миллисекундах; null и мусор — «даты нет». */
+function timeOf(value: string | null): number {
+  if (!value) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const time = new Date(value).getTime();
+
+  return Number.isNaN(time) ? Number.NEGATIVE_INFINITY : time;
+}
+
+/** Самая поздняя дата из списка; null — дат не было. */
+function latestDate(values: (string | null)[]): string | null {
+  let latest: string | null = null;
+  let latestTime = Number.NEGATIVE_INFINITY;
+
+  for (const value of values) {
+    const time = timeOf(value);
+
+    if (time > latestTime) {
+      latest = value;
+      latestTime = time;
+    }
+  }
+
+  return latest;
+}
+
+/**
+ * Ошибка «в базе ещё нет колонки или таблицы».
+ *
+ * Колонку `subscriptions.expires_at` добавляет вручную
+ * `supabase/subscriptions_recurring.sql`. Пока её не применили, покупка всё
+ * равно записывается в `purchases`, и доступ открывается по ней. Поэтому такую
+ * ошибку не считаем потерей платежа и не просим Robokassa присылать уведомление
+ * снова.
+ */
+function isMissingSchemaError(error: DatabaseError): boolean {
+  return (
+    error.code === "42703" || // undefined_column
+    error.code === "42P01" || // undefined_table
+    error.code === "PGRST204" // колонки нет в схеме PostgREST
+  );
+}
+
+/** Подписки пользователя вместе с ошибкой: нужна и для чтения, и для записи. */
+async function readSubscriptions(
+  admin: AdminClient,
+  userId: string,
+): Promise<{ rows: SubscriptionRow[]; error: DatabaseError | null }> {
+  const { data, error } = await admin
+    .from("subscriptions")
+    .select("id, status, expires_at, trial_ends_at")
+    .eq("user_id", userId);
+
+  if (error) {
+    return { rows: [], error };
+  }
+
+  return { rows: (data as SubscriptionRow[] | null) ?? [], error: null };
+}
+
+/**
+ * До какой даты подписка уже оплачена.
+ *
+ * Берём максимум из трёх источников: `purchases.expires_at` прошлых платежей,
+ * `subscriptions.expires_at` и запасного `trial_ends_at`. Покупки важны при
+ * первом продлении после обновления: в старой схеме срок лежал только там, и
+ * оставшиеся дни не должны сгореть.
+ */
+async function readPaidUntil(
+  admin: AdminClient,
+  userId: string,
+): Promise<Date> {
+  const [purchases, subscriptions] = await Promise.all([
+    admin
+      .from("purchases")
+      .select("expires_at")
+      .eq("user_id", userId)
+      .eq("course_id", "pro-subscription"),
+    readSubscriptions(admin, userId),
+  ]);
+
+  if (purchases.error) {
+    console.warn(
+      "[Robokassa] Не удалось прочитать срок покупок:",
+      purchases.error.message,
+    );
+  }
+
+  if (subscriptions.error) {
+    console.warn(
+      "[Robokassa] Не удалось прочитать срок подписки:",
+      subscriptions.error.message,
+    );
+  }
+
+  const dates = [
+    ...(((purchases.data as { expires_at: string | null }[] | null) ?? []).map(
+      (row) => row.expires_at,
+    )),
+    ...subscriptions.rows.flatMap((row) => [
+      row.expires_at,
+      row.trial_ends_at,
+    ]),
+  ];
+
+  const stored = latestDate(dates);
+
+  return new Date(Math.max(Date.now(), timeOf(stored)));
+}
+
+/**
+ * Продлевает подписку Pro до оплаченной даты.
+ *
+ * Обновляем строку с самым поздним сроком: так у пользователя с несколькими
+ * записями продление попадает в действующую. Если эта строка уже оплачена до
+ * нужной даты (повторное уведомление по тому же заказу), ничего не меняем —
+ * вторые 30 дней не добавляются.
+ */
+async function extendSubscription(
+  admin: AdminClient,
+  userId: string,
+  paidUntil: string,
+): Promise<{ error: DatabaseError | null }> {
+  const { rows, error } = await readSubscriptions(admin, userId);
+
+  if (error) {
+    return { error };
+  }
+
+  const target = rows.reduce<SubscriptionRow | null>((best, row) => {
+    if (!best) {
+      return row;
+    }
+
+    return timeOf(row.expires_at) > timeOf(best.expires_at) ? row : best;
+  }, null);
+
+  if (!target) {
+    const { error: insertError } = await admin.from("subscriptions").insert({
+      user_id: userId,
+      status: "active",
+      expires_at: paidUntil,
+      updated_at: new Date().toISOString(),
+    });
+
+    return { error: insertError };
+  }
+
+  if (timeOf(target.expires_at) >= timeOf(paidUntil)) {
+    return { error: null };
+  }
+
+  const { error: updateError } = await admin
+    .from("subscriptions")
+    .update({
+      status: "active",
+      expires_at: paidUntil,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", target.id);
+
+  return { error: updateError };
+}
+
+/**
+ * Повторное уведомление по уже записанному заказу.
+ *
+ * Срок этого платежа сохранён в `purchases.expires_at`, поэтому подписку можно
+ * довести до него без повторного расчёта «сейчас + 30 дней». Так ретрай
+ * Robokassa после сбоя записи подписки безопасен.
+ */
+async function syncSubscriptionFromPurchase(
+  admin: AdminClient,
+  invId: number,
+): Promise<DatabaseError | null> {
+  const { data, error } = await admin
+    .from("purchases")
+    .select("user_id, course_id, expires_at")
+    .eq("inv_id", invId)
+    .maybeSingle();
+
+  if (error) {
+    return error;
+  }
+
+  const purchase = data as PurchaseRow | null;
+
+  if (
+    !purchase ||
+    purchase.course_id !== "pro-subscription" ||
+    !purchase.expires_at
+  ) {
+    return null;
+  }
+
+  const { error: extendError } = await extendSubscription(
+    admin,
+    purchase.user_id,
+    purchase.expires_at,
+  );
+
+  return extendError;
 }
 
 /**
@@ -124,12 +354,7 @@ async function handleResult(
     return text("amount does not match plan", 400);
   }
 
-  const expiresAt =
-    courseId === "pro-subscription"
-      ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-      : null;
-
-  let admin: ReturnType<typeof createAdminClient>;
+  let admin: AdminClient;
 
   try {
     admin = createAdminClient();
@@ -141,7 +366,18 @@ async function handleResult(
     return text("payment configuration error", 500);
   }
 
-  let insertError: { code?: string; message: string } | null = null;
+  const isSubscription = courseId === "pro-subscription";
+
+  // Подписка продлевается от текущего срока, а не от «сейчас»: если человек
+  // платит заранее, оставшиеся дни не сгорают. Автопродление приходит таким же
+  // уведомлением с новым InvId, поэтому считается по той же формуле.
+  const expiresAt = isSubscription
+    ? new Date(
+        (await readPaidUntil(admin, userId)).getTime() + SUBSCRIPTION_PERIOD_MS,
+      ).toISOString()
+    : null;
+
+  let insertError: DatabaseError | null = null;
 
   try {
     const { error } = await admin.from("purchases").insert({
@@ -166,6 +402,20 @@ async function handleResult(
         "[Robokassa] Повторное уведомление, покупка уже записана:",
         invId,
       );
+
+      // Подписку доводим до уже сохранённого срока: если запись подписки
+      // сорвалась в прошлый раз, ретрай её починит, но вторые 30 дней не
+      // добавит.
+      if (isSubscription) {
+        const syncError = await syncSubscriptionFromPurchase(admin, invId);
+
+        if (syncError && !isMissingSchemaError(syncError)) {
+          console.error("[Robokassa] Ошибка продления подписки:", syncError);
+
+          return text("database error", 500);
+        }
+      }
+
       return text(`OK${invId}`);
     }
 
@@ -181,6 +431,29 @@ async function handleResult(
     amount: expectedAmount,
     expiresAt,
   });
+
+  if (isSubscription && expiresAt) {
+    const { error: extensionError } = await extendSubscription(
+      admin,
+      userId,
+      expiresAt,
+    );
+
+    if (!extensionError) {
+      console.log("[Robokassa] Подписка продлена до:", expiresAt);
+    } else if (isMissingSchemaError(extensionError)) {
+      // Колонки ещё нет в базе: покупка записана, доступ откроется по
+      // purchases. Повтор уведомления ничего не изменит, поэтому отвечаем OK.
+      console.warn(
+        "[Robokassa] subscriptions.expires_at недоступен, подписка не записана:",
+        extensionError.message,
+      );
+    } else {
+      console.error("[Robokassa] Ошибка продления подписки:", extensionError);
+
+      return text("database error", 500);
+    }
+  }
 
   return text(`OK${invId}`);
 }
