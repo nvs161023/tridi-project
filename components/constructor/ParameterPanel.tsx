@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useId, useState, type ChangeEvent } from "react";
 
 import { NumberSlider } from "@/components/constructor/NumberSlider";
+import { ParameterSelect } from "@/components/constructor/ParameterSelect";
 import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
 import {
   CONSTRUCTOR_LIMITS,
@@ -246,7 +247,7 @@ function ExportButtons({
   );
 }
 
-/** Карточка типа модели во вкладках панели. */
+/** Модель конструктора: идентификатор, иконка и подпись в списке. */
 type ModelCard = { id: ModelType; icon: string; title: string };
 
 const MODEL_CARDS: ModelCard[] = [
@@ -257,6 +258,17 @@ const MODEL_CARDS: ModelCard[] = [
   { id: "box", icon: "📦", title: MODEL_TYPE_LABELS.box },
   { id: "lithophane", icon: "🖼️", title: MODEL_TYPE_LABELS.lithophane },
 ];
+
+/**
+ * Пункты выпадающего списка моделей.
+ *
+ * Иконка осталась от прежних карточек: по ней модель узнаётся быстрее, чем по
+ * названию, а в списке она занимает те же несколько символов.
+ */
+const MODEL_OPTIONS = MODEL_CARDS.map((card) => ({
+  label: `${card.icon} ${card.title}`,
+  value: card.id,
+}));
 
 /** Пояснение к выбранному силуэту: помогает выбрать форму без 3D-терминов. */
 const SHAPE_HINTS: Record<VaseShape, string> = {
@@ -381,11 +393,12 @@ async function compressLithophaneImage(
 /**
  * Панель параметров модели.
  *
- * Слайдеры меняют размеры, кнопки формы — пресет силуэта вазы, кнопки узора —
- * математический рельеф стенки, а для брелока появляются длина, ширина,
- * толщина, форма заготовки и имя. У светильника выбирают патрон и узор, у
- * вывески — надпись, кегль, выступ букв и ширину канала под ленту, у коробки —
- * сетку ячеек, размеры, стенку и крышку, у литофана — фото, превью и толщины.
+ * Тип модели и её варианты (форма, узор, патрон, шрифт, канал, крепление)
+ * выбираются выпадающими списками, размеры меняют слайдеры, а имя, надпись и
+ * фото — текстовое поле и загрузка файла. У брелока появляются длина, ширина,
+ * толщина, силуэт и имя. У светильника выбирают патрон и узор, у вывески —
+ * надпись, кегль, выступ букв и ширину канала под ленту, у коробки — сетку
+ * ячеек, размеры, стенку и крышку, у литофана — фото, превью и толщины.
  * Параметры компонент не хранит: они приходят из ConstructorClient, поэтому
  * 3D-сцена и подписи всегда читают один и тот же объект. Локальное состояние
  * есть только у загрузки изображения — текст ошибки и превью на время сеанса.
@@ -546,137 +559,66 @@ export function ParameterPanel({
         Параметры модели
       </h2>
 
-      <fieldset className="mt-4">
-        <legend className="text-sm font-medium text-slate-200">
-          Тип модели
-        </legend>
-
-        <div className="mt-3 space-y-2">
-          {MODEL_CARDS.map((type) => {
-            const selected = params.model === type.id;
-
-            return (
-              <button
-                aria-pressed={selected}
-                className={
-                  selected
-                    ? "flex w-full items-center gap-3 rounded-2xl border border-blue-400/50 bg-blue-500/10 px-4 py-3 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    : "flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                }
-                key={type.id}
-                onClick={() => onModelChange(type.id)}
-                type="button"
-              >
-                <span aria-hidden className="text-xl">
-                  {type.icon}
-                </span>
-                <span className="flex-1 text-left text-sm font-semibold">
-                  {type.title}
-                </span>
-                <span
-                  className={
-                    selected
-                      ? "rounded-full border border-blue-400/40 bg-blue-500/15 px-2.5 py-0.5 text-[0.7rem] font-semibold tracking-wide text-blue-200 uppercase"
-                      : "rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[0.7rem] font-semibold tracking-wide text-slate-300 uppercase"
-                  }
-                >
-                  {selected ? "Выбрано" : "Открыть"}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </fieldset>
+      <div className="mt-4">
+        <ParameterSelect
+          label="Тип модели"
+          onChange={onModelChange}
+          options={MODEL_OPTIONS}
+          value={params.model}
+        />
+      </div>
 
       {params.model === "vase" ? (
         <>
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">
-              Форма
-            </legend>
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint={SHAPE_HINTS[params.shape]}
+              label="Форма"
+              onChange={onShapeChange}
+              options={VASE_SHAPES.map((shape) => ({
+                label: VASE_SHAPE_LABELS[shape],
+                value: shape,
+              }))}
+              value={params.shape}
+            />
+          </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {VASE_SHAPES.map((shape) => {
-                const selected = params.shape === shape;
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint={PATTERN_HINTS[params.pattern]}
+              label="Узор"
+              onChange={onPatternChange}
+              options={VASE_PATTERNS.map((pattern) => ({
+                label: VASE_PATTERN_LABELS[pattern],
+                value: pattern,
+              }))}
+              value={params.pattern}
+            />
 
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={
-                      selected
-                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-blue-400/60 bg-blue-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    }
-                    key={shape}
-                    onClick={() => onShapeChange(shape)}
-                    type="button"
-                  >
-                    {VASE_SHAPE_LABELS[shape]}
-                  </button>
-                );
-              })}
-            </div>
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.patternIntensity.decimals}
+              hint="0 — ровная стенка, 5 мм — глубокий рельеф. В узкой горловине амплитуда ограничивается автоматически, чтобы стенка не разорвалась."
+              label="Сила узора"
+              max={CONSTRUCTOR_LIMITS.patternIntensity.max}
+              min={CONSTRUCTOR_LIMITS.patternIntensity.min}
+              onChange={(value) => onParamChange("patternIntensity", value)}
+              step={CONSTRUCTOR_LIMITS.patternIntensity.step}
+              unit="мм"
+              value={params.patternIntensity}
+            />
 
-            <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              {SHAPE_HINTS[params.shape]}
-            </p>
-          </fieldset>
-
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">Узор</legend>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {VASE_PATTERNS.map((pattern) => {
-                const selected = params.pattern === pattern;
-
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={
-                      selected
-                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-emerald-400/60 bg-emerald-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    }
-                    key={pattern}
-                    onClick={() => onPatternChange(pattern)}
-                    type="button"
-                  >
-                    {VASE_PATTERN_LABELS[pattern]}
-                  </button>
-                );
-              })}
-            </div>
-
-            <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              {PATTERN_HINTS[params.pattern]}
-            </p>
-
-            <div className="mt-4 space-y-5">
-              <NumberSlider
-                decimals={CONSTRUCTOR_LIMITS.patternIntensity.decimals}
-                hint="0 — ровная стенка, 5 мм — глубокий рельеф. В узкой горловине амплитуда ограничивается автоматически, чтобы стенка не разорвалась."
-                label="Сила узора"
-                max={CONSTRUCTOR_LIMITS.patternIntensity.max}
-                min={CONSTRUCTOR_LIMITS.patternIntensity.min}
-                onChange={(value) => onParamChange("patternIntensity", value)}
-                step={CONSTRUCTOR_LIMITS.patternIntensity.step}
-                unit="мм"
-                value={params.patternIntensity}
-              />
-
-              <NumberSlider
-                decimals={CONSTRUCTOR_LIMITS.patternFrequency.decimals}
-                hint="1 — крупный узор, 20 — частый. Для рёбер это число гребней по окружности; волны и спираль считают фазу от высоты в миллиметрах."
-                label="Частота узора"
-                max={CONSTRUCTOR_LIMITS.patternFrequency.max}
-                min={CONSTRUCTOR_LIMITS.patternFrequency.min}
-                onChange={(value) => onParamChange("patternFrequency", value)}
-                step={CONSTRUCTOR_LIMITS.patternFrequency.step}
-                unit="раз"
-                value={params.patternFrequency}
-              />
-            </div>
-          </fieldset>
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.patternFrequency.decimals}
+              hint="1 — крупный узор, 20 — частый. Для рёбер это число гребней по окружности; волны и спираль считают фазу от высоты в миллиметрах."
+              label="Частота узора"
+              max={CONSTRUCTOR_LIMITS.patternFrequency.max}
+              min={CONSTRUCTOR_LIMITS.patternFrequency.min}
+              onChange={(value) => onParamChange("patternFrequency", value)}
+              step={CONSTRUCTOR_LIMITS.patternFrequency.step}
+              unit="раз"
+              value={params.patternFrequency}
+            />
+          </div>
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
             <NumberSlider
@@ -716,39 +658,18 @@ export function ParameterPanel({
         </>
       ) : params.model === "keychain" ? (
         <>
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">
-              Форма брелока
-            </legend>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {KEYCHAIN_SHAPES.map((shapeType) => {
-                const selected = params.shapeType === shapeType;
-
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={
-                      selected
-                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    }
-                    key={shapeType}
-                    onClick={() => onKeychainShapeChange(shapeType)}
-                    type="button"
-                  >
-                    {KEYCHAIN_SHAPE_LABELS[shapeType]}
-                  </button>
-                );
-              })}
-            </div>
-
-            <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              Отверстие под кольцо диаметром 4 мм есть у обеих форм. Выберите
-              скруглённый прямоугольник для спокойного вида или шестиугольник
-              для более техничного.
-            </p>
-          </fieldset>
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="У каждого силуэта есть ушко с отверстием под кольцо 4 мм. Жетон и шестиугольник выглядят спокойнее, фигурные силуэты заметнее на связке."
+              label="Форма брелока"
+              onChange={onKeychainShapeChange}
+              options={KEYCHAIN_SHAPES.map((shapeType) => ({
+                label: KEYCHAIN_SHAPE_LABELS[shapeType],
+                value: shapeType,
+              }))}
+              value={params.shapeType}
+            />
+          </div>
 
           <fieldset className="mt-6 border-t border-white/10 pt-5">
             <legend className="text-sm font-medium text-slate-200">
@@ -840,120 +761,55 @@ export function ParameterPanel({
             </p>
           </div>
 
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">
-              Патрон
-            </legend>
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Отверстие шире резьбы на 0.3 мм с каждой стороны: после усадки патрон входит плотно, но не проваливается. Провод выходит через канал в верхнем поясе."
+              label="Патрон"
+              onChange={onLampMountChange}
+              options={LAMP_MOUNTS.map((mount) => ({
+                label: LAMP_MOUNT_LABELS[mount],
+                value: mount,
+              }))}
+              value={params.lampMount}
+            />
+          </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {LAMP_MOUNTS.map((mount) => {
-                const selected = params.lampMount === mount;
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Квадрат и шестигранник стоят устойчивее круга и дают ровные грани, круг печатается проще всего."
+              label="Основание"
+              onChange={onLampBaseShapeChange}
+              options={LAMP_BASE_SHAPES.map((shape) => ({
+                label: LAMP_BASE_SHAPE_LABELS[shape],
+                value: shape,
+              }))}
+              value={params.lampBaseShape}
+            />
 
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={
-                      selected
-                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    }
-                    key={mount}
-                    onClick={() => onLampMountChange(mount)}
-                    type="button"
-                  >
-                    {LAMP_MOUNT_LABELS[mount]}
-                  </button>
-                );
-              })}
-            </div>
+            <NumberSlider
+              hint="Высота тумбы под патрон. Внутри остаётся место для клеммника, а абажур ставится на верхнюю плиту и центруется посадочным кольцом."
+              label="Высота основания"
+              max={CONSTRUCTOR_LIMITS.lampBaseHeight.max}
+              min={CONSTRUCTOR_LIMITS.lampBaseHeight.min}
+              onChange={(value) => onParamChange("lampBaseHeight", value)}
+              step={CONSTRUCTOR_LIMITS.lampBaseHeight.step}
+              unit="мм"
+              value={params.lampBaseHeight}
+            />
+          </div>
 
-            <p className="mt-4 text-xs leading-relaxed text-slate-300">
-              Отверстие шире резьбы на 0.3 мм с каждой стороны: после усадки
-              патрон входит плотно, но не проваливается. Провод выходит через
-              канал в верхнем поясе.
-            </p>
-          </fieldset>
-
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">
-              Основание
-            </legend>
-
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              {LAMP_BASE_SHAPES.map((shape) => {
-                const selected = params.lampBaseShape === shape;
-
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={
-                      selected
-                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/20 px-1 text-xs font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-1 text-xs font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    }
-                    key={shape}
-                    onClick={() => onLampBaseShapeChange(shape)}
-                    type="button"
-                  >
-                    {LAMP_BASE_SHAPE_LABELS[shape]}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-4">
-              <NumberSlider
-                hint="Высота тумбы под патрон. Внутри остаётся место для клеммника, а абажур ставится на верхнюю плиту и центруется посадочным кольцом."
-                label="Высота основания"
-                max={CONSTRUCTOR_LIMITS.lampBaseHeight.max}
-                min={CONSTRUCTOR_LIMITS.lampBaseHeight.min}
-                onChange={(value) => onParamChange("lampBaseHeight", value)}
-                step={CONSTRUCTOR_LIMITS.lampBaseHeight.step}
-                unit="мм"
-                value={params.lampBaseHeight}
-              />
-            </div>
-
-            <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              Основание скачивается отдельной деталью: квадрат и шестигранник
-              стоят устойчивее круга и дают ровные грани, круг печатается проще
-              всего. Кабель выходит через отверстие в дне.
-            </p>
-          </fieldset>
-
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">Узор</legend>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {VASE_PATTERNS.map((pattern) => {
-                const selected = params.lampPattern === pattern;
-
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={
-                      selected
-                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    }
-                    key={pattern}
-                    onClick={() => onLampPatternChange(pattern)}
-                    type="button"
-                  >
-                    {VASE_PATTERN_LABELS[pattern]}
-                  </button>
-                );
-              })}
-            </div>
-
-            <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              {PATTERN_HINTS[params.lampPattern]}
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-300">
-              Глубина рельефа у абажура фиксированная — 1.2 мм. У патрона и у
-              стола стенка остаётся гладкой: гнездо и кромка не деформируются.
-            </p>
-          </fieldset>
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Глубина рельефа у абажура фиксированная — 1.2 мм. У патрона и у стола стенка остаётся гладкой: гнездо и кромка не деформируются."
+              label="Узор"
+              onChange={onLampPatternChange}
+              options={VASE_PATTERNS.map((pattern) => ({
+                label: VASE_PATTERN_LABELS[pattern],
+                value: pattern,
+              }))}
+              value={params.lampPattern}
+            />
+          </div>
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
             <NumberSlider
@@ -1239,41 +1095,25 @@ export function ParameterPanel({
           </label>
 
           {params.lithoFrame ? (
-            <fieldset className="mt-6 border-t border-white/10 pt-5">
-              <legend className="text-sm font-medium text-slate-200">
-                Крепление
-              </legend>
+            <div className="mt-6 border-t border-white/10 pt-5">
+              <ParameterSelect
+                label="Крепление"
+                onChange={onLithoMountChange}
+                options={LITHOPHANE_MOUNTS.map((mount) => ({
+                  label: LITHOPHANE_MOUNT_LABELS[mount],
+                  value: mount,
+                }))}
+                value={params.lithoMount}
+              />
 
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                {LITHOPHANE_MOUNTS.map((mount) => {
-                  const selected = params.lithoMount === mount;
-
-                  return (
-                    <button
-                      aria-pressed={selected}
-                      className={
-                        selected
-                          ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-sky-400/60 bg-sky-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                          : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                      }
-                      key={mount}
-                      onClick={() => onLithoMountChange(mount)}
-                      type="button"
-                    >
-                      {LITHOPHANE_MOUNT_LABELS[mount]}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <p className="mt-4 text-xs leading-relaxed text-slate-300">
+              <p className="mt-2 text-xs leading-relaxed text-slate-300">
                 {params.lithoMount === "stand"
                   ? "Подставка: база 6 мм с передней губой и наклонной задней стенкой. Панель с рамкой ставится в паз сверху и наклонена на 12° — так удобнее рассматривать фото на столе."
                   : params.lithoMount === "hook"
                     ? "Петли: две проушины на тыльной стороне верхней планки. Литофан висит на двух шурупах почти вплотную к стене, шляпка прячется в кармане петли."
                     : "Без крепления: печатается только рамка с плитой. Её можно поставить на полку или вставить в свою подставку."}
               </p>
-            </fieldset>
+            </div>
           ) : (
             <p className="mt-4 text-xs leading-relaxed text-slate-300">
               Рамка выключена: печатается только плита рельефа, крепления нет —
@@ -1327,74 +1167,31 @@ export function ParameterPanel({
             </div>
           </fieldset>
 
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">
-              Шрифт надписи
-            </legend>
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Шрифт задаёт рисунок и толщину штриха. Все три набора с кириллицей: у Regular тонкие штрихи чаще собираются сплошными — камера под ленту в них не помещается."
+              label="Шрифт надписи"
+              onChange={onSignFontChange}
+              options={SIGN_FONTS.map((signFont) => ({
+                label: SIGN_FONT_LABELS[signFont],
+                value: signFont,
+              }))}
+              value={params.signFont}
+            />
+          </div>
 
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              {SIGN_FONTS.map((signFont) => {
-                const selected = params.signFont === signFont;
-
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={
-                      selected
-                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-violet-400/60 bg-violet-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    }
-                    key={signFont}
-                    onClick={() => onSignFontChange(signFont)}
-                    type="button"
-                  >
-                    {SIGN_FONT_LABELS[signFont]}
-                  </button>
-                );
-              })}
-            </div>
-
-            <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              Шрифт задаёт рисунок и толщину штриха. Все три набора с
-              кириллицей: у Regular тонкие штрихи чаще собираются сплошными —
-              камера под ленту в них не помещается.
-            </p>
-          </fieldset>
-
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">
-              Канал под ленту
-            </legend>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {SIGN_CHANNEL_WIDTHS.map((channelWidth) => {
-                const selected = params.signChannelWidth === channelWidth;
-
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={
-                      selected
-                        ? "inline-flex min-h-11 items-center justify-center rounded-xl border border-violet-400/60 bg-violet-500/20 px-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                        : "inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-slate-950/40 px-2 text-sm font-medium text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    }
-                    key={channelWidth}
-                    onClick={() => onSignChannelWidthChange(channelWidth)}
-                    type="button"
-                  >
-                    {channelWidth} мм
-                  </button>
-                );
-              })}
-            </div>
-
-            <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              Лента ложится в открытую камеру сзади буквы: стенки держат её по
-              краям, а лицо остаётся сплошным. На стыках блоков есть сквозной
-              канал — по нему лента переходит из блока в блок, а провод уходит
-              по тыльной стороне надписи.
-            </p>
-          </fieldset>
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Лента ложится в открытую камеру сзади буквы: стенки держат её по краям, а лицо остаётся сплошным. На стыках блоков есть сквозной канал — по нему лента переходит из блока в блок, а провод уходит по тыльной стороне надписи."
+              label="Канал под ленту"
+              onChange={onSignChannelWidthChange}
+              options={SIGN_CHANNEL_WIDTHS.map((channelWidth) => ({
+                label: `${channelWidth} мм`,
+                value: channelWidth,
+              }))}
+              value={params.signChannelWidth}
+            />
+          </div>
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
             <NumberSlider

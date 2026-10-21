@@ -78,6 +78,22 @@ type SizeParam = Exclude<
 >;
 
 /**
+ * Дефолты каждой модели.
+ *
+ * Объект нужен двум действиям: выбор модели в выпадающем списке начинает её с
+ * исходных значений, а кнопка «Сбросить параметры» возвращает к ним же текущую
+ * модель. Поля других моделей лежат в общем объекте и не трогаются.
+ */
+const MODEL_DEFAULT_PARAMS: Record<ModelType, Partial<ConstructorParams>> = {
+  vase: DEFAULT_VASE_PARAMS,
+  keychain: DEFAULT_KEYCHAIN_PARAMS,
+  lamp: DEFAULT_LAMP_PARAMS,
+  sign: DEFAULT_SIGN_PARAMS,
+  box: DEFAULT_BOX_PARAMS,
+  lithophane: DEFAULT_LITHOPHANE_PARAMS,
+};
+
+/**
  * Имя файла из Content-Disposition.
  *
  * Blob-ссылка не сохраняет заголовки ответа, поэтому имя приходится разбирать
@@ -317,8 +333,23 @@ export function ConstructorClient({
     );
   }
 
+  /**
+   * Смена модели начинается с её дефолтных параметров.
+   *
+   * Модель выбирается выпадающим списком: это новая заготовка, а не возврат к
+   * черновику. Пользователь ждёт исходные размеры и форму, а не значения,
+   * оставшиеся от прошлого визита. Параметры остальных моделей сохраняются.
+   */
   function updateModel(model: ModelType) {
-    setParams((current) => normalizeConstructorParams({ ...current, model }));
+    setParams((current) =>
+      model === current.model
+        ? current
+        : normalizeConstructorParams({
+            ...current,
+            model,
+            ...MODEL_DEFAULT_PARAMS[model],
+          }),
+    );
   }
 
   function updateShape(shape: VaseShape) {
@@ -413,17 +444,7 @@ export function ConstructorClient({
     setParams((current) =>
       normalizeConstructorParams({
         ...current,
-        ...(current.model === "vase"
-          ? DEFAULT_VASE_PARAMS
-          : current.model === "keychain"
-            ? DEFAULT_KEYCHAIN_PARAMS
-            : current.model === "lamp"
-              ? DEFAULT_LAMP_PARAMS
-              : current.model === "sign"
-                ? DEFAULT_SIGN_PARAMS
-                : current.model === "box"
-                  ? DEFAULT_BOX_PARAMS
-                  : DEFAULT_LITHOPHANE_PARAMS),
+        ...MODEL_DEFAULT_PARAMS[current.model],
       }),
     );
   }

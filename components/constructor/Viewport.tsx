@@ -963,7 +963,7 @@ export function Viewport({ params }: ViewportProps) {
           <span aria-hidden className="text-slate-600">
             •
           </span>
-          <span>≈ {materialWeightGrams.toFixed(1)} г пластика PLA</span>
+          <span>Вес пластика: ~{materialWeightGrams.toFixed(1)} г</span>
         </span>
         <span className="hidden sm:inline">Вращение — мышь, зум — колесо</span>
       </div>
