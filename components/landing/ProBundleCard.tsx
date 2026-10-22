@@ -21,6 +21,11 @@ const { pro: proCourse } = coursesData;
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
 
+/** Скидка подписки Pro — из тех же цен, что и на странице тарифов. */
+const subscriptionDiscount = Math.round(
+  (1 - proCourse.subscriptionPrice / proCourse.oldSubscriptionPrice) * 100,
+);
+
 /** Названия платных уровней в описании пакета не дублируем вручную. */
 const BUNDLE_COURSES = PAID_LEVELS.map((level) => level.shortTitle).join(", ");
 
@@ -123,6 +128,29 @@ export function ProBundleCard({
               {formatPrice(proCourse.oldPrice)} ₽
             </s>
             <span className="text-xs text-slate-300">навсегда</span>
+          </p>
+
+          <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-blue-400/20 bg-blue-500/5 px-3 py-2 text-xs text-slate-300">
+            <span className="font-semibold text-blue-200">Или подписка Pro</span>
+            <span className="text-base font-extrabold text-white">
+              {formatPrice(proCourse.subscriptionPrice)} ₽
+            </span>
+            <span>/мес</span>
+            <s
+              className="font-semibold text-slate-400"
+              aria-label={`Старая цена: ${formatPrice(proCourse.oldSubscriptionPrice)} ₽`}
+            >
+              {formatPrice(proCourse.oldSubscriptionPrice)} ₽
+            </s>
+            <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-slate-950 uppercase shadow-lg shadow-amber-500/20">
+              -{subscriptionDiscount}%
+            </span>
+            <Link
+              href="/subscription#tools"
+              className="font-semibold text-blue-300 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            >
+              подробнее
+            </Link>
           </p>
 
           <dl className="mt-5 grid grid-cols-3 gap-2 border-y border-white/10 py-4 text-center">

@@ -38,6 +38,33 @@ export function isPromoCourseId(value: string): value is PromoCourseId {
 }
 
 /**
+ * Колонка, которой нет в схеме базы, — по ответу PostgREST.
+ *
+ * Таблица promo_codes живёт в базе отдельно от кода, и её схема может отставать
+ * от supabase/promo_codes.sql: например, в уже созданной таблице нет `note`.
+ * PostgREST в этом случае отвечает PGRST204 «Could not find the 'note' column»
+ * и не вставляет ни одной строки. Админка убирает неизвестную колонку и
+ * повторяет вставку: коды важнее примечания, а предупреждение покажет форма.
+ *
+ * 42703 — тот же случай, но из PostgreSQL (undefined_column), если запрос
+ * выполнялся не через PostgREST.
+ */
+export function missingColumnName(
+  error: { code?: string; message?: string } | null | undefined,
+): string | null {
+  if (!error || (error.code !== "PGRST204" && error.code !== "42703")) {
+    return null;
+  }
+
+  const message = error.message ?? "";
+  const match =
+    message.match(/'([a-z0-9_]+)' column/i) ??
+    message.match(/column "([a-z0-9_]+)"/i);
+
+  return match?.[1] ?? null;
+}
+
+/**
  * Новый код вида TRIDI-ABCD-1234.
  *
  * 8 случайных символов из алфавита в 32 знака — это 40 бит энтропии: перебрать

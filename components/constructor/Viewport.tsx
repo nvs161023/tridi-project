@@ -667,8 +667,7 @@ type SceneProps = {
 function Scene({ params, geometry, framing }: SceneProps) {
   return (
     <>
-      <color args={["#020617"]} attach="background" />
-
+      {/* Фон прозрачный: градиент задаёт обёртка viewport в CSS. */}
       <Lights />
       {params.model === "vase" ? (
         <VaseModel
@@ -1014,7 +1013,7 @@ export function Viewport({ params }: ViewportProps) {
               : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
-    <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-3xl border border-white/10 bg-slate-950 sm:h-[32rem] lg:h-[38rem]">
+    <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-900 to-slate-900 shadow-2xl shadow-blue-950/50 sm:h-[32rem] lg:h-[38rem]">
       <Canvas
         aria-label={ariaLabel}
         camera={{ fov: 35, near: 1, far: 6000, position: [0, 180, 320] }}
@@ -1027,7 +1026,7 @@ export function Viewport({ params }: ViewportProps) {
             </p>
           </div>
         }
-        gl={{ antialias: true }}
+        gl={{ antialias: true, alpha: true }}
       >
         <Scene framing={framing} geometry={geometry} params={params} />
       </Canvas>

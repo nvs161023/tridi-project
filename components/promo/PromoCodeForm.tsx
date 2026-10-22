@@ -146,6 +146,12 @@ export function PromoCodeForm() {
         </p>
       ) : null}
 
+      {state.warning ? (
+        <p role="status" className="mt-4 text-sm leading-relaxed text-amber-300">
+          {state.warning}
+        </p>
+      ) : null}
+
       {state.created && state.created.length > 0 ? (
         <details className="mt-4 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
           <summary className="cursor-pointer text-xs font-semibold text-slate-300">

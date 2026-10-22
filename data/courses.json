@@ -18,7 +18,8 @@
     "price": 9900,
     "oldPrice": 18990,
     "badge": "Максимальная выгода",
-    "subscriptionPrice": 1490,
+    "subscriptionPrice": 299,
+    "oldSubscriptionPrice": 1490,
     "bundleTitle": "Всё включено",
     "bundleSubtitle": "Пакет «Все 3 уровня»"
   },

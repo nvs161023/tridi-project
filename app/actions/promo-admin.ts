@@ -8,6 +8,7 @@ import {
   PROMO_MAX_BATCH,
   generatePromoCode,
   isPromoCourseId,
+  missingColumnName,
 } from "@/lib/promo-codes";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -100,7 +101,11 @@ export async function createPromoCodes(
     codes.add(generatePromoCode());
   }
 
-  const rows = [...codes].map((code) => ({
+  /**
+   * Строка партии. Record, а не точный тип: при старой схеме базы неизвестную
+   * колонку приходится убирать из объекта перед повторной вставкой.
+   */
+  const rows: Record<string, string | null>[] = [...codes].map((code) => ({
     code,
     course_id: courseId,
     batch,
@@ -119,24 +124,58 @@ export async function createPromoCodes(
     };
   }
 
-  const { error } = await admin.from("promo_codes").insert(rows);
+  /**
+   * Вставка с откатом на старую схему.
+   *
+   * Ключ service_role обходит RLS, но не исправляет расхождение схемы: если в
+   * базе ещё нет `note` (или другой необязательной колонки), PostgREST отвечает
+   * PGRST204 и не сохраняет НИ ОДНОЙ строки. Поэтому неизвестную колонку
+   * убираем и повторяем — партия создаётся, а форма предупреждает, чего не
+   * хватает и какой файл применить.
+   */
+  const droppedColumns = new Set<string>();
+  let insertError: { code?: string; message: string } | null = null;
 
-  if (error) {
-    if (isMissingPromoTable(error.code)) {
+  // Колонок в партии пять: больше пяти повторов не понадобится.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { error } = await admin.from("promo_codes").insert(rows);
+
+    if (!error) {
+      insertError = null;
+      break;
+    }
+
+    insertError = error;
+
+    const column = missingColumnName(error);
+
+    if (!column || !(column in rows[0])) {
+      break;
+    }
+
+    droppedColumns.add(column);
+
+    for (const row of rows) {
+      delete row[column];
+    }
+  }
+
+  if (insertError) {
+    if (isMissingPromoTable(insertError.code)) {
       return {
         error:
           "Таблица promo_codes не создана. Примените supabase/promo_codes.sql в SQL Editor, затем повторите.",
       };
     }
 
-    if (error.code === "23505") {
+    if (insertError.code === "23505") {
       return {
         error:
           "Один из кодов уже существует. Нажмите «Выпустить» ещё раз — партия создастся заново.",
       };
     }
 
-    console.warn("Не удалось сохранить промокоды:", error.message);
+    console.warn("Не удалось сохранить промокоды:", insertError.message);
 
     return { error: "Не удалось сохранить коды. Попробуйте ещё раз." };
   }
@@ -145,6 +184,10 @@ export async function createPromoCodes(
 
   return {
     success: `Выпущено кодов: ${rows.length}. Партия: ${batch ?? "без названия"}.`,
-    created: rows.map((row) => row.code),
+    warning:
+      droppedColumns.size > 0
+        ? `В таблице promo_codes нет колонок: ${[...droppedColumns].join(", ")}. Коды сохранены без них — примените supabase/promo_codes.sql, чтобы схема совпала.`
+        : undefined,
+    created: [...codes],
   };
 }

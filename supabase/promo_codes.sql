@@ -59,6 +59,20 @@ create index if not exists promo_codes_used_by_idx
   on public.promo_codes (used_by)
   where used_by is not null;
 
+-- =============================================================================
+-- Апгрейд уже созданной таблицы
+-- =============================================================================
+-- `create table if not exists` не меняет существующую таблицу: если promo_codes
+-- создали по старой версии файла, в ней не будет, например, колонки note, и
+-- PostgREST ответит PGRST204 «Could not find the 'note' column» — партия кодов
+-- не сохранится. Эти alter-ы безопасно применять повторно.
+alter table public.promo_codes
+  add column if not exists batch text,
+  add column if not exists note text,
+  add column if not exists expires_at timestamptz,
+  add column if not exists used_at timestamptz,
+  add column if not exists used_by uuid references auth.users (id) on delete set null;
+
 alter table public.promo_codes enable row level security;
 
 -- Пользователь читает только собственные активации.

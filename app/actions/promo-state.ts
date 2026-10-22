@@ -10,6 +10,11 @@
 export type PromoAdminFormState = {
   error?: string;
   success?: string;
+  /**
+   * Коды сохранены, но часть колонок пришлось убрать: схема базы старше
+   * supabase/promo_codes.sql. Показываем отдельно, чтобы это не потерялось.
+   */
+  warning?: string;
   /** Коды последней созданной партии — показываем сразу после выпуска. */
   created?: string[];
 };

@@ -93,7 +93,7 @@ export function VisualPlaceholder({
 
   return (
     <figure
-      className={`group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 transition-colors ${colors.hover} ${className}`}
+      className={`group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-900 to-slate-900 shadow-2xl shadow-slate-950/50 transition-colors ${colors.hover} ${className}`}
     >
       <div
         className={`relative flex aspect-[4/3] flex-col justify-between overflow-hidden bg-gradient-to-br p-4 sm:p-5 ${colors.surface}`}

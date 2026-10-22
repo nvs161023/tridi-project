@@ -53,7 +53,16 @@ const priceWithOld = (level: CourseLevel) =>
 
 /** Цены из data/courses.json: тот же источник, что и на главной. */
 const proSubscriptionPrice = formatPrice(proCourse.subscriptionPrice);
+const proSubscriptionOldPrice = formatPrice(proCourse.oldSubscriptionPrice);
 const proBundlePrice = formatPrice(proCourse.price);
+
+/**
+ * Скидка подписки в процентах — считается из цен, а не вписана руками:
+ * при смене subscriptionPrice или oldSubscriptionPrice бейдж не соврёт.
+ */
+const proSubscriptionDiscount = Math.round(
+  (1 - proCourse.subscriptionPrice / proCourse.oldSubscriptionPrice) * 100,
+);
 
 /** Акция базового уровня: старая цена и бейдж берутся из data/courses.json. */
 const basicLevel = LEVELS[0];
@@ -230,7 +239,8 @@ export default async function SubscriptionPage() {
                 Курсы от {formatPrice(LEVELS[1].price)} ₽ навсегда
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                Инструменты Pro — {proSubscriptionPrice} ₽/мес
+                Инструменты Pro — {proSubscriptionPrice} ₽/мес вместо{" "}
+                {proSubscriptionOldPrice} ₽
               </span>
             </div>
 
@@ -283,9 +293,9 @@ export default async function SubscriptionPage() {
               </span>
               <span>
                 <strong className="text-white">Подписка Pro</strong> —{" "}
-                {proSubscriptionPrice} ₽/мес. Открывает инструменты: Конструктор
-                и Профили. Уроки не входят — купи нужный уровень навсегда или
-                забери все три пакетом.
+                {proSubscriptionPrice} ₽/мес вместо {proSubscriptionOldPrice} ₽.
+                Открывает инструменты: Конструктор и Профили. Уроки не входят —
+                купи нужный уровень навсегда или забери все три пакетом.
               </span>
             </div>
 
@@ -816,11 +826,20 @@ export default async function SubscriptionPage() {
                       </span>
                     </div>
 
-                    <p className="mt-4 flex items-baseline gap-2">
+                    <p className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-2">
                       <span className="text-4xl font-extrabold text-white">
                         {proSubscriptionPrice} ₽
                       </span>
                       <span className="text-sm text-slate-300">/мес</span>
+                      <s
+                        className="text-lg font-semibold text-slate-400"
+                        aria-label={`Старая цена: ${proSubscriptionOldPrice} ₽`}
+                      >
+                        {proSubscriptionOldPrice} ₽
+                      </s>
+                      <span className={DISCOUNT_BADGE}>
+                        -{proSubscriptionDiscount}%
+                      </span>
                     </p>
 
                     <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
