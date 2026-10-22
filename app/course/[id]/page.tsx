@@ -3,8 +3,13 @@ import Link from "next/link";
 import { CompleteButton } from "@/components/course/CompleteButton";
 import { LessonBlocks } from "@/components/course/LessonBlocks";
 import { ModuleTestGate } from "@/components/course/ModuleTestGate";
+import { ModuleTestLocked } from "@/components/course/ModuleTestLocked";
 import { TestOverlay } from "@/components/course/TestOverlay";
 import { basicCourseModules, basicLessons } from "@/lib/basic-course";
+import {
+  loadCompletedLessonNumbers,
+  unreadModuleLessons,
+} from "@/lib/course-access";
 import { isModuleTestCompleted } from "@/lib/module-test";
 import { loadPassedModuleTests } from "@/lib/module-test-progress";
 import type { MiniCheckQuestion } from "@/lib/types";
@@ -198,10 +203,31 @@ export default async function LessonPage({ params }: LessonPageProps) {
    * Вопросы теста модуля текущего урока: их показывает карточка «Проверь себя»
    * на последнем уроке модуля.
    */
-  const moduleQuestions =
-    basicCourseModules.find(
-      (courseModule) => courseModule.moduleId === lesson.moduleId,
-    )?.questions ?? [];
+  const currentModule = basicCourseModules.find(
+    (courseModule) => courseModule.moduleId === lesson.moduleId,
+  );
+  const moduleQuestions = currentModule?.questions ?? [];
+
+  /**
+   * Тест модуля открывается после всех уроков модуля, кроме последнего: тест и
+   * стоит в конце, поэтому сам себя в проверку не включает. Пока уроки не
+   * отмечены пройденными, вместо теста — список того, что осталось прочитать
+   * (правила живут в lib/course-access.ts).
+   */
+  const moduleLessonsBeforeTest = (currentModule?.lessonIds ?? [])
+    .filter((id) => id < lesson.id)
+    .map((id) => ({
+      lessonId: String(id),
+      lessonNumber: id,
+      title: lessons.find((item) => item.id === id)?.title ?? `Урок ${id}`,
+    }));
+  const unreadLessons =
+    lesson.isModuleLast && moduleQuestions.length > 0
+      ? unreadModuleLessons(
+          moduleLessonsBeforeTest,
+          await loadCompletedLessonNumbers("basic"),
+        )
+      : [];
 
   const progressPercent = Math.round((lesson.id / totalLessons) * 100);
   const isLastLesson = lesson.id === totalLessons;
@@ -277,7 +303,18 @@ export default async function LessonPage({ params }: LessonPageProps) {
         />
 
         <div className="mt-12 sm:mt-16">
-          {lesson.isModuleLast ? (
+          {lesson.isModuleLast && unreadLessons.length > 0 ? (
+            // Последний урок модуля, но уроки модуля прочитаны не все: тест
+            // подождёт — показываем, что осталось прочитать.
+            <ModuleTestLocked
+              courseType="basic"
+              moduleLabel={lesson.module}
+              unread={unreadLessons.map((item) => ({
+                href: lessonHref(Number(item.lessonId)),
+                label: `${item.lessonId} · ${item.title}`,
+              }))}
+            />
+          ) : lesson.isModuleLast ? (
             // Последний урок модуля: тест обязателен, поэтому вместо перехода
             // показываем карточку «Проверь себя» со слайдом теста и заблокированной
             // кнопкой продолжения — пока тест не сдан, дальше не пустим.

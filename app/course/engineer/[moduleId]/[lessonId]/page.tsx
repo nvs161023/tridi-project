@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { CompleteButton } from "@/components/course/CompleteButton";
 import { LessonBlocks } from "@/components/course/LessonBlocks";
 import { ModuleTestGate } from "@/components/course/ModuleTestGate";
+import { ModuleTestLocked } from "@/components/course/ModuleTestLocked";
+import { PreviewLessonNotice } from "@/components/course/PreviewLessonNotice";
 import { TestOverlay } from "@/components/course/TestOverlay";
 import {
   engineerLessons,
@@ -14,6 +16,12 @@ import {
   findEngineerModuleByOrder,
 } from "@/lib/engineer-course";
 import { resolveUserId } from "@/lib/current-user";
+import {
+  PREVIEW_BLOCKS,
+  PREVIEW_LESSONS,
+  loadCompletedLessonNumbers,
+  unreadModuleLessons,
+} from "@/lib/course-access";
 import { LESSON_FORMS, pluralize } from "@/lib/course-stats";
 import {
   ENGINEER_MODULE_TEST_COURSE_TYPE,
@@ -42,9 +50,6 @@ import type { MiniCheckQuestion } from "@/lib/types";
  * (IN1…IN10), поэтому в базу уходит СКВОЗНОЙ номер урока (1…10, lesson_order): он
  * же показывается в шапке как «Урок X из 10».
  */
-
-/** Сколько блоков показываем без подписки — как в продвинутом курсе. */
-const PREVIEW_BLOCKS = 2;
 
 const totalLessons = engineerLessons.length;
 const totalHours = formatTotalHours();
@@ -353,6 +358,31 @@ export default async function EngineerLessonPage({
   }
 
   const hasModuleTest = moduleQuestions.length > 0;
+
+  // Превью: первые PREVIEW_LESSONS урока уровня открыты без покупки, остальные —
+  // только с доступом. Решение принимается на сервере, поэтому платные блоки в
+  // HTTP-ответ просто не попадают.
+  const isPreviewLesson = !hasAccess && lesson.lessonNumber <= PREVIEW_LESSONS;
+
+  // Тест модуля стоит в конце модуля: пока уроки до него не отмечены
+  // пройденными, вместо теста показываем список того, что осталось прочитать.
+  const moduleLessonsBeforeTest = lesson.isModuleLast
+    ? currentModule.lessons
+        .filter((item) => item.lesson_order < lesson.lessonNumber)
+        .map((item) => ({
+          lessonId: item.lesson_id,
+          lessonNumber: item.lesson_order,
+          title: item.lesson_title,
+        }))
+    : [];
+  const unreadLessons =
+    hasAccess && hasModuleTest && moduleLessonsBeforeTest.length > 0
+      ? unreadModuleLessons(
+          moduleLessonsBeforeTest,
+          await loadCompletedLessonNumbers("engineer"),
+        )
+      : [];
+
   const lessonsHref = lessonHref(
     currentModule.module_id,
     currentModule.lessons[0].lesson_id,
@@ -434,7 +464,7 @@ export default async function EngineerLessonPage({
 
         {/* Без подписки в разметку попадают только первые блоки урока, остальное
             остаётся на сервере — «посмотреть код страницы» не поможет. */}
-        {!hasAccess ? (
+        {!hasAccess && !isPreviewLesson ? (
           <>
             {lesson.blocks.length > 0 ? (
               <LessonBlocks
@@ -452,37 +482,56 @@ export default async function EngineerLessonPage({
             moduleLabel={lesson.moduleLabel}
           />
         ) : (
-          <LessonBlocks
-            blocks={lesson.blocks}
-            courseType="engineer"
-            moduleId={currentModule.module_id}
-            lessonId={lesson.lessonId}
-          />
+          <>
+            <LessonBlocks
+              blocks={lesson.blocks}
+              courseType="engineer"
+              moduleId={currentModule.module_id}
+              lessonId={lesson.lessonId}
+            />
+            {isPreviewLesson ? (
+              <PreviewLessonNotice
+                accent="engineer"
+                lessonNumber={lesson.lessonNumber}
+                totalLessons={totalLessons}
+              />
+            ) : null}
+          </>
         )}
 
         {hasAccess ? (
           <div className="mt-12 sm:mt-16">
             {lesson.isModuleLast && hasModuleTest ? (
               // Последний урок модуля: тест обязателен и здесь, поэтому вместо
-              // перехода показываем карточку «Проверь себя» со слайдом теста и
-              // заблокированной кнопкой продолжения — пока тест не сдан, дальше
-              // не пустим.
-              <ModuleTestGate
-                courseType="engineer"
-                moduleNumber={currentModule.module_order}
-                moduleLabel={lesson.moduleLabel}
-                questions={moduleQuestions}
-                lessonsHref={lessonsHref}
-                testPageHref={checkHref(currentModule.module_id)}
-                lessonId={lesson.lessonNumber}
-                nextHref={nextHref}
-                nextLabel={
-                  isLastLesson ? "Центр выпускника" : "Продолжить курс"
-                }
-                isPassed={isTestPassed}
-                isCourseFinal={isLastLesson}
-                courseFinishNote={courseFinishNote}
-              />
+              // перехода показываем карточку «Проверь себя». Пока уроки модуля не
+              // прочитаны, вместо теста стоит список того, что осталось.
+              unreadLessons.length > 0 ? (
+                <ModuleTestLocked
+                  courseType="engineer"
+                  moduleLabel={lesson.moduleLabel}
+                  unread={unreadLessons.map((item) => ({
+                    href: lessonHref(currentModule.module_id, item.lessonId),
+                    label: `${item.lessonId} · ${item.title}`,
+                  }))}
+                />
+              ) : (
+                <ModuleTestGate
+                  courseType="engineer"
+                  moduleNumber={currentModule.module_order}
+                  moduleLabel={lesson.moduleLabel}
+                  questions={moduleQuestions}
+                  lessonsHref={lessonsHref}
+                  testPageHref={checkHref(currentModule.module_id)}
+                  lessonId={lesson.lessonNumber}
+                  nextHref={nextHref}
+                  nextLabel={
+                    isLastLesson ? "Центр выпускника" : "Продолжить курс"
+                  }
+                  isPassed={isTestPassed}
+                  isCourseFinal={isLastLesson}
+                  courseFinishNote={courseFinishNote}
+                />
+              )
             ) : lesson.isModuleLast ? (
               // Тест модуля ещё не написан: проверять нечего, поэтому продолжаем
               // без гейта. Как только вопросы появятся, здесь встанет тест.

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import coursesData from "@/data/courses.json";
 import { resolveUserId } from "@/lib/current-user";
 import { engineerCourse, engineerModules } from "@/lib/engineer-course";
+import { PREVIEW_LESSONS } from "@/lib/course-access";
 import {
   LESSON_FORMS,
   MODULE_FORMS,
@@ -11,6 +12,7 @@ import {
   pluralize,
   summarizeCourse,
 } from "@/lib/course-stats";
+import { hasCourseAccess } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -40,6 +42,10 @@ export default async function EngineerCoursePage() {
   if (!userId) {
     redirect(`/auth/login?next=${encodeURIComponent("/course/engineer")}`);
   }
+
+  // Доступ решает страница урока, но программе он нужен тоже: без покупки
+  // первые PREVIEW_LESSONS урока открыты, и об этом лучше сказать до клика.
+  const hasAccess = await hasCourseAccess(supabase, userId, "engineer");
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -91,7 +97,8 @@ export default async function EngineerCoursePage() {
         </div>
 
         <p className="mt-8 rounded-2xl border border-violet-500/30 bg-violet-500/5 px-5 py-4 text-sm leading-relaxed text-violet-100/85">
-          Уровень можно купить навсегда.{" "}
+          Первые два урока открыты без покупки — прочитай и реши, нужен ли
+          уровень. Весь уровень покупается навсегда:{" "}
           <Link
             href="/subscription"
             className="font-semibold text-violet-200 underline-offset-4 transition-colors hover:text-violet-100 hover:underline"
@@ -127,7 +134,23 @@ export default async function EngineerCoursePage() {
                         <span>
                           {lesson.lesson_id} · {lesson.lesson_title}
                         </span>
-                        <span className="text-sm text-slate-300">
+                        <span className="flex items-center gap-2 text-sm text-slate-300">
+                          {!hasAccess && lesson.lesson_order <= PREVIEW_LESSONS ? (
+                            <span className="rounded-full border border-violet-400/40 bg-violet-500/15 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-violet-200">
+                              Превью
+                            </span>
+                          ) : null}
+                          {!hasAccess && lesson.lesson_order > PREVIEW_LESSONS ? (
+                            <span
+                              className="text-slate-400"
+                              title="Открывается после покупки уровня"
+                            >
+                              <span aria-hidden>🔒</span>
+                              <span className="sr-only">
+                                Открывается после покупки уровня
+                              </span>
+                            </span>
+                          ) : null}
                           {lesson.duration} <span aria-hidden>→</span>
                         </span>
                       </Link>

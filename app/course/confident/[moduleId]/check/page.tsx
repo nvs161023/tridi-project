@@ -2,11 +2,16 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ModuleTest } from "@/components/course/ModuleTest";
+import { ModuleTestLocked } from "@/components/course/ModuleTestLocked";
 import {
   confidentModules,
   confidentModuleQuestions,
   findConfidentModule,
 } from "@/lib/confident-course";
+import {
+  loadCompletedLessonNumbers,
+  unreadModuleLessons,
+} from "@/lib/course-access";
 import { resolveUserId } from "@/lib/current-user";
 import { hasCourseAccess } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
@@ -108,6 +113,23 @@ export default async function ConfidentCheckPage({
 
   const hasAccess = await hasCourseAccess(supabase, userId, "confident");
 
+  // Тест модуля открывается после всех уроков модуля, кроме последнего: тест
+  // стоит в конце, поэтому сам себя в проверку не включает (lib/course-access.ts).
+  const moduleLessonsBeforeTest = courseModule.lessons
+    .slice(0, -1)
+    .map((item) => ({
+      lessonId: item.lesson_id,
+      lessonNumber: item.lesson_order,
+      title: item.lesson_title,
+    }));
+  const unreadLessons =
+    hasAccess && questions.length > 0
+      ? unreadModuleLessons(
+          moduleLessonsBeforeTest,
+          await loadCompletedLessonNumbers("confident"),
+        )
+      : [];
+
   const nextModule = confidentModules.find(
     (item) => item.module_order === courseModule.module_order + 1,
   );
@@ -163,6 +185,15 @@ export default async function ConfidentCheckPage({
                 </Link>
               </div>
             </section>
+          ) : unreadLessons.length > 0 ? (
+            <ModuleTestLocked
+              courseType="confident"
+              moduleLabel={moduleLabel}
+              unread={unreadLessons.map((item) => ({
+                href: lessonHref(courseModule.module_id, item.lessonId),
+                label: `${item.lessonId} · ${item.title}`,
+              }))}
+            />
           ) : questions.length > 0 ? (
             <ModuleTest
               courseType="confident"

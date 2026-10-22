@@ -2,7 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ModuleTest } from "@/components/course/ModuleTest";
+import { ModuleTestLocked } from "@/components/course/ModuleTestLocked";
 import { basicLessons, findBasicModule } from "@/lib/basic-course";
+import {
+  loadCompletedLessonNumbers,
+  unreadModuleLessons,
+} from "@/lib/course-access";
 import { resolveUserId } from "@/lib/current-user";
 import { createClient } from "@/lib/supabase/server";
 
@@ -103,6 +108,25 @@ export default async function ModuleCheckPage({ params }: CheckPageProps) {
     ? `/course/lesson-${nextLesson.id}`
     : "/course/basic/complete";
 
+  // Тест модуля открывается после всех уроков модуля, кроме последнего: тест и
+  // стоит в конце, поэтому сам себя в проверку не включает. Правила живут в
+  // lib/course-access.ts.
+  const moduleLessonsBeforeTest = courseModule.lessonIds
+    .slice(0, -1)
+    .map((id) => ({
+      lessonId: String(id),
+      lessonNumber: id,
+      title:
+        basicLessons.find((lesson) => lesson.id === id)?.title ?? `Урок ${id}`,
+    }));
+  const unreadLessons =
+    courseModule.questions.length > 0
+      ? unreadModuleLessons(
+          moduleLessonsBeforeTest,
+          await loadCompletedLessonNumbers("basic"),
+        )
+      : [];
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur">
@@ -137,17 +161,28 @@ export default async function ModuleCheckPage({ params }: CheckPageProps) {
         </p>
 
         <div className="mt-10 sm:mt-12">
-          <ModuleTest
-            courseType="basic"
-            moduleNumber={Number(courseModule.moduleId)}
-            moduleLabel={courseModule.label}
-            lessonsHref={firstLessonHref}
-            nextLessonHref={nextLessonHref}
-            continueLabel={
-              nextLesson ? "Следующий урок" : "Центр выпускника"
-            }
-            questions={courseModule.questions}
-          />
+          {unreadLessons.length > 0 ? (
+            <ModuleTestLocked
+              courseType="basic"
+              moduleLabel={courseModule.label}
+              unread={unreadLessons.map((item) => ({
+                href: `/course/lesson-${item.lessonId}`,
+                label: `${item.lessonId} · ${item.title}`,
+              }))}
+            />
+          ) : (
+            <ModuleTest
+              courseType="basic"
+              moduleNumber={Number(courseModule.moduleId)}
+              moduleLabel={courseModule.label}
+              lessonsHref={firstLessonHref}
+              nextLessonHref={nextLessonHref}
+              continueLabel={
+                nextLesson ? "Следующий урок" : "Центр выпускника"
+              }
+              questions={courseModule.questions}
+            />
+          )}
         </div>
       </main>
     </div>
