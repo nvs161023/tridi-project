@@ -10,15 +10,10 @@ import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 
 import {
   KEYCHAIN_SHAPE_LABELS,
-  LAMP_BASE_SHAPE_LABELS,
-  LAMP_MOUNT_LABELS,
-  LAMP_TYPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   VASE_PATTERN_LABELS,
   type ConstructorParams,
   type KeychainShape,
-  type LampMount,
-  type LampType,
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
@@ -28,8 +23,9 @@ import {
   createKeychainGeometry,
 } from "@/lib/constructor/keychain-geometry";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
-import { createLampGeometry } from "@/lib/constructor/lamp-geometry";
+import { createClipsGeometry } from "@/lib/constructor/cable-clips-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
+import { createStandGeometry } from "@/lib/constructor/phone-stand-geometry";
 import {
   SIGN_FONT_URLS,
   createSignGeometry,
@@ -39,7 +35,7 @@ import { createVaseProfile } from "@/lib/constructor/vase-profile";
 
 /** Параметры выбранной модели: сцена пересобирается при любом изменении. */
 type ViewportProps = {
-  /** Все параметры выбранной модели: ваза, брелок, светильник, вывеска, коробка или литофан. */
+  /** Все параметры выбранной модели: ваза, брелок, вывеска, коробка, литофан, подставка или клипсы. */
   params: ConstructorParams;
 };
 
@@ -306,53 +302,36 @@ function KeychainModel({
   );
 }
 
-type LampModelProps = {
+type StandModelProps = {
   geometry: BufferGeometry;
-  /** Высота абажура без основания, мм. */
-  height: number;
-  /** Высота основания, мм: от неё зависит общий силуэт и тень. */
-  baseHeight: number;
-  diameter: number;
-  /** Габарит по полу: у квадрата и шестигранника он больше диаметра абажура. */
-  footprint: number;
-  pattern: VasePattern;
-  mount: LampMount;
-  /** Открытый плафон или закрытый: у закрытого крышка меняет силуэт и тень. */
-  type: LampType;
+  /** Наклон спинки в градусах: от него зависит глубина детали и тень. */
+  angle: number;
+  /** Толщина телефона, мм: она задаёт глубину жёлоба. */
+  thickness: number;
+  /** Ширина подставки, мм. */
+  width: number;
 };
 
 /**
- * Светильник стоит на столе собранным: основание снизу, абажур сверху на
- * посадочном кольце. Сетка приходит целой, поэтому в предпросмотре детали
- * видны вместе, а скачиваются они по отдельности.
+ * Подставка стоит на столе так же, как её печатает слайсер: геометрия
+ * построена Z-вверх, поворот на -90° вокруг X поднимает спинку и губу.
  *
- * Материал светлее и с лёгким свечением — по нему видно, что деталь относится
- * к светильнику, а не к вазе.
- *
- * Тень пересчитывается при смене высот, диаметра, основания, узора и патрона:
- * силуэт меняется, а при постоянном расчёте тень стоила бы кадрового времени.
+ * Цвет холоднее вазы — по нему видно, что деталь относится к подставке.
+ * Тень пересчитывается при смене наклона, толщины телефона и ширины: от них
+ * зависит силуэт, а при постоянном расчёте тень стоила бы кадрового времени.
  */
-function LampModel({
-  geometry,
-  height,
-  baseHeight,
-  diameter,
-  footprint,
-  pattern,
-  mount,
-  type,
-}: LampModelProps) {
+function StandModel({ geometry, angle, thickness, width }: StandModelProps) {
   return (
     <group>
-      <mesh castShadow geometry={geometry} receiveShadow>
-        <meshStandardMaterial
-          color="#fbbf24"
-          emissive="#f59e0b"
-          emissiveIntensity={0.12}
-          metalness={0.05}
-          roughness={0.42}
-        />
-      </mesh>
+      <group rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh castShadow geometry={geometry} receiveShadow>
+          <meshStandardMaterial
+            color="#38bdf8"
+            metalness={0.05}
+            roughness={0.42}
+          />
+        </mesh>
+      </group>
 
       {/* Тёмный пол: на нём читаются контактные тени. */}
       <mesh
@@ -360,24 +339,91 @@ function LampModel({
         receiveShadow
         rotation={[-Math.PI / 2, 0, 0]}
       >
-        <circleGeometry args={[Math.max(footprint * 2.2, 320), 64]} />
+        <circleGeometry args={[Math.max(width * 2.2, 320), 64]} />
         <meshStandardMaterial color="#0b1220" roughness={1} />
       </mesh>
 
       <gridHelper
-        args={[Math.max(footprint * 6, 1200), 24, "#1e293b", "#0f172a"]}
+        args={[Math.max(width * 5, 960), 24, "#1e293b", "#0f172a"]}
         position={[0, 0.01, 0]}
       />
 
       <ContactShadows
         blur={2.6}
-        far={Math.max((height + baseHeight) * 0.9, 120)}
+        far={Math.max(width * 1.6, 160)}
         frames={1}
-        key={`lamp-${baseHeight}-${height}-${diameter}-${pattern}-${mount}-${type}`}
+        key={`stand-${angle}-${thickness}-${width}`}
         opacity={0.55}
         position={[0, 0.02, 0]}
         resolution={512}
-        scale={Math.max(footprint * 3.2, 480)}
+        scale={Math.max(width * 3, 480)}
+      />
+    </group>
+  );
+}
+
+type ClipsModelProps = {
+  geometry: BufferGeometry;
+  /** Диаметр кабеля, мм: от него зависит дуга зажима. */
+  cableDiameter: number;
+  /** Сколько зажимов на планке: от этого зависит длина набора. */
+  clipCount: number;
+  /** Шаг между зажимами, мм. */
+  spacing: number;
+  /** Длина набора по готовой сетке, мм: из неё считаются пол и тень. */
+  footprint: number;
+};
+
+/**
+ * Клипсы лежат на столе планкой вниз, разрезом вверх: геометрия построена
+ * Z-вверх, поворот на -90° вокруг X кладёт её так же, как коробку.
+ *
+ * Тень пересчитывается при смене диаметра кабеля, числа зажимов и шага: набор
+ * меняет длину и силуэт, а старая тень стала бы неверной.
+ */
+function ClipsModel({
+  geometry,
+  cableDiameter,
+  clipCount,
+  spacing,
+  footprint,
+}: ClipsModelProps) {
+  return (
+    <group>
+      <group rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh castShadow geometry={geometry} receiveShadow>
+          <meshStandardMaterial
+            color="#f472b6"
+            metalness={0.05}
+            roughness={0.42}
+          />
+        </mesh>
+      </group>
+
+      {/* Тёмный пол: на нём читаются контактные тени. */}
+      <mesh
+        position={[0, -0.3, 0]}
+        receiveShadow
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
+        <circleGeometry args={[Math.max(footprint * 2.4, 320), 64]} />
+        <meshStandardMaterial color="#0b1220" roughness={1} />
+      </mesh>
+
+      <gridHelper
+        args={[Math.max(footprint * 3, 960), 24, "#1e293b", "#0f172a"]}
+        position={[0, 0.01, 0]}
+      />
+
+      <ContactShadows
+        blur={2.6}
+        far={Math.max(cableDiameter * 10, 120)}
+        frames={1}
+        key={`clips-${cableDiameter}-${clipCount}-${spacing}`}
+        opacity={0.55}
+        position={[0, 0.02, 0]}
+        resolution={512}
+        scale={Math.max(footprint * 2.2, 480)}
       />
     </group>
   );
@@ -642,16 +688,20 @@ function Scene({ params, geometry, framing }: SceneProps) {
           thickness={params.thickness}
           width={params.width}
         />
-      ) : params.model === "lamp" ? (
-        <LampModel
-          baseHeight={params.lampBaseHeight}
-          diameter={params.lampDiameter}
+      ) : params.model === "stand" ? (
+        <StandModel
+          angle={params.standAngle}
+          geometry={geometry}
+          thickness={params.phoneThickness}
+          width={params.standWidth}
+        />
+      ) : params.model === "clips" ? (
+        <ClipsModel
+          cableDiameter={params.cableDiameter}
+          clipCount={params.clipCount}
           footprint={framing.footprint}
           geometry={geometry}
-          height={params.lampHeight}
-          mount={params.lampMount}
-          pattern={params.lampPattern}
-          type={params.lampType}
+          spacing={params.clipSpacing}
         />
       ) : params.model === "box" ? (
         <BoxModel
@@ -737,8 +787,8 @@ export function Viewport({ params }: ViewportProps) {
   const font = loaded?.font ?? null;
 
   /**
-   * Шрифт грузим только при открытии брелока или вывески: вазе и абажуру он не
-   * нужен, а лишние 130 КБ JSON незачем тянуть на первый экран.
+   * Шрифт грузим только при открытии брелока или вывески: вазе и подставке он
+   * не нужен, а лишние 130 КБ JSON незачем тянуть на первый экран.
    * После загрузки состояние живёт до перезагрузки страницы, поэтому повторное
    * переключение вкладки не делает новый запрос.
    */
@@ -783,8 +833,12 @@ export function Viewport({ params }: ViewportProps) {
       return createKeychainGeometry(params, font);
     }
 
-    if (params.model === "lamp") {
-      return createLampGeometry(params, "all");
+    if (params.model === "stand") {
+      return createStandGeometry(params);
+    }
+
+    if (params.model === "clips") {
+      return createClipsGeometry(params);
     }
 
     if (params.model === "sign") {
@@ -808,8 +862,8 @@ export function Viewport({ params }: ViewportProps) {
 
   /**
    * Габариты для камеры и подписи. У вывески ширина и высота зависят от
-   * надписи, у светильника — от формы основания, поэтому их берём из готовой
-   * сетки. Остальные модели считаются по параметрам: bounding box совпадает со
+   * надписи, у подставки — от наклона, поэтому их берём из готовой сетки.
+   * Остальные модели считаются по параметрам: bounding box совпадает со
    * слайдерами с точностью до амплитуды узора.
    */
   const framing = useMemo<Framing>(() => {
@@ -829,19 +883,17 @@ export function Viewport({ params }: ViewportProps) {
       };
     }
 
-    if (params.model === "lamp") {
+    if (params.model === "stand" || params.model === "clips") {
       geometry.computeBoundingBox();
       const box = geometry.boundingBox;
 
-      // Квадратное и шестигранное основание шире абажура, поэтому горизонтальный
-      // габарит берём из готовой сетки: по диаметру камера обрезала бы углы.
+      // Подставка и клипсы построены Z-вверх, как коробка: после поворота
+      // меша высотой становится Z, а длиной и шириной — X и Y.
       return {
-        height: box
-          ? Math.max(box.max.y - box.min.y, 1)
-          : params.lampBaseHeight + params.lampHeight,
+        height: box ? Math.max(box.max.z - box.min.z, 1) : 1,
         footprint: box
-          ? Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1)
-          : params.lampDiameter,
+          ? Math.max(box.max.x - box.min.x, box.max.y - box.min.y, 1)
+          : 1,
         flat: false,
       };
     }
@@ -908,9 +960,11 @@ export function Viewport({ params }: ViewportProps) {
       ? `${params.height} × Ø ${params.diameter} мм`
       : params.model === "keychain"
         ? `${params.length} × ${params.width} × ${params.thickness} мм`
-        : params.model === "lamp"
-          ? `${params.lampBaseHeight + params.lampHeight} × Ø ${params.lampDiameter} мм`
-          : params.model === "box"
+        : params.model === "stand"
+          ? `${params.standWidth} × ${Math.round(framing.height)} мм`
+          : params.model === "clips"
+            ? `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`
+            : params.model === "box"
             ? `${params.boxLength} × ${params.boxWidth} × ${params.boxHeight} мм`
             : params.model === "lithophane"
               ? `${params.lithophaneWidth} × ${params.lithophaneHeight} × ${params.lithophaneMaxThickness.toFixed(1)} мм`
@@ -921,9 +975,11 @@ export function Viewport({ params }: ViewportProps) {
       ? `3D-предпросмотр вазы высотой ${params.height} миллиметров и диаметром ${params.diameter} миллиметров, узор «${VASE_PATTERN_LABELS[params.pattern]}»`
       : params.model === "keychain"
         ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${KEYCHAIN_SHAPE_LABELS[params.shapeType]}», имя «${params.text.trim() || "без имени"}»`
-        : params.model === "lamp"
-          ? `3D-предпросмотр светильника: основание «${LAMP_BASE_SHAPE_LABELS[params.lampBaseShape]}» высотой ${params.lampBaseHeight} миллиметров и ${LAMP_TYPE_LABELS[params.lampType].toLowerCase()} абажур высотой ${params.lampHeight} миллиметров диаметром ${params.lampDiameter} миллиметров, патрон ${LAMP_MOUNT_LABELS[params.lampMount]}, узор «${VASE_PATTERN_LABELS[params.lampPattern]}»`
-          : params.model === "box"
+        : params.model === "stand"
+          ? `3D-предпросмотр подставки под телефон шириной ${params.standWidth} миллиметров, наклон ${params.standAngle} градусов, толщина телефона ${params.phoneThickness} миллиметров`
+          : params.model === "clips"
+            ? `3D-предпросмотр набора клипс: ${params.clipCount} зажимов под кабель диаметром ${params.cableDiameter} миллиметров с шагом ${params.clipSpacing} миллиметров`
+            : params.model === "box"
             ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
             : params.model === "lithophane"
               ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : "без рамки"}`

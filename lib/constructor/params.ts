@@ -12,10 +12,13 @@
  * Брелок ограничен 100 × 50 мм: он печатается плашмя и занимает стол целиком
  * только в самом крупном размере.
  *
- * Светильник живёт в тех же габаритах, что и ваза: отверстие под патрон
- * начинается с 60 мм диаметра, иначе E27 не помещается. Вывеска ограничена
- * кеглем 120 мм и пятнадцатью символами: длинная строка крупным кеглем
- * упирается в лимит ширины 800 мм, и геометрия сама уменьшает буквы.
+ * Подставка под телефон ограничена углом 45–75°: на меньшем наклоне телефон
+ * падает назад, на большем — стоит почти вертикально и опрокидывается вперёд.
+ * Толщина 8–15 мм оставляет место чехлу, а ширина 60–100 мм совпадает с
+ * шириной корпуса. Клипсы держат кабели 3–8 мм: это весь ряд USB, зарядных и
+ * сетевых шнуров. Вывеска ограничена кеглем 120 мм и пятнадцатью символами:
+ * длинная строка крупным кеглем упирается в лимит ширины 800 мм, и геометрия
+ * сама уменьшает буквы.
  *
  * Коробка-органайзер вписана в стол 220 × 220 мм: длина и ширина до 220 мм,
  * высота до 160 мм. Перегородки имеют ту же толщину, что и стенки, поэтому
@@ -59,10 +62,12 @@ export const CONSTRUCTOR_LIMITS = {
   length: { min: 30, max: 100, step: 1, defaultValue: 60, decimals: 0 },
   width: { min: 20, max: 50, step: 1, defaultValue: 30, decimals: 0 },
   thickness: { min: 2, max: 5, step: 0.5, defaultValue: 3, decimals: 1 },
-  lampHeight: { min: 60, max: 300, step: 5, defaultValue: 160, decimals: 0 },
-  lampDiameter: { min: 60, max: 200, step: 5, defaultValue: 120, decimals: 0 },
-  lampWall: { min: 0.8, max: 4, step: 0.1, defaultValue: 1.6, decimals: 1 },
-  lampBaseHeight: { min: 30, max: 140, step: 5, defaultValue: 60, decimals: 0 },
+  standAngle: { min: 45, max: 75, step: 1, defaultValue: 65, decimals: 0 },
+  phoneThickness: { min: 8, max: 15, step: 1, defaultValue: 11, decimals: 0 },
+  standWidth: { min: 60, max: 100, step: 5, defaultValue: 80, decimals: 0 },
+  cableDiameter: { min: 3, max: 8, step: 0.5, defaultValue: 5, decimals: 1 },
+  clipCount: { min: 1, max: 10, step: 1, defaultValue: 3, decimals: 0 },
+  clipSpacing: { min: 10, max: 40, step: 1, defaultValue: 20, decimals: 0 },
   signFontSize: { min: 20, max: 120, step: 2, defaultValue: 60, decimals: 0 },
   // Меньше 11 мм полость буквы не вмещает ленту: 11 − 2 мм лица = 9 мм канала.
   signDepth: { min: 11, max: 40, step: 1, defaultValue: 18, decimals: 0 },
@@ -102,10 +107,11 @@ export const CONSTRUCTOR_LIMITS = {
 export const MODEL_TYPES = [
   "vase",
   "keychain",
-  "lamp",
   "sign",
   "box",
   "lithophane",
+  "stand",
+  "clips",
 ] as const;
 
 export type ModelType = (typeof MODEL_TYPES)[number];
@@ -114,10 +120,11 @@ export type ModelType = (typeof MODEL_TYPES)[number];
 export const MODEL_TYPE_LABELS = {
   vase: "Ваза",
   keychain: "Брелок",
-  lamp: "Светильник",
   sign: "Вывеска",
   box: "Коробки",
   lithophane: "Литофан",
+  stand: "Подставка",
+  clips: "Клипсы",
 } as const satisfies Record<ModelType, string>;
 
 /** Инструмент конструктора в витринах: идентификатор, название и описание. */
@@ -150,11 +157,6 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
     desc: "Брелоки с именем на кириллице, готовыми силуэтами и своим SVG-контуром или картинкой.",
   },
   {
-    id: "lamp",
-    title: "Генератор светильников",
-    desc: "Абажуры с открытым или закрытым плафоном, основание под E27 и E14 и канал под провод.",
-  },
-  {
     id: "sign",
     title: "Генератор вывесок",
     desc: "Объёмные буквы с каналом под LED-ленту, разбитые на блоки, которые удобно печатать и вешать.",
@@ -168,6 +170,16 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
     id: "lithophane",
     title: "Генератор литофанов",
     desc: "Панели из фотографий: яркость пикселей превращается в толщину пластика, а рамка держит свет.",
+  },
+  {
+    id: "stand",
+    title: "Генератор подставок",
+    desc: "Настольные подставки под телефон с окном под кабель: наклон и ширина подбираются под корпус.",
+  },
+  {
+    id: "clips",
+    title: "Генератор клипс",
+    desc: "Держатели кабелей на планке: пружинящие C-образные зажимы под любой диаметр шнура.",
   },
 ];
 
@@ -302,83 +314,6 @@ export function normalizeKeychainShapeAlias(value: unknown): KeychainShape | nul
   return isKeychainShape(value) ? value : null;
 }
 
-/**
- * Патроны, под которые строится отверстие в верхней части абажура.
- *
- * Диаметр — наружный диаметр резьбы: E27 — 40 мм, E14 — 28 мм. Отверстие шире
- * на LAMP_SOCKET_CLEARANCE_MM с каждой стороны: после усадки PLA патрон
- * входит плотно, но не проваливается в абажур.
- */
-export const LAMP_MOUNTS = ["e27", "e14"] as const;
-
-export type LampMount = (typeof LAMP_MOUNTS)[number];
-
-export const LAMP_MOUNT_LABELS = {
-  e27: "E27 · 40 мм",
-  e14: "E14 · 28 мм",
-} as const satisfies Record<LampMount, string>;
-
-/** Наружный диаметр резьбы патрона, мм. */
-export const LAMP_MOUNT_DIAMETERS_MM = {
-  e27: 40,
-  e14: 28,
-} as const satisfies Record<LampMount, number>;
-
-/** Радиальный зазор между патроном и стенкой отверстия, мм. */
-export const LAMP_SOCKET_CLEARANCE_MM = 0.3;
-
-/**
- * Тип плафона: открытый абажур или закрытый колпак.
- *
- * У открытого верхнее гнездо патрона сквозное: часть света уходит вверх, к
- * потолку. У закрытого верх наглухо запечатан крышкой, поэтому весь поток идёт
- * вниз, а гнездо патрона остаётся только в основании. Канал под провод у
- * закрытого плафона тоже не вырезается: он стал бы щелью для света.
- */
-export const LAMP_TYPES = ["open", "closed"] as const;
-
-export type LampType = (typeof LAMP_TYPES)[number];
-
-export const LAMP_TYPE_LABELS = {
-  open: "Открытый",
-  closed: "Закрытый",
-} as const satisfies Record<LampType, string>;
-
-/**
- * Формы основания светильника.
- *
- * Основание — та же деталь, что и абажур, только снизу: в нём живёт патрон,
- * по его верхней кромке абажур центруется посадочным кольцом. Круглое
- * основание печатается быстрее всех, квадратное и шестигранное дают ровные
- * грани и стоят устойчивее.
- */
-export const LAMP_BASE_SHAPES = ["round", "square", "hexagon"] as const;
-
-export type LampBaseShape = (typeof LAMP_BASE_SHAPES)[number];
-
-export const LAMP_BASE_SHAPE_LABELS = {
-  round: "Круглая",
-  square: "Квадратная",
-  hexagon: "Шестигранная",
-} as const satisfies Record<LampBaseShape, string>;
-
-/**
- * Что выгружать из светильника: основание, абажур или обе детали сразу.
- *
- * Детали печатаются по отдельности — абажур ставится на основание уже после
- * сборки патрона, — поэтому у каждой своя кнопка скачивания.
- */
-export const LAMP_PARTS = ["base", "shade", "all"] as const;
-
-export type LampPart = (typeof LAMP_PARTS)[number];
-
-/** Подписи кнопок деталей светильника: по ним клиент строит список скачиваний. */
-export const LAMP_PART_LABELS = {
-  base: "Основание",
-  shade: "Абажур",
-  all: "Обе детали",
-} as const satisfies Record<LampPart, string>;
-
 /** Ширина канала под светодиодную ленту, мм: другой не бывает. */
 export const SIGN_CHANNEL_WIDTHS = [8, 10] as const;
 
@@ -481,33 +416,35 @@ export type VaseParams = {
 };
 
 /**
- * Настраиваемые размеры светильника: основание с патроном и абажур.
+ * Подставка под телефон: наклон спинки, толщина корпуса и ширина ложа.
  *
- * Обе детали строятся из одних параметров, поэтому гнездо под патрон и
- * посадочное кольцо совпадают без подгонки.
+ * Три числа задают всю деталь. Угол — наклон спинки от стола: телефон лежит на
+ * ней экраном к пользователю. Толщина корпуса задаёт глубину жёлоба между
+ * передней губой и спинкой, а ширина — длину профиля поперёк.
  */
-export type LampParams = {
-  /** Высота абажура от нижнего края до кромки патрона, мм. */
-  lampHeight: number;
-  /** Наружный диаметр абажура у нижнего края, мм. */
-  lampDiameter: number;
-  /** Толщина стенки абажура, мм. */
-  lampWall: number;
-  /** Форма основания: круглая, квадратная или шестигранная. */
-  lampBaseShape: LampBaseShape;
-  /** Высота основания от стола до посадочного кольца, мм. */
-  lampBaseHeight: number;
-  /** Узор на стенке абажура; гладкий пояс под патрон остаётся ровным. */
-  lampPattern: VasePattern;
-  /** Тип патрона: от него зависит диаметр отверстия в абажуре и основании. */
-  lampMount: LampMount;
-  /**
-   * Плафон: открытый или закрытый.
-   *
-   * У закрытого верх запечатан крышкой, поэтому свет не бьёт в потолок.
-   * Гнездо патрона при этом остаётся в основании — патрон вставляют снизу.
-   */
-  lampType: LampType;
+export type StandParams = {
+  /** Наклон спинки от стола, градусы: 45–75. */
+  standAngle: number;
+  /** Толщина телефона с чехлом, мм: глубина жёлоба под нижнюю кромку. */
+  phoneThickness: number;
+  /** Ширина подставки поперёк профиля, мм. */
+  standWidth: number;
+};
+
+/**
+ * Клипсы для кабелей: диаметр шнура, число зажимов и шаг между ними.
+ *
+ * Зажимы стоят на общей планке, поэтому набор печатается одной деталью.
+ * Диаметр задаёт внутренний размер C-образного зажима, шаг — расстояние между
+ * центрами соседних зажимов.
+ */
+export type ClipsParams = {
+  /** Наружный диаметр кабеля, мм: от него считается внутренний размер зажима. */
+  cableDiameter: number;
+  /** Сколько зажимов на планке, от 1 до 10. */
+  clipCount: number;
+  /** Расстояние между центрами соседних зажимов, мм. */
+  clipSpacing: number;
 };
 
 /**
@@ -703,16 +640,18 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   shapeType: "dog_tag",
 };
 
-/** Светильник по умолчанию: под E27, круглое основание, гладкая стенка, открытый плафон. */
-export const DEFAULT_LAMP_PARAMS: LampParams = {
-  lampHeight: CONSTRUCTOR_LIMITS.lampHeight.defaultValue,
-  lampDiameter: CONSTRUCTOR_LIMITS.lampDiameter.defaultValue,
-  lampWall: CONSTRUCTOR_LIMITS.lampWall.defaultValue,
-  lampBaseShape: "round",
-  lampBaseHeight: CONSTRUCTOR_LIMITS.lampBaseHeight.defaultValue,
-  lampPattern: "smooth",
-  lampMount: "e27",
-  lampType: "open",
+/** Подставка по умолчанию: наклон 65°, телефон 11 мм, ширина 80 мм. */
+export const DEFAULT_STAND_PARAMS: StandParams = {
+  standAngle: CONSTRUCTOR_LIMITS.standAngle.defaultValue,
+  phoneThickness: CONSTRUCTOR_LIMITS.phoneThickness.defaultValue,
+  standWidth: CONSTRUCTOR_LIMITS.standWidth.defaultValue,
+};
+
+/** Клипсы по умолчанию: кабель 5 мм, три зажима через 20 мм. */
+export const DEFAULT_CLIPS_PARAMS: ClipsParams = {
+  cableDiameter: CONSTRUCTOR_LIMITS.cableDiameter.defaultValue,
+  clipCount: CONSTRUCTOR_LIMITS.clipCount.defaultValue,
+  clipSpacing: CONSTRUCTOR_LIMITS.clipSpacing.defaultValue,
 };
 
 /** Вывеска по умолчанию: короткое имя бренда, Roboto Bold, канал 8 мм, блоки по три буквы. */
@@ -849,20 +788,22 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
  */
 export type ConstructorParams = { model: ModelType } & VaseParams &
   KeychainParams &
-  LampParams &
   SignParams &
   BoxParams &
-  LithophaneParams;
+  LithophaneParams &
+  StandParams &
+  ClipsParams;
 
 /** Стартовое состояние: открывается ваза, остальные модели ждут на вкладках. */
 export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   model: "vase",
   ...DEFAULT_VASE_PARAMS,
   ...DEFAULT_KEYCHAIN_PARAMS,
-  ...DEFAULT_LAMP_PARAMS,
   ...DEFAULT_SIGN_PARAMS,
   ...DEFAULT_BOX_PARAMS,
   ...DEFAULT_LITHOPHANE_PARAMS,
+  ...DEFAULT_STAND_PARAMS,
+  ...DEFAULT_CLIPS_PARAMS,
 };
 
 /**
@@ -892,20 +833,24 @@ export function keychainStlFileName(params: KeychainParams): string {
 }
 
 /**
- * Имя файла STL для светильника.
+ * Имя файла STL для подставки.
  *
- * Патрон важнее узора: по имени сразу видно, под какой патрон напечатана
- * деталь. Форма основания и суффикс детали (`baza` / `abazhur`) позволяют
- * хранить обе части рядом, не путая их между собой.
+ * В имени наклон, толщина телефона и ширина: по ним видно, под какой корпус
+ * напечатана деталь. Значения уже выровнены normalizeStandParams, поэтому
+ * лишних нулей нет.
  */
-export function lampStlFileName(params: LampParams, part: LampPart = "all"): string {
-  const patternSuffix = params.lampPattern === "smooth" ? "" : `-${params.lampPattern}`;
-  // Открытый плафон остаётся в привычном имени без суффикса, а закрытый
-  // помечается: иначе два разных файла нельзя различить в папке загрузок.
-  const typeSuffix = params.lampType === "closed" ? "-closed" : "";
-  const partSuffix = part === "all" ? "" : `-${part === "base" ? "baza" : "abazhur"}`;
+export function standStlFileName(params: StandParams): string {
+  return `tridi-podstavka-a${params.standAngle}-t${params.phoneThickness}-w${params.standWidth}.stl`;
+}
 
-  return `tridi-svetilnik-${params.lampBaseShape}-${params.lampMount}${typeSuffix}${patternSuffix}-h${params.lampHeight}-d${params.lampDiameter}-w${params.lampWall}${partSuffix}.stl`;
+/**
+ * Имя файла STL для клипс.
+ *
+ * Диаметр кабеля и число зажимов описывают набор полностью: шаг важен для
+ * раскладки кабелей по столу, поэтому тоже входит в имя.
+ */
+export function clipsStlFileName(params: ClipsParams): string {
+  return `tridi-klipsy-d${params.cableDiameter}-n${params.clipCount}-s${params.clipSpacing}.stl`;
 }
 
 /**
@@ -1155,35 +1100,6 @@ export function isBoxCells(value: unknown): value is number[] {
   return true;
 }
 
-/** Проверка патрона из формы или API. */
-export function isLampMount(value: unknown): value is LampMount {
-  return (
-    typeof value === "string" && (LAMP_MOUNTS as readonly string[]).includes(value)
-  );
-}
-
-/** Проверка формы основания светильника из формы или API. */
-export function isLampBaseShape(value: unknown): value is LampBaseShape {
-  return (
-    typeof value === "string" &&
-    (LAMP_BASE_SHAPES as readonly string[]).includes(value)
-  );
-}
-
-/** Проверка типа плафона: открытый или закрытый. */
-export function isLampType(value: unknown): value is LampType {
-  return (
-    typeof value === "string" && (LAMP_TYPES as readonly string[]).includes(value)
-  );
-}
-
-/** Проверка детали светильника: основание, абажур или обе сразу. */
-export function isLampPart(value: unknown): value is LampPart {
-  return (
-    typeof value === "string" && (LAMP_PARTS as readonly string[]).includes(value)
-  );
-}
-
 /** Проверка ширины канала: под ленту подходят только 8 и 10 мм. */
 export function isSignChannelWidth(value: unknown): value is SignChannelWidth {
   return value === 8 || value === 10;
@@ -1418,43 +1334,52 @@ export function normalizeKeychainParams(
 }
 
 /**
- * Проверяет и выравнивает параметры светильника.
+ * Проверяет и выравнивает параметры подставки.
  *
- * Отверстие под патрон строится по типу патрона, поэтому он проверяется
- * отдельно от чисел. Узор берётся из того же набора, что у вазы: отдельная
- * копия списка разошлась бы с профилем и панелью. Форма основания — из своего
- * набора: у вазы и светильника общего в нём только слово «форма».
+ * Все три числа — размеры, поэтому только выравнивание по шагу и границы. Угол
+ * 45–75° держит телефон в равновесии: на меньшем наклоне он падает назад, на
+ * большем — опрокидывается вперёд вместе с подставкой.
  */
-export function normalizeLampParams(params: Partial<LampParams>): LampParams {
+export function normalizeStandParams(params: Partial<StandParams>): StandParams {
   return {
-    lampHeight: snap(
-      params.lampHeight ?? DEFAULT_LAMP_PARAMS.lampHeight,
-      CONSTRUCTOR_LIMITS.lampHeight,
+    standAngle: snap(
+      params.standAngle ?? DEFAULT_STAND_PARAMS.standAngle,
+      CONSTRUCTOR_LIMITS.standAngle,
     ),
-    lampDiameter: snap(
-      params.lampDiameter ?? DEFAULT_LAMP_PARAMS.lampDiameter,
-      CONSTRUCTOR_LIMITS.lampDiameter,
+    phoneThickness: snap(
+      params.phoneThickness ?? DEFAULT_STAND_PARAMS.phoneThickness,
+      CONSTRUCTOR_LIMITS.phoneThickness,
     ),
-    lampWall: snap(
-      params.lampWall ?? DEFAULT_LAMP_PARAMS.lampWall,
-      CONSTRUCTOR_LIMITS.lampWall,
+    standWidth: snap(
+      params.standWidth ?? DEFAULT_STAND_PARAMS.standWidth,
+      CONSTRUCTOR_LIMITS.standWidth,
     ),
-    lampBaseShape: isLampBaseShape(params.lampBaseShape)
-      ? params.lampBaseShape
-      : DEFAULT_LAMP_PARAMS.lampBaseShape,
-    lampBaseHeight: snap(
-      params.lampBaseHeight ?? DEFAULT_LAMP_PARAMS.lampBaseHeight,
-      CONSTRUCTOR_LIMITS.lampBaseHeight,
+  };
+}
+
+/**
+ * Проверяет и выравнивает параметры клипс.
+ *
+ * Диаметр кабеля выравнивается по шагу 0.5 мм: зажим держит шнур за счёт
+ * натяга, и полмиллиметра уже заметны. Число зажимов — целое от 1 до 10, шаг
+ * между ними — от 10 до 40 мм, иначе соседние зажимы срастаются в один.
+ */
+export function normalizeClipsParams(params: Partial<ClipsParams>): ClipsParams {
+  return {
+    cableDiameter: snap(
+      params.cableDiameter ?? DEFAULT_CLIPS_PARAMS.cableDiameter,
+      CONSTRUCTOR_LIMITS.cableDiameter,
     ),
-    lampPattern: isVasePattern(params.lampPattern)
-      ? params.lampPattern
-      : DEFAULT_LAMP_PARAMS.lampPattern,
-    lampMount: isLampMount(params.lampMount)
-      ? params.lampMount
-      : DEFAULT_LAMP_PARAMS.lampMount,
-    lampType: isLampType(params.lampType)
-      ? params.lampType
-      : DEFAULT_LAMP_PARAMS.lampType,
+    clipCount: Math.round(
+      snap(
+        params.clipCount ?? DEFAULT_CLIPS_PARAMS.clipCount,
+        CONSTRUCTOR_LIMITS.clipCount,
+      ),
+    ),
+    clipSpacing: snap(
+      params.clipSpacing ?? DEFAULT_CLIPS_PARAMS.clipSpacing,
+      CONSTRUCTOR_LIMITS.clipSpacing,
+    ),
   };
 }
 
@@ -1654,9 +1579,10 @@ export function normalizeConstructorParams(
       : DEFAULT_CONSTRUCTOR_PARAMS.model,
     ...normalizeVaseParams(params),
     ...normalizeKeychainParams(params),
-    ...normalizeLampParams(params),
     ...normalizeSignParams(params),
     ...normalizeBoxParams(params),
     ...normalizeLithophaneParams(params),
+    ...normalizeStandParams(params),
+    ...normalizeClipsParams(params),
   };
 }

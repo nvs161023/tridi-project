@@ -19,12 +19,6 @@ import {
   KEYCHAIN_TEXT_MAX_LENGTH,
   hasDrawableSvgData,
   isCustomSvgData,
-  LAMP_BASE_SHAPES,
-  LAMP_BASE_SHAPE_LABELS,
-  LAMP_MOUNTS,
-  LAMP_MOUNT_LABELS,
-  LAMP_TYPES,
-  LAMP_TYPE_LABELS,
   LITHOPHANE_MOUNTS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PIXEL_COUNT,
@@ -43,9 +37,6 @@ import {
   type BoxPresetId,
   type ConstructorParams,
   type KeychainShape,
-  type LampBaseShape,
-  type LampMount,
-  type LampType,
   type LithophaneMount,
   type ModelType,
   type SignChannelWidth,
@@ -62,10 +53,6 @@ type SizeParam = Exclude<
   | "pattern"
   | "shapeType"
   | "text"
-  | "lampPattern"
-  | "lampMount"
-  | "lampType"
-  | "lampBaseShape"
   | "signText"
   | "signFont"
   | "signChannelWidth"
@@ -85,9 +72,9 @@ export type StlExportError = {
 /**
  * Файл, который предлагает панель.
  *
- * Первый файл в списке — главный: у светильника это сборка, у вывески — вся
- * надпись. Остальные кнопки отдают детали по отдельности: основание и абажур
- * печатаются разными деталями, буквы вывески — тоже. `request` уходит в API
+ * Первый файл в списке — главный: у вывески это лицо первого блока, у
+ * литофана — собранная панель. Остальные кнопки отдают детали по отдельности:
+ * лицо и крышка блока печатаются разными деталями. `request` уходит в API
  * поверх параметров модели, поэтому панель не знает, как они называются.
  */
 export type StlExportOption = {
@@ -97,7 +84,7 @@ export type StlExportOption = {
   label: string;
   /** Подпись для скринридера, если текст кнопки слишком короткий («А»). */
   description?: string;
-  /** Дополнительные поля запроса: `part` светильника или `letter` вывески. */
+  /** Дополнительные поля запроса: `part` литофана или `letter` вывески. */
   request: Record<string, number | string>;
   /** Имя файла, если сервер не прислал Content-Disposition. */
   fileName: string;
@@ -127,10 +114,6 @@ type ParameterPanelProps = {
   /** Карман под NFC-метку в теле брелока. */
   onNfcChange: (enabled: boolean) => void;
   onTextChange: (text: string) => void;
-  onLampPatternChange: (pattern: VasePattern) => void;
-  onLampMountChange: (mount: LampMount) => void;
-  onLampTypeChange: (type: LampType) => void;
-  onLampBaseShapeChange: (shape: LampBaseShape) => void;
   onSignTextChange: (text: string) => void;
   onSignFontChange: (font: SignFont) => void;
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
@@ -185,7 +168,6 @@ function ExportErrorAlert({ error }: { error: StlExportError | null }) {
  * Кнопки скачивания: главный файл и детали по отдельности.
  *
  * Первый файл — главный: лицо первого блока вывески или собранный литофан.
- * У светильника сборки нет: база идёт крупной кнопкой, плафон — компактной.
  * Остальные кнопки подписаны деталью — «Блок 1: Крышка», «Рамка» или
  * «Подставка». Пока один файл генерируется, остальные заблокированы, а спиннер
  * крутится только на нажатой кнопке.
@@ -198,7 +180,7 @@ function ExportButtons({
 }: {
   options: StlExportOption[];
   exportingId: string | null;
-  /** Заголовок над компактными кнопками: детали светильника или блоков. */
+  /** Заголовок над компактными кнопками: детали вывески или литофана. */
   partsHeading: string | null;
   onExport: (option: StlExportOption) => void;
 }) {
@@ -274,7 +256,8 @@ type ModelCard = { id: ModelType; icon: string; title: string };
 const MODEL_CARDS: ModelCard[] = [
   { id: "vase", icon: "🏺", title: MODEL_TYPE_LABELS.vase },
   { id: "keychain", icon: "🔑", title: MODEL_TYPE_LABELS.keychain },
-  { id: "lamp", icon: "💡", title: MODEL_TYPE_LABELS.lamp },
+  { id: "stand", icon: "📱", title: MODEL_TYPE_LABELS.stand },
+  { id: "clips", icon: "🧷", title: MODEL_TYPE_LABELS.clips },
   { id: "sign", icon: "🪧", title: MODEL_TYPE_LABELS.sign },
   { id: "box", icon: "📦", title: MODEL_TYPE_LABELS.box },
   { id: "lithophane", icon: "🖼️", title: MODEL_TYPE_LABELS.lithophane },
@@ -653,13 +636,14 @@ function formatBoxCells(cells: readonly number[]): string {
 /**
  * Панель параметров модели.
  *
- * Тип модели и её варианты (форма, узор, патрон, шрифт, канал, крепление)
- * выбираются выпадающими списками, размеры меняют слайдеры, а имя, надпись и
- * фото — текстовое поле и загрузка файла. У брелока появляются длина, ширина,
- * толщина, силуэт, своя загрузка контура и карман под NFC-метку. У светильника
- * выбирают патрон и узор, у вывески — надпись, кегль, выступ букв и ширину
- * канала под ленту, у коробки — пресеты, ширины ячеек текстом, размеры, стенку
- * и крышку, у литофана — фото, превью и толщины.
+ * Тип модели и её варианты (форма, узор, шрифт, канал, крепление) выбираются
+ * выпадающими списками, размеры меняют слайдеры, а имя, надпись и фото —
+ * текстовое поле и загрузка файла. У брелока появляются длина, ширина,
+ * толщина, силуэт, своя загрузка контура и карман под NFC-метку. У подставки —
+ * наклон, толщина телефона и ширина, у клипс — диаметр кабеля, число зажимов и
+ * шаг, у вывески — надпись, кегль, выступ букв и ширину канала под ленту, у
+ * коробки — пресеты, ширины ячеек текстом, размеры, стенку и крышку, у
+ * литофана — фото, превью и толщины.
  * Параметры компонент не хранит: они приходят из ConstructorClient, поэтому
  * 3D-сцена и подписи всегда читают один и тот же объект. Локальное состояние
  * есть только у загрузки изображения — текст ошибки и превью на время сеанса.
@@ -680,10 +664,6 @@ export function ParameterPanel({
   onCustomSvgChange,
   onNfcChange,
   onTextChange,
-  onLampPatternChange,
-  onLampMountChange,
-  onLampTypeChange,
-  onLampBaseShapeChange,
   onSignTextChange,
   onSignFontChange,
   onSignChannelWidthChange,
@@ -891,16 +871,14 @@ export function ParameterPanel({
   const nfcPauseZ = Math.max(0, params.thickness - 0.4).toFixed(1);
 
   /**
-   * Заголовок над компактными кнопками. У светильника и вывески файлов
-   * несколько — детали печатаются по отдельности, — поэтому список кнопок
-   * подписан: иначе «1 · крышка» и «2 · лицо» выглядели бы загадочно.
+   * Заголовок над компактными кнопками. У вывески и литофана файлов несколько —
+   * детали печатаются по отдельности, — поэтому список кнопок подписан: иначе
+   * «1 · крышка» и «2 · лицо» выглядели бы загадочно.
    */
   const partsHeading =
-    params.model === "lamp"
-      ? "Детали светильника"
-      : params.model === "sign"
-        ? "Детали блоков"
-        : null;
+    params.model === "sign" || params.model === "lithophane"
+      ? "Детали модели"
+      : null;
 
   /** Три главных размера выбранной модели для нижней сводки. */
   const summary: { label: string; value: string }[] =
@@ -916,17 +894,22 @@ export function ParameterPanel({
             { label: "Ширина", value: `${params.width} мм` },
             { label: "Толщина", value: `${params.thickness.toFixed(1)} мм` },
           ]
-        : params.model === "lamp"
+        : params.model === "stand"
           ? [
+              { label: "Наклон", value: `${params.standAngle}°` },
               {
-                label: "Высота",
-                value: `${params.lampBaseHeight + params.lampHeight} мм`,
+                label: "Телефон",
+                value: `${params.phoneThickness} мм`,
               },
-              { label: "Диаметр", value: `Ø ${params.lampDiameter} мм` },
-              { label: "Патрон", value: params.lampMount.toUpperCase() },
-              { label: "Плафон", value: LAMP_TYPE_LABELS[params.lampType] },
+              { label: "Ширина", value: `${params.standWidth} мм` },
             ]
-          : params.model === "box"
+          : params.model === "clips"
+            ? [
+                { label: "Зажимы", value: `${params.clipCount} шт.` },
+                { label: "Кабель", value: `Ø ${params.cableDiameter} мм` },
+                { label: "Шаг", value: `${params.clipSpacing} мм` },
+              ]
+            : params.model === "box"
             ? [
                 { label: "Длина", value: `${params.boxLength} мм` },
                 { label: "Ширина", value: `${params.boxWidth} мм` },
@@ -1236,123 +1219,78 @@ export function ParameterPanel({
             />
           </div>
         </>
-      ) : params.model === "lamp" ? (
+      ) : params.model === "stand" ? (
         <>
-          <div
-            className="mt-6 rounded-2xl border-2 border-red-400/50 bg-gradient-to-br from-red-500/15 to-amber-400/10 px-4 py-3"
-            role="alert"
-          >
-            <p className="flex items-center gap-2 text-sm font-semibold text-red-100">
-              <span aria-hidden>🔥</span>
-              Только светодиодная лампа
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-red-100/85">
-              Абажур печатается из PLA и размягчается уже при 60 °C. Лампа
-              накаливания или галогенка расплавит деталь над патроном. Берите
-              LED-лампу до 10 Вт и не оставляйте светильник без присмотра.
-            </p>
-          </div>
-
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <ParameterSelect
-              hint={
-                params.lampType === "closed"
-                  ? "Отверстие шире резьбы на 0.3 мм с каждой стороны: после усадки патрон входит плотно, но не проваливается. У закрытого плафона патрон держит основание, а провод идёт через его дно."
-                  : "Отверстие шире резьбы на 0.3 мм с каждой стороны: после усадки патрон входит плотно, но не проваливается. Провод выходит через канал в верхнем поясе."
-              }
-              label="Патрон"
-              onChange={onLampMountChange}
-              options={LAMP_MOUNTS.map((mount) => ({
-                label: LAMP_MOUNT_LABELS[mount],
-                value: mount,
-              }))}
-              value={params.lampMount}
-            />
-          </div>
-
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <ParameterSelect
-              hint="Открытый плафон светит и вверх, и вниз, а провод уходит через канал в верхнем поясе. У закрытого верх запечатан крышкой: поток идёт только вниз, канал под провод не вырезается, патрон вставляется снизу."
-              label="Плафон"
-              onChange={onLampTypeChange}
-              options={LAMP_TYPES.map((type) => ({
-                label: LAMP_TYPE_LABELS[type],
-                value: type,
-              }))}
-              value={params.lampType}
-            />
-          </div>
-
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <ParameterSelect
-              hint="Квадрат и шестигранник стоят устойчивее круга и дают ровные грани, круг печатается проще всего."
-              label="Основание"
-              onChange={onLampBaseShapeChange}
-              options={LAMP_BASE_SHAPES.map((shape) => ({
-                label: LAMP_BASE_SHAPE_LABELS[shape],
-                value: shape,
-              }))}
-              value={params.lampBaseShape}
-            />
-
-            <NumberSlider
-              hint="Высота тумбы под патрон. Внутри остаётся место для клеммника, а абажур ставится на верхнюю плиту и центруется посадочным кольцом."
-              label="Высота основания"
-              max={CONSTRUCTOR_LIMITS.lampBaseHeight.max}
-              min={CONSTRUCTOR_LIMITS.lampBaseHeight.min}
-              onChange={(value) => onParamChange("lampBaseHeight", value)}
-              step={CONSTRUCTOR_LIMITS.lampBaseHeight.step}
-              unit="мм"
-              value={params.lampBaseHeight}
-            />
-          </div>
-
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <ParameterSelect
-              hint="Глубина рельефа у абажура фиксированная — 1.2 мм. У патрона и у стола стенка остаётся гладкой: гнездо и кромка не деформируются."
-              label="Узор"
-              onChange={onLampPatternChange}
-              options={VASE_PATTERNS.map((pattern) => ({
-                label: VASE_PATTERN_LABELS[pattern],
-                value: pattern,
-              }))}
-              value={params.lampPattern}
-            />
-          </div>
-
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
             <NumberSlider
-              hint="Высота абажура от нижней кромки до пояса патрона. Верхние 18 мм занимает гнездо, поэтому свет уходит вниз."
-              label="Высота"
-              max={CONSTRUCTOR_LIMITS.lampHeight.max}
-              min={CONSTRUCTOR_LIMITS.lampHeight.min}
-              onChange={(value) => onParamChange("lampHeight", value)}
-              step={CONSTRUCTOR_LIMITS.lampHeight.step}
-              unit="мм"
-              value={params.lampHeight}
+              hint="Наклон спинки: 45° — телефон лежит почти как на столе, 75° — стоит почти вертикально. Рабочий диапазон 60–70°: экран видно, а центр тяжести остаётся над плитой."
+              label="Наклон"
+              max={CONSTRUCTOR_LIMITS.standAngle.max}
+              min={CONSTRUCTOR_LIMITS.standAngle.min}
+              onChange={(value) => onParamChange("standAngle", value)}
+              step={CONSTRUCTOR_LIMITS.standAngle.step}
+              unit="°"
+              value={params.standAngle}
             />
 
             <NumberSlider
-              hint="Наружный диаметр у нижней кромки. Проверьте, что абажур влезает на стол принтера вместе с поддержками."
-              label="Диаметр"
-              max={CONSTRUCTOR_LIMITS.lampDiameter.max}
-              min={CONSTRUCTOR_LIMITS.lampDiameter.min}
-              onChange={(value) => onParamChange("lampDiameter", value)}
-              step={CONSTRUCTOR_LIMITS.lampDiameter.step}
+              hint="Толщина телефона вместе с чехлом. От неё зависит глубина жёлоба: запас 6 мм оставляет место разъёму и проводу зарядки."
+              label="Толщина телефона"
+              max={CONSTRUCTOR_LIMITS.phoneThickness.max}
+              min={CONSTRUCTOR_LIMITS.phoneThickness.min}
+              onChange={(value) => onParamChange("phoneThickness", value)}
+              step={CONSTRUCTOR_LIMITS.phoneThickness.step}
               unit="мм"
-              value={params.lampDiameter}
+              value={params.phoneThickness}
             />
 
             <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.lampWall.decimals}
-              hint="0.8–1.2 мм — декоративный абажур, 1.6–2.4 мм — прочный и лучше держит форму. Толщина не меняется по высоте."
-              label="Толщина стенки"
-              max={CONSTRUCTOR_LIMITS.lampWall.max}
-              min={CONSTRUCTOR_LIMITS.lampWall.min}
-              onChange={(value) => onParamChange("lampWall", value)}
-              step={CONSTRUCTOR_LIMITS.lampWall.step}
+              hint="Ширина плиты и спинки. Высота подставки фиксированная — 100 мм, поэтому проверьте, что деталь влезает на стол принтера."
+              label="Ширина"
+              max={CONSTRUCTOR_LIMITS.standWidth.max}
+              min={CONSTRUCTOR_LIMITS.standWidth.min}
+              onChange={(value) => onParamChange("standWidth", value)}
+              step={CONSTRUCTOR_LIMITS.standWidth.step}
               unit="мм"
-              value={params.lampWall}
+              value={params.standWidth}
+            />
+          </div>
+        </>
+      ) : params.model === "clips" ? (
+        <>
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.cableDiameter.decimals}
+              hint="Наружный диаметр кабеля. Зажим шире на 0.3 мм на сторону: шнур входит с нажимом, но не закусывает."
+              label="Диаметр кабеля"
+              max={CONSTRUCTOR_LIMITS.cableDiameter.max}
+              min={CONSTRUCTOR_LIMITS.cableDiameter.min}
+              onChange={(value) => onParamChange("cableDiameter", value)}
+              step={CONSTRUCTOR_LIMITS.cableDiameter.step}
+              unit="мм"
+              value={params.cableDiameter}
+            />
+
+            <NumberSlider
+              hint="Сколько зажимов на общей планке. Крайние получают запас 3 мм, поэтому набор печатается одной деталью."
+              label="Количество зажимов"
+              max={CONSTRUCTOR_LIMITS.clipCount.max}
+              min={CONSTRUCTOR_LIMITS.clipCount.min}
+              onChange={(value) => onParamChange("clipCount", value)}
+              step={CONSTRUCTOR_LIMITS.clipCount.step}
+              unit="шт."
+              value={params.clipCount}
+            />
+
+            <NumberSlider
+              hint="Расстояние между центрами зажимов. Чем больше шаг, тем свободнее лежит кабель между фиксаторами."
+              label="Шаг зажимов"
+              max={CONSTRUCTOR_LIMITS.clipSpacing.max}
+              min={CONSTRUCTOR_LIMITS.clipSpacing.min}
+              onChange={(value) => onParamChange("clipSpacing", value)}
+              step={CONSTRUCTOR_LIMITS.clipSpacing.step}
+              unit="мм"
+              value={params.clipSpacing}
             />
           </div>
         </>

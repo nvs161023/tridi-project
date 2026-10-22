@@ -11,17 +11,14 @@ import {
 } from "@/components/constructor/ParameterPanel";
 import {
   DEFAULT_BOX_PARAMS,
+  DEFAULT_CLIPS_PARAMS,
   DEFAULT_CONSTRUCTOR_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
-  DEFAULT_LAMP_PARAMS,
   DEFAULT_LITHOPHANE_PARAMS,
   DEFAULT_SIGN_PARAMS,
+  DEFAULT_STAND_PARAMS,
   DEFAULT_VASE_PARAMS,
   KEYCHAIN_SHAPE_LABELS,
-  LAMP_BASE_SHAPE_LABELS,
-  LAMP_MOUNT_LABELS,
-  LAMP_PART_LABELS,
-  LAMP_TYPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PART_LABELS,
   SIGN_PARTS,
@@ -29,20 +26,18 @@ import {
   VASE_SHAPE_LABELS,
   boxPresetParams,
   boxStlFileName,
+  clipsStlFileName,
   keychainStlFileName,
-  lampStlFileName,
   listSignBlocks,
   listSignLetters,
   lithophaneStlFileName,
   normalizeConstructorParams,
   signStlFileName,
+  standStlFileName,
   vaseStlFileName,
   type BoxPresetId,
   type ConstructorParams,
   type KeychainShape,
-  type LampBaseShape,
-  type LampMount,
-  type LampType,
   type LithophaneMount,
   type LithophanePart,
   type ModelType,
@@ -59,7 +54,7 @@ type ConstructorClientProps = {
   freeDownloadsLeft: number;
 };
 
-/** Числовые параметры: форму, узор, патрон и текст меняют отдельные обработчики. */
+/** Числовые параметры: форму, узор, надпись и флаги меняют отдельные обработчики. */
 type SizeParam = Exclude<
   keyof ConstructorParams,
   | "model"
@@ -67,8 +62,6 @@ type SizeParam = Exclude<
   | "pattern"
   | "shapeType"
   | "text"
-  | "lampPattern"
-  | "lampMount"
   | "signText"
   | "signFont"
   | "signChannelWidth"
@@ -89,10 +82,11 @@ type SizeParam = Exclude<
 const MODEL_DEFAULT_PARAMS: Record<ModelType, Partial<ConstructorParams>> = {
   vase: DEFAULT_VASE_PARAMS,
   keychain: DEFAULT_KEYCHAIN_PARAMS,
-  lamp: DEFAULT_LAMP_PARAMS,
   sign: DEFAULT_SIGN_PARAMS,
   box: DEFAULT_BOX_PARAMS,
   lithophane: DEFAULT_LITHOPHANE_PARAMS,
+  stand: DEFAULT_STAND_PARAMS,
+  clips: DEFAULT_CLIPS_PARAMS,
 };
 
 /**
@@ -148,34 +142,16 @@ async function readServerMessage(response: Response): Promise<string | null> {
 /**
  * Файлы, которые можно скачать для текущей модели.
  *
- * У светильника и вывески файлов несколько: основание и абажур печатаются
- * разными деталями, блок вывески — лицом и крышкой. Первый элемент — главная
- * кнопка: сборка светильника или лицо первого блока вывески. Остальные кнопки
- * несут `request`, который уходит в API поверх параметров, поэтому геометрия и
- * имя файла на сервере собираются из тех же значений.
+ * У вывески и литофана файлов несколько: блок вывески печатается лицом и
+ * крышкой, литофан — плитой рельефа и рамкой. Первый элемент — главная кнопка:
+ * лицо первого блока вывески или собранный литофан. Остальные кнопки несут
+ * `request`, который уходит в API поверх параметров, поэтому геометрия и имя
+ * файла на сервере собираются из тех же значений.
  *
  * Имена считаются здесь только как запасные: сервер присылает то же имя в
  * Content-Disposition, а браузеру оно нужно, если заголовок потеряется.
  */
 function buildExportOptions(params: ConstructorParams): StlExportOption[] {
-  if (params.model === "lamp") {
-    // Две детали печатаются отдельно: основание с патроном и абажур, который
-    // ставится на него сверху. Общей сборки в списке нет — иначе пользователь
-    // снова получил бы один файл, который нельзя напечатать без разрыва.
-    const parts = ["base", "shade"] as const;
-
-    return parts.map((part) => ({
-      id: `lamp-${part}`,
-      label:
-        part === "base"
-          ? "Скачать базу (Base)"
-          : "Скачать плафон (Shade)",
-      description: `${LAMP_PART_LABELS[part]} светильника отдельным файлом`,
-      request: { part },
-      fileName: lampStlFileName(params, part),
-    }));
-  }
-
   if (params.model === "sign") {
     const blocks = listSignBlocks(params.signText, params.signBlockSize);
 
@@ -260,8 +236,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
     ];
   }
 
-  // Светильник, вывеска и литофан собрали набор файлов выше, поэтому здесь
-  // остаются модели с одним STL: ваза, брелок и коробка.
+  // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
+  // с одним STL: ваза, брелок, коробка, подставка и клипсы.
   return [
     {
       id: params.model,
@@ -272,7 +248,11 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
           ? vaseStlFileName(params)
           : params.model === "keychain"
             ? keychainStlFileName(params)
-            : boxStlFileName(params),
+            : params.model === "stand"
+              ? standStlFileName(params)
+              : params.model === "clips"
+                ? clipsStlFileName(params)
+                : boxStlFileName(params),
     },
   ];
 }
@@ -381,28 +361,6 @@ export function ConstructorClient({
   function updateKeychainNfc(nfcEnabled: boolean) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, nfcEnabled }),
-    );
-  }
-
-  function updateLampPattern(lampPattern: VasePattern) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, lampPattern }),
-    );
-  }
-
-  function updateLampMount(lampMount: LampMount) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, lampMount }),
-    );
-  }
-
-  function updateLampType(lampType: LampType) {
-    setParams((current) => normalizeConstructorParams({ ...current, lampType }));
-  }
-
-  function updateLampBaseShape(lampBaseShape: LampBaseShape) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, lampBaseShape }),
     );
   }
 
@@ -516,9 +474,9 @@ export function ConstructorClient({
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "same-origin",
-        // Параметры модели плюс выбор файла: `part` для светильника и
-        // литофана, `blockIndex` и `signPart` для деталей вывески. Сервер
-        // валидирует их вместе с остальными полями.
+        // Параметры модели плюс выбор файла: `part` для литофана,
+        // `blockIndex` и `signPart` для деталей вывески. Сервер валидирует их
+        // вместе с остальными полями.
         body: JSON.stringify({ ...params, ...option.request }),
       });
 
@@ -620,10 +578,10 @@ export function ConstructorClient({
 
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300">
             Параметрические модели под ваш принтер: ваза с математическим узором,
-            брелок с именем, абажур на патрон E27 или E14, светодиодная вывеска
-            с надписью, коробка-органайзер с сеткой и крышкой и литофан из
-            фотографии. Настройте размеры, проверьте результат в 3D и скачайте
-            STL.
+            брелок с именем, подставка под телефон, набор клипс для кабелей,
+            светодиодная вывеска с надписью, коробка-органайзер с сеткой и
+            крышкой и литофан из фотографии. Настройте размеры, проверьте
+            результат в 3D и скачайте STL.
           </p>
         </div>
 
@@ -660,10 +618,6 @@ export function ConstructorClient({
           onLithoFrameChange={updateLithoFrame}
           onLithoMountChange={updateLithoMount}
           onKeychainShapeChange={updateKeychainShape}
-          onLampBaseShapeChange={updateLampBaseShape}
-          onLampMountChange={updateLampMount}
-          onLampTypeChange={updateLampType}
-          onLampPatternChange={updateLampPattern}
           onLithophaneBrightnessChange={updateLithophaneBrightness}
           onModelChange={updateModel}
           onNfcChange={updateKeychainNfc}
@@ -703,14 +657,15 @@ export function ConstructorClient({
                   {params.width} × {params.thickness} мм
                   {params.text.trim() ? ` · «${params.text.trim()}»` : ""}
                 </>
-              ) : params.model === "lamp" ? (
+              ) : params.model === "stand" ? (
                 <>
-                  {LAMP_BASE_SHAPE_LABELS[params.lampBaseShape]} ·{" "}
-                  {LAMP_MOUNT_LABELS[params.lampMount]} ·{" "}
-                  {LAMP_TYPE_LABELS[params.lampType].toLowerCase()} ·{" "}
-                  {VASE_PATTERN_LABELS[params.lampPattern]} ·{" "}
-                  {params.lampBaseHeight + params.lampHeight} × Ø{" "}
-                  {params.lampDiameter} мм
+                  наклон {params.standAngle}° · телефон{" "}
+                  {params.phoneThickness} мм · ширина {params.standWidth} мм
+                </>
+              ) : params.model === "clips" ? (
+                <>
+                  {params.clipCount} зажимов · кабель Ø {params.cableDiameter} мм
+                  · шаг {params.clipSpacing} мм
                 </>
               ) : params.model === "lithophane" ? (
                 <>

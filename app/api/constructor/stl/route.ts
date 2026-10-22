@@ -12,18 +12,14 @@ import {
 } from "@/lib/constructor/downloads";
 import {
   CONSTRUCTOR_LIMITS,
-  DEFAULT_LAMP_PARAMS,
   DEFAULT_LITHOPHANE_PARAMS,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
   boxStlFileName,
+  clipsStlFileName,
   hasDrawableSvgData,
   isBoxCells,
   isCustomSvgData,
-  isLampBaseShape,
-  isLampMount,
-  isLampPart,
-  isLampType,
   isLithophaneBrightness,
   isLithophaneMount,
   isLithophanePart,
@@ -35,35 +31,37 @@ import {
   isValidKeychainText,
   isValidSignText,
   keychainStlFileName,
-  lampStlFileName,
   listSignBlocks,
   lithophaneStlFileName,
   normalizeBoxParams,
+  normalizeClipsParams,
   normalizeKeychainParams,
   normalizeKeychainShapeAlias,
-  normalizeLampParams,
   normalizeLithophaneParams,
   normalizeSignParams,
+  normalizeStandParams,
   normalizeVaseParams,
   signStlFileName,
+  standStlFileName,
   vaseStlFileName,
   type BoxParams,
+  type ClipsParams,
   type KeychainParams,
-  type LampParams,
-  type LampPart,
   type LithophaneParams,
   type LithophanePart,
   type SignParams,
   type SignPart,
+  type StandParams,
   type VaseParams,
 } from "@/lib/constructor/params";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
+import { createClipsGeometry } from "@/lib/constructor/cable-clips-geometry";
 import {
   KEYCHAIN_FONT_URL,
   createKeychainGeometry,
 } from "@/lib/constructor/keychain-geometry";
-import { createLampGeometry } from "@/lib/constructor/lamp-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
+import { createStandGeometry } from "@/lib/constructor/phone-stand-geometry";
 import {
   SIGN_FONT_URLS,
   createSignBlockGeometry,
@@ -82,11 +80,11 @@ import { createClient } from "@/lib/supabase/server";
  *   2. доступ — Pro проходит сразу, Free получает три скачивания в
  *      календарный месяц по UTC (countConstructorDownloadsThisMonth);
  *   3. параметры — только числа внутри границ слайдеров, известная форма и
- *      узор вазы, брелок с именем и формой заготовки, светильник с узором,
- *      патроном, формой основания и выбранной деталью (основание, абажур или
- *      обе), вывеска с надписью, глубиной, каналом, зазором, размером блока и
- *      деталью блока, коробка с сеткой и крышкой либо литофан с размерами,
- *      толщинами и сжатым массивом яркости 150 × 150.
+ *      узор вазы, брелок с именем и формой заготовки, вывеска с надписью,
+ *      глубиной, каналом, зазором, размером блока и деталью блока, коробка с
+ *      сеткой и крышкой, литофан с размерами, толщинами и сжатым массивом
+ *      яркости 150 × 150, подставка под телефон с наклоном, толщиной телефона и
+ *      шириной, набор клипс с диаметром кабеля, числом зажимов и шагом.
  *
  * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
  * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
@@ -271,73 +269,72 @@ function parseKeychainParams(
 }
 
 /**
- * Строгая проверка параметров светильника.
+ * Строгая проверка параметров подставки под телефон.
  *
- * Высота, диаметр, стенка и высота основания должны лежать в границах
- * слайдеров. Узор берётся из того же списка, что у вазы, патрон — из известных
- * E27/E14: от него зависит диаметр гнезда, поэтому незнакомое значение
- * отклоняется, а не подменяется E27. Форма основания тоже проверяется по
- * списку — от неё зависят контуры оболочки, — а деталь (`part`) решает, что
- * попадёт в файл: основание, абажур или обе части сразу.
+ * Наклон, толщина телефона и ширина подставки должны лежать в границах
+ * слайдеров: от них зависят глубина жёлоба и высота спинки, поэтому выход за
+ * границы отклоняется, а не подрезается к ближайшему шагу. Деталь цельная, без
+ * выбранной части — в файл всегда попадает вся подставка.
  */
-function parseLampParams(
-  body: Record<string, unknown>,
-): { params: LampParams; part: LampPart } | null {
-  const {
-    lampHeight,
-    lampDiameter,
-    lampWall,
-    lampPattern,
-    lampMount,
-    lampBaseShape = DEFAULT_LAMP_PARAMS.lampBaseShape,
-    lampBaseHeight = DEFAULT_LAMP_PARAMS.lampBaseHeight,
-    lampType = DEFAULT_LAMP_PARAMS.lampType,
-    part = "all",
-  } = body;
+function parseStandParams(body: Record<string, unknown>): StandParams | null {
+  const { standAngle, phoneThickness, standWidth } = body;
 
   if (
     !isNumberInRange(
-      lampHeight,
-      CONSTRUCTOR_LIMITS.lampHeight.min,
-      CONSTRUCTOR_LIMITS.lampHeight.max,
+      standAngle,
+      CONSTRUCTOR_LIMITS.standAngle.min,
+      CONSTRUCTOR_LIMITS.standAngle.max,
     ) ||
     !isNumberInRange(
-      lampDiameter,
-      CONSTRUCTOR_LIMITS.lampDiameter.min,
-      CONSTRUCTOR_LIMITS.lampDiameter.max,
+      phoneThickness,
+      CONSTRUCTOR_LIMITS.phoneThickness.min,
+      CONSTRUCTOR_LIMITS.phoneThickness.max,
     ) ||
     !isNumberInRange(
-      lampWall,
-      CONSTRUCTOR_LIMITS.lampWall.min,
-      CONSTRUCTOR_LIMITS.lampWall.max,
-    ) ||
-    !isVasePattern(lampPattern) ||
-    !isLampMount(lampMount) ||
-    !isLampBaseShape(lampBaseShape) ||
-    !isLampType(lampType) ||
-    !isNumberInRange(
-      lampBaseHeight,
-      CONSTRUCTOR_LIMITS.lampBaseHeight.min,
-      CONSTRUCTOR_LIMITS.lampBaseHeight.max,
-    ) ||
-    !isLampPart(part)
+      standWidth,
+      CONSTRUCTOR_LIMITS.standWidth.min,
+      CONSTRUCTOR_LIMITS.standWidth.max,
+    )
   ) {
     return null;
   }
 
-  return {
-    params: normalizeLampParams({
-      lampHeight,
-      lampDiameter,
-      lampWall,
-      lampPattern,
-      lampMount,
-      lampBaseShape,
-      lampBaseHeight,
-      lampType,
-    }),
-    part,
-  };
+  return normalizeStandParams({ standAngle, phoneThickness, standWidth });
+}
+
+/**
+ * Строгая проверка параметров набора клипс.
+ *
+ * Диаметр кабеля и шаг зажимов проверяются по границам слайдеров, а число
+ * зажимов — ещё и на целое: половинка зажима не печатается, поэтому 2.5
+ * отклоняется. Из этих трёх чисел складывается длина планки, и неверное
+ * значение дало бы файл с чужими размерами.
+ */
+function parseClipsParams(body: Record<string, unknown>): ClipsParams | null {
+  const { cableDiameter, clipCount, clipSpacing } = body;
+
+  if (
+    !isNumberInRange(
+      cableDiameter,
+      CONSTRUCTOR_LIMITS.cableDiameter.min,
+      CONSTRUCTOR_LIMITS.cableDiameter.max,
+    ) ||
+    !isNumberInRange(
+      clipCount,
+      CONSTRUCTOR_LIMITS.clipCount.min,
+      CONSTRUCTOR_LIMITS.clipCount.max,
+    ) ||
+    !Number.isInteger(clipCount) ||
+    !isNumberInRange(
+      clipSpacing,
+      CONSTRUCTOR_LIMITS.clipSpacing.min,
+      CONSTRUCTOR_LIMITS.clipSpacing.max,
+    )
+  ) {
+    return null;
+  }
+
+  return normalizeClipsParams({ cableDiameter, clipCount, clipSpacing });
 }
 
 /**
@@ -580,10 +577,11 @@ function parseLithophaneParams(
 type ParsedConstructorRequest =
   | { model: "vase"; params: VaseParams }
   | { model: "keychain"; params: KeychainParams }
-  | { model: "lamp"; params: LampParams; part: LampPart }
   | { model: "sign"; params: SignParams; block: number; part: SignPart }
   | { model: "box"; params: BoxParams }
-  | { model: "lithophane"; params: LithophaneParams; part: LithophanePart };
+  | { model: "lithophane"; params: LithophaneParams; part: LithophanePart }
+  | { model: "stand"; params: StandParams }
+  | { model: "clips"; params: ClipsParams };
 
 /**
  * Выбирает набор параметров по полю model.
@@ -613,12 +611,6 @@ function parseConstructorRequest(
     return params ? { model: "keychain", params } : null;
   }
 
-  if (model === "lamp") {
-    const lamp = parseLampParams(body);
-
-    return lamp ? { model: "lamp", ...lamp } : null;
-  }
-
   if (model === "sign") {
     const sign = parseSignParams(body);
 
@@ -635,6 +627,18 @@ function parseConstructorRequest(
     const lithophane = parseLithophaneParams(body);
 
     return lithophane ? { model: "lithophane", ...lithophane } : null;
+  }
+
+  if (model === "stand") {
+    const params = parseStandParams(body);
+
+    return params ? { model: "stand", params } : null;
+  }
+
+  if (model === "clips") {
+    const params = parseClipsParams(body);
+
+    return params ? { model: "clips", params } : null;
   }
 
   return null;
@@ -732,32 +736,37 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, детали и форму основания светильника, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки или изображение литофана.",
+      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки или диаметр кабеля и число зажимов.",
     );
   }
 
   try {
-    // Шрифт читается брелоку и вывеске; ваза, абажур, коробка и литофан
-    // собираются без него, чтобы не парсить 130 КБ JSON.
+    // Шрифт читается брелоку и вывеске; ваза, подставка, клипсы, коробка и
+    // литофан собираются без него, чтобы не парсить 130 КБ JSON.
     // loadFont() кэширует промис по пути, поэтому повторный вызов и смена
     // шрифта вывески ничего не стоят.
     const geometry =
       parsed.model === "vase"
         ? createVaseGeometry(createVaseProfile(parsed.params), parsed.params)
-        : parsed.model === "lamp"
-          ? createLampGeometry(parsed.params, parsed.part)
-          : parsed.model === "box"
-            ? createBoxGeometry(parsed.params)
-            : parsed.model === "lithophane"
-              ? createLithophaneGeometry(parsed.params, parsed.part)
-              : parsed.model === "keychain"
-                ? createKeychainGeometry(parsed.params, await loadFont(KEYCHAIN_FONT_URL))
-                : createSignBlockGeometry(
-                    parsed.params,
-                    await loadFont(SIGN_FONT_URLS[parsed.params.signFont]),
-                    parsed.block,
-                    parsed.part,
-                  );
+        : parsed.model === "box"
+          ? createBoxGeometry(parsed.params)
+          : parsed.model === "lithophane"
+            ? createLithophaneGeometry(parsed.params, parsed.part)
+            : parsed.model === "stand"
+              ? createStandGeometry(parsed.params)
+              : parsed.model === "clips"
+                ? createClipsGeometry(parsed.params)
+                : parsed.model === "keychain"
+                  ? createKeychainGeometry(
+                      parsed.params,
+                      await loadFont(KEYCHAIN_FONT_URL),
+                    )
+                  : createSignBlockGeometry(
+                      parsed.params,
+                      await loadFont(SIGN_FONT_URLS[parsed.params.signFont]),
+                      parsed.block,
+                      parsed.part,
+                    );
 
     try {
       const mesh = new Mesh(geometry);
@@ -772,13 +781,15 @@ export async function POST(request: Request): Promise<Response> {
           ? vaseStlFileName(parsed.params)
           : parsed.model === "keychain"
             ? keychainStlFileName(parsed.params)
-            : parsed.model === "lamp"
-              ? lampStlFileName(parsed.params, parsed.part)
-              : parsed.model === "box"
-                ? boxStlFileName(parsed.params)
-                : parsed.model === "lithophane"
-                  ? lithophaneStlFileName(parsed.params, parsed.part)
-                  : signStlFileName(parsed.params, parsed.block, parsed.part);
+            : parsed.model === "box"
+              ? boxStlFileName(parsed.params)
+              : parsed.model === "lithophane"
+                ? lithophaneStlFileName(parsed.params, parsed.part)
+                : parsed.model === "stand"
+                  ? standStlFileName(parsed.params)
+                  : parsed.model === "clips"
+                    ? clipsStlFileName(parsed.params)
+                    : signStlFileName(parsed.params, parsed.block, parsed.part);
 
       // Запись появляется после успешной генерации: упавшая сборка не должна
       // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —
