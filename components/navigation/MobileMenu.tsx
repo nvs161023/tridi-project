@@ -177,6 +177,18 @@ export function MobileMenu({ isAuthorized, lessonsHref }: MobileMenuProps) {
             </ul>
 
             <div className="mt-4 space-y-1 border-t border-white/10 pt-4">
+              {/*
+                Активация промокода — до профиля и выхода: покупатель кода из
+                Ozon ищет её в конце меню, рядом с остальными действиями.
+              */}
+              <Link
+                href="/activate"
+                onClick={closeMenu}
+                className={MOBILE_LINK_CLASS}
+              >
+                Активировать код
+              </Link>
+
               {isAuthorized ? (
                 <>
                   <Link

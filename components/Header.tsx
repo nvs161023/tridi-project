@@ -14,6 +14,16 @@ import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 const authButtonClassName =
   "inline-flex shrink-0 items-center rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
 
+/**
+ * Ссылка «Активировать код» — вторичная: серый текст, белый при наведении,
+ * без кнопочной заливки, чтобы не спорить с «Тарифами» и «Войти».
+ *
+ * Показывается только от xl: на узких экранах правая часть шапки и без неё
+ * плотная, там пункт есть в бургер-меню (components/navigation/MobileMenu.tsx).
+ */
+const activationLinkClassName =
+  "hidden shrink-0 items-center text-sm font-medium whitespace-nowrap text-slate-400 transition-colors hover:text-white focus-visible:text-white focus-visible:outline-none xl:inline-flex";
+
 /** Две буквы email для кружка-аватара: «e2e.audit@…» → «EA». */
 function getInitials(email: string | null): string {
   const localPart = email?.split("@")[0] ?? "";
@@ -102,6 +112,10 @@ export async function Header() {
             </Link>
             <ToolsDropdown />
           </nav>
+
+          <Link href="/activate" className={activationLinkClassName}>
+            Активировать код
+          </Link>
 
           <MobileMenu isAuthorized={isAuthorized} lessonsHref={lessonsHref} />
 

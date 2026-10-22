@@ -383,6 +383,36 @@ function LockIcon({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
+/** Билет-промокод для баннера активации в начале кабинета. */
+function TicketIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      focusable="false"
+      viewBox="0 0 20 20"
+    >
+      <rect
+        height="12"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        width="14"
+        x="3"
+        y="4"
+      />
+      <path
+        d="M7.5 4v12"
+        stroke="currentColor"
+        strokeDasharray="1.6 1.6"
+        strokeLinecap="round"
+        strokeWidth="1.3"
+      />
+    </svg>
+  );
+}
+
 type ProTool = {
   icon: string;
   title: string;
@@ -570,6 +600,39 @@ export default async function DashboardPage() {
           уровням и инструменты Pro. Прогресс сохраняется за аккаунтом, поэтому
           можно продолжать с любого устройства.
         </p>
+
+        <section
+          aria-labelledby="promo-activation-title"
+          className="mt-6 flex flex-col gap-4 rounded-3xl border border-blue-400/30 bg-gradient-to-r from-blue-600/15 via-slate-900/80 to-slate-900/60 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6"
+        >
+          <div className="flex items-start gap-3">
+            <span
+              aria-hidden
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-blue-400/30 bg-blue-500/10 text-blue-200"
+            >
+              <TicketIcon className="h-5 w-5" />
+            </span>
+            <div>
+              <h2
+                id="promo-activation-title"
+                className="text-base font-bold tracking-tight text-white sm:text-lg"
+              >
+                У вас есть промокод из Ozon или от партнёра?
+              </h2>
+              <p className="mt-1 text-sm leading-relaxed text-slate-300">
+                Активируйте его здесь — доступ к курсу откроется сразу.
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href="/activate"
+            className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          >
+            Активировать код
+            <span aria-hidden>→</span>
+          </Link>
+        </section>
 
         {hasDataError ? (
           <p className="mt-6 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
