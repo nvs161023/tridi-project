@@ -786,8 +786,9 @@ function buildShpSignaturePart(shp: Record<string, string>): string {
 /**
  * Подпись ссылки на оплату: логин, сумма, InvId, чек, пароль №1 и Shp_*.
  *
- * `receipt` — уже URL-кодированное значение параметра: Robokassa подписывает
- * чек в том виде, в каком он передан в ссылке.
+ * `receipt` — сырой JSON чека: в ссылку он уходит URL-кодированным, но в
+ * подпись Robokassa включает значение до кодирования. Если подписать
+ * кодированную строку, Robokassa вернёт ошибку 29.
  */
 function buildPaymentSignature(
   login: string,
@@ -2476,18 +2477,21 @@ async function scenarioG(
             user: params.get("Shp_user") || "",
           };
 
-          // Receipt дописан последним параметром и уже закодирован: берём его
-          // из строки запроса, потому что searchParams вернул бы раскодированный
-          // JSON, а в подпись входит именно переданное значение.
+          // Receipt дописан последним параметром и закодирован для ссылки:
+          // берём его из строки запроса как есть, чтобы не потерять «+» и «%»,
+          // и раскодируем ровно один раз. В подпись входит сырой JSON.
           const rawReceipt = paymentUrl.includes("&Receipt=")
             ? (paymentUrl.split("&Receipt=")[1] ?? "").split("&")[0]
             : "";
+          const receiptJson = rawReceipt
+            ? decodeURIComponent(rawReceipt.replace(/\+/g, " "))
+            : "";
 
-          if (rawReceipt) {
+          if (receiptJson) {
             try {
-              const receipt = JSON.parse(
-                decodeURIComponent(rawReceipt.replace(/\+/g, " ")),
-              ) as { items?: Array<Record<string, unknown>> };
+              const receipt = JSON.parse(receiptJson) as {
+                items?: Array<Record<string, unknown>>;
+              };
               const item = receipt.items?.[0];
               const sum = Number(item?.sum ?? 0);
 
@@ -2514,7 +2518,7 @@ async function scenarioG(
                 login,
                 outSum,
                 String(invId),
-                rawReceipt,
+                receiptJson,
                 shp,
                 password1,
               );
@@ -2536,7 +2540,7 @@ async function scenarioG(
           scenario,
           "Подпись ссылки Robokassa сходится",
           signatureValid,
-          "MD5(login:OutSum:InvId:Receipt:password1:Shp_*)",
+          "MD5(login:OutSum:InvId:Receipt:password1:Shp_*), Receipt — сырой JSON",
           signatureValid ? "подпись верна" : "подпись не совпала",
         );
         addCheck(

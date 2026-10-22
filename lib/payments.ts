@@ -139,16 +139,15 @@ export function buildReceipt(
 }
 
 /**
- * `Receipt` в том виде, в каком он уходит в ссылку и входит в подпись.
+ * `Receipt` в том виде, в каком он уходит в ссылку: URL-кодированный JSON.
  *
- * Robokassa принимает чек как URL-кодированный JSON и проверяет подпись по
- * переданному значению. Кодируем как PHP `urlencode`, то есть пробел — «+»:
- * ровно такой пример в документации Robokassa и в готовых интеграциях, а
- * `encodeURIComponent` оставил бы «%20». В названиях курсов пробелы есть,
- * поэтому разница была бы заметной.
+ * Кодируем как PHP `urlencode`, то есть пробел — «+», а не «%20»: в названиях
+ * курсов пробелы есть, и Robokassa разбирает чек тем же способом, что и форма.
+ * В подпись это значение не попадает — там нужен сырой JSON, см.
+ * `initializePayment`.
  */
-function encodeReceiptParam(receipt: Receipt): string {
-  return encodeURIComponent(JSON.stringify(receipt)).replace(/%20/g, "+");
+function encodeReceiptParam(receiptJson: string): string {
+  return encodeURIComponent(receiptJson).replace(/%20/g, "+");
 }
 
 /** MD5 в нижнем регистре — формат подписи Robokassa. */
@@ -242,6 +241,10 @@ function nextInvId(): number {
  * Тестовый режим включён по умолчанию: без явного `ROBOKASSA_IS_TEST=false`
  * сайт не начнёт списывать реальные деньги. На хостинге переменную нужно
  * выставить осознанно.
+ *
+ * При `IsTest=1` Robokassa ждёт **тестовые** пароли №1 и №2 из технических
+ * настроек: с боевым паролем любая подпись получает ошибку 29, даже без чека.
+ * Поэтому боевой магазин должен работать с `ROBOKASSA_IS_TEST=false`.
  */
 function isTestMode(): boolean {
   const value = process.env.ROBOKASSA_IS_TEST?.trim().toLowerCase();
@@ -316,15 +319,20 @@ export function initializePayment(request: PaymentRequest): PaymentIntent {
   const outSum = formatOutSum(expectedAmount);
   const shp = { course: courseId, user: userId };
 
-  // Robokassa принимает Receipt только в URL-кодированном виде и подписывает
-  // ровно это значение: MD5(MerchantLogin:OutSum:InvId:Receipt:Пароль#1).
-  // Кодируем один раз и используем одну строку и в подписи, и в ссылке.
-  const receiptParam = encodeReceiptParam(
-    buildReceipt(courseId, expectedAmount),
-  );
+  // Чек существует в двух видах, и путать их нельзя — иначе Robokassa
+  // отвечает «Ошибка 29. Неверный параметр Signature»:
+  //   • в ссылку `Receipt` уходит URL-кодированным (`receiptParam`);
+  //   • в подпись входит сырой JSON, до кодирования (`receiptJson`).
+  // Формула: MD5(MerchantLogin:OutSum:InvId:Receipt:Пароль#1:Shp_*), где
+  // последний `Receipt` — именно JSON. Проверено запросом к боевому интерфейсу
+  // оплаты: подпись по кодированной строке отклоняется, по сырому JSON
+  // принимается. Кодируем для ссылки ровно один раз: повторное кодирование
+  // (например, через URLSearchParams) тоже даёт ошибку 29.
+  const receiptJson = JSON.stringify(buildReceipt(courseId, expectedAmount));
+  const receiptParam = encodeReceiptParam(receiptJson);
 
   const signature = md5(
-    `${login}:${outSum}:${invId}:${receiptParam}:${password1}${buildShpSignaturePart(shp)}`,
+    `${login}:${outSum}:${invId}:${receiptJson}:${password1}${buildShpSignaturePart(shp)}`,
   );
 
   const params = new URLSearchParams();
@@ -353,9 +361,9 @@ export function initializePayment(request: PaymentRequest): PaymentIntent {
   params.set("Shp_course", shp.course);
   params.set("Shp_user", shp.user);
 
-  // Receipt дописываем руками: значение уже закодировано и подписано в таком
-  // виде. URLSearchParams закодировал бы «%» второй раз, и подпись не сошлась
-  // бы с той, которую проверяет Robokassa.
+  // Receipt дописываем руками: значение уже закодировано для ссылки.
+  // URLSearchParams закодировал бы «%» второй раз, Robokassa получила бы
+  // «%25» вместо «%» и вернула бы ошибку 29.
   const url = `${ROBOKASSA_PAYMENT_URL}?${params.toString()}&Receipt=${receiptParam}`;
 
   return {
