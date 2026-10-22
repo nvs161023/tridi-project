@@ -67,7 +67,7 @@
 | `NEXT_PUBLIC_SUPABASE_URL` | URL проекта Supabase |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Публичный ключ (anon) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Приватный ключ service_role: вебхук Robokassa записывает покупки в обход RLS, админ-панель форума меняет статусы и баны |
-| `ADMIN_EMAIL` | Email администратора форума (можно несколько через запятую). Если пусто, `/admin/forum` недоступна |
+| `ADMIN_EMAIL` | Email администратора (можно несколько через запятую): доступ к `/admin/forum`, `/admin/promo` и получатель ежедневного отчёта. Если пусто, админки недоступны, а отчёт не отправляется |
 | `ROBOKASSA_LOGIN` | Логин магазина из технических настроек Robokassa |
 | `ROBOKASSA_PASSWORD1` | Пароль №1: подпись ссылки на оплату |
 | `ROBOKASSA_PASSWORD2` | Пароль №2: проверка уведомления ResultURL |
@@ -75,6 +75,9 @@
 | `ROBOKASSA_RECURRING` | `true` — ссылка на подписку Pro уходит с `Recurring=true` (автопродление на стороне Robokassa). По умолчанию `false`: оферта и FAQ обещают «без автопродления» |
 | `NEXT_PUBLIC_SITE_URL` | Публичный адрес сайта для ссылок в письмах (подтверждение email), sitemap, robots и абсолютных URL в метаданных |
 | `NEXT_PUBLIC_ENABLE_PARTNER_PROMO` | `true` — на странице готового сертификата показывается промокод «Слойтек»; `false` — заглушка «Партнерская программа скоро» |
+| `CRON_SECRET` | Секрет ежедневного отчёта: `/api/cron/daily-report` принимает только `Authorization: Bearer <CRON_SECRET>`. Пусто — роут отвечает 503 и ничего не отправляет |
+| `RESEND_API_KEY` | Ключ Resend для писем с отчётом. Пусто — отчёт возвращается как HTML/JSON и не отправляется (удобно проверять локально) |
+| `MAIL_FROM` | Отправитель писем отчёта, например `TriDi <report@tridi-print.ru>`. Домен должен быть подтверждён в Resend; по умолчанию `TriDi <onboarding@resend.dev>` |
 
 Команды (`package.json`):
 
@@ -122,6 +125,8 @@
 | URL | Файл | Что делает |
 |---|---|---|
 | `/api/payments/robokassa/result` | `app/api/payments/robokassa/result/route.ts` | ResultURL Robokassa: проверяет подпись с `Shp_*`, сумму и записывает покупку в `purchases`, продлевает подписку Pro в `subscriptions`, возвращает `OK{InvId}` |
+| `/api/admin/promo/csv` | `app/api/admin/promo/csv/route.ts` | CSV для Ozon: проверяет сессию и `ADMIN_EMAIL`, отдаёт только неиспользованные коды выбранного курса (`?course=confident`) с колонками «Код» и «Ссылка на активацию». BOM и `;` — чтобы Excel с русской локалью открыл файл без мастера импорта |
+| `/api/cron/daily-report` | `app/api/cron/daily-report/route.ts` | Ежедневный отчёт администратору: `Authorization: Bearer <CRON_SECRET>`, статистика за 24 часа (новые пользователи, покупки и сумма, отзывы), HTML-письмо через Resend на `ADMIN_EMAIL`. `?dryRun=1` возвращает HTML без отправки; GET и POST равнозначны |
 
 Авторизация и верификация:
 
@@ -155,6 +160,8 @@
 | `/constructor` | `app/constructor/page.tsx` | Конструктор 3D-моделей: ваза с восемью силуэтами и математическими узорами, брелок с именем из кириллицы, подставка под телефон с окном под кабель, набор клипс для кабелей, модульная вывеска из блоков с полыми буквами и задними крышками под светодиодную ленту, коробка-органайзер с сеткой ячеек и крышкой и литофан из фотографии с рамкой и креплением — подставкой, петлями на стену или без крепления, 3D-предпросмотр на three.js; скачивание STL собирается на сервере, доступно Pro без ограничений и по бесплатному лимиту 3 файла в месяц, детали, блоки вывески, крышки и части литофана скачиваются отдельными файлами; `robots: noindex` |
 | `/forum/new` | `app/forum/new/page.tsx` + `components/forum/CreateThreadForm.tsx` | Создание темы: middleware закрывает от гостя, страница повторно проверяет сессию и бан. Категории читаются из `forum_categories`, тема уходит в `pending` |
 | `/admin/forum` | `app/admin/forum/page.tsx` | Модерация: очередь pending-тем, последние опубликованные ответы с удалением, одобрение/отклонение старых ответов, бан автора и снятие бана. Доступ — только email из `ADMIN_EMAIL`, данные — service_role |
+| `/admin/promo` | `app/admin/promo/page.tsx` | Промокоды на курсы: выпуск партии (курс, количество, партия, срок), сводка «свободно из всего» по каждому курсу, последние 30 кодов со статусом и форма выгрузки CSV для Ozon. Доступ — только email из `ADMIN_EMAIL`; при отсутствии таблицы `promo_codes` страница показывает инструкцию, а не падает |
+| `/activate` | `app/activate/page.tsx` + `components/promo/ActivatePromoForm.tsx` | Активация промокода по ссылке `/activate?code=TRIDI-ABCD-1234`: гость видит вход с возвратом на эту же страницу, вошедший активирует код формой (`activatePromoCode`). Страница `noindex`, код одноразовый и привязывается к аккаунту |
 
 Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) работает на `/dashboard/*`,
 `/course/*`, `/constructor/*`, `/forum/new`, `/admin/*` и `/auth/*`: продлевает сессию, отправляет
@@ -1610,6 +1617,54 @@ M117, моторы) и правило «без отвода — вмятина �
 используются, проверка знаний живёт на страницах тестов модулей. Компонент оставлен рабочим,
 если понадобится короткая проверка прямо в уроке.
 
+### 3.19 Промокоды Ozon
+
+Партии одноразовых кодов на три уровня: админка `/admin/promo` выпускает до 500 кодов за раз
+(курс, партия, срок), хранит их в `promo_codes` и отдаёт CSV для Ozon: две колонки — `Код` и
+`Ссылка на активацию`.
+
+- **Формат кода:** `TRIDI-ABCD-1234`. Алфавит без `I`, `O`, `0` и `1`; 8 случайных символов
+  (40 бит) берутся из `crypto.getRandomValues`. Ввод без дефисов и в нижнем регистре
+  нормализуется (`tridiabcd1234` → `TRIDI-ABCD-1234`).
+- **Выгрузка:** `/api/admin/promo/csv?course=confident` — только `used_at is null`, только
+  выбранный курс, BOM и `;`, чтобы Excel с русской локалью открыл файл без мастера импорта.
+- **Активация:** ссылка ведёт на `/activate?code=…`. Гость сначала входит и возвращается на ту же
+  страницу; вошедший активирует код формой. Код одноразовый: `update … where used_at is null`
+  защищает от двух вкладок. Если курс уже открыт покупкой или другим кодом, код не сжигается.
+- **Доступ:** активация не создаёт запись в `purchases` (это не платёж), а `hasCourseAccess`
+  дополнительно проверяет `promo_codes` по `used_by = auth.uid()`. Промокод действует бессрочно
+  и только на свой уровень; пакет `pro` и подписка промокодами не открываются.
+- **База:** `supabase/promo_codes.sql` применяется вручную. Пока таблицы нет, `/admin/promo`
+  показывает инструкцию, CSV отвечает 503, активация сообщает «промокоды ещё не подключены» —
+  сайт не падает.
+
+### 3.20 Ежедневный отчёт администратору
+
+`/api/cron/daily-report` собирает статистику за 24 часа и отправляет HTML-письмо на `ADMIN_EMAIL`
+через Resend:
+
+- новые пользователи — `auth.users` (Admin API, постранично, до 10 000 записей);
+- покупки — количество, сумма и разбивка по курсам из `purchases`;
+- новые отзывы — `count` из `course_reviews`.
+
+Защита: заголовок `Authorization: Bearer <CRON_SECRET>`, сравнение через `timingSafeEqual`.
+`?dryRun=1` возвращает готовый HTML без отправки (удобно проверять после деплоя). Если
+`RESEND_API_KEY` пуст, роут отвечает JSON со статистикой и ничего не отправляет.
+
+Cron на сервере (каждый день в 09:00 МСК):
+
+```bash
+0 9 * * * curl -fsS -X GET "https://tridi-print.ru/api/cron/daily-report" \
+  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/tridi-report.log 2>&1
+```
+
+В Amvera Cloud та же команда добавляется в раздел «Задачи по расписанию» (cron `0 9 * * *`,
+часовой пояс — МСК); `CRON_SECRET`, `RESEND_API_KEY`, `MAIL_FROM` и `ADMIN_EMAIL` задаются в
+переменных окружения проекта. Домен отправителя должен быть подтверждён в Resend; для первой
+проверки подойдёт `onboarding@resend.dev`.
+
+
+
 ---
 
 ## 5. Данные
@@ -1727,7 +1782,8 @@ M117, моторы) и правило «без отвода — вмятина �
 | `lib/course-levels.ts` | Четыре уровня витрины (`LEVELS`): названия, `goal` и разовая цена `price` из `data/courses.json`, уроки, `totalLessons`, `estimatedHours`, схемы, тесты и часы — из файлов курсов; `getCertificateProgram` собирает строку уровня или пакета и объём для сертификата; `PAID_LEVELS`, `PAID_LESSONS`, `PAID_VISUALS`, `PAID_TESTS`, `TOTAL_LESSONS`, `TOTAL_VISUALS`, `TOTAL_TESTS` — те же числа для главной и `/subscription` |
 | `lib/payments.ts` | Robokassa: `initializePayment` собирает подписанную ссылку с `InvId`, чеком `Receipt` (54-ФЗ) и `Shp_*`, проверяет сумму по `data/courses.json`; `buildReceipt` описывает позицию чека, `isRecurringEnabled` включает `Recurring=true` только при `ROBOKASSA_RECURRING=true` и только для подписки; `verifyResultSignature` проверяет MD5 уведомления с паролем №2 |
 | `lib/module-test.ts` | Правила тестов: пороги сдачи (5 в бесплатном курсе, 7 в платных) и «отлично» (8), типы записей (`basic-test`, `confident-test`, `engineer-test`, `pro-test`), проверки `isModuleTestPassed`, `isModuleTestCompleted`, `isModuleTestCompletedByOrder` |
-| `lib/subscription.ts` | `hasCourseAccess` проверяет покупку уровня или пакета `pro`; `hasActiveSubscription` — доступ к инструментам: бессрочный `pro` или `pro-subscription` в `purchases` либо `active`/действующий `trial` в `subscriptions` с учётом `expires_at`; если колонки `expires_at` ещё нет, читается старая схема |
+| `lib/subscription.ts` | `hasCourseAccess` проверяет покупку уровня или пакета `pro`, а если покупки нет — активированный промокод этого уровня (`promo_codes`, RLS отдаёт только свои активации); `hasActiveSubscription` — доступ к инструментам: бессрочный `pro` или `pro-subscription` в `purchases` либо `active`/действующий `trial` в `subscriptions` с учётом `expires_at`; если колонки `expires_at` ещё нет, читается старая схема |
+| `lib/promo-codes.ts` | Промокоды Ozon: `PROMO_COURSE_IDS` и `PROMO_COURSE_LABELS` (три уровня), `generatePromoCode` (`TRIDI-ABCD-1234`, алфавит без I/O/0/1, `crypto.getRandomValues`), `normalizePromoCode` (нижний регистр и код без дефисов), `isPromoCourseId`, `isPromoCodeFormat`, `buildActivationUrl` и `buildOzonCsv` (BOM, `;`, CRLF, экранирование) |
 | `lib/module-test-progress.ts` | Загружает из базы номера сданных модулей (`Set<number>`); `null` — если прочитать не удалось (тогда модуль не запираем) |
 | `lib/course-access.ts` | Правила доступа к платным уровням: `PREVIEW_LESSONS` (сколько первых уроков открыто без покупки), `PREVIEW_BLOCKS` (сколько блоков закрытого урока видно), `loadCompletedLessonNumbers(courseType)` (номера прочитанных уроков уровня из `lesson_progress`, `null` при сбое чтения) и `unreadModuleLessons` (что осталось прочитать до теста модуля; при `null` список пуст и тест не запирается) |
 | `lib/current-user.ts` | Кто открыл страницу: берёт пользователя из заголовка middleware, при его отсутствии сам вызывает `getUser()` |
@@ -1781,6 +1837,8 @@ M117, моторы) и правило «без отвода — вмятина �
 | `approveThread`, `rejectThread`, `approveReply`, `rejectReply`, `deleteForumReply` | `app/actions/forum-admin.ts` | Модерация: проверка `ADMIN_EMAIL`, смена статуса или удаление ответа service_role-клиентом, `revalidatePath` публичных страниц |
 | `banForumAuthor`, `liftForumBan` | `app/actions/forum-admin.ts` | Бан на форуме на срок/бессрочно и снятие бана; только `forum_bans`, без влияния на покупки и подписку |
 | `createCourseReview` | `app/actions/reviews.ts` | Отзыв о курсе: проверка ключа, оценки 1–5 и текста 10–1000 символов, honeypot, реальная сессия, повторная проверка завершения курса, `insert` от своего имени и `revalidatePath('/course/<курс>/complete')`; повтор ловит уникальный индекс |
+| `createPromoCodes` | `app/actions/promo-admin.ts` | Выпуск партии промокодов: проверка `ADMIN_EMAIL`, курс из `PROMO_COURSE_IDS`, количество 1–500, партия, срок; коды генерируются на сервере, вставка — service_role, `revalidatePath('/admin/promo')`. Отдельные тексты для неприменённой миграции и коллизии |
+| `activatePromoCode` | `app/actions/promo.ts` | Активация кода: реальная сессия, нормализация и формат, поиск кода service_role, проверка срока и `used_at`, отказ без сжигания кода, если курс уже открыт, атомарный `update ... where used_at is null` и `revalidatePath` курсов/кабинета |
 
 Типы результатов описаны рядом с функциями (`CompleteLessonResult`, `CompleteModuleTestResult`,
 `ConfirmSessionResult`), состояние формы авторизации — `app/actions/auth-state.ts`
@@ -1794,6 +1852,8 @@ M117, моторы) и правило «без отвода — вмятина �
 | `components/navigation/ToolsDropdown.tsx` | клиентский | Выпадающее меню «Инструменты»: центр инструментов, 3D-Конструктор, библиотека профилей и диагностика дефектов; закрывается по Escape (фокус возвращается на кнопку) и клику вне панели |
 | `components/navigation/MobileMenu.tsx` | клиентский | Бургер-меню для экранов уже `xl`: основные разделы и три ссылки инструментов; панель растянута по ширине окна, закрывается по Escape и переходу |
 | `components/tools/DefectsExplorer.tsx` | клиентский | Каталог дефектов печати: поиск по названию, описанию и причинам (без учёта регистра, «ё» и лишних пробелов), вкладки-фильтры по группам со счётчиками, заголовки групп с пояснениями и сетка карточек; счётчик результатов с `aria-live`, пустое состояние со сбросом фильтров, модальное окно с причинами и шагами решения, Escape, клик по фону, ловушка фокуса и возврат фокуса на карточку |
+| `components/promo/PromoCodeForm.tsx` | клиентский | Форма выпуска партии в `/admin/promo`: курс, количество, название партии, срок и примечание; `useActionState` вокруг `createPromoCodes`, результат и свёрнутый список созданных кодов |
+| `components/promo/ActivatePromoForm.tsx` | клиентский | Форма активации на `/activate`: поле кода с подстановкой из ссылки, `useActionState` вокруг `activatePromoCode`, сообщения об ошибках и после успеха — кнопки «Перейти к курсу» и «В личный кабинет» |
 | `components/Logo.tsx` | серверный | Векторный логотип: SVG-принтер с синей шестерёнкой и слово `tridi-print.ru`; вариант `wordmark` — только текст для подвала |
 | `components/Footer.tsx` | серверный | Подвал: ссылки на все юридические документы, копирайт, карточка «Реквизиты и контакты» со статусом НПД, ИНН, телефоном и email |
 | `components/certificate/PartnerBonus.tsx` | серверный | Блок «Бонусы от партнеров» на странице готового сертификата: промокод «Слойтек» при `NEXT_PUBLIC_ENABLE_PARTNER_PROMO=true`, иначе заглушка; скрыт при печати |
@@ -1831,7 +1891,7 @@ M117, моторы) и правило «без отвода — вмятина �
 
 ## 9. База данных (Supabase)
 
-Self-hosted Supabase на сервере в РФ: используются только Auth и Postgres. Девять таблиц, все с
+Self-hosted Supabase на сервере в РФ: используются только Auth и Postgres. Одиннадцать таблиц, все с
 включённым RLS.
 
 | Таблица | Колонки | Назначение |
@@ -1846,6 +1906,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `forum_replies` | `id uuid`, `thread_id`, `content`, `author_id`, `created_at`, `status` | Ответы; публикуются сразу (`approved`), проверяются после публикации, нарушения удаляются из админки |
 | `forum_bans` | `id uuid`, `user_id`, `reason`, `expires_at`, `created_at` | Баны **только форума**; `expires_at = null` — бессрочно. Не влияет на курсы и подписку |
 | `course_reviews` | `id uuid`, `course_id text`, `user_id uuid`, `rating integer`, `text text`, `created_at timestamptz` | Отзывы выпускников: `course_id` — ключ уровня, оценка 1–5, текст 10–1000 символов, один отзыв на курс (`unique (user_id, course_id)`); имена авторов — через представление `course_review_authors` |
+| `promo_codes` | `id uuid`, `code text unique`, `course_id text`, `batch text`, `note text`, `created_at`, `expires_at`, `used_at`, `used_by uuid` | Промокоды на три уровня: `expires_at = null` — бессрочный, `used_at`/`used_by` — момент и владелец активации. RLS: пользователь видит только свои активации (`used_by = auth.uid()`), вставка и обновление — только `service_role`. Активация не создаёт покупку, поэтому в выручке Robokassa не учитывается |
 
 Как это работает:
 
@@ -1949,10 +2010,17 @@ Self-hosted Supabase на сервере в РФ: используются то�
 
 Переменные окружения на хостинге: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SITE_URL`, `ROBOKASSA_LOGIN`, `ROBOKASSA_PASSWORD1`,
-`ROBOKASSA_PASSWORD2`, `ROBOKASSA_IS_TEST`, `CERTIFICATE_SECRET` (подпись сертификатов: без него
-в production страницы сертификата и проверки честно сообщают об ошибке; в разработке берётся
-локальный секрет). В боевом режиме `ROBOKASSA_IS_TEST=false`; при
+`ROBOKASSA_PASSWORD2`, `ROBOKASSA_IS_TEST`, `ROBOKASSA_RECURRING`, `CERTIFICATE_SECRET` (подпись
+сертификатов: без него в production страницы сертификата и проверки честно сообщают об ошибке;
+в разработке берётся локальный секрет), `ADMIN_EMAIL`, `CRON_SECRET`, `RESEND_API_KEY` и
+`MAIL_FROM` (ежедневный отчёт). В боевом режиме `ROBOKASSA_IS_TEST=false`; при
 `true` используются тестовые пароли Robokassa и реальные деньги не списываются.
+`ROBOKASSA_RECURRING=false` — автопродление выключено, пока оферта обещает ручное продление.
+
+Cron отчёта добавляется отдельной строкой в планировщик сервера или в «Задачи по расписанию»
+Amvera: `0 9 * * * curl -fsS "https://tridi-print.ru/api/cron/daily-report" -H "Authorization: Bearer
+<CRON_SECRET>"`. Секрет не хранится в репозитории: он задаётся переменной окружения проекта и
+подставляется в команду планировщика.
 
 ---
 
@@ -2105,10 +2173,22 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | Читаемость и контраст | Тёмно-серый текст `text-slate-400`/`text-slate-500` заменён на `text-slate-300` во всех страницах и компонентах; подписи блока цифр на главной увеличены до `text-sm`/`text-base`, получили `text-slate-200` и `leading-relaxed`, сетка на мобильном — 2×2 без сжатия карточек. Текст уроков в `LessonBlocks` — 17px/`leading-8`, абзацы разведены на `mt-4`, ширина строки ограничена `max-w-3xl`. Плашка «Путь курса» на мобильном перенесена под изображение и больше его не перекрывает |
 | Центр выпускника, отзывы и подпись | Последний шаг всех четырёх уровней ведёт на `/course/<уровень>/complete`; новая страница показывает прогресс, дату завершения, сертификат, подарок-конструктор, форум, отзывы и следующие уровни. Добавлена система отзывов (`course_reviews`, представление `course_review_authors`, `lib/reviews.ts`, `components/reviews/*`, `createCourseReview`): отзыв доступен только выпускнику, проверяется повторно на сервере, один на курс. На бланк сертификата вместо текстовой подписи поставлена `public/signature.png` с инверсией в белый; маршруты сертификата и проверки описаны в сводке |
 | Сертификат: уровень, объём и пакет | Бланк больше не пишет «успешно завершил(а) курс»: он показывает «Уровень «Новичок»: 3D-печать с нуля» и строку «Объем: 8 уроков / 12 академических часов». Часы добавлены в `data/courses.json` полем `estimated_hours` (12 / 18 / 20 / 16), а `totalLessons` и часы прокинуты в `CourseLevel`. Для пакета `pro` в HMAC-токен добавлен подписанный `fullCourse`: бланк и `/verify/<токен>` показывают «Полный курс (Уровни: Уверенный, Инженер, Заработок)» и суммарные 30 уроков / 54 часа, старые токены из пяти полей продолжают проверяться. «Центр выпускника» получил точные тексты поздравления и карточек, ровно три предложения с кнопками «Подробнее» и редирект в кабинет, если курс не завершён. В отзывах колонка называется `text`; модалка после успеха показывает «Спасибо за отзыв!» и закрывается сама |
+| Промокоды Ozon | Админка `/admin/promo`: выпуск партии до 500 кодов на выбранный уровень, сводка «свободно из всего», последние 30 кодов со статусом и кнопка «Скачать CSV для Ozon» (`/api/admin/promo/csv`). CSV — только свободные коды выбранного курса, колонки «Код» и «Ссылка на активацию», BOM и `;` для Excel. Новая страница `/activate?code=…` активирует код после входа, не сжигает его при уже открытом курсе и защищена от двойной вкладки условием `used_at is null`. Таблица `promo_codes` (`supabase/promo_codes.sql`) закрыта RLS: пользователь видит только свои активации, писать может только `service_role`; `hasCourseAccess` получил отдельную ветку промокода. `ROBOKASSA_RECURRING=false` подтверждён в `.env.example` и `.env.local` — автопродление остаётся выключенным |
+| Ежедневный отчёт | `/api/cron/daily-report` с проверкой `Authorization: Bearer <CRON_SECRET>` (`timingSafeEqual`): новые пользователи через Admin API, покупки с суммой и разбивкой по курсам, количество новых отзывов; HTML-письмо на `ADMIN_EMAIL` через Resend (`RESEND_API_KEY`, `MAIL_FROM`), текстовая версия и `?dryRun=1` для проверки без отправки. Без ключа Resend роут отдаёт JSON со статистикой и не падает. Инструкция cron для сервера и Amvera — в разделах 3.20 и 10 |
 
 **Как проверялось (последняя итерация):** `npx tsc --noEmit` — 0 ошибок, `npm run lint` — 0 ошибок и 0
 предупреждений, `npm run check:style` — замечаний нет, `npm run check:docs` — сводка сходится,
-`npm run check:imports` — 1212 импортов без битых, `npm run build` — `Compiled successfully`.
+`npm run check:imports` — 1 313 импортов без битых, `npm run build` — `Compiled successfully`.
+**Проверки промокодов и отчёта (22 октября 2026):** `npx tsc --noEmit` — 0 ошибок, `npm run lint`
+— 0 ошибок и 0 предупреждений, `npm run build` — успешно; в сборке появились `/activate`,
+`/admin/promo`, `/api/admin/promo/csv`, `/api/cron/daily-report`. В production-сборке локально:
+`/activate?code=…` — 200 и просит войти (`noindex`), `/admin/promo` без сессии — 307 на вход,
+CSV без администратора — 403, cron без токена — 401, с `CRON_SECRET` и `?dryRun=1` — 200 с
+HTML-отчётом, без ключа Resend — JSON `"sent": false` со статистикой. Модуль `lib/promo-codes.ts`
+проверен отдельным запуском: код `TRIDI-HUBU-VUC2`, нормализация `tridi abcd 1234` →
+`TRIDI-ABCD-1234`, CSV с BOM и `;`.
+
+
 Предыдущая итерация — кадры модуля P: замерены в браузере (Chrome + DevTools Protocol, без установки зависимостей) в два захода:
 партия 1 — 5 визуализаций (уроки P1 и P2), партия 2 — 6 визуализаций (уроки P3–P5). На ширинах
 900 и 376 px у обеих партий 0 наложений подписей и 0 выходов за кадр, кегль не ниже 7,5 px;
