@@ -11,8 +11,14 @@ import {
   BOX_CELL_MIN_MM,
   BOX_PRESET_IDS,
   BOX_PRESET_LABELS,
+  COASTER_PATTERNS,
+  COASTER_PATTERN_LABELS,
+  COASTER_SHAPES,
+  COASTER_SHAPE_LABELS,
   CONSTRUCTOR_LIMITS,
   DEFAULT_LITHOPHANE_PARAMS,
+  JEWELRY_CONFIGS,
+  JEWELRY_CONFIG_LABELS,
   KEYCHAIN_SHAPES,
   KEYCHAIN_SHAPE_LABELS,
   KEYCHAIN_SVG_MAX_LENGTH,
@@ -24,6 +30,8 @@ import {
   LITHOPHANE_PIXEL_COUNT,
   LITHOPHANE_RESOLUTION,
   MODEL_TYPE_LABELS,
+  PLANTER_SHAPES,
+  PLANTER_SHAPE_LABELS,
   SIGN_CHANNEL_WIDTHS,
   SIGN_FONTS,
   SIGN_FONT_LABELS,
@@ -35,10 +43,14 @@ import {
   sanitizeKeychainText,
   sanitizeSignText,
   type BoxPresetId,
+  type CoasterPattern,
+  type CoasterShape,
   type ConstructorParams,
+  type JewelryConfig,
   type KeychainShape,
   type LithophaneMount,
   type ModelType,
+  type PlanterShape,
   type SignChannelWidth,
   type SignFont,
   type VasePattern,
@@ -61,6 +73,12 @@ type SizeParam = Exclude<
   | "lithoFrame"
   | "lithoMount"
   | "lithophaneBrightness"
+  | "planterShape"
+  | "planterDrainage"
+  | "coasterShape"
+  | "coasterPattern"
+  | "coasterRim"
+  | "jewelryConfig"
 >;
 
 /** Ошибка экспорта и действие, которое поможет её исправить. */
@@ -129,6 +147,18 @@ type ParameterPanelProps = {
   onLithoMountChange: (mount: LithophaneMount) => void;
   /** Готовая яркость 400 × 400 из canvas: 0 — чёрный, 255 — белый. */
   onLithophaneBrightnessChange: (brightness: number[]) => void;
+  /** Форма кашпо в плане: круг, квадрат или шестигранник. */
+  onPlanterShapeChange: (shape: PlanterShape) => void;
+  /** Дренажные отверстия и поддон рядом с горшком. */
+  onPlanterDrainageChange: (enabled: boolean) => void;
+  /** Форма подставки под кружку в плане. */
+  onCoasterShapeChange: (shape: CoasterShape) => void;
+  /** Рельеф на лице подставки под кружку. */
+  onCoasterPatternChange: (pattern: CoasterPattern) => void;
+  /** Бортик по краю подставки под кружку. */
+  onCoasterRimChange: (enabled: boolean) => void;
+  /** Набор держателей стойки для украшений. */
+  onJewelryConfigChange: (config: JewelryConfig) => void;
   onReset: () => void;
 };
 
@@ -261,6 +291,13 @@ const MODEL_CARDS: ModelCard[] = [
   { id: "sign", icon: "🪧", title: MODEL_TYPE_LABELS.sign },
   { id: "box", icon: "📦", title: MODEL_TYPE_LABELS.box },
   { id: "lithophane", icon: "🖼️", title: MODEL_TYPE_LABELS.lithophane },
+  { id: "planter", icon: "🪴", title: MODEL_TYPE_LABELS.planter },
+  { id: "coaster", icon: "☕", title: MODEL_TYPE_LABELS.coaster },
+  {
+    id: "jewelry_stand",
+    icon: "💍",
+    title: MODEL_TYPE_LABELS.jewelry_stand,
+  },
 ];
 
 /**
@@ -645,7 +682,9 @@ function formatBoxCells(cells: readonly number[]): string {
  * наклон, толщина телефона и ширина, у клипс — диаметр кабеля, число зажимов и
  * шаг, у вывески — надпись, кегль, выступ букв и ширину канала под ленту, у
  * коробки — пресеты, ширины ячеек текстом, размеры, стенку и крышку, у
- * литофана — фото, превью и толщины.
+ * литофана — фото, превью и толщины, у кашпо — форма, высота, стенка и дренаж,
+ * у подставки под кружку — форма, узор, бортик и толщина, у стойки украшений —
+ * высота, основание и набор держателей.
  * Параметры компонент не хранит: они приходят из ConstructorClient, поэтому
  * 3D-сцена и подписи всегда читают один и тот же объект. Локальное состояние
  * есть только у загрузки изображения — текст ошибки и превью на время сеанса.
@@ -676,6 +715,12 @@ export function ParameterPanel({
   onLithoFrameChange,
   onLithoMountChange,
   onLithophaneBrightnessChange,
+  onPlanterShapeChange,
+  onPlanterDrainageChange,
+  onCoasterShapeChange,
+  onCoasterPatternChange,
+  onCoasterRimChange,
+  onJewelryConfigChange,
   onReset,
 }: ParameterPanelProps) {
   const isExporting = exportingId !== null;
@@ -929,11 +974,50 @@ export function ParameterPanel({
                     value: `${params.lithophaneMinThickness.toFixed(1)}–${params.lithophaneMaxThickness.toFixed(1)} мм`,
                   },
                 ]
-              : [
-                  { label: "Кегль", value: `${params.signFontSize} мм` },
-                  { label: "Выступ", value: `${params.signDepth} мм` },
-                  { label: "Канал", value: `${params.signChannelWidth} мм` },
-                ];
+              : params.model === "planter"
+                ? [
+                    { label: "Габарит", value: `${params.planterSize} мм` },
+                    { label: "Высота", value: `${params.planterHeight} мм` },
+                    {
+                      label: "Стенка",
+                      value: `${params.planterWall.toFixed(1)} мм`,
+                    },
+                  ]
+                : params.model === "coaster"
+                  ? [
+                      { label: "Габарит", value: `${params.coasterSize} мм` },
+                      {
+                        label: "Толщина",
+                        value: `${params.coasterThickness.toFixed(1)} мм`,
+                      },
+                      {
+                        label: "Узор",
+                        value: COASTER_PATTERN_LABELS[params.coasterPattern],
+                      },
+                    ]
+                  : params.model === "jewelry_stand"
+                    ? [
+                        {
+                          label: "Высота",
+                          value: `${params.jewelryHeight} мм`,
+                        },
+                        {
+                          label: "Основание",
+                          value: `Ø ${params.jewelryBase} мм`,
+                        },
+                        {
+                          label: "Держатели",
+                          value: JEWELRY_CONFIG_LABELS[params.jewelryConfig],
+                        },
+                      ]
+                    : [
+                        { label: "Кегль", value: `${params.signFontSize} мм` },
+                        { label: "Выступ", value: `${params.signDepth} мм` },
+                        {
+                          label: "Канал",
+                          value: `${params.signChannelWidth} мм`,
+                        },
+                      ];
 
   return (
     <section
@@ -1295,6 +1379,206 @@ export function ParameterPanel({
               value={params.clipSpacing}
             />
           </div>
+        </>
+      ) : params.model === "planter" ? (
+        <>
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Форма в плане: круглое кашпо печатается равномерно, квадратное даёт плоские стенки, шестигранное — гранёный силуэт. Габарит везде считается «под ключ»."
+              label="Форма"
+              onChange={onPlanterShapeChange}
+              options={PLANTER_SHAPES.map((planterShape) => ({
+                label: PLANTER_SHAPE_LABELS[planterShape],
+                value: planterShape,
+              }))}
+              value={params.planterShape}
+            />
+          </div>
+
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <NumberSlider
+              hint="Габарит горшка «под ключ». Внутренняя полость меньше на две толщины стенки: для цветка с корневым комом оставьте запас 10–15 мм."
+              label="Габарит"
+              max={CONSTRUCTOR_LIMITS.planterSize.max}
+              min={CONSTRUCTOR_LIMITS.planterSize.min}
+              onChange={(value) => onParamChange("planterSize", value)}
+              step={CONSTRUCTOR_LIMITS.planterSize.step}
+              unit="мм"
+              value={params.planterSize}
+            />
+
+            <NumberSlider
+              hint="Высота стенки от стола. Дно поднято над кромкой: вода выходит через отверстия и не задерживается под грунтом."
+              label="Высота"
+              max={CONSTRUCTOR_LIMITS.planterHeight.max}
+              min={CONSTRUCTOR_LIMITS.planterHeight.min}
+              onChange={(value) => onParamChange("planterHeight", value)}
+              step={CONSTRUCTOR_LIMITS.planterHeight.step}
+              unit="мм"
+              value={params.planterHeight}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.planterWall.decimals}
+              hint="Толщина стенки и дна. 1.8–2.4 мм держат форму после печати, 1.2 мм — быстрее, но стенка заметно пружинит."
+              label="Стенка"
+              max={CONSTRUCTOR_LIMITS.planterWall.max}
+              min={CONSTRUCTOR_LIMITS.planterWall.min}
+              onChange={(value) => onParamChange("planterWall", value)}
+              step={CONSTRUCTOR_LIMITS.planterWall.step}
+              unit="мм"
+              value={params.planterWall}
+            />
+          </div>
+
+          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+            <input
+              checked={params.planterDrainage}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onChange={(event) =>
+                onPlanterDrainageChange(event.target.checked)
+              }
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-200">
+                Дренаж и поддон
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                Отверстия Ø 5 мм в дне и поддон шире горшка на 16 мм. Пара
+                печатается в одном STL рядом друг с другом с зазором 12 мм.
+              </span>
+            </span>
+          </label>
+
+          <p className="mt-4 text-xs leading-relaxed text-slate-300">
+            {params.planterDrainage
+              ? "Горшок и поддон — две отдельные замкнутые детали: вода уходит из грунта в поддон, а не растекается по столу. Отверстия кольцом появляются только на дне, где хватает места."
+              : "Без дренажа дно глухое и печатается одна деталь. Для суккулентов это рабочий вариант, но поливать придётся аккуратно — лишней воде некуда уходить."}
+          </p>
+        </>
+      ) : params.model === "coaster" ? (
+        <>
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Форма в плане: круглая салфетка под чашку, квадратная под стакан, шестигранная — гранёный вариант. Габарит считается «под ключ»."
+              label="Форма"
+              onChange={onCoasterShapeChange}
+              options={COASTER_SHAPES.map((coasterShape) => ({
+                label: COASTER_SHAPE_LABELS[coasterShape],
+                value: coasterShape,
+              }))}
+              value={params.coasterShape}
+            />
+          </div>
+
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Рельеф выступает над лицом на 0.4 мм: рисунок видно и на ощупь, но кружка стоит ровно. Кольца читаются на круглой форме лучше всего."
+              label="Узор"
+              onChange={onCoasterPatternChange}
+              options={COASTER_PATTERNS.map((coasterPattern) => ({
+                label: COASTER_PATTERN_LABELS[coasterPattern],
+                value: coasterPattern,
+              }))}
+              value={params.coasterPattern}
+            />
+          </div>
+
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <NumberSlider
+              hint="Габарит подставки «под ключ». Чашке хватает 80–100 мм, кружке побольше — 110–120 мм: дно должно стоять целиком на плите."
+              label="Габарит"
+              max={CONSTRUCTOR_LIMITS.coasterSize.max}
+              min={CONSTRUCTOR_LIMITS.coasterSize.min}
+              onChange={(value) => onParamChange("coasterSize", value)}
+              step={CONSTRUCTOR_LIMITS.coasterSize.step}
+              unit="мм"
+              value={params.coasterSize}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.coasterThickness.decimals}
+              hint="Толщина плиты. 4–5 мм держат горячую кружку и не коробятся, 3 мм — компактный вариант для чашки."
+              label="Толщина"
+              max={CONSTRUCTOR_LIMITS.coasterThickness.max}
+              min={CONSTRUCTOR_LIMITS.coasterThickness.min}
+              onChange={(value) => onParamChange("coasterThickness", value)}
+              step={CONSTRUCTOR_LIMITS.coasterThickness.step}
+              unit="мм"
+              value={params.coasterThickness}
+            />
+          </div>
+
+          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+            <input
+              checked={params.coasterRim}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onChange={(event) => onCoasterRimChange(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-200">
+                Бортик
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                Кольцо по краю шириной 3 мм и высотой 2.5 мм над лицом:
+                конденсат с холодного стакана остаётся на подставке, а не течёт
+                на стол.
+              </span>
+            </span>
+          </label>
+
+          <p className="mt-4 text-xs leading-relaxed text-slate-300">
+            Плита, бортик и рельеф — отдельные замкнутые тела, которые входят друг
+            в друга: слайсер печатает их одной деталью без поддержек. Узор
+            повторяет форму подставки и не доходит до края 2.2 мм.
+          </p>
+        </>
+      ) : params.model === "jewelry_stand" ? (
+        <>
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Штанга держит кольца и серьги, рожки — цепочки и браслеты. «Кольца и цепочки» строит оба держателя на одной стойке."
+              label="Держатели"
+              onChange={onJewelryConfigChange}
+              options={JEWELRY_CONFIGS.map((jewelryConfig) => ({
+                label: JEWELRY_CONFIG_LABELS[jewelryConfig],
+                value: jewelryConfig,
+              }))}
+              value={params.jewelryConfig}
+            />
+          </div>
+
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <NumberSlider
+              hint="Высота стойки от стола. Штанга для колец стоит выше середины, рожки для цепочек заканчиваются у самого верха: 100–130 мм удобно для стола."
+              label="Высота"
+              max={CONSTRUCTOR_LIMITS.jewelryHeight.max}
+              min={CONSTRUCTOR_LIMITS.jewelryHeight.min}
+              onChange={(value) => onParamChange("jewelryHeight", value)}
+              step={CONSTRUCTOR_LIMITS.jewelryHeight.step}
+              unit="мм"
+              value={params.jewelryHeight}
+            />
+
+            <NumberSlider
+              hint="Диаметр основания. Чем шире база, тем устойчивее стойка и больше места для часов и серёг; штанга и рожки масштабируются вместе с ней."
+              label="Основание"
+              max={CONSTRUCTOR_LIMITS.jewelryBase.max}
+              min={CONSTRUCTOR_LIMITS.jewelryBase.min}
+              onChange={(value) => onParamChange("jewelryBase", value)}
+              step={CONSTRUCTOR_LIMITS.jewelryBase.step}
+              unit="мм"
+              value={params.jewelryBase}
+            />
+          </div>
+
+          <p className="mt-4 text-xs leading-relaxed text-slate-300">
+            Основание, стойка, штанга и рожки — отдельные замкнутые тела: каждое
+            входит в соседнее на миллиметр, поэтому стойка печатается одной
+            деталью без клея и поддержек.
+          </p>
         </>
       ) : params.model === "box" ? (
         <>

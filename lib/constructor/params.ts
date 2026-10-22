@@ -101,6 +101,13 @@ export const CONSTRUCTOR_LIMITS = {
     defaultValue: 3,
     decimals: 1,
   },
+  planterSize: { min: 60, max: 200, step: 5, defaultValue: 120, decimals: 0 },
+  planterHeight: { min: 50, max: 200, step: 5, defaultValue: 110, decimals: 0 },
+  planterWall: { min: 1.2, max: 4, step: 0.2, defaultValue: 2, decimals: 1 },
+  coasterSize: { min: 60, max: 140, step: 5, defaultValue: 90, decimals: 0 },
+  coasterThickness: { min: 3, max: 10, step: 1, defaultValue: 5, decimals: 0 },
+  jewelryHeight: { min: 60, max: 160, step: 5, defaultValue: 100, decimals: 0 },
+  jewelryBase: { min: 50, max: 120, step: 5, defaultValue: 80, decimals: 0 },
 } as const satisfies Record<string, NumericLimit>;
 
 /** Типы моделей, которые умеет собирать конструктор. */
@@ -112,6 +119,9 @@ export const MODEL_TYPES = [
   "lithophane",
   "stand",
   "clips",
+  "planter",
+  "coaster",
+  "jewelry_stand",
 ] as const;
 
 export type ModelType = (typeof MODEL_TYPES)[number];
@@ -125,6 +135,9 @@ export const MODEL_TYPE_LABELS = {
   lithophane: "Литофан",
   stand: "Подставка",
   clips: "Клипсы",
+  planter: "Кашпо",
+  coaster: "Подставка под кружку",
+  jewelry_stand: "Подставка для украшений",
 } as const satisfies Record<ModelType, string>;
 
 /** Инструмент конструктора в витринах: идентификатор, название и описание. */
@@ -180,6 +193,21 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
     id: "clips",
     title: "Генератор клипс",
     desc: "Держатели кабелей на планке: пружинящие C-образные зажимы под любой диаметр шнура.",
+  },
+  {
+    id: "planter",
+    title: "Генератор кашпо",
+    desc: "Кашпо с дренажными отверстиями и поддоном в одном STL: круглая, квадратная или гранёная форма.",
+  },
+  {
+    id: "coaster",
+    title: "Генератор подставок под кружку",
+    desc: "Подставки с бортиком и рельефным узором: конденсат остаётся в поддоне, а не на столе.",
+  },
+  {
+    id: "jewelry_stand",
+    title: "Генератор подставок для украшений",
+    desc: "Настольная стойка с штангой под кольца и рожками под цепочки: всё хранится на одном месте.",
   },
 ];
 
@@ -448,6 +476,113 @@ export type ClipsParams = {
 };
 
 /**
+ * Форма кашпо: круг, квадрат или шестигранник.
+ *
+ * `planterSize` у всех трёх форм означает один и тот же габарит «под ключ»:
+ * диаметр у круга и расстояние между параллельными гранями у многоугольников.
+ * Поэтому стенка одной толщины получается на любой форме, а поддон всегда
+ * охватывает горшок.
+ */
+export const PLANTER_SHAPES = ["round", "square", "hex"] as const;
+
+export type PlanterShape = (typeof PLANTER_SHAPES)[number];
+
+export const PLANTER_SHAPE_LABELS = {
+  round: "Круглое",
+  square: "Квадратное",
+  hex: "Шестигранное",
+} as const satisfies Record<PlanterShape, string>;
+
+/**
+ * Кашпо: габарит, высота, стенка, форма и дренаж.
+ *
+ * Дренажные отверстия Ø 5 мм проходят сквозь дно, а рядом с горшком в том же
+ * STL печатается поддон: лишняя вода стекает в него и не остаётся под горшком.
+ * Без дренажа дно глухое, и поддон не строится — деталь печатается одна.
+ */
+export type PlanterParams = {
+  /** Габарит «под ключ», мм: диаметр круга или размер многоугольника. */
+  planterSize: number;
+  /** Высота стенки от стола, мм. */
+  planterHeight: number;
+  /** Толщина стенки и дна, мм. */
+  planterWall: number;
+  /** Форма в плане: круг, квадрат или шестигранник. */
+  planterShape: PlanterShape;
+  /** Отверстия в дне и отдельный поддон рядом с горшком. */
+  planterDrainage: boolean;
+};
+
+/** Подставка под кружку повторяет три формы кашпо: круг, квадрат и шестигранник. */
+export const COASTER_SHAPES = PLANTER_SHAPES;
+
+export type CoasterShape = (typeof COASTER_SHAPES)[number];
+
+export const COASTER_SHAPE_LABELS = {
+  round: "Круглая",
+  square: "Квадратная",
+  hex: "Шестигранная",
+} as const satisfies Record<CoasterShape, string>;
+
+/** Рельеф на лице подставки: без узора, кольца или точки. */
+export const COASTER_PATTERNS = ["plain", "rings", "dots"] as const;
+
+export type CoasterPattern = (typeof COASTER_PATTERNS)[number];
+
+export const COASTER_PATTERN_LABELS = {
+  plain: "Без узора",
+  rings: "Кольца",
+  dots: "Точки",
+} as const satisfies Record<CoasterPattern, string>;
+
+/**
+ * Подставка под кружку: габарит, толщина, форма, рельеф и бортик.
+ *
+ * Бортик по краю — это не украшение: конденсат с холодного стакана стекает в
+ * него, а не на стол. Узор выступает над лицом на доли миллиметра, чтобы кружка
+ * стояла устойчиво.
+ */
+export type CoasterParams = {
+  /** Габарит «под ключ», мм: диаметр или размер многоугольника. */
+  coasterSize: number;
+  /** Толщина основания, мм. */
+  coasterThickness: number;
+  /** Форма в плане: круг, квадрат или шестигранник. */
+  coasterShape: CoasterShape;
+  /** Рельеф на лице подставки. */
+  coasterPattern: CoasterPattern;
+  /** Бортик по краю, который собирает конденсат. */
+  coasterRim: boolean;
+};
+
+/** Что держит стойка: кольца на штанге, цепочки на рожках или всё вместе. */
+export const JEWELRY_CONFIGS = ["rings", "necklace", "combo"] as const;
+
+export type JewelryConfig = (typeof JEWELRY_CONFIGS)[number];
+
+export const JEWELRY_CONFIG_LABELS = {
+  rings: "Кольца",
+  necklace: "Цепочки",
+  combo: "Кольца и цепочки",
+} as const satisfies Record<JewelryConfig, string>;
+
+/**
+ * Подставка для украшений: высота стойки, диаметр основания и набор держателей.
+ *
+ * Основание — диск, на котором лежат часы и серьги, стойка держит штангу для
+ * колец и два рожка для цепочек. Все детали — отдельные замкнутые тела, которые
+ * входят друг в друга, поэтому стойка печатается одной деталью без поддержек.
+ */
+export type JewelryStandParams = {
+  /** Высота стойки от стола, мм; выше подставки ничего не выступает. */
+  jewelryHeight: number;
+  /** Диаметр основания, мм. */
+  jewelryBase: number;
+  /** Какие держатели строить: штанга, рожки или оба. */
+  jewelryConfig: JewelryConfig;
+};
+
+/**
  * Настройки вывески: надпись, кегль, глубина, канал под ленту и блоки.
  *
  * Надпись делится на блоки по signBlockSize букв. Каждый блок печатается
@@ -677,6 +812,31 @@ export const DEFAULT_CLIPS_PARAMS: ClipsParams = {
   clipSpacing: CONSTRUCTOR_LIMITS.clipSpacing.defaultValue,
 };
 
+/** Кашпо по умолчанию: круглое 120 × 110 мм, стенка 2 мм, дренаж и поддон. */
+export const DEFAULT_PLANTER_PARAMS: PlanterParams = {
+  planterSize: CONSTRUCTOR_LIMITS.planterSize.defaultValue,
+  planterHeight: CONSTRUCTOR_LIMITS.planterHeight.defaultValue,
+  planterWall: CONSTRUCTOR_LIMITS.planterWall.defaultValue,
+  planterShape: "round",
+  planterDrainage: true,
+};
+
+/** Подставка под кружку по умолчанию: круглая Ø 90 × 5 мм с бортиком и кольцами. */
+export const DEFAULT_COASTER_PARAMS: CoasterParams = {
+  coasterSize: CONSTRUCTOR_LIMITS.coasterSize.defaultValue,
+  coasterThickness: CONSTRUCTOR_LIMITS.coasterThickness.defaultValue,
+  coasterShape: "round",
+  coasterPattern: "rings",
+  coasterRim: true,
+};
+
+/** Стойка по умолчанию: 100 мм на основании Ø 80 мм, штанга и рожки вместе. */
+export const DEFAULT_JEWELRY_STAND_PARAMS: JewelryStandParams = {
+  jewelryHeight: CONSTRUCTOR_LIMITS.jewelryHeight.defaultValue,
+  jewelryBase: CONSTRUCTOR_LIMITS.jewelryBase.defaultValue,
+  jewelryConfig: "combo",
+};
+
 /** Вывеска по умолчанию: короткое имя бренда, Roboto Bold, канал 8 мм, блоки по три буквы. */
 export const DEFAULT_SIGN_PARAMS: SignParams = {
   signText: "ТРИ ДИ",
@@ -815,7 +975,10 @@ export type ConstructorParams = { model: ModelType } & VaseParams &
   BoxParams &
   LithophaneParams &
   StandParams &
-  ClipsParams;
+  ClipsParams &
+  PlanterParams &
+  CoasterParams &
+  JewelryStandParams;
 
 /** Стартовое состояние: открывается ваза, остальные модели ждут на вкладках. */
 export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
@@ -827,6 +990,9 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   ...DEFAULT_LITHOPHANE_PARAMS,
   ...DEFAULT_STAND_PARAMS,
   ...DEFAULT_CLIPS_PARAMS,
+  ...DEFAULT_PLANTER_PARAMS,
+  ...DEFAULT_COASTER_PARAMS,
+  ...DEFAULT_JEWELRY_STAND_PARAMS,
 };
 
 /**
@@ -874,6 +1040,44 @@ export function standStlFileName(params: StandParams): string {
  */
 export function clipsStlFileName(params: ClipsParams): string {
   return `tridi-klipsy-d${params.cableDiameter}-n${params.clipCount}-s${params.clipSpacing}.stl`;
+}
+
+/**
+ * Имя файла STL для кашпо.
+ *
+ * Габарит «под ключ» записывается как `d`, высота и стенка — как `h` и `t`.
+ * Суффикс `drenazh` говорит, что в файле две детали: горшок с отверстиями и
+ * поддон. Значения уже выровнены normalizePlanterParams, поэтому лишних нулей
+ * в имени нет.
+ */
+export function planterStlFileName(params: PlanterParams): string {
+  const drainageSuffix = params.planterDrainage ? "-drenazh" : "";
+
+  return `tridi-kashpo-${params.planterShape}-d${params.planterSize}-h${params.planterHeight}-t${params.planterWall}${drainageSuffix}.stl`;
+}
+
+/**
+ * Имя файла STL для подставки под кружку.
+ *
+ * Узор и бортик попадают в имя суффиксами: по папке загрузок видно, какая
+ * именно подставка напечатана. У ровной подставки без узора суффикса нет.
+ */
+export function coasterStlFileName(params: CoasterParams): string {
+  const patternSuffix =
+    params.coasterPattern === "plain" ? "" : `-${params.coasterPattern}`;
+  const rimSuffix = params.coasterRim ? "-bort" : "";
+
+  return `tridi-podstavka-kruzhka-${params.coasterShape}-d${params.coasterSize}-t${params.coasterThickness}${patternSuffix}${rimSuffix}.stl`;
+}
+
+/**
+ * Имя файла STL для подставки украшений.
+ *
+ * Набор держателей входит в имя: `rings`, `necklace` или `combo` — иначе три
+ * разные стойки одного размера попали бы в папку загрузок под одним именем.
+ */
+export function jewelryStandStlFileName(params: JewelryStandParams): string {
+  return `tridi-podstavka-ukrasheniy-${params.jewelryConfig}-h${params.jewelryHeight}-d${params.jewelryBase}.stl`;
 }
 
 /**
@@ -1133,6 +1337,39 @@ export function isKeychainShape(value: unknown): value is KeychainShape {
   return (
     typeof value === "string" &&
     (KEYCHAIN_SHAPES as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка формы кашпо из формы или API. */
+export function isPlanterShape(value: unknown): value is PlanterShape {
+  return (
+    typeof value === "string" &&
+    (PLANTER_SHAPES as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Проверка формы подставки под кружку.
+ *
+ * Набор форм у неё тот же, что у кашпо: сечение строит один и тот же код, а
+ * разные подписи в списке нужны только для согласования рода («круглая»).
+ */
+export const isCoasterShape: (value: unknown) => value is CoasterShape =
+  isPlanterShape;
+
+/** Проверка рельефа подставки под кружку из формы или API. */
+export function isCoasterPattern(value: unknown): value is CoasterPattern {
+  return (
+    typeof value === "string" &&
+    (COASTER_PATTERNS as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка набора держателей стойки для украшений. */
+export function isJewelryConfig(value: unknown): value is JewelryConfig {
+  return (
+    typeof value === "string" &&
+    (JEWELRY_CONFIGS as readonly string[]).includes(value)
   );
 }
 
@@ -1478,6 +1715,96 @@ export function normalizeClipsParams(params: Partial<ClipsParams>): ClipsParams 
 }
 
 /**
+ * Проверяет и выравнивает параметры кашпо.
+ *
+ * Три числа выравниваются по шагу слайдеров: габарит и высота — по 5 мм,
+ * стенка — по 0.2 мм. Форма и дренаж принимаются только из своих наборов:
+ * строка «false» из формы не должна включать отверстия, а незнакомая форма
+ * заменяется круглой.
+ */
+export function normalizePlanterParams(
+  params: Partial<PlanterParams>,
+): PlanterParams {
+  return {
+    planterSize: snap(
+      params.planterSize ?? DEFAULT_PLANTER_PARAMS.planterSize,
+      CONSTRUCTOR_LIMITS.planterSize,
+    ),
+    planterHeight: snap(
+      params.planterHeight ?? DEFAULT_PLANTER_PARAMS.planterHeight,
+      CONSTRUCTOR_LIMITS.planterHeight,
+    ),
+    planterWall: snap(
+      params.planterWall ?? DEFAULT_PLANTER_PARAMS.planterWall,
+      CONSTRUCTOR_LIMITS.planterWall,
+    ),
+    planterShape: isPlanterShape(params.planterShape)
+      ? params.planterShape
+      : DEFAULT_PLANTER_PARAMS.planterShape,
+    planterDrainage:
+      typeof params.planterDrainage === "boolean"
+        ? params.planterDrainage
+        : DEFAULT_PLANTER_PARAMS.planterDrainage,
+  };
+}
+
+/**
+ * Проверяет и выравнивает параметры подставки под кружку.
+ *
+ * Толщина выравнивается по 1 мм: тонкая подставка коробится от горячей кружки, а
+ * толщина больше 10 мм уже не нужна. Узор и бортик проверяются так же строго,
+ * как у кашпо форма и дренаж.
+ */
+export function normalizeCoasterParams(
+  params: Partial<CoasterParams>,
+): CoasterParams {
+  return {
+    coasterSize: snap(
+      params.coasterSize ?? DEFAULT_COASTER_PARAMS.coasterSize,
+      CONSTRUCTOR_LIMITS.coasterSize,
+    ),
+    coasterThickness: snap(
+      params.coasterThickness ?? DEFAULT_COASTER_PARAMS.coasterThickness,
+      CONSTRUCTOR_LIMITS.coasterThickness,
+    ),
+    coasterShape: isCoasterShape(params.coasterShape)
+      ? params.coasterShape
+      : DEFAULT_COASTER_PARAMS.coasterShape,
+    coasterPattern: isCoasterPattern(params.coasterPattern)
+      ? params.coasterPattern
+      : DEFAULT_COASTER_PARAMS.coasterPattern,
+    coasterRim:
+      typeof params.coasterRim === "boolean"
+        ? params.coasterRim
+        : DEFAULT_COASTER_PARAMS.coasterRim,
+  };
+}
+
+/**
+ * Проверяет и выравнивает параметры стойки для украшений.
+ *
+ * Высота и основание выравниваются по 5 мм. Набор держателей принимается только
+ * из трёх известных значений: от него зависит, какие тела строит геометрия.
+ */
+export function normalizeJewelryStandParams(
+  params: Partial<JewelryStandParams>,
+): JewelryStandParams {
+  return {
+    jewelryHeight: snap(
+      params.jewelryHeight ?? DEFAULT_JEWELRY_STAND_PARAMS.jewelryHeight,
+      CONSTRUCTOR_LIMITS.jewelryHeight,
+    ),
+    jewelryBase: snap(
+      params.jewelryBase ?? DEFAULT_JEWELRY_STAND_PARAMS.jewelryBase,
+      CONSTRUCTOR_LIMITS.jewelryBase,
+    ),
+    jewelryConfig: isJewelryConfig(params.jewelryConfig)
+      ? params.jewelryConfig
+      : DEFAULT_JEWELRY_STAND_PARAMS.jewelryConfig,
+  };
+}
+
+/**
  * Проверяет и выравнивает параметры вывески.
  *
  * Текст очищается от символов вне шрифта и обрезается до 15 знаков. Ширина
@@ -1678,5 +2005,8 @@ export function normalizeConstructorParams(
     ...normalizeLithophaneParams(params),
     ...normalizeStandParams(params),
     ...normalizeClipsParams(params),
+    ...normalizePlanterParams(params),
+    ...normalizeCoasterParams(params),
+    ...normalizeJewelryStandParams(params),
   };
 }

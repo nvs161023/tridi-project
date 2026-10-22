@@ -17,12 +17,17 @@ import {
   DEFAULT_VASE_PARAMS,
   boxStlFileName,
   clipsStlFileName,
+  coasterStlFileName,
   hasDrawableSvgData,
   isBoxCells,
+  isCoasterPattern,
+  isCoasterShape,
   isCustomSvgData,
+  isJewelryConfig,
   isLithophaneBrightness,
   isLithophaneMount,
   isLithophanePart,
+  isPlanterShape,
   isSignChannelWidth,
   isSignFont,
   isSignPart,
@@ -30,25 +35,33 @@ import {
   isVaseShape,
   isValidKeychainText,
   isValidSignText,
+  jewelryStandStlFileName,
   keychainStlFileName,
   listSignBlocks,
   lithophaneStlFileName,
   normalizeBoxParams,
   normalizeClipsParams,
+  normalizeCoasterParams,
+  normalizeJewelryStandParams,
   normalizeKeychainParams,
   normalizeKeychainShapeAlias,
   normalizeLithophaneParams,
+  normalizePlanterParams,
   normalizeSignParams,
   normalizeStandParams,
   normalizeVaseParams,
+  planterStlFileName,
   signStlFileName,
   standStlFileName,
   vaseStlFileName,
   type BoxParams,
   type ClipsParams,
+  type CoasterParams,
+  type JewelryStandParams,
   type KeychainParams,
   type LithophaneParams,
   type LithophanePart,
+  type PlanterParams,
   type SignParams,
   type SignPart,
   type StandParams,
@@ -56,11 +69,14 @@ import {
 } from "@/lib/constructor/params";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import { createClipsGeometry } from "@/lib/constructor/cable-clips-geometry";
+import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
+import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import {
   KEYCHAIN_FONT_URL,
   createKeychainGeometry,
 } from "@/lib/constructor/keychain-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
+import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
 import { createStandGeometry } from "@/lib/constructor/phone-stand-geometry";
 import {
   SIGN_FONT_URLS,
@@ -84,7 +100,9 @@ import { createClient } from "@/lib/supabase/server";
  *      глубиной, каналом, зазором, размером блока и деталью блока, коробка с
  *      сеткой и крышкой, литофан с размерами, толщинами и сжатым массивом
  *      яркости 400 × 400, подставка под телефон с наклоном, толщиной телефона и
- *      шириной, набор клипс с диаметром кабеля, числом зажимов и шагом.
+ *      шириной, набор клипс с диаметром кабеля, числом зажимов и шагом, кашпо с
+ *      формой, дренажом и стенкой, подставка под кружку с формой, узором и
+ *      бортиком, стойка для украшений с набором держателей.
  *
  * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
  * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
@@ -575,6 +593,134 @@ function parseLithophaneParams(
   };
 }
 
+/**
+ * Строгая проверка параметров кашпо.
+ *
+ * Габарит «под ключ», высота и стенка проверяются в границах слайдеров, форма —
+ * по списку трёх силуэтов, дренаж — только настоящим boolean: строка «false»
+ * иначе включила бы отверстия и второй поддон в файле.
+ */
+function parsePlanterParams(
+  body: Record<string, unknown>,
+): PlanterParams | null {
+  const {
+    planterSize,
+    planterHeight,
+    planterWall,
+    planterShape,
+    planterDrainage,
+  } = body;
+
+  if (
+    !isNumberInRange(
+      planterSize,
+      CONSTRUCTOR_LIMITS.planterSize.min,
+      CONSTRUCTOR_LIMITS.planterSize.max,
+    ) ||
+    !isNumberInRange(
+      planterHeight,
+      CONSTRUCTOR_LIMITS.planterHeight.min,
+      CONSTRUCTOR_LIMITS.planterHeight.max,
+    ) ||
+    !isNumberInRange(
+      planterWall,
+      CONSTRUCTOR_LIMITS.planterWall.min,
+      CONSTRUCTOR_LIMITS.planterWall.max,
+    ) ||
+    !isPlanterShape(planterShape) ||
+    typeof planterDrainage !== "boolean"
+  ) {
+    return null;
+  }
+
+  return normalizePlanterParams({
+    planterSize,
+    planterHeight,
+    planterWall,
+    planterShape,
+    planterDrainage,
+  });
+}
+
+/**
+ * Строгая проверка параметров подставки под кружку.
+ *
+ * Форма и узор выбираются из списков: от них зависит и сечение плиты, и
+ * геометрия рельефа. Бортик — только boolean, иначе он появился бы в файле
+ * против выбора пользователя.
+ */
+function parseCoasterParams(
+  body: Record<string, unknown>,
+): CoasterParams | null {
+  const {
+    coasterSize,
+    coasterThickness,
+    coasterShape,
+    coasterPattern,
+    coasterRim,
+  } = body;
+
+  if (
+    !isNumberInRange(
+      coasterSize,
+      CONSTRUCTOR_LIMITS.coasterSize.min,
+      CONSTRUCTOR_LIMITS.coasterSize.max,
+    ) ||
+    !isNumberInRange(
+      coasterThickness,
+      CONSTRUCTOR_LIMITS.coasterThickness.min,
+      CONSTRUCTOR_LIMITS.coasterThickness.max,
+    ) ||
+    !isCoasterShape(coasterShape) ||
+    !isCoasterPattern(coasterPattern) ||
+    typeof coasterRim !== "boolean"
+  ) {
+    return null;
+  }
+
+  return normalizeCoasterParams({
+    coasterSize,
+    coasterThickness,
+    coasterShape,
+    coasterPattern,
+    coasterRim,
+  });
+}
+
+/**
+ * Строгая проверка параметров подставки для украшений.
+ *
+ * Высота стойки и диаметр основания проверяются в границах, набор держателей —
+ * по списку: от него зависит, появятся ли в файле штанга и рожки.
+ */
+function parseJewelryStandParams(
+  body: Record<string, unknown>,
+): JewelryStandParams | null {
+  const { jewelryHeight, jewelryBase, jewelryConfig } = body;
+
+  if (
+    !isNumberInRange(
+      jewelryHeight,
+      CONSTRUCTOR_LIMITS.jewelryHeight.min,
+      CONSTRUCTOR_LIMITS.jewelryHeight.max,
+    ) ||
+    !isNumberInRange(
+      jewelryBase,
+      CONSTRUCTOR_LIMITS.jewelryBase.min,
+      CONSTRUCTOR_LIMITS.jewelryBase.max,
+    ) ||
+    !isJewelryConfig(jewelryConfig)
+  ) {
+    return null;
+  }
+
+  return normalizeJewelryStandParams({
+    jewelryHeight,
+    jewelryBase,
+    jewelryConfig,
+  });
+}
+
 /** Разобранный запрос: модель и её проверенные параметры. */
 type ParsedConstructorRequest =
   | { model: "vase"; params: VaseParams }
@@ -583,7 +729,10 @@ type ParsedConstructorRequest =
   | { model: "box"; params: BoxParams }
   | { model: "lithophane"; params: LithophaneParams; part: LithophanePart }
   | { model: "stand"; params: StandParams }
-  | { model: "clips"; params: ClipsParams };
+  | { model: "clips"; params: ClipsParams }
+  | { model: "planter"; params: PlanterParams }
+  | { model: "coaster"; params: CoasterParams }
+  | { model: "jewelry_stand"; params: JewelryStandParams };
 
 /**
  * Выбирает набор параметров по полю model.
@@ -641,6 +790,24 @@ function parseConstructorRequest(
     const params = parseClipsParams(body);
 
     return params ? { model: "clips", params } : null;
+  }
+
+  if (model === "planter") {
+    const params = parsePlanterParams(body);
+
+    return params ? { model: "planter", params } : null;
+  }
+
+  if (model === "coaster") {
+    const params = parseCoasterParams(body);
+
+    return params ? { model: "coaster", params } : null;
+  }
+
+  if (model === "jewelry_stand") {
+    const params = parseJewelryStandParams(body);
+
+    return params ? { model: "jewelry_stand", params } : null;
   }
 
   return null;
@@ -738,13 +905,13 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки или диаметр кабеля и число зажимов.",
+      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, диаметр кабеля и число зажимов, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений.",
     );
   }
 
   try {
-    // Шрифт читается брелоку и вывеске; ваза, подставка, клипсы, коробка и
-    // литофан собираются без него, чтобы не парсить 130 КБ JSON.
+    // Шрифт читается брелоку и вывеске; остальные модели собираются без него,
+    // чтобы не парсить 130 КБ JSON.
     // loadFont() кэширует промис по пути, поэтому повторный вызов и смена
     // шрифта вывески ничего не стоят.
     const geometry =
@@ -758,17 +925,25 @@ export async function POST(request: Request): Promise<Response> {
               ? createStandGeometry(parsed.params)
               : parsed.model === "clips"
                 ? createClipsGeometry(parsed.params)
-                : parsed.model === "keychain"
-                  ? createKeychainGeometry(
-                      parsed.params,
-                      await loadFont(KEYCHAIN_FONT_URL),
-                    )
-                  : createSignBlockGeometry(
-                      parsed.params,
-                      await loadFont(SIGN_FONT_URLS[parsed.params.signFont]),
-                      parsed.block,
-                      parsed.part,
-                    );
+                : parsed.model === "planter"
+                  ? createPlanterGeometry(parsed.params)
+                  : parsed.model === "coaster"
+                    ? createCoasterGeometry(parsed.params)
+                    : parsed.model === "jewelry_stand"
+                      ? createJewelryStandGeometry(parsed.params)
+                      : parsed.model === "keychain"
+                        ? createKeychainGeometry(
+                            parsed.params,
+                            await loadFont(KEYCHAIN_FONT_URL),
+                          )
+                        : createSignBlockGeometry(
+                            parsed.params,
+                            await loadFont(
+                              SIGN_FONT_URLS[parsed.params.signFont],
+                            ),
+                            parsed.block,
+                            parsed.part,
+                          );
 
     try {
       const mesh = new Mesh(geometry);
@@ -791,7 +966,17 @@ export async function POST(request: Request): Promise<Response> {
                   ? standStlFileName(parsed.params)
                   : parsed.model === "clips"
                     ? clipsStlFileName(parsed.params)
-                    : signStlFileName(parsed.params, parsed.block, parsed.part);
+                    : parsed.model === "planter"
+                      ? planterStlFileName(parsed.params)
+                      : parsed.model === "coaster"
+                        ? coasterStlFileName(parsed.params)
+                        : parsed.model === "jewelry_stand"
+                          ? jewelryStandStlFileName(parsed.params)
+                          : signStlFileName(
+                              parsed.params,
+                              parsed.block,
+                              parsed.part,
+                            );
 
       // Запись появляется после успешной генерации: упавшая сборка не должна
       // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —

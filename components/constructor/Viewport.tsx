@@ -9,9 +9,12 @@ import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 
 import {
+  COASTER_PATTERN_LABELS,
+  JEWELRY_CONFIG_LABELS,
   KEYCHAIN_SHAPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PREVIEW_RESOLUTION,
+  PLANTER_SHAPE_LABELS,
   VASE_PATTERN_LABELS,
   downsampleLithophaneBrightness,
   type ConstructorParams,
@@ -26,7 +29,10 @@ import {
 } from "@/lib/constructor/keychain-geometry";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import { createClipsGeometry } from "@/lib/constructor/cable-clips-geometry";
+import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
+import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
+import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
 import { createStandGeometry } from "@/lib/constructor/phone-stand-geometry";
 import {
   SIGN_FONT_URLS,
@@ -503,6 +509,74 @@ function BoxModel({
   );
 }
 
+type ZUpModelProps = {
+  geometry: BufferGeometry;
+  /** Высота модели над столом, мм: по ней считается дальность тени. */
+  height: number;
+  /** Наибольший горизонтальный размер, мм: по нему — пол и сетка. */
+  footprint: number;
+  /** Цвет пластика: у каждой модели свой, чтобы сцены не путались. */
+  color: string;
+  /** Подпись набора параметров: меняет силуэт — меняется и тень. */
+  shadowKey: string;
+};
+
+/**
+ * Кашпо, подставка под кружку и подставка для украшений.
+ *
+ * Геометрия этих моделей построена Z-вверх, как у коробки, поэтому поворот на
+ * -90° вокруг X ставит детали на виртуальный стол. Тень пересчитывается при
+ * смене параметров: новая форма даёт другой силуэт, и старая тень стала бы
+ * неверной.
+ */
+function ZUpModel({
+  geometry,
+  height,
+  footprint,
+  color,
+  shadowKey,
+}: ZUpModelProps) {
+  return (
+    <group>
+      <group rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh castShadow geometry={geometry} receiveShadow>
+          <meshStandardMaterial
+            color={color}
+            metalness={0.05}
+            roughness={0.42}
+          />
+        </mesh>
+      </group>
+
+      {/* Тёмный пол: на нём читаются контактные тени. */}
+      <mesh
+        position={[0, -0.3, 0]}
+        receiveShadow
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
+        <circleGeometry args={[Math.max(footprint * 2.2, 320), 64]} />
+        <meshStandardMaterial color="#0b1220" roughness={1} />
+      </mesh>
+
+      <gridHelper
+        args={[Math.max(footprint * 4, 960), 24, "#1e293b", "#0f172a"]}
+        position={[0, 0.01, 0]}
+      />
+
+      <ContactShadows
+        blur={2.6}
+        far={Math.max(height * 1.2, 120)}
+        frames={1}
+        key={shadowKey}
+        opacity={0.55}
+        position={[0, 0.02, 0]}
+        resolution={512}
+        scale={Math.max(footprint * 3, 480)}
+      />
+    </group>
+  );
+}
+
 type LithophaneModelProps = {
   geometry: BufferGeometry;
   width: number;
@@ -723,6 +797,30 @@ function Scene({ params, geometry, framing }: SceneProps) {
           minThickness={params.lithophaneMinThickness}
           width={params.lithophaneWidth}
         />
+      ) : params.model === "planter" ? (
+        <ZUpModel
+          color="#fbbf24"
+          footprint={framing.footprint}
+          geometry={geometry}
+          height={framing.height}
+          shadowKey={`planter-${params.planterSize}-${params.planterHeight}-${params.planterWall}-${params.planterShape}-${params.planterDrainage}`}
+        />
+      ) : params.model === "coaster" ? (
+        <ZUpModel
+          color="#fb7185"
+          footprint={framing.footprint}
+          geometry={geometry}
+          height={framing.height}
+          shadowKey={`coaster-${params.coasterSize}-${params.coasterThickness}-${params.coasterShape}-${params.coasterPattern}-${params.coasterRim}`}
+        />
+      ) : params.model === "jewelry_stand" ? (
+        <ZUpModel
+          color="#c084fc"
+          footprint={framing.footprint}
+          geometry={geometry}
+          height={framing.height}
+          shadowKey={`jewelry-${params.jewelryBase}-${params.jewelryHeight}-${params.jewelryConfig}`}
+        />
       ) : (
         <SignModel
           baseMount={params.signBaseMount}
@@ -880,6 +978,18 @@ export function Viewport({ params }: ViewportProps) {
       );
     }
 
+    if (params.model === "planter") {
+      return createPlanterGeometry(params);
+    }
+
+    if (params.model === "coaster") {
+      return createCoasterGeometry(params);
+    }
+
+    if (params.model === "jewelry_stand") {
+      return createJewelryStandGeometry(params);
+    }
+
     return createVaseGeometry(createVaseProfile(params), params);
   }, [font, lithophanePreviewBrightness, params]);
 
@@ -910,12 +1020,19 @@ export function Viewport({ params }: ViewportProps) {
       };
     }
 
-    if (params.model === "stand" || params.model === "clips") {
+    if (
+      params.model === "stand" ||
+      params.model === "clips" ||
+      params.model === "planter" ||
+      params.model === "coaster" ||
+      params.model === "jewelry_stand"
+    ) {
       geometry.computeBoundingBox();
       const box = geometry.boundingBox;
 
-      // Подставка и клипсы построены Z-вверх, как коробка: после поворота
-      // меша высотой становится Z, а длиной и шириной — X и Y.
+      // Подставка, клипсы, кашпо, подставка под кружку и подставка для
+      // украшений построены Z-вверх: после поворота меша высотой становится Z,
+      // а длиной и шириной — X и Y.
       return {
         height: box ? Math.max(box.max.z - box.min.z, 1) : 1,
         footprint: box
@@ -995,7 +1112,13 @@ export function Viewport({ params }: ViewportProps) {
             ? `${params.boxLength} × ${params.boxWidth} × ${params.boxHeight} мм`
             : params.model === "lithophane"
               ? `${params.lithophaneWidth} × ${params.lithophaneHeight} × ${params.lithophaneMaxThickness.toFixed(1)} мм`
-              : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
+              : params.model === "planter"
+                ? `${params.planterSize} × ${params.planterHeight} мм`
+                : params.model === "coaster"
+                  ? `${params.coasterSize} × ${params.coasterThickness} мм`
+                  : params.model === "jewelry_stand"
+                    ? `${params.jewelryBase} × ${params.jewelryHeight} мм`
+                    : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
 
   const ariaLabel =
     params.model === "vase"
@@ -1010,7 +1133,13 @@ export function Viewport({ params }: ViewportProps) {
             ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
             : params.model === "lithophane"
               ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : "без рамки"}`
-              : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
+              : params.model === "planter"
+                ? `3D-предпросмотр кашпо «${PLANTER_SHAPE_LABELS[params.planterShape]}» ${params.planterSize} миллиметров по ключу и высотой ${params.planterHeight} миллиметров, стенка ${params.planterWall} миллиметров, ${params.planterDrainage ? "с дренажными отверстиями и поддоном" : "без поддона"}`
+                : params.model === "coaster"
+                  ? `3D-предпросмотр подставки под кружку ${params.coasterSize} миллиметров, толщина ${params.coasterThickness} миллиметров, узор «${COASTER_PATTERN_LABELS[params.coasterPattern]}», ${params.coasterRim ? "с бортиком" : "без бортика"}`
+                  : params.model === "jewelry_stand"
+                    ? `3D-предпросмотр подставки для украшений высотой ${params.jewelryHeight} миллиметров на основании ${params.jewelryBase} миллиметров, «${JEWELRY_CONFIG_LABELS[params.jewelryConfig]}»`
+                    : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
     <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-900 to-slate-900 shadow-2xl shadow-blue-950/50 sm:h-[32rem] lg:h-[38rem]">

@@ -10,37 +10,51 @@ import {
   type StlExportOption,
 } from "@/components/constructor/ParameterPanel";
 import {
+  COASTER_PATTERN_LABELS,
+  COASTER_SHAPE_LABELS,
   DEFAULT_BOX_PARAMS,
   DEFAULT_CLIPS_PARAMS,
+  DEFAULT_COASTER_PARAMS,
   DEFAULT_CONSTRUCTOR_PARAMS,
+  DEFAULT_JEWELRY_STAND_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
   DEFAULT_LITHOPHANE_PARAMS,
+  DEFAULT_PLANTER_PARAMS,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_STAND_PARAMS,
   DEFAULT_VASE_PARAMS,
+  JEWELRY_CONFIG_LABELS,
   KEYCHAIN_SHAPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PART_LABELS,
+  PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
   boxPresetParams,
   boxStlFileName,
   clipsStlFileName,
+  coasterStlFileName,
+  jewelryStandStlFileName,
   keychainStlFileName,
   listSignBlocks,
   listSignLetters,
   lithophaneStlFileName,
   normalizeConstructorParams,
+  planterStlFileName,
   signStlFileName,
   standStlFileName,
   vaseStlFileName,
   type BoxPresetId,
+  type CoasterPattern,
+  type CoasterShape,
   type ConstructorParams,
+  type JewelryConfig,
   type KeychainShape,
   type LithophaneMount,
   type LithophanePart,
   type ModelType,
+  type PlanterShape,
   type SignChannelWidth,
   type SignFont,
   type VasePattern,
@@ -70,6 +84,12 @@ type SizeParam = Exclude<
   | "lithoFrame"
   | "lithoMount"
   | "lithophaneBrightness"
+  | "planterShape"
+  | "planterDrainage"
+  | "coasterShape"
+  | "coasterPattern"
+  | "coasterRim"
+  | "jewelryConfig"
 >;
 
 /**
@@ -87,6 +107,9 @@ const MODEL_DEFAULT_PARAMS: Record<ModelType, Partial<ConstructorParams>> = {
   lithophane: DEFAULT_LITHOPHANE_PARAMS,
   stand: DEFAULT_STAND_PARAMS,
   clips: DEFAULT_CLIPS_PARAMS,
+  planter: DEFAULT_PLANTER_PARAMS,
+  coaster: DEFAULT_COASTER_PARAMS,
+  jewelry_stand: DEFAULT_JEWELRY_STAND_PARAMS,
 };
 
 /**
@@ -237,7 +260,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   }
 
   // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
-  // с одним STL: ваза, брелок, коробка, подставка и клипсы.
+  // с одним STL: ваза, брелок, коробка, подставка, клипсы, кашпо, подставка под
+  // кружку и подставка для украшений.
   return [
     {
       id: params.model,
@@ -252,7 +276,13 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
               ? standStlFileName(params)
               : params.model === "clips"
                 ? clipsStlFileName(params)
-                : boxStlFileName(params),
+                : params.model === "planter"
+                  ? planterStlFileName(params)
+                  : params.model === "coaster"
+                    ? coasterStlFileName(params)
+                    : params.model === "jewelry_stand"
+                      ? jewelryStandStlFileName(params)
+                      : boxStlFileName(params),
     },
   ];
 }
@@ -440,6 +470,40 @@ export function ConstructorClient({
     );
   }
 
+  function updatePlanterShape(planterShape: PlanterShape) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, planterShape }),
+    );
+  }
+
+  function updatePlanterDrainage(planterDrainage: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, planterDrainage }),
+    );
+  }
+
+  function updateCoasterShape(coasterShape: CoasterShape) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, coasterShape }),
+    );
+  }
+
+  function updateCoasterPattern(coasterPattern: CoasterPattern) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, coasterPattern }),
+    );
+  }
+
+  function updateCoasterRim(coasterRim: boolean) {
+    setParams((current) => normalizeConstructorParams({ ...current, coasterRim }));
+  }
+
+  function updateJewelryConfig(jewelryConfig: JewelryConfig) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, jewelryConfig }),
+    );
+  }
+
   /** Сброс возвращает к старту только текущую модель, не трогая остальные. */
   function resetParams() {
     setParams((current) =>
@@ -580,7 +644,8 @@ export function ConstructorClient({
             Параметрические модели под ваш принтер: ваза с математическим узором,
             брелок с именем, подставка под телефон, набор клипс для кабелей,
             светодиодная вывеска с надписью, коробка-органайзер с сеткой и
-            крышкой и литофан из фотографии. Настройте размеры, проверьте
+            крышкой, литофан из фотографии, кашпо с поддоном, подставка под
+            кружку и стойка для украшений. Настройте размеры, проверьте
             результат в 3D и скачайте STL.
           </p>
         </div>
@@ -612,9 +677,13 @@ export function ConstructorClient({
           exportOptions={exportOptions}
           onBoxCellsChange={updateBoxCells}
           onBoxPresetChange={updateBoxPreset}
+          onCoasterPatternChange={updateCoasterPattern}
+          onCoasterRimChange={updateCoasterRim}
+          onCoasterShapeChange={updateCoasterShape}
           onCustomSvgChange={updateKeychainCustomSvg}
           onExport={exportStl}
           onHasLidChange={updateHasLid}
+          onJewelryConfigChange={updateJewelryConfig}
           onLithoFrameChange={updateLithoFrame}
           onLithoMountChange={updateLithoMount}
           onKeychainShapeChange={updateKeychainShape}
@@ -623,6 +692,8 @@ export function ConstructorClient({
           onNfcChange={updateKeychainNfc}
           onParamChange={updateParam}
           onPatternChange={updatePattern}
+          onPlanterDrainageChange={updatePlanterDrainage}
+          onPlanterShapeChange={updatePlanterShape}
           onReset={resetParams}
           onShapeChange={updateShape}
           onSignChannelWidthChange={updateSignChannelWidth}
@@ -675,6 +746,24 @@ export function ConstructorClient({
                   {params.lithoFrame
                     ? `рамка · ${LITHOPHANE_MOUNT_LABELS[params.lithoMount].toLowerCase()}`
                     : "без рамки"}
+                </>
+              ) : params.model === "planter" ? (
+                <>
+                  {PLANTER_SHAPE_LABELS[params.planterShape]} ·{" "}
+                  {params.planterSize} × {params.planterHeight} мм ·{" "}
+                  {params.planterDrainage ? "дренаж и поддон" : "без дренажа"}
+                </>
+              ) : params.model === "coaster" ? (
+                <>
+                  {COASTER_SHAPE_LABELS[params.coasterShape]} ·{" "}
+                  {COASTER_PATTERN_LABELS[params.coasterPattern].toLowerCase()} ·{" "}
+                  {params.coasterSize} × {params.coasterThickness} мм ·{" "}
+                  {params.coasterRim ? "с бортиком" : "без бортика"}
+                </>
+              ) : params.model === "jewelry_stand" ? (
+                <>
+                  {JEWELRY_CONFIG_LABELS[params.jewelryConfig]} ·{" "}
+                  {params.jewelryBase} × {params.jewelryHeight} мм
                 </>
               ) : (
                 <>
