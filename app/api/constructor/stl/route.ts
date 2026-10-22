@@ -16,14 +16,18 @@ import {
   DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
   boxStlFileName,
+  cipherBoxStlFileName,
   clipsStlFileName,
   coasterStlFileName,
   cupClipStlFileName,
   hasDrawableSvgData,
   isBoxCells,
+  isCipherLidText,
+  isCipherWord,
   isCoasterPattern,
   isCoasterShape,
   isCustomSvgData,
+  isGiftBoxShape,
   isJewelryConfig,
   isLithophaneBrightness,
   isLithophaneMount,
@@ -42,15 +46,18 @@ import {
   isValidSignText,
   isWallHookMount,
   fabricPatchStlFileName,
+  giftBoxStlFileName,
   jewelryStandStlFileName,
   keychainStlFileName,
   listSignBlocks,
   lithophaneStlFileName,
   normalizeBoxParams,
+  normalizeCipherBoxParams,
   normalizeClipsParams,
   normalizeCoasterParams,
   normalizeCupClipParams,
   normalizeFabricPatchParams,
+  normalizeGiftBoxParams,
   normalizeJewelryStandParams,
   normalizeKeychainParams,
   normalizeKeychainShapeAlias,
@@ -74,10 +81,12 @@ import {
   vaseStlFileName,
   wallHookStlFileName,
   type BoxParams,
+  type CipherBoxParams,
   type ClipsParams,
   type CoasterParams,
   type CupClipParams,
   type FabricPatchParams,
+  type GiftBoxParams,
   type JewelryStandParams,
   type KeychainParams,
   type LithophaneParams,
@@ -94,10 +103,12 @@ import {
   type WallHookParams,
 } from "@/lib/constructor/params";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
+import { createCipherBoxGeometry } from "@/lib/constructor/cipher-box-geometry";
 import { createClipsGeometry } from "@/lib/constructor/cable-clips-geometry";
 import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
 import { createCupClipGeometry } from "@/lib/constructor/cup-clip-geometry";
 import { createFabricPatchGeometry } from "@/lib/constructor/fabric-patch-geometry";
+import { createGiftBoxGeometry } from "@/lib/constructor/gift-box-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import {
   KEYCHAIN_FONT_URL,
@@ -1087,6 +1098,82 @@ function parseStencilParams(
   });
 }
 
+/**
+ * Строгая проверка параметров шкатулки с кодом.
+ *
+ * Габарит проверяется в границах слайдера, код — только буквами: цифры и знаки
+ * отклонили бы запрос, а не превратились в другое кольцо. Надпись на крышке
+ * может быть пустой, но символы вне шрифта не принимаются: буквы вырезаются
+ * TextGeometry, и неподдерживаемый глиф дал бы дырку в крышке.
+ */
+function parseCipherBoxParams(
+  body: Record<string, unknown>,
+): CipherBoxParams | null {
+  const { cipherSize, cipherWord, cipherInserts, cipherLidText } = body;
+
+  if (
+    !isNumberInRange(
+      cipherSize,
+      CONSTRUCTOR_LIMITS.cipherSize.min,
+      CONSTRUCTOR_LIMITS.cipherSize.max,
+    ) ||
+    !isCipherWord(cipherWord) ||
+    typeof cipherInserts !== "boolean" ||
+    !isCipherLidText(cipherLidText)
+  ) {
+    return null;
+  }
+
+  return normalizeCipherBoxParams({
+    cipherSize,
+    cipherWord,
+    cipherInserts,
+    cipherLidText,
+  });
+}
+
+/**
+ * Строгая проверка параметров подарочной коробки.
+ *
+ * Габарит и форма проверяются теми же правилами, что у кашпо, замки — только
+ * настоящим boolean. Двойное дно вместе с лабиринтом не отклоняется: они делят
+ * один объём, и нормализация выключает пластину — клиент получает ту же
+ * коробку, что видел в предпросмотре.
+ */
+function parseGiftBoxParams(
+  body: Record<string, unknown>,
+): GiftBoxParams | null {
+  const {
+    giftSize,
+    giftShape,
+    giftScrewLock,
+    giftFalseBottom,
+    giftMazeLock,
+  } = body;
+
+  if (
+    !isNumberInRange(
+      giftSize,
+      CONSTRUCTOR_LIMITS.giftSize.min,
+      CONSTRUCTOR_LIMITS.giftSize.max,
+    ) ||
+    !isGiftBoxShape(giftShape) ||
+    typeof giftScrewLock !== "boolean" ||
+    typeof giftFalseBottom !== "boolean" ||
+    typeof giftMazeLock !== "boolean"
+  ) {
+    return null;
+  }
+
+  return normalizeGiftBoxParams({
+    giftSize,
+    giftShape,
+    giftScrewLock,
+    giftFalseBottom,
+    giftMazeLock,
+  });
+}
+
 /** Разобранный запрос: модель и её проверенные параметры. */
 type ParsedConstructorRequest =
   | { model: "vase"; params: VaseParams }
@@ -1105,7 +1192,9 @@ type ParsedConstructorRequest =
   | { model: "ornament"; params: OrnamentParams }
   | { model: "wall_hook"; params: WallHookParams }
   | { model: "cup_clip"; params: CupClipParams }
-  | { model: "stencil"; params: StencilParams };
+  | { model: "stencil"; params: StencilParams }
+  | { model: "cipher_box"; params: CipherBoxParams }
+  | { model: "gift_box"; params: GiftBoxParams };
 
 /**
  * Выбирает набор параметров по полю model.
@@ -1225,6 +1314,18 @@ function parseConstructorRequest(
     return params ? { model: "stencil", params } : null;
   }
 
+  if (model === "cipher_box") {
+    const params = parseCipherBoxParams(body);
+
+    return params ? { model: "cipher_box", params } : null;
+  }
+
+  if (model === "gift_box") {
+    const params = parseGiftBoxParams(body);
+
+    return params ? { model: "gift_box", params } : null;
+  }
+
   return null;
 }
 
@@ -1320,13 +1421,13 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, диаметр кабеля и число зажимов, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений, форму и отделения органайзера для ручек, форму и стежки нашивки, размеры и число плафонов гирлянды, габарит и силуэт игрушки, размеры и крепление крючка, толщину борта и размеры клипсы, габарит и узор трафарета.",
+      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, диаметр кабеля и число зажимов, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений, форму и отделения органайзера для ручек, форму и стежки нашивки, размеры и число плафонов гирлянды, габарит и силуэт игрушки, размеры и крепление крючка, толщину борта и размеры клипсы, габарит и узор трафарета, габарит, код и надпись шкатулки, габарит, форму и замки подарочной коробки.",
     );
   }
 
   try {
-    // Шрифт читается брелоку и вывеске; остальные модели собираются без него,
-    // чтобы не парсить 130 КБ JSON.
+    // Шрифт читается брелоку, вывеске и шкатулке с кодом; остальные модели
+    // собираются без него, чтобы не парсить 130 КБ JSON.
     // loadFont() кэширует промис по пути, поэтому повторный вызов и смена
     // шрифта вывески ничего не стоят.
     const geometry =
@@ -1360,21 +1461,28 @@ export async function POST(request: Request): Promise<Response> {
                                   ? createCupClipGeometry(parsed.params)
                                   : parsed.model === "stencil"
                                     ? createStencilGeometry(parsed.params)
-                                    : parsed.model === "keychain"
-                                      ? createKeychainGeometry(
+                                    : parsed.model === "cipher_box"
+                                      ? createCipherBoxGeometry(
                                           parsed.params,
                                           await loadFont(KEYCHAIN_FONT_URL),
                                         )
-                                      : createSignBlockGeometry(
-                                          parsed.params,
-                                          await loadFont(
-                                            SIGN_FONT_URLS[
-                                              parsed.params.signFont
-                                            ],
-                                          ),
-                                          parsed.block,
-                                          parsed.part,
-                                        );
+                                      : parsed.model === "gift_box"
+                                        ? createGiftBoxGeometry(parsed.params)
+                                        : parsed.model === "keychain"
+                                          ? createKeychainGeometry(
+                                              parsed.params,
+                                              await loadFont(KEYCHAIN_FONT_URL),
+                                            )
+                                          : createSignBlockGeometry(
+                                              parsed.params,
+                                              await loadFont(
+                                                SIGN_FONT_URLS[
+                                                  parsed.params.signFont
+                                                ],
+                                              ),
+                                              parsed.block,
+                                              parsed.part,
+                                            );
 
     try {
       const mesh = new Mesh(geometry);
@@ -1417,11 +1525,15 @@ export async function POST(request: Request): Promise<Response> {
                                       ? cupClipStlFileName(parsed.params)
                                       : parsed.model === "stencil"
                                         ? stencilStlFileName(parsed.params)
-                                        : signStlFileName(
-                                            parsed.params,
-                                            parsed.block,
-                                            parsed.part,
-                                          );
+                                        : parsed.model === "cipher_box"
+                                          ? cipherBoxStlFileName(parsed.params)
+                                          : parsed.model === "gift_box"
+                                            ? giftBoxStlFileName(parsed.params)
+                                            : signStlFileName(
+                                                parsed.params,
+                                                parsed.block,
+                                                parsed.part,
+                                              );
 
       // Запись появляется после успешной генерации: упавшая сборка не должна
       // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —

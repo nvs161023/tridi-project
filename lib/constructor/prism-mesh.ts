@@ -489,3 +489,75 @@ export function addCylinder(
     );
   }
 }
+
+/**
+ * Прямоугольный блок, повёрнутый вокруг вертикальной оси.
+ *
+ * Пады с буквами, язычки кодовых колец, перегородки и полки шкатулки стоят под
+ * углами, кратными шагу кольца, поэтому контур задаётся поворотом, а не
+ * отдельной матрицей. Порядок вершин тот же, что у прямоугольника: обход против
+ * часовой стрелки, значит нормали смотрят из материала наружу.
+ */
+export function addRotatedBox(
+  positions: number[],
+  centerX: number,
+  centerY: number,
+  angle: number,
+  halfWidth: number,
+  halfDepth: number,
+  z0: number,
+  z1: number,
+): void {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const local: readonly Point2[] = [
+    [-halfWidth, -halfDepth],
+    [halfWidth, -halfDepth],
+    [halfWidth, halfDepth],
+    [-halfWidth, halfDepth],
+  ];
+  const corners = local.map(
+    ([x, y]) =>
+      [centerX + x * cos - y * sin, centerY + x * sin + y * cos] as Point2,
+  );
+
+  addSolidPrism(positions, corners, z0, z1);
+}
+
+/**
+ * Дуга-стенка: кольцевой сектор между двумя радиусами.
+ *
+ * Юбка крышки шкатулки, язычки лабиринта и опорные полки строятся короткими
+ * дугами. Сектор выпуклый, пока угол ступеньки меньше 180°, поэтому каждая
+ * ступенька — обычная призма, а соседние стыкуются по общей грани без щелей.
+ * `segments` задаёт гладкость: 1 даёт гранёный сектор, 10 — почти окружность.
+ */
+export function addArcWall(
+  positions: number[],
+  centerX: number,
+  centerY: number,
+  innerRadius: number,
+  outerRadius: number,
+  startAngle: number,
+  endAngle: number,
+  z0: number,
+  z1: number,
+  segments = 8,
+): void {
+  const steps = Math.max(1, Math.round(segments));
+  const step = (endAngle - startAngle) / steps;
+
+  for (let index = 0; index < steps; index += 1) {
+    const a0 = startAngle + step * index;
+    const a1 = a0 + step;
+    const corners: Point2[] = [
+      [centerX + innerRadius * Math.cos(a0), centerY + innerRadius * Math.sin(a0)],
+      [centerX + outerRadius * Math.cos(a0), centerY + outerRadius * Math.sin(a0)],
+      [centerX + outerRadius * Math.cos(a1), centerY + outerRadius * Math.sin(a1)],
+      [centerX + innerRadius * Math.cos(a1), centerY + innerRadius * Math.sin(a1)],
+    ];
+
+    addSolidPrism(positions, corners, z0, z1);
+  }
+}
+

@@ -141,6 +141,10 @@ export const CONSTRUCTOR_LIMITS = {
   stencilWidth: { min: 60, max: 220, step: 5, defaultValue: 140, decimals: 0 },
   stencilHeight: { min: 40, max: 220, step: 5, defaultValue: 100, decimals: 0 },
   stencilThickness: { min: 0.8, max: 3, step: 0.2, defaultValue: 1.2, decimals: 1 },
+  // Шкатулка с кодом: от габарита считаются кольца, трубка и высота корпуса.
+  cipherSize: { min: 70, max: 160, step: 5, defaultValue: 110, decimals: 0 },
+  // Подарочная коробка: высота тоже выводится из габарита, а не из слайдера.
+  giftSize: { min: 60, max: 160, step: 5, defaultValue: 120, decimals: 0 },
 } as const satisfies Record<string, NumericLimit>;
 
 /** Типы моделей, которые умеет собирать конструктор. */
@@ -162,6 +166,8 @@ export const MODEL_TYPES = [
   "wall_hook",
   "cup_clip",
   "stencil",
+  "cipher_box",
+  "gift_box",
 ] as const;
 
 export type ModelType = (typeof MODEL_TYPES)[number];
@@ -185,6 +191,8 @@ export const MODEL_TYPE_LABELS = {
   wall_hook: "Настенный крючок",
   cup_clip: "Клипса для кружки",
   stencil: "Трафарет",
+  cipher_box: "Шкатулка с кодом",
+  gift_box: "Подарочная коробка",
 } as const satisfies Record<ModelType, string>;
 
 /** Инструмент конструктора в витринах: идентификатор, название и описание. */
@@ -290,6 +298,16 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
     id: "stencil",
     title: "Генератор трафаретов",
     desc: "Трафареты для краски и аэрографа: полосы, точки или соты со сквозными прорезями и рамкой.",
+  },
+  {
+    id: "cipher_box",
+    title: "Генератор шкатулок с кодом",
+    desc: "Шкатулка с кодовым замком из поворотных колец: колпачок снимается, только когда буквы кода встали в ряд.",
+  },
+  {
+    id: "gift_box",
+    title: "Генератор подарочных коробок",
+    desc: "Коробки с потайным замком на выбор: винт под отвёртку, двойное дно или лабиринт в юбке крышки.",
   },
 ];
 
@@ -863,6 +881,73 @@ export type StencilParams = {
 };
 
 /**
+ * Шкатулка с кодовым замком.
+ *
+ * Кодовое слово — не надпись, а набор колёс: одна буква на кольцо. Язычки колец
+ * разнесены по кругу, а в юбке колпачка напротив каждого кольца есть прорезь.
+ * Колпачок снимается только тогда, когда все кольца повёрнуты в положение,
+ * собравшее язычки в один ряд, поэтому код — это буквы, которые видны в этот
+ * момент.
+ */
+export type CipherBoxParams = {
+  /** Габарит корпуса в плане, мм: от него считаются кольца и трубка. */
+  cipherSize: number;
+  /** Код из 2–3 букв: по одной букве на кольцо. */
+  cipherWord: string;
+  /** Перегородки-разделители под кольца, цепочки и серьги. */
+  cipherInserts: boolean;
+  /** Надпись на крышке, до 14 символов; пустая строка — без надписи. */
+  cipherLidText: string;
+};
+
+/** Длина кода: одно кольцо кода не образует, больше трёх не влезает в корпус. */
+export const CIPHER_WORD_MIN_LENGTH = 2;
+export const CIPHER_WORD_MAX_LENGTH = 3;
+
+/** Лимит надписи на крышке шкатулки, символы. */
+export const CIPHER_LID_TEXT_MAX_LENGTH = 14;
+
+/** Буква кода: латиница и кириллица, без цифр, пробелов и знаков. */
+const CIPHER_LETTER = /^[\p{Script=Cyrillic}A-Z]$/u;
+
+/**
+ * Форма подарочной коробки в плане: та же тройка, что у кашпо.
+ *
+ * Круг, квадрат и шестигранник строятся одним контуром, поэтому зазоры
+ * посадки крышки и стенки одинаковы для всех трёх.
+ */
+export const GIFT_BOX_SHAPES = PLANTER_SHAPES;
+
+export type GiftBoxShape = (typeof GIFT_BOX_SHAPES)[number];
+
+export const GIFT_BOX_SHAPE_LABELS = {
+  round: "Круглая",
+  square: "Квадратная",
+  hex: "Шестигранная",
+} as const satisfies Record<GiftBoxShape, string>;
+
+/**
+ * Подарочная коробка с потайными замками.
+ *
+ * Снаружи это обычная коробка с крышкой. Замки независимы: винт в углу,
+ * пластина двойного дна и лабиринт из двух стенок с проёмами. Двойное дно и
+ * лабиринт занимают один и тот же объём, поэтому вместе они не включаются:
+ * при включённом лабиринте пластина не печатается.
+ */
+export type GiftBoxParams = {
+  /** Габарит коробки в плане, мм. */
+  giftSize: number;
+  /** Форма в плане: круглая, квадратная или шестигранная. */
+  giftShape: GiftBoxShape;
+  /** Замок-винт: крышку держит саморез в стойке корпуса. */
+  giftScrewLock: boolean;
+  /** Двойное дно: съёмная пластина, под ней тайник. */
+  giftFalseBottom: boolean;
+  /** Лабиринт: крышка садится в одном положении и поворачивается до упора. */
+  giftMazeLock: boolean;
+};
+
+/**
  * Настройки вывески: надпись, кегль, глубина, канал под ленту и блоки.
  *
  * Надпись делится на блоки по signBlockSize букв. Каждый блок печатается
@@ -1195,6 +1280,34 @@ export const DEFAULT_STENCIL_PARAMS: StencilParams = {
 };
 
 /**
+ * Шкатулка по умолчанию: корпус 110 мм, код «КОД» из трёх колец.
+ *
+ * Три кольца сразу показывают, как работает замок: язычки разнесены на 120°,
+ * и в ряд они встают только в одном положении каждого кольца.
+ */
+export const DEFAULT_CIPHER_BOX_PARAMS: CipherBoxParams = {
+  cipherSize: CONSTRUCTOR_LIMITS.cipherSize.defaultValue,
+  cipherWord: "КОД",
+  cipherInserts: true,
+  cipherLidText: "СЕКРЕТ",
+};
+
+/**
+ * Подарочная коробка по умолчанию: 120 мм, квадратная, с двойным дном.
+ *
+ * Двойное дно включено, потому что это единственный замок, у которого на
+ * столе появляется третья деталь: сразу видно, что тайник — отдельная
+ * пластина, а не выемка в дне.
+ */
+export const DEFAULT_GIFT_BOX_PARAMS: GiftBoxParams = {
+  giftSize: CONSTRUCTOR_LIMITS.giftSize.defaultValue,
+  giftShape: "square",
+  giftScrewLock: false,
+  giftFalseBottom: true,
+  giftMazeLock: false,
+};
+
+/**
  * Коробка по умолчанию: 140 × 100 × 60 мм, сетка 2 × 2 и крышка.
  * Такой органайзер сразу показывает и стенки, и перегородки, и обе детали.
  */
@@ -1329,7 +1442,9 @@ export type ConstructorParams = { model: ModelType } & VaseParams &
   OrnamentParams &
   WallHookParams &
   CupClipParams &
-  StencilParams;
+  StencilParams &
+  CipherBoxParams &
+  GiftBoxParams;
 
 /** Стартовое состояние: открывается ваза, остальные модели ждут на вкладках. */
 export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
@@ -1351,6 +1466,8 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   ...DEFAULT_WALL_HOOK_PARAMS,
   ...DEFAULT_CUP_CLIP_PARAMS,
   ...DEFAULT_STENCIL_PARAMS,
+  ...DEFAULT_CIPHER_BOX_PARAMS,
+  ...DEFAULT_GIFT_BOX_PARAMS,
 };
 
 /**
@@ -1515,6 +1632,38 @@ export function cupClipStlFileName(params: CupClipParams): string {
  */
 export function stencilStlFileName(params: StencilParams): string {
   return `tridi-trafaret-${params.stencilPattern}-w${params.stencilWidth}-h${params.stencilHeight}-t${params.stencilThickness}.stl`;
+}
+
+/**
+ * Имя файла STL для шкатулки с кодом.
+ *
+ * Само слово в имя не попадает: кириллица в заголовке ответа требует
+ * filename*=UTF-8, а запасное имя всё равно осталось бы латинским. Вместо него
+ * число колец — оно и есть длина кода, а буквы пользователь и так знает.
+ */
+export function cipherBoxStlFileName(params: CipherBoxParams): string {
+  const rings = Array.from(params.cipherWord).length;
+
+  return `tridi-shkatulka-kod-s${params.cipherSize}-r${rings}.stl`;
+}
+
+/**
+ * Имя файла STL для подарочной коробки.
+ *
+ * Замки перечислены в имени: коробки одного габарита отличаются только ими, и
+ * в папке загрузок они не должны сливаться в один файл. Коробка без замка тоже
+ * допустима — это обычная крышка с юбкой.
+ */
+export function giftBoxStlFileName(params: GiftBoxParams): string {
+  const locks = [
+    params.giftScrewLock ? "vint" : "",
+    params.giftFalseBottom ? "dno" : "",
+    params.giftMazeLock ? "labirint" : "",
+  ].filter((lock) => lock !== "");
+
+  return `tridi-podarok-${params.giftShape}-s${params.giftSize}-${
+    locks.length > 0 ? locks.join("-") : "bez-zamka"
+  }.stl`;
 }
 
 /**
@@ -1846,6 +1995,43 @@ export function isStencilPattern(value: unknown): value is StencilPattern {
   );
 }
 
+/** Проверка формы подарочной коробки из формы или API. */
+export function isGiftBoxShape(value: unknown): value is GiftBoxShape {
+  return (
+    typeof value === "string" &&
+    (GIFT_BOX_SHAPES as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Строгая проверка кода шкатулки.
+ *
+ * Код состоит только из букв: цифры и знаки на маленьком паду не читаются, а
+ * пробел сдвинул бы кольца. Длина — от двух до трёх букв, по букве на кольцо.
+ */
+export function isCipherWord(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const length = Array.from(value).length;
+
+  return (
+    length >= CIPHER_WORD_MIN_LENGTH &&
+    length <= CIPHER_WORD_MAX_LENGTH &&
+    sanitizeCipherWord(value) === value
+  );
+}
+
+/** Строгая проверка надписи на крышке: пустая строка допустима. */
+export function isCipherLidText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    Array.from(value).length <= CIPHER_LID_TEXT_MAX_LENGTH &&
+    Array.from(value).every((char) => TEXT_CHAR.test(char))
+  );
+}
+
 /**
  * Безопасная строка SVG: размер в пределах лимита и без исполняемых тегов.
  *
@@ -2016,6 +2202,26 @@ export function sanitizeKeychainText(value: string): string {
 /** Очистка надписи вывески для поля ввода: те же символы, лимит 15. */
 export function sanitizeSignText(value: string): string {
   return cleanText(value, SIGN_TEXT_MAX_LENGTH);
+}
+
+/**
+ * Очистка кода шкатулки для поля ввода.
+ *
+ * Остаются только буквы в верхнем регистре: код набирают заглавными, а строчная
+ * буква на маленьком паду сливалась бы с рельефом. Пробелы и знаки отбрасываются,
+ * а лишние буквы обрезаются: кольца строятся по длине слова, и «А Б В» должно
+ * дать три кольца, а не пять символов.
+ */
+export function sanitizeCipherWord(value: string): string {
+  return Array.from(value.toUpperCase())
+    .filter((char) => CIPHER_LETTER.test(char))
+    .slice(0, CIPHER_WORD_MAX_LENGTH)
+    .join("");
+}
+
+/** Очистка надписи на крышке шкатулки: те же символы, лимит 14. */
+export function sanitizeCipherLidText(value: string): string {
+  return cleanText(value, CIPHER_LID_TEXT_MAX_LENGTH);
 }
 
 /** Значение внутри границ. */
@@ -2522,6 +2728,88 @@ export function normalizeStencilParams(
 }
 
 /**
+ * Проверяет и выравнивает параметры шкатулки с кодом.
+ *
+ * Габарит выравнивается по шагу слайдера, код очищается до букв: по нему
+ * строятся кольца, поэтому пустое поле возвращает слово по умолчанию. Надпись
+ * на крышке принимается как текст без знаков вне шрифта.
+ */
+export function normalizeCipherBoxParams(
+  params: Partial<CipherBoxParams>,
+): CipherBoxParams {
+  return {
+    cipherSize: snap(
+      params.cipherSize ?? DEFAULT_CIPHER_BOX_PARAMS.cipherSize,
+      CONSTRUCTOR_LIMITS.cipherSize,
+    ),
+    cipherWord: normalizeCipherWord(
+      params.cipherWord ?? DEFAULT_CIPHER_BOX_PARAMS.cipherWord,
+    ),
+    cipherInserts:
+      typeof params.cipherInserts === "boolean"
+        ? params.cipherInserts
+        : DEFAULT_CIPHER_BOX_PARAMS.cipherInserts,
+    cipherLidText: sanitizeCipherLidText(
+      params.cipherLidText ?? DEFAULT_CIPHER_BOX_PARAMS.cipherLidText,
+    ),
+  };
+}
+
+/**
+ * Код не короче двух колец.
+ *
+ * Одно кольцо — не код: его язычок открывает единственную прорезь в любом
+ * положении, и колпачок снимается без подбора букв. Поэтому одна введённая
+ * буква повторяется, а пустое поле превращается в слово по умолчанию.
+ */
+function normalizeCipherWord(value: string): string {
+  const word = sanitizeCipherWord(value);
+
+  if (word === "") {
+    return DEFAULT_CIPHER_BOX_PARAMS.cipherWord;
+  }
+
+  return Array.from(word).length < CIPHER_WORD_MIN_LENGTH ? word + word : word;
+}
+
+/**
+ * Проверяет и выравнивает параметры подарочной коробки.
+ *
+ * Габарит и форма проверяются теми же правилами, что у кашпо. Двойное дно и
+ * лабиринт занимают один объём: полки двойного дна перекрыли бы стойку, и
+ * крышка не села бы, поэтому при включённом лабиринте пластина выключается.
+ * Винт совместим с обоими — он стоит в углу корпуса.
+ */
+export function normalizeGiftBoxParams(
+  params: Partial<GiftBoxParams>,
+): GiftBoxParams {
+  const mazeLock =
+    typeof params.giftMazeLock === "boolean"
+      ? params.giftMazeLock
+      : DEFAULT_GIFT_BOX_PARAMS.giftMazeLock;
+  const falseBottom =
+    typeof params.giftFalseBottom === "boolean"
+      ? params.giftFalseBottom
+      : DEFAULT_GIFT_BOX_PARAMS.giftFalseBottom;
+
+  return {
+    giftSize: snap(
+      params.giftSize ?? DEFAULT_GIFT_BOX_PARAMS.giftSize,
+      CONSTRUCTOR_LIMITS.giftSize,
+    ),
+    giftShape: isGiftBoxShape(params.giftShape)
+      ? params.giftShape
+      : DEFAULT_GIFT_BOX_PARAMS.giftShape,
+    giftScrewLock:
+      typeof params.giftScrewLock === "boolean"
+        ? params.giftScrewLock
+        : DEFAULT_GIFT_BOX_PARAMS.giftScrewLock,
+    giftFalseBottom: mazeLock ? false : falseBottom,
+    giftMazeLock: mazeLock,
+  };
+}
+
+/**
  * Проверяет и выравнивает параметры вывески.
  *
  * Текст очищается от символов вне шрифта и обрезается до 15 знаков. Ширина
@@ -2732,5 +3020,7 @@ export function normalizeConstructorParams(
     ...normalizeWallHookParams(params),
     ...normalizeCupClipParams(params),
     ...normalizeStencilParams(params),
+    ...normalizeCipherBoxParams(params),
+    ...normalizeGiftBoxParams(params),
   };
 }

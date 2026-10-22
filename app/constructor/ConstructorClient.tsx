@@ -13,11 +13,13 @@ import {
   COASTER_PATTERN_LABELS,
   COASTER_SHAPE_LABELS,
   DEFAULT_BOX_PARAMS,
+  DEFAULT_CIPHER_BOX_PARAMS,
   DEFAULT_CLIPS_PARAMS,
   DEFAULT_COASTER_PARAMS,
   DEFAULT_CONSTRUCTOR_PARAMS,
   DEFAULT_CUP_CLIP_PARAMS,
   DEFAULT_FABRIC_PATCH_PARAMS,
+  DEFAULT_GIFT_BOX_PARAMS,
   DEFAULT_JEWELRY_STAND_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
   DEFAULT_LITHOPHANE_PARAMS,
@@ -30,6 +32,7 @@ import {
   DEFAULT_STRING_LIGHT_PARAMS,
   DEFAULT_VASE_PARAMS,
   DEFAULT_WALL_HOOK_PARAMS,
+  GIFT_BOX_SHAPE_LABELS,
   JEWELRY_CONFIG_LABELS,
   KEYCHAIN_SHAPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
@@ -45,10 +48,12 @@ import {
   WALL_HOOK_MOUNT_LABELS,
   boxPresetParams,
   boxStlFileName,
+  cipherBoxStlFileName,
   clipsStlFileName,
   coasterStlFileName,
   cupClipStlFileName,
   fabricPatchStlFileName,
+  giftBoxStlFileName,
   jewelryStandStlFileName,
   keychainStlFileName,
   listSignBlocks,
@@ -68,6 +73,7 @@ import {
   type CoasterPattern,
   type CoasterShape,
   type ConstructorParams,
+  type GiftBoxShape,
   type JewelryConfig,
   type KeychainShape,
   type LithophaneMount,
@@ -122,6 +128,13 @@ type SizeParam = Exclude<
   | "hookMount"
   | "cupClipHook"
   | "stencilPattern"
+  | "cipherWord"
+  | "cipherInserts"
+  | "cipherLidText"
+  | "giftShape"
+  | "giftScrewLock"
+  | "giftFalseBottom"
+  | "giftMazeLock"
 >;
 
 /**
@@ -149,6 +162,8 @@ const MODEL_DEFAULT_PARAMS: Record<ModelType, Partial<ConstructorParams>> = {
   wall_hook: DEFAULT_WALL_HOOK_PARAMS,
   cup_clip: DEFAULT_CUP_CLIP_PARAMS,
   stencil: DEFAULT_STENCIL_PARAMS,
+  cipher_box: DEFAULT_CIPHER_BOX_PARAMS,
+  gift_box: DEFAULT_GIFT_BOX_PARAMS,
 };
 
 /**
@@ -301,7 +316,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
   // с одним STL: ваза, брелок, коробка, подставка, клипсы, кашпо, подставка под
   // кружку, подставка для украшений, органайзер для ручек, нашивка, плафоны
-  // гирлянды, ёлочная игрушка, настенный крючок, клипса для кружки и трафарет.
+  // гирлянды, ёлочная игрушка, настенный крючок, клипса для кружки, трафарет,
+  // шкатулка с кодом и подарочная коробка.
   return [
     {
       id: params.model,
@@ -336,9 +352,29 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
                                   ? cupClipStlFileName(params)
                                   : params.model === "stencil"
                                     ? stencilStlFileName(params)
-                                    : boxStlFileName(params),
+                                    : params.model === "cipher_box"
+                                      ? cipherBoxStlFileName(params)
+                                      : params.model === "gift_box"
+                                        ? giftBoxStlFileName(params)
+                                        : boxStlFileName(params),
     },
   ];
+}
+
+/**
+ * Замки подарочной коробки в подписи под сценой.
+ *
+ * Перечисление читается до выгрузки: по нему видно, какие тайники попали в
+ * модель, не открывая панель параметров заново.
+ */
+function giftLockLabels(params: ConstructorParams): string {
+  const locks = [
+    params.giftScrewLock ? "винт" : null,
+    params.giftFalseBottom ? "двойное дно" : null,
+    params.giftMazeLock ? "лабиринт" : null,
+  ].filter((lock): lock is string => lock !== null);
+
+  return locks.length > 0 ? locks.join(", ") : "без замка";
 }
 
 /**
@@ -604,6 +640,52 @@ export function ConstructorClient({
     );
   }
 
+  /** Код шкатулки приходит уже очищенным: только буквы, до трёх штук. */
+  function updateCipherWord(cipherWord: string) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, cipherWord }),
+    );
+  }
+
+  function updateCipherLidText(cipherLidText: string) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, cipherLidText }),
+    );
+  }
+
+  function updateCipherInserts(cipherInserts: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, cipherInserts }),
+    );
+  }
+
+  function updateGiftShape(giftShape: GiftBoxShape) {
+    setParams((current) => normalizeConstructorParams({ ...current, giftShape }));
+  }
+
+  function updateGiftScrewLock(giftScrewLock: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, giftScrewLock }),
+    );
+  }
+
+  /**
+   * Включение лабиринта снимает двойное дно — это делает нормализация.
+   * Панель показывает обе галочки, но состояние всегда одно: замки занимают
+   * один объём, и пластина при лабиринте не печатается.
+   */
+  function updateGiftFalseBottom(giftFalseBottom: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, giftFalseBottom }),
+    );
+  }
+
+  function updateGiftMazeLock(giftMazeLock: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, giftMazeLock }),
+    );
+  }
+
   /** Сброс возвращает к старту только текущую модель, не трогая остальные. */
   function resetParams() {
     setParams((current) =>
@@ -779,12 +861,19 @@ export function ConstructorClient({
           exportOptions={exportOptions}
           onBoxCellsChange={updateBoxCells}
           onBoxPresetChange={updateBoxPreset}
+          onCipherInsertsChange={updateCipherInserts}
+          onCipherLidTextChange={updateCipherLidText}
+          onCipherWordChange={updateCipherWord}
           onCoasterPatternChange={updateCoasterPattern}
           onCoasterRimChange={updateCoasterRim}
           onCoasterShapeChange={updateCoasterShape}
           onCupClipHookChange={updateCupClipHook}
           onCustomSvgChange={updateKeychainCustomSvg}
           onExport={exportStl}
+          onGiftFalseBottomChange={updateGiftFalseBottom}
+          onGiftMazeLockChange={updateGiftMazeLock}
+          onGiftShapeChange={updateGiftShape}
+          onGiftScrewLockChange={updateGiftScrewLock}
           onHasLidChange={updateHasLid}
           onJewelryConfigChange={updateJewelryConfig}
           onLithoFrameChange={updateLithoFrame}
@@ -917,6 +1006,18 @@ export function ConstructorClient({
                   {STENCIL_PATTERN_LABELS[params.stencilPattern]} ·{" "}
                   {params.stencilWidth} × {params.stencilHeight} мм ·{" "}
                   {params.stencilThickness.toFixed(1)} мм
+                </>
+              ) : params.model === "cipher_box" ? (
+                <>
+                  код «{params.cipherWord}» ·{" "}
+                  {Array.from(params.cipherWord).length} кольца ·{" "}
+                  {params.cipherSize} мм ·{" "}
+                  {params.cipherLidText ? "с надписью на крышке" : "без надписи"}
+                </>
+              ) : params.model === "gift_box" ? (
+                <>
+                  {GIFT_BOX_SHAPE_LABELS[params.giftShape]} · {params.giftSize} мм
+                  · замки: {giftLockLabels(params)}
                 </>
               ) : (
                 <>

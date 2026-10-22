@@ -10,6 +10,7 @@ import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 
 import {
   COASTER_PATTERN_LABELS,
+  GIFT_BOX_SHAPE_LABELS,
   JEWELRY_CONFIG_LABELS,
   KEYCHAIN_SHAPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
@@ -33,10 +34,12 @@ import {
   createKeychainGeometry,
 } from "@/lib/constructor/keychain-geometry";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
+import { createCipherBoxGeometry } from "@/lib/constructor/cipher-box-geometry";
 import { createClipsGeometry } from "@/lib/constructor/cable-clips-geometry";
 import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
 import { createCupClipGeometry } from "@/lib/constructor/cup-clip-geometry";
 import { createFabricPatchGeometry } from "@/lib/constructor/fabric-patch-geometry";
+import { createGiftBoxGeometry } from "@/lib/constructor/gift-box-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
 import { createOrnamentGeometry } from "@/lib/constructor/ornament-geometry";
@@ -889,6 +892,22 @@ function Scene({ params, geometry, framing }: SceneProps) {
           height={framing.height}
           shadowKey={`stencil-${params.stencilPattern}-${params.stencilWidth}-${params.stencilHeight}-${params.stencilThickness}`}
         />
+      ) : params.model === "cipher_box" ? (
+        <ZUpModel
+          color="#f0abfc"
+          footprint={framing.footprint}
+          geometry={geometry}
+          height={framing.height}
+          shadowKey={`cipher-${params.cipherSize}-${params.cipherWord}-${params.cipherInserts}-${params.cipherLidText}`}
+        />
+      ) : params.model === "gift_box" ? (
+        <ZUpModel
+          color="#fdba74"
+          footprint={framing.footprint}
+          geometry={geometry}
+          height={framing.height}
+          shadowKey={`gift-${params.giftSize}-${params.giftShape}-${params.giftScrewLock}-${params.giftFalseBottom}-${params.giftMazeLock}`}
+        />
       ) : (
         <SignModel
           baseMount={params.signBaseMount}
@@ -934,16 +953,20 @@ function Scene({ params, geometry, framing }: SceneProps) {
  */
 export function Viewport({ params }: ViewportProps) {
   /**
-   * Брелок и вывеска подписываются шрифтом, остальным моделям он не нужен.
-   * У вывески шрифт выбирает пользователь, поэтому путь зависит от signFont:
-   * смена шрифта в панели загружает другой JSON.
+   * Брелок, вывеска и шкатулка с кодом подписываются шрифтом, остальным моделям
+   * он не нужен. У вывески шрифт выбирает пользователь, поэтому путь зависит от
+   * signFont: смена шрифта в панели загружает другой JSON. Шкатулке подходит тот
+   * же кириллический шрифт, что и брелоку: буквы кода и надпись на крышке —
+   * обычный текст.
    */
   const fontUrl =
     params.model === "sign"
       ? SIGN_FONT_URLS[params.signFont]
       : params.model === "keychain"
         ? KEYCHAIN_FONT_URL
-        : null;
+        : params.model === "cipher_box"
+          ? KEYCHAIN_FONT_URL
+          : null;
   const needsFont = fontUrl !== null;
   /**
    * Загруженный шрифт помнит свой путь. Пока новый файл не пришёл, сцена
@@ -1086,6 +1109,14 @@ export function Viewport({ params }: ViewportProps) {
       return createStencilGeometry(params);
     }
 
+    if (params.model === "cipher_box") {
+      return createCipherBoxGeometry(params, font);
+    }
+
+    if (params.model === "gift_box") {
+      return createGiftBoxGeometry(params);
+    }
+
     return createVaseGeometry(createVaseProfile(params), params);
   }, [font, lithophanePreviewBrightness, params]);
 
@@ -1142,14 +1173,17 @@ export function Viewport({ params }: ViewportProps) {
       params.model === "string_light" ||
       params.model === "ornament" ||
       params.model === "wall_hook" ||
-      params.model === "cup_clip"
+      params.model === "cup_clip" ||
+      params.model === "cipher_box" ||
+      params.model === "gift_box"
     ) {
       geometry.computeBoundingBox();
       const box = geometry.boundingBox;
 
       // Подставка, клипсы, кашпо, подставка под кружку, стойка украшений,
-      // органайзер для ручек, нашивка, плафоны, игрушка, крючок и клипса
-      // кружки построены Z-вверх: после поворота меша высотой становится Z,
+      // органайзер для ручек, нашивка, плафоны, игрушка, крючок, клипса
+      // кружки, шкатулка с кодом и подарочная коробка построены Z-вверх:
+      // после поворота меша высотой становится Z,
       // а длиной и шириной — X и Y.
       return {
         height: box ? Math.max(box.max.z - box.min.z, 1) : 1,
@@ -1250,7 +1284,11 @@ export function Viewport({ params }: ViewportProps) {
                                 ? `${params.cupClipWidth} × ${params.cupClipLength} мм`
                                 : params.model === "stencil"
                                   ? `${params.stencilWidth} × ${params.stencilHeight} × ${params.stencilThickness.toFixed(1)} мм`
-                                  : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
+                                  : params.model === "cipher_box"
+                                    ? `${params.cipherSize} × ${Math.round(framing.height)} мм`
+                                    : params.model === "gift_box"
+                                      ? `${params.giftSize} × ${Math.round(framing.height)} мм`
+                                      : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
 
   const ariaLabel =
     params.model === "vase"
@@ -1285,7 +1323,11 @@ export function Viewport({ params }: ViewportProps) {
                                 ? `3D-предпросмотр клипсы для кружки: борт ${params.cupRim} миллиметров, ширина ${params.cupClipWidth} миллиметров, наружная ножка ${params.cupClipLength} миллиметров, ${params.cupClipHook ? "с прорезью под нитку" : "без прорези"}`
                                 : params.model === "stencil"
                                   ? `3D-предпросмотр трафарета «${STENCIL_PATTERN_LABELS[params.stencilPattern]}» ${params.stencilWidth} на ${params.stencilHeight} миллиметров, толщина ${params.stencilThickness} миллиметров`
-                                  : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
+                                  : params.model === "cipher_box"
+                                    ? `3D-предпросмотр шкатулки с кодовым замком: корпус ${params.cipherSize} миллиметров, код «${params.cipherWord}», ${Array.from(params.cipherWord).length} кольца, ${params.cipherLidText ? `надпись на крышке «${params.cipherLidText}»` : "крышка без надписи"}`
+                                    : params.model === "gift_box"
+                                      ? `3D-предпросмотр подарочной коробки «${GIFT_BOX_SHAPE_LABELS[params.giftShape]}» ${params.giftSize} миллиметров, замки: ${[params.giftScrewLock ? "винт" : null, params.giftFalseBottom ? "двойное дно" : null, params.giftMazeLock ? "лабиринт" : null].filter((lock) => lock !== null).join(", ") || "нет"}`
+                                      : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
     <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-900 to-slate-900 shadow-2xl shadow-blue-950/50 sm:h-[32rem] lg:h-[38rem]">

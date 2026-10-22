@@ -11,6 +11,8 @@ import {
   BOX_CELL_MIN_MM,
   BOX_PRESET_IDS,
   BOX_PRESET_LABELS,
+  CIPHER_LID_TEXT_MAX_LENGTH,
+  CIPHER_WORD_MAX_LENGTH,
   COASTER_PATTERNS,
   COASTER_PATTERN_LABELS,
   COASTER_SHAPES,
@@ -23,6 +25,8 @@ import {
   KEYCHAIN_SHAPE_LABELS,
   KEYCHAIN_SVG_MAX_LENGTH,
   KEYCHAIN_TEXT_MAX_LENGTH,
+  GIFT_BOX_SHAPES,
+  GIFT_BOX_SHAPE_LABELS,
   hasDrawableSvgData,
   isCustomSvgData,
   LITHOPHANE_MOUNTS,
@@ -50,12 +54,15 @@ import {
   VASE_SHAPE_LABELS,
   WALL_HOOK_MOUNTS,
   WALL_HOOK_MOUNT_LABELS,
+  sanitizeCipherLidText,
+  sanitizeCipherWord,
   sanitizeKeychainText,
   sanitizeSignText,
   type BoxPresetId,
   type CoasterPattern,
   type CoasterShape,
   type ConstructorParams,
+  type GiftBoxShape,
   type JewelryConfig,
   type KeychainShape,
   type LithophaneMount,
@@ -102,6 +109,13 @@ type SizeParam = Exclude<
   | "hookMount"
   | "cupClipHook"
   | "stencilPattern"
+  | "cipherWord"
+  | "cipherInserts"
+  | "cipherLidText"
+  | "giftShape"
+  | "giftScrewLock"
+  | "giftFalseBottom"
+  | "giftMazeLock"
 >;
 
 /** Ошибка экспорта и действие, которое поможет её исправить. */
@@ -198,6 +212,20 @@ type ParameterPanelProps = {
   onCupClipHookChange: (enabled: boolean) => void;
   /** Узор прорезей трафарета: полосы, точки или соты. */
   onStencilPatternChange: (pattern: StencilPattern) => void;
+  /** Код шкатулки: 2–3 буквы, по одной на кольцо. */
+  onCipherWordChange: (word: string) => void;
+  /** Надпись на крышке шкатулки; пустая строка — без надписи. */
+  onCipherLidTextChange: (text: string) => void;
+  /** Перегородки под кольца внутри шкатулки. */
+  onCipherInsertsChange: (enabled: boolean) => void;
+  /** Форма подарочной коробки в плане. */
+  onGiftShapeChange: (shape: GiftBoxShape) => void;
+  /** Замок-винт в углу подарочной коробки. */
+  onGiftScrewLockChange: (enabled: boolean) => void;
+  /** Двойное дно: съёмная пластина и тайник под ней. */
+  onGiftFalseBottomChange: (enabled: boolean) => void;
+  /** Лабиринт: крышка садится в одном положении и поворачивается до упора. */
+  onGiftMazeLockChange: (enabled: boolean) => void;
   onReset: () => void;
 };
 
@@ -344,6 +372,8 @@ const MODEL_CARDS: ModelCard[] = [
   { id: "wall_hook", icon: "🪝", title: MODEL_TYPE_LABELS.wall_hook },
   { id: "cup_clip", icon: "🍵", title: MODEL_TYPE_LABELS.cup_clip },
   { id: "stencil", icon: "🖌️", title: MODEL_TYPE_LABELS.stencil },
+  { id: "cipher_box", icon: "🔐", title: MODEL_TYPE_LABELS.cipher_box },
+  { id: "gift_box", icon: "🎁", title: MODEL_TYPE_LABELS.gift_box },
 ];
 
 /**
@@ -776,6 +806,13 @@ export function ParameterPanel({
   onWallHookMountChange,
   onCupClipHookChange,
   onStencilPatternChange,
+  onCipherWordChange,
+  onCipherLidTextChange,
+  onCipherInsertsChange,
+  onGiftShapeChange,
+  onGiftScrewLockChange,
+  onGiftFalseBottomChange,
+  onGiftMazeLockChange,
   onReset,
 }: ParameterPanelProps) {
   const isExporting = exportingId !== null;
@@ -791,6 +828,12 @@ export function ParameterPanel({
   const keychainContourHintId = `${keychainContourInputId}-hint`;
   const boxCellsXInputId = useId();
   const boxCellsYInputId = useId();
+  const cipherWordInputId = useId();
+  const cipherWordHintId = `${cipherWordInputId}-hint`;
+  const cipherWordLength = Array.from(params.cipherWord).length;
+  const cipherLidTextInputId = useId();
+  const cipherLidTextHintId = `${cipherLidTextInputId}-hint`;
+  const cipherLidTextLength = Array.from(params.cipherLidText).length;
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -971,6 +1014,12 @@ export function ParameterPanel({
     cellsYText.trim().length > 0 && parseBoxCellsInput(cellsYText) === null;
   /** Слой паузы M600: метка ложится под верхней крышкой кармана. */
   const nfcPauseZ = Math.max(0, params.thickness - 0.4).toFixed(1);
+  /** Сколько потайных замков включено: их число попадает в сводку. */
+  const giftLockCount = [
+    params.giftScrewLock,
+    params.giftFalseBottom,
+    params.giftMazeLock,
+  ].filter((lock) => lock).length;
 
   /**
    * Заголовок над компактными кнопками. У вывески и литофана файлов несколько —
@@ -1167,7 +1216,40 @@ export function ParameterPanel({
                                         value: `${params.stencilThickness.toFixed(1)} мм`,
                                       },
                                     ]
-                                  : [
+                                  : params.model === "cipher_box"
+                                    ? [
+                                        {
+                                          label: "Код",
+                                          value: params.cipherWord,
+                                        },
+                                        {
+                                          label: "Кольца",
+                                          value: `${cipherWordLength} шт.`,
+                                        },
+                                        {
+                                          label: "Корпус",
+                                          value: `${params.cipherSize} мм`,
+                                        },
+                                      ]
+                                    : params.model === "gift_box"
+                                      ? [
+                                          {
+                                            label: "Габарит",
+                                            value: `${params.giftSize} мм`,
+                                          },
+                                          {
+                                            label: "Форма",
+                                            value:
+                                              GIFT_BOX_SHAPE_LABELS[
+                                                params.giftShape
+                                              ],
+                                          },
+                                          {
+                                            label: "Замки",
+                                            value: `${giftLockCount} шт.`,
+                                          },
+                                        ]
+                                      : [
                         { label: "Кегль", value: `${params.signFontSize} мм` },
                         { label: "Выступ", value: `${params.signDepth} мм` },
                         {
@@ -2203,6 +2285,235 @@ export function ParameterPanel({
             Узор собран сквозными прорезями в сплошной плите: перемычки держат
             трафарет целым, а по краю остаётся рамка, за которую его снимают.
             Плита печатается плашмя, поэтому поддержки и заполнение не нужны.
+          </p>
+        </>
+      ) : params.model === "cipher_box" ? (
+        <>
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Код шкатулки
+            </legend>
+
+            <label className="sr-only" htmlFor={cipherWordInputId}>
+              Код шкатулки: две или три буквы
+            </label>
+            <input
+              aria-describedby={cipherWordHintId}
+              autoComplete="off"
+              className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-semibold tracking-[0.4em] text-white uppercase placeholder:tracking-normal placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              id={cipherWordInputId}
+              maxLength={CIPHER_WORD_MAX_LENGTH}
+              onChange={(event) =>
+                onCipherWordChange(sanitizeCipherWord(event.target.value))
+              }
+              placeholder="КОД"
+              spellCheck={false}
+              type="text"
+              value={params.cipherWord}
+            />
+
+            <div className="mt-2 flex items-start justify-between gap-3">
+              <p
+                className="text-xs leading-relaxed text-slate-300"
+                id={cipherWordHintId}
+              >
+                Две или три буквы — по одной на кольцо. Буквы печатаются рельефом
+                0.8 мм, кольца поворачиваются пальцем за насечки.
+              </p>
+              <span className="shrink-0 text-xs tabular-nums text-slate-300">
+                {cipherWordLength}/{CIPHER_WORD_MAX_LENGTH}
+              </span>
+            </div>
+          </fieldset>
+
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <NumberSlider
+              hint="Габарит корпуса в плане. От него считаются диаметр колец, толщина трубки-оси и высота шкатулки."
+              label="Габарит"
+              max={CONSTRUCTOR_LIMITS.cipherSize.max}
+              min={CONSTRUCTOR_LIMITS.cipherSize.min}
+              onChange={(value) => onParamChange("cipherSize", value)}
+              step={CONSTRUCTOR_LIMITS.cipherSize.step}
+              unit="мм"
+              value={params.cipherSize}
+            />
+          </div>
+
+          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+            <input
+              checked={params.cipherInserts}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onChange={(event) =>
+                onCipherInsertsChange(event.target.checked)
+              }
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-200">
+                Перегородки внутри
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                Четыре тонкие стенки от трубки к борту делят дно на отсеки: в них
+                не путаются цепочки, кольца и серьги. Без перегородок остаётся
+                один общий тайник.
+              </span>
+            </span>
+          </label>
+
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Надпись на крышке
+            </legend>
+
+            <label className="sr-only" htmlFor={cipherLidTextInputId}>
+              Надпись на крышке шкатулки
+            </label>
+            <input
+              aria-describedby={cipherLidTextHintId}
+              autoComplete="off"
+              className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              id={cipherLidTextInputId}
+              maxLength={CIPHER_LID_TEXT_MAX_LENGTH}
+              onChange={(event) =>
+                onCipherLidTextChange(sanitizeCipherLidText(event.target.value))
+              }
+              placeholder="СЕКРЕТ"
+              spellCheck={false}
+              type="text"
+              value={params.cipherLidText}
+            />
+
+            <div className="mt-2 flex items-start justify-between gap-3">
+              <p
+                className="text-xs leading-relaxed text-slate-300"
+                id={cipherLidTextHintId}
+              >
+                Рельеф по верхней плоскости крышки. Пустое поле оставляет крышку
+                гладкой.
+              </p>
+              <span className="shrink-0 text-xs tabular-nums text-slate-300">
+                {cipherLidTextLength}/{CIPHER_LID_TEXT_MAX_LENGTH}
+              </span>
+            </div>
+          </fieldset>
+
+          <p className="mt-4 text-xs leading-relaxed text-slate-300">
+            Шкатулка печатается тремя деталями на одном столе: корпус с
+            трубкой-осью, крышка и колпачок. Язычки колец разнесены по кругу, а
+            в юбке колпачка напротив каждого кольца есть прорезь. Колпачок
+            снимается только тогда, когда язычки встали в один ряд, — то есть
+            при верном коде.
+          </p>
+        </>
+      ) : params.model === "gift_box" ? (
+        <>
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Круглая коробка ровно ложится под ленту, квадратная — под подарочную бумагу, шестигранная жёстче всех держит форму."
+              label="Форма"
+              onChange={onGiftShapeChange}
+              options={GIFT_BOX_SHAPES.map((shape) => ({
+                label: GIFT_BOX_SHAPE_LABELS[shape],
+                value: shape,
+              }))}
+              value={params.giftShape}
+            />
+          </div>
+
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <NumberSlider
+              hint="Габарит в плане. От него считаются стенка 3 мм, юбка крышки и положение всех замков, поэтому маленькая коробка удобна для кольца, большая — для свитера."
+              label="Габарит"
+              max={CONSTRUCTOR_LIMITS.giftSize.max}
+              min={CONSTRUCTOR_LIMITS.giftSize.min}
+              onChange={(value) => onParamChange("giftSize", value)}
+              step={CONSTRUCTOR_LIMITS.giftSize.step}
+              unit="мм"
+              value={params.giftSize}
+            />
+          </div>
+
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Потайные замки
+            </legend>
+
+            <div className="mt-3 space-y-3">
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+                <input
+                  checked={params.giftScrewLock}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  onChange={(event) =>
+                    onGiftScrewLockChange(event.target.checked)
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-200">
+                    Винт в углу
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                    Крышку держит саморез: в стойке корпуса есть гладкое
+                    отверстие Ø 1.9 мм, в крышке — Ø 2.4 мм под шляпку. Крышка
+                    снимается только с отверткой.
+                  </span>
+                </span>
+              </label>
+
+              <label
+                className={`flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors ${
+                  params.giftMazeLock
+                    ? "cursor-not-allowed opacity-60"
+                    : "cursor-pointer hover:border-white/25 hover:bg-white/5"
+                }`}
+              >
+                <input
+                  checked={params.giftFalseBottom}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed"
+                  disabled={params.giftMazeLock}
+                  onChange={(event) =>
+                    onGiftFalseBottomChange(event.target.checked)
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-200">
+                    Двойное дно
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                    Съёмная пластина лежит на четырёх полках, под ней — плоский
+                    тайник. Пластину поддевают через боковое отверстие Ø 3 мм.
+                    Печатается отдельной деталью.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+                <input
+                  checked={params.giftMazeLock}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  onChange={(event) => onGiftMazeLockChange(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-200">
+                    Лабиринт в крышке
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                    Две стенки с проёмами: внутренняя пропускает штифты в трёх
+                    положениях, внешняя — только в одном. Крышка садится с
+                    поворотом на 90° и фиксируется у упора. Занимает объём
+                    двойного дна, поэтому вместе они не включаются.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          <p className="mt-4 text-xs leading-relaxed text-slate-300">
+            Коробка печатается без поддержек: стенки идут вертикально, юбка
+            крышки — вниз, пластина двойного дна лежит на столе рядом. Замки
+            независимы, кроме двойного дна и лабиринта — они делят один объём.
           </p>
         </>
       ) : params.model === "box" ? (
