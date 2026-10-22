@@ -11,7 +11,9 @@ import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 import {
   KEYCHAIN_SHAPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
+  LITHOPHANE_PREVIEW_RESOLUTION,
   VASE_PATTERN_LABELS,
+  downsampleLithophaneBrightness,
   type ConstructorParams,
   type KeychainShape,
   type VasePattern,
@@ -823,6 +825,26 @@ export function Viewport({ params }: ViewportProps) {
   }, [fontUrl, loaded]);
 
   /**
+   * Предпросмотр литофана получает уменьшенную копию яркости: полные 400 × 400
+   * заставляют three.js пересобирать 160 801 вершину на каждое движение
+   * слайдера. Копия считается только при замене картинки — ссылка на массив в
+   * состоянии не меняется от правки толщин, поэтому useMemo не пересчитывает
+   * усреднение на каждый кадр.
+   */
+  const lithophaneBrightness =
+    params.model === "lithophane" ? params.lithophaneBrightness : null;
+  const lithophanePreviewBrightness = useMemo(
+    () =>
+      lithophaneBrightness
+        ? downsampleLithophaneBrightness(
+            lithophaneBrightness,
+            LITHOPHANE_PREVIEW_RESOLUTION,
+          )
+        : null,
+    [lithophaneBrightness],
+  );
+
+  /**
    * Профиль и сетка пересчитываются только при изменении параметров или
    * загрузке шрифта. Смена камеры, света или материала не создаёт новую
    * геометрию. Пока шрифт не пришёл, брелок показывается без имени, а
@@ -850,11 +872,17 @@ export function Viewport({ params }: ViewportProps) {
     }
 
     if (params.model === "lithophane") {
-      return createLithophaneGeometry(params);
+      // В сцену уходит уменьшенная копия, а в запрос STL — полный массив из
+      // состояния: предпросмотр быстрый, печать подробная.
+      return createLithophaneGeometry(
+        lithophanePreviewBrightness
+          ? { ...params, lithophaneBrightness: lithophanePreviewBrightness }
+          : params,
+      );
     }
 
     return createVaseGeometry(createVaseProfile(params), params);
-  }, [font, params]);
+  }, [font, lithophanePreviewBrightness, params]);
 
   // Старая сетка живёт в GPU-буфере: без dispose каждая правка слайдера
   // оставляла бы мусор до перезагрузки страницы.

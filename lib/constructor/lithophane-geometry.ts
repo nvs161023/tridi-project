@@ -3,7 +3,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 
 import {
   LITHOPHANE_MESH_RESOLUTION,
-  LITHOPHANE_RESOLUTION,
+  lithophaneBrightnessSide,
   normalizeLithophaneParams,
   type LithophaneParams,
   type LithophanePart,
@@ -14,9 +14,11 @@ import {
  *
  * Всё стоит в плоскости XY нижней кромкой на Y = 0, лицо смотрит в +Z; у
  * подставки база лежит на столе. Рельеф — heightfield 400 × 400: толщина каждой
- * вершины берётся из яркости фотографии билинейной выборкой из 150 × 150.
- * Чёрный пиксель даёт максимальную толщину, белый — минимальную, поэтому свет
- * проходит через тонкие участки сильнее.
+ * вершины берётся из яркости фотографии билинейной выборкой из сетки 400 × 400,
+ * которую браузер уже сжал из кадра. Чёрный пиксель даёт максимальную толщину,
+ * белый — минимальную, поэтому свет проходит через тонкие участки сильнее.
+ * После выборки яркость проходит через лёгкий unsharp и контраст: без них
+ * билинейное сглаживание размывало тонкие штрихи логотипа до «каши».
  *
  * Деталей три, и каждая — отдельный замкнутый объект:
  *   `relief` — плита с плоским тылом и рельефом на лице;
@@ -270,24 +272,27 @@ function lithophaneFrameMetrics(normalized: LithophaneParams): FrameMetrics {
 /**
  * Билинейная выборка яркости в точке 0…1 по обеим осям.
  *
- * Картинка приходит 150 × 150, а сетка рельефа — 400 × 400, поэтому вершина
- * почти никогда не попадает в центр пикселя. Без выборки ступеньки были бы
- * шириной 0.8 мм на панели 120 мм и читались бы как полосы.
+ * Сторона сетки выводится из длины массива и приходит аргументом: при
+ * источнике 400 × 400 и сетке рельефа 400 × 400 вершина попадает почти в центр
+ * пикселя, но дробные координаты всё равно встречаются — на предпросмотре
+ * сцена присылает уменьшенную копию 150 × 150. Без выборки переходы читались
+ * бы ступенями.
  */
 function sampleBrightness(
   brightness: number[],
+  side: number,
   u: number,
   v: number,
 ): number {
-  const last = LITHOPHANE_RESOLUTION - 1;
+  const last = side - 1;
   const x = Math.min(Math.max(u, 0), 1) * last;
   const y = Math.min(Math.max(v, 0), 1) * last;
   const x0 = Math.min(Math.floor(x), last - 1);
   const y0 = Math.min(Math.floor(y), last - 1);
   const tx = x - x0;
   const ty = y - y0;
-  const topRow = y0 * LITHOPHANE_RESOLUTION;
-  const bottomRow = topRow + LITHOPHANE_RESOLUTION;
+  const topRow = y0 * side;
+  const bottomRow = topRow + side;
   const topLeft = brightness[topRow + x0];
   const bottomLeft = brightness[bottomRow + x0];
   const top = topLeft + (brightness[topRow + x0 + 1] - topLeft) * tx;
@@ -295,6 +300,45 @@ function sampleBrightness(
     bottomLeft + (brightness[bottomRow + x0 + 1] - bottomLeft) * tx;
 
   return top + (bottom - top) * ty;
+}
+
+/**
+ * Насколько усиливается резкость: разница с средним четырёх соседей.
+ *
+ * Билинейная выборка — это фильтр низких частот: штрих логотипа в один пиксель
+ * теряет амплитуду, и на печати буквы сливаются. unsharp возвращает краю
+ * контраст, а второй коэффициент расширяет диапазон вокруг середины, чтобы
+ * тёмные линии уверенно доходили до максимальной толщины. Значения ниже 0 и
+ * выше 255 обрезаются: толщина не может выйти за границы слайдеров.
+ */
+const LITHOPHANE_SHARPNESS = 0.5;
+const LITHOPHANE_CONTRAST = 1.15;
+
+function sharpenBrightness(
+  brightness: number[],
+  side: number,
+  u: number,
+  v: number,
+): number {
+  const center = sampleBrightness(brightness, side, u, v);
+
+  if (side < 3) {
+    return center;
+  }
+
+  // Шаг в один пиксель источника: соседи берутся по осям, поэтому фильтр
+  // остаётся разделимым и стоит четыре выборки вместо девяти.
+  const step = 1 / (side - 1);
+  const neighbors =
+    (sampleBrightness(brightness, side, u - step, v) +
+      sampleBrightness(brightness, side, u + step, v) +
+      sampleBrightness(brightness, side, u, v - step) +
+      sampleBrightness(brightness, side, u, v + step)) /
+    4;
+  const sharpened = center + (center - neighbors) * LITHOPHANE_SHARPNESS;
+  const contrasted = 127.5 + (sharpened - 127.5) * LITHOPHANE_CONTRAST;
+
+  return Math.min(255, Math.max(0, contrasted));
 }
 
 /**
@@ -313,6 +357,7 @@ function createReliefBody(
   const minThickness = normalized.lithophaneMinThickness;
   const maxThickness = normalized.lithophaneMaxThickness;
   const brightness = normalized.lithophaneBrightness;
+  const side = lithophaneBrightnessSide(brightness);
   const halfWidth = plateWidth / 2;
   const thicknessRange = maxThickness - minThickness;
   const n = LITHOPHANE_MESH_RESOLUTION;
@@ -340,7 +385,7 @@ function createReliefBody(
       const thickness = inBorder
         ? maxThickness
         : maxThickness -
-          thicknessRange * (sampleBrightness(brightness, u, v) / 255);
+          thicknessRange * (sharpenBrightness(brightness, side, u, v) / 255);
 
       positions.push(x, y, thickness);
     }
