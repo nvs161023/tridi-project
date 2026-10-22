@@ -41,6 +41,25 @@ export function circlePolygon(
   return points;
 }
 
+/**
+ * Сечение детали «под ключ».
+ *
+ * `acrossFlats` — расстояние между параллельными гранями: у круга это диаметр,
+ * у квадрата и шестигранника — габарит. Радиус описанной окружности больше
+ * половины габарита, поэтому многоугольник получается ровно того же размера,
+ * что и подписанный слайдер.
+ */
+export function polygonAcrossFlats(
+  acrossFlats: number,
+  sides: number,
+  startAngle = 0,
+): Point2[] {
+  const apothem = Math.max(acrossFlats, 0) / 2;
+  const radius = sides > 2 ? apothem / Math.cos(Math.PI / sides) : apothem;
+
+  return circlePolygon(radius, sides, startAngle);
+}
+
 /** Сдвигает контур на плоскости: детали стоят рядом или сдвинуты от центра. */
 export function offsetPoints(
   points: readonly Point2[],
@@ -48,6 +67,45 @@ export function offsetPoints(
   dy = 0,
 ): Point2[] {
   return points.map(([x, y]) => [x + dx, y + dy] as Point2);
+}
+
+/**
+ * Прямоугольник со скруглёнными углами — контур плиты в плане.
+ *
+ * Обход начинается с нижнего правого скругления и идёт против часовой стрелки,
+ * как у остальных контуров: так его ждут призмы и `ExtrudeGeometry`. Радиус
+ * скругления зажимается половиной меньшей стороны, поэтому узкая плита всё равно
+ * получает корректный контур.
+ */
+export function roundedRectanglePolygon(
+  width: number,
+  height: number,
+  corner: number,
+  segments = 6,
+): Point2[] {
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+  const radius = Math.max(Math.min(corner, halfWidth, halfHeight), 0);
+  const points: Point2[] = [];
+  const corners: readonly (readonly [number, number, number])[] = [
+    [halfWidth - radius, -halfHeight + radius, -Math.PI / 2],
+    [halfWidth - radius, halfHeight - radius, 0],
+    [-halfWidth + radius, halfHeight - radius, Math.PI / 2],
+    [-halfWidth + radius, -halfHeight + radius, Math.PI],
+  ];
+
+  for (const [centerX, centerY, startAngle] of corners) {
+    for (let index = 0; index <= segments; index += 1) {
+      const angle = startAngle + (Math.PI / 2) * (index / segments);
+
+      points.push([
+        centerX + radius * Math.cos(angle),
+        centerY + radius * Math.sin(angle),
+      ]);
+    }
+  }
+
+  return points;
 }
 
 /**
@@ -247,6 +305,84 @@ export function addRingPrism(
       oy1,
       z0,
     );
+  }
+}
+
+/**
+ * Замкнутая призма по выпуклому сечению в плоскости YZ, растянутая по X.
+ *
+ * Так строятся штырь настенного крючка и ножки клипсы для кружки: профиль
+ * детали задан парой `[y, z]`, а ширина идёт по X. Сечение можно описывать в
+ * любом порядке — направление нормалей проверяется по центроиду тела, поэтому
+ * зеркальный или перевёрнутый профиль тоже даёт наружные грани.
+ */
+export function addPrismAlongX(
+  positions: number[],
+  section: readonly Point2[],
+  x0: number,
+  x1: number,
+): void {
+  const count = section.length;
+  let centerY = 0;
+  let centerZ = 0;
+
+  for (const [y, z] of section) {
+    centerY += y;
+    centerZ += z;
+  }
+
+  centerY /= count;
+  centerZ /= count;
+
+  const center: Point3 = [(x0 + x1) / 2, centerY, centerZ];
+
+  /** Дописывает треугольник, разворачивая обход от центроида наружу. */
+  const pushTriangle = (a: Point3, b: Point3, c: Point3): void => {
+    const ux = b[0] - a[0];
+    const uy = b[1] - a[1];
+    const uz = b[2] - a[2];
+    const vx = c[0] - a[0];
+    const vy = c[1] - a[1];
+    const vz = c[2] - a[2];
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const fx = (a[0] + b[0] + c[0]) / 3 - center[0];
+    const fy = (a[1] + b[1] + c[1]) / 3 - center[1];
+    const fz = (a[2] + b[2] + c[2]) / 3 - center[2];
+    const outward = nx * fx + ny * fy + nz * fz >= 0;
+    const second = outward ? b : c;
+    const third = outward ? c : b;
+
+    positions.push(
+      a[0],
+      a[1],
+      a[2],
+      second[0],
+      second[1],
+      second[2],
+      third[0],
+      third[1],
+      third[2],
+    );
+  };
+
+  const start = section.map(([y, z]) => [x0, y, z] as Point3);
+  const end = section.map(([y, z]) => [x1, y, z] as Point3);
+
+  for (let index = 0; index < count; index += 1) {
+    const next = (index + 1) % count;
+
+    pushTriangle(start[index], start[next], end[next]);
+    pushTriangle(start[index], end[next], end[index]);
+  }
+
+  // Торцы — веер от центроида сечения: контур выпуклый, поэтому веер корректен.
+  for (let index = 0; index < count; index += 1) {
+    const next = (index + 1) % count;
+
+    pushTriangle([x0, centerY, centerZ], start[index], start[next]);
+    pushTriangle([x1, centerY, centerZ], end[index], end[next]);
   }
 }
 

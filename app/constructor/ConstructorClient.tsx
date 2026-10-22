@@ -16,35 +16,54 @@ import {
   DEFAULT_CLIPS_PARAMS,
   DEFAULT_COASTER_PARAMS,
   DEFAULT_CONSTRUCTOR_PARAMS,
+  DEFAULT_CUP_CLIP_PARAMS,
+  DEFAULT_FABRIC_PATCH_PARAMS,
   DEFAULT_JEWELRY_STAND_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
   DEFAULT_LITHOPHANE_PARAMS,
+  DEFAULT_ORNAMENT_PARAMS,
+  DEFAULT_PEN_HOLDER_PARAMS,
   DEFAULT_PLANTER_PARAMS,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_STAND_PARAMS,
+  DEFAULT_STENCIL_PARAMS,
+  DEFAULT_STRING_LIGHT_PARAMS,
   DEFAULT_VASE_PARAMS,
+  DEFAULT_WALL_HOOK_PARAMS,
   JEWELRY_CONFIG_LABELS,
   KEYCHAIN_SHAPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PART_LABELS,
+  ORNAMENT_SHAPE_LABELS,
+  PATCH_SHAPE_LABELS,
+  PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
+  STENCIL_PATTERN_LABELS,
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
+  WALL_HOOK_MOUNT_LABELS,
   boxPresetParams,
   boxStlFileName,
   clipsStlFileName,
   coasterStlFileName,
+  cupClipStlFileName,
+  fabricPatchStlFileName,
   jewelryStandStlFileName,
   keychainStlFileName,
   listSignBlocks,
   listSignLetters,
   lithophaneStlFileName,
   normalizeConstructorParams,
+  ornamentStlFileName,
+  penHolderStlFileName,
   planterStlFileName,
   signStlFileName,
   standStlFileName,
+  stencilStlFileName,
+  stringLightStlFileName,
   vaseStlFileName,
+  wallHookStlFileName,
   type BoxPresetId,
   type CoasterPattern,
   type CoasterShape,
@@ -54,11 +73,16 @@ import {
   type LithophaneMount,
   type LithophanePart,
   type ModelType,
+  type OrnamentShape,
+  type PatchShape,
+  type PenShape,
   type PlanterShape,
   type SignChannelWidth,
   type SignFont,
+  type StencilPattern,
   type VasePattern,
   type VaseShape,
+  type WallHookMount,
 } from "@/lib/constructor/params";
 
 type ConstructorClientProps = {
@@ -90,6 +114,14 @@ type SizeParam = Exclude<
   | "coasterPattern"
   | "coasterRim"
   | "jewelryConfig"
+  | "penShape"
+  | "patchShape"
+  | "patchBorder"
+  | "ornamentShape"
+  | "ornamentLoop"
+  | "hookMount"
+  | "cupClipHook"
+  | "stencilPattern"
 >;
 
 /**
@@ -110,6 +142,13 @@ const MODEL_DEFAULT_PARAMS: Record<ModelType, Partial<ConstructorParams>> = {
   planter: DEFAULT_PLANTER_PARAMS,
   coaster: DEFAULT_COASTER_PARAMS,
   jewelry_stand: DEFAULT_JEWELRY_STAND_PARAMS,
+  pen_holder: DEFAULT_PEN_HOLDER_PARAMS,
+  fabric_patch: DEFAULT_FABRIC_PATCH_PARAMS,
+  string_light: DEFAULT_STRING_LIGHT_PARAMS,
+  ornament: DEFAULT_ORNAMENT_PARAMS,
+  wall_hook: DEFAULT_WALL_HOOK_PARAMS,
+  cup_clip: DEFAULT_CUP_CLIP_PARAMS,
+  stencil: DEFAULT_STENCIL_PARAMS,
 };
 
 /**
@@ -261,7 +300,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
 
   // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
   // с одним STL: ваза, брелок, коробка, подставка, клипсы, кашпо, подставка под
-  // кружку и подставка для украшений.
+  // кружку, подставка для украшений, органайзер для ручек, нашивка, плафоны
+  // гирлянды, ёлочная игрушка, настенный крючок, клипса для кружки и трафарет.
   return [
     {
       id: params.model,
@@ -282,7 +322,21 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
                     ? coasterStlFileName(params)
                     : params.model === "jewelry_stand"
                       ? jewelryStandStlFileName(params)
-                      : boxStlFileName(params),
+                      : params.model === "pen_holder"
+                        ? penHolderStlFileName(params)
+                        : params.model === "fabric_patch"
+                          ? fabricPatchStlFileName(params)
+                          : params.model === "string_light"
+                            ? stringLightStlFileName(params)
+                            : params.model === "ornament"
+                              ? ornamentStlFileName(params)
+                              : params.model === "wall_hook"
+                                ? wallHookStlFileName(params)
+                                : params.model === "cup_clip"
+                                  ? cupClipStlFileName(params)
+                                  : params.model === "stencil"
+                                    ? stencilStlFileName(params)
+                                    : boxStlFileName(params),
     },
   ];
 }
@@ -504,6 +558,52 @@ export function ConstructorClient({
     );
   }
 
+  function updatePenShape(penShape: PenShape) {
+    setParams((current) => normalizeConstructorParams({ ...current, penShape }));
+  }
+
+  function updatePatchShape(patchShape: PatchShape) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, patchShape }),
+    );
+  }
+
+  function updatePatchBorder(patchBorder: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, patchBorder }),
+    );
+  }
+
+  function updateOrnamentShape(ornamentShape: OrnamentShape) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, ornamentShape }),
+    );
+  }
+
+  function updateOrnamentLoop(ornamentLoop: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, ornamentLoop }),
+    );
+  }
+
+  function updateWallHookMount(hookMount: WallHookMount) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, hookMount }),
+    );
+  }
+
+  function updateCupClipHook(cupClipHook: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, cupClipHook }),
+    );
+  }
+
+  function updateStencilPattern(stencilPattern: StencilPattern) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, stencilPattern }),
+    );
+  }
+
   /** Сброс возвращает к старту только текущую модель, не трогая остальные. */
   function resetParams() {
     setParams((current) =>
@@ -645,8 +745,10 @@ export function ConstructorClient({
             брелок с именем, подставка под телефон, набор клипс для кабелей,
             светодиодная вывеска с надписью, коробка-органайзер с сеткой и
             крышкой, литофан из фотографии, кашпо с поддоном, подставка под
-            кружку и стойка для украшений. Настройте размеры, проверьте
-            результат в 3D и скачайте STL.
+            кружку, стойка для украшений, органайзер для ручек, нашивка на
+            ткань, плафоны для гирлянды, ёлочная игрушка, настенный крючок,
+            клипса для кружки и трафарет. Настройте размеры, проверьте результат
+            в 3D и скачайте STL.
           </p>
         </div>
 
@@ -680,6 +782,7 @@ export function ConstructorClient({
           onCoasterPatternChange={updateCoasterPattern}
           onCoasterRimChange={updateCoasterRim}
           onCoasterShapeChange={updateCoasterShape}
+          onCupClipHookChange={updateCupClipHook}
           onCustomSvgChange={updateKeychainCustomSvg}
           onExport={exportStl}
           onHasLidChange={updateHasLid}
@@ -691,16 +794,23 @@ export function ConstructorClient({
           onModelChange={updateModel}
           onNfcChange={updateKeychainNfc}
           onParamChange={updateParam}
+          onPatchBorderChange={updatePatchBorder}
+          onPatchShapeChange={updatePatchShape}
           onPatternChange={updatePattern}
+          onPenShapeChange={updatePenShape}
           onPlanterDrainageChange={updatePlanterDrainage}
           onPlanterShapeChange={updatePlanterShape}
+          onOrnamentLoopChange={updateOrnamentLoop}
+          onOrnamentShapeChange={updateOrnamentShape}
           onReset={resetParams}
           onShapeChange={updateShape}
           onSignChannelWidthChange={updateSignChannelWidth}
           onSignBaseMountChange={updateSignBaseMount}
           onSignFontChange={updateSignFont}
           onSignTextChange={updateSignText}
+          onStencilPatternChange={updateStencilPattern}
           onTextChange={updateKeychainText}
+          onWallHookMountChange={updateWallHookMount}
           params={params}
         />
 
@@ -764,6 +874,49 @@ export function ConstructorClient({
                 <>
                   {JEWELRY_CONFIG_LABELS[params.jewelryConfig]} ·{" "}
                   {params.jewelryBase} × {params.jewelryHeight} мм
+                </>
+              ) : params.model === "pen_holder" ? (
+                <>
+                  {PEN_SHAPE_LABELS[params.penShape]} · {params.penSize} ×{" "}
+                  {params.penHeight} мм · отделения: {params.penSections} · стенка{" "}
+                  {params.penWall.toFixed(1)} мм
+                </>
+              ) : params.model === "fabric_patch" ? (
+                <>
+                  {PATCH_SHAPE_LABELS[params.patchShape]} · {params.patchSize} ×{" "}
+                  {params.patchThickness.toFixed(1)} мм ·{" "}
+                  {params.patchBorder ? "бортик и строчка" : "без бортика"} ·{" "}
+                  {params.patchStitches} стежков
+                </>
+              ) : params.model === "string_light" ? (
+                <>
+                  {params.lightCount} шт. · раструб Ø {params.lightDiameter} мм ·
+                  высота {params.lightHeight} мм · цоколь Ø{" "}
+                  {params.lightSocket} мм
+                </>
+              ) : params.model === "ornament" ? (
+                <>
+                  {ORNAMENT_SHAPE_LABELS[params.ornamentShape]} ·{" "}
+                  {params.ornamentDiameter} × {params.ornamentHeight} мм · стенка{" "}
+                  {params.ornamentWall.toFixed(1)} мм ·{" "}
+                  {params.ornamentLoop ? "с кольцом" : "без кольца"}
+                </>
+              ) : params.model === "wall_hook" ? (
+                <>
+                  {WALL_HOOK_MOUNT_LABELS[params.hookMount]} · {params.hookWidth} ×{" "}
+                  {params.hookHeight} мм · вынос {params.hookDepth} мм
+                </>
+              ) : params.model === "cup_clip" ? (
+                <>
+                  борт {params.cupRim} мм · {params.cupClipWidth} ×{" "}
+                  {params.cupClipLength} мм ·{" "}
+                  {params.cupClipHook ? "прорезь под нитку" : "без прорези"}
+                </>
+              ) : params.model === "stencil" ? (
+                <>
+                  {STENCIL_PATTERN_LABELS[params.stencilPattern]} ·{" "}
+                  {params.stencilWidth} × {params.stencilHeight} мм ·{" "}
+                  {params.stencilThickness.toFixed(1)} мм
                 </>
               ) : (
                 <>

@@ -18,6 +18,7 @@ import {
   boxStlFileName,
   clipsStlFileName,
   coasterStlFileName,
+  cupClipStlFileName,
   hasDrawableSvgData,
   isBoxCells,
   isCoasterPattern,
@@ -27,14 +28,20 @@ import {
   isLithophaneBrightness,
   isLithophaneMount,
   isLithophanePart,
+  isOrnamentShape,
+  isPatchShape,
+  isPenShape,
   isPlanterShape,
   isSignChannelWidth,
   isSignFont,
   isSignPart,
+  isStencilPattern,
   isVasePattern,
   isVaseShape,
   isValidKeychainText,
   isValidSignText,
+  isWallHookMount,
+  fabricPatchStlFileName,
   jewelryStandStlFileName,
   keychainStlFileName,
   listSignBlocks,
@@ -42,48 +49,74 @@ import {
   normalizeBoxParams,
   normalizeClipsParams,
   normalizeCoasterParams,
+  normalizeCupClipParams,
+  normalizeFabricPatchParams,
   normalizeJewelryStandParams,
   normalizeKeychainParams,
   normalizeKeychainShapeAlias,
   normalizeLithophaneParams,
+  normalizeOrnamentParams,
+  normalizePenHolderParams,
   normalizePlanterParams,
   normalizeSignParams,
   normalizeStandParams,
+  normalizeStencilParams,
+  normalizeStringLightParams,
   normalizeVaseParams,
+  normalizeWallHookParams,
+  ornamentStlFileName,
+  penHolderStlFileName,
   planterStlFileName,
   signStlFileName,
   standStlFileName,
+  stencilStlFileName,
+  stringLightStlFileName,
   vaseStlFileName,
+  wallHookStlFileName,
   type BoxParams,
   type ClipsParams,
   type CoasterParams,
+  type CupClipParams,
+  type FabricPatchParams,
   type JewelryStandParams,
   type KeychainParams,
   type LithophaneParams,
   type LithophanePart,
+  type OrnamentParams,
+  type PenHolderParams,
   type PlanterParams,
   type SignParams,
   type SignPart,
   type StandParams,
+  type StencilParams,
+  type StringLightParams,
   type VaseParams,
+  type WallHookParams,
 } from "@/lib/constructor/params";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import { createClipsGeometry } from "@/lib/constructor/cable-clips-geometry";
 import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
+import { createCupClipGeometry } from "@/lib/constructor/cup-clip-geometry";
+import { createFabricPatchGeometry } from "@/lib/constructor/fabric-patch-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import {
   KEYCHAIN_FONT_URL,
   createKeychainGeometry,
 } from "@/lib/constructor/keychain-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
+import { createOrnamentGeometry } from "@/lib/constructor/ornament-geometry";
+import { createPenHolderGeometry } from "@/lib/constructor/pen-holder-geometry";
 import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
 import { createStandGeometry } from "@/lib/constructor/phone-stand-geometry";
 import {
   SIGN_FONT_URLS,
   createSignBlockGeometry,
 } from "@/lib/constructor/sign-geometry";
+import { createStencilGeometry } from "@/lib/constructor/stencil-geometry";
+import { createStringLightGeometry } from "@/lib/constructor/string-light-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
+import { createWallHookGeometry } from "@/lib/constructor/wall-hook-geometry";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -102,7 +135,10 @@ import { createClient } from "@/lib/supabase/server";
  *      яркости 400 × 400, подставка под телефон с наклоном, толщиной телефона и
  *      шириной, набор клипс с диаметром кабеля, числом зажимов и шагом, кашпо с
  *      формой, дренажом и стенкой, подставка под кружку с формой, узором и
- *      бортиком, стойка для украшений с набором держателей.
+ *      бортиком, стойка для украшений с набором держателей, органайзер для
+ *      ручек с формой, стенкой и отделениями, нашивка с формой, бортиком и
+ *      стежками, плафоны гирлянды с раструбом, посадкой на цоколь и числом
+ *      штук.
  *
  * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
  * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
@@ -721,6 +757,336 @@ function parseJewelryStandParams(
   });
 }
 
+/**
+ * Строгая проверка параметров органайзера для ручек.
+ *
+ * Габарит, высота и стенка проверяются в границах слайдеров, форма — по списку
+ * трёх силуэтов, число отделений — целое: половина перегородки не печатается,
+ * а дробное значение сдвинуло бы хорду, по которой она подрезана.
+ */
+function parsePenHolderParams(
+  body: Record<string, unknown>,
+): PenHolderParams | null {
+  const { penSize, penHeight, penWall, penShape, penSections } = body;
+
+  if (
+    !isNumberInRange(
+      penSize,
+      CONSTRUCTOR_LIMITS.penSize.min,
+      CONSTRUCTOR_LIMITS.penSize.max,
+    ) ||
+    !isNumberInRange(
+      penHeight,
+      CONSTRUCTOR_LIMITS.penHeight.min,
+      CONSTRUCTOR_LIMITS.penHeight.max,
+    ) ||
+    !isNumberInRange(
+      penWall,
+      CONSTRUCTOR_LIMITS.penWall.min,
+      CONSTRUCTOR_LIMITS.penWall.max,
+    ) ||
+    !isPenShape(penShape) ||
+    !isNumberInRange(
+      penSections,
+      CONSTRUCTOR_LIMITS.penSections.min,
+      CONSTRUCTOR_LIMITS.penSections.max,
+    ) ||
+    !Number.isInteger(penSections)
+  ) {
+    return null;
+  }
+
+  return normalizePenHolderParams({
+    penSize,
+    penHeight,
+    penWall,
+    penShape,
+    penSections,
+  });
+}
+
+/**
+ * Строгая проверка параметров нашивки.
+ *
+ * Габарит, толщина и число стежков проверяются в границах, форма — по списку,
+ * бортик — только настоящим boolean: строка «false» иначе добавила бы в файл
+ * кольцо и строчку против выбора пользователя.
+ */
+function parseFabricPatchParams(
+  body: Record<string, unknown>,
+): FabricPatchParams | null {
+  const { patchSize, patchThickness, patchShape, patchBorder, patchStitches } =
+    body;
+
+  if (
+    !isNumberInRange(
+      patchSize,
+      CONSTRUCTOR_LIMITS.patchSize.min,
+      CONSTRUCTOR_LIMITS.patchSize.max,
+    ) ||
+    !isNumberInRange(
+      patchThickness,
+      CONSTRUCTOR_LIMITS.patchThickness.min,
+      CONSTRUCTOR_LIMITS.patchThickness.max,
+    ) ||
+    !isPatchShape(patchShape) ||
+    typeof patchBorder !== "boolean" ||
+    !isNumberInRange(
+      patchStitches,
+      CONSTRUCTOR_LIMITS.patchStitches.min,
+      CONSTRUCTOR_LIMITS.patchStitches.max,
+    ) ||
+    !Number.isInteger(patchStitches)
+  ) {
+    return null;
+  }
+
+  return normalizeFabricPatchParams({
+    patchSize,
+    patchThickness,
+    patchShape,
+    patchBorder,
+    patchStitches,
+  });
+}
+
+/**
+ * Строгая проверка параметров плафонов для гирлянды.
+ *
+ * Все размеры лежат в границах слайдеров, число плафонов — целое. Отдельно
+ * проверяется посадка на цоколь: если отверстие шире, чем позволяет конус,
+ * верхняя часть вывернулась бы наизнанку. Нормализация такое значение молча
+ * подрезает, поэтому API отклоняет запрос целиком — за подрезанный размер
+ * пользователь не голосовал.
+ */
+function parseStringLightParams(
+  body: Record<string, unknown>,
+): StringLightParams | null {
+  const {
+    lightDiameter,
+    lightHeight,
+    lightSocket,
+    lightWall,
+    lightCount,
+  } = body;
+
+  if (
+    !isNumberInRange(
+      lightDiameter,
+      CONSTRUCTOR_LIMITS.lightDiameter.min,
+      CONSTRUCTOR_LIMITS.lightDiameter.max,
+    ) ||
+    !isNumberInRange(
+      lightHeight,
+      CONSTRUCTOR_LIMITS.lightHeight.min,
+      CONSTRUCTOR_LIMITS.lightHeight.max,
+    ) ||
+    !isNumberInRange(
+      lightSocket,
+      CONSTRUCTOR_LIMITS.lightSocket.min,
+      CONSTRUCTOR_LIMITS.lightSocket.max,
+    ) ||
+    !isNumberInRange(
+      lightWall,
+      CONSTRUCTOR_LIMITS.lightWall.min,
+      CONSTRUCTOR_LIMITS.lightWall.max,
+    ) ||
+    !isNumberInRange(
+      lightCount,
+      CONSTRUCTOR_LIMITS.lightCount.min,
+      CONSTRUCTOR_LIMITS.lightCount.max,
+    ) ||
+    !Number.isInteger(lightCount) ||
+    lightSocket > lightDiameter - 4 * lightWall - 2
+  ) {
+    return null;
+  }
+
+  return normalizeStringLightParams({
+    lightDiameter,
+    lightHeight,
+    lightSocket,
+    lightWall,
+    lightCount,
+  });
+}
+
+/**
+ * Строгая проверка параметров ёлочной игрушки.
+ *
+ * Диаметр, высота и стенка проверяются в границах слайдеров, силуэт — по
+ * списку, кольцо — только настоящим boolean: строка «false» иначе добавила бы
+ * в файл петлю против выбора пользователя. Стенка дополнительно ограничена
+ * четвертью диаметра: у более толстой стенки профиль сходится сам с собой и
+ * полость игрушки исчезает, а молча подрезать размер нельзя.
+ */
+function parseOrnamentParams(
+  body: Record<string, unknown>,
+): OrnamentParams | null {
+  const {
+    ornamentDiameter,
+    ornamentHeight,
+    ornamentWall,
+    ornamentShape,
+    ornamentLoop,
+  } = body;
+
+  if (
+    !isNumberInRange(
+      ornamentDiameter,
+      CONSTRUCTOR_LIMITS.ornamentDiameter.min,
+      CONSTRUCTOR_LIMITS.ornamentDiameter.max,
+    ) ||
+    !isNumberInRange(
+      ornamentHeight,
+      CONSTRUCTOR_LIMITS.ornamentHeight.min,
+      CONSTRUCTOR_LIMITS.ornamentHeight.max,
+    ) ||
+    !isNumberInRange(
+      ornamentWall,
+      CONSTRUCTOR_LIMITS.ornamentWall.min,
+      CONSTRUCTOR_LIMITS.ornamentWall.max,
+    ) ||
+    ornamentWall > ornamentDiameter / 4 ||
+    !isOrnamentShape(ornamentShape) ||
+    typeof ornamentLoop !== "boolean"
+  ) {
+    return null;
+  }
+
+  return normalizeOrnamentParams({
+    ornamentDiameter,
+    ornamentHeight,
+    ornamentWall,
+    ornamentShape,
+    ornamentLoop,
+  });
+}
+
+/**
+ * Строгая проверка параметров настенного крючка.
+ *
+ * Ширина, высота плиты и вынос штыря лежат в границах, крепление — по списку
+ * из двух вариантов. Пересечений между полями нет: короткий штырь на высокой
+ * плите печатается и держит нагрузку.
+ */
+function parseWallHookParams(
+  body: Record<string, unknown>,
+): WallHookParams | null {
+  const { hookWidth, hookHeight, hookDepth, hookMount } = body;
+
+  if (
+    !isNumberInRange(
+      hookWidth,
+      CONSTRUCTOR_LIMITS.hookWidth.min,
+      CONSTRUCTOR_LIMITS.hookWidth.max,
+    ) ||
+    !isNumberInRange(
+      hookHeight,
+      CONSTRUCTOR_LIMITS.hookHeight.min,
+      CONSTRUCTOR_LIMITS.hookHeight.max,
+    ) ||
+    !isNumberInRange(
+      hookDepth,
+      CONSTRUCTOR_LIMITS.hookDepth.min,
+      CONSTRUCTOR_LIMITS.hookDepth.max,
+    ) ||
+    !isWallHookMount(hookMount)
+  ) {
+    return null;
+  }
+
+  return normalizeWallHookParams({
+    hookWidth,
+    hookHeight,
+    hookDepth,
+    hookMount,
+  });
+}
+
+/**
+ * Строгая проверка параметров клипсы для кружки.
+ *
+ * Толщина борта, ширина клипсы и длина наружной ножки лежат в границах
+ * слайдеров, прорезь под нитку — только настоящим boolean. От толщины борта
+ * зависит зазор между ножками, поэтому значения с шагом 0.5 мм принимаются как
+ * есть и выравниваются по нему же.
+ */
+function parseCupClipParams(
+  body: Record<string, unknown>,
+): CupClipParams | null {
+  const { cupRim, cupClipWidth, cupClipLength, cupClipHook } = body;
+
+  if (
+    !isNumberInRange(
+      cupRim,
+      CONSTRUCTOR_LIMITS.cupRim.min,
+      CONSTRUCTOR_LIMITS.cupRim.max,
+    ) ||
+    !isNumberInRange(
+      cupClipWidth,
+      CONSTRUCTOR_LIMITS.cupClipWidth.min,
+      CONSTRUCTOR_LIMITS.cupClipWidth.max,
+    ) ||
+    !isNumberInRange(
+      cupClipLength,
+      CONSTRUCTOR_LIMITS.cupClipLength.min,
+      CONSTRUCTOR_LIMITS.cupClipLength.max,
+    ) ||
+    typeof cupClipHook !== "boolean"
+  ) {
+    return null;
+  }
+
+  return normalizeCupClipParams({
+    cupRim,
+    cupClipWidth,
+    cupClipLength,
+    cupClipHook,
+  });
+}
+
+/**
+ * Строгая проверка параметров трафарета.
+ *
+ * Ширина, высота и толщина проверяются в границах, узор — по списку трёх
+ * вариантов. Шаг прорезей в запрос не входит: он считается от габарита плиты,
+ * поэтому одинаковый узор выглядит целым и на открытке, и на половине листа.
+ */
+function parseStencilParams(
+  body: Record<string, unknown>,
+): StencilParams | null {
+  const { stencilWidth, stencilHeight, stencilThickness, stencilPattern } = body;
+
+  if (
+    !isNumberInRange(
+      stencilWidth,
+      CONSTRUCTOR_LIMITS.stencilWidth.min,
+      CONSTRUCTOR_LIMITS.stencilWidth.max,
+    ) ||
+    !isNumberInRange(
+      stencilHeight,
+      CONSTRUCTOR_LIMITS.stencilHeight.min,
+      CONSTRUCTOR_LIMITS.stencilHeight.max,
+    ) ||
+    !isNumberInRange(
+      stencilThickness,
+      CONSTRUCTOR_LIMITS.stencilThickness.min,
+      CONSTRUCTOR_LIMITS.stencilThickness.max,
+    ) ||
+    !isStencilPattern(stencilPattern)
+  ) {
+    return null;
+  }
+
+  return normalizeStencilParams({
+    stencilWidth,
+    stencilHeight,
+    stencilThickness,
+    stencilPattern,
+  });
+}
+
 /** Разобранный запрос: модель и её проверенные параметры. */
 type ParsedConstructorRequest =
   | { model: "vase"; params: VaseParams }
@@ -732,7 +1098,14 @@ type ParsedConstructorRequest =
   | { model: "clips"; params: ClipsParams }
   | { model: "planter"; params: PlanterParams }
   | { model: "coaster"; params: CoasterParams }
-  | { model: "jewelry_stand"; params: JewelryStandParams };
+  | { model: "jewelry_stand"; params: JewelryStandParams }
+  | { model: "pen_holder"; params: PenHolderParams }
+  | { model: "fabric_patch"; params: FabricPatchParams }
+  | { model: "string_light"; params: StringLightParams }
+  | { model: "ornament"; params: OrnamentParams }
+  | { model: "wall_hook"; params: WallHookParams }
+  | { model: "cup_clip"; params: CupClipParams }
+  | { model: "stencil"; params: StencilParams };
 
 /**
  * Выбирает набор параметров по полю model.
@@ -808,6 +1181,48 @@ function parseConstructorRequest(
     const params = parseJewelryStandParams(body);
 
     return params ? { model: "jewelry_stand", params } : null;
+  }
+
+  if (model === "pen_holder") {
+    const params = parsePenHolderParams(body);
+
+    return params ? { model: "pen_holder", params } : null;
+  }
+
+  if (model === "fabric_patch") {
+    const params = parseFabricPatchParams(body);
+
+    return params ? { model: "fabric_patch", params } : null;
+  }
+
+  if (model === "string_light") {
+    const params = parseStringLightParams(body);
+
+    return params ? { model: "string_light", params } : null;
+  }
+
+  if (model === "ornament") {
+    const params = parseOrnamentParams(body);
+
+    return params ? { model: "ornament", params } : null;
+  }
+
+  if (model === "wall_hook") {
+    const params = parseWallHookParams(body);
+
+    return params ? { model: "wall_hook", params } : null;
+  }
+
+  if (model === "cup_clip") {
+    const params = parseCupClipParams(body);
+
+    return params ? { model: "cup_clip", params } : null;
+  }
+
+  if (model === "stencil") {
+    const params = parseStencilParams(body);
+
+    return params ? { model: "stencil", params } : null;
   }
 
   return null;
@@ -905,7 +1320,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, диаметр кабеля и число зажимов, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений.",
+      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, диаметр кабеля и число зажимов, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений, форму и отделения органайзера для ручек, форму и стежки нашивки, размеры и число плафонов гирлянды, габарит и силуэт игрушки, размеры и крепление крючка, толщину борта и размеры клипсы, габарит и узор трафарета.",
     );
   }
 
@@ -931,19 +1346,35 @@ export async function POST(request: Request): Promise<Response> {
                     ? createCoasterGeometry(parsed.params)
                     : parsed.model === "jewelry_stand"
                       ? createJewelryStandGeometry(parsed.params)
-                      : parsed.model === "keychain"
-                        ? createKeychainGeometry(
-                            parsed.params,
-                            await loadFont(KEYCHAIN_FONT_URL),
-                          )
-                        : createSignBlockGeometry(
-                            parsed.params,
-                            await loadFont(
-                              SIGN_FONT_URLS[parsed.params.signFont],
-                            ),
-                            parsed.block,
-                            parsed.part,
-                          );
+                      : parsed.model === "pen_holder"
+                        ? createPenHolderGeometry(parsed.params)
+                        : parsed.model === "fabric_patch"
+                          ? createFabricPatchGeometry(parsed.params)
+                          : parsed.model === "string_light"
+                            ? createStringLightGeometry(parsed.params)
+                            : parsed.model === "ornament"
+                              ? createOrnamentGeometry(parsed.params)
+                              : parsed.model === "wall_hook"
+                                ? createWallHookGeometry(parsed.params)
+                                : parsed.model === "cup_clip"
+                                  ? createCupClipGeometry(parsed.params)
+                                  : parsed.model === "stencil"
+                                    ? createStencilGeometry(parsed.params)
+                                    : parsed.model === "keychain"
+                                      ? createKeychainGeometry(
+                                          parsed.params,
+                                          await loadFont(KEYCHAIN_FONT_URL),
+                                        )
+                                      : createSignBlockGeometry(
+                                          parsed.params,
+                                          await loadFont(
+                                            SIGN_FONT_URLS[
+                                              parsed.params.signFont
+                                            ],
+                                          ),
+                                          parsed.block,
+                                          parsed.part,
+                                        );
 
     try {
       const mesh = new Mesh(geometry);
@@ -972,11 +1403,25 @@ export async function POST(request: Request): Promise<Response> {
                         ? coasterStlFileName(parsed.params)
                         : parsed.model === "jewelry_stand"
                           ? jewelryStandStlFileName(parsed.params)
-                          : signStlFileName(
-                              parsed.params,
-                              parsed.block,
-                              parsed.part,
-                            );
+                          : parsed.model === "pen_holder"
+                            ? penHolderStlFileName(parsed.params)
+                            : parsed.model === "fabric_patch"
+                              ? fabricPatchStlFileName(parsed.params)
+                              : parsed.model === "string_light"
+                                ? stringLightStlFileName(parsed.params)
+                                : parsed.model === "ornament"
+                                  ? ornamentStlFileName(parsed.params)
+                                  : parsed.model === "wall_hook"
+                                    ? wallHookStlFileName(parsed.params)
+                                    : parsed.model === "cup_clip"
+                                      ? cupClipStlFileName(parsed.params)
+                                      : parsed.model === "stencil"
+                                        ? stencilStlFileName(parsed.params)
+                                        : signStlFileName(
+                                            parsed.params,
+                                            parsed.block,
+                                            parsed.part,
+                                          );
 
       // Запись появляется после успешной генерации: упавшая сборка не должна
       // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —

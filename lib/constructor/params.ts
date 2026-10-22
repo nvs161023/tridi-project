@@ -108,6 +108,39 @@ export const CONSTRUCTOR_LIMITS = {
   coasterThickness: { min: 3, max: 10, step: 1, defaultValue: 5, decimals: 0 },
   jewelryHeight: { min: 60, max: 160, step: 5, defaultValue: 100, decimals: 0 },
   jewelryBase: { min: 50, max: 120, step: 5, defaultValue: 80, decimals: 0 },
+  // Габарит «под ключ»: стаканчик должен вмещать ручку и не падать от веса.
+  penSize: { min: 50, max: 120, step: 5, defaultValue: 80, decimals: 0 },
+  penHeight: { min: 60, max: 160, step: 5, defaultValue: 100, decimals: 0 },
+  penWall: { min: 1.2, max: 4, step: 0.2, defaultValue: 1.6, decimals: 1 },
+  // Число отделений: больше четырёх в габарит 50 мм уже не помещаются.
+  penSections: { min: 1, max: 4, step: 1, defaultValue: 2, decimals: 0 },
+  patchSize: { min: 40, max: 140, step: 5, defaultValue: 80, decimals: 0 },
+  // Тонкая нашивка гнётся, толстая уже похожа на медаль.
+  patchThickness: { min: 1, max: 3, step: 0.2, defaultValue: 1.6, decimals: 1 },
+  patchStitches: { min: 0, max: 48, step: 4, defaultValue: 24, decimals: 0 },
+  // Плафон гирлянды: снизу широкий, сверху садится на цоколь.
+  lightDiameter: { min: 24, max: 80, step: 2, defaultValue: 44, decimals: 0 },
+  lightHeight: { min: 20, max: 60, step: 2, defaultValue: 34, decimals: 0 },
+  lightSocket: { min: 6, max: 20, step: 1, defaultValue: 10, decimals: 0 },
+  lightWall: { min: 1.2, max: 3, step: 0.2, defaultValue: 1.6, decimals: 1 },
+  // Сколько плафонов печатается одним файлом: гирлянду собирают партиями.
+  lightCount: { min: 1, max: 4, step: 1, defaultValue: 1, decimals: 0 },
+  // Игрушка: габарит шара и высота тела без петельки.
+  ornamentDiameter: { min: 40, max: 100, step: 5, defaultValue: 60, decimals: 0 },
+  ornamentHeight: { min: 50, max: 140, step: 5, defaultValue: 90, decimals: 0 },
+  ornamentWall: { min: 1.2, max: 3, step: 0.2, defaultValue: 1.6, decimals: 1 },
+  // Крючок: плита на стену и вынос штыря от неё.
+  hookWidth: { min: 20, max: 80, step: 5, defaultValue: 40, decimals: 0 },
+  hookHeight: { min: 30, max: 100, step: 5, defaultValue: 60, decimals: 0 },
+  hookDepth: { min: 15, max: 60, step: 5, defaultValue: 35, decimals: 0 },
+  // Клипса кружки: зазор строится по толщине борта.
+  cupRim: { min: 2, max: 8, step: 0.5, defaultValue: 4, decimals: 1 },
+  cupClipWidth: { min: 10, max: 40, step: 5, defaultValue: 20, decimals: 0 },
+  cupClipLength: { min: 15, max: 50, step: 5, defaultValue: 30, decimals: 0 },
+  // Трафарет: плита от открытки до половины листа A4.
+  stencilWidth: { min: 60, max: 220, step: 5, defaultValue: 140, decimals: 0 },
+  stencilHeight: { min: 40, max: 220, step: 5, defaultValue: 100, decimals: 0 },
+  stencilThickness: { min: 0.8, max: 3, step: 0.2, defaultValue: 1.2, decimals: 1 },
 } as const satisfies Record<string, NumericLimit>;
 
 /** Типы моделей, которые умеет собирать конструктор. */
@@ -122,6 +155,13 @@ export const MODEL_TYPES = [
   "planter",
   "coaster",
   "jewelry_stand",
+  "pen_holder",
+  "fabric_patch",
+  "string_light",
+  "ornament",
+  "wall_hook",
+  "cup_clip",
+  "stencil",
 ] as const;
 
 export type ModelType = (typeof MODEL_TYPES)[number];
@@ -138,6 +178,13 @@ export const MODEL_TYPE_LABELS = {
   planter: "Кашпо",
   coaster: "Подставка под кружку",
   jewelry_stand: "Подставка для украшений",
+  pen_holder: "Органайзер для ручек",
+  fabric_patch: "Нашивка",
+  string_light: "Абажур для гирлянды",
+  ornament: "Ёлочная игрушка",
+  wall_hook: "Настенный крючок",
+  cup_clip: "Клипса для кружки",
+  stencil: "Трафарет",
 } as const satisfies Record<ModelType, string>;
 
 /** Инструмент конструктора в витринах: идентификатор, название и описание. */
@@ -208,6 +255,41 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
     id: "jewelry_stand",
     title: "Генератор подставок для украшений",
     desc: "Настольная стойка с штангой под кольца и рожками под цепочки: всё хранится на одном месте.",
+  },
+  {
+    id: "pen_holder",
+    title: "Генератор органайзеров для ручек",
+    desc: "Стаканчик с перегородками: круглая, квадратная или гранёная форма и точная толщина стенки.",
+  },
+  {
+    id: "fabric_patch",
+    title: "Генератор нашивок",
+    desc: "Нашивки с бортиком и стежками: круглая, квадратная или шестигранная форма без швейной машинки.",
+  },
+  {
+    id: "string_light",
+    title: "Генератор абажуров для гирлянды",
+    desc: "Плафоны под LED-гирлянду: конус с посадкой на цоколь, набор из нескольких штук в одном STL.",
+  },
+  {
+    id: "ornament",
+    title: "Генератор ёлочных игрушек",
+    desc: "Полые игрушки на ёлку: шар, капля или колокол со стенкой по профилю и кольцом под ленту.",
+  },
+  {
+    id: "wall_hook",
+    title: "Генератор настенных крючков",
+    desc: "Крючки с плитой под саморезы или клейкую ленту: наклонный штырь печатается без поддержек.",
+  },
+  {
+    id: "cup_clip",
+    title: "Генератор клипс для кружки",
+    desc: "Зажим на борт кружки с прорезью под нитку: чайный пакетик больше не тонет в чашке.",
+  },
+  {
+    id: "stencil",
+    title: "Генератор трафаретов",
+    desc: "Трафареты для краски и аэрографа: полосы, точки или соты со сквозными прорезями и рамкой.",
   },
 ];
 
@@ -583,6 +665,204 @@ export type JewelryStandParams = {
 };
 
 /**
+ * Органайзер для ручек повторяет три формы кашпо: круг, квадрат и шестигранник.
+ * Сечение строит тот же код, а подписи согласуют род со словом «органайзер».
+ */
+export const PEN_SHAPES = PLANTER_SHAPES;
+
+export type PenShape = (typeof PEN_SHAPES)[number];
+
+export const PEN_SHAPE_LABELS = {
+  round: "Круглый",
+  square: "Квадратный",
+  hex: "Шестигранный",
+} as const satisfies Record<PenShape, string>;
+
+/**
+ * Органайзер для ручек: габарит, высота, стенка, форма и число отделений.
+ *
+ * Стаканчик собирается из кольца-стены и плиты дна: между ними остаётся
+ * открытая полость. Перегородки делят её на отделения — каждая входит в стенку,
+ * поэтому деталь печатается одним телом без клея и поддержек.
+ */
+export type PenHolderParams = {
+  /** Габарит «под ключ», мм: диаметр или размер многоугольника. */
+  penSize: number;
+  /** Высота стенки от стола, мм. */
+  penHeight: number;
+  /** Толщина стенки, дна и перегородок, мм. */
+  penWall: number;
+  /** Форма в плане: круг, квадрат или шестигранник. */
+  penShape: PenShape;
+  /** Сколько отделений делят полость: от 1 до 4. */
+  penSections: number;
+};
+
+/** Нашивка повторяет три формы кашпо: круг, квадрат и шестигранник. */
+export const PATCH_SHAPES = PLANTER_SHAPES;
+
+export type PatchShape = (typeof PATCH_SHAPES)[number];
+
+export const PATCH_SHAPE_LABELS = {
+  round: "Круглая",
+  square: "Квадратная",
+  hex: "Шестигранная",
+} as const satisfies Record<PatchShape, string>;
+
+/**
+ * Тканевая нашивка: габарит, толщина, форма, бортик и число стежков.
+ *
+ * Плита — основа, бортик лежит по краю, а стежки идут выпуклыми точками по
+ * бортику: так нашивка читается как тканая, хотя печатается пластиком.
+ * Отверстия под нить не режутся — в проекте нет булевых операций, а точки
+ * стоят на том же месте, где прошла бы строчка.
+ */
+export type FabricPatchParams = {
+  /** Габарит «под ключ», мм: диаметр или размер многоугольника. */
+  patchSize: number;
+  /** Толщина плиты, мм. */
+  patchThickness: number;
+  /** Форма в плане: круг, квадрат или шестигранник. */
+  patchShape: PatchShape;
+  /** Бортик по краю плиты высотой 1 мм. */
+  patchBorder: boolean;
+  /** Число стежков по бортику: 0 — без строчки. */
+  patchStitches: number;
+};
+
+/**
+ * Абажур для гирлянды: диаметр, высота, посадка на цоколь, стенка и число штук.
+ *
+ * Плафон — усечённый конус со стенкой: сверху остаётся отверстие под цоколь
+ * LED-лампы, снизу — широкий раструб. Верхнее отверстие и держит плафон на
+ * проводе, поэтому крепёж не нужен. Несколько штук печатаются в одном STL
+ * рядом друг с другом — гирлянду собирают партиями.
+ */
+export type StringLightParams = {
+  /** Диаметр раструба снизу, мм. */
+  lightDiameter: number;
+  /** Высота плафона, мм. */
+  lightHeight: number;
+  /** Диаметр верхнего отверстия под цоколь, мм. */
+  lightSocket: number;
+  /** Толщина стенки, мм. */
+  lightWall: number;
+  /** Сколько плафонов печатается одним файлом: от 1 до 4. */
+  lightCount: number;
+};
+
+/** Три силуэта ёлочной игрушки: шар, капля и колокол. */
+export const ORNAMENT_SHAPES = ["ball", "drop", "bell"] as const;
+
+export type OrnamentShape = (typeof ORNAMENT_SHAPES)[number];
+
+export const ORNAMENT_SHAPE_LABELS = {
+  ball: "Шар",
+  drop: "Капля",
+  bell: "Колокол",
+} as const satisfies Record<OrnamentShape, string>;
+
+/**
+ * Ёлочная игрушка: габарит, высота, стенка, силуэт и кольцо под ленту.
+ *
+ * Игрушка полая: стенка идёт по профилю силуэта, снизу остаётся широкое
+ * отверстие — деталь печатается без поддержек и без заполнения внутри. Сверху
+ * стоит бобышка с отверстием, а над ней — кольцо в вертикальной плоскости:
+ * лента проходит через него, и игрушку можно вешать сразу после печати.
+ */
+export type OrnamentParams = {
+  /** Диаметр самой широкой части, мм. */
+  ornamentDiameter: number;
+  /** Высота тела игрушки без кольца, мм. */
+  ornamentHeight: number;
+  /** Толщина стенки, мм. */
+  ornamentWall: number;
+  /** Силуэт: шар, капля или колокол. */
+  ornamentShape: OrnamentShape;
+  /** Кольцо под ленту над бобышкой. */
+  ornamentLoop: boolean;
+};
+
+/** Как крепится настенный крючок: саморезами или клейкой площадкой. */
+export const WALL_HOOK_MOUNTS = ["screw", "adhesive"] as const;
+
+export type WallHookMount = (typeof WALL_HOOK_MOUNTS)[number];
+
+export const WALL_HOOK_MOUNT_LABELS = {
+  screw: "Саморезы",
+  adhesive: "Клейкая площадка",
+} as const satisfies Record<WallHookMount, string>;
+
+/**
+ * Настенный крючок: плита на стену и наклонный штырь.
+ *
+ * При печати плита лежит на столе, поэтому штырь растёт прямо из неё: его
+ * нижняя грань идёт под 45°, и поддержки не нужны. На стене штырь смотрит
+ * вверх и наружу, а вещь соскальзывает по нему к основанию и остаётся в
+ * углу между плитой и штырём. Отверстия под саморезы сквозные; у клейкой
+ * версии плита целая, с ровной площадкой под двустороннюю ленту.
+ */
+export type WallHookParams = {
+  /** Ширина плиты вдоль стены, мм. */
+  hookWidth: number;
+  /** Высота плиты на стене, мм. */
+  hookHeight: number;
+  /** Вынос штыря от стены, мм. */
+  hookDepth: number;
+  /** Крепление: два отверстия под саморезы или клейкая площадка. */
+  hookMount: WallHookMount;
+};
+
+/**
+ * Клипса для кружки: зажим на борт держит нитку чайного пакетика.
+ *
+ * Профиль — буква «П»: мостик ложится на борт кружки, короткая ножка уходит
+ * внутрь, длинная свисает снаружи и несёт треугольную прорезь под нитку.
+ * Стенка кружки проходит между ножками с зазором, поэтому клипса садится на
+ * любой борт нужной толщины и снимается без усилия.
+ */
+export type CupClipParams = {
+  /** Толщина стенки кружки, мм: зазор строится вокруг неё. */
+  cupRim: number;
+  /** Ширина клипсы вдоль борта, мм. */
+  cupClipWidth: number;
+  /** Длина наружной ножки, мм: она свисает по стенке. */
+  cupClipLength: number;
+  /** Прорезь под нитку на конце наружной ножки. */
+  cupClipHook: boolean;
+};
+
+/** Узор трафарета: полосы, точки или соты. */
+export const STENCIL_PATTERNS = ["stripes", "dots", "hexes"] as const;
+
+export type StencilPattern = (typeof STENCIL_PATTERNS)[number];
+
+export const STENCIL_PATTERN_LABELS = {
+  stripes: "Полосы",
+  dots: "Точки",
+  hexes: "Соты",
+} as const satisfies Record<StencilPattern, string>;
+
+/**
+ * Трафарет для краски: плита с прорезями узора.
+ *
+ * Узор собирается отверстиями в сплошной плите: перемычки между ними держат
+ * трафарет целым, а по краю остаётся рамка, чтобы плита не рвалась при
+ * снятии с поверхности. Все прорези сквозные, краска проходит насквозь, а
+ * сама плита печатается плашмя — без поддержек и без заполнения.
+ */
+export type StencilParams = {
+  /** Ширина плиты, мм. */
+  stencilWidth: number;
+  /** Высота плиты, мм. */
+  stencilHeight: number;
+  /** Толщина плиты, мм: тонкая плотнее прилегает, толстая жёстче. */
+  stencilThickness: number;
+  /** Узор прорезей: полосы, точки или соты. */
+  stencilPattern: StencilPattern;
+};
+
+/**
  * Настройки вывески: надпись, кегль, глубина, канал под ленту и блоки.
  *
  * Надпись делится на блоки по signBlockSize букв. Каждый блок печатается
@@ -837,6 +1117,33 @@ export const DEFAULT_JEWELRY_STAND_PARAMS: JewelryStandParams = {
   jewelryConfig: "combo",
 };
 
+/** Органайзер по умолчанию: Ø 80 × 100 мм, стенка 1.6 мм, два отделения. */
+export const DEFAULT_PEN_HOLDER_PARAMS: PenHolderParams = {
+  penSize: CONSTRUCTOR_LIMITS.penSize.defaultValue,
+  penHeight: CONSTRUCTOR_LIMITS.penHeight.defaultValue,
+  penWall: CONSTRUCTOR_LIMITS.penWall.defaultValue,
+  penShape: "round",
+  penSections: CONSTRUCTOR_LIMITS.penSections.defaultValue,
+};
+
+/** Нашивка по умолчанию: круглая Ø 80 × 1.6 мм, бортик и 24 стежка. */
+export const DEFAULT_FABRIC_PATCH_PARAMS: FabricPatchParams = {
+  patchSize: CONSTRUCTOR_LIMITS.patchSize.defaultValue,
+  patchThickness: CONSTRUCTOR_LIMITS.patchThickness.defaultValue,
+  patchShape: "round",
+  patchBorder: true,
+  patchStitches: CONSTRUCTOR_LIMITS.patchStitches.defaultValue,
+};
+
+/** Плафон по умолчанию: раструб Ø 44 мм, высота 34 мм, отверстие 10 мм. */
+export const DEFAULT_STRING_LIGHT_PARAMS: StringLightParams = {
+  lightDiameter: CONSTRUCTOR_LIMITS.lightDiameter.defaultValue,
+  lightHeight: CONSTRUCTOR_LIMITS.lightHeight.defaultValue,
+  lightSocket: CONSTRUCTOR_LIMITS.lightSocket.defaultValue,
+  lightWall: CONSTRUCTOR_LIMITS.lightWall.defaultValue,
+  lightCount: CONSTRUCTOR_LIMITS.lightCount.defaultValue,
+};
+
 /** Вывеска по умолчанию: короткое имя бренда, Roboto Bold, канал 8 мм, блоки по три буквы. */
 export const DEFAULT_SIGN_PARAMS: SignParams = {
   signText: "ТРИ ДИ",
@@ -849,6 +1156,43 @@ export const DEFAULT_SIGN_PARAMS: SignParams = {
   signBaseMount: true,
 };
 
+
+/**
+ * Игрушка по умолчанию: шар Ø 60 мм, высота 90 мм, стенка 1.6 мм, с кольцом.
+ * Такой шар печатается примерно за два часа и сразу показывает и полость,
+ * и посадку кольца под ленту.
+ */
+export const DEFAULT_ORNAMENT_PARAMS: OrnamentParams = {
+  ornamentDiameter: CONSTRUCTOR_LIMITS.ornamentDiameter.defaultValue,
+  ornamentHeight: CONSTRUCTOR_LIMITS.ornamentHeight.defaultValue,
+  ornamentWall: CONSTRUCTOR_LIMITS.ornamentWall.defaultValue,
+  ornamentShape: "ball",
+  ornamentLoop: true,
+};
+
+/** Крючок по умолчанию: плита 40 × 60 мм, вынос 35 мм, под саморезы. */
+export const DEFAULT_WALL_HOOK_PARAMS: WallHookParams = {
+  hookWidth: CONSTRUCTOR_LIMITS.hookWidth.defaultValue,
+  hookHeight: CONSTRUCTOR_LIMITS.hookHeight.defaultValue,
+  hookDepth: CONSTRUCTOR_LIMITS.hookDepth.defaultValue,
+  hookMount: "screw",
+};
+
+/** Клипса по умолчанию: борт 4 мм, ширина 20 мм, наружная ножка 30 мм. */
+export const DEFAULT_CUP_CLIP_PARAMS: CupClipParams = {
+  cupRim: CONSTRUCTOR_LIMITS.cupRim.defaultValue,
+  cupClipWidth: CONSTRUCTOR_LIMITS.cupClipWidth.defaultValue,
+  cupClipLength: CONSTRUCTOR_LIMITS.cupClipLength.defaultValue,
+  cupClipHook: true,
+};
+
+/** Трафарет по умолчанию: 140 × 100 × 1.2 мм с полосами. */
+export const DEFAULT_STENCIL_PARAMS: StencilParams = {
+  stencilWidth: CONSTRUCTOR_LIMITS.stencilWidth.defaultValue,
+  stencilHeight: CONSTRUCTOR_LIMITS.stencilHeight.defaultValue,
+  stencilThickness: CONSTRUCTOR_LIMITS.stencilThickness.defaultValue,
+  stencilPattern: "stripes",
+};
 
 /**
  * Коробка по умолчанию: 140 × 100 × 60 мм, сетка 2 × 2 и крышка.
@@ -978,7 +1322,14 @@ export type ConstructorParams = { model: ModelType } & VaseParams &
   ClipsParams &
   PlanterParams &
   CoasterParams &
-  JewelryStandParams;
+  JewelryStandParams &
+  PenHolderParams &
+  FabricPatchParams &
+  StringLightParams &
+  OrnamentParams &
+  WallHookParams &
+  CupClipParams &
+  StencilParams;
 
 /** Стартовое состояние: открывается ваза, остальные модели ждут на вкладках. */
 export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
@@ -993,6 +1344,13 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   ...DEFAULT_PLANTER_PARAMS,
   ...DEFAULT_COASTER_PARAMS,
   ...DEFAULT_JEWELRY_STAND_PARAMS,
+  ...DEFAULT_PEN_HOLDER_PARAMS,
+  ...DEFAULT_FABRIC_PATCH_PARAMS,
+  ...DEFAULT_STRING_LIGHT_PARAMS,
+  ...DEFAULT_ORNAMENT_PARAMS,
+  ...DEFAULT_WALL_HOOK_PARAMS,
+  ...DEFAULT_CUP_CLIP_PARAMS,
+  ...DEFAULT_STENCIL_PARAMS,
 };
 
 /**
@@ -1078,6 +1436,85 @@ export function coasterStlFileName(params: CoasterParams): string {
  */
 export function jewelryStandStlFileName(params: JewelryStandParams): string {
   return `tridi-podstavka-ukrasheniy-${params.jewelryConfig}-h${params.jewelryHeight}-d${params.jewelryBase}.stl`;
+}
+
+/**
+ * Имя файла STL для органайзера для ручек.
+ *
+ * Форма, габарит, высота, стенка и число отделений описывают деталь целиком:
+ * по папке загрузок видно, какой стаканчик напечатан.
+ */
+export function penHolderStlFileName(params: PenHolderParams): string {
+  return `tridi-organajzer-${params.penShape}-d${params.penSize}-h${params.penHeight}-t${params.penWall}-s${params.penSections}.stl`;
+}
+
+/**
+ * Имя файла STL для нашивки.
+ *
+ * Бортик и число стежков попадают суффиксами: две нашивки одного габарита
+ * отличаются как раз строчкой, и по имени видно, какую деталь печатали.
+ */
+export function fabricPatchStlFileName(params: FabricPatchParams): string {
+  const borderSuffix = params.patchBorder ? "-bort" : "";
+  const stitchesSuffix =
+    params.patchStitches > 0 ? `-stezhki${params.patchStitches}` : "";
+
+  return `tridi-nashivka-${params.patchShape}-d${params.patchSize}-t${params.patchThickness}${borderSuffix}${stitchesSuffix}.stl`;
+}
+
+/**
+ * Имя файла STL для плафонов гирлянды.
+ *
+ * Посадка на цоколь и число плафонов входят в имя: один и тот же раструб с
+ * разным верхним отверстием на провод не наденется.
+ */
+export function stringLightStlFileName(params: StringLightParams): string {
+  return `tridi-abazhur-girlyandy-d${params.lightDiameter}-h${params.lightHeight}-o${params.lightSocket}-n${params.lightCount}.stl`;
+}
+
+/**
+ * Имя файла STL для ёлочной игрушки.
+ *
+ * Силуэт, габарит, высота и стенка описывают деталь целиком, а суффикс
+ * `petlya` говорит, что сверху есть кольцо под ленту. Значения уже выровнены
+ * normalizeOrnamentParams, поэтому лишних нулей в имени нет.
+ */
+export function ornamentStlFileName(params: OrnamentParams): string {
+  const loopSuffix = params.ornamentLoop ? "-petlya" : "";
+
+  return `tridi-elka-igrushka-${params.ornamentShape}-d${params.ornamentDiameter}-h${params.ornamentHeight}-t${params.ornamentWall}${loopSuffix}.stl`;
+}
+
+/**
+ * Имя файла STL для настенного крючка.
+ *
+ * Крепление входит в имя: у версии под саморезы в плите сквозные отверстия, у
+ * клейкой плита целая, и перепутать файлы в папке загрузок нельзя.
+ */
+export function wallHookStlFileName(params: WallHookParams): string {
+  return `tridi-kryuchok-${params.hookMount}-w${params.hookWidth}-h${params.hookHeight}-d${params.hookDepth}.stl`;
+}
+
+/**
+ * Имя файла STL для клипсы кружки.
+ *
+ * Толщина борта и длина ножки входят в имя: клипса под тонкий борт не сядет на
+ * толстую кружку, а разная длина ножки — это разные детали.
+ */
+export function cupClipStlFileName(params: CupClipParams): string {
+  const hookSuffix = params.cupClipHook ? "-nit" : "";
+
+  return `tridi-klipsa-kruzhka-t${params.cupRim}-w${params.cupClipWidth}-l${params.cupClipLength}${hookSuffix}.stl`;
+}
+
+/**
+ * Имя файла STL для трафарета.
+ *
+ * Узор входит в имя: трафареты одного габарита отличаются только рисунком
+ * прорезей, и в папке загрузок они не должны сливаться в один файл.
+ */
+export function stencilStlFileName(params: StencilParams): string {
+  return `tridi-trafaret-${params.stencilPattern}-w${params.stencilWidth}-h${params.stencilHeight}-t${params.stencilThickness}.stl`;
 }
 
 /**
@@ -1357,6 +1794,18 @@ export function isPlanterShape(value: unknown): value is PlanterShape {
 export const isCoasterShape: (value: unknown) => value is CoasterShape =
   isPlanterShape;
 
+/**
+ * Проверка формы органайзера для ручек.
+ *
+ * Набор форм общий с кашпо: сечение строит один и тот же код, а подписи в
+ * списке согласуют род («круглый органайзер»).
+ */
+export const isPenShape: (value: unknown) => value is PenShape = isPlanterShape;
+
+/** Проверка формы нашивки: круг, квадрат или шестигранник, как у кашпо. */
+export const isPatchShape: (value: unknown) => value is PatchShape =
+  isPlanterShape;
+
 /** Проверка рельефа подставки под кружку из формы или API. */
 export function isCoasterPattern(value: unknown): value is CoasterPattern {
   return (
@@ -1370,6 +1819,30 @@ export function isJewelryConfig(value: unknown): value is JewelryConfig {
   return (
     typeof value === "string" &&
     (JEWELRY_CONFIGS as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка силуэта ёлочной игрушки из формы или API. */
+export function isOrnamentShape(value: unknown): value is OrnamentShape {
+  return (
+    typeof value === "string" &&
+    (ORNAMENT_SHAPES as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка крепления настенного крючка из формы или API. */
+export function isWallHookMount(value: unknown): value is WallHookMount {
+  return (
+    typeof value === "string" &&
+    (WALL_HOOK_MOUNTS as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка узора трафарета из формы или API. */
+export function isStencilPattern(value: unknown): value is StencilPattern {
+  return (
+    typeof value === "string" &&
+    (STENCIL_PATTERNS as readonly string[]).includes(value)
   );
 }
 
@@ -1805,6 +2278,250 @@ export function normalizeJewelryStandParams(
 }
 
 /**
+ * Проверяет и выравнивает параметры органайзера для ручек.
+ *
+ * Габарит и высота выравниваются по 5 мм, стенка — по 0.2 мм. Число отделений
+ * целое, от 1 до 4: в стаканчик 50 мм больше перегородок уже не помещается.
+ * Форма принимается только из общего набора кашпо.
+ */
+export function normalizePenHolderParams(
+  params: Partial<PenHolderParams>,
+): PenHolderParams {
+  return {
+    penSize: snap(
+      params.penSize ?? DEFAULT_PEN_HOLDER_PARAMS.penSize,
+      CONSTRUCTOR_LIMITS.penSize,
+    ),
+    penHeight: snap(
+      params.penHeight ?? DEFAULT_PEN_HOLDER_PARAMS.penHeight,
+      CONSTRUCTOR_LIMITS.penHeight,
+    ),
+    penWall: snap(
+      params.penWall ?? DEFAULT_PEN_HOLDER_PARAMS.penWall,
+      CONSTRUCTOR_LIMITS.penWall,
+    ),
+    penShape: isPenShape(params.penShape)
+      ? params.penShape
+      : DEFAULT_PEN_HOLDER_PARAMS.penShape,
+    penSections: Math.round(
+      snap(
+        params.penSections ?? DEFAULT_PEN_HOLDER_PARAMS.penSections,
+        CONSTRUCTOR_LIMITS.penSections,
+      ),
+    ),
+  };
+}
+
+/**
+ * Проверяет и выравнивает параметры нашивки.
+ *
+ * Толщина выравнивается по 0.2 мм, стежки — целое число от 0 до 48: 0 честно
+ * выключает строчку, а не оставляет одну точку. Бортик принимается только
+ * булевым значением, как дренаж кашпо.
+ */
+export function normalizeFabricPatchParams(
+  params: Partial<FabricPatchParams>,
+): FabricPatchParams {
+  return {
+    patchSize: snap(
+      params.patchSize ?? DEFAULT_FABRIC_PATCH_PARAMS.patchSize,
+      CONSTRUCTOR_LIMITS.patchSize,
+    ),
+    patchThickness: snap(
+      params.patchThickness ?? DEFAULT_FABRIC_PATCH_PARAMS.patchThickness,
+      CONSTRUCTOR_LIMITS.patchThickness,
+    ),
+    patchShape: isPatchShape(params.patchShape)
+      ? params.patchShape
+      : DEFAULT_FABRIC_PATCH_PARAMS.patchShape,
+    patchBorder:
+      typeof params.patchBorder === "boolean"
+        ? params.patchBorder
+        : DEFAULT_FABRIC_PATCH_PARAMS.patchBorder,
+    patchStitches: Math.round(
+      snap(
+        params.patchStitches ?? DEFAULT_FABRIC_PATCH_PARAMS.patchStitches,
+        CONSTRUCTOR_LIMITS.patchStitches,
+      ),
+    ),
+  };
+}
+
+/**
+ * Проверяет и выравнивает параметры плафона для гирлянды.
+ *
+ * Диаметр, высота и стенка выравниваются по шагу слайдеров. Верхнее отверстие
+ * дополнительно ограничено габаритом: если оно вместе со стенкой шире раструба,
+ * внутренняя поверхность конуса пересекает наружную и деталь выворачивается.
+ * Число плафонов целое, от 1 до 4.
+ */
+export function normalizeStringLightParams(
+  params: Partial<StringLightParams>,
+): StringLightParams {
+  const lightDiameter = snap(
+    params.lightDiameter ?? DEFAULT_STRING_LIGHT_PARAMS.lightDiameter,
+    CONSTRUCTOR_LIMITS.lightDiameter,
+  );
+  const lightWall = snap(
+    params.lightWall ?? DEFAULT_STRING_LIGHT_PARAMS.lightWall,
+    CONSTRUCTOR_LIMITS.lightWall,
+  );
+  const maxSocket = Math.max(
+    CONSTRUCTOR_LIMITS.lightSocket.min,
+    lightDiameter - 4 * lightWall - 2,
+  );
+
+  return {
+    lightDiameter,
+    lightHeight: snap(
+      params.lightHeight ?? DEFAULT_STRING_LIGHT_PARAMS.lightHeight,
+      CONSTRUCTOR_LIMITS.lightHeight,
+    ),
+    lightSocket: snap(
+      Math.min(
+        params.lightSocket ?? DEFAULT_STRING_LIGHT_PARAMS.lightSocket,
+        maxSocket,
+      ),
+      CONSTRUCTOR_LIMITS.lightSocket,
+    ),
+    lightWall,
+    lightCount: Math.round(
+      snap(
+        params.lightCount ?? DEFAULT_STRING_LIGHT_PARAMS.lightCount,
+        CONSTRUCTOR_LIMITS.lightCount,
+      ),
+    ),
+  };
+}
+
+/**
+ * Проверяет и выравнивает параметры ёлочной игрушки.
+ *
+ * Диаметр, высота и стенка выравниваются по шагу слайдеров, силуэт и кольцо
+ * проверяются отдельно. Стенка дополнительно ограничена четвертью диаметра:
+ * при более толстой стенке внутренняя поверхность профиля сходится сама с
+ * собой и полость игрушки исчезает.
+ */
+export function normalizeOrnamentParams(
+  params: Partial<OrnamentParams>,
+): OrnamentParams {
+  const ornamentDiameter = snap(
+    params.ornamentDiameter ?? DEFAULT_ORNAMENT_PARAMS.ornamentDiameter,
+    CONSTRUCTOR_LIMITS.ornamentDiameter,
+  );
+
+  return {
+    ornamentDiameter,
+    ornamentHeight: snap(
+      params.ornamentHeight ?? DEFAULT_ORNAMENT_PARAMS.ornamentHeight,
+      CONSTRUCTOR_LIMITS.ornamentHeight,
+    ),
+    ornamentWall: snap(
+      Math.min(
+        params.ornamentWall ?? DEFAULT_ORNAMENT_PARAMS.ornamentWall,
+        ornamentDiameter / 4,
+      ),
+      CONSTRUCTOR_LIMITS.ornamentWall,
+    ),
+    ornamentShape: isOrnamentShape(params.ornamentShape)
+      ? params.ornamentShape
+      : DEFAULT_ORNAMENT_PARAMS.ornamentShape,
+    ornamentLoop:
+      typeof params.ornamentLoop === "boolean"
+        ? params.ornamentLoop
+        : DEFAULT_ORNAMENT_PARAMS.ornamentLoop,
+  };
+}
+
+/**
+ * Проверяет и выравнивает параметры настенного крючка.
+ *
+ * Плита и вынос выравниваются по шагу 5 мм, крепление — только `screw` или
+ * `adhesive`. Отдельных ограничений между полями нет: короткий штырь на высокой
+ * плите — это осознанный выбор, а не ошибка ввода.
+ */
+export function normalizeWallHookParams(
+  params: Partial<WallHookParams>,
+): WallHookParams {
+  return {
+    hookWidth: snap(
+      params.hookWidth ?? DEFAULT_WALL_HOOK_PARAMS.hookWidth,
+      CONSTRUCTOR_LIMITS.hookWidth,
+    ),
+    hookHeight: snap(
+      params.hookHeight ?? DEFAULT_WALL_HOOK_PARAMS.hookHeight,
+      CONSTRUCTOR_LIMITS.hookHeight,
+    ),
+    hookDepth: snap(
+      params.hookDepth ?? DEFAULT_WALL_HOOK_PARAMS.hookDepth,
+      CONSTRUCTOR_LIMITS.hookDepth,
+    ),
+    hookMount: isWallHookMount(params.hookMount)
+      ? params.hookMount
+      : DEFAULT_WALL_HOOK_PARAMS.hookMount,
+  };
+}
+
+/**
+ * Проверяет и выравнивает параметры клипсы для кружки.
+ *
+ * Толщина борта выравнивается по шагу 0.5: от неё зависит зазор между ножками,
+ * и полмиллиметра здесь заметны. Прорезь под нитку принимается только как
+ * boolean — в геометрии это либо вырез в ножке, либо ровный край.
+ */
+export function normalizeCupClipParams(
+  params: Partial<CupClipParams>,
+): CupClipParams {
+  return {
+    cupRim: snap(
+      params.cupRim ?? DEFAULT_CUP_CLIP_PARAMS.cupRim,
+      CONSTRUCTOR_LIMITS.cupRim,
+    ),
+    cupClipWidth: snap(
+      params.cupClipWidth ?? DEFAULT_CUP_CLIP_PARAMS.cupClipWidth,
+      CONSTRUCTOR_LIMITS.cupClipWidth,
+    ),
+    cupClipLength: snap(
+      params.cupClipLength ?? DEFAULT_CUP_CLIP_PARAMS.cupClipLength,
+      CONSTRUCTOR_LIMITS.cupClipLength,
+    ),
+    cupClipHook:
+      typeof params.cupClipHook === "boolean"
+        ? params.cupClipHook
+        : DEFAULT_CUP_CLIP_PARAMS.cupClipHook,
+  };
+}
+
+/**
+ * Проверяет и выравнивает параметры трафарета.
+ *
+ * Ширина, высота и толщина выравниваются по шагу слайдеров, узор проверяется
+ * по списку. Число прорезей не задаётся отдельно: шаг узора считается от
+ * габарита, чтобы трафарет не превращался в сито на большом размере.
+ */
+export function normalizeStencilParams(
+  params: Partial<StencilParams>,
+): StencilParams {
+  return {
+    stencilWidth: snap(
+      params.stencilWidth ?? DEFAULT_STENCIL_PARAMS.stencilWidth,
+      CONSTRUCTOR_LIMITS.stencilWidth,
+    ),
+    stencilHeight: snap(
+      params.stencilHeight ?? DEFAULT_STENCIL_PARAMS.stencilHeight,
+      CONSTRUCTOR_LIMITS.stencilHeight,
+    ),
+    stencilThickness: snap(
+      params.stencilThickness ?? DEFAULT_STENCIL_PARAMS.stencilThickness,
+      CONSTRUCTOR_LIMITS.stencilThickness,
+    ),
+    stencilPattern: isStencilPattern(params.stencilPattern)
+      ? params.stencilPattern
+      : DEFAULT_STENCIL_PARAMS.stencilPattern,
+  };
+}
+
+/**
  * Проверяет и выравнивает параметры вывески.
  *
  * Текст очищается от символов вне шрифта и обрезается до 15 знаков. Ширина
@@ -2008,5 +2725,12 @@ export function normalizeConstructorParams(
     ...normalizePlanterParams(params),
     ...normalizeCoasterParams(params),
     ...normalizeJewelryStandParams(params),
+    ...normalizePenHolderParams(params),
+    ...normalizeFabricPatchParams(params),
+    ...normalizeStringLightParams(params),
+    ...normalizeOrnamentParams(params),
+    ...normalizeWallHookParams(params),
+    ...normalizeCupClipParams(params),
+    ...normalizeStencilParams(params),
   };
 }
