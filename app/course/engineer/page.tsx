@@ -97,14 +97,29 @@ export default async function EngineerCoursePage() {
         </div>
 
         <p className="mt-8 rounded-2xl border border-violet-500/30 bg-violet-500/5 px-5 py-4 text-sm leading-relaxed text-violet-100/85">
-          Первые два урока открыты без покупки — прочитай и реши, нужен ли
-          уровень. Весь уровень покупается навсегда:{" "}
-          <Link
-            href="/subscription"
-            className="font-semibold text-violet-200 underline-offset-4 transition-colors hover:text-violet-100 hover:underline"
-          >
-            Посмотреть тарифы
-          </Link>
+          {hasAccess ? (
+            <>
+              Уровень открыт целиком: все уроки, тесты модулей с разбором и
+              визуализации. Доступ остаётся навсегда:{" "}
+              <Link
+                href="/subscription"
+                className="font-semibold text-violet-200 underline-offset-4 transition-colors hover:text-violet-100 hover:underline"
+              >
+                Посмотреть тарифы
+              </Link>
+            </>
+          ) : (
+            <>
+              Первые два урока открыты без покупки — прочитай и реши, нужен ли
+              уровень. Весь уровень покупается навсегда:{" "}
+              <Link
+                href="/subscription"
+                className="font-semibold text-violet-200 underline-offset-4 transition-colors hover:text-violet-100 hover:underline"
+              >
+                Посмотреть тарифы
+              </Link>
+            </>
+          )}
         </p>
 
         <div className="mt-12 space-y-10">
