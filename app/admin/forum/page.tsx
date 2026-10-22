@@ -270,12 +270,20 @@ export default async function AdminForumPage() {
               Публичный форум показывает только одобренные материалы.
             </p>
           </div>
-          <Link
-            href="/forum"
-            className="inline-flex min-h-11 items-center justify-center rounded-full border border-white/15 px-5 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:text-white"
-          >
-            Открыть форум
-          </Link>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href="/forum"
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-white/15 px-5 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:text-white"
+            >
+              Открыть форум
+            </Link>
+            <Link
+              href="/admin/promo"
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-white/15 px-5 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:text-white"
+            >
+              Промокоды
+            </Link>
+          </div>
         </div>
 
         {loadError ? (

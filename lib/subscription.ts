@@ -197,6 +197,44 @@ async function hasAnyPurchase(
   return ((data as PurchaseRow[] | null) ?? []).some(isPurchaseActive);
 }
 
+/** Из promo_codes читаем только курс: остальное для доступа не важно. */
+type PromoRow = {
+  course_id: string;
+};
+
+/**
+ * Доступ по промокоду (партии для Ozon).
+ *
+ * Активация на /activate ставит в promo_codes used_at и used_by, но не создаёт
+ * покупку: это подарок, а не платёж, и нулевые суммы в purchases исказили бы
+ * отчёт о выручке. Поэтому доступ проверяется отдельной веткой.
+ *
+ * Запрос идёт обычным клиентом с cookies: RLS-политика promo_codes_select_own
+ * отдаёт только строки с used_by = auth.uid(), чужие активации не видны.
+ *
+ * Ошибка (таблицы ещё нет, миграцию не применили, сеть отвалилась) означает
+ * «доступа нет» — как и у покупок.
+ */
+async function hasPromoAccess(
+  supabase: Supabase,
+  userId: string,
+  courseIds: readonly string[],
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("promo_codes")
+    .select("course_id")
+    .eq("used_by", userId)
+    .in("course_id", [...courseIds])
+    .limit(1);
+
+  if (error) {
+    return false;
+  }
+
+  return ((data as PromoRow[] | null) ?? []).length > 0;
+}
+
+
 /** Состояние доступа Pro: есть ли доступ, до какой даты и откуда он взялся. */
 export type ActiveSubscription = {
   active: boolean;
@@ -295,9 +333,17 @@ export async function getActiveSubscription(
 /**
  * Есть ли доступ к платному уровню.
  *
+ * Источники:
+ *   1. purchases — отдельная покупка уровня или пакет `pro`;
+ *   2. promo_codes — активированный промокод этого уровня.
+ *
  * Пакет `pro` открывает все три уровня. Подписка `pro-subscription` — нет:
  * она относится только к инструментам. Срок покупки проверяется по expires_at:
- * null означает «навсегда».
+ * null означает «навсегда». Промокод действует бессрочно и только на свой курс:
+ * партии выпускаются отдельно для confident, engineer и profit.
+ *
+ * Промо-проверка идёт второй и только если покупки нет: у большинства учеников
+ * доступ уже есть, и лишний запрос к promo_codes им не нужен.
  */
 export async function hasCourseAccess(
   supabase: Supabase,
@@ -309,7 +355,17 @@ export async function hasCourseAccess(
       ? [courseId]
       : LEVEL_ACCESS[courseId];
 
-  return hasAnyPurchase(supabase, userId, acceptedIds);
+  if (await hasAnyPurchase(supabase, userId, acceptedIds)) {
+    return true;
+  }
+
+  // Промокоды выпускаются только на три уровня. Пакет и подписка Pro
+  // открываются оплатой, поэтому проверять promo_codes для них не нужно.
+  if (courseId === "pro" || courseId === "pro-subscription") {
+    return false;
+  }
+
+  return hasPromoAccess(supabase, userId, acceptedIds);
 }
 
 /**
