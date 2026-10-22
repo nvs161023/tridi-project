@@ -27,13 +27,23 @@ export const metadata: Metadata = {
     url: "/tools",
     title: PAGE_TITLE,
     description: PAGE_DESCRIPTION,
-    images: [OG_IMAGE],
+    images: [
+      {
+        ...OG_IMAGE,
+        alt: "TriDi: 3D-конструктор, профили печати и справочник дефектов",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: PAGE_TITLE,
     description: PAGE_DESCRIPTION,
-    images: [OG_IMAGE.url],
+    images: [
+      {
+        url: OG_IMAGE.url,
+        alt: "TriDi: 3D-конструктор, профили печати и справочник дефектов",
+      },
+    ],
   },
 };
 

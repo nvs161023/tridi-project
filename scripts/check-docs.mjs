@@ -25,8 +25,15 @@ const DOCS_PATH = "PROJECT.md";
 /**
  * Пути, которые сводка упоминает как удалённые.
  * Их отсутствие в репозитории — правильное состояние.
+ *
+ * `lib/constructor/lamp-geometry.ts` попал сюда 22 октября 2026: светильник
+ * убран из конструктора, а история изменений называет удалённый файл прямо.
  */
-const REMOVED_PATHS = new Set(["data/course.json", "app/favicon.ico"]);
+const REMOVED_PATHS = new Set([
+  "data/course.json",
+  "app/favicon.ico",
+  "lib/constructor/lamp-geometry.ts",
+]);
 
 /** Префиксы, по которым отличаем путь к файлу проекта от обычного слова. */
 const PATH_PREFIXES = [

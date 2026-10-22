@@ -31,6 +31,12 @@ const summary = summarizeCourse(confidentCourse);
 
 export const metadata = {
   title: "Уверенный уровень — 3D-печать с нуля",
+  description:
+    "Уверенный уровень TriDi: 12 уроков о материалах, слайсере, поддержках, G-коде и автоматизации печати. Первые два урока открыты без покупки.",
+  // Программа уровня живёт в закрытом разделе: middleware уводит гостя на
+  // вход, поэтому робот видит редирект, а не страницу. noindex фиксирует это
+  // явно — индексировать адрес, который робот не может открыть, бессмысленно.
+  robots: { index: false, follow: false },
 };
 
 export default async function ConfidentCoursePage() {

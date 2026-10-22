@@ -31,6 +31,12 @@ const summary = summarizeCourse(profitCourse);
 
 export const metadata = {
   title: "Заработок на 3D-печати — 3D-печать с нуля",
+  description:
+    "Уровень «Заработок» TriDi: 8 уроков о нишах, расчёте цены, клиентах, серийной печати, маркетинге, упаковке и налогах. Первые два урока открыты без покупки.",
+  // Программа уровня живёт в закрытом разделе: middleware уводит гостя на
+  // вход, поэтому робот видит редирект, а не страницу. noindex фиксирует это
+  // явно — индексировать адрес, который робот не может открыть, бессмысленно.
+  robots: { index: false, follow: false },
 };
 
 export default async function ProfitCoursePage() {

@@ -24,13 +24,23 @@ export const metadata: Metadata = {
     url: "/tools/defects",
     title: PAGE_TITLE,
     description: PAGE_DESCRIPTION,
-    images: [OG_IMAGE],
+    images: [
+      {
+        ...OG_IMAGE,
+        alt: "Справочник дефектов 3D-печати TriDi: причины и решения",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: PAGE_TITLE,
     description: PAGE_DESCRIPTION,
-    images: [OG_IMAGE.url],
+    images: [
+      {
+        url: OG_IMAGE.url,
+        alt: "Справочник дефектов 3D-печати TriDi: причины и решения",
+      },
+    ],
   },
 };
 

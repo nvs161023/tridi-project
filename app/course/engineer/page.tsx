@@ -31,6 +31,12 @@ const summary = summarizeCourse(engineerCourse);
 
 export const metadata = {
   title: "Инженер 3D-печати — 3D-печать с нуля",
+  description:
+    "Инженерный уровень TriDi: 10 уроков о материалах, нагрузках, рёбрах жёсткости, симуляции, реверс-инжиниринге и макросах Klipper. Первые два урока открыты без покупки.",
+  // Программа уровня живёт в закрытом разделе: middleware уводит гостя на
+  // вход, поэтому робот видит редирект, а не страницу. noindex фиксирует это
+  // явно — индексировать адрес, который робот не может открыть, бессмысленно.
+  robots: { index: false, follow: false },
 };
 
 export default async function EngineerCoursePage() {

@@ -104,7 +104,7 @@
 | `/subscription` | `app/subscription/page.tsx` | Сравнение четырёх уровней (таблица и мобильные карточки), пять карточек тарифов (Free, три уровня навсегда и выделенный пакет), отдельный блок подписки Pro со списком генераторов из `CONSTRUCTOR_TOOLS`, FAQ, примечание про оферту, чек НПД и возраст 18+ |
 | `/profiles` | `app/profiles/page.tsx` | Библиотека профилей печати (193 файла в трёх категориях, включая 86 принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge и Qidi) с каскадным фильтром «бренд → модель → материал» (`components/profiles/ProfilesClient.tsx`). Открыта всем, но без подписки Pro карточки размыты и ведут на `/subscription#tools`; скачивание — через `/api/profiles/download` только с активной подпиской |
 | `/tools` | `app/tools/page.tsx` | Центр инструментов: три карточки — 3D-Конструктор, библиотека профилей и диагностика дефектов, а также ссылка на форум. Блок «Внутри Конструктора» перечисляет генераторы и их число из `CONSTRUCTOR_TOOLS`, поэтому новый инструмент появляется на витрине сам. `force-dynamic` из-за кнопки авторизации в шапке; canonical `/tools`, OpenGraph и Twitter с общей картинкой `OG_IMAGE` |
-| `/tools/defects` | `app/tools/defects/page.tsx`, `components/tools/DefectsExplorer.tsx` | Справочник дефектов FDM-печати: шесть карточек (`lib/defects.ts`) с причинами и пошаговыми решениями в модальном окне; закрытие по Escape, ловушка фокуса, каталог читается и без JavaScript. Canonical `/tools/defects`, OpenGraph/Twitter и JSON-LD `FAQPage`: вопрос — дефект, ответ — нумерованные шаги решений |
+| `/tools/defects` | `app/tools/defects/page.tsx`, `components/tools/DefectsExplorer.tsx` | Справочник дефектов FDM-печати: шесть карточек (`lib/defects.ts`) с причинами и пошаговыми решениями в модальном окне, поиск по названию, описанию и причинам, вкладки-фильтры по трём группам («Проблемы со столом», «Проблемы с экструзией», «Механика») и заголовки групп с пояснением, что проверять; закрытие по Escape, ловушка фокуса, каталог читается и без JavaScript. Canonical `/tools/defects`, OpenGraph/Twitter и JSON-LD `FAQPage`: вопрос — дефект, ответ — нумерованные шаги решений |
 | `/forum` | `app/forum/page.tsx` | Публичный форум: кликабельные карточки категорий, счётчики и последние одобренные темы. Читать может гость и поисковый робот; pending-материалы RLS не отдаёт |
 | `/forum/category/[slug]` | `app/forum/category/[slug]/page.tsx` | Раздел форума: approved-темы с автором, датой и числом ответов, пустое состояние и кнопка создания темы с предвыбранной категорией. `generateMetadata`, canonical и JSON-LD |
 | `/forum/[slug]` | `app/forum/[slug]/page.tsx` | Тема и одобренные ответы, `generateMetadata` и JSON-LD (`DiscussionForumPosting`); форма ответа — только вошедшему, с проверкой бана |
@@ -112,8 +112,8 @@
 | `/legal` | `app/legal/page.tsx` | Оглавление юридических документов |
 | `/legal/privacy`, `/legal/consent`, `/legal/terms`, `/legal/offer`, `/legal/cookies` | `app/legal/*/page.tsx` | Пять документов (статически пререндерятся, открываются даже когда база недоступна) |
 | `/terms`, `/privacy`, `/legal/oferta`, `/register` | `next.config.ts` | Короткие адреса и вариант написания оферты: постоянные редиректы (308) на `/legal/terms`, `/legal/privacy`, `/legal/offer` и `/auth/sign-up` |
-| `/sitemap.xml` | `app/sitemap.ts` | Динамическая карта сайта: главная, `/subscription`, четыре страницы `/courses/*`, `/forum`, `/tools`, `/tools/defects` и все approved-темы форума; адрес берётся из запроса или `NEXT_PUBLIC_SITE_URL` |
-| `/robots.txt` | `app/robots.ts` | Разрешает индексацию публичных страниц (`/` и `/tools`) и закрывает `/dashboard`, `/admin`, `/api`, `/constructor` и `/verify`; ссылается на sitemap |
+| `/sitemap.xml` | `app/sitemap.ts` | Динамическая карта сайта: главная, `/subscription`, четыре страницы `/courses/*`, `/forum`, `/forum/rules`, `/tools`, `/tools/defects`, `/profiles`, `/legal` с пятью документами и все approved-темы форума; адрес берётся из запроса или `NEXT_PUBLIC_SITE_URL` |
+| `/robots.txt` | `app/robots.ts` | Разрешает индексацию публичных страниц (`/`, `/tools`, `/profiles`) и закрывает `/dashboard`, `/admin`, `/api`, `/constructor`, `/course`, `/certificate` и `/verify`; ссылается на sitemap |
 | `/verify/[id]` | `app/verify/[id]/page.tsx` | Публичная проверка сертификата по HMAC-токену: имя, курс, дата и номер либо честное «сертификат не найден». Вход не нужен, запросов к базе нет, `noindex` |
 | `/opengraph-image` | `app/opengraph-image.tsx` | PNG 1200×630 для `og:image` и `twitter:image`: тёмно-синий фон, логотип TriDi и абстрактные окружности |
 
@@ -1493,19 +1493,27 @@ M117, моторы) и правило «без отвода — вмятина �
 
 - **Карта сайта:** `app/sitemap.ts` собирается на каждый запрос (`force-dynamic`) и включает
   главную, `/subscription`, `/courses/confident`, `/courses/engineer`, `/courses/profit`,
-  `/courses/pro`, `/forum`, `/tools`, `/tools/defects` и все approved-темы. Для тем добавлена
-  постраничная выборка `getApprovedThreadsForSitemap` в `lib/forum.ts`: карта сайта не обрезается
-  на 300 записях, как публичный список форума. `/constructor` и `/dashboard` в карту не попадают:
-  оба закрыты в robots.txt, а конструктор дополнительно помечен `robots: noindex`.
-- **robots.txt:** `app/robots.ts` разрешает `/` и `/tools` и закрывает `/dashboard`, `/admin`,
-  `/api`, `/constructor` и `/verify`. Запрет не заменяет middleware: личные разделы всё равно
-  требуют сессию и проверяют доступ на сервере. `/tools` перечислен в `allow` явно, чтобы будущий
-  запрет по ошибке не отрезал публичный справочник от поиска.
-- **OpenGraph:** `app/opengraph-image.tsx` генерирует PNG 1200×630; `app/layout.tsx` задаёт
-  `metadataBase`, `og:title`, `og:description`, `og:image`, `twitter:card` и `siteName`. Страницы
-  курсов переопределяют заголовок, описание и alt картинки в `generateMetadata`; `/tools` и
-  `/tools/defects` задают собственные `title`, `description`, canonical, `og:url`, OpenGraph и
-  Twitter-карточку, а картинку берут из общего `OG_IMAGE`.
+  `/courses/pro`, `/forum`, `/forum/rules`, `/tools`, `/tools/defects`, `/profiles`, оглавление
+  `/legal` с пятью документами и все approved-темы. Для тем добавлена постраничная выборка
+  `getApprovedThreadsForSitemap` в `lib/forum.ts`: карта сайта не обрезается на 300 записях, как
+  публичный список форума. `/constructor`, `/dashboard`, `/course/*` и `/certificate` в карту не
+  попадают: они закрыты middleware и в robots.txt, а конструктор и страницы уровней дополнительно
+  помечены `robots: noindex`.
+- **robots.txt:** `app/robots.ts` разрешает `/`, `/tools` и `/profiles` и закрывает `/dashboard`,
+  `/admin`, `/api`, `/constructor`, `/course`, `/certificate` и `/verify`. Запрет не заменяет
+  middleware: личные разделы всё равно требуют сессию и проверяют доступ на сервере. Публичные
+  разделы перечислены в `allow` явно, чтобы будущий запрет по ошибке не отрезал их от поиска.
+- **OpenGraph:** `app/opengraph-image.tsx` генерирует PNG 1200×630 с логотипом TriDi и слоганом;
+  `app/layout.tsx` задаёт `metadataBase`, `og:title`, `og:description`, `og:image`,
+  `twitter:card` и `siteName`. Страницы курсов переопределяют заголовок, описание и alt картинки
+  в `generateMetadata`; `/tools` и `/tools/defects` задают собственные `title`, `description`,
+  canonical, `og:url`, OpenGraph и Twitter-карточку, а картинку берут из общего `OG_IMAGE` с
+  подписью под конкретную страницу — мессенджер показывает не «курсы», а инструменты или дефекты.
+- **Метаданные уровней:** у `/course/confident`, `/course/engineer` и `/course/profit` есть
+  заголовок и описание с числом уроков и упоминанием превью, но стоит `robots: noindex`: гость
+  уходит на вход, робот видит редирект, и индексировать адрес, который ему не откроют, незачем.
+  Публичные витрины уровней — `/courses/[id]`: там заголовок, описание, canonical и OpenGraph
+  собираются из `lib/course-landing.ts`.
 - **Schema.org:** на главной выводится JSON-LD `Organization` с логотипом, email, телефоном,
   реквизитами НПД и `contactPoint`; на `/courses/[id]` — `Course` с ценой в рублях, описанием,
   провайдером, форматом обучения и результатами; на `/tools/defects` — `FAQPage`: каждый дефект
@@ -1715,6 +1723,7 @@ M117, моторы) и правило «без отвода — вмятина �
 | `lib/course-completion.ts` | Завершение курса по строкам `lesson_progress`: уроки с материалом, сданные тесты модулей, дата последнего шага и `isComplete`; `readCourseProgressRows` читает прогресс уровня с откатом на старую схему без `course_type`. Общий источник правил для кабинета, сертификата, отзывов и «Центра выпускника» |
 | `lib/certificates.ts` | Сертификат как HMAC-токен: `createCertificate` подписывает имя, курс, дату, subject и признак пакета `fullCourse`, `readCertificateToken` проверяет подпись через `timingSafeEqual` и принимает старые токены без `fullCourse`, `formatCertificateDate` и номер `TRI-2026-…`; секрет — `CERTIFICATE_SECRET` или `SUPABASE_SERVICE_ROLE_KEY` |
 | `lib/reviews.ts` | Отзывы о курсах: `REVIEW_COURSE_IDS`, проверка оценки и длины текста, `getCourseReviews` (свежие сверху, имена из `course_review_authors`), `hasUserReviewedCourse`, `getCourseReviewStats`, `formatReviewDate`, `pluralizeReviews` |
+| `lib/defects.ts` | Справочник дефектов FDM-печати: тип `Defect` (название, описание, причины, решения), три группы `DEFECT_CATEGORIES` («Проблемы со столом», «Проблемы с экструзией», «Механика») с подписями `DEFECT_CATEGORY_LABELS` и пояснениями `DEFECT_CATEGORY_HINTS`; массив `defects` — общий источник карточек, фильтров и JSON-LD `FAQPage` |
 | `lib/course-levels.ts` | Четыре уровня витрины (`LEVELS`): названия, `goal` и разовая цена `price` из `data/courses.json`, уроки, `totalLessons`, `estimatedHours`, схемы, тесты и часы — из файлов курсов; `getCertificateProgram` собирает строку уровня или пакета и объём для сертификата; `PAID_LEVELS`, `PAID_LESSONS`, `PAID_VISUALS`, `PAID_TESTS`, `TOTAL_LESSONS`, `TOTAL_VISUALS`, `TOTAL_TESTS` — те же числа для главной и `/subscription` |
 | `lib/payments.ts` | Robokassa: `initializePayment` собирает подписанную ссылку с `InvId`, чеком `Receipt` (54-ФЗ) и `Shp_*`, проверяет сумму по `data/courses.json`; `buildReceipt` описывает позицию чека, `isRecurringEnabled` включает `Recurring=true` только при `ROBOKASSA_RECURRING=true` и только для подписки; `verifyResultSignature` проверяет MD5 уведомления с паролем №2 |
 | `lib/module-test.ts` | Правила тестов: пороги сдачи (5 в бесплатном курсе, 7 в платных) и «отлично» (8), типы записей (`basic-test`, `confident-test`, `engineer-test`, `pro-test`), проверки `isModuleTestPassed`, `isModuleTestCompleted`, `isModuleTestCompletedByOrder` |
@@ -1784,7 +1793,7 @@ M117, моторы) и правило «без отвода — вмятина �
 | `components/Header.tsx` | серверный | Шапка: логотип, навигация витрины, меню «Инструменты», кнопка «Войти» или «Личный кабинет» в зависимости от сессии; email в профиле виден с `xl`, до этого — только аватар и «Выйти» |
 | `components/navigation/ToolsDropdown.tsx` | клиентский | Выпадающее меню «Инструменты»: центр инструментов, 3D-Конструктор, библиотека профилей и диагностика дефектов; закрывается по Escape (фокус возвращается на кнопку) и клику вне панели |
 | `components/navigation/MobileMenu.tsx` | клиентский | Бургер-меню для экранов уже `xl`: основные разделы и три ссылки инструментов; панель растянута по ширине окна, закрывается по Escape и переходу |
-| `components/tools/DefectsExplorer.tsx` | клиентский | Каталог дефектов печати: сетка карточек и модальное окно с причинами и шагами решения; Escape, клик по фону, ловушка фокуса и возврат фокуса на карточку |
+| `components/tools/DefectsExplorer.tsx` | клиентский | Каталог дефектов печати: поиск по названию, описанию и причинам (без учёта регистра, «ё» и лишних пробелов), вкладки-фильтры по группам со счётчиками, заголовки групп с пояснениями и сетка карточек; счётчик результатов с `aria-live`, пустое состояние со сбросом фильтров, модальное окно с причинами и шагами решения, Escape, клик по фону, ловушка фокуса и возврат фокуса на карточку |
 | `components/Logo.tsx` | серверный | Векторный логотип: SVG-принтер с синей шестерёнкой и слово `tridi-print.ru`; вариант `wordmark` — только текст для подвала |
 | `components/Footer.tsx` | серверный | Подвал: ссылки на все юридические документы, копирайт, карточка «Реквизиты и контакты» со статусом НПД, ИНН, телефоном и email |
 | `components/certificate/PartnerBonus.tsx` | серверный | Блок «Бонусы от партнеров» на странице готового сертификата: промокод «Слойтек» при `NEXT_PUBLIC_ENABLE_PARTNER_PROMO=true`, иначе заглушка; скрыт при печати |
@@ -3697,4 +3706,58 @@ violet у «Инженера», rose у «Заработка».
 30 уроков, 0 нарушений, `npm run build` — `Compiled successfully`, 33 страницы. Геометрия
 проверена расчётом, но не печатью: зазор 0.3 мм в зажиме, посадка телефона в жёлоб и
 устойчивость подставки на углах 60–70° остаются кандидатами на правку после контрольной печати.
+
+
+**Поиск и категории в справочнике дефектов, финальный SEO-проход (22 октября 2026).**
+Справочник перестал быть плоской сеткой из шести карточек. В `lib/defects.ts` появилась
+категория: `DEFECT_CATEGORIES` — `bed`, `extrusion`, `mechanics`, подписи
+`DEFECT_CATEGORY_LABELS` («Проблемы со столом», «Проблемы с экструзией», «Механика») и
+пояснения `DEFECT_CATEGORY_HINTS`. Деление повторяет порядок диагностики: отрыв от стола
+относится к столу, расслоение, стрингинг, мосты и недоэкструзия — к экструзии, смещение
+слоёв — к механике. Категория обязательна в типе `Defect`, поэтому новый дефект нельзя
+добавить без группы.
+
+`DefectsExplorer` получил строку поиска и вкладки. Поиск идёт по названию, описанию и
+причинам, но не по решениям: решения читают, когда дефект уже опознан. Сравнение
+нормализует строку — регистр, «ё» и повторяющиеся пробелы не важны, поэтому «сопли»
+находит ««Сопли» и паутина», а «стол» — все дефекты, где стол упомянут в причинах. Рядом
+с полем стоит кнопка очистки, Escape очищает запрос. Вкладки «Все дефекты» и три группы
+показывают число карточек, выбранная подписана `aria-pressed`; группы выводятся
+заголовками с пояснением, что проверять, и пустые группы не показываются. Счётчик
+результатов объявлен `aria-live`, поэтому скринридер слышит «найдено 2 дефекта из 6» без
+перехода по странице. Если совпадений нет, вместо сетки показывается пустое состояние с
+кнопкой «Сбросить фильтры».
+
+Карточки нумеруются по исходному порядку справочника, а модальное окно хранит `id`
+дефекта, а не индекс: фильтр может сузить список, но окно всё равно откроет выбранную
+карточку. В подписи окна теперь видны номер, общее число и категория. Поиск и фильтры
+живут только в браузере: HTML со всеми шестью карточками остаётся в разметке, поэтому
+справочник по-прежнему читается без JavaScript.
+
+SEO-проход. Карта сайта дополнена публичными страницами, которых в ней не было:
+`/profiles`, `/forum/rules`, `/legal` и пять документов (`offer`, `terms`, `privacy`,
+`consent`, `cookies`) — у юридических документов частота `yearly`, у профилей и правил —
+`monthly`. `app/robots.ts` разрешает `/`, `/tools` и `/profiles`, а закрывает ещё
+`/course` и `/certificate`: это страницы под сессией, роботу там нечего делать.
+У программ уровней (`/course/confident`, `/course/engineer`, `/course/profit`) появились
+описания с числом уроков и упоминанием превью и явный `robots: noindex` — middleware
+уводит гостя на вход, так что индексировать адрес бессмысленно; публичные витрины
+остаются `/courses/[id]`.
+
+Проверено, что уже стояло на месте и не требовало правок: `/tools` и `/tools/defects`
+имеют собственные `title`, `description`, canonical, OpenGraph и Twitter; на
+`/tools/defects` отдаётся JSON-LD `FAQPage` (вопрос — дефект, ответ — нумерованные
+решения), на `/courses/[id]` — `Course` с ценой, провайдером и форматом обучения;
+`app/opengraph-image.tsx` рисует PNG 1200×630 с логотипом TriDi и слоганом. Добавлена
+только подпись картинки под страницу: у `/tools` и `/tools/defects` alt говорит про
+инструменты и дефекты, а не про курсы, — так превью в мессенджере совпадает со ссылкой.
+
+`scripts/check-docs.mjs` получил в список удалённых путей `lib/constructor/lamp-geometry.ts`:
+история изменений называет удалённый файл прямо, и проверка не должна считать это ошибкой.
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:imports` —
+1 280 импортов без битых, `npm run check:docs` — 168 путей и сводка сходятся,
+`npm run check:style` — 30 уроков, 0 нарушений, `npm run build` — `Compiled successfully`,
+33 страницы. Живая проверка поиска и вкладок в браузере не проводилась: разметка и
+поведение фильтров проверены типами, линтером и сборкой.
 
