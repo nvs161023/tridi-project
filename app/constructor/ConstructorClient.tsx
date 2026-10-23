@@ -2,13 +2,22 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { loadConstructorProject } from "@/app/actions/projects";
+import { FeedbackDialog } from "@/components/constructor/FeedbackDialog";
 import {
   ParameterPanel,
   type StlExportError,
   type StlExportOption,
 } from "@/components/constructor/ParameterPanel";
+import { SaveProjectDialog } from "@/components/constructor/SaveProjectDialog";
+import {
+  FEEDBACK_OPEN_DELAY_MS,
+  registerConstructorDownload,
+  shouldAskForConstructorFeedback,
+} from "@/lib/constructor/feedback";
+import type { SavedProjectNotice } from "@/lib/constructor/projects";
 import {
   COASTER_PATTERN_LABELS,
   COASTER_SHAPE_LABELS,
@@ -96,6 +105,8 @@ type ConstructorClientProps = {
   hasPro: boolean;
   /** Сколько бесплатных скачиваний осталось в текущем месяце (0 для Pro). */
   freeDownloadsLeft: number;
+  /** Проект из адреса `?project=ID`: его параметры применяются после загрузки. */
+  initialProjectId?: string | null;
 };
 
 /** Числовые параметры: форму, узор, надпись и флаги меняют отдельные обработчики. */
@@ -418,6 +429,7 @@ function ViewportSkeleton() {
 export function ConstructorClient({
   hasPro,
   freeDownloadsLeft: initialFreeDownloadsLeft,
+  initialProjectId = null,
 }: ConstructorClientProps) {
   const [params, setParams] = useState<ConstructorParams>(
     DEFAULT_CONSTRUCTOR_PARAMS,
@@ -427,6 +439,94 @@ export function ConstructorClient({
   const [freeDownloadsLeft, setFreeDownloadsLeft] = useState(
     initialFreeDownloadsLeft,
   );
+  /** Сообщение о загрузке проекта в шапке: успех или «не нашли». */
+  const [savedProjectNotice, setSavedProjectNotice] =
+    useState<SavedProjectNotice | null>(null);
+  /** Модель, по которой открыт опрос после скачивания; null — окно закрыто. */
+  const [feedbackModel, setFeedbackModel] = useState<ModelType | null>(null);
+  /** Один и тот же проект не загружаем дважды (StrictMode в dev). */
+  const loadedProjectRef = useRef<string | null>(null);
+  /** Пауза перед опросом: файл должен начать сохраняться раньше окна. */
+  const feedbackTimerRef = useRef<number | null>(null);
+
+  /**
+   * Проект из адреса `?project=ID`.
+   *
+   * Ссылку даёт кабинет, поэтому параметры приходят уже нормализованными
+   * (normalizeSavedProjectParams) — конструктор просто заменяет состояние.
+   * Ошибка не ломает страницу: пользователь видит сообщение и работает с
+   * дефолтной моделью.
+   */
+  useEffect(() => {
+    if (!initialProjectId || loadedProjectRef.current === initialProjectId) {
+      return;
+    }
+
+    loadedProjectRef.current = initialProjectId;
+    let active = true;
+
+    loadConstructorProject(initialProjectId)
+      .then((result) => {
+        if (!active) {
+          return;
+        }
+
+        if (!result.ok) {
+          setSavedProjectNotice({ tone: "error", message: result.error });
+
+          return;
+        }
+
+        setParams(result.project.params);
+        setSavedProjectNotice({
+          tone: "success",
+          message: `Проект «${result.project.title}» загружен.`,
+        });
+      })
+      .catch(() => {
+        // Сеть отвалилась между кликом и ответом действия.
+        if (active) {
+          setSavedProjectNotice({
+            tone: "error",
+            message: "Не удалось загрузить проект. Попробуйте ещё раз.",
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [initialProjectId]);
+
+  /** Закрытие опроса: таймер уже отработал, окно убираем из разметки. */
+  const closeFeedback = useCallback(() => setFeedbackModel(null), []);
+
+  // Окно опроса не должно появиться после ухода со страницы.
+  useEffect(
+    () => () => {
+      if (feedbackTimerRef.current !== null) {
+        window.clearTimeout(feedbackTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  /**
+   * Показывает опрос после успешного скачивания.
+   *
+   * Счётчик ведёт lib/constructor/feedback: третье скачивание, дальше каждое
+   * десятое. Задержка нужна, чтобы окно не перекрыло диалог сохранения файла.
+   */
+  function scheduleFeedback(model: ModelType) {
+    if (feedbackTimerRef.current !== null) {
+      window.clearTimeout(feedbackTimerRef.current);
+    }
+
+    feedbackTimerRef.current = window.setTimeout(() => {
+      feedbackTimerRef.current = null;
+      setFeedbackModel(model);
+    }, FEEDBACK_OPEN_DELAY_MS);
+  }
 
   function updateParam(key: SizeParam, value: number) {
     setParams((current) =>
@@ -749,6 +849,11 @@ export function ConstructorClient({
         // Даём браузеру начать сохранение, затем освобождаем память.
         window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 
+        // Счётчик опроса живёт в браузере: Pro сервер скачивания не считает.
+        if (shouldAskForConstructorFeedback(registerConstructorDownload())) {
+          scheduleFeedback(params.model);
+        }
+
         return;
       }
 
@@ -834,17 +939,46 @@ export function ConstructorClient({
           </p>
         </div>
 
-        <span
+        <div className="flex shrink-0 flex-col items-start gap-3 sm:items-end">
+          <span
+            className={
+              hasPro
+                ? "inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200"
+                : "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-300"
+            }
+          >
+            <span aria-hidden>{hasPro ? "✓" : "👁"}</span>
+            {hasPro ? "Подписка Pro" : "Бесплатный предпросмотр"}
+          </span>
+
+          {/* Сохранение доступно всем: проект помнит настройки, а не файл. */}
+          <SaveProjectDialog params={params} />
+        </div>
+      </div>
+
+      {savedProjectNotice ? (
+        <p
+          role={savedProjectNotice.tone === "error" ? "alert" : "status"}
           className={
-            hasPro
-              ? "inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200 sm:self-auto"
-              : "inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-300 sm:self-auto"
+            savedProjectNotice.tone === "error"
+              ? "mt-5 flex items-start gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+              : "mt-5 flex items-start gap-3 rounded-2xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100"
           }
         >
-          <span aria-hidden>{hasPro ? "✓" : "👁"}</span>
-          {hasPro ? "Подписка Pro" : "Бесплатный предпросмотр"}
-        </span>
-      </div>
+          <span aria-hidden>
+            {savedProjectNotice.tone === "error" ? "⚠️" : "✓"}
+          </span>
+          <span className="flex-1">{savedProjectNotice.message}</span>
+          <button
+            type="button"
+            onClick={() => setSavedProjectNotice(null)}
+            aria-label="Скрыть сообщение"
+            className="-my-1 ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-full text-base leading-none text-current transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+          >
+            <span aria-hidden>×</span>
+          </button>
+        </p>
+      ) : null}
 
       {/*
         На мобильных первой идёт сцена (order-1), панель — второй: человек
@@ -1042,6 +1176,11 @@ export function ConstructorClient({
           </p>
         </section>
       </div>
+
+      {/* Опрос живёт вне сетки: он открывается поверх страницы. */}
+      {feedbackModel ? (
+        <FeedbackDialog model={feedbackModel} onClose={closeFeedback} />
+      ) : null}
     </main>
   );
 }

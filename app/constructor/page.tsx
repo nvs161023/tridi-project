@@ -45,11 +45,31 @@ export const metadata: Metadata = {
 /** Страница читает cookies и подписку — собираем её на каждый запрос. */
 export const dynamic = "force-dynamic";
 
-export default async function ConstructorPage() {
+type ConstructorPageProps = {
+  /** `?project=ID` — проект из кабинета, который нужно открыть в конструкторе. */
+  searchParams: Promise<{ project?: string | string[] }>;
+};
+
+export default async function ConstructorPage({
+  searchParams,
+}: ConstructorPageProps) {
   const identity = decodeRequestUser((await headers()).get(USER_HEADER));
+  const query = await searchParams;
+  // Параметр может прийти массивом (`?project=a&project=b`) — берём первый.
+  const projectParam = Array.isArray(query.project)
+    ? query.project[0]
+    : query.project;
+  const initialProjectId =
+    typeof projectParam === "string" && projectParam ? projectParam : null;
 
   if (!identity) {
-    redirect(authHref("/auth/login", "/constructor"));
+    // Возврат после входа сохраняет проект: ссылка из кабинета должна открыть
+    // ту же модель, а не пустой конструктор.
+    const next = initialProjectId
+      ? `/constructor?project=${encodeURIComponent(initialProjectId)}`
+      : "/constructor";
+
+    redirect(authHref("/auth/login", next));
   }
 
   const supabase = await createClient();
@@ -82,6 +102,7 @@ export default async function ConstructorPage() {
       <ConstructorClient
         freeDownloadsLeft={freeDownloadsLeft}
         hasPro={hasPro}
+        initialProjectId={initialProjectId}
       />
     </div>
   );

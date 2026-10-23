@@ -6,6 +6,11 @@ import { redirect } from "next/navigation";
 import { Header } from "@/components/Header";
 import { ProfileEditor } from "@/app/dashboard/ProfileEditor";
 import { isAdminEmail } from "@/lib/admin";
+import { getSavedProjects } from "@/lib/constructor/project-store";
+import {
+  formatSavedProjectDate,
+  savedProjectModelLabel,
+} from "@/lib/constructor/projects";
 import { basicLessons } from "@/lib/basic-course";
 import { confidentLessons } from "@/lib/confident-course";
 import {
@@ -473,6 +478,7 @@ export default async function DashboardPage() {
     engineerAccess,
     profitAccess,
     subscription,
+    savedProjects,
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", userId).single(),
     supabase
@@ -484,6 +490,9 @@ export default async function DashboardPage() {
     hasPurchasedCourse(supabase, userId, "engineer"),
     hasPurchasedCourse(supabase, userId, "profit"),
     getActiveSubscription(supabase, userId),
+    // Миграции применяют вручную: пока таблицы нет, getSavedProjects вернёт
+    // пустой список и кабинет покажет остальные разделы как обычно.
+    getSavedProjects(supabase, userId),
   ]);
 
   let progressRows = (progressResult.data as ProgressRow[] | null) ?? [];
@@ -793,6 +802,78 @@ export default async function DashboardPage() {
               <ProToolCard key={tool.title} tool={tool} isPro={hasPro} />
             ))}
           </div>
+        </section>
+
+        <section aria-labelledby="saved-projects-title" className="mt-12">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold tracking-widest text-blue-400 uppercase">
+                Конструктор 3D
+              </p>
+              <h2
+                id="saved-projects-title"
+                className="mt-3 text-2xl font-extrabold tracking-tight text-white sm:text-3xl"
+              >
+                Мои 3D-проекты
+              </h2>
+            </div>
+            <p className="max-w-md text-sm leading-relaxed text-slate-300">
+              {savedProjects.length > 0
+                ? "Откройте сохранённый проект — размеры и узор подставятся в конструктор, и можно продолжить с того же места."
+                : "Сохраняйте настройки модели в конструкторе — они появятся здесь и откроются на любом устройстве."}
+            </p>
+          </div>
+
+          {savedProjects.length > 0 ? (
+            <ul className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {savedProjects.map((project) => (
+                <li
+                  key={project.id}
+                  className="flex flex-col justify-between gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 sm:p-6"
+                >
+                  <div>
+                    <h3 className="text-lg font-bold tracking-tight text-white">
+                      {project.title}
+                    </h3>
+                    <p className="mt-2 text-sm text-slate-300">
+                      {savedProjectModelLabel(project.modelType)}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {formatSavedProjectDate(project.createdAt)}
+                    </p>
+                  </div>
+                  <Link
+                    href={`/constructor?project=${encodeURIComponent(project.id)}`}
+                    aria-label={`Открыть проект «${project.title}» в конструкторе`}
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/15 px-5 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  >
+                    Открыть проект
+                    <span aria-hidden>→</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-6 flex flex-col items-start gap-4 rounded-3xl border border-dashed border-white/15 bg-white/5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8">
+              <div className="max-w-xl">
+                <h3 className="text-lg font-bold text-white">
+                  Здесь появятся ваши проекты
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                  Пока ничего не сохранено. Настройте модель в конструкторе 3D и
+                  нажмите «Сохранить проект» — название, размеры и узор
+                  сохранятся за аккаунтом.
+                </p>
+              </div>
+              <Link
+                href="/constructor"
+                className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              >
+                Открыть конструктор
+                <span aria-hidden>→</span>
+              </Link>
+            </div>
+          )}
         </section>
 
         {isAdmin ? (
