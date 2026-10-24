@@ -492,7 +492,16 @@ async function collectStats(): Promise<ReportStats> {
   };
 }
 
+/**
+ * Сумма в рублях. Нечисло превращаем в прочерк: для NaN Intl отдаёт строку
+ * «не число ₽», которая в письме выглядит как сбой отчёта, а не как пустая
+ * метрика.
+ */
 function formatMoney(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "—";
+  }
+
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",
     currency: "RUB",
@@ -516,6 +525,20 @@ function formatDay(iso: string): string {
   return new Intl.DateTimeFormat("ru-RU", {
     timeZone: "Europe/Moscow",
     day: "numeric",
+    month: "long",
+  }).format(new Date(iso));
+}
+
+/**
+ * Название месяца по Москве в именительном падеже: «октябрь».
+ *
+ * Заголовок блока читается как «Накопительно за октябрь», поэтому месяц берём
+ * из данных, а не из константы: 1 ноября письмо само станет ноябрьским, и
+ * название не придётся править.
+ */
+function formatMonthName(iso: string): string {
+  return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: "Europe/Moscow",
     month: "long",
   }).format(new Date(iso));
 }
@@ -546,7 +569,9 @@ function kpiCell(label: string, value: string, tone: KpiTone): string {
                       </td>`;
 }
 
-/** Строка таблицы «Продажи и промокоды». */
+/**
+ * Строка таблицы «Покупки по курсам»: деньги и подарки рядом.
+ */
 function salesRow(row: SalesRow, promosAvailable: boolean): string {
   return `
                         <tr>
@@ -596,7 +621,13 @@ function missingMigrations(stats: WindowStats): string[] {
   return files;
 }
 
-/** Один блок письма: заголовок окна, карточки и две таблицы. */
+/**
+ * Один блок письма: заголовок окна, карточки и две таблицы.
+ *
+ * Текст заголовка приходит снаружи: суточный блок подписан «За последние
+ * 24 часа», месячный — «Накопительно за октябрь». Шаблон один, поэтому оба
+ * блока выглядят одинаково и сравниваются глазами построчно.
+ */
 function renderWindowBlock(
   heading: string,
   period: string,
@@ -648,7 +679,7 @@ function renderWindowBlock(
                 </table>
                 ${stats.usersTruncated ? `<p style="margin:4px 0 0;color:#94a3b8;font-size:11px;">* просмотрены не все страницы пользователей: цифра может быть меньше.</p>` : ""}
 
-                <h2 style="margin:24px 0 6px;color:#0f172a;font-size:15px;">Продажи и промокоды</h2>
+                <h2 style="margin:24px 0 6px;color:#0f172a;font-size:15px;">Покупки по курсам</h2>
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
                   <tr>
                     <th align="left" style="padding:0 0 4px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:1px;">Курс</th>
@@ -725,12 +756,14 @@ function renderFeedbackBlock(stats: WindowStats): string {
  *
  * Вёрстка на таблицах и inline-стилях: почтовые клиенты (в том числе Gmail)
  * вырезают <style> и flex/grid, поэтому внешний вид держится на атрибутах.
- * Ширина 600 px — стандарт для писем; карточки и таблицы занимают 100%
- * доступной ширины, поэтому на телефоне письмо не вылезает за экран.
+ * Ширина 600 px — стандарт для писем: её держит атрибут `width` (его понимает
+ * Outlook), а inline-стиль `width:100%;max-width:600px` сжимает письмо до
+ * экрана телефона. Карточки и таблицы занимают 100% доступной ширины.
  */
 function renderDailyReport(stats: ReportStats): string {
+  const monthName = formatMonthName(stats.month.since);
   const dayPeriod = `${formatPeriod(stats.day.since)} — ${formatPeriod(stats.until)} (МСК)`;
-  const monthPeriod = `С ${formatDay(stats.month.since)} по ${formatPeriod(stats.until)} (МСК)`;
+  const monthPeriod = `${formatDay(stats.month.since)} — ${formatPeriod(stats.until)} (МСК)`;
 
   return `<!doctype html>
 <html lang="ru">
@@ -744,7 +777,7 @@ function renderDailyReport(stats: ReportStats): string {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
       <tr>
         <td align="center">
-          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;border-collapse:collapse;background:#ffffff;border-radius:16px;overflow:hidden;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;border-collapse:collapse;background:#ffffff;border-radius:16px;overflow:hidden;">
             <tr>
               <td style="padding:24px 28px;background:#0f172a;">
                 <p style="margin:0;color:#93c5fd;font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;">TriDi</p>
@@ -752,8 +785,8 @@ function renderDailyReport(stats: ReportStats): string {
                 <p style="margin:6px 0 0;color:#cbd5e1;font-size:13px;">Сформирована ${formatPeriod(stats.until)} (МСК)</p>
               </td>
             </tr>
-            ${renderWindowBlock("Сводка за сутки", dayPeriod, stats.day, "#1d4ed8")}
-            ${renderWindowBlock("Сводка за текущий месяц", monthPeriod, stats.month, "#6d28d9")}
+            ${renderWindowBlock("За последние 24 часа", dayPeriod, stats.day, "#1d4ed8")}
+            ${renderWindowBlock(`Накопительно за ${monthName}`, monthPeriod, stats.month, "#6d28d9")}
             ${renderFeedbackBlock(stats.month)}
             <tr>
               <td style="padding:16px 28px 24px;border-top:1px solid #e2e8f0;">
@@ -829,13 +862,13 @@ function renderDailyText(stats: ReportStats): string {
   };
 
   pushWindow(
-    "За сутки",
+    "За последние 24 часа",
     `${formatPeriod(stats.day.since)} — ${formatPeriod(stats.until)} (МСК)`,
     stats.day,
   );
   pushWindow(
-    "С начала месяца",
-    `с ${formatDay(stats.month.since)} по ${formatPeriod(stats.until)} (МСК)`,
+    `Накопительно за ${formatMonthName(stats.month.since)}`,
+    `${formatDay(stats.month.since)} — ${formatPeriod(stats.until)} (МСК)`,
     stats.month,
   );
 
