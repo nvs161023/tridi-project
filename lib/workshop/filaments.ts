@@ -79,6 +79,29 @@ export const FILAMENT_DEFAULTS = {
   pricePerKg: DEFAULT_PLASTIC_PRICE_PER_KG,
 } as const;
 
+/**
+ * Подсказки для поля «Бренд»: популярные производители филамента.
+ *
+ * Это `<datalist>`, а не список допустимых значений: свой бренд напечатать можно,
+ * иначе половина катушек не попала бы на склад. Сервер по-прежнему проверяет
+ * только длину (1…60 символов) — см. FILAMENT_TEXT_LIMITS.
+ */
+export const FILAMENT_BRANDS = [
+  "eSun",
+  "Sunlu",
+  "Polymaker",
+  "Bambu Lab",
+  "Prusament",
+  "Anycubic",
+  "Creality",
+  "Devil Design",
+  "Bestfilament",
+  "FDPlast",
+  "REC",
+  "3DPlast",
+  "Semenych",
+] as const;
+
 /** Подсказки для поля «Тип»: вводить можно любой, это только ускорение. */
 export const FILAMENT_TYPE_SUGGESTIONS = [
   "PLA",

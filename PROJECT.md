@@ -2039,11 +2039,17 @@ Cron на сервере (каждый день в 09:00 МСК):
 Данные склада описаны в `lib/workshop/filaments.ts`: `WorkshopFilament`, `FILAMENT_NUMBER_FIELDS`
 (вес 1…100 000 г, остаток 0…100 000 г, цена 0…100 000 ₽/кг, порог 0…100 000 г; вес — integer),
 `FILAMENT_TEXT_LIMITS` (60/30/40/500 символов), `FILAMENT_DEFAULTS` (1 000 г, 200 г, 1 500 ₽/кг),
-`normalizeFilamentRow` (строка базы → катушка, битое число заменяется значением по умолчанию),
-`readFilamentForm` и `readConsumeFilamentForm` (форма → значения или ошибки по полям),
-`isLowStockFilament`, `filamentRemainingPercent` и `formatGrams`. Список читает
-`getWorkshopFilaments()` (`lib/workshop/filament-store.ts`) — сортировка по `created_at`, ошибку не
-пробрасывает, при отсутствии таблицы отдаёт пустой список и `isMissingTable`.
+`FILAMENT_BRANDS` (13 популярных производителей для подсказки в поле «Бренд»),
+`FILAMENT_TYPE_SUGGESTIONS` (шесть материалов для поля «Тип»), `normalizeFilamentRow` (строка базы →
+катушка, битое число заменяется значением по умолчанию), `readFilamentForm` и
+`readConsumeFilamentForm` (форма → значения или ошибки по полям), `isLowStockFilament`,
+`filamentRemainingPercent` и `formatGrams`. Список читает `getWorkshopFilaments()`
+(`lib/workshop/filament-store.ts`) — сортировка по `created_at`, ошибку не пробрасывает, при
+отсутствии таблицы отдаёт пустой список и `isMissingTable`.
+
+В окне добавления бренд и тип — поля с `<datalist>` (`brand-list` и `filament-type-options`).
+Подсказки не ограничивают ввод: свой бренд или материал печатается руками, проверка остаётся
+прежней — непустая строка в пределах длины колонки.
 
 Склад меняют два Server Action в `app/actions/filaments.ts`. `addFilament`: проверка формы →
 сессия → `hasActiveSubscription` → `insert`; ссылка без `http(s)://` отклоняется.
@@ -2251,7 +2257,7 @@ RLS на выборку, вставку, обновление и удалени�
 | `lib/workshop/calculator.ts` | Формулы себестоимости: `calculateWorkshopCost` (материал, электричество, амортизация, работа, себестоимость, рекомендованная цена ×2,5 и прибыль), `roundMoney` до копеек на каждом шаге, `CALCULATOR_FIELDS` (вес 0,1–100 000 г, время печати 0,01–8 760 ч, цена пластика 0–100 000 ₽/кг), `readCalculatorInput`, `formatMoney` (`ru-RU`, RUB), `WORKSHOP_MARKUP` и `WORKSHOP_MARKUP_PERCENT` |
 | `lib/workshop/store.ts` | `getWorkshopSettings(supabase, userId)` → `{ settings, isMissingTable }`: `maybeSingle()` по `user_id`, сбой чтения не роняет страницу — значения по умолчанию и признак неприменённой миграции через `isMissingTableSchema()` |
 | `lib/workshop/payload.ts` | `createWorkshopSettingsPayload(userId, settings)` и `createFilamentPayload(userId, draft)` — единственное место перевода camelCase → snake_case для `workshop_settings` и `workshop_filaments`; пустая ссылка на товар превращается в `null`, а переименование колонки ловит TypeScript, а не ответ PGRST204 из прода |
-| `lib/workshop/filaments.ts` | Склад пластика: `WorkshopFilament`, `FILAMENT_COLUMNS`, `FILAMENT_NUMBER_FIELDS` (вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г; вес — integer), `FILAMENT_TEXT_LIMITS` (60/30/40/500), `FILAMENT_DEFAULTS` (1 000 / 200 / 1 500), `FILAMENT_TYPE_SUGGESTIONS`, `normalizeFilamentRow` (битое число → значение по умолчанию, строка без UUID отбрасывается), `readFilamentForm` (текст, ссылка только `http(s)://`, остаток не больше общего веса), `readConsumeFilamentForm`, `isFilamentId`, `isLowStockFilament`, `filamentRemainingPercent`, `subtractFilamentWeight`, `formatGrams` |
+| `lib/workshop/filaments.ts` | Склад пластика: `WorkshopFilament`, `FILAMENT_COLUMNS`, `FILAMENT_NUMBER_FIELDS` (вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г; вес — integer), `FILAMENT_TEXT_LIMITS` (60/30/40/500), `FILAMENT_DEFAULTS` (1 000 / 200 / 1 500), `FILAMENT_BRANDS` (13 производителей для `<datalist id="brand-list">`), `FILAMENT_TYPE_SUGGESTIONS`, `normalizeFilamentRow` (битое число → значение по умолчанию, строка без UUID отбрасывается), `readFilamentForm` (текст, ссылка только `http(s)://`, остаток не больше общего веса), `readConsumeFilamentForm`, `isFilamentId`, `isLowStockFilament`, `filamentRemainingPercent`, `subtractFilamentWeight`, `formatGrams` |
 | `lib/workshop/filament-store.ts` | `getWorkshopFilaments(supabase, userId)` → `{ filaments, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой склад и признак неприменённой миграции через `isMissingTableSchema()` |
 | `lib/gcode-parser.ts` | Разбор G-code в браузере: `parseGcode(text)` → `{ timeHours, weightGrams }`; время из `;TIME_PRINTING:`, `; estimated printing time … =`, `; total estimated time:`, `; model printing time:`, `;TIME:` (форматы «1h 6m 12s», «1 ч 30 мин», `ч:м:с`, `м:с`, голые секунды), вес из `; total filament used [g]`, `; filament used [g]`, `;Filament used:`, `; filament used [mm]` (сумма по экструдерам, г/кг/мг/м/мм, `GCODE_GRAMS_PER_METER` ≈ 2,98 г для PLA 1,75 мм); шаблоны ищут первое совпадение по всему тексту, отсутствующее значение — `null` |
 | `middleware.ts` (корень) | Точка входа Next.js: `matcher` покрывает весь сайт, кроме `/api`, `/_next/static`, `/_next/image`, служебных файлов и путей с расширением. Сессия (`updateSession`) вызывается только для `/dashboard`, `/certificate`, `/course`, `/constructor`, `/admin`, `/auth` и `/forum/new`; на остальных страницах просмотр уходит в `site_visits` через `event.waitUntil` |
@@ -4894,4 +4900,12 @@ G-code — `lib/gcode-parser.ts`: `parseGcode(text)` ищет время по `;
 Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:imports` — 1 465
 импортов без битых, `npm run check:docs` — 237 путей и сводка сходятся, `npm run check:style` —
 38 уроков, 0 нарушений.
+
+**Мастерская: автодополнение брендов (24 октября 2026).** Поле «Бренд» в окне «Добавить катушку»
+получило `<datalist id="brand-list">` со списком популярных производителей — `FILAMENT_BRANDS` в
+`lib/workshop/filaments.ts`: eSun, Sunlu, Polymaker, Bambu Lab, Prusament, Anycubic, Creality,
+Devil Design, Bestfilament, FDPlast, REC, 3DPlast, Semenych. Это подсказка, а не ограничение: свой
+бренд по-прежнему печатается руками, а сервер проверяет только длину (1…60 символов) — так же, как
+у поля «Тип» с его `FILAMENT_TYPE_SUGGESTIONS`. Проверки: `npx tsc --noEmit` — 0 ошибок,
+`npm run lint` — чисто.
 

@@ -7,6 +7,7 @@ import { addFilament } from "@/app/actions/filaments";
 import { emptyFilamentFormState } from "@/app/actions/filaments-state";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import {
+  FILAMENT_BRANDS,
   FILAMENT_DEFAULTS,
   FILAMENT_NUMBER_FIELDS,
   FILAMENT_TEXT_LIMITS,
@@ -113,13 +114,19 @@ export function AddFilamentDialog({
           <TextField
             name="brand"
             label="Бренд"
-            hint="Например, Prusament или Bestfilament."
+            hint="Начните вводить — подскажем популярные. Свой бренд тоже можно."
             placeholder="Prusament"
             maxLength={FILAMENT_TEXT_LIMITS.brand}
             required
             autoFocus
+            list="brand-list"
             error={state.fieldErrors?.brand}
           />
+          <datalist id="brand-list">
+            {FILAMENT_BRANDS.map((brand) => (
+              <option key={brand} value={brand} />
+            ))}
+          </datalist>
 
           <TextField
             name="type"
