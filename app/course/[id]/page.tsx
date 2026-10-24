@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { CompleteButton } from "@/components/course/CompleteButton";
 import { LessonBlocks } from "@/components/course/LessonBlocks";
+import { LessonLayout } from "@/components/course/LessonLayout";
 import { ModuleTestGate } from "@/components/course/ModuleTestGate";
 import { ModuleTestLocked } from "@/components/course/ModuleTestLocked";
 import { TestOverlay } from "@/components/course/TestOverlay";
@@ -235,7 +236,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto max-w-3xl px-5 py-4 sm:px-8">
+        <div className="mx-auto max-w-6xl px-5 py-4 sm:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Link
               href="/"
@@ -279,7 +280,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-5 py-12 sm:px-8 sm:py-16">
+      <LessonLayout blocks={lesson.blocks} accent="blue" stickyHeader>
         <p className="text-sm font-semibold uppercase tracking-widest text-blue-400">
           {lesson.module}
         </p>
@@ -347,7 +348,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
             />
           )}
         </div>
-      </main>
+      </LessonLayout>
     </div>
   );
 }

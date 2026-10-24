@@ -2,6 +2,7 @@ import Image from "next/image";
 
 import { MiniCheck } from "@/components/course/MiniCheck";
 import { getVisualComponent } from "@/components/lesson-visuals";
+import { lessonBlockAnchor } from "@/lib/lesson-outline";
 import type { CourseKind, LessonBlock, LessonBlockStep } from "@/lib/types";
 
 /**
@@ -171,15 +172,25 @@ export function LessonBlocks({
 }) {
   return (
     <div className="mt-12 space-y-8 sm:mt-16 sm:space-y-10">
+      {/* У каждого блока — свой якорь (`lesson-block-N`): на него ведут пункты
+          оглавления в правой колонке страницы урока (components/course/
+          LessonLayout.tsx). Номер считает lib/lesson-outline.ts, поэтому
+          оглавление и блоки не могут разъехаться. `scroll-mt-24` оставляет
+          заголовок под липкой шапкой, а не под её краем. */}
       {blocks.map((block, index) => (
-        <BlockView
+        <div
           key={`${index}-${block.type}`}
-          block={block}
-          typeOrdinal={blocks.slice(0, index).filter((item) => item.type === block.type).length}
-          courseType={courseType}
-          moduleId={moduleId}
-          lessonId={lessonId}
-        />
+          id={lessonBlockAnchor(index)}
+          className="scroll-mt-24"
+        >
+          <BlockView
+            block={block}
+            typeOrdinal={blocks.slice(0, index).filter((item) => item.type === block.type).length}
+            courseType={courseType}
+            moduleId={moduleId}
+            lessonId={lessonId}
+          />
+        </div>
       ))}
     </div>
   );

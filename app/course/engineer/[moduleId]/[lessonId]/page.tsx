@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { CompleteButton } from "@/components/course/CompleteButton";
 import { LessonBlocks } from "@/components/course/LessonBlocks";
+import { LessonLayout } from "@/components/course/LessonLayout";
 import { ModuleTestGate } from "@/components/course/ModuleTestGate";
 import { ModuleTestLocked } from "@/components/course/ModuleTestLocked";
 import { PreviewLessonNotice } from "@/components/course/PreviewLessonNotice";
@@ -387,12 +388,22 @@ export default async function EngineerLessonPage({
     currentModule.module_id,
     currentModule.lessons[0].lesson_id,
   );
+
+  /**
+   * Блоки, которые реально попадают в разметку: без доступа — только превью.
+   * По ним же строится оглавление урока, поэтому закрытые разделы в него не
+   * попадают.
+   */
+  const shownBlocks =
+    !hasAccess && !isPreviewLesson
+      ? lesson.blocks.slice(0, PREVIEW_BLOCKS)
+      : lesson.blocks;
   const courseFinishNote = `Позади все ${totalLessons} ${pluralize(totalLessons, LESSON_FORMS)} уровня «Инженер»: расчёт деталей, повтор чужой геометрии и своя процедура печати. Дальше — практика на своих моделях.`;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto max-w-3xl px-5 py-4 sm:px-8">
+        <div className="mx-auto max-w-6xl px-5 py-4 sm:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Link
               href="/course/engineer"
@@ -444,7 +455,7 @@ export default async function EngineerLessonPage({
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-5 py-12 sm:px-8 sm:py-16">
+      <LessonLayout blocks={shownBlocks} accent="violet">
         <p className="text-sm font-semibold uppercase tracking-widest text-violet-300">
           {lesson.moduleLabel}
         </p>
@@ -567,7 +578,7 @@ export default async function EngineerLessonPage({
             )}
           </div>
         ) : null}
-      </main>
+      </LessonLayout>
     </div>
   );
 }
