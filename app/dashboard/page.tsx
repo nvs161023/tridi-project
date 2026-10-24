@@ -436,6 +436,19 @@ const PRO_TOOLS: ProTool[] = [
       "Импорт в слайсер за пару минут",
     ],
   },
+  {
+    icon: "🧰",
+    title: "Мастерская",
+    description:
+      "Рабочее место для 3D-печати: себестоимость заказа, рекомендованная цена и прибыль по вашим настройкам.",
+    href: "/dashboard/workshop",
+    cta: "Открыть мастерскую",
+    bullets: [
+      "Калькулятор: материал, электричество, износ и работа",
+      "Рекомендованная цена с наценкой и прибыль",
+      "Склад, принтеры и заказы — следующими этапами",
+    ],
+  },
 ];
 
 export default async function DashboardPage() {
@@ -765,17 +778,17 @@ export default async function DashboardPage() {
                 id="tools-access-title"
                 className="mt-3 text-2xl font-extrabold tracking-tight text-white sm:text-3xl"
               >
-                Библиотека профилей
+                Инструменты Pro
               </h2>
             </div>
             <p className="max-w-md text-sm leading-relaxed text-slate-300">
               {hasPro
-                ? "Доступ открыт — профили можно скачивать."
-                : "Доступ открывается пакетом «Всё включено». Без него карточка остаётся размытой."}
+                ? "Доступ открыт — профили можно скачивать, мастерская считает себестоимость."
+                : "Доступ открывается пакетом «Всё включено». Без него карточки остаются размытыми."}
             </p>
           </div>
 
-          <div className="mt-6 grid gap-5">
+          <div className="mt-6 grid gap-5 md:grid-cols-2">
             {PRO_TOOLS.map((tool) => (
               <ProToolCard key={tool.title} tool={tool} isPro={hasPro} />
             ))}
