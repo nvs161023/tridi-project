@@ -35,21 +35,23 @@ export const metadata: Metadata = {
 };
 
 const { pro: proCourse } = coursesData;
-const basicCourse = coursesData.basic;
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
 
-/** Единый стиль ярких бейджей скидок на карточках уровней. */
-const DISCOUNT_BADGE =
-  "rounded-full bg-amber-400 px-2.5 py-1 text-center text-[10px] font-extrabold tracking-wide text-slate-950 uppercase shadow-lg shadow-amber-500/20";
-
-/** Акция базового уровня: старая цена и бейдж — из data/courses.json. */
-const basicOldPrice = formatPrice(basicCourse.oldPrice);
-const basicBadge = basicCourse.badge;
-
-/** Цена подписки Pro — из data/courses.json, как и на странице тарифов. */
-const proPrice = formatPrice(proCourse.subscriptionPrice);
+/**
+ * Выгода пакета — разница с покупкой трёх курсов по отдельности.
+ *
+ * Уровни бейджей не получают: скидочные «−40%» обещали цену, которой никогда
+ * не было, а «Акция» у бесплатного курса намекала на скорое подорожание.
+ * Бейдж пакета рисует `ProBundleCard` — он читает его из data/courses.json.
+ */
+const BUNDLE_SAVING = formatPrice(
+  LEVELS.filter((level) => !level.isFree).reduce(
+    (sum, level) => sum + level.price,
+    0,
+  ) - proCourse.price,
+);
 
 /** Регистрация с возвратом в первый бесплатный урок. */
 const START_FREE_HREF = authHref("/auth/sign-up", "/course/lesson-1");
@@ -145,7 +147,7 @@ const PROFILE_SETTING_FORMS: [string, string, string] = [
 ];
 
 /**
- * Дополнительная ценность курсов и подписки Pro.
+ * Дополнительная ценность курсов.
  *
  * Сертификат и библиотека профилей уже существуют в продукте, поэтому витрина
  * называет их рядом с уроками: без этого ценность пакета выглядит как «ещё
@@ -163,12 +165,6 @@ const EXTRAS = [
     title: "Библиотека профилей",
     text: `${profileCount} ${pluralize(profileCount, PROFILE_SETTING_FORMS)} для Anycubic, Elegoo, Creality и др.`,
     iconClassName: "border-blue-400/25 bg-blue-500/10 text-blue-200",
-  },
-  {
-    icon: "📐",
-    title: "3D-Конструктор",
-    text: "Генератор ваз и брелоков с экспортом в STL и коммерческой лицензией.",
-    iconClassName: "border-violet-400/25 bg-violet-500/10 text-violet-200",
   },
   {
     icon: "🛠️",
@@ -256,21 +252,20 @@ const GALLERY: {
 const FAQ: { question: string; answer: string }[] = [
   {
     question: "С чего начать?",
-    answer: `Зарегистрируйтесь и откройте уровень «Новичок»: ${LEVELS[0].lessons} ${pluralize(LEVELS[0].lessons, LESSON_FORMS)}, ${LEVELS[0].visuals} ${pluralize(LEVELS[0].visuals, VISUAL_FORMS)} и ${LEVELS[0].tests} ${pluralize(LEVELS[0].tests, TEST_FORMS)} модулей. Сейчас он открыт бесплатно по акции, карта не нужна. Потом уровень будет стоить ${basicOldPrice} ₽.`,
+    answer: `Зарегистрируйтесь и откройте уровень «Новичок»: ${LEVELS[0].lessons} ${pluralize(LEVELS[0].lessons, LESSON_FORMS)}, ${LEVELS[0].visuals} ${pluralize(LEVELS[0].visuals, VISUAL_FORMS)} и ${LEVELS[0].tests} ${pluralize(LEVELS[0].tests, TEST_FORMS)} модулей. Он открыт целиком и бесплатно, карта не нужна.`,
+  },
+  {
+    question: "Нужен ли принтер, чтобы начать?",
+    answer:
+      "Практика первых трёх уроков проходит без печати: в первом — три свои задачи на бумаге, во втором — разбор восьми узлов своего принтера или его фотографии, в третьем — таблица материалов. Дальше нужен слайсер (урок 4) и принтер с небольшим запасом пластика (с урока 5).",
   },
   {
     question: "Как проходит оплата?",
-    answer: `Курсы покупаются навсегда: уровень или пакет «Всё включено». Подписка Pro за ${proPrice} ₽ на 30 дней открывает инструменты — Конструктор и Профили, — но не уроки. Чек НПД приходит на email, указанный при оплате.`,
+    answer: `Курсы покупаются навсегда: уровень или пакет «Всё включено». Пакет дешевле покупки трёх курсов по отдельности на ${BUNDLE_SAVING} ₽. Чек НПД приходит на email, указанный при оплате.`,
   },
   {
-    question: "Как работает подписка?",
-    answer:
-      "Подписка Pro открывает Конструктор 3D-моделей и библиотеку Профилей на 30 дней. Уроки в неё не входят: курсы покупаются отдельно и остаются навсегда. Продление — по желанию, в личном кабинете.",
-  },
-  {
-    question: "Можно ли отменить подписку?",
-    answer:
-      "Да, в любой момент в личном кабинете. Доступ сохранится до конца оплаченного периода, дальше деньги не списываются.",
+    question: "Сколько времени нужно?",
+    answer: `Уроки бесплатного уровня идут по 20–55 минут. Весь уровень — ${LEVELS[0].hoursWithSplit}: это чтение, практика и два теста модулей. Доступ остаётся навсегда, так что учиться можно в своём темпе.`,
   },
 ];
 
@@ -360,9 +355,11 @@ export default async function Home() {
 
               <p className="mt-5 inline-flex flex-wrap items-center gap-2 rounded-full border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-100">
                 <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-slate-950 uppercase">
-                  {basicBadge}
+                  Бесплатно
                 </span>
-                Первый уровень сейчас бесплатно — потом {basicOldPrice} ₽
+                Первый уровень открыт целиком: {LEVELS[0].lessons}{" "}
+                {pluralize(LEVELS[0].lessons, LESSON_FORMS)} и {LEVELS[0].tests}{" "}
+                {pluralize(LEVELS[0].tests, TEST_FORMS)} модулей
               </p>
 
               <div className="mt-9 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-4">
@@ -571,8 +568,8 @@ export default async function Home() {
                   Твой следующий уровень
                 </h3>
                 <p className="mt-3 text-sm leading-relaxed text-slate-300 sm:text-base">
-                  Купите конкретный курс навсегда или оформите Pro-подписку для
-                  доступа ко всем инструментам.
+                  Купите конкретный курс навсегда или заберите все три пакетом —
+                  он дешевле на {BUNDLE_SAVING} ₽.
                 </p>
                 <p className="mt-3 text-xs leading-relaxed text-slate-300 italic">
                   Завершите обучение и получите именной сертификат, который
@@ -587,10 +584,10 @@ export default async function Home() {
                     <span aria-hidden>→</span>
                   </Link>
                   <Link
-                    href="/subscription"
+                    href="/courses/pro"
                     className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 text-sm font-semibold text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                   >
-                    Pro-подписка
+                    Пакет трёх курсов
                   </Link>
                 </div>
               </article>
@@ -617,10 +614,11 @@ export default async function Home() {
 
             <div className="mt-8 flex max-w-2xl items-start gap-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-5 py-4 text-amber-100">
               <span aria-hidden className="text-lg leading-none">
-                🔥
+                ◆
               </span>
               <p className="text-sm font-semibold leading-relaxed">
-                Цены со скидкой в честь запуска платформы
+                Пакет «Всё включено» дешевле трёх курсов по отдельности на{" "}
+                {BUNDLE_SAVING} ₽
               </p>
             </div>
 
@@ -646,9 +644,6 @@ export default async function Home() {
                       >
                         {level.code}
                       </span>
-                      {level.badge ? (
-                        <span className={DISCOUNT_BADGE}>{level.badge}</span>
-                      ) : null}
                     </div>
 
                     <h3 className="mt-5 text-2xl font-extrabold tracking-tight text-white">
@@ -660,16 +655,8 @@ export default async function Home() {
                       <span className="text-2xl font-extrabold text-white">
                         {formatPrice(level.price)} ₽
                       </span>
-                      {level.oldPrice ? (
-                        <s
-                          className="text-sm font-semibold text-slate-300"
-                          aria-label={`Старая цена: ${formatPrice(level.oldPrice)} ₽`}
-                        >
-                          {formatPrice(level.oldPrice)} ₽
-                        </s>
-                      ) : null}
                       <span className="text-xs text-slate-300">
-                        {level.isFree ? "сейчас" : "навсегда"}
+                        {level.isFree ? "без карты" : "навсегда"}
                       </span>
                     </p>
 
@@ -710,6 +697,15 @@ export default async function Home() {
                         </dd>
                       </div>
                     </dl>
+
+                    {/* Разбивка часов: теория и практика складываются в заявленные
+                        часы уровня. Минуты практики лежат в data/courses.json. */}
+                    <p className="mt-3 text-sm leading-relaxed text-slate-300">
+                      <span className="font-semibold text-white">
+                        {level.hours}
+                      </span>{" "}
+                      ({level.hoursSplit})
+                    </p>
 
                     <ul className="mt-5 space-y-2.5 text-sm leading-relaxed text-slate-300">
                       {level.outcomes.map((outcome) => (
@@ -837,7 +833,7 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* 6. Дополнительная ценность: сертификат и Pro-инструменты */}
+        {/* 6. Дополнительная ценность: сертификат и библиотека профилей */}
         <section
           id="extras"
           className="scroll-mt-20 border-b border-white/10 bg-slate-950"
@@ -851,12 +847,12 @@ export default async function Home() {
                 Что вы получаете помимо знаний
               </h2>
               <p className="mt-5 text-base leading-relaxed text-slate-300 sm:text-lg">
-                Сертификат выдаётся после сдачи всех тестов уровня, а
-                инструменты открываются в пакете «Всё включено» и подписке Pro.
+                Сертификат выдаётся после сдачи всех тестов уровня, а библиотека
+                профилей открывается в пакете «Всё включено».
               </p>
             </div>
 
-            <div className="mt-10 grid grid-cols-2 gap-3 sm:mt-12 sm:gap-4 lg:grid-cols-4">
+            <div className="mt-10 grid grid-cols-2 gap-3 sm:mt-12 sm:gap-4 lg:grid-cols-3">
               {EXTRAS.map((item) => (
                 <article
                   key={item.title}
@@ -880,7 +876,7 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* 7. FAQ: четыре вопроса об оплате, подписке и старте */}
+        {/* 7. FAQ: четыре вопроса об оплате, принтере и времени */}
         <section id="faq" className="scroll-mt-20 border-b border-white/10">
           <div className="mx-auto max-w-3xl px-5 py-20 sm:px-8 sm:py-28">
             <div className="text-center">
@@ -891,7 +887,7 @@ export default async function Home() {
                 Коротко о главном
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-slate-300">
-                Оплата, подписка и старт без карты — без мелкого шрифта и
+                Оплата, старт без карты и время на курс — без мелкого шрифта и
                 скрытых условий.
               </p>
             </div>

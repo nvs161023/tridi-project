@@ -19,6 +19,7 @@ import {
   countModuleTests,
   countQuestions,
   countVisualBlocks,
+  formatAcademicHours,
   summarizeCourse,
   type CourseContentLike,
 } from "./course-stats";
@@ -49,20 +50,24 @@ export type CourseLevel = {
   isFree: boolean;
   /** Разовая цена курса из data/courses.json; у бесплатного уровня — 0. */
   price: number;
-  /**
-   * Старая цена до акции из data/courses.json.
-   * Показывается зачёркнутой рядом с текущей ценой.
-   */
-  oldPrice?: number;
-  /** Маркетинговый бейдж из data/courses.json: «Акция», «-40%». */
-  badge?: string;
   modules: number;
   lessons: number;
   /** Число уроков из data/courses.json (totalLessons). */
   totalLessons: number;
   /** Оценка объёма из data/courses.json (estimated_hours), в академических часах. */
   estimatedHours: number;
+  /** Те же часы для показа: «~18 часов». Один источник — estimated_hours. */
   hours: string;
+  /** Минуты практики из data/courses.json (practice_minutes). */
+  practiceMinutes: number;
+  /** Практика в целых часах — округление от practiceMinutes. */
+  practiceHours: number;
+  /** Теория = estimatedHours − practiceHours: сумма всегда равна заявленным часам. */
+  theoryHours: number;
+  /** «6 ч теории + 3 ч практики» — разбивка для витрины. */
+  hoursSplit: string;
+  /** «~9 часов (6 ч теории + 3 ч практики)» — часы вместе с разбивкой. */
+  hoursWithSplit: string;
   visuals: number;
   tests: number;
   questions: number;
@@ -134,6 +139,18 @@ function buildLevel(key: LevelKey): CourseLevel {
   const summary = summarizeCourse(content);
   const copy = LEVEL_COPY[key];
 
+  /**
+   * Минуты практики лежат в data/courses.json и сверяются с текстом блоков
+   * «Практика» в `npm run check:docs`: витрина не обещает минут, которых нет
+   * в уроках. Часы практики округляются, а теория считается вычитанием —
+   * поэтому «6 ч теории + 3 ч практики» всегда дают заявленные 9 часов.
+   */
+  const practiceMinutes = "practice_minutes" in meta ? meta.practice_minutes : 0;
+  const practiceHours = Math.round(practiceMinutes / 60);
+  const theoryHours = Math.max(meta.estimated_hours - practiceHours, 0);
+  const hours = formatAcademicHours(meta.estimated_hours);
+  const hoursSplit = `${theoryHours} ч теории + ${practiceHours} ч практики`;
+
   return {
     key,
     code: copy.code,
@@ -146,13 +163,16 @@ function buildLevel(key: LevelKey): CourseLevel {
     href: key === "basic" ? "/course/lesson-1" : `/courses/${key}`,
     isFree: key === "basic",
     price: "price" in meta ? meta.price : 0,
-    oldPrice: "oldPrice" in meta ? meta.oldPrice : undefined,
-    badge: "badge" in meta ? meta.badge : undefined,
     modules: summary.modules,
     lessons: summary.lessons,
     totalLessons: meta.totalLessons,
     estimatedHours: meta.estimated_hours,
-    hours: summary.hours,
+    hours,
+    practiceMinutes,
+    practiceHours,
+    theoryHours,
+    hoursSplit,
+    hoursWithSplit: `${hours} (${hoursSplit})`,
     visuals: countVisualBlocks(content),
     tests: countModuleTests(content),
     questions: countQuestions(content),
@@ -167,7 +187,7 @@ export const LEVELS: CourseLevel[] = [
   buildLevel("profit"),
 ];
 
-/** Всё, что открывает подписка: три платных уровня без базового. */
+/** Всё, что открывает пакет: три платных уровня без базового. */
 export const PAID_LEVELS = LEVELS.filter(
   (level): level is CourseLevel & { key: PaidLevelKey } => !level.isFree,
 );

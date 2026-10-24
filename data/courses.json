@@ -5,7 +5,8 @@
     "goal": "После прохождения ты понимаешь, как работает принтер, умеешь калибровать, печатать простые и средние модели, различаешь типичные дефекты и знаешь, как их исправить.",
     "tier": "free",
     "totalLessons": 8,
-    "estimated_hours": 9
+    "estimated_hours": 9,
+    "practice_minutes": 205
   },
   "pro": {
     "title": "Продвинутый курс",
@@ -26,6 +27,7 @@
     "tier": "paid",
     "totalLessons": 12,
     "estimated_hours": 15,
+    "practice_minutes": 650,
     "price": 2990
   },
   "engineer": {
@@ -35,6 +37,7 @@
     "tier": "paid",
     "totalLessons": 10,
     "estimated_hours": 15,
+    "practice_minutes": 690,
     "price": 3990
   },
   "profit": {
@@ -44,6 +47,7 @@
     "tier": "paid",
     "totalLessons": 8,
     "estimated_hours": 11,
+    "practice_minutes": 460,
     "price": 4990
   }
 }

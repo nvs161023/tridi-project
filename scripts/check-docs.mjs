@@ -106,6 +106,41 @@ function summarizeCourse(course) {
   };
 }
 
+/**
+ * Минуты практики уровня.
+ *
+ * В каждом уроке ищем блок «Практика: …» и берём самое большое число перед
+ * словом «минут»: в шагах бывают второстепенные сроки («5 минут на замер»),
+ * а общая длительность задания — одно число на блок. Сумма по урокам — то,
+ * что витрина называет `practice_minutes` и делит на теорию и практику.
+ */
+function practiceMinutes(course) {
+  return course.modules
+    .flatMap((module) => module.lessons)
+    .reduce((sum, lesson) => {
+      const block = lesson.blocks.find(
+        (candidate) =>
+          typeof candidate.title === "string" &&
+          candidate.title.startsWith("Практика:"),
+      );
+
+      if (!block) {
+        return sum;
+      }
+
+      const text = [
+        block.content ?? "",
+        ...(block.steps ?? []).map((step) => `${step.title} ${step.text}`),
+      ].join(" ");
+
+      const numbers = [...text.matchAll(/(\d+)(?:\s*[–-]\s*\d+)?\s*минут/gi)].map(
+        (match) => Number(match[1]),
+      );
+
+      return sum + (numbers.length > 0 ? Math.max(...numbers) : 0);
+    }, 0);
+}
+
 const MODULE_FORMS = ["модуль", "модуля", "модулей"];
 const LESSON_FORMS = ["урок", "урока", "уроков"];
 const BLOCK_FORMS = ["блок", "блока", "блоков"];
@@ -281,6 +316,35 @@ for (const [key, course, lessons] of [
   console.log(
     `✗ data/courses.json: ${key}.totalLessons=${course.totalLessons} — фактически ${lessons}`,
   );
+}
+
+// ── 4. Минуты практики: витрина обещает столько, сколько лежит в уроках ────
+console.log("\n=== 4. Минуты практики в data/courses.json ===");
+
+/** Файл каждого уровня: по нему проверяются минуты из блоков «Практика». */
+const PRACTICE_FILES = {
+  basic: "data/lessons.json",
+  confident: "data/course-confident.json",
+  engineer: "data/course-engineer.json",
+  profit: "data/course-profit.json",
+};
+
+for (const [key, relativePath] of Object.entries(PRACTICE_FILES)) {
+  const meta = coursesMeta[key];
+  const actual = practiceMinutes(readJson(relativePath));
+  const declared = meta?.practice_minutes;
+
+  if (declared === actual && typeof declared === "number") {
+    console.log(
+      `✓ ${key}: practice_minutes=${declared} (${meta.estimated_hours} ч, практика ${(declared / 60).toFixed(1)} ч)`,
+    );
+    continue;
+  }
+
+  problems.push(
+    `${relativePath}: practice_minutes=${declared}, а в уроках ${actual} минут практики`,
+  );
+  console.log(`✗ ${key}: practice_minutes=${declared} — фактически ${actual}`);
 }
 
 // ── Итог ───────────────────────────────────────────────────────────────────
