@@ -4544,3 +4544,22 @@ HTML остался табличным: блоки строит один `render
 значения плиток не переносятся на вторую строку. Проверки: `npx tsc --noEmit`, `npm run lint`,
 `npm run check:docs`, `npm run check:style` и `npm run build` — без ошибок.
 
+**Выход перестал уводить на localhost (24 октября 2026).** На боевом сайте кнопка «Выйти» отправляла
+на `http://localhost:3000/`: человек оставался без аккаунта и без сайта, пока вручную не вернётся на
+домен. Виноват `app/logout/route.ts`: адрес возврата строился из запроса —
+`NextResponse.redirect(new URL("/", request.url), 303)`. На Amvera приложение слушает внутренний порт
+3000 за прокси, поэтому `request.url` приходит с адресом `http://localhost:3000/logout`, и редирект
+уводил в локальную сеть. Правка: адрес берёт `resolveSiteUrl()` из `lib/site-url.ts` — сначала
+`NEXT_PUBLIC_SITE_URL`, в разработке адрес из запроса, иначе боевой домен `https://tridi-print.ru`.
+У `signOut()` параметра `redirectTo` нет (в `@supabase/ssr` он принимает только `scope`), поэтому
+адрес возврата задаёт сам маршрут.
+
+Middleware та же ошибка не касалась: её редиректы Next отдаёт относительными — `location:
+/auth/login?next=%2Fdashboard` для гостя на `/dashboard` и `location: /tools` для `/constructor`, —
+поэтому они не зависят от Host. Проверено на прод-сборке (`next start`) с заголовком
+`Host: localhost:3000`, то есть в тех же условиях, что и на хостинге: выход отвечает `303` и
+`location: https://tridi-print.ru/`; с `NEXT_PUBLIC_SITE_URL`, равным `https://example.test`, —
+`location: https://example.test/`; в режиме разработки — `location: http://localhost:3132/`. Строк
+`localhost:3000` в исходниках нет: `git grep localhost` находит только комментарий в `lib/site-url.ts`
+и адрес из README. Проверки: `npx tsc --noEmit`, `npm run lint`, `npm run build` — без ошибок.
+
