@@ -7,6 +7,7 @@ import {
   VisualPlaceholder,
   type VisualAccent,
 } from "@/components/landing/VisualPlaceholder";
+import { ButtonLink, Card } from "@/components/ui";
 import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
 import { resolveUserId } from "@/lib/current-user";
@@ -269,13 +270,6 @@ const FAQ: { question: string; answer: string }[] = [
   },
 ];
 
-const CTA_BASE =
-  "inline-flex min-h-14 items-center justify-center gap-2 rounded-full px-6 text-base font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 xl:px-8 xl:text-lg";
-
-const PRIMARY_CTA = `${CTA_BASE} bg-blue-600 text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 focus-visible:ring-blue-400`;
-
-const SECONDARY_CTA = `${CTA_BASE} border border-white/15 bg-white/5 text-white hover:bg-white/10 focus-visible:ring-blue-400`;
-
 /**
  * Главная отдаётся на каждый запрос, а не готовится на этапе сборки.
  *
@@ -305,7 +299,7 @@ export default async function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -363,19 +357,24 @@ export default async function Home() {
               </p>
 
               <div className="mt-9 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-4">
-                <Link
+                <ButtonLink
                   href={START_FREE_HREF}
-                  className={`${PRIMARY_CTA} w-full sm:w-auto`}
+                  size="lg"
+                  fullWidth
+                  className="sm:w-auto"
                 >
                   Начать бесплатно
                   <span aria-hidden>→</span>
-                </Link>
-                <Link
+                </ButtonLink>
+                <ButtonLink
                   href="/subscription"
-                  className={`${SECONDARY_CTA} w-full sm:w-auto`}
+                  variant="secondary"
+                  size="lg"
+                  fullWidth
+                  className="sm:w-auto"
                 >
                   Смотреть тарифы
-                </Link>
+                </ButtonLink>
               </div>
 
               <p className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200">
@@ -409,7 +408,10 @@ export default async function Home() {
                 className="relative shadow-2xl shadow-slate-950/60"
               />
 
-              <div className="mt-4 w-full rounded-2xl border border-white/15 bg-slate-950/90 px-4 py-3.5 leading-relaxed shadow-xl shadow-slate-950/60 backdrop-blur sm:max-w-xs">
+              <Card
+                padding="none"
+                className="mt-4 w-full bg-slate-950/90 px-4 py-3.5 leading-relaxed sm:max-w-xs"
+              >
                 <p className="text-[11px] font-semibold tracking-[0.2em] text-amber-300 uppercase sm:text-xs">
                   Путь курса
                 </p>
@@ -419,16 +421,17 @@ export default async function Home() {
                 <p className="text-[15px] font-bold text-white sm:text-sm">
                   Инженер → Заработок
                 </p>
-              </div>
+              </Card>
             </div>
           </div>
 
           <div className="relative mx-auto max-w-6xl px-5 pb-16 sm:px-8 sm:pb-24">
             <dl className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
               {STATS.map((stat) => (
-                <div
+                <Card
                   key={stat.label}
-                  className="flex min-h-28 min-w-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-3 py-5 text-center sm:min-h-32 sm:px-4"
+                  padding="sm"
+                  className="flex min-h-28 min-w-0 flex-col items-center justify-center text-center sm:min-h-32"
                 >
                   <dt className="text-3xl font-extrabold text-white sm:text-4xl">
                     {stat.value}
@@ -436,7 +439,7 @@ export default async function Home() {
                   <dd className="mt-2 max-w-full text-sm leading-relaxed text-balance text-slate-200 sm:text-base">
                     {stat.label}
                   </dd>
-                </div>
+                </Card>
               ))}
             </dl>
           </div>
@@ -454,9 +457,10 @@ export default async function Home() {
 
             <div className="mt-9 grid gap-3 sm:mt-10 sm:grid-cols-3 sm:gap-4">
               {PAIN_POINTS.map((pain, index) => (
-                <article
+                <Card
+                  as="article"
                   key={pain.title}
-                  className="relative flex h-full flex-col rounded-2xl border border-white/10 bg-slate-900/60 p-5 transition-colors hover:border-white/20 sm:p-6"
+                  className="relative flex h-full flex-col transition-colors hover:border-white/20"
                 >
                   <span
                     aria-hidden
@@ -470,7 +474,7 @@ export default async function Home() {
                   <p className="mt-2 text-sm leading-relaxed text-slate-300">
                     {pain.detail}
                   </p>
-                </article>
+                </Card>
               ))}
             </div>
 
@@ -506,7 +510,11 @@ export default async function Home() {
             </div>
 
             <div className="mt-10 grid items-stretch gap-4 sm:mt-12 lg:grid-cols-[1fr_auto_1fr] lg:gap-0">
-              <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-blue-400/30 bg-gradient-to-br from-blue-600/15 via-slate-900 to-slate-950 p-6 sm:p-8">
+              <Card
+                as="article"
+                padding="lg"
+                className="relative flex h-full flex-col overflow-hidden rounded-3xl border-blue-400/30 bg-gradient-to-br from-blue-600/15 via-slate-900 to-slate-950"
+              >
                 <div
                   aria-hidden
                   className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-500 to-cyan-400"
@@ -528,18 +536,15 @@ export default async function Home() {
                   первая готовая деталь — без карты и обязательств.
                 </p>
                 <div className="mt-auto pt-7">
-                  <Link
-                    href={START_FREE_HREF}
-                    className={`${PRIMARY_CTA} w-full`}
-                  >
+                  <ButtonLink href={START_FREE_HREF} fullWidth>
                     Начать бесплатно
                     <span aria-hidden>→</span>
-                  </Link>
+                  </ButtonLink>
                   <p className="mt-3 text-xs leading-relaxed text-slate-300">
                     Доступ сразу после регистрации
                   </p>
                 </div>
-              </article>
+              </Card>
 
               <div
                 aria-hidden
@@ -551,7 +556,11 @@ export default async function Home() {
                 </span>
               </div>
 
-              <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-amber-400/25 bg-gradient-to-br from-amber-500/10 via-slate-900 to-violet-500/10 p-6 sm:p-8">
+              <Card
+                as="article"
+                padding="lg"
+                className="relative flex h-full flex-col overflow-hidden rounded-3xl border-amber-400/25 bg-gradient-to-br from-amber-500/10 via-slate-900 to-violet-500/10"
+              >
                 <div
                   aria-hidden
                   className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-400 to-violet-400"
@@ -576,21 +585,15 @@ export default async function Home() {
                   можно добавить в резюме.
                 </p>
                 <div className="mt-auto grid gap-2.5 pt-7 sm:grid-cols-2">
-                  <Link
-                    href="#levels"
-                    className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-amber-400 px-5 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/20 transition-colors hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  >
+                  <ButtonLink href="#levels" variant="gold">
                     Выбрать курс
                     <span aria-hidden>→</span>
-                  </Link>
-                  <Link
-                    href="/courses/pro"
-                    className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 text-sm font-semibold text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  >
+                  </ButtonLink>
+                  <ButtonLink href="/courses/pro" variant="secondary">
                     Пакет трёх курсов
-                  </Link>
+                  </ButtonLink>
                 </div>
-              </article>
+              </Card>
             </div>
           </div>
         </section>
@@ -629,9 +632,11 @@ export default async function Home() {
                   level.key !== "basic" && purchasedCourses[level.key];
 
                 return (
-                  <article
+                  <Card
+                    as="article"
                     key={level.key}
-                    className={`group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900/60 p-6 transition-colors sm:p-7 ${style.hover}`}
+                    padding="none"
+                    className={`group relative flex h-full flex-col overflow-hidden rounded-3xl p-6 transition-colors sm:p-7 ${style.hover}`}
                   >
                     <div
                       aria-hidden
@@ -660,7 +665,10 @@ export default async function Home() {
                       </span>
                     </p>
 
-                    <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                    <Card
+                      padding="sm"
+                      className="mt-5 bg-slate-950/40 shadow-none"
+                    >
                       <p
                         className={`text-[10px] font-semibold tracking-[0.16em] uppercase ${style.text}`}
                       >
@@ -669,7 +677,7 @@ export default async function Home() {
                       <p className="mt-2 text-sm leading-relaxed font-medium text-slate-200">
                         {LEVEL_PROBLEMS[level.key]}
                       </p>
-                    </div>
+                    </Card>
 
                     <dl className="mt-5 grid grid-cols-3 gap-2 border-y border-white/10 py-4 text-center">
                       <div>
@@ -732,29 +740,28 @@ export default async function Home() {
                             <span aria-hidden>✓</span>
                             Доступ открыт
                           </p>
-                          <Link
+                          <ButtonLink
                             href={`/course/${level.key}`}
-                            className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/25 transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                            variant="success"
+                            fullWidth
+                            className="mt-3"
                           >
                             Продолжить обучение
                             <span aria-hidden>→</span>
-                          </Link>
+                          </ButtonLink>
                         </>
                       ) : (
-                        <Link
+                        <ButtonLink
                           href={level.isFree ? START_FREE_HREF : level.href}
-                          className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
-                            level.isFree
-                              ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25 hover:bg-blue-500"
-                              : "border border-blue-400/40 bg-blue-500/10 text-blue-200 hover:border-blue-300/60 hover:bg-blue-500/20"
-                          }`}
+                          variant={level.isFree ? "primary" : "secondary"}
+                          fullWidth
                         >
                           {level.isFree ? "Начать бесплатно" : "Подробнее о курсе"}
                           <span aria-hidden>→</span>
-                        </Link>
+                        </ButtonLink>
                       )}
                     </div>
-                  </article>
+                  </Card>
                 );
               })}
 
@@ -787,9 +794,11 @@ export default async function Home() {
 
                 <ol className="mt-8 space-y-2.5">
                   {METHOD_STEPS.map((item) => (
-                    <li
+                    <Card
+                      as="li"
                       key={item.step}
-                      className="flex gap-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4 transition-colors hover:border-white/20 sm:p-5"
+                      padding="sm"
+                      className="flex gap-4 transition-colors hover:border-white/20"
                     >
                       <span
                         aria-hidden
@@ -805,7 +814,7 @@ export default async function Home() {
                           {item.text}
                         </p>
                       </div>
-                    </li>
+                    </Card>
                   ))}
                 </ol>
               </div>
@@ -836,7 +845,7 @@ export default async function Home() {
         {/* 6. Дополнительная ценность: сертификат и библиотека профилей */}
         <section
           id="extras"
-          className="scroll-mt-20 border-b border-white/10 bg-slate-950"
+          className="scroll-mt-20 border-b border-white/10"
         >
           <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
             <div className="max-w-2xl">
@@ -854,9 +863,11 @@ export default async function Home() {
 
             <div className="mt-10 grid grid-cols-2 gap-3 sm:mt-12 sm:gap-4 lg:grid-cols-3">
               {EXTRAS.map((item) => (
-                <article
+                <Card
+                  as="article"
                   key={item.title}
-                  className="flex h-full min-w-0 flex-col rounded-2xl border border-white/10 bg-slate-900/60 p-4 transition-colors hover:border-white/20 sm:p-5"
+                  padding="sm"
+                  className="flex h-full min-w-0 flex-col transition-colors hover:border-white/20"
                 >
                   <span
                     aria-hidden
@@ -870,7 +881,7 @@ export default async function Home() {
                   <p className="mt-2 text-sm leading-relaxed text-slate-300">
                     {item.text}
                   </p>
-                </article>
+                </Card>
               ))}
             </div>
           </div>
@@ -894,9 +905,11 @@ export default async function Home() {
 
             <div className="mt-8 grid items-start gap-3 sm:mt-10">
               {FAQ.map((item) => (
-                <details
+                <Card
+                  as="details"
                   key={item.question}
-                  className="group rounded-2xl border border-white/10 bg-white/5 px-5 py-4 transition-colors open:border-white/20 sm:px-6 sm:py-5"
+                  padding="none"
+                  className="group px-5 py-4 transition-colors open:border-white/20 sm:px-6 sm:py-5"
                 >
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-semibold text-white [&::-webkit-details-marker]:hidden">
                     {item.question}
@@ -910,7 +923,7 @@ export default async function Home() {
                   <p className="mt-3 text-sm leading-relaxed text-slate-300">
                     {item.answer}
                   </p>
-                </details>
+                </Card>
               ))}
             </div>
           </div>
@@ -919,7 +932,10 @@ export default async function Home() {
         {/* 8. Финальный CTA: простая полоса призыва */}
         <section>
           <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-20">
-            <div className="flex flex-col gap-6 overflow-hidden rounded-3xl border border-blue-400/25 bg-gradient-to-r from-blue-600/20 via-slate-900 to-amber-500/10 px-6 py-8 shadow-2xl shadow-slate-950/30 sm:px-10 sm:py-10 lg:flex-row lg:items-center lg:justify-between">
+            <Card
+              padding="none"
+              className="flex flex-col gap-6 overflow-hidden rounded-3xl border-blue-400/25 bg-gradient-to-r from-blue-600/20 via-slate-900 to-amber-500/10 px-6 py-8 sm:px-10 sm:py-10 lg:flex-row lg:items-center lg:justify-between"
+            >
               <div>
                 <h2 className="text-2xl font-extrabold tracking-tight text-white sm:text-4xl">
                   Начни печатать уже сегодня
@@ -933,14 +949,16 @@ export default async function Home() {
                   всех тестов.
                 </p>
               </div>
-              <Link
+              <ButtonLink
                 href={START_FREE_HREF}
-                className={`${PRIMARY_CTA} w-full shrink-0 sm:w-auto`}
+                size="lg"
+                fullWidth
+                className="shrink-0 sm:w-auto"
               >
                 Начать бесплатно
                 <span aria-hidden>→</span>
-              </Link>
-            </div>
+              </ButtonLink>
+            </Card>
           </div>
         </section>
       </main>

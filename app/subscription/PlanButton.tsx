@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useState, useTransition } from "react";
 
 import { createRobokassaPayment } from "@/app/actions/payments";
+import { Button } from "@/components/ui";
 
 type PlanButtonProps = {
   /** Текст на кнопке. */
@@ -21,18 +22,17 @@ type PlanButtonProps = {
   loginHref?: string;
 };
 
-const baseClassName =
-  "inline-flex w-full items-center justify-center gap-2 rounded-full font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-70";
+/** Старые названия вариантов платёжной кнопки → варианты UI-кита. */
+const VARIANT_MAP = {
+  blue: "primary",
+  gold: "gold",
+} as const;
 
-const variantClassName = {
-  blue: "bg-blue-600 text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 focus-visible:ring-blue-400",
-  gold: "bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 shadow-lg shadow-amber-500/25 hover:from-amber-300 hover:to-amber-400 focus-visible:ring-amber-300",
-};
-
-const sizeClassName = {
-  compact: "min-h-12 px-5 text-sm",
-  default: "min-h-14 px-8 text-lg",
-};
+/** `compact` — карточка тарифа, `default` — широкий блок на странице курса. */
+const SIZE_MAP = {
+  compact: "md",
+  default: "lg",
+} as const;
 
 /**
  * Кнопка оформления тарифа.
@@ -120,16 +120,18 @@ export function PlanButton({
 
   return (
     <div>
-      <button
+      <Button
         type="button"
         onClick={openAgeDialog}
         disabled={isPending}
         aria-busy={isPending}
-        className={`${baseClassName} ${variantClassName[variant]} ${sizeClassName[size]}`}
+        variant={VARIANT_MAP[variant]}
+        size={SIZE_MAP[size]}
+        fullWidth
       >
         {isPending ? "Открываем оплату…" : label}
         {isPending ? null : <span aria-hidden>→</span>}
-      </button>
+      </Button>
 
       <p className="mt-2 text-center text-[11px] leading-relaxed text-slate-300">
         Для оплаты нужно подтвердить, что вам исполнилось 18 лет.
@@ -215,22 +217,27 @@ export function PlanButton({
             </label>
 
             <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={() => setIsAgeDialogOpen(false)}
-                className="inline-flex min-h-11 items-center justify-center rounded-full border border-white/15 px-5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
+                className="w-full sm:w-auto"
               >
                 Отмена
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 onClick={handlePayment}
                 disabled={!ageConfirmed}
-                className={`${baseClassName} ${variantClassName[variant]} ${sizeClassName.compact}`}
+                variant={VARIANT_MAP[variant]}
+                size="md"
+                fullWidth
+                className="sm:w-auto"
               >
                 Перейти к оплате
                 <span aria-hidden>→</span>
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -1,6 +1,5 @@
-import Link from "next/link";
-
 import { PlanButton } from "@/app/subscription/PlanButton";
+import { ButtonLink, Card } from "@/components/ui";
 import coursesData from "@/data/courses.json";
 import {
   PAID_LESSONS,
@@ -72,8 +71,10 @@ export function ProBundleCard({
   className = "",
 }: ProBundleCardProps) {
   return (
-    <article
-      className={`relative flex h-full flex-col overflow-hidden rounded-3xl border-2 border-amber-400/60 bg-gradient-to-br from-violet-500/15 via-slate-900 to-amber-500/10 p-6 shadow-xl shadow-amber-950/40 ring-1 ring-amber-300/20 transition-colors hover:border-amber-300/80 sm:p-7 ${className}`}
+    <Card
+      as="article"
+      padding="none"
+      className={`relative flex h-full flex-col overflow-hidden rounded-3xl border-2 border-amber-400/60 bg-gradient-to-br from-violet-500/15 via-slate-900 to-amber-500/10 p-6 ring-1 ring-amber-300/20 transition-colors hover:border-amber-300/80 sm:p-7 ${className}`}
     >
       <div
         aria-hidden
@@ -174,13 +175,15 @@ export function ProBundleCard({
                   <span aria-hidden>✓</span>
                   Доступ открыт
                 </p>
-                <Link
+                <ButtonLink
                   href="/dashboard"
-                  className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/25 transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  variant="success"
+                  fullWidth
+                  className="mt-3"
                 >
                   Перейти в кабинет
                   <span aria-hidden>→</span>
-                </Link>
+                </ButtonLink>
               </>
             ) : (
               <PlanButton
@@ -193,6 +196,6 @@ export function ProBundleCard({
           </div>
         </div>
       </div>
-    </article>
+    </Card>
   );
 }

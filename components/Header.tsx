@@ -2,17 +2,11 @@ import Link from "next/link";
 import { headers } from "next/headers";
 
 import { Logo } from "@/components/Logo";
+import { Button, ButtonLink } from "@/components/ui";
 import { MobileMenu } from "@/components/navigation/MobileMenu";
 import { ToolsDropdown } from "@/components/navigation/ToolsDropdown";
 import { createClient } from "@/lib/supabase/server";
 import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
-
-/**
- * Стиль гостевой кнопки в шапке: синий акцент, компактный размер, скруглённые
- * углы.
- */
-const authButtonClassName =
-  "inline-flex shrink-0 items-center rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
 
 /**
  * Ссылка «Активировать код» — вторичная: серый текст, белый при наведении,
@@ -74,7 +68,7 @@ export async function Header() {
   const lessonsHref = isAuthorized ? "/dashboard" : "/course/lesson-1";
 
   return (
-    <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur print:hidden">
+    <header className="sticky top-0 z-50 border-b border-white/5 bg-black/50 backdrop-blur-xl print:hidden">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 sm:px-8">
         <Logo className="shrink-0" />
 
@@ -149,18 +143,24 @@ export async function Header() {
               </Link>
 
               <form action="/logout" method="post" className="shrink-0">
-                <button
+                <Button
                   type="submit"
-                  className="inline-flex shrink-0 items-center rounded-full border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:px-4 sm:text-sm"
+                  variant="secondary"
+                  size="sm"
+                  className="shrink-0"
                 >
                   Выйти
-                </button>
+                </Button>
               </form>
             </>
           ) : (
-            <Link href="/auth/login" className={authButtonClassName}>
+            <ButtonLink
+              href="/auth/login"
+              size="sm"
+              className="shrink-0 whitespace-nowrap"
+            >
               Войти
-            </Link>
+            </ButtonLink>
           )}
         </div>
       </div>

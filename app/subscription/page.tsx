@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { Header } from "@/components/Header";
 import { ProBundleCard } from "@/components/landing/ProBundleCard";
+import { ButtonLink, Card } from "@/components/ui";
 import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
 import { resolveUserId } from "@/lib/current-user";
@@ -194,7 +195,7 @@ export default async function SubscriptionPage() {
     : false;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <Header />
 
       <main>
@@ -237,20 +238,25 @@ export default async function SubscriptionPage() {
             </div>
 
             <div className="mt-9 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-4">
-              <Link
+              <ButtonLink
                 href={START_FREE_HREF}
-                className="inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-blue-600 px-8 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                size="lg"
+                fullWidth
+                className="sm:w-auto"
               >
                 Начать бесплатно
                 <span aria-hidden>→</span>
-              </Link>
-              <a
+              </ButtonLink>
+              <ButtonLink
                 href="#pricing"
-                className="inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-8 text-lg font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                variant="gold"
+                size="lg"
+                fullWidth
+                className="sm:w-auto"
               >
                 Выбрать тариф
                 <span aria-hidden>→</span>
-              </a>
+              </ButtonLink>
             </div>
 
             <p className="mt-6 text-sm text-slate-300">
@@ -291,7 +297,10 @@ export default async function SubscriptionPage() {
             </div>
 
             {/* Десктоп: настоящая таблица с колонками уровней */}
-            <div className="mt-8 hidden overflow-hidden rounded-3xl border border-white/10 lg:block">
+            <Card
+              padding="none"
+              className="mt-8 hidden overflow-hidden rounded-3xl lg:block"
+            >
               <table className="w-full table-fixed border-collapse text-left">
                 <caption className="sr-only">
                   Сравнение уровней «Новичок», «Уверенный», «Инженер» и
@@ -386,26 +395,24 @@ export default async function SubscriptionPage() {
                               <span className="inline-flex rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-200">
                                 Доступ открыт
                               </span>
-                              <Link
+                              <ButtonLink
                                 href={`/course/${level.key}`}
-                                className="inline-flex min-h-10 items-center justify-center rounded-full bg-emerald-600 px-4 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                                variant="success"
+                                size="sm"
                               >
                                 Продолжить обучение
-                              </Link>
+                              </ButtonLink>
                             </div>
                           ) : (
-                            <Link
+                            <ButtonLink
                               href={level.isFree ? START_FREE_HREF : level.href}
-                              className={`inline-flex min-h-10 items-center justify-center rounded-full px-4 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
-                                level.isFree
-                                  ? "bg-blue-600 text-white hover:bg-blue-500"
-                                  : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
-                              }`}
+                              variant={level.isFree ? "primary" : "secondary"}
+                              size="sm"
                             >
                               {level.isFree
                                 ? "Начать бесплатно"
                                 : "Подробнее о курсе"}
-                            </Link>
+                            </ButtonLink>
                           )}
                         </td>
                       );
@@ -413,7 +420,7 @@ export default async function SubscriptionPage() {
                   </tr>
                 </tbody>
               </table>
-            </div>
+            </Card>
 
             {/* Мобильный вариант той же таблицы: карточки уровней */}
             <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:hidden">
@@ -423,9 +430,11 @@ export default async function SubscriptionPage() {
                   level.key !== "basic" && purchasedCourses[level.key];
 
                 return (
-                  <article
+                  <Card
+                    as="article"
                     key={level.key}
-                    className={`relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b ${style.soft} to-slate-900/60 p-5`}
+                    padding="none"
+                    className={`relative overflow-hidden rounded-3xl bg-gradient-to-b ${style.soft} to-slate-900/60 p-5`}
                   >
                     <div
                       aria-hidden
@@ -503,26 +512,28 @@ export default async function SubscriptionPage() {
                     </dl>
 
                     {isPurchased ? (
-                      <Link
+                      <ButtonLink
                         href={`/course/${level.key}`}
-                        className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        variant="success"
+                        size="sm"
+                        fullWidth
+                        className="mt-4"
                       >
                         Продолжить обучение
                         <span aria-hidden>→</span>
-                      </Link>
+                      </ButtonLink>
                     ) : (
-                      <Link
+                      <ButtonLink
                         href={level.isFree ? START_FREE_HREF : level.href}
-                        className={`mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
-                          level.isFree
-                            ? "bg-blue-600 text-white hover:bg-blue-500"
-                            : "border border-amber-400/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
-                        }`}
+                        variant={level.isFree ? "primary" : "secondary"}
+                        size="sm"
+                        fullWidth
+                        className="mt-4"
                       >
                         {level.isFree ? "Начать бесплатно" : "Подробнее о курсе"}
-                      </Link>
+                      </ButtonLink>
                     )}
-                  </article>
+                  </Card>
                 );
               })}
             </div>
@@ -544,7 +555,10 @@ export default async function SubscriptionPage() {
               навсегда — без продлений.
             </p>
 
-            <div className="mt-8 rounded-[2rem] border border-white/10 bg-white/[0.02] p-4 sm:p-6 lg:p-8">
+            <Card
+              padding="none"
+              className="mt-8 rounded-[2rem] p-4 sm:p-6 lg:p-8"
+            >
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase">
@@ -562,7 +576,11 @@ export default async function SubscriptionPage() {
 
               <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {/* Новичок — 0 ₽ */}
-              <article className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-blue-500/30 bg-slate-900/60 p-5">
+              <Card
+                as="article"
+                padding="none"
+                className="relative flex h-full flex-col overflow-hidden rounded-3xl border-blue-500/30 p-5"
+              >
                 <div
                   aria-hidden
                   className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-500 to-cyan-400"
@@ -617,27 +635,26 @@ export default async function SubscriptionPage() {
                 </ul>
 
                 <div className="mt-auto pt-5">
-                  <Link
-                    href={START_FREE_HREF}
-                    className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-base font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  >
+                  <ButtonLink href={START_FREE_HREF} fullWidth>
                     Начать бесплатно
                     <span aria-hidden>→</span>
-                  </Link>
+                  </ButtonLink>
                   <p className="mt-2 text-center text-[11px] font-medium text-slate-300">
                     Доступ навсегда
                   </p>
                 </div>
-              </article>
+              </Card>
 
               {PAID_LEVELS.map((level) => {
                 const style = LEVEL_STYLES[level.key];
                 const isPurchased = purchasedCourses[level.key];
 
                 return (
-                  <article
+                  <Card
+                    as="article"
                     key={level.key}
-                    className={`relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b ${style.soft} to-slate-900/60 p-5`}
+                    padding="none"
+                    className={`relative flex h-full flex-col overflow-hidden rounded-3xl bg-gradient-to-b ${style.soft} to-slate-900/60 p-5`}
                   >
                     <div
                       aria-hidden
@@ -711,13 +728,15 @@ export default async function SubscriptionPage() {
                             <span aria-hidden>✓</span>
                             Доступ открыт
                           </p>
-                          <Link
+                          <ButtonLink
                             href={`/course/${level.key}`}
-                            className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/25 transition-colors hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                            variant="success"
+                            fullWidth
+                            className="mt-3"
                           >
                             Продолжить обучение
                             <span aria-hidden>→</span>
-                          </Link>
+                          </ButtonLink>
                         </>
                       ) : (
                         <>
@@ -726,20 +745,23 @@ export default async function SubscriptionPage() {
                             courseId={level.key}
                             size="compact"
                           />
-                          <Link
+                          <ButtonLink
                             href={level.href}
-                            className="mt-2 inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full border border-blue-400/40 bg-blue-500/10 px-4 text-xs font-semibold text-blue-200 transition-colors hover:border-blue-300/60 hover:bg-blue-500/20"
+                            variant="secondary"
+                            size="sm"
+                            fullWidth
+                            className="mt-2"
                           >
                             Подробнее о курсе
                             <span aria-hidden>→</span>
-                          </Link>
+                          </ButtonLink>
                           <p className="mt-2 text-center text-[11px] font-medium text-slate-300">
                             Доступ навсегда
                           </p>
                         </>
                       )}
                     </div>
-                  </article>
+                  </Card>
                 );
               })}
 
@@ -747,8 +769,8 @@ export default async function SubscriptionPage() {
                 hasBundle={hasBundle}
                 className="sm:col-span-2"
               />
-            </div>
-            </div>
+              </div>
+            </Card>
           </div>
         </section>
 
@@ -775,9 +797,10 @@ export default async function SubscriptionPage() {
 
             <div className="mt-10 grid gap-4 sm:grid-cols-3 lg:gap-5">
               {["Первый", "Второй", "Третий"].map((slot) => (
-                <figure
+                <Card
+                  as="figure"
                   key={slot}
-                  className="flex h-full flex-col rounded-3xl border border-dashed border-white/15 bg-white/[0.03] p-6"
+                  className="flex h-full flex-col rounded-3xl border-dashed border-white/15 bg-white/[0.03]"
                 >
                   <div
                     aria-hidden
@@ -800,7 +823,7 @@ export default async function SubscriptionPage() {
                       Имя · уровень · дата
                     </span>
                   </figcaption>
-                </figure>
+                </Card>
               ))}
             </div>
 
@@ -830,9 +853,11 @@ export default async function SubscriptionPage() {
 
             <div className="mt-10 grid items-start gap-3 lg:grid-cols-2 lg:gap-4">
               {FAQ.map((item) => (
-                <details
+                <Card
+                  as="details"
                   key={item.question}
-                  className="group rounded-2xl border border-white/10 bg-white/5 px-5 py-4 transition-colors open:border-white/20 sm:px-6 sm:py-5"
+                  padding="none"
+                  className="group px-5 py-4 transition-colors open:border-white/20 sm:px-6 sm:py-5"
                 >
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-semibold text-white [&::-webkit-details-marker]:hidden">
                     {item.question}
@@ -846,7 +871,7 @@ export default async function SubscriptionPage() {
                   <p className="mt-3 text-sm leading-relaxed text-slate-300">
                     {item.answer}
                   </p>
-                </details>
+                </Card>
               ))}
             </div>
           </div>
@@ -855,7 +880,7 @@ export default async function SubscriptionPage() {
         {/* Условия оплаты рядом с тарифами, а не только в футере */}
         <section className="border-t border-white/10">
           <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-16">
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-6 sm:p-8">
+            <Card padding="lg" className="rounded-3xl">
               <h2 className="text-xl font-extrabold tracking-tight text-white sm:text-2xl">
                 Оплата, чеки и возврат
               </h2>
@@ -890,7 +915,7 @@ export default async function SubscriptionPage() {
               <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-300">
                 Сервис предназначен для лиц старше 18 лет.
               </p>
-            </div>
+            </Card>
           </div>
         </section>
       </main>

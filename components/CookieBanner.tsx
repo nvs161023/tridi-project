@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui";
+
 /**
  * Баннер согласия на использование cookie.
  *
@@ -152,20 +154,21 @@ export function CookieBanner() {
           >
             Политика cookie
           </Link>
-          <button
+          <Button
             type="button"
+            variant="secondary"
             onClick={() => choose("necessary")}
-            className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/15 bg-white/5 px-6 text-sm font-semibold text-slate-100 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            className="w-full sm:w-auto"
           >
             Только необходимые
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => choose("all")}
-            className="inline-flex min-h-12 items-center justify-center rounded-full bg-blue-600 px-6 text-sm font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            className="w-full sm:w-auto"
           >
             Принять все
-          </button>
+          </Button>
         </div>
       </div>
     </div>
