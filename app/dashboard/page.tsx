@@ -6,11 +6,6 @@ import { redirect } from "next/navigation";
 import { Header } from "@/components/Header";
 import { ProfileEditor } from "@/app/dashboard/ProfileEditor";
 import { isAdminEmail } from "@/lib/admin";
-import { getSavedProjects } from "@/lib/constructor/project-store";
-import {
-  formatSavedProjectDate,
-  savedProjectModelLabel,
-} from "@/lib/constructor/projects";
 import { basicLessons } from "@/lib/basic-course";
 import { confidentLessons } from "@/lib/confident-course";
 import {
@@ -36,7 +31,7 @@ import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 export const metadata: Metadata = {
   title: "Личный кабинет — TriDi",
   description:
-    "Статус подписки Pro, прогресс по четырём уровням курса и доступ к инструментам платформы.",
+    "Прогресс по четырём уровням курса, сертификаты и доступ к инструментам платформы.",
 };
 
 type Profile = {
@@ -166,7 +161,7 @@ const COURSE_STYLES: Record<
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
 
-/** «18 ноября 2026» — дата окончания подписки для верхнего блока. */
+/** «18 ноября 2026» — дата окончания доступа для верхнего блока. */
 function formatDate(isoDate: string | null): string | null {
   if (!isoDate) {
     return null;
@@ -359,7 +354,7 @@ function CourseCard({
   );
 }
 
-/** Замок для закрытых курсов и Pro-инструментов. */
+/** Замок для закрытых курсов и инструментов Pro. */
 function LockIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
     <svg
@@ -429,19 +424,6 @@ type ProTool = {
 
 const PRO_TOOLS: ProTool[] = [
   {
-    icon: "🧩",
-    title: "Конструктор 3D",
-    description:
-      "Параметрические шаблоны ваз, брелоков, подставок и клипс: размеры, текстура и толщина стенки настраиваются под вашу задачу.",
-    href: "/constructor",
-    cta: "Открыть конструктор",
-    bullets: [
-      "Готовые шаблоны вместо моделирования с нуля",
-      "Параметры под сопло, стол и материал",
-      "STL и профиль печати в одном месте",
-    ],
-  },
-  {
     icon: "📦",
     title: "Библиотека профилей",
     description:
@@ -469,8 +451,8 @@ export default async function DashboardPage() {
   const isAdmin = isAdminEmail(identity.email);
   const supabase = await createClient();
 
-  // Профиль, прогресс по четырём курсам, доступ к платным уровням и статус
-  // подписки друг от друга не зависят — запускаем запросы параллельно.
+  // Профиль, прогресс по четырём курсам и доступ к платным уровням друг от
+  // друга не зависят — запускаем запросы параллельно.
   const [
     profileResult,
     progressResult,
@@ -478,7 +460,6 @@ export default async function DashboardPage() {
     engineerAccess,
     profitAccess,
     subscription,
-    savedProjects,
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", userId).single(),
     supabase
@@ -490,9 +471,6 @@ export default async function DashboardPage() {
     hasPurchasedCourse(supabase, userId, "engineer"),
     hasPurchasedCourse(supabase, userId, "profit"),
     getActiveSubscription(supabase, userId),
-    // Миграции применяют вручную: пока таблицы нет, getSavedProjects вернёт
-    // пустой список и кабинет покажет остальные разделы как обычно.
-    getSavedProjects(supabase, userId),
   ]);
 
   let progressRows = (progressResult.data as ProgressRow[] | null) ?? [];
@@ -576,8 +554,8 @@ export default async function DashboardPage() {
     ? hasBundle
       ? "Пакет «Всё включено» активен навсегда"
       : subscriptionDate
-        ? `Pro-подписка активна до ${subscriptionDate}`
-        : "Pro-подписка активна"
+        ? `Доступ к инструментам открыт до ${subscriptionDate}`
+        : "Доступ к инструментам открыт"
     : "Бесплатный аккаунт";
   const openCourses = COURSE_TYPES.filter(
     (courseType) => accessByCourse[courseType],
@@ -605,9 +583,9 @@ export default async function DashboardPage() {
           />
         </div>
         <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-300 sm:text-lg">
-          Здесь собрано всё для обучения: статус подписки, прогресс по четырём
-          уровням и инструменты Pro. Прогресс сохраняется за аккаунтом, поэтому
-          можно продолжать с любого устройства.
+          Здесь собрано всё для обучения: прогресс по четырём уровням,
+          сертификаты и доступ к инструментам платформы. Прогресс сохраняется за
+          аккаунтом, поэтому можно продолжать с любого устройства.
         </p>
 
         <section
@@ -661,7 +639,7 @@ export default async function DashboardPage() {
           <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs font-semibold tracking-[0.16em] text-slate-300 uppercase">
-                Статус подписки
+                Доступ к инструментам
               </p>
               <h2
                 id="subscription-status-title"
@@ -672,9 +650,9 @@ export default async function DashboardPage() {
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
                 {hasPro
                   ? hasBundle
-                    ? "Все три платных курса и Pro-инструменты открыты навсегда. Это разовая покупка пакета — продлевать ничего не нужно."
-                    : "Конструктор 3D и библиотека профилей открыты. Подписка действует на инструменты платформы, курсы остаются доступны навсегда после покупки."
-                  : "Курсы можно купить навсегда, а Конструктор 3D и библиотеку профилей открывает подписка Pro. Начните с бесплатного уровня — карта не нужна."}
+                    ? "Все три платных курса и инструменты платформы открыты навсегда. Это разовая покупка пакета — продлевать ничего не нужно."
+                    : "Библиотека профилей открыта. Доступ действует на инструменты платформы, курсы остаются доступны навсегда после покупки."
+                  : "Курсы можно купить навсегда, а библиотеку профилей открывает пакет «Всё включено». Начните с бесплатного уровня — карта не нужна."}
               </p>
             </div>
 
@@ -682,14 +660,14 @@ export default async function DashboardPage() {
               {hasPro ? (
                 <span className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-6 text-sm font-bold tracking-wide text-emerald-200 uppercase">
                   <span aria-hidden>✓</span>
-                  {hasBundle ? "Пакет активен" : "Pro активна"}
+                  {hasBundle ? "Пакет активен" : "Доступ открыт"}
                 </span>
               ) : (
                 <Link
-                  href="/subscription#tools"
+                  href="/courses/pro"
                   className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-blue-600 px-7 text-base font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                 >
-                  Оформить Pro
+                  Открыть пакет
                   <span aria-hidden>→</span>
                 </Link>
               )}
@@ -777,103 +755,31 @@ export default async function DashboardPage() {
           </div>
         </section>
 
-        <section aria-labelledby="pro-tools-title" className="mt-12">
+        <section aria-labelledby="tools-access-title" className="mt-12">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <p className="text-sm font-semibold tracking-widest text-blue-400 uppercase">
-                Подписка Pro
+                Инструменты платформы
               </p>
               <h2
-                id="pro-tools-title"
+                id="tools-access-title"
                 className="mt-3 text-2xl font-extrabold tracking-tight text-white sm:text-3xl"
               >
-                Инструменты Pro
+                Библиотека профилей
               </h2>
             </div>
             <p className="max-w-md text-sm leading-relaxed text-slate-300">
               {hasPro
-                ? "Подписка активна — оба инструмента открыты."
-                : "Доступ открывается подпиской Pro. Без неё карточки остаются размытыми."}
+                ? "Доступ открыт — профили можно скачивать."
+                : "Доступ открывается пакетом «Всё включено». Без него карточка остаётся размытой."}
             </p>
           </div>
 
-          <div className="mt-6 grid gap-5 md:grid-cols-2">
+          <div className="mt-6 grid gap-5">
             {PRO_TOOLS.map((tool) => (
               <ProToolCard key={tool.title} tool={tool} isPro={hasPro} />
             ))}
           </div>
-        </section>
-
-        <section aria-labelledby="saved-projects-title" className="mt-12">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold tracking-widest text-blue-400 uppercase">
-                Конструктор 3D
-              </p>
-              <h2
-                id="saved-projects-title"
-                className="mt-3 text-2xl font-extrabold tracking-tight text-white sm:text-3xl"
-              >
-                Мои 3D-проекты
-              </h2>
-            </div>
-            <p className="max-w-md text-sm leading-relaxed text-slate-300">
-              {savedProjects.length > 0
-                ? "Откройте сохранённый проект — размеры и узор подставятся в конструктор, и можно продолжить с того же места."
-                : "Сохраняйте настройки модели в конструкторе — они появятся здесь и откроются на любом устройстве."}
-            </p>
-          </div>
-
-          {savedProjects.length > 0 ? (
-            <ul className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {savedProjects.map((project) => (
-                <li
-                  key={project.id}
-                  className="flex flex-col justify-between gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 sm:p-6"
-                >
-                  <div>
-                    <h3 className="text-lg font-bold tracking-tight text-white">
-                      {project.title}
-                    </h3>
-                    <p className="mt-2 text-sm text-slate-300">
-                      {savedProjectModelLabel(project.modelType)}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {formatSavedProjectDate(project.createdAt)}
-                    </p>
-                  </div>
-                  <Link
-                    href={`/constructor?project=${encodeURIComponent(project.id)}`}
-                    aria-label={`Открыть проект «${project.title}» в конструкторе`}
-                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/15 px-5 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  >
-                    Открыть проект
-                    <span aria-hidden>→</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="mt-6 flex flex-col items-start gap-4 rounded-3xl border border-dashed border-white/15 bg-white/5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8">
-              <div className="max-w-xl">
-                <h3 className="text-lg font-bold text-white">
-                  Здесь появятся ваши проекты
-                </h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                  Пока ничего не сохранено. Настройте модель в конструкторе 3D и
-                  нажмите «Сохранить проект» — название, размеры и узор
-                  сохранятся за аккаунтом.
-                </p>
-              </div>
-              <Link
-                href="/constructor"
-                className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              >
-                Открыть конструктор
-                <span aria-hidden>→</span>
-              </Link>
-            </div>
-          )}
         </section>
 
         {isAdmin ? (
@@ -932,9 +838,9 @@ export default async function DashboardPage() {
 }
 
 /**
- * Карточка инструмента Pro.
+ * Карточка инструмента платформы.
  *
- * Без подписки содержимое размывается, а поверх него остаётся понятный замок:
+ * Без доступа содержимое размывается, а поверх него остаётся понятный замок:
  * человек видит, что именно откроется, но не может перейти в раздел. Ссылка в
  * размытом слое не рендерится вовсе — иначе она оставалась бы в фокусе
  * клавиатуры под aria-hidden.
@@ -958,7 +864,7 @@ function ProToolCard({ tool, isPro }: { tool: ProTool; isPro: boolean }) {
             {tool.icon}
           </span>
           <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-2.5 py-1 text-[11px] font-bold tracking-wide text-blue-200 uppercase">
-            Pro
+            В пакете
           </span>
         </div>
 
@@ -1007,13 +913,13 @@ function ProToolCard({ tool, isPro }: { tool: ProTool; isPro: boolean }) {
             {tool.title}
           </h3>
           <p className="text-sm leading-relaxed text-slate-300">
-            Доступно по подписке Pro
+            Доступно в пакете «Всё включено»
           </p>
           <Link
-            href="/subscription#tools"
+            href="/courses/pro"
             className="mt-1 inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-6 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
           >
-            Оформить Pro
+            Открыть пакет
             <span aria-hidden>→</span>
           </Link>
         </div>

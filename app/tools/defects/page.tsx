@@ -248,10 +248,10 @@ export default async function DefectsPage() {
                 Центр инструментов
               </Link>
               <Link
-                href="/constructor"
+                href="/profiles"
                 className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-6 text-base font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               >
-                3D-Конструктор
+                Библиотека профилей
                 <span aria-hidden>→</span>
               </Link>
             </div>

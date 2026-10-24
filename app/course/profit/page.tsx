@@ -8,7 +8,7 @@ import { PREVIEW_LESSONS } from "@/lib/course-access";
 import {
   LESSON_FORMS,
   MODULE_FORMS,
-  formatHours,
+  formatAcademicHours,
   pluralize,
   summarizeCourse,
 } from "@/lib/course-stats";
@@ -20,7 +20,7 @@ import { createClient } from "@/lib/supabase/server";
  *
  * Страница открывается любому вошедшему человеку: она показывает, что за уровень
  * и какие в нём уроки. Сам материал уроков — платный, его отдаёт страница урока
- * (/course/profit/<модуль>/<урок>), где доступ решает покупка или подписка.
+ * (/course/profit/<модуль>/<урок>), где доступ решает покупка уровня или пакета.
  *
  * Материалы уровня пишутся по частям, поэтому у урока может быть пустой blocks:
  * такой урок не ссылка, а строка с отметкой «Готовится». Отметка исчезает сама,
@@ -98,7 +98,7 @@ export default async function ProfitCoursePage() {
           </span>
           <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-semibold text-slate-300 sm:text-sm">
             <span aria-hidden>⏱️</span>
-            {formatHours(profitCourse.modules.flatMap((item) => item.lessons))}
+            {formatAcademicHours(courseMeta.estimated_hours)}
           </span>
         </div>
 

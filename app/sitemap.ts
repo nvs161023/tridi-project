@@ -36,8 +36,10 @@ const STATIC_PAGES: {
  * правила форума, юридические документы и все опубликованные темы форума.
  *
  * Закрытые разделы сюда не попадают: /dashboard, /course/* и /admin закрыты
- * middleware и закрыты в robots.txt, а /constructor дополнительно помечен
- * `robots: noindex`. `/verify` тоже не публикуется: это проверка конкретного
+ * middleware и закрыты в robots.txt, а /constructor не публикуется вовсе —
+ * раздел скрыт (middleware.ts редиректит его на /tools, см.
+ * lib/hidden-routes.ts), поэтому строки в карте сайта ему не нужно, и noindex
+ * тоже остаётся. `/verify` тоже не публикуется: это проверка конкретного
  * сертификата по токену, а не страница для поиска.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {

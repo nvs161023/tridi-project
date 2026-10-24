@@ -4,7 +4,12 @@ import type { NextRequest } from "next/server";
 import { Resend } from "resend";
 
 import { getAdminEmails } from "@/lib/admin";
+import {
+  MODEL_TYPE_LABELS,
+  type ModelType,
+} from "@/lib/constructor/params";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 
 /** Supabase Admin API и Resend работают только в Node.js. */
 export const runtime = "nodejs";
@@ -12,34 +17,93 @@ export const runtime = "nodejs";
 /** Отчёт всегда считается заново: кэшировать суточную статистику нельзя. */
 export const dynamic = "force-dynamic";
 
-/** Названия товаров для таблицы «Покупки по курсам». */
+/** Названия товаров для таблицы «Продажи и промокоды». */
 const COURSE_TITLES: Record<string, string> = {
   confident: "Уверенный уровень",
   engineer: "Инженер 3D-печати",
   profit: "Заработок на 3D-печати",
-  pro: "Пакет «Все 3 уровня»",
-  "pro-subscription": "Подписка Pro",
+  pro: "Пакет «Всё включено»",
+  "pro-subscription": "Подписка Pro (легаси)",
 };
 
-type CourseBreakdown = {
+/** Сколько последних оценок конструктора читаем для средней и комментариев. */
+const FEEDBACK_SAMPLE_LIMIT = 1000;
+
+/** Сколько текстовых отзывов показываем в письме. */
+const FEEDBACK_COMMENTS_LIMIT = 3;
+
+/**
+ * Москва — UTC+3 круглый год: переходов на летнее время нет с 2014 года,
+ * поэтому границу месяца можно посчитать без библиотеки часовых поясов.
+ * Отчёт всегда про московский месяц, даже если сервер живёт в UTC.
+ */
+const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+/** Строка таблицы «Продажи и промокоды»: деньги и подарки рядом. */
+type SalesRow = {
   courseId: string;
   title: string;
-  count: number;
+  /** Оплаченных заказов из purchases. */
+  sales: number;
+  /** Сумма оплаченных заказов, ₽. */
   amount: number;
+  /** Активаций промокодов из promo_codes. */
+  promos: number;
 };
 
-type DailyStats = {
-  /** Начало окна: 24 часа назад. */
+/** Сколько раз сгенерировали модель каждого типа. */
+type ModelBreakdown = {
+  modelType: string;
+  title: string;
+  count: number;
+};
+
+/** Текстовый отзыв конструктора для блока обратной связи. */
+type FeedbackComment = {
+  model: string;
+  rating: number;
+  text: string;
+  createdAt: string;
+};
+
+/**
+ * Метрики одного окна: «за сутки» или «с начала месяца».
+ *
+ * Флаги `*Available` говорят, существует ли таблица в живой базе. Миграции
+ * применяют вручную, поэтому отсутствие site_visits или
+ * constructor_generations — не ошибка отчёта: в письме на месте цифры будет
+ * прочерк, а в примечании — какой файл применить.
+ */
+type WindowStats = {
+  /** Начало окна, ISO. */
   since: string;
-  /** Момент формирования отчёта. */
-  until: string;
   newUsers: number;
   /** true — просмотрены не все страницы пользователей (очень большая база). */
   usersTruncated: boolean;
   purchasesCount: number;
   purchasesAmount: number;
-  purchasesByCourse: CourseBreakdown[];
-  reviewsCount: number;
+  sales: SalesRow[];
+  promosCount: number;
+  promosAvailable: boolean;
+  newReviewsCount: number;
+  visits: number;
+  visitsAvailable: boolean;
+  generationsCount: number;
+  generationsByModel: ModelBreakdown[];
+  generationsAvailable: boolean;
+  feedbackCount: number;
+  feedbackAverage: number | null;
+  feedbackLow: number;
+  feedbackComments: FeedbackComment[];
+  feedbackAvailable: boolean;
+};
+
+/** Полный отчёт: суточное окно и текущий месяц. */
+type ReportStats = {
+  /** Момент формирования отчёта. */
+  until: string;
+  day: WindowStats;
+  month: WindowStats;
 };
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -79,22 +143,33 @@ function isAuthorized(request: NextRequest, secret: string): boolean {
 }
 
 /**
- * Новые пользователи за окно.
+ * Новые пользователи в двух окнах за один проход по страницам.
  *
  * Supabase Admin API не отдаёт count напрямую, поэтому читаем страницы
- * listUsers и считаем created_at. Список приходит от новых к старым, но мы не
- * полагаемся на порядок: проверяем каждую запись и останавливаемся, когда
- * страница кончилась. Десять страниц по 1000 — предохранитель от бесконечного
- * цикла; в письме такая ситуация помечается звёздочкой.
+ * listUsers и сравниваем created_at с границами окон. Список приходит от новых
+ * к старым, но мы не полагаемся на порядок: проверяем каждую запись и
+ * останавливаемся, когда страница кончилась. Десять страниц по 1000 —
+ * предохранитель от бесконечного цикла; в письме такая ситуация помечается
+ * звёздочкой.
+ *
+ * Один проход вместо двух важен: суточное окно целиком входит в месячное, и
+ * отдельный вызов для каждого окна удваивал бы число запросов к Admin API.
  */
 async function countNewUsers(
   admin: AdminClient,
-  sinceMs: number,
-): Promise<{ count: number; truncated: boolean }> {
+  sinceDayMs: number,
+  sinceMonthMs: number,
+): Promise<{
+  day: { count: number; truncated: boolean };
+  month: { count: number; truncated: boolean };
+}> {
   const perPage = 1000;
   const maxPages = 10;
+  const result = {
+    day: { count: 0, truncated: false },
+    month: { count: 0, truncated: false },
+  };
 
-  let count = 0;
   let page = 1;
 
   while (page <= maxPages) {
@@ -109,37 +184,80 @@ async function countNewUsers(
     for (const user of users) {
       const createdAt = new Date(user.created_at).getTime();
 
-      if (!Number.isNaN(createdAt) && createdAt >= sinceMs) {
-        count += 1;
+      if (Number.isNaN(createdAt)) {
+        continue;
+      }
+
+      if (createdAt >= sinceDayMs) {
+        result.day.count += 1;
+      }
+
+      if (createdAt >= sinceMonthMs) {
+        result.month.count += 1;
       }
     }
 
     if (users.length < perPage) {
-      return { count, truncated: false };
+      return result;
     }
 
     page += 1;
   }
 
-  return { count, truncated: true };
+  result.day.truncated = true;
+  result.month.truncated = true;
+  return result;
 }
 
-/** Собирает всю статистику за последние 24 часа. */
-async function collectStats(): Promise<DailyStats> {
-  const admin = createAdminClient();
-  const until = new Date();
-  const sinceDate = new Date(until.getTime() - 24 * 60 * 60 * 1000);
-  const since = sinceDate.toISOString();
+/** Строки, которые читаем из таблиц: только нужные для отчёта колонки. */
+type PurchaseRow = { amount: number | string; course_id: string };
+type PromoRow = { course_id: string };
+type FeedbackRow = {
+  rating: number | string;
+  feedback_text: string | null;
+  model_type: string | null;
+  created_at: string;
+};
+type GenerationRow = { model_type: string };
 
-  const [users, purchasesResult, reviewsResult] = await Promise.all([
-    countNewUsers(admin, sinceDate.getTime()),
+/**
+ * Метрики одного окна. Новых пользователей считает Admin API, их подставляет
+ * collectStats — здесь только таблицы PostgREST.
+ */
+async function collectWindow(
+  admin: AdminClient,
+  since: string,
+): Promise<Omit<WindowStats, "newUsers" | "usersTruncated">> {
+  const [
+    purchasesResult,
+    promosResult,
+    reviewsResult,
+    feedbackResult,
+    visitsResult,
+    generationsResult,
+  ] = await Promise.all([
     admin
       .from("purchases")
       .select("amount, course_id")
       .gte("created_at", since),
+    admin.from("promo_codes").select("course_id").gte("used_at", since),
     admin
       .from("course_reviews")
       .select("id", { count: "exact", head: true })
+      .gte("created_at", since),
+    admin
+      .from("constructor_feedback")
+      .select("rating, feedback_text, model_type, created_at")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(FEEDBACK_SAMPLE_LIMIT),
+    admin
+      .from("site_visits")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", since),
+    admin
+      .from("constructor_generations")
+      .select("model_type")
       .gte("created_at", since),
   ]);
 
@@ -155,11 +273,30 @@ async function collectStats(): Promise<DailyStats> {
     );
   }
 
-  const purchases =
-    (purchasesResult.data as { amount: number | string; course_id: string }[] | null) ??
-    [];
+  const purchases = (purchasesResult.data as PurchaseRow[] | null) ?? [];
 
-  const byCourse = new Map<string, CourseBreakdown>();
+  // Продажи и промокоды сводим в одну таблицу: видно и деньги, и подарки.
+  const byCourse = new Map<string, SalesRow>();
+
+  function courseRow(courseId: string): SalesRow {
+    const current = byCourse.get(courseId);
+
+    if (current) {
+      return current;
+    }
+
+    const created: SalesRow = {
+      courseId,
+      title: COURSE_TITLES[courseId] ?? courseId,
+      sales: 0,
+      amount: 0,
+      promos: 0,
+    };
+
+    byCourse.set(courseId, created);
+    return created;
+  }
+
   let purchasesAmount = 0;
 
   for (const purchase of purchases) {
@@ -171,32 +308,190 @@ async function collectStats(): Promise<DailyStats> {
 
     purchasesAmount += amount;
 
-    const current = byCourse.get(purchase.course_id) ?? {
-      courseId: purchase.course_id,
-      title: COURSE_TITLES[purchase.course_id] ?? purchase.course_id,
+    const row = courseRow(purchase.course_id);
+    row.sales += 1;
+    row.amount += amount;
+  }
+
+  const promosAvailable = !promosResult.error;
+
+  if (
+    promosResult.error &&
+    !isMissingTableSchema(promosResult.error.code, promosResult.error.message)
+  ) {
+    throw new Error(
+      `Не удалось прочитать промокоды: ${promosResult.error.message}`,
+    );
+  }
+
+  const promos = promosAvailable
+    ? ((promosResult.data as PromoRow[] | null) ?? [])
+    : [];
+
+  for (const promo of promos) {
+    courseRow(promo.course_id).promos += 1;
+  }
+
+  const sales = [...byCourse.values()].sort(
+    (a, b) =>
+      b.amount - a.amount ||
+      b.promos - a.promos ||
+      a.title.localeCompare(b.title, "ru"),
+  );
+
+  const visitsAvailable = !visitsResult.error;
+
+  if (
+    visitsResult.error &&
+    !isMissingTableSchema(visitsResult.error.code, visitsResult.error.message)
+  ) {
+    throw new Error(
+      `Не удалось прочитать посещения: ${visitsResult.error.message}`,
+    );
+  }
+
+  const generationsAvailable = !generationsResult.error;
+
+  if (
+    generationsResult.error &&
+    !isMissingTableSchema(
+      generationsResult.error.code,
+      generationsResult.error.message,
+    )
+  ) {
+    throw new Error(
+      `Не удалось прочитать генерации: ${generationsResult.error.message}`,
+    );
+  }
+
+  const generations = generationsAvailable
+    ? ((generationsResult.data as GenerationRow[] | null) ?? [])
+    : [];
+
+  const generationsByType = new Map<string, ModelBreakdown>();
+
+  for (const generation of generations) {
+    const current = generationsByType.get(generation.model_type) ?? {
+      modelType: generation.model_type,
+      title:
+        MODEL_TYPE_LABELS[generation.model_type as ModelType] ??
+        generation.model_type,
       count: 0,
-      amount: 0,
     };
 
     current.count += 1;
-    current.amount += amount;
-    byCourse.set(purchase.course_id, current);
+    generationsByType.set(generation.model_type, current);
   }
+
+  const generationsByModel = [...generationsByType.values()].sort(
+    (a, b) => b.count - a.count || a.title.localeCompare(b.title, "ru"),
+  );
+
+  const feedbackAvailable = !feedbackResult.error;
+
+  if (
+    feedbackResult.error &&
+    !isMissingTableSchema(
+      feedbackResult.error.code,
+      feedbackResult.error.message,
+    )
+  ) {
+    throw new Error(
+      `Не удалось прочитать оценки конструктора: ${feedbackResult.error.message}`,
+    );
+  }
+
+  const feedback = feedbackAvailable
+    ? ((feedbackResult.data as FeedbackRow[] | null) ?? [])
+    : [];
+
+  const ratings = feedback
+    .map((row) => Number(row.rating))
+    .filter((rating) => Number.isFinite(rating));
+
+  const feedbackAverage =
+    ratings.length === 0
+      ? null
+      : Math.round(
+          (ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length) *
+            10,
+        ) / 10;
+
+  const feedbackComments = feedback
+    .filter(
+      (row) =>
+        typeof row.feedback_text === "string" &&
+        row.feedback_text.trim().length > 0,
+    )
+    .slice(0, FEEDBACK_COMMENTS_LIMIT)
+    .map((row) => ({
+      model: row.model_type
+        ? (MODEL_TYPE_LABELS[row.model_type as ModelType] ?? row.model_type)
+        : "Модель не указана",
+      rating: Number(row.rating),
+      text: row.feedback_text!.trim(),
+      createdAt: row.created_at,
+    }));
 
   return {
     since,
-    until: until.toISOString(),
-    newUsers: users.count,
-    usersTruncated: users.truncated,
     purchasesCount: purchases.length,
     purchasesAmount,
-    purchasesByCourse: [...byCourse.values()].sort((a, b) => b.amount - a.amount),
-    reviewsCount: reviewsResult.count ?? 0,
+    sales,
+    promosCount: promos.length,
+    promosAvailable,
+    newReviewsCount: reviewsResult.count ?? 0,
+    visits: visitsResult.count ?? 0,
+    visitsAvailable,
+    generationsCount: generations.length,
+    generationsByModel,
+    generationsAvailable,
+    feedbackCount: ratings.length,
+    feedbackAverage,
+    feedbackLow: ratings.filter((rating) => rating <= 3).length,
+    feedbackComments,
+    feedbackAvailable,
   };
 }
 
+/**
+ * Собирает статистику за два окна: последние 24 часа и текущий месяц.
+ *
+ * Границы обоих окон считаются от одного момента `until`, чтобы цифры в письме
+ * были согласованы. Месяц — московский календарный, а не «30 дней»: так отчёт
+ * 1-го числа показывает начало месяца, а не хвост предыдущего.
+ */
+async function collectStats(): Promise<ReportStats> {
+  const admin = createAdminClient();
+  const until = new Date();
+  const daySince = new Date(until.getTime() - 24 * 60 * 60 * 1000);
 
-/** Сумма в рублях без копеек: 12 540 ₽. */
+  const mskNow = new Date(until.getTime() + MSK_OFFSET_MS);
+  const monthSince = new Date(
+    Date.UTC(mskNow.getUTCFullYear(), mskNow.getUTCMonth(), 1) - MSK_OFFSET_MS,
+  );
+
+  const [users, day, month] = await Promise.all([
+    countNewUsers(admin, daySince.getTime(), monthSince.getTime()),
+    collectWindow(admin, daySince.toISOString()),
+    collectWindow(admin, monthSince.toISOString()),
+  ]);
+
+  return {
+    until: until.toISOString(),
+    day: {
+      ...day,
+      newUsers: users.day.count,
+      usersTruncated: users.day.truncated,
+    },
+    month: {
+      ...month,
+      newUsers: users.month.count,
+      usersTruncated: users.month.truncated,
+    },
+  };
+}
+
 function formatMoney(value: number): string {
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",
@@ -216,6 +511,52 @@ function formatPeriod(iso: string): string {
   }).format(new Date(iso));
 }
 
+/** Дата без времени по Москве: «22 октября». */
+function formatDay(iso: string): string {
+  return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: "Europe/Moscow",
+    day: "numeric",
+    month: "long",
+  }).format(new Date(iso));
+}
+
+/** Прочерк вместо цифры, если таблицы ещё нет в базе. */
+function metric(value: number, available: boolean): string {
+  return available ? String(value) : "—";
+}
+
+/** Цвета карточки: фон и подпись. */
+type KpiTone = { background: string; label: string };
+
+const KPI_BLUE: KpiTone = { background: "#eff6ff", label: "#1d4ed8" };
+const KPI_GREEN: KpiTone = { background: "#f0fdf4", label: "#15803d" };
+const KPI_AMBER: KpiTone = { background: "#fefce8", label: "#a16207" };
+const KPI_SLATE: KpiTone = { background: "#f8fafc", label: "#475569" };
+const KPI_VIOLET: KpiTone = { background: "#f5f3ff", label: "#6d28d9" };
+
+/**
+ * Карточка показателя. Ширина 50% и внутренние отступы вместо flex: flex в
+ * почтовых клиентах не работает, а таблица с двумя ячейками в строке
+ * перестраивается в две колонки даже на узком экране.
+ */
+function kpiCell(label: string, value: string, tone: KpiTone): string {
+  return `<td width="50%" valign="top" style="padding:12px;background:${tone.background};border-radius:12px;">
+                        <p style="margin:0;color:${tone.label};font-size:10px;letter-spacing:1px;text-transform:uppercase;font-weight:700;">${label}</p>
+                        <p style="margin:6px 0 0;color:#0f172a;font-size:22px;line-height:1.2;font-weight:800;word-break:break-word;">${value}</p>
+                      </td>`;
+}
+
+/** Строка таблицы «Продажи и промокоды». */
+function salesRow(row: SalesRow, promosAvailable: boolean): string {
+  return `
+                        <tr>
+                          <td style="padding:9px 0;border-top:1px solid #e2e8f0;color:#0f172a;font-size:13px;line-height:1.35;word-break:break-word;">${escapeHtml(row.title)}</td>
+                          <td align="center" style="padding:9px 0;border-top:1px solid #e2e8f0;color:#334155;font-size:13px;">${row.sales}</td>
+                          <td align="right" style="padding:9px 0;border-top:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:600;white-space:nowrap;">${row.amount > 0 ? formatMoney(row.amount) : "—"}</td>
+                          <td align="center" style="padding:9px 0;border-top:1px solid #e2e8f0;color:#334155;font-size:13px;">${promosAvailable ? row.promos : "—"}</td>
+                        </tr>`;
+}
+
 /** Экранирование текста, который попадает в письмо. */
 function escapeHtml(value: string): string {
   return value
@@ -225,37 +566,179 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Строка таблицы «Активность». */
+function activityRow(
+  label: string,
+  value: string,
+  options: { indent?: boolean; strong?: boolean } = {},
+): string {
+  const padding = options.indent ? "6px 0 6px 12px" : "8px 0";
+  const color = options.indent ? "#64748b" : "#0f172a";
+  const size = options.indent ? "12px" : "13px";
+  const weight = options.strong ? "700" : "400";
+
+  return `
+                        <tr>
+                          <td style="padding:${padding};border-top:1px solid #e2e8f0;color:${color};font-size:${size};line-height:1.4;">${label}</td>
+                          <td align="right" style="padding:${padding};border-top:1px solid #e2e8f0;color:${color};font-size:${size};font-weight:${weight};white-space:nowrap;">${value}</td>
+                        </tr>`;
+}
+
+/** Миграции, которых не хватает для метрик окна. */
+function missingMigrations(stats: WindowStats): string[] {
+  const files: string[] = [];
+
+  if (!stats.promosAvailable) files.push("promo_codes.sql");
+  if (!stats.visitsAvailable) files.push("site_visits.sql");
+  if (!stats.generationsAvailable) files.push("constructor_generations.sql");
+  if (!stats.feedbackAvailable) files.push("constructor_feedback.sql");
+
+  return files;
+}
+
+/** Один блок письма: заголовок окна, карточки и две таблицы. */
+function renderWindowBlock(
+  heading: string,
+  period: string,
+  stats: WindowStats,
+  accent: string,
+): string {
+  const usersNote = stats.usersTruncated ? " *" : "";
+  const average =
+    stats.feedbackAvailable && stats.feedbackAverage !== null
+      ? `${stats.feedbackAverage.toFixed(1)} / 5`
+      : "—";
+
+  const salesRows =
+    stats.sales.length === 0
+      ? `<tr><td colspan="4" style="padding:12px 0;border-top:1px solid #e2e8f0;color:#64748b;font-size:13px;">Продаж и активаций не было.</td></tr>`
+      : stats.sales
+          .map((row) => salesRow(row, stats.promosAvailable))
+          .join("");
+
+  const generationRows = stats.generationsByModel
+    .map((row) =>
+      activityRow(`в т.ч. ${escapeHtml(row.title)}`, String(row.count), {
+        indent: true,
+      }),
+    )
+    .join("");
+
+  const missing = missingMigrations(stats);
+
+  return `
+            <tr>
+              <td style="padding:24px 28px;border-top:1px solid #e2e8f0;">
+                <p style="margin:0;color:${accent};font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;">${heading}</p>
+                <p style="margin:4px 0 0;color:#64748b;font-size:12px;">${period}</p>
+
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="6" style="border-collapse:separate;border-spacing:6px;margin-top:12px;">
+                  <tr>
+                    ${kpiCell("Выручка", formatMoney(stats.purchasesAmount), KPI_BLUE)}
+                    ${kpiCell("Покупки", String(stats.purchasesCount), KPI_GREEN)}
+                  </tr>
+                  <tr>
+                    ${kpiCell("Новые ученики", `${stats.newUsers}${usersNote}`, KPI_AMBER)}
+                    ${kpiCell("Посещения", metric(stats.visits, stats.visitsAvailable), KPI_VIOLET)}
+                  </tr>
+                  <tr>
+                    ${kpiCell("Генерации STL", metric(stats.generationsCount, stats.generationsAvailable), KPI_SLATE)}
+                    ${kpiCell("Промокоды", metric(stats.promosCount, stats.promosAvailable), KPI_SLATE)}
+                  </tr>
+                </table>
+                ${stats.usersTruncated ? `<p style="margin:4px 0 0;color:#94a3b8;font-size:11px;">* просмотрены не все страницы пользователей: цифра может быть меньше.</p>` : ""}
+
+                <h2 style="margin:24px 0 6px;color:#0f172a;font-size:15px;">Продажи и промокоды</h2>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                  <tr>
+                    <th align="left" style="padding:0 0 4px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:1px;">Курс</th>
+                    <th align="center" style="padding:0 0 4px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:1px;">Продаж</th>
+                    <th align="right" style="padding:0 0 4px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:1px;">Сумма</th>
+                    <th align="center" style="padding:0 0 4px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:1px;">Промо</th>
+                  </tr>
+                  ${salesRows}
+                </table>
+
+                <h2 style="margin:24px 0 6px;color:#0f172a;font-size:15px;">Активность и генерации</h2>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                  ${activityRow("Новые ученики", `${stats.newUsers}${usersNote}`)}
+                  ${activityRow("Просмотры страниц", metric(stats.visits, stats.visitsAvailable))}
+                  ${activityRow("Генерации STL", metric(stats.generationsCount, stats.generationsAvailable), { strong: true })}
+                  ${generationRows}
+                  ${activityRow("Отзывы о курсах", String(stats.newReviewsCount))}
+                  ${activityRow("Оценки конструктора", `${average}${stats.feedbackCount > 0 ? ` · ${stats.feedbackCount}` : ""}`)}
+                  ${activityRow("Низкие оценки (1–3)", metric(stats.feedbackLow, stats.feedbackAvailable))}
+                </table>
+
+                ${missing.length > 0 ? `<p style="margin:12px 0 0;padding:10px 12px;background:#fff7ed;border-radius:8px;color:#9a3412;font-size:11px;line-height:1.5;">Прочерк — таблицы ещё нет. Примените миграции: ${missing.map((file) => `<code style="font-family:Consolas,monospace;">supabase/${file}</code>`).join(", ")}.</p>` : ""}
+              </td>
+            </tr>`;
+}
+
+/** Блок обратной связи по Конструктору: средняя оценка и последние отзывы. */
+function renderFeedbackBlock(stats: WindowStats): string {
+  if (!stats.feedbackAvailable) {
+    return `
+            <tr>
+              <td style="padding:24px 28px;border-top:1px solid #e2e8f0;">
+                <h2 style="margin:0 0 8px;color:#0f172a;font-size:15px;">Обратная связь по Конструктору</h2>
+                <p style="margin:0;color:#64748b;font-size:13px;line-height:1.6;">Таблицы оценок ещё нет — примените <code style="font-family:Consolas,monospace;">supabase/constructor_feedback.sql</code>.</p>
+              </td>
+            </tr>`;
+  }
+
+  const summary =
+    stats.feedbackAverage === null
+      ? "За текущий месяц оценок ещё не было."
+      : `Средняя оценка: <strong>${stats.feedbackAverage.toFixed(1)} из 5</strong> · ${stats.feedbackCount} оценок${stats.feedbackLow > 0 ? ` · ${stats.feedbackLow} ниже 4★` : ""}`;
+
+  const comments =
+    stats.feedbackComments.length === 0
+      ? `<p style="margin:10px 0 0;color:#64748b;font-size:13px;">Текстовых комментариев за месяц нет.</p>`
+      : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:10px;">
+                  ${stats.feedbackComments
+                    .map(
+                      (comment) => `
+                  <tr>
+                    <td style="padding:10px 12px;background:#f8fafc;border-left:3px solid #f59e0b;border-radius:8px;">
+                      <p style="margin:0;color:#0f172a;font-size:13px;line-height:1.55;word-break:break-word;">${escapeHtml(comment.text)}</p>
+                      <p style="margin:6px 0 0;color:#64748b;font-size:11px;">${escapeHtml(comment.model)} · ★ ${comment.rating}/5 · ${formatDay(comment.createdAt)}</p>
+                    </td>
+                  </tr>
+                  <tr><td style="height:6px;line-height:6px;font-size:0;">&nbsp;</td></tr>`,
+                    )
+                    .join("")}
+                </table>`;
+
+  return `
+            <tr>
+              <td style="padding:24px 28px;border-top:1px solid #e2e8f0;">
+                <h2 style="margin:0 0 8px;color:#0f172a;font-size:15px;">Обратная связь по Конструктору</h2>
+                <p style="margin:0;color:#334155;font-size:13px;line-height:1.6;">${summary}</p>
+                ${comments}
+              </td>
+            </tr>`;
+}
+
 /**
  * HTML-письмо отчёта.
  *
  * Вёрстка на таблицах и inline-стилях: почтовые клиенты (в том числе Gmail)
  * вырезают <style> и flex/grid, поэтому внешний вид держится на атрибутах.
- * Ширина 600 px — стандарт для писем.
+ * Ширина 600 px — стандарт для писем; карточки и таблицы занимают 100%
+ * доступной ширины, поэтому на телефоне письмо не вылезает за экран.
  */
-function renderDailyReport(stats: DailyStats): string {
-  const period = `${formatPeriod(stats.since)} — ${formatPeriod(stats.until)} (МСК)`;
-  const usersNote = stats.usersTruncated ? " *" : "";
-
-  const courseRows =
-    stats.purchasesByCourse.length === 0
-      ? `<tr><td colspan="3" style="padding:12px 0;color:#64748b;font-size:14px;">За сутки покупок не было.</td></tr>`
-      : stats.purchasesByCourse
-          .map(
-            (row) => `
-              <tr>
-                <td style="padding:10px 0;border-top:1px solid #e2e8f0;color:#0f172a;font-size:14px;">${escapeHtml(row.title)}</td>
-                <td align="center" style="padding:10px 0;border-top:1px solid #e2e8f0;color:#334155;font-size:14px;">${row.count}</td>
-                <td align="right" style="padding:10px 0;border-top:1px solid #e2e8f0;color:#0f172a;font-size:14px;font-weight:600;">${formatMoney(row.amount)}</td>
-              </tr>`,
-          )
-          .join("");
+function renderDailyReport(stats: ReportStats): string {
+  const dayPeriod = `${formatPeriod(stats.day.since)} — ${formatPeriod(stats.until)} (МСК)`;
+  const monthPeriod = `С ${formatDay(stats.month.since)} по ${formatPeriod(stats.until)} (МСК)`;
 
   return `<!doctype html>
 <html lang="ru">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>TriDi · ежедневный отчёт</title>
+    <meta name="color-scheme" content="light only" />
+    <title>TriDi · сводка за сутки и месяц</title>
   </head>
   <body style="margin:0;padding:24px 12px;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
@@ -265,58 +748,18 @@ function renderDailyReport(stats: DailyStats): string {
             <tr>
               <td style="padding:24px 28px;background:#0f172a;">
                 <p style="margin:0;color:#93c5fd;font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;">TriDi</p>
-                <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;line-height:1.3;">Ежедневный отчёт</h1>
-                <p style="margin:6px 0 0;color:#cbd5e1;font-size:13px;">${period}</p>
+                <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;line-height:1.3;">Сводка за сутки и месяц</h1>
+                <p style="margin:6px 0 0;color:#cbd5e1;font-size:13px;">Сформирована ${formatPeriod(stats.until)} (МСК)</p>
               </td>
             </tr>
-
-            <tr>
-              <td style="padding:24px 28px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-                  <tr>
-                    <td width="33%" valign="top" style="padding:14px;background:#eff6ff;border-radius:12px;">
-                      <p style="margin:0;color:#1d4ed8;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:700;">Новые ученики</p>
-                      <p style="margin:6px 0 0;color:#0f172a;font-size:26px;font-weight:800;">${stats.newUsers}${usersNote}</p>
-                    </td>
-                    <td width="8"></td>
-                    <td width="33%" valign="top" style="padding:14px;background:#f0fdf4;border-radius:12px;">
-                      <p style="margin:0;color:#15803d;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:700;">Покупки</p>
-                      <p style="margin:6px 0 0;color:#0f172a;font-size:26px;font-weight:800;">${stats.purchasesCount}</p>
-                    </td>
-                    <td width="8"></td>
-                    <td width="33%" valign="top" style="padding:14px;background:#fefce8;border-radius:12px;">
-                      <p style="margin:0;color:#a16207;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:700;">Выручка</p>
-                      <p style="margin:6px 0 0;color:#0f172a;font-size:22px;font-weight:800;">${formatMoney(stats.purchasesAmount)}</p>
-                    </td>
-                  </tr>
-                </table>
-
-                <h2 style="margin:26px 0 8px;color:#0f172a;font-size:16px;">Покупки по курсам</h2>
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-                  <tr>
-                    <th align="left" style="padding:0 0 6px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Курс</th>
-                    <th align="center" style="padding:0 0 6px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Покупок</th>
-                    <th align="right" style="padding:0 0 6px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Сумма</th>
-                  </tr>
-                  ${courseRows}
-                </table>
-
-                <h2 style="margin:26px 0 8px;color:#0f172a;font-size:16px;">Отзывы</h2>
-                <p style="margin:0;color:#334155;font-size:14px;">
-                  Новых отзывов за сутки: <strong style="color:#0f172a;">${stats.reviewsCount}</strong>
-                </p>
-
-                <p style="margin:20px 0 0;padding:14px 16px;background:#f8fafc;border-radius:12px;color:#475569;font-size:12px;line-height:1.6;">
-                  Сумма — по всем покупкам за 24 часа, включая пакет «Все 3 уровня» и подписку Pro.
-                  Отчёт собирается автоматически по расписанию и не заменяет сверку в кабинете Robokassa.
-                </p>
-              </td>
-            </tr>
-
+            ${renderWindowBlock("Сводка за сутки", dayPeriod, stats.day, "#1d4ed8")}
+            ${renderWindowBlock("Сводка за текущий месяц", monthPeriod, stats.month, "#6d28d9")}
+            ${renderFeedbackBlock(stats.month)}
             <tr>
               <td style="padding:16px 28px 24px;border-top:1px solid #e2e8f0;">
                 <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.6;">
                   Источник: <code style="font-family:Consolas,monospace;">/api/cron/daily-report</code><br />
+                  Суммы — по всем покупкам, включая пакет «Всё включено»; старые подписки Pro тоже попадают в отчёт. Отчёт не заменяет сверку в кабинете Robokassa.<br />
                   TriDi · отчёт формируется каждый день в 09:00 МСК
                 </p>
               </td>
@@ -330,31 +773,89 @@ function renderDailyReport(stats: DailyStats): string {
 }
 
 /** Текстовая версия для почтовых клиентов без HTML. */
-function renderDailyText(stats: DailyStats): string {
-  const lines = [
-    "TriDi · ежедневный отчёт",
-    `${formatPeriod(stats.since)} — ${formatPeriod(stats.until)} (МСК)`,
-    "",
-    `Новые ученики: ${stats.newUsers}${stats.usersTruncated ? " (не все страницы)" : ""}`,
-    `Покупки: ${stats.purchasesCount} на ${formatMoney(stats.purchasesAmount)}`,
-    `Новые отзывы: ${stats.reviewsCount}`,
-    "",
-    "Покупки по курсам:",
-  ];
+function renderDailyText(stats: ReportStats): string {
+  const lines = ["TriDi · сводка за сутки и месяц", ""];
 
-  if (stats.purchasesByCourse.length === 0) {
-    lines.push("  — за сутки покупок не было");
-  } else {
-    for (const row of stats.purchasesByCourse) {
-      lines.push(`  ${row.title}: ${row.count} на ${formatMoney(row.amount)}`);
+  const pushWindow = (
+    title: string,
+    period: string,
+    windowStats: WindowStats,
+  ): void => {
+    const average =
+      windowStats.feedbackAverage === null
+        ? "—"
+        : `${windowStats.feedbackAverage.toFixed(1)}/5 (${windowStats.feedbackCount}${
+            windowStats.feedbackLow > 0
+              ? `, низких: ${windowStats.feedbackLow}`
+              : ""
+          })`;
+
+    lines.push(
+      title.toUpperCase(),
+      period,
+      "",
+      `Выручка: ${formatMoney(windowStats.purchasesAmount)} · покупок: ${windowStats.purchasesCount}`,
+      `Новые ученики: ${windowStats.newUsers}${windowStats.usersTruncated ? " (не все страницы)" : ""}`,
+      `Посещения: ${metric(windowStats.visits, windowStats.visitsAvailable)} · генерации STL: ${metric(windowStats.generationsCount, windowStats.generationsAvailable)}`,
+      `Промокоды: ${metric(windowStats.promosCount, windowStats.promosAvailable)} · отзывы о курсах: ${windowStats.newReviewsCount}`,
+      `Оценка конструктора: ${average}`,
+    );
+
+    if (windowStats.sales.length === 0) {
+      lines.push("  — продаж и активаций не было");
+    } else {
+      lines.push("По курсам:");
+
+      for (const row of windowStats.sales) {
+        const promos = windowStats.promosAvailable
+          ? `, промокодов: ${row.promos}`
+          : "";
+
+        lines.push(
+          `  ${row.title}: ${row.sales} продаж на ${formatMoney(row.amount)}${promos}`,
+        );
+      }
     }
+
+    if (windowStats.generationsByModel.length > 0) {
+      lines.push(
+        `Генерации по моделям: ${windowStats.generationsByModel
+          .map((model) => `${model.title} — ${model.count}`)
+          .join(", ")}`,
+      );
+    }
+
+    lines.push("");
+  };
+
+  pushWindow(
+    "За сутки",
+    `${formatPeriod(stats.day.since)} — ${formatPeriod(stats.until)} (МСК)`,
+    stats.day,
+  );
+  pushWindow(
+    "С начала месяца",
+    `с ${formatDay(stats.month.since)} по ${formatPeriod(stats.until)} (МСК)`,
+    stats.month,
+  );
+
+  if (stats.month.feedbackComments.length > 0) {
+    lines.push("Последние отзывы о конструкторе:");
+
+    for (const comment of stats.month.feedbackComments) {
+      lines.push(
+        `  ★ ${comment.rating}/5 · ${comment.model} · ${formatDay(comment.createdAt)}: ${comment.text}`,
+      );
+    }
+
+    lines.push("");
   }
 
-  lines.push("", "Источник: /api/cron/daily-report");
+  lines.push("Источник: /api/cron/daily-report");
   return lines.join("\n");
 }
 
-/** Отчёт за сутки: проверка секрета, сбор статистики и отправка письма. */
+/** Отчёт за сутки и месяц: проверка секрета, сбор статистики и отправка письма. */
 async function handleReport(request: NextRequest): Promise<Response> {
   const secret = process.env.CRON_SECRET?.trim();
 
@@ -371,7 +872,7 @@ async function handleReport(request: NextRequest): Promise<Response> {
 
   const dryRun = (new URL(request.url).searchParams.get("dryRun") ?? "") !== "";
 
-  let stats: DailyStats;
+  let stats: ReportStats;
 
   try {
     stats = await collectStats();
@@ -425,7 +926,7 @@ async function handleReport(request: NextRequest): Promise<Response> {
 
   const resend = new Resend(apiKey);
   const from = process.env.MAIL_FROM?.trim() || "TriDi <onboarding@resend.dev>";
-  const subject = `TriDi · отчёт за ${formatPeriod(stats.until)}`;
+  const subject = `TriDi · сводка за ${formatPeriod(stats.until)}`;
 
   try {
     const { data, error } = await resend.emails.send({

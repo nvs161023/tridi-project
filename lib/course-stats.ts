@@ -70,25 +70,21 @@ export function groupByModule(lessons: LessonLike[]): ModulePreview[] {
 }
 
 /**
- * «~9 часов» — округляем суммарную длительность уроков до часов.
+ * «~18 часов» — объём программы в академических часах.
  *
- * Принимаем не LessonLike целиком, а только duration: продвинутый курс приходит
- * модулями (data/course-pro.json), и модуль лежит не в уроке, а рядом с ним —
- * см. summarizeCourse ниже.
+ * Часы берутся из data/courses.json (estimated_hours) и означают работу с
+ * практикой, а не время чтения текста. Время чтения лежит в duration урока
+ * (см. tmp-замер в COURSES-AUDIT.md): витрина раньше складывала duration и
+ * обещала «~5 часов», хотя сертификат печатал 18. Теперь число одно на всех
+ * экранах — карточка уровня, страница курса и сертификат.
  */
-export function formatHours(lessons: { duration: string }[]): string {
-  const minutes = lessons.reduce(
-    (sum, lesson) => sum + Number.parseInt(lesson.duration, 10),
-    0,
-  );
-  const hours = Math.max(1, Math.round(minutes / 60));
-
+export function formatAcademicHours(hours: number): string {
   return `~${hours} ${pluralize(hours, HOUR_FORMS)}`;
 }
 
 /** Курс, разложенный по модулям: минимум, нужный витрине для подсчёта чисел. */
 export type ModularCourseLike = {
-  modules: { lessons: { duration: string }[] }[];
+  modules: { lessons: unknown[] }[];
 };
 
 /**
@@ -144,7 +140,11 @@ export function countExplanations(course: CourseContentLike): number {
 }
 
 /**
- * Сводка продвинутого курса для витрины: модули, уроки и часы.
+ * Сводка курса для витрины: сколько модулей и уроков.
+ *
+ * Часы сюда не входят: объём программы живёт в data/courses.json
+ * (estimated_hours) и читается через formatAcademicHours. Складывать duration
+ * уроков для «длительности курса» нельзя — это время чтения, а не программа.
  *
  * В data/course-pro.json курс уже лежит модулями, поэтому группировать нечего —
  * считаем прямо по файлу. Так главная, тарифы и финал базового курса показывают
@@ -157,13 +157,11 @@ export function countExplanations(course: CourseContentLike): number {
 export function summarizeCourse(course: ModularCourseLike): {
   modules: number;
   lessons: number;
-  hours: string;
 } {
   const lessons = course.modules.flatMap((courseModule) => courseModule.lessons);
 
   return {
     modules: course.modules.length,
     lessons: lessons.length,
-    hours: formatHours(lessons),
   };
 }

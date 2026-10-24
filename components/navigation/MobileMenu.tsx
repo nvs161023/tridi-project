@@ -22,10 +22,9 @@ const MAIN_LINKS: MenuLink[] = [
   { href: "/subscription", label: "Тарифы" },
 ];
 
-/** Инструменты — те же три ссылки, что и в десктопном меню. */
+/** Инструменты — те же ссылки, что и в десктопном меню. */
 const TOOL_LINKS: MenuLink[] = [
   { href: "/tools", label: "Центр инструментов" },
-  { href: "/constructor", label: "3D-Конструктор" },
   { href: "/tools/defects", label: "Диагностика дефектов" },
 ];
 
@@ -223,11 +222,11 @@ export function MobileMenu({ isAuthorized, lessonsHref }: MobileMenuProps) {
                     Войти
                   </Link>
                   <Link
-                    href="/subscription"
+                    href={lessonsHref}
                     onClick={closeMenu}
                     className="mt-1 flex min-h-12 items-center justify-center rounded-xl bg-blue-500 px-3 text-base font-semibold text-white transition-colors hover:bg-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
                   >
-                    Начать обучение
+                    Начать бесплатно
                   </Link>
                 </>
               )}

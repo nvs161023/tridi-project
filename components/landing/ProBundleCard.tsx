@@ -21,22 +21,21 @@ const { pro: proCourse } = coursesData;
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
 
-/** Скидка подписки Pro — из тех же цен, что и на странице тарифов. */
-const subscriptionDiscount = Math.round(
-  (1 - proCourse.subscriptionPrice / proCourse.oldSubscriptionPrice) * 100,
+/** Скидка пакета не рисуется процентами: выгода показывается в рублях. */
+const BUNDLE_SAVING = formatPrice(
+  PAID_LEVELS.reduce((sum, level) => sum + level.price, 0) - proCourse.price,
 );
 
 /** Названия платных уровней в описании пакета не дублируем вручную. */
 const BUNDLE_COURSES = PAID_LEVELS.map((level) => level.shortTitle).join(", ");
 
-const BUNDLE_DESCRIPTION = `Все ${PAID_LEVELS.length} платных курса (${BUNDLE_COURSES}) + доступ к Конструктору 3D и Библиотеке профилей навсегда`;
+const BUNDLE_DESCRIPTION = `Все ${PAID_LEVELS.length} платных курса (${BUNDLE_COURSES}) и библиотека профилей печати — навсегда`;
 
 const BUNDLE_FEATURES = [
   ...PAID_LEVELS.map(
     (level) =>
       `${level.shortTitle} — ${level.lessons} ${pluralize(level.lessons, LESSON_FORMS)}`,
   ),
-  "Безлимитная генерация в Конструкторе",
   "Коммерческая лицензия (можно продавать напечатанное)",
   "Доступ навсегда",
 ];
@@ -44,13 +43,13 @@ const BUNDLE_FEATURES = [
 /**
  * Главные фишки пакета — отдельными зелёными строками.
  *
- * Состав курсов остаётся в BUNDLE_FEATURES, а сертификат и инструменты
+ * Состав курсов остаётся в BUNDLE_FEATURES, а сертификат и профили
  * вынесены наверх: именно они отличают пакет от покупки отдельных уроков.
  * Число профилей берётся из каталога, а не вписано руками.
  */
 const BUNDLE_HIGHLIGHTS = [
   "Именной сертификат",
-  `Доступ к ${profileCount} профилям печати и Конструктору`,
+  `Доступ к ${profileCount} профилям печати`,
 ];
 
 type ProBundleCardProps = {
@@ -87,7 +86,7 @@ export function ProBundleCard({
 
       <div className="relative flex flex-wrap items-center gap-3">
         <span className="text-xs font-semibold tracking-[0.16em] text-violet-300 uppercase">
-          Пакет Pro
+          Пакет «{proCourse.bundleTitle}»
         </span>
         <span className="rounded-full bg-gradient-to-r from-amber-300 to-amber-500 px-3 py-1 text-[10px] font-extrabold tracking-wide text-slate-950 uppercase shadow-lg shadow-amber-500/25">
           {proCourse.badge}
@@ -121,36 +120,14 @@ export function ProBundleCard({
             <span className="text-3xl font-extrabold text-white">
               {formatPrice(proCourse.price)} ₽
             </span>
-            <s
-              className="text-sm font-semibold text-slate-300"
-              aria-label={`Старая цена: ${formatPrice(proCourse.oldPrice)} ₽`}
-            >
-              {formatPrice(proCourse.oldPrice)} ₽
-            </s>
             <span className="text-xs text-slate-300">навсегда</span>
           </p>
 
-          <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-blue-400/20 bg-blue-500/5 px-3 py-2 text-xs text-slate-300">
-            <span className="font-semibold text-blue-200">Или подписка Pro</span>
-            <span className="text-base font-extrabold text-white">
-              {formatPrice(proCourse.subscriptionPrice)} ₽
+          <p className="mt-3 inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-emerald-400/20 bg-emerald-500/5 px-3 py-2 text-xs text-slate-300">
+            <span className="font-semibold text-emerald-200">
+              Выгода {BUNDLE_SAVING} ₽
             </span>
-            <span>/мес</span>
-            <s
-              className="font-semibold text-slate-400"
-              aria-label={`Старая цена: ${formatPrice(proCourse.oldSubscriptionPrice)} ₽`}
-            >
-              {formatPrice(proCourse.oldSubscriptionPrice)} ₽
-            </s>
-            <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-slate-950 uppercase shadow-lg shadow-amber-500/20">
-              -{subscriptionDiscount}%
-            </span>
-            <Link
-              href="/subscription#tools"
-              className="font-semibold text-blue-300 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-            >
-              подробнее
-            </Link>
+            <span>против покупки трёх курсов по отдельности</span>
           </p>
 
           <dl className="mt-5 grid grid-cols-3 gap-2 border-y border-white/10 py-4 text-center">

@@ -36,7 +36,7 @@ import type { MiniCheckQuestion } from "@/lib/types";
  * Урок уровня «Инженер»: /course/engineer/<модуль>/<урок> — например
  * /course/engineer/1/IN1, /course/engineer/2/IN10.
  *
- * Доступ к содержимому решает покупка курса, пакета или подписка Pro: гостя не
+ * Доступ к содержимому решает покупка курса или пакета «Всё включено»: гостя не
  * пускает middleware, а вошедшему без доступа страница отдаёт только первые два
  * блока и карточку с условиями покупки. Проверка выполняется на сервере, под
  * сессией пользователя, поэтому в HTTP-ответ платные блоки просто не попадают.
@@ -387,7 +387,7 @@ export default async function EngineerLessonPage({
     currentModule.module_id,
     currentModule.lessons[0].lesson_id,
   );
-  const courseFinishNote = `Позади все ${totalLessons} ${pluralize(totalLessons, LESSON_FORMS)} уровня «Инженер»: расчёт деталей, повтор чужой геометрии и своя процедура печати. Дальше — практика в конструкторе.`;
+  const courseFinishNote = `Позади все ${totalLessons} ${pluralize(totalLessons, LESSON_FORMS)} уровня «Инженер»: расчёт деталей, повтор чужой геометрии и своя процедура печати. Дальше — практика на своих моделях.`;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -421,7 +421,7 @@ export default async function EngineerLessonPage({
                 <span className="text-violet-300">{progressPercent}%</span>
               ) : null}
             </div>
-            {/* Без подписки полоска остаётся серой и пустой: прогресс по закрытому
+            {/* Без доступа полоска остаётся серой и пустой: прогресс по закрытому
                 уровню не показываем, чтобы не намекать на недоступное. */}
             <div
               role="progressbar"
@@ -462,7 +462,7 @@ export default async function EngineerLessonPage({
           </span>
         </div>
 
-        {/* Без подписки в разметку попадают только первые блоки урока, остальное
+        {/* Без доступа в разметку попадают только первые блоки урока, остальное
             остаётся на сервере — «посмотреть код страницы» не поможет. */}
         {!hasAccess && !isPreviewLesson ? (
           <>

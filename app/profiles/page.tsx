@@ -13,21 +13,21 @@ import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Библиотека профилей печати — инструмент подписки Pro.
+ * Библиотека профилей печати — часть пакета «Всё включено».
  *
- * Страница открыта всем: она показывает, что лежит в библиотеке, и продаёт
- * подписку. Сами карточки без Pro размыты, а скачивание защищено отдельно —
- * app/api/profiles/download/route.ts проверяет сессию и подписку. Прятать файлы
+ * Страница открыта всем: она показывает, что лежит в библиотеке, и ведёт к
+ * пакету. Сами карточки без доступа размыты, а скачивание защищено отдельно —
+ * app/api/profiles/download/route.ts проверяет сессию и доступ. Прятать файлы
  * только за CSS нельзя: адрес API можно открыть и руками.
  *
  * Доступ проверяется через hasActiveSubscription() — это бессрочный пакет
- * `pro` или действующая подписка `pro-subscription`. Отдельные уровни
+ * `pro` «Всё включено» или легаси-подписка `pro-subscription`. Отдельные уровни
  * инструменты не открывают.
  */
 export const metadata: Metadata = {
   title: "Библиотека профилей печати — TriDi",
   description:
-    "Готовые профили принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge, Qidi, Bambu Lab, Prusa и Creality, а также материалов PLA, PETG, ABS, ASA, TPU и PA для OrcaSlicer, Bambu Studio и PrusaSlicer. Скачивание входит в подписку Pro.",
+    "Готовые профили принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge, Qidi, Bambu Lab, Prusa и Creality, а также материалов PLA, PETG, ABS, ASA, TPU и PA для OrcaSlicer, Bambu Studio и PrusaSlicer. Скачивание входит в пакет «Всё включено».",
 };
 
 /** Страница зависит от cookies пользователя — собираем её на каждый запрос. */
@@ -102,14 +102,14 @@ export default async function ProfilesPage() {
           <div className="relative mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
             <div className="flex flex-wrap items-center gap-2.5 text-xs font-semibold sm:text-sm">
               <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-3.5 py-1.5 text-blue-200">
-                Инструмент подписки Pro
+                Входит в пакет «Всё включено»
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
                 Обновлено {updatedAt}
               </span>
               {hasPro ? (
                 <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3.5 py-1.5 text-emerald-200">
-                  Подписка активна
+                  Доступ открыт
                 </span>
               ) : null}
             </div>
@@ -138,7 +138,7 @@ export default async function ProfilesPage() {
           </div>
         </section>
 
-        {/* Призыв: без Pro карточки ниже размыты, а скачивание закрыто */}
+        {/* Призыв: без доступа карточки ниже размыты, а скачивание закрыто */}
         {!hasPro ? (
           <section
             aria-labelledby="profiles-cta"
@@ -146,27 +146,26 @@ export default async function ProfilesPage() {
           >
             <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-14">
               <p className="text-sm font-semibold tracking-widest text-blue-300 uppercase">
-                Доступ по подписке Pro
+                Доступ по пакету
               </p>
               <h2
                 id="profiles-cta"
                 className="mt-4 max-w-4xl text-2xl font-extrabold tracking-tight text-white sm:text-4xl"
               >
-                Оформите подписку Pro, чтобы получить доступ к библиотеке
-                профилей, конструктору 3D и другим инструментам
+                Библиотека открывается пакетом «Всё включено»
               </h2>
               <p className="mt-5 max-w-3xl text-base leading-relaxed text-slate-300 sm:text-lg">
-                Одна подписка открывает все {profileCount} файлов библиотеки,
-                конструктор моделей и новые инструменты по мере выхода. Уроки в
-                Pro не входят: курсы покупаются отдельно и остаются навсегда.
+                Пакет открывает все {profileCount} файлов библиотеки вместе с
+                тремя платными курсами — это разовый платёж, доступ остаётся
+                навсегда. Профили можно скачать сразу после оплаты.
               </p>
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                 <Link
-                  href="/subscription#tools"
+                  href="/courses/pro"
                   className="inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-blue-600 px-8 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                 >
-                  Оформить подписку Pro
+                  Открыть пакет «Всё включено»
                   <span aria-hidden>→</span>
                 </Link>
 
@@ -182,7 +181,7 @@ export default async function ProfilesPage() {
 
               {!userId ? (
                 <p className="mt-4 text-sm text-slate-300">
-                  Подписка привязывается к аккаунту — сначала войдите или
+                  Доступ привязывается к аккаунту — сначала войдите или
                   зарегистрируйтесь.
                 </p>
               ) : null}
@@ -193,20 +192,13 @@ export default async function ProfilesPage() {
             <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-8 sm:px-8">
               <div>
                 <p className="text-sm font-semibold tracking-widest text-emerald-300 uppercase">
-                  Подписка Pro активна
+                  Доступ к библиотеке открыт
                 </p>
                 <p className="mt-2 text-base text-slate-200 sm:text-lg">
                   Все {profileCount} {pluralize(profileCount, PROFILE_FORMS)}{" "}
                   доступны для скачивания.
                 </p>
               </div>
-              <Link
-                href="/constructor"
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-6 text-sm font-semibold text-emerald-100 transition-colors hover:bg-emerald-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              >
-                Перейти в конструктор
-                <span aria-hidden>→</span>
-              </Link>
             </div>
           </section>
         )}

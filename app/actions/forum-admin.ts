@@ -254,7 +254,7 @@ export async function deleteForumReply(
  *
  * Это запись только в forum_bans. Здесь намеренно нет ни одного обращения к
  * subscriptions или purchases: бан форума не должен закрывать оплаченные курсы
- * и подписку Pro. Срок: число дней или «навсегда».
+ * и доступ к инструментам платформы. Срок: число дней или «навсегда».
  */
 export async function banForumAuthor(
   _prevState: ForumAdminFormState,

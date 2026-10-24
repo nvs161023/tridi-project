@@ -9,7 +9,7 @@
  * Пакет `pro` — это три платных уровня вместе. Его программа собирается из тех же
  * модулей, что и отдельные страницы, поэтому на лендинге не может оказаться
  * другого количества уроков, схем или тестов. Продвинутый курс на 109 уроков в
- * пакет не входит: он открывается отдельно подпиской Pro.
+ * пакет не входит: он продаётся отдельным курсом, как и до пакета.
  */
 import confidentData from "@/data/course-confident.json";
 import engineerData from "@/data/course-engineer.json";
@@ -20,7 +20,7 @@ import {
   type CourseLevel,
   type PaidLevelKey,
 } from "@/lib/course-levels";
-import { formatHours } from "@/lib/course-stats";
+import { formatAcademicHours } from "@/lib/course-stats";
 
 /** Курсы, для которых есть отдельная продающая страница. */
 export type CourseLandingId = "confident" | "engineer" | "profit" | "pro";
@@ -81,7 +81,6 @@ export type CourseLanding = {
   /** Подробное обещание курса из data/courses.json. */
   goal: string;
   price: number;
-  oldPrice?: number;
   badge?: string;
   /** Сколько сэкономит пакет против трёх отдельных курсов. */
   saving?: number;
@@ -315,13 +314,6 @@ function buildProgramGroup(key: PaidLevelKey): LandingProgramGroup {
   };
 }
 
-/** Все уроки групп — для суммарной длительности пакета. */
-function groupLessons(groups: LandingProgramGroup[]) {
-  return groups.flatMap((group) =>
-    group.modules.flatMap((courseModule) => courseModule.lessons),
-  );
-}
-
 /** Собирает страницу отдельного платного уровня. */
 function buildLevelLanding(key: PaidLevelKey): CourseLanding {
   const level = getPaidLevel(key);
@@ -337,8 +329,6 @@ function buildLevelLanding(key: PaidLevelKey): CourseLanding {
     problem: copy.problem,
     goal: level.goal,
     price: level.price,
-    oldPrice: level.oldPrice,
-    badge: level.badge,
     modules: level.modules,
     lessons: level.lessons,
     visuals: level.visuals,
@@ -368,7 +358,6 @@ function buildProLanding(): CourseLanding {
     problem: copy.problem,
     goal: coursesData.pro.goal,
     price,
-    oldPrice: coursesData.pro.oldPrice,
     badge: coursesData.pro.badge,
     saving: Math.max(0, separatePrice - price),
     modules: levels.reduce((sum, level) => sum + level.modules.length, 0),
@@ -376,7 +365,9 @@ function buildProLanding(): CourseLanding {
     visuals: PAID_LEVELS.reduce((sum, level) => sum + level.visuals, 0),
     tests: PAID_LEVELS.reduce((sum, level) => sum + level.tests, 0),
     questions: PAID_LEVELS.reduce((sum, level) => sum + level.questions, 0),
-    hours: formatHours(groupLessons(levels)),
+    hours: formatAcademicHours(
+      PAID_LEVELS.reduce((sum, level) => sum + level.estimatedHours, 0),
+    ),
     audience: copy.audience,
     results: copy.results,
     program: levels,

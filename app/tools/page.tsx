@@ -2,16 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Header } from "@/components/Header";
-import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
-import { CONSTRUCTOR_TOOLS } from "@/lib/constructor/params";
 import { defects } from "@/lib/defects";
 import { profileCount } from "@/lib/profiles";
 import { OG_IMAGE } from "@/lib/seo";
 
-const PAGE_TITLE =
-  "3D-инструменты: Конструктор, профили и диагностика | TriDi";
+const PAGE_TITLE = "3D-инструменты: профили и диагностика | TriDi";
 const PAGE_DESCRIPTION =
-  "Центр инструментов TriDi: 3D-конструктор ваз, брелоков, подставок, клипс, вывесок, коробок и литофанов, библиотека профилей слайсеров и справочник дефектов печати с решениями.";
+  "Центр инструментов TriDi: библиотека профилей слайсеров и справочник дефектов печати с причинами и пошаговыми решениями.";
+const PAGE_IMAGE_ALT = "TriDi: профили печати и справочник дефектов";
 
 export const metadata: Metadata = {
   title: PAGE_TITLE,
@@ -30,7 +28,7 @@ export const metadata: Metadata = {
     images: [
       {
         ...OG_IMAGE,
-        alt: "TriDi: 3D-конструктор, профили печати и справочник дефектов",
+        alt: PAGE_IMAGE_ALT,
       },
     ],
   },
@@ -41,7 +39,7 @@ export const metadata: Metadata = {
     images: [
       {
         url: OG_IMAGE.url,
-        alt: "TriDi: 3D-конструктор, профили печати и справочник дефектов",
+        alt: PAGE_IMAGE_ALT,
       },
     ],
   },
@@ -50,7 +48,7 @@ export const metadata: Metadata = {
 /** Шапка читает cookies, поэтому страница собирается на каждый запрос. */
 export const dynamic = "force-dynamic";
 
-type ToolIconName = "constructor" | "profiles" | "defects";
+type ToolIconName = "profiles" | "defects";
 
 type Tool = {
   href: string;
@@ -66,32 +64,6 @@ type Tool = {
     cta: string;
   };
 };
-
-/** Изометрический куб — тот же силуэт, что у ссылки на конструктор в шапке. */
-function CubeIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      fill="none"
-      focusable="false"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M12 2.8 21 7.9v8.2L12 21.2 3 16.1V7.9L12 2.8Z"
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="1.5"
-      />
-      <path
-        d="m3.4 8 8.6 4.8L20.6 8M12 12.8v8"
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="1.5"
-      />
-    </svg>
-  );
-}
 
 /** Стопка слоёв — библиотека профилей и материалов. */
 function LayersIcon({ className }: { className?: string }) {
@@ -167,29 +139,10 @@ function ToolIcon({
     return <DiagnosticIcon className={className} />;
   }
 
-  return <CubeIcon className={className} />;
+  return null;
 }
 
 const TOOLS: Tool[] = [
-  {
-    href: "/constructor",
-    title: "3D-Конструктор",
-    description:
-      "Семнадцать генераторов в одном окне: вазы, брелоки, подставки под телефон и для украшений, клипсы для кабелей, вывески, коробки, литофаны, кашпо, подставки под кружку, органайзеры для ручек, нашивки, плафоны для гирлянды, ёлочные игрушки, настенные крючки, клипсы для кружек и трафареты. Задайте размеры и узор, проверьте модель в 3D и скачайте STL.",
-    icon: "constructor",
-    badges: [`${CONSTRUCTOR_TOOLS.length} генераторов`, "Экспорт STL"],
-    bullets: [
-      "Восемь силуэтов ваз и математические узоры",
-      "Брелоки с именем на кириллице",
-      "Предпросмотр и STL без моделирования с нуля",
-    ],
-    cta: "Открыть конструктор",
-    accent: {
-      icon: "border-blue-400/30 bg-blue-500/10 text-blue-300",
-      hover: "hover:border-blue-400/50",
-      cta: "text-blue-300 group-hover:text-blue-200",
-    },
-  },
   {
     href: "/profiles",
     title: "Библиотека профилей",
@@ -256,17 +209,14 @@ export default function ToolsPage() {
             </h1>
 
             <p className="mt-6 max-w-3xl text-lg leading-relaxed text-slate-300 sm:text-xl">
-              Три помощника для практики: собрать модель, подобрать профиль
-              слайсера и разобраться, почему деталь не получилась. Начните с
-              задачи, а не с перебора настроек.
+              Два помощника для практики: подобрать профиль слайсера и
+              разобраться, почему деталь не получилась. Начните с задачи, а не с
+              перебора настроек.
             </p>
 
             <div className="mt-7 flex flex-wrap gap-2.5 text-xs font-semibold sm:text-sm">
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                3 инструмента
-              </span>
-              <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                {CONSTRUCTOR_TOOLS.length} генераторов моделей
+                2 инструмента
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
                 {profileCount} профилей печати
@@ -296,12 +246,12 @@ export default function ToolsPage() {
                 </h2>
               </div>
               <p className="max-w-md text-sm leading-relaxed text-slate-300 sm:text-base">
-                Конструктор откроется после входа, скачивание STL и профилей
-                входит в подписку Pro. Диагностика дефектов доступна всем.
+                Библиотека профилей открывается пакетом «Всё включено»,
+                диагностика дефектов доступна всем и без регистрации.
               </p>
             </div>
 
-            <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div className="mt-8 grid gap-5 md:grid-cols-2">
               {TOOLS.map((tool) => (
                 <Link
                   key={tool.href}
@@ -364,56 +314,6 @@ export default function ToolsPage() {
                 </Link>
               ))}
             </div>
-          </div>
-        </section>
-
-        {/* Генераторы перечислены из CONSTRUCTOR_TOOLS: новый инструмент
-            появляется здесь сам, без правки разметки. */}
-        <section
-          aria-labelledby="constructor-models-title"
-          className="border-b border-white/10"
-        >
-          <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-16">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold tracking-widest text-blue-400 uppercase">
-                  Внутри Конструктора
-                </p>
-                <h2
-                  id="constructor-models-title"
-                  className="mt-3 text-3xl font-extrabold tracking-tight text-white sm:text-4xl"
-                >
-                  {CONSTRUCTOR_TOOLS.length} генераторов моделей
-                </h2>
-              </div>
-              <p className="max-w-md text-sm leading-relaxed text-slate-300 sm:text-base">
-                Каждый генератор считает геометрию на сервере и отдаёт готовый
-                STL: размеры задаются ползунками, а предпросмотр обновляется
-                сразу.
-              </p>
-            </div>
-
-            <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {CONSTRUCTOR_TOOLS.map((tool) => (
-                <li
-                  key={tool.id}
-                  className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 transition-colors hover:border-blue-400/40 hover:bg-white/[0.07]"
-                >
-                  <p className="text-lg font-bold tracking-tight text-white">
-                    {tool.title}
-                  </p>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                    {tool.desc}
-                  </p>
-                </li>
-              ))}
-            </ul>
-
-            <p className="mt-6 text-sm leading-relaxed text-slate-300">
-              Экспорт STL входит в подписку Pro, а первые{" "}
-              {FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH} скачивания в месяц доступны
-              бесплатно после входа.
-            </p>
           </div>
         </section>
 

@@ -640,7 +640,7 @@ export default async function AdminForumPage() {
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-slate-300">
             Блокировка действует только на форуме. Она не закрывает доступ к
-            курсам, урокам и подписке Pro.
+            курсам, урокам и пакету «Всё включено».
           </p>
 
           {activeBans.length === 0 ? (

@@ -59,8 +59,9 @@ function forumInsertError(error: { code?: string; message: string }): string {
  *   4. стоп-слова;
  *   5. insert со status = 'pending'.
  *
- * Бан проверяется по forum_bans и НЕ влияет на подписку или курсы. Этот файл
- * не импортирует lib/subscription.ts и не вызывает проверки доступа к урокам.
+ * Бан проверяется по forum_bans и НЕ влияет на доступ к курсам и инструментам.
+ * Этот файл не импортирует lib/subscription.ts и не вызывает проверки доступа
+ * к урокам.
  */
 export async function createThread(
   _prevState: ForumFormState,

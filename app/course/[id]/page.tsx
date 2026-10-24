@@ -336,7 +336,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
               }
               isPassed={isTestPassed}
               isCourseFinal={isLastLesson}
-              courseFinishNote={`Все ${totalLessons} уроков позади. В Центре выпускника ждут сертификат, конструктор и отзыв о курсе.`}
+              courseFinishNote={`Все ${totalLessons} уроков позади. В Центре выпускника ждут сертификат, библиотека профилей и отзыв о курсе.`}
             />
           ) : (
             <CompleteButton

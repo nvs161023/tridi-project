@@ -60,7 +60,7 @@ export async function generateMetadata({
   )} и ${course.tests} ${pluralize(
     course.tests,
     TEST_FORMS,
-  )}. Доступ навсегда, без подписки на уроки.`;
+  )}. Доступ навсегда, без продлений.`;
 
   // У пакета название «Всё включено» ничего не говорит поиску: в заголовке
   // важнее запрос «курсы 3D-печати пакетом».
@@ -108,7 +108,6 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
   }
 
   const price = formatPrice(course.price);
-  const oldPrice = course.oldPrice ? formatPrice(course.oldPrice) : null;
   const saving = course.saving ? formatPrice(course.saving) : null;
   const loginHref = authHref("/auth/login", `/courses/${course.id}`);
 
@@ -239,11 +238,6 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 <span className="text-4xl font-extrabold tracking-tight text-white">
                   {price} ₽
                 </span>
-                {oldPrice ? (
-                  <span className="text-lg text-slate-300 line-through">
-                    {oldPrice} ₽
-                  </span>
-                ) : null}
               </div>
               <p className="mt-1 text-sm text-slate-300">
                 Разовый платёж. Доступ остаётся навсегда.
@@ -287,7 +281,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                   <span aria-hidden className={course.theme.text}>
                     ✓
                   </span>
-                  {course.hours} практики в своём темпе
+                  {course.hours} вместе с практикой
                 </li>
               </ul>
             </aside>
@@ -570,11 +564,6 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 <span className="text-4xl font-extrabold tracking-tight text-white">
                   {price} ₽
                 </span>
-                {oldPrice ? (
-                  <span className="text-lg text-slate-300 line-through">
-                    {oldPrice} ₽
-                  </span>
-                ) : null}
               </div>
               <p className="mt-1 text-sm text-slate-300">
                 Разовый платёж. Доступ остаётся навсегда.

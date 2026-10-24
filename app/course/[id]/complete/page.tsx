@@ -110,7 +110,7 @@ export async function generateMetadata({
   };
 }
 
-/** Страница читает cookies, прогресс и подписку — собираем её на каждый запрос. */
+/** Страница читает cookies и прогресс — собираем её на каждый запрос. */
 export const dynamic = "force-dynamic";
 
 /** Общая рамка: шапка сайта и тёмный фон. */
@@ -139,7 +139,7 @@ function Stat({ value, label }: { value: string; label: string }) {
   );
 }
 
-/** Карточка полезного действия: сертификат, конструктор или форум. */
+/** Карточка полезного действия: сертификат, библиотека профилей или форум. */
 function HubCard({
   icon,
   title,
@@ -230,7 +230,7 @@ function levelHref(level: CourseLevel, hasAccess: boolean): string {
  * Здесь сходятся все итоги курса:
  *  - поздравление и прогресс (уроки, тесты, дата завершения);
  *  - сертификат с подписью: полный доступ, если курс закрыт, иначе прогресс;
- *  - конструктор как подарок выпускнику (и подсказка про Pro);
+ *  - библиотека профилей как следующий шаг после курса;
  *  - форум и отзывы, которые может оставить только выпускник;
  *  - следующий уровень школы с ценой и кнопкой.
  *
@@ -452,10 +452,10 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
             </Link>
           )}
           <Link
-            href="/constructor"
+            href="/tools"
             className="inline-flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/10"
           >
-            Открыть конструктор
+            Перейти к инструментам
           </Link>
         </div>
       </section>
@@ -476,18 +476,18 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
           accentText={theme.accentText}
         />
         <HubCard
-          icon="🧩"
-          title="Доступ к 3D-Конструктору открыт!"
+          icon="📦"
+          title="Библиотека профилей печати"
           description={
             proActive
-              ? "В честь окончания курса мы дарим вам 3 бесплатные генерации моделей в месяц. Подписка Pro активна — лимит не действует, STL можно скачивать без ограничений."
-              : "В честь окончания курса мы дарим вам 3 бесплатные генерации моделей в месяц. Готовый STL и точные размеры — сразу к печати."
+              ? "Пакет «Всё включено» активен — все профили принтеров и материалов доступны для скачивания без ограничений."
+              : "Проверенные профили принтеров и материалов для Bambu Studio, OrcaSlicer и PrusaSlicer. Импорт занимает пару минут — доступ открывает пакет «Всё включено»."
           }
-          href="/constructor"
-          linkLabel="Перейти в Конструктор"
+          href="/profiles"
+          linkLabel="Перейти в библиотеку"
           accentText={theme.accentText}
-          secondaryHref={proActive ? undefined : "/subscription"}
-          secondaryLabel={proActive ? undefined : "Что даёт Pro"}
+          secondaryHref={proActive ? undefined : "/courses/pro"}
+          secondaryLabel={proActive ? undefined : "Что входит в пакет"}
         />
         <HubCard
           icon="💬"
@@ -555,7 +555,7 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
                         : "border-white/15 bg-white/5 text-slate-300"
                     }`}
                   >
-                    {offerAccess ? "Доступ открыт" : (offer.badge ?? "Уровень")}
+                    {offerAccess ? "Доступ открыт" : "Уровень"}
                   </span>
                 </div>
                 <h3 className="mt-3 text-lg font-extrabold tracking-tight text-white">
@@ -573,11 +573,6 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
                     {offer.isFree
                       ? "Бесплатно"
                       : `${formatPrice(offer.price)} ₽`}
-                    {offer.oldPrice ? (
-                      <span className="ml-2 text-xs font-normal text-slate-500 line-through">
-                        {formatPrice(offer.oldPrice)} ₽
-                      </span>
-                    ) : null}
                   </p>
                   <Link
                     href={levelHref(offer, offerAccess)}

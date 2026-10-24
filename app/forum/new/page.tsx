@@ -88,7 +88,7 @@ export default async function NewForumThreadPage({
               {formatForumBanMessage(ban)}
             </p>
             <p className="mt-2 text-sm leading-relaxed text-red-200/80">
-              Блокировка действует только на форуме. Доступ к курсам и подписке
+              Блокировка действует только на форуме. Доступ к курсам и пакету
               сохраняется.
             </p>
             <Link
