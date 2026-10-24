@@ -257,23 +257,29 @@ expectDeclared("data/course-profit.json", profit);
 /** Метаданные витрины: там числа уроков лежат в totalLessons. */
 const coursesMeta = readJson("data/courses.json");
 
-for (const [key, course, summary] of [
-  ["basic", coursesMeta.basic, basic],
-  ["pro", coursesMeta.pro, pro],
-  ["confident", coursesMeta.confident, confident],
-  ["engineer", coursesMeta.engineer, engineer],
-  ["profit", coursesMeta.profit, profit],
+/**
+ * Пакет `pro` на витрине — это три платных уровня вместе, а не архивный курс
+ * на 109 уроков. Поэтому его `totalLessons` сверяем с суммой уровней.
+ */
+const bundleLessons = confident.lessons + engineer.lessons + profit.lessons;
+
+for (const [key, course, lessons] of [
+  ["basic", coursesMeta.basic, basic.lessons],
+  ["pro", coursesMeta.pro, bundleLessons],
+  ["confident", coursesMeta.confident, confident.lessons],
+  ["engineer", coursesMeta.engineer, engineer.lessons],
+  ["profit", coursesMeta.profit, profit.lessons],
 ]) {
-  if (course.totalLessons === summary.lessons) {
+  if (course.totalLessons === lessons) {
     console.log(`✓ data/courses.json: ${key}.totalLessons=${course.totalLessons}`);
     continue;
   }
 
   problems.push(
-    `data/courses.json: ${key}.totalLessons=${course.totalLessons}, а уроков ${summary.lessons}`,
+    `data/courses.json: ${key}.totalLessons=${course.totalLessons}, а уроков ${lessons}`,
   );
   console.log(
-    `✗ data/courses.json: ${key}.totalLessons=${course.totalLessons} — фактически ${summary.lessons}`,
+    `✗ data/courses.json: ${key}.totalLessons=${course.totalLessons} — фактически ${lessons}`,
   );
 }
 
