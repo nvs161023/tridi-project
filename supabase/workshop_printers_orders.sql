@@ -9,16 +9,18 @@
 --   1. supabase/workshop_settings.sql
 --   2. supabase/workshop_filaments.sql
 --   3. этот файл
+--   4. если workshop_printers уже создана без винта Z — supabase/workshop_printer_z_screw.sql
 -- Если workshop_filaments ещё нет, create table с references (...) упадёт с
 -- ошибкой 42P01 — это ожидаемо, примените склад пластика первым.
 --
 -- Зачем таблицы:
 --   1. workshop_printers — парк принтеров мастера. Для каждого хранится общая
---      наработка, наработка сопла и смазки и интервалы обслуживания. Вкладка
---      «Принтеры» рисует прогресс-бары и сбрасывает счётчики кнопками
---      «Заменить сопло» и «Смазать оси». Интервал смазки 0 — «смазывать
---      нечего»: так у Bambu Lab с карбоновыми стержнями, которые чистят
---      спиртом. Для сопла 0 не допускается: на него делят процент износа.
+--      наработка, наработка сопла, смазки осей и винта Z и интервалы
+--      обслуживания. Вкладка «Принтеры» рисует прогресс-бары и сбрасывает
+--      счётчики кнопками «Заменить сопло», «Смазать оси» и «Смазать винт Z».
+--      Интервал смазки осей 0 — «смазывать нечего»: так у Bambu Lab с
+--      карбоновыми стержнями, которые чистят спиртом. Для сопла и винта Z 0 не
+--      допускается: на них делят процент износа.
 --   2. workshop_orders — заказы клиентов. У заказа необязательные ссылки на
 --      принтер и катушку; при создании заказа Server Action прибавляет время
 --      печати к наработке принтера и списывает вес модели со склада.
@@ -68,6 +70,12 @@ create table if not exists public.workshop_printers (
   -- 0 — смазка не требуется (карбоновые стержни Bambu Lab).
   lubrication_interval integer not null default 300
     check (lubrication_interval between 0 and 10000),
+  -- Винт Z: наработка с последней смазки и интервал. Ноль в интервале не
+  -- допускается — на него делят прогресс-бар, а винт Z есть у всех моделей.
+  z_screw_hours numeric(12, 2) not null default 0
+    check (z_screw_hours >= 0 and z_screw_hours <= 1000000),
+  z_screw_interval integer not null default 720
+    check (z_screw_interval between 1 and 10000),
   -- Дата последнего обслуживания: её выставляет сброс счётчика.
   last_maintenance_date date,
   created_at timestamptz not null default now()
@@ -91,6 +99,10 @@ comment on column public.workshop_printers.lubrication_hours is
   'Наработка с последней смазки, ч; сбрасывается кнопкой «Смазать оси».';
 comment on column public.workshop_printers.lubrication_interval is
   'Интервал смазки, ч (0…10 000; 0 — смазка не требуется, например карбоновые стержни).';
+comment on column public.workshop_printers.z_screw_hours is
+  'Наработка винта Z с последней смазки, ч; сбрасывается кнопкой «Смазать винт Z».';
+comment on column public.workshop_printers.z_screw_interval is
+  'Интервал смазки винта Z, ч (1…10 000; по умолчанию 720).';
 comment on column public.workshop_printers.last_maintenance_date is
   'Дата последнего обслуживания; null — обслуживания ещё не было.';
 comment on column public.workshop_printers.created_at is
@@ -230,7 +242,7 @@ notify pgrst, 'reload schema';
 -- 1) Пользователь видит только свои принтеры и заказы:
 --      select id, name, brand, model, total_hours, nozzle_hours,
 --             nozzle_interval, lubrication_hours, lubrication_interval,
---             last_maintenance_date, created_at
+--             z_screw_hours, z_screw_interval, last_maintenance_date, created_at
 --        from public.workshop_printers
 --       where user_id = '<USER_ID>'
 --       order by created_at;
@@ -241,12 +253,12 @@ notify pgrst, 'reload schema';
 --       order by created_at desc;
 --
 -- 2) Наработка растёт на время печати, остаток уменьшается на вес модели:
---      select total_hours, nozzle_hours, lubrication_hours
+--      select total_hours, nozzle_hours, lubrication_hours, z_screw_hours
 --        from public.workshop_printers where id = '<PRINTER_ID>';
 --      select remaining_weight_g
 --        from public.workshop_filaments where id = '<FILAMENT_ID>';
---    После заказа на 2,5 ч и 120 г первая тройка выросла на 2,5, а остаток
---    уменьшился на 120.
+--    После заказа на 2,5 ч и 120 г все четыре счётчика выросли на 2,5, а
+--    остаток уменьшился на 120.
 --
 -- 3) Списать больше остатка нельзя: Server Action вернёт ошибку «В катушке
 --    осталось … г», заказ не появится.

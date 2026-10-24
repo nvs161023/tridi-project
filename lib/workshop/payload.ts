@@ -75,6 +75,7 @@ export type WorkshopPrinterPayload = {
   model: string;
   nozzle_interval: number;
   lubrication_interval: number;
+  z_screw_interval: number;
 };
 
 /**
@@ -92,6 +93,7 @@ export function createPrinterPayload(
     model: draft.model,
     nozzle_interval: draft.nozzleInterval,
     lubrication_interval: draft.lubricationInterval,
+    z_screw_interval: draft.zScrewInterval,
   };
 }
 
@@ -138,6 +140,7 @@ export type WorkshopPrinterUsagePayload = {
   total_hours: number;
   nozzle_hours: number;
   lubrication_hours: number;
+  z_screw_hours: number;
 };
 
 /** Наработка из плана (camelCase) → колонки базы (snake_case). */
@@ -145,11 +148,13 @@ export function createPrinterUsagePayload(hours: {
   totalHours: number;
   nozzleHours: number;
   lubricationHours: number;
+  zScrewHours: number;
 }): WorkshopPrinterUsagePayload {
   return {
     total_hours: hours.totalHours,
     nozzle_hours: hours.nozzleHours,
     lubrication_hours: hours.lubricationHours,
+    z_screw_hours: hours.zScrewHours,
   };
 }
 

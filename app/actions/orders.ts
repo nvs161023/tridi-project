@@ -441,6 +441,21 @@ function buildCreatedMessage({
     );
   }
 
+  const zScrew = printerMaintenanceLevel(
+    printerPlan.zScrewHours,
+    printer.zScrewInterval,
+  );
+
+  if (zScrew === "overdue") {
+    parts.push(
+      `Винт Z ${formatPrinterHours(printerPlan.zScrewHours)} при интервале ${formatPrinterHours(printer.zScrewInterval)} — пора смазывать.`,
+    );
+  } else if (zScrew === "due") {
+    parts.push(
+      `Винт Z ${formatPrinterHours(printerPlan.zScrewHours)} из ${formatPrinterHours(printer.zScrewInterval)} — скоро смазка.`,
+    );
+  }
+
   return parts.join(" ");
 }
 

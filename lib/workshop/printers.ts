@@ -8,8 +8,8 @@
  * Расхождение означало бы, что форма пропустит число, которое база отклонит.
  *
  * Интервал смазки может быть нулевым — это «смазывать нечего»: у Bambu Lab
- * карбоновые стержни чистят спиртом, а не смазывают. Интервал сопла нулевым
- * быть не может: на него делят процент износа.
+ * карбоновые стержни чистят спиртом, а не смазывают. Интервалы сопла и винта Z
+ * нулевыми быть не могут: на них делят процент износа.
  */
 import {
   PRINTER_PRESETS,
@@ -32,6 +32,8 @@ export type WorkshopPrinter = {
   nozzleInterval: number;
   lubricationHours: number;
   lubricationInterval: number;
+  zScrewHours: number;
+  zScrewInterval: number;
   /** Дата последнего обслуживания в формате ГГГГ-ММ-ДД. */
   lastMaintenanceDate: string | null;
   createdAt: string | null;
@@ -44,16 +46,24 @@ export type PrinterDraft = {
   model: string;
   nozzleInterval: number;
   lubricationInterval: number;
+  zScrewInterval: number;
 };
 
 /** Ошибки по полям формы: подсказка стоит рядом с виновным полем. */
 export type PrinterFormErrors = Partial<
-  Record<"name" | "preset" | "nozzleInterval" | "lubricationInterval", string>
+  Record<
+    | "name"
+    | "preset"
+    | "nozzleInterval"
+    | "lubricationInterval"
+    | "zScrewInterval",
+    string
+  >
 >;
 
 /** Колонки, которые читает lib/workshop/printer-store.ts. */
 export const PRINTER_COLUMNS =
-  "id, name, brand, model, total_hours, nozzle_hours, nozzle_interval, lubrication_hours, lubrication_interval, last_maintenance_date, created_at";
+  "id, name, brand, model, total_hours, nozzle_hours, nozzle_interval, lubrication_hours, lubrication_interval, z_screw_hours, z_screw_interval, last_maintenance_date, created_at";
 
 /** Пределы текстовых полей — как у колонок text в миграции. */
 export const PRINTER_TEXT_LIMITS = {
@@ -66,6 +76,7 @@ export const PRINTER_TEXT_LIMITS = {
 export const PRINTER_INTERVAL_LIMITS = {
   nozzleMin: 1,
   lubricationMin: 0,
+  zScrewMin: 1,
   max: 10000,
 } as const;
 
@@ -73,6 +84,7 @@ export const PRINTER_INTERVAL_LIMITS = {
 export const PRINTER_INTERVAL_DEFAULTS = {
   nozzle: 400,
   lubrication: 300,
+  zScrew: 720,
 } as const;
 
 /** Предел наработки: numeric(12, 2) с запасом на годы печати. */
@@ -180,8 +192,12 @@ export function countMaintenanceDue(printer: WorkshopPrinter): number {
     printer.lubricationHours,
     printer.lubricationInterval,
   );
+  const zScrew = printerMaintenanceLevel(
+    printer.zScrewHours,
+    printer.zScrewInterval,
+  );
 
-  return [nozzle, lubrication].filter(
+  return [nozzle, lubrication, zScrew].filter(
     (level) => level !== null && level !== "ok",
   ).length;
 }
@@ -232,10 +248,20 @@ export function readPrinterForm(formData: FormData): {
     errors.lubricationInterval = `Допустимо от ${PRINTER_INTERVAL_LIMITS.lubricationMin} до ${formatWorkshopLimit(PRINTER_INTERVAL_LIMITS.max)} ч. 0 — смазка не требуется.`;
   }
 
+  const zScrewInterval = readInterval(
+    formData.get("zScrewInterval"),
+    PRINTER_INTERVAL_LIMITS.zScrewMin,
+  );
+
+  if (zScrewInterval === null) {
+    errors.zScrewInterval = `Допустимо от ${PRINTER_INTERVAL_LIMITS.zScrewMin} до ${formatWorkshopLimit(PRINTER_INTERVAL_LIMITS.max)} ч.`;
+  }
+
   if (
     !preset ||
     nozzleInterval === null ||
     lubricationInterval === null ||
+    zScrewInterval === null ||
     Object.keys(errors).length > 0
   ) {
     return { draft: null, errors };
@@ -248,6 +274,7 @@ export function readPrinterForm(formData: FormData): {
       model: preset.model,
       nozzleInterval,
       lubricationInterval,
+      zScrewInterval,
     },
     errors,
   };
@@ -284,6 +311,14 @@ export function normalizePrinterRow(
       true,
     ) ?? PRINTER_INTERVAL_DEFAULTS.lubrication;
 
+  const zScrewInterval =
+    readNumberInRange(
+      row.z_screw_interval,
+      PRINTER_INTERVAL_LIMITS.zScrewMin,
+      PRINTER_INTERVAL_LIMITS.max,
+      true,
+    ) ?? PRINTER_INTERVAL_DEFAULTS.zScrew;
+
   return {
     id: row.id,
     name:
@@ -296,6 +331,8 @@ export function normalizePrinterRow(
     lubricationHours:
       readNumberInRange(row.lubrication_hours, 0, PRINTER_HOURS_MAX) ?? 0,
     lubricationInterval,
+    zScrewHours: readNumberInRange(row.z_screw_hours, 0, PRINTER_HOURS_MAX) ?? 0,
+    zScrewInterval,
     lastMaintenanceDate: isIsoDate(row.last_maintenance_date)
       ? row.last_maintenance_date
       : null,

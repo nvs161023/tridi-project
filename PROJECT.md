@@ -1989,10 +1989,15 @@ Cron на сервере (каждый день в 09:00 МСК):
 кругу, лента табов листается вбок на мобильном.
 
 Справочник моделей для раздела «Принтеры» лежит в `lib/workshop/printer-presets.ts`
-(`PRINTER_PRESETS`): девять распространённых моделей с наработкой до обслуживания сопла и смазки
-направляющих и короткой подсказкой об уходе. Ноль в `lubricationHours` — не пропуск: карбоновые
-стержни Bambu Lab смазка портит, их протирают спиртом. Числа — ориентиры производителя, а не
-жёсткий регламент: при добавлении принтера их можно изменить под свою загрузку.
+(`PRINTER_PRESETS`): восемнадцать распространённых моделей с наработкой до обслуживания сопла,
+смазки направляющих и винта Z и короткой подсказкой об уходе. Ноль в `lubricationHours` — не
+пропуск: карбоновые стержни Bambu Lab смазка портит, их протирают спиртом. Винт Z есть у всех
+моделей справочника, поэтому его интервал всегда положительный. Числа — ориентиры производителя,
+а не жёсткий регламент: при добавлении принтера их можно изменить под свою загрузку. Подробные
+инструкции по ТО — `lib/workshop/maintenance-guides.ts` (`MAINTENANCE_GUIDES`): ключ
+`"${brand} ${model}"`, значение — markdown с 5–10 пунктами; окно `AddPrinterDialog` показывает
+кнопку «Инструкция по ТО», а `MaintenanceGuideDialog` разбирает заголовки, пункты и жирный текст
+без сторонней библиотеки и без `dangerouslySetInnerHTML`.
 
 Вкладка «Калькулятор» (`WorkshopCalculatorTab`) — две колонки (`lg:grid-cols-2`): слева форма
 настроек, справа расчёт. Настройки хранятся в состоянии вкладки, поэтому после сохранения формы
@@ -2066,21 +2071,26 @@ Cron на сервере (каждый день в 09:00 МСК):
 ровно столько, сколько окно на экране, а фокус возвращается на кнопку, которая его открыла
 (`useDialogDismiss`).
 
-Вкладка «Принтеры» (`WorkshopPrintersTab`) ведёт парк: имя, бренд и модель, общая наработка и две
-полоски — сопло и смазка. Цвет полоски задаёт `printerMaintenanceLevel`: до 80 % зелёный, 80–100 %
-жёлтый, больше 100 % красный; процент в подписи дробный (100,3 % — уже красное), чтобы число и
-цвет не спорили. Интервал смазки 0 — не ошибка, а «смазывать нельзя»: вместо полоски бейдж «Без
-смазки» и пояснение про карбоновые стержни, кнопки «Смазать оси» у такой карточки нет. «Заменить
-сопло» и «Смазать оси» сбрасывают счётчик и ставят `last_maintenance_date` сегодняшним днём.
+Вкладка «Принтеры» (`WorkshopPrintersTab`) ведёт парк: имя, бренд и модель, общая наработка и три
+полоски — сопло, смазка осей и винт Z. Цвет полоски задаёт `printerMaintenanceLevel`: до 80 %
+зелёный, 80–100 % жёлтый, больше 100 % красный; процент в подписи дробный (100,3 % — уже красное),
+чтобы число и цвет не спорили. Интервал смазки 0 — не ошибка, а «смазывать нельзя»: вместо полоски
+бейдж «Без смазки» и пояснение про карбоновые стержни, кнопки «Смазать оси» у такой карточки нет.
+«Заменить сопло», «Смазать оси» и «Смазать винт Z» сбрасывают свой счётчик и ставят
+`last_maintenance_date` сегодняшним днём.
 
 Окно «Добавить принтер» (`AddPrinterDialog`) выбирает модель из `PRINTER_PRESETS` по индексу:
-сервер сам берёт бренд и модель, а форма подставляет `nozzle_interval`/`lubrication_interval` и
-показывает `note`. Интервалы остаются полями ввода — справочник это ориентир, а не жёсткий
-регламент. Данные и проверки — `lib/workshop/printers.ts` (`WorkshopPrinter`, `PRINTER_COLUMNS`,
-`PRINTER_INTERVAL_LIMITS` 1…10 000 для сопла и 0…10 000 для смазки, `readPrinterForm`,
-`normalizePrinterRow`, `printerMaintenancePercent`/`printerMaintenanceLevel`, `formatPrinterHours`,
+сервер сам берёт бренд и модель, а форма подставляет `nozzle_interval`, `lubrication_interval` и
+`z_screw_interval` и показывает `note`. Интервалы остаются полями ввода — справочник это ориентир,
+а не жёсткий регламент. Если для модели есть инструкция, рядом с подсказкой появляется кнопка
+«Инструкция по ТО»: `MaintenanceGuideDialog` открывается поверх окна, Escape закрывает только его,
+а фокус после закрытия возвращается на кнопку. Данные и проверки — `lib/workshop/printers.ts`
+(`WorkshopPrinter`, `PRINTER_COLUMNS`, `PRINTER_INTERVAL_LIMITS`: сопло и винт Z 1…10 000, смазка
+0…10 000; `PRINTER_INTERVAL_DEFAULTS` 400/300/720, `readPrinterForm`, `normalizePrinterRow`,
+`printerMaintenancePercent`/`printerMaintenanceLevel`, `countMaintenanceDue`, `formatPrinterHours`,
 `formatPrinterDate`), чтение — `getWorkshopPrinters()` в `lib/workshop/printer-store.ts`, запись —
-`addPrinter`, `resetPrinterNozzle` и `resetPrinterLubrication` в `app/actions/printers.ts`.
+`addPrinter`, `resetPrinterNozzle`, `resetPrinterLubrication` и `resetPrinterZScrew` в
+`app/actions/printers.ts`.
 
 Вкладка «Заказы» (`WorkshopOrdersTab`) — таблица на `lg:` и карточки на узком экране: название и
 клиент, бейдж статуса, стоимость, вес, время, принтер, катушка и срок. Бейдж — кнопка: new →
@@ -2097,12 +2107,12 @@ printing → ready → delivered, у «Доставлен» следующего
 Создание заказа — `createOrder` в `app/actions/orders.ts`: разбор формы (`readOrderForm`) → сессия →
 `hasActiveSubscription` → чтение принтера и катушки с фильтром по `user_id` → `planFilamentUsage`
 (нехватка пластика — ошибка у поля «Вес», заказ не создаётся) → вставка заказа → `update`
-наработки (`planPrinterUsage`, время прибавляется к `total_hours`, `nozzle_hours` и
-`lubrication_hours`) → `update` остатка катушки. Если второй update не прошёл, наработка
-возвращается к прежним числам, а заказ удаляется: в базе не остаётся заказа, который «как бы»
-израсходовал ресурс. Смена статуса — `advanceOrderStatus`, тот же порядок проверок. Сообщение после
-успеха говорит, сколько списано и осталось, и предупреждает, если сопло или смазка дошли до
-интервала. Данные заказа — `lib/workshop/orders.ts` (`WorkshopOrder`, `ORDER_STATUS_META`,
+наработки (`planPrinterUsage`, время прибавляется к `total_hours`, `nozzle_hours`,
+`lubrication_hours` и `z_screw_hours`) → `update` остатка катушки. Если второй update не прошёл,
+наработка возвращается к прежним числам, а заказ удаляется: в базе не остаётся заказа, который «как
+бы» израсходовал ресурс. Смена статуса — `advanceOrderStatus`, тот же порядок проверок. Сообщение
+после успеха говорит, сколько списано и осталось, и предупреждает, если сопло, смазка или винт Z
+дошли до интервала. Данные заказа — `lib/workshop/orders.ts` (`WorkshopOrder`, `ORDER_STATUS_META`,
 `ORDER_LIMITS`, `readOrderForm`, `normalizeOrderRow`, `planPrinterUsage`, `planFilamentUsage`,
 `nextOrderStatus`), чтение — `getWorkshopOrders()` в `lib/workshop/order-store.ts`, запись в
 snake_case — `createOrderPayload`, `createPrinterUsagePayload` и `createFilamentUsagePayload` в
@@ -2121,7 +2131,9 @@ snake_case — `createOrderPayload`, `createPrinterUsagePayload` и `createFilam
 
 Три миграции применяются вручную (Supabase Dashboard → SQL Editor или Termius), в порядке
 `workshop_settings.sql` → `workshop_filaments.sql` → `workshop_printers_orders.sql`: заказы
-ссылаются на принтеры и катушки, поэтому склад пластика должен существовать раньше.
+ссылаются на принтеры и катушки, поэтому склад пластика должен существовать раньше. Если
+`workshop_printers` уже создана без винта Z, после неё применяется идемпотентная
+`workshop_printer_z_screw.sql`: две колонки `alter table … add column if not exists`.
 `supabase/workshop_settings.sql`: таблица `workshop_settings` (`id`, `user_id` unique с
 `on delete cascade`, четыре числа с check-пределами, `updated_at`), триггер
 `workshop_settings_touch_updated_at` обновляет `updated_at` на каждом update, RLS с политиками
@@ -2133,9 +2145,10 @@ select/insert/update только своих строк, гранты `authentic
 `created_at`), check `remaining_weight_g <= total_weight_g`, индекс `(user_id, created_at)`,
 RLS на выборку, вставку, обновление и удаление только своих строк и гранты `authenticated`.
 `supabase/workshop_printers_orders.sql`: `workshop_printers` (`name` 1–60, `brand` 1–40,
-`model` 1–60, `total_hours`/`nozzle_hours`/`lubrication_hours numeric(12,2)`, `nozzle_interval`
-1–10 000, `lubrication_interval` 0–10 000, `last_maintenance_date`, `created_at`; индекс
-`(user_id, created_at)`) и `workshop_orders` (`title` 1–80, `client_name` 1–60 или null, `status`
+`model` 1–60, `total_hours`/`nozzle_hours`/`lubrication_hours`/`z_screw_hours numeric(12,2)`,
+`nozzle_interval` 1–10 000, `lubrication_interval` 0–10 000, `z_screw_interval` 1–10 000 по
+умолчанию 720, `last_maintenance_date`, `created_at`; индекс `(user_id, created_at)`) и
+`workshop_orders` (`title` 1–80, `client_name` 1–60 или null, `status`
 с check `new/printing/ready/delivered`, `total_cost` 0–1 000 000, `material_weight_g` 0–100 000,
 `print_time_hours` 0–100 000, `printer_id`/`filament_id` с `on delete set null`, `notes` до 1000,
 `deadline`, `created_at`; индексы `(user_id, created_at desc)` и `(user_id, status)`). RLS у обеих
@@ -2316,11 +2329,12 @@ RLS на выборку, вставку, обновление и удалени�
 | `lib/workshop/payload.ts` | Строки для записи в таблицы Мастерской: `createWorkshopSettingsPayload`, `createFilamentPayload`, `createPrinterPayload`, `createOrderPayload`, а также `createPrinterUsagePayload` и `createFilamentUsagePayload` для update после заказа — единственное место перевода camelCase → snake_case; пустые ссылка, клиент, заметки и срок превращаются в `null`, а переименование колонки ловит TypeScript, а не ответ PGRST204 из прода |
 | `lib/workshop/filaments.ts` | Склад пластика: `WorkshopFilament`, `FILAMENT_COLUMNS`, `FILAMENT_NUMBER_FIELDS` (вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г; вес — integer), `FILAMENT_TEXT_LIMITS` (60/30/40/500), `FILAMENT_DEFAULTS` (1 000 / 200 / 1 500), `FILAMENT_BRANDS` (13 производителей для `<datalist id="brand-list">`), `FILAMENT_TYPE_SUGGESTIONS`, `normalizeFilamentRow` (битое число → значение по умолчанию, строка без UUID отбрасывается), `readFilamentForm` (текст, ссылка только `http(s)://`, остаток не больше общего веса), `readConsumeFilamentForm`, `isFilamentId`, `isLowStockFilament`, `filamentRemainingPercent`, `subtractFilamentWeight`, `formatGrams` |
 | `lib/workshop/filament-store.ts` | `getWorkshopFilaments(supabase, userId)` → `{ filaments, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой склад и признак неприменённой миграции через `isMissingTableSchema()` |
-| `lib/workshop/printers.ts` | Принтеры: `WorkshopPrinter`, `PRINTER_COLUMNS`, `PRINTER_TEXT_LIMITS` (60/40/60), `PRINTER_INTERVAL_LIMITS` (сопло 1–10 000 ч, смазка 0–10 000 ч), `PRINTER_INTERVAL_DEFAULTS` (400/300), `readPrinterForm` (имя, индекс пресета, интервалы; бренд и модель берутся из `PRINTER_PRESETS`), `normalizePrinterRow` (битое число → значение по умолчанию), `isPrinterId`, `isIsoDate`, `findPrinterPreset`, `printerMaintenancePercent` (дробный процент, 0…∞), `printerMaintenanceLevel` (`ok` до 80 %, `due` 80–100 %, `overdue` больше 100 %; `null` при интервале 0), `countMaintenanceDue`, `formatPrinterHours`, `formatPrinterDate` |
+| `lib/workshop/printers.ts` | Принтеры: `WorkshopPrinter` (наработки и интервалы сопла, смазки осей и винта Z), `PRINTER_COLUMNS`, `PRINTER_TEXT_LIMITS` (60/40/60), `PRINTER_INTERVAL_LIMITS` (сопло и винт Z 1–10 000 ч, смазка 0–10 000 ч), `PRINTER_INTERVAL_DEFAULTS` (400/300/720), `readPrinterForm` (имя, индекс пресета, три интервала; бренд и модель берутся из `PRINTER_PRESETS`), `normalizePrinterRow` (битое число → значение по умолчанию; старые строки без винта Z получают 0/720), `isPrinterId`, `isIsoDate`, `findPrinterPreset`, `printerMaintenancePercent` (дробный процент, 0…∞), `printerMaintenanceLevel` (`ok` до 80 %, `due` 80–100 %, `overdue` больше 100 %; `null` при интервале 0), `countMaintenanceDue` (три узла), `formatPrinterHours`, `formatPrinterDate` |
 | `lib/workshop/printer-store.ts` | `getWorkshopPrinters(supabase, userId)` → `{ printers, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой парк и признак неприменённой миграции |
-| `lib/workshop/orders.ts` | Заказы: `WorkshopOrder`, `OrderStatus` и `ORDER_STATUS_META` (подписи и классы бейджей), `ORDER_STATUS_SEQUENCE`/`nextOrderStatus` (new → printing → ready → delivered, дальше `null`), `ORDER_COLUMNS`, `ORDER_TEXT_LIMITS` (80/60/1000), `ORDER_LIMITS` (стоимость 0–1 000 000 ₽, вес 0–100 000 г, время 0–100 000 ч), `readOrderForm` (числа с запятой, необязательные uuid и дата), `normalizeOrderRow`, `isOrderId`, `isOrderStatus`, `formatOrderCost`/`formatOrderDate`/`formatOrderHours`, `planPrinterUsage` (прибавляет время к трём счётчикам) и `planFilamentUsage` (остаток или отказ «не хватает пластика») |
+| `lib/workshop/orders.ts` | Заказы: `WorkshopOrder`, `OrderStatus` и `ORDER_STATUS_META` (подписи и классы бейджей), `ORDER_STATUS_SEQUENCE`/`nextOrderStatus` (new → printing → ready → delivered, дальше `null`), `ORDER_COLUMNS`, `ORDER_TEXT_LIMITS` (80/60/1000), `ORDER_LIMITS` (стоимость 0–1 000 000 ₽, вес 0–100 000 г, время 0–100 000 ч), `readOrderForm` (числа с запятой, необязательные uuid и дата), `normalizeOrderRow`, `isOrderId`, `isOrderStatus`, `formatOrderCost`/`formatOrderDate`/`formatOrderHours`, `planPrinterUsage` (прибавляет время к четырём счётчикам: всего, сопло, смазка осей, винт Z) и `planFilamentUsage` (остаток или отказ «не хватает пластика») |
 | `lib/workshop/order-store.ts` | `getWorkshopOrders(supabase, userId)` → `{ orders, isMissingTable }`: выборка по `user_id`, новые сверху, ошибку не пробрасывает — пустой список и признак неприменённой миграции |
-| `lib/workshop/printer-presets.ts` | Справочник принтеров: `PrinterPreset` и `PRINTER_PRESETS` — девять моделей (Bambu Lab X1 / X1C, P1S, A1 / A1 mini, Prusa MK3S+ и MK4, Creality Ender-3 V3 / K1, Anycubic Kobra, Elegoo Neptune 4, Sovol SV06) с наработкой до обслуживания сопла (`nozzleHours`, 400–500 ч) и смазки направляющих (`lubricationHours`, 0–500 ч; 0 у карбоновых стержней Bambu Lab — их чистят спиртом, а не смазывают) и подсказкой `note` с особенностями ухода; числа — ориентиры производителя, в форме их можно изменить |
+| `lib/workshop/printer-presets.ts` | Справочник принтеров: `PrinterPreset` и `PRINTER_PRESETS` — восемнадцать моделей (Bambu Lab X1, X1C, P1S, A1, A1 mini; Prusa MK4 и MK3S+; Creality Ender-3 V3, K1, K1 Max, K1C; Anycubic Kobra; Elegoo Neptune 4; Sovol SV06 и SV07; Artillery Sidewinder; Voron 2.4 и Trident) с наработкой до обслуживания сопла (`nozzleHours`, 400–1000 ч), смазки направляющих (`lubricationHours`, 0–1000 ч; 0 у карбоновых стержней Bambu Lab — их чистят спиртом, а не смазывают), смазки винта Z (`zScrewHours`, 500–1000 ч) и подсказкой `note`; числа — ориентиры производителя, в форме их можно изменить |
+| `lib/workshop/maintenance-guides.ts` | `MAINTENANCE_GUIDES: Record<string, string>` — подробные markdown-инструкции для каждой модели, ключ `"${brand} ${model}"`; 5–10 пунктов о чистке сопла, смазке осей и винта Z и особенностях (карбоновые стержни, ремни, эксцентрики). `getMaintenanceGuide(brand, model)` возвращает строку или `null`; окно разбирает только заголовки `##`, пункты `-` и `**жирный**` |
 | `lib/gcode-parser.ts` | Разбор G-code в браузере: `parseGcode(text)` → `{ timeHours, weightGrams }`; время из `;TIME_PRINTING:`, `; estimated printing time … =`, `; total estimated time:`, `; model printing time:`, `;TIME:` (форматы «1h 6m 12s», «1 ч 30 мин», `ч:м:с`, `м:с`, голые секунды), вес из `; total filament used [g]`, `; filament used [g]`, `;Filament used:`, `; filament used [mm]` (сумма по экструдерам, г/кг/мг/м/мм, `GCODE_GRAMS_PER_METER` ≈ 2,98 г для PLA 1,75 мм); шаблоны ищут первое совпадение по всему тексту, отсутствующее значение — `null` |
 | `middleware.ts` (корень) | Точка входа Next.js: `matcher` покрывает весь сайт, кроме `/api`, `/_next/static`, `/_next/image`, служебных файлов и путей с расширением. Сессия (`updateSession`) вызывается только для `/dashboard`, `/certificate`, `/course`, `/constructor`, `/admin`, `/auth` и `/forum/new`; на остальных страницах просмотр уходит в `site_visits` через `event.waitUntil` |
 
@@ -2352,7 +2366,7 @@ RLS на выборку, вставку, обновление и удалени�
 | `activatePromoCode` | `app/actions/promo.ts` | Активация кода: реальная сессия, нормализация и формат, поиск кода service_role, проверка срока и `used_at`, отказ без сжигания кода, если курс уже открыт, атомарный `update ... where used_at is null` и `revalidatePath` курсов/кабинета |
 | `saveWorkshopSettings` | `app/actions/workshop.ts` | Настройки калькулятора Мастерской: разбор формы (`readWorkshopSettingsForm`) → реальная сессия → повторная проверка `hasActiveSubscription` → `upsert` по `user_id` и `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции (таблицы `workshop_settings` нет). Состояние формы — `WorkshopSettingsFormState` из `app/actions/workshop-state.ts` |
 | `addFilament`, `consumeFilament` | `app/actions/filaments.ts` | Склад Мастерской. Добавление: разбор формы (`readFilamentForm`) → сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_filaments` и `revalidatePath('/dashboard/workshop')`. Списание: UUID катушки проверяется до запроса, остаток перечитывается из базы, списание больше остатка отклоняется, `update remaining_weight_g` с фильтром по `user_id`. Отдельные ответы для истёкшей сессии, отсутствия пакета, неприменённой миграции и ненайденной катушки. Состояние форм — `FilamentFormState` и `ConsumeFilamentFormState` из `app/actions/filaments-state.ts` |
-| `addPrinter`, `resetPrinterNozzle`, `resetPrinterLubrication` | `app/actions/printers.ts` | Принтеры Мастерской. Добавление: разбор формы (`readPrinterForm`) → сессия → `hasActiveSubscription` → `insert` в `workshop_printers`. Сбросы: UUID проверяется до запроса, имя читается с фильтром по `user_id`, затем `update` нужного счётчика в 0 и `last_maintenance_date` сегодняшним днём; удаление счётчика не трогает остальные. Ответы кнопок — `PrinterActionState` из `app/actions/printers-state.ts` |
+| `addPrinter`, `resetPrinterNozzle`, `resetPrinterLubrication`, `resetPrinterZScrew` | `app/actions/printers.ts` | Принтеры Мастерской. Добавление: разбор формы (`readPrinterForm`) → сессия → `hasActiveSubscription` → `insert` в `workshop_printers` (три интервала, включая `z_screw_interval`). Сбросы: UUID проверяется до запроса, имя читается с фильтром по `user_id`, затем `update` нужного счётчика (`nozzle_hours`, `lubrication_hours` или `z_screw_hours`) в 0 и `last_maintenance_date` сегодняшним днём; удаление счётчика не трогает остальные. Ответы кнопок — `PrinterActionState` из `app/actions/printers-state.ts` |
 | `createOrder`, `advanceOrderStatus` | `app/actions/orders.ts` | Заказы Мастерской. Создание: разбор формы (`readOrderForm`) → сессия → `hasActiveSubscription` → чтение принтера и катушки по `user_id` → `planFilamentUsage` (не хватает пластика — ошибка у поля «Вес») → `insert` заказа → `update` наработки (`planPrinterUsage`) → `update` остатка катушки; при сбое второго update наработка возвращается к прежним числам, а заказ удаляется. Смена статуса: статус читается из базы, `nextOrderStatus` двигает только вперёд, «Доставлен» конечный. После успеха `revalidatePath('/dashboard/workshop')`; состояние формы — `OrderFormState` из `app/actions/orders-state.ts` |
 
 Типы результатов описаны рядом с функциями (`CompleteLessonResult`, `CompleteModuleTestResult`,
@@ -2412,8 +2426,9 @@ RLS на выборку, вставку, обновление и удалени�
 | `components/workshop/AddFilamentDialog.tsx` | клиентский | Окно «Добавить катушку»: `useActionState` с `addFilament`, поля из `FILAMENT_NUMBER_FIELDS` и текстовые с `maxLength`, `datalist` типов, ошибки под полями, закрытие по Escape и клику по фону; после успеха `router.refresh()` и сообщение на вкладке |
 | `components/workshop/ConsumeFilamentDialog.tsx` | клиентский | Окно «Списать N грамм»: `useActionState` с `consumeFilament`, `filamentId` скрытым полем, предпросмотр остатка после списания и пометка «ниже порога», ошибка базы отдельной строкой |
 | `components/workshop/use-dialog-dismiss.ts` | клиентский | Хук модальных окон Мастерской: Escape закрывает окно, `document.body.style.overflow = "hidden"`, пока оно открыто; рассчитан на окно, смонтированное только открытым |
-| `components/workshop/WorkshopPrintersTab.tsx` | клиентский | Вкладка «Принтеры»: сводка (принтеров, общая наработка, сколько узлов просрочено), карточки с именем и моделью, полоски сопла и смазки (зелёная до 80 %, жёлтая 80–100 %, красная сверх 100 %; процент дробный, чтобы цвет и число не спорили), бейдж «Без смазки» при интервале 0, кнопки «Заменить сопло»/«Смазать оси» с ответом сервера и `router.refresh()`, пустой парк с кнопкой добавления |
-| `components/workshop/AddPrinterDialog.tsx` | клиентский | Окно «Добавить принтер»: имя, `<select>` из `PRINTER_PRESETS`, автоподстановка интервалов и показ `note` при выборе модели; интервалы можно поправить, ошибки под полями, `useActionState` с `addPrinter`, после успеха `router.refresh()` и сообщение на вкладке |
+| `components/workshop/WorkshopPrintersTab.tsx` | клиентский | Вкладка «Принтеры»: сводка (принтеров, общая наработка, сколько узлов просрочено с учётом винта Z), карточки с именем и моделью, полоски сопла, смазки и винта Z (зелёная до 80 %, жёлтая 80–100 %, красная сверх 100 %; процент дробный, чтобы цвет и число не спорили), бейдж «Без смазки» при интервале 0, кнопки «Заменить сопло»/«Смазать оси»/«Смазать винт Z» с ответом сервера и `router.refresh()`, пустой парк с кнопкой добавления |
+| `components/workshop/AddPrinterDialog.tsx` | клиентский | Окно «Добавить принтер»: имя, `<select>` из `PRINTER_PRESETS`, автоподстановка трёх интервалов и показ `note` при выборе модели; кнопка «Инструкция по ТО» открывает `MaintenanceGuideDialog`, Escape закрывает только инструкцию; интервалы можно поправить, ошибки под полями, `useActionState` с `addPrinter`, после успеха `router.refresh()` и сообщение на вкладке |
+| `components/workshop/MaintenanceGuideDialog.tsx` | клиентский | Окно «Инструкция по ТО»: заголовок модели и markdown из `MAINTENANCE_GUIDES`, разобранный в заголовки, списки и `<strong>` без `dangerouslySetInnerHTML`; `z-[60]` поверх окна добавления, Escape и клик по фону закрывают только его, фокус возвращается на кнопку |
 | `components/workshop/WorkshopOrdersTab.tsx` | клиентский | Вкладка «Заказы»: сводка (заказов, в печати, сумма, просроченные сроки), таблица на `lg:` и карточки на узком экране, бейдж статуса — кнопка new → printing → ready → delivered (у «Доставлен» выключена), поиск имён принтера и катушки по id, ошибки сервера отдельной строкой |
 | `components/workshop/CreateOrderDialog.tsx` | клиентский | Окно «Создать заказ»: название, клиент, стоимость, вес, время, срок, принтер, катушка, заметки; «Загрузить G-code» через `parseGcode` (предел 50 МБ) заполняет вес и время; предпросмотр остатка катушки через `planFilamentUsage`, `useActionState` с `createOrder` |
 | `components/workshop/WorkshopCalculatorTab.tsx` | клиентский | Вкладка «Калькулятор»: держит настройки в состоянии (после сохранения формы расчёт идёт по новым числам), показывает жёлтое предупреждение при неприменённой миграции, раскладывает форму и расчёт в две колонки (`lg:grid-cols-2`) |
@@ -2447,7 +2462,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `promo_codes` | `id uuid`, `code text unique`, `course_id text`, `batch text`, `note text`, `created_at`, `expires_at`, `used_at`, `used_by uuid` | Промокоды на три уровня: `expires_at = null` — бессрочный, `used_at`/`used_by` — момент и владелец активации. RLS: пользователь видит только свои активации (`used_by = auth.uid()`), вставка и обновление — только `service_role`. Активация не создаёт покупку, поэтому в выручке Robokassa не учитывается |
 | `workshop_settings` | `id uuid`, `user_id uuid unique` (`auth.users.id`), `electricity_cost_kwh numeric(10,2)`, `printer_power_w integer`, `depreciation_cost_hour numeric(10,2)`, `labor_cost_hour numeric(10,2)`, `updated_at timestamptz` | Настройки калькулятора Мастерской: одна строка на пользователя (`user_id unique`, `on delete cascade`), пределы в check повторяют форму (0…1000 ₽/кВт·ч, 0…10 000 Вт, 0…100 000 ₽/час), `updated_at` выставляет триггер. RLS: `select`, `insert` и `update` только своих строк, удаления через API нет — строка уходит вместе с аккаунтом; гранты `authenticated` — select/insert/update. Схема — `supabase/workshop_settings.sql` |
 | `workshop_filaments` | `id uuid`, `user_id uuid` (`auth.users.id`), `brand text`, `type text`, `color text`, `total_weight_g integer`, `remaining_weight_g integer`, `price_per_kg numeric(10,2)`, `min_threshold_g integer`, `purchase_url text`, `created_at timestamptz` | Склад пластика Мастерской: одна строка — одна катушка, вес целыми граммами, ссылка на товар необязательна. Check повторяют форму (длины 60/30/40/500, вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г) плюс `remaining_weight_g <= total_weight_g`; индекс `(user_id, created_at)`. RLS: select/insert/update/delete только своих строк, гранты `authenticated`; удаление через API разрешено, но кнопки в интерфейсе пока нет. Схема — `supabase/workshop_filaments.sql` |
-| `workshop_printers` | `id uuid`, `user_id uuid` (`auth.users.id`), `name text`, `brand text`, `model text`, `total_hours numeric(12,2)`, `nozzle_hours numeric(12,2)`, `nozzle_interval integer`, `lubrication_hours numeric(12,2)`, `lubrication_interval integer`, `last_maintenance_date date`, `created_at timestamptz` | Принтеры Мастерской: имя 1–60, бренд 1–40, модель 1–60, наработки 0–1 000 000 ч, интервал сопла 1–10 000 ч, смазки 0–10 000 ч (0 — смазка не требуется). Индекс `(user_id, created_at)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. `user_id` — `on delete cascade`. Схема — `supabase/workshop_printers_orders.sql` |
+| `workshop_printers` | `id uuid`, `user_id uuid` (`auth.users.id`), `name text`, `brand text`, `model text`, `total_hours numeric(12,2)`, `nozzle_hours numeric(12,2)`, `nozzle_interval integer`, `lubrication_hours numeric(12,2)`, `lubrication_interval integer`, `z_screw_hours numeric(12,2)`, `z_screw_interval integer`, `last_maintenance_date date`, `created_at timestamptz` | Принтеры Мастерской: имя 1–60, бренд 1–40, модель 1–60, наработки 0–1 000 000 ч, интервалы сопла и винта Z 1–10 000 ч, смазки 0–10 000 ч (0 — смазка не требуется); `z_screw_interval` по умолчанию 720. Индекс `(user_id, created_at)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. `user_id` — `on delete cascade`. Схема — `supabase/workshop_printers_orders.sql`, обновление колонок — `supabase/workshop_printer_z_screw.sql` |
 | `workshop_orders` | `id uuid`, `user_id uuid` (`auth.users.id`), `title text`, `client_name text`, `status text`, `total_cost numeric(10,2)`, `material_weight_g integer`, `print_time_hours numeric(10,2)`, `printer_id uuid`, `filament_id uuid`, `notes text`, `deadline date`, `created_at timestamptz` | Заказы Мастерской: `status` в `new/printing/ready/delivered`, стоимость 0–1 000 000 ₽, вес 0–100 000 г, время 0–100 000 ч, заметки до 1000 символов; `printer_id` и `filament_id` необязательны и при удалении источника обнуляются (`on delete set null`), заказ остаётся. Индексы `(user_id, created_at desc)` и `(user_id, status)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. Схема — `supabase/workshop_printers_orders.sql` |
 
 Как это работает:
@@ -5024,5 +5039,40 @@ RLS у обеих таблиц — только свои строки, гран�
 `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:imports` — 1 522 импорта без
 битых, `npm run check:docs` — 251 путь и сводка сходятся, `npm run check:style` — 38 уроков,
 0 нарушений, `npm run build` — `Compiled successfully`; `/dashboard/workshop` — 20,4 kB, 127 kB
+первой загрузки.
+
+**Мастерская: расширенный справочник принтеров и инструкции по ТО (24 октября 2026).**
+`PRINTER_PRESETS` вырос с девяти до восемнадцати моделей — каждый вариант из таблицы ТО стал
+отдельной строкой: Bambu Lab X1, X1C, P1S, A1 и A1 mini; Prusa MK4 и MK3S+; Creality Ender-3 V3,
+K1, K1 Max и K1C; Anycubic Kobra; Elegoo Neptune 4; Sovol SV06 и SV07; Artillery Sidewinder; Voron
+2.4 и Trident. У каждой модели три интервала: `nozzleHours`, `lubricationHours` и новый
+`zScrewHours`; 0 в смазке остался только у карбоновых Bambu Lab, а винт Z есть у всех, поэтому его
+интервал от 1 ч.
+
+Новое поле прошло через всю цепочку: `WorkshopPrinter`/`PrinterDraft`/`PrinterFormErrors`,
+`PRINTER_COLUMNS`, `PRINTER_INTERVAL_LIMITS` и `PRINTER_INTERVAL_DEFAULTS` (720 ч),
+`readPrinterForm`, `normalizePrinterRow` (старая строка без колонок получает 0/720), payload
+`z_screw_interval`, `planPrinterUsage` и `createPrinterUsagePayload` (`z_screw_hours`),
+`resetPrinterZScrew`, третья полоска и кнопка «Смазать винт Z» на карточке, предупреждение в
+сообщении после заказа. `countMaintenanceDue` теперь считает три узла.
+
+Инструкции — `lib/workshop/maintenance-guides.ts`: `MAINTENANCE_GUIDES` с ключом
+`"${brand} ${model}"`, по 5–10 markdown-пунктов на модель (подготовка, чистка сопла, смазка осей и
+винта Z, особенности). В `AddPrinterDialog` после выбора модели появилась кнопка «Инструкция по
+ТО», `MaintenanceGuideDialog` показывает текст поверх окна и разбирает только заголовки, списки и
+жирный шрифт — без сторонней библиотеки и `dangerouslySetInnerHTML`.
+
+SQL: базовая `supabase/workshop_printers_orders.sql` получила `z_screw_hours numeric(12,2) default 0`
+и `z_screw_interval integer default 720` с check 1–10 000; для уже созданной таблицы добавлена
+идемпотентная `supabase/workshop_printer_z_screw.sql` (`add column if not exists`, комментарии,
+`notify pgrst` и запросы проверки). На живой базе миграция не прогонялась — её применяют вручную.
+
+Проверки: временный прогон `printer-presets.ts`, `maintenance-guides.ts`, `printers.ts`, `orders.ts`
+и `payload.ts` — 191 проверка, 0 провалов (18 моделей и их интервалы, 18 непустых инструкций с 5–10
+пунктами, подстановка всех трёх интервалов, отказ при нулевом винте Z, payload'ы snake_case,
+нормализация старой строки 0/720, наработка 715,5 + 2,25 = 717,75 ч, границы 80/100 % для винта Z).
+`npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:imports` — 1 525 импортов без
+битых, `npm run check:docs` — 254 пути и сводка сходятся, `npm run check:style` — 38 уроков,
+0 нарушений, `npm run build` — `Compiled successfully`; `/dashboard/workshop` — 26,4 kB, 133 kB
 первой загрузки.
 

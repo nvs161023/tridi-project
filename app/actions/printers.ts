@@ -20,7 +20,7 @@ const SESSION_EXPIRED =
 const PRO_REQUIRED =
   "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы вести принтеры.";
 const MIGRATION_MISSING =
-  "Принтеры пока не сохраняются: в базе нет таблицы workshop_printers. Примените миграцию supabase/workshop_printers_orders.sql.";
+  "Принтеры пока не сохраняются: в базе нет таблицы или колонок workshop_printers. Примените supabase/workshop_printers_orders.sql, а для уже созданной таблицы — supabase/workshop_printer_z_screw.sql.";
 const ADD_FAILED = "Не удалось добавить принтер. Попробуйте ещё раз.";
 const RESET_FAILED = "Не удалось сбросить счётчик. Попробуйте ещё раз.";
 const LOAD_FAILED = "Не удалось прочитать принтер. Попробуйте ещё раз.";
@@ -109,10 +109,41 @@ export async function resetPrinterLubrication(
   return resetPrinterCounter(printerId, "lubrication");
 }
 
+/**
+ * «Смазать винт Z»: сбрасывает наработку винта и отмечает обслуживание.
+ * Общая наработка, сопло и смазка осей не меняются.
+ */
+export async function resetPrinterZScrew(
+  printerId: string,
+): Promise<PrinterActionState> {
+  return resetPrinterCounter(printerId, "zScrew");
+}
+
+type MaintenanceCounter = "nozzle" | "lubrication" | "zScrew";
+
+/** Какая колонка обнуляется и что сказать после успеха. */
+const COUNTER_CONFIG: Record<
+  MaintenanceCounter,
+  { column: "nozzle_hours" | "lubrication_hours" | "z_screw_hours"; done: string }
+> = {
+  nozzle: {
+    column: "nozzle_hours",
+    done: "Сопло заменено",
+  },
+  lubrication: {
+    column: "lubrication_hours",
+    done: "Оси смазаны",
+  },
+  zScrew: {
+    column: "z_screw_hours",
+    done: "Винт Z смазан",
+  },
+};
+
 /** Общий путь сброса: проверки, чтение имени, update и ответ для вкладки. */
 async function resetPrinterCounter(
   printerId: string,
-  counter: "nozzle" | "lubrication",
+  counter: MaintenanceCounter,
 ): Promise<PrinterActionState> {
   if (!isPrinterId(printerId)) {
     return { ok: false, error: INVALID_ID };
@@ -159,13 +190,11 @@ async function resetPrinterCounter(
       : "принтер";
   const date = todayIsoDate();
 
+  const config = COUNTER_CONFIG[counter];
+
   const { error: updateError } = await supabase
     .from("workshop_printers")
-    .update(
-      counter === "nozzle"
-        ? { nozzle_hours: 0, last_maintenance_date: date }
-        : { lubrication_hours: 0, last_maintenance_date: date },
-    )
+    .update({ [config.column]: 0, last_maintenance_date: date })
     .eq("id", printerId)
     .eq("user_id", user.id);
 
@@ -184,9 +213,6 @@ async function resetPrinterCounter(
 
   return {
     ok: true,
-    message:
-      counter === "nozzle"
-        ? `Сопло заменено: «${name}», счётчик сопла снова 0 ч.`
-        : `Оси смазаны: «${name}», счётчик смазки снова 0 ч.`,
+    message: `${config.done}: «${name}», счётчик снова 0 ч.`,
   };
 }

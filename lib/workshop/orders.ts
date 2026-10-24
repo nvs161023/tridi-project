@@ -336,18 +336,23 @@ export function normalizeOrderRow(
 /**
  * Новая наработка принтера после заказа.
  *
- * Время печати прибавляется ко всем трём счётчикам сразу: общий износ,
- * ресурс сопла и ресурс смазки. Смазка накапливается даже при интервале 0 —
- * часы всё равно полезны, а карточка показывает «Без смазки» вместо бара.
- * Округление до сотых совпадает с numeric(12, 2) в базе.
+ * Время печати прибавляется ко всем четырём счётчикам сразу: общий износ,
+ * ресурс сопла, ресурс смазки осей и ресурс винта Z. Смазка накапливается даже
+ * при интервале 0 — часы всё равно полезны, а карточка показывает «Без смазки»
+ * вместо бара. Округление до сотых совпадает с numeric(12, 2) в базе.
  */
 export function planPrinterUsage(
   printer: Pick<
     WorkshopPrinter,
-    "totalHours" | "nozzleHours" | "lubricationHours"
+    "totalHours" | "nozzleHours" | "lubricationHours" | "zScrewHours"
   >,
   printTimeHours: number,
-): { totalHours: number; nozzleHours: number; lubricationHours: number } {
+): {
+  totalHours: number;
+  nozzleHours: number;
+  lubricationHours: number;
+  zScrewHours: number;
+} {
   const add = (hours: number) =>
     Math.round((hours + Math.max(0, printTimeHours)) * 100) / 100;
 
@@ -355,6 +360,7 @@ export function planPrinterUsage(
     totalHours: add(printer.totalHours),
     nozzleHours: add(printer.nozzleHours),
     lubricationHours: add(printer.lubricationHours),
+    zScrewHours: add(printer.zScrewHours),
   };
 }
 

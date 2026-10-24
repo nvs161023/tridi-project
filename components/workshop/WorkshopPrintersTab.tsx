@@ -6,6 +6,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import {
   resetPrinterLubrication,
   resetPrinterNozzle,
+  resetPrinterZScrew,
 } from "@/app/actions/printers";
 import { AddPrinterDialog } from "@/components/workshop/AddPrinterDialog";
 import {
@@ -21,11 +22,12 @@ import {
 /**
  * Вкладка «Принтеры».
  *
- * Карточки показывают две наработки — сопло и смазку — полосками прогресса:
- * зелёная до 80 %, жёлтая 80–100 %, красная сверх интервала. У моделей с
- * интервалом смазки 0 вместо полоски стоит бейдж «Без смазки»: карбоновые
- * стержни Bambu Lab смазывать нельзя, их чистят спиртом. Поэтому и кнопки
- * «Смазать оси» у такой карточки нет — она предлагала бы испортить принтер.
+ * Карточки показывают три наработки — сопло, смазку осей и винт Z — полосками
+ * прогресса: зелёная до 80 %, жёлтая 80–100 %, красная сверх интервала. У
+ * моделей с интервалом смазки 0 вместо полоски стоит бейдж «Без смазки»:
+ * карбоновые стержни Bambu Lab смазывать нельзя, их чистят спиртом. Поэтому и
+ * кнопки «Смазать оси» у такой карточки нет — она предлагала бы испортить
+ * принтер. Винт Z смазывается почти всегда, поэтому у него своя кнопка.
  *
  * Список приходит с сервера, а после добавления и сброса счётчиков
  * обновляется через router.refresh(). Состояние вкладки — только открытое
@@ -38,7 +40,7 @@ type WorkshopPrintersTabProps = {
   isMissingTable: boolean;
 };
 
-type MaintenanceCounter = "nozzle" | "lubrication";
+type MaintenanceCounter = "nozzle" | "lubrication" | "zScrew";
 
 /** Цвет полоски и подписи по уровню обслуживания. */
 const LEVEL_STYLES: Record<
@@ -107,10 +109,13 @@ export function WorkshopPrintersTab({
     setError(null);
     setPending({ id: printer.id, counter });
 
-    const result =
-      counter === "nozzle"
-        ? await resetPrinterNozzle(printer.id)
-        : await resetPrinterLubrication(printer.id);
+    const reset = {
+      nozzle: resetPrinterNozzle,
+      lubrication: resetPrinterLubrication,
+      zScrew: resetPrinterZScrew,
+    }[counter];
+
+    const result = await reset(printer.id);
 
     setPending(null);
 
@@ -134,9 +139,10 @@ export function WorkshopPrintersTab({
           className="mb-5 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100"
         >
           <span aria-hidden>⚠️ </span>
-          Принтеры пока не сохраняются: в базе нет таблицы workshop_printers.
-          Добавлять их можно после миграции
-          supabase/workshop_printers_orders.sql.
+          Принтеры пока не сохраняются: в базе нет таблицы workshop_printers или
+          колонок винта Z. Добавлять их можно после миграции
+          supabase/workshop_printers_orders.sql; для уже созданной таблицы —
+          supabase/workshop_printer_z_screw.sql.
         </p>
       ) : null}
 
@@ -152,8 +158,8 @@ export function WorkshopPrintersTab({
             Парк принтеров
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
-            Наработка сопла и смазки видна сразу: зелёная полоска — всё в
-            порядке, жёлтая — пора готовиться, красная — обслуживание
+            Наработка сопла, смазки осей и винта Z видна сразу: зелёная полоска
+            — всё в порядке, жёлтая — пора готовиться, красная — обслуживание
             просрочено.
           </p>
         </div>
@@ -278,6 +284,12 @@ function PrinterCard({
             </p>
           </div>
         )}
+
+        <MaintenanceGauge
+          label="Винт Z"
+          hours={printer.zScrewHours}
+          interval={printer.zScrewInterval}
+        />
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
@@ -308,6 +320,17 @@ function PrinterCard({
               {pendingCounter === "lubrication" ? "Сбрасываем…" : "Смазать оси"}
             </button>
           ) : null}
+
+          <button
+            type="button"
+            onClick={() => onReset(printer, "zScrew")}
+            disabled={isBusy}
+            aria-busy={pendingCounter === "zScrew"}
+            aria-label={`Смазать винт Z: ${printer.name}`}
+            className="inline-flex min-h-9 items-center justify-center rounded-full border border-white/15 px-3.5 text-xs font-semibold text-slate-200 transition-colors hover:border-blue-400/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-white/15 disabled:hover:text-slate-200"
+          >
+            {pendingCounter === "zScrew" ? "Сбрасываем…" : "Смазать винт Z"}
+          </button>
         </div>
       </div>
     </li>
@@ -378,7 +401,7 @@ function EmptyPrinters({ onAdd }: { onAdd: () => void }) {
       <p className="mt-3 text-sm font-semibold text-white">Принтеров пока нет</p>
       <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-300">
         Добавьте принтер — Мастерская будет считать его наработку по заказам и
-        напомнит, когда пора менять сопло или смазывать оси. Интервалы
+        напомнит, когда пора менять сопло, смазывать оси или винт Z. Интервалы
         обслуживания подставятся из справочника моделей.
       </p>
       <button

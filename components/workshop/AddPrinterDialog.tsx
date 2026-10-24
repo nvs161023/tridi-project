@@ -1,11 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useCallback, useEffect, useRef, useState } from "react";
 
 import { addPrinter } from "@/app/actions/printers";
 import { emptyPrinterFormState } from "@/app/actions/printers-state";
+import { MaintenanceGuideDialog } from "@/components/workshop/MaintenanceGuideDialog";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
+import { getMaintenanceGuide } from "@/lib/workshop/maintenance-guides";
 import { PRINTER_PRESETS } from "@/lib/workshop/printer-presets";
 import {
   PRINTER_INTERVAL_DEFAULTS,
@@ -52,8 +54,28 @@ export function AddPrinterDialog({
   const [lubricationInterval, setLubricationInterval] = useState(
     String(PRINTER_INTERVAL_DEFAULTS.lubrication),
   );
+  const [zScrewInterval, setZScrewInterval] = useState(
+    String(PRINTER_INTERVAL_DEFAULTS.zScrew),
+  );
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const guideTriggerRef = useRef<HTMLButtonElement>(null);
 
-  useDialogDismiss(onClose);
+  /**
+   * Пока открыта инструкция, Escape должен закрывать только её. Обработчик
+   * родительского окна остаётся подписанным, но ничего не делает.
+   */
+  const closeAddUnlessGuide = useCallback(() => {
+    if (!isGuideOpen) {
+      onClose();
+    }
+  }, [isGuideOpen, onClose]);
+
+  useDialogDismiss(closeAddUnlessGuide);
+
+  const closeGuide = useCallback(() => {
+    setIsGuideOpen(false);
+    guideTriggerRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (!state.success) {
@@ -66,14 +88,19 @@ export function AddPrinterDialog({
   }, [onClose, onCreated, router, state.message, state.success]);
 
   const preset = presetIndex ? PRINTER_PRESETS[Number(presetIndex)] : null;
+  const guide = preset
+    ? getMaintenanceGuide(preset.brand, preset.model)
+    : null;
   const nameError = state.fieldErrors?.name;
   const presetError = state.fieldErrors?.preset;
   const nozzleError = state.fieldErrors?.nozzleInterval;
   const lubricationError = state.fieldErrors?.lubricationInterval;
+  const zScrewError = state.fieldErrors?.zScrewInterval;
 
-  /** Выбор модели: подставляем интервалы производителя и её подсказку. */
+  /** Выбор модели: подставляем все интервалы производителя и её подсказку. */
   function handlePresetChange(value: string) {
     setPresetIndex(value);
+    setIsGuideOpen(false);
 
     const next = value ? PRINTER_PRESETS[Number(value)] : null;
 
@@ -83,6 +110,7 @@ export function AddPrinterDialog({
 
     setNozzleInterval(String(next.nozzleHours));
     setLubricationInterval(String(next.lubricationHours));
+    setZScrewInterval(String(next.zScrewHours));
   }
 
   return (
@@ -219,22 +247,34 @@ export function AddPrinterDialog({
               <p className="mt-1 text-sm leading-relaxed text-slate-200">
                 {preset.note}
               </p>
-              <p className="mt-2 text-xs text-slate-300">
+              <p className="mt-2 text-xs leading-relaxed text-slate-300">
                 Сопло — каждые {formatPrinterHours(preset.nozzleHours)}
                 {preset.lubricationHours > 0
-                  ? ` · смазка — каждые ${formatPrinterHours(preset.lubricationHours)}`
-                  : " · смазка не требуется"}
+                  ? ` · смазка осей — каждые ${formatPrinterHours(preset.lubricationHours)}`
+                  : " · смазка осей не требуется"}
+                {` · винт Z — каждые ${formatPrinterHours(preset.zScrewHours)}`}
               </p>
+              {guide ? (
+                <button
+                  ref={guideTriggerRef}
+                  type="button"
+                  onClick={() => setIsGuideOpen(true)}
+                  aria-haspopup="dialog"
+                  className="mt-3 inline-flex min-h-9 items-center justify-center rounded-full border border-blue-300/40 bg-blue-500/10 px-4 text-xs font-semibold text-blue-100 transition-colors hover:border-blue-200/70 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                >
+                  Инструкция по ТО
+                </button>
+              ) : null}
             </div>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label
                 htmlFor="printer-nozzle-interval"
                 className="block text-sm font-semibold text-slate-200"
               >
-                Замена сопла, ч
+                Сопло, ч
               </label>
               <input
                 id="printer-nozzle-interval"
@@ -278,7 +318,7 @@ export function AddPrinterDialog({
                 htmlFor="printer-lubrication-interval"
                 className="block text-sm font-semibold text-slate-200"
               >
-                Смазка осей, ч
+                Смазка, ч
               </label>
               <input
                 id="printer-lubrication-interval"
@@ -318,6 +358,50 @@ export function AddPrinterDialog({
                 </p>
               )}
             </div>
+
+            <div>
+              <label
+                htmlFor="printer-z-screw-interval"
+                className="block text-sm font-semibold text-slate-200"
+              >
+                Винт Z, ч
+              </label>
+              <input
+                id="printer-z-screw-interval"
+                name="zScrewInterval"
+                type="number"
+                inputMode="numeric"
+                step="1"
+                min={PRINTER_INTERVAL_LIMITS.zScrewMin}
+                max={PRINTER_INTERVAL_LIMITS.max}
+                required
+                value={zScrewInterval}
+                onChange={(event) => setZScrewInterval(event.target.value)}
+                aria-invalid={zScrewError ? true : undefined}
+                aria-describedby={
+                  zScrewError
+                    ? "printer-z-screw-interval-error"
+                    : "printer-z-screw-interval-hint"
+                }
+                className={inputClassName}
+              />
+              {zScrewError ? (
+                <p
+                  id="printer-z-screw-interval-error"
+                  role="alert"
+                  className="mt-1.5 text-sm text-red-300"
+                >
+                  {zScrewError}
+                </p>
+              ) : (
+                <p
+                  id="printer-z-screw-interval-hint"
+                  className="mt-1.5 text-xs leading-relaxed text-slate-400"
+                >
+                  Через сколько часов смазывать винт Z.
+                </p>
+              )}
+            </div>
           </div>
 
           {state.error ? (
@@ -349,6 +433,14 @@ export function AddPrinterDialog({
           </div>
         </form>
       </div>
+
+      {isGuideOpen && preset && guide ? (
+        <MaintenanceGuideDialog
+          title={`${preset.brand} ${preset.model}`}
+          guide={guide}
+          onClose={closeGuide}
+        />
+      ) : null}
     </div>
   );
 }
