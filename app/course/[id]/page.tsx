@@ -280,7 +280,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
         </div>
       </header>
 
-      <LessonLayout blocks={lesson.blocks} accent="blue" stickyHeader>
+      <LessonLayout>
         <p className="text-sm font-semibold uppercase tracking-widest text-blue-400">
           {lesson.module}
         </p>

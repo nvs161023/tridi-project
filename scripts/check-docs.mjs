@@ -28,11 +28,16 @@ const DOCS_PATH = "PROJECT.md";
  *
  * `lib/constructor/lamp-geometry.ts` попал сюда 22 октября 2026: светильник
  * убран из конструктора, а история изменений называет удалённый файл прямо.
+ *
+ * `lib/lesson-outline.ts` — там же с 24 октября 2026: боковое оглавление урока
+ * убрано, текст растянут на всю страницу, и история изменений называет файл,
+ * который больше не нужен.
  */
 const REMOVED_PATHS = new Set([
   "data/course.json",
   "app/favicon.ico",
   "lib/constructor/lamp-geometry.ts",
+  "lib/lesson-outline.ts",
 ]);
 
 /** Префиксы, по которым отличаем путь к файлу проекта от обычного слова. */

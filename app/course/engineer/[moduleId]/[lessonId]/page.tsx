@@ -389,15 +389,6 @@ export default async function EngineerLessonPage({
     currentModule.lessons[0].lesson_id,
   );
 
-  /**
-   * Блоки, которые реально попадают в разметку: без доступа — только превью.
-   * По ним же строится оглавление урока, поэтому закрытые разделы в него не
-   * попадают.
-   */
-  const shownBlocks =
-    !hasAccess && !isPreviewLesson
-      ? lesson.blocks.slice(0, PREVIEW_BLOCKS)
-      : lesson.blocks;
   const courseFinishNote = `Позади все ${totalLessons} ${pluralize(totalLessons, LESSON_FORMS)} уровня «Инженер»: расчёт деталей, повтор чужой геометрии и своя процедура печати. Дальше — практика на своих моделях.`;
 
   return (
@@ -455,7 +446,7 @@ export default async function EngineerLessonPage({
         </div>
       </header>
 
-      <LessonLayout blocks={shownBlocks} accent="violet">
+      <LessonLayout>
         <p className="text-sm font-semibold uppercase tracking-widest text-violet-300">
           {lesson.moduleLabel}
         </p>

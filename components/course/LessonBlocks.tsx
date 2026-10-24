@@ -2,7 +2,6 @@ import Image from "next/image";
 
 import { MiniCheck } from "@/components/course/MiniCheck";
 import { getVisualComponent } from "@/components/lesson-visuals";
-import { lessonBlockAnchor } from "@/lib/lesson-outline";
 import type { CourseKind, LessonBlock, LessonBlockStep } from "@/lib/types";
 
 /**
@@ -86,14 +85,14 @@ const mediaStyles = {
 type MediaType = keyof typeof mediaStyles;
 
 /**
- * Типографика текста урока: крупнее базового 16px, свободный интерлиньяж и
- * ограничение длины строки. На широком ноутбуке строка не растягивается на весь
- * экран, а глаз не теряет начало следующей строки.
+ * Типографика текста урока: крупнее базового 16px и свободный интерлиньяж.
+ * Ширину задаёт страница (`LessonLayout`): текст тянется на всю карточку блока,
+ * поэтому строка на широком экране длиннее, чем в прежней колонке 44rem.
  */
 const LESSON_TEXT =
-  "max-w-3xl text-[17px] leading-8 text-slate-200 sm:text-lg";
+  "text-[17px] leading-8 text-slate-200 sm:text-lg";
 const LESSON_TEXT_MUTED =
-  "max-w-3xl text-[17px] leading-8 text-slate-300 sm:text-lg";
+  "text-[17px] leading-8 text-slate-300 sm:text-lg";
 
 /**
  * Разбор строки на обычный текст и **жирные** вставки: звёздочки из данных
@@ -172,25 +171,15 @@ export function LessonBlocks({
 }) {
   return (
     <div className="mt-12 space-y-8 sm:mt-16 sm:space-y-10">
-      {/* У каждого блока — свой якорь (`lesson-block-N`): на него ведут пункты
-          оглавления в правой колонке страницы урока (components/course/
-          LessonLayout.tsx). Номер считает lib/lesson-outline.ts, поэтому
-          оглавление и блоки не могут разъехаться. `scroll-mt-24` оставляет
-          заголовок под липкой шапкой, а не под её краем. */}
       {blocks.map((block, index) => (
-        <div
+        <BlockView
           key={`${index}-${block.type}`}
-          id={lessonBlockAnchor(index)}
-          className="scroll-mt-24"
-        >
-          <BlockView
-            block={block}
-            typeOrdinal={blocks.slice(0, index).filter((item) => item.type === block.type).length}
-            courseType={courseType}
-            moduleId={moduleId}
-            lessonId={lessonId}
-          />
-        </div>
+          block={block}
+          typeOrdinal={blocks.slice(0, index).filter((item) => item.type === block.type).length}
+          courseType={courseType}
+          moduleId={moduleId}
+          lessonId={lessonId}
+        />
       ))}
     </div>
   );
@@ -444,7 +433,7 @@ function BlockView({
             {block.content ? (
               <BlockText
                 text={block.content}
-                className={`mt-2 max-w-3xl text-[17px] leading-8 sm:text-lg ${style.body}`}
+                className={`mt-2 text-[17px] leading-8 sm:text-lg ${style.body}`}
               />
             ) : null}
           </div>
