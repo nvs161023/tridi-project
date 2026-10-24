@@ -1989,6 +1989,12 @@ Cron на сервере (каждый день в 09:00 МСК):
 на мобильном. Подписи будущих разделов озвучены как «— в разработке» (`sr-only`), у склада такой
 подписи больше нет.
 
+Справочник моделей для раздела «Принтеры» лежит в `lib/workshop/printer-presets.ts`
+(`PRINTER_PRESETS`): девять распространённых моделей с наработкой до обслуживания сопла и смазки
+направляющих и короткой подсказкой об уходе. Ноль в `lubricationHours` — не пропуск: карбоновые
+стержни Bambu Lab смазка портит, их протирают спиртом. Числа — ориентиры производителя, а не
+жёсткий регламент: при добавлении принтера их можно изменить под свою загрузку.
+
 Вкладка «Калькулятор» (`WorkshopCalculatorTab`) — две колонки (`lg:grid-cols-2`): слева форма
 настроек, справа расчёт. Настройки хранятся в состоянии вкладки, поэтому после сохранения формы
 калькулятор сразу считает по новым числам, без перезагрузки.
@@ -2259,6 +2265,7 @@ RLS на выборку, вставку, обновление и удалени�
 | `lib/workshop/payload.ts` | `createWorkshopSettingsPayload(userId, settings)` и `createFilamentPayload(userId, draft)` — единственное место перевода camelCase → snake_case для `workshop_settings` и `workshop_filaments`; пустая ссылка на товар превращается в `null`, а переименование колонки ловит TypeScript, а не ответ PGRST204 из прода |
 | `lib/workshop/filaments.ts` | Склад пластика: `WorkshopFilament`, `FILAMENT_COLUMNS`, `FILAMENT_NUMBER_FIELDS` (вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г; вес — integer), `FILAMENT_TEXT_LIMITS` (60/30/40/500), `FILAMENT_DEFAULTS` (1 000 / 200 / 1 500), `FILAMENT_BRANDS` (13 производителей для `<datalist id="brand-list">`), `FILAMENT_TYPE_SUGGESTIONS`, `normalizeFilamentRow` (битое число → значение по умолчанию, строка без UUID отбрасывается), `readFilamentForm` (текст, ссылка только `http(s)://`, остаток не больше общего веса), `readConsumeFilamentForm`, `isFilamentId`, `isLowStockFilament`, `filamentRemainingPercent`, `subtractFilamentWeight`, `formatGrams` |
 | `lib/workshop/filament-store.ts` | `getWorkshopFilaments(supabase, userId)` → `{ filaments, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой склад и признак неприменённой миграции через `isMissingTableSchema()` |
+| `lib/workshop/printer-presets.ts` | Справочник принтеров: `PrinterPreset` и `PRINTER_PRESETS` — девять моделей (Bambu Lab X1 / X1C, P1S, A1 / A1 mini, Prusa MK3S+ и MK4, Creality Ender-3 V3 / K1, Anycubic Kobra, Elegoo Neptune 4, Sovol SV06) с наработкой до обслуживания сопла (`nozzleHours`, 400–500 ч) и смазки направляющих (`lubricationHours`, 0–500 ч; 0 у карбоновых стержней Bambu Lab — их чистят спиртом, а не смазывают) и подсказкой `note` с особенностями ухода; числа — ориентиры производителя, в форме их можно изменить |
 | `lib/gcode-parser.ts` | Разбор G-code в браузере: `parseGcode(text)` → `{ timeHours, weightGrams }`; время из `;TIME_PRINTING:`, `; estimated printing time … =`, `; total estimated time:`, `; model printing time:`, `;TIME:` (форматы «1h 6m 12s», «1 ч 30 мин», `ч:м:с`, `м:с`, голые секунды), вес из `; total filament used [g]`, `; filament used [g]`, `;Filament used:`, `; filament used [mm]` (сумма по экструдерам, г/кг/мг/м/мм, `GCODE_GRAMS_PER_METER` ≈ 2,98 г для PLA 1,75 мм); шаблоны ищут первое совпадение по всему тексту, отсутствующее значение — `null` |
 | `middleware.ts` (корень) | Точка входа Next.js: `matcher` покрывает весь сайт, кроме `/api`, `/_next/static`, `/_next/image`, служебных файлов и путей с расширением. Сессия (`updateSession`) вызывается только для `/dashboard`, `/certificate`, `/course`, `/constructor`, `/admin`, `/auth` и `/forum/new`; на остальных страницах просмотр уходит в `site_visits` через `event.waitUntil` |
 
@@ -4907,5 +4914,13 @@ G-code — `lib/gcode-parser.ts`: `parseGcode(text)` ищет время по `;
 Devil Design, Bestfilament, FDPlast, REC, 3DPlast, Semenych. Это подсказка, а не ограничение: свой
 бренд по-прежнему печатается руками, а сервер проверяет только длину (1…60 символов) — так же, как
 у поля «Тип» с его `FILAMENT_TYPE_SUGGESTIONS`. Проверки: `npx tsc --noEmit` — 0 ошибок,
+`npm run lint` — чисто.
+
+**Мастерская: справочник принтеров (24 октября 2026).** Первый шаг этапа «Принтеры и заказы» —
+`lib/workshop/printer-presets.ts`: тип `PrinterPreset` и `PRINTER_PRESETS` из девяти моделей (Bambu Lab
+X1 / X1C, P1S, A1 / A1 mini; Prusa MK3S+ и MK4; Creality Ender-3 V3 / K1; Anycubic Kobra; Elegoo
+Neptune 4; Sovol SV06) с интервалами обслуживания сопла и смазки направляющих и подсказкой `note`.
+Ноль в `lubricationHours` у Bambu Lab означает «смазывать нельзя»: карбоновые стержни чистят спиртом.
+Числа — ориентиры производителя, а не жёсткий регламент. Проверки: `npx tsc --noEmit` — 0 ошибок,
 `npm run lint` — чисто.
 
