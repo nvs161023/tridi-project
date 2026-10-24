@@ -8,6 +8,8 @@ import { resolveUserId } from "@/lib/current-user";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 import { getWorkshopFilaments } from "@/lib/workshop/filament-store";
+import { getWorkshopOrders } from "@/lib/workshop/order-store";
+import { getWorkshopPrinters } from "@/lib/workshop/printer-store";
 import { getWorkshopSettings } from "@/lib/workshop/store";
 
 /**
@@ -18,14 +20,14 @@ import { getWorkshopSettings } from "@/lib/workshop/store";
  * порядок у библиотеки профилей, и он позволяет показать гостю и ученику без
  * пакета понятное объяснение, а не глухой редирект.
  *
- * Настройки и склад читаются только при открытом доступе: без пакета сохранять
- * их всё равно нельзя, значит и лишние запросы к базе не нужны. Запросы идут
- * параллельно — это две независимые таблицы.
+ * Настройки, склад, принтеры и заказы читаются только при открытом доступе:
+ * без пакета сохранять их всё равно нельзя, значит и лишние запросы к базе не
+ * нужны. Запросы идут параллельно — это четыре независимые таблицы.
  */
 export const metadata: Metadata = {
   title: "Мастерская — TriDi",
   description:
-    "Калькулятор себестоимости 3D-печати: материал, электричество, амортизация и работа, рекомендованная цена и прибыль заказа. Входит в пакет «Всё включено».",
+    "Калькулятор себестоимости 3D-печати, склад пластика, принтеры с обслуживанием и заказы клиентов: материал, электричество, амортизация и работа, рекомендованная цена и прибыль. Входит в пакет «Всё включено».",
   robots: { index: false, follow: false },
 };
 
@@ -41,12 +43,14 @@ export default async function WorkshopPage() {
   }
 
   const hasPro = await hasActiveSubscription(supabase, userId);
-  const [snapshot, stock] = hasPro
+  const [snapshot, stock, fleet, orderBook] = hasPro
     ? await Promise.all([
         getWorkshopSettings(supabase, userId),
         getWorkshopFilaments(supabase, userId),
+        getWorkshopPrinters(supabase, userId),
+        getWorkshopOrders(supabase, userId),
       ])
-    : [null, null];
+    : [null, null, null, null];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -81,16 +85,20 @@ export default async function WorkshopPage() {
         </h1>
         <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-300 sm:text-lg">
           Рабочее место для 3D-печати: себестоимость заказа, рекомендованная цена,
-          прибыль и склад пластика — без таблиц в блокноте. Принтеры и заказы
-          подключим следующими этапами.
+          прибыль, склад пластика, принтеры с обслуживанием и заказы клиентов — без
+          таблиц в блокноте.
         </p>
 
-        {snapshot && stock ? (
+        {snapshot && stock && fleet && orderBook ? (
           <WorkshopTabs
             settings={snapshot.settings}
             filaments={stock.filaments}
+            printers={fleet.printers}
+            orders={orderBook.orders}
             isMissingTable={snapshot.isMissingTable}
             isFilamentsMissingTable={stock.isMissingTable}
+            isPrintersMissingTable={fleet.isMissingTable}
+            isOrdersMissingTable={orderBook.isMissingTable}
           />
         ) : (
           <LockedWorkshop />
@@ -103,9 +111,9 @@ export default async function WorkshopPage() {
 /**
  * Замок для тех, у кого нет пакета.
  *
- * Показываем, что именно откроется: калькулятор, сохранённые настройки и
- * разделы следующих этапов. Это честнее пустого экрана — человек понимает, за
- * что платит, и не ищет кнопку, которой нет.
+ * Показываем, что именно откроется: калькулятор, склад, принтеры и заказы.
+ * Это честнее пустого экрана — человек понимает, за что платит, и не ищет
+ * кнопку, которой нет.
  */
 function LockedWorkshop() {
   return (
@@ -131,8 +139,9 @@ function LockedWorkshop() {
             Калькулятор считает себестоимость заказа по вашему тарифу на
             электричество, мощности принтера и стоимости часа работы, а затем
             показывает рекомендованную цену и прибыль. Склад помнит остатки
-            катушек и подсказывает, что пора докупить. Настройки и катушки
-            сохраняются в аккаунте — вводить их заново не придётся.
+            катушек и подсказывает, что пора докупить. Принтеры ведут наработку
+            сопла и смазки, а заказы списывают пластик и часы автоматически.
+            Всё сохраняется в аккаунте — вводить заново не придётся.
           </p>
         </div>
       </div>
@@ -142,7 +151,7 @@ function LockedWorkshop() {
           "Себестоимость заказа: материал, электричество, амортизация и работа",
           "Рекомендованная цена с наценкой и прибыль по каждой модели",
           "Склад пластика: остатки, порог и кнопка «Купить»",
-          "Принтеры и заказы — в следующих этапах",
+          "Принтеры с обслуживанием и заказы клиентов со статусами",
         ].map((point) => (
           <li
             key={point}

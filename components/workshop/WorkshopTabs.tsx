@@ -3,16 +3,21 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 
 import { WorkshopCalculatorTab } from "@/components/workshop/WorkshopCalculatorTab";
+import { WorkshopOrdersTab } from "@/components/workshop/WorkshopOrdersTab";
+import { WorkshopPrintersTab } from "@/components/workshop/WorkshopPrintersTab";
 import { WorkshopStockTab } from "@/components/workshop/WorkshopStockTab";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
+import type { WorkshopOrder } from "@/lib/workshop/orders";
+import type { WorkshopPrinter } from "@/lib/workshop/printers";
 import type { WorkshopSettings } from "@/lib/workshop/settings";
 
 /**
  * Табы Мастерской.
  *
- * Калькулятор и склад работают, принтеры и заказы появятся следующими этапами.
- * Вместо пустых ссылок показываем, что именно будет в каждом разделе: человек
- * понимает, за что платит, и не уходит искать несуществующую страницу.
+ * Четыре раздела: калькулятор, склад пластика, принтеры и заказы. Все работают
+ * — заглушек «в разработке» больше нет. Принтеры и заказы живут в своих
+ * таблицах, поэтому каждый раздел показывает предупреждение, если его миграция
+ * ещё не применена, и не ломает остальные.
  *
  * На мобильном лента табов листается вбок (`overflow-x-auto`), поэтому четыре
  * подписи не ломают вёрстку. Стрелки клавиатуры переключают табы — так
@@ -23,8 +28,12 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
 type WorkshopTabsProps = {
   settings: WorkshopSettings;
   filaments: WorkshopFilament[];
+  printers: WorkshopPrinter[];
+  orders: WorkshopOrder[];
   isMissingTable: boolean;
   isFilamentsMissingTable: boolean;
+  isPrintersMissingTable: boolean;
+  isOrdersMissingTable: boolean;
 };
 
 const TABS = [
@@ -36,49 +45,15 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
-/** Разделы, которые ещё в разработке. */
-type UpcomingTabId = Exclude<TabId, "calculator" | "inventory">;
-
-type UpcomingTab = {
-  title: string;
-  description: string;
-  points: string[];
-};
-
-/** Что появится в разделах, которые ещё в разработке. */
-const UPCOMING: Record<UpcomingTabId, UpcomingTab> = {
-  printers: {
-    title: "Принтеры",
-    description: "Парк принтеров, их загрузка и обслуживание в одном списке.",
-    points: [
-      "Стоимость часа печати по каждому принтеру",
-      "Календарь занятости и очередь заказов",
-      "Напоминания о чистке и смазке",
-    ],
-  },
-  orders: {
-    title: "Заказы",
-    description: "Клиенты и деньги: от заявки до закрытия заказа.",
-    points: [
-      "Заказ из расчёта калькулятора в один клик",
-      "Статусы: новый, в печати, готов, выдан",
-      "Выручка и прибыль за месяц",
-    ],
-  },
-};
-
-const UPCOMING_IDS = Object.keys(UPCOMING) as UpcomingTabId[];
-
-/** Раздел ещё в разработке: подпись в табе и заглушка вместо содержимого. */
-function isUpcoming(tabId: TabId): tabId is UpcomingTabId {
-  return tabId in UPCOMING;
-}
-
 export function WorkshopTabs({
   settings,
   filaments,
+  printers,
+  orders,
   isMissingTable,
   isFilamentsMissingTable,
+  isPrintersMissingTable,
+  isOrdersMissingTable,
 }: WorkshopTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>("calculator");
   const tabRefs = useRef(new Map<TabId, HTMLButtonElement | null>());
@@ -134,9 +109,6 @@ export function WorkshopTabs({
             >
               <span aria-hidden>{tab.icon}</span>
               {tab.label}
-              {isUpcoming(tab.id) ? (
-                <span className="sr-only"> — в разработке</span>
-              ) : null}
             </button>
           );
         })}
@@ -168,54 +140,33 @@ export function WorkshopTabs({
         />
       </div>
 
-      {UPCOMING_IDS.map((id) => (
-        <div
-          key={id}
-          role="tabpanel"
-          id={`workshop-panel-${id}`}
-          aria-labelledby={`workshop-tab-${id}`}
-          hidden={activeTab !== id}
-          className="mt-6"
-        >
-          <UpcomingPanel tab={UPCOMING[id]} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** Заглушка будущего раздела: что появится в следующих этапах. */
-function UpcomingPanel({ tab }: { tab: UpcomingTab }) {
-  return (
-    <section className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-md sm:p-8">
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-xl font-extrabold tracking-tight text-white sm:text-2xl">
-          {tab.title}
-        </h2>
-        <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold tracking-wide text-amber-200 uppercase">
-          В разработке
-        </span>
+      <div
+        role="tabpanel"
+        id="workshop-panel-printers"
+        aria-labelledby="workshop-tab-printers"
+        hidden={activeTab !== "printers"}
+        className="mt-6"
+      >
+        <WorkshopPrintersTab
+          printers={printers}
+          isMissingTable={isPrintersMissingTable}
+        />
       </div>
-      <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
-        {tab.description}
-      </p>
-      <ul className="mt-5 space-y-2">
-        {tab.points.map((point) => (
-          <li
-            key={point}
-            className="flex items-start gap-2 text-sm text-slate-300"
-          >
-            <span aria-hidden className="mt-0.5 text-blue-300">
-              ✓
-            </span>
-            {point}
-          </li>
-        ))}
-      </ul>
-      <p className="mt-6 text-xs leading-relaxed text-slate-400">
-        Раздел появится в следующих этапах Мастерской. Калькулятор и склад уже
-        работают — начните с них.
-      </p>
-    </section>
+
+      <div
+        role="tabpanel"
+        id="workshop-panel-orders"
+        aria-labelledby="workshop-tab-orders"
+        hidden={activeTab !== "orders"}
+        className="mt-6"
+      >
+        <WorkshopOrdersTab
+          orders={orders}
+          printers={printers}
+          filaments={filaments}
+          isMissingTable={isOrdersMissingTable}
+        />
+      </div>
+    </div>
   );
 }
