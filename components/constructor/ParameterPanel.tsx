@@ -229,7 +229,7 @@ type ParameterPanelProps = {
   onReset: () => void;
 };
 
-/** Ошибка экспорта с подсказкой: войти заново или оформить Pro. */
+/** Ошибка экспорта с подсказкой: войти заново или открыть пакет. */
 function ExportErrorAlert({ error }: { error: StlExportError | null }) {
   if (!error) {
     return null;
@@ -244,9 +244,9 @@ function ExportErrorAlert({ error }: { error: StlExportError | null }) {
       {error.action === "pro" ? (
         <Link
           className="mt-2 inline-flex font-semibold text-amber-200 underline underline-offset-4 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
-          href="/subscription#tools"
+          href="/courses/pro"
         >
-          Оформить подписку Pro
+          Открыть пакет «Всё включено»
         </Link>
       ) : null}
       {error.action === "login" ? (
@@ -3061,7 +3061,7 @@ export function ParameterPanel({
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
               {isExporting
                 ? "Собираем геометрию и упаковываем её в бинарный STL…"
-                : "Подписка Pro активна. Файл скачается с именем по вашим параметрам."}
+                : "Пакет «Всё включено» активен. Файл скачается с именем по вашим параметрам."}
             </p>
             <ExportErrorAlert error={exportError} />
           </>
@@ -3110,20 +3110,20 @@ export function ParameterPanel({
                 </span>
               </p>
               <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
-                Лимит на этот месяц исчерпан. Pro открывает безлимитную
-                генерацию STL.
+                Лимит на этот месяц исчерпан. Пакет «Всё включено» открывает
+                безлимитную генерацию STL.
               </p>
             </div>
 
             <Link
               className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-amber-400 px-5 text-base font-extrabold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              href="/subscription#tools"
+              href="/courses/pro"
             >
               <span aria-hidden>⚡</span>
-              Оформить Pro для безлимита
+              Открыть пакет «Всё включено»
             </Link>
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              Оформите подписку Pro для безлимитного доступа.
+              Пакет «Всё включено» открывает безлимитную генерацию STL.
             </p>
             <ExportErrorAlert error={exportError} />
           </>

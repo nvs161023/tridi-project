@@ -126,27 +126,10 @@ export function normalizeSavedProjectParams(value: unknown): ConstructorParams {
 }
 
 /**
- * Миграции применяют вручную, поэтому таблицы может ещё не быть.
+ * «Миграция ещё не применена»: общая проверка кодов PostgREST.
  *
- * PostgREST отвечает 42P01 (relation does not exist), PGRST205 (таблица не
- * найдена в схеме) или PGRST204 (колонки нет). Эти ошибки не должны выглядеть
- * как поломка страницы: конструктор продолжает работать, а сохранение или
- * оценка честно сообщают, что пока недоступны. Проверка общая для
- * saved_projects и constructor_feedback.
+ * Раньше функция жила здесь; теперь она нужна и отчёту, и middleware, поэтому
+ * переехала в lib/supabase/schema-errors.ts. Реэкспорт сохраняет прежний импорт
+ * из этого модуля в app/actions/projects.ts.
  */
-export function isMissingTableSchema(
-  code: string | null | undefined,
-  message: string | null | undefined,
-): boolean {
-  if (code === "42P01" || code === "PGRST204" || code === "PGRST205") {
-    return true;
-  }
-
-  const text = (message ?? "").toLowerCase();
-
-  return (
-    text.includes("does not exist") ||
-    text.includes("could not find the table") ||
-    text.includes("schema cache")
-  );
-}
+export { isMissingTableSchema } from "@/lib/supabase/schema-errors";

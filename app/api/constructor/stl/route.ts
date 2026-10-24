@@ -6,6 +6,7 @@ import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import type { Font, FontData } from "three/examples/jsm/loaders/FontLoader.js";
 
+import { recordConstructorGeneration } from "@/lib/analytics/generations";
 import {
   FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH,
   countConstructorDownloadsThisMonth,
@@ -1398,7 +1399,7 @@ export async function POST(request: Request): Promise<Response> {
       return errorResponse(
         403,
         "free_limit_reached",
-        "Лимит бесплатных скачиваний (3 в месяц) исчерпан. Оформите подписку Pro для безлимитного доступа.",
+        "Лимит бесплатных скачиваний (3 в месяц) исчерпан. Безлимитный экспорт входит в пакет «Всё включено».",
       );
     }
   }
@@ -1561,6 +1562,11 @@ export async function POST(request: Request): Promise<Response> {
           );
         }
       }
+
+      // Журнал для ежедневного отчёта: тип модели и время. Это не лимит, а
+      // аналитика, поэтому пишем и Free, и Pro, а ошибку записи не превращаем
+      // в отказ: файл уже собран и должен уйти пользователю.
+      await recordConstructorGeneration(user.id, parsed.model);
 
       return new Response(bytes, {
         status: 200,
