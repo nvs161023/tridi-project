@@ -23,10 +23,10 @@ export const LEGAL_OPERATOR = {
 } as const;
 
 /** Дата редакции Правил и Политики. */
-export const LEGAL_UPDATED_AT = "18.10.2026";
+export const LEGAL_UPDATED_AT = "24.10.2026";
 
 /** Дата редакции Публичной оферты: правила доступа и возврата обновились. */
-export const LEGAL_OFFER_UPDATED_AT = "18.10.2026";
+export const LEGAL_OFFER_UPDATED_AT = "24.10.2026";
 
 /** Юридический документ: адрес и названия для меню, футера и страниц. */
 export type LegalDocument = {

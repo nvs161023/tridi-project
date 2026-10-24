@@ -544,16 +544,7 @@ export default async function SubscriptionPage() {
               навсегда — без продлений.
             </p>
 
-            <div className="mt-8 flex max-w-2xl items-start gap-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-5 py-4 text-amber-100">
-              <span aria-hidden className="text-lg leading-none">
-                🔥
-              </span>
-              <p className="text-sm font-semibold leading-relaxed">
-                Цены со скидкой в честь запуска платформы
-              </p>
-            </div>
-
-            <div className="mt-10 rounded-[2rem] border border-white/10 bg-white/[0.02] p-4 sm:p-6 lg:p-8">
+            <div className="mt-8 rounded-[2rem] border border-white/10 bg-white/[0.02] p-4 sm:p-6 lg:p-8">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase">

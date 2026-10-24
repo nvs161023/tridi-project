@@ -21,9 +21,9 @@
  * даже если он в списке: так видно, сколько в нём нарушений сейчас.
  *
  * Запуск:
- *   npm run check:style                                    — уроки «Уверенного», «Инженера» и «Заработка»
+ *   npm run check:style                                    — все 38 уроков четырёх уровней
  *   npm run check:style -- data/course-confident.json C3    — один урок
- *   npm run check:style -- data/lessons.json                — другой файл курса
+ *   npm run check:style -- data/lessons.json                — только файл курса
  *
  * Выход: 1 — есть нарушения (или файла/урока нет в файле), 0 — правило выполнено.
  */
@@ -32,8 +32,9 @@ import path from "node:path";
 
 const root = process.cwd();
 
-/** Что проверяется без аргументов: новый стиль пишется в платных уровнях. */
+/** Что проверяется без аргументов: все четыре уровня, включая бесплатный. */
 const DEFAULT_FILES = [
+  "data/lessons.json",
   "data/course-confident.json",
   "data/course-engineer.json",
   "data/course-profit.json",
