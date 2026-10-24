@@ -796,39 +796,22 @@ export default async function DashboardPage() {
               </h2>
             </div>
 
-            <article className="mt-6 overflow-hidden rounded-3xl border border-violet-400/30 bg-violet-500/10 p-7 sm:p-8">
-              <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-                <div className="flex items-start gap-4">
-                  <span
-                    aria-hidden
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-violet-400/30 bg-violet-500/10 text-2xl"
-                  >
-                    🛡️
-                  </span>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="text-xl font-extrabold tracking-tight text-white">
-                        Панель модератора
-                      </h3>
-                      <span className="rounded-full border border-violet-400/40 bg-violet-500/10 px-2.5 py-1 text-[11px] font-bold tracking-wide text-violet-200 uppercase">
-                        Admin
-                      </span>
-                    </div>
-                    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
-                      Управление темами форума, баны и модерация
-                    </p>
-                  </div>
-                </div>
-
-                <Link
-                  href="/admin/forum"
-                  className="inline-flex min-h-12 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-violet-600 px-6 text-sm font-semibold text-white shadow-lg shadow-violet-600/25 transition-colors hover:bg-violet-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 md:w-auto"
-                >
-                  Открыть админку
-                  <span aria-hidden>→</span>
-                </Link>
-              </div>
-            </article>
+            <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+              <AdminCard
+                icon="🛡️"
+                title="Панель модератора"
+                description="Управление темами форума, баны и модерация"
+                href="/admin/forum"
+                action="Открыть админку"
+              />
+              <AdminCard
+                icon="🧾"
+                title="Управление покупками"
+                description="Просмотр покупок и оформление возвратов"
+                href="/admin/purchases"
+                action="Открыть"
+              />
+            </div>
           </section>
         ) : null}
 
@@ -927,3 +910,58 @@ function ProToolCard({ tool, isPro }: { tool: ProTool; isPro: boolean }) {
     </article>
   );
 }
+
+/** Карточка админ-секции: она рендерится только для email из ADMIN_EMAIL. */
+type AdminCardProps = {
+  icon: string;
+  title: string;
+  description: string;
+  href: string;
+  action: string;
+};
+
+/**
+ * Ссылка на админку в кабинете.
+ *
+ * Карточка вертикальная: в сетке `md:grid-cols-2` она занимает половину
+ * ширины, и кнопка под текстом не сжимается. `mt-auto` прижимает её к низу,
+ * поэтому в одной строке кнопки обеих карточек стоят на одном уровне.
+ */
+function AdminCard({ icon, title, description, href, action }: AdminCardProps) {
+  return (
+    <article className="flex flex-col overflow-hidden rounded-3xl border border-violet-400/30 bg-violet-500/10 p-7 sm:p-8">
+      <div className="flex items-start gap-4">
+        <span
+          aria-hidden
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-violet-400/30 bg-violet-500/10 text-2xl"
+        >
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="text-xl font-extrabold tracking-tight text-white">
+              {title}
+            </h3>
+            <span className="rounded-full border border-violet-400/40 bg-violet-500/10 px-2.5 py-1 text-[11px] font-bold tracking-wide text-violet-200 uppercase">
+              Admin
+            </span>
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-slate-300">
+            {description}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-auto pt-6">
+        <Link
+          href={href}
+          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-violet-600 px-6 text-sm font-semibold text-white shadow-lg shadow-violet-600/25 transition-colors hover:bg-violet-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
+        >
+          {action}
+          <span aria-hidden>→</span>
+        </Link>
+      </div>
+    </article>
+  );
+}
+
