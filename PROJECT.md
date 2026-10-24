@@ -7,7 +7,8 @@
 - **Продукт:** онлайн-курсы по 3D-печати. Базовый курс — бесплатно. Платные уровни «Уверенный»,
   «Инженер 3D-печати» и «Заработок на 3D-печати» продаются навсегда. Пакет «Всё включено» —
   единственное предложение с инструментами: он открывает все три уровня и навсегда даёт доступ
-  к библиотеке профилей печати и Мастерской — калькулятору себестоимости заказа (раздел 3.22).
+  к библиотеке профилей печати и Мастерской — калькулятору себестоимости и складу пластика
+  (раздел 3.22).
   Конструктор 3D-моделей собран, но скрыт целиком: из витрины, меню,
   кабинета и тарифов убран, а адрес `/constructor` отдаёт редирект на `/tools` до проверки моделей
   на печати (раздел 3.11). Отдельной подписки в витрине тоже нет; ключ `pro-subscription` остался
@@ -154,7 +155,7 @@
 | URL | Файл | Что показывает |
 |---|---|---|
 | `/dashboard` | `app/dashboard/page.tsx` | Личный кабинет из четырёх секций: статус доступа («Бесплатный аккаунт» или «Пакет «Всё включено» активен навсегда»), четыре карточки уровней (прогресс «X из N уроков» и «Продолжить» для открытых, замок и «Купить курс» для закрытых), форум и инструменты Pro — «Библиотека профилей» и «Мастерская» (без пакета карточки размыты, вместо кнопок — «Доступно в пакете «Всё включено»» и «Открыть пакет»), выход. Администратору (`ADMIN_EMAIL`) снизу показывается ещё секция «Администрирование» с карточками «Панель модератора» (`/admin/forum`) и «Управление покупками» (`/admin/purchases`) |
-| `/dashboard/workshop` | `app/dashboard/workshop/page.tsx` + `components/workshop/*` | Мастерская — Pro-инструмент: гостя уводит на вход, без пакета — замок с объяснением и кнопкой `/courses/pro`. С пакетом — четыре вкладки («Калькулятор», «Склад», «Принтеры», «Заказы»): калькулятор работает, три остальных честно помечены «В разработке». Калькулятор состоит из формы настроек (тариф, мощность, амортизация, час работы) и расчёта себестоимости, рекомендованной цены и прибыли. `noindex` |
+| `/dashboard/workshop` | `app/dashboard/workshop/page.tsx` + `components/workshop/*` | Мастерская — Pro-инструмент: гостя уводит на вход, без пакета — замок с объяснением и кнопкой `/courses/pro`. С пакетом — четыре вкладки («Калькулятор», «Склад», «Принтеры», «Заказы»): работают калькулятор и склад, «Принтеры» и «Заказы» честно помечены «В разработке». Калькулятор — форма настроек (тариф, мощность, амортизация, час работы), загрузка G-code, расчёт себестоимости, рекомендованной цены и прибыли; склад — катушки пластика с остатками, прогресс-баром, порогом, кнопкой «Купить» и списанием. `noindex` |
 | `/course/lesson-1…8` | `app/course/[id]/page.tsx` | Урок базового курса: блоки, прогресс, кнопка «Пройти урок»; на последнем уроке модуля — карточка «Проверь себя» со слайдом теста и заблокированным продолжением, а пока уроки модуля не отмечены пройденными — карточка «Сначала прочитай уроки модуля» вместо теста. Последний урок ведёт в `/course/basic/complete` |
 | `/course/check/1…2` | `app/course/check/[moduleId]/page.tsx` | Тест модуля базового курса (10 вопросов с пояснениями); тот же тест открывается слайдом прямо с урока. Пока уроки модуля не прочитаны, вместо вопросов — список оставшихся |
 | `/course/confident` | `app/course/confident/page.tsx` | Программа уровня «Уверенный»: три модуля и 12 уроков, все уроки написаны; без покупки первые два урока помечены плашкой «Превью», остальные — замком |
@@ -1960,10 +1961,10 @@ Cron на сервере (каждый день в 09:00 МСК):
 
 ### 3.22 Мастерская
 
-`/dashboard/workshop` — Pro-инструмент: рабочее место для 3D-печати. Первый этап — калькулятор
-себестоимости заказа; склад, принтеры и заказы подключим следующими этапами. Страница живёт в
-`app/dashboard/workshop/page.tsx`, интерфейс — в `components/workshop/`, расчёты — в
-`lib/workshop/`.
+`/dashboard/workshop` — Pro-инструмент: рабочее место для 3D-печати. Работают калькулятор
+себестоимости и склад пластика; принтеры и заказы подключим следующими этапами. Страница живёт в
+`app/dashboard/workshop/page.tsx`, интерфейс — в `components/workshop/`, формулы — в
+`lib/workshop/`, разбор G-code — в `lib/gcode-parser.ts`.
 
 Доступ проверяется на странице, а не в `middleware.ts`: middleware отвечает только за сессию, а
 «есть ли пакет» — это запрос к `purchases` и `subscriptions`. Порядок такой же, как у библиотеки
@@ -1975,16 +1976,18 @@ Cron на сервере (каждый день в 09:00 МСК):
   «Мастерская открывается пакетом «Всё включено»», список того, что откроется, кнопка на
   `/courses/pro` и возврат в кабинет. Глухой редирект здесь хуже: человек не понимает, что
   произошло;
-- с пакетом читаются настройки — `getWorkshopSettings()` — и рисуются вкладки.
+- с пакетом параллельно читаются настройки (`getWorkshopSettings()`) и склад
+  (`getWorkshopFilaments()`) — это две независимые таблицы, — и рисуются вкладки.
 
 `metadata` держит `title`, `description` и `robots: { index: false }`: страница за авторизацией,
 в карте сайта её нет. `dynamic = "force-dynamic"` — страница зависит от cookies.
 
 Вкладки `components/workshop/WorkshopTabs.tsx` — клиентский компонент с `role="tablist"` и
-четырьмя табами: «Калькулятор», «Склад», «Принтеры», «Заказы». Работает только калькулятор;
-остальные три показывают панель `UpcomingPanel` с плашкой «В разработке» и списком того, что
-появится. У неактивных табов `tabIndex="-1"`, стрелки ← → переключают по кругу, лента табов
-листается вбок на мобильном. Подписи будущих разделов озвучены как «— в разработке» (`sr-only`).
+четырьмя табами: «Калькулятор», «Склад», «Принтеры», «Заказы». Работают калькулятор и склад,
+«Принтеры» и «Заказы» показывают `UpcomingPanel` с плашкой «В разработке» и планом раздела.
+У неактивных табов `tabIndex="-1"`, стрелки ← → переключают по кругу, лента табов листается вбок
+на мобильном. Подписи будущих разделов озвучены как «— в разработке» (`sr-only`), у склада такой
+подписи больше нет.
 
 Вкладка «Калькулятор» (`WorkshopCalculatorTab`) — две колонки (`lg:grid-cols-2`): слева форма
 настроек, справа расчёт. Настройки хранятся в состоянии вкладки, поэтому после сохранения формы
@@ -2027,15 +2030,57 @@ Cron на сервере (каждый день в 09:00 МСК):
 поля старый результат убирается, чтобы его не приняли за новый. Деньги форматирует
 `formatMoney` (`ru-RU`, RUB, две цифры после запятой).
 
-Миграция `supabase/workshop_settings.sql` применяется вручную (Supabase Dashboard → SQL Editor
-или Termius): таблица `workshop_settings` (`id`, `user_id` unique с `on delete cascade`, четыре
-числа с check-пределами, `updated_at`), триггер `workshop_settings_touch_updated_at` обновляет
-`updated_at` на каждом update, RLS с политиками select/insert/update только своих строк, гранты
-`authenticated` на select/insert/update без delete (строка удаляется вместе с аккаунтом) и
-`notify pgrst, 'reload schema'`. Пока миграция не применена, страница не падает:
-`getWorkshopSettings()` ловит ошибку через `isMissingTableSchema()`, отдаёт значения по умолчанию
-и признак `isMissingTable`, а вкладка показывает жёлтое предупреждение — расчёт работает,
-сохранение честно недоступно.
+Вкладка «Склад» (`WorkshopStockTab`) — таблица катушек на широком экране и карточки на узком:
+бренд, тип, цвет, остаток с прогресс-баром, порог и ссылка. Если остаток ниже порога (или равен
+нулю), строка подсвечивается красным, в первой ячейке появляется «Пора купить», а ссылка на товар
+становится кнопкой «Купить» (`target="_blank"`). Над таблицей — сводка: сколько катушек, сколько
+пластика всего и у скольких остаток ниже порога.
+
+Данные склада описаны в `lib/workshop/filaments.ts`: `WorkshopFilament`, `FILAMENT_NUMBER_FIELDS`
+(вес 1…100 000 г, остаток 0…100 000 г, цена 0…100 000 ₽/кг, порог 0…100 000 г; вес — integer),
+`FILAMENT_TEXT_LIMITS` (60/30/40/500 символов), `FILAMENT_DEFAULTS` (1 000 г, 200 г, 1 500 ₽/кг),
+`normalizeFilamentRow` (строка базы → катушка, битое число заменяется значением по умолчанию),
+`readFilamentForm` и `readConsumeFilamentForm` (форма → значения или ошибки по полям),
+`isLowStockFilament`, `filamentRemainingPercent` и `formatGrams`. Список читает
+`getWorkshopFilaments()` (`lib/workshop/filament-store.ts`) — сортировка по `created_at`, ошибку не
+пробрасывает, при отсутствии таблицы отдаёт пустой список и `isMissingTable`.
+
+Склад меняют два Server Action в `app/actions/filaments.ts`. `addFilament`: проверка формы →
+сессия → `hasActiveSubscription` → `insert`; ссылка без `http(s)://` отклоняется.
+`consumeFilament`: перечитывает остаток из базы, отказывает при списании больше остатка и пишет
+`remaining_weight_g` с фильтром по `user_id`. После успеха вызывается
+`revalidatePath('/dashboard/workshop')`, окно закрывается, а `router.refresh()` обновляет список;
+итог («Списали 120 г. Осталось 1 000 г.») показывается на вкладке. Окна `AddFilamentDialog` и
+`ConsumeFilamentDialog` монтируются только открытыми: состояние формы и подписка на Escape живут
+ровно столько, сколько окно на экране, а фокус возвращается на кнопку, которая его открыла
+(`useDialogDismiss`).
+
+Кнопка «Загрузить G-code» в калькуляторе читает файл в браузере (`file.text()`, предел 50 МБ) и
+подставляет вес модели и время печати из комментариев слайсера. `parseGcode`
+(`lib/gcode-parser.ts`) ищет время по `;TIME_PRINTING:`, `; estimated printing time … =`,
+`; total estimated time:`, `; model printing time:` и `;TIME:`; вес — по
+`; total filament used [g]`, `; filament used [g]`, `;Filament used:` и `; filament used [mm]`.
+Время понимает «1h 6m 12s», «1 ч 30 мин», «00:30:00», «45:00» и голые секунды; вес — список по
+экструдерам (складывается), единицы г/кг/мг/м/мм и голые граммы. Метры и миллиметры переводятся в
+граммы по PLA 1,75 мм (≈ 2,98 г/м, `GCODE_GRAMS_PER_METER`). Если нашлось только одно значение,
+заполняется только оно, а строка состояния честно говорит, чего в файле нет; сам файл никуда не
+отправляется.
+
+Обе миграции применяются вручную (Supabase Dashboard → SQL Editor или Termius).
+`supabase/workshop_settings.sql`: таблица `workshop_settings` (`id`, `user_id` unique с
+`on delete cascade`, четыре числа с check-пределами, `updated_at`), триггер
+`workshop_settings_touch_updated_at` обновляет `updated_at` на каждом update, RLS с политиками
+select/insert/update только своих строк, гранты `authenticated` на select/insert/update без delete
+(строка удаляется вместе с аккаунтом) и `notify pgrst, 'reload schema'`.
+`supabase/workshop_filaments.sql`: таблица `workshop_filaments` (`id`, `user_id` с
+`on delete cascade`, `brand`/`type`/`color` с check по длине, `total_weight_g`,
+`remaining_weight_g`, `price_per_kg numeric(10,2)`, `min_threshold_g`, `purchase_url`,
+`created_at`), check `remaining_weight_g <= total_weight_g`, индекс `(user_id, created_at)`,
+RLS на выборку, вставку, обновление и удаление только своих строк и гранты `authenticated`.
+Пока таблиц нет, страница не падает: `getWorkshopSettings()` и `getWorkshopFilaments()` ловят
+ошибку через `isMissingTableSchema()`, отдают значения по умолчанию и пустой список с признаком
+`isMissingTable`, а вкладки показывают жёлтое предупреждение — расчёт работает, сохранение и склад
+честно недоступны.
 
 ---
 
@@ -2205,7 +2250,10 @@ Cron на сервере (каждый день в 09:00 МСК):
 | `lib/workshop/settings.ts` | Настройки калькулятора Мастерской: `WorkshopSettings` (тариф ₽/кВт·ч, мощность Вт, амортизация и час работы в ₽/час), `WORKSHOP_SETTINGS_DEFAULTS` (5.5 / 150 / 10 / 300), `WORKSHOP_FIELDS` (подпись, имя в `FormData`, колонка в базе, пределы, признак `integer`), `WORKSHOP_SETTINGS_COLUMNS`, `parseWorkshopNumber` («5,5» из формы и «5.50» из PostgREST → 5.5), `normalizeWorkshopSettings` (строка базы → числа, незнакомое значение заменяется значением по умолчанию) и `readWorkshopSettingsForm` (форма → числа или ошибки по полям) |
 | `lib/workshop/calculator.ts` | Формулы себестоимости: `calculateWorkshopCost` (материал, электричество, амортизация, работа, себестоимость, рекомендованная цена ×2,5 и прибыль), `roundMoney` до копеек на каждом шаге, `CALCULATOR_FIELDS` (вес 0,1–100 000 г, время печати 0,01–8 760 ч, цена пластика 0–100 000 ₽/кг), `readCalculatorInput`, `formatMoney` (`ru-RU`, RUB), `WORKSHOP_MARKUP` и `WORKSHOP_MARKUP_PERCENT` |
 | `lib/workshop/store.ts` | `getWorkshopSettings(supabase, userId)` → `{ settings, isMissingTable }`: `maybeSingle()` по `user_id`, сбой чтения не роняет страницу — значения по умолчанию и признак неприменённой миграции через `isMissingTableSchema()` |
-| `lib/workshop/payload.ts` | `createWorkshopSettingsPayload(userId, settings)` — единственное место перевода camelCase → snake_case для `upsert` в `workshop_settings`; переименование колонки ловит TypeScript, а не ответ PGRST204 из прода |
+| `lib/workshop/payload.ts` | `createWorkshopSettingsPayload(userId, settings)` и `createFilamentPayload(userId, draft)` — единственное место перевода camelCase → snake_case для `workshop_settings` и `workshop_filaments`; пустая ссылка на товар превращается в `null`, а переименование колонки ловит TypeScript, а не ответ PGRST204 из прода |
+| `lib/workshop/filaments.ts` | Склад пластика: `WorkshopFilament`, `FILAMENT_COLUMNS`, `FILAMENT_NUMBER_FIELDS` (вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г; вес — integer), `FILAMENT_TEXT_LIMITS` (60/30/40/500), `FILAMENT_DEFAULTS` (1 000 / 200 / 1 500), `FILAMENT_TYPE_SUGGESTIONS`, `normalizeFilamentRow` (битое число → значение по умолчанию, строка без UUID отбрасывается), `readFilamentForm` (текст, ссылка только `http(s)://`, остаток не больше общего веса), `readConsumeFilamentForm`, `isFilamentId`, `isLowStockFilament`, `filamentRemainingPercent`, `subtractFilamentWeight`, `formatGrams` |
+| `lib/workshop/filament-store.ts` | `getWorkshopFilaments(supabase, userId)` → `{ filaments, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой склад и признак неприменённой миграции через `isMissingTableSchema()` |
+| `lib/gcode-parser.ts` | Разбор G-code в браузере: `parseGcode(text)` → `{ timeHours, weightGrams }`; время из `;TIME_PRINTING:`, `; estimated printing time … =`, `; total estimated time:`, `; model printing time:`, `;TIME:` (форматы «1h 6m 12s», «1 ч 30 мин», `ч:м:с`, `м:с`, голые секунды), вес из `; total filament used [g]`, `; filament used [g]`, `;Filament used:`, `; filament used [mm]` (сумма по экструдерам, г/кг/мг/м/мм, `GCODE_GRAMS_PER_METER` ≈ 2,98 г для PLA 1,75 мм); шаблоны ищут первое совпадение по всему тексту, отсутствующее значение — `null` |
 | `middleware.ts` (корень) | Точка входа Next.js: `matcher` покрывает весь сайт, кроме `/api`, `/_next/static`, `/_next/image`, служебных файлов и путей с расширением. Сессия (`updateSession`) вызывается только для `/dashboard`, `/certificate`, `/course`, `/constructor`, `/admin`, `/auth` и `/forum/new`; на остальных страницах просмотр уходит в `site_visits` через `event.waitUntil` |
 
 ---
@@ -2235,6 +2283,7 @@ Cron на сервере (каждый день в 09:00 МСК):
 | `saveConstructorProject`, `loadConstructorProject`, `submitConstructorFeedback` | `app/actions/projects.ts` | Сохранённые проекты и опрос конструктора. Сохранение: пользователь из сессии (не из запроса), название 1–60 символов после нормализации пробелов, известная модель, параметры через `normalizeConstructorParams`, `insert` в `saved_projects` с `user_id = user.id` и `revalidatePath('/dashboard')`. Загрузка: `isProjectId` до запроса, проект читается с фильтром по `user_id`, параметры нормализуются. Оценка: целое 1–5, известная модель, комментарий до 1000 символов (пустой — `null`), `insert` в `constructor_feedback`. При отсутствии таблицы действия отвечают «временно недоступно», а не ошибкой базы |
 | `activatePromoCode` | `app/actions/promo.ts` | Активация кода: реальная сессия, нормализация и формат, поиск кода service_role, проверка срока и `used_at`, отказ без сжигания кода, если курс уже открыт, атомарный `update ... where used_at is null` и `revalidatePath` курсов/кабинета |
 | `saveWorkshopSettings` | `app/actions/workshop.ts` | Настройки калькулятора Мастерской: разбор формы (`readWorkshopSettingsForm`) → реальная сессия → повторная проверка `hasActiveSubscription` → `upsert` по `user_id` и `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции (таблицы `workshop_settings` нет). Состояние формы — `WorkshopSettingsFormState` из `app/actions/workshop-state.ts` |
+| `addFilament`, `consumeFilament` | `app/actions/filaments.ts` | Склад Мастерской. Добавление: разбор формы (`readFilamentForm`) → сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_filaments` и `revalidatePath('/dashboard/workshop')`. Списание: UUID катушки проверяется до запроса, остаток перечитывается из базы, списание больше остатка отклоняется, `update remaining_weight_g` с фильтром по `user_id`. Отдельные ответы для истёкшей сессии, отсутствия пакета, неприменённой миграции и ненайденной катушки. Состояние форм — `FilamentFormState` и `ConsumeFilamentFormState` из `app/actions/filaments-state.ts` |
 
 Типы результатов описаны рядом с функциями (`CompleteLessonResult`, `CompleteModuleTestResult`,
 `ConfirmSessionResult`), состояние формы авторизации — `app/actions/auth-state.ts`
@@ -2288,17 +2337,21 @@ Cron на сервере (каждый день в 09:00 МСК):
 | `components/forum/CreateThreadForm.tsx` | клиентский | Форма новой темы: `useActionState`, выбор категории с предвыбором из `?category=<slug>`, honeypot, согласие с правилами, сообщение о премодерации |
 | `components/forum/ReplyForm.tsx` | клиентский | Ответ в теме: `useActionState`, `threadId` скрытым полем, ошибки и статус «отправлено на модерацию» |
 | `components/admin/RefundButton.tsx` | клиентский | Кнопка «Оформить возврат» в `/admin/purchases`: подтверждение (доступ закроется сразу, деньги — в кабинете Robokassa), `POST /api/admin/refund`, показ текста отказа с числом отмеченных платных уроков и тестов, `router.refresh()` после успеха |
-| `components/workshop/WorkshopTabs.tsx` | клиентский | Вкладки Мастерской: `role="tablist"` с четырьмя табами, `aria-selected`, `tabIndex="-1"` у неактивных, стрелки ← → с переносом по кругу, лента табов листается вбок; «Склад», «Принтеры» и «Заказы» показывают `UpcomingPanel` с плашкой «В разработке» и планом раздела |
+| `components/workshop/WorkshopTabs.tsx` | клиентский | Вкладки Мастерской: `role="tablist"` с четырьмя табами, `aria-selected`, `tabIndex="-1"` у неактивных, стрелки ← → с переносом по кругу, лента табов листается вбок; «Калькулятор» и «Склад» работают, «Принтеры» и «Заказы» показывают `UpcomingPanel` с плашкой «В разработке» и планом раздела |
+| `components/workshop/WorkshopStockTab.tsx` | клиентский | Вкладка «Склад»: сводка (катушек, остаток, сколько ниже порога), таблица на `md:` и карточки на узком экране, прогресс-бар остатка, красная строка и кнопка «Купить» при остатке ниже порога, пустой склад с кнопкой добавления; открывает окна добавления и списания и возвращает фокус на кнопку-источник |
+| `components/workshop/AddFilamentDialog.tsx` | клиентский | Окно «Добавить катушку»: `useActionState` с `addFilament`, поля из `FILAMENT_NUMBER_FIELDS` и текстовые с `maxLength`, `datalist` типов, ошибки под полями, закрытие по Escape и клику по фону; после успеха `router.refresh()` и сообщение на вкладке |
+| `components/workshop/ConsumeFilamentDialog.tsx` | клиентский | Окно «Списать N грамм»: `useActionState` с `consumeFilament`, `filamentId` скрытым полем, предпросмотр остатка после списания и пометка «ниже порога», ошибка базы отдельной строкой |
+| `components/workshop/use-dialog-dismiss.ts` | клиентский | Хук модальных окон Мастерской: Escape закрывает окно, `document.body.style.overflow = "hidden"`, пока оно открыто; рассчитан на окно, смонтированное только открытым |
 | `components/workshop/WorkshopCalculatorTab.tsx` | клиентский | Вкладка «Калькулятор»: держит настройки в состоянии (после сохранения формы расчёт идёт по новым числам), показывает жёлтое предупреждение при неприменённой миграции, раскладывает форму и расчёт в две колонки (`lg:grid-cols-2`) |
 | `components/workshop/WorkshopSettingsForm.tsx` | клиентский | Форма четырёх настроек из `WORKSHOP_FIELDS`: `useActionState` с `saveWorkshopSettings`, ошибки под полями, общая ошибка над кнопкой; после успеха отдаёт значения наверх (`onSaved`) и вызывает `router.refresh()` |
-| `components/workshop/CostCalculator.tsx` | клиентский | Расчёт себестоимости: три поля из `CALCULATOR_FIELDS`, итог по кнопке «Рассчитать» (при правке поля старый результат убирается), разбивка по четырём строкам, себестоимость, рекомендованная цена с наценкой 150 % и прибыль |
+| `components/workshop/CostCalculator.tsx` | клиентский | Расчёт себестоимости: три поля из `CALCULATOR_FIELDS`, кнопка «Загрузить G-code» (`input type="file"`, `file.text()`, предел 50 МБ) с `parseGcode` — подставляет вес и время из комментариев слайсера и честно говорит, чего в файле нет; итог по кнопке «Рассчитать» (при правке поля старый результат убирается), разбивка по четырём строкам, себестоимость, рекомендованная цена с наценкой 150 % и прибыль |
 | `components/forum/admin/ModerationControls.tsx` | клиентский | Кнопки «Одобрить/Отклонить», форма бана автора и снятие бана; действия приходят из `app/actions/forum-admin.ts` |
 
 ---
 
 ## 9. База данных (Supabase)
 
-Self-hosted Supabase на сервере в РФ: используются только Auth и Postgres. Шестнадцать таблиц, все с
+Self-hosted Supabase на сервере в РФ: используются только Auth и Postgres. Семнадцать таблиц, все с
 включённым RLS.
 
 | Таблица | Колонки | Назначение |
@@ -2319,6 +2372,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `course_reviews` | `id uuid`, `course_id text`, `user_id uuid`, `rating integer`, `text text`, `created_at timestamptz` | Отзывы выпускников: `course_id` — ключ уровня, оценка 1–5, текст 10–1000 символов, один отзыв на курс (`unique (user_id, course_id)`); имена авторов — через представление `course_review_authors` |
 | `promo_codes` | `id uuid`, `code text unique`, `course_id text`, `batch text`, `note text`, `created_at`, `expires_at`, `used_at`, `used_by uuid` | Промокоды на три уровня: `expires_at = null` — бессрочный, `used_at`/`used_by` — момент и владелец активации. RLS: пользователь видит только свои активации (`used_by = auth.uid()`), вставка и обновление — только `service_role`. Активация не создаёт покупку, поэтому в выручке Robokassa не учитывается |
 | `workshop_settings` | `id uuid`, `user_id uuid unique` (`auth.users.id`), `electricity_cost_kwh numeric(10,2)`, `printer_power_w integer`, `depreciation_cost_hour numeric(10,2)`, `labor_cost_hour numeric(10,2)`, `updated_at timestamptz` | Настройки калькулятора Мастерской: одна строка на пользователя (`user_id unique`, `on delete cascade`), пределы в check повторяют форму (0…1000 ₽/кВт·ч, 0…10 000 Вт, 0…100 000 ₽/час), `updated_at` выставляет триггер. RLS: `select`, `insert` и `update` только своих строк, удаления через API нет — строка уходит вместе с аккаунтом; гранты `authenticated` — select/insert/update. Схема — `supabase/workshop_settings.sql` |
+| `workshop_filaments` | `id uuid`, `user_id uuid` (`auth.users.id`), `brand text`, `type text`, `color text`, `total_weight_g integer`, `remaining_weight_g integer`, `price_per_kg numeric(10,2)`, `min_threshold_g integer`, `purchase_url text`, `created_at timestamptz` | Склад пластика Мастерской: одна строка — одна катушка, вес целыми граммами, ссылка на товар необязательна. Check повторяют форму (длины 60/30/40/500, вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г) плюс `remaining_weight_g <= total_weight_g`; индекс `(user_id, created_at)`. RLS: select/insert/update/delete только своих строк, гранты `authenticated`; удаление через API разрешено, но кнопки в интерфейсе пока нет. Схема — `supabase/workshop_filaments.sql` |
 
 Как это работает:
 
@@ -2391,9 +2445,11 @@ Self-hosted Supabase на сервере в РФ: используются то�
   `site_visits.sql` (обезличенный счётчик просмотров: RLS без политик, гранты только
   `service_role`, индекс по `created_at`), `constructor_generations.sql` (журнал выдач
   STL с разбивкой по моделям, `user_id` с `on delete set null`, доступ только у
-  `service_role`) и `workshop_settings.sql` (настройки калькулятора Мастерской: одна строка на
+  `service_role`), `workshop_settings.sql` (настройки калькулятора Мастерской: одна строка на
   пользователя, check-пределы повторяют форму, RLS на свои строки, триггер `updated_at` и
-  `notify pgrst, 'reload schema'`).
+  `notify pgrst, 'reload schema'`) и `workshop_filaments.sql` (склад пластика: катушки с весом,
+  остатком, порогом и ссылкой на товар, check-пределы повторяют форму, индекс по `user_id` и
+  `created_at`, RLS на свои строки и гранты `authenticated`).
   `fix-missing-objects.sql` — ремонтная копия для базы, где `site_visits` и
   `course_review_authors` не появились, а политики `course_reviews` уже есть: все
   операторы идемпотентны (`create ... if not exists`, `create or replace view`,
@@ -4798,3 +4854,44 @@ Robokassa; деньги владелец возвращает в кабинет�
 `npm run lint` — чисто,
 `npm run check:imports` — 1 435 импортов без битых, `npm run check:docs` — 227 путей и сводка
 сходятся, `npm run check:style` — 38 уроков, 0 нарушений, `npm run build` — без ошибок.
+
+**Мастерская: склад пластика и парсер G-code (24 октября 2026).** Второй этап `/dashboard/workshop`:
+вкладка «Склад» перестала быть заглушкой, а калькулятор научился брать вес и время из файла.
+
+Склад (`components/workshop/WorkshopStockTab.tsx`) — катушки пластика: бренд, тип, цвет, остаток с
+прогресс-баром, порог и ссылка на товар. Остаток ниже `min_threshold_g` красит строку красным и
+превращает ссылку в кнопку «Купить» (`target="_blank"`), пустая катушка тоже считается «пора».
+Таблица на `md:` и карточки на узком экране, над ними сводка: катушек, суммарный остаток и сколько
+пора докупить. Добавление и списание — окна `AddFilamentDialog` и `ConsumeFilamentDialog` на
+`useActionState`; они монтируются только открытыми, поэтому состояние формы и старая ошибка не
+переезжают в следующее открытие, а фокус после закрытия возвращается на кнопку-источник
+(`useDialogDismiss`). Списание перечитывает остаток из базы и отказывает, если граммов больше, чем
+есть.
+
+Данные склада — `lib/workshop/filaments.ts` (пределы полей, `normalizeFilamentRow`, разбор обеих
+форм, `isLowStockFilament`, `filamentRemainingPercent`), чтение — `getWorkshopFilaments()` в
+`lib/workshop/filament-store.ts` (ошибка не пробрасывается: пустой склад и `isMissingTable`),
+запись — `addFilament` и `consumeFilament` в `app/actions/filaments.ts` (сессия, повторная проверка
+`hasActiveSubscription`, `revalidatePath`). Ссылка на товар принимается только с `http(s)://`.
+
+G-code — `lib/gcode-parser.ts`: `parseGcode(text)` ищет время по `;TIME_PRINTING:`,
+`; estimated printing time … =`, `; total estimated time:`, `; model printing time:` и `;TIME:`, а
+вес — по `; total filament used [g]`, `; filament used [g]`, `;Filament used:` и
+`; filament used [mm]` (миллиметры и метры переводятся в граммы по PLA 1,75 мм, ≈ 2,98 г/м). Время
+понимает «1h 6m 12s», «1 ч 30 мин», `ч:м:с`, `м:с` и голые секунды, вес — список по экструдерам и
+единицы г/кг/мг/м/мм. В калькуляторе появилась кнопка «Загрузить G-code» (`file.text()`, предел
+50 МБ): заполняются только найденные поля, а строка состояния говорит, чего в файле нет; сам файл
+никуда не отправляется.
+
+Таблица `workshop_filaments` — в `supabase/workshop_filaments.sql`, применяется вручную: `user_id`
+с `on delete cascade`, check-длины 60/30/40/500, вес 1–100 000 г, остаток 0–100 000 г, цена
+0–100 000 ₽/кг, порог 0–100 000 г, `remaining_weight_g <= total_weight_g`, индекс по `user_id` и
+`created_at`, RLS на select/insert/update/delete своих строк и гранты `authenticated`. Пока
+таблицы нет, склад пуст, а вкладка показывает жёлтое предупреждение с просьбой применить миграцию.
+
+Парсер проверен временным прогоном на семи образцах (PrusaSlicer, Cura, Orca, `TIME_PRINTING`,
+только миллиметры, несколько экструдеров, файл без комментариев) — 23 проверки, 0 провалов.
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:imports` — 1 465
+импортов без битых, `npm run check:docs` — 237 путей и сводка сходятся, `npm run check:style` —
+38 уроков, 0 нарушений.
+

@@ -7,6 +7,7 @@ import { WorkshopTabs } from "@/components/workshop/WorkshopTabs";
 import { resolveUserId } from "@/lib/current-user";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
+import { getWorkshopFilaments } from "@/lib/workshop/filament-store";
 import { getWorkshopSettings } from "@/lib/workshop/store";
 
 /**
@@ -17,8 +18,9 @@ import { getWorkshopSettings } from "@/lib/workshop/store";
  * порядок у библиотеки профилей, и он позволяет показать гостю и ученику без
  * пакета понятное объяснение, а не глухой редирект.
  *
- * Настройки читаются только при открытом доступе: без пакета сохранять их всё
- * равно нельзя, значит и запрос к workshop_settings не нужен.
+ * Настройки и склад читаются только при открытом доступе: без пакета сохранять
+ * их всё равно нельзя, значит и лишние запросы к базе не нужны. Запросы идут
+ * параллельно — это две независимые таблицы.
  */
 export const metadata: Metadata = {
   title: "Мастерская — TriDi",
@@ -39,9 +41,12 @@ export default async function WorkshopPage() {
   }
 
   const hasPro = await hasActiveSubscription(supabase, userId);
-  const snapshot = hasPro
-    ? await getWorkshopSettings(supabase, userId)
-    : null;
+  const [snapshot, stock] = hasPro
+    ? await Promise.all([
+        getWorkshopSettings(supabase, userId),
+        getWorkshopFilaments(supabase, userId),
+      ])
+    : [null, null];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -75,15 +80,17 @@ export default async function WorkshopPage() {
           Мастерская
         </h1>
         <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-300 sm:text-lg">
-          Рабочее место для 3D-печати: себестоимость заказа, рекомендованная цена
-          и прибыль — без таблиц в блокноте. Склад, принтеры и заказы подключим
-          следующими этапами.
+          Рабочее место для 3D-печати: себестоимость заказа, рекомендованная цена,
+          прибыль и склад пластика — без таблиц в блокноте. Принтеры и заказы
+          подключим следующими этапами.
         </p>
 
-        {snapshot ? (
+        {snapshot && stock ? (
           <WorkshopTabs
             settings={snapshot.settings}
+            filaments={stock.filaments}
             isMissingTable={snapshot.isMissingTable}
+            isFilamentsMissingTable={stock.isMissingTable}
           />
         ) : (
           <LockedWorkshop />
@@ -123,8 +130,9 @@ function LockedWorkshop() {
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
             Калькулятор считает себестоимость заказа по вашему тарифу на
             электричество, мощности принтера и стоимости часа работы, а затем
-            показывает рекомендованную цену и прибыль. Настройки сохраняются в
-            аккаунте — вводить их заново не придётся.
+            показывает рекомендованную цену и прибыль. Склад помнит остатки
+            катушек и подсказывает, что пора докупить. Настройки и катушки
+            сохраняются в аккаунте — вводить их заново не придётся.
           </p>
         </div>
       </div>
@@ -133,7 +141,8 @@ function LockedWorkshop() {
         {[
           "Себестоимость заказа: материал, электричество, амортизация и работа",
           "Рекомендованная цена с наценкой и прибыль по каждой модели",
-          "Склад, принтеры и заказы — в следующих этапах",
+          "Склад пластика: остатки, порог и кнопка «Купить»",
+          "Принтеры и заказы — в следующих этапах",
         ].map((point) => (
           <li
             key={point}

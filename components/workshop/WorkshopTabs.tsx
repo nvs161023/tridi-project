@@ -3,14 +3,16 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 
 import { WorkshopCalculatorTab } from "@/components/workshop/WorkshopCalculatorTab";
+import { WorkshopStockTab } from "@/components/workshop/WorkshopStockTab";
+import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import type { WorkshopSettings } from "@/lib/workshop/settings";
 
 /**
  * Табы Мастерской.
  *
- * Калькулятор работает уже сейчас, остальные разделы появятся следующими
- * этапами. Вместо пустых ссылок показываем, что именно будет в каждом разделе:
- * человек понимает, за что платит, и не уходит искать несуществующую страницу.
+ * Калькулятор и склад работают, принтеры и заказы появятся следующими этапами.
+ * Вместо пустых ссылок показываем, что именно будет в каждом разделе: человек
+ * понимает, за что платит, и не уходит искать несуществующую страницу.
  *
  * На мобильном лента табов листается вбок (`overflow-x-auto`), поэтому четыре
  * подписи не ломают вёрстку. Стрелки клавиатуры переключают табы — так
@@ -20,7 +22,9 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
 
 type WorkshopTabsProps = {
   settings: WorkshopSettings;
+  filaments: WorkshopFilament[];
   isMissingTable: boolean;
+  isFilamentsMissingTable: boolean;
 };
 
 const TABS = [
@@ -32,6 +36,9 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
+/** Разделы, которые ещё в разработке. */
+type UpcomingTabId = Exclude<TabId, "calculator" | "inventory">;
+
 type UpcomingTab = {
   title: string;
   description: string;
@@ -39,17 +46,7 @@ type UpcomingTab = {
 };
 
 /** Что появится в разделах, которые ещё в разработке. */
-const UPCOMING: Record<Exclude<TabId, "calculator">, UpcomingTab> = {
-  inventory: {
-    title: "Склад",
-    description:
-      "Остатки пластика и расходников, чтобы заказ не вставал из-за пустой катушки.",
-    points: [
-      "Катушки по материалу и цвету, остаток в граммах",
-      "Списание пластика в заказ по факту печати",
-      "Подсказка, что пора докупить",
-    ],
-  },
+const UPCOMING: Record<UpcomingTabId, UpcomingTab> = {
   printers: {
     title: "Принтеры",
     description: "Парк принтеров, их загрузка и обслуживание в одном списке.",
@@ -70,9 +67,19 @@ const UPCOMING: Record<Exclude<TabId, "calculator">, UpcomingTab> = {
   },
 };
 
-const UPCOMING_IDS = Object.keys(UPCOMING) as Exclude<TabId, "calculator">[];
+const UPCOMING_IDS = Object.keys(UPCOMING) as UpcomingTabId[];
 
-export function WorkshopTabs({ settings, isMissingTable }: WorkshopTabsProps) {
+/** Раздел ещё в разработке: подпись в табе и заглушка вместо содержимого. */
+function isUpcoming(tabId: TabId): tabId is UpcomingTabId {
+  return tabId in UPCOMING;
+}
+
+export function WorkshopTabs({
+  settings,
+  filaments,
+  isMissingTable,
+  isFilamentsMissingTable,
+}: WorkshopTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>("calculator");
   const tabRefs = useRef(new Map<TabId, HTMLButtonElement | null>());
 
@@ -127,7 +134,7 @@ export function WorkshopTabs({ settings, isMissingTable }: WorkshopTabsProps) {
             >
               <span aria-hidden>{tab.icon}</span>
               {tab.label}
-              {tab.id !== "calculator" ? (
+              {isUpcoming(tab.id) ? (
                 <span className="sr-only"> — в разработке</span>
               ) : null}
             </button>
@@ -145,6 +152,19 @@ export function WorkshopTabs({ settings, isMissingTable }: WorkshopTabsProps) {
         <WorkshopCalculatorTab
           initialSettings={settings}
           isMissingTable={isMissingTable}
+        />
+      </div>
+
+      <div
+        role="tabpanel"
+        id="workshop-panel-inventory"
+        aria-labelledby="workshop-tab-inventory"
+        hidden={activeTab !== "inventory"}
+        className="mt-6"
+      >
+        <WorkshopStockTab
+          filaments={filaments}
+          isMissingTable={isFilamentsMissingTable}
         />
       </div>
 
@@ -193,8 +213,8 @@ function UpcomingPanel({ tab }: { tab: UpcomingTab }) {
         ))}
       </ul>
       <p className="mt-6 text-xs leading-relaxed text-slate-400">
-        Раздел появится в следующих этапах Мастерской. Калькулятор уже работает —
-        начните с него.
+        Раздел появится в следующих этапах Мастерской. Калькулятор и склад уже
+        работают — начните с них.
       </p>
     </section>
   );

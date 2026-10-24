@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 
+import { parseGcode } from "@/lib/gcode-parser";
 import {
   CALCULATOR_FIELDS,
   WORKSHOP_MARKUP,
@@ -44,6 +45,31 @@ const INITIAL_VALUES = Object.fromEntries(
   ]),
 ) as Record<CalculatorFieldKey, string>;
 
+/** Сообщение под кнопкой загрузки G-code: тон задаёт цвет. */
+type GcodeMessage = {
+  tone: "success" | "warning" | "error";
+  text: string;
+};
+
+/**
+ * Предел размера файла: 50 МБ. Читать больше — значит держать в памяти
+ * текст, который всё равно нужен только ради заголовка, и подвешивать вкладку
+ * на слабом ноутбуке.
+ */
+const MAX_GCODE_BYTES = 50 * 1024 * 1024;
+
+/** Числа из G-code для сообщения: «1,1», «12,3». */
+const gcodeNumberFormatter = new Intl.NumberFormat("ru-RU", {
+  maximumFractionDigits: 2,
+});
+
+/** Цвет строки состояния под кнопкой загрузки G-code. */
+const GCODE_TONE_CLASSES = {
+  success: "border-emerald-400/40 bg-emerald-500/10 text-emerald-100",
+  warning: "border-amber-400/40 bg-amber-500/10 text-amber-100",
+  error: "border-red-400/40 bg-red-500/10 text-red-100",
+} as const;
+
 export function CostCalculator({ settings }: CostCalculatorProps) {
   const [values, setValues] =
     useState<Record<CalculatorFieldKey, string>>(INITIAL_VALUES);
@@ -51,6 +77,8 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
     Partial<Record<CalculatorFieldKey, string>>
   >({});
   const [input, setInput] = useState<CalculatorInput | null>(null);
+  const [gcodeMessage, setGcodeMessage] = useState<GcodeMessage | null>(null);
+  const [isReadingGcode, setIsReadingGcode] = useState(false);
 
   // Настройки могли только что сохранить: пересчитываем по ним же, без
   // повторного нажатия «Рассчитать».
@@ -72,6 +100,89 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
     setInput(null);
   }
 
+  /**
+   * Загрузка G-code: вес и время берём из комментариев слайсера.
+   *
+   * Файл читается в браузере и никуда не отправляется. Поле выбора очищается
+   * сразу после чтения — иначе повторный выбор того же файла не вызовет
+   * onChange, и человек решит, что кнопка не работает.
+   *
+   * Старый расчёт убирается: он посчитан по прежним числам, и оставлять его на
+   * экране рядом с новыми полями — значит показывать неверную себестоимость.
+   */
+  async function handleGcodeChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    if (file.size > MAX_GCODE_BYTES) {
+      setGcodeMessage({
+        tone: "error",
+        text: "Файл больше 50 МБ. Сохраните его заново или впишите вес и время вручную.",
+      });
+      return;
+    }
+
+    setIsReadingGcode(true);
+    setGcodeMessage(null);
+
+    try {
+      const estimate = parseGcode(await file.text());
+      const nextValues = { ...values };
+
+      if (estimate.weightGrams !== null) {
+        nextValues.weightGrams = String(estimate.weightGrams);
+      }
+
+      if (estimate.timeHours !== null) {
+        nextValues.printHours = String(estimate.timeHours);
+      }
+
+      setValues(nextValues);
+      setErrors({});
+      setInput(null);
+
+      if (estimate.weightGrams !== null && estimate.timeHours !== null) {
+        setGcodeMessage({
+          tone: "success",
+          text: `Из файла: вес ${gcodeNumberFormatter.format(estimate.weightGrams)} г, время ${gcodeNumberFormatter.format(estimate.timeHours)} ч. Проверьте и нажмите «Рассчитать».`,
+        });
+        return;
+      }
+
+      if (estimate.weightGrams !== null) {
+        setGcodeMessage({
+          tone: "warning",
+          text: `Из файла взяли вес ${gcodeNumberFormatter.format(estimate.weightGrams)} г — время печати в комментариях не нашлось.`,
+        });
+        return;
+      }
+
+      if (estimate.timeHours !== null) {
+        setGcodeMessage({
+          tone: "warning",
+          text: `Из файла взяли время ${gcodeNumberFormatter.format(estimate.timeHours)} ч — вес пластика в комментариях не нашёлся.`,
+        });
+        return;
+      }
+
+      setGcodeMessage({
+        tone: "warning",
+        text: "В файле не нашлось ни времени печати, ни веса пластика. Заполните поля вручную — или сохраните G-code с комментариями слайсера.",
+      });
+    } catch {
+      setGcodeMessage({
+        tone: "error",
+        text: "Не удалось прочитать файл. Попробуйте другой G-code.",
+      });
+    } finally {
+      setIsReadingGcode(false);
+    }
+  }
+
   return (
     <section
       aria-labelledby="workshop-calculator-title"
@@ -87,9 +198,39 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
         Себестоимость заказа
       </h2>
       <p className="mt-2 text-sm leading-relaxed text-slate-300">
-        Вес и время печати возьмите из слайсера. Настройки слева подставляются в
-        электричество, амортизацию и работу.
+        Вес и время печати подставит G-code из слайсера — или впишите их вручную.
+        Настройки слева идут в электричество, амортизацию и работу.
       </p>
+
+      <div className="mt-5 rounded-2xl border border-dashed border-white/15 bg-slate-950/40 p-4">
+        <label
+          htmlFor="calculator-gcode"
+          className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100 transition-colors hover:bg-blue-500/20 focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
+        >
+          <span aria-hidden>📄</span>
+          {isReadingGcode ? "Читаем файл…" : "Загрузить G-code"}
+          <input
+            id="calculator-gcode"
+            type="file"
+            accept=".gcode,.gco,.g"
+            onChange={handleGcodeChange}
+            disabled={isReadingGcode}
+            className="sr-only"
+          />
+        </label>
+        <p className="mt-2 text-xs leading-relaxed text-slate-400">
+          Файл из слайсера: вес модели и время печати подставим из комментариев.
+          Разбор идёт в браузере — файл никуда не загружается.
+        </p>
+        {gcodeMessage ? (
+          <p
+            role="status"
+            className={`mt-2 rounded-xl border px-3 py-2 text-xs leading-relaxed ${GCODE_TONE_CLASSES[gcodeMessage.tone]}`}
+          >
+            {gcodeMessage.text}
+          </p>
+        ) : null}
+      </div>
 
       <form onSubmit={handleSubmit} noValidate className="mt-5 grid gap-4">
         {CALCULATOR_FIELDS.map((field) => {
