@@ -57,6 +57,8 @@ const PRINTER_NOT_FOUND =
   "Принтер не найден — возможно, его удалили. Обновите страницу.";
 const FILAMENT_NOT_FOUND =
   "Катушка не найдена — возможно, её удалили. Обновите страницу.";
+const PRODUCT_NOT_FOUND =
+  "Товар не найден — возможно, его удалили. Обновите страницу.";
 const ORDER_NOT_FOUND =
   "Заказ не найден — возможно, его уже удалили. Обновите страницу.";
 const INVALID_ID = "Заказ не найден — обновите страницу.";
@@ -155,6 +157,29 @@ export async function createOrder(
 
     if (!filament) {
       return { fieldErrors: { filamentId: FILAMENT_NOT_FOUND } };
+    }
+  }
+
+  if (draft.productId) {
+    const { data, error } = await supabase
+      .from("workshop_products")
+      .select("id")
+      .eq("id", draft.productId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("Товар не прочитан:", error.code, error.message);
+
+      return {
+        error: isMissingTableSchema(error.code, error.message)
+          ? MIGRATION_MISSING
+          : LOAD_FAILED,
+      };
+    }
+
+    if (!data) {
+      return { fieldErrors: { productId: PRODUCT_NOT_FOUND } };
     }
   }
 

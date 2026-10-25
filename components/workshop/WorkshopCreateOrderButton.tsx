@@ -6,6 +6,7 @@ import { CreateOrderDialog } from "@/components/workshop/CreateOrderDialog";
 import { PlusIcon } from "@/components/workshop/WorkshopIcons";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import type { WorkshopPrinter } from "@/lib/workshop/printers";
+import type { WorkshopProduct } from "@/lib/workshop/products";
 
 /**
  * Акцентная кнопка «Создать заказ» в hero Мастерской.
@@ -20,11 +21,13 @@ import type { WorkshopPrinter } from "@/lib/workshop/printers";
 type WorkshopCreateOrderButtonProps = {
   printers: WorkshopPrinter[];
   filaments: WorkshopFilament[];
+  products: WorkshopProduct[];
 };
 
 export function WorkshopCreateOrderButton({
   printers,
   filaments,
+  products,
 }: WorkshopCreateOrderButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -64,6 +67,7 @@ export function WorkshopCreateOrderButton({
         <CreateOrderDialog
           printers={printers}
           filaments={filaments}
+          products={products}
           onClose={closeDialog}
           onCreated={handleCreated}
         />

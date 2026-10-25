@@ -25,6 +25,7 @@ import {
   type WorkshopOrder,
 } from "@/lib/workshop/orders";
 import type { WorkshopPrinter } from "@/lib/workshop/printers";
+import type { WorkshopProduct } from "@/lib/workshop/products";
 
 /**
  * Вкладка «Заказы» — Kanban-доска.
@@ -48,6 +49,7 @@ type WorkshopOrdersTabProps = {
   orders: WorkshopOrder[];
   printers: WorkshopPrinter[];
   filaments: WorkshopFilament[];
+  products: WorkshopProduct[];
   /** В базе нет таблицы workshop_orders — миграция не применена. */
   isMissingTable: boolean;
 };
@@ -98,6 +100,7 @@ export function WorkshopOrdersTab({
   orders,
   printers,
   filaments,
+  products,
   isMissingTable,
 }: WorkshopOrdersTabProps) {
   const router = useRouter();
@@ -322,6 +325,7 @@ export function WorkshopOrdersTab({
         <CreateOrderDialog
           printers={printers}
           filaments={filaments}
+          products={products}
           onClose={closeCreate}
           onCreated={setNotice}
         />

@@ -107,6 +107,7 @@ export type OrderDraft = {
   printTimeHours: number;
   printerId: string | null;
   filamentId: string | null;
+  productId: string | null;
   notes: string;
   deadline: string | null;
 };
@@ -120,6 +121,7 @@ export type OrderFormErrors = Partial<
     | "printTimeHours"
     | "printerId"
     | "filamentId"
+    | "productId"
     | "notes"
     | "deadline",
     string
@@ -264,6 +266,17 @@ export function readOrderForm(formData: FormData): {
     errors.filamentId = filament.error;
   }
 
+  // product_id — такой же uuid, как id заказа и ссылки на технику.
+  const product = readOptionalId(
+    formData.get("productId"),
+    isOrderId,
+    "Товар не найден — обновите страницу.",
+  );
+
+  if (product.error) {
+    errors.productId = product.error;
+  }
+
   const rawDeadline = readFormText(formData.get("deadline"));
   let deadline: string | null = null;
 
@@ -288,6 +301,7 @@ export function readOrderForm(formData: FormData): {
       printTimeHours: hours.ok ? hours.value : 0,
       printerId: printer.id,
       filamentId: filament.id,
+      productId: product.id,
       notes,
       deadline,
     },

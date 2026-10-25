@@ -107,6 +107,12 @@ export type WorkshopOrderPayload = {
   print_time_hours: number;
   printer_id: string | null;
   filament_id: string | null;
+  /**
+   * Ссылка на товар каталога. Поле необязательное: без выбранного товара его
+   * нет в payload, чтобы заказ создавался и до применения миграции
+   * workshop_products.sql (там колонка product_id появляется).
+   */
+  product_id?: string;
   notes: string | null;
   deadline: string | null;
 };
@@ -121,7 +127,7 @@ export function createOrderPayload(
   userId: string,
   draft: OrderDraft,
 ): WorkshopOrderPayload {
-  return {
+  const payload: WorkshopOrderPayload = {
     user_id: userId,
     title: draft.title,
     client_name: draft.clientName || null,
@@ -133,6 +139,12 @@ export function createOrderPayload(
     notes: draft.notes || null,
     deadline: draft.deadline,
   };
+
+  if (draft.productId) {
+    payload.product_id = draft.productId;
+  }
+
+  return payload;
 }
 
 /** Что уходит в `from("workshop_printers").update(...)` после заказа. */

@@ -23,6 +23,7 @@ import {
   formatPrinterHours,
   type WorkshopPrinter,
 } from "@/lib/workshop/printers";
+import type { WorkshopProduct } from "@/lib/workshop/products";
 import { parseWorkshopNumber } from "@/lib/workshop/settings";
 
 /**
@@ -42,6 +43,8 @@ import { parseWorkshopNumber } from "@/lib/workshop/settings";
 type CreateOrderDialogProps = {
   printers: WorkshopPrinter[];
   filaments: WorkshopFilament[];
+  /** Каталог для необязательной связи заказа с товаром. */
+  products: WorkshopProduct[];
   onClose: () => void;
   /** Сообщение для строки состояния на вкладке. */
   onCreated: (message: string) => void;
@@ -71,6 +74,7 @@ const GCODE_TONE_CLASSES = {
 export function CreateOrderDialog({
   printers,
   filaments,
+  products,
   onClose,
   onCreated,
 }: CreateOrderDialogProps) {
@@ -81,6 +85,7 @@ export function CreateOrderDialog({
   );
   const [weight, setWeight] = useState("0");
   const [hours, setHours] = useState("0");
+  const [productId, setProductId] = useState("");
   const [printerId, setPrinterId] = useState("");
   const [filamentId, setFilamentId] = useState("");
   const [gcodeMessage, setGcodeMessage] = useState<GcodeMessage | null>(null);
@@ -226,6 +231,56 @@ export function CreateOrderDialog({
           autoComplete="off"
           className="mt-6 space-y-4"
         >
+          <div>
+            <label
+              htmlFor="order-product"
+              className="block text-sm font-semibold text-slate-200"
+            >
+              Товар из каталога (необязательно)
+            </label>
+            <select
+              id="order-product"
+              name="productId"
+              autoComplete="off"
+              value={productId}
+              onChange={(event) => setProductId(event.currentTarget.value)}
+              aria-invalid={state.fieldErrors?.productId ? true : undefined}
+              aria-describedby={
+                state.fieldErrors?.productId
+                  ? "order-product-error"
+                  : "order-product-hint"
+              }
+              className={inputClassName}
+            >
+              <option value="">
+                — Выберите товар из каталога (необязательно) —
+              </option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.title}
+                </option>
+              ))}
+            </select>
+            {state.fieldErrors?.productId ? (
+              <p
+                id="order-product-error"
+                role="alert"
+                className="mt-1.5 text-sm text-red-300"
+              >
+                {state.fieldErrors.productId}
+              </p>
+            ) : (
+              <p
+                id="order-product-hint"
+                className="mt-1.5 text-xs leading-relaxed text-slate-400"
+              >
+                {products.length === 0
+                  ? "Каталог пока пуст — добавьте товары на вкладке «Товары»."
+                  : "Заказ сохранит ссылку на выбранный товар."}
+              </p>
+            )}
+          </div>
+
           <div>
             <label
               htmlFor="order-title"
