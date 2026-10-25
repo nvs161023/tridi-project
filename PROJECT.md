@@ -1997,6 +1997,23 @@ Cron на сервере (каждый день в 09:00 МСК):
 товара (артикул, название, описание, цены, габариты и дополнительные поля). «Сохранить» вызывает
 `addProduct`, после успеха `router.refresh()` обновляет серверные данные, поэтому товар остаётся
 в таблице и после перезагрузки страницы.
+
+Импорт товаров из CSV — `importProductsFromCsv(csvString, platform)` в `lib/workshop/products.ts`.
+Порядок: сессия → `hasActiveSubscription` → разбор файла → чтение существующих артикулов →
+`upsert` в `workshop_products`. Интерфейс импорта пока не подключён: это только серверная часть.
+Для Ozon обязательны колонки `Offer ID` (или `Артикул`), `Name` (или `Название`), `Price` (или
+`Цена`) и `Weight` (или `Вес`); для Wildberries — `Артикул продавца`, `Наименование`, `Цена` и
+`Вес с упаковкой`. Заголовки сравниваются без учёта регистра и лишних пробелов, BOM снимается,
+`papaparse` сам определяет `,` или `;` и понимает кавычки. Цена принимает `₽`, пробелы и запятую
+(«1 250,50 ₽» → 1250.5), вес — голые граммы, `г`, `кг` и `мг` («0,18 кг» → 180 г).
+Строки без артикула, названия или корректной цены пропускаются с номером строки в `errors`;
+пропущенная обязательная колонка отменяет весь файл. Одинаковый SKU внутри CSV берётся последним —
+предупреждение об этом тоже попадает в `errors`. Запись идёт порциями по 200 строк, конфликт
+`(user_id, sku)` разрешается `upsert`: существующей карточке обновляются только `title`, `price` и
+`weight_g`, описание, габариты и прочие поля остаются прежними. Пустой вес записывает `null`.
+Ответ — `{ imported, updated, errors }`, где счётчики считают только реально записанные строки;
+после успеха вызывается `revalidatePath("/dashboard/workshop")`.
+
 Вкладка «Заказы» стала Kanban-доской: четыре колонки «Новые», «В печати», «Готовы» и «Выданы».
 На `lg:` это сетка из четырёх равных колонок, на мобильном — лента с горизонтальной прокруткой.
 Карточка показывает название, клиента, стоимость, время печати, срок (просроченный — красным
@@ -2376,6 +2393,7 @@ RLS на выборку, вставку, обновление и удалени�
 | `lib/workshop/printer-store.ts` | `getWorkshopPrinters(supabase, userId)` → `{ printers, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой парк и признак неприменённой миграции |
 | `lib/workshop/orders.ts` | Заказы: `WorkshopOrder`, `OrderStatus` и `ORDER_STATUS_META` (подписи и классы бейджей), `ORDER_STATUS_SEQUENCE`/`nextOrderStatus` (new → printing → ready → delivered, дальше `null`), `ORDER_COLUMNS`, `ORDER_TEXT_LIMITS` (80/60/1000), `ORDER_LIMITS` (стоимость 0–1 000 000 ₽, вес 0–100 000 г, время 0–100 000 ч), `readOrderForm` (числа с запятой, необязательные uuid принтера, катушки, товара и дата; `productId` в `OrderDraft`), `normalizeOrderRow`, `isOrderId`, `isOrderStatus`, `formatOrderCost`/`formatOrderDate`/`formatOrderHours`, `planPrinterUsage` (прибавляет время к четырём счётчикам: всего, сопло, смазка осей, винт Z) и `planFilamentUsage` (остаток или отказ «не хватает пластика») |
 | `lib/workshop/order-store.ts` | `getWorkshopOrders(supabase, userId)` → `{ orders, isMissingTable }`: выборка по `user_id`, новые сверху, ошибку не пробрасывает — пустой список и признак неприменённой миграции |
+| `lib/workshop/products.ts` | Каталог товаров: `WorkshopProduct`, `PRODUCT_COLUMNS`, `PRODUCT_TEXT_LIMITS`, `readProductForm` (цена и вес с запятой, необязательные габариты и старые цены), `normalizeProductRow`, `getWorkshopProducts` (миграция не роняет страницу), `addProduct` и `importProductsFromCsv` — Server Actions с повторной проверкой сессии и `hasActiveSubscription`; импорт разбирает CSV Ozon/WB через `papaparse` (`parseProductsCsv`: алиасы заголовков, цена с `₽`, вес в г/кг/мг, ошибки по строкам), обновляет существующие SKU через `upsert (user_id, sku)` и возвращает `{ imported, updated, errors }` |
 | `lib/workshop/printer-presets.ts` | Справочник принтеров: `PrinterPreset` и `PRINTER_PRESETS` — восемнадцать моделей (Bambu Lab X1, X1C, P1S, A1, A1 mini; Prusa MK4 и MK3S+; Creality Ender-3 V3, K1, K1 Max, K1C; Anycubic Kobra; Elegoo Neptune 4; Sovol SV06 и SV07; Artillery Sidewinder; Voron 2.4 и Trident) с наработкой до обслуживания сопла (`nozzleHours`, 400–1000 ч), смазки направляющих (`lubricationHours`, 0–1000 ч; 0 у карбоновых стержней Bambu Lab — их чистят спиртом, а не смазывают), смазки винта Z (`zScrewHours`, 500–1000 ч) и подсказкой `note`; числа — ориентиры производителя, в форме их можно изменить. `PRINTER_BRAND_OPTIONS` — уникальные бренды для datalist, `formatPrinterPresetLabel` — подпись «бренд — модель», `normalizePrinterModel`/`findPrinterPresetByModel` — поиск пресета по свободно введённой модели без учёта регистра, пробелов и вида тире |
 | `lib/workshop/maintenance-guides.ts` | `MAINTENANCE_GUIDES: Record<string, string>` — подробные markdown-инструкции для каждой модели, ключ `"${brand} ${model}"`; 5–10 пунктов о чистке сопла, смазке осей и винта Z и особенностях (карбоновые стержни, ремни, эксцентрики). `getMaintenanceGuide(brand, model)` возвращает строку или `null`; окно разбирает только заголовки `##`, пункты `-` и `**жирный**` |
 | `lib/gcode-parser.ts` | Разбор G-code в браузере: `parseGcode(text)` → `{ timeHours, weightGrams }`; время из `;TIME_PRINTING:`, `; estimated printing time … =`, `; total estimated time:`, `; model printing time:`, `;TIME:` (форматы «1h 6m 12s», «1 ч 30 мин», `ч:м:с`, `м:с`, голые секунды), вес из `; total filament used [g]`, `; filament used [g]`, `;Filament used:`, `; filament used [mm]` (сумма по экструдерам, г/кг/мг/м/мм, `GCODE_GRAMS_PER_METER` ≈ 2,98 г для PLA 1,75 мм); шаблоны ищут первое совпадение по всему тексту, отсутствующее значение — `null` |
@@ -5322,4 +5340,27 @@ Playwright без изображений выбрал товар: значени
 `700` и `95`; ручные «Мой заказ», `999` и `42` сохранились; очищенное название заполнилось снова;
 пустой вариант оставил значения на месте. Ошибок страницы нет. Временные файлы удалены, порт 3101
 освобождён.
+
+**Мастерская: серверный импорт товаров из CSV (25 октября 2026).** В `lib/workshop/products.ts`
+появился Server Action `importProductsFromCsv(csvString, platform)` и чистый разбор
+`parseProductsCsv`. Интерфейс не менялся: кнопок и модальных окон импорта пока нет. Действие
+проверяет сессию и `hasActiveSubscription`, затем принимает Ozon (`Offer ID`/`Артикул`,
+`Name`/`Название`, `Price`/`Цена`, `Weight`/`Вес`) и Wildberries (`Артикул продавца`,
+`Наименование`, `Цена`, `Вес с упаковкой`). `papaparse` разбирает `,` и `;`, BOM снимается,
+заголовки сравниваются без учёта регистра и лишних пробелов; цена понимает `₽`, разряды и запятую,
+вес переводится из `кг` и `мг` в граммы.
+
+Каталог читается порциями по 100 артикулов, запись идёт `upsert` порциями по 200 с конфликтом
+`(user_id, sku)`. Существующей карточке обновляются только `title`, `price` и `weight_g`, остальные
+поля не затираются. Ошибки строк (пустой артикул или название, нераспознанная цена или вес,
+пропущенная колонка, дубль SKU) возвращаются в `errors` с номером строки; валидные строки при этом
+сохраняются. Ответ — `{ imported, updated, errors }`.
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:imports` — 1 574
+импорта без битых, `npm run check:docs` — 267 путей и сводка сходятся, `npm run check:style` —
+38 уроков, 0 нарушений, `npm run build` — `Compiled successfully` (`/dashboard/workshop` 34,9 kB /
+141 kB первой загрузки), `git diff --check` — чисто. Временный прогон `parseProductsCsv` — 6
+проверок: Ozon с `;` и BOM, русские заголовки, английские разряды `1,250.00`, WB с дублем SKU,
+отсутствующая колонка и пустой файл. Сам Server Action — ещё 2 проверки предохранителей (пустой
+CSV, неизвестная площадка). Временные файлы удалены, изображения не снимались.
 
