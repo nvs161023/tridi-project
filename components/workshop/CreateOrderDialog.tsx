@@ -69,6 +69,37 @@ const gcodeNumberFormatter = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 2,
 });
 
+/** Остаток и цена в списке катушек: «1 000 г», «1 250,5 ₽/кг». */
+const filamentOptionNumberFormatter = new Intl.NumberFormat("ru-RU", {
+  maximumFractionDigits: 2,
+});
+
+/**
+ * Текст опции катушки: название, остаток и цена за килограмм.
+ *
+ * Native `<option>` не переносит строки, поэтому части разделены «|»: в
+ * выпадающем списке видно, за что платим и сколько пластика осталось.
+ * Пустая цена — «Цена не указана», нулевой остаток — «(Нет в наличии)».
+ */
+function formatFilamentOption(filament: WorkshopFilament): string {
+  const name = [filament.brand, filament.type, filament.color]
+    .filter(Boolean)
+    .join(" ");
+  const remaining = `${filamentOptionNumberFormatter.format(
+    filament.remainingWeightG,
+  )} г`;
+  const price =
+    filament.pricePerKg > 0
+      ? `Цена: ${filamentOptionNumberFormatter.format(
+          filament.pricePerKg,
+        )} ₽/кг`
+      : "Цена не указана";
+  const outOfStock =
+    filament.remainingWeightG <= 0 ? " (Нет в наличии)" : "";
+
+  return `${name} | Остаток: ${remaining} | ${price}${outOfStock}`;
+}
+
 type GcodeMessage = {
   tone: "success" | "warning" | "error";
   text: string;
@@ -801,23 +832,15 @@ export function CreateOrderDialog({
               <option value="">
                 Без катушки — пластик не списывается
               </option>
-              {filaments.map((filament) => {
-                const isOutOfStock = filament.remainingWeightG <= 0;
-
-                return (
-                  <option
-                    key={filament.id}
-                    value={filament.id}
-                    disabled={isOutOfStock}
-                  >
-                    {[filament.brand, filament.type, filament.color]
-                      .filter(Boolean)
-                      .join(" ")}{" "}
-                    — {formatGrams(filament.remainingWeightG)}
-                    {isOutOfStock ? " (Нет в наличии)" : ""}
-                  </option>
-                );
-              })}
+              {filaments.map((filament) => (
+                <option
+                  key={filament.id}
+                  value={filament.id}
+                  disabled={filament.remainingWeightG <= 0}
+                >
+                  {formatFilamentOption(filament)}
+                </option>
+              ))}
             </select>
             {state.fieldErrors?.filamentId ? (
               <p
