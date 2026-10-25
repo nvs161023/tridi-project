@@ -9,28 +9,70 @@
 import type { FilamentDraft } from "@/lib/workshop/filaments";
 import type { OrderDraft } from "@/lib/workshop/orders";
 import type { PrinterDraft } from "@/lib/workshop/printers";
+import type {
+  WorkshopCompanyType,
+  WorkshopRequisites,
+} from "@/lib/workshop/requisites";
 import type { WorkshopSettings } from "@/lib/workshop/settings";
 
-/** Что уходит в `from("workshop_settings").upsert(...)`. */
+/**
+ * Что уходит в `from("workshop_settings").upsert(...)`.
+ *
+ * Числа и реквизиты необязательны: вкладка «Калькулятор» присылает только
+ * числа, вкладка «Реквизиты» — только данные компании. PostgREST получает
+ * объект без undefined-полей, поэтому сохранение одной вкладки не затирает
+ * значения другой. Остальные колонки при вставке заполняют значения по
+ * умолчанию из миграции.
+ */
 export type WorkshopSettingsPayload = {
   user_id: string;
-  electricity_cost_kwh: number;
-  printer_power_w: number;
-  depreciation_cost_hour: number;
-  labor_cost_hour: number;
+  electricity_cost_kwh?: number;
+  printer_power_w?: number;
+  depreciation_cost_hour?: number;
+  labor_cost_hour?: number;
+  company_type?: WorkshopCompanyType;
+  company_name?: string;
+  inn?: string | null;
+  ogrn?: string | null;
+  legal_address?: string | null;
+  bank_details?: string | null;
+  contact_phone?: string | null;
+  contact_email?: string | null;
 };
 
+/**
+ * Настройки и реквизиты → строка для upsert.
+ *
+ * Пустые необязательные реквизиты остаются null: очищенное поле должно
+ * очистить и колонку, а не хранить пустую строку. Реквизиты с обязательными
+ * полями пишутся всегда парой — форма не даст сохранить одно без другого.
+ */
 export function createWorkshopSettingsPayload(
   userId: string,
-  settings: WorkshopSettings,
+  settings: WorkshopSettings | null,
+  requisites: WorkshopRequisites | null,
 ): WorkshopSettingsPayload {
-  return {
-    user_id: userId,
-    electricity_cost_kwh: settings.electricityCostKwh,
-    printer_power_w: settings.printerPowerW,
-    depreciation_cost_hour: settings.depreciationCostHour,
-    labor_cost_hour: settings.laborCostHour,
-  };
+  const payload: WorkshopSettingsPayload = { user_id: userId };
+
+  if (settings) {
+    payload.electricity_cost_kwh = settings.electricityCostKwh;
+    payload.printer_power_w = settings.printerPowerW;
+    payload.depreciation_cost_hour = settings.depreciationCostHour;
+    payload.labor_cost_hour = settings.laborCostHour;
+  }
+
+  if (requisites) {
+    payload.company_type = requisites.companyType;
+    payload.company_name = requisites.companyName;
+    payload.inn = requisites.inn;
+    payload.ogrn = requisites.ogrn;
+    payload.legal_address = requisites.legalAddress;
+    payload.bank_details = requisites.bankDetails;
+    payload.contact_phone = requisites.contactPhone;
+    payload.contact_email = requisites.contactEmail;
+  }
+
+  return payload;
 }
 
 /** Что уходит в `from("workshop_filaments").insert(...)`. */

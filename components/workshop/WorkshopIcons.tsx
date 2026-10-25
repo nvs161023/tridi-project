@@ -102,6 +102,18 @@ export function CalculatorIcon(props: WorkshopIconProps) {
   );
 }
 
+/** Реквизиты: здание компании — данные для документов. */
+export function RequisitesIcon(props: WorkshopIconProps) {
+  return (
+    <svg {...iconProps} {...props}>
+      <path d="M3 21h18" />
+      <path d="M4 21V9l8-5 8 5v12" />
+      <path d="M9 21v-6h6v6" />
+      <path d="M9 11h6" />
+    </svg>
+  );
+}
+
 /** Выручка: растущий график. */
 export function RevenueIcon(props: WorkshopIconProps) {
   return (

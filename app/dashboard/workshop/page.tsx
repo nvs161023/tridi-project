@@ -195,6 +195,8 @@ export default async function WorkshopPage() {
               isFilamentsMissingTable={stock.isMissingTable}
               isPrintersMissingTable={fleet.isMissingTable}
               isOrdersMissingTable={orderBook.isMissingTable}
+              requisites={snapshot.requisites}
+              isRequisitesMissing={snapshot.isRequisitesMissing}
             />
           </>
         ) : (

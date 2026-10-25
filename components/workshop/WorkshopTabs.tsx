@@ -10,17 +10,20 @@ import {
   OrdersIcon,
   PrinterIcon,
   ProductsIcon,
+  RequisitesIcon,
 } from "@/components/workshop/WorkshopIcons";
 import { WorkshopClientsTab } from "@/components/workshop/WorkshopClientsTab";
 import { WorkshopOrdersTab } from "@/components/workshop/WorkshopOrdersTab";
 import { WorkshopPrintersTab } from "@/components/workshop/WorkshopPrintersTab";
 import { WorkshopProductsTab } from "@/components/workshop/WorkshopProductsTab";
+import { WorkshopRequisitesTab } from "@/components/workshop/WorkshopRequisitesTab";
 import { WorkshopStockTab } from "@/components/workshop/WorkshopStockTab";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import type { WorkshopOrder } from "@/lib/workshop/orders";
 import type { WorkshopPrinter } from "@/lib/workshop/printers";
 import type { WorkshopProduct } from "@/lib/workshop/products";
+import type { WorkshopRequisites } from "@/lib/workshop/requisites";
 import type { WorkshopSettings } from "@/lib/workshop/settings";
 
 /**
@@ -37,6 +40,11 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
  * по массивам, а при пустом списке показывается состояние с кнопкой добавления.
  * База клиентов живёт рядом с товарами — это обе справочные вкладки.
  *
+ * «Реквизиты» — вкладка компании: тип организации, название, ИНН, банк и
+ * контакты, от имени которых мастерская выставляет документы. Она стоит
+ * последней, рядом с калькулятором: обе вкладки — про настройки, а не про
+ * ежедневную работу с заказами.
+ *
  * Активная вкладка получает `bg-white/10` и белый текст, неактивные остаются
  * серыми `text-zinc-400`. Стрелки клавиатуры переключают табы, у неактивных
  * `tabIndex="-1"` — как ожидается от roving tabindex.
@@ -44,12 +52,14 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
 
 type WorkshopTabsProps = {
   settings: WorkshopSettings;
+  requisites: WorkshopRequisites;
   filaments: WorkshopFilament[];
   printers: WorkshopPrinter[];
   orders: WorkshopOrder[];
   products: WorkshopProduct[];
   clients: WorkshopClient[];
   isMissingTable: boolean;
+  isRequisitesMissing: boolean;
   isFilamentsMissingTable: boolean;
   isPrintersMissingTable: boolean;
   isOrdersMissingTable: boolean;
@@ -92,18 +102,26 @@ const TABS = [
     description: "Себестоимость и цена",
     Icon: CalculatorIcon,
   },
+  {
+    id: "requisites",
+    label: "Реквизиты",
+    description: "Данные компании для документов",
+    Icon: RequisitesIcon,
+  },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
 
 export function WorkshopTabs({
   settings,
+  requisites,
   filaments,
   printers,
   orders,
   products,
   clients,
   isMissingTable,
+  isRequisitesMissing,
   isFilamentsMissingTable,
   isPrintersMissingTable,
   isOrdersMissingTable,
@@ -323,6 +341,18 @@ export function WorkshopTabs({
             <WorkshopCalculatorTab
               initialSettings={settings}
               isMissingTable={isMissingTable}
+            />
+          </div>
+
+          <div
+            role="tabpanel"
+            id="workshop-panel-requisites"
+            aria-labelledby="workshop-tab-requisites"
+            hidden={activeTab !== "requisites"}
+          >
+            <WorkshopRequisitesTab
+              requisites={requisites}
+              isMissingTable={isRequisitesMissing}
             />
           </div>
         </div>

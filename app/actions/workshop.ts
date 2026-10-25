@@ -7,18 +7,31 @@ import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createWorkshopSettingsPayload } from "@/lib/workshop/payload";
-import { readWorkshopSettingsForm } from "@/lib/workshop/settings";
+import {
+  hasWorkshopRequisitesFormFields,
+  readWorkshopRequisitesForm,
+} from "@/lib/workshop/requisites";
+import {
+  readWorkshopSettingsForm,
+  WORKSHOP_FIELDS,
+} from "@/lib/workshop/settings";
 
 const SESSION_EXPIRED =
   "Сессия истекла. Войдите снова, чтобы сохранить настройки.";
 const PRO_REQUIRED =
   "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы сохранять настройки.";
 const MIGRATION_MISSING =
-  "Настройки пока не сохраняются: в базе нет таблицы workshop_settings. Примените миграцию supabase/workshop_settings.sql.";
+  "Настройки пока не сохраняются: в базе нет нужных таблиц или колонок. Примените миграции supabase/workshop_settings.sql и supabase/workshop_requisites.sql.";
 const SAVE_FAILED = "Не удалось сохранить настройки. Попробуйте ещё раз.";
+const EMPTY_FORM = "Форма пустая: нечего сохранять. Обновите страницу.";
 
 /**
- * Сохранение настроек калькулятора Мастерской.
+ * Сохранение настроек Мастерской.
+ *
+ * Одно действие на две вкладки: «Калькулятор» присылает четыре числа, а
+ * «Реквизиты» — данные компании. Разбор формы определяет, какие поля пришли:
+ * так сохранение одной вкладки не затирает значения другой, а первое
+ * сохранение с любой вкладки создаёт строку.
  *
  * Порядок проверок повторяет /dashboard/workshop: разбор формы → сессия →
  * подписка → запись. Подписка проверяется и здесь, а не только на странице:
@@ -33,11 +46,35 @@ export async function saveWorkshopSettings(
   _prevState: WorkshopSettingsFormState,
   formData: FormData,
 ): Promise<WorkshopSettingsFormState> {
-  const { settings, errors } = readWorkshopSettingsForm(formData);
+  const hasSettingsFields = WORKSHOP_FIELDS.some((field) =>
+    formData.has(field.formName),
+  );
+  const hasRequisitesFields = hasWorkshopRequisitesFormFields(formData);
 
-  if (!settings) {
-    return { fieldErrors: errors };
+  if (!hasSettingsFields && !hasRequisitesFields) {
+    return { error: EMPTY_FORM };
   }
+
+  const settingsResult = hasSettingsFields
+    ? readWorkshopSettingsForm(formData)
+    : null;
+  const requisitesResult = hasRequisitesFields
+    ? readWorkshopRequisitesForm(formData)
+    : null;
+
+  // Ошибки полей важнее общего текста: пользователь сразу видит, что исправить.
+  if (
+    (settingsResult && !settingsResult.settings) ||
+    (requisitesResult && !requisitesResult.requisites)
+  ) {
+    return {
+      fieldErrors: settingsResult?.errors,
+      requisitesFieldErrors: requisitesResult?.errors,
+    };
+  }
+
+  const settings = settingsResult?.settings ?? null;
+  const requisites = requisitesResult?.requisites ?? null;
 
   const supabase = await createClient();
   const {
@@ -45,16 +82,16 @@ export async function saveWorkshopSettings(
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return { error: SESSION_EXPIRED, values: settings };
+    return { error: SESSION_EXPIRED, values: settings ?? undefined };
   }
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
-    return { error: PRO_REQUIRED, values: settings };
+    return { error: PRO_REQUIRED, values: settings ?? undefined };
   }
 
   const { error } = await supabase
     .from("workshop_settings")
-    .upsert(createWorkshopSettingsPayload(user.id, settings), {
+    .upsert(createWorkshopSettingsPayload(user.id, settings, requisites), {
       onConflict: "user_id",
     });
 
@@ -69,7 +106,8 @@ export async function saveWorkshopSettings(
       error: isMissingTableSchema(error.code, error.message)
         ? MIGRATION_MISSING
         : SAVE_FAILED,
-      values: settings,
+      values: settings ?? undefined,
+      requisites: requisites ?? undefined,
     };
   }
 
@@ -77,5 +115,9 @@ export async function saveWorkshopSettings(
   // старые значения из кэша.
   revalidatePath("/dashboard/workshop");
 
-  return { success: true, values: settings };
+  return {
+    success: true,
+    values: settings ?? undefined,
+    requisites: requisites ?? undefined,
+  };
 }
