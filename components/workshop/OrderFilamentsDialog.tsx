@@ -31,8 +31,10 @@ function filamentTitle(filament: WorkshopFilament): string {
 /**
  * Окно «Спецификация на закупку филамента».
  *
- * В список сразу попадают только катушки ниже минимального порога, все
- * отмечены. Ненужные строки снимаются галочкой, количество по умолчанию —
+ * В список сразу попадают только складские катушки (`usageType === "stock"`)
+ * ниже минимального порога, все отмечены. Заказной пластик покупают под
+ * конкретную задачу, поэтому в автозакупку он не попадает даже при низком
+ * остатке. Ненужные строки снимаются галочкой, количество по умолчанию —
  * вес стандартной катушки (1 000 г). «Сформировать» кодирует выбранные позиции
  * в адрес `/workshop/filaments/specification`, открывает печатную форму в новой
  * вкладке и закрывает окно.
@@ -47,7 +49,9 @@ export function OrderFilamentsDialog({
   const candidates = useMemo(
     () =>
       filaments.filter(
-        (filament) => filament.remainingWeightG < filament.minThresholdG,
+        (filament) =>
+          filament.usageType === "stock" &&
+          filament.remainingWeightG < filament.minThresholdG,
       ),
     [filaments],
   );
@@ -170,8 +174,9 @@ export function OrderFilamentsDialog({
               Спецификация на закупку филамента
             </h2>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-zinc-400">
-              В список автоматически попали катушки с остатком ниже минимального
-              порога. Снимите галочки с ненужных или измените количество.
+              В список автоматически попали складские катушки с остатком ниже
+              минимального порога. Снимите галочки с ненужных или измените
+              количество.
             </p>
           </div>
           <button
@@ -191,6 +196,9 @@ export function OrderFilamentsDialog({
                 <SpecificationIcon className="mx-auto h-9 w-9 text-zinc-500" />
                 <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-zinc-400">
                   Все катушки на складе в норме. Заказывать пока нечего
+                </p>
+                <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-zinc-500">
+                  Заказные позиции не участвуют в автозакупке.
                 </p>
               </div>
             ) : (
