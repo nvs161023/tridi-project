@@ -15,6 +15,7 @@ import {
   IMPORTED_FILAMENTS_MAX,
   readConsumeFilamentForm,
   readFilamentForm,
+  readFilamentUsageType,
   type FilamentDraft,
   type SaveImportedFilamentsResult,
 } from "@/lib/workshop/filaments";
@@ -100,13 +101,21 @@ export async function addFilament(
  * так одна неподходящая позиция не отменяет остальные, а ответ честно говорит,
  * сколько записей создано и сколько не удалось.
  *
+ * Второй аргумент — тип позиции из списка «Добавить распознанные позиции как».
+ * Он тоже приходит из браузера, поэтому нормализуется `readFilamentUsageType`:
+ * неизвестное значение или вызов без аргумента сохраняют прежний смысл склада —
+ * `stock`.
+ *
  * Подписка проверяется здесь, а не только в окне: Server Action — публичный
  * endpoint. RLS дополнительно сверяет auth.uid(), поэтому записать катушки
  * другому пользователю нельзя даже подделав user_id.
  */
 export async function saveImportedFilaments(
   items: InvoiceItem[],
+  usageType?: unknown,
 ): Promise<SaveImportedFilamentsResult> {
+  const filamentUsageType = readFilamentUsageType(usageType);
+
   if (!Array.isArray(items) || items.length === 0) {
     return { saved: 0, failed: 0, error: IMPORT_EMPTY };
   }
@@ -136,7 +145,7 @@ export async function saveImportedFilaments(
   let failed = 0;
 
   for (const item of items) {
-    const draft = createImportedFilamentDraft(item);
+    const draft = createImportedFilamentDraft(item, filamentUsageType);
 
     if (!draft) {
       failed += 1;

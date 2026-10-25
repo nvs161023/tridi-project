@@ -52,12 +52,12 @@ export function isFilamentUsageType(
 }
 
 /**
- * Тип катушки из строки базы или формы.
+ * Тип катушки из строки базы, формы или аргумента Server Action.
  *
- * Колонка появилась миграцией `supabase/workshop_filament_usage_type.sql`, а
- * форма «Добавить катушку» пока не присылает поле. Поэтому отсутствие и
- * неизвестное значение означают `stock`: до разделения склада все катушки были
- * складскими, и такой ответ не теряет данные.
+ * Колонка появилась миграцией `supabase/workshop_filament_usage_type.sql`.
+ * Отсутствие и неизвестное значение означают `stock`: до разделения склада все
+ * катушки были складскими, а старый браузерный бандл может ещё не присылать
+ * поле — такой ответ не теряет данные.
  */
 export function readFilamentUsageType(value: unknown): FilamentUsageType {
   return isFilamentUsageType(value) ? value : "stock";
@@ -374,10 +374,13 @@ function importedWeightG(quantity: number, unit: string): number {
  *
  * Повторяет проверки клиента: Server Action — публичный endpoint, поэтому
  * массив из браузера не считается доверенным. Нечитаемая цена не ошибка —
- * подставляем цену по умолчанию, как и обещает импорт.
+ * подставляем цену по умолчанию, как и обещает импорт. Тип позиции выбирают в
+ * окне импорта, поэтому он приходит вторым аргументом и проверяется тем же
+ * `readFilamentUsageType`: неизвестное значение становится `stock`.
  */
 export function createImportedFilamentDraft(
   value: unknown,
+  usageType: unknown,
 ): FilamentDraft | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
@@ -420,9 +423,9 @@ export function createImportedFilamentDraft(
 
   return {
     ...parseImportedFilamentName(name),
-    // Накладная приходит на пополнение склада: заказной пластик покупают
-    // вручную под задачу, а не распознают с фото.
-    usageType: "stock",
+    // Тип позиции выбран в окне импорта: «складской» по умолчанию, «заказной»
+    // — если накладную сохраняют под конкретную задачу.
+    usageType: readFilamentUsageType(usageType),
     totalWeightG: weight,
     remainingWeightG: weight,
     pricePerKg,
@@ -647,8 +650,8 @@ export function readFilamentForm(formData: FormData): {
   const type = readFormText(formData.get("type"));
   const color = readFormText(formData.get("color"));
   const purchaseUrl = readFormText(formData.get("purchaseUrl"));
-  // Форма «Добавить катушку» пока не присылает тип: до появления поля все
-  // новые катушки складские — так же, как default 'stock' в миграции.
+  // Тип позиции приходит из списка «Тип позиции»; если поля нет (старый
+  // браузерный бандл) — stock, как default 'stock' в миграции.
   const usageType = readFilamentUsageType(formData.get("usageType"));
 
   if (!brand) {

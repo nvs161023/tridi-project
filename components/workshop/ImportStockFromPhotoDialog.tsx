@@ -14,7 +14,13 @@ import { createPortal } from "react-dom";
 import { saveImportedFilaments } from "@/app/actions/filaments";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import { TrashIcon } from "@/components/workshop/WorkshopIcons";
-import type { SaveImportedFilamentsResult } from "@/lib/workshop/filaments";
+import {
+  FILAMENT_USAGE_TYPES,
+  FILAMENT_USAGE_TYPE_LABELS,
+  readFilamentUsageType,
+  type FilamentUsageType,
+  type SaveImportedFilamentsResult,
+} from "@/lib/workshop/filaments";
 import type { InvoiceItem } from "@/lib/workshop/ocr";
 
 type ImportStockFromPhotoDialogProps = {
@@ -43,6 +49,14 @@ const UNIT_SUGGESTIONS = ["г", "кг", "шт"] as const;
 /** Поля таблицы в CRM-стиле: тёмный фон, тонкая обводка, синий фокус. */
 const cellInputClassName =
   "w-full min-w-0 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-colors [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+
+/**
+ * Список «Добавить распознанные позиции как»: тот же CRM-стиль, что у полей
+ * ввода, но без правил для `input` — они на `<select>` не нужны, а
+ * `color-scheme: dark` красит нативную стрелку под тёмную панель.
+ */
+const usageTypeSelectClassName =
+  "mt-2 w-full cursor-pointer rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [color-scheme:dark] focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset disabled:cursor-not-allowed disabled:opacity-60";
 
 let nextItemId = 0;
 
@@ -190,6 +204,12 @@ function readErrorMessage(payload: unknown): string | null {
  * router.refresh() обновляет склад. Пока идёт сохранение, окно тоже нельзя
  * закрыть.
  *
+ * Список «Добавить распознанные позиции как» задаёт `usageType` сразу для всех
+ * строк: накладная приходит либо на пополнение склада, либо под конкретную
+ * задачу, поэтому выбор один на импорт. Он уходит вторым аргументом в
+ * saveImportedFilaments; по умолчанию — «Складской (постоянный)», как default
+ * `'stock'` в миграции.
+ *
  * Портал, overlay, Escape и блокировка прокрутки повторяют остальные окна
  * Мастерской; фокус после закрытия возвращает вкладка «Склад».
  */
@@ -203,6 +223,12 @@ export function ImportStockFromPhotoDialog({
   const [items, setItems] = useState<EditableInvoiceItem[] | null>(null);
   const [saveResult, setSaveResult] =
     useState<SaveImportedFilamentsResult | null>(null);
+  /**
+   * Тип позиции для всех строк накладной. Выбор сделан до сохранения и не
+   * сбрасывается при повторном распознавании: пользователь уже решил, куда
+   * попадёт накладная.
+   */
+  const [usageType, setUsageType] = useState<FilamentUsageType>("stock");
   const [error, setError] = useState<string | null>(null);
   const isBusy = isRecognizing || isSaving || saveResult !== null;
 
@@ -350,7 +376,7 @@ export function ImportStockFromPhotoDialog({
     setIsSaving(true);
 
     try {
-      const result = await saveImportedFilaments(editedItems);
+      const result = await saveImportedFilaments(editedItems, usageType);
 
       if (result.saved === 0) {
         setError(
@@ -469,6 +495,46 @@ export function ImportStockFromPhotoDialog({
                 Фото выбрано: {selectedFile.name}
               </p>
             ) : null}
+          </div>
+
+          {/*
+            Один список на всю накладную: тип применяется ко всем строкам при
+            сохранении. Значение проверяется readFilamentUsageType — тем же
+            помощником, что и на сервере, поэтому в состоянии не может оказаться
+            неизвестной строки.
+          */}
+          <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+            <label
+              htmlFor="import-stock-usage-type"
+              className="block text-sm font-semibold text-zinc-200"
+            >
+              Добавить распознанные позиции как:
+            </label>
+            <select
+              id="import-stock-usage-type"
+              name="usageType"
+              autoComplete="off"
+              value={usageType}
+              disabled={isBusy}
+              aria-describedby="import-stock-usage-type-hint"
+              onChange={(event) =>
+                setUsageType(readFilamentUsageType(event.target.value))
+              }
+              className={usageTypeSelectClassName}
+            >
+              {FILAMENT_USAGE_TYPES.map((value) => (
+                <option key={value} value={value}>
+                  {FILAMENT_USAGE_TYPE_LABELS[value]}
+                </option>
+              ))}
+            </select>
+            <p
+              id="import-stock-usage-type-hint"
+              className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+            >
+              Тип применяется ко всем строкам сразу. Поменять его можно до
+              нажатия «Сохранить на склад».
+            </p>
           </div>
 
           {isRecognizing ? (
