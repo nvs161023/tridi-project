@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import {
   useActionState,
   useEffect,
+  useRef,
   useState,
   type ChangeEvent,
 } from "react";
@@ -83,6 +84,8 @@ export function CreateOrderDialog({
     createOrder,
     emptyOrderFormState,
   );
+  const [title, setTitle] = useState("");
+  const [totalCost, setTotalCost] = useState("0");
   const [weight, setWeight] = useState("0");
   const [hours, setHours] = useState("0");
   const [productId, setProductId] = useState("");
@@ -90,6 +93,16 @@ export function CreateOrderDialog({
   const [filamentId, setFilamentId] = useState("");
   const [gcodeMessage, setGcodeMessage] = useState<GcodeMessage | null>(null);
   const [isReadingGcode, setIsReadingGcode] = useState(false);
+
+  /**
+   * true — поле уже заполняли вручную или из G-code.
+   * Такие значения автозаполнение из товара не перезаписывает.
+   */
+  const dirtyFields = useRef({
+    title: false,
+    totalCost: false,
+    weight: false,
+  });
 
   useDialogDismiss(onClose);
 
@@ -113,6 +126,46 @@ export function CreateOrderDialog({
     selectedFilament && parsedWeight !== null && parsedWeight > 0
       ? planFilamentUsage(selectedFilament, parsedWeight)
       : null;
+
+  /**
+   * Товар → пустые поля заказа.
+   *
+   * Заполняем название, стоимость и вес, но не трогаем поля, куда уже
+   * вводили вручную. Автозаполненные значения можно заменить при выборе
+   * другого товара. Пустой вариант списка ничего не меняет.
+   */
+  function handleProductChange(event: ChangeEvent<HTMLSelectElement>) {
+    const nextProductId = event.currentTarget.value;
+    setProductId(nextProductId);
+
+    if (!nextProductId) {
+      return;
+    }
+
+    const product = products.find((item) => item.id === nextProductId);
+
+    if (!product) {
+      return;
+    }
+
+    if (!dirtyFields.current.title || !title.trim()) {
+      setTitle(product.title);
+      dirtyFields.current.title = false;
+    }
+
+    if (!dirtyFields.current.totalCost || !totalCost.trim()) {
+      setTotalCost(String(product.price));
+      dirtyFields.current.totalCost = false;
+    }
+
+    if (
+      product.weightG !== null &&
+      (!dirtyFields.current.weight || !weight.trim())
+    ) {
+      setWeight(String(product.weightG));
+      dirtyFields.current.weight = false;
+    }
+  }
 
   /**
    * G-code: вес и время берём из комментариев слайсера.
@@ -143,6 +196,7 @@ export function CreateOrderDialog({
       const estimate = parseGcode(await file.text());
 
       if (estimate.weightGrams !== null) {
+        dirtyFields.current.weight = true;
         setWeight(String(Math.round(estimate.weightGrams)));
       }
 
@@ -243,7 +297,7 @@ export function CreateOrderDialog({
               name="productId"
               autoComplete="off"
               value={productId}
-              onChange={(event) => setProductId(event.currentTarget.value)}
+              onChange={handleProductChange}
               aria-invalid={state.fieldErrors?.productId ? true : undefined}
               aria-describedby={
                 state.fieldErrors?.productId
@@ -276,7 +330,7 @@ export function CreateOrderDialog({
               >
                 {products.length === 0
                   ? "Каталог пока пуст — добавьте товары на вкладке «Товары»."
-                  : "Заказ сохранит ссылку на выбранный товар."}
+                  : "Пустые название, стоимость и вес подставятся из товара."}
               </p>
             )}
           </div>
@@ -297,6 +351,11 @@ export function CreateOrderDialog({
               maxLength={ORDER_TEXT_LIMITS.title}
               required
               autoFocus
+              value={title}
+              onChange={(event) => {
+                dirtyFields.current.title = true;
+                setTitle(event.target.value);
+              }}
               aria-invalid={state.fieldErrors?.title ? true : undefined}
               aria-describedby={
                 state.fieldErrors?.title ? "order-title-error" : undefined
@@ -363,7 +422,11 @@ export function CreateOrderDialog({
                 min={0}
                 max={ORDER_LIMITS.costMax}
                 required
-                defaultValue="0"
+                value={totalCost}
+                onChange={(event) => {
+                  dirtyFields.current.totalCost = true;
+                  setTotalCost(event.target.value);
+                }}
                 aria-invalid={state.fieldErrors?.totalCost ? true : undefined}
                 aria-describedby={
                   state.fieldErrors?.totalCost
@@ -479,7 +542,10 @@ export function CreateOrderDialog({
                 max={ORDER_LIMITS.weightMax}
                 required
                 value={weight}
-                onChange={(event) => setWeight(event.target.value)}
+                onChange={(event) => {
+                  dirtyFields.current.weight = true;
+                  setWeight(event.target.value);
+                }}
                 aria-invalid={
                   state.fieldErrors?.materialWeightG ? true : undefined
                 }
