@@ -11,6 +11,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getWorkshopClientById } from "@/lib/workshop/clients";
 import { getWorkshopOrder } from "@/lib/workshop/order-store";
 import { formatOrderCost, isOrderId } from "@/lib/workshop/orders";
+import { workshopCompanyTypeLabel, type WorkshopRequisites } from "@/lib/workshop/requisites";
+import { getWorkshopSettings } from "@/lib/workshop/store";
 
 type WaybillPageProps = {
   params: Promise<{ id: string }>;
@@ -20,10 +22,11 @@ type WaybillPageProps = {
  * Накладная на отгрузку — печатная форма заказа.
  *
  * Открывается из карточки заказа в новой вкладке. Заказ читается по id с
- * проверкой владельца, отправитель берётся из `LEGAL_OPERATOR`, получатель —
- * из `workshop_clients`, если заказ хранит `client_id`. У старых заказов и
- * заказов с ручным клиентом телефона и адреса нет, поэтому в документе
- * остаются поля `[ ]` для заполнения при отгрузке.
+ * проверкой владельца, отправитель — из реквизитов Мастерской
+ * (`workshop_settings`), а если их ещё не заполнили — из `LEGAL_OPERATOR`.
+ * Получатель берётся из `workshop_clients`, если заказ хранит `client_id`. У
+ * старых заказов и заказов с ручным клиентом телефона и адреса нет, поэтому в
+ * документе остаются поля `[ ]` для заполнения при отгрузке.
  *
  * В печати остаётся только белый лист A4: `visibility` гасит всё, кроме
  * `.waybill-sheet`, поэтому меню, подвал и cookie-баннер не попадают на бумагу.
@@ -104,6 +107,55 @@ function formatWaybillNumber(orderId: string): string {
   return orderId.slice(0, 8).toUpperCase();
 }
 
+/** Отправитель в накладной: реквизиты Мастерской или данные сервиса. */
+type WaybillSender = {
+  name: string;
+  /** Короткое имя для строки подписи. */
+  signatureName: string;
+  inn: string | null;
+  ogrn: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  /** Реквизиты Мастерской ещё не заполнены: показываем данные сервиса. */
+  isFallback: boolean;
+};
+
+/**
+ * Реквизиты Мастерской → блок «Отправитель».
+ *
+ * Название компании — обязательное поле вкладки «Реквизиты», поэтому пустое
+ * название означает «реквизиты не заполнены»: до первого сохранения в базе
+ * лежит пустая строка. В этом случае документ печатает прежние данные
+ * `LEGAL_OPERATOR`, а на экране появляется подсказка. Остальные поля
+ * необязательны — выводим только заполненные.
+ */
+function getWaybillSender(requisites: WorkshopRequisites): WaybillSender {
+  if (!requisites.companyName) {
+    return {
+      name: LEGAL_OPERATOR.fullName,
+      signatureName: LEGAL_OPERATOR.shortName,
+      inn: LEGAL_OPERATOR.inn,
+      ogrn: null,
+      address: null,
+      phone: LEGAL_OPERATOR.phone,
+      email: LEGAL_OPERATOR.email,
+      isFallback: true,
+    };
+  }
+
+  return {
+    name: `${workshopCompanyTypeLabel(requisites.companyType)} ${requisites.companyName}`,
+    signatureName: requisites.companyName,
+    inn: requisites.inn,
+    ogrn: requisites.ogrn,
+    address: requisites.legalAddress,
+    phone: requisites.contactPhone,
+    email: requisites.contactEmail,
+    isFallback: false,
+  };
+}
+
 export const metadata: Metadata = {
   title: "Накладная на отгрузку — TriDi",
   description:
@@ -140,11 +192,16 @@ export default async function OrderWaybillPage({
     redirect("/dashboard/workshop");
   }
 
-  const order = await getWorkshopOrder(supabase, userId, id);
+  const [order, snapshot] = await Promise.all([
+    getWorkshopOrder(supabase, userId, id),
+    getWorkshopSettings(supabase, userId),
+  ]);
 
   if (!order) {
     notFound();
   }
+
+  const sender = getWaybillSender(snapshot.requisites);
 
   // Ссылка на клиента необязательна. Запрос дублирует `user_id`: даже если в
   // базе окажется чужая ссылка, контакты другого мастера не попадут в документ.
@@ -229,29 +286,89 @@ export default async function OrderWaybillPage({
               <h2 className="text-[10px] font-semibold tracking-[0.18em] text-neutral-500 uppercase">
                 Отправитель
               </h2>
-              <p className="mt-2 text-sm leading-snug font-bold break-words text-neutral-950 first-letter:uppercase">
-                {LEGAL_OPERATOR.fullName}
+              <p
+                data-waybill-sender-name
+                className="mt-2 text-sm leading-snug font-bold break-words text-neutral-950 first-letter:uppercase"
+              >
+                {sender.name}
               </p>
               <dl className="mt-3 space-y-1.5 text-xs leading-relaxed text-neutral-700">
-                <div className="flex gap-2">
-                  <dt className="shrink-0 font-semibold text-neutral-500">
-                    ИНН
-                  </dt>
-                  <dd className="font-mono">{LEGAL_OPERATOR.inn}</dd>
-                </div>
-                <div className="flex gap-2">
-                  <dt className="shrink-0 font-semibold text-neutral-500">
-                    Телефон
-                  </dt>
-                  <dd className="break-words">{LEGAL_OPERATOR.phone}</dd>
-                </div>
-                <div className="flex gap-2">
-                  <dt className="shrink-0 font-semibold text-neutral-500">
-                    Email
-                  </dt>
-                  <dd className="break-all">{LEGAL_OPERATOR.email}</dd>
-                </div>
+                {sender.inn ? (
+                  <div className="flex gap-2">
+                    <dt className="shrink-0 font-semibold text-neutral-500">
+                      ИНН
+                    </dt>
+                    <dd
+                      data-waybill-sender-inn
+                      className="font-mono break-all"
+                    >
+                      {sender.inn}
+                    </dd>
+                  </div>
+                ) : null}
+                {sender.ogrn ? (
+                  <div className="flex gap-2">
+                    <dt className="shrink-0 font-semibold text-neutral-500">
+                      ОГРН/ОГРНИП
+                    </dt>
+                    <dd
+                      data-waybill-sender-ogrn
+                      className="font-mono break-all"
+                    >
+                      {sender.ogrn}
+                    </dd>
+                  </div>
+                ) : null}
+                {sender.address ? (
+                  <div className="flex gap-2">
+                    <dt className="shrink-0 font-semibold text-neutral-500">
+                      Адрес
+                    </dt>
+                    <dd
+                      data-waybill-sender-address
+                      className="break-words"
+                    >
+                      {sender.address}
+                    </dd>
+                  </div>
+                ) : null}
+                {sender.phone ? (
+                  <div className="flex gap-2">
+                    <dt className="shrink-0 font-semibold text-neutral-500">
+                      Телефон
+                    </dt>
+                    <dd
+                      data-waybill-sender-phone
+                      className="break-words"
+                    >
+                      {sender.phone}
+                    </dd>
+                  </div>
+                ) : null}
+                {sender.email ? (
+                  <div className="flex gap-2">
+                    <dt className="shrink-0 font-semibold text-neutral-500">
+                      Email
+                    </dt>
+                    <dd
+                      data-waybill-sender-email
+                      className="break-all"
+                    >
+                      {sender.email}
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
+              {sender.isFallback ? (
+                <p
+                  role="note"
+                  data-waybill-requisites-warning
+                  className="waybill-screen-only mt-3 rounded-md border border-red-300 bg-red-50 px-2.5 py-2 text-[10px] leading-relaxed font-semibold text-red-700"
+                >
+                  Внимание: заполните реквизиты в разделе «Реквизиты»
+                  Мастерской, чтобы они печатались в накладной.
+                </p>
+              ) : null}
             </div>
 
             <div
@@ -418,8 +535,8 @@ export default async function OrderWaybillPage({
                 <p className="mt-7 text-sm text-neutral-700">
                   ______________________________
                 </p>
-                <p className="mt-1 text-xs text-neutral-600">
-                  {LEGAL_OPERATOR.shortName}
+                <p className="mt-1 text-xs break-words text-neutral-600">
+                  {sender.signatureName}
                 </p>
               </div>
 
