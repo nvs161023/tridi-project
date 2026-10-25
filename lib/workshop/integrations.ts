@@ -31,6 +31,16 @@ export const OZON_WEBHOOK_ENDPOINT =
 export const WB_WEBHOOK_ENDPOINT = "https://tridi-print.ru/api/webhooks/wb";
 
 /**
+ * Базовый адрес вебхука Яндекс.Маркета; полный адрес собирает
+ * `buildYandexWebhookUrl`.
+ *
+ * Серверный роут `/api/webhooks/yandex` пока не реализован: сначала появляется
+ * блок интерфейса, приём заказов подключится отдельной задачей.
+ */
+export const YANDEX_WEBHOOK_ENDPOINT =
+  "https://tridi-print.ru/api/webhooks/yandex";
+
+/**
  * Доступы к личному кабинету Ozon. `null` — интеграция не настроена.
  *
  * `ozonApiKey` в объекте для интерфейса всегда маска, а не открытый ключ или
@@ -117,6 +127,18 @@ export function buildWbWebhookUrl(
   token: string | null | undefined,
 ): string | null {
   return buildWebhookUrl(WB_WEBHOOK_ENDPOINT, token);
+}
+
+/**
+ * Полный адрес вебхука Яндекс.Маркета.
+ *
+ * Токен тот же: он принадлежит мастерской, а не площадке. Адрес собирается
+ * заранее, чтобы карточку можно было заполнить до появления серверного роута.
+ */
+export function buildYandexWebhookUrl(
+  token: string | null | undefined,
+): string | null {
+  return buildWebhookUrl(YANDEX_WEBHOOK_ENDPOINT, token);
 }
 
 /** Общая сборка адреса: площадки отличаются только базовым путём. */

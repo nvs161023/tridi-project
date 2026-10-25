@@ -8,6 +8,7 @@ import { emptyWorkshopSettingsFormState } from "@/app/actions/workshop-state";
 import {
   buildOzonWebhookUrl,
   buildWbWebhookUrl,
+  buildYandexWebhookUrl,
   ensureWorkshopIntegrations,
   INTEGRATIONS_TEXT_LIMITS,
   isWorkshopIntegrationActive,
@@ -16,7 +17,11 @@ import {
 } from "@/lib/workshop/integrations";
 
 /**
- * Вкладка «Интеграции»: подключение Мастерской к Ozon Seller.
+ * Вкладка «Интеграции»: подключение Мастерской к маркетплейсам.
+ *
+ * Площадки сгруппированы по карточкам. У Ozon внутри карточки живут Client-Id,
+ * Api-Key, кнопка «Сохранить» и персональный адрес вебхука; WB и Яндекс.Маркет
+ * ключей не требуют и показывают только адрес с кнопкой копирования.
  *
  * Форма отправляется в то же действие, что калькулятор и реквизиты:
  * `saveWorkshopSettings` сам разбирается, какие поля пришли, и пишет только их —
@@ -30,10 +35,10 @@ import {
  * URL вебхука персональный: `?token=<uuid>` — токен создаётся при сохранении
  * ключей и хранится в `workshop_settings.webhook_token`. Ozon может не присылать
  * Client-Id в заголовках, поэтому именно токен определяет продавца. Тот же токен
- * использует Wildberries: адрес `/api/webhooks/wb?token=<uuid>` показан второй
- * карточкой. Кнопка «Скопировать» копирует полный адрес, а при запрете буфера
- * обмена (не HTTPS) показывает стандартный prompt — тот же приём, что у
- * сертификата. Состояние «Скопировано» у каждой площадки своё.
+ * используют WB и Яндекс.Маркет: их адреса отличаются только путём роута.
+ * Кнопка «Скопировать» копирует полный адрес, а при запрете буфера обмена
+ * (не HTTPS) показывает стандартный prompt — тот же приём, что у сертификата.
+ * Состояние «Скопировано» у каждой карточки своё.
  *
  * `integrations` может прийти `undefined`, если страница была открыта до
  * деплоя и клиент получил старый RSC-пейлоад без новых полей. Поэтому значения
@@ -49,11 +54,22 @@ type WorkshopIntegrationsTabProps = {
 const fieldClassName =
   "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset";
 
+/** Общая рамка карточки площадки: один ритм у Ozon, WB и Яндекса. */
+const platformCardClassName =
+  "rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6";
+
 /** Сколько держится подтверждение копирования. */
 const COPY_FEEDBACK_MS = 3000;
 
 /** У какого адреса сейчас показано «Скопировано». */
-type WebhookTarget = "ozon" | "wb";
+type WebhookTarget = "ozon" | "wb" | "yandex";
+
+/** Названия для системного prompt, когда буфер обмена запрещён. */
+const WEBHOOK_TARGET_LABELS: Record<WebhookTarget, string> = {
+  ozon: "Ozon",
+  wb: "Wildberries",
+  yandex: "Яндекс.Маркета",
+};
 
 export function WorkshopIntegrationsTab({
   integrations,
@@ -82,9 +98,15 @@ export function WorkshopIntegrationsTab({
   const webhookToken =
     state.integrations?.webhookToken ?? safeIntegrations.webhookToken;
   const ozonWebhookUrl = isActive ? buildOzonWebhookUrl(webhookToken) : null;
-  // WB не зависит от ключей Ozon: роуту нужен только токен, поэтому адрес
-  // показываем всегда, когда токен уже есть.
+  // WB и Яндексу ключи Ozon не нужны: их роутам достаточно токена, поэтому
+  // адреса показываем всегда, когда токен уже есть.
   const wbWebhookUrl = buildWbWebhookUrl(webhookToken);
+  const yandexWebhookUrl = buildYandexWebhookUrl(webhookToken);
+  const webhookUrls: Record<WebhookTarget, string | null> = {
+    ozon: ozonWebhookUrl,
+    wb: wbWebhookUrl,
+    yandex: yandexWebhookUrl,
+  };
 
   // Состояние приходит новым объектом после каждой отправки: успех обновляет
   // серверные данные страницы, чтобы следующий заход показал сохранённое.
@@ -114,7 +136,7 @@ export function WorkshopIntegrationsTab({
   }, [copiedWebhook]);
 
   async function copyWebhookUrl(target: WebhookTarget) {
-    const url = target === "ozon" ? ozonWebhookUrl : wbWebhookUrl;
+    const url = webhookUrls[target];
 
     if (!url) {
       return;
@@ -125,9 +147,7 @@ export function WorkshopIntegrationsTab({
       setCopiedWebhook(target);
     } catch {
       window.prompt(
-        target === "ozon"
-          ? "Скопируйте URL для вебхука Ozon"
-          : "Скопируйте URL для вебхука Wildberries",
+        `Скопируйте URL для вебхука ${WEBHOOK_TARGET_LABELS[target]}`,
         url,
       );
     }
@@ -137,11 +157,14 @@ export function WorkshopIntegrationsTab({
   const apiKeyError = state.integrationFieldErrors?.ozonApiKey;
 
   return (
-    <section aria-labelledby="workshop-integrations-title">
+    <section
+      aria-labelledby="workshop-integrations-title"
+      className="space-y-4 sm:space-y-5"
+    >
       {isMissingTable ? (
         <p
           role="status"
-          className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100"
+          className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100"
         >
           <span aria-hidden>⚠️ </span>
           Ключи пока не сохраняются: в таблице workshop_settings нет колонок Ozon.
@@ -149,47 +172,48 @@ export function WorkshopIntegrationsTab({
         </p>
       ) : null}
 
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 shadow-[0_24px_80px_-48px_rgba(59,130,246,0.45)] backdrop-blur-md sm:p-7">
+      <div className="min-w-0">
+        <p className="text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase">
+          Маркетплейсы
+        </p>
+        <h2
+          id="workshop-integrations-title"
+          className="mt-2 text-xl font-extrabold tracking-tight text-white"
+        >
+          Подключение площадок
+        </h2>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
+          Каждая площадка — отдельная карточка. Ключи Ozon сохраняются здесь же, а
+          адрес вебхука копируется одной кнопкой.
+        </p>
+      </div>
+
+      <article
+        aria-labelledby="workshop-integrations-ozon-title"
+        className={platformCardClassName}
+      >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase">
-              Маркетплейсы
-            </p>
-            <h2
-              id="workshop-integrations-title"
-              className="mt-2 text-xl font-extrabold tracking-tight text-white"
+            <h3
+              id="workshop-integrations-ozon-title"
+              className="text-lg font-extrabold tracking-tight text-white"
             >
-              Интеграция с Ozon
-            </h2>
-            <p className="mt-2 max-w-xl text-sm leading-relaxed text-zinc-400">
+              Ozon
+            </h3>
+            <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-zinc-400">
               Автоматически получайте заказы с Ozon прямо в Мастерскую.
             </p>
           </div>
 
-          <p className="shrink-0">
-            <span
-              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold ${
-                isActive
-                  ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-200"
-                  : "border-white/10 bg-white/[0.03] text-zinc-400"
-              }`}
-            >
-              <span
-                aria-hidden
-                className={`h-1.5 w-1.5 rounded-full ${
-                  isActive
-                    ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]"
-                    : "bg-zinc-500"
-                }`}
-              />
-              {isActive ? "Интеграция активна" : "Интеграция не настроена"}
-            </span>
-          </p>
+          <StatusBadge tone={isActive ? "active" : "off"}>
+            {isActive ? "Активна" : "Не настроена"}
+          </StatusBadge>
         </div>
+
         <form
           action={formAction}
           autoComplete="off"
-          className="mt-6 grid gap-4 sm:grid-cols-2"
+          className="mt-5 grid gap-4 sm:grid-cols-2"
         >
           <div>
             <label
@@ -353,31 +377,56 @@ export function WorkshopIntegrationsTab({
               ) : null}
             </div>
           </div>
+          <div className="border-t border-white/[0.07] pt-5 sm:col-span-2">
+            <WebhookUrlField
+              title="URL для вебхука Ozon"
+              url={ozonWebhookUrl}
+              emptyText={
+                isActive
+                  ? "Токен вебхука ещё не создан. Примените миграцию supabase/workshop_marketplace_integration.sql и сохраните ключи ещё раз."
+                  : "Сохраните Client-Id и Api-Key — здесь появится персональный адрес с токеном."
+              }
+              hint={
+                <>
+                  Скопируйте адрес целиком, вместе с <code>?token=…</code>: по
+                  токену Ozon находит вашу мастерскую, даже если не присылает
+                  Client-Id. Этот адрес не публикуйте — он открывает приём
+                  заказов.
+                </>
+              }
+              isCopied={copiedWebhook === "ozon"}
+              onCopy={() => copyWebhookUrl("ozon")}
+            />
+          </div>
         </form>
+      </article>
 
-        <div className="mt-6 space-y-3">
-          <WebhookUrlCard
-            title="URL для вебхука Ozon"
-            url={ozonWebhookUrl}
-            emptyText={
-              isActive
-                ? "Токен вебхука ещё не создан. Примените миграцию supabase/workshop_marketplace_integration.sql и сохраните ключи ещё раз."
-                : "Сохраните Client-Id и Api-Key — здесь появится персональный адрес с токеном."
-            }
-            hint={
-              <>
-                Скопируйте адрес целиком, вместе с <code>?token=…</code>: по
-                токену Ozon находит вашу мастерскую, даже если не присылает
-                Client-Id. Этот адрес не публикуйте — он открывает приём
-                заказов.
-              </>
-            }
-            isCopied={copiedWebhook === "ozon"}
-            onCopy={() => copyWebhookUrl("ozon")}
-          />
+      <article
+        aria-labelledby="workshop-integrations-wb-title"
+        className={platformCardClassName}
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h3
+              id="workshop-integrations-wb-title"
+              className="text-lg font-extrabold tracking-tight text-white"
+            >
+              Wildberries (WB)
+            </h3>
+            <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-zinc-400">
+              Для получения заказов с WB не нужны API-ключи — достаточно указать
+              этот URL в настройках WB.
+            </p>
+          </div>
 
-          <WebhookUrlCard
-            title="URL для Wildberries (WB)"
+          <StatusBadge tone={wbWebhookUrl ? "active" : "ready"}>
+            {wbWebhookUrl ? "Активна" : "Готово к подключению"}
+          </StatusBadge>
+        </div>
+
+        <div className="mt-5 border-t border-white/[0.07] pt-5">
+          <WebhookUrlField
+            title="URL для вебхука WB"
             url={wbWebhookUrl}
             emptyText={
               isMissingTable
@@ -395,12 +444,54 @@ export function WorkshopIntegrationsTab({
             onCopy={() => copyWebhookUrl("wb")}
           />
         </div>
-      </div>
+      </article>
+
+      <article
+        aria-labelledby="workshop-integrations-yandex-title"
+        className={platformCardClassName}
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h3
+              id="workshop-integrations-yandex-title"
+              className="text-lg font-extrabold tracking-tight text-white"
+            >
+              Яндекс.Маркет
+            </h3>
+            <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-zinc-400">
+              API-ключи для этого адреса не нужны: достаточно указать его в
+              настройках Яндекс.Маркета.
+            </p>
+          </div>
+
+          <StatusBadge tone="ready">Готово к подключению</StatusBadge>
+        </div>
+
+        <div className="mt-5 border-t border-white/[0.07] pt-5">
+          <WebhookUrlField
+            title="URL для вебхука Яндекса"
+            url={yandexWebhookUrl}
+            emptyText={
+              isMissingTable
+                ? "Токен вебхука ещё не создан. Примените миграцию supabase/workshop_marketplace_integration.sql."
+                : "Токен вебхука ещё не создан. Сохраните настройки ещё раз — адрес появится здесь."
+            }
+            hint={
+              <>
+                Укажите этот адрес в настройках уведомлений Яндекс.Маркета.
+                Токен общий с Ozon — адрес не публикуйте.
+              </>
+            }
+            isCopied={copiedWebhook === "yandex"}
+            onCopy={() => copyWebhookUrl("yandex")}
+          />
+        </div>
+      </article>
     </section>
   );
 }
 
-type WebhookUrlCardProps = {
+type WebhookUrlFieldProps = {
   /** Подпись над адресом: она же попадает в aria-label кнопки. */
   title: string;
   url: string | null;
@@ -412,23 +503,23 @@ type WebhookUrlCardProps = {
 };
 
 /**
- * Карточка персонального адреса вебхука с кнопкой «Скопировать».
+ * Поле персонального адреса вебхука с кнопкой «Скопировать».
  *
- * Ozon и WB отличаются только путём роута, поэтому разметка общая: так обе
- * площадки получают одинаковую подсказку, disabled-состояние и подтверждение.
- * `isCopied` у каждой карточки свой, иначе клик по одной кнопке менял бы текст
- * на обеих.
+ * Ozon, WB и Яндекс отличаются только путём роута, поэтому разметка общая: так
+ * все площадки получают одинаковую подсказку, disabled-состояние и
+ * подтверждение. `isCopied` у каждого поля свой, иначе клик по одной кнопке
+ * менял бы текст на всех трёх.
  */
-function WebhookUrlCard({
+function WebhookUrlField({
   title,
   url,
   emptyText,
   hint,
   isCopied,
   onCopy,
-}: WebhookUrlCardProps) {
+}: WebhookUrlFieldProps) {
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-black/30 p-4 sm:p-5">
+    <div className="rounded-xl border border-white/[0.07] bg-black/30 p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
@@ -462,5 +553,43 @@ function WebhookUrlCard({
 
       <p className="mt-3 text-xs leading-relaxed text-zinc-500">{hint}</p>
     </div>
+  );
+}
+
+/** Состояние площадки в бейдже карточки. */
+type StatusTone = "active" | "ready" | "off";
+
+const STATUS_TONE_CLASSES: Record<StatusTone, string> = {
+  active: "border-emerald-400/25 bg-emerald-500/10 text-emerald-200",
+  ready: "border-blue-400/25 bg-blue-500/10 text-blue-200",
+  off: "border-white/10 bg-white/[0.03] text-zinc-400",
+};
+
+const STATUS_DOT_CLASSES: Record<StatusTone, string> = {
+  active: "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]",
+  ready: "bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.9)]",
+  off: "bg-zinc-500",
+};
+
+/** Бейдж площадки: активна, готова к подключению или не настроена. */
+function StatusBadge({
+  tone,
+  children,
+}: {
+  tone: StatusTone;
+  children: ReactNode;
+}) {
+  return (
+    <p className="shrink-0">
+      <span
+        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold ${STATUS_TONE_CLASSES[tone]}`}
+      >
+        <span
+          aria-hidden
+          className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT_CLASSES[tone]}`}
+        />
+        {children}
+      </span>
+    </p>
   );
 }
