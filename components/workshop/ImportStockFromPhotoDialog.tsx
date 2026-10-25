@@ -20,23 +20,47 @@ const quantityFormatter = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 3,
 });
 
-/** Проверка строки ответа: сервер уже проверяет, но сети на слово не верим. */
-function isInvoiceItem(value: unknown): value is InvoiceItem {
+/** Стоимость в рублях: до двух знаков после запятой. */
+const priceFormatter = new Intl.NumberFormat("ru-RU", {
+  maximumFractionDigits: 2,
+});
+
+/**
+ * Проверка строки ответа: сервер уже проверяет, но сети на слово не верим.
+ * Нечитаемая цена не делает строку некорректной — она просто становится null.
+ */
+function toInvoiceItem(value: unknown): InvoiceItem | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
+    return null;
   }
 
   const record = value as Record<string, unknown>;
 
-  return (
-    typeof record.name === "string" &&
-    record.name.trim() !== "" &&
-    typeof record.unit === "string" &&
-    record.unit.trim() !== "" &&
-    typeof record.quantity === "number" &&
-    Number.isFinite(record.quantity) &&
-    record.quantity > 0
-  );
+  if (
+    typeof record.name !== "string" ||
+    record.name.trim() === "" ||
+    typeof record.unit !== "string" ||
+    record.unit.trim() === "" ||
+    typeof record.quantity !== "number" ||
+    !Number.isFinite(record.quantity) ||
+    record.quantity <= 0
+  ) {
+    return null;
+  }
+
+  const price =
+    typeof record.price === "number" &&
+    Number.isFinite(record.price) &&
+    record.price >= 0
+      ? record.price
+      : null;
+
+  return {
+    name: record.name.trim(),
+    quantity: record.quantity,
+    unit: record.unit.trim(),
+    price,
+  };
 }
 
 /** Текст ошибки из JSON роута: `{ error: "..." }`. */
@@ -56,8 +80,9 @@ function readErrorMessage(payload: unknown): string | null {
  * Фото уходит в `/api/workshop/ocr` как multipart-поле `file`; сессию, подписку
  * и формат проверяет сервер. Пока идёт распознавание, окно нельзя закрыть —
  * иначе результат придёт в размонтированный компонент. Успех показывается
- * таблицей «Материал / Количество / Ед. изм.», пустой ответ и ошибка — красной
- * плашкой. В базу ничего не пишем: сохранение остатков — следующий шаг.
+ * таблицей «Материал / Количество / Ед. изм. / Стоимость (₽)», пустой ответ и
+ * ошибка — красной плашкой. Если цена не распознана, в колонке стоит прочерк.
+ * В базу ничего не пишем: сохранение остатков — следующий шаг.
  *
  * Портал, overlay, Escape и блокировка прокрутки повторяют остальные окна
  * Мастерской; фокус после закрытия возвращает вкладка «Склад».
@@ -123,7 +148,9 @@ export function ImportStockFromPhotoDialog({
         return;
       }
 
-      const recognized = payload.filter(isInvoiceItem);
+      const recognized = payload
+        .map(toInvoiceItem)
+        .filter((item): item is InvoiceItem => item !== null);
 
       if (recognized.length === 0) {
         setError(
@@ -184,7 +211,7 @@ export function ImportStockFromPhotoDialog({
             </h2>
             <p className="mt-2 max-w-lg text-sm leading-relaxed text-zinc-400">
               Загрузите фотографию накладной — модель найдёт материалы,
-              количество и единицы измерения.
+              количество, единицы измерения и стоимость.
             </p>
           </div>
           <button
@@ -284,10 +311,10 @@ export function ImportStockFromPhotoDialog({
                 </p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-sm">
+                <table className="w-full min-w-[36rem] border-collapse text-sm">
                   <caption className="sr-only">
-                    Распознанные материалы накладной: название, количество и
-                    единица измерения
+                    Распознанные материалы накладной: название, количество,
+                    единица измерения и стоимость
                   </caption>
                   <thead>
                     <tr className="border-b border-white/10 text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
@@ -299,6 +326,9 @@ export function ImportStockFromPhotoDialog({
                       </th>
                       <th scope="col" className="px-4 py-3">
                         Ед. изм.
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-right">
+                        Стоимость (₽)
                       </th>
                     </tr>
                   </thead>
@@ -319,6 +349,13 @@ export function ImportStockFromPhotoDialog({
                         </td>
                         <td className="px-4 py-3 text-sm text-zinc-400">
                           {item.unit}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm tabular-nums text-zinc-200">
+                          {item.price === null ? (
+                            <span className="text-zinc-500">—</span>
+                          ) : (
+                            priceFormatter.format(item.price)
+                          )}
                         </td>
                       </tr>
                     ))}

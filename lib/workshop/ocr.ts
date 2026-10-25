@@ -6,6 +6,8 @@
  * Поэтому сначала пробуем `JSON.parse` целиком, а затем — кусок от первой `[`
  * до последней `]`. Проверка полей отдельная: без неё клиент получил бы
  * «валидный JSON» с `null` вместо названия и падал бы уже в форме остатков.
+ * Стоимость необязательна: если её не удалось прочитать, строка остаётся, а
+ * `price` становится `null`.
  */
 
 /** Строка накладной, которую ждёт импорт остатков. */
@@ -13,6 +15,8 @@ export type InvoiceItem = {
   name: string;
   quantity: number;
   unit: string;
+  /** Общая стоимость позиции в рублях; null — цена не распознана. */
+  price: number | null;
 };
 
 /**
@@ -36,8 +40,10 @@ export const OCR_MODEL = "openai/gpt-4o";
  */
 export const INVOICE_OCR_PROMPT =
   "Ты — OCR-парсер накладных. Извлеки из этого изображения список материалов: " +
-  "название, количество, единица измерения. " +
-  "Верни строго JSON-массив: [{ name, quantity, unit }]. " +
+  "название, количество, единица измерения и общую закупочную стоимость позиции в рублях. " +
+  "Верни строго JSON-массив: [{ name, quantity, unit, price }]. " +
+  "price — итоговая сумма по строке числом, а не цена за единицу. " +
+  "Если стоимость не указана или не читается, верни null. " +
   "Без пояснений, без markdown и без текста вокруг JSON.";
 
 /** Markdown-ограда вокруг JSON: ```json … ``` или просто ``` … ```. */
@@ -66,7 +72,35 @@ function parseQuantity(value: unknown): number | null {
   return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
 }
 
-/** Одна строка массива: объект с непустыми `name` и `unit` и числом `quantity`. */
+/**
+ * Стоимость позиции из ответа модели.
+ *
+ * Поле необязательное: если сумму не удалось прочитать, строка всё равно
+ * остаётся в результате, а `price` становится `null`. Строку вида
+ * `"1 234,56 ₽"` очищаем от пробелов, валюты и запятой в дробной части.
+ */
+function parsePrice(value: unknown): number | null {
+  const price =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(
+            value
+              .trim()
+              .replace(/\s+/g, "")
+              .replace(/руб\.?/gi, "")
+              .replace(/₽/g, "")
+              .replace(",", "."),
+          )
+        : Number.NaN;
+
+  return Number.isFinite(price) && price >= 0 ? price : null;
+}
+
+/**
+ * Одна строка массива: объект с непустыми `name` и `unit`, числом `quantity`
+ * и необязательной ценой.
+ */
 function parseInvoiceItem(value: unknown): InvoiceItem | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
@@ -76,20 +110,22 @@ function parseInvoiceItem(value: unknown): InvoiceItem | null {
   const name = typeof record.name === "string" ? record.name.trim() : "";
   const unit = typeof record.unit === "string" ? record.unit.trim() : "";
   const quantity = parseQuantity(record.quantity);
+  const price = parsePrice(record.price);
 
   if (!name || !unit || quantity === null) {
     return null;
   }
 
-  return { name, quantity, unit };
+  return { name, quantity, unit, price };
 }
 
 /**
  * Разбирает ответ модели.
  *
  * Возвращает массив строк или `null`, если JSON не разобрался либо хотя бы одна
- * строка не похожа на материал. Пустой массив считается валидным ответом:
- * модель распознала изображение, но материалов на нём нет.
+ * строка не похожа на материал. Нечитаемая цена строку не отбрасывает: поле
+ * `price` в ней будет `null`. Пустой массив считается валидным ответом: модель
+ * распознала изображение, но материалов на нём нет.
  */
 export function parseInvoiceItems(content: string): InvoiceItem[] | null {
   const raw = stripCodeFence(content);
