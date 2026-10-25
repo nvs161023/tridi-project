@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import {
   type ChangeEvent,
   type FormEvent,
+  type KeyboardEvent,
   useCallback,
   useEffect,
   useState,
@@ -12,6 +13,7 @@ import { createPortal } from "react-dom";
 
 import { saveImportedFilaments } from "@/app/actions/filaments";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
+import { TrashIcon } from "@/components/workshop/WorkshopIcons";
 import type { SaveImportedFilamentsResult } from "@/lib/workshop/filaments";
 import type { InvoiceItem } from "@/lib/workshop/ocr";
 
@@ -19,15 +21,36 @@ type ImportStockFromPhotoDialogProps = {
   onClose: () => void;
 };
 
-/** Количество в таблице: целые без дробной части, дробные — с запятой. */
-const quantityFormatter = new Intl.NumberFormat("ru-RU", {
-  maximumFractionDigits: 3,
-});
+/**
+ * Строка таблицы в процессе правки.
+ *
+ * Количество и стоимость хранятся строками: с числом пустое поле сразу стало бы
+ * нулём, и «1,5» было бы не набрать. В `InvoiceItem` строки превращаются только
+ * перед сохранением.
+ */
+type EditableInvoiceItem = {
+  /** Ключ строки: имя меняется при правке, поэтому ключ от полей не зависит. */
+  id: string;
+  name: string;
+  quantity: string;
+  unit: string;
+  price: string;
+};
 
-/** Стоимость в рублях: до двух знаков после запятой. */
-const priceFormatter = new Intl.NumberFormat("ru-RU", {
-  maximumFractionDigits: 2,
-});
+/** Подсказки единиц измерения: список открывается, но ввести можно любую. */
+const UNIT_SUGGESTIONS = ["г", "кг", "шт"] as const;
+
+/** Поля таблицы в CRM-стиле: тёмный фон, тонкая обводка, синий фокус. */
+const cellInputClassName =
+  "w-full min-w-0 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-colors [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+
+let nextItemId = 0;
+
+/** Уникальный ключ строки: имя редактируется, поэтому ключ не строится из полей. */
+function createItemId(): string {
+  nextItemId += 1;
+  return `import-item-${nextItemId}`;
+}
 
 /**
  * Проверка строки ответа: сервер уже проверяет, но сети на слово не верим.
@@ -67,6 +90,76 @@ function toInvoiceItem(value: unknown): InvoiceItem | null {
   };
 }
 
+/** Распознанная строка → строка таблицы: числа без разделителей тысяч. */
+function toEditableItem(item: InvoiceItem): EditableInvoiceItem {
+  return {
+    id: createItemId(),
+    name: item.name,
+    quantity: String(item.quantity),
+    unit: item.unit,
+    price: item.price === null ? "" : String(item.price),
+  };
+}
+
+/** Число из поля ввода: запятая допустима, пустое поле — это `null`. */
+function readDecimal(value: string): number | null {
+  const normalized = value.trim().replace(",", ".");
+
+  if (normalized === "") {
+    return null;
+  }
+
+  const number = Number(normalized);
+
+  return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Стоимость из поля: пустое поле — «цена не распознана» (`null`), мусор или
+ * отрицательное число — ошибка (`undefined`).
+ */
+function readPrice(value: string): number | null | undefined {
+  if (value.trim() === "") {
+    return null;
+  }
+
+  const price = readDecimal(value);
+
+  return price !== null && price >= 0 ? price : undefined;
+}
+
+/**
+ * Отредактированные строки → массив для Server Action.
+ *
+ * `null` означает, что хотя бы одна строка не готова: без названия, единицы,
+ * положительного количества или с отрицательной стоимостью. Так в действие не
+ * уходит заведомо битая позиция, которую сервер всё равно бы отбросил.
+ */
+function toInvoiceItems(items: EditableInvoiceItem[]): InvoiceItem[] | null {
+  const result: InvoiceItem[] = [];
+
+  for (const item of items) {
+    const name = item.name.trim();
+    const unit = item.unit.trim();
+    const quantity = readDecimal(item.quantity);
+    const price = readPrice(item.price);
+
+    if (
+      !name ||
+      !unit ||
+      quantity === null ||
+      quantity <= 0 ||
+      price === undefined
+    ) {
+      return null;
+    }
+
+    result.push({ name, quantity, unit, price });
+  }
+
+  return result;
+}
+
 /** Текст ошибки из JSON роута: `{ error: "..." }`. */
 function readErrorMessage(payload: unknown): string | null {
   if (typeof payload !== "object" || payload === null) {
@@ -84,13 +177,18 @@ function readErrorMessage(payload: unknown): string | null {
  * Фото уходит в `/api/workshop/ocr` как multipart-поле `file`; сессию, подписку
  * и формат проверяет сервер. Пока идёт распознавание, окно нельзя закрыть —
  * иначе результат придёт в размонтированный компонент. Успех показывается
- * таблицей «Материал / Количество / Ед. изм. / Стоимость (₽)», пустой ответ и
- * ошибка — красной плашкой. Если цена не распознана, в колонке стоит прочерк.
+ * редактируемой таблицей «Материал / Количество / Ед. изм. / Стоимость (₽)»:
+ * название, количество, единицу и стоимость можно исправить, а лишнюю строку —
+ * удалить корзиной. Пустое название, нулевое количество или отрицательная
+ * стоимость не дают сохранить — под таблицей появляется ошибка. Если цена не
+ * распознана, поле остаётся пустым.
  *
- * Кнопка «Сохранить на склад» вызывает Server Action, который создаёт катушки
- * в workshop_filaments. После успеха зелёная плашка показывает число позиций,
- * а через две секунды окно закрывается и router.refresh() обновляет склад.
- * Пока идёт сохранение, окно тоже нельзя закрыть.
+ * Кнопка «Сохранить на склад» вызывает Server Action и отправляет именно
+ * отредактированный массив: строки таблицы превращаются в `InvoiceItem` перед
+ * запросом. Действие создаёт катушки в workshop_filaments. После успеха зелёная
+ * плашка показывает число позиций, а через две секунды окно закрывается и
+ * router.refresh() обновляет склад. Пока идёт сохранение, окно тоже нельзя
+ * закрыть.
  *
  * Портал, overlay, Escape и блокировка прокрутки повторяют остальные окна
  * Мастерской; фокус после закрытия возвращает вкладка «Склад».
@@ -102,7 +200,7 @@ export function ImportStockFromPhotoDialog({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isRecognizing, setIsRecognizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [items, setItems] = useState<InvoiceItem[] | null>(null);
+  const [items, setItems] = useState<EditableInvoiceItem[] | null>(null);
   const [saveResult, setSaveResult] =
     useState<SaveImportedFilamentsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -196,7 +294,7 @@ export function ImportStockFromPhotoDialog({
         return;
       }
 
-      setItems(recognized);
+      setItems(recognized.map(toEditableItem));
     } catch {
       setError(
         "Не удалось связаться с сервером. Проверьте соединение и попробуйте ещё раз.",
@@ -206,8 +304,45 @@ export function ImportStockFromPhotoDialog({
     }
   }
 
+  /** Правка одной ячейки: меняем только нужное поле, остальные строки не трогаем. */
+  function updateItem(
+    id: string,
+    patch: Partial<Omit<EditableInvoiceItem, "id">>,
+  ) {
+    setError(null);
+    setItems((current) =>
+      current
+        ? current.map((item) => (item.id === id ? { ...item, ...patch } : item))
+        : current,
+    );
+  }
+
+  /** Корзина в строке: удаляем ошибочно распознанную позицию. */
+  function removeItem(id: string) {
+    setError(null);
+    setItems((current) =>
+      current ? current.filter((item) => item.id !== id) : current,
+    );
+  }
+
+  /** Enter в поле таблицы не должен отправлять форму распознавания заново. */
+  function handleFieldKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+    }
+  }
+
   async function handleSave() {
     if (!items || items.length === 0 || isSaving || saveResult) {
+      return;
+    }
+
+    const editedItems = toInvoiceItems(items);
+
+    if (!editedItems) {
+      setError(
+        "Проверьте таблицу: название и единица измерения не должны быть пустыми, количество — больше нуля, стоимость — не отрицательной.",
+      );
       return;
     }
 
@@ -215,7 +350,7 @@ export function ImportStockFromPhotoDialog({
     setIsSaving(true);
 
     try {
-      const result = await saveImportedFilaments(items);
+      const result = await saveImportedFilaments(editedItems);
 
       if (result.saved === 0) {
         setError(
@@ -377,60 +512,154 @@ export function ImportStockFromPhotoDialog({
                   Найдено: {items.length}
                 </p>
               </div>
+              <datalist id="import-stock-units">
+                {UNIT_SUGGESTIONS.map((unit) => (
+                  <option key={unit} value={unit} />
+                ))}
+              </datalist>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[36rem] border-collapse text-sm">
                   <caption className="sr-only">
                     Распознанные материалы накладной: название, количество,
-                    единица измерения и стоимость
+                    единица измерения и стоимость можно править перед
+                    сохранением
                   </caption>
                   <thead>
                     <tr className="border-b border-white/10 text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
-                      <th scope="col" className="px-4 py-3">
+                      <th scope="col" className="px-3 py-3">
                         Материал
                       </th>
-                      <th scope="col" className="px-4 py-3">
+                      <th scope="col" className="w-20 px-3 py-3">
                         Количество
                       </th>
-                      <th scope="col" className="px-4 py-3">
+                      <th scope="col" className="w-20 px-3 py-3">
                         Ед. изм.
                       </th>
-                      <th scope="col" className="px-4 py-3 text-right">
+                      <th scope="col" className="w-24 px-3 py-3">
                         Стоимость (₽)
+                      </th>
+                      <th scope="col" className="w-12 px-2 py-3">
+                        <span className="sr-only">Действия</span>
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item, index) => (
-                      <tr
-                        key={`${index}-${item.name}`}
-                        className="border-b border-white/5 last:border-0"
-                      >
-                        <th
-                          scope="row"
-                          className="px-4 py-3 text-left text-sm font-semibold text-white"
+                    {items.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="px-4 py-6 text-center text-sm text-zinc-500"
                         >
-                          {item.name}
-                        </th>
-                        <td className="px-4 py-3 text-sm tabular-nums text-zinc-200">
-                          {quantityFormatter.format(item.quantity)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-zinc-400">
-                          {item.unit}
-                        </td>
-                        <td className="px-4 py-3 text-right text-sm tabular-nums text-zinc-200">
-                          {item.price === null ? (
-                            <span className="text-zinc-500">—</span>
-                          ) : (
-                            priceFormatter.format(item.price)
-                          )}
+                          Все строки удалены — сохранять на склад нечего.
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      items.map((item, index) => (
+                        <tr
+                          key={item.id}
+                          className="border-b border-white/5 last:border-0"
+                        >
+                          <td className="px-2 py-2">
+                            <input
+                              type="text"
+                              value={item.name}
+                              onChange={(event) =>
+                                updateItem(item.id, {
+                                  name: event.target.value,
+                                })
+                              }
+                              onKeyDown={handleFieldKeyDown}
+                              disabled={isBusy}
+                              autoComplete="off"
+                              maxLength={120}
+                              placeholder="Название материала"
+                              aria-label={`Материал, строка ${index + 1}`}
+                              className={`${cellInputClassName} font-semibold`}
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <input
+                              type="number"
+                              value={item.quantity}
+                              onChange={(event) =>
+                                updateItem(item.id, {
+                                  quantity: event.target.value,
+                                })
+                              }
+                              onKeyDown={handleFieldKeyDown}
+                              disabled={isBusy}
+                              autoComplete="off"
+                              inputMode="decimal"
+                              min="0"
+                              step="any"
+                              placeholder="0"
+                              aria-label={`Количество, строка ${index + 1}`}
+                              className={`${cellInputClassName} tabular-nums`}
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <input
+                              type="text"
+                              value={item.unit}
+                              onChange={(event) =>
+                                updateItem(item.id, {
+                                  unit: event.target.value,
+                                })
+                              }
+                              onKeyDown={handleFieldKeyDown}
+                              disabled={isBusy}
+                              autoComplete="off"
+                              list="import-stock-units"
+                              maxLength={20}
+                              placeholder="г"
+                              aria-label={`Единица измерения, строка ${index + 1}`}
+                              className={cellInputClassName}
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <input
+                              type="number"
+                              value={item.price}
+                              onChange={(event) =>
+                                updateItem(item.id, {
+                                  price: event.target.value,
+                                })
+                              }
+                              onKeyDown={handleFieldKeyDown}
+                              disabled={isBusy}
+                              autoComplete="off"
+                              inputMode="decimal"
+                              min="0"
+                              step="any"
+                              placeholder="—"
+                              aria-label={`Стоимость, строка ${index + 1}`}
+                              className={`${cellInputClassName} tabular-nums`}
+                            />
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => removeItem(item.id)}
+                              disabled={isBusy}
+                              aria-label={`Удалить строку ${index + 1}: ${
+                                item.name.trim() || "без названия"
+                              }`}
+                              title="Удалить строку"
+                              data-import-stock-remove
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
               <p className="border-t border-white/5 px-4 py-3 text-xs leading-relaxed text-zinc-500">
-                Проверьте таблицу и сохраните позиции на склад.
+                Проверьте таблицу: название, количество, единицу и стоимость
+                можно исправить, а лишние строки — удалить корзиной.
               </p>
             </div>
           ) : null}
@@ -468,7 +697,9 @@ export function ImportStockFromPhotoDialog({
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={isSaving || saveResult !== null}
+                disabled={
+                  isSaving || saveResult !== null || items.length === 0
+                }
                 aria-busy={isSaving}
                 className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
               >
