@@ -5,6 +5,8 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { AddFilamentDialog } from "@/components/workshop/AddFilamentDialog";
 import { ConsumeFilamentDialog } from "@/components/workshop/ConsumeFilamentDialog";
 import { ImportStockFromPhotoDialog } from "@/components/workshop/ImportStockFromPhotoDialog";
+import { OrderFilamentsDialog } from "@/components/workshop/OrderFilamentsDialog";
+import { SpecificationIcon } from "@/components/workshop/WorkshopIcons";
 import {
   filamentRemainingPercent,
   formatGrams,
@@ -20,7 +22,8 @@ import {
  * расходится с базой. Состояние вкладки — только открытые окна и строка
  * подтверждения.
  *
- * Окон три: «Добавить катушку», «Списать N грамм» и «Импорт из фото». Они
+ * Окон четыре: «Добавить катушку», «Списать N грамм», «Импорт из фото» и
+ * «Спецификация на закупку». Они
  * монтируются по условию: так состояние их форм сбрасывается при каждом
  * открытии, и старая ошибка не висит над новым вводом. Фокус после закрытия
  * возвращается на кнопку, которая открыла окно.
@@ -42,12 +45,14 @@ export function WorkshopStockTab({
 }: WorkshopStockTabProps) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isOrderOpen, setIsOrderOpen] = useState(false);
   const [consumeTarget, setConsumeTarget] = useState<WorkshopFilament | null>(
     null,
   );
   const [status, setStatus] = useState<string | null>(null);
   const addTriggerRef = useRef<HTMLButtonElement>(null);
   const importTriggerRef = useRef<HTMLButtonElement>(null);
+  const orderTriggerRef = useRef<HTMLButtonElement>(null);
   const consumeTriggerRef = useRef<HTMLButtonElement>(null);
 
   const summary = useMemo(() => {
@@ -80,6 +85,16 @@ export function WorkshopStockTab({
   const closeImport = useCallback(() => {
     setIsImportOpen(false);
     importTriggerRef.current?.focus();
+  }, []);
+
+  const openOrder = useCallback(() => {
+    setStatus(null);
+    setIsOrderOpen(true);
+  }, []);
+
+  const closeOrder = useCallback(() => {
+    setIsOrderOpen(false);
+    orderTriggerRef.current?.focus();
   }, []);
 
   const openConsume = useCallback(
@@ -131,6 +146,15 @@ export function WorkshopStockTab({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            ref={orderTriggerRef}
+            type="button"
+            onClick={openOrder}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+          >
+            <SpecificationIcon className="h-4 w-4" />
+            Спецификация на закупку
+          </button>
           <button
             ref={importTriggerRef}
             type="button"
@@ -188,6 +212,10 @@ export function WorkshopStockTab({
 
       {isImportOpen ? (
         <ImportStockFromPhotoDialog onClose={closeImport} />
+      ) : null}
+
+      {isOrderOpen ? (
+        <OrderFilamentsDialog filaments={filaments} onClose={closeOrder} />
       ) : null}
     </section>
   );
