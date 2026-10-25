@@ -7,19 +7,15 @@ import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import { SpecificationIcon } from "@/components/workshop/WorkshopIcons";
 import {
   FILAMENT_DEFAULTS,
+  FILAMENT_ORDER_LIMITS,
   formatGrams,
+  type FilamentOrderItem,
   type WorkshopFilament,
 } from "@/lib/workshop/filaments";
 
 type OrderFilamentsDialogProps = {
   filaments: WorkshopFilament[];
   onClose: () => void;
-};
-
-/** Позиция, которую следующий шаг превратит в печатную спецификацию. */
-type FilamentOrderItem = {
-  filamentId: string;
-  quantityGrams: number;
 };
 
 /** Название катушки для строки спецификации: «eSun PLA Чёрный». */
@@ -37,8 +33,9 @@ function filamentTitle(filament: WorkshopFilament): string {
  *
  * В список сразу попадают только катушки ниже минимального порога, все
  * отмечены. Ненужные строки снимаются галочкой, количество по умолчанию —
- * вес стандартной катушки (1 000 г). Пока документ не печатается: «Сформировать»
- * выводит выбранные позиции в консоль и закрывает окно.
+ * вес стандартной катушки (1 000 г). «Сформировать» кодирует выбранные позиции
+ * в адрес `/workshop/filaments/specification`, открывает печатную форму в новой
+ * вкладке и закрывает окно.
  *
  * Портал, overlay, Escape, блокировка прокрутки и возврат фокуса повторяют
  * остальные окна Мастерской.
@@ -65,10 +62,12 @@ export function OrderFilamentsDialog({
       ]),
     ),
   );
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useDialogDismiss(onClose);
 
   function toggleFilament(filamentId: string, isSelected: boolean) {
+    setSubmitError(null);
     setSelectedIds((current) => {
       const next = new Set(current);
 
@@ -82,17 +81,58 @@ export function OrderFilamentsDialog({
     });
   }
 
+  function updateQuantity(filamentId: string, value: string) {
+    setSubmitError(null);
+    setQuantities((current) => ({ ...current, [filamentId]: value }));
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const orderItems: FilamentOrderItem[] = candidates
-      .filter((filament) => selectedIds.has(filament.id))
-      .map((filament) => ({
-        filamentId: filament.id,
-        quantityGrams: Math.round(Number(quantities[filament.id])),
-      }));
+    const selected = candidates.filter((filament) =>
+      selectedIds.has(filament.id),
+    );
 
-    console.log("Спецификация на закупку филамента:", orderItems);
+    if (selected.length === 0) {
+      setSubmitError("Выберите хотя бы одну позицию.");
+      return;
+    }
+
+    const orderItems: FilamentOrderItem[] = [];
+
+    for (const filament of selected) {
+      const quantityGrams = Math.round(Number(quantities[filament.id]));
+
+      if (
+        !Number.isFinite(quantityGrams) ||
+        quantityGrams < FILAMENT_ORDER_LIMITS.minGrams ||
+        quantityGrams > FILAMENT_ORDER_LIMITS.maxGrams
+      ) {
+        setSubmitError(
+          `Количество должно быть от ${FILAMENT_ORDER_LIMITS.minGrams} до ${FILAMENT_ORDER_LIMITS.maxGrams} г.`,
+        );
+        return;
+      }
+
+      orderItems.push({ filamentId: filament.id, quantityGrams });
+    }
+
+    const params = new URLSearchParams({
+      items: JSON.stringify(orderItems),
+    });
+    const printWindow = window.open(
+      `/workshop/filaments/specification?${params.toString()}`,
+      "_blank",
+    );
+
+    if (!printWindow) {
+      setSubmitError(
+        "Браузер заблокировал новую вкладку. Разрешите всплывающие окна и попробуйте снова.",
+      );
+      return;
+    }
+
+    printWindow.opener = null;
     onClose();
   }
 
@@ -217,16 +257,14 @@ export function OrderFilamentsDialog({
                             id={quantityId}
                             type="number"
                             inputMode="numeric"
-                            min={1}
+                            min={FILAMENT_ORDER_LIMITS.minGrams}
+                            max={FILAMENT_ORDER_LIMITS.maxGrams}
                             step={1}
                             required={isSelected}
                             disabled={!isSelected}
                             value={quantities[filament.id] ?? ""}
                             onChange={(event) =>
-                              setQuantities((current) => ({
-                                ...current,
-                                [filament.id]: event.target.value,
-                              }))
+                              updateQuantity(filament.id, event.target.value)
                             }
                             className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-right text-sm font-semibold tabular-nums text-white transition-colors focus:border-blue-400/60 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50"
                           />
@@ -238,6 +276,16 @@ export function OrderFilamentsDialog({
               </ul>
             )}
           </div>
+
+          {submitError ? (
+            <p
+              role="alert"
+              data-order-filaments-error
+              className="border-t border-red-400/25 bg-red-950/70 px-5 py-3 text-sm font-semibold text-red-200 sm:px-6"
+            >
+              {submitError}
+            </p>
+          ) : null}
 
           <div className="flex flex-col-reverse gap-3 border-t border-white/10 p-5 sm:flex-row sm:justify-end sm:p-6">
             <button

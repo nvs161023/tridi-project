@@ -34,6 +34,25 @@ export type WorkshopFilament = {
   createdAt: string | null;
 };
 
+/** Позиция спецификации на закупку: катушка и сколько граммов нужно купить. */
+export type FilamentOrderItem = {
+  filamentId: string;
+  quantityGrams: number;
+};
+
+/**
+ * Границы списка закупки.
+ *
+ * Список приходит из адреса печатной формы, поэтому его размер и количество
+ * проверяются до запроса в базу. Верхняя граница граммов совпадает с
+ * ограничением веса катушки в `supabase/workshop_filaments.sql`.
+ */
+export const FILAMENT_ORDER_LIMITS = {
+  maxItems: 100,
+  minGrams: 1,
+  maxGrams: 100000,
+} as const;
+
 export type FilamentTextKey = "brand" | "type" | "color" | "purchaseUrl";
 export type FilamentNumberKey =
   | "totalWeightG"
@@ -465,6 +484,59 @@ const UUID_PATTERN =
 /** Идентификатор строки: PostgREST ответит 22P02 на мусор, поэтому проверяем до запроса. */
 export function isFilamentId(value: unknown): value is string {
   return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+/**
+ * Позиции из адреса печатной формы → безопасный список.
+ *
+ * JSON приходит из строки запроса, поэтому доверять ему нельзя: проверяем
+ * форму каждого элемента, округляем граммы до целых и отбрасываем повторы id.
+ * Один битый элемент не отменяет остальные; пустой или чужой по форме массив
+ * даёт пустой список, и страница показывает пустое состояние.
+ */
+export function readFilamentOrderItems(value: unknown): FilamentOrderItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const items: FilamentOrderItem[] = [];
+  const seenIds = new Set<string>();
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const candidate = entry as Partial<FilamentOrderItem>;
+
+    if (!isFilamentId(candidate.filamentId) || seenIds.has(candidate.filamentId)) {
+      continue;
+    }
+
+    const rawQuantity = candidate.quantityGrams;
+
+    if (typeof rawQuantity !== "number" || !Number.isFinite(rawQuantity)) {
+      continue;
+    }
+
+    const quantityGrams = Math.round(rawQuantity);
+
+    if (
+      quantityGrams < FILAMENT_ORDER_LIMITS.minGrams ||
+      quantityGrams > FILAMENT_ORDER_LIMITS.maxGrams
+    ) {
+      continue;
+    }
+
+    seenIds.add(candidate.filamentId);
+    items.push({ filamentId: candidate.filamentId, quantityGrams });
+
+    if (items.length >= FILAMENT_ORDER_LIMITS.maxItems) {
+      break;
+    }
+  }
+
+  return items;
 }
 
 /**
