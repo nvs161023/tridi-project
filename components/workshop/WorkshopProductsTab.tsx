@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { AddProductDialog } from "@/components/workshop/AddProductDialog";
+import { ImportProductsDialog } from "@/components/workshop/ImportProductsDialog";
 import { ProductsIcon } from "@/components/workshop/WorkshopIcons";
 import type { WorkshopProduct } from "@/lib/workshop/products";
 
@@ -16,7 +17,8 @@ import type { WorkshopProduct } from "@/lib/workshop/products";
  * Пока товаров нет, показывается пустое состояние с кнопкой. Когда каталог
  * заполнен, кнопка «Добавить товар» переезжает в шапку, а данные выводятся
  * таблицей в стиле склада: тёмная карточка, uppercase-заголовки и
- * `tabular-nums` для чисел.
+ * `tabular-nums` для чисел. Кнопка «Импорт» остаётся в шапке при любом
+ * каталоге и открывает окно загрузки CSV.
  */
 
 type WorkshopProductsTabProps = {
@@ -61,13 +63,22 @@ function formatProductDimensions(product: WorkshopProduct): string {
 
 export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const importButtonRef = useRef<HTMLButtonElement>(null);
 
   const openDialog = useCallback(() => setIsDialogOpen(true), []);
 
   const closeDialog = useCallback(() => {
     setIsDialogOpen(false);
     window.requestAnimationFrame(() => addButtonRef.current?.focus());
+  }, []);
+
+  const openImportDialog = useCallback(() => setIsImportDialogOpen(true), []);
+
+  const closeImportDialog = useCallback(() => {
+    setIsImportDialogOpen(false);
+    window.requestAnimationFrame(() => importButtonRef.current?.focus());
   }, []);
 
   return (
@@ -92,17 +103,27 @@ export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
           </p>
         </div>
 
-        {products.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-3">
           <button
-            ref={addButtonRef}
+            ref={importButtonRef}
             type="button"
-            onClick={openDialog}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            onClick={openImportDialog}
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
-            <span aria-hidden>+</span>
-            Добавить товар
+            Импорт
           </button>
-        ) : null}
+          {products.length > 0 ? (
+            <button
+              ref={addButtonRef}
+              type="button"
+              onClick={openDialog}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            >
+              <span aria-hidden>+</span>
+              Добавить товар
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {products.length === 0 ? (
@@ -139,6 +160,9 @@ export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
       )}
 
       {isDialogOpen ? <AddProductDialog onClose={closeDialog} /> : null}
+      {isImportDialogOpen ? (
+        <ImportProductsDialog onClose={closeImportDialog} />
+      ) : null}
     </section>
   );
 }
