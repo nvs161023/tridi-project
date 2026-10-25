@@ -12,6 +12,8 @@ import {
   FILAMENT_NUMBER_FIELDS,
   FILAMENT_TEXT_LIMITS,
   FILAMENT_TYPE_SUGGESTIONS,
+  FILAMENT_USAGE_TYPES,
+  FILAMENT_USAGE_TYPE_LABELS,
   type FilamentNumberKey,
   type FilamentTextKey,
 } from "@/lib/workshop/filaments";
@@ -37,6 +39,14 @@ type AddFilamentDialogProps = {
 
 const inputClassName =
   "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+
+/**
+ * Список в том же CRM-стиле, что и поля ввода, но без правил для `input`:
+ * `appearance: textfield` и спиннеры числовых полей здесь не нужны, а
+ * `color-scheme: dark` красит нативную стрелку под тёмную панель.
+ */
+const selectClassName =
+  "mt-2 w-full cursor-pointer rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [color-scheme:dark] focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset";
 
 /** Стартовые значения числовых полей: типовая катушка 1 кг. */
 const DEFAULT_NUMBERS: Record<FilamentNumberKey, number> = {
@@ -157,6 +167,42 @@ export function AddFilamentDialog({
             required
             error={state.fieldErrors?.color}
           />
+
+          {/*
+            Единственный список в окне: тип позиции — это выбор из двух
+            значений, а не свободный текст. Имя `usageType` совпадает с
+            readFilamentForm, поэтому сервер получает его тем же FormData;
+            по умолчанию выбран складской — как default 'stock' в миграции.
+          */}
+          <div>
+            <label
+              htmlFor="filament-usageType"
+              className="block text-sm font-semibold text-slate-200"
+            >
+              Тип позиции
+            </label>
+            <select
+              id="filament-usageType"
+              name="usageType"
+              autoComplete="off"
+              defaultValue="stock"
+              aria-describedby="filament-usageType-hint"
+              className={selectClassName}
+            >
+              {FILAMENT_USAGE_TYPES.map((usageType) => (
+                <option key={usageType} value={usageType}>
+                  {FILAMENT_USAGE_TYPE_LABELS[usageType]}
+                </option>
+              ))}
+            </select>
+            <p
+              id="filament-usageType-hint"
+              className="mt-1.5 text-xs leading-relaxed text-slate-400"
+            >
+              Складской пополняется всегда, заказной покупается под конкретную
+              задачу.
+            </p>
+          </div>
 
           <TextField
             name="purchaseUrl"
