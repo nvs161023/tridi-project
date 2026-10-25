@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import { AddFilamentDialog } from "@/components/workshop/AddFilamentDialog";
 import { ConsumeFilamentDialog } from "@/components/workshop/ConsumeFilamentDialog";
+import { ImportStockFromPhotoDialog } from "@/components/workshop/ImportStockFromPhotoDialog";
 import {
   filamentRemainingPercent,
   formatGrams,
@@ -19,10 +20,10 @@ import {
  * расходится с базой. Состояние вкладки — только открытые окна и строка
  * подтверждения.
  *
- * Окон два: «Добавить катушку» и «Списать N грамм». Они монтируются по условию:
- * так состояние их форм сбрасывается при каждом открытии, и старая ошибка не
- * висит над новым вводом. Фокус после закрытия возвращается на кнопку, которая
- * открыла окно.
+ * Окон три: «Добавить катушку», «Списать N грамм» и «Импорт из фото». Они
+ * монтируются по условию: так состояние их форм сбрасывается при каждом
+ * открытии, и старая ошибка не висит над новым вводом. Фокус после закрытия
+ * возвращается на кнопку, которая открыла окно.
  *
  * Таблица на широком экране и карточки на узком — одна и та же информация.
  * Скрытая копия не рендерится: `hidden md:block` и `md:hidden`, а не два
@@ -40,11 +41,13 @@ export function WorkshopStockTab({
   isMissingTable,
 }: WorkshopStockTabProps) {
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [consumeTarget, setConsumeTarget] = useState<WorkshopFilament | null>(
     null,
   );
   const [status, setStatus] = useState<string | null>(null);
   const addTriggerRef = useRef<HTMLButtonElement>(null);
+  const importTriggerRef = useRef<HTMLButtonElement>(null);
   const consumeTriggerRef = useRef<HTMLButtonElement>(null);
 
   const summary = useMemo(() => {
@@ -67,6 +70,16 @@ export function WorkshopStockTab({
   const closeAdd = useCallback(() => {
     setIsAddOpen(false);
     addTriggerRef.current?.focus();
+  }, []);
+
+  const openImport = useCallback(() => {
+    setStatus(null);
+    setIsImportOpen(true);
+  }, []);
+
+  const closeImport = useCallback(() => {
+    setIsImportOpen(false);
+    importTriggerRef.current?.focus();
   }, []);
 
   const openConsume = useCallback(
@@ -117,15 +130,25 @@ export function WorkshopStockTab({
           </p>
         </div>
 
-        <button
-          ref={addTriggerRef}
-          type="button"
-          onClick={openAdd}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
-        >
-          <span aria-hidden>+</span>
-          Добавить катушку
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            ref={importTriggerRef}
+            type="button"
+            onClick={openImport}
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+          >
+            Импорт из фото
+          </button>
+          <button
+            ref={addTriggerRef}
+            type="button"
+            onClick={openAdd}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+          >
+            <span aria-hidden>+</span>
+            Добавить катушку
+          </button>
+        </div>
       </div>
 
       <p aria-live="polite" className="mt-3 min-h-5 text-sm text-emerald-300">
@@ -161,6 +184,10 @@ export function WorkshopStockTab({
           onClose={closeConsume}
           onConsumed={setStatus}
         />
+      ) : null}
+
+      {isImportOpen ? (
+        <ImportStockFromPhotoDialog onClose={closeImport} />
       ) : null}
     </section>
   );
