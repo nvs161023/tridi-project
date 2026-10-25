@@ -3,12 +3,17 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Header } from "@/components/Header";
+import { ButtonLink } from "@/components/ui";
+import { WorkshopCreateOrderButton } from "@/components/workshop/WorkshopCreateOrderButton";
+import { WorkshopStats } from "@/components/workshop/WorkshopStats";
 import { WorkshopTabs } from "@/components/workshop/WorkshopTabs";
 import { resolveUserId } from "@/lib/current-user";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
+import { isLowStockFilament } from "@/lib/workshop/filaments";
 import { getWorkshopFilaments } from "@/lib/workshop/filament-store";
 import { getWorkshopOrders } from "@/lib/workshop/order-store";
+import { countMaintenanceDue } from "@/lib/workshop/printers";
 import { getWorkshopPrinters } from "@/lib/workshop/printer-store";
 import { getWorkshopSettings } from "@/lib/workshop/store";
 
@@ -52,59 +57,161 @@ export default async function WorkshopPage() {
       ])
     : [null, null, null, null];
 
+  const orders = orderBook?.orders ?? [];
+  const now = new Date();
+  const activeOrders = orders.filter(
+    (order) => order.status !== "delivered",
+  ).length;
+  const printingOrders = orders.filter(
+    (order) => order.status === "printing",
+  ).length;
+  const deliveredThisMonth = orders.filter(
+    (order) =>
+      order.status === "delivered" && isCurrentMonth(order.createdAt, now),
+  );
+  const monthRevenue = deliveredThisMonth.reduce(
+    (sum, order) => sum + order.totalCost,
+    0,
+  );
+  const spools = stock?.filaments.length ?? 0;
+  const lowStock = stock?.filaments.filter(isLowStockFilament).length ?? 0;
+  const printerCount = fleet?.printers.length ?? 0;
+  const maintenanceDue =
+    fleet?.printers.filter((printer) => countMaintenanceDue(printer) > 0)
+      .length ?? 0;
+
   return (
-    <div className="min-h-screen text-slate-100">
+    <div className="min-h-screen text-zinc-100">
       <Header />
 
-      <main className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14">
+      <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8 sm:py-12">
         <Link
           href="/dashboard"
-          className="inline-flex min-h-9 items-center gap-2 text-sm font-semibold text-slate-300 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          className="inline-flex min-h-9 items-center gap-2 text-sm font-semibold text-zinc-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
         >
           <span aria-hidden>←</span>
           Личный кабинет
         </Link>
 
-        <div className="mt-6 flex flex-wrap items-center gap-2.5 text-xs font-semibold sm:text-sm">
-          <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-3.5 py-1.5 text-blue-200">
-            Входит в пакет «Всё включено»
-          </span>
-          {hasPro ? (
-            <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3.5 py-1.5 text-emerald-200">
-              Доступ открыт
-            </span>
-          ) : (
-            <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-              Доступ по пакету
-            </span>
-          )}
-        </div>
+        <section
+          aria-labelledby="workshop-title"
+          className="relative mt-6 overflow-hidden rounded-[2rem] border border-white/[0.07] bg-[#0a0a0a]/75 px-5 py-7 shadow-[0_40px_120px_-60px_rgba(0,0,0,1)] backdrop-blur-xl sm:px-8 sm:py-9 lg:px-10 lg:py-10"
+        >
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -top-28 -right-24 h-72 w-72 rounded-full bg-blue-500/10 blur-3xl"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -bottom-32 left-1/3 h-56 w-56 rounded-full bg-violet-500/[0.07] blur-3xl"
+          />
 
-        <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-          Мастерская
-        </h1>
-        <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-300 sm:text-lg">
-          Рабочее место для 3D-печати: себестоимость заказа, рекомендованная цена,
-          прибыль, склад пластика, принтеры с обслуживанием и заказы клиентов — без
-          таблиц в блокноте.
-        </p>
+          <div className="relative flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 max-w-2xl">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+                <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-zinc-300">
+                  CRM · 3D-печать
+                </span>
+                <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-1 text-blue-200">
+                  Входит в пакет «Всё включено»
+                </span>
+                {hasPro ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-emerald-200">
+                    <span
+                      aria-hidden
+                      className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]"
+                    />
+                    Доступ открыт
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-zinc-400">
+                    Доступ по пакету
+                  </span>
+                )}
+              </div>
+
+              <h1
+                id="workshop-title"
+                className="mt-5 text-4xl font-extrabold tracking-[-0.04em] text-white sm:text-5xl lg:text-6xl"
+              >
+                Мастерская
+              </h1>
+              <p className="mt-4 max-w-xl text-base leading-relaxed text-zinc-400 sm:text-lg">
+                Управление заказами, складом и принтерами в одном месте.
+              </p>
+            </div>
+
+            <div className="flex shrink-0 flex-col items-stretch gap-2.5 sm:flex-row sm:items-center lg:flex-col lg:items-end">
+              {snapshot && stock && fleet && orderBook ? (
+                <WorkshopCreateOrderButton
+                  printers={fleet.printers}
+                  filaments={stock.filaments}
+                />
+              ) : (
+                <ButtonLink
+                  href="/courses/pro"
+                  size="lg"
+                  className="min-h-12 rounded-2xl px-5 text-sm sm:min-h-14 sm:px-7 sm:text-base"
+                >
+                  Открыть пакет
+                  <span aria-hidden>→</span>
+                </ButtonLink>
+              )}
+              <p className="max-w-56 text-center text-[11px] leading-relaxed text-zinc-500 sm:text-left lg:text-right">
+                Заказ спишет пластик и часы принтера автоматически.
+              </p>
+            </div>
+          </div>
+        </section>
 
         {snapshot && stock && fleet && orderBook ? (
-          <WorkshopTabs
-            settings={snapshot.settings}
-            filaments={stock.filaments}
-            printers={fleet.printers}
-            orders={orderBook.orders}
-            isMissingTable={snapshot.isMissingTable}
-            isFilamentsMissingTable={stock.isMissingTable}
-            isPrintersMissingTable={fleet.isMissingTable}
-            isOrdersMissingTable={orderBook.isMissingTable}
-          />
+          <>
+            <WorkshopStats
+              activeOrders={activeOrders}
+              printingOrders={printingOrders}
+              monthRevenue={monthRevenue}
+              deliveredThisMonth={deliveredThisMonth.length}
+              spools={spools}
+              lowStock={lowStock}
+              printerCount={printerCount}
+              maintenanceDue={maintenanceDue}
+            />
+
+            <WorkshopTabs
+              settings={snapshot.settings}
+              filaments={stock.filaments}
+              printers={fleet.printers}
+              orders={orderBook.orders}
+              isMissingTable={snapshot.isMissingTable}
+              isFilamentsMissingTable={stock.isMissingTable}
+              isPrintersMissingTable={fleet.isMissingTable}
+              isOrdersMissingTable={orderBook.isMissingTable}
+            />
+          </>
         ) : (
           <LockedWorkshop />
         )}
       </main>
     </div>
+  );
+}
+/**
+ * Заказ создан в текущем месяце.
+ *
+ * `created_at` приходит из PostgREST строкой ISO. Битое значение не должно
+ * попадать в выручку: такой заказ просто не считается.
+ */
+function isCurrentMonth(value: string | null, now: Date): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const date = new Date(value);
+
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth()
   );
 }
 
