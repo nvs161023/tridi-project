@@ -1,10 +1,12 @@
 "use client";
 
 import { useActionState, useEffect, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { saveWorkshopSettings } from "@/app/actions/workshop";
 import { emptyWorkshopSettingsFormState } from "@/app/actions/workshop-state";
+import { HelpIcon } from "@/components/workshop/WorkshopIcons";
 import {
   buildOzonWebhookUrl,
   buildWbWebhookUrl,
@@ -39,6 +41,10 @@ import {
  * Кнопка «Скопировать» копирует полный адрес, а при запрете буфера обмена
  * (не HTTPS) показывает стандартный prompt — тот же приём, что у сертификата.
  * Состояние «Скопировано» у каждой карточки своё.
+ *
+ * Над карточками стоит ссылка «Как подключить?» с иконкой вопроса. Она ведёт на
+ * статическую страницу `app/dashboard/workshop/integrations/help/page.tsx`:
+ * шаги для каждой площадки, без запросов к базе и без персональных адресов.
  *
  * `integrations` может прийти `undefined`, если страница была открыта до
  * деплоя и клиент получил старый RSC-пейлоад без новых полей. Поэтому значения
@@ -172,20 +178,30 @@ export function WorkshopIntegrationsTab({
         </p>
       ) : null}
 
-      <div className="min-w-0">
-        <p className="text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase">
-          Маркетплейсы
-        </p>
-        <h2
-          id="workshop-integrations-title"
-          className="mt-2 text-xl font-extrabold tracking-tight text-white"
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase">
+            Маркетплейсы
+          </p>
+          <h2
+            id="workshop-integrations-title"
+            className="mt-2 text-xl font-extrabold tracking-tight text-white"
+          >
+            Подключение площадок
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
+            Каждая площадка — отдельная карточка. Ключи Ozon сохраняются здесь же, а
+            адрес вебхука копируется одной кнопкой.
+          </p>
+        </div>
+
+        <Link
+          href="/dashboard/workshop/integrations/help"
+          className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-md text-xs font-semibold text-blue-300 underline-offset-4 transition-colors hover:text-blue-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:mt-1"
         >
-          Подключение площадок
-        </h2>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
-          Каждая площадка — отдельная карточка. Ключи Ozon сохраняются здесь же, а
-          адрес вебхука копируется одной кнопкой.
-        </p>
+          <HelpIcon className="h-4 w-4 shrink-0" />
+          Как подключить?
+        </Link>
       </div>
 
       <article

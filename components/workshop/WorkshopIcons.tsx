@@ -177,3 +177,14 @@ export function PlusIcon(props: WorkshopIconProps) {
     </svg>
   );
 }
+
+/** Подсказка: вопросительный знак в круге — ссылка на инструкцию. */
+export function HelpIcon(props: WorkshopIconProps) {
+  return (
+    <svg {...iconProps} {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.8c0 1.7-2.4 2-2.4 3.4" />
+      <path d="M12 16.8h.01" />
+    </svg>
+  );
+}
