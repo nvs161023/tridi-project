@@ -8,6 +8,9 @@
  * при первой вставке строки. Роут ищет строку по токену и создаёт заказ от
  * имени владельца; без известного токена уведомление получает 403.
  *
+ * Заказы Wildberries принимает `/api/webhooks/wb` с тем же токеном: он
+ * принадлежит мастерской, а не площадке, поэтому второго токена не нужно.
+ *
  * Api-Key и Client-Id пока нужны только будущим запросам к Seller API, но
  * сохраняются вместе: интеграция считается настроенной, когда заполнены оба
  * поля. Api-Key — секрет аккаунта продавца: в базе он лежит зашифрованным
@@ -23,6 +26,9 @@
 /** Базовый адрес вебхука; полный адрес собирает `buildOzonWebhookUrl`. */
 export const OZON_WEBHOOK_ENDPOINT =
   "https://tridi-print.ru/api/webhooks/ozon";
+
+/** Базовый адрес вебхука WB; полный адрес собирает `buildWbWebhookUrl`. */
+export const WB_WEBHOOK_ENDPOINT = "https://tridi-print.ru/api/webhooks/wb";
 
 /**
  * Доступы к личному кабинету Ozon. `null` — интеграция не настроена.
@@ -97,10 +103,31 @@ export function normalizeWebhookToken(value: unknown): string | null {
 export function buildOzonWebhookUrl(
   token: string | null | undefined,
 ): string | null {
+  return buildWebhookUrl(OZON_WEBHOOK_ENDPOINT, token);
+}
+
+/**
+ * Полный адрес вебхука Wildberries.
+ *
+ * Токен тот же, что у Ozon: он принадлежит мастерской, а не площадке.
+ * Отдельного токена WB нет, поэтому адреса отличаются только путём роута.
+ * Правило прежнее — без валидного UUID адреса нет, иначе WB получит 403.
+ */
+export function buildWbWebhookUrl(
+  token: string | null | undefined,
+): string | null {
+  return buildWebhookUrl(WB_WEBHOOK_ENDPOINT, token);
+}
+
+/** Общая сборка адреса: площадки отличаются только базовым путём. */
+function buildWebhookUrl(
+  endpoint: string,
+  token: string | null | undefined,
+): string | null {
   const normalized = normalizeWebhookToken(token);
 
   return normalized
-    ? `${OZON_WEBHOOK_ENDPOINT}?token=${encodeURIComponent(normalized)}`
+    ? `${endpoint}?token=${encodeURIComponent(normalized)}`
     : null;
 }
 

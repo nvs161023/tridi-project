@@ -1,12 +1,13 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import { saveWorkshopSettings } from "@/app/actions/workshop";
 import { emptyWorkshopSettingsFormState } from "@/app/actions/workshop-state";
 import {
   buildOzonWebhookUrl,
+  buildWbWebhookUrl,
   ensureWorkshopIntegrations,
   INTEGRATIONS_TEXT_LIMITS,
   isWorkshopIntegrationActive,
@@ -28,9 +29,11 @@ import {
  *
  * URL вебхука персональный: `?token=<uuid>` — токен создаётся при сохранении
  * ключей и хранится в `workshop_settings.webhook_token`. Ozon может не присылать
- * Client-Id в заголовках, поэтому именно токен определяет продавца. Кнопка
- * «Скопировать» копирует полный адрес, а при запрете буфера обмена (не HTTPS)
- * показывает стандартный prompt — тот же приём, что у сертификата.
+ * Client-Id в заголовках, поэтому именно токен определяет продавца. Тот же токен
+ * использует Wildberries: адрес `/api/webhooks/wb?token=<uuid>` показан второй
+ * карточкой. Кнопка «Скопировать» копирует полный адрес, а при запрете буфера
+ * обмена (не HTTPS) показывает стандартный prompt — тот же приём, что у
+ * сертификата. Состояние «Скопировано» у каждой площадки своё.
  *
  * `integrations` может прийти `undefined`, если страница была открыта до
  * деплоя и клиент получил старый RSC-пейлоад без новых полей. Поэтому значения
@@ -49,6 +52,9 @@ const fieldClassName =
 /** Сколько держится подтверждение копирования. */
 const COPY_FEEDBACK_MS = 3000;
 
+/** У какого адреса сейчас показано «Скопировано». */
+type WebhookTarget = "ozon" | "wb";
+
 export function WorkshopIntegrationsTab({
   integrations,
   isMissingTable,
@@ -59,7 +65,7 @@ export function WorkshopIntegrationsTab({
   );
   const router = useRouter();
   const [isKeyVisible, setIsKeyVisible] = useState(false);
-  const [isCopied, setIsCopied] = useState(false);
+  const [copiedWebhook, setCopiedWebhook] = useState<WebhookTarget | null>(null);
 
   // Старый пейлоад мог не содержать новых полей: не бросаем на этом рендер.
   const safeIntegrations = ensureWorkshopIntegrations(integrations);
@@ -75,7 +81,10 @@ export function WorkshopIntegrationsTab({
     : isWorkshopIntegrationActive(safeIntegrations);
   const webhookToken =
     state.integrations?.webhookToken ?? safeIntegrations.webhookToken;
-  const webhookUrl = isActive ? buildOzonWebhookUrl(webhookToken) : null;
+  const ozonWebhookUrl = isActive ? buildOzonWebhookUrl(webhookToken) : null;
+  // WB не зависит от ключей Ozon: роуту нужен только токен, поэтому адрес
+  // показываем всегда, когда токен уже есть.
+  const wbWebhookUrl = buildWbWebhookUrl(webhookToken);
 
   // Состояние приходит новым объектом после каждой отправки: успех обновляет
   // серверные данные страницы, чтобы следующий заход показал сохранённое.
@@ -92,25 +101,35 @@ export function WorkshopIntegrationsTab({
   }, [state, router, storedApiKey]);
 
   useEffect(() => {
-    if (!isCopied) {
+    if (!copiedWebhook) {
       return;
     }
 
-    const timer = window.setTimeout(() => setIsCopied(false), COPY_FEEDBACK_MS);
+    const timer = window.setTimeout(
+      () => setCopiedWebhook(null),
+      COPY_FEEDBACK_MS,
+    );
 
     return () => window.clearTimeout(timer);
-  }, [isCopied]);
+  }, [copiedWebhook]);
 
-  async function copyWebhookUrl() {
-    if (!webhookUrl) {
+  async function copyWebhookUrl(target: WebhookTarget) {
+    const url = target === "ozon" ? ozonWebhookUrl : wbWebhookUrl;
+
+    if (!url) {
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(webhookUrl);
-      setIsCopied(true);
+      await navigator.clipboard.writeText(url);
+      setCopiedWebhook(target);
     } catch {
-      window.prompt("Скопируйте URL для вебхука", webhookUrl);
+      window.prompt(
+        target === "ozon"
+          ? "Скопируйте URL для вебхука Ozon"
+          : "Скопируйте URL для вебхука Wildberries",
+        url,
+      );
     }
   }
 
@@ -336,44 +355,112 @@ export function WorkshopIntegrationsTab({
           </div>
         </form>
 
-        <div className="mt-6 rounded-2xl border border-white/[0.07] bg-black/30 p-4 sm:p-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
-                Персональный URL для вебхука
-              </p>
-              {webhookUrl ? (
-                <code className="mt-2 block overflow-x-auto rounded-lg border border-white/[0.06] bg-black/50 px-3 py-2 font-mono text-xs whitespace-nowrap text-blue-200 sm:text-sm">
-                  {webhookUrl}
-                </code>
-              ) : (
-                <p className="mt-2 rounded-lg border border-dashed border-white/10 bg-black/20 px-3 py-2 text-xs leading-relaxed text-zinc-400">
-                  {isActive
-                    ? "Токен вебхука ещё не создан. Примените миграцию supabase/workshop_marketplace_integration.sql и сохраните ключи ещё раз."
-                    : "Сохраните Client-Id и Api-Key — здесь появится персональный адрес с токеном."}
-                </p>
-              )}
-            </div>
+        <div className="mt-6 space-y-3">
+          <WebhookUrlCard
+            title="URL для вебхука Ozon"
+            url={ozonWebhookUrl}
+            emptyText={
+              isActive
+                ? "Токен вебхука ещё не создан. Примените миграцию supabase/workshop_marketplace_integration.sql и сохраните ключи ещё раз."
+                : "Сохраните Client-Id и Api-Key — здесь появится персональный адрес с токеном."
+            }
+            hint={
+              <>
+                Скопируйте адрес целиком, вместе с <code>?token=…</code>: по
+                токену Ozon находит вашу мастерскую, даже если не присылает
+                Client-Id. Этот адрес не публикуйте — он открывает приём
+                заказов.
+              </>
+            }
+            isCopied={copiedWebhook === "ozon"}
+            onCopy={() => copyWebhookUrl("ozon")}
+          />
 
-            <button
-              type="button"
-              onClick={copyWebhookUrl}
-              disabled={!webhookUrl}
-              aria-live="polite"
-              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span aria-hidden>{isCopied ? "✓" : "⧉"}</span>
-              {isCopied ? "Скопировано" : "Скопировать"}
-            </button>
-          </div>
-
-          <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-            Скопируйте адрес целиком, вместе с <code>?token=…</code>: по токену
-            Ozon находит вашу мастерскую, даже если не присылает Client-Id. Этот
-            адрес не публикуйте — он открывает приём заказов.
-          </p>
+          <WebhookUrlCard
+            title="URL для Wildberries (WB)"
+            url={wbWebhookUrl}
+            emptyText={
+              isMissingTable
+                ? "Токен вебхука ещё не создан. Примените миграцию supabase/workshop_marketplace_integration.sql."
+                : "Токен вебхука ещё не создан. Сохраните настройки ещё раз — адрес появится здесь."
+            }
+            hint={
+              <>
+                В личном кабинете WB перейдите в Настройки → Интеграции →
+                Уведомления и укажите этот адрес для получения новых заказов.
+                Токен общий с Ozon — адрес не публикуйте.
+              </>
+            }
+            isCopied={copiedWebhook === "wb"}
+            onCopy={() => copyWebhookUrl("wb")}
+          />
         </div>
       </div>
     </section>
+  );
+}
+
+type WebhookUrlCardProps = {
+  /** Подпись над адресом: она же попадает в aria-label кнопки. */
+  title: string;
+  url: string | null;
+  /** Что показать вместо адреса, пока токена нет. */
+  emptyText: string;
+  hint: ReactNode;
+  isCopied: boolean;
+  onCopy: () => void;
+};
+
+/**
+ * Карточка персонального адреса вебхука с кнопкой «Скопировать».
+ *
+ * Ozon и WB отличаются только путём роута, поэтому разметка общая: так обе
+ * площадки получают одинаковую подсказку, disabled-состояние и подтверждение.
+ * `isCopied` у каждой карточки свой, иначе клик по одной кнопке менял бы текст
+ * на обеих.
+ */
+function WebhookUrlCard({
+  title,
+  url,
+  emptyText,
+  hint,
+  isCopied,
+  onCopy,
+}: WebhookUrlCardProps) {
+  return (
+    <div className="rounded-2xl border border-white/[0.07] bg-black/30 p-4 sm:p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
+            {title}
+          </p>
+          {url ? (
+            <code className="mt-2 block overflow-x-auto rounded-lg border border-white/[0.06] bg-black/50 px-3 py-2 font-mono text-xs whitespace-nowrap text-blue-200 sm:text-sm">
+              {url}
+            </code>
+          ) : (
+            <p className="mt-2 rounded-lg border border-dashed border-white/10 bg-black/20 px-3 py-2 text-xs leading-relaxed text-zinc-400">
+              {emptyText}
+            </p>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={onCopy}
+          disabled={!url}
+          aria-live="polite"
+          aria-label={
+            isCopied ? `Скопировано: ${title}` : `Скопировать ${title}`
+          }
+          className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <span aria-hidden>{isCopied ? "✓" : "⧉"}</span>
+          {isCopied ? "Скопировано" : "Скопировать"}
+        </button>
+      </div>
+
+      <p className="mt-3 text-xs leading-relaxed text-zinc-500">{hint}</p>
+    </div>
   );
 }
