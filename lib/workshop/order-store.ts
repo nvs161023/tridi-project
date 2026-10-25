@@ -9,6 +9,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import {
+  ORDER_BASE_COLUMNS,
+  ORDER_CLIENT_BASE_COLUMNS,
   ORDER_CLIENT_COLUMNS,
   ORDER_COLUMNS,
   ORDER_COMMENT_COLUMNS,
@@ -20,6 +22,20 @@ import {
 } from "@/lib/workshop/orders";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Наборы колонок от полного к базовому.
+ *
+ * `source` и `client_id` добавляют отдельные ручные миграции. Перебор позволяет
+ * приложению работать до их применения: карточка и список не падают, а
+ * отсутствующие поля нормализация заменяет безопасными значениями.
+ */
+const ORDER_SELECT_FALLBACKS = [
+  ORDER_CLIENT_COLUMNS,
+  ORDER_CLIENT_BASE_COLUMNS,
+  ORDER_COLUMNS,
+  ORDER_BASE_COLUMNS,
+] as const;
 
 export type WorkshopOrdersSnapshot = {
   orders: WorkshopOrder[];
@@ -51,30 +67,27 @@ export async function getWorkshopOrder(
     return null;
   }
 
-  const withClient = await supabase
-    .from("workshop_orders")
-    .select(ORDER_CLIENT_COLUMNS)
-    .eq("id", orderId)
-    .eq("user_id", userId)
-    .maybeSingle();
+  let data: Partial<Record<string, unknown>> | null = null;
+  let error: { code?: string | null; message: string } | null = null;
 
-  let data: Partial<Record<string, unknown>> | null = (withClient.data ??
-    null) as Partial<Record<string, unknown>> | null;
-  let error = withClient.error;
-
-  // Миграция workshop_orders_client_id.sql применяется вручную. Пока колонки
-  // нет, повторяем запрос без неё: спецификация и накладная открываются, а
-  // clientId остаётся null — контакты в накладной заполняются вручную.
-  if (error && isMissingColumnSchema(error)) {
-    const legacy = await supabase
+  // Миграции workshop_orders_client_id.sql и
+  // workshop_marketplace_integration.sql применяются вручную. Пока колонок нет,
+  // запрос повторяется с резервными наборами: заказ открывается, clientId
+  // остаётся null, source считается ручным.
+  for (const columns of ORDER_SELECT_FALLBACKS) {
+    const result = await supabase
       .from("workshop_orders")
-      .select(ORDER_COLUMNS)
+      .select(columns)
       .eq("id", orderId)
       .eq("user_id", userId)
       .maybeSingle();
 
-    data = (legacy.data ?? null) as Partial<Record<string, unknown>> | null;
-    error = legacy.error;
+    data = (result.data ?? null) as Partial<Record<string, unknown>> | null;
+    error = result.error;
+
+    if (!error || !isMissingColumnSchema(error)) {
+      break;
+    }
   }
 
   if (error) {
@@ -95,29 +108,26 @@ export async function getWorkshopOrders(
   supabase: Supabase,
   userId: string,
 ): Promise<WorkshopOrdersSnapshot> {
-  const withClient = await supabase
-    .from("workshop_orders")
-    .select(ORDER_CLIENT_COLUMNS)
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+  let data: Partial<Record<string, unknown>>[] | null = null;
+  let error: { code?: string | null; message: string } | null = null;
 
-  let data = (withClient.data ?? null) as
-    | Partial<Record<string, unknown>>[]
-    | null;
-  let error = withClient.error;
-
-  // Колонку client_id добавляет ручная миграция. Пока её нет, список читается
-  // без ссылки: карточка показывает имя клиента снимком, а окно правки просто
-  // не предвыберет клиента из базы.
-  if (error && isMissingColumnSchema(error)) {
-    const legacy = await supabase
+  // Та же деградация, что у getWorkshopOrder: клиент из базы и источник заказа
+  // появляются миграциями, поэтому список читается и на старой схеме.
+  for (const columns of ORDER_SELECT_FALLBACKS) {
+    const result = await supabase
       .from("workshop_orders")
-      .select(ORDER_COLUMNS)
+      .select(columns)
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
-    data = legacy.data;
-    error = legacy.error;
+    data = (result.data ?? null) as
+      | Partial<Record<string, unknown>>[]
+      | null;
+    error = result.error;
+
+    if (!error || !isMissingColumnSchema(error)) {
+      break;
+    }
   }
 
   if (error) {

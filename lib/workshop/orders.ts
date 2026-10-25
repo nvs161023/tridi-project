@@ -81,6 +81,19 @@ export function isOrderStatus(value: unknown): value is OrderStatus {
   );
 }
 
+/** Источники заказа; строки совпадают с check в SQL-миграции. */
+export const ORDER_SOURCES = ["manual", "ozon", "wb", "yandex"] as const;
+
+export type OrderSource = (typeof ORDER_SOURCES)[number];
+
+/** Источник из строки базы: неизвестное значение считается ручным. */
+export function isOrderSource(value: unknown): value is OrderSource {
+  return (
+    typeof value === "string" &&
+    (ORDER_SOURCES as readonly string[]).includes(value)
+  );
+}
+
 /** Заказ в том виде, в каком с ним работает интерфейс. */
 export type WorkshopOrder = {
   id: string;
@@ -88,6 +101,8 @@ export type WorkshopOrder = {
   clientName: string | null;
   /** Ссылка на клиента из базы; null — ручной ввод или старый заказ. */
   clientId: string | null;
+  /** Откуда пришёл заказ; старые строки без source — ручные. */
+  source: OrderSource;
   status: OrderStatus;
   totalCost: number;
   materialWeightG: number;
@@ -133,17 +148,33 @@ export type OrderFormErrors = Partial<
   >
 >;
 
-/** Колонки, которые читает lib/workshop/order-store.ts. */
-export const ORDER_COLUMNS =
+/** Базовые колонки без необязательных `source` и `client_id`. */
+export const ORDER_BASE_COLUMNS =
   "id, title, client_name, status, total_cost, material_weight_g, print_time_hours, printer_id, filament_id, notes, deadline, created_at";
 
 /**
- * Те же колонки плюс ссылка на клиента.
+ * Колонки, которые читает lib/workshop/order-store.ts.
  *
- * `client_id` добавляет отдельная миграция `supabase/workshop_orders_client_id.sql`.
- * `getWorkshopOrder` сначала пробует этот набор, а при ошибке «колонки нет»
- * повторяет запрос с `ORDER_COLUMNS`: спецификация и накладная открываются и до
- * применения миграции, просто без контактов из базы клиентов.
+ * `source` добавляет миграция `supabase/workshop_marketplace_integration.sql`.
+ * Пока её не применили, `getWorkshopOrder` и список заказов повторяют запрос
+ * с `ORDER_BASE_COLUMNS`: старые строки получают источник `manual`.
+ */
+export const ORDER_COLUMNS = `${ORDER_BASE_COLUMNS}, source`;
+
+/**
+ * Базовые колонки плюс ссылка на клиента, но без `source`.
+ *
+ * Нужен для базы, где уже применена миграция
+ * `supabase/workshop_orders_client_id.sql`, а миграция источника заказов — ещё
+ * нет: карточка сохраняет клиента, а `source` временно считается ручным.
+ */
+export const ORDER_CLIENT_BASE_COLUMNS = `${ORDER_BASE_COLUMNS}, client_id`;
+
+/**
+ * Полный набор для чтения: источник заказа и ссылка на клиента.
+ *
+ * Если в базе нет одной из необязательных колонок, order-store перебирает
+ * резервные наборы: без `source`, без `client_id` и совсем базовый.
  */
 export const ORDER_CLIENT_COLUMNS = `${ORDER_COLUMNS}, client_id`;
 
@@ -401,6 +432,7 @@ export function normalizeOrderRow(
     clientName:
       readText(row.client_name, ORDER_TEXT_LIMITS.clientName) || null,
     clientId: isOrderId(row.client_id) ? row.client_id : null,
+    source: isOrderSource(row.source) ? row.source : "manual",
     status: isOrderStatus(row.status) ? row.status : "new",
     totalCost:
       readNumberInRange(row.total_cost, 0, ORDER_LIMITS.costMax) ?? 0,

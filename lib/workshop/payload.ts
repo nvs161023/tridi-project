@@ -10,7 +10,11 @@ import type {
   FilamentDraft,
   FilamentUsageType,
 } from "@/lib/workshop/filaments";
-import type { OrderDraft, OrderEditDraft } from "@/lib/workshop/orders";
+import type {
+  OrderDraft,
+  OrderEditDraft,
+  OrderSource,
+} from "@/lib/workshop/orders";
 import type { PrinterDraft } from "@/lib/workshop/printers";
 import type {
   WorkshopCompanyType,
@@ -148,6 +152,12 @@ export function createPrinterPayload(
 /** Что уходит в `from("workshop_orders").insert(...)`. */
 export type WorkshopOrderPayload = {
   user_id: string;
+  /**
+   * Источник заказа. Ручные заказы создаются только формой мастерской, поэтому
+   * здесь всегда `manual`; импорт маркетплейса будет передавать свой источник
+   * отдельным путём.
+   */
+  source: OrderSource;
   title: string;
   client_name: string | null;
   /**
@@ -174,8 +184,9 @@ export type WorkshopOrderPayload = {
 /**
  * Новый заказ. Статус не передаём — база ставит `new` по умолчанию; пустые
  * имя клиента, заметки и срок превращаются в null, чтобы не хранить пустые
- * строки. Наработка принтера и остаток катушки меняются отдельными update
- * после вставки заказа — см. app/actions/orders.ts.
+ * строки. `source` всегда `manual`: этот путь используется только ручным
+ * созданием заказа. Наработка принтера и остаток катушки меняются отдельными
+ * update после вставки заказа — см. app/actions/orders.ts.
  */
 export function createOrderPayload(
   userId: string,
@@ -183,6 +194,7 @@ export function createOrderPayload(
 ): WorkshopOrderPayload {
   const payload: WorkshopOrderPayload = {
     user_id: userId,
+    source: "manual",
     title: draft.title,
     client_name: draft.clientName || null,
     total_cost: draft.totalCost,
@@ -229,6 +241,9 @@ export type WorkshopOrderUpdatePayload = {
  * Kanban (`updateOrderStatus`), технику выбирают при создании. Наработка
  * принтера и остаток катушки при правке не пересчитываются: заказ уже списал
  * ресурс при создании, а правка меняет только записи о заказе.
+ *
+ * `source` тоже не передаётся: происхождение заказа (ручной, Ozon, WB или
+ * Яндекс Маркет) не должно меняться от ручной правки карточки.
  *
  * `client_id` попадает в payload, когда известно состояние ссылки: uuid —
  * привязать клиента, `null` — отвязать (ручной ввод). `withClientLink` включает
