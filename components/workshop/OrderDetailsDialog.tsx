@@ -16,8 +16,10 @@ import {
   deleteOrder,
   loadOrderComments,
 } from "@/app/actions/orders";
+import { EditOrderDialog } from "@/components/workshop/EditOrderDialog";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
-import { TrashIcon } from "@/components/workshop/WorkshopIcons";
+import { PencilIcon, TrashIcon } from "@/components/workshop/WorkshopIcons";
+import type { WorkshopClient } from "@/lib/workshop/clients";
 import { formatGrams } from "@/lib/workshop/filaments";
 import {
   ORDER_COMMENT_TEXT_LIMIT,
@@ -45,7 +47,11 @@ import {
 
 type OrderDetailsDialogProps = {
   order: WorkshopOrder;
+  /** База клиентов: окно правки выбирает готовый контакт из списка. */
+  clients: WorkshopClient[];
   onClose: () => void;
+  /** Сообщение для строки состояния на доске после правки. */
+  onUpdated: (message: string) => void;
 };
 
 const COMMENT_DATE_FORMATTER = new Intl.DateTimeFormat("ru-RU", {
@@ -71,7 +77,9 @@ function formatCommentDate(value: string | null): string {
 
 export function OrderDetailsDialog({
   order,
+  clients,
   onClose,
+  onUpdated,
 }: OrderDetailsDialogProps) {
   const [comments, setComments] = useState<OrderComment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -81,8 +89,13 @@ export function OrderDetailsDialog({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  /** Открыто окно правки поверх карточки. */
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  /** Подтверждение сохранения остаётся в карточке до её закрытия. */
+  const [updateNotice, setUpdateNotice] = useState<string | null>(null);
   const router = useRouter();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const editTriggerRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -224,6 +237,31 @@ export function OrderDetailsDialog({
     }
   }
 
+  /**
+   * Правка сохранена: окно правки закрылось, карточка получает новые данные
+   * после `router.refresh()`. Сообщение остаётся и в карточке, и на доске —
+   * после закрытия человек увидит, что изменения записались.
+   */
+  const handleEdited = useCallback(
+    (message: string) => {
+      setUpdateNotice(message);
+      onUpdated(message);
+    },
+    [onUpdated],
+  );
+
+  /**
+   * Закрытие окна правки возвращает фокус на карандаш — по тому же правилу, что
+   * карточка возвращает его на заголовок карточки Kanban.
+   */
+  const closeEdit = useCallback(() => {
+    setIsEditOpen(false);
+
+    requestAnimationFrame(() => {
+      editTriggerRef.current?.focus();
+    });
+  }, []);
+
   if (typeof document === "undefined") {
     return null;
   }
@@ -279,6 +317,18 @@ export function OrderDetailsDialog({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
+              ref={editTriggerRef}
+              type="button"
+              onClick={() => setIsEditOpen(true)}
+              disabled={isDeleting}
+              aria-label="Редактировать заказ"
+              title="Редактировать заказ"
+              data-order-edit-open
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-zinc-300 transition-colors hover:border-blue-400/50 hover:bg-blue-500/15 hover:text-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-wait disabled:opacity-60"
+            >
+              <PencilIcon className="h-4 w-4" />
+            </button>
+            <button
               type="button"
               onClick={() => void handleDelete()}
               disabled={isDeleting}
@@ -303,6 +353,16 @@ export function OrderDetailsDialog({
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 sm:p-6">
+          {updateNotice ? (
+            <p
+              role="status"
+              data-order-updated
+              className="mb-4 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm leading-relaxed text-emerald-100"
+            >
+              {updateNotice}
+            </p>
+          ) : null}
+
           {deleteError ? (
             <p
               role="alert"
@@ -460,6 +520,14 @@ export function OrderDetailsDialog({
           </section>
         </div>
       </div>
+      {isEditOpen ? (
+        <EditOrderDialog
+          order={order}
+          clients={clients}
+          onClose={closeEdit}
+          onSaved={handleEdited}
+        />
+      ) : null}
     </div>,
     document.body,
   );

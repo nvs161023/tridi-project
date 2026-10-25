@@ -25,4 +25,15 @@ export type OrderActionState = {
   error?: string;
 };
 
+/**
+ * Ответ формы «Редактировать заказ».
+ *
+ * Ошибки полей приходят отдельно от общей: форма показывает текст под
+ * конкретным полем (название, стоимость, вес), а сессия, подписка и база —
+ * общей плашкой над кнопками.
+ */
+export type OrderEditState = OrderActionState & {
+  fieldErrors?: OrderFormErrors;
+};
+
 export const emptyOrderFormState: OrderFormState = {};

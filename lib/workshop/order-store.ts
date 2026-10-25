@@ -95,11 +95,30 @@ export async function getWorkshopOrders(
   supabase: Supabase,
   userId: string,
 ): Promise<WorkshopOrdersSnapshot> {
-  const { data, error } = await supabase
+  const withClient = await supabase
     .from("workshop_orders")
-    .select(ORDER_COLUMNS)
+    .select(ORDER_CLIENT_COLUMNS)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
+
+  let data = (withClient.data ?? null) as
+    | Partial<Record<string, unknown>>[]
+    | null;
+  let error = withClient.error;
+
+  // Колонку client_id добавляет ручная миграция. Пока её нет, список читается
+  // без ссылки: карточка показывает имя клиента снимком, а окно правки просто
+  // не предвыберет клиента из базы.
+  if (error && isMissingColumnSchema(error)) {
+    const legacy = await supabase
+      .from("workshop_orders")
+      .select(ORDER_COLUMNS)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    data = legacy.data;
+    error = legacy.error;
+  }
 
   if (error) {
     console.warn("Заказы мастерской не прочитаны:", error.code, error.message);

@@ -337,6 +337,51 @@ export function readOrderForm(formData: FormData): {
 }
 
 /**
+ * Проверенный ввод формы «Редактировать заказ».
+ *
+ * Отличие от `OrderDraft` одно: карточка не меняет статус и технику. Статус
+ * двигает Kanban, принтер и катушку выбирают при создании, поэтому правка
+ * обновляет только текстовые и числовые поля заказа.
+ */
+export type OrderEditDraft = Omit<
+  OrderDraft,
+  "printerId" | "filamentId" | "productId"
+>;
+
+/**
+ * Форма «Редактировать заказ» → проверенные значения.
+ *
+ * Разбор общий с созданием (`readOrderForm`): пределы чисел, формат даты и uuid
+ * клиента проверяются одинаково. Полей техники в этой форме нет, поэтому в
+ * результат они не попадают — правка не может сменить принтер или катушку
+ * незаметно для наработки и склада.
+ */
+export function readOrderEditForm(formData: FormData): {
+  draft: OrderEditDraft | null;
+  errors: OrderFormErrors;
+} {
+  const { draft, errors } = readOrderForm(formData);
+
+  if (!draft) {
+    return { draft: null, errors };
+  }
+
+  return {
+    draft: {
+      title: draft.title,
+      clientName: draft.clientName,
+      clientId: draft.clientId,
+      totalCost: draft.totalCost,
+      materialWeightG: draft.materialWeightG,
+      printTimeHours: draft.printTimeHours,
+      notes: draft.notes,
+      deadline: draft.deadline,
+    },
+    errors,
+  };
+}
+
+/**
  * Строка `workshop_orders` → заказ для интерфейса.
  *
  * Незнакомый статус считается «новым», битое число — нулём, ссылка без

@@ -2081,7 +2081,9 @@ PostgREST), а не всей таблицей. Форматы колонок: Oz
 поверхности. Шкалы обслуживания тонкие (`h-1.5`) и подписаны процентом («65% до замены»), главные
 действия белые (`rounded-xl`, чёрный текст), второстепенные — тёмные с обводкой. Модалки
 `AddPrinterDialog`, `AddFilamentDialog`, `ConsumeFilamentDialog`, `CreateOrderDialog`,
-`AddProductDialog` и `MaintenanceGuideDialog` подняты на `z-[80]`/`z-[90]`. С секций убран
+`AddProductDialog`, `EditOrderDialog` и `MaintenanceGuideDialog` подняты на `z-[80]`/`z-[90]`.
+Окно правки заказа (`EditOrderDialog`) открывается поверх карточки, поэтому у него `z-[90]`, а
+Escape обрабатывается в фазе перехвата: закрывается только оно. С секций убран
 `backdrop-blur`: он создавал containing block, и fixed-окно уходило под sticky-хедер вместе со
 статистикой. У всех форм и полей Мастерской стоит `autoComplete="off"`, у контактных текстовых —
 `new-password`, потому что Chrome игнорирует `off` в полях имени и адреса. В `AddProductDialog`
@@ -2199,6 +2201,16 @@ delivered. На десктопе четыре колонки стоят в ря�
 открытая карточка закрывается. Если удалить не удалось, текст ошибки остаётся на месте: в
 карточке — красной плашкой под шапкой, на доске — в плашке над колонками.
 
+Редактирование заказа открывается карандашом в шапке карточки (`PencilIcon`,
+`data-order-edit-open`) — рядом с корзиной. Окно `EditOrderDialog` повторяет поля создания, но без
+техники: название, клиент (список `workshop_clients` или имя вручную), стоимость, вес, время печати,
+срок и заметки. Статус, принтер и катушка не меняются — статус двигает Kanban, технику выбирают при
+создании, — а наработка принтера и остаток пластика не пересчитываются: заказ списал ресурс при
+создании. Сохранение вызывает `updateOrder(orderId, formData)`; после успеха окно закрывается,
+`router.refresh()` обновляет карточку и доску, а сообщение «Заказ … обновлён» видно и в карточке
+(зелёная плашка `data-order-updated`), и в строке состояния вкладки. Escape закрывает только окно
+правки — карточка остаётся открытой.
+
 Клик по карточке открывает `OrderDetailsDialog` — детальную карточку заказа. В ней аккуратные
 строки: клиент, стоимость, вес модели, время печати и срок сдачи; статус вынесен бейджем в шапку.
 Ниже — блок «Комментарии»: лента сообщений с датой (старые сверху) и поле «Написать комментарий...»
@@ -2233,13 +2245,21 @@ Server Action по базе.
 сессия → `hasActiveSubscription` → `delete` с фильтрами по `id` и `user_id` и `select("title")`
 (комментарии удаляются каскадом внешнего ключа). Пустой ответ значит, что заказ уже удалили в
 другой вкладке: действие вернёт «Заказ не найден», а не успех. После удаления —
-`revalidatePath('/dashboard/workshop')`. Сообщение
-после успеха говорит, сколько списано и осталось, и предупреждает, если сопло, смазка или винт Z
-дошли до интервала. Данные заказа — `lib/workshop/orders.ts` (`WorkshopOrder`, `ORDER_STATUS_META`,
-`ORDER_LIMITS`, `readOrderForm`, `normalizeOrderRow`, `planPrinterUsage`, `planFilamentUsage`,
+`revalidatePath('/dashboard/workshop')`.
+
+Правка — `updateOrder(orderId, formData)`: UUID → разбор формы (`readOrderEditForm`) → сессия →
+`hasActiveSubscription` → чтение заказа по `id` и `user_id` (чужой id и удалённая строка дают «Заказ
+не найден», а наличие колонки `client_id` решает, писать ли ссылку на клиента) → проверка клиента по
+`user_id` → `update` с полями карточки и `select('title')`. `status`, `printer_id` и `filament_id` в
+payload не попадают (`createOrderUpdatePayload`), поэтому наработка принтера и остаток катушки при
+правке не меняются. После успеха — `revalidatePath('/dashboard/workshop')` и сообщение «Заказ …
+обновлён». Сообщение о создании говорит, сколько списано и осталось, и предупреждает, если сопло,
+смазка или винт Z дошли до интервала. Данные заказа — `lib/workshop/orders.ts` (`WorkshopOrder`, `ORDER_STATUS_META`,
+`ORDER_LIMITS`, `readOrderForm`, `readOrderEditForm`, `OrderEditDraft`, `normalizeOrderRow`,
+`planPrinterUsage`, `planFilamentUsage`,
 `nextOrderStatus`), чтение — `getWorkshopOrders()` в `lib/workshop/order-store.ts`, запись в
-snake_case — `createOrderPayload`, `createPrinterUsagePayload` и `createFilamentUsagePayload` в
-`lib/workshop/payload.ts`.
+snake_case — `createOrderPayload`, `createOrderUpdatePayload`, `createPrinterUsagePayload` и
+`createFilamentUsagePayload` в `lib/workshop/payload.ts`.
 
 Кнопка «Загрузить G-code» в калькуляторе читает файл в браузере (`file.text()`, предел 50 МБ) и
 подставляет вес модели и время печати из комментариев слайсера. `parseGcode`
@@ -2512,7 +2532,7 @@ RLS на выборку, вставку, обновление и удалени�
 | `saveWorkshopSettings` | `app/actions/workshop.ts` | Настройки калькулятора Мастерской: разбор формы (`readWorkshopSettingsForm`) → реальная сессия → повторная проверка `hasActiveSubscription` → `upsert` по `user_id` и `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции (таблицы `workshop_settings` нет). Состояние формы — `WorkshopSettingsFormState` из `app/actions/workshop-state.ts` |
 | `addFilament`, `consumeFilament`, `saveImportedFilaments` | `app/actions/filaments.ts` | Склад Мастерской. Добавление: разбор формы (`readFilamentForm`) → сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_filaments` и `revalidatePath('/dashboard/workshop')`. Списание: UUID катушки проверяется до запроса, остаток перечитывается из базы, списание больше остатка отклоняется, `update remaining_weight_g` с фильтром по `user_id`. Импорт с фото: `saveImportedFilaments(items)` проверяет массив (не больше 100), сессию и подписку, каждую строку превращает в черновик через `createImportedFilamentDraft` и пишет отдельным `insert`, возвращая `{ saved, failed, error? }`. Отдельные ответы для истёкшей сессии, отсутствия пакета, неприменённой миграции и ненайденной катушки. Состояние форм — `FilamentFormState` и `ConsumeFilamentFormState` из `app/actions/filaments-state.ts` |
 | `addPrinter`, `resetPrinterNozzle`, `resetPrinterLubrication`, `resetPrinterZScrew` | `app/actions/printers.ts` | Принтеры Мастерской. Добавление: разбор формы (`readPrinterForm`) → сессия → `hasActiveSubscription` → `insert` в `workshop_printers` (три интервала, включая `z_screw_interval`). Сбросы: UUID проверяется до запроса, имя читается с фильтром по `user_id`, затем `update` нужного счётчика (`nozzle_hours`, `lubrication_hours` или `z_screw_hours`) в 0 и `last_maintenance_date` сегодняшним днём; удаление счётчика не трогает остальные. Ответы кнопок — `PrinterActionState` из `app/actions/printers-state.ts` |
-| `createOrder`, `updateOrderStatus`, `deleteOrder` | `app/actions/orders.ts` | Заказы Мастерской. Создание: разбор формы (`readOrderForm`) → сессия → `hasActiveSubscription` → чтение принтера, катушки и товара по `user_id` → `planFilamentUsage` (не хватает пластика — ошибка у поля «Вес») → `insert` заказа (с `product_id`, если товар выбран) → `update` наработки (`planPrinterUsage`) → `update` остатка катушки; при сбое второго update наработка возвращается к прежним числам, а заказ удаляется. Смена статуса: целевой статус приходит из Kanban, проверяется `isOrderStatus`; заголовок и текущий статус читаются из базы по `user_id`, затем `update` выбранного статуса — поэтому карточку можно вернуть назад. Удаление: UUID → сессия → `hasActiveSubscription` → `delete` по `id` и `user_id` с `select('title')`; комментарии уходят каскадом, пустой ответ — «заказ не найден», после успеха возвращается `{ ok: true, message }`. После успеха `revalidatePath('/dashboard/workshop')`; состояние формы — `OrderFormState` из `app/actions/orders-state.ts` |
+| `createOrder`, `updateOrder`, `updateOrderStatus`, `deleteOrder` | `app/actions/orders.ts` | Заказы Мастерской. Создание: разбор формы (`readOrderForm`) → сессия → `hasActiveSubscription` → чтение принтера, катушки и товара по `user_id` → `planFilamentUsage` (не хватает пластика — ошибка у поля «Вес») → `insert` заказа (с `product_id`, если товар выбран) → `update` наработки (`planPrinterUsage`) → `update` остатка катушки; при сбое второго update наработка возвращается к прежним числам, а заказ удаляется. Правка: `readOrderEditForm` (те же пределы, без полей техники) → сессия → `hasActiveSubscription` → заказ читается по `id` и `user_id` (пустой ответ — «заказ не найден»; наличие `client_id` решает, писать ли ссылку) → клиент проверяется по `user_id` → `update` только полей карточки (`createOrderUpdatePayload`: название, клиент, стоимость, вес, время, срок, заметки) с `select('title')`; `status`, `printer_id` и `filament_id` не меняются, наработка и склад не пересчитываются, ошибки полей приходят в `OrderEditState.fieldErrors`. Смена статуса: целевой статус приходит из Kanban, проверяется `isOrderStatus`; заголовок и текущий статус читаются из базы по `user_id`, затем `update` выбранного статуса — поэтому карточку можно вернуть назад. Удаление: UUID → сессия → `hasActiveSubscription` → `delete` по `id` и `user_id` с `select('title')`; комментарии уходят каскадом, пустой ответ — «заказ не найден», после успеха возвращается `{ ok: true, message }`. После успеха `revalidatePath('/dashboard/workshop')`; состояние формы — `OrderFormState` и `OrderEditState` из `app/actions/orders-state.ts` |
 | `addOrderComment`, `loadOrderComments` | `app/actions/orders.ts` | Комментарии карточки заказа. `loadOrderComments(orderId)` — тонкая обёртка над `getOrderComments()` из `lib/workshop/order-store.ts` (клиент не может импортировать серверный модуль чтения). `addOrderComment(orderId, text)`: UUID и текст проверяются до запроса (`readOrderCommentText`: пустой текст и больше 1000 символов отклоняются) → реальная сессия → `hasActiveSubscription` → заказ читается по `id` и `user_id` (RLS политики комментариев проверяет только автора, поэтому принадлежность заказа проверяет действие) → `insert` в `workshop_order_comments` с `select` вставленной строки. Возвращает `{ ok: true, comment }` с датой из базы или `{ ok: false, error }`; при отсутствии таблицы — текст про `supabase/workshop_order_comments.sql`, а не 500 |
 | `addClient` | `app/actions/clients.ts` | База клиентов Мастерской: разбор формы (`readClientForm`: имя обязательно, телефон и email проверяются по формату) → реальная сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_clients` → `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции; логика, проверки и типы — в `lib/workshop/clients.ts` |
 
@@ -2607,12 +2627,13 @@ Next.js, а не теряют историю браузера и prefetch. Гл�
 | `components/workshop/AddPrinterDialog.tsx` | клиентский | Окно «Добавить принтер»: имя, `<select>` из `PRINTER_PRESETS`, автоподстановка трёх интервалов и показ `note` при выборе модели; кнопка «Инструкция по ТО» открывает `MaintenanceGuideDialog`, Escape закрывает только инструкцию; интервалы можно поправить, ошибки под полями, `useActionState` с `addPrinter`, после успеха `router.refresh()` и сообщение на вкладке |
 | `components/workshop/MaintenanceGuideDialog.tsx` | клиентский | Окно «Инструкция по ТО»: заголовок модели и markdown из `MAINTENANCE_GUIDES`, разобранный в заголовки, списки и `<strong>` без `dangerouslySetInnerHTML`; `z-[60]` поверх окна добавления, Escape и клик по фону закрывают только его, фокус возвращается на кнопку |
 | `components/workshop/WorkshopOrdersTab.tsx` | клиентский | Вкладка «Заказы» — Kanban-доска: четыре колонки статусов с сеткой на `lg:` и горизонтальной прокруткой на мобильном, карточки с названием, клиентом, стоимостью, временем печати, сроком (просроченный — красный бейдж) и принтером с иконкой; нативный HTML5 drag-and-drop с подсветкой колонки и `updateOrderStatus`, меню «⋯» в портале (`position: fixed`) как путь для телефона и клавиатуры, `Escape` и клик вне меню закрывают его, после успеха `router.refresh()`, ошибки сервера отдельной строкой; клик по карточке открывает `OrderDetailsDialog`, после drag-and-drop карточка не открывается (метка времени `dragend`), заголовок — кнопка для клавиатуры, фокус после закрытия окна возвращается на неё; массив `clients` передаётся в окно создания заказа |
-| `components/workshop/OrderDetailsDialog.tsx` | клиентский | Карточка заказа: портал в `document.body`, overlay `z-[80]`, закрытие по Escape, фону и крестику, блокировка прокрутки страницы; шапка с названием и бейджем статуса, строки «Клиент», «Стоимость», «Вес модели», «Время печати», «Срок сдачи», заметки при наличии; блок «Комментарии» с загрузкой (`loadOrderComments`), пустым состоянием, лентой `OrderCommentsList` (текст с переносами, дата `25.10.2026, 14:05`) и формой «Написать комментарий...» с белой кнопкой «Отправить»; `addOrderComment` возвращает сохранённую строку — она добавляется в конец ленты, поле очищается, ошибки показываются плашкой `role="alert"`; кнопки «Спецификация» и «Накладная» — тёмные с обводкой, открывают `/workshop/orders/[id]/specification` и `/workshop/orders/[id]/waybill` в новой вкладке |
+| `components/workshop/OrderDetailsDialog.tsx` | клиентский | Карточка заказа: портал в `document.body`, overlay `z-[80]`, закрытие по Escape, фону и крестику, блокировка прокрутки страницы; в шапке название, бейдж статуса, карандаш (`PencilIcon`, `data-order-edit-open`) и корзина, карандаш открывает `EditOrderDialog` (пропсы `clients` и `onUpdated`), после сохранения в карточке видна зелёная плашка `data-order-updated`; строки «Клиент», «Стоимость», «Вес модели», «Время печати», «Срок сдачи», заметки при наличии; блок «Комментарии» с загрузкой (`loadOrderComments`), пустым состоянием, лентой `OrderCommentsList` (текст с переносами, дата `25.10.2026, 14:05`) и формой «Написать комментарий...» с белой кнопкой «Отправить»; `addOrderComment` возвращает сохранённую строку — она добавляется в конец ленты, поле очищается, ошибки показываются плашкой `role="alert"`; кнопки «Спецификация» и «Накладная» — тёмные с обводкой, открывают `/workshop/orders/[id]/specification` и `/workshop/orders/[id]/waybill` в новой вкладке |
 | `app/workshop/orders/[id]/specification/page.tsx` | серверный | Печатная спецификация: сессия и `hasActiveSubscription` (гость — на вход, без пакета — в Мастерскую), `getWorkshopOrder` по id и владельцу, `getWorkshopFilaments` для названия катушки, пустой `[ ]` при её отсутствии; дата создания, клиент, срок, таблица «Материал / Вес», подписи мастера; `@page A4 portrait`, `@media print` оставляет только `.specification-sheet` |
 | `app/workshop/orders/[id]/specification/SpecificationPrintButton.tsx` | клиентский | Кнопка «Печать» на экране спецификации: вызывает `window.print()`, в печати скрыта; сама форма остаётся серверной и работает без JavaScript |
 | `app/workshop/orders/[id]/waybill/page.tsx` | серверный | Накладная на отгрузку: сессия и `hasActiveSubscription` (гость — на вход, без пакета — в Мастерскую), `getWorkshopOrder` по id и владельцу, отправитель из `LEGAL_OPERATOR`, получатель из `client_name`; при `client_id` — `getWorkshopClientById` подставляет имя, телефон, адрес и email, у старых заказов остаются строки `[ ]`; таблица на одну позицию, «Итого к оплате» и подписи; `@page A4 portrait`, `@media print` оставляет только `.waybill-sheet` |
 | `app/workshop/orders/[id]/waybill/WaybillPrintButton.tsx` | клиентский | Кнопка «Печать» на экране накладной: вызывает `window.print()`, в печати скрыта; сама форма остаётся серверной |
 | `components/workshop/CreateOrderDialog.tsx` | клиентский | Окно «Создать заказ»: необязательный `<select name="productId">` с товарами каталога; выбор заполняет пустые название, стоимость и вес, ручной ввод и G-code не перезаписывает, смена товара обновляет автозначения; клиент выбирается из базы через `<select name="clientId">` (в форму уходят `clientId` и `clientName`) или вводится вручную в текстовом поле, выбранное имя показывается `readOnly`, ошибка ссылки выводится под списком, слишком длинное имя блокирует отправку с подсказкой; название, стоимость, вес, время, срок, принтер, катушка, заметки; «Загрузить G-code» через `parseGcode` (предел 50 МБ) заполняет вес и время; предпросмотр остатка катушки через `planFilamentUsage`, `useActionState` с `createOrder` |
+| `components/workshop/EditOrderDialog.tsx` | клиентский | Окно «Редактировать заказ»: портал в `document.body`, overlay `z-[90]` поверх карточки, `data-order-edit`, блокировка прокрутки, Escape через `useDialogDismiss(close, { isTopmost: true })` закрывает только правку; поля предзаполнены значениями заказа — название, `<select name="clientId">` с клиентами из базы плюс имя руками (`readOnly` для выбранного), стоимость, срок, вес, время печати, заметки; `defaultValue` держит введённое при ошибке сервера, `fieldErrors` показываются под полями, общая ошибка — плашкой; подсказки говорят, что пластик и наработка принтера не пересчитываются; отправка вручную (`FormData` → `updateOrder`), при успехе `onSaved(message)`, закрытие и `router.refresh()`; во время сохранения кнопки и Escape выключены (`aria-busy`) |
 | `components/workshop/WorkshopCalculatorTab.tsx` | клиентский | Вкладка «Калькулятор»: держит настройки в состоянии (после сохранения формы расчёт идёт по новым числам), показывает жёлтое предупреждение при неприменённой миграции, собирает форму и расчёт в единый контейнер с сеткой `lg:grid-cols-3` (1/3 + 2/3) и внутренним разделителем; на мобильном колонки идут друг под другом |
 | `components/workshop/WorkshopSettingsForm.tsx` | клиентский | Форма четырёх настроек из `WORKSHOP_FIELDS`: `useActionState` с `saveWorkshopSettings`, ошибки под полями, общая ошибка и подтверждение под кнопкой; инпуты `rounded-xl bg-black/40 border-white/10` с мягким синим `focus:ring-2`, кнопка сохранения — тёмная с белой обводкой; после успеха отдаёт значения наверх (`onSaved`) и вызывает `router.refresh()` |
 | `components/workshop/WorkshopRequisitesTab.tsx` | клиентский | Вкладка «Реквизиты»: `<select name="companyType">` из `COMPANY_TYPES` (самозанятый по умолчанию) и семь текстовых полей — название с `maxLength` 200, ИНН, ОГРН, юридический адрес, банковские реквизиты в `textarea`, телефон (`type="tel"`) и email (`type="email"`); `useActionState` с `saveWorkshopSettings`, ошибки под полями и общими плашками, зелёное подтверждение «Реквизиты сохранены», жёлтое предупреждение про неприменённую миграцию `supabase/workshop_requisites.sql`; после успеха `router.refresh()` |
@@ -6067,3 +6088,40 @@ check-ограничениями, комментариями к колонкам
 удаления и каскад комментариев уже есть в `supabase/workshop_printers_orders.sql` и
 `supabase/workshop_order_comments.sql`. Живой прогон удаления на dev-сервере остаётся за
 пользователем.
+
+**Мастерская: редактирование заказов (25 октября 2026).** Заказ теперь можно поправить, не удаляя
+и не создавая заново. В шапке карточки рядом с корзиной появился карандаш (`PencilIcon`,
+`data-order-edit-open`): он открывает окно `EditOrderDialog` поверх карточки, поэтому у оверлея
+`z-[90]`, а Escape обрабатывается в фазе перехвата (`useDialogDismiss(close, { isTopmost: true })`) —
+закрывается только правка, карточка остаётся открытой.
+
+Поля предзаполнены значениями заказа: название, клиент (список `workshop_clients` или имя вручную,
+выбранное имя показано `readOnly`), стоимость, срок, вес модели, время печати и заметки. Статус,
+принтер и катушка в окне отсутствуют: статус двигает Kanban, технику выбирают при создании.
+Наработка принтера и остаток пластика при правке не пересчитываются — заказ списал ресурс при
+создании, — об этом говорят подсказки у полей и плашка над кнопками. Ошибки полей возвращает
+`OrderEditState` (`fieldErrors` из `app/actions/orders-state.ts`): форма показывает их под полями, а
+сессию, подписку и базу — общей плашкой. После сохранения окно закрывается, `router.refresh()`
+перечитывает заказы, карточка показывает новые значения, зелёная плашка `data-order-updated`
+подтверждает запись, а сообщение остаётся и в строке состояния доски. Список заказов теперь читает
+`ORDER_CLIENT_COLUMNS` с откатом на `ORDER_COLUMNS` (как `getWorkshopOrder`), поэтому окно правки
+предвыбирает клиента и без миграции не падает.
+Серверное действие `updateOrder(orderId, formData)` в `app/actions/orders.ts` повторяет порядок
+проверок остальных действий: UUID (`isOrderId`) → разбор формы (`readOrderEditForm`, общий
+`readOrderForm`, но без полей техники) → сессия → `hasActiveSubscription` → чтение заказа по `id` и
+`user_id`. Чтение нужно трижды: чужой заказ не обновится, удалённая строка вернёт «Заказ не найден»,
+а наличие колонки `client_id` (ручная миграция `supabase/workshop_orders_client_id.sql`) решает,
+писать ли ссылку на клиента. Клиент проверяется по `user_id`, имя берётся из базы снимком; ручной
+ввод снимает ссылку (`client_id = null`). `update` получает только `title`, `client_name`,
+`client_id`, `total_cost`, `material_weight_g`, `print_time_hours`, `notes` и `deadline`
+(`createOrderUpdatePayload`), поэтому `status`, `printer_id` и `filament_id` остаются прежними, а
+`workshop_printers` и `workshop_filaments` не трогаются вовсе. Если выбрать клиента, а колонки в базе
+нет, действие вернёт инструкцию применить `supabase/workshop_orders_client_id.sql`, а не общее «не
+удалось сохранить». Пустой ответ `select('title')` — «заказ не найден». После успеха
+`revalidatePath('/dashboard/workshop')` и сообщение «Заказ … обновлён».
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run build` — успешно,
+`npm run check:imports` — 1 668 импортов без битых, `npm run check:docs` — сводка согласована,
+`npm run check:style` — 39 блоков, 0 нарушений, `git diff --check` — чисто. Миграция не нужна:
+`status`, `printer_id` и `filament_id` не меняются, а `client_id` пишется только если колонка есть.
+Живой прогон правки на dev-сервере остаётся за пользователем.

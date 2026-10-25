@@ -12,19 +12,39 @@ import { useEffect } from "react";
  *
  * `onClose` должен быть стабильным (useCallback): иначе эффект переподписывается
  * на каждое изменение состояния формы.
+ *
+ * `isTopmost` нужен окну, открытому поверх другого: Escape обрабатывается в
+ * фазе перехвата и не доходит до нижнего окна. Без флага Escape закрывал бы обе
+ * модалки сразу — например, правку заказа и карточку под ней.
  */
-export function useDialogDismiss(onClose: () => void) {
+export function useDialogDismiss(
+  onClose: () => void,
+  { isTopmost = false }: { isTopmost?: boolean } = {},
+) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
+      if (event.key !== "Escape") {
+        return;
       }
+
+      if (isTopmost) {
+        event.stopPropagation();
+      }
+
+      onClose();
+    }
+
+    if (isTopmost) {
+      document.addEventListener("keydown", handleKeyDown, true);
+
+      return () =>
+        document.removeEventListener("keydown", handleKeyDown, true);
     }
 
     window.addEventListener("keydown", handleKeyDown);
 
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [isTopmost, onClose]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;

@@ -479,7 +479,12 @@ export function WorkshopOrdersTab({
       ) : null}
 
       {detailsOrder ? (
-        <OrderDetailsDialog order={detailsOrder} onClose={closeDetails} />
+        <OrderDetailsDialog
+          order={detailsOrder}
+          clients={clients}
+          onUpdated={setNotice}
+          onClose={closeDetails}
+        />
       ) : null}
     </section>
   );

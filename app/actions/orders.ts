@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import type {
   OrderActionState,
+  OrderEditState,
   OrderFormState,
 } from "@/app/actions/orders-state";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
@@ -30,6 +31,7 @@ import {
   planFilamentUsage,
   planPrinterUsage,
   readOrderCommentText,
+  readOrderEditForm,
   readOrderForm,
   type FilamentUsagePlan,
   type OrderComment,
@@ -39,6 +41,7 @@ import { getOrderComments } from "@/lib/workshop/order-store";
 import {
   createFilamentUsagePayload,
   createOrderPayload,
+  createOrderUpdatePayload,
   createPrinterUsagePayload,
 } from "@/lib/workshop/payload";
 import {
@@ -81,6 +84,8 @@ const INVALID_ID = "Заказ не найден — обновите стран
 const INVALID_STATUS = "Неизвестный статус заказа — обновите страницу.";
 const STATUS_FAILED = "Не удалось сменить статус. Попробуйте ещё раз.";
 const DELETE_FAILED = "Не удалось удалить заказ. Попробуйте ещё раз.";
+const UPDATE_FAILED =
+  "Не удалось сохранить изменения. Попробуйте ещё раз.";
 const COMMENT_MIGRATION_MISSING =
   "Комментарии пока не сохраняются: в базе нет таблицы workshop_order_comments. Примените миграцию supabase/workshop_order_comments.sql.";
 const COMMENT_ADD_FAILED =
@@ -531,6 +536,190 @@ export async function deleteOrder(
   revalidatePath("/dashboard/workshop");
 
   return { ok: true, message: `Заказ «${title}» удалён.` };
+}
+
+/** PostgREST/PostgreSQL: в `workshop_orders` нет колонки `client_id`. */
+function isMissingClientIdColumn(error: {
+  code?: string | null;
+  message?: string | null;
+}): boolean {
+  return (
+    (error.code === "42703" || error.code === "PGRST204") &&
+    /client_id/i.test(error.message ?? "")
+  );
+}
+
+/**
+ * Правка заказа из карточки.
+ *
+ * Порядок проверок как у остальных действий: UUID → разбор формы → сессия →
+ * подписка → чтение заказа по `id` и `user_id`. Чтение нужно по трём причинам:
+ * чужой заказ не обновится даже при известном id, пустой ответ значит «заказ
+ * уже удалили в другой вкладке», а наличие колонки `client_id` (миграция
+ * `supabase/workshop_orders_client_id.sql` применяется вручную) решает, можно ли
+ * записать ссылку на клиента.
+ *
+ * Меняются только поля карточки: название, клиент, стоимость, вес, время, срок
+ * и заметки. `status`, `printer_id` и `filament_id` остаются прежними. Наработка
+ * принтера и остаток катушки не пересчитываются: заказ списал ресурс при
+ * создании, и правка не должна списывать его второй раз.
+ *
+ * Имя клиента — снимок из `workshop_clients`: форма могла прислать чужой uuid,
+ * поэтому ссылка проверяется по `user_id`, а имя берётся из базы. Ручной ввод
+ * оставляет `client_id` пустым — ссылка снимается, если колонка есть.
+ */
+export async function updateOrder(
+  orderId: string,
+  formData: FormData,
+): Promise<OrderEditState> {
+  if (!isOrderId(orderId)) {
+    return { ok: false, error: INVALID_ID };
+  }
+
+  const { draft, errors } = readOrderEditForm(formData);
+
+  if (!draft) {
+    return { ok: false, fieldErrors: errors };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  const withClient = await supabase
+    .from("workshop_orders")
+    .select("client_id")
+    .eq("id", orderId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  let current = (withClient.data ?? null) as Partial<
+    Record<string, unknown>
+  > | null;
+  let readError = withClient.error;
+  let hasClientColumn = readError === null;
+
+  // Колонки client_id может не быть: повторяем чтение без неё, чтобы правка
+  // названия и чисел работала и до применения миграции.
+  if (readError && isMissingClientIdColumn(readError)) {
+    const legacy = await supabase
+      .from("workshop_orders")
+      .select("title")
+      .eq("id", orderId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    current = (legacy.data ?? null) as Partial<Record<string, unknown>> | null;
+    readError = legacy.error;
+    hasClientColumn = false;
+  }
+
+  if (readError) {
+    console.warn("Заказ не прочитан:", readError.code, readError.message);
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(readError.code, readError.message)
+        ? MIGRATION_MISSING
+        : LOAD_FAILED,
+    };
+  }
+
+  if (!current) {
+    return { ok: false, error: ORDER_NOT_FOUND };
+  }
+
+  let clientName = draft.clientName;
+
+  if (draft.clientId) {
+    const { data, error } = await supabase
+      .from("workshop_clients")
+      .select(CLIENT_COLUMNS)
+      .eq("id", draft.clientId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("Клиент не прочитан:", error.code, error.message);
+
+      return {
+        ok: false,
+        error: isMissingTableSchema(error.code, error.message)
+          ? CLIENT_MIGRATION_MISSING
+          : LOAD_FAILED,
+      };
+    }
+
+    const client = normalizeClientRow(
+      (data ?? null) as Partial<Record<string, unknown>> | null,
+    );
+
+    if (!client) {
+      return { ok: false, fieldErrors: { clientId: CLIENT_NOT_FOUND } };
+    }
+
+    if (client.name.length > ORDER_TEXT_LIMITS.clientName) {
+      return {
+        ok: false,
+        fieldErrors: {
+          clientName: `Не больше ${ORDER_TEXT_LIMITS.clientName} символов.`,
+        },
+      };
+    }
+
+    clientName = client.name;
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("workshop_orders")
+    .update(
+      createOrderUpdatePayload(draft, clientName, {
+        withClientLink: hasClientColumn,
+      }),
+    )
+    .eq("id", orderId)
+    .eq("user_id", user.id)
+    .select("title")
+    .maybeSingle();
+
+  if (updateError) {
+    console.warn("Заказ не обновлён:", updateError.code, updateError.message);
+
+    // Выбранного клиента записать некуда: колонку добавляет отдельная миграция.
+    // Без неё понятнее инструкция, чем общее «не удалось сохранить».
+    if (draft.clientId && isMissingClientIdColumn(updateError)) {
+      return { ok: false, error: ORDER_CLIENT_LINK_MIGRATION_MISSING };
+    }
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(updateError.code, updateError.message)
+        ? MIGRATION_MISSING
+        : UPDATE_FAILED,
+    };
+  }
+
+  // Пустая строка значит, что заказ удалили между чтением и записью: update не
+  // затронул строку, и «успех» был бы ложным.
+  if (!updated) {
+    return { ok: false, error: ORDER_NOT_FOUND };
+  }
+
+  revalidatePath("/dashboard/workshop");
+
+  return {
+    ok: true,
+    message: `Заказ «${draft.title}» обновлён.`,
+  };
 }
 
 /** Ответ окна карточки: либо сохранённый комментарий, либо текст ошибки. */

@@ -7,7 +7,7 @@
  * ответит PGRST204 уже в проде.
  */
 import type { FilamentDraft } from "@/lib/workshop/filaments";
-import type { OrderDraft } from "@/lib/workshop/orders";
+import type { OrderDraft, OrderEditDraft } from "@/lib/workshop/orders";
 import type { PrinterDraft } from "@/lib/workshop/printers";
 import type {
   WorkshopCompanyType,
@@ -193,6 +193,58 @@ export function createOrderPayload(
   }
 
   if (draft.clientId) {
+    payload.client_id = draft.clientId;
+  }
+
+  return payload;
+}
+
+/** Что уходит в `from("workshop_orders").update(...)` при правке заказа. */
+export type WorkshopOrderUpdatePayload = {
+  title: string;
+  client_name: string | null;
+  /**
+   * Ссылка на клиента из базы. Колонку добавляет миграция
+   * `supabase/workshop_orders_client_id.sql`, поэтому поле необязательное:
+   * без миграции правка идёт без ссылки, а не падает.
+   */
+  client_id?: string | null;
+  total_cost: number;
+  material_weight_g: number;
+  print_time_hours: number;
+  notes: string | null;
+  deadline: string | null;
+};
+
+/**
+ * Правка заказа: только поля карточки.
+ *
+ * `status`, `printer_id` и `filament_id` не передаются намеренно. Статус меняет
+ * Kanban (`updateOrderStatus`), технику выбирают при создании. Наработка
+ * принтера и остаток катушки при правке не пересчитываются: заказ уже списал
+ * ресурс при создании, а правка меняет только записи о заказе.
+ *
+ * `client_id` попадает в payload, когда известно состояние ссылки: uuid —
+ * привязать клиента, `null` — отвязать (ручной ввод). `withClientLink` включает
+ * запись null и для заказов без выбранного клиента: колонка существует только
+ * после миграции, поэтому её наличие сообщает вызывающий код.
+ */
+export function createOrderUpdatePayload(
+  draft: OrderEditDraft,
+  clientName: string,
+  { withClientLink = false }: { withClientLink?: boolean } = {},
+): WorkshopOrderUpdatePayload {
+  const payload: WorkshopOrderUpdatePayload = {
+    title: draft.title,
+    client_name: clientName || null,
+    total_cost: draft.totalCost,
+    material_weight_g: draft.materialWeightG,
+    print_time_hours: draft.printTimeHours,
+    notes: draft.notes || null,
+    deadline: draft.deadline,
+  };
+
+  if (withClientLink || draft.clientId) {
     payload.client_id = draft.clientId;
   }
 

@@ -148,6 +148,16 @@ export function TrashIcon(props: WorkshopIconProps) {
   );
 }
 
+/** Редактирование: карандаш — правка полей заказа. */
+export function PencilIcon(props: WorkshopIconProps) {
+  return (
+    <svg {...iconProps} {...props}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
 /** Плюс для акцентной кнопки. */
 export function PlusIcon(props: WorkshopIconProps) {
   return (
