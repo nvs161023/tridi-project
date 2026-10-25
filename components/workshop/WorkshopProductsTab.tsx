@@ -1,16 +1,30 @@
 "use client";
 
+import { useCallback, useRef, useState } from "react";
+
+import { AddProductDialog } from "@/components/workshop/AddProductDialog";
 import { ProductsIcon } from "@/components/workshop/WorkshopIcons";
 
 /**
  * Вкладка «Товары».
  *
  * Это каркас каталога: таблица `workshop_products` в базе уже есть, но чтение
- * товаров, карточки и форма добавления появятся на следующих шагах. Пока
- * вкладка честно показывает пустое состояние, а кнопка добавления сообщает,
- * что форма ещё в разработке.
+ * товаров и карточки появятся на следующих шагах. Пока вкладка показывает
+ * пустое состояние, а кнопка «Добавить товар» открывает визуальную форму.
+ * Сохранить товар в базу она ещё не умеет: `AddProductDialog` выводит данные
+ * в консоль и закрывается.
  */
 export function WorkshopProductsTab() {
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+
+  const openDialog = useCallback(() => setIsDialogOpen(true), []);
+
+  const closeDialog = useCallback(() => {
+    setIsDialogOpen(false);
+    window.requestAnimationFrame(() => addButtonRef.current?.focus());
+  }, []);
+
   return (
     <section
       aria-labelledby="workshop-products-title"
@@ -42,8 +56,9 @@ export function WorkshopProductsTab() {
           в заказах
         </p>
         <button
+          ref={addButtonRef}
           type="button"
-          onClick={() => window.alert("В разработке")}
+          onClick={openDialog}
           className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
         >
           <span aria-hidden className="text-lg leading-none">
@@ -52,6 +67,8 @@ export function WorkshopProductsTab() {
           Добавить товар
         </button>
       </div>
+
+      {isDialogOpen ? <AddProductDialog onClose={closeDialog} /> : null}
     </section>
   );
 }
