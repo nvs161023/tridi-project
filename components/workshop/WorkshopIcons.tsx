@@ -57,6 +57,17 @@ export function PrinterIcon(props: WorkshopIconProps) {
   );
 }
 
+/** Загрузка G-code: стрелка в лоток. */
+export function UploadIcon(props: WorkshopIconProps) {
+  return (
+    <svg {...iconProps} {...props}>
+      <path d="M12 16V4" />
+      <path d="m7 9 5-5 5 5" />
+      <path d="M20 16v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3" />
+    </svg>
+  );
+}
+
 /** Товары: куб — модель, готовая к продаже. */
 export function ProductsIcon(props: WorkshopIconProps) {
   return (

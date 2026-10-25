@@ -29,7 +29,7 @@ type WorkshopSettingsFormProps = {
 };
 
 const inputClassName =
-  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
+  "w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 export function WorkshopSettingsForm({
   settings,
@@ -51,10 +51,7 @@ export function WorkshopSettingsForm({
   }, [state, onSaved, router]);
 
   return (
-    <section
-      aria-labelledby="workshop-settings-title"
-      className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-md sm:p-7"
-    >
+    <section aria-labelledby="workshop-settings-title">
       <p className="text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase">
         Настройки
       </p>
@@ -64,12 +61,12 @@ export function WorkshopSettingsForm({
       >
         Параметры мастерской
       </h2>
-      <p className="mt-2 text-sm leading-relaxed text-slate-300">
+      <p className="mt-2 text-sm leading-relaxed text-zinc-400">
         Четыре числа, по которым считается себестоимость. Их можно менять в
         любой момент — расчёт пересчитается по сохранённым значениям.
       </p>
 
-      <form action={formAction} className="mt-5 grid gap-5 sm:grid-cols-2">
+      <form action={formAction} className="mt-6 grid gap-4">
         {WORKSHOP_FIELDS.map((field) => {
           const fieldId = `workshop-${field.key}`;
           const error = state.fieldErrors?.[field.key];
@@ -78,7 +75,7 @@ export function WorkshopSettingsForm({
             <div key={field.key}>
               <label
                 htmlFor={fieldId}
-                className="block text-sm font-semibold text-slate-200"
+                className="block text-sm font-semibold text-zinc-200"
               >
                 {field.label}
               </label>
@@ -94,7 +91,7 @@ export function WorkshopSettingsForm({
                 defaultValue={settings[field.key]}
                 aria-invalid={error ? true : undefined}
                 aria-describedby={error ? `${fieldId}-error` : `${fieldId}-hint`}
-                className={inputClassName}
+                className={`mt-2 ${inputClassName}`}
               />
               {error ? (
                 <p
@@ -107,7 +104,7 @@ export function WorkshopSettingsForm({
               ) : (
                 <p
                   id={`${fieldId}-hint`}
-                  className="mt-1.5 text-xs leading-relaxed text-slate-400"
+                  className="mt-1.5 text-xs leading-relaxed text-zinc-500"
                 >
                   {field.hint}
                 </p>
@@ -116,11 +113,11 @@ export function WorkshopSettingsForm({
           );
         })}
 
-        <div className="sm:col-span-2">
+        <div className="pt-1">
           <button
             type="submit"
             disabled={isPending}
-            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-5 text-sm font-semibold text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isPending ? "Сохраняем…" : "Сохранить настройки"}
           </button>
