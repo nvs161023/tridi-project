@@ -1,14 +1,18 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
   type ChangeEvent,
   type FormEvent,
   useCallback,
+  useEffect,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
 
+import { saveImportedFilaments } from "@/app/actions/filaments";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
+import type { SaveImportedFilamentsResult } from "@/lib/workshop/filaments";
 import type { InvoiceItem } from "@/lib/workshop/ocr";
 
 type ImportStockFromPhotoDialogProps = {
@@ -82,7 +86,11 @@ function readErrorMessage(payload: unknown): string | null {
  * иначе результат придёт в размонтированный компонент. Успех показывается
  * таблицей «Материал / Количество / Ед. изм. / Стоимость (₽)», пустой ответ и
  * ошибка — красной плашкой. Если цена не распознана, в колонке стоит прочерк.
- * В базу ничего не пишем: сохранение остатков — следующий шаг.
+ *
+ * Кнопка «Сохранить на склад» вызывает Server Action, который создаёт катушки
+ * в workshop_filaments. После успеха зелёная плашка показывает число позиций,
+ * а через две секунды окно закрывается и router.refresh() обновляет склад.
+ * Пока идёт сохранение, окно тоже нельзя закрыть.
  *
  * Портал, overlay, Escape и блокировка прокрутки повторяют остальные окна
  * Мастерской; фокус после закрытия возвращает вкладка «Склад».
@@ -90,29 +98,50 @@ function readErrorMessage(payload: unknown): string | null {
 export function ImportStockFromPhotoDialog({
   onClose,
 }: ImportStockFromPhotoDialogProps) {
+  const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isRecognizing, setIsRecognizing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [items, setItems] = useState<InvoiceItem[] | null>(null);
+  const [saveResult, setSaveResult] =
+    useState<SaveImportedFilamentsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const isBusy = isRecognizing || isSaving || saveResult !== null;
 
   const closeIfIdle = useCallback(() => {
-    if (!isRecognizing) {
+    if (!isBusy) {
       onClose();
     }
-  }, [isRecognizing, onClose]);
+  }, [isBusy, onClose]);
 
   useDialogDismiss(closeIfIdle);
+
+  // После успеха окно закрывается само: сначала обновляем серверный список,
+  // затем возвращаем фокус на кнопку «Импорт из фото» в родительской вкладке.
+  useEffect(() => {
+    if (!saveResult) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      router.refresh();
+      onClose();
+    }, 2000);
+
+    return () => window.clearTimeout(timer);
+  }, [onClose, router, saveResult]);
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     setSelectedFile(event.target.files?.[0] ?? null);
     setItems(null);
+    setSaveResult(null);
     setError(null);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (isRecognizing) {
+    if (isRecognizing || isSaving || saveResult) {
       return;
     }
 
@@ -123,6 +152,7 @@ export function ImportStockFromPhotoDialog({
 
     setError(null);
     setItems(null);
+    setSaveResult(null);
     setIsRecognizing(true);
 
     try {
@@ -176,6 +206,34 @@ export function ImportStockFromPhotoDialog({
     }
   }
 
+  async function handleSave() {
+    if (!items || items.length === 0 || isSaving || saveResult) {
+      return;
+    }
+
+    setError(null);
+    setIsSaving(true);
+
+    try {
+      const result = await saveImportedFilaments(items);
+
+      if (result.saved === 0) {
+        setError(
+          result.error ?? "Не удалось сохранить позиции. Попробуйте ещё раз.",
+        );
+        return;
+      }
+
+      setSaveResult(result);
+    } catch {
+      setError(
+        "Не удалось сохранить позиции. Проверьте соединение и попробуйте ещё раз.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   if (typeof document === "undefined") {
     return null;
   }
@@ -217,7 +275,7 @@ export function ImportStockFromPhotoDialog({
           <button
             type="button"
             onClick={closeIfIdle}
-            disabled={isRecognizing}
+            disabled={isBusy}
             aria-label="Закрыть окно импорта из фото"
             className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -252,7 +310,7 @@ export function ImportStockFromPhotoDialog({
               <label
                 htmlFor="import-stock-file"
                 className={`inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors focus-within:ring-2 focus-within:ring-blue-500/60 focus-within:ring-offset-2 focus-within:ring-offset-[#0a0a0a] ${
-                  isRecognizing
+                  isBusy
                     ? "cursor-not-allowed opacity-60"
                     : "cursor-pointer hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
                 }`}
@@ -264,7 +322,7 @@ export function ImportStockFromPhotoDialog({
                   type="file"
                   accept="image/*"
                   autoComplete="off"
-                  disabled={isRecognizing}
+                  disabled={isBusy}
                   aria-describedby="import-stock-file-hint"
                   onChange={handleFileChange}
                   className="sr-only"
@@ -284,6 +342,15 @@ export function ImportStockFromPhotoDialog({
               className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm leading-relaxed text-blue-100"
             >
               Идет распознавание...
+            </p>
+          ) : null}
+
+          {isSaving ? (
+            <p
+              role="status"
+              className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm leading-relaxed text-blue-100"
+            >
+              Сохраняем позиции на складе...
             </p>
           ) : null}
 
@@ -363,7 +430,27 @@ export function ImportStockFromPhotoDialog({
                 </table>
               </div>
               <p className="border-t border-white/5 px-4 py-3 text-xs leading-relaxed text-zinc-500">
-                В склад пока не сохраняем: проверьте таблицу и закройте окно.
+                Проверьте таблицу и сохраните позиции на склад.
+              </p>
+            </div>
+          ) : null}
+
+          {saveResult ? (
+            <div
+              role="status"
+              className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm leading-relaxed text-emerald-100"
+            >
+              <p className="font-semibold">
+                <span aria-hidden>✓ </span>
+                Сохранено: {saveResult.saved} позиций
+              </p>
+              {saveResult.failed > 0 ? (
+                <p className="mt-1 text-amber-200">
+                  Не удалось сохранить: {saveResult.failed} позиций.
+                </p>
+              ) : null}
+              <p className="mt-1 text-xs text-emerald-200/70">
+                Окно закроется через 2 секунды.
               </p>
             </div>
           ) : null}
@@ -372,19 +459,31 @@ export function ImportStockFromPhotoDialog({
             <button
               type="button"
               onClick={closeIfIdle}
-              disabled={isRecognizing}
+              disabled={isBusy}
               className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-6 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Отмена
+              {items ? "Закрыть" : "Отмена"}
             </button>
-            <button
-              type="submit"
-              disabled={isRecognizing}
-              aria-busy={isRecognizing}
-              className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isRecognizing ? "Идет распознавание..." : "Распознать"}
-            </button>
+            {items ? (
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving || saveResult !== null}
+                aria-busy={isSaving}
+                className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSaving ? "Сохраняем..." : "Сохранить на склад"}
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={isRecognizing}
+                aria-busy={isRecognizing}
+                className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isRecognizing ? "Идет распознавание..." : "Распознать"}
+              </button>
+            )}
           </div>
         </form>
       </div>

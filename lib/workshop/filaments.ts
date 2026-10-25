@@ -8,6 +8,10 @@
  *
  * Вес в базе — integer: катушка измеряется граммами, десятые доли значат только
  * для парсера G-code. Поэтому ввод округляется до целого, а не отклоняется.
+ *
+ * Импорт из фото переиспользует те же пределы: название раскладывается на бренд,
+ * тип и цвет, количество с единицей превращается в вес, а стоимость позиции —
+ * в цену за килограмм. Нечитаемая цена заменяется значением по умолчанию.
  */
 import { DEFAULT_PLASTIC_PRICE_PER_KG } from "@/lib/workshop/calculator";
 import {
@@ -111,6 +115,247 @@ export const FILAMENT_TYPE_SUGGESTIONS = [
   "TPU",
   "Nylon",
 ] as const;
+
+/** Сколько строк с фото можно сохранить на склад за один вызов. */
+export const IMPORTED_FILAMENTS_MAX = 100;
+
+/** Итог сохранения распознанных позиций: сколько записей создано и сколько нет. */
+export type SaveImportedFilamentsResult = {
+  saved: number;
+  failed: number;
+  /** Общая ошибка: сессия, подписка, миграция или пустой список. */
+  error?: string;
+};
+
+/** Тип пластика, который ищем в названии, и его каноническая запись. */
+const IMPORTED_TYPE_TOKENS: readonly { type: string; token: string }[] = [
+  { type: "PLA", token: "PLA" },
+  { type: "PETG", token: "PETG" },
+  { type: "ABS", token: "ABS" },
+  { type: "ASA", token: "ASA" },
+  { type: "TPU", token: "TPU" },
+  { type: "Nylon", token: "Nylon" },
+  { type: "HIPS", token: "HIPS" },
+  { type: "PVA", token: "PVA" },
+  { type: "PC", token: "PC" },
+  { type: "PEEK", token: "PEEK" },
+  { type: "POM", token: "POM" },
+  { type: "PP", token: "PP" },
+];
+
+const WORD_CHAR_PATTERN = /[\p{L}\p{N}]/u;
+
+/** Буква или цифра на границе слова: по ним отличаем eSun от «rec» в «direct». */
+function isWordChar(value: string | undefined): boolean {
+  return value !== undefined && WORD_CHAR_PATTERN.test(value);
+}
+
+/** Первое вхождение токена отдельным словом: регистр не важен. */
+function findWordToken(
+  value: string,
+  token: string,
+): { index: number; length: number } | null {
+  const haystack = value.toLocaleLowerCase("ru-RU");
+  const needle = token.toLocaleLowerCase("ru-RU");
+  let from = 0;
+
+  while (from <= haystack.length) {
+    const index = haystack.indexOf(needle, from);
+
+    if (index === -1) {
+      return null;
+    }
+
+    const before = haystack[index - 1];
+    const after = haystack[index + needle.length];
+
+    if (!isWordChar(before) && !isWordChar(after)) {
+      return { index, length: needle.length };
+    }
+
+    from = index + 1;
+  }
+
+  return null;
+}
+
+/** Убирает из названия найденный кусок, чтобы осталось только описание цвета. */
+function cutToken(
+  value: string,
+  token: { index: number; length: number } | null,
+): string {
+  if (!token) {
+    return value;
+  }
+
+  return `${value.slice(0, token.index)} ${value.slice(token.index + token.length)}`;
+}
+
+/**
+ * Цвет из остатка названия.
+ *
+ * Скобки и знаки препинания после вырезанного бренда и типа не несут смысла,
+ * поэтому превращаются в пробелы. Общие слова «пластик» и «филамент» тоже
+ * убираем: в накладной это описание товара, а не цвет катушки.
+ */
+function cleanImportedColor(value: string): string {
+  const cleaned = value
+    .replace(/[()[\]{}]/g, " ")
+    .replace(
+      /(^|[^\p{L}\p{N}])(?:филамент|пластик|пластика|нить|3d)(?=$|[^\p{L}\p{N}])/giu,
+      "$1",
+    )
+    .replace(/[.,;:·|/\\_+]+/g, " ")
+    .replace(/\s*[-–—]\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[-–—,;:.]+|[-–—,;:.]+$/g, "")
+    .trim();
+
+  return cleaned.slice(0, FILAMENT_TEXT_LIMITS.color).trim() || "Разное";
+}
+
+/**
+ * Название из накладной → бренд, тип и цвет.
+ *
+ * Бренд и тип вырезаются как отдельные слова: «eSun» не должен находиться
+ * внутри другого слова, а «PLA+» остаётся типом PLA, а не цветом «+».
+ */
+export function parseImportedFilamentName(name: string): {
+  brand: string;
+  type: string;
+  color: string;
+} {
+  const source = name.trim();
+  let remainder = source;
+  let brand = "Импорт";
+
+  for (const knownBrand of FILAMENT_BRANDS) {
+    const token = findWordToken(source, knownBrand);
+
+    if (token) {
+      brand = knownBrand;
+      remainder = cutToken(remainder, token);
+      break;
+    }
+  }
+
+  let type = "PLA";
+
+  for (const candidate of IMPORTED_TYPE_TOKENS) {
+    const token = findWordToken(remainder, candidate.token);
+
+    if (!token) {
+      continue;
+    }
+
+    type = candidate.type;
+
+    // Плюс в «PLA+» — часть обозначения типа, а не начало цвета.
+    const hasPlus = remainder[token.index + token.length] === "+";
+
+    remainder = cutToken(remainder, {
+      index: token.index,
+      length: token.length + (hasPlus ? 1 : 0),
+    });
+    break;
+  }
+
+  return {
+    brand: brand.slice(0, FILAMENT_TEXT_LIMITS.brand).trim() || "Импорт",
+    type: type.slice(0, FILAMENT_TEXT_LIMITS.type).trim() || "PLA",
+    color: cleanImportedColor(remainder),
+  };
+}
+
+/**
+ * Вес одной позиции в граммах.
+ *
+ * Килограммы переводим в граммы, граммы оставляем как есть. Неизвестная
+ * единица («шт», «уп») не даёт веса, поэтому берём типовую катушку 1 кг.
+ * Значение округляем и держим в пределах колонок миграции.
+ */
+function importedWeightG(quantity: number, unit: string): number {
+  const normalized = unit
+    .trim()
+    .toLocaleLowerCase("ru-RU")
+    .replace(/\.$/, "");
+
+  const grams =
+    normalized === "кг" ||
+    normalized === "kg" ||
+    normalized === "килограмм" ||
+    normalized === "килограммов"
+      ? quantity * 1000
+      : normalized === "г" ||
+          normalized === "гр" ||
+          normalized === "g" ||
+          normalized === "gram" ||
+          normalized === "grams"
+        ? quantity
+        : FILAMENT_DEFAULTS.totalWeightG;
+
+  return Math.min(100000, Math.max(1, Math.round(grams)));
+}
+
+/**
+ * Строка OCR → проверенный черновик катушки.
+ *
+ * Повторяет проверки клиента: Server Action — публичный endpoint, поэтому
+ * массив из браузера не считается доверенным. Нечитаемая цена не ошибка —
+ * подставляем цену по умолчанию, как и обещает импорт.
+ */
+export function createImportedFilamentDraft(
+  value: unknown,
+): FilamentDraft | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  const unit = typeof record.unit === "string" ? record.unit.trim() : "";
+  const quantity = record.quantity;
+
+  if (
+    !name ||
+    !unit ||
+    typeof quantity !== "number" ||
+    !Number.isFinite(quantity) ||
+    quantity <= 0
+  ) {
+    return null;
+  }
+
+  const price =
+    typeof record.price === "number" &&
+    Number.isFinite(record.price) &&
+    record.price >= 0
+      ? record.price
+      : null;
+  const weight = importedWeightG(quantity, unit);
+  const pricePerKg =
+    price === null
+      ? FILAMENT_DEFAULTS.pricePerKg
+      : Math.round((price / (weight / 1000)) * 100) / 100;
+
+  if (
+    !Number.isFinite(pricePerKg) ||
+    pricePerKg < 0 ||
+    pricePerKg > 100000
+  ) {
+    return null;
+  }
+
+  return {
+    ...parseImportedFilamentName(name),
+    totalWeightG: weight,
+    remainingWeightG: weight,
+    pricePerKg,
+    minThresholdG: FILAMENT_DEFAULTS.minThresholdG,
+    purchaseUrl: "",
+  };
+}
 
 /**
  * Числовые поля формы. Остаток вводится отдельно: катушка может приехать

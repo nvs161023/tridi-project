@@ -10,10 +10,15 @@ import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
 import {
+  createImportedFilamentDraft,
   formatGrams,
+  IMPORTED_FILAMENTS_MAX,
   readConsumeFilamentForm,
   readFilamentForm,
+  type FilamentDraft,
+  type SaveImportedFilamentsResult,
 } from "@/lib/workshop/filaments";
+import type { InvoiceItem } from "@/lib/workshop/ocr";
 import { createFilamentPayload } from "@/lib/workshop/payload";
 import { parseWorkshopNumber } from "@/lib/workshop/settings";
 
@@ -27,6 +32,10 @@ const ADD_FAILED = "Не удалось добавить катушку. Поп�
 const CONSUME_FAILED = "Не удалось списать пластик. Попробуйте ещё раз.";
 const LOAD_FAILED = "Не удалось прочитать катушку. Попробуйте ещё раз.";
 const NOT_FOUND = "Катушка не найдена — возможно, её уже удалили. Обновите страницу.";
+const IMPORT_EMPTY = "Нет распознанных материалов для сохранения.";
+const IMPORT_TOO_MANY = `За один раз можно сохранить не больше ${IMPORTED_FILAMENTS_MAX} позиций.`;
+const IMPORT_FAILED =
+  "Не удалось сохранить импортированные катушки. Попробуйте ещё раз.";
 
 /**
  * Добавление катушки на склад.
@@ -81,6 +90,96 @@ export async function addFilament(
     success: true,
     message: `Катушка ${draft.brand} ${draft.type} добавлена.`,
   };
+}
+
+/**
+ * Сохранение распознанных позиций накладной на склад.
+ *
+ * Массив приходит из браузера, поэтому проверяется заново: имя, количество и
+ * единица обязательны, цена необязательна. Каждая строка пишется отдельно —
+ * так одна неподходящая позиция не отменяет остальные, а ответ честно говорит,
+ * сколько записей создано и сколько не удалось.
+ *
+ * Подписка проверяется здесь, а не только в окне: Server Action — публичный
+ * endpoint. RLS дополнительно сверяет auth.uid(), поэтому записать катушки
+ * другому пользователю нельзя даже подделав user_id.
+ */
+export async function saveImportedFilaments(
+  items: InvoiceItem[],
+): Promise<SaveImportedFilamentsResult> {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { saved: 0, failed: 0, error: IMPORT_EMPTY };
+  }
+
+  if (items.length > IMPORTED_FILAMENTS_MAX) {
+    return {
+      saved: 0,
+      failed: items.length,
+      error: IMPORT_TOO_MANY,
+    };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { saved: 0, failed: items.length, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { saved: 0, failed: items.length, error: PRO_REQUIRED };
+  }
+
+  const drafts: FilamentDraft[] = [];
+  let failed = 0;
+
+  for (const item of items) {
+    const draft = createImportedFilamentDraft(item);
+
+    if (!draft) {
+      failed += 1;
+      continue;
+    }
+
+    drafts.push(draft);
+  }
+
+  let saved = 0;
+
+  for (const draft of drafts) {
+    const { error } = await supabase
+      .from("workshop_filaments")
+      .insert(createFilamentPayload(user.id, draft));
+
+    if (!error) {
+      saved += 1;
+      continue;
+    }
+
+    console.warn("Импортированная катушка не добавлена:", error.code, error.message);
+
+    if (isMissingTableSchema(error.code, error.message)) {
+      return {
+        saved,
+        failed: items.length - saved,
+        error: MIGRATION_MISSING,
+      };
+    }
+
+    failed += 1;
+  }
+
+  if (saved > 0) {
+    revalidatePath("/dashboard/workshop");
+  }
+
+  if (saved === 0) {
+    return { saved, failed, error: IMPORT_FAILED };
+  }
+
+  return { saved, failed };
 }
 
 /**
