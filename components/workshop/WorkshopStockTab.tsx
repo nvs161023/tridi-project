@@ -237,7 +237,8 @@ function StockTable({
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <caption className="sr-only">
-            Катушки пластика: бренд, тип, цвет, остаток, порог и ссылка на товар
+            Катушки пластика: бренд, тип, тип позиции, цвет, остаток, порог и
+            ссылка на товар
           </caption>
           <thead>
             <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
@@ -284,7 +285,10 @@ function StockTable({
                   ) : null}
                 </td>
                 <td className="px-3 py-4 text-zinc-300">
-                  {filament.type || "—"}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span>{filament.type || "—"}</span>
+                    <UsageTypeBadge usageType={filament.usageType} />
+                  </div>
                 </td>
                 <td className="px-3 py-4 text-zinc-400">
                   {filament.color || "—"}
@@ -346,8 +350,11 @@ function StockCards({
                 <p className="text-sm font-bold text-white">
                   {filament.brand || "Без бренда"}
                 </p>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  {filament.type || "—"} · {filament.color || "—"}
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                  <span>
+                    {filament.type || "—"} · {filament.color || "—"}
+                  </span>
+                  <UsageTypeBadge usageType={filament.usageType} />
                 </p>
               </div>
               {isLow ? (
@@ -383,6 +390,41 @@ function StockCards({
         );
       })}
     </ul>
+  );
+}
+
+/**
+ * Бейдж типа позиции: «Складской» — постоянный запас, «Заказной» — пластик
+ * под конкретную задачу.
+ *
+ * Смысл виден из текста, поэтому цвет только помогает глазу: зелёный —
+ * складской, янтарный — заказной. `shrink-0` и `whitespace-nowrap` не дают
+ * бейджу сплющиться рядом с длинным названием цвета, а переносится он за счёт
+ * `flex-wrap` у родителя — на узком экране карточка не ломается.
+ */
+function UsageTypeBadge({
+  usageType,
+}: {
+  usageType: WorkshopFilament["usageType"];
+}) {
+  const isOrdered = usageType === "ordered";
+
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold tracking-wide whitespace-nowrap uppercase ${
+        isOrdered
+          ? "border-amber-500/30 bg-amber-500/20 text-amber-300"
+          : "border-green-500/30 bg-green-500/20 text-green-300"
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`h-1.5 w-1.5 rounded-full ${
+          isOrdered ? "bg-amber-300" : "bg-green-300"
+        }`}
+      />
+      {isOrdered ? "Заказной" : "Складской"}
+    </span>
   );
 }
 
