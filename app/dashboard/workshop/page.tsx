@@ -15,6 +15,7 @@ import { getWorkshopFilaments } from "@/lib/workshop/filament-store";
 import { getWorkshopOrders } from "@/lib/workshop/order-store";
 import { countMaintenanceDue } from "@/lib/workshop/printers";
 import { getWorkshopPrinters } from "@/lib/workshop/printer-store";
+import { getWorkshopProducts } from "@/lib/workshop/products";
 import { getWorkshopSettings } from "@/lib/workshop/store";
 
 /**
@@ -25,9 +26,9 @@ import { getWorkshopSettings } from "@/lib/workshop/store";
  * порядок у библиотеки профилей, и он позволяет показать гостю и ученику без
  * пакета понятное объяснение, а не глухой редирект.
  *
- * Настройки, склад, принтеры и заказы читаются только при открытом доступе:
- * без пакета сохранять их всё равно нельзя, значит и лишние запросы к базе не
- * нужны. Запросы идут параллельно — это четыре независимые таблицы.
+ * Настройки, склад, принтеры, заказы и товары читаются только при открытом
+ * доступе: без пакета сохранять их всё равно нельзя, значит и лишние запросы
+ * к базе не нужны. Запросы идут параллельно — это пять независимых таблиц.
  */
 export const metadata: Metadata = {
   title: "Мастерская — TriDi",
@@ -48,14 +49,15 @@ export default async function WorkshopPage() {
   }
 
   const hasPro = await hasActiveSubscription(supabase, userId);
-  const [snapshot, stock, fleet, orderBook] = hasPro
+  const [snapshot, stock, fleet, orderBook, productList] = hasPro
     ? await Promise.all([
         getWorkshopSettings(supabase, userId),
         getWorkshopFilaments(supabase, userId),
         getWorkshopPrinters(supabase, userId),
         getWorkshopOrders(supabase, userId),
+        getWorkshopProducts(),
       ])
-    : [null, null, null, null];
+    : [null, null, null, null, null];
 
   const orders = orderBook?.orders ?? [];
   const now = new Date();
@@ -182,6 +184,7 @@ export default async function WorkshopPage() {
               filaments={stock.filaments}
               printers={fleet.printers}
               orders={orderBook.orders}
+              products={productList ?? []}
               isMissingTable={snapshot.isMissingTable}
               isFilamentsMissingTable={stock.isMissingTable}
               isPrintersMissingTable={fleet.isMissingTable}

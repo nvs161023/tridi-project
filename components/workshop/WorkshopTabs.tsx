@@ -17,6 +17,7 @@ import { WorkshopStockTab } from "@/components/workshop/WorkshopStockTab";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import type { WorkshopOrder } from "@/lib/workshop/orders";
 import type { WorkshopPrinter } from "@/lib/workshop/printers";
+import type { WorkshopProduct } from "@/lib/workshop/products";
 import type { WorkshopSettings } from "@/lib/workshop/settings";
 
 /**
@@ -29,8 +30,8 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
  * aria-controls, и скринридер получил бы два набора одного и того же.
  *
  * «Заказы», «Склад», «Принтеры» и «Калькулятор» сохраняют внутреннее
- * содержимое. «Товары» — каркас каталога: `WorkshopProductsTab` показывает
- * пустое состояние, пока товаров нет.
+ * содержимое. «Товары» получают каталог с сервера: `WorkshopProductsTab`
+ * выводит таблицу, а при пустом списке — состояние с кнопкой добавления.
  *
  * Активная вкладка получает `bg-white/10` и белый текст, неактивные остаются
  * серыми `text-zinc-400`. Стрелки клавиатуры переключают табы, у неактивных
@@ -42,6 +43,7 @@ type WorkshopTabsProps = {
   filaments: WorkshopFilament[];
   printers: WorkshopPrinter[];
   orders: WorkshopOrder[];
+  products: WorkshopProduct[];
   isMissingTable: boolean;
   isFilamentsMissingTable: boolean;
   isPrintersMissingTable: boolean;
@@ -88,6 +90,7 @@ export function WorkshopTabs({
   filaments,
   printers,
   orders,
+  products,
   isMissingTable,
   isFilamentsMissingTable,
   isPrintersMissingTable,
@@ -284,7 +287,7 @@ export function WorkshopTabs({
             aria-labelledby="workshop-tab-products"
             hidden={activeTab !== "products"}
           >
-            <WorkshopProductsTab />
+            <WorkshopProductsTab products={products} />
           </div>
 
           <div
