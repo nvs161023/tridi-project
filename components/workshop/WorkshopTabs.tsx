@@ -12,6 +12,7 @@ import {
 } from "@/components/workshop/WorkshopIcons";
 import { WorkshopOrdersTab } from "@/components/workshop/WorkshopOrdersTab";
 import { WorkshopPrintersTab } from "@/components/workshop/WorkshopPrintersTab";
+import { WorkshopProductsTab } from "@/components/workshop/WorkshopProductsTab";
 import { WorkshopStockTab } from "@/components/workshop/WorkshopStockTab";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import type { WorkshopOrder } from "@/lib/workshop/orders";
@@ -28,8 +29,8 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
  * aria-controls, и скринридер получил бы два набора одного и того же.
  *
  * «Заказы», «Склад», «Принтеры» и «Калькулятор» сохраняют внутреннее
- * содержимое. «Товары» — новый раздел навигации: таблицы товаров в базе пока
- * нет, поэтому вкладка показывает честное пустое состояние.
+ * содержимое. «Товары» — каркас каталога: `WorkshopProductsTab` показывает
+ * пустое состояние, пока товаров нет.
  *
  * Активная вкладка получает `bg-white/10` и белый текст, неактивные остаются
  * серыми `text-zinc-400`. Стрелки клавиатуры переключают табы, у неактивных
@@ -283,9 +284,7 @@ export function WorkshopTabs({
             aria-labelledby="workshop-tab-products"
             hidden={activeTab !== "products"}
           >
-            <ProductsEmptyState
-              onOpenCalculator={() => setActiveTab("calculator")}
-            />
+            <WorkshopProductsTab />
           </div>
 
           <div
@@ -301,41 +300,6 @@ export function WorkshopTabs({
           </div>
         </div>
       </section>
-    </div>
-  );
-}
-
-/**
- * Пустое состояние «Товаров».
- *
- * Раздел добавлен в навигацию, но таблицы товаров ещё нет. Честный экран
- * объясняет, что здесь появится, и ведёт в работающий калькулятор — вместо
- * пустоты или фальшивого списка.
- */
-function ProductsEmptyState({
-  onOpenCalculator,
-}: {
-  onOpenCalculator: () => void;
-}) {
-  return (
-    <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.015] px-5 py-12 text-center sm:py-16">
-      <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-zinc-400">
-        <ProductsIcon className="h-6 w-6" />
-      </span>
-      <h2 className="mt-5 text-lg font-bold tracking-tight text-white">
-        Товары пока не ведутся
-      </h2>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-400">
-        Здесь появятся карточки изделий, цены и связь с заказами. Пока
-        себестоимость и рекомендованную цену считает калькулятор.
-      </p>
-      <button
-        type="button"
-        onClick={onOpenCalculator}
-        className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
-      >
-        Открыть калькулятор
-      </button>
     </div>
   );
 }
