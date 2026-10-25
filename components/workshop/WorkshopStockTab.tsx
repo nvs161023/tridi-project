@@ -39,6 +39,16 @@ type WorkshopStockTabProps = {
   isMissingTable: boolean;
 };
 
+/**
+ * Пора ли покупать пластик: сигналы закупки относятся только к складскому
+ * запасу. Заказную катушку брали под конкретную задачу, поэтому её низкий
+ * остаток не красит строку и не попадает в сводку — статус показывает бейдж
+ * «Заказной».
+ */
+function needsPurchase(filament: WorkshopFilament): boolean {
+  return filament.usageType === "stock" && isLowStockFilament(filament);
+}
+
 export function WorkshopStockTab({
   filaments,
   isMissingTable,
@@ -63,7 +73,7 @@ export function WorkshopStockTab({
 
     return {
       totalRemainingG,
-      lowCount: filaments.filter(isLowStockFilament).length,
+      lowCount: filaments.filter(needsPurchase).length,
     };
   }, [filaments]);
 
@@ -140,8 +150,9 @@ export function WorkshopStockTab({
             Катушки пластика
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
-            Остатки по катушкам: когда пластик подходит к концу, строка
-            становится красной, а ссылка на товар — кнопкой «Купить».
+            Остатки по катушкам: когда складской пластик подходит к концу, строка
+            становится красной, а ссылка на товар — кнопкой «Купить». Заказные
+            катушки в напоминание о закупке не попадают.
           </p>
         </div>
 
@@ -267,18 +278,18 @@ function StockTable({
         </thead>
         <tbody>
           {filaments.map((filament) => {
-            const isLow = isLowStockFilament(filament);
+            const needsRestock = needsPurchase(filament);
 
             return (
               <tr
                 key={filament.id}
                 className={`border-b border-white/5 align-top last:border-b-0 ${
-                  isLow ? "bg-red-500/10" : ""
+                  needsRestock ? "bg-red-500/10" : ""
                 }`}
               >
                 <td className="px-3 py-4 font-semibold text-white">
                   {filament.brand || "—"}
-                  {isLow ? (
+                  {needsRestock ? (
                     <span className="mt-1 block text-[11px] font-bold tracking-wide text-red-300 uppercase">
                       Пора купить
                     </span>
@@ -296,18 +307,18 @@ function StockTable({
                 <td className="px-3 py-4">
                   <span
                     className={`font-semibold tabular-nums ${
-                      isLow ? "text-red-200" : "text-white"
+                      needsRestock ? "text-red-200" : "text-white"
                     }`}
                   >
                     {formatGrams(filament.remainingWeightG)}
                   </span>
-                  <RemainingBar filament={filament} isLow={isLow} />
+                  <RemainingBar filament={filament} isLow={needsRestock} />
                 </td>
                 <td className="px-3 py-4 tabular-nums text-zinc-400">
                   {formatGrams(filament.minThresholdG)}
                 </td>
                 <td className="px-3 py-4">
-                  <PurchaseLink filament={filament} isLow={isLow} />
+                  <PurchaseLink filament={filament} isLow={needsRestock} />
                 </td>
                 <td className="px-3 py-4 text-right">
                   <ConsumeButton filament={filament} onOpen={onConsume} />
@@ -333,14 +344,14 @@ function StockCards({
   return (
     <ul className="mt-4 grid gap-3 md:hidden">
       {filaments.map((filament) => {
-        const isLow = isLowStockFilament(filament);
+        const needsRestock = needsPurchase(filament);
 
         return (
           <li
             key={filament.id}
             data-stock-card
             className={`rounded-2xl border p-4 ${
-              isLow
+              needsRestock
                 ? "border-red-400/30 bg-red-500/[0.07]"
                 : "border-white/5 bg-[#0a0a0a]"
             }`}
@@ -357,7 +368,7 @@ function StockCards({
                   <UsageTypeBadge usageType={filament.usageType} />
                 </p>
               </div>
-              {isLow ? (
+              {needsRestock ? (
                 <span className="rounded-full border border-red-400/40 bg-red-500/15 px-2.5 py-1 text-[11px] font-bold tracking-wide text-red-200 uppercase">
                   Пора купить
                 </span>
@@ -370,7 +381,7 @@ function StockCards({
               </p>
               <p
                 className={`mt-0.5 text-lg font-extrabold tabular-nums ${
-                  isLow ? "text-red-200" : "text-white"
+                  needsRestock ? "text-red-200" : "text-white"
                 }`}
               >
                 {formatGrams(filament.remainingWeightG)}
@@ -379,11 +390,11 @@ function StockCards({
                 из {formatGrams(filament.totalWeightG)} · порог{" "}
                 {formatGrams(filament.minThresholdG)}
               </p>
-              <RemainingBar filament={filament} isLow={isLow} />
+              <RemainingBar filament={filament} isLow={needsRestock} />
             </div>
 
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <PurchaseLink filament={filament} isLow={isLow} />
+              <PurchaseLink filament={filament} isLow={needsRestock} />
               <ConsumeButton filament={filament} onOpen={onConsume} />
             </div>
           </li>
@@ -450,7 +461,12 @@ function EmptyStock({ onAdd }: { onAdd: () => void }) {
     </div>
   );
 }
-/** Полоска остатка: процент от общего веса катушки. */
+/**
+ * Полоска остатка: процент от общего веса катушки.
+ *
+ * Красная — только у складской катушки ниже порога. У заказной остаток ничего
+ * не говорит о закупке, поэтому полоска янтарная, в тон бейджу «Заказной».
+ */
 function RemainingBar({
   filament,
   isLow,
@@ -459,6 +475,12 @@ function RemainingBar({
   isLow: boolean;
 }) {
   const percent = filamentRemainingPercent(filament);
+  const barClass =
+    filament.usageType === "ordered"
+      ? "bg-amber-400/70"
+      : isLow
+        ? "bg-red-400"
+        : "bg-emerald-400";
 
   return (
     <div className="mt-2 w-full max-w-[9rem]">
@@ -471,9 +493,7 @@ function RemainingBar({
         className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]"
       >
         <div
-          className={`h-full rounded-full transition-[width] duration-500 ${
-            isLow ? "bg-red-400" : "bg-emerald-400"
-          }`}
+          className={`h-full rounded-full transition-[width] duration-500 ${barClass}`}
           style={{ width: `${percent}%` }}
         />
       </div>
@@ -484,7 +504,10 @@ function RemainingBar({
   );
 }
 
-/** Ссылка на товар: у катушки ниже порога она становится кнопкой «Купить». */
+/**
+ * Ссылка на товар: у складской катушки ниже порога она становится кнопкой
+ * «Купить», у остальных — нейтральной ссылкой «Магазин».
+ */
 function PurchaseLink({
   filament,
   isLow,
