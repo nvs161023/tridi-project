@@ -135,14 +135,14 @@ export function AddFilamentDialog({
           <TextField
             name="type"
             label="Тип"
-            hint="Материал: PLA, PETG, ABS, TPU…"
+            hint="Материал: PLA, PETG, ABS, TPU… Свой тип тоже можно."
             placeholder="PLA"
             maxLength={FILAMENT_TEXT_LIMITS.type}
             required
-            list="filament-type-options"
+            list="filament-types-list"
             error={state.fieldErrors?.type}
           />
-          <datalist id="filament-type-options">
+          <datalist id="filament-types-list">
             {FILAMENT_TYPE_SUGGESTIONS.map((type) => (
               <option key={type} value={type} />
             ))}
@@ -290,7 +290,7 @@ function TextField({
         id={fieldId}
         name={name}
         type={type}
-        autoComplete="new-password"
+        autoComplete="off"
         list={list}
         placeholder={placeholder}
         maxLength={maxLength}

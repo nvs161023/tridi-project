@@ -27,6 +27,47 @@ export type PrinterPreset = {
   note: string;
 };
 
+/** Подпись модели для `<datalist id="printer-models-list">`. */
+export function formatPrinterPresetLabel(preset: PrinterPreset): string {
+  return `${preset.brand} — ${preset.model}`;
+}
+
+/**
+ * Ключ для сравнения названий: регистр, лишние пробелы и вид тире не важны.
+ * Поэтому «Bambu Lab — X1», «Bambu Lab X1» и «X1» попадают в один пресет.
+ */
+export function normalizePrinterModel(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase("ru-RU")
+    .replace(/[—–-]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Пресет по введённой модели. Неизвестное название возвращает null — вызывающий
+ * код оставляет интервалы по умолчанию; неоднозначное совпадение тоже null.
+ */
+export function findPrinterPresetByModel(value: unknown): PrinterPreset | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const key = normalizePrinterModel(value);
+
+  if (!key) {
+    return null;
+  }
+
+  const matches = PRINTER_PRESETS.filter(
+    (preset) =>
+      normalizePrinterModel(`${preset.brand} ${preset.model}`) === key ||
+      normalizePrinterModel(preset.model) === key,
+  );
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export const PRINTER_PRESETS: readonly PrinterPreset[] = [
   {
     brand: "Bambu Lab",
@@ -172,4 +213,9 @@ export const PRINTER_PRESETS: readonly PrinterPreset[] = [
     zScrewHours: 1000,
     note: "Три винта Z: смазка рельсов и винтов каждые 1000 ч, ремни — чаще.",
   },
+];
+
+/** Уникальные бренды для `<datalist id="printer-brands-list">`. */
+export const PRINTER_BRAND_OPTIONS: readonly string[] = [
+  ...new Set(PRINTER_PRESETS.map((preset) => preset.brand)),
 ];

@@ -8,7 +8,13 @@ import { emptyPrinterFormState } from "@/app/actions/printers-state";
 import { MaintenanceGuideDialog } from "@/components/workshop/MaintenanceGuideDialog";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import { getMaintenanceGuide } from "@/lib/workshop/maintenance-guides";
-import { PRINTER_PRESETS } from "@/lib/workshop/printer-presets";
+import {
+  PRINTER_BRAND_OPTIONS,
+  PRINTER_PRESETS,
+  findPrinterPresetByModel,
+  formatPrinterPresetLabel,
+  normalizePrinterModel,
+} from "@/lib/workshop/printer-presets";
 import {
   PRINTER_INTERVAL_DEFAULTS,
   PRINTER_INTERVAL_LIMITS,
@@ -19,10 +25,10 @@ import {
 /**
  * Окно «Добавить принтер».
  *
- * Модель выбирается из справочника `PRINTER_PRESETS`: по индексу сервер сам
- * берёт бренд и модель, а форма подставляет интервалы обслуживания и показывает
- * подсказку `note`. Интервалы остаются полями ввода — справочник это ориентир,
- * а не жёсткий регламент, и мастер с другой загрузкой может их поправить.
+ * Бренд и модель — поля с `<datalist>`: можно выбрать модель из справочника
+ * `PRINTER_PRESETS` или ввести свою. Для известной модели форма подставляет
+ * интервалы обслуживания и показывает подсказку `note`, для своей — оставляет
+ * значения по умолчанию. Интервалы можно поправить в любом случае.
  *
  * Проверки живут в lib/workshop/printers.ts, здесь только разметка и ошибки,
  * которые вернул Server Action. После успеха окно закрывается, список
@@ -47,7 +53,8 @@ export function AddPrinterDialog({
     addPrinter,
     emptyPrinterFormState,
   );
-  const [presetIndex, setPresetIndex] = useState("");
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
   const [nozzleInterval, setNozzleInterval] = useState(
     String(PRINTER_INTERVAL_DEFAULTS.nozzle),
   );
@@ -87,27 +94,42 @@ export function AddPrinterDialog({
     onClose();
   }, [onClose, onCreated, router, state.message, state.success]);
 
-  const preset = presetIndex ? PRINTER_PRESETS[Number(presetIndex)] : null;
+  const preset = findPrinterPresetByModel(model);
   const guide = preset
     ? getMaintenanceGuide(preset.brand, preset.model)
     : null;
   const nameError = state.fieldErrors?.name;
-  const presetError = state.fieldErrors?.preset;
+  const brandError = state.fieldErrors?.brand;
+  const modelError = state.fieldErrors?.model;
   const nozzleError = state.fieldErrors?.nozzleInterval;
   const lubricationError = state.fieldErrors?.lubricationInterval;
   const zScrewError = state.fieldErrors?.zScrewInterval;
 
-  /** Выбор модели: подставляем все интервалы производителя и её подсказку. */
-  function handlePresetChange(value: string) {
-    setPresetIndex(value);
+  /**
+   * Ввод модели: для известной модели подставляем бренд и интервалы, для своей
+   * оставляем 400/300/720. Бренд не перезаписываем, если пользователь уже ввёл
+   * свой: модель «X1» сама по себе не должна менять чужой бренд.
+   */
+  function handleModelChange(value: string) {
+    setModel(value);
     setIsGuideOpen(false);
 
-    const next = value ? PRINTER_PRESETS[Number(value)] : null;
+    const next = findPrinterPresetByModel(value);
 
     if (!next) {
+      setNozzleInterval(String(PRINTER_INTERVAL_DEFAULTS.nozzle));
+      setLubricationInterval(String(PRINTER_INTERVAL_DEFAULTS.lubrication));
+      setZScrewInterval(String(PRINTER_INTERVAL_DEFAULTS.zScrew));
       return;
     }
 
+    const typedBrand = normalizePrinterModel(brand);
+
+    if (!typedBrand || normalizePrinterModel(value).startsWith(typedBrand)) {
+      setBrand(next.brand);
+    }
+
+    setModel(next.model);
     setNozzleInterval(String(next.nozzleHours));
     setLubricationInterval(String(next.lubricationHours));
     setZScrewInterval(String(next.zScrewHours));
@@ -196,50 +218,104 @@ export function AddPrinterDialog({
             )}
           </div>
 
-          <div>
-            <label
-              htmlFor="printer-preset"
-              className="block text-sm font-semibold text-slate-200"
-            >
-              Модель
-            </label>
-            <select
-              id="printer-preset"
-              name="preset"
-              autoComplete="off"
-              required
-              value={presetIndex}
-              onChange={(event) => handlePresetChange(event.currentTarget.value)}
-              aria-invalid={presetError ? true : undefined}
-              aria-describedby={
-                presetError ? "printer-preset-error" : "printer-preset-hint"
-              }
-              className={inputClassName}
-            >
-              <option value="">Выберите модель</option>
-              {PRINTER_PRESETS.map((item, index) => (
-                <option key={`${item.brand}-${item.model}`} value={index}>
-                  {item.brand} — {item.model}
-                </option>
-              ))}
-            </select>
-            {presetError ? (
-              <p
-                id="printer-preset-error"
-                role="alert"
-                className="mt-1.5 text-sm text-red-300"
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="printer-brand"
+                className="block text-sm font-semibold text-slate-200"
               >
-                {presetError}
-              </p>
-            ) : (
-              <p
-                id="printer-preset-hint"
-                className="mt-1.5 text-xs leading-relaxed text-slate-400"
+                Бренд
+              </label>
+              <input
+                id="printer-brand"
+                name="brand"
+                type="text"
+                autoComplete="off"
+                list="printer-brands-list"
+                placeholder="Bambu Lab"
+                maxLength={PRINTER_TEXT_LIMITS.brand}
+                required
+                value={brand}
+                onChange={(event) => setBrand(event.currentTarget.value)}
+                aria-invalid={brandError ? true : undefined}
+                aria-describedby={
+                  brandError ? "printer-brand-error" : "printer-brand-hint"
+                }
+                className={inputClassName}
+              />
+              <datalist id="printer-brands-list">
+                {PRINTER_BRAND_OPTIONS.map((option) => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
+              {brandError ? (
+                <p
+                  id="printer-brand-error"
+                  role="alert"
+                  className="mt-1.5 text-sm text-red-300"
+                >
+                  {brandError}
+                </p>
+              ) : (
+                <p
+                  id="printer-brand-hint"
+                  className="mt-1.5 text-xs leading-relaxed text-slate-400"
+                >
+                  Начните вводить — подскажем известные бренды. Свой тоже можно.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="printer-model"
+                className="block text-sm font-semibold text-slate-200"
               >
-                Интервалы обслуживания подставятся из справочника — их можно
-                поправить под свою загрузку.
-              </p>
-            )}
+                Модель
+              </label>
+              <input
+                id="printer-model"
+                name="model"
+                type="text"
+                autoComplete="off"
+                list="printer-models-list"
+                placeholder="X1"
+                maxLength={PRINTER_TEXT_LIMITS.model}
+                required
+                value={model}
+                onChange={(event) => handleModelChange(event.currentTarget.value)}
+                aria-invalid={modelError ? true : undefined}
+                aria-describedby={
+                  modelError ? "printer-model-error" : "printer-model-hint"
+                }
+                className={inputClassName}
+              />
+              <datalist id="printer-models-list">
+                {PRINTER_PRESETS.map((item) => (
+                  <option
+                    key={`${item.brand}-${item.model}`}
+                    value={formatPrinterPresetLabel(item)}
+                  />
+                ))}
+              </datalist>
+              {modelError ? (
+                <p
+                  id="printer-model-error"
+                  role="alert"
+                  className="mt-1.5 text-sm text-red-300"
+                >
+                  {modelError}
+                </p>
+              ) : (
+                <p
+                  id="printer-model-hint"
+                  className="mt-1.5 text-xs leading-relaxed text-slate-400"
+                >
+                  Выберите из списка или введите свою — интервалы подставятся
+                  автоматически для известной модели.
+                </p>
+              )}
+            </div>
           </div>
 
           {preset ? (

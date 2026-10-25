@@ -12,10 +12,6 @@
  * нулевыми быть не могут: на них делят процент износа.
  */
 import {
-  PRINTER_PRESETS,
-  type PrinterPreset,
-} from "@/lib/workshop/printer-presets";
-import {
   formatWorkshopLimit,
   parseWorkshopNumber,
 } from "@/lib/workshop/settings";
@@ -53,7 +49,8 @@ export type PrinterDraft = {
 export type PrinterFormErrors = Partial<
   Record<
     | "name"
-    | "preset"
+    | "brand"
+    | "model"
     | "nozzleInterval"
     | "lubricationInterval"
     | "zScrewInterval",
@@ -130,19 +127,6 @@ export function isIsoDate(value: unknown): value is string {
   );
 }
 
-/** Пресет по индексу из `<select>`: индекс — единственное, что шлёт форма. */
-export function findPrinterPreset(value: unknown): PrinterPreset | null {
-  if (typeof value !== "string" || !/^\d+$/.test(value)) {
-    return null;
-  }
-
-  const index = Number(value);
-
-  return index >= 0 && index < PRINTER_PRESETS.length
-    ? PRINTER_PRESETS[index]
-    : null;
-}
-
 /**
  * Процент износа узла для полоски: 0…∞ с одним знаком после запятой,
  * null — у узла нет регламента (интервал 0).
@@ -205,10 +189,9 @@ export function countMaintenanceDue(printer: WorkshopPrinter): number {
 /**
  * Форма «Добавить принтер» → проверенные значения.
  *
- * Бренд и модель берутся из `PRINTER_PRESETS` по индексу, а интервалы читаются
- * из полей: при выборе модели форма подставляет числа производителя, но
- * мастера с другой загрузкой может их поправить — так и написано в подсказке
- * справочника. Сервер проверяет интервалы теми же пределами, что SQL.
+ * Бренд и модель — свободный текст: справочник `PRINTER_PRESETS` только
+ * подставляет интервалы в форме, а модель может быть любой. Сервер проверяет
+ * длину названий и интервалы теми же пределами, что SQL.
  */
 export function readPrinterForm(formData: FormData): {
   draft: PrinterDraft | null;
@@ -224,10 +207,20 @@ export function readPrinterForm(formData: FormData): {
     errors.name = `Не больше ${PRINTER_TEXT_LIMITS.name} символов.`;
   }
 
-  const preset = findPrinterPreset(formData.get("preset"));
+  const brand = readFormText(formData.get("brand"));
 
-  if (!preset) {
-    errors.preset = "Выберите модель принтера.";
+  if (!brand) {
+    errors.brand = "Введите бренд принтера.";
+  } else if (brand.length > PRINTER_TEXT_LIMITS.brand) {
+    errors.brand = `Не больше ${PRINTER_TEXT_LIMITS.brand} символов.`;
+  }
+
+  const model = readFormText(formData.get("model"));
+
+  if (!model) {
+    errors.model = "Введите модель принтера.";
+  } else if (model.length > PRINTER_TEXT_LIMITS.model) {
+    errors.model = `Не больше ${PRINTER_TEXT_LIMITS.model} символов.`;
   }
 
   const nozzleInterval = readInterval(
@@ -258,7 +251,8 @@ export function readPrinterForm(formData: FormData): {
   }
 
   if (
-    !preset ||
+    brand.length === 0 ||
+    model.length === 0 ||
     nozzleInterval === null ||
     lubricationInterval === null ||
     zScrewInterval === null ||
@@ -270,8 +264,8 @@ export function readPrinterForm(formData: FormData): {
   return {
     draft: {
       name,
-      brand: preset.brand,
-      model: preset.model,
+      brand,
+      model,
       nozzleInterval,
       lubricationInterval,
       zScrewInterval,

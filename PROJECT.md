@@ -2079,7 +2079,7 @@ containing block, и fixed-окно уходило под sticky-хедер вм
 (`lib/workshop/filament-store.ts`) — сортировка по `created_at`, ошибку не пробрасывает, при
 отсутствии таблицы отдаёт пустой список и `isMissingTable`.
 
-В окне добавления бренд и тип — поля с `<datalist>` (`brand-list` и `filament-type-options`).
+В окне добавления бренд и тип — поля с `<datalist>` (`brand-list` и `filament-types-list`).
 Подсказки не ограничивают ввод: свой бренд или материал печатается руками, проверка остаётся
 прежней — непустая строка в пределах длины колонки.
 
@@ -2101,10 +2101,11 @@ containing block, и fixed-окно уходило под sticky-хедер вм
 «Заменить сопло», «Смазать оси» и «Смазать винт Z» сбрасывают свой счётчик и ставят
 `last_maintenance_date` сегодняшним днём.
 
-Окно «Добавить принтер» (`AddPrinterDialog`) выбирает модель из `PRINTER_PRESETS` по индексу:
-сервер сам берёт бренд и модель, а форма подставляет `nozzle_interval`, `lubrication_interval` и
-`z_screw_interval` и показывает `note`. Интервалы остаются полями ввода — справочник это ориентир,
-а не жёсткий регламент. Если для модели есть инструкция, рядом с подсказкой появляется кнопка
+Окно «Добавить принтер» (`AddPrinterDialog`) даёт бренд и модель полями с `<datalist>`:
+`printer-brands-list` и `printer-models-list`. Модель можно выбрать из `PRINTER_PRESETS` или ввести
+свою; для известной формы подставляются `nozzle_interval`, `lubrication_interval`,
+`z_screw_interval` и `note`, для своей остаются 400/300/720. Интервалы остаются полями ввода —
+справочник это ориентир, а не жёсткий регламент. Если для модели есть инструкция, рядом с подсказкой появляется кнопка
 «Инструкция по ТО»: `MaintenanceGuideDialog` открывается поверх окна, Escape закрывает только его,
 а фокус после закрытия возвращается на кнопку. Данные и проверки — `lib/workshop/printers.ts`
 (`WorkshopPrinter`, `PRINTER_COLUMNS`, `PRINTER_INTERVAL_LIMITS`: сопло и винт Z 1…10 000, смазка
@@ -2357,11 +2358,11 @@ RLS на выборку, вставку, обновление и удалени�
 | `lib/workshop/payload.ts` | Строки для записи в таблицы Мастерской: `createWorkshopSettingsPayload`, `createFilamentPayload`, `createPrinterPayload`, `createOrderPayload`, а также `createPrinterUsagePayload` и `createFilamentUsagePayload` для update после заказа — единственное место перевода camelCase → snake_case; пустые ссылка, клиент, заметки и срок превращаются в `null`, а переименование колонки ловит TypeScript, а не ответ PGRST204 из прода |
 | `lib/workshop/filaments.ts` | Склад пластика: `WorkshopFilament`, `FILAMENT_COLUMNS`, `FILAMENT_NUMBER_FIELDS` (вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г; вес — integer), `FILAMENT_TEXT_LIMITS` (60/30/40/500), `FILAMENT_DEFAULTS` (1 000 / 200 / 1 500), `FILAMENT_BRANDS` (13 производителей для `<datalist id="brand-list">`), `FILAMENT_TYPE_SUGGESTIONS`, `normalizeFilamentRow` (битое число → значение по умолчанию, строка без UUID отбрасывается), `readFilamentForm` (текст, ссылка только `http(s)://`, остаток не больше общего веса), `readConsumeFilamentForm`, `isFilamentId`, `isLowStockFilament`, `filamentRemainingPercent`, `subtractFilamentWeight`, `formatGrams` |
 | `lib/workshop/filament-store.ts` | `getWorkshopFilaments(supabase, userId)` → `{ filaments, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой склад и признак неприменённой миграции через `isMissingTableSchema()` |
-| `lib/workshop/printers.ts` | Принтеры: `WorkshopPrinter` (наработки и интервалы сопла, смазки осей и винта Z), `PRINTER_COLUMNS`, `PRINTER_TEXT_LIMITS` (60/40/60), `PRINTER_INTERVAL_LIMITS` (сопло и винт Z 1–10 000 ч, смазка 0–10 000 ч), `PRINTER_INTERVAL_DEFAULTS` (400/300/720), `readPrinterForm` (имя, индекс пресета, три интервала; бренд и модель берутся из `PRINTER_PRESETS`), `normalizePrinterRow` (битое число → значение по умолчанию; старые строки без винта Z получают 0/720), `isPrinterId`, `isIsoDate`, `findPrinterPreset`, `printerMaintenancePercent` (дробный процент, 0…∞), `printerMaintenanceLevel` (`ok` до 80 %, `due` 80–100 %, `overdue` больше 100 %; `null` при интервале 0), `countMaintenanceDue` (три узла), `formatPrinterHours`, `formatPrinterDate` |
+| `lib/workshop/printers.ts` | Принтеры: `WorkshopPrinter` (наработки и интервалы сопла, смазки осей и винта Z), `PRINTER_COLUMNS`, `PRINTER_TEXT_LIMITS` (60/40/60), `PRINTER_INTERVAL_LIMITS` (сопло и винт Z 1–10 000 ч, смазка 0–10 000 ч), `PRINTER_INTERVAL_DEFAULTS` (400/300/720), `readPrinterForm` (имя, бренд и модель — свободный текст, три интервала), `normalizePrinterRow` (битое число → значение по умолчанию; старые строки без винта Z получают 0/720), `isPrinterId`, `isIsoDate`, `printerMaintenancePercent` (дробный процент, 0…∞), `printerMaintenanceLevel` (`ok` до 80 %, `due` 80–100 %, `overdue` больше 100 %; `null` при интервале 0), `countMaintenanceDue` (три узла), `formatPrinterHours`, `formatPrinterDate` |
 | `lib/workshop/printer-store.ts` | `getWorkshopPrinters(supabase, userId)` → `{ printers, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой парк и признак неприменённой миграции |
 | `lib/workshop/orders.ts` | Заказы: `WorkshopOrder`, `OrderStatus` и `ORDER_STATUS_META` (подписи и классы бейджей), `ORDER_STATUS_SEQUENCE`/`nextOrderStatus` (new → printing → ready → delivered, дальше `null`), `ORDER_COLUMNS`, `ORDER_TEXT_LIMITS` (80/60/1000), `ORDER_LIMITS` (стоимость 0–1 000 000 ₽, вес 0–100 000 г, время 0–100 000 ч), `readOrderForm` (числа с запятой, необязательные uuid и дата), `normalizeOrderRow`, `isOrderId`, `isOrderStatus`, `formatOrderCost`/`formatOrderDate`/`formatOrderHours`, `planPrinterUsage` (прибавляет время к четырём счётчикам: всего, сопло, смазка осей, винт Z) и `planFilamentUsage` (остаток или отказ «не хватает пластика») |
 | `lib/workshop/order-store.ts` | `getWorkshopOrders(supabase, userId)` → `{ orders, isMissingTable }`: выборка по `user_id`, новые сверху, ошибку не пробрасывает — пустой список и признак неприменённой миграции |
-| `lib/workshop/printer-presets.ts` | Справочник принтеров: `PrinterPreset` и `PRINTER_PRESETS` — восемнадцать моделей (Bambu Lab X1, X1C, P1S, A1, A1 mini; Prusa MK4 и MK3S+; Creality Ender-3 V3, K1, K1 Max, K1C; Anycubic Kobra; Elegoo Neptune 4; Sovol SV06 и SV07; Artillery Sidewinder; Voron 2.4 и Trident) с наработкой до обслуживания сопла (`nozzleHours`, 400–1000 ч), смазки направляющих (`lubricationHours`, 0–1000 ч; 0 у карбоновых стержней Bambu Lab — их чистят спиртом, а не смазывают), смазки винта Z (`zScrewHours`, 500–1000 ч) и подсказкой `note`; числа — ориентиры производителя, в форме их можно изменить |
+| `lib/workshop/printer-presets.ts` | Справочник принтеров: `PrinterPreset` и `PRINTER_PRESETS` — восемнадцать моделей (Bambu Lab X1, X1C, P1S, A1, A1 mini; Prusa MK4 и MK3S+; Creality Ender-3 V3, K1, K1 Max, K1C; Anycubic Kobra; Elegoo Neptune 4; Sovol SV06 и SV07; Artillery Sidewinder; Voron 2.4 и Trident) с наработкой до обслуживания сопла (`nozzleHours`, 400–1000 ч), смазки направляющих (`lubricationHours`, 0–1000 ч; 0 у карбоновых стержней Bambu Lab — их чистят спиртом, а не смазывают), смазки винта Z (`zScrewHours`, 500–1000 ч) и подсказкой `note`; числа — ориентиры производителя, в форме их можно изменить. `PRINTER_BRAND_OPTIONS` — уникальные бренды для datalist, `formatPrinterPresetLabel` — подпись «бренд — модель», `normalizePrinterModel`/`findPrinterPresetByModel` — поиск пресета по свободно введённой модели без учёта регистра, пробелов и вида тире |
 | `lib/workshop/maintenance-guides.ts` | `MAINTENANCE_GUIDES: Record<string, string>` — подробные markdown-инструкции для каждой модели, ключ `"${brand} ${model}"`; 5–10 пунктов о чистке сопла, смазке осей и винта Z и особенностях (карбоновые стержни, ремни, эксцентрики). `getMaintenanceGuide(brand, model)` возвращает строку или `null`; окно разбирает только заголовки `##`, пункты `-` и `**жирный**` |
 | `lib/gcode-parser.ts` | Разбор G-code в браузере: `parseGcode(text)` → `{ timeHours, weightGrams }`; время из `;TIME_PRINTING:`, `; estimated printing time … =`, `; total estimated time:`, `; model printing time:`, `;TIME:` (форматы «1h 6m 12s», «1 ч 30 мин», `ч:м:с`, `м:с`, голые секунды), вес из `; total filament used [g]`, `; filament used [g]`, `;Filament used:`, `; filament used [mm]` (сумма по экструдерам, г/кг/мг/м/мм, `GCODE_GRAMS_PER_METER` ≈ 2,98 г для PLA 1,75 мм); шаблоны ищут первое совпадение по всему тексту, отсутствующее значение — `null` |
 | `middleware.ts` (корень) | Точка входа Next.js: `matcher` покрывает весь сайт, кроме `/api`, `/_next/static`, `/_next/image`, служебных файлов и путей с расширением. Сессия (`updateSession`) вызывается только для `/dashboard`, `/certificate`, `/course`, `/constructor`, `/admin`, `/auth` и `/forum/new`; на остальных страницах просмотр уходит в `site_visits` через `event.waitUntil` |
@@ -5227,4 +5228,23 @@ sticky-хедером — клик по «✕» перехватывали ка�
 белые CTA, шкалы 6 px с процентами, модалка ТО, 390 px без горизонтальной прокрутки. Временный
 пользователь, пакет `pro`, принтер, катушка и заказ после прогона удалены; изображения не
 снимались.
+
+**Мастерская: свободный ввод принтеров и пластика (25 октября 2026).** В окне «Добавить принтер»
+жёсткий `<select>` заменён на поля «Бренд» и «Модель» с `<datalist>` (`printer-brands-list` и
+`printer-models-list`). Модель можно выбрать подписью «Bambu Lab — X1» или ввести свою.
+`findPrinterPresetByModel` в `lib/workshop/printer-presets.ts` сравнивает названия без учёта
+регистра, лишних пробелов и вида тире, поэтому «Bambu Lab X1» и «X1» тоже находят Bambu Lab X1.
+Для известной модели подставляются бренд и интервалы 400/0/720, для «Мой супер-принтер» остаются
+400/300/720. Сервер больше не получает индекс: `readPrinterForm` читает `brand` и `model` как текст
+с пределами 40/60 и по-прежнему проверяет три интервала.
+
+В окне «Добавить катушку» тип уже был `<input>` с `<datalist>`, но id переименован в
+`filament-types-list`, а подсказка прямо говорит, что свой тип можно ввести. У текстовых полей
+стоит `autoComplete="off"`. `FILAMENT_TYPE_SUGGESTIONS` — PLA, PETG, ABS, ASA, TPU и Nylon; PLA-CF,
+PC и другой материал принимается по общей проверке длины 1…30 символов.
+
+Проверки: временный прогон `printer-presets.ts` — 15 проверок, 0 провалов («Bambu Lab — X1»,
+«Bambu Lab X1», «X1», регистр и пробелы, X1C, Prusa MK4, Ender-3 V3, Voron 2.4, произвольная
+модель, пустая строка и `null`, уникальность брендов, подпись datalist). `npx tsc --noEmit` —
+0 ошибок, `npm run lint` — чисто.
 
