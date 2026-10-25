@@ -264,8 +264,21 @@ export function OrderDetailsDialog({
                 ↗
               </span>
             </a>
+            <a
+              href={`/workshop/orders/${order.id}/waybill`}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-order-waybill
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            >
+              <span aria-hidden>📦</span>
+              Накладная
+              <span aria-hidden className="text-xs text-zinc-500">
+                ↗
+              </span>
+            </a>
             <span className="text-xs text-zinc-500">
-              Печатная форма материала
+              Печатные формы заказа
             </span>
           </div>
 
