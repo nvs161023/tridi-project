@@ -9,6 +9,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import {
+  ORDER_CLIENT_COLUMNS,
   ORDER_COLUMNS,
   ORDER_COMMENT_COLUMNS,
   isOrderId,
@@ -25,6 +26,13 @@ export type WorkshopOrdersSnapshot = {
   /** В базе нет таблицы workshop_orders — миграция не применена. */
   isMissingTable: boolean;
 };
+
+/** PostgREST/PostgreSQL: выбранной колонки ещё нет в базе. */
+function isMissingColumnSchema(error: {
+  code?: string | null;
+}): boolean {
+  return error.code === "42703" || error.code === "PGRST204";
+}
 
 /**
  * Один заказ пользователя.
@@ -43,12 +51,31 @@ export async function getWorkshopOrder(
     return null;
   }
 
-  const { data, error } = await supabase
+  const withClient = await supabase
     .from("workshop_orders")
-    .select(ORDER_COLUMNS)
+    .select(ORDER_CLIENT_COLUMNS)
     .eq("id", orderId)
     .eq("user_id", userId)
     .maybeSingle();
+
+  let data: Partial<Record<string, unknown>> | null = (withClient.data ??
+    null) as Partial<Record<string, unknown>> | null;
+  let error = withClient.error;
+
+  // Миграция workshop_orders_client_id.sql применяется вручную. Пока колонки
+  // нет, повторяем запрос без неё: спецификация и накладная открываются, а
+  // clientId остаётся null — контакты в накладной заполняются вручную.
+  if (error && isMissingColumnSchema(error)) {
+    const legacy = await supabase
+      .from("workshop_orders")
+      .select(ORDER_COLUMNS)
+      .eq("id", orderId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    data = (legacy.data ?? null) as Partial<Record<string, unknown>> | null;
+    error = legacy.error;
+  }
 
   if (error) {
     console.warn(
@@ -60,9 +87,7 @@ export async function getWorkshopOrder(
     return null;
   }
 
-  return normalizeOrderRow(
-    (data ?? null) as Partial<Record<string, unknown>> | null,
-  );
+  return normalizeOrderRow(data);
 }
 
 /** Заказы пользователя: сначала новые. */

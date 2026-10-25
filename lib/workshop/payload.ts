@@ -102,6 +102,12 @@ export type WorkshopOrderPayload = {
   user_id: string;
   title: string;
   client_name: string | null;
+  /**
+   * Ссылка на клиента из базы. Поле необязательное: без выбранного клиента его
+   * нет в payload, чтобы заказ создавался и до применения миграции
+   * workshop_orders_client_id.sql.
+   */
+  client_id?: string;
   total_cost: number;
   material_weight_g: number;
   print_time_hours: number;
@@ -142,6 +148,10 @@ export function createOrderPayload(
 
   if (draft.productId) {
     payload.product_id = draft.productId;
+  }
+
+  if (draft.clientId) {
+    payload.client_id = draft.clientId;
   }
 
   return payload;

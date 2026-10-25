@@ -10,6 +10,10 @@ import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
 import {
+  CLIENT_COLUMNS,
+  normalizeClientRow,
+} from "@/lib/workshop/clients";
+import {
   FILAMENT_COLUMNS,
   formatGrams,
   normalizeFilamentRow,
@@ -18,6 +22,7 @@ import {
 import {
   ORDER_COMMENT_COLUMNS,
   ORDER_STATUS_META,
+  ORDER_TEXT_LIMITS,
   formatOrderHours,
   isOrderId,
   isOrderStatus,
@@ -64,6 +69,12 @@ const FILAMENT_NOT_FOUND =
   "Катушка не найдена — возможно, её удалили. Обновите страницу.";
 const PRODUCT_NOT_FOUND =
   "Товар не найден — возможно, его удалили. Обновите страницу.";
+const CLIENT_NOT_FOUND =
+  "Клиент не найден — возможно, его удалили. Обновите страницу.";
+const CLIENT_MIGRATION_MISSING =
+  "База клиентов пока не сохраняется: в базе нет таблицы workshop_clients. Примените миграцию supabase/workshop_clients.sql.";
+const ORDER_CLIENT_LINK_MIGRATION_MISSING =
+  "Не удалось сохранить клиента в заказе: в workshop_orders нет колонки client_id. Примените миграцию supabase/workshop_orders_client_id.sql.";
 const ORDER_NOT_FOUND =
   "Заказ не найден — возможно, его уже удалили. Обновите страницу.";
 const INVALID_ID = "Заказ не найден — обновите страницу.";
@@ -113,6 +124,47 @@ export async function createOrder(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { error: PRO_REQUIRED };
+  }
+
+  // Ссылку на клиента проверяем по базе: форма могла прислать чужой uuid.
+  // Имя берём из workshop_clients, а не из формы, — это снимок для заказа.
+  let clientName = draft.clientName;
+
+  if (draft.clientId) {
+    const { data, error } = await supabase
+      .from("workshop_clients")
+      .select(CLIENT_COLUMNS)
+      .eq("id", draft.clientId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("Клиент не прочитан:", error.code, error.message);
+
+      return {
+        error: isMissingTableSchema(error.code, error.message)
+          ? CLIENT_MIGRATION_MISSING
+          : LOAD_FAILED,
+      };
+    }
+
+    const client = normalizeClientRow(
+      (data ?? null) as Partial<Record<string, unknown>> | null,
+    );
+
+    if (!client) {
+      return { fieldErrors: { clientId: CLIENT_NOT_FOUND } };
+    }
+
+    if (client.name.length > ORDER_TEXT_LIMITS.clientName) {
+      return {
+        fieldErrors: {
+          clientName: `Не больше ${ORDER_TEXT_LIMITS.clientName} символов.`,
+        },
+      };
+    }
+
+    clientName = client.name;
   }
 
   let printer: WorkshopPrinter | null = null;
@@ -205,12 +257,22 @@ export async function createOrder(
 
   const { data: inserted, error: insertError } = await supabase
     .from("workshop_orders")
-    .insert(createOrderPayload(user.id, draft))
+    .insert(createOrderPayload(user.id, { ...draft, clientName }))
     .select("id")
     .maybeSingle();
 
   if (insertError) {
     console.warn("Заказ не создан:", insertError.code, insertError.message);
+
+    // Колонку client_id добавляет отдельная миграция: без неё заказ с
+    // выбранным клиентом не сохранится, и общая ошибка ничего не объяснит.
+    if (
+      draft.clientId &&
+      (insertError.code === "42703" || insertError.code === "PGRST204") &&
+      /client_id/i.test(insertError.message)
+    ) {
+      return { error: ORDER_CLIENT_LINK_MIGRATION_MISSING };
+    }
 
     return {
       error: isMissingTableSchema(insertError.code, insertError.message)

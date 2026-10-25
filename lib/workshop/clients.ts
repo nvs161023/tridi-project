@@ -16,6 +16,8 @@ import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
 
+type Supabase = Awaited<ReturnType<typeof createClient>>;
+
 /** Клиент в том виде, в каком с ним работает интерфейс. */
 export type WorkshopClient = {
   id: string;
@@ -279,6 +281,45 @@ export async function getWorkshopClients(): Promise<WorkshopClient[]> {
   return rows
     .map(normalizeClientRow)
     .filter((client): client is WorkshopClient => client !== null);
+}
+
+/**
+ * Один клиент пользователя по id.
+ *
+ * Нужен накладной: заказ хранит только `client_id`, а телефон и адрес лежат в
+ * `workshop_clients`. `user_id` в запросе дублирует RLS, поэтому чужая ссылка
+ * не раскроет контакты другого мастера. Битый id, удалённый клиент и ошибка
+ * чтения дают null — накладная оставит поля для ручного заполнения.
+ */
+export async function getWorkshopClientById(
+  supabase: Supabase,
+  userId: string,
+  clientId: string,
+): Promise<WorkshopClient | null> {
+  if (!UUID_PATTERN.test(clientId)) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_clients")
+    .select(CLIENT_COLUMNS)
+    .eq("id", clientId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(
+      "Клиент мастерской не прочитан:",
+      error.code,
+      error.message,
+    );
+
+    return null;
+  }
+
+  return normalizeClientRow(
+    (data ?? null) as Partial<Record<string, unknown>> | null,
+  );
 }
 
 /**

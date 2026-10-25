@@ -8,6 +8,7 @@ import { resolveUserId } from "@/lib/current-user";
 import { LEGAL_OPERATOR } from "@/lib/legal";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
+import { getWorkshopClientById } from "@/lib/workshop/clients";
 import { getWorkshopOrder } from "@/lib/workshop/order-store";
 import { formatOrderCost, isOrderId } from "@/lib/workshop/orders";
 
@@ -20,8 +21,9 @@ type WaybillPageProps = {
  *
  * Открывается из карточки заказа в новой вкладке. Заказ читается по id с
  * проверкой владельца, отправитель берётся из `LEGAL_OPERATOR`, получатель —
- * из `client_name` заказа. Телефона и адреса в `workshop_orders` нет, поэтому
- * в документе остаются поля для ручного заполнения: база заказов не меняется.
+ * из `workshop_clients`, если заказ хранит `client_id`. У старых заказов и
+ * заказов с ручным клиентом телефона и адреса нет, поэтому в документе
+ * остаются поля `[ ]` для заполнения при отгрузке.
  *
  * В печати остаётся только белый лист A4: `visibility` гасит всё, кроме
  * `.waybill-sheet`, поэтому меню, подвал и cookie-баннер не попадают на бумагу.
@@ -144,10 +146,20 @@ export default async function OrderWaybillPage({
     notFound();
   }
 
+  // Ссылка на клиента необязательна. Запрос дублирует `user_id`: даже если в
+  // базе окажется чужая ссылка, контакты другого мастера не попадут в документ.
+  const client = order.clientId
+    ? await getWorkshopClientById(supabase, userId, order.clientId)
+    : null;
+  const recipientName = client?.name ?? order.clientName;
+  const clientPhone = client?.phone ?? null;
+  const clientAddress = client?.address ?? null;
+  const clientEmail = client?.email ?? null;
+
   const number = formatWaybillNumber(order.id);
   const createdAt = formatCreatedAt(order.createdAt);
   const total = formatOrderCost(order.totalCost);
-  const clientName = order.clientName ?? "Клиент не указан";
+  const clientName = recipientName ?? "Клиент не указан";
 
   return (
     <div className="min-h-screen text-slate-100">
@@ -258,32 +270,65 @@ export default async function OrderWaybillPage({
               <dl className="mt-3 space-y-2 text-xs leading-relaxed text-neutral-700">
                 <div>
                   <dt className="font-semibold text-neutral-500">Телефон</dt>
-                  <dd className="mt-1 flex items-baseline gap-2">
-                    <span aria-hidden>[ ]</span>
-                    <span className="h-4 min-w-0 flex-1 border-b border-neutral-400">
-                      <span className="sr-only">
-                        Впишите телефон получателя
+                  <dd
+                    data-waybill-phone
+                    className="mt-1 flex items-baseline gap-2"
+                  >
+                    {clientPhone ? (
+                      <span className="text-sm font-semibold break-words text-neutral-950">
+                        {clientPhone}
                       </span>
-                    </span>
+                    ) : (
+                      <>
+                        <span aria-hidden>[ ]</span>
+                        <span className="h-4 min-w-0 flex-1 border-b border-neutral-400">
+                          <span className="sr-only">
+                            Впишите телефон получателя
+                          </span>
+                        </span>
+                      </>
+                    )}
                   </dd>
                 </div>
                 <div>
                   <dt className="font-semibold text-neutral-500">
                     Адрес доставки
                   </dt>
-                  <dd className="mt-1 flex items-baseline gap-2">
-                    <span aria-hidden>[ ]</span>
-                    <span className="h-4 min-w-0 flex-1 border-b border-neutral-400">
-                      <span className="sr-only">
-                        Впишите адрес доставки получателя
+                  <dd
+                    data-waybill-address
+                    className="mt-1 flex items-baseline gap-2"
+                  >
+                    {clientAddress ? (
+                      <span className="text-sm font-semibold break-words text-neutral-950">
+                        {clientAddress}
                       </span>
-                    </span>
+                    ) : (
+                      <>
+                        <span aria-hidden>[ ]</span>
+                        <span className="h-4 min-w-0 flex-1 border-b border-neutral-400">
+                          <span className="sr-only">
+                            Впишите адрес доставки получателя
+                          </span>
+                        </span>
+                      </>
+                    )}
                   </dd>
                 </div>
+                {clientEmail ? (
+                  <div data-waybill-email>
+                    <dt className="font-semibold text-neutral-500">Email</dt>
+                    <dd className="mt-1 text-sm font-semibold break-all text-neutral-950">
+                      {clientEmail}
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
               <p className="waybill-screen-only mt-3 text-[10px] leading-relaxed text-neutral-500">
-                В заказе хранится только имя клиента. Телефон и адрес впишите
-                при отгрузке.
+                {client
+                  ? "Контакты взяты из базы клиентов. Пустые поля впишите при отгрузке."
+                  : order.clientId
+                    ? "Клиент из базы не найден — впишите телефон и адрес при отгрузке."
+                    : "В заказе нет ссылки на клиента. Телефон и адрес впишите при отгрузке."}
               </p>
             </div>
           </section>
@@ -386,7 +431,7 @@ export default async function OrderWaybillPage({
                   ______________________________
                 </p>
                 <p className="mt-1 text-xs break-words text-neutral-600">
-                  {order.clientName ?? "ФИО получателя"}
+                  {recipientName ?? "ФИО получателя"}
                 </p>
               </div>
             </div>

@@ -41,9 +41,10 @@ import { parseWorkshopNumber } from "@/lib/workshop/settings";
  * красная строка появляется ещё до отправки, а окончательное решение всё равно
  * за сервером — он перечитывает остаток из базы.
  *
- * Клиента можно выбрать из базы или ввести вручную. В обоих случаях в
- * `workshop_orders.client_name` уходит строка: связь с `workshop_clients` не
- * хранится, поэтому структура таблицы заказов не меняется.
+ * Клиента можно выбрать из базы или ввести вручную. Выбранный клиент уходит в
+ * форму как `clientId`, а имя — как `clientName`: Server Action проверяет
+ * ссылку по `user_id`, пишет её в `workshop_orders.client_id` и сохраняет имя
+ * снимком. Ручной ввод оставляет `clientId` пустым.
  */
 
 type CreateOrderDialogProps = {
@@ -130,10 +131,7 @@ export function CreateOrderDialog({
     printers.find((printer) => printer.id === printerId) ?? null;
   const selectedFilament =
     filaments.find((filament) => filament.id === filamentId) ?? null;
-  /**
-   * Выбранный клиент. id нужен только списку: в форму уходит его имя, а не
-   * ссылка, чтобы не менять структуру workshop_orders.
-   */
+  /** Выбранный клиент: имя показываем в поле, id уходит ссылкой в заказ. */
   const selectedClient =
     clients.find((client) => client.id === selectedClientId) ?? null;
   const isSelectedClientNameTooLong =
@@ -400,17 +398,21 @@ export function CreateOrderDialog({
               Клиент (необязательно)
             </label>
             {/*
-              Список отдаёт только id для локального поиска имени. В форму
-              уходит clientName, поэтому client_id в заказах не появляется.
+              При выборе из базы в форму уходят и clientId, и clientName:
+              ссылка нужна накладной, имя остаётся снимком в заказе.
             */}
             <select
               id="order-client-select"
+              name="clientId"
               value={selectedClientId}
               onChange={(event) => setSelectedClientId(event.target.value)}
+              aria-invalid={
+                state.fieldErrors?.clientId ? true : undefined
+              }
               aria-describedby={
-                state.fieldErrors?.clientName
-                  ? "order-client-error"
-                  : "order-client-hint"
+                state.fieldErrors?.clientId
+                  ? "order-client-id-error"
+                  : undefined
               }
               className={inputClassName}
             >
@@ -421,6 +423,15 @@ export function CreateOrderDialog({
                 </option>
               ))}
             </select>
+            {state.fieldErrors?.clientId ? (
+              <p
+                id="order-client-id-error"
+                role="alert"
+                className="mt-1.5 text-sm text-red-300"
+              >
+                {state.fieldErrors.clientId}
+              </p>
+            ) : null}
 
             <label htmlFor="order-client" className="sr-only">
               Имя клиента
@@ -473,10 +484,10 @@ export function CreateOrderDialog({
                 {isSelectedClientNameTooLong
                   ? `Имя клиента длиннее ${ORDER_TEXT_LIMITS.clientName} символов — заказ хранит имя до ${ORDER_TEXT_LIMITS.clientName}. Выберите другого клиента или введите имя вручную.`
                   : selectedClient
-                    ? "Имя из базы клиентов. В заказ сохранится строка, а не ссылка."
+                    ? "Клиент из базы: в заказ сохранится ссылка, телефон и адрес попадут в накладную."
                     : clients.length === 0
                       ? "База клиентов пока пуста — введите имя вручную."
-                      : "Или выберите готового клиента — имя подставится в заказ."}
+                      : "Или выберите готового клиента — имя, телефон и адрес подтянутся в накладную."}
               </p>
             )}
           </div>

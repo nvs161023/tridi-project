@@ -86,6 +86,8 @@ export type WorkshopOrder = {
   id: string;
   title: string;
   clientName: string | null;
+  /** Ссылка на клиента из базы; null — ручной ввод или старый заказ. */
+  clientId: string | null;
   status: OrderStatus;
   totalCost: number;
   materialWeightG: number;
@@ -102,6 +104,8 @@ export type WorkshopOrder = {
 export type OrderDraft = {
   title: string;
   clientName: string;
+  /** Выбранный клиент из базы; пустая строка в форме даёт null. */
+  clientId: string | null;
   totalCost: number;
   materialWeightG: number;
   printTimeHours: number;
@@ -116,6 +120,7 @@ export type OrderFormErrors = Partial<
   Record<
     | "title"
     | "clientName"
+    | "clientId"
     | "totalCost"
     | "materialWeightG"
     | "printTimeHours"
@@ -131,6 +136,16 @@ export type OrderFormErrors = Partial<
 /** Колонки, которые читает lib/workshop/order-store.ts. */
 export const ORDER_COLUMNS =
   "id, title, client_name, status, total_cost, material_weight_g, print_time_hours, printer_id, filament_id, notes, deadline, created_at";
+
+/**
+ * Те же колонки плюс ссылка на клиента.
+ *
+ * `client_id` добавляет отдельная миграция `supabase/workshop_orders_client_id.sql`.
+ * `getWorkshopOrder` сначала пробует этот набор, а при ошибке «колонки нет»
+ * повторяет запрос с `ORDER_COLUMNS`: спецификация и накладная открываются и до
+ * применения миграции, просто без контактов из базы клиентов.
+ */
+export const ORDER_CLIENT_COLUMNS = `${ORDER_COLUMNS}, client_id`;
 
 /** Пределы текстовых полей — как у колонок text в миграции. */
 export const ORDER_TEXT_LIMITS = {
@@ -204,6 +219,17 @@ export function readOrderForm(formData: FormData): {
 
   if (clientName.length > ORDER_TEXT_LIMITS.clientName) {
     errors.clientName = `Не больше ${ORDER_TEXT_LIMITS.clientName} символов.`;
+  }
+
+  // client_id — необязательная ссылка на клиента из базы клиентов.
+  const client = readOptionalId(
+    formData.get("clientId"),
+    isOrderId,
+    "Клиент не найден — обновите страницу.",
+  );
+
+  if (client.error) {
+    errors.clientId = client.error;
   }
 
   const notes = readFormText(formData.get("notes"));
@@ -296,6 +322,7 @@ export function readOrderForm(formData: FormData): {
     draft: {
       title,
       clientName,
+      clientId: client.id,
       totalCost: cost.ok ? cost.value : 0,
       materialWeightG: weight.ok ? weight.value : 0,
       printTimeHours: hours.ok ? hours.value : 0,
@@ -328,6 +355,7 @@ export function normalizeOrderRow(
     title: readText(row.title, ORDER_TEXT_LIMITS.title) || "Без названия",
     clientName:
       readText(row.client_name, ORDER_TEXT_LIMITS.clientName) || null,
+    clientId: isOrderId(row.client_id) ? row.client_id : null,
     status: isOrderStatus(row.status) ? row.status : "new",
     totalCost:
       readNumberInRange(row.total_cost, 0, ORDER_LIMITS.costMax) ?? 0,
