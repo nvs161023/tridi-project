@@ -8,11 +8,13 @@ import {
   ClientsIcon,
   InventoryIcon,
   OrdersIcon,
+  PlugIcon,
   PrinterIcon,
   ProductsIcon,
   RequisitesIcon,
 } from "@/components/workshop/WorkshopIcons";
 import { WorkshopClientsTab } from "@/components/workshop/WorkshopClientsTab";
+import { WorkshopIntegrationsTab } from "@/components/workshop/WorkshopIntegrationsTab";
 import { WorkshopOrdersTab } from "@/components/workshop/WorkshopOrdersTab";
 import { WorkshopPrintersTab } from "@/components/workshop/WorkshopPrintersTab";
 import { WorkshopProductsTab } from "@/components/workshop/WorkshopProductsTab";
@@ -20,6 +22,7 @@ import { WorkshopRequisitesTab } from "@/components/workshop/WorkshopRequisitesT
 import { WorkshopStockTab } from "@/components/workshop/WorkshopStockTab";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
+import type { WorkshopIntegrations } from "@/lib/workshop/integrations";
 import type { WorkshopOrder } from "@/lib/workshop/orders";
 import type { WorkshopPrinter } from "@/lib/workshop/printers";
 import type { WorkshopProduct } from "@/lib/workshop/products";
@@ -45,6 +48,10 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
  * последней, рядом с калькулятором: обе вкладки — про настройки, а не про
  * ежедневную работу с заказами.
  *
+ * «Интеграции» — подключение к маркетплейсам (сейчас Ozon Seller). Это тоже
+ * настройка, поэтому она в конце: ключи вводят один раз, а дальше заказы
+ * приходят сами.
+ *
  * Активная вкладка получает `bg-white/10` и белый текст, неактивные остаются
  * серыми `text-zinc-400`. Стрелки клавиатуры переключают табы, у неактивных
  * `tabIndex="-1"` — как ожидается от roving tabindex.
@@ -53,6 +60,7 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
 type WorkshopTabsProps = {
   settings: WorkshopSettings;
   requisites: WorkshopRequisites;
+  integrations: WorkshopIntegrations;
   filaments: WorkshopFilament[];
   printers: WorkshopPrinter[];
   orders: WorkshopOrder[];
@@ -60,6 +68,7 @@ type WorkshopTabsProps = {
   clients: WorkshopClient[];
   isMissingTable: boolean;
   isRequisitesMissing: boolean;
+  isIntegrationsMissing: boolean;
   isFilamentsMissingTable: boolean;
   isPrintersMissingTable: boolean;
   isOrdersMissingTable: boolean;
@@ -108,6 +117,12 @@ const TABS = [
     description: "Данные компании для документов",
     Icon: RequisitesIcon,
   },
+  {
+    id: "integrations",
+    label: "Интеграции",
+    description: "Подключение к маркетплейсам",
+    Icon: PlugIcon,
+  },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -115,6 +130,7 @@ type TabId = (typeof TABS)[number]["id"];
 export function WorkshopTabs({
   settings,
   requisites,
+  integrations,
   filaments,
   printers,
   orders,
@@ -122,6 +138,7 @@ export function WorkshopTabs({
   clients,
   isMissingTable,
   isRequisitesMissing,
+  isIntegrationsMissing,
   isFilamentsMissingTable,
   isPrintersMissingTable,
   isOrdersMissingTable,
@@ -353,6 +370,18 @@ export function WorkshopTabs({
             <WorkshopRequisitesTab
               requisites={requisites}
               isMissingTable={isRequisitesMissing}
+            />
+          </div>
+
+          <div
+            role="tabpanel"
+            id="workshop-panel-integrations"
+            aria-labelledby="workshop-tab-integrations"
+            hidden={activeTab !== "integrations"}
+          >
+            <WorkshopIntegrationsTab
+              integrations={integrations}
+              isMissingTable={isIntegrationsMissing}
             />
           </div>
         </div>

@@ -15,6 +15,7 @@ import type {
   OrderEditDraft,
   OrderSource,
 } from "@/lib/workshop/orders";
+import type { WorkshopIntegrations } from "@/lib/workshop/integrations";
 import type { PrinterDraft } from "@/lib/workshop/printers";
 import type {
   WorkshopCompanyType,
@@ -25,11 +26,11 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
 /**
  * Что уходит в `from("workshop_settings").upsert(...)`.
  *
- * Числа и реквизиты необязательны: вкладка «Калькулятор» присылает только
- * числа, вкладка «Реквизиты» — только данные компании. PostgREST получает
- * объект без undefined-полей, поэтому сохранение одной вкладки не затирает
- * значения другой. Остальные колонки при вставке заполняют значения по
- * умолчанию из миграции.
+ * Числа, реквизиты и ключи Ozon необязательны: вкладка «Калькулятор»
+ * присылает только числа, «Реквизиты» — данные компании, «Интеграции» —
+ * Client-Id и Api-Key. PostgREST получает объект без undefined-полей, поэтому
+ * сохранение одной вкладки не затирает значения другой. Остальные колонки при
+ * вставке заполняют значения по умолчанию из миграции.
  */
 export type WorkshopSettingsPayload = {
   user_id: string;
@@ -45,19 +46,24 @@ export type WorkshopSettingsPayload = {
   bank_details?: string | null;
   contact_phone?: string | null;
   contact_email?: string | null;
+  /** Колонки из `supabase/workshop_marketplace_integration.sql`. */
+  ozon_client_id?: string | null;
+  ozon_api_key?: string | null;
 };
 
 /**
- * Настройки и реквизиты → строка для upsert.
+ * Настройки, реквизиты и ключи Ozon → строка для upsert.
  *
  * Пустые необязательные реквизиты остаются null: очищенное поле должно
  * очистить и колонку, а не хранить пустую строку. Реквизиты с обязательными
  * полями пишутся всегда парой — форма не даст сохранить одно без другого.
+ * Ключи Ozon тоже пишутся парой; `null` в обоих полях выключает интеграцию.
  */
 export function createWorkshopSettingsPayload(
   userId: string,
   settings: WorkshopSettings | null,
   requisites: WorkshopRequisites | null,
+  integrations: WorkshopIntegrations | null = null,
 ): WorkshopSettingsPayload {
   const payload: WorkshopSettingsPayload = { user_id: userId };
 
@@ -77,6 +83,11 @@ export function createWorkshopSettingsPayload(
     payload.bank_details = requisites.bankDetails;
     payload.contact_phone = requisites.contactPhone;
     payload.contact_email = requisites.contactEmail;
+  }
+
+  if (integrations) {
+    payload.ozon_client_id = integrations.ozonClientId;
+    payload.ozon_api_key = integrations.ozonApiKey;
   }
 
   return payload;

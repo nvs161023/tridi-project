@@ -197,6 +197,8 @@ export default async function WorkshopPage() {
               isOrdersMissingTable={orderBook.isMissingTable}
               requisites={snapshot.requisites}
               isRequisitesMissing={snapshot.isRequisitesMissing}
+              integrations={snapshot.integrations}
+              isIntegrationsMissing={snapshot.isIntegrationsMissing}
             />
           </>
         ) : (

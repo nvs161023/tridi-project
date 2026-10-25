@@ -114,6 +114,17 @@ export function RequisitesIcon(props: WorkshopIconProps) {
   );
 }
 
+/** Интеграции: разъём — подключение к внешнему сервису. */
+export function PlugIcon(props: WorkshopIconProps) {
+  return (
+    <svg {...iconProps} {...props}>
+      <path d="M9 2v6M15 2v6" />
+      <path d="M6 8h12v3a6 6 0 0 1-6 6 6 6 0 0 1-6-6V8Z" />
+      <path d="M12 17v5" />
+    </svg>
+  );
+}
+
 /** Выручка: растущий график. */
 export function RevenueIcon(props: WorkshopIconProps) {
   return (

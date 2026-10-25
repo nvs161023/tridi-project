@@ -6,6 +6,10 @@ import type { WorkshopSettingsFormState } from "@/app/actions/workshop-state";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
+import {
+  hasWorkshopIntegrationFormFields,
+  readWorkshopIntegrationForm,
+} from "@/lib/workshop/integrations";
 import { createWorkshopSettingsPayload } from "@/lib/workshop/payload";
 import {
   hasWorkshopRequisitesFormFields,
@@ -21,17 +25,17 @@ const SESSION_EXPIRED =
 const PRO_REQUIRED =
   "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы сохранять настройки.";
 const MIGRATION_MISSING =
-  "Настройки пока не сохраняются: в базе нет нужных таблиц или колонок. Примените миграции supabase/workshop_settings.sql и supabase/workshop_requisites.sql.";
+  "Настройки пока не сохраняются: в базе нет нужных таблиц или колонок. Примените миграции supabase/workshop_settings.sql, supabase/workshop_requisites.sql и supabase/workshop_marketplace_integration.sql.";
 const SAVE_FAILED = "Не удалось сохранить настройки. Попробуйте ещё раз.";
 const EMPTY_FORM = "Форма пустая: нечего сохранять. Обновите страницу.";
 
 /**
  * Сохранение настроек Мастерской.
  *
- * Одно действие на две вкладки: «Калькулятор» присылает четыре числа, а
- * «Реквизиты» — данные компании. Разбор формы определяет, какие поля пришли:
- * так сохранение одной вкладки не затирает значения другой, а первое
- * сохранение с любой вкладки создаёт строку.
+ * Одно действие на три вкладки: «Калькулятор» присылает четыре числа,
+ * «Реквизиты» — данные компании, «Интеграции» — Client-Id и Api-Key Ozon.
+ * Разбор формы определяет, какие поля пришли: так сохранение одной вкладки не
+ * затирает значения другой, а первое сохранение с любой вкладки создаёт строку.
  *
  * Порядок проверок повторяет /dashboard/workshop: разбор формы → сессия →
  * подписка → запись. Подписка проверяется и здесь, а не только на странице:
@@ -50,8 +54,9 @@ export async function saveWorkshopSettings(
     formData.has(field.formName),
   );
   const hasRequisitesFields = hasWorkshopRequisitesFormFields(formData);
+  const hasIntegrationFields = hasWorkshopIntegrationFormFields(formData);
 
-  if (!hasSettingsFields && !hasRequisitesFields) {
+  if (!hasSettingsFields && !hasRequisitesFields && !hasIntegrationFields) {
     return { error: EMPTY_FORM };
   }
 
@@ -61,20 +66,26 @@ export async function saveWorkshopSettings(
   const requisitesResult = hasRequisitesFields
     ? readWorkshopRequisitesForm(formData)
     : null;
+  const integrationsResult = hasIntegrationFields
+    ? readWorkshopIntegrationForm(formData)
+    : null;
 
   // Ошибки полей важнее общего текста: пользователь сразу видит, что исправить.
   if (
     (settingsResult && !settingsResult.settings) ||
-    (requisitesResult && !requisitesResult.requisites)
+    (requisitesResult && !requisitesResult.requisites) ||
+    (integrationsResult && !integrationsResult.integrations)
   ) {
     return {
       fieldErrors: settingsResult?.errors,
       requisitesFieldErrors: requisitesResult?.errors,
+      integrationFieldErrors: integrationsResult?.errors,
     };
   }
 
   const settings = settingsResult?.settings ?? null;
   const requisites = requisitesResult?.requisites ?? null;
+  const integrations = integrationsResult?.integrations ?? null;
 
   const supabase = await createClient();
   const {
@@ -91,9 +102,12 @@ export async function saveWorkshopSettings(
 
   const { error } = await supabase
     .from("workshop_settings")
-    .upsert(createWorkshopSettingsPayload(user.id, settings, requisites), {
-      onConflict: "user_id",
-    });
+    .upsert(
+      createWorkshopSettingsPayload(user.id, settings, requisites, integrations),
+      {
+        onConflict: "user_id",
+      },
+    );
 
   if (error) {
     console.warn(
@@ -108,6 +122,7 @@ export async function saveWorkshopSettings(
         : SAVE_FAILED,
       values: settings ?? undefined,
       requisites: requisites ?? undefined,
+      integrations: integrations ?? undefined,
     };
   }
 
@@ -119,5 +134,6 @@ export async function saveWorkshopSettings(
     success: true,
     values: settings ?? undefined,
     requisites: requisites ?? undefined,
+    integrations: integrations ?? undefined,
   };
 }

@@ -1,19 +1,26 @@
 /**
  * Чтение настроек Мастерской для страницы `/dashboard/workshop`.
  *
- * Миграции `supabase/workshop_settings.sql` и `supabase/workshop_requisites.sql`
- * применяют вручную, поэтому таблицы или новых колонок может не быть в живой
- * базе. Это не повод падать: страница получает значения по умолчанию и признаки
- * isMissingTable / isRequisitesMissing, чтобы показать предупреждение «пока не
- * сохраняется» и всё равно дать посчитать себестоимость.
+ * Миграции `supabase/workshop_settings.sql`, `supabase/workshop_requisites.sql` и
+ * `supabase/workshop_marketplace_integration.sql` применяют вручную, поэтому
+ * таблицы или новых колонок может не быть в живой базе. Это не повод падать:
+ * страница получает значения по умолчанию и признаки isMissingTable /
+ * isRequisitesMissing / isIntegrationsMissing, чтобы показать предупреждение
+ * «пока не сохраняется» и всё равно дать посчитать себестоимость.
  *
- * Реквизиты читаются отдельным запросом: если миграция workshop_requisites.sql не
+ * Реквизиты и ключи Ozon читаются отдельными запросами: если миграция не
  * применена, PostgREST отвечает PGRST204 на всю выборку, и числа калькулятора в
- * общей выборке тоже пропали бы. Два независимых запроса стоят одного лишнего
- * round-trip, зато числа и реквизиты не ломают друг друга.
+ * общей выборке тоже пропали бы. Три независимых запроса стоят лишних
+ * round-trip, зато числа, реквизиты и интеграция не ломают друг друга.
  */
 import type { createClient } from "@/lib/supabase/server";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
+import {
+  normalizeWorkshopIntegrations,
+  WORKSHOP_INTEGRATIONS_COLUMNS,
+  WORKSHOP_INTEGRATIONS_DEFAULTS,
+  type WorkshopIntegrations,
+} from "@/lib/workshop/integrations";
 import {
   normalizeWorkshopRequisites,
   WORKSHOP_REQUISITES_COLUMNS,
@@ -32,10 +39,13 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
 export type WorkshopSettingsSnapshot = {
   settings: WorkshopSettings;
   requisites: WorkshopRequisites;
+  integrations: WorkshopIntegrations;
   /** В базе нет таблицы workshop_settings — миграция не применена. */
   isMissingTable: boolean;
   /** В workshop_settings нет колонок реквизитов — не применён workshop_requisites.sql. */
   isRequisitesMissing: boolean;
+  /** Нет колонок Ozon — не применён workshop_marketplace_integration.sql. */
+  isIntegrationsMissing: boolean;
 };
 
 /** Настройки пользователя; при любой проблеме — значения по умолчанию. */
@@ -43,19 +53,25 @@ export async function getWorkshopSettings(
   supabase: Supabase,
   userId: string,
 ): Promise<WorkshopSettingsSnapshot> {
-  const [settingsResult, requisitesResult] = await Promise.all([
-    supabase
-      .from("workshop_settings")
-      .select(WORKSHOP_SETTINGS_COLUMNS)
-      .eq("user_id", userId)
-      // Строки может не быть: настройки создаются при первом сохранении формы.
-      .maybeSingle(),
-    supabase
-      .from("workshop_settings")
-      .select(WORKSHOP_REQUISITES_COLUMNS)
-      .eq("user_id", userId)
-      .maybeSingle(),
-  ]);
+  const [settingsResult, requisitesResult, integrationsResult] =
+    await Promise.all([
+      supabase
+        .from("workshop_settings")
+        .select(WORKSHOP_SETTINGS_COLUMNS)
+        .eq("user_id", userId)
+        // Строки может не быть: настройки создаются при первом сохранении формы.
+        .maybeSingle(),
+      supabase
+        .from("workshop_settings")
+        .select(WORKSHOP_REQUISITES_COLUMNS)
+        .eq("user_id", userId)
+        .maybeSingle(),
+      supabase
+        .from("workshop_settings")
+        .select(WORKSHOP_INTEGRATIONS_COLUMNS)
+        .eq("user_id", userId)
+        .maybeSingle(),
+    ]);
 
   if (settingsResult.error) {
     // Сбой чтения не должен ронять страницу: калькулятор работает и на
@@ -75,6 +91,14 @@ export async function getWorkshopSettings(
     );
   }
 
+  if (integrationsResult.error) {
+    console.warn(
+      "Интеграция с Ozon не прочитана:",
+      integrationsResult.error.code,
+      integrationsResult.error.message,
+    );
+  }
+
   return {
     settings: settingsResult.error
       ? { ...WORKSHOP_SETTINGS_DEFAULTS }
@@ -86,6 +110,11 @@ export async function getWorkshopSettings(
       : normalizeWorkshopRequisites(
           requisitesResult.data as Partial<Record<string, unknown>> | null,
         ),
+    integrations: integrationsResult.error
+      ? { ...WORKSHOP_INTEGRATIONS_DEFAULTS }
+      : normalizeWorkshopIntegrations(
+          integrationsResult.data as Partial<Record<string, unknown>> | null,
+        ),
     isMissingTable: settingsResult.error
       ? isMissingTableSchema(
           settingsResult.error.code,
@@ -96,6 +125,12 @@ export async function getWorkshopSettings(
       ? isMissingTableSchema(
           requisitesResult.error.code,
           requisitesResult.error.message,
+        )
+      : false,
+    isIntegrationsMissing: integrationsResult.error
+      ? isMissingTableSchema(
+          integrationsResult.error.code,
+          integrationsResult.error.message,
         )
       : false,
   };
