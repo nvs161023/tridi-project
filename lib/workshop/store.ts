@@ -19,6 +19,7 @@ import {
   normalizeWorkshopIntegrations,
   WORKSHOP_INTEGRATIONS_COLUMNS,
   WORKSHOP_INTEGRATIONS_DEFAULTS,
+  WORKSHOP_WEBHOOK_TOKEN_COLUMN,
   type WorkshopIntegrations,
 } from "@/lib/workshop/integrations";
 import {
@@ -53,25 +54,34 @@ export async function getWorkshopSettings(
   supabase: Supabase,
   userId: string,
 ): Promise<WorkshopSettingsSnapshot> {
-  const [settingsResult, requisitesResult, integrationsResult] =
-    await Promise.all([
-      supabase
-        .from("workshop_settings")
-        .select(WORKSHOP_SETTINGS_COLUMNS)
-        .eq("user_id", userId)
-        // Строки может не быть: настройки создаются при первом сохранении формы.
-        .maybeSingle(),
-      supabase
-        .from("workshop_settings")
-        .select(WORKSHOP_REQUISITES_COLUMNS)
-        .eq("user_id", userId)
-        .maybeSingle(),
-      supabase
-        .from("workshop_settings")
-        .select(WORKSHOP_INTEGRATIONS_COLUMNS)
-        .eq("user_id", userId)
-        .maybeSingle(),
-    ]);
+  const [
+    settingsResult,
+    requisitesResult,
+    integrationsResult,
+    webhookTokenResult,
+  ] = await Promise.all([
+    supabase
+      .from("workshop_settings")
+      .select(WORKSHOP_SETTINGS_COLUMNS)
+      .eq("user_id", userId)
+      // Строки может не быть: настройки создаются при первом сохранении формы.
+      .maybeSingle(),
+    supabase
+      .from("workshop_settings")
+      .select(WORKSHOP_REQUISITES_COLUMNS)
+      .eq("user_id", userId)
+      .maybeSingle(),
+    supabase
+      .from("workshop_settings")
+      .select(WORKSHOP_INTEGRATIONS_COLUMNS)
+      .eq("user_id", userId)
+      .maybeSingle(),
+    supabase
+      .from("workshop_settings")
+      .select(WORKSHOP_WEBHOOK_TOKEN_COLUMN)
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
 
   if (settingsResult.error) {
     // Сбой чтения не должен ронять страницу: калькулятор работает и на
@@ -99,6 +109,16 @@ export async function getWorkshopSettings(
     );
   }
 
+  if (webhookTokenResult.error) {
+    // Нет только колонки токена: ключи Ozon при этом читаются, страница
+    // работает, а вкладка «Интеграции» подскажет применить миграцию.
+    console.warn(
+      "Токен вебхука Ozon не прочитан:",
+      webhookTokenResult.error.code,
+      webhookTokenResult.error.message,
+    );
+  }
+
   return {
     settings: settingsResult.error
       ? { ...WORKSHOP_SETTINGS_DEFAULTS }
@@ -112,9 +132,15 @@ export async function getWorkshopSettings(
         ),
     integrations: integrationsResult.error
       ? { ...WORKSHOP_INTEGRATIONS_DEFAULTS }
-      : normalizeWorkshopIntegrations(
-          integrationsResult.data as Partial<Record<string, unknown>> | null,
-        ),
+      : normalizeWorkshopIntegrations({
+          ...(integrationsResult.data as
+            | Partial<Record<string, unknown>>
+            | null),
+          webhook_token: webhookTokenResult.error
+            ? null
+            : (webhookTokenResult.data as { webhook_token?: unknown } | null)
+                ?.webhook_token,
+        }),
     isMissingTable: settingsResult.error
       ? isMissingTableSchema(
           settingsResult.error.code,

@@ -1,27 +1,34 @@
 /**
- * Интеграция Мастерской с Ozon Seller: Client-Id и Api-Key.
+ * Интеграция Мастерской с Ozon Seller: Client-Id, Api-Key и токен вебхука.
  *
- * Заказы с Ozon приходят вебхуком на `/api/webhooks/ozon`. Ozon передаёт свой
- * Client-Id, роут ищет по нему строку `workshop_settings` и создаёт заказ от
- * имени владельца. Поэтому Client-Id — не подпись в интерфейсе, а ключ поиска
- * продавца: без него уведомление получит ответ 403.
+ * Заказы с Ozon приходят вебхуком на `/api/webhooks/ozon`. Ozon не подписывает
+ * уведомления и может не присылать Client-Id в заголовках, поэтому продавца
+ * определяет персональный адрес: `/api/webhooks/ozon?token=<uuid>`. Токен
+ * хранится в `workshop_settings.webhook_token` (uuid, unique) и создаётся базой
+ * при первой вставке строки. Роут ищет строку по токену и создаёт заказ от
+ * имени владельца; без известного токена уведомление получает 403.
  *
- * Api-Key пока нужен только будущим запросам к Seller API, но сохраняется
- * вместе с Client-Id: интеграция считается настроенной, когда заполнены оба
+ * Api-Key и Client-Id пока нужны только будущим запросам к Seller API, но
+ * сохраняются вместе: интеграция считается настроенной, когда заполнены оба
  * поля. Оба ключа — секреты аккаунта продавца, поэтому вводятся в поле
- * `type="password"` и показываются по кнопке «Показать».
+ * `type="password"` и показываются по кнопке «Показать». Токен вебхука — не
+ * секрет API: владельцу его показываем полностью, чтобы скопировать адрес.
  *
  * Модуль чистый — без Supabase и `next/cache`: его импортирует и серверная
- * страница, и клиентская вкладка «Интеграции».
+ * страница, и клиентская вкладка «Интеграции». Поэтому здесь нет `node:crypto`:
+ * токен генерирует база (`gen_random_uuid()`), а не браузер.
  */
 
-/** Адрес вебхука, который продавец указывает в Seller API Ozon. */
-export const OZON_WEBHOOK_URL = "https://tridi-print.ru/api/webhooks/ozon";
+/** Базовый адрес вебхука; полный адрес собирает `buildOzonWebhookUrl`. */
+export const OZON_WEBHOOK_ENDPOINT =
+  "https://tridi-print.ru/api/webhooks/ozon";
 
 /** Доступы к личному кабинету Ozon. `null` — интеграция не настроена. */
 export type WorkshopIntegrations = {
   ozonClientId: string | null;
   ozonApiKey: string | null;
+  /** Персональный токен из `workshop_settings.webhook_token`. */
+  webhookToken: string | null;
 };
 
 /**
@@ -31,6 +38,7 @@ export type WorkshopIntegrations = {
 export const WORKSHOP_INTEGRATIONS_DEFAULTS: WorkshopIntegrations = {
   ozonClientId: null,
   ozonApiKey: null,
+  webhookToken: null,
 };
 
 /** Имена полей формы: по ним же отдаются ошибки. */
@@ -44,8 +52,51 @@ export type WorkshopIntegrationsErrors = Partial<
   Record<WorkshopIntegrationField, string>
 >;
 
-/** Колонки, которые читает lib/workshop/store.ts. */
+/** Колонки Ozon, которые читает lib/workshop/store.ts. */
 export const WORKSHOP_INTEGRATIONS_COLUMNS = "ozon_client_id, ozon_api_key";
+
+/**
+ * Токен вебхука читается отдельным запросом: миграцию с ним могли ещё не
+ * применить, и тогда ключи Ozon всё равно должны остаться в интерфейсе.
+ */
+export const WORKSHOP_WEBHOOK_TOKEN_COLUMN = "webhook_token";
+
+/** UUID из `gen_random_uuid()`: другой токен роут не примет. */
+const WEBHOOK_TOKEN_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+/**
+ * Токен как строка UUID или `null`.
+ *
+ * PostgREST отдаёт uuid строкой в нижнем регистре, но регистр в URL может
+ * измениться при копировании — приводим к нижнему. Всё, что не похоже на UUID,
+ * считаем отсутствующим токеном: подставлять произвольный текст в URL нельзя.
+ */
+export function normalizeWebhookToken(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const token = value.trim().toLowerCase();
+
+  return WEBHOOK_TOKEN_PATTERN.test(token) ? token : null;
+}
+
+/**
+ * Полный адрес вебхука с персональным токеном.
+ *
+ * Пока токена нет (строка ещё не создана или миграция не применена), адреса
+ * тоже нет: показывать общий URL без токена нельзя — Ozon получит 403.
+ */
+export function buildOzonWebhookUrl(
+  token: string | null | undefined,
+): string | null {
+  const normalized = normalizeWebhookToken(token);
+
+  return normalized
+    ? `${OZON_WEBHOOK_ENDPOINT}?token=${encodeURIComponent(normalized)}`
+    : null;
+}
 
 /** Пределы полей — как у `maxLength` в форме. */
 export const INTEGRATIONS_TEXT_LIMITS = {
@@ -64,9 +115,9 @@ const KEY_SPACES = /[\s\u00a0]/g;
 
 /** Настроена ли интеграция: нужны оба ключа — Client-Id и Api-Key. */
 export function isWorkshopIntegrationActive(
-  integrations: WorkshopIntegrations,
+  integrations: WorkshopIntegrations | null | undefined,
 ): boolean {
-  return Boolean(integrations.ozonClientId && integrations.ozonApiKey);
+  return Boolean(integrations?.ozonClientId && integrations?.ozonApiKey);
 }
 
 /** Пришли ли данные вкладки «Интеграции»: другие формы этих полей не содержат. */
@@ -77,6 +128,28 @@ export function hasWorkshopIntegrationFormFields(formData: FormData): boolean {
 /** Текст из формы или строки базы без пробелов: ключ копируют из кабинета. */
 function readKey(value: unknown): string {
   return typeof value === "string" ? value.replace(KEY_SPACES, "") : "";
+}
+
+/**
+ * Объект для интерфейса из любых данных.
+ *
+ * Клиентская вкладка получает значения из RSC-пейлоада. Если страница была
+ * открыта до деплоя, старый пейлоад может не содержать новых полей, поэтому
+ * `undefined` и отсутствующие ключи не должны ронять рендер: возвращаем
+ * значения по умолчанию.
+ */
+export function ensureWorkshopIntegrations(
+  value: Partial<WorkshopIntegrations> | null | undefined,
+): WorkshopIntegrations {
+  if (!value) {
+    return { ...WORKSHOP_INTEGRATIONS_DEFAULTS };
+  }
+
+  return {
+    ozonClientId: readKey(value.ozonClientId) || null,
+    ozonApiKey: readKey(value.ozonApiKey) || null,
+    webhookToken: normalizeWebhookToken(value.webhookToken),
+  };
 }
 
 /**
@@ -93,13 +166,11 @@ export function normalizeWorkshopIntegrations(
     return { ...WORKSHOP_INTEGRATIONS_DEFAULTS };
   }
 
-  const ozonClientId = readKey(row.ozon_client_id);
-  const ozonApiKey = readKey(row.ozon_api_key);
-
-  return {
-    ozonClientId: ozonClientId || null,
-    ozonApiKey: ozonApiKey || null,
-  };
+  return ensureWorkshopIntegrations({
+    ozonClientId: readKey(row.ozon_client_id) || null,
+    ozonApiKey: readKey(row.ozon_api_key) || null,
+    webhookToken: normalizeWebhookToken(row.webhook_token),
+  });
 }
 
 /**
@@ -122,7 +193,8 @@ export function readWorkshopIntegrationForm(formData: FormData): {
   }
 
   if (!ozonClientId) {
-    errors.ozonClientId = "Client-Id — обязательное поле: по нему Ozon находит ваш кабинет.";
+    errors.ozonClientId =
+      "Client-Id — обязательное поле: без него не заработают запросы к Seller API.";
   } else if (ozonClientId.length > INTEGRATIONS_TEXT_LIMITS.ozonClientId) {
     errors.ozonClientId = `Client-Id: не больше ${INTEGRATIONS_TEXT_LIMITS.ozonClientId} символов.`;
   } else if (!CLIENT_ID_PATTERN.test(ozonClientId)) {
@@ -141,5 +213,8 @@ export function readWorkshopIntegrationForm(formData: FormData): {
 
   return Object.keys(errors).length > 0
     ? { integrations: null, errors }
-    : { integrations: { ozonClientId, ozonApiKey }, errors };
+    : {
+        integrations: { ozonClientId, ozonApiKey, webhookToken: null },
+        errors,
+      };
 }

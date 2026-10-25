@@ -6,9 +6,10 @@ import { useRouter } from "next/navigation";
 import { saveWorkshopSettings } from "@/app/actions/workshop";
 import { emptyWorkshopSettingsFormState } from "@/app/actions/workshop-state";
 import {
+  buildOzonWebhookUrl,
+  ensureWorkshopIntegrations,
   INTEGRATIONS_TEXT_LIMITS,
   isWorkshopIntegrationActive,
-  OZON_WEBHOOK_URL,
   type WorkshopIntegrations,
 } from "@/lib/workshop/integrations";
 
@@ -23,14 +24,19 @@ import {
  * кнопкой «Показать». Ключи приходят с сервера, потому что после перезагрузки
  * страницы они должны остаться в полях; RLS не даёт прочитать чужую строку.
  *
- * URL вебхука фиксированный: продавец копирует его в Seller API Ozon, и именно
- * по этому адресу Ozon присылает уведомления о новых отправлениях. Кнопка
- * «Скопировать» использует буфер обмена, а при запрете доступа (не HTTPS)
+ * URL вебхука персональный: `?token=<uuid>` — токен создаётся при сохранении
+ * ключей и хранится в `workshop_settings.webhook_token`. Ozon может не присылать
+ * Client-Id в заголовках, поэтому именно токен определяет продавца. Кнопка
+ * «Скопировать» копирует полный адрес, а при запрете буфера обмена (не HTTPS)
  * показывает стандартный prompt — тот же приём, что у сертификата.
+ *
+ * `integrations` может прийти `undefined`, если страница была открыта до
+ * деплоя и клиент получил старый RSC-пейлоад без новых полей. Поэтому значения
+ * проходят через `ensureWorkshopIntegrations`, а не читаются напрямую.
  */
 
 type WorkshopIntegrationsTabProps = {
-  integrations: WorkshopIntegrations;
+  integrations?: WorkshopIntegrations | null;
   /** В таблице нет колонок Ozon — миграция не применена. */
   isMissingTable: boolean;
 };
@@ -53,6 +59,17 @@ export function WorkshopIntegrationsTab({
   const [isKeyVisible, setIsKeyVisible] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
 
+  // Старый пейлоад мог не содержать новых полей: не бросаем на этом рендер.
+  const safeIntegrations = ensureWorkshopIntegrations(integrations);
+  // После сохранения бейдж и адрес сразу отражают ответ действия, не дожидаясь
+  // router.refresh(); до первой отправки — значения со страницы.
+  const isActive = state.integrations
+    ? isWorkshopIntegrationActive(state.integrations)
+    : isWorkshopIntegrationActive(safeIntegrations);
+  const webhookToken =
+    state.integrations?.webhookToken ?? safeIntegrations.webhookToken;
+  const webhookUrl = isActive ? buildOzonWebhookUrl(webhookToken) : null;
+
   // Состояние приходит новым объектом после каждой отправки: успех обновляет
   // серверные данные страницы, чтобы следующий заход показал сохранённое.
   useEffect(() => {
@@ -72,20 +89,20 @@ export function WorkshopIntegrationsTab({
   }, [isCopied]);
 
   async function copyWebhookUrl() {
+    if (!webhookUrl) {
+      return;
+    }
+
     try {
-      await navigator.clipboard.writeText(OZON_WEBHOOK_URL);
+      await navigator.clipboard.writeText(webhookUrl);
       setIsCopied(true);
     } catch {
-      window.prompt("Скопируйте URL для вебхука", OZON_WEBHOOK_URL);
+      window.prompt("Скопируйте URL для вебхука", webhookUrl);
     }
   }
 
-  const isActive = isWorkshopIntegrationActive(integrations);
   const clientIdError = state.integrationFieldErrors?.ozonClientId;
   const apiKeyError = state.integrationFieldErrors?.ozonApiKey;
-  const savedIsActive = state.integrations
-    ? isWorkshopIntegrationActive(state.integrations)
-    : false;
 
   return (
     <section aria-labelledby="workshop-integrations-title">
@@ -156,7 +173,7 @@ export function WorkshopIntegrationsTab({
               inputMode="numeric"
               autoComplete="off"
               maxLength={INTEGRATIONS_TEXT_LIMITS.ozonClientId}
-              defaultValue={integrations.ozonClientId ?? ""}
+              defaultValue={safeIntegrations.ozonClientId ?? ""}
               placeholder="1234567"
               aria-invalid={clientIdError ? true : undefined}
               aria-describedby={
@@ -209,7 +226,7 @@ export function WorkshopIntegrationsTab({
               autoComplete="off"
               spellCheck={false}
               maxLength={INTEGRATIONS_TEXT_LIMITS.ozonApiKey}
-              defaultValue={integrations.ozonApiKey ?? ""}
+              defaultValue={safeIntegrations.ozonApiKey ?? ""}
               placeholder="Ключ из приложения Seller API"
               aria-invalid={apiKeyError ? true : undefined}
               aria-describedby={
@@ -261,12 +278,12 @@ export function WorkshopIntegrationsTab({
                 <p
                   role="status"
                   className={`rounded-xl border px-4 py-3 ${
-                    savedIsActive
+                    isActive
                       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
                       : "border-white/10 bg-white/[0.03] text-zinc-300"
                   }`}
                 >
-                  {savedIsActive
+                  {isActive
                     ? "Ключи сохранены — интеграция активна."
                     : "Ключи удалены — интеграция отключена."}
                 </p>
@@ -277,20 +294,29 @@ export function WorkshopIntegrationsTab({
 
         <div className="mt-6 rounded-2xl border border-white/[0.07] bg-black/30 p-4 sm:p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
-                URL для вебхука
+                Персональный URL для вебхука
               </p>
-              <code className="mt-2 block overflow-x-auto rounded-lg border border-white/[0.06] bg-black/50 px-3 py-2 font-mono text-xs whitespace-nowrap text-blue-200 sm:text-sm">
-                {OZON_WEBHOOK_URL}
-              </code>
+              {webhookUrl ? (
+                <code className="mt-2 block overflow-x-auto rounded-lg border border-white/[0.06] bg-black/50 px-3 py-2 font-mono text-xs whitespace-nowrap text-blue-200 sm:text-sm">
+                  {webhookUrl}
+                </code>
+              ) : (
+                <p className="mt-2 rounded-lg border border-dashed border-white/10 bg-black/20 px-3 py-2 text-xs leading-relaxed text-zinc-400">
+                  {isActive
+                    ? "Токен вебхука ещё не создан. Примените миграцию supabase/workshop_marketplace_integration.sql и сохраните ключи ещё раз."
+                    : "Сохраните Client-Id и Api-Key — здесь появится персональный адрес с токеном."}
+                </p>
+              )}
             </div>
 
             <button
               type="button"
               onClick={copyWebhookUrl}
+              disabled={!webhookUrl}
               aria-live="polite"
-              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span aria-hidden>{isCopied ? "✓" : "⧉"}</span>
               {isCopied ? "Скопировано" : "Скопировать"}
@@ -298,8 +324,9 @@ export function WorkshopIntegrationsTab({
           </div>
 
           <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-            Скопируйте этот адрес и укажите его в настройках Seller API на Ozon в
-            разделе «Уведомления».
+            Скопируйте адрес целиком, вместе с <code>?token=…</code>: по токену
+            Ozon находит вашу мастерскую, даже если не присылает Client-Id. Этот
+            адрес не публикуйте — он открывает приём заказов.
           </p>
         </div>
       </div>

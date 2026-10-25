@@ -60,7 +60,7 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
 type WorkshopTabsProps = {
   settings: WorkshopSettings;
   requisites: WorkshopRequisites;
-  integrations: WorkshopIntegrations;
+  integrations?: WorkshopIntegrations | null;
   filaments: WorkshopFilament[];
   printers: WorkshopPrinter[];
   orders: WorkshopOrder[];
