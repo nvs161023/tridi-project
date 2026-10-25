@@ -16,6 +16,7 @@ import { updateOrderStatus } from "@/app/actions/orders";
 import { CreateOrderDialog } from "@/components/workshop/CreateOrderDialog";
 import { OrderDetailsDialog } from "@/components/workshop/OrderDetailsDialog";
 import { PrinterIcon } from "@/components/workshop/WorkshopIcons";
+import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import {
   ORDER_STATUS_META,
@@ -52,6 +53,8 @@ type WorkshopOrdersTabProps = {
   printers: WorkshopPrinter[];
   filaments: WorkshopFilament[];
   products: WorkshopProduct[];
+  /** База клиентов для выбора готового контакта при создании заказа. */
+  clients: WorkshopClient[];
   /** В базе нет таблицы workshop_orders — миграция не применена. */
   isMissingTable: boolean;
 };
@@ -103,6 +106,7 @@ export function WorkshopOrdersTab({
   printers,
   filaments,
   products,
+  clients,
   isMissingTable,
 }: WorkshopOrdersTabProps) {
   const router = useRouter();
@@ -405,6 +409,7 @@ export function WorkshopOrdersTab({
           printers={printers}
           filaments={filaments}
           products={products}
+          clients={clients}
           onClose={closeCreate}
           onCreated={setNotice}
         />

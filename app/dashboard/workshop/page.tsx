@@ -152,6 +152,7 @@ export default async function WorkshopPage() {
                   printers={fleet.printers}
                   filaments={stock.filaments}
                   products={productList ?? []}
+                  clients={clientList ?? []}
                 />
               ) : (
                 <ButtonLink

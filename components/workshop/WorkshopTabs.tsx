@@ -267,6 +267,7 @@ export function WorkshopTabs({
               printers={printers}
               filaments={filaments}
               products={products}
+              clients={clients}
               isMissingTable={isOrdersMissingTable}
             />
           </div>

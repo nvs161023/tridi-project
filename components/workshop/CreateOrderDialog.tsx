@@ -13,6 +13,7 @@ import { createOrder } from "@/app/actions/orders";
 import { emptyOrderFormState } from "@/app/actions/orders-state";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import { parseGcode } from "@/lib/gcode-parser";
+import type { WorkshopClient } from "@/lib/workshop/clients";
 import { formatGrams, type WorkshopFilament } from "@/lib/workshop/filaments";
 import {
   ORDER_LIMITS,
@@ -39,6 +40,10 @@ import { parseWorkshopNumber } from "@/lib/workshop/settings";
  * остатка считается той же функцией planFilamentUsage, что и на сервере:
  * красная строка появляется ещё до отправки, а окончательное решение всё равно
  * за сервером — он перечитывает остаток из базы.
+ *
+ * Клиента можно выбрать из базы или ввести вручную. В обоих случаях в
+ * `workshop_orders.client_name` уходит строка: связь с `workshop_clients` не
+ * хранится, поэтому структура таблицы заказов не меняется.
  */
 
 type CreateOrderDialogProps = {
@@ -46,6 +51,8 @@ type CreateOrderDialogProps = {
   filaments: WorkshopFilament[];
   /** Каталог для необязательной связи заказа с товаром. */
   products: WorkshopProduct[];
+  /** База клиентов: готовый контакт или новый клиент вручную. */
+  clients: WorkshopClient[];
   onClose: () => void;
   /** Сообщение для строки состояния на вкладке. */
   onCreated: (message: string) => void;
@@ -76,6 +83,7 @@ export function CreateOrderDialog({
   printers,
   filaments,
   products,
+  clients,
   onClose,
   onCreated,
 }: CreateOrderDialogProps) {
@@ -89,6 +97,8 @@ export function CreateOrderDialog({
   const [weight, setWeight] = useState("0");
   const [hours, setHours] = useState("0");
   const [productId, setProductId] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState("");
   const [printerId, setPrinterId] = useState("");
   const [filamentId, setFilamentId] = useState("");
   const [gcodeMessage, setGcodeMessage] = useState<GcodeMessage | null>(null);
@@ -120,6 +130,15 @@ export function CreateOrderDialog({
     printers.find((printer) => printer.id === printerId) ?? null;
   const selectedFilament =
     filaments.find((filament) => filament.id === filamentId) ?? null;
+  /**
+   * Выбранный клиент. id нужен только списку: в форму уходит его имя, а не
+   * ссылка, чтобы не менять структуру workshop_orders.
+   */
+  const selectedClient =
+    clients.find((client) => client.id === selectedClientId) ?? null;
+  const isSelectedClientNameTooLong =
+    selectedClient !== null &&
+    selectedClient.name.length > ORDER_TEXT_LIMITS.clientName;
   const parsedWeight = parseWorkshopNumber(weight);
   const parsedHours = parseWorkshopNumber(hours);
   const preview =
@@ -375,10 +394,36 @@ export function CreateOrderDialog({
 
           <div>
             <label
-              htmlFor="order-client"
+              htmlFor="order-client-select"
               className="block text-sm font-semibold text-slate-200"
             >
               Клиент (необязательно)
+            </label>
+            {/*
+              Список отдаёт только id для локального поиска имени. В форму
+              уходит clientName, поэтому client_id в заказах не появляется.
+            */}
+            <select
+              id="order-client-select"
+              value={selectedClientId}
+              onChange={(event) => setSelectedClientId(event.target.value)}
+              aria-describedby={
+                state.fieldErrors?.clientName
+                  ? "order-client-error"
+                  : "order-client-hint"
+              }
+              className={inputClassName}
+            >
+              <option value="">— Новый клиент (ввести вручную) —</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
+
+            <label htmlFor="order-client" className="sr-only">
+              Имя клиента
             </label>
             <input
               id="order-client"
@@ -387,11 +432,26 @@ export function CreateOrderDialog({
               autoComplete="new-password"
               placeholder="Иван"
               maxLength={ORDER_TEXT_LIMITS.clientName}
-              aria-invalid={state.fieldErrors?.clientName ? true : undefined}
-              aria-describedby={
-                state.fieldErrors?.clientName ? "order-client-error" : undefined
+              readOnly={selectedClient !== null}
+              value={selectedClient ? selectedClient.name : clientName}
+              onChange={(event) => {
+                if (selectedClient) {
+                  return;
+                }
+
+                setClientName(event.target.value);
+              }}
+              aria-invalid={
+                state.fieldErrors?.clientName || isSelectedClientNameTooLong
+                  ? true
+                  : undefined
               }
-              className={inputClassName}
+              aria-describedby={
+                state.fieldErrors?.clientName
+                  ? "order-client-error"
+                  : "order-client-hint"
+              }
+              className={`${inputClassName} read-only:cursor-default read-only:bg-white/[0.03] read-only:text-zinc-300`}
             />
             {state.fieldErrors?.clientName ? (
               <p
@@ -401,7 +461,24 @@ export function CreateOrderDialog({
               >
                 {state.fieldErrors.clientName}
               </p>
-            ) : null}
+            ) : (
+              <p
+                id="order-client-hint"
+                className={`mt-1.5 text-xs leading-relaxed ${
+                  isSelectedClientNameTooLong
+                    ? "text-amber-300"
+                    : "text-slate-400"
+                }`}
+              >
+                {isSelectedClientNameTooLong
+                  ? `Имя клиента длиннее ${ORDER_TEXT_LIMITS.clientName} символов — заказ хранит имя до ${ORDER_TEXT_LIMITS.clientName}. Выберите другого клиента или введите имя вручную.`
+                  : selectedClient
+                    ? "Имя из базы клиентов. В заказ сохранится строка, а не ссылка."
+                    : clients.length === 0
+                      ? "База клиентов пока пуста — введите имя вручную."
+                      : "Или выберите готового клиента — имя подставится в заказ."}
+              </p>
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -787,7 +864,7 @@ export function CreateOrderDialog({
           <div className="flex flex-col gap-3 pt-1 sm:flex-row">
             <button
               type="submit"
-              disabled={isPending}
+              disabled={isPending || isSelectedClientNameTooLong}
               aria-busy={isPending}
               className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
             >

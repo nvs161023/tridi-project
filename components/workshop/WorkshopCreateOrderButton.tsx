@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 
 import { CreateOrderDialog } from "@/components/workshop/CreateOrderDialog";
 import { PlusIcon } from "@/components/workshop/WorkshopIcons";
+import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import type { WorkshopPrinter } from "@/lib/workshop/printers";
 import type { WorkshopProduct } from "@/lib/workshop/products";
@@ -22,12 +23,14 @@ type WorkshopCreateOrderButtonProps = {
   printers: WorkshopPrinter[];
   filaments: WorkshopFilament[];
   products: WorkshopProduct[];
+  clients: WorkshopClient[];
 };
 
 export function WorkshopCreateOrderButton({
   printers,
   filaments,
   products,
+  clients,
 }: WorkshopCreateOrderButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -68,6 +71,7 @@ export function WorkshopCreateOrderButton({
           printers={printers}
           filaments={filaments}
           products={products}
+          clients={clients}
           onClose={closeDialog}
           onCreated={handleCreated}
         />
