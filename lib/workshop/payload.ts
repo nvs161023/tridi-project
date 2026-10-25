@@ -6,7 +6,10 @@
  * — если колонка переименуется, TypeScript подсветит поле сразу, а не база
  * ответит PGRST204 уже в проде.
  */
-import type { FilamentDraft } from "@/lib/workshop/filaments";
+import type {
+  FilamentDraft,
+  FilamentUsageType,
+} from "@/lib/workshop/filaments";
 import type { OrderDraft, OrderEditDraft } from "@/lib/workshop/orders";
 import type { PrinterDraft } from "@/lib/workshop/printers";
 import type {
@@ -86,6 +89,8 @@ export type WorkshopFilamentPayload = {
   price_per_kg: number;
   min_threshold_g: number;
   purchase_url: string | null;
+  /** Складская катушка или заказная; колонка из `workshop_filament_usage_type.sql`. */
+  usage_type: FilamentUsageType;
 };
 
 /**
@@ -106,6 +111,7 @@ export function createFilamentPayload(
     price_per_kg: draft.pricePerKg,
     min_threshold_g: draft.minThresholdG,
     purchase_url: draft.purchaseUrl || null,
+    usage_type: draft.usageType,
   };
 }
 

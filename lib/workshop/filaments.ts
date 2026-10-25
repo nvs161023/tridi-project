@@ -19,12 +19,58 @@ import {
   parseWorkshopNumber,
 } from "@/lib/workshop/settings";
 
+/**
+ * Типы катушек на складе.
+ *
+ * `stock` — складской пластик: ходовые цвета, которые докупаются всегда и
+ * расходуются на любые заказы. `ordered` — заказной: куплен под конкретную
+ * задачу и в общий расход не идёт.
+ *
+ * Значения повторяют check-ограничение `workshop_filaments_usage_type_check`
+ * из `supabase/workshop_filament_usage_type.sql`: форма не даст отправить
+ * неизвестный тип, а база не пропустит запрос в обход формы.
+ */
+export const FILAMENT_USAGE_TYPES = ["stock", "ordered"] as const;
+
+/** Тип катушки: складская или заказная. */
+export type FilamentUsageType = (typeof FILAMENT_USAGE_TYPES)[number];
+
+/** Подписи типов для интерфейса: `stock` → «Складской (постоянный)». */
+export const FILAMENT_USAGE_TYPE_LABELS: Record<FilamentUsageType, string> = {
+  stock: "Складской (постоянный)",
+  ordered: "Заказной (под задачу)",
+};
+
+/** Значение из формы или строки базы — известный тип катушки. */
+export function isFilamentUsageType(
+  value: unknown,
+): value is FilamentUsageType {
+  return (
+    typeof value === "string" &&
+    FILAMENT_USAGE_TYPES.some((usageType) => usageType === value)
+  );
+}
+
+/**
+ * Тип катушки из строки базы или формы.
+ *
+ * Колонка появилась миграцией `supabase/workshop_filament_usage_type.sql`, а
+ * форма «Добавить катушку» пока не присылает поле. Поэтому отсутствие и
+ * неизвестное значение означают `stock`: до разделения склада все катушки были
+ * складскими, и такой ответ не теряет данные.
+ */
+export function readFilamentUsageType(value: unknown): FilamentUsageType {
+  return isFilamentUsageType(value) ? value : "stock";
+}
+
 /** Катушка в том виде, в каком с ней работает интерфейс. */
 export type WorkshopFilament = {
   id: string;
   brand: string;
   type: string;
   color: string;
+  /** Складская катушка или купленная под конкретную задачу. */
+  usageType: FilamentUsageType;
   totalWeightG: number;
   remainingWeightG: number;
   pricePerKg: number;
@@ -60,9 +106,15 @@ export type FilamentNumberKey =
   | "pricePerKg"
   | "minThresholdG";
 
-/** Проверенный ввод формы «Добавить катушку». Ссылка — пустая строка, если её нет. */
+/**
+ * Проверенный ввод формы «Добавить катушку». Ссылка — пустая строка, если её
+ * нет. Форма без поля `usageType` даёт `stock` — как и значение по умолчанию
+ * колонки в миграции.
+ */
 export type FilamentDraft = Record<FilamentTextKey, string> &
-  Record<FilamentNumberKey, number>;
+  Record<FilamentNumberKey, number> & {
+    usageType: FilamentUsageType;
+  };
 
 /** Ошибки по полям формы: подсказка стоит рядом с виновным полем. */
 export type FilamentFormErrors = Partial<
@@ -85,7 +137,7 @@ export type FilamentNumberField = {
 
 /** Колонки, которые читает lib/workshop/filament-store.ts. */
 export const FILAMENT_COLUMNS =
-  "id, brand, type, color, total_weight_g, remaining_weight_g, price_per_kg, min_threshold_g, purchase_url, created_at";
+  "id, brand, type, color, usage_type, total_weight_g, remaining_weight_g, price_per_kg, min_threshold_g, purchase_url, created_at";
 
 /** Пределы текстовых полей — как у колонок text в миграции. */
 export const FILAMENT_TEXT_LIMITS = {
@@ -368,6 +420,9 @@ export function createImportedFilamentDraft(
 
   return {
     ...parseImportedFilamentName(name),
+    // Накладная приходит на пополнение склада: заказной пластик покупают
+    // вручную под задачу, а не распознают с фото.
+    usageType: "stock",
     totalWeightG: weight,
     remainingWeightG: weight,
     pricePerKg,
@@ -558,6 +613,7 @@ export function normalizeFilamentRow(
     brand: readText(row.brand, FILAMENT_TEXT_LIMITS.brand),
     type: readText(row.type, FILAMENT_TEXT_LIMITS.type),
     color: readText(row.color, FILAMENT_TEXT_LIMITS.color),
+    usageType: readFilamentUsageType(row.usage_type),
     totalWeightG:
       readNumberInRange(row.total_weight_g, 1, 100000, true) ??
       FILAMENT_DEFAULTS.totalWeightG,
@@ -591,6 +647,9 @@ export function readFilamentForm(formData: FormData): {
   const type = readFormText(formData.get("type"));
   const color = readFormText(formData.get("color"));
   const purchaseUrl = readFormText(formData.get("purchaseUrl"));
+  // Форма «Добавить катушку» пока не присылает тип: до появления поля все
+  // новые катушки складские — так же, как default 'stock' в миграции.
+  const usageType = readFilamentUsageType(formData.get("usageType"));
 
   if (!brand) {
     errors.brand = "Введите бренд.";
@@ -655,7 +714,7 @@ export function readFilamentForm(formData: FormData): {
     return { draft: null, errors };
   }
 
-  return { draft: { brand, type, color, purchaseUrl, ...numbers }, errors };
+  return { draft: { brand, type, color, purchaseUrl, usageType, ...numbers }, errors };
 }
 
 /** Форма «Списать N грамм» → id катушки и целые граммы. */
