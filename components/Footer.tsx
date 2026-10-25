@@ -9,11 +9,13 @@ const PHONE_HREF = `tel:${LEGAL_OPERATOR.phone.replace(/[^\d+]/g, "")}`;
 /** Готовая строка реквизитов: её проверяют платёжные сервисы при активации. */
 const SELLER_REQUISITES = `Самозанятый ${LEGAL_OPERATOR.shortName}, ИНН ${LEGAL_OPERATOR.inn}`;
 
-const legalLinkClassName =
-  "transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
+const footerHeadingClassName =
+  "text-xs font-semibold tracking-[0.14em] text-white/90 uppercase";
 
-const contactLinkClassName =
-  "inline-flex text-base font-semibold text-blue-300 underline decoration-blue-400/40 underline-offset-4 transition-colors hover:text-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
+const footerLinkClassName =
+  "w-fit text-zinc-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]";
+
+const contactLinkClassName = `${footerLinkClassName} text-base font-medium`;
 
 /**
  * Футер сайта со ссылками на юридические документы и реквизитами продавца.
@@ -28,34 +30,32 @@ export function Footer() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="border-t border-white/10 bg-slate-950 print:hidden">
-      <div className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-12">
-        <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,0.95fr)_minmax(0,1.2fr)] lg:gap-8">
+    <footer className="border-t border-white/[0.05] bg-black/50 backdrop-blur-xl print:hidden">
+      <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-16">
+        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,0.95fr)_minmax(0,1.2fr)]">
           <div>
             <div className="flex flex-wrap items-center gap-3">
               <Logo variant="wordmark" />
-              <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-semibold text-slate-300">
+              <span className="inline-flex rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-0.5 text-[11px] font-semibold text-zinc-400">
                 18+
               </span>
             </div>
-            <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-300">
+            <p className="mt-5 max-w-xs text-sm leading-relaxed text-zinc-400">
               Онлайн-курс по 3D-печати: практика, тесты и профили для слайсеров.
             </p>
-            <p className="mt-3 max-w-xs text-sm leading-relaxed text-slate-300">
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-zinc-400">
               Сервис предназначен для лиц старше 18 лет.
             </p>
           </div>
 
           <nav aria-label="Юридические документы">
-            <h2 className="text-xs font-semibold tracking-[0.14em] text-slate-300 uppercase">
-              Документы
-            </h2>
-            <ul className="mt-4 space-y-2.5 text-sm text-slate-300">
+            <h2 className={footerHeadingClassName}>Документы</h2>
+            <ul className="mt-5 space-y-3 text-sm">
               {LEGAL_DOCUMENTS.map((document) => (
                 <li key={document.href}>
                   <Link
                     href={document.href}
-                    className={legalLinkClassName}
+                    className={footerLinkClassName}
                   >
                     {document.footerLabel ?? document.label}
                   </Link>
@@ -66,40 +66,37 @@ export function Footer() {
 
           <section
             aria-labelledby="footer-requisites-heading"
-            className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 sm:p-6 md:col-span-2 lg:col-span-1"
+            className="rounded-2xl border border-white/10 bg-white/[0.02] p-6 md:col-span-2 lg:col-span-1"
           >
-            <h2
-              id="footer-requisites-heading"
-              className="text-xs font-semibold tracking-[0.14em] text-slate-300 uppercase"
-            >
+            <h2 id="footer-requisites-heading" className={footerHeadingClassName}>
               Реквизиты и контакты
             </h2>
 
-            <p className="mt-4 text-base font-semibold leading-relaxed text-slate-100">
+            <p className="mt-4 text-base font-semibold leading-relaxed text-white/90">
               {SELLER_REQUISITES}
             </p>
 
-            <dl className="mt-4 grid gap-x-8 gap-y-3.5 text-sm md:grid-cols-2 lg:grid-cols-1">
+            <dl className="mt-5 grid gap-x-8 gap-y-4 text-sm md:grid-cols-2 lg:grid-cols-1">
               <div>
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-300 uppercase">
+                <dt className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">
                   Статус
                 </dt>
-                <dd className="mt-1 leading-relaxed text-slate-200">
+                <dd className="mt-1 leading-relaxed text-zinc-400">
                   {LEGAL_OPERATOR.sellerStatus}
                 </dd>
               </div>
 
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 md:border-t md:border-white/10 md:pt-3.5">
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-300 uppercase">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <dt className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">
                   ИНН
                 </dt>
-                <dd className="font-mono text-base font-semibold tracking-wide text-slate-100">
+                <dd className="font-mono text-base font-semibold tracking-wide text-white/90">
                   {LEGAL_OPERATOR.inn}
                 </dd>
               </div>
 
               <div>
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-300 uppercase">
+                <dt className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">
                   Телефон
                 </dt>
                 <dd className="mt-1">
@@ -110,7 +107,7 @@ export function Footer() {
               </div>
 
               <div>
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-slate-300 uppercase">
+                <dt className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">
                   Email
                 </dt>
                 <dd className="mt-1">
@@ -126,7 +123,7 @@ export function Footer() {
           </section>
         </div>
 
-        <div className="mt-10 flex flex-col gap-2 border-t border-white/10 pt-6 text-xs leading-relaxed text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-12 flex flex-col gap-2 text-xs leading-relaxed text-zinc-400 sm:flex-row sm:items-center sm:justify-between">
           <p>
             © {currentYear} tridi-print.ru — 3D-печать с нуля. Все права защищены.
           </p>

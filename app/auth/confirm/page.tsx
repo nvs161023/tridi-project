@@ -19,7 +19,7 @@ function failureHref(next: string): string {
 /** Рамка страницы: тёмный фон и карточка по центру — как на входе и регистрации. */
 function ConfirmShell({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16 sm:px-8">
         <Link
           href="/"

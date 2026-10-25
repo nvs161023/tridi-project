@@ -71,7 +71,7 @@ export default async function ConfidentCheckPage({
 
   if (!courseModule) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="min-h-screen text-slate-100">
         <main className="mx-auto flex max-w-3xl flex-col items-start px-5 py-20 sm:px-8 sm:py-28">
           <p className="text-sm font-semibold uppercase tracking-widest text-emerald-300">
             Уровень «Уверенный»
@@ -138,7 +138,7 @@ export default async function ConfidentCheckPage({
     : "/course/confident/complete";
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 px-5 py-5 sm:px-8">
           <Link

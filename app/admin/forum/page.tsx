@@ -126,7 +126,7 @@ export default async function AdminForumPage() {
     admin = createAdminClient();
   } catch {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="min-h-screen text-slate-100">
         <Header />
         <main className="mx-auto max-w-3xl px-5 py-16 sm:px-8">
           <h1 className="text-3xl font-extrabold text-white">
@@ -253,7 +253,7 @@ export default async function AdminForumPage() {
   const activeBans = bans.filter(isActiveBan);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <Header />
 
       <main className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-16">

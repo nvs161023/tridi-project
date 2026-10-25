@@ -118,7 +118,7 @@ export default async function ConstructorPage({
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <Header />
       <ConstructorClient
         freeDownloadsLeft={freeDownloadsLeft}

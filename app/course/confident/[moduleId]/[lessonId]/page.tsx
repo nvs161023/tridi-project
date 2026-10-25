@@ -87,7 +87,7 @@ function checkHref(moduleId: string): string {
 
 function LessonNotFound() {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <main className="mx-auto flex max-w-3xl flex-col items-start px-5 py-20 sm:px-8 sm:py-28">
         <p className="text-sm font-semibold uppercase tracking-widest text-emerald-300">
           Уровень «Уверенный»
@@ -179,7 +179,7 @@ function LessonLockedByTest({
   lockedLessonHref: string;
 }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <main className="mx-auto flex max-w-3xl flex-col items-start px-5 py-20 sm:px-8 sm:py-28">
         <p className="text-sm font-semibold uppercase tracking-widest text-emerald-300">
           Модуль закрыт
@@ -392,7 +392,7 @@ export default async function ConfidentLessonPage({
   const courseFinishNote = `Позади все ${totalLessons} ${pluralize(totalLessons, LESSON_FORMS)} уровня «Уверенный»: безопасность мастерской, тонкости слайсера и управление принтером. Дальше — практика на своих моделях.`;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto max-w-6xl px-5 py-4 sm:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">

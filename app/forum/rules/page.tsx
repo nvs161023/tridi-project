@@ -45,7 +45,7 @@ const RULES: readonly { title: string; text: string }[] = [
  */
 export default function ForumRulesPage() {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <Header />
 
       <main className="mx-auto max-w-3xl px-5 py-14 sm:px-8 sm:py-20">

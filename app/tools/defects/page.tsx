@@ -99,7 +99,7 @@ export default async function DefectsPage() {
   const faqJsonLd = buildFaqJsonLd(siteUrl);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <Header />
 
       <script

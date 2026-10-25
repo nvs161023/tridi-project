@@ -29,9 +29,19 @@ html {
 
 body {
   min-height: 100vh;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family:
+    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+/* Единый фон всего сайта: задан на <body> в app/layout.tsx, поэтому mesh
+   остаётся глубоким на главной, тарифах, в кабинете и на страницах курсов.
+   Слои зафиксированы, чтобы при прокрутке свечение не «плыло» под контентом. */
+.site-background {
   background-color: #030303;
-  /* Mesh-градиент: синее и фиолетовое свечение с большим радиусом. Слои
-     зафиксированы, поэтому при прокрутке фон не «плывёт» под контентом. */
   background-image:
     radial-gradient(
       ellipse 80% 58% at 50% -12%,
@@ -50,11 +60,6 @@ body {
     );
   background-repeat: no-repeat;
   background-attachment: fixed;
-  color: var(--foreground);
-  font-family:
-    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  text-rendering: optimizeLegibility;
 }
 
 @layer base {

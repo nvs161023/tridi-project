@@ -59,7 +59,7 @@ export async function generateMetadata({
 /** Общая рамка страниц сертификата: шапка сайта и тёмный фон на экране. */
 function CertificatePageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 print:min-h-0 print:bg-white print:text-[#14243f]">
+    <div className="min-h-screen text-slate-100 print:min-h-0 print:bg-white print:text-[#14243f]">
       <Header />
       <main className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14 print:max-w-none print:p-0">
         {children}

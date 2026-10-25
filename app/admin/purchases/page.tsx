@@ -143,7 +143,7 @@ export default async function AdminPurchasesPage() {
     admin = createAdminClient();
   } catch {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="min-h-screen text-slate-100">
         <Header />
         <main className="mx-auto max-w-3xl px-5 py-16 sm:px-8">
           <h1 className="text-3xl font-extrabold tracking-tight text-white">
@@ -210,7 +210,7 @@ export default async function AdminPurchasesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <Header />
 
       <main className="mx-auto max-w-6xl px-5 py-14 sm:px-8">

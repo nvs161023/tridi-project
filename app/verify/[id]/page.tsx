@@ -57,7 +57,7 @@ export async function generateMetadata({
 /** Общая рамка страницы проверки. */
 function VerifyShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <Header />
       <main className="mx-auto flex max-w-4xl flex-col px-5 py-12 sm:px-8 sm:py-20">
         {children}

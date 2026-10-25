@@ -57,7 +57,7 @@ export default async function NewForumThreadPage({
     : undefined;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <Header />
 
       <main className="mx-auto max-w-3xl px-5 py-12 sm:px-8 sm:py-16">

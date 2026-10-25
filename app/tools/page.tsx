@@ -185,7 +185,7 @@ const TOOLS: Tool[] = [
 
 export default function ToolsPage() {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <Header />
 
       <main>

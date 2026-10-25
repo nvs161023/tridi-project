@@ -116,7 +116,7 @@ export const dynamic = "force-dynamic";
 /** Общая рамка: шапка сайта и тёмный фон. */
 function GraduationShell({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <Header />
       <main className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14">
         {children}

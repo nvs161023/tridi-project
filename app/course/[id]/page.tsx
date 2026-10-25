@@ -63,7 +63,7 @@ export async function generateMetadata({ params }: LessonPageProps) {
 
 function LessonNotFound() {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <main className="mx-auto flex max-w-3xl flex-col items-start px-5 py-20 sm:px-8 sm:py-28">
         <p className="text-sm font-semibold uppercase tracking-widest text-blue-400">
           Ошибка 404
@@ -119,7 +119,7 @@ function LessonLockedByTest({
   lockedLessonHref: string;
 }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <main className="mx-auto flex max-w-3xl flex-col items-start px-5 py-20 sm:px-8 sm:py-28">
         <p className="text-sm font-semibold uppercase tracking-widest text-blue-400">
           Модуль закрыт
@@ -234,7 +234,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
   const isLastLesson = lesson.id === totalLessons;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto max-w-6xl px-5 py-4 sm:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">

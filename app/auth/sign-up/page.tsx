@@ -25,7 +25,7 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
   // могла бы выбрасывать человека на чужой сайт (см. lib/auth-redirect.ts).
   const next = safeNextPath((await searchParams).next);
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16 sm:px-8">
         <Link
           href="/"

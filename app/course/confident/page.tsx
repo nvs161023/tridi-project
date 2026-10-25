@@ -54,7 +54,7 @@ export default async function ConfidentCoursePage() {
   const hasAccess = await hasCourseAccess(supabase, userId, "confident");
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-5 py-5 sm:px-8">
           <Link

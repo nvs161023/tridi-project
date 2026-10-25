@@ -154,7 +154,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -291,7 +291,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
         {/* Программа: модули и уроки из данных курса, без ручных чисел */}
         <section
           id="program"
-          className="border-b border-white/10 bg-slate-950"
+          className="border-b border-white/10 bg-white/[0.015]"
         >
           <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
             <p

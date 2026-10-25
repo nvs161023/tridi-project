@@ -41,7 +41,7 @@ export default async function ActivatePage({ searchParams }: ActivatePageProps) 
   } = await supabase.auth.getUser();
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen text-slate-100">
       <Header />
 
       <main className="mx-auto max-w-2xl px-5 py-16 sm:px-8">
