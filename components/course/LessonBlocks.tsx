@@ -1,6 +1,7 @@
 import Image from "next/image";
 
 import { MiniCheck } from "@/components/course/MiniCheck";
+import { LESSON_CARD } from "@/components/course/lesson-ui";
 import { getVisualComponent } from "@/components/lesson-visuals";
 import type { CourseKind, LessonBlock, LessonBlockStep } from "@/lib/types";
 
@@ -38,21 +39,18 @@ export type { LessonBlock, LessonBlockStep } from "@/lib/types";
 const calloutStyles = {
   tip: {
     icon: "💡",
-    card: "border-emerald-500/30 bg-emerald-500/10",
+    iconBox: "border-emerald-500/20 bg-emerald-500/10",
     title: "text-emerald-200",
-    body: "text-emerald-100/85",
   },
   warning: {
     icon: "⚠️",
-    card: "border-amber-500/40 bg-amber-500/10",
+    iconBox: "border-amber-500/25 bg-amber-500/10",
     title: "text-amber-200",
-    body: "text-amber-100/85",
   },
   analogy: {
     icon: "🧩",
-    card: "border-violet-500/30 bg-violet-500/10",
+    iconBox: "border-violet-500/20 bg-violet-500/10",
     title: "text-violet-200",
-    body: "text-violet-100/85",
   },
 } as const;
 
@@ -86,13 +84,16 @@ type MediaType = keyof typeof mediaStyles;
 
 /**
  * Типографика текста урока: крупнее базового 16px и свободный интерлиньяж.
- * Ширину задаёт страница (`LessonLayout`): текст тянется на всю карточку блока,
- * поэтому строка на широком экране длиннее, чем в прежней колонке 44rem.
+ *
+ * Ширину задаёт страница (`LessonLayout`) — колонка до 800px. При 17–18px и
+ * `leading-8`/`leading-9` строка держится в пределах 70–80 знаков: глаз не
+ * теряет её начало. Цвет — `slate-300`, а не белый: длинный абзац белым слепит,
+ * а заголовки и жирные термины остаются белыми, и иерархия читается.
  */
 const LESSON_TEXT =
-  "text-[17px] leading-8 text-slate-200 sm:text-lg";
+  "text-[17px] leading-8 text-slate-300 sm:text-[18px] sm:leading-9";
 const LESSON_TEXT_MUTED =
-  "text-[17px] leading-8 text-slate-300 sm:text-lg";
+  "text-[16px] leading-7 text-slate-400 sm:text-[17px] sm:leading-8";
 
 /**
  * Разбор строки на обычный текст и **жирные** вставки: звёздочки из данных
@@ -170,7 +171,7 @@ export function LessonBlocks({
   lessonId?: number | string;
 }) {
   return (
-    <div className="mt-12 space-y-8 sm:mt-16 sm:space-y-10">
+    <div className="mt-10 space-y-6 sm:mt-12 sm:space-y-8">
       {blocks.map((block, index) => (
         <BlockView
           key={`${index}-${block.type}`}
@@ -191,7 +192,9 @@ function BlockTitle({ children }: { children?: string }) {
   }
 
   return (
-    <h2 className="text-2xl font-bold text-white sm:text-3xl">{children}</h2>
+    <h2 className="mb-4 text-xl font-semibold tracking-tight text-white sm:text-2xl">
+      {children}
+    </h2>
   );
 }
 
@@ -250,7 +253,7 @@ function BlockVisual({
             width={800}
             height={450}
             unoptimized
-            className="h-auto w-full rounded-xl border border-slate-700/50 bg-slate-950/40"
+            className="h-auto w-full rounded-xl border border-white/10 bg-black/40"
           />
         ) : Visual ? (
           <Visual
@@ -258,11 +261,11 @@ function BlockVisual({
             animated={block.type === "animation"}
           />
         ) : (
-          <div className="my-6 rounded-xl border border-slate-700/50 bg-slate-800/50 p-4 sm:p-6 md:my-8">
-            <p className="mb-3 text-sm text-slate-300">{block.title}</p>
+          <div className="my-6 rounded-xl border border-white/10 bg-white/[0.02] p-4 sm:p-6">
+            <p className="mb-3 text-sm text-slate-400">{block.title}</p>
             <div
               aria-hidden
-              className="mx-auto flex aspect-[16/9] w-full max-w-[600px] items-center justify-center rounded-xl border border-slate-700/50 bg-slate-900/40 text-4xl"
+              className="mx-auto flex aspect-[16/9] w-full max-w-[600px] items-center justify-center rounded-xl border border-white/10 bg-white/[0.02] text-4xl"
             >
               {style.icon}
             </div>
@@ -270,7 +273,7 @@ function BlockVisual({
         )}
       </div>
       {preview ? (
-        <p className="mt-3 text-[15px] leading-7 text-slate-300">
+        <p className="mt-4 text-[15px] leading-7 text-slate-400">
           {preview}
           {block.content && block.content.length > 100 ? "…" : ""}
         </p>
@@ -295,7 +298,7 @@ function BlockView({
   switch (block.type) {
     case "text":
       return (
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
+        <section className={LESSON_CARD}>
           <BlockTitle>{block.title}</BlockTitle>
           {block.visual_file || block.src ? (
             <BlockVisual
@@ -322,7 +325,7 @@ function BlockView({
       }
 
       return (
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
+        <section className={LESSON_CARD}>
           <BlockTitle>{block.title}</BlockTitle>
           {block.visual_file || block.src ? (
             <BlockVisual
@@ -340,12 +343,12 @@ function BlockView({
               className={`mt-5 ${LESSON_TEXT}`}
             />
           ) : null}
-          <ul className="mt-6 space-y-5">
+          <ul className="mt-6 space-y-4">
             {block.items.map((item) => (
               <li key={item} className="flex items-start gap-3">
                 <span
                   aria-hidden
-                  className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                  className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-white/40"
                 />
                 <BlockText
                   text={item}
@@ -369,7 +372,7 @@ function BlockView({
       );
 
       return (
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
+        <section className={LESSON_CARD}>
           <BlockTitle>{block.title}</BlockTitle>
           {block.visual_file || block.src ? (
             <BlockVisual
@@ -387,17 +390,20 @@ function BlockView({
               className={`mt-5 ${LESSON_TEXT}`}
             />
           ) : null}
-          <ol className="mt-6 space-y-8">
+          <ol className="mt-6 space-y-3">
             {steps.map((step, index) => (
-              <li key={`${index}-${step.title}`} className="flex items-start gap-4">
+              <li
+                key={`${index}-${step.title}`}
+                className="flex items-start gap-4 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-4 transition-colors hover:border-white/10 sm:px-5"
+              >
                 <span
                   aria-hidden
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-base font-extrabold text-white"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[13px] font-bold text-black"
                 >
                   {index + 1}
                 </span>
-                <div>
-                  <h3 className="text-lg font-bold text-white sm:text-xl">
+                <div className="min-w-0">
+                  <h3 className="text-base font-semibold leading-snug text-white sm:text-[17px]">
                     {step.title}
                   </h3>
                   {step.text ? (
@@ -420,20 +426,21 @@ function BlockView({
       const style = calloutStyles[block.type as CalloutType];
 
       return (
-        <aside
-          className={`flex items-start gap-4 rounded-3xl border p-7 sm:p-9 ${style.card}`}
-        >
-          <span aria-hidden className="text-2xl">
+        <aside className={`flex items-start gap-4 ${LESSON_CARD}`}>
+          <span
+            aria-hidden
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-base ${style.iconBox}`}
+          >
             {style.icon}
           </span>
-          <div>
-            <h2 className={`text-lg font-bold sm:text-xl ${style.title}`}>
+          <div className="min-w-0">
+            <h2 className={`text-base font-semibold sm:text-lg ${style.title}`}>
               {block.title}
             </h2>
             {block.content ? (
               <BlockText
                 text={block.content}
-                className={`mt-2 text-[17px] leading-8 sm:text-lg ${style.body}`}
+                className="mt-2 text-[16px] leading-7 text-slate-300 sm:text-[17px] sm:leading-8"
               />
             ) : null}
           </div>
@@ -450,7 +457,7 @@ function BlockView({
       // серой заглушки с иконкой.
       if (!block.visual_file && !block.src) {
         return (
-          <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
+          <section className={LESSON_CARD}>
             <BlockTitle>{block.title}</BlockTitle>
             {block.content ? (
               <BlockText

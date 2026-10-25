@@ -1,5 +1,9 @@
 import Link from "next/link";
 
+import {
+  LESSON_CARD,
+  LESSON_PRIMARY,
+} from "@/components/course/lesson-ui";
 import { moduleTestThemes } from "@/components/course/module-test-theme";
 import { LESSON_FORMS, pluralize } from "@/lib/course-stats";
 import type { CourseTestVariant } from "@/lib/module-test";
@@ -38,19 +42,19 @@ export function ModuleTestLocked({
   return (
     <section
       id="module-test-locked"
-      className="scroll-mt-20 rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9"
+      className={`scroll-mt-20 ${LESSON_CARD}`}
     >
       <p
-        className={`text-sm font-semibold uppercase tracking-widest ${theme.eyebrow}`}
+        className={`text-[11px] font-semibold tracking-[0.16em] uppercase ${theme.eyebrow}`}
       >
         Проверь себя
       </p>
 
-      <h2 className="mt-3 text-xl font-extrabold tracking-tight text-white sm:text-2xl">
+      <h2 className="mt-3 text-xl font-bold tracking-tight text-white sm:text-2xl">
         {moduleLabel}
       </h2>
 
-      <p className="mt-3 text-base leading-relaxed text-slate-300">
+      <p className="mt-3 text-[16px] leading-8 text-slate-300 sm:text-[17px]">
         Тест модуля открывается после всех уроков модуля. Осталось{" "}
         {unread.length} {pluralize(unread.length, LESSON_FORMS)} — без них
         проверять ещё нечего.
@@ -61,12 +65,12 @@ export function ModuleTestLocked({
           <li key={item.href}>
             <Link
               href={item.href}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-slate-950/40 px-5 py-3.5 text-sm font-medium text-slate-200 transition-colors hover:border-white/25 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3 text-sm font-medium text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
             >
               <span>
                 <span aria-hidden>📖</span> {item.label}
               </span>
-              <span aria-hidden className="text-slate-300">
+              <span aria-hidden className="text-zinc-500">
                 →
               </span>
             </Link>
@@ -75,15 +79,18 @@ export function ModuleTestLocked({
       </ul>
 
       {firstUnread ? (
-        <div className="mt-7 flex flex-wrap gap-3">
-          <Link href={firstUnread.href} className={theme.primary}>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link
+            href={firstUnread.href}
+            className={`${LESSON_PRIMARY} min-h-12 w-full px-6 sm:w-auto`}
+          >
             Продолжить урок
             <span aria-hidden>→</span>
           </Link>
         </div>
       ) : null}
 
-      <p className="mt-5 text-sm leading-relaxed text-slate-300">
+      <p className="mt-5 text-sm leading-relaxed text-zinc-500">
         Тест обязателен: без него следующий модуль закрыт.
       </p>
     </section>

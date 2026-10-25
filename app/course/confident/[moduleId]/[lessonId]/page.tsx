@@ -3,7 +3,9 @@ import { redirect } from "next/navigation";
 
 import { CompleteButton } from "@/components/course/CompleteButton";
 import { LessonBlocks } from "@/components/course/LessonBlocks";
+import { LESSON_CARD } from "@/components/course/lesson-ui";
 import { LessonLayout } from "@/components/course/LessonLayout";
+import { LessonPager } from "@/components/course/LessonPager";
 import { ModuleTestGate } from "@/components/course/ModuleTestGate";
 import { ModuleTestLocked } from "@/components/course/ModuleTestLocked";
 import { PreviewLessonNotice } from "@/components/course/PreviewLessonNotice";
@@ -393,12 +395,12 @@ export default async function ConfidentLessonPage({
 
   return (
     <div className="min-h-screen text-slate-100">
-      <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto max-w-6xl px-5 py-4 sm:px-8">
+      <header className="border-b border-white/5 bg-[#0a0a0a]/80 backdrop-blur">
+        <div className="mx-auto w-full max-w-[800px] px-5 py-4 sm:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Link
               href="/course/confident"
-              className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="inline-flex items-center gap-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
             >
               <span aria-hidden>←</span>
               {hasAccess ? "Программа уровня" : "На главную"}
@@ -406,7 +408,7 @@ export default async function ConfidentLessonPage({
             {hasAccess && previous ? (
               <Link
                 href={lessonHref(previous.moduleId, previous.lessonId)}
-                className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                className="inline-flex items-center gap-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
               >
                 <span aria-hidden>←</span>
                 Предыдущий
@@ -415,12 +417,12 @@ export default async function ConfidentLessonPage({
           </div>
 
           <div className="mt-4">
-            <div className="flex items-center justify-between text-xs font-semibold text-slate-300 sm:text-sm">
+            <div className="flex items-center justify-between text-[11px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
               <span>
                 Урок {lesson.lessonNumber} из {totalLessons}
               </span>
               {hasAccess ? (
-                <span className="text-emerald-300">{progressPercent}%</span>
+                <span className="text-zinc-300">{progressPercent}%</span>
               ) : null}
             </div>
             {/* Без доступа полоска остаётся серой и пустой: прогресс по закрытому
@@ -435,9 +437,7 @@ export default async function ConfidentLessonPage({
             >
               <div
                 className={`h-full rounded-full transition-[width] duration-500 ${
-                  hasAccess
-                    ? "bg-gradient-to-r from-emerald-400 to-teal-500"
-                    : "bg-white/20"
+                  hasAccess ? "bg-white" : "bg-white/20"
                 }`}
                 style={{ width: hasAccess ? `${progressPercent}%` : "0%" }}
               />
@@ -447,18 +447,18 @@ export default async function ConfidentLessonPage({
       </header>
 
       <LessonLayout>
-        <p className="text-sm font-semibold uppercase tracking-widest text-emerald-300">
+        <p className="text-[11px] font-semibold tracking-[0.16em] text-emerald-300 uppercase">
           {lesson.moduleLabel}
         </p>
-        <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+        <h1 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">
           {lesson.title}
         </h1>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold text-emerald-200 sm:text-sm">
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-medium text-zinc-300">
             <span aria-hidden>✅</span>
             Уверенный уровень
           </span>
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-semibold text-slate-300 sm:text-sm">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-medium text-zinc-300">
             <span aria-hidden>⏱️</span>
             {lesson.duration}
           </span>
@@ -502,7 +502,7 @@ export default async function ConfidentLessonPage({
         )}
 
         {hasAccess ? (
-          <div className="mt-12 sm:mt-16">
+          <div className="mt-10 border-t border-white/5 pt-8 sm:mt-12">
             {lesson.isModuleLast && hasModuleTest ? (
               // Последний урок модуля: тест обязателен и здесь, поэтому вместо
               // перехода показываем карточку «Проверь себя». Пока уроки модуля не
@@ -537,18 +537,18 @@ export default async function ConfidentLessonPage({
             ) : lesson.isModuleLast ? (
               // Тест модуля ещё не написан: проверять нечего, поэтому продолжаем
               // без гейта. Как только вопросы появятся, здесь встанет тест.
-              <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
-                <p className="text-sm font-semibold uppercase tracking-widest text-emerald-300">
+              <section className={LESSON_CARD}>
+                <p className="text-[11px] font-semibold tracking-[0.16em] text-emerald-300 uppercase">
                   Проверь себя
                 </p>
-                <h2 className="mt-3 text-xl font-extrabold tracking-tight text-white sm:text-2xl">
+                <h2 className="mt-3 text-xl font-bold tracking-tight text-white sm:text-2xl">
                   {lesson.moduleLabel}
                 </h2>
-                <p className="mt-3 text-base leading-relaxed text-slate-300">
+                <p className="mt-3 text-[16px] leading-8 text-slate-300 sm:text-[17px]">
                   Тест модуля появится вместе с последними уроками. Пока проверка
                   не написана, следующий модуль открыт — можно идти дальше.
                 </p>
-                <div className="mt-7">
+                <div className="mt-6">
                   <CompleteButton
                     lessonId={lesson.lessonNumber}
                     courseType="confident"
@@ -567,6 +567,24 @@ export default async function ConfidentLessonPage({
                 label="Пройти урок"
               />
             )}
+            <LessonPager
+              previous={
+                previous
+                  ? {
+                      href: lessonHref(previous.moduleId, previous.lessonId),
+                      label: previous.title,
+                    }
+                  : null
+              }
+              next={
+                next
+                  ? {
+                      href: lessonHref(next.moduleId, next.lessonId),
+                      label: next.title,
+                    }
+                  : null
+              }
+            />
           </div>
         ) : null}
       </LessonLayout>

@@ -44,6 +44,12 @@ type TestOverlayProps = {
   /** Текст на кнопке, которая открывает слайд. */
   triggerLabel: string;
   triggerVariant?: "primary" | "secondary";
+  /**
+   * Класс кнопки-триггера вместо палитры курса: страница урока задаёт свои
+   * кнопки — белую для главного действия и тёмную с обводкой для второго.
+   * Если класс не передан, работает `triggerVariant`.
+   */
+  triggerClassName?: string;
   /** Строка под заголовком слайда: сколько вопросов и какой порог. */
   hint?: string;
 };
@@ -58,6 +64,7 @@ export function TestOverlay({
   continueLabel,
   triggerLabel,
   triggerVariant = "primary",
+  triggerClassName,
   hint,
 }: TestOverlayProps) {
   const router = useRouter();
@@ -68,8 +75,9 @@ export function TestOverlay({
 
   const theme = moduleTestThemes[courseType];
 
-  const triggerClassName =
-    triggerVariant === "secondary" ? theme.secondary : theme.primary;
+  const triggerClass =
+    triggerClassName ??
+    (triggerVariant === "secondary" ? theme.secondary : theme.primary);
 
   /** Закрыть слайд и вернуть фокус туда, откуда его открыли. */
   const close = useCallback(() => {
@@ -106,7 +114,7 @@ export function TestOverlay({
         ref={triggerRef}
         type="button"
         onClick={() => setIsOpen(true)}
-        className={triggerClassName}
+        className={triggerClass}
       >
         <span aria-hidden>🎯</span>
         {triggerLabel}

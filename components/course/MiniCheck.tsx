@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 
+import {
+  LESSON_CARD,
+  LESSON_EYEBROW,
+  LESSON_PRIMARY,
+  LESSON_SECONDARY,
+} from "@/components/course/lesson-ui";
 import type { MiniCheckQuestion } from "@/lib/types";
 
 /**
@@ -76,21 +82,21 @@ export function MiniCheck({ title, questions }: MiniCheckProps) {
   /** Вид кнопки-варианта: обычный, верный, выбранный неверный или погашенный. */
   function answerClassName(answerIndex: number): string {
     const base =
-      "flex w-full items-start gap-3 rounded-2xl border px-5 py-4 text-left text-base font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
+      "flex w-full items-start gap-3 rounded-xl border px-4 py-3.5 text-left text-[15px] font-medium leading-7 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:text-base";
 
     if (!isAnswered) {
-      return `${base} border-white/15 bg-white/5 text-slate-200 hover:border-amber-300/60 hover:bg-white/10`;
+      return `${base} border-white/10 bg-white/[0.02] text-zinc-300 hover:border-white/25 hover:bg-white/[0.06]`;
     }
 
     if (answerIndex === question.correct) {
-      return `${base} border-emerald-500/60 bg-emerald-500/15 text-emerald-100`;
+      return `${base} border-emerald-500/40 bg-emerald-500/10 text-emerald-100`;
     }
 
     if (answerIndex === picked) {
-      return `${base} border-red-500/60 bg-red-500/15 text-red-100`;
+      return `${base} border-red-500/40 bg-red-500/10 text-red-100`;
     }
 
-    return `${base} border-white/10 bg-white/5 text-slate-300 opacity-60`;
+    return `${base} border-white/5 bg-white/[0.02] text-zinc-400 opacity-60`;
   }
 
   /** Значок перед вариантом: после ответа — галочка или крестик. */
@@ -110,17 +116,18 @@ export function MiniCheck({ title, questions }: MiniCheckProps) {
     const isAllCorrect = correctCount === total;
 
     return (
-      <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
-        <h2 className="text-lg font-bold text-white sm:text-xl">
+      <section className={LESSON_CARD}>
+        <p className={LESSON_EYEBROW}>Мини-проверка</p>
+        <h2 className="mt-3 text-lg font-semibold text-white sm:text-xl">
           {title ?? "Проверь себя"}
         </h2>
 
-        <p className="mt-6 text-2xl font-extrabold text-white sm:text-3xl">
+        <p className="mt-6 text-2xl font-bold tracking-tight text-white sm:text-3xl">
           <span aria-hidden>{isAllCorrect ? "🏆" : "📊"}</span> {correctCount} из{" "}
           {total} правильных
         </p>
 
-        <p className="mt-3 text-base leading-relaxed text-slate-300">
+        <p className="mt-3 text-[16px] leading-8 text-slate-300 sm:text-[17px]">
           {isAllCorrect
             ? "Все ответы верные — можно идти дальше."
             : "Загляни в блоки выше: на каждый вопрос там есть подсказка."}
@@ -129,7 +136,7 @@ export function MiniCheck({ title, questions }: MiniCheckProps) {
         <button
           type="button"
           onClick={restart}
-          className="mt-8 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-7 text-base font-semibold text-slate-100 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
+          className={`${LESSON_SECONDARY} mt-8 min-h-12 w-full px-6 sm:w-auto`}
         >
           <span aria-hidden>↻</span>
           Пройти заново
@@ -139,30 +146,30 @@ export function MiniCheck({ title, questions }: MiniCheckProps) {
   }
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
+    <section className={LESSON_CARD}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-bold text-white sm:text-xl">
+        <h2 className="text-lg font-semibold text-white sm:text-xl">
           <span aria-hidden className="mr-2">
             📝
           </span>
           {title ?? "Проверь себя"}
         </h2>
-        <span className="text-sm font-semibold text-amber-300">
+        <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-semibold text-zinc-300">
           {correctCount} из {total} верных
         </span>
       </div>
 
       <div className="mt-5 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 transition-[width] duration-500"
+          className="h-full rounded-full bg-white transition-[width] duration-500"
           style={{ width: `${progressPercent}%` }}
         />
       </div>
 
-      <p className="mt-6 text-xs font-semibold uppercase tracking-widest text-slate-300">
+      <p className="mt-6 text-[11px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
         Вопрос {questionIndex + 1} из {total}
       </p>
-      <h3 className="mt-2 text-base font-bold text-white sm:text-lg">
+      <h3 className="mt-2 text-base font-semibold text-white sm:text-lg">
         {question.question}
       </h3>
 
@@ -204,7 +211,7 @@ export function MiniCheck({ title, questions }: MiniCheckProps) {
       {/* Пояснение к выбранному варианту. Пояснений может не быть (например, в
           продвинутом курсе) — тогда блок не выводим. */}
       {isAnswered && explanation ? (
-        <p className="mt-3 rounded-2xl border border-white/10 bg-slate-950/40 px-5 py-4 text-sm leading-relaxed text-slate-300 sm:text-base">
+        <p className="mt-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3.5 text-[15px] leading-7 text-slate-300 sm:text-base">
           <span className="font-semibold text-slate-100">
             {isCorrect
               ? "Почему это верно: "
@@ -218,7 +225,7 @@ export function MiniCheck({ title, questions }: MiniCheckProps) {
         <button
           type="button"
           onClick={goNext}
-          className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-7 text-base font-semibold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:from-amber-300 hover:to-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:w-auto"
+          className={`${LESSON_PRIMARY} mt-6 min-h-12 w-full px-6 sm:w-auto`}
         >
           {isLastQuestion ? "Показать результат" : "Следующий вопрос"}
           <span aria-hidden>→</span>

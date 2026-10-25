@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CompleteButton } from "@/components/course/CompleteButton";
 import { LessonBlocks } from "@/components/course/LessonBlocks";
 import { LessonLayout } from "@/components/course/LessonLayout";
+import { LessonPager } from "@/components/course/LessonPager";
 import { ModuleTestGate } from "@/components/course/ModuleTestGate";
 import { ModuleTestLocked } from "@/components/course/ModuleTestLocked";
 import { TestOverlay } from "@/components/course/TestOverlay";
@@ -233,14 +234,26 @@ export default async function LessonPage({ params }: LessonPageProps) {
   const progressPercent = Math.round((lesson.id / totalLessons) * 100);
   const isLastLesson = lesson.id === totalLessons;
 
+  // Соседи по программе для нижней навигации. Название берём из данных урока,
+  // чтобы в карточке было видно, куда ведёт ссылка, а не только «дальше».
+  const previousLesson =
+    lesson.id > 1 ? lessons.find((item) => item.id === lesson.id - 1) : undefined;
+  const nextLesson = lessons.find((item) => item.id === lesson.id + 1);
+  const previousLink = previousLesson
+    ? { href: lessonHref(previousLesson.id), label: previousLesson.title }
+    : null;
+  const nextLink = nextLesson
+    ? { href: lessonHref(nextLesson.id), label: nextLesson.title }
+    : null;
+
   return (
     <div className="min-h-screen text-slate-100">
-      <header className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto max-w-6xl px-5 py-4 sm:px-8">
+      <header className="sticky top-0 z-10 border-b border-white/5 bg-[#0a0a0a]/80 backdrop-blur">
+        <div className="mx-auto w-full max-w-[800px] px-5 py-4 sm:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Link
               href="/"
-              className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="inline-flex items-center gap-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
             >
               <span aria-hidden>←</span>
               Назад к курсу
@@ -248,7 +261,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
             {lesson.id > 1 ? (
               <Link
                 href={lessonHref(lesson.id - 1)}
-                className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                className="inline-flex items-center gap-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
               >
                 <span aria-hidden>←</span>
                 Предыдущий урок
@@ -257,11 +270,11 @@ export default async function LessonPage({ params }: LessonPageProps) {
           </div>
 
           <div className="mt-4">
-            <div className="flex items-center justify-between text-xs font-semibold text-slate-300 sm:text-sm">
+            <div className="flex items-center justify-between text-[11px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
               <span>
                 Урок {lesson.id} из {totalLessons}
               </span>
-              <span className="text-blue-400">{progressPercent}%</span>
+              <span className="text-zinc-300">{progressPercent}%</span>
             </div>
             <div
               role="progressbar"
@@ -272,7 +285,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
               className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/10"
             >
               <div
-                className="h-full rounded-full bg-blue-600 transition-[width] duration-500"
+                className="h-full rounded-full bg-white transition-[width] duration-500"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
@@ -281,18 +294,18 @@ export default async function LessonPage({ params }: LessonPageProps) {
       </header>
 
       <LessonLayout>
-        <p className="text-sm font-semibold uppercase tracking-widest text-blue-400">
+        <p className="text-[11px] font-semibold tracking-[0.16em] text-blue-300 uppercase">
           {lesson.module}
         </p>
-        <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+        <h1 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">
           {lesson.title}
         </h1>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-2 rounded-full border border-blue-500/40 bg-blue-500/10 px-4 py-1.5 text-xs font-semibold text-blue-300 sm:text-sm">
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-medium text-zinc-300">
             <span aria-hidden>⏱️</span>
             {lesson.duration}
           </span>
-          <span className="text-sm text-slate-300">
+          <span className="text-sm text-zinc-500">
             Урок {lesson.id} из {totalLessons}
           </span>
         </div>
@@ -303,7 +316,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
           lessonId={lesson.id}
         />
 
-        <div className="mt-12 sm:mt-16">
+        <div className="mt-10 border-t border-white/5 pt-8 sm:mt-12">
           {lesson.isModuleLast && unreadLessons.length > 0 ? (
             // Последний урок модуля, но уроки модуля прочитаны не все: тест
             // подождёт — показываем, что осталось прочитать.
@@ -347,6 +360,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
               label="Пройти урок"
             />
           )}
+          <LessonPager previous={previousLink} next={nextLink} />
         </div>
       </LessonLayout>
     </div>

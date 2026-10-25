@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { LESSON_CARD, LESSON_PRIMARY } from "@/components/course/lesson-ui";
+
 /**
  * Подпись под открытым превью-уроком.
  *
@@ -7,8 +9,9 @@ import Link from "next/link";
  * lib/course-access.ts), но человек об этом не знает, пока не упрётся в замок.
  * Карточка говорит прямо: это превью, следующий урок уже закрыт, тарифы — рядом.
  *
- * Цвета совпадают с акцентом уровня, чтобы превью не выглядело блоком из
- * другого продукта.
+ * Поверхность карточки общая со всеми блоками урока (`LESSON_CARD`), а цвет
+ * остаётся только в подписи уровня — так превью не выглядит блоком из другого
+ * продукта, но и не спорит с белой кнопкой действия.
  */
 type PreviewLessonNoticeProps = {
   accent: "confident" | "engineer" | "profit";
@@ -18,24 +21,9 @@ type PreviewLessonNoticeProps = {
 };
 
 const ACCENTS = {
-  confident: {
-    box: "border-emerald-400/40 bg-emerald-500/10",
-    eyebrow: "text-emerald-300",
-    button:
-      "border-emerald-400/40 bg-white/5 text-emerald-100 hover:bg-emerald-400/10 focus-visible:ring-emerald-300",
-  },
-  engineer: {
-    box: "border-violet-400/40 bg-violet-500/10",
-    eyebrow: "text-violet-300",
-    button:
-      "border-violet-400/40 bg-white/5 text-violet-100 hover:bg-violet-400/10 focus-visible:ring-violet-300",
-  },
-  profit: {
-    box: "border-rose-400/40 bg-rose-500/10",
-    eyebrow: "text-rose-300",
-    button:
-      "border-rose-400/40 bg-white/5 text-rose-100 hover:bg-rose-400/10 focus-visible:ring-rose-300",
-  },
+  confident: { eyebrow: "text-emerald-300" },
+  engineer: { eyebrow: "text-violet-300" },
+  profit: { eyebrow: "text-rose-300" },
 } as const;
 
 export function PreviewLessonNotice({
@@ -46,25 +34,23 @@ export function PreviewLessonNotice({
   const theme = ACCENTS[accent];
 
   return (
-    <section
-      className={`mt-12 rounded-3xl border ${theme.box} p-7 sm:mt-16 sm:p-9`}
-    >
+    <section className={`mt-8 sm:mt-10 ${LESSON_CARD}`}>
       <p
-        className={`text-sm font-semibold uppercase tracking-widest ${theme.eyebrow}`}
+        className={`text-[11px] font-semibold tracking-[0.16em] uppercase ${theme.eyebrow}`}
       >
         Превью · урок {lessonNumber} из {totalLessons}
       </p>
 
-      <p className="mt-3 text-base leading-relaxed text-slate-200">
+      <p className="mt-3 text-[16px] leading-8 text-slate-300 sm:text-[17px]">
         Первые два урока уровня открыты без покупки — читай и повторяй за
         схемами. Дальше начинается платная часть: остальные уроки, тесты модулей
         с разбором и визуализации.
       </p>
 
-      <div className="mt-7 flex flex-wrap gap-3">
+      <div className="mt-6 flex flex-wrap gap-3">
         <Link
           href="/subscription"
-          className={`inline-flex min-h-14 items-center justify-center gap-2 rounded-full border px-8 text-base font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:text-lg ${theme.button}`}
+          className={`${LESSON_PRIMARY} min-h-14 w-full px-8 text-lg sm:w-auto`}
         >
           Посмотреть тарифы
           <span aria-hidden>→</span>

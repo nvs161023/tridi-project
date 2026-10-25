@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
 import { completeLesson, type CourseType } from "@/app/actions/complete-lesson";
+import { LESSON_PRIMARY } from "@/components/course/lesson-ui";
 
 type CompleteButtonProps = {
   /** Номер урока, который отмечаем пройденным. */
@@ -55,7 +56,7 @@ export function CompleteButton({
       onClick={handleClick}
       disabled={isPending}
       aria-busy={isPending}
-      className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-9 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-70"
+      className={`${LESSON_PRIMARY} min-h-14 w-full px-9 text-lg sm:w-auto`}
     >
       {isPending ? "Сохранение…" : label}
       {isPending ? null : <span aria-hidden>→</span>}

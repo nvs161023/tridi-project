@@ -1,6 +1,11 @@
 import Link from "next/link";
 
 import { CompleteButton } from "@/components/course/CompleteButton";
+import {
+  LESSON_CARD,
+  LESSON_PRIMARY,
+  LESSON_SECONDARY,
+} from "@/components/course/lesson-ui";
 import { moduleTestThemes } from "@/components/course/module-test-theme";
 import { TestOverlay } from "@/components/course/TestOverlay";
 import { moduleTestPassFrom, type CourseTestVariant } from "@/lib/module-test";
@@ -67,34 +72,38 @@ export function ModuleTestGate({
   const hint = `${total} вопросов, порог — ${moduleTestPassFrom(courseType)} правильных из ${total}. Без сданного теста дальше не пустим.`;
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/5 p-7 sm:p-9">
-      <p className={`text-sm font-semibold uppercase tracking-widest ${theme.eyebrow}`}>
+    <section className={LESSON_CARD}>
+      <p
+        className={`text-[11px] font-semibold tracking-[0.16em] uppercase ${theme.eyebrow}`}
+      >
         Проверь себя
       </p>
 
-      <h2 className="mt-3 text-xl font-extrabold tracking-tight text-white sm:text-2xl">
+      <h2 className="mt-3 text-xl font-bold tracking-tight text-white sm:text-2xl">
         {moduleLabel}
       </h2>
 
-      <p className="mt-3 text-base leading-relaxed text-slate-300">
+      <p className="mt-3 text-[16px] leading-8 text-slate-300 sm:text-[17px]">
         {hint}
       </p>
 
       <p
-        className={`mt-4 text-sm font-semibold ${
-          isPassed ? "text-emerald-300" : "text-amber-200"
+        className={`mt-4 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
+          isPassed
+            ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200"
+            : "border-amber-500/20 bg-amber-500/10 text-amber-200"
         }`}
       >
         {isPassed ? "Тест модуля сдан" : "Тест модуля пока не сдан"}
       </p>
 
       {isCourseFinal && isPassed ? (
-        <div className="mt-6 rounded-2xl border border-blue-500/40 bg-blue-500/10 p-6 text-center">
-          <p className="text-2xl font-extrabold text-white sm:text-3xl">
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-6 text-center">
+          <p className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
             <span aria-hidden>🏆</span> Курс пройден!
           </p>
           {courseFinishNote ? (
-            <p className="mt-3 text-base leading-relaxed text-slate-300">
+            <p className="mt-3 text-[16px] leading-8 text-slate-300">
               {courseFinishNote}
             </p>
           ) : null}
@@ -104,16 +113,14 @@ export function ModuleTestGate({
       <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         {isPassed ? (
           <>
-            <div className="flex-1">
-              <CompleteButton
-                lessonId={lessonId}
-                courseType={courseType}
-                href={nextHref}
-                label={nextLabel}
-              />
-            </div>
+            <CompleteButton
+              lessonId={lessonId}
+              courseType={courseType}
+              href={nextHref}
+              label={nextLabel}
+            />
 
-            <div className="flex-1">
+            <div className="w-full sm:w-64">
               <TestOverlay
                 courseType={courseType}
                 moduleNumber={moduleNumber}
@@ -123,13 +130,13 @@ export function ModuleTestGate({
                 nextHref={nextHref}
                 continueLabel={nextLabel}
                 triggerLabel="Пройти тест ещё раз"
-                triggerVariant="secondary"
+                triggerClassName={`${LESSON_SECONDARY} min-h-14 w-full px-6`}
                 hint={hint}
               />
             </div>
           </>
         ) : (
-          <div className="flex-1">
+          <div className="w-full">
             <TestOverlay
               courseType={courseType}
               moduleNumber={moduleNumber}
@@ -139,6 +146,7 @@ export function ModuleTestGate({
               nextHref={nextHref}
               continueLabel={nextLabel}
               triggerLabel="Пройти тест"
+              triggerClassName={`${LESSON_PRIMARY} min-h-14 w-full px-9 text-lg`}
               hint={hint}
             />
           </div>
@@ -151,12 +159,12 @@ export function ModuleTestGate({
             type="button"
             disabled
             aria-disabled="true"
-            className="inline-flex min-h-14 w-full cursor-not-allowed items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-9 text-lg font-semibold text-slate-300"
+            className="inline-flex min-h-14 w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.02] px-9 text-lg font-semibold text-zinc-500"
           >
             {nextLabel}
             <span aria-hidden>→</span>
           </button>
-          <p className="mt-3 text-sm text-slate-300">
+          <p className="mt-3 text-sm leading-relaxed text-zinc-500">
             Сначала сдай тест — без него следующий модуль закрыт.
           </p>
         </div>
@@ -165,7 +173,7 @@ export function ModuleTestGate({
       <p className="mt-5">
         <Link
           href={testPageHref}
-          className="text-sm font-medium text-slate-300 transition-colors hover:text-blue-400"
+          className="text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-200"
         >
           Открыть тест отдельной страницей
         </Link>
