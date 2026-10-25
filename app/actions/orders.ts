@@ -20,11 +20,11 @@ import {
   formatOrderHours,
   isOrderId,
   isOrderStatus,
-  nextOrderStatus,
   planFilamentUsage,
   planPrinterUsage,
   readOrderForm,
   type FilamentUsagePlan,
+  type OrderStatus,
 } from "@/lib/workshop/orders";
 import {
   createFilamentUsagePayload,
@@ -60,6 +60,7 @@ const FILAMENT_NOT_FOUND =
 const ORDER_NOT_FOUND =
   "Заказ не найден — возможно, его уже удалили. Обновите страницу.";
 const INVALID_ID = "Заказ не найден — обновите страницу.";
+const INVALID_STATUS = "Неизвестный статус заказа — обновите страницу.";
 const STATUS_FAILED = "Не удалось сменить статус. Попробуйте ещё раз.";
 
 /**
@@ -270,18 +271,27 @@ export async function createOrder(
 }
 
 /**
- * Смена статуса: new → printing → ready → delivered.
+ * Смена статуса заказа на выбранный.
  *
- * Статус читается из базы, а не приходит из формы: пока вкладка была открыта,
- * заказ могли перевести в другой вкладке. «Доставлен» — конечный статус, кнопка
- * в интерфейсе для него выключена, а действие всё равно проверяет это на
- * сервере.
+ * Kanban разрешает перетащить карточку в любую колонку, в том числе назад:
+ * поэтому целевой статус приходит аргументом, а не вычисляется как «следующий».
+ * Перед записью он проверяется тем же `isOrderStatus`, что и строка базы:
+ * произвольную строку в check-колонку отправить нельзя.
+ *
+ * Заголовок и текущий статус читаются из базы: пока доска была открыта, заказ
+ * могли изменить в другой вкладке. Ответ строится по фактическому статусу, а не
+ * по тому, который интерфейс показывал до перетаскивания.
  */
-export async function advanceOrderStatus(
+export async function updateOrderStatus(
   orderId: string,
+  nextStatus: OrderStatus,
 ): Promise<OrderActionState> {
   if (!isOrderId(orderId)) {
     return { ok: false, error: INVALID_ID };
+  }
+
+  if (!isOrderStatus(nextStatus)) {
+    return { ok: false, error: INVALID_STATUS };
   }
 
   const supabase = await createClient();
@@ -321,18 +331,21 @@ export async function advanceOrderStatus(
 
   const row = data as { title?: unknown; status?: unknown };
   const current = isOrderStatus(row.status) ? row.status : "new";
-  const next = nextOrderStatus(current);
+  const title =
+    typeof row.title === "string" && row.title.trim()
+      ? row.title.trim()
+      : "Без названия";
 
-  if (!next) {
+  if (current === nextStatus) {
     return {
-      ok: false,
-      error: "Заказ уже доставлен — дальше статус не двигается.",
+      ok: true,
+      message: `«${title}» уже в статусе «${ORDER_STATUS_META[current].label}».`,
     };
   }
 
   const { error: updateError } = await supabase
     .from("workshop_orders")
-    .update({ status: next })
+    .update({ status: nextStatus })
     .eq("id", orderId)
     .eq("user_id", user.id);
 
@@ -349,14 +362,9 @@ export async function advanceOrderStatus(
 
   revalidatePath("/dashboard/workshop");
 
-  const title =
-    typeof row.title === "string" && row.title.trim()
-      ? row.title.trim()
-      : "Без названия";
-
   return {
     ok: true,
-    message: `«${title}»: ${ORDER_STATUS_META[current].label} → ${ORDER_STATUS_META[next].label}.`,
+    message: `«${title}»: ${ORDER_STATUS_META[current].label} → ${ORDER_STATUS_META[nextStatus].label}.`,
   };
 }
 

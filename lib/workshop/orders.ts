@@ -9,9 +9,10 @@
  * `planPrinterUsage` и `planFilamentUsage`: их же проверяют тесты, их же
  * использует Server Action.
  *
- * Статус двигается только вперёд: new → printing → ready → delivered.
- * «Доставлен» — конечный статус: вернуть заказ в работу случайным нажатием
- * нельзя, для этого нужен новый заказ.
+ * Статусы образуют последовательность new → printing → ready → delivered:
+ * по ней строится Kanban и считается «следующий шаг» в `nextOrderStatus`.
+ * Server Action `updateOrderStatus` принимает любой допустимый статус, поэтому
+ * карточку можно вернуть назад — порядок задаёт раскладку, а не запрет.
  */
 import { formatMoney } from "@/lib/workshop/calculator";
 import {
