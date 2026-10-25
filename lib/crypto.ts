@@ -13,6 +13,10 @@
  * окружения. В production без секрета шифрование не выполняется: лучше вернуть
  * ошибку, чем записать ключ в базу открытым.
  *
+ * Шифруем первым доступным ключом, а расшифровываем всеми: если
+ * `ENCRYPTION_SECRET` задали уже после первых сохранений, старые значения
+ * останутся читаемыми через service-role fallback.
+ *
  * Модуль серверный: `node:crypto` нельзя импортировать в клиентский компонент.
  * Не добавляйте сюда `"use client"` и не импортируйте файл из браузерного кода.
  */
@@ -37,27 +41,26 @@ const TAG_BYTES = 16;
 const DEVELOPMENT_SECRET = "tridi-local-encryption-secret";
 
 /**
- * Секрет из окружения.
+ * Секреты из окружения от основного к резервному.
  *
- * `ENCRYPTION_SECRET` важнее service-role ключа: его можно сменить, не
- * перевыпуская ключи Supabase. Service-role ключ — запасной вариант, чтобы
- * локальная разработка и текущий сервер работали без новой переменной.
+ * `ENCRYPTION_SECRET` важнее service-role ключа: его можно задать отдельно от
+ * ключей Supabase. Service-role ключ — запасной вариант, чтобы локальная
+ * разработка и текущий сервер работали без новой переменной. При расшифровке
+ * пробуем оба: так установка `ENCRYPTION_SECRET` после первых сохранений не
+ * ломает уже записанные значения.
  */
-function resolveSecret(): string {
-  const configured = process.env.ENCRYPTION_SECRET?.trim();
+function resolveSecrets(): string[] {
+  const secrets = [
+    process.env.ENCRYPTION_SECRET?.trim(),
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
+  ].filter((value): value is string => Boolean(value));
 
-  if (configured) {
-    return configured;
-  }
-
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-
-  if (serviceRoleKey) {
-    return serviceRoleKey;
+  if (secrets.length > 0) {
+    return [...new Set(secrets)];
   }
 
   if (process.env.NODE_ENV !== "production") {
-    return DEVELOPMENT_SECRET;
+    return [DEVELOPMENT_SECRET];
   }
 
   throw new Error(
@@ -66,8 +69,8 @@ function resolveSecret(): string {
 }
 
 /** 32 байта для AES-256: SHA-256 от любого по длине секрета. */
-function createKey(): Buffer {
-  return createHash("sha256").update(resolveSecret(), "utf8").digest();
+function createKey(secret: string): Buffer {
+  return createHash("sha256").update(secret, "utf8").digest();
 }
 
 /**
@@ -83,7 +86,8 @@ export function encrypt(text: string): string {
   }
 
   const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv(ALGORITHM, createKey(), iv);
+  const [primarySecret] = resolveSecrets();
+  const cipher = createCipheriv(ALGORITHM, createKey(primarySecret), iv);
   const encrypted = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
@@ -121,18 +125,24 @@ export function decrypt(ciphertext: string): string {
     throw new Error("Повреждённые параметры зашифрованного значения.");
   }
 
-  try {
-    const decipher = createDecipheriv(ALGORITHM, createKey(), iv);
-    decipher.setAuthTag(authTag);
+  for (const secret of resolveSecrets()) {
+    try {
+      const decipher = createDecipheriv(ALGORITHM, createKey(secret), iv);
+      decipher.setAuthTag(authTag);
 
-    return Buffer.concat([decipher.update(payload), decipher.final()]).toString(
-      "utf8",
-    );
-  } catch {
-    throw new Error(
-      "Не удалось расшифровать значение: неверный ключ или повреждённые данные.",
-    );
+      return Buffer.concat([
+        decipher.update(payload),
+        decipher.final(),
+      ]).toString("utf8");
+    } catch {
+      // Пробуем следующий секрет: значение могло быть записано до появления
+      // ENCRYPTION_SECRET, когда шифрование шло на service-role fallback.
+    }
   }
+
+  throw new Error(
+    "Не удалось расшифровать значение: неверный ключ или повреждённые данные.",
+  );
 }
 
 /**
