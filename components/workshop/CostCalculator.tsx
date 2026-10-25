@@ -306,6 +306,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
         <input
           id="calculator-gcode"
           type="file"
+          autoComplete="off"
           accept={GCODE_EXTENSIONS.join(",")}
           onChange={handleGcodeChange}
           disabled={isReadingGcode}
@@ -321,7 +322,12 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
         </p>
       ) : null}
 
-      <form onSubmit={handleSubmit} noValidate className="mt-6">
+      <form
+        onSubmit={handleSubmit}
+        noValidate
+        autoComplete="off"
+        className="mt-6"
+      >
         <div className="grid gap-4 sm:grid-cols-3">
           {CALCULATOR_FIELDS.map((field) => {
             const fieldId = `calculator-${field.key}`;
@@ -341,6 +347,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
                     id={fieldId}
                     name={field.key}
                     type="number"
+                    autoComplete="off"
                     inputMode="decimal"
                     step={field.step}
                     min={field.min}

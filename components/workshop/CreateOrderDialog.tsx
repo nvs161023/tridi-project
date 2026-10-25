@@ -48,7 +48,7 @@ type CreateOrderDialogProps = {
 };
 
 const inputClassName =
-  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
+  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 /** Тот же предел, что у калькулятора: больше 50 МБ читать незачем. */
 const MAX_GCODE_BYTES = 50 * 1024 * 1024;
@@ -191,13 +191,13 @@ export function CreateOrderDialog({
           onClose();
         }
       }}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/80 p-4 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/80 p-4 backdrop-blur-sm sm:items-center"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-order-title"
-        className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-2xl shadow-black/50 sm:p-8"
+        className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl shadow-black/60 sm:p-8"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -215,13 +215,17 @@ export function CreateOrderDialog({
             type="button"
             onClick={onClose}
             aria-label="Закрыть окно создания заказа"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 text-lg text-slate-300 transition-colors hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             <span aria-hidden>✕</span>
           </button>
         </div>
 
-        <form action={formAction} className="mt-6 space-y-4">
+        <form
+          action={formAction}
+          autoComplete="off"
+          className="mt-6 space-y-4"
+        >
           <div>
             <label
               htmlFor="order-title"
@@ -233,6 +237,7 @@ export function CreateOrderDialog({
               id="order-title"
               name="title"
               type="text"
+              autoComplete="new-password"
               placeholder="Подставка для телефона"
               maxLength={ORDER_TEXT_LIMITS.title}
               required
@@ -265,6 +270,7 @@ export function CreateOrderDialog({
               id="order-client"
               name="clientName"
               type="text"
+              autoComplete="new-password"
               placeholder="Иван"
               maxLength={ORDER_TEXT_LIMITS.clientName}
               aria-invalid={state.fieldErrors?.clientName ? true : undefined}
@@ -296,6 +302,7 @@ export function CreateOrderDialog({
                 id="order-cost"
                 name="totalCost"
                 type="number"
+                autoComplete="off"
                 inputMode="decimal"
                 step="0.01"
                 min={0}
@@ -339,6 +346,7 @@ export function CreateOrderDialog({
                 id="order-deadline"
                 name="deadline"
                 type="date"
+                autoComplete="off"
                 aria-invalid={state.fieldErrors?.deadline ? true : undefined}
                 aria-describedby={
                   state.fieldErrors?.deadline
@@ -366,16 +374,17 @@ export function CreateOrderDialog({
             </div>
           </div>
 
-          <div className="rounded-2xl border border-dashed border-white/15 bg-slate-950/40 p-4">
+          <div className="rounded-xl border border-dashed border-white/10 bg-black/30 p-4">
             <label
               htmlFor="order-gcode"
-              className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100 transition-colors hover:bg-blue-500/20 focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
+              className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-within:ring-2 focus-within:ring-blue-500/60 focus-within:ring-offset-2 focus-within:ring-offset-[#0a0a0a]"
             >
               <span aria-hidden>📄</span>
               {isReadingGcode ? "Читаем файл…" : "Загрузить G-code"}
               <input
                 id="order-gcode"
                 type="file"
+                autoComplete="off"
                 accept=".gcode,.gco,.g"
                 onChange={handleGcodeChange}
                 disabled={isReadingGcode}
@@ -408,6 +417,7 @@ export function CreateOrderDialog({
                 id="order-weight"
                 name="materialWeightG"
                 type="number"
+                autoComplete="off"
                 inputMode="numeric"
                 step="1"
                 min={0}
@@ -454,6 +464,7 @@ export function CreateOrderDialog({
                 id="order-hours"
                 name="printTimeHours"
                 type="number"
+                autoComplete="off"
                 inputMode="decimal"
                 step="0.01"
                 min={0}
@@ -500,6 +511,7 @@ export function CreateOrderDialog({
             <select
               id="order-printer"
               name="printerId"
+              autoComplete="off"
               value={printerId}
               onChange={(event) => setPrinterId(event.currentTarget.value)}
               aria-invalid={state.fieldErrors?.printerId ? true : undefined}
@@ -555,6 +567,7 @@ export function CreateOrderDialog({
             <select
               id="order-filament"
               name="filamentId"
+              autoComplete="off"
               value={filamentId}
               onChange={(event) => setFilamentId(event.currentTarget.value)}
               aria-invalid={state.fieldErrors?.filamentId ? true : undefined}
@@ -619,6 +632,7 @@ export function CreateOrderDialog({
             <textarea
               id="order-notes"
               name="notes"
+              autoComplete="new-password"
               rows={3}
               placeholder="Цвет, пожелания клиента, постобработка…"
               maxLength={ORDER_TEXT_LIMITS.notes}
@@ -654,14 +668,14 @@ export function CreateOrderDialog({
               type="submit"
               disabled={isPending}
               aria-busy={isPending}
-              className="inline-flex min-h-12 flex-1 items-center justify-center rounded-full bg-blue-600 px-6 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isPending ? "Создаём…" : "Создать заказ"}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/15 px-6 text-sm font-semibold text-slate-200 transition-colors hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-6 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
             >
               Отмена
             </button>

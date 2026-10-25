@@ -86,7 +86,7 @@ export function WorkshopStockTab({
   return (
     <section
       aria-labelledby="workshop-stock-title"
-      className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-md sm:p-7"
+      className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7"
     >
       {isMissingTable ? (
         <p
@@ -111,7 +111,7 @@ export function WorkshopStockTab({
           >
             Катушки пластика
           </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
             Остатки по катушкам: когда пластик подходит к концу, строка
             становится красной, а ссылка на товар — кнопкой «Купить».
           </p>
@@ -121,7 +121,7 @@ export function WorkshopStockTab({
           ref={addTriggerRef}
           type="button"
           onClick={openAdd}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
         >
           <span aria-hidden>+</span>
           Добавить катушку
@@ -136,7 +136,7 @@ export function WorkshopStockTab({
         <EmptyStock onAdd={openAdd} />
       ) : (
         <>
-          <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-slate-400">
+          <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-zinc-500">
             <span>Катушек: {filaments.length}</span>
             <span>Остаток: {formatGrams(summary.totalRemainingG)}</span>
             {summary.lowCount > 0 ? (
@@ -175,13 +175,17 @@ function StockTable({
   onConsume: (filament: WorkshopFilament, trigger: HTMLButtonElement) => void;
 }) {
   return (
-    <div className="mt-3 hidden overflow-x-auto md:block">
-      <table className="w-full border-collapse text-sm">
-        <caption className="sr-only">
-          Катушки пластика: бренд, тип, цвет, остаток, порог и ссылка на товар
-        </caption>
-        <thead>
-          <tr className="border-b border-white/10 text-left text-xs font-semibold tracking-wide text-slate-400 uppercase">
+    <div
+      data-stock-table
+      className="mt-4 hidden overflow-hidden rounded-2xl border border-white/5 bg-[#0a0a0a] md:block"
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <caption className="sr-only">
+            Катушки пластика: бренд, тип, цвет, остаток, порог и ссылка на товар
+          </caption>
+          <thead>
+            <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
             <th scope="col" className="px-3 py-3">
               Бренд
             </th>
@@ -224,10 +228,10 @@ function StockTable({
                     </span>
                   ) : null}
                 </td>
-                <td className="px-3 py-4 text-slate-200">
+                <td className="px-3 py-4 text-zinc-300">
                   {filament.type || "—"}
                 </td>
-                <td className="px-3 py-4 text-slate-300">
+                <td className="px-3 py-4 text-zinc-400">
                   {filament.color || "—"}
                 </td>
                 <td className="px-3 py-4">
@@ -240,7 +244,7 @@ function StockTable({
                   </span>
                   <RemainingBar filament={filament} isLow={isLow} />
                 </td>
-                <td className="px-3 py-4 tabular-nums text-slate-300">
+                <td className="px-3 py-4 tabular-nums text-zinc-400">
                   {formatGrams(filament.minThresholdG)}
                 </td>
                 <td className="px-3 py-4">
@@ -252,8 +256,9 @@ function StockTable({
               </tr>
             );
           })}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -274,10 +279,11 @@ function StockCards({
         return (
           <li
             key={filament.id}
+            data-stock-card
             className={`rounded-2xl border p-4 ${
               isLow
-                ? "border-red-400/40 bg-red-500/10"
-                : "border-white/10 bg-slate-950/40"
+                ? "border-red-400/30 bg-red-500/[0.07]"
+                : "border-white/5 bg-[#0a0a0a]"
             }`}
           >
             <div className="flex items-start justify-between gap-3">
@@ -285,7 +291,7 @@ function StockCards({
                 <p className="text-sm font-bold text-white">
                   {filament.brand || "Без бренда"}
                 </p>
-                <p className="mt-0.5 text-xs text-slate-300">
+                <p className="mt-0.5 text-xs text-zinc-500">
                   {filament.type || "—"} · {filament.color || "—"}
                 </p>
               </div>
@@ -297,7 +303,7 @@ function StockCards({
             </div>
 
             <div className="mt-3">
-              <p className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
+              <p className="text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
                 Остаток (г)
               </p>
               <p
@@ -307,7 +313,7 @@ function StockCards({
               >
                 {formatGrams(filament.remainingWeightG)}
               </p>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-zinc-500">
                 из {formatGrams(filament.totalWeightG)} · порог{" "}
                 {formatGrams(filament.minThresholdG)}
               </p>
@@ -328,19 +334,19 @@ function StockCards({
 /** Пустой склад: объясняем, что даст первая катушка. */
 function EmptyStock({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="mt-4 rounded-2xl border border-dashed border-white/15 bg-slate-950/40 px-5 py-8 text-center">
+    <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-[#0a0a0a] px-5 py-8 text-center">
       <p aria-hidden className="text-3xl">
         📦
       </p>
       <p className="mt-3 text-sm font-semibold text-white">Склад пока пуст</p>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-300">
+      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-400">
         Добавьте катушку — увидите остаток, порог и ссылку на товар. Когда
         пластик закончится, Мастерская напомнит, что пора покупать.
       </p>
       <button
         type="button"
         onClick={onAdd}
-        className="mt-5 inline-flex min-h-11 items-center justify-center rounded-full border border-white/20 px-5 text-sm font-semibold text-slate-100 transition-colors hover:border-blue-400/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+        className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
       >
         Добавить первую катушку
       </button>
@@ -365,15 +371,17 @@ function RemainingBar({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={`Остаток ${formatGrams(filament.remainingWeightG)} из ${formatGrams(filament.totalWeightG)}`}
-        className="h-2 w-full overflow-hidden rounded-full bg-white/10"
+        className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]"
       >
         <div
-          className={`h-full rounded-full ${isLow ? "bg-red-400" : "bg-emerald-400"}`}
+          className={`h-full rounded-full transition-[width] duration-500 ${
+            isLow ? "bg-red-400" : "bg-emerald-400"
+          }`}
           style={{ width: `${percent}%` }}
         />
       </div>
-      <p className="mt-1 text-[11px] text-slate-400">
-        {percent} % от {formatGrams(filament.totalWeightG)}
+      <p className="mt-1 text-[11px] text-zinc-500">
+        {percent}% от {formatGrams(filament.totalWeightG)}
       </p>
     </div>
   );
@@ -392,8 +400,8 @@ function PurchaseLink({
   }
 
   const className = isLow
-    ? "inline-flex min-h-9 items-center justify-center rounded-full border border-red-400/40 bg-red-500/15 px-3.5 text-xs font-bold text-red-100 transition-colors hover:bg-red-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-    : "text-sm font-semibold text-blue-300 underline-offset-4 transition-colors hover:text-blue-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
+    ? "inline-flex min-h-9 items-center justify-center rounded-lg border border-red-400/30 bg-red-500/10 px-3.5 text-xs font-bold text-red-200 transition-colors hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+    : "text-sm font-semibold text-blue-300 underline-offset-4 transition-colors hover:text-blue-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]";
 
   return (
     <a
@@ -431,7 +439,7 @@ function ConsumeButton({
           ? `Катушка пуста: ${filament.brand} ${filament.type} ${filament.color}`
           : `Списать пластик: ${filament.brand} ${filament.type} ${filament.color}`
       }
-      className="inline-flex min-h-9 items-center justify-center rounded-full border border-white/15 px-3.5 text-xs font-semibold text-slate-200 transition-colors hover:border-blue-400/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-white/15 disabled:hover:text-slate-200"
+      className="inline-flex min-h-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-3.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-40"
     >
       Списать
     </button>

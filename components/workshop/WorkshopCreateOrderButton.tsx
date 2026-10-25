@@ -2,7 +2,6 @@
 
 import { useCallback, useRef, useState } from "react";
 
-import { buttonClassName } from "@/components/ui";
 import { CreateOrderDialog } from "@/components/workshop/CreateOrderDialog";
 import { PlusIcon } from "@/components/workshop/WorkshopIcons";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
@@ -51,11 +50,7 @@ export function WorkshopCreateOrderButton({
         ref={triggerRef}
         type="button"
         onClick={openDialog}
-        className={buttonClassName({
-          size: "lg",
-          className:
-            "group min-h-12 rounded-2xl px-5 text-sm shadow-[0_16px_40px_-16px_rgba(37,99,235,0.9)] sm:min-h-14 sm:px-7 sm:text-base",
-        })}
+        className="group inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-bold text-black shadow-[0_16px_40px_-16px_rgba(255,255,255,0.45)] transition-all duration-300 hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:min-h-14 sm:px-7 sm:text-base"
       >
         <PlusIcon className="h-5 w-5 transition-transform duration-300 group-hover:rotate-90" />
         Создать заказ

@@ -35,7 +35,7 @@ type ConsumeFilamentDialogProps = {
 };
 
 const inputClassName =
-  "mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-base text-white outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40";
+  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 export function ConsumeFilamentDialog({
   filament,
@@ -78,13 +78,13 @@ export function ConsumeFilamentDialog({
           onClose();
         }
       }}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/80 p-4 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/80 p-4 backdrop-blur-sm sm:items-center"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="consume-filament-title"
-        className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-2xl shadow-black/50 sm:p-8"
+        className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl shadow-black/60 sm:p-8"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -102,7 +102,7 @@ export function ConsumeFilamentDialog({
             type="button"
             onClick={onClose}
             aria-label="Закрыть окно списания пластика"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 text-lg text-slate-300 transition-colors hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             <span aria-hidden>✕</span>
           </button>
@@ -116,8 +116,17 @@ export function ConsumeFilamentDialog({
           .
         </p>
 
-        <form action={formAction} className="mt-5 space-y-4">
-          <input type="hidden" name="filamentId" value={filament.id} />
+        <form
+          action={formAction}
+          autoComplete="off"
+          className="mt-5 space-y-4"
+        >
+          <input
+            type="hidden"
+            name="filamentId"
+            value={filament.id}
+            autoComplete="off"
+          />
 
           <div>
             <label
@@ -130,6 +139,7 @@ export function ConsumeFilamentDialog({
               id="consume-grams"
               name="grams"
               type="number"
+              autoComplete="off"
               inputMode="numeric"
               step="1"
               min={CONSUME_MIN_GRAMS}
@@ -191,14 +201,14 @@ export function ConsumeFilamentDialog({
               type="submit"
               disabled={isPending}
               aria-busy={isPending}
-              className="inline-flex min-h-12 flex-1 items-center justify-center rounded-full bg-blue-600 px-6 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isPending ? "Списываем…" : "Списать"}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/15 px-6 text-sm font-semibold text-slate-200 transition-colors hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-6 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
             >
               Отмена
             </button>

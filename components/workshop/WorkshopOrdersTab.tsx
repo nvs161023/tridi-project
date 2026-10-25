@@ -214,7 +214,7 @@ export function WorkshopOrdersTab({
   return (
     <section
       aria-labelledby="workshop-orders-title"
-      className="min-w-0 rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-md sm:p-7"
+      className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7"
     >
       {isMissingTable ? (
         <p
@@ -239,7 +239,7 @@ export function WorkshopOrdersTab({
           >
             Заказы клиентов
           </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
             Перетащите карточку в нужную колонку или смените статус через «⋯».
             Новый статус сохраняется сразу, а срок подсвечивается красным, пока
             заказ не выдан.
@@ -250,7 +250,7 @@ export function WorkshopOrdersTab({
           ref={createTriggerRef}
           type="button"
           onClick={openCreate}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
         >
           <span aria-hidden>+</span>
           Создать заказ
@@ -275,7 +275,7 @@ export function WorkshopOrdersTab({
         <EmptyOrders onAdd={openCreate} />
       ) : (
         <>
-          <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-slate-400">
+          <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-zinc-500">
             <span>Заказов: {orders.length}</span>
             <span>В печати: {summary.inProgress}</span>
             <span>Сумма: {formatOrderCost(summary.totalCost)}</span>
@@ -515,6 +515,7 @@ function OrderCard({
       aria-busy={isPending}
       data-order-id={order.id}
       data-order-status={order.status}
+      data-order-card
       onDragStart={(event) => onDragStart(event, order)}
       onDragEnd={onDragEnd}
       className={`group relative rounded-xl border border-white/[0.08] bg-[#0a0a0a] p-3 transition-[border-color,background-color,opacity] ${
@@ -784,12 +785,12 @@ function StatusMenu({
 /** Пустой список заказов: объясняем, что даст первый заказ. */
 function EmptyOrders({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="mt-4 rounded-2xl border border-dashed border-white/15 bg-slate-950/40 px-5 py-8 text-center">
+    <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-[#0a0a0a] px-5 py-8 text-center">
       <p aria-hidden className="text-3xl">
         🧾
       </p>
       <p className="mt-3 text-sm font-semibold text-white">Заказов пока нет</p>
-      <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-slate-300">
+      <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-zinc-400">
         Создайте заказ — Мастерская посчитает его стоимость, спишет пластик с
         катушки и прибавит время печати к наработке принтера. Вес и время можно
         взять из G-code.
@@ -797,7 +798,7 @@ function EmptyOrders({ onAdd }: { onAdd: () => void }) {
       <button
         type="button"
         onClick={onAdd}
-        className="mt-5 inline-flex min-h-11 items-center justify-center rounded-full border border-white/20 px-5 text-sm font-semibold text-slate-100 transition-colors hover:border-blue-400/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+        className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
       >
         Создать первый заказ
       </button>

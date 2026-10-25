@@ -57,6 +57,14 @@ const percentFormatter = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 1,
 });
 
+/** Белая кнопка главного действия — как «Рассчитать» в калькуляторе. */
+const primaryActionClassName =
+  "inline-flex min-h-9 items-center justify-center rounded-lg bg-white px-3.5 text-xs font-bold text-black transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-40";
+
+/** Тёмная кнопка с обводкой — как «Сохранить» в калькуляторе. */
+const secondaryActionClassName =
+  "inline-flex min-h-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-3.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-40";
+
 export function WorkshopPrintersTab({
   printers,
   isMissingTable,
@@ -131,7 +139,7 @@ export function WorkshopPrintersTab({
   return (
     <section
       aria-labelledby="workshop-printers-title"
-      className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-md sm:p-7"
+      className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-7"
     >
       {isMissingTable ? (
         <p
@@ -157,7 +165,7 @@ export function WorkshopPrintersTab({
           >
             Парк принтеров
           </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
             Наработка сопла, смазки осей и винта Z видна сразу: зелёная полоска
             — всё в порядке, жёлтая — пора готовиться, красная — обслуживание
             просрочено.
@@ -168,7 +176,7 @@ export function WorkshopPrintersTab({
           ref={addTriggerRef}
           type="button"
           onClick={openAdd}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
         >
           <span aria-hidden>+</span>
           Добавить принтер
@@ -192,7 +200,7 @@ export function WorkshopPrintersTab({
         <EmptyPrinters onAdd={openAdd} />
       ) : (
         <>
-          <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-slate-400">
+          <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-zinc-500">
             <span>Принтеров: {printers.length}</span>
             <span>
               Общая наработка: {formatPrinterHours(summary.totalHours)}
@@ -244,15 +252,20 @@ function PrinterCard({
   const model = [printer.brand, printer.model].filter(Boolean).join(" ");
 
   return (
-    <li className="rounded-2xl border border-white/10 bg-slate-950/40 p-5">
+    <li
+      data-printer-card
+      className="rounded-2xl border border-white/5 bg-[#0a0a0a] p-5 shadow-[0_18px_50px_-36px_rgba(0,0,0,1)]"
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-base font-bold text-white">{printer.name}</p>
-          <p className="mt-0.5 text-xs text-slate-300">
+          <p className="text-base font-bold tracking-tight text-white">
+            {printer.name}
+          </p>
+          <p className="mt-0.5 text-xs text-zinc-500">
             {model || "Модель не указана"}
           </p>
         </div>
-        <span className="shrink-0 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-slate-200">
+        <span className="shrink-0 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-semibold tabular-nums text-zinc-300">
           {formatPrinterHours(printer.totalHours)} всего
         </span>
       </div>
@@ -273,12 +286,12 @@ function PrinterCard({
         ) : (
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span className="font-semibold text-slate-200">Смазка</span>
-              <span className="rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-bold tracking-wide text-slate-300 uppercase">
+              <span className="font-semibold text-zinc-300">Смазка</span>
+              <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-bold tracking-wide text-zinc-400 uppercase">
                 Без смазки
               </span>
             </div>
-            <p className="mt-2 text-xs leading-relaxed text-slate-400">
+            <p className="mt-2 text-xs leading-relaxed text-zinc-500">
               Смазка не требуется: карбоновые стержни чистят спиртом — смазка
               их портит.
             </p>
@@ -292,8 +305,8 @@ function PrinterCard({
         />
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
-        <p className="text-xs text-slate-400">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-4">
+        <p className="text-xs text-zinc-500">
           Обслуживание: {formatPrinterDate(printer.lastMaintenanceDate)}
         </p>
         <div className="flex flex-wrap gap-2">
@@ -303,7 +316,7 @@ function PrinterCard({
             disabled={isBusy}
             aria-busy={pendingCounter === "nozzle"}
             aria-label={`Заменить сопло: ${printer.name}`}
-            className="inline-flex min-h-9 items-center justify-center rounded-full border border-white/15 px-3.5 text-xs font-semibold text-slate-200 transition-colors hover:border-blue-400/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-white/15 disabled:hover:text-slate-200"
+            className={primaryActionClassName}
           >
             {pendingCounter === "nozzle" ? "Сбрасываем…" : "Заменить сопло"}
           </button>
@@ -315,7 +328,7 @@ function PrinterCard({
               disabled={isBusy}
               aria-busy={pendingCounter === "lubrication"}
               aria-label={`Смазать оси: ${printer.name}`}
-              className="inline-flex min-h-9 items-center justify-center rounded-full border border-white/15 px-3.5 text-xs font-semibold text-slate-200 transition-colors hover:border-blue-400/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-white/15 disabled:hover:text-slate-200"
+              className={secondaryActionClassName}
             >
               {pendingCounter === "lubrication" ? "Сбрасываем…" : "Смазать оси"}
             </button>
@@ -327,7 +340,7 @@ function PrinterCard({
             disabled={isBusy}
             aria-busy={pendingCounter === "zScrew"}
             aria-label={`Смазать винт Z: ${printer.name}`}
-            className="inline-flex min-h-9 items-center justify-center rounded-full border border-white/15 px-3.5 text-xs font-semibold text-slate-200 transition-colors hover:border-blue-400/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-white/15 disabled:hover:text-slate-200"
+            className={secondaryActionClassName}
           >
             {pendingCounter === "zScrew" ? "Сбрасываем…" : "Смазать винт Z"}
           </button>
@@ -363,10 +376,10 @@ function MaintenanceGauge({
   const styles = LEVEL_STYLES[level];
 
   return (
-    <div>
+    <div data-printer-gauge={label}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-        <span className="text-xs font-semibold text-slate-200">{label}</span>
-        <span className="text-xs tabular-nums text-slate-300">
+        <span className="text-xs font-semibold text-zinc-300">{label}</span>
+        <span className="text-[11px] tabular-nums text-zinc-500">
           {formatPrinterHours(hours)} / {formatPrinterHours(interval)}
         </span>
       </div>
@@ -377,15 +390,16 @@ function MaintenanceGauge({
         aria-valuemax={100}
         aria-valuetext={`${percentFormatter.format(percent)} %`}
         aria-label={`${label}: ${percentFormatter.format(percent)} % ресурса`}
-        className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-white/10"
+        className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]"
       >
         <div
-          className={`h-full rounded-full transition-[width] ${styles.bar}`}
+          className={`h-full rounded-full transition-[width] duration-500 ${styles.bar}`}
           style={{ width: `${Math.min(100, percent)}%` }}
         />
       </div>
-      <p className={`mt-1.5 text-[11px] ${styles.text}`}>
-        {percentFormatter.format(percent)} % · {styles.label}
+      <p className={`mt-1.5 flex flex-wrap gap-x-1.5 text-[11px] ${styles.text}`}>
+        <span>{percentFormatter.format(percent)}% до замены</span>
+        <span className="text-zinc-500">· {styles.label}</span>
       </p>
     </div>
   );
@@ -394,12 +408,12 @@ function MaintenanceGauge({
 /** Пустой парк принтеров: объясняем, что даст первый принтер. */
 function EmptyPrinters({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="mt-4 rounded-2xl border border-dashed border-white/15 bg-slate-950/40 px-5 py-8 text-center">
+    <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-[#0a0a0a] px-5 py-8 text-center">
       <p aria-hidden className="text-3xl">
         🖨️
       </p>
       <p className="mt-3 text-sm font-semibold text-white">Принтеров пока нет</p>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-300">
+      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-400">
         Добавьте принтер — Мастерская будет считать его наработку по заказам и
         напомнит, когда пора менять сопло, смазывать оси или винт Z. Интервалы
         обслуживания подставятся из справочника моделей.
@@ -407,7 +421,7 @@ function EmptyPrinters({ onAdd }: { onAdd: () => void }) {
       <button
         type="button"
         onClick={onAdd}
-        className="mt-5 inline-flex min-h-11 items-center justify-center rounded-full border border-white/20 px-5 text-sm font-semibold text-slate-100 transition-colors hover:border-blue-400/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+        className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
       >
         Добавить первый принтер
       </button>

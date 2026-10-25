@@ -66,7 +66,11 @@ export function WorkshopSettingsForm({
         любой момент — расчёт пересчитается по сохранённым значениям.
       </p>
 
-      <form action={formAction} className="mt-6 grid gap-4">
+      <form
+        action={formAction}
+        autoComplete="off"
+        className="mt-6 grid gap-4"
+      >
         {WORKSHOP_FIELDS.map((field) => {
           const fieldId = `workshop-${field.key}`;
           const error = state.fieldErrors?.[field.key];
@@ -83,6 +87,7 @@ export function WorkshopSettingsForm({
                 id={fieldId}
                 name={field.formName}
                 type="number"
+                autoComplete="off"
                 inputMode="decimal"
                 step={field.step}
                 min={field.min}

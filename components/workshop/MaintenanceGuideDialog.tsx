@@ -99,13 +99,13 @@ export function MaintenanceGuideDialog({
           onClose();
         }
       }}
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-950/85 p-4 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-[90] flex items-end justify-center bg-black/80 p-4 backdrop-blur-sm sm:items-center"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="maintenance-guide-title"
-        className="max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-2xl shadow-black/60 sm:p-8"
+        className="max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl shadow-black/60 sm:p-8"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -124,7 +124,7 @@ export function MaintenanceGuideDialog({
             onClick={onClose}
             autoFocus
             aria-label="Закрыть инструкцию по ТО"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 text-lg text-slate-300 transition-colors hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             <span aria-hidden>✕</span>
           </button>
@@ -149,7 +149,7 @@ export function MaintenanceGuideDialog({
                   {block.items.map((item, itemIndex) => (
                     <li
                       key={itemIndex}
-                      className="flex gap-2.5 text-sm leading-relaxed text-slate-300"
+                      className="flex gap-2.5 text-sm leading-relaxed text-zinc-400"
                     >
                       <span aria-hidden className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
                       <span>{renderInline(item)}</span>
@@ -162,7 +162,7 @@ export function MaintenanceGuideDialog({
             return (
               <p
                 key={index}
-                className="text-sm leading-relaxed text-slate-300"
+                className="text-sm leading-relaxed text-zinc-400"
               >
                 {renderInline(block.text)}
               </p>
@@ -173,7 +173,7 @@ export function MaintenanceGuideDialog({
         <button
           type="button"
           onClick={onClose}
-          className="mt-7 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-blue-600 px-6 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          className="mt-7 inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
         >
           Понятно
         </button>
