@@ -5,12 +5,15 @@ import { notFound, redirect } from "next/navigation";
 import { SpecificationPrintButton } from "@/app/workshop/orders/[id]/specification/SpecificationPrintButton";
 import { Header } from "@/components/Header";
 import { resolveUserId } from "@/lib/current-user";
+import { LEGAL_OPERATOR } from "@/lib/legal";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 import { getWorkshopFilaments } from "@/lib/workshop/filament-store";
 import { formatGrams } from "@/lib/workshop/filaments";
 import { getWorkshopOrder } from "@/lib/workshop/order-store";
 import { formatOrderDate, isOrderId } from "@/lib/workshop/orders";
+import { workshopCompanyTypeLabel, type WorkshopRequisites } from "@/lib/workshop/requisites";
+import { getWorkshopSettings } from "@/lib/workshop/store";
 
 type SpecificationPageProps = {
   params: Promise<{ id: string }>;
@@ -23,7 +26,8 @@ type SpecificationPageProps = {
  * id с проверкой владельца, катушка — из склада пользователя: в заказе хранится
  * только `filament_id`, а название и цвет могут измениться после создания.
  * Если катушки нет, материал вписывают на бумаге — форма оставляет пустую
- * строку и показывает вес из заказа.
+ * строку и показывает вес из заказа. Исполнитель берётся из реквизитов
+ * Мастерской (`workshop_settings`), а до их заполнения — из `LEGAL_OPERATOR`.
  *
  * На экране видны шапка сайта, кнопка «Печать» и пояснение. В печати остаётся
  * только белый лист A4: `visibility` гасит всё, кроме `.specification-sheet`,
@@ -108,6 +112,40 @@ function formatFilamentName(filament: {
     .join(" ");
 }
 
+/** Исполнитель в спецификации: реквизиты Мастерской или данные сервиса. */
+type SpecificationExecutor = {
+  /** Тип организации и название компании / ФИО. */
+  name: string;
+  inn: string | null;
+  /** Реквизиты Мастерской ещё не заполнены: показываем данные сервиса. */
+  isFallback: boolean;
+};
+
+/**
+ * Реквизиты Мастерской → поле «Исполнитель».
+ *
+ * Название компании — обязательное поле вкладки «Реквизиты», поэтому пустое
+ * название означает «реквизиты не заполнены». В этом случае документ печатает
+ * прежние данные `LEGAL_OPERATOR`, а на экране появляется подсказка.
+ */
+function getSpecificationExecutor(
+  requisites: WorkshopRequisites,
+): SpecificationExecutor {
+  if (!requisites.companyName) {
+    return {
+      name: LEGAL_OPERATOR.fullName,
+      inn: LEGAL_OPERATOR.inn,
+      isFallback: true,
+    };
+  }
+
+  return {
+    name: `${workshopCompanyTypeLabel(requisites.companyType)} ${requisites.companyName}`,
+    inn: requisites.inn,
+    isFallback: false,
+  };
+}
+
 export const metadata: Metadata = {
   title: "Спецификация к заказу — TriDi",
   description:
@@ -144,15 +182,17 @@ export default async function OrderSpecificationPage({
     redirect("/dashboard/workshop");
   }
 
-  const [order, stock] = await Promise.all([
+  const [order, stock, snapshot] = await Promise.all([
     getWorkshopOrder(supabase, userId, id),
     getWorkshopFilaments(supabase, userId),
+    getWorkshopSettings(supabase, userId),
   ]);
 
   if (!order) {
     notFound();
   }
 
+  const executor = getSpecificationExecutor(snapshot.requisites);
   const filament = order.filamentId
     ? (stock.filaments.find((item) => item.id === order.filamentId) ?? null)
     : null;
@@ -199,6 +239,26 @@ export default async function OrderSpecificationPage({
             <dl className="mt-6 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-[10px] font-semibold tracking-wide text-neutral-500 uppercase">
+                  Исполнитель
+                </dt>
+                <dd
+                  data-specification-executor
+                  className="mt-1 font-semibold break-words text-neutral-900 first-letter:uppercase"
+                >
+                  {executor.name}
+                </dd>
+                {executor.inn ? (
+                  <dd
+                    data-specification-executor-inn
+                    className="mt-1 font-mono text-xs break-all text-neutral-600"
+                  >
+                    ИНН {executor.inn}
+                  </dd>
+                ) : null}
+              </div>
+
+              <div>
+                <dt className="text-[10px] font-semibold tracking-wide text-neutral-500 uppercase">
                   Дата создания заказа
                 </dt>
                 <dd className="mt-1 font-semibold text-neutral-900">
@@ -228,6 +288,16 @@ export default async function OrderSpecificationPage({
                 </div>
               ) : null}
             </dl>
+
+            {executor.isFallback ? (
+              <p
+                role="note"
+                data-specification-requisites-warning
+                className="specification-screen-only mt-4 rounded-md border border-red-300 bg-red-50 px-2.5 py-2 text-[10px] leading-relaxed font-semibold text-red-700"
+              >
+                Внимание: заполните реквизиты в разделе «Реквизиты» Мастерской.
+              </p>
+            ) : null}
           </div>
 
           <section
