@@ -1,7 +1,14 @@
 "use server";
 
-import type { AddProductResult } from "@/lib/workshop/products";
-import { addProduct as addProductInCatalog } from "@/lib/workshop/products";
+import type {
+  AddProductResult,
+  CsvImportPlatform,
+  ImportProductsResult,
+} from "@/lib/workshop/products";
+import {
+  addProduct as addProductInCatalog,
+  importProductsFromCsv as importProductsInCatalog,
+} from "@/lib/workshop/products";
 
 /**
  * Тонкая граница Server Action для каталога товаров.
@@ -15,4 +22,12 @@ export async function addProduct(
   formData: FormData,
 ): Promise<AddProductResult> {
   return addProductInCatalog(formData);
+}
+
+/** Импорт CSV из Ozon/Wildberries: клиенту нужна граница модуля. */
+export async function importProductsFromCsv(
+  csvString: string,
+  platform: CsvImportPlatform,
+): Promise<ImportProductsResult> {
+  return importProductsInCatalog(csvString, platform);
 }
