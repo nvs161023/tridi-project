@@ -10,6 +10,7 @@ import {
   ensureWorkshopIntegrations,
   INTEGRATIONS_TEXT_LIMITS,
   isWorkshopIntegrationActive,
+  MASKED_OZON_API_KEY,
   type WorkshopIntegrations,
 } from "@/lib/workshop/integrations";
 
@@ -20,9 +21,10 @@ import {
  * `saveWorkshopSettings` сам разбирается, какие поля пришли, и пишет только их —
  * сохранение ключей не затирает тарифы и данные компании.
  *
- * Api-Key — секрет: поле ввода показывает звёздочки, а значение раскрывается
- * кнопкой «Показать». Ключи приходят с сервера, потому что после перезагрузки
- * страницы они должны остаться в полях; RLS не даёт прочитать чужую строку.
+ * Api-Key — секрет: сервер хранит его зашифрованным и присылает только маску
+ * `••••••••`. Открытый ключ и ciphertext в браузер не попадают. Пока поле не
+ * меняли, форма отправляет маску, а Server Action оставляет сохранённое
+ * значение; кнопка «Заменить» очищает поле для нового ключа.
  *
  * URL вебхука персональный: `?token=<uuid>` — токен создаётся при сохранении
  * ключей и хранится в `workshop_settings.webhook_token`. Ozon может не присылать
@@ -61,6 +63,11 @@ export function WorkshopIntegrationsTab({
 
   // Старый пейлоад мог не содержать новых полей: не бросаем на этом рендер.
   const safeIntegrations = ensureWorkshopIntegrations(integrations);
+  const storedApiKey = safeIntegrations.ozonApiKey;
+  // Значение поля живёт локально: маска из сервера заменяется при вводе, а
+  // после ошибки сохранения введённый ключ не пропадает.
+  const [apiKeyValue, setApiKeyValue] = useState(storedApiKey ?? "");
+
   // После сохранения бейдж и адрес сразу отражают ответ действия, не дожидаясь
   // router.refresh(); до первой отправки — значения со страницы.
   const isActive = state.integrations
@@ -72,11 +79,17 @@ export function WorkshopIntegrationsTab({
 
   // Состояние приходит новым объектом после каждой отправки: успех обновляет
   // серверные данные страницы, чтобы следующий заход показал сохранённое.
+  // В поле возвращается только маска из ответа действия, не открытый ключ.
   useEffect(() => {
     if (state.success) {
+      setApiKeyValue(
+        state.integrations
+          ? (state.integrations.ozonApiKey ?? "")
+          : (storedApiKey ?? ""),
+      );
       router.refresh();
     }
-  }, [state, router]);
+  }, [state, router, storedApiKey]);
 
   useEffect(() => {
     if (!isCopied) {
@@ -211,12 +224,29 @@ export function WorkshopIntegrationsTab({
               </label>
               <button
                 type="button"
-                onClick={() => setIsKeyVisible((visible) => !visible)}
-                aria-pressed={isKeyVisible}
+                onClick={() => {
+                  if (apiKeyValue === MASKED_OZON_API_KEY) {
+                    // Маску нельзя «показать»: открытого ключа в браузере нет.
+                    // Очищаем поле, чтобы ввести новый ключ.
+                    setApiKeyValue("");
+                    return;
+                  }
+
+                  setIsKeyVisible((visible) => !visible);
+                }}
+                aria-pressed={
+                  apiKeyValue === MASKED_OZON_API_KEY
+                    ? undefined
+                    : isKeyVisible
+                }
                 aria-controls="workshop-integrations-ozonApiKey"
                 className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[11px] font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
               >
-                {isKeyVisible ? "Скрыть" : "Показать"}
+                {apiKeyValue === MASKED_OZON_API_KEY
+                  ? "Заменить"
+                  : isKeyVisible
+                    ? "Скрыть"
+                    : "Показать"}
               </button>
             </div>
             <input
@@ -226,7 +256,20 @@ export function WorkshopIntegrationsTab({
               autoComplete="off"
               spellCheck={false}
               maxLength={INTEGRATIONS_TEXT_LIMITS.ozonApiKey}
-              defaultValue={safeIntegrations.ozonApiKey ?? ""}
+              value={apiKeyValue}
+              onChange={(event) => setApiKeyValue(event.currentTarget.value)}
+              onFocus={(event) => {
+                // Маска — не ключ: выделяем её, чтобы первый введённый символ
+                // заменил всё значение, а не дописался к точкам.
+                if (event.currentTarget.value === MASKED_OZON_API_KEY) {
+                  event.currentTarget.select();
+                }
+              }}
+              onClick={(event) => {
+                if (event.currentTarget.value === MASKED_OZON_API_KEY) {
+                  event.currentTarget.select();
+                }
+              }}
               placeholder="Ключ из приложения Seller API"
               aria-invalid={apiKeyError ? true : undefined}
               aria-describedby={
@@ -249,8 +292,9 @@ export function WorkshopIntegrationsTab({
                 id="workshop-integrations-ozonApiKey-hint"
                 className="mt-1.5 text-xs leading-relaxed text-zinc-500"
               >
-                Секретный ключ приложения. Поле скрыто звёздочками — нажмите
-                «Показать», чтобы проверить значение.
+                {apiKeyValue === MASKED_OZON_API_KEY
+                  ? "Сохранённый ключ скрыт. Нажмите «Заменить», чтобы ввести новый: без изменений останется прежний."
+                  : "Секретный ключ приложения. Поле скрыто звёздочками — нажмите «Показать», чтобы проверить значение."}
               </p>
             )}
           </div>

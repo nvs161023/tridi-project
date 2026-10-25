@@ -5,13 +5,17 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 
 import type { WorkshopSettingsFormState } from "@/app/actions/workshop-state";
+import { encrypt, isEncryptedSecret } from "@/lib/crypto";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
 import {
   hasWorkshopIntegrationFormFields,
+  isMaskedOzonApiKey,
+  MASKED_OZON_API_KEY,
   normalizeWebhookToken,
   readWorkshopIntegrationForm,
+  type WorkshopIntegrations,
 } from "@/lib/workshop/integrations";
 import { createWorkshopSettingsPayload } from "@/lib/workshop/payload";
 import {
@@ -31,6 +35,10 @@ const MIGRATION_MISSING =
   "Настройки пока не сохраняются: в базе нет нужных таблиц или колонок. Примените миграции supabase/workshop_settings.sql, supabase/workshop_requisites.sql и supabase/workshop_marketplace_integration.sql.";
 const SAVE_FAILED = "Не удалось сохранить настройки. Попробуйте ещё раз.";
 const EMPTY_FORM = "Форма пустая: нечего сохранять. Обновите страницу.";
+const API_KEY_SAVE_FAILED =
+  "Не удалось подготовить Api-Key к сохранению. Попробуйте ещё раз.";
+const STORED_API_KEY_MISSING =
+  "Сохранённый Api-Key не найден. Введите ключ заново.";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -91,6 +99,97 @@ async function ensureWebhookToken(
   }
 
   return generated;
+}
+
+/**
+ * Api-Key перед записью в базу.
+ *
+ * Новый ключ шифруется. Если из формы пришла маска, значит, продавец не менял
+ * ключ: читаем сохранённое значение и оставляем его как есть, чтобы не
+ * перешифровывать и не терять доступ. Старую открытую строку (до появления
+ * шифрования) при этом шифруем — это единственный момент, когда она снова
+ * проходит через приложение.
+ *
+ * Ошибка чтения или шифрования не должна превращаться в запись `null`:
+ * случайная очистка ключа сломала бы интеграцию молча.
+ */
+async function prepareOzonApiKey(
+  supabase: Supabase,
+  userId: string,
+  submittedKey: string | null,
+): Promise<{ apiKey: string | null } | { error: string }> {
+  if (!submittedKey) {
+    return { apiKey: null };
+  }
+
+  if (!isMaskedOzonApiKey(submittedKey)) {
+    try {
+      return { apiKey: encrypt(submittedKey) };
+    } catch (error) {
+      console.warn(
+        "Api-Key Ozon не зашифрован:",
+        error instanceof Error ? error.message : "неизвестная ошибка",
+      );
+
+      return { error: API_KEY_SAVE_FAILED };
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_settings")
+    .select("ozon_api_key")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(
+      "Сохранённый Api-Key Ozon не прочитан:",
+      error.code,
+      error.message,
+    );
+
+    return { error: API_KEY_SAVE_FAILED };
+  }
+
+  const storedKey =
+    (data as { ozon_api_key?: unknown } | null)?.ozon_api_key;
+
+  if (typeof storedKey !== "string" || !storedKey.trim()) {
+    return { error: STORED_API_KEY_MISSING };
+  }
+
+  const normalized = storedKey.trim();
+
+  if (isMaskedOzonApiKey(normalized)) {
+    return { error: STORED_API_KEY_MISSING };
+  }
+
+  try {
+    return {
+      apiKey: isEncryptedSecret(normalized)
+        ? normalized
+        : encrypt(normalized),
+    };
+  } catch (error) {
+    console.warn(
+      "Api-Key Ozon не зашифрован:",
+      error instanceof Error ? error.message : "неизвестная ошибка",
+    );
+
+    return { error: API_KEY_SAVE_FAILED };
+  }
+}
+
+/**
+ * Ключи для ответа действию: только маска, без ciphertext и открытого текста.
+ */
+function maskIntegrationsForClient(
+  integrations: WorkshopIntegrations,
+): WorkshopIntegrations {
+  return {
+    ...integrations,
+    ozonApiKey: integrations.ozonApiKey ? MASKED_OZON_API_KEY : null,
+  };
 }
 
 /**
@@ -164,10 +263,36 @@ export async function saveWorkshopSettings(
     return { error: PRO_REQUIRED, values: settings ?? undefined };
   }
 
+  // В базу уходит только шифротекст. Маска означает «ключ не меняли»: тогда
+  // сохраняем прежнее значение, а не открываем его заново.
+  let storedIntegrations = integrations;
+
+  if (integrations) {
+    const prepared = await prepareOzonApiKey(
+      supabase,
+      user.id,
+      integrations.ozonApiKey,
+    );
+
+    if ("error" in prepared) {
+      return {
+        integrationFieldErrors: { ozonApiKey: prepared.error },
+        values: settings ?? undefined,
+      };
+    }
+
+    storedIntegrations = { ...integrations, ozonApiKey: prepared.apiKey };
+  }
+
   const { error } = await supabase
     .from("workshop_settings")
     .upsert(
-      createWorkshopSettingsPayload(user.id, settings, requisites, integrations),
+      createWorkshopSettingsPayload(
+        user.id,
+        settings,
+        requisites,
+        storedIntegrations,
+      ),
       {
         onConflict: "user_id",
       },
@@ -180,21 +305,22 @@ export async function saveWorkshopSettings(
       error.message,
     );
 
+    // Ключи в ответе не повторяем: даже при ошибке открытый Api-Key не должен
+    // вернуться в браузер. Поля формы сохранят введённое значение локально.
     return {
       error: isMissingTableSchema(error.code, error.message)
         ? MIGRATION_MISSING
         : SAVE_FAILED,
       values: settings ?? undefined,
       requisites: requisites ?? undefined,
-      integrations: integrations ?? undefined,
     };
   }
 
   // Токен нужен сразу в ответе: вкладка показывает адрес вебхука, не дожидаясь
   // router.refresh(). Если ключи не сохраняли, лишний запрос не нужен.
-  const savedIntegrations = integrations
+  const savedIntegrations = storedIntegrations
     ? {
-        ...integrations,
+        ...maskIntegrationsForClient(storedIntegrations),
         webhookToken: await ensureWebhookToken(supabase, user.id),
       }
     : null;

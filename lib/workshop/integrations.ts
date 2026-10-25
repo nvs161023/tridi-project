@@ -10,9 +10,10 @@
  *
  * Api-Key и Client-Id пока нужны только будущим запросам к Seller API, но
  * сохраняются вместе: интеграция считается настроенной, когда заполнены оба
- * поля. Оба ключа — секреты аккаунта продавца, поэтому вводятся в поле
- * `type="password"` и показываются по кнопке «Показать». Токен вебхука — не
- * секрет API: владельцу его показываем полностью, чтобы скопировать адрес.
+ * поля. Api-Key — секрет аккаунта продавца: в базе он лежит зашифрованным
+ * (`lib/crypto.ts`), а в интерфейс уходит только маска
+ * `MASKED_OZON_API_KEY`; открытое значение не покидает сервер. Токен вебхука —
+ * не секрет API: владельцу его показываем полностью, чтобы скопировать адрес.
  *
  * Модуль чистый — без Supabase и `next/cache`: его импортирует и серверная
  * страница, и клиентская вкладка «Интеграции». Поэтому здесь нет `node:crypto`:
@@ -23,7 +24,12 @@
 export const OZON_WEBHOOK_ENDPOINT =
   "https://tridi-print.ru/api/webhooks/ozon";
 
-/** Доступы к личному кабинету Ozon. `null` — интеграция не настроена. */
+/**
+ * Доступы к личному кабинету Ozon. `null` — интеграция не настроена.
+ *
+ * `ozonApiKey` в объекте для интерфейса всегда маска, а не открытый ключ или
+ * ciphertext. Сырое значение существует только внутри Server Action до записи.
+ */
 export type WorkshopIntegrations = {
   ozonClientId: string | null;
   ozonApiKey: string | null;
@@ -104,6 +110,26 @@ export const INTEGRATIONS_TEXT_LIMITS = {
   ozonApiKey: 200,
 } as const;
 
+/**
+ * Маска сохранённого Api-Key.
+ *
+ * Клиент не должен получать ни открытый ключ, ни ciphertext: маска показывает,
+ * что ключ есть, и позволяет форме отправить «не менял». Длина совпадает с
+ * минимальной длиной настоящего ключа, поэтому общая проверка формы пропускает
+ * маску, а Server Action подменяет её сохранённым значением.
+ */
+export const MASKED_OZON_API_KEY = "••••••••";
+
+/** Пришла ли маска вместо нового ключа: значит, ключ не меняли. */
+export function isMaskedOzonApiKey(value: unknown): boolean {
+  return value === MASKED_OZON_API_KEY;
+}
+
+/** Непустой ключ → маска, пустой → `null`: открытый текст наружу не идёт. */
+export function maskOzonApiKey(value: unknown): string | null {
+  return readKey(value) ? MASKED_OZON_API_KEY : null;
+}
+
 /** Client-Id Ozon — число: в Seller API это идентификатор кабинета продавца. */
 const CLIENT_ID_PATTERN = /^\d+$/u;
 
@@ -137,6 +163,10 @@ function readKey(value: unknown): string {
  * открыта до деплоя, старый пейлоад может не содержать новых полей, поэтому
  * `undefined` и отсутствующие ключи не должны ронять рендер: возвращаем
  * значения по умолчанию.
+ *
+ * Api-Key здесь всегда превращается в маску. Это второй рубеж после
+ * `normalizeWorkshopIntegrations`: даже старый RSC-пейлоад с открытым ключом не
+ * должен попасть в браузер после деплоя.
  */
 export function ensureWorkshopIntegrations(
   value: Partial<WorkshopIntegrations> | null | undefined,
@@ -147,7 +177,7 @@ export function ensureWorkshopIntegrations(
 
   return {
     ozonClientId: readKey(value.ozonClientId) || null,
-    ozonApiKey: readKey(value.ozonApiKey) || null,
+    ozonApiKey: maskOzonApiKey(value.ozonApiKey),
     webhookToken: normalizeWebhookToken(value.webhookToken),
   };
 }
@@ -155,9 +185,11 @@ export function ensureWorkshopIntegrations(
 /**
  * Строка `workshop_settings` → ключи для интерфейса.
  *
- * Пустой текст становится `null`: в базе это «интеграция не настроена», а не
- * пустая строка. Отсутствующая строка или неприменённая миграция — значения по
- * умолчанию, чтобы страница не падала.
+ * `ozon_api_key` приходит из базы зашифрованным и здесь заменяется маской:
+ * открытый ключ и ciphertext в интерфейс не попадают. Пустой текст становится
+ * `null`: в базе это «интеграция не настроена», а не пустая строка.
+ * Отсутствующая строка или неприменённая миграция — значения по умолчанию,
+ * чтобы страница не падала.
  */
 export function normalizeWorkshopIntegrations(
   row: Partial<Record<string, unknown>> | null | undefined,
@@ -179,6 +211,10 @@ export function normalizeWorkshopIntegrations(
  * Оба поля пустые — это отключение интеграции, а не ошибка: продавец вправе
  * убрать ключи. Если заполнено только одно поле, форма не сохраняется:
  * половина пары не работает, а непонятная ошибка базы хуже подсказки.
+ *
+ * Возвращённый Api-Key — сырое значение из формы (новый ключ или маска). Это
+ * внутренний результат для `saveWorkshopSettings`: наружу он уходит только
+ * после шифрования и замены на маску.
  */
 export function readWorkshopIntegrationForm(formData: FormData): {
   integrations: WorkshopIntegrations | null;
