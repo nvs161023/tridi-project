@@ -348,6 +348,74 @@ export function normalizeOrderRow(
   };
 }
 
+/** Комментарий к заказу в том виде, в каком его показывает карточка. */
+export type OrderComment = {
+  id: string;
+  orderId: string;
+  text: string;
+  createdAt: string | null;
+};
+
+/** Колонки, которые читает `getOrderComments` из `order-store.ts`. */
+export const ORDER_COMMENT_COLUMNS = "id, order_id, text, created_at";
+
+/** Предел текста комментария — как у check в workshop_order_comments.sql. */
+export const ORDER_COMMENT_TEXT_LIMIT = 1000;
+
+/**
+ * Текст комментария из формы или Server Action.
+ *
+ * Проверка одна для браузера и сервера: пустая строка и одни пробелы не
+ * считаются комментарием, а длинный текст отклоняется до запроса к базе.
+ * Возвращаем обрезанный текст — в ленте не нужны пробелы по краям.
+ */
+export function readOrderCommentText(value: unknown): {
+  text: string;
+  error: string | null;
+} {
+  const text = typeof value === "string" ? value.trim() : "";
+
+  if (!text) {
+    return { text: "", error: "Введите комментарий." };
+  }
+
+  if (text.length > ORDER_COMMENT_TEXT_LIMIT) {
+    return {
+      text: "",
+      error: `Не больше ${ORDER_COMMENT_TEXT_LIMIT} символов.`,
+    };
+  }
+
+  return { text, error: null };
+}
+
+/**
+ * Строка `workshop_order_comments` → комментарий для интерфейса.
+ *
+ * Битые ряды отбрасываются: без uuid, без текста или с пустым текстом строку
+ * нечем показать. Один странный ряд не должен ронять ленту.
+ */
+export function normalizeOrderComment(
+  row: Partial<Record<string, unknown>> | null | undefined,
+): OrderComment | null {
+  if (!row || !isOrderId(row.id) || !isOrderId(row.order_id)) {
+    return null;
+  }
+
+  const { text } = readOrderCommentText(row.text);
+
+  if (!text) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    orderId: row.order_id,
+    text,
+    createdAt: typeof row.created_at === "string" ? row.created_at : null,
+  };
+}
+
 /**
  * Новая наработка принтера после заказа.
  *

@@ -16,16 +16,21 @@ import {
   type WorkshopFilament,
 } from "@/lib/workshop/filaments";
 import {
+  ORDER_COMMENT_COLUMNS,
   ORDER_STATUS_META,
   formatOrderHours,
   isOrderId,
   isOrderStatus,
+  normalizeOrderComment,
   planFilamentUsage,
   planPrinterUsage,
+  readOrderCommentText,
   readOrderForm,
   type FilamentUsagePlan,
+  type OrderComment,
   type OrderStatus,
 } from "@/lib/workshop/orders";
+import { getOrderComments } from "@/lib/workshop/order-store";
 import {
   createFilamentUsagePayload,
   createOrderPayload,
@@ -64,6 +69,10 @@ const ORDER_NOT_FOUND =
 const INVALID_ID = "Заказ не найден — обновите страницу.";
 const INVALID_STATUS = "Неизвестный статус заказа — обновите страницу.";
 const STATUS_FAILED = "Не удалось сменить статус. Попробуйте ещё раз.";
+const COMMENT_MIGRATION_MISSING =
+  "Комментарии пока не сохраняются: в базе нет таблицы workshop_order_comments. Примените миграцию supabase/workshop_order_comments.sql.";
+const COMMENT_ADD_FAILED =
+  "Не удалось отправить комментарий. Попробуйте ещё раз.";
 
 /**
  * Создание заказа с расходом ресурсов.
@@ -391,6 +400,116 @@ export async function updateOrderStatus(
     ok: true,
     message: `«${title}»: ${ORDER_STATUS_META[current].label} → ${ORDER_STATUS_META[nextStatus].label}.`,
   };
+}
+
+/** Ответ окна карточки: либо сохранённый комментарий, либо текст ошибки. */
+type CommentActionResult =
+  | { ok: true; comment: OrderComment }
+  | { ok: false; error: string };
+
+/**
+ * Комментарии для открытой карточки заказа.
+ *
+ * Клиентское окно не может вызвать `getOrderComments` напрямую: модуль чтения
+ * тянет серверный клиент Supabase и cookies. Эта обёртка — граница Server
+ * Action. Пустой список при ошибке не мешает открыть карточку: детали заказа
+ * остаются видны, а отправка комментария покажет понятную причину.
+ */
+export async function loadOrderComments(
+  orderId: string,
+): Promise<OrderComment[]> {
+  return getOrderComments(orderId);
+}
+
+/**
+ * Новый комментарий к заказу.
+ *
+ * Порядок проверок как у остальных действий: id → текст → сессия → подписка →
+ * вставка. Возвращаем сохранённую строку: id и дату назначает база, поэтому
+ * окно показывает ровно то, что записано, без повторного запроса.
+ *
+ * `revalidatePath` здесь не нужен: комментарии видны только в карточке, а
+ * открытая лента обновляется локально. Доска заказов от них не меняется.
+ */
+export async function addOrderComment(
+  orderId: string,
+  text: string,
+): Promise<CommentActionResult> {
+  if (!isOrderId(orderId)) {
+    return { ok: false, error: INVALID_ID };
+  }
+
+  const { text: body, error: textError } = readOrderCommentText(text);
+
+  if (textError) {
+    return { ok: false, error: textError };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  // Заказ должен принадлежать этому же пользователю: чужой uuid в order_id
+  // RLS не отсекает — политика проверяет только user_id комментария.
+  const { data: order, error: orderError } = await supabase
+    .from("workshop_orders")
+    .select("id")
+    .eq("id", orderId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (orderError) {
+    console.warn(
+      "Заказ для комментария не прочитан:",
+      orderError.code,
+      orderError.message,
+    );
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(orderError.code, orderError.message)
+        ? MIGRATION_MISSING
+        : LOAD_FAILED,
+    };
+  }
+
+  if (!order) {
+    return { ok: false, error: ORDER_NOT_FOUND };
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_order_comments")
+    .insert({ order_id: orderId, user_id: user.id, text: body })
+    .select(ORDER_COMMENT_COLUMNS)
+    .single();
+
+  if (error) {
+    console.warn("Комментарий не добавлен:", error.code, error.message);
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(error.code, error.message)
+        ? COMMENT_MIGRATION_MISSING
+        : COMMENT_ADD_FAILED,
+    };
+  }
+
+  const comment = normalizeOrderComment(
+    data as Partial<Record<string, unknown>>,
+  );
+
+  return comment
+    ? { ok: true, comment }
+    : { ok: false, error: COMMENT_ADD_FAILED };
 }
 
 /** Удаление заказа после неудачного update: база не должна хранить фантом. */

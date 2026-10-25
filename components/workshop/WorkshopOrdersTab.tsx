@@ -8,11 +8,13 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
 
 import { updateOrderStatus } from "@/app/actions/orders";
 import { CreateOrderDialog } from "@/components/workshop/CreateOrderDialog";
+import { OrderDetailsDialog } from "@/components/workshop/OrderDetailsDialog";
 import { PrinterIcon } from "@/components/workshop/WorkshopIcons";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import {
@@ -112,7 +114,17 @@ export function WorkshopOrdersTab({
   const [dragOverStatus, setDragOverStatus] = useState<OrderStatus | null>(
     null,
   );
+  /** Открытая карточка заказа: id вместо объекта — детали берутся из props. */
+  const [detailsOrderId, setDetailsOrderId] = useState<string | null>(null);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
+  /**
+   * Когда закончилось последнее перетаскивание.
+   *
+   * Браузер не присылает click после drag-and-drop, но событие может прийти на
+   * некоторых платформах. Короткая пауза после dragend не даёт клику открыть
+   * карточку вместо переноса.
+   */
+  const lastDragEndRef = useRef(0);
 
   const printerById = useMemo(
     () => new Map(printers.map((printer) => [printer.id, printer])),
@@ -143,6 +155,12 @@ export function WorkshopOrdersTab({
     [orders],
   );
 
+  /** Заказ открытой карточки: после router.refresh() берём свежие данные. */
+  const detailsOrder =
+    detailsOrderId !== null
+      ? (orders.find((order) => order.id === detailsOrderId) ?? null)
+      : null;
+
   const openCreate = useCallback(() => {
     setNotice(null);
     setError(null);
@@ -153,6 +171,59 @@ export function WorkshopOrdersTab({
     setIsCreateOpen(false);
     createTriggerRef.current?.focus();
   }, []);
+
+  const openDetails = useCallback((order: WorkshopOrder) => {
+    setNotice(null);
+    setError(null);
+    setDetailsOrderId(order.id);
+  }, []);
+
+  /**
+   * Закрытие карточки возвращает фокус на её заголовок: после Escape человек
+   * остаётся на том же заказе, а не в начале страницы.
+   */
+  const closeDetails = useCallback(() => {
+    const orderId = detailsOrderId;
+    setDetailsOrderId(null);
+
+    if (!orderId) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(`[data-order-open="${orderId}"]`)
+        ?.focus();
+    });
+  }, [detailsOrderId]);
+
+  /**
+   * Клик по карточке открывает заказ. Кнопки внутри (меню статуса, заголовок)
+   * обрабатывают клик сами, поэтому их пропускаем; после drag-and-drop карточка
+   * не открывается — иначе перенос заканчивался бы модальным окном.
+   */
+  function handleCardClick(
+    event: ReactMouseEvent<HTMLLIElement>,
+    order: WorkshopOrder,
+  ) {
+    if (Date.now() - lastDragEndRef.current < 250) {
+      return;
+    }
+
+    // Пока сохраняется статус, карточка недоступна: окно показало бы старые данные.
+    if (pendingId === order.id) {
+      return;
+    }
+
+    if (
+      event.target instanceof Element &&
+      event.target.closest("button, a, input, textarea, select, label")
+    ) {
+      return;
+    }
+
+    openDetails(order);
+  }
 
   /** Перенос карточки в выбранную колонку: сервер проверяет заказ и статус. */
   async function moveOrder(order: WorkshopOrder, nextStatus: OrderStatus) {
@@ -210,6 +281,7 @@ export function WorkshopOrdersTab({
   }
 
   function handleDragEnd() {
+    lastDragEndRef.current = Date.now();
     setDraggingId(null);
     setDragOverStatus(null);
   }
@@ -293,6 +365,11 @@ export function WorkshopOrdersTab({
             Проведите пальцем в сторону, чтобы увидеть все этапы.
           </p>
 
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Нажмите на карточку, чтобы открыть заказ и комментарии. Чтобы сменить
+            статус, перетащите её в другую колонку или нажмите «⋯».
+          </p>
+
           <div
             data-kanban-board
             className="mt-2 max-w-full overflow-x-auto overscroll-x-contain pb-2 lg:overflow-visible"
@@ -314,6 +391,8 @@ export function WorkshopOrdersTab({
                   onMoveOrder={(order, nextStatus) => {
                     void moveOrder(order, nextStatus);
                   }}
+                  onOpenOrder={openDetails}
+                  onCardClick={handleCardClick}
                 />
               ))}
             </div>
@@ -329,6 +408,10 @@ export function WorkshopOrdersTab({
           onClose={closeCreate}
           onCreated={setNotice}
         />
+      ) : null}
+
+      {detailsOrder ? (
+        <OrderDetailsDialog order={detailsOrder} onClose={closeDetails} />
       ) : null}
     </section>
   );
@@ -349,6 +432,11 @@ type KanbanColumnProps = {
   onDragEnd: () => void;
   onDropOrder: (orderId: string, status: OrderStatus) => void;
   onMoveOrder: (order: WorkshopOrder, status: OrderStatus) => void;
+  onOpenOrder: (order: WorkshopOrder) => void;
+  onCardClick: (
+    event: ReactMouseEvent<HTMLLIElement>,
+    order: WorkshopOrder,
+  ) => void;
 };
 
 /**
@@ -370,6 +458,8 @@ function KanbanColumn({
   onDragEnd,
   onDropOrder,
   onMoveOrder,
+  onOpenOrder,
+  onCardClick,
 }: KanbanColumnProps) {
   const headingId = `workshop-orders-column-${column.status}`;
 
@@ -465,6 +555,8 @@ function KanbanColumn({
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onMoveOrder={onMoveOrder}
+            onOpen={onOpenOrder}
+            onClick={onCardClick}
           />
         ))}
 
@@ -493,6 +585,11 @@ type OrderCardProps = {
   ) => void;
   onDragEnd: () => void;
   onMoveOrder: (order: WorkshopOrder, status: OrderStatus) => void;
+  onOpen: (order: WorkshopOrder) => void;
+  onClick: (
+    event: ReactMouseEvent<HTMLLIElement>,
+    order: WorkshopOrder,
+  ) => void;
 };
 
 /**
@@ -501,6 +598,10 @@ type OrderCardProps = {
  * `draggable` выключен на время записи, чтобы два действия не отправились
  * одновременно. Кнопка «⋯» ведёт себя как обычный элемент вне drag: она не
  * начинает перетаскивание и открывает меню смены статуса.
+ *
+ * Клик по карточке открывает `OrderDetailsDialog`, а перетаскивание остаётся
+ * прежним: drag начинается с зажатой мыши, click после него не приходит.
+ * Заголовок — отдельная кнопка: открыть заказ можно и с клавиатуры.
  */
 function OrderCard({
   order,
@@ -510,6 +611,8 @@ function OrderCard({
   onDragStart,
   onDragEnd,
   onMoveOrder,
+  onOpen,
+  onClick,
 }: OrderCardProps) {
   const isOverdue = isOrderOverdue(order);
 
@@ -520,6 +623,7 @@ function OrderCard({
       data-order-id={order.id}
       data-order-status={order.status}
       data-order-card
+      onClick={(event) => onClick(event, order)}
       onDragStart={(event) => onDragStart(event, order)}
       onDragEnd={onDragEnd}
       className={`group relative rounded-xl border border-white/[0.08] bg-[#0a0a0a] p-3 transition-[border-color,background-color,opacity] ${
@@ -527,12 +631,20 @@ function OrderCard({
           ? "cursor-wait opacity-60"
           : isDragging
             ? "cursor-grabbing opacity-40"
-            : "cursor-grab hover:border-white/20 hover:bg-white/[0.045] active:cursor-grabbing"
+            : "cursor-pointer hover:border-white/20 hover:bg-white/[0.045]"
       }`}
     >
       <div className="flex items-start justify-between gap-1.5">
         <h4 className="min-w-0 text-base leading-snug font-bold tracking-tight break-words text-white">
-          {order.title}
+          <button
+            type="button"
+            draggable={false}
+            data-order-open={order.id}
+            onClick={() => onOpen(order)}
+            className="text-left transition-colors hover:text-blue-200 focus-visible:rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+          >
+            {order.title}
+          </button>
         </h4>
         <StatusMenu
           order={order}
