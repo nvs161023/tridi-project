@@ -143,6 +143,17 @@ export function CreateOrderDialog({
     selectedFilament && parsedWeight !== null && parsedWeight > 0
       ? planFilamentUsage(selectedFilament, parsedWeight)
       : null;
+  /**
+   * Нехватка пластика: числа для предупреждения берём из формы, а не из текста
+   * ошибки planFilamentUsage — так плашка называет остаток и нужный вес прямо.
+   */
+  const filamentShortage =
+    preview && !preview.ok && selectedFilament && parsedWeight !== null
+      ? {
+          remainingWeightG: selectedFilament.remainingWeightG,
+          neededWeightG: Math.max(0, Math.round(parsedWeight)),
+        }
+      : null;
 
   /**
    * Товар → пустые поля заказа.
@@ -790,14 +801,23 @@ export function CreateOrderDialog({
               <option value="">
                 Без катушки — пластик не списывается
               </option>
-              {filaments.map((filament) => (
-                <option key={filament.id} value={filament.id}>
-                  {[filament.brand, filament.type, filament.color]
-                    .filter(Boolean)
-                    .join(" ")}{" "}
-                  — {formatGrams(filament.remainingWeightG)}
-                </option>
-              ))}
+              {filaments.map((filament) => {
+                const isOutOfStock = filament.remainingWeightG <= 0;
+
+                return (
+                  <option
+                    key={filament.id}
+                    value={filament.id}
+                    disabled={isOutOfStock}
+                  >
+                    {[filament.brand, filament.type, filament.color]
+                      .filter(Boolean)
+                      .join(" ")}{" "}
+                    — {formatGrams(filament.remainingWeightG)}
+                    {isOutOfStock ? " (Нет в наличии)" : ""}
+                  </option>
+                );
+              })}
             </select>
             {state.fieldErrors?.filamentId ? (
               <p
@@ -807,17 +827,29 @@ export function CreateOrderDialog({
               >
                 {state.fieldErrors.filamentId}
               </p>
-            ) : preview ? (
+            ) : preview?.ok ? (
               <p
                 id="order-filament-note"
                 aria-live="polite"
-                className={`mt-1.5 text-xs leading-relaxed ${
-                  preview.ok ? "text-emerald-300" : "text-red-300"
-                }`}
+                className="mt-1.5 text-xs leading-relaxed text-emerald-300"
               >
-                {preview.ok
-                  ? `После заказа на катушке останется ${formatGrams(preview.remainingWeightG)}.`
-                  : preview.error}
+                После заказа на катушке останется{" "}
+                {formatGrams(preview.remainingWeightG)}.
+              </p>
+            ) : filamentShortage ? (
+              <p
+                id="order-filament-note"
+                role="alert"
+                data-filament-warning
+                className="mt-2 flex gap-2 rounded-xl border border-red-400/50 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+              >
+                <span aria-hidden>⚠️</span>{" "}
+                <span>
+                  Внимание: на катушке осталось{" "}
+                  {formatGrams(filamentShortage.remainingWeightG)}, а для этой
+                  модели нужно {formatGrams(filamentShortage.neededWeightG)}.
+                  Пластика может не хватить.
+                </span>
               </p>
             ) : (
               <p

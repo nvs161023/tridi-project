@@ -20,7 +20,10 @@ import { EditOrderDialog } from "@/components/workshop/EditOrderDialog";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import { PencilIcon, TrashIcon } from "@/components/workshop/WorkshopIcons";
 import type { WorkshopClient } from "@/lib/workshop/clients";
-import { formatGrams } from "@/lib/workshop/filaments";
+import {
+  formatGrams,
+  type WorkshopFilament,
+} from "@/lib/workshop/filaments";
 import {
   ORDER_COMMENT_TEXT_LIMIT,
   ORDER_STATUS_META,
@@ -49,6 +52,8 @@ type OrderDetailsDialogProps = {
   order: WorkshopOrder;
   /** База клиентов: окно правки выбирает готовый контакт из списка. */
   clients: WorkshopClient[];
+  /** Катушки склада: окно правки предупреждает о нехватке пластика. */
+  filaments: WorkshopFilament[];
   onClose: () => void;
   /** Сообщение для строки состояния на доске после правки. */
   onUpdated: (message: string) => void;
@@ -78,6 +83,7 @@ function formatCommentDate(value: string | null): string {
 export function OrderDetailsDialog({
   order,
   clients,
+  filaments,
   onClose,
   onUpdated,
 }: OrderDetailsDialogProps) {
@@ -524,6 +530,7 @@ export function OrderDetailsDialog({
         <EditOrderDialog
           order={order}
           clients={clients}
+          filaments={filaments}
           onClose={closeEdit}
           onSaved={handleEdited}
         />

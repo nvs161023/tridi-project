@@ -8,11 +8,17 @@ import { updateOrder } from "@/app/actions/orders";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import {
+  formatGrams,
+  type WorkshopFilament,
+} from "@/lib/workshop/filaments";
+import {
   ORDER_LIMITS,
   ORDER_TEXT_LIMITS,
+  planFilamentUsage,
   type OrderFormErrors,
   type WorkshopOrder,
 } from "@/lib/workshop/orders";
+import { parseWorkshopNumber } from "@/lib/workshop/settings";
 
 /**
  * Окно «Редактировать заказ».
@@ -27,6 +33,10 @@ import {
  * `clientId`, а имя — как `clientName`: Server Action проверяет ссылку по
  * `user_id` и сохраняет имя снимком. Ручной ввод снимает ссылку.
  *
+ * Катушку сменить нельзя, но окно знает `order.filamentId`: если на складе
+ * осталось меньше введённого веса, под полем «Вес модели» появляется красное
+ * предупреждение. Это только подсказка — остаток при правке не меняется.
+ *
  * Окно открывается поверх карточки заказа, поэтому `isTopmost`: Escape
  * закрывает только правку, а не обе модалки сразу.
  */
@@ -35,6 +45,8 @@ type EditOrderDialogProps = {
   order: WorkshopOrder;
   /** База клиентов: готовый контакт или имя вручную. */
   clients: WorkshopClient[];
+  /** Катушки склада: по ним видно, хватит ли пластика на вес заказа. */
+  filaments: WorkshopFilament[];
   onClose: () => void;
   /** Сообщение для строки состояния на вкладке. */
   onSaved: (message: string) => void;
@@ -46,6 +58,7 @@ const inputClassName =
 export function EditOrderDialog({
   order,
   clients,
+  filaments,
   onClose,
   onSaved,
 }: EditOrderDialogProps) {
@@ -56,6 +69,7 @@ export function EditOrderDialog({
       : "",
   );
   const [clientName, setClientName] = useState(order.clientName ?? "");
+  const [weight, setWeight] = useState(() => String(order.materialWeightG));
   const [fieldErrors, setFieldErrors] = useState<OrderFormErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -74,6 +88,27 @@ export function EditOrderDialog({
 
   const selectedClient =
     clients.find((client) => client.id === clientId) ?? null;
+  const orderFilament =
+    order.filamentId === null
+      ? null
+      : (filaments.find((filament) => filament.id === order.filamentId) ??
+        null);
+  const parsedWeight = parseWorkshopNumber(weight);
+  const filamentPlan =
+    orderFilament && parsedWeight !== null
+      ? planFilamentUsage(orderFilament, parsedWeight)
+      : null;
+  /** Нехватка пластика: числа для плашки берём из введённого веса. */
+  const filamentShortage =
+    orderFilament &&
+    parsedWeight !== null &&
+    filamentPlan &&
+    !filamentPlan.ok
+      ? {
+          remainingWeightG: orderFilament.remainingWeightG,
+          neededWeightG: Math.max(0, Math.round(parsedWeight)),
+        }
+      : null;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -371,12 +406,15 @@ export function EditOrderDialog({
                 min={0}
                 max={ORDER_LIMITS.weightMax}
                 required
-                defaultValue={order.materialWeightG}
+                value={weight}
+                onChange={(event) => setWeight(event.currentTarget.value)}
                 aria-invalid={fieldErrors.materialWeightG ? true : undefined}
                 aria-describedby={
                   fieldErrors.materialWeightG
                     ? "edit-order-weight-error"
-                    : "edit-order-weight-hint"
+                    : filamentShortage
+                      ? "edit-order-weight-warning"
+                      : "edit-order-weight-hint"
                 }
                 className={inputClassName}
               />
@@ -388,12 +426,37 @@ export function EditOrderDialog({
                 >
                   {fieldErrors.materialWeightG}
                 </p>
+              ) : filamentShortage ? (
+                <p
+                  id="edit-order-weight-warning"
+                  role="alert"
+                  data-filament-warning
+                  className="mt-2 flex gap-2 rounded-xl border border-red-400/50 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+                >
+                  <span aria-hidden>⚠️</span>{" "}
+                  <span>
+                    Внимание: на катушке осталось{" "}
+                    {formatGrams(filamentShortage.remainingWeightG)}, а для этой
+                    модели нужно {formatGrams(filamentShortage.neededWeightG)}.
+                    Пластика может не хватить.
+                  </span>
+                </p>
               ) : (
                 <p
                   id="edit-order-weight-hint"
                   className="mt-1.5 text-xs leading-relaxed text-slate-400"
                 >
-                  Пластик не списывается: заказ списал его при создании.
+                  {orderFilament
+                    ? `Катушка заказа: ${[
+                        orderFilament.brand,
+                        orderFilament.type,
+                        orderFilament.color,
+                      ]
+                        .filter(Boolean)
+                        .join(" ")} — осталось ${formatGrams(
+                        orderFilament.remainingWeightG,
+                      )}. Пластик при правке не списывается.`
+                    : "Пластик не списывается: заказ списал его при создании."}
                 </p>
               )}
             </div>

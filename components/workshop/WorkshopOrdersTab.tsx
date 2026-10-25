@@ -482,6 +482,7 @@ export function WorkshopOrdersTab({
         <OrderDetailsDialog
           order={detailsOrder}
           clients={clients}
+          filaments={filaments}
           onUpdated={setNotice}
           onClose={closeDetails}
         />
