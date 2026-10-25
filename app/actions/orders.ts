@@ -80,6 +80,7 @@ const ORDER_NOT_FOUND =
 const INVALID_ID = "Заказ не найден — обновите страницу.";
 const INVALID_STATUS = "Неизвестный статус заказа — обновите страницу.";
 const STATUS_FAILED = "Не удалось сменить статус. Попробуйте ещё раз.";
+const DELETE_FAILED = "Не удалось удалить заказ. Попробуйте ещё раз.";
 const COMMENT_MIGRATION_MISSING =
   "Комментарии пока не сохраняются: в базе нет таблицы workshop_order_comments. Примените миграцию supabase/workshop_order_comments.sql.";
 const COMMENT_ADD_FAILED =
@@ -303,7 +304,7 @@ export async function createOrder(
 
     if (error) {
       console.warn("Наработка не обновлена:", error.code, error.message);
-      await deleteOrder(supabase, orderId, user.id);
+      await deleteOrderRow(supabase, orderId, user.id);
 
       return { error: PRINTER_UPDATE_FAILED };
     }
@@ -344,7 +345,7 @@ export async function createOrder(
         }
       }
 
-      await deleteOrder(supabase, orderId, user.id);
+      await deleteOrderRow(supabase, orderId, user.id);
 
       return { error: FILAMENT_UPDATE_FAILED };
     }
@@ -464,6 +465,74 @@ export async function updateOrderStatus(
   };
 }
 
+/**
+ * Удаление заказа.
+ *
+ * Порядок проверок как у остальных действий: id → сессия → подписка → удаление
+ * с фильтром по `user_id`. Чужой заказ не удалится даже при известном id:
+ * политика RLS `workshop_orders_delete_own` проверяет владельца, а фильтр
+ * повторяет условие в самом запросе. Комментарии уходят каскадом
+ * (`on delete cascade` в `supabase/workshop_order_comments.sql`), отдельный
+ * delete для них не нужен.
+ *
+ * `select("title")` возвращает удалённую строку: пустой ответ означает, что
+ * заказ уже удалили в другой вкладке, — тогда показываем понятное сообщение, а
+ * не «успех». Заголовок нужен только для сообщения об успехе.
+ */
+export async function deleteOrder(
+  orderId: string,
+): Promise<OrderActionState> {
+  if (!isOrderId(orderId)) {
+    return { ok: false, error: INVALID_ID };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_orders")
+    .delete()
+    .eq("id", orderId)
+    .eq("user_id", user.id)
+    .select("title")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Заказ не удалён:", error.code, error.message);
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(error.code, error.message)
+        ? MIGRATION_MISSING
+        : DELETE_FAILED,
+    };
+  }
+
+  if (!data) {
+    return { ok: false, error: ORDER_NOT_FOUND };
+  }
+
+  const row = data as { title?: unknown };
+  const title =
+    typeof row.title === "string" && row.title.trim()
+      ? row.title.trim()
+      : "Без названия";
+
+  revalidatePath("/dashboard/workshop");
+
+  return { ok: true, message: `Заказ «${title}» удалён.` };
+}
+
 /** Ответ окна карточки: либо сохранённый комментарий, либо текст ошибки. */
 type CommentActionResult =
   | { ok: true; comment: OrderComment }
@@ -575,7 +644,7 @@ export async function addOrderComment(
 }
 
 /** Удаление заказа после неудачного update: база не должна хранить фантом. */
-async function deleteOrder(
+async function deleteOrderRow(
   supabase: Supabase,
   orderId: string,
   userId: string,

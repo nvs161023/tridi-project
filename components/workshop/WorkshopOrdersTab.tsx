@@ -12,10 +12,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { updateOrderStatus } from "@/app/actions/orders";
+import { deleteOrder, updateOrderStatus } from "@/app/actions/orders";
 import { CreateOrderDialog } from "@/components/workshop/CreateOrderDialog";
 import { OrderDetailsDialog } from "@/components/workshop/OrderDetailsDialog";
-import { PrinterIcon } from "@/components/workshop/WorkshopIcons";
+import {
+  PrinterIcon,
+  TrashIcon,
+} from "@/components/workshop/WorkshopIcons";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import {
@@ -114,6 +117,8 @@ export function WorkshopOrdersTab({
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  /** Заказ, который удаляется: карточка блокируется до ответа сервера. */
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<OrderStatus | null>(
     null,
@@ -214,8 +219,9 @@ export function WorkshopOrdersTab({
       return;
     }
 
-    // Пока сохраняется статус, карточка недоступна: окно показало бы старые данные.
-    if (pendingId === order.id) {
+    // Пока сохраняется статус или идёт удаление, карточка недоступна:
+    // окно показало бы старые данные.
+    if (pendingId === order.id || deletingId === order.id) {
       return;
     }
 
@@ -231,7 +237,11 @@ export function WorkshopOrdersTab({
 
   /** Перенос карточки в выбранную колонку: сервер проверяет заказ и статус. */
   async function moveOrder(order: WorkshopOrder, nextStatus: OrderStatus) {
-    if (order.status === nextStatus || pendingId === order.id) {
+    if (
+      order.status === nextStatus ||
+      pendingId === order.id ||
+      deletingId === order.id
+    ) {
       return;
     }
 
@@ -250,6 +260,55 @@ export function WorkshopOrdersTab({
 
     setNotice(result.message ?? "Статус изменён.");
     router.refresh();
+  }
+
+  /**
+   * Удаление заказа с карточки Kanban.
+   *
+   * Подтверждение обязательно: действие необратимо, а комментарии удаляются
+   * каскадом. Пока сервер отвечает, карточка заблокирована (`deletingId`), а
+   * после успеха `router.refresh()` убирает её с доски: страница перечитывает
+   * заказы, и удалённой строки в них уже нет. Открытую карточку закрываем — её
+   * заказа больше не существует.
+   */
+  async function removeOrder(order: WorkshopOrder) {
+    if (deletingId !== null) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Удалить заказ «${order.title}»? Это действие нельзя отменить.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setNotice(null);
+    setError(null);
+    setDeletingId(order.id);
+
+    try {
+      const result = await deleteOrder(order.id);
+
+      if (!result.ok) {
+        setError(
+          result.error ?? "Не удалось удалить заказ. Попробуйте ещё раз.",
+        );
+        return;
+      }
+
+      if (detailsOrderId === order.id) {
+        setDetailsOrderId(null);
+      }
+
+      setNotice(result.message ?? "Заказ удалён.");
+      router.refresh();
+    } catch {
+      setError("Нет связи с сервером. Попробуйте ещё раз.");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   function handleDropOrder(orderId: string, nextStatus: OrderStatus) {
@@ -386,6 +445,7 @@ export function WorkshopOrdersTab({
                   orders={groupedOrders[column.status]}
                   printerById={printerById}
                   pendingId={pendingId}
+                  deletingId={deletingId}
                   draggingId={draggingId}
                   isDragOver={dragOverStatus === column.status}
                   onDragOverStatusChange={setDragOverStatus}
@@ -394,6 +454,9 @@ export function WorkshopOrdersTab({
                   onDropOrder={handleDropOrder}
                   onMoveOrder={(order, nextStatus) => {
                     void moveOrder(order, nextStatus);
+                  }}
+                  onDeleteOrder={(order) => {
+                    void removeOrder(order);
                   }}
                   onOpenOrder={openDetails}
                   onCardClick={handleCardClick}
@@ -427,6 +490,7 @@ type KanbanColumnProps = {
   orders: WorkshopOrder[];
   printerById: Map<string, WorkshopPrinter>;
   pendingId: string | null;
+  deletingId: string | null;
   draggingId: string | null;
   isDragOver: boolean;
   onDragOverStatusChange: (status: OrderStatus | null) => void;
@@ -437,6 +501,7 @@ type KanbanColumnProps = {
   onDragEnd: () => void;
   onDropOrder: (orderId: string, status: OrderStatus) => void;
   onMoveOrder: (order: WorkshopOrder, status: OrderStatus) => void;
+  onDeleteOrder: (order: WorkshopOrder) => void;
   onOpenOrder: (order: WorkshopOrder) => void;
   onCardClick: (
     event: ReactMouseEvent<HTMLLIElement>,
@@ -456,6 +521,7 @@ function KanbanColumn({
   orders,
   printerById,
   pendingId,
+  deletingId,
   draggingId,
   isDragOver,
   onDragOverStatusChange,
@@ -463,6 +529,7 @@ function KanbanColumn({
   onDragEnd,
   onDropOrder,
   onMoveOrder,
+  onDeleteOrder,
   onOpenOrder,
   onCardClick,
 }: KanbanColumnProps) {
@@ -556,10 +623,12 @@ function KanbanColumn({
                 : null
             }
             isPending={pendingId === order.id}
+            isDeleting={deletingId === order.id}
             isDragging={draggingId === order.id}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onMoveOrder={onMoveOrder}
+            onDelete={onDeleteOrder}
             onOpen={onOpenOrder}
             onClick={onCardClick}
           />
@@ -583,6 +652,8 @@ type OrderCardProps = {
   order: WorkshopOrder;
   printer: WorkshopPrinter | null;
   isPending: boolean;
+  /** Заказ удаляется: карточка блокируется так же, как при смене статуса. */
+  isDeleting: boolean;
   isDragging: boolean;
   onDragStart: (
     event: DragEvent<HTMLLIElement>,
@@ -590,6 +661,7 @@ type OrderCardProps = {
   ) => void;
   onDragEnd: () => void;
   onMoveOrder: (order: WorkshopOrder, status: OrderStatus) => void;
+  onDelete: (order: WorkshopOrder) => void;
   onOpen: (order: WorkshopOrder) => void;
   onClick: (
     event: ReactMouseEvent<HTMLLIElement>,
@@ -612,19 +684,22 @@ function OrderCard({
   order,
   printer,
   isPending,
+  isDeleting,
   isDragging,
   onDragStart,
   onDragEnd,
   onMoveOrder,
+  onDelete,
   onOpen,
   onClick,
 }: OrderCardProps) {
   const isOverdue = isOrderOverdue(order);
+  const isBusy = isPending || isDeleting;
 
   return (
     <li
-      draggable={!isPending}
-      aria-busy={isPending}
+      draggable={!isBusy}
+      aria-busy={isBusy}
       data-order-id={order.id}
       data-order-status={order.status}
       data-order-card
@@ -632,7 +707,7 @@ function OrderCard({
       onDragStart={(event) => onDragStart(event, order)}
       onDragEnd={onDragEnd}
       className={`group relative rounded-xl border border-white/[0.08] bg-[#0a0a0a] p-3 transition-[border-color,background-color,opacity] ${
-        isPending
+        isBusy
           ? "cursor-wait opacity-60"
           : isDragging
             ? "cursor-grabbing opacity-40"
@@ -654,7 +729,9 @@ function OrderCard({
         <StatusMenu
           order={order}
           isPending={isPending}
+          isDeleting={isDeleting}
           onSelect={(nextStatus) => onMoveOrder(order, nextStatus)}
+          onDelete={() => onDelete(order)}
         />
       </div>
 
@@ -708,9 +785,9 @@ function OrderCard({
         </div>
       ) : null}
 
-      {isPending ? (
+      {isBusy ? (
         <p className="mt-2 text-[10px] font-semibold text-blue-300">
-          Сохраняем статус…
+          {isDeleting ? "Удаляем…" : "Сохраняем статус…"}
         </p>
       ) : null}
     </li>
@@ -724,21 +801,27 @@ type MenuPosition = {
 };
 
 /**
- * Меню смены статуса для мобильных и клавиатуры.
+ * Меню действий с заказом для мобильных и клавиатуры.
  *
  * Панель рендерится в портал с `position: fixed`: доска прокручивается по
  * горизонтали, и обычное абсолютное меню обрезалось бы её краем. При открытии
  * фокус переходит на первый доступный статус, Escape возвращает его на «⋯».
- * Текущий статус показан, но выключен — повторять его бессмысленно.
+ * Текущий статус показан, но выключен — повторять его бессмысленно. Удаление
+ * стоит отдельной красной строкой под разделителем: его не спутать со сменой
+ * статуса, а подтверждение спрашивает само действие на доске.
  */
 function StatusMenu({
   order,
   isPending,
+  isDeleting,
   onSelect,
+  onDelete,
 }: {
   order: WorkshopOrder;
   isPending: boolean;
+  isDeleting: boolean;
   onSelect: (status: OrderStatus) => void;
+  onDelete: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState<MenuPosition | null>(null);
@@ -831,17 +914,25 @@ function StatusMenu({
     onSelect(nextStatus);
   }
 
+  /** Удаление — отдельная строка меню: оно не меняет статус, а стирает заказ. */
+  function chooseDelete() {
+    setIsOpen(false);
+    setPosition(null);
+    triggerRef.current?.focus();
+    onDelete();
+  }
+
   return (
     <div className="relative shrink-0">
       <button
         ref={triggerRef}
         type="button"
         draggable={false}
-        disabled={isPending}
+        disabled={isPending || isDeleting}
         aria-expanded={isOpen}
         aria-controls={menuId}
-        aria-label={`Сменить статус заказа «${order.title}»`}
-        title="Сменить статус"
+        aria-label={`Действия с заказом «${order.title}»`}
+        title="Действия с заказом"
         onClick={toggleMenu}
         className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-base leading-none text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-wait disabled:opacity-50"
       >
@@ -895,6 +986,19 @@ function StatusMenu({
                   );
                 })}
               </ul>
+
+              <div aria-hidden className="my-1 h-px bg-white/[0.08]" />
+
+              <button
+                type="button"
+                data-order-menu-delete
+                onClick={chooseDelete}
+                disabled={isPending || isDeleting}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-red-300 transition-colors hover:bg-red-500/15 hover:text-red-200 focus-visible:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 disabled:cursor-wait disabled:opacity-50"
+              >
+                <TrashIcon className="h-3.5 w-3.5 shrink-0" />
+                {isDeleting ? "Удаляем…" : "Удалить"}
+              </button>
             </div>,
             document.body,
           )

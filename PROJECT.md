@@ -2190,6 +2190,15 @@ delivered. На десктопе четыре колонки стоят в ря�
 `router.refresh()`, поэтому карточка остаётся в новой колонке и после перезагрузки. Сводка:
 заказов, в печати, сумма и сколько сроков прошло.
 
+Удаление заказа есть в двух местах. В меню «⋯» под статусами стоит отдельная красная строка
+«Удалить» (иконка `TrashIcon`), отделённая линией: случайно нажать её вместо смены статуса
+нельзя. В карточке заказа — красная иконка корзины в шапке рядом с крестиком (`data-order-delete`).
+Оба пути сначала спрашивают `window.confirm` — в тексте есть название заказа и предупреждение
+«Это действие нельзя отменить», — затем вызывают `deleteOrder(orderId)`; пока сервер отвечает,
+карточка и кнопки выключены, после успеха `router.refresh()` убирает карточку с доски, а
+открытая карточка закрывается. Если удалить не удалось, текст ошибки остаётся на месте: в
+карточке — красной плашкой под шапкой, на доске — в плашке над колонками.
+
 Клик по карточке открывает `OrderDetailsDialog` — детальную карточку заказа. В ней аккуратные
 строки: клиент, стоимость, вес модели, время печати и срок сдачи; статус вынесен бейджем в шапку.
 Ниже — блок «Комментарии»: лента сообщений с датой (старые сверху) и поле «Написать комментарий...»
@@ -2220,7 +2229,11 @@ Server Action по базе.
 наработка возвращается к прежним числам, а заказ удаляется: в базе не остаётся заказа, который «как
 бы» израсходовал ресурс. Смена статуса — `updateOrderStatus`: целевой статус проверяется
 `isOrderStatus`, заголовок и текущий статус читаются из базы, затем записывается выбранный статус —
-поэтому Kanban умеет вернуть карточку назад. Сообщение
+поэтому Kanban умеет вернуть карточку назад. Удаление — `deleteOrder(orderId)`: проверка UUID →
+сессия → `hasActiveSubscription` → `delete` с фильтрами по `id` и `user_id` и `select("title")`
+(комментарии удаляются каскадом внешнего ключа). Пустой ответ значит, что заказ уже удалили в
+другой вкладке: действие вернёт «Заказ не найден», а не успех. После удаления —
+`revalidatePath('/dashboard/workshop')`. Сообщение
 после успеха говорит, сколько списано и осталось, и предупреждает, если сопло, смазка или винт Z
 дошли до интервала. Данные заказа — `lib/workshop/orders.ts` (`WorkshopOrder`, `ORDER_STATUS_META`,
 `ORDER_LIMITS`, `readOrderForm`, `normalizeOrderRow`, `planPrinterUsage`, `planFilamentUsage`,
@@ -2499,7 +2512,7 @@ RLS на выборку, вставку, обновление и удалени�
 | `saveWorkshopSettings` | `app/actions/workshop.ts` | Настройки калькулятора Мастерской: разбор формы (`readWorkshopSettingsForm`) → реальная сессия → повторная проверка `hasActiveSubscription` → `upsert` по `user_id` и `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции (таблицы `workshop_settings` нет). Состояние формы — `WorkshopSettingsFormState` из `app/actions/workshop-state.ts` |
 | `addFilament`, `consumeFilament`, `saveImportedFilaments` | `app/actions/filaments.ts` | Склад Мастерской. Добавление: разбор формы (`readFilamentForm`) → сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_filaments` и `revalidatePath('/dashboard/workshop')`. Списание: UUID катушки проверяется до запроса, остаток перечитывается из базы, списание больше остатка отклоняется, `update remaining_weight_g` с фильтром по `user_id`. Импорт с фото: `saveImportedFilaments(items)` проверяет массив (не больше 100), сессию и подписку, каждую строку превращает в черновик через `createImportedFilamentDraft` и пишет отдельным `insert`, возвращая `{ saved, failed, error? }`. Отдельные ответы для истёкшей сессии, отсутствия пакета, неприменённой миграции и ненайденной катушки. Состояние форм — `FilamentFormState` и `ConsumeFilamentFormState` из `app/actions/filaments-state.ts` |
 | `addPrinter`, `resetPrinterNozzle`, `resetPrinterLubrication`, `resetPrinterZScrew` | `app/actions/printers.ts` | Принтеры Мастерской. Добавление: разбор формы (`readPrinterForm`) → сессия → `hasActiveSubscription` → `insert` в `workshop_printers` (три интервала, включая `z_screw_interval`). Сбросы: UUID проверяется до запроса, имя читается с фильтром по `user_id`, затем `update` нужного счётчика (`nozzle_hours`, `lubrication_hours` или `z_screw_hours`) в 0 и `last_maintenance_date` сегодняшним днём; удаление счётчика не трогает остальные. Ответы кнопок — `PrinterActionState` из `app/actions/printers-state.ts` |
-| `createOrder`, `updateOrderStatus` | `app/actions/orders.ts` | Заказы Мастерской. Создание: разбор формы (`readOrderForm`) → сессия → `hasActiveSubscription` → чтение принтера, катушки и товара по `user_id` → `planFilamentUsage` (не хватает пластика — ошибка у поля «Вес») → `insert` заказа (с `product_id`, если товар выбран) → `update` наработки (`planPrinterUsage`) → `update` остатка катушки; при сбое второго update наработка возвращается к прежним числам, а заказ удаляется. Смена статуса: целевой статус приходит из Kanban, проверяется `isOrderStatus`; заголовок и текущий статус читаются из базы по `user_id`, затем `update` выбранного статуса — поэтому карточку можно вернуть назад. После успеха `revalidatePath('/dashboard/workshop')`; состояние формы — `OrderFormState` из `app/actions/orders-state.ts` |
+| `createOrder`, `updateOrderStatus`, `deleteOrder` | `app/actions/orders.ts` | Заказы Мастерской. Создание: разбор формы (`readOrderForm`) → сессия → `hasActiveSubscription` → чтение принтера, катушки и товара по `user_id` → `planFilamentUsage` (не хватает пластика — ошибка у поля «Вес») → `insert` заказа (с `product_id`, если товар выбран) → `update` наработки (`planPrinterUsage`) → `update` остатка катушки; при сбое второго update наработка возвращается к прежним числам, а заказ удаляется. Смена статуса: целевой статус приходит из Kanban, проверяется `isOrderStatus`; заголовок и текущий статус читаются из базы по `user_id`, затем `update` выбранного статуса — поэтому карточку можно вернуть назад. Удаление: UUID → сессия → `hasActiveSubscription` → `delete` по `id` и `user_id` с `select('title')`; комментарии уходят каскадом, пустой ответ — «заказ не найден», после успеха возвращается `{ ok: true, message }`. После успеха `revalidatePath('/dashboard/workshop')`; состояние формы — `OrderFormState` из `app/actions/orders-state.ts` |
 | `addOrderComment`, `loadOrderComments` | `app/actions/orders.ts` | Комментарии карточки заказа. `loadOrderComments(orderId)` — тонкая обёртка над `getOrderComments()` из `lib/workshop/order-store.ts` (клиент не может импортировать серверный модуль чтения). `addOrderComment(orderId, text)`: UUID и текст проверяются до запроса (`readOrderCommentText`: пустой текст и больше 1000 символов отклоняются) → реальная сессия → `hasActiveSubscription` → заказ читается по `id` и `user_id` (RLS политики комментариев проверяет только автора, поэтому принадлежность заказа проверяет действие) → `insert` в `workshop_order_comments` с `select` вставленной строки. Возвращает `{ ok: true, comment }` с датой из базы или `{ ok: false, error }`; при отсутствии таблицы — текст про `supabase/workshop_order_comments.sql`, а не 500 |
 | `addClient` | `app/actions/clients.ts` | База клиентов Мастерской: разбор формы (`readClientForm`: имя обязательно, телефон и email проверяются по формату) → реальная сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_clients` → `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции; логика, проверки и типы — в `lib/workshop/clients.ts` |
 
@@ -6024,3 +6037,33 @@ check-ограничениями, комментариями к колонкам
 без необязательных полей, битые ИНН/ОГРН/телефон/email/длина адреса, чужая строка из базы,
 незнакомый тип, отсутствие строки), временный скрипт удалён. Применение SQL и живой прогон
 вкладки на dev-сервере остаются за пользователем: миграция в базу не применялась.
+
+**Мастерская: удаление заказов (25 октября 2026).** Заказ теперь можно удалить: раньше
+ошибочный заказ оставался на доске навсегда. Серверное действие `deleteOrder(orderId)` в
+`app/actions/orders.ts` повторяет порядок проверок остальных действий: UUID (`isOrderId`) →
+сессия → `hasActiveSubscription` → `delete` с фильтрами по `id` и `user_id` и `select("title")`.
+Второй фильтр не формальность: политика RLS `workshop_orders_delete_own` уже проверяет
+владельца, но условие в запросе оставляет поведение тем же и при выключенном RLS. Комментарии
+удаляются каскадом (`on delete cascade` в `supabase/workshop_order_comments.sql`), отдельный
+запрос для них не нужен. Пустой ответ `select` значит, что заказ уже удалили в другой вкладке:
+действие вернёт «Заказ не найден», а не ложный успех. После удаления вызывается
+`revalidatePath('/dashboard/workshop')`, а заголовок удалённой строки попадает в сообщение об
+успехе: «Заказ … удалён».
+
+Интерфейс. В `OrderDetailsDialog` в шапке рядом с крестиком появилась красная иконка корзины
+(`TrashIcon` из `WorkshopIcons.tsx`, атрибут `data-order-delete`): при наведении фон и цвет
+усиливаются, на время удаления кнопка выключается (`aria-busy`). На Kanban в меню «⋯» под
+списком статусов добавлена отдельная красная строка «Удалить» (`data-order-menu-delete`) за
+разделителем — её не спутать со сменой статуса. Оба пути спрашивают `window.confirm` с
+названием заказа и предупреждением «Это действие нельзя отменить», затем вызывают
+`deleteOrder`; после успеха карточка закрывается, `router.refresh()` убирает её с доски. Пока
+идёт удаление, карточка заблокирована (`deletingId`): перетаскивание, меню и открытие карточки
+недоступны, а внизу карточки видно «Удаляем…». В карточке заказа на это время выключены и
+корзина, и крестик, а Escape не закрывает окно.
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:imports` —
+1 662 импорта без битых, `npm run check:docs` — сводка согласована, `npm run check:style` —
+39 блоков, 0 нарушений, `git diff --check` — чисто. Миграция не нужна: таблица, политика
+удаления и каскад комментариев уже есть в `supabase/workshop_printers_orders.sql` и
+`supabase/workshop_order_comments.sql`. Живой прогон удаления на dev-сервере остаётся за
+пользователем.

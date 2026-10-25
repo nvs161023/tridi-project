@@ -136,6 +136,18 @@ export function SpecificationIcon(props: WorkshopIconProps) {
   );
 }
 
+/** Удаление: корзина — необратимое действие в карточке заказа. */
+export function TrashIcon(props: WorkshopIconProps) {
+  return (
+    <svg {...iconProps} {...props}>
+      <path d="M3 6h18" />
+      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <path d="m19 6-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
 /** Плюс для акцентной кнопки. */
 export function PlusIcon(props: WorkshopIconProps) {
   return (

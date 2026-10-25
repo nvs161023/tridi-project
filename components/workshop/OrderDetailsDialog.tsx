@@ -1,16 +1,23 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
   type FormEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
 
-import { addOrderComment, loadOrderComments } from "@/app/actions/orders";
+import {
+  addOrderComment,
+  deleteOrder,
+  loadOrderComments,
+} from "@/app/actions/orders";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
+import { TrashIcon } from "@/components/workshop/WorkshopIcons";
 import { formatGrams } from "@/lib/workshop/filaments";
 import {
   ORDER_COMMENT_TEXT_LIMIT,
@@ -72,11 +79,24 @@ export function OrderDetailsDialog({
   const [text, setText] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const router = useRouter();
   const dialogRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useDialogDismiss(onClose);
+  /**
+   * Пока заказ удаляется, окно не закрывается: иначе непонятно, выполнено ли
+   * действие, а фокус вернулся бы на карточку, которой уже нет.
+   */
+  const closeDialog = useCallback(() => {
+    if (!isDeleting) {
+      onClose();
+    }
+  }, [isDeleting, onClose]);
+
+  useDialogDismiss(closeDialog);
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -162,6 +182,48 @@ export function OrderDetailsDialog({
     }
   }
 
+  /**
+   * Удаление заказа из карточки.
+   *
+   * Спрашиваем подтверждение через `window.confirm` — как у возврата в админке:
+   * удаление необратимо, а отдельная модалка внутри модалки мешала бы Escape и
+   * фокусу. После успеха карточка закрывается и доска перечитывается с сервера.
+   */
+  async function handleDelete() {
+    if (isDeleting) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Удалить заказ «${order.title}»? Это действие нельзя отменить.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleteError(null);
+    setIsDeleting(true);
+
+    try {
+      const result = await deleteOrder(order.id);
+
+      if (!result.ok) {
+        setDeleteError(
+          result.error ?? "Не удалось удалить заказ. Попробуйте ещё раз.",
+        );
+        return;
+      }
+
+      onClose();
+      router.refresh();
+    } catch {
+      setDeleteError("Нет связи с сервером. Попробуйте ещё раз.");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   if (typeof document === "undefined") {
     return null;
   }
@@ -176,7 +238,7 @@ export function OrderDetailsDialog({
       data-order-details-overlay
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
-          onClose();
+          closeDialog();
         }
       }}
       className="fixed inset-0 z-[80] flex items-end justify-center bg-black/80 p-4 backdrop-blur-sm sm:items-center"
@@ -215,17 +277,41 @@ export function OrderDetailsDialog({
               ) : null}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Закрыть карточку заказа"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
-          >
-            <span aria-hidden>✕</span>
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleDelete()}
+              disabled={isDeleting}
+              aria-busy={isDeleting}
+              aria-label="Удалить заказ"
+              title="Удалить заказ"
+              data-order-delete
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-red-400/30 bg-red-500/10 text-red-300 transition-colors hover:border-red-400/60 hover:bg-red-500/20 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-wait disabled:opacity-60"
+            >
+              <TrashIcon className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={closeDialog}
+              disabled={isDeleting}
+              aria-label="Закрыть карточку заказа"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-wait disabled:opacity-60"
+            >
+              <span aria-hidden>✕</span>
+            </button>
+          </div>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 sm:p-6">
+          {deleteError ? (
+            <p
+              role="alert"
+              className="mb-4 rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+            >
+              {deleteError}
+            </p>
+          ) : null}
+
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
             <DetailItem
               label="Клиент"
