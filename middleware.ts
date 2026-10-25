@@ -65,8 +65,26 @@ function needsSession(pathname: string): boolean {
   );
 }
 
+/**
+ * API-роуты не проходят через сессию и счётчик посещений.
+ *
+ * `matcher` уже исключает `/api`, но проверка остаётся здесь явно: если
+ * matcher поменяют (например, ради счётчика для новых разделов), вебхуки
+ * Ozon и платёжные уведомления не должны получить редирект на вход.
+ * У Ozon нет cookie нашей сессии, поэтому любая проверка браузерной сессии
+ * для `/api/webhooks/*` — это 403 или 307 вместо уведомления.
+ */
+function isApiPath(pathname: string): boolean {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
+
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
   const { pathname } = request.nextUrl;
+
+  // Первым делом: у вебхуков свои проверки внутри роутов.
+  if (isApiPath(pathname)) {
+    return NextResponse.next();
+  }
 
   // Скрытый раздел закрыт и для гостя, и для владельца пакета: это не про
   // права, а про готовность продукта. Проверка стоит первой, чтобы не гонять

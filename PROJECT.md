@@ -136,7 +136,7 @@
 | URL | Файл | Что делает |
 |---|---|---|
 | `/api/payments/robokassa/result` | `app/api/payments/robokassa/result/route.ts` | ResultURL Robokassa: проверяет подпись с `Shp_*`, сумму и записывает покупку в `purchases`, а для легаси-подписки продлевает срок в `subscriptions`, возвращает `OK{InvId}` |
-| `/api/webhooks/ozon` | `app/api/webhooks/ozon/route.ts` | Вебхук Ozon Seller: `POST` с `message_type`, где `TYPE_PING` и незнакомые события подтверждаются `{ result: true }` без записи, а `TYPE_NEW_POSTING` создаёт заказ. Продавец ищется по `client_id` из заголовка `X-Ozon-Seller-Client-Id` (запасные — `X-Ozon-Client-Id` и `client_id` в теле) среди `workshop_settings.ozon_client_id` через `service_role`; без совпадения и при нескольких строках — 403. Заказ пишется с `source = 'ozon'`, `title` вида «Ozon: <номер отправления>» (до 80 символов) и `notes` до 1000 символов со SKU и количеством; повтор уведомления с тем же `title` возвращает успех и не создаёт дубль. `runtime = 'nodejs'`, `dynamic = 'force-dynamic'`, ответы `no-store` |
+| `/api/webhooks/ozon` | `app/api/webhooks/ozon/route.ts` | Вебхук Ozon Seller: `POST` с `message_type`, где `TYPE_PING` подтверждается первым делом — до разбора полей, проверки Client-Id и запросов в базу (в том числе при пустом или не-JSON теле, если в нём есть `TYPE_PING`), незнакомые события тоже получают `{ result: true }` без записи, а `TYPE_NEW_POSTING` создаёт заказ. `GET` отвечает `{ ok: true, endpoint: "ozon-webhook" }` — так адрес можно проверить в браузере. Продавец ищется по `client_id` из заголовка `X-Ozon-Seller-Client-Id` (запасные — `X-Ozon-Client-Id` и `client_id` в теле), пробелы и NBSP из значения выбрасываются; сравнение идёт с `workshop_settings.ozon_client_id` через `service_role` — сначала точное, при промахе один запасной проход по нормализованным значениям (старые записи с пробелами); без совпадения и при нескольких строках — 403. Заказ пишется с `source = 'ozon'`, `title` вида «Ozon: <номер отправления>» (до 80 символов) и `notes` до 1000 символов со SKU и количеством; повтор уведомления с тем же `title` возвращает успех и не создаёт дубль. `runtime = 'nodejs'`, `dynamic = 'force-dynamic'`, ответы `no-store` |
 | `/api/admin/promo/csv` | `app/api/admin/promo/csv/route.ts` | CSV для Ozon: проверяет сессию и `ADMIN_EMAIL`, отдаёт только неиспользованные коды выбранного курса (`?course=confident`) с колонками «Код» и «Ссылка на активацию». BOM и `;` — чтобы Excel с русской локалью открыл файл без мастера импорта |
 | `/api/admin/refund` | `app/api/admin/refund/route.ts` | Возврат за курс: `POST` с `{ purchaseId }`, проверка сессии и `ADMIN_EMAIL`, затем `lib/refund.ts`. Если в `lesson_progress` есть отмеченный платный урок или сданный тест модуля — **403** с текстом оферты, иначе покупка закрывается (`expires_at` = момент возврата) и приходит 200. Коды: 400, 403, 404, 409, 500, 503 |
 | `/api/cron/daily-report` | `app/api/cron/daily-report/route.ts` | Ежедневный отчёт администратору: `Authorization: Bearer <CRON_SECRET>`, два блока — за 24 часа и с начала московского месяца (выручка и покупки, промокоды, новые ученики, посещения, генерации STL по моделям, отзывы о курсах, оценки конструктора со средним баллом и последними комментариями), HTML-письмо через Resend на `ADMIN_EMAIL`. `?dryRun=1` возвращает HTML без отправки; GET и POST равнозначны |
@@ -183,11 +183,14 @@
 | `/activate` | `app/activate/page.tsx` + `components/promo/ActivatePromoForm.tsx` | Активация промокода по ссылке `/activate?code=TRIDI-ABCD-1234`: гость видит вход с возвратом на эту же страницу, вошедший активирует код формой (`activatePromoCode`). Страница `noindex`, код одноразовый и привязывается к аккаунту |
 
 Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) запускается на всём сайте, кроме `/api`,
-статики Next.js и файлов с расширением. Первым делом он проверяет скрытые разделы
-(`lib/hidden-routes.ts`, сейчас там только `/constructor`): такой адрес получает редирект на
-`/tools` ещё до чтения сессии — инструмент закрыт и для гостя, и для владельца пакета, пока модели
-не проверены на печати. Сессию он трогает только на `/dashboard/*`, `/course/*`, `/forum/new`,
-`/admin/*` и `/auth/*`: продлевает её, отправляет гостя на вход с
+статики Next.js и файлов с расширением. `/api` он пропускает дважды: сначала matcher не отдаёт
+такие адреса middleware, а затем `isApiPath` в самом `middleware()` возвращает `NextResponse.next()`
+до любых проверок — вебхуки Ozon и платёжные уведомления приходят без cookie браузерной сессии,
+и редирект на вход или 403 для них означал бы потерянное уведомление. Первым делом он проверяет
+скрытые разделы (`lib/hidden-routes.ts`, сейчас там только `/constructor`): такой адрес получает
+редирект на `/tools` ещё до чтения сессии — инструмент закрыт и для гостя, и для владельца пакета,
+пока модели не проверены на печати. Сессию он трогает только на `/dashboard/*`, `/course/*`,
+`/forum/new`, `/admin/*` и `/auth/*`: продлевает её, отправляет гостя на вход с
 запоминанием адреса (`next=`), не пускает в курсы, кабинет и создание темы пользователя
 с **неподтверждённой почтой** (`email_confirmed_at`), а авторизованного уводит со страниц входа.
 Список закрытых префиксов лежит в `lib/supabase/middleware.ts`, скрытых разделов — в
@@ -2539,7 +2542,7 @@ default 'manual'` с check `manual/ozon/wb/yandex` — заказы, созда�
 | `lib/workshop/printer-presets.ts` | Справочник принтеров: `PrinterPreset` и `PRINTER_PRESETS` — восемнадцать моделей (Bambu Lab X1, X1C, P1S, A1, A1 mini; Prusa MK4 и MK3S+; Creality Ender-3 V3, K1, K1 Max, K1C; Anycubic Kobra; Elegoo Neptune 4; Sovol SV06 и SV07; Artillery Sidewinder; Voron 2.4 и Trident) с наработкой до обслуживания сопла (`nozzleHours`, 400–1000 ч), смазки направляющих (`lubricationHours`, 0–1000 ч; 0 у карбоновых стержней Bambu Lab — их чистят спиртом, а не смазывают), смазки винта Z (`zScrewHours`, 500–1000 ч) и подсказкой `note`; числа — ориентиры производителя, в форме их можно изменить. `PRINTER_BRAND_OPTIONS` — уникальные бренды для datalist, `formatPrinterPresetLabel` — подпись «бренд — модель», `normalizePrinterModel`/`findPrinterPresetByModel` — поиск пресета по свободно введённой модели без учёта регистра, пробелов и вида тире |
 | `lib/workshop/maintenance-guides.ts` | `MAINTENANCE_GUIDES: Record<string, string>` — подробные markdown-инструкции для каждой модели, ключ `"${brand} ${model}"`; 5–10 пунктов о чистке сопла, смазке осей и винта Z и особенностях (карбоновые стержни, ремни, эксцентрики). `getMaintenanceGuide(brand, model)` возвращает строку или `null`; окно разбирает только заголовки `##`, пункты `-` и `**жирный**` |
 | `lib/gcode-parser.ts` | Разбор G-code в браузере: `parseGcode(text)` → `{ timeHours, weightGrams }`; время из `;TIME_PRINTING:`, `; estimated printing time … =`, `; total estimated time:`, `; model printing time:`, `;TIME:` (форматы «1h 6m 12s», «1 ч 30 мин», `ч:м:с`, `м:с`, голые секунды), вес из `; total filament used [g]`, `; filament used [g]`, `;Filament used:`, `; filament used [mm]` (сумма по экструдерам, г/кг/мг/м/мм, `GCODE_GRAMS_PER_METER` ≈ 2,98 г для PLA 1,75 мм); шаблоны ищут первое совпадение по всему тексту, отсутствующее значение — `null` |
-| `middleware.ts` (корень) | Точка входа Next.js: `matcher` покрывает весь сайт, кроме `/api`, `/_next/static`, `/_next/image`, служебных файлов и путей с расширением. Сессия (`updateSession`) вызывается только для `/dashboard`, `/certificate`, `/course`, `/constructor`, `/admin`, `/auth` и `/forum/new`; на остальных страницах просмотр уходит в `site_visits` через `event.waitUntil` |
+| `middleware.ts` (корень) | Точка входа Next.js: `matcher` покрывает весь сайт, кроме `/api`, `/_next/static`, `/_next/image`, служебных файлов и путей с расширением, а `isApiPath` дополнительно пропускает `/api` в самом `middleware()` до любых проверок — вебхуки приходят без cookie браузерной сессии. Сессия (`updateSession`) вызывается только для `/dashboard`, `/certificate`, `/course`, `/constructor`, `/admin`, `/auth` и `/forum/new`; на остальных страницах просмотр уходит в `site_visits` через `event.waitUntil` |
 
 ---
 
@@ -6373,3 +6376,27 @@ email и красная подсказка; с реквизитами — «ОО
 роут `ƒ /dashboard/workshop` в сборке (54.2 kB), `npm run check:imports` — 1 697 импортов без
 битых, `npm run check:docs` — 297 путей, сводка сходится, `npm run check:style` — 38 уроков,
 0 нарушений.
+
+**Вебхук Ozon: ping до проверок и явный пропуск `/api` (25 октября 2026).** Живая проверка
+показала: `TYPE_PING` на `https://tridi-print.ru/api/webhooks/ozon` отвечает
+`200 {"result":true}`, а `403 {"error":"unknown seller"}` приходит только на
+`TYPE_NEW_POSTING` без совпадения Client-Id. Чтобы исключить блокировку на входе,
+`middleware()` теперь пропускает `/api` первым делом через `isApiPath`: matcher исключал эти
+адреса и раньше, но проверка в функции остаётся на случай его изменения — у Ozon нет cookie
+нашей сессии, и любая проверка входа для вебхука даёт 403 или редирект вместо уведомления.
+
+В роуте ping обрабатывается до всего остального: тело читается текстом, пустое тело
+подтверждается, а если JSON не разобрался, но в теле есть `TYPE_PING`, ответ всё равно
+`{ result: true }`; лог пишет `message_type`, наличие Client-Id и имена Ozon-заголовков.
+`client_id` из заголовка или тела очищается от пробелов, NBSP и узкого NBSP; значение из базы
+нормализуется так же — точное совпадение ищется первым, при промахе один запасной проход
+(до 1000 строк) ловит старые записи с пробелами. Для проверки адреса в браузере добавлен
+`GET` с `{ ok: true, endpoint: "ozon-webhook" }`. `POST` с `TYPE_NEW_POSTING` без Client-Id
+по-прежнему получает 403 — это защита от чужого заказа, а не помеха подключению.
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:imports`,
+`npm run check:docs` и `npm run check:style` — без замечаний. Живой прогон прода до правок:
+`ping` → 200, `{}` → 200, `TYPE_NEW_POSTING` без Client-Id и с несуществующим Client-Id → 403;
+локальный прогон после правок (`next start`): `GET` → `{ "ok": true }`, `TYPE_PING` в JSON, в
+form-urlencoded, в нижнем регистре и с пустым телом → 200, `TYPE_NEW_POSTING` без Client-Id и с
+несуществующим Client-Id → 403.

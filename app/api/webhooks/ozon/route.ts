@@ -5,14 +5,18 @@ import { createAdminClient } from "@/lib/supabase/admin";
  *
  * Ozon присылает сюда уведомления без cookies пользователя и без
  * криптографической подписи, поэтому:
- *   1. `TYPE_PING` подтверждаем сразу — это проверка соединения, база не нужна;
+ *   1. `TYPE_PING` подтверждаем самым первым — до разбора полей, до базы и до
+ *      любых проверок Client-Id: это только проверка соединения;
  *   2. продавца ищем по `client_id` из заголовка (или тела) в
- *      `workshop_settings.ozon_client_id`;
+ *      `workshop_settings.ozon_client_id`, сравнивая значения без пробелов;
  *   3. заказ пишем только при точном совпадении, через service_role в обход RLS.
  *
  * Без совпадения `client_id` роут отвечает 403: чужой запрос не должен создать
  * заказ даже при известном URL. Заголовок `X-Ozon-Seller-Client-Id` —
  * основной, `X-Ozon-Client-Id` поддерживаем как запасной вариант.
+ *
+ * GET на этот адрес — не протокол Ozon, а проверка для человека: открыть в
+ * браузере и убедиться, что маршрут жив и его не перехватывает middleware.
  */
 export const runtime = "nodejs";
 
@@ -34,6 +38,14 @@ const MAX_PRODUCTS = 100;
 /** `workshop_orders.notes` — text с check до 1000 символов. */
 const MAX_NOTES_LENGTH = 1000;
 
+/**
+ * Сколько строк настроек читать на запасном проходе поиска продавца.
+ *
+ * Запасной проход нужен только для старых записей с пробелами в Client-Id.
+ * Ограничение защищает от выгрузки всей таблицы на большом числе продавцов.
+ */
+const MAX_SELLER_ROWS = 1000;
+
 /** JSON-объект из тела запроса. Массивы и null объектами не считаем. */
 type JsonObject = Record<string, unknown>;
 
@@ -46,6 +58,7 @@ type OzonProductLine = {
 /** Строка `workshop_settings`, нужная для поиска владельца заказа. */
 type SettingsRow = {
   user_id?: unknown;
+  ozon_client_id?: unknown;
 };
 
 function isObject(value: unknown): value is JsonObject {
@@ -70,6 +83,44 @@ function readText(value: unknown): string | null {
   }
 
   return null;
+}
+
+/**
+ * Client-Id без пробелов.
+ *
+ * Продавец копирует значение из личного кабинета, и туда легко попадает
+ * неразрывный пробел. Client-Id — число, поэтому пробелы не значат ничего:
+ * убираем их и в заголовке, и в теле, и в значении из базы. Пустое значение
+ * или переполнение длины — `null`, то есть «идентификатора нет».
+ */
+function normalizeClientId(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const clientId = value.replace(/[\s\u00a0\u2007\u202f]+/g, "");
+
+  if (!clientId || clientId.length > MAX_CLIENT_ID_LENGTH) {
+    return null;
+  }
+
+  return clientId;
+}
+
+/** Тип уведомления: `message_type` — поле Ozon, `messageType` — запасное. */
+function readMessageType(body: JsonObject): string | null {
+  return readText(body.message_type) ?? readText(body.messageType);
+}
+
+/**
+ * Похоже ли тело на ping.
+ *
+ * Нужно только тогда, когда тело не разобралось как JSON: Ozon подтверждает
+ * соединение простым `TYPE_PING`, и повторять проверку из-за формата тела
+ * незачем. Для обычного JSON-запроса решение принимает `readMessageType`.
+ */
+function looksLikePing(rawBody: string): boolean {
+  return /type_ping/i.test(rawBody);
 }
 
 /** JSON-ответ: Ozon ждёт `{"result": true}` на успешные уведомления. */
@@ -97,13 +148,13 @@ function ok(): Response {
  * тестировать роут через curl и совместимо с теми, кто кладёт поле в JSON.
  */
 function readClientId(request: Request, body: JsonObject): string | null {
-  const headerClientId = readText(
+  const headerClientId = normalizeClientId(
     request.headers.get("x-ozon-seller-client-id") ??
       request.headers.get("x-ozon-client-id"),
   );
 
   if (headerClientId) {
-    return headerClientId.length <= MAX_CLIENT_ID_LENGTH ? headerClientId : null;
+    return headerClientId;
   }
 
   const payload = isObject(body.payload) ? body.payload : {};
@@ -114,10 +165,10 @@ function readClientId(request: Request, body: JsonObject): string | null {
     payload.client_id,
     payload.clientId,
   ]) {
-    const clientId = readText(candidate);
+    const clientId = normalizeClientId(readText(candidate));
 
     if (clientId) {
-      return clientId.length <= MAX_CLIENT_ID_LENGTH ? clientId : null;
+      return clientId;
     }
   }
 
@@ -243,6 +294,57 @@ function forbidden(): Response {
 }
 
 /**
+ * Настройки продавца по Client-Id.
+ *
+ * Сначала точное совпадение: так работает обычный случай и используется
+ * индекс. Если строк нет, делаем один запасной проход — старые записи могли
+ * сохраниться с пробелом внутри Client-Id. Сравнение во втором проходе идёт
+ * по нормализованным значениям, поэтому `"12 345"` и `"12345"` совпадут.
+ */
+async function findSellerSettings(
+  admin: ReturnType<typeof createAdminClient>,
+  clientId: string,
+): Promise<SettingsRow[]> {
+  const { data, error } = await admin
+    .from("workshop_settings")
+    .select("user_id")
+    .eq("ozon_client_id", clientId)
+    .limit(2);
+
+  if (error) {
+    throw error;
+  }
+
+  const exact = (data ?? []) as SettingsRow[];
+
+  if (exact.length > 0) {
+    return exact;
+  }
+
+  const { data: rows, error: fallbackError } = await admin
+    .from("workshop_settings")
+    .select("user_id, ozon_client_id")
+    .not("ozon_client_id", "is", null)
+    .limit(MAX_SELLER_ROWS);
+
+  if (fallbackError) {
+    throw fallbackError;
+  }
+
+  const all = (rows ?? []) as SettingsRow[];
+
+  if (all.length >= MAX_SELLER_ROWS) {
+    console.warn("[Ozon] Запасной поиск продавца упёрся в лимит строк.", {
+      limit: MAX_SELLER_ROWS,
+    });
+  }
+
+  return all.filter(
+    (row) => normalizeClientId(readText(row.ozon_client_id)) === clientId,
+  );
+}
+
+/**
  * Новый заказ Ozon.
  *
  * Порядок:
@@ -258,6 +360,15 @@ async function handleNewPosting(
   const clientId = readClientId(request, body);
 
   if (!clientId) {
+    // Без Client-Id владельца не определить. В лог пишем только имена
+    // заголовков: значения могут содержать Api-Key.
+    console.warn("[Ozon] Client-Id не найден в запросе, заказ отклонён.", {
+      ozonHeaders: [...request.headers.keys()].filter((name) =>
+        name.includes("ozon"),
+      ),
+      bodyKeys: Object.keys(body).slice(0, 10),
+    });
+
     return forbidden();
   }
 
@@ -289,18 +400,7 @@ async function handleNewPosting(
   let settings: SettingsRow[];
 
   try {
-    const { data, error } = await admin
-      .from("workshop_settings")
-      .select("user_id")
-      .eq("ozon_client_id", clientId)
-      .limit(2);
-
-    if (error) {
-      console.error("[Ozon] Ошибка поиска настроек продавца:", error);
-      return json({ error: "database error" }, 500);
-    }
-
-    settings = (data ?? []) as SettingsRow[];
+    settings = await findSellerSettings(admin, clientId);
   } catch (error) {
     console.error("[Ozon] Ошибка запроса настроек продавца:", error);
     return json({ error: "database error" }, 500);
@@ -391,35 +491,84 @@ async function handleNewPosting(
 /**
  * POST /api/webhooks/ozon.
  *
- * Ozon присылает JSON с `message_type`. Ping и неизвестные типы уведомлений
- * подтверждаем без записи: иначе Ozon будет повторять их бесконечно. Новый
- * заказ обрабатывается только для известного Client-Id.
+ * Порядок важен: `TYPE_PING` подтверждается до любых проверок Client-Id и до
+ * запросов в базу — это проверка соединения, а не заказ. Неизвестные типы
+ * уведомлений тоже подтверждаем, иначе Ozon будет повторять их бесконечно.
+ * Новый заказ обрабатывается только для известного Client-Id.
+ *
+ * Тело читаем текстом: так ping подтверждается даже при не-JSON теле, а в
+ * лог попадает длина и content-type — по ним видно, что именно прислал Ozon.
  */
 export async function POST(request: Request): Promise<Response> {
+  const rawBody = await request.text();
+
+  // Пустое тело не может быть заказом: подтверждаем, чтобы Ozon не повторял.
+  if (!rawBody.trim()) {
+    console.warn("[Ozon] Пустое тело запроса, подтверждено без обработки.", {
+      contentType: request.headers.get("content-type"),
+    });
+
+    return ok();
+  }
+
   let body: unknown;
 
   try {
-    body = await request.json();
+    body = JSON.parse(rawBody);
   } catch {
+    // Ozon подтверждает соединение простым `TYPE_PING`; если тело пришло не
+    // JSON, проверку всё равно надо закрыть успешно.
+    if (looksLikePing(rawBody)) {
+      console.log("[Ozon] Ping без JSON-тела, подтверждён.");
+
+      return ok();
+    }
+
+    console.warn("[Ozon] Тело запроса не JSON:", {
+      contentType: request.headers.get("content-type"),
+      length: rawBody.length,
+    });
+
     return json({ error: "invalid json" }, 400);
   }
 
   if (!isObject(body)) {
+    if (looksLikePing(rawBody)) {
+      console.log("[Ozon] Ping без JSON-объекта, подтверждён.");
+
+      return ok();
+    }
+
     return json({ error: "invalid json" }, 400);
   }
 
-  const messageType = readText(body.message_type);
+  const messageType = readMessageType(body)?.toUpperCase() ?? null;
 
+  // Ping — самый первый выход: ни Client-Id, ни база здесь не нужны.
   if (messageType === "TYPE_PING") {
+    console.log("[Ozon] Ping подтверждён.");
+
     return ok();
   }
 
   if (messageType !== "TYPE_NEW_POSTING") {
     // Остальные события Ozon (отмена, смена статуса) этот роут пока не
     // обрабатывает, но подтверждает, чтобы очередь уведомлений не застряла.
+    console.log("[Ozon] Уведомление без обработки:", { messageType });
+
     return ok();
   }
 
   return handleNewPosting(request, body);
+}
+
+/**
+ * GET /api/webhooks/ozon.
+ *
+ * Не часть протокола Ozon: адрес удобно открыть в браузере и увидеть, что
+ * маршрут жив, а middleware его не перехватывает. Уведомления приходят POST.
+ */
+export async function GET(): Promise<Response> {
+  return json({ ok: true, endpoint: "ozon-webhook" });
 }
 
