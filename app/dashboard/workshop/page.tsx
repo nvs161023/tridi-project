@@ -10,6 +10,7 @@ import { WorkshopTabs } from "@/components/workshop/WorkshopTabs";
 import { resolveUserId } from "@/lib/current-user";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
+import { getWorkshopClients } from "@/lib/workshop/clients";
 import { isLowStockFilament } from "@/lib/workshop/filaments";
 import { getWorkshopFilaments } from "@/lib/workshop/filament-store";
 import { getWorkshopOrders } from "@/lib/workshop/order-store";
@@ -26,9 +27,10 @@ import { getWorkshopSettings } from "@/lib/workshop/store";
  * порядок у библиотеки профилей, и он позволяет показать гостю и ученику без
  * пакета понятное объяснение, а не глухой редирект.
  *
- * Настройки, склад, принтеры, заказы и товары читаются только при открытом
- * доступе: без пакета сохранять их всё равно нельзя, значит и лишние запросы
- * к базе не нужны. Запросы идут параллельно — это пять независимых таблиц.
+ * Настройки, склад, принтеры, заказы, товары и клиенты читаются только при
+ * открытом доступе: без пакета сохранять их всё равно нельзя, значит и лишние
+ * запросы к базе не нужны. Запросы идут параллельно — это шесть независимых
+ * таблиц.
  */
 export const metadata: Metadata = {
   title: "Мастерская — TriDi",
@@ -49,15 +51,16 @@ export default async function WorkshopPage() {
   }
 
   const hasPro = await hasActiveSubscription(supabase, userId);
-  const [snapshot, stock, fleet, orderBook, productList] = hasPro
+  const [snapshot, stock, fleet, orderBook, productList, clientList] = hasPro
     ? await Promise.all([
         getWorkshopSettings(supabase, userId),
         getWorkshopFilaments(supabase, userId),
         getWorkshopPrinters(supabase, userId),
         getWorkshopOrders(supabase, userId),
         getWorkshopProducts(),
+        getWorkshopClients(),
       ])
-    : [null, null, null, null, null];
+    : [null, null, null, null, null, null];
 
   const orders = orderBook?.orders ?? [];
   const now = new Date();
@@ -186,6 +189,7 @@ export default async function WorkshopPage() {
               printers={fleet.printers}
               orders={orderBook.orders}
               products={productList ?? []}
+              clients={clientList ?? []}
               isMissingTable={snapshot.isMissingTable}
               isFilamentsMissingTable={stock.isMissingTable}
               isPrintersMissingTable={fleet.isMissingTable}

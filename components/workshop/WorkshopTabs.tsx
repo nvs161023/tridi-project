@@ -5,15 +5,18 @@ import { useRef, useState, type KeyboardEvent } from "react";
 import { WorkshopCalculatorTab } from "@/components/workshop/WorkshopCalculatorTab";
 import {
   CalculatorIcon,
+  ClientsIcon,
   InventoryIcon,
   OrdersIcon,
   PrinterIcon,
   ProductsIcon,
 } from "@/components/workshop/WorkshopIcons";
+import { WorkshopClientsTab } from "@/components/workshop/WorkshopClientsTab";
 import { WorkshopOrdersTab } from "@/components/workshop/WorkshopOrdersTab";
 import { WorkshopPrintersTab } from "@/components/workshop/WorkshopPrintersTab";
 import { WorkshopProductsTab } from "@/components/workshop/WorkshopProductsTab";
 import { WorkshopStockTab } from "@/components/workshop/WorkshopStockTab";
+import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import type { WorkshopOrder } from "@/lib/workshop/orders";
 import type { WorkshopPrinter } from "@/lib/workshop/printers";
@@ -30,8 +33,9 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
  * aria-controls, и скринридер получил бы два набора одного и того же.
  *
  * «Заказы», «Склад», «Принтеры» и «Калькулятор» сохраняют внутреннее
- * содержимое. «Товары» получают каталог с сервера: `WorkshopProductsTab`
- * выводит таблицу, а при пустом списке — состояние с кнопкой добавления.
+ * содержимое. «Товары» и «Клиенты» получают данные с сервера: таблицы рисуются
+ * по массивам, а при пустом списке показывается состояние с кнопкой добавления.
+ * База клиентов живёт рядом с товарами — это обе справочные вкладки.
  *
  * Активная вкладка получает `bg-white/10` и белый текст, неактивные остаются
  * серыми `text-zinc-400`. Стрелки клавиатуры переключают табы, у неактивных
@@ -44,6 +48,7 @@ type WorkshopTabsProps = {
   printers: WorkshopPrinter[];
   orders: WorkshopOrder[];
   products: WorkshopProduct[];
+  clients: WorkshopClient[];
   isMissingTable: boolean;
   isFilamentsMissingTable: boolean;
   isPrintersMissingTable: boolean;
@@ -76,6 +81,12 @@ const TABS = [
     Icon: ProductsIcon,
   },
   {
+    id: "clients",
+    label: "Клиенты",
+    description: "База контактов и адресов",
+    Icon: ClientsIcon,
+  },
+  {
     id: "calculator",
     label: "Калькулятор",
     description: "Себестоимость и цена",
@@ -91,6 +102,7 @@ export function WorkshopTabs({
   printers,
   orders,
   products,
+  clients,
   isMissingTable,
   isFilamentsMissingTable,
   isPrintersMissingTable,
@@ -107,6 +119,7 @@ export function WorkshopTabs({
     orders: orders.length,
     inventory: filaments.length,
     printers: printers.length,
+    clients: clients.length,
   };
 
   /** Стрелки влево-вправо: переключение с переносом по кругу. */
@@ -289,6 +302,15 @@ export function WorkshopTabs({
             hidden={activeTab !== "products"}
           >
             <WorkshopProductsTab products={products} />
+          </div>
+
+          <div
+            role="tabpanel"
+            id="workshop-panel-clients"
+            aria-labelledby="workshop-tab-clients"
+            hidden={activeTab !== "clients"}
+          >
+            <WorkshopClientsTab clients={clients} />
           </div>
 
           <div

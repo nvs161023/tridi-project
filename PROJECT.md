@@ -1987,8 +1987,8 @@ Cron на сервере (каждый день в 09:00 МСК):
 
 Рабочая область собрана как CRM-интерфейс: hero с кнопкой «Создать заказ», четыре glass-карточки
 статистики и `components/workshop/WorkshopTabs.tsx` — клиентский компонент с `role="tablist"` и
-пятью табами: «Заказы», «Склад», «Принтеры», «Товары», «Калькулятор». На `lg:` тот же tablist
-разворачивается в вертикальный сайдбар слева, на мобильном остаётся горизонтальной лентой с
+шестью табами: «Заказы», «Склад», «Принтеры», «Товары», «Клиенты», «Калькулятор». На `lg:` тот же
+tablist разворачивается в вертикальный сайдбар слева, на мобильном остаётся горизонтальной лентой с
 прокруткой; у неактивных табов `tabIndex="-1"`, стрелки ← → ↑ ↓ переключают по кругу. Контент
 рендерится в карточке `bg-[#0a0a0a] border border-white/5`, чтобы отделиться от mesh-фона сайта.
 «Товары» — каталог: `WorkshopProductsTab` получает массив `products` со страницы и показывает
@@ -1999,6 +1999,16 @@ Cron на сервере (каждый день в 09:00 МСК):
 товара (артикул, название, описание, цены, габариты и дополнительные поля). «Сохранить» вызывает
 `addProduct`, после успеха `router.refresh()` обновляет серверные данные, поэтому товар остаётся
 в таблице и после перезагрузки страницы.
+
+«Клиенты» — база контактов: `WorkshopClientsTab` получает массив `clients` со страницы и выводит
+таблицу «Имя», «Телефон», «Email», «Адрес». Заметки идут второй строкой под именем, незаполненные
+поля — прочерком, телефон и email — ссылками `tel:` и `mailto:`. Пока база пуста, показывается
+состояние с иконкой `ClientsIcon` и кнопкой; когда клиенты есть, «+ Добавить клиента» переезжает в
+шапку. Кнопка открывает `AddClientDialog`: имя обязательно, телефон, email, адрес и заметки можно
+оставить пустыми. «Сохранить» вызывает Server Action `addClient` из `app/actions/clients.ts`, а
+`revalidatePath('/dashboard/workshop')` и `router.refresh()` обновляют таблицу. Телефон проверяется
+на допустимые символы и минимум пять цифр, email — на формат; длины полей 160/40/160/300/2000
+повторяют `CLIENT_TEXT_LIMITS` в `lib/workshop/clients.ts`.
 
 Импорт товаров из CSV — `importProductsFromCsv(csvString, platform)` в `lib/workshop/products.ts`.
 Порядок: сессия → `hasActiveSubscription` → разбор файла → чтение существующих артикулов →
@@ -2237,6 +2247,11 @@ RLS на выборку, вставку, обновление и удалени�
 `print_time_hours` 0–100 000, `printer_id`/`filament_id` с `on delete set null`, `notes` до 1000,
 `deadline`, `created_at`; индексы `(user_id, created_at desc)` и `(user_id, status)`). RLS у обеих
 таблиц — select/insert/update/delete только своих строк, гранты `authenticated`, `notify pgrst`.
+`supabase/workshop_clients.sql`: база клиентов `workshop_clients` (`name` обязательное с
+`check (btrim(name) <> '')`, `phone`, `email`, `address`, `notes`, `created_at`), индекс
+`(user_id, created_at desc)`, RLS на select/insert/update/delete только своих строк, гранты
+`authenticated` и `notify pgrst, 'reload schema'`.
+
 Пока таблиц нет, страница не падает: `getWorkshopSettings()`, `getWorkshopFilaments()`,
 `getWorkshopPrinters()` и `getWorkshopOrders()` ловят ошибку через `isMissingTableSchema()`, отдают
 значения по умолчанию и пустой список с признаком `isMissingTable`, а вкладки показывают жёлтое
@@ -2418,6 +2433,8 @@ RLS на выборку, вставку, обновление и удалени�
 | `lib/workshop/orders.ts` | Заказы: `WorkshopOrder`, `OrderStatus` и `ORDER_STATUS_META` (подписи и классы бейджей), `ORDER_STATUS_SEQUENCE`/`nextOrderStatus` (new → printing → ready → delivered, дальше `null`), `ORDER_COLUMNS`, `ORDER_TEXT_LIMITS` (80/60/1000), `ORDER_LIMITS` (стоимость 0–1 000 000 ₽, вес 0–100 000 г, время 0–100 000 ч), `readOrderForm` (числа с запятой, необязательные uuid принтера, катушки, товара и дата; `productId` в `OrderDraft`), `normalizeOrderRow`, `isOrderId`, `isOrderStatus`, `formatOrderCost`/`formatOrderDate`/`formatOrderHours`, `planPrinterUsage` (прибавляет время к четырём счётчикам: всего, сопло, смазка осей, винт Z) и `planFilamentUsage` (остаток или отказ «не хватает пластика») |
 | `lib/workshop/order-store.ts` | `getWorkshopOrders(supabase, userId)` → `{ orders, isMissingTable }`: выборка по `user_id`, новые сверху, ошибку не пробрасывает — пустой список и признак неприменённой миграции |
 | `lib/workshop/products.ts` | Каталог товаров: `WorkshopProduct`, `PRODUCT_COLUMNS`, `PRODUCT_TEXT_LIMITS`, `readProductForm` (цена и вес с запятой, необязательные габариты и старые цены), `normalizeProductRow`, `getWorkshopProducts` (миграция не роняет страницу), `addProduct` и `importProductsFromCsv` — Server Actions с повторной проверкой сессии и `hasActiveSubscription`; импорт разбирает CSV Ozon/WB через `papaparse` (`parseProductsCsv`: алиасы заголовков, цена с `₽`, вес в г/кг/мг, ошибки по строкам), обновляет существующие SKU через `upsert (user_id, sku)` и возвращает `{ imported, updated, errors }` |
+| `lib/workshop/clients.ts` | База клиентов: `WorkshopClient`, `CLIENT_COLUMNS`, `CLIENT_TEXT_LIMITS` (160/40/160/300/2000), `readClientForm` (имя обязательно, телефон — допустимые символы и минимум пять цифр, email — формат, пустые поля становятся `null`), `normalizeClientRow` (строка без UUID или имени отбрасывается), `getWorkshopClients` (неприменённая миграция не роняет страницу — пустой список), `addClient` — Server Action с повторной проверкой сессии и `hasActiveSubscription`; при отсутствии таблицы возвращает текст про `supabase/workshop_clients.sql`, после успеха вызывает `revalidatePath('/dashboard/workshop')` |
+
 | `lib/workshop/export.ts` | CSV-выгрузка каталога: `EXPORT_PLATFORMS`, `ExportPlatform`, `EXPORT_PLATFORM_LABELS`, `isExportPlatform` и `buildProductsCsv(products, platform)`. Держит заголовки и порядок колонок всех пяти площадок, цену `1500.00`, вес в граммах и габариты `Д×Ш×В`; пустая сторона обнуляет общую ячейку габаритов, у Ozon три отдельные колонки. Экранирует `;`, кавычки и переводы строк по RFC 4180, добавляет BOM и CRLF; пустой каталог даёт только заголовки |
 | `lib/workshop/printer-presets.ts` | Справочник принтеров: `PrinterPreset` и `PRINTER_PRESETS` — восемнадцать моделей (Bambu Lab X1, X1C, P1S, A1, A1 mini; Prusa MK4 и MK3S+; Creality Ender-3 V3, K1, K1 Max, K1C; Anycubic Kobra; Elegoo Neptune 4; Sovol SV06 и SV07; Artillery Sidewinder; Voron 2.4 и Trident) с наработкой до обслуживания сопла (`nozzleHours`, 400–1000 ч), смазки направляющих (`lubricationHours`, 0–1000 ч; 0 у карбоновых стержней Bambu Lab — их чистят спиртом, а не смазывают), смазки винта Z (`zScrewHours`, 500–1000 ч) и подсказкой `note`; числа — ориентиры производителя, в форме их можно изменить. `PRINTER_BRAND_OPTIONS` — уникальные бренды для datalist, `formatPrinterPresetLabel` — подпись «бренд — модель», `normalizePrinterModel`/`findPrinterPresetByModel` — поиск пресета по свободно введённой модели без учёта регистра, пробелов и вида тире |
 | `lib/workshop/maintenance-guides.ts` | `MAINTENANCE_GUIDES: Record<string, string>` — подробные markdown-инструкции для каждой модели, ключ `"${brand} ${model}"`; 5–10 пунктов о чистке сопла, смазке осей и винта Z и особенностях (карбоновые стержни, ремни, эксцентрики). `getMaintenanceGuide(brand, model)` возвращает строку или `null`; окно разбирает только заголовки `##`, пункты `-` и `**жирный**` |
@@ -2454,6 +2471,8 @@ RLS на выборку, вставку, обновление и удалени�
 | `addFilament`, `consumeFilament` | `app/actions/filaments.ts` | Склад Мастерской. Добавление: разбор формы (`readFilamentForm`) → сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_filaments` и `revalidatePath('/dashboard/workshop')`. Списание: UUID катушки проверяется до запроса, остаток перечитывается из базы, списание больше остатка отклоняется, `update remaining_weight_g` с фильтром по `user_id`. Отдельные ответы для истёкшей сессии, отсутствия пакета, неприменённой миграции и ненайденной катушки. Состояние форм — `FilamentFormState` и `ConsumeFilamentFormState` из `app/actions/filaments-state.ts` |
 | `addPrinter`, `resetPrinterNozzle`, `resetPrinterLubrication`, `resetPrinterZScrew` | `app/actions/printers.ts` | Принтеры Мастерской. Добавление: разбор формы (`readPrinterForm`) → сессия → `hasActiveSubscription` → `insert` в `workshop_printers` (три интервала, включая `z_screw_interval`). Сбросы: UUID проверяется до запроса, имя читается с фильтром по `user_id`, затем `update` нужного счётчика (`nozzle_hours`, `lubrication_hours` или `z_screw_hours`) в 0 и `last_maintenance_date` сегодняшним днём; удаление счётчика не трогает остальные. Ответы кнопок — `PrinterActionState` из `app/actions/printers-state.ts` |
 | `createOrder`, `updateOrderStatus` | `app/actions/orders.ts` | Заказы Мастерской. Создание: разбор формы (`readOrderForm`) → сессия → `hasActiveSubscription` → чтение принтера, катушки и товара по `user_id` → `planFilamentUsage` (не хватает пластика — ошибка у поля «Вес») → `insert` заказа (с `product_id`, если товар выбран) → `update` наработки (`planPrinterUsage`) → `update` остатка катушки; при сбое второго update наработка возвращается к прежним числам, а заказ удаляется. Смена статуса: целевой статус приходит из Kanban, проверяется `isOrderStatus`; заголовок и текущий статус читаются из базы по `user_id`, затем `update` выбранного статуса — поэтому карточку можно вернуть назад. После успеха `revalidatePath('/dashboard/workshop')`; состояние формы — `OrderFormState` из `app/actions/orders-state.ts` |
+| `addClient` | `app/actions/clients.ts` | База клиентов Мастерской: разбор формы (`readClientForm`: имя обязательно, телефон и email проверяются по формату) → реальная сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_clients` → `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции; логика, проверки и типы — в `lib/workshop/clients.ts` |
+
 
 Типы результатов описаны рядом с функциями (`CompleteLessonResult`, `CompleteModuleTestResult`,
 `ConfirmSessionResult`), состояние формы авторизации — `app/actions/auth-state.ts`
@@ -2524,8 +2543,8 @@ Next.js, а не теряют историю браузера и prefetch. Гл�
 | `components/forum/CreateThreadForm.tsx` | клиентский | Форма новой темы: `useActionState`, выбор категории с предвыбором из `?category=<slug>`, honeypot, согласие с правилами, сообщение о премодерации |
 | `components/forum/ReplyForm.tsx` | клиентский | Ответ в теме: `useActionState`, `threadId` скрытым полем, ошибки и статус «отправлено на модерацию» |
 | `components/admin/RefundButton.tsx` | клиентский | Кнопка «Оформить возврат» в `/admin/purchases`: подтверждение (доступ закроется сразу, деньги — в кабинете Robokassa), `POST /api/admin/refund`, показ текста отказа с числом отмеченных платных уроков и тестов, `router.refresh()` после успеха |
-| `components/workshop/WorkshopTabs.tsx` | клиентский | CRM-каркас вкладок: один `role="tablist"` превращается в вертикальный сайдбар на `lg:` и в горизонтальную ленту с прокруткой на мобильном; пять SVG-иконок и счётчики, активный таб `bg-white/10 text-white`, неактивные `text-zinc-400`, `aria-selected`, `tabIndex="-1"` у неактивных, стрелки ← → ↑ ↓ с переносом по кругу; контент в карточке `bg-[#0a0a0a] border-white/5`, «Товары» — отдельный `WorkshopProductsTab` |
-| `components/workshop/WorkshopIcons.tsx` | общий | Семь линейных SVG-иконок Мастерской (`OrdersIcon`, `InventoryIcon`, `PrinterIcon`, `ProductsIcon`, `CalculatorIcon`, `RevenueIcon`, `PlusIcon` и общие атрибуты): `currentColor`, `strokeWidth=1.7`, без эмодзи в навигации; используются сайдбаром, статистикой и hero-кнопкой |
+| `components/workshop/WorkshopTabs.tsx` | клиентский | CRM-каркас вкладок: один `role="tablist"` превращается в вертикальный сайдбар на `lg:` и в горизонтальную ленту с прокруткой на мобильном; шесть SVG-иконок и счётчики, активный таб `bg-white/10 text-white`, неактивные `text-zinc-400`, `aria-selected`, `tabIndex="-1"` у неактивных, стрелки ← → ↑ ↓ с переносом по кругу; контент в карточке `bg-[#0a0a0a] border-white/5`, «Товары» — отдельный `WorkshopProductsTab`, «Клиенты» — `WorkshopClientsTab` |
+| `components/workshop/WorkshopIcons.tsx` | общий | Восемь линейных SVG-иконок Мастерской (`OrdersIcon`, `InventoryIcon`, `PrinterIcon`, `ProductsIcon`, `ClientsIcon`, `CalculatorIcon`, `RevenueIcon`, `PlusIcon` и общие атрибуты): `currentColor`, `strokeWidth=1.7`, без эмодзи в навигации; используются сайдбаром, статистикой и hero-кнопкой |
 | `components/workshop/WorkshopStats.tsx` | серверный | Четыре glass-карточки быстрой статистики: заказы в работе, выручка месяца по доставленным заказам, катушки на складе, принтеры; крупные `tabular-nums`-цифры, цветные иконки и подсказки о печати, низком остатке и ТО; сетка 2 колонки на мобильном и 4 на `lg:` |
 | `components/workshop/WorkshopCreateOrderButton.tsx` | клиентский | Акцентная кнопка «Создать заказ» в hero: открывает общий `CreateOrderDialog`, возвращает фокус на кнопку после закрытия, показывает `aria-live`-подтверждение; после создания окно вызывает `router.refresh()`, чтобы статистика и списки обновились |
 | `components/workshop/WorkshopStockTab.tsx` | клиентский | Вкладка «Склад»: сводка (катушек, остаток, сколько ниже порога), таблица на `md:` и карточки на узком экране, прогресс-бар остатка, красная строка и кнопка «Купить» при остатке ниже порога, пустой склад с кнопкой добавления; открывает окна добавления и списания и возвращает фокус на кнопку-источник |
@@ -2535,6 +2554,9 @@ Next.js, а не теряют историю браузера и prefetch. Гл�
 | `components/workshop/WorkshopPrintersTab.tsx` | клиентский | Вкладка «Принтеры»: сводка (принтеров, общая наработка, сколько узлов просрочено с учётом винта Z), карточки с именем и моделью, полоски сопла, смазки и винта Z (зелёная до 80 %, жёлтая 80–100 %, красная сверх 100 %; процент дробный, чтобы цвет и число не спорили), бейдж «Без смазки» при интервале 0, кнопки «Заменить сопло»/«Смазать оси»/«Смазать винт Z» с ответом сервера и `router.refresh()`, пустой парк с кнопкой добавления |
 | `components/workshop/WorkshopProductsTab.tsx` | клиентский | Вкладка «Товары»: массив `products` с сервера, пустое состояние с иконкой куба и кнопкой добавления, таблица в стиле склада (артикул, название, цена с разделителями разрядов, вес и габариты `Д×Ш×В` с прочерками), второстепенные кнопки «Импорт» и «Экспорт» в шапке при любом каталоге и «+ Добавить товар» рядом при заполненном; «Импорт» открывает `ImportProductsDialog`, «Экспорт» — выпадающее меню `bg-[#0a0a0a]` с пятью ссылками `<a download>` на `GET /api/workshop/export`, закрывается кликом вне, Escape и выбором площадки; `AddProductDialog` открывается кнопкой добавления, после закрытия фокус возвращается на кнопку-источник |
 | `components/workshop/AddProductDialog.tsx` | клиентский | Окно «Добавить товар»: портал в `document.body`, overlay, закрытие по Escape, фону, крестику и «Отмене»; поля «Основное» (SKU, название, описание), «Цены», «Габариты» и «Дополнительно» с тёмными инпутами `bg-black/40` и `autoComplete="off"`; «Сохранить» собирает объект, выводит `[AddProductDialog] data` в консоль и закрывает окно, Server Action ещё нет |
+| `components/workshop/WorkshopClientsTab.tsx` | клиентский | Вкладка «Клиенты»: массив `clients` с сервера, пустое состояние с иконкой `ClientsIcon` и кнопкой добавления, таблица в стиле товаров (имя с заметками второй строкой, телефон, email, адрес; незаполненные поля — прочерк, телефон и email — ссылки `tel:` и `mailto:`), счётчик «Клиентов: N», кнопка «+ Добавить клиента» в шапке при заполненной базе; открывает `AddClientDialog` и возвращает фокус на кнопку-источник после закрытия |
+| `components/workshop/AddClientDialog.tsx` | клиентский | Окно «Добавить клиента»: портал в `document.body`, overlay, закрытие по Escape, фону, крестику и «Отмене»; поля «Имя или название» (обязательно, автофокус), телефон (`type="tel"`), email (`type="email"`), адрес и заметки с тёмными инпутами `bg-black/40` и `autoComplete="off"`; отправляет `FormData` в Server Action `addClient` из `app/actions/clients.ts`, пока идёт запрос кнопка показывает «Сохранение...» и блокируется, ошибка — красной плашкой `role="alert"`, после успеха `router.refresh()` и закрытие окна |
+
 | `components/workshop/ImportProductsDialog.tsx` | клиентский | Окно «Импорт товаров»: портал в `document.body`, overlay `z-[80]`, закрытие по Escape, клику по фону, крестику и «Отмене»; `<select>` Ozon/Wildberries и подсказка ожидаемых колонок, CRM-зона файла со скрытым `input type="file" accept=".csv,text/csv"` за стилизованным label, имя выбранного файла и статус; у формы `noValidate` и `autoComplete="off"`, у select `[color-scheme:dark]`; файл читается через `File.text()` и уходит в Server Action `importProductsFromCsv` из `app/actions/products.ts`; `isSubmitting` блокирует select, file input и кнопки и показывает «Импорт...»; успех — зелёная плашка «Импортировано: X, Обновлено: Y», ошибки строк — списком, полный провал — красной плашкой и списком остальных ошибок; после успеха `router.refresh()`, авто-закрытие через 3 секунды или кнопка «Готово» |
 
 | `components/workshop/AddPrinterDialog.tsx` | клиентский | Окно «Добавить принтер»: имя, `<select>` из `PRINTER_PRESETS`, автоподстановка трёх интервалов и показ `note` при выборе модели; кнопка «Инструкция по ТО» открывает `MaintenanceGuideDialog`, Escape закрывает только инструкцию; интервалы можно поправить, ошибки под полями, `useActionState` с `addPrinter`, после успеха `router.refresh()` и сообщение на вкладке |
@@ -2572,6 +2594,8 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `promo_codes` | `id uuid`, `code text unique`, `course_id text`, `batch text`, `note text`, `created_at`, `expires_at`, `used_at`, `used_by uuid` | Промокоды на три уровня: `expires_at = null` — бессрочный, `used_at`/`used_by` — момент и владелец активации. RLS: пользователь видит только свои активации (`used_by = auth.uid()`), вставка и обновление — только `service_role`. Активация не создаёт покупку, поэтому в выручке Robokassa не учитывается |
 | `workshop_settings` | `id uuid`, `user_id uuid unique` (`auth.users.id`), `electricity_cost_kwh numeric(10,2)`, `printer_power_w integer`, `depreciation_cost_hour numeric(10,2)`, `labor_cost_hour numeric(10,2)`, `updated_at timestamptz` | Настройки калькулятора Мастерской: одна строка на пользователя (`user_id unique`, `on delete cascade`), пределы в check повторяют форму (0…1000 ₽/кВт·ч, 0…10 000 Вт, 0…100 000 ₽/час), `updated_at` выставляет триггер. RLS: `select`, `insert` и `update` только своих строк, удаления через API нет — строка уходит вместе с аккаунтом; гранты `authenticated` — select/insert/update. Схема — `supabase/workshop_settings.sql` |
 | `workshop_filaments` | `id uuid`, `user_id uuid` (`auth.users.id`), `brand text`, `type text`, `color text`, `total_weight_g integer`, `remaining_weight_g integer`, `price_per_kg numeric(10,2)`, `min_threshold_g integer`, `purchase_url text`, `created_at timestamptz` | Склад пластика Мастерской: одна строка — одна катушка, вес целыми граммами, ссылка на товар необязательна. Check повторяют форму (длины 60/30/40/500, вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г) плюс `remaining_weight_g <= total_weight_g`; индекс `(user_id, created_at)`. RLS: select/insert/update/delete только своих строк, гранты `authenticated`; удаление через API разрешено, но кнопки в интерфейсе пока нет. Схема — `supabase/workshop_filaments.sql` |
+| `workshop_clients` | `id uuid`, `user_id uuid` (`auth.users.id`), `name text`, `phone text`, `email text`, `address text`, `notes text`, `created_at timestamptz` | База клиентов Мастерской: имя обязательно (`check (btrim(name) <> '')`), телефон, email, адрес и заметки необязательны; длины в форме 160/40/160/300/2000. Индекс `(user_id, created_at desc)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`; `user_id` — `on delete cascade`. Схема — `supabase/workshop_clients.sql` |
+
 | `workshop_printers` | `id uuid`, `user_id uuid` (`auth.users.id`), `name text`, `brand text`, `model text`, `total_hours numeric(12,2)`, `nozzle_hours numeric(12,2)`, `nozzle_interval integer`, `lubrication_hours numeric(12,2)`, `lubrication_interval integer`, `z_screw_hours numeric(12,2)`, `z_screw_interval integer`, `last_maintenance_date date`, `created_at timestamptz` | Принтеры Мастерской: имя 1–60, бренд 1–40, модель 1–60, наработки 0–1 000 000 ч, интервалы сопла и винта Z 1–10 000 ч, смазки 0–10 000 ч (0 — смазка не требуется); `z_screw_interval` по умолчанию 720. Индекс `(user_id, created_at)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. `user_id` — `on delete cascade`. Схема — `supabase/workshop_printers_orders.sql`, обновление колонок — `supabase/workshop_printer_z_screw.sql` |
 | `workshop_orders` | `id uuid`, `user_id uuid` (`auth.users.id`), `title text`, `client_name text`, `status text`, `total_cost numeric(10,2)`, `material_weight_g integer`, `print_time_hours numeric(10,2)`, `printer_id uuid`, `filament_id uuid`, `notes text`, `deadline date`, `created_at timestamptz` | Заказы Мастерской: `status` в `new/printing/ready/delivered`, стоимость 0–1 000 000 ₽, вес 0–100 000 г, время 0–100 000 ч, заметки до 1000 символов; `printer_id` и `filament_id` необязательны и при удалении источника обнуляются (`on delete set null`), заказ остаётся. Индексы `(user_id, created_at desc)` и `(user_id, status)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. Схема — `supabase/workshop_printers_orders.sql` |
 
@@ -5557,3 +5581,51 @@ Supabase, Server Actions, тесты и данные курсов не меня�
 кружок с чёрной цифрой; на уроке 4 навигация показывает оба соседа с названиями, «Проверь себя» —
 `rgb(10, 10, 10)` / 16 px / 24–32 px; урок C1 без доступа отдаёт 200, новую шапку и карточку превью
 `rgb(10, 10, 10)`. Консоль чистая, временные скрипты и лог удалены, порт освобождён.
+
+**Мастерская: база клиентов и вкладка «Клиенты» (25 октября 2026).** Заказы (Kanban), документы и
+расчёт себестоимости не менялись — добавлена только справочная база контактов.
+
+Миграция `supabase/workshop_clients.sql` (применяется вручную, как остальные файлы `supabase/`):
+таблица `workshop_clients` с `id uuid`, `user_id uuid` (`auth.users.id`, `on delete cascade`), `name
+text not null check (btrim(name) <> '')`, `phone`, `email`, `address`, `notes`, `created_at
+timestamptz`; индекс `(user_id, created_at desc)`; RLS включён, политики select/insert/update/delete
+проверяют `auth.uid() = user_id`; гранты `authenticated` на четыре операции, `service_role` — все;
+`notify pgrst, 'reload schema'`.
+
+Серверная логика — `lib/workshop/clients.ts`: типы `WorkshopClient`, `ClientField`,
+`ClientFieldErrors`, `AddClientResult`, константы `CLIENT_COLUMNS` и `CLIENT_TEXT_LIMITS`
+(160/40/160/300/2000), `readClientForm` (имя обязательно, телефон — допустимые символы и минимум
+пять цифр, email — формат, пустые необязательные поля становятся `null`), `normalizeClientRow`
+(строка без UUID или имени отбрасывается), `getWorkshopClients()` (новые сверху; неприменённая
+миграция даёт пустой список, а не 500) и Server Action `addClient(formData)`: разбор формы → сессия →
+`hasActiveSubscription` → `insert` → `revalidatePath('/dashboard/workshop')`. Для браузера добавлена
+тонкая обёртка `app/actions/clients.ts` с `"use server"` наверху: Next не отдаёт клиенту модуль с
+директивой внутри функции.
+
+Интерфейс. В `WorkshopTabs` появился шестой таб «Клиенты» с иконкой `ClientsIcon` (два силуэта) и
+счётчиком; он стоит сразу после «Товаров». `WorkshopClientsTab` повторяет CRM-стиль каталога:
+eyebrow, заголовок, описание, пустое состояние с иконкой и белой кнопкой, таблица
+`bg-[#0a0a0a] border-white/5 rounded-2xl` с колонками «Имя», «Телефон», «Email», «Адрес». Заметки
+выводятся второй строкой под именем, незаполненные поля — прочерком, телефон и email — ссылками
+`tel:` и `mailto:`. «+ Добавить клиента» открывает `AddClientDialog`: портал в `document.body`,
+overlay `z-[80]`, закрытие по Escape, фону, крестику и «Отмене»; поля «Имя или название» (автофокус),
+телефон, email, адрес и заметки; «Сохранить» — белая кнопка, ошибка — красной плашкой `role="alert"`,
+после успеха `router.refresh()` и окно закрывается. Фокус возвращается на кнопку-источник. Страница
+Мастерской читает клиентов шестым параллельным запросом и передаёт массив в `WorkshopTabs`.
+
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:imports` — 1 610
+импортов без битых, `npm run check:docs` — 279 путей и сводка сходятся, `npm run check:style` — 38
+уроков, 0 нарушений. Живой прогон Playwright на dev-сервере без изображений (временный пользователь
+с покупкой `pro` создан и удалён через Admin API): таб «Клиенты» на месте, пустое состояние и кнопка
+есть, модалка открывается с пятью полями из задачи, серверные проверки отвечают «В телефоне мало
+цифр» и «Проверьте email», Escape закрывает окно и возвращает фокус, консоль чистая, на 390 px
+`scrollWidth=390`, карточка 316 px, модалка 358 px. Таблица проверена на временной странице с двумя
+клиентами: четыре колонки, данные и заметки на месте, пустые поля — прочерки, `tel:+79991234567` и
+`mailto:`, на 390 px документ не прокручивается, а таблица (720 px) прокручивается внутри карточки.
+
+Таблица `workshop_clients` в рабочей базе ещё не создана: миграции в проекте применяются вручную.
+Поэтому сквозная запись проверена до ответа действия — форма доходит до `insert` и получает понятное
+сообщение «примените миграцию supabase/workshop_clients.sql», а не 500. После применения SQL тот же
+путь запишет клиента: `addClient` → `insert` → `revalidatePath` → `router.refresh()`. Временные
+скрипты, страница предпросмотра и лог удалены, порт освобождён.
