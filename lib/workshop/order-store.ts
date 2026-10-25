@@ -26,6 +26,45 @@ export type WorkshopOrdersSnapshot = {
   isMissingTable: boolean;
 };
 
+/**
+ * Один заказ пользователя.
+ *
+ * Нужен печатной спецификации: она открывается по прямой ссылке и не должна
+ * зависеть от того, попал ли заказ в список на странице. `user_id` в запросе
+ * дублирует RLS: чужая строка не откроется, даже если политика ослабнет.
+ * Битый id и отсутствие строки дают null — страница сама решает, что показать.
+ */
+export async function getWorkshopOrder(
+  supabase: Supabase,
+  userId: string,
+  orderId: string,
+): Promise<WorkshopOrder | null> {
+  if (!isOrderId(orderId)) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_orders")
+    .select(ORDER_COLUMNS)
+    .eq("id", orderId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(
+      "Заказ мастерской не прочитан:",
+      error.code,
+      error.message,
+    );
+
+    return null;
+  }
+
+  return normalizeOrderRow(
+    (data ?? null) as Partial<Record<string, unknown>> | null,
+  );
+}
+
 /** Заказы пользователя: сначала новые. */
 export async function getWorkshopOrders(
   supabase: Supabase,

@@ -250,6 +250,25 @@ export function OrderDetailsDialog({
             />
           </dl>
 
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <a
+              href={`/workshop/orders/${order.id}/specification`}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-order-specification
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            >
+              <span aria-hidden>📄</span>
+              Спецификация
+              <span aria-hidden className="text-xs text-zinc-500">
+                ↗
+              </span>
+            </a>
+            <span className="text-xs text-zinc-500">
+              Печатная форма материала
+            </span>
+          </div>
+
           {order.notes ? (
             <div className="mt-4 rounded-xl border border-white/[0.07] bg-white/[0.025] px-4 py-3">
               <p className="text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
