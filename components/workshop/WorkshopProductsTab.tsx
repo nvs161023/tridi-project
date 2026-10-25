@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AddProductDialog } from "@/components/workshop/AddProductDialog";
 import { ImportProductsDialog } from "@/components/workshop/ImportProductsDialog";
@@ -24,6 +24,21 @@ import type { WorkshopProduct } from "@/lib/workshop/products";
 type WorkshopProductsTabProps = {
   products: WorkshopProduct[];
 };
+
+/**
+ * Площадки в меню «Экспорт».
+ *
+ * Список локальный, а не импорт из `lib/workshop/export.ts`: серверный сборщик
+ * CSV и его константы не попадают в клиентский бандл. Порядок пунктов совпадает
+ * с порядком площадок в `lib/workshop/export.ts`.
+ */
+const EXPORT_MENU_ITEMS = [
+  { platform: "ozon", label: "Ozon" },
+  { platform: "wb", label: "Wildberries" },
+  { platform: "yandex", label: "Яндекс.Маркет" },
+  { platform: "avito", label: "Авито" },
+  { platform: "megamarket", label: "Мегамаркет" },
+] as const;
 
 const priceFormatter = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 2,
@@ -64,8 +79,43 @@ function formatProductDimensions(product: WorkshopProduct): string {
 export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const importButtonRef = useRef<HTMLButtonElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isExportMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !exportMenuRef.current?.contains(event.target)
+      ) {
+        setIsExportMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setIsExportMenuOpen(false);
+      exportButtonRef.current?.focus();
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isExportMenuOpen]);
 
   const openDialog = useCallback(() => setIsDialogOpen(true), []);
 
@@ -112,6 +162,60 @@ export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
           >
             Импорт
           </button>
+          <div ref={exportMenuRef} className="relative">
+            <button
+              ref={exportButtonRef}
+              type="button"
+              aria-expanded={isExportMenuOpen}
+              aria-controls="workshop-export-menu"
+              onClick={() => setIsExportMenuOpen((open) => !open)}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            >
+              Экспорт
+              <svg
+                aria-hidden="true"
+                className={`h-3 w-3 transition-transform duration-200 ${
+                  isExportMenuOpen ? "rotate-180" : ""
+                }`}
+                fill="none"
+                focusable="false"
+                viewBox="0 0 12 12"
+              >
+                <path
+                  d="m2.5 4.5 3.5 3.5 3.5-3.5"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.4"
+                />
+              </svg>
+            </button>
+
+            {isExportMenuOpen ? (
+              <div
+                id="workshop-export-menu"
+                className="absolute top-full right-0 z-30 mt-2 w-56 rounded-xl border border-white/10 bg-[#0a0a0a] p-1.5 shadow-2xl shadow-black/70"
+              >
+                <p className="px-2.5 pt-1 pb-1.5 text-[10px] font-semibold tracking-[0.12em] text-zinc-500 uppercase">
+                  Маркетплейс
+                </p>
+                <ul aria-label="Площадки для экспорта" className="space-y-0.5">
+                  {EXPORT_MENU_ITEMS.map((item) => (
+                    <li key={item.platform}>
+                      <a
+                        href={`/api/workshop/export?platform=${item.platform}`}
+                        download={`tridi_export_${item.platform}.csv`}
+                        onClick={() => setIsExportMenuOpen(false)}
+                        className="block rounded-lg px-2.5 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-white/[0.07] hover:text-white focus-visible:bg-white/[0.07] focus-visible:outline-none"
+                      >
+                        {item.label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
           {products.length > 0 ? (
             <button
               ref={addButtonRef}
