@@ -1,29 +1,14 @@
 "use client";
 
-import { type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { type FormEvent, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { addProduct } from "@/app/actions/products";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 
 type AddProductDialogProps = {
   onClose: () => void;
-};
-
-type ProductFormData = {
-  sku: string;
-  name: string;
-  description: string;
-  price: number | null;
-  oldPrice: number | null;
-  weightG: number | null;
-  lengthMm: number | null;
-  widthMm: number | null;
-  heightMm: number | null;
-  brand: string;
-  color: string;
-  size: string;
-  barcode: string;
-  category: string;
 };
 
 const inputClassName =
@@ -32,62 +17,64 @@ const inputClassName =
 const legendClassName =
   "text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase";
 
-/** Пустая строка и пробелы превращаются в пустую строку. */
-function readText(formData: FormData, name: keyof ProductFormData): string {
-  return String(formData.get(name) ?? "").trim();
-}
-
-/** Пустое поле — null, иначе конечное число. Запятая тоже принимается. */
-function readNumber(
-  formData: FormData,
-  name: keyof ProductFormData,
-): number | null {
-  const raw = readText(formData, name).replace(",", ".");
-
-  if (!raw) {
-    return null;
-  }
-
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : null;
-}
-
 /**
- * Окно «Добавить товар» — пока только визуальная часть.
+ * Окно «Добавить товар».
  *
- * Форма собирает значения в объект, выводит его в консоль и закрывается.
- * Server Action и запись в `workshop_products` появятся на следующем шаге.
- * Окно монтируется только открытым: состояние полей и подписка на Escape
- * живут ровно столько, сколько оно на экране. У всех полей
+ * Форма отправляется в Server Action `addProduct`: пока идёт запрос, кнопка
+ * «Сохранить» заблокирована, а ошибка сервера показывается плашкой внутри
+ * окна. После успеха каталог обновляется через `router.refresh()`, и окно
+ * закрывается. Окно монтируется только открытым: состояние полей и подписка
+ * на Escape живут ровно столько, сколько оно на экране. У всех полей
  * `autoComplete="off"`, чтобы браузер не рисовал белые панели автозаполнения
  * поверх тёмной формы.
  */
 export function AddProductDialog({ onClose }: AddProductDialogProps) {
+  const router = useRouter();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   useDialogDismiss(onClose);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const formData = new FormData(event.currentTarget);
-    const data: ProductFormData = {
-      sku: readText(formData, "sku"),
-      name: readText(formData, "name"),
-      description: readText(formData, "description"),
-      price: readNumber(formData, "price"),
-      oldPrice: readNumber(formData, "oldPrice"),
-      weightG: readNumber(formData, "weightG"),
-      lengthMm: readNumber(formData, "lengthMm"),
-      widthMm: readNumber(formData, "widthMm"),
-      heightMm: readNumber(formData, "heightMm"),
-      brand: readText(formData, "brand"),
-      color: readText(formData, "color"),
-      size: readText(formData, "size"),
-      barcode: readText(formData, "barcode"),
-      category: readText(formData, "category"),
-    };
+    if (isSubmitting) {
+      return;
+    }
 
-    console.log("[AddProductDialog] data", JSON.stringify(data, null, 2));
-    onClose();
+    // FormData собираем до await: после него event.currentTarget уже обнулён.
+    const formData = new FormData(event.currentTarget);
+
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      const result = await addProduct(formData);
+
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      // Сервер может вернуть только полевые ошибки без общего текста.
+      const fieldError = result.fieldErrors
+        ? Object.values(result.fieldErrors)[0]
+        : undefined;
+
+      if (fieldError) {
+        setError(fieldError);
+        return;
+      }
+
+      router.refresh();
+      onClose();
+    } catch {
+      setError(
+        "Не удалось отправить форму. Проверьте соединение и попробуйте ещё раз.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   if (typeof document === "undefined") {
@@ -271,12 +258,25 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
             </div>
           </fieldset>
 
+          {error ? (
+            <p
+              role="alert"
+              data-product-error
+              className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+            >
+              <span aria-hidden>⚠️ </span>
+              {error}
+            </p>
+          ) : null}
+
           <div className="flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row">
             <button
               type="submit"
-              className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              disabled={isSubmitting}
+              aria-busy={isSubmitting}
+              className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Сохранить
+              {isSubmitting ? "Сохранение..." : "Сохранить"}
             </button>
             <button
               type="button"
