@@ -16,6 +16,21 @@ export type InvoiceItem = {
 };
 
 /**
+ * Провайдер OCR — ProxyAPI, OpenAI-совместимый шлюз.
+ *
+ * Запросы идут на тот же путь, что у OpenAI (`/chat/completions`), меняется
+ * только базовый адрес. Ключ лежит в `OPENAI_API_KEY`: имя переменной
+ * оставлено прежним, чтобы не менять окружение и настройки деплоя.
+ */
+export const OCR_API_BASE_URL = "https://api.proxyapi.ru/v1";
+
+/** Полный адрес Chat Completions: база ProxyAPI плюс путь OpenAI. */
+export const OCR_API_URL = `${OCR_API_BASE_URL}/chat/completions`;
+
+/** Идентификатор модели в каталоге ProxyAPI: вендор и название. */
+export const OCR_MODEL = "openai/gpt-4o";
+
+/**
  * Промпт OCR. Текст намеренно короткий: модель должна вернуть только данные,
  * без пояснений и заголовков таблицы.
  */

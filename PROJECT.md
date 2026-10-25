@@ -88,7 +88,7 @@
 | `CRON_SECRET` | Секрет ежедневного отчёта: `/api/cron/daily-report` принимает только `Authorization: Bearer <CRON_SECRET>`. Пусто — роут отвечает 503 и ничего не отправляет |
 | `RESEND_API_KEY` | Ключ Resend для писем с отчётом. Пусто — отчёт возвращается как HTML/JSON и не отправляется (удобно проверять локально) |
 | `MAIL_FROM` | Отправитель писем отчёта, например `TriDi <report@tridi-print.ru>`. Домен должен быть подтверждён в Resend; по умолчанию `TriDi <onboarding@resend.dev>` |
-| `OPENAI_API_KEY` | Ключ OpenAI для OCR накладных Мастерской (модель `gpt-4o`). Пусто — `/api/workshop/ocr` отвечает 503 «OCR временно недоступен» |
+| `OPENAI_API_KEY` | Ключ ProxyAPI (OpenAI-совместимый шлюз) для OCR накладных Мастерской: базовый адрес `https://api.proxyapi.ru/v1`, модель `openai/gpt-4o`; имя переменной историческое. Пусто — `/api/workshop/ocr` отвечает 503 «OCR временно недоступен» |
 
 Команды (`package.json`):
 
@@ -5862,3 +5862,17 @@ JPEG, PNG, WebP или GIF до 10 МБ, кодирует фото в data URL �
 пустой массив, не JSON, нулевое количество и пустое название. На прод-сборке без ключа POST с PNG
 вернул `{"error":"OCR временно недоступен"}` и 503; с тестовым ключом без cookies — 401, то есть
 роут собирается и не падает. Реальный вызов OpenAI не выполнялся: ключа в окружении нет.
+
+**Мастерская: OCR накладных через ProxyAPI (25 октября 2026).** Роут `app/api/workshop/ocr/route.ts`
+больше не ходит в `api.openai.com`: настройки провайдера вынесены в `lib/workshop/ocr.ts`. Базовый
+адрес — `https://api.proxyapi.ru/v1`, запрос уходит на `/chat/completions` (`OCR_API_URL`), модель
+называется `openai/gpt-4o` (`OCR_MODEL`). Ключ по-прежнему читается из `OPENAI_API_KEY`, но теперь
+это ключ ProxyAPI: имя переменной не менялось, чтобы не трогать окружение и настройки деплоя. Тело
+запроса (data URL, `detail: "high"`, `temperature: 0`, `max_tokens: 4096`), таймаут 45 секунд,
+проверки доступа, разбор ответа и тексты ошибок остались прежними; в логах теперь `ProxyAPI OCR`.
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run build` — успешно, роут
+`ƒ /api/workshop/ocr` в сборке, `npm run check:imports` — 1 641 импорт без битых, `npm run check:docs`
+— 284 пути и сводка сходятся. Константы проверены импортом модуля: база `https://api.proxyapi.ru/v1`,
+полный адрес `https://api.proxyapi.ru/v1/chat/completions`, модель `openai/gpt-4o`. Реальный вызов
+ProxyAPI не выполнялся: ключа в окружении нет.

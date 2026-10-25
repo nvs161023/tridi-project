@@ -1,28 +1,28 @@
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
-import { INVOICE_OCR_PROMPT, parseInvoiceItems } from "@/lib/workshop/ocr";
+import {
+  INVOICE_OCR_PROMPT,
+  OCR_API_URL,
+  OCR_MODEL,
+  parseInvoiceItems,
+} from "@/lib/workshop/ocr";
 
 /** Buffer и cookies Supabase доступны только в Node.js. */
 export const runtime = "nodejs";
 
-/** Ответ зависит от cookies и ключа OpenAI, кэшировать его нельзя. */
+/** Ответ зависит от cookies и ключа OCR-провайдера, кэшировать его нельзя. */
 export const dynamic = "force-dynamic";
 
 /** Распознавание фото занимает десятки секунд — даём модели время. */
 export const maxDuration = 60;
 
-/** Модель с поддержкой изображений. */
-const OPENAI_MODEL = "gpt-4o";
-
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-
-/** Таймаут запроса к OpenAI: зависший запрос не должен держать роут. */
-const OPENAI_TIMEOUT_MS = 45_000;
+/** Таймаут запроса к ProxyAPI: зависший запрос не должен держать роут. */
+const OCR_TIMEOUT_MS = 45_000;
 
 /** Лимит фото: data URL в base64 весит больше исходного файла. */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-/** Форматы, которые принимает OpenAI Vision. */
+/** Форматы, которые принимает OCR-провайдер. */
 const SUPPORTED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -58,10 +58,10 @@ type OpenAiResponse = {
  *   2. сессия — `getUser()`, потому что `/api/*` не покрыт middleware;
  *   3. `hasActiveSubscription()` — OCR входит в пакет «Всё включено»;
  *   4. файл из multipart-поля `file`: формат и размер;
- *   5. запрос к OpenAI и проверка JSON-массива.
+ *   5. запрос к ProxyAPI и проверка JSON-массива.
  *
  * Ключ проверяется первым: без него роут не обращается ни к Supabase, ни к
- * OpenAI, поэтому сборка и локальный запуск без настроек не падают.
+ * ProxyAPI, поэтому сборка и локальный запуск без настроек не падают.
  */
 export async function POST(request: Request): Promise<Response> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
@@ -122,14 +122,14 @@ export async function POST(request: Request): Promise<Response> {
   let openaiResponse: Response;
 
   try {
-    openaiResponse = await fetch(OPENAI_URL, {
+    openaiResponse = await fetch(OCR_API_URL, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
+        model: OCR_MODEL,
         temperature: 0,
         max_tokens: 4096,
         messages: [
@@ -144,10 +144,10 @@ export async function POST(request: Request): Promise<Response> {
       }),
       // Ответ не кэшируем и не даём запросу висеть дольше таймаута.
       cache: "no-store",
-      signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
+      signal: AbortSignal.timeout(OCR_TIMEOUT_MS),
     });
   } catch (error) {
-    console.error("OpenAI OCR: запрос не выполнен:", error);
+    console.error("ProxyAPI OCR: запрос не выполнен:", error);
     return errorResponse(502, "Не удалось распознать накладную");
   }
 
@@ -156,7 +156,7 @@ export async function POST(request: Request): Promise<Response> {
     const details = await openaiResponse.text().catch(() => "");
 
     console.error(
-      "OpenAI OCR: ответ",
+      "ProxyAPI OCR: ответ",
       openaiResponse.status,
       details.slice(0, 300),
     );
@@ -169,7 +169,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     payload = (await openaiResponse.json()) as OpenAiResponse;
   } catch (error) {
-    console.error("OpenAI OCR: ответ не разобран как JSON:", error);
+    console.error("ProxyAPI OCR: ответ не разобран как JSON:", error);
     return errorResponse(502, "Не удалось распознать накладную");
   }
 
@@ -177,7 +177,7 @@ export async function POST(request: Request): Promise<Response> {
   const items = typeof content === "string" ? parseInvoiceItems(content) : null;
 
   if (!items) {
-    console.warn("OpenAI OCR: модель вернула не JSON-массив материалов.");
+    console.warn("ProxyAPI OCR: модель вернула не JSON-массив материалов.");
     return errorResponse(502, "Не удалось распознать накладную");
   }
 
