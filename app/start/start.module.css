@@ -1937,3 +1937,79 @@
 }
 
 
+/* ------------------------------------------------------------------ *
+ * Карточки отзывов (Шаг 5.1)
+ *
+ * .reviewCard и .reviewText уже есть в разметке: правила ниже намеренно
+ * дополняют их (padding 32, курсив текста), hover и transition остаются
+ * из блока «Отзывы». .reviewHeader / .reviewAvatar / .reviewName /
+ * .reviewRole / .reviewStars подключаются на Шаге 5.2.
+ * ------------------------------------------------------------------ */
+.pageWrapper .reviewCard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 32px;
+  height: 100%;
+}
+
+.pageWrapper .reviewHeader {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.pageWrapper .reviewAvatar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  border-radius: 50%;
+}
+
+.pageWrapper .reviewName {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.pageWrapper .reviewRole {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.pageWrapper .reviewStars {
+  margin-bottom: 4px;
+  color: #fbbf24;
+  font-size: 16px;
+  letter-spacing: 2px;
+}
+
+.pageWrapper .reviewText {
+  flex-grow: 1;
+  color: #cbd5e1;
+  font-size: 15px;
+  font-style: italic;
+  line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+  .pageWrapper .reviewCard {
+    padding: 24px;
+  }
+
+  .pageWrapper .reviewAvatar {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+}
+
+
