@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import {
   useEffect,
   useId,
@@ -10,11 +11,14 @@ import {
 } from "react";
 
 /**
- * Рабочая область 3D-генератора: выбор фото и место под будущий вьювер.
+ * Рабочая область 3D-генератора: выбрать фото, отправить его в API и скачать
+ * готовую модель.
  *
- * Это только интерфейс. Файл остаётся в браузере: превью строится через
- * `URL.createObjectURL`, а кнопка «Сгенерировать» пока ничего не отправляет —
- * запрос к `/api/3d/generate` подключим следующим шагом, роут менять не нужно.
+ * Файл уходит на `/api/3d/generate` multipart-полем `file`, а в ответ приходит
+ * `{ modelUrl }`. Кредит списывает сервер и только после успешной генерации,
+ * поэтому после 200 вызываем `router.refresh()` — серверная страница заново
+ * прочитает `user_credits` и плашка баланса покажет новый остаток.
+ *
  * Проверки размера и формата здесь дублируют серверные ради быстрой подсказки:
  * настоящую защиту держит API, браузеру оно не доверяет.
  *
@@ -28,6 +32,22 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /** Как в роуте: JPEG, PNG и WebP. Проверяем по MIME, запасной путь — `image/*`. */
 const IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+/** Адрес генерации: роут сам проверяет сессию, пакет, кредиты и файл. */
+const GENERATE_ENDPOINT = "/api/3d/generate";
+
+/** 403 от роута: пакет кончился, и это не сбой сервиса. */
+const NO_CREDITS_ERROR = "Кредиты закончились. Купите пакет генераций";
+
+/**
+ * 502 и 504: Gen API не ответил или не уложился в бюджет ожидания. Кредит за
+ * такую попытку роут не списывает, так что человеку достаточно повторить.
+ */
+const SERVICE_BUSY_ERROR = "Сервис перегружен или не отвечает. Попробуйте позже";
+
+/** Ответ успешной генерации. */
+type GenerateResponse = { modelUrl?: unknown; error?: unknown };
+
 
 const fileSizeFormatter = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 1,
@@ -117,12 +137,46 @@ function CubeIcon({ className }: { className?: string }) {
   );
 }
 
-export function GeneratorWorkspace() {
+/** Галочка в круге — модель собралась и её можно скачать. */
+function SuccessIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="m8 12.2 2.8 2.8 5.6-5.6"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+    </svg>
+  );
+}
+
+/** Сколько кредитов осталось; `null` — счётчик недоступен, показываем прочерк. */
+type GeneratorWorkspaceProps = { credits: number | null };
+
+export function GeneratorWorkspace({ credits }: GeneratorWorkspaceProps) {
   const inputId = useId();
   const hintId = useId();
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [modelUrl, setModelUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Ссылка живёт столько же, сколько выбранный файл: старую отзываем, чтобы
@@ -151,6 +205,8 @@ export function GeneratorWorkspace() {
 
     setError(null);
     setFile(candidate);
+    // Новая фотография — прошлая модель к ней уже не относится.
+    setModelUrl(null);
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -196,6 +252,75 @@ export function GeneratorWorkspace() {
   function handleRemove() {
     setFile(null);
     setError(null);
+    setModelUrl(null);
+  }
+
+  /**
+   * Отправка фото в API.
+   *
+   * Ответы разбираем по коду: 200 — ссылка на модель, 403 — кончились кредиты,
+   * 502/504 — Gen API не ответил (кредит за такую попытку не списывается).
+   * Остальные коды (400/413/415/401/503) приходят со своим текстом от роута.
+   */
+  async function handleGenerate() {
+    if (!file || isGenerating) {
+      return;
+    }
+
+    setIsGenerating(true);
+    setError(null);
+    setModelUrl(null);
+
+    const form = new FormData();
+    form.append("file", file);
+
+    try {
+      const response = await fetch(GENERATE_ENDPOINT, {
+        method: "POST",
+        body: form,
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | GenerateResponse
+        | null;
+
+      if (response.ok) {
+        const url =
+          typeof payload?.modelUrl === "string" ? payload.modelUrl : null;
+
+        if (url) {
+          setModelUrl(url);
+          // Кредит списан на сервере — перечитываем страницу, чтобы плашка
+          // баланса показала новый остаток.
+          router.refresh();
+        } else {
+          setError("Сервер не вернул ссылку на модель. Попробуйте ещё раз.");
+        }
+
+        return;
+      }
+
+      if (response.status === 403) {
+        setError(NO_CREDITS_ERROR);
+        return;
+      }
+
+      if (response.status === 502 || response.status === 504) {
+        setError(SERVICE_BUSY_ERROR);
+        return;
+      }
+
+      setError(
+        typeof payload?.error === "string"
+          ? payload.error
+          : "Не удалось сгенерировать 3D-модель. Попробуйте позже.",
+      );
+    } catch {
+      // Сеть отвалилась или роут не ответил: для человека это тот же сбой
+      // сервиса. Фото остаётся выбранным — попытку можно повторить.
+      setError(SERVICE_BUSY_ERROR);
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   return (
@@ -307,10 +432,15 @@ export function GeneratorWorkspace() {
           <div className="mt-5 flex flex-col gap-2.5 sm:flex-row sm:items-center">
             <button
               type="button"
+              onClick={handleGenerate}
+              disabled={isGenerating}
+              aria-busy={isGenerating}
               data-generator-submit
-              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:w-auto"
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-white px-6 text-center text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-wait disabled:opacity-70 disabled:hover:bg-white sm:w-auto"
             >
-              Сгенерировать
+              {isGenerating
+                ? "Генерация... Это может занять до 2 минут"
+                : "Сгенерировать"}
             </button>
             {file ? (
               <button
@@ -325,8 +455,8 @@ export function GeneratorWorkspace() {
           </div>
 
           <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-            Одна генерация списывает один кредит — и только если модель
-            собралась.
+            Осталось генераций: {credits === null ? "—" : credits}. Одна
+            генерация списывает один кредит — и только если модель собралась.
           </p>
         </div>
       </section>
@@ -355,20 +485,66 @@ export function GeneratorWorkspace() {
             печати.
           </p>
 
-          <div
-            data-generator-viewer-placeholder
-            className="mt-5 flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-white/12 bg-black/25 px-5 py-10 text-center sm:min-h-80"
-          >
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-zinc-300">
-              <CubeIcon className="h-7 w-7" />
-            </span>
-            <p className="mt-4 max-w-xs text-sm leading-relaxed font-semibold text-white">
-              Здесь появится 3D-модель после генерации
-            </p>
-            <p className="mt-2 max-w-xs text-xs leading-relaxed text-zinc-500">
-              Вьювер с поворотом и скачиванием подключим следом за генерацией.
-            </p>
-          </div>
+          {isGenerating ? (
+            <div
+              data-generator-progress
+              role="status"
+              aria-live="polite"
+              className="mt-5 flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-blue-400/25 bg-blue-500/[0.06] px-5 py-10 text-center sm:min-h-80"
+            >
+              <span
+                aria-hidden
+                className="h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-blue-400"
+              />
+              <p className="mt-4 max-w-xs text-sm leading-relaxed font-semibold text-white">
+                Создаем 3D-модель...
+              </p>
+              <p className="mt-2 max-w-xs text-xs leading-relaxed text-zinc-500">
+                Обычно это занимает до 2 минут. Страницу можно не закрывать.
+              </p>
+            </div>
+          ) : modelUrl ? (
+            <div
+              data-generator-result
+              className="mt-5 flex min-h-64 flex-col items-center justify-center rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.07] px-5 py-10 text-center sm:min-h-80"
+            >
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-400/25 bg-emerald-500/10 text-emerald-300">
+                <SuccessIcon className="h-8 w-8" />
+              </span>
+              <p className="mt-4 max-w-xs text-sm leading-relaxed font-semibold text-white">
+                Модель готова!
+              </p>
+              <p className="mt-2 max-w-xs text-xs leading-relaxed text-zinc-500">
+                Скачайте файл и откройте его в слайсере — модель придёт с
+                текстурой.
+              </p>
+              <a
+                href={modelUrl}
+                download
+                data-generator-download
+                className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-white px-6 text-center text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:w-auto"
+              >
+                Скачать GLB/STL
+                <span aria-hidden>↓</span>
+              </a>
+            </div>
+          ) : (
+            <div
+              data-generator-viewer-placeholder
+              className="mt-5 flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-white/12 bg-black/25 px-5 py-10 text-center sm:min-h-80"
+            >
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-zinc-300">
+                <CubeIcon className="h-7 w-7" />
+              </span>
+              <p className="mt-4 max-w-xs text-sm leading-relaxed font-semibold text-white">
+                Здесь появится 3D-модель после генерации
+              </p>
+              <p className="mt-2 max-w-xs text-xs leading-relaxed text-zinc-500">
+                Вьювер с поворотом и скачиванием подключим следом за
+                генерацией.
+              </p>
+            </div>
+          )}
         </div>
       </section>
     </div>

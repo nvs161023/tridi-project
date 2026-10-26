@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { GeneratorWorkspace } from "@/app/3d-generator/GeneratorWorkspace";
 import { Header } from "@/components/Header";
 import { authHref } from "@/lib/auth-redirect";
+import { getUserCredits } from "@/lib/credits";
 import { resolveUserId } from "@/lib/current-user";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
@@ -12,10 +13,9 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * 3D-генератор — Pro-инструмент: фото превращается в модель для печати.
  *
- * Страница пока только показывает рабочую область: выбрать фото, увидеть
- * превью и место под будущий вьювер. Запрос к `/api/3d/generate` подключим
- * следующим шагом — сам роут уже готов и проверяет ключ, сессию, кредиты и
- * файл заново, поэтому интерфейс не станет защитой.
+ * Страница показывает рабочую область: выбрать фото, увидеть превью,
+ * отправить его в `/api/3d/generate` и скачать готовую модель. Роут проверяет
+ * ключ, сессию, кредиты и файл заново, поэтому интерфейс не станет защитой.
  *
  * Доступ проверяется здесь, как у Мастерской и конструктора: middleware
  * отвечает только за сессию, а «есть ли пакет» — это запрос к purchases и
@@ -27,13 +27,6 @@ import { createClient } from "@/lib/supabase/server";
  */
 
 const PAGE_PATH = "/3d-generator";
-
-/**
- * Заглушка баланса. Число стоит в интерфейсе, но ничего не решает: настоящий
- * счётчик читает роут из `user_credits` и списывает кредит только после
- * успешной генерации. Подключим плашку к тем же данным следующим шагом.
- */
-const PLACEHOLDER_CREDITS = 10;
 
 export const metadata: Metadata = {
   title: "3D-генератор — TriDi",
@@ -54,6 +47,11 @@ export default async function ThreeDGeneratorPage() {
   }
 
   const hasPro = await hasActiveSubscription(supabase, userId);
+  // Баланс читаем только тем, кому открыт инструмент: без пакета он не нужен,
+  // а лишний запрос к `user_credits` в замке ни к чему. `null` — счётчик
+  // недоступен, и это не «0 кредитов»: показываем прочерк, а не приглашение
+  // покупать пакет из-за сбоя базы.
+  const credits = hasPro ? await getUserCredits(userId) : null;
 
   return (
     <div className="min-h-screen text-zinc-100">
@@ -125,7 +123,7 @@ export default async function ThreeDGeneratorPage() {
                   data-generator-credits
                   className="mt-1 text-3xl leading-none font-bold text-white tabular-nums"
                 >
-                  {PLACEHOLDER_CREDITS}
+                  {credits === null ? "—" : credits}
                 </p>
                 <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
                   Одна генерация — одна модель
@@ -135,7 +133,7 @@ export default async function ThreeDGeneratorPage() {
           </div>
         </section>
 
-        {hasPro ? <GeneratorWorkspace /> : <LockedGenerator />}
+        {hasPro ? <GeneratorWorkspace credits={credits} /> : <LockedGenerator />}
       </main>
     </div>
   );
