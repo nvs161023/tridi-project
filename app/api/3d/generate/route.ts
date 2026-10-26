@@ -14,10 +14,23 @@ export const maxDuration = 300;
 /** База Gen API: создание задачи и чтение её статуса. */
 const GEN_API_BASE_URL = "https://api.gen-api.ru/api/v1";
 
-/** Сеть (модель) генерации 3D по фото. */
-const TRELLIS_NETWORK = "trellis-2";
+/**
+ * Поле с картинкой у каждой сети своё: Trellis 2 ждёт одну ссылку в
+ * `image_url`, Tripo3D — массив в `image_urls`. Перепутанное поле Gen API
+ * отклоняет с 422 «Поле image url обязательно», поэтому модель и имя поля
+ * связаны в одной таблице.
+ */
+const GEN_API_MODELS = {
+  "trellis-2": "image_url",
+  "tripo-3d": "image_urls",
+} as const;
 
-/** Разрешение текстуры, которое просим у Gen API. */
+type GenApiModel = keyof typeof GEN_API_MODELS;
+
+/** Модель по умолчанию: Trellis 2 собирает 3D по одному фото. */
+const DEFAULT_GEN_API_MODEL: GenApiModel = "trellis-2";
+
+/** Разрешение текстуры, которое просим у Trellis 2. */
 const TEXTURE_SIZE = 512;
 
 /** Лимит фото: Trellis принимает изображения до 10 МБ. */
@@ -62,12 +75,25 @@ type GenApiCreateResponse = {
   id?: unknown;
 };
 
-/** Минимальная форма ответа на чтение статуса. */
+/**
+ * Минимальная форма ответа на чтение статуса.
+ *
+ * `GET /request/get/{id}` отдаёт ссылки в `result` (массив строк), а
+ * `full_response` — исходный ответ нейросети. Поле `output` в этом ответе не
+ * встречается, но читается как запасной вариант на случай смены формата.
+ */
 type GenApiStatusResponse = {
   status?: unknown;
+  result?: unknown;
+  full_response?: unknown;
   output?: unknown;
   error?: unknown;
   message?: unknown;
+};
+
+/** Тело ответа Gen API при ошибке валидации. */
+type GenApiValidationError = {
+  errors_validation?: unknown;
 };
 
 /**
@@ -103,6 +129,87 @@ function readRequestId(payload: GenApiCreateResponse): string | null {
 
   if (typeof value === "number" && Number.isFinite(value)) {
     return String(value);
+  }
+
+  return null;
+}
+
+/**
+ * Модель из `GEN_API_MODEL`.
+ *
+ * Пусто — Trellis 2. Незнакомое значение опасно: поле картинки у другой сети
+ * может называться иначе, и генерация упадёт уже после загрузки фото, поэтому
+ * лучше сообщить об ошибке настройки сразу.
+ */
+function readModel(): GenApiModel | null {
+  const value = process.env.GEN_API_MODEL?.trim();
+
+  if (!value) {
+    return DEFAULT_GEN_API_MODEL;
+  }
+
+  return Object.hasOwn(GEN_API_MODELS, value) ? (value as GenApiModel) : null;
+}
+
+/**
+ * Тело запроса на генерацию.
+ *
+ * `trellis-2` принимает одно фото ссылкой в `image_url` и размер текстуры,
+ * `tripo-3d` — массив ссылок в `image_urls` и не знает `texture_size`. Общее
+ * поле — `callback_url`: результат забираем опросом, вебхук не нужен.
+ */
+function buildRequestBody(
+  model: GenApiModel,
+  imageUrl: string,
+  imageField: string,
+): Record<string, unknown> {
+  const body: Record<string, unknown> =
+    imageField === "image_urls"
+      ? { image_urls: [imageUrl] }
+      : { image_url: imageUrl };
+
+  if (model === "trellis-2") {
+    body.texture_size = TEXTURE_SIZE;
+  }
+
+  body.callback_url = null;
+
+  return body;
+}
+
+/**
+ * Первое сообщение валидации Gen API.
+ *
+ * При неверном теле сервис отвечает 422 и объектом
+ * `{ error: true, errors_validation: { поле: ["текст"] } }`. Текст русский и
+ * понятный, поэтому его можно показать пользователю вместо общего «сервис
+ * перегружен»: именно это сообщение объясняет, что фотография не подошла.
+ */
+function readValidationMessage(data: unknown): string | null {
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  const errors = (data as GenApiValidationError).errors_validation;
+
+  if (!errors || typeof errors !== "object") {
+    return null;
+  }
+
+  for (const value of Object.values(errors as Record<string, unknown>)) {
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.trim();
+    }
+
+    if (Array.isArray(value)) {
+      const text = value.find(
+        (item): item is string => typeof item === "string" && item.trim() !== "",
+      );
+
+      if (text) {
+        return text.trim();
+      }
+    }
   }
 
   return null;
@@ -171,14 +278,15 @@ function collectUrls(value: unknown, found: string[], depth = 0): void {
 /**
  * Ссылка на GLB из ответа Gen API.
  *
- * Формат `output` зависит от сети: у одних моделей это строка, у других —
- * массив или объект с полями `url` / `model_url`. Сначала ищем файл с
- * расширением `.glb`, иначе берём первую ссылку: если сервис отдаст превью
- * вместе с моделью, клиент всё равно получит модель.
+ * `GET /request/get/{id}` отдаёт ссылки в `result` (массив строк), но формат
+ * зависит от сети: у одних моделей это строка, у других — массив или объект с
+ * полями `url` / `model_url`. Сначала ищем файл с расширением `.glb`, иначе
+ * берём первую ссылку: если сервис отдаст превью вместе с моделью, клиент всё
+ * равно получит модель.
  */
-function extractModelUrl(output: unknown): string | null {
+function extractModelUrl(result: unknown): string | null {
   const urls: string[] = [];
-  collectUrls(output, urls);
+  collectUrls(result, urls);
 
   return urls.find((url) => /\.glb(\?|#|$)/i.test(url)) ?? urls[0] ?? null;
 }
@@ -191,15 +299,16 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Генерация 3D-модели по фотографии через Gen API (Trellis 2).
+ * Генерация 3D-модели по фотографии через Gen API (`trellis-2` по умолчанию).
  *
  * Порядок проверок:
  *   1. `GEN_API_KEY` — без ключа 503 «Генерация 3D временно недоступна»;
- *   2. сессия — `getUser()`, потому что `/api/*` не покрыт middleware;
- *   3. `getUserCredits()` — 0 кредитов дают 403, недоступный счётчик — 503;
- *   4. файл из multipart-поля `file`: формат и размер;
- *   5. загрузка в `workshop-temp` и запуск задачи в Gen API;
- *   6. опрос `GET /requests/{request_id}` до `success` или `failed`.
+ *   2. `GEN_API_MODEL` — неизвестная сеть даёт 503 «настроена неверно»;
+ *   3. сессия — `getUser()`, потому что `/api/*` не покрыт middleware;
+ *   4. `getUserCredits()` — 0 кредитов дают 403, недоступный счётчик — 503;
+ *   5. файл из multipart-поля `file`: формат и размер;
+ *   6. загрузка в `workshop-temp` и запуск задачи в Gen API;
+ *   7. опрос `GET /request/get/{request_id}` до `success` или `error`.
  *
  * Кредит списывается только после успеха: неудачная генерация и истёкшее
  * ожидание ничего не стоят пользователю. Ответ — `{ modelUrl, requestId }`.
@@ -210,6 +319,22 @@ export async function POST(request: Request): Promise<Response> {
   if (!apiKey) {
     return errorResponse(503, "Генерация 3D временно недоступна");
   }
+
+  const model = readModel();
+
+  if (!model) {
+    console.error(
+      "[3d/generate] Неизвестная модель Gen API:",
+      process.env.GEN_API_MODEL,
+    );
+
+    return errorResponse(
+      503,
+      "Генерация 3D настроена неверно. Сообщите администратору.",
+    );
+  }
+
+  const imageField = GEN_API_MODELS[model];
 
   const supabase = await createClient();
   const {
@@ -288,18 +413,14 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     createResponse = await fetch(
-      `${GEN_API_BASE_URL}/networks/${TRELLIS_NETWORK}`,
+      `${GEN_API_BASE_URL}/networks/${model}`,
       {
         method: "POST",
         headers: {
           authorization: `Bearer ${apiKey}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          image_urls: [imageUrl],
-          texture_size: TEXTURE_SIZE,
-          callback_url: null,
-        }),
+        body: JSON.stringify(buildRequestBody(model, imageUrl, imageField)),
         cache: "no-store",
         signal: AbortSignal.timeout(GEN_API_TIMEOUT_MS),
       },
@@ -321,6 +442,16 @@ export async function POST(request: Request): Promise<Response> {
       createResponse.status,
       created.text.slice(0, 300),
     );
+
+    // 422 — сервис не принял параметры (например, картинка не скачалась).
+    // Его текст точнее общего «сервис перегружен», поэтому отдаём его.
+    if (createResponse.status === 422) {
+      return errorResponse(
+        400,
+        readValidationMessage(created.data) ??
+          "Сервис генерации отклонил фото. Попробуйте другое изображение.",
+      );
+    }
 
     return errorResponse(
       502,
@@ -348,7 +479,7 @@ export async function POST(request: Request): Promise<Response> {
 
     try {
       statusResponse = await fetch(
-        `${GEN_API_BASE_URL}/requests/${encodeURIComponent(requestId)}`,
+        `${GEN_API_BASE_URL}/request/get/${encodeURIComponent(requestId)}`,
         {
           headers: {
             authorization: `Bearer ${apiKey}`,
@@ -392,7 +523,13 @@ export async function POST(request: Request): Promise<Response> {
       state === "succeeded" ||
       state === "completed"
     ) {
-      const modelUrl = extractModelUrl(status.data?.output);
+      // `result` — массив ссылок на файлы; `full_response` — исходный ответ
+      // нейросети, где ссылки могут лежать глубже.
+      const modelUrl = extractModelUrl(
+        status.data?.result ??
+          status.data?.full_response ??
+          status.data?.output,
+      );
 
       if (!modelUrl) {
         console.error(
