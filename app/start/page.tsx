@@ -344,14 +344,17 @@ export default function StartPage() {
               </div>
               <div className={styles.mockupBody}>
                 <div className={styles.mockupSidebar}>
-                  <div className={`${styles.sidebarItem} ${styles.active}`} />
-                  <div className={styles.sidebarItem} />
-                  <div className={styles.sidebarItem} />
+                  <div className={`${styles.sidebarItem} ${styles.active}`}>01. Введение</div>
+                  <div className={styles.sidebarItem}>02. Слайсер</div>
+                  <div className={styles.sidebarItem}>03. Адгезия</div>
+                  <div className={styles.sidebarItem}>04. Ретракт</div>
                 </div>
                 <div className={styles.mockupContent}>
-                  <div className={`${styles.mockupLine} ${styles.w40}`} />
-                  <div className={`${styles.mockupLine} ${styles.w90}`} />
-                  <div className={`${styles.mockupLine} ${styles.w70}`} />
+                  <h3 className={styles.mockupHeading}>Что такое слайсер?</h3>
+                  <p className={styles.mockupText}>
+                    В этом уроке разберем, как подготовить модель к печати и настроить основные
+                    параметры.
+                  </p>
                   <div className={styles.mockupVideoBox}>
                     {/*
                      * Кадр с печатью вместо пустой заглушки. fill растягивает

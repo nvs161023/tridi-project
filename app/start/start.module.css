@@ -514,50 +514,77 @@
 .pageWrapper .mockupSidebar {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 2px;
   width: 22%;
-  padding: 26px 20px;
+  padding: 22px 16px;
   background: rgba(255, 255, 255, 0.01);
   border-right: 1px solid var(--border-color);
 }
 
+/*
+ * Пункты меню — не заглушки, а реальный список уроков: строка с многоточием,
+ * чтобы длинное название не выпихивало текст за пределы мокапа.
+ */
 .pageWrapper .sidebarItem {
-  width: 80%;
-  height: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
+  padding: 8px 0;
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.pageWrapper .sidebarItem:hover {
+  color: #cbd5e1;
 }
 
 .pageWrapper .sidebarItem.active {
-  width: 100%;
+  position: relative;
+  padding-left: 12px;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Синяя полоска-маркер текущего урока. */
+.pageWrapper .sidebarItem.active::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 2px;
   background: var(--accent);
-  box-shadow: 0 0 14px rgba(59, 130, 246, 0.5);
+  border-radius: 2px;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
 }
 
 .pageWrapper .mockupContent {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 14px;
-  padding: 30px;
+  gap: 10px;
+  padding: 26px 30px 30px;
 }
 
-.pageWrapper .mockupLine {
-  height: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 5px;
+.pageWrapper .mockupHeading {
+  margin: 0;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
 }
 
-.pageWrapper .w40 {
-  width: 40%;
-}
-
-.pageWrapper .w70 {
-  width: 70%;
-}
-
-.pageWrapper .w90 {
-  width: 90%;
+.pageWrapper .mockupText {
+  max-width: 46ch;
+  margin: 0;
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .pageWrapper .mockupVideoBox {
@@ -1469,7 +1496,7 @@
   }
 
   .pageWrapper .mockupBody {
-    height: 220px;
+    height: 300px;
   }
 
   .pageWrapper .mockupSidebar {
@@ -1477,8 +1504,17 @@
   }
 
   .pageWrapper .mockupContent {
-    gap: 10px;
-    padding: 18px;
+    gap: 8px;
+    padding: 16px 18px 18px;
+  }
+
+  .pageWrapper .mockupHeading {
+    font-size: 17px;
+  }
+
+  .pageWrapper .mockupText {
+    font-size: 13px;
+    line-height: 1.55;
   }
 
   .pageWrapper .playIcon {
