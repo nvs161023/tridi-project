@@ -582,27 +582,6 @@ export default function StartPage() {
         </div>
       </section>
 
-      <footer className={styles.siteFooter}>
-        <div className={styles.container}>
-          <div className={styles.footerContent}>
-            <div className={styles.logo}>
-              <Image
-                alt=""
-                aria-hidden="true"
-                className={styles.logoImage}
-                height={32}
-                src="/logo.svg"
-                unoptimized
-                width={32}
-              />
-              <BrandName />
-            </div>
-            <p>Образовательная платформа по 3D-печати</p>
-            <p>© 2026 TriDi. Все права защищены.</p>
-          </div>
-        </div>
-      </footer>
-
       {/* Sticky CTA для мобильных */}
       <div className={styles.mobileStickyCta}>
         <div className={styles.stickyText}>Первый уровень — бесплатно</div>

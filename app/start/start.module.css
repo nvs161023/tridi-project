@@ -1264,33 +1264,6 @@
   line-height: 1.5;
 }
 
-/* Подвал */
-.pageWrapper .siteFooter {
-  position: relative;
-  z-index: 1;
-  padding: 40px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.pageWrapper .footerContent {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: center;
-  text-align: center;
-}
-
-.pageWrapper .footerContent .logo {
-  margin-bottom: 4px;
-  font-size: 20px;
-}
-
-.pageWrapper .footerContent p {
-  color: #6b7a90;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
 /*
  * Липкая CTA для телефонов: показывается только в медиазапросе ≤768px.
  * Снизу оставляем место, чтобы панель не перекрывала подвал.
@@ -1639,10 +1612,6 @@
   .pageWrapper .ctaButtonLarge {
     width: 100%;
     min-width: 0;
-  }
-
-  .pageWrapper .siteFooter {
-    padding: 32px 0;
   }
 
   .pageWrapper .mobileStickyCta {
