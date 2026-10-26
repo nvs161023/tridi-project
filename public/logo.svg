@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <!--
+    Логотип TriDi: изометрический 3D-принтер со синей шестерёнкой на столе.
+
+    Рисунок один в один повторяет знак из components/Logo.tsx (PrinterMark) —
+    там он встроен в React-компонент шапки сайта. Здесь тот же SVG лежит
+    отдельным файлом, чтобы лендинг /start мог показать его обычной картинкой
+    (`next/image`). Если знак меняется в Logo.tsx, этот файл нужно обновить
+    тем же патчем: других источников у картинки нет.
+  -->
+  <path d="M24 7.5v20" stroke="#334155" stroke-width="2.2" />
+
+  <path
+    d="M24 7 43 16.5 24 26 5 16.5 24 7Zm0 3.8-14.8 5.7L24 22.2l14.8-5.7L24 10.8Z"
+    fill="#1e293b"
+    fill-rule="evenodd"
+  />
+
+  <path d="M5 16.5v19M43 16.5v19" stroke="#334155" stroke-width="2.6" />
+  <path d="M6.4 17.2v17.5M41.6 17.2v17.5" stroke="#475569" stroke-width="0.9" />
+
+  <path d="M24 26 43 35.5 24 45 5 35.5 24 26Z" fill="#1e293b" />
+  <path d="M5 35.5 24 45v2.5L5 38V35.5Z" fill="#0f172a" />
+  <path d="M24 45 43 35.5V38L24 47.5V45Z" fill="#334155" />
+
+  <path d="M24 28.6 39 35.5 24 42.4 9 35.5 24 28.6Z" fill="#172033" />
+  <path
+    d="M24 28.6 39 35.5 24 42.4 9 35.5 24 28.6Z"
+    stroke="#475569"
+    stroke-width="0.8"
+  />
+
+  <ellipse cx="24" cy="35.6" rx="11" ry="4.6" fill="#0055FF" opacity="0.14" />
+
+  <g transform="translate(24 35.4) scale(1 .56)">
+    <g fill="#0055FF">
+      <circle r="5.6" />
+      <rect x="-1.5" y="-8" width="3" height="3.8" rx="0.7" />
+      <rect x="-1.5" y="-8" width="3" height="3.8" rx="0.7" transform="rotate(45)" />
+      <rect x="-1.5" y="-8" width="3" height="3.8" rx="0.7" transform="rotate(90)" />
+      <rect x="-1.5" y="-8" width="3" height="3.8" rx="0.7" transform="rotate(135)" />
+      <rect x="-1.5" y="-8" width="3" height="3.8" rx="0.7" transform="rotate(180)" />
+      <rect x="-1.5" y="-8" width="3" height="3.8" rx="0.7" transform="rotate(225)" />
+      <rect x="-1.5" y="-8" width="3" height="3.8" rx="0.7" transform="rotate(270)" />
+      <rect x="-1.5" y="-8" width="3" height="3.8" rx="0.7" transform="rotate(315)" />
+    </g>
+    <circle r="2.1" fill="#172033" />
+    <circle r="5.5" stroke="#60a5fa" stroke-opacity="0.5" stroke-width="0.7" />
+  </g>
+</svg>

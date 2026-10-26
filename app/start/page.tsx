@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -80,7 +81,23 @@ export default function StartPage() {
       <header className={styles.siteHeader}>
         <div className={`${styles.container} ${styles.headerInner}`}>
           <div className={styles.logo}>
-            <span className={styles.logoIcon}>◈</span> TriDi
+            {/*
+             * Знак проекта — тот же рисунок, что в шапке сайта
+             * (components/Logo.tsx). В public/ лежит его копия logo.svg:
+             * SVG-компонент картинкой не подключить. unoptimized — чтобы
+             * next/image отдал файл как есть, без оптимизатора для SVG.
+             */}
+            <Image
+              alt=""
+              aria-hidden="true"
+              className={styles.logoImage}
+              height={36}
+              priority
+              src="/logo.svg"
+              unoptimized
+              width={36}
+            />
+            TriDi
           </div>
           <Link href={SIGN_UP_HREF} className={styles.headerBtn}>
             Войти / Регистрация
@@ -337,7 +354,16 @@ export default function StartPage() {
         <div className={styles.container}>
           <div className={styles.footerContent}>
             <div className={styles.logo}>
-              <span className={styles.logoIcon}>◈</span> TriDi
+              <Image
+                alt=""
+                aria-hidden="true"
+                className={styles.logoImage}
+                height={32}
+                src="/logo.svg"
+                unoptimized
+                width={32}
+              />
+              TriDi
             </div>
             <p>Образовательная платформа по 3D-печати</p>
             <p>© 2026 TriDi. Все права защищены.</p>

@@ -82,9 +82,17 @@
   color: #fff;
 }
 
-.pageWrapper .logoIcon {
-  color: var(--accent);
-  font-size: 24px;
+/*
+ * Логотип в шапке и подвале лендинга — картинка public/logo.svg, копия знака
+ * из components/Logo.tsx. Высота 36 px в шапке и 32 px в подвале: рисунок
+ * квадратный, поэтому ширина равна высоте и он не плывёт рядом с текстом
+ * «TriDi». flex-shrink: 0 — чтобы на узком экране знак не сжимался.
+ */
+.pageWrapper .logoImage {
+  display: block;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
 }
 
 .pageWrapper .headerBtn {
@@ -640,6 +648,12 @@
   color: #fff;
   font-size: 20px;
   margin-bottom: 8px;
+}
+
+/* В подвале знак чуть меньше, чем в шапке: подпись там тоже мельче. */
+.pageWrapper .footerContent .logoImage {
+  width: 32px;
+  height: 32px;
 }
 
 /* Sticky CTA для мобильных */
