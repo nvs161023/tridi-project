@@ -655,6 +655,32 @@
   line-height: 1.7;
 }
 
+/*
+ * Превью сертификата: обёртка держит рамку, скругление и тень, а картинка
+ * заполняет её по ширине (height: auto сохраняет пропорции 911×643).
+ * На hover масштабируется именно обёртка, поэтому тень и скругление едут
+ * вместе с картинкой, а overflow: hidden не даёт углам вылезти за рамку.
+ */
+.pageWrapper .certificateWrapper {
+  max-width: 800px;
+  margin: 0 auto;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  transition: transform 0.3s ease;
+}
+
+.pageWrapper .certificateWrapper:hover {
+  transform: scale(1.02);
+}
+
+.pageWrapper .certificateImage {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
 /* Финальный CTA */
 .pageWrapper .finalCta {
   text-align: center;
@@ -852,6 +878,16 @@
 
   .pageWrapper .faqGrid {
     grid-template-columns: 1fr;
+  }
+
+  /*
+   * Превью сертификата на телефоне занимает всю ширину .container — своих
+   * 24 px отступа хватает, дополнительный padding не нужен. Hover-увеличение
+   * отключено: на тач-экране :hover «залипает» после тапа, и картинка выезжает
+   * за края экрана.
+   */
+  .pageWrapper .certificateWrapper:hover {
+    transform: none;
   }
 
   .pageWrapper .finalCta h2 {

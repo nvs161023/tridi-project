@@ -330,6 +330,32 @@ export default function StartPage() {
         </div>
       </section>
 
+      {/*
+       * Сертификат — подтверждение навыков после бесплатного уровня. Превью
+       * лежит в public/certificate-example.png (911×643), поэтому next/image
+       * получает реальные width/height: так браузер знает пропорции до загрузки
+       * и секция не «прыгает». sizes повторяет max-width обёртки, а не экрана.
+       */}
+      <section className={styles.section}>
+        <div className={styles.container}>
+          <h2 className={styles.sectionTitle}>Подтверждение ваших навыков</h2>
+          <p className={styles.sectionSubtitle}>
+            После прохождения курса вы получите официальный сертификат с
+            уникальным QR-кодом для проверки.
+          </p>
+          <div className={styles.certificateWrapper}>
+            <Image
+              alt="Сертификат об окончании курса"
+              className={styles.certificateImage}
+              height={643}
+              sizes="(max-width: 768px) 100vw, 800px"
+              src="/certificate-example.png"
+              width={911}
+            />
+          </div>
+        </div>
+      </section>
+
       <section className={styles.section}>
         <div className={styles.container}>
           <h2 className={styles.sectionTitle}>Частые вопросы</h2>
