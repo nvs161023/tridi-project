@@ -425,24 +425,23 @@ export default function StartPage() {
             От первого запуска до готовой детали — по шагам, без лишней теории.
           </p>
 
-          <ol className={styles.timeline}>
+          <div className={styles.timelineContainer}>
             {LESSONS.map((lesson) => (
-              <li key={lesson.number} className={styles.timelineItem}>
-                <div className={styles.timelineMarker}>
-                  <span className={styles.timelineNumber}>{lesson.number}</span>
-                </div>
-                <article className={`${styles.glassCard} ${styles.lessonCard}`}>
+              <div
+                key={lesson.number}
+                className={`${styles.timelineItem} ${styles.glassCard}`}
+              >
+                <div className={styles.timelineNumber}>{lesson.number}</div>
+                <div className={styles.timelineContent}>
                   <div className={styles.lessonIcon} aria-hidden="true">
                     {lesson.icon}
                   </div>
-                  <div className={styles.lessonBody}>
-                    <h3 className={styles.lessonTitle}>{lesson.title}</h3>
-                    <p className={styles.lessonText}>{lesson.text}</p>
-                  </div>
-                </article>
-              </li>
+                  <h3 className={styles.lessonTitle}>{lesson.title}</h3>
+                  <p className={styles.lessonText}>{lesson.text}</p>
+                </div>
+              </div>
             ))}
-          </ol>
+          </div>
         </div>
       </section>
 
