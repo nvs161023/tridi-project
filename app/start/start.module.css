@@ -1820,3 +1820,84 @@
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Каркас вертикального таймлайна программы (Шаг 4.1)
+ *
+ * Правила ограничены контейнером .timelineContainer: текущая разметка
+ * использует .timelineItem / .timelineNumber без него, поэтому общие
+ * селекторы переписали бы уже работающий таймлайн до Шага 4.2.
+ * Горизонтальный padding у .timelineItem не задаём: линия идёт по центру
+ * кружка (64 / 2 = 32 px), любой сдвиг контента её разъедет.
+ * ------------------------------------------------------------------ */
+.pageWrapper .timelineContainer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.pageWrapper .timelineContainer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 32px;
+  z-index: 0;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    rgba(59, 130, 246, 0.5),
+    rgba(139, 92, 246, 0.5),
+    transparent
+  );
+}
+
+.pageWrapper .timelineContainer .timelineItem {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.pageWrapper .timelineContainer .timelineNumber {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  color: #60a5fa;
+  font-size: 20px;
+  font-weight: 800;
+  background: #0f172a;
+  border: 2px solid rgba(59, 130, 246, 0.5);
+  border-radius: 50%;
+}
+
+.pageWrapper .timelineContainer .timelineContent {
+  flex: 1;
+  padding-top: 12px;
+}
+
+@media (max-width: 768px) {
+  .pageWrapper .timelineContainer::before {
+    left: 24px;
+  }
+
+  .pageWrapper .timelineContainer .timelineNumber {
+    width: 48px;
+    height: 48px;
+    font-size: 16px;
+  }
+
+  .pageWrapper .timelineContainer .timelineItem {
+    gap: 16px;
+  }
+}
+
+
