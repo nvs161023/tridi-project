@@ -587,69 +587,6 @@
   line-height: 1.6;
 }
 
-.pageWrapper .mockupVideoBox {
-  position: relative;
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  margin-top: 10px;
-  overflow: hidden;
-  background: rgba(59, 130, 246, 0.05);
-  border: 1px solid rgba(59, 130, 246, 0.12);
-  border-radius: 14px;
-}
-
-/*
- * Кадр урока лежит фоном блока: next/image с fill выставляет
- * position: absolute и inset: 0, остаётся задать кадрирование.
- */
-.pageWrapper .mockupVideoImage {
-  object-fit: cover;
-  opacity: 0.92;
-}
-
-/*
- * Затемнение поверх кадра: сверху почти прозрачное, к низу плотнее — фото
- * сливается с тёмным интерфейсом, а иконка Play остаётся читаемой.
- */
-.pageWrapper .mockupVideoBox::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.02) 0%,
-    rgba(0, 0, 0, 0.32) 55%,
-    rgba(0, 0, 0, 0.66) 100%
-  );
-}
-
-.pageWrapper .playIcon {
-  position: relative;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 64px;
-  height: 64px;
-  color: #fff;
-  font-size: 22px;
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.9),
-    rgba(139, 92, 246, 0.9)
-  );
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 50%;
-  box-shadow:
-    0 0 0 10px rgba(255, 255, 255, 0.04),
-    0 12px 30px rgba(59, 130, 246, 0.35);
-  backdrop-filter: blur(8px);
-}
-
 /*
  * Мягкое свечение вокруг превью: радиальный синий градиент и blur(80px),
  * чтобы мокап «парил» над авророй.
@@ -1492,12 +1429,6 @@
   .pageWrapper .mockupText {
     font-size: 13px;
     line-height: 1.55;
-  }
-
-  .pageWrapper .playIcon {
-    width: 52px;
-    height: 52px;
-    font-size: 18px;
   }
 
   .pageWrapper .sectionSubtitle {
