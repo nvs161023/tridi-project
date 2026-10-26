@@ -2036,3 +2036,77 @@
 }
 
 
+
+/*
+ * FAQ-аккордеон на <details>/<summary>: браузер сам управляет открытием,
+ * JS не нужен. Плюс в ::after поворачивается и меняется на минус по [open].
+ */
+.pageWrapper .faqWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.pageWrapper .faqItem {
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  transition: all 0.3s ease;
+}
+
+.pageWrapper .faqItem:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.pageWrapper .faqSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+/* Safari: убираем стандартный треугольник. */
+.pageWrapper .faqSummary::-webkit-details-marker {
+  display: none;
+}
+
+.pageWrapper .faqSummary::after {
+  content: "+";
+  color: #3b82f6;
+  font-size: 24px;
+  font-weight: 400;
+  transition: transform 0.3s ease;
+}
+
+.pageWrapper .faqItem[open] .faqSummary::after {
+  content: "−";
+  transform: rotate(180deg);
+}
+
+.pageWrapper .faqContent {
+  padding: 0 24px 24px 24px;
+  color: #94a3b8;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+  .pageWrapper .faqSummary {
+    padding: 20px;
+    font-size: 16px;
+  }
+
+  .pageWrapper .faqContent {
+    padding: 0 20px 20px 20px;
+  }
+}
+
