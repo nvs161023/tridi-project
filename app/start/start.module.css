@@ -1280,16 +1280,15 @@
 .pageWrapper .finalCta {
   position: relative;
   z-index: 1;
-  padding: 110px 0;
+  padding: 120px 0;
   overflow: hidden;
   text-align: center;
-  background: linear-gradient(
-    180deg,
-    rgba(59, 130, 246, 0.07),
-    rgba(139, 92, 246, 0.05) 60%,
-    transparent
+  background: radial-gradient(
+    circle at 50% 100%,
+    rgba(59, 130, 246, 0.15),
+    transparent 60%
   );
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .pageWrapper .finalCtaGlow {
@@ -1311,17 +1310,13 @@
 }
 
 .pageWrapper .finalCtaTitle {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   color: #fff;
-  font-size: clamp(34px, 5vw, 60px);
+  font-size: clamp(32px, 5vw, 56px);
   font-weight: 800;
   line-height: 1.08;
-  letter-spacing: -0.04em;
+  letter-spacing: -1.5px;
   text-wrap: balance;
-  background: linear-gradient(180deg, #ffffff, #bfc9ff);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 
 .pageWrapper .finalCtaLead {
@@ -2107,6 +2102,83 @@
 
   .pageWrapper .faqContent {
     padding: 0 20px 20px 20px;
+  }
+}
+
+
+/* ------------------------------------------------------------------ *
+ * Финальный CTA (Шаг 8.1)
+ *
+ * .finalCta и .finalCtaTitle обновлены на месте, в блоке «Финальный
+ * призыв». .finalCtaSubtitle / .finalCtaButton подключаются на Шаге 8.2.
+ * ------------------------------------------------------------------ */
+.pageWrapper .finalCtaSubtitle {
+  max-width: 600px;
+  margin-bottom: 48px;
+  margin-inline: auto;
+  color: #94a3b8;
+  font-size: 20px;
+  line-height: 1.5;
+}
+
+.pageWrapper .finalCtaButton {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 48px;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  text-decoration: none;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  border-radius: 16px;
+  box-shadow: 0 0 40px rgba(59, 130, 246, 0.4);
+  animation: pulse 2s infinite;
+  transition:
+    transform 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+/* Анимацию на hover гасим: keyframes перебивают box-shadow, и свечение
+   не усиливалось бы. Пульс возвращается, когда курсор уходит. */
+.pageWrapper .finalCtaButton:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 60px rgba(59, 130, 246, 0.6);
+  animation: none;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 40px rgba(59, 130, 246, 0.4);
+  }
+
+  50% {
+    box-shadow: 0 0 70px rgba(59, 130, 246, 0.65);
+  }
+}
+
+@media (max-width: 768px) {
+  .pageWrapper .finalCta {
+    padding: 80px 0;
+  }
+
+  .pageWrapper .finalCtaTitle {
+    margin-bottom: 16px;
+    font-size: clamp(28px, 8vw, 40px);
+    letter-spacing: -1px;
+  }
+
+  .pageWrapper .finalCtaSubtitle {
+    margin-bottom: 32px;
+    font-size: 17px;
+  }
+
+  .pageWrapper .finalCtaButton {
+    padding: 16px 32px;
+    font-size: 17px;
+    border-radius: 14px;
   }
 }
 
