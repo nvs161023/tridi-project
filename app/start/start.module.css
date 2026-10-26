@@ -445,14 +445,32 @@
   overflow: hidden;
 }
 
-.pageWrapper .mockupVideoBox::before {
+/*
+ * Кадр урока лежит фоном блока: next/image с fill выставляет
+ * position: absolute и inset: 0, остаётся задать кадрирование и прозрачность,
+ * чтобы фото не «выжигало» тёмный интерфейс мокапа.
+ */
+.pageWrapper .mockupVideoImage {
+  object-fit: cover;
+  opacity: 0.9;
+}
+
+/*
+ * Затемнение поверх кадра: сверху почти прозрачное, к низу плотнее — фото
+ * сливается с тёмным интерфейсом, а иконка Play остаётся читаемой.
+ * z-index 2 — над картинкой, но под иконкой (у неё 10).
+ */
+.pageWrapper .mockupVideoBox::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(
-    circle at center,
-    rgba(59, 130, 246, 0.15),
-    transparent
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.05) 0%,
+    rgba(0, 0, 0, 0.35) 55%,
+    rgba(0, 0, 0, 0.65) 100%
   );
 }
 
@@ -467,7 +485,8 @@
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(8px);
-  z-index: 1;
+  position: relative;
+  z-index: 10;
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 

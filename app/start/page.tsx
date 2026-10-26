@@ -168,6 +168,21 @@ export default function StartPage() {
                   <div className={`${styles.mockupLine} ${styles.w90}`} />
                   <div className={`${styles.mockupLine} ${styles.w70}`} />
                   <div className={styles.mockupVideoBox}>
+                    {/*
+                     * Кадр с печатью вместо пустой заглушки. fill растягивает
+                     * картинку на весь блок (позиционирование даёт next/image,
+                     * кадрирование — object-fit в .mockupVideoImage), sizes
+                     * повторяет реальную ширину блока: мокап не шире 900 px,
+                     * на телефоне — во всю ширину экрана.
+                     */}
+                    <Image
+                      alt="Процесс 3D-печати"
+                      className={styles.mockupVideoImage}
+                      fill
+                      priority
+                      sizes="(max-width: 768px) 100vw, 640px"
+                      src="/hero-video-preview.jpg"
+                    />
                     <div className={styles.playIcon}>▶</div>
                   </div>
                 </div>
