@@ -563,12 +563,12 @@ export default function StartPage() {
         <div className={styles.container}>
           <p className={styles.eyebrow}>Первый шаг — сегодня</p>
           <h2 className={styles.finalCtaTitle}>Начни печатать уже сегодня</h2>
-          <p className={styles.finalCtaLead}>
+          <p className={styles.finalCtaSubtitle}>
             Регистрация занимает 1 минуту. Первый уровень — бесплатно.
           </p>
           <Link
             href={SIGN_UP_HREF}
-            className={`${styles.btnPrimary} ${styles.ctaButton} ${styles.ctaButtonLarge}`}
+            className={`${styles.btnPrimary} ${styles.ctaButton} ${styles.ctaButtonLarge} ${styles.finalCtaButton}`}
           >
             Зарегистрироваться бесплатно
             <span aria-hidden="true">→</span>
