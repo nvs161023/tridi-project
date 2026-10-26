@@ -1860,6 +1860,17 @@
   display: flex;
   align-items: flex-start;
   gap: 24px;
+  transition:
+    transform 0.3s ease,
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+}
+
+/* Наведение: карточка чуть уезжает вправо и подсвечивается синим. */
+.pageWrapper .timelineContainer .timelineItem:hover {
+  transform: translateX(8px);
+  border-color: rgba(59, 130, 246, 0.4);
+  box-shadow: 0 10px 30px rgba(59, 130, 246, 0.1);
 }
 
 .pageWrapper .timelineContainer .timelineNumber {
@@ -1877,6 +1888,19 @@
   background: #0f172a;
   border: 2px solid rgba(59, 130, 246, 0.5);
   border-radius: 50%;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+}
+
+/* Кружок вспыхивает, когда курсор на карточке. */
+.pageWrapper .timelineContainer .timelineItem:hover .timelineNumber {
+  color: #fff;
+  background: #3b82f6;
+  box-shadow: 0 0 25px rgba(59, 130, 246, 0.6);
 }
 
 .pageWrapper .timelineContainer .timelineContent {
@@ -1897,6 +1921,18 @@
 
   .pageWrapper .timelineContainer .timelineItem {
     gap: 16px;
+  }
+
+  /* На телефоне карточка не сдвигается: тап не должен дёргать вёрстку. */
+  .pageWrapper .timelineContainer .timelineItem:hover {
+    transform: none;
+  }
+}
+
+/* «Уменьшить движение»: убираем и сам сдвиг, а не только его длительность. */
+@media (prefers-reduced-motion: reduce) {
+  .pageWrapper .timelineContainer .timelineItem:hover {
+    transform: none;
   }
 }
 
