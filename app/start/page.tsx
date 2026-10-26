@@ -524,14 +524,16 @@ export default function StartPage() {
             уникальным QR-кодом для проверки.
           </p>
           <div className={`${styles.glassCard} ${styles.certificateWrapper}`}>
-            <Image
-              alt="Сертификат об окончании курса"
-              className={styles.certificateImage}
-              height={643}
-              sizes="(max-width: 768px) 100vw, 800px"
-              src="/certificate-example.png"
-              width={911}
-            />
+            <div className={styles.certificateInner}>
+              <Image
+                alt="Сертификат об окончании курса"
+                className={styles.certificateImage}
+                height={643}
+                sizes="(max-width: 768px) 100vw, 800px"
+                src="/certificate-example.png"
+                width={911}
+              />
+            </div>
           </div>
         </div>
       </section>
