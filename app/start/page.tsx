@@ -459,17 +459,17 @@ export default function StartPage() {
                 key={review.name}
                 className={`${styles.glassCard} ${styles.reviewCard}`}
               >
-                <div className={styles.stars} aria-label="Оценка 5 из 5">
+                <div className={styles.reviewStars} aria-label="Оценка 5 из 5">
                   ★★★★★
                 </div>
                 <p className={styles.reviewText}>«{review.text}»</p>
-                <div className={styles.reviewAuthor}>
-                  <span className={styles.avatar} aria-hidden="true">
+                <div className={styles.reviewHeader}>
+                  <div className={styles.reviewAvatar} aria-hidden="true">
                     {review.initials}
-                  </span>
+                  </div>
                   <div>
-                    <span className={styles.authorName}>{review.name}</span>
-                    <span className={styles.authorRole}>{review.role}</span>
+                    <div className={styles.reviewName}>{review.name}</div>
+                    <div className={styles.reviewRole}>{review.role}</div>
                   </div>
                 </div>
               </article>
