@@ -7,8 +7,10 @@
  *
  * Фон сайта (body.site-background) остаётся видимым: у обёртки прозрачный фон,
  * а собственные aurora-слои лежат под контентом через z-index: -1 и
- * isolation: isolate. overflow-x: clip (а не hidden) не ломает position: sticky
- * у шапки и мобильной CTA.
+ * isolation: isolate. z-index: 1 поднимает страницу над подвалом: backdrop-filter
+ * у футера создаёт свой stacking context и иначе перекрывает fixed-CTA.
+ * overflow-x: clip (а не hidden) не ломает position: sticky у шапки и мобильной
+ * CTA.
  */
 
 .pageWrapper {
@@ -26,6 +28,7 @@
   --section-padding: 120px;
 
   position: relative;
+  z-index: 1;
   min-height: 100vh;
   background-color: transparent;
   color: var(--text-main);
@@ -232,55 +235,32 @@
 }
 
 /*
- * Таймер: вместо красной полосы — стеклянная пилюля. Текст белый, цифры
- * синие, поэтому акцент читается, но не выглядит как «скидка на распродаже».
+ * Вместо обратного отсчёта — честная строка о доступе. Бесплатный уровень
+ * не закрывается через сутки, поэтому таймер здесь был бы ложной срочностью.
  */
-.pageWrapper .timerCard {
+.pageWrapper .heroPill {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 24px;
+  gap: 10px;
+  max-width: 100%;
+  padding: 12px 22px;
   margin-bottom: 28px;
-  border-radius: 999px;
-  color: #fff;
-  font-size: 14px;
+  color: #e2e8f0;
+  font-size: 13.5px;
   font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+  border-radius: 999px;
   animation: riseIn 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-.pageWrapper .timerDot {
+.pageWrapper .heroPillDot {
   width: 8px;
   height: 8px;
   flex-shrink: 0;
   border-radius: 50%;
-  background: var(--accent-soft);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.16);
-  animation: timerPulse 2.4s ease-in-out infinite;
-}
-
-.pageWrapper .timerLabel {
-  color: #e2e8f0;
-}
-
-/*
- * Цифры — чистый синий #3b82f6 (--accent). На тёмном стекле он темнее
- * accent-soft, поэтому добавляем мягкое свечение: контраст и «премиальный»
- * вид сохраняются, а оттенок остаётся ровно тем, что в дизайн-системе.
- */
-.pageWrapper .timerDigits {
-  display: inline-flex;
-  align-items: baseline;
-  color: var(--accent);
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 18px rgba(59, 130, 246, 0.55);
-}
-
-.pageWrapper .timerSeparator {
-  margin: 0 2px;
-  opacity: 0.55;
+  background: #34d399;
+  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.16);
 }
 
 .pageWrapper .badge {
@@ -351,6 +331,19 @@
   gap: 14px;
   margin-bottom: 24px;
   animation: riseIn 0.8s 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/*
+ * Одна строка под кнопкой: что именно входит в бесплатный уровень. Числа
+ * приходят из данных курса, поэтому микротекст не расходится с программой.
+ */
+.pageWrapper .ctaMicrocopy {
+  max-width: 560px;
+  margin: -8px auto 20px;
+  color: #7f8ea3;
+  font-size: 13.5px;
+  line-height: 1.5;
+  animation: riseIn 0.8s 0.24s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 /* Основная CTA: градиент синий → фиолетовый и мягкое свечение на hover. */
@@ -454,6 +447,29 @@
   content: "✓";
   color: var(--accent-soft);
   font-weight: 800;
+}
+
+/* Ссылка на истории — честное социальное доказательство вместо выдуманных цифр. */
+.pageWrapper .heroTrust a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #93c5fd;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.2s ease;
+}
+
+.pageWrapper .heroTrust a::before {
+  content: "→";
+  color: var(--accent-soft);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.pageWrapper .heroTrust a:hover {
+  color: #dbeafe;
 }
 
 /* Превью-мокап под hero */
@@ -919,6 +935,51 @@
 }
 
 /* Отзывы */
+/*
+ * Сводка: число историй и проверяемые цифры программы вместо «4,8 из 5».
+ * Рейтинг без реальной выборки был бы обещанием, которое нечем подтвердить.
+ */
+.pageWrapper .reviewsStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  max-width: 800px;
+  margin: 0 auto 32px;
+}
+
+.pageWrapper .reviewsStat {
+  padding: 18px 16px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+}
+
+.pageWrapper .reviewsStat strong {
+  display: block;
+  color: #fff;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.pageWrapper .reviewsStat span {
+  display: block;
+  margin-top: 4px;
+  color: #7f8ea3;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.pageWrapper .reviewsNote {
+  max-width: 720px;
+  margin: 24px auto 0;
+  color: #6b7a90;
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
 .pageWrapper .reviewsGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1078,6 +1139,138 @@
   line-height: 1.4;
 }
 
+/*
+ * «Сам или с курсом»: две колонки с одинаковыми строками, чтобы сравнение
+ * читалось по горизонтали. Обещания — только те, что есть в программе.
+ */
+.pageWrapper .compareSection {
+  position: relative;
+}
+
+.pageWrapper .compareSection::before {
+  content: "";
+  position: absolute;
+  inset: 10% 0;
+  z-index: 0;
+  background: radial-gradient(
+    620px 320px at 50% 50%,
+    rgba(59, 130, 246, 0.08),
+    transparent 70%
+  );
+  filter: blur(40px);
+  pointer-events: none;
+}
+
+.pageWrapper .compareGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.pageWrapper .compareCard {
+  display: flex;
+  flex-direction: column;
+  padding: 32px;
+}
+
+.pageWrapper .compareCardPro {
+  background: linear-gradient(
+    150deg,
+    rgba(59, 130, 246, 0.14),
+    rgba(139, 92, 246, 0.08) 55%,
+    rgba(255, 255, 255, 0.03)
+  );
+  border-color: rgba(96, 165, 250, 0.32);
+  box-shadow: 0 24px 60px rgba(37, 99, 235, 0.18);
+}
+
+.pageWrapper .compareBadge {
+  align-self: flex-start;
+  padding: 6px 12px;
+  margin-bottom: 14px;
+  color: #bfdbfe;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(59, 130, 246, 0.16);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  border-radius: 999px;
+}
+
+.pageWrapper .compareTitle {
+  margin-bottom: 20px;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.pageWrapper .compareList {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.pageWrapper .compareRow {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pageWrapper .compareRow:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.pageWrapper .compareRow dt {
+  color: #7f8ea3;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pageWrapper .compareRow dd {
+  color: #cbd5e1;
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.pageWrapper .compareCardPro .compareRow dd {
+  color: #e2e8f0;
+}
+
+.pageWrapper .compareCta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: auto;
+  padding: 16px 24px;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.24);
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.pageWrapper .compareCta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 36px rgba(139, 92, 246, 0.3);
+}
+
 /* Сертификат: премиальная подача с 3D-наклоном внутренней рамки */
 .pageWrapper .certificateWrapper {
   position: relative;
@@ -1222,19 +1415,6 @@
   }
 }
 
-@keyframes timerPulse {
-  0%,
-  100% {
-    opacity: 1;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
-  }
-
-  50% {
-    opacity: 0.65;
-    box-shadow: 0 0 0 7px rgba(59, 130, 246, 0.05);
-  }
-}
-
 /*
  * Свечение под мокапом «дышит»: opacity и scale меняются медленно, чтобы
  * картинка не мигала. translate повторяем в keyframes — иначе анимация
@@ -1322,6 +1502,9 @@
   }
 
   .pageWrapper .headerBtn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
     padding: 9px 14px;
     font-size: 12.5px;
   }
@@ -1330,18 +1513,14 @@
     padding: 40px 0 72px;
   }
 
-  .pageWrapper .timerCard {
-    flex-wrap: wrap;
+  .pageWrapper .heroPill {
     justify-content: center;
-    gap: 6px 10px;
-    padding: 12px 18px;
+    width: 100%;
+    gap: 8px;
+    padding: 11px 16px;
     font-size: 12.5px;
     text-align: center;
-    border-radius: 20px;
-  }
-
-  .pageWrapper .timerDigits {
-    font-size: 15px;
+    border-radius: 18px;
   }
 
   .pageWrapper .badge {
@@ -1388,6 +1567,11 @@
   .pageWrapper .ctaSecondary {
     padding: 16px 24px;
     font-size: 15px;
+  }
+
+  .pageWrapper .ctaMicrocopy {
+    margin: -6px auto 18px;
+    font-size: 12.5px;
   }
 
   .pageWrapper .heroTrust {
@@ -1512,6 +1696,26 @@
     font-size: 14px;
   }
 
+  .pageWrapper .lessonMeta {
+    margin-bottom: 8px;
+  }
+
+  .pageWrapper .timelineCta {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    padding: 20px;
+    text-align: center;
+  }
+
+  .pageWrapper .timelineCtaText {
+    text-align: center;
+  }
+
+  .pageWrapper .timelineCtaButton {
+    width: 100%;
+  }
+
   .pageWrapper .reviewsGrid {
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
@@ -1521,9 +1725,44 @@
     padding: 24px 20px;
   }
 
+  .pageWrapper .reviewsStats {
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+
+  .pageWrapper .reviewsStat {
+    padding: 14px 8px;
+  }
+
+  .pageWrapper .reviewsStat strong {
+    font-size: 22px;
+  }
+
+  .pageWrapper .reviewsStat span {
+    font-size: 11px;
+  }
+
   .pageWrapper .whyFreeStats {
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;
+  }
+
+  .pageWrapper .compareGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .pageWrapper .compareCard {
+    padding: 24px 20px;
+  }
+
+  .pageWrapper .compareRow {
+    grid-template-columns: 86px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .pageWrapper .compareTitle {
+    font-size: 22px;
   }
 
   .pageWrapper .whyFreeText {
@@ -1575,10 +1814,21 @@
     line-height: 1.3;
   }
 
+  /*
+   * Пока открыт cookie-баннер, липкая CTA уступает ему место: иначе панель
+   * перекрывает кнопки согласия, а согласие — обязательный шаг.
+   */
+  body:has([role="dialog"][aria-label*="cookie"]) .pageWrapper .mobileStickyCta {
+    display: none;
+  }
+
   .pageWrapper .stickyBtn {
     flex-shrink: 0;
+    width: auto;
+    min-width: 0;
     padding: 12px 22px;
     font-size: 14px;
+    white-space: nowrap;
   }
 }
 
@@ -1746,6 +1996,68 @@
   padding-top: 12px;
 }
 
+/* Метрики урока: длительность, число схем и практика — всё из данных курса. */
+.pageWrapper .lessonMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 2px 0 10px;
+}
+
+.pageWrapper .lessonMeta span {
+  padding: 4px 9px;
+  color: #93c5fd;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: 999px;
+}
+
+/* CTA после программы: следующий шаг прямо в таймлайне, без поиска кнопки. */
+.pageWrapper .timelineCta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: 800px;
+  margin: 28px auto 0;
+  padding: 24px 28px;
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.12),
+    rgba(139, 92, 246, 0.08)
+  );
+  border: 1px solid rgba(96, 165, 250, 0.26);
+  border-radius: 20px;
+}
+
+.pageWrapper .timelineCtaText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.pageWrapper .timelineCtaText strong {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.pageWrapper .timelineCtaText span {
+  color: #94a3b8;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.pageWrapper .timelineCtaButton {
+  flex-shrink: 0;
+  padding: 14px 24px;
+  font-size: 15px;
+}
+
 @media (max-width: 768px) {
   .pageWrapper .timelineContainer::before {
     left: 24px;
@@ -1781,7 +2093,7 @@
  * .reviewCard и .reviewText уже есть в разметке: правила ниже намеренно
  * дополняют их (padding 32, курсив текста), hover и transition остаются
  * из блока «Отзывы». .reviewHeader / .reviewAvatar / .reviewName /
- * .reviewRole / .reviewStars подключаются на Шаге 5.2.
+ * .reviewRole / .reviewTags подключаются на Шаге 5.2.
  * ------------------------------------------------------------------ */
 .pageWrapper .reviewCard {
   display: flex;
@@ -1823,11 +2135,22 @@
   font-size: 13px;
 }
 
-.pageWrapper .reviewStars {
-  margin-bottom: 4px;
-  color: #fbbf24;
-  font-size: 16px;
-  letter-spacing: 2px;
+/* Теги истории: конкретика из текста вместо выдуманного рейтинга. */
+.pageWrapper .reviewTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pageWrapper .reviewTag {
+  padding: 5px 10px;
+  color: #bfdbfe;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.24);
+  border-radius: 999px;
 }
 
 .pageWrapper .reviewText {

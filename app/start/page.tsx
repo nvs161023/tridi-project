@@ -1,53 +1,51 @@
-"use client";
-
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+
+import lessonsData from "@/data/lessons.json";
+import {
+  LEVELS,
+  TOTAL_LESSONS,
+  TOTAL_QUESTIONS,
+  TOTAL_TESTS,
+  TOTAL_VISUALS,
+} from "@/lib/course-levels";
+import {
+  LESSON_FORMS,
+  pluralize,
+  TEST_FORMS,
+  VISUAL_FORMS,
+} from "@/lib/course-stats";
 
 import styles from "./start.module.css";
 
 /**
  * Лендинг бесплатного уровня «Новичок» на /start.
  *
- * Оформление переработано под премиальный SaaS/EdTech: bento-сетка болей,
- * стеклянные карточки, aurora-градиенты, вертикальный таймлайн программы
- * и аккордеон FAQ.
+ * Все числа считаются из data/lessons.json и data/course-*.json через
+ * lib/course-levels.ts, а названия уроков берутся из самого курса. Поэтому
+ * лендинг не может пообещать урок или схему, которых нет в программе.
  *
- * Таймер — перенос script.js: дедлайн на 24 часа хранится в localStorage,
- * поэтому перезагрузка страницы отсчёт не сбрасывает. До гидратации значение
- * неизвестно (localStorage есть только в браузере), поэтому сервер и первый
- * клиентский рендер показывают «00:00:00» — так разметка не расходится.
+ * Страница серверная: интерактивность нужна только FAQ, а <details> работает
+ * без JavaScript. Цифры попадают в статический HTML, клиентский бандл не тянет
+ * данные курсов.
  */
-
-/** Ключ и длительность таймера — те же, что были в script.js лендинга. */
-const TIMER_STORAGE_KEY = "tridi_landing_timer_end";
-const TIMER_DURATION_MS = 24 * 60 * 60 * 1000;
 
 /** Куда ведут все кнопки лендинга. */
 const SIGN_UP_HREF = "/auth/sign-up";
 
-const MS_IN_HOUR = 60 * 60 * 1000;
-const MS_IN_MINUTE = 60 * 1000;
-const MS_IN_SECOND = 1000;
+/** Бесплатный уровень: его цифры повторяются в hero, программе и сравнении. */
+const BASIC_LEVEL = LEVELS[0];
 
-/** Два знака в счётчике: 7 → «07». */
-function pad(value: number): string {
-  return String(value).padStart(2, "0");
-}
+/** Урок бесплатного уровня в том виде, в каком он лежит в data/lessons.json. */
+type BasicLesson = {
+  lesson_title: string;
+  duration: string;
+  blocks: { title: string; visual_file?: string | null }[];
+};
 
-/**
- * Остаток до дедлайна в часы, минуты и секунды.
- *
- * Часы считаются по модулю суток, как в исходном скрипте: если в localStorage
- * остался дедлайн больше чем на 24 часа вперёд, счётчик не покажет «25».
- */
-function splitTimeLeft(timeLeftMs: number) {
-  return {
-    hours: pad(Math.floor((timeLeftMs % (24 * MS_IN_HOUR)) / MS_IN_HOUR)),
-    minutes: pad(Math.floor((timeLeftMs % MS_IN_HOUR) / MS_IN_MINUTE)),
-    seconds: pad(Math.floor((timeLeftMs % MS_IN_MINUTE) / MS_IN_SECOND)),
-  };
-}
+const BASIC_LESSONS = (
+  lessonsData.modules as { lessons: BasicLesson[] }[]
+).flatMap((courseModule) => courseModule.lessons);
 
 /**
  * Название проекта для шапки и подвала лендинга.
@@ -102,85 +100,99 @@ type Lesson = {
   icon: string;
   title: string;
   text: string;
+  duration: string;
+  visuals: number;
+  hasPractice: boolean;
 };
 
-/** Программа бесплатного уровня: номер, иконка, название и короткое описание. */
-const LESSONS: Lesson[] = [
+/**
+ * Подписи к урокам: иконка и одно предложение о содержании.
+ *
+ * Названия, длительность и число схем здесь не дублируются — они приходят из
+ * data/lessons.json. Если урок переименуют или добавят схему, лендинг обновится
+ * вместе с курсом и не начнёт обещать лишнего.
+ */
+const LESSON_COPY: { icon: string; text: string }[] = [
   {
-    number: "01",
     icon: "🚀",
-    title: "Первый запуск без страха сломать принтер",
-    text: "Собираем принтер, выставляем стол и делаем безопасный тестовый запуск.",
+    text: "Технологии FDM, SLA и SLS, что можно печатать и какие детали принтеру доверять нельзя.",
   },
   {
-    number: "02",
     icon: "🖥️",
-    title: "Что такое слайсер и как его готовить",
-    text: "Разбираем Cura и PrusaSlicer: профили, температуры и первый G-code.",
+    text: "Рама, кинематика, экструдер, хотэнд и стол: из каких узлов состоит принтер и что ломается чаще всего.",
   },
   {
-    number: "03",
     icon: "🧲",
-    title: "Идеальный первый слой: секреты адгезии",
-    text: "Настраиваем зазор сопла и подбираем адгезию, чтобы деталь держалась до конца.",
+    text: "PLA, PETG, ABS, ASA, TPU, PA и PC: свойства, сушка, хранение и выбор пластика под задачу.",
   },
   {
-    number: "04",
-    icon: "🕸️",
-    title: "Как избавиться от «соплей» и паутины",
-    text: "Находим причину стрингинга и лечим её ретрактом, температурой и скоростью.",
+    icon: "🧩",
+    text: "Высота слоя, стенки, заполнение, поддержки и предпросмотр — что действительно влияет на деталь.",
   },
   {
-    number: "05",
     icon: "🧱",
-    title: "Прочность деталей: слои и заполнение",
-    text: "Выбираем толщину стенок и заполнение под нагрузку, а не «на глаз».",
+    text: "Зазор сопла, покрытие стола, температура и скорость первого слоя — без «магии» и подбора наугад.",
   },
   {
-    number: "06",
     icon: "📐",
-    title: "Основы 3D-моделирования для печати",
-    text: "Готовим модель к печати: допуски, ориентация и поддержки.",
+    text: "Три теста и один профиль: температура, множитель потока, скорость и обдув.",
   },
   {
-    number: "07",
     icon: "🔍",
-    title: "Диагностика дефектов: почему всё пошло не так",
-    text: "Смотрим на дефект и по чек-листу находим настройку, которая его вызывает.",
+    text: "15 дефектов FDM: как выглядит, почему возник и какую настройку менять.",
   },
   {
-    number: "08",
     icon: "🏆",
-    title: "Финальный проект: печатаем крутую деталь",
-    text: "Собираем все навыки и печатаем финальную деталь для портфолио.",
+    text: "Одна деталь от идеи до замера: подготовка, печать, снятие поддержек и разбор результата.",
   },
 ];
+
+const LESSONS: Lesson[] = BASIC_LESSONS.map((lesson, index) => ({
+  number: String(index + 1).padStart(2, "0"),
+  icon: LESSON_COPY[index]?.icon ?? "•",
+  title: lesson.lesson_title,
+  text: LESSON_COPY[index]?.text ?? "",
+  duration: lesson.duration,
+  visuals: lesson.blocks.filter((block) => Boolean(block.visual_file)).length,
+  hasPractice: lesson.blocks.some((block) => block.title.startsWith("Практика")),
+}));
 
 type Review = {
   initials: string;
   name: string;
   role: string;
+  /** Что человек уже сделал и чем пользовался — только то, что есть в его тексте. */
+  tags: string[];
   text: string;
 };
 
-/** Отзывы: инициалы — заглушка аватара, имени и роли хватает для доверия. */
+/**
+ * Истории учеников, а не агрегированный рейтинг.
+ *
+ * Оценки и новые отзывы живут в «Центре выпускника» и публикуются после
+ * прохождения уровня. Поэтому на лендинге нет выдуманного «4,8 из 5»:
+ * доверие здесь держится на конкретных деталях историй и цифрах программы.
+ */
 const REVIEWS: Review[] = [
   {
     initials: "ДМ",
     name: "Дмитрий",
     role: "новичок",
+    tags: ["Ender 3", "3 урока"],
     text: "Купил Ender 3, месяц стоял. Прошёл 3 урока — наконец-то настроил стол и напечатал нормальную вазу!",
   },
   {
     initials: "АС",
     name: "Анна",
     role: "дизайнер",
+    tags: ["Схемы", "Без тонны текста"],
     text: "Очень круто, что все схемы нарисованы. Не надо читать тонну текста, просто смотришь и делаешь.",
   },
   {
     initials: "МК",
     name: "Максим",
     role: "инженер",
+    tags: ["Ретракт", "Чек-листы"],
     text: "Наконец-то понял, что такое ретракт. Спасибо за практику и понятные чек-листы!",
   },
 ];
@@ -209,8 +221,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     question: "Сколько времени займёт обучение?",
-    answer:
-      "Курс рассчитан на 1–2 вечера. Уроки короткие, с практикой: вы сразу сможете напечатать свою первую деталь.",
+    answer: `Программа рассчитана на ${BASIC_LEVEL.hours} вместе с практикой — в первом уровне ${BASIC_LEVEL.practiceMinutes} минут практики. Темп можно выбрать свой: уроки короткие, а финальный проект собирает навыки в одну деталь.`,
   },
   {
     question: "Что я получу после курса?",
@@ -220,32 +231,6 @@ const FAQ_ITEMS: FaqItem[] = [
 ];
 
 export default function StartPage() {
-  const [timeLeftMs, setTimeLeftMs] = useState<number | null>(null);
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem(TIMER_STORAGE_KEY);
-    const parsed = stored === null ? Number.NaN : Number.parseInt(stored, 10);
-
-    let deadline = parsed;
-
-    if (!Number.isFinite(deadline) || deadline <= 0) {
-      // Таймера ещё нет — ставим дедлайн на 24 часа вперёд.
-      deadline = Date.now() + TIMER_DURATION_MS;
-      window.localStorage.setItem(TIMER_STORAGE_KEY, String(deadline));
-    }
-
-    // Считаем от дедлайна, а не уменьшаем счётчик: интервал может подтормозить
-    // на спящем ноутбуке, а время всё равно должно быть честным.
-    const updateTimer = () => setTimeLeftMs(Math.max(0, deadline - Date.now()));
-
-    updateTimer();
-    const intervalId = window.setInterval(updateTimer, MS_IN_SECOND);
-
-    return () => window.clearInterval(intervalId);
-  }, []);
-
-  const { hours, minutes, seconds } = splitTimeLeft(timeLeftMs ?? 0);
-
   return (
     <div className={styles.pageWrapper}>
       <header className={styles.siteHeader}>
@@ -285,17 +270,10 @@ export default function StartPage() {
       <section className={styles.hero}>
         <div className={styles.heroAurora} aria-hidden="true" />
         <div className={styles.container}>
-          <div className={`${styles.glassCard} ${styles.timerCard}`}>
-            <span className={styles.timerDot} aria-hidden="true" />
-            <span className={styles.timerLabel}>
-              Бесплатный доступ закроется через
-            </span>
-            <span className={styles.timerDigits}>
-              <span>{hours}</span>
-              <span className={styles.timerSeparator}>:</span>
-              <span>{minutes}</span>
-              <span className={styles.timerSeparator}>:</span>
-              <span>{seconds}</span>
+          <div className={`${styles.glassCard} ${styles.heroPill}`}>
+            <span className={styles.heroPillDot} aria-hidden="true" />
+            <span>
+              Первый уровень — 0 ₽. Доступ сразу после регистрации.
             </span>
           </div>
 
@@ -309,8 +287,9 @@ export default function StartPage() {
           </h1>
 
           <p className={styles.heroLead}>
-            Бесплатный курс из 8 уроков. Без сломанных принтеров, слипшегося
-            пластика и непонятных терминов. Практика с первого урока.
+            Бесплатный курс из {BASIC_LEVEL.totalLessons} уроков. Без сломанных
+            принтеров, слипшегося пластика и непонятных терминов. Практика с
+            первого урока.
           </p>
 
           <div className={styles.ctaGroup}>
@@ -318,7 +297,7 @@ export default function StartPage() {
               href={SIGN_UP_HREF}
               className={`${styles.btnPrimary} ${styles.ctaButton}`}
             >
-              Начать бесплатно
+              Забрать бесплатный уровень
               <span aria-hidden="true">→</span>
             </Link>
             <a href="#program" className={styles.ctaSecondary}>
@@ -326,10 +305,26 @@ export default function StartPage() {
             </a>
           </div>
 
+          <p className={styles.ctaMicrocopy}>
+            {BASIC_LEVEL.totalLessons}{" "}
+            {pluralize(BASIC_LEVEL.totalLessons, LESSON_FORMS)},{" "}
+            {BASIC_LEVEL.visuals} {pluralize(BASIC_LEVEL.visuals, VISUAL_FORMS)}{" "}
+            и {BASIC_LEVEL.tests} {pluralize(BASIC_LEVEL.tests, TEST_FORMS)} — без
+            карты.
+          </p>
+
           <div className={styles.heroTrust}>
-            <span>Без привязки карты</span>
-            <span>Доступ сразу после регистрации</span>
-            <span>8 уроков и 250+ схем</span>
+            <span>
+              {BASIC_LEVEL.totalLessons}{" "}
+              {pluralize(BASIC_LEVEL.totalLessons, LESSON_FORMS)} ·{" "}
+              {BASIC_LEVEL.visuals} {pluralize(BASIC_LEVEL.visuals, VISUAL_FORMS)}
+            </span>
+            <span>
+              {BASIC_LEVEL.tests} {pluralize(BASIC_LEVEL.tests, TEST_FORMS)} ·{" "}
+              {BASIC_LEVEL.questions} вопросов
+            </span>
+            <span>Без карты</span>
+            <a href="#reviews">{REVIEWS.length} истории учеников</a>
           </div>
 
           <div className={styles.heroVisual}>
@@ -420,10 +415,14 @@ export default function StartPage() {
         id="program"
       >
         <div className={styles.container}>
-          <p className={styles.eyebrow}>8 уроков · практика с первого дня</p>
+          <p className={styles.eyebrow}>
+            {BASIC_LEVEL.totalLessons}{" "}
+            {pluralize(BASIC_LEVEL.totalLessons, LESSON_FORMS)} ·{" "}
+            {BASIC_LEVEL.visuals} схем · практика с первого дня
+          </p>
           <h2 className={styles.sectionTitle}>Программа курса</h2>
           <p className={styles.sectionSubtitle}>
-            От первого запуска до готовой детали — по шагам, без лишней теории.
+            От технологий до первого проекта — по шагам, без лишней теории.
           </p>
 
           <div className={styles.timelineContainer}>
@@ -438,21 +437,64 @@ export default function StartPage() {
                     {lesson.icon}
                   </div>
                   <h3 className={styles.lessonTitle}>{lesson.title}</h3>
+                  <div className={styles.lessonMeta}>
+                    <span>{lesson.duration}</span>
+                    <span>
+                      {lesson.visuals}{" "}
+                      {pluralize(lesson.visuals, VISUAL_FORMS)}
+                    </span>
+                    {lesson.hasPractice ? <span>практика</span> : null}
+                  </div>
                   <p className={styles.lessonText}>{lesson.text}</p>
                 </div>
               </div>
             ))}
+          </div>
+
+          <div className={styles.timelineCta}>
+            <div className={styles.timelineCtaText}>
+              <strong>В конце уровня — тесты и сертификат</strong>
+              <span>
+                {BASIC_LEVEL.tests}{" "}
+                {pluralize(BASIC_LEVEL.tests, TEST_FORMS)} на{" "}
+                {BASIC_LEVEL.questions} вопросов с пояснениями. Сертификат с
+                QR-кодом выдаётся после прохождения уровня.
+              </span>
+            </div>
+            <Link
+              href={SIGN_UP_HREF}
+              className={`${styles.btnPrimary} ${styles.timelineCtaButton}`}
+            >
+              Начать бесплатно
+              <span aria-hidden="true">→</span>
+            </Link>
           </div>
         </div>
       </section>
 
       <section className={styles.section} id="reviews">
         <div className={styles.container}>
-          <p className={styles.eyebrow}>Реальные первые детали</p>
+          <p className={styles.eyebrow}>Истории учеников</p>
           <h2 className={styles.sectionTitle}>Они уже начали печатать</h2>
           <p className={styles.sectionSubtitle}>
-            Три истории людей, у которых принтер тоже когда-то стоял без дела.
+            {REVIEWS.length} истории людей, у которых принтер тоже когда-то стоял
+            без дела.
           </p>
+
+          <div className={styles.reviewsStats}>
+            <div className={styles.reviewsStat}>
+              <strong>{REVIEWS.length}</strong>
+              <span>истории учеников</span>
+            </div>
+            <div className={styles.reviewsStat}>
+              <strong>{BASIC_LEVEL.visuals}</strong>
+              <span>схем в первом уровне</span>
+            </div>
+            <div className={styles.reviewsStat}>
+              <strong>{BASIC_LEVEL.questions}</strong>
+              <span>вопросов в тестах</span>
+            </div>
+          </div>
 
           <div className={styles.reviewsGrid}>
             {REVIEWS.map((review) => (
@@ -469,13 +511,22 @@ export default function StartPage() {
                     <div className={styles.reviewRole}>{review.role}</div>
                   </div>
                 </div>
-                <div className={styles.reviewStars} aria-label="Оценка 5 из 5">
-                  ★★★★★
+                <div className={styles.reviewTags}>
+                  {review.tags.map((tag) => (
+                    <span key={tag} className={styles.reviewTag}>
+                      {tag}
+                    </span>
+                  ))}
                 </div>
                 <p className={styles.reviewText}>«{review.text}»</p>
               </article>
             ))}
           </div>
+
+          <p className={styles.reviewsNote}>
+            Оценки и новые отзывы публикуются в «Центре выпускника» после
+            прохождения уровня.
+          </p>
         </div>
       </section>
 
@@ -494,18 +545,119 @@ export default function StartPage() {
             </p>
             <div className={styles.whyFreeStats}>
               <div className={styles.whyFreeStat}>
-                <strong>8</strong>
+                <strong>{BASIC_LEVEL.totalLessons}</strong>
                 <span>уроков в первом уровне</span>
               </div>
               <div className={styles.whyFreeStat}>
-                <strong>250+</strong>
-                <span>наглядных схем</span>
+                <strong>{BASIC_LEVEL.visuals}</strong>
+                <span>схем в первом уровне</span>
               </div>
               <div className={styles.whyFreeStat}>
                 <strong>0 ₽</strong>
                 <span>за весь первый уровень</span>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        className={`${styles.section} ${styles.compareSection}`}
+        id="compare"
+      >
+        <div className={styles.container}>
+          <p className={styles.eyebrow}>Сравнение без обещаний</p>
+          <h2 className={styles.sectionTitle}>Сам или с курсом</h2>
+          <p className={styles.sectionSubtitle}>
+            Оба пути начинаются с нуля. Разница — в порядке, проверке и времени,
+            которое уходит на поиск.
+          </p>
+
+          <div className={styles.compareGrid}>
+            <article className={`${styles.glassCard} ${styles.compareCard}`}>
+              <h3 className={styles.compareTitle}>Сам</h3>
+              <dl className={styles.compareList}>
+                <div className={styles.compareRow}>
+                  <dt>Маршрут</dt>
+                  <dd>
+                    Собираешь по форумам, видео и советам из разных источников
+                  </dd>
+                </div>
+                <div className={styles.compareRow}>
+                  <dt>Материал</dt>
+                  <dd>Выбираешь пластик на глаз</dd>
+                </div>
+                <div className={styles.compareRow}>
+                  <dt>Настройки</dt>
+                  <dd>Меняешь параметры наугад</dd>
+                </div>
+                <div className={styles.compareRow}>
+                  <dt>Дефект</dt>
+                  <dd>Ищешь причину в интернете и угадываешь</dd>
+                </div>
+                <div className={styles.compareRow}>
+                  <dt>Итог</dt>
+                  <dd>Как получится; проверить нечем</dd>
+                </div>
+                <div className={styles.compareRow}>
+                  <dt>Цена</dt>
+                  <dd>0 ₽ плюс время на поиски</dd>
+                </div>
+              </dl>
+            </article>
+
+            <article
+              className={`${styles.glassCard} ${styles.compareCard} ${styles.compareCardPro}`}
+            >
+              <span className={styles.compareBadge}>
+                Первый уровень — 0 ₽
+              </span>
+              <h3 className={styles.compareTitle}>С курсом</h3>
+              <dl className={styles.compareList}>
+                <div className={styles.compareRow}>
+                  <dt>Маршрут</dt>
+                  <dd>
+                    {BASIC_LEVEL.totalLessons} уроков по порядку: технологии →
+                    железо → материалы → слайсер → первый слой → настройки →
+                    дефекты → проект
+                  </dd>
+                </div>
+                <div className={styles.compareRow}>
+                  <dt>Материал</dt>
+                  <dd>
+                    PLA, PETG, ABS, ASA, TPU, PA и PC: свойства, сушка и
+                    хранение
+                  </dd>
+                </div>
+                <div className={styles.compareRow}>
+                  <dt>Настройки</dt>
+                  <dd>
+                    Три теста и один профиль: температура, поток, скорость и
+                    обдув
+                  </dd>
+                </div>
+                <div className={styles.compareRow}>
+                  <dt>Дефект</dt>
+                  <dd>15 проблем: симптом → причина → действие</dd>
+                </div>
+                <div className={styles.compareRow}>
+                  <dt>Итог</dt>
+                  <dd>
+                    Деталь от идеи до замера, {BASIC_LEVEL.tests}{" "}
+                    {pluralize(BASIC_LEVEL.tests, TEST_FORMS)} и сертификат с
+                    QR-кодом
+                  </dd>
+                </div>
+                <div className={styles.compareRow}>
+                  <dt>Цена</dt>
+                  <dd>0 ₽ за первый уровень; принтер и пластик — свои</dd>
+                </div>
+              </dl>
+              <Link href={SIGN_UP_HREF} className={styles.compareCta}>
+                Забрать бесплатный уровень
+                <span aria-hidden="true">→</span>
+              </Link>
+            </article>
           </div>
         </div>
       </section>
@@ -566,7 +718,8 @@ export default function StartPage() {
           <p className={styles.eyebrow}>Первый шаг — сегодня</p>
           <h2 className={styles.finalCtaTitle}>Начни печатать уже сегодня</h2>
           <p className={styles.finalCtaSubtitle}>
-            Регистрация занимает 1 минуту. Первый уровень — бесплатно.
+            Первый уровень — бесплатно и без карты. Доступ откроется сразу после
+            регистрации.
           </p>
           <Link
             href={SIGN_UP_HREF}
@@ -576,7 +729,10 @@ export default function StartPage() {
             <span aria-hidden="true">→</span>
           </Link>
           <div className={styles.subtext}>
-            Более 250 наглядных схем, 38 уроков и доступ к сообществу впереди.
+            {TOTAL_LESSONS} {pluralize(TOTAL_LESSONS, LESSON_FORMS)},{" "}
+            {TOTAL_VISUALS} {pluralize(TOTAL_VISUALS, VISUAL_FORMS)} и{" "}
+            {TOTAL_TESTS} {pluralize(TOTAL_TESTS, TEST_FORMS)} на{" "}
+            {TOTAL_QUESTIONS} вопросов — во всех уровнях.
           </div>
         </div>
       </section>
