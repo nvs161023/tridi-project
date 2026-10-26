@@ -1,0 +1,786 @@
+/*
+ * Стили лендинга /start — перенос отдельного style.css из вёрстки CodePen.
+ *
+ * Лендинг живёт внутри общего сайта, поэтому все правила ограничены обёрткой
+ * .pageWrapper: глобальные body и * из исходного файла применены к обёртке и её
+ * потомкам. Так стили страницы не могут задеть шапку, футер и другие экраны.
+ *
+ * Что изменено по сравнению с исходником:
+ *   • :root → .pageWrapper — переменные видны только внутри лендинга и не
+ *     перекрывают переменные сайта (--accent, --text-muted и т.п.);
+ *   • body { overflow-x: hidden } → overflow-x: clip, потому что hidden на
+ *     предке создаёт scroll-контейнер и ломает position: sticky у шапки
+ *     лендинга и мобильной CTA;
+ *   • добавлены min-height: 100vh и isolation: isolate, чтобы тёмный фон
+ *     закрывал экран целиком и отрицательные z-index не уходили под сайт.
+ */
+
+.pageWrapper {
+  --bg-color: #050505;
+  --card-bg: rgba(255, 255, 255, 0.02);
+  --border-color: rgba(255, 255, 255, 0.07);
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --danger: #ef4444;
+
+  box-sizing: border-box;
+  min-height: 100vh;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  font-family:
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.6;
+  overflow-x: clip;
+  padding-bottom: 70px;
+  -webkit-font-smoothing: antialiased;
+  isolation: isolate;
+}
+
+.pageWrapper *,
+.pageWrapper *::before,
+.pageWrapper *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.pageWrapper .container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 24px;
+  position: relative;
+  z-index: 2;
+}
+
+/* Header */
+.pageWrapper .siteHeader {
+  background: rgba(5, 5, 5, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  padding: 16px 0;
+}
+
+.pageWrapper .headerInner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pageWrapper .logo {
+  font-size: 22px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: -0.5px;
+  color: #fff;
+}
+
+.pageWrapper .logoIcon {
+  color: var(--accent);
+  font-size: 24px;
+}
+
+.pageWrapper .headerBtn {
+  color: var(--text-main);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  padding: 10px 20px;
+  border-radius: 10px;
+  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.pageWrapper .headerBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Top Bar & Timer */
+.pageWrapper .topBar {
+  background: rgba(239, 68, 68, 0.08);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.15);
+  padding: 12px 0;
+  font-size: 15px;
+}
+
+.pageWrapper .topBarInner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: #fca5a5;
+  font-weight: 500;
+}
+
+.pageWrapper .timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  background: rgba(239, 68, 68, 0.15);
+  padding: 6px 14px;
+  border-radius: 8px;
+  color: #fff;
+  letter-spacing: 1.5px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* Секции */
+.pageWrapper .section {
+  padding: 100px 0;
+  position: relative;
+}
+
+.pageWrapper .gridBg {
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(59, 130, 246, 0.05),
+    transparent 70%
+  );
+}
+
+.pageWrapper .sectionTitle {
+  font-size: 40px;
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 16px;
+  letter-spacing: -1.5px;
+}
+
+.pageWrapper .sectionSubtitle {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 18px;
+  margin-bottom: 60px;
+}
+
+/* Сетки */
+.pageWrapper .grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+.pageWrapper .grid3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+.pageWrapper .card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  padding: 32px;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+
+.pageWrapper .card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+/* Hero */
+.pageWrapper .hero {
+  padding: 80px 0 60px;
+  text-align: center;
+  position: relative;
+  z-index: 2;
+}
+
+.pageWrapper .hero::before {
+  content: "";
+  position: absolute;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 800px;
+  height: 800px;
+  background: radial-gradient(
+    circle,
+    rgba(59, 130, 246, 0.08) 0%,
+    transparent 60%
+  );
+  z-index: -1;
+  pointer-events: none;
+}
+
+.pageWrapper .badge {
+  display: inline-block;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  padding: 8px 20px;
+  border-radius: 50px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-bottom: 32px;
+  text-transform: uppercase;
+}
+
+.pageWrapper .hero h1 {
+  font-size: clamp(40px, 6vw, 68px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -2px;
+  margin-bottom: 24px;
+  background: linear-gradient(180deg, #ffffff 0%, #a5b4fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.pageWrapper .textMuted {
+  color: var(--text-muted);
+  display: block;
+  font-size: 0.5em;
+  margin-top: 12px;
+  -webkit-text-fill-color: var(--text-muted);
+  letter-spacing: -0.5px;
+  font-weight: 600;
+}
+
+.pageWrapper .hero p {
+  font-size: 20px;
+  color: var(--text-muted);
+  max-width: 700px;
+  margin: 0 auto 48px;
+}
+
+.pageWrapper .ctaGroup {
+  margin-bottom: 20px;
+}
+
+.pageWrapper .btn {
+  display: inline-block;
+  padding: 20px 48px;
+  border-radius: 16px;
+  font-weight: 800;
+  font-size: 20px;
+  text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  border: none;
+}
+
+.pageWrapper .btnPrimary {
+  background: #ffffff;
+  color: #050505;
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.1);
+}
+
+.pageWrapper .btnPrimary:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 0 40px rgba(255, 255, 255, 0.2);
+}
+
+.pageWrapper .subtext {
+  font-size: 14px;
+  color: #64748b;
+  margin-top: 16px;
+  font-weight: 500;
+}
+
+.pageWrapper .mt20 {
+  margin-top: 24px;
+}
+
+/* Mockup (имитация интерфейса) */
+.pageWrapper .heroImageWrapper {
+  position: relative;
+  max-width: 900px;
+  margin: 0 auto 40px;
+}
+
+.pageWrapper .mockup {
+  background: #0a0a0a;
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow:
+    0 30px 60px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+  position: relative;
+  z-index: 2;
+}
+
+.pageWrapper .mockupHeader {
+  background: #111;
+  padding: 14px 20px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.pageWrapper .mockupHeader span:not(.mockupTitle) {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #333;
+}
+
+.pageWrapper .mockupTitle {
+  margin-left: auto;
+  font-size: 12px;
+  color: #666;
+  font-weight: 600;
+}
+
+.pageWrapper .mockupBody {
+  display: flex;
+  height: 320px;
+}
+
+.pageWrapper .mockupSidebar {
+  width: 22%;
+  background: rgba(255, 255, 255, 0.01);
+  border-right: 1px solid var(--border-color);
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pageWrapper .sidebarItem {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  width: 80%;
+}
+
+.pageWrapper .sidebarItem.active {
+  background: var(--accent);
+  width: 100%;
+}
+
+.pageWrapper .mockupContent {
+  flex: 1;
+  padding: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pageWrapper .mockupLine {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 5px;
+}
+
+.pageWrapper .w40 {
+  width: 40%;
+}
+
+.pageWrapper .w70 {
+  width: 70%;
+}
+
+.pageWrapper .w90 {
+  width: 90%;
+}
+
+.pageWrapper .mockupVideoBox {
+  flex: 1;
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.1);
+  border-radius: 12px;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.pageWrapper .mockupVideoBox::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at center,
+    rgba(59, 130, 246, 0.15),
+    transparent
+  );
+}
+
+.pageWrapper .playIcon {
+  color: #fff;
+  font-size: 24px;
+  width: 60px;
+  height: 60px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+  z-index: 1;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pageWrapper .glowCenter {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80%;
+  height: 80%;
+  background: var(--accent);
+  filter: blur(100px);
+  opacity: 0.1;
+  z-index: 1;
+}
+
+/* Боли */
+.pageWrapper .painCard .icon {
+  font-size: 36px;
+  margin-bottom: 20px;
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.pageWrapper .painCard h3 {
+  font-size: 22px;
+  margin-bottom: 12px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.pageWrapper .painCard p {
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.pageWrapper .conclusion {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 800;
+  margin-top: 60px;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+
+/* Программа курса */
+.pageWrapper .curriculumList {
+  max-width: 800px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pageWrapper .curriculumItem {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 20px 28px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  font-weight: 600;
+  font-size: 17px;
+  transition: all 0.2s;
+}
+
+.pageWrapper .curriculumItem:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: translateX(4px);
+}
+
+.pageWrapper .curriculumItem span {
+  color: var(--accent);
+  font-weight: 800;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+}
+
+/* Отзывы */
+.pageWrapper .reviewCard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pageWrapper .stars {
+  color: #fbbf24;
+  font-size: 18px;
+  letter-spacing: 3px;
+}
+
+.pageWrapper .reviewCard p {
+  font-style: italic;
+  color: #cbd5e1;
+  font-size: 16px;
+  flex-grow: 1;
+  line-height: 1.6;
+}
+
+.pageWrapper .author {
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pageWrapper .author::before {
+  content: "";
+  display: block;
+  width: 24px;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+/* FAQ */
+.pageWrapper .faqGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 24px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.pageWrapper .faqCard h4 {
+  font-size: 20px;
+  margin-bottom: 12px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.pageWrapper .faqCard p {
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+/* Почему бесплатно */
+.pageWrapper .whyFree {
+  background: linear-gradient(
+    180deg,
+    rgba(59, 130, 246, 0.03) 0%,
+    transparent 100%
+  );
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.pageWrapper .textCenter {
+  text-align: center;
+}
+
+.pageWrapper .maxW700 {
+  max-width: 700px;
+  margin: 0 auto;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1.7;
+}
+
+/* Финальный CTA */
+.pageWrapper .finalCta {
+  text-align: center;
+  padding: 120px 0;
+  background: radial-gradient(
+    circle at 50% 100%,
+    rgba(59, 130, 246, 0.1),
+    transparent 60%
+  );
+  border-top: 1px solid var(--border-color);
+}
+
+.pageWrapper .finalCta h2 {
+  font-size: 48px;
+  margin-bottom: 20px;
+  font-weight: 800;
+  letter-spacing: -2px;
+}
+
+.pageWrapper .finalCta p {
+  color: var(--text-muted);
+  margin-bottom: 40px;
+  font-size: 20px;
+}
+
+/* Footer */
+.pageWrapper .siteFooter {
+  border-top: 1px solid var(--border-color);
+  padding: 50px 0;
+  background: #050505;
+}
+
+.pageWrapper .footerContent {
+  text-align: center;
+  color: #64748b;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.pageWrapper .footerContent .logo {
+  color: #fff;
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+
+/* Sticky CTA для мобильных */
+.pageWrapper .mobileStickyCta {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border-color);
+  padding: 16px 24px;
+  /*
+   * В исходнике было z-index: 1000. Опускаем до 40: на телефоне внизу экрана
+   * живёт баннер согласия на cookie (у него z-50), и кнопки «Принять» должны
+   * оставаться доступными. После согласия баннер исчезает — CTA видна целиком.
+   */
+  z-index: 40;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.pageWrapper .stickyText {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.pageWrapper .mobileStickyCta .btn {
+  padding: 14px 32px;
+  font-size: 16px;
+  border-radius: 12px;
+}
+
+/* Анимации */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.3);
+  }
+  70% {
+    box-shadow: 0 0 0 20px rgba(255, 255, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+  }
+}
+
+.pageWrapper .pulse {
+  animation: pulse 2.5s infinite;
+}
+
+/* Мобильная адаптация */
+@media (max-width: 768px) {
+  .pageWrapper .hero {
+    padding-top: 50px;
+  }
+
+  .pageWrapper .hero h1 {
+    font-size: 36px;
+    letter-spacing: -1px;
+  }
+
+  .pageWrapper .hero p {
+    font-size: 17px;
+  }
+
+  .pageWrapper .section {
+    padding: 60px 0;
+  }
+
+  .pageWrapper .sectionTitle {
+    font-size: 28px;
+  }
+
+  .pageWrapper .btn {
+    width: 100%;
+    display: block;
+    padding: 18px 24px;
+    font-size: 18px;
+  }
+
+  .pageWrapper .conclusion {
+    font-size: 22px;
+  }
+
+  .pageWrapper .mockupBody {
+    height: 220px;
+  }
+
+  .pageWrapper .mockupSidebar {
+    display: none;
+  }
+
+  .pageWrapper .mockupContent {
+    padding: 20px;
+  }
+
+  .pageWrapper .topBarInner {
+    font-size: 13px;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .pageWrapper .faqGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .pageWrapper .finalCta h2 {
+    font-size: 32px;
+  }
+
+  .pageWrapper .finalCta {
+    padding: 80px 0;
+  }
+
+  .pageWrapper .mobileStickyCta {
+    display: flex;
+  }
+
+  .pageWrapper .curriculumItem {
+    font-size: 15px;
+    padding: 16px 20px;
+    gap: 16px;
+  }
+
+  .pageWrapper .curriculumItem span {
+    font-size: 16px;
+  }
+
+  .pageWrapper .card {
+    padding: 24px;
+  }
+
+  .pageWrapper .painCard h3 {
+    font-size: 20px;
+  }
+
+  .pageWrapper .siteFooter {
+    padding-bottom: 100px;
+  }
+}
