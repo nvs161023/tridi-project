@@ -262,14 +262,20 @@
   color: #e2e8f0;
 }
 
+/*
+ * Цифры — чистый синий #3b82f6 (--accent). На тёмном стекле он темнее
+ * accent-soft, поэтому добавляем мягкое свечение: контраст и «премиальный»
+ * вид сохраняются, а оттенок остаётся ровно тем, что в дизайн-системе.
+ */
 .pageWrapper .timerDigits {
   display: inline-flex;
   align-items: baseline;
-  color: var(--accent-soft);
+  color: var(--accent);
   font-size: 17px;
   font-weight: 800;
   letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 18px rgba(59, 130, 246, 0.55);
 }
 
 .pageWrapper .timerSeparator {
@@ -636,6 +642,7 @@
   filter: blur(80px);
   transform: translate(-50%, -50%);
   pointer-events: none;
+  animation: glowPulse 8s ease-in-out infinite;
 }
 
 /* Секции */
@@ -1375,6 +1382,24 @@
   50% {
     opacity: 0.65;
     box-shadow: 0 0 0 7px rgba(59, 130, 246, 0.05);
+  }
+}
+
+/*
+ * Свечение под мокапом «дышит»: opacity и scale меняются медленно, чтобы
+ * картинка не мигала. translate повторяем в keyframes — иначе анимация
+ * перезапишет центрирование из .glowCenter.
+ */
+@keyframes glowPulse {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.06);
   }
 }
 
