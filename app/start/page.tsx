@@ -391,7 +391,9 @@ export default function StartPage() {
               <article
                 key={pain.title}
                 className={`${styles.glassCard} ${styles.bentoCard} ${
-                  index === 0 ? styles.bentoCardWide : ""
+                  index === 0
+                    ? `${styles.bentoCardWide} ${styles.bentoItemLarge}`
+                    : styles.bentoItemSmall
                 }`}
               >
                 {pain.label ? (
