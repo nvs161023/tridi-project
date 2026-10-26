@@ -1114,15 +1114,14 @@
   line-height: 1.4;
 }
 
-/* Сертификат: лёгкий 3D-наклон при наведении */
+/* Сертификат: премиальная подача с 3D-наклоном внутренней рамки */
 .pageWrapper .certificateWrapper {
   position: relative;
-  max-width: 900px;
+  max-width: 800px;
   margin: 0 auto;
   padding: 14px;
-  overflow: hidden;
+  perspective: 1000px;
   transition:
-    transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1),
     box-shadow 0.5s ease,
     border-color 0.5s ease;
 }
@@ -1144,7 +1143,23 @@
   box-shadow:
     0 40px 80px rgba(0, 0, 0, 0.65),
     0 0 40px rgba(59, 130, 246, 0.16);
-  transform: perspective(1000px) rotateY(5deg) translateY(-4px);
+}
+
+/*
+ * Наклоняем внутреннюю рамку, а не обёртку: у обёртки остаётся perspective,
+ * поэтому transform ребёнка получает глубину. Клип картинки — здесь, иначе
+ * overflow: hidden обрезал бы наклон и scale(1.02) по краям обёртки.
+ */
+.pageWrapper .certificateInner {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
+  transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.pageWrapper .certificateWrapper:hover .certificateInner {
+  transform: rotateY(5deg) rotateX(2deg) scale(1.02);
 }
 
 .pageWrapper .certificateImage {
@@ -2009,6 +2024,14 @@
     width: 40px;
     height: 40px;
     font-size: 16px;
+  }
+}
+
+
+/* Телефон: 3D-наклон сертификата отключаем, чтобы тап не дёргал вёрстку. */
+@media (max-width: 768px) {
+  .pageWrapper .certificateWrapper:hover .certificateInner {
+    transform: none;
   }
 }
 
