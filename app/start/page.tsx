@@ -355,21 +355,20 @@ export default function StartPage() {
                     В этом уроке разберем, как подготовить модель к печати и настроить основные
                     параметры.
                   </p>
-                  <div className={styles.mockupVideoBox}>
-                    {/*
-                     * Кадр с печатью вместо пустой заглушки. fill растягивает
-                     * картинку на весь блок, sizes повторяет реальную ширину
-                     * блока: мокап не шире 900 px, на телефоне — во всю ширину.
-                     */}
-                    <Image
-                      alt="Процесс 3D-печати"
-                      className={styles.mockupVideoImage}
-                      fill
-                      priority
-                      sizes="(max-width: 768px) 100vw, 640px"
-                      src="/hero-video-preview.jpg"
-                    />
-                    <div className={styles.playIcon}>▶</div>
+                  <div className={styles.mockupProgressBlock}>
+                    <div className={styles.mockupProgressHeader}>
+                      <span>Прогресс уровня</span>
+                      <span className={styles.mockupProgressPercent}>25%</span>
+                    </div>
+                    <div className={styles.mockupProgressBar}>
+                      <div className={styles.mockupProgressFill}></div>
+                    </div>
+                  </div>
+
+                  <div className={styles.mockupTaskList}>
+                    <div className={styles.mockupTaskDone}>✓ Теория изучена</div>
+                    <div className={styles.mockupTaskActive}>→ Практика: настройка слайсера</div>
+                    <div className={styles.mockupTaskPending}>○ Скачать G-code</div>
                   </div>
                 </div>
               </div>
