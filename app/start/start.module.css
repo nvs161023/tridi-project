@@ -1744,3 +1744,69 @@
   }
 }
 
+
+/*
+ * Bento-каркас (Шаг 3.1).
+ *
+ * Базовая сетка — три колонки. Крупная карточка боли занимает 2×2, остальные
+ * — 1×1. Правила стоят в конце файла, поэтому перекрывают прежнюю
+ * пятиколоночную раскладку; медиа-запрос ниже возвращает адаптив.
+ *
+ * minmax(0, 1fr) вместо 1fr — как в остальном файле: длинные слова и эмодзи
+ * не растягивают колонку шире сетки.
+ */
+.pageWrapper .bentoGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  width: 100%;
+}
+
+.pageWrapper .bentoItemLarge {
+  grid-column: span 2;
+  grid-row: span 2;
+}
+
+.pageWrapper .bentoItemSmall {
+  grid-column: span 1;
+  grid-row: span 1;
+}
+
+/*
+ * Пока Шаг 3.2 не перевёл карточки на bentoItemLarge/Small, в сетке четыре
+ * элемента (2 + 1 + 1 + 1): на трёх колонках последняя ячейка осталась бы
+ * пустой. Растягиваем последнюю карточку на два столбца — ряд закрывается.
+ * :not(...) выключает правило, когда карточка уже размечена новыми классами.
+ */
+.pageWrapper
+  .bentoGrid
+  > .bentoCard:last-child:not(.bentoItemLarge):not(.bentoItemSmall) {
+  grid-column: span 2;
+}
+
+/*
+ * Телефон: одна колонка. Каркасные спаны и компенсацию last-child сбрасываем
+ * в 1×1, иначе span 2 создал бы неявную вторую колонку.
+ */
+@media (max-width: 768px) {
+  .pageWrapper .bentoGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .pageWrapper .bentoItemLarge,
+  .pageWrapper .bentoItemSmall,
+  .pageWrapper
+    .bentoGrid
+    > .bentoCard:last-child:not(.bentoItemLarge):not(.bentoItemSmall) {
+    grid-column: span 1;
+    grid-row: span 1;
+  }
+
+  /* Текущая разметка шага 2: все карточки в один столбец. */
+  .pageWrapper .bentoCard,
+  .pageWrapper .bentoCardWide {
+    grid-column: span 1;
+  }
+}
+
