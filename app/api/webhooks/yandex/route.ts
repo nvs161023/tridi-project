@@ -35,27 +35,16 @@ import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
  * перехватывает middleware.
  *
  * Проверка соединения (`PING`) подтверждается раньше токена: кабинет Яндекса
- * сохраняет адрес только после ответа 2xx, а проверочный запрос приходит без
- * нашего токена или с обрезанным адресом. Заказ без токена по-прежнему получает
- * 403 — пропуск касается только запросов, в которых нет номера заказа.
+ * сохраняет адрес только после ответа 2xx, а проверочный запрос может прийти без
+ * нашего токена. Ответ на `PING` — документированный Яндексом конверт
+ * `{ version: "1.0.0", time: <ISO-8601> }`, а не `{ result: true }`: с чужим
+ * телом кабинет считает проверку неуспешной. Заказ без токена по-прежнему
+ * получает 403 — пропуск касается только запросов без номера заказа.
  */
 export const runtime = "nodejs";
 
 /** Уведомления меняют заказы, поэтому ответ нельзя кэшировать. */
 export const dynamic = "force-dynamic";
-
-/** UUID из `gen_random_uuid()`: любой другой текст токеном не считаем. */
-const WEBHOOK_TOKEN_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-
-/**
- * Сколько символов токена попадает в лог.
- *
- * Полный токен — это пароль от адреса вебхука: зная его, можно присылать
- * заказы. Восьми символов хватает, чтобы отличить «вставили другой адрес» от
- * «вставили этот же», и мало, чтобы токен подобрать.
- */
-const TOKEN_LOG_PREFIX_LENGTH = 8;
 
 /**
  * Сколько сохранённых токенов читаем для запасного сравнения.
@@ -156,6 +145,14 @@ function ok(): Response {
   return json({ result: true });
 }
 
+/**
+ * Ответ на проверку соединения — ровно тот конверт, который ждёт кабинет
+ * Яндекса. `version` фиксирован документацией, `time` — момент ответа в ISO.
+ */
+function pingOk(): Response {
+  return json({ version: "1.0.0", time: new Date().toISOString() });
+}
+
 /** Неизвестный или отсутствующий токен: заказ не создаём. */
 function forbidden(): Response {
   return json({ error: "unknown seller" }, 403);
@@ -177,9 +174,15 @@ function normalizeToken(token: string): string {
   return token.trim().toLowerCase();
 }
 
-/** Первые символы токена для лога: полный токен в лог не пишем. */
-function maskToken(token: string): string {
-  return normalizeToken(token).slice(0, TOKEN_LOG_PREFIX_LENGTH);
+/**
+ * Текст без BOM.
+ *
+ * JSON от площадки может начинаться с `\uFEFF`: `JSON.parse` на такой строке
+ * падает, и проверка `PING` не срабатывала бы — запрос уходил на проверку
+ * токена и получал 403. `trim()` BOM не удаляет.
+ */
+function stripBom(text: string): string {
+  return text.replace(/^\uFEFF/u, "");
 }
 
 /** Совпадают ли токены после нормализации; `null` — сохранённого токена нет. */
@@ -195,16 +198,12 @@ function isSameWebhookToken(
 /**
  * Токен вебхука из query-параметра.
  *
- * Принимаем только UUID: так отсекаются случайные ссылки и попытки передать
- * произвольный текст. Регистр приводим к нижнему — PostgREST сравнивает uuid
- * без учёта регистра, но в интерфейсе адрес всегда одинаковый.
+ * Формат заранее не проверяем: адрес мог быть скопирован с лишними символами,
+ * а колонка в старой базе может быть `text`, а не `uuid`. Решает сравнение с
+ * сохранённым значением после `.trim().toLowerCase()`.
  */
-function readWebhookToken(request: Request): string | null {
-  const token = normalizeToken(
-    new URL(request.url).searchParams.get("token") ?? "",
-  );
-
-  return WEBHOOK_TOKEN_PATTERN.test(token) ? token : null;
+function readWebhookToken(request: Request): string {
+  return new URL(request.url).searchParams.get("token") ?? "";
 }
 
 /** Тип события уведомления: `event` — поле Яндекса, остальные — запасные. */
@@ -217,11 +216,16 @@ function readEventType(body: JsonObject): string | null {
   );
 }
 
-/** Проверка соединения в JSON: `PING` или `TYPE_PING` в поле события. */
-function isPingEvent(body: JsonObject): boolean {
-  const eventType = readEventType(body)?.toUpperCase() ?? null;
+/** Проверка соединения: `PING` или `TYPE_PING` в значении типа события. */
+function isPingEventType(value: unknown): boolean {
+  const eventType = readText(value)?.toUpperCase() ?? "";
 
   return eventType === "PING" || eventType === "TYPE_PING";
+}
+
+/** Проверка соединения в JSON: тип события лежит в одном из четырёх полей. */
+function isPingEvent(body: JsonObject): boolean {
+  return isPingEventType(readEventType(body));
 }
 
 /** Тело проверки соединения без JSON: ровно `PING` или `TYPE_PING`. */
@@ -234,30 +238,40 @@ const PING_BODY_PATTERN = /^(?:type_)?ping$/iu;
  * такую проверку подтверждаем раньше токена. Признаки:
  *   - пустое тело — заказа в нём быть не может;
  *   - JSON с типом события `PING`/`TYPE_PING` (остальные поля не важны);
- *   - не-JSON тело, целиком равное `PING`/`TYPE_PING`.
+ *   - простое текстовое тело `PING`/`TYPE_PING`;
+ *   - форма `eventType=PING` (так проверку присылают некоторые клиенты).
  * Слово ping внутри JSON проверкой не считается: решение принимает только поле
  * события, иначе сломанный JSON заказа с товаром «Ping» вернул бы 200 и заказ
- * потерялся. По той же причине не-JSON тело сравнивается целиком, а не поиском
- * подстроки.
+ * потерялся. BOM в начале тела снимаем: иначе `JSON.parse` падает и `PING`
+ * уходил бы на проверку токена.
  */
-function isPingRequest(rawBody: string): boolean {
-  const text = rawBody.trim();
+function isPingRequest(bodyText: string): boolean {
+  const text = stripBom(bodyText).trim();
 
   if (!text) {
     return true;
   }
 
-  if (!text.startsWith("{") && !text.startsWith("[")) {
-    return PING_BODY_PATTERN.test(text);
+  if (PING_BODY_PATTERN.test(text)) {
+    return true;
   }
 
   try {
     const body: unknown = JSON.parse(text);
 
-    return isObject(body) ? isPingEvent(body) : PING_BODY_PATTERN.test(text);
+    return isObject(body) ? isPingEvent(body) : false;
   } catch {
-    return PING_BODY_PATTERN.test(text);
+    // Не JSON: возможно, проверка пришла формой — смотрим поля ниже.
   }
+
+  const form = new URLSearchParams(text);
+  const eventType =
+    form.get("eventType") ??
+    form.get("event") ??
+    form.get("type") ??
+    form.get("message_type");
+
+  return isPingEventType(eventType);
 }
 
 /** Код ошибки PostgREST/Supabase; у обычных Error его нет. */
@@ -301,6 +315,12 @@ async function findSellerByToken(
     .limit(2);
 
   if (error) {
+    // 22P02 — значение не приводится к uuid: колонка ещё uuid, а в адресе не
+    // UUID. Это не сбой базы, а просто чужой токен — сравниваем с сохранёнными.
+    if (readErrorCode(error) === "22P02") {
+      return findSellerByStoredToken(admin, normalized);
+    }
+
     throw error;
   }
 
@@ -383,60 +403,6 @@ async function readStoredToken(admin: Admin): Promise<string | null> {
 }
 
 /**
- * Лог несовпадения токена.
- *
- * Пишем только первые символы обоих токенов (см. `TOKEN_LOG_PREFIX_LENGTH`):
- * по логу видно, тот ли адрес вставлен в кабинете площадки, а сам токен в
- * логах не оседает. Ожидаемый токен читаем из настроек — он и есть эталон.
- *
- * `admin` передаётся, если клиент service_role уже создан: второй раз его
- * создавать незачем.
- */
-async function reportTokenMismatch(
-  received: string,
-  admin: Admin | null = null,
-): Promise<void> {
-  console.warn(`[Yandex] Получен токен: ${maskToken(received)}`);
-
-  let client: Admin;
-
-  try {
-    client = admin ?? createAdminClient();
-  } catch (error) {
-    console.warn(
-      "[Yandex] Ожидаемый токен: не удалось создать service_role-клиент —",
-      readErrorMessage(error),
-    );
-
-    return;
-  }
-
-  try {
-    const expected = await readStoredToken(client);
-
-    console.warn(
-      expected === null
-        ? "[Yandex] Ожидаемый токен: (в настройках нет сохранённого токена)"
-        : `[Yandex] Ожидаемый токен: ${maskToken(expected)}`,
-    );
-
-    if (isSameWebhookToken(received, expected)) {
-      // Сюда не попадаем при обычном поиске: он тоже сравнивает нормализованно.
-      // Строка нужна, если токен пришёл в неверном формате (не UUID), но
-      // совпадает с настройками посимвольно.
-      console.warn(
-        "[Yandex] Токен совпадает с настройками после нормализации, но не прошёл проверку формата UUID.",
-      );
-    }
-  } catch (error) {
-    console.warn(
-      "[Yandex] Ожидаемый токен: не удалось прочитать настройки —",
-      readErrorCode(error) ?? readErrorMessage(error),
-    );
-  }
-}
-
-/**
  * Поиск продавца с готовым ответом на любую ошибку.
  *
  * Отсутствие токена — это 403. Ошибка базы — 500, а неприменённая миграция —
@@ -461,7 +427,29 @@ async function resolveSeller(token: string): Promise<SellerLookup> {
     const userId = await findSellerByToken(admin, token);
 
     if (!userId) {
-      await reportTokenMismatch(token, admin);
+      let savedToken: string | null = null;
+
+      try {
+        savedToken = await readStoredToken(admin);
+      } catch (error) {
+        console.error(
+          "[Yandex] Не удалось прочитать сохранённый токен:",
+          readErrorCode(error) ?? readErrorMessage(error),
+        );
+      }
+
+      // Полные значения пишем намеренно: без них в логах Amvera видно только
+      // одинаковые префиксы и нельзя понять, какой именно адрес сохранён.
+      if (savedToken === null) {
+        console.error("[Yandex] Токен не найден в базе:", token);
+      } else {
+        console.error(
+          "[Yandex] Токен не совпал. Получен:",
+          token,
+          "Ожидался:",
+          savedToken,
+        );
+      }
 
       return { admin: null, userId: null, failure: forbidden() };
     }
@@ -790,42 +778,29 @@ async function handleOrder(token: string, body: JsonObject): Promise<Response> {
  * POST /api/webhooks/yandex?token=<uuid>.
  *
  * Порядок:
- *   1. проверка соединения (`PING`) подтверждается сразу, до токена и базы:
- *      иначе кабинет Яндекса не сохранит адрес;
- *   2. без корректного UUID в адресе отвечаем 403 до запросов в базу, а в лог
- *      пишем первые символы полученного и сохранённого токенов — так видно, тот
- *      ли адрес вставлен в кабинете;
- *   3. остальное — заказ из тела.
- *
- * Тело читаем текстом: в лог попадают длина и content-type, по ним видно, что
- * именно прислал Яндекс, а не просто «invalid json».
+ *   1. читаем тело текстом и сразу пишем в лог первые 500 символов — по нему
+ *      видно, что именно прислал Яндекс;
+ *   2. проверка соединения (`PING`) подтверждается до токена и базы: кабинет
+ *      сохраняет адрес только по ответу 2xx, а сам `PING` может прийти без
+ *      нашего токена. Ответ — `{ version, time }`, как требует документация;
+ *   3. для остальных запросов читаем `token` из query и ищем продавца;
+ *   4. тело заказа разбираем как JSON.
  */
 export async function POST(request: Request): Promise<Response> {
-  const rawBody = await request.text();
+  const bodyText = await request.text();
 
-  if (isPingRequest(rawBody)) {
-    console.log("[Yandex] Ping подтверждён.", {
-      hasToken: new URL(request.url).searchParams.has("token"),
-      contentType: request.headers.get("content-type"),
-    });
+  console.log("[Yandex] Входящий запрос. Body:", bodyText.slice(0, 500));
 
-    return ok();
+  if (isPingRequest(bodyText)) {
+    console.log("[Yandex] PING подтверждён");
+
+    return pingOk();
   }
 
   const token = readWebhookToken(request);
-  const rawToken = new URL(request.url).searchParams.get("token");
 
-  if (!token) {
-    console.warn("[Yandex] Запрос без корректного токена вебхука, отклонён.", {
-      hasToken: rawToken !== null,
-      contentType: request.headers.get("content-type"),
-    });
-
-    // Токен пришёл, но не UUID: пишем в лог, что именно пришло. Пустой
-    // параметр не логируем — это не «несовпадение», а запрос без токена.
-    if (rawToken !== null && rawToken.trim()) {
-      await reportTokenMismatch(rawToken);
-    }
+  if (!token.trim()) {
+    console.error("[Yandex] Токен не найден в базе:", token);
 
     return forbidden();
   }
@@ -833,11 +808,11 @@ export async function POST(request: Request): Promise<Response> {
   let body: unknown;
 
   try {
-    body = JSON.parse(rawBody);
+    body = JSON.parse(stripBom(bodyText).trim());
   } catch {
     console.warn("[Yandex] Тело запроса не JSON:", {
       contentType: request.headers.get("content-type"),
-      length: rawBody.length,
+      length: bodyText.length,
     });
 
     return json({ error: "invalid json" }, 400);
