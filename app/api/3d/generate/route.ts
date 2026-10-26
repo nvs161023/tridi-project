@@ -1,5 +1,5 @@
 import { deductCredit, getUserCredits } from "@/lib/credits";
-import { uploadImageToSupabase } from "@/lib/storage";
+import { uploadImageToSupabase, uploadModelToSupabase } from "@/lib/storage";
 import { createClient } from "@/lib/supabase/server";
 
 /** Buffer, multipart и Supabase Storage доступны только в Node.js. */
@@ -32,6 +32,12 @@ const DEFAULT_GEN_API_MODEL: GenApiModel = "trellis-2";
 
 /** Лимит фото: Trellis принимает изображения до 10 МБ. */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/** Лимит модели: столько же разрешает бакет `3d-models` в Supabase Storage. */
+const MAX_MODEL_BYTES = 50 * 1024 * 1024;
+
+/** Скачивание 15–50 МБ из облака Gen API: дольше ждать смысла нет. */
+const MODEL_DOWNLOAD_TIMEOUT_MS = 120_000;
 
 /** Форматы, которые принимает Gen API. */
 const SUPPORTED_IMAGE_TYPES = new Set([
@@ -280,6 +286,84 @@ function extractModelUrl(result: unknown): string | null {
   return urls.find((url) => /\.glb(\?|#|$)/i.test(url)) ?? urls[0] ?? null;
 }
 
+/**
+ * Переносит готовую модель из облака Gen API в наш Supabase Storage.
+ *
+ * Ссылки Gen API лежат в Yandex Cloud и могут истечь: пользователь скачал бы
+ * файл сегодня, а завтра получил 404. Поэтому GLB сразу скачивается и
+ * кладётся в бакет `3d-models`, а клиенту уходит наш постоянный адрес.
+ *
+ * Возвращает `null` при любой проблеме — сеть, размер, не тот файл, отказ
+ * Storage. Роут в этом случае отвечает 502 и кредит не списывает: без файла
+ * в нашем Storage результата у пользователя всё равно нет.
+ */
+async function storeModel(
+  sourceUrl: string,
+  requestId: string,
+): Promise<string | null> {
+  try {
+    const response = await fetch(sourceUrl, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(MODEL_DOWNLOAD_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      console.error(
+        "Gen API: модель не скачалась:",
+        response.status,
+        sourceUrl,
+      );
+
+      return null;
+    }
+
+    const declared = Number(response.headers.get("content-length"));
+
+    if (Number.isFinite(declared) && declared > MAX_MODEL_BYTES) {
+      console.error("Gen API: модель больше лимита Storage:", declared);
+
+      return null;
+    }
+
+    const bytes = Buffer.from(await response.arrayBuffer());
+
+    if (bytes.length === 0 || bytes.length > MAX_MODEL_BYTES) {
+      console.error("Gen API: пустая или слишком большая модель:", bytes.length);
+
+      return null;
+    }
+
+    // GLB начинается с `glTF`, текстовый glTF — с `{`. Любые другие первые
+    // байты значит, что по ссылке пришла страница ошибки, а не модель.
+    const head = bytes.subarray(0, 4).toString("latin1");
+    const isTextGltf = head.startsWith("{");
+
+    if (head !== "glTF" && !isTextGltf) {
+      console.error("Gen API: по ссылке не модель:", JSON.stringify(head));
+
+      return null;
+    }
+
+    const storedUrl = await uploadModelToSupabase(requestId, bytes, {
+      extension: isTextGltf ? "gltf" : "glb",
+      contentType: isTextGltf ? "model/gltf+json" : "model/gltf-binary",
+    });
+
+    console.info(
+      "[3d/generate] Модель сохранена:",
+      storedUrl,
+      bytes.length,
+      "байт",
+    );
+
+    return storedUrl;
+  } catch (error) {
+    console.error("Gen API: не удалось сохранить модель:", error);
+
+    return null;
+  }
+}
+
 /** Пауза между опросами статуса. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -297,10 +381,13 @@ function sleep(ms: number): Promise<void> {
  *   4. `getUserCredits()` — 0 кредитов дают 403, недоступный счётчик — 503;
  *   5. файл из multipart-поля `file`: формат и размер;
  *   6. загрузка в `workshop-temp` и запуск задачи в Gen API;
- *   7. опрос `GET /request/get/{request_id}` до `success` или `error`.
+ *   7. опрос `GET /request/get/{request_id}` до `success` или `error`;
+ *   8. скачивание модели в бакет `3d-models` — ссылки Gen API истекают;
+ *   9. списание кредита.
  *
- * Кредит списывается только после успеха: неудачная генерация и истёкшее
- * ожидание ничего не стоят пользователю. Ответ — `{ modelUrl, requestId }`.
+ * Кредит списывается только после того, как модель сохранена в нашем Storage:
+ * неудачная генерация, истёкшее ожидание и сбой скачивания ничего не стоят
+ * пользователю. Ответ — `{ modelUrl, requestId }`, где `modelUrl` постоянный.
  */
 export async function POST(request: Request): Promise<Response> {
   const apiKey = process.env.GEN_API_KEY?.trim();
@@ -527,9 +614,21 @@ export async function POST(request: Request): Promise<Response> {
         return errorResponse(502, "Gen API не вернул ссылку на модель.");
       }
 
-      // Кредит списываем только за готовую модель. Если списать не удалось,
-      // модель всё равно отдаём: генерация уже выполнена на стороне Gen API,
-      // и терять результат из-за счётчика нельзя.
+      // Ссылки Gen API живут в Yandex Cloud и могут истечь, поэтому сначала
+      // перекладываем модель в наш Storage. Не получилось — 502 без списания:
+      // скачивать пользователю нечего, хотя генерацию мы уже оплатили.
+      const storedUrl = await storeModel(modelUrl, requestId);
+
+      if (!storedUrl) {
+        return errorResponse(
+          502,
+          "Не удалось сохранить 3D-модель. Попробуйте позже.",
+        );
+      }
+
+      // Кредит списываем только за модель, которая уже лежит в нашем Storage.
+      // Если списать не удалось, модель всё равно отдаём: генерация уже
+      // выполнена, и терять результат из-за счётчика нельзя.
       const deducted = await deductCredit(user.id);
 
       if (!deducted) {
@@ -540,7 +639,7 @@ export async function POST(request: Request): Promise<Response> {
       }
 
       return Response.json(
-        { modelUrl, requestId },
+        { modelUrl: storedUrl, requestId },
         {
           status: 200,
           headers: {
