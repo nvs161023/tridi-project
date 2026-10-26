@@ -1350,8 +1350,12 @@
     max-width: 60ch;
   }
 
+  /*
+   * На планшете мокап уже показывает прогресс-блок и чек-лист: при 300 px
+   * низ списка обрезался, поэтому держим ту же высоту, что на десктопе.
+   */
   .pageWrapper .mockupBody {
-    height: 300px;
+    height: 340px;
   }
 
   .pageWrapper .finalCta {
@@ -2074,4 +2078,114 @@
     border-radius: 14px;
   }
 }
+
+/*
+ * Имитация интерфейса ученика в мокапе Hero: прогресс уровня и чек-лист
+ * задач урока. Блоки живут вместо видеоплеера (см. page.tsx).
+ */
+.pageWrapper .mockupProgressBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+}
+
+.pageWrapper .mockupProgressHeader {
+  display: flex;
+  justify-content: space-between;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.pageWrapper .mockupProgressPercent {
+  color: #3b82f6;
+  font-weight: 700;
+}
+
+.pageWrapper .mockupProgressBar {
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.pageWrapper .mockupProgressFill {
+  width: 25%;
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  border-radius: 3px;
+}
+
+.pageWrapper .mockupTaskList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.pageWrapper .mockupTaskDone {
+  color: #10b981;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Активная задача — «пилюля» с синей полоской слева, как в реальном курсе. */
+.pageWrapper .mockupTaskActive {
+  padding: 6px 10px;
+  color: #3b82f6;
+  font-size: 14px;
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.1);
+  border-left: 2px solid #3b82f6;
+  border-radius: 8px;
+}
+
+.pageWrapper .mockupTaskPending {
+  color: #64748b;
+  font-size: 14px;
+}
+
+/*
+ * Телефон: мокап компактный, поэтому прогресс-блок и чек-лист поджимаем,
+ * чтобы всё уместилось без обрезки по нижней границе.
+ */
+@media (max-width: 768px) {
+  .pageWrapper .mockupProgressBlock {
+    gap: 6px;
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-radius: 10px;
+  }
+
+  .pageWrapper .mockupProgressHeader {
+    font-size: 12px;
+  }
+
+  .pageWrapper .mockupProgressBar {
+    height: 5px;
+  }
+
+  .pageWrapper .mockupTaskList {
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .pageWrapper .mockupTaskDone,
+  .pageWrapper .mockupTaskActive,
+  .pageWrapper .mockupTaskPending {
+    font-size: 12.5px;
+    line-height: 1.35;
+  }
+
+  .pageWrapper .mockupTaskActive {
+    padding: 5px 8px;
+  }
+}
+
 
