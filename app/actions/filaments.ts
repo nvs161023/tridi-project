@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import type {
   ConsumeFilamentFormState,
+  DeleteFilamentResult,
   FilamentFormState,
 } from "@/app/actions/filaments-state";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
@@ -13,6 +14,7 @@ import {
   createImportedFilamentDraft,
   formatGrams,
   IMPORTED_FILAMENTS_MAX,
+  isFilamentId,
   readConsumeFilamentForm,
   readFilamentForm,
   readFilamentUsageType,
@@ -31,6 +33,7 @@ const MIGRATION_MISSING =
   "Склад пока не сохраняется: в базе нет таблицы workshop_filaments. Примените миграцию supabase/workshop_filaments.sql.";
 const ADD_FAILED = "Не удалось добавить катушку. Попробуйте ещё раз.";
 const CONSUME_FAILED = "Не удалось списать пластик. Попробуйте ещё раз.";
+const DELETE_FAILED = "Не удалось удалить катушку. Попробуйте ещё раз.";
 const LOAD_FAILED = "Не удалось прочитать катушку. Попробуйте ещё раз.";
 const NOT_FOUND = "Катушка не найдена — возможно, её уже удалили. Обновите страницу.";
 const IMPORT_EMPTY = "Нет распознанных материалов для сохранения.";
@@ -284,4 +287,65 @@ export async function consumeFilament(
     success: true,
     message: `Списали ${formatGrams(grams)}. Осталось ${formatGrams(nextRemaining)}.`,
   };
+}
+
+/**
+ * Удаление катушки со склада.
+ *
+ * Катушку убирают, когда она закончилась или больше не нужна. Порядок проверок
+ * как у остальных действий склада: UUID → сессия → подписка → удаление с
+ * фильтром по `id` и `user_id`. Второй фильтр не формальность: политика RLS
+ * `workshop_filaments_delete_own` уже проверяет владельца, а запрос повторяет
+ * условие — чужую катушку нельзя удалить даже зная её id.
+ *
+ * `select("id")` возвращает удалённую строку: пустой ответ означает, что
+ * катушку уже убрали в другой вкладке, — тогда показываем понятный текст, а не
+ * «успех». Заказы не трогаем: ссылка на катушку в заказе хранится как UUID, и
+ * удаление складской строки не меняет историю заказов.
+ */
+export async function deleteFilament(
+  filamentId: string,
+): Promise<DeleteFilamentResult> {
+  if (!isFilamentId(filamentId)) {
+    return { error: NOT_FOUND };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { error: PRO_REQUIRED };
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_filaments")
+    .delete()
+    .eq("id", filamentId)
+    .eq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Катушка не удалена:", error.code, error.message);
+
+    return {
+      error: isMissingTableSchema(error.code, error.message)
+        ? MIGRATION_MISSING
+        : DELETE_FAILED,
+    };
+  }
+
+  if (!data) {
+    return { error: NOT_FOUND };
+  }
+
+  revalidatePath("/dashboard/workshop");
+
+  return { ok: true };
 }

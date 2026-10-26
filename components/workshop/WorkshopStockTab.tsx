@@ -1,12 +1,17 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import { deleteFilament } from "@/app/actions/filaments";
 import { AddFilamentDialog } from "@/components/workshop/AddFilamentDialog";
 import { ConsumeFilamentDialog } from "@/components/workshop/ConsumeFilamentDialog";
 import { ImportStockFromPhotoDialog } from "@/components/workshop/ImportStockFromPhotoDialog";
 import { OrderFilamentsDialog } from "@/components/workshop/OrderFilamentsDialog";
-import { SpecificationIcon } from "@/components/workshop/WorkshopIcons";
+import {
+  SpecificationIcon,
+  TrashIcon,
+} from "@/components/workshop/WorkshopIcons";
 import {
   filamentRemainingPercent,
   formatGrams,
@@ -49,17 +54,35 @@ function needsPurchase(filament: WorkshopFilament): boolean {
   return filament.usageType === "stock" && isLowStockFilament(filament);
 }
 
+/**
+ * Название катушки для подтверждения и `aria-label`: «Бренд Тип Цвет».
+ *
+ * Поля в базе обязательные, но старые строки могли сохраниться с пробелами,
+ * поэтому пустые куски отбрасываются, как в окне добавления.
+ */
+function filamentLabel(filament: WorkshopFilament): string {
+  const parts = [filament.brand, filament.type, filament.color]
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" ") : "Без названия";
+}
+
 export function WorkshopStockTab({
   filaments,
   isMissingTable,
 }: WorkshopStockTabProps) {
+  const router = useRouter();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isOrderOpen, setIsOrderOpen] = useState(false);
   const [consumeTarget, setConsumeTarget] = useState<WorkshopFilament | null>(
     null,
   );
+  /** Катушка, которая удаляется: её корзина выключена до ответа сервера. */
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const addTriggerRef = useRef<HTMLButtonElement>(null);
   const importTriggerRef = useRef<HTMLButtonElement>(null);
   const orderTriggerRef = useRef<HTMLButtonElement>(null);
@@ -79,6 +102,7 @@ export function WorkshopStockTab({
 
   const openAdd = useCallback(() => {
     setStatus(null);
+    setError(null);
     setIsAddOpen(true);
   }, []);
 
@@ -89,6 +113,7 @@ export function WorkshopStockTab({
 
   const openImport = useCallback(() => {
     setStatus(null);
+    setError(null);
     setIsImportOpen(true);
   }, []);
 
@@ -99,6 +124,7 @@ export function WorkshopStockTab({
 
   const openOrder = useCallback(() => {
     setStatus(null);
+    setError(null);
     setIsOrderOpen(true);
   }, []);
 
@@ -111,6 +137,7 @@ export function WorkshopStockTab({
     (filament: WorkshopFilament, trigger: HTMLButtonElement) => {
       consumeTriggerRef.current = trigger;
       setStatus(null);
+      setError(null);
       setConsumeTarget(filament);
     },
     [],
@@ -120,6 +147,52 @@ export function WorkshopStockTab({
     setConsumeTarget(null);
     consumeTriggerRef.current?.focus();
   }, []);
+
+  /**
+   * Удаление катушки.
+   *
+   * Подтверждение обязательно: действие необратимо, а вернуть катушку неоткуда.
+   * Пока сервер отвечает, корзина выключена (`deletingId`), а после успеха
+   * `router.refresh()` перечитывает склад — удалённой строки в нём уже нет.
+   * Ошибку показываем красной плашкой над таблицей.
+   */
+  const removeFilament = useCallback(
+    async (filament: WorkshopFilament) => {
+      if (deletingId !== null) {
+        return;
+      }
+
+      const label = filamentLabel(filament);
+      const confirmed = window.confirm(
+        `Удалить катушку «${label}» из склада? Это действие нельзя отменить.`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setStatus(null);
+      setError(null);
+      setDeletingId(filament.id);
+
+      try {
+        const result = await deleteFilament(filament.id);
+
+        if ("error" in result) {
+          setError(result.error);
+          return;
+        }
+
+        setStatus(`Катушка «${label}» удалена.`);
+        router.refresh();
+      } catch {
+        setError("Нет связи с сервером. Попробуйте ещё раз.");
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [deletingId, router],
+  );
 
   return (
     <section
@@ -190,6 +263,16 @@ export function WorkshopStockTab({
         {status}
       </p>
 
+      {error ? (
+        <p
+          role="alert"
+          className="mb-3 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+        >
+          <span aria-hidden>⚠️ </span>
+          {error}
+        </p>
+      ) : null}
+
       {filaments.length === 0 ? (
         <EmptyStock onAdd={openAdd} />
       ) : (
@@ -204,8 +287,18 @@ export function WorkshopStockTab({
             ) : null}
           </p>
 
-          <StockTable filaments={filaments} onConsume={openConsume} />
-          <StockCards filaments={filaments} onConsume={openConsume} />
+          <StockTable
+            filaments={filaments}
+            onConsume={openConsume}
+            onDelete={removeFilament}
+            deletingId={deletingId}
+          />
+          <StockCards
+            filaments={filaments}
+            onConsume={openConsume}
+            onDelete={removeFilament}
+            deletingId={deletingId}
+          />
         </>
       )}
 
@@ -236,9 +329,13 @@ export function WorkshopStockTab({
 function StockTable({
   filaments,
   onConsume,
+  onDelete,
+  deletingId,
 }: {
   filaments: WorkshopFilament[];
   onConsume: (filament: WorkshopFilament, trigger: HTMLButtonElement) => void;
+  onDelete: (filament: WorkshopFilament) => void;
+  deletingId: string | null;
 }) {
   return (
     <div
@@ -320,8 +417,15 @@ function StockTable({
                 <td className="px-3 py-4">
                   <PurchaseLink filament={filament} isLow={needsRestock} />
                 </td>
-                <td className="px-3 py-4 text-right">
-                  <ConsumeButton filament={filament} onOpen={onConsume} />
+                <td className="px-3 py-4">
+                  <div className="flex items-center justify-end gap-2">
+                    <ConsumeButton filament={filament} onOpen={onConsume} />
+                    <DeleteButton
+                      filament={filament}
+                      isDeleting={deletingId === filament.id}
+                      onDelete={onDelete}
+                    />
+                  </div>
                 </td>
               </tr>
             );
@@ -337,9 +441,13 @@ function StockTable({
 function StockCards({
   filaments,
   onConsume,
+  onDelete,
+  deletingId,
 }: {
   filaments: WorkshopFilament[];
   onConsume: (filament: WorkshopFilament, trigger: HTMLButtonElement) => void;
+  onDelete: (filament: WorkshopFilament) => void;
+  deletingId: string | null;
 }) {
   return (
     <ul className="mt-4 grid gap-3 md:hidden">
@@ -396,6 +504,13 @@ function StockCards({
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <PurchaseLink filament={filament} isLow={needsRestock} />
               <ConsumeButton filament={filament} onOpen={onConsume} />
+              <span className="ml-auto">
+                <DeleteButton
+                  filament={filament}
+                  isDeleting={deletingId === filament.id}
+                  onDelete={onDelete}
+                />
+              </span>
             </div>
           </li>
         );
@@ -562,6 +677,41 @@ function ConsumeButton({
       className="inline-flex min-h-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-3.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-40"
     >
       Списать
+    </button>
+  );
+}
+
+/**
+ * Корзина катушки: маленькая красная кнопка рядом со «Списать» в таблице и в
+ * правом нижнем углу мобильной карточки.
+ *
+ * Подтверждение спрашивает обработчик на вкладке: текст с названием катушки и
+ * предупреждением «Это действие нельзя отменить». Пока идёт запрос, кнопка
+ * выключается (`disabled` и `aria-busy`), поэтому второй раз нажать её нельзя.
+ */
+function DeleteButton({
+  filament,
+  isDeleting,
+  onDelete,
+}: {
+  filament: WorkshopFilament;
+  isDeleting: boolean;
+  onDelete: (filament: WorkshopFilament) => void;
+}) {
+  const label = filamentLabel(filament);
+
+  return (
+    <button
+      type="button"
+      data-stock-delete={filament.id}
+      disabled={isDeleting}
+      aria-busy={isDeleting}
+      aria-label={`Удалить катушку: ${label}`}
+      title={isDeleting ? "Удаляем…" : "Удалить катушку"}
+      onClick={() => onDelete(filament)}
+      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-wait disabled:opacity-60"
+    >
+      <TrashIcon className="h-4 w-4" />
     </button>
   );
 }

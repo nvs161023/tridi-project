@@ -107,15 +107,15 @@ create policy "workshop_filaments_update_own" on public.workshop_filaments
   with check (auth.uid() = user_id);
 
 -- Удаление разрешено только своих строк: пустую или ошибочно добавленную
--- катушку нужно уметь убрать. В интерфейсе кнопки пока нет — пластик
--- списывается до нуля, а удаление появится вместе с архивом в следующих этапах.
+-- катушку нужно уметь убрать. Корзина на вкладке «Склад» вызывает Server Action
+-- deleteFilament, а тот дополнительно фильтрует запрос по user_id.
 drop policy if exists "workshop_filaments_delete_own" on public.workshop_filaments;
 create policy "workshop_filaments_delete_own" on public.workshop_filaments
   for delete to authenticated using (auth.uid() = user_id);
 
 -- Гранты: Supabase выдаёт их автоматически, но явный grant делает миграцию
--- самодостаточной на чистой базе. Катушки удаляются вместе с аккаунтом
--- (on delete cascade), поэтому delete нужен только для ручной уборки.
+-- самодостаточной на чистой базе. delete нужен корзине на вкладке «Склад»;
+-- кроме того, катушки уходят вместе с аккаунтом (on delete cascade).
 revoke all on public.workshop_filaments from anon, authenticated;
 grant select, insert, update, delete on public.workshop_filaments to authenticated;
 grant all on public.workshop_filaments to service_role;

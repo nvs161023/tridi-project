@@ -29,5 +29,14 @@ export type ConsumeFilamentFormState = {
   message?: string;
 };
 
+/**
+ * Ответ удаления катушки.
+ *
+ * Удаление вызывается из обычного обработчика клика, а не из `useActionState`,
+ * поэтому состояние формы здесь не нужно: достаточно «получилось» или текст
+ * ошибки для красной плашки на вкладке.
+ */
+export type DeleteFilamentResult = { ok: true } | { error: string };
+
 export const emptyFilamentFormState: FilamentFormState = {};
 export const emptyConsumeFilamentFormState: ConsumeFilamentFormState = {};
