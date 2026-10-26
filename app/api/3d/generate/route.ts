@@ -30,9 +30,6 @@ type GenApiModel = keyof typeof GEN_API_MODELS;
 /** Модель по умолчанию: Trellis 2 собирает 3D по одному фото. */
 const DEFAULT_GEN_API_MODEL: GenApiModel = "trellis-2";
 
-/** Разрешение текстуры, которое просим у Trellis 2. */
-const TEXTURE_SIZE = 512;
-
 /** Лимит фото: Trellis принимает изображения до 10 МБ. */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -50,7 +47,7 @@ const GEN_API_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 3_000;
 
 /** Сколько всего ждём результат: дольше роут не живёт. */
-const POLL_BUDGET_MS = 240_000;
+const POLL_BUDGET_MS = 270_000;
 
 /** Предел вложенности при поиске ссылки в ответе Gen API. */
 const MAX_URL_DEPTH = 5;
@@ -154,27 +151,19 @@ function readModel(): GenApiModel | null {
 /**
  * Тело запроса на генерацию.
  *
- * `trellis-2` принимает одно фото ссылкой в `image_url` и размер текстуры,
- * `tripo-3d` — массив ссылок в `image_urls` и не знает `texture_size`. Общее
- * поле — `callback_url`: результат забираем опросом, вебхук не нужен.
+ * Кроме поля с фото ничего не отправляем: `callback_url` Gen API принимает
+ * только валидным URL (на `null` отвечает «Недопустимый callback URL»), а
+ * `texture_size` — лишь из своего списка значений (на 512 отвечает «Значение
+ * поля texture size некорректно»). Результат забираем опросом, вебхук не нужен,
+ * а качество остаётся серверским по умолчанию (`texture_size: 2048`).
  */
 function buildRequestBody(
   model: GenApiModel,
   imageUrl: string,
-  imageField: string,
 ): Record<string, unknown> {
-  const body: Record<string, unknown> =
-    imageField === "image_urls"
-      ? { image_urls: [imageUrl] }
-      : { image_url: imageUrl };
-
-  if (model === "trellis-2") {
-    body.texture_size = TEXTURE_SIZE;
-  }
-
-  body.callback_url = null;
-
-  return body;
+  return GEN_API_MODELS[model] === "image_urls"
+    ? { image_urls: [imageUrl] }
+    : { image_url: imageUrl };
 }
 
 /**
@@ -334,8 +323,6 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const imageField = GEN_API_MODELS[model];
-
   const supabase = await createClient();
   const {
     data: { user },
@@ -420,7 +407,7 @@ export async function POST(request: Request): Promise<Response> {
           authorization: `Bearer ${apiKey}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify(buildRequestBody(model, imageUrl, imageField)),
+        body: JSON.stringify(buildRequestBody(model, imageUrl)),
         cache: "no-store",
         signal: AbortSignal.timeout(GEN_API_TIMEOUT_MS),
       },
