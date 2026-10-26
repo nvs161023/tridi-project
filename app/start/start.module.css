@@ -1785,6 +1785,14 @@
 }
 
 /*
+ * На трёх колонках пара small-карточек стоит справа от крупной (2×2).
+ * Последняя карточка растягивается на два столбца и закрывает нижний ряд.
+ */
+.pageWrapper .bentoGrid > .bentoItemSmall:last-child {
+  grid-column: span 2;
+}
+
+/*
  * Телефон: одна колонка. Каркасные спаны и компенсацию last-child сбрасываем
  * в 1×1, иначе span 2 создал бы неявную вторую колонку.
  */
@@ -1796,6 +1804,7 @@
 
   .pageWrapper .bentoItemLarge,
   .pageWrapper .bentoItemSmall,
+  .pageWrapper .bentoGrid > .bentoItemSmall:last-child,
   .pageWrapper
     .bentoGrid
     > .bentoCard:last-child:not(.bentoItemLarge):not(.bentoItemSmall) {
