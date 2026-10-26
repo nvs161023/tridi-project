@@ -1,41 +1,67 @@
 /*
- * Стили лендинга /start — перенос отдельного style.css из вёрстки CodePen.
+ * Стили лендинга /start — премиальный SaaS/EdTech 2026.
  *
  * Лендинг живёт внутри общего сайта, поэтому все правила ограничены обёрткой
  * .pageWrapper: глобальные body и * из исходного файла применены к обёртке и её
  * потомкам. Так стили страницы не могут задеть шапку, футер и другие экраны.
  *
- * Что изменено по сравнению с исходником:
- *   • :root → .pageWrapper — переменные видны только внутри лендинга и не
- *     перекрывают переменные сайта (--accent, --text-muted и т.п.);
- *   • body { overflow-x: hidden } → overflow-x: clip, потому что hidden на
- *     предке создаёт scroll-контейнер и ломает position: sticky у шапки
- *     лендинга и мобильной CTA;
- *   • добавлены min-height: 100vh и isolation: isolate, чтобы тёмный фон
- *     закрывал экран целиком и отрицательные z-index не уходили под сайт.
+ * Фон сайта (body.site-background) остаётся видимым: у обёртки прозрачный фон,
+ * а собственные aurora-слои лежат под контентом через z-index: -1 и
+ * isolation: isolate. overflow-x: clip (а не hidden) не ломает position: sticky
+ * у шапки и мобильной CTA.
  */
 
 .pageWrapper {
-  --bg-color: #050505;
-  --card-bg: rgba(255, 255, 255, 0.02);
-  --border-color: rgba(255, 255, 255, 0.07);
+  --bg-color: #05060a;
+  --surface: rgba(255, 255, 255, 0.03);
+  --surface-strong: rgba(255, 255, 255, 0.06);
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.16);
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
   --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --danger: #ef4444;
+  --accent-soft: #60a5fa;
+  --violet: #8b5cf6;
+  --gold: #d8b56a;
+  --section-padding: 120px;
 
-  box-sizing: border-box;
+  position: relative;
   min-height: 100vh;
-  background-color: var(--bg-color);
+  background-color: transparent;
   color: var(--text-main);
   font-family:
-    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
   line-height: 1.6;
   overflow-x: clip;
   padding-bottom: 70px;
   -webkit-font-smoothing: antialiased;
   isolation: isolate;
+}
+
+/* Aurora-слои: синий сверху слева, фиолетовый справа и голубой снизу. */
+.pageWrapper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      900px 620px at 12% 2%,
+      rgba(59, 130, 246, 0.1),
+      transparent 66%
+    ),
+    radial-gradient(
+      760px 560px at 92% 16%,
+      rgba(139, 92, 246, 0.09),
+      transparent 68%
+    ),
+    radial-gradient(
+      900px 620px at 50% 98%,
+      rgba(37, 99, 235, 0.07),
+      transparent 70%
+    );
 }
 
 .pageWrapper *,
@@ -47,59 +73,71 @@
 }
 
 .pageWrapper .container {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 0 24px;
   position: relative;
   z-index: 2;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/*
+ * Единый рецепт стеклянной поверхности: карточки, таймер, отзывы и FAQ
+ * используют один и тот же слой, поэтому прозрачность и блюр не разъезжаются.
+ */
+.pageWrapper .glassCard {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
 }
 
 /* Header */
 .pageWrapper .siteHeader {
-  background: rgba(5, 5, 5, 0.6);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--border-color);
   position: sticky;
   top: 0;
   z-index: 1000;
-  padding: 16px 0;
+  padding: 14px 0;
+  background: rgba(5, 6, 10, 0.62);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .pageWrapper .headerInner {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  gap: 20px;
 }
 
 .pageWrapper .logo {
-  font-size: 22px;
-  font-weight: 800;
   display: flex;
   align-items: center;
   gap: 8px;
-  letter-spacing: -0.5px;
   color: #fff;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  text-decoration: none;
 }
 
 /*
- * Логотип в шапке и подвале лендинга — картинка public/logo.svg, копия знака
- * из components/Logo.tsx. Высота 36 px в шапке и 32 px в подвале: рисунок
- * квадратный, поэтому ширина равна высоте и он не плывёт рядом с текстом
- * «TriDi». flex-shrink: 0 — чтобы на узком экране знак не сжимался.
+ * Логотип в шапке и подвале — картинка public/logo.svg, копия знака
+ * из components/Logo.tsx. Высота 36 px в шапке и 32 px в подвале.
+ * flex-shrink: 0 — чтобы на узком экране знак не сжимался.
  */
 .pageWrapper .logoImage {
   display: block;
+  flex-shrink: 0;
   width: 36px;
   height: 36px;
-  flex-shrink: 0;
 }
 
 /*
  * Название проекта рядом со знаком — тот же триколор, что на главной
  * (components/Logo.tsx): белое «tridi», синее «-print», серое «.ru».
- * Обёртка держит три части в одну строку и выравнивает их по базовой линии,
- * чтобы «.ru» не «прыгал» вверх при меньшем кегле.
  */
 .pageWrapper .logoText {
   display: inline-flex;
@@ -120,248 +158,330 @@
   letter-spacing: -0.5px;
 }
 
-/* Домен мельче основного слова — как в логотипе сайта. */
 .pageWrapper .logoTextGray {
+  margin-left: 2px;
   color: #94a3b8;
   font-size: 0.8em;
   font-weight: 600;
   letter-spacing: 0;
-  margin-left: 2px;
+}
+
+.pageWrapper .headerNav {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+.pageWrapper .headerNav a {
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.pageWrapper .headerNav a:hover {
+  color: #fff;
 }
 
 .pageWrapper .headerBtn {
+  flex-shrink: 0;
+  padding: 10px 20px;
   color: var(--text-main);
-  text-decoration: none;
   font-size: 14px;
   font-weight: 600;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border-color);
-  padding: 10px 20px;
-  border-radius: 10px;
-  transition: all 0.2s;
-  background: rgba(255, 255, 255, 0.03);
+  border-radius: 999px;
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease,
+    transform 0.25s ease;
 }
 
 .pageWrapper .headerBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-/* Top Bar & Timer */
-.pageWrapper .topBar {
-  background: rgba(239, 68, 68, 0.08);
-  border-bottom: 1px solid rgba(239, 68, 68, 0.15);
-  padding: 12px 0;
-  font-size: 15px;
-}
-
-.pageWrapper .topBarInner {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  color: #fca5a5;
-  font-weight: 500;
-}
-
-.pageWrapper .timer {
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  background: rgba(239, 68, 68, 0.15);
-  padding: 6px 14px;
-  border-radius: 8px;
-  color: #fff;
-  letter-spacing: 1.5px;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-/* Секции */
-.pageWrapper .section {
-  padding: 100px 0;
-  position: relative;
-}
-
-.pageWrapper .gridBg {
-  background: radial-gradient(
-    circle at 50% 50%,
-    rgba(59, 130, 246, 0.05),
-    transparent 70%
-  );
-}
-
-.pageWrapper .sectionTitle {
-  font-size: 40px;
-  font-weight: 800;
-  text-align: center;
-  margin-bottom: 16px;
-  letter-spacing: -1.5px;
-}
-
-.pageWrapper .sectionSubtitle {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 18px;
-  margin-bottom: 60px;
-}
-
-/* Сетки */
-.pageWrapper .grid2 {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 24px;
-}
-
-.pageWrapper .grid3 {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 24px;
-}
-
-.pageWrapper .card {
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 24px;
-  padding: 32px;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-}
-
-.pageWrapper .card:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-  transform: translateY(-4px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  background: rgba(59, 130, 246, 0.16);
+  border-color: rgba(96, 165, 250, 0.38);
+  transform: translateY(-1px);
 }
 
 /* Hero */
 .pageWrapper .hero {
-  padding: 80px 0 60px;
-  text-align: center;
   position: relative;
-  z-index: 2;
+  z-index: 1;
+  padding: 64px 0 120px;
+  text-align: center;
 }
 
-.pageWrapper .hero::before {
-  content: "";
+.pageWrapper .heroAurora {
   position: absolute;
-  top: -100px;
+  top: -180px;
   left: 50%;
-  transform: translateX(-50%);
-  width: 800px;
-  height: 800px;
-  background: radial-gradient(
-    circle,
-    rgba(59, 130, 246, 0.08) 0%,
-    transparent 60%
-  );
   z-index: -1;
+  width: min(1100px, 150%);
+  height: 720px;
+  transform: translateX(-50%);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(59, 130, 246, 0.18), transparent 62%),
+    radial-gradient(circle at 66% 56%, rgba(139, 92, 246, 0.14), transparent 60%);
+  filter: blur(70px);
   pointer-events: none;
 }
 
-.pageWrapper .badge {
-  display: inline-block;
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
-  padding: 8px 20px;
-  border-radius: 50px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  margin-bottom: 32px;
-  text-transform: uppercase;
+/*
+ * Таймер: вместо красной полосы — стеклянная пилюля. Текст белый, цифры
+ * синие, поэтому акцент читается, но не выглядит как «скидка на распродаже».
+ */
+.pageWrapper .timerCard {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  margin-bottom: 28px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  animation: riseIn 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-.pageWrapper .hero h1 {
-  font-size: clamp(40px, 6vw, 68px);
+.pageWrapper .timerDot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.16);
+  animation: timerPulse 2.4s ease-in-out infinite;
+}
+
+.pageWrapper .timerLabel {
+  color: #e2e8f0;
+}
+
+.pageWrapper .timerDigits {
+  display: inline-flex;
+  align-items: baseline;
+  color: var(--accent-soft);
+  font-size: 17px;
   font-weight: 800;
-  line-height: 1.1;
-  letter-spacing: -2px;
-  margin-bottom: 24px;
-  background: linear-gradient(180deg, #ffffff 0%, #a5b4fc 100%);
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+
+.pageWrapper .timerSeparator {
+  margin: 0 2px;
+  opacity: 0.55;
+}
+
+.pageWrapper .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 26px;
+  padding: 8px 18px;
+  color: #c7d2fe;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: linear-gradient(
+    90deg,
+    rgba(59, 130, 246, 0.16),
+    rgba(139, 92, 246, 0.16)
+  );
+  border: 1px solid rgba(165, 180, 252, 0.26);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  animation: riseIn 0.7s 0.05s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.pageWrapper .heroTitle {
+  max-width: 980px;
+  margin: 0 auto 24px;
+  color: #fff;
+  font-size: clamp(48px, 6vw, 72px);
+  font-weight: 800;
+  line-height: 1.03;
+  letter-spacing: -0.045em;
+  background: linear-gradient(180deg, #ffffff 12%, #a5b4fc 100%);
   -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-wrap: balance;
+  animation: riseIn 0.8s 0.1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.pageWrapper .heroTitleAccent {
+  display: block;
+  margin-top: 14px;
+  font-size: 0.48em;
+  font-weight: 600;
+  line-height: 1.22;
+  letter-spacing: -0.02em;
+  background: linear-gradient(90deg, #93c5fd, #c4b5fd);
+  -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
-.pageWrapper .textMuted {
-  color: var(--text-muted);
-  display: block;
-  font-size: 0.5em;
-  margin-top: 12px;
-  -webkit-text-fill-color: var(--text-muted);
-  letter-spacing: -0.5px;
-  font-weight: 600;
-}
-
-.pageWrapper .hero p {
-  font-size: 20px;
-  color: var(--text-muted);
-  max-width: 700px;
-  margin: 0 auto 48px;
+.pageWrapper .heroLead {
+  max-width: 680px;
+  margin: 0 auto 36px;
+  color: #a8b4c7;
+  font-size: clamp(17px, 2vw, 20px);
+  line-height: 1.65;
+  animation: riseIn 0.8s 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 .pageWrapper .ctaGroup {
-  margin-bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 24px;
+  animation: riseIn 0.8s 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-.pageWrapper .btn {
-  display: inline-block;
-  padding: 20px 48px;
-  border-radius: 16px;
-  font-weight: 800;
-  font-size: 20px;
-  text-decoration: none;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
-  border: none;
-}
-
+/* Основная CTA: градиент синий → фиолетовый и мягкое свечение на hover. */
 .pageWrapper .btnPrimary {
-  background: #ffffff;
-  color: #050505;
-  box-shadow: 0 0 30px rgba(255, 255, 255, 0.1);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px 40px;
+  overflow: hidden;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  text-decoration: none;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  border: none;
+  border-radius: 999px;
+  box-shadow:
+    0 14px 34px rgba(59, 130, 246, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition:
+    transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.25s ease,
+    filter 0.25s ease;
+  cursor: pointer;
+}
+
+.pageWrapper .btnPrimary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    120deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.22) 50%,
+    transparent 80%
+  );
+  transform: translateX(-120%);
+  transition: transform 0.6s ease;
 }
 
 .pageWrapper .btnPrimary:hover {
-  transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 0 40px rgba(255, 255, 255, 0.2);
+  transform: scale(1.02);
+  box-shadow:
+    0 0 30px rgba(59, 130, 246, 0.5),
+    0 18px 44px rgba(139, 92, 246, 0.32);
+  filter: brightness(1.06);
 }
 
-.pageWrapper .subtext {
-  font-size: 14px;
-  color: #64748b;
-  margin-top: 16px;
+.pageWrapper .btnPrimary:hover::after {
+  transform: translateX(120%);
+}
+
+.pageWrapper .ctaSecondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 32px;
+  color: #dbeafe;
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  backdrop-filter: blur(12px);
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease,
+    transform 0.25s ease;
+}
+
+.pageWrapper .ctaSecondary:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(96, 165, 250, 0.34);
+  transform: translateY(-2px);
+}
+
+.pageWrapper .heroTrust {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 24px;
+  margin-top: 8px;
+  color: #7f8ea3;
+  font-size: 13.5px;
   font-weight: 500;
+  animation: riseIn 0.8s 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-.pageWrapper .mt20 {
-  margin-top: 24px;
+.pageWrapper .heroTrust span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 
-/* Mockup (имитация интерфейса) */
-.pageWrapper .heroImageWrapper {
+.pageWrapper .heroTrust span::before {
+  content: "✓";
+  color: var(--accent-soft);
+  font-weight: 800;
+}
+
+/* Превью-мокап под hero */
+.pageWrapper .heroVisual {
   position: relative;
-  max-width: 900px;
-  margin: 0 auto 40px;
+  max-width: 920px;
+  margin: 56px auto 0;
 }
 
 .pageWrapper .mockup {
-  background: #0a0a0a;
-  border: 1px solid var(--border-color);
-  border-radius: 20px;
-  overflow: hidden;
-  box-shadow:
-    0 30px 60px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(255, 255, 255, 0.05);
   position: relative;
   z-index: 2;
+  overflow: hidden;
+  background: linear-gradient(180deg, #0c0d13, #07080c);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  box-shadow:
+    0 40px 80px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transform: perspective(1400px) rotateX(1.5deg);
+  transition: transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.pageWrapper .mockup:hover {
+  transform: perspective(1400px) rotateX(0deg) translateY(-4px);
 }
 
 .pageWrapper .mockupHeader {
-  background: #111;
-  padding: 14px 20px;
   display: flex;
-  gap: 10px;
   align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  background: rgba(255, 255, 255, 0.02);
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -369,49 +489,51 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #333;
+  background: #333844;
 }
 
 .pageWrapper .mockupTitle {
   margin-left: auto;
+  color: #7b8798;
   font-size: 12px;
-  color: #666;
   font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .pageWrapper .mockupBody {
   display: flex;
-  height: 320px;
+  height: 340px;
 }
 
 .pageWrapper .mockupSidebar {
-  width: 22%;
-  background: rgba(255, 255, 255, 0.01);
-  border-right: 1px solid var(--border-color);
-  padding: 24px 20px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  width: 22%;
+  padding: 26px 20px;
+  background: rgba(255, 255, 255, 0.01);
+  border-right: 1px solid var(--border-color);
 }
 
 .pageWrapper .sidebarItem {
+  width: 80%;
   height: 8px;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 4px;
-  width: 80%;
 }
 
 .pageWrapper .sidebarItem.active {
-  background: var(--accent);
   width: 100%;
+  background: var(--accent);
+  box-shadow: 0 0 14px rgba(59, 130, 246, 0.5);
 }
 
 .pageWrapper .mockupContent {
-  flex: 1;
-  padding: 30px;
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 14px;
+  padding: 30px;
 }
 
 .pageWrapper .mockupLine {
@@ -433,32 +555,30 @@
 }
 
 .pageWrapper .mockupVideoBox {
-  flex: 1;
-  background: rgba(59, 130, 246, 0.05);
-  border: 1px solid rgba(59, 130, 246, 0.1);
-  border-radius: 12px;
-  margin-top: 10px;
+  position: relative;
   display: flex;
+  flex: 1;
   align-items: center;
   justify-content: center;
-  position: relative;
+  margin-top: 10px;
   overflow: hidden;
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.12);
+  border-radius: 14px;
 }
 
 /*
  * Кадр урока лежит фоном блока: next/image с fill выставляет
- * position: absolute и inset: 0, остаётся задать кадрирование и прозрачность,
- * чтобы фото не «выжигало» тёмный интерфейс мокапа.
+ * position: absolute и inset: 0, остаётся задать кадрирование.
  */
 .pageWrapper .mockupVideoImage {
   object-fit: cover;
-  opacity: 0.9;
+  opacity: 0.92;
 }
 
 /*
  * Затемнение поверх кадра: сверху почти прозрачное, к низу плотнее — фото
  * сливается с тёмным интерфейсом, а иконка Play остаётся читаемой.
- * z-index 2 — над картинкой, но под иконкой (у неё 10).
  */
 .pageWrapper .mockupVideoBox::after {
   content: "";
@@ -468,337 +588,853 @@
   pointer-events: none;
   background: linear-gradient(
     180deg,
-    rgba(0, 0, 0, 0.05) 0%,
-    rgba(0, 0, 0, 0.35) 55%,
-    rgba(0, 0, 0, 0.65) 100%
+    rgba(0, 0, 0, 0.02) 0%,
+    rgba(0, 0, 0, 0.32) 55%,
+    rgba(0, 0, 0, 0.66) 100%
   );
 }
 
 .pageWrapper .playIcon {
-  color: #fff;
-  font-size: 24px;
-  width: 60px;
-  height: 60px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 50%;
+  position: relative;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 64px;
+  height: 64px;
+  color: #fff;
+  font-size: 22px;
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.9),
+    rgba(139, 92, 246, 0.9)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 10px rgba(255, 255, 255, 0.04),
+    0 12px 30px rgba(59, 130, 246, 0.35);
   backdrop-filter: blur(8px);
-  position: relative;
-  z-index: 10;
-  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+/*
+ * Мягкое свечение вокруг превью: радиальный синий градиент и blur(80px),
+ * чтобы мокап «парил» над авророй.
+ */
 .pageWrapper .glowCenter {
   position: absolute;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%);
-  width: 80%;
-  height: 80%;
-  background: var(--accent);
-  filter: blur(100px);
-  opacity: 0.1;
   z-index: 1;
+  width: 78%;
+  height: 78%;
+  background: radial-gradient(
+    circle,
+    rgba(59, 130, 246, 0.2),
+    transparent 70%
+  );
+  filter: blur(80px);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
-/* Боли */
-.pageWrapper .painCard .icon {
-  font-size: 36px;
-  margin-bottom: 20px;
-  display: inline-block;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
+/* Секции */
+.pageWrapper .section {
+  position: relative;
+  z-index: 1;
+  padding: var(--section-padding) 0;
 }
 
-.pageWrapper .painCard h3 {
-  font-size: 22px;
-  margin-bottom: 12px;
-  color: #fff;
+.pageWrapper section[id] {
+  scroll-margin-top: 96px;
+}
+
+.pageWrapper .eyebrow {
+  margin-bottom: 14px;
+  color: #93c5fd;
+  font-size: 13px;
   font-weight: 700;
+  letter-spacing: 0.16em;
+  text-align: center;
+  text-transform: uppercase;
 }
 
-.pageWrapper .painCard p {
+.pageWrapper .sectionTitle {
+  margin-bottom: 16px;
+  color: #fff;
+  font-size: clamp(32px, 4vw, 48px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+  text-align: center;
+  text-wrap: balance;
+  background: linear-gradient(180deg, #ffffff, #a5b4fc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.pageWrapper .sectionSubtitle {
+  max-width: 620px;
+  margin: 0 auto 56px;
   color: var(--text-muted);
-  font-size: 16px;
-  line-height: 1.5;
+  font-size: 17px;
+  line-height: 1.65;
+  text-align: center;
+}
+
+/* Bento Grid болей */
+.pageWrapper .bentoGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.pageWrapper .bentoCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  grid-column: span 1;
+  padding: 30px 24px;
+  overflow: hidden;
+  text-align: left;
+  transition:
+    transform 0.3s cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+}
+
+.pageWrapper .bentoCard:hover {
+  border-color: rgba(96, 165, 250, 0.24);
+  box-shadow:
+    0 32px 64px rgba(0, 0, 0, 0.62),
+    0 0 32px rgba(59, 130, 246, 0.12);
+  transform: translateY(-6px);
+}
+
+.pageWrapper .bentoCardWide {
+  grid-column: span 2;
+  padding: 36px;
+  background: linear-gradient(
+    150deg,
+    rgba(59, 130, 246, 0.16),
+    rgba(139, 92, 246, 0.08) 48%,
+    rgba(255, 255, 255, 0.03)
+  );
+}
+
+.pageWrapper .bentoLabel {
+  align-self: flex-start;
+  padding: 5px 12px;
+  color: #bfdbfe;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: rgba(59, 130, 246, 0.16);
+  border: 1px solid rgba(96, 165, 250, 0.25);
+  border-radius: 999px;
+}
+
+.pageWrapper .painIcon {
+  display: grid;
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  font-size: 26px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+}
+
+.pageWrapper .bentoCardWide .painIcon {
+  width: 92px;
+  height: 92px;
+  margin: 4px 0 6px;
+  font-size: 46px;
+  background: linear-gradient(
+    145deg,
+    rgba(59, 130, 246, 0.24),
+    rgba(139, 92, 246, 0.18)
+  );
+  border-radius: 26px;
+  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.18);
+}
+
+.pageWrapper .bentoCard h3 {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+
+.pageWrapper .bentoCardWide h3 {
+  font-size: clamp(24px, 3vw, 32px);
+  letter-spacing: -0.03em;
+}
+
+.pageWrapper .bentoCard p {
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.pageWrapper .bentoCardWide p {
+  max-width: 46ch;
+  font-size: 16.5px;
 }
 
 .pageWrapper .conclusion {
-  text-align: center;
-  font-size: 28px;
+  margin-top: 48px;
+  font-size: clamp(22px, 3vw, 30px);
   font-weight: 800;
-  margin-top: 60px;
-  color: #fff;
-  letter-spacing: -0.5px;
+  line-height: 1.3;
+  letter-spacing: -0.03em;
+  text-align: center;
+  background: linear-gradient(90deg, #e0e7ff, #a5b4fc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-/* Программа курса */
-.pageWrapper .curriculumList {
-  max-width: 800px;
-  margin: 0 auto;
+.pageWrapper .painSection {
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(255, 255, 255, 0.012),
+    transparent
+  );
+}
+
+.pageWrapper .programSection {
+  position: relative;
+}
+
+.pageWrapper .programSection::before {
+  content: "";
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  z-index: -1;
+  width: min(760px, 90%);
+  height: 520px;
+  background: radial-gradient(
+    circle,
+    rgba(139, 92, 246, 0.1),
+    transparent 70%
+  );
+  filter: blur(80px);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* Таймлайн программы */
+.pageWrapper .timeline {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0;
+  list-style: none;
 }
 
-.pageWrapper .curriculumItem {
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 20px 28px;
-  display: flex;
-  align-items: center;
+/*
+ * Вертикальная линия проходит через центр маркеров: маркер 64 px,
+ * значит центр на 32 px от левого края списка.
+ */
+.pageWrapper .timeline::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 31px;
+  width: 2px;
+  background: linear-gradient(
+    180deg,
+    rgba(59, 130, 246, 0.6),
+    rgba(139, 92, 246, 0.35) 55%,
+    transparent
+  );
+}
+
+.pageWrapper .timelineItem {
+  position: relative;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
   gap: 24px;
-  font-weight: 600;
-  font-size: 17px;
-  transition: all 0.2s;
+  align-items: start;
 }
 
-.pageWrapper .curriculumItem:hover {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.12);
-  transform: translateX(4px);
+.pageWrapper .timelineMarker {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  background: linear-gradient(
+    145deg,
+    rgba(59, 130, 246, 0.24),
+    rgba(139, 92, 246, 0.16)
+  );
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  border-radius: 20px;
+  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.18);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.pageWrapper .curriculumItem span {
-  color: var(--accent);
+.pageWrapper .timelineNumber {
+  color: #dbeafe;
+  font-size: 15px;
   font-weight: 800;
-  font-size: 20px;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.6;
+  letter-spacing: 0.04em;
+}
+
+.pageWrapper .lessonCard {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  padding: 26px 28px;
+  text-align: left;
+  transition:
+    transform 0.3s cubic-bezier(0.2, 0.7, 0.2, 1),
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.pageWrapper .lessonCard:hover {
+  border-color: rgba(96, 165, 250, 0.24);
+  box-shadow:
+    0 26px 50px rgba(0, 0, 0, 0.55),
+    0 0 28px rgba(59, 130, 246, 0.1);
+  transform: translateX(6px);
+}
+
+.pageWrapper .lessonIcon {
+  display: grid;
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  font-size: 24px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+}
+
+.pageWrapper .lessonBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pageWrapper .lessonTitle {
+  color: #fff;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+
+.pageWrapper .lessonText {
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1.6;
 }
 
 /* Отзывы */
+.pageWrapper .reviewsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
 .pageWrapper .reviewCard {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 30px 26px;
+  text-align: left;
+  transition:
+    transform 0.3s cubic-bezier(0.2, 0.7, 0.2, 1),
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.pageWrapper .reviewCard:hover {
+  border-color: rgba(96, 165, 250, 0.22);
+  box-shadow:
+    0 30px 60px rgba(0, 0, 0, 0.6),
+    0 0 28px rgba(59, 130, 246, 0.1);
+  transform: translateY(-6px);
 }
 
 .pageWrapper .stars {
-  color: #fbbf24;
-  font-size: 18px;
-  letter-spacing: 3px;
-}
-
-.pageWrapper .reviewCard p {
-  font-style: italic;
-  color: #cbd5e1;
-  font-size: 16px;
-  flex-grow: 1;
-  line-height: 1.6;
-}
-
-.pageWrapper .author {
-  font-weight: 700;
-  color: var(--accent);
+  color: var(--gold);
   font-size: 15px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  letter-spacing: 0.18em;
 }
 
-.pageWrapper .author::before {
-  content: "";
-  display: block;
-  width: 24px;
-  height: 1px;
-  background: var(--accent);
-  opacity: 0.5;
-}
-
-/* FAQ */
-.pageWrapper .faqGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-  gap: 24px;
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-.pageWrapper .faqCard h4 {
-  font-size: 20px;
-  margin-bottom: 12px;
-  color: #fff;
-  font-weight: 700;
-}
-
-.pageWrapper .faqCard p {
-  color: var(--text-muted);
-  font-size: 16px;
-}
-
-/* Почему бесплатно */
-.pageWrapper .whyFree {
-  background: linear-gradient(
-    180deg,
-    rgba(59, 130, 246, 0.03) 0%,
-    transparent 100%
-  );
-  border-top: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.pageWrapper .textCenter {
-  text-align: center;
-}
-
-.pageWrapper .maxW700 {
-  max-width: 700px;
-  margin: 0 auto;
-  color: var(--text-muted);
-  font-size: 18px;
+.pageWrapper .reviewText {
+  flex: 1;
+  color: #cbd5e1;
+  font-size: 15.5px;
   line-height: 1.7;
 }
 
-/*
- * Превью сертификата: обёртка держит рамку, скругление и тень, а картинка
- * заполняет её по ширине (height: auto сохраняет пропорции 911×643).
- * На hover масштабируется именно обёртка, поэтому тень и скругление едут
- * вместе с картинкой, а overflow: hidden не даёт углам вылезти за рамку.
- */
-.pageWrapper .certificateWrapper {
-  max-width: 800px;
-  margin: 0 auto;
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-  transition: transform 0.3s ease;
-}
-
-.pageWrapper .certificateWrapper:hover {
-  transform: scale(1.02);
-}
-
-.pageWrapper .certificateImage {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
-/* Финальный CTA */
-.pageWrapper .finalCta {
-  text-align: center;
-  padding: 120px 0;
-  background: radial-gradient(
-    circle at 50% 100%,
-    rgba(59, 130, 246, 0.1),
-    transparent 60%
-  );
-  border-top: 1px solid var(--border-color);
-}
-
-.pageWrapper .finalCta h2 {
-  font-size: 48px;
-  margin-bottom: 20px;
-  font-weight: 800;
-  letter-spacing: -2px;
-}
-
-.pageWrapper .finalCta p {
-  color: var(--text-muted);
-  margin-bottom: 40px;
-  font-size: 20px;
-}
-
-/* Footer */
-.pageWrapper .siteFooter {
-  border-top: 1px solid var(--border-color);
-  padding: 50px 0;
-  background: #050505;
-}
-
-.pageWrapper .footerContent {
-  text-align: center;
-  color: #64748b;
-  font-size: 14px;
+.pageWrapper .reviewAuthor {
   display: flex;
-  flex-direction: column;
   gap: 12px;
   align-items: center;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.pageWrapper .footerContent .logo {
+.pageWrapper .avatar {
+  display: grid;
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  place-items: center;
   color: #fff;
-  font-size: 20px;
-  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.85),
+    rgba(139, 92, 246, 0.85)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
 }
 
-/* В подвале знак чуть меньше, чем в шапке: подпись там тоже мельче. */
-.pageWrapper .footerContent .logoImage {
-  width: 32px;
-  height: 32px;
+.pageWrapper .reviewAuthor > div {
+  display: flex;
+  flex-direction: column;
 }
 
-/* Sticky CTA для мобильных */
-.pageWrapper .mobileStickyCta {
-  display: none;
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: rgba(10, 10, 10, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid var(--border-color);
-  padding: 16px 24px;
-  /*
-   * В исходнике было z-index: 1000. Опускаем до 40: на телефоне внизу экрана
-   * живёт баннер согласия на cookie (у него z-50), и кнопки «Принять» должны
-   * оставаться доступными. После согласия баннер исчезает — CTA видна целиком.
-   */
-  z-index: 40;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
-}
-
-.pageWrapper .stickyText {
+.pageWrapper .authorName {
   color: #fff;
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
 }
 
-.pageWrapper .mobileStickyCta .btn {
-  padding: 14px 32px;
-  font-size: 16px;
-  border-radius: 12px;
+.pageWrapper .authorRole {
+  color: #7f8ea3;
+  font-size: 12.5px;
+}
+
+/* Блок «почему бесплатно»: крупная стеклянная карточка со статистикой */
+.pageWrapper .whyFreeCard {
+  position: relative;
+  padding: clamp(32px, 5vw, 64px);
+  overflow: hidden;
+  text-align: center;
+  background: linear-gradient(
+    140deg,
+    rgba(59, 130, 246, 0.14),
+    rgba(139, 92, 246, 0.08) 50%,
+    rgba(255, 255, 255, 0.03)
+  );
+}
+
+.pageWrapper .whyFreeCard::before {
+  content: "";
+  position: absolute;
+  top: -40%;
+  left: 50%;
+  width: 640px;
+  height: 480px;
+  background: radial-gradient(
+    circle,
+    rgba(59, 130, 246, 0.16),
+    transparent 70%
+  );
+  filter: blur(60px);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.pageWrapper .whyFreeCard .sectionTitle {
+  margin-bottom: 18px;
+}
+
+.pageWrapper .whyFreeText {
+  position: relative;
+  max-width: 680px;
+  margin: 0 auto 40px;
+  color: #a8b4c7;
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.pageWrapper .whyFreeStats {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.pageWrapper .whyFreeStat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 22px 12px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 18px;
+}
+
+.pageWrapper .whyFreeStat strong {
+  font-size: clamp(28px, 4vw, 42px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  background: linear-gradient(90deg, #93c5fd, #c4b5fd);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.pageWrapper .whyFreeStat span {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Сертификат: лёгкий 3D-наклон при наведении */
+.pageWrapper .certificateWrapper {
+  position: relative;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 14px;
+  overflow: hidden;
+  transition:
+    transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 0.5s ease,
+    border-color 0.5s ease;
+}
+
+.pageWrapper .certificateWrapper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    600px 300px at 50% 0%,
+    rgba(59, 130, 246, 0.14),
+    transparent 70%
+  );
+}
+
+.pageWrapper .certificateWrapper:hover {
+  border-color: rgba(96, 165, 250, 0.26);
+  box-shadow:
+    0 40px 80px rgba(0, 0, 0, 0.65),
+    0 0 40px rgba(59, 130, 246, 0.16);
+  transform: perspective(1000px) rotateY(5deg) translateY(-4px);
+}
+
+.pageWrapper .certificateImage {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+}
+
+/* FAQ */
+.pageWrapper .faqList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.pageWrapper .faqItem {
+  overflow: hidden;
+  border-radius: 18px;
+  transition:
+    border-color 0.3s ease,
+    background 0.3s ease;
+}
+
+.pageWrapper .faqItemOpen {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(96, 165, 250, 0.32);
+}
+
+.pageWrapper .faqHeading {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.pageWrapper .faqQuestion {
+  display: flex;
+  width: 100%;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 26px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.pageWrapper .faqQuestion:hover {
+  color: #bfdbfe;
+}
+
+.pageWrapper .faqIcon {
+  display: grid;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: var(--accent-soft);
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.24);
+  border-radius: 50%;
+  transition:
+    transform 0.3s ease,
+    background 0.3s ease;
+}
+
+.pageWrapper .faqItemOpen .faqIcon {
+  background: rgba(59, 130, 246, 0.25);
+  transform: rotate(45deg);
+}
+
+/*
+ * Аккордеон на grid-template-rows: 0fr → 1fr. Контент остаётся в DOM
+ * (важно для SEO и скринридеров), но обрезается обёрткой с overflow: hidden.
+ */
+.pageWrapper .faqAnswer {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s ease;
+}
+
+.pageWrapper .faqAnswerOpen {
+  grid-template-rows: 1fr;
+}
+
+.pageWrapper .faqAnswerInner {
+  overflow: hidden;
+}
+
+.pageWrapper .faqAnswerInner p {
+  padding: 0 26px 24px;
+  color: var(--text-muted);
+  font-size: 15.5px;
+  line-height: 1.7;
+}
+
+/* Финальный призыв */
+.pageWrapper .ctaButton {
+  padding: 20px 44px;
+}
+
+.pageWrapper .ctaButtonLarge {
+  min-width: min(320px, 100%);
+}
+
+.pageWrapper .finalCta {
+  position: relative;
+  z-index: 1;
+  padding: 110px 0;
+  overflow: hidden;
+  text-align: center;
+  background: linear-gradient(
+    180deg,
+    rgba(59, 130, 246, 0.07),
+    rgba(139, 92, 246, 0.05) 60%,
+    transparent
+  );
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pageWrapper .finalCtaGlow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 0;
+  width: min(900px, 130%);
+  height: 560px;
+  background: radial-gradient(
+    circle,
+    rgba(59, 130, 246, 0.3),
+    rgba(139, 92, 246, 0.16) 45%,
+    transparent 72%
+  );
+  filter: blur(90px);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.pageWrapper .finalCtaTitle {
+  margin-bottom: 16px;
+  color: #fff;
+  font-size: clamp(34px, 5vw, 60px);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+  background: linear-gradient(180deg, #ffffff, #bfc9ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.pageWrapper .finalCtaLead {
+  max-width: 560px;
+  margin: 0 auto 34px;
+  color: #a8b4c7;
+  font-size: clamp(16px, 2vw, 19px);
+  line-height: 1.6;
+}
+
+.pageWrapper .subtext {
+  margin-top: 18px;
+  color: #6b7a90;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Подвал */
+.pageWrapper .siteFooter {
+  position: relative;
+  z-index: 1;
+  padding: 40px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pageWrapper .footerContent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  text-align: center;
+}
+
+.pageWrapper .footerContent .logo {
+  margin-bottom: 4px;
+  font-size: 20px;
+}
+
+.pageWrapper .footerContent p {
+  color: #6b7a90;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/*
+ * Липкая CTA для телефонов: показывается только в медиазапросе ≤768px.
+ * Снизу оставляем место, чтобы панель не перекрывала подвал.
+ */
+.pageWrapper .mobileStickyCta {
+  display: none;
 }
 
 /* Анимации */
-@keyframes pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.3);
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
   }
-  70% {
-    box-shadow: 0 0 0 20px rgba(255, 255, 255, 0);
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
+}
+
+@keyframes timerPulse {
+  0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+    opacity: 1;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
+  }
+
+  50% {
+    opacity: 0.65;
+    box-shadow: 0 0 0 7px rgba(59, 130, 246, 0.05);
   }
 }
 
-.pageWrapper .pulse {
-  animation: pulse 2.5s infinite;
+/* Уважаем настройку «уменьшить движение»: отключаем анимации и hover-сдвиги. */
+@media (prefers-reduced-motion: reduce) {
+  .pageWrapper *,
+  .pageWrapper *::before,
+  .pageWrapper *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
-/* Мобильная адаптация */
+/* Планшет: прячем навигацию, bento перестраиваем в две колонки. */
+@media (max-width: 1024px) {
+  .pageWrapper {
+    --section-padding: 96px;
+  }
+
+  .pageWrapper .headerNav {
+    display: none;
+  }
+
+  .pageWrapper .bentoGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pageWrapper .bentoCardWide,
+  .pageWrapper .bentoCard:last-child {
+    grid-column: span 2;
+  }
+
+  .pageWrapper .bentoCard:last-child p {
+    max-width: 60ch;
+  }
+
+  .pageWrapper .mockupBody {
+    height: 300px;
+  }
+
+  .pageWrapper .finalCta {
+    padding: 96px 0;
+  }
+}
+
+/* Телефон: одна колонка, крупные тап-зоны, липкая CTA. */
 @media (max-width: 768px) {
-  /*
-   * Шапка на телефоне: «tridi-print.ru» шире прежнего «TriDi», поэтому знак
-   * и кегль уменьшены, домен скрыт (как `hidden md:inline` в Logo.tsx),
-   * а кнопка входа стала компактнее. Текст остаётся в одну строку.
-   */
+  .pageWrapper {
+    --section-padding: 80px;
+    padding-bottom: 104px;
+  }
+
+  .pageWrapper .container {
+    padding: 0 18px;
+  }
+
   .pageWrapper .logo {
-    font-size: 18px;
     gap: 6px;
-    flex-shrink: 0;
-    white-space: nowrap;
+    font-size: 18px;
   }
 
   .pageWrapper .logoImage {
@@ -806,56 +1442,92 @@
     height: 30px;
   }
 
-  .pageWrapper .logoTextGray {
-    display: none;
-  }
-
-  .pageWrapper .headerInner {
-    gap: 10px;
-    /*
-     * Отступы строки шапки чуть меньше общих 24 px от `.container`: так
-     * «tridi-print» и кнопка входа помещаются в одну строку на 360 px.
-     * Секции лендинга отступы не меняют.
-     */
-    padding-inline: 18px;
-  }
-
   .pageWrapper .headerBtn {
-    font-size: 13px;
     padding: 9px 14px;
-    white-space: nowrap;
+    font-size: 12.5px;
   }
 
   .pageWrapper .hero {
-    padding-top: 50px;
+    padding: 40px 0 72px;
   }
 
-  .pageWrapper .hero h1 {
-    font-size: 36px;
-    letter-spacing: -1px;
+  .pageWrapper .timerCard {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px 10px;
+    padding: 12px 18px;
+    font-size: 12.5px;
+    text-align: center;
+    border-radius: 20px;
   }
 
-  .pageWrapper .hero p {
-    font-size: 17px;
+  .pageWrapper .timerDigits {
+    font-size: 15px;
   }
 
-  .pageWrapper .section {
-    padding: 60px 0;
+  .pageWrapper .badge {
+    padding: 7px 14px;
+    font-size: 11px;
   }
 
-  .pageWrapper .sectionTitle {
-    font-size: 28px;
+  .pageWrapper .heroTitle {
+    font-size: clamp(38px, 11vw, 52px);
+    letter-spacing: -0.035em;
   }
 
-  .pageWrapper .btn {
+  .pageWrapper .heroTitleAccent {
+    margin-top: 10px;
+    font-size: 0.52em;
+  }
+
+  .pageWrapper .heroLead {
+    margin-bottom: 28px;
+    font-size: 16px;
+  }
+
+  .pageWrapper .ctaGroup {
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+    margin-bottom: 20px;
+  }
+
+  .pageWrapper .btnPrimary,
+  .pageWrapper .ctaSecondary {
     width: 100%;
-    display: block;
-    padding: 18px 24px;
-    font-size: 18px;
   }
 
-  .pageWrapper .conclusion {
-    font-size: 22px;
+  .pageWrapper .btnPrimary {
+    padding: 17px 24px;
+    font-size: 16px;
+  }
+
+  .pageWrapper .ctaButton {
+    padding: 19px 24px;
+  }
+
+  .pageWrapper .ctaSecondary {
+    padding: 16px 24px;
+    font-size: 15px;
+  }
+
+  .pageWrapper .heroTrust {
+    flex-direction: column;
+    gap: 8px;
+    font-size: 12.5px;
+  }
+
+  .pageWrapper .heroVisual {
+    margin-top: 36px;
+  }
+
+  .pageWrapper .mockup {
+    border-radius: 18px;
+    transform: none;
+  }
+
+  .pageWrapper .mockup:hover {
+    transform: none;
   }
 
   .pageWrapper .mockupBody {
@@ -867,101 +1539,183 @@
   }
 
   .pageWrapper .mockupContent {
-    padding: 20px;
+    gap: 10px;
+    padding: 18px;
   }
 
-  .pageWrapper .topBarInner {
-    font-size: 13px;
+  .pageWrapper .playIcon {
+    width: 52px;
+    height: 52px;
+    font-size: 18px;
+  }
+
+  .pageWrapper .sectionSubtitle {
+    margin-bottom: 36px;
+    font-size: 15.5px;
+  }
+
+  .pageWrapper .bentoGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .pageWrapper .bentoCard,
+  .pageWrapper .bentoCardWide,
+  .pageWrapper .bentoCard:last-child {
+    grid-column: span 1;
+    padding: 24px 20px;
+  }
+
+  .pageWrapper .bentoCardWide .painIcon {
+    width: 72px;
+    height: 72px;
+    font-size: 36px;
+    border-radius: 22px;
+  }
+
+  .pageWrapper .bentoCardWide h3 {
+    font-size: 24px;
+  }
+
+  .pageWrapper .conclusion {
+    margin-top: 36px;
+    font-size: 20px;
+  }
+
+  .pageWrapper .timeline {
+    gap: 16px;
+  }
+
+  .pageWrapper .timeline::before {
+    left: 21px;
+  }
+
+  .pageWrapper .timelineItem {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .pageWrapper .timelineMarker {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .pageWrapper .timelineNumber {
+    font-size: 12px;
+  }
+
+  .pageWrapper .lessonCard {
     flex-direction: column;
-    gap: 6px;
+    gap: 12px;
+    padding: 20px 18px;
   }
 
-  .pageWrapper .faqGrid {
-    grid-template-columns: 1fr;
+  .pageWrapper .lessonCard:hover {
+    transform: translateY(-4px);
   }
 
-  /*
-   * Превью сертификата на телефоне занимает всю ширину .container — своих
-   * 24 px отступа хватает, дополнительный padding не нужен. Hover-увеличение
-   * отключено: на тач-экране :hover «залипает» после тапа, и картинка выезжает
-   * за края экрана.
-   */
+  .pageWrapper .lessonIcon {
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+    border-radius: 14px;
+  }
+
+  .pageWrapper .lessonTitle {
+    font-size: 17px;
+  }
+
+  .pageWrapper .lessonText {
+    font-size: 14px;
+  }
+
+  .pageWrapper .reviewsGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .pageWrapper .reviewCard {
+    padding: 24px 20px;
+  }
+
+  .pageWrapper .whyFreeStats {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .pageWrapper .whyFreeText {
+    margin-bottom: 28px;
+    font-size: 15.5px;
+  }
+
+  .pageWrapper .certificateWrapper {
+    padding: 8px;
+    border-radius: 18px;
+  }
+
   .pageWrapper .certificateWrapper:hover {
     transform: none;
   }
 
-  .pageWrapper .finalCta h2 {
-    font-size: 32px;
+  .pageWrapper .faqQuestion {
+    gap: 12px;
+    padding: 18px;
+    font-size: 15.5px;
+  }
+
+  .pageWrapper .faqAnswerInner p {
+    padding: 0 18px 20px;
+    font-size: 14.5px;
   }
 
   .pageWrapper .finalCta {
     padding: 80px 0;
   }
 
-  .pageWrapper .mobileStickyCta {
-    display: flex;
+  .pageWrapper .finalCtaLead {
+    margin-bottom: 28px;
   }
 
-  .pageWrapper .curriculumItem {
-    font-size: 15px;
-    padding: 16px 20px;
-    gap: 16px;
-  }
-
-  .pageWrapper .curriculumItem span {
-    font-size: 16px;
-  }
-
-  .pageWrapper .card {
-    padding: 24px;
-  }
-
-  .pageWrapper .painCard h3 {
-    font-size: 20px;
+  .pageWrapper .ctaButtonLarge {
+    width: 100%;
+    min-width: 0;
   }
 
   .pageWrapper .siteFooter {
-    padding-bottom: 100px;
-  }
-}
-
-/*
- * Очень узкие экраны (320–400 px): ещё один шаг вниз, чтобы логотип
- * и кнопка «Войти / Регистрация» не сталкивались в одной строке.
- */
-@media (max-width: 400px) {
-  .pageWrapper .logo {
-    font-size: 16px;
-    gap: 5px;
+    padding: 32px 0;
   }
 
-  .pageWrapper .logoImage {
-    width: 26px;
-    height: 26px;
+  .pageWrapper .mobileStickyCta {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    z-index: 1100;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px 10px 18px;
+    background: rgba(10, 12, 18, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
   }
 
-  .pageWrapper .headerInner {
-    gap: 8px;
-    padding-inline: 14px;
+  .pageWrapper .stickyText {
+    color: #cbd5e1;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
   }
 
-  .pageWrapper .headerBtn {
-    font-size: 12px;
-    padding: 8px 10px;
+  .pageWrapper .stickyBtn {
+    flex-shrink: 0;
+    padding: 12px 22px;
+    font-size: 14px;
   }
-}
-
-/*
- * Общий футер сайта с юридическими документами рендерится в app/layout.tsx
- * сразу после children, то есть соседним элементом обёртки лендинга. На /start
- * есть собственный подвал, поэтому сайтовый здесь скрыт.
- *
- * Селектор работает только там, где существует .pageWrapper, — на остальных
- * страницах футер остаётся на месте. Если в корневом layout появится лишняя
- * обёртка вокруг children, правило перестанет срабатывать: тогда футер нужно
- * прятать через класс на <body> либо через :has(.pageWrapper).
- */
-.pageWrapper ~ footer {
-  display: none;
 }
 

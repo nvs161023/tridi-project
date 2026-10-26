@@ -9,9 +9,9 @@ import styles from "./start.module.css";
 /**
  * Лендинг бесплатного уровня «Новичок» на /start.
  *
- * Вёрстка и тексты перенесены из отдельного index.html без правок контента:
- * классы из style.css стали локальными классами CSS-модуля, а ссылки на
- * регистрацию — внутренними ссылками next/link.
+ * Оформление переработано под премиальный SaaS/EdTech: bento-сетка болей,
+ * стеклянные карточки, aurora-градиенты, вертикальный таймлайн программы
+ * и аккордеон FAQ.
  *
  * Таймер — перенос script.js: дедлайн на 24 часа хранится в localStorage,
  * поэтому перезагрузка страницы отсчёт не сбрасывает. До гидратации значение
@@ -53,9 +53,7 @@ function splitTimeLeft(timeLeftMs: number) {
  * Название проекта для шапки и подвала лендинга.
  *
  * Разметка повторяет логотип главной страницы (`components/Logo.tsx`):
- * белое «tridi», синее «-print» и серое «.ru» мельче остальных. Стили —
- * в `start.module.css` (`.logoText*`), поэтому цвета и кегль можно менять
- * в одном месте. Текст не переносится: на узком экране `.ru` скрывается.
+ * белое «tridi», синее «-print» и серое «.ru» мельче остальных.
  */
 function BrandName() {
   return (
@@ -67,8 +65,163 @@ function BrandName() {
   );
 }
 
+type PainPoint = {
+  icon: string;
+  title: string;
+  text: string;
+  label?: string;
+};
+
+/** Четыре боли новичка: первая — главная и занимает широкую ячейку bento. */
+const PAIN_POINTS: PainPoint[] = [
+  {
+    icon: "🖨️",
+    label: "Главная боль",
+    title: "Принтер стоит без дела",
+    text: "Купили оборудование, а что с ним делать — непонятно. Страшно сломать сопло, испортить пластик или потратить выходные на настройки.",
+  },
+  {
+    icon: "🌀",
+    title: "Деталь отваливается",
+    text: "Первый слой не прилипает, модель отклеивается на десятом слое, а почему — непонятно.",
+  },
+  {
+    icon: "🧩",
+    title: "Сотни настроек",
+    text: "Открываете слайсер, а там десятки непонятных параметров. Что менять — неизвестно.",
+  },
+  {
+    icon: "💸",
+    title: "Не знаю себестоимость",
+    text: "Как посчитать, сколько стоит напечатать деталь и не уйти в минус?",
+  },
+];
+
+type Lesson = {
+  number: string;
+  icon: string;
+  title: string;
+  text: string;
+};
+
+/** Программа бесплатного уровня: номер, иконка, название и короткое описание. */
+const LESSONS: Lesson[] = [
+  {
+    number: "01",
+    icon: "🚀",
+    title: "Первый запуск без страха сломать принтер",
+    text: "Собираем принтер, выставляем стол и делаем безопасный тестовый запуск.",
+  },
+  {
+    number: "02",
+    icon: "🖥️",
+    title: "Что такое слайсер и как его готовить",
+    text: "Разбираем Cura и PrusaSlicer: профили, температуры и первый G-code.",
+  },
+  {
+    number: "03",
+    icon: "🧲",
+    title: "Идеальный первый слой: секреты адгезии",
+    text: "Настраиваем зазор сопла и подбираем адгезию, чтобы деталь держалась до конца.",
+  },
+  {
+    number: "04",
+    icon: "🕸️",
+    title: "Как избавиться от «соплей» и паутины",
+    text: "Находим причину стрингинга и лечим её ретрактом, температурой и скоростью.",
+  },
+  {
+    number: "05",
+    icon: "🧱",
+    title: "Прочность деталей: слои и заполнение",
+    text: "Выбираем толщину стенок и заполнение под нагрузку, а не «на глаз».",
+  },
+  {
+    number: "06",
+    icon: "📐",
+    title: "Основы 3D-моделирования для печати",
+    text: "Готовим модель к печати: допуски, ориентация и поддержки.",
+  },
+  {
+    number: "07",
+    icon: "🔍",
+    title: "Диагностика дефектов: почему всё пошло не так",
+    text: "Смотрим на дефект и по чек-листу находим настройку, которая его вызывает.",
+  },
+  {
+    number: "08",
+    icon: "🏆",
+    title: "Финальный проект: печатаем крутую деталь",
+    text: "Собираем все навыки и печатаем финальную деталь для портфолио.",
+  },
+];
+
+type Review = {
+  initials: string;
+  name: string;
+  role: string;
+  text: string;
+};
+
+/** Отзывы: инициалы — заглушка аватара, имени и роли хватает для доверия. */
+const REVIEWS: Review[] = [
+  {
+    initials: "ДМ",
+    name: "Дмитрий",
+    role: "новичок",
+    text: "Купил Ender 3, месяц стоял. Прошёл 3 урока — наконец-то настроил стол и напечатал нормальную вазу!",
+  },
+  {
+    initials: "АС",
+    name: "Анна",
+    role: "дизайнер",
+    text: "Очень круто, что все схемы нарисованы. Не надо читать тонну текста, просто смотришь и делаешь.",
+  },
+  {
+    initials: "МК",
+    name: "Максим",
+    role: "инженер",
+    text: "Наконец-то понял, что такое ретракт. Спасибо за практику и понятные чек-листы!",
+  },
+];
+
+type FaqItem = {
+  question: string;
+  answer: string;
+};
+
+/** Вопросы собраны из старых карточек FAQ и дополнены вопросом о сертификате. */
+const FAQ_ITEMS: FaqItem[] = [
+  {
+    question: "Это правда бесплатно?",
+    answer:
+      "Да, первый уровень «Новичок» полностью бесплатен. Мы хотим, чтобы вы убедились в качестве нашего продукта перед покупкой платных курсов.",
+  },
+  {
+    question: "У меня старый принтер, мне подойдёт?",
+    answer:
+      "Да. Курс универсален: мы учим основам, которые работают на любом FDM-принтере — Ender, Anycubic, Prusa и других.",
+  },
+  {
+    question: "Нужна ли карта для регистрации?",
+    answer:
+      "Нет. Для доступа к бесплатному курсу карта не нужна. Просто создайте аккаунт — доступ откроется сразу.",
+  },
+  {
+    question: "Сколько времени займёт обучение?",
+    answer:
+      "Курс рассчитан на 1–2 вечера. Уроки короткие, с практикой: вы сразу сможете напечатать свою первую деталь.",
+  },
+  {
+    question: "Что я получу после курса?",
+    answer:
+      "Готовую первую деталь, понятный чек-лист настройки печати и сертификат с QR-кодом, который можно показать заказчику или добавить в портфолио.",
+  },
+];
+
 export default function StartPage() {
   const [timeLeftMs, setTimeLeftMs] = useState<number | null>(null);
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(TIMER_STORAGE_KEY);
@@ -98,7 +251,7 @@ export default function StartPage() {
     <div className={styles.pageWrapper}>
       <header className={styles.siteHeader}>
         <div className={`${styles.container} ${styles.headerInner}`}>
-          <div className={styles.logo}>
+          <Link href="/" className={styles.logo} aria-label="TriDi — на главную">
             {/*
              * Знак проекта — тот же рисунок, что в шапке сайта
              * (components/Logo.tsx). В public/ лежит его копия logo.svg:
@@ -116,38 +269,71 @@ export default function StartPage() {
               width={36}
             />
             <BrandName />
-          </div>
+          </Link>
+
+          <nav className={styles.headerNav} aria-label="Разделы лендинга">
+            <a href="#program">Программа</a>
+            <a href="#reviews">Отзывы</a>
+            <a href="#faq">Вопросы</a>
+          </nav>
+
           <Link href={SIGN_UP_HREF} className={styles.headerBtn}>
-            Войти / Регистрация
+            Начать бесплатно
           </Link>
         </div>
       </header>
 
-      {/* Верхняя полоса с честным таймером */}
-      <div className={styles.topBar}>
-        <div className={`${styles.container} ${styles.topBarInner}`}>
-          <span>🔥 Бесплатный доступ закроется через:</span>
-          <div className={styles.timer}>
-            <span>{hours}</span>:<span>{minutes}</span>:<span>{seconds}</span>
-          </div>
-        </div>
-      </div>
-
       <section className={styles.hero}>
+        <div className={styles.heroAurora} aria-hidden="true" />
         <div className={styles.container}>
-          <div className={styles.badge}>🎁 Доступ к первому уровню открыт</div>
-          <h1>
-            Напечатай свою первую идеальную деталь.{" "}
-            <span className={styles.textMuted}>
+          <div className={`${styles.glassCard} ${styles.timerCard}`}>
+            <span className={styles.timerDot} aria-hidden="true" />
+            <span className={styles.timerLabel}>
+              Бесплатный доступ закроется через
+            </span>
+            <span className={styles.timerDigits}>
+              <span>{hours}</span>
+              <span className={styles.timerSeparator}>:</span>
+              <span>{minutes}</span>
+              <span className={styles.timerSeparator}>:</span>
+              <span>{seconds}</span>
+            </span>
+          </div>
+
+          <div className={styles.badge}>🎁 Первый уровень — бесплатно</div>
+
+          <h1 className={styles.heroTitle}>
+            Напечатай свою первую идеальную деталь.
+            <span className={styles.heroTitleAccent}>
               Даже если принтер пылится с прошлого года.
             </span>
           </h1>
-          <p>
+
+          <p className={styles.heroLead}>
             Бесплатный курс из 8 уроков. Без сломанных принтеров, слипшегося
             пластика и непонятных терминов. Практика с первого урока.
           </p>
 
-          <div className={styles.heroImageWrapper}>
+          <div className={styles.ctaGroup}>
+            <Link
+              href={SIGN_UP_HREF}
+              className={`${styles.btnPrimary} ${styles.ctaButton}`}
+            >
+              Начать бесплатно
+              <span aria-hidden="true">→</span>
+            </Link>
+            <a href="#program" className={styles.ctaSecondary}>
+              Смотреть программу
+            </a>
+          </div>
+
+          <div className={styles.heroTrust}>
+            <span>Без привязки карты</span>
+            <span>Доступ сразу после регистрации</span>
+            <span>8 уроков и 250+ схем</span>
+          </div>
+
+          <div className={styles.heroVisual}>
             <div className={styles.mockup}>
               <div className={styles.mockupHeader}>
                 <span />
@@ -170,10 +356,8 @@ export default function StartPage() {
                   <div className={styles.mockupVideoBox}>
                     {/*
                      * Кадр с печатью вместо пустой заглушки. fill растягивает
-                     * картинку на весь блок (позиционирование даёт next/image,
-                     * кадрирование — object-fit в .mockupVideoImage), sizes
-                     * повторяет реальную ширину блока: мокап не шире 900 px,
-                     * на телефоне — во всю ширину экрана.
+                     * картинку на весь блок, sizes повторяет реальную ширину
+                     * блока: мокап не шире 900 px, на телефоне — во всю ширину.
                      */}
                     <Image
                       alt="Процесс 3D-печати"
@@ -188,145 +372,139 @@ export default function StartPage() {
                 </div>
               </div>
             </div>
-            <div className={styles.glowCenter} />
-          </div>
-
-          <div className={styles.ctaGroup}>
-            <Link
-              href={SIGN_UP_HREF}
-              className={`${styles.btn} ${styles.btnPrimary} ${styles.pulse}`}
-            >
-              Начать бесплатно →
-            </Link>
-          </div>
-          <div className={styles.subtext}>
-            Без привязки карты. Доступ открывается сразу после регистрации.
+            <div className={styles.glowCenter} aria-hidden="true" />
           </div>
         </div>
       </section>
 
-      <section className={styles.section}>
+      <section className={`${styles.section} ${styles.painSection}`} id="pains">
         <div className={styles.container}>
+          <p className={styles.eyebrow}>С чего начинается порядок</p>
           <h2 className={styles.sectionTitle}>Знакомая ситуация?</h2>
-          <div className={styles.grid2}>
-            <div className={`${styles.card} ${styles.painCard}`}>
-              <div className={styles.icon}>🖨️</div>
-              <h3>Принтер стоит без дела</h3>
-              <p>
-                Купил оборудование, а что с ним делать — непонятно. Страшно
-                сломать или испортить сопло.
-              </p>
-            </div>
-            <div className={`${styles.card} ${styles.painCard}`}>
-              <div className={styles.icon}>🌀</div>
-              <h3>Деталь отваливается</h3>
-              <p>
-                Первый слой не прилипает, модель отклеивается на 10-м слое, а
-                почему — непонятно.
-              </p>
-            </div>
-            <div className={`${styles.card} ${styles.painCard}`}>
-              <div className={styles.icon}>🧩</div>
-              <h3>Сотни настроек</h3>
-              <p>
-                Открываешь слайсер, а там десятки непонятных параметров. Что
-                менять — неизвестно.
-              </p>
-            </div>
-            <div className={`${styles.card} ${styles.painCard}`}>
-              <div className={styles.icon}>💸</div>
-              <h3>Не знаю себестоимость</h3>
-              <p>
-                Как посчитать, сколько стоит напечатать деталь и не уйти в
-                минус?
-              </p>
-            </div>
+          <p className={styles.sectionSubtitle}>
+            Если хотя бы один пункт про вас — дальше можно не собирать советы
+            по форумам.
+          </p>
+
+          <div className={styles.bentoGrid}>
+            {PAIN_POINTS.map((pain, index) => (
+              <article
+                key={pain.title}
+                className={`${styles.glassCard} ${styles.bentoCard} ${
+                  index === 0 ? styles.bentoCardWide : ""
+                }`}
+              >
+                {pain.label ? (
+                  <span className={styles.bentoLabel}>{pain.label}</span>
+                ) : null}
+                <div className={styles.painIcon} aria-hidden="true">
+                  {pain.icon}
+                </div>
+                <h3>{pain.title}</h3>
+                <p>{pain.text}</p>
+              </article>
+            ))}
           </div>
-          <div className={styles.conclusion}>
-            Хватит гуглить разрозненные советы. Мы собрали четкую систему.
-          </div>
+
+          <p className={styles.conclusion}>
+            Хватит гуглить разрозненные советы. Мы собрали чёткую систему.
+          </p>
         </div>
       </section>
 
-      <section className={`${styles.section} ${styles.gridBg}`}>
+      <section
+        className={`${styles.section} ${styles.programSection}`}
+        id="program"
+      >
         <div className={styles.container}>
+          <p className={styles.eyebrow}>8 уроков · практика с первого дня</p>
           <h2 className={styles.sectionTitle}>Программа курса</h2>
           <p className={styles.sectionSubtitle}>
-            8 уроков, которые превратят вас из новичка в уверенного пользователя
+            От первого запуска до готовой детали — по шагам, без лишней теории.
           </p>
-          <div className={styles.curriculumList}>
-            <div className={styles.curriculumItem}>
-              <span>01</span> Первый запуск без страха сломать принтер
-            </div>
-            <div className={styles.curriculumItem}>
-              <span>02</span> Что такое слайсер и как его готовить
-            </div>
-            <div className={styles.curriculumItem}>
-              <span>03</span> Идеальный первый слой (секреты адгезии)
-            </div>
-            <div className={styles.curriculumItem}>
-              <span>04</span> Как избавиться от &quot;соплей&quot; и паутины
-            </div>
-            <div className={styles.curriculumItem}>
-              <span>05</span> Прочность деталей: слои и заполнение
-            </div>
-            <div className={styles.curriculumItem}>
-              <span>06</span> Основы 3D-моделирования для печати
-            </div>
-            <div className={styles.curriculumItem}>
-              <span>07</span> Диагностика дефектов: почему все пошло не так
-            </div>
-            <div className={styles.curriculumItem}>
-              <span>08</span> Финальный проект: печатаем крутую деталь
-            </div>
+
+          <ol className={styles.timeline}>
+            {LESSONS.map((lesson) => (
+              <li key={lesson.number} className={styles.timelineItem}>
+                <div className={styles.timelineMarker}>
+                  <span className={styles.timelineNumber}>{lesson.number}</span>
+                </div>
+                <article className={`${styles.glassCard} ${styles.lessonCard}`}>
+                  <div className={styles.lessonIcon} aria-hidden="true">
+                    {lesson.icon}
+                  </div>
+                  <div className={styles.lessonBody}>
+                    <h3 className={styles.lessonTitle}>{lesson.title}</h3>
+                    <p className={styles.lessonText}>{lesson.text}</p>
+                  </div>
+                </article>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      <section className={styles.section} id="reviews">
+        <div className={styles.container}>
+          <p className={styles.eyebrow}>Реальные первые детали</p>
+          <h2 className={styles.sectionTitle}>Они уже начали печатать</h2>
+          <p className={styles.sectionSubtitle}>
+            Три истории людей, у которых принтер тоже когда-то стоял без дела.
+          </p>
+
+          <div className={styles.reviewsGrid}>
+            {REVIEWS.map((review) => (
+              <article
+                key={review.name}
+                className={`${styles.glassCard} ${styles.reviewCard}`}
+              >
+                <div className={styles.stars} aria-label="Оценка 5 из 5">
+                  ★★★★★
+                </div>
+                <p className={styles.reviewText}>«{review.text}»</p>
+                <div className={styles.reviewAuthor}>
+                  <span className={styles.avatar} aria-hidden="true">
+                    {review.initials}
+                  </span>
+                  <div>
+                    <span className={styles.authorName}>{review.name}</span>
+                    <span className={styles.authorRole}>{review.role}</span>
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
         </div>
       </section>
 
       <section className={styles.section}>
         <div className={styles.container}>
-          <h2 className={styles.sectionTitle}>Они уже начали печатать</h2>
-          <div className={styles.grid3}>
-            <div className={`${styles.card} ${styles.reviewCard}`}>
-              <div className={styles.stars}>★★★★★</div>
-              <p>
-                «Купил Ender 3, месяц стоял. Прошел 3 урока — наконец-то
-                настроил стол и напечатал нормальную вазу!»
-              </p>
-              <div className={styles.author}>— Дмитрий, новичок</div>
-            </div>
-            <div className={`${styles.card} ${styles.reviewCard}`}>
-              <div className={styles.stars}>★★★★★</div>
-              <p>
-                «Очень круто, что все схемы нарисованы. Не надо читать тонну
-                текста, просто смотришь и делаешь.»
-              </p>
-              <div className={styles.author}>— Анна, дизайнер</div>
-            </div>
-            <div className={`${styles.card} ${styles.reviewCard}`}>
-              <div className={styles.stars}>★★★★★</div>
-              <p>
-                «Наконец-то понял, что такое ретракт. Спасибо за практику и
-                понятные чек-листы!»
-              </p>
-              <div className={styles.author}>— Максим, инженер</div>
+          <div className={`${styles.glassCard} ${styles.whyFreeCard}`}>
+            <p className={styles.eyebrow}>Без подвоха</p>
+            <h2 className={styles.sectionTitle}>
+              Почему мы отдаём это бесплатно?
+            </h2>
+            <p className={styles.whyFreeText}>
+              Мы уверены в качестве продукта. Пройдите первый уровень,
+              напечатайте деталь и посмотрите, как работает платформа. Если
+              понравится — перейдёте на платные уровни, где мы учим создавать
+              прочные детали и зарабатывать на 3D-печати.
+            </p>
+            <div className={styles.whyFreeStats}>
+              <div className={styles.whyFreeStat}>
+                <strong>8</strong>
+                <span>уроков в первом уровне</span>
+              </div>
+              <div className={styles.whyFreeStat}>
+                <strong>250+</strong>
+                <span>наглядных схем</span>
+              </div>
+              <div className={styles.whyFreeStat}>
+                <strong>0 ₽</strong>
+                <span>за весь первый уровень</span>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section className={`${styles.section} ${styles.whyFree}`}>
-        <div className={`${styles.container} ${styles.textCenter}`}>
-          <h2 className={styles.sectionTitle}>
-            Почему мы отдаем это бесплатно?
-          </h2>
-          <p className={styles.maxW700}>
-            Мы уверены в качестве нашего продукта. Пройдите первый уровень,
-            напечатайте деталь и посмотрите, как работает наша платформа. Если
-            вам понравится — вы сможете перейти на платные уровни («Уверенный»,
-            «Инженер», «Заработок»), где мы учим создавать прочные детали и
-            зарабатывать на 3D-печати.
-          </p>
         </div>
       </section>
 
@@ -336,14 +514,15 @@ export default function StartPage() {
        * получает реальные width/height: так браузер знает пропорции до загрузки
        * и секция не «прыгает». sizes повторяет max-width обёртки, а не экрана.
        */}
-      <section className={styles.section}>
+      <section className={styles.section} id="certificate">
         <div className={styles.container}>
+          <p className={styles.eyebrow}>Документ, а не просто галочка</p>
           <h2 className={styles.sectionTitle}>Подтверждение ваших навыков</h2>
           <p className={styles.sectionSubtitle}>
             После прохождения курса вы получите официальный сертификат с
             уникальным QR-кодом для проверки.
           </p>
-          <div className={styles.certificateWrapper}>
+          <div className={`${styles.glassCard} ${styles.certificateWrapper}`}>
             <Image
               alt="Сертификат об окончании курса"
               className={styles.certificateImage}
@@ -356,54 +535,78 @@ export default function StartPage() {
         </div>
       </section>
 
-      <section className={styles.section}>
+      <section className={styles.section} id="faq">
         <div className={styles.container}>
+          <p className={styles.eyebrow}>Коротко о главном</p>
           <h2 className={styles.sectionTitle}>Частые вопросы</h2>
-          <div className={styles.faqGrid}>
-            <div className={`${styles.card} ${styles.faqCard}`}>
-              <h4>Это правда бесплатно?</h4>
-              <p>
-                Да, первый уровень «Новичок» полностью бесплатен. Мы хотим,
-                чтобы вы убедились в качестве нашего продукта перед покупкой
-                платных курсов.
-              </p>
-            </div>
-            <div className={`${styles.card} ${styles.faqCard}`}>
-              <h4>У меня старый принтер, мне подойдет?</h4>
-              <p>
-                Да. Курс универсален. Мы учим основам, которые работают на любом
-                FDM-принтере (Ender, Anycubic, Prusa и др.).
-              </p>
-            </div>
-            <div className={`${styles.card} ${styles.faqCard}`}>
-              <h4>Нужна ли карта для регистрации?</h4>
-              <p>
-                Нет. Для доступа к бесплатному курсу карта не нужна. Просто
-                создайте аккаунт.
-              </p>
-            </div>
-            <div className={`${styles.card} ${styles.faqCard}`}>
-              <h4>Сколько времени займет обучение?</h4>
-              <p>
-                Курс рассчитан на 1-2 вечера. Уроки короткие, с практикой. Вы
-                сразу сможете напечатать свою первую деталь.
-              </p>
-            </div>
+          <p className={styles.sectionSubtitle}>
+            Нажмите на вопрос — ответ раскроется без перезагрузки страницы.
+          </p>
+
+          <div className={styles.faqList}>
+            {FAQ_ITEMS.map((item, index) => {
+              const isOpen = openFaqIndex === index;
+
+              return (
+                <div
+                  key={item.question}
+                  className={`${styles.glassCard} ${styles.faqItem} ${
+                    isOpen ? styles.faqItemOpen : ""
+                  }`}
+                >
+                  <h3 className={styles.faqHeading}>
+                    <button
+                      type="button"
+                      className={styles.faqQuestion}
+                      aria-expanded={isOpen}
+                      aria-controls={`faq-answer-${index}`}
+                      id={`faq-question-${index}`}
+                      onClick={() =>
+                        setOpenFaqIndex(isOpen ? null : index)
+                      }
+                    >
+                      <span>{item.question}</span>
+                      <span className={styles.faqIcon} aria-hidden="true">
+                        +
+                      </span>
+                    </button>
+                  </h3>
+                  <div
+                    id={`faq-answer-${index}`}
+                    role="region"
+                    aria-labelledby={`faq-question-${index}`}
+                    aria-hidden={!isOpen}
+                    className={`${styles.faqAnswer} ${
+                      isOpen ? styles.faqAnswerOpen : ""
+                    }`}
+                  >
+                    <div className={styles.faqAnswerInner}>
+                      <p>{item.answer}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      <section className={`${styles.section} ${styles.finalCta}`}>
+      <section className={styles.finalCta}>
+        <div className={styles.finalCtaGlow} aria-hidden="true" />
         <div className={styles.container}>
-          <h2>Начни печатать уже сегодня</h2>
-          <p>Регистрация занимает 1 минуту. Первый уровень — бесплатно.</p>
+          <p className={styles.eyebrow}>Первый шаг — сегодня</p>
+          <h2 className={styles.finalCtaTitle}>Начни печатать уже сегодня</h2>
+          <p className={styles.finalCtaLead}>
+            Регистрация занимает 1 минуту. Первый уровень — бесплатно.
+          </p>
           <Link
             href={SIGN_UP_HREF}
-            className={`${styles.btn} ${styles.btnPrimary} ${styles.pulse}`}
+            className={`${styles.btnPrimary} ${styles.ctaButton} ${styles.ctaButtonLarge}`}
           >
             Зарегистрироваться бесплатно
+            <span aria-hidden="true">→</span>
           </Link>
-          <div className={`${styles.subtext} ${styles.mt20}`}>
+          <div className={styles.subtext}>
             Более 250 наглядных схем, 38 уроков и доступ к сообществу впереди.
           </div>
         </div>
@@ -433,7 +636,7 @@ export default function StartPage() {
       {/* Sticky CTA для мобильных */}
       <div className={styles.mobileStickyCta}>
         <div className={styles.stickyText}>Первый уровень — бесплатно</div>
-        <Link href={SIGN_UP_HREF} className={`${styles.btn} ${styles.btnPrimary}`}>
+        <Link href={SIGN_UP_HREF} className={`${styles.btnPrimary} ${styles.stickyBtn}`}>
           Начать
         </Link>
       </div>
