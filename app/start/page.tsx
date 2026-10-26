@@ -49,6 +49,24 @@ function splitTimeLeft(timeLeftMs: number) {
   };
 }
 
+/**
+ * Название проекта для шапки и подвала лендинга.
+ *
+ * Разметка повторяет логотип главной страницы (`components/Logo.tsx`):
+ * белое «tridi», синее «-print» и серое «.ru» мельче остальных. Стили —
+ * в `start.module.css` (`.logoText*`), поэтому цвета и кегль можно менять
+ * в одном месте. Текст не переносится: на узком экране `.ru` скрывается.
+ */
+function BrandName() {
+  return (
+    <span className={styles.logoText}>
+      <span className={styles.logoTextWhite}>tridi</span>
+      <span className={styles.logoTextBlue}>-print</span>
+      <span className={styles.logoTextGray}>.ru</span>
+    </span>
+  );
+}
+
 export default function StartPage() {
   const [timeLeftMs, setTimeLeftMs] = useState<number | null>(null);
 
@@ -97,7 +115,7 @@ export default function StartPage() {
               unoptimized
               width={36}
             />
-            TriDi
+            <BrandName />
           </div>
           <Link href={SIGN_UP_HREF} className={styles.headerBtn}>
             Войти / Регистрация
@@ -363,7 +381,7 @@ export default function StartPage() {
                 unoptimized
                 width={32}
               />
-              TriDi
+              <BrandName />
             </div>
             <p>Образовательная платформа по 3D-печати</p>
             <p>© 2026 TriDi. Все права защищены.</p>
