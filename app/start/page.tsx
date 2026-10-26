@@ -221,7 +221,6 @@ const FAQ_ITEMS: FaqItem[] = [
 
 export default function StartPage() {
   const [timeLeftMs, setTimeLeftMs] = useState<number | null>(null);
-  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(TIMER_STORAGE_KEY);
@@ -546,50 +545,15 @@ export default function StartPage() {
             Нажмите на вопрос — ответ раскроется без перезагрузки страницы.
           </p>
 
-          <div className={styles.faqList}>
-            {FAQ_ITEMS.map((item, index) => {
-              const isOpen = openFaqIndex === index;
-
-              return (
-                <div
-                  key={item.question}
-                  className={`${styles.glassCard} ${styles.faqItem} ${
-                    isOpen ? styles.faqItemOpen : ""
-                  }`}
-                >
-                  <h3 className={styles.faqHeading}>
-                    <button
-                      type="button"
-                      className={styles.faqQuestion}
-                      aria-expanded={isOpen}
-                      aria-controls={`faq-answer-${index}`}
-                      id={`faq-question-${index}`}
-                      onClick={() =>
-                        setOpenFaqIndex(isOpen ? null : index)
-                      }
-                    >
-                      <span>{item.question}</span>
-                      <span className={styles.faqIcon} aria-hidden="true">
-                        +
-                      </span>
-                    </button>
-                  </h3>
-                  <div
-                    id={`faq-answer-${index}`}
-                    role="region"
-                    aria-labelledby={`faq-question-${index}`}
-                    aria-hidden={!isOpen}
-                    className={`${styles.faqAnswer} ${
-                      isOpen ? styles.faqAnswerOpen : ""
-                    }`}
-                  >
-                    <div className={styles.faqAnswerInner}>
-                      <p>{item.answer}</p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <div className={styles.faqWrapper}>
+            {FAQ_ITEMS.map((item) => (
+              <details key={item.question} className={styles.faqItem}>
+                <summary className={styles.faqSummary}>
+                  {item.question}
+                </summary>
+                <div className={styles.faqContent}>{item.answer}</div>
+              </details>
+            ))}
           </div>
         </div>
       </section>
