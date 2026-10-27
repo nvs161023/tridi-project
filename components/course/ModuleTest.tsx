@@ -79,9 +79,8 @@ export function ModuleTest({
   const isOverlay = layout === "overlay";
 
   /**
-   * Порог сдачи для этого уровня: в бесплатном базовом курсе — 5 правильных, в
-   * платных уровнях — 7 (см. lib/module-test.ts). Порог проверяет и клиент, и
-   * серверный action: он пересчитывает результат сам.
+   * Порог сдачи для этого уровня — 7 правильных из 10 (см. lib/module-test.ts).
+   * Порог проверяет и клиент, и серверный action: он пересчитывает результат сам.
    */
   const passFrom = moduleTestPassFrom(courseType);
 

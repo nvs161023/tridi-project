@@ -67,7 +67,7 @@ export function ModuleTestGate({
 }: ModuleTestGateProps) {
   const theme = moduleTestThemes[courseType];
   const total = questions.length;
-  // Порог у каждого уровня свой: 5 в бесплатном курсе, 7 в платных (см.
+  // Порог одинаковый для всех уровней, включая бесплатный (см.
   // lib/module-test.ts) — подпись должна совпадать с тем, как считает тест.
   const hint = `${total} вопросов, порог — ${moduleTestPassFrom(courseType)} правильных из ${total}. Без сданного теста дальше не пустим.`;
 
