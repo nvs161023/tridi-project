@@ -6813,6 +6813,39 @@ app/api/3d/generate/route.ts lib/storage.ts` — чисто, `npm run build` —
 `/api/3d/generate` в сборке, `Compiled successfully`), `npm run check:imports` — 1 720
 импортов без битых, `npm run check:style` — 38 уроков, 0 нарушений.
 
+**3D-генерация: провайдеры за общим интерфейсом (26 октября 2026).** Цена и
+надёжность внешних сетей различаются, а роут был связан с одним Gen API. В
+`lib/3d/providers.ts` появился `GenerationProvider` (`submit` → `taskId`,
+`poll` → `pending|success|failed`, `download` → `Buffer`) и
+`ProviderName = 'tripo3d' | 'stability' | 'genapi'`. Первая реализация —
+`Tripo3DProvider`; `/api/3d/generate` пока не переключён и по-прежнему работает
+через `GEN_API_KEY`.
+
+Tripo3D использует v3 REST API (`https://openapi.tripo3d.ai/v3`) и ключ
+`TRIPO3D_API_KEY` в заголовке `Authorization: Bearer`. Base64 в задаче v3 не
+принимает, поэтому `submit()` сначала отправляет фото multipart-полем `file` в
+`POST /files`, получает `file_token`, затем создаёт задачу
+`POST /generation/image-to-model` с `input: <file_token>`, моделью
+`v3.1-20260211` по умолчанию и `texture: true`. Через `options` можно передать
+поля v3 (`pbr`, `texture_quality`, `geometry_quality`, `face_limit` и другие);
+`input`, `file_token`, `url` и `model_version` из options вырезаются, чтобы
+нельзя было подменить загруженный файл или отправить устаревшее имя поля.
+
+`poll()` читает `GET /tasks/{task_id}`, а не `/generation/{task_id}`: в v3
+статус лежит в `data.status`, ссылка — в `data.output.model_url` (запасные
+`pbr_model`, `base_model`, `model`, `model_urls[0]`). `queued`, `running` и
+незнакомые промежуточные статусы дают `pending`; `success` — `modelUrl`;
+`failed`, `cancelled`, `banned`, `expired`, `unknown` — `failed` с
+`error_message`. `download()` принимает только `https`, не отправляет ключ на
+подписанный URL, отклоняет HTML/JSON вместо модели и файлы больше 50 МБ.
+
+Проверено без реального вызова Tripo3D (деньги не тратились):
+`npx tsc --noEmit` — 0 ошибок, `npm run lint -- --max-warnings=0` — чисто,
+mock-fetch на 9 запросов — загрузка PNG, создание задачи с подменой `input`,
+три состояния `poll`, ошибка конверта `code: 1004`, скачивание GLB и отказ на
+HTML/`http://`. `npm run build` — успешно, `npm run check:docs` — 311 путей,
+`npm run check:imports` — 1726 импортов без битых.
+
 **Вебхук Яндекса: проверка соединения без токена (26 октября 2026).** В логах Amvera
 проверка адреса падала с `[Yandex] Запрос без корректного токена вебхука, отклонён.
 { hasToken: true, contentType: 'application/json' }` — кабинет Яндекса присылал
