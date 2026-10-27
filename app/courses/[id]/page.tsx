@@ -30,6 +30,13 @@ const QUESTION_FORMS: [string, string, string] = [
   "вопросов",
 ];
 
+/** Честные ограничения: кому курс не поможет, даже если он оплачен. */
+const COURSE_LIMITATIONS = [
+  "Тем, кто ищет «секретную кнопку» (мы даем систему, а не волшебство).",
+  "Тем, кто не готов делать практику (без замеров и проб результат не гарантирован).",
+  "Тем, кто ищет юридическую/налоговую консультацию (мы даем базу, но проверять надо у юриста).",
+];
+
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
 
@@ -257,6 +264,48 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 />
               </div>
 
+              <section className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-4">
+                <div className="flex items-center gap-2.5">
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-400/10 text-emerald-300">
+                    <svg
+                      aria-hidden
+                      className="h-4.5 w-4.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M12 3 19 6v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.8"
+                      />
+                      <path
+                        d="m9 12 2 2 4-4"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.8"
+                      />
+                    </svg>
+                  </span>
+                  <h2 className="text-sm font-bold text-white">
+                    Безопасная покупка
+                  </h2>
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-slate-300">
+                  Доступ навсегда. Чек НПД на email. Возврат в течение 7 дней,
+                  если вы не открыли ни один платный урок (согласно оферте).
+                </p>
+                <Link
+                  href="/legal/oferta"
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-emerald-300 underline underline-offset-4 transition-colors hover:text-emerald-200"
+                >
+                  Условия возврата в оферте
+                  <span aria-hidden>→</span>
+                </Link>
+              </section>
+
               <Link
                 href="/subscription"
                 className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-white/15 px-5 text-sm font-semibold text-slate-200 transition-colors hover:border-white/30 hover:text-white"
@@ -461,6 +510,40 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
           </div>
         </section>
 
+        {/* Ограничения: честно показываем, кому курс не поможет */}
+        <section
+          id="limitations"
+          className="border-b border-white/10 bg-slate-950/60"
+        >
+          <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
+            <p
+              className={`text-sm font-semibold tracking-widest uppercase ${course.theme.text}`}
+            >
+              Ограничения
+            </p>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
+              Кому этот курс не подойдет
+            </h2>
+
+            <ul className="mt-8 grid gap-3 md:grid-cols-3">
+              {COURSE_LIMITATIONS.map((limitation) => (
+                <li
+                  key={limitation}
+                  className="flex gap-3 rounded-2xl border border-amber-400/15 bg-amber-400/[0.04] p-5 text-sm leading-relaxed text-slate-300"
+                >
+                  <span
+                    aria-hidden
+                    className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-400/10 text-xs font-bold text-amber-300"
+                  >
+                    ×
+                  </span>
+                  {limitation}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
         {/* Результат: что человек унесёт из курса и сколько это займёт */}
         <section id="results" className="border-b border-white/10">
           <div className="mx-auto grid max-w-6xl gap-10 px-5 py-16 sm:px-8 sm:py-20 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
@@ -593,6 +676,15 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
           </div>
         </section>
       </main>
+
+      <footer className="border-t border-white/10 bg-slate-950/80">
+        <div className="mx-auto max-w-6xl px-5 py-6 sm:px-8">
+          <p className="text-center text-xs leading-relaxed text-pretty text-slate-400">
+            Материалы курса обновлены: Октябрь 2026. Мы регулярно проверяем
+            актуальность цифр и законодательства.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }

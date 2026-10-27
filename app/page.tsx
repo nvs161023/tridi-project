@@ -516,8 +516,8 @@ export default async function Home() {
 
             <p className="mx-auto mt-6 max-w-2xl text-pretty text-base leading-7 text-white/55 sm:mt-7 sm:text-lg sm:leading-8">
               {TOTAL_LESSONS} глубоких уроков, {TOTAL_VISUALS} наглядных
-              схем и именной сертификат. Практика с первого урока — без воды
-              и сломанных принтеров.
+              схем и именной сертификат. Структурированная теория + измеримая
+              практика с первого урока — без сломанных принтеров.
             </p>
 
             <div className="mt-9 flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:items-center">
