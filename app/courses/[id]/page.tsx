@@ -296,7 +296,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-slate-300">
                   Доступ навсегда. Чек НПД на email. Возврат в течение 7 дней,
-                  если не отмечен ни один платный урок и не сдан тест модуля.
+                  если не отмечен ни один платный урок и не сдан ни один тест модуля.
                   Первые уроки открыты бесплатно — превью возврату не мешает.
                   Подробности в оферте.
                 </p>
