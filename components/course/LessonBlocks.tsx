@@ -96,27 +96,57 @@ const LESSON_TEXT_MUTED =
   "text-[16px] leading-7 text-slate-400 sm:text-[17px] sm:leading-8";
 
 /**
- * Разбор строки на обычный текст и **жирные** вставки: звёздочки из данных
- * превращаются в <strong>.
+ * Разбор строки на обычный текст, **жирные** вставки и ссылки.
  *
  * Жирным помечаем термин и главное число — так объяснение термина видно в самом
- * тексте, а не в сноске. Разметка разбирается вручную (библиотеки markdown в
- * проекте нет), но только в React-узлы: dangerouslySetInnerHTML не нужен, значит,
- * вставка из данных не может принести с собой разметку.
+ * тексте, а не в сноске. Ссылки в данных записаны обычным markdown
+ * (`[подпись](/artifacts/file.cfg)`): по ним читатель скачивает файл к уроку.
+ * Разметка разбирается вручную (библиотеки markdown в проекте нет), но только в
+ * React-узлы: dangerouslySetInnerHTML не нужен, значит, вставка из данных не
+ * может принести с собой разметку. Адрес пропускаем только относительный или
+ * http(s) — javascript: из данных в ссылку не попадёт.
  */
 function inlineText(text: string) {
   return text
-    .split(/(\*\*[^*]+\*\*)/g)
+    .split(/(\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\))/g)
     .filter(Boolean)
-    .map((part, index) =>
-      part.startsWith("**") && part.endsWith("**") ? (
-        <strong key={index} className="font-semibold text-white">
-          {part.slice(2, -2)}
-        </strong>
-      ) : (
-        part
-      ),
-    );
+    .map((part, index) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return (
+          <strong key={index} className="font-semibold text-white">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+
+      const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(part);
+
+      if (!link) {
+        return part;
+      }
+
+      const [, label, href] = link;
+      const isExternal = /^https?:\/\//.test(href);
+      const isSafe =
+        (href.startsWith("/") && !href.startsWith("//")) || isExternal;
+
+      if (!isSafe) {
+        return part;
+      }
+
+      return (
+        <a
+          key={index}
+          href={href}
+          download={href.startsWith("/artifacts/") ? "" : undefined}
+          target={isExternal ? "_blank" : undefined}
+          rel={isExternal ? "noopener noreferrer" : undefined}
+          className="font-medium text-sky-300 underline decoration-sky-400/40 underline-offset-4 transition-colors hover:text-sky-200 hover:decoration-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        >
+          {label}
+        </a>
+      );
+    });
 }
 
 /**
