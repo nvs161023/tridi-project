@@ -8,6 +8,7 @@ import {
   PAID_VISUALS,
 } from "@/lib/course-levels";
 import {
+  FILE_FORMS,
   LESSON_FORMS,
   TEST_FORMS,
   VISUAL_FORMS,
@@ -27,6 +28,13 @@ const BUNDLE_SAVING = formatPrice(
 
 /** Названия платных уровней в описании пакета не дублируем вручную. */
 const BUNDLE_COURSES = PAID_LEVELS.map((level) => level.shortTitle).join(", ");
+
+/** Файлы к урокам всех платных уровней: те же ссылки, что на карточках. */
+const BUNDLE_ARTIFACTS = new Set(
+  PAID_LEVELS.flatMap((level) =>
+    level.artifacts.map((artifact) => artifact.href),
+  ),
+).size;
 
 const BUNDLE_DESCRIPTION = `Все ${PAID_LEVELS.length} платных курса (${BUNDLE_COURSES}) и библиотека профилей печати — навсегда`;
 
@@ -49,6 +57,11 @@ const BUNDLE_FEATURES = [
 const BUNDLE_HIGHLIGHTS = [
   "Именной сертификат",
   `Доступ к ${profileCount} профилям печати`,
+  ...(BUNDLE_ARTIFACTS > 0
+    ? [
+        `${BUNDLE_ARTIFACTS} ${pluralize(BUNDLE_ARTIFACTS, FILE_FORMS)} к урокам`,
+      ]
+    : []),
 ];
 
 type ProBundleCardProps = {

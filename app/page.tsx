@@ -20,6 +20,7 @@ import {
   type CourseLevel,
 } from "@/lib/course-levels";
 import {
+  FILE_FORMS,
   LESSON_FORMS,
   TEST_FORMS,
   VISUAL_FORMS,
@@ -1200,6 +1201,15 @@ export default async function Home() {
                       <p className="relative mt-4 flex items-center gap-2 text-[11px] font-semibold text-emerald-300/80">
                         <Check className="h-3.5 w-3.5" />
                         Именной сертификат
+                      </p>
+                    ) : null}
+
+                    {level.artifacts.length > 0 ? (
+                      <p className="relative mt-2 flex items-center gap-2 text-[11px] font-semibold text-emerald-300/80">
+                        <Check className="h-3.5 w-3.5" />
+                        {level.artifacts.length}{" "}
+                        {pluralize(level.artifacts.length, FILE_FORMS)} к урокам
+                        — скачиваются внутри курса
                       </p>
                     ) : null}
 

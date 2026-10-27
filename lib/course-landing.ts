@@ -20,6 +20,7 @@ import {
   type CourseLevel,
   type PaidLevelKey,
 } from "@/lib/course-levels";
+import { collectArtifacts, type CourseArtifact } from "@/lib/course-artifacts";
 import { formatAcademicHours } from "@/lib/course-stats";
 
 /** Курсы, для которых есть отдельная продающая страница. */
@@ -89,6 +90,8 @@ export type CourseLanding = {
   visuals: number;
   tests: number;
   questions: number;
+  /** Файлы к урокам: у пакета — файлы всех трёх уровней без повторов. */
+  artifacts: CourseArtifact[];
   hours: string;
   audience: LandingAudience[];
   results: string[];
@@ -334,6 +337,7 @@ function buildLevelLanding(key: PaidLevelKey): CourseLanding {
     visuals: level.visuals,
     tests: level.tests,
     questions: level.questions,
+    artifacts: collectArtifacts(LEVEL_MODULES[key]),
     hours: level.hours,
     audience: copy.audience,
     results: copy.results,
@@ -365,6 +369,9 @@ function buildProLanding(): CourseLanding {
     visuals: PAID_LEVELS.reduce((sum, level) => sum + level.visuals, 0),
     tests: PAID_LEVELS.reduce((sum, level) => sum + level.tests, 0),
     questions: PAID_LEVELS.reduce((sum, level) => sum + level.questions, 0),
+    artifacts: collectArtifacts(
+      PAID_LEVELS.flatMap((level) => LEVEL_MODULES[level.key]),
+    ),
     hours: formatAcademicHours(
       PAID_LEVELS.reduce((sum, level) => sum + level.estimatedHours, 0),
     ),

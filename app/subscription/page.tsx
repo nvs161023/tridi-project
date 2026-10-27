@@ -20,6 +20,7 @@ import {
   type CourseLevel,
 } from "@/lib/course-levels";
 import {
+  FILE_FORMS,
   LESSON_FORMS,
   TEST_FORMS,
   VISUAL_FORMS,
@@ -707,6 +708,16 @@ export default async function SubscriptionPage() {
                         </span>
                         {level.tests} {pluralize(level.tests, TEST_FORMS)} модулей
                       </li>
+                      {level.artifacts.length > 0 ? (
+                        <li className="flex items-start gap-2">
+                          <span aria-hidden className={style.text}>
+                            ✓
+                          </span>
+                          {level.artifacts.length}{" "}
+                          {pluralize(level.artifacts.length, FILE_FORMS)} к
+                          урокам — скачиваются внутри курса
+                        </li>
+                      ) : null}
                       <li className="flex items-start gap-2">
                         <span aria-hidden className={style.text}>
                           ✓

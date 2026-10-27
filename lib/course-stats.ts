@@ -28,6 +28,7 @@ export const MODULE_FORMS: [string, string, string] = ["модуль", "моду
 export const HOUR_FORMS: [string, string, string] = ["час", "часа", "часов"];
 export const VISUAL_FORMS: [string, string, string] = ["схема", "схемы", "схем"];
 export const TEST_FORMS: [string, string, string] = ["тест", "теста", "тестов"];
+export const FILE_FORMS: [string, string, string] = ["файл", "файла", "файлов"];
 
 /**
  * Русская форма слова по числу: 1 урок, 2 урока, 5 уроков.
@@ -92,11 +93,15 @@ export type ModularCourseLike = {
  *
  * Блок с полем visual_file — это блок, для которого нарисован кадр. Считаем
  * именно такие блоки: витрина не должна обещать больше картинок, чем лежит в
- * курсе. Тест модуля считается написанным, если в нём есть вопросы.
+ * курсе. Тест модуля считается написанным, если в нём есть вопросы. Поле
+ * content нужно, чтобы найти ссылки на файлы к урокам.
  */
 export type CourseContentLike = {
   modules: {
-    lessons: { duration: string; blocks: { visual_file?: string | null }[] }[];
+    lessons: {
+      duration: string;
+      blocks: { content?: string; visual_file?: string | null }[];
+    }[];
     module_test?: { questions: { explanations?: unknown[] }[] } | null;
   }[];
 };

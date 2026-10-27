@@ -23,6 +23,7 @@ import {
   summarizeCourse,
   type CourseContentLike,
 } from "./course-stats";
+import { collectArtifacts, type CourseArtifact } from "./course-artifacts";
 
 export type LevelKey = "basic" | "confident" | "engineer" | "profit";
 
@@ -71,6 +72,8 @@ export type CourseLevel = {
   visuals: number;
   tests: number;
   questions: number;
+  /** Файлы к урокам уровня: ссылки на public/artifacts из текстов уроков. */
+  artifacts: CourseArtifact[];
 };
 
 /** Файлы четырёх уровней — единственный источник цифр витрины. */
@@ -176,6 +179,7 @@ function buildLevel(key: LevelKey): CourseLevel {
     visuals: countVisualBlocks(content),
     tests: countModuleTests(content),
     questions: countQuestions(content),
+    artifacts: collectArtifacts(content.modules),
   };
 }
 

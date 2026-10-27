@@ -13,6 +13,7 @@ import {
 } from "@/lib/seo";
 import { resolveSiteUrl } from "@/lib/site-url";
 import {
+  FILE_FORMS,
   LESSON_FORMS,
   MODULE_FORMS,
   TEST_FORMS,
@@ -295,10 +296,12 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-slate-300">
                   Доступ навсегда. Чек НПД на email. Возврат в течение 7 дней,
-                  если вы не открыли ни один платный урок (согласно оферте).
+                  если не отмечен ни один платный урок и не сдан тест модуля.
+                  Первые уроки открыты бесплатно — превью возврату не мешает.
+                  Подробности в оферте.
                 </p>
                 <Link
-                  href="/legal/oferta"
+                  href="/legal/offer"
                   className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-emerald-300 underline underline-offset-4 transition-colors hover:text-emerald-200"
                 >
                   Условия возврата в оферте
@@ -326,6 +329,20 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                   </span>
                   Уроки открываются в личном кабинете
                 </li>
+                {course.artifacts.length > 0 ? (
+                  <li className="flex gap-2">
+                    <span aria-hidden className={course.theme.text}>
+                      ✓
+                    </span>
+                    <span>
+                      {course.artifacts.length}{" "}
+                      {pluralize(course.artifacts.length, FILE_FORMS)} к урокам:{" "}
+                      {`${course.artifacts
+                        .map((artifact) => artifact.label)
+                        .join(", ")}. Скачиваются внутри курса.`}
+                    </span>
+                  </li>
+                ) : null}
                 <li className="flex gap-2">
                   <span aria-hidden className={course.theme.text}>
                     ✓
