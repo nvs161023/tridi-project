@@ -140,7 +140,7 @@
 |---|---|---|
 | `/api/payments/robokassa/result` | `app/api/payments/robokassa/result/route.ts` | ResultURL Robokassa: проверяет подпись с `Shp_*`, сумму и записывает покупку в `purchases`, а для легаси-подписки продлевает срок в `subscriptions`, возвращает `OK{InvId}` |
 | `/api/webhooks/ozon` | `app/api/webhooks/ozon/route.ts` | Вебхук Ozon Seller: `POST /api/webhooks/ozon?token=<uuid>`, где `TYPE_PING` подтверждается после проверки токена, но до разбора заказа (в том числе при пустом или не-JSON теле, если в нём есть `TYPE_PING`), незнакомые события тоже получают `{ result: true }` без записи, а `TYPE_NEW_POSTING` создаёт заказ. `GET` отвечает `{ ok: true, endpoint: "ozon-webhook" }` — так адрес можно проверить в браузере. Продавец ищется по персональному токену из адреса: он хранится в `workshop_settings.webhook_token` (uuid, unique) и сравнивается через `service_role`; без корректного UUID в query, при неизвестном токене и при нескольких строках — 403, при неприменённой миграции — 503. Заказ пишется с `source = 'ozon'`, `title` вида «Ozon: <номер отправления>» (до 80 символов) и `notes` до 1000 символов со SKU и количеством; повтор уведомления с тем же `title` возвращает успех и не создаёт дубль. `runtime = 'nodejs'`, `dynamic = 'force-dynamic'`, ответы `no-store` |
-| `/api/webhooks/yandex` | `app/api/webhooks/yandex/route.ts` | Вебхук Яндекс.Маркета: `POST /api/webhooks/yandex?token=<uuid>`, продавец ищется по тому же `workshop_settings.webhook_token`, что и у Ozon/WB, через `service_role`; проверка соединения (`PING`: пустое тело, JSON с `event`/`eventType`/`type`/`message_type` = `PING`/`TYPE_PING`, текстовое тело `PING` или форма `eventType=PING`) подтверждается ответом из документации `{ version: "1.0.0", time: <ISO-8601> }` до проверки токена и без запросов в базу (BOM в начале тела снимается); для остальных запросов `token` читается из query без предварительной проверки формата, очищается от хвоста адреса (берётся часть до первого `/`: кабинет Яндекса дописывает `/notification`, и без этого верный токен получал 403), ищется в `workshop_settings.webhook_token` через `service_role` и сравнивается после очистки, `.trim()` и `.toLowerCase()` (точный `eq` дополнен запасным сравнением сохранённых токенов, ошибка `22P02` от uuid-колонки считается «токен не найден», а не сбоем), без токена, при неизвестном токене и при нескольких строках — 403, при неприменённой миграции — 503. В лог пишутся тело (первые 500 символов), подтверждение `PING`, очищенное значение токена, `[Yandex] Хвост адреса отброшен от токена: { received, token }` (когда пришло значение с хвостом) и полные полученный и сохранённый токены при отказе. Тело `{ orderId, items, total }`: `orderId` попадает в `title` вида «Яндекс: <номер>` (до 80 символов), `total` — в `total_cost` (отсутствует — 0, некорректно — 400), `items` — в `notes` JSON до 1000 символов (название, количество, артикул и цена; длинный состав обрезается с `omitted`). Заказ пишется с `source = 'yandex'` и `status = 'new'`; повтор с тем же `title` возвращает успех и не создаёт дубль. `GET` отвечает `{ ok: true, endpoint: "yandex-webhook" }`. `runtime = 'nodejs'`, `dynamic = 'force-dynamic'`, ответы `no-store` |
+| `/api/webhooks/yandex` | `app/api/webhooks/yandex/route.ts` | Вебхук Яндекс.Маркета: `POST /api/webhooks/yandex?token=<uuid>`, продавец ищется по тому же `workshop_settings.webhook_token`, что и у Ozon/WB, через `service_role`; проверка соединения (`PING`) — первое действие `POST`, до чтения токена, `service_role` и разбора заказа: признак проверки возвращает `readPingSource()` — `PING`/`TYPE_PING` в `notificationType`/`event`/`eventType`/`type`/`message_type`, пустое тело, пустой JSON `{}`, текстовое тело `PING` или форма `notificationType=PING`; ответ собирает `pingOk()` вручную — `{ "version": "1.0.0", "name": "tridi-print.ru", "time": <ISO-8601> }` с `Content-Type: application/json; charset=utf-8`, а в лог идёт признак (`[Yandex] PING подтверждён: notificationType`), BOM в начале тела снимается; для остальных запросов `token` читается из query без предварительной проверки формата, очищается от хвоста адреса (берётся часть до первого `/`: кабинет Яндекса дописывает `/notification`, и без этого верный токен получал 403), ищется в `workshop_settings.webhook_token` через `service_role` и сравнивается после очистки, `.trim()` и `.toLowerCase()` (точный `eq` дополнен запасным сравнением сохранённых токенов, ошибка `22P02` от uuid-колонки считается «токен не найден», а не сбоем), без токена, при неизвестном токене и при нескольких строках — 403, при неприменённой миграции — 503. В лог пишутся тело (первые 500 символов), подтверждение `PING` с признаком проверки, очищенное значение токена, `[Yandex] Хвост адреса отброшен от токена: { received, token }` (когда пришло значение с хвостом) и полные полученный и сохранённый токены при отказе. Тело `{ orderId, items, total }`: `orderId` попадает в `title` вида «Яндекс: <номер>` (до 80 символов), `total` — в `total_cost` (отсутствует — 0, некорректно — 400), `items` — в `notes` JSON до 1000 символов (название, количество, артикул и цена; длинный состав обрезается с `omitted`). Заказ пишется с `source = 'yandex'` и `status = 'new'`; повтор с тем же `title` возвращает успех и не создаёт дубль. `GET` отвечает `{ ok: true, endpoint: "yandex-webhook", version, name, time }` — конверт проверки вместе с признаком адреса. `runtime = 'nodejs'`, `dynamic = 'force-dynamic'`, ответы `no-store` |
 | `/api/admin/promo/csv` | `app/api/admin/promo/csv/route.ts` | CSV для Ozon: проверяет сессию и `ADMIN_EMAIL`, отдаёт только неиспользованные коды выбранного курса (`?course=confident`) с колонками «Код» и «Ссылка на активацию». BOM и `;` — чтобы Excel с русской локалью открыл файл без мастера импорта |
 | `/api/admin/refund` | `app/api/admin/refund/route.ts` | Возврат за курс: `POST` с `{ purchaseId }`, проверка сессии и `ADMIN_EMAIL`, затем `lib/refund.ts`. Если в `lesson_progress` есть отмеченный платный урок или сданный тест модуля — **403** с текстом оферты, иначе покупка закрывается (`expires_at` = момент возврата) и приходит 200. Коды: 400, 403, 404, 409, 500, 503 |
 | `/api/cron/daily-report` | `app/api/cron/daily-report/route.ts` | Ежедневный отчёт администратору: `Authorization: Bearer <CRON_SECRET>`, два блока — за 24 часа и с начала московского месяца (выручка и покупки, промокоды, новые ученики, посещения, генерации STL по моделям, отзывы о курсах, оценки конструктора со средним баллом и последними комментариями), HTML-письмо через Resend на `ADMIN_EMAIL`. `?dryRun=1` возвращает HTML без отправки; GET и POST равнозначны |
@@ -6942,6 +6942,39 @@ UUID; продавец ищется в `workshop_settings.webhook_token` чер�
 регистре — 200 без дубля («Повторное уведомление»); чужой токен с хвостом, без хвоста и с
 `%2F` — одинаково 403 с одним и тем же `Получен: 00000000-...`; запрос без токена — 403
 `Токен не передан в адресе запроса: { path: '/api/webhooks/yandex' }`.
+
+**Вебхук Яндекса: PING изолирован первым действием и строгий конверт ответа (28 октября 2026).**
+После исправления хвоста `/notification` кабинет всё равно не подтверждал адрес: в логах Amvera
+не появлялось `[Yandex] PING подтверждён`. Причина — само распознавание проверки: тип
+уведомления искался только в `event`/`eventType`/`type`/`message_type`, а Яндекс кладёт его в
+`notificationType`; пустой JSON `{}` тоже проверкой не считался. Такой `PING` проходил мимо
+подтверждения, уходил на проверку токена и получал 403.
+
+Теперь `app/api/webhooks/yandex/route.ts` проверяет запрос на `PING` первым действием `POST` —
+до чтения токена, до `service_role` и до разбора заказа. Признак проверки возвращает
+`readPingSource()`: `PING`/`TYPE_PING` в `notificationType`, `event`, `eventType`, `type` или
+`message_type`, пустое тело, пустой JSON `{}`, текстовое тело `PING`/`TYPE_PING` и форма
+`notificationType=PING`; BOM снимается перед `JSON.parse`. Ответ собирает `pingOk()` явно
+(`new Response`, `Content-Type: application/json; charset=utf-8`):
+`{"version":"1.0.0","name":"tridi-print.ru","time":"<ISO-8601>"}` — `version` и `name` ждёт
+кабинет, `time` — момент ответа. В лог пишется признак, по которому проверка распознана
+(`[Yandex] PING подтверждён: notificationType`), поэтому следующий отказ видно без догадок.
+`GET` отдаёт тот же конверт вместе с `ok` и `endpoint`: если кабинет проверяет адрес обычным
+запросом, поля проверки там тоже есть. Слово `Ping` в составе заказа проверкой по-прежнему не
+считается, и заказ без токена получает 403.
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто,
+`npx eslint app/api/webhooks/yandex/route.ts --max-warnings=0` — чисто, `npm run build` —
+успешно, `npm run check:docs` — 0, `npm run check:imports` — 1 728 импортов без битых,
+`npm run check:style` — 38 уроков, 0 нарушений. `npm run dev` на порту 3133:
+`{"notificationType":"PING"}`, `{"notificationType":"TYPE_PING"}`, `{"eventType":"PING"}`,
+`{"event":"PING"}`, `{"type":"ping"}`, `{}`, пустое тело, текстовый `PING`, BOM + `PING`, форма
+`notificationType=PING` и `PING` с хвостом в токене — все 200 с
+`{"version":"1.0.0","name":"tridi-print.ru","time":"..."}` и
+`application/json; charset=utf-8`; три заказа без токена — с `notificationType:
+"ORDER_CREATED"` (два разных тела) и с товаром «Ping» — все 403 `unknown seller`, то есть
+изоляция `PING` не съедает заказы; в логе десять строк `[Yandex] PING подтверждён: <признак>`
+и ни одного запроса в базу на `PING`.
 
 
 **Доверие на страницах курсов: гарантия, ограничения и дата обновления (26 октября 2026).**

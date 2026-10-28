@@ -39,12 +39,14 @@ import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
  * человека: открыть в браузере и убедиться, что маршрут жив и его не
  * перехватывает middleware.
  *
- * Проверка соединения (`PING`) подтверждается раньше токена: кабинет Яндекса
- * сохраняет адрес только после ответа 2xx, а проверочный запрос может прийти без
- * нашего токена. Ответ на `PING` — документированный Яндексом конверт
- * `{ version: "1.0.0", time: <ISO-8601> }`, а не `{ result: true }`: с чужим
- * телом кабинет считает проверку неуспешной. Заказ без токена по-прежнему
- * получает 403 — пропуск касается только запросов без номера заказа.
+ * Проверка соединения (`PING`) подтверждается раньше токена и базы: кабинет
+ * Яндекса сохраняет адрес только после ответа 2xx, а проверочный запрос может
+ * прийти без нашего токена. Ответ на `PING` — конверт `{ version, name, time }`,
+ * а не `{ result: true }`: с чужим телом кабинет считает проверку неуспешной.
+ * Проверкой считается `PING`/`TYPE_PING` в `notificationType`, `eventType`,
+ * `event`, `type` или `message_type`, а также пустое тело и пустой JSON-объект:
+ * заказа в них быть не может. Заказ без токена по-прежнему получает 403 —
+ * пропуск касается только проверки соединения.
  */
 export const runtime = "nodejs";
 
@@ -151,11 +153,37 @@ function ok(): Response {
 }
 
 /**
- * Ответ на проверку соединения — ровно тот конверт, который ждёт кабинет
- * Яндекса. `version` фиксирован документацией, `time` — момент ответа в ISO.
+ * Тело ответа на проверку соединения.
+ *
+ * Кабинет Яндекса сохраняет адрес вебхука только по 2xx с этим конвертом:
+ * `version` — версия протокола проверки, `name` — домен магазина, `time` —
+ * момент ответа в ISO-8601. Поля лишние для нас, но именно их ждёт площадка,
+ * поэтому тело фиксировано: проверку нельзя случайно «улучшить» до
+ * `{ result: true }`.
+ */
+function pingPayload(): JsonObject {
+  return {
+    version: "1.0.0",
+    name: "tridi-print.ru",
+    time: new Date().toISOString(),
+  };
+}
+
+/**
+ * Ответ на проверку соединения.
+ *
+ * Заголовок задан здесь, а не через `json()`: адрес проверяют снаружи, и ответ
+ * должен быть JSON при любом рендере — тип и кодировка прописаны явно.
  */
 function pingOk(): Response {
-  return json({ version: "1.0.0", time: new Date().toISOString() });
+  return new Response(JSON.stringify(pingPayload()), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 /** Неизвестный или отсутствующий токен: заказ не создаём. */
@@ -218,15 +246,20 @@ function readWebhookToken(request: Request): string {
   return new URL(request.url).searchParams.get("token") ?? "";
 }
 
-/** Тип события уведомления: `event` — поле Яндекса, остальные — запасные. */
-function readEventType(body: JsonObject): string | null {
-  return (
-    readText(body.event) ??
-    readText(body.eventType) ??
-    readText(body.type) ??
-    readText(body.message_type)
-  );
-}
+/**
+ * Поля, где площадка кладёт тип уведомления.
+ *
+ * `notificationType` и `event` — имена Яндекса, `eventType`, `type` и
+ * `message_type` — запасные: кабинет присылает проверку разными полями, и по
+ * любому из них `PING` должен подтверждаться.
+ */
+const PING_FIELDS = [
+  "notificationType",
+  "event",
+  "eventType",
+  "type",
+  "message_type",
+] as const;
 
 /** Проверка соединения: `PING` или `TYPE_PING` в значении типа события. */
 function isPingEventType(value: unknown): boolean {
@@ -235,55 +268,61 @@ function isPingEventType(value: unknown): boolean {
   return eventType === "PING" || eventType === "TYPE_PING";
 }
 
-/** Проверка соединения в JSON: тип события лежит в одном из четырёх полей. */
-function isPingEvent(body: JsonObject): boolean {
-  return isPingEventType(readEventType(body));
-}
-
 /** Тело проверки соединения без JSON: ровно `PING` или `TYPE_PING`. */
 const PING_BODY_PATTERN = /^(?:type_)?ping$/iu;
 
 /**
- * Похож ли запрос на проверку соединения.
+ * Почему запрос считается проверкой соединения.
+ *
+ * Возвращает имя признака или `null`, если это не проверка: имя уходит в лог,
+ * и по нему видно, какое поле прислал кабинет, — не приходится угадывать,
+ * почему `PING` не подтвердился.
  *
  * Кабинет площадки сохраняет адрес вебхука только после ответа 2xx, поэтому
- * такую проверку подтверждаем раньше токена. Признаки:
- *   - пустое тело — заказа в нём быть не может;
- *   - JSON с типом события `PING`/`TYPE_PING` (остальные поля не важны);
+ * проверку подтверждаем первым делом — до токена и запросов в базу. Признаки:
+ *   - пустое тело или пустой JSON-объект `{}` — заказа в них быть не может;
+ *   - JSON, где `PING`/`TYPE_PING` лежит в одном из `PING_FIELDS` (остальные
+ *     поля не важны);
  *   - простое текстовое тело `PING`/`TYPE_PING`;
- *   - форма `eventType=PING` (так проверку присылают некоторые клиенты).
+ *   - форма `notificationType=PING` (так проверку присылают некоторые клиенты).
  * Слово ping внутри JSON проверкой не считается: решение принимает только поле
- * события, иначе сломанный JSON заказа с товаром «Ping» вернул бы 200 и заказ
- * потерялся. BOM в начале тела снимаем: иначе `JSON.parse` падает и `PING`
- * уходил бы на проверку токена.
+ * типа события, иначе сломанный JSON заказа с товаром «Ping» вернул бы 200 и
+ * заказ потерялся. BOM в начале тела снимаем: иначе `JSON.parse` падает и
+ * `PING` уходил бы на проверку токена.
  */
-function isPingRequest(bodyText: string): boolean {
+function readPingSource(bodyText: string): string | null {
   const text = stripBom(bodyText).trim();
 
   if (!text) {
-    return true;
+    return "пустое тело";
   }
 
   if (PING_BODY_PATTERN.test(text)) {
-    return true;
+    return "тело PING";
   }
 
   try {
     const body: unknown = JSON.parse(text);
 
-    return isObject(body) ? isPingEvent(body) : false;
+    if (!isObject(body)) {
+      return null;
+    }
+
+    const field = PING_FIELDS.find((name) => isPingEventType(body[name]));
+
+    if (field) {
+      return field;
+    }
+
+    return Object.keys(body).length === 0 ? "пустой JSON" : null;
   } catch {
     // Не JSON: возможно, проверка пришла формой — смотрим поля ниже.
   }
 
   const form = new URLSearchParams(text);
-  const eventType =
-    form.get("eventType") ??
-    form.get("event") ??
-    form.get("type") ??
-    form.get("message_type");
+  const field = PING_FIELDS.find((name) => isPingEventType(form.get(name)));
 
-  return isPingEventType(eventType);
+  return field ? `форма ${field}` : null;
 }
 
 /** Код ошибки PostgREST/Supabase; у обычных Error его нет. */
@@ -796,7 +835,9 @@ async function handleOrder(token: string, body: JsonObject): Promise<Response> {
  *      видно, что именно прислал Яндекс;
  *   2. проверка соединения (`PING`) подтверждается до токена и базы: кабинет
  *      сохраняет адрес только по ответу 2xx, а сам `PING` может прийти без
- *      нашего токена. Ответ — `{ version, time }`, как требует документация;
+ *      нашего токена. Ответ — `{ version, name, time }` с
+ *      `Content-Type: application/json; charset=utf-8`, а в лог идёт признак,
+ *      по которому проверка распознана;
  *   3. для остальных запросов читаем `token` из query и очищаем его от хвоста
  *      `/notification`, который дописывает кабинет, — иначе верный токен не
  *      совпадёт с базой;
@@ -807,8 +848,14 @@ export async function POST(request: Request): Promise<Response> {
 
   console.log("[Yandex] Входящий запрос. Body:", bodyText.slice(0, 500));
 
-  if (isPingRequest(bodyText)) {
-    console.log("[Yandex] PING подтверждён");
+  // Проверка соединения — первое, что делает маршрут: ни токена, ни базы, ни
+  // разбора заказа. Кабинет сохраняет адрес только по этому ответу, а сам
+  // `PING` приходит без нашего токена и без номера заказа, поэтому любая
+  // проверка перед ним (в том числе токена) превращала подтверждение в 403.
+  const pingSource = readPingSource(bodyText);
+
+  if (pingSource) {
+    console.log("[Yandex] PING подтверждён:", pingSource);
 
     return pingOk();
   }
@@ -859,8 +906,10 @@ export async function POST(request: Request): Promise<Response> {
  *
  * Не часть протокола Яндекса: адрес удобно открыть в браузере и увидеть, что
  * маршрут жив, а middleware его не перехватывает. Токен здесь не нужен и в
- * базу мы не ходим: уведомления приходят POST.
+ * базу мы не ходим: уведомления приходят POST. В ответ добавлен конверт
+ * проверки (`version`, `name`, `time`): если кабинет проверяет адрес не POST-ом,
+ * а обычным запросом, он получит те же поля, что и в ответ на `PING`.
  */
 export async function GET(): Promise<Response> {
-  return json({ ok: true, endpoint: "yandex-webhook" });
+  return json({ ok: true, endpoint: "yandex-webhook", ...pingPayload() });
 }
