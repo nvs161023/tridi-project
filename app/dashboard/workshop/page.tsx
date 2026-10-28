@@ -67,6 +67,9 @@ export default async function WorkshopPage() {
   const activeOrders = orders.filter(
     (order) => order.status !== "delivered",
   ).length;
+  const unmappedOrders = orders.filter(
+    (order) => order.status === "unmapped",
+  ).length;
   const printingOrders = orders.filter(
     (order) => order.status === "printing",
   ).length;
@@ -183,6 +186,38 @@ export default async function WorkshopPage() {
               printerCount={printerCount}
               maintenanceDue={maintenanceDue}
             />
+
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+              <Link
+                href="/dashboard/workshop/products"
+                className="inline-flex min-h-10 items-center rounded-xl border border-white/10 bg-white/[0.03] px-4 font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
+              >
+                Каталог и G-code
+              </Link>
+              <Link
+                href="/dashboard/workshop/marketplace"
+                className="inline-flex min-h-10 items-center rounded-xl border border-white/10 bg-white/[0.03] px-4 font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
+              >
+                Маркетплейсы
+              </Link>
+            </div>
+
+            {unmappedOrders > 0 ? (
+              <Link
+                href="/dashboard/workshop/marketplace"
+                className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/25 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-100 transition-colors hover:border-amber-400/40 hover:bg-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
+              >
+                <span>
+                  <strong className="font-bold">
+                    {unmappedOrders} заказ(ов) без маппинга.
+                  </strong>{" "}
+                  Свяжите SKU с товаром, чтобы вернуть их в работу.
+                </span>
+                <span aria-hidden className="font-semibold">
+                  Открыть →
+                </span>
+              </Link>
+            ) : null}
 
             <WorkshopTabs
               settings={snapshot.settings}

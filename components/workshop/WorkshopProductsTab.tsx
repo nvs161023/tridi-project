@@ -1,10 +1,15 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { deleteProduct } from "@/app/actions/products";
 import { AddProductDialog } from "@/components/workshop/AddProductDialog";
 import { ImportProductsDialog } from "@/components/workshop/ImportProductsDialog";
-import { ProductsIcon } from "@/components/workshop/WorkshopIcons";
+import {
+  ProductsIcon,
+  TrashIcon,
+} from "@/components/workshop/WorkshopIcons";
 import type { WorkshopProduct } from "@/lib/workshop/products";
 
 /**
@@ -76,10 +81,19 @@ function formatProductDimensions(product: WorkshopProduct): string {
     .join("×");
 }
 
+/** Ссылка на G-code, только если это http(s): старые данные тоже проверяем. */
+function gcodeHref(url: string | null): string | null {
+  return url && /^https?:\/\//iu.test(url) ? url : null;
+}
+
 export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
+  const router = useRouter();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const importButtonRef = useRef<HTMLButtonElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -130,6 +144,40 @@ export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
     setIsImportDialogOpen(false);
     window.requestAnimationFrame(() => importButtonRef.current?.focus());
   }, []);
+
+  /**
+   * Удаление товара.
+   *
+   * Подтверждение обязательно: вместе с товаром уходят связи маркетплейсов,
+   * а в старых заказах позиция останется без product_id. Сами заказы и SKU
+   * сохраняются, поэтому история не пропадает.
+   */
+  async function removeProduct(product: WorkshopProduct) {
+    if (
+      deletingId ||
+      !window.confirm(
+        `Удалить товар «${product.title}»? Связи SKU с маркетплейсами тоже удалятся, а в старых заказах позиция останется без товара.`,
+      )
+    ) {
+      return;
+    }
+
+    setNotice(null);
+    setError(null);
+    setDeletingId(product.id);
+
+    const result = await deleteProduct(product.id);
+
+    setDeletingId(null);
+
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+
+    setNotice(result.message ?? "Товар удалён.");
+    router.refresh();
+  }
 
   return (
     <section
@@ -230,6 +278,24 @@ export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
         </div>
       </div>
 
+      {error ? (
+        <p
+          role="alert"
+          className="mt-5 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      {notice ? (
+        <p
+          role="status"
+          className="mt-5 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm leading-relaxed text-emerald-100"
+        >
+          {notice}
+        </p>
+      ) : null}
+
       {products.length === 0 ? (
         <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-[#0a0a0a] px-5 py-12 text-center sm:py-16">
           <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-blue-300 shadow-[0_18px_60px_-28px_rgba(59,130,246,0.7)]">
@@ -259,7 +325,11 @@ export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
           <p className="mt-3 text-xs font-semibold text-zinc-500">
             Товаров: {products.length}
           </p>
-          <ProductsTable products={products} />
+          <ProductsTable
+            products={products}
+            deletingId={deletingId}
+            onDelete={removeProduct}
+          />
         </>
       )}
 
@@ -272,16 +342,24 @@ export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
 }
 
 /** Таблица каталога в стиле склада: тёмная карточка и компактные строки. */
-function ProductsTable({ products }: { products: WorkshopProduct[] }) {
+function ProductsTable({
+  products,
+  deletingId,
+  onDelete,
+}: {
+  products: WorkshopProduct[];
+  deletingId: string | null;
+  onDelete: (product: WorkshopProduct) => void;
+}) {
   return (
     <div
       data-products-table
       className="mt-4 overflow-hidden rounded-2xl border border-white/5 bg-[#0a0a0a]"
     >
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] border-collapse text-sm">
+        <table className="w-full min-w-[760px] border-collapse text-sm">
           <caption className="sr-only">
-            Товары: артикул, название, цена, вес и габариты
+            Товары: артикул, название, цена, вес, габариты и ссылка на G-code
           </caption>
           <thead>
             <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
@@ -300,34 +378,71 @@ function ProductsTable({ products }: { products: WorkshopProduct[] }) {
               <th scope="col" className="px-3 py-3">
                 Габариты
               </th>
+              <th scope="col" className="px-3 py-3">
+                G-code
+              </th>
+              <th scope="col" className="px-3 py-3 text-right">
+                <span className="sr-only">Действия</span>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {products.map((product) => (
-              <tr
-                key={product.id}
-                className="border-b border-white/5 align-top last:border-b-0"
-              >
-                <td className="px-3 py-4 font-mono text-xs font-semibold whitespace-nowrap text-blue-200">
-                  {product.sku}
-                </td>
-                <td className="px-3 py-4 font-semibold text-white">
-                  {product.title}
-                </td>
-                <td className="px-3 py-4 text-right font-semibold whitespace-nowrap tabular-nums text-white">
-                  {formatProductPrice(product.price)}
-                </td>
-                <td className="px-3 py-4 text-right tabular-nums text-zinc-300">
-                  {formatProductWeight(product.weightG)}
-                </td>
-                <td
-                  title="Длина × ширина × высота, мм"
-                  className="px-3 py-4 whitespace-nowrap tabular-nums text-zinc-300"
+            {products.map((product) => {
+              const href = gcodeHref(product.gcodeUrl);
+              const isDeleting = deletingId === product.id;
+
+              return (
+                <tr
+                  key={product.id}
+                  className="border-b border-white/5 align-top last:border-b-0"
                 >
-                  {formatProductDimensions(product)}
-                </td>
-              </tr>
-            ))}
+                  <td className="px-3 py-4 font-mono text-xs font-semibold whitespace-nowrap text-blue-200">
+                    {product.sku}
+                  </td>
+                  <td className="px-3 py-4 font-semibold text-white">
+                    {product.title}
+                  </td>
+                  <td className="px-3 py-4 text-right font-semibold whitespace-nowrap tabular-nums text-white">
+                    {formatProductPrice(product.price)}
+                  </td>
+                  <td className="px-3 py-4 text-right tabular-nums text-zinc-300">
+                    {formatProductWeight(product.weightG)}
+                  </td>
+                  <td
+                    title="Длина × ширина × высота, мм"
+                    className="px-3 py-4 whitespace-nowrap tabular-nums text-zinc-300"
+                  >
+                    {formatProductDimensions(product)}
+                  </td>
+                  <td className="px-3 py-4 whitespace-nowrap">
+                    {href ? (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-semibold text-blue-300 underline decoration-blue-300/40 underline-offset-2 transition-colors hover:text-blue-200"
+                      >
+                        Открыть
+                      </a>
+                    ) : (
+                      <span className="text-zinc-500">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-4 text-right">
+                    <button
+                      type="button"
+                      onClick={() => onDelete(product)}
+                      disabled={isDeleting}
+                      aria-label={`Удалить товар «${product.title}»`}
+                      aria-busy={isDeleting}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

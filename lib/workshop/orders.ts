@@ -30,15 +30,34 @@ import {
   parseWorkshopNumber,
 } from "@/lib/workshop/settings";
 
-/** Четыре статуса заказа; строки совпадают с check в SQL. */
-export type OrderStatus = "new" | "printing" | "ready" | "delivered";
+/**
+ * Статусы, в которых заказ двигается по Kanban: new → printing → ready →
+ * delivered. Именно по ним считается «следующий шаг» в `nextOrderStatus`.
+ */
+export type OrderFlowStatus = "new" | "printing" | "ready" | "delivered";
 
-/** Порядок статусов: по нему считается следующий шаг. */
-export const ORDER_STATUS_SEQUENCE: readonly OrderStatus[] = [
+/**
+ * Все статусы строки workshop_orders.
+ *
+ * `unmapped` — заказ маркетплейса, в котором хотя бы один SKU не связан с
+ * товаром каталога. Он приходит из `lib/order-processor.ts`, не показывается
+ * колонками Kanban и не может быть переведён дальше, пока связи нет: печатать
+ * нечего. Статус добавляет `supabase/workshop_farm_and_shop.sql`.
+ */
+export type OrderStatus = OrderFlowStatus | "unmapped";
+
+/** Порядок статусов Kanban: по нему считается следующий шаг. */
+export const ORDER_STATUS_SEQUENCE: readonly OrderFlowStatus[] = [
   "new",
   "printing",
   "ready",
   "delivered",
+];
+
+/** Все допустимые значения workshop_orders.status, включая unmapped. */
+export const ORDER_STATUSES: readonly OrderStatus[] = [
+  ...ORDER_STATUS_SEQUENCE,
+  "unmapped",
 ];
 
 /** Подпись и цвет бейджа статуса. Классы статические — Tailwind их видит. */
@@ -62,10 +81,16 @@ export const ORDER_STATUS_META: Record<
     label: "Доставлен",
     badgeClassName: "border-white/10 bg-white/5 text-slate-400",
   },
+  unmapped: {
+    label: "Без маппинга",
+    badgeClassName: "border-amber-400/40 bg-amber-500/15 text-amber-100",
+  },
 };
 
 /** Следующий статус или null: «Доставлен» дальше не двигается. */
-export function nextOrderStatus(status: OrderStatus): OrderStatus | null {
+export function nextOrderStatus(
+  status: OrderFlowStatus,
+): OrderFlowStatus | null {
   const index = ORDER_STATUS_SEQUENCE.indexOf(status);
 
   return index >= 0 && index < ORDER_STATUS_SEQUENCE.length - 1
@@ -73,11 +98,24 @@ export function nextOrderStatus(status: OrderStatus): OrderStatus | null {
     : null;
 }
 
-/** Статус из строки базы: незнакомое значение считается «новым». */
-export function isOrderStatus(value: unknown): value is OrderStatus {
+/**
+ * Статус, в который можно перетащить карточку.
+ *
+ * `unmapped` сюда не входит: такой заказ сначала лечат связью SKU на странице
+ * маркетплейса, а не сменой статуса вручную.
+ */
+export function isOrderFlowStatus(value: unknown): value is OrderFlowStatus {
   return (
     typeof value === "string" &&
     (ORDER_STATUS_SEQUENCE as readonly string[]).includes(value)
+  );
+}
+
+/** Любой статус из строки базы, включая unmapped. */
+export function isOrderStatus(value: unknown): value is OrderStatus {
+  return (
+    typeof value === "string" &&
+    (ORDER_STATUSES as readonly string[]).includes(value)
   );
 }
 

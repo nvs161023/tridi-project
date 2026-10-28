@@ -27,6 +27,7 @@ import {
   formatOrderCost,
   formatOrderDate,
   formatOrderHours,
+  type OrderFlowStatus,
   type OrderStatus,
   type WorkshopOrder,
 } from "@/lib/workshop/orders";
@@ -63,7 +64,7 @@ type WorkshopOrdersTabProps = {
 };
 
 type StatusColumn = {
-  status: OrderStatus;
+  status: OrderFlowStatus;
   label: string;
   hint: string;
 };
@@ -84,6 +85,7 @@ const STATUS_DOT_CLASS: Record<OrderStatus, string> = {
   printing: "bg-blue-400",
   ready: "bg-emerald-400",
   delivered: "bg-violet-400",
+  unmapped: "bg-amber-400",
 };
 
 /** Начало сегодняшнего дня: по нему считаем просроченные сроки. */
@@ -120,7 +122,7 @@ export function WorkshopOrdersTab({
   /** Заказ, который удаляется: карточка блокируется до ответа сервера. */
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOverStatus, setDragOverStatus] = useState<OrderStatus | null>(
+  const [dragOverStatus, setDragOverStatus] = useState<OrderFlowStatus | null>(
     null,
   );
   /** Открытая карточка заказа: id вместо объекта — детали берутся из props. */
@@ -141,7 +143,7 @@ export function WorkshopOrdersTab({
   );
 
   const groupedOrders = useMemo(() => {
-    const groups: Record<OrderStatus, WorkshopOrder[]> = {
+    const groups: Record<OrderFlowStatus, WorkshopOrder[]> = {
       new: [],
       printing: [],
       ready: [],
@@ -149,7 +151,9 @@ export function WorkshopOrdersTab({
     };
 
     for (const order of orders) {
-      groups[order.status].push(order);
+      if (order.status !== "unmapped") {
+        groups[order.status].push(order);
+      }
     }
 
     return groups;
@@ -236,7 +240,7 @@ export function WorkshopOrdersTab({
   }
 
   /** Перенос карточки в выбранную колонку: сервер проверяет заказ и статус. */
-  async function moveOrder(order: WorkshopOrder, nextStatus: OrderStatus) {
+  async function moveOrder(order: WorkshopOrder, nextStatus: OrderFlowStatus) {
     if (
       order.status === nextStatus ||
       pendingId === order.id ||
@@ -311,7 +315,7 @@ export function WorkshopOrdersTab({
     }
   }
 
-  function handleDropOrder(orderId: string, nextStatus: OrderStatus) {
+  function handleDropOrder(orderId: string, nextStatus: OrderFlowStatus) {
     setDraggingId(null);
     setDragOverStatus(null);
 
@@ -499,14 +503,14 @@ type KanbanColumnProps = {
   deletingId: string | null;
   draggingId: string | null;
   isDragOver: boolean;
-  onDragOverStatusChange: (status: OrderStatus | null) => void;
+  onDragOverStatusChange: (status: OrderFlowStatus | null) => void;
   onDragStart: (
     event: DragEvent<HTMLLIElement>,
     order: WorkshopOrder,
   ) => void;
   onDragEnd: () => void;
-  onDropOrder: (orderId: string, status: OrderStatus) => void;
-  onMoveOrder: (order: WorkshopOrder, status: OrderStatus) => void;
+  onDropOrder: (orderId: string, status: OrderFlowStatus) => void;
+  onMoveOrder: (order: WorkshopOrder, status: OrderFlowStatus) => void;
   onDeleteOrder: (order: WorkshopOrder) => void;
   onOpenOrder: (order: WorkshopOrder) => void;
   onCardClick: (
@@ -666,7 +670,7 @@ type OrderCardProps = {
     order: WorkshopOrder,
   ) => void;
   onDragEnd: () => void;
-  onMoveOrder: (order: WorkshopOrder, status: OrderStatus) => void;
+  onMoveOrder: (order: WorkshopOrder, status: OrderFlowStatus) => void;
   onDelete: (order: WorkshopOrder) => void;
   onOpen: (order: WorkshopOrder) => void;
   onClick: (
@@ -826,7 +830,7 @@ function StatusMenu({
   order: WorkshopOrder;
   isPending: boolean;
   isDeleting: boolean;
-  onSelect: (status: OrderStatus) => void;
+  onSelect: (status: OrderFlowStatus) => void;
   onDelete: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -913,7 +917,7 @@ function StatusMenu({
     setIsOpen(true);
   }
 
-  function chooseStatus(nextStatus: OrderStatus) {
+  function chooseStatus(nextStatus: OrderFlowStatus) {
     setIsOpen(false);
     setPosition(null);
     triggerRef.current?.focus();

@@ -1,5 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
+import {
+  processMarketplaceOrder,
+  type NormalizedOrder,
+  type OrderProcessingFailure,
+} from "@/lib/order-processor";
 
 /**
  * Вебхук Wildberries.
@@ -56,9 +61,6 @@ const MAX_SKU_LENGTH = 128;
 
 /** Больше позиций в notes всё равно не поместится из-за лимита text. */
 const MAX_SKUS = 100;
-
-/** `workshop_orders.notes` — text с check до 1000 символов. */
-const MAX_NOTES_LENGTH = 1000;
 
 /** `workshop_orders.total_cost` — numeric(10,2) от 0 до 1 000 000. */
 const MAX_TOTAL_COST = 1_000_000;
@@ -127,6 +129,21 @@ function json(body: unknown, status = 200): Response {
       "x-content-type-options": "nosniff",
     },
   });
+}
+
+/** Ошибка процессора → HTTP-ответ вебхука. */
+function processingFailure(result: OrderProcessingFailure): Response {
+  const status =
+    result.reason === "invalid_order"
+      ? 400
+      : result.reason === "migration_missing" ||
+          result.reason === "server_misconfigured"
+        ? 503
+        : 500;
+
+  console.error("[WB] Заказ не обработан:", result.reason, result.error);
+
+  return json({ error: result.reason }, status);
 }
 
 /** Успешное уведомление: WB считает заказ принятым по ответу 2xx. */
@@ -330,20 +347,38 @@ function readProducts(payload: JsonObject): WbProductLine[] {
 }
 
 /**
- * Сумма заказа из `price`.
+ * Сумма заказа из `price`, `finalPrice` или `salePrice`.
  *
  * В модели заказа WB суммы приходят умноженными на 100: `price: 1014` — это
  * 10,14 ₽. Поэтому значение без дробной части делится на 100. Строка с точкой
  * или запятой («1500.00», «1500,00») пришла не из модели заказа — её считаем
  * рублями, иначе сумма уменьшилась бы в сто раз.
  *
- * WB может прислать число или строку с точкой/запятой. Отсутствующая цена —
- * это 0: заказ важнее суммы, её можно поправить в мастерской. Явно
+ * Отсутствующая цена — null, а не 0: в аналитике это «неизвестно». Явно
  * некорректная цена (текст, минус, больше лимита базы) отклоняется, иначе
- * `total_cost` не пройдёт check и заказ потеряется с 500.
+ * check таблицы потеряет заказ.
  */
-function readPrice(payload: JsonObject): number | null {
+function readTotalPrice(
+  payload: JsonObject,
+): { ok: true; value: number | null } | { ok: false } {
   for (const field of WB_PRICE_FIELDS) {
+    const raw = payload[field];
+
+    if (raw === undefined || raw === null || raw === "") {
+      continue;
+    }
+
+    const money = readAmount(raw);
+
+    return money === null ? { ok: false } : { ok: true, value: money };
+  }
+
+  return { ok: true, value: null };
+}
+
+/** Комиссия WB: в уведомлении её обычно нет, тогда null. */
+function readCommission(payload: JsonObject): number | null {
+  for (const field of ["commission", "commission_amount", "commissionAmount"]) {
     const raw = payload[field];
 
     if (raw === undefined || raw === null || raw === "") {
@@ -353,7 +388,16 @@ function readPrice(payload: JsonObject): number | null {
     return readAmount(raw);
   }
 
-  return 0;
+  return null;
+}
+
+/** Имя покупателя из уведомления, если оно там есть. */
+function readBuyerName(payload: JsonObject): string | null {
+  return (
+    readText(payload.buyer_name) ??
+    readText(payload.customer_name) ??
+    readText(payload.client_name)
+  );
 }
 
 /**
@@ -384,45 +428,11 @@ function readAmount(raw: unknown): number | null {
 }
 
 /**
- * Заметки заказа: JSON с артикулами и количеством.
- *
- * notes ограничены 1000 символами, а артикулы бывают длинными. Поэтому
- * отбрасываем позиции с конца, пока JSON помещается, и честно пишем, сколько
- * позиций не вошло: обрезанная строка ломала бы JSON.
- */
-function buildNotes(products: WbProductLine[]): string {
-  const notes = JSON.stringify({ items: products });
-
-  if (notes.length <= MAX_NOTES_LENGTH) {
-    return notes;
-  }
-
-  const kept = [...products];
-
-  while (kept.length > 0) {
-    kept.pop();
-
-    const candidate = JSON.stringify({
-      items: kept,
-      omitted: products.length - kept.length,
-    });
-
-    if (candidate.length <= MAX_NOTES_LENGTH) {
-      return candidate;
-    }
-  }
-
-  return JSON.stringify({ items: [], omitted: products.length });
-}
-
-/**
  * Новый заказ WB.
  *
- * Порядок:
- *   1. разбираем номер, артикулы и цену — без номера заказ не создать;
- *   2. ищем ровно одну строку `workshop_settings` по токену;
- *   3. повторное уведомление по тому же номеру не создаёт дубль;
- *   4. пишем заказ с `source = 'wb'`, `status = 'new'` и `total_cost`.
+ * Разбираем номер, артикулы и цену в NormalizedOrder, а запись и дедупликацию
+ * делает общий процессор. Позиции WB не содержат цену за единицу — она
+ * остаётся null, сумма заказа известна отдельно.
  */
 async function handleOrder(token: string, body: JsonObject): Promise<Response> {
   const payload = readOrderPayload(body);
@@ -432,16 +442,13 @@ async function handleOrder(token: string, body: JsonObject): Promise<Response> {
     return json({ error: "invalid order id" }, 400);
   }
 
-  const price = readPrice(payload);
+  const total = readTotalPrice(payload);
 
-  if (price === null) {
+  if (!total.ok) {
     return json({ error: "invalid price" }, 400);
   }
 
   const products = readProducts(payload);
-  const title = `WB: ${orderId}`;
-  const notes = buildNotes(products);
-
   const seller = await resolveSeller(token);
 
   if (seller.failure) {
@@ -449,78 +456,34 @@ async function handleOrder(token: string, body: JsonObject): Promise<Response> {
   }
 
   const { admin, userId } = seller;
+  const order: NormalizedOrder = {
+    marketplace_order_id: orderId,
+    buyer_name: readBuyerName(payload),
+    items: products.map((line) => ({
+      sku: line.sku,
+      quantity: line.quantity,
+      price: null,
+    })),
+    total_amount: total.value,
+    marketplace_commission: readCommission(payload),
+    source: "wb",
+  };
+  const result = await processMarketplaceOrder(order, userId, {
+    supabase: admin,
+  });
 
-  try {
-    // Отдельной колонки с номером заказа WB нет, поэтому повтор ищем по title:
-    // он собирается из `id` детерминированно.
-    const { data: existing, error: existingError } = await admin
-      .from("workshop_orders")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("source", "wb")
-      .eq("title", title)
-      .limit(1)
-      .maybeSingle();
-
-    if (existingError) {
-      console.error("[WB] Ошибка проверки повторного заказа:", existingError);
-
-      return isMissingTableSchema(
-        existingError.code,
-        existingError.message,
-      )
-        ? notConfigured()
-        : json({ error: "database error" }, 500);
-    }
-
-    if (existing) {
-      console.log("[WB] Повторное уведомление, заказ уже создан:", {
-        userId,
-        orderId,
-      });
-
-      return ok();
-    }
-  } catch (error) {
-    console.error("[WB] Ошибка проверки повторного заказа:", error);
-
-    return json({ error: "database error" }, 500);
+  if (!result.ok) {
+    return processingFailure(result);
   }
 
-  try {
-    const { error } = await admin.from("workshop_orders").insert({
-      user_id: userId,
-      source: "wb",
-      title,
-      status: "new",
-      total_cost: price,
-      notes,
-    });
-
-    if (error) {
-      // Уникального индекса на номер заказа нет, но если он появится,
-      // повтор уведомления должен остаться успешным для WB.
-      if (error.code === "23505") {
-        return ok();
-      }
-
-      console.error("[WB] Ошибка записи заказа:", error);
-
-      return isMissingTableSchema(error.code, error.message)
-        ? notConfigured()
-        : json({ error: "database error" }, 500);
-    }
-  } catch (error) {
-    console.error("[WB] Ошибка записи заказа:", error);
-
-    return json({ error: "database error" }, 500);
-  }
-
-  console.log("[WB] Заказ создан:", {
+  console.log("[WB] Заказ обработан:", {
     userId,
     orderId,
+    orderIdInDb: result.data.orderId,
+    status: result.data.orderStatus,
+    outcome: result.data.outcome,
     products: products.length,
-    price,
+    total: total.value,
   });
 
   return ok();

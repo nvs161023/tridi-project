@@ -25,6 +25,7 @@ import {
   ORDER_STATUS_META,
   ORDER_TEXT_LIMITS,
   formatOrderHours,
+  isOrderFlowStatus,
   isOrderId,
   isOrderStatus,
   normalizeOrderComment,
@@ -35,7 +36,7 @@ import {
   readOrderForm,
   type FilamentUsagePlan,
   type OrderComment,
-  type OrderStatus,
+  type OrderFlowStatus,
 } from "@/lib/workshop/orders";
 import { getOrderComments } from "@/lib/workshop/order-store";
 import {
@@ -386,13 +387,13 @@ export async function createOrder(
  */
 export async function updateOrderStatus(
   orderId: string,
-  nextStatus: OrderStatus,
+  nextStatus: OrderFlowStatus,
 ): Promise<OrderActionState> {
   if (!isOrderId(orderId)) {
     return { ok: false, error: INVALID_ID };
   }
 
-  if (!isOrderStatus(nextStatus)) {
+  if (!isOrderFlowStatus(nextStatus)) {
     return { ok: false, error: INVALID_STATUS };
   }
 
@@ -437,6 +438,14 @@ export async function updateOrderStatus(
     typeof row.title === "string" && row.title.trim()
       ? row.title.trim()
       : "Без названия";
+
+  if (current === "unmapped") {
+    return {
+      ok: false,
+      error:
+        "Заказ ждёт маппинга: свяжите SKU с товаром на странице «Маркетплейсы», и он вернётся в работу.",
+    };
+  }
 
   if (current === nextStatus) {
     return {

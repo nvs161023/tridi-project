@@ -3,10 +3,12 @@
 import type {
   AddProductResult,
   CsvImportPlatform,
+  DeleteProductResult,
   ImportProductsResult,
 } from "@/lib/workshop/products";
 import {
   addProduct as addProductInCatalog,
+  deleteProduct as deleteProductInCatalog,
   importProductsFromCsv as importProductsInCatalog,
 } from "@/lib/workshop/products";
 
@@ -30,4 +32,11 @@ export async function importProductsFromCsv(
   platform: CsvImportPlatform,
 ): Promise<ImportProductsResult> {
   return importProductsInCatalog(csvString, platform);
+}
+
+/** Удаление товара: связи SKU уходят каскадом, позиции заказов остаются. */
+export async function deleteProduct(
+  productId: string,
+): Promise<DeleteProductResult> {
+  return deleteProductInCatalog(productId);
 }

@@ -23,11 +23,17 @@ export const TEMP_IMAGES_BUCKET = "workshop-temp";
 /** Бакет для готовых 3D-моделей: эти файлы отдаём пользователю навсегда. */
 export const MODELS_BUCKET = "3d-models";
 
+/** Бакет для G-code каталога: агент фермы скачивает файл по публичной ссылке. */
+export const GCODE_BUCKET = "workshop-gcode";
+
 /** Предел размера файла в бакете — тот же, что у роутов с фото. */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /** Предел размера модели: GLB из Trellis 2 весит 15–50 МБ. */
 const MAX_MODEL_BYTES = 50 * 1024 * 1024;
+
+/** G-code с поддержками тоже бывает тяжёлым; 50 МБ хватает типичной вазе. */
+const MAX_GCODE_BYTES = 50 * 1024 * 1024;
 
 /** Форматы, которые принимает Gen API. */
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -37,6 +43,14 @@ const MODEL_MIME_TYPES = [
   "model/gltf-binary",
   "model/gltf+json",
   "application/octet-stream",
+];
+
+/** Браузер часто не знает MIME G-code и присылает пустой тип. */
+const GCODE_MIME_TYPES = [
+  "text/plain",
+  "application/octet-stream",
+  "text/x-gcode",
+  "application/x-gcode",
 ];
 
 /** Расширение по MIME-типу: внешний сервис смотрит и на имя файла. */
@@ -53,6 +67,9 @@ let bucketReady: Promise<void> | null = null;
 
 /** То же для бакета с моделями: проверка отдельная, лимиты другие. */
 let modelsBucketReady: Promise<void> | null = null;
+
+/** И для G-code каталога: файл не должен попасть в чужую папку. */
+let gcodeBucketReady: Promise<void> | null = null;
 
 /**
  * Создаёт бакет `workshop-temp`, если его нет, и открывает публичный доступ.
@@ -154,6 +171,49 @@ async function ensureModelsBucket(admin: SupabaseAdmin): Promise<void> {
 }
 
 /**
+ * Создаёт публичный бакет `workshop-gcode` с лимитом 50 МБ.
+ *
+ * Ссылку скачивает локальный агент фермы без ключей Supabase, поэтому бакет
+ * публичный. Имя файла — UUID внутри папки пользователя: угадать чужой G-code
+ * нельзя, а повторная загрузка не перезаписывает существующий файл.
+ */
+async function ensureGcodeBucket(admin: SupabaseAdmin): Promise<void> {
+  const { data } = await admin.storage.getBucket(GCODE_BUCKET);
+
+  if (data?.public && (data.file_size_limit ?? 0) >= MAX_GCODE_BYTES) {
+    return;
+  }
+
+  if (data) {
+    const { error } = await admin.storage.updateBucket(GCODE_BUCKET, {
+      public: true,
+      fileSizeLimit: MAX_GCODE_BYTES,
+      allowedMimeTypes: GCODE_MIME_TYPES,
+    });
+
+    if (error) {
+      throw new Error(
+        `Не удалось настроить бакет ${GCODE_BUCKET}: ${error.message}`,
+      );
+    }
+
+    return;
+  }
+
+  const { error } = await admin.storage.createBucket(GCODE_BUCKET, {
+    public: true,
+    fileSizeLimit: MAX_GCODE_BYTES,
+    allowedMimeTypes: GCODE_MIME_TYPES,
+  });
+
+  if (error && !/exist|duplicate/i.test(error.message)) {
+    throw new Error(
+      `Не удалось создать бакет ${GCODE_BUCKET}: ${error.message}`,
+    );
+  }
+}
+
+/**
  * Кладёт готовую модель в `3d-models` и возвращает постоянный публичный URL.
  *
  * Имя файла — `3d-model-${requestId}.glb`: номер задачи уникален, поэтому
@@ -230,4 +290,43 @@ export async function uploadImageToSupabase(file: File): Promise<string> {
 
   return admin.storage.from(TEMP_IMAGES_BUCKET).getPublicUrl(path).data
     .publicUrl;
+}
+
+/**
+ * Загружает G-code товара в публичный бакет `workshop-gcode`.
+ *
+ * Путь начинается с `userId`: файлы разных мастерских не пересекаются даже
+ * при совпадении имён. Расширение всегда `.gcode`, contentType — из файла или
+ * `application/octet-stream`: браузер часто не знает этот формат.
+ */
+export async function uploadGcodeToSupabase(
+  userId: string,
+  file: File,
+): Promise<string> {
+  const admin = createAdminClient();
+
+  gcodeBucketReady ??= ensureGcodeBucket(admin).catch((error: unknown) => {
+    gcodeBucketReady = null;
+    throw error;
+  });
+
+  await gcodeBucketReady;
+
+  const path = `${userId}/${dateFolder()}/${randomUUID()}.gcode`;
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const contentType = GCODE_MIME_TYPES.includes(file.type)
+    ? file.type
+    : "application/octet-stream";
+
+  const { error } = await admin.storage.from(GCODE_BUCKET).upload(path, bytes, {
+    contentType,
+    cacheControl: "31536000",
+    upsert: false,
+  });
+
+  if (error) {
+    throw new Error(`Не удалось загрузить G-code: ${error.message}`);
+  }
+
+  return admin.storage.from(GCODE_BUCKET).getPublicUrl(path).data.publicUrl;
 }

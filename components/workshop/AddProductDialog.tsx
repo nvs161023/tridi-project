@@ -31,6 +31,7 @@ const legendClassName =
 export function AddProductDialog({ onClose }: AddProductDialogProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useDialogDismiss(onClose);
@@ -38,17 +39,55 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (isSubmitting) {
+    if (isSubmitting || isUploading) {
       return;
     }
 
     // FormData собираем до await: после него event.currentTarget уже обнулён.
     const formData = new FormData(event.currentTarget);
+    const file = formData.get("gcodeFile");
+
+    // File в Server Action не отправляем: он весит мегабайты и упрётся в
+    // лимит тела. Сначала файл идёт в /api/workshop/gcode, потом в форму
+    // попадает только его публичная ссылка.
+    formData.delete("gcodeFile");
 
     setError(null);
     setIsSubmitting(true);
 
     try {
+      if (file instanceof File && file.size > 0) {
+        setIsUploading(true);
+
+        const uploadForm = new FormData();
+        uploadForm.set("file", file);
+
+        const response = await fetch("/api/workshop/gcode", {
+          method: "POST",
+          body: uploadForm,
+        });
+        const payload = (await response.json().catch(() => null)) as
+          | { url?: unknown; error?: unknown }
+          | null;
+
+        if (
+          !response.ok ||
+          !payload ||
+          typeof payload.url !== "string" ||
+          !payload.url
+        ) {
+          setError(
+            typeof payload?.error === "string"
+              ? payload.error
+              : "Не удалось загрузить G-code. Попробуйте ещё раз.",
+          );
+
+          return;
+        }
+
+        formData.set("gcodeUrl", payload.url);
+      }
+
       const result = await addProduct(formData);
 
       if (result.error) {
@@ -73,6 +112,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
         "Не удалось отправить форму. Проверьте соединение и попробуйте ещё раз.",
       );
     } finally {
+      setIsUploading(false);
       setIsSubmitting(false);
     }
   }
@@ -217,6 +257,45 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
           </fieldset>
 
           <fieldset>
+            <legend className={legendClassName}>Файл печати</legend>
+            <div className="mt-3 space-y-4">
+              <div>
+                <FieldLabel htmlFor="product-gcode-url" label="Ссылка на G-code" />
+                <input
+                  id="product-gcode-url"
+                  name="gcodeUrl"
+                  type="url"
+                  inputMode="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="https://…/vase.gcode"
+                  maxLength={2048}
+                  className={inputClassName}
+                />
+                <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                  Можно вставить публичную ссылку или выбрать файл ниже. Файл
+                  заменит ссылку.
+                </p>
+              </div>
+
+              <div>
+                <FieldLabel htmlFor="product-gcode-file" label="Загрузить файл" />
+                <input
+                  id="product-gcode-file"
+                  name="gcodeFile"
+                  type="file"
+                  accept=".gcode,.gco,.g"
+                  className="mt-2 block w-full cursor-pointer rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-zinc-300 file:mr-4 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
+                />
+                <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                  .gcode, .gco или .g, до 50 МБ. Файл попадёт в каталог и будет
+                  доступен агенту фермы по ссылке.
+                </p>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset>
             <legend className={legendClassName}>Дополнительно</legend>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <TextField
@@ -272,11 +351,15 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
           <div className="flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row">
             <button
               type="submit"
-              disabled={isSubmitting}
-              aria-busy={isSubmitting}
+              disabled={isSubmitting || isUploading}
+              aria-busy={isSubmitting || isUploading}
               className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Сохранение..." : "Сохранить"}
+              {isUploading
+                ? "Загрузка файла..."
+                : isSubmitting
+                  ? "Сохранение..."
+                  : "Сохранить"}
             </button>
             <button
               type="button"

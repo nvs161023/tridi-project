@@ -1,5 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
+import {
+  processMarketplaceOrder,
+  type NormalizedOrder,
+  type OrderProcessingFailure,
+} from "@/lib/order-processor";
 
 /**
  * Вебхук Ozon Seller.
@@ -44,8 +49,8 @@ const MAX_SKU_LENGTH = 128;
 /** Больше строк в notes всё равно не поместится из-за лимита text. */
 const MAX_PRODUCTS = 100;
 
-/** `workshop_orders.notes` — text с check до 1000 символов. */
-const MAX_NOTES_LENGTH = 1000;
+/** `workshop_orders.total_cost` — numeric(10,2) до 1 000 000 ₽. */
+const MAX_AMOUNT = 1_000_000;
 
 /** JSON-объект из тела запроса. Массивы и null объектами не считаем. */
 type JsonObject = Record<string, unknown>;
@@ -54,6 +59,7 @@ type JsonObject = Record<string, unknown>;
 type OzonProductLine = {
   sku: string;
   quantity: number;
+  price: number | null;
 };
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -97,6 +103,108 @@ function readMessageType(body: JsonObject): string | null {
   return readText(body.message_type) ?? readText(body.messageType);
 }
 
+/** Деньги Ozon: число или строка; null — поля нет или значение мусорное. */
+function readMoney(value: unknown): number | null {
+  const number =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(
+            value
+              .trim()
+              .replace(/[\s\u00a0]/g, "")
+              .replace(",", ".")
+              .replace(/[^\d.\-]/g, ""),
+          )
+        : Number.NaN;
+
+  if (!Number.isFinite(number) || number < 0 || number > MAX_AMOUNT) {
+    return null;
+  }
+
+  return Math.round(number * 100) / 100;
+}
+
+/** Имя покупателя, если Ozon его прислал; иначе null. */
+function readBuyerName(posting: JsonObject): string | null {
+  const direct =
+    readText(posting.buyer_name) ??
+    readText(posting.customer_name) ??
+    readText(posting.client_name);
+
+  if (direct) {
+    return direct;
+  }
+
+  return isObject(posting.customer) ? readText(posting.customer.name) : null;
+}
+
+/** Комиссия площадки: в уведомлении Ozon её обычно нет, тогда null. */
+function readCommission(posting: JsonObject): number | null {
+  for (const field of [
+    "marketplace_commission",
+    "commission",
+    "commission_amount",
+  ]) {
+    const money = readMoney(posting[field]);
+
+    if (money !== null) {
+      return money;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Сумма заказа: `total_price`/`amount` или сумма цен позиций.
+ *
+ * Отсутствие суммы — null: заказ важнее денег, их можно заполнить позже.
+ * Явно отрицательное или слишком большое значение отклоняется, чтобы не
+ * потерять заказ на check-ограничении.
+ */
+function readTotal(
+  posting: JsonObject,
+  products: OzonProductLine[],
+): { ok: true; value: number | null } | { ok: false } {
+  for (const field of ["total_price", "amount", "total"]) {
+    const raw = posting[field];
+
+    if (raw === undefined || raw === null || raw === "") {
+      continue;
+    }
+
+    const money = readMoney(raw);
+
+    return money === null ? { ok: false } : { ok: true, value: money };
+  }
+
+  if (products.length > 0 && products.every((line) => line.price !== null)) {
+    const total = products.reduce(
+      (sum, line) => sum + (line.price ?? 0) * line.quantity,
+      0,
+    );
+
+    return { ok: true, value: Math.round(total * 100) / 100 };
+  }
+
+  return { ok: true, value: null };
+}
+
+/** Ошибка процессора → HTTP-ответ вебхука. */
+function processingFailure(result: OrderProcessingFailure): Response {
+  const status =
+    result.reason === "invalid_order"
+      ? 400
+      : result.reason === "migration_missing" ||
+          result.reason === "server_misconfigured"
+        ? 503
+        : 500;
+
+  console.error("[Ozon] Заказ не обработан:", result.reason, result.error);
+
+  return json({ error: result.reason }, status);
+}
 /**
  * Похоже ли тело на ping.
  *
@@ -231,17 +339,6 @@ function readPostingNumber(posting: JsonObject): string | null {
   return /[\u0000-\u001f\u007f]/.test(postingNumber) ? null : postingNumber;
 }
 
-/** Дата передачи заказа в обработку; необязательная, поэтому null допустим. */
-function readInProcessAt(posting: JsonObject): string | null {
-  const inProcessAt = readText(posting.in_process_at);
-
-  if (!inProcessAt || inProcessAt.length > 64) {
-    return null;
-  }
-
-  return inProcessAt;
-}
-
 /**
  * Товары заказа: SKU и количество.
  *
@@ -284,7 +381,11 @@ function readProducts(posting: JsonObject): OzonProductLine[] {
       continue;
     }
 
-    lines.push({ sku, quantity });
+    lines.push({
+      sku,
+      quantity,
+      price: readMoney(product.price ?? product.customer_price),
+    });
 
     if (lines.length >= MAX_PRODUCTS) {
       break;
@@ -292,39 +393,6 @@ function readProducts(posting: JsonObject): OzonProductLine[] {
   }
 
   return lines;
-}
-
-/**
- * Заметки заказа: номер отправления, дата обработки и состав.
- *
- * JSON с товарами может не поместиться в 1000 символов, поэтому храним
- * компактный текст. Он читается в карточке заказа и не теряет SKU/количество.
- */
-function buildNotes(
-  postingNumber: string,
-  inProcessAt: string | null,
-  products: OzonProductLine[],
-): string {
-  const parts = [`Ozon ${postingNumber}`];
-
-  if (inProcessAt) {
-    parts.push(`in_process_at: ${inProcessAt}`);
-  }
-
-  if (products.length > 0) {
-    parts.push(
-      `товары: ${products
-        .map(({ sku, quantity }) => `SKU ${sku} x ${quantity}`)
-        .join(", ")}`,
-    );
-  }
-
-  const notes = parts.join("; ");
-
-  // Запасной обрез: база отклонит notes длиннее 1000 символов.
-  return notes.length > MAX_NOTES_LENGTH
-    ? `${notes.slice(0, MAX_NOTES_LENGTH - 1)}…`
-    : notes;
 }
 
 /** Успешное уведомление: тело одинаковое для ping и новых заказов. */
@@ -371,11 +439,9 @@ async function handlePing(token: string): Promise<Response> {
 /**
  * Новый заказ Ozon.
  *
- * Порядок:
- *   1. разбираем номер отправления и товары — без них заказ не создать;
- *   2. ищем ровно одну строку `workshop_settings` по токену;
- *   3. повторное уведомление по тому же отправлению не создаёт дубль;
- *   4. пишем заказ с `source = 'ozon'`, `status = 'new'` и заметками.
+ * Разбираем payload в NormalizedOrder и отдаём в общий процессор. Поиск
+ * дубля, запись заказа и позиций, статус unmapped и деньги — его забота;
+ * здесь остаётся только площадочная специфика.
  */
 async function handleNewPosting(
   token: string,
@@ -388,10 +454,12 @@ async function handleNewPosting(
     return json({ error: "invalid posting number" }, 400);
   }
 
-  const inProcessAt = readInProcessAt(posting);
   const products = readProducts(posting);
-  const title = `Ozon: ${postingNumber}`;
-  const notes = buildNotes(postingNumber, inProcessAt, products);
+  const total = readTotal(posting, products);
+
+  if (!total.ok) {
+    return json({ error: "invalid total" }, 400);
+  }
 
   const seller = await resolveSeller(token);
 
@@ -400,65 +468,32 @@ async function handleNewPosting(
   }
 
   const { admin, userId } = seller;
+  const order: NormalizedOrder = {
+    marketplace_order_id: postingNumber,
+    buyer_name: readBuyerName(posting),
+    items: products.map((line) => ({
+      sku: line.sku,
+      quantity: line.quantity,
+      price: line.price,
+    })),
+    total_amount: total.value,
+    marketplace_commission: readCommission(posting),
+    source: "ozon",
+  };
+  const result = await processMarketplaceOrder(order, userId, {
+    supabase: admin,
+  });
 
-  try {
-    // Ozon повторяет уведомление, если не получил 2xx или ответ потерялся.
-    // Отдельной колонки posting_number в заказе нет, поэтому ищем по title,
-    // который собирается детерминированно.
-    const { data: existing, error: existingError } = await admin
-      .from("workshop_orders")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("source", "ozon")
-      .eq("title", title)
-      .limit(1)
-      .maybeSingle();
-
-    if (existingError) {
-      console.error("[Ozon] Ошибка проверки повторного заказа:", existingError);
-      return json({ error: "database error" }, 500);
-    }
-
-    if (existing) {
-      console.log("[Ozon] Повторное уведомление, заказ уже создан:", {
-        userId,
-        postingNumber,
-      });
-
-      return ok();
-    }
-  } catch (error) {
-    console.error("[Ozon] Ошибка проверки повторного заказа:", error);
-    return json({ error: "database error" }, 500);
+  if (!result.ok) {
+    return processingFailure(result);
   }
 
-  try {
-    const { error } = await admin.from("workshop_orders").insert({
-      user_id: userId,
-      source: "ozon",
-      title,
-      status: "new",
-      notes,
-    });
-
-    if (error) {
-      // Уникального индекса на отправление пока нет, но если он появится,
-      // повтор уведомления должен остаться успешным для Ozon.
-      if (error.code === "23505") {
-        return ok();
-      }
-
-      console.error("[Ozon] Ошибка записи заказа:", error);
-      return json({ error: "database error" }, 500);
-    }
-  } catch (error) {
-    console.error("[Ozon] Ошибка записи заказа:", error);
-    return json({ error: "database error" }, 500);
-  }
-
-  console.log("[Ozon] Заказ создан:", {
+  console.log("[Ozon] Заказ обработан:", {
     userId,
     postingNumber,
+    orderId: result.data.orderId,
+    status: result.data.orderStatus,
+    outcome: result.data.outcome,
     products: products.length,
   });
 

@@ -103,6 +103,20 @@ begin
 end;
 $$;
 
+-- Статус `unmapped` — заказ маркетплейса, в котором хотя бы один SKU не связан
+-- с товаром каталога. Старая миграция workshop_printers_orders.sql создала
+-- check только на четыре статуса, поэтому ограничение пересоздаётся здесь:
+-- drop/add идемпотентен и работает на уже существующей таблице.
+alter table public.workshop_orders
+  drop constraint if exists workshop_orders_status_check;
+
+alter table public.workshop_orders
+  add constraint workshop_orders_status_check
+  check (status in ('new', 'printing', 'ready', 'delivered', 'unmapped'));
+
+comment on column public.workshop_orders.status is
+  'Статус: unmapped → new → printing → ready → delivered. unmapped — в заказе есть SKU без связи с товаром.';
+
 -- Один и тот же заказ площадки не должен импортироваться дважды: иначе
 -- вебхук Ozon создаст дубль и удвоит выручку в аналитике. Уникальность — в
 -- пределах мастерской; разные площадки в теории могут выдать одинаковый номер,

@@ -40,6 +40,8 @@ export type WorkshopProduct = {
   heightMm: number | null;
   barcode: string | null;
   category: string | null;
+  /** Ссылка на G-code; null — файл печати ещё не приложен. */
+  gcodeUrl: string | null;
   createdAt: string | null;
 };
 
@@ -58,7 +60,8 @@ export type ProductField =
   | "color"
   | "size"
   | "barcode"
-  | "category";
+  | "category"
+  | "gcodeUrl";
 
 export type ProductFieldErrors = Partial<Record<ProductField, string>>;
 
@@ -78,6 +81,13 @@ export type ImportProductsResult = {
   imported: number;
   updated: number;
   errors: string[];
+};
+
+/** Ответ удаления товара: ошибка или подтверждение. */
+export type DeleteProductResult = {
+  error?: string;
+  success?: boolean;
+  message?: string;
 };
 
 /** Проверенная строка CSV до записи в базу. */
@@ -104,10 +114,15 @@ type ProductDraft = {
   heightMm: number | null;
   barcode: string | null;
   category: string | null;
+  gcodeUrl: string | null;
 };
 
 /** Колонки, которые читает getWorkshopProducts. */
 export const PRODUCT_COLUMNS =
+  "id, sku, title, description, price, old_price, brand, color, size, weight_g, length_mm, width_mm, height_mm, barcode, category, gcode_url, created_at";
+
+/** Набор без gcode_url: база до применения supabase/workshop_farm_and_shop.sql. */
+export const PRODUCT_COLUMNS_LEGACY =
   "id, sku, title, description, price, old_price, brand, color, size, weight_g, length_mm, width_mm, height_mm, barcode, category, created_at";
 
 /** Пределы текстовых полей — как у `maxLength` в форме. */
@@ -120,6 +135,7 @@ export const PRODUCT_TEXT_LIMITS = {
   size: 80,
   barcode: 64,
   category: 80,
+  gcodeUrl: 2048,
 } as const;
 
 /** numeric(10, 2): больше этой цены база не примет. */
@@ -266,7 +282,38 @@ function readPriceValue(
   return rounded;
 }
 
-/** Вес и габариты: колонки integer, дробный ввод округляется. */
+/**
+ * Ссылка на G-code: пусто — null, иначе абсолютный http(s)-адрес.
+ *
+ * Относительный путь агенту фермы бесполезен: он скачивает файл не из
+ * браузера. Файл, загруженный через /api/workshop/gcode, уже приходит
+ * публичным https-адресом.
+ */
+function readGcodeUrl(
+  formData: FormData,
+  errors: ProductFieldErrors,
+): string | null {
+  const raw = readFormText(formData, "gcodeUrl");
+
+  if (!raw) {
+    return null;
+  }
+
+  if (raw.length > PRODUCT_TEXT_LIMITS.gcodeUrl) {
+    errors.gcodeUrl = `Не больше ${PRODUCT_TEXT_LIMITS.gcodeUrl} символов.`;
+
+    return null;
+  }
+
+  if (!/^https?:\/\/\S+$/iu.test(raw)) {
+    errors.gcodeUrl = "Укажите полную ссылку, начиная с http:// или https://.";
+
+    return null;
+  }
+
+  return raw;
+}
+
 function readIntegerValue(
   formData: FormData,
   name: string,
@@ -379,6 +426,7 @@ function readProductForm(formData: FormData): {
     errors,
     "category",
   );
+  const gcodeUrl = readGcodeUrl(formData, errors);
 
   if (Object.keys(errors).length > 0) {
     return { draft: null, errors };
@@ -412,6 +460,7 @@ function readProductForm(formData: FormData): {
       size,
       barcode,
       category,
+      gcodeUrl,
     },
     errors,
   };
@@ -552,6 +601,11 @@ function csvColumnAliases(
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Идентификатор товара: мусор отсекаем до запроса к PostgREST. */
+export function isProductId(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
 
 /**
  * CSV Ozon или Wildberries → проверенные строки товаров.
@@ -783,6 +837,7 @@ export function normalizeProductRow(
     heightMm: readStoredNumber(row.height_mm, true),
     barcode: readStoredText(row.barcode, PRODUCT_TEXT_LIMITS.barcode),
     category: readStoredText(row.category, PRODUCT_TEXT_LIMITS.category),
+    gcodeUrl: readStoredText(row.gcode_url, PRODUCT_TEXT_LIMITS.gcodeUrl),
     createdAt: typeof row.created_at === "string" ? row.created_at : null,
   };
 }
@@ -804,11 +859,27 @@ export async function getWorkshopProducts(): Promise<WorkshopProduct[]> {
     return [];
   }
 
-  const { data, error } = await supabase
-    .from("workshop_products")
-    .select(PRODUCT_COLUMNS)
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false });
+  let data: Partial<Record<string, unknown>>[] | null = null;
+  let error: { code?: string | null; message: string } | null = null;
+
+  // gcode_url добавляет supabase/workshop_farm_and_shop.sql. Пока миграции
+  // нет, каталог читается без неё: товары и заказы должны работать.
+  for (const columns of [PRODUCT_COLUMNS, PRODUCT_COLUMNS_LEGACY]) {
+    const result = await supabase
+      .from("workshop_products")
+      .select(columns)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    data = (result.data ?? null) as
+      | Partial<Record<string, unknown>>[]
+      | null;
+    error = result.error;
+
+    if (!error || !isMissingTableSchema(error.code, error.message)) {
+      break;
+    }
+  }
 
   if (error) {
     console.warn("Каталог мастерской не прочитан:", error.code, error.message);
@@ -894,6 +965,7 @@ export async function addProduct(
     height_mm: draft.heightMm,
     barcode: draft.barcode,
     category: draft.category,
+    gcode_url: draft.gcodeUrl,
   });
 
   if (error) {
@@ -915,6 +987,8 @@ export async function addProduct(
 
   // Каталог рисуется на сервере: без этого следующий переход покажет старый список.
   revalidatePath("/dashboard/workshop");
+  revalidatePath("/dashboard/workshop/products");
+  revalidatePath("/dashboard/workshop/marketplace");
 
   return {
     success: true,
@@ -1047,4 +1121,67 @@ export async function importProductsFromCsv(
   }
 
   return { imported, updated, errors };
+}
+
+/**
+ * Удаление товара каталога.
+ *
+ * Связи маркетплейсов уходят каскадом, а позиции заказов сохраняют SKU и
+ * количество с product_id = null — история заказов не пропадает. Действие
+ * повторяет проверки остальных Server Actions: id → сессия → подписка → запрос
+ * с фильтром по владельцу.
+ */
+export async function deleteProduct(
+  productId: string,
+): Promise<DeleteProductResult> {
+  "use server";
+
+  if (!isProductId(productId)) {
+    return { error: "Товар не найден — обновите страницу." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      error: "Сессия истекла. Войдите снова, чтобы удалить товар.",
+    };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return {
+      error:
+        "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы менять каталог.",
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_products")
+    .delete()
+    .eq("id", productId)
+    .eq("user_id", user.id)
+    .select("id");
+
+  if (error) {
+    console.warn("Товар не удалён:", error.code, error.message);
+
+    return {
+      error: isMissingTableSchema(error.code, error.message)
+        ? MIGRATION_MISSING
+        : "Не удалось удалить товар. Попробуйте ещё раз.",
+    };
+  }
+
+  if (!data || data.length === 0) {
+    return { error: "Товар не найден — возможно, его уже удалили." };
+  }
+
+  revalidatePath("/dashboard/workshop");
+  revalidatePath("/dashboard/workshop/products");
+  revalidatePath("/dashboard/workshop/marketplace");
+
+  return { success: true, message: "Товар удалён." };
 }

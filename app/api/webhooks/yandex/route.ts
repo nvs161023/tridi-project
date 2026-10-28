@@ -1,5 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
+import {
+  processMarketplaceOrder,
+  type NormalizedOrder,
+  type OrderProcessingFailure,
+} from "@/lib/order-processor";
 
 /**
  * Вебхук Яндекс.Маркета.
@@ -75,9 +80,6 @@ const MAX_ITEMS = 100;
 
 /** Количество одной позиции: больше миллиона единиц в заказе не бывает. */
 const MAX_ITEM_QUANTITY = 1_000_000;
-
-/** `workshop_orders.notes` — text с check до 1000 символов. */
-const MAX_NOTES_LENGTH = 1000;
 
 /** `workshop_orders.total_cost` — numeric(10,2) от 0 до 1 000 000. */
 const MAX_TOTAL_COST = 1_000_000;
@@ -194,6 +196,21 @@ function forbidden(): Response {
 /** Миграция не применена: Яндекс повторит уведомление после её применения. */
 function notConfigured(): Response {
   return json({ error: "webhook is not configured" }, 503);
+}
+
+/** Ошибка процессора → HTTP-ответ вебхука. */
+function processingFailure(result: OrderProcessingFailure): Response {
+  const status =
+    result.reason === "invalid_order"
+      ? 400
+      : result.reason === "migration_missing" ||
+          result.reason === "server_misconfigured"
+        ? 503
+        : 500;
+
+  console.error("[Yandex] Заказ не обработан:", result.reason, result.error);
+
+  return json({ error: result.reason }, status);
 }
 
 /**
@@ -586,18 +603,55 @@ function readMoney(value: unknown): number | null {
 /**
  * Сумма заказа из `total`.
  *
- * Отсутствующая сумма — это 0: заказ важнее суммы, её можно поправить в
+ * Отсутствующая сумма — null: заказ важнее суммы, её можно поправить в
  * мастерской. Явно некорректная сумма отклоняется, иначе `total_cost` не
  * пройдёт check и заказ потеряется с 500.
  */
-function readTotal(body: JsonObject): number | null {
+function readTotal(
+  body: JsonObject,
+): { ok: true; value: number | null } | { ok: false } {
   const raw = body.total;
 
   if (raw === undefined || raw === null || raw === "") {
-    return 0;
+    return { ok: true, value: null };
   }
 
-  return readMoney(raw);
+  const money = readMoney(raw);
+
+  return money === null ? { ok: false } : { ok: true, value: money };
+}
+
+/** Комиссия площадки: в уведомлении Яндекса её обычно нет. */
+function readCommission(body: JsonObject): number | null {
+  for (const field of [
+    "marketplace_commission",
+    "commission",
+    "commission_amount",
+  ]) {
+    const raw = body[field];
+
+    if (raw === undefined || raw === null || raw === "") {
+      continue;
+    }
+
+    return readMoney(raw);
+  }
+
+  return null;
+}
+
+/** Имя покупателя из уведомления, если оно там есть. */
+function readBuyerName(body: JsonObject): string | null {
+  const direct =
+    readText(body.buyer_name) ??
+    readText(body.customer_name) ??
+    readText(body.client_name);
+
+  if (direct) {
+    return direct;
+  }
+
+  return isObject(body.customer) ? readText(body.customer.name) : null;
 }
 
 /**
@@ -700,46 +754,10 @@ function readItems(body: JsonObject): YandexOrderItem[] {
 }
 
 /**
- * Заметки заказа: JSON с составом.
- *
- * notes ограничены 1000 символами, а названия и артикулы бывают длинными.
- * Поэтому отбрасываем позиции с конца, пока JSON помещается, и честно пишем,
- * сколько позиций не вошло: обрезанная строка ломала бы JSON.
- */
-function buildNotes(items: YandexOrderItem[]): string {
-  const notes = JSON.stringify({ items });
-
-  if (notes.length <= MAX_NOTES_LENGTH) {
-    return notes;
-  }
-
-  const kept = [...items];
-
-  while (kept.length > 0) {
-    kept.pop();
-
-    const candidate = JSON.stringify({
-      items: kept,
-      omitted: items.length - kept.length,
-    });
-
-    if (candidate.length <= MAX_NOTES_LENGTH) {
-      return candidate;
-    }
-  }
-
-  return JSON.stringify({ items: [], omitted: items.length });
-}
-
-/**
  * Новый заказ Яндекс.Маркета.
  *
- * Порядок:
- *   1. ищем продавца: без известного токена уведомление получает 403, даже
- *      если тело не похоже на заказ;
- *   2. разбираем номер, сумму и состав — без номера заказ не создать;
- *   3. повторное уведомление по тому же номеру не создаёт дубль;
- *   4. пишем заказ с `source = 'yandex'`, `status = 'new'` и `total_cost`.
+ * Продавца ищем по токену, payload превращаем в NormalizedOrder. Запись,
+ * дедупликация и статус unmapped — в общем процессоре.
  */
 async function handleOrder(token: string, body: JsonObject): Promise<Response> {
   const seller = await resolveSeller(token);
@@ -756,86 +774,40 @@ async function handleOrder(token: string, body: JsonObject): Promise<Response> {
 
   const total = readTotal(body);
 
-  if (total === null) {
+  if (!total.ok) {
     return json({ error: "invalid total" }, 400);
   }
 
   const items = readItems(body);
-  const title = `Яндекс: ${orderId}`;
-  const notes = buildNotes(items);
   const { admin, userId } = seller;
+  const order: NormalizedOrder = {
+    marketplace_order_id: orderId,
+    buyer_name: readBuyerName(body),
+    items: items.map((item) => ({
+      sku: item.sku ?? null,
+      quantity: item.quantity,
+      price: item.price ?? null,
+    })),
+    total_amount: total.value,
+    marketplace_commission: readCommission(body),
+    source: "yandex",
+  };
+  const result = await processMarketplaceOrder(order, userId, {
+    supabase: admin,
+  });
 
-  try {
-    // Отдельной колонки с номером заказа Яндекса нет, поэтому повтор ищем по
-    // title: он собирается из `orderId` детерминированно.
-    const { data: existing, error: existingError } = await admin
-      .from("workshop_orders")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("source", "yandex")
-      .eq("title", title)
-      .limit(1)
-      .maybeSingle();
-
-    if (existingError) {
-      console.error("[Yandex] Ошибка проверки повторного заказа:", existingError);
-
-      return isMissingTableSchema(
-        existingError.code,
-        existingError.message,
-      )
-        ? notConfigured()
-        : json({ error: "database error" }, 500);
-    }
-
-    if (existing) {
-      console.log("[Yandex] Повторное уведомление, заказ уже создан:", {
-        userId,
-        orderId,
-      });
-
-      return ok();
-    }
-  } catch (error) {
-    console.error("[Yandex] Ошибка проверки повторного заказа:", error);
-
-    return json({ error: "database error" }, 500);
+  if (!result.ok) {
+    return processingFailure(result);
   }
 
-  try {
-    const { error } = await admin.from("workshop_orders").insert({
-      user_id: userId,
-      source: "yandex",
-      title,
-      status: "new",
-      total_cost: total,
-      notes,
-    });
-
-    if (error) {
-      // Уникального индекса на номер заказа нет, но если он появится, повтор
-      // уведомления должен остаться успешным для Яндекса.
-      if (error.code === "23505") {
-        return ok();
-      }
-
-      console.error("[Yandex] Ошибка записи заказа:", error);
-
-      return isMissingTableSchema(error.code, error.message)
-        ? notConfigured()
-        : json({ error: "database error" }, 500);
-    }
-  } catch (error) {
-    console.error("[Yandex] Ошибка записи заказа:", error);
-
-    return json({ error: "database error" }, 500);
-  }
-
-  console.log("[Yandex] Заказ создан:", {
+  console.log("[Yandex] Заказ обработан:", {
     userId,
     orderId,
+    orderIdInDb: result.data.orderId,
+    status: result.data.orderStatus,
+    outcome: result.data.outcome,
     items: items.length,
-    total,
+    total: total.value,
   });
 
   return ok();
