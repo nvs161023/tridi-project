@@ -45,6 +45,14 @@ next-env.d.ts
 # черновая папка конвертации шрифтов (TTF, opentype.js, отчёты проверок)
 /.fonttmp/
 
+# временные G-коды локального агента фермы (скачиваются из gcodeUrl и удаляются
+# после печати; в git им нельзя — файлы на десятки мегабайт)
+agent/temp/
+
+# python-кеш локального агента
+__pycache__/
+*.pyc
+
 # audit artifacts
 audit-screenshots/
 audit-e2e/

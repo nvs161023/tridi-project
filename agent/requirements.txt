@@ -1,0 +1,12 @@
+# Локальный агент 3D-фермы TriDi — зависимости.
+# Установка: pip install -r requirements.txt
+
+# HTTP-запросы к /api/agent/tasks и /api/agent/status.
+requests>=2.31,<3
+
+# Чтение .env рядом с main.py.
+python-dotenv>=1.0,<2
+
+# WebSocket-клиенты принтеров (Moonraker, Bambu): понадобятся адаптерам
+# в следующих шагах. Сейчас только объявлены.
+websockets>=13
