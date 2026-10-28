@@ -14,17 +14,24 @@ import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
  * не нужна. Строку ищем через service_role: RLS закрывает таблицу для
  * анонимных запросов.
  *
- * Тело уведомления (пример):
+ * Поля уведомления — из модели заказа WB, которую описывает спека
+ * `03-orders-fbs` (dev.wildberries.ru/api/swagger/yaml/ru/03-orders-fbs.yaml):
  *
  *   {
- *     "id": 123456789,
- *     "skus": ["12345678", "12345678", "87654321"],
- *     "price": 1500
+ *     "id": 1234567890,
+ *     "skus": ["6665956397512", "6665956397512"],
+ *     "price": 1014
  *   }
  *
- * `id` — номер заказа WB, он попадает в title («WB: 123456789»). `skus` —
- * артикулы позиций: одинаковые значения означают несколько единиц товара.
- * `price` — сумма заказа, она ложится в `total_cost`.
+ * `id` — «ID сборочного задания»; в методах DBW и DBS то же задание называется
+ * `orderId`, поэтому поле ищем по обоим именам. Номер попадает в title
+ * («WB: 1234567890»). `skus` — «список баркодов»: повтор артикула означает
+ * несколько единиц товара. `price` — «цена в валюте продажи с учётом всех
+ * скидок, умноженная на 100»: 1014 — это 10,14 ₽, поэтому в `total_cost`
+ * сумма делится на 100.
+ *
+ * WB может прислать заказ и в конверте со служебными полями
+ * (`sellerId`, `createdAt`, `status`) — тогда заказ лежит в `body`.
  *
  * Заказ пишется с `source = 'wb'` и `status = 'new'`. Повтор уведомления с тем
  * же номером не создаёт дубль: заказ ищется по title, который собирается
@@ -55,6 +62,15 @@ const MAX_NOTES_LENGTH = 1000;
 
 /** `workshop_orders.total_cost` — numeric(10,2) от 0 до 1 000 000. */
 const MAX_TOTAL_COST = 1_000_000;
+
+/**
+ * Поля заказа WB с суммой, все — умноженные на 100.
+ *
+ * `price` — цена продажи с учётом всех скидок; `finalPrice` — сумма к оплате
+ * покупателем; `salePrice` — цена продавца. Порядок важен: основное поле
+ * первое, остальные страхуют уведомление без `price`.
+ */
+const WB_PRICE_FIELDS = ["price", "finalPrice", "salePrice"] as const;
 
 /** JSON-объект из тела запроса. Массивы и null объектами не считаем. */
 type JsonObject = Record<string, unknown>;
@@ -245,14 +261,29 @@ async function resolveSeller(token: string): Promise<SellerLookup> {
 }
 
 /**
+ * Объект заказа из уведомления.
+ *
+ * WB присылает либо сам заказ, либо конверт со служебными полями (`sellerId`,
+ * `createdAt`, `status`), в котором заказ лежит в `body`. Разбираем вложенный
+ * объект, если он есть: иначе номер заказа искался бы среди служебных полей, а
+ * повтор уведомления создавал бы новый заказ.
+ */
+function readOrderPayload(body: JsonObject): JsonObject {
+  const nested = body.body;
+
+  return isObject(nested) ? nested : body;
+}
+
+/**
  * Номер заказа из `id`.
  *
  * Без номера заказ не создать: title собирается из него, а по title
  * проверяется дубль. Управляющие символы в title не нужны, поэтому такой
- * номер считаем некорректным.
+ * номер считаем некорректным. В методах DBW и DBS сборочное задание
+ * называется `orderId` — берём его, если `id` нет.
  */
-function readOrderId(body: JsonObject): string | null {
-  const orderId = readText(body.id);
+function readOrderId(payload: JsonObject): string | null {
+  const orderId = readText(payload.id) ?? readText(payload.orderId);
 
   if (!orderId || orderId.length > MAX_ORDER_ID_LENGTH) {
     return null;
@@ -269,8 +300,8 @@ function readOrderId(body: JsonObject): string | null {
  * несколько единиц товара, поэтому считаем количество, а не отбрасываем дубли.
  * Некорректные значения пропускаем, как в вебхуке Ozon.
  */
-function readProducts(body: JsonObject): WbProductLine[] {
-  const raw = body.skus;
+function readProducts(payload: JsonObject): WbProductLine[] {
+  const raw = payload.skus;
   const values = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
   const lines = new Map<string, WbProductLine>();
 
@@ -301,31 +332,55 @@ function readProducts(body: JsonObject): WbProductLine[] {
 /**
  * Сумма заказа из `price`.
  *
+ * В модели заказа WB суммы приходят умноженными на 100: `price: 1014` — это
+ * 10,14 ₽. Поэтому значение без дробной части делится на 100. Строка с точкой
+ * или запятой («1500.00», «1500,00») пришла не из модели заказа — её считаем
+ * рублями, иначе сумма уменьшилась бы в сто раз.
+ *
  * WB может прислать число или строку с точкой/запятой. Отсутствующая цена —
  * это 0: заказ важнее суммы, её можно поправить в мастерской. Явно
  * некорректная цена (текст, минус, больше лимита базы) отклоняется, иначе
  * `total_cost` не пройдёт check и заказ потеряется с 500.
  */
-function readPrice(body: JsonObject): number | null {
-  const raw = body.price;
+function readPrice(payload: JsonObject): number | null {
+  for (const field of WB_PRICE_FIELDS) {
+    const raw = payload[field];
 
-  if (raw === undefined || raw === null || raw === "") {
-    return 0;
+    if (raw === undefined || raw === null || raw === "") {
+      continue;
+    }
+
+    return readAmount(raw);
   }
 
-  const value =
-    typeof raw === "number"
-      ? raw
-      : typeof raw === "string"
-        ? Number(raw.trim().replace(",", "."))
-        : Number.NaN;
+  return 0;
+}
 
-  if (!Number.isFinite(value) || value < 0 || value > MAX_TOTAL_COST) {
+/**
+ * Рубли из суммы WB: умноженное на 100 — копейки, с дробной частью — рубли.
+ *
+ * Признак дробной части берём у исходного значения: у строки — по точке или
+ * запятой («1500.00» — рубли, «1500» — копейки), у числа — по остатку от
+ * деления. Иначе «1500.00» после `Number()` выглядело бы целым и сумма
+ * уменьшилась бы в сто раз.
+ */
+function readAmount(raw: unknown): number | null {
+  const text = typeof raw === "string" ? raw.trim().replace(",", ".") : null;
+  const value = typeof raw === "number" ? raw : text ? Number(text) : Number.NaN;
+
+  if (!Number.isFinite(value) || value < 0) {
+    return null;
+  }
+
+  const hasFraction = text ? text.includes(".") : !Number.isInteger(value);
+  const rubles = hasFraction ? value : value / 100;
+
+  if (rubles > MAX_TOTAL_COST) {
     return null;
   }
 
   // numeric(10,2): округляем, чтобы 1499.999 не превратилось в ошибку базы.
-  return Math.round(value * 100) / 100;
+  return Math.round(rubles * 100) / 100;
 }
 
 /**
@@ -370,19 +425,20 @@ function buildNotes(products: WbProductLine[]): string {
  *   4. пишем заказ с `source = 'wb'`, `status = 'new'` и `total_cost`.
  */
 async function handleOrder(token: string, body: JsonObject): Promise<Response> {
-  const orderId = readOrderId(body);
+  const payload = readOrderPayload(body);
+  const orderId = readOrderId(payload);
 
   if (!orderId) {
     return json({ error: "invalid order id" }, 400);
   }
 
-  const price = readPrice(body);
+  const price = readPrice(payload);
 
   if (price === null) {
     return json({ error: "invalid price" }, 400);
   }
 
-  const products = readProducts(body);
+  const products = readProducts(payload);
   const title = `WB: ${orderId}`;
   const notes = buildNotes(products);
 
