@@ -117,7 +117,7 @@ export function ConfidentC8Diagram1({ title, animated }: VisualProps) {
         <text x="12" y="160" fontSize="10" fontWeight="700" fill="#e2e8f0">
           Ironing — только плоские площадки
         </text>
-        <text x="12" y="174" fontSize="10" fill="#94a3b8">
+        <text x="12" y="171" fontSize="10" fill="#94a3b8">
           Наклон и стенки он не разглаживает
         </text>
       </svg>

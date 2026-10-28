@@ -101,22 +101,25 @@ export function EngineerIN5Image2({ title, animated }: VisualProps) {
 
         {/* Расчёт и печать */}
         <rect x="208" y="23" width="100" height="119" rx="8" fill="#0f172a" fillOpacity="0.35" stroke="#334155" />
-        <text x="218" y="38" fontSize="10" fontWeight="700" fill="#cbd5e1">
-          прочность и печать
+        <text x="218" y="37" fontSize="10" fontWeight="700" fill="#cbd5e1">
+          прочность
         </text>
-        <text x="218" y="57" fontSize="10" fontWeight="700" fill="#6ee7b7">
+        <text x="218" y="48" fontSize="10" fontWeight="700" fill="#cbd5e1">
+          и печать
+        </text>
+        <text x="218" y="60" fontSize="10" fontWeight="700" fill="#6ee7b7">
           запас ≥ 2,5
         </text>
-        <text x="218" y="76" fontSize="10" fill="#cbd5e1">
+        <text x="218" y="78" fontSize="10" fill="#cbd5e1">
           6 периметров
         </text>
-        <text x="218" y="95" fontSize="10" fill="#cbd5e1">
+        <text x="218" y="96" fontSize="10" fill="#cbd5e1">
           80 % куб
         </text>
         <text x="218" y="114" fontSize="10" fill="#7dd3fc">
           посадка +0,1
         </text>
-        <text x="218" y="133" fontSize="10" fill="#cbd5e1">
+        <text x="218" y="132" fontSize="10" fill="#cbd5e1">
           3 опоры
         </text>
 

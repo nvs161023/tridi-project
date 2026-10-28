@@ -38,14 +38,14 @@ export function ProfitZ6Image5({ title, animated }: VisualProps) {
     >
       <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true" fontFamily={FONT}>
         <rect x="0.5" y="0.5" width="319" height="179" rx="12" fill="#1e293b" fillOpacity="0.5" stroke="#475569" />
-        <text x="10" y="15" fontSize="11" fontWeight="700" fill="#e2e8f0">
+        <text x="12" y="15" fontSize="11" fontWeight="700" fill="#e2e8f0">
           документы и оплата
         </text>
-        <text x="10" y="29" fontSize="10" fill="#94a3b8">
+        <text x="12" y="29" fontSize="10" fill="#94a3b8">
           от счёта до денег — пять шагов
         </text>
 
-        <rect x="10" y="34" width="150" height="114" rx="6" fill="#0f172a" stroke="#334155" />
+        <rect x="12" y="34" width="148" height="114" rx="6" fill="#0f172a" stroke="#334155" />
         <line x1="22" y1="46" x2="22" y2="130" stroke="#334155" />
         {STEPS.map((step, index) => {
           const y = 46 + index * 21;
@@ -62,7 +62,7 @@ export function ProfitZ6Image5({ title, animated }: VisualProps) {
           );
         })}
 
-        <rect x="164" y="34" width="146" height="114" rx="6" fill="#0f172a" stroke="#334155" />
+        <rect x="164" y="34" width="144" height="114" rx="6" fill="#0f172a" stroke="#334155" />
         <text x="174" y="46" fontSize="10" fontWeight="700" fill="#94a3b8">
           что взять
         </text>
@@ -79,11 +79,11 @@ export function ProfitZ6Image5({ title, animated }: VisualProps) {
           );
         })}
 
-        <rect x="10" y="154" width="300" height="18" rx="5" fill="#0f172a" stroke="#334155" />
-        <text x="18" y="166" fontSize="10" fontWeight="700" fill="#fca5a5">
+        <rect x="12" y="154" width="296" height="18" rx="5" fill="#0f172a" stroke="#334155" />
+        <text x="20" y="166" fontSize="10" fontWeight="700" fill="#fca5a5">
           без подписи — нет оплаты
         </text>
-        <text x="302" y="166" fontSize="10" fill="#fcd34d" textAnchor="end">
+        <text x="304" y="166" fontSize="10" fill="#fcd34d" textAnchor="end">
           напоминание: 10 и 30 день
         </text>
       </svg>

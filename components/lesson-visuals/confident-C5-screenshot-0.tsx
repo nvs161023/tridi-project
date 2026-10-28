@@ -134,7 +134,7 @@ export function ConfidentC5Screenshot0({ title, animated }: VisualProps) {
           <text
             key={note}
             x="12"
-            y={152 + index * 12}
+            y={148 + index * 12}
             fontSize="10"
             fontWeight={index === 0 ? "700" : "400"}
             fill={index === 0 ? "#e2e8f0" : "#94a3b8"}

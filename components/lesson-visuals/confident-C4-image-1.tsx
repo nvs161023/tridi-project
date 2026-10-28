@@ -2,10 +2,10 @@ import { VisualWrapper, type VisualProps } from "./_Wrapper";
 
 const FONT = "system-ui, -apple-system, sans-serif";
 
-/** Три колонки: 16…104, 116…204 и 216…304; крышка 34…41, корпус 43…84. */
-const COL_X = [16, 116, 216];
+/** Три колонки: 12…100, 112…200 и 212…300; крышка 34…41, корпус 43…84. */
+const COL_X = [12, 112, 212];
 const COL_W = 88;
-const COL_CX = [60, 160, 260];
+const COL_CX = [56, 156, 256];
 const LID_Y = 34;
 const BODY_TOP = 43;
 const BODY_BOTTOM = 84;
@@ -28,7 +28,13 @@ const BINS: Bin[] = [
   {
     title: "Опасные",
     color: "#f87171",
-    lines: ["жидкая смола и всё,", "что ею вымазано", "спирт и растворитель", "перчатки, салфетки", "угольные вставки"],
+    lines: [
+      "жидкая смола и всё,",
+      "что ею вымазано",
+      "спирт, растворитель",
+      "перчатки, салфетки",
+      "угольные вставки",
+    ],
   },
 ];
 
@@ -108,7 +114,7 @@ export function ConfidentC4Image1({ title, animated }: VisualProps) {
                 {bin.title}
               </text>
               {bin.lines.map((line, lineIndex) => (
-                <text key={line} x={x + 2} y={LINE_Y + lineIndex * 11} fontSize="10" fill="#cbd5e1">
+                <text key={line} x={x} y={LINE_Y + lineIndex * 11} fontSize="10" fill="#cbd5e1">
                   {line}
                 </text>
               ))}
@@ -116,12 +122,13 @@ export function ConfidentC4Image1({ title, animated }: VisualProps) {
           );
         })}
 
-        {/* Куда нельзя и правило сомнения */}
+        {/* Куда нельзя и правило сомнения: базовая линия ≤ 172, иначе низ
+            строки упирается в рамку карточки на узких экранах */}
         {NOTES.map((note, index) => (
           <text
             key={note}
             x="12"
-            y={166 + index * 11}
+            y={161 + index * 11}
             fontSize="10"
             fontWeight={index === 0 ? "700" : "400"}
             fill={index === 0 ? "#e2e8f0" : "#94a3b8"}

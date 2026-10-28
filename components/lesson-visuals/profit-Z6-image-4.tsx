@@ -27,16 +27,16 @@ export function ProfitZ6Image4({ title, animated }: VisualProps) {
     >
       <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true" fontFamily={FONT}>
         <rect x="0.5" y="0.5" width="319" height="179" rx="12" fill="#1e293b" fillOpacity="0.5" stroke="#475569" />
-        <text x="10" y="15" fontSize="11" fontWeight="700" fill="#e2e8f0">
+        <text x="12" y="15" fontSize="11" fontWeight="700" fill="#e2e8f0">
           сообщения клиенту
         </text>
-        <text x="10" y="29" fontSize="10" fill="#94a3b8">
+        <text x="12" y="29" fontSize="10" fill="#94a3b8">
           четыре шага и 10 минут экономии
         </text>
 
-        <line x1="48" y1="54" x2="276" y2="54" stroke="#475569" strokeWidth="1.5" />
+        <line x1="44" y1="54" x2="260" y2="54" stroke="#475569" strokeWidth="1.5" />
         {MESSAGES.map((message, index) => {
-          const center = 48 + index * 76;
+          const center = 44 + index * 72;
           return (
             <g key={message.number}>
               <circle cx={center} cy="54" r="10" fill="#0f172a" stroke={message.color} strokeWidth="1.5" />
@@ -56,7 +56,7 @@ export function ProfitZ6Image4({ title, animated }: VisualProps) {
           );
         })}
 
-        <rect x="10" y="124" width="300" height="48" rx="6" fill="#0f172a" stroke="#334155" />
+        <rect x="12" y="124" width="296" height="48" rx="6" fill="#0f172a" stroke="#334155" />
         <text x="160" y="137" fontSize="10" fill="#e2e8f0" textAnchor="middle">
           трек-номер и ссылка — сразу клиенту
         </text>

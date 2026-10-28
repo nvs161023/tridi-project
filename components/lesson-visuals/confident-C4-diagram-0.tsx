@@ -2,8 +2,8 @@ import { VisualWrapper, type VisualProps } from "./_Wrapper";
 
 const FONT = "system-ui, -apple-system, sans-serif";
 
-/** Маршруты: строки 30…154, высота 36, центры 48, 92 и 136; стрелка от 246. */
-const ROW_Y = [30, 74, 118];
+/** Маршруты: строки 26…150, высота 36, центры 44, 88 и 132; стрелка от 246. */
+const ROW_Y = [26, 70, 114];
 const ROW_H = 36;
 const ROW_W = 232;
 const CHIP_CX = 36;
@@ -165,12 +165,13 @@ export function ConfidentC4Diagram0({ title, animated }: VisualProps) {
           );
         })}
 
-        {/* Порядок защиты и привычка */}
+        {/* Порядок защиты и привычка: базовая линия ≤ 172, иначе низ строки
+            упирается в рамку карточки на узких экранах */}
         {NOTES.map((note, index) => (
           <text
             key={note}
             x="12"
-            y={166 + index * 11}
+            y={159 + index * 11}
             fontSize="10"
             fontWeight={index === 0 ? "700" : "400"}
             fill={index === 0 ? "#e2e8f0" : "#94a3b8"}

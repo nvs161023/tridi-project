@@ -155,7 +155,7 @@ export function ConfidentC11Screenshot1({ title, animated }: VisualProps) {
         {TICKS.map((x) => (
           <line key={x} x1={x} y1="156" x2={x} y2="164" stroke="#475569" strokeOpacity="0.7" />
         ))}
-        <line x1="112" y1="146" x2="112" y2="166" stroke="#f59e0b" strokeWidth="2" />
+        <line x1="112" y1="146" x2="112" y2="164" stroke="#f59e0b" strokeWidth="2" />
         <text x="116" y="152" fontSize="10" fontWeight="700" fill="#fcd34d">
           M600
         </text>
@@ -166,8 +166,8 @@ export function ConfidentC11Screenshot1({ title, animated }: VisualProps) {
           слой 120
         </text>
 
-        <text x="12" y="174" fontSize="10" fill="#64748b">
-          Слайсер сам вставляет команду в нужный слой
+        <text x="12" y="172" fontSize="10" fill="#64748b">
+          Слайсер сам ставит команду в слой
         </text>
       </svg>
     </VisualWrapper>

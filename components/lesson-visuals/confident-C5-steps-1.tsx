@@ -128,7 +128,7 @@ export function ConfidentC5Steps1({ title, animated }: VisualProps) {
           <text
             key={note}
             x="12"
-            y={142 + index * 11}
+            y={139 + index * 11}
             fontSize="10"
             fontWeight={index === 0 ? "700" : "400"}
             fill={index === 0 ? "#e2e8f0" : "#94a3b8"}

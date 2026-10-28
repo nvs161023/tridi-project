@@ -178,7 +178,7 @@ export function ConfidentC2Image1({ title, animated }: VisualProps) {
         {/* Порядок ступеней и ресурсы */}
         <rect
           x="12"
-          y="142"
+          y="138"
           width="296"
           height="34"
           rx="6"
@@ -191,7 +191,7 @@ export function ConfidentC2Image1({ title, animated }: VisualProps) {
           <text
             key={note}
             x="22"
-            y={153 + index * 11}
+            y={149 + index * 11}
             fontSize="10"
             fontWeight={index === 0 ? "700" : "400"}
             fill={index === 0 ? "#e2e8f0" : "#94a3b8"}

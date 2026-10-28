@@ -85,7 +85,7 @@ export function ProfitZ5Image4({ title, animated }: VisualProps) {
           свои модели · лицензия · 3 связанные модели
         </text>
 
-        <text x="160" y="175" fontSize="10" fill="#94a3b8" textAnchor="middle">
+        <text x="160" y="172" fontSize="10" fill="#94a3b8" textAnchor="middle">
           выбери одну дорогу
         </text>
       </svg>

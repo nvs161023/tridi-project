@@ -102,7 +102,7 @@ export function EngineerIN5Image5({ title, animated }: VisualProps) {
         <text x="124" y="138" fontSize="10" fontWeight="700" fill="#7dd3fc">
           бак · PETG/PA
         </text>
-        <text x="228" y="138" fontSize="10" fontWeight="700" fill="#6ee7b7">
+        <text x="224" y="138" fontSize="10" fontWeight="700" fill="#6ee7b7">
           держатель · ASA
         </text>
 

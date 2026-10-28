@@ -115,7 +115,7 @@ export function ConfidentC12Image0({ title, animated }: VisualProps) {
         <text x="12" y="160" fontSize="10" fill="#cbd5e1">
           Видно сопло, первый слой и края детали
         </text>
-        <text x="12" y="174" fontSize="10" fill="#94a3b8">
+        <text x="12" y="171" fontSize="10" fill="#94a3b8">
           Температуру внутри хотэнда камера не покажет
         </text>
       </svg>

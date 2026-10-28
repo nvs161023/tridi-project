@@ -75,7 +75,7 @@ export function ProfitZ4Image3({ title, animated }: VisualProps) {
           );
         })}
 
-        <text x="160" y="174" fontSize="10" fill="#94a3b8" textAnchor="middle">
+        <text x="160" y="171" fontSize="10" fill="#94a3b8" textAnchor="middle">
           выборка из разных мест партии
         </text>
       </svg>

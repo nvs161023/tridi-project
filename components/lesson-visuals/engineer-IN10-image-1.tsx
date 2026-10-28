@@ -3,6 +3,17 @@ import { VisualWrapper, type VisualProps } from "./_Wrapper";
 const FONT = "system-ui, -apple-system, sans-serif";
 
 /**
+ * Отметки оси времени. Последняя несёт единицу измерения и прижата к правому
+ * полю (x = 308): отдельное «мин» от x = 300 выходило за карточку на 11 px.
+ */
+const TICKS = [
+  { x: 40, label: "0", anchor: "middle" },
+  { x: 124, label: "30", anchor: "middle" },
+  { x: 208, label: "60", anchor: "middle" },
+  { x: 308, label: "90 мин", anchor: "end" },
+] as const;
+
+/**
  * Кадр блока 27 урока IN10 «Макросы Klipper и постобработка».
  *
  * Макет из описания `IN10_annealing_curve.png`: температура, время выдержки и
@@ -53,19 +64,11 @@ export function EngineerIN10Image1({ title, animated }: VisualProps) {
           PLA 80–90°
         </text>
 
-        {[
-          { x: 40, label: "0" },
-          { x: 124, label: "30" },
-          { x: 208, label: "60" },
-          { x: 292, label: "90" },
-        ].map((tick) => (
-          <text key={tick.label} x={tick.x} y="138" fontSize="10" fill="#94a3b8" textAnchor="middle">
+        {TICKS.map((tick) => (
+          <text key={tick.label} x={tick.x} y="138" fontSize="10" fill="#94a3b8" textAnchor={tick.anchor}>
             {tick.label}
           </text>
         ))}
-        <text x="300" y="138" fontSize="10" fill="#94a3b8">
-          мин
-        </text>
 
         <rect x="12" y="144" width="296" height="30" rx="6" fill="#fbbf24" fillOpacity="0.08" stroke="#fbbf24" strokeOpacity="0.3" />
         <text x="22" y="157" fontSize="10" fill="#e2e8f0">

@@ -41,7 +41,7 @@ export function EngineerIN9Diagram2({ title, animated }: VisualProps) {
         <text x="138" y="127" fontSize="10" fill="#94a3b8">
           X
         </text>
-        <text x="18" y="52" fontSize="10" fill="#94a3b8">
+        <text x="16" y="46" fontSize="10" fill="#94a3b8">
           Y
         </text>
         <path d="M68 56 V116 M28 56 H68" stroke="#38bdf8" strokeWidth="0.9" strokeDasharray="3 3" strokeOpacity="0.6" />
@@ -52,7 +52,7 @@ export function EngineerIN9Diagram2({ title, animated }: VisualProps) {
         <text x="60" y="128" fontSize="10" fill="#cbd5e1">
           40
         </text>
-        <text x="15" y="60" fontSize="10" fill="#cbd5e1" textAnchor="end">
+        <text x="24" y="60" fontSize="10" fill="#cbd5e1" textAnchor="end">
           60
         </text>
         <circle cx="28" cy="116" r="2.2" fill="#94a3b8" />

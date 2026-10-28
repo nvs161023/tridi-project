@@ -103,7 +103,7 @@ export function EngineerIN4Image5({ title, animated }: VisualProps) {
           убирай пластик
         </text>
 
-        <text x="12" y="174" fontSize="10" fill="#94a3b8">
+        <text x="12" y="171" fontSize="10" fill="#94a3b8">
           сравнивай запас после каждого круга
         </text>
       </svg>

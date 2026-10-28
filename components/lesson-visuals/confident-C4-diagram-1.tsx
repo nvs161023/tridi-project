@@ -101,14 +101,14 @@ export function ConfidentC4Diagram1({ title, animated }: VisualProps) {
           );
         })}
 
-        <line x1="12" y1="155" x2="308" y2="155" stroke="#475569" strokeOpacity="0.4" />
-
-        {/* Запястье и стартовый набор */}
+        {/* Запястье и стартовый набор. Разделитель между таблицей и этими
+            строками убран: последняя строка таблицы уже обведена, а линия на
+            y = 155 проходила по верхушкам текста */}
         {NOTES.map((note, index) => (
           <text
             key={note}
             x="12"
-            y={167 + index * 11}
+            y={160 + index * 11}
             fontSize="10"
             fontWeight={index === 0 ? "700" : "400"}
             fill={index === 0 ? "#e2e8f0" : "#94a3b8"}

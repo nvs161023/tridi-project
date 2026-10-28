@@ -27,15 +27,15 @@ export function ProfitZ6Image2({ title, animated }: VisualProps) {
     >
       <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true" fontFamily={FONT}>
         <rect x="0.5" y="0.5" width="319" height="179" rx="12" fill="#1e293b" fillOpacity="0.5" stroke="#475569" />
-        <text x="10" y="15" fontSize="11" fontWeight="700" fill="#e2e8f0">
+        <text x="12" y="15" fontSize="11" fontWeight="700" fill="#e2e8f0">
           выбор перевозчика
         </text>
-        <text x="10" y="29" fontSize="10" fill="#94a3b8">
+        <text x="12" y="29" fontSize="10" fill="#94a3b8">
           по весу, сроку и цене
         </text>
 
         {CARRIERS.map((carrier, index) => {
-          const x = 10 + index * 74;
+          const x = 12 + index * 74;
           const center = x + 36;
           return (
             <g key={carrier.name}>
@@ -57,11 +57,11 @@ export function ProfitZ6Image2({ title, animated }: VisualProps) {
           );
         })}
 
-        <rect x="10" y="106" width="296" height="34" rx="5" fill="#0f172a" stroke="#334155" />
-        <text x="18" y="117" fontSize="10" fontWeight="700" fill="#e2e8f0">
+        <rect x="12" y="106" width="296" height="34" rx="5" fill="#0f172a" stroke="#334155" />
+        <text x="20" y="117" fontSize="10" fontWeight="700" fill="#e2e8f0">
           платный вес = max(факт; Д×Ш×В / 5000)
         </text>
-        <text x="18" y="131" fontSize="10" fill="#cbd5e1">
+        <text x="20" y="131" fontSize="10" fill="#cbd5e1">
           300 г → платишь как за 3,5 кг
         </text>
 

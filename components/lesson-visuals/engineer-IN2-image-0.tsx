@@ -148,7 +148,7 @@ export function EngineerIN2Image0({ title, animated }: VisualProps) {
           markerEnd="url(#in2-load-purple)"
         />
 
-        <text x="12" y="175" fontSize="10" fill="#fcd34d">
+        <text x="12" y="172" fontSize="10" fill="#fcd34d">
           сдвиг прячется внутри: шпонка, клей, слои
         </text>
       </svg>

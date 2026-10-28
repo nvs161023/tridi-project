@@ -134,7 +134,7 @@ export function ConfidentC2Diagram0({ title, animated }: VisualProps) {
         {/* Проветривание и приток: без притока вытяжка работает вхолостую */}
         <rect
           x="12"
-          y="154"
+          y="150"
           width="296"
           height="24"
           rx="6"
@@ -147,7 +147,7 @@ export function ConfidentC2Diagram0({ title, animated }: VisualProps) {
           <text
             key={note}
             x="22"
-            y={164 + index * 11}
+            y={160 + index * 11}
             fontSize="10"
             fontWeight={index === 0 ? "700" : "400"}
             fill={index === 0 ? "#e2e8f0" : "#94a3b8"}

@@ -17,6 +17,14 @@ const RESULT = [
 ];
 
 /**
+ * Четыре звена в ряд: 12…308. Первая колонка шире остальных, потому что
+ * «себестоимость» на 10 pt занимает 79 px и в равных колонках по 68 px
+ * вылезала за левое поле кадра.
+ */
+const BOX_X = [12, 110, 176, 242];
+const BOX_W = [92, 60, 60, 66];
+
+/**
  * Кадр блока 12 урока Z8 «Финальный проект: свой продукт».
  *
  * `Z8_calc_chain.png`: цепочка расчёта партии. Сначала складываются материал,
@@ -44,16 +52,17 @@ export function ProfitZ8Image1({ title, animated }: VisualProps) {
           складываем
         </text>
         {MONEY.map((item, index) => {
-          const x = 10 + index * 76;
+          const x = BOX_X[index];
+          const w = BOX_W[index];
           return (
             <g key={item.label}>
-              <rect x={x} y="52" width="68" height="26" rx="4" fill="#0f172a" stroke={item.color} strokeOpacity="0.55" />
-              <rect x={x} y="52" width="68" height="3" rx="1.5" fill={item.color} />
-              <text x={x + 34} y="69" fontSize="10" fontWeight="700" fill="#e2e8f0" textAnchor="middle">
+              <rect x={x} y="52" width={w} height="26" rx="4" fill="#0f172a" stroke={item.color} strokeOpacity="0.55" />
+              <rect x={x} y="52" width={w} height="3" rx="1.5" fill={item.color} />
+              <text x={x + w / 2} y="69" fontSize="10" fontWeight="700" fill="#e2e8f0" textAnchor="middle">
                 {item.label}
               </text>
               {index < 3 && (
-                <text x={x + 72} y="69" fontSize="10" fontWeight="700" fill="#64748b" textAnchor="middle">
+                <text x={x + w + 3} y="69" fontSize="10" fontWeight="700" fill="#64748b" textAnchor="middle">
                   +
                 </text>
               )}
@@ -71,28 +80,29 @@ export function ProfitZ8Image1({ title, animated }: VisualProps) {
           получаем
         </text>
         {RESULT.map((item, index) => {
-          const x = 10 + index * 76;
+          const x = BOX_X[index];
+          const w = BOX_W[index];
           return (
             <g key={item.label}>
-              <rect x={x} y="114" width="68" height="26" rx="4" fill="#0f172a" stroke={item.color} strokeOpacity="0.55" />
-              <rect x={x} y="114" width="68" height="3" rx="1.5" fill={item.color} />
-              <text x={x + 34} y="131" fontSize="10" fontWeight="700" fill="#e2e8f0" textAnchor="middle">
+              <rect x={x} y="114" width={w} height="26" rx="4" fill="#0f172a" stroke={item.color} strokeOpacity="0.55" />
+              <rect x={x} y="114" width={w} height="3" rx="1.5" fill={item.color} />
+              <text x={x + w / 2} y="131" fontSize="10" fontWeight="700" fill="#e2e8f0" textAnchor="middle">
                 {item.label}
               </text>
               {index < 3 && (
-                <path d={`M${x + 70} 124 L${x + 74} 127 L${x + 70} 130`} fill="none" stroke="#64748b" strokeWidth="1.5" />
+                <path d={`M${x + w + 1} 124 L${x + w + 5} 127 L${x + w + 1} 130`} fill="none" stroke="#64748b" strokeWidth="1.5" />
               )}
             </g>
           );
         })}
 
-        <rect x="10" y="148" width="146" height="24" rx="5" fill="#0f172a" stroke="#334155" />
-        <text x="18" y="164" fontSize="10" fontWeight="700" fill="#22d3ee">
+        <rect x="12" y="148" width="146" height="24" rx="5" fill="#0f172a" stroke="#334155" />
+        <text x="20" y="164" fontSize="10" fontWeight="700" fill="#22d3ee">
           партия 3–5 шт
         </text>
 
-        <rect x="164" y="148" width="146" height="24" rx="5" fill="#0f172a" stroke="#334155" />
-        <text x="172" y="164" fontSize="10" fontWeight="700" fill="#fbbf24">
+        <rect x="162" y="148" width="146" height="24" rx="5" fill="#0f172a" stroke="#334155" />
+        <text x="170" y="164" fontSize="10" fontWeight="700" fill="#fbbf24">
           запас на брак 5–10 %
         </text>
       </svg>

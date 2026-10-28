@@ -68,7 +68,7 @@ export function ProfitZ2Image2({ title, animated }: VisualProps) {
         })}
 
         <path d={`M12 ${BASELINE} H308`} stroke="#475569" strokeWidth="0.8" />
-        <text x="160" y="174" fontSize="10" fill="#e2e8f0" textAnchor="middle">
+        <text x="160" y="171" fontSize="10" fill="#e2e8f0" textAnchor="middle">
           20 деталей → 2 перепечатки в запасе
         </text>
       </svg>

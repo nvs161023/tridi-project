@@ -120,7 +120,7 @@ export function ConfidentC8Diagram2({ title, animated }: VisualProps) {
         <text x="12" y="160" fontSize="10" fontWeight="700" fill="#e2e8f0">
           Ø30 на просвет — один ровный зазор
         </text>
-        <text x="12" y="174" fontSize="10" fill="#94a3b8">
+        <text x="12" y="171" fontSize="10" fill="#94a3b8">
           Мельче допуск — больше строк G-кода
         </text>
       </svg>

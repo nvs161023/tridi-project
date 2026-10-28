@@ -72,7 +72,7 @@ export function ProfitZ5Image5({ title, animated }: VisualProps) {
           5 минут в день · 10 постов — уже картина
         </text>
 
-        <text x="160" y="175" fontSize="10" fill="#94a3b8" textAnchor="middle">
+        <text x="160" y="172" fontSize="10" fill="#94a3b8" textAnchor="middle">
           считать, а не надеяться
         </text>
       </svg>

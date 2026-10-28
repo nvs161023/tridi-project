@@ -148,7 +148,7 @@ export function ConfidentC11Screenshot0({ title, animated }: VisualProps) {
         <text x="12" y="160" fontSize="10" fill="#94a3b8">
           Свой старт вместо заводского: парковка, прогрев, очистка
         </text>
-        <text x="12" y="174" fontSize="10" fill="#64748b">
+        <text x="12" y="171" fontSize="10" fill="#64748b">
           Первой идёт парковка — потом нагрев стола
         </text>
       </svg>

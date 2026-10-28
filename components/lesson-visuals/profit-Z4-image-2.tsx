@@ -62,7 +62,7 @@ export function ProfitZ4Image2({ title, animated }: VisualProps) {
         <text x="160" y="161" fontSize="10" fill="#cbd5e1" textAnchor="middle">
           поверхность — без расслоений, волн и наплывов
         </text>
-        <text x="160" y="174" fontSize="10" fill="#94a3b8" textAnchor="middle">
+        <text x="160" y="171" fontSize="10" fill="#94a3b8" textAnchor="middle">
           допуск задаёшь ты · один на всю партию
         </text>
       </svg>

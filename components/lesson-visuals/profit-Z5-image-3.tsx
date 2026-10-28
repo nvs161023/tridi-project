@@ -117,7 +117,7 @@ export function ProfitZ5Image3({ title, animated }: VisualProps) {
           2–3 публикации в неделю
         </text>
 
-        <text x="160" y="174" fontSize="10" fill="#f87171" textAnchor="middle">
+        <text x="160" y="171" fontSize="10" fill="#f87171" textAnchor="middle">
           пустые каналы хуже одного живого
         </text>
       </svg>

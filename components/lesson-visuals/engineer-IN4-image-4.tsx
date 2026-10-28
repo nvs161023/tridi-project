@@ -46,7 +46,7 @@ export function EngineerIN4Image4({ title, animated }: VisualProps) {
         </text>
 
         {/* Карта */}
-        <rect x="12" y="23" width="184" height="118" rx="8" fill="#0f172a" fillOpacity="0.35" stroke="#334155" />
+        <rect x="12" y="23" width="184" height="122" rx="8" fill="#0f172a" fillOpacity="0.35" stroke="#334155" />
         <text x="22" y="38" fontSize="10" fontWeight="700" fill="#cbd5e1">
           напряжение
         </text>
@@ -68,7 +68,7 @@ export function EngineerIN4Image4({ title, animated }: VisualProps) {
         </text>
 
         {/* Запас */}
-        <rect x="206" y="23" width="102" height="118" rx="8" fill="#0f172a" fillOpacity="0.35" stroke="#334155" />
+        <rect x="206" y="23" width="102" height="122" rx="8" fill="#0f172a" fillOpacity="0.35" stroke="#334155" />
         <text x="216" y="38" fontSize="10" fontWeight="700" fill="#cbd5e1">
           запас
         </text>
@@ -85,8 +85,11 @@ export function EngineerIN4Image4({ title, animated }: VisualProps) {
         <rect x="216" y="111" width="82" height="7" rx="3" fill="#1e293b" stroke="#475569" strokeWidth="0.6" />
         <rect x="216" y="111" width="16" height="7" rx="3" fill="#ef4444" />
         <line x1="257" y1="108" x2="257" y2="121" stroke="#10b981" strokeWidth="1.4" />
-        <text x="216" y="134" fontSize="10" fill="#cbd5e1">
-          предел / напряжение
+        <text x="216" y="129" fontSize="10" fill="#cbd5e1">
+          предел /
+        </text>
+        <text x="216" y="139" fontSize="10" fill="#cbd5e1">
+          напряжение
         </text>
 
         <text x="12" y="162" fontSize="10" fill="#94a3b8">

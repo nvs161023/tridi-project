@@ -117,7 +117,7 @@ export function ConfidentC4Steps1({ title, animated }: VisualProps) {
           );
         })}
 
-        <text x="12" y="176" fontSize="10" fill="#94a3b8">
+        <text x="12" y="172" fontSize="10" fill="#94a3b8">
           {SUMMARY}
         </text>
       </svg>

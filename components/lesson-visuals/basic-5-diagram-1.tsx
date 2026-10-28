@@ -165,7 +165,7 @@ export function Basic5Diagram1({ title, animated }: VisualProps) {
         <text x="22" y="164" fontSize="10" fill="#94a3b8">
           один стол — один набор настроек
         </text>
-        <text x="22" y="175" fontSize="10" fill="#94a3b8">
+        <text x="22" y="172" fontSize="10" fill="#94a3b8">
           зазор, температура, Z-offset
         </text>
       </svg>

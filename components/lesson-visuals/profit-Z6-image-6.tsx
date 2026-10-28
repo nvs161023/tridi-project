@@ -27,16 +27,16 @@ export function ProfitZ6Image6({ title, animated }: VisualProps) {
     >
       <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true" fontFamily={FONT}>
         <rect x="0.5" y="0.5" width="319" height="179" rx="12" fill="#1e293b" fillOpacity="0.5" stroke="#475569" />
-        <text x="10" y="15" fontSize="11" fontWeight="700" fill="#e2e8f0">
+        <text x="12" y="15" fontSize="11" fontWeight="700" fill="#e2e8f0">
           если посылка потерялась
         </text>
-        <text x="10" y="29" fontSize="10" fill="#94a3b8">
+        <text x="12" y="29" fontSize="10" fill="#94a3b8">
           путь претензии — без паники
         </text>
 
-        <line x1="30" y1="50" x2="290" y2="50" stroke="#475569" strokeWidth="1.5" />
+        <line x1="44" y1="50" x2="276" y2="50" stroke="#475569" strokeWidth="1.5" />
         {CLAIM_STEPS.map((step, index) => {
-          const center = 30 + index * 65;
+          const center = 44 + index * 58;
           return (
             <g key={step.number}>
               <circle cx={center} cy="50" r="9.5" fill="#0f172a" stroke={step.color} strokeWidth="1.5" />
@@ -56,14 +56,14 @@ export function ProfitZ6Image6({ title, animated }: VisualProps) {
           );
         })}
 
-        <rect x="10" y="114" width="96" height="58" rx="5" fill="#0f172a" stroke="#f59e0b" strokeOpacity="0.55" />
-        <text x="58" y="132" fontSize="14" fontWeight="700" fill="#fbbf24" textAnchor="middle">
+        <rect x="12" y="114" width="96" height="58" rx="5" fill="#0f172a" stroke="#f59e0b" strokeOpacity="0.55" />
+        <text x="60" y="132" fontSize="14" fontWeight="700" fill="#fbbf24" textAnchor="middle">
           750 ₽
         </text>
-        <text x="58" y="147" fontSize="10" fill="#cbd5e1" textAnchor="middle">
+        <text x="60" y="147" fontSize="10" fill="#cbd5e1" textAnchor="middle">
           ценность
         </text>
-        <text x="58" y="161" fontSize="10" fill="#94a3b8" textAnchor="middle">
+        <text x="60" y="161" fontSize="10" fill="#94a3b8" textAnchor="middle">
           полная цена
         </text>
 
@@ -78,14 +78,14 @@ export function ProfitZ6Image6({ title, animated }: VisualProps) {
           1 на 100 посылок
         </text>
 
-        <rect x="214" y="114" width="96" height="58" rx="5" fill="#0f172a" stroke="#f472b6" strokeOpacity="0.55" />
-        <text x="262" y="132" fontSize="14" fontWeight="700" fill="#f9a8d4" textAnchor="middle">
+        <rect x="212" y="114" width="96" height="58" rx="5" fill="#0f172a" stroke="#f472b6" strokeOpacity="0.55" />
+        <text x="260" y="132" fontSize="14" fontWeight="700" fill="#f9a8d4" textAnchor="middle">
           2
         </text>
-        <text x="262" y="147" fontSize="10" fill="#cbd5e1" textAnchor="middle">
+        <text x="260" y="147" fontSize="10" fill="#cbd5e1" textAnchor="middle">
           повреждения
         </text>
-        <text x="262" y="161" fontSize="10" fill="#94a3b8" textAnchor="middle">
+        <text x="260" y="161" fontSize="10" fill="#94a3b8" textAnchor="middle">
           меняй тару
         </text>
       </svg>

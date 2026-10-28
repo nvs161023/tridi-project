@@ -51,7 +51,7 @@ export function ProfitZ1Image0({ title, animated }: VisualProps) {
         </text>
 
         {[LEFT, RIGHT].flatMap((column, columnIndex) => {
-          const x = columnIndex === 0 ? 16 : 167;
+          const x = columnIndex === 0 ? 14 : 156;
           const textX = x + 7;
           return column.map((item, itemIndex) => {
             const y = 46 + itemIndex * 19;

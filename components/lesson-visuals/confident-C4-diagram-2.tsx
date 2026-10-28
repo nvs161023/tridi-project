@@ -10,13 +10,13 @@ const CAP_Y = 34;
 const CAP_H = 7;
 const CENTERS = [58, 164, 270];
 
-type Step = { title: string; note: string; color: string };
+type Step = { title: string; note: string[]; color: string };
 
 /** Порядок промывки — блок 19; банки, фильтр и сушка — блоки 18, 20. */
 const STEPS: Step[] = [
-  { title: "Грязная банка", note: "первичная промывка", color: "#f59e0b" },
-  { title: "Чистая банка", note: "ополаскивание", color: "#3b82f6" },
-  { title: "Решётка сушки", note: "без полотенца", color: "#10b981" },
+  { title: "Грязная банка", note: ["первичная", "промывка"], color: "#f59e0b" },
+  { title: "Чистая банка", note: ["ополаскивание"], color: "#3b82f6" },
+  { title: "Решётка сушки", note: ["без полотенца"], color: "#10b981" },
 ];
 
 const NOTES = [
@@ -86,7 +86,7 @@ export function ConfidentC4Diagram2({ title, animated }: VisualProps) {
             </text>
             <text
               x={CENTERS[index]}
-              y="110"
+              y="106"
               fontSize="10"
               fontWeight="700"
               fill={step.color}
@@ -94,9 +94,20 @@ export function ConfidentC4Diagram2({ title, animated }: VisualProps) {
             >
               {step.title}
             </text>
-            <text x={CENTERS[index]} y="122" fontSize="10" fill="#cbd5e1" textAnchor="middle">
-              {step.note}
-            </text>
+            {/* Подпись шага переносится по словам и прижимается к нижней строке:
+                «первичная промывка» одной строкой выходила за левое поле */}
+            {step.note.map((note, noteIndex) => (
+              <text
+                key={note}
+                x={CENTERS[index]}
+                y={128 - (step.note.length - 1 - noteIndex) * 9}
+                fontSize="10"
+                fill="#cbd5e1"
+                textAnchor="middle"
+              >
+                {note}
+              </text>
+            ))}
           </g>
         ))}
 

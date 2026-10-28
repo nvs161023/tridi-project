@@ -30,27 +30,27 @@ export function ProfitZ6Image1({ title, animated }: VisualProps) {
     >
       <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true" fontFamily={FONT}>
         <rect x="0.5" y="0.5" width="319" height="179" rx="12" fill="#1e293b" fillOpacity="0.5" stroke="#475569" />
-        <text x="10" y="15" fontSize="11" fontWeight="700" fill="#e2e8f0">
+        <text x="12" y="15" fontSize="11" fontWeight="700" fill="#e2e8f0">
           упаковка в себестоимости
         </text>
-        <text x="10" y="29" fontSize="10" fill="#94a3b8">
+        <text x="12" y="29" fontSize="10" fill="#94a3b8">
           сорок рублей — строка, а не мелочь
         </text>
 
-        <rect x="10" y="34" width="92" height="108" rx="6" fill="#0f172a" stroke="#334155" />
-        <text x="56" y="64" fontSize="20" fontWeight="700" fill="#fbbf24" textAnchor="middle">
+        <rect x="12" y="34" width="92" height="108" rx="6" fill="#0f172a" stroke="#334155" />
+        <text x="58" y="64" fontSize="20" fontWeight="700" fill="#fbbf24" textAnchor="middle">
           40 ₽
         </text>
-        <text x="56" y="82" fontSize="10" fill="#cbd5e1" textAnchor="middle">
+        <text x="58" y="82" fontSize="10" fill="#cbd5e1" textAnchor="middle">
           упаковка
         </text>
-        <rect x="22" y="92" width="68" height="7" rx="3.5" fill="#334155" />
-        <rect x="22" y="92" width="7.4" height="7" rx="3.5" fill="#f59e0b" />
-        <text x="22" y="110" fontSize="10" fill="#94a3b8">
+        <rect x="24" y="92" width="68" height="7" rx="3.5" fill="#334155" />
+        <rect x="24" y="92" width="7.4" height="7" rx="3.5" fill="#f59e0b" />
+        <text x="24" y="110" fontSize="10" fill="#94a3b8">
           40 из 370 ₽
         </text>
-        <rect x="16" y="118" width="80" height="18" rx="9" fill="#f59e0b" fillOpacity="0.15" stroke="#f59e0b" strokeOpacity="0.55" />
-        <text x="56" y="131" fontSize="10" fontWeight="700" fill="#fcd34d" textAnchor="middle">
+        <rect x="18" y="118" width="80" height="18" rx="9" fill="#f59e0b" fillOpacity="0.15" stroke="#f59e0b" strokeOpacity="0.55" />
+        <text x="58" y="131" fontSize="10" fontWeight="700" fill="#fcd34d" textAnchor="middle">
           5 % от 750 ₽
         </text>
 
@@ -78,15 +78,15 @@ export function ProfitZ6Image1({ title, animated }: VisualProps) {
           40 ₽
         </text>
 
-        <rect x="10" y="148" width="145" height="30" rx="5" fill="#0f172a" stroke="#334155" />
-        <text x="20" y="158" fontSize="10" fill="#cbd5e1">
+        <rect x="12" y="148" width="146" height="30" rx="5" fill="#0f172a" stroke="#334155" />
+        <text x="22" y="158" fontSize="10" fill="#cbd5e1">
           10 отправок × 40 ₽
         </text>
-        <text x="20" y="172" fontSize="10" fontWeight="700" fill="#e2e8f0">
+        <text x="22" y="172" fontSize="10" fontWeight="700" fill="#e2e8f0">
           = 400 ₽
         </text>
 
-        <rect x="165" y="148" width="145" height="30" rx="5" fill="#0f172a" stroke="#334155" />
+        <rect x="165" y="148" width="143" height="30" rx="5" fill="#0f172a" stroke="#334155" />
         <text x="175" y="158" fontSize="10" fill="#cbd5e1">
           маржа 300 → 260 ₽
         </text>
