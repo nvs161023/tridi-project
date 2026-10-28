@@ -9,6 +9,11 @@ import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
  *
  *   POST /api/webhooks/yandex?token=<uuid>
  *
+ * Кабинет Яндекса дописывает к сохранённому адресу `/notification`, и хвост
+ * попадает внутрь значения `token`: в логах Amvera было
+ * `Получен: 39fcb3b7-.../notification Ожидался: 39fcb3b7-...`, то есть верный
+ * токен получал 403. Поэтому от значения берётся только часть до первого `/`.
+ *
  * Токен — тот же `workshop_settings.webhook_token` (uuid, unique), что и у
  * Ozon и WB: строка настроек уже привязана к владельцу, и отдельная колонка
  * площадке не нужна. Строку ищем через service_role: RLS закрывает таблицу
@@ -164,14 +169,18 @@ function notConfigured(): Response {
 }
 
 /**
- * Токен без лишних пробелов и с нижним регистром.
+ * Токен в виде, пригодном для сравнения с базой: без хвоста адреса, без лишних
+ * пробелов и в нижнем регистре.
  *
- * Один и тот же токен приходит из query-параметра, лежит в настройках и
- * попадает в лог — сравнивать их можно только после нормализации: пробел в
- * конце адреса или заглавные буквы не должны превращать заказ в 403.
+ * Один и тот же токен приходит из адреса, лежит в настройках и попадает в лог —
+ * сравнивать их можно только после нормализации. Отрезаем всё после первого
+ * `/`: кабинет Яндекса дописывает к адресу `/notification`, и без этого верный
+ * токен превращался в `<uuid>/notification` и получал 403. Сам по себе токен
+ * (uuid) косой черты не содержит, так что отрезать безопасно; пробел в конце
+ * адреса и заглавные буквы тоже не должны давать 403.
  */
 function normalizeToken(token: string): string {
-  return token.trim().toLowerCase();
+  return (token.split("/")[0] ?? "").trim().toLowerCase();
 }
 
 /**
@@ -196,11 +205,14 @@ function isSameWebhookToken(
 }
 
 /**
- * Токен вебхука из query-параметра.
+ * Токен вебхука из query-параметра `token`.
  *
- * Формат заранее не проверяем: адрес мог быть скопирован с лишними символами,
- * а колонка в старой базе может быть `text`, а не `uuid`. Решает сравнение с
- * сохранённым значением после `.trim().toLowerCase()`.
+ * Хвост `/notification` отрезает `normalizeToken()`: кабинет дописывает его
+ * прямо к значению в адресе, поэтому проверять формат здесь бессмысленно —
+ * решает сравнение с сохранённым значением после очистки. Отдельного разбора
+ * сегментов пути нет: лишний сегмент Next.js не отдаёт этому маршруту вовсе
+ * (`/api/webhooks/yandex/<токен>/notification` — 404), поэтому токен приходит
+ * только в query.
  */
 function readWebhookToken(request: Request): string {
   return new URL(request.url).searchParams.get("token") ?? "";
@@ -439,7 +451,9 @@ async function resolveSeller(token: string): Promise<SellerLookup> {
       }
 
       // Полные значения пишем намеренно: без них в логах Amvera видно только
-      // одинаковые префиксы и нельзя понять, какой именно адрес сохранён.
+      // одинаковые префиксы и нельзя понять, какой именно адрес сохранён. Токен
+      // здесь уже очищен от хвоста адреса (`normalizeToken`), поэтому «Получен»
+      // показывает ровно то значение, которое искали в базе.
       if (savedToken === null) {
         console.error("[Yandex] Токен не найден в базе:", token);
       } else {
@@ -783,7 +797,9 @@ async function handleOrder(token: string, body: JsonObject): Promise<Response> {
  *   2. проверка соединения (`PING`) подтверждается до токена и базы: кабинет
  *      сохраняет адрес только по ответу 2xx, а сам `PING` может прийти без
  *      нашего токена. Ответ — `{ version, time }`, как требует документация;
- *   3. для остальных запросов читаем `token` из query и ищем продавца;
+ *   3. для остальных запросов читаем `token` из query и очищаем его от хвоста
+ *      `/notification`, который дописывает кабинет, — иначе верный токен не
+ *      совпадёт с базой;
  *   4. тело заказа разбираем как JSON.
  */
 export async function POST(request: Request): Promise<Response> {
@@ -797,10 +813,23 @@ export async function POST(request: Request): Promise<Response> {
     return pingOk();
   }
 
-  const token = readWebhookToken(request);
+  const rawToken = readWebhookToken(request);
+  const token = normalizeToken(rawToken);
 
-  if (!token.trim()) {
-    console.error("[Yandex] Токен не найден в базе:", token);
+  // Яндекс дописывает к сохранённому адресу `/notification`, и хвост попадает в
+  // значение `token`. Пишем в лог и то, что пришло, и очищенное значение: по
+  // логу должно быть видно, какой именно токен сравнивался с базой.
+  if (rawToken.includes("/")) {
+    console.warn("[Yandex] Хвост адреса отброшен от токена:", {
+      received: rawToken,
+      token,
+    });
+  }
+
+  if (!token) {
+    console.error("[Yandex] Токен не передан в адресе запроса:", {
+      path: new URL(request.url).pathname,
+    });
 
     return forbidden();
   }
