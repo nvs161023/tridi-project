@@ -212,6 +212,20 @@ function normalizeToken(token: string): string {
 }
 
 /**
+ * Токен для лога: первые 8 символов и многоточие (`39fcb3b7...`).
+ *
+ * Полный токен в логах Amvera — утечка секрета: по нему можно слать
+ * уведомления от имени площадки. Префикса хватает, чтобы понять, тот ли адрес
+ * пришёл и совпадают ли два значения. Пустое значение и `undefined` показываем
+ * как `<empty>`: отсутствие токена должно быть видно явно, а не пустой строкой.
+ */
+function maskToken(token: string | null | undefined): string {
+  const value = token?.trim() ?? "";
+
+  return value ? `${value.slice(0, 8)}...` : "<empty>";
+}
+
+/**
  * Текст без BOM.
  *
  * JSON от площадки может начинаться с `\uFEFF`: `JSON.parse` на такой строке
@@ -489,18 +503,18 @@ async function resolveSeller(token: string): Promise<SellerLookup> {
         );
       }
 
-      // Полные значения пишем намеренно: без них в логах Amvera видно только
-      // одинаковые префиксы и нельзя понять, какой именно адрес сохранён. Токен
-      // здесь уже очищен от хвоста адреса (`normalizeToken`), поэтому «Получен»
-      // показывает ровно то значение, которое искали в базе.
+      // Токены маскируем (`maskToken`): полное значение — секрет, а префикса
+      // хватает, чтобы понять, тот ли адрес пришёл. Токен здесь уже очищен от
+      // хвоста адреса (`normalizeToken`), поэтому «Получен» показывает ровно то
+      // значение, которое искали в базе.
       if (savedToken === null) {
-        console.error("[Yandex] Токен не найден в базе:", token);
+        console.error("[Yandex] Токен не найден в базе:", maskToken(token));
       } else {
         console.error(
           "[Yandex] Токен не совпал. Получен:",
-          token,
+          maskToken(token),
           "Ожидался:",
-          savedToken,
+          maskToken(savedToken),
         );
       }
 
@@ -864,12 +878,12 @@ export async function POST(request: Request): Promise<Response> {
   const token = normalizeToken(rawToken);
 
   // Яндекс дописывает к сохранённому адресу `/notification`, и хвост попадает в
-  // значение `token`. Пишем в лог и то, что пришло, и очищенное значение: по
-  // логу должно быть видно, какой именно токен сравнивался с базой.
+  // значение `token`. Пишем в лог и то, что пришло, и очищенное значение — оба
+  // маскированы, полный токен в логах был бы утечкой секрета.
   if (rawToken.includes("/")) {
     console.warn("[Yandex] Хвост адреса отброшен от токена:", {
-      received: rawToken,
-      token,
+      received: maskToken(rawToken),
+      token: maskToken(token),
     });
   }
 
