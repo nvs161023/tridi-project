@@ -15,7 +15,10 @@ import { isLowStockFilament } from "@/lib/workshop/filaments";
 import { getWorkshopFilaments } from "@/lib/workshop/filament-store";
 import { getWorkshopOrders } from "@/lib/workshop/order-store";
 import { countMaintenanceDue } from "@/lib/workshop/printers";
-import { getWorkshopPrinters } from "@/lib/workshop/printer-store";
+import {
+  getDiscoveredPrinters,
+  getWorkshopPrinters,
+} from "@/lib/workshop/printer-store";
 import { getWorkshopProducts } from "@/lib/workshop/products";
 import { getWorkshopSettings } from "@/lib/workshop/store";
 
@@ -29,8 +32,9 @@ import { getWorkshopSettings } from "@/lib/workshop/store";
  *
  * Настройки, склад, принтеры, заказы, товары и клиенты читаются только при
  * открытом доступе: без пакета сохранять их всё равно нельзя, значит и лишние
- * запросы к базе не нужны. Запросы идут параллельно — это шесть независимых
- * таблиц.
+ * запросы к базе не нужны. Запросы идут параллельно — это семь независимых
+ * таблиц. Седьмой запрос — находки агента фермы: их показывает мастер подключения
+ * на вкладке «Принтеры», и без пакета он тоже не нужен.
  */
 export const metadata: Metadata = {
   title: "Мастерская — TriDi",
@@ -51,7 +55,15 @@ export default async function WorkshopPage() {
   }
 
   const hasPro = await hasActiveSubscription(supabase, userId);
-  const [snapshot, stock, fleet, orderBook, productList, clientList] = hasPro
+  const [
+    snapshot,
+    stock,
+    fleet,
+    orderBook,
+    productList,
+    clientList,
+    discovered,
+  ] = hasPro
     ? await Promise.all([
         getWorkshopSettings(supabase, userId),
         getWorkshopFilaments(supabase, userId),
@@ -59,8 +71,9 @@ export default async function WorkshopPage() {
         getWorkshopOrders(supabase, userId),
         getWorkshopProducts(),
         getWorkshopClients(),
+        getDiscoveredPrinters(supabase, userId),
       ])
-    : [null, null, null, null, null, null];
+    : [null, null, null, null, null, null, null];
 
   const orders = orderBook?.orders ?? [];
   const now = new Date();
@@ -224,12 +237,14 @@ export default async function WorkshopPage() {
               filaments={stock.filaments}
               printers={fleet.printers}
               activePrinterJobs={fleet.activeJobs}
+              discoveredPrinters={discovered?.printers ?? []}
               orders={orderBook.orders}
               products={productList ?? []}
               clients={clientList ?? []}
               isMissingTable={snapshot.isMissingTable}
               isFilamentsMissingTable={stock.isMissingTable}
               isPrintersMissingTable={fleet.isMissingTable}
+              isDiscoveredMissingTable={discovered?.isMissingTable ?? false}
               isOrdersMissingTable={orderBook.isMissingTable}
               requisites={snapshot.requisites}
               isRequisitesMissing={snapshot.isRequisitesMissing}

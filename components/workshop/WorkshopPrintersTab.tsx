@@ -9,6 +9,8 @@ import {
   resetPrinterZScrew,
 } from "@/app/actions/printers";
 import { AddPrinterDialog } from "@/components/workshop/AddPrinterDialog";
+import { DiscoverPrintersDialog } from "@/components/workshop/DiscoverPrintersDialog";
+import { RadarIcon } from "@/components/workshop/WorkshopIcons";
 import { createClient } from "@/lib/supabase/client";
 import {
   countMaintenanceDue,
@@ -18,6 +20,7 @@ import {
   printerMaintenanceLevel,
   printerMaintenancePercent,
   resolvePrinterLiveStatus,
+  type DiscoveredPrinter,
   type MaintenanceLevel,
   type PrinterActiveJobs,
   type PrinterFarmStatus,
@@ -46,14 +49,24 @@ import {
  * Realtime на `workshop_printers` и `workshop_print_jobs`. Состояние вкладки —
  * только открытое окно, строка подтверждения, часы для «офлайн» и то, какой
  * счётчик сейчас сбрасывается.
+ *
+ * Кнопка «Найти принтеры в сети» открывает «Мастер подключения фермы»: в нём
+ * лежат находки агента из `workshop_discovered_printers`, мастер отмечает
+ * нужные, даёт имена и переносит их в парк через `approveDiscoveredPrinters`.
+ * После успеха окно закрывается, страница обновляется, а над вкладкой на
+ * несколько секунд всплывает тост «Успешно добавлено N принтеров».
  */
 
 type WorkshopPrintersTabProps = {
   printers: WorkshopPrinter[];
   /** Названия заказов, которые печатаются сейчас: `printer_id` → title. */
   activeJobs: PrinterActiveJobs;
+  /** Находки агента фермы, которым мастер ещё не дал имена. */
+  discoveredPrinters: DiscoveredPrinter[];
   /** В базе нет таблицы workshop_printers — миграция не применена. */
   isMissingTable: boolean;
+  /** Нет таблицы workshop_discovered_printers — не применён workshop_farm_and_shop.sql. */
+  isDiscoveredMissingTable: boolean;
 };
 
 type MaintenanceCounter = "nozzle" | "lubrication" | "zScrew";
@@ -70,6 +83,15 @@ const REALTIME_REFRESH_DELAY_MS = 250;
 
 /** Как часто пересчитывать «офлайн» по last_seen_at без событий. */
 const LIVE_TICK_MS = 30 * 1000;
+
+/**
+ * Сколько висит тост «Успешно добавлено N принтеров».
+ *
+ * Как у тоста печати в карточке заказа: четыре секунды хватает, чтобы прочитать
+ * строку, и он не мешает дальше. Сообщение при этом дублируется в `aria-live`:
+ * тост исчезает сам, а строка состояния вкладки остаётся.
+ */
+const TOAST_TIMEOUT_MS = 4000;
 
 /** Цвет полоски и подписи по уровню обслуживания. */
 const LEVEL_STYLES: Record<
@@ -145,10 +167,14 @@ const secondaryActionClassName =
 export function WorkshopPrintersTab({
   printers,
   activeJobs,
+  discoveredPrinters,
   isMissingTable,
+  isDiscoveredMissingTable,
 }: WorkshopPrintersTabProps) {
   const router = useRouter();
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isDiscoverOpen, setIsDiscoverOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<{
@@ -157,6 +183,7 @@ export function WorkshopPrintersTab({
   } | null>(null);
   const [now, setNow] = useState<number | null>(null);
   const addTriggerRef = useRef<HTMLButtonElement>(null);
+  const discoverTriggerRef = useRef<HTMLButtonElement>(null);
 
   /**
    * Часы карточки для правила «молчит дольше двух минут — офлайн».
@@ -277,6 +304,51 @@ export function WorkshopPrintersTab({
     addTriggerRef.current?.focus();
   }, []);
 
+  /**
+   * Тост гаснет сам: он не должен висеть поверх карточек, пока мастер работает
+   * с парком. Таймер перезапускается на новом сообщении — повторное добавление
+   * снова показывает строку на четыре секунды.
+   */
+  useEffect(() => {
+    if (toast === null) {
+      return;
+    }
+
+    const timer = setTimeout(() => setToast(null), TOAST_TIMEOUT_MS);
+
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  /**
+   * Мастер подключения фермы открывается кнопкой и сразу просит страницу
+   * перечитать находки: агент сканирует сеть при старте, и с прошлой загрузки
+   * список мог измениться. Открытому окну refresh не мешает — выбор и имена
+   * живут в его состоянии поверх данных с сервера.
+   */
+  const openDiscover = useCallback(() => {
+    setStatus(null);
+    setError(null);
+    setIsDiscoverOpen(true);
+    router.refresh();
+  }, [router]);
+
+  const closeDiscover = useCallback(() => {
+    setIsDiscoverOpen(false);
+    discoverTriggerRef.current?.focus();
+  }, []);
+
+  /**
+   * Подтверждение прошло: окно закрывается, тост всплывает, а та же строка
+   * остаётся в `aria-live` вкладки — тост исчезнет, сообщение нет. Страницу
+   * уже обновил сам мастер, поэтому здесь только показываем результат.
+   */
+  const handleApproved = useCallback((message: string) => {
+    setToast(message);
+    setStatus(message);
+    setIsDiscoverOpen(false);
+    discoverTriggerRef.current?.focus();
+  }, []);
+
   /** Сброс счётчика: ответ сервера решает, показать сообщение или ошибку. */
   async function handleReset(
     printer: WorkshopPrinter,
@@ -342,15 +414,32 @@ export function WorkshopPrintersTab({
           </p>
         </div>
 
-        <button
-          ref={addTriggerRef}
-          type="button"
-          onClick={openAdd}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
-        >
-          <span aria-hidden>+</span>
-          Добавить принтер
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            ref={discoverTriggerRef}
+            type="button"
+            onClick={openDiscover}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-violet-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(59,130,246,0.8)] transition-colors hover:from-blue-400 hover:to-violet-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+          >
+            <RadarIcon className="h-4 w-4" />
+            Найти принтеры в сети
+            {discoveredPrinters.length > 0 ? (
+              <span className="inline-flex min-w-5 items-center justify-center rounded-md bg-black/25 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
+                {discoveredPrinters.length}
+              </span>
+            ) : null}
+          </button>
+
+          <button
+            ref={addTriggerRef}
+            type="button"
+            onClick={openAdd}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+          >
+            <span aria-hidden>+</span>
+            Добавить принтер
+          </button>
+        </div>
       </div>
 
       <p aria-live="polite" className="mt-3 min-h-5 text-sm text-emerald-300">
@@ -404,6 +493,25 @@ export function WorkshopPrintersTab({
 
       {isAddOpen ? (
         <AddPrinterDialog onClose={closeAdd} onCreated={setStatus} />
+      ) : null}
+
+      {isDiscoverOpen ? (
+        <DiscoverPrintersDialog
+          printers={discoveredPrinters}
+          isMissingTable={isDiscoveredMissingTable}
+          onClose={closeDiscover}
+          onApproved={handleApproved}
+        />
+      ) : null}
+
+      {toast ? (
+        <p
+          role="status"
+          data-printer-toast
+          className="pointer-events-none fixed inset-x-4 bottom-6 z-[90] mx-auto max-w-sm rounded-xl border border-emerald-400/50 bg-emerald-500/20 px-4 py-3 text-center text-sm font-semibold text-emerald-50 shadow-2xl shadow-black/60 backdrop-blur"
+        >
+          {toast}
+        </p>
       ) : null}
     </section>
   );

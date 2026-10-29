@@ -25,6 +25,7 @@ import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import type { WorkshopIntegrations } from "@/lib/workshop/integrations";
 import type { WorkshopOrder } from "@/lib/workshop/orders";
 import type {
+  DiscoveredPrinter,
   PrinterActiveJobs,
   WorkshopPrinter,
 } from "@/lib/workshop/printers";
@@ -70,6 +71,8 @@ type WorkshopTabsProps = {
   printers: WorkshopPrinter[];
   /** Названия заказов в печати: `printer_id` → title, для живых карточек. */
   activePrinterJobs: PrinterActiveJobs;
+  /** Принтеры, которых агент нашёл в сети и которые ждут имён: мастер подключения. */
+  discoveredPrinters: DiscoveredPrinter[];
   orders: WorkshopOrder[];
   products: WorkshopProduct[];
   clients: WorkshopClient[];
@@ -78,6 +81,8 @@ type WorkshopTabsProps = {
   isIntegrationsMissing: boolean;
   isFilamentsMissingTable: boolean;
   isPrintersMissingTable: boolean;
+  /** Нет таблицы workshop_discovered_printers — не применён workshop_farm_and_shop.sql. */
+  isDiscoveredMissingTable: boolean;
   isOrdersMissingTable: boolean;
   /** Нет колонки agent_token — не применён workshop_farm_and_shop.sql. */
   isAgentTokenMissing: boolean;
@@ -144,6 +149,7 @@ export function WorkshopTabs({
   filaments,
   printers,
   activePrinterJobs,
+  discoveredPrinters,
   orders,
   products,
   clients,
@@ -152,6 +158,7 @@ export function WorkshopTabs({
   isIntegrationsMissing,
   isFilamentsMissingTable,
   isPrintersMissingTable,
+  isDiscoveredMissingTable,
   isOrdersMissingTable,
   isAgentTokenMissing,
 }: WorkshopTabsProps) {
@@ -340,7 +347,9 @@ export function WorkshopTabs({
             <WorkshopPrintersTab
               printers={printers}
               activeJobs={activePrinterJobs}
+              discoveredPrinters={discoveredPrinters}
               isMissingTable={isPrintersMissingTable}
+              isDiscoveredMissingTable={isDiscoveredMissingTable}
             />
           </div>
 

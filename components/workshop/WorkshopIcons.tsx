@@ -20,6 +20,18 @@ const iconProps = {
   "aria-hidden": true,
 } as const;
 
+/** Радар: кнопка «Найти принтеры в сети» и мастер подключения фермы. */
+export function RadarIcon(props: WorkshopIconProps) {
+  return (
+    <svg {...iconProps} {...props}>
+      <path d="M19.07 4.93A10 10 0 1 0 21 12" />
+      <path d="M15.54 8.46A5 5 0 1 0 17 12" />
+      <path d="M12 12 19.07 4.93" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** Заказы: список с галочкой. */
 export function OrdersIcon(props: WorkshopIconProps) {
   return (

@@ -12,6 +12,10 @@
  * нулевыми быть не могут: на них делят процент износа.
  */
 import {
+  isPrinterProtocol,
+  type PrinterProtocol,
+} from "@/lib/db/workshop-types";
+import {
   formatWorkshopLimit,
   parseWorkshopNumber,
 } from "@/lib/workshop/settings";
@@ -131,6 +135,29 @@ export const PRINTER_INTERVAL_DEFAULTS = {
 /** Предел наработки: numeric(12, 2) с запасом на годы печати. */
 export const PRINTER_HOURS_MAX = 1000000;
 
+/** Предел адреса принтера — как у колонки ip_address (text, 1…253 символа). */
+export const PRINTER_ADDRESS_MAX = 253;
+
+/**
+ * Сколько найденных принтеров принимает одно сканирование и одно подтверждение.
+ *
+ * Сотня принтеров — уже крупная ферма, а 200 строк хватает и на подсеть с
+ * запасом: больше — это либо чужая сеть, либо сломанный агент, и такой ответ
+ * лучше обрезать, чем записать в базу мегабайт JSON.
+ */
+export const DISCOVERED_PRINTERS_LIMIT = 200;
+
+/**
+ * Бренд и модель принтера из автообнаружения.
+ *
+ * Сеть знает только адрес и протокол, а колонки brand/model в workshop_printers
+ * обязательные (not null, 1…40 и 1…60 символов). Если имя, введённое мастером,
+ * совпало с пресетом («Bambu Lab P1S»), бренд и модель берутся из справочника;
+ * иначе карточка честно показывает «Неизвестно · Найден по сети», а не пустоту.
+ */
+export const DISCOVERED_PRINTER_BRAND = "Неизвестно";
+export const DISCOVERED_PRINTER_MODEL = "Найден по сети";
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -148,6 +175,201 @@ export function formatPrinterHours(value: number): string {
 /** Идентификатор принтера: мусор отсекаем до запроса к PostgREST. */
 export function isPrinterId(value: unknown): value is string {
   return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+/**
+ * Адрес принтера из ответа агента или из формы: IPv4, IPv6 или имя узла.
+ *
+ * Разрешены только символы, из которых состоят адреса. Пробел или «/» означали
+ * бы, что агент прислал не адрес, а строку URL либо подпись, — подключиться по
+ * такому значению нельзя, и в workshop_printers.ip_address ему не место. Адрес
+ * длиннее 253 символов не влезает в колонку и check-ограничение миграции.
+ * null — это не адрес.
+ */
+export function normalizePrinterAddress(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const text = value.trim();
+
+  if (text.length === 0 || text.length > PRINTER_ADDRESS_MAX) {
+    return null;
+  }
+
+  return /^[0-9a-zA-Z.:_-]+$/.test(text) ? text : null;
+}
+
+/** Принтер, найденный агентом: адрес и протокол, которым он ответил. */
+export type DiscoveredPrinterDraft = {
+  ipAddress: string;
+  protocolType: PrinterProtocol;
+};
+
+/** Принтер, которого мастер подтвердил: к адресу добавлено имя. */
+export type ApprovedPrinterDraft = {
+  ipAddress: string;
+  name: string;
+};
+
+/** Итог разбора списка: что приняли и сколько строк отбросили. */
+export type DiscoveredPrintersRead<Draft> = {
+  drafts: Draft[];
+  skipped: number;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Ключ сравнения адресов: регистр в записи IPv6 не важен. */
+function addressKey(ipAddress: string | null): string {
+  return ipAddress === null ? "" : ipAddress.toLocaleLowerCase("en-US");
+}
+
+/**
+ * Ответ агента `[{ "ip_address": "192.168.1.50", "protocol_type": "moonraker" }]`.
+ *
+ * Мусорная строка не отменяет всё сканирование: агент обходит подсеть, и одна
+ * странная запись не должна стоить сотни нормальных. Такие строки считаются в
+ * `skipped`. Повтор адреса схлопывается — второй сканер в той же подсети иначе
+ * удвоил бы карточки. Неизвестный протокол читается как moonraker: это default
+ * колонки, и агент всегда может прислать протокол точнее.
+ *
+ * null — тело не массив: это ошибка формата, а не «ничего не найдено» (пустой
+ * массив как раз означает «в сети пусто», и старые находки должны исчезнуть).
+ */
+export function readDiscoveredPrinters(
+  value: unknown,
+): DiscoveredPrintersRead<DiscoveredPrinterDraft> | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const seen = new Set<string>();
+  const drafts: DiscoveredPrinterDraft[] = [];
+  let skipped = 0;
+
+  for (const item of value) {
+    const row = isRecord(item) ? item : null;
+    const ipAddress = normalizePrinterAddress(row?.ip_address);
+    const key = addressKey(ipAddress);
+    const protocol = row ? row.protocol_type : null;
+
+    if (
+      ipAddress === null ||
+      seen.has(key) ||
+      drafts.length >= DISCOVERED_PRINTERS_LIMIT
+    ) {
+      skipped += 1;
+      continue;
+    }
+
+    seen.add(key);
+    drafts.push({
+      ipAddress,
+      protocolType: isPrinterProtocol(protocol) ? protocol : "moonraker",
+    });
+  }
+
+  return { drafts, skipped };
+}
+
+/**
+ * Список на подтверждение от мастера `[{ "ip_address": ..., "name": ... }]`.
+ *
+ * Подтверждается только принтер с именем: без имени карточка в парке была бы
+ * безымянной, а мастер всё равно должен понимать, какой адрес он добавляет.
+ * Строка без имени, с нечитаемым адресом или повтором адреса отбрасывается и
+ * считается в `skipped`: список мог устареть, пока агент пересканировал сеть.
+ * Имя длиннее предела колонки обрезается, а не роняет всю пачку.
+ * null — это не массив: вызывающий отвечает ошибкой, а не «ничего не выбрано».
+ */
+export function readApprovedPrinters(
+  value: unknown,
+): DiscoveredPrintersRead<ApprovedPrinterDraft> | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const seen = new Set<string>();
+  const drafts: ApprovedPrinterDraft[] = [];
+  let skipped = 0;
+
+  for (const item of value) {
+    const row = isRecord(item) ? item : null;
+    const ipAddress = normalizePrinterAddress(row?.ip_address);
+    const key = addressKey(ipAddress);
+    const name =
+      row && typeof row.name === "string"
+        ? row.name.trim().slice(0, PRINTER_TEXT_LIMITS.name)
+        : "";
+
+    if (
+      ipAddress === null ||
+      name.length === 0 ||
+      seen.has(key) ||
+      drafts.length >= DISCOVERED_PRINTERS_LIMIT
+    ) {
+      skipped += 1;
+      continue;
+    }
+
+    seen.add(key);
+    drafts.push({ ipAddress, name });
+  }
+
+  return { drafts, skipped };
+}
+
+/**
+ * Принтер, которого агент нашёл в сети и который ждёт решения мастера.
+ *
+ * Строка `workshop_discovered_printers` — очередь «что подтвердить», а не история
+ * сканирований: после переноса в парк она удаляется. Поэтому здесь только то,
+ * что нужно мастеру подключения: адрес, протокол и время находки.
+ */
+export type DiscoveredPrinter = {
+  ipAddress: string;
+  protocolType: PrinterProtocol;
+  discoveredAt: string | null;
+};
+
+/**
+ * Имя по умолчанию для найденного принтера: «Принтер 192.168.1.50».
+ *
+ * Мастеру не нужно придумывать имя с нуля: адрес уже отличает принтеры друг от
+ * друга, а переименовать можно тут же, в мастере. Длинный адрес обрезается до
+ * предела колонки name — иначе первая же отправка упёрлась бы в check базы.
+ */
+export function defaultDiscoveredPrinterName(ipAddress: string): string {
+  return `Принтер ${ipAddress}`.slice(0, PRINTER_TEXT_LIMITS.name);
+}
+
+/**
+ * Строка workshop_discovered_printers → `DiscoveredPrinter`.
+ *
+ * Берём только статус `discovered`: `added` — уже перенесённый в парк принтер, в
+ * мастере ему делать нечего. Битый адрес даёт null: подключиться по такой строке
+ * нельзя, а в списке она выглядела бы рабочей. Неизвестный протокол читается
+ * как moonraker — это default колонки и самый частый случай (Klipper).
+ */
+export function normalizeDiscoveredPrinterRow(
+  row: Partial<Record<string, unknown>>,
+): DiscoveredPrinter | null {
+  const ipAddress = normalizePrinterAddress(row.ip_address);
+
+  if (ipAddress === null || row.status !== "discovered") {
+    return null;
+  }
+
+  return {
+    ipAddress,
+    protocolType: isPrinterProtocol(row.protocol_type)
+      ? row.protocol_type
+      : "moonraker",
+    discoveredAt: typeof row.created_at === "string" ? row.created_at : null,
+  };
 }
 
 /** Дата из формы или базы: только настоящий день в формате ГГГГ-ММ-ДД. */

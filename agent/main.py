@@ -18,7 +18,13 @@
      `printing` с прогрессом, `done` или `failed`;
   5. каждые `HEARTBEAT_INTERVAL` секунд отправляет пульс (`send_heartbeat()`,
      `POST /api/agent/heartbeat`): сервер отмечает `last_seen_at` у принтеров
-     мастерской, и ферма отличает «агент молчит» от «принтер свободен».
+     мастерской, и ферма отличает «агент молчит» от «принтер свободен»;
+  6. если в `.env` включён `SCAN_NETWORK` — один раз при старте обходит
+     локальную сеть (`scan_network()` из scanner.py, шаг 7.2) и отправляет
+     найденные принтеры в `POST /api/agent/discover` (`discover_farm()`):
+     мастеру со ста принтерами остаётся дать им имена, а не вбивать адреса.
+     В цикле опроса сеть не сканируется — обход занимает секунды и нагружает
+     сеть, а новые принтеры не появляются каждые пять секунд.
 
 Задания обрабатываются последовательно: пока идёт цикл мониторинга, агент не
 запрашивает новые задачи — иначе два G-code ушли бы на разные принтеры сразу, а
@@ -52,6 +58,7 @@ from dotenv import load_dotenv
 
 from adapters.base import BasePrinterAdapter
 from adapters.factory import get_adapter
+from scanner import scan_network, send_discovered_printers
 
 # `.env` ищем рядом с main.py, а не от текущей папки: агента запускают и из
 # своего каталога, и планировщиком из любого другого места.
@@ -70,6 +77,11 @@ REQUEST_TIMEOUT = 10
 
 # Пауза между опросами, если POLL_INTERVAL пуст или испорчен.
 DEFAULT_POLL_INTERVAL = 5
+
+# Значения, которые включают флаг из `.env`. Список строгий, а не `bool(raw)`:
+# пустая строка и «false» — тоже непустые строки, и `bool()` включил бы обход
+# сети там, где мастер его выключил.
+TRUE_VALUES = ("1", "true", "yes", "on", "да")
 
 # Статусы, которые принимает POST /api/agent/status (см. app/api/agent/status).
 AGENT_STATUSES = ("printing", "done", "failed")
@@ -106,6 +118,8 @@ class Settings:
     crm_url: str
     agent_token: str
     poll_interval: int
+    # Обнаружение фермы (шаг 7.2): обход локальной сети при старте.
+    scan_network: bool
 
 
 @dataclass(frozen=True)
@@ -220,6 +234,23 @@ def read_poll_interval(raw: str) -> int:
     return interval
 
 
+def read_scan_flag(raw: str) -> bool:
+    """
+    Флаг SCAN_NETWORK из `.env`: true, 1, yes, on (и «да»).
+
+    Незнакомое значение считается выключенным: обход сети на сотни адресов —
+    осознанное действие мастера, а не побочный эффект опечатки. Значение
+    пишется в журнал, чтобы «почему не сканирует» не искали по исходникам.
+    """
+    value = raw.strip()
+    enabled = value.lower() in TRUE_VALUES
+
+    if value and not enabled:
+        logger.info("SCAN_NETWORK=%r — обнаружение фермы выключено", value)
+
+    return enabled
+
+
 def load_settings() -> Settings | None:
     """
     Читает `.env` (и уже заданные переменные окружения) в Settings.
@@ -234,6 +265,7 @@ def load_settings() -> Settings | None:
     crm_url = os.getenv("CRM_URL", "").strip().rstrip("/")
     agent_token = os.getenv("AGENT_TOKEN", "").strip()
     poll_interval = read_poll_interval(os.getenv("POLL_INTERVAL", ""))
+    scan_network = read_scan_flag(os.getenv("SCAN_NETWORK", ""))
 
     valid = True
 
@@ -272,6 +304,7 @@ def load_settings() -> Settings | None:
         crm_url=crm_url,
         agent_token=agent_token,
         poll_interval=poll_interval,
+        scan_network=scan_network,
     )
 
 
@@ -519,6 +552,41 @@ def heartbeat_loop(stop_event: threading.Event) -> None:
         stop_event.wait(
             RECONNECT_DELAY if result == "network" else HEARTBEAT_INTERVAL
         )
+
+
+def discover_farm() -> bool:
+    """
+    Обнаружение фермы: обход локальной сети и отправка находок в CRM (шаг 7.2).
+
+    Вызывается один раз при старте агента, а не в цикле опроса: обход подсети
+    занимает секунды и нагружает сеть, а новые принтеры не появляются каждые
+    пять секунд. Нужен повтор — перезапустите агент: флаг `SCAN_NETWORK` можно
+    оставить включённым, второй проход в том же процессе не запускается.
+
+    Пустой результат тоже отправляется: сервер по пустому списку очищает прошлые
+    находки, и мастер видит, что сеть изменилась. Если принтеры есть, а находок
+    нет, в журнале будет подсказка про `SCAN_SUBNETS`.
+
+    Исключение наружу не летит: очередь печати важнее вспомогательной работы.
+    True — сервер принял находки.
+    """
+    settings = require_settings()
+
+    try:
+        printers = scan_network()
+    except Exception as error:  # noqa: BLE001 — агент не должен падать
+        logger.exception("Сеть не просканирована: %s", error)
+        return False
+
+    if not printers:
+        logger.warning(
+            "Принтеры в сети не найдены. Если ферма в другой подсети, задайте "
+            "SCAN_SUBNETS в .env (например, 10.0.0.0/24)."
+        )
+
+    return send_discovered_printers(
+        printers, settings.crm_url, settings.agent_token
+    )
 
 
 def log_task(task: dict[str, Any]) -> None:
@@ -808,6 +876,17 @@ def run() -> int:
         settings.crm_url,
         settings.poll_interval,
     )
+
+    # Обнаружение фермы (шаг 7.2) — до пульса и до очереди: сканирование один
+    # раз при старте, поэтому мастеру видно список принтеров сразу после
+    # запуска агента, а цикл опроса не ждёт обхода сети.
+    if settings.scan_network:
+        if discover_farm():
+            logger.info("Обнаружение фермы: находки ушли в мастерскую")
+        else:
+            logger.warning(
+                "Обнаружение фермы не удалось: агент продолжит опрос очереди"
+            )
 
     # Первый пульс — со сбросом прошлых ошибок: принтер, оставшийся в `error`
     # после падения агента или сети, снова в работе. Дальше пульс идёт без

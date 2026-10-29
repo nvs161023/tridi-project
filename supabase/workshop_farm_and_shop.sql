@@ -29,7 +29,10 @@
 --   6. создаёт workshop_order_items — позиции заказа (в заказе может быть
 --      несколько товаров);
 --   7. создаёт workshop_print_jobs — очередь печати для агента фермы;
---   8. включает Realtime на workshop_orders, workshop_printers и
+--   8. создаёт workshop_discovered_printers — принтеры, найденные агентом при
+--      сканировании сети: мастер даёт им имена, и они переезжают в
+--      workshop_printers;
+--   9. включает Realtime на workshop_orders, workshop_printers и
 --      workshop_print_jobs: Канбан подписывается на изменения заказов, а вкладка
 --      «Принтеры» — на статус, прогресс и текущее задание, и обе перезапрашивают
 --      данные без перезагрузки страницы.
@@ -457,7 +460,57 @@ create trigger workshop_print_jobs_touch_updated_at
   for each row execute function public.workshop_print_jobs_touch_updated_at();
 
 -- -----------------------------------------------------------------------------
--- 8. RLS и гранты новых таблиц
+-- 8. Найденные принтеры: автообнаружение фермы
+-- -----------------------------------------------------------------------------
+
+-- Мастеру со ста принтерами не вбить парк вручную: агент сканирует локальную
+-- сеть и присылает адреса в POST /api/agent/discover (lib/workshop/printers.ts
+-- разбирает ответ), а мастер только даёт имена. Найденная строка — черновик:
+-- после подтверждения Server Action approveDiscoveredPrinters создаёт принтер в
+-- workshop_printers и удаляет черновик, поэтому таблица остаётся списком «что
+-- ждёт решения», а не историей сканирований. Статус `added` в check оставлен на
+-- будущее: если решат хранить историю находок, код и база уже готовы.
+-- name по умолчанию не пустая строка: карточка показывает «Неизвестный
+-- принтер», пока мастер не введёт своё имя. protocol_type повторяет
+-- справочник workshop_printers.protocol_type: агент знает, каким API ответил
+-- принтер, и это знание не должно потеряться при подтверждении.
+create table if not exists public.workshop_discovered_printers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  ip_address text not null,
+  name text default 'Неизвестный принтер',
+  protocol_type text default 'moonraker',
+  status text default 'discovered',
+  created_at timestamptz not null default now(),
+  constraint workshop_discovered_printers_ip_check
+    check (char_length(btrim(ip_address)) between 1 and 253),
+  constraint workshop_discovered_printers_name_check
+    check (name is null or char_length(btrim(name)) between 1 and 60),
+  constraint workshop_discovered_printers_protocol_check
+    check (protocol_type in ('moonraker', 'octoprint', 'bambu')),
+  constraint workshop_discovered_printers_status_check
+    check (status in ('discovered', 'added'))
+);
+
+comment on table public.workshop_discovered_printers is
+  'Мастерская: принтеры, найденные агентом сканированием сети и ждущие подтверждения мастером.';
+comment on column public.workshop_discovered_printers.ip_address is
+  'Адрес принтера в локальной сети (IPv4 или имя узла), как его увидел агент.';
+comment on column public.workshop_discovered_printers.name is
+  'Имя, которое введёт мастер; до этого «Неизвестный принтер».';
+comment on column public.workshop_discovered_printers.protocol_type is
+  'Протокол, которым ответил принтер: moonraker (Klipper), octoprint или bambu.';
+comment on column public.workshop_discovered_printers.status is
+  'discovered — ждёт подтверждения мастера; added — уже перенесён в workshop_printers.';
+
+-- Сканирование заменяет только неподтверждённые строки своей мастерской, а
+-- подтверждение удаляет выбранные, поэтому выборка всегда идёт парой «владелец +
+-- статус».
+create index if not exists workshop_discovered_printers_user_status_idx
+  on public.workshop_discovered_printers (user_id, status);
+
+-- -----------------------------------------------------------------------------
+-- 9. RLS и гранты новых таблиц
 -- -----------------------------------------------------------------------------
 -- Правило одно: authenticated видит и меняет строки только со своим user_id.
 -- Вложенные проверки родителей (заказ, товар, принтер) не дают подставить чужой
@@ -465,7 +518,7 @@ create trigger workshop_print_jobs_touch_updated_at
 -- Для workshop_print_jobs статус меняет только агент через service_role:
 -- браузер не должен уметь объявить печать завершённой.
 
--- 8.1. Связи SKU ---------------------------------------------------------------
+-- 9.1. Связи SKU ---------------------------------------------------------------
 
 alter table public.workshop_marketplace_links enable row level security;
 
@@ -517,7 +570,7 @@ grant select, insert, update, delete on public.workshop_marketplace_links
   to authenticated;
 grant all on public.workshop_marketplace_links to service_role;
 
--- 8.2. Позиции заказа ----------------------------------------------------------
+-- 9.2. Позиции заказа ----------------------------------------------------------
 
 alter table public.workshop_order_items enable row level security;
 
@@ -587,7 +640,7 @@ grant select, insert, update, delete on public.workshop_order_items
   to authenticated;
 grant all on public.workshop_order_items to service_role;
 
--- 8.3. Очередь печати ----------------------------------------------------------
+-- 9.3. Очередь печати ----------------------------------------------------------
 
 alter table public.workshop_print_jobs enable row level security;
 
@@ -654,8 +707,29 @@ revoke all on public.workshop_print_jobs from anon, authenticated;
 grant select, insert, delete on public.workshop_print_jobs to authenticated;
 grant all on public.workshop_print_jobs to service_role;
 
+-- 9.4. Найденные принтеры ------------------------------------------------------
+-- Политика одна на все команды: список находок читает, дополняет и очищает
+-- только владелец. Агент пишет сюда через service_role (POST /api/agent/discover
+-- в app/api/agent/discover/route.ts), поэтому отдельных политик для него не
+-- нужно: правило «authenticated видит только свои строки» одного `for all`
+-- достаточно.
+alter table public.workshop_discovered_printers enable row level security;
+
+drop policy if exists "workshop_discovered_printers_own"
+  on public.workshop_discovered_printers;
+create policy "workshop_discovered_printers_own"
+  on public.workshop_discovered_printers
+  for all to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+revoke all on public.workshop_discovered_printers from anon, authenticated;
+grant select, insert, update, delete on public.workshop_discovered_printers
+  to authenticated;
+grant all on public.workshop_discovered_printers to service_role;
+
 -- -----------------------------------------------------------------------------
--- 9. Realtime для Канбана и карточек принтеров
+-- 10. Realtime для Канбана и карточек принтеров
 -- -----------------------------------------------------------------------------
 -- Подписчиков два:
 --   * Канбан заказов (components/workshop/WorkshopOrdersTab.tsx: канал
@@ -751,13 +825,15 @@ commit;
 --      select tablename, indexname from pg_indexes
 --       where schemaname = 'public'
 --         and tablename in ('workshop_marketplace_links', 'workshop_order_items',
---                           'workshop_print_jobs')
+--                           'workshop_print_jobs',
+--                           'workshop_discovered_printers')
 --       order by tablename, indexname;
 --      select conrelid::regclass, conname, pg_get_constraintdef(oid)
 --        from pg_constraint
 --       where conrelid in ('public.workshop_marketplace_links'::regclass,
 --                          'public.workshop_order_items'::regclass,
---                          'public.workshop_print_jobs'::regclass)
+--                          'public.workshop_print_jobs'::regclass,
+--                          'public.workshop_discovered_printers'::regclass)
 --       order by conrelid::regclass::text, conname;
 --
 -- 3) Политики и гранты:
@@ -765,16 +841,20 @@ commit;
 --        from pg_policies
 --       where schemaname = 'public'
 --         and tablename in ('workshop_marketplace_links', 'workshop_order_items',
---                           'workshop_print_jobs')
+--                           'workshop_print_jobs',
+--                           'workshop_discovered_printers')
 --       order by tablename, policyname;
 --      select table_name, privilege_type
 --        from information_schema.role_table_grants
 --       where table_schema = 'public'
 --         and grantee = 'authenticated'
 --         and table_name in ('workshop_marketplace_links', 'workshop_order_items',
---                            'workshop_print_jobs')
+--                            'workshop_print_jobs',
+--                            'workshop_discovered_printers')
 --       order by table_name, privilege_type;
---    Ожидается: у workshop_print_jobs среди прав authenticated нет UPDATE.
+--    Ожидается: у workshop_print_jobs среди прав authenticated нет UPDATE, а у
+--    workshop_discovered_printers есть ровно одна политика
+--    workshop_discovered_printers_own на все команды.
 --
 -- 4) Имя товара — алиас title:
 --      insert into public.workshop_products (user_id, sku, title)
@@ -807,4 +887,16 @@ commit;
 --    перезагрузки страницы — подписки в
 --    components/workshop/WorkshopOrdersTab.tsx и
 --    components/workshop/WorkshopPrintersTab.tsx работают, но база молчит.
+--
+-- 8) Найденные принтеры (автообнаружение):
+--      insert into public.workshop_discovered_printers (user_id, ip_address)
+--      values ('<USER_ID>', '192.168.1.50');
+--      select ip_address, name, protocol_type, status
+--        from public.workshop_discovered_printers
+--       where user_id = '<USER_ID>';
+--    Ожидается: name = 'Неизвестный принтер', protocol_type = 'moonraker',
+--    status = 'discovered'. Повторный POST /api/agent/discover с тем же адресом
+--    не создаёт вторую строку: старые `discovered` удаляются перед вставкой.
+--    Политика workshop_discovered_printers_own (for all) не даёт прочитать
+--    чужую находку даже при известном id.
 -- =============================================================================

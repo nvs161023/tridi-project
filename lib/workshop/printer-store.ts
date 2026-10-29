@@ -12,7 +12,9 @@ import {
   PRINTER_BASE_COLUMNS,
   PRINTER_COLUMNS,
   isPrinterId,
+  normalizeDiscoveredPrinterRow,
   normalizePrinterRow,
+  type DiscoveredPrinter,
   type PrinterActiveJobs,
   type WorkshopPrinter,
 } from "@/lib/workshop/printers";
@@ -150,6 +152,61 @@ export async function getWorkshopPrinters(
       .map(normalizePrinterRow)
       .filter((printer): printer is WorkshopPrinter => printer !== null),
     activeJobs,
+    isMissingTable: false,
+  };
+}
+
+export type DiscoveredPrintersSnapshot = {
+  printers: DiscoveredPrinter[];
+  /** В базе нет таблицы workshop_discovered_printers — миграция не применена. */
+  isMissingTable: boolean;
+};
+
+/**
+ * Принтеры, которые агент нашёл в сети и которые ждут подтверждения мастера.
+ *
+ * Статус фильтруется в запросе: индекс `(user_id, status)` из
+ * `supabase/workshop_farm_and_shop.sql` создан ровно под эту пару. Порядок —
+ * `created_at asc`, то есть порядок, в котором агент присылал находки: мастер
+ * видит ферму в том же порядке, в каком её обошёл сканер.
+ *
+ * Без миграции возвращается пустой список с признаком `isMissingTable`: вкладка
+ * не падает, а мастер подключения честно говорит, что таблицы нет. Прочие
+ * ошибки чтения тоже не пробрасываются — находки есть, а списка нет, и это
+ * состояние лучше показать пустым окном, чем красной страницей.
+ */
+export async function getDiscoveredPrinters(
+  supabase: Supabase,
+  userId: string,
+): Promise<DiscoveredPrintersSnapshot> {
+  const { data, error } = await supabase
+    .from("workshop_discovered_printers")
+    .select("ip_address, protocol_type, status, created_at")
+    .eq("user_id", userId)
+    .eq("status", "discovered")
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (!isMissingTableSchema(error.code, error.message)) {
+      console.warn(
+        "Найденные принтеры не прочитаны:",
+        error.code,
+        error.message,
+      );
+    }
+
+    return {
+      printers: [],
+      isMissingTable: isMissingTableSchema(error.code, error.message),
+    };
+  }
+
+  const rows = (data ?? []) as Partial<Record<string, unknown>>[];
+
+  return {
+    printers: rows
+      .map(normalizeDiscoveredPrinterRow)
+      .filter((printer): printer is DiscoveredPrinter => printer !== null),
     isMissingTable: false,
   };
 }

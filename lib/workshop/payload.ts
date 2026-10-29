@@ -6,6 +6,7 @@
  * — если колонка переименуется, TypeScript подсветит поле сразу, а не база
  * ответит PGRST204 уже в проде.
  */
+import type { PrinterProtocol, PrinterStatus } from "@/lib/db/workshop-types";
 import type {
   FilamentDraft,
   FilamentUsageType,
@@ -16,7 +17,14 @@ import type {
   OrderSource,
 } from "@/lib/workshop/orders";
 import type { WorkshopIntegrations } from "@/lib/workshop/integrations";
-import type { PrinterDraft } from "@/lib/workshop/printers";
+import { findPrinterPresetByModel } from "@/lib/workshop/printer-presets";
+import {
+  DISCOVERED_PRINTER_BRAND,
+  DISCOVERED_PRINTER_MODEL,
+  PRINTER_INTERVAL_DEFAULTS,
+  type ApprovedPrinterDraft,
+  type PrinterDraft,
+} from "@/lib/workshop/printers";
 import type {
   WorkshopCompanyType,
   WorkshopRequisites,
@@ -157,6 +165,50 @@ export function createPrinterPayload(
     nozzle_interval: draft.nozzleInterval,
     lubrication_interval: draft.lubricationInterval,
     z_screw_interval: draft.zScrewInterval,
+  };
+}
+
+/**
+ * Что уходит в `from("workshop_printers").insert(...)` для найденного принтера.
+ *
+ * Шире WorkshopPrinterPayload: у автообнаружения есть адрес, протокол и сразу
+ * заданное состояние `idle` — принтер найден, но ещё не печатает.
+ */
+export type DiscoveredPrinterPayload = WorkshopPrinterPayload & {
+  protocol_type: PrinterProtocol;
+  ip_address: string;
+  status: PrinterStatus;
+};
+
+/**
+ * Принтер из автообнаружения → строка парка.
+ *
+ * Сеть знает только адрес и протокол, а бренд и модель в workshop_printers
+ * обязательные. Поэтому они берутся из справочника, если мастер назвал принтер
+ * как в пресете («Bambu Lab P1S»): заодно подставляются интервалы ТО этой
+ * модели. Не совпало — «Неизвестно · Найден по сети» и интервалы по умолчанию,
+ * как у формы без выбранной модели: карточка не должна показывать чужой
+ * регламент.
+ */
+export function createDiscoveredPrinterPayload(
+  userId: string,
+  draft: ApprovedPrinterDraft,
+  protocolType: PrinterProtocol,
+): DiscoveredPrinterPayload {
+  const preset = findPrinterPresetByModel(draft.name);
+
+  return {
+    user_id: userId,
+    name: draft.name,
+    brand: preset?.brand ?? DISCOVERED_PRINTER_BRAND,
+    model: preset?.model ?? DISCOVERED_PRINTER_MODEL,
+    protocol_type: protocolType,
+    ip_address: draft.ipAddress,
+    status: "idle",
+    nozzle_interval: preset?.nozzleHours ?? PRINTER_INTERVAL_DEFAULTS.nozzle,
+    lubrication_interval:
+      preset?.lubricationHours ?? PRINTER_INTERVAL_DEFAULTS.lubrication,
+    z_screw_interval: preset?.zScrewHours ?? PRINTER_INTERVAL_DEFAULTS.zScrew,
   };
 }
 
