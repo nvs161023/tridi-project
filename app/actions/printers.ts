@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 
 import type {
+  DiscoveredPrinterListState,
   DiscoveredPrintersState,
+  NetworkScanRequestState,
   PrinterActionState,
   PrinterFormState,
 } from "@/app/actions/printers-state";
@@ -23,6 +25,7 @@ import {
   createDiscoveredPrinterPayload,
   createPrinterPayload,
 } from "@/lib/workshop/payload";
+import { getDiscoveredPrinters } from "@/lib/workshop/printer-store";
 
 const SESSION_EXPIRED =
   "Сессия истекла. Войдите снова, чтобы изменить принтеры.";
@@ -44,6 +47,10 @@ const APPROVE_NO_NAMES =
 const APPROVE_FAILED = "Не удалось добавить принтеры в парк. Попробуйте ещё раз.";
 const PARK_READ_FAILED =
   "Не удалось проверить, какие принтеры уже есть в парке. Попробуйте ещё раз.";
+const SCAN_REQUEST_FAILED =
+  "Не удалось запросить сканирование сети. Попробуйте ещё раз.";
+const SCAN_MIGRATION_MISSING =
+  "Запрос сканирования пока не сохраняется: в базе нет колонки workshop_settings.scan_requested. Примените supabase/workshop_farm_and_shop.sql.";
 
 /** Сегодняшняя дата в формате колонки date. */
 function todayIsoDate(): string {
@@ -421,5 +428,94 @@ export async function approveDiscoveredPrinters(
       added > 0
         ? `Добавлено принтеров: ${added}.${skipped > 0 ? ` Пропущено: ${skipped}.` : ""}`
         : "Все найденные принтеры уже есть в парке.",
+  };
+}
+
+/**
+ * Просьба мастера просканировать сеть: `workshop_settings.scan_requested = true`.
+ *
+ * Браузер не видит локальную сеть мастерской — с ней работает только агент,
+ * который стоит рядом с принтерами. Поэтому кнопка «Найти принтеры в сети» не
+ * сканирует сама, а поднимает флаг: агент читает его в цикле опроса
+ * (`GET /api/agent/scan-status`), обходит сеть и сбрасывает флаг
+ * (`POST /api/agent/scan-complete`).
+ *
+ * Строки настроек может ещё не быть: её создаёт первое сохранение калькулятора.
+ * Поэтому upsert по `user_id` (колонка unique), а не update: иначе флаг ставился
+ * бы в пустоту, и мастер видел бы «сканирую», пока агент ничего не делает.
+ *
+ * `ok: true` — флаг записан, а не «принтеры уже найдены»: находки придут
+ * отдельным запросом агента (`POST /api/agent/discover`), а окно мастера
+ * опрашивает их само (`fetchDiscoveredPrinters`).
+ */
+export async function requestNetworkScan(): Promise<NetworkScanRequestState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  const { error } = await supabase
+    .from("workshop_settings")
+    .upsert(
+      { user_id: user.id, scan_requested: true },
+      { onConflict: "user_id" },
+    );
+
+  if (error) {
+    console.warn("Запрос сканирования не сохранён:", error.code, error.message);
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(error.code, error.message)
+        ? SCAN_MIGRATION_MISSING
+        : SCAN_REQUEST_FAILED,
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Находки агента для окна мастера подключения: тот же список, что у страницы.
+ *
+ * Нужен, пока идёт сканирование: сеть обходит агент, находки приходят в базу
+ * асинхронно, и окно спрашивает их раз в три секунды (DiscoverPrintersDialog).
+ * Чтение идёт через `getDiscoveredPrinters()` — один запрос вместо
+ * `router.refresh()` всей страницы с семью запросами, и та же нормализация
+ * строк, что у серверного рендера.
+ *
+ * `ok: false` — сессия, подписка или база: опрос прекращается, окно показывает
+ * ошибку. Пустой список ошибкой не считается: агент мог ещё не прислать находки.
+ */
+export async function fetchDiscoveredPrinters(): Promise<
+  DiscoveredPrinterListState
+> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  const snapshot = await getDiscoveredPrinters(supabase, user.id);
+
+  return {
+    ok: true,
+    printers: snapshot.printers,
+    isMissingTable: snapshot.isMissingTable,
   };
 }

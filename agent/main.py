@@ -23,8 +23,13 @@
      локальную сеть (`scan_network()` из scanner.py, шаг 7.2) и отправляет
      найденные принтеры в `POST /api/agent/discover` (`discover_farm()`):
      мастеру со ста принтерами остаётся дать им имена, а не вбивать адреса.
-     В цикле опроса сеть не сканируется — обход занимает секунды и нагружает
-     сеть, а новые принтеры не появляются каждые пять секунд.
+     Сам по себе обход в цикле опроса не повторяется — подсеть на сотни адресов
+     не должна сканироваться каждые пять секунд;
+  7. следит за просьбой мастера «найти принтеры в сети»:
+     `handle_scan_request()` в цикле опроса читает флаг
+     `workshop_settings.scan_requested` через `GET /api/agent/scan-status`,
+     обходит сеть, отправляет находки и сбрасывает флаг через
+     `POST /api/agent/scan-complete`.
 
 Задания обрабатываются последовательно: пока идёт цикл мониторинга, агент не
 запрашивает новые задачи — иначе два G-code ушли бы на разные принтеры сразу, а
@@ -103,6 +108,11 @@ HEARTBEAT_INTERVAL = 30
 # Пауза после сетевой ошибки. Короче обычного интервала: связь могла моргнуть, и
 # пульс должен вернуться сразу, как только сеть появится.
 RECONNECT_DELAY = 5
+
+# Пауза между сканированиями по просьбе мастера, если обход или сброс флага не
+# удался. Минута, а не пять секунд опроса: обход подсети на сотни адресов —
+# дорогая операция, и повторять её на каждом цикле нельзя.
+SCAN_RETRY_DELAY = 60
 
 # Кусок G-code при скачивании: файл на десятки мегабайт не должен оказаться в
 # памяти целиком.
@@ -195,6 +205,14 @@ def read_printer(task: dict[str, Any]) -> PrinterSettings | None:
 # Настройки, прочитанные в run(). Лежат в модуле, чтобы fetch_tasks() и
 # send_status() оставались с сигнатурами из задачи, а `.env` читался один раз.
 _settings: Settings | None = None
+
+# Когда последний раз сканировали сеть по просьбе мастера (monotonic). Нужно,
+# если сбросить флаг не удалось: агент повторит обход, но не на каждом опросе.
+_requested_scan_at: float | None = None
+
+# Последняя ошибка чтения флага. Журнал не должен повторять одну строку каждые
+# пять секунд, пока мастер не применил миграцию: пишем её только при изменении.
+_scan_status_error: str | None = None
 
 
 def setup_logging() -> None:
@@ -567,10 +585,11 @@ def discover_farm() -> bool:
     """
     Обнаружение фермы: обход локальной сети и отправка находок в CRM (шаг 7.2).
 
-    Вызывается один раз при старте агента, а не в цикле опроса: обход подсети
-    занимает секунды и нагружает сеть, а новые принтеры не появляются каждые
-    пять секунд. Нужен повтор — перезапустите агент: флаг `SCAN_NETWORK` можно
-    оставить включённым, второй проход в том же процессе не запускается.
+    Два повода запустить обход: флаг `SCAN_NETWORK` при старте агента и просьба
+    мастера из интерфейса — кнопка «Найти принтеры в сети» поднимает
+    `workshop_settings.scan_requested`, а читает её `handle_scan_request()`.
+    Сам по себе обход в цикле опроса не повторяется: подсеть на сотни адресов не
+    должна сканироваться каждые пять секунд.
 
     Пустой результат тоже отправляется: сервер по пустому списку очищает прошлые
     находки, и мастер видит, что сеть изменилась. Если принтеры есть, а находок
@@ -596,6 +615,132 @@ def discover_farm() -> bool:
     return send_discovered_printers(
         printers, settings.crm_url, settings.agent_token
     )
+
+
+def fetch_scan_request() -> bool:
+    """
+    Просьба мастера «просканировать сеть»: `GET /api/agent/scan-status`.
+
+    Флаг ставит кнопка «Найти принтеры в сети» (Server Action
+    requestNetworkScan), а не `.env`: обход нужен по требованию, а не при каждом
+    старте. Ответ `{"scan_requested": true}` — можно сканировать.
+
+    False — просьбы нет, сервер не ответил или ответ непонятен. Сканировать «на
+    всякий случай» агент не должен: обход подсети на сотни адресов — работа по
+    просьбе мастера.
+
+    Отказ сервера (401, 503 без миграции) пишется в журнал один раз: иначе одна
+    и та же строка повторялась бы каждые пять секунд, пока мастер не применит
+    SQL. Сеть ошибку не повторяет вовсе — её уже пишет log_network_error.
+    """
+    global _scan_status_error
+
+    settings = require_settings()
+
+    try:
+        response = requests.get(
+            f"{settings.crm_url}/api/agent/scan-status",
+            headers=auth_headers(settings.agent_token),
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.RequestException as error:
+        log_network_error("Запрос сканирования не прочитан", error)
+        return False
+
+    if not response.ok:
+        message = f"HTTP {response.status_code}, {read_error_text(response)}"
+
+        if message != _scan_status_error:
+            _scan_status_error = message
+            logger.error("Запрос сканирования не прочитан: %s", message)
+
+        return False
+
+    # Успешный ответ снимает прошлую ошибку: следующий сбой снова попадёт
+    # в журнал, а не потеряется за старым сообщением.
+    _scan_status_error = None
+
+    payload = parse_json_object(response)
+
+    if payload is None:
+        return False
+
+    return payload.get("scan_requested") is True
+
+
+def complete_scan_request() -> bool:
+    """
+    Сбрасывает флаг сканирования: `POST /api/agent/scan-complete`.
+
+    Вызывается только после того, как находки приняты сервером: неудачная
+    отправка не должна терять просьбу мастера. True — сервер снял флаг.
+    """
+    settings = require_settings()
+
+    try:
+        response = requests.post(
+            f"{settings.crm_url}/api/agent/scan-complete",
+            headers=auth_headers(settings.agent_token),
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.RequestException as error:
+        log_network_error("Флаг сканирования не сброшен", error)
+        return False
+
+    if not response.ok:
+        logger.error(
+            "Флаг сканирования не сброшен: HTTP %s, %s",
+            response.status_code,
+            read_error_text(response),
+        )
+        return False
+
+    return True
+
+
+def handle_scan_request() -> None:
+    """
+    Сканирование по просьбе мастера — вызывается из цикла опроса.
+
+    Кнопка «Найти принтеры в сети» в браузере не может обойти локальную сеть:
+    её видит только агент. Поэтому кнопка ставит флаг на сервере, а агент
+    проверяет его на каждом опросе и, если флаг поднят, запускает обход.
+
+    Порядок: обход → отправка находок → сброс флага. Сброс идёт только после
+    успешной отправки: иначе пропавшая сеть потеряла бы просьбу мастера, и он
+    остался бы с пустым списком без объяснения. Повтор при неудаче — не раньше
+    `SCAN_RETRY_DELAY`: обход подсети на каждом пятисекундном опросе — нагрузка
+    на сеть без пользы.
+
+    Исключение наружу не летит: очередь печати важнее вспомогательной работы.
+    """
+    global _requested_scan_at
+
+    if not fetch_scan_request():
+        return
+
+    now = time.monotonic()
+
+    if _requested_scan_at is not None and now - _requested_scan_at < SCAN_RETRY_DELAY:
+        return
+
+    _requested_scan_at = now
+    logger.info("Мастер запросил сканирование сети: обход запущен")
+
+    if not discover_farm():
+        logger.warning(
+            "Сканирование по запросу не отправлено: флаг остаётся, повтор через %s с",
+            SCAN_RETRY_DELAY,
+        )
+        return
+
+    if complete_scan_request():
+        logger.info("Сканирование по запросу: находки приняты, флаг сброшен")
+    else:
+        logger.warning(
+            "Флаг сканирования не сброшен: обход повторится через %s с",
+            SCAN_RETRY_DELAY,
+        )
 
 
 def log_task(task: dict[str, Any]) -> None:
@@ -920,6 +1065,14 @@ def run() -> int:
 
     try:
         while True:
+            # Просьба мастера «найти принтеры в сети» проверяется на каждом
+            # опросе, но сам обход — не чаще SCAN_RETRY_DELAY: кнопка в
+            # интерфейсе ставит флаг, а не сканирует из браузера.
+            try:
+                handle_scan_request()
+            except Exception as error:  # noqa: BLE001 — агент не должен падать
+                logger.exception("Запрос сканирования не обработан: %s", error)
+
             tasks = poll_once()
 
             # Строго по одному и до конца печати: process_task() не возвращает

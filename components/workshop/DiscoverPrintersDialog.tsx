@@ -1,9 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 
-import { approveDiscoveredPrinters } from "@/app/actions/printers";
+import {
+  approveDiscoveredPrinters,
+  fetchDiscoveredPrinters,
+  requestNetworkScan,
+} from "@/app/actions/printers";
 import type { DiscoveredPrintersState } from "@/app/actions/printers-state";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import type { PrinterProtocol } from "@/lib/db/workshop-types";
@@ -14,18 +18,24 @@ import {
 } from "@/lib/workshop/printers";
 
 /**
- * Окно «Мастер подключения фермы».
+ * Окно «Мастер подключения фермы»: поиск принтеров в сети и перенос в парк.
  *
- * Агент фермы запускают с `SCAN_NETWORK=true`: он обходит локальную сеть и
- * присылает находки в `/api/agent/discover`, а страница читает их
- * (`getDiscoveredPrinters()` в lib/workshop/printer-store.ts). Здесь мастер даёт
- * принтерам имена и одной кнопкой переносит выбранные в парк через Server Action
- * `approveDiscoveredPrinters`.
+ * Сеть обходит только агент, который стоит рядом с принтерами, — браузер её не
+ * видит. Поэтому окно не показывает мгновенно то, что лежит в базе, а просит
+ * агента просканировать сеть (Server Action `requestNetworkScan` ставит
+ * `workshop_settings.scan_requested`), показывает «Сканируем сеть…» и раз в три
+ * секунды спрашивает находки (`fetchDiscoveredPrinters`). Как только агент их
+ * прислал, лоадер уступает место списку, и мастер даёт принтерам имена.
+ *
+ * Старые находки в базе — не повод не сканировать: если список пришёл непустым,
+ * окно показывает его сразу, а если пустым — запускает поиск. Пустой ответ агента
+ * тоже результат: через полторы минуты опроса окно честно говорит «принтеров не
+ * нашли» и предлагает искать снова.
  *
  * Выбор и имена хранятся как «правки поверх умолчаний»: отмечено всё, что в
- * списке, имя по умолчанию — `Принтер 192.168.1.50`. Поэтому `router.refresh()`
- * при открытии окна не ломает уже введённое: новые находки с сервера сразу видны
- * и отмечены, а правки старых строк остаются.
+ * списке, имя по умолчанию — `Принтер 192.168.1.50`. Поэтому обновление списка
+ * не ломает уже введённое: новые находки сразу видны и отмечены, а правки старых
+ * строк остаются.
  *
  * После успеха окно закрывает родитель: страницу мастер обновляет сам
  * (`router.refresh()`), а вкладка показывает тост и оставляет ту же строку в
@@ -47,6 +57,29 @@ const PROTOCOL_LABELS: Record<PrinterProtocol, string> = {
   octoprint: "OctoPrint",
   bambu: "Bambu",
 };
+
+/**
+ * Как часто окно спрашивает находки, пока агент обходит сеть.
+ *
+ * Три секунды — компромисс: агент узнаёт о просьбе на ближайшем опросе (раз в
+ * пять секунд), обход подсети занимает секунды, и мастер не должен ждать
+ * перезагрузки страницы, чтобы увидеть результат.
+ */
+const SCAN_POLL_INTERVAL_MS = 3000;
+
+/**
+ * Сколько раз опросить базу: 30 × 3 с = полторы минуты.
+ *
+ * Дольше ждать незачем: обход подсети занимает секунды, а пустой ответ — тоже
+ * результат. Окно лучше скажет «принтеров не нашли» и предложит поискать снова,
+ * чем будет крутить лоадер над выключенным агентом.
+ */
+const SCAN_POLL_LIMIT = 30;
+
+const SCAN_REQUEST_FAILED =
+  "Не удалось запросить сканирование сети. Попробуйте ещё раз.";
+const SCAN_POLL_FAILED =
+  "Не удалось прочитать найденные принтеры. Попробуйте ещё раз.";
 
 const inputClassName =
   "mt-2 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset disabled:cursor-not-allowed disabled:opacity-40";
@@ -109,12 +142,118 @@ export function DiscoverPrintersDialog({
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Находки: страница отдаёт их пропом, дальше окно обновляет список само —
+   * агент присылает результат уже после открытия окна.
+   */
+  const [found, setFound] = useState<DiscoveredPrinter[]>(printers);
+  /** Номер поиска: 0 — данные пришли с сервера, сканировать не нужно. */
+  const [scanRun, setScanRun] = useState(printers.length === 0 ? 1 : 0);
+  /** Агент обходит сеть, находок ещё нет: вместо списка — статус ожидания. */
+  const [isScanning, setIsScanning] = useState(
+    printers.length === 0 && !isMissingTable,
+  );
+  /** Сканирование закончилось, а принтеров в сети не нашлось. */
+  const [scanEmpty, setScanEmpty] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Таблицы находок нет: просить сканирование бессмысленно, серверу некуда
+    // записывать результат. Предупреждение о миграции уже показано выше.
+    if (scanRun === 0 || isMissingTable) {
+      return;
+    }
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let attempts = 0;
+
+    const stopPolling = () => {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+
+    /** Один опрос находок: пришли — показываем, попытки кончились — «пусто». */
+    const poll = async () => {
+      attempts += 1;
+
+      const result = await fetchDiscoveredPrinters();
+
+      if (cancelled) {
+        return;
+      }
+
+      if (!result.ok) {
+        stopPolling();
+        setIsScanning(false);
+        setScanError(result.error ?? SCAN_POLL_FAILED);
+        return;
+      }
+
+      const rows = result.printers ?? [];
+
+      if (rows.length > 0) {
+        stopPolling();
+        setFound(rows);
+        setIsScanning(false);
+        setScanError(null);
+        setScanEmpty(false);
+        // Вкладка показывает число находок в подписи кнопки — страницу
+        // обновляем один раз, когда список действительно изменился.
+        router.refresh();
+        return;
+      }
+
+      if (attempts >= SCAN_POLL_LIMIT) {
+        stopPolling();
+        setIsScanning(false);
+        setScanEmpty(true);
+      }
+    };
+
+    // Просьба уходит сразу при открытии окна: мастер нажал кнопку, а не ждёт
+    // пятисекундного такта агента.
+    void requestNetworkScan().then((result) => {
+      if (cancelled) {
+        return;
+      }
+
+      if (!result.ok) {
+        setIsScanning(false);
+        setScanError(result.error ?? SCAN_REQUEST_FAILED);
+        return;
+      }
+
+      timer = setInterval(() => {
+        void poll();
+      }, SCAN_POLL_INTERVAL_MS);
+    });
+
+    // Окно закрыли — опрос прекращается: находки всё равно придут в базу,
+    // а лишние запросы к серверу закрытому окну не нужны.
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
+  }, [scanRun, isMissingTable, router]);
+
+  /** «Искать снова»: новый запрос агенту и новый цикл опроса. */
+  function restartScan() {
+    setFound([]);
+    setScanEmpty(false);
+    setScanError(null);
+    setIsScanning(true);
+    setScanRun((run) => run + 1);
+  }
+
   const isChosen = (ipAddress: string) => !unselected[ipAddress];
   const nameOf = (ipAddress: string) =>
     names[ipAddress] ?? defaultDiscoveredPrinterName(ipAddress);
 
-  const chosen = printers.filter((printer) => isChosen(printer.ipAddress));
-  const allChosen = printers.length > 0 && chosen.length === printers.length;
+  const chosen = found.filter((printer) => isChosen(printer.ipAddress));
+  const allChosen = found.length > 0 && chosen.length === found.length;
   const namelessChosen = chosen.filter(
     (printer) => nameOf(printer.ipAddress).trim().length === 0,
   );
@@ -135,7 +274,7 @@ export function DiscoverPrintersDialog({
   function toggleAll() {
     const next: Record<string, boolean> = {};
 
-    for (const printer of printers) {
+    for (const printer of found) {
       next[printer.ipAddress] = allChosen;
     }
 
@@ -169,6 +308,19 @@ export function DiscoverPrintersDialog({
     router.refresh();
     onApproved(approvedNotice(result));
   }
+
+  /**
+   * Подпись под заголовком: объясняет, что происходит сейчас, а не только что
+   * делать дальше. Пока идёт обход сети, мастер должен понимать, почему список
+   * ещё пуст.
+   */
+  const headerNote = isMissingTable
+    ? "Список находок пока не сохраняется: в базе нет таблицы workshop_discovered_printers."
+    : isScanning
+      ? "Агент обходит локальную сеть мастерской. Как только он пришлёт находки, здесь появятся адреса принтеров."
+      : found.length === 0
+        ? "Принтеров в сети пока нет. Запустите агент фермы и повторите поиск."
+        : "Агент нашёл принтеры в локальной сети. Отметьте нужные, дайте им имена — они появятся в парке мастерской, а находки из очереди уйдут.";
 
   return (
     <div
@@ -209,8 +361,7 @@ export function DiscoverPrintersDialog({
         </div>
 
         <p className="mt-4 text-sm leading-relaxed text-zinc-400">
-          Агент нашёл принтеры в локальной сети. Отметьте нужные, дайте им имена
-          — они появятся в парке мастерской, а находки из очереди уйдут.
+          {headerNote}
         </p>
 
         {isMissingTable ? (
@@ -225,22 +376,69 @@ export function DiscoverPrintersDialog({
           </p>
         ) : null}
 
-        {printers.length === 0 ? (
-          <div className="mt-5 rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-5 py-8 text-center">
-            <p aria-hidden className="text-3xl">
-              📡
+        {isScanning ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mt-5 rounded-2xl border border-blue-500/30 bg-blue-500/[0.06] px-5 py-8 text-center"
+          >
+            <span
+              aria-hidden
+              className="mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-blue-400"
+            />
+            <p className="mt-4 text-sm font-semibold text-white">
+              Сканируем сеть… Пожалуйста, подождите
             </p>
-            <p className="mt-3 text-sm leading-relaxed text-zinc-400">
-              Принтеры не найдены. Убедитесь, что агент запущен с флагом
-              SCAN_NETWORK=true и находится в одной сети с принтерами
+            <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+              Агент обходит локальную сеть и пришлёт найденные принтеры. Обычно
+              это занимает меньше минуты.
             </p>
             <button
               type="button"
               onClick={closeUnlessPending}
               className={`mt-5 ${secondaryButtonClassName}`}
             >
-              Закрыть
+              Отменить
             </button>
+          </div>
+        ) : found.length === 0 ? (
+          <div className="mt-5 rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-5 py-8 text-center">
+            <p aria-hidden className="text-3xl">
+              📡
+            </p>
+            <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+              {isMissingTable
+                ? "Принтеры не найдены: список находок пока не сохраняется в базе."
+                : scanEmpty
+                  ? "Агент просканировал сеть, но принтеров не нашёл. Проверьте, что он запущен и стоит в одной сети с принтерами, а если ферма в другом VLAN — что задан SCAN_SUBNETS."
+                  : "Принтеры не найдены. Запустите агент фермы — он обходит сеть и присылает находки сюда."}
+            </p>
+            {scanError ? (
+              <p
+                role="alert"
+                className="mt-3 rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+              >
+                {scanError}
+              </p>
+            ) : null}
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
+              {isMissingTable ? null : (
+                <button
+                  type="button"
+                  onClick={restartScan}
+                  className={primaryButtonClassName}
+                >
+                  Искать снова
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={closeUnlessPending}
+                className={secondaryButtonClassName}
+              >
+                Закрыть
+              </button>
+            </div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} autoComplete="off" className="mt-5">
@@ -255,12 +453,12 @@ export function DiscoverPrintersDialog({
               <p className="text-xs font-semibold text-zinc-500">
                 Выбрано:{" "}
                 <span className="text-white tabular-nums">{chosen.length}</span>{" "}
-                из <span className="tabular-nums">{printers.length}</span>
+                из <span className="tabular-nums">{found.length}</span>
               </p>
             </div>
 
             <ul className="mt-4 space-y-2">
-              {printers.map((printer, index) => {
+              {found.map((printer, index) => {
                 const checkboxId = `farm-wizard-printer-${index}`;
                 const checked = isChosen(printer.ipAddress);
 

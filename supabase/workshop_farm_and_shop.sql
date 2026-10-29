@@ -22,7 +22,8 @@
 --   2. расширяет workshop_printers полями локального агента: протокол, адрес,
 --      ключ, состояние, прогресс и остаток печати;
 --   3. выдаёт workshop_settings.agent_token — персональный ключ агента 3D-фермы
---      (аналог webhook_token у Ozon);
+--      (аналог webhook_token у Ozon) — и заводит флаг scan_requested: просьбу
+--      мастера «просканировать сеть», которую агент читает в цикле опроса;
 --   4. расширяет workshop_products ссылкой на G-code и колонкой `name`;
 --   5. создаёт workshop_marketplace_links — соответствие «SKU площадки → товар
 --      каталога» (по нему заказ с Ozon/WB/Яндекса находит G-code);
@@ -54,6 +55,15 @@
 --   это секрет, как пароль. Он не должен попадать в клиентские компоненты,
 --   логи и URL страниц (только в заголовок запроса агента). Пока агент не
 --   подключён, токен просто лежит в настройках мастерской.
+--
+-- Про scan_requested:
+--   браузер не видит локальную сеть мастерской — её видит только агент, который
+--   стоит рядом с принтерами. Поэтому кнопка «Найти принтеры в сети» не
+--   сканирует сама, а поднимает флаг: Server Action requestNetworkScan() пишет
+--   true, агент читает его в цикле опроса (GET /api/agent/scan-status), обходит
+--   сеть, отправляет находки в POST /api/agent/discover и сбрасывает флаг
+--   (POST /api/agent/scan-complete). default false: без просьбы мастера агент
+--   сеть не сканирует.
 --
 -- Про деньги: numeric(10, 2) вместо float — копейки не должны «плыть» при
 -- сложении комиссий и себестоимости. null означает «неизвестно» и не
@@ -229,7 +239,7 @@ create index if not exists workshop_printers_user_status_idx
   on public.workshop_printers (user_id, status);
 
 -- -----------------------------------------------------------------------------
--- 3. Настройки: токен агента 3D-фермы
+-- 3. Настройки: токен агента 3D-фермы и флаг сканирования сети
 -- -----------------------------------------------------------------------------
 
 -- Токен — такой же персональный ключ, как webhook_token у Ozon: агент
@@ -252,6 +262,17 @@ create unique index if not exists workshop_settings_agent_token_key
 
 comment on column public.workshop_settings.agent_token is
   'Персональный UUID агента 3D-фермы; секрет, только для заголовка запроса агента.';
+
+-- Просьба мастера «найти принтеры в сети»: кнопка в мастере подключения ставит
+-- флаг, агент читает его в цикле опроса и сбрасывает после обхода сети (см.
+-- app/api/agent/scan-status и app/api/agent/scan-complete). not null default
+-- false — старые строки сразу получают «сканировать не просили», иначе агент
+-- обходил бы сеть при каждом запуске.
+alter table public.workshop_settings
+  add column if not exists scan_requested boolean not null default false;
+
+comment on column public.workshop_settings.scan_requested is
+  'Запрос мастера «просканировать сеть»: true — агент обойдёт сеть при следующем опросе и сбросит флаг.';
 
 -- -----------------------------------------------------------------------------
 -- 4. Товары: G-code и алиас name
@@ -818,7 +839,7 @@ commit;
 --                             'marketplace_commission', 'internal_print_cost',
 --                             'protocol_type', 'ip_address', 'api_key', 'status',
 --                             'progress', 'remaining_time', 'last_seen_at',
---                             'agent_token', 'gcode_url', 'name')
+--                             'agent_token', 'scan_requested', 'gcode_url', 'name')
 --       order by table_name, column_name;
 --
 -- 2) Новые таблицы и их ограничения:
@@ -899,4 +920,16 @@ commit;
 --    не создаёт вторую строку: старые `discovered` удаляются перед вставкой.
 --    Политика workshop_discovered_printers_own (for all) не даёт прочитать
 --    чужую находку даже при известном id.
+--
+-- 9) Запрос сканирования сети из интерфейса:
+--      update public.workshop_settings set scan_requested = true
+--       where user_id = '<USER_ID>';
+--      select scan_requested from public.workshop_settings
+--       where user_id = '<USER_ID>';
+--    Ожидается: true. При следующем опросе агент увидит флаг
+--    (GET /api/agent/scan-status с токеном мастерской), обойдёт сеть, пришлёт
+--    находки в POST /api/agent/discover и сбросит флаг в false
+--    (POST /api/agent/scan-complete). Если флаг остался true — агент не запущен
+--    или не может достучаться до CRM: кнопка в мастере подключения просит
+--    проверить агент, а не показывает пустой список.
 -- =============================================================================

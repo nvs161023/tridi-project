@@ -5,7 +5,10 @@
  * ровно одна (сброс счётчика), поэтому два типа, а не один с необязательными
  * полями.
  */
-import type { PrinterFormErrors } from "@/lib/workshop/printers";
+import type {
+  DiscoveredPrinter,
+  PrinterFormErrors,
+} from "@/lib/workshop/printers";
 
 export type PrinterFormState = {
   /** Общая ошибка формы: сессия, подписка, база. */
@@ -38,6 +41,35 @@ export type DiscoveredPrintersState = {
   added?: number;
   skipped?: number;
   message?: string;
+  error?: string;
+};
+
+/**
+ * Ответ кнопки «Найти принтеры в сети»: просьба просканировать сеть поставлена.
+ *
+ * Подтверждения «сканирование началось» здесь нет и быть не может: агент узнает
+ * о просьбе на ближайшем опросе (раз в пять секунд), а обход сети занимает
+ * секунды. Поэтому `ok: true` — это «флаг поднят, ждём находок», а не «принтеры
+ * уже найдены».
+ */
+export type NetworkScanRequestState = {
+  ok: boolean;
+  error?: string;
+};
+
+/**
+ * Ответ опроса находок агента, пока мастер подключения ждёт сканирование.
+ *
+ * `printers` — те же строки, что читает страница (`getDiscoveredPrinters()`, тот
+ * же порядок и та же фильтрация статуса): окно спрашивает их раз в три секунды,
+ * пока список пуст. `ok: false` — сессия, подписка или база; опрос после такой
+ * ошибки прекращается, иначе окно молча крутило бы лоадер над нерабочей базой.
+ */
+export type DiscoveredPrinterListState = {
+  ok: boolean;
+  printers?: DiscoveredPrinter[];
+  /** В базе нет таблицы workshop_discovered_printers — миграция не применена. */
+  isMissingTable?: boolean;
   error?: string;
 };
 
