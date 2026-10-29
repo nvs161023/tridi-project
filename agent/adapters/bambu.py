@@ -15,12 +15,17 @@
     (в Мастерской это поле `api_key`). Дальше подписка на
     `device/<serial>/report` и команда `pushing.pushall`: принтер присылает
     полный статус, а не только изменения;
-  - `upload_file()` — `ftplib.FTP_TLS` на порт 990. У Bambu TLS включается сразу
-    после TCP-соединения (implicit TLS), а стандартный `FTP_TLS.connect()`
-    соединяется открытым текстом и ждёт `AUTH TLS`, которого принтер не
-    присылает: поэтому `connect()` подменён наследником `_ImplicitFtpTls`, а
-    вся остальная работа остаётся стандартной библиотеке. Файл кладём в папку
-    `cache` на карте памяти;
+  - `upload_file()` — `ftplib.FTP_TLS` (наследник `_ImplicitFtpTls`) на порт 990.
+    У Bambu TLS включается сразу после TCP-соединения (implicit TLS), а
+    стандартный `FTP_TLS.connect()` соединяется открытым текстом и ждёт
+    `AUTH TLS`, которого принтер не присылает: поэтому `connect()` подменён, а
+    вся остальная работа остаётся стандартной библиотеке. `PROT P` и пассивный
+    режим обязательны, TLS ограничен 1.2: только там Python отдаёт сессию
+    управляющего канала для переиспользования в канале данных, а без него Bambu
+    рвёт передачу (`WinError 10054`). Если принтер всё равно сбросил канал, файл
+    уходит вручную через сокет, а последняя попытка — HTTP POST на
+    `/api/files/local` с заголовком `X-Api-Key`. Файл кладём в папку `cache` на
+    карте памяти;
   - `start_print()` — команда `project_file` в `device/<serial>/request`: файл
     уже на карте памяти, принтер забирает его по `url` (`ftp:///cache/<имя>`);
   - `get_status()`  — последний отчёт принтера: `print.gcode_state`,
@@ -44,6 +49,7 @@ from __future__ import annotations
 import ftplib
 import json
 import logging
+import os
 import socket
 import ssl
 import threading
@@ -51,6 +57,7 @@ import time
 from typing import Any
 
 import paho.mqtt.client as mqtt
+import requests
 from paho.mqtt.enums import CallbackAPIVersion
 
 from .base import BasePrinterAdapter
@@ -79,6 +86,32 @@ CONNECT_TIMEOUT = 10
 # Загрузка G-code идёт дольше опроса: файл на десятки мегабайт по Wi-Fi
 # передаётся минутами, обрывать его на десяти секундах нельзя.
 FTP_TIMEOUT = 120
+
+# Кусками по 64 КБ: стандартные 8 КБ дают слишком много TLS-записей, а принтер
+# на Wi-Fi отвечает на них заметно медленнее.
+FTP_BLOCK_SIZE = 64 * 1024
+
+# Сколько раз пробовать загрузку заново. Bambu рвёт первое соединение канала
+# данных (WinError 10054), если карта памяти занята печатью или TLS-сессия не
+# переиспользована; повтор после паузы обычно проходит.
+FTP_UPLOAD_ATTEMPTS = 3
+
+# Пауза перед повтором: множится на номер попытки, чтобы принтер успел закрыть
+# осиротевшее соединение и освободить канал данных.
+FTP_RETRY_DELAY = 3.0
+
+# Как часто писать в журнал о ходе ручной отправки файла: каждые 8 МБ, чтобы
+# видеть, что передача жива, и не забивать журнал строкой на каждый кусок.
+FTP_PROGRESS_STEP = 8 * 1024 * 1024
+
+# HTTP-фолбэк, если FTPS не проходит: `POST http://<ip>/api/files/local` с
+# заголовком `X-Api-Key`. В LAN-режиме Bambu этот адрес официально не
+# документирован (это API OctoPrint-подобных прошивок), поэтому попытка
+# последняя и без повторов: ответ 200/201 — файл принят, всё остальное —
+# причина в `last_error`.
+HTTP_UPLOAD_PATH = "/api/files/local"
+HTTP_UPLOAD_CONNECT_TIMEOUT = 5.0
+HTTP_UPLOAD_TIMEOUT = 60.0
 
 # Сколько слушать ответы SSDP при поиске серийника.
 DISCOVERY_TIMEOUT = 3.0
@@ -244,19 +277,83 @@ class _ImplicitFtpTls(ftplib.FTP_TLS):
 
         return self.welcome
 
+    # Переиспользовать ли TLS-сессию канала управления для канала данных.
+    # Bambu (как и vsftpd с `require_ssl_reuse`) рвёт `STOR` без переиспользования:
+    # принтер видит в этом подмену соединения и отвечает `WinError 10054` —
+    # сбросом канала данных. Если сессию принять не удалось, флаг снимается, и
+    # загрузка продолжается обычным рукопожатием.
+    reuse_session = True
+
+    def ntransfercmd(
+        self, cmd: str, rest: int | str | None = None
+    ) -> tuple[socket.socket, int | None]:
+        """
+        Канал данных с переиспользованием TLS-сессии управляющего соединения.
+
+        Стандартный `FTP_TLS.ntransfercmd()` всегда делает полное рукопожатие,
+        чего Bambu не любит. Здесь в `wrap_socket()` передаётся сессия
+        управляющего сокета; при отказе принтера флаг `reuse_session` снимается,
+        и команда повторяется на новом канале — одна неудачная попытка не должна
+        закрывать задание.
+
+        `rest` объявлен как в стандартной библиотеке (`int | str | None`): это
+        смещение для докачки, и сужать тип в наследнике нельзя.
+        """
+        # `_prot_p` — приватный флаг `FTP_TLS` («канал данных под TLS»). В
+        # типах стандартной библиотеки его нет, поэтому читаем через getattr.
+        if not getattr(self, "_prot_p", False):
+            return ftplib.FTP.ntransfercmd(self, cmd, rest)
+
+        conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
+
+        session = None
+
+        if self.reuse_session and isinstance(self.sock, ssl.SSLSocket):
+            session = self.sock.session
+
+        try:
+            secured = self.context.wrap_socket(
+                conn, server_hostname=self.host, session=session
+            )
+        except (ssl.SSLError, ValueError) as error:
+            conn.close()
+
+            if session is None:
+                raise
+
+            logger.warning(
+                "Bambu %s: TLS-сессия канала данных не принята (%s) — "
+                "продолжаю без переиспользования",
+                self.host,
+                error,
+            )
+            self.reuse_session = False
+
+            return self.ntransfercmd(cmd, rest)
+
+        return secured, size
+
 
 def _ftp_client() -> _ImplicitFtpTls:
     """
-    FTP-клиент для принтера: TLS без проверки сертификата.
+    FTP-клиент для принтера: `FTP_TLS` с собственным TLS-контекстом.
 
-    Bambu выдаёт самоподписанный сертификат на каждый принтер, и проверять его
-    нечем: в Мастерской нет поля для сертификата. Поэтому `check_hostname`
-    снимаем первым — `verify_mode = CERT_NONE` при включённой сверке имени
-    хоста `ssl` не примет.
+    Контекст строится `ssl.create_default_context()`, но сертификат у принтера
+    самоподписанный, и проверять его нечем: в Мастерской нет поля для
+    сертификата. Поэтому `check_hostname` снимаем первым — `verify_mode =
+    CERT_NONE` при включённой сверке имени `ssl` не примет.
+
+    Версия TLS ограничена 1.2. Bambu требует переиспользования TLS-сессии
+    управляющего канала в канале данных, а Python отдаёт `SSLSocket.session`
+    сразу после рукопожатия только в TLS 1.2: в 1.3 сессия приходит тикетом
+    позже, переиспользовать нечего — и принтер отвечает сбросом канала
+    (`WinError 10054`) на первом же `STOR`.
     """
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.maximum_version = ssl.TLSVersion.TLSv1_2
 
     return _ImplicitFtpTls(context=context)
 
@@ -274,6 +371,72 @@ def _close_ftp(ftp: _ImplicitFtpTls) -> None:
         ftp.quit()
     except (OSError, ftplib.Error, AttributeError):
         ftp.close()
+
+
+def _describe(error: BaseException) -> str:
+    """
+    Причина отказа одной строкой: тип исключения, текст и код Windows.
+
+    `str(OSError)` на Windows уже содержит `[WinError 10054]`, но у ошибок
+    `ssl` и `ftplib` кода нет, а по одному «EOF occurred in violation of
+    protocol» мастеру не понять, что случилось. Поэтому пишем и класс, и код.
+    """
+    text = str(error).strip()
+    parts = [f"{type(error).__name__}: {text}" if text else type(error).__name__]
+    winerror = getattr(error, "winerror", None)
+
+    if isinstance(winerror, int):
+        parts.append(f"WinError {winerror}")
+
+    return " · ".join(parts)
+
+
+# Что в причине отказа значит «принтер сбросил канал данных». Bambu отвечает
+# сбросом (`WinError 10054`), а следом присылает `426 Transfer aborted`, поэтому
+# ловим оба варианта: и текст ОС, и ответ FTP.
+_RESET_MARKERS = (
+    "connectionreseterror",
+    "connectionabortederror",
+    "brokenpipeerror",
+    "ssleoferror",
+    "connection reset",
+    "reset by peer",
+    "broken pipe",
+    "forcibly closed",
+    "10054",
+    "10053",
+    "transfer aborted",
+    "data connection closed",
+    "принудительно разорвал",
+)
+
+
+def _looks_like_reset(reason: str) -> bool:
+    """
+    Похоже ли, что принтер оборвал канал данных, а не отказал в доступе.
+
+    От этого зависит вторая попытка: ручная отправка через сокет помогает
+    именно при сбросе канала, а при неверном коде доступа (`530`) или занятой
+    карте (`550`) она только потратит время.
+    """
+    text = reason.lower()
+
+    return any(marker in text for marker in _RESET_MARKERS)
+
+
+def _tls_version(ftp: ftplib.FTP) -> str:
+    """
+    Версия TLS управляющего канала — для журнала.
+
+    Bambu пускает только TLS 1.2 с переиспользованием сессии, поэтому в логе
+    нужна версия: по ней сразу видно, договорились мы с принтером или нет.
+    """
+    sock = getattr(ftp, "sock", None)
+
+    if isinstance(sock, ssl.SSLSocket):
+        return sock.version() or "unknown"
+
+    return "unknown"
 
 
 class BambuAdapter(BasePrinterAdapter):
@@ -569,12 +732,17 @@ class BambuAdapter(BasePrinterAdapter):
         try:
             client.connect(self.host, MQTT_PORT, keepalive=MQTT_KEEPALIVE)
         except OSError as error:
+            self.last_error = f"принтер не отвечает по MQTT (порт {MQTT_PORT}): {error}"
             logger.error("Bambu %s не отвечает на MQTT: %s", self.host, error)
             return False
 
         client.loop_start()
 
         if not self._connected.wait(CONNECT_TIMEOUT):
+            self.last_error = (
+                f"MQTT не подтвердил подключение за {CONNECT_TIMEOUT} с: "
+                "проверьте LAN-режим и код доступа"
+            )
             logger.error(
                 "Bambu %s: MQTT не подтвердил подключение за %d с",
                 self.host,
@@ -586,6 +754,10 @@ class BambuAdapter(BasePrinterAdapter):
         self._client = client
 
         if not self._subscribe(client):
+            self.last_error = (
+                "не удалось подписаться на отчёты принтера: "
+                "проверьте серийный номер (SN)"
+            )
             self._client = None
             self._stop(client)
             return False
@@ -604,6 +776,8 @@ class BambuAdapter(BasePrinterAdapter):
             self.host,
             self.serial_number or "неизвестен",
         )
+
+        self.last_error = None
 
         return True
 
@@ -672,51 +846,396 @@ class BambuAdapter(BasePrinterAdapter):
         Папку создаём сами — на чистой карте её может не быть, а `STOR` в
         несуществующий каталог принтер отвергнет. Ошибки папки не страшны: она
         уже есть (код 550), и файл всё равно загрузится.
+
+        Порядок попыток:
+
+          1. `storbinary()` — обычная загрузка по FTPS (см. `_upload_once`);
+          2. если принтер сбросил канал (`WinError 10054`), файл отправляется
+             вручную через сокет (`_upload_stream_once`): `TYPE I` и `STOR`
+             разведены по шагам, и в журнале видно, на каком из них рвётся
+             сессия;
+          3. когда не помогло и это, последняя попытка идёт по HTTP
+             (`_upload_via_http`) — для прошивок с `/api/files/local`.
+
+        Повторы FTPS идут до `FTP_UPLOAD_ATTEMPTS` раз: Bambu рвёт канал данных,
+        когда карта занята печатью или когда TLS-сессия не переиспользована.
+        Каждая попытка — новое соединение, пауза между попытками нарастает, а
+        причина последнего отказа остаётся в `last_error`: main.py отправит её в
+        мастерскую вместе со статусом, и мастер увидит, на каком шаге всё встало.
         """
         if not self.api_key.strip():
+            self.last_error = "не задан код доступа Bambu Lab (LAN access code)"
             logger.error(
                 "Bambu %s: не задан код доступа — FTPS не пустит", self.host
             )
             return False
 
+        try:
+            local_size = os.path.getsize(local_path)
+        except OSError as error:
+            self.last_error = f"файл не прочитан: {error}"
+            logger.error("G-code %s не прочитан: %s", local_path, error)
+            return False
+
         remote_path = f"{FTP_DIRECTORY}/{remote_name}"
+        reason = "неизвестная ошибка"
+
+        for attempt in range(1, FTP_UPLOAD_ATTEMPTS + 1):
+            logger.info(
+                "Bambu %s: попытка %d/%d — загружаю %s (%d байт) по FTPS",
+                self.host,
+                attempt,
+                FTP_UPLOAD_ATTEMPTS,
+                remote_name,
+                local_size,
+            )
+            failure = self._upload_once(local_path, remote_path, local_size)
+
+            if failure is None:
+                self.last_error = None
+                logger.info("Bambu %s: загружен %s", self.host, remote_path)
+                return True
+
+            reason = failure
+
+            if _looks_like_reset(failure):
+                logger.warning(
+                    "Bambu %s: канал данных сброшен (%s) — отправляю файл "
+                    "вручную через сокет",
+                    self.host,
+                    failure,
+                )
+                stream_failure = self._upload_stream_once(
+                    local_path, remote_path, local_size
+                )
+
+                if stream_failure is None:
+                    self.last_error = None
+                    logger.info(
+                        "Bambu %s: загружен %s (ручная отправка)",
+                        self.host,
+                        remote_path,
+                    )
+                    return True
+
+                reason = f"{failure}; ручная отправка: {stream_failure}"
+
+            logger.warning(
+                "Bambu %s: попытка %d/%d загрузить %s не удалась: %s",
+                self.host,
+                attempt,
+                FTP_UPLOAD_ATTEMPTS,
+                remote_name,
+                reason,
+            )
+
+            if attempt < FTP_UPLOAD_ATTEMPTS:
+                time.sleep(FTP_RETRY_DELAY * attempt)
+
+        logger.warning(
+            "Bambu %s: FTPS не справился (%s) — пробую HTTP %s",
+            self.host,
+            reason,
+            HTTP_UPLOAD_PATH,
+        )
+        http_failure = self._upload_via_http(local_path, remote_name)
+
+        if http_failure is None:
+            self.last_error = None
+            logger.info(
+                "Bambu %s: загружен %s (HTTP %s)",
+                self.host,
+                remote_name,
+                HTTP_UPLOAD_PATH,
+            )
+            return True
+
+        self.last_error = (
+            f"G-code не загружен на принтер: {reason}; "
+            f"HTTP-фолбэк: {http_failure}"
+        )
+        logger.error(
+            "Bambu %s: файл %s не загружен. FTPS: %s. HTTP: %s",
+            self.host,
+            remote_name,
+            reason,
+            http_failure,
+        )
+
+        return False
+
+    def _open_ftp(self) -> _ImplicitFtpTls:
+        """
+        Соединение с принтером, готовое к передаче файла.
+
+        Шаги те же, что делает Bambu Studio, и каждый пишется в журнал: при
+        обрыве видно, на чём именно принтер закрыл сессию.
+
+        `PROT P` обязателен. Канал управления у Bambu под TLS с первого байта, и
+        незашифрованный канал данных принтер рвёт сбросом, поэтому отказ `PROT P`
+        — это ошибка загрузки, а не повод продолжить без шифрования. Пассивный
+        режим тоже обязателен: принтер не открывает соединение к агенту, а порт
+        990 за NAT мастерской недоступен.
+
+        Исключения не глотаем: их переводит в причину отказа вызывающий метод.
+        """
         ftp = _ftp_client()
 
         try:
+            logger.info(
+                "Bambu %s: FTPS — соединяюсь с %s:%d (таймаут %d с)",
+                self.host,
+                self.host,
+                FTP_PORT,
+                FTP_TIMEOUT,
+            )
             ftp.connect(self.host, FTP_PORT, timeout=FTP_TIMEOUT)
+            logger.info(
+                "Bambu %s: FTPS — приветствие получено, TLS %s",
+                self.host,
+                _tls_version(ftp),
+            )
             ftp.login(DEVICE_USER, self.api_key)
-
-            try:
-                ftp.prot_p()
-            except ftplib.Error as error:
-                # Канал управления уже под TLS; незашифрованный канал данных
-                # принтер иногда разрешает. Грузим и пишем предупреждение.
-                logger.warning(
-                    "Bambu %s: PROT P не принят (%s), канал данных без шифрования",
-                    self.host,
-                    error,
-                )
+            logger.info(
+                "Bambu %s: FTPS — логин %s принят", self.host, DEVICE_USER
+            )
+            ftp.set_pasv(True)
+            logger.info("Bambu %s: FTPS — пассивный режим включён", self.host)
+            ftp.prot_p()
+            logger.info(
+                "Bambu %s: FTPS — PROT P принят, канал данных под TLS", self.host
+            )
 
             try:
                 ftp.mkd(FTP_DIRECTORY)
-            except ftplib.Error:
+                logger.info(
+                    "Bambu %s: FTPS — папка %s создана", self.host, FTP_DIRECTORY
+                )
+            except ftplib.Error as error:
                 # 550 — папка уже существует: это ожидаемый ответ.
-                pass
-
-            with open(local_path, "rb") as gcode:
-                ftp.storbinary(f"STOR {remote_path}", gcode)
-        except (OSError, ftplib.Error) as error:
-            # OSError покрывает и выключенный принтер, и отсутствующий файл.
-            logger.error(
-                "Bambu %s: файл %s не загружен: %s", self.host, remote_name, error
-            )
-            return False
-        finally:
+                logger.info(
+                    "Bambu %s: FTPS — папка %s уже есть (%s)",
+                    self.host,
+                    FTP_DIRECTORY,
+                    error,
+                )
+        except (OSError, ftplib.Error):
             _close_ftp(ftp)
+            raise
 
-        logger.info("Bambu %s: загружен %s", self.host, remote_path)
+        return ftp
 
-        return True
+    def _upload_once(
+        self, local_path: str, remote_path: str, local_size: int
+    ) -> str | None:
+        """
+        Одна попытка загрузки: None — файл на карте, строка — причина отказа.
+
+        Передача идёт штатным `storbinary()`: он сам отправляет `TYPE I` и режет
+        файл по `FTP_BLOCK_SIZE`. Размер после `STOR` сверяем с локальным:
+        принтер отвечает `226`, даже когда карта заполнена и файл записался
+        частично, а печать такого файла встанет на середине. Если сервер не
+        поддерживает `SIZE`, проверку пропускаем — это подсказка, а не
+        обязательный шаг.
+        """
+        try:
+            ftp = self._open_ftp()
+
+            try:
+                logger.info(
+                    "Bambu %s: FTPS — TYPE I + STOR %s (кусками по %d КБ)",
+                    self.host,
+                    remote_path,
+                    FTP_BLOCK_SIZE // 1024,
+                )
+
+                with open(local_path, "rb") as gcode:
+                    ftp.storbinary(
+                        f"STOR {remote_path}", gcode, blocksize=FTP_BLOCK_SIZE
+                    )
+
+                logger.info(
+                    "Bambu %s: FTPS — %s принят принтером", self.host, remote_path
+                )
+                self._verify_remote_size(ftp, remote_path, local_size)
+            finally:
+                _close_ftp(ftp)
+        except (OSError, ftplib.Error) as error:
+            # OSError покрывает и выключенный принтер, и обрыв канала данных
+            # (WinError 10054), и отсутствующий локальный файл.
+            reason = _describe(error)
+            logger.warning(
+                "Bambu %s: FTPS — загрузка %s прервана: %s",
+                self.host,
+                remote_path,
+                reason,
+            )
+
+            return reason
+
+        return None
+    def _upload_stream_once(
+        self, local_path: str, remote_path: str, local_size: int
+    ) -> str | None:
+        """
+        Загрузка вручную через сокет: None — файл на карте, строка — причина.
+
+        Нужна после `WinError 10054`: `storbinary()` прячет все шаги в одном
+        вызове, а Bambu иногда принимает файл, только если `TYPE I` и открытие
+        канала данных (`STOR`) разведены и файл пишется в сокет напрямую. Здесь
+        то же самое, но по шагам и с журналом на каждом: видно, рвётся ли сессия
+        на команде, при открытии канала или посреди передачи.
+
+        `ftp.transfercmd()` отдаёт уже обёрнутый в TLS канал данных (см.
+        `_ImplicitFtpTls.ntransfercmd`), поэтому `sendall()` пишет файл сразу в
+        шифрованный поток. Закрытие канала и `voidresp()` — единственный способ
+        узнать ответ принтера на `STOR`.
+        """
+        try:
+            ftp = self._open_ftp()
+
+            try:
+                ftp.voidcmd("TYPE I")
+                logger.info(
+                    "Bambu %s: FTPS — TYPE I принят, передаю %s (%d байт)",
+                    self.host,
+                    remote_path,
+                    local_size,
+                )
+                conn = ftp.transfercmd(f"STOR {remote_path}")
+                logger.info("Bambu %s: FTPS — канал данных открыт", self.host)
+                sent = 0
+                reported = 0
+
+                try:
+                    with open(local_path, "rb") as gcode:
+                        while True:
+                            chunk = gcode.read(FTP_BLOCK_SIZE)
+
+                            if not chunk:
+                                break
+
+                            conn.sendall(chunk)
+                            sent += len(chunk)
+
+                            if sent - reported >= FTP_PROGRESS_STEP:
+                                reported = sent
+                                logger.info(
+                                    "Bambu %s: FTPS — отправлено %d из %d байт",
+                                    self.host,
+                                    sent,
+                                    local_size,
+                                )
+                finally:
+                    conn.close()
+
+                logger.info(
+                    "Bambu %s: FTPS — файл отправлен (%d байт), жду ответа принтера",
+                    self.host,
+                    sent,
+                )
+                ftp.voidresp()
+                logger.info(
+                    "Bambu %s: FTPS — %s принят принтером (ручная отправка)",
+                    self.host,
+                    remote_path,
+                )
+                self._verify_remote_size(ftp, remote_path, local_size)
+            finally:
+                _close_ftp(ftp)
+        except (OSError, ftplib.Error) as error:
+            reason = _describe(error)
+            logger.warning(
+                "Bambu %s: FTPS — ручная отправка %s прервана: %s",
+                self.host,
+                remote_path,
+                reason,
+            )
+
+            return reason
+
+        return None
+
+    def _upload_via_http(self, local_path: str, remote_name: str) -> str | None:
+        """
+        Последняя попытка, если FTPS не проходит: `POST /api/files/local`.
+
+        Заголовок `X-Api-Key` и поле `file` — формат, который понимают
+        OctoPrint-подобные прошивки. В LAN-режиме Bambu этот адрес официально не
+        документирован, поэтому попытка одна: ответ 200 или 201 — файл принят,
+        любой другой — причина отказа в `last_error`. Нужен на случай прошивки,
+        где FTP-порт закрыт, а HTTP-приём файлов включён.
+
+        Соединение ограничено отдельным таймаутом: недоступный адрес не должен
+        держать задание дольше `HTTP_UPLOAD_CONNECT_TIMEOUT`.
+        """
+        url = f"http://{self.host}{HTTP_UPLOAD_PATH}"
+        logger.info(
+            "Bambu %s: HTTP — отправляю %s на %s", self.host, remote_name, url
+        )
+
+        try:
+            with open(local_path, "rb") as gcode:
+                response = requests.post(
+                    url,
+                    headers={"X-Api-Key": self.api_key},
+                    files={"file": (remote_name, gcode, "application/octet-stream")},
+                    data={"select": "true"},
+                    timeout=(HTTP_UPLOAD_CONNECT_TIMEOUT, HTTP_UPLOAD_TIMEOUT),
+                )
+        except (OSError, requests.RequestException) as error:
+            reason = _describe(error)
+            logger.warning(
+                "Bambu %s: HTTP — %s не принят: %s",
+                self.host,
+                remote_name,
+                reason,
+            )
+
+            return reason
+
+        if response.status_code in (200, 201):
+            logger.info(
+                "Bambu %s: HTTP — %s принят (%d)",
+                self.host,
+                remote_name,
+                response.status_code,
+            )
+
+            return None
+
+        body = " ".join(response.text.split())[:200]
+        logger.warning(
+            "Bambu %s: HTTP — %s отклонён: %d %s",
+            self.host,
+            remote_name,
+            response.status_code,
+            body,
+        )
+
+        return f"HTTP {response.status_code}: {body}"
+
+    def _verify_remote_size(
+        self, ftp: _ImplicitFtpTls, remote_path: str, local_size: int
+    ) -> None:
+        """Сверяет размер файла на карте с локальным; расхождение — ошибка."""
+        try:
+            remote_size = ftp.size(remote_path)
+        except (OSError, ftplib.Error) as error:
+            logger.info(
+                "Bambu %s: размер %s не проверен (SIZE не поддержан: %s)",
+                self.host,
+                remote_path,
+                error,
+            )
+            return
+
+        if remote_size is None or remote_size == local_size:
+            return
+
+        raise ftplib.error_temp(
+            f"на карте {remote_size} байт вместо {local_size}: файл записан не целиком"
+        )
 
     def start_print(self, remote_name: str) -> bool:
         """
@@ -724,12 +1243,15 @@ class BambuAdapter(BasePrinterAdapter):
 
         `url` повторяет путь загрузки (`ftp:///cache/<имя>`): Bambu забирает файл
         с собственной карты памяти, второй раз по сети он не передаётся.
+        `subtask_name` — имя, которое принтер покажет на экране и в истории:
+        без него Bambu подписывает задание именем файла из `param`.
         """
         command = {
             "print": {
                 "sequence_id": self._next_sequence(),
                 "command": "project_file",
                 "param": GCODE_PARAM,
+                "subtask_name": remote_name,
                 "url": f"ftp:///{FTP_DIRECTORY}/{remote_name}",
                 "bed_type": "auto",
                 "timelapse": False,
@@ -738,9 +1260,35 @@ class BambuAdapter(BasePrinterAdapter):
         }
 
         if not self._publish(command):
+            self.last_error = "команда печати не отправлена: нет MQTT-соединения"
             return False
 
+        self.last_error = None
         logger.info("Bambu %s: печать %s запущена", self.host, remote_name)
+
+        return True
+
+    def stop_print(self) -> bool:
+        """
+        Останавливает текущую печать командой `print.stop`.
+
+        Bambu принимает её и на паузе, и во время печати: принтер опускает стол
+        и завершает задание как отменённое. Без серийника команду отправить
+        некуда — `_publish` вернёт False и объяснит причину в журнале.
+        """
+        command = {
+            "print": {
+                "sequence_id": self._next_sequence(),
+                "command": "stop",
+            }
+        }
+
+        if not self._publish(command):
+            self.last_error = "команда остановки не отправлена: нет MQTT-соединения"
+            return False
+
+        self.last_error = None
+        logger.info("Bambu %s: печать остановлена по просьбе мастера", self.host)
 
         return True
 

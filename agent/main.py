@@ -63,6 +63,7 @@ from dotenv import load_dotenv
 
 from adapters.base import BasePrinterAdapter
 from adapters.factory import get_adapter
+from gcode_metadata import read_gcode_estimate
 from scanner import scan_network, send_discovered_printers
 
 # `.env` ищем рядом с main.py, а не от текущей папки: агента запускают и из
@@ -89,7 +90,14 @@ DEFAULT_POLL_INTERVAL = 5
 TRUE_VALUES = ("1", "true", "yes", "on", "да")
 
 # Статусы, которые принимает POST /api/agent/status (см. app/api/agent/status).
-AGENT_STATUSES = ("printing", "done", "failed")
+# `cancelled` — мастер нажал «Отменить печать»: сервер закрывает задание отменой,
+# а не отказом, чтобы отмены не попадали в статистику поломок.
+AGENT_STATUSES = ("printing", "done", "failed", "cancelled")
+
+# Предел причины отказа: столько же ждёт колонка workshop_print_jobs.last_error.
+# Полный текст ошибки остаётся в журнале агента, в мастерскую уходит начало —
+# мастеру нужно понять причину, а не читать стектрейс.
+STATUS_MESSAGE_MAX = 500
 
 # Итог пульса: ok — принят, network — не дошёл из-за сети, rejected — сервер
 # ответил отказом (401, 500, 503). От исхода зависит пауза до повтора: сеть ждёт
@@ -455,13 +463,30 @@ def fetch_tasks() -> list[dict[str, Any]]:
     return [task for task in tasks if isinstance(task, dict)]
 
 
-def send_status(job_id: str, status: str, progress: int | None = None) -> bool:
+def send_status(
+    job_id: str,
+    status: str,
+    progress: int | None = None,
+    reason: str | None = None,
+    estimated_seconds: int | None = None,
+    filament_grams: float | None = None,
+) -> bool:
     """
     Сообщает статус задания: `POST /api/agent/status`.
 
     Тело — `{"jobId", "status", "progress"}`. progress допускается null: тогда
     сервер не трогает проценты принтера (агент сообщил только начало печати).
-    Допустимые статусы — printing, done, failed; queued ставит приложение.
+    Допустимые статусы — printing, done, failed и cancelled; queued ставит
+    приложение, а cancelled — ответ на просьбу мастера остановить печать.
+
+    `reason` — причина отказа для мастера: сервер кладёт её в
+    `workshop_print_jobs.last_error` и в журнал задания, поэтому карточка
+    заказа показывает «G-code не загружен: …», а не просто «провалено».
+
+    `estimated_seconds` и `filament_grams` — оценка слайсера из самого G-code
+    (см. gcode_metadata.py). Приходят один раз, вместе со стартом печати:
+    сервер сохраняет их в задании, и карточка показывает «≈2 ч 5 мин» и
+    стоимость пластика.
 
     True — сервер записал статус. False — не записал (сеть, 400, 401, 500):
     исключение наружу не летит, вызывающий код решает, повторить ли позже.
@@ -478,7 +503,16 @@ def send_status(job_id: str, status: str, progress: int | None = None) -> bool:
         )
         return False
 
-    body = {"jobId": job_id, "status": status, "progress": progress}
+    body: dict[str, Any] = {"jobId": job_id, "status": status, "progress": progress}
+
+    if reason:
+        body["message"] = reason[:STATUS_MESSAGE_MAX]
+
+    if estimated_seconds is not None:
+        body["estimatedSeconds"] = estimated_seconds
+
+    if filament_grams is not None:
+        body["filamentGrams"] = filament_grams
 
     try:
         response = requests.post(
@@ -501,12 +535,51 @@ def send_status(job_id: str, status: str, progress: int | None = None) -> bool:
         return False
 
     logger.info(
-        "Статус задания %s: %s%s",
+        "Статус задания %s: %s%s%s",
         job_id,
         status,
         f", прогресс {progress}%" if progress is not None else "",
+        f", причина: {reason}" if reason else "",
     )
     return True
+
+
+def fetch_cancel_request(job_id: str) -> bool:
+    """
+    Просьба мастера остановить печать: `GET /api/agent/status?jobId=<id>`.
+
+    Роут отвечает `{"cancelRequested": true}`, когда в карточке заказа нажали
+    «Отменить печать». False — и когда мастер ничего не просил, и когда сервер
+    недоступен: гасить печать из-за сетевого сбоя нельзя. Старый сервер без
+    GET-обработчика отвечает 405 — это тоже False, печать продолжается.
+    """
+    settings = require_settings()
+
+    try:
+        response = requests.get(
+            f"{settings.crm_url}/api/agent/status",
+            params={"jobId": job_id},
+            headers=auth_headers(settings.agent_token),
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.RequestException as error:
+        log_network_error(f"Просьба об отмене задания {job_id} не прочитана", error)
+        return False
+
+    if not response.ok:
+        logger.warning(
+            "Просьба об отмене задания %s не прочитана: HTTP %s",
+            job_id,
+            response.status_code,
+        )
+        return False
+
+    payload = parse_json_object(response)
+
+    if payload is None:
+        return False
+
+    return payload.get("cancelRequested") is True
 
 
 def send_heartbeat(reset_errors: bool = False) -> HeartbeatResult:
@@ -829,6 +902,48 @@ def read_progress(value: Any) -> int:
     return min(max(round(value), 0), 100)
 
 
+def format_duration(seconds: int | None) -> str:
+    """Секунды в «2 ч 5 мин» для журнала; None — «неизвестно»."""
+    if seconds is None:
+        return "неизвестно"
+
+    hours, remainder = divmod(int(seconds), 3600)
+    minutes = remainder // 60
+
+    if hours:
+        return f"{hours} ч {minutes} мин"
+
+    return f"{minutes} мин"
+
+
+def read_estimate(job_id: str, local_path: Path) -> tuple[int | None, float | None]:
+    """
+    Оценка слайсера из скачанного G-code: (секунды, граммы пластика).
+
+    Оценка — подсказка для карточки заказа, а не условие печати: если файл не
+    открылся или слайсер оценки не писал, возвращаются None и задание
+    печатается как обычно.
+    """
+    try:
+        estimate = read_gcode_estimate(local_path)
+    except OSError as error:
+        logger.warning("Задание %s: оценка печати не прочитана: %s", job_id, error)
+        return None, None
+
+    if estimate.seconds is None and estimate.filament_grams is None:
+        logger.info("Задание %s: в G-code нет оценки слайсера", job_id)
+        return None, None
+
+    logger.info(
+        "Задание %s: оценка слайсера %s, %s г",
+        job_id,
+        format_duration(estimate.seconds),
+        estimate.filament_grams if estimate.filament_grams is not None else "?",
+    )
+
+    return estimate.seconds, estimate.filament_grams
+
+
 def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
     """
     Цикл мониторинга: состояние принтера раз в `MONITOR_INTERVAL` секунд, пока
@@ -854,14 +969,38 @@ def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
 
         if state == "error":
             logger.error("Задание %s: принтер сообщил об ошибке печати", job_id)
-            send_status(job_id, "failed")
+            send_status(
+                job_id, "failed", progress, reason="принтер сообщил об ошибке печати"
+            )
             return
 
         if state == "idle" or progress >= 100:
             logger.info(
                 "Задание %s: печать закончена, прогресс %d%%", job_id, progress
             )
-            send_status(job_id, "done")
+            send_status(job_id, "done", 100)
+            return
+
+        # Просьбу мастера проверяем после «печать закончена»: если принтер уже
+        # дошёл до конца, отмена опоздала и задание должно закрыться как `done`.
+        if fetch_cancel_request(job_id):
+            stopped = adapter.stop_print()
+            logger.warning(
+                "Задание %s: мастер отменил печать (%s)",
+                job_id,
+                "принтер остановлен" if stopped else "принтер не подтвердил остановку",
+            )
+            send_status(
+                job_id,
+                "cancelled",
+                progress,
+                reason=(
+                    "печать отменена мастером"
+                    if stopped
+                    else "печать отменена мастером, но принтер не подтвердил остановку: "
+                    + (adapter.last_error or "нет ответа")
+                ),
+            )
             return
 
         if state != "printing":
@@ -904,7 +1043,11 @@ def process_task(task: dict[str, Any]) -> None:
 
     if gcode_url is None:
         logger.error("Задание %s: нет gcodeUrl — печатать нечего", job_id)
-        send_status(job_id, "failed")
+        send_status(
+            job_id,
+            "failed",
+            reason="в задании нет ссылки на G-code: добавьте её в товар заказа",
+        )
         return
 
     printer = read_printer(task)
@@ -913,7 +1056,11 @@ def process_task(task: dict[str, Any]) -> None:
         logger.error(
             "Задание %s: у задания нет принтера с адресом и протоколом", job_id
         )
-        send_status(job_id, "failed")
+        send_status(
+            job_id,
+            "failed",
+            reason="у задания нет принтера: выберите принтер и заполните адрес",
+        )
         return
 
     remote_name = f"{job_id}.gcode"
@@ -934,12 +1081,20 @@ def process_task(task: dict[str, Any]) -> None:
             job_id,
             printer.protocol_type,
         )
-        send_status(job_id, "failed")
+        send_status(
+            job_id,
+            "failed",
+            reason=f"протокол принтера {printer.protocol_type!r} неизвестен агенту",
+        )
         return
 
     try:
         if not download_gcode(gcode_url, local_path):
-            send_status(job_id, "failed")
+            send_status(
+                job_id,
+                "failed",
+                reason="G-code не скачан по ссылке задания: проверьте ссылку и доступ к файлу",
+            )
             return
 
         # repr адаптера печатает только адрес: ключ принтера — секрет.
@@ -949,31 +1104,59 @@ def process_task(task: dict[str, Any]) -> None:
             logger.error(
                 "Задание %s: принтер %s недоступен", job_id, printer.ip_address
             )
-            send_status(job_id, "failed")
+            send_status(
+                job_id,
+                "failed",
+                reason=adapter.last_error
+                or f"принтер {printer.ip_address} недоступен",
+            )
             return
+
+        # Оценку читаем после подключения: она нужна только для «печать
+        # запущена», а лишнее чтение файла до проверки принтера замедляло бы
+        # разбор отказа.
+        estimated_seconds, filament_grams = read_estimate(job_id, local_path)
 
         if not adapter.upload_file(str(local_path), remote_name=remote_name):
             logger.error(
                 "Задание %s: G-code не загружен на %s", job_id, printer.ip_address
             )
-            send_status(job_id, "failed")
+            send_status(
+                job_id,
+                "failed",
+                reason=adapter.last_error or "G-code не загружен на принтер",
+            )
             return
 
         if not adapter.start_print(remote_name=remote_name):
             logger.error(
                 "Задание %s: печать не запущена на %s", job_id, printer.ip_address
             )
-            send_status(job_id, "failed")
+            send_status(
+                job_id,
+                "failed",
+                reason=adapter.last_error or "принтер не принял команду печати",
+            )
             return
 
         logger.info("Задание %s: печать запущена на %s", job_id, printer.ip_address)
-        send_status(job_id, "printing", 0)
+        send_status(
+            job_id,
+            "printing",
+            0,
+            estimated_seconds=estimated_seconds,
+            filament_grams=filament_grams,
+        )
         monitor_print(job_id, adapter)
     except NotImplementedError as error:
         # OctoPrint пока заглушка: мастер увидит причину, а агент не вылетит и
         # продолжит опрос очереди.
         logger.error("Задание %s: протокол принтера не реализован: %s", job_id, error)
-        send_status(job_id, "failed")
+        send_status(
+            job_id,
+            "failed",
+            reason=f"протокол {printer.protocol_type} пока не реализован в агенте",
+        )
     finally:
         # Bambu держит MQTT-соединение и поток paho: закрываем его здесь, иначе
         # на каждый принтер копился бы живой сокет до выхода из процесса.

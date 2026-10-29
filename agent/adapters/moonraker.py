@@ -169,10 +169,15 @@ class MoonrakerAdapter(BasePrinterAdapter):
                 timeout=REQUEST_TIMEOUT,
             )
         except requests.RequestException as error:
+            self.last_error = f"принтер не отвечает: {error}"
             logger.error("Moonraker %s не отвечает: %s", self.ip_address, error)
             return False
 
         if response.status_code != 200:
+            self.last_error = (
+                f"принтер отверг подключение: HTTP {response.status_code}, "
+                f"{self._error_message(response)}"
+            )
             logger.error(
                 "Moonraker %s не принял подключение: HTTP %s, %s",
                 self.ip_address,
@@ -224,6 +229,7 @@ class MoonrakerAdapter(BasePrinterAdapter):
                     timeout=UPLOAD_TIMEOUT,
                 )
         except requests.RequestException as error:
+            self.last_error = f"G-code не загружен: {error}"
             logger.error(
                 "G-code %s не загружен на %s: %s",
                 remote_name,
@@ -235,10 +241,15 @@ class MoonrakerAdapter(BasePrinterAdapter):
             # Файла нет, он занят другой программой или нет прав на чтение.
             # Проверка идёт после RequestException: он тоже наследник OSError,
             # но сетевую ошибку нужно отличать от нечитаемого файла.
+            self.last_error = f"файл не прочитан: {error}"
             logger.error("G-code %s не прочитан: %s", local_path, error)
             return False
 
         if response.status_code not in (200, 201):
+            self.last_error = (
+                f"G-code не загружен: HTTP {response.status_code}, "
+                f"{self._error_message(response)}"
+            )
             logger.error(
                 "G-code %s не загружен на %s: HTTP %s, %s",
                 remote_name,
@@ -254,6 +265,7 @@ class MoonrakerAdapter(BasePrinterAdapter):
             self.ip_address,
             response.status_code,
         )
+        self.last_error = None
         return True
 
     def start_print(self, remote_name: str) -> bool:
@@ -273,6 +285,7 @@ class MoonrakerAdapter(BasePrinterAdapter):
                 timeout=REQUEST_TIMEOUT,
             )
         except requests.RequestException as error:
+            self.last_error = f"печать не запущена: {error}"
             logger.error(
                 "Печать %s не запущена на %s: %s",
                 remote_name,
@@ -282,6 +295,10 @@ class MoonrakerAdapter(BasePrinterAdapter):
             return False
 
         if response.status_code != 200:
+            self.last_error = (
+                f"печать не запущена: HTTP {response.status_code}, "
+                f"{self._error_message(response)}"
+            )
             logger.error(
                 "Печать %s не запущена на %s: HTTP %s, %s",
                 remote_name,
@@ -292,6 +309,53 @@ class MoonrakerAdapter(BasePrinterAdapter):
             return False
 
         logger.info("Печать %s запущена на %s", remote_name, self.ip_address)
+        self.last_error = None
+        return True
+
+    def stop_print(self) -> bool:
+        """
+        Останавливает печать: `POST /printer/print/cancel`.
+
+        Moonraker отвечает 200 и `"ok"`, когда Klipper принял команду. Если
+        печати уже нет, Klipper отвечает 400 — для агента это успех: закрывать
+        нечего, задание уходит в «отменено» без ошибки.
+        """
+        try:
+            response = requests.post(
+                f"{self.base_url}/printer/print/cancel",
+                headers=self._headers(),
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.RequestException as error:
+            self.last_error = f"команда остановки не отправлена: {error}"
+            logger.error(
+                "Печать на %s не остановлена: %s", self.ip_address, error
+            )
+            return False
+
+        if response.status_code == 400:
+            logger.info(
+                "Moonraker %s: печати уже нет — останавливать нечего",
+                self.ip_address,
+            )
+            self.last_error = None
+            return True
+
+        if response.status_code != 200:
+            self.last_error = (
+                f"принтер отказал в остановке: HTTP {response.status_code}, "
+                f"{self._error_message(response)}"
+            )
+            logger.error(
+                "Печать на %s не остановлена: HTTP %s, %s",
+                self.ip_address,
+                response.status_code,
+                self._error_message(response),
+            )
+            return False
+
+        logger.info("Печать на %s остановлена по просьбе мастера", self.ip_address)
+        self.last_error = None
         return True
 
     def get_status(self) -> dict[str, Any]:

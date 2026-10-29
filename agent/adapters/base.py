@@ -41,6 +41,10 @@ class BasePrinterAdapter(ABC):
         """
         self.ip_address = ip_address
         self.api_key = api_key
+        # Причина последнего отказа: main.py отправляет её в мастерскую вместе
+        # со статусом `failed`, поэтому мастер видит «принтер отверг файл», а не
+        # просто «задание провалилось». None — последний вызов прошёл успешно.
+        self.last_error: str | None = None
 
     def __repr__(self) -> str:
         """Без api_key: repr попадает в журнал при отладке."""
@@ -69,6 +73,18 @@ class BasePrinterAdapter(ABC):
     @abstractmethod
     def start_print(self, remote_name: str) -> bool:
         """Запускает печать уже загруженного файла."""
+
+    def stop_print(self) -> bool:
+        """
+        Останавливает текущую печать по просьбе мастера.
+
+        Вызывается только тогда, когда сервер сообщил `cancelRequested` для
+        задания (кнопка «Отменить печать» в карточке заказа). По умолчанию
+        протокол остановку не умеет: возвращаем False, и main.py закрывает
+        задание как отменённое — принтер при этом продолжит печать, поэтому
+        адаптеру стоит метод переопределить.
+        """
+        return False
 
     @abstractmethod
     def get_status(self) -> dict[str, Any]:

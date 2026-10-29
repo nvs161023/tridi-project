@@ -284,7 +284,7 @@ Bambu в LAN-режиме (Settings → Network → LAN Only Mode) не имее
 | Метод | Что делает | Успех |
 |---|---|---|
 | `connect()` | MQTT `self.ip_address:8883`, TLS без проверки сертификата, подписка `device/<serial>/report`, команда `pushing.pushall` | CONNACK получен и подписка оформлена |
-| `upload_file()` | FTPS `self.ip_address:990`, логин `bblp`, файл в `cache/<remote_name>` | файл загружен |
+| `upload_file()` | FTPS `self.ip_address:990`: implicit TLS 1.2 (сессия управляющего канала переиспользуется в канале данных), `PROT P` и `PASV` обязательны, файл в `cache/<remote_name>`. После `WinError 10054` — ручная отправка через сокет (`TYPE I` + `STOR` по шагам), затем HTTP `POST /api/files/local` с `X-Api-Key` | файл загружен |
 | `start_print()` | MQTT `device/<serial>/request`: `project_file` с `url=ftp:///cache/<remote_name>` | сообщение отправлено |
 | `get_status()` | последний отчёт: `print.gcode_state`, `print.mc_percent`, `print.mc_remaining_time` | `{"status", "progress", "remaining_time"}` |
 
