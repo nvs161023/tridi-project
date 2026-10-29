@@ -6,7 +6,9 @@ import type {
   OrderActionState,
   OrderEditState,
   OrderFormState,
+  OrderPrintStatus,
 } from "@/app/actions/orders-state";
+import { createPrintJob, getOrderWithItems } from "@/lib/db/workshop-farm";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
@@ -91,6 +93,17 @@ const COMMENT_MIGRATION_MISSING =
   "Комментарии пока не сохраняются: в базе нет таблицы workshop_order_comments. Примените миграцию supabase/workshop_order_comments.sql.";
 const COMMENT_ADD_FAILED =
   "Не удалось отправить комментарий. Попробуйте ещё раз.";
+const PRINT_QUEUE_MIGRATION_MISSING =
+  "Очередь печати пока не работает: в базе нет таблиц workshop_order_items/workshop_print_jobs. Примените миграцию supabase/workshop_farm_and_shop.sql.";
+const PRINT_PRINTER_REQUIRED =
+  "Выберите принтер для печати: задание без принтера агент фермы не запустит.";
+const PRINT_NO_GCODE_ITEM = "В заказе нет товаров с G-кодом.";
+const PRINT_TARGET_NOT_FOUND =
+  "Позиция заказа или принтер не найдены — возможно, их удалили. Обновите страницу.";
+const PRINT_QUEUE_FAILED =
+  "Не удалось поставить задание в очередь. Попробуйте ещё раз.";
+/** Текст успеха: его показывает всплывающее уведомление в карточке. */
+const PRINT_QUEUE_ADDED = "Задание добавлено в очередь.";
 
 /**
  * Создание заказа с расходом ресурсов.
@@ -748,6 +761,157 @@ export async function loadOrderComments(
   orderId: string,
 ): Promise<OrderComment[]> {
   return getOrderComments(orderId);
+}
+
+/**
+ * Готовность заказа к очереди печати для карточки.
+ *
+ * Доска Kanban не читает позиции заказов: `WorkshopOrder` знает только принтер и
+ * деньги. Поэтому карточка спрашивает минимум для кнопки «В очередь на печать» —
+ * есть ли у заказа товар с G-code. Ошибка чтения и отсутствие сессии дают null:
+ * кнопка остаётся доступной, а окончательную проверку делает
+ * `queueOrderForPrint` и объясняет причину.
+ */
+export async function loadOrderPrintStatus(
+  orderId: string,
+): Promise<OrderPrintStatus | null> {
+  if (!isOrderId(orderId)) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const order = await getOrderWithItems(orderId, {
+    supabase,
+    userId: user.id,
+  });
+
+  if (!order.ok) {
+    console.warn(
+      "Позиции заказа для печати не прочитаны:",
+      order.reason,
+      order.error,
+    );
+
+    return null;
+  }
+
+  return {
+    itemCount: order.data.items.length,
+    gcodeItemCount: order.data.items.filter((item) => item.product?.gcodeUrl)
+      .length,
+  };
+}
+
+/**
+ * Поставить заказ в очередь 3D-печати.
+ *
+ * Печатаем первую позицию, у товара которой есть G-code: очередь фермы
+ * запускает модели, а не строки заказа. Принтер обязателен — задание без
+ * принтера агент не знает, на какой машине печатать, поэтому карточка сначала
+ * просит его выбрать.
+ *
+ * Саму вставку делает `createPrintJob` (`lib/db/workshop-farm.ts`): он держит
+ * инварианты — владелец, наличие G-code, принтер этой мастерской и «одно
+ * активное задание на позицию». Повторный клик поэтому не создаёт дубль, а
+ * возвращает уже стоящее в очереди задание.
+ */
+export async function queueOrderForPrint(
+  orderId: string,
+): Promise<OrderActionState> {
+  if (!isOrderId(orderId)) {
+    return { ok: false, error: INVALID_ID };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  const order = await getOrderWithItems(orderId, {
+    supabase,
+    userId: user.id,
+  });
+
+  if (!order.ok) {
+    console.warn(
+      "Заказ для очереди печати не прочитан:",
+      order.reason,
+      order.error,
+    );
+
+    if (order.reason === "migration_missing") {
+      return { ok: false, error: PRINT_QUEUE_MIGRATION_MISSING };
+    }
+
+    if (order.reason === "not_found") {
+      return { ok: false, error: ORDER_NOT_FOUND };
+    }
+
+    return { ok: false, error: LOAD_FAILED };
+  }
+
+  const printerId = order.data.printerId;
+
+  if (!printerId) {
+    return { ok: false, error: PRINT_PRINTER_REQUIRED };
+  }
+
+  const item = order.data.items.find((entry) => entry.product?.gcodeUrl);
+
+  if (!item) {
+    return { ok: false, error: PRINT_NO_GCODE_ITEM };
+  }
+
+  const job = await createPrintJob(
+    { orderId, orderItemId: item.id, printerId },
+    { supabase, userId: user.id },
+  );
+
+  if (!job.ok) {
+    console.warn("Задание печати не создано:", job.reason, job.error);
+
+    if (job.reason === "migration_missing") {
+      return { ok: false, error: PRINT_QUEUE_MIGRATION_MISSING };
+    }
+
+    if (job.reason === "missing_gcode") {
+      return { ok: false, error: PRINT_NO_GCODE_ITEM };
+    }
+
+    if (job.reason === "unauthorized") {
+      return { ok: false, error: SESSION_EXPIRED };
+    }
+
+    if (job.reason === "not_found") {
+      return { ok: false, error: PRINT_TARGET_NOT_FOUND };
+    }
+
+    if (job.reason === "ownership_mismatch") {
+      return { ok: false, error: ORDER_NOT_FOUND };
+    }
+
+    return { ok: false, error: PRINT_QUEUE_FAILED };
+  }
+
+  revalidatePath("/dashboard/workshop");
+
+  return { ok: true, message: PRINT_QUEUE_ADDED };
 }
 
 /**

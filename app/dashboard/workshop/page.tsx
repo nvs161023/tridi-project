@@ -223,6 +223,7 @@ export default async function WorkshopPage() {
               settings={snapshot.settings}
               filaments={stock.filaments}
               printers={fleet.printers}
+              activePrinterJobs={fleet.activeJobs}
               orders={orderBook.orders}
               products={productList ?? []}
               clients={clientList ?? []}

@@ -16,6 +16,32 @@ import {
   parseWorkshopNumber,
 } from "@/lib/workshop/settings";
 
+/** Состояния принтера, которые пишет агент фермы (check в workshop_farm_and_shop.sql). */
+export const PRINTER_FARM_STATUSES = [
+  "idle",
+  "printing",
+  "paused",
+  "error",
+  "offline",
+] as const;
+
+export type PrinterFarmStatus = (typeof PRINTER_FARM_STATUSES)[number];
+
+export function isPrinterFarmStatus(value: unknown): value is PrinterFarmStatus {
+  return (
+    typeof value === "string" &&
+    (PRINTER_FARM_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Текущие заказы принтеров: `printer_id` → название заказа.
+ *
+ * Заголовок берётся из связи `workshop_print_jobs` → `workshop_orders`, поэтому
+ * серверная страница собирает карту сама, а карточка только показывает строку.
+ */
+export type PrinterActiveJobs = Record<string, string>;
+
 /** Принтер в том виде, в каком с ним работает интерфейс. */
 export type WorkshopPrinter = {
   id: string;
@@ -32,6 +58,14 @@ export type WorkshopPrinter = {
   zScrewInterval: number;
   /** Дата последнего обслуживания в формате ГГГГ-ММ-ДД. */
   lastMaintenanceDate: string | null;
+  /** Состояние от агента фермы; idle — печати нет. */
+  status: PrinterFarmStatus;
+  /** Прогресс текущей печати, % (0…100). */
+  progress: number;
+  /** Остаток текущей печати в секундах; 0 — печати нет. */
+  remainingTime: number;
+  /** Когда агент последний раз получил ответ; null — ещё ни разу. */
+  lastSeenAt: string | null;
   createdAt: string | null;
 };
 
@@ -58,9 +92,19 @@ export type PrinterFormErrors = Partial<
   >
 >;
 
-/** Колонки, которые читает lib/workshop/printer-store.ts. */
-export const PRINTER_COLUMNS =
+/**
+ * Базовые колонки парка — без живых полей агента.
+ *
+ * Нужны как запасной запрос: миграцию `supabase/workshop_farm_and_shop.sql`
+ * применяют вручную, и без неё колонок status/progress/remaining_time/last_seen_at
+ * в базе ещё нет. Тогда парк читается этим набором, а карточки показывают
+ * обслуживание без метки состояния.
+ */
+export const PRINTER_BASE_COLUMNS =
   "id, name, brand, model, total_hours, nozzle_hours, nozzle_interval, lubrication_hours, lubrication_interval, z_screw_hours, z_screw_interval, last_maintenance_date, created_at";
+
+/** Колонки, которые читает lib/workshop/printer-store.ts: парк плюс живые поля. */
+export const PRINTER_COLUMNS = `${PRINTER_BASE_COLUMNS}, status, progress, remaining_time, last_seen_at`;
 
 /** Пределы текстовых полей — как у колонок text в миграции. */
 export const PRINTER_TEXT_LIMITS = {
@@ -330,6 +374,14 @@ export function normalizePrinterRow(
     lastMaintenanceDate: isIsoDate(row.last_maintenance_date)
       ? row.last_maintenance_date
       : null,
+    // Живые поля агента: незнакомый статус не ломает карточку, а читается как
+    // «свободен» — так же, как default колонки в миграции.
+    status: isPrinterFarmStatus(row.status) ? row.status : "idle",
+    progress: readNumberInRange(row.progress, 0, 100, true) ?? 0,
+    remainingTime:
+      readNumberInRange(row.remaining_time, 0, Number.MAX_SAFE_INTEGER, true) ??
+      0,
+    lastSeenAt: typeof row.last_seen_at === "string" ? row.last_seen_at : null,
     createdAt: typeof row.created_at === "string" ? row.created_at : null,
   };
 }
@@ -345,6 +397,66 @@ export function formatPrinterDate(value: string | null): string {
   const [year, month, day] = value.split("-");
 
   return `${day}.${month}.${year}`;
+}
+
+/** Сколько принтер может молчать: дольше — «офлайн», даже если status говорит иное. */
+export const PRINTER_OFFLINE_AFTER_MS = 2 * 60 * 1000;
+
+/**
+ * Состояние для карточки с поправкой на давность ответа.
+ *
+ * `last_seen_at` старше двух минут значит, что агент потерял принтер: прогресс
+ * застыл, и подпись «Печатает» была бы обманом. Отметки нет (null) — агент ещё
+ * ни разу не отчитывался, судить об офлайне не по чему: метку даёт сам статус.
+ * Без этой оговорки парк, добавленный вручную и ещё не подключённый, выглядел
+ * бы серым целиком.
+ *
+ * `now === null` — разметка до монтирования в браузере: время сервера и клиента
+ * может разойтись, поэтому срок не проверяется и SSR с гидратацией дают
+ * одинаковый результат.
+ */
+export function resolvePrinterLiveStatus(
+  printer: Pick<WorkshopPrinter, "status" | "lastSeenAt">,
+  now: number | null,
+): PrinterFarmStatus {
+  if (printer.status === "offline" || now === null) {
+    return printer.status;
+  }
+
+  const seenAt = printer.lastSeenAt
+    ? Date.parse(printer.lastSeenAt)
+    : Number.NaN;
+
+  if (Number.isNaN(seenAt)) {
+    return printer.status;
+  }
+
+  return now - seenAt > PRINTER_OFFLINE_AFTER_MS ? "offline" : printer.status;
+}
+
+/**
+ * Остаток печати словами: «меньше минуты», «45 мин», «1 ч 20 мин».
+ * null — показывать нечего: печати нет или пришёл ноль вместо секунд.
+ */
+export function formatPrinterRemaining(seconds: number): string | null {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return null;
+  }
+
+  if (seconds < 60) {
+    return "меньше минуты";
+  }
+
+  const minutes = Math.ceil(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes} мин`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+
+  return rest === 0 ? `${hours} ч` : `${hours} ч ${rest} мин`;
 }
 
 /** Интервал из формы: целое число в допустимых пределах или null. */

@@ -200,6 +200,8 @@ export type WorkshopOrderWithItems = WorkshopOrderFinance & {
   status: OrderStatus;
   /** Стоимость для клиента из старой колонки total_cost. */
   totalCost: number;
+  /** Назначенный принтер; null — принтер не выбран. */
+  printerId: string | null;
   createdAt: string | null;
   items: WorkshopOrderItem[];
 };

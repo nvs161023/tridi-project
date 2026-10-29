@@ -24,7 +24,10 @@ import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import type { WorkshopIntegrations } from "@/lib/workshop/integrations";
 import type { WorkshopOrder } from "@/lib/workshop/orders";
-import type { WorkshopPrinter } from "@/lib/workshop/printers";
+import type {
+  PrinterActiveJobs,
+  WorkshopPrinter,
+} from "@/lib/workshop/printers";
 import type { WorkshopProduct } from "@/lib/workshop/products";
 import type { WorkshopRequisites } from "@/lib/workshop/requisites";
 import type { WorkshopSettings } from "@/lib/workshop/settings";
@@ -63,6 +66,8 @@ type WorkshopTabsProps = {
   integrations?: WorkshopIntegrations | null;
   filaments: WorkshopFilament[];
   printers: WorkshopPrinter[];
+  /** Названия заказов в печати: `printer_id` → title, для живых карточек. */
+  activePrinterJobs: PrinterActiveJobs;
   orders: WorkshopOrder[];
   products: WorkshopProduct[];
   clients: WorkshopClient[];
@@ -133,6 +138,7 @@ export function WorkshopTabs({
   integrations,
   filaments,
   printers,
+  activePrinterJobs,
   orders,
   products,
   clients,
@@ -327,6 +333,7 @@ export function WorkshopTabs({
           >
             <WorkshopPrintersTab
               printers={printers}
+              activeJobs={activePrinterJobs}
               isMissingTable={isPrintersMissingTable}
             />
           </div>

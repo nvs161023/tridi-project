@@ -40,7 +40,7 @@ import { normalizeOrderRow, ORDER_TEXT_LIMITS } from "@/lib/workshop/orders";
 import { parseWorkshopNumber } from "@/lib/workshop/settings";
 
 const ORDER_WITH_ITEMS_COLUMNS =
-  "id, title, status, total_cost, created_at, marketplace_order_id, total_amount, marketplace_commission, internal_print_cost";
+  "id, title, status, total_cost, printer_id, created_at, marketplace_order_id, total_amount, marketplace_commission, internal_print_cost";
 
 /**
  * `product:...` — встроенный ресурс PostgREST по внешнему ключу. Имя
@@ -257,6 +257,8 @@ function normalizeOrderBase(value: Row): WorkshopOrderBase | null {
     title: base.title,
     status: base.status,
     totalCost: base.totalCost,
+    // Принтер нужен очереди печати: задание без принтера агент не запустит.
+    printerId: isWorkshopUuid(value.printer_id) ? value.printer_id : null,
     createdAt: base.createdAt,
     marketplaceOrderId: readText(value.marketplace_order_id, 128),
     totalAmount: readMoney(value.total_amount),

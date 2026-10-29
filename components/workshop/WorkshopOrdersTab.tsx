@@ -19,6 +19,7 @@ import {
   PrinterIcon,
   TrashIcon,
 } from "@/components/workshop/WorkshopIcons";
+import { createClient } from "@/lib/supabase/client";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import {
@@ -50,6 +51,11 @@ import type { WorkshopProduct } from "@/lib/workshop/products";
  * возвращается с сервера уже в новой колонке, а не переезжает только в памяти
  * браузера. Если запись не удалась, карточка остаётся на месте и показывается
  * ошибка.
+ *
+ * Тем же refresh() доска отвечает на изменения в базе: подписка Supabase
+ * Realtime показывает заказы, созданные и передвинутые в другой вкладке или
+ * локальным агентом. Своих данных у доски нет — источник один, серверный
+ * компонент страницы.
  */
 
 type WorkshopOrdersTabProps = {
@@ -71,6 +77,16 @@ type StatusColumn = {
 
 /** MIME-тип переносимого заказа: по нему колонка понимает, что тащат карточку. */
 const DRAG_MIME = "application/x-workshop-order";
+
+/**
+ * Пауза перед refresh() после события Realtime.
+ *
+ * Одно действие может изменить несколько строк сразу: заказ, наработку принтера
+ * и остаток катушки. Агент тоже обновляет заказы пачкой. Без паузы каждая
+ * строка вызвала бы свой серверный рендер; 250 мс на глаз незаметны и собирают
+ * всплеск в один refresh.
+ */
+const REALTIME_REFRESH_DELAY_MS = 250;
 
 const STATUS_COLUMNS: readonly StatusColumn[] = [
   { status: "new", label: "Новые", hint: "Ждут запуска" },
@@ -238,6 +254,77 @@ export function WorkshopOrdersTab({
 
     openDetails(order);
   }
+
+  /**
+   * Realtime: доска видит заказы, изменённые не в этой вкладке.
+   *
+   * Источник данных Kanban — серверный компонент страницы: в `WorkshopOrder`
+   * уже присоединены принтер, катушка и позиции, а в событии `postgres_changes`
+   * лежит только строка таблицы. Собрать из неё карточку нельзя, поэтому
+   * обработчик ничего не патчит в стейте, а вызывает `router.refresh()`:
+   * страница перечитывает заказы тем же `getWorkshopOrders()`, что и при
+   * загрузке. Так же поступают `moveOrder` и `removeOrder` после Server Action —
+   * на доске всегда серверные данные, без «второй правды» в браузере.
+   *
+   * События приходят только по своим заказам: RLS-политика
+   * `workshop_orders_select_own` применяется к подписке так же, как к select.
+   * Канал один на страницу, имя фиксированное — второй такой клиент просто
+   * переиспользует тему вместо отдельного сокета.
+   *
+   * Всплеск событий (агент обновил пачку заказов) схлопывается в один refresh:
+   * таймер перезапускается на каждом событии, а серверный рендер выполняется
+   * один раз — через REALTIME_REFRESH_DELAY_MS после последнего.
+   *
+   * Без таблицы и без ключей Supabase доска работает как раньше: изменения
+   * видны после перезагрузки страницы.
+   */
+  useEffect(() => {
+    if (isMissingTable) {
+      return;
+    }
+
+    let supabase: ReturnType<typeof createClient>;
+
+    try {
+      supabase = createClient();
+    } catch (cause) {
+      // createClient() бросает, если в окружении нет NEXT_PUBLIC_SUPABASE_*.
+      // Это не повод ломать Мастерскую: остальное на странице работает.
+      console.warn("Realtime заказов недоступен:", cause);
+
+      return;
+    }
+
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const channel = supabase
+      .channel("realtime-orders")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "workshop_orders" },
+        () => {
+          if (refreshTimer !== null) {
+            clearTimeout(refreshTimer);
+          }
+
+          refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            router.refresh();
+          }, REALTIME_REFRESH_DELAY_MS);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      // Таймер мог остаться от последнего события: после отписки refresh
+      // перерисовал бы размонтированную страницу.
+      if (refreshTimer !== null) {
+        clearTimeout(refreshTimer);
+      }
+
+      void supabase.removeChannel(channel);
+    };
+  }, [isMissingTable, router]);
 
   /** Перенос карточки в выбранную колонку: сервер проверяет заказ и статус. */
   async function moveOrder(order: WorkshopOrder, nextStatus: OrderFlowStatus) {

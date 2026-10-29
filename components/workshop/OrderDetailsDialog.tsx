@@ -8,6 +8,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useTransition,
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -15,7 +16,10 @@ import {
   addOrderComment,
   deleteOrder,
   loadOrderComments,
+  loadOrderPrintStatus,
+  queueOrderForPrint,
 } from "@/app/actions/orders";
+import type { OrderPrintStatus } from "@/app/actions/orders-state";
 import { EditOrderDialog } from "@/components/workshop/EditOrderDialog";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import { PencilIcon, TrashIcon } from "@/components/workshop/WorkshopIcons";
@@ -67,6 +71,9 @@ const COMMENT_DATE_FORMATTER = new Intl.DateTimeFormat("ru-RU", {
   minute: "2-digit",
 });
 
+/** Сколько висит всплывающее уведомление: дольше — и оно мешает читать карточку. */
+const PRINT_TOAST_TIMEOUT_MS = 4000;
+
 /** Дата комментария: «25.10.2026, 14:05» в часовом поясе браузера. */
 function formatCommentDate(value: string | null): string {
   if (!value) {
@@ -78,6 +85,45 @@ function formatCommentDate(value: string | null): string {
   return Number.isNaN(date.getTime())
     ? "Дата не указана"
     : COMMENT_DATE_FORMATTER.format(date);
+}
+
+/**
+ * Подсказка рядом с кнопкой «В очередь на печать».
+ *
+ * Кнопка блокируется по трём причинам: принтер не выбран, проверка позиций ещё
+ * идёт или печатать нечего. Если проверка не удалась, текст не запрещает клик:
+ * Server Action повторит чтение и объяснит причину.
+ */
+function printQueueHint({
+  hasPrinter,
+  isLoading,
+  status,
+}: {
+  hasPrinter: boolean;
+  isLoading: boolean;
+  status: OrderPrintStatus | null;
+}): string {
+  if (!hasPrinter) {
+    return "Выберите принтер для печати";
+  }
+
+  if (isLoading) {
+    return "Проверяем позиции заказа…";
+  }
+
+  if (!status) {
+    return "Не удалось проверить позиции: сервер проверит их при постановке в очередь.";
+  }
+
+  if (status.itemCount === 0) {
+    return "В заказе нет позиций — печатать нечего";
+  }
+
+  if (status.gcodeItemCount === 0) {
+    return "В заказе нет товаров с G-кодом";
+  }
+
+  return "Принтер назначен: задание встанет в очередь 3D-фермы";
 }
 
 export function OrderDetailsDialog({
@@ -99,6 +145,13 @@ export function OrderDetailsDialog({
   const [isEditOpen, setIsEditOpen] = useState(false);
   /** Подтверждение сохранения остаётся в карточке до её закрытия. */
   const [updateNotice, setUpdateNotice] = useState<string | null>(null);
+  /** Позиции с G-code: от ответа зависит доступность кнопки очереди печати. */
+  const [printStatus, setPrintStatus] = useState<OrderPrintStatus | null>(null);
+  const [isPrintStatusLoading, setIsPrintStatusLoading] = useState(false);
+  const [printError, setPrintError] = useState<string | null>(null);
+  /** Всплывающее уведомление после успешной постановки в очередь. */
+  const [printNotice, setPrintNotice] = useState<string | null>(null);
+  const [isQueueing, startQueueing] = useTransition();
   const router = useRouter();
   const dialogRef = useRef<HTMLDivElement>(null);
   const editTriggerRef = useRef<HTMLButtonElement>(null);
@@ -162,6 +215,58 @@ export function OrderDetailsDialog({
     // Лента читается снизу вверх: свежий комментарий должен быть виден.
     bottomRef.current?.scrollIntoView({ block: "nearest" });
   }, [comments.length, isLoading, loadError]);
+
+  /**
+   * Готовность к печати читается при открытии карточки и после смены принтера.
+   *
+   * Позиций заказа нет в `WorkshopOrder`: их знает только сервер. Без принтера
+   * запрос не нужен — кнопка всё равно заблокирована и просит выбрать принтер.
+   */
+  useEffect(() => {
+    if (!order.printerId) {
+      setPrintStatus(null);
+      setIsPrintStatusLoading(false);
+      return;
+    }
+
+    let isActive = true;
+    setIsPrintStatusLoading(true);
+
+    loadOrderPrintStatus(order.id)
+      .then((status) => {
+        if (isActive) {
+          setPrintStatus(status);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setPrintStatus(null);
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsPrintStatusLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [order.id, order.printerId]);
+
+  /** Уведомление об успехе гаснет само — закрывать его руками не нужно. */
+  useEffect(() => {
+    if (!printNotice) {
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => setPrintNotice(null),
+      PRINT_TOAST_TIMEOUT_MS,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [printNotice]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -244,6 +349,42 @@ export function OrderDetailsDialog({
   }
 
   /**
+   * Постановка заказа в очередь печати.
+   *
+   * Кнопка подсказывает, чего не хватает, но сервер проверяет принтер и G-code
+   * повторно: доска могла устареть, пока карточка была открыта. `useTransition`
+   * держит кнопку в состоянии загрузки до ответа, а `router.refresh()`
+   * перечитывает заказы — задание могло появиться в другой вкладке.
+   */
+  function handleQueuePrint() {
+    if (isQueueing) {
+      return;
+    }
+
+    setPrintError(null);
+
+    startQueueing(async () => {
+      try {
+        const result = await queueOrderForPrint(order.id);
+
+        if (!result.ok) {
+          setPrintError(
+            result.error ?? "Не удалось поставить задание в очередь.",
+          );
+          return;
+        }
+
+        const message = result.message ?? "Задание добавлено в очередь.";
+        setPrintNotice(message);
+        onUpdated(message);
+        router.refresh();
+      } catch {
+        setPrintError("Нет связи с сервером. Попробуйте ещё раз.");
+      }
+    });
+  }
+
+  /**
    * Правка сохранена: окно правки закрылось, карточка получает новые данные
    * после `router.refresh()`. Сообщение остаётся и в карточке, и на доске —
    * после закрытия человек увидит, что изменения записались.
@@ -275,6 +416,20 @@ export function OrderDetailsDialog({
   const status = ORDER_STATUS_META[order.status];
   const createdAt = formatCommentDate(order.createdAt);
   const hasCreatedAt = Boolean(order.createdAt);
+  const hasPrinter = Boolean(order.printerId);
+  const hasGcode = (printStatus?.gcodeItemCount ?? 0) > 0;
+  /**
+   * Кнопка активна, когда принтер назначен и проверка нашла товар с G-code.
+   * `printStatus === null` значит «проверка не удалась» — клик разрешён, сервер
+   * всё равно проверит позиции заново.
+   */
+  const canQueuePrint =
+    hasPrinter && !isPrintStatusLoading && (printStatus === null || hasGcode);
+  const printHint = printQueueHint({
+    hasPrinter,
+    isLoading: isPrintStatusLoading,
+    status: printStatus,
+  });
 
   return createPortal(
     <div
@@ -402,6 +557,45 @@ export function OrderDetailsDialog({
             />
           </dl>
 
+          <div
+            data-order-print-queue
+            className="mt-5 rounded-xl border border-white/[0.08] bg-white/[0.025] px-4 py-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+                  3D-печать
+                </p>
+                <p
+                  data-order-print-hint
+                  aria-live="polite"
+                  className="mt-1 text-sm leading-relaxed text-zinc-400"
+                >
+                  {printHint}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleQueuePrint}
+                disabled={!canQueuePrint || isQueueing}
+                aria-busy={isQueueing}
+                data-order-print-queue-button
+                className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(59,130,246,0.8)] transition-colors hover:bg-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isQueueing ? "Ставим в очередь…" : "В очередь на печать"}
+              </button>
+            </div>
+            {printError ? (
+              <p
+                role="alert"
+                data-order-print-error
+                className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm leading-relaxed text-red-100"
+              >
+                {printError}
+              </p>
+            ) : null}
+          </div>
+
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <a
               href={`/workshop/orders/${order.id}/specification`}
@@ -526,6 +720,19 @@ export function OrderDetailsDialog({
           </section>
         </div>
       </div>
+      {/*
+        Тост живёт в том же портале, что и карточка: он всплывает над содержимым
+        и гаснет сам, не сдвигая ни детали, ни ленту комментариев.
+      */}
+      {printNotice ? (
+        <p
+          role="status"
+          data-order-print-toast
+          className="pointer-events-none fixed inset-x-4 bottom-6 z-[90] mx-auto max-w-sm rounded-xl border border-emerald-400/50 bg-emerald-500/20 px-4 py-3 text-center text-sm font-semibold text-emerald-50 shadow-2xl shadow-black/60 backdrop-blur"
+        >
+          {printNotice}
+        </p>
+      ) : null}
       {isEditOpen ? (
         <EditOrderDialog
           order={order}

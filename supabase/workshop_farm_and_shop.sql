@@ -28,7 +28,11 @@
 --      каталога» (по нему заказ с Ozon/WB/Яндекса находит G-code);
 --   6. создаёт workshop_order_items — позиции заказа (в заказе может быть
 --      несколько товаров);
---   7. создаёт workshop_print_jobs — очередь печати для агента фермы.
+--   7. создаёт workshop_print_jobs — очередь печати для агента фермы;
+--   8. включает Realtime на workshop_orders, workshop_printers и
+--      workshop_print_jobs: Канбан подписывается на изменения заказов, а вкладка
+--      «Принтеры» — на статус, прогресс и текущее задание, и обе перезапрашивают
+--      данные без перезагрузки страницы.
 --
 -- Мультитенантность: у каждой новой таблицы есть user_id с `on delete cascade`
 -- на auth.users; RLS разрешает пользователю только свои строки. Агент работает
@@ -650,8 +654,79 @@ revoke all on public.workshop_print_jobs from anon, authenticated;
 grant select, insert, delete on public.workshop_print_jobs to authenticated;
 grant all on public.workshop_print_jobs to service_role;
 
+-- -----------------------------------------------------------------------------
+-- 9. Realtime для Канбана и карточек принтеров
+-- -----------------------------------------------------------------------------
+-- Подписчиков два:
+--   * Канбан заказов (components/workshop/WorkshopOrdersTab.tsx: канал
+--     realtime-orders, событие postgres_changes по public.workshop_orders,
+--     далее router.refresh());
+--   * вкладка «Принтеры» (components/workshop/WorkshopPrintersTab.tsx: канал
+--     realtime-printers, события по public.workshop_printers — status, progress,
+--     remaining_time, last_seen_at — и по public.workshop_print_jobs — какой
+--     заказ печатается на принтере, название берётся через связь с
+--     workshop_orders).
+-- Realtime отдаёт события только по таблицам, добавленным в публикацию
+-- supabase_realtime: без этих строк подписка молча не получает ничего, и данные
+-- обновляются лишь после перезагрузки страницы.
+--
+-- RLS у всех трёх таблиц уже включён (workshop_orders_select_own в
+-- supabase/workshop_printers_orders.sql; workshop_printers_select_own и
+-- workshop_print_jobs_select_own выше в этом файле), поэтому события приходят
+-- только по строкам текущего пользователя — как и при обычном select.
+--
+-- REPLICA IDENTITY не меняем: по умолчанию это первичный ключ, а обработчикам
+-- важно лишь то, что строка изменилась, — сами данные они берут с сервера.
+--
+-- Блок идемпотентный: на готовой базе он ничего не делает, на чистой — создаёт
+-- публикацию, если её нет, и добавляет недостающие таблицы. Иначе
+-- `alter publication` упал бы с «publication does not exist» и откатил всю
+-- транзакцию файла.
+
+do $$
+begin
+  if not exists (
+    select 1
+      from pg_publication
+     where pubname = 'supabase_realtime'
+  ) then
+    create publication supabase_realtime;
+  end if;
+
+  if not exists (
+    select 1
+      from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public'
+       and tablename = 'workshop_orders'
+  ) then
+    alter publication supabase_realtime add table public.workshop_orders;
+  end if;
+
+  if not exists (
+    select 1
+      from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public'
+       and tablename = 'workshop_printers'
+  ) then
+    alter publication supabase_realtime add table public.workshop_printers;
+  end if;
+
+  if not exists (
+    select 1
+      from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public'
+       and tablename = 'workshop_print_jobs'
+  ) then
+    alter publication supabase_realtime add table public.workshop_print_jobs;
+  end if;
+end $$;
+
 -- PostgREST кэширует схему: без перечитывания новые таблицы ещё некоторое время
--- отвечают PGRST205, а новые колонки — PGRST204.
+-- отвечают PGRST205, а новые колонки — PGRST204. Строка последняя: ниже схему
+-- уже никто не меняет.
 notify pgrst, 'reload schema';
 
 commit;
@@ -720,4 +795,16 @@ commit;
 -- 6) Чужой заказ не виден (выполнять под JWT пользователя, не service_role):
 --      select id, title from public.workshop_orders;
 --    Ожидается: только заказы текущего пользователя.
+--
+-- 7) Realtime включён для заказов и парка:
+--      select schemaname, tablename
+--        from pg_publication_tables
+--       where pubname = 'supabase_realtime'
+--       order by tablename;
+--    Ожидается: среди строк есть public | workshop_orders,
+--    public | workshop_printers и public | workshop_print_jobs. Если какой-то
+--    таблицы нет, Канбан или карточки принтеров обновляются только после
+--    перезагрузки страницы — подписки в
+--    components/workshop/WorkshopOrdersTab.tsx и
+--    components/workshop/WorkshopPrintersTab.tsx работают, но база молчит.
 -- =============================================================================
