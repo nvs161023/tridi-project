@@ -78,6 +78,17 @@ export type WorkshopPrinter = {
    * такого понятия нет.
    */
   serialNumber: string | null;
+  /** Чем агент управляет принтером: moonraker, octoprint или bambu. */
+  protocolType: PrinterProtocol;
+  /**
+   * Адрес в локальной сети; null — не задан.
+   *
+   * Нужен не только агенту, но и карточке: форма «Подключение» правит адрес,
+   * протокол и ключ по текущим значениям. Без миграции
+   * `supabase/workshop_farm_and_shop.sql` колонки нет, поле показывается пустым,
+   * и сохранение попросит адрес заново.
+   */
+  ipAddress: string | null;
   createdAt: string | null;
 };
 
@@ -132,10 +143,11 @@ export const PRINTER_BASE_COLUMNS =
 
 /**
  * Колонки, которые читает lib/workshop/printer-store.ts: парк плюс живые поля
- * агента. serial_number живёт там же: её добавляет та же миграция, а при её
- * отсутствии printer-store перечитывает парк через PRINTER_BASE_COLUMNS.
+ * агента. serial_number, protocol_type и ip_address живут там же: их добавляет
+ * та же миграция, а при её отсутствии printer-store перечитывает парк через
+ * PRINTER_BASE_COLUMNS — карточка тогда покажет подключение пустым.
  */
-export const PRINTER_COLUMNS = `${PRINTER_BASE_COLUMNS}, status, progress, remaining_time, last_seen_at, serial_number`;
+export const PRINTER_COLUMNS = `${PRINTER_BASE_COLUMNS}, status, progress, remaining_time, last_seen_at, serial_number, protocol_type, ip_address`;
 
 /** Пределы текстовых полей — как у колонок text в миграции. */
 export const PRINTER_TEXT_LIMITS = {
@@ -165,6 +177,29 @@ export const PRINTER_INTERVAL_DEFAULTS = {
 
 /** Предел наработки: numeric(12, 2) с запасом на годы печати. */
 export const PRINTER_HOURS_MAX = 1000000;
+
+/**
+ * Варианты `<select>` протокола: «Moonraker (Klipper)» понятнее, чем «Moonraker».
+ *
+ * Список один на форму добавления и на карточку принтера: две копии подписей
+ * разъехались бы, и один и тот же протокол назывался бы по-разному.
+ */
+export const PRINTER_PROTOCOL_OPTIONS: readonly {
+  value: PrinterProtocol;
+  label: string;
+}[] = [
+  { value: "moonraker", label: "Moonraker (Klipper)" },
+  { value: "octoprint", label: "OctoPrint" },
+  { value: "bambu", label: "Bambu Lab (LAN)" },
+];
+
+/** Подпись протокола для интерфейса: «Moonraker (Klipper)». */
+export function formatPrinterProtocol(value: PrinterProtocol): string {
+  return (
+    PRINTER_PROTOCOL_OPTIONS.find((option) => option.value === value)?.label ??
+    value
+  );
+}
 
 /** Предел адреса принтера — как у колонки ip_address (text, 1…253 символа). */
 export const PRINTER_ADDRESS_MAX = 253;
@@ -196,6 +231,15 @@ const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const hoursFormatter = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 2,
+});
+
+/** Когда принтер выходил на связь: «29.10.2026, 14:05». */
+const lastSeenFormatter = new Intl.DateTimeFormat("ru-RU", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
 });
 
 /** Наработка для интерфейса: «412,5 ч». */
@@ -710,6 +754,80 @@ export function readPrinterForm(formData: FormData): {
 }
 
 /**
+ * Проверенный ввод формы «Подключение» в карточке принтера.
+ *
+ * Отличается от `PrinterDraft` тем, что имя, бренд, модель и интервалы
+ * обслуживания карточка не меняет — их задают при добавлении. Ключ доступа
+ * приходит пустым, когда мастер его не трогал: пустая строка означает «оставь
+ * сохранённый секрет», а не «сотри ключ».
+ */
+export type PrinterConnectionDraft = {
+  protocolType: PrinterProtocol;
+  ipAddress: string;
+  /** SN для Bambu; пустая строка — в базе null. */
+  serialNumber: string;
+  apiKey: string;
+};
+
+/**
+ * Разбор формы «Подключение».
+ *
+ * Проверки те же, что у формы добавления (`normalizePrinterAddress`, длина SN и
+ * ключа из `PRINTER_TEXT_LIMITS`), но протокол здесь обязателен: при добавлении
+ * незнакомое значение молча становилось moonraker, а при правке это означало бы
+ * «смени протокол» — принтер перестал бы отвечать агенту.
+ */
+export function readPrinterConnectionForm(formData: FormData): {
+  draft: PrinterConnectionDraft | null;
+  errors: PrinterFormErrors;
+} {
+  const errors: PrinterFormErrors = {};
+
+  const protocol = readFormText(formData.get("protocol"));
+
+  if (!isPrinterProtocol(protocol)) {
+    errors.protocol = "Выберите протокол: Moonraker, OctoPrint или Bambu Lab.";
+  }
+
+  const protocolType: PrinterProtocol = isPrinterProtocol(protocol)
+    ? protocol
+    : "moonraker";
+
+  const ipAddress = normalizePrinterAddress(formData.get("ipAddress"));
+
+  if (!ipAddress) {
+    errors.ipAddress =
+      "Укажите адрес вида 192.168.1.50 или имя узла (ender3.local) — без пробелов и «/».";
+  }
+
+  // SN есть только у Bambu: у Moonraker и OctoPrint такого понятия нет, а чужое
+  // значение агент подставил бы в топик MQTT.
+  const serialNumber =
+    protocolType === "bambu" ? readFormText(formData.get("serialNumber")) : "";
+
+  if (serialNumber.length > PRINTER_TEXT_LIMITS.serialNumber) {
+    errors.serialNumber = `Не больше ${PRINTER_TEXT_LIMITS.serialNumber} символов.`;
+  }
+
+  // Пустая строка — «ключ не меняем»: сохранённый секрет в браузер не попадает,
+  // поэтому поле всегда показывается пустым.
+  const apiKey = readFormText(formData.get("apiKey"));
+
+  if (apiKey.length > PRINTER_TEXT_LIMITS.apiKey) {
+    errors.apiKey = `Не больше ${PRINTER_TEXT_LIMITS.apiKey} символов.`;
+  }
+
+  if (ipAddress === null || Object.keys(errors).length > 0) {
+    return { draft: null, errors };
+  }
+
+  return {
+    draft: { protocolType, ipAddress, serialNumber, apiKey },
+    errors,
+  };
+}
+
+/**
  * Строка `workshop_printers` → принтер для интерфейса.
  *
  * Битое число заменяется значением по умолчанию, строка без корректного id
@@ -776,6 +894,12 @@ export function normalizePrinterRow(
     // Пустая строка и null — одно и то же «номера нет»: форма присылает "".
     serialNumber:
       readText(row.serial_number, PRINTER_TEXT_LIMITS.serialNumber) || null,
+    // Подключение: без миграции колонок нет — протокол читается как default
+    // базы (moonraker), адрес остаётся пустым.
+    protocolType: isPrinterProtocol(row.protocol_type)
+      ? row.protocol_type
+      : "moonraker",
+    ipAddress: normalizePrinterAddress(row.ip_address),
     createdAt: typeof row.created_at === "string" ? row.created_at : null,
   };
 }
@@ -791,6 +915,27 @@ export function formatPrinterDate(value: string | null): string {
   const [year, month, day] = value.split("-");
 
   return `${day}.${month}.${year}`;
+}
+
+/**
+ * Когда принтер последний раз выходил на связь.
+ *
+ * `last_seen_at` пишет пульс агента фермы; null — агент ещё ни разу не
+ * отчитался по этому принтеру. Строка «ещё не выходил на связь» честнее
+ * прочерка: в карточке принтера она отвечает на вопрос «агент его видит?».
+ */
+export function formatPrinterLastSeen(value: string | null): string {
+  if (typeof value !== "string") {
+    return "ещё не выходил на связь";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "ещё не выходил на связь";
+  }
+
+  return lastSeenFormatter.format(date);
 }
 
 /** Сколько принтер может молчать: дольше — «офлайн», даже если status говорит иное. */

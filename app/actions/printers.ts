@@ -7,6 +7,7 @@ import type {
   DiscoveredPrintersState,
   NetworkScanRequestState,
   PrinterActionState,
+  PrinterConnectionState,
   PrinterFormState,
 } from "@/app/actions/printers-state";
 import {
@@ -21,10 +22,12 @@ import {
   normalizePrinterApiKey,
   normalizePrinterSerial,
   readApprovedPrinters,
+  readPrinterConnectionForm,
   readPrinterForm,
 } from "@/lib/workshop/printers";
 import {
   createDiscoveredPrinterPayload,
+  createPrinterConnectionPayload,
   createPrinterPayload,
 } from "@/lib/workshop/payload";
 import { getDiscoveredPrinters } from "@/lib/workshop/printer-store";
@@ -36,6 +39,9 @@ const PRO_REQUIRED =
 const MIGRATION_MISSING =
   "Принтеры пока не сохраняются: в базе нет таблицы или колонок workshop_printers. Примените supabase/workshop_farm_and_shop.sql — он добавляет протокол, серийный номер, IP-адрес и ключ доступа; таблицу и колонки обслуживания создают workshop_printers_orders.sql и workshop_printer_z_screw.sql.";
 const ADD_FAILED = "Не удалось добавить принтер. Попробуйте ещё раз.";
+const UPDATE_FAILED =
+  "Не удалось сохранить подключение принтера. Попробуйте ещё раз.";
+const DELETE_FAILED = "Не удалось удалить принтер. Попробуйте ещё раз.";
 const RESET_FAILED = "Не удалось сбросить счётчик. Попробуйте ещё раз.";
 const LOAD_FAILED = "Не удалось прочитать принтер. Попробуйте ещё раз.";
 const INVALID_ID = "Принтер не найден — обновите страницу.";
@@ -118,6 +124,151 @@ export async function addPrinter(
     success: true,
     message: `Принтер «${draft.name}» добавлен: ${draft.brand} ${draft.model}.`,
   };
+}
+
+/**
+ * Правка подключения из карточки принтера.
+ *
+ * Порядок проверок как у остальных действий: UUID → разбор формы → сессия →
+ * подписка → `update` с фильтром по `user_id`. Меняются только адрес, протокол,
+ * серийный номер и ключ доступа: имя, модель, интервалы и счётчики не трогаются,
+ * иначе правка адреса сбрасывала бы обслуживание, а правка ключа — наработку.
+ *
+ * Ключ доступа приходит из формы пустым, когда его не меняли: в браузер секрет
+ * не попадает, и `createPrinterConnectionPayload` просто не включает колонку в
+ * `update` — сохранённый ключ остаётся как был.
+ *
+ * `select("name")` возвращает обновлённую строку: пустой ответ означает, что
+ * принтер уже удалили в другой вкладке, — тогда честнее сказать «не найден», чем
+ * «сохранено». Имя нужно только для сообщения об успехе.
+ */
+export async function updatePrinter(
+  printerId: string,
+  formData: FormData,
+): Promise<PrinterConnectionState> {
+  if (!isPrinterId(printerId)) {
+    return { ok: false, error: INVALID_ID };
+  }
+
+  const { draft, errors } = readPrinterConnectionForm(formData);
+
+  if (!draft) {
+    return { ok: false, fieldErrors: errors };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_printers")
+    .update(createPrinterConnectionPayload(draft))
+    .eq("id", printerId)
+    .eq("user_id", user.id)
+    .select("name")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Подключение не сохранено:", error.code, error.message);
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(error.code, error.message)
+        ? MIGRATION_MISSING
+        : UPDATE_FAILED,
+    };
+  }
+
+  if (!data) {
+    return { ok: false, error: NOT_FOUND };
+  }
+
+  revalidatePath("/dashboard/workshop");
+
+  const row = data as { name?: unknown };
+  const name =
+    typeof row.name === "string" && row.name.trim()
+      ? row.name.trim()
+      : "принтер";
+
+  return { ok: true, message: `Подключение «${name}» сохранено.` };
+}
+
+/**
+ * Удаление принтера из парка.
+ *
+ * Порядок проверок как у удаления заказа: UUID → сессия → подписка → `delete` с
+ * фильтром по `user_id`, поэтому чужой принтер не удалится даже при известном
+ * id. `select("name")` возвращает удалённую строку: пустой ответ — принтер уже
+ * удалили в другой вкладке, и карточка не должна рапортовать об успехе.
+ *
+ * История при удалении не пропадает: `printer_id` в заказах и заданиях печати
+ * объявлен `on delete set null` (supabase/workshop_printers_orders.sql и
+ * supabase/workshop_farm_and_shop.sql), поэтому заказы остаются на месте, а
+ * карточка заказа показывает «принтер не указан». Отдельного удаления заданий не
+ * нужно.
+ */
+export async function deletePrinter(
+  printerId: string,
+): Promise<PrinterActionState> {
+  if (!isPrinterId(printerId)) {
+    return { ok: false, error: INVALID_ID };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_printers")
+    .delete()
+    .eq("id", printerId)
+    .eq("user_id", user.id)
+    .select("name")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Принтер не удалён:", error.code, error.message);
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(error.code, error.message)
+        ? MIGRATION_MISSING
+        : DELETE_FAILED,
+    };
+  }
+
+  if (!data) {
+    return { ok: false, error: NOT_FOUND };
+  }
+
+  const row = data as { name?: unknown };
+  const name =
+    typeof row.name === "string" && row.name.trim()
+      ? row.name.trim()
+      : "принтер";
+
+  revalidatePath("/dashboard/workshop");
+
+  return { ok: true, message: `Принтер «${name}» удалён из парка.` };
 }
 
 /**

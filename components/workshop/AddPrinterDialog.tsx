@@ -23,6 +23,7 @@ import {
   PRINTER_ADDRESS_MAX,
   PRINTER_INTERVAL_DEFAULTS,
   PRINTER_INTERVAL_LIMITS,
+  PRINTER_PROTOCOL_OPTIONS,
   PRINTER_TEXT_LIMITS,
   formatPrinterHours,
 } from "@/lib/workshop/printers";
@@ -53,15 +54,10 @@ type AddPrinterDialogProps = {
 /**
  * Протоколы в форме: агент управляет принтером по одному из трёх API.
  *
- * Порядок — от самого частого. В окне автообнаружения протокол только читают,
- * поэтому там подписи короче; здесь мастер выбирает, и подпись уточняет API:
- * «Moonraker (Klipper)» понятнее, чем «Moonraker».
+ * Подписи приходят из `PRINTER_PROTOCOL_OPTIONS`: тот же список показывает
+ * карточка принтера, поэтому «Moonraker (Klipper)» называется одинаково в обоих
+ * окнах — мастер выбирает и там, и там.
  */
-const PROTOCOL_OPTIONS: { value: PrinterProtocol; label: string }[] = [
-  { value: "moonraker", label: "Moonraker (Klipper)" },
-  { value: "octoprint", label: "OctoPrint" },
-  { value: "bambu", label: "Bambu Lab (LAN)" },
-];
 
 const inputClassName =
   "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
@@ -377,7 +373,7 @@ export function AddPrinterDialog({
               aria-describedby="printer-protocol-hint"
               className={selectClassName}
             >
-              {PROTOCOL_OPTIONS.map((option) => (
+              {PRINTER_PROTOCOL_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>

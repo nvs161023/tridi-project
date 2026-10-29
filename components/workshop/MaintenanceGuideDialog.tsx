@@ -1,18 +1,17 @@
 "use client";
 
-import { useMemo } from "react";
-
+import { MaintenanceGuideText } from "@/components/workshop/MaintenanceGuideText";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 
 /**
  * Окно «Инструкция по ТО».
  *
- * Текст приходит простым markdown из `lib/workshop/maintenance-guides.ts`, и
- * здесь он разбирается в React-элементы: заголовки `##`, пункты `-` и **жирный**
- * текст. Сторонняя библиотека и `dangerouslySetInnerHTML` не нужны — в тексте
- * только наши строки, но лишний HTML-канал всё равно ни к чему.
+ * Текст приходит простым markdown из `lib/workshop/maintenance-guides.ts`, а
+ * разбирает его `MaintenanceGuideText` — тот же компонент показывает инструкцию
+ * на вкладке «Обслуживание» в карточке принтера. Здесь остаётся только рамка
+ * окна: заголовок модели, крестик и кнопка «Понятно».
  *
- * Окно открывается поверх окна добавления принтера (`z-[60]`), Escape и клик по
+ * Окно открывается поверх окна добавления принтера (`z-[90]`), Escape и клик по
  * фону закрывают только его: родитель в это время не реагирует на Escape.
  */
 
@@ -24,71 +23,11 @@ type MaintenanceGuideDialogProps = {
   onClose: () => void;
 };
 
-type GuideBlock =
-  | { kind: "heading"; text: string }
-  | { kind: "list"; items: string[] }
-  | { kind: "paragraph"; text: string };
-
-/** Разбор простого markdown: заголовки, списки и абзацы. */
-function parseGuide(markdown: string): GuideBlock[] {
-  const blocks: GuideBlock[] = [];
-  let items: string[] = [];
-
-  function flushList() {
-    if (items.length > 0) {
-      blocks.push({ kind: "list", items });
-      items = [];
-    }
-  }
-
-  for (const rawLine of markdown.split("\n")) {
-    const line = rawLine.trim();
-
-    if (!line) {
-      flushList();
-      continue;
-    }
-
-    if (line.startsWith("## ")) {
-      flushList();
-      blocks.push({ kind: "heading", text: line.slice(3).trim() });
-      continue;
-    }
-
-    if (line.startsWith("- ")) {
-      items.push(line.slice(2).trim());
-      continue;
-    }
-
-    flushList();
-    blocks.push({ kind: "paragraph", text: line });
-  }
-
-  flushList();
-
-  return blocks;
-}
-
-/** **Жирный** внутри строки — без HTML. */
-function renderInline(text: string) {
-  return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) =>
-    part.startsWith("**") && part.endsWith("**") ? (
-      <strong key={index} className="font-semibold text-white">
-        {part.slice(2, -2)}
-      </strong>
-    ) : (
-      <span key={index}>{part}</span>
-    ),
-  );
-}
-
 export function MaintenanceGuideDialog({
   title,
   guide,
   onClose,
 }: MaintenanceGuideDialogProps) {
-  const blocks = useMemo(() => parseGuide(guide), [guide]);
-
   useDialogDismiss(onClose);
 
   return (
@@ -131,43 +70,7 @@ export function MaintenanceGuideDialog({
         </div>
 
         <div className="mt-6 space-y-5">
-          {blocks.map((block, index) => {
-            if (block.kind === "heading") {
-              return (
-                <h3
-                  key={index}
-                  className="text-sm font-bold tracking-wide text-blue-200 uppercase"
-                >
-                  {block.text}
-                </h3>
-              );
-            }
-
-            if (block.kind === "list") {
-              return (
-                <ul key={index} className="space-y-2">
-                  {block.items.map((item, itemIndex) => (
-                    <li
-                      key={itemIndex}
-                      className="flex gap-2.5 text-sm leading-relaxed text-zinc-400"
-                    >
-                      <span aria-hidden className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
-                      <span>{renderInline(item)}</span>
-                    </li>
-                  ))}
-                </ul>
-              );
-            }
-
-            return (
-              <p
-                key={index}
-                className="text-sm leading-relaxed text-zinc-400"
-              >
-                {renderInline(block.text)}
-              </p>
-            );
-          })}
+          <MaintenanceGuideText guide={guide} />
         </div>
 
         <button

@@ -10,6 +10,7 @@ import {
 } from "@/app/actions/printers";
 import { AddPrinterDialog } from "@/components/workshop/AddPrinterDialog";
 import { DiscoverPrintersDialog } from "@/components/workshop/DiscoverPrintersDialog";
+import { PrinterDetailsDialog } from "@/components/workshop/PrinterDetailsDialog";
 import { RadarIcon } from "@/components/workshop/WorkshopIcons";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -49,6 +50,12 @@ import {
  * Realtime на `workshop_printers` и `workshop_print_jobs`. Состояние вкладки —
  * только открытое окно, строка подтверждения, часы для «офлайн» и то, какой
  * счётчик сейчас сбрасывается.
+ *
+ * Клик по карточке открывает `PrinterDetailsDialog`: там инструкция по ТО из
+ * `MAINTENANCE_GUIDES` (или универсальные советы, если модели нет в справочнике),
+ * форма подключения на `updatePrinter` и удаление с подтверждением. Кнопки
+ * сброса внутри карточки обрабатывают клик сами и окно не открывают, а заголовок
+ * карточки — кнопка: с клавиатуры до окна иначе было бы не добраться.
  *
  * Кнопка «Найти принтеры в сети» открывает «Мастер подключения фермы». Браузер
  * локальную сеть не видит, поэтому окно сначала просит агента её просканировать
@@ -176,6 +183,13 @@ export function WorkshopPrintersTab({
   const router = useRouter();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isDiscoverOpen, setIsDiscoverOpen] = useState(false);
+  /**
+   * Открытая карточка принтера. Храним id, а не сам объект: после
+   * `router.refresh()` список приходит с сервера заново, и окно должно показать
+   * свежие данные — новый адрес после сохранения, новое «последний выход на
+   * связь» после пульса агента.
+   */
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -186,6 +200,8 @@ export function WorkshopPrintersTab({
   const [now, setNow] = useState<number | null>(null);
   const addTriggerRef = useRef<HTMLButtonElement>(null);
   const discoverTriggerRef = useRef<HTMLButtonElement>(null);
+  /** Кнопка карточки, открывшая окно: фокус возвращается на неё после закрытия. */
+  const detailsTriggerRef = useRef<HTMLElement | null>(null);
 
   /**
    * Часы карточки для правила «молчит дольше двух минут — офлайн».
@@ -294,6 +310,50 @@ export function WorkshopPrintersTab({
       ).length,
     };
   }, [printers]);
+
+  /** Карточка из свежего списка: после refresh окно показывает новые данные. */
+  const detailsPrinter = useMemo(
+    () =>
+      detailsId === null
+        ? null
+        : (printers.find((printer) => printer.id === detailsId) ?? null),
+    [detailsId, printers],
+  );
+
+  /**
+   * Клик по карточке открывает её окно. Кнопки внутри карточки (сброс
+   * счётчиков) обрабатывают клик сами, поэтому их пропускаем: иначе «Заменить
+   * сопло» открывало бы ещё и карточку. Кнопка-заголовок нужна клавиатуре — у
+   * `li` нет роли кнопки, и с Tab до карточки было бы не добраться.
+   */
+  const openDetails = useCallback(
+    (printer: WorkshopPrinter, trigger: HTMLElement | null) => {
+      setStatus(null);
+      setError(null);
+      detailsTriggerRef.current = trigger;
+      setDetailsId(printer.id);
+    },
+    [],
+  );
+
+  const closeDetails = useCallback(() => {
+    setDetailsId(null);
+    detailsTriggerRef.current?.focus();
+    detailsTriggerRef.current = null;
+  }, []);
+
+  /** Сохранение подключения: сообщение в общую строку состояния вкладки. */
+  const handleDetailsSaved = useCallback((message: string) => {
+    setStatus(message);
+    setError(null);
+  }, []);
+
+  /** Удаление: окно закрывается само, парк обновляет его же router.refresh(). */
+  const handleDetailsDeleted = useCallback((message: string) => {
+    setStatus(message);
+    setError(null);
+    setToast(message);
+  }, []);
 
   const openAdd = useCallback(() => {
     setStatus(null);
@@ -412,7 +472,9 @@ export function WorkshopPrintersTab({
             Наработка сопла, смазки осей и винта Z видна сразу: зелёная полоска
             — всё в порядке, жёлтая — пора готовиться, красная — обслуживание
             просрочено. Состояние печати обновляется само: прогресс, остаток
-            времени и название заказа приходят от агента фермы.
+            времени и название заказа приходят от агента фермы. Нажмите на
+            карточку — откроется инструкция по ТО, настройки подключения и
+            удаление принтера.
           </p>
         </div>
 
@@ -487,6 +549,7 @@ export function WorkshopPrintersTab({
                   pending?.id === printer.id ? pending.counter : null
                 }
                 onReset={handleReset}
+                onOpen={openDetails}
               />
             ))}
           </ul>
@@ -495,6 +558,16 @@ export function WorkshopPrintersTab({
 
       {isAddOpen ? (
         <AddPrinterDialog onClose={closeAdd} onCreated={setStatus} />
+      ) : null}
+
+      {detailsPrinter ? (
+        <PrinterDetailsDialog
+          printer={detailsPrinter}
+          activeJobTitle={activeJobs[detailsPrinter.id] ?? null}
+          onClose={closeDetails}
+          onSaved={handleDetailsSaved}
+          onDeleted={handleDetailsDeleted}
+        />
       ) : null}
 
       {isDiscoverOpen ? (
@@ -526,6 +599,7 @@ function PrinterCard({
   now,
   pendingCounter,
   onReset,
+  onOpen,
 }: {
   printer: WorkshopPrinter;
   /** Название заказа, который печатается на этом принтере; null — печати нет. */
@@ -535,6 +609,8 @@ function PrinterCard({
   /** Какой счётчик этой карточки сейчас сбрасывается. */
   pendingCounter: MaintenanceCounter | null;
   onReset: (printer: WorkshopPrinter, counter: MaintenanceCounter) => void;
+  /** Открыть карточку принтера: инструкция по ТО, подключение, удаление. */
+  onOpen: (printer: WorkshopPrinter, trigger: HTMLElement | null) => void;
 }) {
   const isBusy = pendingCounter !== null;
   const model = [printer.brand, printer.model].filter(Boolean).join(" ");
@@ -555,12 +631,35 @@ function PrinterCard({
   return (
     <li
       data-printer-card
-      className="rounded-2xl border border-white/5 bg-[#0a0a0a] p-5 shadow-[0_18px_50px_-36px_rgba(0,0,0,1)]"
+      onClick={(event) => {
+        // Кнопки внутри карточки (сброс счётчиков, заголовок) обрабатывают клик
+        // сами: иначе «Заменить сопло» открывало бы ещё и карточку.
+        if (
+          event.target instanceof Element &&
+          event.target.closest("button, a, input, textarea, select, label")
+        ) {
+          return;
+        }
+
+        onOpen(
+          printer,
+          event.currentTarget.querySelector<HTMLElement>("[data-printer-open]"),
+        );
+      }}
+      className="cursor-pointer rounded-2xl border border-white/5 bg-[#0a0a0a] p-5 shadow-[0_18px_50px_-36px_rgba(0,0,0,1)] transition-colors hover:border-white/20 hover:bg-white/[0.035]"
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-base font-bold tracking-tight text-white">
-            {printer.name}
+            <button
+              type="button"
+              data-printer-open={printer.id}
+              onClick={(event) => onOpen(printer, event.currentTarget)}
+              aria-label={`Открыть карточку принтера: ${printer.name}`}
+              className="text-left transition-colors hover:text-blue-200 focus-visible:rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            >
+              {printer.name}
+            </button>
           </p>
           <p className="mt-0.5 text-xs text-zinc-500">
             {model || "Модель не указана"}

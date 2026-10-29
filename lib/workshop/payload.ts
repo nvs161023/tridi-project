@@ -23,6 +23,7 @@ import {
   DISCOVERED_PRINTER_MODEL,
   PRINTER_INTERVAL_DEFAULTS,
   type ApprovedPrinterDraft,
+  type PrinterConnectionDraft,
   type PrinterDraft,
 } from "@/lib/workshop/printers";
 import type {
@@ -189,6 +190,33 @@ export function createPrinterPayload(
     nozzle_interval: draft.nozzleInterval,
     lubrication_interval: draft.lubricationInterval,
     z_screw_interval: draft.zScrewInterval,
+  };
+}
+/**
+ * Что уходит в `from("workshop_printers").update(...)` из карточки принтера.
+ *
+ * Меняются только параметры подключения: имя, бренд, модель и интервалы
+ * обслуживания правят при добавлении, а счётчики — кнопками «Заменить сопло» и
+ * «Смазать». Ключ доступа попадает в payload только когда мастер ввёл новый:
+ * пустое поле означает «оставь как было», а не «сотри», и старый секрет в
+ * браузер вообще не приходит.
+ */
+export type PrinterConnectionPayload = {
+  protocol_type: PrinterProtocol;
+  serial_number: string | null;
+  ip_address: string;
+  api_key?: string;
+};
+
+/** Правка подключения: пустой SN — null, пустой ключ — колонку не трогаем. */
+export function createPrinterConnectionPayload(
+  draft: PrinterConnectionDraft,
+): PrinterConnectionPayload {
+  return {
+    protocol_type: draft.protocolType,
+    serial_number: draft.serialNumber || null,
+    ip_address: draft.ipAddress,
+    ...(draft.apiKey ? { api_key: draft.apiKey } : {}),
   };
 }
 
