@@ -57,6 +57,12 @@ BAMBU_SSDP_TIMEOUT = 4.0
 # Ответ SSDP — HTTP-заголовки поверх UDP, пара килобайт. Больше читать незачем.
 BAMBU_SSDP_MAX_BYTES = 4096
 
+# Сколько символов ответа показывать в строке `[SSDP] Получен ответ от ...`.
+# В первых ста символах видны и `USN`, и `Location`, то есть ровно то, по чему
+# сканер узнаёт принтер: когда принтер отвечает, а находок нет, журнал сразу
+# показывает, что не разобралось, и не забивается килобайтами заголовков.
+BAMBU_SSDP_PREVIEW = 100
+
 # Предел серийного номера — как у колонки serial_number в миграции.
 BAMBU_SERIAL_MAX = 64
 
@@ -507,7 +513,15 @@ def scan_bambu_ssdp(timeout: float = BAMBU_SSDP_TIMEOUT) -> list[dict[str, Any]]
 
     Исключения наружу не летят: multicast запрещён политикой, интерфейс без
     маршрута, занятый порт — нормальная картина чужой сети, а не сбой агента.
-    Пустой список — «Bambu в сети нет».
+    Пустой список — «Bambu в сети нет»; если ошибка случилась уже после
+    нескольких ответов, найденное до неё остаётся в списке.
+
+    Журнал подробный, все строки с префиксом `[SSDP]`: запуск поиска, создание
+    сокета и отправка M-SEARCH, каждый пришедший ответ (адрес отправителя и
+    первые `BAMBU_SSDP_PREVIEW` символов) и пустой итог. Без этих строк
+    «Найдено принтеров: 0» одинаково выглядит и при запрещённом multicast, и
+    при закрытом UDP, и при принтере, который ответил без `USN`: по журналу
+    видно, на каком шаге всё встало.
     """
     search = (
         "M-SEARCH * HTTP/1.1\r\n"
@@ -517,9 +531,18 @@ def scan_bambu_ssdp(timeout: float = BAMBU_SSDP_TIMEOUT) -> list[dict[str, Any]]
         f"ST: {BAMBU_SSDP_TARGET}\r\n\r\n"
     ).encode("ascii")
     found: dict[str, dict[str, Any]] = {}
+    logger.info("[SSDP] Запуск поиска Bambu Lab...")
 
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            # Строка ниже — единственное место, где видно, что UDP вообще
+            # работает: без неё «0 ответов» одинаково выглядит и при запрете
+            # multicast, и при пустой подсети.
+            logger.info(
+                "[SSDP] Сокет создан, отправка M-SEARCH на %s:%d",
+                BAMBU_SSDP_ADDRESS[0],
+                BAMBU_SSDP_ADDRESS[1],
+            )
             # TTL 2: ответы нужны из своей подсети; за маршрутизатор запрос
             # уходить не должен — там чужая ферма.
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
@@ -534,8 +557,19 @@ def scan_bambu_ssdp(timeout: float = BAMBU_SSDP_TIMEOUT) -> list[dict[str, Any]]
                     # Окно ожидания закрылось: больше никто не ответил.
                     break
                 except OSError as error:
-                    logger.warning("Bambu: SSDP-ответ не прочитан: %s", error)
+                    logger.warning("[SSDP] Ошибка сети: %s (приём ответа)", error)
                     break
+
+                # Ответ пишется в журнал до разбора: принтер, который ответил
+                # без `USN` или с непривычным `Location`, иначе исчез бы молча.
+                preview = data[:BAMBU_SSDP_PREVIEW].decode("ascii", "replace")
+                # Перевод строки разорвал бы запись журнала на несколько строк,
+                # поэтому `split()` схлопывает пробелы и `\r\n`.
+                logger.info(
+                    "[SSDP] Получен ответ от %s: %s...",
+                    sender[0],
+                    " ".join(preview.split()),
+                )
 
                 headers = read_ssdp_headers(data)
                 serial = clean_bambu_serial(headers.get("usn", ""))
@@ -555,13 +589,16 @@ def scan_bambu_ssdp(timeout: float = BAMBU_SSDP_TIMEOUT) -> list[dict[str, Any]]
                     "serial_number": serial,
                 }
     except OSError as error:
-        logger.warning("Bambu: SSDP-поиск не удался: %s", error)
-        return []
+        # Запрет multicast политикой, интерфейс без маршрута, занятый UDP:
+        # находок не будет, но агент продолжает работу — обход портов впереди.
+        logger.warning("[SSDP] Ошибка сети: %s", error)
 
     printers = sorted(found.values(), key=address_sort_key)
 
     if printers:
         logger.info("Bambu по SSDP найдено: %d", len(printers))
+    else:
+        logger.info("[SSDP] Поиск завершен, ответов нет")
 
     return printers
 
