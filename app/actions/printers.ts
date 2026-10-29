@@ -18,6 +18,7 @@ import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
 import {
   isPrinterId,
+  normalizePrinterSerial,
   readApprovedPrinters,
   readPrinterForm,
 } from "@/lib/workshop/printers";
@@ -276,7 +277,9 @@ function printerAddressKey(value: unknown): string {
  *   2. сессия и подписка — как у добавления принтера вручную: Server Action
  *      публичный endpoint, RLS одна не защищает от чужой подписки;
  *   3. протокол берём из находки агента (он видел, каким API ответил принтер);
- *      строку могли уже убрать — тогда работает default колонки moonraker;
+ *      строку могли уже убрать — тогда работает default колонки moonraker.
+ *      Серийный номер тоже из находки: Bambu называет его в SSDP-ответе, и терять
+ *      его при подтверждении нельзя — без номера адаптер ищет принтер заново;
  *   4. адреса, которые уже есть в парке, пропускаем: повторное подтверждение
  *      старого списка не должно удвоить ферму;
  *   5. вставка в workshop_printers, затем удаление подтверждённых находок —
@@ -317,7 +320,7 @@ export async function approveDiscoveredPrinters(
 
   const discoveredResult = await supabase
     .from("workshop_discovered_printers")
-    .select("ip_address, protocol_type")
+    .select("ip_address, protocol_type, serial_number")
     .eq("user_id", user.id)
     .in("ip_address", addresses);
 
@@ -340,12 +343,25 @@ export async function approveDiscoveredPrinters(
   }
 
   const protocols = new Map<string, PrinterProtocol>();
+  const serials = new Map<string, string>();
 
   for (const row of readRows(discoveredResult.data)) {
     const key = printerAddressKey(row.ip_address);
 
-    if (key && isPrinterProtocol(row.protocol_type)) {
+    if (!key) {
+      continue;
+    }
+
+    if (isPrinterProtocol(row.protocol_type)) {
       protocols.set(key, row.protocol_type);
+    }
+
+    // Номер принтер назвал сам (Bambu — USN в SSDP-ответе): он переезжает в
+    // парк вместе с адресом, чтобы мастеру не искать SN на корпусе.
+    const serialNumber = normalizePrinterSerial(row.serial_number);
+
+    if (serialNumber) {
+      serials.set(key, serialNumber);
     }
   }
 
@@ -380,13 +396,16 @@ export async function approveDiscoveredPrinters(
 
   const payloads = parsed.drafts
     .filter((draft) => !inPark.has(printerAddressKey(draft.ipAddress)))
-    .map((draft) =>
-      createDiscoveredPrinterPayload(
+    .map((draft) => {
+      const key = printerAddressKey(draft.ipAddress);
+
+      return createDiscoveredPrinterPayload(
         user.id,
         draft,
-        protocols.get(printerAddressKey(draft.ipAddress)) ?? "moonraker",
-      ),
-    );
+        protocols.get(key) ?? "moonraker",
+        serials.get(key) ?? null,
+      );
+    });
 
   if (payloads.length > 0) {
     const { error } = await supabase

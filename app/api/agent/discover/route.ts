@@ -9,10 +9,16 @@ import { readDiscoveredPrinters } from "@/lib/workshop/printers";
  *   POST /api/agent/discover
  *   Authorization: Bearer <agent_token>
  *   [{ "ip_address": "192.168.1.50", "protocol_type": "moonraker" }]
+ *   [{ "ip_address": "192.168.1.60", "protocol_type": "bambu",
+ *      "serial_number": "01S00C123456789" }]
  *
  * Агент обходит локальную сеть (mDNS/SSDP, порты Moonraker и OctoPrint) и
  * присылает найденные адреса. Сто принтеров, вбитых руками, — та самая причина,
  * по которой ферму не заводят: список приходит сам, мастер только даёт имена.
+ * `serial_number` присылает Bambu из SSDP-ответа (заголовок `USN`): по нему
+ * строятся MQTT-топики `device/<serial>/…`, поэтому номер сохраняется вместе с
+ * находкой и переезжает в парк при подтверждении — мастеру не нужно вбивать его
+ * вручную.
  *
  * `workshop_discovered_printers` — черновик, а не история: строки со статусом
  * `discovered` живут от сканирования до подтверждения. Поэтому порядок записи:
@@ -131,6 +137,9 @@ export async function POST(request: Request): Promise<Response> {
           user_id: identity.userId,
           ip_address: printer.ipAddress,
           protocol_type: printer.protocolType,
+          // Bambu называет номер в SSDP-ответе; у Moonraker и OctoPrint его нет,
+          // и колонка остаётся null.
+          serial_number: printer.serialNumber,
           status: "discovered",
         })),
       );

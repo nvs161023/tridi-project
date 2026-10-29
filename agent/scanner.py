@@ -2,8 +2,8 @@
 Сканер локальной сети: мастер подключения фермы (шаг 7.2).
 
 Мастеру со ста принтерами не вбить парк руками. Агент обходит подсеть, находит
-Moonraker (порт 7125) и OctoPrint (80/443) и отдаёт список в CRM через
-`POST /api/agent/discover`. Сервер складывает находки в
+Moonraker (порт 7125), OctoPrint (80/443) и Bambu Lab (SSDP, UDP 1990) и отдаёт
+список в CRM через `POST /api/agent/discover`. Сервер складывает находки в
 `workshop_discovered_printers` (миграция `supabase/workshop_farm_and_shop.sql`),
 мастер даёт им имена в интерфейсе, и принтеры переезжают в парк мастерской.
 
@@ -14,9 +14,11 @@ Moonraker (порт 7125) и OctoPrint (80/443) и отдаёт список в 
 остался только в `send_discovered_printers()`: отправка в CRM повторяет стиль
 main.py — те же таймаут и разбор ошибок, что у статусов и пульса.
 
-Bambu (MQTT 8883) не сканируется: там TLS с самоподписанным сертификатом, а код
-доступа печатается на экране принтера. «Найден» без проверки протокола обещал бы
-мастеру больше, чем сеть знает.
+Bambu ищется не портами, а SSDP: у него нет ни Moonraker, ни OctoPrint, зато он
+отвечает на multicast-запрос `urn:bambulab-com:device:3dprinter:1` заголовками
+`Location` (адрес) и `USN` (серийный номер). Номер уходит в CRM вместе с
+находкой: по нему агент строит MQTT-топики `device/<serial>/…`, и мастеру не
+приходится переписывать его с экрана принтера.
 """
 from __future__ import annotations
 
@@ -26,6 +28,7 @@ import logging
 import os
 import socket
 import ssl
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -37,6 +40,25 @@ import requests
 # принтер от роутера.
 MOONRAKER_PORT = 7125
 OCTOPRINT_PORTS = (80, 443)
+
+# Bambu Lab не отвечает ни на 7125, ни на 80: у него MQTT (8883) и FTPS (990).
+# Зато он отвечает на SSDP — multicast-запрос на UDP 1990, в ответе `Location`
+# (адрес принтера) и `USN` (серийный номер). Один запрос находит все Bambu в
+# подсети, а номер нужен агенту для MQTT-топиков `device/<serial>/…`, поэтому
+# SSDP экономит мастеру ввод адреса и SN вручную.
+BAMBU_SSDP_ADDRESS = ("239.255.255.250", 1990)
+BAMBU_SSDP_TARGET = "urn:bambulab-com:device:3dprinter:1"
+
+# Сколько собирать ответы. Живой принтер отвечает за доли секунды, но multicast
+# в Wi-Fi теряется, а принтеров в цеху бывает много: четыре секунды — разумный
+# компромисс между полнотой списка и временем запуска сканирования.
+BAMBU_SSDP_TIMEOUT = 4.0
+
+# Ответ SSDP — HTTP-заголовки поверх UDP, пара килобайт. Больше читать незачем.
+BAMBU_SSDP_MAX_BYTES = 4096
+
+# Предел серийного номера — как у колонки serial_number в миграции.
+BAMBU_SERIAL_MAX = 64
 
 # Адреса, где стоят почти все домашние и цеховые роутеры. Нужны, когда
 # локальный интерфейс определить не удалось (нет маршрута по умолчанию,
@@ -374,6 +396,198 @@ def is_octoprint(ip_address: str, port: int) -> bool:
     return page is not None and b"octoprint" in page.lower()
 
 
+def read_ssdp_headers(data: bytes) -> dict[str, str]:
+    """
+    Заголовки SSDP-ответа в словарь: ключи в нижнем регистре.
+
+    Ответ принтера — обычный HTTP-ответ поверх UDP: строка статуса, заголовки,
+    пустая строка. Разбор построчный, а не по регулярке, и делим строку только
+    по первому двоеточию: `Location` может быть ссылкой. Строки без двоеточия
+    (статус, мусор от чужого устройства) просто пропускаются.
+    """
+    headers: dict[str, str] = {}
+
+    for line in data.decode("utf-8", errors="replace").splitlines():
+        name, separator, value = line.partition(":")
+
+        if not separator:
+            continue
+
+        key = name.strip().lower()
+
+        if key:
+            headers[key] = value.strip()
+
+    return headers
+
+
+def ssdp_location_host(location: str) -> str | None:
+    """
+    Адрес принтера из заголовка `Location` SSDP-ответа.
+
+    Bambu присылает голый IPv4 (`192.168.1.50`), но поле формально URL: бывает
+    и `http://192.168.1.50:8883/`. Схему, порт и путь отбрасываем — агенту нужен
+    адрес, а не ссылка, и в CRM он уходит в том же виде, в каком его вводят
+    руками. Разрешены только символы адресов: строка с пробелом или «/» — это
+    подпись или мусор, а не принтер. None — не адрес.
+    """
+    text = location.strip()
+
+    for scheme in ("http://", "https://"):
+        if text.lower().startswith(scheme):
+            text = text[len(scheme) :]
+            break
+
+    host = text.split("/", 1)[0].strip()
+    name, separator, port = host.rpartition(":")
+
+    if separator and port.isdigit() and name:
+        host = name.strip("[]")
+
+    if not host or len(host) > 253:
+        return None
+
+    allowed = set(
+        "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-_"
+    )
+
+    return host if all(character in allowed for character in host) else None
+
+
+def clean_bambu_serial(value: str) -> str | None:
+    """
+    Серийный номер из заголовка `USN` SSDP-ответа (`01S00C123456789`).
+
+    Номер идёт в MQTT-топик `device/<serial>/…`, поэтому пробел внутри делает
+    его негодным: это уже не подпись устройства, а чужой ответ в подсети.
+    Предел длины — как у колонки serial_number в миграции. None — не номер.
+    """
+    serial = value.strip()
+
+    if not serial or len(serial) > BAMBU_SERIAL_MAX:
+        return None
+
+    if any(character.isspace() for character in serial):
+        return None
+
+    return serial
+
+
+def address_sort_key(printer: dict[str, Any]) -> tuple[int, int, str]:
+    """
+    Ключ сортировки находок: IPv4 по числу, всё остальное — по строке.
+
+    `ipaddress.IPv4Address` не принимает имя узла, а сортировка не должна падать
+    из-за одной нестандартной записи в списке. Два запуска дают одинаковый
+    порядок, и журнал сравнивается глазами.
+    """
+    address = str(printer.get("ip_address", ""))
+
+    try:
+        return (0, int(ipaddress.IPv4Address(address)), "")
+    except ValueError:
+        return (1, 0, address)
+
+
+def scan_bambu_ssdp(timeout: float = BAMBU_SSDP_TIMEOUT) -> list[dict[str, Any]]:
+    """
+    Принтеры Bambu в локальной сети: `[{"ip_address": ..., "protocol_type": "bambu",
+    "serial_number": ...}]`.
+
+    Один multicast M-SEARCH на `239.255.255.250:1990` (порт Bambu) с типом
+    устройства `BAMBU_SSDP_TARGET`. Принтер отвечает HTTP-ответом поверх UDP:
+    `Location` — адрес, `USN` — серийный номер. Пока открыто окно ожидания,
+    собираются ответы всех принтеров подсети: один запрос дешевле обхода портов,
+    которых у Bambu нет (у него MQTT 8883 и FTPS 990).
+
+    Ответ без `USN` пропускается: тип устройства спрашивали конкретный, но
+    отвечать в подсети может и чужое железо, а карточка без номера не годится для
+    MQTT-топиков. Если `Location` не разобрался, берётся адрес отправителя —
+    пакет пришёл от самого принтера.
+
+    Исключения наружу не летят: multicast запрещён политикой, интерфейс без
+    маршрута, занятый порт — нормальная картина чужой сети, а не сбой агента.
+    Пустой список — «Bambu в сети нет».
+    """
+    search = (
+        "M-SEARCH * HTTP/1.1\r\n"
+        f"HOST: {BAMBU_SSDP_ADDRESS[0]}:{BAMBU_SSDP_ADDRESS[1]}\r\n"
+        'MAN: "ssdp:discover"\r\n'
+        "MX: 1\r\n"
+        f"ST: {BAMBU_SSDP_TARGET}\r\n\r\n"
+    ).encode("ascii")
+    found: dict[str, dict[str, Any]] = {}
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            # TTL 2: ответы нужны из своей подсети; за маршрутизатор запрос
+            # уходить не должен — там чужая ферма.
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+            sock.settimeout(timeout)
+            sock.sendto(search, BAMBU_SSDP_ADDRESS)
+            deadline = time.monotonic() + timeout
+
+            while time.monotonic() < deadline:
+                try:
+                    data, sender = sock.recvfrom(BAMBU_SSDP_MAX_BYTES)
+                except socket.timeout:
+                    # Окно ожидания закрылось: больше никто не ответил.
+                    break
+                except OSError as error:
+                    logger.warning("Bambu: SSDP-ответ не прочитан: %s", error)
+                    break
+
+                headers = read_ssdp_headers(data)
+                serial = clean_bambu_serial(headers.get("usn", ""))
+
+                if serial is None:
+                    continue
+
+                ip_address = ssdp_location_host(headers.get("location", ""))
+                ip_address = ip_address or ssdp_location_host(str(sender[0]))
+
+                if ip_address is None:
+                    continue
+
+                found[ip_address.lower()] = {
+                    "ip_address": ip_address,
+                    "protocol_type": "bambu",
+                    "serial_number": serial,
+                }
+    except OSError as error:
+        logger.warning("Bambu: SSDP-поиск не удался: %s", error)
+        return []
+
+    printers = sorted(found.values(), key=address_sort_key)
+
+    if printers:
+        logger.info("Bambu по SSDP найдено: %d", len(printers))
+
+    return printers
+
+
+def merge_bambu_printers(
+    found: list[dict[str, Any]],
+    bambu: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Обход портов + SSDP → один список без повторов адреса.
+
+    Приоритет у SSDP: он и протокол называет (`bambu`), и серийный номер
+    приносит, а открытый веб-порт Bambu ничего не доказывает. Порядок — по
+    адресу, как у обхода портов.
+    """
+    merged: dict[str, dict[str, Any]] = {}
+
+    for printer in found:
+        merged.setdefault(str(printer["ip_address"]).lower(), printer)
+
+    for printer in bambu:
+        merged[str(printer["ip_address"]).lower()] = printer
+
+    return sorted(merged.values(), key=address_sort_key)
+
+
 def inspect_host(ip_address: str) -> dict[str, Any] | None:
     """
     Один адрес: принтер он или нет.
@@ -399,6 +613,10 @@ def scan_network(
     """
     Принтеры локальной сети: `[{"ip_address": ..., "protocol_type": ...}]`.
 
+    Два источника в одном списке: обход портов (Moonraker, OctoPrint) и SSDP
+    (Bambu — вместе с серийным номером). Повтор адреса схлопывается в пользу
+    SSDP: он точнее знает и протокол, и номер.
+
     `networks` — для явных подсетей и тестов; по умолчанию решает
     `resolve_scan_networks()`. Результат отсортирован по адресу: два запуска
     дают одинаковый порядок, и журнал сравнивается глазами.
@@ -408,32 +626,39 @@ def scan_network(
     """
     targets = networks if networks is not None else resolve_scan_networks()
     hosts = collect_hosts(targets)
+    found: list[dict[str, Any]] = []
 
     if not hosts:
         logger.warning("Сканировать нечего: в подсетях нет адресов")
-        return []
+    else:
+        workers = min(MAX_WORKERS, len(hosts))
+        logger.info(
+            "Сканирую %d адресов в %d потоков: порты %d и %d",
+            len(hosts),
+            workers,
+            MOONRAKER_PORT,
+            OCTOPRINT_PORTS[0],
+        )
 
-    workers = min(MAX_WORKERS, len(hosts))
-    logger.info(
-        "Сканирую %d адресов в %d потоков: порты %d и %d",
-        len(hosts),
-        workers,
-        MOONRAKER_PORT,
-        OCTOPRINT_PORTS[0],
-    )
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for result in pool.map(inspect_host, hosts):
+                if result is not None:
+                    found.append(result)
 
-    found: list[dict[str, Any]] = []
+    # SSDP спрашивает всю подсеть одним пакетом, поэтому вызывается и тогда,
+    # когда обходить нечего: Bambu находит себя сам, а не через порт.
+    found = merge_bambu_printers(found, scan_bambu_ssdp())
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        for result in pool.map(inspect_host, hosts):
-            if result is not None:
-                found.append(result)
-
-    found.sort(key=lambda printer: ipaddress.IPv4Address(printer["ip_address"]))
     logger.info("Найдено принтеров: %d", len(found))
 
     for printer in found:
-        logger.info("  %s | %s", printer["ip_address"], printer["protocol_type"])
+        serial = printer.get("serial_number")
+        logger.info(
+            "  %s | %s%s",
+            printer["ip_address"],
+            printer["protocol_type"],
+            f" | {serial}" if serial else "",
+        )
 
     return found
 

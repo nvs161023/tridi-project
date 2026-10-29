@@ -493,6 +493,14 @@ export function DiscoverPrintersDialog({
                           <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-300 uppercase">
                             {PROTOCOL_LABELS[printer.protocolType]}
                           </span>
+                          {printer.serialNumber ? (
+                            <span
+                              className="rounded-md border border-white/10 bg-black/40 px-2 py-0.5 font-mono text-[10px] text-zinc-400"
+                              title="Серийный номер принтер назвал сам — по нему строятся MQTT-топики"
+                            >
+                              SN {printer.serialNumber}
+                            </span>
+                          ) : null}
                         </div>
                         <label
                           htmlFor={`${checkboxId}-name`}

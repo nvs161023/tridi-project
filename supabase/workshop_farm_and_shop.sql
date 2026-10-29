@@ -530,6 +530,7 @@ create table if not exists public.workshop_discovered_printers (
   ip_address text not null,
   name text default 'Неизвестный принтер',
   protocol_type text default 'moonraker',
+  serial_number text,
   status text default 'discovered',
   created_at timestamptz not null default now(),
   constraint workshop_discovered_printers_ip_check
@@ -550,8 +551,37 @@ comment on column public.workshop_discovered_printers.name is
   'Имя, которое введёт мастер; до этого «Неизвестный принтер».';
 comment on column public.workshop_discovered_printers.protocol_type is
   'Протокол, которым ответил принтер: moonraker (Klipper), octoprint или bambu.';
+comment on column public.workshop_discovered_printers.serial_number is
+  'Серийный номер, который принтер назвал сам (Bambu — поле USN в SSDP-ответе); null — не назвал.';
 comment on column public.workshop_discovered_printers.status is
   'discovered — ждёт подтверждения мастера; added — уже перенесён в workshop_printers.';
+
+-- Колонка добавлена после первого применения миграции: у уже созданной таблицы
+-- serial_number нет, а `create table if not exists` её не дорастит. Поэтому
+-- отдельный идемпотентный alter — его можно выполнять повторно.
+alter table public.workshop_discovered_printers
+  add column if not exists serial_number text;
+
+-- Тот же предел, что у workshop_printers.serial_number (1…64 символа): пустой
+-- номер — это «номера нет» (null), а строка длиннее 64 символов — уже не
+-- серийник, а мусор от чужого устройства в подсети.
+do $$
+begin
+  if not exists (
+    select 1
+      from pg_constraint
+     where conrelid = 'public.workshop_discovered_printers'::regclass
+       and conname = 'workshop_discovered_printers_serial_number_check'
+  ) then
+    alter table public.workshop_discovered_printers
+      add constraint workshop_discovered_printers_serial_number_check
+      check (
+        serial_number is null
+        or char_length(btrim(serial_number)) between 1 and 64
+      );
+  end if;
+end;
+$$;
 
 -- Сканирование заменяет только неподтверждённые строки своей мастерской, а
 -- подтверждение удаляет выбранные, поэтому выборка всегда идёт парой «владелец +
@@ -939,13 +969,16 @@ commit;
 --    components/workshop/WorkshopPrintersTab.tsx работают, но база молчит.
 --
 -- 8) Найденные принтеры (автообнаружение):
---      insert into public.workshop_discovered_printers (user_id, ip_address)
---      values ('<USER_ID>', '192.168.1.50');
---      select ip_address, name, protocol_type, status
+--      insert into public.workshop_discovered_printers
+--        (user_id, ip_address, serial_number)
+--      values ('<USER_ID>', '192.168.1.50', '01S00C123456789');
+--      select ip_address, name, protocol_type, serial_number, status
 --        from public.workshop_discovered_printers
 --       where user_id = '<USER_ID>';
 --    Ожидается: name = 'Неизвестный принтер', protocol_type = 'moonraker',
---    status = 'discovered'. Повторный POST /api/agent/discover с тем же адресом
+--    serial_number = '01S00C123456789', status = 'discovered'. serial_number
+--    nullable: Moonraker и OctoPrint номера не называют, и вставка без него
+--    проходит. Повторный POST /api/agent/discover с тем же адресом
 --    не создаёт вторую строку: старые `discovered` удаляются перед вставкой.
 --    Политика workshop_discovered_printers_own (for all) не даёт прочитать
 --    чужую находку даже при известном id.

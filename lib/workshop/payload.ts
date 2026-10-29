@@ -198,7 +198,8 @@ export function createPrinterPayload(
  * Шире WorkshopPrinterPayload только состоянием: принтер найден, но ещё не
  * печатает, поэтому сразу `idle`. Адрес и протокол приходят из сети, ключа у
  * автообнаружения нет — колонка остаётся null, адаптер попробует подключиться
- * без него.
+ * без него. Серийный номер передаётся, если сканер его услышал (Bambu отвечает
+ * на SSDP заголовком `USN`): без него мастеру пришлось бы искать SN на корпусе.
  */
 export type DiscoveredPrinterPayload = WorkshopPrinterPayload & {
   status: PrinterStatus;
@@ -207,18 +208,19 @@ export type DiscoveredPrinterPayload = WorkshopPrinterPayload & {
 /**
  * Принтер из автообнаружения → строка парка.
  *
- * Сеть знает только адрес и протокол, а бренд и модель в workshop_printers
- * обязательные. Поэтому они берутся из справочника, если мастер назвал принтер
- * как в пресете («Bambu Lab P1S»): заодно подставляются интервалы ТО этой
- * модели. Не совпало — «Неизвестно · Найден по сети» и интервалы по умолчанию,
- * как у формы без выбранной модели: карточка не должна показывать чужой
- * регламент. Серийного номера при сканировании нет: его знает только сам
- * принтер и SSDP, поэтому колонка остаётся null, а адаптер найдёт номер сам.
+ * Сеть знает адрес, протокол и — у Bambu — серийный номер, а бренд и модель в
+ * workshop_printers обязательные. Поэтому они берутся из справочника, если
+ * мастер назвал принтер как в пресете («Bambu Lab P1S»): заодно подставляются
+ * интервалы ТО этой модели. Не совпало — «Неизвестно · Найден по сети» и
+ * интервалы по умолчанию, как у формы без выбранной модели: карточка не должна
+ * показывать чужой регламент. Номер приходит из SSDP-ответа принтера; null —
+ * не пришёл, и адаптер найдёт его сам при подключении.
  */
 export function createDiscoveredPrinterPayload(
   userId: string,
   draft: ApprovedPrinterDraft,
   protocolType: PrinterProtocol,
+  serialNumber: string | null = null,
 ): DiscoveredPrinterPayload {
   const preset = findPrinterPresetByModel(draft.name);
 
@@ -228,7 +230,7 @@ export function createDiscoveredPrinterPayload(
     brand: preset?.brand ?? DISCOVERED_PRINTER_BRAND,
     model: preset?.model ?? DISCOVERED_PRINTER_MODEL,
     protocol_type: protocolType,
-    serial_number: null,
+    serial_number: serialNumber,
     ip_address: draft.ipAddress,
     api_key: null,
     status: "idle",

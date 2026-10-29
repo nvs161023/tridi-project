@@ -231,10 +231,39 @@ export function normalizePrinterAddress(value: unknown): string | null {
   return /^[0-9a-zA-Z.:_-]+$/.test(text) ? text : null;
 }
 
-/** Принтер, найденный агентом: адрес и протокол, которым он ответил. */
+/**
+ * Серийный номер из ответа агента: `USN` SSDP-ответа Bambu (`01S00C123456789`).
+ *
+ * Агент присылает номер, который принтер назвал сам, поэтому проверяем ровно то,
+ * что проверит база: длину 1…64 символа и отсутствие пробелов. Пробел или «/»
+ * означали бы, что пришла не подпись устройства, а строка другого формата: такой
+ * номер не годится ни в MQTT-топик `device/<serial>/…`, ни в SSDP-поиск.
+ * null — номера нет: Moonraker и OctoPrint его не называют вовсе.
+ */
+export function normalizePrinterSerial(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const text = value.trim();
+
+  if (text.length === 0 || text.length > PRINTER_TEXT_LIMITS.serialNumber) {
+    return null;
+  }
+
+  return /^[0-9A-Za-z_-]+$/.test(text) ? text : null;
+}
+
+/**
+ * Принтер, найденный агентом: адрес, протокол и номер, если принтер его назвал.
+ *
+ * Серийный номер приходит только от Bambu: он же отвечает на SSDP-запрос
+ * заголовком `USN`. Для Moonraker и OctoPrint поле остаётся null.
+ */
 export type DiscoveredPrinterDraft = {
   ipAddress: string;
   protocolType: PrinterProtocol;
+  serialNumber: string | null;
 };
 
 /** Принтер, которого мастер подтвердил: к адресу добавлено имя. */
@@ -266,6 +295,11 @@ function addressKey(ipAddress: string | null): string {
  * `skipped`. Повтор адреса схлопывается — второй сканер в той же подсети иначе
  * удвоил бы карточки. Неизвестный протокол читается как moonraker: это default
  * колонки, и агент всегда может прислать протокол точнее.
+ *
+ * `serial_number` необязателен: его присылает только Bambu (SSDP-ответ), у
+ * Moonraker и OctoPrint такого понятия нет. Нечитаемый номер не отбрасывает
+ * находку — адрес и протокол важнее, — он просто теряется: без серийника
+ * адаптер найдёт принтер сам.
  *
  * null — тело не массив: это ошибка формата, а не «ничего не найдено» (пустой
  * массив как раз означает «в сети пусто», и старые находки должны исчезнуть).
@@ -300,6 +334,7 @@ export function readDiscoveredPrinters(
     drafts.push({
       ipAddress,
       protocolType: isPrinterProtocol(protocol) ? protocol : "moonraker",
+      serialNumber: normalizePrinterSerial(row?.serial_number),
     });
   }
 
@@ -358,11 +393,14 @@ export function readApprovedPrinters(
  *
  * Строка `workshop_discovered_printers` — очередь «что подтвердить», а не история
  * сканирований: после переноса в парк она удаляется. Поэтому здесь только то,
- * что нужно мастеру подключения: адрес, протокол и время находки.
+ * что нужно мастеру подключения: адрес, протокол, серийный номер (Bambu называет
+ * его в SSDP-ответе) и время находки.
  */
 export type DiscoveredPrinter = {
   ipAddress: string;
   protocolType: PrinterProtocol;
+  /** Номер из SSDP-ответа Bambu; null — принтер его не назвал. */
+  serialNumber: string | null;
   discoveredAt: string | null;
 };
 
@@ -384,6 +422,8 @@ export function defaultDiscoveredPrinterName(ipAddress: string): string {
  * мастере ему делать нечего. Битый адрес даёт null: подключиться по такой строке
  * нельзя, а в списке она выглядела бы рабочей. Неизвестный протокол читается
  * как moonraker — это default колонки и самый частый случай (Klipper).
+ * `serial_number` читается тем же правилом, что и в ответе агента: номер нужен
+ * только Bambu, у остальных он null.
  */
 export function normalizeDiscoveredPrinterRow(
   row: Partial<Record<string, unknown>>,
@@ -399,6 +439,7 @@ export function normalizeDiscoveredPrinterRow(
     protocolType: isPrinterProtocol(row.protocol_type)
       ? row.protocol_type
       : "moonraker",
+    serialNumber: normalizePrinterSerial(row.serial_number),
     discoveredAt: typeof row.created_at === "string" ? row.created_at : null,
   };
 }
