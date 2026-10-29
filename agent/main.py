@@ -15,16 +15,22 @@
      G-code по `gcodeUrl` в `agent/temp/`, создаёт адаптер принтера через
      фабрику, загружает файл, запускает печать и ждёт её окончания;
   4. сообщает статус печати через `send_status()` — `POST /api/agent/status`:
-     `printing` с прогрессом, `done` или `failed`.
+     `printing` с прогрессом, `done` или `failed`;
+  5. каждые `HEARTBEAT_INTERVAL` секунд отправляет пульс (`send_heartbeat()`,
+     `POST /api/agent/heartbeat`): сервер отмечает `last_seen_at` у принтеров
+     мастерской, и ферма отличает «агент молчит» от «принтер свободен».
 
 Задания обрабатываются последовательно: пока идёт цикл мониторинга, агент не
 запрашивает новые задачи — иначе два G-code ушли бы на разные принтеры сразу, а
-прогресс и статусы перепутались бы.
+прогресс и статусы перепутались бы. Пульс идёт отдельным потоком и не ждёт
+окончания печати: одно задание печатается часами.
 
 Сеть упала, сервер ответил 503 или не ответил вовсе — агент не вылетает:
-ошибка уходит в журнал, цикл дожидается следующего интервала. Для фермы это
-важнее, чем «упасть и перезапуститься»: остановленный агент означает принтеры,
-которые стоят без задания и о поломке никто не узнает.
+обрыв (`ConnectionError`) и таймаут уходят в журнал строкой «Сетевая ошибка,
+переподключение...», пульс повторяется через `RECONNECT_DELAY` секунд, а цикл
+опроса дожидается следующего интервала. Для фермы это важнее, чем «упасть и
+перезапуститься»: остановленный агент означает принтеры, которые стоят без
+задания и о поломке никто не узнает.
 
 Запуск: `python main.py`. Переменные читаются из `.env` рядом с этим файлом
 (образец — `.env.example`, установка зависимостей — README.md).
@@ -34,11 +40,12 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import requests
 from dotenv import load_dotenv
@@ -67,9 +74,23 @@ DEFAULT_POLL_INTERVAL = 5
 # Статусы, которые принимает POST /api/agent/status (см. app/api/agent/status).
 AGENT_STATUSES = ("printing", "done", "failed")
 
+# Итог пульса: ok — принят, network — не дошёл из-за сети, rejected — сервер
+# ответил отказом (401, 500, 503). От исхода зависит пауза до повтора: сеть ждёт
+# RECONNECT_DELAY, а на отказ сервера частый повтор не помогает.
+HeartbeatResult = Literal["ok", "network", "rejected"]
+
 # Пауза между опросами принтера, пока идёт печать. Десять секунд: чаще — лишние
 # запросы к принтеру, реже — мастер поздно узнаёт, что печать встала.
 MONITOR_INTERVAL = 10
+
+# Пульс мастерской: принтеры отмечаются живыми каждые 30 секунд. Вдвое чаще,
+# чем ферма считает принтер офлайн (PRINTER_OFFLINE_AFTER_MS — две минуты):
+# один пропущенный запрос не должен красить живую ферму в «Офлайн».
+HEARTBEAT_INTERVAL = 30
+
+# Пауза после сетевой ошибки. Короче обычного интервала: связь могла моргнуть, и
+# пульс должен вернуться сразу, как только сеть появится.
+RECONNECT_DELAY = 5
 
 # Кусок G-code при скачивании: файл на десятки мегабайт не должен оказаться в
 # памяти целиком.
@@ -300,6 +321,25 @@ def parse_json_object(response: requests.Response) -> dict[str, Any] | None:
     return payload
 
 
+def log_network_error(action: str, error: requests.RequestException) -> None:
+    """
+    Сетевая ошибка — в журнал, а не наружу: агент продолжает работу.
+
+    `ConnectionError` и таймаут — это пропавшая сеть, а не отказ приложения и не
+    поломка принтера. Строка «Сетевая ошибка, переподключение...» подсказывает
+    мастеру, что делать ничего не нужно: агент повторит запрос сам. Остальные
+    отказы requests (например, неверный CRM_URL) — ошибка настройки, её пишем
+    как обычную ошибку.
+
+    Исключение не выпускается: на ферме падение агента дороже неудачного запроса.
+    """
+    if isinstance(error, (requests.ConnectionError, requests.Timeout)):
+        logger.warning("Сетевая ошибка, переподключение... %s: %s", action, error)
+        return
+
+    logger.error("%s: %s", action, error)
+
+
 def fetch_tasks() -> list[dict[str, Any]]:
     """
     Очередь печати мастерской: `GET /api/agent/tasks`.
@@ -321,7 +361,7 @@ def fetch_tasks() -> list[dict[str, Any]]:
             timeout=REQUEST_TIMEOUT,
         )
     except requests.RequestException as error:
-        logger.error("Очередь не запрошена: %s", error)
+        log_network_error("Очередь не запрошена", error)
         return []
 
     if response.status_code == 401:
@@ -387,7 +427,7 @@ def send_status(job_id: str, status: str, progress: int | None = None) -> bool:
             timeout=REQUEST_TIMEOUT,
         )
     except requests.RequestException as error:
-        logger.error("Статус задания %s не отправлен: %s", job_id, error)
+        log_network_error(f"Статус задания {job_id} не отправлен", error)
         return False
 
     if not response.ok:
@@ -406,6 +446,79 @@ def send_status(job_id: str, status: str, progress: int | None = None) -> bool:
         f", прогресс {progress}%" if progress is not None else "",
     )
     return True
+
+
+def send_heartbeat(reset_errors: bool = False) -> HeartbeatResult:
+    """
+    Пульс мастерской: `POST /api/agent/heartbeat`.
+
+    Сервер отмечает `last_seen_at` у всех принтеров мастерской, поэтому вкладка
+    «Принтеры» знает, что агент жив, даже когда очередь пуста и печать не идёт.
+
+    reset_errors=True — только при старте: принтеры, оставшиеся в `error` после
+    прошлого сбоя (упал агент, пропала сеть), возвращаются в `idle`
+    (см. app/api/agent/heartbeat/route.ts).
+
+    Исключение наружу не летит: сеть даёт `network`, отказ сервера — `rejected`;
+    когда повторить, решает вызывающий код.
+    """
+    settings = require_settings()
+
+    try:
+        response = requests.post(
+            f"{settings.crm_url}/api/agent/heartbeat",
+            headers=auth_headers(settings.agent_token),
+            json={"resetErrors": reset_errors},
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.RequestException as error:
+        log_network_error("Пульс не отправлен", error)
+        return "network"
+
+    if response.status_code == 401:
+        logger.error(
+            "Сервер не принял AGENT_TOKEN (401): пульс не отправлен. Проверьте "
+            "ключ в настройках мастерской — он мог смениться."
+        )
+        return "rejected"
+
+    if not response.ok:
+        logger.error(
+            "Пульс не принят: HTTP %s, %s",
+            response.status_code,
+            read_error_text(response),
+        )
+        return "rejected"
+
+    return "ok"
+
+
+def heartbeat_loop(stop_event: threading.Event) -> None:
+    """
+    Пульс раз в `HEARTBEAT_INTERVAL` секунд, независимо от очереди и печати.
+
+    Поток живёт рядом с главным циклом, а не внутри него: пока идёт печать,
+    `run()` стоит в `monitor_print()` и отправить пульс не может. Любая ошибка
+    уже в журнале, поэтому цикл не выходит: следующий запрос уйдёт по расписанию.
+
+    `stop_event.wait()` вместо `time.sleep()`: Ctrl+C не должен ждать до
+    тридцати секунд. Пауза зависит от исхода — сеть ждёт `RECONNECT_DELAY`
+    (вернуться сразу, как только связь появится), отказ сервера — обычный
+    интервал: частый повтор 401 или 503 ничего не исправит.
+    """
+    while not stop_event.is_set():
+        try:
+            result = send_heartbeat()
+        except Exception as error:  # noqa: BLE001 — поток не должен умирать
+            # Сломанный разбор ответа или неожиданное исключение не должны тихо
+            # выключить пульс: ферма тогда навсегда покажет «Офлайн».
+            logger.exception("Пульс не отправлен: %s", error)
+            stop_event.wait(RECONNECT_DELAY)
+            continue
+
+        stop_event.wait(
+            RECONNECT_DELAY if result == "network" else HEARTBEAT_INTERVAL
+        )
 
 
 def log_task(task: dict[str, Any]) -> None:
@@ -469,7 +582,7 @@ def download_gcode(url: str, destination: Path) -> bool:
                         file.write(chunk)
                         size += len(chunk)
     except requests.RequestException as error:
-        logger.error("G-code не скачан: %s", error)
+        log_network_error("G-code не скачан", error)
         return False
     except OSError as error:
         logger.error("G-code не записан в %s: %s", destination, error)
@@ -672,6 +785,9 @@ def run() -> int:
     Пока `process_task()` не вернул управление, новых задач агент не забирает:
     очередь читается только после того, как печать закрыта.
 
+    Пульс мастерской идёт отдельным потоком (`heartbeat_loop()`), поэтому он не
+    зависит ни от очереди, ни от длительности печати.
+
     Возвращает код выхода: 0 — остановлено вручную (Ctrl+C), 1 — нет
     конфигурации, поэтому агент не запущен.
     """
@@ -693,6 +809,23 @@ def run() -> int:
         settings.poll_interval,
     )
 
+    # Первый пульс — со сбросом прошлых ошибок: принтер, оставшийся в `error`
+    # после падения агента или сети, снова в работе. Дальше пульс идёт без
+    # сброса, иначе настоящая ошибка печати стиралась бы каждые полминуты.
+    if send_heartbeat(reset_errors=True) == "ok":
+        logger.info("Пульс отправлен: принтеры мастерской отмечены живыми")
+
+    # Пульс живёт в отдельном потоке: одно задание печатается часами, и главный
+    # цикл в это время стоит в monitor_print(). Демон — Ctrl+C не ждёт пульса.
+    stop_heartbeat = threading.Event()
+    heartbeat = threading.Thread(
+        target=heartbeat_loop,
+        args=(stop_heartbeat,),
+        name="heartbeat",
+        daemon=True,
+    )
+    heartbeat.start()
+
     try:
         while True:
             tasks = poll_once()
@@ -711,6 +844,9 @@ def run() -> int:
     except KeyboardInterrupt:
         logger.info("Агент остановлен")
         return 0
+    finally:
+        # Поток ждёт события, а не sleep: остановка не занимает до 30 секунд.
+        stop_heartbeat.set()
 
 
 def main() -> int:
