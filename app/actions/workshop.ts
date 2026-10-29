@@ -4,11 +4,18 @@ import { randomUUID } from "node:crypto";
 
 import { revalidatePath } from "next/cache";
 
-import type { WorkshopSettingsFormState } from "@/app/actions/workshop-state";
+import type {
+  WorkshopAgentTokenState,
+  WorkshopSettingsFormState,
+} from "@/app/actions/workshop-state";
 import { encrypt, isEncryptedSecret } from "@/lib/crypto";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
+import {
+  normalizeAgentToken,
+  WORKSHOP_AGENT_TOKEN_COLUMN,
+} from "@/lib/workshop/agent-token";
 import {
   hasWorkshopIntegrationFormFields,
   isMaskedOzonApiKey,
@@ -39,6 +46,10 @@ const API_KEY_SAVE_FAILED =
   "Не удалось подготовить Api-Key к сохранению. Попробуйте ещё раз.";
 const STORED_API_KEY_MISSING =
   "Сохранённый Api-Key не найден. Введите ключ заново.";
+const AGENT_MIGRATION_MISSING =
+  "Токен агента пока не создаётся: в таблице workshop_settings нет колонки agent_token. Примените миграцию supabase/workshop_farm_and_shop.sql.";
+const AGENT_TOKEN_FAILED =
+  "Не удалось создать токен агента. Попробуйте ещё раз.";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -335,4 +346,88 @@ export async function saveWorkshopSettings(
     requisites: requisites ?? undefined,
     integrations: savedIntegrations ?? undefined,
   };
+}
+
+/**
+ * Токен локального агента печати для вкладки «Интеграции».
+ *
+ * Обычно токен уже есть: колонку `agent_token` создаёт миграция
+ * `supabase/workshop_farm_and_shop.sql` с `default gen_random_uuid()`. Действие
+ * нужно для двух случаев — строки `workshop_settings` ещё нет (мастер не
+ * сохранял настройки) или колонка пустая после ручной правки. Тогда uuid
+ * генерирует сервер: браузер токен не присылает, иначе его можно было бы
+ * подменить.
+ *
+ * Повторный вызов безопасен: сначала читаем сохранённое значение и создаём
+ * новое только при пустой колонке. Поэтому токен в `agent/.env` не меняется от
+ * обновления страницы, а кнопка на вкладке может звать действие сколько угодно
+ * раз. Колонки может не быть вовсе — тогда возвращаем подсказку применить SQL,
+ * а не общую ошибку записи.
+ *
+ * Upsert, а не update: строки может не быть. Колонки, которых нет в объекте,
+ * остаются прежними — сохранённые тарифы и реквизиты не затираются.
+ */
+export async function ensureAgentToken(): Promise<WorkshopAgentTokenState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { error: PRO_REQUIRED };
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_settings")
+    .select(WORKSHOP_AGENT_TOKEN_COLUMN)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Токен агента не прочитан:", error.code, error.message);
+
+    return {
+      error: isMissingTableSchema(error.code, error.message)
+        ? AGENT_MIGRATION_MISSING
+        : AGENT_TOKEN_FAILED,
+    };
+  }
+
+  const existing = normalizeAgentToken(
+    (data as Partial<Record<string, unknown>> | null)?.[
+      WORKSHOP_AGENT_TOKEN_COLUMN
+    ],
+  );
+
+  if (existing) {
+    return { token: existing };
+  }
+
+  const generated = randomUUID();
+  const { error: saveError } = await supabase
+    .from("workshop_settings")
+    .upsert(
+      { user_id: user.id, [WORKSHOP_AGENT_TOKEN_COLUMN]: generated },
+      { onConflict: "user_id" },
+    );
+
+  if (saveError) {
+    console.warn("Токен агента не записан:", saveError.code, saveError.message);
+
+    return {
+      error: isMissingTableSchema(saveError.code, saveError.message)
+        ? AGENT_MIGRATION_MISSING
+        : AGENT_TOKEN_FAILED,
+    };
+  }
+
+  // Вкладка показывает токен сразу из ответа, но следующий заход на страницу
+  // должен взять его из базы, а не из кэша RSC.
+  revalidatePath("/dashboard/workshop");
+
+  return { token: generated };
 }

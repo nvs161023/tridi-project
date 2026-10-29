@@ -1,10 +1,16 @@
 "use client";
 
-import { useActionState, useEffect, useState, type ReactNode } from "react";
+import {
+  useActionState,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { saveWorkshopSettings } from "@/app/actions/workshop";
+import { ensureAgentToken, saveWorkshopSettings } from "@/app/actions/workshop";
 import { emptyWorkshopSettingsFormState } from "@/app/actions/workshop-state";
 import { HelpIcon } from "@/components/workshop/WorkshopIcons";
 import {
@@ -49,12 +55,30 @@ import {
  * `integrations` может прийти `undefined`, если страница была открыта до
  * деплоя и клиент получил старый RSC-пейлоад без новых полей. Поэтому значения
  * проходят через `ensureWorkshopIntegrations`, а не читаются напрямую.
+ *
+ * Внизу вкладки — карточка «Локальный агент (Печать)». Браузер не дотянется до
+ * принтера в домашней сети: печатью управляет Python-скрипт с компьютера рядом
+ * с принтерами (`agent/`), и ему нужен персональный токен мастерской из
+ * `workshop_settings.agent_token`. Мастер копирует токен отсюда в `agent/.env`
+ * (`AGENT_TOKEN`), поэтому в отличие от Api-Key Ozon он показан целиком — с
+ * кнопкой «Скрыть».
+ *
+ * Токена может не быть: строку `workshop_settings` ещё не создавали или
+ * колонка пустая. Тогда вкладка один раз зовёт Server Action
+ * `ensureAgentToken`, получает готовый uuid и просит `router.refresh()`, чтобы
+ * следующая загрузка страницы взяла значение из базы. Кнопка «Скопировать
+ * токен» работает как у вебхуков: `navigator.clipboard`, при запрете буфера —
+ * `window.prompt`, подтверждение «Токен скопирован» на три секунды.
  */
 
 type WorkshopIntegrationsTabProps = {
   integrations?: WorkshopIntegrations | null;
   /** В таблице нет колонок Ozon — миграция не применена. */
   isMissingTable: boolean;
+  /** Токен агента печати; `null` — ещё не создан или колонки нет. */
+  agentToken?: string | null;
+  /** В таблице нет колонки agent_token — не применён workshop_farm_and_shop.sql. */
+  isAgentTokenMissing?: boolean;
 };
 
 const fieldClassName =
@@ -80,6 +104,8 @@ const WEBHOOK_TARGET_LABELS: Record<WebhookTarget, string> = {
 export function WorkshopIntegrationsTab({
   integrations,
   isMissingTable,
+  agentToken,
+  isAgentTokenMissing = false,
 }: WorkshopIntegrationsTabProps) {
   const [state, formAction, isPending] = useActionState(
     saveWorkshopSettings,
@@ -88,6 +114,18 @@ export function WorkshopIntegrationsTab({
   const router = useRouter();
   const [isKeyVisible, setIsKeyVisible] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState<WebhookTarget | null>(null);
+  // Токен агента: значение с сервера, но после создания оно появляется из
+  // ответа действия — до router.refresh() поле уже заполнено.
+  const [agentTokenValue, setAgentTokenValue] = useState<string | null>(
+    agentToken ?? null,
+  );
+  const [isAgentTokenVisible, setIsAgentTokenVisible] = useState(false);
+  const [isAgentTokenCopied, setIsAgentTokenCopied] = useState(false);
+  const [isAgentTokenLoading, setIsAgentTokenLoading] = useState(false);
+  const [agentTokenError, setAgentTokenError] = useState<string | null>(null);
+  // Действие зовём один раз за монтирование: повторный вызов после ответа
+  // вернул бы тот же токен, но лишний запрос к базе ни к чему.
+  const requestedAgentToken = useRef(false);
 
   // Старый пейлоад мог не содержать новых полей: не бросаем на этом рендер.
   const safeIntegrations = ensureWorkshopIntegrations(integrations);
@@ -156,6 +194,67 @@ export function WorkshopIntegrationsTab({
         `Скопируйте URL для вебхука ${WEBHOOK_TARGET_LABELS[target]}`,
         url,
       );
+    }
+  }
+
+  // Токен агента создаёт Server Action: браузер не может придумать ключ, по
+  // которому агент найдёт мастерскую. Запрос один за монтирование; если
+  // колонки нет, действие вернёт текст миграции вместо токена.
+  useEffect(() => {
+    if (
+      agentTokenValue ||
+      isAgentTokenMissing ||
+      requestedAgentToken.current
+    ) {
+      return;
+    }
+
+    requestedAgentToken.current = true;
+    setIsAgentTokenLoading(true);
+
+    ensureAgentToken()
+      .then((result) => {
+        if (result.token) {
+          setAgentTokenValue(result.token);
+          // Страница нарисована на сервере: без refresh следующий заход взял
+          // бы закэшированный снапшот без токена.
+          router.refresh();
+          return;
+        }
+
+        setAgentTokenError(result.error ?? null);
+      })
+      .catch(() =>
+        setAgentTokenError(
+          "Не удалось создать токен агента. Обновите страницу.",
+        ),
+      )
+      .finally(() => setIsAgentTokenLoading(false));
+  }, [agentTokenValue, isAgentTokenMissing, router]);
+
+  useEffect(() => {
+    if (!isAgentTokenCopied) {
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => setIsAgentTokenCopied(false),
+      COPY_FEEDBACK_MS,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [isAgentTokenCopied]);
+
+  async function copyAgentToken() {
+    if (!agentTokenValue) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(agentTokenValue);
+      setIsAgentTokenCopied(true);
+    } catch {
+      window.prompt("Скопируйте токен агента", agentTokenValue);
     }
   }
 
@@ -501,6 +600,129 @@ export function WorkshopIntegrationsTab({
             isCopied={copiedWebhook === "yandex"}
             onCopy={() => copyWebhookUrl("yandex")}
           />
+        </div>
+      </article>
+
+      <article
+        aria-labelledby="workshop-integrations-agent-title"
+        className={platformCardClassName}
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h3
+              id="workshop-integrations-agent-title"
+              className="text-lg font-extrabold tracking-tight text-white"
+            >
+              Локальный агент (Печать)
+            </h3>
+            <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-zinc-400">
+              Скачайте и запустите Python-скрипт на компьютере рядом с
+              принтерами. Скрипт сам найдёт принтеры и будет управлять очередью.
+            </p>
+          </div>
+
+          <StatusBadge tone={agentTokenValue ? "active" : "ready"}>
+            {agentTokenValue ? "Активен" : "Готов к подключению"}
+          </StatusBadge>
+        </div>
+
+        {isAgentTokenMissing ? (
+          <p
+            role="status"
+            className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100"
+          >
+            <span aria-hidden>⚠️ </span>
+            Токен пока не создаётся: в таблице workshop_settings нет колонки
+            agent_token. Примените миграцию supabase/workshop_farm_and_shop.sql.
+          </p>
+        ) : null}
+
+        <div className="mt-5 space-y-4 border-t border-white/[0.07] pt-5">
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <label
+                htmlFor="workshop-integrations-agent-token"
+                className="block text-sm font-semibold text-zinc-200"
+              >
+                Токен агента
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsAgentTokenVisible((visible) => !visible)}
+                aria-pressed={isAgentTokenVisible}
+                aria-controls="workshop-integrations-agent-token"
+                className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[11px] font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              >
+                {isAgentTokenVisible ? "Скрыть" : "Показать"}
+              </button>
+            </div>
+            <input
+              id="workshop-integrations-agent-token"
+              type={isAgentTokenVisible ? "text" : "password"}
+              value={agentTokenValue ?? ""}
+              readOnly
+              spellCheck={false}
+              autoComplete="off"
+              placeholder={
+                isAgentTokenLoading ? "Создаём токен…" : "Токен появится здесь"
+              }
+              aria-describedby="workshop-integrations-agent-token-hint"
+              onFocus={(event) => event.currentTarget.select()}
+              onClick={(event) => event.currentTarget.select()}
+              className={`${fieldClassName} font-mono`}
+            />
+            <p
+              id="workshop-integrations-agent-token-hint"
+              className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+            >
+              Впишите токен в <code>agent/.env</code> как{" "}
+              <code>AGENT_TOKEN</code>. Храните его как пароль: он открывает
+              очередь печати вашей мастерской.
+            </p>
+            {agentTokenError ? (
+              <p role="alert" className="mt-1.5 text-sm text-red-300">
+                {agentTokenError}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={copyAgentToken}
+              disabled={!agentTokenValue}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-bold text-black transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span aria-hidden>⧉</span>
+              Скопировать токен
+            </button>
+
+            <Link
+              href="/dashboard/workshop/integrations/help#agent"
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            >
+              Как установить агент
+              <span aria-hidden>→</span>
+            </Link>
+
+            <div aria-live="polite" className="sm:ml-auto">
+              {isAgentTokenCopied ? (
+                <p
+                  role="status"
+                  className="inline-flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 shadow-[0_10px_30px_-12px_rgba(16,185,129,0.6)]"
+                >
+                  <span aria-hidden>✓</span>
+                  Токен скопирован
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <p className="text-xs leading-relaxed text-zinc-500">
+            Готового архива agent.zip пока нет: скрипт лежит в папке{" "}
+            <code>agent/</code> репозитория, шаги установки — в инструкции.
+            Нужен Python 3.8 или новее.
+          </p>
         </div>
       </article>
     </section>

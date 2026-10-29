@@ -235,6 +235,8 @@ export default async function WorkshopPage() {
               isRequisitesMissing={snapshot.isRequisitesMissing}
               integrations={snapshot.integrations}
               isIntegrationsMissing={snapshot.isIntegrationsMissing}
+              agentToken={snapshot.agentToken}
+              isAgentTokenMissing={snapshot.isAgentTokenMissing}
             />
           </>
         ) : (

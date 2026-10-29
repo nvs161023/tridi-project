@@ -39,3 +39,17 @@ export type WorkshopSettingsFormState = {
 };
 
 export const emptyWorkshopSettingsFormState: WorkshopSettingsFormState = {};
+
+/**
+ * Ответ действия «Токен агента».
+ *
+ * Отдельный тип, а не `WorkshopSettingsFormState`: вкладка «Интеграции» зовёт
+ * действие кнопкой и по клику, без формы, поэтому здесь только два исхода —
+ * токен или причина, почему его нет.
+ */
+export type WorkshopAgentTokenState = {
+  /** Токен агента печати: существующий или только что созданный. */
+  token?: string;
+  /** Общая ошибка: сессия, подписка, миграция, запись в базу. */
+  error?: string;
+};

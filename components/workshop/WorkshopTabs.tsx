@@ -64,6 +64,8 @@ type WorkshopTabsProps = {
   settings: WorkshopSettings;
   requisites: WorkshopRequisites;
   integrations?: WorkshopIntegrations | null;
+  /** Токен локального агента печати; `null` — ещё не создан. */
+  agentToken: string | null;
   filaments: WorkshopFilament[];
   printers: WorkshopPrinter[];
   /** Названия заказов в печати: `printer_id` → title, для живых карточек. */
@@ -77,6 +79,8 @@ type WorkshopTabsProps = {
   isFilamentsMissingTable: boolean;
   isPrintersMissingTable: boolean;
   isOrdersMissingTable: boolean;
+  /** Нет колонки agent_token — не применён workshop_farm_and_shop.sql. */
+  isAgentTokenMissing: boolean;
 };
 
 const TABS = [
@@ -136,6 +140,7 @@ export function WorkshopTabs({
   settings,
   requisites,
   integrations,
+  agentToken,
   filaments,
   printers,
   activePrinterJobs,
@@ -148,6 +153,7 @@ export function WorkshopTabs({
   isFilamentsMissingTable,
   isPrintersMissingTable,
   isOrdersMissingTable,
+  isAgentTokenMissing,
 }: WorkshopTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>("orders");
   const tabRefs = useRef(new Map<TabId, HTMLButtonElement | null>());
@@ -389,6 +395,8 @@ export function WorkshopTabs({
             <WorkshopIntegrationsTab
               integrations={integrations}
               isMissingTable={isIntegrationsMissing}
+              agentToken={agentToken}
+              isAgentTokenMissing={isAgentTokenMissing}
             />
           </div>
         </div>

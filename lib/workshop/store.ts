@@ -8,13 +8,18 @@
  * isRequisitesMissing / isIntegrationsMissing, чтобы показать предупреждение
  * «пока не сохраняется» и всё равно дать посчитать себестоимость.
  *
- * Реквизиты и ключи Ozon читаются отдельными запросами: если миграция не
- * применена, PostgREST отвечает PGRST204 на всю выборку, и числа калькулятора в
- * общей выборке тоже пропали бы. Три независимых запроса стоят лишних
- * round-trip, зато числа, реквизиты и интеграция не ломают друг друга.
+ * Реквизиты, ключи Ozon, токен вебхука и токен агента читаются отдельными
+ * запросами: если миграция не применена, PostgREST отвечает PGRST204 на всю
+ * выборку, и числа калькулятора в общей выборке тоже пропали бы. Пять
+ * независимых запросов стоят лишних round-trip, зато числа, реквизиты,
+ * интеграция и агент не ломают друг друга.
  */
 import type { createClient } from "@/lib/supabase/server";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
+import {
+  normalizeAgentToken,
+  WORKSHOP_AGENT_TOKEN_COLUMN,
+} from "@/lib/workshop/agent-token";
 import {
   normalizeWorkshopIntegrations,
   WORKSHOP_INTEGRATIONS_COLUMNS,
@@ -41,12 +46,19 @@ export type WorkshopSettingsSnapshot = {
   settings: WorkshopSettings;
   requisites: WorkshopRequisites;
   integrations: WorkshopIntegrations;
+  /**
+   * Токен локального агента печати из `workshop_settings.agent_token`.
+   * `null` — токен ещё не создан или колонки нет (миграция не применена).
+   */
+  agentToken: string | null;
   /** В базе нет таблицы workshop_settings — миграция не применена. */
   isMissingTable: boolean;
   /** В workshop_settings нет колонок реквизитов — не применён workshop_requisites.sql. */
   isRequisitesMissing: boolean;
   /** Нет колонок Ozon — не применён workshop_marketplace_integration.sql. */
   isIntegrationsMissing: boolean;
+  /** Нет колонки agent_token — не применён workshop_farm_and_shop.sql. */
+  isAgentTokenMissing: boolean;
 };
 
 /** Настройки пользователя; при любой проблеме — значения по умолчанию. */
@@ -59,6 +71,7 @@ export async function getWorkshopSettings(
     requisitesResult,
     integrationsResult,
     webhookTokenResult,
+    agentTokenResult,
   ] = await Promise.all([
     supabase
       .from("workshop_settings")
@@ -79,6 +92,14 @@ export async function getWorkshopSettings(
     supabase
       .from("workshop_settings")
       .select(WORKSHOP_WEBHOOK_TOKEN_COLUMN)
+      .eq("user_id", userId)
+      .maybeSingle(),
+    // Токен агента приходит из другой миграции (workshop_farm_and_shop.sql),
+    // поэтому и запрос отдельный: без колонки ключи Ozon и числа должны
+    // остаться в интерфейсе.
+    supabase
+      .from("workshop_settings")
+      .select(WORKSHOP_AGENT_TOKEN_COLUMN)
       .eq("user_id", userId)
       .maybeSingle(),
   ]);
@@ -119,6 +140,17 @@ export async function getWorkshopSettings(
     );
   }
 
+  if (agentTokenResult.error) {
+    // Колонку agent_token создаёт workshop_farm_and_shop.sql. Пока её нет,
+    // вкладка «Интеграции» показывает предупреждение вместо токена, а
+    // остальные разделы работают.
+    console.warn(
+      "Токен агента печати не прочитан:",
+      agentTokenResult.error.code,
+      agentTokenResult.error.message,
+    );
+  }
+
   return {
     settings: settingsResult.error
       ? { ...WORKSHOP_SETTINGS_DEFAULTS }
@@ -141,6 +173,13 @@ export async function getWorkshopSettings(
             : (webhookTokenResult.data as { webhook_token?: unknown } | null)
                 ?.webhook_token,
         }),
+    agentToken: agentTokenResult.error
+      ? null
+      : normalizeAgentToken(
+          (
+            agentTokenResult.data as Partial<Record<string, unknown>> | null
+          )?.[WORKSHOP_AGENT_TOKEN_COLUMN],
+        ),
     isMissingTable: settingsResult.error
       ? isMissingTableSchema(
           settingsResult.error.code,
@@ -157,6 +196,12 @@ export async function getWorkshopSettings(
       ? isMissingTableSchema(
           integrationsResult.error.code,
           integrationsResult.error.message,
+        )
+      : false,
+    isAgentTokenMissing: agentTokenResult.error
+      ? isMissingTableSchema(
+          agentTokenResult.error.code,
+          agentTokenResult.error.message,
         )
       : false,
   };
