@@ -8,7 +8,11 @@ import type {
   OrderFormState,
   OrderPrintStatus,
 } from "@/app/actions/orders-state";
-import { createPrintJob, getOrderWithItems } from "@/lib/db/workshop-farm";
+import {
+  createPrintJob,
+  getOrderActivePrintJob,
+  getOrderWithItems,
+} from "@/lib/db/workshop-farm";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
@@ -55,6 +59,7 @@ import {
 import {
   PRINTER_COLUMNS,
   formatPrinterHours,
+  isPrinterId,
   normalizePrinterRow,
   printerMaintenanceLevel,
   type WorkshopPrinter,
@@ -109,6 +114,7 @@ const PRINT_QUEUE_FAILED =
   "Не удалось поставить задание в очередь. Попробуйте ещё раз.";
 /** Текст успеха: его показывает всплывающее уведомление в карточке. */
 const PRINT_QUEUE_ADDED = "Задание добавлено в очередь.";
+const PRINT_PRINTER_CLEARED = "Принтер снят с заказа.";
 const ORDER_ITEM_PRODUCT_REQUIRED =
   "Выберите товар из каталога — без него позицию не добавить.";
 const ORDER_ITEM_ADD_FAILED =
@@ -778,10 +784,14 @@ export async function loadOrderComments(
  * Готовность заказа к очереди печати для карточки.
  *
  * Доска Kanban не читает позиции заказов: `WorkshopOrder` знает только принтер и
- * деньги. Поэтому карточка спрашивает минимум для кнопки «В очередь на печать» —
- * есть ли у заказа товар с G-code. Ошибка чтения и отсутствие сессии дают null:
- * кнопка остаётся доступной, а окончательную проверку делает
+ * деньги. Поэтому карточка спрашивает минимум для блока «3D-печать» — есть ли у
+ * заказа товар с G-code и стоит ли он уже в очереди. Ошибка чтения и отсутствие
+ * сессии дают null: кнопка остаётся доступной, а окончательную проверку делает
  * `queueOrderForPrint` и объясняет причину.
+ *
+ * Активное задание читается тем же вызовом: карточка — центр управления
+ * заказом, и вместо повторной кнопки «В очередь на печать» она показывает
+ * «В очереди» или «Печатается на …». Пока задание живо, очередь не трогают.
  */
 export async function loadOrderPrintStatus(
   orderId: string,
@@ -799,10 +809,10 @@ export async function loadOrderPrintStatus(
     return null;
   }
 
-  const order = await getOrderWithItems(orderId, {
-    supabase,
-    userId: user.id,
-  });
+  const [order, activeJob] = await Promise.all([
+    getOrderWithItems(orderId, { supabase, userId: user.id }),
+    getOrderActivePrintJob(orderId, { supabase, userId: user.id }),
+  ]);
 
   if (!order.ok) {
     console.warn(
@@ -814,10 +824,21 @@ export async function loadOrderPrintStatus(
     return null;
   }
 
+  // Очередь без таблицы печати — не ошибка карточки: до миграции активного
+  // задания просто нет, а кнопка «В очередь на печать» объяснит причину сама.
+  if (!activeJob.ok && activeJob.reason !== "migration_missing") {
+    console.warn(
+      "Активное задание печати не прочитано:",
+      activeJob.reason,
+      activeJob.error,
+    );
+  }
+
   return {
     itemCount: order.data.items.length,
     gcodeItemCount: order.data.items.filter((item) => item.product?.gcodeUrl)
       .length,
+    activeJob: activeJob.ok ? activeJob.data : null,
   };
 }
 
@@ -829,16 +850,26 @@ export async function loadOrderPrintStatus(
  * принтера агент не знает, на какой машине печатать, поэтому карточка сначала
  * просит его выбрать.
  *
+ * Принтер приходит из карточки (`printerId`) и перекрывает значение заказа:
+ * мастер мог выбрать принтер только что, а сохранение ещё не доехало до
+ * страницы. Если выбор не передан, берётся принтер, записанный в заказе.
+ *
  * Саму вставку делает `createPrintJob` (`lib/db/workshop-farm.ts`): он держит
  * инварианты — владелец, наличие G-code, принтер этой мастерской и «одно
  * активное задание на позицию». Повторный клик поэтому не создаёт дубль, а
- * возвращает уже стоящее в очереди задание.
+ * возвращает уже стоящее в очереди задание, а заказ переезжает в «Печать» —
+ * иначе Канбан показывал бы очередь в колонке «Новые».
  */
 export async function queueOrderForPrint(
   orderId: string,
+  printerId: string | null = null,
 ): Promise<OrderActionState> {
   if (!isOrderId(orderId)) {
     return { ok: false, error: INVALID_ID };
+  }
+
+  if (printerId !== null && !isPrinterId(printerId)) {
+    return { ok: false, error: PRINTER_NOT_FOUND };
   }
 
   const supabase = await createClient();
@@ -877,9 +908,9 @@ export async function queueOrderForPrint(
     return { ok: false, error: LOAD_FAILED };
   }
 
-  const printerId = order.data.printerId;
+  const targetPrinterId = printerId ?? order.data.printerId;
 
-  if (!printerId) {
+  if (!targetPrinterId) {
     return { ok: false, error: PRINT_PRINTER_REQUIRED };
   }
 
@@ -890,7 +921,7 @@ export async function queueOrderForPrint(
   }
 
   const job = await createPrintJob(
-    { orderId, orderItemId: item.id, printerId },
+    { orderId, orderItemId: item.id, printerId: targetPrinterId },
     { supabase, userId: user.id },
   );
 
@@ -923,6 +954,110 @@ export async function queueOrderForPrint(
   revalidatePath("/dashboard/workshop");
 
   return { ok: true, message: PRINT_QUEUE_ADDED };
+}
+
+/**
+ * Назначить принтер заказу или снять его.
+ *
+ * Принтер — часть заказа, а не формы создания: мастер решает, на какой машине
+ * печатать, глядя на очередь и загрузку парка. Отдельное действие позволяет
+ * менять выбор прямо в карточке, не открывая редактирование названия и даты, и
+ * не задевает уже созданное задание печати: оно закреплено за своим принтером.
+ *
+ * `null` очищает поле — заказ остаётся без принтера, и кнопка «В очередь на
+ * печать» снова попросит выбрать машину.
+ */
+export async function updateOrderPrinter(
+  orderId: string,
+  printerId: string | null,
+): Promise<OrderActionState> {
+  if (!isOrderId(orderId)) {
+    return { ok: false, error: INVALID_ID };
+  }
+
+  if (printerId !== null && !isPrinterId(printerId)) {
+    return { ok: false, error: PRINTER_NOT_FOUND };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  let printerName: string | null = null;
+
+  if (printerId) {
+    const { data, error } = await supabase
+      .from("workshop_printers")
+      .select(PRINTER_COLUMNS)
+      .eq("id", printerId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("Принтер не прочитан:", error.code, error.message);
+
+      return {
+        ok: false,
+        error: isMissingTableSchema(error.code, error.message)
+          ? MIGRATION_MISSING
+          : LOAD_FAILED,
+      };
+    }
+
+    const printer = normalizePrinterRow(
+      (data ?? null) as Partial<Record<string, unknown>> | null,
+    );
+
+    // Чужой или удалённый принтер: RLS вернёт пустую строку, и записать её в
+    // заказ значило бы сломать очередь — задание потом не найдёт владельца.
+    if (!printer) {
+      return { ok: false, error: PRINTER_NOT_FOUND };
+    }
+
+    printerName = printer.name;
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("workshop_orders")
+    .update({ printer_id: printerId })
+    .eq("id", orderId)
+    .eq("user_id", user.id)
+    .select("title")
+    .maybeSingle();
+
+  if (updateError) {
+    console.warn("Принтер заказа не обновлён:", updateError.code, updateError.message);
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(updateError.code, updateError.message)
+        ? MIGRATION_MISSING
+        : UPDATE_FAILED,
+    };
+  }
+
+  // Пустая строка — заказ удалили между чтением и записью.
+  if (!updated) {
+    return { ok: false, error: ORDER_NOT_FOUND };
+  }
+
+  revalidatePath("/dashboard/workshop");
+
+  return {
+    ok: true,
+    message: printerName
+      ? `Принтер «${printerName}» назначен заказу.`
+      : PRINT_PRINTER_CLEARED,
+  };
 }
 
 /**

@@ -572,6 +572,7 @@ export function WorkshopOrdersTab({
       {detailsOrder ? (
         <OrderDetailsDialog
           order={detailsOrder}
+          printers={printers}
           clients={clients}
           filaments={filaments}
           products={products}

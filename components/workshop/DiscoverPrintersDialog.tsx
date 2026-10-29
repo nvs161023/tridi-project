@@ -1,17 +1,37 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  useActionState,
+  useCallback,
+  useEffect,
+  useState,
+  type FormEvent,
+} from "react";
 
 import {
+  addPrinter,
   approveDiscoveredPrinters,
   fetchDiscoveredPrinters,
   requestNetworkScan,
 } from "@/app/actions/printers";
 import type { DiscoveredPrintersState } from "@/app/actions/printers-state";
+import { emptyPrinterFormState } from "@/app/actions/printers-state";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
-import type { PrinterProtocol } from "@/lib/db/workshop-types";
 import {
+  isPrinterProtocol,
+  type PrinterProtocol,
+} from "@/lib/db/workshop-types";
+import {
+  PRINTER_BRAND_OPTIONS,
+  PRINTER_PRESETS,
+  findPrinterPresetByModel,
+  formatPrinterPresetLabel,
+} from "@/lib/workshop/printer-presets";
+import {
+  PRINTER_ADDRESS_MAX,
+  PRINTER_INTERVAL_DEFAULTS,
+  PRINTER_PROTOCOL_OPTIONS,
   PRINTER_TEXT_LIMITS,
   defaultDiscoveredPrinterName,
   type DiscoveredPrinter,
@@ -31,6 +51,12 @@ import {
  * окно показывает его сразу, а если пустым — запускает поиск. Пустой ответ агента
  * тоже результат: через полторы минуты опроса окно честно говорит «принтеров не
  * нашли» и предлагает искать снова.
+ *
+ * Пустой результат не тупик: рядом с «Искать снова» есть «Добавить вручную».
+ * Сканер видит только свою подсеть, поэтому принтер из другого VLAN, принтер с
+ * доступом по имени узла и выключенный во время обхода принтер находятся лишь
+ * руками — форма `ManualPrinterForm` принимает адрес, протокол, бренд, модель,
+ * SN и ключ доступа и вызывает то же действие `addPrinter`, что и окно парка.
  *
  * Выбор, имена и ключи доступа хранятся как «правки поверх умолчаний»: отмечено
  * всё, что в списке, имя по умолчанию — `Принтер 192.168.1.50`, ключ — пустой.
@@ -95,6 +121,10 @@ const secondaryButtonClassName =
 const selectAllButtonClassName =
   "inline-flex min-h-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-3.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]";
 
+/** Список протоколов в ручной форме: та же рамка, что у полей, но с курсором. */
+const selectClassName =
+  "mt-2 w-full cursor-pointer rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-colors [color-scheme:dark] focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset";
+
 /** Русская форма слова «принтер» по числу: 1 принтер, 3 принтера, 12 принтеров. */
 function printersWord(count: number): string {
   const mod100 = count % 100;
@@ -128,6 +158,396 @@ function approvedNotice(state: DiscoveredPrintersState): string {
   const tail = skipped > 0 ? `. Пропущено: ${skipped}.` : "";
 
   return `Успешно добавлено ${added} ${printersWord(added)}${tail}`;
+}
+
+/**
+ * Ручное добавление принтера, когда сканер ничего не нашёл.
+ *
+ * Агент видит сеть не всегда: принтер может стоять в другом VLAN, отвечать
+ * только по имени узла или быть выключенным во время обхода. Тогда мастер
+ * вводит адрес и данные подключения руками, а не уходит искать кнопку «Добавить
+ * принтер» в другой вкладке.
+ *
+ * Форма намеренно повторяет поля окна «Добавить принтер»: то же действие
+ * `addPrinter`, тот же разбор `readPrinterForm` и те же сообщения об ошибках,
+ * поэтому принтер, добавленный здесь, не отличается от добавленного в парке.
+ * Интервалы обслуживания уходят скрытыми полями: в мастере подключения их не
+ * настраивают — для известной модели они берутся из справочника
+ * `PRINTER_PRESETS`, иначе остаются значения по умолчанию миграции.
+ *
+ * Имя подставляется из адреса («Принтер 192.168.1.50») и перестаёт следовать за
+ * ним, как только мастер его поправил: переписывать введённое значение на каждой
+ * цифре было бы грубо.
+ */
+type ManualPrinterFormProps = {
+  /** Итог: строка для тоста на вкладке «Принтеры»; окно закрывает родитель. */
+  onCreated: (message: string) => void;
+  /** Отказ: форма сворачивается, находки остаются на экране. */
+  onCancel: () => void;
+};
+
+function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
+  const router = useRouter();
+  const [state, formAction, isPending] = useActionState(
+    addPrinter,
+    emptyPrinterFormState,
+  );
+  const [name, setName] = useState("");
+  const [ipAddress, setIpAddress] = useState("");
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
+  const [protocol, setProtocol] = useState<PrinterProtocol>("moonraker");
+
+  /**
+   * Интервалы обслуживания для известной модели: дальше их правят в карточке
+   * принтера, а здесь они нужны только чтобы `readPrinterForm` принял черновик.
+   */
+  const preset = findPrinterPresetByModel(model);
+  const nozzleInterval = preset?.nozzleHours ?? PRINTER_INTERVAL_DEFAULTS.nozzle;
+  const lubricationInterval =
+    preset?.lubricationHours ?? PRINTER_INTERVAL_DEFAULTS.lubrication;
+  const zScrewInterval = preset?.zScrewHours ?? PRINTER_INTERVAL_DEFAULTS.zScrew;
+
+  /**
+   * Успех: страница обновляется, тост показывает результат, а окно закрывает
+   * родитель тем же обработчиком, что и после подтверждения находок.
+   */
+  useEffect(() => {
+    if (!state.success) {
+      return;
+    }
+
+    router.refresh();
+    onCreated(state.message ?? "Принтер добавлен.");
+  }, [onCreated, router, state.message, state.success]);
+
+  /** Адрес печатают первым: из него подставляется имя принтера. */
+  function handleIpAddressChange(value: string) {
+    const previousDefault = defaultDiscoveredPrinterName(ipAddress);
+    const trimmed = value.trim();
+
+    setIpAddress(value);
+    setName((prev) =>
+      prev === "" || prev === previousDefault
+        ? trimmed
+          ? defaultDiscoveredPrinterName(trimmed)
+          : ""
+        : prev,
+    );
+  }
+
+  /**
+   * Модель из справочника: подставляем бренд и интервалы. Введённый мастером
+   * бренд не трогаем — «X1» не должен переписывать чужой бренд.
+   */
+  function handleModelChange(value: string) {
+    setModel(value);
+
+    const next = findPrinterPresetByModel(value);
+
+    if (!next) {
+      return;
+    }
+
+    if (!brand.trim()) {
+      setBrand(next.brand);
+    }
+
+    setModel(next.model);
+  }
+
+  const nameError = state.fieldErrors?.name;
+  const brandError = state.fieldErrors?.brand;
+  const modelError = state.fieldErrors?.model;
+  const ipAddressError = state.fieldErrors?.ipAddress;
+  const apiKeyError = state.fieldErrors?.apiKey;
+  const serialNumberError = state.fieldErrors?.serialNumber;
+
+  return (
+    <form
+      action={formAction}
+      autoComplete="off"
+      className="mt-5 rounded-2xl border border-white/10 bg-black/30 p-4 text-left sm:p-5"
+    >
+      <p className="text-sm font-semibold text-white">
+        Добавить принтер вручную
+      </p>
+      <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+        Если агент принтер не увидел, введите адрес и данные подключения:
+        принтер появится в парке, и агент сможет им управлять.
+      </p>
+
+      <input
+        type="hidden"
+        name="nozzleInterval"
+        value={nozzleInterval}
+        readOnly
+      />
+      <input
+        type="hidden"
+        name="lubricationInterval"
+        value={lubricationInterval}
+        readOnly
+      />
+      <input
+        type="hidden"
+        name="zScrewInterval"
+        value={zScrewInterval}
+        readOnly
+      />
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label
+            htmlFor="farm-wizard-manual-name"
+            className="text-xs font-semibold text-zinc-300"
+          >
+            Имя принтера
+          </label>
+          <input
+            id="farm-wizard-manual-name"
+            name="name"
+            type="text"
+            autoComplete="off"
+            placeholder="Принтер 192.168.1.50"
+            maxLength={PRINTER_TEXT_LIMITS.name}
+            required
+            value={name}
+            onChange={(event) => setName(event.currentTarget.value)}
+            aria-invalid={nameError ? true : undefined}
+            className={inputClassName}
+          />
+          {nameError ? (
+            <p role="alert" className="mt-1.5 text-xs text-red-300">
+              {nameError}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="sm:col-span-2">
+          <label
+            htmlFor="farm-wizard-manual-address"
+            className="text-xs font-semibold text-zinc-300"
+          >
+            Адрес или имя узла
+          </label>
+          <input
+            id="farm-wizard-manual-address"
+            name="ipAddress"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="192.168.1.50 или ender3.local"
+            maxLength={PRINTER_ADDRESS_MAX}
+            required
+            value={ipAddress}
+            onChange={(event) => handleIpAddressChange(event.currentTarget.value)}
+            aria-invalid={ipAddressError ? true : undefined}
+            className={inputClassName}
+          />
+          {ipAddressError ? (
+            <p role="alert" className="mt-1.5 text-xs text-red-300">
+              {ipAddressError}
+            </p>
+          ) : (
+            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+              Без «http://» и «/»: адрес вида 192.168.1.50 или ender3.local.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label
+            htmlFor="farm-wizard-manual-protocol"
+            className="text-xs font-semibold text-zinc-300"
+          >
+            Протокол
+          </label>
+          <select
+            id="farm-wizard-manual-protocol"
+            name="protocol"
+            value={protocol}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+
+              if (isPrinterProtocol(next)) {
+                setProtocol(next);
+              }
+            }}
+            className={selectClassName}
+          >
+            {PRINTER_PROTOCOL_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label
+            htmlFor="farm-wizard-manual-brand"
+            className="text-xs font-semibold text-zinc-300"
+          >
+            Бренд
+          </label>
+          <input
+            id="farm-wizard-manual-brand"
+            name="brand"
+            type="text"
+            autoComplete="off"
+            list="farm-wizard-manual-brands"
+            placeholder="Bambu Lab"
+            maxLength={PRINTER_TEXT_LIMITS.brand}
+            required
+            value={brand}
+            onChange={(event) => setBrand(event.currentTarget.value)}
+            aria-invalid={brandError ? true : undefined}
+            className={inputClassName}
+          />
+          <datalist id="farm-wizard-manual-brands">
+            {PRINTER_BRAND_OPTIONS.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
+          {brandError ? (
+            <p role="alert" className="mt-1.5 text-xs text-red-300">
+              {brandError}
+            </p>
+          ) : null}
+        </div>
+
+        <div className={protocol === "bambu" ? undefined : "sm:col-span-2"}>
+          <label
+            htmlFor="farm-wizard-manual-model"
+            className="text-xs font-semibold text-zinc-300"
+          >
+            Модель
+          </label>
+          <input
+            id="farm-wizard-manual-model"
+            name="model"
+            type="text"
+            autoComplete="off"
+            list="farm-wizard-manual-models"
+            placeholder="X1C"
+            maxLength={PRINTER_TEXT_LIMITS.model}
+            required
+            value={model}
+            onChange={(event) => handleModelChange(event.currentTarget.value)}
+            aria-invalid={modelError ? true : undefined}
+            className={inputClassName}
+          />
+          <datalist id="farm-wizard-manual-models">
+            {PRINTER_PRESETS.map((item) => (
+              <option
+                key={`${item.brand}-${item.model}`}
+                value={formatPrinterPresetLabel(item)}
+              />
+            ))}
+          </datalist>
+          {modelError ? (
+            <p role="alert" className="mt-1.5 text-xs text-red-300">
+              {modelError}
+            </p>
+          ) : (
+            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+              Из списка или своя: для известной модели интервалы ТО подставятся
+              сами.
+            </p>
+          )}
+        </div>
+
+        {protocol === "bambu" ? (
+          <div>
+            <label
+              htmlFor="farm-wizard-manual-serial"
+              className="text-xs font-semibold text-zinc-300"
+            >
+              Серийный номер (SN)
+            </label>
+            <input
+              id="farm-wizard-manual-serial"
+              name="serialNumber"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="00M09A123456789"
+              maxLength={PRINTER_TEXT_LIMITS.serialNumber}
+              aria-invalid={serialNumberError ? true : undefined}
+              className={inputClassName}
+            />
+            {serialNumberError ? (
+              <p role="alert" className="mt-1.5 text-xs text-red-300">
+                {serialNumberError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="sm:col-span-2">
+          <label
+            htmlFor="farm-wizard-manual-key"
+            className="text-xs font-semibold text-zinc-300"
+          >
+            Ключ доступа
+          </label>
+          <input
+            id="farm-wizard-manual-key"
+            name="apiKey"
+            type="password"
+            autoComplete="new-password"
+            spellCheck={false}
+            maxLength={PRINTER_TEXT_LIMITS.apiKey}
+            placeholder={
+              protocol === "bambu"
+                ? "Код доступа с экрана принтера"
+                : "Ключ API, если принтер его требует"
+            }
+            aria-invalid={apiKeyError ? true : undefined}
+            className={inputClassName}
+          />
+          {apiKeyError ? (
+            <p role="alert" className="mt-1.5 text-xs text-red-300">
+              {apiKeyError}
+            </p>
+          ) : (
+            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+              Необязательно. Ключ уходит только агенту и в интерфейс не
+              возвращается.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {state.error ? (
+        <p
+          role="alert"
+          className="mt-4 rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+        >
+          {state.error}
+        </p>
+      ) : null}
+
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+        <button
+          type="submit"
+          disabled={isPending}
+          aria-busy={isPending}
+          className={primaryButtonClassName}
+        >
+          {isPending ? "Добавляем…" : "Добавить принтер"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className={secondaryButtonClassName}
+        >
+          Отмена
+        </button>
+      </div>
+    </form>
+  );
 }
 
 export function DiscoverPrintersDialog({
@@ -164,6 +584,11 @@ export function DiscoverPrintersDialog({
   /** Сканирование закончилось, а принтеров в сети не нашлось. */
   const [scanEmpty, setScanEmpty] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  /**
+   * Ручное добавление поверх пустого результата: агент сеть не увидел, но мастер
+   * знает адрес принтера — форма открывается здесь, а не в другой вкладке.
+   */
+  const [isManualOpen, setIsManualOpen] = useState(false);
 
   useEffect(() => {
     // Таблицы находок нет: просить сканирование бессмысленно, серверу некуда
@@ -329,7 +754,7 @@ export function DiscoverPrintersDialog({
     : isScanning
       ? "Агент обходит локальную сеть мастерской. Как только он пришлёт находки, здесь появятся адреса принтеров."
       : found.length === 0
-        ? "Принтеров в сети пока нет. Запустите агент фермы и повторите поиск."
+        ? "Принтеров в сети пока нет. Запустите агент фермы и повторите поиск — а если знаете адрес принтера, добавьте его вручную."
         : "Агент нашёл принтеры в локальной сети. Отметьте нужные, дайте им имена — они появятся в парке мастерской, а находки из очереди уйдут.";
 
   return (
@@ -412,44 +837,72 @@ export function DiscoverPrintersDialog({
             </button>
           </div>
         ) : found.length === 0 ? (
-          <div className="mt-5 rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-5 py-8 text-center">
-            <p aria-hidden className="text-3xl">
-              📡
-            </p>
-            <p className="mt-3 text-sm leading-relaxed text-zinc-400">
-              {isMissingTable
-                ? "Принтеры не найдены: список находок пока не сохраняется в базе."
-                : scanEmpty
-                  ? "Агент просканировал сеть, но принтеров не нашёл. Проверьте, что он запущен и стоит в одной сети с принтерами, а если ферма в другом VLAN — что задан SCAN_SUBNETS."
-                  : "Принтеры не найдены. Запустите агент фермы — он обходит сеть и присылает находки сюда."}
-            </p>
-            {scanError ? (
-              <p
-                role="alert"
-                className="mt-3 rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
-              >
-                {scanError}
+          <>
+            <div className="mt-5 rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-5 py-8 text-center">
+              <p aria-hidden className="text-3xl">
+                📡
               </p>
-            ) : null}
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
-              {isMissingTable ? null : (
+              <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+                {isMissingTable
+                  ? "Принтеры не найдены: список находок пока не сохраняется в базе."
+                  : scanEmpty
+                    ? "Агент просканировал сеть, но принтеров не нашёл. Проверьте, что он запущен и стоит в одной сети с принтерами, а если ферма в другом VLAN — что задан SCAN_SUBNETS."
+                    : "Принтеры не найдены. Запустите агент фермы — он обходит сеть и присылает находки сюда."}
+              </p>
+              {scanError ? (
+                <p
+                  role="alert"
+                  className="mt-3 rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+                >
+                  {scanError}
+                </p>
+              ) : null}
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
+                {isMissingTable ? null : (
+                  <button
+                    type="button"
+                    onClick={restartScan}
+                    className={primaryButtonClassName}
+                  >
+                    Искать снова
+                  </button>
+                )}
+                {/*
+                  Сканер не всегда прав: принтер бывает в другом VLAN, отвечает
+                  по имени узла или просто выключен. Адрес мастер знает — пусть
+                  введёт его здесь, а не ищет кнопку в соседней вкладке.
+                */}
                 <button
                   type="button"
-                  onClick={restartScan}
-                  className={primaryButtonClassName}
+                  onClick={() => setIsManualOpen((open) => !open)}
+                  aria-expanded={isManualOpen}
+                  aria-controls="farm-wizard-manual-form"
+                  className={
+                    isMissingTable
+                      ? primaryButtonClassName
+                      : secondaryButtonClassName
+                  }
                 >
-                  Искать снова
+                  {isManualOpen ? "Скрыть ручное добавление" : "Добавить вручную"}
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={closeUnlessPending}
-                className={secondaryButtonClassName}
-              >
-                Закрыть
-              </button>
+                <button
+                  type="button"
+                  onClick={closeUnlessPending}
+                  className={secondaryButtonClassName}
+                >
+                  Закрыть
+                </button>
+              </div>
             </div>
-          </div>
+            {isManualOpen ? (
+              <div id="farm-wizard-manual-form">
+                <ManualPrinterForm
+                  onCreated={onApproved}
+                  onCancel={() => setIsManualOpen(false)}
+                />
+              </div>
+            ) : null}
+          </>
         ) : (
           <form onSubmit={handleSubmit} autoComplete="off" className="mt-5">
             <div className="flex flex-wrap items-center justify-between gap-3">

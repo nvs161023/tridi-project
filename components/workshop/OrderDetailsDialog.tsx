@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import {
+  type ChangeEvent,
   type FormEvent,
   type ReactNode,
   useCallback,
@@ -21,6 +22,7 @@ import {
   loadOrderItems,
   loadOrderPrintStatus,
   queueOrderForPrint,
+  updateOrderPrinter,
 } from "@/app/actions/orders";
 import type { OrderPrintStatus } from "@/app/actions/orders-state";
 import { EditOrderDialog } from "@/components/workshop/EditOrderDialog";
@@ -47,6 +49,7 @@ import {
   type WorkshopOrder,
 } from "@/lib/workshop/orders";
 import type { WorkshopProduct } from "@/lib/workshop/products";
+import type { WorkshopPrinter } from "@/lib/workshop/printers";
 
 /**
  * Карточка заказа: детали и переписка.
@@ -66,10 +69,18 @@ import type { WorkshopProduct } from "@/lib/workshop/products";
  * способом, что и комментарии. Добавление идёт через Server Action
  * `addOrderItem`, а сохранённая строка сразу попадает в список — ждать
  * перезагрузки страницы незачем.
+ *
+ * Блок «3D-печать» — центр управления заказом на ферме: здесь выбирают принтер
+ * (сохраняется сразу через `updateOrderPrinter`), а кнопка «В очередь на печать»
+ * уступает место статусу задания («В очереди» / «Печатается на …»), когда
+ * очередь уже создана. Так мастер не ищет принтер в другой вкладке и не ставит
+ * дубль поверх работающего задания.
  */
 
 type OrderDetailsDialogProps = {
   order: WorkshopOrder;
+  /** Парк принтеров: из него выбирают машину для печати заказа. */
+  printers: WorkshopPrinter[];
   /** База клиентов: окно правки выбирает готовый контакт из списка. */
   clients: WorkshopClient[];
   /** Катушки склада: окно правки предупреждает о нехватке пластика. */
@@ -110,7 +121,8 @@ function formatCommentDate(value: string | null): string {
  *
  * Кнопка блокируется по трём причинам: принтер не выбран, проверка позиций ещё
  * идёт или печатать нечего. Если проверка не удалась, текст не запрещает клик:
- * Server Action повторит чтение и объяснит причину.
+ * Server Action повторит чтение и объяснит причину. Активное задание перекрывает
+ * всё остальное: пока оно живо, кнопки нет, и подсказка объясняет, чего ждать.
  */
 function printQueueHint({
   hasPrinter,
@@ -121,6 +133,12 @@ function printQueueHint({
   isLoading: boolean;
   status: OrderPrintStatus | null;
 }): string {
+  if (status?.activeJob) {
+    return status.activeJob.status === "printing"
+      ? "Печать уже идёт: прогресс придёт от агента 3D-фермы."
+      : "Задание в очереди фермы: агент заберёт его, как только освободится принтер.";
+  }
+
   if (!hasPrinter) {
     return "Выберите принтер для печати";
   }
@@ -146,6 +164,7 @@ function printQueueHint({
 
 export function OrderDetailsDialog({
   order,
+  printers,
   clients,
   filaments,
   products,
@@ -183,10 +202,31 @@ export function OrderDetailsDialog({
    * сразу после успешного добавления, не дожидаясь нового пропса.
    */
   const [itemsVersion, setItemsVersion] = useState(0);
+  /**
+   * Счётчик постановок в очередь.
+   *
+   * Активное задание приходит из `loadOrderPrintStatus`, а не из пропсов: после
+   * успешной постановки статус нужно перечитать, иначе кнопка осталась бы на
+   * месте до закрытия карточки.
+   */
+  const [queueVersion, setQueueVersion] = useState(0);
   /** Позиции с G-code: от ответа зависит доступность кнопки очереди печати. */
   const [printStatus, setPrintStatus] = useState<OrderPrintStatus | null>(null);
   const [isPrintStatusLoading, setIsPrintStatusLoading] = useState(false);
   const [printError, setPrintError] = useState<string | null>(null);
+  /**
+   * Принтер, выбранный в карточке.
+   *
+   * Начинается со значения заказа, но живёт отдельно: выбор сохраняется сразу,
+   * а `order` приходит пропсом и после `router.refresh()` обновляется с
+   * задержкой. Показывать старое значение значило бы «терять» только что
+   * выбранную машину.
+   */
+  const [selectedPrinterId, setSelectedPrinterId] = useState(
+    order.printerId ?? "",
+  );
+  const [isPrinterSaving, setIsPrinterSaving] = useState(false);
+  const [printerError, setPrinterError] = useState<string | null>(null);
   /** Всплывающее уведомление после успешной постановки в очередь. */
   const [printNotice, setPrintNotice] = useState<string | null>(null);
   const [isQueueing, startQueueing] = useTransition();
@@ -296,18 +336,14 @@ export function OrderDetailsDialog({
   }, [comments.length, isLoading, loadError]);
 
   /**
-   * Готовность к печати читается при открытии карточки и после смены принтера.
+   * Готовность к печати и активное задание читаются при открытии карточки, после
+   * добавления позиции и после постановки в очередь.
    *
-   * Позиций заказа нет в `WorkshopOrder`: их знает только сервер. Без принтера
-   * запрос не нужен — кнопка всё равно заблокирована и просит выбрать принтер.
+   * Позиций заказа нет в `WorkshopOrder`: их знает только сервер. Запрос идёт и
+   * без принтера — очередь могла появиться раньше, а принтер заказа снять
+   * успели; карточка должна показать «В очереди», а не пустую кнопку.
    */
   useEffect(() => {
-    if (!order.printerId) {
-      setPrintStatus(null);
-      setIsPrintStatusLoading(false);
-      return;
-    }
-
     let isActive = true;
     setIsPrintStatusLoading(true);
 
@@ -331,7 +367,7 @@ export function OrderDetailsDialog({
     return () => {
       isActive = false;
     };
-  }, [order.id, order.printerId, itemsVersion]);
+  }, [order.id, itemsVersion, queueVersion]);
 
   /** Уведомление об успехе гаснет само — закрывать его руками не нужно. */
   useEffect(() => {
@@ -490,7 +526,9 @@ export function OrderDetailsDialog({
    * Постановка заказа в очередь печати.
    *
    * Кнопка подсказывает, чего не хватает, но сервер проверяет принтер и G-code
-   * повторно: доска могла устареть, пока карточка была открыта. `useTransition`
+   * повторно: доска могла устареть, пока карточка была открыта. Выбранный в
+   * карточке принтер уходит вместе с запросом — заказ сохраняется отдельно, и
+   * сразу после выбора он может ещё не доехать до строки в базе. `useTransition`
    * держит кнопку в состоянии загрузки до ответа, а `router.refresh()`
    * перечитывает заказы — задание могло появиться в другой вкладке.
    */
@@ -503,7 +541,10 @@ export function OrderDetailsDialog({
 
     startQueueing(async () => {
       try {
-        const result = await queueOrderForPrint(order.id);
+        const result = await queueOrderForPrint(
+          order.id,
+          selectedPrinterId || null,
+        );
 
         if (!result.ok) {
           setPrintError(
@@ -515,11 +556,55 @@ export function OrderDetailsDialog({
         const message = result.message ?? "Задание добавлено в очередь.";
         setPrintNotice(message);
         onUpdated(message);
+        // Кнопка должна смениться статусом задания: перечитываем очередь, не
+        // дожидаясь нового пропса `order`.
+        setQueueVersion((version) => version + 1);
         router.refresh();
       } catch {
         setPrintError("Нет связи с сервером. Попробуйте ещё раз.");
       }
     });
+  }
+
+  /**
+   * Смена принтера в карточке.
+   *
+   * Пишем сразу, без кнопки «Сохранить»: принтер — одна строка, и мастер
+   * ожидает, что выбор запомнится. При ошибке возвращаем прежнее значение:
+   * оставлять в списке принтер, которого нет в заказе, значит показывать
+   * недостоверную картину фермы.
+   */
+  function handlePrinterChange(event: ChangeEvent<HTMLSelectElement>) {
+    const nextId = event.target.value;
+    const previousId = selectedPrinterId;
+
+    if (nextId === previousId) {
+      return;
+    }
+
+    setSelectedPrinterId(nextId);
+    setPrinterError(null);
+    setIsPrinterSaving(true);
+
+    void (async () => {
+      try {
+        const result = await updateOrderPrinter(order.id, nextId || null);
+
+        if (!result.ok) {
+          setSelectedPrinterId(previousId);
+          setPrinterError(result.error ?? "Не удалось сохранить принтер.");
+          return;
+        }
+
+        onUpdated(result.message ?? "Принтер заказа сохранён.");
+        router.refresh();
+      } catch {
+        setSelectedPrinterId(previousId);
+        setPrinterError("Нет связи с сервером. Принтер не сохранён.");
+      } finally {
+        setIsPrinterSaving(false);
+      }
+    })();
   }
 
   /**
@@ -573,20 +658,45 @@ export function OrderDetailsDialog({
   const status = ORDER_STATUS_META[order.status];
   const createdAt = formatCommentDate(order.createdAt);
   const hasCreatedAt = Boolean(order.createdAt);
-  const hasPrinter = Boolean(order.printerId);
+  const hasPrinter = Boolean(selectedPrinterId);
   const hasGcode = (printStatus?.gcodeItemCount ?? 0) > 0;
+  /** Задание, которое уже стоит в очереди или печатается. */
+  const activeJob = printStatus?.activeJob ?? null;
   /**
-   * Кнопка активна, когда принтер назначен и проверка нашла товар с G-code.
-   * `printStatus === null` значит «проверка не удалась» — клик разрешён, сервер
-   * всё равно проверит позиции заново.
+   * Подпись статуса задания. Принтер берём из задания, а не из заказа: печатать
+   * будет та машина, которой задание отдали, даже если заказ уже переназначили.
+   */
+  const activeJobLabel = activeJob
+    ? activeJob.status === "printing"
+      ? activeJob.printerName
+        ? `Печатается на «${activeJob.printerName}»`
+        : "Печатается"
+      : activeJob.printerName
+        ? `В очереди на «${activeJob.printerName}»`
+        : "В очереди"
+    : "";
+  /**
+   * Кнопка активна, когда принтер назначен, проверка нашла товар с G-code и
+   * активного задания ещё нет. `printStatus === null` значит «проверка не
+   * удалась» — клик разрешён, сервер всё равно проверит позиции заново.
    */
   const canQueuePrint =
-    hasPrinter && !isPrintStatusLoading && (printStatus === null || hasGcode);
+    hasPrinter &&
+    !activeJob &&
+    !isPrintStatusLoading &&
+    (printStatus === null || hasGcode);
   const printHint = printQueueHint({
     hasPrinter,
     isLoading: isPrintStatusLoading,
     status: printStatus,
   });
+  /**
+   * Выбранного принтера может не быть в парке: его удалили после назначения.
+   * Оставляем строку в списке, чтобы значение не «прыгало» на «Не выбран», и
+   * подсказываем выбрать живую машину.
+   */
+  const isSelectedPrinterMissing =
+    hasPrinter && !printers.some((printer) => printer.id === selectedPrinterId);
 
   return createPortal(
     <div
@@ -908,17 +1018,82 @@ export function OrderDetailsDialog({
                   {printHint}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleQueuePrint}
-                disabled={!canQueuePrint || isQueueing}
-                aria-busy={isQueueing}
-                data-order-print-queue-button
-                className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(59,130,246,0.8)] transition-colors hover:bg-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isQueueing ? "Ставим в очередь…" : "В очередь на печать"}
-              </button>
+              {activeJob ? (
+                <span
+                  data-order-print-job-status={activeJob.status}
+                  className={
+                    activeJob.status === "printing"
+                      ? "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100"
+                      : "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 text-sm font-semibold text-amber-100"
+                  }
+                >
+                  <span aria-hidden>
+                    {activeJob.status === "printing" ? "▶" : "⏳"}
+                  </span>
+                  {activeJobLabel}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleQueuePrint}
+                  disabled={!canQueuePrint || isQueueing}
+                  aria-busy={isQueueing}
+                  data-order-print-queue-button
+                  className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(59,130,246,0.8)] transition-colors hover:bg-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isQueueing ? "Ставим в очередь…" : "В очередь на печать"}
+                </button>
+              )}
             </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <label
+                htmlFor="order-print-printer"
+                className="text-xs font-semibold text-zinc-300"
+              >
+                Принтер
+              </label>
+              <select
+                id="order-print-printer"
+                value={selectedPrinterId}
+                onChange={handlePrinterChange}
+                disabled={isPrinterSaving}
+                data-order-print-printer
+                className="min-h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-all duration-200 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <option value="">Не выбран</option>
+                {isSelectedPrinterMissing ? (
+                  <option value={selectedPrinterId}>
+                    Принтер удалён из парка
+                  </option>
+                ) : null}
+                {printers.map((printer) => (
+                  <option key={printer.id} value={printer.id}>
+                    {printer.name}
+                  </option>
+                ))}
+              </select>
+              {isPrinterSaving ? (
+                <span className="text-xs text-zinc-500">Сохраняем…</span>
+              ) : null}
+            </div>
+
+            {printers.length === 0 ? (
+              <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                Принтеров пока нет — добавьте их на вкладке «Принтеры», иначе
+                задание некуда поставить.
+              </p>
+            ) : null}
+
+            {printerError ? (
+              <p
+                role="alert"
+                data-order-print-printer-error
+                className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm leading-relaxed text-red-100"
+              >
+                {printerError}
+              </p>
+            ) : null}
             {printError ? (
               <p
                 role="alert"

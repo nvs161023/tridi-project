@@ -37,6 +37,7 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { normalizeOrderRow, ORDER_TEXT_LIMITS } from "@/lib/workshop/orders";
+import { PRINTER_TEXT_LIMITS } from "@/lib/workshop/printers";
 import { parseWorkshopNumber } from "@/lib/workshop/settings";
 
 const ORDER_WITH_ITEMS_COLUMNS =
@@ -575,7 +576,107 @@ export async function createPrintJob(
     return fail("write_failed", "База вернула задание в неизвестном формате.");
   }
 
+  // Заказ на Канбане переезжает в «Печать» сразу, как только у него появилось
+  // задание: иначе карточка «В очереди» висела бы в колонке «Новые», пока агент
+  // не отчитается о старте. Переход ограничен статусом `new`: повторная
+  // постановка в очередь не должна откатывать доску назад из ready/delivered.
+  // Ошибку записи здесь только логируем — задание уже создано, и возвращать
+  // «не удалось» значило бы соврать: агент фермы его увидит.
+  const orderUpdate = await ctx.supabase
+    .from("workshop_orders")
+    .update({ status: "printing" })
+    .eq("id", input.orderId)
+    .eq("user_id", ctx.userId)
+    .eq("status", "new");
+
+  if (orderUpdate.error) {
+    console.warn(
+      "Статус заказа после постановки в очередь не обновлён:",
+      orderUpdate.error.code,
+      orderUpdate.error.message,
+    );
+  }
+
   return ok(job);
+}
+
+/**
+ * Активное задание печати заказа для карточки CRM.
+ *
+ * Карточка показывает не кнопку «В очередь на печать», а состояние задания,
+ * когда оно уже создано: «В очереди» или «Печатается на Bambu». Имя принтера
+ * читается из самого задания, а не из заказа: принтер заказа мог смениться уже
+ * после постановки, а печатать будет тот, которому задание отдали.
+ *
+ * Пустой ответ (`null`) — нормальное состояние «в очереди ничего нет»;
+ * незавершённое задание ищется по статусам queued/printing, как и в
+ * `findActivePrintJob`, и берётся самое свежее: старая история печати карточку не
+ * интересует.
+ */
+export type OrderActivePrintJob = {
+  status: "queued" | "printing";
+  printerId: string | null;
+  /** null — принтер не назначен или его удалили из парка. */
+  printerName: string | null;
+};
+
+export async function getOrderActivePrintJob(
+  orderId: string,
+  context?: WorkshopFarmContext,
+): Promise<WorkshopFarmResult<OrderActivePrintJob | null>> {
+  if (!isWorkshopUuid(orderId)) {
+    return fail("invalid_id", "Заказ указан неверно.");
+  }
+
+  const ctx = await resolveContext(context);
+
+  if (!ctx) {
+    return fail("unauthorized", "Нужно войти в мастерскую.");
+  }
+
+  const jobResult = await ctx.supabase
+    .from("workshop_print_jobs")
+    .select(PRINT_JOB_COLUMNS)
+    .eq("user_id", ctx.userId)
+    .eq("order_id", orderId)
+    .in("status", ["queued", "printing"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (jobResult.error) {
+    return readFailure(jobResult.error, "Очередь печати не прочитана.");
+  }
+
+  const job = normalizePrintJob(jobResult.data);
+
+  if (!job) {
+    return ok(null);
+  }
+
+  let printerName: string | null = null;
+
+  if (job.printerId) {
+    const printerResult = await ctx.supabase
+      .from("workshop_printers")
+      .select("name")
+      .eq("id", job.printerId)
+      .eq("user_id", ctx.userId)
+      .maybeSingle();
+
+    if (printerResult.error) {
+      return readFailure(printerResult.error, "Принтер задания не прочитан.");
+    }
+
+    printerName =
+      readText(readRow(printerResult.data)?.name, PRINTER_TEXT_LIMITS.name) || null;
+  }
+
+  return ok({
+    status: job.status === "printing" ? "printing" : "queued",
+    printerId: job.printerId,
+    printerName,
+  });
 }
 
 /**
