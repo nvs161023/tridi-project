@@ -574,6 +574,7 @@ export function WorkshopOrdersTab({
           order={detailsOrder}
           clients={clients}
           filaments={filaments}
+          products={products}
           onUpdated={setNotice}
           onClose={closeDetails}
         />

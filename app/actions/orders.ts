@@ -24,6 +24,7 @@ import {
 } from "@/lib/workshop/filaments";
 import {
   ORDER_COMMENT_COLUMNS,
+  ORDER_ITEM_COLUMNS,
   ORDER_STATUS_META,
   ORDER_TEXT_LIMITS,
   formatOrderHours,
@@ -31,16 +32,20 @@ import {
   isOrderId,
   isOrderStatus,
   normalizeOrderComment,
+  normalizeOrderItemSummary,
   planFilamentUsage,
   planPrinterUsage,
   readOrderCommentText,
   readOrderEditForm,
   readOrderForm,
+  readOrderItemQuantity,
+  readOrderItemSku,
   type FilamentUsagePlan,
   type OrderComment,
   type OrderFlowStatus,
+  type OrderItemSummary,
 } from "@/lib/workshop/orders";
-import { getOrderComments } from "@/lib/workshop/order-store";
+import { getOrderComments, getOrderItems } from "@/lib/workshop/order-store";
 import {
   createFilamentUsagePayload,
   createOrderPayload,
@@ -104,6 +109,12 @@ const PRINT_QUEUE_FAILED =
   "Не удалось поставить задание в очередь. Попробуйте ещё раз.";
 /** Текст успеха: его показывает всплывающее уведомление в карточке. */
 const PRINT_QUEUE_ADDED = "Задание добавлено в очередь.";
+const ORDER_ITEM_PRODUCT_REQUIRED =
+  "Выберите товар из каталога — без него позицию не добавить.";
+const ORDER_ITEM_ADD_FAILED =
+  "Не удалось добавить позицию. Попробуйте ещё раз.";
+const ORDER_ITEM_MIGRATION_MISSING =
+  "Позиции заказа пока не сохраняются: в базе нет таблицы workshop_order_items. Примените миграцию supabase/workshop_farm_and_shop.sql.";
 
 /**
  * Создание заказа с расходом ресурсов.
@@ -1003,6 +1014,172 @@ export async function addOrderComment(
   return comment
     ? { ok: true, comment }
     : { ok: false, error: COMMENT_ADD_FAILED };
+}
+
+/** Ответ карточки на добавление позиции. */
+type AddOrderItemResult =
+  | { ok: true; item: OrderItemSummary; message: string }
+  | { ok: false; error: string };
+
+/**
+ * Позиции заказа для открытой карточки.
+ *
+ * Тонкая граница Server Action над `getOrderItems`: клиентский компонент не
+ * может импортировать модуль чтения — тот тянет серверный клиент Supabase и
+ * cookies. Пустой список при ошибке не мешает открыть карточку: детали заказа
+ * остаются видны, а добавление позиции покажет причину.
+ */
+export async function loadOrderItems(
+  orderId: string,
+): Promise<OrderItemSummary[]> {
+  return getOrderItems(orderId);
+}
+
+/**
+ * Ручное добавление позиции в заказ.
+ *
+ * Порядок проверок как у остальных действий: id → количество → сессия →
+ * подписка → заказ → товар → вставка. Товар обязан принадлежать этому же
+ * пользователю: RLS отсекает чужие строки, но id приходит из браузера, поэтому
+ * `user_id` повторяется в самом запросе и условие видно в коде.
+ *
+ * `sku` — снимок артикула товара: если товар удалят, позиция останется с
+ * артикулом и количеством, а `product_id` обнулится по `on delete set null`.
+ *
+ * Стоимость заказа (`total_cost`) не пересчитывается: это ручное поле, куда
+ * мастер включает работу, а не только товары. Карточка показывает сумму
+ * позиций отдельной строкой и введённую стоимость не трогает.
+ *
+ * `revalidatePath` нужен печатным формам и `router.refresh()` на доске:
+ * спецификация и накладная читают позиции с сервера.
+ */
+export async function addOrderItem(
+  orderId: string,
+  productId: string,
+  quantity: number,
+): Promise<AddOrderItemResult> {
+  if (!isOrderId(orderId)) {
+    return { ok: false, error: INVALID_ID };
+  }
+
+  if (!isOrderId(productId)) {
+    return { ok: false, error: ORDER_ITEM_PRODUCT_REQUIRED };
+  }
+
+  const { quantity: amount, error: quantityError } =
+    readOrderItemQuantity(quantity);
+
+  if (quantityError) {
+    return { ok: false, error: quantityError };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  // Позиция не должна ссылаться на чужой заказ: RLS позиций проверяет только
+  // user_id, поэтому принадлежность заказа проверяется здесь.
+  const { data: order, error: orderError } = await supabase
+    .from("workshop_orders")
+    .select("id")
+    .eq("id", orderId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (orderError) {
+    console.warn(
+      "Заказ для позиции не прочитан:",
+      orderError.code,
+      orderError.message,
+    );
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(orderError.code, orderError.message)
+        ? MIGRATION_MISSING
+        : LOAD_FAILED,
+    };
+  }
+
+  if (!order) {
+    return { ok: false, error: ORDER_NOT_FOUND };
+  }
+
+  const { data: product, error: productError } = await supabase
+    .from("workshop_products")
+    .select("id, sku, title")
+    .eq("id", productId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (productError) {
+    console.warn(
+      "Товар для позиции не прочитан:",
+      productError.code,
+      productError.message,
+    );
+
+    return { ok: false, error: LOAD_FAILED };
+  }
+
+  const productRow = product as { sku?: unknown; title?: unknown } | null;
+
+  if (!productRow) {
+    return { ok: false, error: PRODUCT_NOT_FOUND };
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_order_items")
+    .insert({
+      user_id: user.id,
+      order_id: orderId,
+      product_id: productId,
+      sku: readOrderItemSku(productRow.sku),
+      quantity: amount,
+    })
+    .select(ORDER_ITEM_COLUMNS)
+    .single();
+
+  if (error) {
+    console.warn("Позиция не добавлена:", error.code, error.message);
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(error.code, error.message)
+        ? ORDER_ITEM_MIGRATION_MISSING
+        : ORDER_ITEM_ADD_FAILED,
+    };
+  }
+
+  const item = normalizeOrderItemSummary(
+    data as Partial<Record<string, unknown>>,
+  );
+
+  if (!item) {
+    return { ok: false, error: ORDER_ITEM_ADD_FAILED };
+  }
+
+  revalidatePath("/dashboard/workshop");
+
+  const title =
+    typeof productRow.title === "string" && productRow.title.trim()
+      ? productRow.title.trim()
+      : "Позиция";
+
+  return {
+    ok: true,
+    item,
+    message: `«${title}» × ${amount} добавлена в заказ.`,
+  };
 }
 
 /** Удаление заказа после неудачного update: база не должна хранить фантом. */

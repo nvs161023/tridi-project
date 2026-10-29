@@ -559,6 +559,116 @@ export function normalizeOrderComment(
   };
 }
 
+// -----------------------------------------------------------------------------
+// Позиции заказа
+// -----------------------------------------------------------------------------
+
+/**
+ * Колонки позиции для карточки заказа.
+ *
+ * Товар приходит по внешнему ключу `workshop_order_items_product_id_fkey` из
+ * `supabase/workshop_farm_and_shop.sql`: имя связи должно совпадать с базой,
+ * иначе PostgREST не найдёт отношение. Карточке нужно только название — цена и
+ * габариты товара уже есть в списке `products` на странице.
+ */
+export const ORDER_ITEM_COLUMNS =
+  "id, product_id, sku, quantity, created_at, product:workshop_products!workshop_order_items_product_id_fkey(id, title)";
+
+/** Позиция заказа в карточке: название товара и количество. */
+export type OrderItemSummary = {
+  id: string;
+  /** Товар каталога; null — товар удалили, остались артикул и количество. */
+  productId: string | null;
+  /** Артикул на момент добавления; null — позиция без артикула. */
+  sku: string | null;
+  /** Название товара; null — товара уже нет в каталоге. */
+  productTitle: string | null;
+  quantity: number;
+};
+
+/** Предел количества — как у check в `workshop_order_items` (1…10 000). */
+export const ORDER_ITEM_QUANTITY_LIMIT = 10_000;
+
+/**
+ * Артикул позиции: снимок `workshop_products.sku` на момент добавления.
+ *
+ * Пустая строка и значение длиннее 128 символов дают null: база принимает
+ * только `char_length(btrim(sku)) between 1 and 128`
+ * (`workshop_order_items_sku_check`).
+ */
+export function readOrderItemSku(value: unknown): string | null {
+  const sku = typeof value === "string" ? value.trim() : "";
+
+  return sku && sku.length <= 128 ? sku : null;
+}
+
+/**
+ * Количество из формы или Server Action.
+ *
+ * Проверка одна для браузера и сервера: база принимает целое от 1 до 10 000
+ * (`workshop_order_items_quantity_check`), поэтому пустое и дробное значение
+ * отклоняются до запроса. Запятая понимается как десятичный разделитель —
+ * `parseWorkshopNumber` тот же, что у остальных числовых полей мастерской.
+ */
+export function readOrderItemQuantity(value: unknown): {
+  quantity: number;
+  error: string | null;
+} {
+  const parsed = parseWorkshopNumber(
+    typeof value === "string" ? value.trim() : value,
+  );
+
+  if (parsed === null) {
+    return { quantity: 0, error: "Укажите количество." };
+  }
+
+  if (!Number.isInteger(parsed)) {
+    return { quantity: 0, error: "Количество — целое число." };
+  }
+
+  if (parsed < 1 || parsed > ORDER_ITEM_QUANTITY_LIMIT) {
+    return {
+      quantity: 0,
+      error: `Количество — от 1 до ${formatWorkshopLimit(ORDER_ITEM_QUANTITY_LIMIT)}.`,
+    };
+  }
+
+  return { quantity: parsed, error: null };
+}
+
+/**
+ * Строка `workshop_order_items` → позиция для карточки.
+ *
+ * Товар приходит объектом (связь «многие к одному»), но PostgREST умеет
+ * отдавать и массив — читаем оба вида. Строка без uuid или с количеством вне
+ * предела отбрасывается: карточка не должна падать из-за одной битой записи.
+ */
+export function normalizeOrderItemSummary(
+  row: Partial<Record<string, unknown>> | null | undefined,
+): OrderItemSummary | null {
+  if (!row || !isOrderId(row.id)) {
+    return null;
+  }
+
+  const { quantity, error } = readOrderItemQuantity(row.quantity);
+
+  if (error) {
+    return null;
+  }
+
+  const product = (
+    Array.isArray(row.product) ? row.product[0] : row.product
+  ) as Partial<Record<string, unknown>> | null | undefined;
+
+  return {
+    id: row.id,
+    productId: isOrderId(row.product_id) ? row.product_id : null,
+    sku: readOrderItemSku(row.sku),
+    productTitle: product ? readText(product.title, 200) || null : null,
+    quantity,
+  };
+}
+
 /**
  * Новая наработка принтера после заказа.
  *

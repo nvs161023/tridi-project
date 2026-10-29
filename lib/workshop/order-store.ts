@@ -14,10 +14,13 @@ import {
   ORDER_CLIENT_COLUMNS,
   ORDER_COLUMNS,
   ORDER_COMMENT_COLUMNS,
+  ORDER_ITEM_COLUMNS,
   isOrderId,
   normalizeOrderComment,
+  normalizeOrderItemSummary,
   normalizeOrderRow,
   type OrderComment,
+  type OrderItemSummary,
   type WorkshopOrder,
 } from "@/lib/workshop/orders";
 
@@ -195,4 +198,50 @@ export async function getOrderComments(
   return rows
     .map(normalizeOrderComment)
     .filter((comment): comment is OrderComment => comment !== null);
+}
+
+/**
+ * Позиции заказа для карточки: название товара и количество.
+ *
+ * Читаются при открытии карточки по той же причине, что и комментарии: доска
+ * заказов не держит позиции в памяти. Порядок — `created_at asc`, как позиции
+ * добавляли. Пустой или битый id не идёт в PostgREST, а ошибка запроса даёт
+ * пустой список: карточка открывается, форма добавления позиции остаётся
+ * доступной и сама объяснит причину. Таблицу создаёт
+ * `supabase/workshop_farm_and_shop.sql` — до миграции список просто пуст.
+ */
+export async function getOrderItems(
+  orderId: string,
+): Promise<OrderItemSummary[]> {
+  if (!isOrderId(orderId)) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_order_items")
+    .select(ORDER_ITEM_COLUMNS)
+    .eq("order_id", orderId)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.warn("Позиции заказа не прочитаны:", error.code, error.message);
+
+    return [];
+  }
+
+  const rows = (data ?? []) as Partial<Record<string, unknown>>[];
+
+  return rows
+    .map(normalizeOrderItemSummary)
+    .filter((item): item is OrderItemSummary => item !== null);
 }

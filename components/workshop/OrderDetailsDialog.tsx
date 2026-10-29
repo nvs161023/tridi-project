@@ -6,6 +6,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useTransition,
@@ -14,15 +15,21 @@ import { createPortal } from "react-dom";
 
 import {
   addOrderComment,
+  addOrderItem,
   deleteOrder,
   loadOrderComments,
+  loadOrderItems,
   loadOrderPrintStatus,
   queueOrderForPrint,
 } from "@/app/actions/orders";
 import type { OrderPrintStatus } from "@/app/actions/orders-state";
 import { EditOrderDialog } from "@/components/workshop/EditOrderDialog";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
-import { PencilIcon, TrashIcon } from "@/components/workshop/WorkshopIcons";
+import {
+  PencilIcon,
+  PlusIcon,
+  TrashIcon,
+} from "@/components/workshop/WorkshopIcons";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import {
   formatGrams,
@@ -30,13 +37,16 @@ import {
 } from "@/lib/workshop/filaments";
 import {
   ORDER_COMMENT_TEXT_LIMIT,
+  ORDER_ITEM_QUANTITY_LIMIT,
   ORDER_STATUS_META,
   formatOrderCost,
   formatOrderDate,
   formatOrderHours,
   type OrderComment,
+  type OrderItemSummary,
   type WorkshopOrder,
 } from "@/lib/workshop/orders";
+import type { WorkshopProduct } from "@/lib/workshop/products";
 
 /**
  * Карточка заказа: детали и переписка.
@@ -50,6 +60,12 @@ import {
  * Окно не мешает перетаскиванию: пока оно открыто, overlay перекрывает доску, а
  * клик по карточке открывает окно только после того, как доска убедилась, что
  * это не конец drag-and-drop (см. WorkshopOrdersTab).
+ *
+ * Позиции заказа — отдельный блок с кнопкой «Добавить позицию»: доска держит
+ * только деньги и принтер, поэтому список читается при открытии карточки тем же
+ * способом, что и комментарии. Добавление идёт через Server Action
+ * `addOrderItem`, а сохранённая строка сразу попадает в список — ждать
+ * перезагрузки страницы незачем.
  */
 
 type OrderDetailsDialogProps = {
@@ -58,6 +74,8 @@ type OrderDetailsDialogProps = {
   clients: WorkshopClient[];
   /** Катушки склада: окно правки предупреждает о нехватке пластика. */
   filaments: WorkshopFilament[];
+  /** Каталог товаров: из него выбирают позицию заказа. */
+  products: WorkshopProduct[];
   onClose: () => void;
   /** Сообщение для строки состояния на доске после правки. */
   onUpdated: (message: string) => void;
@@ -130,6 +148,7 @@ export function OrderDetailsDialog({
   order,
   clients,
   filaments,
+  products,
   onClose,
   onUpdated,
 }: OrderDetailsDialogProps) {
@@ -145,6 +164,25 @@ export function OrderDetailsDialog({
   const [isEditOpen, setIsEditOpen] = useState(false);
   /** Подтверждение сохранения остаётся в карточке до её закрытия. */
   const [updateNotice, setUpdateNotice] = useState<string | null>(null);
+  /** Позиции заказа: читаются при открытии, добавляются вручную. */
+  const [items, setItems] = useState<OrderItemSummary[]>([]);
+  const [isItemsLoading, setIsItemsLoading] = useState(true);
+  const [itemsError, setItemsError] = useState<string | null>(null);
+  /** Форма добавления позиции раскрыта под списком. */
+  const [isItemFormOpen, setIsItemFormOpen] = useState(false);
+  const [newProductId, setNewProductId] = useState("");
+  const [newQuantity, setNewQuantity] = useState("1");
+  const [itemFormError, setItemFormError] = useState<string | null>(null);
+  const [itemNotice, setItemNotice] = useState<string | null>(null);
+  const [isAddingItem, setIsAddingItem] = useState(false);
+  /**
+   * Счётчик добавленных позиций.
+   *
+   * Готовность к печати зависит от позиций, но `order` приходит пропсом и после
+   * `router.refresh()` меняется не сразу. Счётчик перечитывает статус печати
+   * сразу после успешного добавления, не дожидаясь нового пропса.
+   */
+  const [itemsVersion, setItemsVersion] = useState(0);
   /** Позиции с G-code: от ответа зависит доступность кнопки очереди печати. */
   const [printStatus, setPrintStatus] = useState<OrderPrintStatus | null>(null);
   const [isPrintStatusLoading, setIsPrintStatusLoading] = useState(false);
@@ -207,6 +245,47 @@ export function OrderDetailsDialog({
     };
   }, [order.id]);
 
+  /**
+   * Позиции заказа читаются при открытии карточки.
+   *
+   * Доска их не держит: `WorkshopOrder` знает только деньги и принтер. Ошибка
+   * чтения остаётся текстом в блоке позиций — карточка открывается, а форма
+   * добавления сама объяснит причину, если база не готова.
+   */
+  useEffect(() => {
+    let isActive = true;
+    setIsItemsLoading(true);
+    setItemsError(null);
+    setItemNotice(null);
+    setItemFormError(null);
+    setIsItemFormOpen(false);
+    setNewProductId("");
+    setNewQuantity("1");
+
+    loadOrderItems(order.id)
+      .then((list) => {
+        if (isActive) {
+          setItems(list);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setItemsError(
+            "Не удалось загрузить позиции. Закройте карточку и откройте снова.",
+          );
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsItemsLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [order.id]);
+
   useEffect(() => {
     if (isLoading || loadError || comments.length === 0) {
       return;
@@ -252,7 +331,7 @@ export function OrderDetailsDialog({
     return () => {
       isActive = false;
     };
-  }, [order.id, order.printerId]);
+  }, [order.id, order.printerId, itemsVersion]);
 
   /** Уведомление об успехе гаснет само — закрывать его руками не нужно. */
   useEffect(() => {
@@ -303,6 +382,65 @@ export function OrderDetailsDialog({
       );
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  /**
+   * Добавление позиции из каталога.
+   *
+   * Товар и количество проверяются до запроса: сервер повторит проверку
+   * (`readOrderItemQuantity`), потому что Server Action — публичный endpoint.
+   * Сохранённую строку окно показывает сразу, а `router.refresh()` обновляет
+   * доску и печатные формы, которые читают позиции с сервера.
+   */
+  async function handleAddItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (isAddingItem) {
+      return;
+    }
+
+    if (!newProductId) {
+      setItemFormError("Выберите товар из каталога.");
+      return;
+    }
+
+    const quantity = Number(newQuantity.replace(",", "."));
+
+    if (
+      !Number.isInteger(quantity) ||
+      quantity < 1 ||
+      quantity > ORDER_ITEM_QUANTITY_LIMIT
+    ) {
+      setItemFormError(
+        `Количество — целое число от 1 до ${ORDER_ITEM_QUANTITY_LIMIT.toLocaleString("ru-RU")}.`,
+      );
+      return;
+    }
+
+    setItemFormError(null);
+    setIsAddingItem(true);
+
+    try {
+      const result = await addOrderItem(order.id, newProductId, quantity);
+
+      if (!result.ok) {
+        setItemFormError(result.error);
+        return;
+      }
+
+      setItems((current) => [...current, result.item]);
+      setItemNotice(result.message);
+      setIsItemFormOpen(false);
+      setNewProductId("");
+      setNewQuantity("1");
+      setItemsVersion((version) => version + 1);
+      onUpdated(result.message);
+      router.refresh();
+    } catch {
+      setItemFormError("Нет связи с сервером. Попробуйте ещё раз.");
+    } finally {
+      setIsAddingItem(false);
     }
   }
 
@@ -408,6 +546,25 @@ export function OrderDetailsDialog({
       editTriggerRef.current?.focus();
     });
   }, []);
+
+  /**
+   * Цены товаров по id: сумму позиций карточка считает сама.
+   *
+   * В `workshop_order_items` цены нет — она живёт в каталоге. Сумма нужна для
+   * справки: `total_cost` заказа остаётся ручным полем мастера, потому что
+   * включает работу, а не только товары.
+   */
+  const productById = useMemo(
+    () => new Map(products.map((product) => [product.id, product])),
+    [products],
+  );
+  const itemsTotal = items.reduce((sum, item) => {
+    const product = item.productId
+      ? productById.get(item.productId)
+      : undefined;
+
+    return product ? sum + product.price * item.quantity : sum;
+  }, 0);
 
   if (typeof document === "undefined") {
     return null;
@@ -556,6 +713,183 @@ export function OrderDetailsDialog({
               value={formatOrderDate(order.deadline)}
             />
           </dl>
+
+          <section
+            aria-labelledby="order-items-title"
+            data-order-items
+            className="mt-5 rounded-xl border border-white/[0.08] bg-white/[0.025] px-4 py-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3
+                  id="order-items-title"
+                  className="text-[10px] font-semibold tracking-wide text-zinc-500 uppercase"
+                >
+                  Позиции заказа
+                </h3>
+                <p
+                  aria-live="polite"
+                  data-order-items-summary
+                  className="mt-1 text-sm leading-relaxed text-zinc-400"
+                >
+                  {isItemsLoading
+                    ? "Загружаем позиции…"
+                    : items.length === 0
+                      ? "Позиций пока нет — печатать нечего."
+                      : `Всего: ${items.length}`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setItemFormError(null);
+                  setIsItemFormOpen((open) => !open);
+                }}
+                aria-expanded={isItemFormOpen}
+                aria-controls="order-item-form"
+                data-order-item-add
+                className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              >
+                <PlusIcon className="h-4 w-4" />
+                {isItemFormOpen ? "Свернуть" : "Добавить позицию"}
+              </button>
+            </div>
+
+            {itemsError ? (
+              <p
+                role="alert"
+                className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm leading-relaxed text-red-100"
+              >
+                {itemsError}
+              </p>
+            ) : null}
+
+            {items.length > 0 ? (
+              <ul data-order-items-list className="mt-3 space-y-2">
+                {items.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2"
+                  >
+                    <span className="min-w-0 text-sm leading-relaxed break-words text-zinc-200">
+                      {item.productTitle ?? item.sku ?? "Позиция без товара"}
+                      {item.productTitle && item.sku ? (
+                        <span className="ml-2 text-[11px] text-zinc-500">
+                          {item.sku}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="shrink-0 text-sm font-semibold text-white tabular-nums">
+                      × {item.quantity}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            {itemsTotal > 0 ? (
+              <p
+                data-order-items-total
+                className="mt-2 text-[11px] leading-relaxed text-zinc-500"
+              >
+                Сумма по товарам: {formatOrderCost(itemsTotal)}. Стоимость
+                заказа выше задаётся вручную и не меняется.
+              </p>
+            ) : null}
+
+            {isItemFormOpen ? (
+              <form
+                id="order-item-form"
+                onSubmit={handleAddItem}
+                data-order-item-form
+                className="mt-3 space-y-3 rounded-xl border border-white/[0.07] bg-black/30 px-3 py-3"
+              >
+                <div>
+                  <label
+                    htmlFor="order-item-product"
+                    className="block text-xs font-semibold text-zinc-300"
+                  >
+                    Товар
+                  </label>
+                  <select
+                    id="order-item-product"
+                    value={newProductId}
+                    onChange={(event) => {
+                      setNewProductId(event.target.value);
+                      setItemFormError(null);
+                    }}
+                    disabled={isAddingItem || products.length === 0}
+                    className="mt-1.5 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white outline-none transition-all duration-200 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset disabled:opacity-60"
+                  >
+                    <option value="">— Выберите товар —</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.title}
+                        {product.gcodeUrl ? " · G-code" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {products.length === 0 ? (
+                    <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+                      Каталог пуст — добавьте товары на вкладке «Товары».
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="w-28">
+                    <label
+                      htmlFor="order-item-quantity"
+                      className="block text-xs font-semibold text-zinc-300"
+                    >
+                      Количество
+                    </label>
+                    <input
+                      id="order-item-quantity"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={ORDER_ITEM_QUANTITY_LIMIT}
+                      step={1}
+                      value={newQuantity}
+                      onChange={(event) => setNewQuantity(event.target.value)}
+                      disabled={isAddingItem}
+                      className="mt-1.5 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white tabular-nums outline-none transition-all duration-200 [appearance:textfield] focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset disabled:opacity-60 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isAddingItem || products.length === 0}
+                    aria-busy={isAddingItem}
+                    data-order-item-submit
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-5 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isAddingItem ? "Добавляем…" : "Добавить"}
+                  </button>
+                </div>
+
+                {itemFormError ? (
+                  <p
+                    role="alert"
+                    data-order-item-error
+                    className="rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm leading-relaxed text-red-100"
+                  >
+                    {itemFormError}
+                  </p>
+                ) : null}
+              </form>
+            ) : null}
+
+            {itemNotice ? (
+              <p
+                role="status"
+                data-order-item-notice
+                className="mt-3 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm leading-relaxed text-emerald-100"
+              >
+                {itemNotice}
+              </p>
+            ) : null}
+          </section>
 
           <div
             data-order-print-queue
