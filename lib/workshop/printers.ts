@@ -70,6 +70,14 @@ export type WorkshopPrinter = {
   remainingTime: number;
   /** Когда агент последний раз получил ответ; null — ещё ни разу. */
   lastSeenAt: string | null;
+  /**
+   * Серийный номер Bambu Lab (SN); null — не задан.
+   *
+   * По нему агент строит MQTT-топики device/<serial>/…, поэтому без него
+   * Bambu-принтер приходится искать в сети (SSDP). У Moonraker и OctoPrint
+   * такого понятия нет.
+   */
+  serialNumber: string | null;
   createdAt: string | null;
 };
 
@@ -78,6 +86,17 @@ export type PrinterDraft = {
   name: string;
   brand: string;
   model: string;
+  /** Чем агент управляет принтером; Bambu добавляет к этому SN и LAN-режим. */
+  protocolType: PrinterProtocol;
+  /** SN для Bambu; пустая строка — поле скрыто или его не заполнили. */
+  serialNumber: string;
+  /** Адрес в локальной сети: без него агенту некуда подключаться. */
+  ipAddress: string;
+  /**
+   * Ключ API (Moonraker/OctoPrint) или код доступа Bambu; пустая строка — не
+   * задан, в базе это null. Секрет: уходит только агенту.
+   */
+  apiKey: string;
   nozzleInterval: number;
   lubricationInterval: number;
   zScrewInterval: number;
@@ -89,6 +108,10 @@ export type PrinterFormErrors = Partial<
     | "name"
     | "brand"
     | "model"
+    | "protocol"
+    | "serialNumber"
+    | "ipAddress"
+    | "apiKey"
     | "nozzleInterval"
     | "lubricationInterval"
     | "zScrewInterval",
@@ -107,14 +130,22 @@ export type PrinterFormErrors = Partial<
 export const PRINTER_BASE_COLUMNS =
   "id, name, brand, model, total_hours, nozzle_hours, nozzle_interval, lubrication_hours, lubrication_interval, z_screw_hours, z_screw_interval, last_maintenance_date, created_at";
 
-/** Колонки, которые читает lib/workshop/printer-store.ts: парк плюс живые поля. */
-export const PRINTER_COLUMNS = `${PRINTER_BASE_COLUMNS}, status, progress, remaining_time, last_seen_at`;
+/**
+ * Колонки, которые читает lib/workshop/printer-store.ts: парк плюс живые поля
+ * агента. serial_number живёт там же: её добавляет та же миграция, а при её
+ * отсутствии printer-store перечитывает парк через PRINTER_BASE_COLUMNS.
+ */
+export const PRINTER_COLUMNS = `${PRINTER_BASE_COLUMNS}, status, progress, remaining_time, last_seen_at, serial_number`;
 
 /** Пределы текстовых полей — как у колонок text в миграции. */
 export const PRINTER_TEXT_LIMITS = {
   name: 60,
   brand: 40,
   model: 60,
+  /** Серийный номер Bambu: check в workshop_farm_and_shop.sql — 1…64 символа. */
+  serialNumber: 64,
+  /** Ключ API / код доступа: check в workshop_farm_and_shop.sql — 1…512 символов. */
+  apiKey: 512,
 } as const;
 
 /** Пределы интервалов обслуживания, ч. */
@@ -458,6 +489,12 @@ export function countMaintenanceDue(printer: WorkshopPrinter): number {
  * Бренд и модель — свободный текст: справочник `PRINTER_PRESETS` только
  * подставляет интервалы в форме, а модель может быть любой. Сервер проверяет
  * длину названий и интервалы теми же пределами, что SQL.
+ *
+ * Адрес обязателен: агент подключается к принтеру напрямую, и без `ip_address`
+ * карточка в парке осталась бы мёртвой. Ключ доступа необязателен — Moonraker и
+ * OctoPrint часто работают без него, у Bambu это код с экрана; пустое поле
+ * становится null, потому что check-ограничение миграции не принимает пустую
+ * строку.
  */
 export function readPrinterForm(formData: FormData): {
   draft: PrinterDraft | null;
@@ -487,6 +524,43 @@ export function readPrinterForm(formData: FormData): {
     errors.model = "Введите модель принтера.";
   } else if (model.length > PRINTER_TEXT_LIMITS.model) {
     errors.model = `Не больше ${PRINTER_TEXT_LIMITS.model} символов.`;
+  }
+
+  // Протокол приходит из `<select>`. Незнакомое значение — не повод терять
+  // принтер: Moonraker — и default колонки в миграции, и самый частый выбор.
+  const protocol = readFormText(formData.get("protocol"));
+  const protocolType: PrinterProtocol = isPrinterProtocol(protocol)
+    ? protocol
+    : "moonraker";
+
+  // SN есть только у Bambu: у Moonraker и OctoPrint поле в форме скрыто, и
+  // чужое значение не сохраняем — иначе в базе остался бы номер, который агент
+  // подставил бы в топик MQTT. Поле необязательное: без SN адаптер найдёт
+  // принтер сам, через SSDP или топик отчёта.
+  const serialNumber =
+    protocolType === "bambu" ? readFormText(formData.get("serialNumber")) : "";
+
+  if (serialNumber.length > PRINTER_TEXT_LIMITS.serialNumber) {
+    errors.serialNumber = `Не больше ${PRINTER_TEXT_LIMITS.serialNumber} символов.`;
+  }
+
+  // Адрес проверяется тем же normalizePrinterAddress, что и находки агента:
+  // «192.168.1.50» и «ender3.local» проходят, а «http://192.168.1.50» или
+  // строка с пробелом — нет. Без адреса принтер не подключить, поэтому поле
+  // обязательное.
+  const ipAddress = normalizePrinterAddress(formData.get("ipAddress"));
+
+  if (!ipAddress) {
+    errors.ipAddress =
+      "Укажите адрес вида 192.168.1.50 или имя узла (ender3.local) — без пробелов и «/».";
+  }
+
+  // Ключ необязателен и не обрезается по краям в базе (check смотрит на
+  // char_length), поэтому пустое поле обязано стать null, а не "".
+  const apiKey = readFormText(formData.get("apiKey"));
+
+  if (apiKey.length > PRINTER_TEXT_LIMITS.apiKey) {
+    errors.apiKey = `Не больше ${PRINTER_TEXT_LIMITS.apiKey} символов.`;
   }
 
   const nozzleInterval = readInterval(
@@ -519,6 +593,7 @@ export function readPrinterForm(formData: FormData): {
   if (
     brand.length === 0 ||
     model.length === 0 ||
+    ipAddress === null ||
     nozzleInterval === null ||
     lubricationInterval === null ||
     zScrewInterval === null ||
@@ -532,6 +607,10 @@ export function readPrinterForm(formData: FormData): {
       name,
       brand,
       model,
+      protocolType,
+      serialNumber,
+      ipAddress,
+      apiKey,
       nozzleInterval,
       lubricationInterval,
       zScrewInterval,
@@ -604,6 +683,9 @@ export function normalizePrinterRow(
       readNumberInRange(row.remaining_time, 0, Number.MAX_SAFE_INTEGER, true) ??
       0,
     lastSeenAt: typeof row.last_seen_at === "string" ? row.last_seen_at : null,
+    // Пустая строка и null — одно и то же «номера нет»: форма присылает "".
+    serialNumber:
+      readText(row.serial_number, PRINTER_TEXT_LIMITS.serialNumber) || null,
     createdAt: typeof row.created_at === "string" ? row.created_at : null,
   };
 }

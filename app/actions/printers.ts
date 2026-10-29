@@ -32,7 +32,7 @@ const SESSION_EXPIRED =
 const PRO_REQUIRED =
   "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы вести принтеры.";
 const MIGRATION_MISSING =
-  "Принтеры пока не сохраняются: в базе нет таблицы или колонок workshop_printers. Примените supabase/workshop_printers_orders.sql, а для уже созданной таблицы — supabase/workshop_printer_z_screw.sql.";
+  "Принтеры пока не сохраняются: в базе нет таблицы или колонок workshop_printers. Примените supabase/workshop_farm_and_shop.sql — он добавляет протокол, серийный номер, IP-адрес и ключ доступа; таблицу и колонки обслуживания создают workshop_printers_orders.sql и workshop_printer_z_screw.sql.";
 const ADD_FAILED = "Не удалось добавить принтер. Попробуйте ещё раз.";
 const RESET_FAILED = "Не удалось сбросить счётчик. Попробуйте ещё раз.";
 const LOAD_FAILED = "Не удалось прочитать принтер. Попробуйте ещё раз.";
@@ -67,6 +67,11 @@ function todayIsoDate(): string {
  * Порядок проверок тот же, что у склада: разбор формы → сессия → подписка →
  * запись. Server Action — публичный endpoint, поэтому подписка проверяется и
  * здесь, а не только на странице. RLS дополнительно сверяет auth.uid().
+ *
+ * Адрес и ключ доступа приходят из той же формы: `readPrinterForm` проверяет их
+ * вместе с остальными полями, а `createPrinterPayload` раскладывает в колонки
+ * ip_address и api_key. Ключ пустой — в базе null, а не "", иначе его отклонило
+ * бы check-ограничение миграции.
  */
 export async function addPrinter(
   _prevState: PrinterFormState,

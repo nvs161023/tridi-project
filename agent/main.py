@@ -185,8 +185,9 @@ def read_printer(task: dict[str, Any]) -> PrinterSettings | None:
     protocol_type = read_printer_field(printer, "protocolType", "protocol_type")
     ip_address = read_printer_field(printer, "ipAddress", "ip_address")
     api_key = read_printer_field(printer, "apiKey", "api_key") or ""
-    # Серийник сервер пока не отдаёт: у Bambu в настройках Мастерской только
-    # адрес и код доступа. Пустая строка — нормальный случай, а не ошибка.
+    # Серийник приходит из поля «Серийный номер (SN)» формы принтера
+    # (workshop_printers.serial_number). Поле необязательное: пустая строка —
+    # нормальный случай, и тогда адаптер находит номер сам (SSDP или топик).
     serial_number = (
         read_printer_field(printer, "serialNumber", "serial_number") or ""
     )

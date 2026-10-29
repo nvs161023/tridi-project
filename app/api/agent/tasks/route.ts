@@ -22,8 +22,9 @@ import { isOrderStatus, type OrderStatus } from "@/lib/workshop/orders";
  *   2. задания ищутся только своей мастерской (`user_id`) и только `queued`:
  *      `printing` уже взято, `done`/`failed` — история;
  *   3. к заданию подтягиваются заказ и принтер, чтобы агенту не пришлось
- *      делать второй запрос: нужны адрес и ключ принтера, а также название
- *      заказа для журнала.
+ *      делать второй запрос: нужны адрес, ключ и серийный номер принтера
+ *      (Bambu адресует MQTT-топики номером), а также название заказа для
+ *      журнала.
  *
  * Ответ: `{ "tasks": [...] }`. Пустой массив — нормальный ответ «печатать
  * нечего», а не ошибка. `gcodeUrl` — снимок ссылки на момент постановки
@@ -46,7 +47,7 @@ export const dynamic = "force-dynamic";
 const TASK_COLUMNS =
   "id, order_id, order_item_id, printer_id, gcode_url, status, created_at, " +
   "order:workshop_orders!workshop_print_jobs_order_id_fkey(id, title, status), " +
-  "printer:workshop_printers!workshop_print_jobs_printer_id_fkey(id, name, protocol_type, ip_address, api_key, status)";
+  "printer:workshop_printers!workshop_print_jobs_printer_id_fkey(id, name, protocol_type, ip_address, api_key, serial_number, status)";
 
 /** Сколько заданий отдавать за один опрос: защита от гигантского JSON. */
 const TASK_LIMIT = 200;
@@ -66,6 +67,14 @@ type AgentTaskPrinter = {
   protocolType: PrinterProtocol;
   ipAddress: string | null;
   apiKey: string | null;
+  /**
+   * Серийный номер Bambu (SN); null — мастер не заполнил поле.
+   *
+   * Bambu адресует MQTT-топики им: device/<serial>/report и
+   * device/<serial>/request. Без номера адаптер ищет принтер сам (SSDP), так что
+   * null — не ошибка, а «подсказки нет».
+   */
+  serialNumber: string | null;
   status: PrinterStatus;
 };
 
@@ -155,6 +164,7 @@ function normalizePrinter(value: unknown): AgentTaskPrinter | null {
       : "moonraker",
     ipAddress: readText(row.ip_address, 253),
     apiKey: readText(row.api_key, 512),
+    serialNumber: readText(row.serial_number, 64),
     status: isPrinterStatus(row.status) ? row.status : "offline",
   };
 }

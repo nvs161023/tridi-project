@@ -144,6 +144,24 @@ export type WorkshopPrinterPayload = {
   name: string;
   brand: string;
   model: string;
+  /**
+   * Протокол агента. В SQL у колонки default 'moonraker', но форма теперь
+   * спрашивает его явно: без этого Bambu-принтер, добавленный руками, остался
+   * бы Moonraker-принтером без адреса.
+   */
+  protocol_type: PrinterProtocol;
+  /** SN для Bambu; null — не задан, адаптер найдёт номер сам. */
+  serial_number: string | null;
+  /**
+   * Локальный адрес принтера. Обязателен: агент подключается к принтеру
+   * напрямую, и без адреса карточка в парке осталась бы мёртвой.
+   */
+  ip_address: string;
+  /**
+   * Ключ API (Moonraker/OctoPrint) или код доступа Bambu; null — принтер не
+   * требует. Секрет: уходит только агенту, в браузер не возвращается.
+   */
+  api_key: string | null;
   nozzle_interval: number;
   lubrication_interval: number;
   z_screw_interval: number;
@@ -162,6 +180,12 @@ export function createPrinterPayload(
     name: draft.name,
     brand: draft.brand,
     model: draft.model,
+    protocol_type: draft.protocolType,
+    // Пустая строка из формы — это «номера нет»: в базе ему место только как null.
+    serial_number: draft.serialNumber || null,
+    ip_address: draft.ipAddress,
+    // Пустой ключ — тоже null: check-ограничение не принимает api_key длины 0.
+    api_key: draft.apiKey || null,
     nozzle_interval: draft.nozzleInterval,
     lubrication_interval: draft.lubricationInterval,
     z_screw_interval: draft.zScrewInterval,
@@ -171,12 +195,12 @@ export function createPrinterPayload(
 /**
  * Что уходит в `from("workshop_printers").insert(...)` для найденного принтера.
  *
- * Шире WorkshopPrinterPayload: у автообнаружения есть адрес, протокол и сразу
- * заданное состояние `idle` — принтер найден, но ещё не печатает.
+ * Шире WorkshopPrinterPayload только состоянием: принтер найден, но ещё не
+ * печатает, поэтому сразу `idle`. Адрес и протокол приходят из сети, ключа у
+ * автообнаружения нет — колонка остаётся null, адаптер попробует подключиться
+ * без него.
  */
 export type DiscoveredPrinterPayload = WorkshopPrinterPayload & {
-  protocol_type: PrinterProtocol;
-  ip_address: string;
   status: PrinterStatus;
 };
 
@@ -188,7 +212,8 @@ export type DiscoveredPrinterPayload = WorkshopPrinterPayload & {
  * как в пресете («Bambu Lab P1S»): заодно подставляются интервалы ТО этой
  * модели. Не совпало — «Неизвестно · Найден по сети» и интервалы по умолчанию,
  * как у формы без выбранной модели: карточка не должна показывать чужой
- * регламент.
+ * регламент. Серийного номера при сканировании нет: его знает только сам
+ * принтер и SSDP, поэтому колонка остаётся null, а адаптер найдёт номер сам.
  */
 export function createDiscoveredPrinterPayload(
   userId: string,
@@ -203,7 +228,9 @@ export function createDiscoveredPrinterPayload(
     brand: preset?.brand ?? DISCOVERED_PRINTER_BRAND,
     model: preset?.model ?? DISCOVERED_PRINTER_MODEL,
     protocol_type: protocolType,
+    serial_number: null,
     ip_address: draft.ipAddress,
+    api_key: null,
     status: "idle",
     nozzle_interval: preset?.nozzleHours ?? PRINTER_INTERVAL_DEFAULTS.nozzle,
     lubrication_interval:

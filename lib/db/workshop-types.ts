@@ -146,11 +146,17 @@ export type WorkshopOrderFinanceRow = {
   internal_print_cost: NumericValue | null;
 };
 
-/** Новые колонки workshop_printers, которые заполняет агент. */
+/**
+ * Новые колонки workshop_printers, которые заполняет мастер или агент.
+ *
+ * serial_number — колонка формы: SN нужен Bambu для адресации MQTT-топиков, у
+ * остальных протоколов он остаётся null.
+ */
 export type WorkshopPrinterAgentRow = {
   protocol_type: PrinterProtocol;
   ip_address: string | null;
   api_key: string | null;
+  serial_number: string | null;
   status: PrinterStatus;
   progress: number;
   remaining_time: number;
@@ -227,6 +233,8 @@ export type AgentPrinter = {
   ipAddress: string | null;
   /** Секрет: отдаётся только агенту, никогда — в браузер. */
   apiKey: string | null;
+  /** Серийный номер Bambu (SN) из формы; null — не задан. */
+  serialNumber: string | null;
   status: PrinterStatus;
   progress: number;
   remainingTime: number;

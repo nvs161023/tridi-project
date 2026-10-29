@@ -20,7 +20,8 @@
 --      площадке, сумма для клиента, комиссия площадки и внутренняя
 --      себестоимость печати. Из них аналитика считает маржу;
 --   2. расширяет workshop_printers полями локального агента: протокол, адрес,
---      ключ, состояние, прогресс и остаток печати;
+--      ключ, серийный номер (SN для Bambu), состояние, прогресс и остаток
+--      печати;
 --   3. выдаёт workshop_settings.agent_token — персональный ключ агента 3D-фермы
 --      (аналог webhook_token у Ozon) — и заводит флаг scan_requested: просьбу
 --      мастера «просканировать сеть», которую агент читает в цикле опроса;
@@ -161,10 +162,14 @@ create index if not exists workshop_orders_user_status_idx
 -- 0…100, remaining_time — секунды до конца печати. last_seen_at — когда агент
 -- последний раз успешно связался с принтером; по нему ферма показывает
 -- «офлайн», не полагаясь на status.
+-- serial_number — серийный номер Bambu Lab: по нему строятся топики
+-- device/<serial>/report и device/<serial>/request. У Moonraker и OctoPrint
+-- такого понятия нет, поэтому колонка nullable.
 alter table public.workshop_printers
   add column if not exists protocol_type text not null default 'moonraker',
   add column if not exists ip_address text,
   add column if not exists api_key text,
+  add column if not exists serial_number text,
   add column if not exists status text not null default 'idle',
   add column if not exists progress integer not null default 0,
   add column if not exists remaining_time integer not null default 0,
@@ -199,6 +204,8 @@ comment on column public.workshop_printers.ip_address is
   'Локальный адрес принтера в сети мастерской; null — агент ещё не настроен.';
 comment on column public.workshop_printers.api_key is
   'Ключ API принтера (Moonraker/OctoPrint). Секрет: только для агента, не для интерфейса.';
+comment on column public.workshop_printers.serial_number is
+  'Серийный номер Bambu Lab (SN): из него агент строит MQTT-топики. null — не задан, агент найдёт номер сам.';
 comment on column public.workshop_printers.status is
   'Состояние от агента: idle, printing, paused, error или offline.';
 comment on column public.workshop_printers.progress is
@@ -228,6 +235,28 @@ begin
           or char_length(btrim(ip_address)) between 1 and 253
         )
         and (api_key is null or char_length(api_key) between 1 and 512)
+      );
+  end if;
+end;
+$$;
+
+-- Серийник необязателен, но если он есть — это непустая строка до 64 символов:
+-- агент подставляет её в топик device/<serial>/…, и пустое или слишком длинное
+-- значение дало бы молчаливо нерабочую подписку. Предел с запасом покрывает
+-- формат Bambu (15 знаков) и будущие модели; пробелы по краям обрезает форма.
+do $$
+begin
+  if not exists (
+    select 1
+      from pg_constraint
+     where conrelid = 'public.workshop_printers'::regclass
+       and conname = 'workshop_printers_serial_number_check'
+  ) then
+    alter table public.workshop_printers
+      add constraint workshop_printers_serial_number_check
+      check (
+        serial_number is null
+        or char_length(btrim(serial_number)) between 1 and 64
       );
   end if;
 end;

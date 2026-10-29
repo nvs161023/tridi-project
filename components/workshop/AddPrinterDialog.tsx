@@ -7,6 +7,10 @@ import { addPrinter } from "@/app/actions/printers";
 import { emptyPrinterFormState } from "@/app/actions/printers-state";
 import { MaintenanceGuideDialog } from "@/components/workshop/MaintenanceGuideDialog";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
+import {
+  isPrinterProtocol,
+  type PrinterProtocol,
+} from "@/lib/db/workshop-types";
 import { getMaintenanceGuide } from "@/lib/workshop/maintenance-guides";
 import {
   PRINTER_BRAND_OPTIONS,
@@ -16,6 +20,7 @@ import {
   normalizePrinterModel,
 } from "@/lib/workshop/printer-presets";
 import {
+  PRINTER_ADDRESS_MAX,
   PRINTER_INTERVAL_DEFAULTS,
   PRINTER_INTERVAL_LIMITS,
   PRINTER_TEXT_LIMITS,
@@ -30,6 +35,10 @@ import {
  * интервалы обслуживания и показывает подсказку `note`, для своей — оставляет
  * значения по умолчанию. Интервалы можно поправить в любом случае.
  *
+ * Ниже — данные подключения: протокол, SN для Bambu, IP-адрес и код доступа.
+ * Без них агент фермы не знает, куда и как стучаться, и принтер, добавленный
+ * руками, оставался бы карточкой без печати.
+ *
  * Проверки живут в lib/workshop/printers.ts, здесь только разметка и ошибки,
  * которые вернул Server Action. После успеха окно закрывается, список
  * обновляется через router.refresh().
@@ -41,8 +50,25 @@ type AddPrinterDialogProps = {
   onCreated: (message: string) => void;
 };
 
+/**
+ * Протоколы в форме: агент управляет принтером по одному из трёх API.
+ *
+ * Порядок — от самого частого. В окне автообнаружения протокол только читают,
+ * поэтому там подписи короче; здесь мастер выбирает, и подпись уточняет API:
+ * «Moonraker (Klipper)» понятнее, чем «Moonraker».
+ */
+const PROTOCOL_OPTIONS: { value: PrinterProtocol; label: string }[] = [
+  { value: "moonraker", label: "Moonraker (Klipper)" },
+  { value: "octoprint", label: "OctoPrint" },
+  { value: "bambu", label: "Bambu Lab (LAN)" },
+];
+
 const inputClassName =
   "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+
+/** Список протоколов: та же рамка, что у полей, но с курсором и тёмной схемой. */
+const selectClassName =
+  "mt-2 w-full cursor-pointer rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [color-scheme:dark] focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset";
 
 export function AddPrinterDialog({
   onClose,
@@ -55,6 +81,7 @@ export function AddPrinterDialog({
   );
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
+  const [protocol, setProtocol] = useState<PrinterProtocol>("moonraker");
   const [nozzleInterval, setNozzleInterval] = useState(
     String(PRINTER_INTERVAL_DEFAULTS.nozzle),
   );
@@ -101,6 +128,9 @@ export function AddPrinterDialog({
   const nameError = state.fieldErrors?.name;
   const brandError = state.fieldErrors?.brand;
   const modelError = state.fieldErrors?.model;
+  const serialNumberError = state.fieldErrors?.serialNumber;
+  const ipAddressError = state.fieldErrors?.ipAddress;
+  const apiKeyError = state.fieldErrors?.apiKey;
   const nozzleError = state.fieldErrors?.nozzleInterval;
   const lubricationError = state.fieldErrors?.lubricationInterval;
   const zScrewError = state.fieldErrors?.zScrewInterval;
@@ -313,6 +343,187 @@ export function AddPrinterDialog({
                 >
                   Выберите из списка или введите свою — интервалы подставятся
                   автоматически для известной модели.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/*
+            Протокол выбирает мастер: от него зависит, каким API агент управляет
+            принтером. Раньше протокол ставился только автообнаружением, и
+            Bambu-принтер, добавленный руками, уходил в базу как Moonraker —
+            агент стучался в него не тем API. Серийный номер нужен только Bambu,
+            поэтому поле появляется вместе с этим протоколом и исчезает вместе
+            с ним: у Moonraker и OctoPrint такого понятия нет.
+          */}
+          <div>
+            <label
+              htmlFor="printer-protocol"
+              className="block text-sm font-semibold text-slate-200"
+            >
+              Протокол
+            </label>
+            <select
+              id="printer-protocol"
+              name="protocol"
+              value={protocol}
+              onChange={(event) => {
+                const next = event.currentTarget.value;
+
+                if (isPrinterProtocol(next)) {
+                  setProtocol(next);
+                }
+              }}
+              aria-describedby="printer-protocol-hint"
+              className={selectClassName}
+            >
+              {PROTOCOL_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <p
+              id="printer-protocol-hint"
+              className="mt-1.5 text-xs leading-relaxed text-slate-400"
+            >
+              Как агент управляет принтером. Bambu работает в LAN-режиме: MQTT и
+              FTPS, без облака.
+            </p>
+          </div>
+
+          {protocol === "bambu" ? (
+            <div>
+              <label
+                htmlFor="printer-serial-number"
+                className="block text-sm font-semibold text-slate-200"
+              >
+                Серийный номер (SN)
+              </label>
+              <input
+                id="printer-serial-number"
+                name="serialNumber"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="00M09A123456789"
+                maxLength={PRINTER_TEXT_LIMITS.serialNumber}
+                aria-invalid={serialNumberError ? true : undefined}
+                aria-describedby={
+                  serialNumberError
+                    ? "printer-serial-number-error"
+                    : "printer-serial-number-hint"
+                }
+                className={inputClassName}
+              />
+              {serialNumberError ? (
+                <p
+                  id="printer-serial-number-error"
+                  role="alert"
+                  className="mt-1.5 text-sm text-red-300"
+                >
+                  {serialNumberError}
+                </p>
+              ) : (
+                <p
+                  id="printer-serial-number-hint"
+                  className="mt-1.5 text-xs leading-relaxed text-slate-400"
+                >
+                  С наклейки на задней стенке. Можно оставить пустым — тогда
+                  агент найдёт номер сам, поиском в сети.
+                </p>
+              )}
+            </div>
+          ) : null}
+
+          {/*
+            Данные подключения: их читает агент, а не интерфейс. Без адреса
+            принтер в парке есть, а печатать не на чем, поэтому поле
+            обязательное. Ключ необязателен — Moonraker и OctoPrint часто
+            пускают без пароля, а у Bambu это 8-значный код доступа с экрана
+            (LAN-режим). Поля не держат состояние: подсказка зависит только от
+            протокола, а значения браузер отправляет как есть.
+          */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="printer-ip-address"
+                className="block text-sm font-semibold text-slate-200"
+              >
+                IP-адрес
+              </label>
+              <input
+                id="printer-ip-address"
+                name="ipAddress"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                required
+                placeholder="192.168.1.50"
+                maxLength={PRINTER_ADDRESS_MAX}
+                aria-invalid={ipAddressError ? true : undefined}
+                aria-describedby={
+                  ipAddressError
+                    ? "printer-ip-address-error"
+                    : "printer-ip-address-hint"
+                }
+                className={inputClassName}
+              />
+              {ipAddressError ? (
+                <p
+                  id="printer-ip-address-error"
+                  role="alert"
+                  className="mt-1.5 text-sm text-red-300"
+                >
+                  {ipAddressError}
+                </p>
+              ) : (
+                <p
+                  id="printer-ip-address-hint"
+                  className="mt-1.5 text-xs leading-relaxed text-slate-400"
+                >
+                  Адрес в сети мастерской: на экране принтера или в списке
+                  клиентов роутера.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="printer-api-key"
+                className="block text-sm font-semibold text-slate-200"
+              >
+                API-ключ / Код доступа
+              </label>
+              <input
+                id="printer-api-key"
+                name="apiKey"
+                type="password"
+                autoComplete="new-password"
+                spellCheck={false}
+                maxLength={PRINTER_TEXT_LIMITS.apiKey}
+                aria-invalid={apiKeyError ? true : undefined}
+                aria-describedby={
+                  apiKeyError ? "printer-api-key-error" : "printer-api-key-hint"
+                }
+                className={inputClassName}
+              />
+              {apiKeyError ? (
+                <p
+                  id="printer-api-key-error"
+                  role="alert"
+                  className="mt-1.5 text-sm text-red-300"
+                >
+                  {apiKeyError}
+                </p>
+              ) : (
+                <p
+                  id="printer-api-key-hint"
+                  className="mt-1.5 text-xs leading-relaxed text-slate-400"
+                >
+                  {protocol === "bambu"
+                    ? "8-значный код доступа с экрана принтера. Хранится только для агента."
+                    : "Оставьте пустым, если не требуется."}
                 </p>
               )}
             </div>

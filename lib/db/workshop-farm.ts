@@ -54,7 +54,7 @@ const PRINT_JOB_COLUMNS =
   "id, order_id, order_item_id, printer_id, gcode_url, status, created_at, updated_at";
 
 const AGENT_PRINTER_COLUMNS =
-  "id, name, brand, model, protocol_type, ip_address, api_key, status, progress, remaining_time, last_seen_at";
+  "id, name, brand, model, protocol_type, ip_address, api_key, serial_number, status, progress, remaining_time, last_seen_at";
 
 /** Сколько заданий отдавать агенту за один опрос: защита от гигантского JSON. */
 const AGENT_QUEUE_LIMIT = 200;
@@ -313,6 +313,7 @@ function normalizeAgentPrinter(value: unknown): AgentPrinter | null {
       : "moonraker",
     ipAddress: readText(row.ip_address, 253),
     apiKey: readText(row.api_key, 512),
+    serialNumber: readText(row.serial_number, 64),
     status: isPrinterStatus(row.status) ? row.status : "offline",
     progress: readIntegerInRange(row.progress, 0, 100) ?? 0,
     remainingTime:

@@ -4,9 +4,11 @@
  * Что проверяет на живой базе:
  *   1. `GET /api/agent/tasks` с правильным токеном отдаёт queued-задание
  *      мастерской — с G-code, принтером и заказом;
- *   2. неверный токен получает 401;
- *   3. запрос без заголовка Authorization получает 401;
- *   4. токен не-uuid отклоняется до запроса в базу (тоже 401).
+ *   2. принтер в ответе содержит `serialNumber` (здесь null: у Moonraker
+ *      серийного номера нет — колонку заполняет только форма Bambu);
+ *   3. неверный токен получает 401;
+ *   4. запрос без заголовка Authorization получает 401;
+ *   5. токен не-uuid отклоняется до запроса в базу (тоже 401).
  *
  * Тест создаёт пользователя, настройки с agent_token, принтер, заказ, позицию
  * и одно queued-задание, а в finally удаляет пользователя — каскад auth.users
@@ -151,7 +153,7 @@ type TaskPayload = {
   printerId?: unknown;
   gcodeUrl?: unknown;
   order?: { id?: unknown; title?: unknown } | null;
-  printer?: { id?: unknown; apiKey?: unknown } | null;
+  printer?: { id?: unknown; apiKey?: unknown; serialNumber?: unknown } | null;
 };
 
 type TasksResponse = { tasks?: TaskPayload[]; error?: unknown };
@@ -308,6 +310,16 @@ async function main(): Promise<void> {
       task
         ? `order=${String(task.order?.title)}, api_key=${String(task.printer?.apiKey)}`
         : "задания нет",
+    );
+
+    // Принтер в тесте — Moonraker, SN у него нет: агент должен получить null, а
+    // не пустую строку, чтобы отличать «номера нет» от «номер пустой».
+    check(
+      "GET: принтер без SN отдаёт serialNumber: null",
+      task?.printer?.serialNumber === null,
+      task?.printer
+        ? `serial=${JSON.stringify(task.printer.serialNumber)}`
+        : "принтера нет",
     );
 
     // 3. Отказы ---------------------------------------------------------------
