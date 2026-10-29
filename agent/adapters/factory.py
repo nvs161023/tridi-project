@@ -25,20 +25,29 @@ _ADAPTERS: dict[str, type[BasePrinterAdapter]] = {
     "bambu": BambuAdapter,
 }
 
-# Moonraker (шаг 4.3) говорит с принтером по-настоящему; OctoPrint и Bambu пока
-# заглушки — их методы поднимают NotImplementedError, и мастер увидит в журнале
-# понятную причину, а не молчаливое «печать не началась». Протокол, которого нет
-# в _ADAPTERS вовсе, попадает в ValueError.
+# Moonraker (шаг 4.3) и Bambu (шаг 7.5) говорят с принтером по-настоящему;
+# OctoPrint пока заглушка — его методы поднимают NotImplementedError, и мастер
+# увидит в журнале понятную причину, а не молчаливое «печать не началась».
+# Протокол, которого нет в _ADAPTERS вовсе, попадает в ValueError.
 
 
 def get_adapter(
-    protocol_type: str, ip_address: str, api_key: str
+    protocol_type: str,
+    ip_address: str,
+    api_key: str,
+    serial_number: str = "",
 ) -> BasePrinterAdapter:
     """
     Создаёт адаптер для принтера задания.
 
     `protocol_type` — как в базе (`moonraker`, `bambu`); регистр и лишние
     пробелы не важны, их приводит к нижнему регистру сама фабрика.
+
+    `serial_number` нужен только Bambu: адресация MQTT-топиков идёт серийником
+    принтера (`device/<serial>/report`). Пустая строка — не ошибка: адаптер
+    попробует найти серийник сам (SSDP), а без него хотя бы получит состояние
+    из первого отчёта. Остальным протоколам параметр не передаётся — их
+    конструкторы его не знают.
 
     Неизвестный протокол — `ValueError("Неизвестный протокол")`: принтер с
     незнакомым протоколом не должен молча пропускать задания.
@@ -47,5 +56,12 @@ def get_adapter(
 
     if adapter_class is None:
         raise ValueError("Неизвестный протокол")
+
+    if adapter_class is BambuAdapter:
+        return BambuAdapter(
+            ip_address=ip_address,
+            api_key=api_key,
+            serial_number=serial_number,
+        )
 
     return adapter_class(ip_address=ip_address, api_key=api_key)

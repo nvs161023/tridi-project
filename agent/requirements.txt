@@ -7,6 +7,11 @@ requests>=2.31,<3
 # Чтение .env рядом с main.py.
 python-dotenv>=1.0,<2
 
-# WebSocket-клиенты принтеров (Moonraker, Bambu): понадобятся адаптерам
-# в следующих шагах. Сейчас только объявлены.
+# WebSocket-клиенты принтеров (Moonraker): понадобятся адаптерам в следующих
+# шагах. Сейчас только объявлены.
 websockets>=13
+
+# MQTT-клиент адаптера Bambu Lab (этап 7.5): команды и отчёты принтера идут по
+# MQTT с TLS на порт 8883. Нужна версия 2.x — в ней явно выбирается версия
+# callback API (paho.mqtt.client.CallbackAPIVersion).
+paho-mqtt>=2.0

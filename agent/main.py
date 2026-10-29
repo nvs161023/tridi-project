@@ -129,6 +129,9 @@ class PrinterSettings:
     protocol_type: str
     ip_address: str
     api_key: str
+    # Серийный номер нужен Bambu: топики MQTT адресуются им. Пустая строка —
+    # сервер его не прислал, адаптер попробует найти номер сам.
+    serial_number: str
 
 
 def read_text(value: Any) -> str | None:
@@ -148,8 +151,8 @@ def read_printer_field(
     """
     Поле принтера из задания.
 
-    `/api/agent/tasks` отдаёт camelCase (`protocolType`, `ipAddress`, `apiKey`),
-    но принимаем и snake_case — так поля называются в таблице
+    `/api/agent/tasks` отдаёт camelCase (`protocolType`, `ipAddress`, `apiKey`,
+    `serialNumber`), но принимаем и snake_case — так поля называются в таблице
     `workshop_printers`, и ответ, собранный вручную, не должен ронять агента.
     """
     return read_text(printer.get(camel_name)) or read_text(printer.get(snake_name))
@@ -172,6 +175,11 @@ def read_printer(task: dict[str, Any]) -> PrinterSettings | None:
     protocol_type = read_printer_field(printer, "protocolType", "protocol_type")
     ip_address = read_printer_field(printer, "ipAddress", "ip_address")
     api_key = read_printer_field(printer, "apiKey", "api_key") or ""
+    # Серийник сервер пока не отдаёт: у Bambu в настройках Мастерской только
+    # адрес и код доступа. Пустая строка — нормальный случай, а не ошибка.
+    serial_number = (
+        read_printer_field(printer, "serialNumber", "serial_number") or ""
+    )
 
     if protocol_type is None or ip_address is None:
         return None
@@ -180,6 +188,7 @@ def read_printer(task: dict[str, Any]) -> PrinterSettings | None:
         protocol_type=protocol_type,
         ip_address=ip_address,
         api_key=api_key,
+        serial_number=serial_number,
     )
 
 
@@ -771,6 +780,7 @@ def process_task(task: dict[str, Any]) -> None:
             printer.protocol_type,
             printer.ip_address,
             printer.api_key,
+            printer.serial_number,
         )
     except ValueError:
         logger.error(
@@ -814,11 +824,14 @@ def process_task(task: dict[str, Any]) -> None:
         send_status(job_id, "printing", 0)
         monitor_print(job_id, adapter)
     except NotImplementedError as error:
-        # OctoPrint и Bambu пока заглушки: мастер увидит причину, а агент не
-        # вылетит и продолжит опрос очереди.
+        # OctoPrint пока заглушка: мастер увидит причину, а агент не вылетит и
+        # продолжит опрос очереди.
         logger.error("Задание %s: протокол принтера не реализован: %s", job_id, error)
         send_status(job_id, "failed")
     finally:
+        # Bambu держит MQTT-соединение и поток paho: закрываем его здесь, иначе
+        # на каждый принтер копился бы живой сокет до выхода из процесса.
+        adapter.close()
         remove_temp_file(local_path)
 
 

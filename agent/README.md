@@ -17,7 +17,8 @@ Python-скрипт, который работает на компьютере �
 мастерской, а сетевые ошибки не останавливают агента. Шаг 7.2 — обнаружение
 фермы: `scanner.py` обходит локальную сеть, находит Moonraker (7125) и
 OctoPrint (80/443) и отправляет находки в `POST /api/agent/discover`, а мастер
-даёт им имена в интерфейсе. Адаптеры OctoPrint/Bambu — следующие шаги.
+даёт им имена в интерфейсе. Адаптер Bambu (MQTT и FTPS, шаг 7.5) уже печатает,
+OctoPrint — следующий шаг.
 
 ## Требования
 
@@ -33,8 +34,9 @@ OctoPrint (80/443) и отправляет находки в `POST /api/agent/di
 pip install -r requirements.txt
 ```
 
-Зависимости: `requests` (HTTP), `python-dotenv` (чтение `.env`), `websockets`
-(понадобится адаптерам принтеров, сейчас только объявлена).
+Зависимости: `requests` (HTTP), `python-dotenv` (чтение `.env`), `paho-mqtt`
+(MQTT-клиент адаптера Bambu), `websockets` (понадобится адаптерам принтеров,
+сейчас только объявлена).
 
 ## Настройка `.env`
 
@@ -185,17 +187,17 @@ python main.py
 
 ## Адаптеры принтеров
 
-`agent/adapters/` — интерфейс, фабрика и реализации протоколов (шаги 4.2–4.3).
-Moonraker разговаривает с принтером по-настоящему; OctoPrint и Bambu пока
-заглушки — их методы поднимают `NotImplementedError`.
+`agent/adapters/` — интерфейс, фабрика и реализации протоколов (шаги 4.2–7.5).
+Moonraker и Bambu разговаривают с принтером по-настоящему; OctoPrint пока
+заглушка — его методы поднимают `NotImplementedError`.
 
 | Файл | Назначение |
 |---|---|
-| `base.py` | `BasePrinterAdapter` (ABC): `connect()`, `upload_file(local_path, remote_name)`, `start_print(remote_name)`, `get_status()` |
+| `base.py` | `BasePrinterAdapter` (ABC): `connect()`, `upload_file(local_path, remote_name)`, `start_print(remote_name)`, `get_status()`, `close()` |
 | `moonraker.py` | `MoonrakerAdapter` — Klipper: `/server/info`, `/server/files/upload`, `/printer/print/start`, `/printer/objects/query?print_stats&virtual_sdcard` |
 | `octoprint.py` | `OctoPrintAdapter` — заглушка; нужен REST API OctoPrint (`/api/files/local`, `/api/job`) |
-| `bambu.py` | `BambuAdapter` — заглушка; в LAN-режиме это MQTT (8883) и FTPS (990) |
-| `factory.py` | `get_adapter(protocol_type, ip_address, api_key)`; неизвестный протокол — `ValueError("Неизвестный протокол")` |
+| `bambu.py` | `BambuAdapter` — Bambu в LAN-режиме: MQTT с TLS (8883) для команд и отчётов, implicit FTPS (990) для файлов |
+| `factory.py` | `get_adapter(protocol_type, ip_address, api_key, serial_number="")`; неизвестный протокол — `ValueError("Неизвестный протокол")` |
 
 ### Moonraker
 
@@ -226,6 +228,42 @@ Moonraker разговаривает с принтером по-настояще
 но методы адаптера поднимают `NotImplementedError` — реальный REST API OctoPrint
 (выбор файла, `POST /api/job` с `command=start`) это отдельная задача.
 
+### Bambu Lab (шаг 7.5)
+
+Bambu в LAN-режиме (Settings → Network → LAN Only Mode) не имеет HTTP API: команды
+и отчёты идут по MQTT с TLS, файлы — по implicit FTPS. Второй пароль не нужен:
+код доступа с экрана принтера (`LAN Access Code`) — это и есть `api_key`, а логин
+всегда `bblp`. Обязательное условие — включённый LAN-режим: в облачном режиме
+принтер по локальной сети не отвечает.
+
+| Метод | Что делает | Успех |
+|---|---|---|
+| `connect()` | MQTT `self.ip_address:8883`, TLS без проверки сертификата, подписка `device/<serial>/report`, команда `pushing.pushall` | CONNACK получен и подписка оформлена |
+| `upload_file()` | FTPS `self.ip_address:990`, логин `bblp`, файл в `cache/<remote_name>` | файл загружен |
+| `start_print()` | MQTT `device/<serial>/request`: `project_file` с `url=ftp:///cache/<remote_name>` | сообщение отправлено |
+| `get_status()` | последний отчёт: `print.gcode_state`, `print.mc_percent`, `print.mc_remaining_time` | `{"status", "progress", "remaining_time"}` |
+
+Серийный номер. Топики Bambu адресуются серийником, поэтому адаптер берёт его по
+цепочке: поле `printer.serialNumber` задания → SSDP-поиск в подсети (UDP 1990,
+заголовок `USN`, совпадение `Location` с адресом принтера) → топик первого отчёта
+(до этого подписка идёт на `device/+/report`). Без серийника можно получить
+состояние, но команду печати отправить нельзя: `start_print()` вернёт `False` и
+напишет причину в журнал.
+
+Статусы: `RUNNING` и `PREPARE` → `printing`, `FINISH` и `IDLE` → `idle`, `FAILED` и
+`PAUSE` → `error`; незнакомое состояние тоже `error`. `mc_remaining_time` у Bambu в
+минутах, в ответе адаптера — секунды; при `idle` остаток 0. Отчёты приходят
+частичными (только изменившиеся поля), поэтому кэш дополняется, а не заменяется.
+
+Сеть как и у Moonraker: исключения наружу не выпускаются, таймауты обязательны
+(10 с на MQTT-подключение, 120 с на загрузку файла). Адаптер — единственный, кто
+держит постоянное соединение: `main.py` зовёт `close()` в конце задания, иначе
+поток MQTT-клиента остался бы висеть до выхода из процесса.
+
+Тест без принтера: `python scripts/test-bambu.py` — проверяет контракт адаптера,
+разбор отчётов, поиск серийника и то, что сетевые методы возвращают `False`, а не
+падают на недоступном адресе.
+
 ## Диагностика
 
 | Симптом | Причина |
@@ -234,3 +272,6 @@ Moonraker разговаривает с принтером по-настояще
 | `HTTP 401` | токен сменился в настройках мастерской или принадлежит другой мастерской |
 | `HTTP 503` | в базе нет таблиц Мастерской — примените `supabase/workshop_farm_and_shop.sql` |
 | `Connection refused` | приложение не запущено или `CRM_URL` указывает не туда |
+| `Bambu … не отвечает на MQTT` | принтер не в LAN-режиме (Settings → Network → LAN Only Mode) или адрес не тот |
+| `Bambu … не принял MQTT-подключение` | код доступа не совпадает с `LAN Access Code` в настройках принтера |
+| `Bambu … серийный номер неизвестен` | номера нет в задании, а SSDP молчит: агент и принтер в разных подсетях |
