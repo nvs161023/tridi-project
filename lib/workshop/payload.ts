@@ -196,10 +196,11 @@ export function createPrinterPayload(
  * Что уходит в `from("workshop_printers").insert(...)` для найденного принтера.
  *
  * Шире WorkshopPrinterPayload только состоянием: принтер найден, но ещё не
- * печатает, поэтому сразу `idle`. Адрес и протокол приходят из сети, ключа у
- * автообнаружения нет — колонка остаётся null, адаптер попробует подключиться
- * без него. Серийный номер передаётся, если сканер его услышал (Bambu отвечает
- * на SSDP заголовком `USN`): без него мастеру пришлось бы искать SN на корпусе.
+ * печатает, поэтому сразу `idle`. Адрес и протокол приходят из сети. Ключ API
+ * сеть не знает: его вводит мастер в окне подтверждения, а если поле оставлено
+ * пустым — берётся ключ из находки агента (сегодня агент его не присылает).
+ * Серийный номер передаётся, если сканер его услышал (Bambu отвечает на SSDP
+ * заголовком `USN`): без него мастеру пришлось бы искать SN на корпусе.
  */
 export type DiscoveredPrinterPayload = WorkshopPrinterPayload & {
   status: PrinterStatus;
@@ -214,13 +215,16 @@ export type DiscoveredPrinterPayload = WorkshopPrinterPayload & {
  * интервалы ТО этой модели. Не совпало — «Неизвестно · Найден по сети» и
  * интервалы по умолчанию, как у формы без выбранной модели: карточка не должна
  * показывать чужой регламент. Номер приходит из SSDP-ответа принтера; null —
- * не пришёл, и адаптер найдёт его сам при подключении.
+ * не пришёл, и адаптер найдёт его сам при подключении. Ключ приходит из окна
+ * подтверждения или из находки агента; null — ключ не указан, и адаптер
+ * попробует подключиться без него (пустая строка в базе недопустима).
  */
 export function createDiscoveredPrinterPayload(
   userId: string,
   draft: ApprovedPrinterDraft,
   protocolType: PrinterProtocol,
   serialNumber: string | null = null,
+  apiKey: string | null = null,
 ): DiscoveredPrinterPayload {
   const preset = findPrinterPresetByModel(draft.name);
 
@@ -232,7 +236,7 @@ export function createDiscoveredPrinterPayload(
     protocol_type: protocolType,
     serial_number: serialNumber,
     ip_address: draft.ipAddress,
-    api_key: null,
+    api_key: apiKey,
     status: "idle",
     nozzle_interval: preset?.nozzleHours ?? PRINTER_INTERVAL_DEFAULTS.nozzle,
     lubrication_interval:

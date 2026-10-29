@@ -18,6 +18,7 @@ import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
 import {
   isPrinterId,
+  normalizePrinterApiKey,
   normalizePrinterSerial,
   readApprovedPrinters,
   readPrinterForm,
@@ -271,7 +272,8 @@ function printerAddressKey(value: unknown): string {
  * «Мастер подключения фермы»: найденные агентом принтеры → парк мастерской.
  *
  * Агент сканирует сеть и складывает находки в workshop_discovered_printers
- * (POST /api/agent/discover), мастер только вводит имена. Порядок:
+ * (POST /api/agent/discover), мастер только даёт имена (и, если принтер их
+ * требует, вводит ключи доступа). Порядок:
  *   1. разбор списка (lib/workshop/printers.ts): строка без имени, с мусорным
  *      адресом или повтором адреса отбрасывается, а не роняет всю пачку;
  *   2. сессия и подписка — как у добавления принтера вручную: Server Action
@@ -279,7 +281,10 @@ function printerAddressKey(value: unknown): string {
  *   3. протокол берём из находки агента (он видел, каким API ответил принтер);
  *      строку могли уже убрать — тогда работает default колонки moonraker.
  *      Серийный номер тоже из находки: Bambu называет его в SSDP-ответе, и терять
- *      его при подтверждении нельзя — без номера адаптер ищет принтер заново;
+ *      его при подтверждении нельзя — без номера адаптер ищет принтер заново.
+ *      Ключ доступа приходит из окна мастера; если поле оставили пустым, берётся
+ *      ключ из находки (агент его сегодня не присылает), а иначе null — адаптер
+ *      попробует подключиться без ключа;
  *   4. адреса, которые уже есть в парке, пропускаем: повторное подтверждение
  *      старого списка не должно удвоить ферму;
  *   5. вставка в workshop_printers, затем удаление подтверждённых находок —
@@ -291,7 +296,7 @@ function printerAddressKey(value: unknown): string {
  * сканирования — оно заменяет весь список `discovered` целиком.
  */
 export async function approveDiscoveredPrinters(
-  printers: { ip_address: string; name: string }[],
+  printers: { ip_address: string; name: string; api_key?: string | null }[],
 ): Promise<DiscoveredPrintersState> {
   const parsed = readApprovedPrinters(printers);
 
@@ -320,7 +325,7 @@ export async function approveDiscoveredPrinters(
 
   const discoveredResult = await supabase
     .from("workshop_discovered_printers")
-    .select("ip_address, protocol_type, serial_number")
+    .select("ip_address, protocol_type, serial_number, api_key")
     .eq("user_id", user.id)
     .in("ip_address", addresses);
 
@@ -344,6 +349,7 @@ export async function approveDiscoveredPrinters(
 
   const protocols = new Map<string, PrinterProtocol>();
   const serials = new Map<string, string>();
+  const apiKeys = new Map<string, string>();
 
   for (const row of readRows(discoveredResult.data)) {
     const key = printerAddressKey(row.ip_address);
@@ -362,6 +368,15 @@ export async function approveDiscoveredPrinters(
 
     if (serialNumber) {
       serials.set(key, serialNumber);
+    }
+
+    // Ключ доступа: мастер вводит его в окне подтверждения, но если ключ пришёл
+    // вместе с находкой, он тоже переезжает в парк — иначе пришлось бы
+    // подключать принтер без ключа и вводить его заново.
+    const apiKey = normalizePrinterApiKey(row.api_key);
+
+    if (apiKey) {
+      apiKeys.set(key, apiKey);
     }
   }
 
@@ -404,6 +419,8 @@ export async function approveDiscoveredPrinters(
         draft,
         protocols.get(key) ?? "moonraker",
         serials.get(key) ?? null,
+        // Ключ из окна мастера важнее ключа из находки: мастер мог его исправить.
+        draft.apiKey ?? apiKeys.get(key) ?? null,
       );
     });
 

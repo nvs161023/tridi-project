@@ -524,6 +524,11 @@ create trigger workshop_print_jobs_touch_updated_at
 -- принтер», пока мастер не введёт своё имя. protocol_type повторяет
 -- справочник workshop_printers.protocol_type: агент знает, каким API ответил
 -- принтер, и это знание не должно потеряться при подтверждении.
+-- api_key — ключ API (Moonraker/OctoPrint) или код доступа Bambu: из сети его
+-- не узнать, мастер вводит его в окне подтверждения, и ключ уходит сразу в
+-- workshop_printers.api_key. Колонка-черновик хранит ключ, только если его
+-- пришлёт агент (сегодня не присылает): подтверждение возьмёт её значение,
+-- когда поле в окне оставлено пустым.
 create table if not exists public.workshop_discovered_printers (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
@@ -531,6 +536,7 @@ create table if not exists public.workshop_discovered_printers (
   name text default 'Неизвестный принтер',
   protocol_type text default 'moonraker',
   serial_number text,
+  api_key text,
   status text default 'discovered',
   created_at timestamptz not null default now(),
   constraint workshop_discovered_printers_ip_check
@@ -543,6 +549,16 @@ create table if not exists public.workshop_discovered_printers (
     check (status in ('discovered', 'added'))
 );
 
+-- Колонки serial_number и api_key появились позже самой таблицы: у базы, где
+-- миграцию применили раньше, их нет, а `create table if not exists` готовую
+-- таблицу не доращивает. Идемпотентный alter стоит СРАЗУ после create table —
+-- до комментариев, ограничений и индексов. Иначе на уже созданной таблице
+-- `comment on column ... serial_number` падает с ошибкой 42703 («column does
+-- not exist»), и файл нельзя применить повторно.
+alter table public.workshop_discovered_printers
+  add column if not exists serial_number text,
+  add column if not exists api_key text;
+
 comment on table public.workshop_discovered_printers is
   'Мастерская: принтеры, найденные агентом сканированием сети и ждущие подтверждения мастером.';
 comment on column public.workshop_discovered_printers.ip_address is
@@ -553,14 +569,10 @@ comment on column public.workshop_discovered_printers.protocol_type is
   'Протокол, которым ответил принтер: moonraker (Klipper), octoprint или bambu.';
 comment on column public.workshop_discovered_printers.serial_number is
   'Серийный номер, который принтер назвал сам (Bambu — поле USN в SSDP-ответе); null — не назвал.';
+comment on column public.workshop_discovered_printers.api_key is
+  'Ключ API / код доступа, если агент пришлёт его вместе с находкой; null — не присылал. Мастер вводит ключ в окне подтверждения, и он попадает сразу в workshop_printers.api_key.';
 comment on column public.workshop_discovered_printers.status is
   'discovered — ждёт подтверждения мастера; added — уже перенесён в workshop_printers.';
-
--- Колонка добавлена после первого применения миграции: у уже созданной таблицы
--- serial_number нет, а `create table if not exists` её не дорастит. Поэтому
--- отдельный идемпотентный alter — его можно выполнять повторно.
-alter table public.workshop_discovered_printers
-  add column if not exists serial_number text;
 
 -- Тот же предел, что у workshop_printers.serial_number (1…64 символа): пустой
 -- номер — это «номера нет» (null), а строка длиннее 64 символов — уже не
@@ -579,6 +591,24 @@ begin
         serial_number is null
         or char_length(btrim(serial_number)) between 1 and 64
       );
+  end if;
+end;
+$$;
+
+-- Ключ доступа к тому же пределу, что у workshop_printers.api_key (1…512
+-- символов, без btrim — как в ограничении парка): пустая строка означала бы
+-- «ключ есть, но пустой», а такой ключ агент отправил бы в запросе впустую.
+do $$
+begin
+  if not exists (
+    select 1
+      from pg_constraint
+     where conrelid = 'public.workshop_discovered_printers'::regclass
+       and conname = 'workshop_discovered_printers_api_key_check'
+  ) then
+    alter table public.workshop_discovered_printers
+      add constraint workshop_discovered_printers_api_key_check
+      check (api_key is null or char_length(api_key) between 1 and 512);
   end if;
 end;
 $$;
@@ -970,15 +1000,16 @@ commit;
 --
 -- 8) Найденные принтеры (автообнаружение):
 --      insert into public.workshop_discovered_printers
---        (user_id, ip_address, serial_number)
---      values ('<USER_ID>', '192.168.1.50', '01S00C123456789');
---      select ip_address, name, protocol_type, serial_number, status
+--        (user_id, ip_address, serial_number, api_key)
+--      values ('<USER_ID>', '192.168.1.50', '01S00C123456789', '12345678');
+--      select ip_address, name, protocol_type, serial_number, api_key, status
 --        from public.workshop_discovered_printers
 --       where user_id = '<USER_ID>';
 --    Ожидается: name = 'Неизвестный принтер', protocol_type = 'moonraker',
---    serial_number = '01S00C123456789', status = 'discovered'. serial_number
---    nullable: Moonraker и OctoPrint номера не называют, и вставка без него
---    проходит. Повторный POST /api/agent/discover с тем же адресом
+--    serial_number = '01S00C123456789', api_key = '12345678',
+--    status = 'discovered'. Обе колонки nullable: Moonraker и OctoPrint номера
+--    не называют, ключ доступа вводит мастер при подтверждении, и вставка без
+--    них проходит. Повторный POST /api/agent/discover с тем же адресом
 --    не создаёт вторую строку: старые `discovered` удаляются перед вставкой.
 --    Политика workshop_discovered_printers_own (for all) не даёт прочитать
 --    чужую находку даже при известном id.

@@ -32,10 +32,12 @@ import {
  * тоже результат: через полторы минуты опроса окно честно говорит «принтеров не
  * нашли» и предлагает искать снова.
  *
- * Выбор и имена хранятся как «правки поверх умолчаний»: отмечено всё, что в
- * списке, имя по умолчанию — `Принтер 192.168.1.50`. Поэтому обновление списка
- * не ломает уже введённое: новые находки сразу видны и отмечены, а правки старых
- * строк остаются.
+ * Выбор, имена и ключи доступа хранятся как «правки поверх умолчаний»: отмечено
+ * всё, что в списке, имя по умолчанию — `Принтер 192.168.1.50`, ключ — пустой.
+ * Поэтому обновление списка не ломает уже введённое: новые находки сразу видны и
+ * отмечены, а правки старых строк остаются. Ключ вводится здесь, потому что
+ * агент видит в сети только адрес и протокол: код доступа Bambu и ключ Moonraker
+ * с авторизацией знает лишь мастер.
  *
  * После успеха окно закрывает родитель: страницу мастер обновляет сам
  * (`router.refresh()`), а вкладка показывает тост и оставляет ту же строку в
@@ -137,6 +139,12 @@ export function DiscoverPrintersDialog({
   const router = useRouter();
   /** Введённые имена: ключ — адрес, значение — правка мастера. */
   const [names, setNames] = useState<Record<string, string>>({});
+  /**
+   * Ключи доступа, введённые мастером: ключ — адрес. Сеть ключей не знает, а без
+   * них Moonraker с включённой авторизацией и Bambu (код доступа) не подпустят
+   * агента. Пустое значение — «ключ не нужен».
+   */
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   /** Снятые отметки: ключ — адрес, отсутствие ключа значит «выбран». */
   const [unselected, setUnselected] = useState<Record<string, boolean>>({});
   const [isPending, setIsPending] = useState(false);
@@ -251,6 +259,7 @@ export function DiscoverPrintersDialog({
   const isChosen = (ipAddress: string) => !unselected[ipAddress];
   const nameOf = (ipAddress: string) =>
     names[ipAddress] ?? defaultDiscoveredPrinterName(ipAddress);
+  const apiKeyOf = (ipAddress: string) => apiKeys[ipAddress] ?? "";
 
   const chosen = found.filter((printer) => isChosen(printer.ipAddress));
   const allChosen = found.length > 0 && chosen.length === found.length;
@@ -295,6 +304,7 @@ export function DiscoverPrintersDialog({
       chosen.map((printer) => ({
         ip_address: printer.ipAddress,
         name: nameOf(printer.ipAddress),
+        api_key: apiKeyOf(printer.ipAddress),
       })),
     );
 
@@ -525,6 +535,43 @@ export function DiscoverPrintersDialog({
                           }}
                           className={inputClassName}
                         />
+                        <label
+                          htmlFor={`${checkboxId}-key`}
+                          className="sr-only"
+                        >
+                          Ключ доступа принтера {printer.ipAddress}
+                        </label>
+                        <input
+                          id={`${checkboxId}-key`}
+                          type="password"
+                          autoComplete="new-password"
+                          spellCheck={false}
+                          maxLength={PRINTER_TEXT_LIMITS.apiKey}
+                          disabled={!checked}
+                          value={apiKeyOf(printer.ipAddress)}
+                          onChange={(event) => {
+                            const next = event.currentTarget.value;
+
+                            setApiKeys((prev) => ({
+                              ...prev,
+                              [printer.ipAddress]: next,
+                            }));
+                          }}
+                          placeholder={
+                            printer.protocolType === "bambu"
+                              ? "Код доступа с экрана принтера"
+                              : "Ключ API, если принтер его требует"
+                          }
+                          aria-describedby={`${checkboxId}-key-hint`}
+                          className={inputClassName}
+                        />
+                        <p
+                          id={`${checkboxId}-key-hint`}
+                          className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+                        >
+                          Необязательно. Ключ уходит только агенту и в интерфейс
+                          не возвращается.
+                        </p>
                       </div>
                     </div>
                   </li>

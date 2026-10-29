@@ -18,7 +18,9 @@ import { readDiscoveredPrinters } from "@/lib/workshop/printers";
  * `serial_number` присылает Bambu из SSDP-ответа (заголовок `USN`): по нему
  * строятся MQTT-топики `device/<serial>/…`, поэтому номер сохраняется вместе с
  * находкой и переезжает в парк при подтверждении — мастеру не нужно вбивать его
- * вручную.
+ * вручную. `api_key` (ключ Moonraker/OctoPrint или код доступа Bambu) сеть не
+ * знает: его вводит мастер в окне подтверждения. Поле принимается на будущее —
+ * если адаптер научится присылать ключ, он сохранится вместе с находкой.
  *
  * `workshop_discovered_printers` — черновик, а не история: строки со статусом
  * `discovered` живут от сканирования до подтверждения. Поэтому порядок записи:
@@ -140,6 +142,9 @@ export async function POST(request: Request): Promise<Response> {
           // Bambu называет номер в SSDP-ответе; у Moonraker и OctoPrint его нет,
           // и колонка остаётся null.
           serial_number: printer.serialNumber,
+          // Ключ доступа агент пока не присылает — его вводит мастер в окне
+          // подтверждения. Если пришлёт, ключ сохранится рядом с находкой.
+          api_key: printer.apiKey,
           status: "discovered",
         })),
       );

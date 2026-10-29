@@ -255,21 +255,56 @@ export function normalizePrinterSerial(value: unknown): string | null {
 }
 
 /**
- * Принтер, найденный агентом: адрес, протокол и номер, если принтер его назвал.
+ * Ключ API (Moonraker/OctoPrint) или код доступа Bambu из ответа агента.
+ *
+ * Содержимое не ограничиваем алфавитом: ключ Moonraker — строка из
+ * `moonraker.conf`, ключ OctoPrint — 32 hex-символа, код доступа Bambu — восемь
+ * знаков с экрана принтера. Проверяем ровно то, что проверит база: непустую
+ * строку до 512 символов (check `char_length(api_key) between 1 and 512`).
+ * Пробелы по краям не считаются частью ключа и обрезаются: перенос строки из
+ * буфера обмена — частая ошибка. null — ключа нет: и «не прислали», и «прислали
+ * пустое».
+ */
+export function normalizePrinterApiKey(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const text = value.trim();
+
+  return text.length === 0 || text.length > PRINTER_TEXT_LIMITS.apiKey
+    ? null
+    : text;
+}
+
+/**
+ * Принтер, найденный агентом: адрес, протокол, номер и ключ, если принтер или
+ * агент их назвали.
  *
  * Серийный номер приходит только от Bambu: он же отвечает на SSDP-запрос
- * заголовком `USN`. Для Moonraker и OctoPrint поле остаётся null.
+ * заголовком `USN`. Ключ доступа агент сегодня не присылает — его вводит мастер
+ * в окне подтверждения, — но поле читается здесь, чтобы ключ, присланный вместе
+ * с находкой, не потерялся при подтверждении. Для Moonraker и OctoPrint оба
+ * поля обычно null.
  */
 export type DiscoveredPrinterDraft = {
   ipAddress: string;
   protocolType: PrinterProtocol;
   serialNumber: string | null;
+  apiKey: string | null;
 };
 
-/** Принтер, которого мастер подтвердил: к адресу добавлено имя. */
+/**
+ * Принтер, которого мастер подтвердил: к адресу добавлены имя и ключ.
+ *
+ * `apiKey` — то, что мастер ввёл в окне мастера подключения (или пустая строка,
+ * если не вводил). Секрет: значение уходит только в базу, в браузер не
+ * возвращается.
+ */
 export type ApprovedPrinterDraft = {
   ipAddress: string;
   name: string;
+  apiKey: string | null;
 };
 
 /** Итог разбора списка: что приняли и сколько строк отбросили. */
@@ -300,6 +335,10 @@ function addressKey(ipAddress: string | null): string {
  * Moonraker и OctoPrint такого понятия нет. Нечитаемый номер не отбрасывает
  * находку — адрес и протокол важнее, — он просто теряется: без серийника
  * адаптер найдёт принтер сам.
+ *
+ * `api_key` агент сегодня не присылает: ключ вводит мастер в окне подтверждения.
+ * Но если ключ пришёл вместе с находкой, он сохраняется — подтверждение
+ * использует его, когда поле в окне оставлено пустым.
  *
  * null — тело не массив: это ошибка формата, а не «ничего не найдено» (пустой
  * массив как раз означает «в сети пусто», и старые находки должны исчезнуть).
@@ -335,6 +374,7 @@ export function readDiscoveredPrinters(
       ipAddress,
       protocolType: isPrinterProtocol(protocol) ? protocol : "moonraker",
       serialNumber: normalizePrinterSerial(row?.serial_number),
+      apiKey: normalizePrinterApiKey(row?.api_key),
     });
   }
 
@@ -342,13 +382,18 @@ export function readDiscoveredPrinters(
 }
 
 /**
- * Список на подтверждение от мастера `[{ "ip_address": ..., "name": ... }]`.
+ * Список на подтверждение от мастера
+ * `[{ "ip_address": ..., "name": ..., "api_key": ... }]`.
  *
  * Подтверждается только принтер с именем: без имени карточка в парке была бы
  * безымянной, а мастер всё равно должен понимать, какой адрес он добавляет.
  * Строка без имени, с нечитаемым адресом или повтором адреса отбрасывается и
  * считается в `skipped`: список мог устареть, пока агент пересканировал сеть.
  * Имя длиннее предела колонки обрезается, а не роняет всю пачку.
+ *
+ * `api_key` необязателен: пустое поле — «ключа нет» (в базе null). Слишком
+ * длинный ключ не обрезается: усечённый секрет — это неверный секрет, принтер
+ * молча не подключится, поэтому такой ключ считается неуказанным.
  * null — это не массив: вызывающий отвечает ошибкой, а не «ничего не выбрано».
  */
 export function readApprovedPrinters(
@@ -382,7 +427,11 @@ export function readApprovedPrinters(
     }
 
     seen.add(key);
-    drafts.push({ ipAddress, name });
+    drafts.push({
+      ipAddress,
+      name,
+      apiKey: normalizePrinterApiKey(row?.api_key),
+    });
   }
 
   return { drafts, skipped };

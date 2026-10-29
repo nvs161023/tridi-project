@@ -198,6 +198,11 @@ const SCHEMA_PROBES: { table: string; columns: string }[] = [
     columns:
       "protocol_type, ip_address, api_key, status, progress, remaining_time, last_seen_at",
   },
+  {
+    table: "workshop_discovered_printers",
+    columns:
+      "id, user_id, ip_address, name, protocol_type, serial_number, api_key, status, created_at",
+  },
 ];
 
 /** Возвращает описание первой недостающей таблицы/колонки или null. */
