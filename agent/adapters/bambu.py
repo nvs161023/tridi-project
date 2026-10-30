@@ -27,9 +27,14 @@
     финале делает `unwrap()` и ждёт ответный `close_notify`, которого Bambu не
     присылает, — передача висит уже после последнего байта. Последняя попытка —
     HTTP POST на `/api/files/local` с заголовком `X-Api-Key`. Файл кладём в
-    корень карты памяти: `project_file` ищет его по `url` от корня;
-  - `start_print()` — команда `project_file` в `device/<serial>/request`: файл
-    уже на карте памяти, принтер забирает его по `url` (`ftp:///<имя>`);
+    папку `cache` на карте памяти (`STOR cache/<имя>`): оттуда прошивка берёт
+    его по `param` команды печати;
+  - `start_print()` — команда в `device/<serial>/request`, разная для сырого
+    G-code и проекта. Сырой `.gcode` уходит командой `gcode_file`
+    (`param=cache/<имя>`, `url=file:///sdcard/model/<имя>`), проект `.3mf` —
+    командой `project_file` (`param=Metadata/plate_1.gcode`, `url=ftp:///<имя>`).
+    `project_file` разбирает контейнер `.3mf`, и на плоском `.gcode` A1 отвечает
+    `0500-4003` («не удалось разобрать файл»): сырому файлу нужна своя команда;
   - `get_status()`  — последний отчёт принтера: `print.gcode_state`,
     `print.mc_percent` (проценты) и `print.mc_remaining_time` (минуты).
 
@@ -129,9 +134,20 @@ DISCOVERY_TIMEOUT = 3.0
 SSDP_ADDRESS = ("239.255.255.250", 1990)
 SSDP_TARGET = "urn:bambulab-com:device:3dprinter:1"
 
-# `param` команды печати: запись внутри файла, которую запускает Bambu. Именно
-# это значение присылает Bambu Studio в `project_file`.
+# `param` команды печати для проекта `.3mf`: запись внутри файла, которую
+# запускает Bambu. Именно это значение присылает Bambu Studio в `project_file`.
 GCODE_PARAM = "Metadata/plate_1.gcode"
+
+# Папка `cache` на карте памяти: Bambu Studio кладёт туда загруженные файлы, и
+# прошивка ищет сырой G-code именно там — по `param` команды `gcode_file`. Путь
+# считается от корня карты, поэтому имя файла идёт с префиксом: `cache/<имя>`.
+# Эту же папку использует загрузка (`upload_file`): `param` и фактический путь
+# файла на карте должны совпадать, иначе принтер отвечает `0500-4003`.
+FTP_CACHE_DIRECTORY = "cache"
+
+# `url` сырого G-code: адрес файла в том виде, в каком его понимает прошивка A1
+# в команде `gcode_file`.
+GCODE_FILE_URL_PREFIX = "file:///sdcard/model/"
 
 # `print.gcode_state` принтера → статус агента. `PREPARE` — это ещё не печать,
 # но принтер уже занят заданием, и мастеру важно это видеть. `PAUSE` отдаём как
@@ -424,6 +440,16 @@ _RESET_MARKERS = (
     "data connection closed",
     "принудительно разорвал",
 )
+
+
+def _is_raw_gcode(remote_name: str) -> bool:
+    """
+    Сырой G-code (`.gcode`) или контейнер проекта (`.3mf`)?
+
+    От этого зависит команда печати: `project_file` разбирает контейнер `.3mf`
+    и на плоском файле отвечает `0500-4003`, поэтому сырому нужен `gcode_file`.
+    """
+    return remote_name.lower().endswith(".gcode")
 
 
 def _looks_like_reset(reason: str) -> bool:
@@ -855,11 +881,12 @@ class BambuAdapter(BasePrinterAdapter):
 
     def upload_file(self, local_path: str, remote_name: str) -> bool:
         """
-        Кладёт G-code в корень карты памяти принтера.
+        Кладёт G-code в папку `cache` на карте памяти принтера.
 
         FTPS, порт 990, логин `bblp` и код доступа: тот же пароль, что у MQTT.
-        Папку не создаём: `project_file` ищет файл по `url` от корня карты, и
-        `STOR <имя>` кладёт его ровно туда.
+        Папка та же, откуда прошивка берёт файл по `param` команды `gcode_file`
+        (`FTP_CACHE_DIRECTORY`): путь в команде печати и фактический путь файла
+        обязаны совпадать, иначе A1 отвечает `0500-4003`.
 
         Порядок попыток:
 
@@ -889,9 +916,9 @@ class BambuAdapter(BasePrinterAdapter):
             logger.error("G-code %s не прочитан: %s", local_path, error)
             return False
 
-        # Имя файла без папки: `STOR <имя>` кладёт его в корень карты, и тот же
-        # путь повторяет `url` команды печати.
-        remote_path = remote_name
+        # Имя файла с папкой: `STOR cache/<имя>` кладёт его туда, откуда прошивка
+        # берёт файл по `param` команды печати.
+        remote_path = f"{FTP_CACHE_DIRECTORY}/{remote_name}"
         reason = "неизвестная ошибка"
 
         for attempt in range(1, FTP_UPLOAD_ATTEMPTS + 1):
@@ -1004,6 +1031,22 @@ class BambuAdapter(BasePrinterAdapter):
             logger.info(
                 "Bambu %s: FTPS — PROT P принят, канал данных под TLS", self.host
             )
+            # Папку `cache` создаём один раз: на чистой карте её может не быть, а
+            # `STOR cache/<имя>` без неё вернёт `550`. Ответ «уже существует» —
+            # это норма, поэтому отказ `mkd` здесь не ошибка загрузки.
+            try:
+                ftp.mkd(FTP_CACHE_DIRECTORY)
+                logger.info(
+                    "Bambu %s: FTPS — папка %s создана",
+                    self.host,
+                    FTP_CACHE_DIRECTORY,
+                )
+            except ftplib.error_perm:
+                logger.info(
+                    "Bambu %s: FTPS — папка %s уже есть",
+                    self.host,
+                    FTP_CACHE_DIRECTORY,
+                )
         except (OSError, ftplib.Error):
             _close_ftp(ftp)
             raise
@@ -1185,26 +1228,56 @@ class BambuAdapter(BasePrinterAdapter):
 
     def start_print(self, remote_name: str) -> bool:
         """
-        Запускает печать загруженного файла командой `project_file`.
+        Запускает печать загруженного файла: `gcode_file` или `project_file`.
 
-        `url` повторяет путь загрузки (`ftp:///<имя>`): Bambu забирает файл с
-        собственной карты памяти, второй раз по сети он не передаётся. Путь
-        считается от корня карты — файл лежит именно там (см. `upload_file`).
-        `subtask_name` — имя, которое принтер покажет на экране и в истории:
-        без него Bambu подписывает задание именем файла из `param`.
+        Сырой `.gcode` — не проект: `project_file` разбирает контейнер `.3mf` и
+        на плоском файле A1 отвечает `0500-4003` («не удалось разобрать файл»).
+        Поэтому для `.gcode` уходит отдельная команда `gcode_file`, где `param`
+        — путь к файлу на карте (`cache/<имя>`, как ждёт прошивка), а `url` —
+        `file:///sdcard/model/<имя>`.
+
+        `.3mf` остаётся на `project_file`: `param` там — запись внутри
+        контейнера (`Metadata/plate_1.gcode`), `url` — `ftp:///<имя>`: файл
+        Bambu забирает с собственной карты памяти, второй раз по сети он не
+        передаётся. `subtask_name` — имя, которое принтер покажет на экране и в
+        истории: без него Bambu подписывает задание именем файла из `param`.
         """
-        command = {
-            "print": {
-                "sequence_id": self._next_sequence(),
-                "command": "project_file",
-                "param": GCODE_PARAM,
-                "subtask_name": remote_name,
-                "url": f"ftp:///{remote_name}",
+        if _is_raw_gcode(remote_name):
+            command_name = "gcode_file"
+            param = f"{FTP_CACHE_DIRECTORY}/{remote_name}"
+            url = f"{GCODE_FILE_URL_PREFIX}{remote_name}"
+            options: dict[str, Any] = {}
+        else:
+            command_name = "project_file"
+            param = GCODE_PARAM
+            url = f"ftp:///{remote_name}"
+            # Опции печати шлём только с `project_file`: у `gcode_file` прошивка
+            # берёт их из самого файла, и лишние поля в команде ей ни к чему.
+            options = {
                 "bed_type": "auto",
                 "timelapse": False,
                 "use_ams": False,
             }
+
+        command = {
+            "print": {
+                "sequence_id": self._next_sequence(),
+                "command": command_name,
+                "param": param,
+                "subtask_name": remote_name,
+                "url": url,
+                **options,
+            }
         }
+
+        logger.info(
+            "Bambu %s: печать %s — команда %s, param=%s, url=%s",
+            self.host,
+            remote_name,
+            command_name,
+            param,
+            url,
+        )
 
         if not self._publish(command):
             self.last_error = "команда печати не отправлена: нет MQTT-соединения"

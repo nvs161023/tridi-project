@@ -190,7 +190,7 @@ python main.py
 | `poll_once()` | один опрос: задачи и строка `Получено N задач` |
 | `process_task(task)` | задание целиком: скачать G-code → адаптер → загрузка → печать → мониторинг |
 | `download_gcode(url, path)` | `requests.get(..., stream=True)` в `agent/temp/`, запись кусками по 64 КБ |
-| `monitor_print(job_id, adapter)` | опрос `get_status()` раз в `MONITOR_INTERVAL` (10 с) до `done`/`failed` |
+| `monitor_print(job_id, adapter)` | опрос `get_status()` до `done`/`failed`: первая пауза `PRINT_START_DELAY` (60 с — принтер разбирает файл), дальше раз в `MONITOR_INTERVAL` (10 с) |
 | `remove_temp_file(path)` | удаление временного G-code; вызывается из `finally` в `process_task()` |
 | `run()` | цикл: проверка просьбы о сканировании, опрос очереди, затем задания по одному, пауза `POLL_INTERVAL`; пульс — отдельным потоком |
 | `read_scan_flag(raw)` | `SCAN_NETWORK` → bool: `true`, `1`, `yes`, `on`; всё остальное выключено |
@@ -284,8 +284,8 @@ Bambu в LAN-режиме (Settings → Network → LAN Only Mode) не имее
 | Метод | Что делает | Успех |
 |---|---|---|
 | `connect()` | MQTT `self.ip_address:8883`, TLS без проверки сертификата, подписка `device/<serial>/report`, команда `pushing.pushall` | CONNACK получен и подписка оформлена |
-| `upload_file()` | FTPS `self.ip_address:990`: implicit TLS 1.2 (сессия управляющего канала переиспользуется в канале данных), `PROT P` и `PASV` обязательны, файл кладётся в корень карты (`STOR <remote_name>`); канал данных пишется вручную (`TYPE I` + `STOR` по шагам) с таймаутом `FTP_DATA_TIMEOUT` — `storbinary()` не годится, он висит на `unwrap()` после последнего байта. Если FTPS не прошёл — HTTP `POST /api/files/local` с `X-Api-Key` | файл загружен |
-| `start_print()` | MQTT `device/<serial>/request`: `project_file` с `url=ftp:///<remote_name>` (от корня карты, без папки `cache`) | сообщение отправлено |
+| `upload_file()` | FTPS `self.ip_address:990`: implicit TLS 1.2 (сессия управляющего канала переиспользуется в канале данных), `PROT P` и `PASV` обязательны, файл кладётся в папку `cache` (`STOR cache/<remote_name>`, папка создаётся через `MKD`); канал данных пишется вручную (`TYPE I` + `STOR` по шагам) с таймаутом `FTP_DATA_TIMEOUT` — `storbinary()` не годится, он висит на `unwrap()` после последнего байта. Если FTPS не прошёл — HTTP `POST /api/files/local` с `X-Api-Key` | файл загружен |
+| `start_print()` | MQTT `device/<serial>/request`. Сырой `.gcode` — команда `gcode_file` (`param=cache/<remote_name>`, `url=file:///sdcard/model/<remote_name>`): `project_file` на плоском файле даёт `0500-4003`. Проект `.3mf` — `project_file` (`param=Metadata/plate_1.gcode`, `url=ftp:///<remote_name>`) | сообщение отправлено |
 | `get_status()` | последний отчёт: `print.gcode_state`, `print.mc_percent`, `print.mc_remaining_time` | `{"status", "progress", "remaining_time"}` |
 
 Серийный номер. Топики Bambu адресуются серийником, поэтому адаптер берёт его по
