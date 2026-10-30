@@ -149,6 +149,8 @@ def _as_percent(value: Any) -> int:
 def _as_seconds(value: Any) -> int:
     """Остаток печати в секундах: отрицательное и мусор — 0 («неизвестно»)."""
     return int(round(max(_as_number(value), 0.0)))
+
+
 class OctoPrintAdapter(BasePrinterAdapter):
     """Принтер под OctoPrint: REST API `/api/version`, `/api/files`, `/api/job`."""
 

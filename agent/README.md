@@ -15,14 +15,15 @@ Python-скрипт, который работает на компьютере �
 в `agent/temp/`, ведёт его через адаптер и мониторит печать. Шаг 6.1 — пульс:
 каждые 30 секунд `POST /api/agent/heartbeat` отмечает `last_seen_at` у принтеров
 мастерской, а сетевые ошибки не останавливают агента. Шаг 7.2 — обнаружение
-фермы: `scanner.py` обходит локальную сеть, находит Moonraker (7125) и
-OctoPrint (80/443) и отправляет находки в `POST /api/agent/discover`, а мастер
-даёт им имена в интерфейсе. Адаптер Bambu (MQTT и FTPS, шаг 7.5) уже печатает,
-OctoPrint — с шага 8.3. Шаг 8.1 — реестр протоколов: `adapters/registry.py`
-знает восемь протоколов (moonraker, octoprint, bambu, prusa, creality, anycubic,
-flashforge, elegoo) вместе с портами, форматами файлов и секретами; драйверы
-Creality, Anycubic, FlashForge и Elegoo пишутся следующими шагами, а до
-тех пор задание на такой принтер закрывается отказом `AdapterUnavailableError`.
+фермы: `scanner.py` обходит локальную сеть, находит Creality (WebSocket 9999 и
+`GET /info`), Moonraker (7125) и OctoPrint (80/443) и отправляет находки в
+`POST /api/agent/discover`, а мастер даёт им имена в интерфейсе. Адаптер Bambu
+(MQTT и FTPS, шаг 7.5) уже печатает, OctoPrint — с шага 8.3. Шаг 8.1 — реестр
+протоколов: `adapters/registry.py` знает восемь протоколов (moonraker,
+octoprint, bambu, prusa, creality, anycubic, flashforge, elegoo) вместе с
+портами, форматами файлов и секретами; драйверы Anycubic, FlashForge и Elegoo
+пишутся следующими шагами, а до тех пор задание на такой принтер закрывается
+отказом `AdapterUnavailableError`.
 Шаг 8.2 — форматы: `adapters/formats.py` сверяет расширение со справочником,
 приводит имя файла к ASCII и пакует `.gcode` в `.3mf`, а `prepare_upload()` в
 базовом классе отдаёт адаптеру готовый `UploadPlan` с чистым именем и размером.
@@ -30,8 +31,8 @@ Creality, Anycubic, FlashForge и Elegoo пишутся следующими ш�
 разговаривают с принтером по-настоящему — подключение, загрузка файла, старт
 печати, пауза, возврат, отмена и опрос состояния; ответы API в тестах имитирует
 `http.server` на loopback (`scripts/test-octoprint.py`, `scripts/test-prusa.py`).
-Драйверы Creality, Anycubic, FlashForge и Elegoo пишутся следующими шагами, а до
-тех пор задание на такой принтер закрывается отказом `AdapterUnavailableError`.
+Шаг 4 — `CrealityAdapter`: HTTP для паспорта и файла, WebSocket 9999 для команд;
+фейковый принтер в `scripts/test-creality.py` поднимает оба канала.
 
 Задания печатаются параллельно: одно задание — один поток (`start_job()`), поэтому
 ферма из десяти принтеров не ждёт окончания первой печати. Повторно пришедшая
@@ -266,10 +267,10 @@ python main.py
 ## Адаптеры принтеров
 
 `agent/adapters/` — интерфейс, реестр протоколов, форматы, фабрика и реализации (шаги
-4.2–8.x). Moonraker, OctoPrint, Bambu и PrusaLink разговаривают с принтером по-настоящему.
-Протоколы creality, anycubic, flashforge и elegoo приложение и реестр уже знают, но
-драйверов у них ещё нет: `get_adapter()` отвечает `AdapterUnavailableError`
-(«протокол creality ещё не реализован в агенте»).
+4.2–8.x). Moonraker, OctoPrint, Bambu, PrusaLink и Creality разговаривают с принтером
+по-настоящему. Протоколы anycubic, flashforge и elegoo приложение и реестр уже знают,
+но драйверов у них ещё нет: `get_adapter()` отвечает `AdapterUnavailableError`
+(«протокол anycubic ещё не реализован в агенте»).
 
 | Файл | Назначение |
 |---|---|
@@ -279,6 +280,7 @@ python main.py
 | `moonraker.py` | `MoonrakerAdapter` — Klipper: `/server/info`, `/server/files/upload`, `/printer/print/start`, `/printer/objects/query?print_stats&virtual_sdcard` |
 | `octoprint.py` | `OctoPrintAdapter` — OctoPrint: `/api/version`, `POST /api/files/local`, `POST /api/files/local/<name>`, `GET /api/job`, команды в `POST /api/job` |
 | `prusa.py` | `PrusaAdapter` — PrusaLink: `GET /api/v1/status`, `PUT /api/v1/files/<storage>/<name>`, `POST /api/v1/files/<storage>/<name>`, `GET /api/v1/job`, команды в `/api/v1/job` |
+| `creality.py` | `CrealityAdapter` — Creality OS: `GET /info` (модель), `POST /upload/<имя>`, WebSocket 9999 — `heart_beat`, `get` с `ReqPrinterPara`, `set` с `opGcodeFile`, `pause` и `stop` |
 | `bambu.py` | `BambuAdapter` — Bambu в LAN-режиме: MQTT с TLS (8883) для команд и отчётов, implicit FTPS (990) для файлов |
 | `factory.py` | `get_adapter(protocol_type, ip_address, api_key, serial_number="", secrets=None)`: набор аргументов берётся из паспорта протокола (серийник — Bambu и FlashForge, `secrets` — протоколам из `registry`); неизвестный протокол — `UnknownProtocolError("Неизвестный протокол")`, протокол без драйвера — `AdapterUnavailableError`. После сборки ставит `adapter.protocol_key` из паспорта |
 
@@ -383,10 +385,44 @@ API имитирует `http.server` на loopback; проверяются URL, 
 `PUT`/`POST`/`DELETE`, заголовки `X-Api-Key`, `Print-After-Upload` и `Overwrite`, тело
 загрузки, хранилище из секретов, разбор состояний и отказы 401/405/409/415.
 
-Остальные четыре протокола (creality, anycubic, flashforge, elegoo) есть в реестре и в
-`PRINTER_PROTOCOLS`, форма добавления их показывает, но модулей `creality.py`,
-`anycubic.py`, `flashforge.py` и `elegoo.py` ещё нет: `get_adapter()` отвечает
-`AdapterUnavailableError`, и мастер видит «протокол creality ещё не реализован в агенте».
+### Creality (шаг 4)
+
+| Метод | Запрос | Успех |
+|---|---|---|
+| `connect()` | `GET /info` (запасной — `/detail`), затем WebSocket 9999 и `{"ModeCode": "heart_beat"}` | 200 и `{"msg": "ok"}` |
+| `upload_file()` | `POST /upload/<remote_name>`: `multipart/form-data`, поле `file` | 200/201 и `{"code": 0}` |
+| `start_print()` | `{"method": "set", "params": {"opGcodeFile": "printprt:/usr/data/<remote_name>"}}` | `result` без ошибки |
+| `get_status()` | `{"method": "get", "params": {"ReqPrinterPara": 1}}` | `state`, `printProgress`, `printLeftTime` |
+| `pause_print()` / `resume_print()` | `{"method": "set", "params": {"pause": 1}}` и `{"pause": 0}` | `result` без ошибки |
+| `stop_print()` | `{"method": "set", "params": {"stop": 1}}` | `result` без ошибки |
+
+Creality — единственный протокол без HTTP-команд: команды и телеметрия идут по
+WebSocket на 9999, а HTTP остаётся на паспорт и файл. `heart_beat` уходит и при
+подключении, и перед каждой командой: прошивка рвёт сокет, который молчит.
+`connect()` подтверждения требует: порт 9999 бывает занят чужим приложением, и тогда
+команды ушли бы в пустоту.
+
+`state` переводится так: 0 (подготовка) и 1 (печать) → `printing`, 2 (завершено) →
+`idle`, 3 и 4 (остановлено) → `error` с причиной в `last_error`, 5 (пауза) → `paused`;
+незнакомое число — тоже `error`. Ноль считается печатью намеренно: сразу после
+`opGcodeFile` прошивка греет стол и паркует голову, а `idle` в этот момент main.py
+прочитал бы как «печать не начиналась» и закрыл задание провалом.
+
+Имя файла приходит из `prepare_upload()` с `_` вместо пробелов — так просит прошивка
+Creality. Путь в `opGcodeFile` зависит от модели: сначала `/usr/data/`, на отказе
+`/mnt/UDISK/`, рабочая папка запоминается до конца задания. Молчание в ответ на `set`
+отказом не считается (часть прошивок команды не подтверждает, а выполняет); отказ —
+это `error`, ненулевой `code` или `result` со словами `fail`/`not exist`. Ключ принтера
+прошивка не проверяет: поле есть в форме, но в запросы не попадает.
+
+Тест без принтера: `python scripts/test-creality.py` — фейковый HTTP на loopback и
+фейковый WebSocket на 9999 проверяют `heart_beat`, `opGcodeFile` с обеими папками,
+разбор состояний, паузу и остановку, отказ `.3mf` до сети и порядок портов в сканере.
+
+Остальные три протокола (anycubic, flashforge, elegoo) есть в реестре и в
+`PRINTER_PROTOCOLS`, форма добавления их показывает, но модулей `anycubic.py`,
+`flashforge.py` и `elegoo.py` ещё нет: `get_adapter()` отвечает
+`AdapterUnavailableError`, и мастер видит «протокол anycubic ещё не реализован в агенте».
 Это отличие от неизвестного протокола важно: первое лечится обновлением агента, второе —
 исправлением настроек принтера.
 

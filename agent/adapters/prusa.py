@@ -182,6 +182,8 @@ def _storage_from_secrets(secrets: Mapping[str, str] | None) -> str:
     )
 
     return DEFAULT_STORAGE
+
+
 class PrusaAdapter(BasePrinterAdapter):
     """Принтер с PrusaLink: `GET /api/v1/status`, `PUT /api/v1/files`, `/api/v1/job`."""
 

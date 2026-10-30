@@ -96,6 +96,8 @@ def finish() -> int:
     print("Все проверки пройдены.")
 
     return 0
+
+
 class Recorded(NamedTuple):
     """Запрос, который пришёл на фейковый сервер."""
 
@@ -240,6 +242,8 @@ class FakeOctoPrint:
         handler.send_header("Content-Length", str(len(body)))
         handler.end_headers()
         handler.wfile.write(body)
+
+
 def multipart_fields(request: Recorded) -> dict[str, tuple[str | None, bytes]]:
     """
     Поля multipart-формы: имя → (имя файла, содержимое).

@@ -1290,8 +1290,9 @@ def process_task(task: dict[str, Any]) -> None:
             reason=f"протокол {printer.protocol_type} пока не реализован в агенте",
         )
     finally:
-        # Bambu держит MQTT-соединение и поток paho: закрываем его здесь, иначе
-        # на каждый принтер копился бы живой сокет до выхода из процесса.
+        # Bambu держит MQTT-соединение и поток paho, Creality — WebSocket
+        # команд: закрываем их здесь, иначе на каждый принтер копился бы живой
+        # сокет до выхода из процесса.
         adapter.close()
         remove_temp_file(local_path)
 

@@ -2,8 +2,9 @@
 Сканер локальной сети: мастер подключения фермы (шаг 7.2).
 
 Мастеру со ста принтерами не вбить парк руками. Агент обходит подсеть, находит
-Moonraker (порт 7125), OctoPrint (80/443) и Bambu Lab (SSDP, UDP 1990) и отдаёт
-список в CRM через `POST /api/agent/discover`. Сервер складывает находки в
+Moonraker (порт 7125), Creality (WebSocket 9999 и `GET /info`), OctoPrint
+(80/443) и Bambu Lab (SSDP, UDP 1990) и отдаёт список в CRM через `POST
+/api/agent/discover`. Сервер складывает находки в
 `workshop_discovered_printers` (миграция `supabase/workshop_farm_and_shop.sql`),
 мастер даёт им имена в интерфейсе, и принтеры переезжают в парк мастерской.
 
@@ -40,6 +41,21 @@ import requests
 # принтер от роутера.
 MOONRAKER_PORT = 7125
 OCTOPRINT_PORTS = (80, 443)
+
+# Creality (Creality OS): WebSocket 9999 для команд и HTTP 80 для паспорта.
+# Порт 9999 — самая узкая подпись протокола: он есть у K1, K2 Plus и Ender-3 V3
+# и почти ни у кого больше. Подтверждение — `/info` с кодом модели (`F008`).
+CREALITY_PORT = 9999
+CREALITY_HTTP_PORT = 80
+
+# Адреса паспорта Creality: `/info` у большинства сборок, `/detail` — у тех, где
+# первый закрыт. Порядок важен: лишний запрос стоит секунды обхода, поэтому
+# сначала тот, что отвечает чаще.
+CREALITY_INFO_PATHS = ("/info", "/detail")
+
+# Поля, в которых Creality называет модель. Код (`F008`) — единственная
+# подпись, которую нельзя спутать с чужим JSON на том же порту.
+CREALITY_MODEL_FIELDS = ("model", "modelName", "machineModel")
 
 # Bambu Lab не отвечает ни на 7125, ни на 80: у него MQTT (8883) и FTPS (990).
 # Зато он отвечает на SSDP — multicast-запрос на UDP 1990, в ответе `Location`
@@ -625,15 +641,79 @@ def merge_bambu_printers(
     return sorted(merged.values(), key=address_sort_key)
 
 
+def creality_model(payload: dict[str, Any] | None) -> str | None:
+    """
+    Код модели Creality из ответа `/info` или `/detail`.
+
+    У K2 Plus он лежит на верхнем уровне (`{"model": "F008"}`), часть сборок
+    прячет в `data`, `result` или `device`. Ни один из вариантов не считается
+    подписью, если поля нет: `{"hostname": "creality"}` на 9999 мог бы прийти и
+    от чужого приложения.
+    """
+    if payload is None:
+        return None
+
+    sources = (
+        payload,
+        payload.get("data"),
+        payload.get("result"),
+        payload.get("device"),
+    )
+
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+
+        for field in CREALITY_MODEL_FIELDS:
+            value = source.get(field)
+
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    return None
+
+
+def is_creality(ip_address: str, port: int = CREALITY_HTTP_PORT) -> bool:
+    """
+    Creality за веб-портом: `/info` (или `/detail`) с кодом модели.
+
+    Порт проверяет вызывающий: 9999 открыт только у принтеров Creality, а вот
+    проверить один открытый порт мало — его мог занять чужой сервис. Код
+    модели (`F008` — K2 Plus) и есть подпись протокола.
+
+    `port` — для тестов и для принтера за прокси; по умолчанию 80.
+    """
+    for path in CREALITY_INFO_PATHS:
+        body = read_ok_body(f"http://{ip_address}:{port}{path}")
+
+        if body is None:
+            continue
+
+        model = creality_model(parse_json_object(body))
+
+        if model is not None:
+            return True
+
+    return False
+
+
 def inspect_host(ip_address: str) -> dict[str, Any] | None:
     """
     Один адрес: принтер он или нет.
 
-    Порядок важен и по скорости, и по смыслу. 7125 — сразу Moonraker: это порт
-    по умолчанию у Klipper-ферм, и открывается он только у принтеров. Веб-порты
-    проверяются вторыми и обязательно с HTTP-запросом: без него половина
-    домашней техники попала бы в список находок.
+    Порядок важен и по скорости, и по смыслу. 9999 проверяется первым: у K2
+    Plus открыты и 9999, и 7125 — принтер собран на Klipper, — но печать
+    запускается только командой `opGcodeFile` по WebSocket. Определи такого
+    принтера как Moonraker, и задание уйдёт в никуда: Klipper команду примет,
+    а файл не напечатается.
+
+    Дальше 7125 — порт по умолчанию у Klipper-ферм, открывается только у
+    принтеров. Веб-порты проверяются последними и обязательно с HTTP-запросом:
+    без него половина домашней техники попала бы в список находок.
     """
+    if probe_port(ip_address, CREALITY_PORT) and is_creality(ip_address):
+        return {"ip_address": ip_address, "protocol_type": "creality"}
+
     if probe_port(ip_address, MOONRAKER_PORT) and is_moonraker(ip_address):
         return {"ip_address": ip_address, "protocol_type": "moonraker"}
 
@@ -650,9 +730,9 @@ def scan_network(
     """
     Принтеры локальной сети: `[{"ip_address": ..., "protocol_type": ...}]`.
 
-    Два источника в одном списке: обход портов (Moonraker, OctoPrint) и SSDP
-    (Bambu — вместе с серийным номером). Повтор адреса схлопывается в пользу
-    SSDP: он точнее знает и протокол, и номер.
+    Два источника в одном списке: обход портов (Creality, Moonraker, OctoPrint)
+    и SSDP (Bambu — вместе с серийным номером). Повтор адреса схлопывается в
+    пользу SSDP: он точнее знает и протокол, и номер.
 
     `networks` — для явных подсетей и тестов; по умолчанию решает
     `resolve_scan_networks()`. Результат отсортирован по адресу: два запуска
@@ -670,9 +750,10 @@ def scan_network(
     else:
         workers = min(MAX_WORKERS, len(hosts))
         logger.info(
-            "Сканирую %d адресов в %d потоков: порты %d и %d",
+            "Сканирую %d адресов в %d потоков: порты %d, %d и %d",
             len(hosts),
             workers,
+            CREALITY_PORT,
             MOONRAKER_PORT,
             OCTOPRINT_PORTS[0],
         )

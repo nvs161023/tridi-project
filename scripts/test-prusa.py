@@ -95,6 +95,8 @@ def finish() -> int:
     print("Все проверки пройдены.")
 
     return 0
+
+
 class Recorded(NamedTuple):
     """Запрос, который пришёл на фейковый сервер."""
 
@@ -165,6 +167,7 @@ class FakePrusaLink:
     def count(self, method: str) -> int:
         """Сколько запросов этого метода пришло: проверка «до сети не дошли»."""
         return sum(1 for request in self.requests if request.method == method)
+
     def __enter__(self) -> "FakePrusaLink":
         fake = self
 
@@ -247,6 +250,8 @@ class FakePrusaLink:
         handler.send_header("Content-Length", str(len(body)))
         handler.end_headers()
         handler.wfile.write(body)
+
+
 def main() -> int:
     print("Проверка адаптера PrusaLink:")
 
