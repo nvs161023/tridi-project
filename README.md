@@ -134,6 +134,51 @@ Templates → **Reset password**. Внутри — ссылка на нашу с
 - Переменные `NEXT_PUBLIC_SUPABASE_URL` и `NEXT_PUBLIC_SUPABASE_ANON_KEY` задаются
   в настройках окружения Amvera: `.env.local` в репозиторий не попадает.
 
+## Watchdog зависших заданий печати
+
+`POST /api/agent/watchdog` снимает задания, которые навсегда остались `printing`:
+агент упал, компьютер уснул или принтер потерял питание. Задание считается
+зависшим, если с `started_at` прошло больше расчётного времени печати из задания
+(`estimated_seconds` слайсера) плюс 10 %, а без оценки — больше суток. Роут
+переводит его в `failed` с текстом «Превышено расчетное время печати. Возможно,
+принтер отключился.», принтер — в `error`, а заказ возвращается в «Новые», когда
+других активных заданий у него не осталось.
+
+Защита — тот же `CRON_SECRET`, что у ежедневного отчёта: без него роут отвечает
+`503`, с неверным токеном — `401`.
+
+Ручной запуск для проверки после деплоя:
+
+```bash
+curl -fsS -X POST "https://tridi-print.ru/api/agent/watchdog" \
+  -H "Authorization: Bearer $CRON_SECRET"
+```
+
+Windows PowerShell (секрет — из переменной окружения, а не из истории команд):
+
+```powershell
+curl.exe -X POST "https://tridi-print.ru/api/agent/watchdog" -H "Authorization: Bearer $env:CRON_SECRET"
+```
+
+Ответ — `{ checked, stuck, hardened, jobs, errors }`: `checked` — сколько заданий в
+статусе `printing` просмотрено, `stuck` — сколько снято, `jobs` — их id с
+просрочкой в секундах, `errors` — что не удалось записать. `hardened: false`
+означает, что миграция `supabase/workshop_print_queue_hardening.sql` не применена:
+тогда `started_at` и оценка не читаются, а порог — сутки.
+
+Расписание — раз в час. В Amvera Cloud команда добавляется в «Задачи по
+расписанию»:
+
+```bash
+17 * * * * curl -fsS -X POST "https://tridi-print.ru/api/agent/watchdog" \
+  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/tridi-watchdog.log 2>&1
+```
+
+На обычном сервере — та же строка в `crontab -e`; на внешнем планировщике
+(например, cron-job.org) — адрес `https://tridi-print.ru/api/agent/watchdog`,
+метод `POST`, заголовок `Authorization: Bearer <CRON_SECRET>`. Повторный запуск
+безопасен: задание, уже закрытое, в выборку `printing` не попадает.
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.

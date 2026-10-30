@@ -1,5 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
-
 import type { NextRequest } from "next/server";
 import { Resend } from "resend";
 
@@ -8,6 +6,7 @@ import {
   MODEL_TYPE_LABELS,
   type ModelType,
 } from "@/lib/constructor/params";
+import { isCronAuthorized } from "@/lib/cron-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 
@@ -116,30 +115,6 @@ function json(body: unknown, status = 200): Response {
       "cache-control": "no-store",
     },
   });
-}
-
-/**
- * Проверка секрета из заголовка Authorization.
- *
- * timingSafeEqual не даёт измерить по времени, сколько первых символов секрета
- * совпало. Длину сравниваем отдельно: timingSafeEqual требует одинаковых буферов.
- */
-function isAuthorized(request: NextRequest, secret: string): boolean {
-  const header = request.headers.get("authorization") ?? "";
-  const prefix = "Bearer ";
-
-  if (!header.startsWith(prefix)) {
-    return false;
-  }
-
-  const token = Buffer.from(header.slice(prefix.length).trim(), "utf8");
-  const expected = Buffer.from(secret, "utf8");
-
-  if (token.length !== expected.length) {
-    return false;
-  }
-
-  return timingSafeEqual(token, expected);
 }
 
 /**
@@ -899,7 +874,7 @@ async function handleReport(request: NextRequest): Promise<Response> {
     );
   }
 
-  if (!isAuthorized(request, secret)) {
+  if (!isCronAuthorized(request, secret)) {
     return json({ error: "Неверный или отсутствующий токен." }, 401);
   }
 

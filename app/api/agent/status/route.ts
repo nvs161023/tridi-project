@@ -1,4 +1,8 @@
 import { validateAgentToken } from "@/lib/agent-auth";
+import {
+  writeOffFilamentFact,
+  type FilamentFactOutcome,
+} from "@/lib/db/workshop-filament-facts";
 import { isWorkshopUuid } from "@/lib/db/workshop-types";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -42,6 +46,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * причину, а не «провалено». `estimatedSeconds`/`filamentGrams` — оценка из
  * самого G-кода: агент присылает её со стартом печати, карточка показывает
  * «≈2 ч 5 мин» и расход пластика.
+ *
+ * `done` вместе с `filamentGrams` списывает пластик по факту: роут находит
+ * катушку заказа и зовёт `writeOffFilamentFact()`
+ * (`lib/db/workshop-filament-facts.ts`). План мастера, уже списанный при
+ * создании заказа, возвращается на катушку один раз — при первом завершённом
+ * задании заказа: иначе остаток ушёл бы в минус на два веса. Сбой склада не
+ * отменяет статус печати: задание уже закрыто, а факт остаётся в нём.
  *
  * Повторный запрос с тем же статусом безопасен: значения пишутся целиком, а не
  * приращиваются, поэтому агент может переспросить после таймаута.
@@ -237,6 +248,23 @@ function readRow(value: unknown): Row | null {
   return isObject(value) ? (value as Row) : null;
 }
 
+/**
+ * Вес пластика из задания: `filament_grams numeric(10, 2)`.
+ *
+ * PostgREST отдаёт numeric строкой, поэтому приводим к числу сами. Мусор и
+ * отрицательные значения — null: списывать «неизвестно сколько» нельзя.
+ */
+function readFilamentGrams(value: unknown): number | null {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN;
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body, null, 2), {
     status,
@@ -348,9 +376,14 @@ function jobPatchFor(payload: StatusPayload): JobPatch {
   return patch;
 }
 
-/** Колонки задания, которые нужны POST: заказ, принтер и флаг миграции. */
-const JOB_COLUMNS = "id, order_id, printer_id";
-const JOB_COLUMNS_HARDENED = `${JOB_COLUMNS}, cancel_requested`;
+/**
+ * Колонки задания, которые нужны POST: заказ, принтер и текущий статус.
+ *
+ * Статус читается до записи: по нему видно, первый ли это `done`. Агент
+ * повторяет запрос после таймаута, и списание пластика не должно пройти дважды.
+ */
+const JOB_COLUMNS = "id, order_id, printer_id, status";
+const JOB_COLUMNS_HARDENED = `${JOB_COLUMNS}, cancel_requested, filament_grams`;
 
 /**
  * 42703 — «колонки нет»: миграция hardening не применена. Отдельная проверка
@@ -515,7 +548,32 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  return json({ success: true });
+  // 5. Факт расхода пластика (аудит C6): катушка заказа уменьшается на вес из
+  // G-кода, а план мастера, списанный при создании заказа, возвращается на неё
+  // при первом завершённом задании — см. `writeOffFilamentFact()`.
+  //
+  // Списываем только переход в `done`: повторный `done` от агента — это повтор
+  // запроса после таймаута, а не вторая печать. Вес берём из тела, а если агент
+  // его не прислал (старая версия) — из самого задания, куда он попал со стартом
+  // печати. Сбой склада не отменяет статус печати: задание уже закрыто, факт
+  // записан в нём, и его можно пересчитать отдельно.
+  let filament: FilamentFactOutcome | null = null;
+
+  if (payload.status === "done" && job.status !== "done") {
+    filament = await writeOffFilamentFact({
+      supabase,
+      userId: identity.userId,
+      orderId: job.order_id,
+      jobId: payload.jobId,
+      grams: payload.filamentGrams ?? readFilamentGrams(job.filament_grams),
+    });
+
+    if (filament.status === "failed") {
+      console.warn("Агент: пластик не списан:", filament.error);
+    }
+  }
+
+  return json({ success: true, filament });
 }
 
 /**

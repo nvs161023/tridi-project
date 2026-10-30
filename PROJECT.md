@@ -85,7 +85,7 @@
 | `ROBOKASSA_RECURRING` | `true` — ссылка на легаси-подписку `pro-subscription` уходит с `Recurring=true` (автопродление на стороне Robokassa). По умолчанию `false`: новых продаж подписки нет, оферта и FAQ обещают разовую покупку без продлений |
 | `NEXT_PUBLIC_SITE_URL` | Публичный адрес сайта для ссылок в письмах (подтверждение email), sitemap, robots и абсолютных URL в метаданных |
 | `NEXT_PUBLIC_ENABLE_PARTNER_PROMO` | `true` — на странице готового сертификата показывается промокод «Слойтек»; `false` — заглушка «Партнерская программа скоро» |
-| `CRON_SECRET` | Секрет ежедневного отчёта: `/api/cron/daily-report` принимает только `Authorization: Bearer <CRON_SECRET>`. Пусто — роут отвечает 503 и ничего не отправляет |
+| `CRON_SECRET` | Секрет служебных запусков по расписанию: `/api/cron/daily-report` и `/api/agent/watchdog` принимают только `Authorization: Bearer <CRON_SECRET>`. Пусто — роуты отвечают 503 и ничего не делают |
 | `RESEND_API_KEY` | Ключ Resend для писем с отчётом. Пусто — отчёт возвращается как HTML/JSON и не отправляется (удобно проверять локально) |
 | `MAIL_FROM` | Отправитель писем отчёта, например `TriDi <report@tridi-print.ru>`. Домен должен быть подтверждён в Resend; по умолчанию `TriDi <onboarding@resend.dev>` |
 | `OPENAI_API_KEY` | Ключ ProxyAPI (OpenAI-совместимый шлюз) для OCR накладных Мастерской: базовый адрес `https://api.proxyapi.ru/v1`, модель `openai/gpt-4o`; имя переменной историческое. Пусто — `/api/workshop/ocr` отвечает 503 «OCR временно недоступен» |
@@ -145,6 +145,7 @@
 | `/api/admin/promo/csv` | `app/api/admin/promo/csv/route.ts` | CSV для Ozon: проверяет сессию и `ADMIN_EMAIL`, отдаёт только неиспользованные коды выбранного курса (`?course=confident`) с колонками «Код» и «Ссылка на активацию». BOM и `;` — чтобы Excel с русской локалью открыл файл без мастера импорта |
 | `/api/admin/refund` | `app/api/admin/refund/route.ts` | Возврат за курс: `POST` с `{ purchaseId }`, проверка сессии и `ADMIN_EMAIL`, затем `lib/refund.ts`. Если в `lesson_progress` есть отмеченный платный урок или сданный тест модуля — **403** с текстом оферты, иначе покупка закрывается (`expires_at` = момент возврата) и приходит 200. Коды: 400, 403, 404, 409, 500, 503 |
 | `/api/cron/daily-report` | `app/api/cron/daily-report/route.ts` | Ежедневный отчёт администратору: `Authorization: Bearer <CRON_SECRET>`, два блока — за 24 часа и с начала московского месяца (выручка и покупки, промокоды, новые ученики, посещения, генерации STL по моделям, отзывы о курсах, оценки конструктора со средним баллом и последними комментариями), HTML-письмо через Resend на `ADMIN_EMAIL`. `?dryRun=1` возвращает HTML без отправки; GET и POST равнозначны |
+| `/api/agent/watchdog` | `app/api/agent/watchdog/route.ts` | Watchdog зависших печатей (аудит C7): `POST` с `Authorization: Bearer <CRON_SECRET>`, раз в час по cron. Ищет задания в статусе `printing`, у которых с `started_at` прошло больше `estimated_seconds` слайсера плюс 10 % (без оценки — больше суток), переводит их в `failed` с текстом «Превышено расчетное время печати. Возможно, принтер отключился.», а принтер — в `error`. Заказ возвращает в «Новые» триггер, а без миграции hardening — сам роут. Ответ `{ checked, stuck, hardened, jobs, errors }`, повторный запуск безопасен |
 
 Авторизация и верификация:
 
@@ -1920,22 +1921,26 @@ M117, моторы) и правило «без отвода — вмятина �
 `constructor_feedback` создаются миграциями вручную; если какой-то из них в базе ещё нет, отчёт не
 падает — на месте цифры стоит прочерк, а в примечании перечислены файлы миграций.
 
-Защита: заголовок `Authorization: Bearer <CRON_SECRET>`, сравнение через `timingSafeEqual`.
+Защита: заголовок `Authorization: Bearer <CRON_SECRET>`, сравнение через `timingSafeEqual` в общей
+функции `isCronAuthorized()` (`lib/cron-auth.ts`) — её же использует watchdog зависших печатей.
 `?dryRun=1` возвращает готовый HTML без отправки (удобно проверять после деплоя). Если
 `RESEND_API_KEY` пуст, роут отвечает JSON со статистикой и ничего не отправляет. Текстовая версия
 письма повторяет оба блока — для клиентов без HTML.
 
-Cron на сервере (каждый день в 09:00 МСК):
+Cron на сервере (каждый день в 09:00 МСК, watchdog зависших печатей — каждый час):
 
 ```bash
 0 9 * * * curl -fsS -X GET "https://tridi-print.ru/api/cron/daily-report" \
   -H "Authorization: Bearer $CRON_SECRET" >> /var/log/tridi-report.log 2>&1
+17 * * * * curl -fsS -X POST "https://tridi-print.ru/api/agent/watchdog" \
+  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/tridi-watchdog.log 2>&1
 ```
 
-В Amvera Cloud та же команда добавляется в раздел «Задачи по расписанию» (cron `0 9 * * *`,
-часовой пояс — МСК); `CRON_SECRET`, `RESEND_API_KEY`, `MAIL_FROM` и `ADMIN_EMAIL` задаются в
-переменных окружения проекта. Домен отправителя должен быть подтверждён в Resend; для первой
-проверки подойдёт `onboarding@resend.dev`.
+В Amvera Cloud те же команды добавляются в раздел «Задачи по расписанию» (cron `0 9 * * *` и
+`17 * * * *`, часовой пояс — МСК); `CRON_SECRET`, `RESEND_API_KEY`, `MAIL_FROM` и `ADMIN_EMAIL`
+задаются в переменных окружения проекта. Домен отправителя должен быть подтверждён в Resend; для
+первой проверки подойдёт `onboarding@resend.dev`. Ручной прогон watchdog (без cron) — тот же `curl`
+из консоли: пустой `stuck` означает, что зависших заданий нет.
 
 ### 3.21 Возвраты за курсы
 
@@ -2557,6 +2562,33 @@ default 'manual'` с check `manual/ozon/wb/yandex` — заказы, созда�
   переподключение...», повтор идёт через 5 секунд, а на старте агент снимает застрявший статус
   `error` у принтеров, оставшийся с прошлого запуска.
 
+Зависшие печати снимает watchdog `POST /api/agent/watchdog` (`app/api/agent/watchdog/route.ts`,
+аудит C7): агент мог умереть вместе с компьютером, и задание оставалось `printing` навсегда — заказ
+висел в «В печати», повторную постановку блокировал уникальный индекс, а просьбу об отмене выполнять
+было некому. Роут ищет задания `printing`, у которых с `started_at` прошло больше `estimated_seconds`
+(оценка слайсера из самого задания) плюс 10 %, а без оценки — больше суток, и закрывает их как
+`failed` с текстом «Превышено расчетное время печати. Возможно, принтер отключился.»; принтер
+переводится в `error`. Заказ возвращает в «Новые» триггер `workshop_print_jobs_sync_order`, а на базе
+без миграции hardening — сам роут по тому же правилу «других активных заданий нет». Защита — тот же
+`Authorization: Bearer <CRON_SECRET>`, что у ежедневного отчёта, проверка общая: `isCronAuthorized()`
+в `lib/cron-auth.ts` (сравнение через `timingSafeEqual`). Вызов — раз в час по cron; ответ
+`{ checked, stuck, hardened, jobs, errors }` показывает, сколько заданий проверили и сняли, повторный
+запуск безопасен (обновление ограничено условием `status = 'printing'`). Правило просрочки живёт
+отдельно от роута — `lib/workshop/stuck-print-jobs.ts` — и проверяется без базы тестом
+`scripts/test-print-resources.ts` (`node --import ./scripts/register-alias.mjs
+scripts/test-print-resources.ts`): 18 проверок, включая границу «оценка плюс 10 %», откат на
+`updated_at` без миграции и зажим остатка катушки.
+
+Расход пластика по факту (аудит C6): при `done` агент присылает `filament_grams` из G-кода вместе со
+статусом, и роут списывает этот вес с катушки заказа через `writeOffFilamentFact()`
+(`lib/db/workshop-filament-facts.ts`). План мастера (`material_weight_g`) уже списан при создании
+заказа, поэтому он возвращается на катушку ровно один раз — при первом завершённом задании заказа:
+заказ с планом 100 г и тремя позициями на 40, 45 и 30 г спишет 115 г, а не 215. Списание идёт только
+на переходе в `done` (повтор запроса от агента второй раз не спишет), факт округляется до грамма
+(остаток катушки — integer) и зажимается в границы `0…total_weight_g`. Сбой склада не отменяет статус
+печати: задание уже закрыто, факт остаётся в нём, а причина уходит в журнал сервера. Возврат ресурсов
+при удалении заказа, отмене и провале печати остался в C6 как отдельная задача.
+
 Поддерживаемые принтеры: Moonraker (Klipper) — полностью: проверка связи, загрузка файла, старт
 печати и опрос состояния; Bambu Lab — тоже полностью, по LAN-протоколу принтера (MQTT с TLS на
 8883 и implicit FTPS на 990, пароль — код доступа с экрана): серийный номер берётся из задания —
@@ -2687,6 +2719,7 @@ default 'manual'` с check `manual/ozon/wb/yandex` — заказы, созда�
 | `lib/course-completion.ts` | Завершение курса по строкам `lesson_progress`: уроки с материалом, сданные тесты модулей, дата последнего шага и `isComplete`; `readCourseProgressRows` читает прогресс уровня с откатом на старую схему без `course_type`. Общий источник правил для кабинета, сертификата, отзывов и «Центра выпускника» |
 | `lib/certificates.ts` | Сертификат как HMAC-токен: `createCertificate` подписывает имя, курс, дату, subject и признак пакета `fullCourse`, `readCertificateToken` проверяет подпись через `timingSafeEqual` и принимает старые токены без `fullCourse`, `formatCertificateDate` и номер `TRI-2026-…`; секрет — `CERTIFICATE_SECRET` или `SUPABASE_SERVICE_ROLE_KEY` |
 | `lib/crypto.ts` | Секреты приложения: `encrypt(text)` и `decrypt(ciphertext)` на AES-256-GCM, формат `v1.<iv>.<auth-tag>.<ciphertext>` в base64url, случайный IV на каждый вызов; ключ — SHA-256 от `ENCRYPTION_SECRET`, иначе от `SUPABASE_SERVICE_ROLE_KEY`, в разработке — локальная строка, в production без секрета ошибка; при расшифровке перебираются оба ключа, поэтому `ENCRYPTION_SECRET` можно добавить после первых сохранений; `isEncryptedSecret` отличает шифротекст от старых открытых строк. Модуль серверный (`node:crypto`), в клиент не импортируется |
+| `lib/cron-auth.ts` | Проверка секрета служебных запусков по расписанию: `isCronAuthorized(request, secret)` принимает только `Authorization: Bearer <CRON_SECRET>`, сравнивает токен через `timingSafeEqual`, а длину — отдельно (функция бросает исключение на разных буферах). Одна реализация на два роута: `/api/cron/daily-report` и `/api/agent/watchdog` |
 | `lib/reviews.ts` | Отзывы о курсах: `REVIEW_COURSE_IDS`, проверка оценки и длины текста, `getCourseReviews` (свежие сверху, имена из `course_review_authors`), `hasUserReviewedCourse`, `getCourseReviewStats`, `formatReviewDate`, `pluralizeReviews` |
 | `lib/defects.ts` | Справочник дефектов FDM-печати: тип `Defect` (название, описание, причины, решения), три группы `DEFECT_CATEGORIES` («Проблемы со столом», «Проблемы с экструзией», «Механика») с подписями `DEFECT_CATEGORY_LABELS` и пояснениями `DEFECT_CATEGORY_HINTS`; массив `defects` — общий источник карточек, фильтров и JSON-LD `FAQPage` |
 | `lib/course-levels.ts` | Четыре уровня витрины (`LEVELS`): названия, `goal` и разовая цена `price` из `data/courses.json`, уроки, `totalLessons`, `estimatedHours`, схемы, тесты — из файлов курсов, а `hours` («~15 часов») — из `estimated_hours` через `formatAcademicHours`, чтобы карточка и сертификат показывали одно число; `getCertificateProgram` собирает строку уровня или пакета и объём для сертификата; `PAID_LEVELS`, `PAID_LESSONS`, `PAID_VISUALS`, `PAID_TESTS`, `TOTAL_LESSONS`, `TOTAL_VISUALS`, `TOTAL_TESTS` — те же числа для главной и `/subscription` |
@@ -2756,6 +2789,8 @@ default 'manual'` с check `manual/ozon/wb/yandex` — заказы, созда�
 | `lib/workshop/requisites.ts` | Реквизиты компании Мастерской: `WorkshopRequisites`, `WorkshopCompanyType`, `COMPANY_TYPES` (самозанятый / ИП / ООО), `REQUISITES_TEXT_LIMITS` (название 200, адрес 400, банк 600, телефон 40, email 160), `WORKSHOP_REQUISITES_DEFAULTS` (`self_employed`, пустое название), `WORKSHOP_REQUISITES_COLUMNS`, `isWorkshopCompanyType`, `workshopCompanyTypeLabel`, `hasWorkshopRequisitesFormFields` (по полям формы отличает вкладку «Реквизиты» от калькулятора в общем `saveWorkshopSettings`), `normalizeWorkshopRequisites` (строка базы → объект: пробелы по краям срезаются, пустые строки становятся `null`, незнакомый тип — самозанятый) и `readWorkshopRequisitesForm` (тип и название обязательны, ИНН 10 или 12 цифр, ОГРН 13 или 15, email — формат, телефон — допустимые символы и минимум пять цифр, пределы длин; служебные `formText`, `rowText`, `readOptionalText`, `readRequiredText`, `despaceDigits` убирают пробелы в ИНН и ОГРН) |
 | `lib/workshop/integrations.ts` | Интеграции с Ozon Seller, Wildberries и Яндекс.Маркетом: `OZON_WEBHOOK_ENDPOINT` (`https://tridi-print.ru/api/webhooks/ozon`), `WB_WEBHOOK_ENDPOINT` (`https://tridi-print.ru/api/webhooks/wb`), `YANDEX_WEBHOOK_ENDPOINT` (`https://tridi-print.ru/api/webhooks/yandex`), `buildOzonWebhookUrl`, `buildWbWebhookUrl` и `buildYandexWebhookUrl` (общая сборка `buildWebhookUrl` добавляет `?token=<uuid>` только при валидном токене), `normalizeWebhookToken` (UUID в нижнем регистре или `null`), `WorkshopIntegrations` (`ozonClientId`, `ozonApiKey`, `webhookToken`; `null` — не настроено), `WORKSHOP_INTEGRATIONS_DEFAULTS`, `WORKSHOP_INTEGRATIONS_COLUMNS` (`ozon_client_id, ozon_api_key`), `WORKSHOP_WEBHOOK_TOKEN_COLUMN` (`webhook_token` читается отдельно), `INTEGRATIONS_TEXT_LIMITS` (Client-Id 64, Api-Key 200), `INTEGRATIONS_FORM_NAMES`, `WorkshopIntegrationField`, `WorkshopIntegrationsErrors`, `MASKED_OZON_API_KEY` (`••••••••`), `isMaskedOzonApiKey`, `maskOzonApiKey`, `isWorkshopIntegrationActive` (нужны оба ключа; принимает `null`/`undefined`), `hasWorkshopIntegrationFormFields` (отличает вкладку «Интеграции» в общем `saveWorkshopSettings`), `ensureWorkshopIntegrations` (терпит старый RSC-пейлоад без новых полей и всегда маскирует Api-Key), `normalizeWorkshopIntegrations` (пробелы и NBSP выбрасываются, пустая строка → `null`, непустой Api-Key → маска) и `readWorkshopIntegrationForm` (оба поля пустые — отключение, заполнено одно — ошибка, Client-Id только цифры; Api-Key возвращается сырым только внутри Server Action) |
 | `lib/workshop/credentials.ts` | Серверные доступы Ozon: `getWorkshopOzonCredentials(supabase, userId)` → `{ clientId, apiKey }` или `null`; читает `ozon_client_id` и `ozon_api_key`, расшифровывает ключ через `lib/crypto.ts` (`decrypt`), старые открытые строки до шифрования возвращает как есть, ошибку чтения или расшифровки превращает в `null`. Модуль серверный, в клиент не импортируется |
+| `lib/workshop/stuck-print-jobs.ts` | Правило «задание зависло» для watchdog: `STUCK_PRINT_MESSAGE` («Превышено расчетное время печати. Возможно, принтер отключился.»), `ESTIMATE_OVERDUE_RATIO` (1,1 — запас к оценке слайсера), `NO_ESTIMATE_LIMIT_MS` (сутки без оценки), `readStuckPrintJob(row)` (id, владелец, заказ, принтер, метка старта с откатом на `updated_at`) и `overduePrintMs(job, now)` — просрочка в миллисекундах или `null`. Чистая арифметика без базы: проверяется тестом `scripts/test-print-resources.ts` |
+
 | `lib/workshop/agent-token.ts` | Токен локального агента печати: `WORKSHOP_AGENT_TOKEN_COLUMN` (`agent_token` — колонка из `supabase/workshop_farm_and_shop.sql`, uuid с `default gen_random_uuid()` и unique) и `normalizeAgentToken(value)` — строка uuid в нижнем регистре или `null`; не-uuid, пустая строка и не-строка считаются отсутствующим токеном, поэтому мусор не уходит в `Authorization`. Модуль чистый (без Supabase и `next/cache`): его импортируют серверная страница через `lib/workshop/store.ts`, Server Action `ensureAgentToken` и клиентская вкладка «Интеграции» |
 | `lib/workshop/export.ts` | CSV-выгрузка каталога: `EXPORT_PLATFORMS`, `ExportPlatform`, `EXPORT_PLATFORM_LABELS`, `isExportPlatform` и `buildProductsCsv(products, platform)`. Держит заголовки и порядок колонок всех пяти площадок, цену `1500.00`, вес в граммах и габариты `Д×Ш×В`; пустая сторона обнуляет общую ячейку габаритов, у Ozon три отдельные колонки. Экранирует `;`, кавычки и переводы строк по RFC 4180, добавляет BOM и CRLF; пустой каталог даёт только заголовки |
 | `lib/workshop/printer-presets.ts` | Справочник принтеров: `PrinterPreset` и `PRINTER_PRESETS` — восемнадцать моделей (Bambu Lab X1, X1C, P1S, A1, A1 mini; Prusa MK4 и MK3S+; Creality Ender-3 V3, K1, K1 Max, K1C; Anycubic Kobra; Elegoo Neptune 4; Sovol SV06 и SV07; Artillery Sidewinder; Voron 2.4 и Trident) с наработкой до обслуживания сопла (`nozzleHours`, 400–1000 ч), смазки направляющих (`lubricationHours`, 0–1000 ч; 0 у карбоновых стержней Bambu Lab — их чистят спиртом, а не смазывают), смазки винта Z (`zScrewHours`, 500–1000 ч) и подсказкой `note`; числа — ориентиры производителя, в форме их можно изменить. `PRINTER_BRAND_OPTIONS` — уникальные бренды для datalist, `formatPrinterPresetLabel` — подпись «бренд — модель», `normalizePrinterModel`/`findPrinterPresetByModel` — поиск пресета по свободно введённой модели без учёта регистра, пробелов и вида тире |

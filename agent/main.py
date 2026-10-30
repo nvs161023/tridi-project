@@ -992,7 +992,11 @@ def job_suffix(url: str) -> str:
     return ".3mf" if path.endswith(".3mf") else ".gcode"
 
 
-def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
+def monitor_print(
+    job_id: str,
+    adapter: BasePrinterAdapter,
+    filament_grams: float | None = None,
+) -> None:
     """
     Цикл мониторинга: состояние принтера раз в `MONITOR_INTERVAL` секунд, пока
     печать не закончится.
@@ -1017,6 +1021,10 @@ def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
     `idle` при нулевом прогрессе — это «файл не взят в работу» (принтер уже
     успел поругаться ошибкой на экране), а простой на первых опросах означает,
     что файл не разобран. Мастеру нельзя показывать изделие, которого нет.
+
+    `filament_grams` — вес модели из G-кода: уходит вместе с `done`, и сервер
+    списывает его с катушки заказа (факт вместо плана из формы). Без веса
+    печать закрывается как обычно — сервер возьмёт оценку из самого задания.
     """
     # Уже отправленный прогресс: 0 ушёл вместе с началом печати.
     last_progress = 0
@@ -1052,7 +1060,7 @@ def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
             logger.info(
                 "Задание %s: печать закончена, прогресс %d%%", job_id, progress
             )
-            send_status(job_id, "done", 100)
+            send_status(job_id, "done", 100, filament_grams=filament_grams)
             return
 
         # Просьбу мастера проверяем после «печать закончена»: если принтер уже
@@ -1264,7 +1272,7 @@ def process_task(task: dict[str, Any]) -> None:
             estimated_seconds=estimated_seconds,
             filament_grams=filament_grams,
         )
-        monitor_print(job_id, adapter)
+        monitor_print(job_id, adapter, filament_grams)
     except NotImplementedError as error:
         # OctoPrint пока заглушка: мастер увидит причину, а агент не вылетит и
         # продолжит опрос очереди.
