@@ -1,16 +1,19 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { AddClientDialog } from "@/components/workshop/AddClientDialog";
-import { ClientsIcon } from "@/components/workshop/WorkshopIcons";
+import {
+  ClientsIcon,
+  PencilIcon,
+} from "@/components/workshop/WorkshopIcons";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 
 /**
  * Вкладка «Клиенты».
  *
- * База читается на сервере и приходит готовым массивом. После добавления
- * клиента `addClient` вызывает `revalidatePath`, страница обновляется, и
+ * База читается на сервере и приходит готовым массивом. После добавления или
+ * правки клиента действие вызывает `revalidatePath`, страница обновляется, и
  * таблица перерисовывается — второй источник правды вкладке не нужен.
  *
  * Пока база пуста, показывается состояние с иконкой и кнопкой. Когда клиенты
@@ -18,6 +21,10 @@ import type { WorkshopClient } from "@/lib/workshop/clients";
  * таблицей в стиле товаров: тёмная карточка, uppercase-заголовки и прочерки
  * для незаполненных полей. Заметки идут второй строкой под именем — в таблице
  * они не занимают отдельную колонку.
+ *
+ * Поиск работает по уже загруженному массиву: имя ищется по вхождению
+ * подстроки, телефон — и по написанию, и по цифрам, поэтому «+7 (999)»
+ * находится и запросом «999». Новых запросов к базе поиск не делает.
  */
 
 type WorkshopClientsTabProps = {
@@ -29,15 +36,85 @@ function phoneHref(phone: string): string {
   return `tel:${phone.replace(/[^\d+]/g, "")}`;
 }
 
+/** Цифры телефона: по ним поиск не зависит от скобок и дефисов. */
+function phoneDigits(phone: string): string {
+  return phone.replace(/\D/g, "");
+}
+
+/**
+ * Клиенты, подходящие под запрос.
+ *
+ * Пустой запрос возвращает весь список: вкладка не должна фильтровать базу,
+ * пока мастер ничего не искал. Пробелы по краям не считаются содержимым.
+ */
+function filterClients(
+  clients: WorkshopClient[],
+  query: string,
+): WorkshopClient[] {
+  const needle = query.trim().toLowerCase();
+
+  if (!needle) {
+    return clients;
+  }
+
+  const digits = phoneDigits(needle);
+
+  return clients.filter((client) => {
+    if (client.name.toLowerCase().includes(needle)) {
+      return true;
+    }
+
+    if (!client.phone) {
+      return false;
+    }
+
+    return (
+      client.phone.toLowerCase().includes(needle) ||
+      (digits.length > 0 && phoneDigits(client.phone).includes(digits))
+    );
+  });
+}
+
 export function WorkshopClientsTab({ clients }: WorkshopClientsTabProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  /** Клиент, открытый в окне правки: тот же диалог, что и добавление. */
+  const [editingClient, setEditingClient] = useState<WorkshopClient | null>(
+    null,
+  );
   const addButtonRef = useRef<HTMLButtonElement>(null);
+
+  const visibleClients = useMemo(
+    () => filterClients(clients, search),
+    [clients, search],
+  );
+  const isSearching = search.trim().length > 0;
 
   const openDialog = useCallback(() => setIsDialogOpen(true), []);
   const closeDialog = useCallback(() => {
     setIsDialogOpen(false);
     addButtonRef.current?.focus();
   }, []);
+
+  const openEdit = useCallback((client: WorkshopClient) => {
+    setEditingClient(client);
+  }, []);
+
+  /** Закрытие правки возвращает фокус на кнопку той же строки. */
+  const closeEdit = useCallback(() => {
+    const clientId = editingClient?.id;
+    setEditingClient(null);
+
+    if (!clientId) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(`[data-client-edit="${clientId}"]`)
+        ?.focus();
+    });
+  }, [editingClient]);
 
   return (
     <section
@@ -100,29 +177,80 @@ export function WorkshopClientsTab({ clients }: WorkshopClientsTabProps) {
         </div>
       ) : (
         <>
-          <p className="mt-3 text-xs font-semibold text-zinc-500">
-            Клиентов: {clients.length}
-          </p>
-          <ClientsTable clients={clients} />
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <div className="w-full sm:max-w-sm">
+              <label htmlFor="clients-search" className="sr-only">
+                Поиск по имени или телефону
+              </label>
+              <input
+                id="clients-search"
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Поиск: имя или телефон"
+                data-clients-search
+                className="min-h-11 w-full rounded-xl border border-white/10 bg-black/40 px-4 text-sm text-white outline-none transition-all duration-200 placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset"
+              />
+            </div>
+            <p className="text-xs font-semibold text-zinc-500">
+              Клиентов: {clients.length}
+              {isSearching ? ` · найдено: ${visibleClients.length}` : ""}
+            </p>
+          </div>
+
+          {visibleClients.length === 0 ? (
+            <div
+              data-clients-no-results
+              className="mt-4 rounded-2xl border border-dashed border-white/10 bg-[#0a0a0a] px-5 py-10 text-center"
+            >
+              <h3 className="text-base font-bold tracking-tight text-white">
+                Ничего не найдено
+              </h3>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-400">
+                По запросу «{search.trim()}» клиентов нет. Проверьте имя или
+                телефон — или сбросьте поиск.
+              </p>
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-5 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              >
+                Сбросить поиск
+              </button>
+            </div>
+          ) : (
+            <ClientsTable clients={visibleClients} onEdit={openEdit} />
+          )}
         </>
       )}
 
       {isDialogOpen ? <AddClientDialog onClose={closeDialog} /> : null}
+      {editingClient ? (
+        <AddClientDialog initial={editingClient} onClose={closeEdit} />
+      ) : null}
     </section>
   );
 }
 
 /** Таблица базы в стиле товаров и склада: тёмная карточка, компактные строки. */
-function ClientsTable({ clients }: { clients: WorkshopClient[] }) {
+function ClientsTable({
+  clients,
+  onEdit,
+}: {
+  clients: WorkshopClient[];
+  onEdit: (client: WorkshopClient) => void;
+}) {
   return (
     <div
       data-clients-table
       className="mt-4 overflow-hidden rounded-2xl border border-white/5 bg-[#0a0a0a]"
     >
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] border-collapse text-sm">
+        <table className="w-full min-w-[800px] border-collapse text-sm">
           <caption className="sr-only">
-            Клиенты: имя, телефон, email и адрес
+            Клиенты: имя, телефон, email, адрес и правка карточки
           </caption>
           <thead>
             <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
@@ -137,6 +265,9 @@ function ClientsTable({ clients }: { clients: WorkshopClient[] }) {
               </th>
               <th scope="col" className="px-3 py-3">
                 Адрес
+              </th>
+              <th scope="col" className="px-3 py-3 text-right">
+                <span className="sr-only">Действия</span>
               </th>
             </tr>
           </thead>
@@ -180,6 +311,18 @@ function ClientsTable({ clients }: { clients: WorkshopClient[] }) {
                 </td>
                 <td className="max-w-[18rem] px-3 py-4 break-words text-zinc-300">
                   {client.address ?? <span className="text-slate-500">—</span>}
+                </td>
+                <td className="px-3 py-4 text-right">
+                  <button
+                    type="button"
+                    onClick={() => onEdit(client)}
+                    aria-label={`Редактировать клиента «${client.name}»`}
+                    title="Редактировать клиента"
+                    data-client-edit={client.id}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-blue-400/50 hover:bg-blue-500/15 hover:text-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                  >
+                    <PencilIcon className="h-4 w-4" />
+                  </button>
                 </td>
               </tr>
             ))}

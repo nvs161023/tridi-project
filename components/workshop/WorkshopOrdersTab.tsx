@@ -95,6 +95,40 @@ const STATUS_COLUMNS: readonly StatusColumn[] = [
   { status: "delivered", label: "Выданы", hint: "Переданы клиенту" },
 ];
 
+/** Какой статус показан: «all» — вся доска, остальные — одна колонка. */
+type OrderStatusFilter = OrderFlowStatus | "all";
+
+/**
+ * Чипы фильтра над доской.
+ *
+ * «Все» — обычный вид с четырьмя колонками. Выбранный статус оставляет на
+ * доске одну колонку: так выданные заказы не мешают смотреть, что печатается.
+ * Фильтр клиентский: массив заказов уже загружен серверным компонентом.
+ */
+const STATUS_FILTERS: readonly {
+  status: OrderStatusFilter;
+  label: string;
+}[] = [
+  { status: "all", label: "Все" },
+  ...STATUS_COLUMNS.map((column) => ({
+    status: column.status,
+    label: column.label,
+  })),
+];
+
+/**
+ * Ширина сетки на десктопе по числу видимых колонок.
+ *
+ * Классы статические — Tailwind видит их в исходнике. Одна колонка получает
+ * ограничение ширины: растянутая на весь экран карточка читается хуже.
+ */
+const BOARD_GRID_CLASS: Record<number, string> = {
+  1: "lg:max-w-md lg:grid-cols-1",
+  2: "lg:grid-cols-2",
+  3: "lg:grid-cols-3",
+  4: "lg:grid-cols-4",
+};
+
 /** Цвет точки статуса в колонке и меню. Классы статические — Tailwind их видит. */
 const STATUS_DOT_CLASS: Record<OrderStatus, string> = {
   new: "bg-zinc-400",
@@ -151,6 +185,8 @@ export function WorkshopOrdersTab({
   );
   /** Открытая карточка заказа: id вместо объекта — детали берутся из props. */
   const [detailsOrderId, setDetailsOrderId] = useState<string | null>(null);
+  /** Фильтр доски: «all» — четыре колонки, статус — одна. */
+  const [statusFilter, setStatusFilter] = useState<OrderStatusFilter>("all");
   const createTriggerRef = useRef<HTMLButtonElement>(null);
   /**
    * Когда закончилось последнее перетаскивание.
@@ -182,6 +218,21 @@ export function WorkshopOrdersTab({
 
     return groups;
   }, [orders]);
+
+  /**
+   * Колонки, которые видит мастер.
+   *
+   * «Все» возвращает четыре колонки доски, выбранный статус — одну. Так
+   * фильтр не прячет данные: заказы остаются в `groupedOrders`, меняется
+   * только то, что нарисовано.
+   */
+  const visibleColumns = useMemo(
+    () =>
+      statusFilter === "all"
+        ? STATUS_COLUMNS
+        : STATUS_COLUMNS.filter((column) => column.status === statusFilter),
+    [statusFilter],
+  );
 
   const summary = useMemo(
     () => ({
@@ -535,6 +586,46 @@ export function WorkshopOrdersTab({
             ) : null}
           </p>
 
+          <div
+            role="group"
+            aria-label="Фильтр заказов по статусу"
+            data-orders-status-filter
+            className="mt-3 flex flex-wrap gap-2"
+          >
+            {STATUS_FILTERS.map((filter) => {
+              const isActive = statusFilter === filter.status;
+              const count =
+                filter.status === "all"
+                  ? orders.length
+                  : groupedOrders[filter.status].length;
+
+              return (
+                <button
+                  key={filter.status}
+                  type="button"
+                  onClick={() => setStatusFilter(filter.status)}
+                  aria-pressed={isActive}
+                  data-orders-filter={filter.status}
+                  className={`inline-flex min-h-9 items-center gap-2 rounded-full border px-3.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] ${
+                    isActive
+                      ? "border-white/25 bg-white text-black"
+                      : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
+                  }`}
+                >
+                  {filter.label}
+                  <span
+                    aria-hidden
+                    className={`tabular-nums ${
+                      isActive ? "text-black/60" : "text-zinc-500"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
           <p className="mt-3 text-[11px] text-zinc-500 lg:hidden">
             Проведите пальцем в сторону, чтобы увидеть все этапы.
           </p>
@@ -548,8 +639,12 @@ export function WorkshopOrdersTab({
             data-kanban-board
             className="mt-2 max-w-full overflow-x-auto overscroll-x-contain pb-2 lg:overflow-visible"
           >
-            <div className="flex snap-x snap-mandatory gap-3 lg:grid lg:grid-cols-4 lg:gap-4">
-              {STATUS_COLUMNS.map((column) => (
+            <div
+              className={`flex snap-x snap-mandatory gap-3 lg:grid lg:gap-4 ${
+                BOARD_GRID_CLASS[visibleColumns.length] ?? "lg:grid-cols-4"
+              }`}
+            >
+              {visibleColumns.map((column) => (
                 <KanbanColumn
                   key={column.status}
                   column={column}

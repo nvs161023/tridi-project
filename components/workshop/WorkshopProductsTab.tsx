@@ -1,12 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { deleteProduct } from "@/app/actions/products";
 import { AddProductDialog } from "@/components/workshop/AddProductDialog";
 import { ImportProductsDialog } from "@/components/workshop/ImportProductsDialog";
 import {
+  PencilIcon,
   ProductsIcon,
   TrashIcon,
 } from "@/components/workshop/WorkshopIcons";
@@ -16,14 +17,18 @@ import type { WorkshopProduct } from "@/lib/workshop/products";
  * Вкладка «Товары».
  *
  * Каталог читается на сервере и приходит готовым массивом. После добавления
- * товара `addProduct` вызывает `revalidatePath`, страница обновляется, и
- * таблица перерисовывается — второй источник правды вкладке не нужен.
+ * или правки товара действие вызывает `revalidatePath`, страница обновляется,
+ * и таблица перерисовывается — второй источник правды вкладке не нужен.
  *
  * Пока товаров нет, показывается пустое состояние с кнопкой. Когда каталог
  * заполнен, кнопка «Добавить товар» переезжает в шапку, а данные выводятся
  * таблицей в стиле склада: тёмная карточка, uppercase-заголовки и
  * `tabular-nums` для чисел. Кнопка «Импорт» остаётся в шапке при любом
  * каталоге и открывает окно загрузки CSV.
+ *
+ * Поиск идёт по уже загруженному массиву — название и артикул, без учёта
+ * регистра. Правка и удаление живут в последней колонке: карандаш открывает
+ * тот же диалог, что и добавление, с заполненными полями.
  */
 
 type WorkshopProductsTabProps = {
@@ -86,18 +91,53 @@ function gcodeHref(url: string | null): string | null {
   return url && /^https?:\/\//iu.test(url) ? url : null;
 }
 
+/**
+ * Товары, подходящие под запрос.
+ *
+ * Пустой запрос возвращает весь каталог. Ищем по названию и артикулу: артикул
+ * набирают руками, чтобы найти карточку перед правкой цены, поэтому он важнее
+ * описания и категории.
+ */
+function filterProducts(
+  products: WorkshopProduct[],
+  query: string,
+): WorkshopProduct[] {
+  const needle = query.trim().toLowerCase();
+
+  if (!needle) {
+    return products;
+  }
+
+  return products.filter(
+    (product) =>
+      product.title.toLowerCase().includes(needle) ||
+      product.sku.toLowerCase().includes(needle),
+  );
+}
+
 export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
   const router = useRouter();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  /** Товар, открытый в окне правки: тот же диалог, что и добавление. */
+  const [editingProduct, setEditingProduct] = useState<WorkshopProduct | null>(
+    null,
+  );
+  const [search, setSearch] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const importButtonRef = useRef<HTMLButtonElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const exportButtonRef = useRef<HTMLButtonElement>(null);
+
+  const visibleProducts = useMemo(
+    () => filterProducts(products, search),
+    [products, search],
+  );
+  const isSearching = search.trim().length > 0;
 
   useEffect(() => {
     if (!isExportMenuOpen) {
@@ -144,6 +184,28 @@ export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
     setIsImportDialogOpen(false);
     window.requestAnimationFrame(() => importButtonRef.current?.focus());
   }, []);
+
+  const openEdit = useCallback((product: WorkshopProduct) => {
+    setNotice(null);
+    setError(null);
+    setEditingProduct(product);
+  }, []);
+
+  /** Закрытие правки возвращает фокус на кнопку-карандаш той же строки. */
+  const closeEdit = useCallback(() => {
+    const productId = editingProduct?.id;
+    setEditingProduct(null);
+
+    if (!productId) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(`[data-product-edit="${productId}"]`)
+        ?.focus();
+    });
+  }, [editingProduct]);
 
   /**
    * Удаление товара.
@@ -322,18 +384,64 @@ export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
         </div>
       ) : (
         <>
-          <p className="mt-3 text-xs font-semibold text-zinc-500">
-            Товаров: {products.length}
-          </p>
-          <ProductsTable
-            products={products}
-            deletingId={deletingId}
-            onDelete={removeProduct}
-          />
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <div className="w-full sm:max-w-sm">
+              <label htmlFor="products-search" className="sr-only">
+                Поиск по названию или артикулу
+              </label>
+              <input
+                id="products-search"
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Поиск: название или артикул"
+                data-products-search
+                className="min-h-11 w-full rounded-xl border border-white/10 bg-black/40 px-4 text-sm text-white outline-none transition-all duration-200 placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset"
+              />
+            </div>
+            <p className="text-xs font-semibold text-zinc-500">
+              Товаров: {products.length}
+              {isSearching ? ` · найдено: ${visibleProducts.length}` : ""}
+            </p>
+          </div>
+
+          {visibleProducts.length === 0 ? (
+            <div
+              data-products-no-results
+              className="mt-4 rounded-2xl border border-dashed border-white/10 bg-[#0a0a0a] px-5 py-10 text-center"
+            >
+              <h3 className="text-base font-bold tracking-tight text-white">
+                Ничего не найдено
+              </h3>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-400">
+                По запросу «{search.trim()}» товаров нет. Проверьте название или
+                артикул — или сбросьте поиск.
+              </p>
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-5 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              >
+                Сбросить поиск
+              </button>
+            </div>
+          ) : (
+            <ProductsTable
+              products={visibleProducts}
+              deletingId={deletingId}
+              onDelete={removeProduct}
+              onEdit={openEdit}
+            />
+          )}
         </>
       )}
 
       {isDialogOpen ? <AddProductDialog onClose={closeDialog} /> : null}
+      {editingProduct ? (
+        <AddProductDialog initial={editingProduct} onClose={closeEdit} />
+      ) : null}
       {isImportDialogOpen ? (
         <ImportProductsDialog onClose={closeImportDialog} />
       ) : null}
@@ -346,10 +454,12 @@ function ProductsTable({
   products,
   deletingId,
   onDelete,
+  onEdit,
 }: {
   products: WorkshopProduct[];
   deletingId: string | null;
   onDelete: (product: WorkshopProduct) => void;
+  onEdit: (product: WorkshopProduct) => void;
 }) {
   return (
     <div
@@ -439,16 +549,28 @@ function ProductsTable({
                     )}
                   </td>
                   <td className="px-3 py-4 text-right">
-                    <button
-                      type="button"
-                      onClick={() => onDelete(product)}
-                      disabled={isDeleting}
-                      aria-label={`Удалить товар «${product.title}»`}
-                      aria-busy={isDeleting}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <TrashIcon className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onEdit(product)}
+                        aria-label={`Редактировать товар «${product.title}»`}
+                        title="Редактировать товар"
+                        data-product-edit={product.id}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-blue-400/50 hover:bg-blue-500/15 hover:text-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                      >
+                        <PencilIcon className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDelete(product)}
+                        disabled={isDeleting}
+                        aria-label={`Удалить товар «${product.title}»`}
+                        aria-busy={isDeleting}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <TrashIcon className="h-4 w-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

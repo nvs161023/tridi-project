@@ -2833,7 +2833,7 @@ scripts/test-print-resources.ts`): 18 проверок, включая гран�
 | `addOrderItem`, `loadOrderItems` | `app/actions/orders.ts` | Позиции заказа вручную. `loadOrderItems(orderId)` — обёртка над `getOrderItems()` из `lib/workshop/order-store.ts` (список с названием товара и количеством для блока «Позиции заказа»). `addOrderItem(orderId, productId, quantity)`: UUID заказа и товара проверяются до запроса, количество — `readOrderItemQuantity` (целое 1…10 000) → реальная сессия → `hasActiveSubscription` → заказ читается по `id` и `user_id` → товар читается по `id` и `user_id` → `insert` в `workshop_order_items` (`user_id`, `order_id`, `product_id`, `sku`-снимок, `quantity`) с `select` вставленной строки → `revalidatePath('/dashboard/workshop')`. Возвращает `{ ok: true, item, message }` или `{ ok: false, error }`; при отсутствии таблицы — текст про `supabase/workshop_farm_and_shop.sql`. `total_cost` не пересчитывается: стоимость заказа остаётся ручным полем |
 | `loadOrderPrintStatus`, `queueOrderForPrint`, `cancelOrderPrint` | `app/actions/orders.ts` | Блок «3D-печать» карточки заказа. `loadOrderPrintStatus(orderId)` читает позиции с G-code, активное задание (`getOrderActivePrintJob`) и последний отказ (`getOrderLastPrintFailure`); ошибка чтения даёт `null`, а отсутствие миграции — просто пустую очередь. `queueOrderForPrint(orderId, printerId?)`: UUID → сессия → `hasActiveSubscription` → заказ с позициями → принтер (из карточки, иначе из заказа) → первая позиция с G-code → `createPrintJob`; повторный клик не создаёт дубль. `cancelOrderPrint(orderId)`: UUID → сессия → `hasActiveSubscription` → активное задание ищется на сервере → `cancelPrintJob` (RPC `workshop_cancel_print_job`); сообщение зависит от ответа базы — «Задание снято с очереди» для `cancelled` и «Просьба об отмене отправлена…» для `requested`, повторный клик по уже поднятому флагу RPC не дёргает. После успеха — `revalidatePath('/dashboard/workshop')` |
 | `addClient` | `app/actions/clients.ts` | База клиентов Мастерской: разбор формы (`readClientForm`: имя обязательно, телефон и email проверяются по формату) → реальная сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_clients` → `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции; логика, проверки и типы — в `lib/workshop/clients.ts` |
-
+| `updateClient`, `updateProduct` | `app/actions/clients.ts`, `app/actions/products.ts` | Правка карточек клиента и товара. Оба действия повторяют порядок «создающих» соседей: UUID → разбор формы (`readClientForm` / `readProductForm`, поэтому проверки и подсказки те же, что при добавлении) → реальная сессия → повторная проверка `hasActiveSubscription` → `update` с фильтром по `id` и `user_id` → `select('name')` / `select('title')`. Пустой ответ — «не найден»: строку могли удалить в другой вкладке. `updateProduct` дополнительно ловит 23505 («артикул занят») и откатывается на набор колонок без `gcode_url` и `sliced_for_printer`, если `supabase/workshop_farm_and_shop.sql` не применена заново. |
 
 Типы результатов описаны рядом с функциями (`CompleteLessonResult`, `CompleteModuleTestResult`,
 `ConfirmSessionResult`), состояние формы авторизации — `app/actions/auth-state.ts`
@@ -7476,4 +7476,46 @@ Server Actions в `app/actions/printers.ts`: `updatePrinter(printerId, formData)
 `supabase/workshop_farm_and_shop.sql`; без неё парк читается базовым набором колонок, а сохранение
 подключения вернёт инструкцию про миграцию. Живой прогон (сохранить адрес, сменить протокол,
 удалить принтер) остаётся за пользователем.
+
+**Мастерская: правка клиента и товара, поиск и фильтр статусов (30 октября 2026).**
+Вкладки «Клиенты» и «Товары» умели только добавлять: опечатку в имени, старую цену или новый G-code
+можно было исправить единственным способом — удалить строку и завести заново. Теперь обе карточки
+правятся на месте, а списки ищутся и фильтруются.
+
+Правка клиента: `updateClient(clientId, formData)` в `lib/workshop/clients.ts`, обёртка —
+`app/actions/clients.ts`. Порядок проверок повторяет добавление: `isClientId` → `readClientForm`
+(имя обязательно, телефон — допустимые символы и минимум пять цифр, email — формат; пустое
+необязательное поле становится `null`, поэтому телефон и адрес можно стереть) → реальная сессия →
+`hasActiveSubscription` → `update` пяти колонок с фильтром по `id` и `user_id` → `select('name')`.
+Пустой ответ этого `select` — «клиент не найден»: строку могли удалить в другой вкладке.
+
+Правка товара: `updateProduct(productId, formData)` в `lib/workshop/products.ts`, обёртка —
+`app/actions/products.ts`. Разбор общий с добавлением (`readProductForm`), меняются все поля
+карточки, включая артикул: повтор SKU ловится как 23505 и превращается в «артикул занят». Поля
+разделены на `cardPayload` и `filePayload` — если `supabase/workshop_farm_and_shop.sql` не применена
+заново, `update` повторяется без `gcode_url` и `sliced_for_printer`, а сообщение честно говорит, что
+ссылка на файл печати не записана. Успех подтверждает `select('title')`: пустой ответ — «товар не
+найден».
+
+Оба окна правки — те же `AddClientDialog` и `AddProductDialog` с пропом `initial`: заголовок
+меняется на «Редактировать …», поля заполняются `defaultValue`, кнопка вызывает уже не
+`addClient`/`addProduct`, а действие правки. Замена файла печати идёт прежним путём через
+`/api/workshop/gcode`; в режиме правки форма несёт скрытое поле `slicedForPrinter` со старым
+значением, и оно перезаписывается ответом загрузки только при выборе нового файла. После успеха
+`router.refresh()` подтягивает свежие данные, а фокус возвращается на кнопку-карандаш той же строки.
+
+Поиск и фильтр: `filterClients` в вкладке клиентов (имя по вхождению подстроки; телефон — и по
+написанию, и по цифрам, поэтому «999» находит «+7 (999) 123-45-67») и `filterProducts` в каталоге
+(название и артикул). Оба работают по уже загруженному массиву: запросов в базу нет, а строка
+«Товаров: 120 · найдено: 3» показывает эффект. Пустая выдача — карточка «Ничего не найдено» с
+кнопкой «Сбросить поиск». На доске заказов появились чипы `STATUS_FILTERS` со счётчиками из
+`groupedOrders`: «Все» оставляет четыре колонки, выбранный статус — одну (`BOARD_GRID_CLASS`
+ограничивает её шириной `lg:max-w-md`, чтобы карточки не растягивались на весь экран).
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npx eslint` по девяти изменённым файлам — чисто,
+`npm run check:imports` — 1 861 импорт без битых, `npm run check:docs` — сводка согласована.
+Миграция не нужна: правка пишет те же колонки, что и добавление; на старой базе `updateProduct`
+откатывается на набор без файла печати. Живой прогон (исправить телефон, поменять цену, заменить
+3MF, отфильтровать «В печати») остаётся за пользователем.
+
 

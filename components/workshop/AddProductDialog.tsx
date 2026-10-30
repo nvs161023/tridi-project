@@ -4,10 +4,20 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { addProduct } from "@/app/actions/products";
+import { addProduct, updateProduct } from "@/app/actions/products";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
+import type { WorkshopProduct } from "@/lib/workshop/products";
 
 type AddProductDialogProps = {
+  /**
+   * Товар для правки.
+   *
+   * Без пропа окно создаёт карточку, с ним — редактирует: поля заполняются
+   * текущими значениями, а «Сохранить» вызывает `updateProduct`. Файл печати
+   * можно заменить, не трогая остальное: новый файл уходит в
+   * `/api/workshop/gcode` и подменяет ссылку вместе с разметкой принтера.
+   */
+  initial?: WorkshopProduct | null;
   onClose: () => void;
 };
 
@@ -18,23 +28,30 @@ const legendClassName =
   "text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase";
 
 /**
- * Окно «Добавить товар».
+ * Окно «Добавить товар» и «Редактировать товар».
  *
- * Форма отправляется в Server Action `addProduct`: пока идёт запрос, кнопка
- * «Сохранить» заблокирована, а ошибка сервера показывается плашкой внутри
- * окна. После успеха каталог обновляется через `router.refresh()`, и окно
- * закрывается. Окно монтируется только открытым: состояние полей и подписка
- * на Escape живут ровно столько, сколько оно на экране. У всех полей
- * `autoComplete="off"`, чтобы браузер не рисовал белые панели автозаполнения
- * поверх тёмной формы.
+ * Форма отправляется в Server Action `addProduct` (или `updateProduct`, если
+ * передан `initial`): пока идёт запрос, кнопка «Сохранить» заблокирована, а
+ * ошибка сервера показывается плашкой внутри окна. После успеха каталог
+ * обновляется через `router.refresh()`, и окно закрывается. Окно монтируется
+ * только открытым: состояние полей и подписка на Escape живут ровно столько,
+ * сколько оно на экране. У всех полей `autoComplete="off"`, чтобы браузер не
+ * рисовал белые панели автозаполнения поверх тёмной формы.
  */
-export function AddProductDialog({ onClose }: AddProductDialogProps) {
+export function AddProductDialog({
+  initial = null,
+  onClose,
+}: AddProductDialogProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Модель принтера из метаданных 3MF: её показали после загрузки. */
-  const [slicedPrinter, setSlicedPrinter] = useState<string | null>(null);
+  const [slicedPrinter, setSlicedPrinter] = useState<string | null>(
+    initial?.slicedForPrinter ?? null,
+  );
+
+  const isEditing = initial !== null;
 
   useDialogDismiss(onClose);
 
@@ -100,7 +117,9 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
         setSlicedPrinter(printerModel || null);
       }
 
-      const result = await addProduct(formData);
+      const result = isEditing
+        ? await updateProduct(initial.id, formData)
+        : await addProduct(formData);
 
       if (result.error) {
         setError(result.error);
@@ -147,8 +166,9 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="add-product-title"
+        aria-labelledby="product-dialog-title"
         data-product-dialog
+        data-product-dialog-mode={isEditing ? "edit" : "add"}
         className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl shadow-black/60 sm:p-8"
       >
         <div className="flex items-start justify-between gap-4">
@@ -157,19 +177,25 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
               Товары
             </p>
             <h2
-              id="add-product-title"
+              id="product-dialog-title"
               className="mt-3 text-2xl font-extrabold tracking-tight text-white"
             >
-              Добавить товар
+              {isEditing ? "Редактировать товар" : "Добавить товар"}
             </h2>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-zinc-400">
-              Заполните карточку изделия. Поля со звёздочкой обязательны.
+              {isEditing
+                ? "Поправьте карточку или замените файл печати: позиции в старых заказах останутся на месте, а новые возьмут обновлённые цену и G-code. Поля со звёздочкой обязательны."
+                : "Заполните карточку изделия. Поля со звёздочкой обязательны."}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Закрыть окно добавления товара"
+            aria-label={
+              isEditing
+                ? "Закрыть окно редактирования товара"
+                : "Закрыть окно добавления товара"
+            }
             className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             <span aria-hidden>✕</span>
@@ -182,6 +208,15 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
           data-product-form
           className="mt-6 space-y-6"
         >
+          {isEditing ? (
+            // Разметку принтера сохраняем, если файл не меняли: поле формы
+            // перезапишется ответом загрузки только при выборе нового файла.
+            <input
+              type="hidden"
+              name="slicedForPrinter"
+              defaultValue={initial.slicedForPrinter ?? ""}
+            />
+          ) : null}
           <fieldset>
             <legend className={legendClassName}>Основное</legend>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
@@ -192,6 +227,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 placeholder="VASE-001"
                 required
                 autoFocus
+                defaultValue={initial?.sku ?? ""}
                 maxLength={64}
               />
               <TextField
@@ -200,6 +236,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 label="Название"
                 placeholder="Ваза «Спираль»"
                 required
+                defaultValue={initial?.title ?? ""}
                 maxLength={160}
               />
               <TextareaField
@@ -208,6 +245,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 label="Описание"
                 placeholder="Материал, особенности, что входит в комплект"
                 className="sm:col-span-2"
+                defaultValue={initial?.description ?? ""}
                 maxLength={2000}
               />
             </div>
@@ -223,6 +261,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 placeholder="1 490"
                 required
                 step="0.01"
+                defaultValue={initial?.price}
               />
               <NumberField
                 id="product-old-price"
@@ -230,6 +269,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 label="Старая цена (₽)"
                 placeholder="1 990"
                 step="0.01"
+                defaultValue={initial?.oldPrice ?? undefined}
               />
             </div>
           </fieldset>
@@ -243,6 +283,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 label="Вес (г)"
                 placeholder="250"
                 step="1"
+                defaultValue={initial?.weightG ?? undefined}
               />
               <NumberField
                 id="product-length"
@@ -250,6 +291,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 label="Длина (мм)"
                 placeholder="120"
                 step="1"
+                defaultValue={initial?.lengthMm ?? undefined}
               />
               <NumberField
                 id="product-width"
@@ -257,6 +299,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 label="Ширина (мм)"
                 placeholder="120"
                 step="1"
+                defaultValue={initial?.widthMm ?? undefined}
               />
               <NumberField
                 id="product-height"
@@ -264,6 +307,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 label="Высота (мм)"
                 placeholder="180"
                 step="1"
+                defaultValue={initial?.heightMm ?? undefined}
               />
             </div>
           </fieldset>
@@ -285,6 +329,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                   spellCheck={false}
                   placeholder="https://…/vase.3mf"
                   maxLength={2048}
+                  defaultValue={initial?.gcodeUrl ?? ""}
                   className={inputClassName}
                 />
                 <p className="mt-2 text-xs leading-relaxed text-zinc-500">
@@ -327,6 +372,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 name="brand"
                 label="Бренд"
                 placeholder="Ваша мастерская"
+                defaultValue={initial?.brand ?? ""}
                 maxLength={80}
               />
               <TextField
@@ -334,6 +380,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 name="color"
                 label="Цвет"
                 placeholder="Графит"
+                defaultValue={initial?.color ?? ""}
                 maxLength={80}
               />
               <TextField
@@ -341,6 +388,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 name="size"
                 label="Размер"
                 placeholder="M"
+                defaultValue={initial?.size ?? ""}
                 maxLength={80}
               />
               <TextField
@@ -348,6 +396,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 name="barcode"
                 label="Штрихкод"
                 placeholder="2000000000000"
+                defaultValue={initial?.barcode ?? ""}
                 maxLength={64}
               />
               <TextField
@@ -356,6 +405,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                 label="Категория"
                 placeholder="Декор"
                 className="sm:col-span-2"
+                defaultValue={initial?.category ?? ""}
                 maxLength={80}
               />
             </div>
@@ -434,6 +484,7 @@ function TextField({
   placeholder,
   required,
   autoFocus,
+  defaultValue,
   maxLength,
   className,
 }: {
@@ -443,6 +494,8 @@ function TextField({
   placeholder: string;
   required?: boolean;
   autoFocus?: boolean;
+  /** Значение для правки: у нового товара поля пустые. */
+  defaultValue?: string;
   maxLength: number;
   className?: string;
 }) {
@@ -457,6 +510,7 @@ function TextField({
         autoFocus={autoFocus}
         spellCheck={false}
         placeholder={placeholder}
+        defaultValue={defaultValue}
         maxLength={maxLength}
         required={required}
         className={inputClassName}
@@ -471,6 +525,7 @@ function TextareaField({
   name,
   label,
   placeholder,
+  defaultValue,
   maxLength,
   className,
 }: {
@@ -478,6 +533,8 @@ function TextareaField({
   name: string;
   label: string;
   placeholder: string;
+  /** Значение для правки: у нового товара поле пустое. */
+  defaultValue?: string;
   maxLength: number;
   className?: string;
 }) {
@@ -490,6 +547,7 @@ function TextareaField({
         autoComplete="off"
         rows={3}
         placeholder={placeholder}
+        defaultValue={defaultValue}
         maxLength={maxLength}
         className={`${inputClassName} min-h-24 resize-y`}
       />
@@ -505,6 +563,7 @@ function NumberField({
   placeholder,
   required,
   step,
+  defaultValue,
 }: {
   id: string;
   name: string;
@@ -512,6 +571,8 @@ function NumberField({
   placeholder: string;
   required?: boolean;
   step: string;
+  /** Значение для правки: у нового товара поле пустое. */
+  defaultValue?: number;
 }) {
   return (
     <div>
@@ -525,6 +586,7 @@ function NumberField({
         min="0"
         step={step}
         placeholder={placeholder}
+        defaultValue={defaultValue}
         required={required}
         className={inputClassName}
       />

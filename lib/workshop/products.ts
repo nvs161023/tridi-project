@@ -81,6 +81,14 @@ export type AddProductResult = {
   message?: string;
 };
 
+/**
+ * Ответ правки товара.
+ *
+ * Совпадает с добавлением: форма у обоих действий одна (`readProductForm`),
+ * поэтому модальное окно разбирает ответ одной веткой кода.
+ */
+export type UpdateProductResult = AddProductResult;
+
 /** Откуда пришёл CSV: у площадок разные названия колонок. */
 export type CsvImportPlatform = "ozon" | "wb";
 
@@ -225,6 +233,9 @@ const PRO_REQUIRED =
 const MIGRATION_MISSING =
   "Каталог пока не сохраняется: в базе нет таблицы workshop_products. Примените миграцию supabase/workshop_products.sql.";
 const ADD_FAILED = "Не удалось добавить товар. Попробуйте ещё раз.";
+const UPDATE_FAILED = "Не удалось сохранить товар. Попробуйте ещё раз.";
+const NOT_FOUND = "Товар не найден — возможно, его уже удалили.";
+
 
 /** Текст из формы: пробелы по краям не считаются содержимым. */
 function readFormText(formData: FormData, name: string): string {
@@ -1085,6 +1096,144 @@ export async function addProduct(
     success: true,
     message: `Товар «${draft.title}» добавлен.`,
   };
+}
+
+/**
+ * Правка карточки товара.
+ *
+ * Порядок проверок как у добавления: id → разбор формы → сессия → подписка →
+ * `update` с фильтром по владельцу. Разбор общий (`readProductForm`): меняются
+ * все поля карточки, включая артикул, цену и файл печати, — мастер правит то,
+ * что видит, а не половину формы. Пустое необязательное поле записывается как
+ * null: так стираются старые габариты и ссылка на G-code.
+ *
+ * Артикул уникален в пределах пользователя: повтор у другой карточки
+ * превращается в подсказку «артикул занят» (код 23505), а не в общий отказ.
+ *
+ * `select("title")` возвращает обновлённую строку: пустой ответ означает, что
+ * товар уже удалили в другой вкладке. Колонки `gcode_url` и
+ * `sliced_for_printer` добавляет supabase/workshop_farm_and_shop.sql; пока
+ * миграцию не применили заново, `update` повторяется без них — карточка
+ * сохраняется, а в сообщении честно сказано, что файл печати не записан.
+ */
+export async function updateProduct(
+  productId: string,
+  formData: FormData,
+): Promise<UpdateProductResult> {
+  "use server";
+
+  if (!isProductId(productId)) {
+    return { error: "Товар не найден — обновите страницу." };
+  }
+
+  const { draft, errors } = readProductForm(formData);
+
+  if (!draft) {
+    return { fieldErrors: errors };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: SESSION_EXPIRED, fieldErrors: errors };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { error: PRO_REQUIRED, fieldErrors: errors };
+  }
+
+  // Поля без файла печати отделены от файла: старая база принимает первые и
+  // отвечает PGRST204 на вторые, и откат тогда касается только файла.
+  const cardPayload = {
+    sku: draft.sku,
+    title: draft.title,
+    description: draft.description,
+    price: draft.price,
+    old_price: draft.oldPrice,
+    brand: draft.brand,
+    color: draft.color,
+    size: draft.size,
+    weight_g: draft.weightG,
+    length_mm: draft.lengthMm,
+    width_mm: draft.widthMm,
+    height_mm: draft.heightMm,
+    barcode: draft.barcode,
+    category: draft.category,
+  };
+  const filePayload = {
+    gcode_url: draft.gcodeUrl,
+    sliced_for_printer: draft.slicedForPrinter,
+  };
+
+  let result = await supabase
+    .from("workshop_products")
+    .update({ ...cardPayload, ...filePayload })
+    .eq("id", productId)
+    .eq("user_id", user.id)
+    .select("title")
+    .maybeSingle();
+  let fileSkipped = false;
+
+  if (
+    result.error &&
+    isMissingTableSchema(result.error.code, result.error.message)
+  ) {
+    console.warn(
+      "Товар сохранён без файла печати: примените заново supabase/workshop_farm_and_shop.sql.",
+      result.error.code,
+      result.error.message,
+    );
+
+    fileSkipped = true;
+    result = await supabase
+      .from("workshop_products")
+      .update(cardPayload)
+      .eq("id", productId)
+      .eq("user_id", user.id)
+      .select("title")
+      .maybeSingle();
+  }
+
+  if (result.error) {
+    console.warn(
+      "Товар не сохранён:",
+      result.error.code,
+      result.error.message,
+    );
+
+    if (isDuplicateSkuError(result.error)) {
+      return {
+        error: `Товар с артикулом «${draft.sku}» уже есть в каталоге. Укажите другой SKU.`,
+        fieldErrors: { sku: "Этот артикул уже занят." },
+      };
+    }
+
+    return {
+      error: isMissingTableSchema(result.error.code, result.error.message)
+        ? MIGRATION_MISSING
+        : UPDATE_FAILED,
+    };
+  }
+
+  if (!result.data) {
+    return { error: NOT_FOUND };
+  }
+
+  // Каталог рисуется на сервере: без этого правку увидят только после
+  // перезагрузки страницы.
+  revalidatePath("/dashboard/workshop");
+  revalidatePath("/dashboard/workshop/products");
+  revalidatePath("/dashboard/workshop/marketplace");
+
+  const savedMessage =
+    fileSkipped && draft.gcodeUrl
+      ? `Товар «${draft.title}» сохранён, но ссылка на файл печати не записана: примените заново supabase/workshop_farm_and_shop.sql.`
+      : `Товар «${draft.title}» сохранён.`;
+
+  return { success: true, message: savedMessage };
 }
 
 /**

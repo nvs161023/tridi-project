@@ -1,14 +1,21 @@
 /**
- * База клиентов Мастерской: чтение `workshop_clients` и добавление контакта.
+ * База клиентов Мастерской: чтение `workshop_clients`, добавление контакта и
+ * правка карточки.
  *
  * Миграцию `supabase/workshop_clients.sql` применяют вручную, поэтому таблицы
  * может не быть в живой базе. Как и у каталога товаров, это не повод падать:
  * страница получает пустой список, а действие — понятное сообщение о миграции.
  *
- * `addClient` помечен `"use server"` прямо в функции: файл лежит в `lib`, но
- * вызывается из браузера как Server Action через тонкую обёртку
- * `app/actions/clients.ts` — Next разрешает клиенту только модуль с директивой
- * наверху. `getWorkshopClients` — обычная серверная функция для страницы.
+ * `addClient` и `updateClient` помечены `"use server"` прямо в функциях: файл
+ * лежит в `lib`, но вызываются они из браузера как Server Actions через тонкую
+ * обёртку `app/actions/clients.ts` — Next разрешает клиенту только модуль с
+ * директивой наверху. `getWorkshopClients` — обычная серверная функция для
+ * страницы.
+ *
+ * Правка повторяет проверки добавления (`readClientForm`): телефон и email
+ * проверяются по формату, имя обязательно. Владение подтверждается дважды —
+ * `user_id` в `update` и RLS, — поэтому чужой клиент не изменится даже при
+ * известном id.
  */
 import { revalidatePath } from "next/cache";
 
@@ -45,6 +52,14 @@ export type AddClientResult = {
   message?: string;
 };
 
+/**
+ * Ответ правки клиента.
+ *
+ * Совпадает с добавлением: у обоих действий одна форма и одни поля ошибок,
+ * поэтому модальное окно разбирает ответ одной веткой кода.
+ */
+export type UpdateClientResult = AddClientResult;
+
 /** Колонки, которые читает getWorkshopClients. */
 export const CLIENT_COLUMNS =
   "id, name, phone, email, address, notes, created_at";
@@ -70,14 +85,22 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/u;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Идентификатор клиента: мусор отсекаем до запроса к PostgREST. */
+export function isClientId(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
 const SESSION_EXPIRED =
-  "Сессия истекла. Войдите снова, чтобы добавить клиента.";
+  "Сессия истекла. Войдите снова, чтобы работать с базой клиентов.";
 const PRO_REQUIRED =
   "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы вести базу клиентов.";
 const MIGRATION_MISSING =
   "База клиентов пока не сохраняется: в базе нет таблицы workshop_clients. Примените миграцию supabase/workshop_clients.sql.";
 const ADD_FAILED =
   "Не удалось добавить клиента. Попробуйте ещё раз.";
+const UPDATE_FAILED =
+  "Не удалось сохранить клиента. Попробуйте ещё раз.";
+const NOT_FOUND = "Клиент не найден — возможно, его уже удалили.";
 
 /** Проверенный ввод формы. Пустые необязательные поля — null. */
 type ClientDraft = {
@@ -296,7 +319,7 @@ export async function getWorkshopClientById(
   userId: string,
   clientId: string,
 ): Promise<WorkshopClient | null> {
-  if (!UUID_PATTERN.test(clientId)) {
+  if (!isClientId(clientId)) {
     return null;
   }
 
@@ -381,4 +404,81 @@ export async function addClient(
     success: true,
     message: `Клиент «${draft.name}» добавлен.`,
   };
+}
+
+/**
+ * Правка карточки клиента.
+ *
+ * Порядок проверок как у добавления: id → разбор формы → сессия → подписка →
+ * `update` с фильтром по владельцу. Разбор общий (`readClientForm`): имя
+ * обязательно, телефон и email проверяются по формату, а пустое необязательное
+ * поле записывается как null — так мастер может стереть телефон или адрес,
+ * очистив поле.
+ *
+ * `select("name")` возвращает обновлённую строку: пустой ответ означает, что
+ * клиента уже удалили в другой вкладке, — честнее сказать «не найден», чем
+ * «сохранено». Имя нужно и для сообщения об успехе.
+ */
+export async function updateClient(
+  clientId: string,
+  formData: FormData,
+): Promise<UpdateClientResult> {
+  "use server";
+
+  if (!isClientId(clientId)) {
+    return { error: "Клиент не найден — обновите страницу." };
+  }
+
+  const { draft, errors } = readClientForm(formData);
+
+  if (!draft) {
+    return { fieldErrors: errors };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: SESSION_EXPIRED, fieldErrors: errors };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { error: PRO_REQUIRED, fieldErrors: errors };
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_clients")
+    .update({
+      name: draft.name,
+      phone: draft.phone,
+      email: draft.email,
+      address: draft.address,
+      notes: draft.notes,
+    })
+    .eq("id", clientId)
+    .eq("user_id", user.id)
+    .select("name")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Клиент не сохранён:", error.code, error.message);
+
+    return {
+      error: isMissingTableSchema(error.code, error.message)
+        ? MIGRATION_MISSING
+        : UPDATE_FAILED,
+    };
+  }
+
+  if (!data) {
+    return { error: NOT_FOUND };
+  }
+
+  // Имя клиента подставляется в заказы и накладные: страница должна увидеть
+  // правку сразу, без ручной перезагрузки.
+  revalidatePath("/dashboard/workshop");
+
+  return { success: true, message: `Клиент «${draft.name}» сохранён.` };
 }

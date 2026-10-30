@@ -1,7 +1,13 @@
 "use server";
 
-import type { AddClientResult } from "@/lib/workshop/clients";
-import { addClient as addClientToBase } from "@/lib/workshop/clients";
+import type {
+  AddClientResult,
+  UpdateClientResult,
+} from "@/lib/workshop/clients";
+import {
+  addClient as addClientToBase,
+  updateClient as updateClientInBase,
+} from "@/lib/workshop/clients";
 
 /**
  * Тонкая граница Server Action для базы клиентов.
@@ -15,4 +21,18 @@ export async function addClient(
   formData: FormData,
 ): Promise<AddClientResult> {
   return addClientToBase(formData);
+}
+
+/**
+ * Правка карточки клиента.
+ *
+ * id приходит отдельным аргументом, а данные — формой: разбор и проверки общие
+ * с добавлением (`readClientForm`), поэтому у окна правки те же поля и те же
+ * подсказки об ошибках.
+ */
+export async function updateClient(
+  clientId: string,
+  formData: FormData,
+): Promise<UpdateClientResult> {
+  return updateClientInBase(clientId, formData);
 }

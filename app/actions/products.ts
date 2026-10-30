@@ -5,11 +5,13 @@ import type {
   CsvImportPlatform,
   DeleteProductResult,
   ImportProductsResult,
+  UpdateProductResult,
 } from "@/lib/workshop/products";
 import {
   addProduct as addProductInCatalog,
   deleteProduct as deleteProductInCatalog,
   importProductsFromCsv as importProductsInCatalog,
+  updateProduct as updateProductInCatalog,
 } from "@/lib/workshop/products";
 
 /**
@@ -39,4 +41,18 @@ export async function deleteProduct(
   productId: string,
 ): Promise<DeleteProductResult> {
   return deleteProductInCatalog(productId);
+}
+
+/**
+ * Правка карточки товара.
+ *
+ * id — отдельным аргументом, данные — формой: разбор и проверки общие с
+ * добавлением (`readProductForm`), поэтому у окна правки те же поля и те же
+ * подсказки об ошибках.
+ */
+export async function updateProduct(
+  productId: string,
+  formData: FormData,
+): Promise<UpdateProductResult> {
+  return updateProductInCatalog(productId, formData);
 }
