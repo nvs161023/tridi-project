@@ -17,10 +17,13 @@
      читает `printer.serialNumber` (и snake_case), подставляя пустую строку,
      если поля нет;
   7. ответ принтера на команду (`result`/`reason`) разбирается и не смешивается
-     со статусом: отказ `gcode_file` уходит в `last_error`, а не теряется, и
-     `STANDBY` не превращается в `error`;
-  8. `start_print()` перебирает варианты `param`/`url` для сырого G-code и
-     считает печать запущенной только по ответу принтера.
+     со статусом: отказ уходит в `last_error`, а не теряется, и `STANDBY` не
+     превращается в `error`;
+  8. сырой `.gcode` пакуется в контейнер `.3mf` (внутри — `Metadata/plate_1.gcode`,
+     `Metadata/slice_info.config` и записи OPC-пакета), грузится под именем
+     `<задание>.3mf`, а временный контейнер удаляется;
+  9. `start_print()` отправляет `project_file` и считает печать запущенной только
+     по ответу принтера.
 
 Запуск:
     python scripts/test-bambu.py
@@ -33,6 +36,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -128,6 +132,30 @@ class FlakyUploadAdapter(bambu.BambuAdapter):
     def _upload_via_http(self, local_path: str, remote_name: str) -> str | None:
         """HTTP-фолбэк без сети: адрес `*.invalid` не разрешается в DNS."""
         return "ConnectionError: имя не разрешается"
+
+
+class CapturingUploadAdapter(bambu.BambuAdapter):
+    """
+    Адаптер без сети: `_upload_file()` ничего не отправляет, а запоминает.
+
+    Нужен, чтобы проверить обёртку `upload_file()`: на карту должен уйти
+    контейнер `.3mf` под именем задания, а временный файл — исчезнуть.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(ip_address=CHECK_IP, api_key=CHECK_CODE)
+        self.remote_name = ""
+        self.wrapped_path = ""
+        self.entries: set[str] = set()
+
+    def _upload_file(self, local_path: str, remote_name: str) -> bool:
+        self.remote_name = remote_name
+        self.wrapped_path = local_path
+
+        with zipfile.ZipFile(local_path) as container:
+            self.entries = set(container.namelist())
+
+        return True
 
 
 class ScriptedPrintAdapter(bambu.BambuAdapter):
@@ -333,45 +361,84 @@ def main() -> int:
         repr(bambu._reply_error({})),
     )
 
-    raw_payloads = bambu._gcode_file_payloads("job.gcode")
     check(
-        "gcode_file: варианты param/url по порядку",
-        [item.get("param") for item in raw_payloads]
-        == ["cache/job.gcode", "/cache/job.gcode", "cache/job.gcode"]
-        and "url" in raw_payloads[0]
-        and "url" not in raw_payloads[2]
-        and all(item["command"] == "gcode_file" for item in raw_payloads),
-        f"{raw_payloads!r}",
+        "_project_name: имя контейнера из имени задания",
+        bambu._project_name("job.gcode") == "job.3mf"
+        and bambu._project_name("8f1c-2.gcode") == "8f1c-2.3mf",
+        bambu._project_name("job.gcode"),
     )
-    project_payload = bambu._project_file_payload("job.3mf")
+
+    project_payloads = bambu._project_file_payloads("job.3mf")
     check(
         "project_file: param внутри контейнера, url с карты",
-        project_payload["command"] == "project_file"
-        and project_payload["param"] == "Metadata/plate_1.gcode"
-        and project_payload["url"] == "ftp:///job.3mf",
-        f"{project_payload!r}",
+        [item["url"] for item in project_payloads]
+        == ["ftp:///cache/job.3mf", "ftp:///job.3mf"]
+        and all(item["command"] == "project_file" for item in project_payloads)
+        and all(item["param"] == "Metadata/plate_1.gcode" for item in project_payloads),
+        f"{project_payloads!r}",
+    )
+
+    # Плоский G-code A1 не печатает: перед загрузкой он пакуется в контейнер.
+    gcode_path = Path(tempfile.gettempdir()) / "tridi-bambu-pack.gcode"
+    gcode_path.write_text("; test\nG28\n", encoding="utf-8")
+    packer = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
+    wrapped = ""
+    names: set[str] = set()
+    plate_bytes = b""
+    slice_info = ""
+    rels = ""
+
+    try:
+        wrapped = packer._wrap_gcode_to_3mf(str(gcode_path), "pack.gcode")
+
+        with zipfile.ZipFile(wrapped) as container:
+            names = set(container.namelist())
+            plate_bytes = container.read("Metadata/plate_1.gcode")
+            slice_info = container.read("Metadata/slice_info.config").decode("utf-8")
+            rels = container.read("_rels/.rels").decode("utf-8")
+    finally:
+        if wrapped:
+            Path(wrapped).unlink(missing_ok=True)
+
+    check(
+        "контейнер .3mf собран из G-code",
+        names
+        == {
+            "Metadata/plate_1.gcode",
+            "Metadata/slice_info.config",
+            "[Content_Types].xml",
+            "_rels/.rels",
+        }
+        and plate_bytes == gcode_path.read_bytes()
+        and 'name="index" value="1"' in slice_info
+        and 'Target="/Metadata/plate_1.gcode"' in rels,
+        f"{sorted(names)!r}, G-code {len(plate_bytes)} байт",
     )
 
     rejected_print = ScriptedPrintAdapter(
-        [{"result": "fail", "reason": "file not found"}]
+        [
+            {"result": "fail", "reason": "error string"},
+            {"result": "fail", "reason": "error string"},
+        ]
     )
     check(
         "start_print: отказ принтера — False и причина в last_error",
         rejected_print.start_print("job.gcode") is False
-        and "file not found" in (rejected_print.last_error or "")
-        and len(rejected_print.commands) == len(raw_payloads),
+        and "error string" in (rejected_print.last_error or "")
+        and len(rejected_print.commands) == len(project_payloads)
+        and rejected_print.commands[0]["print"]["url"] == "ftp:///cache/job.3mf",
         f"команд {len(rejected_print.commands)}, "
         f"last_error={rejected_print.last_error!r}",
     )
 
     second_variant = ScriptedPrintAdapter(
-        [{"result": "fail", "reason": "key not exist"}, {"result": "success"}]
+        [{"result": "fail", "reason": "file not found"}, {"result": "success"}]
     )
     check(
-        "start_print: принимается второй вариант param",
+        "start_print: принимается второй вариант url",
         second_variant.start_print("job.gcode") is True
         and len(second_variant.commands) == 2
-        and second_variant.commands[1]["print"]["param"] == "/cache/job.gcode"
+        and second_variant.commands[1]["print"]["url"] == "ftp:///job.3mf"
         and second_variant.last_error is None,
         f"команд {len(second_variant.commands)}, "
         f"last_error={second_variant.last_error!r}",
@@ -379,11 +446,12 @@ def main() -> int:
 
     project_print = ScriptedPrintAdapter([{"result": "success"}])
     check(
-        "start_print: .3mf уходит project_file с первой попытки",
-        project_print.start_print("job.3mf") is True
+        "start_print: G-code печатается project_file от имени контейнера",
+        project_print.start_print("job.gcode") is True
         and len(project_print.commands) == 1
-        and project_print.commands[0]["print"]["url"] == "ftp:///job.3mf",
-        f"команд {len(project_print.commands)}",
+        and project_print.commands[0]["print"]["command"] == "project_file"
+        and project_print.commands[0]["print"]["subtask_name"] == "job.3mf",
+        f"{project_print.commands!r}",
     )
 
     # Молчащий принтер: ответа нет — это отказ, а не «печать запущена».
@@ -528,6 +596,33 @@ def main() -> int:
         )
     finally:
         upload_probe.unlink(missing_ok=True)
+
+    # Сырой G-code на принтер не уходит: сначала контейнер, потом загрузка.
+    wrap_probe = Path(tempfile.gettempdir()) / "tridi-bambu-wrap.gcode"
+    wrap_probe.write_text("; test\nG28\n", encoding="utf-8")
+    capturing = CapturingUploadAdapter()
+
+    try:
+        wrapped_upload = capturing.upload_file(str(wrap_probe), "wrap.gcode")
+        check(
+            "upload_file: G-code грузится контейнером .3mf",
+            wrapped_upload is True
+            and capturing.remote_name == "wrap.3mf"
+            and "Metadata/plate_1.gcode" in capturing.entries
+            and not Path(capturing.wrapped_path).exists(),
+            f"{capturing.remote_name!r}, {sorted(capturing.entries)!r}, "
+            f"временный файл на месте: {Path(capturing.wrapped_path).exists()}",
+        )
+    finally:
+        wrap_probe.unlink(missing_ok=True)
+
+    unreadable = CapturingUploadAdapter()
+    check(
+        "upload_file: нечитаемый G-code не пакуется",
+        unreadable.upload_file(str(wrap_probe) + ".nope", "wrap.gcode") is False
+        and "не упакован" in (unreadable.last_error or ""),
+        f"last_error={unreadable.last_error!r}",
+    )
 
     expect_false("stop_print() без соединения", adapter.stop_print)
 
