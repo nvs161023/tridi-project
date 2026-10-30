@@ -17,6 +17,7 @@ import {
 import {
   cancelPrintJob,
   countActivePrintJobs,
+  countActivePrintJobsForItem,
   createPrintJob,
   getOrderActivePrintJob,
   getOrderLastPrintFailure,
@@ -146,6 +147,16 @@ const ORDER_ITEM_ADD_FAILED =
   "Не удалось добавить позицию. Попробуйте ещё раз.";
 const ORDER_ITEM_MIGRATION_MISSING =
   "Позиции заказа пока не сохраняются: в базе нет таблицы workshop_order_items. Примените миграцию supabase/workshop_farm_and_shop.sql.";
+const ORDER_ITEM_NOT_FOUND =
+  "Позиция не найдена — возможно, её удалили. Обновите страницу.";
+const ORDER_ITEM_LOCKED =
+  "Позиция уже в очереди печати: сначала отмените задание, потом меняйте количество или удаляйте её.";
+const ORDER_ITEM_DELETE_FAILED =
+  "Не удалось удалить позицию. Попробуйте ещё раз.";
+const ORDER_ITEM_QUANTITY_FAILED =
+  "Не удалось изменить количество. Попробуйте ещё раз.";
+/** Верхняя граница плана пластика — как у check в `workshop_orders`. */
+const ORDER_PLASTIC_LIMIT = 100_000;
 /** Автораспределение ответило «нечего делать»: это норма, а не ошибка. */
 const AUTO_SCHEDULE_EMPTY = "Нет свободных принтеров или подходящих заказов.";
 const AUTO_SCHEDULE_FAILED =
@@ -554,6 +565,14 @@ export async function updateOrderStatus(
  * Мастер получает понятный отказ и сначала отменяет печать. Закрытые задания
  * (done/failed/cancelled) — история, она удалению не мешает.
  *
+ * Пластик, списанный при создании заказа, возвращается на катушку: план
+ * `material_weight_g` — резерв, а удалённый заказ печатать уже не будут. Возврат
+ * идёт после успешного `delete` (иначе отказ базы вернул бы пластик дважды — при
+ * повторном клике) и только пока резерв не освобождён: после первого `done` его
+ * вернул `writeOffFilamentFact`, и второй возврат поднял бы склад сверх катушки.
+ * Наработка принтера остаётся как есть: часы уже израсходованы или списаны
+ * планом, и удаление заказа их не «отматывает».
+ *
  * `select("title")` возвращает удалённую строку: пустой ответ означает, что
  * заказ уже удалили в другой вкладке, — тогда показываем понятное сообщение, а
  * не «успех». Заголовок нужен только для сообщения об успехе.
@@ -601,6 +620,10 @@ export async function deleteOrder(
     return { ok: false, error: ORDER_HAS_ACTIVE_JOBS };
   }
 
+  // Резерв читаем до удаления: `material_weight_g` и `filament_id` живут в самой
+  // строке заказа, после `delete` их уже не найти.
+  const reserve = await readOrderPlasticReserve(supabase, user.id, orderId);
+
   const { data, error } = await supabase
     .from("workshop_orders")
     .delete()
@@ -630,9 +653,27 @@ export async function deleteOrder(
       ? row.title.trim()
       : "Без названия";
 
+  // Удаление уже состоялось: сбой возврата не отменяет его — склад можно
+  // поправить вручную, а «заказ не удалён» было бы неправдой.
+  const refund = reserve.isPlanReleased
+    ? EMPTY_PLASTIC_REFUND
+    : await refundPlasticToFilament(
+        supabase,
+        user.id,
+        reserve.filamentId,
+        reserve.planG,
+      );
+
   revalidatePath("/dashboard/workshop");
 
-  return { ok: true, message: `Заказ «${title}» удалён.` };
+  const note = plasticRefundNote(refund);
+
+  return {
+    ok: true,
+    message: note
+      ? `Заказ «${title}» удалён. ${note}`
+      : `Заказ «${title}» удалён.`,
+  };
 }
 
 /** PostgREST/PostgreSQL: в `workshop_orders` нет колонки `client_id`. */
@@ -1727,6 +1768,12 @@ export async function autoScheduleOrders(): Promise<AutoScheduleState> {
  * Задание ищем на сервере, а не берём из браузера: карточка могла открыться до
  * постановки в очередь, а клиентский id задания — лишний повод поверить вводу.
  * Чужое задание RPC всё равно не тронет: она сверяет `auth.uid()`.
+ *
+ * Пластик возвращается только у задания из очереди: `queued` печать не начинало,
+ * и резерв заказа (`material_weight_g`) цел. Возврат идёт вместе с обнулением
+ * плана — иначе повторная постановка в очередь оставила бы резерв двойным:
+ * первое `done` вернуло бы план ещё раз через `writeOffFilamentFact`. У идущей
+ * печати пластик уже тратится, возвращать нечего, а факт придёт от агента.
  */
 export async function cancelOrderPrint(
   orderId: string,
@@ -1806,12 +1853,26 @@ export async function cancelOrderPrint(
     return { ok: false, error: PRINT_CANCEL_FAILED };
   }
 
+  // Отмена состоялась. Возврат пластика — после неё: пока задание было живым,
+  // резерв принадлежал ему.
+  const refund =
+    activeJob.data.status === "queued"
+      ? await refundQueuedOrderPlastic(supabase, user.id, orderId)
+      : null;
+
   revalidatePath("/dashboard/workshop");
+
+  const base =
+    result.data === "cancelled" ? PRINT_CANCEL_DONE : PRINT_CANCEL_REQUESTED;
+  const note = refund ? plasticRefundNote(refund) : null;
+  const planNote =
+    refund?.planReset === true
+      ? "План пластика заказа обнулён: при следующей печати спишется факт из G-кода."
+      : null;
 
   return {
     ok: true,
-    message:
-      result.data === "cancelled" ? PRINT_CANCEL_DONE : PRINT_CANCEL_REQUESTED,
+    message: [base, note, planNote].filter(Boolean).join(" "),
   };
 }
 
@@ -2174,6 +2235,722 @@ export async function addOrderItem(
     item,
     message: `«${title}» × ${amount} добавлена в заказ.`,
   };
+}
+
+/** Возврат пластика, которого не было: склад не трогали. */
+const EMPTY_PLASTIC_REFUND = { refundedG: 0, remainingWeightG: null } as const;
+
+/** Резерв пластика заказа: план, катушка и признак «план уже вернули». */
+type OrderPlasticReserve = {
+  /** План мастера `material_weight_g`, граммы. */
+  planG: number;
+  /** Катушка заказа; null — пластик не привязан, возвращать некуда. */
+  filamentId: string | null;
+  /**
+   * По заказу есть завершённое задание: план вернул `writeOffFilamentFact`.
+   * Второй возврат поднял бы склад сверх катушки.
+   */
+  isPlanReleased: boolean;
+};
+
+/**
+ * Резерв пластика заказа для возврата.
+ *
+ * Чтение намеренно не роняет вызывающее действие: удаление заказа и отмена печати
+ * уже состоялись, и «не смог прочитать план» — не повод показывать отказ.
+ * Ошибки уходят в лог, а резерв считается пустым.
+ */
+async function readOrderPlasticReserve(
+  supabase: Supabase,
+  userId: string,
+  orderId: string,
+): Promise<OrderPlasticReserve> {
+  const empty: OrderPlasticReserve = {
+    planG: 0,
+    filamentId: null,
+    isPlanReleased: false,
+  };
+
+  const { data, error } = await supabase
+    .from("workshop_orders")
+    .select("material_weight_g, filament_id")
+    .eq("id", orderId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("План заказа не прочитан:", error.code, error.message);
+    return empty;
+  }
+
+  const row = (data ?? null) as Partial<Record<string, unknown>> | null;
+  const planG = Math.max(Math.round(Number(row?.material_weight_g) || 0), 0);
+  const filamentId = isOrderId(row?.filament_id) ? row.filament_id : null;
+
+  // План без катушки всё равно нужен правке позиции: он делится между штуками,
+  // даже когда возвращать некуда. Возврат в таком случае просто пустой.
+  if (planG === 0 || !filamentId) {
+    return { planG, filamentId, isPlanReleased: false };
+  }
+
+  const { count, error: doneError } = await supabase
+    .from("workshop_print_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("order_id", orderId)
+    .eq("user_id", userId)
+    .eq("status", "done");
+
+  if (doneError) {
+    // Отсутствие таблицы заданий — ноль завершённых: печати в такой базе нет.
+    if (!isMissingTableSchema(doneError.code, doneError.message)) {
+      console.warn(
+        "Завершённые задания не прочитаны:",
+        doneError.code,
+        doneError.message,
+      );
+      return empty;
+    }
+  }
+
+  return { planG, filamentId, isPlanReleased: (count ?? 0) > 0 };
+}
+
+/** Хвост сообщения о возврате: «Пластик: возвращено 20 г, на катушке 780 г.» */
+function plasticRefundNote(refund: {
+  refundedG: number;
+  remainingWeightG: number | null;
+}): string | null {
+  if (refund.refundedG <= 0) {
+    return null;
+  }
+
+  return refund.remainingWeightG === null
+    ? `Пластик: возвращено ${formatGrams(refund.refundedG)}.`
+    : `Пластик: возвращено ${formatGrams(refund.refundedG)}, на катушке ${formatGrams(refund.remainingWeightG)}.`;
+}
+
+/** Итог возврата пластика: сколько вернули и сколько осталось на катушке. */
+type FilamentRefund = { refundedG: number; remainingWeightG: number | null };
+
+/**
+ * Сколько пластика плана заказа приходится на `units` штук.
+ *
+ * Позиция не хранит вес: в `workshop_order_items` есть только количество, а план
+ * (`material_weight_g`) — у заказа. Долю считаем пропорционально количеству:
+ * план × штуки / все штуки заказа. Это единственная оценка без новых колонок, и
+ * при удалении всех позиций она возвращает ровно план. Отрицательные `units`
+ * работают как вычитание — так же считается правка количества.
+ */
+function plasticForUnits(
+  materialWeightG: number,
+  units: number,
+  orderQuantity: number,
+): number {
+  if (materialWeightG <= 0 || units === 0 || orderQuantity <= 0) {
+    return 0;
+  }
+
+  return Math.round((materialWeightG * units) / orderQuantity);
+}
+
+/**
+ * Возврат пластика на катушку.
+ *
+ * Остаток зажимается весом катушки, как в `writeOffFilamentFact`: колонка —
+ * `integer` с check `<= total_weight_g`, и писать «больше, чем было» нельзя.
+ * Сбой чтения или записи не роняет вызывающее действие — возврат это учёт, а
+ * удаление позиции и отмена печати остаются намерением мастера.
+ */
+async function refundPlasticToFilament(
+  supabase: Supabase,
+  userId: string,
+  filamentId: string | null,
+  grams: number,
+): Promise<FilamentRefund> {
+  const refunded = Math.max(Math.round(grams), 0);
+
+  if (!filamentId || refunded === 0) {
+    return EMPTY_PLASTIC_REFUND;
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_filaments")
+    .select("total_weight_g, remaining_weight_g")
+    .eq("id", filamentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Катушка для возврата не прочитана:", error.code, error.message);
+    return EMPTY_PLASTIC_REFUND;
+  }
+
+  const row = (data ?? null) as Partial<Record<string, unknown>> | null;
+  const remaining = Number(row?.remaining_weight_g);
+
+  if (!row || !Number.isFinite(remaining)) {
+    return EMPTY_PLASTIC_REFUND;
+  }
+
+  const total = Number(row.total_weight_g);
+  const next = Math.min(
+    remaining + refunded,
+    Number.isFinite(total) ? total : Number.MAX_SAFE_INTEGER,
+  );
+
+  if (next === remaining) {
+    return { refundedG: 0, remainingWeightG: remaining };
+  }
+
+  const { error: updateError } = await supabase
+    .from("workshop_filaments")
+    .update(createFilamentUsagePayload(next))
+    .eq("id", filamentId)
+    .eq("user_id", userId);
+
+  if (updateError) {
+    console.warn("Пластик не возвращён:", updateError.code, updateError.message);
+    return { refundedG: 0, remainingWeightG: remaining };
+  }
+
+  return { refundedG: refunded, remainingWeightG: next };
+}
+
+/** Запись плана пластика заказа: значение зажимается границами колонки. */
+async function writeOrderPlasticPlan(
+  supabase: Supabase,
+  userId: string,
+  orderId: string,
+  materialWeightG: number,
+): Promise<boolean> {
+  const next = Math.min(
+    Math.max(Math.round(materialWeightG), 0),
+    ORDER_PLASTIC_LIMIT,
+  );
+
+  const { error } = await supabase
+    .from("workshop_orders")
+    .update({ material_weight_g: next })
+    .eq("id", orderId)
+    .eq("user_id", userId);
+
+  if (error) {
+    console.warn("План пластика не записан:", error.code, error.message);
+    return false;
+  }
+
+  return true;
+}
+
+/** Списание добавки пластика: отказ вместо отрицательного остатка. */
+type FilamentCharge =
+  | { ok: true; chargedG: number; remainingWeightG: number | null }
+  | { ok: false; error: string };
+
+/**
+ * Списать пластик за добавленные штуки позиции.
+ *
+ * Правило то же, что у `createOrder`: больше, чем есть на катушке, не списываем —
+ * иначе склад перестал бы сходиться. Проверка стоит до записи количества, чтобы
+ * отказ не оставлял позицию с большим числом штук и старым резервом.
+ */
+async function chargePlasticFromFilament(
+  supabase: Supabase,
+  userId: string,
+  filamentId: string | null,
+  grams: number,
+): Promise<FilamentCharge> {
+  const charge = Math.max(Math.round(grams), 0);
+
+  if (!filamentId || charge === 0) {
+    return { ok: true, chargedG: 0, remainingWeightG: null };
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_filaments")
+    .select("brand, type, color, remaining_weight_g")
+    .eq("id", filamentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Катушка не прочитана:", error.code, error.message);
+    return { ok: false, error: LOAD_FAILED };
+  }
+
+  const row = (data ?? null) as Partial<Record<string, unknown>> | null;
+  const remaining = Number(row?.remaining_weight_g);
+
+  if (!row || !Number.isFinite(remaining)) {
+    return { ok: false, error: LOAD_FAILED };
+  }
+
+  if (charge > remaining) {
+    const label = [row.brand, row.type, row.color]
+      .filter(
+        (value): value is string =>
+          typeof value === "string" && value.trim() !== "",
+      )
+      .join(" ");
+
+    return {
+      ok: false,
+      error: `В катушке${label ? ` «${label}»` : ""} осталось ${formatGrams(remaining)}, а для добавки нужно ${formatGrams(charge)}. Уменьшите количество.`,
+    };
+  }
+
+  const next = remaining - charge;
+  const { error: updateError } = await supabase
+    .from("workshop_filaments")
+    .update(createFilamentUsagePayload(next))
+    .eq("id", filamentId)
+    .eq("user_id", userId);
+
+  if (updateError) {
+    console.warn("Пластик не списан:", updateError.code, updateError.message);
+    return { ok: false, error: ORDER_ITEM_QUANTITY_FAILED };
+  }
+
+  return { ok: true, chargedG: charge, remainingWeightG: next };
+}
+
+/**
+ * Возврат пластика после отмены, которая ещё не началась.
+ *
+ * Задание в статусе `queued` печать не начинало: пластик, списанный при создании
+ * заказа, цел, и резерв возвращается на катушку. План заказа при этом обнуляется —
+ * иначе повторная постановка в очередь оставила бы резерв двойным: первое `done`
+ * вернуло бы план ещё раз через `writeOffFilamentFact`, и склад вырос бы сверх
+ * катушки. При следующей печати спишется факт из G-кода, а не план.
+ */
+async function refundQueuedOrderPlastic(
+  supabase: Supabase,
+  userId: string,
+  orderId: string,
+): Promise<FilamentRefund & { planReset: boolean }> {
+  const reserve = await readOrderPlasticReserve(supabase, userId, orderId);
+
+  if (reserve.planG === 0 || reserve.isPlanReleased) {
+    return { ...EMPTY_PLASTIC_REFUND, planReset: false };
+  }
+
+  const refund = await refundPlasticToFilament(
+    supabase,
+    userId,
+    reserve.filamentId,
+    reserve.planG,
+  );
+
+  // Возвращать было некуда (катушку удалили или остаток уже полный): план
+  // оставляем, иначе резерв потерялся бы без следа на складе.
+  if (refund.refundedG === 0) {
+    return { ...refund, planReset: false };
+  }
+
+  const planReset = await writeOrderPlasticPlan(supabase, userId, orderId, 0);
+
+  return { ...refund, planReset };
+}
+
+/** Позиция с заказом и резервом: всё, что нужно правке и удалению позиции. */
+type OrderItemContext = {
+  orderId: string;
+  quantity: number;
+  /** Сумма количеств всех позиций — знаменатель доли пластика. */
+  orderQuantity: number;
+  /** План пластика заказа, граммы. */
+  materialWeightG: number;
+  filamentId: string | null;
+  /** План уже вернул `writeOffFilamentFact`: на катушку его не возвращаем. */
+  isPlanReleased: boolean;
+};
+
+/**
+ * Позиция вместе с заказом и очередью — общая проверка правки и удаления.
+ *
+ * Проверок пять: позиция принадлежит пользователю, по ней нет активного задания,
+ * заказ существует, сумма количеств известна для доли пластика, а резерв заказа
+ * не освобождён. Отказ возвращает готовый текст для карточки, чтобы обе операции
+ * говорили одно и то же.
+ *
+ * `orderQuantity` считается до изменения: план делится по штукам, которые были в
+ * заказе, иначе доля удаляемой позиции «съехала» бы к нулю уже после удаления.
+ * Ошибка чтения заданий — отказ, а не «наверное, свободна»: правка необратима,
+ * и печать поверх уменьшенного количества — это испорченная работа.
+ */
+async function readOrderItemContext(
+  supabase: Supabase,
+  userId: string,
+  orderItemId: string,
+): Promise<{ ok: true; data: OrderItemContext } | { ok: false; error: string }> {
+  const { data: itemData, error: itemError } = await supabase
+    .from("workshop_order_items")
+    .select("id, order_id, quantity")
+    .eq("id", orderItemId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (itemError) {
+    console.warn("Позиция не прочитана:", itemError.code, itemError.message);
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(itemError.code, itemError.message)
+        ? ORDER_ITEM_MIGRATION_MISSING
+        : LOAD_FAILED,
+    };
+  }
+
+  const itemRow = (itemData ?? null) as Partial<Record<string, unknown>> | null;
+  const orderId = readRowText(itemRow?.order_id);
+
+  if (!itemRow || !isOrderId(orderId)) {
+    return { ok: false, error: ORDER_ITEM_NOT_FOUND };
+  }
+
+  const activeJobs = await countActivePrintJobsForItem(orderItemId, {
+    supabase,
+    userId,
+  });
+
+  if (!activeJobs.ok) {
+    console.warn(
+      "Задание позиции не прочитано:",
+      activeJobs.reason,
+      activeJobs.error,
+    );
+
+    return {
+      ok: false,
+      error:
+        activeJobs.reason === "migration_missing"
+          ? PRINT_QUEUE_MIGRATION_MISSING
+          : LOAD_FAILED,
+    };
+  }
+
+  if (activeJobs.data > 0) {
+    return { ok: false, error: ORDER_ITEM_LOCKED };
+  }
+
+  const { data: orderData, error: orderError } = await supabase
+    .from("workshop_orders")
+    .select("material_weight_g, filament_id")
+    .eq("id", orderId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (orderError) {
+    console.warn(
+      "Заказ позиции не прочитан:",
+      orderError.code,
+      orderError.message,
+    );
+
+    return { ok: false, error: LOAD_FAILED };
+  }
+
+  if (!orderData) {
+    return { ok: false, error: ORDER_NOT_FOUND };
+  }
+
+  const { data: quantityRows, error: quantityError } = await supabase
+    .from("workshop_order_items")
+    .select("quantity")
+    .eq("order_id", orderId)
+    .eq("user_id", userId);
+
+  if (quantityError) {
+    console.warn(
+      "Позиции заказа не прочитаны:",
+      quantityError.code,
+      quantityError.message,
+    );
+
+    return { ok: false, error: LOAD_FAILED };
+  }
+
+  const orderQuantity = readRows(quantityRows).reduce(
+    (sum, row) => sum + readOrderItemQuantity(row.quantity).quantity,
+    0,
+  );
+  const reserve = await readOrderPlasticReserve(supabase, userId, orderId);
+
+  return {
+    ok: true,
+    data: {
+      orderId,
+      quantity: readOrderItemQuantity(itemRow.quantity).quantity,
+      orderQuantity,
+      materialWeightG: reserve.planG,
+      filamentId: reserve.filamentId,
+      isPlanReleased: reserve.isPlanReleased,
+    },
+  };
+}
+
+/**
+ * Удаление позиции заказа.
+ *
+ * Порядок: UUID → сессия → подписка → позиция с заказом и очередью → удаление →
+ * возврат пластика. Позицию с активным заданием удалять нельзя: задание
+ * ссылается на `order_item_id`, и строка унесла бы его с собой — агент остался бы
+ * с печатью без позиции в базе. Сначала мастер отменяет печать.
+ *
+ * Пластик: позиция не хранит вес, поэтому её доля считается от плана заказа
+ * (`plasticForUnits`). Резерв заказа уменьшается на эту же долю, а катушка
+ * получает её обратно — но только пока резерв не освобождён: после первого `done`
+ * план вернул `writeOffFilamentFact`, и второй возврат сделал бы склад больше,
+ * чем он есть. Сбой возврата не отменяет удаление: позиция — намерение мастера,
+ * а остаток катушки правится на складе вручную.
+ */
+export async function deleteOrderItem(
+  orderItemId: string,
+): Promise<OrderActionState> {
+  if (!isOrderId(orderItemId)) {
+    return { ok: false, error: ORDER_ITEM_NOT_FOUND };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  const context = await readOrderItemContext(supabase, user.id, orderItemId);
+
+  if (!context.ok) {
+    return { ok: false, error: context.error };
+  }
+
+  const share = plasticForUnits(
+    context.data.materialWeightG,
+    context.data.quantity,
+    context.data.orderQuantity,
+  );
+
+  const { data, error } = await supabase
+    .from("workshop_order_items")
+    .delete()
+    .eq("id", orderItemId)
+    .eq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Позиция не удалена:", error.code, error.message);
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(error.code, error.message)
+        ? ORDER_ITEM_MIGRATION_MISSING
+        : ORDER_ITEM_DELETE_FAILED,
+    };
+  }
+
+  if (!data) {
+    return { ok: false, error: ORDER_ITEM_NOT_FOUND };
+  }
+
+  if (share > 0) {
+    await writeOrderPlasticPlan(
+      supabase,
+      user.id,
+      context.data.orderId,
+      context.data.materialWeightG - share,
+    );
+  }
+
+  const refund = context.data.isPlanReleased
+    ? EMPTY_PLASTIC_REFUND
+    : await refundPlasticToFilament(
+        supabase,
+        user.id,
+        context.data.filamentId,
+        share,
+      );
+
+  revalidatePath("/dashboard/workshop");
+
+  const note = plasticRefundNote(refund);
+
+  return {
+    ok: true,
+    message: note ? `Позиция удалена. ${note}` : "Позиция удалена.",
+  };
+}
+
+/**
+ * Изменение количества в позиции заказа.
+ *
+ * Проверки те же, что у удаления: UUID → количество → сессия → подписка →
+ * позиция без активного задания. Количество проверяет `readOrderItemQuantity` —
+ * тот же разбор, что у базы (`1…10 000`, целое), поэтому дробь и ноль
+ * отклоняются до запроса.
+ *
+ * Пластик двигается вместе с количеством: добавка списывается с катушки (и
+ * отклоняется, если её не хватает — как в `createOrder`), убавка возвращается.
+ * Доля считается от плана заказа по штукам (`plasticForUnits`), а сам план
+ * сдвигается на ту же величину: иначе следующий возврат по заказу считался бы от
+ * старого числа штук. После первого `done` план уже вернул
+ * `writeOffFilamentFact`, поэтому катушке он не возвращается повторно.
+ */
+export async function updateOrderItemQuantity(
+  orderItemId: string,
+  quantity: number,
+): Promise<OrderActionState> {
+  if (!isOrderId(orderItemId)) {
+    return { ok: false, error: ORDER_ITEM_NOT_FOUND };
+  }
+
+  const { quantity: nextQuantity, error: quantityError } =
+    readOrderItemQuantity(quantity);
+
+  if (quantityError) {
+    return { ok: false, error: quantityError };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  const context = await readOrderItemContext(supabase, user.id, orderItemId);
+
+  if (!context.ok) {
+    return { ok: false, error: context.error };
+  }
+
+  if (context.data.quantity === nextQuantity) {
+    return { ok: true, message: `Количество уже ${nextQuantity}.` };
+  }
+
+  const deltaGrams = plasticForUnits(
+    context.data.materialWeightG,
+    nextQuantity - context.data.quantity,
+    context.data.orderQuantity,
+  );
+
+  // Добавка проверяется до записи: списать больше, чем осталось на катушке,
+  // нельзя — склад перестал бы сходиться, а отказ должен оставить позицию с
+  // прежним количеством и прежним резервом.
+  let charge: FilamentCharge = {
+    ok: true,
+    chargedG: 0,
+    remainingWeightG: null,
+  };
+
+  if (deltaGrams > 0) {
+    charge = await chargePlasticFromFilament(
+      supabase,
+      user.id,
+      context.data.filamentId,
+      deltaGrams,
+    );
+
+    if (!charge.ok) {
+      return { ok: false, error: charge.error };
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_order_items")
+    .update({ quantity: nextQuantity })
+    .eq("id", orderItemId)
+    .eq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Количество не изменено:", error.code, error.message);
+
+    // Пластик за добавку уже списан, а количество осталось прежним — возвращаем.
+    if (charge.ok && charge.chargedG > 0) {
+      await refundPlasticToFilament(
+        supabase,
+        user.id,
+        context.data.filamentId,
+        charge.chargedG,
+      );
+    }
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(error.code, error.message)
+        ? ORDER_ITEM_MIGRATION_MISSING
+        : ORDER_ITEM_QUANTITY_FAILED,
+    };
+  }
+
+  if (!data) {
+    // Позицию удалили в другой вкладке уже после проверки: добавка списана
+    // впустую — возвращаем её на катушку.
+    if (charge.ok && charge.chargedG > 0) {
+      await refundPlasticToFilament(
+        supabase,
+        user.id,
+        context.data.filamentId,
+        charge.chargedG,
+      );
+    }
+
+    return { ok: false, error: ORDER_ITEM_NOT_FOUND };
+  }
+
+  if (deltaGrams !== 0) {
+    await writeOrderPlasticPlan(
+      supabase,
+      user.id,
+      context.data.orderId,
+      context.data.materialWeightG + deltaGrams,
+    );
+  }
+
+  let refund: FilamentRefund = EMPTY_PLASTIC_REFUND;
+
+  if (deltaGrams < 0 && !context.data.isPlanReleased) {
+    refund = await refundPlasticToFilament(
+      supabase,
+      user.id,
+      context.data.filamentId,
+      -deltaGrams,
+    );
+  }
+
+  revalidatePath("/dashboard/workshop");
+
+  const parts = [`Количество: ${context.data.quantity} → ${nextQuantity}.`];
+
+  if (charge.ok && charge.chargedG > 0) {
+    parts.push(
+      charge.remainingWeightG === null
+        ? `Пластик: списано ${formatGrams(charge.chargedG)}.`
+        : `Пластик: списано ${formatGrams(charge.chargedG)}, на катушке ${formatGrams(charge.remainingWeightG)}.`,
+    );
+  }
+
+  const note = plasticRefundNote(refund);
+
+  if (note) {
+    parts.push(note);
+  }
+
+  return { ok: true, message: parts.join(" ") };
 }
 
 /** Удаление заказа после неудачного update: база не должна хранить фантом. */

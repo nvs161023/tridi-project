@@ -831,6 +831,51 @@ export async function countActivePrintJobs(
   return ok(result.count ?? 0);
 }
 
+/**
+ * Активное задание конкретной позиции заказа.
+ *
+ * Нужно правке и удалению позиции: пока задание живо, позиция занята. Она
+ * закреплена за заданием через `order_item_id`, и удалённая строка оставила бы
+ * агента с печатью, которой нет в базе, а уменьшенное количество — с заданием на
+ * большее число копий. Считаются `queued` и `printing`: задание в очереди ещё
+ * снимается кнопкой «Отменить печать», но менять позицию под ним нельзя.
+ *
+ * Миграция `workshop_farm_and_shop.sql` применяется вручную. Если таблицы
+ * заданий нет, функция отвечает нулём: активного задания в такой базе быть не
+ * может, и запрещать правку из-за отсутствующей таблицы было бы неправдой.
+ */
+export async function countActivePrintJobsForItem(
+  orderItemId: string,
+  context?: WorkshopFarmContext,
+): Promise<WorkshopFarmResult<number>> {
+  if (!isWorkshopUuid(orderItemId)) {
+    return fail("invalid_id", "Позиция указана неверно.");
+  }
+
+  const ctx = await resolveContext(context);
+
+  if (!ctx) {
+    return fail("unauthorized", "Нужно войти в мастерскую.");
+  }
+
+  const result = await ctx.supabase
+    .from("workshop_print_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", ctx.userId)
+    .eq("order_item_id", orderItemId)
+    .in("status", ["queued", "printing"]);
+
+  if (result.error) {
+    if (isSchemaError(result.error)) {
+      return ok(0);
+    }
+
+    return readFailure(result.error, "Очередь печати не прочитана.");
+  }
+
+  return ok(result.count ?? 0);
+}
+
 /** Последняя незавершённая печать заказа: её ошибку показывает карточка. */
 export type OrderPrintFailure = {
   jobId: string;

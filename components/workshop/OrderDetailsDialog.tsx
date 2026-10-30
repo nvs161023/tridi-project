@@ -19,10 +19,12 @@ import {
   addOrderItem,
   cancelOrderPrint,
   deleteOrder,
+  deleteOrderItem,
   loadOrderComments,
   loadOrderItems,
   loadOrderPrintStatus,
   queueOrderForPrint,
+  updateOrderItemQuantity,
   updateOrderPrinter,
 } from "@/app/actions/orders";
 import type { OrderPrintStatus } from "@/app/actions/orders-state";
@@ -73,7 +75,10 @@ import type { WorkshopPrinter } from "@/lib/workshop/printers";
  * только деньги и принтер, поэтому список читается при открытии карточки тем же
  * способом, что и комментарии. Добавление идёт через Server Action
  * `addOrderItem`, а сохранённая строка сразу попадает в список — ждать
- * перезагрузки страницы незачем.
+ * перезагрузки страницы незачем. Количество меняют кнопками «−» и «+» прямо в
+ * строке (`updateOrderItemQuantity`), позицию убирают корзиной
+ * (`deleteOrderItem`). Пока по позиции есть задание печати, кнопки погашены:
+ * сервер всё равно откажет, а мастер увидит причину рядом со списком.
  *
  * Блок «3D-печать» — центр управления заказом на ферме: здесь выбирают принтер
  * (сохраняется сразу через `updateOrderPrinter`), а кнопка «В очередь на печать»
@@ -107,6 +112,20 @@ const COMMENT_DATE_FORMATTER = new Intl.DateTimeFormat("ru-RU", {
 
 /** Сколько висит всплывающее уведомление: дольше — и оно мешает читать карточку. */
 const PRINT_TOAST_TIMEOUT_MS = 4000;
+
+/**
+ * Почему кнопки позиций погашены.
+ *
+ * Задание печати закреплено за позицией через `order_item_id`: удалённая строка
+ * оставила бы агента с печатью без позиции, а уменьшенное количество — задание на
+ * большее число копий. Сервер отвечает тем же отказом, если карточка устарела.
+ */
+const ORDER_ITEMS_LOCKED_HINT =
+  "Позиции закреплены за заданием печати: чтобы менять количество или удалять их, сначала отмените печать.";
+
+/** Кнопки правки позиции: компактные — они живут внутри строки списка. */
+const ORDER_ITEM_ACTION_CLASS =
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-40";
 
 /** Дата комментария: «25.10.2026, 14:05» в часовом поясе браузера. */
 function formatCommentDate(value: string | null): string {
@@ -251,6 +270,16 @@ export function OrderDetailsDialog({
   const [itemFormError, setItemFormError] = useState<string | null>(null);
   const [itemNotice, setItemNotice] = useState<string | null>(null);
   const [isAddingItem, setIsAddingItem] = useState(false);
+  /**
+   * Позиция, которую сейчас правят.
+   *
+   * Гаснут только её кнопки: список из пяти позиций не должен замирать из-за
+   * одного клика, а двойной клик по «+» ушёл бы двумя запросами с одинаковым
+   * количеством.
+   */
+  const [pendingItemId, setPendingItemId] = useState<string | null>(null);
+  /** Отказ правки или удаления позиции: текст под списком. */
+  const [itemRowError, setItemRowError] = useState<string | null>(null);
   /**
    * Счётчик добавленных позиций.
    *
@@ -540,6 +569,116 @@ export function OrderDetailsDialog({
   }
 
   /**
+   * Изменение количества в позиции.
+   *
+   * Количество проверяется до запроса тем же пределом, что у базы: `0` и
+   * `10 001` не должны уходить в Server Action. Ответ сервера несёт и след
+   * пластика («списано 20 г, на катушке 780 г»), поэтому строка состояния на
+   * доске говорит не только «сохранено», но и что стало со складом.
+   */
+  async function handleItemQuantity(
+    item: OrderItemSummary,
+    nextQuantity: number,
+  ) {
+    if (pendingItemId) {
+      return;
+    }
+
+    if (
+      !Number.isInteger(nextQuantity) ||
+      nextQuantity < 1 ||
+      nextQuantity > ORDER_ITEM_QUANTITY_LIMIT
+    ) {
+      return;
+    }
+
+    setItemRowError(null);
+    setItemNotice(null);
+    setPendingItemId(item.id);
+
+    try {
+      const result = await updateOrderItemQuantity(item.id, nextQuantity);
+
+      if (!result.ok) {
+        setItemRowError(
+          result.error ?? "Не удалось сохранить позицию. Попробуйте ещё раз.",
+        );
+        return;
+      }
+
+      setItems((current) =>
+        current.map((entry) =>
+          entry.id === item.id ? { ...entry, quantity: nextQuantity } : entry,
+        ),
+      );
+
+      if (result.message) {
+        setItemNotice(result.message);
+        onUpdated(result.message);
+      }
+
+      setItemsVersion((version) => version + 1);
+      router.refresh();
+    } catch {
+      setItemRowError("Нет связи с сервером. Попробуйте ещё раз.");
+    } finally {
+      setPendingItemId(null);
+    }
+  }
+
+  /**
+   * Удаление позиции.
+   *
+   * Подтверждение — `window.confirm`, как у удаления заказа: позиция уходит
+   * вместе с местом в очереди, и промах по корзине стоил бы заново добавленной
+   * строки. Позицию с активным заданием сервер не удалит — карточка покажет его
+   * причину под списком.
+   */
+  async function handleItemDelete(item: OrderItemSummary) {
+    if (pendingItemId) {
+      return;
+    }
+
+    const title = item.productTitle ?? item.sku ?? "Позиция без товара";
+    const confirmed = window.confirm(
+      `Удалить позицию «${title}» из заказа? Пластик вернётся на катушку, если печать ещё не началась.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setItemRowError(null);
+    setItemNotice(null);
+    setPendingItemId(item.id);
+
+    try {
+      const result = await deleteOrderItem(item.id);
+
+      if (!result.ok) {
+        setItemRowError(
+          result.error ?? "Не удалось удалить позицию. Попробуйте ещё раз.",
+        );
+        return;
+      }
+
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+
+      if (result.message) {
+        setItemNotice(result.message);
+        onUpdated(result.message);
+      }
+
+      setItemsVersion((version) => version + 1);
+      router.refresh();
+    } catch {
+      setItemRowError("Нет связи с сервером. Попробуйте ещё раз.");
+    } finally {
+      setPendingItemId(null);
+    }
+  }
+
+  /**
    * Удаление заказа из карточки.
    *
    * Спрашиваем подтверждение через `window.confirm` — как у возврата в админке:
@@ -744,6 +883,16 @@ export function OrderDetailsDialog({
 
     return product ? sum + product.price * item.quantity : sum;
   }, 0);
+
+  /**
+   * Позиции заняты, пока у заказа есть задание печати.
+   *
+   * Точную проверку сервер делает по `order_item_id`, но очередь создаёт задания
+   * на все подходящие позиции сразу (`queueOrderForPrint`), поэтому активное
+   * задание означает занятые позиции. Кнопки гаснут заранее: мастер видит, что
+   * правка недоступна, а не получает отказ после клика.
+   */
+  const isItemLocked = Boolean(printStatus?.activeJob);
 
   /**
    * Сверка позиций заказа с выбранным принтером.
@@ -1063,25 +1212,92 @@ export function OrderDetailsDialog({
 
             {items.length > 0 ? (
               <ul data-order-items-list className="mt-3 space-y-2">
-                {items.map((item) => (
-                  <li
-                    key={item.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2"
-                  >
-                    <span className="min-w-0 text-sm leading-relaxed break-words text-zinc-200">
-                      {item.productTitle ?? item.sku ?? "Позиция без товара"}
-                      {item.productTitle && item.sku ? (
-                        <span className="ml-2 text-[11px] text-zinc-500">
-                          {item.sku}
+                {items.map((item) => {
+                  const isBusy = pendingItemId === item.id;
+                  const itemTitle =
+                    item.productTitle ?? item.sku ?? "Позиция без товара";
+
+                  return (
+                    <li
+                      key={item.id}
+                      data-order-item-row
+                      className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2"
+                    >
+                      <span className="min-w-0 text-sm leading-relaxed break-words text-zinc-200">
+                        {item.productTitle ?? item.sku ?? "Позиция без товара"}
+                        {item.productTitle && item.sku ? (
+                          <span className="ml-2 text-[11px] text-zinc-500">
+                            {item.sku}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleItemQuantity(item, item.quantity - 1)
+                          }
+                          disabled={isItemLocked || isBusy || item.quantity <= 1}
+                          aria-label={`Уменьшить количество: ${itemTitle}`}
+                          data-order-item-decrease
+                          className={ORDER_ITEM_ACTION_CLASS}
+                        >
+                          −
+                        </button>
+                        <span className="min-w-10 text-center text-sm font-semibold text-white tabular-nums">
+                          {isBusy ? "…" : `× ${item.quantity}`}
                         </span>
-                      ) : null}
-                    </span>
-                    <span className="shrink-0 text-sm font-semibold text-white tabular-nums">
-                      × {item.quantity}
-                    </span>
-                  </li>
-                ))}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleItemQuantity(item, item.quantity + 1)
+                          }
+                          disabled={
+                            isItemLocked ||
+                            isBusy ||
+                            item.quantity >= ORDER_ITEM_QUANTITY_LIMIT
+                          }
+                          aria-label={`Увеличить количество: ${itemTitle}`}
+                          data-order-item-increase
+                          className={ORDER_ITEM_ACTION_CLASS}
+                        >
+                          <PlusIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleItemDelete(item)}
+                          disabled={isItemLocked || isBusy}
+                          aria-label={`Удалить позицию: ${itemTitle}`}
+                          title={isItemLocked ? ORDER_ITEMS_LOCKED_HINT : undefined}
+                          data-order-item-delete
+                          className={`${ORDER_ITEM_ACTION_CLASS} hover:border-red-400/50 hover:bg-red-500/10 hover:text-red-200`}
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
+            ) : null}
+
+            {items.length > 0 && isItemLocked ? (
+              <p
+                data-order-items-locked
+                className="mt-2 text-[11px] leading-relaxed text-amber-200/80"
+              >
+                {ORDER_ITEMS_LOCKED_HINT}
+              </p>
+            ) : null}
+
+            {itemRowError ? (
+              <p
+                role="alert"
+                data-order-item-row-error
+                className="mt-2 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm leading-relaxed text-red-100"
+              >
+                {itemRowError}
+              </p>
             ) : null}
 
             {itemsTotal > 0 ? (
