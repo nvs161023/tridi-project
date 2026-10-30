@@ -1128,6 +1128,11 @@ def process_task(task: dict[str, Any]) -> None:
             )
             return
 
+        # FTP-соединение к этому моменту закрыто (`upload_file` закрывает его в
+        # `finally`), поэтому команда уходит сразу: принтер забирает файл с
+        # собственной карты памяти.
+        logger.info("[Agent] Файл загружен, отправляю команду на печать...")
+
         if not adapter.start_print(remote_name=remote_name):
             logger.error(
                 "Задание %s: печать не запущена на %s", job_id, printer.ip_address
