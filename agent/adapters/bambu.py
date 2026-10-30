@@ -660,6 +660,10 @@ class BambuAdapter(BasePrinterAdapter):
         # поэтому без отдельного словаря отказ команды неотличим от «отправлено».
         self._replies: dict[str, dict[str, Any]] = {}
         self._sequence = 0
+        # Отказ команды печати (`result: fail`, `error string`): прошивка может
+        # ещё присылать `idle`, и без этой пометки задание закрывалось как
+        # `done`, хотя принтер не напечатал ни слоя.
+        self._command_error: str | None = None
 
     def _next_sequence(self) -> str:
         """Номер команды: Bambu сверяет ответ с запросом по нему."""
@@ -690,11 +694,16 @@ class BambuAdapter(BasePrinterAdapter):
         Ответ принтера на команду: `result` и `reason` в журнал и в `_replies`.
 
         Bambu отвечает в топик отчёта телом вида
-        `{"print": {"command": "gcode_file", "sequence_id": "7",
-        "result": "fail", "reason": "..."}}`; по `sequence_id` видно, на какую
-        команду это ответ. Без разбора отказ терялся: `_publish()` подтверждает
-        только доставку в брокер, и агент писал «печать запущена» даже когда
-        принтер команду не принял.
+        `{"print": {"command": "project_file", "sequence_id": "7",
+        "result": "fail", "reason": "error string"}}`; по `sequence_id` видно,
+        на какую команду это ответ. Без разбора отказ терялся: `_publish()`
+        подтверждает только доставку в брокер, и агент писал «печать запущена»
+        даже когда принтер команду не принял.
+
+        Отказ запоминается дважды: текстом в `last_error` (его отправляют
+        мастеру) и пометкой `_command_error`, из-за которой `get_status()`
+        отдаёт `error`. Иначе принтер после отказа присылает `idle`, и цикл
+        мониторинга принимал простой за успешное завершение печати.
         """
         for body in payload.values():
             if not isinstance(body, dict):
@@ -709,6 +718,11 @@ class BambuAdapter(BasePrinterAdapter):
             reason = str(body.get("reason") or "").strip()
 
             if result == "success":
+                # Снимаем пометку только удачной печатью: на `success` от
+                # `pushall` или `stop` отказ `project_file` пропадать не должен.
+                if command == "project_file":
+                    self._command_error = None
+
                 logger.info(
                     "Bambu %s: принтер принял %s (sequence %s) %s",
                     self.host,
@@ -717,6 +731,12 @@ class BambuAdapter(BasePrinterAdapter):
                     reason,
                 )
             else:
+                failure = (
+                    f"принтер отклонил {command or 'команду'}: "
+                    f"{reason or result or 'без причины'}"
+                )
+                self._command_error = failure
+                self.last_error = failure
                 logger.error(
                     "Bambu %s: принтер отклонил %s (sequence %s): %s %s",
                     self.host,
@@ -1543,7 +1563,14 @@ class BambuAdapter(BasePrinterAdapter):
         команды ждём отчёт с тем же `sequence_id` (`_wait_reply`). Отказ принтера
         — это `False` и его `reason` в `last_error`: main.py отправит причину
         мастеру, а не «печать запущена» с последующим молчанием.
+
+        Принтер умеет ответить `success`, а через полминуты прислать `fail`
+        с причиной (файл не разобран, `0500-4003`): такой отказ ловит
+        `_remember_reply`, помечает `_command_error`, и `get_status()` начинает
+        отдавать `error` — цикл мониторинга закроет задание как `failed`.
         """
+        # Пометка прошлого отказа не должна красить новую печать.
+        self._command_error = None
         printable = (
             remote_name
             if remote_name.lower().endswith(".3mf")
@@ -1624,7 +1651,11 @@ class BambuAdapter(BasePrinterAdapter):
         report = self._report
 
         if not report:
-            return {"status": "idle", "progress": 0, "remaining_time": 0}
+            return {
+                "status": "error" if self._command_error else "idle",
+                "progress": 0,
+                "remaining_time": 0,
+            }
 
         raw_state = report.get("gcode_state")
         state = raw_state.strip().upper() if isinstance(raw_state, str) else ""
@@ -1636,6 +1667,12 @@ class BambuAdapter(BasePrinterAdapter):
                 self.host,
                 raw_state,
             )
+            status = "error"
+
+        # Отказ команды печати сильнее любого `idle` в отчёте: прошивка после
+        # `result: fail` остаётся в простое, и без этого задание закрывалось как
+        # `done` на 100 %, хотя печать не начиналась.
+        if self._command_error:
             status = "error"
 
         # Прогресс в отчёте уже в процентах; ограничение — от мусора в полях.

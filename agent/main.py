@@ -957,6 +957,21 @@ def read_estimate(job_id: str, local_path: Path) -> tuple[int | None, float | No
     return estimate.seconds, estimate.filament_grams
 
 
+def job_suffix(url: str) -> str:
+    """
+    Расширение файла задания по ссылке: `.3mf` — готовый проект, иначе `.gcode`.
+
+    Имя файла на карте принтера решает, пакует адаптер файл в контейнер или
+    печатает как есть: `.gcode` оборачивается в `.3mf` (A1 плоский G-code не
+    берёт), а готовый проект Bambu Studio уходит на печать без обёртки. Без
+    этого `.3mf` скачивался бы под именем `<id>.gcode` и попадал в контейнер
+    повторно — прошивка такой файл не разбирает.
+    """
+    path = url.split("?", 1)[0].split("#", 1)[0].lower()
+
+    return ".3mf" if path.endswith(".3mf") else ".gcode"
+
+
 def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
     """
     Цикл мониторинга: состояние принтера раз в `MONITOR_INTERVAL` секунд, пока
@@ -968,14 +983,20 @@ def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
     `error` — печать встала (`failed`): мастер должен узнать об этом, а не ждать
     до утра.
 
+    Причина отказа важнее статуса: если адаптер отдал `error` или оставил текст
+    в `last_error` (принтер прислал `result: fail`, например `error string` на
+    неразобранный файл), в CRM уходит `failed` с этим текстом. Иначе мастер
+    видит «печать завершена», а на столе пусто.
+
     Пауза перед первым опросом обязательна: сразу после `start_print()` принтер
-    ещё разбирает файл и показывает `standby`, и без паузы агент принял бы старт
-    за конец печати. Первая пауза — `PRINT_START_DELAY` (принтеру нужно время на
-    разбор файла), дальше цикл идёт по `MONITOR_INTERVAL`.
+    ещё разбирает файл и может показывать простой, и без паузы агент принял бы
+    старт за конец печати. Первая пауза — `PRINT_START_DELAY` (принтеру нужно
+    время на разбор файла), дальше цикл идёт по `MONITOR_INTERVAL`.
 
     Печать, которая так и не началась, закрывается как `failed`, а не `done`:
-    простой принтера на первых опросах означает, что файл не взят в работу, а
-    мастеру нельзя показывать напечатанное изделие, которого нет.
+    `idle` при нулевом прогрессе — это «файл не взят в работу» (принтер уже
+    успел поругаться ошибкой на экране), а простой на первых опросах означает,
+    что файл не разобран. Мастеру нельзя показывать изделие, которого нет.
     """
     # Уже отправленный прогресс: 0 ушёл вместе с началом печати.
     last_progress = 0
@@ -995,11 +1016,16 @@ def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
         if state == "printing" or progress > 0:
             started = True
 
-        if state == "error":
-            logger.error("Задание %s: принтер сообщил об ошибке печати", job_id)
-            send_status(
-                job_id, "failed", progress, reason="принтер сообщил об ошибке печати"
-            )
+        # Отказ принтера и причина из `last_error` важнее любого `idle`:
+        # прошивка после `result: fail` (например, `error string` на
+        # неразобранный файл) остаётся в простое, и раньше агент закрывал такое
+        # задание как `done`. Текст причины отправляется мастеру.
+        failure = read_text(adapter.last_error)
+
+        if state == "error" or (failure and progress < 100):
+            reason = failure or "принтер сообщил об ошибке печати"
+            logger.error("Задание %s: печать сорвалась: %s", job_id, reason)
+            send_status(job_id, "failed", progress, reason=reason)
             return
 
         if progress >= 100 or (started and state == "idle"):
@@ -1031,10 +1057,19 @@ def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
             )
             return
 
+        # Простой при нулевом прогрессе — печать не начиналась: файл принят, но
+        # в работу не взят (принтер показывает ошибку на экране).
+        if not started and state == "idle" and progress == 0:
+            reason = "Принтер не начал печать (ошибка файла)"
+            logger.error("Задание %s: %s", job_id, reason)
+            send_status(job_id, "failed", 0, reason=reason)
+            return
+
         if not started:
             # Принтер простоял весь цикл: печать не началась. Несколько опросов
             # — запас на прошивку, которая между приёмом команды и нагревом
-            # успевает показать `idle`; дальше простой уже отказ, а не задержка.
+            # показывала состояние, не похожее ни на печать, ни на простой;
+            # дальше это уже отказ, а не задержка.
             idle_checks += 1
 
             if idle_checks < PRINT_START_CHECKS:
@@ -1113,7 +1148,9 @@ def process_task(task: dict[str, Any]) -> None:
         )
         return
 
-    remote_name = f"{job_id}.gcode"
+    # Расширение — из ссылки задания: `.3mf` печатается как есть, сырой G-code
+    # адаптер упакует сам (см. `job_suffix`).
+    remote_name = f"{job_id}{job_suffix(gcode_url)}"
     local_path = TEMP_DIR / remote_name
 
     # Адаптер создаём до скачивания: неизвестный протокол должен отсечься, пока

@@ -192,6 +192,78 @@ class ScriptedPrintAdapter(bambu.BambuAdapter):
         return True
 
 
+class SilentPrintAdapter:
+    """
+    Адаптер для `monitor_print()`: отдаёт заранее записанные состояния.
+
+    Нужен, чтобы проверить цикл без принтера и без ожидания: состояния идут по
+    списку, последнее повторяется, причина отказа берётся из `last_error`.
+    """
+
+    def __init__(self, snapshots: list[dict[str, Any]], last_error: str | None) -> None:
+        self.snapshots = snapshots
+        self.last_error = last_error
+        self.index = 0
+        self.stopped = 0
+
+    def get_status(self) -> dict[str, Any]:
+        snapshot = self.snapshots[min(self.index, len(self.snapshots) - 1)]
+        self.index += 1
+
+        return snapshot
+
+    def stop_print(self) -> bool:
+        self.stopped += 1
+
+        return True
+
+
+def run_monitor(adapter: SilentPrintAdapter) -> list[tuple[str, int, str | None]]:
+    """
+    `monitor_print()` с отключёнными паузами: только отправленные статусы.
+
+    Подменяются `send_status`, `fetch_cancel_request` и интервалы — сам цикл
+    остаётся настоящим, поэтому проверяется именно он.
+    """
+    sent: list[tuple[str, int, str | None]] = []
+    saved = (
+        agent_main.MONITOR_INTERVAL,
+        agent_main.PRINT_START_DELAY,
+        agent_main.PRINT_START_CHECKS,
+        agent_main.send_status,
+        agent_main.fetch_cancel_request,
+    )
+
+    try:
+        agent_main.MONITOR_INTERVAL = 0
+        agent_main.PRINT_START_DELAY = 0
+
+        def capture(
+            job_id: str,
+            status: str,
+            progress: int | None = None,
+            reason: str | None = None,
+            **_rest: Any,
+        ) -> bool:
+            sent.append((status, progress or 0, reason))
+
+            return True
+
+        agent_main.send_status = capture
+        agent_main.fetch_cancel_request = lambda job_id: False
+        agent_main.monitor_print("test-job", adapter)  # type: ignore[arg-type]
+    finally:
+        (
+            agent_main.MONITOR_INTERVAL,
+            agent_main.PRINT_START_DELAY,
+            agent_main.PRINT_START_CHECKS,
+            agent_main.send_status,
+            agent_main.fetch_cancel_request,
+        ) = saved
+
+    return sent
+
+
 def main() -> int:
     """Проверки адаптера. Код выхода 0 — всё прошло, 1 — были провалы."""
     # Реальные таймауты (10 с на MQTT, 120 с на FTPS) в тесте ни к чему.
@@ -328,7 +400,7 @@ def main() -> int:
         SimpleNamespace(
             topic=f"device/{CHECK_SERIAL}/report",
             payload=(
-                b'{"print": {"command": "gcode_file", "sequence_id": "7", '
+                b'{"print": {"command": "project_file", "sequence_id": "7", '
                 b'"result": "fail", "reason": "key not exist"}}'
             ),
         ),  # type: ignore[arg-type] — SimpleNamespace вместо MQTTMessage
@@ -338,10 +410,12 @@ def main() -> int:
         replying._replies.get("7", {}).get("reason") == "key not exist",
         f"{replying._replies!r}",
     )
+    # Отказ команды — это ошибка печати, даже если отчётов о печати не было:
+    # раньше такой `fail` не менял статус, и задание закрывалось как `done`.
     expect_status(
-        "ответ на команду не попадает в статус",
+        "ответ fail → статус error",
         replying,
-        {"status": "idle", "progress": 0, "remaining_time": 0},
+        {"status": "error", "progress": 0, "remaining_time": 0},
     )
 
     check(
@@ -633,6 +707,137 @@ def main() -> int:
         unreadable.upload_file(str(wrap_probe) + ".nope", "wrap.gcode") is False
         and "не упакован" in (unreadable.last_error or ""),
         f"last_error={unreadable.last_error!r}",
+    )
+
+    # Готовый проект `.3mf` уходит на карту как есть: второй контейнер поверх
+    # настоящего прошивка не разбирает.
+    ready_probe = Path(tempfile.gettempdir()) / "tridi-bambu-ready.3mf"
+    passthrough = CapturingUploadAdapter()
+
+    try:
+        with zipfile.ZipFile(ready_probe, "w") as ready:
+            ready.writestr("Metadata/plate_1.gcode", "; project\nG28\n")
+
+        check(
+            "upload_file: готовый .3mf не пакуется повторно",
+            passthrough.upload_file(str(ready_probe), "ready.3mf") is True
+            and passthrough.remote_name == "ready.3mf"
+            and passthrough.wrapped_path == str(ready_probe)
+            and passthrough.entries == {"Metadata/plate_1.gcode"},
+            f"{passthrough.remote_name!r}, {passthrough.wrapped_path!r}, "
+            f"{sorted(passthrough.entries)!r}",
+        )
+    finally:
+        ready_probe.unlink(missing_ok=True)
+
+    ready_print = ScriptedPrintAdapter([{"result": "success"}])
+    check(
+        "start_print: готовый .3mf печатается project_file",
+        ready_print.start_print("ready.3mf") is True
+        and len(ready_print.commands) == 1
+        and ready_print.commands[0]["print"]["param"] == "Metadata/plate_1.gcode"
+        and ready_print.commands[0]["print"]["subtask_name"] == "ready.3mf"
+        and ready_print.commands[0]["print"]["url"] == "ftp:///cache/ready.3mf",
+        f"{ready_print.commands!r}",
+    )
+
+    check(
+        "job_suffix: расширение из ссылки задания",
+        agent_main.job_suffix("https://x.test/jobs/1.3mf?token=abc") == ".3mf"
+        and agent_main.job_suffix("https://x.test/jobs/1.GCODE") == ".gcode",
+        f"{agent_main.job_suffix('https://x.test/jobs/1.3mf?token=abc')!r}",
+    )
+
+    # Поздний отказ: принтер принял `project_file`, а через полминуты прислал
+    # `fail`. Раньше такой отказ терялся, и задание закрывалось как `done`.
+    late_failure = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
+    late_failure._report.update({"gcode_state": "IDLE", "mc_percent": 0})
+    late_failure._remember_reply(
+        {
+            "print": {
+                "command": "project_file",
+                "sequence_id": "2",
+                "result": "fail",
+                "reason": "error string",
+            }
+        }
+    )
+    expect_status(
+        "отказ команды: последний отчёт idle, а статус error",
+        late_failure,
+        {"status": "error", "progress": 0, "remaining_time": 0},
+    )
+    check(
+        "отказ команды: причина в last_error",
+        "error string" in (late_failure.last_error or ""),
+        f"last_error={late_failure.last_error!r}",
+    )
+
+    late_failure._remember_reply(
+        {
+            "print": {
+                "command": "project_file",
+                "sequence_id": "3",
+                "result": "success",
+            }
+        }
+    )
+    expect_status(
+        "успешная печать снимает пометку отказа",
+        late_failure,
+        {"status": "idle", "progress": 0, "remaining_time": 0},
+    )
+
+    empty_report_failure = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
+    empty_report_failure._remember_reply(
+        {"print": {"command": "project_file", "result": "fail", "reason": "0500-4003"}}
+    )
+    expect_status(
+        "отказ без отчётов о печати — тоже error",
+        empty_report_failure,
+        {"status": "error", "progress": 0, "remaining_time": 0},
+    )
+
+    # Цикл мониторинга: отказ команды и простой без печати — `failed`, а не
+    # `done 100%`, как было до правки.
+    failed_print = run_monitor(
+        SilentPrintAdapter(
+            [{"status": "idle", "progress": 0, "remaining_time": 0}],
+            "принтер отклонил project_file: error string",
+        )
+    )
+    check(
+        "monitor: причина отказа уходит в failed",
+        failed_print == [("failed", 0, "принтер отклонил project_file: error string")],
+        f"{failed_print!r}",
+    )
+
+    idle_print = run_monitor(
+        SilentPrintAdapter(
+            [{"status": "idle", "progress": 0, "remaining_time": 0}], None
+        )
+    )
+    check(
+        "monitor: idle при нулевом прогрессе — failed",
+        idle_print == [("failed", 0, "Принтер не начал печать (ошибка файла)")],
+        f"{idle_print!r}",
+    )
+
+    done_print = run_monitor(
+        SilentPrintAdapter(
+            [
+                {"status": "printing", "progress": 40, "remaining_time": 600},
+                {"status": "idle", "progress": 100, "remaining_time": 0},
+            ],
+            None,
+        )
+    )
+    check(
+        "monitor: печать дошла до 100% — done",
+        len(done_print) == 2
+        and done_print[0] == ("printing", 40, None)
+        and done_print[1] == ("done", 100, None),
+        f"{done_print!r}",
     )
 
     expect_false("stop_print() без соединения", adapter.stop_print)

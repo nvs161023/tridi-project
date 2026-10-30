@@ -190,7 +190,7 @@ python main.py
 | `poll_once()` | один опрос: задачи и строка `Получено N задач` |
 | `process_task(task)` | задание целиком: скачать G-code → адаптер → загрузка → печать → мониторинг |
 | `download_gcode(url, path)` | `requests.get(..., stream=True)` в `agent/temp/`, запись кусками по 64 КБ |
-| `monitor_print(job_id, adapter)` | опрос `get_status()` до `done`/`failed`: первая пауза `PRINT_START_DELAY` (60 с — принтер разбирает файл), дальше раз в `MONITOR_INTERVAL` (10 с) |
+| `monitor_print(job_id, adapter)` | опрос `get_status()` до `done`/`failed`: первая пауза `PRINT_START_DELAY` (60 с — принтер разбирает файл), дальше раз в `MONITOR_INTERVAL` (10 с); `error` или текст в `adapter.last_error` — `failed` с этой причиной, `idle` при нулевом прогрессе — тоже `failed` |
 | `remove_temp_file(path)` | удаление временного G-code; вызывается из `finally` в `process_task()` |
 | `run()` | цикл: проверка просьбы о сканировании, опрос очереди, затем задания по одному, пауза `POLL_INTERVAL`; пульс — отдельным потоком |
 | `read_scan_flag(raw)` | `SCAN_NETWORK` → bool: `true`, `1`, `yes`, `on`; всё остальное выключено |
@@ -211,20 +211,24 @@ python main.py
 2. `process_task()` берёт `id` (jobId), `gcodeUrl` и `printer` задания. Нет
    `gcodeUrl` или у принтера нет адреса/протокола — `failed` в
    `/api/agent/status` и выход: печатать нечего и некуда.
-3. G-code скачивается по `gcodeUrl` в `agent/temp/{jobId}.gcode`
-   (`requests.get(..., stream=True)`, запись кусками по 64 КБ). Папка в
-   `.gitignore`: файлы на десятки мегабайт в репозиторий не попадают.
+3. G-code скачивается по `gcodeUrl` в `agent/temp/{jobId}.gcode` (расширение
+   берётся из ссылки: готовый `.3mf` сохраняется как `{jobId}.3mf` и печатается
+   без обёртки) — `requests.get(..., stream=True)`, запись кусками по 64 КБ.
+   Папка в `.gitignore`: файлы на десятки мегабайт в репозиторий не попадают.
 4. `get_adapter(protocol_type, ip_address, api_key)` → `connect()` →
-   `upload_file(local_path, remote_name="{jobId}.gcode")` → `start_print(remote_name)`.
-   Любой `False` — `failed` и выход.
+   `upload_file(local_path, remote_name="{jobId}.gcode")` (для готового проекта —
+   `{jobId}.3mf`) → `start_print(remote_name)`. Любой `False` — `failed` и выход.
 5. Печать началась — `send_status(jobId, "printing", 0)`, дальше мониторинг.
 6. `finally` удаляет `agent/temp/{jobId}.gcode` при любом исходе.
 
 Цикл мониторинга (`monitor_print()`): пауза 10 секунд, затем `get_status()`.
 `printing` — в CRM уходит `printing` с прогрессом, но только когда проценты
 изменились (одинаковые не повторяются). `idle` или прогресс 100 % — `done` и
-выход из цикла; `error` — `failed`. Незнакомое состояние не закрывает задание:
-агент продолжает опрос.
+выход из цикла; `error` — `failed`. Отказ команды важнее статуса: если адаптер
+оставил причину в `last_error` (принтер прислал `result: fail`), уходит `failed`
+с этим текстом. `idle` при нулевом прогрессе — печать не начиналась: `failed`
+«Принтер не начал печать (ошибка файла)». Незнакомое состояние не закрывает
+задание: агент продолжает опрос.
 
 Задания обрабатываются строго последовательно: пока `process_task()` не вернул
 управление, `run()` не запрашивает очередь — второй G-code не уйдёт на принтер,
@@ -284,8 +288,8 @@ Bambu в LAN-режиме (Settings → Network → LAN Only Mode) не имее
 | Метод | Что делает | Успех |
 |---|---|---|
 | `connect()` | MQTT `self.ip_address:8883`, TLS без проверки сертификата, подписка `device/<serial>/report`, команда `pushing.pushall` | CONNACK получен и подписка оформлена |
-| `upload_file()` | FTPS `self.ip_address:990`: implicit TLS 1.2 (сессия управляющего канала переиспользуется в канале данных), `PROT P` и `PASV` обязательны, файл кладётся в папку `cache` (`STOR cache/<remote_name>`, папка создаётся через `MKD`); канал данных пишется вручную (`TYPE I` + `STOR` по шагам) с таймаутом `FTP_DATA_TIMEOUT` — `storbinary()` не годится, он висит на `unwrap()` после последнего байта. Если FTPS не прошёл — HTTP `POST /api/files/local` с `X-Api-Key`. Сырой `.gcode` пакуется в контейнер `.3mf` (`zipfile`: `Metadata/plate_1.gcode`, `Metadata/slice_info.config`, `Metadata/model_settings.config`, `3D/3dmodel.model` без геометрии, `[Content_Types].xml` с `Override` на модель, `_rels/.rels`) и грузится как `<задание>.3mf`; временный контейнер удаляется после загрузки | файл загружен |
-| `start_print()` | MQTT `device/<serial>/request`, после отправки — ожидание отчёта с тем же `sequence_id` (`COMMAND_REPLY_TIMEOUT`): `result=fail` и `reason` принтера уходят в `last_error`. Команда — `project_file`: `param=Metadata/plate_1.gcode`, `url=ftp:///cache/<задание>.3mf` (второй вариант — `ftp:///<задание>.3mf`, если прошивка сама подставляет папку). Плоский `.gcode` этой командой не печатается — он заранее упакован в `.3mf` | принтер ответил `success` |
+| `upload_file()` | FTPS `self.ip_address:990`: implicit TLS 1.2 (сессия управляющего канала переиспользуется в канале данных), `PROT P` и `PASV` обязательны, файл кладётся в папку `cache` (`STOR cache/<remote_name>`, папка создаётся через `MKD`); канал данных пишется вручную (`TYPE I` + `STOR` по шагам) с таймаутом `FTP_DATA_TIMEOUT` — `storbinary()` не годится, он висит на `unwrap()` после последнего байта. Если FTPS не прошёл — HTTP `POST /api/files/local` с `X-Api-Key`. Сырой `.gcode` пакуется в контейнер `.3mf` (`zipfile`: `Metadata/plate_1.gcode`, `Metadata/slice_info.config`, `Metadata/model_settings.config`, `3D/3dmodel.model` без геометрии, `[Content_Types].xml` с `Override` на модель, `_rels/.rels`) и грузится как `<задание>.3mf`; временный контейнер удаляется после загрузки. Готовый `.3mf` (проект Bambu Studio) уходит как есть — второй контейнер поверх настоящего прошивка не разбирает | файл загружен |
+| `start_print()` | MQTT `device/<serial>/request`, после отправки — ожидание отчёта с тем же `sequence_id` (`COMMAND_REPLY_TIMEOUT`): `result=fail` и `reason` принтера уходят в `last_error`. Поздний `fail` (принтер ответил `success`, а через полминуты не разобрал файл — `error string`, на экране `0500-4003`) помечается в `_command_error`, и `get_status()` отдаёт `error`: задание закрывается как `failed`, а не `done`. Команда — `project_file`: `param=Metadata/plate_1.gcode`, `url=ftp:///cache/<задание>.3mf` (второй вариант — `ftp:///<задание>.3mf`, если прошивка сама подставляет папку). Плоский `.gcode` этой командой не печатается — он заранее упакован в `.3mf` | принтер ответил `success` |
 | `get_status()` | последний отчёт: `print.gcode_state`, `print.mc_percent`, `print.mc_remaining_time` | `{"status", "progress", "remaining_time"}` |
 
 Серийный номер. Топики Bambu адресуются серийником, поэтому адаптер берёт его по
@@ -301,7 +305,10 @@ Bambu в LAN-режиме (Settings → Network → LAN Only Mode) не имее
 приходят частичными (только изменившиеся поля), поэтому кэш дополняется, а не
 заменяется. Ответы на команды (`command` + `result`) в кэш статуса не попадают: они
 разбираются отдельно и пишутся в журнал — иначе отказ команды неотличим от
-«команда отправлена».
+«команда отправлена». Отказ (`result: fail`) запоминается в `last_error` и в
+`_command_error`: пока пометка стоит, `get_status()` отдаёт `error`, даже если
+прошивка присылает `idle`. Снимает её только `success` на `project_file` —
+новый запуск печати.
 
 Сеть как и у Moonraker: исключения наружу не выпускаются, таймауты обязательны
 (10 с на MQTT-подключение, 120 с на загрузку файла). Адаптер — единственный, кто
@@ -324,5 +331,6 @@ Bambu в LAN-режиме (Settings → Network → LAN Only Mode) не имее
 | `Bambu … не принял MQTT-подключение` | код доступа не совпадает с `LAN Access Code` в настройках принтера |
 | `Bambu … серийный номер неизвестен` | номера нет в задании, а SSDP молчит: агент и принтер в разных подсетях |
 | `Bambu … печать … не принята (принтер отклонил …)` | принтер не понял команду или не нашёл файл: сверьте `param`/`url` в строке «отправляю …» с путём загрузки, `result`/`reason` пришли от самого принтера |
-| `принтер не начал печать: состояние …` | команда принята, но файл не взят в работу: прошивка не разобрала контейнер — сверьте строку «упакован в контейнер …» и `reason` из журнала |
+| `принтер не начал печать (ошибка файла)` | команда принята, но файл не взят в работу: прошивка не разобрала контейнер (на экране `0500-4003`) — сверьте строку «упакован в контейнер …» и `reason` из журнала; для готового `.3mf` проверьте, что в нём есть `Metadata/plate_1.gcode` |
+| `принтер отклонил project_file: …` | принтер сам ответил `fail`: причину он пишет в `reason` — чаще всего файл не найден по `url` или не разобран |
 | `G-code не упакован в .3mf` | агент не смог создать временный контейнер: нет места в `TEMP` или файл задания не читается |
