@@ -143,6 +143,10 @@ SSDP_TARGET = "urn:bambulab-com:device:3dprinter:1"
 # запускает Bambu. Именно это значение присылает Bambu Studio в `project_file`.
 GCODE_PARAM = "Metadata/plate_1.gcode"
 
+# Запись с 3D-моделью внутри контейнера: путь фиксирован спецификацией 3MF, и
+# прошивка ищет модель именно там, когда инициализирует проект.
+MODEL_PART = "3D/3dmodel.model"
+
 # `url` контейнера в команде `project_file`: файл на карте памяти принтера.
 # Первый вариант — с папкой загрузки (`ftp:///cache/<имя>.3mf`); второй — без
 # неё, если прошивка сама подставляет `cache`. Варианты дешевле ещё одного
@@ -151,19 +155,40 @@ PROJECT_URL_PREFIX = "ftp:///"
 
 # Записи OPC-пакета. Прошивка открывает `.3mf` как контейнер: без
 # `[Content_Types].xml` и `_rels/.rels` это обычный ZIP, и `project_file` его
-# не разбирает — так же, как раньше не разбирал плоский `.gcode`.
+# не разбирает — так же, как раньше не разбирал плоский `.gcode`. Объявление
+# `3D/3dmodel.model` обязательно: без него пакет не считается 3MF-моделью.
 CONTENT_TYPES_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
 <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
 <Default Extension="gcode" ContentType="text/x.gcode"/>
 <Default Extension="config" ContentType="text/xml"/>
+<Override PartName="/3D/3dmodel.model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
 </Types>
 """
 
 RELS_XML = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Target="/{GCODE_PARAM}" Id="rel-0" Type="http://schemas.bambulab.com/package/2021/gcode"/>
+<Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
 </Relationships>
+"""
+
+# Минимальная 3D-модель без геометрии. Прошивка инициализирует проект по
+# `3D/3dmodel.model` и без этой записи не берёт задание в работу, даже когда
+# печатать нужно готовый G-code: `project_file` отвечает `success`, а принтер
+# остаётся в `STANDBY`.
+MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+<resources></resources>
+<build></build>
+</model>
+"""
+
+# `Metadata/model_settings.config`: настройки объектов проекта. Объектов в нашем
+# контейнере нет, поэтому файл пустой — прошивка читает его, но искать в нём
+# нечего.
+MODEL_SETTINGS_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<config></config>
 """
 
 # Сколько ждать ответ принтера на команду печати. Bambu отвечает в топик отчёта
@@ -1080,10 +1105,14 @@ class BambuAdapter(BasePrinterAdapter):
 
         A1 не печатает плоский `.gcode`: `gcode_file` он отклоняет на любых
         `param` и `url`, а `project_file` разбирает только проект. Поэтому файл
-        становится записью `Metadata/plate_1.gcode` внутри контейнера, рядом
-        кладутся `Metadata/slice_info.config` и служебные файлы OPC-пакета.
-        Геометрии (`3D/3dmodel.model`) нет: печать идёт по G-code, модель для
-        этого прошивке не нужна.
+        становится записью `Metadata/plate_1.gcode` внутри контейнера, а рядом
+        кладётся всё, что прошивка требует от 3MF-пакета:
+
+          - `3D/3dmodel.model` — модель без геометрии (`MODEL_XML`): без неё
+            `project_file` отвечает `success`, но задание в работу не берётся;
+          - `Metadata/slice_info.config` — параметры площадки;
+          - `Metadata/model_settings.config` — настройки объектов (пустые);
+          - `[Content_Types].xml` и `_rels/.rels` — служебные записи OPC-пакета.
 
         Контейнер создаётся во временном каталоге и удаляется вызывающим: сам
         файл задания остаётся на месте — по нему main.py считает оценку печати.
@@ -1101,6 +1130,8 @@ class BambuAdapter(BasePrinterAdapter):
                 project.writestr(
                     "Metadata/slice_info.config", _slice_info_xml(remote_name)
                 )
+                project.writestr("Metadata/model_settings.config", MODEL_SETTINGS_XML)
+                project.writestr(MODEL_PART, MODEL_XML)
                 project.writestr("[Content_Types].xml", CONTENT_TYPES_XML)
                 project.writestr("_rels/.rels", RELS_XML)
         except (OSError, zipfile.BadZipFile):

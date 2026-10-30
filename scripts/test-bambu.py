@@ -387,6 +387,7 @@ def main() -> int:
     plate_bytes = b""
     slice_info = ""
     rels = ""
+    content_types = ""
 
     try:
         wrapped = packer._wrap_gcode_to_3mf(str(gcode_path), "pack.gcode")
@@ -396,6 +397,7 @@ def main() -> int:
             plate_bytes = container.read("Metadata/plate_1.gcode")
             slice_info = container.read("Metadata/slice_info.config").decode("utf-8")
             rels = container.read("_rels/.rels").decode("utf-8")
+            content_types = container.read("[Content_Types].xml").decode("utf-8")
     finally:
         if wrapped:
             Path(wrapped).unlink(missing_ok=True)
@@ -406,6 +408,8 @@ def main() -> int:
         == {
             "Metadata/plate_1.gcode",
             "Metadata/slice_info.config",
+            "Metadata/model_settings.config",
+            "3D/3dmodel.model",
             "[Content_Types].xml",
             "_rels/.rels",
         }
@@ -413,6 +417,13 @@ def main() -> int:
         and 'name="index" value="1"' in slice_info
         and 'Target="/Metadata/plate_1.gcode"' in rels,
         f"{sorted(names)!r}, G-code {len(plate_bytes)} байт",
+    )
+
+    check(
+        "контейнер .3mf: модель объявлена в Content_Types",
+        'PartName="/3D/3dmodel.model"' in content_types
+        and "3dmanufacturing-3dmodel+xml" in content_types,
+        content_types.replace("\n", " "),
     )
 
     rejected_print = ScriptedPrintAdapter(
