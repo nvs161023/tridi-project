@@ -681,9 +681,8 @@ export function PrinterDetailsDialog({
             <p
               role="alert"
               data-printer-delete-error
-              className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100"
+              className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
             >
-              <span aria-hidden>⚠️ </span>
               {deleteError}
             </p>
           ) : null}

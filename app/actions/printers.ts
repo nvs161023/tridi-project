@@ -10,6 +10,7 @@ import type {
   PrinterConnectionState,
   PrinterFormState,
 } from "@/app/actions/printers-state";
+import { countActivePrintJobs } from "@/lib/db/workshop-farm";
 import {
   isPrinterProtocol,
   type PrinterProtocol,
@@ -42,6 +43,8 @@ const ADD_FAILED = "Не удалось добавить принтер. Поп�
 const UPDATE_FAILED =
   "Не удалось сохранить подключение принтера. Попробуйте ещё раз.";
 const DELETE_FAILED = "Не удалось удалить принтер. Попробуйте ещё раз.";
+const PRINTER_HAS_ACTIVE_JOBS =
+  "Нельзя удалить принтер, пока на нем есть активные задания (в очереди или печатаются).";
 const RESET_FAILED = "Не удалось сбросить счётчик. Попробуйте ещё раз.";
 const LOAD_FAILED = "Не удалось прочитать принтер. Попробуйте ещё раз.";
 const INVALID_ID = "Принтер не найден — обновите страницу.";
@@ -206,10 +209,16 @@ export async function updatePrinter(
 /**
  * Удаление принтера из парка.
  *
- * Порядок проверок как у удаления заказа: UUID → сессия → подписка → `delete` с
- * фильтром по `user_id`, поэтому чужой принтер не удалится даже при известном
- * id. `select("name")` возвращает удалённую строку: пустой ответ — принтер уже
- * удалили в другой вкладке, и карточка не должна рапортовать об успехе.
+ * Порядок проверок как у удаления заказа: UUID → сессия → подписка → активные
+ * задания → `delete` с фильтром по `user_id`, поэтому чужой принтер не удалится
+ * даже при известном id. `select("name")` возвращает удалённую строку: пустой
+ * ответ — принтер уже удалили в другой вкладке, и карточка не должна
+ * рапортовать об успехе.
+ *
+ * Принтер с заданием в очереди или в печати не удаляется: `printer_id` в
+ * задании объявлен `on delete set null`, поэтому строка ушла бы молча, а задание
+ * осталось без машины — агент не знает, куда его отправлять. Мастер получает
+ * отказ и сначала отменяет печать. Закрытые задания удалению не мешают.
  *
  * История при удалении не пропадает: `printer_id` в заказах и заданиях печати
  * объявлен `on delete set null` (supabase/workshop_printers_orders.sql и
@@ -235,6 +244,28 @@ export async function deletePrinter(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  // Защита от удаления принтера с живой печатью. Ошибку чтения очереди считаем
+  // отказом: принтер с заданием уйдёт молча, а задание останется без машины.
+  // Отсутствие таблицы заданий приходит сюда нулём — удаление работает.
+  const activeJobs = await countActivePrintJobs(
+    { printerId },
+    { supabase, userId: user.id },
+  );
+
+  if (!activeJobs.ok) {
+    console.warn(
+      "Перед удалением принтера очередь не прочитана:",
+      activeJobs.reason,
+      activeJobs.error,
+    );
+
+    return { ok: false, error: DELETE_FAILED };
+  }
+
+  if (activeJobs.data > 0) {
+    return { ok: false, error: PRINTER_HAS_ACTIVE_JOBS };
   }
 
   const { data, error } = await supabase

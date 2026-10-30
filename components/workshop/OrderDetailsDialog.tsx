@@ -980,6 +980,7 @@ export function OrderDetailsDialog({
           {deleteError ? (
             <p
               role="alert"
+              data-order-delete-error
               className="mb-4 rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
             >
               {deleteError}

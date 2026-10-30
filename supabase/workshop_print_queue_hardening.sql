@@ -197,12 +197,12 @@ begin
 
   if new.status = 'queued' then
     next_queued_at := coalesce(new.queued_at, now());
-    -- Заказ уходит из «Новые» в «Печать» при постановке первого задания.
-    update public.workshop_orders
-       set status = 'printing'
-     where id = new.order_id
-       and user_id = new.user_id
-       and status = 'new';
+    -- Заказ остаётся в «Новых»: «В печати» ставит только переход задания в
+    -- `printing`, то есть реальный старт на станке (блок ниже). Иначе очередь из
+    -- пятнадцати заданий на десять принтеров целиком показывалась бы
+    -- печатающейся, и колонка «В печати» переставала быть сигналом. Состояние
+    -- «ждёт принтер» карточка заказа берёт из самого задания
+    -- (`getOrderActivePrintJob`), статус заказа ей для этого не нужен.
 
     event_name := 'queued';
     event_message := null;
@@ -474,17 +474,19 @@ notify pgrst, 'reload schema';
 --    Если видно `BEFORE`, применился старый вариант файла: журнал снова начнёт
 --    падать с `23503` на постановке в очередь.
 --
--- 3) Постановка задания двигает заказ и пишет событие (в SQL Editor роль другая,
---    поэтому проверять через приложение или service_role):
+-- 3) Постановка задания пишет событие, но заказ пока не двигает (в SQL Editor
+--    роль другая, поэтому проверять через приложение или service_role):
 --      insert into public.workshop_print_jobs (user_id, order_id, order_item_id)
 --      values ('<USER_ID>', '<ORDER_ID>', '<ORDER_ITEM_ID>')
 --      returning id, status, queued_at;
 --      select status from public.workshop_orders where id = '<ORDER_ID>';
 --      select job_id, event, message from public.workshop_print_events
 --       where order_id = '<ORDER_ID>' order by created_at desc limit 3;
---    Ожидается статус заказа printing и событие queued с тем же job_id, что
---    вернул insert. Ошибки `23503 ... workshop_print_events_job_id_fkey` быть не
---    должно: журнал пишется AFTER, когда строка задания уже в таблице.
+--    Ожидается статус заказа new (в «Печати» он появится только после старта:
+--    update public.workshop_print_jobs set status = 'printing' where id = '<JOB_ID>'
+--    → заказ printing) и событие queued с тем же job_id, что вернул insert.
+--    Ошибки `23503 ... workshop_print_events_job_id_fkey` быть не должно: журнал
+--    пишется AFTER, когда строка задания уже в таблице.
 --
 -- 4) Отмена печатающегося задания просит агента остановиться:
 --      select public.workshop_cancel_print_job('<JOB_ID>');   -- как владелец

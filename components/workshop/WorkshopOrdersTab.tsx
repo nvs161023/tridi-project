@@ -134,6 +134,14 @@ export function WorkshopOrdersTab({
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Отказ удаления — своей плашкой.
+   *
+   * Общая строка ошибок янтарная и говорит о статусах и перетаскивании. Отказ
+   * «нельзя удалить, идёт печать» мастер должен увидеть красным и рядом с
+   * доской: это ответ на конкретную кнопку, а не фон.
+   */
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   /** Заказ, который удаляется: карточка блокируется до ответа сервера. */
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -338,6 +346,7 @@ export function WorkshopOrdersTab({
 
     setNotice(null);
     setError(null);
+    setDeleteError(null);
     setPendingId(order.id);
 
     const result = await updateOrderStatus(order.id, nextStatus);
@@ -377,13 +386,14 @@ export function WorkshopOrdersTab({
 
     setNotice(null);
     setError(null);
+    setDeleteError(null);
     setDeletingId(order.id);
 
     try {
       const result = await deleteOrder(order.id);
 
       if (!result.ok) {
-        setError(
+        setDeleteError(
           result.error ?? "Не удалось удалить заказ. Попробуйте ещё раз.",
         );
         return;
@@ -396,7 +406,7 @@ export function WorkshopOrdersTab({
       setNotice(result.message ?? "Заказ удалён.");
       router.refresh();
     } catch {
-      setError("Нет связи с сервером. Попробуйте ещё раз.");
+      setDeleteError("Нет связи с сервером. Попробуйте ещё раз.");
     } finally {
       setDeletingId(null);
     }
@@ -497,6 +507,16 @@ export function WorkshopOrdersTab({
         >
           <span aria-hidden>⚠️ </span>
           {error}
+        </p>
+      ) : null}
+
+      {deleteError ? (
+        <p
+          role="alert"
+          data-order-delete-error
+          className="mb-3 rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+        >
+          {deleteError}
         </p>
       ) : null}
 

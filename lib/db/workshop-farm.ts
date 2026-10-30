@@ -650,27 +650,13 @@ export async function createPrintJob(
     return fail("write_failed", "База вернула задание в неизвестном формате.");
   }
 
-  // Заказ на Канбане переезжает в «Печать» сразу, как только у него появилось
-  // задание: иначе карточка «В очереди» висела бы в колонке «Новые», пока агент
-  // не отчитается о старте. Переход ограничен статусом `new`: повторная
-  // постановка в очередь не должна откатывать доску назад из ready/delivered.
-  // Ошибку записи здесь только логируем — задание уже создано, и возвращать
-  // «не удалось» значило бы соврать: агент фермы его увидит.
-  const orderUpdate = await ctx.supabase
-    .from("workshop_orders")
-    .update({ status: "printing" })
-    .eq("id", input.orderId)
-    .eq("user_id", ctx.userId)
-    .eq("status", "new");
-
-  if (orderUpdate.error) {
-    console.warn(
-      "Статус заказа после постановки в очередь не обновлён:",
-      orderUpdate.error.code,
-      orderUpdate.error.message,
-    );
-  }
-
+  // Заказ на Канбане здесь не двигается: «В печати» ставит только переход
+  // задания в `printing`, то есть реальный старт на станке (триггер
+  // `workshop_print_jobs_sync_order` или роут `/api/agent/status` без миграции).
+  // Раньше заказ уезжал в «Печать» уже при постановке в очередь, и вся очередь
+  // из пятнадцати заданий на десять принтеров показывалась печатающейся.
+  // Состояние «ждёт принтер» карточка показывает по самому заданию
+  // (`getOrderActivePrintJob`), ему статус заказа не нужен.
   return ok(job);
 }
 
@@ -773,6 +759,76 @@ export async function getOrderActivePrintJob(
     queuedAt: job.queuedAt,
     startedAt: job.startedAt,
   });
+}
+
+/** Что проверять: задания заказа или задания, закреплённые за принтером. */
+export type ActivePrintJobFilter = {
+  orderId?: string;
+  printerId?: string;
+};
+
+/**
+ * Сколько у заказа или принтера активных заданий печати.
+ *
+ * Нужно защите от удаления: заказ с живым заданием нельзя уносить с доски — он
+ * забирает задание с собой (`order_id` во внешнем ключе), а принтер с заданием
+ * нельзя убирать из парка, иначе `printer_id` станет null и агент останется с
+ * заданием, которое некуда отправить. Считаются только `queued` и `printing`:
+ * закрытые задания — история, она удалению не мешает.
+ *
+ * Миграция `workshop_farm_and_shop.sql` применяется вручную. Если таблицы
+ * заданий нет, функция отвечает нулём: активных заданий в такой базе
+ * существовать не может, и запрещать удаление из-за отсутствующей таблицы было
+ * бы неправдой.
+ */
+export async function countActivePrintJobs(
+  filter: ActivePrintJobFilter,
+  context?: WorkshopFarmContext,
+): Promise<WorkshopFarmResult<number>> {
+  const orderId = filter.orderId ?? null;
+  const printerId = filter.printerId ?? null;
+
+  if (
+    (orderId !== null && !isWorkshopUuid(orderId)) ||
+    (printerId !== null && !isWorkshopUuid(printerId))
+  ) {
+    return fail("invalid_id", "Заказ или принтер указаны неверно.");
+  }
+
+  if (orderId === null && printerId === null) {
+    return fail("invalid_id", "Не указано, что проверять.");
+  }
+
+  const ctx = await resolveContext(context);
+
+  if (!ctx) {
+    return fail("unauthorized", "Нужно войти в мастерскую.");
+  }
+
+  const base = ctx.supabase
+    .from("workshop_print_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", ctx.userId)
+    .in("status", ["queued", "printing"]);
+
+  // Условия навешиваются только для переданных сущностей: PostgREST строит
+  // фильтр из вызовов, и `eq(order_id, null)` превратился бы в `is null` —
+  // функция считала бы чужие задания без заказа.
+  const byOrder = orderId === null ? base : base.eq("order_id", orderId);
+  const scoped =
+    printerId === null ? byOrder : byOrder.eq("printer_id", printerId);
+
+  const result = await scoped;
+
+  if (result.error) {
+    if (isSchemaError(result.error)) {
+      return ok(0);
+    }
+
+    return readFailure(result.error, "Очередь печати не прочитана.");
+  }
+
+  return ok(result.count ?? 0);
 }
 
 /** Последняя незавершённая печать заказа: её ошибку показывает карточка. */

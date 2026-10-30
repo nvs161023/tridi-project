@@ -168,12 +168,12 @@ begin
 
   if new.status = 'queued' then
     next_queued_at := coalesce(new.queued_at, now());
-    -- Заказ уходит из «Новые» в «Печать» при постановке первого задания.
-    update public.workshop_orders
-       set status = 'printing'
-     where id = new.order_id
-       and user_id = new.user_id
-       and status = 'new';
+    -- Заказ остаётся в «Новых»: «В печати» ставит только переход задания в
+    -- `printing`, то есть реальный старт на станке (блок ниже). Иначе очередь из
+    -- пятнадцати заданий на десять принтеров целиком показывалась бы
+    -- печатающейся, и колонка «В печати» переставала быть сигналом. Состояние
+    -- «ждёт принтер» карточка заказа берёт из самого задания
+    -- (`getOrderActivePrintJob`), статус заказа ей для этого не нужен.
 
     event_name := 'queued';
     event_message := null;

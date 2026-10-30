@@ -14,6 +14,7 @@ import {
 } from "@/lib/3d/print-compatibility";
 import {
   cancelPrintJob,
+  countActivePrintJobs,
   createPrintJob,
   getOrderActivePrintJob,
   getOrderLastPrintFailure,
@@ -104,6 +105,8 @@ const INVALID_ID = "Заказ не найден — обновите стран
 const INVALID_STATUS = "Неизвестный статус заказа — обновите страницу.";
 const STATUS_FAILED = "Не удалось сменить статус. Попробуйте ещё раз.";
 const DELETE_FAILED = "Не удалось удалить заказ. Попробуйте ещё раз.";
+const ORDER_HAS_ACTIVE_JOBS =
+  "Нельзя удалить заказ, пока по нему есть активные или ожидающие задания печати. Сначала отмените печать.";
 const UPDATE_FAILED =
   "Не удалось сохранить изменения. Попробуйте ещё раз.";
 const COMMENT_MIGRATION_MISSING =
@@ -532,12 +535,18 @@ export async function updateOrderStatus(
 /**
  * Удаление заказа.
  *
- * Порядок проверок как у остальных действий: id → сессия → подписка → удаление
- * с фильтром по `user_id`. Чужой заказ не удалится даже при известном id:
- * политика RLS `workshop_orders_delete_own` проверяет владельца, а фильтр
- * повторяет условие в самом запросе. Комментарии уходят каскадом
- * (`on delete cascade` в `supabase/workshop_order_comments.sql`), отдельный
- * delete для них не нужен.
+ * Порядок проверок как у остальных действий: id → сессия → подписка → активные
+ * задания печати → удаление с фильтром по `user_id`. Чужой заказ не удалится
+ * даже при известном id: политика RLS `workshop_orders_delete_own` проверяет
+ * владельца, а фильтр повторяет условие в самом запросе. Комментарии уходят
+ * каскадом (`on delete cascade` в `supabase/workshop_order_comments.sql`),
+ * отдельный delete для них не нужен.
+ *
+ * Заказ с заданием в очереди или в печати не удаляется: задание ссылается на
+ * заказ через `order_id`, и строка унесла бы его с собой — агент остался бы с
+ * печатью, которой нет в базе, а пластик и наработка принтера уже списаны.
+ * Мастер получает понятный отказ и сначала отменяет печать. Закрытые задания
+ * (done/failed/cancelled) — история, она удалению не мешает.
  *
  * `select("title")` возвращает удалённую строку: пустой ответ означает, что
  * заказ уже удалили в другой вкладке, — тогда показываем понятное сообщение, а
@@ -561,6 +570,29 @@ export async function deleteOrder(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  // Защита от удаления заказа с живой печатью. Ошибку чтения очереди считаем
+  // отказом: удаление необратимо, и «не знаю, есть ли задание» — не повод
+  // рисковать. Отсутствие таблицы заданий (миграция не применена) приходит сюда
+  // нулём из `countActivePrintJobs`, поэтому удаление в такой базе работает.
+  const activeJobs = await countActivePrintJobs(
+    { orderId },
+    { supabase, userId: user.id },
+  );
+
+  if (!activeJobs.ok) {
+    console.warn(
+      "Перед удалением заказа очередь не прочитана:",
+      activeJobs.reason,
+      activeJobs.error,
+    );
+
+    return { ok: false, error: DELETE_FAILED };
+  }
+
+  if (activeJobs.data > 0) {
+    return { ok: false, error: ORDER_HAS_ACTIVE_JOBS };
   }
 
   const { data, error } = await supabase
@@ -1039,8 +1071,9 @@ function printJobsCountLabel(count: number): string {
  * Саму вставку делает `createPrintJob` (`lib/db/workshop-farm.ts`): он держит
  * инварианты — владелец, наличие G-code, принтер этой мастерской и «одно
  * активное задание на позицию». Повторный клик поэтому не создаёт дубль, а
- * возвращает уже стоящее в очереди задание, а заказ переезжает в «Печать» —
- * иначе Канбан показывал бы очередь в колонке «Новые».
+ * возвращает уже стоящее в очереди задание. Статус заказа при постановке в
+ * очередь не меняется: заказ остаётся в «Новых», а в «В печати» его переводит
+ * старт задания на станке — иначе вся очередь выглядела бы печатающейся.
  */
 export async function queueOrderForPrint(
   orderId: string,
