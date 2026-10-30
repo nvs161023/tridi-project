@@ -359,7 +359,7 @@ export function WorkshopTabs({
             aria-labelledby="workshop-tab-products"
             hidden={activeTab !== "products"}
           >
-            <WorkshopProductsTab products={products} />
+            <WorkshopProductsTab products={products} printers={printers} />
           </div>
 
           <div

@@ -11,6 +11,7 @@
  * карбоновые стержни чистят спиртом, а не смазывают. Интервалы сопла и винта Z
  * нулевыми быть не могут: на них делят процент износа.
  */
+import { printFileExtension } from "@/lib/3d/print-compatibility";
 import {
   isPrinterProtocol,
   type PrinterProtocol,
@@ -191,7 +192,30 @@ export const PRINTER_PROTOCOL_OPTIONS: readonly {
   { value: "moonraker", label: "Moonraker (Klipper)" },
   { value: "octoprint", label: "OctoPrint" },
   { value: "bambu", label: "Bambu Lab (LAN)" },
+  { value: "prusa", label: "Prusa (PrusaLink)" },
+  { value: "creality", label: "Creality (K1 / K2 / Hi)" },
+  { value: "anycubic", label: "Anycubic (Kobra)" },
+  { value: "flashforge", label: "FlashForge (Adventurer)" },
+  { value: "elegoo", label: "Elegoo (Centauri Carbon)" },
 ];
+
+/**
+ * Протоколы, которым нужен серийный номер принтера.
+ *
+ * Bambu адресует им MQTT-топики (`device/<serial>/report`), FlashForge
+ * отправляет его заголовком `serialNumber` в каждом запросе. Остальным SN не
+ * нужен: чужое значение в базе означало бы номер, который агент подставил бы в
+ * адрес другого протокола.
+ */
+export const PRINTER_SERIAL_PROTOCOLS: readonly PrinterProtocol[] = [
+  "bambu",
+  "flashforge",
+];
+
+/** Ждёт ли этот протокол серийный номер в форме подключения. */
+export function isPrinterSerialProtocol(value: PrinterProtocol): boolean {
+  return PRINTER_SERIAL_PROTOCOLS.includes(value);
+}
 
 /** Подпись протокола для интерфейса: «Moonraker (Klipper)». */
 export function formatPrinterProtocol(value: PrinterProtocol): string {
@@ -199,6 +223,87 @@ export function formatPrinterProtocol(value: PrinterProtocol): string {
     PRINTER_PROTOCOL_OPTIONS.find((option) => option.value === value)?.label ??
     value
   );
+}
+
+/**
+ * Форматы файлов печати по протоколам.
+ *
+ * Наборы совпадают с `formats` в `agent/adapters/registry.py`. Матрица нужна
+ * интерфейсу, чтобы отказать до постановки в очередь: агент всё равно сверит
+ * формат перед загрузкой (`agent/adapters/formats.py`) и напишет причину в
+ * журнал задания, но мастер увидит её только после того, как задание уйдёт на
+ * принтер.
+ *
+ * Bambu принимает `.gcode`, потому что упаковывает его в контейнер `.3mf` сам;
+ * FlashForge берёт `.3mf`, но только с готовым G-code внутри. PrusaLink `.3mf`
+ * не печатает: проект PrusaSlicer уходит на принтер как `.gcode` или `.bgcode`.
+ */
+export const PRINTER_UPLOAD_FORMATS: Record<
+  PrinterProtocol,
+  readonly string[]
+> = {
+  moonraker: [".gcode", ".gco", ".g"],
+  octoprint: [".gcode", ".gco", ".g"],
+  bambu: [".3mf", ".gcode"],
+  prusa: [".gcode", ".bgcode"],
+  creality: [".gcode"],
+  anycubic: [".gcode"],
+  flashforge: [".gcode", ".3mf"],
+  elegoo: [".gcode"],
+};
+
+/** Итог проверки файла печати: `ok` — принтер возьмёт файл в работу. */
+export type PrintFileCheck = { ok: true } | { ok: false; reason: string };
+
+/** Перечисление форматов для текста отказа: «.gcode, .gco или .g». */
+function formatPrintFormats(formats: readonly string[]): string {
+  if (formats.length <= 1) {
+    return formats[0] ?? "";
+  }
+
+  return `${formats.slice(0, -1).join(", ")} или ${formats[formats.length - 1]}`;
+}
+
+/**
+ * Печатает ли принтер с этим протоколом такой файл.
+ *
+ * Проверка одна для карточки заказа и Server Action: карточка гасит кнопку
+ * заранее, а `queueOrderForPrint` повторяет её — страница могла устареть.
+ *
+ * Причина отказа — фраза для мастера, а не код: «Prusa (PrusaLink) не печатает
+ * .3mf — переслайсите в .gcode или .bgcode». Для STL текст отдельный: это
+ * модель, а не задание печати, и её нужно сначала нарезать.
+ */
+export function validatePrintFileForProtocol(
+  protocol: PrinterProtocol,
+  fileName: string,
+): PrintFileCheck {
+  const extension = printFileExtension(fileName);
+  const accepted = PRINTER_UPLOAD_FORMATS[protocol];
+  const label = formatPrinterProtocol(protocol);
+
+  if (!extension) {
+    return {
+      ok: false,
+      reason: `У файла нет расширения — ${label} не поймёт, что печатать. Загрузите ${formatPrintFormats(accepted)}.`,
+    };
+  }
+
+  if (accepted.includes(`.${extension}`)) {
+    return { ok: true };
+  }
+
+  if (extension === "stl") {
+    return {
+      ok: false,
+      reason: `STL — это модель, а не задание печати: нарежьте её в слайсере — ${label} печатает ${formatPrintFormats(accepted)}.`,
+    };
+  }
+
+  return {
+    ok: false,
+    reason: `${label} не печатает .${extension} — переслайсите в ${formatPrintFormats(accepted)}.`,
+  };
 }
 
 /** Предел адреса принтера — как у колонки ip_address (text, 1…253 символа). */
@@ -372,13 +477,14 @@ function addressKey(ipAddress: string | null): string {
  * Мусорная строка не отменяет всё сканирование: агент обходит подсеть, и одна
  * странная запись не должна стоить сотни нормальных. Такие строки считаются в
  * `skipped`. Повтор адреса схлопывается — второй сканер в той же подсети иначе
- * удвоил бы карточки. Неизвестный протокол читается как moonraker: это default
- * колонки, и агент всегда может прислать протокол точнее.
+ * удвоил бы карточки. Незнакомый протокол — тоже `skipped`: агент может знать
+ * больше протоколов, чем этот интерфейс, и подставлять «moonraker по умолчанию»
+ * значило бы закрепить в базе неверный протокол.
  *
- * `serial_number` необязателен: его присылает только Bambu (SSDP-ответ), у
- * Moonraker и OctoPrint такого понятия нет. Нечитаемый номер не отбрасывает
- * находку — адрес и протокол важнее, — он просто теряется: без серийника
- * адаптер найдёт принтер сам.
+ * `serial_number` необязателен: его присылают Bambu (SSDP-ответ) и FlashForge
+ * (UDP-ответ), у Moonraker и OctoPrint такого понятия нет. Нечитаемый номер не
+ * отбрасывает находку — адрес и протокол важнее, — он просто теряется: без
+ * серийника адаптер найдёт принтер сам.
  *
  * `api_key` агент сегодня не присылает: ключ вводит мастер в окне подтверждения.
  * Но если ключ пришёл вместе с находкой, он сохраняется — подтверждение
@@ -404,8 +510,14 @@ export function readDiscoveredPrinters(
     const key = addressKey(ipAddress);
     const protocol = row ? row.protocol_type : null;
 
+    // Незнакомый протокол не превращается в moonraker. Агент новой версии
+    // отличает Creality от Moonraker по порту, и «догадка по умолчанию» здесь
+    // закрепила бы в базе чужой протокол: печать пошла бы не тем запросом.
+    // Находка пропускается и считается в skipped — она появится снова, как
+    // только приложение обновится.
     if (
       ipAddress === null ||
+      !isPrinterProtocol(protocol) ||
       seen.has(key) ||
       drafts.length >= DISCOVERED_PRINTERS_LIMIT
     ) {
@@ -416,7 +528,7 @@ export function readDiscoveredPrinters(
     seen.add(key);
     drafts.push({
       ipAddress,
-      protocolType: isPrinterProtocol(protocol) ? protocol : "moonraker",
+      protocolType: protocol,
       serialNumber: normalizePrinterSerial(row?.serial_number),
       apiKey: normalizePrinterApiKey(row?.api_key),
     });
@@ -513,25 +625,32 @@ export function defaultDiscoveredPrinterName(ipAddress: string): string {
  *
  * Берём только статус `discovered`: `added` — уже перенесённый в парк принтер, в
  * мастере ему делать нечего. Битый адрес даёт null: подключиться по такой строке
- * нельзя, а в списке она выглядела бы рабочей. Неизвестный протокол читается
- * как moonraker — это default колонки и самый частый случай (Klipper).
+ * нельзя, а в списке она выглядела бы рабочей. Незнакомый протокол тоже даёт
+ * null — см. комментарий в теле.
  * `serial_number` читается тем же правилом, что и в ответе агента: номер нужен
- * только Bambu, у остальных он null.
+ * Bambu и FlashForge, у остальных он null.
  */
 export function normalizeDiscoveredPrinterRow(
   row: Partial<Record<string, unknown>>,
 ): DiscoveredPrinter | null {
   const ipAddress = normalizePrinterAddress(row.ip_address);
+  const protocolType = row.protocol_type;
 
   if (ipAddress === null || row.status !== "discovered") {
     return null;
   }
 
+  // Протокол проверяем и здесь: строка пришла из базы, а база новее этого
+  // приложения (check-ограничение уже знает протокол, интерфейс — ещё нет).
+  // Показать её как moonraker значило бы подтвердить принтер с чужим
+  // протоколом, поэтому находка ждёт обновления приложения.
+  if (!isPrinterProtocol(protocolType)) {
+    return null;
+  }
+
   return {
     ipAddress,
-    protocolType: isPrinterProtocol(row.protocol_type)
-      ? row.protocol_type
-      : "moonraker",
+    protocolType,
     serialNumber: normalizePrinterSerial(row.serial_number),
     discoveredAt: typeof row.created_at === "string" ? row.created_at : null,
   };
@@ -667,12 +786,13 @@ export function readPrinterForm(formData: FormData): {
     ? protocol
     : "moonraker";
 
-  // SN есть только у Bambu: у Moonraker и OctoPrint поле в форме скрыто, и
-  // чужое значение не сохраняем — иначе в базе остался бы номер, который агент
-  // подставил бы в топик MQTT. Поле необязательное: без SN адаптер найдёт
-  // принтер сам, через SSDP или топик отчёта.
-  const serialNumber =
-    protocolType === "bambu" ? readFormText(formData.get("serialNumber")) : "";
+  // SN есть только у Bambu и FlashForge: у остальных протоколов такого понятия
+  // нет, а чужое значение агент подставил бы в топик MQTT или в заголовок
+  // чужого запроса. Поле необязательное: без SN адаптер найдёт принтер сам —
+  // Bambu по SSDP, FlashForge по UDP-бродкасту.
+  const serialNumber = isPrinterSerialProtocol(protocolType)
+    ? readFormText(formData.get("serialNumber"))
+    : "";
 
   if (serialNumber.length > PRINTER_TEXT_LIMITS.serialNumber) {
     errors.serialNumber = `Не больше ${PRINTER_TEXT_LIMITS.serialNumber} символов.`;
@@ -786,7 +906,7 @@ export function readPrinterConnectionForm(formData: FormData): {
   const protocol = readFormText(formData.get("protocol"));
 
   if (!isPrinterProtocol(protocol)) {
-    errors.protocol = "Выберите протокол: Moonraker, OctoPrint или Bambu Lab.";
+    errors.protocol = "Выберите протокол из списка — по нему агент говорит с принтером.";
   }
 
   const protocolType: PrinterProtocol = isPrinterProtocol(protocol)
@@ -800,10 +920,12 @@ export function readPrinterConnectionForm(formData: FormData): {
       "Укажите адрес вида 192.168.1.50 или имя узла (ender3.local) — без пробелов и «/».";
   }
 
-  // SN есть только у Bambu: у Moonraker и OctoPrint такого понятия нет, а чужое
-  // значение агент подставил бы в топик MQTT.
-  const serialNumber =
-    protocolType === "bambu" ? readFormText(formData.get("serialNumber")) : "";
+  // SN есть только у Bambu и FlashForge: у остальных такого понятия нет, а
+  // чужое значение агент подставил бы в топик MQTT или в заголовок чужого
+  // запроса.
+  const serialNumber = isPrinterSerialProtocol(protocolType)
+    ? readFormText(formData.get("serialNumber"))
+    : "";
 
   if (serialNumber.length > PRINTER_TEXT_LIMITS.serialNumber) {
     errors.serialNumber = `Не больше ${PRINTER_TEXT_LIMITS.serialNumber} символов.`;

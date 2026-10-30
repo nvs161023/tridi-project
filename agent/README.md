@@ -18,7 +18,14 @@ Python-скрипт, который работает на компьютере �
 фермы: `scanner.py` обходит локальную сеть, находит Moonraker (7125) и
 OctoPrint (80/443) и отправляет находки в `POST /api/agent/discover`, а мастер
 даёт им имена в интерфейсе. Адаптер Bambu (MQTT и FTPS, шаг 7.5) уже печатает,
-OctoPrint — следующий шаг.
+OctoPrint — следующий шаг. Шаг 8.1 — реестр протоколов: `adapters/registry.py`
+знает восемь протоколов (moonraker, octoprint, bambu, prusa, creality, anycubic,
+flashforge, elegoo) вместе с портами, форматами файлов и секретами; драйверы
+Prusa, Creality, Anycubic, FlashForge и Elegoo пишутся следующими шагами, а до
+тех пор задание на такой принтер закрывается отказом `AdapterUnavailableError`.
+Шаг 8.2 — форматы: `adapters/formats.py` сверяет расширение со справочником,
+приводит имя файла к ASCII и пакует `.gcode` в `.3mf`, а `prepare_upload()` в
+базовом классе отдаёт адаптеру готовый `UploadPlan` с чистым именем и размером.
 
 Задания печатаются параллельно: одно задание — один поток (`start_job()`), поэтому
 ферма из десяти принтеров не ждёт окончания первой печати. Повторно пришедшая
@@ -252,17 +259,36 @@ python main.py
 
 ## Адаптеры принтеров
 
-`agent/adapters/` — интерфейс, фабрика и реализации протоколов (шаги 4.2–7.5).
-Moonraker и Bambu разговаривают с принтером по-настоящему; OctoPrint пока
-заглушка — его методы поднимают `NotImplementedError`.
+`agent/adapters/` — интерфейс, реестр протоколов, форматы, фабрика и реализации (шаги
+4.2–8.x). Moonraker и Bambu разговаривают с принтером по-настоящему; OctoPrint
+пока заглушка — его методы поднимают `NotImplementedError`. Протоколы prusa,
+creality, anycubic, flashforge и elegoo приложение и реестр уже знают, но
+драйверов у них ещё нет: `get_adapter()` отвечает `AdapterUnavailableError`
+(«протокол creality ещё не реализован в агенте»).
 
 | Файл | Назначение |
 |---|---|
-| `base.py` | `BasePrinterAdapter` (ABC): `connect()`, `upload_file(local_path, remote_name)`, `start_print(remote_name)`, `get_status()`, `close()` |
+| `base.py` | `BasePrinterAdapter` (ABC): `connect()`, `upload_file(local_path, remote_name)`, `start_print(remote_name)`, `get_status()`, `close()`; сверх контракта — `pause_print()`/`resume_print()` (по умолчанию `False`), `probe()`, набор `capabilities` (`CAPABILITY_*`), `accepted_formats`, `secrets` из колонки `printer_secrets`, `protocol_key` и `prepare_upload(local_path, remote_name)` → `UploadPlan` (путь, имя, MD5, размер, признак временного файла) с `cleanup_upload()` |
+| `registry.py` | `PROTOCOLS` — восемь `ProtocolSpec` (подпись, «модуль:Класс» драйвера, порты, способ обнаружения, возможности, форматы, имена секретов); `get_protocol()` без учёта регистра и пробелов, `load_adapter_class()` с ленивым импортом; исключения `UnknownProtocolError` и `AdapterUnavailableError` |
+| `formats.py` | Форматы и подготовка файла: `sanitize_remote_name()` (ASCII, без папок и `..`, до 255 символов; Creality — `_` вместо пробелов), `ensure_format()` (сверка расширения со справочником, упаковка `.gcode` в `.3mf` для Bambu, проверка записей контейнера для FlashForge), `file_digest()` (MD5 потоком), `wrap_gcode_to_3mf()`, `discard()` и `FormatError` |
 | `moonraker.py` | `MoonrakerAdapter` — Klipper: `/server/info`, `/server/files/upload`, `/printer/print/start`, `/printer/objects/query?print_stats&virtual_sdcard` |
 | `octoprint.py` | `OctoPrintAdapter` — заглушка; нужен REST API OctoPrint (`/api/files/local`, `/api/job`) |
 | `bambu.py` | `BambuAdapter` — Bambu в LAN-режиме: MQTT с TLS (8883) для команд и отчётов, implicit FTPS (990) для файлов |
-| `factory.py` | `get_adapter(protocol_type, ip_address, api_key, serial_number="")`; неизвестный протокол — `ValueError("Неизвестный протокол")` |
+| `factory.py` | `get_adapter(protocol_type, ip_address, api_key, serial_number="", secrets=None)`: набор аргументов берётся из паспорта протокола (серийник — Bambu и FlashForge, `secrets` — протоколам из `registry`); неизвестный протокол — `UnknownProtocolError("Неизвестный протокол")`, протокол без драйвера — `AdapterUnavailableError`. После сборки ставит `adapter.protocol_key` из паспорта |
+
+### Форматы и подготовка загрузки
+
+Перед сетью файл проходит `prepare_upload()`: имя приводится к безопасному виду, расширение
+сверяется со справочником, при необходимости собирается контейнер. Возвращается `UploadPlan` —
+что именно уходит на принтер и надо ли удалять файл после загрузки. `upload_file()` адаптера
+ловит `FormatError` и `OSError`, кладёт текст в `last_error` и возвращает `False`, поэтому
+мастер видит причину («Prusa (PrusaLink) не печатает .3mf — переслайсите в .gcode или .bgcode»),
+а не «задание провалилось». Bambu переопределяет `prepare_upload()`: упаковывает `.gcode` в `.3mf`
+и переименовывает файл в `<задание>.3mf` — под этим именем его ищет `start_print()`. MD5
+(`formats.file_digest`) считают только протоколы, которым он нужен: Anycubic и Elegoo.
+
+Тест без принтера: `python scripts/test-formats.py` — имя с пробелом, MD5, упаковка Bambu,
+отказ чужого формата и FlashForge без готового G-code в контейнере.
 
 ### Moonraker
 
@@ -292,6 +318,15 @@ Moonraker и Bambu разговаривают с принтером по-нас�
 Протокол `octoprint` есть в `PRINTER_PROTOCOLS` приложения: фабрика его принимает,
 но методы адаптера поднимают `NotImplementedError` — реальный REST API OctoPrint
 (выбор файла, `POST /api/job` с `command=start`) это отдельная задача.
+
+То же с пятью новыми протоколами (prusa, creality, anycubic, flashforge,
+elegoo): они есть в реестре и в `PRINTER_PROTOCOLS`, форма добавления их
+показывает, но модулей `prusa.py`, `creality.py`, `anycubic.py`,
+`flashforge.py` и `elegoo.py` ещё нет. Отличие от OctoPrint в причине отказа:
+заглушка отвечает `NotImplementedError` из метода, а протокол без модуля —
+`AdapterUnavailableError` из фабрики, и мастер видит «протокол creality ещё не
+реализован в агенте» вместо «неизвестный протокол». Это разные вещи: первое
+лечится обновлением агента, второе — исправлением настроек принтера.
 
 ### Bambu Lab (шаг 7.5)
 

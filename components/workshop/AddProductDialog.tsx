@@ -1,12 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type FormEvent, useState } from "react";
+import { type ChangeEvent, type FormEvent, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { addProduct, updateProduct } from "@/app/actions/products";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
+import { printFileExtension } from "@/lib/3d/print-compatibility";
 import type { WorkshopProduct } from "@/lib/workshop/products";
+import {
+  PRINTER_UPLOAD_FORMATS,
+  formatPrinterProtocol,
+  validatePrintFileForProtocol,
+  type WorkshopPrinter,
+} from "@/lib/workshop/printers";
 
 type AddProductDialogProps = {
   /**
@@ -18,6 +25,14 @@ type AddProductDialogProps = {
    * `/api/workshop/gcode` и подменяет ссылку вместе с разметкой принтера.
    */
   initial?: WorkshopProduct | null;
+  /**
+   * Принтеры фермы: по их протоколам окно проверяет формат файла печати.
+   *
+   * Проверять нечего, когда парк пуст: товар заводят и до подключения первого
+   * принтера. Ферма читается на странице Мастерской один раз для всех вкладок,
+   * поэтому окно получает готовый массив, а не делает свой запрос.
+   */
+  printers?: WorkshopPrinter[];
   onClose: () => void;
 };
 
@@ -26,6 +41,53 @@ const inputClassName =
 
 const legendClassName =
   "text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase";
+
+/**
+ * Причина, по которой файл не напечатает ни один принтер фермы.
+ *
+ * null — файл подходит (или проверять нечего). Товар печатается на любом
+ * свободном принтере, поэтому достаточно, чтобы формат принимал хотя бы один
+ * протокол парка: `.gcode` подходит всем, `.3mf` — только Bambu, FlashForge и
+ * ещё не подключённым протоколам с контейнером.
+ *
+ * STL не проверяется: это исходная модель для слайсера, она хранится в каталоге
+ * как источник, а в очередь печати её не берут — об этом скажет карточка заказа.
+ * Требовать от такой модели печатаемости значило бы запретить загружать
+ * исходники.
+ *
+ * Сообщение состоит из двух частей: отказ общего модуля (он знает текст про
+ * переслайс) и список форматов фермы, чтобы мастеру было видно, к чему
+ * стремиться.
+ */
+function farmFormatError(
+  printers: WorkshopPrinter[],
+  fileName: string,
+): string | null {
+  if (printers.length === 0 || printFileExtension(fileName) === "stl") {
+    return null;
+  }
+
+  const protocols = [
+    ...new Set(printers.map((printer) => printer.protocolType)),
+  ];
+  const checks = protocols.map((protocol) =>
+    validatePrintFileForProtocol(protocol, fileName),
+  );
+
+  if (checks.some((check) => check.ok)) {
+    return null;
+  }
+
+  const formats = protocols
+    .map(
+      (protocol) =>
+        `${formatPrinterProtocol(protocol)} — ${PRINTER_UPLOAD_FORMATS[protocol].join(", ")}`,
+    )
+    .join("; ");
+  const reason = checks.find((check) => !check.ok);
+
+  return `${reason ? reason.reason : "Файл не годится для печати."} Форматы фермы: ${formats}.`;
+}
 
 /**
  * Окно «Добавить товар» и «Редактировать товар».
@@ -40,12 +102,15 @@ const legendClassName =
  */
 export function AddProductDialog({
   initial = null,
+  printers = [],
   onClose,
 }: AddProductDialogProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Причина, по которой выбранный файл не напечатает ни один принтер фермы. */
+  const [fileError, setFileError] = useState<string | null>(null);
   /** Модель принтера из метаданных 3MF: её показали после загрузки. */
   const [slicedPrinter, setSlicedPrinter] = useState<string | null>(
     initial?.slicedForPrinter ?? null,
@@ -54,6 +119,30 @@ export function AddProductDialog({
   const isEditing = initial !== null;
 
   useDialogDismiss(onClose);
+
+  /**
+   * Проверка выбранного файла до загрузки.
+   *
+   * Файл чужого формата не отправляем в бакет: он всё равно не попадёт в
+   * очередь печати, а место занимает. Поле очищается, чтобы «Сохранить» не
+   * отправило форму с файлом, который мастер уже видел отклонённым.
+   */
+  function handlePrintFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0] ?? null;
+
+    setFileError(null);
+
+    if (!file) {
+      return;
+    }
+
+    const problem = farmFormatError(printers, file.name);
+
+    if (problem) {
+      setFileError(problem);
+      event.currentTarget.value = "";
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -345,12 +434,23 @@ export function AddProductDialog({
                   name="gcodeFile"
                   type="file"
                   accept=".gcode,.gco,.g,.3mf,.stl"
+                  onChange={handlePrintFileChange}
                   className="mt-2 block w-full cursor-pointer rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-zinc-300 file:mr-4 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
                 />
                 <p className="mt-2 text-xs leading-relaxed text-zinc-500">
                   .gcode, .gco, .g, .3mf или .stl, до 50 МБ. Файл попадёт в
                   каталог и будет доступен агенту фермы по ссылке.
                 </p>
+                {fileError ? (
+                  <p
+                    role="alert"
+                    data-product-file-error
+                    className="mt-2 text-xs leading-relaxed text-red-200"
+                  >
+                    <span aria-hidden>⚠️ </span>
+                    {fileError}
+                  </p>
+                ) : null}
                 {slicedPrinter ? (
                   <p
                     data-product-sliced-printer

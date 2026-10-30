@@ -7,28 +7,31 @@
 именно говорить с принтером: он просит адаптер и работает с
 `BasePrinterAdapter`.
 
-Чтобы добавить протокол, достаточно написать наследника
-`BasePrinterAdapter` в новом файле и добавить строку в `_ADAPTERS`.
+Справочник протоколов и их порты живут в `registry.py` — здесь только сборка
+конструктора. Чтобы добавить протокол, достаточно написать наследника
+`BasePrinterAdapter` в файле, на который указывает `ProtocolSpec.adapter`:
+фабрику править не нужно, импорт драйвера ленивый.
 """
 from __future__ import annotations
 
-from .bambu import BambuAdapter
+from collections.abc import Mapping
+from typing import Any
+
 from .base import BasePrinterAdapter
-from .moonraker import MoonrakerAdapter
-from .octoprint import OctoPrintAdapter
+from .registry import (
+    AdapterUnavailableError,
+    UnknownProtocolError,
+    get_protocol,
+    load_adapter_class,
+)
 
-# Известные протоколы → класс адаптера. Ключи совпадают со значениями
-# PRINTER_PROTOCOLS на стороне приложения.
-_ADAPTERS: dict[str, type[BasePrinterAdapter]] = {
-    "moonraker": MoonrakerAdapter,
-    "octoprint": OctoPrintAdapter,
-    "bambu": BambuAdapter,
-}
-
-# Moonraker (шаг 4.3) и Bambu (шаг 7.5) говорят с принтером по-настоящему;
-# OctoPrint пока заглушка — его методы поднимают NotImplementedError, и мастер
-# увидит в журнале понятную причину, а не молчаливое «печать не началась».
-# Протокол, которого нет в _ADAPTERS вовсе, попадает в ValueError.
+# Реэкспорт: main.py ловит AdapterUnavailableError рядом с get_adapter(), и
+# импортировать ради этого registry.py ему не нужно.
+__all__ = [
+    "AdapterUnavailableError",
+    "UnknownProtocolError",
+    "get_adapter",
+]
 
 
 def get_adapter(
@@ -36,32 +39,51 @@ def get_adapter(
     ip_address: str,
     api_key: str,
     serial_number: str = "",
+    secrets: Mapping[str, str] | None = None,
 ) -> BasePrinterAdapter:
     """
     Создаёт адаптер для принтера задания.
 
-    `protocol_type` — как в базе (`moonraker`, `bambu`); регистр и лишние
-    пробелы не важны, их приводит к нижнему регистру сама фабрика.
+    `protocol_type` — как в базе (`moonraker`, `creality`); регистр и лишние
+    пробелы не важны, их снимает реестр.
 
-    `serial_number` нужен только Bambu: адресация MQTT-топиков идёт серийником
-    принтера (`device/<serial>/report`). Пустая строка — не ошибка: адаптер
-    попробует найти серийник сам (SSDP), а без него хотя бы получит состояние
-    из первого отчёта. Остальным протоколам параметр не передаётся — их
-    конструкторы его не знают.
+    `serial_number` нужен Bambu и FlashForge: первый строит по нему MQTT-топики
+    (`device/<serial>/report`), второй отправляет его в заголовке каждого
+    запроса. Пустая строка — не ошибка: адаптер попробует найти номер сам.
+    Остальным протоколам параметр не передаётся — их конструкторы его не знают.
 
-    Неизвестный протокол — `ValueError("Неизвестный протокол")`: принтер с
-    незнакомым протоколом не должен молча пропускать задания.
+    `secrets` — содержимое `workshop_printers.printer_secrets`: `checkCode`
+    FlashForge, `deviceId` и `modeId` Anycubic. Передаём только протоколам, у
+    которых в паспорте есть имена секретов: конструктор Moonraker такого
+    параметра не ждёт.
+
+    Неизвестный протокол — `UnknownProtocolError("Неизвестный протокол")`,
+    известный но без драйвера — `AdapterUnavailableError`. Обе — наследники
+    ValueError: принтер, с которым агент не умеет говорить, не должен молча
+    пропускать задания.
     """
-    adapter_class = _ADAPTERS.get(protocol_type.strip().lower())
+    spec = get_protocol(protocol_type)
+    adapter_class = load_adapter_class(spec)
 
-    if adapter_class is None:
-        raise ValueError("Неизвестный протокол")
+    # Словарь, а не явные аргументы: набор параметров зависит от паспорта
+    # протокола, а конструкторы адаптеров знают только свои.
+    kwargs: dict[str, Any] = {
+        "ip_address": ip_address,
+        "api_key": api_key,
+    }
 
-    if adapter_class is BambuAdapter:
-        return BambuAdapter(
-            ip_address=ip_address,
-            api_key=api_key,
-            serial_number=serial_number,
-        )
+    if spec.accepts_serial:
+        kwargs["serial_number"] = serial_number
 
-    return adapter_class(ip_address=ip_address, api_key=api_key)
+    if spec.secrets and secrets:
+        kwargs["secrets"] = dict(secrets)
+
+    adapter = adapter_class(**kwargs)
+
+    # Ключ протокола — из паспорта, а не из атрибута класса: `prepare_upload()`
+    # ищет по нему форматы в справочнике, и опечатка в атрибуте адаптера
+    # обернулась бы «неизвестный протокол» уже на первом задании.
+    adapter.protocol_key = spec.key
+
+    return adapter
+

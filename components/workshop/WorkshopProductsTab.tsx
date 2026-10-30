@@ -12,6 +12,7 @@ import {
   TrashIcon,
 } from "@/components/workshop/WorkshopIcons";
 import type { WorkshopProduct } from "@/lib/workshop/products";
+import type { WorkshopPrinter } from "@/lib/workshop/printers";
 
 /**
  * Вкладка «Товары».
@@ -33,6 +34,14 @@ import type { WorkshopProduct } from "@/lib/workshop/products";
 
 type WorkshopProductsTabProps = {
   products: WorkshopProduct[];
+  /**
+   * Принтеры фермы: окно товара сверяет с их протоколами формат файла печати.
+   *
+   * Массив приходит с сервера вместе с каталогом — вкладка «Принтеры» читает
+   * тот же список, и второй запрос за ним не нужен. Пустой парк означает «пока
+   * нечего проверять»: файл загружают и до подключения первого принтера.
+   */
+  printers: WorkshopPrinter[];
 };
 
 /**
@@ -115,7 +124,10 @@ function filterProducts(
   );
 }
 
-export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
+export function WorkshopProductsTab({
+  products,
+  printers,
+}: WorkshopProductsTabProps) {
   const router = useRouter();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
@@ -438,9 +450,15 @@ export function WorkshopProductsTab({ products }: WorkshopProductsTabProps) {
         </>
       )}
 
-      {isDialogOpen ? <AddProductDialog onClose={closeDialog} /> : null}
+      {isDialogOpen ? (
+        <AddProductDialog printers={printers} onClose={closeDialog} />
+      ) : null}
       {editingProduct ? (
-        <AddProductDialog initial={editingProduct} onClose={closeEdit} />
+        <AddProductDialog
+          initial={editingProduct}
+          printers={printers}
+          onClose={closeEdit}
+        />
       ) : null}
       {isImportDialogOpen ? (
         <ImportProductsDialog onClose={closeImportDialog} />

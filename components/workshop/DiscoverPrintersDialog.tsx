@@ -79,11 +79,23 @@ type DiscoverPrintersDialogProps = {
   onApproved: (message: string) => void;
 };
 
-/** Подписи протоколов: агент определяет их сам, мастеру остаётся прочитать. */
+/**
+ * Короткие подписи протоколов для бейджа в списке находок.
+ *
+ * Именно короткие: в строке уже есть адрес, имя и SN, и «Moonraker (Klipper)» из
+ * общего списка подписей растянуло бы бейдж на всю ширину. `Record` от
+ * `PrinterProtocol` заставляет добавить сюда каждый новый протокол — иначе
+ * сборка падает, а бейдж показал бы пустоту.
+ */
 const PROTOCOL_LABELS: Record<PrinterProtocol, string> = {
   moonraker: "Moonraker",
   octoprint: "OctoPrint",
   bambu: "Bambu",
+  prusa: "Prusa",
+  creality: "Creality",
+  anycubic: "Anycubic",
+  flashforge: "FlashForge",
+  elegoo: "Elegoo",
 };
 
 /**

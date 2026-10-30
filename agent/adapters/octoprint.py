@@ -31,6 +31,8 @@ from .base import BasePrinterAdapter
 class OctoPrintAdapter(BasePrinterAdapter):
     """Заглушка адаптера OctoPrint: контракт есть, протокола ещё нет."""
 
+    protocol_key = "octoprint"
+
     def connect(self) -> bool:
         raise NotImplementedError(
             "OctoPrintAdapter.connect ещё не реализован: нужен HTTP API OctoPrint"

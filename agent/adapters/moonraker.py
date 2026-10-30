@@ -33,7 +33,15 @@ from typing import Any
 
 import requests
 
-from .base import BasePrinterAdapter
+from .base import (
+    CAPABILITY_CANCEL,
+    CAPABILITY_START,
+    CAPABILITY_STATUS,
+    CAPABILITY_UPLOAD,
+    BasePrinterAdapter,
+    UploadPlan,
+)
+from .formats import FormatError
 
 logger = logging.getLogger("agent.adapters.moonraker")
 
@@ -77,6 +85,22 @@ def _as_mapping(value: Any) -> dict[str, Any]:
 
 class MoonrakerAdapter(BasePrinterAdapter):
     """Принтер на Klipper: HTTP API Moonraker и статусы `print_stats`."""
+
+    # Ключ протокола в справочнике: по нему `prepare_upload()` сверяет формат
+    # файла — Moonraker печатает G-code (`.gcode`, `.gco`, `.g`) и не разбирает `.3mf`.
+    protocol_key = "moonraker"
+
+    # Отмена печати реализована (`POST /printer/print/cancel`), паузы в драйвере
+    # пока нет: набор описывает только то, что адаптер действительно делает,
+    # чтобы интерфейс не показывал мёртвую кнопку.
+    capabilities = frozenset(
+        {
+            CAPABILITY_UPLOAD,
+            CAPABILITY_START,
+            CAPABILITY_CANCEL,
+            CAPABILITY_STATUS,
+        }
+    )
 
     def __init__(self, ip_address: str, api_key: str) -> None:
         """
@@ -210,6 +234,40 @@ class MoonrakerAdapter(BasePrinterAdapter):
         """
         Загружает G-code в корень `gcodes` Moonraker.
 
+        Подготовка — в `prepare_upload()` и `formats.py`: имя приводится к ASCII
+        (кириллица на карте принтера превращается в `?`, и `start_print()` не
+        находит файл), а формат сверяется со справочником. `.3mf` Klipper не
+        печатает, и отказ приходит до сети, а не после загрузки: мастер увидит
+        «переслайсите в .gcode», а не «печать не запущена».
+
+        `FormatError` и `OSError` подготовки становятся `last_error` и False —
+        так же, как сетевые отказы самого запроса.
+        """
+        try:
+            plan = self.prepare_upload(local_path, remote_name)
+        except FormatError as error:
+            self.last_error = str(error)
+            logger.error(
+                "G-code %s не загружен на %s: %s",
+                remote_name,
+                self.ip_address,
+                error,
+            )
+            return False
+        except OSError as error:
+            self.last_error = f"файл не прочитан: {error}"
+            logger.error("G-code %s не прочитан: %s", local_path, error)
+            return False
+
+        try:
+            return self._upload_prepared(plan)
+        finally:
+            self.cleanup_upload(plan)
+
+    def _upload_prepared(self, plan: UploadPlan) -> bool:
+        """
+        Отправляет подготовленный файл в корень `gcodes`.
+
         Поле формы называется `file`, рядом уходит `root=gcodes`: именно из
         этого корня Moonraker берёт файл для `POST /printer/print/start`, поэтому
         имя в `start_print()` совпадает с загруженным. Успех — 201 (так отвечает
@@ -220,11 +278,11 @@ class MoonrakerAdapter(BasePrinterAdapter):
         закрывать его нужно после отправки, а не сразу.
         """
         try:
-            with open(local_path, "rb") as gcode:
+            with open(plan.path, "rb") as gcode:
                 response = requests.post(
                     f"{self.base_url}/server/files/upload",
                     headers=self._headers(),
-                    files={"file": (remote_name, gcode)},
+                    files={"file": (plan.remote_name, gcode)},
                     data={"root": "gcodes"},
                     timeout=UPLOAD_TIMEOUT,
                 )
@@ -232,7 +290,7 @@ class MoonrakerAdapter(BasePrinterAdapter):
             self.last_error = f"G-code не загружен: {error}"
             logger.error(
                 "G-code %s не загружен на %s: %s",
-                remote_name,
+                plan.remote_name,
                 self.ip_address,
                 error,
             )
@@ -242,7 +300,7 @@ class MoonrakerAdapter(BasePrinterAdapter):
             # Проверка идёт после RequestException: он тоже наследник OSError,
             # но сетевую ошибку нужно отличать от нечитаемого файла.
             self.last_error = f"файл не прочитан: {error}"
-            logger.error("G-code %s не прочитан: %s", local_path, error)
+            logger.error("G-code %s не прочитан: %s", plan.path, error)
             return False
 
         if response.status_code not in (200, 201):
@@ -252,7 +310,7 @@ class MoonrakerAdapter(BasePrinterAdapter):
             )
             logger.error(
                 "G-code %s не загружен на %s: HTTP %s, %s",
-                remote_name,
+                plan.remote_name,
                 self.ip_address,
                 response.status_code,
                 self._error_message(response),
@@ -261,7 +319,7 @@ class MoonrakerAdapter(BasePrinterAdapter):
 
         logger.info(
             "G-code %s загружен на %s (HTTP %s)",
-            remote_name,
+            plan.remote_name,
             self.ip_address,
             response.status_code,
         )

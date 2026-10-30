@@ -56,7 +56,10 @@ import {
   type WorkshopOrder,
 } from "@/lib/workshop/orders";
 import type { WorkshopProduct } from "@/lib/workshop/products";
-import type { WorkshopPrinter } from "@/lib/workshop/printers";
+import {
+  type WorkshopPrinter,
+  validatePrintFileForProtocol,
+} from "@/lib/workshop/printers";
 
 /**
  * Карточка заказа: детали и переписка.
@@ -897,10 +900,14 @@ export function OrderDetailsDialog({
   /**
    * Сверка позиций заказа с выбранным принтером.
    *
-   * 3MF помнит модель принтера, под которую его нарезали, и чужой профиль ломает
-   * печать. Текст берём из общего модуля: карточка и Server Action говорят одно и
-   * то же, а `queueOrderForPrint` повторяет проверку — страница могла устареть,
-   * пока карточка была открыта.
+   * Две проверки на позицию, обе — из общих модулей, чтобы карточка и Server
+   * Action говорили одно и то же:
+   *
+   *   - формат файла против протокола принтера (`validatePrintFileForProtocol`):
+   *     `.3mf` не печатают PrusaLink и Moonraker, и агент откажет уже после
+   *     загрузки — лучше погасить кнопку сразу;
+   *   - модель принтера из разметки 3MF (`printerMismatchMessage`): чужой
+   *     профиль слайсера ломает печать.
    *
    * Считаются только позиции с файлом печати: `compatible` — сколько из них
    * уйдёт в очередь, `mismatch` — первая причина отказа. Одна неверно нарезанная
@@ -934,6 +941,16 @@ export function OrderDetailsDialog({
       }
 
       printable += 1;
+
+      const formatCheck = validatePrintFileForProtocol(
+        printer.protocolType,
+        product?.gcodeUrl ?? "",
+      );
+
+      if (!formatCheck.ok) {
+        mismatch = mismatch ?? formatCheck.reason;
+        continue;
+      }
 
       const message = product?.slicedForPrinter
         ? printerMismatchMessage(product.slicedForPrinter, {

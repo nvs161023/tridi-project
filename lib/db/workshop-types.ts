@@ -57,8 +57,25 @@ export function isPrintJobStatus(value: unknown): value is PrintJobStatus {
   );
 }
 
-/** Протоколы, которыми умеет управлять локальный агент. */
-export const PRINTER_PROTOCOLS = ["moonraker", "octoprint", "bambu"] as const;
+/**
+ * Протоколы, которыми умеет управлять локальный агент.
+ *
+ * Список — зеркало `agent/adapters/registry.py`: значение уходит в колонку
+ * `workshop_printers.protocol_type` и в поле `printer.protocolType` задания, а
+ * check-ограничения базы перечисляют те же восемь значений
+ * (`supabase/workshop_printer_protocols.sql`). Порядок — от «уже работает» к
+ * «добавлено позже»: он же порядок подсказок в форме.
+ */
+export const PRINTER_PROTOCOLS = [
+  "moonraker",
+  "octoprint",
+  "bambu",
+  "prusa",
+  "creality",
+  "anycubic",
+  "flashforge",
+  "elegoo",
+] as const;
 
 export type PrinterProtocol = (typeof PRINTER_PROTOCOLS)[number];
 
@@ -68,6 +85,18 @@ export function isPrinterProtocol(value: unknown): value is PrinterProtocol {
     (PRINTER_PROTOCOLS as readonly string[]).includes(value)
   );
 }
+
+/**
+ * Секреты и параметры протокола, у которых нет своей колонки.
+ *
+ * Лежат в `workshop_printers.printer_secrets` (jsonb, только объект строк):
+ * `checkCode` FlashForge, логин-пароль и `deviceId`/`modeId` Anycubic,
+ * `mainboardId` Elegoo, `storage` PrusaLink. Первичный секрет (`api_key`: ключ
+ * API, код доступа, пароль) остался отдельной колонкой — ради уже заведённых
+ * принтеров. Значения в браузер не возвращаются так же, как `api_key`.
+ */
+export type PrinterSecrets = Record<string, string>;
+
 
 /** Состояние принтера глазами агента. */
 export const PRINTER_STATUSES = [
@@ -183,6 +212,12 @@ export type WorkshopPrinterAgentRow = {
   ip_address: string | null;
   api_key: string | null;
   serial_number: string | null;
+  /**
+   * Остальные секреты протокола (jsonb). null — миграция
+   * `supabase/workshop_printer_protocols.sql` не применена или у протокола нет
+   * таких полей: `checkCode` FlashForge, `deviceId` Anycubic, `storage` Prusa.
+   */
+  printer_secrets: PrinterSecrets | null;
   status: PrinterStatus;
   progress: number;
   remaining_time: number;

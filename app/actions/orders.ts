@@ -23,7 +23,11 @@ import {
   getOrderLastPrintFailure,
   getOrderWithItems,
 } from "@/lib/db/workshop-farm";
-import type { WorkshopFarmFailureReason } from "@/lib/db/workshop-types";
+import {
+  isPrinterProtocol,
+  type PrinterProtocol,
+  type WorkshopFarmFailureReason,
+} from "@/lib/db/workshop-types";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
@@ -73,6 +77,7 @@ import {
   isPrinterId,
   normalizePrinterRow,
   printerMaintenanceLevel,
+  validatePrintFileForProtocol,
   type WorkshopPrinter,
 } from "@/lib/workshop/printers";
 
@@ -1034,6 +1039,43 @@ async function readSlicedPrinterCheck(
 }
 
 /**
+ * Протокол принтера, которому ставят задание.
+ *
+ * Нужен проверке формата: `.3mf` печатают не все протоколы (PrusaLink, Creality,
+ * Anycubic и Elegoo — только G-code). null — строку не прочитали или в ней
+ * неизвестное значение: тогда проверку формата пропускаем, как и
+ * `readSlicedPrinterCheck`. Сбой чтения не должен запрещать печать сильнее, чем
+ * помогает, — `createPrintJob` всё равно проверит файл и принтер.
+ */
+async function readPrinterProtocol(
+  supabase: Supabase,
+  options: { userId: string; printerId: string },
+): Promise<PrinterProtocol | null> {
+  const result = await supabase
+    .from("workshop_printers")
+    .select("protocol_type")
+    .eq("id", options.printerId)
+    .eq("user_id", options.userId)
+    .maybeSingle();
+
+  if (result.error) {
+    console.warn(
+      "Протокол принтера не прочитан:",
+      result.error.code,
+      result.error.message,
+    );
+
+    return null;
+  }
+
+  const protocol = (
+    result.data as Partial<Record<string, unknown>> | null
+  )?.protocol_type;
+
+  return isPrinterProtocol(protocol) ? protocol : null;
+}
+
+/**
  * Причина отказа `createPrintJob` в текст для карточки.
  *
  * null — отдельной подсказки нет, вызывающий покажет общий текст «не удалось
@@ -1238,6 +1280,14 @@ export async function queueOrderForPrint(
     return { ok: false, error: PRINT_PRINTER_REQUIRED };
   }
 
+  // Протокол принтера — для проверки формата: `.3mf` печатают не все принтеры
+  // фермы, а агент откажет уже после загрузки файла. Читается один раз на
+  // заказ, а не на позицию.
+  const printerProtocol = await readPrinterProtocol(supabase, {
+    userId: user.id,
+    printerId: targetPrinterId,
+  });
+
   // В очередь берём все позиции с настоящим файлом печати: STL — это модель для
   // слайсера, агенту фермы её отправлять некуда. Если файлы есть, но все STL,
   // говорим об этом прямо, а не «нет товаров с G-кодом».
@@ -1271,10 +1321,23 @@ export async function queueOrderForPrint(
     ),
   );
 
-  const mismatches: string[] = [];
+  const formatMismatches: string[] = [];
+  const slicedMismatches: string[] = [];
   const queueItems: typeof printableItems = [];
 
   printableItems.forEach((entry, index) => {
+    const formatCheck = printerProtocol
+      ? validatePrintFileForProtocol(
+          printerProtocol,
+          entry.product?.gcodeUrl ?? "",
+        )
+      : null;
+
+    if (formatCheck && !formatCheck.ok) {
+      formatMismatches.push(formatCheck.reason);
+      return;
+    }
+
     const slicedCheck = slicedChecks[index];
     const mismatch = slicedCheck
       ? printerMismatchMessage(slicedCheck.slicedForPrinter, {
@@ -1284,7 +1347,7 @@ export async function queueOrderForPrint(
       : null;
 
     if (mismatch) {
-      mismatches.push(mismatch);
+      slicedMismatches.push(mismatch);
       return;
     }
 
@@ -1292,9 +1355,14 @@ export async function queueOrderForPrint(
   });
 
   // Ни одной подходящей позиции — задание в очереди висело бы заведомо
-  // невыполнимым, поэтому отказываем до вставки и объясняем причину.
+  // невыполнимым, поэтому отказываем до вставки и объясняем причину. Формат
+  // важнее разметки: если принтер вообще не печатает такой файл, совет про
+  // слайсер — единственный полезный.
   if (queueItems.length === 0) {
-    return { ok: false, error: mismatches[0] ?? PRINT_QUEUE_FAILED };
+    return {
+      ok: false,
+      error: formatMismatches[0] ?? slicedMismatches[0] ?? PRINT_QUEUE_FAILED,
+    };
   }
 
   // Задания создаются по одному: `createPrintJob` идемпотентен по позиции (уже
@@ -1326,9 +1394,9 @@ export async function queueOrderForPrint(
   revalidatePath("/dashboard/workshop");
 
   // Сообщение собирается из итогов: мастер должен видеть, что в очередь встал
-  // весь заказ, и что именно осталось за бортом — позиции без файла печати, 3MF
-  // под другой принтер или отказ базы. Числа идут с двоеточием, чтобы не
-  // склонять слово «позиция» в каждой форме.
+  // весь заказ, и что именно осталось за бортом — позиции без файла печати,
+  // файлы чужого формата, 3MF под другой принтер или отказ базы. Числа идут с
+  // двоеточием, чтобы не склонять слово «позиция» в каждой форме.
   const notes: string[] = [];
   const noFileCount = order.data.items.length - printableItems.length;
 
@@ -1336,8 +1404,12 @@ export async function queueOrderForPrint(
     notes.push(`без файла печати: ${noFileCount}`);
   }
 
-  if (mismatches.length > 0) {
-    notes.push(`нарезаны под другой принтер: ${mismatches.length}`);
+  if (formatMismatches.length > 0) {
+    notes.push(`не печатаются на этом принтере: ${formatMismatches.length}`);
+  }
+
+  if (slicedMismatches.length > 0) {
+    notes.push(`нарезаны под другой принтер: ${slicedMismatches.length}`);
   }
 
   if (failures.length > 0) {

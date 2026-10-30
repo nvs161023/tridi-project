@@ -48,6 +48,7 @@ AGENT_DIR = ROOT / "agent"
 sys.path.insert(0, str(AGENT_DIR))
 
 from adapters import bambu  # noqa: E402 — путь к агенту добавляется выше
+from adapters import formats  # noqa: E402
 from adapters.base import BasePrinterAdapter  # noqa: E402
 from adapters.factory import get_adapter  # noqa: E402
 from adapters.moonraker import MoonrakerAdapter  # noqa: E402
@@ -455,7 +456,6 @@ def main() -> int:
     # Плоский G-code A1 не печатает: перед загрузкой он пакуется в контейнер.
     gcode_path = Path(tempfile.gettempdir()) / "tridi-bambu-pack.gcode"
     gcode_path.write_text("; test\nG28\n", encoding="utf-8")
-    packer = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
     wrapped = ""
     names: set[str] = set()
     plate_bytes = b""
@@ -464,7 +464,9 @@ def main() -> int:
     content_types = ""
 
     try:
-        wrapped = packer._wrap_gcode_to_3mf(str(gcode_path), "pack.gcode")
+        # Упаковка переехала в formats.py (этап 2): её видят все протоколы,
+        # которым нужен контейнер, а не только Bambu.
+        wrapped = formats.wrap_gcode_to_3mf(str(gcode_path), "pack.gcode")
 
         with zipfile.ZipFile(wrapped) as container:
             names = set(container.namelist())
@@ -702,11 +704,23 @@ def main() -> int:
         wrap_probe.unlink(missing_ok=True)
 
     unreadable = CapturingUploadAdapter()
+    missing_probe = Path(tempfile.gettempdir()) / "tridi-bambu-missing.gcode"
+    missing_probe.unlink(missing_ok=True)
     check(
         "upload_file: нечитаемый G-code не пакуется",
-        unreadable.upload_file(str(wrap_probe) + ".nope", "wrap.gcode") is False
+        unreadable.upload_file(str(missing_probe), "wrap.gcode") is False
         and "не упакован" in (unreadable.last_error or ""),
         f"last_error={unreadable.last_error!r}",
+    )
+
+    # Чужой формат отсекается до сети: упаковывать в контейнер нечего, а
+    # принтер такой файл всё равно не примет.
+    alien = CapturingUploadAdapter()
+    check(
+        "upload_file: чужое расширение — причина про формат",
+        alien.upload_file(str(wrap_probe) + ".nope", "wrap.nope") is False
+        and "не печатает" in (alien.last_error or ""),
+        f"last_error={alien.last_error!r}",
     )
 
     # Готовый проект `.3mf` уходит на карту как есть: второй контейнер поверх

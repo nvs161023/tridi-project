@@ -2,9 +2,10 @@
 Базовый интерфейс адаптера принтера.
 
 Адаптер — единственное место, которое знает протокол конкретного принтера
-(Moonraker, Bambu, OctoPrint). Цикл агента работает только с этим контрактом,
-поэтому новый протокол добавляется файлом-адаптером и одной строкой в фабрике,
-а не правками в main.py.
+(Moonraker, OctoPrint, Bambu Lab, PrusaLink, Creality, Anycubic, FlashForge,
+Elegoo). Цикл агента работает только с этим контрактом, поэтому новый протокол
+добавляется файлом-адаптером и строкой в справочнике `registry.py`, а не
+правками в main.py.
 
 Что важно для реализаций (следующие шаги):
   - методы возвращают bool и не выпускают сетевые исключения наружу: агент на
@@ -14,37 +15,131 @@
     журнал: поэтому `__repr__` печатает только адрес;
   - `get_status()` отвечает в терминах агента, а не протокола. Какой статус
     задания отправить в `/api/agent/status` (`printing`, `done`, `failed`),
-    решает main.py, а не адаптер.
+    решает main.py, а не адаптер;
+  - возможности протокола объявлены набором `capabilities`: интерфейс не
+    показывает кнопку, которой принтер не умеет пользоваться, а main.py не
+    считает «не умею» за ошибку задания;
+  - `secrets` — то, для чего нет отдельной колонки: `checkCode` FlashForge,
+    логин и `deviceId` Anycubic, `mainboardId` Elegoo, хранилище PrusaLink. Они
+    приходят из `workshop_printers.printer_secrets` (jsonb) и в журнал не
+    попадают так же, как ключ;
+  - `prepare_upload()` — единственное место, где решается, что именно уходит на
+    принтер: имя файла, его формат и контрольная сумма. Форматы, имя и
+    упаковка живут в `formats.py`, поэтому адаптер переопределяет метод только
+    тогда, когда протоколу нужна своя подготовка.
 """
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, ClassVar, Final, NamedTuple
+
+from .formats import discard, ensure_format, sanitize_remote_name
+
+# Возможности протокола: что агент умеет делать с принтером сверх обязательного
+# минимума. Строки, а не Enum: набор уходит в JSON (проба принтера в мастере
+# добавления) и читается интерфейсом без преобразований.
+CAPABILITY_UPLOAD: Final = "upload"
+CAPABILITY_START: Final = "start"
+CAPABILITY_PAUSE: Final = "pause"
+CAPABILITY_RESUME: Final = "resume"
+CAPABILITY_CANCEL: Final = "cancel"
+CAPABILITY_STATUS: Final = "status"
+CAPABILITY_CAMERA: Final = "camera"
+
+
+class UploadPlan(NamedTuple):
+    """
+    Что именно уходит на принтер в `upload_file()`.
+
+    Два поля обязательны, остальные — для протоколов, которым нужны
+    подробности:
+
+      - `path` — файл на диске агента: тот же, что скачан по ссылке задания, или
+        контейнер, собранный агентом (Bambu пакует `.gcode` в `.3mf`);
+      - `remote_name` — имя на принтере. Его передают в `start_print()`, поэтому
+        переименование после загрузки уже невозможно: прошивка ищет файл по
+        имени;
+      - `md5` — контрольная сумма файла. Считают только те протоколы, которые
+        её требуют (Anycubic, Elegoo): на файле в сотни мегабайт это лишняя
+        секунда на каждое задание;
+      - `size` — размер в байтах: проверка «сколько дошло» после загрузки;
+      - `is_temp` — файл создал агент. Временный удаляет `cleanup_upload()`,
+        иначе копия задания остаётся в TEMP после каждой печати.
+    """
+
+    path: str
+    remote_name: str
+    md5: str | None = None
+    size: int = 0
+    is_temp: bool = False
 
 
 class BasePrinterAdapter(ABC):
     """
     Контракт адаптера: подключиться, загрузить G-code, начать печать, спросить
-    состояние.
+    состояние — и, если протокол это умеет, поставить печать на паузу, снять с
+    паузы или отменить.
 
-    Наследник получает `ip_address` и `api_key` в конструкторе: чем именно
-    говорить с принтером — HTTP, WebSocket или MQTT — дело протокола.
+    Наследник получает `ip_address`, `api_key` и, если протоколу нужно больше,
+    `secrets`: чем именно говорить с принтером — HTTP, WebSocket или MQTT —
+    дело протокола.
     """
 
-    def __init__(self, ip_address: str, api_key: str) -> None:
+    # Ключ протокола в справочнике (`registry.PROTOCOLS`). Нужен коду, который
+    # не знает, какой именно адаптер перед ним: `prepare_upload()` находит по
+    # нему допустимые форматы, а фабрика подставляет ключ из паспорта протокола.
+    protocol_key: ClassVar[str] = ""
+
+    # Минимум, который обязан уметь любой адаптер: положить файл, запустить
+    # печать и рассказать о состоянии. Остановку, паузу и камеру протокол
+    # объявляет сам: Moonraker и Bambu умеют отмену, Creality — паузу, а
+    # заглушка OctoPrint пока не умеет ничего, кроме контракта.
+    capabilities: frozenset[str] = frozenset(
+        {CAPABILITY_UPLOAD, CAPABILITY_START, CAPABILITY_STATUS}
+    )
+
+    # Расширения, которые принтер печатает без переупаковки. По этому списку
+    # мастер видит, почему `.3mf` не уйдёт на принтер с одним G-code, а Bambu
+    # упаковывает `.gcode` в `.3mf` сам.
+    accepted_formats: tuple[str, ...] = (".gcode",)
+
+    def __init__(
+        self,
+        ip_address: str,
+        api_key: str,
+        secrets: Mapping[str, str] | None = None,
+    ) -> None:
         """
         `ip_address` — адрес принтера в локальной сети мастера (он же может
         быть именем хоста: `printer.local:7125`).
 
         `api_key` — ключ, который принтер ждёт в запросах. Может быть пустым:
         часть протоколов работает без авторизации в локальной сети.
+
+        `secrets` — остальные секреты протокола из `printer_secrets` (jsonb):
+        `checkCode` FlashForge, логин и пароль Anycubic, `mainboardId` Elegoo.
+        Копируем словарём, чтобы изменения снаружи не меняли секреты под
+        работающим заданием. Пустой словарь и None — одно и то же.
         """
         self.ip_address = ip_address
         self.api_key = api_key
+        self.secrets: dict[str, str] = dict(secrets or {})
         # Причина последнего отказа: main.py отправляет её в мастерскую вместе
         # со статусом `failed`, поэтому мастер видит «принтер отверг файл», а не
         # просто «задание провалилось». None — последний вызов прошёл успешно.
         self.last_error: str | None = None
+
+    def supports(self, capability: str) -> bool:
+        """
+        Умеет ли этот адаптер такую операцию.
+
+        Спрашивают и main.py (перед паузой по просьбе мастера), и интерфейс
+        через пробу принтера: `if not adapter.supports(CAPABILITY_PAUSE)` понятнее
+        десяти `hasattr()`.
+        """
+        return capability in self.capabilities
 
     def __repr__(self) -> str:
         """Без api_key: repr попадает в журнал при отладке."""
@@ -70,6 +165,46 @@ class BasePrinterAdapter(ABC):
         в `start_print()`, чтобы не искать файл повторно.
         """
 
+    def prepare_upload(self, local_path: str, remote_name: str) -> UploadPlan:
+        """
+        Готовит файл к загрузке: имя, формат, размер.
+
+        По умолчанию файл уходит как есть — меняется только имя
+        (`sanitize_remote_name`): путь в имени увёл бы загрузку в чужую папку, а
+        пробелы и кириллица ломают поиск файла на принтере. Проверка формата
+        тоже здесь: `ensure_format()` знает по справочнику, что протокол
+        печатает, и отказывает `FormatError` до сети — «PrusaLink не печатает
+        .3mf» мастер увидит сразу, а не после загрузки.
+
+        MD5 не считается: он нужен только части протоколов, а на файле в сотни
+        мегабайт это лишняя секунда на каждое задание. Кто требует — считает сам
+        в своём переопределении (`bambu` там же пакует `.gcode` в `.3mf`).
+
+        `FormatError` и `OSError` не перехватываются: `upload_file()` адаптера
+        превращает их в `last_error` и False, а main.py отправляет причину в
+        мастерскую.
+        """
+        name = sanitize_remote_name(self.protocol_key, remote_name)
+        path, is_temp = ensure_format(self.protocol_key, local_path, remote_name=name)
+
+        return UploadPlan(
+            path=path,
+            remote_name=name,
+            size=os.path.getsize(path),
+            is_temp=is_temp,
+        )
+
+    def cleanup_upload(self, plan: UploadPlan) -> None:
+        """
+        Убирает временный файл после загрузки.
+
+        Вызывается в `finally`: контейнер, собранный агентом, больше не нужен ни
+        при успехе, ни при отказе, а оставлять его в TEMP — значит держать копию
+        каждого задания до перезагрузки.
+        """
+        if plan.is_temp:
+            discard(plan.path)
+
     @abstractmethod
     def start_print(self, remote_name: str) -> bool:
         """Запускает печать уже загруженного файла."""
@@ -86,6 +221,28 @@ class BasePrinterAdapter(ABC):
         """
         return False
 
+    def pause_print(self) -> bool:
+        """
+        Ставит текущую печать на паузу.
+
+        Нужна, когда мастер видит на камере дефект и хочет поправить сопло, не
+        теряя деталь. По умолчанию протокол паузу не умеет: False, и main.py
+        пишет в журнал «принтер не поддерживает паузу», а печать продолжается —
+        это честнее, чем имитировать паузу и оставить мастер думать, что она
+        сработала. Переопределяют Moonraker (`/printer/print/pause`), Creality
+        (`pause` по WebSocket) и остальные, кто объявил `CAPABILITY_PAUSE`.
+        """
+        return False
+
+    def resume_print(self) -> bool:
+        """
+        Снимает печать с паузы.
+
+        Парная к `pause_print()`: адаптер, который умеет паузу, обязан уметь и
+        возврат, иначе принтер остался бы стоять до вмешательства у стола.
+        """
+        return False
+
     @abstractmethod
     def get_status(self) -> dict[str, Any]:
         """
@@ -97,6 +254,25 @@ class BasePrinterAdapter(ABC):
           - `remaining_time` — остаток печати в секундах (0, если он неизвестен
             или печать не идёт).
         """
+
+    def probe(self) -> dict[str, Any]:
+        """
+        Что принтер рассказывает о себе, не начиная печать.
+
+        Нужна форме «Проверить принтер»: мастер ввёл адрес и ключ, а агент
+        отвечает, тот ли это принтер и что он умеет. Ключи ответа:
+          - `capabilities` — список из `CAPABILITY_*` (есть всегда);
+          - `formats` — расширения файлов, которые принтер печатает;
+          - `model`, `firmware`, `serial_number` — если протокол их называет.
+
+        По умолчанию отдаём только статику класса: сетевой пробы нет, но и
+        выдуманных данных тоже. Сетевые ошибки наружу не выпускаются — как и у
+        остальных методов, отказ виден в `last_error`.
+        """
+        return {
+            "capabilities": sorted(self.capabilities),
+            "formats": list(self.accepted_formats),
+        }
 
     def close(self) -> None:
         """

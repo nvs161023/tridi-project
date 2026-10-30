@@ -8,6 +8,7 @@ import { resolveUserId } from "@/lib/current-user";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 import { getWorkshopProducts } from "@/lib/workshop/products";
+import { getWorkshopPrinters } from "@/lib/workshop/printer-store";
 
 /**
  * Каталог товаров Мастерской.
@@ -38,6 +39,10 @@ export default async function WorkshopProductsPage() {
   }
 
   const products = await getWorkshopProducts();
+  // Парк нужен окну товара: оно сверяет формат файла печати с протоколами
+  // принтеров. Ошибка чтения не мешает каталогу — `getWorkshopPrinters` отдаёт
+  // пустой список, и проверка формата просто не выполняется.
+  const fleet = await getWorkshopPrinters(supabase, userId);
 
   return (
     <div className="min-h-screen text-zinc-100">
@@ -64,7 +69,7 @@ export default async function WorkshopProductsPage() {
         </nav>
 
         <div className="mt-6">
-          <WorkshopProductsTab products={products} />
+          <WorkshopProductsTab products={products} printers={fleet.printers} />
         </div>
       </main>
     </div>

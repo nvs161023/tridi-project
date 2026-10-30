@@ -2279,15 +2279,20 @@ Api-Key шифруется на сервере (`lib/crypto.ts`, AES-256-GCM): �
 `addPrinter`, `resetPrinterNozzle`, `resetPrinterLubrication` и `resetPrinterZScrew` в
 `app/actions/printers.ts`.
 
-Под брендом и моделью окно спрашивает подключение: `<select name="protocol">` (`moonraker`,
-`octoprint` или `bambu`; по умолчанию `moonraker`), поле «Серийный номер (SN)» — только для Bambu,
-обязательный «IP-адрес» (`ipAddress`, проверка `normalizePrinterAddress`: IPv4, IPv6 или имя узла
-вроде `ender3.local`, до 253 символов) и «API-ключ / Код доступа» (`apiKey`, `type="password"`, до 512
-символов; у Bambu это 8-значный код с экрана принтера, у остальных можно оставить пустым). Пустые SN
-и ключ уходят в базу как null, а SN у Moonraker и OctoPrint не сохраняется вовсе — иначе агент
-подставил бы чужой номер в топик MQTT. `createPrinterPayload` пишет `protocol_type`, `serial_number`,
-`ip_address` и `api_key`; ключ в браузер не возвращается: `PRINTER_COLUMNS` его не читает, он уходит
-только агенту через `/api/agent/tasks`.
+Под брендом и моделью окно спрашивает подключение: `<select name="protocol">` — восемь протоколов
+(`PRINTER_PROTOCOL_OPTIONS`: moonraker, octoprint, bambu, prusa, creality, anycubic, flashforge,
+elegoo; по умолчанию `moonraker`), поле «Серийный номер (SN)» — для Bambu и, когда появится его
+драйвер, для FlashForge (`isPrinterSerialProtocol`: первому SN нужен для MQTT-топиков
+`device/<serial>/report`, второму — для заголовка `serialNumber` в каждом запросе; сама форма пока
+показывает поле только у Bambu), обязательный «IP-адрес» (`ipAddress`, проверка
+`normalizePrinterAddress`: IPv4, IPv6 или имя узла вроде `ender3.local`, до 253 символов) и
+«API-ключ / Код доступа» (`apiKey`, `type="password"`, до 512 символов; у Bambu это 8-значный код с
+экрана принтера, у остальных можно оставить пустым). Пустые SN и ключ уходят в базу как null, а SN
+у прочих протоколов не сохраняется вовсе — иначе агент подставил бы чужой номер в топик MQTT.
+Остальные секреты протокола (`checkCode` FlashForge, `deviceId`/`modeId` Anycubic, `mainboardId`
+Elegoo) лежат в колонке `workshop_printers.printer_secrets` (jsonb) и в браузер не возвращаются.
+`createPrinterPayload` пишет `protocol_type`, `serial_number`, `ip_address` и `api_key`; ключ в браузер
+не возвращается: `PRINTER_COLUMNS` его не читает, он уходит только агенту через `/api/agent/tasks`.
 
 Верх карточки — живое состояние от агента фермы: метка «Свободен», «Печатает», «Пауза», «Ошибка»
 или «Офлайн», полоска прогресса печати, остаток времени и название заказа, который печатается
@@ -2451,6 +2456,16 @@ false`. Ограничение статуса пересоздаётся с `can
 ссылаются на принтеры и катушки, поэтому склад пластика должен существовать раньше. Если
 `workshop_printers` уже создана без винта Z, после неё применяется идемпотентная
 `workshop_printer_z_screw.sql`: две колонки `alter table … add column if not exists`.
+Протоколы принтеров расширяет идемпотентная `supabase/workshop_printer_protocols.sql`
+(применяется после `workshop_farm_and_shop.sql`): она добавляет
+`workshop_printers.printer_secrets jsonb` (секрет — объект строк до 4 КБ; ключи проверяет
+приложение, потому что список ключей живёт в `agent/adapters/registry.py`) и пересобирает два
+check-ограничения — `workshop_printers_farm_fields_check` и
+`workshop_discovered_printers_protocol_check` — до восьми значений протокола (moonraker, octoprint,
+bambu, prusa, creality, anycubic, flashforge, elegoo). Ограничение пересоздаётся целиком:
+Postgres не умеет менять одно условие внутри `check`, а условия кроме протокола остались те же, что
+в `workshop_farm_and_shop.sql`. В конце — `notify pgrst, 'reload schema'`, иначе новая колонка
+отвечает `PGRST204` «could not find column».
 `supabase/workshop_settings.sql`: таблица `workshop_settings` (`id`, `user_id` unique с
 `on delete cascade`, четыре числа с check-пределами, `updated_at`), триггер
 `workshop_settings_touch_updated_at` обновляет `updated_at` на каждом update, RLS с политиками
@@ -2588,6 +2603,39 @@ scripts/test-print-resources.ts`): 18 проверок, включая гран�
 (остаток катушки — integer) и зажимается в границы `0…total_weight_g`. Сбой склада не отменяет статус
 печати: задание уже закрыто, факт остаётся в нём, а причина уходит в журнал сервера. Возврат ресурсов
 при удалении заказа, отмене и провале печати остался в C6 как отдельная задача.
+
+Справочник протоколов теперь один на всё приложение: `agent/adapters/registry.py` (`PROTOCOLS` и
+`ProtocolSpec` — подпись, класс адаптера строкой «модуль:Класс», порты, способ обнаружения, набор
+возможностей, форматы файлов и имена секретов), `PRINTER_PROTOCOLS` в `lib/db/workshop-types.ts` и
+два check-ограничения в `supabase/workshop_printer_protocols.sql`. Восемь протоколов: moonraker,
+octoprint, bambu, prusa, creality, anycubic, flashforge, elegoo. Драйверы Moonraker и Bambu
+работают, OctoPrint — заглушка; для остальных протокол приложение уже знает, а агент отвечает
+`AdapterUnavailableError` («протокол creality ещё не реализован в агенте»): задание закрывается
+отказом с этой причиной, а не молчаливым пропуском. Импорт драйвера ленивый —
+`registry.load_adapter_class()` подтягивает модуль при первом задании, поэтому справочник собирается
+без paho и ssl. У адаптера появились `capabilities` (что драйвер действительно умеет),
+`accepted_formats` (какие расширения принтер печатает), `pause_print()`/`resume_print()` и
+`probe()` (что принтер рассказывает о себе, не начиная печать); секреты сверх `api_key` приходят
+из `printer_secrets` в `self.secrets`.
+
+Форматы файлов печати собраны в `agent/adapters/formats.py`. `sanitize_remote_name()` приводит имя
+к ASCII и одному набору символов (Creality получает `_` вместо пробелов), обрезает до 255 символов
+и не пускает `/` и `..`: прошивка ищет файл по имени, а путь в имени увёл бы загрузку в чужую
+папку. `ensure_format()` сверяет расширение с `formats` справочника и отказывает `FormatError`
+ещё до сети — «Moonraker (Klipper) не печатает .3mf — переслайсите в .gcode, .gco или .g», — пакует
+`.gcode` в контейнер `.3mf` для Bambu и проверяет записи `3D/3dmodel.model` и
+`Metadata/plate_1.gcode` внутри `.3mf` для FlashForge: контейнер без готового G-code принтер
+принимает, но печатать отказывается. `file_digest()` считает MD5 потоком — он нужен Anycubic,
+Elegoo и Bambu. Адаптер готовит файл в `prepare_upload()` и получает `UploadPlan` (путь, имя,
+MD5, размер, признак временного файла), а `upload_file()` работает с планом и удаляет временный
+контейнер в `finally`.
+
+Интерфейс проверяет те же форматы заранее: матрица `PRINTER_UPLOAD_FORMATS` и
+`validatePrintFileForProtocol()` в `lib/workshop/printers.ts`. Окно товара не даёт загрузить файл,
+который не печатает ни один принтер фермы (STL не проверяется: это исходник для слайсера), а
+карточка заказа и `queueOrderForPrint()` пропускают в очередь только совместимые позиции и
+объясняют отказ: «Prusa (PrusaLink) не печатает .3mf — переслайсите в .gcode или .bgcode».
+
 
 Поддерживаемые принтеры: Moonraker (Klipper) — полностью: проверка связи, загрузка файла, старт
 печати и опрос состояния; Bambu Lab — тоже полностью, по LAN-протоколу принтера (MQTT с TLS на
@@ -2779,7 +2827,7 @@ scripts/test-print-resources.ts`): 18 проверок, включая гран�
 | `lib/workshop/payload.ts` | Строки для записи в таблицы Мастерской: `createWorkshopSettingsPayload(userId, settings, requisites, integrations)` (все три группы необязательны: сохранение калькулятора не перезаписывает реквизиты и ключи Ozon, вкладка «Реквизиты» — числа и ключи, «Интеграции» — числа и реквизиты; `undefined`-поля в запрос не попадают, а `null` в обоих ключах выключает интеграцию; `ozon_api_key` приходит уже зашифрованным из `saveWorkshopSettings`), `createFilamentPayload`, `createPrinterPayload`, `createOrderPayload`, а также `createPrinterUsagePayload` и `createFilamentUsagePayload` для update после заказа — единственное место перевода camelCase → snake_case; пустые ссылка, клиент, заметки и срок превращаются в `null`, `product_id` и `client_id` появляются только при выбранных товаре и клиенте, а переименование колонки ловит TypeScript, а не ответ PGRST204 из прода |
 | `lib/workshop/filaments.ts` | Склад пластика: `WorkshopFilament` (`usageType`: `stock` — складской, `ordered` — заказной), `FilamentOrderItem`, `FILAMENT_ORDER_LIMITS` (до 100 позиций, 1–100 000 г), `FILAMENT_COLUMNS`, `FILAMENT_NUMBER_FIELDS` (вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г; вес — integer), `FILAMENT_TEXT_LIMITS` (60/30/40/500), `FILAMENT_DEFAULTS` (1 000 / 200 / 1 500), `FILAMENT_BRANDS` (13 производителей для `<datalist id="brand-list">`), `FILAMENT_TYPE_SUGGESTIONS`, `FILAMENT_USAGE_TYPES` (`stock`/`ordered`), `FILAMENT_USAGE_TYPE_LABELS`, `isFilamentUsageType`, `readFilamentUsageType` (нет поля или неизвестное значение → `stock`), `IMPORTED_FILAMENTS_MAX` (100), `parseImportedFilamentName` (бренд и тип отдельными словами, остаток названия — цвет, иначе «Импорт» / «PLA» / «Разное»), `createImportedFilamentDraft` (кг → граммы, другая единица → 1 000 г, цена позиции → ₽/кг, без цены — 1 500), `SaveImportedFilamentsResult`, `normalizeFilamentRow` (битое число → значение по умолчанию, строка без UUID отбрасывается), `readFilamentForm` (текст, ссылка только `http(s)://`, остаток не больше общего веса), `readConsumeFilamentForm`, `isFilamentId`, `readFilamentOrderItems` (JSON из адреса → уникальные позиции с целыми граммами в допустимых пределах), `isLowStockFilament`, `filamentRemainingPercent`, `subtractFilamentWeight`, `formatGrams` |
 | `lib/workshop/filament-store.ts` | `getWorkshopFilaments(supabase, userId)` → `{ filaments, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой склад и признак неприменённой миграции через `isMissingTableSchema()`; `getWorkshopFilamentsByIds(supabase, userId, filamentIds)` для печатной закупки: `.in("id", …)` с обязательным `user_id`, до запроса отсекает мусорные id, повторы и всё сверх 100 позиций, ошибку так же превращает в пустой список |
-| `lib/workshop/printers.ts` | Принтеры: `WorkshopPrinter` (наработки и интервалы сопла, смазки осей и винта Z), `PRINTER_COLUMNS`, `PRINTER_TEXT_LIMITS` (60/40/60), `PRINTER_INTERVAL_LIMITS` (сопло и винт Z 1–10 000 ч, смазка 0–10 000 ч), `PRINTER_INTERVAL_DEFAULTS` (400/300/720), `readPrinterForm` (имя, бренд и модель — свободный текст, три интервала), `normalizePrinterRow` (битое число → значение по умолчанию; старые строки без винта Z получают 0/720), `isPrinterId`, `isIsoDate`, `printerMaintenancePercent` (дробный процент, 0…∞), `printerMaintenanceLevel` (`ok` до 80 %, `due` 80–100 %, `overdue` больше 100 %; `null` при интервале 0), `countMaintenanceDue` (три узла), `formatPrinterHours`, `formatPrinterDate`, `PRINTER_PROTOCOL_OPTIONS` и `formatPrinterProtocol` (один список подписей протоколов для формы добавления и карточки), `formatPrinterLastSeen` («29.10.2026, 14:05» или «ещё не выходил на связь»), `readPrinterConnectionForm` (`PrinterConnectionDraft`: протокол обязателен, адрес проверяется `normalizePrinterAddress`, SN остаётся только у Bambu, пустой ключ — «оставить сохранённый»); `normalizePrinterRow` читает ещё `protocol_type` (незнакомое значение → `moonraker`) и `ip_address` (`null` без миграции) |
+| `lib/workshop/printers.ts` | Принтеры: `WorkshopPrinter` (наработки и интервалы сопла, смазки осей и винта Z), `PRINTER_COLUMNS`, `PRINTER_TEXT_LIMITS` (60/40/60), `PRINTER_INTERVAL_LIMITS` (сопло и винт Z 1–10 000 ч, смазка 0–10 000 ч), `PRINTER_INTERVAL_DEFAULTS` (400/300/720), `readPrinterForm` (имя, бренд и модель — свободный текст, три интервала), `normalizePrinterRow` (битое число → значение по умолчанию; старые строки без винта Z получают 0/720), `isPrinterId`, `isIsoDate`, `printerMaintenancePercent` (дробный процент, 0…∞), `printerMaintenanceLevel` (`ok` до 80 %, `due` 80–100 %, `overdue` больше 100 %; `null` при интервале 0), `countMaintenanceDue` (три узла), `formatPrinterHours`, `formatPrinterDate`, `PRINTER_PROTOCOL_OPTIONS` (восемь протоколов: moonraker, octoprint, bambu, prusa, creality, anycubic, flashforge, elegoo) и `formatPrinterProtocol` (один список подписей протоколов для формы добавления и карточки), `PRINTER_SERIAL_PROTOCOLS` и `isPrinterSerialProtocol` (SN нужен только Bambu и FlashForge), `formatPrinterLastSeen` («29.10.2026, 14:05» или «ещё не выходил на связь»), `readPrinterConnectionForm` (`PrinterConnectionDraft`: протокол обязателен, адрес проверяется `normalizePrinterAddress`, SN остаётся только у Bambu и FlashForge (`isPrinterSerialProtocol`), пустой ключ — «оставить сохранённый»); `normalizePrinterRow` читает ещё `protocol_type` (незнакомое значение → `moonraker`) и `ip_address` (`null` без миграции); находка агента с незнакомым протоколом отбрасывается и считается в `skipped` (`readDiscoveredPrinters`), строка `workshop_discovered_printers` с таким протоколом не показывается (`normalizeDiscoveredPrinterRow`) — подставлять moonraker по умолчанию значило бы закрепить в базе чужой протокол |
 | `lib/workshop/printer-store.ts` | `getWorkshopPrinters(supabase, userId)` → `{ printers, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой парк и признак неприменённой миграции |
 | `lib/workshop/orders.ts` | Заказы: `WorkshopOrder`, `OrderStatus` и `ORDER_STATUS_META` (подписи и классы бейджей), `ORDER_STATUS_SEQUENCE`/`nextOrderStatus` (new → printing → ready → delivered, дальше `null`), `ORDER_COLUMNS`, `ORDER_TEXT_LIMITS` (80/60/1000), `ORDER_LIMITS` (стоимость 0–1 000 000 ₽, вес 0–100 000 г, время 0–100 000 ч), `readOrderForm` (числа с запятой, необязательные uuid принтера, катушки, товара и клиента, дата; `productId` и `clientId` в `OrderDraft`), `ORDER_CLIENT_COLUMNS` (`ORDER_COLUMNS` + `client_id` для накладной), `normalizeOrderRow` (битая ссылка клиента → null), `isOrderId`, `isOrderStatus`, `formatOrderCost`/`formatOrderDate`/`formatOrderHours`, `planPrinterUsage` (прибавляет время к четырём счётчикам: всего, сопло, смазка осей, винт Z) и `planFilamentUsage` (остаток или отказ «не хватает пластика»); комментарии: `OrderComment`, `ORDER_COMMENT_COLUMNS`, `ORDER_COMMENT_TEXT_LIMIT` (1000), `readOrderCommentText` (пустой текст и одни пробелы отклоняются) и `normalizeOrderComment` (ряд без UUID или текста отбрасывается), позиции заказа: `OrderItemSummary`, `ORDER_ITEM_COLUMNS` (связь `workshop_order_items_product_id_fkey`), `ORDER_ITEM_QUANTITY_LIMIT` (10 000), `readOrderItemSku` (пустой или длиннее 128 символов → `null`), `readOrderItemQuantity` (целое 1…10 000, запятая как разделитель) и `normalizeOrderItemSummary` (товар объектом или массивом, битый ряд отбрасывается) |
 | `lib/workshop/order-store.ts` | `getWorkshopOrders(supabase, userId)` → `{ orders, isMissingTable }`: выборка по `user_id`, новые сверху, ошибку не пробрасывает — пустой список и признак неприменённой миграции. `getWorkshopOrder(supabase, userId, orderId)` → `WorkshopOrder \| null`: один заказ по `id` и `user_id` для спецификации и накладной; сначала читает `ORDER_CLIENT_COLUMNS`, при отсутствии колонки `client_id` (42703/PGRST204) повторяет запрос с `ORDER_COLUMNS`; битый UUID, отсутствие строки и ошибка чтения дают `null`. `getOrderComments(orderId)` → `OrderComment[]`: битый UUID и отсутствие сессии дают пустой список, выборка по `order_id` и `user_id` с сортировкой `created_at asc`, ошибка чтения не роняет карточку заказа. `getOrderItems(orderId)` → `OrderItemSummary[]`: позиции для блока карточки (название товара и количество), выборка по `order_id` и `user_id` с порядком `created_at asc`, битый id и ошибка чтения дают пустой список |
@@ -2974,7 +3022,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `workshop_filaments` | `id uuid`, `user_id uuid` (`auth.users.id`), `brand text`, `type text`, `color text`, `usage_type text`, `total_weight_g integer`, `remaining_weight_g integer`, `price_per_kg numeric(10,2)`, `min_threshold_g integer`, `purchase_url text`, `created_at timestamptz` | Склад пластика Мастерской: одна строка — одна катушка, вес целыми граммами, ссылка на товар необязательна. `usage_type` — `stock` (складская, пополняется всегда) или `ordered` (заказная, куплена под задачу), not null default `stock`. Check повторяют форму (длины 60/30/40/500, вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г) плюс `usage_type in ('stock', 'ordered')` и `remaining_weight_g <= total_weight_g`; индекс `(user_id, created_at)`. RLS: select/insert/update/delete только своих строк, гранты `authenticated`; удаление через API разрешено, но кнопки в интерфейсе пока нет. Схема — `supabase/workshop_filaments.sql`, колонка типа — `supabase/workshop_filament_usage_type.sql` |
 | `workshop_clients` | `id uuid`, `user_id uuid` (`auth.users.id`), `name text`, `phone text`, `email text`, `address text`, `notes text`, `created_at timestamptz` | База клиентов Мастерской: имя обязательно (`check (btrim(name) <> '')`), телефон, email, адрес и заметки необязательны; длины в форме 160/40/160/300/2000. Индекс `(user_id, created_at desc)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`; `user_id` — `on delete cascade`. Схема — `supabase/workshop_clients.sql` |
 
-| `workshop_printers` | `id uuid`, `user_id uuid` (`auth.users.id`), `name text`, `brand text`, `model text`, `total_hours numeric(12,2)`, `nozzle_hours numeric(12,2)`, `nozzle_interval integer`, `lubrication_hours numeric(12,2)`, `lubrication_interval integer`, `z_screw_hours numeric(12,2)`, `z_screw_interval integer`, `last_maintenance_date date`, `created_at timestamptz` | Принтеры Мастерской: имя 1–60, бренд 1–40, модель 1–60, наработки 0–1 000 000 ч, интервалы сопла и винта Z 1–10 000 ч, смазки 0–10 000 ч (0 — смазка не требуется); `z_screw_interval` по умолчанию 720. Индекс `(user_id, created_at)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. `user_id` — `on delete cascade`. Схема — `supabase/workshop_printers_orders.sql`, обновление колонок — `supabase/workshop_printer_z_screw.sql` |
+| `workshop_printers` | `id uuid`, `user_id uuid` (`auth.users.id`), `name text`, `brand text`, `model text`, `total_hours numeric(12,2)`, `nozzle_hours numeric(12,2)`, `nozzle_interval integer`, `lubrication_hours numeric(12,2)`, `lubrication_interval integer`, `z_screw_hours numeric(12,2)`, `z_screw_interval integer`, `last_maintenance_date date`, `created_at timestamptz` | Принтеры Мастерской: имя 1–60, бренд 1–40, модель 1–60, наработки 0–1 000 000 ч, интервалы сопла и винта Z 1–10 000 ч, смазки 0–10 000 ч (0 — смазка не требуется); `z_screw_interval` по умолчанию 720. Индекс `(user_id, created_at)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. `user_id` — `on delete cascade`. Схема — `supabase/workshop_printers_orders.sql`, обновление колонок — `supabase/workshop_printer_z_screw.sql`. Живые колонки агента (`protocol_type`, `ip_address`, `api_key`, `serial_number`, `status`, `progress`, `remaining_time`, `last_seen_at`) добавляет `supabase/workshop_farm_and_shop.sql`; восемь протоколов и `printer_secrets jsonb` (объект строк до 4 КБ: `checkCode` FlashForge, `deviceId`/`modeId` Anycubic, `mainboardId` Elegoo, `storage` PrusaLink) — `supabase/workshop_printer_protocols.sql` |
 | `workshop_orders` | `id uuid`, `user_id uuid` (`auth.users.id`), `title text`, `client_name text`, `status text`, `total_cost numeric(10,2)`, `material_weight_g integer`, `print_time_hours numeric(10,2)`, `printer_id uuid`, `filament_id uuid`, `notes text`, `deadline date`, `source text`, `created_at timestamptz` | Заказы Мастерской: `status` в `new/printing/ready/delivered`, стоимость 0–1 000 000 ₽, вес 0–100 000 г, время 0–100 000 ч, заметки до 1000 символов; `printer_id` и `filament_id` необязательны и при удалении источника обнуляются (`on delete set null`), заказ остаётся. Индексы `(user_id, created_at desc)` и `(user_id, status)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. Схема — `supabase/workshop_printers_orders.sql`. Источник заказа — `supabase/workshop_marketplace_integration.sql`: `source` not null default `manual` с check `manual/ozon/wb/yandex`, поэтому старые заказы остаются ручными, а вебхук пишет `ozon` |
 | `workshop_order_comments` | `id uuid`, `order_id uuid` (`workshop_orders.id`), `user_id uuid` (`auth.users.id`), `text text`, `created_at timestamptz` | Комментарии карточки заказа: `order_id` и `user_id` обязательны, удаление заказа или аккаунта удаляет переписку (`on delete cascade`), текст 1–1000 символов после `btrim` (комментарий из одних пробелов база не принимает). Индекс `(user_id, order_id, created_at)` под ленту; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. Схема — `supabase/workshop_order_comments.sql` |
 

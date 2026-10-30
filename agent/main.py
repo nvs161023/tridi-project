@@ -64,7 +64,7 @@ import requests
 from dotenv import load_dotenv
 
 from adapters.base import BasePrinterAdapter
-from adapters.factory import get_adapter
+from adapters.factory import AdapterUnavailableError, get_adapter
 from gcode_metadata import read_gcode_estimate
 from scanner import scan_network, send_discovered_printers
 
@@ -1195,6 +1195,13 @@ def process_task(task: dict[str, Any]) -> None:
             printer.api_key,
             printer.serial_number,
         )
+    except AdapterUnavailableError as error:
+        # Протокол приложение знает, а драйвера в агенте ещё нет: причина
+        # уходит мастеру как есть, иначе он искал бы опечатку в настройках
+        # принтера вместо обновления агента.
+        logger.error("Задание %s: %s", job_id, error)
+        send_status(job_id, "failed", reason=str(error))
+        return
     except ValueError:
         logger.error(
             "Задание %s: неизвестный протокол принтера %r",
