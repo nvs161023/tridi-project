@@ -2340,13 +2340,24 @@ delivered. На десктопе четыре колонки стоят в ря�
 В карточке заказа есть блок «3D-печать» с кнопкой «В очередь на печать». Кнопка активна, когда у
 заказа выбран принтер и есть товар с G-code, а `printQueueHint` заранее объясняет, чего не хватает
 («Выберите принтер для печати», «В заказе нет позиций — печатать нечего», «В заказе нет товаров с
-G-кодом»); для этого карточка спрашивает `loadOrderPrintStatus(orderId)` — число позиций и число
-позиций с G-code. Постановку делает `queueOrderForPrint(orderId)`: UUID → сессия →
-`hasActiveSubscription` → чтение заказа с позициями → принтер обязателен → первая позиция, у товара
-которой есть G-code → `createPrintJob` (`lib/db/workshop-farm.ts`) с инвариантами «владелец,
-наличие G-code, принтер этой мастерской, одно активное задание на позицию». Повторный клик не
-создаёт дубль, а возвращает уже стоящее задание; после успеха карточка и доска показывают
+G-кодом»); для этого карточка спрашивает `loadOrderPrintStatus(orderId)` — число позиций, число
+позиций с G-code, активное задание и последний отказ. Постановку делает `queueOrderForPrint(orderId)`:
+UUID → сессия → `hasActiveSubscription` → чтение заказа с позициями → принтер обязателен → первая
+позиция, у товара которой есть G-code → `createPrintJob` (`lib/db/workshop-farm.ts`) с инвариантами
+«владелец, наличие G-code, принтер этой мастерской, одно активное задание на позицию». Повторный клик
+не создаёт дубль, а возвращает уже стоящее задание; после успеха карточка и доска показывают
 «Задание добавлено в очередь», а `router.refresh()` перечитывает заказы.
+
+Пока задание живо, кнопка постановки уступает место статусу («В очереди на …», «Печатается на …») и
+красной кнопке «Отменить печать» (`data-order-print-cancel-button`). Отменяет `cancelOrderPrint(orderId)`
+→ RPC `workshop_cancel_print_job`: задание из очереди закрывается сразу как `cancelled`, а печатающееся
+получает `cancel_requested`, и агент гасит принтер на следующем опросе — до этого кнопка показывает
+«Отмена запрошена…» и остаётся выключенной, а подсказка объясняет, что принтер ещё может быть занят.
+Рядом со статусом видно, что агент вычитал из G-кода: оценку времени (`estimated_seconds` →
+`formatPrintDuration`, «≈2 ч 5 мин»), расход пластика (`filament_grams` → `formatGrams`) и метки «в
+очереди с» / «печать начата». Когда активного задания нет, карточка показывает последний отказ или
+отмену (`getOrderLastPrintFailure`, плашка `data-order-print-last-failure`): иначе мастер видел бы снова
+доступную кнопку и не знал, что печать уже падала и почему.
 
 Окно «Создать заказ» (`CreateOrderDialog`) принимает товар из каталога, название, клиента, стоимость,
 вес, время, срок, принтер, катушку и заметки. Список товаров приходит с сервера через
@@ -2397,6 +2408,27 @@ snake_case — `createOrderPayload`, `createOrderUpdatePayload`, `createPrinterU
 граммы по PLA 1,75 мм (≈ 2,98 г/м, `GCODE_GRAMS_PER_METER`). Если нашлось только одно значение,
 заполняется только оно, а строка состояния честно говорит, чего в файле нет; сам файл никуда не
 отправляется.
+
+Очередь печати доводится до рабочего состояния миграцией `supabase/workshop_print_queue_hardening.sql`
+(применяется после `workshop_farm_and_shop.sql`, повторный запуск безопасен). Она добавляет к
+`workshop_print_jobs` семь колонок: `last_error` (причина отказа от агента, до 500 символов),
+`estimated_seconds`, `filament_grams numeric(10, 2)`, метки `queued_at` (дозаполняется из `created_at`
+и получает `default now()`), `started_at`, `finished_at` и `cancel_requested boolean not null default
+false`. Ограничение статуса пересоздаётся с `cancelled` — отмена мастером не должна попадать в
+статистику поломок, как `failed`. Журнал `workshop_print_events` (`user_id`, `order_id`, `job_id`,
+`printer_id`, `event`, `message`, `created_at`, индекс по `(user_id, created_at)`) пишется только
+триггером: authenticated читает его и не может подделать историю. Триггер
+`workshop_print_jobs_sync_order()` после вставки, смены статуса и подъёма флага делает три вещи
+одной транзакцией с записью задания: ставит метки этапов (`queued_at`/`started_at`/`finished_at`),
+двигает Канбан заказа (`printing` при постановке и старте, `ready` после `done`, `new` после
+`failed`/`cancelled`) и пишет событие (`queued`, `started`, `done`, `failed`, `cancelled`); событие
+`cancel_requested` пишет сама RPC отмены. Поэтому статусный роут больше не правит заказ из
+приложения: он определяет наличие колонки `cancel_requested` и, если она есть, полагается на
+триггер, а прикладной `update` оставляет только для базы без миграции. Отмена — RPC
+`workshop_cancel_print_job(uuid)`: `queued` закрывается сразу как `cancelled`, `printing` получает
+`cancel_requested`, закрытое задание отклоняется. В конце файла — `notify pgrst, 'reload schema'`,
+без него PostgREST отвечает `PGRST202` на новую RPC; там же чек-лист проверки (колонки, триггер,
+права, публикация Realtime, ручной прогон отмены).
 
 Три миграции применяются вручную (Supabase Dashboard → SQL Editor или Termius), в порядке
 `workshop_settings.sql` → `workshop_filaments.sql` → `workshop_printers_orders.sql`: заказы
@@ -2500,7 +2532,16 @@ default 'manual'` с check `manual/ozon/wb/yandex` — заказы, созда�
   подключается к принтеру, загружает файл и запускает печать;
 - во время печати раз в 10 секунд опрашивает состояние принтера и отправляет прогресс в CRM
   (`POST /api/agent/status`): только изменения процентов, при 100 % или простое — `done`, при
-  ошибке принтера — `failed`, чтобы заказ вернулся мастеру на Канбан;
+  ошибке принтера — `failed`, чтобы заказ вернулся мастеру на Канбан; вместе со статусом уходит
+  причина (`reason` → `workshop_print_jobs.last_error`) и оценка слайсера из самого G-code
+  (`estimatedSeconds`, `filamentGrams` — `agent/gcode_metadata.py`), а без неё в карточке нечего
+  показать, кроме процентов;
+- между срезами прогресса спрашивает `GET /api/agent/status?jobId=…` — не попросил ли мастер отменить
+  печать. Ответ `{"cancelRequested": true}` означает «останови»: адаптер гасит печать (`stop_print()` —
+  MQTT-команда `stop` у Bambu, `printer.print.cancel` у Moonraker), и в CRM уходит статус `cancelled`.
+  Любая неясность (нет флага в базе, сбой чтения) даёт `false`: гасить печать из-за сетевого сбоя
+  нельзя, поэтому опрос «не отменять» — безопасный ответ по умолчанию; пока миграция hardening не
+  применена, колонки-флага нет и `false` приходит даже на неизвестный `jobId` — это тот же размен;
 - сетевые ошибки не останавливают агента: в журнале появляется «Сетевая ошибка,
   переподключение...», повтор идёт через 5 секунд, а на старте агент снимает застрявший статус
   `error` у принтеров, оставшийся с прошлого запуска.
@@ -2509,7 +2550,13 @@ default 'manual'` с check `manual/ozon/wb/yandex` — заказы, созда�
 печати и опрос состояния; Bambu Lab — тоже полностью, по LAN-протоколу принтера (MQTT с TLS на
 8883 и implicit FTPS на 990, пароль — код доступа с экрана): серийный номер берётся из задания —
 поле «Серийный номер (SN)» в форме принтера Мастерской (колонка `workshop_printers.serial_number`,
-протокол `bambu`), — затем SSDP-поиска и первого отчёта. OctoPrint пока заглушка: протокол есть в
+протокол `bambu`), — затем SSDP-поиска и первого отчёта. Загрузка файла идёт FTPS с обязательными
+`PROT P` и `PASV`, а TLS ограничен 1.2: только в нём Python отдаёт TLS-сессию управляющего канала
+сразу после рукопожатия, и принтер принимает её в канале данных. Без переиспользования Bambu рвёт
+передачу (`WinError 10054`), поэтому после сброса файл отправляется вручную через сокет (`TYPE I`,
+затем `STOR` и запись в канал), а последняя попытка — HTTP `POST /api/files/local` с `X-Api-Key`
+(в LAN-режиме Bambu этот адрес не документирован: попытка одна, ответ кроме 200/201 — причина
+отказа в `last_error`). OctoPrint пока заглушка: протокол есть в
 списке, но методы адаптера поднимают `NotImplementedError`, поэтому такое задание сразу закрывается
 статусом `failed` с понятной причиной в журнале, а агент продолжает опрос очереди.
 
@@ -2738,6 +2785,7 @@ default 'manual'` с check `manual/ozon/wb/yandex` — заказы, созда�
 | `createOrder`, `updateOrder`, `updateOrderStatus`, `deleteOrder` | `app/actions/orders.ts` | Заказы Мастерской. Создание: разбор формы (`readOrderForm`) → сессия → `hasActiveSubscription` → чтение принтера, катушки и товара по `user_id` → `planFilamentUsage` (не хватает пластика — ошибка у поля «Вес») → `insert` заказа (с `product_id`, если товар выбран) → `update` наработки (`planPrinterUsage`) → `update` остатка катушки; при сбое второго update наработка возвращается к прежним числам, а заказ удаляется. Правка: `readOrderEditForm` (те же пределы, без полей техники) → сессия → `hasActiveSubscription` → заказ читается по `id` и `user_id` (пустой ответ — «заказ не найден»; наличие `client_id` решает, писать ли ссылку) → клиент проверяется по `user_id` → `update` только полей карточки (`createOrderUpdatePayload`: название, клиент, стоимость, вес, время, срок, заметки) с `select('title')`; `status`, `printer_id` и `filament_id` не меняются, наработка и склад не пересчитываются, ошибки полей приходят в `OrderEditState.fieldErrors`. Смена статуса: целевой статус приходит из Kanban, проверяется `isOrderStatus`; заголовок и текущий статус читаются из базы по `user_id`, затем `update` выбранного статуса — поэтому карточку можно вернуть назад. Удаление: UUID → сессия → `hasActiveSubscription` → `delete` по `id` и `user_id` с `select('title')`; комментарии уходят каскадом, пустой ответ — «заказ не найден», после успеха возвращается `{ ok: true, message }`. После успеха `revalidatePath('/dashboard/workshop')`; состояние формы — `OrderFormState` и `OrderEditState` из `app/actions/orders-state.ts` |
 | `addOrderComment`, `loadOrderComments` | `app/actions/orders.ts` | Комментарии карточки заказа. `loadOrderComments(orderId)` — тонкая обёртка над `getOrderComments()` из `lib/workshop/order-store.ts` (клиент не может импортировать серверный модуль чтения). `addOrderComment(orderId, text)`: UUID и текст проверяются до запроса (`readOrderCommentText`: пустой текст и больше 1000 символов отклоняются) → реальная сессия → `hasActiveSubscription` → заказ читается по `id` и `user_id` (RLS политики комментариев проверяет только автора, поэтому принадлежность заказа проверяет действие) → `insert` в `workshop_order_comments` с `select` вставленной строки. Возвращает `{ ok: true, comment }` с датой из базы или `{ ok: false, error }`; при отсутствии таблицы — текст про `supabase/workshop_order_comments.sql`, а не 500 |
 | `addOrderItem`, `loadOrderItems` | `app/actions/orders.ts` | Позиции заказа вручную. `loadOrderItems(orderId)` — обёртка над `getOrderItems()` из `lib/workshop/order-store.ts` (список с названием товара и количеством для блока «Позиции заказа»). `addOrderItem(orderId, productId, quantity)`: UUID заказа и товара проверяются до запроса, количество — `readOrderItemQuantity` (целое 1…10 000) → реальная сессия → `hasActiveSubscription` → заказ читается по `id` и `user_id` → товар читается по `id` и `user_id` → `insert` в `workshop_order_items` (`user_id`, `order_id`, `product_id`, `sku`-снимок, `quantity`) с `select` вставленной строки → `revalidatePath('/dashboard/workshop')`. Возвращает `{ ok: true, item, message }` или `{ ok: false, error }`; при отсутствии таблицы — текст про `supabase/workshop_farm_and_shop.sql`. `total_cost` не пересчитывается: стоимость заказа остаётся ручным полем |
+| `loadOrderPrintStatus`, `queueOrderForPrint`, `cancelOrderPrint` | `app/actions/orders.ts` | Блок «3D-печать» карточки заказа. `loadOrderPrintStatus(orderId)` читает позиции с G-code, активное задание (`getOrderActivePrintJob`) и последний отказ (`getOrderLastPrintFailure`); ошибка чтения даёт `null`, а отсутствие миграции — просто пустую очередь. `queueOrderForPrint(orderId, printerId?)`: UUID → сессия → `hasActiveSubscription` → заказ с позициями → принтер (из карточки, иначе из заказа) → первая позиция с G-code → `createPrintJob`; повторный клик не создаёт дубль. `cancelOrderPrint(orderId)`: UUID → сессия → `hasActiveSubscription` → активное задание ищется на сервере → `cancelPrintJob` (RPC `workshop_cancel_print_job`); сообщение зависит от ответа базы — «Задание снято с очереди» для `cancelled` и «Просьба об отмене отправлена…» для `requested`, повторный клик по уже поднятому флагу RPC не дёргает. После успеха — `revalidatePath('/dashboard/workshop')` |
 | `addClient` | `app/actions/clients.ts` | База клиентов Мастерской: разбор формы (`readClientForm`: имя обязательно, телефон и email проверяются по формату) → реальная сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_clients` → `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции; логика, проверки и типы — в `lib/workshop/clients.ts` |
 
 
@@ -2899,6 +2947,8 @@ Self-hosted Supabase на сервере в РФ: используются то�
   `purchases` (дата закрытия) и в логах сервера, деньги возвращаются в кабинете Robokassa вручную.
 - **Realtime включён публикацией `supabase_realtime`**: в неё добавлены `workshop_orders`,
   `workshop_printers` и `workshop_print_jobs` (раздел 9 файла `supabase/workshop_farm_and_shop.sql`).
+  Миграция `supabase/workshop_print_queue_hardening.sql` добавляет туда же `workshop_print_events`
+  (условно — только если таблицы в публикации ещё нет): журнал очереди тоже приходит событиями.
   RLS действует и на события, поэтому подписка видит только строки своего пользователя; таблица без
   записи в публикации не присылает `postgres_changes` вовсе, и вкладка обновляется лишь после
   перезагрузки страницы.

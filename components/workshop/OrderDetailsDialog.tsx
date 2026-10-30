@@ -17,6 +17,7 @@ import { createPortal } from "react-dom";
 import {
   addOrderComment,
   addOrderItem,
+  cancelOrderPrint,
   deleteOrder,
   loadOrderComments,
   loadOrderItems,
@@ -32,6 +33,7 @@ import {
   PlusIcon,
   TrashIcon,
 } from "@/components/workshop/WorkshopIcons";
+import { printerMismatchMessage } from "@/lib/3d/print-compatibility";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import {
   formatGrams,
@@ -117,12 +119,35 @@ function formatCommentDate(value: string | null): string {
 }
 
 /**
+ * Оценка печати из G-кода: «≈45 мин» или «≈2 ч 5 мин».
+ *
+ * Агент присылает секунды, но мастеру нужно прикинуть время, а не считать.
+ * Знак «≈» обязателен: слагер в G-коде считает по среднему потоку пластика, и
+ * точная минута там не гарантирована. Меньше минуты показываем минуту — «0 мин»
+ * выглядело бы как ошибка расчёта.
+ */
+function formatPrintDuration(seconds: number): string {
+  const totalMinutes = Math.max(1, Math.round(seconds / 60));
+
+  if (totalMinutes < 60) {
+    return `≈${totalMinutes} мин`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return minutes === 0 ? `≈${hours} ч` : `≈${hours} ч ${minutes} мин`;
+}
+
+/**
  * Подсказка рядом с кнопкой «В очередь на печать».
  *
  * Кнопка блокируется по трём причинам: принтер не выбран, проверка позиций ещё
  * идёт или печатать нечего. Если проверка не удалась, текст не запрещает клик:
  * Server Action повторит чтение и объяснит причину. Активное задание перекрывает
  * всё остальное: пока оно живо, кнопки нет, и подсказка объясняет, чего ждать.
+ * Запрошенная отмена важнее статуса задания: мастер уже нажал кнопку и должен
+ * видеть, что просьба ушла агенту, а не что печать «просто идёт».
  */
 function printQueueHint({
   hasPrinter,
@@ -134,9 +159,17 @@ function printQueueHint({
   status: OrderPrintStatus | null;
 }): string {
   if (status?.activeJob) {
-    return status.activeJob.status === "printing"
-      ? "Печать уже идёт: прогресс придёт от агента 3D-фермы."
-      : "Задание в очереди фермы: агент заберёт его, как только освободится принтер.";
+    if (status.activeJob.cancelRequested) {
+      return "Отмена запрошена: агент остановит печать на следующем опросе — принтер ещё может быть занят.";
+    }
+
+    if (status.activeJob.status === "printing") {
+      return status.activeJob.estimatedSeconds
+        ? `Печать уже идёт: по оценке из G-кода ${formatPrintDuration(status.activeJob.estimatedSeconds)}.`
+        : "Печать уже идёт: прогресс придёт от агента 3D-фермы.";
+    }
+
+    return "Задание в очереди фермы: агент заберёт его, как только освободится принтер.";
   }
 
   if (!hasPrinter) {
@@ -156,7 +189,7 @@ function printQueueHint({
   }
 
   if (status.gcodeItemCount === 0) {
-    return "В заказе нет товаров с G-кодом";
+    return "В заказе нет файлов для печати: приложите .gcode или .3mf (STL нужно нарезать)";
   }
 
   return "Принтер назначен: задание встанет в очередь 3D-фермы";
@@ -230,6 +263,8 @@ export function OrderDetailsDialog({
   /** Всплывающее уведомление после успешной постановки в очередь. */
   const [printNotice, setPrintNotice] = useState<string | null>(null);
   const [isQueueing, startQueueing] = useTransition();
+  /** Отмена печати: кнопка гаснет до ответа сервера, как и постановка в очередь. */
+  const [isCancellingPrint, startCancellingPrint] = useTransition();
   const router = useRouter();
   const dialogRef = useRef<HTMLDivElement>(null);
   const editTriggerRef = useRef<HTMLButtonElement>(null);
@@ -567,6 +602,41 @@ export function OrderDetailsDialog({
   }
 
   /**
+   * Отмена печати заказа.
+   *
+   * Задание ищет сервер: карточка могла открыться до постановки в очередь, а
+   * клиентский id — лишний повод поверить вводу. `queueVersion` перечитывает
+   * статус задания, чтобы кнопка сразу сменилась на «Отмена запрошена…»: агент
+   * гасит печать не мгновенно, и повторный клик должен быть заблокирован.
+   */
+  function handleCancelPrint() {
+    if (isCancellingPrint) {
+      return;
+    }
+
+    setPrintError(null);
+
+    startCancellingPrint(async () => {
+      try {
+        const result = await cancelOrderPrint(order.id);
+
+        if (!result.ok) {
+          setPrintError(result.error ?? "Не удалось отменить печать.");
+          return;
+        }
+
+        const message = result.message ?? "Печать отменена.";
+        setPrintNotice(message);
+        onUpdated(message);
+        setQueueVersion((version) => version + 1);
+        router.refresh();
+      } catch {
+        setPrintError("Нет связи с сервером. Попробуйте ещё раз.");
+      }
+    });
+  }
+
+  /**
    * Смена принтера в карточке.
    *
    * Пишем сразу, без кнопки «Сохранить»: принтер — одна строка, и мастер
@@ -651,6 +721,47 @@ export function OrderDetailsDialog({
     return product ? sum + product.price * item.quantity : sum;
   }, 0);
 
+  /**
+   * Причина отказа отправить файл на выбранный принтер.
+   *
+   * 3MF помнит модель принтера, под которую его нарезали, и чужой профиль
+   * ломает печать. Текст берём из общего модуля: карточка и Server Action
+   * говорят одно и то же, а `queueOrderForPrint` повторяет проверку — страница
+   * могла устареть, пока карточка была открыта.
+   */
+  const slicedPrinterMismatch = useMemo(() => {
+    if (!selectedPrinterId) {
+      return null;
+    }
+
+    const printer = printers.find((entry) => entry.id === selectedPrinterId);
+
+    if (!printer) {
+      return null;
+    }
+
+    for (const item of items) {
+      const product = item.productId
+        ? productById.get(item.productId)
+        : undefined;
+
+      if (!product?.slicedForPrinter) {
+        continue;
+      }
+
+      const message = printerMismatchMessage(product.slicedForPrinter, {
+        brand: printer.brand,
+        model: printer.model,
+      });
+
+      if (message) {
+        return message;
+      }
+    }
+
+    return null;
+  }, [items, printers, productById, selectedPrinterId]);
+
   if (typeof document === "undefined") {
     return null;
   }
@@ -662,6 +773,13 @@ export function OrderDetailsDialog({
   const hasGcode = (printStatus?.gcodeItemCount ?? 0) > 0;
   /** Задание, которое уже стоит в очереди или печатается. */
   const activeJob = printStatus?.activeJob ?? null;
+  /** Просьба об отмене уже в базе: агент остановит принтер на следующем опросе. */
+  const cancelRequested = activeJob?.cancelRequested ?? false;
+  /**
+   * Последний отказ или отмена. Показываем только без активного задания: иначе
+   * старый текст ошибки читался бы как причина текущей печати.
+   */
+  const lastFailure = activeJob ? null : (printStatus?.lastFailure ?? null);
   /**
    * Подпись статуса задания. Принтер берём из задания, а не из заказа: печатать
    * будет та машина, которой задание отдали, даже если заказ уже переназначили.
@@ -676,14 +794,16 @@ export function OrderDetailsDialog({
         : "В очереди"
     : "";
   /**
-   * Кнопка активна, когда принтер назначен, проверка нашла товар с G-code и
-   * активного задания ещё нет. `printStatus === null` значит «проверка не
-   * удалась» — клик разрешён, сервер всё равно проверит позиции заново.
+   * Кнопка активна, когда принтер назначен, проверка нашла товар с G-code,
+   * активного задания ещё нет и файл нарезан под этот принтер.
+   * `printStatus === null` значит «проверка не удалась» — клик разрешён,
+   * сервер всё равно проверит позиции и разметку 3MF заново.
    */
   const canQueuePrint =
     hasPrinter &&
     !activeJob &&
     !isPrintStatusLoading &&
+    !slicedPrinterMismatch &&
     (printStatus === null || hasGcode);
   const printHint = printQueueHint({
     hasPrinter,
@@ -1019,19 +1139,35 @@ export function OrderDetailsDialog({
                 </p>
               </div>
               {activeJob ? (
-                <span
-                  data-order-print-job-status={activeJob.status}
-                  className={
-                    activeJob.status === "printing"
-                      ? "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100"
-                      : "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 text-sm font-semibold text-amber-100"
-                  }
-                >
-                  <span aria-hidden>
-                    {activeJob.status === "printing" ? "▶" : "⏳"}
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <span
+                    data-order-print-job-status={activeJob.status}
+                    className={
+                      activeJob.status === "printing"
+                        ? "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100"
+                        : "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 text-sm font-semibold text-amber-100"
+                    }
+                  >
+                    <span aria-hidden>
+                      {activeJob.status === "printing" ? "▶" : "⏳"}
+                    </span>
+                    {activeJobLabel}
                   </span>
-                  {activeJobLabel}
-                </span>
+                  <button
+                    type="button"
+                    onClick={handleCancelPrint}
+                    disabled={isCancellingPrint || cancelRequested}
+                    aria-busy={isCancellingPrint}
+                    data-order-print-cancel-button
+                    className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-red-400/40 bg-red-500/10 px-4 text-sm font-semibold text-red-100 transition-colors hover:border-red-400/60 hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {cancelRequested
+                      ? "Отмена запрошена…"
+                      : isCancellingPrint
+                        ? "Отменяем…"
+                        : "Отменить печать"}
+                  </button>
+                </div>
               ) : (
                 <button
                   type="button"
@@ -1045,6 +1181,62 @@ export function OrderDetailsDialog({
                 </button>
               )}
             </div>
+
+            {activeJob ? (
+              <dl
+                data-order-print-job-details
+                className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs leading-relaxed text-zinc-400"
+              >
+                {typeof activeJob.estimatedSeconds === "number" ? (
+                  <div className="flex items-center gap-1.5">
+                    <dt className="text-zinc-500">Оценка</dt>
+                    <dd className="tabular-nums">
+                      {formatPrintDuration(activeJob.estimatedSeconds)}
+                    </dd>
+                  </div>
+                ) : null}
+                {typeof activeJob.filamentGrams === "number" ? (
+                  <div className="flex items-center gap-1.5">
+                    <dt className="text-zinc-500">Пластик</dt>
+                    <dd className="tabular-nums">
+                      {formatGrams(activeJob.filamentGrams)}
+                    </dd>
+                  </div>
+                ) : null}
+                {activeJob.queuedAt ? (
+                  <div className="flex items-center gap-1.5">
+                    <dt className="text-zinc-500">В очереди с</dt>
+                    <dd>{formatCommentDate(activeJob.queuedAt)}</dd>
+                  </div>
+                ) : null}
+                {activeJob.startedAt ? (
+                  <div className="flex items-center gap-1.5">
+                    <dt className="text-zinc-500">Печать начата</dt>
+                    <dd>{formatCommentDate(activeJob.startedAt)}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            ) : null}
+
+            {lastFailure ? (
+              <p
+                role="status"
+                data-order-print-last-failure={lastFailure.status}
+                className={
+                  lastFailure.status === "failed"
+                    ? "mt-2 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-100"
+                    : "mt-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs leading-relaxed text-zinc-400"
+                }
+              >
+                {lastFailure.status === "failed"
+                  ? "Прошлая печать прервана"
+                  : "Прошлая печать отменена"}
+                {lastFailure.at
+                  ? ` · ${formatCommentDate(lastFailure.at)}`
+                  : ""}
+                {lastFailure.message ? `: ${lastFailure.message}` : "."}
+              </p>
+            ) : null}
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <label
@@ -1101,6 +1293,15 @@ export function OrderDetailsDialog({
                 className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm leading-relaxed text-red-100"
               >
                 {printError}
+              </p>
+            ) : null}
+            {slicedPrinterMismatch ? (
+              <p
+                role="alert"
+                data-order-print-mismatch
+                className="mt-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm leading-relaxed text-amber-100"
+              >
+                {slicedPrinterMismatch}
               </p>
             ) : null}
           </div>

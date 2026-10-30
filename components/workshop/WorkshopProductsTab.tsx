@@ -379,7 +379,7 @@ function ProductsTable({
                 Габариты
               </th>
               <th scope="col" className="px-3 py-3">
-                G-code
+                Файл печати
               </th>
               <th scope="col" className="px-3 py-3 text-right">
                 <span className="sr-only">Действия</span>
@@ -400,7 +400,17 @@ function ProductsTable({
                     {product.sku}
                   </td>
                   <td className="px-3 py-4 font-semibold text-white">
-                    {product.title}
+                    <span className="block">{product.title}</span>
+                    {product.slicedForPrinter ? (
+                      <span
+                        data-product-sliced-printer
+                        title="Файл 3MF нарезан под эту модель принтера"
+                        className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-blue-400/40 bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-blue-100"
+                      >
+                        <span aria-hidden>🖨️</span>
+                        Нарезан для: {product.slicedForPrinter}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-3 py-4 text-right font-semibold whitespace-nowrap tabular-nums text-white">
                     {formatProductPrice(product.price)}

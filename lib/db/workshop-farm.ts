@@ -51,8 +51,25 @@ const ORDER_WITH_ITEMS_COLUMNS =
 const ORDER_ITEM_COLUMNS =
   "id, order_id, product_id, sku, quantity, created_at, product:workshop_products!workshop_order_items_product_id_fkey(id, title, name, gcode_url)";
 
+/**
+ * Базовый набор колонок задания: он есть уже в workshop_farm_and_shop.sql.
+ *
+ * Читается всегда — даже если миграция hardening не применена.
+ */
 const PRINT_JOB_COLUMNS =
   "id, order_id, order_item_id, printer_id, gcode_url, status, created_at, updated_at";
+
+/**
+ * Колонки из supabase/workshop_print_queue_hardening.sql: причина отказа от
+ * агента, оценки слайсера, метки этапов и флаг отмены.
+ *
+ * Отдельный select нужен потому, что миграции применяются вручную. Без неё
+ * PostgREST отвечает 42703 на весь запрос, и карточка заказа потеряла бы даже
+ * статус задания — то есть сломалась бы сильнее, чем до обновления.
+ * `withPrintJobDetails` сначала пробует этот набор и откатывается на базовый.
+ */
+const PRINT_JOB_DETAIL_COLUMNS =
+  `${PRINT_JOB_COLUMNS}, last_error, estimated_seconds, filament_grams, queued_at, started_at, finished_at, cancel_requested`;
 
 const AGENT_PRINTER_COLUMNS =
   "id, name, brand, model, protocol_type, ip_address, api_key, serial_number, status, progress, remaining_time, last_seen_at";
@@ -68,6 +85,15 @@ const GCODE_URL_MAX = 2048;
 
 /** Секунды в году: остаток печати больше — заведомо мусор. */
 const REMAINING_TIME_MAX = 31_536_000;
+
+/** check workshop_print_jobs_last_error_check: от 1 до 500 символов. */
+const PRINT_JOB_ERROR_MAX = 500;
+
+/** check workshop_print_jobs_estimated_seconds_check: от 1 до года. */
+const ESTIMATED_SECONDS_MAX = 31_536_000;
+
+/** numeric(10, 2) с check «больше нуля и не больше 100 кг». */
+const FILAMENT_GRAMS_MAX = 100_000;
 
 type Row = Partial<Record<string, unknown>>;
 
@@ -204,6 +230,39 @@ function writeFailure(
 
 type WorkshopOrderBase = Omit<WorkshopOrderWithItems, "items">;
 
+/** Ответ PostgREST в той части, которую читает этот модуль. */
+type PrintJobQueryResponse = {
+  data: unknown;
+  error: SupabaseErrorLike | null;
+};
+
+/**
+ * Чтение задания с колонками hardening и откатом на базовый набор.
+ *
+ * `build` получает список колонок: PostgREST умеет только «всё или ничего», а
+ * миграция применяется вручную. Откат делается один раз на запрос, поэтому
+ * отсутствие миграции стоит лишнего round-trip только при первом обращении
+ * (PostgREST кэширует схему).
+ */
+async function withPrintJobDetails(
+  build: (columns: string) => PromiseLike<PrintJobQueryResponse>,
+): Promise<PrintJobQueryResponse> {
+  const detailed = await build(PRINT_JOB_DETAIL_COLUMNS);
+
+  if (!detailed.error || !isSchemaError(detailed.error)) {
+    return detailed;
+  }
+
+  console.warn(
+    "Очередь печати: колонки hardening не прочитаны, читаем базовый набор. Примените supabase/workshop_print_queue_hardening.sql.",
+    detailed.error.code,
+    detailed.error.message,
+  );
+
+  return build(PRINT_JOB_COLUMNS);
+}
+
+
 function normalizeProduct(value: unknown): WorkshopProductRef | null {
   const row = readEmbeddedRow(value);
 
@@ -290,6 +349,19 @@ function normalizePrintJob(value: unknown): WorkshopPrintJob | null {
     status: row.status,
     createdAt: readTimestamp(row.created_at),
     updatedAt: readTimestamp(row.updated_at),
+    // Новые колонки: при чтении базового набора (миграция не применена) их нет,
+    // и null остаётся честным «неизвестно», а не «нет ошибки».
+    lastError: readText(row.last_error, PRINT_JOB_ERROR_MAX),
+    estimatedSeconds: readIntegerInRange(
+      row.estimated_seconds,
+      1,
+      ESTIMATED_SECONDS_MAX,
+    ),
+    filamentGrams: readNumberInRange(row.filament_grams, 0, FILAMENT_GRAMS_MAX),
+    queuedAt: readTimestamp(row.queued_at),
+    startedAt: readTimestamp(row.started_at),
+    finishedAt: readTimestamp(row.finished_at),
+    cancelRequested: row.cancel_requested === true,
   };
 }
 
@@ -425,15 +497,17 @@ async function findActivePrintJob(
   ctx: WorkshopFarmContext,
   orderItemId: string,
 ): Promise<WorkshopFarmResult<WorkshopPrintJob | null>> {
-  const result = await ctx.supabase
-    .from("workshop_print_jobs")
-    .select(PRINT_JOB_COLUMNS)
-    .eq("user_id", ctx.userId)
-    .eq("order_item_id", orderItemId)
-    .in("status", ["queued", "printing"])
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const result = await withPrintJobDetails((columns) =>
+    ctx.supabase
+      .from("workshop_print_jobs")
+      .select(columns)
+      .eq("user_id", ctx.userId)
+      .eq("order_item_id", orderItemId)
+      .in("status", ["queued", "printing"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  );
 
   if (result.error) {
     return readFailure(result.error, "Очередь печати не прочитана.");
@@ -614,10 +688,23 @@ export async function createPrintJob(
  * интересует.
  */
 export type OrderActivePrintJob = {
+  /** id нужен кнопке «Отменить печать»: отмена идёт через RPC по заданию. */
+  id: string;
   status: "queued" | "printing";
   printerId: string | null;
   /** null — принтер не назначен или его удалили из парка. */
   printerName: string | null;
+  /** Мастер уже попросил остановить: агент снимет печать на следующем опросе. */
+  cancelRequested: boolean;
+  /** Последняя ошибка задания: показывается в карточке, пока задание активно. */
+  lastError: string | null;
+  /** Оценка слайсера, секунды; null — агент ещё не посчитал. */
+  estimatedSeconds: number | null;
+  /** Расход пластика из G-кода, граммы; null — агент ещё не посчитал. */
+  filamentGrams: number | null;
+  /** Когда задание встало в очередь: карточка считает «в очереди N минут». */
+  queuedAt: string | null;
+  startedAt: string | null;
 };
 
 export async function getOrderActivePrintJob(
@@ -634,15 +721,17 @@ export async function getOrderActivePrintJob(
     return fail("unauthorized", "Нужно войти в мастерскую.");
   }
 
-  const jobResult = await ctx.supabase
-    .from("workshop_print_jobs")
-    .select(PRINT_JOB_COLUMNS)
-    .eq("user_id", ctx.userId)
-    .eq("order_id", orderId)
-    .in("status", ["queued", "printing"])
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const jobResult = await withPrintJobDetails((columns) =>
+    ctx.supabase
+      .from("workshop_print_jobs")
+      .select(columns)
+      .eq("user_id", ctx.userId)
+      .eq("order_id", orderId)
+      .in("status", ["queued", "printing"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  );
 
   if (jobResult.error) {
     return readFailure(jobResult.error, "Очередь печати не прочитана.");
@@ -673,10 +762,163 @@ export async function getOrderActivePrintJob(
   }
 
   return ok({
+    id: job.id,
     status: job.status === "printing" ? "printing" : "queued",
     printerId: job.printerId,
     printerName,
+    cancelRequested: job.cancelRequested,
+    lastError: job.lastError,
+    estimatedSeconds: job.estimatedSeconds,
+    filamentGrams: job.filamentGrams,
+    queuedAt: job.queuedAt,
+    startedAt: job.startedAt,
   });
+}
+
+/** Последняя незавершённая печать заказа: её ошибку показывает карточка. */
+export type OrderPrintFailure = {
+  jobId: string;
+  /** Статус задания на момент чтения: failed или cancelled. */
+  status: "failed" | "cancelled";
+  /** Текст от агента (`last_error`); null — агент причину не прислал. */
+  message: string | null;
+  /** Когда задание закрылось; null — метка не выставлена (старые строки). */
+  at: string | null;
+};
+
+/**
+ * Последний отказ печати по заказу.
+ *
+ * Нужен карточке: без него мастер видит «кнопка снова доступна» и не понимает,
+ * что печать уже падала и почему. Берём только закрытые задания с ошибкой и
+ * только самое свежее: история отказов живёт в `workshop_print_events`, а здесь
+ * нужна одна строка «что показать сейчас». Отмену мастером (`cancelled`)
+ * отдаём отдельно от `failed`: это не поломка, и текст у неё свой.
+ *
+ * Ошибка чтения не должна ломать карточку, поэтому вызывающий код трактует
+ * `read_failed`/`migration_missing` как «причин нет».
+ */
+export async function getOrderLastPrintFailure(
+  orderId: string,
+  context?: WorkshopFarmContext,
+): Promise<WorkshopFarmResult<OrderPrintFailure | null>> {
+  if (!isWorkshopUuid(orderId)) {
+    return fail("invalid_id", "Заказ указан неверно.");
+  }
+
+  const ctx = await resolveContext(context);
+
+  if (!ctx) {
+    return fail("unauthorized", "Нужно войти в мастерскую.");
+  }
+
+  const result = await withPrintJobDetails((columns) =>
+    ctx.supabase
+      .from("workshop_print_jobs")
+      .select(columns)
+      .eq("user_id", ctx.userId)
+      .eq("order_id", orderId)
+      .in("status", ["failed", "cancelled"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  );
+
+  if (result.error) {
+    return readFailure(result.error, "История печати не прочитана.");
+  }
+
+  const job = normalizePrintJob(result.data);
+
+  if (!job || (job.status !== "failed" && job.status !== "cancelled")) {
+    return ok(null);
+  }
+
+  return ok({
+    jobId: job.id,
+    status: job.status,
+    message: job.lastError,
+    at: job.finishedAt ?? job.updatedAt,
+  });
+}
+
+/** Что вернула база при отмене задания. */
+export type CancelPrintJobOutcome = "cancelled" | "requested";
+
+/**
+ * Отмена задания мастером.
+ *
+ * Прямой `update` здесь невозможен: у роли authenticated есть только
+ * select/insert/delete, статусы меняет агент. Поэтому вызывается
+ * security-definer RPC `workshop_cancel_print_job`, которая сама решает, что
+ * делать со статусом: `queued` закрывается сразу как `cancelled`, `printing`
+ * получает `cancel_requested` и останавливается агентом на следующем опросе.
+ * Логика в базе — не дублирование, а гарантия: задание и событие журнала
+ * меняются одной транзакцией.
+ *
+ * Коды ошибок RPC: P0002 — задания нет (или оно чужое), P0001 — оно уже
+ * закрыто, 42501 — нет сессии. Текст из базы уже на русском и годится для
+ * интерфейса, поэтому `error` берётся из ответа.
+ */
+export async function cancelPrintJob(
+  jobId: string,
+  context?: WorkshopFarmContext,
+): Promise<WorkshopFarmResult<CancelPrintJobOutcome>> {
+  if (!isWorkshopUuid(jobId)) {
+    return fail("invalid_id", "Задание указано неверно.");
+  }
+
+  const ctx = await resolveContext(context);
+
+  if (!ctx) {
+    return fail("unauthorized", "Нужно войти в мастерскую.");
+  }
+
+  const result = await ctx.supabase.rpc("workshop_cancel_print_job", {
+    p_job_id: jobId,
+  });
+
+  if (result.error) {
+    // RPC нет в схеме: миграция hardening не применена. PostgREST отвечает
+    // PGRST202 «Could not find the function … in the schema cache», и это
+    // состояние окружения, а не поломка запроса.
+    if (isSchemaError(result.error)) {
+      return fail(
+        "migration_missing",
+        "Отмена печати пока не работает: примените миграцию supabase/workshop_print_queue_hardening.sql.",
+      );
+    }
+
+    if (result.error.code === "P0002") {
+      return fail("not_found", "Задание не найдено — возможно, его уже сняли.");
+    }
+
+    console.warn(
+      "Мастерская: отмена задания не удалась:",
+      result.error.code,
+      result.error.message,
+    );
+
+    if (result.error.code === "P0001" || result.error.code === "42501") {
+      return fail(
+        "write_failed",
+        result.error.message || "Не удалось отменить задание.",
+      );
+    }
+
+    return fail("write_failed", "Не удалось отменить задание. Попробуйте ещё раз.");
+  }
+
+  const outcome = typeof result.data === "string" ? result.data.trim() : "";
+
+  if (outcome === "cancelled" || outcome === "requested") {
+    return ok(outcome);
+  }
+
+  // Функция есть, но вернула неожиданное значение: считаем, что просьба
+  // принята, — иначе мастер нажал бы кнопку второй раз.
+  console.warn("Мастерская: RPC отмены вернула неизвестный ответ:", outcome);
+  return ok("requested");
 }
 
 /**
@@ -742,13 +984,15 @@ export async function getQueuedJobsForAgent(
   const { supabase, userId } = context.data;
 
   const [jobsResult, printersResult] = await Promise.all([
-    supabase
-      .from("workshop_print_jobs")
-      .select(PRINT_JOB_COLUMNS)
-      .eq("user_id", userId)
-      .eq("status", "queued")
-      .order("created_at", { ascending: true })
-      .limit(AGENT_QUEUE_LIMIT),
+    withPrintJobDetails((columns) =>
+      supabase
+        .from("workshop_print_jobs")
+        .select(columns)
+        .eq("user_id", userId)
+        .eq("status", "queued")
+        .order("created_at", { ascending: true })
+        .limit(AGENT_QUEUE_LIMIT),
+    ),
     supabase
       .from("workshop_printers")
       .select(AGENT_PRINTER_COLUMNS)

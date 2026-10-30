@@ -14,6 +14,7 @@ import { revalidatePath } from "next/cache";
 
 import Papa, { type ParseError } from "papaparse";
 
+import { printFileExtension } from "@/lib/3d/print-compatibility";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
@@ -40,8 +41,15 @@ export type WorkshopProduct = {
   heightMm: number | null;
   barcode: string | null;
   category: string | null;
-  /** Ссылка на G-code; null — файл печати ещё не приложен. */
+  /** Ссылка на файл печати: G-code, 3MF или STL; null — файл не приложен. */
   gcodeUrl: string | null;
+  /**
+   * Модель принтера, для которой нарезан 3MF («Bambu Lab A1»).
+   *
+   * null — файл без разметки: STL, G-code или 3MF без служебных метаданных.
+   * Такое изделие можно печатать на любом принтере парка.
+   */
+  slicedForPrinter: string | null;
   createdAt: string | null;
 };
 
@@ -115,13 +123,25 @@ type ProductDraft = {
   barcode: string | null;
   category: string | null;
   gcodeUrl: string | null;
+  slicedForPrinter: string | null;
 };
 
-/** Колонки, которые читает getWorkshopProducts. */
+/**
+ * Колонки, которые читает getWorkshopProducts.
+ *
+ * `sliced_for_printer` добавляет supabase/workshop_farm_and_shop.sql, а
+ * `gcode_url` — та же миграция. Пока она не применена, PostgREST отвечает
+ * PGRST204 на весь select, поэтому наборов три: полный, без разметки принтера
+ * и совсем без файла печати. Чтение пробует их по порядку.
+ */
 export const PRODUCT_COLUMNS =
+  "id, sku, title, description, price, old_price, brand, color, size, weight_g, length_mm, width_mm, height_mm, barcode, category, gcode_url, sliced_for_printer, created_at";
+
+/** Набор без sliced_for_printer: база до повторного запуска миграции фермы. */
+export const PRODUCT_COLUMNS_NO_SLICED =
   "id, sku, title, description, price, old_price, brand, color, size, weight_g, length_mm, width_mm, height_mm, barcode, category, gcode_url, created_at";
 
-/** Набор без gcode_url: база до применения supabase/workshop_farm_and_shop.sql. */
+/** Набор без файла печати: база до supabase/workshop_farm_and_shop.sql. */
 export const PRODUCT_COLUMNS_LEGACY =
   "id, sku, title, description, price, old_price, brand, color, size, weight_g, length_mm, width_mm, height_mm, barcode, category, created_at";
 
@@ -136,6 +156,7 @@ export const PRODUCT_TEXT_LIMITS = {
   barcode: 64,
   category: 80,
   gcodeUrl: 2048,
+  slicedForPrinter: 120,
 } as const;
 
 /** numeric(10, 2): больше этой цены база не примет. */
@@ -314,6 +335,34 @@ function readGcodeUrl(
   return raw;
 }
 
+/**
+ * Модель принтера из формы.
+ *
+ * Значение приходит скрытым полем из `/api/workshop/gcode`: сервер разбирает
+ * 3MF сразу после загрузки, пока архив есть в памяти, и возвращает модель
+ * принтера из его метаданных. Скачивать файл повторно здесь нельзя — ссылку
+ * вводит пользователь, и серверный fetch по чужому адресу стал бы дырой.
+ *
+ * Разметка есть только у 3MF: у STL и G-code её нет по определению, поэтому
+ * поле игнорируется, даже если клиент его прислал.
+ */
+function readSlicedForPrinter(
+  formData: FormData,
+  gcodeUrl: string | null,
+): string | null {
+  if (printFileExtension(gcodeUrl) !== "3mf") {
+    return null;
+  }
+
+  const raw = readFormText(formData, "slicedForPrinter").replace(/\s+/gu, " ");
+
+  if (!raw) {
+    return null;
+  }
+
+  return raw.slice(0, PRODUCT_TEXT_LIMITS.slicedForPrinter).trim() || null;
+}
+
 function readIntegerValue(
   formData: FormData,
   name: string,
@@ -427,6 +476,7 @@ function readProductForm(formData: FormData): {
     "category",
   );
   const gcodeUrl = readGcodeUrl(formData, errors);
+  const slicedForPrinter = readSlicedForPrinter(formData, gcodeUrl);
 
   if (Object.keys(errors).length > 0) {
     return { draft: null, errors };
@@ -461,6 +511,7 @@ function readProductForm(formData: FormData): {
       barcode,
       category,
       gcodeUrl,
+      slicedForPrinter,
     },
     errors,
   };
@@ -838,6 +889,10 @@ export function normalizeProductRow(
     barcode: readStoredText(row.barcode, PRODUCT_TEXT_LIMITS.barcode),
     category: readStoredText(row.category, PRODUCT_TEXT_LIMITS.category),
     gcodeUrl: readStoredText(row.gcode_url, PRODUCT_TEXT_LIMITS.gcodeUrl),
+    slicedForPrinter: readStoredText(
+      row.sliced_for_printer,
+      PRODUCT_TEXT_LIMITS.slicedForPrinter,
+    ),
     createdAt: typeof row.created_at === "string" ? row.created_at : null,
   };
 }
@@ -862,9 +917,14 @@ export async function getWorkshopProducts(): Promise<WorkshopProduct[]> {
   let data: Partial<Record<string, unknown>>[] | null = null;
   let error: { code?: string | null; message: string } | null = null;
 
-  // gcode_url добавляет supabase/workshop_farm_and_shop.sql. Пока миграции
-  // нет, каталог читается без неё: товары и заказы должны работать.
-  for (const columns of [PRODUCT_COLUMNS, PRODUCT_COLUMNS_LEGACY]) {
+  // gcode_url и sliced_for_printer добавляет supabase/workshop_farm_and_shop.sql.
+  // Пока миграцию не применили заново, каталог читается без новых колонок:
+  // товары и заказы должны работать.
+  for (const columns of [
+    PRODUCT_COLUMNS,
+    PRODUCT_COLUMNS_NO_SLICED,
+    PRODUCT_COLUMNS_LEGACY,
+  ]) {
     const result = await supabase
       .from("workshop_products")
       .select(columns)
@@ -949,7 +1009,10 @@ export async function addProduct(
     return { error: PRO_REQUIRED, fieldErrors: errors };
   }
 
-  const { error } = await supabase.from("workshop_products").insert({
+  // `sliced_for_printer` — новая колонка supabase/workshop_farm_and_shop.sql.
+  // Пустое значение не пишем вовсе: null означает «файл без разметки», и
+  // лишний ключ только мешал бы старой базе принять товар.
+  const insertPayload: Record<string, unknown> = {
     user_id: user.id,
     sku: draft.sku,
     title: draft.title,
@@ -966,7 +1029,35 @@ export async function addProduct(
     barcode: draft.barcode,
     category: draft.category,
     gcode_url: draft.gcodeUrl,
-  });
+  };
+
+  if (draft.slicedForPrinter) {
+    insertPayload.sliced_for_printer = draft.slicedForPrinter;
+  }
+
+  let error = (await supabase.from("workshop_products").insert(insertPayload))
+    .error;
+
+  // Миграции применяют вручную: пока колонки нет, товар сохраняется без
+  // разметки принтера. Терять из-за этого карточку нельзя — проверка при
+  // заказе просто не сработает, пока мастер не обновит схему.
+  if (
+    error &&
+    "sliced_for_printer" in insertPayload &&
+    isMissingTableSchema(error.code, error.message)
+  ) {
+    console.warn(
+      "Товар сохранён без sliced_for_printer: примените заново supabase/workshop_farm_and_shop.sql.",
+      error.code,
+      error.message,
+    );
+
+    error = (
+      await supabase
+        .from("workshop_products")
+        .insert({ ...insertPayload, sliced_for_printer: undefined })
+    ).error;
+  }
 
   if (error) {
     console.warn("Товар не добавлен:", error.code, error.message);

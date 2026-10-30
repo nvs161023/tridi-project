@@ -33,6 +33,8 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Модель принтера из метаданных 3MF: её показали после загрузки. */
+  const [slicedPrinter, setSlicedPrinter] = useState<string | null>(null);
 
   useDialogDismiss(onClose);
 
@@ -49,7 +51,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
 
     // File в Server Action не отправляем: он весит мегабайты и упрётся в
     // лимит тела. Сначала файл идёт в /api/workshop/gcode, потом в форму
-    // попадает только его публичная ссылка.
+    // попадает только его публичная ссылка и модель принтера из 3MF.
     formData.delete("gcodeFile");
 
     setError(null);
@@ -58,6 +60,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
     try {
       if (file instanceof File && file.size > 0) {
         setIsUploading(true);
+        setSlicedPrinter(null);
 
         const uploadForm = new FormData();
         uploadForm.set("file", file);
@@ -67,7 +70,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
           body: uploadForm,
         });
         const payload = (await response.json().catch(() => null)) as
-          | { url?: unknown; error?: unknown }
+          | { url?: unknown; printerModel?: unknown; error?: unknown }
           | null;
 
         if (
@@ -79,13 +82,22 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
           setError(
             typeof payload?.error === "string"
               ? payload.error
-              : "Не удалось загрузить G-code. Попробуйте ещё раз.",
+              : "Не удалось загрузить файл печати. Попробуйте ещё раз.",
           );
 
           return;
         }
 
         formData.set("gcodeUrl", payload.url);
+
+        // Модель принтера определил сервер по самому архиву. Поле уходит в
+        // addProduct, а тот пишет его только для 3MF: у STL и G-code
+        // разметки нет.
+        const printerModel =
+          typeof payload.printerModel === "string" ? payload.printerModel : "";
+
+        formData.set("slicedForPrinter", printerModel);
+        setSlicedPrinter(printerModel || null);
       }
 
       const result = await addProduct(formData);
@@ -260,7 +272,10 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
             <legend className={legendClassName}>Файл печати</legend>
             <div className="mt-3 space-y-4">
               <div>
-                <FieldLabel htmlFor="product-gcode-url" label="Ссылка на G-code" />
+                <FieldLabel
+                  htmlFor="product-gcode-url"
+                  label="Ссылка на файл печати"
+                />
                 <input
                   id="product-gcode-url"
                   name="gcodeUrl"
@@ -268,7 +283,7 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                   inputMode="url"
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="https://…/vase.gcode"
+                  placeholder="https://…/vase.3mf"
                   maxLength={2048}
                   className={inputClassName}
                 />
@@ -284,13 +299,22 @@ export function AddProductDialog({ onClose }: AddProductDialogProps) {
                   id="product-gcode-file"
                   name="gcodeFile"
                   type="file"
-                  accept=".gcode,.gco,.g"
+                  accept=".gcode,.gco,.g,.3mf,.stl"
                   className="mt-2 block w-full cursor-pointer rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-zinc-300 file:mr-4 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
                 />
                 <p className="mt-2 text-xs leading-relaxed text-zinc-500">
-                  .gcode, .gco или .g, до 50 МБ. Файл попадёт в каталог и будет
-                  доступен агенту фермы по ссылке.
+                  .gcode, .gco, .g, .3mf или .stl, до 50 МБ. Файл попадёт в
+                  каталог и будет доступен агенту фермы по ссылке.
                 </p>
+                {slicedPrinter ? (
+                  <p
+                    data-product-sliced-printer
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-blue-400/40 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-100"
+                  >
+                    <span aria-hidden>🖨️</span>
+                    Нарезан для: {slicedPrinter}
+                  </p>
+                ) : null}
               </div>
             </div>
           </fieldset>

@@ -53,6 +53,40 @@ const GCODE_MIME_TYPES = [
   "application/x-gcode",
 ];
 
+/**
+ * MIME файлов печати: G-code, 3MF-контейнер и STL-модель.
+ *
+ * Список нужен бакету `workshop-gcode`: Supabase Storage отклоняет загрузку с
+ * типом вне списка. `application/octet-stream` уже входит в набор G-code и
+ * остаётся запасным вариантом — браузер определяет эти форматы не всегда.
+ */
+const PRINT_FILE_MIME_TYPES = [
+  ...GCODE_MIME_TYPES,
+  "model/3mf",
+  "model/stl",
+  "model/x.stl-binary",
+  "application/sla",
+  "application/vnd.ms-pki.stl",
+];
+
+/** Расширения файлов печати: агент фермы понимает и G-code, и 3MF, и STL. */
+const PRINT_FILE_EXTENSIONS = [".gcode", ".gco", ".g", ".3mf", ".stl"] as const;
+
+/**
+ * Расширение имени файла из списка или `.gcode` по умолчанию.
+ *
+ * Оно попадает в публичный URL, а агент фермы выбирает по нему способ печати:
+ * G-code оборачивается в 3MF, а готовый 3MF уходит как есть.
+ */
+function printFileExtension(name: string): string {
+  const lower = name.trim().toLocaleLowerCase("en-US");
+
+  return (
+    PRINT_FILE_EXTENSIONS.find((extension) => lower.endsWith(extension)) ??
+    ".gcode"
+  );
+}
+
 /** Расширение по MIME-типу: внешний сервис смотрит и на имя файла. */
 const EXTENSIONS: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -174,13 +208,27 @@ async function ensureModelsBucket(admin: SupabaseAdmin): Promise<void> {
  * Создаёт публичный бакет `workshop-gcode` с лимитом 50 МБ.
  *
  * Ссылку скачивает локальный агент фермы без ключей Supabase, поэтому бакет
- * публичный. Имя файла — UUID внутри папки пользователя: угадать чужой G-code
- * нельзя, а повторная загрузка не перезаписывает существующий файл.
+ * публичный. Имя файла — UUID внутри папки пользователя: угадать чужой файл
+ * нельзя, а повторная загрузка не перезаписывает существующий.
+ *
+ * Проверка повторяется перед каждой загрузкой (первый вызов на процесс):
+ * бакет мог быть создан раньше только под G-code, и тогда 3MF отклонялся бы по
+ * MIME-типу. Пустой список разрешённых типов значит «принимаем любые» — его
+ * трогать не нужно.
  */
 async function ensureGcodeBucket(admin: SupabaseAdmin): Promise<void> {
   const { data } = await admin.storage.getBucket(GCODE_BUCKET);
 
-  if (data?.public && (data.file_size_limit ?? 0) >= MAX_GCODE_BYTES) {
+  const allowedTypes = data?.allowed_mime_types ?? [];
+  const allowsPrintFiles =
+    allowedTypes.length === 0 ||
+    PRINT_FILE_MIME_TYPES.every((type) => allowedTypes.includes(type));
+
+  if (
+    data?.public &&
+    (data.file_size_limit ?? 0) >= MAX_GCODE_BYTES &&
+    allowsPrintFiles
+  ) {
     return;
   }
 
@@ -188,7 +236,7 @@ async function ensureGcodeBucket(admin: SupabaseAdmin): Promise<void> {
     const { error } = await admin.storage.updateBucket(GCODE_BUCKET, {
       public: true,
       fileSizeLimit: MAX_GCODE_BYTES,
-      allowedMimeTypes: GCODE_MIME_TYPES,
+      allowedMimeTypes: PRINT_FILE_MIME_TYPES,
     });
 
     if (error) {
@@ -203,7 +251,7 @@ async function ensureGcodeBucket(admin: SupabaseAdmin): Promise<void> {
   const { error } = await admin.storage.createBucket(GCODE_BUCKET, {
     public: true,
     fileSizeLimit: MAX_GCODE_BYTES,
-    allowedMimeTypes: GCODE_MIME_TYPES,
+    allowedMimeTypes: PRINT_FILE_MIME_TYPES,
   });
 
   if (error && !/exist|duplicate/i.test(error.message)) {
@@ -293,15 +341,18 @@ export async function uploadImageToSupabase(file: File): Promise<string> {
 }
 
 /**
- * Загружает G-code товара в публичный бакет `workshop-gcode`.
+ * Загружает файл печати товара в публичный бакет `workshop-gcode`.
  *
  * Путь начинается с `userId`: файлы разных мастерских не пересекаются даже
- * при совпадении имён. Расширение всегда `.gcode`, contentType — из файла или
- * `application/octet-stream`: браузер часто не знает этот формат.
+ * при совпадении имён. Расширение сохраняется как у исходного файла
+ * (`.gcode`, `.gco`, `.g`, `.3mf`, `.stl`) — по нему агент фермы понимает,
+ * печатать готовый 3MF или сначала упаковать в контейнер G-code. contentType
+ * берётся из файла, а если браузер его не знает — `application/octet-stream`.
  */
 export async function uploadGcodeToSupabase(
   userId: string,
   file: File,
+  bytes?: Buffer,
 ): Promise<string> {
   const admin = createAdminClient();
 
@@ -312,20 +363,23 @@ export async function uploadGcodeToSupabase(
 
   await gcodeBucketReady;
 
-  const path = `${userId}/${dateFolder()}/${randomUUID()}.gcode`;
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const contentType = GCODE_MIME_TYPES.includes(file.type)
+  const path = `${userId}/${dateFolder()}/${randomUUID()}${printFileExtension(file.name)}`;
+  // `bytes` передаёт роут, когда файл уже прочитан для разбора 3MF: читать
+  // пятидесятимегабайтный архив второй раз значило бы держать его в памяти
+  // дважды.
+  const content = bytes ?? Buffer.from(await file.arrayBuffer());
+  const contentType = PRINT_FILE_MIME_TYPES.includes(file.type)
     ? file.type
     : "application/octet-stream";
 
-  const { error } = await admin.storage.from(GCODE_BUCKET).upload(path, bytes, {
+  const { error } = await admin.storage.from(GCODE_BUCKET).upload(path, content, {
     contentType,
     cacheControl: "31536000",
     upsert: false,
   });
 
   if (error) {
-    throw new Error(`Не удалось загрузить G-code: ${error.message}`);
+    throw new Error(`Не удалось загрузить файл печати: ${error.message}`);
   }
 
   return admin.storage.from(GCODE_BUCKET).getPublicUrl(path).data.publicUrl;

@@ -3,21 +3,31 @@
  *
  * Что проверяет на живой базе:
  *   1. `printing` + progress 50 → задание printing, заказ printing, принтер
- *      printing с progress = 50;
+ *      printing с progress = 50; оценки слайсера (`estimatedSeconds`,
+ *      `filamentGrams`) ложатся в колонки задания;
  *   2. `done` → задание done, заказ ready, принтер idle, progress = 0,
  *      remaining_time = 0;
  *   3. `failed` → задание failed, заказ new (мастер перезапустит), принтер
  *      error с progress = 0;
- *   4. неверный токен → 401, неизвестный статус → 400, чужое/несуществующее
+ *   4. `GET /api/agent/status?jobId=` — опрос отмены: без флага `false`, без
+ *      `jobId` → 400, чужое задание → 404, неверный токен → 401;
+ *   5. отмена мастером: флаг `cancel_requested` → GET отдаёт `true`, агент
+ *      сообщает `cancelled` → задание cancelled (не failed), заказ new, принтер
+ *      idle, причина «отменено мастером», флаг снят и повторный опрос даёт
+ *      `false`;
+ *   6. неверный токен → 401, неизвестный статус → 400, чужое/несуществующее
  *      задание → 404.
  *
  * Тест создаёт пользователя, товар, заказ, принтер, позицию и queued-задание, а
  * в finally удаляет пользователя — каскад auth.users уносит все строки.
  *
- * Запуск (после применения supabase/workshop_farm_and_shop.sql):
+ * Запуск (после применения supabase/workshop_farm_and_shop.sql и
+ * supabase/workshop_print_queue_hardening.sql):
  *   node --import ./scripts/register-alias.mjs scripts/test-agent-status.ts
  *
- * Если миграция не применена, тест завершается кодом 2 и подсказывает файл.
+ * Если базовой миграции нет, тест завершается кодом 2 и подсказывает файл. Без
+ * hardening тест работает, но печатает предупреждение и пропускает проверки
+ * оценок и отмены: колонок и статуса `cancelled` в старой схеме нет.
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -25,7 +35,7 @@ import path from "node:path";
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
-import { POST } from "../app/api/agent/status/route";
+import { GET, POST } from "../app/api/agent/status/route";
 import { isMissingTableSchema } from "../lib/supabase/schema-errors";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -221,6 +231,96 @@ async function readState(
   };
 }
 
+/** Тело ответа GET: просьба об отмене или текст ошибки. */
+type CancelPollResponse = { cancelRequested?: unknown; error?: unknown };
+
+/** Опрос отмены так, как его сделает локальный агент. */
+async function callCancelPoll(
+  headers: Record<string, string>,
+  query: string,
+): Promise<{ status: number; body: CancelPollResponse }> {
+  const response = await GET(
+    new Request(`http://localhost/api/agent/status${query}`, {
+      method: "GET",
+      headers,
+    }),
+  );
+
+  return {
+    status: response.status,
+    body: (await response.json()) as CancelPollResponse,
+  };
+}
+
+/** Колонки задания из миграции hardening: без неё их в таблице нет. */
+type JobDetails = {
+  /** false — миграция hardening не применена, остальные поля пустые. */
+  hardened: boolean;
+  lastError: string | null;
+  estimatedSeconds: number | null;
+  filamentGrams: number | null;
+  cancelRequested: boolean;
+  finishedAt: string | null;
+};
+
+const JOB_DETAIL_COLUMNS =
+  "last_error, estimated_seconds, filament_grams, cancel_requested, finished_at";
+
+/**
+ * Читает задание вместе с колонками hardening.
+ *
+ * 42703 — «колонки нет»: тест продолжается на старой схеме, только проверки
+ * оценок и отмены пропускаются.
+ */
+async function readJobDetails(jobId: string): Promise<JobDetails> {
+  const result = await admin
+    .from("workshop_print_jobs")
+    .select(JOB_DETAIL_COLUMNS)
+    .eq("id", jobId)
+    .maybeSingle();
+
+  if (result.error) {
+    if (result.error.code === "42703") {
+      return {
+        hardened: false,
+        lastError: null,
+        estimatedSeconds: null,
+        filamentGrams: null,
+        cancelRequested: false,
+        finishedAt: null,
+      };
+    }
+
+    throw new Error(`чтение полей задания: ${result.error.message}`);
+  }
+
+  const row = (result.data ?? {}) as Row;
+
+  return {
+    hardened: true,
+    lastError: typeof row.last_error === "string" ? row.last_error : null,
+    estimatedSeconds:
+      typeof row.estimated_seconds === "number" ? row.estimated_seconds : null,
+    filamentGrams:
+      typeof row.filament_grams === "number" ? row.filament_grams : null,
+    cancelRequested: row.cancel_requested === true,
+    finishedAt: typeof row.finished_at === "string" ? row.finished_at : null,
+  };
+}
+
+/**
+ * Мастер нажимает «Отменить печать» — это RPC под сессией пользователя.
+ * Тест ходит service_role: поднимает тот же флаг, минуя проверку auth.uid().
+ */
+async function requestCancel(jobId: string): Promise<void> {
+  const result = await admin
+    .from("workshop_print_jobs")
+    .update({ cancel_requested: true })
+    .eq("id", jobId);
+
+  throwIfError(result.error, "подъём cancel_requested");
+}
+
 async function main(): Promise<void> {
   const suffix = randomBytes(4).toString("hex");
   const email = `agent-status-${suffix}@example.com`;
@@ -343,10 +443,14 @@ async function main(): Promise<void> {
     };
 
     // 2. Печать началась ------------------------------------------------------
+    // Оценки слайсера агент присылает со стартом: карточка показывает «≈2 ч 5 мин»
+    // и расход пластика.
     const printing = await callStatus(authorized, {
       jobId,
       status: "printing",
       progress: 50,
+      estimatedSeconds: 7500,
+      filamentGrams: 42.5,
     });
 
     check(
@@ -376,7 +480,85 @@ async function main(): Promise<void> {
       `printer=${afterPrinting.printerStatus}, progress=${afterPrinting.progress}`,
     );
 
-    // 3. Печать завершилась ---------------------------------------------------
+    // 2.1 Оценки слайсера ----------------------------------------------------
+    // Без миграции hardening колонок нет: роут пишет только статус, а проверять
+    // нечего — дальше идут отмена и cancelled, которых в старой схеме тоже нет.
+    const printingDetails = await readJobDetails(jobId);
+    const hardening = printingDetails.hardened;
+
+    if (hardening) {
+      check(
+        "printing: estimated_seconds и filament_grams сохранены",
+        printingDetails.estimatedSeconds === 7500 &&
+          printingDetails.filamentGrams === 42.5,
+        `estimated=${printingDetails.estimatedSeconds}, grams=${printingDetails.filamentGrams}`,
+      );
+
+      check(
+        "printing: last_error пуст, задание активно, отмены нет",
+        printingDetails.lastError === null &&
+          printingDetails.finishedAt === null &&
+          printingDetails.cancelRequested === false,
+        `last_error=${printingDetails.lastError}, finished_at=${printingDetails.finishedAt}, cancel_requested=${printingDetails.cancelRequested}`,
+      );
+    } else {
+      console.warn(
+        "⚠ Миграция supabase/workshop_print_queue_hardening.sql не применена: проверки оценок и отмены пропущены.",
+      );
+    }
+
+    // 3. Опрос отмены ---------------------------------------------------------
+    // Флаг ещё не поднят: агент обязан получить «печатай дальше», а не 404.
+    const pollIdle = await callCancelPoll(authorized, `?jobId=${jobId}`);
+
+    check(
+      "GET: без просьбы об отмене → 200 и cancelRequested false",
+      pollIdle.status === 200 && pollIdle.body.cancelRequested === false,
+      `status=${pollIdle.status}, body=${JSON.stringify(pollIdle.body).slice(0, 200)}`,
+    );
+
+    const pollNoJobId = await callCancelPoll(authorized, "");
+
+    check(
+      "GET: без jobId → 400",
+      pollNoJobId.status === 400,
+      `status=${pollNoJobId.status}, body=${JSON.stringify(pollNoJobId.body).slice(0, 200)}`,
+    );
+
+    const pollUnknownJob = await callCancelPoll(
+      authorized,
+      `?jobId=${randomUUID()}`,
+    );
+
+    if (hardening) {
+      check(
+        "GET: неизвестное задание → 404",
+        pollUnknownJob.status === 404,
+        `status=${pollUnknownJob.status}, body=${JSON.stringify(pollUnknownJob.body).slice(0, 200)}`,
+      );
+    } else {
+      // Без колонки-флага существующее задание от опечатки в id не отличить:
+      // роут отвечает «не отменять» на любой jobId, и это осознанный размен.
+      check(
+        "GET без миграции: неизвестное задание → 200 и cancelRequested false",
+        pollUnknownJob.status === 200 &&
+          pollUnknownJob.body.cancelRequested === false,
+        `status=${pollUnknownJob.status}, body=${JSON.stringify(pollUnknownJob.body).slice(0, 200)}`,
+      );
+    }
+
+    const pollWrongToken = await callCancelPoll(
+      { authorization: `Bearer ${randomUUID()}` },
+      `?jobId=${jobId}`,
+    );
+
+    check(
+      "GET: неверный токен → 401",
+      pollWrongToken.status === 401,
+      `status=${pollWrongToken.status}`,
+    );
+
+    // 4. Печать завершилась ---------------------------------------------------
     const done = await callStatus(authorized, { jobId, status: "done" });
 
     check(
@@ -407,10 +589,17 @@ async function main(): Promise<void> {
       `printer=${afterDone.printerStatus}, progress=${afterDone.progress}, remaining_time=${afterDone.remainingTime}`,
     );
 
-    // 4. Ошибка печати: заказ возвращается в new, принтер — в error -----------
+    // 5. Ошибка печати: заказ возвращается в new, принтер — в error -----------
     // Ветка проверяется на том же задании после done: переход уже не реалистичен,
     // но роут обязан согласованно перевести все три строки.
-    const failed = await callStatus(authorized, { jobId, status: "failed" });
+    // `message` — текст агента для карточки: без него мастер видит «провалено» без
+    // причины.
+    const failureReason = "Bambu: FTPS ответил 530";
+    const failed = await callStatus(authorized, {
+      jobId,
+      status: "failed",
+      message: failureReason,
+    });
 
     check(
       "POST failed: 200 и success",
@@ -438,7 +627,18 @@ async function main(): Promise<void> {
       `printer=${afterFailed.printerStatus}, progress=${afterFailed.progress}`,
     );
 
-    // 5. Отказы ---------------------------------------------------------------
+    if (hardening) {
+      const failedDetails = await readJobDetails(jobId);
+
+      check(
+        "failed: причина из message попала в last_error",
+        failedDetails.lastError === failureReason &&
+          failedDetails.finishedAt !== null,
+        `last_error=${failedDetails.lastError}, finished_at=${failedDetails.finishedAt}`,
+      );
+    }
+
+    // 6. Отказы ---------------------------------------------------------------
     const wrongToken = await callStatus(
       { authorization: `Bearer ${randomUUID()}` },
       { jobId, status: "printing" },
@@ -471,6 +671,118 @@ async function main(): Promise<void> {
       unknownJob.status === 404,
       `status=${unknownJob.status}`,
     );
+
+    // 7. Отмена мастером ------------------------------------------------------
+    // Отмена проверяется на свежем задании: прежнее уже закрыто, а флаг
+    // `cancel_requested` имеет смысл только у идущей печати. Без миграции
+    // hardening ветки нет: статуса `cancelled` и колонки-флага в схеме нет.
+    if (hardening) {
+      const cancelTarget = await insertOne(
+        "workshop_print_jobs",
+        {
+          user_id: userId,
+          order_id: orderId,
+          order_item_id: requireId(item, "позиция заказа"),
+          printer_id: printerId,
+          gcode_url: gcodeUrl,
+          status: "queued",
+        },
+        "id",
+        "задание для отмены",
+      );
+      const cancelJobId = requireId(cancelTarget, "задание для отмены");
+
+      const cancelPrinting = await callStatus(authorized, {
+        jobId: cancelJobId,
+        status: "printing",
+        progress: 30,
+      });
+
+      check(
+        "отмена: печать запущена (200)",
+        cancelPrinting.status === 200 && cancelPrinting.body.success === true,
+        `status=${cancelPrinting.status}, body=${JSON.stringify(cancelPrinting.body).slice(0, 200)}`,
+      );
+
+      const beforeCancel = await readJobDetails(cancelJobId);
+
+      check(
+        "отмена: до клика мастера флага нет",
+        beforeCancel.cancelRequested === false &&
+          beforeCancel.finishedAt === null,
+        `cancel_requested=${beforeCancel.cancelRequested}, finished_at=${beforeCancel.finishedAt}`,
+      );
+
+      // Мастер нажал «Отменить печать».
+      await requestCancel(cancelJobId);
+
+      const pollCancel = await callCancelPoll(
+        authorized,
+        `?jobId=${cancelJobId}`,
+      );
+
+      check(
+        "отмена: GET отдаёт cancelRequested true",
+        pollCancel.status === 200 && pollCancel.body.cancelRequested === true,
+        `status=${pollCancel.status}, body=${JSON.stringify(pollCancel.body).slice(0, 200)}`,
+      );
+
+      // Агент остановил принтер и доложил отмену, а не отказ.
+      const cancelled = await callStatus(authorized, {
+        jobId: cancelJobId,
+        status: "cancelled",
+      });
+
+      check(
+        "POST cancelled: 200 и success",
+        cancelled.status === 200 && cancelled.body.success === true,
+        `status=${cancelled.status}, body=${JSON.stringify(cancelled.body).slice(0, 200)}`,
+      );
+
+      const afterCancel = await readState(cancelJobId, orderId, printerId);
+
+      check(
+        "cancelled: задание cancelled (не failed)",
+        afterCancel.jobStatus === "cancelled",
+        `job=${afterCancel.jobStatus}`,
+      );
+
+      check(
+        "cancelled: заказ вернулся в new",
+        afterCancel.orderStatus === "new",
+        `order=${afterCancel.orderStatus}`,
+      );
+
+      check(
+        "cancelled: принтер idle, progress 0, remaining_time 0",
+        afterCancel.printerStatus === "idle" &&
+          afterCancel.progress === 0 &&
+          afterCancel.remainingTime === 0,
+        `printer=${afterCancel.printerStatus}, progress=${afterCancel.progress}, remaining_time=${afterCancel.remainingTime}`,
+      );
+
+      const cancelledDetails = await readJobDetails(cancelJobId);
+
+      check(
+        "cancelled: причина «отменено мастером», флаг снят, задание закрыто",
+        cancelledDetails.lastError === "отменено мастером" &&
+          cancelledDetails.cancelRequested === false &&
+          cancelledDetails.finishedAt !== null,
+        `last_error=${cancelledDetails.lastError}, cancel_requested=${cancelledDetails.cancelRequested}, finished_at=${cancelledDetails.finishedAt}`,
+      );
+
+      const pollAfterCancel = await callCancelPoll(
+        authorized,
+        `?jobId=${cancelJobId}`,
+      );
+
+      check(
+        "cancelled: повторный опрос → cancelRequested false",
+        pollAfterCancel.status === 200 &&
+          pollAfterCancel.body.cancelRequested === false,
+        `status=${pollAfterCancel.status}, body=${JSON.stringify(pollAfterCancel.body).slice(0, 200)}`,
+      );
+    }
   } finally {
     if (createdUserId) {
       const removed = await admin.auth.admin.deleteUser(createdUserId);

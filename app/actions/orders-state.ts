@@ -33,12 +33,38 @@ export type OrderActionState = {
  * работу, `printing` — печать идёт. Имя принтера берётся из самого задания, а не
  * из заказа: принтер заказа можно сменить, а задание остаётся на том, которому
  * его отдали.
+ *
+ * Оценки времени и пластика приходят из G-кода при старте печати (`null` — агент
+ * ещё не посчитал), `lastError` — причина последнего отказа, `cancelRequested` —
+ * мастер уже попросил остановить и агент снимет печать на следующем опросе.
  */
 export type OrderPrintJobState = {
+  /** id задания: кнопка «Отменить печать» работает по нему. */
+  id: string;
   status: "queued" | "printing";
   printerId: string | null;
   /** null — задание создано без принтера или принтер удалили. */
   printerName: string | null;
+  cancelRequested: boolean;
+  lastError: string | null;
+  estimatedSeconds: number | null;
+  filamentGrams: number | null;
+  queuedAt: string | null;
+  startedAt: string | null;
+};
+
+/**
+ * Последний отказ печати по заказу.
+ *
+ * Показывается в карточке, когда активного задания нет: иначе мастер видит
+ * снова доступную кнопку и не знает, что печать уже падала. `cancelled` — отмена
+ * мастером, её текст свой и «поломкой» её называть нельзя.
+ */
+export type OrderPrintFailure = {
+  jobId: string;
+  status: "failed" | "cancelled";
+  message: string | null;
+  at: string | null;
 };
 
 /**
@@ -54,6 +80,8 @@ export type OrderPrintStatus = {
   gcodeItemCount: number;
   /** Активное задание заказа; null — в очереди ничего нет. */
   activeJob: OrderPrintJobState | null;
+  /** Последний отказ или отмена; null — печать ещё не падала. */
+  lastFailure: OrderPrintFailure | null;
 };
 
 /**

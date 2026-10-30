@@ -9,8 +9,14 @@ import type {
   OrderPrintStatus,
 } from "@/app/actions/orders-state";
 import {
+  isPrintableFile,
+  printerMismatchMessage,
+} from "@/lib/3d/print-compatibility";
+import {
+  cancelPrintJob,
   createPrintJob,
   getOrderActivePrintJob,
+  getOrderLastPrintFailure,
   getOrderWithItems,
 } from "@/lib/db/workshop-farm";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
@@ -108,6 +114,8 @@ const PRINT_QUEUE_MIGRATION_MISSING =
 const PRINT_PRINTER_REQUIRED =
   "Выберите принтер для печати: задание без принтера агент фермы не запустит.";
 const PRINT_NO_GCODE_ITEM = "В заказе нет товаров с G-кодом.";
+const PRINT_STL_UNSLICED =
+  "У товара файл STL: это модель, а не задание печати. Нарежьте её в слайсере и загрузите .gcode или .3mf.";
 const PRINT_TARGET_NOT_FOUND =
   "Позиция заказа или принтер не найдены — возможно, их удалили. Обновите страницу.";
 const PRINT_QUEUE_FAILED =
@@ -115,6 +123,17 @@ const PRINT_QUEUE_FAILED =
 /** Текст успеха: его показывает всплывающее уведомление в карточке. */
 const PRINT_QUEUE_ADDED = "Задание добавлено в очередь.";
 const PRINT_PRINTER_CLEARED = "Принтер снят с заказа.";
+/** Отмена: задание стояло в очереди и закрыто сразу. */
+const PRINT_CANCEL_DONE = "Задание снято с очереди.";
+/** Отмена: печать уже идёт, агент остановит принтер на следующем опросе. */
+const PRINT_CANCEL_REQUESTED =
+  "Просьба об отмене отправлена: агент остановит печать на следующем опросе.";
+const PRINT_CANCEL_FAILED =
+  "Не удалось отменить печать. Попробуйте ещё раз.";
+const PRINT_CANCEL_NOTHING =
+  "Активного задания нет — отменять нечего. Обновите страницу.";
+const PRINT_CANCEL_MIGRATION_MISSING =
+  "Отмена печати пока не работает: примените миграцию supabase/workshop_print_queue_hardening.sql.";
 const ORDER_ITEM_PRODUCT_REQUIRED =
   "Выберите товар из каталога — без него позицию не добавить.";
 const ORDER_ITEM_ADD_FAILED =
@@ -809,9 +828,10 @@ export async function loadOrderPrintStatus(
     return null;
   }
 
-  const [order, activeJob] = await Promise.all([
+  const [order, activeJob, lastFailure] = await Promise.all([
     getOrderWithItems(orderId, { supabase, userId: user.id }),
     getOrderActivePrintJob(orderId, { supabase, userId: user.id }),
+    getOrderLastPrintFailure(orderId, { supabase, userId: user.id }),
   ]);
 
   if (!order.ok) {
@@ -834,21 +854,117 @@ export async function loadOrderPrintStatus(
     );
   }
 
+  // История отказов не должна ломать карточку: нет миграции или сбой чтения —
+  // просто нечего показать, кнопка очереди остаётся на месте.
+  if (!lastFailure.ok && lastFailure.reason !== "migration_missing") {
+    console.warn(
+      "Последний отказ печати не прочитан:",
+      lastFailure.reason,
+      lastFailure.error,
+    );
+  }
+
   return {
     itemCount: order.data.items.length,
-    gcodeItemCount: order.data.items.filter((item) => item.product?.gcodeUrl)
-      .length,
+    gcodeItemCount: order.data.items.filter((item) =>
+      isPrintableFile(item.product?.gcodeUrl ?? null),
+    ).length,
     activeJob: activeJob.ok ? activeJob.data : null,
+    lastFailure: lastFailure.ok ? lastFailure.data : null,
   };
+}
+
+/** Что нужно для сверки разметки 3MF: модель из файла и модель принтера. */
+type SlicedPrinterCheck = {
+  slicedForPrinter: string;
+  printerBrand: string;
+  printerModel: string;
+};
+
+/**
+ * Разметка 3MF у товара и модель выбранного принтера.
+ *
+ * null — сравнивать нечего: у позиции нет товара, товар без файла, файл без
+ * разметки (STL или G-code) или база ещё не знает колонку
+ * `sliced_for_printer` (миграцию не применяли заново). Сбой чтения тоже даёт
+ * null: проверка не должна мешать печати сильнее, чем помогает, — наличие
+ * файла и принтера всё равно проверит `createPrintJob`.
+ */
+async function readSlicedPrinterCheck(
+  supabase: Supabase,
+  options: { userId: string; productId: string | null; printerId: string },
+): Promise<SlicedPrinterCheck | null> {
+  if (!options.productId) {
+    return null;
+  }
+
+  const [productResult, printerResult] = await Promise.all([
+    supabase
+      .from("workshop_products")
+      .select("sliced_for_printer")
+      .eq("id", options.productId)
+      .eq("user_id", options.userId)
+      .maybeSingle(),
+    supabase
+      .from("workshop_printers")
+      .select("brand, model")
+      .eq("id", options.printerId)
+      .eq("user_id", options.userId)
+      .maybeSingle(),
+  ]);
+
+  if (productResult.error) {
+    console.warn(
+      "Разметка принтера у товара не прочитана:",
+      productResult.error.code,
+      productResult.error.message,
+    );
+
+    return null;
+  }
+
+  const productRow = productResult.data as Partial<
+    Record<string, unknown>
+  > | null;
+  const slicedForPrinter =
+    typeof productRow?.sliced_for_printer === "string"
+      ? productRow.sliced_for_printer.trim()
+      : "";
+
+  if (!slicedForPrinter) {
+    return null;
+  }
+
+  const printerRow = printerResult.data as Partial<
+    Record<string, unknown>
+  > | null;
+  const printerModel =
+    typeof printerRow?.model === "string" ? printerRow.model.trim() : "";
+
+  // Без модели принтера сравнивать не с чем: в парке могли остаться строки,
+  // добавленные до появления обязательных полей.
+  if (!printerModel) {
+    return null;
+  }
+
+  const printerBrand =
+    typeof printerRow?.brand === "string" ? printerRow.brand.trim() : "";
+
+  return { slicedForPrinter, printerBrand, printerModel };
 }
 
 /**
  * Поставить заказ в очередь 3D-печати.
  *
- * Печатаем первую позицию, у товара которой есть G-code: очередь фермы
+ * Печатаем первую позицию, у товара которой есть файл печати: очередь фермы
  * запускает модели, а не строки заказа. Принтер обязателен — задание без
  * принтера агент не знает, на какой машине печатать, поэтому карточка сначала
  * просит его выбрать.
+ *
+ * Перед созданием задания сверяется разметка 3MF: файл, нарезанный под
+ * FlashForge, нельзя отправить на Bambu A1. Проверка повторяется здесь, хотя
+ * карточка уже гасит кнопку — браузер мог устареть, а база должна отказать
+ * сама, а не полагаться на интерфейс.
  *
  * Принтер приходит из карточки (`printerId`) и перекрывает значение заказа:
  * мастер мог выбрать принтер только что, а сохранение ещё не доехало до
@@ -914,10 +1030,42 @@ export async function queueOrderForPrint(
     return { ok: false, error: PRINT_PRINTER_REQUIRED };
   }
 
-  const item = order.data.items.find((entry) => entry.product?.gcodeUrl);
+  // В очередь берём только позицию с настоящим файлом печати: STL — это
+  // модель для слайсера, агенту фермы её отправлять некуда. Если файлы есть, но
+  // все STL, говорим об этом прямо, а не «нет товаров с G-кодом».
+  const item = order.data.items.find((entry) =>
+    isPrintableFile(entry.product?.gcodeUrl ?? null),
+  );
 
   if (!item) {
-    return { ok: false, error: PRINT_NO_GCODE_ITEM };
+    const hasStlOnly = order.data.items.some((entry) =>
+      Boolean(entry.product?.gcodeUrl),
+    );
+
+    return {
+      ok: false,
+      error: hasStlOnly ? PRINT_STL_UNSLICED : PRINT_NO_GCODE_ITEM,
+    };
+  }
+
+  // 3MF помнит, под какой принтер его нарезали. Файл от другого слайсера
+  // печатать на этой машине нельзя — отказываем до создания задания, чтобы в
+  // очереди не висела заведомо невыполнимая работа.
+  const slicedCheck = await readSlicedPrinterCheck(supabase, {
+    userId: user.id,
+    productId: item.productId,
+    printerId: targetPrinterId,
+  });
+
+  if (slicedCheck) {
+    const mismatch = printerMismatchMessage(slicedCheck.slicedForPrinter, {
+      brand: slicedCheck.printerBrand,
+      model: slicedCheck.printerModel,
+    });
+
+    if (mismatch) {
+      return { ok: false, error: mismatch };
+    }
   }
 
   const job = await createPrintJob(
@@ -954,6 +1102,107 @@ export async function queueOrderForPrint(
   revalidatePath("/dashboard/workshop");
 
   return { ok: true, message: PRINT_QUEUE_ADDED };
+}
+
+/**
+ * Отменить печать заказа.
+ *
+ * Отменяется активное задание, а не заказ: печать останавливается, заказ
+ * остаётся на доске. Что именно произойдёт, решает база
+ * (`workshop_cancel_print_job`): задание из очереди закрывается сразу, идущее
+ * получает `cancel_requested`, и агент гасит принтер на следующем опросе. Поэтому
+ * текст успеха зависит от ответа: обещать «остановлено» для идущей печати было
+ * бы неправдой — между кликом и опросом агента проходит несколько секунд.
+ *
+ * Задание ищем на сервере, а не берём из браузера: карточка могла открыться до
+ * постановки в очередь, а клиентский id задания — лишний повод поверить вводу.
+ * Чужое задание RPC всё равно не тронет: она сверяет `auth.uid()`.
+ */
+export async function cancelOrderPrint(
+  orderId: string,
+): Promise<OrderActionState> {
+  if (!isOrderId(orderId)) {
+    return { ok: false, error: INVALID_ID };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  const activeJob = await getOrderActivePrintJob(orderId, {
+    supabase,
+    userId: user.id,
+  });
+
+  if (!activeJob.ok) {
+    console.warn(
+      "Активное задание для отмены не прочитано:",
+      activeJob.reason,
+      activeJob.error,
+    );
+
+    if (activeJob.reason === "migration_missing") {
+      return { ok: false, error: PRINT_QUEUE_MIGRATION_MISSING };
+    }
+
+    if (activeJob.reason === "unauthorized") {
+      return { ok: false, error: SESSION_EXPIRED };
+    }
+
+    return { ok: false, error: LOAD_FAILED };
+  }
+
+  if (!activeJob.data) {
+    // Карточка могла устареть: агент уже закрыл задание. Это не отказ базы, но и
+    // «отменено» писать нельзя — печати уже нет.
+    return { ok: false, error: PRINT_CANCEL_NOTHING };
+  }
+
+  if (activeJob.data.cancelRequested) {
+    // Повторный клик или вторая вкладка: просьба уже в базе. Второй вызов RPC
+    // поднял бы флаг ещё раз и записал второе событие в журнал.
+    return { ok: true, message: PRINT_CANCEL_REQUESTED };
+  }
+
+  const result = await cancelPrintJob(activeJob.data.id, {
+    supabase,
+    userId: user.id,
+  });
+
+  if (!result.ok) {
+    console.warn("Отмена печати не удалась:", result.reason, result.error);
+
+    if (result.reason === "migration_missing") {
+      return { ok: false, error: PRINT_CANCEL_MIGRATION_MISSING };
+    }
+
+    if (result.reason === "unauthorized") {
+      return { ok: false, error: SESSION_EXPIRED };
+    }
+
+    if (result.reason === "not_found") {
+      return { ok: false, error: PRINT_CANCEL_NOTHING };
+    }
+
+    return { ok: false, error: PRINT_CANCEL_FAILED };
+  }
+
+  revalidatePath("/dashboard/workshop");
+
+  return {
+    ok: true,
+    message:
+      result.data === "cancelled" ? PRINT_CANCEL_DONE : PRINT_CANCEL_REQUESTED,
+  };
 }
 
 /**

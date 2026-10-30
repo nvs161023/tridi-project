@@ -33,12 +33,19 @@ export function isMarketplace(value: unknown): value is Marketplace {
   );
 }
 
-/** Статусы задания печати: queued → printing → done | failed. */
+/**
+ * Статусы задания печати: queued → printing → done | failed | cancelled.
+ *
+ * `cancelled` — мастер нажал «Отменить печать» (или снял задание из очереди).
+ * Это не ошибка печати, поэтому отдельный статус, а не failed с текстом в
+ * `last_error`: отмена не должна попадать в статистику отказов.
+ */
 export const PRINT_JOB_STATUSES = [
   "queued",
   "printing",
   "done",
   "failed",
+  "cancelled",
 ] as const;
 
 export type PrintJobStatus = (typeof PRINT_JOB_STATUSES)[number];
@@ -126,6 +133,14 @@ export type WorkshopOrderItemRow = {
   created_at: string;
 };
 
+/**
+ * Строка workshop_print_jobs.
+ *
+ * Колонки после `updated_at` добавлены `workshop_print_queue_hardening.sql`.
+ * Пока миграция не применена, PostgREST не отдаёт их, поэтому чтение новых
+ * колонок идёт отдельным «подробным» select и падает обратно на базовый набор
+ * (`PRINT_JOB_COLUMNS` в lib/db/workshop-farm.ts).
+ */
 export type WorkshopPrintJobRow = {
   id: string;
   user_id: string;
@@ -136,6 +151,17 @@ export type WorkshopPrintJobRow = {
   status: PrintJobStatus;
   created_at: string;
   updated_at: string;
+  /** Текст последней ошибки печати от агента или сервера. */
+  last_error: string | null;
+  /** Оценка длительности из G-кода, которую посчитал агент. */
+  estimated_seconds: number | null;
+  /** Расход пластика из G-кода, в граммах. */
+  filament_grams: NumericValue | null;
+  queued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  /** Мастер попросил остановить печать; агент снимет задание на следующем опросе. */
+  cancel_requested: boolean;
 };
 
 /** Новые финансовые колонки workshop_orders. */
@@ -212,6 +238,14 @@ export type WorkshopOrderWithItems = WorkshopOrderFinance & {
   items: WorkshopOrderItem[];
 };
 
+/**
+ * Задание печати в доменном виде.
+ *
+ * `lastError` — то, что мастеру важно увидеть в карточке заказа: своими словами
+ * от агента («Bambu: не удалось подключиться к FTPS»), а не «печать не удалась».
+ * Оценки времени и пластика приходят из G-кода, поэтому до старта печати они
+ * могут быть null: агент считает их при загрузке файла.
+ */
 export type WorkshopPrintJob = {
   id: string;
   orderId: string;
@@ -221,6 +255,13 @@ export type WorkshopPrintJob = {
   status: PrintJobStatus;
   createdAt: string | null;
   updatedAt: string | null;
+  lastError: string | null;
+  estimatedSeconds: number | null;
+  filamentGrams: number | null;
+  queuedAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  cancelRequested: boolean;
 };
 
 /** Принтер в ответе агенту: с адресом и ключом, но без наработок. */

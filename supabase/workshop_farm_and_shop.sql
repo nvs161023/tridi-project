@@ -25,7 +25,9 @@
 --   3. выдаёт workshop_settings.agent_token — персональный ключ агента 3D-фермы
 --      (аналог webhook_token у Ozon) — и заводит флаг scan_requested: просьбу
 --      мастера «просканировать сеть», которую агент читает в цикле опроса;
---   4. расширяет workshop_products ссылкой на G-code и колонкой `name`;
+--   4. расширяет workshop_products ссылкой на файл печати (`gcode_url` — это
+--      G-code или 3MF со ссылкой на него), колонкой `sliced_for_printer` с
+--      моделью принтера из метаданных 3MF и колонкой `name`;
 --   5. создаёт workshop_marketplace_links — соответствие «SKU площадки → товар
 --      каталога» (по нему заказ с Ozon/WB/Яндекса находит G-code);
 --   6. создаёт workshop_order_items — позиции заказа (в заказе может быть
@@ -51,6 +53,9 @@
 --   `generated always as (title) stored`: новое имя есть в схеме и в PostgREST,
 --   а источником правды остаётся title. `gcode_url` — новая необязательная
 --   колонка, её заполняет мастер при подготовке товара к печати.
+--   `sliced_for_printer` заполняет сервер: для 3MF он читает модель принтера из
+--   самого архива, у STL и G-code разметки нет (null). Карточка заказа не даёт
+--   отправить файл на другой принтер.
 --
 -- Про agent_token:
 --   это секрет, как пароль. Он не должен попадать в клиентские компоненты,
@@ -332,6 +337,34 @@ $$;
 
 comment on column public.workshop_products.gcode_url is
   'Ссылка на G-code товара для агента печати; null — файла ещё нет.';
+
+-- sliced_for_printer — модель принтера, для которого нарезан 3MF. Её пишет
+-- приложение из метаданных архива (Metadata/slice_info.config или
+-- Metadata/project_settings.config). Пустая строка запрещена: «не размечен» —
+-- это null; у STL и G-code разметки нет по определению.
+alter table public.workshop_products
+  add column if not exists sliced_for_printer text;
+
+do $$
+begin
+  if not exists (
+    select 1
+      from pg_constraint
+     where conrelid = 'public.workshop_products'::regclass
+       and conname = 'workshop_products_sliced_for_printer_check'
+  ) then
+    alter table public.workshop_products
+      add constraint workshop_products_sliced_for_printer_check
+      check (
+        sliced_for_printer is null
+        or char_length(btrim(sliced_for_printer)) between 1 and 120
+      );
+  end if;
+end;
+$$;
+
+comment on column public.workshop_products.sliced_for_printer is
+  'Модель принтера, для которой нарезан 3MF («Bambu Lab A1»); null — файл без разметки.';
 
 -- name — только для чтения: генерируемый алиас существующего title. Так CRM,
 -- агент и новые запросы используют привычное `name`, а форма «Товары»
