@@ -26,6 +26,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * `workshop_print_queue_hardening.sql` не применена, роут делает это сам —
  * иначе карточка показывала бы «печатается» у свободного принтера.
  *
+ * У заказа бывает несколько заданий — по одному на позицию. Поэтому `done`,
+ * `failed` и `cancelled` переносят заказ на Канбан только тогда, когда других
+ * активных заданий не осталось: иначе первая напечатанная позиция закрывала бы
+ * весь заказ, а остальные ещё стояли бы в очереди.
+ *
  *   printing  → задание printing, принтер printing (+progress);
  *   done      → задание done,     принтер idle (progress = 0, remaining_time = 0);
  *   failed    → задание failed,   принтер error (progress = 0);
@@ -453,15 +458,41 @@ export async function POST(request: Request): Promise<Response> {
 
   // 3. Заказ на Канбане — только если триггера нет: с миграцией hardening
   // задание, заказ и событие журнала меняются одной транзакцией базы.
+  //
+  // У заказа может быть несколько заданий — по одному на позицию. Закрывающий
+  // статус поэтому двигает заказ только в том случае, когда это задание
+  // последнее активное: иначе первая завершённая позиция уводила бы в «Готово»
+  // заказ, который ещё печатается. Триггер hardening считает так же, а без
+  // миграции расчёт лежит на роуте.
   if (!hardening) {
-    const orderUpdate = await supabase
-      .from("workshop_orders")
-      .update({ status: orderStatusFor(payload.status) })
-      .eq("id", job.order_id)
-      .eq("user_id", identity.userId);
+    let shouldMoveOrder = payload.status === "printing";
 
-    if (orderUpdate.error) {
-      return writeFailure(orderUpdate.error, "Статус заказа не записан.");
+    if (!shouldMoveOrder) {
+      const remaining = await supabase
+        .from("workshop_print_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("order_id", job.order_id)
+        .eq("user_id", identity.userId)
+        .neq("id", payload.jobId)
+        .in("status", ["queued", "printing"]);
+
+      if (remaining.error) {
+        return writeFailure(remaining.error, "Очередь заказа не прочитана.");
+      }
+
+      shouldMoveOrder = (remaining.count ?? 0) === 0;
+    }
+
+    if (shouldMoveOrder) {
+      const orderUpdate = await supabase
+        .from("workshop_orders")
+        .update({ status: orderStatusFor(payload.status) })
+        .eq("id", job.order_id)
+        .eq("user_id", identity.userId);
+
+      if (orderUpdate.error) {
+        return writeFailure(orderUpdate.error, "Статус заказа не записан.");
+      }
     }
   }
 

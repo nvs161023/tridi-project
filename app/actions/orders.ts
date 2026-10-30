@@ -19,6 +19,7 @@ import {
   getOrderLastPrintFailure,
   getOrderWithItems,
 } from "@/lib/db/workshop-farm";
+import type { WorkshopFarmFailureReason } from "@/lib/db/workshop-types";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
@@ -954,17 +955,82 @@ async function readSlicedPrinterCheck(
 }
 
 /**
+ * Причина отказа `createPrintJob` в текст для карточки.
+ *
+ * null — отдельной подсказки нет, вызывающий покажет общий текст «не удалось
+ * поставить задание в очередь». Отображение живёт здесь, а не в каждом вызове,
+ * потому что заказ ставит в очередь несколько позиций и все они объясняют отказ
+ * одинаково.
+ */
+function printQueueErrorFor(reason: WorkshopFarmFailureReason): string | null {
+  if (reason === "migration_missing") {
+    return PRINT_QUEUE_MIGRATION_MISSING;
+  }
+
+  if (reason === "missing_gcode") {
+    return PRINT_NO_GCODE_ITEM;
+  }
+
+  if (reason === "unauthorized") {
+    return SESSION_EXPIRED;
+  }
+
+  if (reason === "not_found") {
+    return PRINT_TARGET_NOT_FOUND;
+  }
+
+  if (reason === "ownership_mismatch") {
+    return ORDER_NOT_FOUND;
+  }
+
+  return null;
+}
+
+/**
+ * «1 задание», «2 задания», «5 заданий».
+ *
+ * Число заданий в сообщении карточки склоняется: «добавлено 3 задание» читается
+ * как ошибка интерфейса. Правило русское: 11…14 всегда «заданий», дальше смотрим
+ * последнюю цифру.
+ */
+function printJobsCountLabel(count: number): string {
+  const mod100 = count % 100;
+
+  if (mod100 >= 11 && mod100 <= 14) {
+    return `${count} заданий`;
+  }
+
+  const mod10 = count % 10;
+
+  if (mod10 === 1) {
+    return `${count} задание`;
+  }
+
+  if (mod10 >= 2 && mod10 <= 4) {
+    return `${count} задания`;
+  }
+
+  return `${count} заданий`;
+}
+
+/**
  * Поставить заказ в очередь 3D-печати.
  *
- * Печатаем первую позицию, у товара которой есть файл печати: очередь фермы
- * запускает модели, а не строки заказа. Принтер обязателен — задание без
- * принтера агент не знает, на какой машине печатать, поэтому карточка сначала
- * просит его выбрать.
+ * Печатаются модели, а не строки заказа, поэтому в очередь уходит каждая позиция,
+ * у товара которой есть файл печати: заказ из трёх изделий становится тремя
+ * заданиями. Раньше бралась только первая подходящая позиция, и вторая с третьей
+ * были недостижимы из интерфейса. Принтер обязателен — задание без принтера агент
+ * не знает, на какой машине печатать, поэтому карточка сначала просит его
+ * выбрать. Выбранный принтер получают все задания заказа: агент фермы печатает их
+ * по очереди на одной машине, а распределение по парку — следующий шаг.
  *
  * Перед созданием задания сверяется разметка 3MF: файл, нарезанный под
- * FlashForge, нельзя отправить на Bambu A1. Проверка повторяется здесь, хотя
- * карточка уже гасит кнопку — браузер мог устареть, а база должна отказать
- * сама, а не полагаться на интерфейс.
+ * FlashForge, нельзя отправить на Bambu A1. Проверка идёт по каждой позиции
+ * отдельно, и несовпадение отсекает только свою позицию — один чужой профиль не
+ * должен задерживать весь заказ. Если не подходит ни одна позиция с файлом,
+ * отказываем и объясняем причину. Карточка уже гасит кнопку в этом случае, но
+ * браузер мог устареть, а база должна отказать сама, а не полагаться на
+ * интерфейс.
  *
  * Принтер приходит из карточки (`printerId`) и перекрывает значение заказа:
  * мастер мог выбрать принтер только что, а сохранение ещё не доехало до
@@ -1030,14 +1096,14 @@ export async function queueOrderForPrint(
     return { ok: false, error: PRINT_PRINTER_REQUIRED };
   }
 
-  // В очередь берём только позицию с настоящим файлом печати: STL — это
-  // модель для слайсера, агенту фермы её отправлять некуда. Если файлы есть, но
-  // все STL, говорим об этом прямо, а не «нет товаров с G-кодом».
-  const item = order.data.items.find((entry) =>
+  // В очередь берём все позиции с настоящим файлом печати: STL — это модель для
+  // слайсера, агенту фермы её отправлять некуда. Если файлы есть, но все STL,
+  // говорим об этом прямо, а не «нет товаров с G-кодом».
+  const printableItems = order.data.items.filter((entry) =>
     isPrintableFile(entry.product?.gcodeUrl ?? null),
   );
 
-  if (!item) {
+  if (printableItems.length === 0) {
     const hasStlOnly = order.data.items.some((entry) =>
       Boolean(entry.product?.gcodeUrl),
     );
@@ -1049,59 +1115,109 @@ export async function queueOrderForPrint(
   }
 
   // 3MF помнит, под какой принтер его нарезали. Файл от другого слайсера
-  // печатать на этой машине нельзя — отказываем до создания задания, чтобы в
-  // очереди не висела заведомо невыполнимая работа.
-  const slicedCheck = await readSlicedPrinterCheck(supabase, {
-    userId: user.id,
-    productId: item.productId,
-    printerId: targetPrinterId,
-  });
-
-  if (slicedCheck) {
-    const mismatch = printerMismatchMessage(slicedCheck.slicedForPrinter, {
-      brand: slicedCheck.printerBrand,
-      model: slicedCheck.printerModel,
-    });
-
-    if (mismatch) {
-      return { ok: false, error: mismatch };
-    }
-  }
-
-  const job = await createPrintJob(
-    { orderId, orderItemId: item.id, printerId: targetPrinterId },
-    { supabase, userId: user.id },
+  // печатать на этой машине нельзя, поэтому такая позиция в очередь не идёт, а
+  // остальные — идут: одна неверно нарезанная модель не должна задерживать весь
+  // заказ. Чтение разметки независимо по позициям, поэтому запросы идут
+  // параллельно.
+  const slicedChecks = await Promise.all(
+    printableItems.map((entry) =>
+      readSlicedPrinterCheck(supabase, {
+        userId: user.id,
+        productId: entry.productId,
+        printerId: targetPrinterId,
+      }),
+    ),
   );
 
-  if (!job.ok) {
+  const mismatches: string[] = [];
+  const queueItems: typeof printableItems = [];
+
+  printableItems.forEach((entry, index) => {
+    const slicedCheck = slicedChecks[index];
+    const mismatch = slicedCheck
+      ? printerMismatchMessage(slicedCheck.slicedForPrinter, {
+          brand: slicedCheck.printerBrand,
+          model: slicedCheck.printerModel,
+        })
+      : null;
+
+    if (mismatch) {
+      mismatches.push(mismatch);
+      return;
+    }
+
+    queueItems.push(entry);
+  });
+
+  // Ни одной подходящей позиции — задание в очереди висело бы заведомо
+  // невыполнимым, поэтому отказываем до вставки и объясняем причину.
+  if (queueItems.length === 0) {
+    return { ok: false, error: mismatches[0] ?? PRINT_QUEUE_FAILED };
+  }
+
+  // Задания создаются по одному: `createPrintJob` идемпотентен по позиции (уже
+  // стоящее в очереди задание возвращается как есть), а последовательные вызовы
+  // держат журнал и порядок `queued_at` читаемыми. Позиции независимы, поэтому
+  // отказ одной не отменяет остальные.
+  const queued: string[] = [];
+  const failures: string[] = [];
+
+  for (const entry of queueItems) {
+    const job = await createPrintJob(
+      { orderId, orderItemId: entry.id, printerId: targetPrinterId },
+      { supabase, userId: user.id },
+    );
+
+    if (job.ok) {
+      queued.push(job.data.id);
+      continue;
+    }
+
     console.warn("Задание печати не создано:", job.reason, job.error);
+    failures.push(printQueueErrorFor(job.reason) ?? PRINT_QUEUE_FAILED);
+  }
 
-    if (job.reason === "migration_missing") {
-      return { ok: false, error: PRINT_QUEUE_MIGRATION_MISSING };
-    }
-
-    if (job.reason === "missing_gcode") {
-      return { ok: false, error: PRINT_NO_GCODE_ITEM };
-    }
-
-    if (job.reason === "unauthorized") {
-      return { ok: false, error: SESSION_EXPIRED };
-    }
-
-    if (job.reason === "not_found") {
-      return { ok: false, error: PRINT_TARGET_NOT_FOUND };
-    }
-
-    if (job.reason === "ownership_mismatch") {
-      return { ok: false, error: ORDER_NOT_FOUND };
-    }
-
-    return { ok: false, error: PRINT_QUEUE_FAILED };
+  if (queued.length === 0) {
+    return { ok: false, error: failures[0] ?? PRINT_QUEUE_FAILED };
   }
 
   revalidatePath("/dashboard/workshop");
 
-  return { ok: true, message: PRINT_QUEUE_ADDED };
+  // Сообщение собирается из итогов: мастер должен видеть, что в очередь встал
+  // весь заказ, и что именно осталось за бортом — позиции без файла печати, 3MF
+  // под другой принтер или отказ базы. Числа идут с двоеточием, чтобы не
+  // склонять слово «позиция» в каждой форме.
+  const notes: string[] = [];
+  const noFileCount = order.data.items.length - printableItems.length;
+
+  if (noFileCount > 0) {
+    notes.push(`без файла печати: ${noFileCount}`);
+  }
+
+  if (mismatches.length > 0) {
+    notes.push(`нарезаны под другой принтер: ${mismatches.length}`);
+  }
+
+  if (failures.length > 0) {
+    // Точка в конце текста отказа не нужна: сообщение продолжается
+    // перечислением, и «в очередь..» с двумя точками выглядело бы опечаткой.
+    const reason = failures[0].replace(/\.$/, "");
+
+    notes.push(`не поставлены в очередь: ${failures.length} — ${reason}`);
+  }
+
+  const baseMessage =
+    queued.length === 1
+      ? PRINT_QUEUE_ADDED
+      : `В очередь добавлено ${printJobsCountLabel(queued.length)}.`;
+
+  return {
+    ok: true,
+    message:
+      notes.length > 0
+        ? `${baseMessage} Не вошли позиции — ${notes.join("; ")}.`
+        : baseMessage,
+  };
 }
 
 /**

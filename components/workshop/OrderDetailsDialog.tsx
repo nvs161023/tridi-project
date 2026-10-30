@@ -33,7 +33,10 @@ import {
   PlusIcon,
   TrashIcon,
 } from "@/components/workshop/WorkshopIcons";
-import { printerMismatchMessage } from "@/lib/3d/print-compatibility";
+import {
+  isPrintableFile,
+  printerMismatchMessage,
+} from "@/lib/3d/print-compatibility";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import {
   formatGrams,
@@ -148,15 +151,22 @@ function formatPrintDuration(seconds: number): string {
  * всё остальное: пока оно живо, кнопки нет, и подсказка объясняет, чего ждать.
  * Запрошенная отмена важнее статуса задания: мастер уже нажал кнопку и должен
  * видеть, что просьба ушла агенту, а не что печать «просто идёт».
+ *
+ * Одна кнопка ставит в очередь весь заказ, поэтому при нескольких позициях с
+ * файлом печати подсказка говорит о заданиях во множественном числе: мастер не
+ * должен думать, что напечатается только первое изделие.
  */
 function printQueueHint({
   hasPrinter,
   isLoading,
   status,
+  queueItemCount,
 }: {
   hasPrinter: boolean;
   isLoading: boolean;
   status: OrderPrintStatus | null;
+  /** Сколько позиций уйдёт в очередь с выбранным принтером. */
+  queueItemCount: number;
 }): string {
   if (status?.activeJob) {
     if (status.activeJob.cancelRequested) {
@@ -192,8 +202,22 @@ function printQueueHint({
     return "В заказе нет файлов для печати: приложите .gcode или .3mf (STL нужно нарезать)";
   }
 
+  if (queueItemCount > 1) {
+    return "Принтер назначен: в очередь встанут все позиции с файлом печати";
+  }
+
   return "Принтер назначен: задание встанет в очередь 3D-фермы";
 }
+
+/** Итог сверки позиций заказа с выбранным принтером. */
+type PrintQueueCheck = {
+  /** Позиций с файлом печати. */
+  printable: number;
+  /** Из них подходит принтеру — столько заданий уйдёт в очередь. */
+  compatible: number;
+  /** Первая причина отказа; null — все позиции с файлом подходят. */
+  mismatch: string | null;
+};
 
 export function OrderDetailsDialog({
   order,
@@ -722,44 +746,62 @@ export function OrderDetailsDialog({
   }, 0);
 
   /**
-   * Причина отказа отправить файл на выбранный принтер.
+   * Сверка позиций заказа с выбранным принтером.
    *
-   * 3MF помнит модель принтера, под которую его нарезали, и чужой профиль
-   * ломает печать. Текст берём из общего модуля: карточка и Server Action
-   * говорят одно и то же, а `queueOrderForPrint` повторяет проверку — страница
-   * могла устареть, пока карточка была открыта.
+   * 3MF помнит модель принтера, под которую его нарезали, и чужой профиль ломает
+   * печать. Текст берём из общего модуля: карточка и Server Action говорят одно и
+   * то же, а `queueOrderForPrint` повторяет проверку — страница могла устареть,
+   * пока карточка была открыта.
+   *
+   * Считаются только позиции с файлом печати: `compatible` — сколько из них
+   * уйдёт в очередь, `mismatch` — первая причина отказа. Одна неверно нарезанная
+   * позиция не блокирует заказ: сервер пропустит её и поставит остальные, поэтому
+   * кнопка гаснет только когда под принтер не подходит ни одна позиция.
    */
-  const slicedPrinterMismatch = useMemo(() => {
+  const printQueueCheck = useMemo<PrintQueueCheck>(() => {
+    const empty: PrintQueueCheck = { printable: 0, compatible: 0, mismatch: null };
+
     if (!selectedPrinterId) {
-      return null;
+      return empty;
     }
 
     const printer = printers.find((entry) => entry.id === selectedPrinterId);
 
     if (!printer) {
-      return null;
+      return empty;
     }
+
+    let printable = 0;
+    let compatible = 0;
+    let mismatch: string | null = null;
 
     for (const item of items) {
       const product = item.productId
         ? productById.get(item.productId)
         : undefined;
 
-      if (!product?.slicedForPrinter) {
+      if (!isPrintableFile(product?.gcodeUrl ?? null)) {
         continue;
       }
 
-      const message = printerMismatchMessage(product.slicedForPrinter, {
-        brand: printer.brand,
-        model: printer.model,
-      });
+      printable += 1;
+
+      const message = product?.slicedForPrinter
+        ? printerMismatchMessage(product.slicedForPrinter, {
+            brand: printer.brand,
+            model: printer.model,
+          })
+        : null;
 
       if (message) {
-        return message;
+        mismatch = mismatch ?? message;
+        continue;
       }
+
+      compatible += 1;
     }
 
-    return null;
+    return { printable, compatible, mismatch };
   }, [items, printers, productById, selectedPrinterId]);
 
   if (typeof document === "undefined") {
@@ -794,8 +836,20 @@ export function OrderDetailsDialog({
         : "В очереди"
     : "";
   /**
+   * Первая причина, по которой позиция не уйдёт на этот принтер. Текст её же
+   * показывает карточка; пусто — все позиции с файлом подходят.
+   */
+  const slicedPrinterMismatch = printQueueCheck.mismatch;
+  /**
+   * Под принтер не подходит ни одна позиция с файлом печати — ставить в очередь
+   * нечего. Пока таких позиций нет вовсе (список ещё не прочитан), запрещать
+   * клик нельзя: сервер проверит всё заново и объяснит причину.
+   */
+  const allPrintableItemsMismatch =
+    printQueueCheck.printable > 0 && printQueueCheck.compatible === 0;
+  /**
    * Кнопка активна, когда принтер назначен, проверка нашла товар с G-code,
-   * активного задания ещё нет и файл нарезан под этот принтер.
+   * активного задания ещё нет и хотя бы одна позиция нарезана под этот принтер.
    * `printStatus === null` значит «проверка не удалась» — клик разрешён,
    * сервер всё равно проверит позиции и разметку 3MF заново.
    */
@@ -803,13 +857,25 @@ export function OrderDetailsDialog({
     hasPrinter &&
     !activeJob &&
     !isPrintStatusLoading &&
-    !slicedPrinterMismatch &&
+    !allPrintableItemsMismatch &&
     (printStatus === null || hasGcode);
   const printHint = printQueueHint({
     hasPrinter,
     isLoading: isPrintStatusLoading,
     status: printStatus,
+    queueItemCount: printQueueCheck.compatible,
   });
+  /**
+   * Текст предупреждения под кнопкой. Пока под принтер подходит хоть одна
+   * позиция, кнопка жива, и это только предупреждение о пропуске; иначе —
+   * причина, по которой печатать нечего.
+   */
+  const mismatchNotice = slicedPrinterMismatch
+    ? allPrintableItemsMismatch
+      ? slicedPrinterMismatch
+      : `Часть позиций не попадёт в очередь. ${slicedPrinterMismatch}`
+    : null;
+
   /**
    * Выбранного принтера может не быть в парке: его удалили после назначения.
    * Оставляем строку в списке, чтобы значение не «прыгало» на «Не выбран», и
@@ -1295,13 +1361,13 @@ export function OrderDetailsDialog({
                 {printError}
               </p>
             ) : null}
-            {slicedPrinterMismatch ? (
+            {mismatchNotice ? (
               <p
                 role="alert"
                 data-order-print-mismatch
                 className="mt-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm leading-relaxed text-amber-100"
               >
-                {slicedPrinterMismatch}
+                {mismatchNotice}
               </p>
             ) : null}
           </div>
