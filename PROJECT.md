@@ -2834,6 +2834,8 @@ scripts/test-print-resources.ts`): 18 проверок, включая гран�
 | `loadOrderPrintStatus`, `queueOrderForPrint`, `cancelOrderPrint` | `app/actions/orders.ts` | Блок «3D-печать» карточки заказа. `loadOrderPrintStatus(orderId)` читает позиции с G-code, активное задание (`getOrderActivePrintJob`) и последний отказ (`getOrderLastPrintFailure`); ошибка чтения даёт `null`, а отсутствие миграции — просто пустую очередь. `queueOrderForPrint(orderId, printerId?)`: UUID → сессия → `hasActiveSubscription` → заказ с позициями → принтер (из карточки, иначе из заказа) → первая позиция с G-code → `createPrintJob`; повторный клик не создаёт дубль. `cancelOrderPrint(orderId)`: UUID → сессия → `hasActiveSubscription` → активное задание ищется на сервере → `cancelPrintJob` (RPC `workshop_cancel_print_job`); сообщение зависит от ответа базы — «Задание снято с очереди» для `cancelled` и «Просьба об отмене отправлена…» для `requested`, повторный клик по уже поднятому флагу RPC не дёргает. После успеха — `revalidatePath('/dashboard/workshop')` |
 | `addClient` | `app/actions/clients.ts` | База клиентов Мастерской: разбор формы (`readClientForm`: имя обязательно, телефон и email проверяются по формату) → реальная сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_clients` → `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции; логика, проверки и типы — в `lib/workshop/clients.ts` |
 | `updateClient`, `updateProduct` | `app/actions/clients.ts`, `app/actions/products.ts` | Правка карточек клиента и товара. Оба действия повторяют порядок «создающих» соседей: UUID → разбор формы (`readClientForm` / `readProductForm`, поэтому проверки и подсказки те же, что при добавлении) → реальная сессия → повторная проверка `hasActiveSubscription` → `update` с фильтром по `id` и `user_id` → `select('name')` / `select('title')`. Пустой ответ — «не найден»: строку могли удалить в другой вкладке. `updateProduct` дополнительно ловит 23505 («артикул занят») и откатывается на набор колонок без `gcode_url` и `sliced_for_printer`, если `supabase/workshop_farm_and_shop.sql` не применена заново. |
+| `autoScheduleOrders` | `app/actions/orders.ts` | Автопланировщик очереди — кнопка «Распределить на свободные принтеры» на вкладке «Заказы». Порядок: сессия → `hasActiveSubscription` → свободный парк (`status = 'idle'` и без задания в `queued`/`printing`, по алфавиту) → новые заказы (`status = 'new'`, старые первыми) → их позиции одним запросом вместе с `gcode_url` товара → разметка `sliced_for_printer` отдельным запросом (сбой чтения = «сравнивать нечего», как в `readSlicedPrinterCheck`) → позиции с активным заданием исключаются, чтобы повторный клик не считал чужие задания своими. Затем цикл по принтерам: каждый свободный получает самый старый заказ с подходящей позицией и ставит его `createPrintJob` (совместимость — `isSlicedForPrinter`). Ответ — `AutoScheduleState` (`orders`, `jobs`, `message`): ноль заказов — не ошибка («Нет свободных принтеров или подходящих заказов»), отказ базы на всех заданиях — ошибка. |
+
 
 Типы результатов описаны рядом с функциями (`CompleteLessonResult`, `CompleteModuleTestResult`,
 `ConfirmSessionResult`), состояние формы авторизации — `app/actions/auth-state.ts`
@@ -7515,6 +7517,39 @@ Server Actions в `app/actions/printers.ts`: `updatePrinter(printerId, formData)
 Проверки: `npx tsc --noEmit` — 0 ошибок, `npx eslint` по девяти изменённым файлам — чисто,
 `npm run check:imports` — 1 861 импорт без битых, `npm run check:docs` — сводка согласована.
 Миграция не нужна: правка пишет те же колонки, что и добавление; на старой базе `updateProduct`
+**Мастерская: автопланировщик очереди (30 октября 2026).**
+Заказ попадал в печать только через карточку и только на выбранный вручную принтер: на ферме из
+десяти станков это десять раз «открой заказ → выбери принтер → в очередь». Кнопка «Распределить на
+свободные принтеры» на вкладке «Заказы» делает этот цикл сама.
+
+Server Action `autoScheduleOrders()` в `app/actions/orders.ts`, ответ — `AutoScheduleState` из
+`app/actions/orders-state.ts`. Порядок: сессия → `hasActiveSubscription` → свободный парк
+(`workshop_printers` со `status = 'idle'` и без задания в `queued`/`printing`) по алфавиту → новые
+заказы (`status = 'new'`) старыми первыми → позиции этих заказов одним запросом вместе с `gcode_url`
+товара → разметка `sliced_for_printer` отдельным запросом (без колонки подбор идёт по наличию файла,
+как в `readSlicedPrinterCheck`) → позиции с активным заданием исключаются, иначе повторный клик
+отчитался бы чужими заданиями. Затем цикл по принтерам: каждый свободный получает самый старый
+заказ, у которого есть подходящая позиция, и ставит все совместимые позиции заказа через
+`createPrintJob` — на одну машину, как `queueOrderForPrint`.
+
+Совместимость проверяет `isSlicedForPrinter`, та же функция, что гасит кнопку в карточке: 3MF с
+чужой меткой под принтер не уходит, файл без метки подходит любому. Статус принтера в базе не
+меняется: check `workshop_printers_status_check` допускает только idle/printing/paused/error/offline,
+да и пишет `status` агент фермы, — роль «занят в этом проходе» играют чтение очереди и сам цикл,
+который проходит каждый принтер ровно один раз.
+
+UI: `WorkshopOrdersTab` получил кнопку-молнию (`BoltIcon` в `components/workshop/WorkshopIcons.tsx`)
+рядом с «Создать заказ», состояние `isAutoScheduling` (спиннер, `aria-busy`, блокировка повторного
+клика) и обработчик `runAutoSchedule`: успех — зелёная строка `notice` («Успешно распределено 2
+заказа — 4 задания в очереди.»), отказ — плашка ошибки, после успеха `router.refresh()` перечитывает
+доску. Ноль заказов — не ошибка: «Нет свободных принтеров или подходящих заказов.».
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npx eslint app components` — чисто, `npm run build` —
+успешно, `npm run check:imports`, `npm run check:docs`, `npm run check:style`.
+Миграция не нужна: автораспределение только читает существующие таблицы и пишет те же
+`workshop_print_jobs`, что и кнопка в карточке. Живой прогон (два новых заказа с G-code и два
+свободных принтера, клик по кнопке) остаётся за пользователем.
+
 откатывается на набор без файла печати. Живой прогон (исправить телефон, поменять цену, заменить
 3MF, отфильтровать «В печати») остаётся за пользователем.
 

@@ -12,10 +12,15 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { deleteOrder, updateOrderStatus } from "@/app/actions/orders";
+import {
+  autoScheduleOrders,
+  deleteOrder,
+  updateOrderStatus,
+} from "@/app/actions/orders";
 import { CreateOrderDialog } from "@/components/workshop/CreateOrderDialog";
 import { OrderDetailsDialog } from "@/components/workshop/OrderDetailsDialog";
 import {
+  BoltIcon,
   PrinterIcon,
   TrashIcon,
 } from "@/components/workshop/WorkshopIcons";
@@ -187,6 +192,8 @@ export function WorkshopOrdersTab({
   const [detailsOrderId, setDetailsOrderId] = useState<string | null>(null);
   /** Фильтр доски: «all» — четыре колонки, статус — одна. */
   const [statusFilter, setStatusFilter] = useState<OrderStatusFilter>("all");
+  /** Идёт автораспределение: кнопка блокируется до ответа сервера. */
+  const [isAutoScheduling, setIsAutoScheduling] = useState(false);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
   /**
    * Когда закончилось последнее перетаскивание.
@@ -259,6 +266,48 @@ export function WorkshopOrdersTab({
     setIsCreateOpen(false);
     createTriggerRef.current?.focus();
   }, []);
+
+  /**
+   * Автопланировщик: свободные принтеры получают подходящие новые заказы.
+   *
+   * Вся работа серверная (`autoScheduleOrders`): браузер не знает ни состояния
+   * парка, ни разметки 3MF, а подбор и вставка должны идти в одной сессии.
+   * Кнопка блокируется до ответа — второй клик запустил бы параллельный проход по
+   * тем же принтерам.
+   *
+   * Ответ говорит числами: сколько заказов получило принтер и сколько заданий
+   * появилось в очереди. Ноль — не ошибка (свободных принтеров или подходящих
+   * заказов могло не быть), поэтому это сообщение в зелёной строке, а не плашка
+   * отказа. После успеха `router.refresh()` перечитывает страницу: состояние
+   * заданий живёт в серверном рендере карточек, а не в браузере.
+   */
+  const runAutoSchedule = useCallback(async () => {
+    if (isAutoScheduling) {
+      return;
+    }
+
+    setNotice(null);
+    setError(null);
+    setDeleteError(null);
+    setIsAutoScheduling(true);
+
+    try {
+      const result = await autoScheduleOrders();
+
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setNotice(result.message);
+      router.refresh();
+    } catch (cause) {
+      console.warn("Автораспределение не выполнено:", cause);
+      setError("Не удалось распределить заказы. Попробуйте ещё раз.");
+    } finally {
+      setIsAutoScheduling(false);
+    }
+  }, [isAutoScheduling, router]);
 
   const openDetails = useCallback((order: WorkshopOrder) => {
     setNotice(null);
@@ -536,15 +585,39 @@ export function WorkshopOrdersTab({
           </p>
         </div>
 
-        <button
-          ref={createTriggerRef}
-          type="button"
-          onClick={openCreate}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
-        >
-          <span aria-hidden>+</span>
-          Создать заказ
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void runAutoSchedule()}
+            disabled={isAutoScheduling || isMissingTable}
+            aria-busy={isAutoScheduling}
+            data-auto-schedule
+            title="Найти свободные принтеры и поставить подходящие новые заказы в очередь"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-violet-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(99,102,241,0.75)] transition-colors hover:from-blue-400 hover:to-violet-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isAutoScheduling ? (
+              <span
+                aria-hidden
+                className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+              />
+            ) : (
+              <BoltIcon className="h-4 w-4" />
+            )}
+            {isAutoScheduling
+              ? "Распределяем…"
+              : "Распределить на свободные принтеры"}
+          </button>
+
+          <button
+            ref={createTriggerRef}
+            type="button"
+            onClick={openCreate}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+          >
+            <span aria-hidden>+</span>
+            Создать заказ
+          </button>
+        </div>
       </div>
 
       <p aria-live="polite" className="mt-3 min-h-5 text-sm text-emerald-300">

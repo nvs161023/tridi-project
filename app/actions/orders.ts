@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import type {
+  AutoScheduleState,
   OrderActionState,
   OrderEditState,
   OrderFormState,
@@ -10,6 +11,7 @@ import type {
 } from "@/app/actions/orders-state";
 import {
   isPrintableFile,
+  isSlicedForPrinter,
   printerMismatchMessage,
 } from "@/lib/3d/print-compatibility";
 import {
@@ -144,6 +146,10 @@ const ORDER_ITEM_ADD_FAILED =
   "Не удалось добавить позицию. Попробуйте ещё раз.";
 const ORDER_ITEM_MIGRATION_MISSING =
   "Позиции заказа пока не сохраняются: в базе нет таблицы workshop_order_items. Примените миграцию supabase/workshop_farm_and_shop.sql.";
+/** Автораспределение ответило «нечего делать»: это норма, а не ошибка. */
+const AUTO_SCHEDULE_EMPTY = "Нет свободных принтеров или подходящих заказов.";
+const AUTO_SCHEDULE_FAILED =
+  "Не удалось распределить заказы. Попробуйте ещё раз.";
 
 /**
  * Создание заказа с расходом ресурсов.
@@ -1046,6 +1052,68 @@ function printJobsCountLabel(count: number): string {
 }
 
 /**
+ * «1 заказ», «2 заказа», «5 заказов».
+ *
+ * Слово склоняется в сообщении автораспределения: «распределено 3 заказ» читается
+ * как опечатка. Правило то же, что у заданий: 11…14 всегда «заказов», дальше
+ * смотрим последнюю цифру.
+ */
+function ordersCountLabel(count: number): string {
+  const mod100 = count % 100;
+
+  if (mod100 >= 11 && mod100 <= 14) {
+    return `${count} заказов`;
+  }
+
+  const mod10 = count % 10;
+
+  if (mod10 === 1) {
+    return `${count} заказ`;
+  }
+
+  if (mod10 >= 2 && mod10 <= 4) {
+    return `${count} заказа`;
+  }
+
+  return `${count} заказов`;
+}
+
+/** Текст из строки ответа PostgREST: null, число и объект дают пустую строку. */
+function readRowText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** Строки ответа PostgREST: не массив — пустой список, а не падение. */
+function readRows(value: unknown): Array<Partial<Record<string, unknown>>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(
+    (row): row is Partial<Record<string, unknown>> =>
+      typeof row === "object" && row !== null && !Array.isArray(row),
+  );
+}
+
+/**
+ * Встроенная связь PostgREST.
+ *
+ * To-one приходит объектом, но при неожиданной схеме может прийти массивом —
+ * тогда берём первый элемент, чтобы разбор не падал.
+ */
+function readEmbeddedRow(
+  value: unknown,
+): Partial<Record<string, unknown>> | null {
+  if (Array.isArray(value)) {
+    return readRows(value)[0] ?? null;
+  }
+
+  return typeof value === "object" && value !== null
+    ? (value as Partial<Record<string, unknown>>)
+    : null;
+}
+
+/**
  * Поставить заказ в очередь 3D-печати.
  *
  * Печатаются модели, а не строки заказа, поэтому в очередь уходит каждая позиция,
@@ -1250,6 +1318,399 @@ export async function queueOrderForPrint(
       notes.length > 0
         ? `${baseMessage} Не вошли позиции — ${notes.join("; ")}.`
         : baseMessage,
+  };
+}
+
+/** Позиция заказа, пригодная для автораспределения. */
+type AutoScheduleItem = {
+  id: string;
+  orderId: string;
+  /** Товар нужен для разметки 3MF: она хранится на товаре, а не на позиции. */
+  productId: string;
+};
+
+/** Свободный принтер, которому можно отдать заказ. */
+type AutoSchedulePrinter = {
+  id: string;
+  name: string;
+  brand: string;
+  model: string;
+};
+
+/**
+ * Отказ чтения на любом шаге автораспределения.
+ *
+ * Неприменённая миграция — не поломка приложения, поэтому у неё свой текст
+ * (`supabase/workshop_farm_and_shop.sql` создаёт и принтеры, и очередь). Всё
+ * остальное — общее «не удалось прочитать данные».
+ */
+function scheduleReadError(
+  error: { code?: string | null; message?: string | null },
+  migrationMessage: string,
+): AutoScheduleState {
+  return {
+    ok: false,
+    error: isMissingTableSchema(error.code, error.message)
+      ? migrationMessage
+      : LOAD_FAILED,
+  };
+}
+
+/**
+ * Автопланировщик: свободные принтеры получают подходящие новые заказы.
+ *
+ * Зачем кнопка. Раньше заказ вставал в очередь только через карточку и только на
+ * выбранный вручную принтер: при ферме из десяти станков мастер десять раз
+ * повторял «открой заказ → выбери принтер → в очередь». Здесь этот цикл делает
+ * сервер: он знает состояние парка, разметку 3MF и занятость позиций, а браузер
+ * — нет.
+ *
+ * Порядок:
+ *   1. сессия и подписка — как у остальных действий с заказами;
+ *   2. свободный парк (`status = 'idle'` и без активного задания) по алфавиту,
+ *      чтобы распределение было воспроизводимым, а не случайным;
+ *   3. новые заказы, старые первыми: очередь печати — FIFO, и первый заказ
+ *      мастер ждёт раньше остальных;
+ *   4. позиции этих заказов одним запросом вместе с файлом печати товара;
+ *   5. разметка 3MF отдельным запросом: колонки `sliced_for_printer` может не
+ *      быть, если миграцию не применяли заново, и падать из-за этого нельзя;
+ *   6. активные задания (`queued`/`printing`), чтобы не считать уже стоящее в
+ *      очереди своей работой;
+ *   7. подбор: один принтер — один заказ.
+ *
+ * Совместимость. Если 3MF нарезан под конкретный принтер, позиция уходит только
+ * на него (`isSlicedForPrinter` — та же проверка, что в карточке заказа и в
+ * `queueOrderForPrint`, иначе кнопки спорили бы друг с другом). Файл без
+ * разметки (STL, G-code, 3MF без метаданных) подходит любой машине. Заказ, у
+ * которого подходящих позиций нет, ждёт следующего принтера.
+ *
+ * Принтер в базе остаётся `idle`. Записать «занят» нельзя: check
+ * `workshop_printers_status_check` знает только idle/printing/paused/error/
+ * offline, да и пишет `status` агент фермы — он вернул бы `idle` на следующем
+ * же опросе. Поэтому занятость считается по очереди: принтер с заданием в
+ * `queued`/`printing` в подбор не попадает. От двойного выбора в одном проходе
+ * защищает ещё и сам цикл — каждый принтер проходится ровно один раз.
+ *
+ * Задания создаёт `createPrintJob` — он же проверяет владельца, наличие G-code,
+ * принадлежность принтера и «одно активное задание на позицию». Поэтому
+ * автораспределение ничего не дублирует, а его отказы разбираются по одной
+ * позиции: одна неподходящая не отменяет остальные.
+ */
+export async function autoScheduleOrders(): Promise<AutoScheduleState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  const printersResult = await supabase
+    .from("workshop_printers")
+    .select("id, name, brand, model")
+    .eq("user_id", user.id)
+    .eq("status", "idle")
+    .order("name", { ascending: true });
+
+  if (printersResult.error) {
+    console.warn(
+      "Свободные принтеры не прочитаны:",
+      printersResult.error.code,
+      printersResult.error.message,
+    );
+
+    return scheduleReadError(printersResult.error, MIGRATION_MISSING);
+  }
+
+  const idlePrinters: AutoSchedulePrinter[] = readRows(printersResult.data)
+    .map((row) => ({
+      id: readRowText(row.id),
+      name: readRowText(row.name) || "Принтер",
+      brand: readRowText(row.brand),
+      model: readRowText(row.model),
+    }))
+    .filter((printer) => printer.id !== "");
+
+  // Принтер с активным заданием не свободен, даже если агент ещё не начал печать
+  // и `status` равен idle: задание на нём уже есть, и новый заказ встал бы за
+  // первым. Это же закрывает и повторный клик — вторая волна не выдаст тому же
+  // принтеру ещё один заказ. Записать в базу `status = 'queued'` нельзя: check
+  // `workshop_printers_status_check` знает только idle/printing/paused/error/
+  // offline, а сам статус пишет агент фермы.
+  const busyPrintersResult = await supabase
+    .from("workshop_print_jobs")
+    .select("printer_id")
+    .eq("user_id", user.id)
+    .in("status", ["queued", "printing"])
+    .not("printer_id", "is", null);
+
+  if (busyPrintersResult.error) {
+    console.warn(
+      "Занятые принтеры не прочитаны:",
+      busyPrintersResult.error.code,
+      busyPrintersResult.error.message,
+    );
+
+    return scheduleReadError(
+      busyPrintersResult.error,
+      PRINT_QUEUE_MIGRATION_MISSING,
+    );
+  }
+
+  const busyPrinterIds = new Set(
+    readRows(busyPrintersResult.data)
+      .map((row) => readRowText(row.printer_id))
+      .filter((id) => id !== ""),
+  );
+
+  const printers = idlePrinters.filter(
+    (printer) => !busyPrinterIds.has(printer.id),
+  );
+
+  if (printers.length === 0) {
+    return { ok: true, orders: 0, jobs: 0, message: AUTO_SCHEDULE_EMPTY };
+  }
+
+  const ordersResult = await supabase
+    .from("workshop_orders")
+    .select("id, title, created_at")
+    .eq("user_id", user.id)
+    .eq("status", "new")
+    .order("created_at", { ascending: true });
+
+  if (ordersResult.error) {
+    console.warn(
+      "Новые заказы не прочитаны:",
+      ordersResult.error.code,
+      ordersResult.error.message,
+    );
+
+    return scheduleReadError(ordersResult.error, MIGRATION_MISSING);
+  }
+
+  const orders = readRows(ordersResult.data)
+    .map((row) => ({
+      id: readRowText(row.id),
+      title: readRowText(row.title) || "Заказ",
+    }))
+    .filter((order) => order.id !== "");
+
+  if (orders.length === 0) {
+    return { ok: true, orders: 0, jobs: 0, message: AUTO_SCHEDULE_EMPTY };
+  }
+
+  const orderIds = orders.map((order) => order.id);
+
+  // Позиции всех новых заказов одним запросом: по запросу на заказ ферма из
+  // полусотни строк читалась бы секундами, а кнопка ждёт ответа синхронно.
+  const itemsResult = await supabase
+    .from("workshop_order_items")
+    .select(
+      "id, order_id, product:workshop_products!workshop_order_items_product_id_fkey(id, gcode_url)",
+    )
+    .eq("user_id", user.id)
+    .in("order_id", orderIds)
+    .order("created_at", { ascending: true });
+
+  if (itemsResult.error) {
+    console.warn(
+      "Позиции новых заказов не прочитаны:",
+      itemsResult.error.code,
+      itemsResult.error.message,
+    );
+
+    return scheduleReadError(itemsResult.error, PRINT_QUEUE_MIGRATION_MISSING);
+  }
+
+  const items: AutoScheduleItem[] = [];
+
+  for (const row of readRows(itemsResult.data)) {
+    const id = readRowText(row.id);
+    const orderId = readRowText(row.order_id);
+    const product = readEmbeddedRow(row.product);
+    const gcodeUrl = readRowText(product?.gcode_url);
+
+    // STL — модель для слайсера: агенту фермы её отправлять некуда, а задание
+    // без файла печати `createPrintJob` всё равно отклонит.
+    if (!id || !orderId || !isPrintableFile(gcodeUrl)) {
+      continue;
+    }
+
+    items.push({ id, orderId, productId: readRowText(product?.id) });
+  }
+
+  if (items.length === 0) {
+    return { ok: true, orders: 0, jobs: 0, message: AUTO_SCHEDULE_EMPTY };
+  }
+
+  // Разметка 3MF живёт на товаре, поэтому читается один раз на все позиции.
+  // Ошибку чтения не считаем отказом: без миграции колонки нет ни у кого, и
+  // подбор идёт по наличию файла — так же поступает `readSlicedPrinterCheck`.
+  const productIds = [...new Set(items.map((item) => item.productId))].filter(
+    (productId) => productId !== "",
+  );
+  const slicedByProduct = new Map<string, string>();
+
+  if (productIds.length > 0) {
+    const slicedResult = await supabase
+      .from("workshop_products")
+      .select("id, sliced_for_printer")
+      .eq("user_id", user.id)
+      .in("id", productIds);
+
+    if (slicedResult.error) {
+      console.warn(
+        "Разметка принтера у товаров не прочитана:",
+        slicedResult.error.code,
+        slicedResult.error.message,
+      );
+    } else {
+      for (const row of readRows(slicedResult.data)) {
+        const productId = readRowText(row.id);
+        const slicedForPrinter = readRowText(row.sliced_for_printer);
+
+        if (productId && slicedForPrinter) {
+          slicedByProduct.set(productId, slicedForPrinter);
+        }
+      }
+    }
+  }
+
+  // Что уже в очереди. `createPrintJob` идемпотентен и вернул бы существующее
+  // задание, но тогда повторный клик отчитался бы «распределено 3 заказа», где
+  // не произошло ничего. Отдельное чтение нужно именно ради честных чисел.
+  const activeJobsResult = await supabase
+    .from("workshop_print_jobs")
+    .select("order_item_id")
+    .eq("user_id", user.id)
+    .in("order_id", orderIds)
+    .in("status", ["queued", "printing"]);
+
+  if (activeJobsResult.error) {
+    console.warn(
+      "Очередь печати не прочитана:",
+      activeJobsResult.error.code,
+      activeJobsResult.error.message,
+    );
+
+    return scheduleReadError(
+      activeJobsResult.error,
+      PRINT_QUEUE_MIGRATION_MISSING,
+    );
+  }
+
+  const queuedItemIds = new Set(
+    readRows(activeJobsResult.data)
+      .map((row) => readRowText(row.order_item_id))
+      .filter((id) => id !== ""),
+  );
+
+  const itemsByOrder = new Map<string, AutoScheduleItem[]>();
+
+  for (const item of items) {
+    const bucket = itemsByOrder.get(item.orderId);
+
+    if (bucket) {
+      bucket.push(item);
+      continue;
+    }
+
+    itemsByOrder.set(item.orderId, [item]);
+  }
+
+  /** Позиция подходит принтеру: не в очереди и нарезана под него (или без метки). */
+  function fitsPrinter(
+    item: AutoScheduleItem,
+    printer: AutoSchedulePrinter,
+  ): boolean {
+    if (queuedItemIds.has(item.id)) {
+      return false;
+    }
+
+    return isSlicedForPrinter(slicedByProduct.get(item.productId) ?? "", {
+      brand: printer.brand,
+      model: printer.model,
+    });
+  }
+
+  const assignedOrders = new Set<string>();
+  const createdJobIds = new Set<string>();
+  /** Отказы базы при создании заданий: при них «нечего распределять» — неправда. */
+  let failedAttempts = 0;
+
+  // Цикл по принтерам, а не по заказам: агент фермы печатает позиции одного
+  // заказа по очереди на одной машине, поэтому заказ получает один принтер, а
+  // следующий свободный берёт следующий заказ.
+  for (const printer of printers) {
+    const target = orders.find(
+      (order) =>
+        !assignedOrders.has(order.id) &&
+        (itemsByOrder.get(order.id) ?? []).some((item) =>
+          fitsPrinter(item, printer),
+        ),
+    );
+
+    if (!target) {
+      continue;
+    }
+
+    let created = 0;
+
+    for (const item of itemsByOrder.get(target.id) ?? []) {
+      if (!fitsPrinter(item, printer)) {
+        continue;
+      }
+
+      const job = await createPrintJob(
+        { orderId: target.id, orderItemId: item.id, printerId: printer.id },
+        { supabase, userId: user.id },
+      );
+
+      if (job.ok) {
+        createdJobIds.add(job.data.id);
+        created += 1;
+        continue;
+      }
+
+      console.warn(
+        `Задание не создано (${printer.name}, заказ «${target.title}»):`,
+        job.reason,
+        job.error,
+      );
+      failedAttempts += 1;
+    }
+
+    // Принтер без единого задания остаётся свободным для следующего заказа:
+    // записывать его занятым в этом проходе было бы неправдой.
+    if (created > 0) {
+      assignedOrders.add(target.id);
+    }
+  }
+
+  if (assignedOrders.size === 0) {
+    // База отклонила все задания — это сбой записи, а не «нечего распределять»:
+    // мастер должен повторить клик, а не искать свободный принтер.
+    if (failedAttempts > 0) {
+      return { ok: false, error: AUTO_SCHEDULE_FAILED };
+    }
+
+    return { ok: true, orders: 0, jobs: 0, message: AUTO_SCHEDULE_EMPTY };
+  }
+
+  // Доска показывает состояние заданий из серверного рендера: без revalidate
+  // мастер увидел бы сообщение об успехе и те же карточки без очереди.
+  revalidatePath("/dashboard/workshop");
+
+  return {
+    ok: true,
+    orders: assignedOrders.size,
+    jobs: createdJobIds.size,
+    message: `Успешно распределено ${ordersCountLabel(assignedOrders.size)} — ${printJobsCountLabel(createdJobIds.size)} в очереди.`,
   };
 }
 

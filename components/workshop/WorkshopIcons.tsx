@@ -190,6 +190,15 @@ export function PlusIcon(props: WorkshopIconProps) {
   );
 }
 
+/** Автоматизация: молния — кнопка «Распределить на свободные принтеры». */
+export function BoltIcon(props: WorkshopIconProps) {
+  return (
+    <svg {...iconProps} {...props}>
+      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+    </svg>
+  );
+}
+
 /** Подсказка: вопросительный знак в круге — ссылка на инструкцию. */
 export function HelpIcon(props: WorkshopIconProps) {
   return (
