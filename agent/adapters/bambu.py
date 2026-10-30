@@ -34,7 +34,10 @@
     (`param=cache/<имя>`, `url=file:///sdcard/model/<имя>`), проект `.3mf` —
     командой `project_file` (`param=Metadata/plate_1.gcode`, `url=ftp:///<имя>`).
     `project_file` разбирает контейнер `.3mf`, и на плоском `.gcode` A1 отвечает
-    `0500-4003` («не удалось разобрать файл»): сырому файлу нужна своя команда;
+    `0500-4003` («не удалось разобрать файл»): сырому файлу нужна своя команда.
+    Отправка в брокер ничего не подтверждает (QoS 0), поэтому метод ждёт отчёт
+    принтера с тем же `sequence_id` и отдаёт его `result`/`reason` в `last_error`:
+    «команда отправлена» и «печать началась» — разные вещи;
   - `get_status()`  — последний отчёт принтера: `print.gcode_state`,
     `print.mc_percent` (проценты) и `print.mc_remaining_time` (минуты).
 
@@ -149,14 +152,26 @@ FTP_CACHE_DIRECTORY = "cache"
 # в команде `gcode_file`.
 GCODE_FILE_URL_PREFIX = "file:///sdcard/model/"
 
+# Сколько ждать ответ принтера на команду печати. Bambu отвечает в топик отчёта
+# тем же `sequence_id`, обычно за секунды; ожидание нужно, чтобы отказ принтера
+# стал причиной в `last_error`, а не «печать запущена».
+COMMAND_REPLY_TIMEOUT = 20.0
+
+# Как часто смотреть, не пришёл ли ответ, пока его ждём. Ответ приходит в потоке
+# paho, поэтому ждать можно только опросом своего словаря.
+COMMAND_REPLY_POLL = 0.2
+
 # `print.gcode_state` принтера → статус агента. `PREPARE` — это ещё не печать,
 # но принтер уже занят заданием, и мастеру важно это видеть. `PAUSE` отдаём как
-# `error`: печать стоит и сама не продолжится.
+# `error`: печать стоит и сама не продолжится. `STANDBY` — простой A1 (холодное
+# сопло, стол опущен): без него `get_status()` считал бы любое такое состояние
+# неизвестным и отдавал `error`, то есть «печать встала» на ровном месте.
 _STATE_MAP: dict[str, str] = {
     "RUNNING": "printing",
     "PREPARE": "printing",
     "FINISH": "idle",
     "IDLE": "idle",
+    "STANDBY": "idle",
     "FAILED": "error",
     "PAUSE": "error",
 }
@@ -452,6 +467,80 @@ def _is_raw_gcode(remote_name: str) -> bool:
     return remote_name.lower().endswith(".gcode")
 
 
+def _project_file_payload(remote_name: str) -> dict[str, Any]:
+    """
+    Поля команды `project_file` для контейнера `.3mf`.
+
+    `param` — запись внутри контейнера (`Metadata/plate_1.gcode`), `url` — файл
+    на карте памяти принтера (`ftp:///<имя>`): Bambu забирает его сам, второй раз
+    по сети файл не передаётся. `subtask_name` — имя, которое принтер покажет на
+    экране и в истории; без него Bambu подписывает задание именем из `param`.
+    """
+    return {
+        "command": "project_file",
+        "param": GCODE_PARAM,
+        "subtask_name": remote_name,
+        "url": f"ftp:///{remote_name}",
+        "bed_type": "auto",
+        "timelapse": False,
+        "use_ams": False,
+    }
+
+
+def _gcode_file_payloads(remote_name: str) -> list[dict[str, Any]]:
+    """
+    Варианты команды `gcode_file` для сырого `.gcode` — в порядке проверки.
+
+    Публичного описания команды нет, а прошивки Bambu расходятся в двух местах:
+    нужен ли ведущий слэш у пути на карте (`/cache/<имя>` против `cache/<имя>`) и
+    понимает ли `gcode_file` поле `url`. Отказ принтер присылает за секунды,
+    поэтому перебор вариантов дешевле ещё одного круга «правка — печать», а
+    журнал показывает, какой из них он принял.
+    """
+    cached = f"{FTP_CACHE_DIRECTORY}/{remote_name}"
+    file_url = f"{GCODE_FILE_URL_PREFIX}{remote_name}"
+
+    return [
+        {
+            "command": "gcode_file",
+            "param": cached,
+            "subtask_name": remote_name,
+            "url": file_url,
+        },
+        {
+            "command": "gcode_file",
+            "param": f"/{cached}",
+            "subtask_name": remote_name,
+            "url": file_url,
+        },
+        {
+            "command": "gcode_file",
+            "param": cached,
+            "subtask_name": remote_name,
+        },
+    ]
+
+
+def _reply_error(reply: dict[str, Any] | None) -> str | None:
+    """
+    Причина отказа из ответа принтера: None — команда принята.
+
+    Ответа нет вовсе — тоже отказ: печать без подтверждения не начинается, а
+    ждать её бесконечно нельзя, иначе задание висит до утра.
+    """
+    if reply is None:
+        return f"принтер не подтвердил печать за {int(COMMAND_REPLY_TIMEOUT)} с"
+
+    result = str(reply.get("result") or "").strip().lower()
+
+    if result == "success":
+        return None
+
+    reason = str(reply.get("reason") or "").strip()
+
+    return f"принтер отклонил печать: {reason or result or 'без причины'}"
+
+
 def _looks_like_reset(reason: str) -> bool:
     """
     Похоже ли, что принтер оборвал канал данных, а не отказал в доступе.
@@ -508,6 +597,10 @@ class BambuAdapter(BasePrinterAdapter):
         # Последний отчёт принтера: Bambu присылает только изменившиеся поля,
         # поэтому словарь не заменяется, а дополняется.
         self._report: dict[str, Any] = {}
+        # Ответы на команды: `sequence_id` → тело `print` из отчёта. Bambu
+        # отвечает в тот же топик, что и статус (`command`, `result`, `reason`),
+        # поэтому без отдельного словаря отказ команды неотличим от «отправлено».
+        self._replies: dict[str, dict[str, Any]] = {}
         self._sequence = 0
 
     def _next_sequence(self) -> str:
@@ -523,11 +616,59 @@ class BambuAdapter(BasePrinterAdapter):
         Отчёт Bambu выглядит как `{"print": {"mc_percent": 42}}` — только
         изменения, а не полный статус. Заменять кэш целиком нельзя: после
         сообщения с одним `mc_percent` пропали бы `gcode_state` и остаток.
+        Ответ на команду (`result`, `reason`, эхо `param`/`url`) в кэш не
+        попадает: это реакция на запрос, а не состояние печати, — её разбирает
+        `_remember_reply`.
         """
         report = _as_mapping(payload.get("print"))
 
-        if report:
-            self._report.update(report)
+        if not report or "result" in report:
+            return
+
+        self._report.update(report)
+
+    def _remember_reply(self, payload: dict[str, Any]) -> None:
+        """
+        Ответ принтера на команду: `result` и `reason` в журнал и в `_replies`.
+
+        Bambu отвечает в топик отчёта телом вида
+        `{"print": {"command": "gcode_file", "sequence_id": "7",
+        "result": "fail", "reason": "..."}}`; по `sequence_id` видно, на какую
+        команду это ответ. Без разбора отказ терялся: `_publish()` подтверждает
+        только доставку в брокер, и агент писал «печать запущена» даже когда
+        принтер команду не принял.
+        """
+        for body in payload.values():
+            if not isinstance(body, dict):
+                continue
+
+            if "command" not in body or "result" not in body:
+                continue
+
+            command = body.get("command")
+            sequence = str(body.get("sequence_id", ""))
+            result = str(body.get("result") or "").strip().lower()
+            reason = str(body.get("reason") or "").strip()
+
+            if result == "success":
+                logger.info(
+                    "Bambu %s: принтер принял %s (sequence %s) %s",
+                    self.host,
+                    command,
+                    sequence,
+                    reason,
+                )
+            else:
+                logger.error(
+                    "Bambu %s: принтер отклонил %s (sequence %s): %s %s",
+                    self.host,
+                    command,
+                    sequence,
+                    result or "без результата",
+                    reason,
+                )
+
+            self._replies[sequence] = dict(body)
 
     def _on_connect(
         self,
@@ -587,6 +728,7 @@ class BambuAdapter(BasePrinterAdapter):
             return
 
         if isinstance(payload, dict):
+            self._remember_reply(payload)
             self._apply_report(payload)
 
     def _learn_serial_from_topic(self, topic: str) -> None:
@@ -870,6 +1012,26 @@ class BambuAdapter(BasePrinterAdapter):
             return False
 
         return True
+
+    def _wait_reply(self, sequence: str) -> dict[str, Any] | None:
+        """
+        Ответ принтера на команду с этим `sequence_id` (None — не дождались).
+
+        Ответ приходит в потоке paho, поэтому ждём опросом своего словаря.
+        Ожидание обязательно: `_publish()` возвращает True уже после отправки в
+        брокер, а принял ли команду принтер, видно только по ответу.
+        """
+        deadline = time.monotonic() + COMMAND_REPLY_TIMEOUT
+
+        while time.monotonic() < deadline:
+            reply = self._replies.pop(sequence, None)
+
+            if reply is not None:
+                return reply
+
+            time.sleep(COMMAND_REPLY_POLL)
+
+        return None
 
     def close(self) -> None:
         """Закрывает MQTT-соединение: агент зовёт метод в конце задания."""
@@ -1232,61 +1394,59 @@ class BambuAdapter(BasePrinterAdapter):
 
         Сырой `.gcode` — не проект: `project_file` разбирает контейнер `.3mf` и
         на плоском файле A1 отвечает `0500-4003` («не удалось разобрать файл»).
-        Поэтому для `.gcode` уходит отдельная команда `gcode_file`, где `param`
-        — путь к файлу на карте (`cache/<имя>`, как ждёт прошивка), а `url` —
-        `file:///sdcard/model/<имя>`.
+        Поэтому для `.gcode` уходит `gcode_file` с вариантами полей из
+        `_gcode_file_payloads()`: прошивки расходятся в формате `param`, и первый
+        принятый вариант и есть печать. Проект `.3mf` идёт `project_file` из
+        `_project_file_payload()` — без перебора, этот формат известен.
 
-        `.3mf` остаётся на `project_file`: `param` там — запись внутри
-        контейнера (`Metadata/plate_1.gcode`), `url` — `ftp:///<имя>`: файл
-        Bambu забирает с собственной карты памяти, второй раз по сети он не
-        передаётся. `subtask_name` — имя, которое принтер покажет на экране и в
-        истории: без него Bambu подписывает задание именем файла из `param`.
+        Отправка в брокер ничего не подтверждает (QoS 0), поэтому после каждой
+        команды ждём отчёт с тем же `sequence_id` (`_wait_reply`). Отказ принтера
+        — это `False` и его `reason` в `last_error`: main.py отправит причину
+        мастеру, а не «печать запущена» с последующим молчанием.
         """
         if _is_raw_gcode(remote_name):
-            command_name = "gcode_file"
-            param = f"{FTP_CACHE_DIRECTORY}/{remote_name}"
-            url = f"{GCODE_FILE_URL_PREFIX}{remote_name}"
-            options: dict[str, Any] = {}
+            payloads = _gcode_file_payloads(remote_name)
         else:
-            command_name = "project_file"
-            param = GCODE_PARAM
-            url = f"ftp:///{remote_name}"
-            # Опции печати шлём только с `project_file`: у `gcode_file` прошивка
-            # берёт их из самого файла, и лишние поля в команде ей ни к чему.
-            options = {
-                "bed_type": "auto",
-                "timelapse": False,
-                "use_ams": False,
-            }
+            payloads = [_project_file_payload(remote_name)]
 
-        command = {
-            "print": {
-                "sequence_id": self._next_sequence(),
-                "command": command_name,
-                "param": param,
-                "subtask_name": remote_name,
-                "url": url,
-                **options,
-            }
-        }
+        last_error = "команда печати не отправлена: нет MQTT-соединения"
 
-        logger.info(
-            "Bambu %s: печать %s — команда %s, param=%s, url=%s",
-            self.host,
-            remote_name,
-            command_name,
-            param,
-            url,
+        for fields in payloads:
+            sequence = self._next_sequence()
+            command = {"print": {"sequence_id": sequence, **fields}}
+
+            logger.info(
+                "Bambu %s: печать %s — отправляю %s",
+                self.host,
+                remote_name,
+                json.dumps(command, ensure_ascii=False),
+            )
+
+            if not self._publish(command):
+                self.last_error = last_error
+                return False
+
+            failure = _reply_error(self._wait_reply(sequence))
+
+            if failure is None:
+                self.last_error = None
+                logger.info("Bambu %s: печать %s запущена", self.host, remote_name)
+                return True
+
+            last_error = failure
+            logger.warning(
+                "Bambu %s: печать %s не принята: %s",
+                self.host,
+                remote_name,
+                failure,
+            )
+
+        logger.error(
+            "Bambu %s: печать %s не запущена: %s", self.host, remote_name, last_error
         )
+        self.last_error = last_error
 
-        if not self._publish(command):
-            self.last_error = "команда печати не отправлена: нет MQTT-соединения"
-            return False
-
-        self.last_error = None
-        logger.info("Bambu %s: печать %s запущена", self.host, remote_name)
-
-        return True
+        return False
 
     def stop_print(self) -> bool:
         """

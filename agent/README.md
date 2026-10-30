@@ -285,7 +285,7 @@ Bambu в LAN-режиме (Settings → Network → LAN Only Mode) не имее
 |---|---|---|
 | `connect()` | MQTT `self.ip_address:8883`, TLS без проверки сертификата, подписка `device/<serial>/report`, команда `pushing.pushall` | CONNACK получен и подписка оформлена |
 | `upload_file()` | FTPS `self.ip_address:990`: implicit TLS 1.2 (сессия управляющего канала переиспользуется в канале данных), `PROT P` и `PASV` обязательны, файл кладётся в папку `cache` (`STOR cache/<remote_name>`, папка создаётся через `MKD`); канал данных пишется вручную (`TYPE I` + `STOR` по шагам) с таймаутом `FTP_DATA_TIMEOUT` — `storbinary()` не годится, он висит на `unwrap()` после последнего байта. Если FTPS не прошёл — HTTP `POST /api/files/local` с `X-Api-Key` | файл загружен |
-| `start_print()` | MQTT `device/<serial>/request`. Сырой `.gcode` — команда `gcode_file` (`param=cache/<remote_name>`, `url=file:///sdcard/model/<remote_name>`): `project_file` на плоском файле даёт `0500-4003`. Проект `.3mf` — `project_file` (`param=Metadata/plate_1.gcode`, `url=ftp:///<remote_name>`) | сообщение отправлено |
+| `start_print()` | MQTT `device/<serial>/request`, после отправки — ожидание отчёта с тем же `sequence_id` (`COMMAND_REPLY_TIMEOUT`): `result=fail` и `reason` принтера уходят в `last_error`. Сырой `.gcode` — команда `gcode_file` с перебором вариантов `param`/`url` (`cache/<remote_name>`, `/cache/<remote_name>`, без `url`): `project_file` на плоском файле даёт `0500-4003`. Проект `.3mf` — `project_file` (`param=Metadata/plate_1.gcode`, `url=ftp:///<remote_name>`) | принтер ответил `success` |
 | `get_status()` | последний отчёт: `print.gcode_state`, `print.mc_percent`, `print.mc_remaining_time` | `{"status", "progress", "remaining_time"}` |
 
 Серийный номер. Топики Bambu адресуются серийником, поэтому адаптер берёт его по
@@ -295,10 +295,13 @@ Bambu в LAN-режиме (Settings → Network → LAN Only Mode) не имее
 состояние, но команду печати отправить нельзя: `start_print()` вернёт `False` и
 напишет причину в журнал.
 
-Статусы: `RUNNING` и `PREPARE` → `printing`, `FINISH` и `IDLE` → `idle`, `FAILED` и
-`PAUSE` → `error`; незнакомое состояние тоже `error`. `mc_remaining_time` у Bambu в
-минутах, в ответе адаптера — секунды; при `idle` остаток 0. Отчёты приходят
-частичными (только изменившиеся поля), поэтому кэш дополняется, а не заменяется.
+Статусы: `RUNNING` и `PREPARE` → `printing`, `FINISH`, `IDLE` и `STANDBY` → `idle`,
+`FAILED` и `PAUSE` → `error`; незнакомое состояние тоже `error`. `mc_remaining_time`
+у Bambu в минутах, в ответе адаптера — секунды; при `idle` остаток 0. Отчёты
+приходят частичными (только изменившиеся поля), поэтому кэш дополняется, а не
+заменяется. Ответы на команды (`command` + `result`) в кэш статуса не попадают: они
+разбираются отдельно и пишутся в журнал — иначе отказ команды неотличим от
+«команда отправлена».
 
 Сеть как и у Moonraker: исключения наружу не выпускаются, таймауты обязательны
 (10 с на MQTT-подключение, 120 с на загрузку файла). Адаптер — единственный, кто
@@ -320,3 +323,5 @@ Bambu в LAN-режиме (Settings → Network → LAN Only Mode) не имее
 | `Bambu … не отвечает на MQTT` | принтер не в LAN-режиме (Settings → Network → LAN Only Mode) или адрес не тот |
 | `Bambu … не принял MQTT-подключение` | код доступа не совпадает с `LAN Access Code` в настройках принтера |
 | `Bambu … серийный номер неизвестен` | номера нет в задании, а SSDP молчит: агент и принтер в разных подсетях |
+| `Bambu … печать … не принята (принтер отклонил …)` | принтер не понял команду или не нашёл файл: сверьте `param`/`url` в строке «отправляю …» с путём загрузки, `result`/`reason` пришли от самого принтера |
+| `принтер не начал печать: состояние …` | команда принята, но файл не взят в работу: обычно прошивка не умеет печатать такой файл (нужен `.3mf`-контейнер) |

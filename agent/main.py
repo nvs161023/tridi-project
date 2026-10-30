@@ -115,6 +115,12 @@ MONITOR_INTERVAL = 10
 # `MONITOR_INTERVAL`, чтобы прогресс и отмену мастер видел без задержки.
 PRINT_START_DELAY = 60
 
+# Сколько опросов подряд принтер может простоять, прежде чем задание считается
+# не начавшимся. Прошивка успевает показать `standby`/`idle` между приёмом
+# команды и стартом нагрева, поэтому одного опроса мало: три опроса — это ещё
+# полминуты запаса после `PRINT_START_DELAY`, а дальше простой уже отказ.
+PRINT_START_CHECKS = 3
+
 # Пульс мастерской: принтеры отмечаются живыми каждые 30 секунд. Вдвое чаще,
 # чем ферма считает принтер офлайн (PRINTER_OFFLINE_AFTER_MS — две минуты):
 # один пропущенный запрос не должен красить живую ферму в «Офлайн».
@@ -958,17 +964,25 @@ def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
 
     В CRM уходят только изменения прогресса: одинаковые проценты повторно не
     отправляются, иначе на каждую печать уходил бы лишний запрос каждые десять
-    секунд. `idle` или 100 % — печать закончена (`done`), `error` — печать
-    встала (`failed`): мастер должен узнать об этом, а не ждать до утра.
+    секунд. 100 % или `idle` уже после старта — печать закончена (`done`),
+    `error` — печать встала (`failed`): мастер должен узнать об этом, а не ждать
+    до утра.
 
     Пауза перед первым опросом обязательна: сразу после `start_print()` принтер
     ещё разбирает файл и показывает `standby`, и без паузы агент принял бы старт
     за конец печати. Первая пауза — `PRINT_START_DELAY` (принтеру нужно время на
     разбор файла), дальше цикл идёт по `MONITOR_INTERVAL`.
+
+    Печать, которая так и не началась, закрывается как `failed`, а не `done`:
+    простой принтера на первых опросах означает, что файл не взят в работу, а
+    мастеру нельзя показывать напечатанное изделие, которого нет.
     """
     # Уже отправленный прогресс: 0 ушёл вместе с началом печати.
     last_progress = 0
     delay = PRINT_START_DELAY
+    # Появился ли хоть один признак печати: `printing` или прогресс больше нуля.
+    started = False
+    idle_checks = 0
 
     while True:
         time.sleep(delay)
@@ -978,6 +992,9 @@ def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
         state = read_text(status.get("status")) or ""
         progress = read_progress(status.get("progress"))
 
+        if state == "printing" or progress > 0:
+            started = True
+
         if state == "error":
             logger.error("Задание %s: принтер сообщил об ошибке печати", job_id)
             send_status(
@@ -985,7 +1002,7 @@ def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
             )
             return
 
-        if state == "idle" or progress >= 100:
+        if progress >= 100 or (started and state == "idle"):
             logger.info(
                 "Задание %s: печать закончена, прогресс %d%%", job_id, progress
             )
@@ -1012,6 +1029,28 @@ def monitor_print(job_id: str, adapter: BasePrinterAdapter) -> None:
                     + (adapter.last_error or "нет ответа")
                 ),
             )
+            return
+
+        if not started:
+            # Принтер простоял весь цикл: печать не началась. Несколько опросов
+            # — запас на прошивку, которая между приёмом команды и нагревом
+            # успевает показать `idle`; дальше простой уже отказ, а не задержка.
+            idle_checks += 1
+
+            if idle_checks < PRINT_START_CHECKS:
+                logger.warning(
+                    "Задание %s: принтер ещё не начал печать (%s, прогресс %d%%)",
+                    job_id,
+                    state,
+                    progress,
+                )
+                continue
+
+            reason = (
+                f"принтер не начал печать: состояние {state}, прогресс {progress}%"
+            )
+            logger.error("Задание %s: %s", job_id, reason)
+            send_status(job_id, "failed", progress, reason=reason)
             return
 
         if state != "printing":

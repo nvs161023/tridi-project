@@ -15,7 +15,12 @@
   5. серийник, которого не было в задании, берётся из топика отчёта;
   6. фабрика передаёт серийник только Bambu, а `read_printer()` в main.py
      читает `printer.serialNumber` (и snake_case), подставляя пустую строку,
-     если поля нет.
+     если поля нет;
+  7. ответ принтера на команду (`result`/`reason`) разбирается и не смешивается
+     со статусом: отказ `gcode_file` уходит в `last_error`, а не теряется, и
+     `STANDBY` не превращается в `error`;
+  8. `start_print()` перебирает варианты `param`/`url` для сырого G-code и
+     считает печать запущенной только по ответу принтера.
 
 Запуск:
     python scripts/test-bambu.py
@@ -109,7 +114,6 @@ class FlakyUploadAdapter(bambu.BambuAdapter):
         super().__init__(ip_address=CHECK_IP, api_key=CHECK_CODE)
         self.failures = failures
         self.calls = 0
-        self.stream_calls = 0
 
     def _upload_once(
         self, local_path: str, remote_path: str, local_size: int
@@ -121,22 +125,43 @@ class FlakyUploadAdapter(bambu.BambuAdapter):
 
         return None
 
-    def _upload_stream_once(
-        self, local_path: str, remote_path: str, local_size: int
-    ) -> str | None:
-        """
-        Ручная отправка тоже без сети: тест проверяет только повторы.
-
-        Настоящий метод пошёл бы в FTPS к `bambu-test.invalid`, а проверка
-        повторов должна оставаться мгновенной.
-        """
-        self.stream_calls += 1
-
-        return "connection reset by peer"
-
     def _upload_via_http(self, local_path: str, remote_name: str) -> str | None:
         """HTTP-фолбэк без сети: адрес `*.invalid` не разрешается в DNS."""
         return "ConnectionError: имя не разрешается"
+
+
+class ScriptedPrintAdapter(bambu.BambuAdapter):
+    """
+    Адаптер без сети: `_publish()` не отправляет команду, а сразу кладёт ответ.
+
+    Нужен, чтобы проверить `start_print()` без принтера: отказ `result=fail`
+    должен уходить в `last_error`, принятый вариант — давать `True`, а пустой
+    список ответов изображает молчащий принтер.
+    """
+
+    def __init__(self, replies: list[dict[str, Any]]) -> None:
+        super().__init__(
+            ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+        )
+        self.replies = replies
+        self.commands: list[dict[str, Any]] = []
+
+    def _publish(self, command: dict[str, Any]) -> bool:
+        self.commands.append(command)
+
+        index = min(len(self.commands), len(self.replies)) - 1
+
+        if index < 0:
+            # Ответов нет вовсе: принтер молчит, как при потерянном отчёте.
+            return True
+
+        body = command["print"]
+        self._replies[str(body["sequence_id"])] = {
+            "command": body["command"],
+            **self.replies[index],
+        }
+
+        return True
 
 
 def main() -> int:
@@ -256,6 +281,127 @@ def main() -> int:
         {"status": "error", "progress": 100, "remaining_time": 0},
     )
 
+    # A1 в простое присылает STANDBY: без него статус был бы «печать встала».
+    reporting._apply_report({"print": {"gcode_state": "STANDBY", "mc_percent": 0}})
+    expect_status(
+        "STANDBY → idle",
+        reporting,
+        {"status": "idle", "progress": 0, "remaining_time": 0},
+    )
+
+    # Ответ принтера на команду — единственный признак, что печать принята:
+    # `_publish()` подтверждает только доставку в брокер.
+    replying = bambu.BambuAdapter(
+        ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+    )
+    replying._on_message(
+        None,  # type: ignore[arg-type] — клиент в тесте не нужен
+        None,
+        SimpleNamespace(
+            topic=f"device/{CHECK_SERIAL}/report",
+            payload=(
+                b'{"print": {"command": "gcode_file", "sequence_id": "7", '
+                b'"result": "fail", "reason": "key not exist"}}'
+            ),
+        ),  # type: ignore[arg-type] — SimpleNamespace вместо MQTTMessage
+    )
+    check(
+        "ответ принтера разобран по sequence_id",
+        replying._replies.get("7", {}).get("reason") == "key not exist",
+        f"{replying._replies!r}",
+    )
+    expect_status(
+        "ответ на команду не попадает в статус",
+        replying,
+        {"status": "idle", "progress": 0, "remaining_time": 0},
+    )
+
+    check(
+        "_reply_error: success — команда принята",
+        bambu._reply_error({"result": "SUCCESS"}) is None,
+        repr(bambu._reply_error({"result": "SUCCESS"})),
+    )
+    check(
+        "_reply_error: fail с причиной",
+        bambu._reply_error({"result": "fail", "reason": "key not exist"})
+        == "принтер отклонил печать: key not exist",
+        repr(bambu._reply_error({"result": "fail", "reason": "key not exist"})),
+    )
+    check(
+        "_reply_error: fail без причины не теряется",
+        bambu._reply_error({}) == "принтер отклонил печать: без причины",
+        repr(bambu._reply_error({})),
+    )
+
+    raw_payloads = bambu._gcode_file_payloads("job.gcode")
+    check(
+        "gcode_file: варианты param/url по порядку",
+        [item.get("param") for item in raw_payloads]
+        == ["cache/job.gcode", "/cache/job.gcode", "cache/job.gcode"]
+        and "url" in raw_payloads[0]
+        and "url" not in raw_payloads[2]
+        and all(item["command"] == "gcode_file" for item in raw_payloads),
+        f"{raw_payloads!r}",
+    )
+    project_payload = bambu._project_file_payload("job.3mf")
+    check(
+        "project_file: param внутри контейнера, url с карты",
+        project_payload["command"] == "project_file"
+        and project_payload["param"] == "Metadata/plate_1.gcode"
+        and project_payload["url"] == "ftp:///job.3mf",
+        f"{project_payload!r}",
+    )
+
+    rejected_print = ScriptedPrintAdapter(
+        [{"result": "fail", "reason": "file not found"}]
+    )
+    check(
+        "start_print: отказ принтера — False и причина в last_error",
+        rejected_print.start_print("job.gcode") is False
+        and "file not found" in (rejected_print.last_error or "")
+        and len(rejected_print.commands) == len(raw_payloads),
+        f"команд {len(rejected_print.commands)}, "
+        f"last_error={rejected_print.last_error!r}",
+    )
+
+    second_variant = ScriptedPrintAdapter(
+        [{"result": "fail", "reason": "key not exist"}, {"result": "success"}]
+    )
+    check(
+        "start_print: принимается второй вариант param",
+        second_variant.start_print("job.gcode") is True
+        and len(second_variant.commands) == 2
+        and second_variant.commands[1]["print"]["param"] == "/cache/job.gcode"
+        and second_variant.last_error is None,
+        f"команд {len(second_variant.commands)}, "
+        f"last_error={second_variant.last_error!r}",
+    )
+
+    project_print = ScriptedPrintAdapter([{"result": "success"}])
+    check(
+        "start_print: .3mf уходит project_file с первой попытки",
+        project_print.start_print("job.3mf") is True
+        and len(project_print.commands) == 1
+        and project_print.commands[0]["print"]["url"] == "ftp:///job.3mf",
+        f"команд {len(project_print.commands)}",
+    )
+
+    # Молчащий принтер: ответа нет — это отказ, а не «печать запущена».
+    silent_print = ScriptedPrintAdapter([])
+    saved_timeout = bambu.COMMAND_REPLY_TIMEOUT
+
+    try:
+        bambu.COMMAND_REPLY_TIMEOUT = 0.1
+        silent_result = silent_print.start_print("job.gcode")
+    finally:
+        bambu.COMMAND_REPLY_TIMEOUT = saved_timeout
+
+    check(
+        "start_print: молчание принтера — False с причиной",
+        silent_result is False and "не подтвердил" in (silent_print.last_error or ""),
+        f"last_error={silent_print.last_error!r}",
+    )
+
     # Серийник, которого не было в задании: его даёт топик первого отчёта.
     learning = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
     learning._on_message(
@@ -372,14 +518,6 @@ def main() -> int:
             and "connection reset" in (failing.last_error or ""),
             f"попыток {failing.calls}, last_error={failing.last_error!r}",
         )
-        # Сброс канала — повод повторить файл вручную через сокет, а не сразу
-        # закрывать задание: на каждой попытке ровно одна ручная отправка.
-        check(
-            "сброс канала пробует ручную отправку",
-            failing.stream_calls == bambu.FTP_UPLOAD_ATTEMPTS,
-            f"ручных отправок {failing.stream_calls}",
-        )
-
         recovered = FlakyUploadAdapter(failures=1)
         check(
             "повтор после обрыва проходит",
