@@ -1281,8 +1281,8 @@ def process_task(task: dict[str, Any]) -> None:
         )
         monitor_print(job_id, adapter, filament_grams)
     except NotImplementedError as error:
-        # OctoPrint пока заглушка: мастер увидит причину, а агент не вылетит и
-        # продолжит опрос очереди.
+        # Адаптер, у которого метод остался заглушкой: мастер увидит причину, а
+        # агент не вылетит и продолжит опрос очереди.
         logger.error("Задание %s: протокол принтера не реализован: %s", job_id, error)
         send_status(
             job_id,

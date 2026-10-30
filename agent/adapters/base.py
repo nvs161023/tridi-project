@@ -33,7 +33,7 @@ from __future__ import annotations
 import os
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import Any, ClassVar, Final, NamedTuple
+from typing import Any, Final, NamedTuple
 
 from .formats import discard, ensure_format, sanitize_remote_name
 
@@ -90,12 +90,17 @@ class BasePrinterAdapter(ABC):
     # Ключ протокола в справочнике (`registry.PROTOCOLS`). Нужен коду, который
     # не знает, какой именно адаптер перед ним: `prepare_upload()` находит по
     # нему допустимые форматы, а фабрика подставляет ключ из паспорта протокола.
-    protocol_key: ClassVar[str] = ""
+    #
+    # Не ClassVar: фабрика (`factory.get_adapter`) пишет ключ в сам адаптер
+    # после сборки. Так паспорт протокола остаётся единственным источником и для
+    # класса, и для экземпляра, а опечатка в атрибуте не превращается в
+    # «неизвестный протокол» уже на первом задании.
+    protocol_key: str = ""
 
     # Минимум, который обязан уметь любой адаптер: положить файл, запустить
     # печать и рассказать о состоянии. Остановку, паузу и камеру протокол
-    # объявляет сам: Moonraker и Bambu умеют отмену, Creality — паузу, а
-    # заглушка OctoPrint пока не умеет ничего, кроме контракта.
+    # объявляет сам: Moonraker умеет отмену, OctoPrint и PrusaLink — полный
+    # контроль над заданием, а протокол без драйвера не умеет ничего.
     capabilities: frozenset[str] = frozenset(
         {CAPABILITY_UPLOAD, CAPABILITY_START, CAPABILITY_STATUS}
     )
@@ -249,7 +254,9 @@ class BasePrinterAdapter(ABC):
         Состояние печати.
 
         Ключи ответа:
-          - `status` — `"printing"`, `"idle"` или `"error"`;
+          - `status` — `"printing"`, `"paused"`, `"idle"` или `"error"`. `paused`
+            означает, что печать стоит по воле мастера: main.py продолжает опрос,
+            а не закрывает задание;
           - `progress` — проценты 0…100;
           - `remaining_time` — остаток печати в секундах (0, если он неизвестен
             или печать не идёт).

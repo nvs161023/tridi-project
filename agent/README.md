@@ -18,14 +18,20 @@ Python-скрипт, который работает на компьютере �
 фермы: `scanner.py` обходит локальную сеть, находит Moonraker (7125) и
 OctoPrint (80/443) и отправляет находки в `POST /api/agent/discover`, а мастер
 даёт им имена в интерфейсе. Адаптер Bambu (MQTT и FTPS, шаг 7.5) уже печатает,
-OctoPrint — следующий шаг. Шаг 8.1 — реестр протоколов: `adapters/registry.py`
+OctoPrint — с шага 8.3. Шаг 8.1 — реестр протоколов: `adapters/registry.py`
 знает восемь протоколов (moonraker, octoprint, bambu, prusa, creality, anycubic,
 flashforge, elegoo) вместе с портами, форматами файлов и секретами; драйверы
-Prusa, Creality, Anycubic, FlashForge и Elegoo пишутся следующими шагами, а до
+Creality, Anycubic, FlashForge и Elegoo пишутся следующими шагами, а до
 тех пор задание на такой принтер закрывается отказом `AdapterUnavailableError`.
 Шаг 8.2 — форматы: `adapters/formats.py` сверяет расширение со справочником,
 приводит имя файла к ASCII и пакует `.gcode` в `.3mf`, а `prepare_upload()` в
 базовом классе отдаёт адаптеру готовый `UploadPlan` с чистым именем и размером.
+Шаг 8.3 — дешёвые адаптеры: `OctoPrintAdapter` и `PrusaAdapter` (PrusaLink)
+разговаривают с принтером по-настоящему — подключение, загрузка файла, старт
+печати, пауза, возврат, отмена и опрос состояния; ответы API в тестах имитирует
+`http.server` на loopback (`scripts/test-octoprint.py`, `scripts/test-prusa.py`).
+Драйверы Creality, Anycubic, FlashForge и Elegoo пишутся следующими шагами, а до
+тех пор задание на такой принтер закрывается отказом `AdapterUnavailableError`.
 
 Задания печатаются параллельно: одно задание — один поток (`start_job()`), поэтому
 ферма из десяти принтеров не ждёт окончания первой печати. Повторно пришедшая
@@ -260,9 +266,8 @@ python main.py
 ## Адаптеры принтеров
 
 `agent/adapters/` — интерфейс, реестр протоколов, форматы, фабрика и реализации (шаги
-4.2–8.x). Moonraker и Bambu разговаривают с принтером по-настоящему; OctoPrint
-пока заглушка — его методы поднимают `NotImplementedError`. Протоколы prusa,
-creality, anycubic, flashforge и elegoo приложение и реестр уже знают, но
+4.2–8.x). Moonraker, OctoPrint, Bambu и PrusaLink разговаривают с принтером по-настоящему.
+Протоколы creality, anycubic, flashforge и elegoo приложение и реестр уже знают, но
 драйверов у них ещё нет: `get_adapter()` отвечает `AdapterUnavailableError`
 («протокол creality ещё не реализован в агенте»).
 
@@ -272,7 +277,8 @@ creality, anycubic, flashforge и elegoo приложение и реестр у
 | `registry.py` | `PROTOCOLS` — восемь `ProtocolSpec` (подпись, «модуль:Класс» драйвера, порты, способ обнаружения, возможности, форматы, имена секретов); `get_protocol()` без учёта регистра и пробелов, `load_adapter_class()` с ленивым импортом; исключения `UnknownProtocolError` и `AdapterUnavailableError` |
 | `formats.py` | Форматы и подготовка файла: `sanitize_remote_name()` (ASCII, без папок и `..`, до 255 символов; Creality — `_` вместо пробелов), `ensure_format()` (сверка расширения со справочником, упаковка `.gcode` в `.3mf` для Bambu, проверка записей контейнера для FlashForge), `file_digest()` (MD5 потоком), `wrap_gcode_to_3mf()`, `discard()` и `FormatError` |
 | `moonraker.py` | `MoonrakerAdapter` — Klipper: `/server/info`, `/server/files/upload`, `/printer/print/start`, `/printer/objects/query?print_stats&virtual_sdcard` |
-| `octoprint.py` | `OctoPrintAdapter` — заглушка; нужен REST API OctoPrint (`/api/files/local`, `/api/job`) |
+| `octoprint.py` | `OctoPrintAdapter` — OctoPrint: `/api/version`, `POST /api/files/local`, `POST /api/files/local/<name>`, `GET /api/job`, команды в `POST /api/job` |
+| `prusa.py` | `PrusaAdapter` — PrusaLink: `GET /api/v1/status`, `PUT /api/v1/files/<storage>/<name>`, `POST /api/v1/files/<storage>/<name>`, `GET /api/v1/job`, команды в `/api/v1/job` |
 | `bambu.py` | `BambuAdapter` — Bambu в LAN-режиме: MQTT с TLS (8883) для команд и отчётов, implicit FTPS (990) для файлов |
 | `factory.py` | `get_adapter(protocol_type, ip_address, api_key, serial_number="", secrets=None)`: набор аргументов берётся из паспорта протокола (серийник — Bambu и FlashForge, `secrets` — протоколам из `registry`); неизвестный протокол — `UnknownProtocolError("Неизвестный протокол")`, протокол без драйвера — `AdapterUnavailableError`. После сборки ставит `adapter.protocol_key` из паспорта |
 
@@ -311,22 +317,78 @@ creality, anycubic, flashforge и elegoo приложение и реестр у
 загрузку файла) наружу не выпускаются: в журнал уходит причина, методы отвечают
 `False`, а `get_status()` — `{"status": "error", "progress": 0, "remaining_time": 0}`.
 
-`get_status()` возвращает `{"status": "printing" \| "idle" \| "error", "progress": 0…100,
-"remaining_time": секунды}`. Какой статус задания отправить в `/api/agent/status`
-(`printing`, `done`, `failed`), решает main.py, а не адаптер.
+`get_status()` возвращает `{"status": "printing" \| "paused" \| "idle" \| "error",
+"progress": 0…100, "remaining_time": секунды}`. Какой статус задания отправить в
+`/api/agent/status` (`printing`, `done`, `failed`), решает main.py, а не адаптер: `paused`
+он не считает ни концом печати, ни срывом и продолжает опрос.
 
-Протокол `octoprint` есть в `PRINTER_PROTOCOLS` приложения: фабрика его принимает,
-но методы адаптера поднимают `NotImplementedError` — реальный REST API OctoPrint
-(выбор файла, `POST /api/job` с `command=start`) это отдельная задача.
+### OctoPrint (шаг 8.3)
 
-То же с пятью новыми протоколами (prusa, creality, anycubic, flashforge,
-elegoo): они есть в реестре и в `PRINTER_PROTOCOLS`, форма добавления их
-показывает, но модулей `prusa.py`, `creality.py`, `anycubic.py`,
-`flashforge.py` и `elegoo.py` ещё нет. Отличие от OctoPrint в причине отказа:
-заглушка отвечает `NotImplementedError` из метода, а протокол без модуля —
-`AdapterUnavailableError` из фабрики, и мастер видит «протокол creality ещё не
-реализован в агенте» вместо «неизвестный протокол». Это разные вещи: первое
-лечится обновлением агента, второе — исправлением настроек принтера.
+| Метод | Запрос | Успех |
+|---|---|---|
+| `connect()` | `GET /api/version` | 200; версия сервера и API пишутся в журнал |
+| `upload_file()` | `POST /api/files/local`: `multipart/form-data`, поле `file`, `select=true`, `print=false` | 201 (200 тоже принимаем) |
+| `start_print()` | `POST /api/files/local/<remote_name>` с `{"command": "select", "print": true}` | 204 (200 тоже) |
+| `get_status()` | `GET /api/job` | 200 и JSON `state` |
+| `pause_print()` / `resume_print()` | `POST /api/job` с `{"command": "pause", "action": "pause"\|"resume"}` | 204 |
+| `stop_print()` | `POST /api/job` с `{"command": "cancel"}` | 204 |
+
+`print=false` при загрузке — не осторожность, а порядок: печать запускает отдельная
+команда, после того как агент узнал об успешной загрузке и отчитался серверу.
+
+`state` переводится в статусы агента: `Printing`, `Starting`, `Resuming`, `Finishing` →
+`printing`; `Paused` и `Pausing` → `paused`; `Operational`, `Offline`, `Closed`,
+`Connecting` → `idle`; `Error` и `Cancelling` → `error`, незнакомое состояние — тоже
+`error` с записью в журнал. Прогресс берётся из `job.progress.completion` — OctoPrint
+отдаёт его сразу в процентах (0…100), — а если вложенного объекта нет, читается верхний
+`progress`: так отвечали сборки до 1.3 и прокси перед принтером. Остаток —
+`printTimeLeft` в секундах, `None` превращается в 0.
+
+Коды отказа объясняются в `last_error` подсказкой: 401 — ключ не принят, 403 — ключу
+запрещено, 409 — файл занят или принтер печатает, 413 — файл больше лимита, 415 — тип
+файла не поддерживается. Тест без принтера: `python scripts/test-octoprint.py` — ответы
+API имитирует `http.server` на loopback; проверяются URL, `X-Api-Key`, поля multipart,
+разбор состояний, отказы 401/404/409/415 и поведение при выключенном принтере.
+
+### PrusaLink (шаг 8.3)
+
+| Метод | Запрос | Успех |
+|---|---|---|
+| `connect()` | `GET /api/v1/status` | 200; `printer.state` пишется в журнал |
+| `upload_file()` | `PUT /api/v1/files/<storage>/<remote_name>`: тело файла, `Content-Type: application/octet-stream`, `Print-After-Upload: ?0`, `Overwrite: ?1` | 201 (200 тоже) |
+| `start_print()` | `POST /api/v1/files/<storage>/<remote_name>` с `{"command": "print"}` | 204 |
+| `get_status()` | `GET /api/v1/status` + `GET /api/v1/job` | 200; 204 у задания — «задания нет» |
+| `pause_print()` / `resume_print()` / `stop_print()` | `POST /api/v1/job` с `{"action": "pause"\|"resume"\|"stop"}` | 204 |
+| то же, если прошивка не знает `POST` | `PUT /api/v1/job` с `{"command": …}`, для отмены — `DELETE /api/v1/job` | 204 |
+
+Хранилище `usb` (флешка) или `local` (внутренняя память) приходит из
+`workshop_printers.printer_secrets` — поля `storage` в форме принтера пока нет, поэтому по
+умолчанию `usb`; незнакомое значение тоже даёт `usb` с записью в журнал, а не путь в чужую
+папку. `Print-After-Upload: ?0` запрещает печать сразу после загрузки (команду отправляет
+агент), `Overwrite: ?1` разрешает перезапись — повтор после обрыва не упирается в 409.
+
+У команд два вида запроса не от нерешительности: прошивки 2.x принимают `POST` с `action`,
+а документация PrusaLink описывает `PUT` с `command` и `DELETE` для отмены. Агент шлёт
+`POST`, а на 400/404/405 повторяет документированным запросом — иначе на живом принтере
+пауза молча не сработала бы, а мастер считал бы, что она включена. `DELETE` с 404 значит,
+что печати уже нет: для агента это успех.
+
+`printer.state` переводится так: `PRINTING` → `printing`, `PAUSED` → `paused`, `IDLE`,
+`READY`, `BUSY`, `FINISHED`, `STOPPED` → `idle`, `ATTENTION` и `ERROR` → `error` (принтер
+ждёт мастера — само не рассосётся), незнакомое состояние — `error`. `progress` уже в
+процентах, `time_remaining` — секунды; 204/404 на `/api/v1/job` дают нули и не считаются
+срывом печати.
+
+Тест без принтера: `python scripts/test-prusa.py` — фейковый `http.server` проверяет
+`PUT`/`POST`/`DELETE`, заголовки `X-Api-Key`, `Print-After-Upload` и `Overwrite`, тело
+загрузки, хранилище из секретов, разбор состояний и отказы 401/405/409/415.
+
+Остальные четыре протокола (creality, anycubic, flashforge, elegoo) есть в реестре и в
+`PRINTER_PROTOCOLS`, форма добавления их показывает, но модулей `creality.py`,
+`anycubic.py`, `flashforge.py` и `elegoo.py` ещё нет: `get_adapter()` отвечает
+`AdapterUnavailableError`, и мастер видит «протокол creality ещё не реализован в агенте».
+Это отличие от неизвестного протокола важно: первое лечится обновлением агента, второе —
+исправлением настроек принтера.
 
 ### Bambu Lab (шаг 7.5)
 
