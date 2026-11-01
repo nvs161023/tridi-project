@@ -28,6 +28,7 @@ import {
   formatPrinterHours,
   formatPrinterLastSeen,
   formatPrinterProtocol,
+  printerConnectionSpec,
   printerMaintenanceLevel,
   printerMaintenancePercent,
   type MaintenanceLevel,
@@ -43,8 +44,12 @@ import {
  * парка. Окно закрывает эту дырку и открывается кликом по карточке.
  *
  * Блоков два, как у самих действий: «Обслуживание» — только чтение, данные уже
- * пришли с сервера (`WorkshopPrinter`); «Подключение» — форма из четырёх полей и
- * Server Action `updatePrinter`. Удаление стоит отдельным блоком внизу: это
+ * пришли с сервера (`WorkshopPrinter`); «Подключение» — форма полей протокола и
+ * Server Action `updatePrinter`. Набор полей берётся из `PRINTER_CONNECTION_SPECS`
+ * — того же справочника, что у окна добавления: ключ доступа, серийный номер,
+ * Check Code FlashForge, логин-пароль и Device ID/Mode ID Anycubic. Секреты в
+ * браузер не возвращаются, поэтому поля показываются пустыми, а пустое поле
+ * значит «оставить сохранённое». Удаление стоит отдельным блоком внизу: это
  * редкое и необратимое действие, ему не место рядом с «Сохранить».
  */
 
@@ -141,6 +146,13 @@ export function PrinterDetailsDialog({
   useDialogDismiss(closeDialog);
 
   const model = [printer.brand, printer.model].filter(Boolean).join(" ");
+  /**
+   * Поля подключения выбранного протокола: тот же справочник
+   * `PRINTER_CONNECTION_SPECS`, по которому рисуется окно добавления. Поэтому и
+   * здесь, и там FlashForge спрашивает SN и Check Code, а Anycubic — логин,
+   * пароль, Device ID и Mode ID, не разъезжаясь в названиях и проверках.
+   */
+  const spec = printerConnectionSpec(protocol);
   const guide = getMaintenanceGuide(printer.brand, printer.model);
   const preset =
     findPrinterPresetByModel(model) ||
@@ -647,7 +659,8 @@ export function PrinterDetailsDialog({
               ) : null}
             </div>
 
-            {protocol === "bambu" ? (
+            {/* SN есть только у Bambu и FlashForge (`PRINTER_SERIAL_PROTOCOLS`). */}
+            {spec.serialNumber ? (
               <div>
                 <label
                   htmlFor="printer-connection-serial"
@@ -663,7 +676,11 @@ export function PrinterDetailsDialog({
                   spellCheck={false}
                   maxLength={PRINTER_TEXT_LIMITS.serialNumber}
                   defaultValue={printer.serialNumber ?? ""}
-                  placeholder="00M09A123456789"
+                  placeholder={
+                    spec.serialNumberRequired
+                      ? "Номер с наклейки принтера"
+                      : "00M09A123456789"
+                  }
                   aria-describedby="printer-connection-serial-hint"
                   aria-invalid={fieldErrors.serialNumber ? true : undefined}
                   className={inputClassName}
@@ -672,8 +689,9 @@ export function PrinterDetailsDialog({
                   id="printer-connection-serial-hint"
                   className={hintClassName}
                 >
-                  Нужен только Bambu Lab: по номеру агент строит топики MQTT.
-                  Если принтер его не сообщил, оставьте поле пустым.
+                  {spec.serialNumberRequired
+                    ? "FlashForge отправляет номер заголовком каждого запроса: без него принтер отвечает отказом."
+                    : "Нужен только Bambu Lab: по номеру агент строит топики MQTT. Если принтер его не сообщил, оставьте поле пустым."}
                 </p>
                 {fieldErrors.serialNumber ? (
                   <p className={fieldErrorClassName}>
@@ -683,38 +701,112 @@ export function PrinterDetailsDialog({
               </div>
             ) : null}
 
-            <div>
-              <label
-                htmlFor="printer-connection-key"
-                className={labelClassName}
-              >
-                Ключ API / код доступа
-              </label>
-              <input
-                id="printer-connection-key"
-                name="apiKey"
-                type="password"
-                autoComplete="new-password"
-                spellCheck={false}
-                maxLength={PRINTER_TEXT_LIMITS.apiKey}
-                defaultValue=""
-                placeholder={
-                  protocol === "bambu"
-                    ? "Новый код доступа, если меняете"
-                    : "Новый ключ API, если меняете"
-                }
-                aria-describedby="printer-connection-key-hint"
-                aria-invalid={fieldErrors.apiKey ? true : undefined}
-                className={inputClassName}
-              />
-              <p id="printer-connection-key-hint" className={hintClassName}>
-                Ключ хранится как секрет и в браузер не возвращается. Пустое
-                поле — оставить сохранённый ключ.
-              </p>
-              {fieldErrors.apiKey ? (
-                <p className={fieldErrorClassName}>{fieldErrors.apiKey}</p>
-              ) : null}
-            </div>
+            {spec.apiKey ? (
+              <div>
+                <label
+                  htmlFor="printer-connection-key"
+                  className={labelClassName}
+                >
+                  {spec.apiKey.label}
+                </label>
+                <input
+                  id="printer-connection-key"
+                  name="apiKey"
+                  type="password"
+                  autoComplete="new-password"
+                  spellCheck={false}
+                  maxLength={spec.apiKey.maxLength}
+                  defaultValue=""
+                  placeholder={
+                    protocol === "bambu"
+                      ? "Новый код доступа, если меняете"
+                      : "Новый ключ API, если меняете"
+                  }
+                  aria-describedby="printer-connection-key-hint"
+                  aria-invalid={fieldErrors.apiKey ? true : undefined}
+                  className={inputClassName}
+                />
+                <p id="printer-connection-key-hint" className={hintClassName}>
+                  {spec.apiKey.hint} Ключ хранится как секрет и в браузер не
+                  возвращается: пустое поле — оставить сохранённый.
+                </p>
+                {fieldErrors.apiKey ? (
+                  <p className={fieldErrorClassName}>{fieldErrors.apiKey}</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/*
+              Секреты протокола без своей колонки (`printer_secrets`): Check Code
+              FlashForge, логин-пароль и Device ID/Mode ID Anycubic, Mainboard ID
+              Elegoo, хранилище PrusaLink. Поля всегда пустые — значения в браузер
+              не возвращаются, поэтому подсказка обещает «пустое поле — оставить
+              сохранённое», а Server Action накладывает введённое на старый
+              объект. `key` включает протокол: при его смене поля пересоздаются,
+              и секрет одного принтера не остаётся в форме другого.
+            */}
+            {spec.secrets.length > 0 ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {spec.secrets.map((field) => {
+                  const fieldError = fieldErrors[field.key];
+                  const fieldId = `printer-connection-secret-${field.key}`;
+                  const describedBy = fieldError
+                    ? `${fieldId}-error`
+                    : `${fieldId}-hint`;
+
+                  return (
+                    <div key={`${protocol}-${field.key}`}>
+                      <label htmlFor={fieldId} className={labelClassName}>
+                        {field.label}
+                      </label>
+                      {field.options ? (
+                        <select
+                          id={fieldId}
+                          name={field.key}
+                          defaultValue=""
+                          aria-describedby={describedBy}
+                          aria-invalid={fieldError ? true : undefined}
+                          className={inputClassName}
+                        >
+                          <option value="">Не менять</option>
+                          {field.options.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          id={fieldId}
+                          name={field.key}
+                          type={field.password ? "password" : "text"}
+                          autoComplete={field.password ? "new-password" : "off"}
+                          spellCheck={false}
+                          maxLength={PRINTER_TEXT_LIMITS.apiKey}
+                          defaultValue=""
+                          placeholder={field.placeholder}
+                          aria-describedby={describedBy}
+                          aria-invalid={fieldError ? true : undefined}
+                          className={inputClassName}
+                        />
+                      )}
+                      {fieldError ? (
+                        <p
+                          id={`${fieldId}-error`}
+                          className={fieldErrorClassName}
+                        >
+                          {fieldError}
+                        </p>
+                      ) : (
+                        <p id={`${fieldId}-hint`} className={hintClassName}>
+                          {field.hint} Пустое поле — оставить сохранённое.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
 
             <div className="flex flex-wrap items-center gap-3 border-t border-white/5 pt-4">
               <button

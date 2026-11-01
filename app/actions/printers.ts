@@ -13,7 +13,9 @@ import type {
 import { countActivePrintJobs } from "@/lib/db/workshop-farm";
 import {
   isPrinterProtocol,
+  readPrinterSecrets,
   type PrinterProtocol,
+  type PrinterSecrets,
 } from "@/lib/db/workshop-types";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
@@ -137,9 +139,13 @@ export async function addPrinter(
  * серийный номер и ключ доступа: имя, модель, интервалы и счётчики не трогаются,
  * иначе правка адреса сбрасывала бы обслуживание, а правка ключа — наработку.
  *
- * Ключ доступа приходит из формы пустым, когда его не меняли: в браузер секрет
- * не попадает, и `createPrinterConnectionPayload` просто не включает колонку в
- * `update` — сохранённый ключ остаётся как был.
+ * Ключ доступа и секреты протокола приходят из формы пустыми, когда их не
+ * меняли: в браузер секреты не попадают. Ключ `createPrinterConnectionPayload`
+ * просто не включает в `update` — сохранённый остаётся как был; секреты же
+ * лежат одним jsonb-объектом, поэтому сохранённый объект читается заранее и
+ * введённые поля накладываются поверх (`{ ...сохранённые, ...новые }`). Пустое
+ * поле формы в `draft.printerSecrets` не попадает, поэтому старый `checkCode`
+ * или пароль не стирается, если мастер правил только адрес.
  *
  * `select("name")` возвращает обновлённую строку: пустой ответ означает, что
  * принтер уже удалили в другой вкладке, — тогда честнее сказать «не найден», чем
@@ -172,9 +178,49 @@ export async function updatePrinter(
     return { ok: false, error: PRO_REQUIRED };
   }
 
+  // Сохранённые секреты нужны до записи: форма показывает поля пустыми, и
+  // пустота значит «оставь как было». Заодно этот запрос проверяет, что принтер
+  // ещё существует и принадлежит мастеру (`user_id`), — update ниже не отличил
+  // бы «нет строки» от «нет прав» по одному пустому ответу.
+  const { data: stored, error: storedError } = await supabase
+    .from("workshop_printers")
+    .select("printer_secrets")
+    .eq("id", printerId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (storedError) {
+    console.warn(
+      "Секреты принтера не прочитаны:",
+      storedError.code,
+      storedError.message,
+    );
+
+    return {
+      ok: false,
+      error: isMissingTableSchema(storedError.code, storedError.message)
+        ? MIGRATION_MISSING
+        : UPDATE_FAILED,
+    };
+  }
+
+  if (!stored) {
+    return { ok: false, error: NOT_FOUND };
+  }
+
+  // jsonb принимает что угодно, поэтому сохранённое разбирается той же
+  // `readPrinterSecrets()`, что и на стороне агента: мусор в колонке не должен
+  // попасть обратно в базу.
+  const printerSecrets: PrinterSecrets = {
+    ...readPrinterSecrets(
+      (stored as { printer_secrets?: unknown }).printer_secrets,
+    ),
+    ...draft.printerSecrets,
+  };
+
   const { data, error } = await supabase
     .from("workshop_printers")
-    .update(createPrinterConnectionPayload(draft))
+    .update(createPrinterConnectionPayload({ ...draft, printerSecrets }))
     .eq("id", printerId)
     .eq("user_id", user.id)
     .select("name")

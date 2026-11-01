@@ -1054,14 +1054,23 @@ export function countMaintenanceDue(printer: WorkshopPrinter): number {
  * Общая часть форм подключения: серийный номер, ключ доступа и секреты
  * протокола.
  *
- * Одна функция на форму добавления и на кнопку «Проверить связь»: проверки не
- * разъедутся, и кнопка не станет ругаться на поле, которое сохранение пропустит.
- * Поля берутся из `PRINTER_CONNECTION_SPECS` — того же справочника, по которому
- * они рисуются.
+ * Одна функция на форму добавления, на кнопку «Проверить связь» и на карточку
+ * принтера: проверки не разъедутся, и кнопка не станет ругаться на поле, которое
+ * сохранение пропустит. Поля берутся из `PRINTER_CONNECTION_SPECS` — того же
+ * справочника, по которому они рисуются.
+ *
+ * `mode` различает два разговора с мастером. `create` — форма добавления: пустое
+ * обязательное поле это ошибка, а у поля с `fallback` пишется значение по
+ * умолчанию (PrusaLink без `storage` не соберёт адрес файла). `update` — карточка
+ * принтера: секреты в браузер не возвращаются, поэтому все поля секретов
+ * показываются пустыми, и пустота здесь значит «оставь сохранённое». Требовать
+ * их заново и подставлять `fallback` в этом режиме нельзя: сохранённый
+ * `checkCode` затёрся бы ошибкой формы, а `storage` — значением по умолчанию.
  */
 function readConnectionFields(
   formData: FormData,
   protocolType: PrinterProtocol,
+  mode: "create" | "update" = "create",
 ): {
   serialNumber: string;
   apiKey: string;
@@ -1080,7 +1089,7 @@ function readConnectionFields(
 
   if (serialNumber.length > PRINTER_TEXT_LIMITS.serialNumber) {
     errors.serialNumber = `Не больше ${PRINTER_TEXT_LIMITS.serialNumber} символов.`;
-  } else if (spec.serialNumberRequired && !serialNumber) {
+  } else if (mode === "create" && spec.serialNumberRequired && !serialNumber) {
     errors.serialNumber =
       "Введите серийный номер с наклейки: FlashForge отправляет его в каждом запросе.";
   }
@@ -1093,7 +1102,7 @@ function readConnectionFields(
   if (spec.apiKey) {
     if (apiKey.length > spec.apiKey.maxLength) {
       errors.apiKey = `Не больше ${spec.apiKey.maxLength} символов.`;
-    } else if (spec.apiKey.required && !apiKey) {
+    } else if (mode === "create" && spec.apiKey.required && !apiKey) {
       errors.apiKey =
         "Заполните поле: без него принтер не примет команды агента.";
     } else if (
@@ -1115,6 +1124,13 @@ function readConnectionFields(
     const value = readFormText(formData.get(field.key));
 
     if (!value) {
+      // Карточка принтера: пустое поле — «оставь сохранённый секрет». Значения в
+      // браузер не приходят, поэтому все поля показаны пустыми, и требовать их
+      // заново (или подставлять `fallback` вместо сохранённого) нельзя.
+      if (mode === "update") {
+        continue;
+      }
+
       if (field.required) {
         errors[field.key] = `Заполните поле «${field.label}».`;
       } else if (field.fallback) {
@@ -1332,25 +1348,36 @@ export function readPrinterProbeForm(formData: FormData): {
  * Проверенный ввод формы «Подключение» в карточке принтера.
  *
  * Отличается от `PrinterDraft` тем, что имя, бренд, модель и интервалы
- * обслуживания карточка не меняет — их задают при добавлении. Ключ доступа
- * приходит пустым, когда мастер его не трогал: пустая строка означает «оставь
- * сохранённый секрет», а не «сотри ключ».
+ * обслуживания карточка не меняет — их задают при добавлении. Ключ доступа и
+ * секреты протокола приходят пустыми, когда мастер их не трогал: пустая строка
+ * означает «оставь сохранённый секрет», а не «сотри ключ».
  */
 export type PrinterConnectionDraft = {
   protocolType: PrinterProtocol;
   ipAddress: string;
-  /** SN для Bambu; пустая строка — в базе null. */
+  /** SN для Bambu и FlashForge; пустая строка — в базе null. */
   serialNumber: string;
   apiKey: string;
+  /**
+   * Новые секреты протокола из `printer_secrets`: `checkCode` FlashForge, логин
+   * и пароль Anycubic. Только заполненные поля — Server Action накладывает их на
+   * сохранённый объект, поэтому пустое поле старый секрет не стирает.
+   */
+  printerSecrets: PrinterSecrets;
 };
 
 /**
  * Разбор формы «Подключение».
  *
  * Проверки те же, что у формы добавления (`normalizePrinterAddress`, длина SN и
- * ключа из `PRINTER_TEXT_LIMITS`), но протокол здесь обязателен: при добавлении
- * незнакомое значение молча становилось moonraker, а при правке это означало бы
- * «смени протокол» — принтер перестал бы отвечать агенту.
+ * ключа из `PRINTER_TEXT_LIMITS`, поля протокола из `PRINTER_CONNECTION_SPECS`),
+ * но протокол здесь обязателен: при добавлении незнакомое значение молча
+ * становилось moonraker, а при правке это означало бы «смени протокол» — принтер
+ * перестал бы отвечать агенту.
+ *
+ * Режим у общей `readConnectionFields()` — `update`: секреты в браузер не
+ * возвращаются, поля показываются пустыми, и пустота значит «оставить
+ * сохранённое», а не «заполните заново».
  */
 export function readPrinterConnectionForm(formData: FormData): {
   draft: PrinterConnectionDraft | null;
@@ -1375,31 +1402,21 @@ export function readPrinterConnectionForm(formData: FormData): {
       "Укажите адрес вида 192.168.1.50 или имя узла (ender3.local) — без пробелов и «/».";
   }
 
-  // SN есть только у Bambu и FlashForge: у остальных такого понятия нет, а
-  // чужое значение агент подставил бы в топик MQTT или в заголовок чужого
-  // запроса.
-  const serialNumber = isPrinterSerialProtocol(protocolType)
-    ? readFormText(formData.get("serialNumber"))
-    : "";
-
-  if (serialNumber.length > PRINTER_TEXT_LIMITS.serialNumber) {
-    errors.serialNumber = `Не больше ${PRINTER_TEXT_LIMITS.serialNumber} символов.`;
-  }
-
-  // Пустая строка — «ключ не меняем»: сохранённый секрет в браузер не попадает,
-  // поэтому поле всегда показывается пустым.
-  const apiKey = readFormText(formData.get("apiKey"));
-
-  if (apiKey.length > PRINTER_TEXT_LIMITS.apiKey) {
-    errors.apiKey = `Не больше ${PRINTER_TEXT_LIMITS.apiKey} символов.`;
-  }
+  const connection = readConnectionFields(formData, protocolType, "update");
+  Object.assign(errors, connection.errors);
 
   if (ipAddress === null || Object.keys(errors).length > 0) {
     return { draft: null, errors };
   }
 
   return {
-    draft: { protocolType, ipAddress, serialNumber, apiKey },
+    draft: {
+      protocolType,
+      ipAddress,
+      serialNumber: connection.serialNumber,
+      apiKey: connection.apiKey,
+      printerSecrets: connection.printerSecrets,
+    },
     errors,
   };
 }

@@ -223,6 +223,13 @@ export type PrinterConnectionPayload = {
   serial_number: string | null;
   ip_address: string;
   api_key?: string;
+  /**
+   * Секреты протокола (jsonb): `checkCode` FlashForge, логин-пароль Anycubic.
+   * Объект приходит уже слитым с сохранённым (`draft.printerSecrets` дополняет
+   * строку в базе), поэтому `{}` здесь значит «секретов у протокола нет» — и в
+   * колонку уходит null, как при добавлении.
+   */
+  printer_secrets: PrinterSecrets | null;
 };
 
 /** Правка подключения: пустой SN — null, пустой ключ — колонку не трогаем. */
@@ -234,6 +241,12 @@ export function createPrinterConnectionPayload(
     serial_number: draft.serialNumber || null,
     ip_address: draft.ipAddress,
     ...(draft.apiKey ? { api_key: draft.apiKey } : {}),
+    // Пустой объект — null, а не {}: у Moonraker, OctoPrint и Bambu секретов нет,
+    // и колонка должна остаться пустой, как и после `createPrinterPayload`.
+    printer_secrets:
+      Object.keys(draft.printerSecrets).length > 0
+        ? draft.printerSecrets
+        : null,
   };
 }
 
