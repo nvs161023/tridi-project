@@ -24,7 +24,8 @@ Python-скрипт, который работает на компьютере �
 каждые 30 секунд `POST /api/agent/heartbeat` отмечает `last_seen_at` у принтеров
 мастерской, а сетевые ошибки не останавливают агента. Шаг 7.2 — обнаружение
 фермы: `scanner.py` обходит локальную сеть, находит Creality (WebSocket 9999 и
-`GET /info`), Moonraker (7125), Anycubic (9883) и OctoPrint (80/443) и отправляет
+`GET /info`), Moonraker (7125), Anycubic (9883), Bambu (8883 и SSDP), FlashForge
+(8898/8899 и UDP) и OctoPrint (80/443) и отправляет
 находки в `POST /api/agent/discover`, а мастер даёт им имена в интерфейсе. Адаптер Bambu
 (MQTT и FTPS, шаг 7.5) уже печатает, OctoPrint — с шага 8.3. Шаг 8.1 — реестр
 протоколов: `adapters/registry.py` знает восемь протоколов (moonraker,
@@ -152,10 +153,13 @@ python main.py
   `result` с `klippy_state` или `moonraker_version`. `80`/`443` — OctoPrint:
   `/api/version` с полями `api`/`server`, а если API закрыт — название на главной
   странице. Одного открытого веб-порта мало: он открыт у роутера и телевизора.
-  `9999` — Creality (порт WebSocket), `9883` — Anycubic (MQTT): здесь открытого
-  порта достаточно, потому что паспорт Anycubic лежит внутри брокера и без логина
-  не спросить, а находку всё равно проверяет `connect()` — на `info/query`
-  отвечает только принтер.
+  `9999` — Creality (порт WebSocket), `9883` — Anycubic (MQTT), `8883` — Bambu
+  Lab (MQTT под TLS), `8898`/`8899` — FlashForge (HTTP API): у этих четырёх
+  открытого порта достаточно, потому что их паспорт лежит внутри брокера или
+  требует заголовок с серийным номером, а находку всё равно проверяет
+  `connect()` — на `info/query` и `device/<serial>/report` отвечает только
+  принтер. К `8883` HTTP-запроса нет и быть не может: там TLS-брокер, `urlopen`
+  провисел бы до таймаута.
 - **Потоки.** `ThreadPoolExecutor` на 64 потока, таймаут порта 0.3 с, HTTP — 2 с:
   подсеть `/24` обходится за считанные секунды. Больше 1024 адресов за проход не
   проверяется — это уже ошибка в `SCAN_SUBNETS`.
@@ -255,7 +259,7 @@ python main.py
 | `run_probe(request_payload)` | адаптер → `connect()` → `probe()` → `close()`; ответ или причина отказа из `last_error` |
 | `send_probe_result(probe_id, result)` | `POST /api/agent/probe`: модель, SN, прошивка, возможности и причина отказа |
 | `handle_probe_requests()` | все просьбы за один опрос: одна неудача не отменяет остальные |
-| `scanner.scan_network()` | подсеть → порты 9999/7125/9883/80/443 в 64 потока → список `{ip_address, protocol_type}` |
+| `scanner.scan_network()` | подсеть → порты 9999/7125/9883/8883/8898/8899/80/443 в 64 потока → список `{ip_address, protocol_type}` |
 | `scanner.send_discovered_printers(printers, crm_url, agent_token)` | `POST /api/agent/discover` с Bearer-токеном; `True`, если сервер принял |
 
 Статусы, которые принимает сервер: `printing`, `done`, `failed` — `queued`

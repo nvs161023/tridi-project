@@ -3,7 +3,8 @@
 
 Мастеру со ста принтерами не вбить парк руками. Агент обходит подсеть, находит
 Moonraker (порт 7125), Creality (WebSocket 9999 и `GET /info`), OctoPrint
-(80/443), Anycubic (MQTT 9883) и Bambu Lab (SSDP, UDP 1990) и отдаёт список в CRM
+(80/443), Anycubic (MQTT 9883), Bambu Lab (MQTT 8883 и SSDP, UDP 1990) и
+FlashForge (HTTP 8898, TCP 8899 и UDP-обнаружение) и отдаёт список в CRM
 через `POST /api/agent/discover`. Сервер складывает находки в
 `workshop_discovered_printers` (миграция `supabase/workshop_farm_and_shop.sql`),
 мастер даёт им имена в интерфейсе, и принтеры переезжают в парк мастерской.
@@ -15,14 +16,24 @@ Moonraker (порт 7125), Creality (WebSocket 9999 и `GET /info`), OctoPrint
 остался только в `send_discovered_printers()`: отправка в CRM повторяет стиль
 main.py — те же таймаут и разбор ошибок, что у статусов и пульса.
 
-Bambu ищется не портами, а SSDP: у него нет ни Moonraker, ни OctoPrint, зато он
-отвечает на multicast-запрос `urn:bambulab-com:device:3dprinter:1` заголовками
-`Location` (адрес) и `USN` (серийный номер). Номер уходит в CRM вместе с
-находкой: по нему агент строит MQTT-топики `device/<serial>/…`, и мастеру не
-приходится переписывать его с экрана принтера.
+Открытый порт — не подпись протокола, и у трёх протоколов подписи снаружи нет
+вовсе: Anycubic (9883), Bambu (8883) и FlashForge (8898/8899) молчат до
+авторизации или требуют заголовок с серийным номером, которого у сканера ещё
+нет. Их находки — «порт слушает», и подтверждает их адаптер в `connect()`: не
+ответил паспорт — принтер не подключается. Порты у этих протоколов редкие, так
+что ложная находка в мастерской почти невозможна.
 
-FlashForge и Elegoo ищутся широковещательным UDP-запросом по той же причине:
-у них нет ни 7125, ни 80/443 с подписью, зато есть собственный порт обнаружения.
+Bambu дополнительно ищется SSDP, и это важнее обхода портов: у него нет ни
+Moonraker, ни OctoPrint, зато он отвечает на multicast-запрос
+`urn:bambulab-com:device:3dprinter:1` заголовками `Location` (адрес) и `USN`
+(серийный номер). Номер уходит в CRM вместе с находкой: по нему агент строит
+MQTT-топики `device/<serial>/…`, и мастеру не приходится переписывать его с
+экрана принтера. Порт 8883 находит Bambu там, где роутер режет multicast, но
+номера не даёт — SSDP-находка перекрывает портовую в
+`merge_discovered_printers()`.
+
+FlashForge и Elegoo тоже ищутся широковещательным UDP-запросом — у них нет ни
+7125, ни 80/443 с подписью, зато есть собственный порт обнаружения.
 Elegoo (SDCP) ждёт на UDP 3000 текст `M99999` и отвечает конвертом с
 `MainboardID`, FlashForge — на 8899, 19000 или 48899 (порт зависит от модели) и
 отвечает на `~M115` строкой `SN:`. Номер платы и серийный номер едут в CRM
@@ -85,6 +96,20 @@ CREALITY_MODEL_FIELDS = ("model", "modelName", "machineModel")
 # лишний пакет дешевле, чем принтер, которого сканер не нашёл.
 FLASHFORGE_HTTP_PORT = 8898
 FLASHFORGE_UDP_PORTS = (8899, 19000, 48899)
+
+# TCP-порт, который FlashForge держит рядом с HTTP 8898 (Adventurer 3/4,
+# Adventurer 5M): часть моделей поднимает сервис печати только здесь. Паспорт
+# `GET /detail` на обоих портах требует заголовок `serialNumber`, которого у
+# сканера ещё нет, поэтому проверяется открытие соединения.
+FLASHFORGE_TCP_PORT = 8899
+
+# Bambu Lab: MQTT под TLS на 8883 (команды и отчёты) и FTPS 990 для файлов.
+# HTTP-запроса к 8883 быть не может — там TLS-брокер, и `urlopen` повесил бы
+# поток на таймаут вместо мгновенного ответа. Поэтому признак находки один:
+# порт слушает. Это тот же компромисс, что у Anycubic: открытый 8883 в сети
+# мастерской почти наверняка принтер, а подтверждает находку `connect()` —
+# без `device/<serial>/report` принтер не подключается.
+BAMBU_MQTT_PORT = 8883
 
 # `~M115` — запрос версии прошивки по G-code: на него FlashForge отвечает
 # текстом с `Machine Name` и `SN`. HTTP-порт 8898 у части моделей закрыт, а
@@ -1021,6 +1046,43 @@ def is_anycubic(ip_address: str, port: int = ANYCUBIC_MQTT_PORT) -> bool:
     return probe_port(ip_address, port)
 
 
+def is_bambu(ip_address: str, port: int = BAMBU_MQTT_PORT) -> bool:
+    """
+    Bambu Lab: открытый MQTT-порт 8883 под TLS.
+
+    Подписи протокола снаружи нет: брокер молчит до логина и ждёт TLS, поэтому
+    HTTP-запрос здесь не просто бесполезен, а вреден — `urlopen` к 8883 висит до
+    таймаута и растягивает обход подсети. Значит проверяется ровно одно: порт
+    слушает. Открытый 8883 в мастерской почти всегда Bambu (у остальных
+    протоколов из справочника номера другие: 7125 — Moonraker, 9999 — Creality,
+    9883 — Anycubic, 8898/8899 — FlashForge). Ошибку исправит `connect()`: без
+    отчёта в `device/<serial>/report` принтер не подключается.
+
+    `port` — для тестов: сканер всегда проверяет 8883.
+    """
+    return probe_port(ip_address, port)
+
+
+def is_flashforge(
+    ip_address: str,
+    http_port: int = FLASHFORGE_HTTP_PORT,
+    tcp_port: int = FLASHFORGE_TCP_PORT,
+) -> bool:
+    """
+    FlashForge: открытый HTTP 8898 или TCP 8899.
+
+    Паспорт `GET /detail` требует заголовок `serialNumber`, а на этапе сканера
+    номера ещё нет: запрос без него принтер отклоняет. Поэтому здесь, как и у
+    Bambu, признак — открытый порт, а серийный номер приносит UDP-обнаружение
+    (`scan_udp_broadcast()`), чья находка перекрывает портовую в
+    `merge_discovered_printers()`. Модели, у которых 8898 закрыт, слушают 8899 —
+    проверяются оба.
+
+    `http_port` и `tcp_port` — для тестов: сканер всегда проверяет 8898 и 8899.
+    """
+    return probe_port(ip_address, http_port) or probe_port(ip_address, tcp_port)
+
+
 def inspect_host(ip_address: str) -> dict[str, Any] | None:
     """
     Один адрес: принтер он или нет.
@@ -1032,10 +1094,12 @@ def inspect_host(ip_address: str) -> dict[str, Any] | None:
     а файл не напечатается.
 
     Дальше 7125 — порт по умолчанию у Klipper-ферм, открывается только у
-    принтеров. Anycubic проверяется после них: его признак — один открытый порт,
-    а не паспорт с подписью, и если на адресе нашёлся протокол с подписью, он и
-    главнее. Веб-порты проверяются последними и обязательно с HTTP-запросом:
-    без него половина домашней техники попала бы в список находок.
+    принтеров. Anycubic, Bambu и FlashForge проверяются после них: их признак —
+    открытый порт, а не паспорт с подписью, и если на адресе нашёлся протокол с
+    подписью, он и главнее. К 8883 (Bambu) HTTP-запроса нет — там TLS-брокер,
+    поэтому проба ограничивается соединением. Веб-порты проверяются последними и
+    обязательно с HTTP-запросом: без него половина домашней техники попала бы в
+    список находок.
     """
     if probe_port(ip_address, CREALITY_PORT) and is_creality(ip_address):
         return {"ip_address": ip_address, "protocol_type": "creality"}
@@ -1045,6 +1109,12 @@ def inspect_host(ip_address: str) -> dict[str, Any] | None:
 
     if is_anycubic(ip_address):
         return {"ip_address": ip_address, "protocol_type": "anycubic"}
+
+    if is_bambu(ip_address):
+        return {"ip_address": ip_address, "protocol_type": "bambu"}
+
+    if is_flashforge(ip_address):
+        return {"ip_address": ip_address, "protocol_type": "flashforge"}
 
     for port in OCTOPRINT_PORTS:
         if probe_port(ip_address, port) and is_octoprint(ip_address, port):
@@ -1060,11 +1130,12 @@ def scan_network(
     Принтеры локальной сети: `[{"ip_address": ..., "protocol_type": ...}]`.
 
     Три источника в одном списке: обход портов (Creality, Moonraker, Anycubic,
-    OctoPrint), SSDP (Bambu — с серийным номером) и широковещательный UDP-запрос
-    (FlashForge и Elegoo — с серийным номером или номером платы). Повтор адреса
-    схлопывается в пользу обнаружения: оно точнее знает и протокол, и номер.
-    Anycubic — исключение: его находит только обход портов, потому что подписи
-    протокола в сети нет.
+    Bambu, FlashForge, OctoPrint), SSDP (Bambu — с серийным номером) и
+    широковещательный UDP-запрос (FlashForge и Elegoo — с серийным номером или
+    номером платы). Повтор адреса схлопывается в пользу обнаружения: оно точнее
+    знает и протокол, и номер. Anycubic находит только обход портов; Bambu и
+    FlashForge — и обход портов, и обнаружение, поэтому находка с номером
+    перекрывает портовую без номера.
 
     `networks` — для явных подсетей и тестов; по умолчанию решает
     `resolve_scan_networks()`. Результат отсортирован по адресу: два запуска
@@ -1082,13 +1153,21 @@ def scan_network(
     else:
         workers = min(MAX_WORKERS, len(hosts))
         logger.info(
-            "Сканирую %d адресов в %d потоков: порты %d, %d, %d и %d",
+            "Сканирую %d адресов в %d потоков: порты %s",
             len(hosts),
             workers,
-            CREALITY_PORT,
-            MOONRAKER_PORT,
-            ANYCUBIC_MQTT_PORT,
-            OCTOPRINT_PORTS[0],
+            ", ".join(
+                str(port)
+                for port in (
+                    CREALITY_PORT,
+                    MOONRAKER_PORT,
+                    ANYCUBIC_MQTT_PORT,
+                    BAMBU_MQTT_PORT,
+                    FLASHFORGE_HTTP_PORT,
+                    FLASHFORGE_TCP_PORT,
+                    *OCTOPRINT_PORTS,
+                )
+            ),
         )
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
