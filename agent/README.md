@@ -21,9 +21,9 @@ Python-скрипт, который работает на компьютере �
 (MQTT и FTPS, шаг 7.5) уже печатает, OctoPrint — с шага 8.3. Шаг 8.1 — реестр
 протоколов: `adapters/registry.py` знает восемь протоколов (moonraker,
 octoprint, bambu, prusa, creality, anycubic, flashforge, elegoo) вместе с
-портами, форматами файлов и секретами; драйверы Anycubic, FlashForge и Elegoo
-пишутся следующими шагами, а до тех пор задание на такой принтер закрывается
-отказом `AdapterUnavailableError`.
+портами, форматами файлов и секретами; драйвер Anycubic пишется следующим шагом,
+а до тех пор задание на такой принтер закрывается отказом
+`AdapterUnavailableError`.
 Шаг 8.2 — форматы: `adapters/formats.py` сверяет расширение со справочником,
 приводит имя файла к ASCII и пакует `.gcode` в `.3mf`, а `prepare_upload()` в
 базовом классе отдаёт адаптеру готовый `UploadPlan` с чистым именем и размером.
@@ -32,7 +32,11 @@ octoprint, bambu, prusa, creality, anycubic, flashforge, elegoo) вместе с
 печати, пауза, возврат, отмена и опрос состояния; ответы API в тестах имитирует
 `http.server` на loopback (`scripts/test-octoprint.py`, `scripts/test-prusa.py`).
 Шаг 4 — `CrealityAdapter`: HTTP для паспорта и файла, WebSocket 9999 для команд;
-фейковый принтер в `scripts/test-creality.py` поднимает оба канала.
+фейковый принтер в `scripts/test-creality.py` поднимает оба канала. Шаг 5 —
+`FlashForgeAdapter` (HTTP 8898 с `serialNumber` и `checkCode` в заголовках) и
+`ElegooAdapter` (SDCP: WebSocket 3030 для команд, HTTP для файла); в тестах
+`scripts/test-flashforge.py` и `scripts/test-elegoo.py` принтеры поднимаются
+фейковыми HTTP, WebSocket и UDP-сокетами, а оба протокола находятся бродкастом.
 
 Задания печатаются параллельно: одно задание — один поток (`start_job()`), поэтому
 ферма из десяти принтеров не ждёт окончания первой печати. Повторно пришедшая
@@ -159,6 +163,19 @@ python main.py
   Код доступа SSDP не отдаёт — его вводят в интерфейсе мастерской: в окне
   мастера подключения при подтверждении находки (поле «Код доступа» рядом с
   именем) или позже в карточке принтера.
+- **FlashForge и Elegoo — по UDP-бродкасту.** Один сокет шлёт `~M115` на 8899,
+  19000 и 48899 (порт зависит от модели FlashForge) и `M99999` на 3000 (Elegoo),
+  затем 3 с собирает ответы. Ответ FlashForge — текст G-code со строкой `SN:`,
+  Elegoo — конверт SDCP с `MainboardID`; номер уходит в CRM как `serial_number`.
+  Запрос уходит на глобальный `255.255.255.255` и на бродкаст каждой подсети:
+  часть роутеров глобальный фильтрует. Ответ без номера пропускается: находка
+  без него бесполезна — адаптеру нечем адресовать запросы. ICMP «порт закрыт» от
+  незанятого порта поиск не отменяет: у принтера обычно открыт один порт из
+  четырёх, и находка не должна от этого зависеть.
+- **Журнал UDP.** Строки с префиксом `[UDP]`: запуск поиска с адресами и
+  портами, каждый ответ (адрес отправителя и первые 100 символов), ошибка сети
+  и пустой итог. Это парная диагностика к `[SSDP]`: по ней видно, дошёл ли
+  запрос до принтера и что он ответил.
 - **Журнал SSDP.** Каждый шаг пишется строкой с префиксом `[SSDP]`: запуск
   поиска, создание сокета и отправка M-SEARCH, каждый пришедший ответ (адрес
   отправителя и первые 100 символов — в них видны `USN` и `Location`), текст
@@ -267,9 +284,9 @@ python main.py
 ## Адаптеры принтеров
 
 `agent/adapters/` — интерфейс, реестр протоколов, форматы, фабрика и реализации (шаги
-4.2–8.x). Moonraker, OctoPrint, Bambu, PrusaLink и Creality разговаривают с принтером
-по-настоящему. Протоколы anycubic, flashforge и elegoo приложение и реестр уже знают,
-но драйверов у них ещё нет: `get_adapter()` отвечает `AdapterUnavailableError`
+4.2–8.x). Moonraker, OctoPrint, Bambu, PrusaLink, Creality, FlashForge и Elegoo
+разговаривают с принтером по-настоящему. Протокол anycubic приложение и реестр уже
+знают, но драйвера у него ещё нет: `get_adapter()` отвечает `AdapterUnavailableError`
 («протокол anycubic ещё не реализован в агенте»).
 
 | Файл | Назначение |
@@ -281,6 +298,8 @@ python main.py
 | `octoprint.py` | `OctoPrintAdapter` — OctoPrint: `/api/version`, `POST /api/files/local`, `POST /api/files/local/<name>`, `GET /api/job`, команды в `POST /api/job` |
 | `prusa.py` | `PrusaAdapter` — PrusaLink: `GET /api/v1/status`, `PUT /api/v1/files/<storage>/<name>`, `POST /api/v1/files/<storage>/<name>`, `GET /api/v1/job`, команды в `/api/v1/job` |
 | `creality.py` | `CrealityAdapter` — Creality OS: `GET /info` (модель), `POST /upload/<имя>`, WebSocket 9999 — `heart_beat`, `get` с `ReqPrinterPara`, `set` с `opGcodeFile`, `pause` и `stop` |
+| `flashforge.py` | `FlashForgeAdapter` — FlashForge: `GET /detail`, `POST /uploadGcode` (поле `gcodeFile`), `POST /printGcode`, `POST /control`; каждый запрос несёт заголовки `serialNumber` и `checkCode` |
+| `elegoo.py` | `ElegooAdapter` — Elegoo (SDCP): WebSocket 3030 с командами `Cmd: 0/128/129/130/131` и `POST /uploadFile/upload` с полями `S-File-MD5`, `Check`, `Offset`, `Uuid`, `TotalSize` |
 | `bambu.py` | `BambuAdapter` — Bambu в LAN-режиме: MQTT с TLS (8883) для команд и отчётов, implicit FTPS (990) для файлов |
 | `factory.py` | `get_adapter(protocol_type, ip_address, api_key, serial_number="", secrets=None)`: набор аргументов берётся из паспорта протокола (серийник — Bambu и FlashForge, `secrets` — протоколам из `registry`); неизвестный протокол — `UnknownProtocolError("Неизвестный протокол")`, протокол без драйвера — `AdapterUnavailableError`. После сборки ставит `adapter.protocol_key` из паспорта |
 
@@ -419,12 +438,88 @@ Creality. Путь в `opGcodeFile` зависит от модели: снача
 фейковый WebSocket на 9999 проверяют `heart_beat`, `opGcodeFile` с обеими папками,
 разбор состояний, паузу и остановку, отказ `.3mf` до сети и порядок портов в сканере.
 
-Остальные три протокола (anycubic, flashforge, elegoo) есть в реестре и в
-`PRINTER_PROTOCOLS`, форма добавления их показывает, но модулей `anycubic.py`,
-`flashforge.py` и `elegoo.py` ещё нет: `get_adapter()` отвечает
-`AdapterUnavailableError`, и мастер видит «протокол anycubic ещё не реализован в агенте».
-Это отличие от неизвестного протокола важно: первое лечится обновлением агента, второе —
-исправлением настроек принтера.
+### FlashForge (шаг 5)
+
+| Метод | Запрос | Успех |
+|---|---|---|
+| `connect()` | `GET /detail` с заголовками `serialNumber` и `checkCode` | 200 и данные принтера в `detail` |
+| `upload_file()` | `POST /uploadGcode`: `multipart/form-data`, поле `gcodeFile`, заголовки `fileSize`, `printNow: false`, `levelingBeforePrint: true` | 200/201 и `{"code": 0}` |
+| `start_print()` | `POST /printGcode` с `{"serialNumber", "checkCode", "fileName", "levelingBeforePrint": true}` | `{"code": 0}` |
+| `get_status()` | `GET /detail` | `machineStatus` и `printInfo` |
+| `pause_print()` / `resume_print()` / `stop_print()` | `POST /control` с `{"jobCtl_cmd": "pause"\|"continue"\|"cancel"}` | `{"code": 0}` |
+
+FlashForge авторизует запросы заголовками: `serialNumber` приходит из поля «Серийный
+номер (SN)» формы принтера, `checkCode` — только из `printer_secrets` (код печатается на
+экране принтера, из сети его не узнать). Если номер не заполнили, адаптер берёт его из
+`/detail` при подключении; без номера загрузка и команды отклоняются до сети, потому что
+пустой заголовок прошивка отвергает ответом, из которого мастеру ничего не понятно.
+Пустой `checkCode` подключение не блокирует — часть сборок отдаёт паспорт без него, — но
+виден в журнале уже на `connect()`. Маршрут `/api/agent/tasks` поле `printer_secrets` пока не
+отдаёт: до его правки `checkCode` до адаптера не доходит, и прошивка, которая его требует,
+ответит отказом на загрузку — причина с подсказкой останется в `last_error`.
+
+`machineStatus` переводится так: `READY` и `COMPLETED` → `idle`, `PRINTING`, `HEATING`,
+`HOMING`, `LEVELING` и `BUSY` → `printing`, `PAUSED` → `paused`, `ERROR`, `CANCELLED` и
+`STOPPED` → `error` с причиной в `last_error`, незнакомое значение — тоже `error`.
+Нагрев и калибровка считаются печатью намеренно: сразу после `/printGcode` прошивка
+греет стол, а `idle` в этот момент main.py прочитал бы как «печать не начиналась» и
+закрыл задание провалом. Прогресс прошивка отдаёт готовыми процентами (`printProgress`),
+остаток — секундами (`remainingTimeEstimation`). Ответ на команду — `{"code": 0,
+"message": "Success"}`: ноль успех, остальное отказ с текстом; ответ без `code`
+считается подтверждением.
+
+Форматы: `.gcode` у 5M, `.3mf` у AD5X и Creator 5 — записи внутри контейнера проверяет
+`formats.py`, поэтому проект без `Metadata/plate_1.gcode` отклоняется до загрузки. Ответ
+без `detail` и без полей принтера (`machineStatus`, `printInfo`, `serialNumber`) — это не
+FlashForge: на 8898 бывает чужой сервис, и «подключено» там было бы ложью.
+
+Тест без принтера: `python scripts/test-flashforge.py` — фейковый HTTP на loopback
+проверяет заголовки, поле `gcodeFile`, тело `/printGcode`, `jobCtl_cmd`, разбор
+состояний и отказы, а фейковый UDP-принтер — находку по бродкасту `~M115`.
+
+### Elegoo (шаг 5)
+
+| Метод | Запрос | Успех |
+|---|---|---|
+| `connect()` | WebSocket `ws://<ip>:3030/websocket`, `Cmd: 0` с топиком `sdcp/request/0` | конверт с `MainboardID` |
+| `upload_file()` | `POST /uploadFile/upload`: `multipart/form-data`, поля `S-File-MD5`, `Check: 1`, `Offset: 0`, `Uuid`, `TotalSize`, файл в поле `File` | 200 и `{"success": true}` |
+| `start_print()` | `Cmd: 128` с `{"Filename", "StartLayer": 0, "path_prefix": "/local"}` | `Data.Data.Ack = 0` |
+| `get_status()` | `Cmd: 0` | `Attributes` со `Status` и `Progress` |
+| `pause_print()` / `stop_print()` / `resume_print()` | `Cmd: 129` / `130` / `131` | `Ack = 0` |
+
+SDCP — два канала: WebSocket 3030 для команд и состояния, HTTP для файла. Команды идут
+конвертом `{"Id", "Data": {"Cmd", "Data", "RequestID", "MainboardID", "TimeStamp",
+"From"}, "Topic": "sdcp/request/<плата>"}` и адресуются номером платы: до первого ответа
+он неизвестен, поэтому `connect()` отправляет `Cmd: 0` с пустым `MainboardID` и топиком
+`sdcp/request/0`, а прошивка отвечает своим номером. Номер берётся и из
+`printer_secrets` (`mainboardId`) — на случай, когда бродкаст в сети запрещён, — но ответ
+принтера главнее: расхождение пишется в журнал. Маршрут заданий `printer_secrets` пока не
+отдаёт, и это не мешает: номер узнаётся у принтера при подключении, поэтому Elegoo работает
+и без правок сервера.
+
+MD5 адаптер считает в `prepare_upload()` один раз: прошивка сверяет сумму принятого
+файла, и без неё загрузка отклоняется уже после передачи тела. `Status` переводится так:
+`printing`, `preheating`, `heating`, `filechecking` и `resuming` → `printing`; `paused` и
+`pausing` → `paused`; `idle`, `homed` и `complete` → `idle`; `stopping`, `stopped`,
+`error` и `exception` → `error` с причиной. Прогресс — `Progress` в процентах, остаток —
+разность `TotalTicks` и `CurrentTicks` (секунды), а у простоя он ноль: тики остаются в
+кэше от прошлой печати и показывали бы остаток у законченной детали.
+
+`Attributes` прошивка присылает то объектом, то строкой с JSON внутри, и присылает
+частичными пакетами (`Status` и `Progress` могут прийти в разных), поэтому адаптер
+дополняет кэш, а не заменяет. Ответ на команду — `Ack`: ноль успех, остальное отказ с
+номером ошибки. Молчание считается отказом, а не успехом (в отличие от Creality): SDCP
+подтверждает каждую команду, и прошивка, не ответившая на `Cmd: 128`, печать не начнёт.
+
+Тест без принтера: `python scripts/test-elegoo.py` — фейковый WebSocket на 3030 и
+фейковый HTTP на loopback проверяют конверты и топики, поля загрузки и MD5, команды
+управления, `Ack`, частичные отчёты, разбор состояний и находку по бродкасту `M99999`.
+
+Протокол anycubic есть в реестре и в `PRINTER_PROTOCOLS`, форма добавления его
+показывает, но модуля `anycubic.py` ещё нет: `get_adapter()` отвечает
+`AdapterUnavailableError`, и мастер видит «протокол anycubic ещё не реализован в
+агенте». Это отличие от неизвестного протокола важно: первое лечится обновлением
+агента, второе — исправлением настроек принтера.
 
 ### Bambu Lab (шаг 7.5)
 

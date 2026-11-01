@@ -53,9 +53,9 @@ def get_adapter(
     Остальным протоколам параметр не передаётся — их конструкторы его не знают.
 
     `secrets` — содержимое `workshop_printers.printer_secrets`: `checkCode`
-    FlashForge, `deviceId` и `modeId` Anycubic. Передаём только протоколам, у
-    которых в паспорте есть имена секретов: конструктор Moonraker такого
-    параметра не ждёт.
+    FlashForge, `mainboardId` Elegoo, `deviceId` и `modeId` Anycubic. Передаём
+    только протоколам, у которых в паспорте есть имена секретов: конструктор
+    Moonraker такого параметра не ждёт.
 
     Неизвестный протокол — `UnknownProtocolError("Неизвестный протокол")`,
     известный но без драйвера — `AdapterUnavailableError`. Обе — наследники

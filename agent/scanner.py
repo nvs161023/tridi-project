@@ -20,18 +20,33 @@ Bambu ищется не портами, а SSDP: у него нет ни Moonrak
 `Location` (адрес) и `USN` (серийный номер). Номер уходит в CRM вместе с
 находкой: по нему агент строит MQTT-топики `device/<serial>/…`, и мастеру не
 приходится переписывать его с экрана принтера.
+
+FlashForge и Elegoo ищутся широковещательным UDP-запросом по той же причине:
+у них нет ни 7125, ни 80/443 с подписью, зато есть собственный порт обнаружения.
+Elegoo (SDCP) ждёт на UDP 3000 текст `M99999` и отвечает конвертом с
+`MainboardID`, FlashForge — на 8899, 19000 или 48899 (порт зависит от модели) и
+отвечает на `~M115` строкой `SN:`. Номер платы и серийный номер едут в CRM
+вместе с находкой: адаптеру они нужны в каждом запросе, а вводить их руками
+мастеру не за что.
+
+Оба поиска — одно окно ожидания (`scan_udp_broadcast()`): принтеры отвечают за
+доли секунды, и ждать отдельно 3 секунды на каждый протокол значило бы утроить
+время сканирования фермы.
 """
 from __future__ import annotations
 
+import errno
 import ipaddress
 import json
 import logging
 import os
+import re
 import socket
 import ssl
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -57,6 +72,57 @@ CREALITY_INFO_PATHS = ("/info", "/detail")
 # подпись, которую нельзя спутать с чужим JSON на том же порту.
 CREALITY_MODEL_FIELDS = ("model", "modelName", "machineModel")
 
+# FlashForge: HTTP API на 8898, а обнаружение — UDP-бродкаст на 8899, 19000 или
+# 48899. Порт зависит от модели и прошивки, поэтому запрос уходит на все три:
+# лишний пакет дешевле, чем принтер, которого сканер не нашёл.
+FLASHFORGE_HTTP_PORT = 8898
+FLASHFORGE_UDP_PORTS = (8899, 19000, 48899)
+
+# `~M115` — запрос версии прошивки по G-code: на него FlashForge отвечает
+# текстом с `Machine Name` и `SN`. HTTP-порт 8898 у части моделей закрыт, а
+# UDP-обнаружение работает и там.
+FLASHFORGE_UDP_PROBE = b"~M115\r\n"
+
+# Строка номера в ответе FlashForge: `SN: SNM0001234` у Adventurer,
+# `Serial Number: ...` у старых прошивок. Номер нужен адаптеру в заголовке
+# каждого запроса, поэтому находка без него бесполезна.
+FLASHFORGE_SERIAL = re.compile(
+    r"(?:SN|Serial(?:\s*Number)?)\s*[:=]\s*([A-Za-z0-9._-]{4,64})",
+    re.IGNORECASE,
+)
+
+# Elegoo (SDCP): WebSocket 3030 для команд и UDP 3000 для обнаружения. `M99999`
+# — текстовый запрос, на который Centauri Carbon отвечает конвертом SDCP с
+# `MainboardID`; номер едет в CRM как серийный номер принтера.
+ELEGOO_WS_PORT = 3030
+ELEGOO_UDP_PORT = 3000
+ELEGOO_UDP_PROBE = b"M99999"
+
+# Поля конверта SDCP, в которых лежит номер платы. Верхний уровень — обычный
+# ответ загрузки, `Data` — ответ принтера на запрос обнаружения.
+ELEGOO_BOARD_FIELDS = ("MainboardID", "MainboardId", "mainboardId")
+
+# Сколько собирать ответы на бродкаст. Три секунды — как окно SSDP: живой
+# принтер отвечает сразу, но Wi-Fi теряет широковещательные пакеты, а UDP —
+# ненадёжный транспорт без повторов.
+UDP_DISCOVERY_TIMEOUT = 3.0
+
+# Ответ — конверт SDCP или строка G-code, пара сотен байт. Больше читать незачем.
+UDP_MAX_BYTES = 8192
+
+# Глобальный широковещательный адрес. Часть роутеров его фильтрует, поэтому
+# `scan_network()` добавляет бродкаст каждой подсети.
+UDP_BROADCAST_ADDRESS = "255.255.255.255"
+
+# Сколько символов ответа показывать в журнале: в первых ста видны и
+# `MainboardID`, и `SN`, то есть ровно то, по чему сканер узнаёт принтер.
+UDP_PREVIEW = 100
+
+# Коды «порт закрыт»: Windows сообщает ICMP `port unreachable` кодом 10054, а
+# POSIX — `ECONNRESET`. Это не сбой поиска, а отсутствие слушателя на одном из
+# портов рассылки: ответы остальных портов надо дочитать.
+UDP_CLOSED_PORT = frozenset({errno.ECONNRESET, 10054})
+
 # Bambu Lab не отвечает ни на 7125, ни на 80: у него MQTT (8883) и FTPS (990).
 # Зато он отвечает на SSDP — multicast-запрос на UDP 1990, в ответе `Location`
 # (адрес принтера) и `USN` (серийный номер). Один запрос находит все Bambu в
@@ -79,8 +145,10 @@ BAMBU_SSDP_MAX_BYTES = 4096
 # показывает, что не разобралось, и не забивается килобайтами заголовков.
 BAMBU_SSDP_PREVIEW = 100
 
-# Предел серийного номера — как у колонки serial_number в миграции.
-BAMBU_SERIAL_MAX = 64
+# Предел серийного номера и номера платы — как у колонки serial_number в
+# миграции. Обрезать номер нельзя: он адрес устройства, поэтому слишком длинная
+# строка считается мусором, а не сокращается.
+SERIAL_MAX = 64
 
 # Адреса, где стоят почти все домашние и цеховые роутеры. Нужны, когда
 # локальный интерфейс определить не удалось (нет маршрута по умолчанию,
@@ -486,7 +554,7 @@ def clean_bambu_serial(value: str) -> str | None:
     """
     serial = value.strip()
 
-    if not serial or len(serial) > BAMBU_SERIAL_MAX:
+    if not serial or len(serial) > SERIAL_MAX:
         return None
 
     if any(character.isspace() for character in serial):
@@ -619,26 +687,250 @@ def scan_bambu_ssdp(timeout: float = BAMBU_SSDP_TIMEOUT) -> list[dict[str, Any]]
     return printers
 
 
-def merge_bambu_printers(
+def merge_discovered_printers(
     found: list[dict[str, Any]],
-    bambu: list[dict[str, Any]],
+    discovered: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """
-    Обход портов + SSDP → один список без повторов адреса.
+    Обход портов + широковещательное обнаружение → один список без повторов.
 
-    Приоритет у SSDP: он и протокол называет (`bambu`), и серийный номер
-    приносит, а открытый веб-порт Bambu ничего не доказывает. Порядок — по
-    адресу, как у обхода портов.
+    Приоритет у обнаружения: оно и протокол называет (`bambu`, `flashforge`,
+    `elegoo`), и приносит серийный номер или номер платы, а открытый веб-порт
+    принтера ничего не доказывает. Порядок — по адресу, как у обхода портов.
     """
     merged: dict[str, dict[str, Any]] = {}
 
     for printer in found:
         merged.setdefault(str(printer["ip_address"]).lower(), printer)
 
-    for printer in bambu:
+    for printer in discovered:
         merged[str(printer["ip_address"]).lower()] = printer
 
     return sorted(merged.values(), key=address_sort_key)
+
+
+def broadcast_targets(networks: Sequence[ipaddress.IPv4Network]) -> list[str]:
+    """
+    Адреса для широковещательного запроса: глобальный и бродкаст каждой подсети.
+
+    Глобальный `255.255.255.255` не выходит за маршрутизатор, но часть роутеров
+    его фильтрует. Бродкаст подсети (`192.168.1.255`) доходит до принтеров
+    своего VLAN, и назвать его нужно явно — этим и занимается функция.
+    """
+    targets = [UDP_BROADCAST_ADDRESS]
+
+    for network in networks:
+        address = str(network.broadcast_address)
+
+        if address not in targets:
+            targets.append(address)
+
+    return targets
+
+
+def parse_udp_json(data: bytes) -> dict[str, Any] | None:
+    """
+    JSON-объект из UDP-пакета.
+
+    `parse_json_object()` здесь не годится: в датаграмме после JSON часто идут
+    нули выравнивания и перевод строки, и `json.loads` на них падает. Пустой
+    ответ и не-JSON — None.
+    """
+    text = data.decode("utf-8", errors="replace").strip("\x00 \r\n\t")
+
+    if not text:
+        return None
+
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    return {str(key): value for key, value in payload.items()}
+
+
+def elegoo_mainboard_id(data: bytes) -> str | None:
+    """
+    `MainboardID` из UDP-ответа Elegoo на `M99999`.
+
+    Centauri Carbon отвечает конвертом SDCP: номер платы лежит на верхнем уровне
+    или внутри `Data`. Номер уходит в CRM как серийный номер принтера: адаптеру
+    он нужен для топика команд, и мастеру не приходится переписывать его с
+    экрана. Пустое и слишком длинное значение — не номер, а чужой ответ.
+    """
+    payload = parse_udp_json(data)
+
+    if payload is None:
+        return None
+
+    for source in (payload, payload.get("Data"), payload.get("data")):
+        if not isinstance(source, dict):
+            continue
+
+        for field in ELEGOO_BOARD_FIELDS:
+            value = source.get(field)
+
+            if not isinstance(value, str):
+                continue
+
+            board = value.strip()
+
+            if board and len(board) <= SERIAL_MAX and not board.isspace():
+                return board
+
+    return None
+
+
+def flashforge_serial(data: bytes) -> str | None:
+    """
+    Серийный номер из UDP-ответа FlashForge на `~M115`.
+
+    Прошивка отвечает текстом G-code: `CMD M115 Received.`, затем строки
+    `Machine Type`, `Machine Name`, `Firmware` и `SN`. Номер нужен адаптеру в
+    заголовке каждого запроса, поэтому находка без него бесполезна — отказ
+    пришёл бы уже на загрузке файла, а не при сканировании.
+    """
+    match = FLASHFORGE_SERIAL.search(data.decode("utf-8", errors="replace"))
+
+    if match is None:
+        return None
+
+    return match.group(1)
+
+
+def udp_printer(data: bytes, sender: tuple[str, int]) -> dict[str, Any] | None:
+    """
+    Находка из одного UDP-ответа: протокол по содержимому, адрес — отправитель.
+
+    Содержимое главнее порта: на один адрес уходят запросы двух протоколов, и
+    отвечать на них может чужое железо. JSON с `MainboardID` — Elegoo, текст с
+    `SN:` — FlashForge. Порт отправителя решает только тогда, когда тело не
+    разобралось: по нему видно, кто ответил и почему находка не годится.
+    """
+    preview = data[:UDP_PREVIEW].decode("utf-8", errors="replace")
+    # Перевод строки разорвал бы запись журнала на несколько строк, поэтому
+    # `split()` схлопывает пробелы и `\r\n`.
+    logger.info(
+        "[UDP] Получен ответ от %s:%d: %s...",
+        sender[0],
+        sender[1],
+        " ".join(preview.split()),
+    )
+
+    board = elegoo_mainboard_id(data)
+
+    if board is not None:
+        return {
+            "ip_address": sender[0],
+            "protocol_type": "elegoo",
+            "serial_number": board,
+        }
+
+    serial = flashforge_serial(data)
+
+    if serial is not None:
+        return {
+            "ip_address": sender[0],
+            "protocol_type": "flashforge",
+            "serial_number": serial,
+        }
+
+    if sender[1] == ELEGOO_UDP_PORT:
+        logger.info("[UDP] %s: ответ Elegoo без MainboardID — пропускаю", sender[0])
+    elif sender[1] in FLASHFORGE_UDP_PORTS:
+        logger.info(
+            "[UDP] %s: ответ FlashForge без серийного номера — пропускаю",
+            sender[0],
+        )
+
+    return None
+
+
+def scan_udp_broadcast(
+    timeout: float = UDP_DISCOVERY_TIMEOUT,
+    targets: Sequence[str] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Принтеры FlashForge и Elegoo, которые отвечают на широковещательный запрос.
+
+    Два протокола одним окном ожидания:
+
+      - Elegoo (SDCP) слушает UDP 3000 и отвечает на `M99999` конвертом с
+        `MainboardID`;
+      - FlashForge отвечает на `~M115` на 8899, 19000 или 48899 — порт зависит
+        от модели и прошивки, поэтому запрос уходит на все три.
+
+    `targets` — адреса для отправки; по умолчанию глобальный
+    `255.255.255.255`. Тест передаёт loopback, а `scan_network()` — ещё и
+    бродкаст каждой подсети (`broadcast_targets()`).
+
+    Исключения наружу не летят: бродкаст запрещён политикой, интерфейс без
+    маршрута, занятый порт — обычная картина чужой сети, а не сбой агента.
+    Найденное до ошибки остаётся в списке.
+    """
+    addresses = tuple(targets) if targets else (UDP_BROADCAST_ADDRESS,)
+    found: dict[str, dict[str, Any]] = {}
+    logger.info(
+        "[UDP] Запуск поиска FlashForge и Elegoo: %s, порты %d и %s",
+        ", ".join(addresses),
+        ELEGOO_UDP_PORT,
+        "/".join(str(port) for port in FLASHFORGE_UDP_PORTS),
+    )
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            # Без этого флага `sendto` на широковещательный адрес система
+            # отклоняет: право рассылать бродкаст спрашивается явно.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            sock.settimeout(timeout)
+
+            for address in addresses:
+                for port in FLASHFORGE_UDP_PORTS:
+                    sock.sendto(FLASHFORGE_UDP_PROBE, (address, port))
+
+                sock.sendto(ELEGOO_UDP_PROBE, (address, ELEGOO_UDP_PORT))
+
+            deadline = time.monotonic() + timeout
+
+            while time.monotonic() < deadline:
+                try:
+                    data, sender = sock.recvfrom(UDP_MAX_BYTES)
+                except socket.timeout:
+                    # Окно ожидания закрылось: больше никто не ответил.
+                    break
+                except OSError as error:
+                    if error.errno in UDP_CLOSED_PORT:
+                        # На одном из портов рассылки никого нет, и система
+                        # вернула ICMP «порт закрыт». Это обычная картина: у
+                        # принтера открыт один порт из четырёх. Ждём остальные
+                        # ответы до конца окна, иначе первый же закрытый порт
+                        # отменял бы находку.
+                        logger.debug("[UDP] Порт закрыт: %s", error)
+                        continue
+
+                    logger.warning("[UDP] Ошибка сети: %s (приём ответа)", error)
+                    break
+
+                printer = udp_printer(data, sender)
+
+                if printer is not None:
+                    found[str(printer["ip_address"]).lower()] = printer
+    except OSError as error:
+        # Запрет бродкаста политикой, интерфейс без маршрута, занятый UDP:
+        # находок не будет, но агент продолжает работу — обход портов впереди.
+        logger.warning("[UDP] Ошибка сети: %s", error)
+
+    printers = sorted(found.values(), key=address_sort_key)
+
+    if printers:
+        logger.info("FlashForge и Elegoo по UDP найдено: %d", len(printers))
+    else:
+        logger.info("[UDP] Поиск завершен, ответов нет")
+
+    return printers
 
 
 def creality_model(payload: dict[str, Any] | None) -> str | None:
@@ -730,9 +1022,10 @@ def scan_network(
     """
     Принтеры локальной сети: `[{"ip_address": ..., "protocol_type": ...}]`.
 
-    Два источника в одном списке: обход портов (Creality, Moonraker, OctoPrint)
-    и SSDP (Bambu — вместе с серийным номером). Повтор адреса схлопывается в
-    пользу SSDP: он точнее знает и протокол, и номер.
+    Три источника в одном списке: обход портов (Creality, Moonraker, OctoPrint),
+    SSDP (Bambu — с серийным номером) и широковещательный UDP-запрос
+    (FlashForge и Elegoo — с серийным номером или номером платы). Повтор адреса
+    схлопывается в пользу обнаружения: оно точнее знает и протокол, и номер.
 
     `networks` — для явных подсетей и тестов; по умолчанию решает
     `resolve_scan_networks()`. Результат отсортирован по адресу: два запуска
@@ -763,9 +1056,13 @@ def scan_network(
                 if result is not None:
                     found.append(result)
 
-    # SSDP спрашивает всю подсеть одним пакетом, поэтому вызывается и тогда,
-    # когда обходить нечего: Bambu находит себя сам, а не через порт.
-    found = merge_bambu_printers(found, scan_bambu_ssdp())
+    # Широковещательные поиски спрашивают всю подсеть одним пакетом, поэтому
+    # вызываются и тогда, когда обходить нечего: Bambu, FlashForge и Elegoo
+    # находят себя сами, а не через открытый порт.
+    found = merge_discovered_printers(found, scan_bambu_ssdp())
+    found = merge_discovered_printers(
+        found, scan_udp_broadcast(targets=broadcast_targets(targets))
+    )
 
     logger.info("Найдено принтеров: %d", len(found))
 
