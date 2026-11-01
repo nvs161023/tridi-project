@@ -15,6 +15,7 @@ import { printFileExtension } from "@/lib/3d/print-compatibility";
 import {
   isPrinterProtocol,
   type PrinterProtocol,
+  type PrinterSecrets,
 } from "@/lib/db/workshop-types";
 import {
   formatWorkshopLimit,
@@ -46,6 +47,17 @@ export function isPrinterFarmStatus(value: unknown): value is PrinterFarmStatus 
  * серверная страница собирает карту сама, а карточка только показывает строку.
  */
 export type PrinterActiveJobs = Record<string, string>;
+
+/**
+ * Причина последнего отказа принтера: `printer_id` → текст от агента.
+ *
+ * Хранится не в `workshop_printers`, а в `workshop_print_jobs.last_error`
+ * последнего задания с `status = 'failed'`: агент пишет туда словами протокола
+ * («Bambu: неверный Access Code»), и карточка показывает ту же фразу, а не
+ * «печать не удалась». Карта собирается на сервере: карточке не нужен список
+ * заданий, ей нужна одна строка на принтер.
+ */
+export type PrinterLastErrors = Record<string, string>;
 
 /** Принтер в том виде, в каком с ним работает интерфейс. */
 export type WorkshopPrinter = {
@@ -109,6 +121,13 @@ export type PrinterDraft = {
    * задан, в базе это null. Секрет: уходит только агенту.
    */
   apiKey: string;
+  /**
+   * Поля протокола без своей колонки — то, что уходит в
+   * `workshop_printers.printer_secrets` (jsonb): `checkCode` FlashForge,
+   * логин-пароль и `deviceId`/`modeId` Anycubic, `mainboardId` Elegoo,
+   * `storage` PrusaLink. Пустой объект — у протокола таких полей нет.
+   */
+  printerSecrets: PrinterSecrets;
   nozzleInterval: number;
   lubricationInterval: number;
   zScrewInterval: number;
@@ -126,7 +145,8 @@ export type PrinterFormErrors = Partial<
     | "apiKey"
     | "nozzleInterval"
     | "lubricationInterval"
-    | "zScrewInterval",
+    | "zScrewInterval"
+    | PrinterSecretKey,
     string
   >
 >;
@@ -223,6 +243,301 @@ export function formatPrinterProtocol(value: PrinterProtocol): string {
     PRINTER_PROTOCOL_OPTIONS.find((option) => option.value === value)?.label ??
     value
   );
+}
+
+/**
+ * Имена полей `workshop_printers.printer_secrets`, которые спрашивает форма.
+ *
+ * Совпадают с `secrets` в `agent/adapters/registry.py`: адаптер читает ровно эти
+ * ключи, и переименование в форме оставило бы его без `checkCode` или пароля.
+ * `clientCert`/`clientKey`/`caCert` Anycubic (mTLS) в форме не показываются:
+ * прошивки Kobra их не требуют, а файл сертификата в браузере не выбрать.
+ */
+export type PrinterSecretKey =
+  | "checkCode"
+  | "username"
+  | "password"
+  | "deviceId"
+  | "modeId"
+  | "mainboardId"
+  | "storage";
+
+/**
+ * Поле формы, которое уходит не в колонку, а в `printer_secrets`.
+ *
+ * `required` — без значения принтер откажет на первом же запросе (FlashForge
+ * сверяет `checkCode`), `fallback` — что записать, если поле оставили пустым
+ * (PrusaLink без `storage` не соберёт адрес файла, а `usb` — его значение по
+ * умолчанию).
+ */
+export type PrinterSecretField = {
+  key: PrinterSecretKey;
+  label: string;
+  placeholder: string;
+  hint: string;
+  required: boolean;
+  /** Поле-пароль: браузер не должен показывать и запоминать значение. */
+  password?: boolean;
+  /** Список вместо текста (`storage`). */
+  options?: readonly { value: string; label: string }[];
+  /** Значение по умолчанию, если поле оставили пустым. */
+  fallback?: string;
+};
+
+/**
+ * Поле ключа доступа: у Moonraker и OctoPrint это ключ API, у Bambu — код с
+ * экрана принтера. `null` — протоколу поле не нужно (Creality, FlashForge,
+ * Elegoo, Anycubic спрашивают своё — пароль или `checkCode`).
+ */
+export type PrinterApiKeyField = {
+  label: string;
+  placeholder: string;
+  hint: string;
+  required: boolean;
+  maxLength: number;
+  /** Ровно столько символов (8 у Access Code Bambu); 0 — без проверки. */
+  exactLength?: number;
+  /** Скрывать ввод: пароль, а не ключ, который копируют с экрана. */
+  password?: boolean;
+};
+
+/**
+ * Что форма спрашивает у выбранного протокола.
+ *
+ * Один справочник на разметку и на разбор: `readPrinterForm()` проверяет те же
+ * поля, что рисует окно «Добавить принтер», поэтому подпись и проверка не
+ * разъедутся. `serialNumberRequired` отдельно от `serialNumber`: SN нужен Bambu
+ * и FlashForge, но у Bambu адаптер находит номер сам (SSDP), а FlashForge
+ * отправляет его заголовком каждого запроса — без номера он не ответит.
+ */
+export type PrinterConnectionSpec = {
+  apiKey: PrinterApiKeyField | null;
+  serialNumber: boolean;
+  serialNumberRequired: boolean;
+  secrets: readonly PrinterSecretField[];
+};
+
+/**
+ * Поля подключения по протоколам — в порядке `PRINTER_PROTOCOL_OPTIONS`.
+ *
+ * Правило одно: колонка `api_key` — для первичного секрета (ключ API, код
+ * доступа, пароль), `printer_secrets` — для остального. У Anycubic пароль уходит
+ * в `printer_secrets.password`, а не в `api_key`: адаптер читает оба поля, но
+ * форма обещает «логин и пароль в секретах», и одно поле в двух колонках путало
+ * бы карточку.
+ */
+export const PRINTER_CONNECTION_SPECS: Record<
+  PrinterProtocol,
+  PrinterConnectionSpec
+> = {
+  moonraker: {
+    apiKey: {
+      label: "API-ключ",
+      placeholder: "Необязательно",
+      hint: "Klipper часто пускает без ключа. Если Moonraker его требует — вставьте ключ из moonraker.conf.",
+      required: false,
+      maxLength: PRINTER_TEXT_LIMITS.apiKey,
+    },
+    serialNumber: false,
+    serialNumberRequired: false,
+    secrets: [],
+  },
+  octoprint: {
+    apiKey: {
+      label: "API-ключ",
+      placeholder: "A1B2C3D4E5F6…",
+      hint: "Обязателен: OctoPrint не принимает запросы без ключа. Ключ лежит в Settings → API Key.",
+      required: true,
+      maxLength: PRINTER_TEXT_LIMITS.apiKey,
+    },
+    serialNumber: false,
+    serialNumberRequired: false,
+    secrets: [],
+  },
+  bambu: {
+    apiKey: {
+      label: "Access Code",
+      placeholder: "12345678",
+      hint: "8 символов с экрана принтера (LAN-режим). Без него Bambu не пустит ни по MQTT, ни по FTPS.",
+      required: true,
+      maxLength: 8,
+      exactLength: 8,
+    },
+    serialNumber: true,
+    serialNumberRequired: false,
+    secrets: [],
+  },
+  prusa: {
+    apiKey: {
+      label: "API-ключ",
+      placeholder: "Пароль из PrusaLink",
+      hint: "PrusaLink спрашивает пару логин-пароль: логин — maker, ключ — пароль из Settings → PrusaLink.",
+      required: false,
+      maxLength: PRINTER_TEXT_LIMITS.apiKey,
+      password: true,
+    },
+    serialNumber: false,
+    serialNumberRequired: false,
+    secrets: [
+      {
+        key: "storage",
+        label: "Хранилище",
+        placeholder: "",
+        hint: "Куда PrusaLink кладёт файл: флешка (usb) или внутренняя память (local).",
+        required: false,
+        fallback: "usb",
+        options: [
+          { value: "usb", label: "USB-флешка" },
+          { value: "local", label: "Внутренняя память" },
+        ],
+      },
+    ],
+  },
+  creality: {
+    apiKey: null,
+    serialNumber: false,
+    serialNumberRequired: false,
+    secrets: [],
+  },
+  anycubic: {
+    apiKey: null,
+    serialNumber: false,
+    serialNumberRequired: false,
+    secrets: [
+      {
+        key: "username",
+        label: "Логин",
+        placeholder: "anycubic",
+        hint: "Логин LAN-режима. Пустое поле — логин по умолчанию anycubic.",
+        required: false,
+      },
+      {
+        key: "password",
+        label: "Пароль",
+        placeholder: "Пароль LAN-режима",
+        hint: "Пароль, который принтер показывает в LAN-режиме. Без него брокер 9883 не пустит.",
+        required: true,
+        password: true,
+      },
+      {
+        key: "deviceId",
+        label: "Device ID",
+        placeholder: "Необязательно",
+        hint: "Адрес MQTT-топиков. Обычно принтер сообщает его сам; заполняйте, если бродкаст в сети запрещён.",
+        required: false,
+      },
+      {
+        key: "modeId",
+        label: "Mode ID",
+        placeholder: "Необязательно",
+        hint: "Второй адрес топиков. Тоже приходит от принтера — нужен только в сети без бродкаста.",
+        required: false,
+      },
+    ],
+  },
+  flashforge: {
+    apiKey: null,
+    serialNumber: true,
+    serialNumberRequired: true,
+    secrets: [
+      {
+        key: "checkCode",
+        label: "Check Code",
+        placeholder: "Код с наклейки",
+        hint: "Код проверки печатается на наклейке принтера. Без него FlashForge отвечает отказом на каждый запрос.",
+        required: true,
+      },
+    ],
+  },
+  elegoo: {
+    apiKey: null,
+    serialNumber: false,
+    serialNumberRequired: false,
+    secrets: [
+      {
+        key: "mainboardId",
+        label: "Mainboard ID",
+        placeholder: "Необязательно",
+        hint: "Номер платы для топика sdcp/request. Обычно приходит в ответе M99999 — заполняйте, если бродкаст запрещён.",
+        required: false,
+      },
+    ],
+  },
+};
+
+/** Поля подключения выбранного протокола: их рисует форма и проверяет разбор. */
+export function printerConnectionSpec(
+  protocol: PrinterProtocol,
+): PrinterConnectionSpec {
+  return PRINTER_CONNECTION_SPECS[protocol];
+}
+
+/**
+ * Возможности протокола — зеркало `capabilities` из `agent/adapters/registry.py`.
+ *
+ * Ключи те же, что у `CAPABILITY_*` в `agent/adapters/base.py`: по ним агент
+ * решает, показывать ли кнопку паузы и отправлять ли команду отмены. Карточка
+ * принтера показывает набор целиком (✓/✗), чтобы мастер видел не только «что
+ * умеет», но и «чего этот протокол не умеет»: камеру не умеет ни один из
+ * восьми, а отмену — все.
+ *
+ * Таблица, а не вычисление из одного набора: у протокола может появиться своя
+ * особенность (как у Bambu с контейнером `.3mf`), и тогда правка будет в одной
+ * строке, а не в условии по всему файлу.
+ */
+export const PRINTER_CAPABILITY_LABELS: readonly {
+  key: string;
+  label: string;
+}[] = [
+  { key: "upload", label: "Загрузка файла" },
+  { key: "start", label: "Печать" },
+  { key: "status", label: "Состояние" },
+  { key: "pause", label: "Пауза" },
+  { key: "resume", label: "Продолжить" },
+  { key: "cancel", label: "Отмена" },
+  { key: "camera", label: "Камера" },
+];
+
+/** Минимум, который обязан уметь любой протокол: файл, старт и состояние. */
+const PRINTER_BASE_CAPABILITIES: readonly string[] = [
+  "upload",
+  "start",
+  "status",
+];
+
+/** Полный контроль над заданием: плюс пауза, возврат и отмена. */
+const PRINTER_CONTROL_CAPABILITIES: readonly string[] = [
+  ...PRINTER_BASE_CAPABILITIES,
+  "pause",
+  "resume",
+  "cancel",
+];
+
+/** Набор возможностей по протоколам — в порядке `PRINTER_PROTOCOLS`. */
+export const PRINTER_PROTOCOL_CAPABILITIES: Record<
+  PrinterProtocol,
+  readonly string[]
+> = {
+  moonraker: PRINTER_CONTROL_CAPABILITIES,
+  octoprint: PRINTER_CONTROL_CAPABILITIES,
+  bambu: PRINTER_CONTROL_CAPABILITIES,
+  prusa: PRINTER_CONTROL_CAPABILITIES,
+  creality: PRINTER_CONTROL_CAPABILITIES,
+  anycubic: PRINTER_CONTROL_CAPABILITIES,
+  flashforge: PRINTER_CONTROL_CAPABILITIES,
+  elegoo: PRINTER_CONTROL_CAPABILITIES,
+};
+
+/**
+ * «Печать ✓ · Пауза ✗ · Камера ✗» — все возможности протокола, а не только
+ * объявленные.
+ */
+export function formatPrinterCapabilities(
+  capabilities: readonly string[],
+): string {
+  return PRINTER_CAPABILITY_LABELS.map(
+    ({ key, label }) => `${label} ${capabilities.includes(key) ? "✓" : "✗"}`,
+  ).join(" · ");
 }
 
 /**
@@ -735,6 +1050,100 @@ export function countMaintenanceDue(printer: WorkshopPrinter): number {
     (level) => level !== null && level !== "ok",
   ).length;
 }
+/**
+ * Общая часть форм подключения: серийный номер, ключ доступа и секреты
+ * протокола.
+ *
+ * Одна функция на форму добавления и на кнопку «Проверить связь»: проверки не
+ * разъедутся, и кнопка не станет ругаться на поле, которое сохранение пропустит.
+ * Поля берутся из `PRINTER_CONNECTION_SPECS` — того же справочника, по которому
+ * они рисуются.
+ */
+function readConnectionFields(
+  formData: FormData,
+  protocolType: PrinterProtocol,
+): {
+  serialNumber: string;
+  apiKey: string;
+  printerSecrets: PrinterSecrets;
+  errors: PrinterFormErrors;
+} {
+  const spec = printerConnectionSpec(protocolType);
+  const errors: PrinterFormErrors = {};
+
+  // SN нужен Bambu (топики MQTT) и FlashForge (заголовок каждого запроса): у
+  // остальных протоколов такого понятия нет, а чужое значение агент подставил бы
+  // в топик чужого протокола.
+  const serialNumber = spec.serialNumber
+    ? readFormText(formData.get("serialNumber"))
+    : "";
+
+  if (serialNumber.length > PRINTER_TEXT_LIMITS.serialNumber) {
+    errors.serialNumber = `Не больше ${PRINTER_TEXT_LIMITS.serialNumber} символов.`;
+  } else if (spec.serialNumberRequired && !serialNumber) {
+    errors.serialNumber =
+      "Введите серийный номер с наклейки: FlashForge отправляет его в каждом запросе.";
+  }
+
+  // Ключ доступа: у Moonraker, OctoPrint и PrusaLink это ключ API, у Bambu — код
+  // с экрана принтера. Пустое поле становится null в базе (check-ограничение не
+  // принимает api_key длины 0), поэтому проверяется длина, а не пустота.
+  const apiKey = spec.apiKey ? readFormText(formData.get("apiKey")) : "";
+
+  if (spec.apiKey) {
+    if (apiKey.length > spec.apiKey.maxLength) {
+      errors.apiKey = `Не больше ${spec.apiKey.maxLength} символов.`;
+    } else if (spec.apiKey.required && !apiKey) {
+      errors.apiKey =
+        "Заполните поле: без него принтер не примет команды агента.";
+    } else if (
+      spec.apiKey.exactLength &&
+      apiKey.length !== spec.apiKey.exactLength
+    ) {
+      errors.apiKey = `Нужно ровно ${spec.apiKey.exactLength} символов — как на экране принтера.`;
+    }
+  }
+
+  // Секреты протокола — то, для чего нет колонки: `checkCode` FlashForge,
+  // логин-пароль и `deviceId`/`modeId` Anycubic, `mainboardId` Elegoo, `storage`
+  // PrusaLink. Пустое необязательное поле в объект не попадает: в jsonb лежит
+  // только заполненное. `fallback` записывается всегда — PrusaLink без `storage`
+  // не соберёт адрес файла.
+  const printerSecrets: PrinterSecrets = {};
+
+  for (const field of spec.secrets) {
+    const value = readFormText(formData.get(field.key));
+
+    if (!value) {
+      if (field.required) {
+        errors[field.key] = `Заполните поле «${field.label}».`;
+      } else if (field.fallback) {
+        printerSecrets[field.key] = field.fallback;
+      }
+
+      continue;
+    }
+
+    if (value.length > PRINTER_TEXT_LIMITS.apiKey) {
+      errors[field.key] = `Не больше ${PRINTER_TEXT_LIMITS.apiKey} символов.`;
+      continue;
+    }
+
+    if (
+      field.options &&
+      !field.options.some((option) => option.value === value)
+    ) {
+      errors[field.key] = "Выберите значение из списка.";
+      continue;
+    }
+
+    printerSecrets[field.key] = value;
+  }
+
+  return { serialNumber, apiKey, printerSecrets, errors };
+}
+
+
 
 /**
  * Форма «Добавить принтер» → проверенные значения.
@@ -744,10 +1153,10 @@ export function countMaintenanceDue(printer: WorkshopPrinter): number {
  * длину названий и интервалы теми же пределами, что SQL.
  *
  * Адрес обязателен: агент подключается к принтеру напрямую, и без `ip_address`
- * карточка в парке осталась бы мёртвой. Ключ доступа необязателен — Moonraker и
- * OctoPrint часто работают без него, у Bambu это код с экрана; пустое поле
- * становится null, потому что check-ограничение миграции не принимает пустую
- * строку.
+ * карточка в парке осталась бы мёртвой. Остальные поля подключения зависят от
+ * протокола (`PRINTER_CONNECTION_SPECS`): ключ API или код доступа, SN,
+ * `checkCode`, логин-пароль. Пустое поле ключа становится null, потому что
+ * check-ограничение миграции не принимает пустую строку.
  */
 export function readPrinterForm(formData: FormData): {
   draft: PrinterDraft | null;
@@ -786,17 +1195,11 @@ export function readPrinterForm(formData: FormData): {
     ? protocol
     : "moonraker";
 
-  // SN есть только у Bambu и FlashForge: у остальных протоколов такого понятия
-  // нет, а чужое значение агент подставил бы в топик MQTT или в заголовок
-  // чужого запроса. Поле необязательное: без SN адаптер найдёт принтер сам —
-  // Bambu по SSDP, FlashForge по UDP-бродкасту.
-  const serialNumber = isPrinterSerialProtocol(protocolType)
-    ? readFormText(formData.get("serialNumber"))
-    : "";
-
-  if (serialNumber.length > PRINTER_TEXT_LIMITS.serialNumber) {
-    errors.serialNumber = `Не больше ${PRINTER_TEXT_LIMITS.serialNumber} символов.`;
-  }
+  // Поля подключения зависят от протокола: `PRINTER_CONNECTION_SPECS` — тот же
+  // справочник, по которому рисуется форма, поэтому подписи и проверки не
+  // разъедутся.
+  const connection = readConnectionFields(formData, protocolType);
+  Object.assign(errors, connection.errors);
 
   // Адрес проверяется тем же normalizePrinterAddress, что и находки агента:
   // «192.168.1.50» и «ender3.local» проходят, а «http://192.168.1.50» или
@@ -807,14 +1210,6 @@ export function readPrinterForm(formData: FormData): {
   if (!ipAddress) {
     errors.ipAddress =
       "Укажите адрес вида 192.168.1.50 или имя узла (ender3.local) — без пробелов и «/».";
-  }
-
-  // Ключ необязателен и не обрезается по краям в базе (check смотрит на
-  // char_length), поэтому пустое поле обязано стать null, а не "".
-  const apiKey = readFormText(formData.get("apiKey"));
-
-  if (apiKey.length > PRINTER_TEXT_LIMITS.apiKey) {
-    errors.apiKey = `Не больше ${PRINTER_TEXT_LIMITS.apiKey} символов.`;
   }
 
   const nozzleInterval = readInterval(
@@ -862,9 +1257,10 @@ export function readPrinterForm(formData: FormData): {
       brand,
       model,
       protocolType,
-      serialNumber,
+      serialNumber: connection.serialNumber,
       ipAddress,
-      apiKey,
+      apiKey: connection.apiKey,
+      printerSecrets: connection.printerSecrets,
       nozzleInterval,
       lubricationInterval,
       zScrewInterval,
@@ -872,6 +1268,65 @@ export function readPrinterForm(formData: FormData): {
     errors,
   };
 }
+/** Проверенный ввод кнопки «Проверить связь»: только данные подключения. */
+export type PrinterProbeDraft = {
+  protocolType: PrinterProtocol;
+  ipAddress: string;
+  serialNumber: string;
+  apiKey: string;
+  printerSecrets: PrinterSecrets;
+};
+
+/**
+ * Разбор формы «Проверить связь».
+ *
+ * Отличается от `readPrinterForm` тем, что не требует имени, бренда, модели и
+ * интервалов обслуживания: мастер вправе проверить принтер до того, как придумал
+ * ему имя, а просьба в очередь на эти поля не опирается. Поля подключения
+ * проверяются общей `readConnectionFields()`, поэтому набор ошибок тот же, что
+ * у сохранения.
+ */
+export function readPrinterProbeForm(formData: FormData): {
+  draft: PrinterProbeDraft | null;
+  errors: PrinterFormErrors;
+} {
+  const errors: PrinterFormErrors = {};
+
+  // Протокол как у формы добавления: незнакомое значение — Moonraker, а не
+  // отказ. Кнопка проверки стоит в той же форме, и `<select>` уже выбрал
+  // значение; мусор сюда попадает только из подделанного запроса.
+  const protocol = readFormText(formData.get("protocol"));
+  const protocolType: PrinterProtocol = isPrinterProtocol(protocol)
+    ? protocol
+    : "moonraker";
+
+  const connection = readConnectionFields(formData, protocolType);
+  Object.assign(errors, connection.errors);
+
+  const ipAddress = normalizePrinterAddress(formData.get("ipAddress"));
+
+  if (!ipAddress) {
+    errors.ipAddress =
+      "Укажите адрес вида 192.168.1.50 или имя узла (ender3.local) — без пробелов и «/».";
+  }
+
+  if (!ipAddress || Object.keys(errors).length > 0) {
+    return { draft: null, errors };
+  }
+
+  return {
+    draft: {
+      protocolType,
+      ipAddress,
+      serialNumber: connection.serialNumber,
+      apiKey: connection.apiKey,
+      printerSecrets: connection.printerSecrets,
+    },
+    errors,
+  };
+}
+
+
 
 /**
  * Проверенный ввод формы «Подключение» в карточке принтера.

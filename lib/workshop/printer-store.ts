@@ -16,6 +16,7 @@ import {
   normalizePrinterRow,
   type DiscoveredPrinter,
   type PrinterActiveJobs,
+  type PrinterLastErrors,
   type WorkshopPrinter,
 } from "@/lib/workshop/printers";
 
@@ -25,6 +26,8 @@ export type WorkshopPrintersSnapshot = {
   printers: WorkshopPrinter[];
   /** Названия заказов, которые печатаются сейчас: `printer_id` → title. */
   activeJobs: PrinterActiveJobs;
+  /** Причина последнего отказа: `printer_id` → текст от агента. */
+  lastErrors: PrinterLastErrors;
   /** В базе нет таблицы workshop_printers — миграция не применена. */
   isMissingTable: boolean;
 };
@@ -88,6 +91,73 @@ export async function getActivePrinterJobs(
 
   return jobs;
 }
+/** Строка задания с причиной отказа: нужны только принтер и текст. */
+type LastErrorRow = {
+  printer_id: string | null;
+  last_error: string | null;
+};
+
+/** Сколько последних отказов читать: по одному на принтер достаточно. */
+const LAST_ERROR_LIMIT = 100;
+
+/**
+ * Причина последнего отказа по каждому принтеру.
+ *
+ * Источник — `workshop_print_jobs.last_error` у заданий со статусом `failed`:
+ * агент пишет туда словами протокола («Bambu: неверный Access Code»), и карточка
+ * принтера показывает ту же фразу, что и карточка заказа. Красная плашка нужна
+ * именно мастеру у станка: он видит, что задание не ушло, и не ищет причину в
+ * настройках.
+ *
+ * Задания читаются от новых к старым, и первое найденное значение для принтера
+ * остаётся: карточке нужна одна строка, а не история. Колонки `last_error` может
+ * не быть (миграция `workshop_print_jobs_hardening` не применена) — тогда карта
+ * пустая, и плашка не показывается: это ожидаемое состояние, а не сбой.
+ */
+export async function getPrinterLastErrors(
+  supabase: Supabase,
+  userId: string,
+): Promise<PrinterLastErrors> {
+  const { data, error } = await supabase
+    .from("workshop_print_jobs")
+    .select("printer_id, last_error")
+    .eq("user_id", userId)
+    .eq("status", "failed")
+    .not("printer_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(LAST_ERROR_LIMIT);
+
+  if (error) {
+    if (
+      !isMissingTableSchema(error.code, error.message) &&
+      !isMissingColumnSchema(error)
+    ) {
+      console.warn(
+        "Причины отказов принтеров не прочитаны:",
+        error.code,
+        error.message,
+      );
+    }
+
+    return {};
+  }
+
+  const errors: PrinterLastErrors = {};
+
+  for (const row of (data ?? []) as unknown as LastErrorRow[]) {
+    const text =
+      typeof row.last_error === "string" ? row.last_error.trim() : "";
+
+    // Первое (самое новое) значение на принтер: старые отказы уже неактуальны.
+    if (isPrinterId(row.printer_id) && text && !errors[row.printer_id]) {
+      errors[row.printer_id] = text;
+    }
+  }
+
+  return errors;
+}
+
+
 
 /** PostgREST/PostgreSQL: выбранной колонки ещё нет в базе. */
 function isMissingColumnSchema(error: { code?: string | null }): boolean {
@@ -107,15 +177,17 @@ export async function getWorkshopPrinters(
   supabase: Supabase,
   userId: string,
 ): Promise<WorkshopPrintersSnapshot> {
-  // Два независимых запроса: список парка и названия заказов в печати.
-  // Параллельно, потому что карточке нужны оба, а ждать их по очереди незачем.
-  const [livePrinters, activeJobs] = await Promise.all([
+  // Три независимых запроса: список парка, названия заказов в печати и причины
+  // последних отказов. Параллельно, потому что карточке нужны все три, а ждать
+  // их по очереди незачем.
+  const [livePrinters, activeJobs, lastErrors] = await Promise.all([
     supabase
       .from("workshop_printers")
       .select(PRINTER_COLUMNS)
       .eq("user_id", userId)
       .order("created_at", { ascending: true }),
     getActivePrinterJobs(supabase, userId),
+    getPrinterLastErrors(supabase, userId),
   ]);
 
   // Тип ответа намеренно свободный: наборы колонок у двух запросов разные, а
@@ -141,6 +213,7 @@ export async function getWorkshopPrinters(
     return {
       printers: [],
       activeJobs: {},
+      lastErrors: {},
       isMissingTable: isMissingTableSchema(error.code, error.message),
     };
   }
@@ -152,6 +225,7 @@ export async function getWorkshopPrinters(
       .map(normalizePrinterRow)
       .filter((printer): printer is WorkshopPrinter => printer !== null),
     activeJobs,
+    lastErrors,
     isMissingTable: false,
   };
 }

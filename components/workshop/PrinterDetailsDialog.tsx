@@ -19,8 +19,11 @@ import {
 import { findPrinterPresetByModel } from "@/lib/workshop/printer-presets";
 import {
   PRINTER_ADDRESS_MAX,
+  PRINTER_PROTOCOL_CAPABILITIES,
   PRINTER_PROTOCOL_OPTIONS,
   PRINTER_TEXT_LIMITS,
+  PRINTER_UPLOAD_FORMATS,
+  formatPrinterCapabilities,
   formatPrinterDate,
   formatPrinterHours,
   formatPrinterLastSeen,
@@ -49,6 +52,11 @@ type PrinterDetailsDialogProps = {
   printer: WorkshopPrinter;
   /** Название заказа, который печатается сейчас; null — печати нет. */
   activeJobTitle: string | null;
+  /**
+   * Причина последнего отказа агента (`workshop_print_jobs.last_error`); null —
+   * отказов не было или задание ещё не падало.
+   */
+  lastError: string | null;
   onClose: () => void;
   /** Сообщение для строки состояния вкладки после сохранения. */
   onSaved: (message: string) => void;
@@ -100,6 +108,7 @@ const dangerButtonClassName =
 export function PrinterDetailsDialog({
   printer,
   activeJobTitle,
+  lastError,
   onClose,
   onSaved,
   onDeleted,
@@ -268,8 +277,21 @@ export function PrinterDetailsDialog({
             </h2>
             <p className="mt-1 text-xs text-zinc-500">
               {model || "Модель не указана"} ·{" "}
-              {formatPrinterProtocol(printer.protocolType)} ·{" "}
               {formatPrinterHours(printer.totalHours)} всего
+            </p>
+            {/*
+              Бейдж протокола: по нему мастер понимает, каким API агент говорит
+              с принтером. Подпись из `PRINTER_PROTOCOL_OPTIONS` — та же, что в
+              `<select>` формы, поэтому «Moonraker (Klipper)» называется
+              одинаково в обоих окнах.
+            */}
+            <p className="mt-2">
+              <span
+                data-printer-protocol
+                className="inline-flex items-center rounded-full border border-blue-400/40 bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-blue-200"
+              >
+                {formatPrinterProtocol(printer.protocolType)}
+              </span>
             </p>
           </div>
           <button
@@ -283,6 +305,24 @@ export function PrinterDetailsDialog({
             <span aria-hidden>✕</span>
           </button>
         </div>
+
+        {/*
+          Красная плашка — причина последнего отказа агента: «Bambu: неверный
+          Access Code», «принтер не отвечает». Мастер у станка видит, почему
+          задание не ушло, и не ищет причину в настройках. Плашка стоит выше
+          вкладок: она важна в обеих, а не только в «Подключении».
+        */}
+        {lastError ? (
+          <p
+            role="alert"
+            data-printer-last-error
+            className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+          >
+            <span aria-hidden>⚠️ </span>
+            <span className="font-semibold">Последняя ошибка агента: </span>
+            {lastError}
+          </p>
+        ) : null}
 
         <div
           role="tablist"
@@ -476,6 +516,30 @@ export function PrinterDetailsDialog({
             ключ уходят только ему. Имя, модель и интервалы обслуживания здесь
             не меняются — их задают при добавлении принтера.
           </p>
+
+          {/*
+            Возможности протокола: что агент умеет с этим принтером. Набор из
+            `PRINTER_PROTOCOL_CAPABILITIES` — зеркала `registry.py`, поэтому
+            карточка не обещает кнопку, которой протокол не умеет: камеру не
+            умеет ни один из восьми, отмену — все.
+          */}
+          <dl className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
+            <dt className="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
+              Возможности протокола
+            </dt>
+            <dd
+              data-printer-capabilities
+              className="mt-1 text-sm leading-relaxed font-semibold text-white"
+            >
+              {formatPrinterCapabilities(
+                PRINTER_PROTOCOL_CAPABILITIES[printer.protocolType],
+              )}
+            </dd>
+            <dd className="mt-1 text-xs leading-relaxed text-zinc-500">
+              Форматы печати:{" "}
+              {PRINTER_UPLOAD_FORMATS[printer.protocolType].join(", ")}
+            </dd>
+          </dl>
 
           {printer.ipAddress === null ? (
             <p className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100">

@@ -2466,6 +2466,12 @@ bambu, prusa, creality, anycubic, flashforge, elegoo). Ограничение п
 Postgres не умеет менять одно условие внутри `check`, а условия кроме протокола остались те же, что
 в `workshop_farm_and_shop.sql`. В конце — `notify pgrst, 'reload schema'`, иначе новая колонка
 отвечает `PGRST204` «could not find column».
+`supabase/workshop_printer_probe.sql`: очередь проверки связи, `workshop_printer_probes`
+(`id`, `user_id`, `protocol_type`, `ip_address`, `serial_number`, `api_key`,
+`printer_secrets`, `status` pending/running/done, `result jsonb`, `error`, `created_at`,
+`started_at`, `finished_at`) с двумя check — статус и форма секретов (объект до 4 КБ).
+Политики RLS: владелец видит, создаёт и удаляет свои строки, а обновляет их только
+service_role (агент) — иначе браузер мог бы подделать результат пробы.
 `supabase/workshop_settings.sql`: таблица `workshop_settings` (`id`, `user_id` unique с
 `on delete cascade`, четыре числа с check-пределами, `updated_at`), триггер
 `workshop_settings_touch_updated_at` обновляет `updated_at` на каждом update, RLS с политиками
@@ -3138,6 +3144,8 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `workshop_printers` | `id uuid`, `user_id uuid` (`auth.users.id`), `name text`, `brand text`, `model text`, `total_hours numeric(12,2)`, `nozzle_hours numeric(12,2)`, `nozzle_interval integer`, `lubrication_hours numeric(12,2)`, `lubrication_interval integer`, `z_screw_hours numeric(12,2)`, `z_screw_interval integer`, `last_maintenance_date date`, `created_at timestamptz` | Принтеры Мастерской: имя 1–60, бренд 1–40, модель 1–60, наработки 0–1 000 000 ч, интервалы сопла и винта Z 1–10 000 ч, смазки 0–10 000 ч (0 — смазка не требуется); `z_screw_interval` по умолчанию 720. Индекс `(user_id, created_at)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. `user_id` — `on delete cascade`. Схема — `supabase/workshop_printers_orders.sql`, обновление колонок — `supabase/workshop_printer_z_screw.sql`. Живые колонки агента (`protocol_type`, `ip_address`, `api_key`, `serial_number`, `status`, `progress`, `remaining_time`, `last_seen_at`) добавляет `supabase/workshop_farm_and_shop.sql`; восемь протоколов и `printer_secrets jsonb` (объект строк до 4 КБ: `checkCode` FlashForge, `deviceId`/`modeId` Anycubic, `mainboardId` Elegoo, `storage` PrusaLink) — `supabase/workshop_printer_protocols.sql` |
 | `workshop_orders` | `id uuid`, `user_id uuid` (`auth.users.id`), `title text`, `client_name text`, `status text`, `total_cost numeric(10,2)`, `material_weight_g integer`, `print_time_hours numeric(10,2)`, `printer_id uuid`, `filament_id uuid`, `notes text`, `deadline date`, `source text`, `created_at timestamptz` | Заказы Мастерской: `status` в `new/printing/ready/delivered`, стоимость 0–1 000 000 ₽, вес 0–100 000 г, время 0–100 000 ч, заметки до 1000 символов; `printer_id` и `filament_id` необязательны и при удалении источника обнуляются (`on delete set null`), заказ остаётся. Индексы `(user_id, created_at desc)` и `(user_id, status)`; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. Схема — `supabase/workshop_printers_orders.sql`. Источник заказа — `supabase/workshop_marketplace_integration.sql`: `source` not null default `manual` с check `manual/ozon/wb/yandex`, поэтому старые заказы остаются ручными, а вебхук пишет `ozon` |
 | `workshop_order_comments` | `id uuid`, `order_id uuid` (`workshop_orders.id`), `user_id uuid` (`auth.users.id`), `text text`, `created_at timestamptz` | Комментарии карточки заказа: `order_id` и `user_id` обязательны, удаление заказа или аккаунта удаляет переписку (`on delete cascade`), текст 1–1000 символов после `btrim` (комментарий из одних пробелов база не принимает). Индекс `(user_id, order_id, created_at)` под ленту; RLS: select/insert/update/delete только своих строк, гранты `authenticated`. Схема — `supabase/workshop_order_comments.sql` |
+| `workshop_printer_probes` | `id uuid`, `user_id uuid` (`auth.users.id`), `protocol_type text`, `ip_address text`, `serial_number text`, `api_key text`, `printer_secrets jsonb`, `status text`, `result jsonb`, `error text`, `created_at timestamptz`, `started_at timestamptz`, `finished_at timestamptz` | Очередь «Проверить связь» (`supabase/workshop_printer_probe.sql`): форма кладёт просьбу, локальный агент забирает её на опросе, зовёт `probe()` и возвращает модель, SN, прошивку и возможности; `status` — `pending`/`running`/`done`, `error` — причина отказа словами адаптера. Секреты в строке — временная копия: принтера ещё нет в `workshop_printers`. RLS: владелец `select`/`insert`/`delete`, `update` — только service_role, поэтому подделать результат из браузера нельзя |
+
 
 Как это работает:
 
@@ -7845,5 +7853,72 @@ TLS выключен флагом `MQTT_TLS` — рукопожатие в фе�
 `printer_secrets` уже принимает. Живой прогон остаётся за пользователем: конверт, топики и адрес
 загрузки взяты из поведения Kobra S1 в LAN-режиме, и прошивка вправе называть поля иначе — тогда
 причина останется в `last_error`.
+
+
+**Секреты протоколов и проверка связи в форме принтера (шаг 7).** Секреты дошли до
+адаптеров: `GET /api/agent/tasks` выбирает `printer_secrets` и отдаёт принтер с полем `secrets`,
+`getQueuedJobsForAgent()` — тоже, а агент читает его в `PrinterSettings.secrets`
+(`read_printer_secrets()` принимает и `secrets`, и `printer_secrets`) и передаёт в
+`get_adapter(..., secrets=...)`. До шага 7 `checkCode` FlashForge, `mainboardId` Elegoo и пароль
+Anycubic в адаптер не попадали: маршрут колонку просто не выбирал, и причиной отказа выглядел
+принтер. Нормализатор один на все три маршрута — `readPrinterSecrets()` в
+`lib/db/workshop-types.ts`: jsonb принимает и массив, и число, и вложенный объект, а адаптеру
+нужны только строки.
+
+Форма «Добавить принтер» перестала быть статичной. Справочник `PRINTER_CONNECTION_SPECS` в
+`lib/workshop/printers.ts` описывает для каждого из восьми протоколов поле ключа (подпись,
+обязательность, предел длины, `exactLength`), нужен ли SN и какие секреты спрашивать (`label`,
+`placeholder`, `hint`, `required`, `password`, `options`, `fallback`). По нему рисуется
+разметка и по нему же проверяют `readPrinterForm()` и `readPrinterProbeForm()`; общая часть
+вынесена в `readConnectionFields()`, поэтому сохранение и проверка связи ругаются на одно и то
+же. Как выглядит форма:
+
+- `moonraker` — IP + API-ключ (необязательно): Klipper часто пускает без ключа;
+- `octoprint` — IP + API-ключ (обязательно): без него OctoPrint отвечает 403;
+- `bambu` — IP + Access Code (ровно 8 символов) + SN (необязательно, адаптер найдёт по SSDP);
+- `prusa` — IP + API-ключ (пароль PrusaLink, скрытый ввод) + Storage (usb/local, по умолчанию usb);
+- `creality` — только IP: команды идут по WebSocket 9999 без ключа;
+- `flashforge` — IP + SN (обязательно) + Check Code (обязательно): прошивка сверяет оба;
+- `anycubic` — IP + Логин (по умолчанию anycubic) + Пароль + Device ID + Mode ID;
+- `elegoo` — IP + Mainboard ID (необязательно: номер приходит в ответе M99999).
+
+Секреты уходят в `printer_secrets` через `createPrinterPayload()` (пустой объект — `null`),
+ключ — в `api_key`, IP и протокол — в свои колонки: `workshop_printer_protocols.sql` менять не
+пришлось. Поля секретов не держат состояние и пересоздаются при смене протокола (`key` включает
+протокол), иначе пароль одного принтера остался бы в форме другого.
+
+Кнопка «Проверить связь» стоит рядом с «Добавить принтер» и отправляет ту же `FormData` в новый
+`POST /api/agent/probe`: роут проверяет сессию, подписку и данные подключения
+(`readPrinterProbeForm()` — имя и модель для пробы не нужны), кладёт строку в
+`workshop_printer_probes` (`supabase/workshop_printer_probe.sql`) и отвечает 202 с `probeId`.
+Сервер не может позвать `adapter.probe()` сам — агент живёт в локальной сети мастера без
+входящего порта, — поэтому просьбу забирает агент: `GET /api/agent/probe` →
+`handle_probe_requests()` → `run_probe()` (адаптер, `connect()`, `probe()`, `close()`) →
+`POST /api/agent/probe` с Bearer-токеном. Окно опрашивает `GET ?probeId` раз в 2 секунды (не
+дольше 30 попыток) и показывает «Bambu Lab A1, SN: 00M09A123456789, прошивка 01.08, Печать ✓ ·
+Пауза ✓ · Камера ✗» и форматы печати. Отказ принтера — тоже результат: `ok: false` и причина
+словами адаптера из `last_error` («Неверный Access Code»), а если агент не запущен, окно честно
+говорит об этом через минуту. Строки очереди старше суток удаляются при следующей проверке:
+копии секретов в базе не задерживаются. Политики RLS разрешают владельцу `select`, `insert` и
+`delete`, а `update` оставляют только `service_role` — подделать результат из браузера нельзя.
+
+Карточка принтера получила бейдж протокола (`formatPrinterProtocol`), блок «Возможности
+протокола» (`PRINTER_PROTOCOL_CAPABILITIES` — зеркало `registry.py`, все семь возможностей с
+✓/✗), строку форматов печати и красную плашку «Последняя ошибка агента». Источник плашки —
+`getPrinterLastErrors()` в `lib/workshop/printer-store.ts`: последний `last_error` задания со
+статусом `failed` для этого принтера, чтение идёт параллельно с парком и текущими заданиями и
+отдаётся в `WorkshopPrintersSnapshot.lastErrors` → `WorkshopTabs` (`printerLastErrors`) →
+`WorkshopPrintersTab` (`lastErrors`) → окно карточки (`lastError`). Без
+`workshop_print_jobs_hardening.sql` колонки `last_error` нет — карта пустая, плашка не
+показывается: это ожидаемое состояние, а не сбой.
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npx eslint .` — чисто, `python -m py_compile
+agent/main.py` — exit 0, `npx pyright agent/` — 0 ошибок и 0 предупреждений, `npm run
+check:docs`, `npm run check:style` (38 уроков, 0 нарушений) и `npm run check:imports` — без
+замечаний. Миграция одна — `supabase/workshop_printer_probe.sql`; колонка `printer_secrets`
+уже есть с шага 6. Живой прогон остаётся за пользователем: состав полей пробы
+(`model`, `serialNumber`, `firmware`, `capabilities`, `formats`) взят из `probe()` адаптеров, а
+прошивка вправе называть поля иначе — тогда причина останется в `last_error` пробы.
+
 
 

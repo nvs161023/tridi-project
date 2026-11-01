@@ -2,6 +2,7 @@ import {
   isPrinterProtocol,
   isPrinterStatus,
   isWorkshopUuid,
+  readPrinterSecrets,
   type PrinterProtocol,
   type PrinterStatus,
 } from "@/lib/db/workshop-types";
@@ -22,9 +23,11 @@ import { isOrderStatus, type OrderStatus } from "@/lib/workshop/orders";
  *   2. задания ищутся только своей мастерской (`user_id`) и только `queued`:
  *      `printing` уже взято, `done`/`failed` — история;
  *   3. к заданию подтягиваются заказ и принтер, чтобы агенту не пришлось
- *      делать второй запрос: нужны адрес, ключ и серийный номер принтера
- *      (Bambu адресует MQTT-топики номером), а также название заказа для
- *      журнала.
+ *      делать второй запрос: нужны адрес, ключ, серийный номер принтера
+ *      (Bambu адресует MQTT-топики номером) и `printer_secrets` — секреты
+ *      протокола без своей колонки (`checkCode` FlashForge, логин-пароль и
+ *      `deviceId`/`modeId` Anycubic, `mainboardId` Elegoo, `storage` PrusaLink),
+ *      а также название заказа для журнала.
  *
  * Ответ: `{ "tasks": [...] }`. Пустой массив — нормальный ответ «печатать
  * нечего», а не ошибка. `gcodeUrl` — снимок ссылки на момент постановки
@@ -47,7 +50,7 @@ export const dynamic = "force-dynamic";
 const TASK_COLUMNS =
   "id, order_id, order_item_id, printer_id, gcode_url, status, created_at, " +
   "order:workshop_orders!workshop_print_jobs_order_id_fkey(id, title, status), " +
-  "printer:workshop_printers!workshop_print_jobs_printer_id_fkey(id, name, protocol_type, ip_address, api_key, serial_number, status)";
+  "printer:workshop_printers!workshop_print_jobs_printer_id_fkey(id, name, protocol_type, ip_address, api_key, serial_number, printer_secrets, status)";
 
 /** Сколько заданий отдавать за один опрос: защита от гигантского JSON. */
 const TASK_LIMIT = 200;
@@ -75,6 +78,15 @@ type AgentTaskPrinter = {
    * null — не ошибка, а «подсказки нет».
    */
   serialNumber: string | null;
+  /**
+   * Секреты протокола без своей колонки (`printer_secrets`, jsonb): `checkCode`
+   * FlashForge, логин-пароль и `deviceId`/`modeId` Anycubic, `mainboardId`
+   * Elegoo, `storage` PrusaLink. Пустой объект — секретов нет (так у Moonraker,
+   * OctoPrint и Bambu: им хватает `api_key`).
+   *
+   * Секрет мастерской: уходит только агенту, подтвердившему agent_token.
+   */
+  secrets: Record<string, string>;
   status: PrinterStatus;
 };
 
@@ -149,6 +161,12 @@ function readTimestamp(value: unknown): string | null {
     : null;
 }
 
+/**
+ * Принтер задания: адрес, ключ, SN и секреты протокола.
+ *
+ * Секреты читает общий `readPrinterSecrets()` (`lib/db/workshop-types.ts`) — тот
+ * же нормализатор работает и у проверки связи, и у очереди агента.
+ */
 function normalizePrinter(value: unknown): AgentTaskPrinter | null {
   const row = readEmbeddedRow(value);
 
@@ -165,6 +183,7 @@ function normalizePrinter(value: unknown): AgentTaskPrinter | null {
     ipAddress: readText(row.ip_address, 253),
     apiKey: readText(row.api_key, 512),
     serialNumber: readText(row.serial_number, 64),
+    secrets: readPrinterSecrets(row.printer_secrets),
     status: isPrinterStatus(row.status) ? row.status : "offline",
   };
 }

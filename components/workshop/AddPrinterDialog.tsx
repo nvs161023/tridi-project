@@ -26,7 +26,83 @@ import {
   PRINTER_PROTOCOL_OPTIONS,
   PRINTER_TEXT_LIMITS,
   formatPrinterHours,
+  printerConnectionSpec,
+  type PrinterFormErrors,
 } from "@/lib/workshop/printers";
+import {
+  PROBE_POLL_ATTEMPTS,
+  PROBE_POLL_INTERVAL_MS,
+  formatProbeCapabilities,
+  formatProbeFormats,
+  formatProbeHeadline,
+  normalizeProbeResult,
+  type PrinterProbeResult,
+} from "@/lib/workshop/printer-probe";
+
+/**
+ * Результат кнопки «Проверить связь» в форме.
+ *
+ * `checking` — просьба в очереди, окно опрашивает ответ; `ready` — агент
+ * ответил, но `result.ok` может быть false: отказ принтера (неверный код
+ * доступа, принтер выключен) — тоже ответ, и мастер должен увидеть причину.
+ */
+type ProbeView =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "ready"; result: PrinterProbeResult }
+  | { status: "failed"; error: string };
+
+/**
+ * Ждать ответ агента: сервер отдаёт просьбу на ближайшем опросе (раз в пять
+ * секунд), поэтому первый ответ обычно приходит через 5–10 секунд.
+ *
+ * Минута ожидания — предел: если агент не запущен, окно честно скажет об этом,
+ * а не будет крутить «проверяем» бесконечно.
+ */
+async function waitForProbe(probeId: string): Promise<ProbeView> {
+  for (let attempt = 0; attempt < PROBE_POLL_ATTEMPTS; attempt += 1) {
+    await new Promise((resolve) => {
+      setTimeout(resolve, PROBE_POLL_INTERVAL_MS);
+    });
+
+    const response = await fetch(
+      `/api/agent/probe?probeId=${encodeURIComponent(probeId)}`,
+      { cache: "no-store" },
+    );
+    const payload = (await response.json().catch(() => null)) as {
+      status?: unknown;
+      result?: unknown;
+      error?: unknown;
+    } | null;
+
+    if (!response.ok) {
+      return {
+        status: "failed",
+        error:
+          typeof payload?.error === "string"
+            ? payload.error
+            : "Проверка не найдена: попробуйте ещё раз.",
+      };
+    }
+
+    // pending и running — агент ещё не ответил; ждём дальше.
+    if (payload?.status !== "done") {
+      continue;
+    }
+
+    const result = normalizeProbeResult(payload.result);
+
+    return result
+      ? { status: "ready", result }
+      : { status: "failed", error: "Агент ответил без паспорта принтера." };
+  }
+
+  return {
+    status: "failed",
+    error:
+      "агент не ответил за минуту. Проверьте, что он запущен и видит принтер в сети.",
+  };
+}
 
 /**
  * Окно «Добавить принтер».
@@ -36,9 +112,14 @@ import {
  * интервалы обслуживания и показывает подсказку `note`, для своей — оставляет
  * значения по умолчанию. Интервалы можно поправить в любом случае.
  *
- * Ниже — данные подключения: протокол, SN для Bambu, IP-адрес и код доступа.
- * Без них агент фермы не знает, куда и как стучаться, и принтер, добавленный
- * руками, оставался бы карточкой без печати.
+ * Ниже — данные подключения: протокол, IP-адрес и поля, которые нужны именно
+ * этому протоколу (`PRINTER_CONNECTION_SPECS`): ключ API или код доступа, SN,
+ * `checkCode`, логин-пароль. Без них агент фермы не знает, куда и как стучаться,
+ * и принтер, добавленный руками, оставался бы карточкой без печати.
+ *
+ * Кнопка «Проверить связь» отправляет ту же форму в `/api/agent/probe`: сервер
+ * ставит просьбу в очередь, локальный агент проверяет принтер и возвращает
+ * модель, SN и возможности. Так мастер видит «тот ли это принтер» до сохранения.
  *
  * Проверки живут в lib/workshop/printers.ts, здесь только разметка и ошибки,
  * которые вернул Server Action. После успеха окно закрывается, список
@@ -89,6 +170,73 @@ export function AddPrinterDialog({
   );
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const guideTriggerRef = useRef<HTMLButtonElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [probe, setProbe] = useState<ProbeView>({ status: "idle" });
+  /**
+   * Ошибки полей от проверки связи: сервер отвечает 422 с `fieldErrors`, когда
+   * данные подключения не прошли `readConnectionFields()`. Показываем их под
+   * теми же полями, что и ошибки сохранения, — иначе мастер видел бы общую
+   * фразу «проверьте поля» и не знал, какую.
+   */
+  const [probeFieldErrors, setProbeFieldErrors] = useState<PrinterFormErrors>({});
+
+  /**
+   * «Проверить связь»: та же `FormData`, что уйдёт в Server Action, поэтому
+   * сервер проверяет её тем же `readPrinterForm()`. Дальше окно опрашивает
+   * результат: агент забирает просьбу на ближайшем опросе, ответ приходит не
+   * сразу, и «проверяем» честно висит до него.
+   */
+  const handleProbe = useCallback(async () => {
+    const form = formRef.current;
+
+    if (!form) {
+      return;
+    }
+
+    setProbe({ status: "checking" });
+    setProbeFieldErrors({});
+
+    try {
+      const response = await fetch("/api/agent/probe", {
+        method: "POST",
+        body: new FormData(form),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        probeId?: unknown;
+        error?: unknown;
+        fieldErrors?: unknown;
+      } | null;
+      const probeId = payload?.probeId;
+
+      if (!response.ok || typeof probeId !== "string") {
+        // `fieldErrors` — объект строк от `readPrinterProbeForm()`: ключи те же,
+        // что у ошибок сохранения, поэтому подписи под полями менять не нужно.
+        if (
+          typeof payload?.fieldErrors === "object" &&
+          payload.fieldErrors !== null
+        ) {
+          setProbeFieldErrors(payload.fieldErrors as PrinterFormErrors);
+        }
+
+        setProbe({
+          status: "failed",
+          error:
+            typeof payload?.error === "string"
+              ? payload.error
+              : "Не удалось отправить проверку. Попробуйте ещё раз.",
+        });
+
+        return;
+      }
+
+      setProbe(await waitForProbe(probeId));
+    } catch {
+      setProbe({
+        status: "failed",
+        error: "сеть недоступна — проверьте подключение и попробуйте ещё раз.",
+      });
+    }
+  }, []);
 
   /**
    * Пока открыта инструкция, Escape должен закрывать только её. Обработчик
@@ -118,15 +266,19 @@ export function AddPrinterDialog({
   }, [onClose, onCreated, router, state.message, state.success]);
 
   const preset = findPrinterPresetByModel(model);
+  /** Поля подключения выбранного протокола: разметка и проверки из одного справочника. */
+  const spec = printerConnectionSpec(protocol);
   const guide = preset
     ? getMaintenanceGuide(preset.brand, preset.model)
     : null;
   const nameError = state.fieldErrors?.name;
   const brandError = state.fieldErrors?.brand;
   const modelError = state.fieldErrors?.model;
-  const serialNumberError = state.fieldErrors?.serialNumber;
-  const ipAddressError = state.fieldErrors?.ipAddress;
-  const apiKeyError = state.fieldErrors?.apiKey;
+  const serialNumberError =
+    state.fieldErrors?.serialNumber ?? probeFieldErrors.serialNumber;
+  const ipAddressError =
+    state.fieldErrors?.ipAddress ?? probeFieldErrors.ipAddress;
+  const apiKeyError = state.fieldErrors?.apiKey ?? probeFieldErrors.apiKey;
   const nozzleError = state.fieldErrors?.nozzleInterval;
   const lubricationError = state.fieldErrors?.lubricationInterval;
   const zScrewError = state.fieldErrors?.zScrewInterval;
@@ -200,6 +352,7 @@ export function AddPrinterDialog({
         </div>
 
         <form
+          ref={formRef}
           action={formAction}
           autoComplete="off"
           className="mt-6 space-y-4"
@@ -368,6 +521,9 @@ export function AddPrinterDialog({
 
                 if (isPrinterProtocol(next)) {
                   setProtocol(next);
+                  // Результат пробы относится к прежнему протоколу: адрес и
+                  // секреты другого API, поэтому плашка сбрасывается.
+                  setProbe({ status: "idle" });
                 }
               }}
               aria-describedby="printer-protocol-hint"
@@ -388,7 +544,7 @@ export function AddPrinterDialog({
             </p>
           </div>
 
-          {protocol === "bambu" ? (
+          {spec.serialNumber ? (
             <div>
               <label
                 htmlFor="printer-serial-number"
@@ -404,6 +560,7 @@ export function AddPrinterDialog({
                 spellCheck={false}
                 placeholder="00M09A123456789"
                 maxLength={PRINTER_TEXT_LIMITS.serialNumber}
+                required={spec.serialNumberRequired}
                 aria-invalid={serialNumberError ? true : undefined}
                 aria-describedby={
                   serialNumberError
@@ -425,8 +582,9 @@ export function AddPrinterDialog({
                   id="printer-serial-number-hint"
                   className="mt-1.5 text-xs leading-relaxed text-slate-400"
                 >
-                  С наклейки на задней стенке. Можно оставить пустым — тогда
-                  агент найдёт номер сам, поиском в сети.
+                  {spec.serialNumberRequired
+                    ? "С наклейки на корпусе: FlashForge отправляет номер в каждом запросе, без него принтер ответит отказом."
+                    : "С наклейки на задней стенке. Можно оставить пустым — тогда агент найдёт номер сам, поиском в сети."}
                 </p>
               )}
             </div>
@@ -435,13 +593,15 @@ export function AddPrinterDialog({
           {/*
             Данные подключения: их читает агент, а не интерфейс. Без адреса
             принтер в парке есть, а печатать не на чем, поэтому поле
-            обязательное. Ключ необязателен — Moonraker и OctoPrint часто
-            пускают без пароля, а у Bambu это 8-значный код доступа с экрана
-            (LAN-режим). Поля не держат состояние: подсказка зависит только от
-            протокола, а значения браузер отправляет как есть.
+            обязательное. Остальные поля зависят от протокола
+            (`PRINTER_CONNECTION_SPECS`): Moonraker пускает без ключа, OctoPrint
+            требует всегда, Bambu спрашивает 8-значный код доступа, FlashForge —
+            SN и Check Code, Anycubic — логин и пароль LAN-режима. Поля не
+            держат состояние: подсказка зависит только от протокола, а значения
+            браузер отправляет как есть.
           */}
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
+            <div className={spec.apiKey ? undefined : "sm:col-span-2"}>
               <label
                 htmlFor="printer-ip-address"
                 className="block text-sm font-semibold text-slate-200"
@@ -484,46 +644,130 @@ export function AddPrinterDialog({
               )}
             </div>
 
-            <div>
-              <label
-                htmlFor="printer-api-key"
-                className="block text-sm font-semibold text-slate-200"
-              >
-                API-ключ / Код доступа
-              </label>
-              <input
-                id="printer-api-key"
-                name="apiKey"
-                type="password"
-                autoComplete="new-password"
-                spellCheck={false}
-                maxLength={PRINTER_TEXT_LIMITS.apiKey}
-                aria-invalid={apiKeyError ? true : undefined}
-                aria-describedby={
-                  apiKeyError ? "printer-api-key-error" : "printer-api-key-hint"
-                }
-                className={inputClassName}
-              />
-              {apiKeyError ? (
-                <p
-                  id="printer-api-key-error"
-                  role="alert"
-                  className="mt-1.5 text-sm text-red-300"
+            {spec.apiKey ? (
+              <div key={`api-key-${protocol}`}>
+                <label
+                  htmlFor="printer-api-key"
+                  className="block text-sm font-semibold text-slate-200"
                 >
-                  {apiKeyError}
-                </p>
-              ) : (
-                <p
-                  id="printer-api-key-hint"
-                  className="mt-1.5 text-xs leading-relaxed text-slate-400"
-                >
-                  {protocol === "bambu"
-                    ? "8-значный код доступа с экрана принтера. Хранится только для агента."
-                    : "Оставьте пустым, если не требуется."}
-                </p>
-              )}
-            </div>
+                  {spec.apiKey.label}
+                </label>
+                <input
+                  id="printer-api-key"
+                  name="apiKey"
+                  type={spec.apiKey.password ? "password" : "text"}
+                  autoComplete="new-password"
+                  spellCheck={false}
+                  maxLength={spec.apiKey.maxLength}
+                  required={spec.apiKey.required}
+                  placeholder={spec.apiKey.placeholder}
+                  aria-invalid={apiKeyError ? true : undefined}
+                  aria-describedby={
+                    apiKeyError
+                      ? "printer-api-key-error"
+                      : "printer-api-key-hint"
+                  }
+                  className={inputClassName}
+                />
+                {apiKeyError ? (
+                  <p
+                    id="printer-api-key-error"
+                    role="alert"
+                    className="mt-1.5 text-sm text-red-300"
+                  >
+                    {apiKeyError}
+                  </p>
+                ) : (
+                  <p
+                    id="printer-api-key-hint"
+                    className="mt-1.5 text-xs leading-relaxed text-slate-400"
+                  >
+                    {spec.apiKey.hint}
+                  </p>
+                )}
+              </div>
+            ) : null}
           </div>
+
+          {/*
+            Секреты протокола без своей колонки: checkCode FlashForge, логин и
+            пароль Anycubic, хранилище PrusaLink. Уходят в `printer_secrets`
+            (jsonb), в браузер не возвращаются. `key` включает протокол: при его
+            смене поля пересоздаются, и пароль от одного принтера не остаётся в
+            форме другого.
+          */}
+          {spec.secrets.length > 0 ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {spec.secrets.map((field) => {
+                const error =
+                  state.fieldErrors?.[field.key] ?? probeFieldErrors[field.key];
+
+                return (
+                  <div key={`${protocol}-${field.key}`}>
+                    <label
+                      htmlFor={`printer-secret-${field.key}`}
+                      className="block text-sm font-semibold text-slate-200"
+                    >
+                      {field.label}
+                    </label>
+                    {field.options ? (
+                      <select
+                        id={`printer-secret-${field.key}`}
+                        name={field.key}
+                        defaultValue={field.fallback ?? field.options[0]?.value}
+                        aria-describedby={
+                          error
+                            ? `printer-secret-${field.key}-error`
+                            : `printer-secret-${field.key}-hint`
+                        }
+                        className={selectClassName}
+                      >
+                        {field.options.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        id={`printer-secret-${field.key}`}
+                        name={field.key}
+                        type={field.password ? "password" : "text"}
+                        autoComplete={field.password ? "new-password" : "off"}
+                        spellCheck={false}
+                        maxLength={PRINTER_TEXT_LIMITS.apiKey}
+                        required={field.required}
+                        placeholder={field.placeholder}
+                        aria-invalid={error ? true : undefined}
+                        aria-describedby={
+                          error
+                            ? `printer-secret-${field.key}-error`
+                            : `printer-secret-${field.key}-hint`
+                        }
+                        className={inputClassName}
+                      />
+                    )}
+                    {error ? (
+                      <p
+                        id={`printer-secret-${field.key}-error`}
+                        role="alert"
+                        className="mt-1.5 text-sm text-red-300"
+                      >
+                        {error}
+                      </p>
+                    ) : (
+                      <p
+                        id={`printer-secret-${field.key}-hint`}
+                        className="mt-1.5 text-xs leading-relaxed text-slate-400"
+                      >
+                        {field.hint}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
 
           {preset ? (
             <div
@@ -696,6 +940,58 @@ export function AddPrinterDialog({
             </div>
           </div>
 
+          {probe.status === "checking" ? (
+            <p
+              role="status"
+              className="rounded-2xl border border-blue-400/30 bg-blue-500/10 px-4 py-3 text-sm leading-relaxed text-blue-100"
+            >
+              <span aria-hidden>⏳ </span>
+              Агент проверяет принтер… Ответ обычно приходит за 5–10 секунд.
+            </p>
+          ) : null}
+
+          {probe.status === "failed" ? (
+            <p
+              role="alert"
+              className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+            >
+              <span aria-hidden>⚠️ </span>
+              Принтер недоступен: {probe.error}
+            </p>
+          ) : null}
+
+          {probe.status === "ready" ? (
+            <div
+              role="status"
+              data-printer-probe
+              className={
+                probe.result.ok
+                  ? "rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm leading-relaxed text-emerald-100"
+                  : "rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+              }
+            >
+              <p className="font-semibold">
+                <span aria-hidden>{probe.result.ok ? "✓ " : "⚠️ "}</span>
+                {probe.result.ok
+                  ? formatProbeHeadline(probe.result)
+                  : `Принтер не ответил: ${probe.result.error ?? "причина неизвестна"}`}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed">
+                {formatProbeCapabilities(probe.result.capabilities)}
+              </p>
+              {formatProbeFormats(probe.result) ? (
+                <p className="mt-1 text-xs leading-relaxed">
+                  Форматы: {formatProbeFormats(probe.result)}
+                </p>
+              ) : null}
+              {probe.result.ok && probe.result.error ? (
+                <p className="mt-1 text-xs leading-relaxed">
+                  {probe.result.error}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {state.error ? (
             <p
               role="alert"
@@ -714,6 +1010,15 @@ export function AddPrinterDialog({
               className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isPending ? "Добавляем…" : "Добавить принтер"}
+            </button>
+            <button
+              type="button"
+              onClick={handleProbe}
+              disabled={isPending || probe.status === "checking"}
+              aria-busy={probe.status === "checking"}
+              className="inline-flex min-h-12 items-center justify-center rounded-xl border border-blue-400/40 bg-blue-500/10 px-5 text-sm font-semibold text-blue-100 transition-colors hover:border-blue-400/60 hover:bg-blue-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-wait disabled:opacity-60"
+            >
+              {probe.status === "checking" ? "Проверяем…" : "Проверить связь"}
             </button>
             <button
               type="button"

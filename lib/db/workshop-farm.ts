@@ -22,6 +22,7 @@ import {
   isPrinterProtocol,
   isPrinterStatus,
   isWorkshopUuid,
+  readPrinterSecrets,
   type AgentPrinter,
   type AgentQueue,
   type AgentQueuedJob,
@@ -72,7 +73,7 @@ const PRINT_JOB_DETAIL_COLUMNS =
   `${PRINT_JOB_COLUMNS}, last_error, estimated_seconds, filament_grams, queued_at, started_at, finished_at, cancel_requested`;
 
 const AGENT_PRINTER_COLUMNS =
-  "id, name, brand, model, protocol_type, ip_address, api_key, serial_number, status, progress, remaining_time, last_seen_at";
+  "id, name, brand, model, protocol_type, ip_address, api_key, serial_number, printer_secrets, status, progress, remaining_time, last_seen_at";
 
 /** Сколько заданий отдавать агенту за один опрос: защита от гигантского JSON. */
 const AGENT_QUEUE_LIMIT = 200;
@@ -387,6 +388,7 @@ function normalizeAgentPrinter(value: unknown): AgentPrinter | null {
     ipAddress: readText(row.ip_address, 253),
     apiKey: readText(row.api_key, 512),
     serialNumber: readText(row.serial_number, 64),
+    secrets: readPrinterSecrets(row.printer_secrets),
     status: isPrinterStatus(row.status) ? row.status : "offline",
     progress: readIntegerInRange(row.progress, 0, 100) ?? 0,
     remainingTime:

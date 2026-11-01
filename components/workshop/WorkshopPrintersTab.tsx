@@ -25,6 +25,7 @@ import {
   type MaintenanceLevel,
   type PrinterActiveJobs,
   type PrinterFarmStatus,
+  type PrinterLastErrors,
   type WorkshopPrinter,
 } from "@/lib/workshop/printers";
 
@@ -70,6 +71,8 @@ type WorkshopPrintersTabProps = {
   printers: WorkshopPrinter[];
   /** Названия заказов, которые печатаются сейчас: `printer_id` → title. */
   activeJobs: PrinterActiveJobs;
+  /** Причина последнего отказа агента: `printer_id` → текст в карточке. */
+  lastErrors: PrinterLastErrors;
   /** Находки агента фермы, которым мастер ещё не дал имена. */
   discoveredPrinters: DiscoveredPrinter[];
   /** В базе нет таблицы workshop_printers — миграция не применена. */
@@ -176,6 +179,7 @@ const secondaryActionClassName =
 export function WorkshopPrintersTab({
   printers,
   activeJobs,
+  lastErrors,
   discoveredPrinters,
   isMissingTable,
   isDiscoveredMissingTable,
@@ -564,6 +568,7 @@ export function WorkshopPrintersTab({
         <PrinterDetailsDialog
           printer={detailsPrinter}
           activeJobTitle={activeJobs[detailsPrinter.id] ?? null}
+          lastError={lastErrors[detailsPrinter.id] ?? null}
           onClose={closeDetails}
           onSaved={handleDetailsSaved}
           onDeleted={handleDetailsDeleted}

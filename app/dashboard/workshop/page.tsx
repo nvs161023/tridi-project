@@ -237,6 +237,7 @@ export default async function WorkshopPage() {
               filaments={stock.filaments}
               printers={fleet.printers}
               activePrinterJobs={fleet.activeJobs}
+              printerLastErrors={fleet.lastErrors}
               discoveredPrinters={discovered?.printers ?? []}
               orders={orderBook.orders}
               products={productList ?? []}

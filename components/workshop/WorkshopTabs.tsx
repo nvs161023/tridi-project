@@ -27,6 +27,7 @@ import type { WorkshopOrder } from "@/lib/workshop/orders";
 import type {
   DiscoveredPrinter,
   PrinterActiveJobs,
+  PrinterLastErrors,
   WorkshopPrinter,
 } from "@/lib/workshop/printers";
 import type { WorkshopProduct } from "@/lib/workshop/products";
@@ -71,6 +72,8 @@ type WorkshopTabsProps = {
   printers: WorkshopPrinter[];
   /** Названия заказов в печати: `printer_id` → title, для живых карточек. */
   activePrinterJobs: PrinterActiveJobs;
+  /** Причина последнего отказа агента: `printer_id` → текст для карточки. */
+  printerLastErrors: PrinterLastErrors;
   /** Принтеры, которых агент нашёл в сети и которые ждут имён: мастер подключения. */
   discoveredPrinters: DiscoveredPrinter[];
   orders: WorkshopOrder[];
@@ -149,6 +152,7 @@ export function WorkshopTabs({
   filaments,
   printers,
   activePrinterJobs,
+  printerLastErrors,
   discoveredPrinters,
   orders,
   products,
@@ -347,6 +351,7 @@ export function WorkshopTabs({
             <WorkshopPrintersTab
               printers={printers}
               activeJobs={activePrinterJobs}
+              lastErrors={printerLastErrors}
               discoveredPrinters={discoveredPrinters}
               isMissingTable={isPrintersMissingTable}
               isDiscoveredMissingTable={isDiscoveredMissingTable}

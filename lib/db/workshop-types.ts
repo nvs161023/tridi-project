@@ -97,6 +97,55 @@ export function isPrinterProtocol(value: unknown): value is PrinterProtocol {
  */
 export type PrinterSecrets = Record<string, string>;
 
+/** Ключ секрета: не длиннее имени поля в `agent/adapters/registry.py`. */
+const PRINTER_SECRET_KEY_MAX = 32;
+
+/** Значение секрета: check в SQL разрешает api_key до 512 символов. */
+const PRINTER_SECRET_VALUE_MAX = 512;
+
+/** Больше полей у протокола нет (Anycubic — четыре); лишние отбрасываем. */
+const PRINTER_SECRET_COUNT_MAX = 12;
+
+/**
+ * `printer_secrets` (jsonb) → объект строк.
+ *
+ * jsonb принимает что угодно: null, массив, число, вложенный объект. Адаптеру
+ * нужны только строки, а мусор он принял бы за пароль и искал бы причину отказа
+ * в принтере. Пустой объект — «секретов нет»: так у Moonraker, OctoPrint и
+ * Bambu, которым хватает `api_key`.
+ *
+ * Одна функция на все три места, где секреты читаются (`/api/agent/tasks`,
+ * `/api/agent/probe`, `getQueuedJobsForAgent()`): разошедшиеся копии пропускали
+ * бы разный мусор, и отладка зависела бы от того, каким маршрутом принтер попал
+ * в агент.
+ */
+export function readPrinterSecrets(value: unknown): PrinterSecrets {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+
+  const secrets: PrinterSecrets = {};
+
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (Object.keys(secrets).length >= PRINTER_SECRET_COUNT_MAX) {
+      break;
+    }
+
+    if (typeof raw !== "string") {
+      continue;
+    }
+
+    const name = key.trim().slice(0, PRINTER_SECRET_KEY_MAX);
+    const text = raw.trim().slice(0, PRINTER_SECRET_VALUE_MAX);
+
+    if (name && text) {
+      secrets[name] = text;
+    }
+  }
+
+  return secrets;
+}
+
 
 /** Состояние принтера глазами агента. */
 export const PRINTER_STATUSES = [
@@ -311,6 +360,14 @@ export type AgentPrinter = {
   apiKey: string | null;
   /** Серийный номер Bambu (SN) из формы; null — не задан. */
   serialNumber: string | null;
+  /**
+   * Секреты протокола без своей колонки (`printer_secrets`): `checkCode`
+   * FlashForge, логин-пароль и `deviceId`/`modeId` Anycubic, `mainboardId`
+   * Elegoo, `storage` PrusaLink. Пустой объект — у протокола таких полей нет.
+   *
+   * Секрет: отдаётся только агенту, никогда — в браузер.
+   */
+  secrets: PrinterSecrets;
   status: PrinterStatus;
   progress: number;
   remainingTime: number;

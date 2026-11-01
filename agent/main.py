@@ -29,7 +29,13 @@
      `handle_scan_request()` в цикле опроса читает флаг
      `workshop_settings.scan_requested` через `GET /api/agent/scan-status`,
      обходит сеть, отправляет находки и сбрасывает флаг через
-     `POST /api/agent/scan-complete`.
+     `POST /api/agent/scan-complete`;
+  8. отвечает на кнопку «Проверить связь» в форме принтера:
+     `handle_probe_requests()` забирает просьбы из `GET /api/agent/probe`,
+     собирает адаптер по присланным адресу и секретам, зовёт `connect()` и
+     `probe()` и отправляет модель, SN и возможности обратно в
+     `POST /api/agent/probe`. Сервер не может проверить принтер сам: он не
+     видит локальную сеть мастера.
 
 Задания обрабатываются параллельно: одно задание — один поток, поэтому ферма из
 десяти принтеров печатает десять изделий одновременно, а не ждёт первую печать.
@@ -170,6 +176,11 @@ class PrinterSettings:
     # Серийный номер нужен Bambu: топики MQTT адресуются им. Пустая строка —
     # сервер его не прислал, адаптер попробует найти номер сам.
     serial_number: str
+    # Остальные секреты протокола из `workshop_printers.printer_secrets`:
+    # `checkCode` FlashForge, `username`/`password`/`deviceId`/`modeId` Anycubic,
+    # `mainboardId` Elegoo, `storage` PrusaLink. Пустой словарь — у протокола
+    # таких полей нет (Moonraker, OctoPrint, Bambu живут на одном `api_key`).
+    secrets: dict[str, str]
 
 
 def read_text(value: Any) -> str | None:
@@ -194,6 +205,34 @@ def read_printer_field(
     `workshop_printers`, и ответ, собранный вручную, не должен ронять агента.
     """
     return read_text(printer.get(camel_name)) or read_text(printer.get(snake_name))
+
+
+def read_printer_secrets(printer: dict[str, Any]) -> dict[str, str]:
+    """
+    Секреты протокола из задания: `/api/agent/tasks` отдаёт их в `secrets`,
+    таблица `workshop_printers` называет колонку `printer_secrets`.
+
+    jsonb в базе принимает что угодно, поэтому берём только строки: число,
+    вложенный объект или null — не секрет, и подставлять их в заголовок запроса
+    нельзя. Пустой словарь — секретов нет, и адаптер живёт на одном `api_key`.
+    """
+    raw = printer.get("secrets")
+
+    if not isinstance(raw, dict):
+        raw = printer.get("printer_secrets")
+
+    if not isinstance(raw, dict):
+        return {}
+
+    secrets: dict[str, str] = {}
+
+    for key, value in raw.items():
+        text = read_text(value)
+
+        if isinstance(key, str) and text:
+            secrets[key.strip()] = text
+
+    return secrets
 
 
 def read_printer(task: dict[str, Any]) -> PrinterSettings | None:
@@ -228,6 +267,7 @@ def read_printer(task: dict[str, Any]) -> PrinterSettings | None:
         ip_address=ip_address,
         api_key=api_key,
         serial_number=serial_number,
+        secrets=read_printer_secrets(printer),
     )
 
 
@@ -242,6 +282,10 @@ _requested_scan_at: float | None = None
 # Последняя ошибка чтения флага. Журнал не должен повторять одну строку каждые
 # пять секунд, пока мастер не применил миграцию: пишем её только при изменении.
 _scan_status_error: str | None = None
+
+# То же для очереди проверок: без миграции workshop_printer_probes сервер
+# отвечает 503 на каждом опросе, и журнал забивался бы одинаковыми строками.
+_probe_status_error: str | None = None
 
 # Задания в работе: id задания → поток. Один принтер — одно задание: второй
 # G-code на тот же станок перезапустил бы печать и испортил деталь.
@@ -849,6 +893,186 @@ def handle_scan_request() -> None:
             SCAN_RETRY_DELAY,
         )
 
+def fetch_probe_requests() -> list[dict[str, Any]]:
+    """
+    Просьбы «Проверить связь»: `GET /api/agent/probe`.
+
+    Форма принтера кладёт просьбу в `workshop_printer_probes`, а сервер отдаёт её
+    агенту на ближайшем опросе: у сервера нет входящего доступа к компьютеру
+    мастера, поэтому `adapter.probe()` вызывается здесь, на ферме.
+
+    Пустой список — просьб нет, сервер не ответил или ответ непонятен. Ошибку
+    сети пишет `log_network_error`, отказ сервера — одна строка в журнал: та же
+    строка на каждом пятисекундном опросе была бы шумом.
+    """
+    global _probe_status_error
+
+    settings = require_settings()
+
+    try:
+        response = requests.get(
+            f"{settings.crm_url}/api/agent/probe",
+            headers=auth_headers(settings.agent_token),
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.RequestException as error:
+        log_network_error("Просьба проверить принтер не прочитана", error)
+        return []
+
+    if not response.ok:
+        message = f"HTTP {response.status_code}, {read_error_text(response)}"
+
+        if message != _probe_status_error:
+            _probe_status_error = message
+            logger.error("Просьба проверить принтер не прочитана: %s", message)
+
+        return []
+
+    _probe_status_error = None
+
+    payload = parse_json_object(response)
+
+    if payload is None:
+        return []
+
+    probes = payload.get("probes")
+
+    if not isinstance(probes, list):
+        return []
+
+    return [probe for probe in probes if isinstance(probe, dict)]
+
+
+def run_probe(request_payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Одна проверка: собрать адаптер по просьбе и спросить принтер.
+
+    Порядок как у задания: адаптер → `connect()` → `probe()` → `close()`. Без
+    `connect()` проба нечестная: протоколы с паролем (Bambu, Anycubic) отдают
+    паспорт только после входа, а мастер ждёт ответ «тот ли это принтер и что он
+    умеет».
+
+    Возвращает словарь ответа: `ok`, `model`, `serialNumber`, `firmware`,
+    `capabilities`, `formats`, `error`. Сетевые исключения не выпускаются —
+    причина уходит в `error` словами адаптера (`last_error`), и мастер видит
+    «Неверный Access Code», а не «проба не удалась».
+    """
+    protocol_type = read_text(request_payload.get("protocolType")) or ""
+    ip_address = read_text(request_payload.get("ipAddress")) or ""
+    api_key = read_text(request_payload.get("apiKey")) or ""
+    serial_number = read_text(request_payload.get("serialNumber")) or ""
+
+    if not protocol_type or not ip_address:
+        return {"ok": False, "error": "в просьбе нет протокола или адреса"}
+
+    # Секреты протокола (checkCode, логин-пароль Anycubic) — из той же просьбы:
+    # форма проверяет принтер до сохранения, и в базе его ещё нет.
+    secrets = read_printer_secrets(request_payload)
+
+    try:
+        adapter = get_adapter(
+            protocol_type,
+            ip_address,
+            api_key,
+            serial_number,
+            secrets=secrets,
+        )
+    except AdapterUnavailableError as error:
+        return {"ok": False, "error": str(error)}
+    except ValueError:
+        return {"ok": False, "error": f"неизвестный протокол {protocol_type!r}"}
+
+    try:
+        if not adapter.connect():
+            return {
+                "ok": False,
+                "error": adapter.last_error or "принтер не ответил на подключение",
+            }
+
+        info = adapter.probe()
+
+        if not isinstance(info, dict):
+            return {"ok": False, "error": "адаптер не вернул паспорт принтера"}
+
+        return {"ok": True, **info}
+    except Exception as error:  # noqa: BLE001 — проба не должна ронять агент
+        logger.exception("Проба принтера %s не удалась: %s", ip_address, error)
+
+        return {"ok": False, "error": adapter.last_error or str(error)}
+    finally:
+        adapter.close()
+
+def send_probe_result(probe_id: str, result: dict[str, Any]) -> bool:
+    """
+    Результат пробы обратно в очередь: `POST /api/agent/probe`.
+
+    Отправляется всегда — и при отказе принтера: `ok: false` и причина лучше
+    молчания, из-за которого окно ждало бы минуту и сказало «агент не ответил».
+    """
+    settings = require_settings()
+
+    try:
+        response = requests.post(
+            f"{settings.crm_url}/api/agent/probe",
+            headers={
+                **auth_headers(settings.agent_token),
+                "Content-Type": "application/json",
+            },
+            json={**result, "probeId": probe_id},
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.RequestException as error:
+        log_network_error("Результат проверки принтера не отправлен", error)
+        return False
+
+    if not response.ok:
+        logger.error(
+            "Результат проверки принтера не отправлен: HTTP %s, %s",
+            response.status_code,
+            read_error_text(response),
+        )
+        return False
+
+    return True
+
+
+def handle_probe_requests() -> None:
+    """
+    Кнопка «Проверить связь» в форме принтера — вызывается из цикла опроса.
+
+    Проверки выполняются сразу и подряд: их не больше `PROBE_LIMIT`, а мастер
+    ждёт ответа в открытом окне. Исключение одной пробы не отменяет остальные —
+    иначе один выключенный принтер оставил бы вторую проверку без ответа.
+    """
+    for request_payload in fetch_probe_requests():
+        probe_id = read_text(request_payload.get("id"))
+
+        if probe_id is None:
+            continue
+
+        printer_ip = read_text(request_payload.get("ipAddress")) or "?"
+
+        try:
+            result = run_probe(request_payload)
+        except Exception as error:  # noqa: BLE001 — агент не должен падать
+            logger.exception("Проба принтера %s не выполнена: %s", printer_ip, error)
+            result = {"ok": False, "error": str(error)}
+
+        if result.get("ok") is True:
+            logger.info("Проба принтера %s: ответ получен", printer_ip)
+        else:
+            logger.warning(
+                "Проба принтера %s: %s",
+                printer_ip,
+                result.get("error") or "принтер не ответил",
+            )
+
+        if not send_probe_result(probe_id, result):
+            logger.warning(
+                "Проба %s: результат не отправлен — окно покажет, что агент не ответил",
+                probe_id,
+            )
+
 
 def log_task(task: dict[str, Any]) -> None:
     """
@@ -1194,6 +1418,7 @@ def process_task(task: dict[str, Any]) -> None:
             printer.ip_address,
             printer.api_key,
             printer.serial_number,
+            secrets=printer.secrets,
         )
     except AdapterUnavailableError as error:
         # Протокол приложение знает, а драйвера в агенте ещё нет: причина
@@ -1547,6 +1772,13 @@ def run() -> int:
                 handle_scan_request()
             except Exception as error:  # noqa: BLE001 — агент не должен падать
                 logger.exception("Запрос сканирования не обработан: %s", error)
+
+            # «Проверить связь» из формы принтера: просьба приходит тем же
+            # опросом, а ответ уходит в /api/agent/probe.
+            try:
+                handle_probe_requests()
+            except Exception as error:  # noqa: BLE001 — агент не должен падать
+                logger.exception("Проверка принтера не обработана: %s", error)
 
             tasks = poll_once()
 

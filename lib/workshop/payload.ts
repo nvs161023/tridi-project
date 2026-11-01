@@ -6,7 +6,11 @@
  * — если колонка переименуется, TypeScript подсветит поле сразу, а не база
  * ответит PGRST204 уже в проде.
  */
-import type { PrinterProtocol, PrinterStatus } from "@/lib/db/workshop-types";
+import type {
+  PrinterProtocol,
+  PrinterSecrets,
+  PrinterStatus,
+} from "@/lib/db/workshop-types";
 import type {
   FilamentDraft,
   FilamentUsageType,
@@ -163,6 +167,13 @@ export type WorkshopPrinterPayload = {
    * требует. Секрет: уходит только агенту, в браузер не возвращается.
    */
   api_key: string | null;
+  /**
+   * Секреты протокола без своей колонки (jsonb): `checkCode` FlashForge,
+   * логин-пароль и `deviceId`/`modeId` Anycubic, `mainboardId` Elegoo, `storage`
+   * PrusaLink. null — у протокола таких полей нет (Moonraker, OctoPrint, Bambu).
+   * Секрет: в браузер не возвращается, уходит только агенту.
+   */
+  printer_secrets?: PrinterSecrets | null;
   nozzle_interval: number;
   lubrication_interval: number;
   z_screw_interval: number;
@@ -187,6 +198,12 @@ export function createPrinterPayload(
     ip_address: draft.ipAddress,
     // Пустой ключ — тоже null: check-ограничение не принимает api_key длины 0.
     api_key: draft.apiKey || null,
+    // Пустой объект — null, а не {}: у Moonraker, OctoPrint и Bambu секретов нет,
+    // и колонка должна остаться пустой, чтобы `printer_secrets` не путала карточку.
+    printer_secrets:
+      Object.keys(draft.printerSecrets).length > 0
+        ? draft.printerSecrets
+        : null,
     nozzle_interval: draft.nozzleInterval,
     lubrication_interval: draft.lubricationInterval,
     z_screw_interval: draft.zScrewInterval,
