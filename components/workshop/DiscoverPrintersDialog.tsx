@@ -49,10 +49,14 @@ import {
  *
  * Старые находки в базе — не повод не сканировать: если список пришёл непустым,
  * окно показывает его сразу, а если пустым — запускает поиск. Пустой ответ агента
- * тоже результат: через полторы минуты опроса окно честно говорит «принтеров не
- * нашли» и предлагает искать снова.
+ * тоже результат: через минуту ожидания окно перестаёт ждать и честно говорит
+ * «Агент не нашел принтеров. Убедитесь, что принтер включен и находится в той же
+ * сети.». Лоадер не может висеть вечно: жёсткий таймер гасит его, даже если
+ * Server Action не ответил вовсе — а мастер может остановить поиск сам кнопкой
+ * «Остановить сканирование», и окно вернётся к исходному виду.
  *
- * Пустой результат не тупик: рядом с «Искать снова» есть «Добавить вручную».
+ * Пустой результат не тупик: рядом с «Искать снова» есть блок «Принтер не нашёлся?
+ * Добавьте его вручную».
  * Сканер видит только свою подсеть, поэтому принтер из другого VLAN, принтер с
  * доступом по имени узла и выключенный во время обхода принтер находятся лишь
  * руками — форма `ManualPrinterForm` принимает адрес, протокол, бренд, модель,
@@ -108,18 +112,33 @@ const PROTOCOL_LABELS: Record<PrinterProtocol, string> = {
 const SCAN_POLL_INTERVAL_MS = 3000;
 
 /**
- * Сколько раз опросить базу: 30 × 3 с = полторы минуты.
+ * Сколько окно ждёт агента: минута.
  *
  * Дольше ждать незачем: обход подсети занимает секунды, а пустой ответ — тоже
- * результат. Окно лучше скажет «принтеров не нашли» и предложит поискать снова,
- * чем будет крутить лоадер над выключенным агентом.
+ * результат. Окно лучше скажет, что принтеров не нашли, и предложит поискать
+ * снова или ввести адрес руками, чем будет крутить лоадер над выключенным
+ * агентом. Минута — верхняя граница для всего поиска, а не для одного опроса:
+ * если Server Action не ответил вовсе (404 от прокси, оборванная сеть), лоадер
+ * гаснет по тому же таймеру.
  */
-const SCAN_POLL_LIMIT = 30;
+const SCAN_TIMEOUT_MS = 60_000;
+
+/** Сколько раз опросить базу до истечения таймера: 60 с / 3 с = 20. */
+const SCAN_POLL_LIMIT = Math.ceil(SCAN_TIMEOUT_MS / SCAN_POLL_INTERVAL_MS);
 
 const SCAN_REQUEST_FAILED =
   "Не удалось запросить сканирование сети. Попробуйте ещё раз.";
 const SCAN_POLL_FAILED =
   "Не удалось прочитать найденные принтеры. Попробуйте ещё раз.";
+/**
+ * Итог ожидания: агент не прислал находок.
+ *
+ * Это не только «агент нашёл пустую сеть»: тот же текст видят, когда он молчит
+ * всю минуту. Один текст на оба случая честнее — мастеру важен следующий шаг
+ * (проверить питание и сеть, добавить принтер вручную), а не причина простоя.
+ */
+const SCAN_NOT_FOUND_MESSAGE =
+  "Агент не нашел принтеров. Убедитесь, что принтер включен и находится в той же сети.";
 
 const inputClassName =
   "mt-2 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset disabled:cursor-not-allowed disabled:opacity-40";
@@ -587,7 +606,11 @@ export function DiscoverPrintersDialog({
    * агент присылает результат уже после открытия окна.
    */
   const [found, setFound] = useState<DiscoveredPrinter[]>(printers);
-  /** Номер поиска: 0 — данные пришли с сервера, сканировать не нужно. */
+  /**
+   * Номер поиска: 0 — поиск не идёт (данные пришли с сервера или мастер нажал
+   * «Остановить сканирование»), иначе — счётчик запусков, который перезапускает
+   * эффект опроса.
+   */
   const [scanRun, setScanRun] = useState(printers.length === 0 ? 1 : 0);
   /** Агент обходит сеть, находок ещё нет: вместо списка — статус ожидания. */
   const [isScanning, setIsScanning] = useState(
@@ -611,6 +634,7 @@ export function DiscoverPrintersDialog({
 
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
     let attempts = 0;
 
     const stopPolling = () => {
@@ -618,6 +642,23 @@ export function DiscoverPrintersDialog({
         clearInterval(timer);
         timer = null;
       }
+
+      if (timeoutTimer !== null) {
+        clearTimeout(timeoutTimer);
+        timeoutTimer = null;
+      }
+    };
+
+    /**
+     * Ожидание закончилось ничем: лоадер гаснет, окно говорит, что принтеров нет,
+     * и держит наготове «Искать снова» и ручную форму. Один выход на все причины
+     * простоя — пустой ответ агента, исчерпанные опросы и молчащий Server Action.
+     */
+    const finishEmpty = () => {
+      stopPolling();
+      setIsScanning(false);
+      setScanError(SCAN_NOT_FOUND_MESSAGE);
+      setScanEmpty(true);
     };
 
     /** Один опрос находок: пришли — показываем, попытки кончились — «пусто». */
@@ -652,11 +693,14 @@ export function DiscoverPrintersDialog({
       }
 
       if (attempts >= SCAN_POLL_LIMIT) {
-        stopPolling();
-        setIsScanning(false);
-        setScanEmpty(true);
+        finishEmpty();
       }
     };
+
+    // Страховка на всё ожидание, а не только на опрос: если Server Action не
+    // ответит вовсе (404 от прокси, оборванная сеть), лоадер всё равно погаснет
+    // через минуту и уступит место кнопкам, а не останется «Сканируем сеть…».
+    timeoutTimer = setTimeout(finishEmpty, SCAN_TIMEOUT_MS);
 
     // Просьба уходит сразу при открытии окна: мастер нажал кнопку, а не ждёт
     // пятисекундного такта агента.
@@ -666,6 +710,7 @@ export function DiscoverPrintersDialog({
       }
 
       if (!result.ok) {
+        stopPolling();
         setIsScanning(false);
         setScanError(result.error ?? SCAN_REQUEST_FAILED);
         return;
@@ -691,6 +736,20 @@ export function DiscoverPrintersDialog({
     setScanError(null);
     setIsScanning(true);
     setScanRun((run) => run + 1);
+  }
+
+  /**
+   * «Остановить сканирование»: лоадер гаснет сразу, окно возвращается к исходному
+   * виду — пустому списку с «Искать снова» и ручной формой.
+   *
+   * Сброс номера поиска в 0 и есть остановка: смена зависимости снимает прошлый
+   * эффект, а его уборка гасит и интервал опроса, и страховочный таймер.
+   */
+  function stopScan() {
+    setIsScanning(false);
+    setScanEmpty(false);
+    setScanError(null);
+    setScanRun(0);
   }
 
   const isChosen = (ipAddress: string) => !unselected[ipAddress];
@@ -837,16 +896,31 @@ export function DiscoverPrintersDialog({
               Сканируем сеть… Пожалуйста, подождите
             </p>
             <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-              Агент обходит локальную сеть и пришлёт найденные принтеры. Обычно
-              это занимает меньше минуты.
+              Агент обходит локальную сеть и пришлёт найденные принтеры. Ждём не
+              дольше минуты — если ответа не будет, окно предложит поискать снова
+              или добавить принтер вручную.
             </p>
-            <button
-              type="button"
-              onClick={closeUnlessPending}
-              className={`mt-5 ${secondaryButtonClassName}`}
-            >
-              Отменить
-            </button>
+            {/*
+              Лоадер не должен держать мастера в заложниках: остановка гасит его
+              сразу и возвращает окно к пустому списку с кнопками, не закрывая
+              мастер целиком.
+            */}
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
+              <button
+                type="button"
+                onClick={stopScan}
+                className={primaryButtonClassName}
+              >
+                Остановить сканирование
+              </button>
+              <button
+                type="button"
+                onClick={closeUnlessPending}
+                className={secondaryButtonClassName}
+              >
+                Отменить
+              </button>
+            </div>
           </div>
         ) : found.length === 0 ? (
           <>
@@ -858,7 +932,7 @@ export function DiscoverPrintersDialog({
                 {isMissingTable
                   ? "Принтеры не найдены: список находок пока не сохраняется в базе."
                   : scanEmpty
-                    ? "Агент просканировал сеть, но принтеров не нашёл. Проверьте, что он запущен и стоит в одной сети с принтерами, а если ферма в другом VLAN — что задан SCAN_SUBNETS."
+                    ? "Агент закончил обход сети, но находок нет. Проверьте, что он запущен и стоит в одной сети с принтерами, а если ферма в другом VLAN — что задан SCAN_SUBNETS."
                     : "Принтеры не найдены. Запустите агент фермы — он обходит сеть и присылает находки сюда."}
               </p>
               {scanError ? (
@@ -879,24 +953,6 @@ export function DiscoverPrintersDialog({
                     Искать снова
                   </button>
                 )}
-                {/*
-                  Сканер не всегда прав: принтер бывает в другом VLAN, отвечает
-                  по имени узла или просто выключен. Адрес мастер знает — пусть
-                  введёт его здесь, а не ищет кнопку в соседней вкладке.
-                */}
-                <button
-                  type="button"
-                  onClick={() => setIsManualOpen((open) => !open)}
-                  aria-expanded={isManualOpen}
-                  aria-controls="farm-wizard-manual-form"
-                  className={
-                    isMissingTable
-                      ? primaryButtonClassName
-                      : secondaryButtonClassName
-                  }
-                >
-                  {isManualOpen ? "Скрыть ручное добавление" : "Добавить вручную"}
-                </button>
                 <button
                   type="button"
                   onClick={closeUnlessPending}
@@ -905,6 +961,36 @@ export function DiscoverPrintersDialog({
                   Закрыть
                 </button>
               </div>
+            </div>
+            {/*
+              Сканер не всегда прав: принтер бывает в другом VLAN, отвечает по
+              имени узла или просто выключен во время обхода. Адрес мастер знает,
+              поэтому форма открывается здесь, а не в соседней вкладке.
+            */}
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-5">
+              <p className="text-sm font-semibold text-white">
+                Принтер не нашёлся? Добавьте его вручную
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                Сканер видит только свою подсеть: принтер из другого VLAN,
+                принтер, доступный по имени узла, и выключенный во время обхода
+                находятся только руками. Введите адрес, протокол и данные
+                подключения — принтер появится в парке, и агент сможет им
+                управлять.
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsManualOpen((open) => !open)}
+                aria-expanded={isManualOpen}
+                aria-controls="farm-wizard-manual-form"
+                className={`mt-4 ${
+                  isMissingTable
+                    ? primaryButtonClassName
+                    : secondaryButtonClassName
+                }`}
+              >
+                {isManualOpen ? "Скрыть ручное добавление" : "Добавить вручную"}
+              </button>
             </div>
             {isManualOpen ? (
               <div id="farm-wizard-manual-form">
