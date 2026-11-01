@@ -116,13 +116,30 @@ BAMBU_MQTT_PORT = 8883
 # UDP-обнаружение работает и там.
 FLASHFORGE_UDP_PROBE = b"~M115\r\n"
 
-# Строка номера в ответе FlashForge: `SN: SNM0001234` у Adventurer,
-# `Serial Number: ...` у старых прошивок. Номер нужен адаптеру в заголовке
-# каждого запроса, поэтому находка без него бесполезна.
+# Строка номера в текстовом ответе FlashForge: `SN: SNM0001234` у Adventurer,
+# `Serial Number: ...` и `SerialNo: ...` у старых прошивок. Номер нужен
+# адаптеру в заголовке каждого запроса, поэтому находка без него бесполезна.
 FLASHFORGE_SERIAL = re.compile(
-    r"(?:SN|Serial(?:\s*Number)?)\s*[:=]\s*([A-Za-z0-9._-]{4,64})",
+    r"(?:SN|S/N|Serial(?:\s*(?:Number|No\.?|#))?)\s*[:=]\s*([A-Za-z0-9._-]{4,64})",
     re.IGNORECASE,
 )
+
+# Поля JSON-ответа FlashForge: часть прошивок (Adventurer 5M, AD5X) отвечает на
+# `~M115` не текстом G-code, а объектом со своим написанием номера. Сборки
+# называют поле по-разному, поэтому перебираются все варианты.
+FLASHFORGE_SERIAL_FIELDS = (
+    "SerialNumber",
+    "serialNumber",
+    "serial_number",
+    "SerialNo",
+    "serialno",
+    "serial_no",
+    "SN",
+    "sn",
+)
+
+# Конверты, в которые прошивка прячет тот же объект: `{"code": 0, "detail": …}`.
+FLASHFORGE_PAYLOAD_KEYS = ("Data", "data", "Detail", "detail", "result")
 
 # Elegoo (SDCP): WebSocket 3030 для команд и UDP 3000 для обнаружения. `M99999`
 # — текстовый запрос, на который Centauri Carbon отвечает конвертом SDCP с
@@ -825,21 +842,103 @@ def elegoo_mainboard_id(data: bytes) -> str | None:
     return None
 
 
+def clean_flashforge_serial(value: Any) -> str | None:
+    """
+    Серийный номер FlashForge в пригодном виде.
+
+    Пробел внутри делает номер негодным: он уходит в заголовок `serialNumber`,
+    и прошивка такой запрос отклоняет. Предел длины — как у колонки
+    `serial_number` в миграции, обрезать нельзя: номер адресует принтер. Число
+    из JSON тоже читается: часть сборок отдаёт номер без букв.
+    """
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        serial = str(value)
+    elif isinstance(value, str):
+        serial = value.strip()
+    else:
+        return None
+
+    if not serial or len(serial) > SERIAL_MAX:
+        return None
+
+    if any(character.isspace() for character in serial):
+        return None
+
+    return serial
+
+
+def flashforge_json_serial(data: bytes) -> str | None:
+    """
+    Серийный номер из JSON-ответа FlashForge на `~M115`.
+
+    Часть прошивок отвечает на `~M115` не текстом G-code, а объектом:
+    `{"SerialNumber": "SNM0001234", …}` либо конвертом
+    `{"code": 0, "detail": {…}}`. Раньше такой ответ считался «без серийного
+    номера», и принтер терялся при сканировании, хотя номер в пакете был.
+    Поля и конверты перебираются по спискам: сборки называют их по-разному.
+    """
+    payload = parse_udp_json(data)
+
+    if payload is None:
+        return None
+
+    sources: list[Any] = [payload]
+    sources.extend(payload.get(key) for key in FLASHFORGE_PAYLOAD_KEYS)
+
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+
+        for field in FLASHFORGE_SERIAL_FIELDS:
+            serial = clean_flashforge_serial(source.get(field))
+
+            if serial is not None:
+                return serial
+
+    return None
+
+
 def flashforge_serial(data: bytes) -> str | None:
     """
     Серийный номер из UDP-ответа FlashForge на `~M115`.
 
-    Прошивка отвечает текстом G-code: `CMD M115 Received.`, затем строки
-    `Machine Type`, `Machine Name`, `Firmware` и `SN`. Номер нужен адаптеру в
-    заголовке каждого запроса, поэтому находка без него бесполезна — отказ
-    пришёл бы уже на загрузке файла, а не при сканировании.
+    Ответ бывает двух видов, и оба разбираются:
+
+      - текст G-code: `CMD M115 Received.`, затем строки `Machine Type`,
+        `Machine Name`, `Firmware` и `SN`;
+      - JSON-объект с номером (Adventurer 5M Pro, AD5X): `SerialNumber`,
+        `serialNumber` или `SN`, в том числе внутри конверта `detail`.
+
+    Номер нужен адаптеру в заголовке каждого запроса, поэтому находка без него
+    бесполезна — отказ пришёл бы уже на загрузке файла, а не при сканировании.
     """
+    serial = flashforge_json_serial(data)
+
+    if serial is not None:
+        return serial
+
     match = FLASHFORGE_SERIAL.search(data.decode("utf-8", errors="replace"))
 
     if match is None:
         return None
 
-    return match.group(1)
+    return clean_flashforge_serial(match.group(1))
+
+
+def udp_json_keys(data: bytes) -> str:
+    """
+    Поля JSON-ответа для журнала: `SerialNumber, machineType, …`.
+
+    Нужны, когда серийного номера в ответе не нашлось: по списку полей сразу
+    видно, что именно пришло, и парсер правится по факту, а не по догадке.
+    Не JSON — пустая строка.
+    """
+    payload = parse_udp_json(data)
+
+    if payload is None:
+        return ""
+
+    return ", ".join(sorted(str(key) for key in payload)[:8])
 
 
 def udp_printer(data: bytes, sender: tuple[str, int]) -> dict[str, Any] | None:
@@ -848,8 +947,10 @@ def udp_printer(data: bytes, sender: tuple[str, int]) -> dict[str, Any] | None:
 
     Содержимое главнее порта: на один адрес уходят запросы двух протоколов, и
     отвечать на них может чужое железо. JSON с `MainboardID` — Elegoo, текст с
-    `SN:` — FlashForge. Порт отправителя решает только тогда, когда тело не
-    разобралось: по нему видно, кто ответил и почему находка не годится.
+    `SN:` или JSON с `SerialNumber` — FlashForge. Порт отправителя решает только
+    тогда, когда тело не разобралось: по нему видно, кто ответил и почему
+    находка не годится, а поля JSON из журнала подсказывают, какое имя номера
+    не учёл парсер.
     """
     preview = data[:UDP_PREVIEW].decode("utf-8", errors="replace")
     # Перевод строки разорвал бы запись журнала на несколько строк, поэтому
@@ -882,9 +983,11 @@ def udp_printer(data: bytes, sender: tuple[str, int]) -> dict[str, Any] | None:
     if sender[1] == ELEGOO_UDP_PORT:
         logger.info("[UDP] %s: ответ Elegoo без MainboardID — пропускаю", sender[0])
     elif sender[1] in FLASHFORGE_UDP_PORTS:
+        keys = udp_json_keys(data)
         logger.info(
-            "[UDP] %s: ответ FlashForge без серийного номера — пропускаю",
+            "[UDP] %s: ответ FlashForge без серийного номера — пропускаю%s",
             sender[0],
+            f" (поля JSON: {keys})" if keys else "",
         )
 
     return None

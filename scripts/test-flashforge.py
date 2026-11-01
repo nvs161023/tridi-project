@@ -4,8 +4,9 @@
 Что проверяет:
 
   1. `connect()` идёт в `GET /detail` с заголовками `serialNumber` и
-     `checkCode`, читает модель и прошивку, а серийный номер подхватывает из
-     паспорта, если в поле формы его не заполнили;
+     `checkCode`, читает модель и прошивку, а без Serial Number или Check Code
+     в сеть не выходит и объясняет, что заполнить в карточке принтера;
+     ответ 404 объясняется той же подсказкой, а не «прошивка не знает /detail»;
   2. чужой JSON на 8898 принтером не считается: в ответе нет данных принтера —
      `False` и причина в `last_error`;
   3. `upload_file()` отправляет `POST /uploadGcode` multipart-формой с полем
@@ -20,7 +21,7 @@
   7. `get_status()` переводит `machineStatus` в статусы агента, читает проценты
      и остаток, а незнакомое состояние отдаёт как `error`;
   8. сканер находит FlashForge по UDP-бродкасту `~M115` и берёт `SN` из ответа,
-     а запрос уходит на все три порта (8899, 19000, 48899);
+     текстового или JSON, а запрос уходит на все три порта (8899, 19000, 48899);
   9. не отвечающий принтер даёт `False` и `{"status": "error", ...}`, фабрика
      собирает `FlashForgeAdapter` с секретами.
 
@@ -423,13 +424,48 @@ def check_connect(fake: FakeFlashForge) -> None:
         f"{adapter.model!r}, {adapter.firmware!r}",
     )
 
-    learned = FlashForgeAdapter(fake.address, "", "", {"checkCode": CHECK_CODE})
-    learned.connect()
+    # Без Serial Number и Check Code прошивка отвечает 404, поэтому адаптер
+    # обязан не ходить в сеть: мастеру нужна причина, а не таймаут.
+    before = fake.count("GET", "/detail")
+    missing = FlashForgeAdapter(fake.address, "", "", {})
+    refused_missing = missing.connect()
+    reason = missing.last_error or ""
 
     check(
-        "подключение: серийный номер подхвачен из /detail",
-        learned.serial_number == SERIAL,
-        f"{learned.serial_number!r}",
+        "подключение: без Serial Number и Check Code запрос не уходит",
+        refused_missing is False
+        and "Не указан Serial Number или Check Code" in reason
+        and fake.count("GET", "/detail") == before,
+        f"{refused_missing!r}, last_error={reason!r}, "
+        f"запросов {fake.count('GET', '/detail') - before}",
+    )
+
+    only_code = FlashForgeAdapter(fake.address, "", "", {"checkCode": CHECK_CODE})
+    refused_no_serial = only_code.connect()
+    reason = only_code.last_error or ""
+
+    check(
+        "подключение: без Serial Number, но с Check Code запрос не уходит",
+        refused_no_serial is False
+        and "Serial Number" in reason
+        and fake.count("GET", "/detail") == before,
+        f"{refused_no_serial!r}, last_error={reason!r}",
+    )
+
+    # 404 у FlashForge — не «нет метода», а отказ запросу без нужных
+    # заголовков: подсказка должна называть поля карточки принтера.
+    fake.route("GET", "/detail", 404, {"message": "Not Found"})
+    denied = make_adapter(fake)
+    denied_connect = denied.connect()
+    reason = denied.last_error or ""
+    fake.routes.pop(("GET", "/detail"))
+
+    check(
+        "подключение: 404 объясняется карточкой принтера",
+        denied_connect is False
+        and "404" in reason
+        and "Serial Number и Check Code" in reason,
+        f"{denied_connect!r}, last_error={reason!r}",
     )
 
     fake.detail = {"hostname": "router", "version": "1.0"}
@@ -749,9 +785,35 @@ def check_scanner() -> None:
         "старый формат строки",
     )
     check(
+        "сканер: JSON-ответ с SerialNumber",
+        scanner.flashforge_serial(
+            b'{"MachineType":"Adventurer 5M Pro",'
+            b'"SerialNumber":"SNM0001234","FirmwareVersion":"2.4.5"}\r\n'
+        )
+        == SERIAL,
+        "JSON верхнего уровня",
+    )
+    check(
+        "сканер: номер из конверта detail и поля SN",
+        scanner.flashforge_serial(b'{"code":0,"detail":{"SN":"SNM0001234"}}')
+        == SERIAL,
+        "JSON с конвертом",
+    )
+    check(
+        "сканер: номер из поля serial_no с выравниванием нулями",
+        scanner.flashforge_serial(b'{"serial_no":"SNM0001234"}\x00\x00') == SERIAL,
+        "JSON с нулями выравнивания",
+    )
+    check(
         "сканер: ответ без номера находкой не считается",
         scanner.flashforge_serial(b"CMD M115 Received.\r\nok\r\n") is None,
         "в ответе нет SN",
+    )
+    check(
+        "сканер: поля JSON попадают в журнал, когда номера нет",
+        scanner.udp_json_keys(b'{"machineType":"AD5M","status":"ready"}')
+        == "machineType, status",
+        scanner.udp_json_keys(b'{"machineType":"AD5M","status":"ready"}'),
     )
 
     targets = scanner.broadcast_targets([ipaddress.IPv4Network("192.168.1.0/24")])
