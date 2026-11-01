@@ -3,8 +3,8 @@
 
 Мастеру со ста принтерами не вбить парк руками. Агент обходит подсеть, находит
 Moonraker (порт 7125), Creality (WebSocket 9999 и `GET /info`), OctoPrint
-(80/443) и Bambu Lab (SSDP, UDP 1990) и отдаёт список в CRM через `POST
-/api/agent/discover`. Сервер складывает находки в
+(80/443), Anycubic (MQTT 9883) и Bambu Lab (SSDP, UDP 1990) и отдаёт список в CRM
+через `POST /api/agent/discover`. Сервер складывает находки в
 `workshop_discovered_printers` (миграция `supabase/workshop_farm_and_shop.sql`),
 мастер даёт им имена в интерфейсе, и принтеры переезжают в парк мастерской.
 
@@ -32,6 +32,14 @@ Elegoo (SDCP) ждёт на UDP 3000 текст `M99999` и отвечает к�
 Оба поиска — одно окно ожидания (`scan_udp_broadcast()`): принтеры отвечают за
 доли секунды, и ждать отдельно 3 секунды на каждый протокол значило бы утроить
 время сканирования фермы.
+
+Anycubic ищется хуже всех: у него нет ни паспорта на веб-порту, ни бродкаста —
+только MQTT на 9883 под TLS (`modeId` и `deviceId` приходят в отчёте внутри
+брокера, а сам брокер на запросы без авторизации молчит). Поэтому находка — это
+открытый 9883 без подписи протокола: она помечается `anycubic`, но проверяется
+адаптером, который в `connect()` спрашивает паспорт и не подтвердивший себя
+принтер не подключает. Порт 9883 в сети мастерской почти наверняка принтер: у
+остальных протоколов из справочника номера другие.
 """
 from __future__ import annotations
 
@@ -101,6 +109,14 @@ ELEGOO_UDP_PROBE = b"M99999"
 # Поля конверта SDCP, в которых лежит номер платы. Верхний уровень — обычный
 # ответ загрузки, `Data` — ответ принтера на запрос обнаружения.
 ELEGOO_BOARD_FIELDS = ("MainboardID", "MainboardId", "mainboardId")
+
+# Anycubic (Kobra S1, S1 Max): MQTT 9883 под TLS для команд и отчётов, HTTP
+# 18910 для загрузки файла. Подписи протокола в сети нет — ни паспорта на
+# веб-порту, ни броадкаста, — поэтому признак один: открытый порт брокера.
+# Находка помечается `anycubic`, а проверяет её адаптер в `connect()`: на
+# `info/query` отвечает только принтер, и без `info/report` подключения нет.
+ANYCUBIC_MQTT_PORT = 9883
+ANYCUBIC_HTTP_PORT = 18910
 
 # Сколько собирать ответы на бродкаст. Три секунды — как окно SSDP: живой
 # принтер отвечает сразу, но Wi-Fi теряет широковещательные пакеты, а UDP —
@@ -989,6 +1005,22 @@ def is_creality(ip_address: str, port: int = CREALITY_HTTP_PORT) -> bool:
     return False
 
 
+def is_anycubic(ip_address: str, port: int = ANYCUBIC_MQTT_PORT) -> bool:
+    """
+    Anycubic: открытый MQTT-порт 9883.
+
+    Подписи протокола у Anycubic нет: паспорт лежит внутри брокера, а спросить
+    его можно только с логином и паролем — на этапе сканирования их нет. Значит,
+    проверяется одно: порт слушает. Это слабее, чем `/info` у Creality, зато 9883
+    не занят ни одним другим протоколом из справочника (`8883` — Bambu, `9999` —
+    Creality, `7125` — Moonraker). Ошибку исправит `connect()`: без `info/report`
+    адаптер пишет «на порту отвечает не Anycubic» и не подключается.
+
+    `port` — для тестов: сканер всегда проверяет 9883.
+    """
+    return probe_port(ip_address, port)
+
+
 def inspect_host(ip_address: str) -> dict[str, Any] | None:
     """
     Один адрес: принтер он или нет.
@@ -1000,7 +1032,9 @@ def inspect_host(ip_address: str) -> dict[str, Any] | None:
     а файл не напечатается.
 
     Дальше 7125 — порт по умолчанию у Klipper-ферм, открывается только у
-    принтеров. Веб-порты проверяются последними и обязательно с HTTP-запросом:
+    принтеров. Anycubic проверяется после них: его признак — один открытый порт,
+    а не паспорт с подписью, и если на адресе нашёлся протокол с подписью, он и
+    главнее. Веб-порты проверяются последними и обязательно с HTTP-запросом:
     без него половина домашней техники попала бы в список находок.
     """
     if probe_port(ip_address, CREALITY_PORT) and is_creality(ip_address):
@@ -1008,6 +1042,9 @@ def inspect_host(ip_address: str) -> dict[str, Any] | None:
 
     if probe_port(ip_address, MOONRAKER_PORT) and is_moonraker(ip_address):
         return {"ip_address": ip_address, "protocol_type": "moonraker"}
+
+    if is_anycubic(ip_address):
+        return {"ip_address": ip_address, "protocol_type": "anycubic"}
 
     for port in OCTOPRINT_PORTS:
         if probe_port(ip_address, port) and is_octoprint(ip_address, port):
@@ -1022,10 +1059,12 @@ def scan_network(
     """
     Принтеры локальной сети: `[{"ip_address": ..., "protocol_type": ...}]`.
 
-    Три источника в одном списке: обход портов (Creality, Moonraker, OctoPrint),
-    SSDP (Bambu — с серийным номером) и широковещательный UDP-запрос
+    Три источника в одном списке: обход портов (Creality, Moonraker, Anycubic,
+    OctoPrint), SSDP (Bambu — с серийным номером) и широковещательный UDP-запрос
     (FlashForge и Elegoo — с серийным номером или номером платы). Повтор адреса
     схлопывается в пользу обнаружения: оно точнее знает и протокол, и номер.
+    Anycubic — исключение: его находит только обход портов, потому что подписи
+    протокола в сети нет.
 
     `networks` — для явных подсетей и тестов; по умолчанию решает
     `resolve_scan_networks()`. Результат отсортирован по адресу: два запуска
@@ -1043,11 +1082,12 @@ def scan_network(
     else:
         workers = min(MAX_WORKERS, len(hosts))
         logger.info(
-            "Сканирую %d адресов в %d потоков: порты %d, %d и %d",
+            "Сканирую %d адресов в %d потоков: порты %d, %d, %d и %d",
             len(hosts),
             workers,
             CREALITY_PORT,
             MOONRAKER_PORT,
+            ANYCUBIC_MQTT_PORT,
             OCTOPRINT_PORTS[0],
         )
 

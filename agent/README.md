@@ -16,14 +16,14 @@ Python-скрипт, который работает на компьютере �
 каждые 30 секунд `POST /api/agent/heartbeat` отмечает `last_seen_at` у принтеров
 мастерской, а сетевые ошибки не останавливают агента. Шаг 7.2 — обнаружение
 фермы: `scanner.py` обходит локальную сеть, находит Creality (WebSocket 9999 и
-`GET /info`), Moonraker (7125) и OctoPrint (80/443) и отправляет находки в
-`POST /api/agent/discover`, а мастер даёт им имена в интерфейсе. Адаптер Bambu
+`GET /info`), Moonraker (7125), Anycubic (9883) и OctoPrint (80/443) и отправляет
+находки в `POST /api/agent/discover`, а мастер даёт им имена в интерфейсе. Адаптер Bambu
 (MQTT и FTPS, шаг 7.5) уже печатает, OctoPrint — с шага 8.3. Шаг 8.1 — реестр
 протоколов: `adapters/registry.py` знает восемь протоколов (moonraker,
 octoprint, bambu, prusa, creality, anycubic, flashforge, elegoo) вместе с
-портами, форматами файлов и секретами; драйвер Anycubic пишется следующим шагом,
-а до тех пор задание на такой принтер закрывается отказом
-`AdapterUnavailableError`.
+портами, форматами файлов и секретами. Шаг 6 — `AnycubicAdapter`: MQTT на 9883
+для паспорта, команд и отчётов, HTTP-загрузка на адрес из паспорта; проверка без
+принтера — `scripts/test-anycubic.py`.
 Шаг 8.2 — форматы: `adapters/formats.py` сверяет расширение со справочником,
 приводит имя файла к ASCII и пакует `.gcode` в `.3mf`, а `prepare_upload()` в
 базовом классе отдаёт адаптеру готовый `UploadPlan` с чистым именем и размером.
@@ -144,6 +144,10 @@ python main.py
   `result` с `klippy_state` или `moonraker_version`. `80`/`443` — OctoPrint:
   `/api/version` с полями `api`/`server`, а если API закрыт — название на главной
   странице. Одного открытого веб-порта мало: он открыт у роутера и телевизора.
+  `9999` — Creality (порт WebSocket), `9883` — Anycubic (MQTT): здесь открытого
+  порта достаточно, потому что паспорт Anycubic лежит внутри брокера и без логина
+  не спросить, а находку всё равно проверяет `connect()` — на `info/query`
+  отвечает только принтер.
 - **Потоки.** `ThreadPoolExecutor` на 64 потока, таймаут порта 0.3 с, HTTP — 2 с:
   подсеть `/24` обходится за считанные секунды. Больше 1024 адресов за проход не
   проверяется — это уже ошибка в `SCAN_SUBNETS`.
@@ -239,7 +243,7 @@ python main.py
 | `fetch_scan_request()` | `GET /api/agent/scan-status`; `True`, если мастер нажал «Найти принтеры в сети» |
 | `complete_scan_request()` | `POST /api/agent/scan-complete`; снимает флаг после принятых находок |
 | `handle_scan_request()` | просьба мастера целиком: флаг → обход → находки → сброс, повтор не чаще `SCAN_RETRY_DELAY` |
-| `scanner.scan_network()` | подсеть → порты 7125/80/443 в 64 потока → список `{ip_address, protocol_type}` |
+| `scanner.scan_network()` | подсеть → порты 9999/7125/9883/80/443 в 64 потока → список `{ip_address, protocol_type}` |
 | `scanner.send_discovered_printers(printers, crm_url, agent_token)` | `POST /api/agent/discover` с Bearer-токеном; `True`, если сервер принял |
 
 Статусы, которые принимает сервер: `printing`, `done`, `failed` — `queued`
@@ -284,10 +288,11 @@ python main.py
 ## Адаптеры принтеров
 
 `agent/adapters/` — интерфейс, реестр протоколов, форматы, фабрика и реализации (шаги
-4.2–8.x). Moonraker, OctoPrint, Bambu, PrusaLink, Creality, FlashForge и Elegoo
-разговаривают с принтером по-настоящему. Протокол anycubic приложение и реестр уже
-знают, но драйвера у него ещё нет: `get_adapter()` отвечает `AdapterUnavailableError`
-(«протокол anycubic ещё не реализован в агенте»).
+4.2–8.x). Moonraker, OctoPrint, Bambu, PrusaLink, Creality, FlashForge, Elegoo и
+Anycubic разговаривают с принтером по-настоящему. Незнакомый протокол —
+`UnknownProtocolError`, а `AdapterUnavailableError` («протокол anycubic ещё не
+реализован в агенте») остаётся страховкой на протокол без драйвера: первое лечится
+исправлением настроек принтера, второе — обновлением агента.
 
 | Файл | Назначение |
 |---|---|
@@ -300,6 +305,7 @@ python main.py
 | `creality.py` | `CrealityAdapter` — Creality OS: `GET /info` (модель), `POST /upload/<имя>`, WebSocket 9999 — `heart_beat`, `get` с `ReqPrinterPara`, `set` с `opGcodeFile`, `pause` и `stop` |
 | `flashforge.py` | `FlashForgeAdapter` — FlashForge: `GET /detail`, `POST /uploadGcode` (поле `gcodeFile`), `POST /printGcode`, `POST /control`; каждый запрос несёт заголовки `serialNumber` и `checkCode` |
 | `elegoo.py` | `ElegooAdapter` — Elegoo (SDCP): WebSocket 3030 с командами `Cmd: 0/128/129/130/131` и `POST /uploadFile/upload` с полями `S-File-MD5`, `Check`, `Offset`, `Uuid`, `TotalSize` |
+| `anycubic.py` | `AnycubicAdapter` — Anycubic в LAN-режиме: MQTT 9883 под TLS (`anycubic/anycubicCloud/v1/printer/public/<modeId>/<deviceId>/request` и `/report`) для паспорта и команд, `POST <urls.fileUploadurl>` с файлом в поле `gcode` и заголовком `X-File-Length` |
 | `bambu.py` | `BambuAdapter` — Bambu в LAN-режиме: MQTT с TLS (8883) для команд и отчётов, implicit FTPS (990) для файлов |
 | `factory.py` | `get_adapter(protocol_type, ip_address, api_key, serial_number="", secrets=None)`: набор аргументов берётся из паспорта протокола (серийник — Bambu и FlashForge, `secrets` — протоколам из `registry`); неизвестный протокол — `UnknownProtocolError("Неизвестный протокол")`, протокол без драйвера — `AdapterUnavailableError`. После сборки ставит `adapter.protocol_key` из паспорта |
 
@@ -515,11 +521,63 @@ MD5 адаптер считает в `prepare_upload()` один раз: про�
 фейковый HTTP на loopback проверяют конверты и топики, поля загрузки и MD5, команды
 управления, `Ack`, частичные отчёты, разбор состояний и находку по бродкасту `M99999`.
 
-Протокол anycubic есть в реестре и в `PRINTER_PROTOCOLS`, форма добавления его
-показывает, но модуля `anycubic.py` ещё нет: `get_adapter()` отвечает
-`AdapterUnavailableError`, и мастер видит «протокол anycubic ещё не реализован в
-агенте». Это отличие от неизвестного протокола важно: первое лечится обновлением
-агента, второе — исправлением настроек принтера.
+### Anycubic (шаг 6)
+
+| Метод | Запрос | Успех |
+|---|---|---|
+| `connect()` | MQTT `9883` под TLS (логин и пароль LAN-режима), подписка `anycubic/anycubicCloud/v1/printer/public/+/+/report`, затем `info/query` в `.../public/<modeId>/<deviceId>/request` | `info/report` с `deviceId`, `modeId` и `urls.fileUploadurl` |
+| `upload_file()` | `POST <urls.fileUploadurl>`: `multipart/form-data`, файл в поле `gcode`, заголовок `X-File-Length` | 200/201 и `code: 0` |
+| `start_print()` | `print/start` с `taskid: "-1"`, `filename`, `md5`, `filetype: 1`, `filesize`, `project_type: 1` | `code: 0` или отчёт с состоянием печати |
+| `get_status()` | последний `print/report` | `state`, `progress`, `printLeftTime` |
+| `pause_print()` / `resume_print()` / `stop_print()` | `print/pause` / `print/resume` / `print/stop` с номером задачи | `code: 0` или отчёт с ожидаемым состоянием |
+
+Anycubic в LAN-режиме — брокер MQTT на 9883 под TLS и HTTP для файла: сам брокер
+файлов не принимает. Сообщение — конверт `{"type", "action", "data", "msgid"}`,
+ответ приходит тем же `type` с `action: "report"`: `info/report` — паспорт,
+`print/report` — состояние печати и подтверждение команд. `msgid` прошивка
+возвращает не всегда, поэтому ответом считается и отчёт с кодом (`code`) или с
+ожидаемым состоянием (`state`).
+
+Топики адресуются номером модели и номером устройства:
+`anycubic/anycubicCloud/v1/printer/public/<modeId>/<deviceId>/request`. Номера
+приходят в первом отчёте, а пока их нет, подписка идёт шаблоном `.../+/+/report`:
+шаблон и вызывает первый отчёт, после чего подписка сужается до точного топика —
+публиковать в шаблон нельзя, брокер доставит сообщение никому. Оба номера можно
+вписать и в `printer_secrets` (`modeId`, `deviceId`) — на случай сети, где
+бродкаст запрещён политикой; ответ принтера главнее секретов, расхождение уходит
+в журнал.
+
+Логин и пароль — LAN-режим принтера. Форма проверки даёт одно поле ключа, поэтому
+ключ становится паролем, а логин берётся из `printer_secrets.username` (по
+умолчанию `anycubic`). mTLS часть прошивок требует: пара `clientCert`/`clientKey`
+из секретов включает её, `caCert` добавляет проверку цепочки, а без него
+сертификат принтера принимается без проверки — он самоподписанный.
+
+Адрес загрузки берётся из паспорта (`urls.fileUploadurl`), а не из порта: порт
+18910 — запасной путь, когда принтер адрес не назвал, и тогда отказ виден в
+`last_error` вместе с HTTP-кодом. Файл уходит `multipart/form-data` в поле `gcode`
+(не `file`: прошивка читает именно его, а с чужим именем поля файл приходит
+пустым) с заголовком `X-File-Length` — по нему принтер готовит место до чтения
+тела. MD5 адаптер считает в `prepare_upload()` один раз: сумма и размер уходят в
+`print/start`, потому что `start_print()` получает только имя файла.
+
+`taskid` новой задачи — `-1`; пауза, возврат и остановка несут номер задачи из
+отчёта, а до первого отчёта — тот же `-1`. `state` переводится по `_STATE_MAP`:
+`printing`, `heating`, `preheating`, `starting`, `resuming` и `busy` — печать
+(сразу после `print/start` принтер греет стол и проверяет файл, и `idle` в этот
+момент закрыл бы задание провалом), `paused` и `pausing` — пауза, `idle`, `ready`,
+`completed`, `complete` и `finished` — простой, `stopped`, `cancelled`, `canceled`,
+`error` и `failed` — ошибка с причиной. Отчёты частичные, поэтому кэш дополняется,
+а не заменяется. Молчание — отказ: прошивка, не ответившая на `print/start`,
+печать не начнёт. Коды отказа переводятся словами: `19007` — имя файла не
+заканчивается на `.gcode`, `10105` — принтер занят печатью или проверкой файла.
+
+Тест без принтера: `python scripts/test-anycubic.py` — фейковый брокер на 9883 и
+`http.server` на loopback проверяют конверт и топики, адрес загрузки из паспорта,
+поле `gcode` и `X-File-Length`, MD5 в `print/start`, подтверждения команд,
+частичные отчёты, разбор состояний, коды `19007` и `10105` и находку сканера по
+открытому 9883. TLS в тесте выключен флагом `MQTT_TLS`: подделать рукопожатие
+нельзя, а конверт сообщений и разбор отчётов проверить нужно.
 
 ### Bambu Lab (шаг 7.5)
 
