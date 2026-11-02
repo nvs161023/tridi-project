@@ -8,6 +8,7 @@ import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
 import { resolveUserId } from "@/lib/current-user";
 import { LEGAL_OPERATOR } from "@/lib/legal";
+import { OG_IMAGE } from "@/lib/seo";
 import {
   LEVELS,
   PAID_LEVELS,
@@ -45,6 +46,9 @@ export const metadata: Metadata = {
     title: "Тарифы — 3D-печать с нуля",
     description:
       "Первый уровень бесплатно, три платных курса и пакет «Всё включено» дешевле покупки по отдельности.",
+    // Картинка превью: без неё ссылка на тарифы в соцсетях и мессенджерах
+    // приезжала без изображения. OG_IMAGE общий для сайта (1200×630).
+    images: [OG_IMAGE],
   },
 };
 
