@@ -41,12 +41,22 @@
     `print.mc_percent` (проценты) и `print.mc_remaining_time` (минуты).
 
 Серийный номер. Bambu адресует топики серийником, а в настройках Мастерской
-мастер вводит только адрес и код доступа. Номер приходит в задании
-(`printer.serialNumber`); если его нет, адаптер ищет принтер по SSDP (UDP 1990,
-в ответе поле `USN`). Пока номер неизвестен, подписка идёт на `device/+/report`
-— первый же отчёт даёт настоящий серийник из топика, после чего адаптер
-переподписывается на точный. Команду печати без серийника отправить нельзя:
-`start_print()` вернёт False и напишет причину в журнал.
+мастер вводит адрес, код доступа и — если знает — номер с наклейки. Цепочка
+такая: номер из задания (`printer.serialNumber`, поле «Серийный номер (SN)»
+карточки принтера) → SSDP-поиск (UDP 1990, в ответе поле `USN`) → отчёт
+принтера. Пока номер неизвестен, подписка идёт на `device/+/report`: первый же
+отчёт даёт настоящий серийник из топика, после чего адаптер переподписывается
+на точный. Команду печати без серийника отправить нельзя, поэтому
+`start_print()` не отказывает сразу: он ждёт восстановления MQTT (`CONNECT_RETRY_TIMEOUT`)
+и появления номера (`SERIAL_WAIT_TIMEOUT`), прося у принтера `pushing.pushall`,
+и только потом возвращает False с причиной в `last_error`.
+
+Обрыв связи. Принтер закрывает MQTT-соединение сам (например, во время
+FTPS-загрузки), paho переподключается в своём потоке. Публикация идёт с QoS 0,
+поэтому команда, отправленная в промежуток между обрывом и CONNACK, теряется
+молча. Перед публикацией адаптер проверяет соединение и ждёт переподключения,
+а если отправка всё же вернула `MQTT_ERR_NO_CONN` — переподключается и
+повторяет её ровно один раз.
 
 Сеть. Ни один метод не выпускает сетевые исключения наружу: выключенный принтер
 — это запись в журнале и `False` (или `status = "error"` у `get_status()`), а не
@@ -101,6 +111,22 @@ MQTT_KEEPALIVE = 30
 # Сколько ждать CONNACK. Выключенный принтер не отвечает вообще, и ждать его
 # дольше десяти секунд агент не должен: задание уйдёт в `failed`.
 CONNECT_TIMEOUT = 10
+
+# Сколько ждать восстановления MQTT перед командой печати. Принтер рвёт
+# соединение сам — чаще всего во время FTPS-загрузки, — и paho поднимает его
+# заново в своём потоке. Команда, отправленная в этот промежуток, теряется
+# молча (публикация идёт с QoS 0), поэтому перед `start_print()` ждём CONNACK
+# до десяти секунд: этого хватает на переподключение по Wi-Fi.
+CONNECT_RETRY_TIMEOUT = 10.0
+
+# Сколько ждать серийник перед командой печати. Номер нужен для топика
+# `device/<serial>/request`, а после обрыва связи он терялся: подписка шла на
+# `device/+/report`, отчёт приходил не сразу — и печать не запускалась.
+SERIAL_WAIT_TIMEOUT = 5.0
+
+# Шаг опроса в ожиданиях: соединение и серийник меняются в потоке paho, а
+# событий «номер получен» у нас нет — дешевле проверять состояние.
+CONNECT_POLL = 0.2
 
 # Загрузка G-code идёт дольше опроса: файл на десятки мегабайт по Wi-Fi
 # передаётся минутами, обрывать его на десяти секундах нельзя.
@@ -735,6 +761,31 @@ class BambuAdapter(BasePrinterAdapter):
             logger.warning("Bambu %s переподключился — подписываюсь заново", self.host)
             self._subscribe(self._client)
 
+    def _on_disconnect(
+        self,
+        client: mqtt.Client,
+        userdata: Any,
+        flags: Any,
+        reason_code: Any,
+        properties: Any = None,
+    ) -> None:
+        """
+        Обрыв MQTT-соединения (callback API paho 2.x).
+
+        Переподключение делает сам paho в своём потоке: здесь только снимаем
+        отметку «связь есть» и пишем причину в журнал. Без сброса отметки
+        адаптер считал бы соединение живым, а публикация уходила бы в никуда —
+        как раз тот случай, когда команда печати пропадала после загрузки файла.
+        """
+        self._connected.clear()
+
+        # Штатное закрытие (`close()`) тоже приходит сюда: это не авария.
+        if self._client is None:
+            logger.debug("Bambu %s: MQTT-соединение закрыто", self.host)
+            return
+
+        logger.warning("Bambu %s: MQTT-соединение потеряно: %s", self.host, reason_code)
+
     def _on_message(
         self,
         client: mqtt.Client,
@@ -848,6 +899,71 @@ class BambuAdapter(BasePrinterAdapter):
 
         return self.serial_number
 
+    def _request_full_status(self) -> bool:
+        """
+        `pushing.pushall`: просит принтер прислать полный отчёт.
+
+        Нужен перед печатью, когда серийник неизвестен: отчёт придёт в
+        `device/<serial>/report`, и `_learn_serial_from_topic` достанет номер из
+        топика. Публиковать можно только после того, как номер известен, —
+        поэтому перед запросом ещё раз пробуем SSDP.
+        """
+        if not self.serial_number:
+            self._ensure_serial()
+
+        if not self.serial_number:
+            logger.warning(
+                "Bambu %s: серийник неизвестен — pushall не отправить, "
+                "жду отчёт по device/+/report",
+                self.host,
+            )
+            return False
+
+        return self._publish(
+            {"pushing": {"sequence_id": self._next_sequence(), "command": "pushall"}},
+            retry=False,
+        )
+
+    def _await_serial(self, timeout: float) -> str:
+        """
+        Серийник для команды печати: из задания, SSDP или отчёта принтера.
+
+        После обрыва связи номер терялся: подписка снова шла на
+        `device/+/report`, отчёт приходил не сразу, и `start_print()` отказывал
+        «серийный номер неизвестен» на живой печати. Здесь ждём до `timeout`
+        секунд: сначала спрашиваем SSDP (принтер отвечает за секунды), затем
+        просим `pushall` и ждём отчёт с настоящим номером в топике.
+
+        Пустая строка — номера нет: команду печати отправить некуда, причину
+        пишет вызывающий (`start_print`).
+        """
+        if self.serial_number:
+            return self.serial_number
+
+        self._ensure_serial()
+
+        deadline = time.monotonic() + timeout
+        asked = False
+
+        while not self.serial_number:
+            if not asked:
+                asked = True
+                self._request_full_status()
+
+            if time.monotonic() >= deadline:
+                break
+
+            time.sleep(CONNECT_POLL)
+
+        if self.serial_number:
+            logger.info(
+                "Bambu %s: серийный номер %s получен от принтера",
+                self.host,
+                self.serial_number,
+            )
+
+        return self.serial_number
+
     def _discover_serial(self) -> str:
         """
         Серийник из SSDP-ответа принтера (UDP, порт 1990).
@@ -943,6 +1059,7 @@ class BambuAdapter(BasePrinterAdapter):
         client.tls_insecure_set(True)
         client.username_pw_set(DEVICE_USER, self.api_key)
         client.on_connect = self._on_connect
+        client.on_disconnect = self._on_disconnect
         client.on_message = self._on_message
 
         try:
@@ -979,7 +1096,8 @@ class BambuAdapter(BasePrinterAdapter):
             return False
 
         if not self._publish(
-            {"pushing": {"sequence_id": self._next_sequence(), "command": "pushall"}}
+            {"pushing": {"sequence_id": self._next_sequence(), "command": "pushall"}},
+            retry=False,
         ):
             # Отчёты придут и изменениями, так что это предупреждение, а не
             # отказ: соединение уже рабочее.
@@ -1007,17 +1125,65 @@ class BambuAdapter(BasePrinterAdapter):
             # Соединение уже закрыто принтером — закрывать нечего.
             logger.debug("Bambu %s: MQTT отключён с ошибкой: %s", self.host, error)
 
-    def _publish(self, command: dict[str, Any]) -> bool:
+    def _ensure_connection(self, timeout: float) -> bool:
+        """
+        Рабочее MQTT-соединение: ждёт переподключения paho или поднимает новое.
+
+        `timeout` — сколько ждать автоматического переподключения (0 — только
+        проверить, что связь есть). Нужно перед каждой командой: после обрыва
+        paho восстанавливает соединение в своём потоке, но не мгновенно, а
+        публикация идёт с QoS 0 и в этот промежуток теряется молча.
+
+        Не дождались — старый клиент останавливаем и поднимаем новый: paho
+        после нескольких неудач уходит в долгий backoff, а задание ждать не
+        может.
+        """
+        client = self._client
+
+        if client is not None and client.is_connected():
+            return True
+
+        if client is not None:
+            deadline = time.monotonic() + timeout
+
+            while time.monotonic() < deadline:
+                if client.is_connected():
+                    return True
+
+                time.sleep(CONNECT_POLL)
+
+            if timeout <= 0:
+                # Проверка без ожидания: клиент не трогаем, paho ещё может его
+                # поднять — так `retry=False` из `connect()` не рвёт соединение.
+                return False
+
+            logger.warning(
+                "Bambu %s: MQTT не восстановился за %.0f с — переподключаюсь",
+                self.host,
+                timeout,
+            )
+            self._client = None
+            self._stop(client)
+
+        if timeout <= 0:
+            return False
+
+        return self.connect()
+
+    def _publish(self, command: dict[str, Any], *, retry: bool = True) -> bool:
         """
         Команда принтеру в `device/<serial>/request`.
 
         Без серийника публиковать некуда: в шаблонный топик `device/+/request`
         брокер отправит сообщение «в никуда», поэтому такой вызов — False и
         строка в журнале, а не молчаливая потеря команды.
-        """
-        client = self._client
 
-        if client is None:
+        Соединение проверяется перед отправкой, а если брокер всё же ответил
+        `MQTT_ERR_NO_CONN` (обрыв между проверкой и публикацией) — одна попытка
+        переподключения и повтор. `retry=False` — для вызовов изнутри самого
+        `connect()`: там переподключение уже идёт, и повтор дал бы рекурсию.
+        """
+        if not self._ensure_connection(CONNECT_RETRY_TIMEOUT if retry else 0.0):
             logger.error(
                 "Bambu %s: нет MQTT-соединения — команда не отправлена",
                 self.host,
@@ -1031,20 +1197,68 @@ class BambuAdapter(BasePrinterAdapter):
             )
             return False
 
-        topic = f"device/{self.serial_number}/request"
-        payload = json.dumps(command, ensure_ascii=False)
-        info = client.publish(topic, payload, qos=0)
+        result = self._send(command)
 
-        if info.rc != mqtt.MQTT_ERR_SUCCESS:
+        if result == mqtt.MQTT_ERR_SUCCESS:
+            return True
+
+        if not retry or result != mqtt.MQTT_ERR_NO_CONN:
             logger.error(
-                "Bambu %s: команда в %s не отправлена (код %s)",
+                "Bambu %s: команда в device/%s/request не отправлена (код %s)",
                 self.host,
-                topic,
-                info.rc,
+                self.serial_number,
+                result,
             )
             return False
 
-        return True
+        logger.warning(
+            "Bambu %s: соединение оборвалось при отправке (код %s) — "
+            "переподключаюсь и повторяю",
+            self.host,
+            result,
+        )
+
+        if not self._ensure_connection(CONNECT_RETRY_TIMEOUT):
+            logger.error(
+                "Bambu %s: нет MQTT-соединения — команда не отправлена",
+                self.host,
+            )
+            return False
+
+        if not self.serial_number:
+            logger.error(
+                "Bambu %s: серийный номер неизвестен — команда не отправлена",
+                self.host,
+            )
+            return False
+
+        result = self._send(command)
+
+        if result == mqtt.MQTT_ERR_SUCCESS:
+            return True
+
+        logger.error(
+            "Bambu %s: команда не отправлена и после переподключения (код %s)",
+            self.host,
+            result,
+        )
+
+        return False
+
+    def _send(self, command: dict[str, Any]) -> int:
+        """Публикация команды без проверок: код результата paho."""
+        client = self._client
+
+        if client is None:
+            return mqtt.MQTT_ERR_NO_CONN
+
+        info = client.publish(
+            f"device/{self.serial_number}/request",
+            json.dumps(command, ensure_ascii=False),
+            qos=0,
+        )
+
+        return info.rc
 
     def _wait_reply(self, sequence: str) -> dict[str, Any] | None:
         """
@@ -1505,9 +1719,30 @@ class BambuAdapter(BasePrinterAdapter):
         с причиной (файл не разобран, `0500-4003`): такой отказ ловит
         `_remember_reply`, помечает `_command_error`, и `get_status()` начинает
         отдавать `error` — цикл мониторинга закроет задание как `failed`.
+
+        Перед командой адаптер ждёт связь и серийник. Обрыв MQTT во время
+        FTPS-загрузки — обычное дело, и раньше он закрывал задание ошибкой
+        «серийный номер неизвестен» на живой печати: соединение уже поднялось
+        заново, а номер ещё не пришёл. Теперь ждём `CONNECT_RETRY_TIMEOUT` на
+        переподключение и `SERIAL_WAIT_TIMEOUT` на номер (`pushing.pushall` +
+        отчёт в `device/<serial>/report`) и только потом отказываем.
         """
         # Пометка прошлого отказа не должна красить новую печать.
         self._command_error = None
+
+        if not self._ensure_connection(CONNECT_RETRY_TIMEOUT):
+            self.last_error = "команда печати не отправлена: нет MQTT-соединения"
+            logger.error("Bambu %s: %s", self.host, self.last_error)
+            return False
+
+        if not self._await_serial(SERIAL_WAIT_TIMEOUT):
+            self.last_error = (
+                "Не удалось получить серийный номер принтера. "
+                "Проверьте, что принтер в сети и в режиме LAN"
+            )
+            logger.error("Bambu %s: %s", self.host, self.last_error)
+            return False
+
         printable = (
             remote_name
             if remote_name.lower().endswith(".3mf")

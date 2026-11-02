@@ -23,7 +23,12 @@
      `Metadata/slice_info.config` и записи OPC-пакета), грузится под именем
      `<задание>.3mf`, а временный контейнер удаляется;
   9. `start_print()` отправляет `project_file` и считает печать запущенной только
-     по ответу принтера.
+     по ответу принтера;
+  10. обрыв MQTT во время загрузки не убивает печать: `start_print()` ждёт
+      переподключения и серийника, а если номера так и нет — объясняет причину
+      («проверьте, что принтер в сети и в режиме LAN»);
+  11. `_publish()` после обрыва переподключается и повторяет команду один раз;
+  12. серийник из задания используется сразу, без SSDP и `pushall`.
 
 Запуск:
     python scripts/test-bambu.py
@@ -36,6 +41,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import threading
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -159,13 +165,68 @@ class CapturingUploadAdapter(bambu.BambuAdapter):
         return True
 
 
+class FakeMqttClient:
+    """
+    MQTT-клиент без сети: «соединение» есть, публикации запоминаются.
+
+    Нужен, чтобы проверить `start_print()` и `_publish()` без принтера:
+    настоящий paho требует TLS-сокет, а адаптеру от клиента нужны только
+    `is_connected()` и `publish()`. `drop_after` изображает обрыв — столько
+    публикаций пройдёт успешно, дальше клиент отвечает `MQTT_ERR_NO_CONN`,
+    пока его не «переподключат».
+    """
+
+    def __init__(self, port: int = 0, drop_after: int | None = None) -> None:
+        self.topic = ""
+        self.port = port
+        self.payloads: list[str] = []
+        self.dropped = False
+        self.drop_after = drop_after
+        self.subscribed: list[str] = []
+
+    def is_connected(self) -> bool:
+        return not self.dropped
+
+    def publish(self, topic: str, payload: str, qos: int = 0) -> SimpleNamespace:
+        self.topic = topic
+
+        if self.dropped or (
+            self.drop_after is not None and len(self.payloads) >= self.drop_after
+        ):
+            self.dropped = True
+
+            return SimpleNamespace(rc=bambu.mqtt.MQTT_ERR_NO_CONN)
+
+        self.payloads.append(payload)
+
+        return SimpleNamespace(rc=bambu.mqtt.MQTT_ERR_SUCCESS)
+
+    def subscribe(self, topic: str, qos: int = 0) -> tuple[int, int]:
+        self.subscribed.append(topic)
+
+        return bambu.mqtt.MQTT_ERR_SUCCESS, 0
+
+    def unsubscribe(self, topic: str) -> tuple[int, int]:
+        return bambu.mqtt.MQTT_ERR_SUCCESS, 0
+
+    def loop_stop(self) -> None:
+        """Потока нет: останавливать нечего."""
+
+    def disconnect(self) -> None:
+        self.dropped = True
+
+    def reconnect(self) -> None:
+        self.dropped = False
+
+
 class ScriptedPrintAdapter(bambu.BambuAdapter):
     """
     Адаптер без сети: `_publish()` не отправляет команду, а сразу кладёт ответ.
 
     Нужен, чтобы проверить `start_print()` без принтера: отказ `result=fail`
     должен уходить в `last_error`, принятый вариант — давать `True`, а пустой
-    список ответов изображает молчащий принтер.
+    список ответов изображает молчащий принтер. Соединение подставлено
+    (`FakeMqttClient`): `start_print()` теперь ждёт связь перед командой.
     """
 
     def __init__(self, replies: list[dict[str, Any]]) -> None:
@@ -174,8 +235,9 @@ class ScriptedPrintAdapter(bambu.BambuAdapter):
         )
         self.replies = replies
         self.commands: list[dict[str, Any]] = []
+        self._client = FakeMqttClient()
 
-    def _publish(self, command: dict[str, Any]) -> bool:
+    def _publish(self, command: dict[str, Any], *, retry: bool = True) -> bool:
         self.commands.append(command)
 
         index = min(len(self.commands), len(self.replies)) - 1
@@ -189,6 +251,38 @@ class ScriptedPrintAdapter(bambu.BambuAdapter):
             "command": body["command"],
             **self.replies[index],
         }
+
+        return True
+
+
+class ReconnectingAdapter(bambu.BambuAdapter):
+    """
+    Адаптер с «живым» клиентом, который рвёт соединение на публикации.
+
+    Нужен, чтобы проверить `_publish()` без сети: `connect()` подставляет новый
+    `FakeMqttClient` (как paho после переподключения), а старый клиент отвечает
+    `MQTT_ERR_NO_CONN` — ровно то, что видел агент, когда печать не запускалась
+    после обрыва MQTT во время FTPS-загрузки.
+    """
+
+    def __init__(self, drop_after: int = 0, reconnect: bool = True) -> None:
+        super().__init__(
+            ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+        )
+        self.drop_after = drop_after
+        self.reconnects = reconnect
+        self.connects = 0
+        self._client = FakeMqttClient(drop_after=drop_after)
+
+    def connect(self) -> bool:
+        self.connects += 1
+
+        if not self.reconnects:
+            self._client = None
+
+            return False
+
+        self._client = FakeMqttClient()
 
         return True
 
@@ -271,6 +365,8 @@ def main() -> int:
     bambu.DISCOVERY_TIMEOUT = 0.2
     bambu.CONNECT_TIMEOUT = 0.5
     bambu.FTP_TIMEOUT = 0.5
+    # Ожидание переподключения перед командой: на живом принтере это 10 с.
+    bambu.CONNECT_RETRY_TIMEOUT = 0.2
     # Паузы между повторами загрузки в тесте не нужны: сеть недоступна сразу.
     bambu.FTP_RETRY_DELAY = 0
 
@@ -555,6 +651,97 @@ def main() -> int:
         "start_print: молчание принтера — False с причиной",
         silent_result is False and "не подтвердил" in (silent_print.last_error or ""),
         f"last_error={silent_print.last_error!r}",
+    )
+
+    # Обрыв MQTT во время FTPS-загрузки: соединение paho поднимает заново, а
+    # серийник после реконнекта приходит не сразу. Раньше `start_print()` в этот
+    # момент отказывал «серийный номер неизвестен» — теперь ждёт и объясняет.
+    no_serial = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
+    no_serial._client = FakeMqttClient()
+    saved_serial_wait = bambu.SERIAL_WAIT_TIMEOUT
+
+    try:
+        bambu.SERIAL_WAIT_TIMEOUT = 0.1
+        serial_result = no_serial.start_print("job.gcode")
+    finally:
+        bambu.SERIAL_WAIT_TIMEOUT = saved_serial_wait
+
+    check(
+        "start_print: серийник не получен — причина про сеть и LAN-режим",
+        serial_result is False
+        and "Не удалось получить серийный номер принтера"
+        in (no_serial.last_error or "")
+        and "режиме LAN" in (no_serial.last_error or ""),
+        f"last_error={no_serial.last_error!r}",
+    )
+
+    # Тот же случай, но принтер успевает ответить отчётом: номер берётся из
+    # топика, и ожидание заканчивается успешно.
+    waiting = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
+    waiting._client = FakeMqttClient()
+    report_timer = threading.Timer(
+        0.05,
+        waiting._learn_serial_from_topic,
+        args=("device/00M09D777777777/report",),
+    )
+    report_timer.start()
+
+    try:
+        learned_serial = waiting._await_serial(3.0)
+    finally:
+        report_timer.cancel()
+        report_timer.join()
+
+    check(
+        "ожидание серийника: номер приходит из отчёта после обрыва",
+        learned_serial == "00M09D777777777",
+        f"serial={learned_serial!r}, subscribed={waiting._client.subscribed!r}",
+    )
+
+    # Серийник из задания — самый быстрый путь: SSDP и pushall не нужны.
+    from_task = bambu.BambuAdapter(
+        ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+    )
+    check(
+        "серийник из задания используется без SSDP и отчётов",
+        from_task._await_serial(0) == CHECK_SERIAL,
+        f"serial={from_task.serial_number!r}",
+    )
+
+    # Задача 3: команда не теряется, если соединение оборвалось на публикации.
+    rejoining = ReconnectingAdapter(drop_after=0)
+    rejoined = rejoining._publish({"print": {"command": "stop"}})
+    check(
+        "_publish: после обрыва переподключается и повторяет команду",
+        rejoined is True
+        and rejoining.connects == 1
+        and rejoining._client is not None
+        and len(rejoining._client.payloads) == 1,
+        f"ok={rejoined}, переподключений {rejoining.connects}, "
+        f"публикаций {len(rejoining._client.payloads) if rejoining._client else 0}",
+    )
+
+    dead = ReconnectingAdapter(reconnect=False)
+    check(
+        "_publish: переподключение не удалось — False",
+        dead._publish({"print": {"command": "stop"}}) is False and dead.connects == 1,
+        f"переподключений {dead.connects}",
+    )
+
+    dead_print = ReconnectingAdapter(reconnect=False)
+    saved_connect_retry = bambu.CONNECT_RETRY_TIMEOUT
+
+    try:
+        bambu.CONNECT_RETRY_TIMEOUT = 0.1
+        dead_print_result = dead_print.start_print("job.gcode")
+    finally:
+        bambu.CONNECT_RETRY_TIMEOUT = saved_connect_retry
+
+    check(
+        "start_print: нет MQTT — причина «нет соединения», а не серийник",
+        dead_print_result is False
+        and "нет MQTT-соединения" in (dead_print.last_error or ""),
+        f"last_error={dead_print.last_error!r}",
     )
 
     # Серийник, которого не было в задании: его даёт топик первого отчёта.
