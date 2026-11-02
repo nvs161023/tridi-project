@@ -18,6 +18,7 @@ const MAIN_LINKS: MenuLink[] = [
   { href: "/#levels", label: "Уровни" },
   { href: "/#methodology", label: "Методология" },
   { href: "/#faq", label: "Вопросы" },
+  { href: "/blog", label: "Блог" },
   { href: "/forum", label: "Форум" },
   { href: "/subscription", label: "Тарифы" },
 ];

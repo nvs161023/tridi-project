@@ -25,7 +25,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: ["/", "/tools", "/profiles"],
+        allow: ["/", "/tools", "/profiles", "/blog"],
         disallow: [
           "/api/",
           // Служебные файлы сборки: индексировать нечего, а обход тратит

@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 
+import { getAllPosts } from "@/lib/blog";
 import { COURSE_LANDING_IDS } from "@/lib/course-landing";
 import { getApprovedThreadsForSitemap } from "@/lib/forum";
 import { profilesUpdatedAt } from "@/lib/profiles";
@@ -34,6 +35,9 @@ const STATIC_PAGES: {
   { path: "/forum", changeFrequency: "daily", priority: 0.7 },
   { path: "/tools", changeFrequency: "weekly", priority: 0.8 },
   { path: "/tools/defects", changeFrequency: "monthly", priority: 0.7 },
+  // Блог — точка входа для поисковых запросов по ошибкам принтеров: статьи
+  // обновляются чаще остальных текстов, поэтому changeFrequency weekly.
+  { path: "/blog", changeFrequency: "weekly", priority: 0.8 },
   {
     path: "/profiles",
     changeFrequency: "monthly",
@@ -54,7 +58,8 @@ const STATIC_PAGES: {
 
 /**
  * Карта сайта: витрина, бесплатный курс, тарифы, курсы, центр инструментов,
- * библиотека профилей, форум, юридические документы и все опубликованные темы.
+ * библиотека профилей, блог, форум, юридические документы и все опубликованные
+ * темы.
  *
  * Закрытые разделы сюда не попадают: /dashboard, /course/* и /admin закрыты
  * middleware и закрыты в robots.txt, а /constructor не публикуется вовсе —
@@ -80,6 +85,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: CONTENT_REVIEWED_AT,
       changeFrequency: "monthly" as const,
       priority: 0.9,
+    })),
+    ...getAllPosts().map((post) => ({
+      url: `${siteUrl}/blog/${post.slug}`,
+      lastModified: new Date(post.updated),
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
     })),
     ...threads.map((thread) => ({
       url: `${siteUrl}/forum/${thread.slug}`,
