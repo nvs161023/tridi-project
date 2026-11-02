@@ -8,7 +8,7 @@ import { normalizePromoCode } from "@/lib/promo-codes";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Активация промокода — TriDi",
+  title: "Активация промокода",
   description:
     "Активируйте промокод на курс TriDi: доступ откроется сразу в вашем аккаунте.",
   robots: { index: false, follow: false },

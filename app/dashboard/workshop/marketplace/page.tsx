@@ -19,7 +19,7 @@ import { getWorkshopProducts } from "@/lib/workshop/products";
  * видимым, пока пользователь не свяжет все его позиции.
  */
 export const metadata: Metadata = {
-  title: "Маркетплейсы Мастерской — TriDi",
+  title: "Маркетплейсы Мастерской",
   description:
     "Связи SKU Ozon, Wildberries и Яндекс Маркета с товарами и G-code каталога.",
   robots: { index: false, follow: false },

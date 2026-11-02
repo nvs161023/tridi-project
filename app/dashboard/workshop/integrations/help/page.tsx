@@ -23,7 +23,7 @@ import { Header } from "@/components/Header";
  */
 
 export const metadata: Metadata = {
-  title: "Как подключить интеграции — TriDi",
+  title: "Как подключить интеграции",
   description:
     "Пошаговые инструкции по подключению уведомлений Ozon, Wildberries и Яндекс.Маркета к Мастерской TriDi и запуску локального агента печати: где взять Client-Id и Api-Key, куда вставить URL вебхука, какое событие включить и что делать с токеном агента.",
   robots: { index: false, follow: false },

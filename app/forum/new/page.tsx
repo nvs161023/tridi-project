@@ -14,7 +14,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Новая тема — форум TriDi",
+  title: "Новая тема на форуме",
   description: "Создание темы на форуме сообщества TriDi.",
   robots: { index: false, follow: false },
 };

@@ -7,7 +7,7 @@ import { defects } from "@/lib/defects";
 import { OG_IMAGE } from "@/lib/seo";
 import { resolveSiteUrl } from "@/lib/site-url";
 
-const PAGE_TITLE = "Дефекты 3D-печати: причины и как исправить | TriDi";
+const PAGE_TITLE = "Дефекты 3D-печати: причины и как исправить";
 const PAGE_DESCRIPTION =
   "Дефекты 3D-печати: отрыв от стола, расслоение, стрингинг, смещение слоёв, мосты и недоэкструзия. Причины и пошаговые решения в справочнике TriDi.";
 

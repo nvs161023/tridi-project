@@ -37,7 +37,7 @@ export async function generateMetadata({
 
   if (!threadPage) {
     return {
-      title: "Тема не найдена — форум TriDi",
+      title: "Тема не найдена",
       robots: { index: false, follow: false },
     };
   }
@@ -47,7 +47,8 @@ export async function generateMetadata({
   const description = forumExcerpt(thread.content, 158);
 
   return {
-    title: `${thread.title} — форум TriDi`,
+    // Бренд добавляет шаблон корневого layout («… | TriDi»).
+    title: thread.title,
     description,
     alternates: { canonical: `/forum/${thread.slug}` },
     openGraph: {

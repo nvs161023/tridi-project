@@ -27,9 +27,12 @@ export default function robots(): MetadataRoute.Robots {
         userAgent: "*",
         allow: ["/", "/tools", "/profiles"],
         disallow: [
-          "/dashboard",
+          "/api/",
+          // Служебные файлы сборки: индексировать нечего, а обход тратит
+          // краулинговый бюджет.
+          "/_next/",
           "/admin",
-          "/api",
+          "/dashboard",
           "/constructor",
           "/course",
           "/certificate",

@@ -26,7 +26,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Модерация форума — TriDi",
+  title: "Модерация форума",
   description: "Очередь тем и ответов форума TriDi.",
   robots: { index: false, follow: false },
 };

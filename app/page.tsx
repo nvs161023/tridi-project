@@ -27,14 +27,14 @@ import {
   pluralize,
 } from "@/lib/course-stats";
 import { profileCount } from "@/lib/profiles";
-import { organizationJsonLd } from "@/lib/seo";
-import { resolveSiteUrl } from "@/lib/site-url";
 import { getPurchasedCourses, hasCourseAccess } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "TriDi — освой 3D-печать: от первой детали до бизнеса",
+  // Заголовок берётся из корневого layout (title.default): главная — это и есть
+  // бренд, дублировать его шаблоном «… | TriDi» не нужно.
   description: `Практический курс по 3D-печати: ${TOTAL_LESSONS} глубоких уроков, ${TOTAL_VISUALS} наглядных схем, именной сертификат и проверка знаний. Старт бесплатно, без карты.`,
+  alternates: { canonical: "/" },
 };
 
 const { pro: proCourse } = coursesData;
@@ -464,21 +464,8 @@ export default async function Home() {
     ? await hasCourseAccess(supabase, userId, "pro")
     : false;
 
-  const siteUrl = await resolveSiteUrl();
-  const organization = {
-    "@context": "https://schema.org",
-    ...organizationJsonLd(siteUrl),
-  };
-
   return (
     <div className="relative min-h-screen text-white">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify(organization).replace(/</g, "\\u003c"),
-        }}
-      />
-
       <Header />
 
       <main>

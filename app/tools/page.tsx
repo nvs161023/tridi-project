@@ -6,7 +6,7 @@ import { defects } from "@/lib/defects";
 import { profileCount } from "@/lib/profiles";
 import { OG_IMAGE } from "@/lib/seo";
 
-const PAGE_TITLE = "3D-инструменты: профили и диагностика | TriDi";
+const PAGE_TITLE = "3D-инструменты: профили и диагностика";
 const PAGE_DESCRIPTION =
   "Центр инструментов TriDi: библиотека профилей слайсеров и справочник дефектов печати с причинами и пошаговыми решениями.";
 const PAGE_IMAGE_ALT = "TriDi: профили печати и справочник дефектов";

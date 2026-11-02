@@ -15,10 +15,20 @@ import { resolveSiteUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Форум сообщества — TriDi",
+  title: "Форум сообщества",
   description:
     "Сообщество 3D-печати TriDi: выбор принтера, материалы, настройки слайсера и решение проблем печати. Читать может каждый, писать — после входа.",
   alternates: { canonical: "/forum" },
+  // Свой openGraph: без него og:url наследовался бы от главной.
+  openGraph: {
+    type: "website",
+    locale: "ru_RU",
+    siteName: "TriDi",
+    url: "/forum",
+    title: "Форум сообщества",
+    description:
+      "Сообщество 3D-печати TriDi: выбор принтера, материалы, настройки слайсера и решение проблем печати.",
+  },
 };
 
 /** Страница читает сессию и свежие темы — собираем её на каждый запрос. */

@@ -25,9 +25,21 @@ import { createClient } from "@/lib/supabase/server";
  * инструменты не открывают.
  */
 export const metadata: Metadata = {
-  title: "Библиотека профилей печати — TriDi",
+  title: "Библиотека профилей печати",
   description:
     "Готовые профили принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge, Qidi, Bambu Lab, Prusa и Creality, а также материалов PLA, PETG, ABS, ASA, TPU и PA для OrcaSlicer, Bambu Studio и PrusaSlicer. Скачивание входит в пакет «Всё включено».",
+  alternates: { canonical: "/profiles" },
+  // Свой openGraph, а не унаследованный из корневого layout: иначе og:url
+  // указывал бы на главную.
+  openGraph: {
+    type: "website",
+    locale: "ru_RU",
+    siteName: "TriDi",
+    url: "/profiles",
+    title: "Библиотека профилей печати",
+    description:
+      "Готовые профили принтеров и материалов для OrcaSlicer, Bambu Studio и PrusaSlicer. Скачивание входит в пакет «Всё включено».",
+  },
 };
 
 /** Страница зависит от cookies пользователя — собираем её на каждый запрос. */

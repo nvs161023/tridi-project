@@ -35,6 +35,17 @@ export const metadata: Metadata = {
   title: "Тарифы — 3D-печать с нуля",
   description:
     "Первый уровень бесплатно, три платных курса и пакет «Всё включено» дешевле покупки по отдельности. Что входит в каждый уровень, сколько стоит навсегда и частые вопросы об оплате.",
+  alternates: { canonical: "/subscription" },
+  // Свой openGraph: без него og:url наследовался бы от главной.
+  openGraph: {
+    type: "website",
+    locale: "ru_RU",
+    siteName: "TriDi",
+    url: "/subscription",
+    title: "Тарифы — 3D-печать с нуля",
+    description:
+      "Первый уровень бесплатно, три платных курса и пакет «Всё включено» дешевле покупки по отдельности.",
+  },
 };
 
 const { pro: proCourse } = coursesData;

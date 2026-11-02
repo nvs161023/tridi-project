@@ -29,7 +29,7 @@ import { createClient } from "@/lib/supabase/server";
 import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 
 export const metadata: Metadata = {
-  title: "Личный кабинет — TriDi",
+  title: "Личный кабинет",
   description:
     "Прогресс по четырём уровням курса, сертификаты и доступ к инструментам платформы.",
 };

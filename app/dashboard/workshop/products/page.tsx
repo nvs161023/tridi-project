@@ -18,7 +18,7 @@ import { getWorkshopPrinters } from "@/lib/workshop/printer-store";
  * Доступ тот же, что у всей Мастерской: пакет «Всё включено».
  */
 export const metadata: Metadata = {
-  title: "Товары Мастерской — TriDi",
+  title: "Товары Мастерской",
   description:
     "Каталог изделий: артикулы, цены, вес, габариты и G-code для печати.",
   robots: { index: false, follow: false },

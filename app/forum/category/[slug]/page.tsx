@@ -46,7 +46,7 @@ export async function generateMetadata({
 
   if (!category) {
     return {
-      title: "Раздел не найден — форум TriDi",
+      title: "Раздел не найден",
       robots: { index: false, follow: false },
     };
   }
@@ -56,18 +56,19 @@ export async function generateMetadata({
     `Обсуждения в разделе «${category.title}» на форуме сообщества TriDi.`;
 
   return {
-    title: `${category.title} — форум TriDi`,
+    // Бренд добавляет шаблон корневого layout («… | TriDi»).
+    title: category.title,
     description,
     alternates: { canonical: `/forum/category/${category.slug}` },
     openGraph: {
       type: "website",
-      title: `${category.title} — форум TriDi`,
+      title: category.title,
       description,
       url: `/forum/category/${category.slug}`,
     },
     twitter: {
       card: "summary",
-      title: `${category.title} — форум TriDi`,
+      title: category.title,
       description,
     },
   };

@@ -14,7 +14,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Промокоды — TriDi",
+  title: "Промокоды",
   description: "Выпуск партий промокодов и выгрузка CSV для Ozon.",
   robots: { index: false, follow: false },
 };

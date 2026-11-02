@@ -29,7 +29,7 @@ import { createClient } from "@/lib/supabase/server";
 const PAGE_PATH = "/3d-generator";
 
 export const metadata: Metadata = {
-  title: "3D-генератор — TriDi",
+  title: "3D-генератор",
   description:
     "Загрузите фотографию предмета и получите 3D-модель для печати: генератор TriDi собирает модель по снимку. Входит в пакет «Всё включено».",
   robots: { index: false, follow: false },

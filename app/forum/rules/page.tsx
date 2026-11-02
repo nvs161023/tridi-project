@@ -4,9 +4,20 @@ import Link from "next/link";
 import { Header } from "@/components/Header";
 
 export const metadata: Metadata = {
-  title: "Правила форума — TriDi",
+  title: "Правила форума",
   description:
     "Правила сообщества TriDi: уважение к участникам, запрет мата, рекламы и обхода оплаты. Новые темы проходят премодерацию, ответы публикуются сразу.",
+  alternates: { canonical: "/forum/rules" },
+  // Свой openGraph: без него og:url наследовался бы от главной.
+  openGraph: {
+    type: "website",
+    locale: "ru_RU",
+    siteName: "TriDi",
+    url: "/forum/rules",
+    title: "Правила форума",
+    description:
+      "Правила сообщества TriDi: уважение к участникам, запрет мата, рекламы и обхода оплаты.",
+  },
 };
 
 const RULES: readonly { title: string; text: string }[] = [

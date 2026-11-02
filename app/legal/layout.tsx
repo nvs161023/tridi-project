@@ -13,9 +13,11 @@ import { LEGAL_DOCUMENTS, LEGAL_OPERATOR, LEGAL_UPDATED_AT } from "@/lib/legal";
  * components/Logo: он статический и тоже не обращается к Supabase.
  */
 export const metadata: Metadata = {
+  // Заголовок задаём объектом: строка в layout отменила бы наследование
+  // шаблона корневого layout, и страницы документов остались бы без бренда.
   title: {
-    default: "Юридические документы — TriDi",
-    template: "%s — TriDi",
+    default: "Юридические документы",
+    template: "%s | TriDi",
   },
   description:
     "Политика обработки персональных данных, согласие на обработку, пользовательское соглашение, публичная оферта и политика использования cookie сервиса TriDi.",

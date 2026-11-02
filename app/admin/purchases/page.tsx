@@ -18,7 +18,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Покупки и возвраты — TriDi",
+  title: "Покупки и возвраты",
   description: "Возвраты за курсы: проверка прогресса и закрытие доступа.",
   robots: { index: false, follow: false },
 };

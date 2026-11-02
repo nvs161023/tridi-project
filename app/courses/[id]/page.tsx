@@ -54,7 +54,7 @@ export async function generateMetadata({
 
   if (!course) {
     return {
-      title: "Курс не найден — TriDi",
+      title: "Курс не найден",
       robots: { index: false, follow: false },
     };
   }
@@ -70,12 +70,13 @@ export async function generateMetadata({
     TEST_FORMS,
   )}. Доступ навсегда, без продлений.`;
 
-  // У пакета название «Всё включено» ничего не говорит поиску: в заголовке
-  // важнее запрос «курсы 3D-печати пакетом».
+  // Бренд в заголовок добавляет шаблон корневого layout («… | TriDi»),
+  // поэтому здесь только сам курс. У пакета название «Всё включено» ничего не
+  // говорит поиску: в заголовке важнее запрос «курсы 3D-печати пакетом».
   const title =
     course.id === "pro"
-      ? "Все курсы 3D-печати пакетом — TriDi"
-      : `${course.title} — TriDi`;
+      ? "Все курсы 3D-печати пакетом"
+      : course.title;
 
   return {
     title,
@@ -161,12 +162,46 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
     teaches: course.results,
   };
 
+  /**
+   * Product для товарной выдачи: цена в рублях и наличие.
+   *
+   * Course описывает обучение (программа, провайдер), Product — покупку
+   * (цена, валюта, наличие). Разметки дополняют друг друга, поэтому обе на
+   * странице. Отзывов и рейтинга здесь нет по той же причине, что и в Course:
+   * выдуманные оценки нарушают правила Google.
+   */
+  const productJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: course.title,
+    description: `${course.subtitle}. ${course.goal}`,
+    image: absoluteUrl(OG_IMAGE.url, siteUrl),
+    url: courseUrl,
+    sku: course.paymentId,
+    category: "Онлайн-курс",
+    brand: { "@type": "Brand", name: "TriDi" },
+    offers: {
+      "@type": "Offer",
+      url: courseUrl,
+      price: course.price,
+      priceCurrency: "RUB",
+      availability: "https://schema.org/InStock",
+      seller: organizationJsonLd(siteUrl),
+    },
+  };
+
   return (
     <div className="min-h-screen text-slate-100">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
           __html: JSON.stringify(courseJsonLd).replace(/</g, "\\u003c"),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(productJsonLd).replace(/</g, "\\u003c"),
         }}
       />
 
