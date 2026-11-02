@@ -35,6 +35,8 @@ import {
   PRINTER_TEXT_LIMITS,
   defaultDiscoveredPrinterName,
   discoveredPrinterName,
+  isPrinterIdentityUnknown,
+  suggestPrinterIdentity,
   type DiscoveredPrinter,
 } from "@/lib/workshop/printers";
 
@@ -63,14 +65,17 @@ import {
  * руками — форма `ManualPrinterForm` принимает адрес, протокол, бренд, модель,
  * SN и ключ доступа и вызывает то же действие `addPrinter`, что и окно парка.
  *
- * Выбор, имена и ключи доступа хранятся как «правки поверх умолчаний»: отмечено
- * всё, что в списке, имя по умолчанию — то, что принтер назвал сам
- * (`printer.name`: хост Moonraker, подпись Creality, имя FlashForge, серийник
- * Bambu), а если не назвал — `Принтер 192.168.1.50`. Ключ — пустой. Поэтому
- * обновление списка не ломает уже введённое: новые находки сразу видны и
- * отмечены, а правки старых строк остаются. Ключ вводится здесь, потому что
- * агент видит в сети только адрес и протокол: код доступа Bambu и ключ Moonraker
- * с авторизацией знает лишь мастер.
+ * Выбор, имена, бренд с моделью и ключи доступа хранятся как «правки поверх
+ * умолчаний»: отмечено всё, что в списке, имя по умолчанию — то, что принтер
+ * назвал сам (`printer.name`: хост Moonraker, подпись Creality, имя FlashForge,
+ * серийник Bambu), а если не назвал — `Принтер 192.168.1.50`. Бренд и модель
+ * подсказывает `suggestPrinterIdentity()`: бренд по протоколу, модель — из
+ * `PRINTER_PRESETS` по имени. Без них проверка совместимости 3MF не сработает,
+ * поэтому поля стоят в строке и предупреждение янтарное, а не спрятано в
+ * карточке. Ключ — пустой. Поэтому обновление списка не ломает уже введённое:
+ * новые находки сразу видны и отмечены, а правки старых строк остаются. Ключ
+ * вводится здесь, потому что агент видит в сети только адрес и протокол: код
+ * доступа Bambu и ключ Moonraker с авторизацией знает лишь мастер.
  *
  * После успеха окно закрывает родитель: страницу мастер обновляет сам
  * (`router.refresh()`), а вкладка показывает тост и оставляет ту же строку в
@@ -599,6 +604,14 @@ export function DiscoverPrintersDialog({
    * агента. Пустое значение — «ключ не нужен».
    */
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  /**
+   * Бренд и модель, введённые мастером: ключ — адрес, значение — правка поверх
+   * подсказки. Сеть бренда не знает, а без бренда и модели проверка
+   * совместимости 3MF не сработает — поэтому поля редактируются здесь, а не
+   * только в карточке принтера.
+   */
+  const [brands, setBrands] = useState<Record<string, string>>({});
+  const [models, setModels] = useState<Record<string, string>>({});
   /** Снятые отметки: ключ — адрес, отсутствие ключа значит «выбран». */
   const [unselected, setUnselected] = useState<Record<string, boolean>>({});
   const [isPending, setIsPending] = useState(false);
@@ -764,12 +777,36 @@ export function DiscoverPrintersDialog({
   const nameOf = (printer: DiscoveredPrinter) =>
     names[printer.ipAddress] ?? discoveredPrinterName(printer);
   const apiKeyOf = (ipAddress: string) => apiKeys[ipAddress] ?? "";
+  /**
+   * Бренд и модель строки: правка мастера, иначе подсказка
+   * `suggestPrinterIdentity()` — бренд по протоколу, модель из `PRINTER_PRESETS`
+   * по имени, которое принтер назвал сам.
+   */
+  const identityOf = (printer: DiscoveredPrinter) => {
+    const suggested = suggestPrinterIdentity(printer);
+
+    return {
+      brand: brands[printer.ipAddress] ?? suggested.brand,
+      model: models[printer.ipAddress] ?? suggested.model,
+    };
+  };
 
   const chosen = found.filter((printer) => isChosen(printer.ipAddress));
   const allChosen = found.length > 0 && chosen.length === found.length;
   const namelessChosen = chosen.filter(
     (printer) => nameOf(printer).trim().length === 0,
   );
+  /**
+   * Выбранные принтеры без бренда и модели: для них проверка совместимости 3MF
+   * промолчит, и мастер узнает об этом только при загрузке файла. Отправлять их
+   * всё равно можно — payload подставит заглушку «Неизвестно · Найден по сети»,
+   * а поправить данные получится в карточке принтера.
+   */
+  const unknownIdentityChosen = chosen.filter((printer) => {
+    const identity = identityOf(printer);
+
+    return isPrinterIdentityUnknown(identity.brand, identity.model);
+  });
   const canSubmit = chosen.length > 0 && namelessChosen.length === 0 && !isPending;
 
   /**
@@ -805,11 +842,17 @@ export function DiscoverPrintersDialog({
     setIsPending(true);
 
     const result = await approveDiscoveredPrinters(
-      chosen.map((printer) => ({
-        ip_address: printer.ipAddress,
-        name: nameOf(printer),
-        api_key: apiKeyOf(printer.ipAddress),
-      })),
+      chosen.map((printer) => {
+        const identity = identityOf(printer);
+
+        return {
+          ip_address: printer.ipAddress,
+          name: nameOf(printer),
+          brand: identity.brand,
+          model: identity.model,
+          api_key: apiKeyOf(printer.ipAddress),
+        };
+      }),
     );
 
     setIsPending(false);
@@ -1026,6 +1069,22 @@ export function DiscoverPrintersDialog({
               </p>
             </div>
 
+            {/*
+              Справочники брендов и моделей на весь список: id datalist уникален в
+              документе, а `<input list>` ссылается на него по имени. Модель — без
+              бренда в значении, потому что бренд стоит отдельным полем.
+            */}
+            <datalist id="farm-wizard-printer-brands">
+              {PRINTER_BRAND_OPTIONS.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
+            <datalist id="farm-wizard-printer-models">
+              {PRINTER_PRESETS.map((item) => (
+                <option key={`${item.brand}-${item.model}`} value={item.model} />
+              ))}
+            </datalist>
+
             <ul className="mt-4 space-y-2">
               {found.map((printer, index) => {
                 const checkboxId = `farm-wizard-printer-${index}`;
@@ -1102,6 +1161,68 @@ export function DiscoverPrintersDialog({
                           }}
                           className={inputClassName}
                         />
+                        {/*
+                          Бренд и модель: сеть их не знает, а без них проверка
+                          совместимости 3MF не сработает. Значения предзаполнены
+                          подсказкой `suggestPrinterIdentity()` и правятся здесь
+                          же — до того, как принтер попадёт в парк.
+                        */}
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          <div>
+                            <label
+                              htmlFor={`${checkboxId}-brand`}
+                              className="text-[11px] font-semibold text-zinc-400"
+                            >
+                              Бренд
+                            </label>
+                            <input
+                              id={`${checkboxId}-brand`}
+                              type="text"
+                              autoComplete="off"
+                              list="farm-wizard-printer-brands"
+                              maxLength={PRINTER_TEXT_LIMITS.brand}
+                              disabled={!checked}
+                              value={identityOf(printer).brand}
+                              onChange={(event) => {
+                                const next = event.currentTarget.value;
+
+                                setBrands((prev) => ({
+                                  ...prev,
+                                  [printer.ipAddress]: next,
+                                }));
+                              }}
+                              placeholder="Bambu Lab"
+                              className={inputClassName}
+                            />
+                          </div>
+                          <div>
+                            <label
+                              htmlFor={`${checkboxId}-model`}
+                              className="text-[11px] font-semibold text-zinc-400"
+                            >
+                              Модель
+                            </label>
+                            <input
+                              id={`${checkboxId}-model`}
+                              type="text"
+                              autoComplete="off"
+                              list="farm-wizard-printer-models"
+                              maxLength={PRINTER_TEXT_LIMITS.model}
+                              disabled={!checked}
+                              value={identityOf(printer).model}
+                              onChange={(event) => {
+                                const next = event.currentTarget.value;
+
+                                setModels((prev) => ({
+                                  ...prev,
+                                  [printer.ipAddress]: next,
+                                }));
+                              }}
+                              placeholder="X1C"
+                              className={inputClassName}
+                            />
+                          </div>
+                        </div>
                         <label
                           htmlFor={`${checkboxId}-key`}
                           className="sr-only"
@@ -1150,6 +1271,16 @@ export function DiscoverPrintersDialog({
               <p className="mt-3 text-xs leading-relaxed text-amber-300">
                 Дайте имя всем выбранным принтерам: без него карточка в парке
                 будет безымянной.
+              </p>
+            ) : null}
+
+            {unknownIdentityChosen.length > 0 ? (
+              <p className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
+                <span aria-hidden>⚠️ </span>
+                Без бренда и модели проверка совместимости 3MF не сработает:
+                заполните оба поля у выбранных принтеров — по ним файл сверяется
+                с профилем слайсера. Поправить можно и позже, в карточке
+                принтера.
               </p>
             ) : null}
 

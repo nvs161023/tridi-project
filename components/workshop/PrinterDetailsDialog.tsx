@@ -16,8 +16,14 @@ import {
   getMaintenanceGuide,
   type MaintenanceTopic,
 } from "@/lib/workshop/maintenance-guides";
-import { findPrinterPresetByModel } from "@/lib/workshop/printer-presets";
 import {
+  PRINTER_BRAND_OPTIONS,
+  PRINTER_PRESETS,
+  findPrinterPresetByModel,
+} from "@/lib/workshop/printer-presets";
+import {
+  DISCOVERED_PRINTER_BRAND,
+  DISCOVERED_PRINTER_MODEL,
   PRINTER_ADDRESS_MAX,
   PRINTER_PROTOCOL_CAPABILITIES,
   PRINTER_PROTOCOL_OPTIONS,
@@ -28,6 +34,7 @@ import {
   formatPrinterHours,
   formatPrinterLastSeen,
   formatPrinterProtocol,
+  isPrinterIdentityUnknown,
   printerConnectionSpec,
   printerMaintenanceLevel,
   printerMaintenancePercent,
@@ -45,12 +52,19 @@ import {
  *
  * Блоков два, как у самих действий: «Обслуживание» — только чтение, данные уже
  * пришли с сервера (`WorkshopPrinter`); «Подключение» — форма полей протокола и
- * Server Action `updatePrinter`. Набор полей берётся из `PRINTER_CONNECTION_SPECS`
- * — того же справочника, что у окна добавления: ключ доступа, серийный номер,
- * Check Code FlashForge, логин-пароль и Device ID/Mode ID Anycubic. Секреты в
- * браузер не возвращаются, поэтому поля показываются пустыми, а пустое поле
- * значит «оставить сохранённое». Удаление стоит отдельным блоком внизу: это
- * редкое и необратимое действие, ему не место рядом с «Сохранить».
+ * Server Action `updatePrinter`. Сверху этой формы стоит «Карточка принтера»:
+ * имя, бренд и модель. Бренд с моделью правятся здесь, потому что по ним
+ * проверка совместимости 3MF сверяет файл с профилем слайсера, а принтер из
+ * автообнаружения приходит с заглушкой «Неизвестно · Найден по сети» — раньше
+ * исправить это можно было только удалив принтер. Набор полей подключения
+ * берётся из `PRINTER_CONNECTION_SPECS` — того же справочника, что у окна
+ * добавления: ключ доступа, серийный номер, Check Code FlashForge, логин-пароль
+ * и Device ID/Mode ID Anycubic. Секреты в браузер не возвращаются, поэтому поля
+ * показываются пустыми, а пустое поле значит «оставить сохранённое». Кнопка
+ * «Сохранить» одна на весь блок: визитка и подключение уходят одним
+ * `updatePrinter`, и введённое не теряется при переключении вкладок. Удаление
+ * стоит отдельным блоком внизу: это редкое и необратимое действие, ему не место
+ * рядом с «Сохранить».
  */
 
 type PrinterDetailsDialogProps = {
@@ -123,6 +137,14 @@ export function PrinterDetailsDialog({
   const [protocol, setProtocol] = useState<PrinterProtocol>(
     printer.protocolType,
   );
+  /**
+   * Имя, бренд и модель правятся в самой карточке. Поля управляемые: янтарное
+   * предупреждение о совместимости 3MF должно гаснуть сразу, как мастер впишет
+   * бренд и модель, а не после сохранения и перезагрузки страницы.
+   */
+  const [name, setName] = useState(printer.name);
+  const [brand, setBrand] = useState(printer.brand);
+  const [model, setModel] = useState(printer.model);
   const [fieldErrors, setFieldErrors] = useState<PrinterFormErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -145,7 +167,23 @@ export function PrinterDetailsDialog({
 
   useDialogDismiss(closeDialog);
 
-  const model = [printer.brand, printer.model].filter(Boolean).join(" ");
+  /** Подпись модели из сохранённых значений: по ней ищется регламент ТО. */
+  const modelLabel = [printer.brand, printer.model].filter(Boolean).join(" ");
+  /** Та же подпись из текущих полей: под именем в шапке обновляется сразу. */
+  const identityLabel = [brand, model]
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .join(" ");
+  /**
+   * Бренд и модель — заглушки автообнаружения или пустые: ровно тот случай, когда
+   * проверка совместимости 3MF не сработает. Подсвечиваем виновное поле, а не
+   * только весь блок, — мастеру видно, что именно вписать.
+   */
+  const isBrandMissing =
+    brand.trim().length === 0 || brand.trim() === DISCOVERED_PRINTER_BRAND;
+  const isModelMissing =
+    model.trim().length === 0 || model.trim() === DISCOVERED_PRINTER_MODEL;
+  const identityUnknown = isPrinterIdentityUnknown(brand, model);
   /**
    * Поля подключения выбранного протокола: тот же справочник
    * `PRINTER_CONNECTION_SPECS`, по которому рисуется окно добавления. Поэтому и
@@ -155,7 +193,7 @@ export function PrinterDetailsDialog({
   const spec = printerConnectionSpec(protocol);
   const guide = getMaintenanceGuide(printer.brand, printer.model);
   const preset =
-    findPrinterPresetByModel(model) ||
+    findPrinterPresetByModel(modelLabel) ||
     findPrinterPresetByModel(printer.model || "");
   const nodes: MaintenanceNode[] = [
     {
@@ -285,10 +323,10 @@ export function PrinterDetailsDialog({
               id="printer-details-heading"
               className="mt-3 text-2xl font-extrabold tracking-tight break-words text-white"
             >
-              {printer.name}
+              {name.trim() || printer.name}
             </h2>
             <p className="mt-1 text-xs text-zinc-500">
-              {model || "Модель не указана"} ·{" "}
+              {identityLabel || "Модель не указана"} ·{" "}
               {formatPrinterHours(printer.totalHours)} всего
             </p>
             {/*
@@ -485,7 +523,7 @@ export function PrinterDetailsDialog({
             ) : (
               <div data-printer-guide className="mt-4 space-y-4">
                 <p className="text-sm leading-relaxed text-zinc-400">
-                  Для модели «{model || "без названия"}» отдельной инструкции
+                  Для модели «{modelLabel || "без названия"}» отдельной инструкции
                   пока нет — ниже универсальные советы. Интервалы взяты из
                   карточки принтера, их можно было поправить при добавлении.
                 </p>
@@ -525,8 +563,9 @@ export function PrinterDetailsDialog({
         >
           <p className="text-sm leading-relaxed text-zinc-400">
             Агент фермы подключается к принтеру напрямую: адрес, протокол и
-            ключ уходят только ему. Имя, модель и интервалы обслуживания здесь
-            не меняются — их задают при добавлении принтера.
+            ключ уходят только ему. Имя, бренд и модель правятся здесь же —
+            интервалы обслуживания не меняются: их задают при добавлении
+            принтера.
           </p>
 
           {/*
@@ -588,6 +627,148 @@ export function PrinterDetailsDialog({
             data-printer-connection-form
             className="mt-4 space-y-4"
           >
+            {/*
+              «Карточка принтера»: имя, бренд и модель. Бренд с моделью нужны не
+              для красоты — по ним проверка совместимости 3MF сверяет файл с
+              профилем слайсера, а принтер из автообнаружения приходит с
+              заглушкой «Неизвестно · Найден по сети». Поэтому блок стоит первым,
+              а кнопка «Сохранить» внизу одна: визитка и подключение уходят одним
+              `updatePrinter`, и введённое не теряется при переключении вкладок.
+            */}
+            <fieldset className="space-y-4 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-4">
+              <legend className="px-1 text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase">
+                Карточка принтера
+              </legend>
+
+              <div>
+                <label
+                  htmlFor="printer-connection-name"
+                  className={labelClassName}
+                >
+                  Имя
+                </label>
+                <input
+                  id="printer-connection-name"
+                  name="name"
+                  type="text"
+                  autoComplete="off"
+                  required
+                  maxLength={PRINTER_TEXT_LIMITS.name}
+                  value={name}
+                  onChange={(event) => setName(event.currentTarget.value)}
+                  placeholder="Мой Ender"
+                  aria-describedby="printer-connection-name-hint"
+                  aria-invalid={fieldErrors.name ? true : undefined}
+                  className={inputClassName}
+                />
+                <p id="printer-connection-name-hint" className={hintClassName}>
+                  Как принтер называется в парке: по имени его ищут в заказах.
+                </p>
+                {fieldErrors.name ? (
+                  <p className={fieldErrorClassName}>{fieldErrors.name}</p>
+                ) : null}
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="printer-connection-brand"
+                    className={labelClassName}
+                  >
+                    Бренд
+                  </label>
+                  <input
+                    id="printer-connection-brand"
+                    name="brand"
+                    type="text"
+                    autoComplete="off"
+                    list="printer-details-brands"
+                    required
+                    maxLength={PRINTER_TEXT_LIMITS.brand}
+                    value={brand}
+                    onChange={(event) => setBrand(event.currentTarget.value)}
+                    placeholder="Bambu Lab"
+                    aria-describedby="printer-connection-brand-hint"
+                    aria-invalid={fieldErrors.brand ? true : undefined}
+                    className={`${inputClassName}${
+                      isBrandMissing ? " ring-1 ring-amber-500/50" : ""
+                    }`}
+                  />
+                  <datalist id="printer-details-brands">
+                    {PRINTER_BRAND_OPTIONS.map((option) => (
+                      <option key={option} value={option} />
+                    ))}
+                  </datalist>
+                  <p
+                    id="printer-connection-brand-hint"
+                    className={hintClassName}
+                  >
+                    Из списка или свой: по бренду и модели слайсер узнаёт
+                    принтер.
+                  </p>
+                  {fieldErrors.brand ? (
+                    <p className={fieldErrorClassName}>{fieldErrors.brand}</p>
+                  ) : null}
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="printer-connection-model"
+                    className={labelClassName}
+                  >
+                    Модель
+                  </label>
+                  <input
+                    id="printer-connection-model"
+                    name="model"
+                    type="text"
+                    autoComplete="off"
+                    list="printer-details-models"
+                    required
+                    maxLength={PRINTER_TEXT_LIMITS.model}
+                    value={model}
+                    onChange={(event) => setModel(event.currentTarget.value)}
+                    placeholder="X1C"
+                    aria-describedby="printer-connection-model-hint"
+                    aria-invalid={fieldErrors.model ? true : undefined}
+                    className={`${inputClassName}${
+                      isModelMissing ? " ring-1 ring-amber-500/50" : ""
+                    }`}
+                  />
+                  <datalist id="printer-details-models">
+                    {PRINTER_PRESETS.map((item) => (
+                      <option
+                        key={`${item.brand}-${item.model}`}
+                        value={item.model}
+                      />
+                    ))}
+                  </datalist>
+                  <p
+                    id="printer-connection-model-hint"
+                    className={hintClassName}
+                  >
+                    Например, X1C или MK4 — так же, как модель называется в
+                    слайсере.
+                  </p>
+                  {fieldErrors.model ? (
+                    <p className={fieldErrorClassName}>{fieldErrors.model}</p>
+                  ) : null}
+                </div>
+              </div>
+
+              {identityUnknown ? (
+                <p
+                  data-printer-identity-warning
+                  className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100"
+                >
+                  <span aria-hidden>⚠️ </span>
+                  Без бренда и модели проверка совместимости 3MF не сработает:
+                  заполните оба поля — по ним файл сверяется с профилем
+                  слайсера.
+                </p>
+              ) : null}
+            </fieldset>
+
             <div>
               <label
                 htmlFor="printer-connection-protocol"
@@ -819,8 +1000,8 @@ export function PrinterDetailsDialog({
                 {isSaving ? "Сохраняем…" : "Сохранить"}
               </button>
               <p className="text-xs text-zinc-500">
-                После сохранения страница обновится: карточка покажет новый
-                адрес.
+                После сохранения страница обновится: карточка покажет новое имя,
+                бренд, модель и адрес.
               </p>
             </div>
           </form>

@@ -42,7 +42,7 @@ export type PrinterConnectionState = {
   error?: string;
   /** Ошибки конкретных полей подключения. */
   fieldErrors?: PrinterFormErrors;
-  /** Что показать после успеха: «Подключение «X1C» сохранено.» */
+  /** Что показать после успеха: «Карточка «X1C» сохранена.» */
   message?: string;
 };
 

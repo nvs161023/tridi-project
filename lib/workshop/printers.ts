@@ -17,6 +17,7 @@ import {
   type PrinterProtocol,
   type PrinterSecrets,
 } from "@/lib/db/workshop-types";
+import { findPrinterPresetByModel } from "@/lib/workshop/printer-presets";
 import {
   formatWorkshopLimit,
   parseWorkshopNumber,
@@ -656,6 +657,63 @@ export const DISCOVERED_PRINTERS_LIMIT = 200;
 export const DISCOVERED_PRINTER_BRAND = "Неизвестно";
 export const DISCOVERED_PRINTER_MODEL = "Найден по сети";
 
+/**
+ * Бренд, который подсказывает протокол: у Moonraker и OctoPrint своего бренда нет
+ * (это прошивки, а не производители), поэтому для них подсказка пустая.
+ */
+const PROTOCOL_BRANDS: Partial<Record<PrinterProtocol, string>> = {
+  bambu: "Bambu Lab",
+  prusa: "Prusa",
+  creality: "Creality",
+  anycubic: "Anycubic",
+  elegoo: "Elegoo",
+  flashforge: "FlashForge",
+};
+
+/**
+ * Подсказка «Бренд» и «Модель» для находки мастера фермы.
+ *
+ * Сеть знает только адрес и протокол, а проверка совместимости 3MF сравнивает
+ * бренд и модель с профилем слайсера — без них она не сработает. Поэтому бренд
+ * берётся из протокола (Bambu отвечает только Bambu Lab), а модель — из
+ * справочника `PRINTER_PRESETS` по имени, которое принтер назвал сам: «Bambu Lab
+ * P1S» и «P1S» дают одну модель. Не совпало — модель остаётся пустой, и мастер
+ * впишет её сам; выдумывать «X1C» на основании протокола нельзя.
+ */
+export function suggestPrinterIdentity(printer: {
+  protocolType: PrinterProtocol;
+  name: string | null;
+}): { brand: string; model: string } {
+  const preset = findPrinterPresetByModel(printer.name ?? "");
+
+  return {
+    brand: preset?.brand ?? PROTOCOL_BRANDS[printer.protocolType] ?? "",
+    model: preset?.model ?? "",
+  };
+}
+
+/**
+ * Бренд и модель не заполнены или остались заглушкой автообнаружения.
+ *
+ * Проверка совместимости 3MF сравнивает их с профилем слайсера, поэтому
+ * «Неизвестно · Найден по сети» для неё то же самое, что пустое поле: мастер
+ * должен видеть предупреждение, а не молчаливый отказ при загрузке файла.
+ */
+export function isPrinterIdentityUnknown(
+  brand: string,
+  model: string,
+): boolean {
+  const brandText = brand.trim();
+  const modelText = model.trim();
+
+  return (
+    brandText.length === 0 ||
+    modelText.length === 0 ||
+    brandText === DISCOVERED_PRINTER_BRAND ||
+    modelText === DISCOVERED_PRINTER_MODEL
+  );
+}
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -800,7 +858,13 @@ export type DiscoveredPrinterDraft = {
 };
 
 /**
- * Принтер, которого мастер подтвердил: к адресу добавлены имя и ключ.
+ * Принтер, которого мастер подтвердил: к адресу добавлены имя, бренд, модель и
+ * ключ.
+ *
+ * `brand` и `model` мастер видит предзаполненными подсказкой
+ * `suggestPrinterIdentity()` и может поправить: бренд и модель нужны проверке
+ * совместимости 3MF, а сеть их не знает. Пустые строки допустимы — payload
+ * подставит пресет по имени или заглушку «Неизвестно · Найден по сети».
  *
  * `apiKey` — то, что мастер ввёл в окне мастера подключения (или пустая строка,
  * если не вводил). Секрет: значение уходит только в базу, в браузер не
@@ -809,6 +873,8 @@ export type DiscoveredPrinterDraft = {
 export type ApprovedPrinterDraft = {
   ipAddress: string;
   name: string;
+  brand: string;
+  model: string;
   apiKey: string | null;
 };
 
@@ -901,13 +967,18 @@ export function readDiscoveredPrinters(
 
 /**
  * Список на подтверждение от мастера
- * `[{ "ip_address": ..., "name": ..., "api_key": ... }]`.
+ * `[{ "ip_address": ..., "name": ..., "brand": ..., "model": ..., "api_key": ... }]`.
  *
  * Подтверждается только принтер с именем: без имени карточка в парке была бы
  * безымянной, а мастер всё равно должен понимать, какой адрес он добавляет.
  * Строка без имени, с нечитаемым адресом или повтором адреса отбрасывается и
  * считается в `skipped`: список мог устареть, пока агент пересканировал сеть.
  * Имя длиннее предела колонки обрезается, а не роняет всю пачку.
+ *
+ * `brand` и `model` необязательны: мастер видит их предзаполненными подсказкой
+ * `suggestPrinterIdentity()`, но мог и стереть. Пустые строки не отбрасывают
+ * находку — `createDiscoveredPrinterPayload` подставит пресет по имени или
+ * заглушку «Неизвестно · Найден по сети».
  *
  * `api_key` необязателен: пустое поле — «ключа нет» (в базе null). Слишком
  * длинный ключ не обрезается: усечённый секрет — это неверный секрет, принтер
@@ -933,6 +1004,14 @@ export function readApprovedPrinters(
       row && typeof row.name === "string"
         ? row.name.trim().slice(0, PRINTER_TEXT_LIMITS.name)
         : "";
+    const brand =
+      row && typeof row.brand === "string"
+        ? row.brand.trim().slice(0, PRINTER_TEXT_LIMITS.brand)
+        : "";
+    const model =
+      row && typeof row.model === "string"
+        ? row.model.trim().slice(0, PRINTER_TEXT_LIMITS.model)
+        : "";
 
     if (
       ipAddress === null ||
@@ -948,6 +1027,8 @@ export function readApprovedPrinters(
     drafts.push({
       ipAddress,
       name,
+      brand,
+      model,
       apiKey: normalizePrinterApiKey(row?.api_key),
     });
   }
@@ -1233,20 +1314,17 @@ function readConnectionFields(
 
 
 /**
- * Форма «Добавить принтер» → проверенные значения.
+ * Имя, бренд и модель принтера — общая часть формы добавления и карточки.
  *
- * Бренд и модель — свободный текст: справочник `PRINTER_PRESETS` только
- * подставляет интервалы в форме, а модель может быть любой. Сервер проверяет
- * длину названий и интервалы теми же пределами, что SQL.
- *
- * Адрес обязателен: агент подключается к принтеру напрямую, и без `ip_address`
- * карточка в парке осталась бы мёртвой. Остальные поля подключения зависят от
- * протокола (`PRINTER_CONNECTION_SPECS`): ключ API или код доступа, SN,
- * `checkCode`, логин-пароль. Пустое поле ключа становится null, потому что
- * check-ограничение миграции не принимает пустую строку.
+ * Колонки name/brand/model обязательные (1…60, 1…40 и 1…60 символов в
+ * `supabase/workshop_printers_orders.sql`), поэтому пустое поле — ошибка в обеих
+ * формах. Одна функция на два разбора: карточка принтера больше не «только
+ * подключение», и проверки не должны разъезжаться с формой добавления.
  */
-export function readPrinterForm(formData: FormData): {
-  draft: PrinterDraft | null;
+function readPrinterIdentity(formData: FormData): {
+  name: string;
+  brand: string;
+  model: string;
   errors: PrinterFormErrors;
 } {
   const errors: PrinterFormErrors = {};
@@ -1274,6 +1352,33 @@ export function readPrinterForm(formData: FormData): {
   } else if (model.length > PRINTER_TEXT_LIMITS.model) {
     errors.model = `Не больше ${PRINTER_TEXT_LIMITS.model} символов.`;
   }
+
+  return { name, brand, model, errors };
+}
+
+/**
+ * Форма «Добавить принтер» → проверенные значения.
+ *
+ * Бренд и модель — свободный текст: справочник `PRINTER_PRESETS` только
+ * подставляет интервалы в форме, а модель может быть любой. Сервер проверяет
+ * длину названий и интервалы теми же пределами, что SQL.
+ *
+ * Адрес обязателен: агент подключается к принтеру напрямую, и без `ip_address`
+ * карточка в парке осталась бы мёртвой. Остальные поля подключения зависят от
+ * протокола (`PRINTER_CONNECTION_SPECS`): ключ API или код доступа, SN,
+ * `checkCode`, логин-пароль. Пустое поле ключа становится null, потому что
+ * check-ограничение миграции не принимает пустую строку.
+ */
+export function readPrinterForm(formData: FormData): {
+  draft: PrinterDraft | null;
+  errors: PrinterFormErrors;
+} {
+  const errors: PrinterFormErrors = {};
+
+  const identity = readPrinterIdentity(formData);
+  Object.assign(errors, identity.errors);
+
+  const { name, brand, model } = identity;
 
   // Протокол приходит из `<select>`. Незнакомое значение — не повод терять
   // принтер: Moonraker — и default колонки в миграции, и самый частый выбор.
@@ -1418,12 +1523,17 @@ export function readPrinterProbeForm(formData: FormData): {
 /**
  * Проверенный ввод формы «Подключение» в карточке принтера.
  *
- * Отличается от `PrinterDraft` тем, что имя, бренд, модель и интервалы
- * обслуживания карточка не меняет — их задают при добавлении. Ключ доступа и
- * секреты протокола приходят пустыми, когда мастер их не трогал: пустая строка
- * означает «оставь сохранённый секрет», а не «сотри ключ».
+ * Отличается от `PrinterDraft` тем, что интервалы обслуживания карточка не
+ * меняет — их задают при добавлении. Имя, бренд и модель наоборот правятся
+ * здесь: бренд и модель нужны проверке совместимости 3MF, а принтер из
+ * автообнаружения приходит с заглушкой «Неизвестно · Найден по сети». Ключ
+ * доступа и секреты протокола приходят пустыми, когда мастер их не трогал:
+ * пустая строка означает «оставь сохранённый секрет», а не «сотри ключ».
  */
 export type PrinterConnectionDraft = {
+  name: string;
+  brand: string;
+  model: string;
   protocolType: PrinterProtocol;
   ipAddress: string;
   /** SN для Bambu и FlashForge; пустая строка — в базе null. */
@@ -1440,9 +1550,10 @@ export type PrinterConnectionDraft = {
 /**
  * Разбор формы «Подключение».
  *
- * Проверки те же, что у формы добавления (`normalizePrinterAddress`, длина SN и
- * ключа из `PRINTER_TEXT_LIMITS`, поля протокола из `PRINTER_CONNECTION_SPECS`),
- * но протокол здесь обязателен: при добавлении незнакомое значение молча
+ * Проверки те же, что у формы добавления (имя, бренд и модель из
+ * `readPrinterIdentity`, `normalizePrinterAddress`, длина SN и ключа из
+ * `PRINTER_TEXT_LIMITS`, поля протокола из `PRINTER_CONNECTION_SPECS`), но
+ * протокол здесь обязателен: при добавлении незнакомое значение молча
  * становилось moonraker, а при правке это означало бы «смени протокол» — принтер
  * перестал бы отвечать агенту.
  *
@@ -1455,6 +1566,9 @@ export function readPrinterConnectionForm(formData: FormData): {
   errors: PrinterFormErrors;
 } {
   const errors: PrinterFormErrors = {};
+
+  const identity = readPrinterIdentity(formData);
+  Object.assign(errors, identity.errors);
 
   const protocol = readFormText(formData.get("protocol"));
 
@@ -1482,6 +1596,9 @@ export function readPrinterConnectionForm(formData: FormData): {
 
   return {
     draft: {
+      name: identity.name,
+      brand: identity.brand,
+      model: identity.model,
       protocolType,
       ipAddress,
       serialNumber: connection.serialNumber,

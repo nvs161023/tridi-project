@@ -212,13 +212,18 @@ export function createPrinterPayload(
 /**
  * Что уходит в `from("workshop_printers").update(...)` из карточки принтера.
  *
- * Меняются только параметры подключения: имя, бренд, модель и интервалы
- * обслуживания правят при добавлении, а счётчики — кнопками «Заменить сопло» и
- * «Смазать». Ключ доступа попадает в payload только когда мастер ввёл новый:
- * пустое поле означает «оставь как было», а не «сотри», и старый секрет в
- * браузер вообще не приходит.
+ * Карточка правит подключение и «визитку» принтера — имя, бренд и модель:
+ * бренд с моделью нужны проверке совместимости 3MF, а принтер из
+ * автообнаружения приходит с заглушкой «Неизвестно · Найден по сети». Интервалы
+ * обслуживания и счётчики не трогаются — иначе правка адреса сбрасывала бы
+ * обслуживание, а правка ключа — наработку. Ключ доступа попадает в payload
+ * только когда мастер ввёл новый: пустое поле означает «оставь как было», а не
+ * «сотри», и старый секрет в браузер вообще не приходит.
  */
 export type PrinterConnectionPayload = {
+  name: string;
+  brand: string;
+  model: string;
   protocol_type: PrinterProtocol;
   serial_number: string | null;
   ip_address: string;
@@ -232,11 +237,14 @@ export type PrinterConnectionPayload = {
   printer_secrets: PrinterSecrets | null;
 };
 
-/** Правка подключения: пустой SN — null, пустой ключ — колонку не трогаем. */
+/** Правка карточки: пустой SN — null, пустой ключ — колонку не трогаем. */
 export function createPrinterConnectionPayload(
   draft: PrinterConnectionDraft,
 ): PrinterConnectionPayload {
   return {
+    name: draft.name,
+    brand: draft.brand,
+    model: draft.model,
     protocol_type: draft.protocolType,
     serial_number: draft.serialNumber || null,
     ip_address: draft.ipAddress,
@@ -268,14 +276,15 @@ export type DiscoveredPrinterPayload = WorkshopPrinterPayload & {
  * Принтер из автообнаружения → строка парка.
  *
  * Сеть знает адрес, протокол и — у Bambu — серийный номер, а бренд и модель в
- * workshop_printers обязательные. Поэтому они берутся из справочника, если
- * мастер назвал принтер как в пресете («Bambu Lab P1S»): заодно подставляются
- * интервалы ТО этой модели. Не совпало — «Неизвестно · Найден по сети» и
- * интервалы по умолчанию, как у формы без выбранной модели: карточка не должна
- * показывать чужой регламент. Номер приходит из SSDP-ответа принтера; null —
- * не пришёл, и адаптер найдёт его сам при подключении. Ключ приходит из окна
- * подтверждения или из находки агента; null — ключ не указан, и адаптер
- * попробует подключиться без него (пустая строка в базе недопустима).
+ * workshop_printers обязательные. Мастер видит их предзаполненными подсказкой
+ * `suggestPrinterIdentity()` и может поправить, поэтому введённое важнее
+ * пресета: пустое поле бренда или модели заменяется значением из справочника,
+ * если имя совпало с пресетом («Bambu Lab P1S»), а иначе — «Неизвестно ·
+ * Найден по сети». Интервалы ТО по-прежнему берутся из пресета только по имени:
+ * карточка не должна показывать чужой регламент. Номер приходит из SSDP-ответа
+ * принтера; null — не пришёл, и адаптер найдёт его сам при подключении. Ключ
+ * приходит из окна подтверждения или из находки агента; null — ключ не указан,
+ * и адаптер попробует подключиться без него (пустая строка в базе недопустима).
  */
 export function createDiscoveredPrinterPayload(
   userId: string,
@@ -289,8 +298,8 @@ export function createDiscoveredPrinterPayload(
   return {
     user_id: userId,
     name: draft.name,
-    brand: preset?.brand ?? DISCOVERED_PRINTER_BRAND,
-    model: preset?.model ?? DISCOVERED_PRINTER_MODEL,
+    brand: draft.brand || preset?.brand || DISCOVERED_PRINTER_BRAND,
+    model: draft.model || preset?.model || DISCOVERED_PRINTER_MODEL,
     protocol_type: protocolType,
     serial_number: serialNumber,
     ip_address: draft.ipAddress,
