@@ -14,6 +14,7 @@ export const metadata: Metadata = {
   title: "Политика использования cookie",
   description:
     "Какие cookie использует сервис TriDi: необходимые для авторизации, аналитические cookie Яндекс.Метрики и Google Analytics 4 и пиксель VK Рекламы — все они подключаются только после согласия «Принять все» в баннере. Как отключить cookie и изменить свой выбор.",
+  alternates: { canonical: "/legal/cookies" },
 };
 
 /**

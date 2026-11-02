@@ -19,6 +19,7 @@ export const metadata: Metadata = {
   title: "Публичная оферта",
   description:
     "Условия покупки курсов TriDi и пакета «Всё включено»: разовый доступ навсегда, порядок оплаты через Robokassa, чеки НПД, возврат средств и возрастное ограничение 18+.",
+  alternates: { canonical: "/legal/offer" },
 };
 
 /** Цена из data/courses.json — того же источника, что и на странице тарифов. */
