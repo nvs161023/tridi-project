@@ -34,6 +34,7 @@ import {
   PRINTER_PROTOCOL_OPTIONS,
   PRINTER_TEXT_LIMITS,
   defaultDiscoveredPrinterName,
+  discoveredPrinterName,
   type DiscoveredPrinter,
 } from "@/lib/workshop/printers";
 
@@ -63,8 +64,10 @@ import {
  * SN и ключ доступа и вызывает то же действие `addPrinter`, что и окно парка.
  *
  * Выбор, имена и ключи доступа хранятся как «правки поверх умолчаний»: отмечено
- * всё, что в списке, имя по умолчанию — `Принтер 192.168.1.50`, ключ — пустой.
- * Поэтому обновление списка не ломает уже введённое: новые находки сразу видны и
+ * всё, что в списке, имя по умолчанию — то, что принтер назвал сам
+ * (`printer.name`: хост Moonraker, подпись Creality, имя FlashForge, серийник
+ * Bambu), а если не назвал — `Принтер 192.168.1.50`. Ключ — пустой. Поэтому
+ * обновление списка не ломает уже введённое: новые находки сразу видны и
  * отмечены, а правки старых строк остаются. Ключ вводится здесь, потому что
  * агент видит в сети только адрес и протокол: код доступа Bambu и ключ Moonraker
  * с авторизацией знает лишь мастер.
@@ -753,14 +756,19 @@ export function DiscoverPrintersDialog({
   }
 
   const isChosen = (ipAddress: string) => !unselected[ipAddress];
-  const nameOf = (ipAddress: string) =>
-    names[ipAddress] ?? defaultDiscoveredPrinterName(ipAddress);
+  /**
+   * Имя строки: правка мастера, иначе — то, что принтер назвал сам, иначе
+   * «Принтер <адрес>». Без второго шага десяток находок подписан одинаково, и
+   * мастер не понимает, какой адрес подтверждает.
+   */
+  const nameOf = (printer: DiscoveredPrinter) =>
+    names[printer.ipAddress] ?? discoveredPrinterName(printer);
   const apiKeyOf = (ipAddress: string) => apiKeys[ipAddress] ?? "";
 
   const chosen = found.filter((printer) => isChosen(printer.ipAddress));
   const allChosen = found.length > 0 && chosen.length === found.length;
   const namelessChosen = chosen.filter(
-    (printer) => nameOf(printer.ipAddress).trim().length === 0,
+    (printer) => nameOf(printer).trim().length === 0,
   );
   const canSubmit = chosen.length > 0 && namelessChosen.length === 0 && !isPending;
 
@@ -799,7 +807,7 @@ export function DiscoverPrintersDialog({
     const result = await approveDiscoveredPrinters(
       chosen.map((printer) => ({
         ip_address: printer.ipAddress,
-        name: nameOf(printer.ipAddress),
+        name: nameOf(printer),
         api_key: apiKeyOf(printer.ipAddress),
       })),
     );
@@ -1051,6 +1059,14 @@ export function DiscoverPrintersDialog({
                           >
                             {printer.ipAddress}
                           </label>
+                          {printer.name ? (
+                            <span
+                              className="rounded-md border border-blue-400/30 bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-blue-100"
+                              title="Так принтер называет себя сам — по этой подписи его и узнают"
+                            >
+                              {printer.name}
+                            </span>
+                          ) : null}
                           <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-300 uppercase">
                             {PROTOCOL_LABELS[printer.protocolType]}
                           </span>
@@ -1075,7 +1091,7 @@ export function DiscoverPrintersDialog({
                           autoFocus={index === 0}
                           maxLength={PRINTER_TEXT_LIMITS.name}
                           disabled={!checked}
-                          value={nameOf(printer.ipAddress)}
+                          value={nameOf(printer)}
                           onChange={(event) => {
                             const next = event.currentTarget.value;
 

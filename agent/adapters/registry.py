@@ -112,6 +112,10 @@ class ProtocolSpec:
 
     `accepts_serial` — передаёт ли фабрика серийный номер в конструктор. Он нужен
     Bambu (топики MQTT) и FlashForge (заголовок `serialNumber` в каждом запросе).
+
+    `accepts_identity` — передаёт ли фабрика бренд и модель принтера из карточки
+    (`workshop_printers.brand`, `workshop_printers.model`). Нужны Bambu: по ним
+    `prepare_upload()` проверяет, что проект `.3mf` нарезан для этого принтера.
     """
 
     key: str
@@ -123,6 +127,7 @@ class ProtocolSpec:
     formats: tuple[str, ...]
     secrets: tuple[str, ...] = ()
     accepts_serial: bool = False
+    accepts_identity: bool = False
 
 
 # Наборы возможностей: минимум и полный контроль над заданием.
@@ -165,8 +170,16 @@ PROTOCOLS: Final[dict[str, ProtocolSpec]] = {
         ports=(8883, 990),
         discovery=DISCOVERY_SSDP,
         capabilities=_CONTROL,
-        formats=(".3mf", ".gcode"),
+        # Только проект `.3mf`: A1 не слайсит и не печатает плоский G-code, а
+        # STL — это модель для слайсера. Контейнер проверяет `formats.py`
+        # (`read_bambu_project`): внутри должен быть нарезанный G-code пластины
+        # и профиль Bambu Studio.
+        formats=(".3mf",),
         accepts_serial=True,
+        # Бренд и модель нужны для проверки совместимости проекта: файл,
+        # нарезанный для чужой модели, принтер либо отклонит, либо напечатает
+        # криво.
+        accepts_identity=True,
     ),
     "prusa": ProtocolSpec(
         key="prusa",

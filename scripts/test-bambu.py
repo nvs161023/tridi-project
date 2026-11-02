@@ -19,9 +19,9 @@
   7. ответ принтера на команду (`result`/`reason`) разбирается и не смешивается
      со статусом: отказ уходит в `last_error`, а не теряется, и `STANDBY` не
      превращается в `error`;
-  8. сырой `.gcode` пакуется в контейнер `.3mf` (внутри — `Metadata/plate_1.gcode`,
-     `Metadata/slice_info.config` и записи OPC-пакета), грузится под именем
-     `<задание>.3mf`, а временный контейнер удаляется;
+  8. проект `.3mf` из Bambu Studio уходит на карту как есть, адаптер помнит
+     запись пластины (`Metadata/plate_N.gcode`) для команды печати, а плоский
+     `.gcode` и STL отклоняются до сети с подсказкой о нарезке;
   9. `start_print()` отправляет `project_file` и считает печать запущенной только
      по ответу принтера;
   10. обрыв MQTT во время загрузки не убивает печать: `start_print()` ждёт
@@ -110,6 +110,26 @@ def expect_status(
         return
 
     check(name, status == expected, f"{status!r}")
+
+
+def write_bambu_project(
+    path: Path, printer_model: str = "Bambu Lab A1", plate: int = 1
+) -> Path:
+    """
+    `.3mf` в том виде, в каком его сохраняет Bambu Studio.
+
+    Внутри — нарезанный G-code пластины и профиль слайсера с моделью принтера:
+    именно это проверяет `formats.read_bambu_project()`. Такой файл адаптер
+    загружает как есть, а не пакует заново.
+    """
+    with zipfile.ZipFile(path, "w") as project:
+        project.writestr(f"Metadata/plate_{plate}.gcode", "; project\nG28\n")
+        project.writestr(
+            "Metadata/project_settings.config",
+            '{ "printer_model": "%s" }' % printer_model,
+        )
+
+    return path
 
 
 class FlakyUploadAdapter(bambu.BambuAdapter):
@@ -532,70 +552,71 @@ def main() -> int:
         repr(bambu._reply_error({})),
     )
 
-    check(
-        "_project_name: имя контейнера из имени задания",
-        bambu._project_name("job.gcode") == "job.3mf"
-        and bambu._project_name("8f1c-2.gcode") == "8f1c-2.3mf",
-        bambu._project_name("job.gcode"),
-    )
-
     project_payloads = bambu._project_file_payloads("job.3mf")
     check(
         "project_file: param внутри контейнера, url с карты",
         [item["url"] for item in project_payloads]
         == ["ftp:///cache/job.3mf", "ftp:///job.3mf"]
         and all(item["command"] == "project_file" for item in project_payloads)
-        and all(item["param"] == "Metadata/plate_1.gcode" for item in project_payloads),
+        and all(item["param"] == "Metadata/plate_1.gcode" for item in project_payloads)
+        and all(item["project_id"] == "0" for item in project_payloads)
+        and all(item["bed_levelling"] is True for item in project_payloads),
         f"{project_payloads!r}",
     )
 
-    # Плоский G-code A1 не печатает: перед загрузкой он пакуется в контейнер.
-    gcode_path = Path(tempfile.gettempdir()) / "tridi-bambu-pack.gcode"
-    gcode_path.write_text("; test\nG28\n", encoding="utf-8")
-    wrapped = ""
-    names: set[str] = set()
-    plate_bytes = b""
-    slice_info = ""
-    rels = ""
-    content_types = ""
-
-    try:
-        # Упаковка переехала в formats.py (этап 2): её видят все протоколы,
-        # которым нужен контейнер, а не только Bambu.
-        wrapped = formats.wrap_gcode_to_3mf(str(gcode_path), "pack.gcode")
-
-        with zipfile.ZipFile(wrapped) as container:
-            names = set(container.namelist())
-            plate_bytes = container.read("Metadata/plate_1.gcode")
-            slice_info = container.read("Metadata/slice_info.config").decode("utf-8")
-            rels = container.read("_rels/.rels").decode("utf-8")
-            content_types = container.read("[Content_Types].xml").decode("utf-8")
-    finally:
-        if wrapped:
-            Path(wrapped).unlink(missing_ok=True)
-
     check(
-        "контейнер .3mf собран из G-code",
-        names
-        == {
-            "Metadata/plate_1.gcode",
-            "Metadata/slice_info.config",
-            "Metadata/model_settings.config",
-            "3D/3dmodel.model",
-            "[Content_Types].xml",
-            "_rels/.rels",
-        }
-        and plate_bytes == gcode_path.read_bytes()
-        and 'name="index" value="1"' in slice_info
-        and 'Target="/Metadata/plate_1.gcode"' in rels,
-        f"{sorted(names)!r}, G-code {len(plate_bytes)} байт",
+        "project_file: param берётся из пластины проекта",
+        bambu._project_file_payloads("job.3mf", "Metadata/plate_2.gcode")[0]["param"]
+        == "Metadata/plate_2.gcode",
+        bambu._project_file_payloads("job.3mf", "Metadata/plate_2.gcode")[0]["param"],
     )
 
+    # Проект проверяется до сети: без нарезки и профиля слайсера прошивка его не
+    # разберёт, и лучше сказать об этом мастеру заранее.
+    project_path = write_bambu_project(
+        Path(tempfile.gettempdir()) / "tridi-bambu-project.3mf",
+        printer_model="Bambu Lab A1",
+        plate=2,
+    )
+
+    try:
+        project = formats.read_bambu_project(str(project_path))
+        check(
+            "read_bambu_project: пластина и модель принтера",
+            project.gcode_part == "Metadata/plate_2.gcode"
+            and project.plate == 2
+            and project.printer_model == "Bambu Lab A1",
+            f"{project!r}",
+        )
+    finally:
+        project_path.unlink(missing_ok=True)
+
+    unsliced_path = Path(tempfile.gettempdir()) / "tridi-bambu-model.3mf"
+
+    try:
+        with zipfile.ZipFile(unsliced_path, "w") as unsliced:
+            unsliced.writestr(
+                "Metadata/project_settings.config",
+                '{ "printer_model": "Bambu Lab A1" }',
+            )
+
+        try:
+            formats.read_bambu_project(str(unsliced_path))
+        except formats.FormatError as error:
+            check(
+                "read_bambu_project: .3mf без нарезки отклонён",
+                "нет нарезанного G-code" in str(error),
+                str(error),
+            )
+        else:
+            check("read_bambu_project: .3mf без нарезки отклонён", False, "—")
+    finally:
+        unsliced_path.unlink(missing_ok=True)
+
     check(
-        "контейнер .3mf: модель объявлена в Content_Types",
-        'PartName="/3D/3dmodel.model"' in content_types
-        and "3dmanufacturing-3dmodel+xml" in content_types,
-        content_types.replace("\n", " "),
+        "bambu_compat_error: проект чужой модели отклонён",
+        formats.bambu_compat_error("Bambu Lab X1 Carbon", "Bambu Lab", "A1") is not None,
+        str(formats.bambu_compat_error("Bambu Lab X1 Carbon", "Bambu Lab", "A1")),
     )
 
     rejected_print = ScriptedPrintAdapter(
@@ -606,7 +627,7 @@ def main() -> int:
     )
     check(
         "start_print: отказ принтера — False и причина в last_error",
-        rejected_print.start_print("job.gcode") is False
+        rejected_print.start_print("job.3mf") is False
         and "error string" in (rejected_print.last_error or "")
         and len(rejected_print.commands) == len(project_payloads)
         and rejected_print.commands[0]["print"]["url"] == "ftp:///cache/job.3mf",
@@ -619,7 +640,7 @@ def main() -> int:
     )
     check(
         "start_print: принимается второй вариант url",
-        second_variant.start_print("job.gcode") is True
+        second_variant.start_print("job.3mf") is True
         and len(second_variant.commands) == 2
         and second_variant.commands[1]["print"]["url"] == "ftp:///job.3mf"
         and second_variant.last_error is None,
@@ -629,8 +650,8 @@ def main() -> int:
 
     project_print = ScriptedPrintAdapter([{"result": "success"}])
     check(
-        "start_print: G-code печатается project_file от имени контейнера",
-        project_print.start_print("job.gcode") is True
+        "start_print: проект .3mf печатается project_file",
+        project_print.start_print("job.3mf") is True
         and len(project_print.commands) == 1
         and project_print.commands[0]["print"]["command"] == "project_file"
         and project_print.commands[0]["print"]["subtask_name"] == "job.3mf",
@@ -847,12 +868,12 @@ def main() -> int:
 
     # Повторы загрузки: Bambu рвёт канал данных, и одна ошибка не должна
     # закрывать задание. Причина последнего отказа едет в мастерскую.
-    upload_probe = Path(tempfile.gettempdir()) / "tridi-bambu-retry.gcode"
-    upload_probe.write_text("; test\nG28\n", encoding="utf-8")
+    upload_probe = Path(tempfile.gettempdir()) / "tridi-bambu-retry.3mf"
+    write_bambu_project(upload_probe)
 
     try:
         failing = FlakyUploadAdapter(failures=bambu.FTP_UPLOAD_ATTEMPTS)
-        upload_result = failing.upload_file(str(upload_probe), "retry.gcode")
+        upload_result = failing.upload_file(str(upload_probe), "retry.3mf")
         check(
             "загрузка повторяется и запоминает причину",
             upload_result is False
@@ -863,7 +884,7 @@ def main() -> int:
         recovered = FlakyUploadAdapter(failures=1)
         check(
             "повтор после обрыва проходит",
-            recovered.upload_file(str(upload_probe), "retry.gcode") is True
+            recovered.upload_file(str(upload_probe), "retry.3mf") is True
             and recovered.calls == 2
             and recovered.last_error is None,
             f"попыток {recovered.calls}, last_error={recovered.last_error!r}",
@@ -871,62 +892,58 @@ def main() -> int:
     finally:
         upload_probe.unlink(missing_ok=True)
 
-    # Сырой G-code на принтер не уходит: сначала контейнер, потом загрузка.
-    wrap_probe = Path(tempfile.gettempdir()) / "tridi-bambu-wrap.gcode"
-    wrap_probe.write_text("; test\nG28\n", encoding="utf-8")
-    capturing = CapturingUploadAdapter()
+    # Плоский G-code A1 не печатает: отказ приходит до сети, а не после загрузки.
+    gcode_probe = Path(tempfile.gettempdir()) / "tridi-bambu-raw.gcode"
+    gcode_probe.write_text("; test\nG28\n", encoding="utf-8")
 
     try:
-        wrapped_upload = capturing.upload_file(str(wrap_probe), "wrap.gcode")
+        raw = CapturingUploadAdapter()
+        raw_upload = raw.upload_file(str(gcode_probe), "raw.gcode")
         check(
-            "upload_file: G-code грузится контейнером .3mf",
-            wrapped_upload is True
-            and capturing.remote_name == "wrap.3mf"
-            and "Metadata/plate_1.gcode" in capturing.entries
-            and not Path(capturing.wrapped_path).exists(),
-            f"{capturing.remote_name!r}, {sorted(capturing.entries)!r}, "
-            f"временный файл на месте: {Path(capturing.wrapped_path).exists()}",
+            "upload_file: плоский .gcode отклонён до сети",
+            raw_upload is False
+            and raw.remote_name == ""
+            and "Bambu Studio" in (raw.last_error or ""),
+            f"last_error={raw.last_error!r}",
         )
     finally:
-        wrap_probe.unlink(missing_ok=True)
+        gcode_probe.unlink(missing_ok=True)
 
     unreadable = CapturingUploadAdapter()
-    missing_probe = Path(tempfile.gettempdir()) / "tridi-bambu-missing.gcode"
+    missing_probe = Path(tempfile.gettempdir()) / "tridi-bambu-missing.3mf"
     missing_probe.unlink(missing_ok=True)
     check(
-        "upload_file: нечитаемый G-code не пакуется",
-        unreadable.upload_file(str(missing_probe), "wrap.gcode") is False
-        and "не упакован" in (unreadable.last_error or ""),
+        "upload_file: нечитаемый проект не подготовлен",
+        unreadable.upload_file(str(missing_probe), "missing.3mf") is False
+        and "не прочитан" in (unreadable.last_error or ""),
         f"last_error={unreadable.last_error!r}",
     )
 
-    # Чужой формат отсекается до сети: упаковывать в контейнер нечего, а
-    # принтер такой файл всё равно не примет.
+    # Чужой формат отсекается до сети: принтер такой файл всё равно не примет.
     alien = CapturingUploadAdapter()
     check(
         "upload_file: чужое расширение — причина про формат",
-        alien.upload_file(str(wrap_probe) + ".nope", "wrap.nope") is False
+        alien.upload_file(str(missing_probe) + ".nope", "wrap.nope") is False
         and "не печатает" in (alien.last_error or ""),
         f"last_error={alien.last_error!r}",
     )
 
-    # Готовый проект `.3mf` уходит на карту как есть: второй контейнер поверх
-    # настоящего прошивка не разбирает.
+    # Проект уходит на карту как есть, а пластина проекта запоминается для
+    # `param` команды печати.
     ready_probe = Path(tempfile.gettempdir()) / "tridi-bambu-ready.3mf"
     passthrough = CapturingUploadAdapter()
 
     try:
-        with zipfile.ZipFile(ready_probe, "w") as ready:
-            ready.writestr("Metadata/plate_1.gcode", "; project\nG28\n")
-
+        write_bambu_project(ready_probe, plate=2)
         check(
-            "upload_file: готовый .3mf не пакуется повторно",
+            "upload_file: проект .3mf не пакуется повторно",
             passthrough.upload_file(str(ready_probe), "ready.3mf") is True
             and passthrough.remote_name == "ready.3mf"
             and passthrough.wrapped_path == str(ready_probe)
-            and passthrough.entries == {"Metadata/plate_1.gcode"},
+            and passthrough._gcode_part == "Metadata/plate_2.gcode"
+            and "Metadata/project_settings.config" in passthrough.entries,
             f"{passthrough.remote_name!r}, {passthrough.wrapped_path!r}, "
-            f"{sorted(passthrough.entries)!r}",
+            f"запись={passthrough._gcode_part}, {sorted(passthrough.entries)!r}",
         )
     finally:
         ready_probe.unlink(missing_ok=True)
@@ -1070,6 +1087,31 @@ def main() -> int:
             cura_estimate.seconds == 7503 and cura_estimate.filament_grams is None,
             f"{cura_estimate!r}",
         )
+
+        # Проект `.3mf` — это ZIP: оценка лежит в нарезанном G-code пластины.
+        project_estimate_path = (
+            Path(tempfile.gettempdir()) / "tridi-bambu-estimate.3mf"
+        )
+
+        try:
+            with zipfile.ZipFile(project_estimate_path, "w") as project:
+                project.writestr(
+                    "Metadata/plate_1.gcode",
+                    "; total estimated time: 2h 5m 3s\n"
+                    "; total filament used [g] = 12.34\n",
+                )
+
+            project_estimate = gcode_metadata.read_gcode_estimate(
+                project_estimate_path
+            )
+            check(
+                "оценка из проекта .3mf: пластина внутри контейнера",
+                project_estimate.seconds == 7503
+                and project_estimate.filament_grams == 12.34,
+                f"{project_estimate!r}",
+            )
+        finally:
+            project_estimate_path.unlink(missing_ok=True)
 
         estimate_path.write_text(";test\nG28\n", encoding="utf-8")
         no_estimate = gcode_metadata.read_gcode_estimate(estimate_path)

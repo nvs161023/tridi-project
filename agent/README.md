@@ -34,8 +34,9 @@ octoprint, bambu, prusa, creality, anycubic, flashforge, elegoo) вместе с
 для паспорта, команд и отчётов, HTTP-загрузка на адрес из паспорта; проверка без
 принтера — `scripts/test-anycubic.py`.
 Шаг 8.2 — форматы: `adapters/formats.py` сверяет расширение со справочником,
-приводит имя файла к ASCII и пакует `.gcode` в `.3mf`, а `prepare_upload()` в
-базовом классе отдаёт адаптеру готовый `UploadPlan` с чистым именем и размером.
+приводит имя файла к ASCII и проверяет проект Bambu `.3mf` (нарезка пластины и
+профиль слайсера) до сети, а `prepare_upload()` в базовом классе отдаёт адаптеру
+готовый `UploadPlan` с чистым именем и размером.
 Шаг 8.3 — дешёвые адаптеры: `OctoPrintAdapter` и `PrusaAdapter` (PrusaLink)
 разговаривают с принтером по-настоящему — подключение, загрузка файла, старт
 печати, пауза, возврат, отмена и опрос состояния; ответы API в тестах имитирует
@@ -143,6 +144,13 @@ python main.py
 находки в `POST /api/agent/discover` (Bearer-токен, как у остальных запросов).
 Сервер складывает их в `workshop_discovered_printers`; мастер даёт принтерам
 имена в интерфейсе мастерской, и они переезжают в парк (`approveDiscoveredPrinters`).
+
+- **Имя принтера.** Вместе с адресом приходит `name` — то, что принтер называет
+  сам: `hostname` Moonraker (`GET /printer/info`), `hostname`/модель Creality из
+  `/info`, `Machine Name` или `Name` FlashForge и Elegoo, `Bambu Lab <SN>` для
+  Bambu. Окно мастера показывает это имя и подставляет его в поле «Имя», а если
+  принтер промолчал — «Принтер <адрес>». Без подписи десяток находок в подсети
+  выглядит одинаково, и мастер не понимает, какой адрес подтверждает.
 
 - **Подсеть.** `SCAN_SUBNETS`, если задан (цех в другом VLAN или несколько
   сетей). Иначе — адрес своего интерфейса с маской `/24`: адрес берётся у
@@ -261,7 +269,7 @@ python main.py
 | `run_probe(request_payload)` | адаптер → `connect()` → `probe()` → `close()`; ответ или причина отказа из `last_error` |
 | `send_probe_result(probe_id, result)` | `POST /api/agent/probe`: модель, SN, прошивка, возможности и причина отказа |
 | `handle_probe_requests()` | все просьбы за один опрос: одна неудача не отменяет остальные |
-| `scanner.scan_network()` | подсеть → порты 9999/7125/9883/8883/8898/8899/80/443 в 64 потока → список `{ip_address, protocol_type}` |
+| `scanner.scan_network()` | подсеть → порты 9999/7125/9883/8883/8898/8899/80/443 в 64 потока → список `{ip_address, protocol_type, name, serial_number}` |
 | `scanner.send_discovered_printers(printers, crm_url, agent_token)` | `POST /api/agent/discover` с Bearer-токеном; `True`, если сервер принял |
 
 Статусы, которые принимает сервер: `printing`, `done`, `failed` — `queued`
@@ -274,9 +282,11 @@ python main.py
 2. `process_task()` берёт `id` (jobId), `gcodeUrl` и `printer` задания. Нет
    `gcodeUrl` или у принтера нет адреса/протокола — `failed` в
    `/api/agent/status` и выход: печатать нечего и некуда.
-3. G-code скачивается по `gcodeUrl` в `agent/temp/{jobId}.gcode` (расширение
-   берётся из ссылки: готовый `.3mf` сохраняется как `{jobId}.3mf` и печатается
-   без обёртки) — `requests.get(..., stream=True)`, запись кусками по 64 КБ.
+3. Файл скачивается по `gcodeUrl` в `agent/temp/{jobId}.gcode` (расширение
+   берётся из ссылки: проект `.3mf` сохраняется как `{jobId}.3mf`). Bambu такой
+   `.gcode` не напечатает: адаптер отклоняет его до сети с подсказкой «нарежьте
+   модель в Bambu Studio и сохраните проект», поэтому на A1 ставят `.3mf`.
+   `requests.get(..., stream=True)`, запись кусками по 64 КБ.
    Папка в `.gitignore`: файлы на десятки мегабайт в репозиторий не попадают.
 4. `get_adapter(protocol_type, ip_address, api_key)` → `connect()` →
    `upload_file(local_path, remote_name="{jobId}.gcode")` (для готового проекта —
@@ -316,7 +326,7 @@ Anycubic разговаривают с принтером по-настояще�
 |---|---|
 | `base.py` | `BasePrinterAdapter` (ABC): `connect()`, `upload_file(local_path, remote_name)`, `start_print(remote_name)`, `get_status()`, `close()`; сверх контракта — `pause_print()`/`resume_print()` (по умолчанию `False`), `probe()`, набор `capabilities` (`CAPABILITY_*`), `accepted_formats`, `secrets` из колонки `printer_secrets`, `protocol_key` и `prepare_upload(local_path, remote_name)` → `UploadPlan` (путь, имя, MD5, размер, признак временного файла) с `cleanup_upload()` |
 | `registry.py` | `PROTOCOLS` — восемь `ProtocolSpec` (подпись, «модуль:Класс» драйвера, порты, способ обнаружения, возможности, форматы, имена секретов); `get_protocol()` без учёта регистра и пробелов, `load_adapter_class()` с ленивым импортом; исключения `UnknownProtocolError` и `AdapterUnavailableError` |
-| `formats.py` | Форматы и подготовка файла: `sanitize_remote_name()` (ASCII, без папок и `..`, до 255 символов; Creality — `_` вместо пробелов), `ensure_format()` (сверка расширения со справочником, упаковка `.gcode` в `.3mf` для Bambu, проверка записей контейнера для FlashForge), `file_digest()` (MD5 потоком), `wrap_gcode_to_3mf()`, `discard()` и `FormatError` |
+| `formats.py` | Форматы и подготовка файла: `sanitize_remote_name()` (ASCII, без папок и `..`, до 255 символов; Creality — `_` вместо пробелов), `ensure_format()` (сверка расширения со справочником, проверка проекта Bambu, проверка записей контейнера для FlashForge), `read_bambu_project()` (пластина, профиль слайсера, модель принтера), `bambu_compat_error()` (проект против карточки принтера), `file_digest()` (MD5 потоком), `discard()` и `FormatError` |
 | `moonraker.py` | `MoonrakerAdapter` — Klipper: `/server/info`, `/server/files/upload`, `/printer/print/start`, `/printer/objects/query?print_stats&virtual_sdcard` |
 | `octoprint.py` | `OctoPrintAdapter` — OctoPrint: `/api/version`, `POST /api/files/local`, `POST /api/files/local/<name>`, `GET /api/job`, команды в `POST /api/job` |
 | `prusa.py` | `PrusaAdapter` — PrusaLink: `GET /api/v1/status`, `PUT /api/v1/files/<storage>/<name>`, `POST /api/v1/files/<storage>/<name>`, `GET /api/v1/job`, команды в `/api/v1/job` |
@@ -325,21 +335,28 @@ Anycubic разговаривают с принтером по-настояще�
 | `elegoo.py` | `ElegooAdapter` — Elegoo (SDCP): WebSocket 3030 с командами `Cmd: 0/128/129/130/131` и `POST /uploadFile/upload` с полями `S-File-MD5`, `Check`, `Offset`, `Uuid`, `TotalSize` |
 | `anycubic.py` | `AnycubicAdapter` — Anycubic в LAN-режиме: MQTT 9883 под TLS (`anycubic/anycubicCloud/v1/printer/public/<modeId>/<deviceId>/request` и `/report`) для паспорта и команд, `POST <urls.fileUploadurl>` с файлом в поле `gcode` и заголовком `X-File-Length` |
 | `bambu.py` | `BambuAdapter` — Bambu в LAN-режиме: MQTT с TLS (8883) для команд и отчётов, implicit FTPS (990) для файлов |
-| `factory.py` | `get_adapter(protocol_type, ip_address, api_key, serial_number="", secrets=None)`: набор аргументов берётся из паспорта протокола (серийник — Bambu и FlashForge, `secrets` — протоколам из `registry`); неизвестный протокол — `UnknownProtocolError("Неизвестный протокол")`, протокол без драйвера — `AdapterUnavailableError`. После сборки ставит `adapter.protocol_key` из паспорта |
+| `factory.py` | `get_adapter(protocol_type, ip_address, api_key, serial_number="", secrets=None, brand="", model="")`: набор аргументов берётся из паспорта протокола (серийник — Bambu и FlashForge, бренд и модель — Bambu, `secrets` — протоколам из `registry`); неизвестный протокол — `UnknownProtocolError("Неизвестный протокол")`, протокол без драйвера — `AdapterUnavailableError`. После сборки ставит `adapter.protocol_key` из паспорта |
 
 ### Форматы и подготовка загрузки
 
-Перед сетью файл проходит `prepare_upload()`: имя приводится к безопасному виду, расширение
-сверяется со справочником, при необходимости собирается контейнер. Возвращается `UploadPlan` —
-что именно уходит на принтер и надо ли удалять файл после загрузки. `upload_file()` адаптера
-ловит `FormatError` и `OSError`, кладёт текст в `last_error` и возвращает `False`, поэтому
-мастер видит причину («Prusa (PrusaLink) не печатает .3mf — переслайсите в .gcode или .bgcode»),
-а не «задание провалилось». Bambu переопределяет `prepare_upload()`: упаковывает `.gcode` в `.3mf`
-и переименовывает файл в `<задание>.3mf` — под этим именем его ищет `start_print()`. MD5
-(`formats.file_digest`) считают только протоколы, которым он нужен: Anycubic и Elegoo.
+Перед сетью файл проходит `prepare_upload()`: имя приводится к безопасному виду,
+расширение сверяется со справочником, а у Bambu проверяется сам проект. Возвращается
+`UploadPlan` — что именно уходит на принтер и надо ли удалять файл после загрузки.
+`upload_file()` адаптера ловит `FormatError` и `OSError`, кладёт текст в `last_error` и
+возвращает `False`, поэтому мастер видит причину («Prusa (PrusaLink) не печатает .3mf —
+переслайсите в .gcode или .bgcode»), а не «задание провалилось».
 
-Тест без принтера: `python scripts/test-formats.py` — имя с пробелом, MD5, упаковка Bambu,
-отказ чужого формата и FlashForge без готового G-code в контейнере.
+Bambu печатает только проект `.3mf`, сохранённый из Bambu Studio («Экспорт файла
+пластины»): `read_bambu_project()` требует нарезанный G-code пластины
+(`Metadata/plate_N.gcode`) и профиль слайсера (`Metadata/project_settings.config`),
+запоминает номер пластины для `param` и сравнивает модель принтера из профиля с
+карточкой (`bambu_compat_error()`). Плоский `.gcode`, STL и `.3mf` без нарезки
+отклоняются до загрузки — A1 не нарезает файлы сам. MD5 (`formats.file_digest`)
+считают только протоколы, которым он нужен: Anycubic и Elegoo.
+
+Тест без принтера: `python scripts/test-formats.py` — имя с пробелом, MD5, отказ Bambu
+для `.gcode`/STL/модели без нарезки, проект чужой модели, отказ чужого формата и
+FlashForge без готового G-code в контейнере.
 
 ### Moonraker
 
@@ -612,8 +629,8 @@ Bambu в LAN-режиме (Settings → Network → LAN Only Mode) не имее
 | Метод | Что делает | Успех |
 |---|---|---|
 | `connect()` | MQTT `self.ip_address:8883`, TLS без проверки сертификата, подписка `device/<serial>/report`, команда `pushing.pushall` | CONNACK получен и подписка оформлена |
-| `upload_file()` | FTPS `self.ip_address:990`: implicit TLS 1.2 (сессия управляющего канала переиспользуется в канале данных), `PROT P` и `PASV` обязательны, файл кладётся в папку `cache` (`STOR cache/<remote_name>`, папка создаётся через `MKD`); канал данных пишется вручную (`TYPE I` + `STOR` по шагам) с таймаутом `FTP_DATA_TIMEOUT` — `storbinary()` не годится, он висит на `unwrap()` после последнего байта. Если FTPS не прошёл — HTTP `POST /api/files/local` с `X-Api-Key`. Сырой `.gcode` пакуется в контейнер `.3mf` (`zipfile`: `Metadata/plate_1.gcode`, `Metadata/slice_info.config`, `Metadata/model_settings.config`, `3D/3dmodel.model` без геометрии, `[Content_Types].xml` с `Override` на модель, `_rels/.rels`) и грузится как `<задание>.3mf`; временный контейнер удаляется после загрузки. Готовый `.3mf` (проект Bambu Studio) уходит как есть — второй контейнер поверх настоящего прошивка не разбирает | файл загружен |
-| `start_print()` | перед командой — проверка связи и серийника (`_ensure_connection` ждёт переподключения 10 с, `_await_serial` — номер 5 с через SSDP и `pushing.pushall`), MQTT `device/<serial>/request`, после отправки — ожидание отчёта с тем же `sequence_id` (`COMMAND_REPLY_TIMEOUT`): `result=fail` и `reason` принтера уходят в `last_error`. Поздний `fail` (принтер ответил `success`, а через полминуты не разобрал файл — `error string`, на экране `0500-4003`) помечается в `_command_error`, и `get_status()` отдаёт `error`: задание закрывается как `failed`, а не `done`. Команда — `project_file`: `param=Metadata/plate_1.gcode`, `url=ftp:///cache/<задание>.3mf` (второй вариант — `ftp:///<задание>.3mf`, если прошивка сама подставляет папку). Плоский `.gcode` этой командой не печатается — он заранее упакован в `.3mf` | принтер ответил `success` |
+| `upload_file()` | FTPS `self.ip_address:990`: implicit TLS 1.2 (сессия управляющего канала переиспользуется в канале данных), `PROT P` и `PASV` обязательны, файл кладётся в папку `cache` (`STOR cache/<remote_name>`, папка создаётся через `MKD`); канал данных пишется вручную (`TYPE I` + `STOR` по шагам) с таймаутом `FTP_DATA_TIMEOUT` — `storbinary()` не годится, он висит на `unwrap()` после последнего байта. Если FTPS не прошёл — HTTP `POST /api/files/local` с `X-Api-Key`. До сети проект проверяется (`formats.read_bambu_project()`): внутри должен быть нарезанный G-code пластины (`Metadata/plate_N.gcode`) и профиль слайсера (`Metadata/project_settings.config`), а модель принтера из профиля — совпадать с карточкой (`brand`/`model`). Плоский `.gcode` и STL A1 не печатает и не нарезает: отказ с подсказкой «Экспорт файла пластины» приходит до загрузки. Файл уходит на карту как есть, временных копий агент не создаёт | файл загружен |
+| `start_print()` | перед командой — проверка связи и серийника (`_ensure_connection` ждёт переподключения 10 с, `_await_serial` — номер 5 с через SSDP и `pushing.pushall`), MQTT `device/<serial>/request`, после отправки — ожидание отчёта с тем же `sequence_id` (`COMMAND_REPLY_TIMEOUT`): `result=fail` и `reason` принтера уходят в `last_error`. Поздний `fail` (принтер ответил `success`, а через полминуты не разобрал файл — `error string`, на экране `0500-4003`) помечается в `_command_error`, и `get_status()` отдаёт `error`: задание закрывается как `failed`, а не `done`. Команда — `project_file`: `param=Metadata/plate_N.gcode` (номер пластины берётся из проекта), `url=ftp:///cache/<задание>.3mf` (второй вариант — `ftp:///<задание>.3mf`, если прошивка сама подставляет папку), плюс поля Bambu Studio `project_id`/`profile_id`/`task_id`/`subtask_id` = `"0"` и `bed_levelling` | принтер ответил `success` |
 | `get_status()` | последний отчёт: `print.gcode_state`, `print.mc_percent`, `print.mc_remaining_time` | `{"status", "progress", "remaining_time"}` |
 
 Серийный номер. Топики Bambu адресуются серийником, поэтому адаптер берёт его по
@@ -671,6 +688,8 @@ paho переподключается в своём потоке (`_on_disconnec
 | `Не удалось получить серийный номер принтера. Проверьте, что принтер в сети и в режиме LAN` | за 5 с номер не пришёл ни по SSDP, ни в отчёте: принтер не в LAN-режиме, в другой подсети или выключен. Впишите SN в карточку принтера — тогда обнаружение не нужно |
 | `команда печати не отправлена: нет MQTT-соединения` | переподключение не удалось за 10 с и повторная отправка тоже: принтер ушёл из сети или сменил адрес. Строка `MQTT-соединение потеряно` выше в журнале показывает код причины |
 | `Bambu … печать … не принята (принтер отклонил …)` | принтер не понял команду или не нашёл файл: сверьте `param`/`url` в строке «отправляю …» с путём загрузки, `result`/`reason` пришли от самого принтера |
-| `принтер не начал печать (ошибка файла)` | команда принята, но файл не взят в работу: прошивка не разобрала контейнер (на экране `0500-4003`) — сверьте строку «упакован в контейнер …» и `reason` из журнала; для готового `.3mf` проверьте, что в нём есть `Metadata/plate_1.gcode` |
+| `принтер не начал печать (ошибка файла)` | команда принята, но файл не взят в работу: прошивка не разобрала проект (на экране `0500-4003`). Проверьте `reason` в журнале и то, что файл сохранён из Bambu Studio («Экспорт файла пластины»), а не собран сторонним слайсером |
 | `принтер отклонил project_file: …` | принтер сам ответил `fail`: причину он пишет в `reason` — чаще всего файл не найден по `url` или не разобран |
-| `G-code не упакован в .3mf` | агент не смог создать временный контейнер: нет места в `TEMP` или файл задания не читается |
+| `проект .3mf нарезан для …, а принтер — …` | профиль слайсера не совпадает с моделью в карточке принтера: переслайсите под этот принтер или поправьте бренд/модель в карточке |
+| `в контейнере .3mf нет нарезанного G-code` | загружена модель, а не задание печати: нарежьте её в Bambu Studio и сохраните «Экспорт файла пластины» (`.3mf`) |
+| `Bambu Lab печатает только проект .3mf` / `STL — это модель` | в очередь попадает `.gcode` или STL: A1 их не печатает, нужен нарезанный проект `.3mf` |

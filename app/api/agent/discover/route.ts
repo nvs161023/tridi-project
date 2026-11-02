@@ -8,13 +8,19 @@ import { readDiscoveredPrinters } from "@/lib/workshop/printers";
  *
  *   POST /api/agent/discover
  *   Authorization: Bearer <agent_token>
- *   [{ "ip_address": "192.168.1.50", "protocol_type": "moonraker" }]
+ *   [{ "ip_address": "192.168.1.50", "protocol_type": "moonraker",
+ *      "name": "voron-2feeder" }]
  *   [{ "ip_address": "192.168.1.60", "protocol_type": "bambu",
+ *      "name": "Bambu Lab 01S00C123456789",
  *      "serial_number": "01S00C123456789" }]
  *
  * Агент обходит локальную сеть (mDNS/SSDP, порты Moonraker и OctoPrint) и
  * присылает найденные адреса. Сто принтеров, вбитых руками, — та самая причина,
  * по которой ферму не заводят: список приходит сам, мастер только даёт имена.
+ * `name` — имя, которое принтер сообщил о себе: хост Moonraker (`/printer/info`),
+ * подпись Creality, имя FlashForge, серийник Bambu. По нему мастер отличает
+ * находки друг от друга — адреса в подсети выглядят одинаково. Поле
+ * необязательное: принтер имени не назвал — работает default колонки.
  * `serial_number` присылает Bambu из SSDP-ответа (заголовок `USN`): по нему
  * строятся MQTT-топики `device/<serial>/…`, поэтому номер сохраняется вместе с
  * находкой и переезжает в парк при подтверждении — мастеру не нужно вбивать его
@@ -27,8 +33,9 @@ import { readDiscoveredPrinters } from "@/lib/workshop/printers";
  *   1. старые `discovered` этой мастерской удаляются целиком — повторное
  *      сканирование не копит дубли и не показывает принтеры, которые уже
  *      выключили или перенесли вручную;
- *   2. вставляются новые находки; `name` не передаём — работает default
- *      «Неизвестный принтер», имя введёт мастер при подтверждении.
+ *   2. вставляются новые находки; имя передаём, только когда принтер его назвал
+ *      (иначе работает default «Неизвестный принтер»), а окончательное имя
+ *      вводит мастер при подтверждении.
  *
  * Пустой массив — нормальный ответ «в сети ничего не нашлось»: старые находки
  * удаляются, ответ 200. Не массив — 400: молча чистить список из-за мусора в
@@ -139,6 +146,10 @@ export async function POST(request: Request): Promise<Response> {
           user_id: identity.userId,
           ip_address: printer.ipAddress,
           protocol_type: printer.protocolType,
+          // Имя, которое принтер назвал сам: по нему мастер отличает находки в
+          // списке. Не назвал — колонку не трогаем, и работает default
+          // «Неизвестный принтер».
+          ...(printer.name ? { name: printer.name } : {}),
           // Bambu называет номер в SSDP-ответе; у Moonraker и OctoPrint его нет,
           // и колонка остаётся null.
           serial_number: printer.serialNumber,

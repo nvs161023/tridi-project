@@ -856,6 +856,9 @@ def check_scanner() -> None:
             "ip_address": "127.0.0.1",
             "protocol_type": "flashforge",
             "serial_number": SERIAL,
+            # Имя из текста ответа (`Machine Name: …`): по нему мастер отличает
+            # находки в окне подключения.
+            "name": "Adventurer 5M Pro.",
         }
     ]
 

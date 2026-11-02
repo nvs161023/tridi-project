@@ -91,6 +91,39 @@ CREALITY_INFO_PATHS = ("/info", "/detail")
 # подпись, которую нельзя спутать с чужим JSON на том же порту.
 CREALITY_MODEL_FIELDS = ("model", "modelName", "machineModel")
 
+# Имя находки: колонка `workshop_discovered_printers.name` — 60 символов.
+# Мастеру оно нужно, чтобы отличить принтеры друг от друга: адреса в подсети
+# выглядят одинаково.
+DISCOVERED_NAME_LIMIT = 60
+
+# Поля, в которых принтер называет себя. Сборки пишут их по-разному, поэтому
+# перебираются все варианты (сравнение в нижнем регистре): `hostname` —
+# Moonraker, `machineName`/`Name` — FlashForge и Elegoo, `deviceName` — Bambu в
+# отчёте.
+PRINTER_NAME_FIELDS = (
+    "name",
+    "printername",
+    "printer_name",
+    "hostname",
+    "machinename",
+    "machine_name",
+    "devicename",
+    "device_name",
+)
+
+# Где искать имя внутри ответа: `/info` Creality и `/detail` FlashForge кладут
+# паспорт во вложенный объект, а не на верхний уровень.
+PRINTER_NAME_CONTAINERS = ("data", "result", "device", "detail", "info")
+
+# Глубина поиска имени: два уровня хватает всем сборкам из справочника, а
+# рекурсия по произвольному JSON не должна уходить вглубь чужого ответа.
+PRINTER_NAME_DEPTH = 2
+
+# Строка имени в текстовом ответе FlashForge: `Machine Name: Adventurer 5M`.
+FLASHFORGE_NAME = re.compile(
+    r"Machine\s*Name\s*[:=]\s*([^\r\n]{1,60})", re.IGNORECASE
+)
+
 # FlashForge: HTTP API на 8898, а обнаружение — UDP-бродкаст на 8899, 19000 или
 # 48899. Порт зависит от модели и прошивки, поэтому запрос уходит на все три:
 # лишний пакет дешевле, чем принтер, которого сканер не нашёл.
@@ -640,7 +673,7 @@ def address_sort_key(printer: dict[str, Any]) -> tuple[int, int, str]:
 def scan_bambu_ssdp(timeout: float = BAMBU_SSDP_TIMEOUT) -> list[dict[str, Any]]:
     """
     Принтеры Bambu в локальной сети: `[{"ip_address": ..., "protocol_type": "bambu",
-    "serial_number": ...}]`.
+    "serial_number": ..., "name": "Bambu Lab <SN>"}]`.
 
     Один multicast M-SEARCH на `239.255.255.250:1990` (порт Bambu) с типом
     устройства `BAMBU_SSDP_TARGET`. Принтер отвечает HTTP-ответом поверх UDP:
@@ -725,11 +758,15 @@ def scan_bambu_ssdp(timeout: float = BAMBU_SSDP_TIMEOUT) -> list[dict[str, Any]]
                 if ip_address is None:
                     continue
 
-                found[ip_address.lower()] = {
-                    "ip_address": ip_address,
-                    "protocol_type": "bambu",
-                    "serial_number": serial,
-                }
+                found[ip_address.lower()] = found_printer(
+                    ip_address,
+                    "bambu",
+                    serial,
+                    # Модель Bambu в SSDP не называет, а серийник называет: имя
+                    # «Bambu Lab 01S00C123456789» отличает принтеры друг от друга
+                    # лучше одинаковых адресов.
+                    f"Bambu Lab {serial}" if serial else None,
+                )
     except OSError as error:
         # Запрет multicast политикой, интерфейс без маршрута, занятый UDP:
         # находок не будет, но агент продолжает работу — обход портов впереди.
@@ -951,6 +988,10 @@ def udp_printer(data: bytes, sender: tuple[str, int]) -> dict[str, Any] | None:
     тогда, когда тело не разобралось: по нему видно, кто ответил и почему
     находка не годится, а поля JSON из журнала подсказывают, какое имя номера
     не учёл парсер.
+
+    Вместе с номером читается имя (`Name`, `Machine Name` и их варианты в
+    `PRINTER_NAME_FIELDS`): по нему мастер отличает находки друг от друга, а
+    прошивки называют себя по-разному.
     """
     preview = data[:UDP_PREVIEW].decode("utf-8", errors="replace")
     # Перевод строки разорвал бы запись журнала на несколько строк, поэтому
@@ -965,20 +1006,17 @@ def udp_printer(data: bytes, sender: tuple[str, int]) -> dict[str, Any] | None:
     board = elegoo_mainboard_id(data)
 
     if board is not None:
-        return {
-            "ip_address": sender[0],
-            "protocol_type": "elegoo",
-            "serial_number": board,
-        }
+        return found_printer(
+            sender[0],
+            "elegoo",
+            board,
+            json_printer_name(parse_udp_json(data)),
+        )
 
     serial = flashforge_serial(data)
 
     if serial is not None:
-        return {
-            "ip_address": sender[0],
-            "protocol_type": "flashforge",
-            "serial_number": serial,
-        }
+        return found_printer(sender[0], "flashforge", serial, flashforge_name(data))
 
     if sender[1] == ELEGOO_UDP_PORT:
         logger.info("[UDP] %s: ответ Elegoo без MainboardID — пропускаю", sender[0])
@@ -1077,6 +1115,105 @@ def scan_udp_broadcast(
     return printers
 
 
+def clean_printer_name(value: Any) -> str | None:
+    """
+    Имя, которое принтер назвал сам: одна строка до `DISCOVERED_NAME_LIMIT`.
+
+    Пробелы, переносы строк и управляющие символы схлопываются: имя уходит в
+    JSON и в подпись карточки. Пустое значение и заглушки прошивок («unknown»,
+    «none», «null», «n/a») — «имени нет»: показывать их мастеру бессмысленно.
+    """
+    if not isinstance(value, str):
+        return None
+
+    text = " ".join(value.split())
+
+    if not text or text.lower() in {"unknown", "none", "null", "n/a"}:
+        return None
+
+    return text[:DISCOVERED_NAME_LIMIT]
+
+
+def json_printer_name(
+    payload: dict[str, Any] | None, depth: int = 0
+) -> str | None:
+    """
+    Имя принтера из JSON-ответа: `hostname`, `name`, `printerName`, …
+
+    Ответы сборок кладут паспорт во вложенный объект (`data`, `result`,
+    `device`, `detail`), поэтому поиск идёт на два уровня вглубь. Ошибка разбора
+    не пробрасывается: имя — подсказка мастеру, а не признак протокола.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    for field in PRINTER_NAME_FIELDS:
+        for key, value in payload.items():
+            if str(key).strip().lower() == field:
+                name = clean_printer_name(value)
+
+                if name:
+                    return name
+
+    if depth >= PRINTER_NAME_DEPTH:
+        return None
+
+    for container in PRINTER_NAME_CONTAINERS:
+        for key, value in payload.items():
+            if str(key).strip().lower() != container:
+                continue
+
+            name = json_printer_name(value, depth + 1)
+
+            if name:
+                return name
+
+    return None
+
+
+def flashforge_name(data: bytes) -> str | None:
+    """
+    Имя FlashForge из ответа на `~M115`.
+
+    Часть прошивок отвечает JSON с полем `Name`, часть — текстом G-code со
+    строкой `Machine Name: …`, поэтому проверяются оба вида.
+    """
+    name = json_printer_name(parse_udp_json(data))
+
+    if name:
+        return name
+
+    match = FLASHFORGE_NAME.search(data.decode("utf-8", errors="replace"))
+
+    return clean_printer_name(match.group(1)) if match else None
+
+
+def found_printer(
+    ip_address: str,
+    protocol_type: str,
+    serial_number: str | None = None,
+    name: str | None = None,
+) -> dict[str, Any]:
+    """
+    Находка в том виде, в каком её принимает `POST /api/agent/discover`.
+
+    Пустые поля не пишутся вовсе: `null` и отсутствие ключа на сервере значат
+    одно и то же («принтер не назвал»), а лишние ключи только удлиняют журнал.
+    """
+    printer: dict[str, Any] = {
+        "ip_address": ip_address,
+        "protocol_type": protocol_type,
+    }
+
+    if serial_number:
+        printer["serial_number"] = serial_number
+
+    if name:
+        printer["name"] = name
+
+    return printer
+
+
 def creality_model(payload: dict[str, Any] | None) -> str | None:
     """
     Код модели Creality из ответа `/info` или `/detail`.
@@ -1109,6 +1246,29 @@ def creality_model(payload: dict[str, Any] | None) -> str | None:
     return None
 
 
+def creality_payload(
+    ip_address: str, port: int = CREALITY_HTTP_PORT
+) -> dict[str, Any] | None:
+    """
+    Ответ `/info` (или `/detail`) Creality с кодом модели; None — это не Creality.
+
+    Читается один раз на адрес: и признак протокола (`creality_model`), и имя
+    берутся из одного ответа, а второй запрос стоил бы секунды обхода.
+    """
+    for path in CREALITY_INFO_PATHS:
+        body = read_ok_body(f"http://{ip_address}:{port}{path}")
+
+        if body is None:
+            continue
+
+        payload = parse_json_object(body)
+
+        if creality_model(payload) is not None:
+            return payload
+
+    return None
+
+
 def is_creality(ip_address: str, port: int = CREALITY_HTTP_PORT) -> bool:
     """
     Creality за веб-портом: `/info` (или `/detail`) с кодом модели.
@@ -1119,18 +1279,26 @@ def is_creality(ip_address: str, port: int = CREALITY_HTTP_PORT) -> bool:
 
     `port` — для тестов и для принтера за прокси; по умолчанию 80.
     """
-    for path in CREALITY_INFO_PATHS:
-        body = read_ok_body(f"http://{ip_address}:{port}{path}")
+    return creality_payload(ip_address, port) is not None
 
-        if body is None:
-            continue
 
-        model = creality_model(parse_json_object(body))
+def moonraker_hostname(ip_address: str, port: int = MOONRAKER_PORT) -> str | None:
+    """
+    Имя Moonraker-принтера: `result.hostname` из `GET /printer/info`.
 
-        if model is not None:
-            return True
+    Klipper-хосты обычно названы по делу («voron-2feeder», «k1-max»), и это
+    подсказка мастеру лучше адреса. Ошибка чтения — None: имя необязательно, а
+    сама находка уже подтверждена `/server/info`.
+    """
+    body = read_ok_body(f"http://{ip_address}:{port}/printer/info")
 
-    return False
+    if body is None:
+        return None
+
+    payload = parse_json_object(body)
+    result = payload.get("result") if isinstance(payload, dict) else None
+
+    return json_printer_name(result if isinstance(result, dict) else None)
 
 
 def is_anycubic(ip_address: str, port: int = ANYCUBIC_MQTT_PORT) -> bool:
@@ -1203,25 +1371,38 @@ def inspect_host(ip_address: str) -> dict[str, Any] | None:
     поэтому проба ограничивается соединением. Веб-порты проверяются последними и
     обязательно с HTTP-запросом: без него половина домашней техники попала бы в
     список находок.
+
+    Имя принтера читается там, где он его называет: Moonraker —
+    `GET /printer/info` (`result.hostname`), Creality — тот же `/info`, что
+    подтвердил модель. У Anycubic, Bambu и FlashForge подписи в HTTP нет: имя
+    приносят SSDP и UDP-обнаружение (Bambu — серийник, FlashForge —
+    `Machine Name`), а без имени окно мастера подставляет «Принтер <адрес>».
     """
-    if probe_port(ip_address, CREALITY_PORT) and is_creality(ip_address):
-        return {"ip_address": ip_address, "protocol_type": "creality"}
+    if probe_port(ip_address, CREALITY_PORT):
+        creality = creality_payload(ip_address)
+
+        if creality is not None:
+            return found_printer(
+                ip_address, "creality", name=json_printer_name(creality)
+            )
 
     if probe_port(ip_address, MOONRAKER_PORT) and is_moonraker(ip_address):
-        return {"ip_address": ip_address, "protocol_type": "moonraker"}
+        return found_printer(
+            ip_address, "moonraker", name=moonraker_hostname(ip_address)
+        )
 
     if is_anycubic(ip_address):
-        return {"ip_address": ip_address, "protocol_type": "anycubic"}
+        return found_printer(ip_address, "anycubic")
 
     if is_bambu(ip_address):
-        return {"ip_address": ip_address, "protocol_type": "bambu"}
+        return found_printer(ip_address, "bambu")
 
     if is_flashforge(ip_address):
-        return {"ip_address": ip_address, "protocol_type": "flashforge"}
+        return found_printer(ip_address, "flashforge")
 
     for port in OCTOPRINT_PORTS:
         if probe_port(ip_address, port) and is_octoprint(ip_address, port):
-            return {"ip_address": ip_address, "protocol_type": "octoprint"}
+            return found_printer(ip_address, "octoprint")
 
     return None
 
@@ -1289,12 +1470,16 @@ def scan_network(
     logger.info("Найдено принтеров: %d", len(found))
 
     for printer in found:
-        serial = printer.get("serial_number")
+        details = " · ".join(
+            str(value)
+            for value in (printer.get("name"), printer.get("serial_number"))
+            if value
+        )
         logger.info(
             "  %s | %s%s",
             printer["ip_address"],
             printer["protocol_type"],
-            f" | {serial}" if serial else "",
+            f" | {details}" if details else "",
         )
 
     return found

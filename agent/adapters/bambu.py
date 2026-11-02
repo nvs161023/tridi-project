@@ -28,12 +28,15 @@
     присылает, — передача висит уже после последнего байта. Последняя попытка —
     HTTP POST на `/api/files/local` с заголовком `X-Api-Key`. Файл кладём в
     папку `cache` на карте памяти (`STOR cache/<имя>`): оттуда прошивка берёт
-    его по `url` команды печати. Сырой `.gcode` перед загрузкой пакуется в
-    контейнер `.3mf` (`formats.wrap_gcode_to_3mf`): плоский файл A1 печатать
-    отказывается и на `gcode_file` отвечает `result: fail` при любом `param`;
+    его по `url` команды печати. На принтер уходит только проект `.3mf`,
+    сохранённый из Bambu Studio («Экспорт файла пластины»): плоский `.gcode`
+    A1 не разбирает, а STL не нарезает — оба отклоняются до сети
+    (`formats.py`, `read_bambu_project()`), вместе с проверкой, что проект
+    нарезан для этой модели принтера;
   - `start_print()` — команда `project_file` в `device/<serial>/request`:
-    `param=Metadata/plate_1.gcode` (запись внутри контейнера) и
-    `url=ftp:///cache/<имя>.3mf` (сам файл на карте памяти). Отправка в брокер
+    `param=Metadata/plate_<N>.gcode` (запись внутри контейнера, номер пластины
+    из самого проекта) и `url=ftp:///cache/<имя>.3mf` (сам файл на карте
+    памяти). Отправка в брокер
     ничего не подтверждает (QoS 0), поэтому метод ждёт отчёт принтера с тем же
     `sequence_id` и отдаёт его `result`/`reason` в `last_error`: «команда
     отправлена» и «печать началась» — разные вещи;
@@ -88,7 +91,12 @@ from .base import (
     BasePrinterAdapter,
     UploadPlan,
 )
-from .formats import BAMBU_GCODE_PART, FormatError
+from .formats import (
+    BAMBU_GCODE_PART,
+    FormatError,
+    bambu_compat_error,
+    read_bambu_project,
+)
 
 logger = logging.getLogger("agent.adapters.bambu")
 
@@ -491,36 +499,25 @@ _RESET_MARKERS = (
 )
 
 
-def _is_raw_gcode(remote_name: str) -> bool:
+def _project_file_payloads(
+    remote_name: str, gcode_part: str = BAMBU_GCODE_PART
+) -> list[dict[str, Any]]:
     """
-    Сырой G-code (`.gcode`) или готовый контейнер проекта (`.3mf`)?
+    Варианты команды `project_file` — в порядке проверки.
 
-    Сырой A1 печатать отказывается: на `gcode_file` он отвечает `result: fail`
-    при любом `param`, поэтому такой файл перед загрузкой пакуется в `.3mf`
-    (`formats.wrap_gcode_to_3mf`).
-    """
-    return remote_name.lower().endswith(".gcode")
-
-
-def _project_name(remote_name: str) -> str:
-    """
-    Имя контейнера для задания: `job.gcode` → `job.3mf`.
-
-    Загрузка кладёт на карту контейнер, а main.py помнит исходное имя задания,
-    поэтому имя печатаемого файла считается из него одной и той же функцией —
-    и в `prepare_upload()`, и в `start_print()`.
-    """
-    return f"{os.path.splitext(remote_name)[0]}.3mf"
-
-
-def _project_file_payloads(remote_name: str) -> list[dict[str, Any]]:
-    """
-    Варианты команды `project_file` для контейнера `.3mf` — в порядке проверки.
+    Набор полей повторяет то, что присылает Bambu Studio: кроме `param` и `url`
+    прошивка ждёт `project_id`, `profile_id`, `task_id` и `subtask_id` (у
+    локальной печати они всегда `"0"`) и флаги калибровки. Без идентификаторов
+    часть прошивок отвечает `success`, но задание в работу не берёт.
 
     `param` — запись внутри контейнера (`Metadata/plate_1.gcode`), `url` — файл
     на карте памяти принтера: Bambu забирает его сам, второй раз по сети файл не
     передаётся. `subtask_name` — имя, которое принтер покажет на экране и в
     истории; без него Bambu подписывает задание именем из `param`.
+
+    `gcode_part` приходит из самого проекта (`read_bambu_project()`): если в
+    контейнере нарезана не первая пластина, `param` с `plate_1` указал бы на
+    несуществующую запись, и принтер ответил бы отказом.
 
     Прошивки расходятся в том, строит ли `url` путь от корня карты или от папки
     загрузки, поэтому первый вариант — фактический путь файла (`cache/<имя>`),
@@ -528,10 +525,20 @@ def _project_file_payloads(remote_name: str) -> list[dict[str, Any]]:
     """
     common: dict[str, Any] = {
         "command": "project_file",
-        "param": BAMBU_GCODE_PART,
+        "param": gcode_part,
         "subtask_name": remote_name,
+        "project_id": "0",
+        "profile_id": "0",
+        "task_id": "0",
+        "subtask_id": "0",
         "bed_type": "auto",
         "timelapse": False,
+        # Калибровки не запускаем: они удлиняют старт на несколько минут, а
+        # стол A1 выравнивает сам.
+        "bed_levelling": True,
+        "flow_cali": False,
+        "vibration_cali": False,
+        "layer_inspect": False,
         "use_ams": False,
     }
 
@@ -595,8 +602,8 @@ def _tls_version(ftp: ftplib.FTP) -> str:
 class BambuAdapter(BasePrinterAdapter):
     """Принтер Bambu Lab в LAN-режиме: MQTT для команд, FTPS для файлов."""
 
-    # Ключ протокола в справочнике: по нему `prepare_upload()` находит форматы
-    # (`.3mf`, `.gcode`) и упаковку G-code в контейнер.
+    # Ключ протокола в справочнике: по нему `prepare_upload()` находит формат
+    # (`.3mf`) и проверяет контейнер проекта.
     protocol_key = "bambu"
 
     # Отмена (`print.stop`) и пауза принтера есть, но драйвер паузу не
@@ -616,6 +623,8 @@ class BambuAdapter(BasePrinterAdapter):
         ip_address: str,
         api_key: str,
         serial_number: str = "",
+        brand: str = "",
+        model: str = "",
     ) -> None:
         """
         `ip_address` — адрес принтера в сети мастера (`192.168.1.60`), порт не
@@ -626,9 +635,15 @@ class BambuAdapter(BasePrinterAdapter):
         `serial_number` — серийник с наклейки или из задания. Пустая строка не
         ошибка: номер ищется по SSDP при `connect()`, а если и там не нашёлся —
         берётся из топика первого отчёта.
+
+        `brand` и `model` — карточка принтера. По ним `prepare_upload()`
+        проверяет, что проект `.3mf` нарезан для этой модели: профиль чужого
+        принтера ломает печать. Пустая модель — проверять нечего.
         """
         super().__init__(ip_address=ip_address, api_key=api_key)
         self.serial_number = serial_number.strip()
+        self.brand = brand.strip()
+        self.model = model.strip()
         # Хост без схемы и порта: и MQTT, и FTPS ходят на свои фиксированные.
         self.host = _host(ip_address)
         self._client: mqtt.Client | None = None
@@ -645,6 +660,11 @@ class BambuAdapter(BasePrinterAdapter):
         # ещё присылать `idle`, и без этой пометки задание закрывалось как
         # `done`, хотя принтер не напечатал ни слоя.
         self._command_error: str | None = None
+        # Запись с нарезанным G-code внутри проекта: её указывает `param`
+        # команды печати. До `prepare_upload()` — первая пластина: без проверки
+        # проекта печатать нельзя, но значение по умолчанию не должно быть
+        # пустым.
+        self._gcode_part = BAMBU_GCODE_PART
 
     def _next_sequence(self) -> str:
         """Номер команды: Bambu сверяет ответ с запросом по нему."""
@@ -1290,25 +1310,44 @@ class BambuAdapter(BasePrinterAdapter):
 
     def prepare_upload(self, local_path: str, remote_name: str) -> UploadPlan:
         """
-        Готовит файл задания: сырой `.gcode` упаковывается в контейнер `.3mf`.
+        Проверяет проект `.3mf` до сети и запоминает, что печатать.
 
-        A1 не печатает плоский `.gcode`: `gcode_file` он отклоняет на любых
-        `param` и `url`, а `project_file` разбирает только проект. Поэтому
-        упаковка живёт здесь, до сети, и дальше всё — загрузка, `start_print()`
-        и отчёт о печати — работает с одним именем `<задание>.3mf`.
+        Формат и имя приводит база (`formats.ensure_format()`), а здесь
+        остаются две вещи, которые знает только адаптер:
 
-        Имя контейнера считает `_project_name()`: та же функция отвечает в
-        `start_print()` на вопрос «что печатать». Команда обязана указывать на
-        файл, который лёг на карту, иначе принтер отвечает «файл не найден».
+          1. контейнер должен быть готовым проектом Bambu Studio — внутри
+             нарезанный G-code пластины и профиль слайсера
+             (`read_bambu_project()`). Плоский G-code, STL и `.3mf` без нарезки
+             прошивка не разбирает: отказ приходит здесь, до сети, а не после
+             загрузки сотни мегабайт на карту;
+          2. проект должен быть нарезан для этой модели принтера
+             (`bambu_compat_error()`): профиль чужого принтера ломает печать —
+             другие температуры, скорости и объём.
 
-        Готовый `.3mf` уходит как есть: второй контейнер поверх настоящего
-        прошивка не разбирает.
+        Найденная запись пластины (`Metadata/plate_2.gcode`) остаётся в
+        `self._gcode_part`: `start_print()` обязан указать её в `param`, иначе
+        принтер ищет в контейнере несуществующую первую пластину.
+
+        Готовый `.3mf` уходит как есть, имя контейнера не меняется: команда
+        печати указывает на тот файл, который лёг на карту, иначе принтер
+        ответит «файл не найден».
         """
         plan = super().prepare_upload(local_path, remote_name)
-        is_project = plan.path.lower().endswith(".3mf")
+        project = read_bambu_project(plan.path)
+        mismatch = bambu_compat_error(project.printer_model, self.brand, self.model)
 
-        if is_project and not plan.remote_name.lower().endswith(".3mf"):
-            plan = plan._replace(remote_name=_project_name(plan.remote_name))
+        if mismatch is not None:
+            raise FormatError(mismatch)
+
+        self._gcode_part = project.gcode_part
+        logger.info(
+            "Bambu %s: проект %s — пластина %d (%s), нарезан для %s",
+            self.host,
+            plan.remote_name,
+            project.plate,
+            project.gcode_part,
+            project.printer_model or "неизвестного принтера",
+        )
 
         return plan
 
@@ -1316,13 +1355,13 @@ class BambuAdapter(BasePrinterAdapter):
         """
         Загружает файл задания на принтер, начиная с `prepare_upload()`.
 
-        Подготовка — формат, имя и упаковка — в `prepare_upload()` и
+        Подготовка — формат, имя и проверка проекта — в `prepare_upload()` и
         `formats.py`. Здесь остаются две вещи: превратить отказ подготовки в
         `last_error` (мастер увидит причину, а не «задание провалилось») и
         передать файл в `_upload_file()`.
 
-        Временный контейнер удаляется сразу после загрузки: это копия задания на
-        десятки мегабайт, и мусор в TEMP после каждой печати ни к чему.
+        Временных файлов у Bambu больше нет: агент не пакует G-code, а
+        загружает проект как есть, поэтому `cleanup_upload()` ничего не удалит.
         """
         try:
             plan = self.prepare_upload(local_path, remote_name)
@@ -1331,13 +1370,7 @@ class BambuAdapter(BasePrinterAdapter):
             logger.error("Bambu %s: %s не загружен: %s", self.host, remote_name, error)
             return False
         except (OSError, zipfile.BadZipFile) as error:
-            # Упаковка G-code — единственный шаг, который может упасть на
-            # чтении файла; для готового `.3mf` текст говорит о подготовке.
-            self.last_error = (
-                f"G-code не упакован в .3mf: {error}"
-                if _is_raw_gcode(remote_name)
-                else f"файл не подготовлен к загрузке: {error}"
-            )
+            self.last_error = f"файл не подготовлен к загрузке: {error}"
             logger.error(
                 "Bambu %s: %s не подготовлен к загрузке: %s",
                 self.host,
@@ -1703,12 +1736,13 @@ class BambuAdapter(BasePrinterAdapter):
         Запускает печать загруженного контейнера командой `project_file`.
 
         Печатается всегда проект: плоский `.gcode` A1 отклоняет на любой команде
-        `gcode_file`, поэтому `upload_file()` пакует его в `.3mf`, а команда
-        указывает на записи внутри контейнера — `param` это
-        `Metadata/plate_1.gcode` (`BAMBU_GCODE_PART`), `url` — сам файл на карте.
+        `gcode_file`, поэтому загружается только `.3mf` из Bambu Studio, а
+        команда указывает на записи внутри контейнера — `param` это запись
+        пластины (`Metadata/plate_1.gcode` или та, что нашлась в проекте), `url`
+        — сам файл на карте.
 
-        main.py помнит исходное имя задания (`<id>.gcode`), а на карте лежит
-        `<id>.3mf`: имя печатаемого файла считается через `_project_name()`.
+        Имя файла — то же, что легло на карту (`prepare_upload()` его не меняет):
+        команда с чужим именем заставила бы принтер искать несуществующий файл.
 
         Отправка в брокер ничего не подтверждает (QoS 0), поэтому после каждой
         команды ждём отчёт с тем же `sequence_id` (`_wait_reply`). Отказ принтера
@@ -1743,12 +1777,8 @@ class BambuAdapter(BasePrinterAdapter):
             logger.error("Bambu %s: %s", self.host, self.last_error)
             return False
 
-        printable = (
-            remote_name
-            if remote_name.lower().endswith(".3mf")
-            else _project_name(remote_name)
-        )
-        payloads = _project_file_payloads(printable)
+        printable = remote_name
+        payloads = _project_file_payloads(printable, self._gcode_part)
         last_error = "команда печати не отправлена: нет MQTT-соединения"
 
         for fields in payloads:

@@ -255,7 +255,7 @@ export async function getDiscoveredPrinters(
 ): Promise<DiscoveredPrintersSnapshot> {
   const { data, error } = await supabase
     .from("workshop_discovered_printers")
-    .select("ip_address, protocol_type, serial_number, status, created_at")
+    .select("ip_address, name, protocol_type, serial_number, status, created_at")
     .eq("user_id", userId)
     .eq("status", "discovered")
     .order("created_at", { ascending: true });

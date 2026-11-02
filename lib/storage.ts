@@ -75,8 +75,9 @@ const PRINT_FILE_EXTENSIONS = [".gcode", ".gco", ".g", ".3mf", ".stl"] as const;
 /**
  * Расширение имени файла из списка или `.gcode` по умолчанию.
  *
- * Оно попадает в публичный URL, а агент фермы выбирает по нему способ печати:
- * G-code оборачивается в 3MF, а готовый 3MF уходит как есть.
+ * Оно попадает в публичный URL, а агент фермы выбирает по нему, что делать с
+ * файлом: проект 3MF (нарезанный в Bambu Studio) уходит на принтер как есть, а
+ * G-code и STL Bambu не печатает — ему нужен готовый проект `.3mf`.
  */
 function printFileExtension(name: string): string {
   const lower = name.trim().toLocaleLowerCase("en-US");

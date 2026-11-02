@@ -200,6 +200,16 @@ export const PRINTER_INTERVAL_DEFAULTS = {
 export const PRINTER_HOURS_MAX = 1000000;
 
 /**
+ * Имя находки по умолчанию — значение колонки `workshop_discovered_printers.name`
+ * в миграции.
+ *
+ * Это не имя, а заглушка: строка с ним считается «принтер имени не назвал», и
+ * окно мастера подставляет «Принтер <адрес>» вместо одинаковых «Неизвестный
+ * принтер».
+ */
+export const DISCOVERED_NAME_DEFAULT = "Неизвестный принтер";
+
+/**
  * Варианты `<select>` протокола: «Moonraker (Klipper)» понятнее, чем «Moonraker».
  *
  * Список один на форму добавления и на карточку принтера: две копии подписей
@@ -549,7 +559,9 @@ export function formatPrinterCapabilities(
  * журнал задания, но мастер увидит её только после того, как задание уйдёт на
  * принтер.
  *
- * Bambu принимает `.gcode`, потому что упаковывает его в контейнер `.3mf` сам;
+ * Bambu принимает только `.3mf`: A1 не нарезает файл сам и не печатает плоский
+ * G-code, поэтому в очередь идёт проект, сохранённый из Bambu Studio («Экспорт
+ * файла пластины»). STL — исходник для слайсера, его нет ни в одном наборе.
  * FlashForge берёт `.3mf`, но только с готовым G-code внутри. PrusaLink `.3mf`
  * не печатает: проект PrusaSlicer уходит на принтер как `.gcode` или `.bgcode`.
  */
@@ -559,7 +571,7 @@ export const PRINTER_UPLOAD_FORMATS: Record<
 > = {
   moonraker: [".gcode", ".gco", ".g"],
   octoprint: [".gcode", ".gco", ".g"],
-  bambu: [".3mf", ".gcode"],
+  bambu: [".3mf"],
   prusa: [".gcode", ".bgcode"],
   creality: [".gcode"],
   anycubic: [".gcode"],
@@ -719,6 +731,29 @@ export function normalizePrinterSerial(value: unknown): string | null {
 }
 
 /**
+ * Имя, которое принтер сообщил о себе (Moonraker — `hostname`, Creality —
+ * подпись, FlashForge — имя, Bambu — серийник).
+ *
+ * Такое имя нужно мастеру, чтобы отличить находки друг от друга: адреса в
+ * подсети выглядят одинаково. Значение приходит из сети, поэтому проверяем
+ * ровно то, что проверит база: непустую строку до 60 символов. Значение по
+ * умолчанию колонки («Неизвестный принтер») именем не считается — null.
+ */
+export function normalizeDiscoveredName(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const text = value.trim();
+
+  if (text.length === 0 || text === DISCOVERED_NAME_DEFAULT) {
+    return null;
+  }
+
+  return text.slice(0, PRINTER_TEXT_LIMITS.name);
+}
+
+/**
  * Ключ API (Moonraker/OctoPrint) или код доступа Bambu из ответа агента.
  *
  * Содержимое не ограничиваем алфавитом: ключ Moonraker — строка из
@@ -742,8 +777,13 @@ export function normalizePrinterApiKey(value: unknown): string | null {
 }
 
 /**
- * Принтер, найденный агентом: адрес, протокол, номер и ключ, если принтер или
- * агент их назвали.
+ * Принтер, найденный агентом: адрес, протокол, имя, номер и ключ, если принтер
+ * или агент их назвали.
+ *
+ * `name` — имя, которое принтер сообщил о себе: хост из Moonraker (`/printer/info`),
+ * подпись Creality, имя FlashForge, серийник Bambu. Сеть не всегда его знает,
+ * поэтому null — обычное дело, и тогда веб-интерфейс подставляет «Принтер
+ * <адрес>»: без подписи десяток находок в подсети неразличим.
  *
  * Серийный номер приходит только от Bambu: он же отвечает на SSDP-запрос
  * заголовком `USN`. Ключ доступа агент сегодня не присылает — его вводит мастер
@@ -754,6 +794,7 @@ export function normalizePrinterApiKey(value: unknown): string | null {
 export type DiscoveredPrinterDraft = {
   ipAddress: string;
   protocolType: PrinterProtocol;
+  name: string | null;
   serialNumber: string | null;
   apiKey: string | null;
 };
@@ -795,6 +836,11 @@ function addressKey(ipAddress: string | null): string {
  * удвоил бы карточки. Незнакомый протокол — тоже `skipped`: агент может знать
  * больше протоколов, чем этот интерфейс, и подставлять «moonraker по умолчанию»
  * значило бы закрепить в базе неверный протокол.
+ *
+ * `name` — имя, которое принтер сообщил о себе (хост Moonraker, подпись
+ * Creality, имя FlashForge, серийник Bambu), или null, если не сообщил. Без
+ * него мастер видит десяток одинаковых адресов и не понимает, какой принтер
+ * подтверждает; нечитаемое имя не отбрасывает находку — адрес и протокол важнее.
  *
  * `serial_number` необязателен: его присылают Bambu (SSDP-ответ) и FlashForge
  * (UDP-ответ), у Moonraker и OctoPrint такого понятия нет. Нечитаемый номер не
@@ -844,6 +890,7 @@ export function readDiscoveredPrinters(
     drafts.push({
       ipAddress,
       protocolType: protocol,
+      name: normalizeDiscoveredName(row?.name),
       serialNumber: normalizePrinterSerial(row?.serial_number),
       apiKey: normalizePrinterApiKey(row?.api_key),
     });
@@ -919,6 +966,8 @@ export function readApprovedPrinters(
 export type DiscoveredPrinter = {
   ipAddress: string;
   protocolType: PrinterProtocol;
+  /** Имя, которое принтер назвал сам; null — не назвал. */
+  name: string | null;
   /** Номер из SSDP-ответа Bambu; null — принтер его не назвал. */
   serialNumber: string | null;
   discoveredAt: string | null;
@@ -936,6 +985,24 @@ export function defaultDiscoveredPrinterName(ipAddress: string): string {
 }
 
 /**
+ * Как подписать находку до правки мастера.
+ *
+ * Порядок такой: имя, которое принтер назвал сам (`name` находки), иначе
+ * «Принтер <адрес>». Имя принтера важнее адреса: в подсети из десятка машин
+ * мастер ищет «voron-2feeder», а не «192.168.1.57».
+ */
+export function discoveredPrinterName(printer: {
+  ipAddress: string;
+  name: string | null;
+}): string {
+  const announced = printer.name?.trim();
+
+  return announced
+    ? announced.slice(0, PRINTER_TEXT_LIMITS.name)
+    : defaultDiscoveredPrinterName(printer.ipAddress);
+}
+
+/**
  * Строка workshop_discovered_printers → `DiscoveredPrinter`.
  *
  * Берём только статус `discovered`: `added` — уже перенесённый в парк принтер, в
@@ -944,6 +1011,9 @@ export function defaultDiscoveredPrinterName(ipAddress: string): string {
  * null — см. комментарий в теле.
  * `serial_number` читается тем же правилом, что и в ответе агента: номер нужен
  * Bambu и FlashForge, у остальных он null.
+ * `name` — имя, которое принтер назвал сам, или null: заглушка колонки
+ * («Неизвестный принтер») именем не считается, иначе мастер подтверждал бы
+ * принтеры с одинаковыми подписями.
  */
 export function normalizeDiscoveredPrinterRow(
   row: Partial<Record<string, unknown>>,
@@ -966,6 +1036,7 @@ export function normalizeDiscoveredPrinterRow(
   return {
     ipAddress,
     protocolType,
+    name: normalizeDiscoveredName(row.name),
     serialNumber: normalizePrinterSerial(row.serial_number),
     discoveredAt: typeof row.created_at === "string" ? row.created_at : null,
   };

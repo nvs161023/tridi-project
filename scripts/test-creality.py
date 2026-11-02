@@ -371,15 +371,17 @@ def check_scanner(fake: FakeCreality) -> None:
     # Порядок портов проверяется подменой проб: настоящие 9999 и 7125 в тесте
     # заняты фейковым принтером, а вопрос один — кого спросят первым.
     calls: list[str] = []
-    originals = (scanner.probe_port, scanner.is_creality, scanner.is_moonraker)
+    originals = (scanner.probe_port, scanner.creality_payload, scanner.is_moonraker)
 
     def fake_probe(ip_address: str, port: int, timeout: float = 0.3) -> bool:
         return port in (scanner.CREALITY_PORT, scanner.MOONRAKER_PORT)
 
-    def fake_creality(ip_address: str, port: int = 80) -> bool:
+    def fake_creality(ip_address: str, port: int = 80) -> dict[str, str] | None:
         calls.append("creality")
 
-        return True
+        # Паспорт Creality: код модели подтверждает протокол, `hostname` —
+        # имя, которое принтер называет сам (`PRINTER_NAME_FIELDS`).
+        return {"model": "F008", "hostname": "k2-plus"}
 
     def fake_moonraker(ip_address: str) -> bool:
         calls.append("moonraker")
@@ -387,17 +389,22 @@ def check_scanner(fake: FakeCreality) -> None:
         return True
 
     scanner.probe_port = fake_probe
-    scanner.is_creality = fake_creality
+    scanner.creality_payload = fake_creality
     scanner.is_moonraker = fake_moonraker
 
     try:
         found = scanner.inspect_host("10.0.0.5")
     finally:
-        scanner.probe_port, scanner.is_creality, scanner.is_moonraker = originals
+        scanner.probe_port, scanner.creality_payload, scanner.is_moonraker = originals
 
     check(
         "сканер: 9999 (Creality) проверяется раньше 7125 (Moonraker)",
-        found == {"ip_address": "10.0.0.5", "protocol_type": "creality"}
+        found
+        == {
+            "ip_address": "10.0.0.5",
+            "protocol_type": "creality",
+            "name": "k2-plus",
+        }
         and calls == ["creality"],
         f"{found!r}, порядок вызовов {calls}",
     )

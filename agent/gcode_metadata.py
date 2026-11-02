@@ -21,10 +21,18 @@
 Разбор устойчив к мусору: неизвестные строки пропускаются, а если оценок в
 файле нет (обычный G-code из репозитория), возвращаются `None`, а не нули —
 ноль означал бы «печать бесплатная и мгновенная».
+
+Проект `.3mf` тоже разбирается: Bambu печатает только его, а оценка лежит в
+нарезанном G-code внутри контейнера (`Metadata/plate_N.gcode`). Без этой ветки
+у заданий Bambu не было бы ни времени, ни расхода пластика: ZIP построчно не
+читается.
 """
 from __future__ import annotations
 
+import io
 import re
+import zipfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -56,6 +64,10 @@ _GRAM_PATTERNS = (
 )
 
 _TIME_PART = re.compile(r"(?P<number>\d+(?:[.,]\d+)?)\s*(?P<unit>[dhms])", re.I)
+
+# Нарезка внутри проекта `.3mf`: по одной записи на пластину. Оценка берётся с
+# первой — агент печатает именно её.
+_PLATE_FILE = re.compile(r"^Metadata/plate_(\d+)\.gcode$", re.I)
 
 
 @dataclass(frozen=True)
@@ -115,37 +127,84 @@ def _clamp_seconds(seconds: int) -> int | None:
     return seconds
 
 
-def read_gcode_estimate(path: str | Path) -> GcodeEstimate:
-    """
-    Читает файл построчно и берёт последнюю найденную оценку.
+def _empty() -> GcodeEstimate:
+    """Оценки нет: ноль означал бы «печать мгновенная и бесплатная»."""
+    return GcodeEstimate(seconds=None, filament_grams=None)
 
-    Последнюю, а не первую: слайсеры пишут итог в конце файла, а в начале может
-    остаться оценка одного объекта или черновика. Файл читается потоком —
-    держать тридцать мегабайт в памяти агенту на ферме незачем. Ошибка чтения
-    не поднимается: без оценки задание всё равно печатается, поэтому
-    возвращается пустая оценка и запись в журнал вызывающего кода.
+
+def _scan_lines(lines: Iterable[str]) -> GcodeEstimate:
+    """
+    Оценка из потока строк G-code: побеждает последнее найденное значение.
+
+    Последнее, а не первое: слайсеры пишут итог в конце файла, а в начале может
+    остаться оценка одного объекта или черновика.
     """
     seconds: int | None = None
     grams: float | None = None
 
-    with open(path, "r", encoding="utf-8", errors="replace") as gcode:
-        for line in gcode:
-            stripped = line.strip()
+    for line in lines:
+        stripped = line.strip()
 
-            if not stripped.startswith(";"):
-                continue
+        if not stripped.startswith(";"):
+            continue
 
-            # Дешёвая проверка до регулярных выражений: файл на десятки
-            # мегабайт, и гонять три шаблона на каждой строке незачем.
-            lowered = stripped.lower()
+        # Дешёвая проверка до регулярных выражений: файл на десятки мегабайт,
+        # и гонять три шаблона на каждой строке незачем.
+        lowered = stripped.lower()
 
-            if "estimated" in lowered or ";time:" in lowered:
-                seconds = _match_time(stripped) or seconds
+        if "estimated" in lowered or ";time:" in lowered:
+            seconds = _match_time(stripped) or seconds
 
-            if "filament used [g]" in lowered:
-                grams = _match_grams(stripped) or grams
+        if "filament used [g]" in lowered:
+            grams = _match_grams(stripped) or grams
 
     return GcodeEstimate(seconds=seconds, filament_grams=grams)
+
+
+def _read_project_estimate(path: str | Path) -> GcodeEstimate:
+    """
+    Оценка из проекта `.3mf`: читается запись `Metadata/plate_N.gcode`.
+
+    Первая пластина — та, что печатает агент. Битый контейнер или отсутствие
+    нарезки дают пустую оценку: печать от этого не отменяется, а причину
+    мастер увидит из отказа загрузки.
+    """
+    try:
+        with zipfile.ZipFile(path) as project:
+            plates = sorted(
+                (int(match.group(1)), name)
+                for name in project.namelist()
+                for match in [_PLATE_FILE.match(name)]
+                if match
+            )
+
+            if not plates:
+                return _empty()
+
+            with project.open(plates[0][1]) as raw:
+                with io.TextIOWrapper(
+                    raw, encoding="utf-8", errors="replace"
+                ) as gcode:
+                    return _scan_lines(gcode)
+    except (OSError, KeyError, zipfile.BadZipFile):
+        return _empty()
+
+
+def read_gcode_estimate(path: str | Path) -> GcodeEstimate:
+    """
+    Читает файл построчно и берёт последнюю найденную оценку.
+
+    Файл читается потоком — держать тридцать мегабайт в памяти агенту на ферме
+    незачем. Проект `.3mf` разбирается изнутри: оценка лежит в нарезанном
+    G-code пластины. Ошибка чтения не поднимается: без оценки задание всё равно
+    печатается, поэтому возвращается пустая оценка и запись в журнал
+    вызывающего кода.
+    """
+    if zipfile.is_zipfile(path):
+        return _read_project_estimate(path)
+
+    with open(path, "r", encoding="utf-8", errors="replace") as gcode:
+        return _scan_lines(gcode)
 
 
 def _match_time(line: str) -> int | None:

@@ -40,6 +40,8 @@ def get_adapter(
     api_key: str,
     serial_number: str = "",
     secrets: Mapping[str, str] | None = None,
+    brand: str = "",
+    model: str = "",
 ) -> BasePrinterAdapter:
     """
     Создаёт адаптер для принтера задания.
@@ -56,6 +58,11 @@ def get_adapter(
     FlashForge, `mainboardId` Elegoo, `deviceId` и `modeId` Anycubic. Передаём
     только протоколам, у которых в паспорте есть имена секретов: конструктор
     Moonraker такого параметра не ждёт.
+
+    `brand` и `model` — карточка принтера (`workshop_printers.brand`, `.model`).
+    Нужны Bambu: по ним `prepare_upload()` проверяет, что проект `.3mf` нарезан
+    для этого принтера, а не для соседнего. Остальным протоколам не передаются
+    по той же причине, что и `serial_number`.
 
     Неизвестный протокол — `UnknownProtocolError("Неизвестный протокол")`,
     известный но без драйвера — `AdapterUnavailableError`. Обе — наследники
@@ -74,6 +81,10 @@ def get_adapter(
 
     if spec.accepts_serial:
         kwargs["serial_number"] = serial_number
+
+    if spec.accepts_identity:
+        kwargs["brand"] = brand
+        kwargs["model"] = model
 
     if spec.secrets and secrets:
         kwargs["secrets"] = dict(secrets)

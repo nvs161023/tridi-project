@@ -50,7 +50,7 @@ export const dynamic = "force-dynamic";
 const TASK_COLUMNS =
   "id, order_id, order_item_id, printer_id, gcode_url, status, created_at, " +
   "order:workshop_orders!workshop_print_jobs_order_id_fkey(id, title, status), " +
-  "printer:workshop_printers!workshop_print_jobs_printer_id_fkey(id, name, protocol_type, ip_address, api_key, serial_number, printer_secrets, status)";
+  "printer:workshop_printers!workshop_print_jobs_printer_id_fkey(id, name, brand, model, protocol_type, ip_address, api_key, serial_number, printer_secrets, status)";
 
 /** Сколько заданий отдавать за один опрос: защита от гигантского JSON. */
 const TASK_LIMIT = 200;
@@ -78,6 +78,15 @@ type AgentTaskPrinter = {
    * null — не ошибка, а «подсказки нет».
    */
   serialNumber: string | null;
+  /**
+   * Бренд и модель принтера из карточки (`workshop_printers.brand`, `.model`).
+   *
+   * Нужны Bambu: агент сверяет их с профилем проекта `.3mf` и отказывает
+   * файлу, нарезанному для чужой модели. null — карточку заполнили без бренда
+   * или модели, и проверять нечего.
+   */
+  brand: string | null;
+  model: string | null;
   /**
    * Секреты протокола без своей колонки (`printer_secrets`, jsonb): `checkCode`
    * FlashForge, логин-пароль и `deviceId`/`modeId` Anycubic, `mainboardId`
@@ -183,6 +192,8 @@ function normalizePrinter(value: unknown): AgentTaskPrinter | null {
     ipAddress: readText(row.ip_address, 253),
     apiKey: readText(row.api_key, 512),
     serialNumber: readText(row.serial_number, 64),
+    brand: readText(row.brand, 40),
+    model: readText(row.model, 60),
     secrets: readPrinterSecrets(row.printer_secrets),
     status: isPrinterStatus(row.status) ? row.status : "offline",
   };

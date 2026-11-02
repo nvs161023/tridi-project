@@ -181,6 +181,10 @@ class PrinterSettings:
     # `mainboardId` Elegoo, `storage` PrusaLink. Пустой словарь — у протокола
     # таких полей нет (Moonraker, OctoPrint, Bambu живут на одном `api_key`).
     secrets: dict[str, str]
+    # Бренд и модель из карточки принтера. Нужны Bambu: по ним проверяется, что
+    # проект `.3mf` нарезан для этой модели. Пустая строка — проверять нечего.
+    brand: str = ""
+    model: str = ""
 
 
 def read_text(value: Any) -> str | None:
@@ -268,6 +272,10 @@ def read_printer(task: dict[str, Any]) -> PrinterSettings | None:
         api_key=api_key,
         serial_number=serial_number,
         secrets=read_printer_secrets(printer),
+        # Бренд и модель — для проверки, что проект `.3mf` нарезан под этот
+        # принтер. Их может не быть: карточку заполняют вручную.
+        brand=read_printer_field(printer, "brand", "brand") or "",
+        model=read_printer_field(printer, "model", "model") or "",
     )
 
 
@@ -1203,13 +1211,13 @@ def read_estimate(job_id: str, local_path: Path) -> tuple[int | None, float | No
 
 def job_suffix(url: str) -> str:
     """
-    Расширение файла задания по ссылке: `.3mf` — готовый проект, иначе `.gcode`.
+    Расширение файла задания по ссылке: `.3mf` — проект, иначе `.gcode`.
 
-    Имя файла на карте принтера решает, пакует адаптер файл в контейнер или
-    печатает как есть: `.gcode` оборачивается в `.3mf` (A1 плоский G-code не
-    берёт), а готовый проект Bambu Studio уходит на печать без обёртки. Без
-    этого `.3mf` скачивался бы под именем `<id>.gcode` и попадал в контейнер
-    повторно — прошивка такой файл не разбирает.
+    Имя файла на карте принтера решает, что именно уйдёт на печать: проект
+    Bambu Studio уходит как есть, а сырой G-code (Bambu его не печатает)
+    отклоняется адаптером с объяснением, что нарезать и как сохранить. Без
+    этого `.3mf` скачивался бы под именем `<id>.gcode`, и адаптер принял бы
+    проект за сырой G-code.
     """
     path = url.split("?", 1)[0].split("#", 1)[0].lower()
 
@@ -1419,6 +1427,8 @@ def process_task(task: dict[str, Any]) -> None:
             printer.api_key,
             printer.serial_number,
             secrets=printer.secrets,
+            brand=printer.brand,
+            model=printer.model,
         )
     except AdapterUnavailableError as error:
         # Протокол приложение знает, а драйвера в агенте ещё нет: причина

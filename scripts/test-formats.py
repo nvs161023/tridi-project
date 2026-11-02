@@ -6,12 +6,14 @@
   1. `sanitize_remote_name()`: пробелы (Creality — `_`, остальные — `-`), пути и
      `..`, кириллица, регистр расширения и предел длины;
   2. `file_digest()`: MD5 совпадает с `hashlib.md5` по тем же байтам;
-  3. `ensure_format()`: Bambu пакует `.gcode` в контейнер `.3mf` (файл
-     временный), готовый `.3mf` уходит как есть, чужой формат — `FormatError` с
-     понятным текстом, FlashForge без записей в контейнере отклоняется;
-  4. `prepare_upload()`: имя и формат приводятся в порядок до сети, Moonraker
-     отказывает `.3mf` без запроса к принтеру, а `cleanup_upload()` удаляет
-     временный контейнер;
+  3. `ensure_format()` и `read_bambu_project()`: Bambu отклоняет плоский `.gcode`
+     и STL с подсказкой о нарезке, проект Bambu Studio уходит как есть, а
+     контейнер без нарезки и проект чужой модели — `FormatError` с понятным
+     текстом; FlashForge без записей в контейнере тоже отклоняется;
+  4. `prepare_upload()`: имя и формат приводятся в порядок до сети, Bambu
+     запоминает запись пластины из проекта, отказывает проекту чужой модели и
+     не создаёт временных файлов, Moonraker отказывает `.3mf` без запроса к
+     принтеру;
   5. фабрика ставит `protocol_key` из справочника: по нему и находятся форматы.
 
 Запуск:
@@ -60,6 +62,33 @@ def write_gcode(directory: Path, name: str) -> Path:
     """Кладёт в каталог теста маленький G-code и возвращает путь."""
     path = directory / name
     path.write_bytes(GCODE_BODY)
+
+    return path
+
+
+def write_bambu_project(
+    path: Path, printer_model: str, plate: int = 1
+) -> Path:
+    """
+    Собирает `.3mf` так, как его сохраняет Bambu Studio «Экспорт файла пластины».
+
+    Внутри — нарезанный G-code пластины и профиль слайсера с моделью принтера:
+    ровно то, что проверяет `read_bambu_project()`.
+    """
+    with zipfile.ZipFile(path, "w") as project:
+        project.writestr(f"Metadata/plate_{plate}.gcode", GCODE_BODY)
+        project.writestr(
+            "Metadata/project_settings.config",
+            '{ "printer_model": "%s", "printer_settings_id": "%s 0.4 nozzle" }'
+            % (printer_model, printer_model),
+        )
+        project.writestr(
+            "Metadata/slice_info.config",
+            '<config><plate><metadata key="index" value="%d"/>'
+            '<metadata key="printer_model_id" value="%s"/></plate></config>'
+            % (plate, printer_model),
+        )
+        project.writestr("3D/3dmodel.model", "<model/>")
 
     return path
 
@@ -128,37 +157,119 @@ def main() -> int:
             digest,
         )
 
-        # 3. Формат и упаковка.
-        wrapped, is_temp = formats.ensure_format(
-            "bambu", str(gcode_path), remote_name="probe.gcode"
-        )
-        entries: set[str] = set()
+        # 3. Формат и проверка проекта.
+        try:
+            formats.ensure_format(
+                "bambu", str(gcode_path), remote_name="probe.gcode"
+            )
+        except formats.FormatError as error:
+            check(
+                "ensure_format: Bambu отклоняет плоский .gcode",
+                "проект .3mf" in str(error) and "Bambu Studio" in str(error),
+                str(error),
+            )
+        else:
+            check("ensure_format: Bambu отклоняет плоский .gcode", False, "—")
 
-        if is_temp:
-            with zipfile.ZipFile(wrapped) as container:
-                entries = set(container.namelist())
+        stl_path = directory / "vase.stl"
+        stl_path.write_bytes(b"solid vase\nendsolid vase\n")
 
         try:
+            formats.ensure_format("bambu", str(stl_path), remote_name="vase.stl")
+        except formats.FormatError as error:
             check(
-                "ensure_format: Bambu пакует .gcode в .3mf",
-                is_temp
-                and wrapped.endswith(".3mf")
-                and {"Metadata/plate_1.gcode", "3D/3dmodel.model"} <= entries,
-                f"{Path(wrapped).name}, {sorted(entries)!r}",
+                "ensure_format: Bambu отклоняет STL с подсказкой о нарезке",
+                "STL" in str(error) and "Экспорт файла пластины" in str(error),
+                str(error),
             )
-        finally:
-            formats.discard(wrapped)
+        else:
+            check("ensure_format: Bambu отклоняет STL с подсказкой о нарезке", False, "—")
 
-        project_path = directory / "project.3mf"
+        project_path = write_bambu_project(directory / "project.3mf", "Bambu Lab A1")
+        project = formats.read_bambu_project(str(project_path))
+        check(
+            "read_bambu_project: пластина и модель принтера",
+            project.gcode_part == "Metadata/plate_1.gcode"
+            and project.plate == 1
+            and project.printer_model == "Bambu Lab A1",
+            f"{project!r}",
+        )
 
-        with zipfile.ZipFile(project_path, "w") as project:
-            project.writestr("Metadata/plate_1.gcode", GCODE_BODY)
+        second_plate = write_bambu_project(
+            directory / "second-plate.3mf", "Bambu Lab A1", plate=2
+        )
+        check(
+            "read_bambu_project: номер пластины из имени записи",
+            formats.read_bambu_project(str(second_plate)).gcode_part
+            == "Metadata/plate_2.gcode",
+            formats.read_bambu_project(str(second_plate)).gcode_part,
+        )
+
+        unsliced_path = directory / "model.3mf"
+
+        with zipfile.ZipFile(unsliced_path, "w") as model:
+            model.writestr(
+                "Metadata/project_settings.config",
+                '{ "printer_model": "Bambu Lab A1" }',
+            )
+            model.writestr("3D/3dmodel.model", "<model/>")
+
+        try:
+            formats.ensure_format(
+                "bambu", str(unsliced_path), remote_name="model.3mf"
+            )
+        except formats.FormatError as error:
+            check(
+                "ensure_format: .3mf без нарезки отклонён",
+                "нет нарезанного G-code" in str(error),
+                str(error),
+            )
+        else:
+            check("ensure_format: .3mf без нарезки отклонён", False, "—")
+
+        no_settings = directory / "foreign-slicer.3mf"
+
+        with zipfile.ZipFile(no_settings, "w") as foreign:
+            foreign.writestr("Metadata/plate_1.gcode", GCODE_BODY)
+
+        try:
+            formats.ensure_format(
+                "bambu", str(no_settings), remote_name="foreign-slicer.3mf"
+            )
+        except formats.FormatError as error:
+            check(
+                "ensure_format: .3mf без профиля Bambu Studio отклонён",
+                "project_settings.config" in str(error),
+                str(error),
+            )
+        else:
+            check("ensure_format: .3mf без профиля Bambu Studio отклонён", False, "—")
+
+        mismatch = formats.bambu_compat_error("Bambu Lab X1 Carbon", "Bambu Lab", "A1")
+        check(
+            "bambu_compat_error: проект чужой модели отклонён",
+            mismatch is not None and "X1 Carbon" in mismatch,
+            str(mismatch),
+        )
+
+        check(
+            "bambu_compat_error: профиль с соплом сравнивается с моделью",
+            formats.bambu_compat_error("Bambu Lab A1 0.4 nozzle", "Bambu Lab", "A1")
+            is None,
+            "—",
+        )
+
+        check(
+            "bambu_compat_error: пустая модель принтера — проверять нечего",
+            formats.bambu_compat_error("Bambu Lab A1", "", "") is None,
+            "—",
+        )
 
         passthrough, passthrough_temp = formats.ensure_format(
             "bambu", str(project_path), remote_name="project.3mf"
         )
         check(
-            "ensure_format: готовый .3mf уходит как есть",
+            "ensure_format: проект .3mf уходит как есть",
             passthrough == str(project_path) and passthrough_temp is False,
             f"{passthrough!r}, временный={passthrough_temp}",
         )
@@ -205,29 +316,63 @@ def main() -> int:
         )
 
         bambu = BambuAdapter(
-            ip_address=CHECK_IP, api_key=CHECK_API_KEY, serial_number=""
+            ip_address=CHECK_IP,
+            api_key=CHECK_API_KEY,
+            serial_number="",
+            brand="Bambu Lab",
+            model="A1",
         )
         bambu.protocol_key = "bambu"
-        bambu_plan = bambu.prepare_upload(str(gcode_path), "job.gcode")
-        temporary = Path(bambu_plan.path)
+        bambu_plan = bambu.prepare_upload(str(project_path), "job.3mf")
+        check(
+            "prepare_upload: Bambu — проект как есть, пластина из контейнера",
+            bambu_plan.remote_name == "job.3mf"
+            and bambu_plan.is_temp is False
+            and bambu_plan.path == str(project_path)
+            and bambu._gcode_part == "Metadata/plate_1.gcode",
+            f"{bambu_plan!r}, запись={bambu._gcode_part}",
+        )
+
+        second_plan = bambu.prepare_upload(str(second_plate), "second-plate.3mf")
+        check(
+            "prepare_upload: Bambu запоминает пластину проекта",
+            bambu._gcode_part == "Metadata/plate_2.gcode"
+            and second_plan.remote_name == "second-plate.3mf",
+            f"запись={bambu._gcode_part}",
+        )
+
+        bambu.cleanup_upload(bambu_plan)
+        check(
+            "cleanup_upload: исходный проект не удалён",
+            project_path.exists(),
+            f"{project_path}",
+        )
+
+        rejected = bambu.upload_file(str(gcode_path), remote_name="job.gcode")
+        check(
+            "upload_file: Bambu отклоняет .gcode до сети",
+            rejected is False and "Bambu Studio" in (bambu.last_error or ""),
+            f"last_error={bambu.last_error!r}",
+        )
+
+        foreign_model = BambuAdapter(
+            ip_address=CHECK_IP,
+            api_key=CHECK_API_KEY,
+            brand="Bambu Lab",
+            model="A1 mini",
+        )
+        foreign_model.protocol_key = "bambu"
 
         try:
+            foreign_model.prepare_upload(str(project_path), "job.3mf")
+        except formats.FormatError as error:
             check(
-                "prepare_upload: Bambu — контейнер и имя .3mf",
-                bambu_plan.remote_name == "job.3mf"
-                and bambu_plan.is_temp
-                and temporary.suffix == ".3mf"
-                and temporary.exists(),
-                f"{bambu_plan!r}",
+                "prepare_upload: Bambu отказывает проекту чужой модели",
+                "A1 mini" in str(error),
+                str(error),
             )
-        finally:
-            bambu.cleanup_upload(bambu_plan)
-
-        check(
-            "cleanup_upload: временный контейнер удалён",
-            not temporary.exists(),
-            f"{temporary}",
-        )
+        else:
+            check("prepare_upload: Bambu отказывает проекту чужой модели", False, "—")
 
         try:
             uploaded = moonraker.upload_file(str(project_path), "project.3mf")

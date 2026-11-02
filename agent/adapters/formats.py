@@ -9,10 +9,11 @@
     файл с пробелом в имени (`opGcodeFile` режет строку по пробелу), а `/` и
     `..` увели бы загрузку за пределы папки, поэтому имя приводится к ASCII и
     одному набору символов здесь, а не в каждом адаптере;
-  - `ensure_format()` — формат, который принтер согласен печатать: Bambu не
-    печатает плоский `.gcode` (он пакуется в контейнер `.3mf`), FlashForge
-    берёт `.3mf` только с записями `3D/3dmodel.model` и
-    `Metadata/plate_1.gcode` внутри, остальным нужен G-code;
+  - `ensure_format()` — формат, который принтер согласен печатать: Bambu
+    печатает только проект `.3mf` из Bambu Studio — его проверяет
+    `read_bambu_project()`, — FlashForge берёт `.3mf` только с записями
+    `3D/3dmodel.model` и `Metadata/plate_1.gcode` внутри, остальным нужен
+    G-code;
   - `file_digest()` — MD5 файла: Anycubic и Elegoo сверяют его в командах
     печати, Bambu — в отчёте о загрузке.
 
@@ -23,12 +24,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
-import tempfile
 import zipfile
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 if TYPE_CHECKING:  # только для аннотаций: справочник тянет за собой адаптеры
     from .registry import ProtocolSpec
@@ -161,70 +162,39 @@ def sanitize_remote_name(protocol: str, name: str) -> str:
 # запускает прошивка. Именно это значение присылает Bambu Studio в `project_file`.
 BAMBU_GCODE_PART: Final = "Metadata/plate_1.gcode"
 
-# Запись с 3D-моделью внутри контейнера: путь фиксирован спецификацией 3MF, и
-# прошивка ищет модель именно там, когда инициализирует проект.
-BAMBU_MODEL_PART: Final = "3D/3dmodel.model"
+# `param` команды печати Bambu: запись с нарезанным G-code первой пластины.
+# Именно это значение присылает Bambu Studio в `project_file`, когда печатается
+# первая пластина проекта.
+BAMBU_GCODE_PART: Final = "Metadata/plate_1.gcode"
 
-# Записи OPC-пакета. Прошивка открывает `.3mf` как контейнер: без
-# `[Content_Types].xml` и `_rels/.rels` это обычный ZIP, и `project_file` его не
-# разбирает — так же, как раньше не разбирал плоский `.gcode`. Объявление
-# `3D/3dmodel.model` обязательно: без него пакет не считается 3MF-моделью.
-CONTENT_TYPES_XML: Final = """<?xml version="1.0" encoding="UTF-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-<Default Extension="gcode" ContentType="text/x.gcode"/>
-<Default Extension="config" ContentType="text/xml"/>
-<Override PartName="/3D/3dmodel.model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
-</Types>
-"""
+# Записи с нарезанным G-code: по одной на пластину проекта (`plate_1.gcode`,
+# `plate_2.gcode`). Прошивка получает номер пластины в `param` команды печати,
+# поэтому имя записи читается из контейнера, а не угадывается: проект, где
+# нарезана только вторая пластина, иначе не напечатался бы вовсе.
+BAMBU_PLATE_PATTERN: Final = re.compile(r"^Metadata/plate_(\d+)\.gcode$")
 
-RELS_XML: Final = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Target="/{BAMBU_GCODE_PART}" Id="rel-0" Type="http://schemas.bambulab.com/package/2021/gcode"/>
-<Relationship Target="/{BAMBU_MODEL_PART}" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
-</Relationships>
-"""
+# Служебные файлы проекта Bambu Studio и Orca. Вместе с `plate_*.gcode` они
+# доказывают, что контейнер — готовое задание печати, а не модель для слайсера:
+# `project_settings.config` — профиль принтера и пластика (принтер не нарезает
+# файл сам и берёт настройки отсюда), `slice_info.config` — отчёт слайсера с
+# моделью принтера.
+BAMBU_PLATE_SETTINGS: Final = "Metadata/project_settings.config"
+BAMBU_SLICE_INFO: Final = "Metadata/slice_info.config"
 
-# Минимальная 3D-модель без геометрии. Прошивка инициализирует проект по
-# `3D/3dmodel.model` и без этой записи не берёт задание в работу, даже когда
-# печатать нужно готовый G-code: `project_file` отвечает `success`, а принтер
-# остаётся в `STANDBY`.
-MODEL_XML: Final = """<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-<resources></resources>
-<build></build>
-</model>
-"""
+# Ключи с моделью принтера в служебных файлах: сначала отчёт слайсера, затем
+# проект настроек. Порядок тот же, что в `lib/3d/parse-3mf.ts`: поле
+# `printer_settings_id` у Bambu Studio выглядит как «Bambu Lab A1 0.4 nozzle»,
+# поэтому хвост про сопло снимается перед сравнением.
+BAMBU_MODEL_KEYS: Final = (
+    "printer_model",
+    "printer_model_id",
+    "printer_settings_id",
+)
 
-# `Metadata/model_settings.config`: настройки объектов проекта. Объектов в нашем
-# контейнере нет, поэтому файл пустой — прошивка читает его, но искать в нём
-# нечего.
-MODEL_SETTINGS_XML: Final = """<?xml version="1.0" encoding="UTF-8"?>
-<config></config>
-"""
-
-
-def _slice_info_xml(remote_name: str) -> str:
-    """
-    `Metadata/slice_info.config` — минимум, который прошивка ищет в проекте.
-
-    Времени и веса здесь нет (прошивка берёт их из самого G-code), но поля
-    обязаны присутствовать: без `index` и `prediction` Bambu Studio считает
-    проект недослицованным.
-    """
-    return (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        "<config>\n"
-        '<header><metadata name="BambuStudio:3mfVersion" value="1"/></header>\n'
-        "<plate>\n"
-        '<metadata name="index" value="1"/>\n'
-        f'<metadata name="name" value="{remote_name}"/>\n'
-        '<metadata name="prediction" value="0"/>\n'
-        '<metadata name="weight" value="0"/>\n'
-        "</plate>\n"
-        "</config>\n"
-    )
-
+# Хвост профиля слайсера про сопло: «Bambu Lab A1 0.4 nozzle» → «Bambu Lab A1».
+_NOZZLE_TAIL: Final = re.compile(r"\b\d+(?:\.\d+)?\s*(?:mm)?\s*nozzle\b", re.IGNORECASE)
+_NOZZLE_WORD: Final = re.compile(r"\bnozzle\b", re.IGNORECASE)
+_XML_METADATA_TAG: Final = re.compile(r"<metadata\b[^>]*>", re.IGNORECASE)
 
 def discard(path: str) -> None:
     """Удаляет временный файл: его отсутствие задание не ломает."""
@@ -234,52 +204,285 @@ def discard(path: str) -> None:
         logger.warning("временный файл %s не удалён: %s", path, error)
 
 
-def wrap_gcode_to_3mf(gcode_path: str, remote_name: str) -> str:
+class BambuProject(NamedTuple):
     """
-    Пакует сырой G-code в минимальный контейнер `.3mf`, путь — в ответе.
+    Паспорт проекта `.3mf` для Bambu: что печатать и под какой принтер.
 
-    Bambu A1 не печатает плоский `.gcode`: `gcode_file` он отклоняет на любых
-    `param` и `url`, а `project_file` разбирает только проект. Поэтому файл
-    становится записью `Metadata/plate_1.gcode` внутри контейнера, а рядом
-    кладётся всё, что прошивка требует от 3MF-пакета:
+      - `gcode_part` — запись внутри контейнера (`Metadata/plate_2.gcode`): её
+        указывает `param` команды `project_file`;
+      - `plate` — номер пластины из имени записи;
+      - `printer_model` — модель принтера из профиля слайсера; None — профиль
+        модели не называет, и сравнивать нечего.
+    """
 
-      - `3D/3dmodel.model` — модель без геометрии (`MODEL_XML`): без неё
-        `project_file` отвечает `success`, но задание в работу не берётся;
-      - `Metadata/slice_info.config` — параметры площадки;
-      - `Metadata/model_settings.config` — настройки объектов (пустые);
-      - `[Content_Types].xml` и `_rels/.rels` — служебные записи OPC-пакета.
+    gcode_part: str
+    plate: int
+    printer_model: str | None
 
-    Контейнер создаётся во временном каталоге и удаляется вызывающим
-    (`discard`): сам файл задания остаётся на месте — по нему main.py считает
-    оценку печати.
+
+def _xml_attribute(tag: str, name: str) -> str | None:
+    """Значение атрибута XML-тега: кавычки одинарные и двойные."""
+    pattern = re.compile(rf"\b{name}\s*=\s*(\"([^\"]*)\"|'([^']*)')", re.IGNORECASE)
+    match = pattern.search(tag)
+
+    if not match:
+        return None
+
+    return match.group(2) if match.group(2) is not None else match.group(3)
+
+
+def _clean_printer_model(value: str | None) -> str | None:
+    """
+    Модель принтера в одном виде: без кавычек, лишних пробелов и хвоста сопла.
+
+    `printer_settings_id` у Bambu Studio выглядит как «Bambu Lab A1 0.4 nozzle»,
+    а сравнивать его нужно с моделью принтера из парка («A1»).
+    """
+    if not value:
+        return None
+
+    text = value.strip().strip("\"'").strip()
+    text = _NOZZLE_TAIL.sub(" ", text)
+    text = _NOZZLE_WORD.sub(" ", text)
+    text = " ".join(text.split())
+
+    return text or None
+
+
+def _slice_info_model(xml: str) -> str | None:
+    """
+    Модель принтера из `Metadata/slice_info.config`.
+
+    Bambu Studio и Orca пишут её метаданными пластины:
+    `<metadata key="printer_model_id" value="Bambu Lab A1"/>`.
+    """
+    values: dict[str, str] = {}
+
+    for tag in _XML_METADATA_TAG.findall(xml):
+        key = (_xml_attribute(tag, "key") or "").strip().lower()
+        value = _xml_attribute(tag, "value")
+
+        if key and value and key not in values:
+            values[key] = value
+
+    for key in BAMBU_MODEL_KEYS:
+        model = _clean_printer_model(values.get(key))
+
+        if model:
+            return model
+
+    return None
+
+
+def _project_settings_model(json_text: str) -> str | None:
+    """
+    Модель принтера из `Metadata/project_settings.config`.
+
+    Файл — JSON проекта слайсера. Битый или неожиданный JSON не ошибка: просто
+    нет подсказки, для какого принтера нарезан проект.
     """
     try:
-        handle, path = tempfile.mkstemp(prefix="print-", suffix=".3mf")
-    except OSError as error:
-        raise OSError(f"временный файл не создан: {error}") from error
+        settings = json.loads(json_text)
+    except ValueError:
+        return None
 
-    os.close(handle)
+    if not isinstance(settings, dict):
+        return None
 
+    for key in BAMBU_MODEL_KEYS:
+        value = settings.get(key)
+        model = _clean_printer_model(value if isinstance(value, str) else None)
+
+        if model:
+            return model
+
+    return None
+
+
+def _bambu_plate(parts: list[str]) -> tuple[int, str] | None:
+    """
+    Первая нарезанная пластина контейнера: номер и путь записи.
+
+    None — в контейнере нет `Metadata/plate_*.gcode`, то есть нарезки нет.
+    """
+    plates = [
+        (int(match.group(1)), part)
+        for part in parts
+        for match in [BAMBU_PLATE_PATTERN.match(part)]
+        if match
+    ]
+
+    return min(plates) if plates else None
+
+
+def _bambu_model(container: zipfile.ZipFile, parts: set[str]) -> str | None:
+    """
+    Модель принтера из проекта: сначала отчёт слайсера, потом проект настроек.
+
+    Любая ошибка чтения — «модели нет»: подсказка нужна только для проверки
+    совместимости, и портить ею загрузку готового проекта нельзя.
+    """
+    for part, reader in (
+        (BAMBU_SLICE_INFO, _slice_info_model),
+        (BAMBU_PLATE_SETTINGS, _project_settings_model),
+    ):
+        if part not in parts:
+            continue
+
+        try:
+            text = container.read(part).decode("utf-8", "replace")
+        except (OSError, KeyError, zipfile.BadZipFile) as error:
+            logger.warning("Bambu: %s не прочитан: %s", part, error)
+            continue
+
+        model = reader(text)
+
+        if model:
+            return model
+
+    return None
+
+
+def read_bambu_project(path: str) -> BambuProject:
+    """
+    Проверяет, что `.3mf` — готовый проект печати Bambu, и читает его паспорт.
+
+    A1 печатает только проект, сохранённый слайсером Bambu Studio (или Orca)
+    командой «Экспорт файла пластины»: внутри такого файла лежит нарезанный
+    G-code пластины (`Metadata/plate_N.gcode`) и профиль слайсера
+    (`Metadata/project_settings.config`). Модель `.3mf` без нарезки прошивка не
+    разбирает — она не слайсит, — поэтому такой файл отклоняется здесь, до
+    загрузки сотни мегабайт на карту и до команды печати.
+
+    Отказы — `FormatError` с причиной для мастера: «не удалось загрузить файл»
+    он уже видел, и оно не говорило, что делать дальше.
+    """
     try:
-        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as project:
-            project.write(gcode_path, BAMBU_GCODE_PART)
-            project.writestr("Metadata/slice_info.config", _slice_info_xml(remote_name))
-            project.writestr("Metadata/model_settings.config", MODEL_SETTINGS_XML)
-            project.writestr(BAMBU_MODEL_PART, MODEL_XML)
-            project.writestr("[Content_Types].xml", CONTENT_TYPES_XML)
-            project.writestr("_rels/.rels", RELS_XML)
-    except (OSError, zipfile.BadZipFile):
-        discard(path)
-        raise
+        with zipfile.ZipFile(path) as container:
+            parts = set(container.namelist())
+            plate = _bambu_plate(list(parts))
 
-    logger.info(
-        "G-code %s упакован в контейнер %s (%d байт)",
-        remote_name,
-        path,
-        os.path.getsize(path),
+            if plate is None:
+                raise FormatError(
+                    "в контейнере .3mf нет нарезанного G-code "
+                    "(`Metadata/plate_1.gcode`): это модель, а не задание печати. "
+                    "Нарежьте её в Bambu Studio под свой принтер и сохраните "
+                    "проект — «Экспорт файла пластины» (.3mf)"
+                )
+
+            if BAMBU_PLATE_SETTINGS not in parts:
+                raise FormatError(
+                    "контейнер .3mf собран не Bambu Studio: в нём нет "
+                    f"`{BAMBU_PLATE_SETTINGS}`, а прошивка берёт из него профиль "
+                    "печати. Сохраните проект из Bambu Studio («Экспорт файла "
+                    "пластины») и загрузите его заново"
+                )
+
+            index, part = plate
+
+            return BambuProject(
+                gcode_part=part,
+                plate=index,
+                printer_model=_bambu_model(container, parts),
+            )
+    except (OSError, zipfile.BadZipFile) as error:
+        raise FormatError(f"контейнер .3mf не прочитан: {error}") from error
+
+
+def _comparison_key(value: str) -> str:
+    """
+    Ключ сравнения моделей: регистр, скобки и хвост сопла не важны.
+
+    «Bambu Lab A1 0.4 nozzle» → «bambu lab a1»; «Original Prusa MK4» →
+    «original prusa mk4».
+    """
+    text = _clean_printer_model(value) or ""
+
+    return " ".join(text.replace("(", " ").replace(")", " ").split()).lower()
+
+
+def _printer_keys(brand: str, model: str) -> list[str]:
+    """
+    Варианты ключа принтера из парка: «A1» и «Bambu Lab A1» — один принтер.
+
+    Модель может уже содержать бренд («Bambu Lab A1» при бренде «Bambu Lab»),
+    поэтому набор собирается, а не сравнивается одной строкой.
+    """
+    model_key = _comparison_key(model)
+    brand_key = _comparison_key(brand)
+    keys: list[str] = []
+
+    if model_key:
+        keys.append(model_key)
+
+    if brand_key and model_key:
+        keys.append(f"{brand_key} {model_key}")
+
+    return keys
+
+
+def bambu_compat_error(project_model: str | None, brand: str, model: str) -> str | None:
+    """
+    Подходит ли проект принтеру: None — подходит, строка — причина отказа.
+
+    Профили температуры, скорости и объёма у моделей разные, поэтому проект,
+    нарезанный для X1 Carbon, на A1 печатать нельзя: принтер либо откажется,
+    либо испортит деталь. Пустая модель в профиле или пустая модель принтера —
+    «сравнивать нечего», и такой проект пропускается: отказ ради догадки хуже
+    ошибки.
+
+    Совпадение по концу строки нужно для названий с уточнением впереди:
+    «Original Prusa MK4» и модель «MK4». Разные модели им не станут: «A1 mini»
+    не заканчивается на «A1».
+    """
+    sliced = _comparison_key(project_model or "")
+
+    if not sliced:
+        return None
+
+    keys = _printer_keys(brand, model)
+
+    if not keys:
+        return None
+
+    if any(sliced == key or sliced.endswith(f" {key}") for key in keys):
+        return None
+
+    printer = " ".join(part.strip() for part in (brand, model) if part.strip())
+
+    return (
+        f"проект .3mf нарезан для {project_model}, а принтер — "
+        f"{printer or 'без модели в карточке'}: переслайсите модель под этот "
+        "принтер и загрузите файл заново"
     )
 
-    return path
+
+def _bambu_format_error(extension: str) -> str:
+    """
+    Почему Bambu не возьмёт такой файл: текст для мастера, а не код ошибки.
+
+    STL и плоский G-code принтер не нарезает и не разбирает: A1 печатает только
+    готовый проект `.3mf`. Без этого объяснения мастер видел «задание
+    провалилось» и искал причину в принтере.
+    """
+    if extension == ".stl":
+        return (
+            "STL — это модель, а не задание печати: принтер её не нарезает. "
+            "Нарежьте модель в Bambu Studio под свой принтер и сохраните проект "
+            "— «Экспорт файла пластины» (.3mf)"
+        )
+
+    if extension in (".gcode", ".gco", ".g"):
+        return (
+            "Bambu Lab печатает только проект .3mf из Bambu Studio: плоский "
+            f"{extension} прошивка A1 не разбирает. Нарежьте модель под принтер "
+            "и сохраните «Экспорт файла пластины» (.3mf)"
+        )
+
+    return (
+        f"Bambu Lab не печатает {extension or 'файлы без расширения'} — "
+        "загрузите проект .3mf, сохранённый из Bambu Studio для этого принтера"
+    )
 
 
 # Пути записей внутри контейнера `.3mf` фиксированы спецификацией 3MF: модель
@@ -354,11 +557,16 @@ def ensure_format(
 
     Что происходит по протоколам:
 
+      - Bambu и не `.3mf` — `FormatError` с объяснением: A1 печатает только
+        проект `.3mf`, сохранённый из Bambu Studio, а плоский G-code и STL он
+        не разбирает. Проверка стоит до сети: иначе мастер узнал бы об этом
+        после загрузки сотни мегабайт;
+      - Bambu и `.3mf` — проверка контейнера (`read_bambu_project()`): внутри
+        должен быть нарезанный G-code пластины и профиль слайсера, иначе
+        прошивка ответит `0500-4003` уже после загрузки;
       - формат не входит в `ProtocolSpec.formats` — `FormatError` с понятным
         текстом. Это дешевле, чем узнать отказ от принтера через полминуты:
         PrusaLink не печатает `.3mf`, Creality — тоже;
-      - Bambu и `.gcode` — файл пакуется в контейнер `.3mf`
-        (`wrap_gcode_to_3mf`): плоский G-code A1 отклоняет на любой команде;
       - FlashForge и `.3mf` — проверка записей внутри контейнера;
       - остальные случаи — файл уходит как есть (`local_path`, не временный).
 
@@ -368,15 +576,20 @@ def ensure_format(
     spec = _spec(protocol)
     extension = file_extension(local_path) or file_extension(remote_name)
 
+    # Bambu отвечает за формат сам: у него один печатаемый формат — проект
+    # `.3mf`, и текст отказа должен говорить, что делать мастеру, а не только
+    # «формат не тот».
+    if spec.key == "bambu" and extension != ".3mf":
+        raise FormatError(_bambu_format_error(extension))
+
     if extension not in spec.formats:
         raise FormatError(
             f"{spec.title} не печатает {extension or 'файлы без расширения'} — "
             f"переслайсите в {_formats_hint(spec.formats)}"
         )
 
-    if spec.key == "bambu" and extension == ".gcode":
-        name = remote_name or _basename(local_path)
-        return wrap_gcode_to_3mf(local_path, name), True
+    if spec.key == "bambu":
+        read_bambu_project(local_path)
 
     if spec.key == "flashforge" and extension == ".3mf":
         _require_flashforge_parts(local_path)
