@@ -5,7 +5,17 @@ meta:
     version: 22
 build:
   additionalCommands: npm run build:amvera
+  # В итоговый образ должно попасть только то, что нужно в рантайме.
+  # Кеш сборки Next (.next/cache) на проекте разрастается до 800+ МБ: тащить его
+  # в архив незачем, при запуске он не нужен (создаётся заново при первом
+  # обращении). Метаданные git и кеш TypeScript тоже лишние — из-за них архив
+  # раздувался и фаза копирования висела десятки минут.
+  # node_modules и .next (кроме cache) остаются в образе обязательно: без них не
+  # запустится run.scriptName ниже — next start читает сборку из .next.
   artifacts:
+    "!.git": /
+    "!.next/cache": /
+    "!*.tsbuildinfo": /
     "*": /
 run:
   scriptName: node_modules/next/dist/bin/next
