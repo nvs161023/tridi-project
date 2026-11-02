@@ -12,7 +12,9 @@
  *   4. сверка «нарезан для …» с моделью принтера: Bambu A1 не подходит для
  *      FlashForge, A1 mini не путается с A1, файл без разметки разрешён любому
  *      принтеру;
- *   5. текст отказа совпадает с тем, что показывает карточка заказа.
+ *   5. текст отказа совпадает с тем, что показывает карточка заказа;
+ *   6. исходник модели (STL) отличается от файла печати: STL не считается
+ *      заданием печати, а подписи полей совпадают с формой товара.
  *
  * ZIP собирается здесь же: нужен минимальный архив с двумя служебными файлами,
  * а тянуть в тест упаковщик незачем. CRC считается по-настоящему — тестовый
@@ -33,7 +35,10 @@ import {
 import {
   isPrintableFile,
   isSlicedForPrinter,
+  isSourceModelFile,
+  PRINT_FILE_LABEL,
   printerMismatchMessage,
+  SOURCE_MODEL_FILE_LABEL,
 } from "../lib/3d/print-compatibility";
 
 /** Сколько проверок упало: из этого складывается код выхода. */
@@ -284,6 +289,25 @@ check("G-code печатается", isPrintableFile("https://x/vase.gcode"), tr
 check("3MF печатается", isPrintableFile("https://x/vase.3mf?token=1"), true);
 check("STL не печатается", isPrintableFile("https://x/vase.stl"), false);
 check("пустая ссылка", isPrintableFile(null), false);
+
+console.log("Исходник модели отделён от файла печати");
+
+check("STL — исходник", isSourceModelFile("https://x/vase.stl"), true);
+check(
+  "STL с query — исходник",
+  isSourceModelFile("https://x/vase.stl?download=1"),
+  true,
+);
+check("STL в верхнем регистре", isSourceModelFile("https://x/VASE.STL"), true);
+check("3MF не исходник", isSourceModelFile("https://x/vase.3mf"), false);
+check("G-code не исходник", isSourceModelFile("https://x/vase.gcode"), false);
+check("пустая ссылка — не исходник", isSourceModelFile(null), false);
+check("подпись исходника", SOURCE_MODEL_FILE_LABEL, "Исходник (STL)");
+check(
+  "подпись файла печати",
+  PRINT_FILE_LABEL,
+  "Файл для печати (3MF/GCode)",
+);
 
 if (failures > 0) {
   console.log(`\nПровалено проверок: ${failures}`);

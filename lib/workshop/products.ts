@@ -14,7 +14,11 @@ import { revalidatePath } from "next/cache";
 
 import Papa, { type ParseError } from "papaparse";
 
-import { printFileExtension } from "@/lib/3d/print-compatibility";
+import {
+  isPrintableFile,
+  isSourceModelFile,
+  printFileExtension,
+} from "@/lib/3d/print-compatibility";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
@@ -41,7 +45,9 @@ export type WorkshopProduct = {
   heightMm: number | null;
   barcode: string | null;
   category: string | null;
-  /** Ссылка на файл печати: G-code, 3MF или STL; null — файл не приложен. */
+  /** Ссылка на исходник модели (STL); null — исходника нет. */
+  modelUrl: string | null;
+  /** Ссылка на файл печати: 3MF или G-code; null — файл не приложен. */
   gcodeUrl: string | null;
   /**
    * Модель принтера, для которой нарезан 3MF («Bambu Lab A1»).
@@ -69,6 +75,7 @@ export type ProductField =
   | "size"
   | "barcode"
   | "category"
+  | "modelUrl"
   | "gcodeUrl";
 
 export type ProductFieldErrors = Partial<Record<ProductField, string>>;
@@ -130,6 +137,7 @@ type ProductDraft = {
   heightMm: number | null;
   barcode: string | null;
   category: string | null;
+  modelUrl: string | null;
   gcodeUrl: string | null;
   slicedForPrinter: string | null;
 };
@@ -137,12 +145,17 @@ type ProductDraft = {
 /**
  * Колонки, которые читает getWorkshopProducts.
  *
- * `sliced_for_printer` добавляет supabase/workshop_farm_and_shop.sql, а
- * `gcode_url` — та же миграция. Пока она не применена, PostgREST отвечает
- * PGRST204 на весь select, поэтому наборов три: полный, без разметки принтера
- * и совсем без файла печати. Чтение пробует их по порядку.
+ * `model_url` добавляет supabase/workshop_product_model_url.sql, а `gcode_url`
+ * и `sliced_for_printer` — supabase/workshop_farm_and_shop.sql. Пока миграции
+ * не применены, PostgREST отвечает PGRST204 на весь select, поэтому наборов
+ * четыре: полный, без исходника модели, без разметки принтера и совсем без
+ * файлов. Чтение пробует их по порядку — от нового к старому.
  */
 export const PRODUCT_COLUMNS =
+  "id, sku, title, description, price, old_price, brand, color, size, weight_g, length_mm, width_mm, height_mm, barcode, category, model_url, gcode_url, sliced_for_printer, created_at";
+
+/** Набор без model_url: база до supabase/workshop_product_model_url.sql. */
+export const PRODUCT_COLUMNS_NO_MODEL =
   "id, sku, title, description, price, old_price, brand, color, size, weight_g, length_mm, width_mm, height_mm, barcode, category, gcode_url, sliced_for_printer, created_at";
 
 /** Набор без sliced_for_printer: база до повторного запуска миграции фермы. */
@@ -163,6 +176,7 @@ export const PRODUCT_TEXT_LIMITS = {
   size: 80,
   barcode: 64,
   category: 80,
+  modelUrl: 2048,
   gcodeUrl: 2048,
   slicedForPrinter: 120,
 } as const;
@@ -315,35 +329,91 @@ function readPriceValue(
 }
 
 /**
- * Ссылка на G-code: пусто — null, иначе абсолютный http(s)-адрес.
+ * Ссылка на файл из формы: пусто — null, иначе абсолютный http(s)-адрес не
+ * длиннее предела колонки.
  *
  * Относительный путь агенту фермы бесполезен: он скачивает файл не из
  * браузера. Файл, загруженный через /api/workshop/gcode, уже приходит
  * публичным https-адресом.
  */
-function readGcodeUrl(
+function readFileLink(
   formData: FormData,
+  field: "modelUrl" | "gcodeUrl",
   errors: ProductFieldErrors,
 ): string | null {
-  const raw = readFormText(formData, "gcodeUrl");
+  const raw = readFormText(formData, field);
 
   if (!raw) {
     return null;
   }
 
-  if (raw.length > PRODUCT_TEXT_LIMITS.gcodeUrl) {
-    errors.gcodeUrl = `Не больше ${PRODUCT_TEXT_LIMITS.gcodeUrl} символов.`;
+  const limit = PRODUCT_TEXT_LIMITS[field];
+
+  if (raw.length > limit) {
+    errors[field] = `Не больше ${limit} символов.`;
 
     return null;
   }
 
   if (!/^https?:\/\/\S+$/iu.test(raw)) {
-    errors.gcodeUrl = "Укажите полную ссылку, начиная с http:// или https://.";
+    errors[field] = "Укажите полную ссылку, начиная с http:// или https://.";
 
     return null;
   }
 
   return raw;
+}
+
+/**
+ * Ссылка на исходник модели: только STL.
+ *
+ * У товара два файла, и они не взаимозаменяемы: исходник нужен, чтобы нарезать
+ * изделие заново под другой принтер, а печатает агент фермы по 3MF или G-code.
+ * 3MF и G-code здесь отклоняются, чтобы мастер не перепутал поля.
+ */
+function readModelUrl(
+  formData: FormData,
+  errors: ProductFieldErrors,
+): string | null {
+  const url = readFileLink(formData, "modelUrl", errors);
+
+  if (!url) {
+    return null;
+  }
+
+  if (!isSourceModelFile(url)) {
+    errors.modelUrl = "Исходник — файл .stl. Файл печати приложите отдельным полем.";
+
+    return null;
+  }
+
+  return url;
+}
+
+/**
+ * Ссылка на файл печати: 3MF или G-code.
+ *
+ * STL отклоняется: это модель для слайсера, а не задание печати — агенту фермы
+ * нечего отправлять на принтер. Такой файл прикладывают в поле исходника.
+ */
+function readGcodeUrl(
+  formData: FormData,
+  errors: ProductFieldErrors,
+): string | null {
+  const url = readFileLink(formData, "gcodeUrl", errors);
+
+  if (!url) {
+    return null;
+  }
+
+  if (!isPrintableFile(url)) {
+    errors.gcodeUrl =
+      "Файл печати — 3MF или G-code (.3mf, .gcode, .gco, .g). Исходник .stl приложите отдельным полем.";
+
+    return null;
+  }
+
+  return url;
 }
 
 /**
@@ -486,6 +556,7 @@ function readProductForm(formData: FormData): {
     errors,
     "category",
   );
+  const modelUrl = readModelUrl(formData, errors);
   const gcodeUrl = readGcodeUrl(formData, errors);
   const slicedForPrinter = readSlicedForPrinter(formData, gcodeUrl);
 
@@ -521,6 +592,7 @@ function readProductForm(formData: FormData): {
       size,
       barcode,
       category,
+      modelUrl,
       gcodeUrl,
       slicedForPrinter,
     },
@@ -879,6 +951,19 @@ export function normalizeProductRow(
   }
 
   const price = readStoredNumber(row.price, false) ?? 0;
+  const storedModelUrl = readStoredText(
+    row.model_url,
+    PRODUCT_TEXT_LIMITS.modelUrl,
+  );
+  const storedGcodeUrl = readStoredText(
+    row.gcode_url,
+    PRODUCT_TEXT_LIMITS.gcodeUrl,
+  );
+  // До разделения файлов STL прикладывали в gcode_url: такая ссылка — исходник,
+  // а не задание печати, иначе карточка обещала бы печать, которой не будет.
+  const legacyModelUrl = isSourceModelFile(storedGcodeUrl)
+    ? storedGcodeUrl
+    : null;
 
   return {
     id: row.id,
@@ -899,7 +984,8 @@ export function normalizeProductRow(
     heightMm: readStoredNumber(row.height_mm, true),
     barcode: readStoredText(row.barcode, PRODUCT_TEXT_LIMITS.barcode),
     category: readStoredText(row.category, PRODUCT_TEXT_LIMITS.category),
-    gcodeUrl: readStoredText(row.gcode_url, PRODUCT_TEXT_LIMITS.gcodeUrl),
+    modelUrl: storedModelUrl ?? legacyModelUrl,
+    gcodeUrl: legacyModelUrl ? null : storedGcodeUrl,
     slicedForPrinter: readStoredText(
       row.sliced_for_printer,
       PRODUCT_TEXT_LIMITS.slicedForPrinter,
@@ -928,11 +1014,13 @@ export async function getWorkshopProducts(): Promise<WorkshopProduct[]> {
   let data: Partial<Record<string, unknown>>[] | null = null;
   let error: { code?: string | null; message: string } | null = null;
 
-  // gcode_url и sliced_for_printer добавляет supabase/workshop_farm_and_shop.sql.
-  // Пока миграцию не применили заново, каталог читается без новых колонок:
-  // товары и заказы должны работать.
+  // model_url добавляет supabase/workshop_product_model_url.sql, gcode_url и
+  // sliced_for_printer — supabase/workshop_farm_and_shop.sql. Пока миграции не
+  // применили заново, каталог читается без новых колонок: товары и заказы
+  // должны работать.
   for (const columns of [
     PRODUCT_COLUMNS,
+    PRODUCT_COLUMNS_NO_MODEL,
     PRODUCT_COLUMNS_NO_SLICED,
     PRODUCT_COLUMNS_LEGACY,
   ]) {
@@ -1020,9 +1108,11 @@ export async function addProduct(
     return { error: PRO_REQUIRED, fieldErrors: errors };
   }
 
-  // `sliced_for_printer` — новая колонка supabase/workshop_farm_and_shop.sql.
-  // Пустое значение не пишем вовсе: null означает «файл без разметки», и
-  // лишний ключ только мешал бы старой базе принять товар.
+  // `model_url` и `sliced_for_printer` — необязательные колонки миграций
+  // supabase/workshop_product_model_url.sql и
+  // supabase/workshop_farm_and_shop.sql. Пустое значение не пишем вовсе: null
+  // означает «файла нет», и лишний ключ только мешал бы старой базе принять
+  // товар.
   const insertPayload: Record<string, unknown> = {
     user_id: user.id,
     sku: draft.sku,
@@ -1042,32 +1132,44 @@ export async function addProduct(
     gcode_url: draft.gcodeUrl,
   };
 
+  if (draft.modelUrl) {
+    insertPayload.model_url = draft.modelUrl;
+  }
+
   if (draft.slicedForPrinter) {
     insertPayload.sliced_for_printer = draft.slicedForPrinter;
   }
 
+  /** Колонки, которых может не быть в живой базе: миграции применяют вручную. */
+  const optionalColumns = ["model_url", "sliced_for_printer"].filter(
+    (column) => column in insertPayload,
+  );
+
   let error = (await supabase.from("workshop_products").insert(insertPayload))
     .error;
 
-  // Миграции применяют вручную: пока колонки нет, товар сохраняется без
-  // разметки принтера. Терять из-за этого карточку нельзя — проверка при
-  // заказе просто не сработает, пока мастер не обновит схему.
+  // Миграции применяют вручную: пока колонок нет, товар сохраняется без
+  // исходника и разметки принтера. Терять из-за этого карточку нельзя —
+  // проверка при заказе просто не сработает, пока мастер не обновит схему.
   if (
     error &&
-    "sliced_for_printer" in insertPayload &&
+    optionalColumns.length > 0 &&
     isMissingTableSchema(error.code, error.message)
   ) {
     console.warn(
-      "Товар сохранён без sliced_for_printer: примените заново supabase/workshop_farm_and_shop.sql.",
+      "Товар сохранён без исходника или разметки принтера: примените supabase/workshop_product_model_url.sql и заново supabase/workshop_farm_and_shop.sql.",
       error.code,
       error.message,
     );
 
-    error = (
-      await supabase
-        .from("workshop_products")
-        .insert({ ...insertPayload, sliced_for_printer: undefined })
-    ).error;
+    const retryPayload: Record<string, unknown> = { ...insertPayload };
+
+    for (const column of optionalColumns) {
+      delete retryPayload[column];
+    }
+
+    error = (await supabase.from("workshop_products").insert(retryPayload))
+      .error;
   }
 
   if (error) {
@@ -1111,10 +1213,11 @@ export async function addProduct(
  * превращается в подсказку «артикул занят» (код 23505), а не в общий отказ.
  *
  * `select("title")` возвращает обновлённую строку: пустой ответ означает, что
- * товар уже удалили в другой вкладке. Колонки `gcode_url` и
- * `sliced_for_printer` добавляет supabase/workshop_farm_and_shop.sql; пока
- * миграцию не применили заново, `update` повторяется без них — карточка
- * сохраняется, а в сообщении честно сказано, что файл печати не записан.
+ * товар уже удалили в другой вкладке. Колонки файлов добавляют миграции
+ * supabase/workshop_product_model_url.sql (`model_url`) и
+ * supabase/workshop_farm_and_shop.sql (`gcode_url`, `sliced_for_printer`); пока
+ * миграции не применили заново, `update` повторяется без них — карточка
+ * сохраняется, а в сообщении честно сказано, что файлы не записаны.
  */
 export async function updateProduct(
   productId: string,
@@ -1163,10 +1266,16 @@ export async function updateProduct(
     barcode: draft.barcode,
     category: draft.category,
   };
-  const filePayload = {
+  const filePayload: Record<string, unknown> = {
+    model_url: draft.modelUrl,
     gcode_url: draft.gcodeUrl,
     sliced_for_printer: draft.slicedForPrinter,
   };
+  // Тот же файл печати без исходника: так карточка сохраняется на базе, где
+  // supabase/workshop_product_model_url.sql ещё не применена.
+  const printPayload: Record<string, unknown> = { ...filePayload };
+
+  delete printPayload.model_url;
 
   let result = await supabase
     .from("workshop_products")
@@ -1175,7 +1284,30 @@ export async function updateProduct(
     .eq("user_id", user.id)
     .select("title")
     .maybeSingle();
+  let modelSkipped = false;
   let fileSkipped = false;
+
+  // Миграции применяют вручную, поэтому откат идёт по шагам: сначала карточка
+  // сохраняется без исходника, потом — совсем без файлов.
+  if (
+    result.error &&
+    isMissingTableSchema(result.error.code, result.error.message)
+  ) {
+    console.warn(
+      "Товар сохранён без исходника: примените supabase/workshop_product_model_url.sql.",
+      result.error.code,
+      result.error.message,
+    );
+
+    modelSkipped = true;
+    result = await supabase
+      .from("workshop_products")
+      .update({ ...cardPayload, ...printPayload })
+      .eq("id", productId)
+      .eq("user_id", user.id)
+      .select("title")
+      .maybeSingle();
+  }
 
   if (
     result.error &&
@@ -1228,10 +1360,13 @@ export async function updateProduct(
   revalidatePath("/dashboard/workshop/products");
   revalidatePath("/dashboard/workshop/marketplace");
 
-  const savedMessage =
-    fileSkipped && draft.gcodeUrl
-      ? `Товар «${draft.title}» сохранён, но ссылка на файл печати не записана: примените заново supabase/workshop_farm_and_shop.sql.`
-      : `Товар «${draft.title}» сохранён.`;
+  let savedMessage = `Товар «${draft.title}» сохранён.`;
+
+  if (fileSkipped && (draft.gcodeUrl || draft.modelUrl)) {
+    savedMessage = `Товар «${draft.title}» сохранён, но файлы не записаны: примените supabase/workshop_product_model_url.sql и заново supabase/workshop_farm_and_shop.sql.`;
+  } else if (modelSkipped && draft.modelUrl) {
+    savedMessage = `Товар «${draft.title}» сохранён, но ссылка на исходник не записана: примените supabase/workshop_product_model_url.sql.`;
+  }
 
   return { success: true, message: savedMessage };
 }

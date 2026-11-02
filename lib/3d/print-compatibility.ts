@@ -28,6 +28,21 @@ export type PrinterIdentity = {
 const PRINTABLE_EXTENSIONS = ["gcode", "gco", "g", "3mf"] as const;
 
 /**
+ * Расширения исходников модели.
+ *
+ * STL — модель для слайсера: её прикладывают к товару, чтобы нарезать изделие
+ * заново под другой принтер. В очередь печати такой файл не годится, поэтому
+ * он хранится отдельным полем карточки (`model_url`), а не вместо файла печати.
+ */
+export const SOURCE_MODEL_EXTENSIONS = ["stl"] as const;
+
+/** Подпись поля с исходником модели — одна для формы и карточки товара. */
+export const SOURCE_MODEL_FILE_LABEL = "Исходник (STL)";
+
+/** Подпись файла, готового к печати, — одна для формы и карточки товара. */
+export const PRINT_FILE_LABEL = "Файл для печати (3MF/GCode)";
+
+/**
  * Расширение файла печати из ссылки: query и якорь не считаются.
  *
  * По нему решается и способ печати (проект 3MF уходит как есть, а G-code и STL
@@ -57,6 +72,21 @@ export function isPrintableFile(url: string | null): boolean {
   return (
     extension !== null &&
     (PRINTABLE_EXTENSIONS as readonly string[]).includes(extension)
+  );
+}
+
+/**
+ * Ссылка ведёт на исходник модели (STL).
+ *
+ * По этой проверке карточка товара раскладывает файлы по полям, а Server Action
+ * отклоняет STL в `gcode_url`: там он сломал бы очередь печати.
+ */
+export function isSourceModelFile(url: string | null): boolean {
+  const extension = printFileExtension(url);
+
+  return (
+    extension !== null &&
+    (SOURCE_MODEL_EXTENSIONS as readonly string[]).includes(extension)
   );
 }
 
