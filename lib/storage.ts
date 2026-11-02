@@ -15,6 +15,7 @@
  */
 import { randomUUID } from "node:crypto";
 
+import type { ProductFileKind } from "@/lib/3d/print-compatibility";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /** Бакет для картинок, которые нужны внешнему API прямо сейчас. */
@@ -342,18 +343,32 @@ export async function uploadImageToSupabase(file: File): Promise<string> {
 }
 
 /**
- * Загружает файл печати товара в публичный бакет `workshop-gcode`.
+ * Папки бакета по назначению файла.
+ *
+ * Исходники лежат отдельно от заданий печати: агенту фермы нужны только вторые,
+ * а мастеру и калькулятору — первые. Папка добавляется перед датой, поэтому
+ * старые ссылки вида `<userId>/<дата>/<uuid>.gcode` продолжают работать.
+ */
+const FILE_FOLDERS: Record<ProductFileKind, string> = {
+  model: "models",
+  print: "print",
+};
+
+/**
+ * Загружает файл товара в публичный бакет `workshop-gcode`.
  *
  * Путь начинается с `userId`: файлы разных мастерских не пересекаются даже
- * при совпадении имён. Расширение сохраняется как у исходного файла
- * (`.gcode`, `.gco`, `.g`, `.3mf`, `.stl`) — по нему агент фермы понимает,
- * печатать готовый 3MF или сначала упаковать в контейнер G-code. contentType
- * берётся из файла, а если браузер его не знает — `application/octet-stream`.
+ * при совпадении имён. Дальше идёт папка назначения (`models` для исходника
+ * STL, `print` для задания печати) и дата. Расширение сохраняется как у
+ * исходного файла (`.gcode`, `.gco`, `.g`, `.3mf`, `.stl`) — по нему агент
+ * фермы понимает, печатать готовый 3MF или сначала упаковать в контейнер
+ * G-code. contentType берётся из файла, а если браузер его не знает —
+ * `application/octet-stream`.
  */
 export async function uploadGcodeToSupabase(
   userId: string,
   file: File,
-  bytes?: Buffer,
+  options: { kind?: ProductFileKind; bytes?: Buffer } = {},
 ): Promise<string> {
   const admin = createAdminClient();
 
@@ -364,11 +379,14 @@ export async function uploadGcodeToSupabase(
 
   await gcodeBucketReady;
 
-  const path = `${userId}/${dateFolder()}/${randomUUID()}${printFileExtension(file.name)}`;
+  // Файл без явного назначения считается заданием печати: прежние клиенты
+  // присылали только его.
+  const folder = FILE_FOLDERS[options.kind ?? "print"];
+  const path = `${userId}/${folder}/${dateFolder()}/${randomUUID()}${printFileExtension(file.name)}`;
   // `bytes` передаёт роут, когда файл уже прочитан для разбора 3MF: читать
   // пятидесятимегабайтный архив второй раз значило бы держать его в памяти
   // дважды.
-  const content = bytes ?? Buffer.from(await file.arrayBuffer());
+  const content = options.bytes ?? Buffer.from(await file.arrayBuffer());
   const contentType = PRINT_FILE_MIME_TYPES.includes(file.type)
     ? file.type
     : "application/octet-stream";

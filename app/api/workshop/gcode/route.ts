@@ -1,14 +1,24 @@
 import { extractPrinterModelFrom3mf } from "@/lib/3d/parse-3mf";
+import {
+  isSourceModelFile,
+  type ProductFileKind,
+} from "@/lib/3d/print-compatibility";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { uploadGcodeToSupabase } from "@/lib/storage";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Загрузка файла печати товара в публичный бакет `workshop-gcode`.
+ * Загрузка файла товара в публичный бакет `workshop-gcode`.
  *
  * Через отдельный роут, а не Server Action: G-code и 3MF весят мегабайты, а у
  * Server Actions по умолчанию небольшой лимит тела. Клиент отправляет файл
  * сюда, получает публичный URL и уже его кладёт в скрытое поле формы товара.
+ *
+ * Назначение задаёт поле `kind`:
+ *   `print` — готовое задание печати (.3mf, .gcode, .gco, .g), папка print;
+ *   `model` — исходник модели (.stl) для калькулятора и повторной нарезки,
+ *     папка models.
+ * Без поля загрузка считается заданием печати: так работали прежние клиенты.
  *
  * Кроме ссылки роут возвращает модель принтера из метаданных 3MF
  * (`printerModel`). Разбор идёт здесь, пока архив уже прочитан в память; в
@@ -19,12 +29,12 @@ import { createClient } from "@/lib/supabase/server";
  * Порядок проверок:
  *   1. сессия — `/api/*` не покрыт middleware;
  *   2. `hasActiveSubscription()` — каталог входит в пакет «Всё включено»;
- *   3. файл из multipart-поля `file`: расширение и размер;
+ *   3. файл из multipart-поля `file`: назначение, расширение и размер;
  *   4. модель принтера из 3MF (только для `.3mf`);
  *   5. загрузка service_role-клиентом.
  *
- * Ответ: `{ url, printerModel }` — постоянная публичная ссылка и подсказка о
- * принтере для workshop_products.
+ * Ответ: `{ url, printerModel, kind }` — постоянная публичная ссылка, подсказка
+ * о принтере для workshop_products и папка, в которую лёг файл.
  */
 export const runtime = "nodejs";
 
@@ -32,13 +42,31 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Лимит совпадает с настройками бакета. */
-const MAX_PRINT_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_PRODUCT_FILE_BYTES = 50 * 1024 * 1024;
 
-/** Расширения слайсеров и моделей: G-code, 3MF-контейнер и STL. */
-const PRINT_FILE_EXTENSIONS = [".gcode", ".gco", ".g", ".3mf", ".stl"];
+/** Файлы, которые агент фермы отправит на принтер без слайсера. */
+const PRINT_FILE_EXTENSIONS = [".3mf", ".gcode", ".gco", ".g"] as const;
+
+/** Исходник модели: только STL, его нарезает слайсер. */
+const MODEL_FILE_EXTENSIONS = [".stl"] as const;
 
 /** Контейнер 3MF: только у него в архиве есть модель принтера. */
 const THREE_MF_EXTENSION = ".3mf";
+
+/** Расширение имени входит в список: браузер присылает имя в любом регистре. */
+function hasExtension(name: string, extensions: readonly string[]): boolean {
+  return extensions.some((extension) => name.endsWith(extension));
+}
+
+/**
+ * Назначение загрузки из формы.
+ *
+ * Неизвестное значение считается заданием печати: роут принимает STL только
+ * как исходник, и отказ понятнее, чем исходник, попавший в очередь печати.
+ */
+function readKind(form: FormData): ProductFileKind {
+  return form.get("kind") === "model" ? "model" : "print";
+}
 
 function errorResponse(status: number, error: string): Response {
   return Response.json(
@@ -61,13 +89,13 @@ export async function POST(request: Request): Promise<Response> {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    return errorResponse(401, "Войдите в аккаунт, чтобы загрузить G-code.");
+    return errorResponse(401, "Войдите в аккаунт, чтобы загрузить файл товара.");
   }
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return errorResponse(
       403,
-      "Каталог входит в пакет «Всё включено». Оформите доступ, чтобы загрузить G-code.",
+      "Каталог входит в пакет «Всё включено». Оформите доступ, чтобы загрузить файл товара.",
     );
   }
 
@@ -82,23 +110,34 @@ export async function POST(request: Request): Promise<Response> {
   const file = form.get("file");
 
   if (!file || typeof file === "string") {
-    return errorResponse(400, "Прикрепите файл G-code полем file.");
+    return errorResponse(400, "Прикрепите файл полем file.");
   }
 
+  const kind = readKind(form);
+  const isModel = kind === "model";
+  const allowedExtensions = isModel
+    ? MODEL_FILE_EXTENSIONS
+    : PRINT_FILE_EXTENSIONS;
   const name = file.name.toLowerCase();
 
-  if (!PRINT_FILE_EXTENSIONS.some((extension) => name.endsWith(extension))) {
+  if (!hasExtension(name, allowedExtensions)) {
+    // Отдельный текст для STL в блоке печати: мастер положил исходник не туда,
+    // и подсказка «куда» экономит ему повторную загрузку.
     return errorResponse(
       415,
-      "Поддерживаются файлы .gcode, .gco, .g, .3mf и .stl.",
+      isModel
+        ? "Исходник — файл .stl. Файл для печати загрузите отдельным полем."
+        : isSourceModelFile(name)
+          ? "STL — исходник. Загрузите его в «Исходник (STL)»."
+          : "Поддерживаются файлы .3mf, .gcode, .gco и .g.",
     );
   }
 
   if (file.size === 0) {
-    return errorResponse(400, "Файл пустой. Выберите другой файл печати.");
+    return errorResponse(400, "Файл пустой. Выберите другой файл.");
   }
 
-  if (file.size > MAX_PRINT_FILE_BYTES) {
+  if (file.size > MAX_PRODUCT_FILE_BYTES) {
     return errorResponse(413, "Файл больше 50 МБ. Уменьшите его.");
   }
 
@@ -127,10 +166,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const url = await uploadGcodeToSupabase(user.id, file, bytes);
+    const url = await uploadGcodeToSupabase(user.id, file, { kind, bytes });
 
     return Response.json(
-      { url, printerModel },
+      { url, printerModel, kind },
       {
         headers: {
           "cache-control": "no-store",
@@ -140,13 +179,15 @@ export async function POST(request: Request): Promise<Response> {
     );
   } catch (error) {
     console.error(
-      "Файл печати не загружен:",
+      "Файл товара не загружен:",
       error instanceof Error ? error.message : error,
     );
 
     return errorResponse(
       503,
-      "Не удалось сохранить файл печати. Попробуйте ещё раз.",
+      isModel
+        ? "Не удалось сохранить исходник. Попробуйте ещё раз."
+        : "Не удалось сохранить файл печати. Попробуйте ещё раз.",
     );
   }
 }

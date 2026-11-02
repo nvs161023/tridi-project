@@ -6,7 +6,13 @@ import { createPortal } from "react-dom";
 
 import { addProduct, updateProduct } from "@/app/actions/products";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
-import { printFileExtension } from "@/lib/3d/print-compatibility";
+import {
+  PRINT_FILE_LABEL,
+  SOURCE_MODEL_FILE_LABEL,
+  isSourceModelFile,
+  printFileExtension,
+  type ProductFileKind,
+} from "@/lib/3d/print-compatibility";
 import type { WorkshopProduct } from "@/lib/workshop/products";
 import {
   PRINTER_UPLOAD_FORMATS,
@@ -20,9 +26,10 @@ type AddProductDialogProps = {
    * Товар для правки.
    *
    * Без пропа окно создаёт карточку, с ним — редактирует: поля заполняются
-   * текущими значениями, а «Сохранить» вызывает `updateProduct`. Файл печати
-   * можно заменить, не трогая остальное: новый файл уходит в
-   * `/api/workshop/gcode` и подменяет ссылку вместе с разметкой принтера.
+   * текущими значениями, а «Сохранить» вызывает `updateProduct`. Файлы можно
+   * заменить, не трогая остальное: исходник и файл печати уходят в
+   * `/api/workshop/gcode` отдельными запросами со своим `kind` и подменяют
+   * ссылки по отдельности — разметку принтера несёт только файл печати.
    */
   initial?: WorkshopProduct | null;
   /**
@@ -42,6 +49,74 @@ const inputClassName =
 const legendClassName =
   "text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase";
 
+/** Вид выбора файла — один для исходника модели и файла печати. */
+const fileInputClassName =
+  "mt-2 block w-full cursor-pointer rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-zinc-300 file:mr-4 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30";
+
+/** Результат загрузки файла: ссылка с разметкой принтера или готовый текст отказа. */
+type UploadOutcome =
+  | { ok: true; url: string; printerModel: string }
+  | { ok: false; error: string };
+
+/**
+ * Отправка файла товара в `/api/workshop/gcode`.
+ *
+ * File в Server Action не отправляем: он весит мегабайты и упрётся в лимит
+ * тела. Файл идёт в роут, а в форму попадает только публичная ссылка. `kind`
+ * объясняет роуту, что загружают: `model` — исходник STL в папку models,
+ * `print` — нарезанный файл в папку print. Роут проверяет расширения сам, но
+ * форму он не охраняет — предварительные проверки остаются в обработчиках
+ * выбора файла.
+ */
+async function uploadProductFile(
+  file: File,
+  kind: ProductFileKind,
+): Promise<UploadOutcome> {
+  const uploadForm = new FormData();
+  uploadForm.set("file", file);
+  uploadForm.set("kind", kind);
+
+  try {
+    const response = await fetch("/api/workshop/gcode", {
+      method: "POST",
+      body: uploadForm,
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { url?: unknown; printerModel?: unknown; error?: unknown }
+      | null;
+
+    if (
+      !response.ok ||
+      !payload ||
+      typeof payload.url !== "string" ||
+      !payload.url
+    ) {
+      return {
+        ok: false,
+        error:
+          typeof payload?.error === "string"
+            ? payload.error
+            : kind === "model"
+              ? "Не удалось загрузить исходник. Попробуйте ещё раз."
+              : "Не удалось загрузить файл печати. Попробуйте ещё раз.",
+      };
+    }
+
+    return {
+      ok: true,
+      url: payload.url,
+      printerModel:
+        typeof payload.printerModel === "string" ? payload.printerModel : "",
+    };
+  } catch {
+    return {
+      ok: false,
+      error:
+        "Не удалось отправить файл. Проверьте соединение и попробуйте ещё раз.",
+    };
+  }
+}
+
 /**
  * Причина, по которой файл не напечатает ни один принтер фермы.
  *
@@ -50,10 +125,9 @@ const legendClassName =
  * протокол парка: `.gcode` подходит всем, `.3mf` — только Bambu, FlashForge и
  * ещё не подключённым протоколам с контейнером.
  *
- * STL не проверяется: это исходная модель для слайсера, она хранится в каталоге
- * как источник, а в очередь печати её не берут — об этом скажет карточка заказа.
- * Требовать от такой модели печатаемости значило бы запретить загружать
- * исходники.
+ * STL здесь не проверяется: это исходник для слайсера, а не задание печати.
+ * Блок «Файл для печати» отклоняет его раньше — своя подсказка понятнее, чем
+ * «файл не подходит ни одному протоколу фермы».
  *
  * Сообщение состоит из двух частей: отказ общего модуля (он знает текст про
  * переслайс) и список форматов фермы, чтобы мастеру было видно, к чему
@@ -111,6 +185,8 @@ export function AddProductDialog({
   const [error, setError] = useState<string | null>(null);
   /** Причина, по которой выбранный файл не напечатает ни один принтер фермы. */
   const [fileError, setFileError] = useState<string | null>(null);
+  /** Отказ блоку «Исходник (STL)»: здесь принимается только STL. */
+  const [modelFileError, setModelFileError] = useState<string | null>(null);
   /** Модель принтера из метаданных 3MF: её показали после загрузки. */
   const [slicedPrinter, setSlicedPrinter] = useState<string | null>(
     initial?.slicedForPrinter ?? null,
@@ -121,11 +197,14 @@ export function AddProductDialog({
   useDialogDismiss(onClose);
 
   /**
-   * Проверка выбранного файла до загрузки.
+   * Проверка файла печати до загрузки.
    *
-   * Файл чужого формата не отправляем в бакет: он всё равно не попадёт в
-   * очередь печати, а место занимает. Поле очищается, чтобы «Сохранить» не
-   * отправило форму с файлом, который мастер уже видел отклонённым.
+   * STL — исходник модели, а не задание печати: он отклоняется сразу, с
+   * подсказкой, в какой блок его загрузить. Остальные форматы сверяются с
+   * протоколами фермы: файл чужого формата не отправляем в бакет, он всё равно
+   * не попадёт в очередь печати, а место занимает. Поле очищается, чтобы
+   * «Сохранить» не отправило форму с файлом, который мастер уже видел
+   * отклонённым.
    */
   function handlePrintFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0] ?? null;
@@ -136,12 +215,36 @@ export function AddProductDialog({
       return;
     }
 
-    const problem = farmFormatError(printers, file.name);
+    const problem = isSourceModelFile(file.name)
+      ? "STL — исходник. Загрузите его в «Исходник (STL)»."
+      : farmFormatError(printers, file.name);
 
     if (problem) {
       setFileError(problem);
       event.currentTarget.value = "";
     }
+  }
+
+  /**
+   * Проверка исходника модели до загрузки.
+   *
+   * В этом блоке принимается только STL: исходник нужен калькулятору и
+   * повторной нарезке. Нарезанный файл, выбранный здесь, отклоняется —
+   * подсказка ведёт в блок печати, чтобы мастер не искал причину сам.
+   */
+  function handleModelFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0] ?? null;
+
+    setModelFileError(null);
+
+    if (!file || isSourceModelFile(file.name)) {
+      return;
+    }
+
+    setModelFileError(
+      "Исходник — файл .stl. Файл для печати загрузите в блок «Файл для печати (3MF/GCode)».",
+    );
+    event.currentTarget.value = "";
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -153,57 +256,54 @@ export function AddProductDialog({
 
     // FormData собираем до await: после него event.currentTarget уже обнулён.
     const formData = new FormData(event.currentTarget);
-    const file = formData.get("gcodeFile");
+    const modelFile = formData.get("modelFile");
+    const printFile = formData.get("gcodeFile");
 
     // File в Server Action не отправляем: он весит мегабайты и упрётся в
-    // лимит тела. Сначала файл идёт в /api/workshop/gcode, потом в форму
-    // попадает только его публичная ссылка и модель принтера из 3MF.
+    // лимит тела. Сначала файлы идут в /api/workshop/gcode со своим kind,
+    // потом в форму попадают только их публичные ссылки и модель принтера
+    // из 3MF.
+    formData.delete("modelFile");
     formData.delete("gcodeFile");
 
     setError(null);
     setIsSubmitting(true);
 
     try {
-      if (file instanceof File && file.size > 0) {
+      if (modelFile instanceof File && modelFile.size > 0) {
         setIsUploading(true);
-        setSlicedPrinter(null);
 
-        const uploadForm = new FormData();
-        uploadForm.set("file", file);
+        const uploaded = await uploadProductFile(modelFile, "model");
 
-        const response = await fetch("/api/workshop/gcode", {
-          method: "POST",
-          body: uploadForm,
-        });
-        const payload = (await response.json().catch(() => null)) as
-          | { url?: unknown; printerModel?: unknown; error?: unknown }
-          | null;
-
-        if (
-          !response.ok ||
-          !payload ||
-          typeof payload.url !== "string" ||
-          !payload.url
-        ) {
-          setError(
-            typeof payload?.error === "string"
-              ? payload.error
-              : "Не удалось загрузить файл печати. Попробуйте ещё раз.",
-          );
+        if (!uploaded.ok) {
+          setError(uploaded.error);
 
           return;
         }
 
-        formData.set("gcodeUrl", payload.url);
+        // Исходник не размечен принтером: `slicedForPrinter` относится только
+        // к файлу печати, поэтому здесь он не трогается.
+        formData.set("modelUrl", uploaded.url);
+      }
+
+      if (printFile instanceof File && printFile.size > 0) {
+        setIsUploading(true);
+        setSlicedPrinter(null);
+
+        const uploaded = await uploadProductFile(printFile, "print");
+
+        if (!uploaded.ok) {
+          setError(uploaded.error);
+
+          return;
+        }
+
+        formData.set("gcodeUrl", uploaded.url);
 
         // Модель принтера определил сервер по самому архиву. Поле уходит в
-        // addProduct, а тот пишет его только для 3MF: у STL и G-code
-        // разметки нет.
-        const printerModel =
-          typeof payload.printerModel === "string" ? payload.printerModel : "";
-
-        formData.set("slicedForPrinter", printerModel);
-        setSlicedPrinter(printerModel || null);
+        // addProduct, а тот пишет его только для 3MF: у G-code разметки нет.
+        formData.set("slicedForPrinter", uploaded.printerModel);
+        setSlicedPrinter(uploaded.printerModel || null);
       }
 
       const result = isEditing
@@ -273,7 +373,7 @@ export function AddProductDialog({
             </h2>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-zinc-400">
               {isEditing
-                ? "Поправьте карточку или замените файл печати: позиции в старых заказах останутся на месте, а новые возьмут обновлённые цену и G-code. Поля со звёздочкой обязательны."
+                ? "Поправьте карточку или замените файлы: позиции в старых заказах останутся на месте, а новые возьмут обновлённые цену и файл печати. Поля со звёздочкой обязательны."
                 : "Заполните карточку изделия. Поля со звёздочкой обязательны."}
             </p>
           </div>
@@ -402,7 +502,67 @@ export function AddProductDialog({
           </fieldset>
 
           <fieldset>
-            <legend className={legendClassName}>Файл печати</legend>
+            <legend className={legendClassName}>
+              {SOURCE_MODEL_FILE_LABEL}
+            </legend>
+            <div className="mt-3 space-y-4">
+              <div>
+                <FieldLabel
+                  htmlFor="product-model-url"
+                  label="Ссылка на исходник"
+                />
+                <input
+                  id="product-model-url"
+                  name="modelUrl"
+                  type="url"
+                  inputMode="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="https://…/vase.stl"
+                  maxLength={2048}
+                  defaultValue={initial?.modelUrl ?? ""}
+                  className={inputClassName}
+                />
+                <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                  Исходная модель: нужна калькулятору. В очередь печати не
+                  ставится. Можно вставить публичную ссылку или выбрать файл
+                  ниже — файл заменит ссылку.
+                </p>
+              </div>
+
+              <div>
+                <FieldLabel
+                  htmlFor="product-model-file"
+                  label="Загрузить исходник"
+                />
+                <input
+                  id="product-model-file"
+                  name="modelFile"
+                  type="file"
+                  accept=".stl"
+                  onChange={handleModelFileChange}
+                  className={fileInputClassName}
+                />
+                <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                  Только .stl, до 50 МБ. Исходная модель: нужна калькулятору. В
+                  очередь печати не ставится.
+                </p>
+                {modelFileError ? (
+                  <p
+                    role="alert"
+                    data-product-model-error
+                    className="mt-2 text-xs leading-relaxed text-red-200"
+                  >
+                    <span aria-hidden>⚠️ </span>
+                    {modelFileError}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend className={legendClassName}>{PRINT_FILE_LABEL}</legend>
             <div className="mt-3 space-y-4">
               <div>
                 <FieldLabel
@@ -428,18 +588,22 @@ export function AddProductDialog({
               </div>
 
               <div>
-                <FieldLabel htmlFor="product-gcode-file" label="Загрузить файл" />
+                <FieldLabel
+                  htmlFor="product-gcode-file"
+                  label="Загрузить файл для печати"
+                />
                 <input
                   id="product-gcode-file"
                   name="gcodeFile"
                   type="file"
-                  accept=".gcode,.gco,.g,.3mf,.stl"
+                  accept=".gcode,.gco,.g,.3mf"
                   onChange={handlePrintFileChange}
-                  className="mt-2 block w-full cursor-pointer rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-zinc-300 file:mr-4 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
+                  className={fileInputClassName}
                 />
                 <p className="mt-2 text-xs leading-relaxed text-zinc-500">
-                  .gcode, .gco, .g, .3mf или .stl, до 50 МБ. Файл попадёт в
-                  каталог и будет доступен агенту фермы по ссылке.
+                  .gcode, .gco, .g или .3mf, до 50 МБ. Нарежьте модель в
+                  слайсере: этот файл агент фермы отправит на принтер как есть.
+                  STL — исходник, его загружают в блок выше.
                 </p>
                 {fileError ? (
                   <p

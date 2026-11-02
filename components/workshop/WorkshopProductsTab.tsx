@@ -95,9 +95,34 @@ function formatProductDimensions(product: WorkshopProduct): string {
     .join("×");
 }
 
-/** Ссылка на G-code, только если это http(s): старые данные тоже проверяем. */
-function gcodeHref(url: string | null): string | null {
+/**
+ * Ссылка на файл товара, только если это http(s): старые данные тоже проверяем.
+ *
+ * Одна проверка на файл печати и исходник: в таблице обе ссылки открываются
+ * одинаково, а небезопасный `javascript:` из чужой записи не должен стать
+ * кликабельным.
+ */
+function fileHref(url: string | null): string | null {
   return url && /^https?:\/\//iu.test(url) ? url : null;
+}
+
+/**
+ * Ссылка «Открыть» на файл товара.
+ *
+ * Одна на файл печати и исходник: оба открываются в новой вкладке, чтобы
+ * таблица каталога не теряла прокрутку и поиск.
+ */
+function FileLink({ href }: { href: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-xs font-semibold text-blue-300 underline decoration-blue-300/40 underline-offset-2 transition-colors hover:text-blue-200"
+    >
+      Открыть
+    </a>
+  );
 }
 
 /**
@@ -487,7 +512,8 @@ function ProductsTable({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] border-collapse text-sm">
           <caption className="sr-only">
-            Товары: артикул, название, цена, вес, габариты и ссылка на G-code
+            Товары: артикул, название, цена, вес, габариты, файл печати и
+            исходник модели
           </caption>
           <thead>
             <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
@@ -507,7 +533,7 @@ function ProductsTable({
                 Габариты
               </th>
               <th scope="col" className="px-3 py-3">
-                Файл печати
+                Файлы
               </th>
               <th scope="col" className="px-3 py-3 text-right">
                 <span className="sr-only">Действия</span>
@@ -516,7 +542,8 @@ function ProductsTable({
           </thead>
           <tbody>
             {products.map((product) => {
-              const href = gcodeHref(product.gcodeUrl);
+              const printHref = fileHref(product.gcodeUrl);
+              const modelHref = fileHref(product.modelUrl);
               const isDeleting = deletingId === product.id;
 
               return (
@@ -553,18 +580,29 @@ function ProductsTable({
                     {formatProductDimensions(product)}
                   </td>
                   <td className="px-3 py-4 whitespace-nowrap">
-                    {href ? (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs font-semibold text-blue-300 underline decoration-blue-300/40 underline-offset-2 transition-colors hover:text-blue-200"
-                      >
-                        Открыть
-                      </a>
-                    ) : (
-                      <span className="text-zinc-500">—</span>
-                    )}
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-zinc-500">Печать:</span>
+                        {printHref ? (
+                          <FileLink href={printHref} />
+                        ) : (
+                          <span
+                            title="Позицию нельзя поставить в очередь печати, пока мастер не приложит 3MF или G-code"
+                            className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] font-semibold text-zinc-400"
+                          >
+                            Нет файла печати
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-zinc-500">Исходник:</span>
+                        {modelHref ? (
+                          <FileLink href={modelHref} />
+                        ) : (
+                          <span className="text-zinc-500">нет</span>
+                        )}
+                      </div>
+                    </div>
                   </td>
                   <td className="px-3 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
