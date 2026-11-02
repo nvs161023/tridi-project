@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import styles from "./markdown.module.css";
 
@@ -32,6 +33,10 @@ const COMPONENTS: Components = {
 /**
  * Markdown-текст статьи.
  *
+ * `remark-gfm` нужен ради таблиц сравнения: в CommonMark их нет, а без плагина
+ * строки `| … |` выводятся обычным абзацем. Заодно работают зачёркивание и
+ * автоматические ссылки.
+ *
  * react-markdown держит состояние разбора (useState/useEffect), поэтому
  * компонент клиентский. HTML при этом приходит с сервера: Next.js рендерит
  * клиентские компоненты на сервере тоже, и поисковик видит полный текст
@@ -40,7 +45,9 @@ const COMPONENTS: Components = {
 export function Markdown({ content }: { content: string }) {
   return (
     <div className={styles.content}>
-      <ReactMarkdown components={COMPONENTS}>{content}</ReactMarkdown>
+      <ReactMarkdown components={COMPONENTS} remarkPlugins={[remarkGfm]}>
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }
