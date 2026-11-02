@@ -2,6 +2,19 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /**
+   * Standalone-сборка для хостинга.
+   *
+   * Amvera собирает образ из всего каталога проекта, и в архив попадает не только
+   * нужное для запуска: .next/cache разрастается до 800+ МБ, маски-исключения
+   * (`!.next/cache`) платформа игнорирует — архив оставался 809 МБ.
+   *
+   * В режиме standalone next build сам складывает в .next/standalone только
+   * серверный код, трассированные зависимости и package.json; public/ и
+   * .next/static копирует туда скрипт build:amvera. Запускается такой образ
+   * командой `node .next/standalone/server.js` — без node_modules проекта.
+   */
+  output: "standalone",
+  /**
    * Алиас "@/*" (корень проекта) прямо в конфиге сборщика.
    *
    * Обычно этот алиас живёт только в tsconfig.json (compilerOptions.paths), но

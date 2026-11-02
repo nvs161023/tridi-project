@@ -101,7 +101,7 @@
 |---|---|
 | `npm run dev` | Дев-сервер (`next dev --turbopack`) |
 | `npm run build` | `ensure:tsconfig` + продакшн-сборка |
-| `npm run build:amvera` | То же для хостинга: `clean` + `ensure:tsconfig` + `check:imports` + `npm ci --include=optional` + сборка |
+| `npm run build:amvera` | То же для хостинга: `clean` + `ensure:tsconfig` + `check:imports` + сборка в режиме `standalone` + копирование `public` и `.next/static` в `.next/standalone` |
 | `npm run start` | Запуск собранного приложения |
 | `npm run lint` | ESLint (`eslint-config-next`) |
 | `npm run check:docs` | Проверка сводки `PROJECT.md` вместе с данными: все упомянутые пути существуют, числа уроков/блоков/вопросов совпадают, заявленные `total_*` и `practice_minutes` не разошлись с содержимым |
@@ -3280,9 +3280,13 @@ Self-hosted Supabase на сервере в РФ: используются то�
 Приложение живёт на **Amvera Cloud** (node 22, `amvera.yml`):
 
 - `build.additionalCommands`: `npm run build:amvera` — `clean` + `ensure:tsconfig` +
-  `check:imports` + `npm ci --include=dev --include=optional --no-audit --no-fund` +
-  `next build --turbopack`;
-- `run`: `node_modules/next/dist/bin/next start`, порт 3000.
+  `check:imports` + `next build --turbopack` + копирование `public` и `.next/static`
+  в `.next/standalone`;
+- `output: "standalone"` в `next.config.ts` — сборка сама складывает рантайм в
+  `.next/standalone` (~80 МБ), поэтому блок `artifacts` из `amvera.yml` убран: маски
+  исключений (`!.next/cache`) платформа игнорировала («No files matched the pattern»),
+  и архив весил 809 МБ;
+- `run`: `node .next/standalone/server.js`, порт 3000.
 
 Почему сборка устроена именно так (каждый шаг появился из-за реальной поломки на хостинге):
 
@@ -3291,8 +3295,10 @@ Self-hosted Supabase на сервере в РФ: используются то�
 - `check:imports` — сверяет импорты с именами файлов на диске **с учётом регистра**: Linux регистр
   различает, Windows — нет, поэтому локально всё собиралось, а на Amvera падало «module not found»;
 - `.npmrc` → `include=optional` — гарантирует установку `@tailwindcss/oxide-linux-x64-gnu`
-  (Tailwind 4 ставит нативный бинарник как optional-зависимость, а сборка идёт с `--omit=optional`);
-- `--include=dev` — сборке нужны `typescript` и `tailwindcss`, которые лежат в devDependencies.
+  (Tailwind 4 ставит нативный бинарник как optional-зависимость, а установка идёт с `--omit=optional`);
+- devDependencies (`typescript`, `tailwindcss`) нужны самой сборке, поэтому установка
+  зависимостей на Amvera должна идти с `--include=dev`; отдельного `npm ci` в
+  `build:amvera` больше нет — зависимости ставит сборка платформы.
 
 Перед деплоем прогоняются: `npm run lint`, `npx tsc --noEmit -p tsconfig.json`,
 `npm run check:imports`, `npm run check:docs`, `npm run build`. Проверка сводки в

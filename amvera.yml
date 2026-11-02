@@ -5,19 +5,13 @@ meta:
     version: 22
 build:
   additionalCommands: npm run build:amvera
-  # В итоговый образ должно попасть только то, что нужно в рантайме.
-  # Кеш сборки Next (.next/cache) на проекте разрастается до 800+ МБ: тащить его
-  # в архив незачем, при запуске он не нужен (создаётся заново при первом
-  # обращении). Метаданные git и кеш TypeScript тоже лишние — из-за них архив
-  # раздувался и фаза копирования висела десятки минут.
-  # node_modules и .next (кроме cache) остаются в образе обязательно: без них не
-  # запустится run.scriptName ниже — next start читает сборку из .next.
-  artifacts:
-    "!.git": /
-    "!.next/cache": /
-    "!*.tsbuildinfo": /
-    "*": /
+  # Блок artifacts из конфига убран: маски-исключения (`!.next/cache`) платформа
+  # игнорировала («No files matched the pattern»), и в архив всё равно уезжал
+  # весь .next вместе с кешем — 809 МБ. Размер ограничивает сама сборка:
+  # в режиме standalone (next.config.ts) весь рантайм лежит в .next/standalone,
+  # это ~80 МБ, а кеш сборки туда не попадает.
 run:
-  scriptName: node_modules/next/dist/bin/next
-  scriptArguments: start
+  # standalone-сервер из своей папки: node_modules проекта в рантайме не нужны.
+  scriptName: .next/standalone/server.js
+  scriptArguments: ""
   containerPort: 3000

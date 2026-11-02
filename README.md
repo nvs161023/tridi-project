@@ -119,8 +119,13 @@ Templates → **Reset password**. Внутри — ссылка на нашу с
 
 Сборка запускается командой `npm run build:amvera` (см. `amvera.yml`): она чистит
 `.next`, восстанавливает `tsconfig.json` (`scripts/ensure-tsconfig.mjs`), проверяет
-импорты (`scripts/check-imports.mjs`), ставит зависимости через `npm ci` и собирает
-проект.
+импорты (`scripts/check-imports.mjs`), собирает проект в режиме `standalone` и
+копирует `public/` и `.next/static` внутрь `.next/standalone`.
+
+Контейнер запускается не через `next start`, а файлом `.next/standalone/server.js`:
+в режиме `standalone` весь рантайм и нужные зависимости лежат в этой папке (~80 МБ),
+поэтому блок `artifacts` из `amvera.yml` убран — маски-исключения (`!.next/cache`)
+платформа игнорировала, и в архив уезжал весь `.next` с кешем (809 МБ).
 
 Что важно знать при разборе логов сборки:
 
