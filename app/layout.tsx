@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { YandexMetrica } from "@/components/analytics/YandexMetrica";
 import { CookieBanner } from "@/components/CookieBanner";
 import { EmailLinkHandler } from "@/components/EmailLinkHandler";
 import { Footer } from "@/components/Footer";
@@ -112,6 +113,9 @@ export default function RootLayout({
         {/* Ссылка из письма Supabase может прийти с токенами во фрагменте адреса —
             разбирает его этот обработчик (см. components/EmailLinkHandler.tsx). */}
         <EmailLinkHandler />
+        {/* Счётчик Метрики: без NEXT_PUBLIC_YM_ID и без согласия «Принять все»
+            он не рисует ничего, поэтому стоит в layout один раз на весь сайт. */}
+        <YandexMetrica />
       </body>
     </html>
   );
