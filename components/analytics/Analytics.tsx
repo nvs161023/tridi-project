@@ -8,29 +8,31 @@ import { useEffect, useRef, useState } from "react";
 import { readCookieConsent } from "@/components/CookieBanner";
 
 /**
- * Вся аналитика сайта в одном компоненте: Яндекс.Метрика и Google Analytics 4.
+ * Вся аналитика сайта в одном компоненте: Яндекс.Метрика, Google Analytics 4 и
+ * пиксель VK Рекламы.
  *
- * Оба счётчика подключаются по одному правилу — только после «Принять все» в
+ * Все три счётчика подключаются по одному правилу — только после «Принять все» в
  * cookie-баннере (readCookieConsent). Пока решения нет или выбрано «Только
- * необходимые», ни tag.js, ни gtag.js на страницу не попадают. Поэтому оба
- * счётчика живут здесь: одна проверка согласия и одно место, где виден весь набор
+ * необходимые», ни tag.js, ни gtag.js, ни code.js на страницу не попадают. Поэтому
+ * счётчики живут здесь: одна проверка согласия и одно место, где виден весь набор
  * передаваемых наружу данных (см. «Политика использования cookie», раздел 2).
  *
- * Метрика — свой компонент, а не пакет вроде next-ym: сторонняя обёртка тянет
- * свой peer dependency на React и может отстать от React 19, а вся работа здесь —
- * один вставленный скрипт и повторный «hit» на смену маршрута. GA4, наоборот,
- * подключается официальным `GoogleAnalytics` из @next/third-parties.
+ * Метрика и VK-пиксель — свой код, а не пакеты вроде next-ym: сторонняя обёртка
+ * тянет свой peer dependency на React и может отстать от React 19, а вся работа
+ * здесь — один вставленный скрипт и повторный просмотр на смену маршрута. GA4,
+ * наоборот, подключается официальным `GoogleAnalytics` из @next/third-parties.
  *
  * Почему не просто <Script> в layout, а обёртка с состоянием:
- * 1. Идентификаторы приходят из NEXT_PUBLIC_YM_ID и NEXT_PUBLIC_GA_ID. Пока
- *    переменной нет (локальная разработка, превью-сборка), соответствующий
- *    счётчик не рисует ничего — ни строчки стороннего кода на странице.
+ * 1. Идентификаторы приходят из NEXT_PUBLIC_YM_ID, NEXT_PUBLIC_GA_ID и
+ *    NEXT_PUBLIC_VK_PIXEL_ID. Пока переменной нет (локальная разработка,
+ *    превью-сборка), соответствующий счётчик не рисует ничего — ни строчки
+ *    стороннего кода на странице.
  * 2. Счётчики аналитические, поэтому подключаются только после выбора «Принять
  *    все». Пока решения нет или выбрано «Только необходимые», скрипты не
  *    загружаются.
  * 3. Next.js не перезагружает страницу при переходах: обычный счётчик увидел бы
  *    только первый экран. Поэтому на каждую смену pathname отправляется
- *    повторный просмотр — ym(…, "hit", …) и событие page_view в GA4.
+ *    повторный просмотр — ym(…, "hit", …), page_view в GA4 и pageView в VK.
  *
  * Про query-строку: смена только параметров (фильтры, «?page=2») новым переходом
  * не считается — usePathname её не видит, а useSearchParams потребовал бы
@@ -38,6 +40,7 @@ import { readCookieConsent } from "@/components/CookieBanner";
  */
 const YM_COUNTER_ID = process.env.NEXT_PUBLIC_YM_ID?.trim() ?? "";
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID?.trim() ?? "";
+const VK_PIXEL_ID = process.env.NEXT_PUBLIC_VK_PIXEL_ID?.trim() ?? "";
 
 /** Событие, которое рассылает cookie-баннер после выбора (см. CookieBanner.tsx). */
 const CONSENT_EVENT = "tridi:cookie-consent";
@@ -49,11 +52,18 @@ const CONSENT_EVENT = "tridi:cookie-consent";
  * `__tridiYmPage` — адрес страницы, который посчитал init. Его ставит тот же
  * скрипт: без этой метки первый экран после «Принять все» попал бы в отчёт
  * дважды — один раз из init, второй из эффекта ниже.
+ *
+ * `_tmr` — очередь пикселя VK: пока `code.js` не загрузился, это массив
+ * отложенных событий, после загрузки библиотека заменяет его своим объектом с
+ * методом push. Оба варианта типизируем через `push`, а `__tridiVkPage` играет ту
+ * же роль, что `__tridiYmPage` у Метрики.
  */
 declare global {
   interface Window {
     ym?: (counterId: string, action: string, ...args: unknown[]) => void;
     __tridiYmPage?: string;
+    _tmr?: { push: (hit: Record<string, unknown>) => void };
+    __tridiVkPage?: string;
   }
 }
 
@@ -75,12 +85,36 @@ ym(${YM_COUNTER_ID}, "init", {clickmap:true, trackLinks:true, accurateTrackBounc
 window.__tridiYmPage = window.location.pathname + window.location.search;
 `;
 
+/**
+ * Стандартный код пикселя VK Рекламы (top-fwz1.mail.ru).
+ *
+ * Номер пикселя подставляется шаблонной строкой, как и у Метрики: в разметке он
+ * оказывается числовым литералом, как в примере из кабинета VK Рекламы. Проверка
+ * `d.getElementById(id)` не даёт загрузить code.js дважды, если компонент
+ * смонтируется повторно, а `__tridiVkPage` помечает уже посчитанный экран — иначе
+ * после «Принять все» первый просмотр попал бы в отчёт дважды (из init и из
+ * эффекта ниже).
+ */
+const VK_INIT_SCRIPT = `
+var _tmr = window._tmr || (window._tmr = []);
+_tmr.push({id: ${VK_PIXEL_ID}, type: "pageView", start: (new Date()).getTime()});
+(function (d, w, id) {
+  if (d.getElementById(id)) return;
+  var ts = d.createElement("script"); ts.type = "text/javascript"; ts.async = true; ts.id = id;
+  ts.src = "https://top-fwz1.mail.ru/js/code.js";
+  var f = function () {var s = d.getElementsByTagName("script")[0]; s.parentNode.insertBefore(ts, s);};
+  if (w.opera == "[object Opera]") { d.addEventListener("DOMContentLoaded", f, false); } else { f(); }
+})(document, window, "tmr-code");
+window.__tridiVkPage = window.location.pathname + window.location.search;
+`;
+
 
 export function Analytics() {
   const pathname = usePathname();
   const [isAllowed, setIsAllowed] = useState(false);
   const lastPath = useRef<string | null>(null);
   const lastGaPath = useRef<string | null>(null);
+  const lastVkPath = useRef<string | null>(null);
 
   /**
    * Согласие читается в эффекте, а не при отрисовке: localStorage есть только в
@@ -166,10 +200,44 @@ export function Analytics() {
     lastGaPath.current = url;
   }, [pathname, isAllowed]);
 
+  /**
+   * Просмотры VK-пикселя на клиентские переходы. `code.js` сам считает только
+   * первый экран (pageView из init), поэтому на смену pathname кладём в `_tmr`
+   * ещё один pageView. Пока библиотека не загрузилась, `_tmr` — обычный массив
+   * отложенных событий: событие просто встанет в очередь и уйдёт вместе с
+   * остальными, когда придёт code.js.
+   */
+  useEffect(() => {
+    if (!VK_PIXEL_ID || !isAllowed) {
+      return;
+    }
+
+    const tmr = window._tmr;
+
+    // `push` есть и у массива-очереди, и у объекта библиотеки: проверяем метод,
+    // а не Array.isArray — после загрузки code.js массив превращается в объект.
+    if (!tmr || typeof tmr.push !== "function") {
+      return;
+    }
+
+    const url = `${window.location.pathname}${window.location.search}`;
+    // Метка init надёжнее порядка эффектов: скрипт может выполниться и до
+    // эффекта, и после него, а посчитанная страница известна в обоих случаях.
+    const countedPath = lastVkPath.current ?? window.__tridiVkPage ?? null;
+
+    if (countedPath === url) {
+      return;
+    }
+
+    tmr.push({ id: Number(VK_PIXEL_ID), type: "pageView", start: Date.now() });
+    lastVkPath.current = url;
+  }, [pathname, isAllowed]);
+
   const isYmEnabled = YM_COUNTER_ID !== "" && isAllowed;
   const isGaEnabled = GA_ID !== "" && isAllowed;
+  const isVkEnabled = VK_PIXEL_ID !== "" && isAllowed;
 
-  if (!isYmEnabled && !isGaEnabled) {
+  if (!isYmEnabled && !isGaEnabled && !isVkEnabled) {
     return null;
   }
 
@@ -183,6 +251,13 @@ export function Analytics() {
         />
       ) : null}
       {isGaEnabled ? <GoogleAnalytics gaId={GA_ID} /> : null}
+      {isVkEnabled ? (
+        <Script
+          id="vk-pixel"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{ __html: VK_INIT_SCRIPT }}
+        />
+      ) : null}
     </>
   );
 }
