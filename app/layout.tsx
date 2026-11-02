@@ -39,10 +39,12 @@ export const metadata: Metadata = {
   // Индексировать можно: закрытые разделы перекрывают это значение своим
   // robots из middleware и собственных метаданных страниц.
   robots: { index: true, follow: true },
-  // Код подтверждения Яндекс.Вебмастера. Next.js выводит его в <head> как
-  // <meta name="yandex-verification" content="…"> на всех страницах сайта.
-  // Значение берётся из кабинета Вебмастера: при перевыпуске кода меняется здесь.
+  // Коды подтверждения владения сайтом. Next.js выводит их в <head> как
+  // <meta name="google-site-verification" …> и <meta name="yandex-verification" …>
+  // на всех страницах сайта. Значения берутся из кабинетов Search Console и
+  // Вебмастера: при перевыпуске кода меняется соответствующая строка.
   verification: {
+    google: "e-K21i30Kbj__NNi-URYQaGokY-DDRQKScl_QLhz9Rk",
     yandex: "e9f08ad5d53f1863",
   },
   openGraph: {
