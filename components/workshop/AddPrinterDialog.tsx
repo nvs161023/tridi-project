@@ -6,6 +6,7 @@ import { useActionState, useCallback, useEffect, useRef, useState } from "react"
 import { addPrinter } from "@/app/actions/printers";
 import { emptyPrinterFormState } from "@/app/actions/printers-state";
 import { MaintenanceGuideDialog } from "@/components/workshop/MaintenanceGuideDialog";
+import { PrinterModelHint } from "@/components/workshop/PrinterModelHint";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import {
   isPrinterProtocol,
@@ -14,10 +15,10 @@ import {
 import { getMaintenanceGuide } from "@/lib/workshop/maintenance-guides";
 import {
   PRINTER_BRAND_OPTIONS,
-  PRINTER_PRESETS,
   findPrinterPresetByModel,
-  formatPrinterPresetLabel,
-  normalizePrinterModel,
+  isKnownPrinterBrand,
+  isPrinterBrandModelPair,
+  printerModelOptions,
 } from "@/lib/workshop/printer-presets";
 import {
   PRINTER_ADDRESS_MAX,
@@ -108,9 +109,11 @@ async function waitForProbe(probeId: string): Promise<ProbeView> {
  * Окно «Добавить принтер».
  *
  * Бренд и модель — поля с `<datalist>`: можно выбрать модель из справочника
- * `PRINTER_PRESETS` или ввести свою. Для известной модели форма подставляет
- * интервалы обслуживания и показывает подсказку `note`, для своей — оставляет
- * значения по умолчанию. Интервалы можно поправить в любом случае.
+ * `PRINTER_PRESETS` или ввести свою. Подсказка модели привязана к бренду
+ * (`printerModelOptions`): в списке только то, что выпускает выбранная марка,
+ * поэтому «K1C» рядом с FlashForge не появится. Для известной модели форма
+ * подставляет интервалы обслуживания и показывает подсказку `note`, для своей —
+ * оставляет значения по умолчанию. Интервалы можно поправить в любом случае.
  *
  * Ниже — данные подключения: протокол, IP-адрес и поля, которые нужны именно
  * этому протоколу (`PRINTER_CONNECTION_SPECS`): ключ API или код доступа, SN,
@@ -266,6 +269,8 @@ export function AddPrinterDialog({
   }, [onClose, onCreated, router, state.message, state.success]);
 
   const preset = findPrinterPresetByModel(model);
+  /** Модели выбранного бренда: подсказка «Модель» и её `<datalist>` строятся по ним. */
+  const brandModels = printerModelOptions(brand);
   /** Поля подключения выбранного протокола: разметка и проверки из одного справочника. */
   const spec = printerConnectionSpec(protocol);
   const guide = preset
@@ -285,8 +290,9 @@ export function AddPrinterDialog({
 
   /**
    * Ввод модели: для известной модели подставляем бренд и интервалы, для своей
-   * оставляем 400/300/720. Бренд не перезаписываем, если пользователь уже ввёл
-   * свой: модель «X1» сама по себе не должна менять чужой бренд.
+   * оставляем 400/300/720. Бренд берём из справочника даже поверх вписанного:
+   * модель выпускает одна марка, и пара «FlashForge + K1C» не должна уйти в
+   * базу — проверка совместимости 3MF сверяет файл именно с парой.
    */
   function handleModelChange(value: string) {
     setModel(value);
@@ -301,16 +307,33 @@ export function AddPrinterDialog({
       return;
     }
 
-    const typedBrand = normalizePrinterModel(brand);
-
-    if (!typedBrand || normalizePrinterModel(value).startsWith(typedBrand)) {
-      setBrand(next.brand);
-    }
-
+    setBrand(next.brand);
     setModel(next.model);
     setNozzleInterval(String(next.nozzleHours));
     setLubricationInterval(String(next.lubricationHours));
     setZScrewInterval(String(next.zScrewHours));
+  }
+
+  /**
+   * Бренд: подсказка «Модель» показывает только его модели, а модель другого
+   * бренда сбрасывается вместе с интервалами — иначе в форме осталась бы
+   * несовместимая пара, которую мастер не заметит.
+   *
+   * Сброс идёт только когда бренд дописан целиком (`isKnownPrinterBrand`): пока
+   * его набирают по буквам, модель трогать нельзя.
+   */
+  function handleBrandChange(value: string) {
+    setBrand(value);
+    setIsGuideOpen(false);
+
+    if (!isKnownPrinterBrand(value) || isPrinterBrandModelPair(value, model)) {
+      return;
+    }
+
+    setModel("");
+    setNozzleInterval(String(PRINTER_INTERVAL_DEFAULTS.nozzle));
+    setLubricationInterval(String(PRINTER_INTERVAL_DEFAULTS.lubrication));
+    setZScrewInterval(String(PRINTER_INTERVAL_DEFAULTS.zScrew));
   }
 
   return (
@@ -415,7 +438,7 @@ export function AddPrinterDialog({
                 maxLength={PRINTER_TEXT_LIMITS.brand}
                 required
                 value={brand}
-                onChange={(event) => setBrand(event.currentTarget.value)}
+                onChange={(event) => handleBrandChange(event.currentTarget.value)}
                 aria-invalid={brandError ? true : undefined}
                 aria-describedby={
                   brandError ? "printer-brand-error" : "printer-brand-hint"
@@ -458,7 +481,7 @@ export function AddPrinterDialog({
                 type="text"
                 autoComplete="off"
                 list="printer-models-list"
-                placeholder="X1"
+                placeholder={brandModels[0] ?? "Модель принтера"}
                 maxLength={PRINTER_TEXT_LIMITS.model}
                 required
                 value={model}
@@ -470,11 +493,8 @@ export function AddPrinterDialog({
                 className={inputClassName}
               />
               <datalist id="printer-models-list">
-                {PRINTER_PRESETS.map((item) => (
-                  <option
-                    key={`${item.brand}-${item.model}`}
-                    value={formatPrinterPresetLabel(item)}
-                  />
+                {brandModels.map((option) => (
+                  <option key={option} value={option} />
                 ))}
               </datalist>
               {modelError ? (
@@ -486,13 +506,14 @@ export function AddPrinterDialog({
                   {modelError}
                 </p>
               ) : (
-                <p
-                  id="printer-model-hint"
-                  className="mt-1.5 text-xs leading-relaxed text-slate-400"
-                >
-                  Выберите из списка или введите свою — интервалы подставятся
-                  автоматически для известной модели.
-                </p>
+                <div id="printer-model-hint">
+                  <PrinterModelHint
+                    brand={brand}
+                    model={model}
+                    options={brandModels}
+                    fallback="Из списка своего бренда или своя: для известной модели интервалы подставятся сами."
+                  />
+                </div>
               )}
             </div>
           </div>

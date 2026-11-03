@@ -18,15 +18,17 @@ import {
 import type { DiscoveredPrintersState } from "@/app/actions/printers-state";
 import { emptyPrinterFormState } from "@/app/actions/printers-state";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
+import { PrinterModelHint } from "@/components/workshop/PrinterModelHint";
 import {
   isPrinterProtocol,
   type PrinterProtocol,
 } from "@/lib/db/workshop-types";
 import {
   PRINTER_BRAND_OPTIONS,
-  PRINTER_PRESETS,
   findPrinterPresetByModel,
-  formatPrinterPresetLabel,
+  isKnownPrinterBrand,
+  isPrinterBrandModelPair,
+  printerModelOptions,
 } from "@/lib/workshop/printer-presets";
 import {
   PRINTER_ADDRESS_MAX,
@@ -72,7 +74,10 @@ import {
  * подсказывает `suggestPrinterIdentity()`: бренд по протоколу, модель — из
  * `PRINTER_PRESETS` по имени. Без них проверка совместимости 3MF не сработает,
  * поэтому поля стоят в строке и предупреждение янтарное, а не спрятано в
- * карточке. Ключ — пустой. Поэтому обновление списка не ломает уже введённое:
+ * карточке. Подсказка модели у каждой строки своя — только модели её бренда
+ * (`printerModelOptions`): общий список на все марки предлагал «K1C» в строке
+ * FlashForge, а смена бренда сбрасывает чужую модель. Ключ — пустой. Поэтому
+ * обновление списка не ломает уже введённое:
  * новые находки сразу видны и отмечены, а правки старых строк остаются. Ключ
  * вводится здесь, потому что агент видит в сети только адрес и протокол: код
  * доступа Bambu и ключ Moonraker с авторизацией знает лишь мастер.
@@ -246,6 +251,8 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
   const lubricationInterval =
     preset?.lubricationHours ?? PRINTER_INTERVAL_DEFAULTS.lubrication;
   const zScrewInterval = preset?.zScrewHours ?? PRINTER_INTERVAL_DEFAULTS.zScrew;
+  /** Модели выбранного бренда: чужие в подсказку не попадают. */
+  const brandModels = printerModelOptions(brand);
 
   /**
    * Успех: страница обновляется, тост показывает результат, а окно закрывает
@@ -276,8 +283,10 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
   }
 
   /**
-   * Модель из справочника: подставляем бренд и интервалы. Введённый мастером
-   * бренд не трогаем — «X1» не должен переписывать чужой бренд.
+   * Модель из справочника: подставляем бренд и интервалы. Бренд берём из
+   * справочника даже поверх вписанного: модель выпускает один бренд, и пара
+   * «FlashForge + K1C» не должна уйти в базу — проверка совместимости 3MF
+   * сверяет файл именно с парой.
    */
   function handleModelChange(value: string) {
     setModel(value);
@@ -288,11 +297,21 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
       return;
     }
 
-    if (!brand.trim()) {
-      setBrand(next.brand);
-    }
-
+    setBrand(next.brand);
     setModel(next.model);
+  }
+
+  /**
+   * Бренд выбрали — список моделей сузился до выпускаемых им, поэтому модель
+   * другого бренда сбрасывается: иначе в поле осталась бы несовместимая пара, а
+   * мастер не заметил бы подмены.
+   */
+  function handleBrandChange(value: string) {
+    setBrand(value);
+
+    if (isKnownPrinterBrand(value) && !isPrinterBrandModelPair(value, model)) {
+      setModel("");
+    }
   }
 
   const nameError = state.fieldErrors?.name;
@@ -440,7 +459,7 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
             maxLength={PRINTER_TEXT_LIMITS.brand}
             required
             value={brand}
-            onChange={(event) => setBrand(event.currentTarget.value)}
+            onChange={(event) => handleBrandChange(event.currentTarget.value)}
             aria-invalid={brandError ? true : undefined}
             className={inputClassName}
           />
@@ -469,7 +488,7 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
             type="text"
             autoComplete="off"
             list="farm-wizard-manual-models"
-            placeholder="X1C"
+            placeholder={brandModels[0] ?? "Модель принтера"}
             maxLength={PRINTER_TEXT_LIMITS.model}
             required
             value={model}
@@ -478,11 +497,8 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
             className={inputClassName}
           />
           <datalist id="farm-wizard-manual-models">
-            {PRINTER_PRESETS.map((item) => (
-              <option
-                key={`${item.brand}-${item.model}`}
-                value={formatPrinterPresetLabel(item)}
-              />
+            {brandModels.map((option) => (
+              <option key={option} value={option} />
             ))}
           </datalist>
           {modelError ? (
@@ -490,10 +506,12 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
               {modelError}
             </p>
           ) : (
-            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
-              Из списка или своя: для известной модели интервалы ТО подставятся
-              сами.
-            </p>
+            <PrinterModelHint
+              brand={brand}
+              model={model}
+              options={brandModels}
+              fallback="Из списка своего бренда или своя: для известной модели интервалы ТО подставятся сами."
+            />
           )}
         </div>
 
@@ -791,6 +809,29 @@ export function DiscoverPrintersDialog({
     };
   };
 
+  /**
+   * Бренд строки: список моделей в подсказке сужается до выпускаемых им, а
+   * модель другого бренда сбрасывается.
+   *
+   * Проверка 3MF сверяет файл именно с парой «бренд — модель», поэтому
+   * «FlashForge + K1C» — не опечатка, а чужой профиль слайсера. Сброс идёт
+   * только когда бренд дописан целиком (`isKnownPrinterBrand`): пока его набирают
+   * по буквам, модель трогать нельзя, иначе она исчезала бы на первой правке.
+   */
+  function handleBrandChange(printer: DiscoveredPrinter, nextBrand: string) {
+    const { ipAddress } = printer;
+    const { model } = identityOf(printer);
+
+    setBrands((prev) => ({ ...prev, [ipAddress]: nextBrand }));
+
+    if (
+      isKnownPrinterBrand(nextBrand) &&
+      !isPrinterBrandModelPair(nextBrand, model)
+    ) {
+      setModels((prev) => ({ ...prev, [ipAddress]: "" }));
+    }
+  }
+
   const chosen = found.filter((printer) => isChosen(printer.ipAddress));
   const allChosen = found.length > 0 && chosen.length === found.length;
   const namelessChosen = chosen.filter(
@@ -1070,18 +1111,14 @@ export function DiscoverPrintersDialog({
             </div>
 
             {/*
-              Справочники брендов и моделей на весь список: id datalist уникален в
-              документе, а `<input list>` ссылается на него по имени. Модель — без
-              бренда в значении, потому что бренд стоит отдельным полем.
+              Справочник брендов один на весь список: id datalist уникален в
+              документе, а `<input list>` ссылается на него по имени. Модели у
+              каждой строки свои — список моделей зависит от бренда, поэтому
+              подсказка «K1C» рядом с «FlashForge» больше не появится.
             */}
             <datalist id="farm-wizard-printer-brands">
               {PRINTER_BRAND_OPTIONS.map((option) => (
                 <option key={option} value={option} />
-              ))}
-            </datalist>
-            <datalist id="farm-wizard-printer-models">
-              {PRINTER_PRESETS.map((item) => (
-                <option key={`${item.brand}-${item.model}`} value={item.model} />
               ))}
             </datalist>
 
@@ -1089,6 +1126,9 @@ export function DiscoverPrintersDialog({
               {found.map((printer, index) => {
                 const checkboxId = `farm-wizard-printer-${index}`;
                 const checked = isChosen(printer.ipAddress);
+                const identity = identityOf(printer);
+                /** Модели выбранного бренда: чужие в подсказку не попадают. */
+                const brandModels = printerModelOptions(identity.brand);
 
                 return (
                   <li
@@ -1165,8 +1205,15 @@ export function DiscoverPrintersDialog({
                           Бренд и модель: сеть их не знает, а без них проверка
                           совместимости 3MF не сработает. Значения предзаполнены
                           подсказкой `suggestPrinterIdentity()` и правятся здесь
-                          же — до того, как принтер попадёт в парк.
+                          же — до того, как принтер попадёт в парк. Подсказка
+                          модели у каждой строки своя: список моделей зависит от
+                          бренда, поэтому id datalist собирается из `checkboxId`.
                         */}
+                        <datalist id={`${checkboxId}-models`}>
+                          {brandModels.map((option) => (
+                            <option key={option} value={option} />
+                          ))}
+                        </datalist>
                         <div className="mt-2 grid gap-2 sm:grid-cols-2">
                           <div>
                             <label
@@ -1182,15 +1229,13 @@ export function DiscoverPrintersDialog({
                               list="farm-wizard-printer-brands"
                               maxLength={PRINTER_TEXT_LIMITS.brand}
                               disabled={!checked}
-                              value={identityOf(printer).brand}
-                              onChange={(event) => {
-                                const next = event.currentTarget.value;
-
-                                setBrands((prev) => ({
-                                  ...prev,
-                                  [printer.ipAddress]: next,
-                                }));
-                              }}
+                              value={identity.brand}
+                              onChange={(event) =>
+                                handleBrandChange(
+                                  printer,
+                                  event.currentTarget.value,
+                                )
+                              }
                               placeholder="Bambu Lab"
                               className={inputClassName}
                             />
@@ -1206,10 +1251,10 @@ export function DiscoverPrintersDialog({
                               id={`${checkboxId}-model`}
                               type="text"
                               autoComplete="off"
-                              list="farm-wizard-printer-models"
+                              list={`${checkboxId}-models`}
                               maxLength={PRINTER_TEXT_LIMITS.model}
                               disabled={!checked}
-                              value={identityOf(printer).model}
+                              value={identity.model}
                               onChange={(event) => {
                                 const next = event.currentTarget.value;
 
@@ -1218,8 +1263,13 @@ export function DiscoverPrintersDialog({
                                   [printer.ipAddress]: next,
                                 }));
                               }}
-                              placeholder="X1C"
+                              placeholder={brandModels[0] ?? "Модель принтера"}
                               className={inputClassName}
+                            />
+                            <PrinterModelHint
+                              brand={identity.brand}
+                              model={identity.model}
+                              options={brandModels}
                             />
                           </div>
                         </div>

@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 
 import { deletePrinter, updatePrinter } from "@/app/actions/printers";
 import { MaintenanceGuideText } from "@/components/workshop/MaintenanceGuideText";
+import { PrinterModelHint } from "@/components/workshop/PrinterModelHint";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import {
   isPrinterProtocol,
@@ -18,8 +19,10 @@ import {
 } from "@/lib/workshop/maintenance-guides";
 import {
   PRINTER_BRAND_OPTIONS,
-  PRINTER_PRESETS,
   findPrinterPresetByModel,
+  isKnownPrinterBrand,
+  isPrinterBrandModelPair,
+  printerModelOptions,
 } from "@/lib/workshop/printer-presets";
 import {
   DISCOVERED_PRINTER_BRAND,
@@ -185,6 +188,15 @@ export function PrinterDetailsDialog({
     model.trim().length === 0 || model.trim() === DISCOVERED_PRINTER_MODEL;
   const identityUnknown = isPrinterIdentityUnknown(brand, model);
   /**
+   * Пара «бренд — модель» из разных марок: «FlashForge» и «K1C». Проверка
+   * совместимости 3MF сверяет файл именно с парой, поэтому такая строка означает
+   * чужой профиль слайсера — мастер должен это видеть до сохранения.
+   */
+  const identityMismatch =
+    !identityUnknown && !isPrinterBrandModelPair(brand, model);
+  /** Модели выбранного бренда: подсказка «Модель» и её `<datalist>` — по ним. */
+  const brandModels = printerModelOptions(brand);
+  /**
    * Поля подключения выбранного протокола: тот же справочник
    * `PRINTER_CONNECTION_SPECS`, по которому рисуется окно добавления. Поэтому и
    * здесь, и там FlashForge спрашивает SN и Check Code, а Anycubic — логин,
@@ -215,6 +227,22 @@ export function PrinterDetailsDialog({
       interval: printer.zScrewInterval,
     },
   ];
+
+  /**
+   * Бренд поменяли — модель другой марки уходит из поля: проверка 3MF сверяет
+   * файл с парой «бренд — модель», и «FlashForge + K1C» означала бы чужой
+   * профиль слайсера.
+   *
+   * Сброс только на дописанный бренд (`isKnownPrinterBrand`): пока марку набирают
+   * по буквам, модель трогать нельзя, иначе она исчезала бы на первой правке.
+   */
+  function handleBrandChange(value: string) {
+    setBrand(value);
+
+    if (isKnownPrinterBrand(value) && !isPrinterBrandModelPair(value, model)) {
+      setModel("");
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -686,7 +714,7 @@ export function PrinterDetailsDialog({
                     required
                     maxLength={PRINTER_TEXT_LIMITS.brand}
                     value={brand}
-                    onChange={(event) => setBrand(event.currentTarget.value)}
+                    onChange={(event) => handleBrandChange(event.currentTarget.value)}
                     placeholder="Bambu Lab"
                     aria-describedby="printer-connection-brand-hint"
                     aria-invalid={fieldErrors.brand ? true : undefined}
@@ -728,7 +756,7 @@ export function PrinterDetailsDialog({
                     maxLength={PRINTER_TEXT_LIMITS.model}
                     value={model}
                     onChange={(event) => setModel(event.currentTarget.value)}
-                    placeholder="X1C"
+                    placeholder={brandModels[0] ?? "Модель принтера"}
                     aria-describedby="printer-connection-model-hint"
                     aria-invalid={fieldErrors.model ? true : undefined}
                     className={`${inputClassName}${
@@ -736,20 +764,18 @@ export function PrinterDetailsDialog({
                     }`}
                   />
                   <datalist id="printer-details-models">
-                    {PRINTER_PRESETS.map((item) => (
-                      <option
-                        key={`${item.brand}-${item.model}`}
-                        value={item.model}
-                      />
+                    {brandModels.map((option) => (
+                      <option key={option} value={option} />
                     ))}
                   </datalist>
-                  <p
-                    id="printer-connection-model-hint"
-                    className={hintClassName}
-                  >
-                    Например, X1C или MK4 — так же, как модель называется в
-                    слайсере.
-                  </p>
+                  <div id="printer-connection-model-hint">
+                    <PrinterModelHint
+                      brand={brand}
+                      model={model}
+                      options={brandModels}
+                      fallback="Из списка своего бренда или своя: так же, как модель называется в слайсере."
+                    />
+                  </div>
                   {fieldErrors.model ? (
                     <p className={fieldErrorClassName}>{fieldErrors.model}</p>
                   ) : null}
@@ -765,6 +791,16 @@ export function PrinterDetailsDialog({
                   Без бренда и модели проверка совместимости 3MF не сработает:
                   заполните оба поля — по ним файл сверяется с профилем
                   слайсера.
+                </p>
+              ) : identityMismatch ? (
+                <p
+                  data-printer-identity-mismatch
+                  className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100"
+                >
+                  <span aria-hidden>⚠️ </span>
+                  Модель «{model.trim()}» выпускает другой бренд: проверка
+                  совместимости 3MF сверит файл не с тем профилем. Выберите
+                  модель из списка «{brand.trim()}».
                 </p>
               ) : null}
             </fieldset>

@@ -13,6 +13,13 @@
  * зависит от пластика, загрузки и помещения, поэтому интервалы в форме можно
  * поправить. `note` показываем рядом с выбранной моделью — человек видит, откуда
  * взялись числа и что именно нельзя делать.
+ *
+ * Модели в форме привязаны к бренду: подсказка «Модель» показывает только то,
+ * что выпускает выбранный бренд (`printerModelOptions`), а пара «бренд — модель»
+ * проверяется `isPrinterBrandModelPair`. Иначе список был общим на все марки, и
+ * мастер фермы выбирал «K1C» в строке FlashForge: проверка совместимости 3MF
+ * сверяет файл именно с парой, поэтому такая строка означала чужой профиль
+ * слайсера.
  */
 export type PrinterPreset = {
   brand: string;
@@ -66,6 +73,85 @@ export function findPrinterPresetByModel(value: unknown): PrinterPreset | null {
   );
 
   return matches.length === 1 ? matches[0] : null;
+}
+
+/**
+ * Пресеты бренда — по ним форма строит подсказку «Модель».
+ *
+ * Сравнение терпит регистр и недопечатанный бренд: мастер набрал «Bambu» —
+ * список уже показывает X1, X1C, P1S и остальные. Пустой бренд не подходит ни
+ * одной марке: подсказывать все модели сразу и значит показывать «K1C» в строке
+ * FlashForge.
+ */
+export function findPrinterPresetsByBrand(
+  brand: string,
+): readonly PrinterPreset[] {
+  const key = normalizePrinterModel(brand);
+
+  if (!key) {
+    return [];
+  }
+
+  return PRINTER_PRESETS.filter((preset) => {
+    const brandKey = normalizePrinterModel(preset.brand);
+
+    return brandKey === key || brandKey.startsWith(key);
+  });
+}
+
+/**
+ * Модели бренда для `<datalist>`: у каждой марки свой список, поэтому подсказка
+ * в форме зависит от бренда, а не от всего справочника.
+ */
+export function printerModelOptions(brand: string): string[] {
+  return findPrinterPresetsByBrand(brand).map((preset) => preset.model);
+}
+
+/**
+ * Бренд есть в справочнике целиком: «Bambu Lab» — да, недопечатанное «Bambu» —
+ * нет.
+ *
+ * По этой проверке форма решает, пора ли сбрасывать модель: пока бренд набирают
+ * по буквам, трогать её нельзя, иначе модель исчезала бы на первой же правке.
+ */
+export function isKnownPrinterBrand(brand: string): boolean {
+  const key = normalizePrinterModel(brand);
+
+  if (!key) {
+    return false;
+  }
+
+  return PRINTER_PRESETS.some(
+    (preset) => normalizePrinterModel(preset.brand) === key,
+  );
+}
+
+/**
+ * Пара «бренд — модель» не противоречит справочнику.
+ *
+ * false ровно в одном случае: модель из справочника выпускает другой бренд —
+ * «FlashForge» и «K1C». Своя модель («X2») спорной не считается: справочник про
+ * неё ничего не знает, и запрещать её незачем. Пустой бренд тоже не повод
+ * ругаться — мастеру и так напоминают, что без бренда проверка 3MF не сработает.
+ */
+export function isPrinterBrandModelPair(brand: string, model: string): boolean {
+  const modelKey = normalizePrinterModel(model);
+
+  if (!modelKey || !normalizePrinterModel(brand)) {
+    return true;
+  }
+
+  const owners = PRINTER_PRESETS.filter(
+    (preset) => normalizePrinterModel(preset.model) === modelKey,
+  );
+
+  if (owners.length === 0) {
+    return true;
+  }
+
+  return findPrinterPresetsByBrand(brand).some(
+    (preset) => normalizePrinterModel(preset.model) === modelKey,
+  );
 }
 
 export const PRINTER_PRESETS: readonly PrinterPreset[] = [
@@ -156,6 +242,30 @@ export const PRINTER_PRESETS: readonly PrinterPreset[] = [
     lubricationHours: 720,
     zScrewHours: 720,
     note: "Усиленный экструдер: сопло 500 ч, рельсы и винт Z — 720 ч.",
+  },
+  {
+    brand: "FlashForge",
+    model: "Adventurer 5M",
+    nozzleHours: 400,
+    lubricationHours: 500,
+    zScrewHours: 720,
+    note: "Сопло 400 ч, смазка рельсов 500 ч, винт Z 720 ч; сопло меняется без инструмента.",
+  },
+  {
+    brand: "FlashForge",
+    model: "Adventurer 5M Pro",
+    nozzleHours: 400,
+    lubricationHours: 500,
+    zScrewHours: 720,
+    note: "Закрытая камера: рельсы смазывать каждые 500 ч, сопло и винт Z — 400/720 ч.",
+  },
+  {
+    brand: "FlashForge",
+    model: "Creator 5 Pro",
+    nozzleHours: 500,
+    lubricationHours: 720,
+    zScrewHours: 720,
+    note: "Портал с двумя осями: рельсы и винт Z — 720 ч, сопло 500 ч, ремни проверять чаще.",
   },
   {
     brand: "Anycubic",
