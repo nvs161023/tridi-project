@@ -13,8 +13,8 @@
  *      FlashForge, A1 mini не путается с A1, файл без разметки разрешён любому
  *      принтеру;
  *   5. текст отказа совпадает с тем, что показывает карточка заказа;
- *   6. исходник модели (STL) отличается от файла печати: STL не считается
- *      заданием печати, а подписи полей совпадают с формой товара.
+ *   6. файл товара: карточка принимает 3MF, G-code и STL в одном поле, но в
+ *      очередь печати STL не попадает — это модель для нарезки.
  *
  * ZIP собирается здесь же: нужен минимальный архив с двумя служебными файлами,
  * а тянуть в тест упаковщик незачем. CRC считается по-настоящему — тестовый
@@ -34,11 +34,11 @@ import {
 } from "../lib/3d/parse-3mf";
 import {
   isPrintableFile,
+  isProductFile,
   isSlicedForPrinter,
   isSourceModelFile,
-  PRINT_FILE_LABEL,
   printerMismatchMessage,
-  SOURCE_MODEL_FILE_LABEL,
+  PRODUCT_FILE_LABEL,
 } from "../lib/3d/print-compatibility";
 
 /** Сколько проверок упало: из этого складывается код выхода. */
@@ -290,7 +290,7 @@ check("3MF печатается", isPrintableFile("https://x/vase.3mf?token=1"),
 check("STL не печатается", isPrintableFile("https://x/vase.stl"), false);
 check("пустая ссылка", isPrintableFile(null), false);
 
-console.log("Исходник модели отделён от файла печати");
+console.log("Старые карточки: STL в отдельном поле");
 
 check("STL — исходник", isSourceModelFile("https://x/vase.stl"), true);
 check(
@@ -302,12 +302,16 @@ check("STL в верхнем регистре", isSourceModelFile("https://x/VAS
 check("3MF не исходник", isSourceModelFile("https://x/vase.3mf"), false);
 check("G-code не исходник", isSourceModelFile("https://x/vase.gcode"), false);
 check("пустая ссылка — не исходник", isSourceModelFile(null), false);
-check("подпись исходника", SOURCE_MODEL_FILE_LABEL, "Исходник (STL)");
-check(
-  "подпись файла печати",
-  PRINT_FILE_LABEL,
-  "Файл для печати (3MF/GCode)",
-);
+
+console.log("Файл модели для карточки товара");
+
+check("3MF — файл товара", isProductFile("https://x/vase.3mf"), true);
+check("G-code — файл товара", isProductFile("https://x/vase.gcode"), true);
+check("gco — файл товара", isProductFile("https://x/vase.gco?token=1"), true);
+check("STL — файл товара", isProductFile("https://x/vase.stl"), true);
+check("PDF не файл товара", isProductFile("https://x/vase.pdf"), false);
+check("пустая ссылка — не файл товара", isProductFile(null), false);
+check("подпись файла товара", PRODUCT_FILE_LABEL, "Файл модели для печати");
 
 if (failures > 0) {
   console.log(`\nПровалено проверок: ${failures}`);

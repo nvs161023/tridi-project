@@ -96,6 +96,25 @@ type Supabase = SupabaseClient;
 /** Сколько SKU ищем одним запросом: длинный `in` упирается в URL PostgREST. */
 const LOOKUP_CHUNK = 100;
 
+/**
+ * Сколько артикулов искать в каталоге одним запросом.
+ *
+ * В `in` уходят варианты регистра, то есть до трёх значений на артикул, —
+ * поэтому пачка втрое меньше, чем `LOOKUP_CHUNK`.
+ */
+const CATALOG_SKU_CHUNK = 30;
+
+/**
+ * Ключ сравнения артикула.
+ *
+ * Обрезаем пробелы и приводим регистр: площадка пришлёт «vase-001», а мастер
+ * впишет «VASE-001» — это один товар. Совпадение при этом остаётся строгим:
+ * совпасть должен весь артикул, а не его часть.
+ */
+function skuKey(sku: string): string {
+  return sku.trim().toLowerCase();
+}
+
 /** Больше позиций в одном заказе не бывает; лишние отбрасываются. */
 const MAX_ITEMS = 100;
 
@@ -357,18 +376,22 @@ function buildOrderNotes(items: NormalizedOrderItem[]): string {
   return parts.length === items.length ? notes : `${notes}…`;
 }
 
-/** Связи SKU → товар этой мастерской и этой площадки. */
-async function loadProductIds(
+/**
+ * Связи площадки: «артикул на площадке → товар».
+ *
+ * Ручная связь нужна, когда артикул на площадке отличается от артикула
+ * товара, и имеет приоритет над каталогом.
+ */
+async function loadMarketplaceLinks(
   supabase: Supabase,
   userId: string,
   source: Marketplace,
   skus: string[],
 ): Promise<Map<string, string>> {
   const productIds = new Map<string, string>();
-  const unique = [...new Set(skus)];
 
-  for (let index = 0; index < unique.length; index += LOOKUP_CHUNK) {
-    const chunk = unique.slice(index, index + LOOKUP_CHUNK);
+  for (let index = 0; index < skus.length; index += LOOKUP_CHUNK) {
+    const chunk = skus.slice(index, index + LOOKUP_CHUNK);
     const { data, error } = await supabase
       .from("workshop_marketplace_links")
       .select("sku, product_id")
@@ -393,8 +416,109 @@ async function loadProductIds(
         typeof row.product_id === "string" &&
         isWorkshopUuid(row.product_id)
       ) {
-        productIds.set(row.sku, row.product_id);
+        productIds.set(skuKey(row.sku), row.product_id);
       }
+    }
+  }
+
+  return productIds;
+}
+
+/**
+ * Товары каталога по артикулам заказа.
+ *
+ * Совпадение строгое: `workshop_products.sku` должен целиком совпасть с
+ * артикулом позиции, поэтому мастеру достаточно заполнить SKU в карточке — без
+ * ручной связи площадки. Регистр площадки неизвестен, поэтому в запрос уходят
+ * три написания, а в карту — нормализованный ключ.
+ *
+ * Если каталог не мигрирован, связей просто нет: заказ, как и раньше, уйдёт в
+ * «Требуют внимания», падать из-за этого незачем.
+ */
+async function loadCatalogSkus(
+  supabase: Supabase,
+  userId: string,
+  skus: string[],
+): Promise<Map<string, string>> {
+  const productIds = new Map<string, string>();
+
+  for (let index = 0; index < skus.length; index += CATALOG_SKU_CHUNK) {
+    const chunk = skus.slice(index, index + CATALOG_SKU_CHUNK);
+    const variants = [
+      ...new Set(
+        chunk.flatMap((sku) => [sku, sku.toUpperCase(), sku.toLowerCase()]),
+      ),
+    ];
+    const { data, error } = await supabase
+      .from("workshop_products")
+      .select("id, sku")
+      .eq("user_id", userId)
+      .in("sku", variants);
+
+    if (error) {
+      if (isMissingTableSchema(error.code, error.message)) {
+        console.warn(
+          "Заказы привязываются только по связям площадки: в базе нет workshop_products.",
+          error.code,
+          error.message,
+        );
+
+        return productIds;
+      }
+
+      throw databaseFailure(
+        error,
+        "read_failed",
+        "Товары по артикулам не прочитаны",
+      );
+    }
+
+    for (const row of (data ?? []) as { id?: unknown; sku?: unknown }[]) {
+      if (
+        typeof row.id === "string" &&
+        isWorkshopUuid(row.id) &&
+        typeof row.sku === "string"
+      ) {
+        productIds.set(skuKey(row.sku), row.id);
+      }
+    }
+  }
+
+  return productIds;
+}
+
+/**
+ * Связи «артикул заказа → товар» этой мастерской.
+ *
+ * Сначала берутся ручные связи площадки, затем — совпадение по `sku` каталога.
+ * Позиция, которой не нашлось ни там, ни там, остаётся без товара: заказ
+ * получает статус `unmapped` и попадает в «Требуют внимания».
+ */
+async function loadProductIds(
+  supabase: Supabase,
+  userId: string,
+  source: Marketplace,
+  skus: string[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(skus)];
+  const productIds = await loadMarketplaceLinks(
+    supabase,
+    userId,
+    source,
+    unique,
+  );
+  const missing = unique.filter((sku) => !productIds.has(skuKey(sku)));
+
+  if (missing.length === 0) {
+    return productIds;
+  }
+
+  const catalog = await loadCatalogSkus(supabase, userId, missing);
+
+  for (const [sku, productId] of catalog) {
+    // Ручная связь площадки главнее: её ставил мастер.
+    if (!productIds.has(sku)) {
+      productIds.set(sku, productId);
     }
   }
 
@@ -452,7 +576,7 @@ function createItemPayloads(
   return items.map((item) => ({
     user_id: userId,
     order_id: orderId,
-    product_id: item.sku ? (productIds.get(item.sku) ?? null) : null,
+    product_id: item.sku ? (productIds.get(skuKey(item.sku)) ?? null) : null,
     sku: item.sku,
     quantity: item.quantity,
   }));
@@ -467,7 +591,7 @@ function summarizeItems(
   let mappedItems = 0;
 
   for (const item of items) {
-    if (item.sku && productIds.has(item.sku)) {
+    if (item.sku && productIds.has(skuKey(item.sku))) {
       mappedItems += 1;
     } else if (item.sku) {
       unmappedSkus.add(item.sku);
@@ -503,7 +627,7 @@ async function relinkOrder(
   const unmappedSkus: string[] = [];
 
   for (const item of items) {
-    const productId = item.sku ? productIds.get(item.sku) : null;
+    const productId = item.sku ? productIds.get(skuKey(item.sku)) : null;
 
     if (item.productId) {
       mappedItems += 1;

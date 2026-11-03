@@ -31,23 +31,29 @@ const PRINTABLE_EXTENSIONS = ["gcode", "gco", "g", "3mf"] as const;
  * Расширения исходников модели.
  *
  * STL — модель для слайсера: её прикладывают к товару, чтобы нарезать изделие
- * заново под другой принтер. В очередь печати такой файл не годится, поэтому
- * он хранится отдельным полем карточки (`model_url`), а не вместо файла печати.
+ * заново под другой принтер. В очередь печати такой файл не годится: сначала
+ * мастер нарезает его слайсером. На карточке файл один, поэтому STL хранится в
+ * том же `gcode_url`; `model_url` остаётся у товаров, заведённых до упрощения.
  */
 export const SOURCE_MODEL_EXTENSIONS = ["stl"] as const;
 
-/** Подпись поля с исходником модели — одна для формы и карточки товара. */
-export const SOURCE_MODEL_FILE_LABEL = "Исходник (STL)";
-
-/** Подпись файла, готового к печати, — одна для формы и карточки товара. */
-export const PRINT_FILE_LABEL = "Файл для печати (3MF/GCode)";
+/**
+ * Подпись единого блока загрузки файла товара.
+ *
+ * В карточке товара файл один: 3MF или G-code агент фермы печатает как есть, а
+ * STL остаётся моделью для нарезки. Ссылка в любом случае хранится в
+ * `gcode_url`, поэтому форма подписывает блок именно так.
+ */
+export const PRODUCT_FILE_LABEL = "Файл модели для печати";
 
 /**
  * Назначение загружаемого файла товара.
  *
  * `model` — исходник STL для слайсера и калькулятора, `print` — готовое
  * задание печати. Роут `/api/workshop/gcode` по этому значению выбирает
- * проверку расширений и папку бакета, а форма показывает файлы двумя блоками.
+ * проверку расширений и папку бакета. Форма товара всегда грузит файл
+ * значением по умолчанию; `model` остался для старых вызовов и карточек с
+ * отдельным `model_url`.
  */
 export type ProductFileKind = "print" | "model";
 
@@ -87,8 +93,9 @@ export function isPrintableFile(url: string | null): boolean {
 /**
  * Ссылка ведёт на исходник модели (STL).
  *
- * По этой проверке карточка товара раскладывает файлы по полям, а Server Action
- * отклоняет STL в `gcode_url`: там он сломал бы очередь печати.
+ * По этой проверке Server Action раскладывает старые карточки: ссылка на STL
+ * читается как `model_url`, а не как файл печати. Новые товары кладут STL в
+ * `gcode_url` — печатать его всё равно никто не будет (`isPrintableFile`).
  */
 export function isSourceModelFile(url: string | null): boolean {
   const extension = printFileExtension(url);
@@ -96,6 +103,34 @@ export function isSourceModelFile(url: string | null): boolean {
   return (
     extension !== null &&
     (SOURCE_MODEL_EXTENSIONS as readonly string[]).includes(extension)
+  );
+}
+
+/**
+ * Расширения единого файла товара.
+ *
+ * Карточка принимает все три формата одним полем: 3MF и G-code готовы к печати,
+ * STL мастер нарежет сам. Расширение `.gco` и `.g` остаются: так называют
+ * G-code слайсеры, и отказывать в них незачем.
+ */
+export const PRODUCT_FILE_EXTENSIONS = [
+  ...PRINTABLE_EXTENSIONS,
+  ...SOURCE_MODEL_EXTENSIONS,
+] as const;
+
+/**
+ * Ссылка ведёт на файл из единого блока загрузки: .3mf, .gcode, .gco, .g или .stl.
+ *
+ * Проверка нужна Server Action: поле `gcode_url` теперь принимает и STL, а
+ * в очередь печати такой файл по-прежнему не попадает — за это отвечает
+ * `isPrintableFile`.
+ */
+export function isProductFile(url: string | null): boolean {
+  const extension = printFileExtension(url);
+
+  return (
+    extension !== null &&
+    (PRODUCT_FILE_EXTENSIONS as readonly string[]).includes(extension)
   );
 }
 

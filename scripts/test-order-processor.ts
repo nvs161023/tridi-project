@@ -7,7 +7,9 @@
  *   2. деньги площадки (total_amount, commission, total_cost) сохраняются;
  *   3. заказ с неизвестным SKU получает статус unmapped и позицию без товара;
  *   4. повторное уведомление не создаёт дубль заказа и позиции;
- *   5. после добавления связи relinkUnmappedOrders переводит заказ в new.
+ *   5. заказ, у которого SKU совпадает с артикулом товара, связывается без
+ *      ручной связи площадки — регистр артикула не важен;
+ *   6. после добавления связи relinkUnmappedOrders переводит заказ в new.
  *
  * Тест создаёт одного пользователя, товар, связь SKU и заказы, а в finally
  * удаляет пользователя — каскад auth.users уносит все строки.
@@ -299,6 +301,57 @@ async function main(): Promise<void> {
           product_id: item.product_id,
         })),
       ),
+    );
+
+    // Второй товар без ручной связи: заказ должен найти его по самому артикулу,
+    // причём регистр, в котором SKU пришёл с площадки, не важен.
+    const skuProduct = `SKU-${suffix.toUpperCase()}`;
+    const skuProductResult = await admin
+      .from("workshop_products")
+      .insert({
+        user_id: userId,
+        sku: skuProduct,
+        title: "Ваза по артикулу",
+        price: 1200,
+        gcode_url: "https://example.com/sku-vase.gcode",
+      })
+      .select("id")
+      .single();
+
+    throwIfError(skuProductResult.error, "product insert by sku");
+
+    const skuProductId = requireText(
+      skuProductResult.data,
+      "id",
+      "product insert by sku",
+    );
+
+    const skuOrder: NormalizedOrder = {
+      marketplace_order_id: `TEST-ORDER-SKU-${suffix}`,
+      buyer_name: null,
+      items: [{ sku: skuProduct.toLowerCase(), quantity: 1, price: 1200 }],
+      total_amount: 1200,
+      marketplace_commission: null,
+      source: "wb",
+    };
+    const bySku = await processMarketplaceOrder(skuOrder, userId, {
+      supabase: admin,
+    });
+    const bySkuOrder = bySku.ok
+      ? await findOrder(admin, userId, skuOrder.marketplace_order_id)
+      : null;
+    const bySkuItems = bySkuOrder
+      ? await readItems(admin, userId, String(bySkuOrder.id))
+      : [];
+
+    check(
+      "Артикул товара связывает заказ без ручной связи",
+      bySku.ok &&
+        bySku.data.orderStatus === "new" &&
+        bySkuItems[0]?.product_id === skuProductId,
+      bySku.ok
+        ? `status=${bySku.data.orderStatus}, product_id=${String(bySkuItems[0]?.product_id)}`
+        : `${bySku.reason}: ${bySku.error}`,
     );
 
     const unmappedOrder: NormalizedOrder = {

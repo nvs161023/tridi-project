@@ -1,8 +1,5 @@
 import { extractPrinterModelFrom3mf } from "@/lib/3d/parse-3mf";
-import {
-  isSourceModelFile,
-  type ProductFileKind,
-} from "@/lib/3d/print-compatibility";
+import type { ProductFileKind } from "@/lib/3d/print-compatibility";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { uploadGcodeToSupabase } from "@/lib/storage";
 import { createClient } from "@/lib/supabase/server";
@@ -15,10 +12,10 @@ import { createClient } from "@/lib/supabase/server";
  * сюда, получает публичный URL и уже его кладёт в скрытое поле формы товара.
  *
  * Назначение задаёт поле `kind`:
- *   `print` — готовое задание печати (.3mf, .gcode, .gco, .g), папка print;
- *   `model` — исходник модели (.stl) для калькулятора и повторной нарезки,
- *     папка models.
- * Без поля загрузка считается заданием печати: так работали прежние клиенты.
+ *   `print` — файл модели (.3mf, .gcode, .gco, .g или .stl), папка print;
+ *   `model` — исходник модели (.stl), папка models. Этот вид остался ради
+ *     старых клиентов: форма товара загружает STL как обычный файл.
+ * Без поля загрузка считается файлом модели: так работали прежние клиенты.
  *
  * Кроме ссылки роут возвращает модель принтера из метаданных 3MF
  * (`printerModel`). Разбор идёт здесь, пока архив уже прочитан в память; в
@@ -44,8 +41,12 @@ export const dynamic = "force-dynamic";
 /** Лимит совпадает с настройками бакета. */
 const MAX_PRODUCT_FILE_BYTES = 50 * 1024 * 1024;
 
-/** Файлы, которые агент фермы отправит на принтер без слайсера. */
-const PRINT_FILE_EXTENSIONS = [".3mf", ".gcode", ".gco", ".g"] as const;
+/**
+ * Файлы модели товара: 3MF и G-code агент фермы печатает как есть, STL мастер
+ * нарежет сам. Один блок загрузки в форме принимает все три формата, поэтому
+ * список совпадает с `PRODUCT_FILE_EXTENSIONS`.
+ */
+const PRODUCT_FILE_EXTENSIONS = [".3mf", ".gcode", ".gco", ".g", ".stl"] as const;
 
 /** Исходник модели: только STL, его нарезает слайсер. */
 const MODEL_FILE_EXTENSIONS = [".stl"] as const;
@@ -61,8 +62,10 @@ function hasExtension(name: string, extensions: readonly string[]): boolean {
 /**
  * Назначение загрузки из формы.
  *
- * Неизвестное значение считается заданием печати: роут принимает STL только
- * как исходник, и отказ понятнее, чем исходник, попавший в очередь печати.
+ * Без поля (и при незнакомом значении) файл считается файлом модели: форма
+ * товара грузит в этот блок 3MF, G-code и STL — в `gcode_url` попадает одна
+ * ссылка. `model` остался ради старых клиентов: там принимается только STL и
+ * ссылка уезжает в `model_url`.
  */
 function readKind(form: FormData): ProductFileKind {
   return form.get("kind") === "model" ? "model" : "print";
@@ -117,19 +120,15 @@ export async function POST(request: Request): Promise<Response> {
   const isModel = kind === "model";
   const allowedExtensions = isModel
     ? MODEL_FILE_EXTENSIONS
-    : PRINT_FILE_EXTENSIONS;
+    : PRODUCT_FILE_EXTENSIONS;
   const name = file.name.toLowerCase();
 
   if (!hasExtension(name, allowedExtensions)) {
-    // Отдельный текст для STL в блоке печати: мастер положил исходник не туда,
-    // и подсказка «куда» экономит ему повторную загрузку.
     return errorResponse(
       415,
       isModel
-        ? "Исходник — файл .stl. Файл для печати загрузите отдельным полем."
-        : isSourceModelFile(name)
-          ? "STL — исходник. Загрузите его в «Исходник (STL)»."
-          : "Поддерживаются файлы .3mf, .gcode, .gco и .g.",
+        ? "Исходник — файл .stl."
+        : "Поддерживаются файлы .3mf, .gcode и .stl.",
     );
   }
 
@@ -187,7 +186,7 @@ export async function POST(request: Request): Promise<Response> {
       503,
       isModel
         ? "Не удалось сохранить исходник. Попробуйте ещё раз."
-        : "Не удалось сохранить файл печати. Попробуйте ещё раз.",
+        : "Не удалось сохранить файл модели. Попробуйте ещё раз.",
     );
   }
 }

@@ -98,9 +98,8 @@ function formatProductDimensions(product: WorkshopProduct): string {
 /**
  * Ссылка на файл товара, только если это http(s): старые данные тоже проверяем.
  *
- * Одна проверка на файл печати и исходник: в таблице обе ссылки открываются
- * одинаково, а небезопасный `javascript:` из чужой записи не должен стать
- * кликабельным.
+ * Файл у карточки один, поэтому проверка одна: небезопасный `javascript:` из
+ * чужой записи не должен стать кликабельным.
  */
 function fileHref(url: string | null): string | null {
   return url && /^https?:\/\//iu.test(url) ? url : null;
@@ -109,8 +108,8 @@ function fileHref(url: string | null): string | null {
 /**
  * Ссылка «Открыть» на файл товара.
  *
- * Одна на файл печати и исходник: оба открываются в новой вкладке, чтобы
- * таблица каталога не теряла прокрутку и поиск.
+ * Открывается в новой вкладке, чтобы таблица каталога не теряла прокрутку и
+ * поиск.
  */
 function FileLink({ href }: { href: string }) {
   return (
@@ -512,8 +511,7 @@ function ProductsTable({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] border-collapse text-sm">
           <caption className="sr-only">
-            Товары: артикул, название, цена, вес, габариты, файл печати и
-            исходник модели
+            Товары: артикул, название, цена, вес, габариты и файл модели
           </caption>
           <thead>
             <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
@@ -533,7 +531,7 @@ function ProductsTable({
                 Габариты
               </th>
               <th scope="col" className="px-3 py-3">
-                Файлы
+                Файл модели
               </th>
               <th scope="col" className="px-3 py-3 text-right">
                 <span className="sr-only">Действия</span>
@@ -542,8 +540,9 @@ function ProductsTable({
           </thead>
           <tbody>
             {products.map((product) => {
-              const printHref = fileHref(product.gcodeUrl);
-              const modelHref = fileHref(product.modelUrl);
+              // Файл у карточки один: у новых товаров ссылка в `gcodeUrl`, у
+              // старых STL остался в `modelUrl` — показываем, что есть.
+              const productFileUrl = fileHref(product.gcodeUrl ?? product.modelUrl);
               const isDeleting = deletingId === product.id;
 
               return (
@@ -580,28 +579,17 @@ function ProductsTable({
                     {formatProductDimensions(product)}
                   </td>
                   <td className="px-3 py-4 whitespace-nowrap">
-                    <div className="space-y-1.5 text-xs">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-zinc-500">Печать:</span>
-                        {printHref ? (
-                          <FileLink href={printHref} />
-                        ) : (
-                          <span
-                            title="Позицию нельзя поставить в очередь печати, пока мастер не приложит 3MF или G-code"
-                            className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] font-semibold text-zinc-400"
-                          >
-                            Нет файла печати
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-zinc-500">Исходник:</span>
-                        {modelHref ? (
-                          <FileLink href={modelHref} />
-                        ) : (
-                          <span className="text-zinc-500">нет</span>
-                        )}
-                      </div>
+                    <div className="text-xs">
+                      {productFileUrl ? (
+                        <FileLink href={productFileUrl} />
+                      ) : (
+                        <span
+                          title="Мастер не приложил файл: позицию нельзя поставить в очередь печати"
+                          className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] font-semibold text-zinc-400"
+                        >
+                          Нет файла
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-3 py-4 text-right">

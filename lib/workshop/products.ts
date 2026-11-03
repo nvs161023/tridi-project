@@ -15,7 +15,7 @@ import { revalidatePath } from "next/cache";
 import Papa, { type ParseError } from "papaparse";
 
 import {
-  isPrintableFile,
+  isProductFile,
   isSourceModelFile,
   printFileExtension,
 } from "@/lib/3d/print-compatibility";
@@ -367,9 +367,10 @@ function readFileLink(
 /**
  * Ссылка на исходник модели: только STL.
  *
- * У товара два файла, и они не взаимозаменяемы: исходник нужен, чтобы нарезать
- * изделие заново под другой принтер, а печатает агент фермы по 3MF или G-code.
- * 3MF и G-code здесь отклоняются, чтобы мастер не перепутал поля.
+ * Поле осталось ради старых карточек: форма больше не показывает отдельный
+ * блок исходника, но скрытое поле сохраняет уже приложенный файл, чтобы
+ * сохранение карточки его не стёрло. 3MF и G-code здесь отклоняются: это не
+ * исходник, и в `model_url` они сломали бы показ файлов в каталоге.
  */
 function readModelUrl(
   formData: FormData,
@@ -382,7 +383,7 @@ function readModelUrl(
   }
 
   if (!isSourceModelFile(url)) {
-    errors.modelUrl = "Исходник — файл .stl. Файл печати приложите отдельным полем.";
+    errors.modelUrl = "В старом поле исходника допускается только .stl.";
 
     return null;
   }
@@ -391,10 +392,12 @@ function readModelUrl(
 }
 
 /**
- * Ссылка на файл печати: 3MF или G-code.
+ * Ссылка на файл модели: 3MF, G-code или STL.
  *
- * STL отклоняется: это модель для слайсера, а не задание печати — агенту фермы
- * нечего отправлять на принтер. Такой файл прикладывают в поле исходника.
+ * Файл у товара один, и живёт он в `gcode_url` — так карточка, очередь печати и
+ * агент фермы читают одну и ту же колонку. STL здесь разрешён: мастер может
+ * приложить только модель, а нарезать её — позже. В очередь печати такой файл
+ * при этом не попадёт: её проверяет `isPrintableFile`.
  */
 function readGcodeUrl(
   formData: FormData,
@@ -406,9 +409,8 @@ function readGcodeUrl(
     return null;
   }
 
-  if (!isPrintableFile(url)) {
-    errors.gcodeUrl =
-      "Файл печати — 3MF или G-code (.3mf, .gcode, .gco, .g). Исходник .stl приложите отдельным полем.";
+  if (!isProductFile(url)) {
+    errors.gcodeUrl = "Файл модели — .3mf, .gcode или .stl.";
 
     return null;
   }
@@ -508,6 +510,7 @@ function readProductForm(formData: FormData): {
     PRODUCT_TEXT_LIMITS.description,
     errors,
     "description",
+    "Введите описание.",
   );
   const price = readPriceValue(formData, "price", errors, "price", true);
   const oldPrice = readPriceValue(
@@ -959,11 +962,6 @@ export function normalizeProductRow(
     row.gcode_url,
     PRODUCT_TEXT_LIMITS.gcodeUrl,
   );
-  // До разделения файлов STL прикладывали в gcode_url: такая ссылка — исходник,
-  // а не задание печати, иначе карточка обещала бы печать, которой не будет.
-  const legacyModelUrl = isSourceModelFile(storedGcodeUrl)
-    ? storedGcodeUrl
-    : null;
 
   return {
     id: row.id,
@@ -984,8 +982,10 @@ export function normalizeProductRow(
     heightMm: readStoredNumber(row.height_mm, true),
     barcode: readStoredText(row.barcode, PRODUCT_TEXT_LIMITS.barcode),
     category: readStoredText(row.category, PRODUCT_TEXT_LIMITS.category),
-    modelUrl: storedModelUrl ?? legacyModelUrl,
-    gcodeUrl: legacyModelUrl ? null : storedGcodeUrl,
+    modelUrl: storedModelUrl,
+    // У новых карточек здесь лежит любой файл модели, включая STL: печатать
+    // его никто не будет — очередь проверяет `isPrintableFile`.
+    gcodeUrl: storedGcodeUrl,
     slicedForPrinter: readStoredText(
       row.sliced_for_printer,
       PRODUCT_TEXT_LIMITS.slicedForPrinter,
