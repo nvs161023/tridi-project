@@ -238,8 +238,9 @@ export const PRINTER_PROTOCOL_OPTIONS: readonly {
  *
  * Bambu адресует им MQTT-топики (`device/<serial>/report`), FlashForge
  * отправляет его заголовком `serialNumber` в каждом запросе. Остальным SN не
- * нужен: чужое значение в базе означало бы номер, который агент подставил бы в
- * адрес другого протокола.
+ * нужен для работы, но поле в карточке принтера видно всегда и значение
+ * сохраняется: номер вводят до смены протокола, а адаптеры, которым он не нужен,
+ * его просто не читают.
  */
 export const PRINTER_SERIAL_PROTOCOLS: readonly PrinterProtocol[] = [
   "bambu",
@@ -1407,6 +1408,11 @@ export function countMaintenanceDue(printer: WorkshopPrinter): number {
  * Серийный номер — исключение: это не секрет, карточка показывает его
  * заполненным, и пустой SN у Bambu и FlashForge отвергается в обоих режимах —
  * иначе принтер сохранился бы, а печать не пошла.
+ *
+ * Карточка принтера спрашивает SN и Check Code при любом протоколе (см.
+ * `PrinterDetailsDialog`), поэтому заполненное значение сохраняется и там, где
+ * справочник этого поля не требует: ввод мастера не должен пропадать молча.
+ * Проверки обязательности при этом остаются привязаны к протоколу.
  */
 function readConnectionFields(
   formData: FormData,
@@ -1422,12 +1428,11 @@ function readConnectionFields(
   const errors: PrinterFormErrors = {};
 
   // SN нужен Bambu (топики MQTT `device/<SN>/…`) и FlashForge (заголовок каждого
-  // запроса): у остальных протоколов такого понятия нет, а чужое значение агент
-  // подставил бы в топик чужого протокола.
-  const serialNumber = spec.serialNumber
-    ? readFormText(formData.get("serialNumber"))
-    : "";
-
+  // запроса), но карточка принтера показывает поле при любом протоколе: если
+  // мастер его заполнил, значение сохраняется — иначе поле обещало бы ввод, а
+  // номер молча пропадал. Обязательность по-прежнему зависит от протокола
+  // (`spec.serialNumberRequired`): у Moonraker пустой номер это норма.
+  const serialNumber = readFormText(formData.get("serialNumber"));
   if (serialNumber.length > PRINTER_TEXT_LIMITS.serialNumber) {
     errors.serialNumber = `Не больше ${PRINTER_TEXT_LIMITS.serialNumber} символов.`;
   } else if (spec.serialNumberRequired && !serialNumber) {
@@ -1503,6 +1508,30 @@ function readConnectionFields(
     }
 
     printerSecrets[field.key] = value;
+  }
+
+  // Check Code карточка принтера показывает при любом протоколе, поэтому
+  // введённое значение принимается даже там, где справочник его не спрашивает:
+  // мастер мог заполнить поле до смены протокола на FlashForge, и молча терять
+  // ввод нельзя. Остальные ключи `PRINTER_SECRET_KEYS` сюда же: чужой ключ из
+  // подделанного запроса в jsonb не попадёт, а известный — сохранится.
+  for (const key of PRINTER_SECRET_KEYS) {
+    if (spec.secrets.some((field) => field.key === key)) {
+      continue;
+    }
+
+    const value = readFormText(formData.get(key));
+
+    if (!value) {
+      continue;
+    }
+
+    if (value.length > PRINTER_TEXT_LIMITS.apiKey) {
+      errors[key] = `Не больше ${PRINTER_TEXT_LIMITS.apiKey} символов.`;
+      continue;
+    }
+
+    printerSecrets[key] = value;
   }
 
   return { serialNumber, apiKey, printerSecrets, errors };

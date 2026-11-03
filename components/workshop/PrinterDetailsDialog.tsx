@@ -204,6 +204,18 @@ export function PrinterDetailsDialog({
    * пароль, Device ID и Mode ID, не разъезжаясь в названиях и проверках.
    */
   const spec = printerConnectionSpec(protocol);
+  /**
+   * Check Code ищется в справочнике протокола, но поле рисуется всегда — даже
+   * когда протокол его не спрашивает. Так мастер видит, куда вписать код с
+   * наклейки, не переключая протокол: у FlashForge поле обязательное, у
+   * остальных остаётся пустым и подсказка объясняет, кому оно нужно.
+   */
+  const checkCodeField =
+    spec.secrets.find((field) => field.key === "checkCode") ?? null;
+  /** Остальные секреты протокола: Check Code уже нарисован выше. */
+  const otherSecrets = spec.secrets.filter(
+    (field) => field.key !== "checkCode",
+  );
   const guide = getMaintenanceGuide(printer.brand, printer.model);
   const preset =
     findPrinterPresetByModel(modelLabel) ||
@@ -882,46 +894,103 @@ export function PrinterDetailsDialog({
               ) : null}
             </div>
 
-            {/* SN есть только у Bambu и FlashForge (`PRINTER_SERIAL_PROTOCOLS`). */}
-            {spec.serialNumber ? (
-              <div>
-                <label
-                  htmlFor="printer-connection-serial"
-                  className={labelClassName}
-                >
-                  Серийный номер
-                </label>
-                <input
-                  id="printer-connection-serial"
-                  name="serialNumber"
-                  type="text"
-                  autoComplete="off"
-                  spellCheck={false}
-                  maxLength={PRINTER_TEXT_LIMITS.serialNumber}
-                  defaultValue={printer.serialNumber ?? ""}
-                  placeholder={
-                    spec.serialNumberRequired
-                      ? "Номер с наклейки принтера"
-                      : "00M09A123456789"
-                  }
-                  required={spec.serialNumberRequired}
-                  aria-describedby="printer-connection-serial-hint"
-                  aria-invalid={fieldErrors.serialNumber ? true : undefined}
-                  className={inputClassName}
-                />
+            {/*
+              Серийный номер спрашивается всегда, а не только у Bambu и FlashForge
+              (`PRINTER_SERIAL_PROTOCOLS`): агент видит в сети лишь адрес и
+              протокол, номер знает мастер, и если поля нет — вписать его негде.
+              Bambu строит из него MQTT-топики `device/<SN>/…`, FlashForge
+              отправляет заголовком каждого запроса, поэтому у обоих поле
+              обязательное; у остальных протоколов оно просто пустое и сохранится
+              на случай смены протокола на Bambu или FlashForge. Номер — не
+              секрет: сохранённое значение показывается в поле.
+            */}
+            <div>
+              <label
+                htmlFor="printer-connection-serial"
+                className={labelClassName}
+              >
+                Серийный номер (SN)
+              </label>
+              <input
+                id="printer-connection-serial"
+                name="serialNumber"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={PRINTER_TEXT_LIMITS.serialNumber}
+                defaultValue={printer.serialNumber ?? ""}
+                placeholder={
+                  spec.serialNumberRequired
+                    ? "Номер с наклейки принтера"
+                    : "00M09A123456789"
+                }
+                required={spec.serialNumberRequired}
+                aria-describedby="printer-connection-serial-hint"
+                aria-invalid={fieldErrors.serialNumber ? true : undefined}
+                className={inputClassName}
+              />
+              <p id="printer-connection-serial-hint" className={hintClassName}>
+                {spec.serialNumberRequired
+                  ? printerSerialHint(protocol)
+                  : "Этому протоколу номер не нужен: он обязателен для Bambu Lab и FlashForge. Оставьте пустым, если не знаете."}
+              </p>
+              {fieldErrors.serialNumber ? (
+                <p className={fieldErrorClassName}>
+                  {fieldErrors.serialNumber}
+                </p>
+              ) : null}
+            </div>
+
+            {/*
+              Check Code — второй секрет FlashForge: принтер сверяет пару
+              Serial Number + Check Code и без неё отвечает отказом на каждый
+              запрос. Поле видно при любом протоколе (обязательным не помечено:
+              секреты в браузер не возвращаются, и `required` заблокировал бы
+              сохранение уже настроенного принтера), а подсказка говорит, кому
+              оно нужно. Пустое поле — оставить сохранённое.
+            */}
+            <div>
+              <label
+                htmlFor="printer-connection-secret-checkCode"
+                className={labelClassName}
+              >
+                {checkCodeField?.label ?? "Check Code"}
+              </label>
+              <input
+                id="printer-connection-secret-checkCode"
+                name="checkCode"
+                type="password"
+                autoComplete="new-password"
+                spellCheck={false}
+                maxLength={PRINTER_TEXT_LIMITS.apiKey}
+                defaultValue=""
+                placeholder={checkCodeField?.placeholder ?? "Код с наклейки"}
+                aria-describedby={
+                  fieldErrors.checkCode
+                    ? "printer-connection-secret-checkCode-error"
+                    : "printer-connection-secret-checkCode-hint"
+                }
+                aria-invalid={fieldErrors.checkCode ? true : undefined}
+                className={inputClassName}
+              />
+              {fieldErrors.checkCode ? (
                 <p
-                  id="printer-connection-serial-hint"
+                  id="printer-connection-secret-checkCode-error"
+                  className={fieldErrorClassName}
+                >
+                  {fieldErrors.checkCode}
+                </p>
+              ) : (
+                <p
+                  id="printer-connection-secret-checkCode-hint"
                   className={hintClassName}
                 >
-                  {printerSerialHint(protocol)}
+                  {checkCodeField
+                    ? `${checkCodeField.hint} Пустое поле — оставить сохранённое.`
+                    : "Нужен только FlashForge: он сверяет пару Serial Number + Check Code. Другим протоколам поле не требуется."}
                 </p>
-                {fieldErrors.serialNumber ? (
-                  <p className={fieldErrorClassName}>
-                    {fieldErrors.serialNumber}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
+              )}
+            </div>
 
             {spec.apiKey ? (
               <div>
@@ -959,17 +1028,19 @@ export function PrinterDetailsDialog({
             ) : null}
 
             {/*
-              Секреты протокола без своей колонки (`printer_secrets`): Check Code
-              FlashForge, логин-пароль и Device ID/Mode ID Anycubic, Mainboard ID
-              Elegoo, хранилище PrusaLink. Поля всегда пустые — значения в браузер
-              не возвращаются, поэтому подсказка обещает «пустое поле — оставить
-              сохранённое», а Server Action накладывает введённое на старый
-              объект. `key` включает протокол: при его смене поля пересоздаются,
-              и секрет одного принтера не остаётся в форме другого.
+              Остальные секреты протокола без своей колонки (`printer_secrets`):
+              логин-пароль и Device ID/Mode ID Anycubic, Mainboard ID Elegoo,
+              хранилище PrusaLink. Check Code сюда не входит — он нарисован выше
+              отдельным полем и виден при любом протоколе. Поля всегда пустые —
+              значения в браузер не возвращаются, поэтому подсказка обещает
+              «пустое поле — оставить сохранённое», а Server Action накладывает
+              введённое на старый объект. `key` включает протокол: при его смене
+              поля пересоздаются, и секрет одного принтера не остаётся в форме
+              другого.
             */}
-            {spec.secrets.length > 0 ? (
+            {otherSecrets.length > 0 ? (
               <div className="grid gap-4 sm:grid-cols-2">
-                {spec.secrets.map((field) => {
+                {otherSecrets.map((field) => {
                   const fieldError = fieldErrors[field.key];
                   const fieldId = `printer-connection-secret-${field.key}`;
                   const describedBy = fieldError
