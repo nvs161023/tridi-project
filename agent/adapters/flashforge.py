@@ -8,14 +8,13 @@ FlashForge — HTTP-протокол на порту 8898: отдельная с
 
 Запросы:
 
-  - `/detail` — паспорт и состояние: `detail.name` (модель),
-    `detail.firmwareVersion`, `detail.serialNumber`, `machineStatus` и
-    `printInfo` (`printProgress`, `remainingTimeEstimation`). Один адрес
-    отвечает и за «принтер на связи», и за опрос печати. Где прошивка ждёт
-    пару `serialNumber`/`checkCode`, зависит от сборки: 3.x (`Adventurer 5M
-    Pro`, `AD5X`) читает её из JSON-тела `POST /detail`, ранние сборки — из
-    заголовков `GET /detail`. На чужой вид запроса принтер отвечает 404 и
-    пустым телом, поэтому адаптер пробует оба;
+  - `/detail` — паспорт и состояние: `name` (модель), `firmwareVersion`,
+    `serialNumber`, `machineStatus` и `printInfo` (`printProgress`,
+    `remainingTimeEstimation`). Один адрес отвечает и за «принтер на связи», и
+    за опрос печати. Где прошивка ждёт пару `serialNumber`/`checkCode`, зависит
+    от сборки: 3.x (`Adventurer 5M Pro`, `AD5X`) читает её из JSON-тела
+    `POST /detail`, ранние сборки — из заголовков `GET /detail`. На чужой вид
+    запроса принтер отвечает 404 и пустым телом, поэтому адаптер пробует оба;
   - `POST /uploadGcode` — `multipart/form-data`, поле `gcodeFile`. Заголовки
     `fileSize`, `printNow: false`, `levelingBeforePrint: true` и та же пара
     `serialNumber`/`checkCode`: этот адрес авторизует только по заголовкам
@@ -26,6 +25,22 @@ FlashForge — HTTP-протокол на порту 8898: отдельная с
     "levelingBeforePrint": true}`;
   - `POST /control` — `{"serialNumber", "checkCode", "jobCtl_cmd"}`:
     `pause`, `continue` или `cancel`.
+
+Два вида паспорта. Ранние сборки кладут состояние в `machineStatus` и
+`printInfo`, а имя принтера (`name`) — это модель. Прошивка 5.x (5.1.8 на
+`Adventurer 5M Pro`) отвечает плоско: `status` вместо `machineStatus`,
+`printProgress` и `estimatedTime` вместо `printInfo`, модель — только в `pid`
+(`36` — 5M Pro), а в `name` лежит серийный номер. Ни `serialNumber`, ни
+`machineStatus`, ни `printInfo` в таком ответе нет, и проверка «это данные
+принтера» по трём старым полям отвергала живой принтер: мастер видел «на 8898
+отвечает не FlashForge: нет данных принтера», а печать не начиналась.
+Поэтому подпись паспорта знает оба набора полей, модель берётся из `pid`, а
+`name`, похожее на серийный номер, моделью не считается.
+
+Сырой ответ для разбора. Когда паспорт не собрался, в журнал уходит
+`[FlashForge] Сырой ответ: <первые 500 символов>`: по нему видно, что именно
+прислала прошивка, вместо догадок «не тот адрес». Секретов в ответе нет —
+`checkCode` уходит только в запросе.
 
 Серийный номер и checkCode обязательны. `serialNumber` берётся из поля
 «Серийный номер (SN)» формы принтера (`workshop_printers.serial_number`), а если
@@ -57,6 +72,7 @@ different» — про серийный номер.
 """
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Mapping
 from typing import Any, Final
@@ -175,19 +191,39 @@ _STATE_FIELDS: Final[tuple[str, ...]] = (
     "status",
 )
 _MODEL_FIELDS: Final[tuple[str, ...]] = (
-    "name",
+    "model",
     "machineName",
     "machine_name",
     "productName",
-    "model",
+    "name",
 )
 _FIRMWARE_FIELDS: Final[tuple[str, ...]] = (
     "firmwareVersion",
     "firmware_version",
     "firmware",
 )
+_SERIAL_FIELDS: Final[tuple[str, ...]] = (
+    "serialNumber",
+    "serial_number",
+    "serialNo",
+    "sn",
+)
 
-# Поля `printInfo`: проценты и остаток печати.
+# Модель по `pid`: прошивка 5.x не называет модель ни в `name`, ни в `model` —
+# там `pid` (35 — 5M, 36 — 5M Pro, 38 — AD5X, 40 — Creator 5, 41 — Creator 5
+# Pro), а `name` содержит серийный номер. Список тот же, что в
+# `ff-5mp-api-py` (`flashforge/api/controls/info.py`), и по нему же мастер
+# увидит модель в карточке после «Проверить принтер».
+_PID_MODELS: Final[dict[int, str]] = {
+    35: "Adventurer 5M",
+    36: "Adventurer 5M Pro",
+    38: "AD5X",
+    40: "Creator 5",
+    41: "Creator 5 Pro",
+}
+
+# Поля `printInfo`: проценты и остаток печати. `estimatedTime` — остаток
+# прошивки 5.x: те же секунды, только плоско в `detail`, без `printInfo`.
 _PROGRESS_FIELDS: Final[tuple[str, ...]] = (
     "printProgress",
     "print_progress",
@@ -196,17 +232,46 @@ _PROGRESS_FIELDS: Final[tuple[str, ...]] = (
 _REMAINING_FIELDS: Final[tuple[str, ...]] = (
     "remainingTimeEstimation",
     "remainingTime",
+    "estimatedTime",
     "printLeftTime",
     "print_left_time",
 )
 
 # Подпись ответа `/detail`: чужой сервис на 8898 не должен считаться принтером.
+#
+# Полей два набора. Старые сборки называют состояние `machineStatus`, детали
+# печати кладут в `printInfo` и повторяют номер в `serialNumber`. Прошивка 5.x
+# (`Adventurer 5M Pro` 5.1.8) отвечает плоско: `status`, `printProgress`,
+# `firmwareVersion`, `pid`, `macAddr`. Список ниже знает оба набора: без этого
+# живой принтер считался чужим сервисом, и печать не начиналась. Случайных
+# полей вроде `status` здесь нет намеренно — по одному `status` чужим JSON
+# нельзя отличить принтер от роутера.
 _DETAIL_SIGNATURE: Final[tuple[str, ...]] = (
     "machineStatus",
     "machine_status",
     "printInfo",
     "serialNumber",
+    "printProgress",
+    "print_progress",
+    "firmwareVersion",
+    "pid",
+    "macAddr",
+    "cumulativePrintTime",
+    "nozzleCnt",
 )
+
+# Где прошивка держит паспорт внутри ответа. `detail` — обычный конверт
+# (`{"code": 0, "detail": {...}}`), остальные ключи встречаются у сборок, которые
+# заворачивают ответ ещё раз; обходятся на один уровень вглубь.
+_DETAIL_ROOTS: Final[tuple[str, ...]] = (
+    "detail",
+    "data",
+    "result",
+    "info",
+)
+
+# Сколько символов сырого ответа писать в журнал, когда паспорт не собрался.
+RAW_PREVIEW_LIMIT: Final = 500
 
 # Подсказки к кодам отказа: «HTTP 401» мастер прочитает как проблему сети, хотя
 # принтер просто не принял код с экрана. 404 сюда не входит: он объясняется
@@ -278,6 +343,10 @@ def _as_percent(value: Any) -> int:
     """
     Проценты 0…100: FlashForge отдаёт их готовыми (`printProgress`).
 
+    Прошивка 5.x присылает не проценты, а долю — `0.0`…`1.0` (65 % приходит как
+    `0.65`, и `ff-5mp-api-py` умножает её на сто). Значение не больше единицы
+    считается долей: иначе печать на середине показывала бы 1 %.
+
     Дробное значение округляется, выход за границы зажимается: `-1` и `101` от
     прошивки — это «прогресса нет» и «печать закончена», а не повод показать
     мастеру отрицательный процент.
@@ -286,6 +355,9 @@ def _as_percent(value: Any) -> int:
 
     if number is None:
         return 0
+
+    if 0 < number <= 1:
+        number *= 100
 
     return max(0, min(100, round(number)))
 
@@ -319,12 +391,55 @@ def _pick(source: Mapping[str, Any], names: tuple[str, ...]) -> Any:
     return None
 
 
+def _looks_like_serial(value: str) -> bool:
+    """
+    Похоже на заводской номер: без пробелов, есть и буквы, и цифры.
+
+    Прошивка 5.x держит серийный номер в поле `name` (`SNMOMF9201019`), и без
+    этой проверки моделью принтера становился его же номер. `Adventurer 5M Pro`
+    проверку не проходит: в нём пробелы.
+    """
+    text = value.strip()
+
+    if not 8 <= len(text) <= 24 or not text.isascii() or not text.isalnum():
+        return False
+
+    return any(char.isdigit() for char in text) and any(
+        char.isalpha() for char in text
+    )
+
+
+def _preview_text(text: str) -> str:
+    """
+    Сырой текст ответа одной строкой для журнала: первые `RAW_PREVIEW_LIMIT`.
+
+    Переводы строк схлопываются: ответ прошивки пишется в одну строку журнала,
+    иначе запись разъезжается на десятки строк и искать в ней нечего.
+    """
+    return " ".join(text.split())[:RAW_PREVIEW_LIMIT]
+
+
+def _raw_preview(payload: Mapping[str, Any]) -> str:
+    """Сырой JSON-ответ принтера одной строкой для журнала."""
+    try:
+        text = json.dumps(payload, ensure_ascii=False)
+    except (TypeError, ValueError):
+        text = repr(payload)
+
+    return _preview_text(text)
+
+
+def _response_body(response: requests.Response) -> str:
+    """Полный текст ответа принтера: обрезает уже `_preview_text()`."""
+    try:
+        return (response.text or "").strip()
+    except (ValueError, OSError):
+        return ""
+
+
 def _response_text(response: requests.Response) -> str:
     """Текст ответа для журнала: HTML от прокси обрезается до 200 символов."""
-    try:
-        text = (response.text or "").strip()
-    except (ValueError, OSError):
-        text = ""
+    text = _response_body(response)
 
     return text[:200] if text else "без описания"
 
@@ -370,20 +485,33 @@ def _detail_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     Данные принтера из ответа `/detail`.
 
     Прошивка отвечает `{"code": 0, "message": "Success", "detail": {...}}`, но
-    часть сборок кладёт поля на верхний уровень. Чужой JSON (прокси, роутер на
-    том же порту) отсекается по подписи: в данных принтера должно быть поле
-    `machineStatus`, `printInfo` или `serialNumber`. Проверка нужна и для
-    вложенного `detail`: код `0` с посторонним объектом внутри — не паспорт.
+    часть сборок кладёт поля на верхний уровень, а часть — ещё на уровень глубже
+    (`{"data": {"detail": {...}}}`), поэтому конверты из `_DETAIL_ROOTS`
+    проверяются дважды. Чужой JSON (прокси, роутер на том же порту) отсекается
+    по подписи: в данных принтера должно быть поле из `_DETAIL_SIGNATURE`.
+    Проверка нужна и для вложенного `detail`: код `0` с посторонним объектом
+    внутри — не паспорт.
     """
     if payload is None:
         return None
 
-    for source in (payload.get("detail"), payload):
-        candidate = _as_mapping(source)
+    candidates: list[dict[str, Any]] = [payload]
 
-        if candidate is None:
+    for root in _DETAIL_ROOTS:
+        nested = _as_mapping(payload.get(root))
+
+        if nested is None:
             continue
 
+        candidates.append(nested)
+
+        for inner in _DETAIL_ROOTS:
+            deeper = _as_mapping(nested.get(inner))
+
+            if deeper is not None:
+                candidates.append(deeper)
+
+    for candidate in candidates:
         if any(field in candidate for field in _DETAIL_SIGNATURE):
             return candidate
 
@@ -501,6 +629,10 @@ class FlashForgeAdapter(BasePrinterAdapter):
         # Паспорт из `/detail`: модель и прошивка для журнала и пробы.
         self.model: str | None = None
         self.firmware: str | None = None
+        # Номер, о расхождении с которым уже предупредили: `_remember_detail()`
+        # зовётся на каждом опросе, а повторять одну и ту же строку в журнале
+        # каждые несколько секунд незачем.
+        self._warned_serial: str | None = None
 
     def _headers(self, extra: Mapping[str, str] | None = None) -> dict[str, str]:
         """
@@ -657,13 +789,18 @@ class FlashForgeAdapter(BasePrinterAdapter):
                 False,
             )
 
-        answer = _read_json(response)
+        answer = _read_json(response, quiet=True)
 
         # Пустое тело и HTML вместо JSON — тоже «не понял», но причина другая:
         # так отвечает чужой сервис на 8898, а не прошивка с отказом. Второй
         # вид запроса это не исправит, но проверить его дешевле, чем оставить
-        # мастера с догадками.
+        # мастера с догадками. Сырой ответ печатается один раз — этой же
+        # строкой, а `_read_json()` молчит: иначе тело уходило бы в журнал
+        # дважды.
         if answer is None:
+            body = _preview_text(_response_body(response))
+            logger.warning("[FlashForge] Сырой ответ: %s", body)
+
             return (
                 None,
                 "на /detail пришёл не JSON — на 8898 отвечает не прошивка",
@@ -678,21 +815,67 @@ class FlashForgeAdapter(BasePrinterAdapter):
         detail = _detail_payload(answer)
 
         if detail is None:
+            # Сырой ответ в журнал: по нему видно, какие поля прислала прошивка,
+            # — иначе остаётся догадываться, что случилось с живым принтером.
+            logger.warning("[FlashForge] Сырой ответ: %s", _raw_preview(answer))
+
             return None, "на 8898 отвечает не FlashForge: нет данных принтера", True
 
         return detail, None, False
 
     def _remember_detail(self, detail: Mapping[str, Any]) -> None:
         """
-        Запоминает паспорт: модель и прошивку.
+        Запоминает паспорт: модель, прошивку и сверяет серийный номер.
 
-        `name` у FlashForge — модель («Adventurer 5M Pro»), `firmwareVersion` —
-        прошивка. Серийный номер отсюда не берётся: без него `_read_detail()` в
-        сеть не выходит (прошивка отвечает отказом), поэтому номер всегда
-        приходит из карточки принтера.
+        Модель берётся из `pid` (`36` — `Adventurer 5M Pro`), затем из полей
+        модели. Поле `name` годится только если это не номер: прошивка 5.x держит
+        в `name` серийный номер, и карточка показывала бы моделью его.
+
+        Номер сверяется с карточкой: у 5.x поля `serialNumber` нет, номер лежит
+        в `name`, и расхождение означает, что в карточке чужой SN — с ним
+        прошивка откажет и загрузке, и печати. Предупреждение пишется один раз
+        на номер: `_read_detail()` зовётся на каждом опросе.
+
+        Серийный номер отсюда не подставляется: без него `_read_detail()` в сеть
+        не выходит (прошивка отвечает отказом), поэтому номер всегда приходит из
+        карточки принтера.
         """
-        self.model = _first_text(detail, _MODEL_FIELDS) or self.model
+        pid = _as_number(detail.get("pid"))
+        model = _PID_MODELS.get(int(pid)) if pid is not None else None
+
+        if model is None:
+            for field in _MODEL_FIELDS:
+                candidate = _text(detail.get(field))
+
+                if candidate and not _looks_like_serial(candidate):
+                    model = candidate
+                    break
+
+        self.model = model or self.model
         self.firmware = _first_text(detail, _FIRMWARE_FIELDS) or self.firmware
+
+        serial = _first_text(detail, _SERIAL_FIELDS)
+
+        if serial is None:
+            name = _text(detail.get("name"))
+            serial = name if _looks_like_serial(name) else None
+
+        if not serial or not self.serial_number:
+            return
+
+        same_serial = serial.upper() == self.serial_number.upper()
+
+        if same_serial or serial == self._warned_serial:
+            return
+
+        self._warned_serial = serial
+        logger.warning(
+            "FlashForge %s: принтер называет серийный номер %s, а в карточке %s "
+            "— сверьте SN, иначе прошивка откажет загрузке и печати",
+            self.ip_address,
+            serial,
+            self.serial_number,
+        )
 
     def connect(self) -> bool:
         """
@@ -953,7 +1136,8 @@ class FlashForgeAdapter(BasePrinterAdapter):
 
     def get_status(self) -> dict[str, Any]:
         """
-        Состояние из `/detail`: `machineStatus` и `printInfo`.
+        Состояние из `/detail`: `machineStatus` (или `status` у 5.x) и
+        `printInfo` (или плоские `printProgress`/`estimatedTime`).
 
         `machineStatus` переводится по `_STATE_MAP`: `READY` и `COMPLETED` —
         простой, `PRINTING`, `HEATING` и `BUSY` — печать, `PAUSED` — пауза,
@@ -962,8 +1146,9 @@ class FlashForgeAdapter(BasePrinterAdapter):
         стол, а простой в этот момент main.py прочитал бы как «печать не
         начиналась» и закрыл задание провалом.
 
-        Прогресс — готовые проценты (`printInfo.printProgress`), остаток —
-        секунды (`remainingTimeEstimation`), `None` превращается в 0.
+        Прогресс — `printProgress`, остаток — секунды (`remainingTimeEstimation`
+        или `estimatedTime`), `None` превращается в 0. У 5.x прогресс приходит
+        долей, её приводит к процентам `_as_percent()`.
 
         Успешный опрос `last_error` очищает: иначе прежний сбой закрыл бы уже
         идущую печать.

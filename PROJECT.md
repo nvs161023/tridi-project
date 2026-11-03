@@ -8616,6 +8616,50 @@ A1 принял `project_file`, а потом отменил печать на �
 Проверки: `python scripts/test-bambu.py` — 0 провалов, `python scripts/test-flashforge.py` — 0
 провалов, `npx pyright agent/` — 0 ошибок, `python -m py_compile agent/scanner.py
 agent/adapters/bambu.py` — чисто.
+**FlashForge 5M Pro: плоский паспорт `/detail` и сырой ответ в журнале (3 ноября 2026).**
+Владелец вписал SN и Check Code, но печать не начиналась: агент писал «FlashForge 192.168.0.5: на 8898
+отвечает не FlashForge: нет данных принтера». Принтер оказался на связи, а причина — в подписи
+паспорта: `_DETAIL_SIGNATURE` знала только `machineStatus`, `printInfo` и `serialNumber`, а прошивка
+5.1.8 отвечает плоско.
+
+Живой ответ принтера: `{"code":0,"detail":{"autoShutdown":"close",…,"firmwareVersion":"5.1.8",…,
+"name":"SNMOMF9201019","pid":36,"printProgress":0.0,…,"status":"ready","estimatedTime":0.0,…}}`.
+Ни `machineStatus`, ни `printInfo`, ни `serialNumber` в нём нет, поэтому адаптер считал живой принтер
+чужим сервисом на 8898 и отказывал `connect()` — задание не доходило до загрузки файла.
+
+- `agent/adapters/flashforge.py`: подпись паспорта знает оба набора полей (`machineStatus`,
+  `printInfo`, `serialNumber` и плоские `printProgress`, `firmwareVersion`, `pid`, `macAddr`,
+  `cumulativePrintTime`, `nozzleCnt`). Случайного `status` в списке нет намеренно: по одному такому
+  полю принтер не отличить от роутера. Конверт ищется в `detail`, `data`, `result`, `info` — два
+  уровня вглубь, потому что часть сборок заворачивает ответ ещё раз.
+- Модель берётся из `pid` по таблице `_PID_MODELS` (35 — 5M, 36 — 5M Pro, 38 — AD5X, 40 — Creator 5,
+  41 — Creator 5 Pro; та же таблица в `ff-5mp-api-py`). Поле `name` моделью считается только если не
+  похоже на серийный номер (`_looks_like_serial`): у 5.x там лежит SN, и карточка показывала бы его
+  моделью. Номер из паспорта сверяется с карточкой — расхождение пишется WARNING один раз на номер.
+- Остаток печати читается ещё и из `estimatedTime` (те же секунды, плоско), а `printProgress` у 5.x —
+  доля `0.0…1.0`, поэтому `_as_percent()` умножает значение не больше единицы на сто: иначе печать на
+  середине показывала бы 1 %.
+- Сырой ответ в журнал: когда паспорт не собрался, адаптер пишет
+  `WARNING [FlashForge] Сырой ответ: <первые 500 символов>` — и для не-JSON тела, и для JSON без
+  полей принтера. `_read_json()` в этом месте вызывается с `quiet=True`, чтобы тело не уходило в
+  журнал дважды.
+- `scripts/test-ff.py`: диагностика живого принтера. Спрашивает `POST /detail`, `GET /detail`,
+  `POST /product`, `POST /info`, `GET /info`, `POST /gcodeList` и печатает сырые ответы (500 символов),
+  а с парой SN/Check Code ещё и разбор паспорта. Пара берётся из аргументов или окружения
+  `FLASHFORGE_SERIAL`/`FLASHFORGE_CHECK_CODE`, чтобы секрет не остался в истории команд.
+  Проверено на 192.168.0.5: `/detail`, `/product` и `/gcodeList` отвечают, `/info` — 404, его у 5M Pro
+  нет. Сам по себе эндпоинт был верный: правки нужны были в разборе ответа.
+- `scripts/test-flashforge.py`: проверка «прошивка 5.x» — плоский паспорт даёт `connect()`, модель из
+  `pid` и `name` с номером моделью не становится, статус читается из `status`, доля прогресса
+  переводится в проценты, остаток — из `estimatedTime`; отдельная проверка ловит строку
+  `[FlashForge] Сырой ответ:` в журнале.
+
+Проверки: `python scripts/test-flashforge.py` — 0 провалов, `npx pyright agent/` — 0 ошибок,
+`python -m py_compile agent/adapters/flashforge.py scripts/test-ff.py` — чисто. Живой прогон
+адаптера по 192.168.0.5: `connect()` — `True`, модель `Adventurer 5M Pro`, прошивка `5.1.8`,
+`get_status()` — `idle`.
+
+
 
 
 

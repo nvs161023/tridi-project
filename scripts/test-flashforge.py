@@ -10,7 +10,11 @@
      заголовками, а отказы в `code` (`Access code is different`, `Parameters is
      error`) переводятся подсказками, а не остаются английским текстом;
   2. чужой JSON на 8898 принтером не считается: в ответе нет данных принтера —
-     `False` и причина в `last_error`;
+     `False` и причина в `last_error`, а сырой ответ уходит в журнал строкой
+     `[FlashForge] Сырой ответ:`; прошивка 5.x (5.1.8) отвечает плоским
+     паспортом (`status`, `printProgress`, `pid`) без `machineStatus`,
+     `printInfo` и `serialNumber` — такой ответ тоже паспорт, модель берётся из
+     `pid`, а `name` с серийным номером моделью не считается;
   3. `upload_file()` отправляет `POST /uploadGcode` multipart-формой с полем
      `gcodeFile` и заголовками `fileSize`, `printNow: false`,
      `levelingBeforePrint: true`; имя с пробелом приходит уже через `-`;
@@ -41,6 +45,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import socket
 import sys
 import tempfile
@@ -633,6 +638,79 @@ def check_commands(fake: FakeFlashForge) -> None:
     )
 
 
+def check_new_firmware(fake: FakeFlashForge) -> None:
+    """
+    Прошивка 5.x: плоский паспорт, модель из `pid` и доля вместо процентов.
+
+    Adventurer 5M Pro 5.1.8 отвечает `/detail` без `machineStatus`, `printInfo` и
+    `serialNumber`: состояние в `status`, детали печати плоско, модель только в
+    `pid` (36), а в `name` лежит серийный номер. Пока подпись паспорта знала
+    одни старые поля, живой принтер считался чужим сервисом и печать не
+    начиналась.
+    """
+    adapter = make_adapter(fake)
+    fake.detail = {
+        "name": SERIAL,
+        "firmwareVersion": "5.1.8",
+        "pid": 36,
+        "status": "printing",
+        "printProgress": 0.65,
+        "estimatedTime": 1234.4,
+    }
+    connected = adapter.connect()
+
+    check(
+        "прошивка 5.x: подключение по плоскому паспорту",
+        connected is True,
+        f"{connected!r}, last_error={adapter.last_error!r}",
+    )
+    check(
+        "прошивка 5.x: модель из pid, а name с номером — не модель",
+        adapter.model == "Adventurer 5M Pro" and adapter.firmware == "5.1.8",
+        f"{adapter.model!r}, {adapter.firmware!r}",
+    )
+
+    status = adapter.get_status()
+
+    check(
+        "прошивка 5.x: status, доля прогресса и estimatedTime",
+        status == {"status": "printing", "progress": 65, "remaining_time": 1234},
+        f"{status!r}",
+    )
+
+    # Сырой ответ в журнале — то, по чему ищут причину, когда паспорт не
+    # собрался: перепутанный порт, чужой сервис, незнакомые поля.
+    records: list[logging.LogRecord] = []
+
+    class Collector(logging.Handler):
+        """Собирает записи журнала адаптера для проверки текста."""
+
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    logger = logging.getLogger("agent.adapters.flashforge")
+    collector = Collector()
+    logger.addHandler(collector)
+
+    try:
+        fake.detail = {"hostname": "router", "version": "1.0"}
+        stranger = make_adapter(fake)
+        stranger.connect()
+    finally:
+        logger.removeHandler(collector)
+        fake.detail = dict(DETAIL)
+
+    raw = [record.getMessage() for record in records]
+    printed = next((text for text in raw if "Сырой ответ" in text), "")
+
+    check(
+        "прошивка 5.x: сырой ответ в журнале, когда паспорт не собрался",
+        printed.startswith("[FlashForge] Сырой ответ:")
+        and '"hostname": "router"' in printed,
+        f"{printed[:90]!r}",
+    )
+
+
 def check_status(fake: FakeFlashForge) -> None:
     """Состояние: `machineStatus`, проценты, остаток и ошибки."""
     adapter = make_adapter(fake)
@@ -1018,6 +1096,7 @@ def main() -> int:
         try:
             with FakeFlashForge() as fake:
                 check_connect(fake)
+                check_new_firmware(fake)
                 check_upload(fake, gcode_path, project_path)
                 check_commands(fake)
                 check_status(fake)
