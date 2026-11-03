@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/server";
  * сюда, получает публичный URL и уже его кладёт в скрытое поле формы товара.
  *
  * Назначение задаёт поле `kind`:
- *   `print` — файл модели (.3mf, .gcode, .gco, .g или .stl), папка print;
+ *   `print` — файл модели (.3mf, .gcode, .bgcode, .gco, .g или .stl), папка print;
  *   `model` — исходник модели (.stl), папка models. Этот вид остался ради
  *     старых клиентов: форма товара загружает STL как обычный файл.
  * Без поля загрузка считается файлом модели: так работали прежние клиенты.
@@ -44,9 +44,18 @@ const MAX_PRODUCT_FILE_BYTES = 50 * 1024 * 1024;
 /**
  * Файлы модели товара: 3MF и G-code агент фермы печатает как есть, STL мастер
  * нарежет сам. Один блок загрузки в форме принимает все три формата, поэтому
- * список совпадает с `PRODUCT_FILE_EXTENSIONS`.
+ * список совпадает с `PRODUCT_FILE_EXTENSIONS`. `.bgcode` — бинарный G-code
+ * PrusaLink: без него мастер не смог бы приложить к карточке файл, который
+ * протокол фермы печатает.
  */
-const PRODUCT_FILE_EXTENSIONS = [".3mf", ".gcode", ".gco", ".g", ".stl"] as const;
+const PRODUCT_FILE_EXTENSIONS = [
+  ".3mf",
+  ".gcode",
+  ".bgcode",
+  ".gco",
+  ".g",
+  ".stl",
+] as const;
 
 /** Исходник модели: только STL, его нарезает слайсер. */
 const MODEL_FILE_EXTENSIONS = [".stl"] as const;
@@ -128,7 +137,7 @@ export async function POST(request: Request): Promise<Response> {
       415,
       isModel
         ? "Исходник — файл .stl."
-        : "Поддерживаются файлы .3mf, .gcode и .stl.",
+        : "Поддерживаются файлы .3mf, .gcode, .bgcode и .stl.",
     );
   }
 

@@ -24,8 +24,13 @@ export type PrinterIdentity = {
  * STL сюда не входит: это готовая 3D-модель, а не задание печати. Такой файл
  * прикладывают к товару как исходник, но в очередь печати он не годится —
  * сначала мастер нарезает его слайсером.
+ *
+ * `.bgcode` — бинарный G-code прошивок Prusa (Buddy): PrusaSlicer сохраняет
+ * его для PrusaLink, а агент фермы грузит такой файл как есть. Форматов у
+ * протокола два (`.gcode` и `.bgcode`), поэтому оба стоят в списке; что
+ * остальные протоколы `.bgcode` не принимают, решает `PRINTER_UPLOAD_FORMATS`.
  */
-const PRINTABLE_EXTENSIONS = ["gcode", "gco", "g", "3mf"] as const;
+const PRINTABLE_EXTENSIONS = ["gcode", "gco", "g", "bgcode", "3mf"] as const;
 
 /**
  * Расширения исходников модели.
@@ -111,7 +116,8 @@ export function isSourceModelFile(url: string | null): boolean {
  *
  * Карточка принимает все три формата одним полем: 3MF и G-code готовы к печати,
  * STL мастер нарежет сам. Расширение `.gco` и `.g` остаются: так называют
- * G-code слайсеры, и отказывать в них незачем.
+ * G-code слайсеры, и отказывать в них незачем. `.bgcode` — тот же G-code, но
+ * бинарный и для PrusaLink, поэтому он идёт рядом с `.gcode`.
  */
 export const PRODUCT_FILE_EXTENSIONS = [
   ...PRINTABLE_EXTENSIONS,
@@ -119,7 +125,8 @@ export const PRODUCT_FILE_EXTENSIONS = [
 ] as const;
 
 /**
- * Ссылка ведёт на файл из единого блока загрузки: .3mf, .gcode, .gco, .g или .stl.
+ * Ссылка ведёт на файл из единого блока загрузки: .3mf, .gcode, .bgcode, .gco,
+ * .g или .stl.
  *
  * Проверка нужна Server Action: поле `gcode_url` теперь принимает и STL, а
  * в очередь печати такой файл по-прежнему не попадает — за это отвечает

@@ -392,7 +392,8 @@ function readModelUrl(
 }
 
 /**
- * Ссылка на файл модели: 3MF, G-code или STL.
+ * Ссылка на файл модели: 3MF, G-code (в том числе бинарный `.bgcode` PrusaLink)
+ * или STL.
  *
  * Файл у товара один, и живёт он в `gcode_url` — так карточка, очередь печати и
  * агент фермы читают одну и ту же колонку. STL здесь разрешён: мастер может
@@ -410,7 +411,7 @@ function readGcodeUrl(
   }
 
   if (!isProductFile(url)) {
-    errors.gcodeUrl = "Файл модели — .3mf, .gcode или .stl.";
+    errors.gcodeUrl = "Файл модели — .3mf, .gcode, .bgcode или .stl.";
 
     return null;
   }

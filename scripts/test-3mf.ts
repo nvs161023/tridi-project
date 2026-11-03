@@ -293,6 +293,7 @@ console.log("Файл пригоден для очереди печати");
 
 check("G-code печатается", isPrintableFile("https://x/vase.gcode"), true);
 check("3MF печатается", isPrintableFile("https://x/vase.3mf?token=1"), true);
+check("bgcode печатается", isPrintableFile("https://x/vase.bgcode"), true);
 check("STL не печатается", isPrintableFile("https://x/vase.stl"), false);
 check("пустая ссылка", isPrintableFile(null), false);
 
@@ -313,6 +314,11 @@ console.log("Файл модели для карточки товара");
 
 check("3MF — файл товара", isProductFile("https://x/vase.3mf"), true);
 check("G-code — файл товара", isProductFile("https://x/vase.gcode"), true);
+check(
+  "bgcode — файл товара",
+  isProductFile("https://x/vase.bgcode?token=1"),
+  true,
+);
 check("gco — файл товара", isProductFile("https://x/vase.gco?token=1"), true);
 check("STL — файл товара", isProductFile("https://x/vase.stl"), true);
 check("PDF не файл товара", isProductFile("https://x/vase.pdf"), false);
@@ -330,6 +336,11 @@ const klipperPrinter = {
   brand: "Creality",
   model: "Ender-3",
   protocolType: "moonraker" as const,
+};
+const prusaPrinter = {
+  brand: "Prusa",
+  model: "MK4",
+  protocolType: "prusa" as const,
 };
 const flashforgePrinter = {
   brand: "FlashForge",
@@ -384,6 +395,19 @@ check(
   "G-code на Klipper печатается",
   printFitsPrinter("https://x/vase.gcode", null, klipperPrinter),
   true,
+);
+
+const bgcodeOnPrusa = checkPrintAssignment(
+  "https://x/vase.bgcode",
+  null,
+  prusaPrinter,
+);
+
+check("bgcode на Prusa печатается", bgcodeOnPrusa.ok, true);
+check(
+  "bgcode на Bambu — отказ по формату",
+  printFitsPrinter("https://x/vase.bgcode", null, bambuPrinter),
+  false,
 );
 
 const projectOnKlipper = checkPrintAssignment(

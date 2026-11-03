@@ -53,6 +53,9 @@ agent/temp/
 __pycache__/
 *.pyc
 
+# черновик аудита pre-launch (рабочие заметки, в репозиторий не идёт)
+scripts/pre-launch-audit.ts
+
 # audit artifacts
 audit-screenshots/
 audit-e2e/
