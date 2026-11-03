@@ -262,7 +262,7 @@ python main.py
 | `active_job_count()` | сколько заданий в работе сейчас (для строки журнала) |
 | `process_task(task)` | задание целиком: скачать G-code → адаптер → загрузка → печать → мониторинг |
 | `download_gcode(url, path)` | `requests.get(..., stream=True)` в `agent/temp/`, запись кусками по 64 КБ |
-| `monitor_print(job_id, adapter)` | опрос `get_status()` до `done`/`failed`: первая пауза `PRINT_START_DELAY` (60 с — принтер разбирает файл), дальше раз в `MONITOR_INTERVAL` (10 с); `error` или текст в `adapter.last_error` — `failed` с этой причиной, `idle` при нулевом прогрессе — тоже `failed` |
+| `monitor_print(job_id, adapter)` | опрос `get_status()` до `done`/`failed`: первая пауза `PRINT_START_DELAY` (60 с — принтер разбирает файл), дальше раз в `MONITOR_INTERVAL` (10 с); `error` или текст в `adapter.last_error` — `failed` с этой причиной, `idle` при нулевом прогрессе — тоже `failed`; `done` — 100 %, `idle` после старта или нулевой прогресс в простое после старта (FlashForge), закрывающий статус отправляет `send_final_status()` с повторами |
 | `remove_temp_file(path)` | удаление временного G-code; вызывается из `finally` в `process_task()` |
 | `run()` | цикл: проверка просьбы о сканировании и очереди проверок принтеров, опрос очереди заданий, запуск заданий в отдельных потоках (`start_job()`), пауза `POLL_INTERVAL`; при `Ctrl+C` — `stop_jobs()`; пульс — отдельным потоком |
 | `read_scan_flag(raw)` | `SCAN_NETWORK` → bool: `true`, `1`, `yes`, `on`; всё остальное выключено |
@@ -301,12 +301,16 @@ python main.py
 
 Цикл мониторинга (`monitor_print()`): пауза 10 секунд, затем `get_status()`.
 `printing` — в CRM уходит `printing` с прогрессом, но только когда проценты
-изменились (одинаковые не повторяются). `idle` или прогресс 100 % — `done` и
-выход из цикла; `error` — `failed`. Отказ команды важнее статуса: если адаптер
+изменились (одинаковые не повторяются). `done` и выход из цикла — прогресс
+100 %, `idle` после старта или нулевой `printProgress` в простое после старта:
+FlashForge 5.x заканчивает печать простоем (`ready`), а не сотней процентов.
+`error` — `failed`. Отказ команды важнее статуса: если адаптер
 оставил причину в `last_error` (принтер прислал `result: fail`), уходит `failed`
 с этим текстом. `idle` при нулевом прогрессе — печать не начиналась: `failed`
 «Принтер не начал печать (ошибка файла)». Незнакомое состояние не закрывает
-задание: агент продолжает опрос.
+задание: агент продолжает опрос. Закрывающий статус уходит через
+`send_final_status()`: до `FINAL_STATUS_ATTEMPTS` (3) попыток с нарастающей
+паузой, иначе один неудачный POST оставлял задание в CRM открытым навсегда.
 
 Задания печатаются параллельно: одно задание — один поток, поэтому десять
 принтеров фермы работают одновременно. Очередь отдаёт только `queued`, а
@@ -646,8 +650,8 @@ Bambu в LAN-режиме (Settings → Network → LAN Only Mode) не имее
 | Метод | Что делает | Успех |
 |---|---|---|
 | `connect()` | MQTT `self.ip_address:8883`, TLS без проверки сертификата, подписка `device/<serial>/report` (без серийника — отказ `SERIAL_REQUIRED_ERROR` до создания клиента), команда `pushing.pushall` | CONNACK получен и подписка оформлена |
-| `upload_file()` | FTPS `self.ip_address:990`: implicit TLS 1.2 (сессия управляющего канала переиспользуется в канале данных), `PROT P` и `PASV` обязательны, файл кладётся в папку `cache` (`STOR cache/<remote_name>`, папка создаётся через `MKD`); канал данных пишется вручную (`TYPE I` + `STOR` по шагам) с таймаутом `FTP_DATA_TIMEOUT` — `storbinary()` не годится, он висит на `unwrap()` после последнего байта. Если FTPS не прошёл — HTTP `POST /api/files/local` с `X-Api-Key`. До сети проект проверяется (`formats.read_bambu_project()`): внутри должен быть нарезанный G-code пластины (`Metadata/plate_N.gcode`) и профиль слайсера (`Metadata/project_settings.config`), а модель принтера из профиля — совпадать с карточкой (`brand`/`model`). Плоский `.gcode` и STL A1 не печатает и не нарезает: отказ с подсказкой «Экспорт файла пластины» приходит до загрузки. Файл уходит на карту как есть, временных копий агент не создаёт | файл загружен |
-| `start_print()` | серийник проверяется первой строкой: пустой — `False` и `SERIAL_REQUIRED_ERROR` без похода в сеть; иначе `_ensure_connection` (ждёт переподключения 10 с) и `_ensure_serial` (номер в задании, сертификате принтера и по SSDP), MQTT `device/<serial>/request`, после отправки — ожидание отчёта с тем же `sequence_id` (`COMMAND_REPLY_TIMEOUT`): `result=fail` и `reason` принтера уходят в `last_error`. Поздний `fail` (принтер ответил `success`, а через полминуты не разобрал файл — `error string`, на экране `0500-4003`) помечается в `_command_error`, и `get_status()` отдаёт `error`: задание закрывается как `failed`, а не `done`. Команда — `project_file`: `param=Metadata/plate_N.gcode` (номер пластины берётся из проекта), `url=ftp:///cache/<задание>.3mf` (второй вариант — `ftp:///<задание>.3mf`, если прошивка сама подставляет папку), плюс поля Bambu Studio `project_id`/`profile_id`/`task_id`/`subtask_id` = `"0"` и `bed_levelling` | принтер ответил `success` |
+| `upload_file()` | FTPS `self.ip_address:990`: implicit TLS 1.2 (сессия управляющего канала переиспользуется в канале данных), `PROT P` и `PASV` обязательны, файл кладётся в корень карты (`STOR <remote_name>`, путь даёт `storage_path()`) — как сохраняет проекты Bambu Studio; канал данных пишется вручную (`TYPE I` + `STOR` по шагам) с таймаутом `FTP_DATA_TIMEOUT` — `storbinary()` не годится, он висит на `unwrap()` после последнего байта. Если FTPS не прошёл — HTTP `POST /api/files/local` с `X-Api-Key`. До сети проект проверяется (`formats.read_bambu_project()`): внутри должен быть нарезанный G-code пластины (`Metadata/plate_N.gcode`) и профиль слайсера (`Metadata/project_settings.config`), а модель принтера из профиля — совпадать с карточкой (`brand`/`model`). Плоский `.gcode` и STL A1 не печатает и не нарезает: отказ с подсказкой «Экспорт файла пластины» приходит до загрузки. Файл уходит на карту как есть, временных копий агент не создаёт | файл загружен |
+| `start_print()` | серийник проверяется первой строкой: пустой — `False` и `SERIAL_REQUIRED_ERROR` без похода в сеть; иначе `_ensure_connection` (ждёт переподключения 10 с) и `_ensure_serial` (номер в задании, сертификате принтера и по SSDP), MQTT `device/<serial>/request`, после отправки — ожидание отчёта с тем же `sequence_id` (`COMMAND_REPLY_TIMEOUT`): `result=fail` и `reason` принтера уходят в `last_error`. Поздний `fail` (принтер ответил `success`, а через полминуты не разобрал файл — `error string`, на экране `0500-4003`) помечается в `_command_error`, и `get_status()` отдаёт `error`: задание закрывается как `failed`, а не `done`. Команда — `project_file`: `param=Metadata/plate_N.gcode` (номер пластины берётся из проекта), `url=file:///sdcard/<задание>.3mf` (корень карты; второй вариант — `ftp:///<задание>.3mf`, если прошивка понимает только схему FTP), плюс поля Bambu Studio `project_id`/`profile_id`/`task_id`/`subtask_id` = `"0"` и `bed_levelling` | принтер ответил `success` |
 | `get_status()` | последний отчёт: `print.gcode_state`, `print.mc_percent`, `print.mc_remaining_time`; у `FAILED` и `CANCELLED` ещё причина из `print.fail_reason`, `print.print_error` и `print.mc_print_error_code` — в `last_error` | `{"status", "progress", "remaining_time"}` |
 
 Серийный номер. Топики Bambu адресуются серийником, поэтому в Мастерской это

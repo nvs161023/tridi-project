@@ -716,14 +716,20 @@ def main() -> int:
 
     project_payloads = bambu._project_file_payloads("job.3mf")
     check(
-        "project_file: param внутри контейнера, url с карты",
+        "project_file: param внутри контейнера, url от корня карты",
         [item["url"] for item in project_payloads]
-        == ["ftp:///cache/job.3mf", "ftp:///job.3mf"]
+        == ["file:///sdcard/job.3mf", "ftp:///job.3mf"]
         and all(item["command"] == "project_file" for item in project_payloads)
         and all(item["param"] == "Metadata/plate_1.gcode" for item in project_payloads)
         and all(item["project_id"] == "0" for item in project_payloads)
         and all(item["bed_levelling"] is True for item in project_payloads),
         f"{project_payloads!r}",
+    )
+
+    check(
+        "загрузка: файл кладётся в корень карты, без папки cache",
+        bambu.storage_path("job.3mf") == "job.3mf",
+        f"{bambu.storage_path('job.3mf')!r}",
     )
 
     check(
@@ -792,7 +798,7 @@ def main() -> int:
         rejected_print.start_print("job.3mf") is False
         and "error string" in (rejected_print.last_error or "")
         and len(rejected_print.commands) == len(project_payloads)
-        and rejected_print.commands[0]["print"]["url"] == "ftp:///cache/job.3mf",
+        and rejected_print.commands[0]["print"]["url"] == "file:///sdcard/job.3mf",
         f"команд {len(rejected_print.commands)}, "
         f"last_error={rejected_print.last_error!r}",
     )
@@ -1122,7 +1128,7 @@ def main() -> int:
         and len(ready_print.commands) == 1
         and ready_print.commands[0]["print"]["param"] == "Metadata/plate_1.gcode"
         and ready_print.commands[0]["print"]["subtask_name"] == "ready.3mf"
-        and ready_print.commands[0]["print"]["url"] == "ftp:///cache/ready.3mf",
+        and ready_print.commands[0]["print"]["url"] == "file:///sdcard/ready.3mf",
         f"{ready_print.commands!r}",
     )
 
@@ -1224,6 +1230,26 @@ def main() -> int:
         and done_print[0] == ("printing", 40, None)
         and done_print[1] == ("done", 100, None),
         f"{done_print!r}",
+    )
+
+    # FlashForge 5.x заканчивает печать простоем с нулевым `printProgress`:
+    # сотни процентов прошивка не присылает, и задание висело в CRM как
+    # «В печати» до ручной отмены. После старта простой — это конец печати.
+    ff_finish = run_monitor(
+        SilentPrintAdapter(
+            [
+                {"status": "printing", "progress": 40, "remaining_time": 600},
+                {"status": "idle", "progress": 0, "remaining_time": 0},
+            ],
+            None,
+        )
+    )
+    check(
+        "monitor: простой с нулевым прогрессом после старта — done",
+        len(ff_finish) == 2
+        and ff_finish[0] == ("printing", 40, None)
+        and ff_finish[1] == ("done", 100, None),
+        f"{ff_finish!r}",
     )
 
     expect_false("stop_print() без соединения", adapter.stop_print)

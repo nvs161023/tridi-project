@@ -27,16 +27,17 @@
     финале делает `unwrap()` и ждёт ответный `close_notify`, которого Bambu не
     присылает, — передача висит уже после последнего байта. Последняя попытка —
     HTTP POST на `/api/files/local` с заголовком `X-Api-Key`. Файл кладём в
-    папку `cache` на карте памяти (`STOR cache/<имя>`): оттуда прошивка берёт
-    его по `url` команды печати. На принтер уходит только проект `.3mf`,
-    сохранённый из Bambu Studio («Экспорт файла пластины»): плоский `.gcode`
-    A1 не разбирает, а STL не нарезает — оба отклоняются до сети
+    корень карты памяти (`STOR <имя>`), как это делает Bambu Studio: прошивка
+    берёт его оттуда по `url` команды печати. На принтер уходит только проект
+    `.3mf`, сохранённый из Bambu Studio («Экспорт файла пластины»): плоский
+    `.gcode` A1 не разбирает, а STL не нарезает — оба отклоняются до сети
     (`formats.py`, `read_bambu_project()`), вместе с проверкой, что проект
     нарезан для этой модели принтера;
   - `start_print()` — команда `project_file` в `device/<serial>/request`:
     `param=Metadata/plate_<N>.gcode` (запись внутри контейнера, номер пластины
-    из самого проекта) и `url=ftp:///cache/<имя>.3mf` (сам файл на карте
-    памяти). Отправка в брокер
+    из самого проекта) и `url=file:///sdcard/<имя>.3mf` (сам файл в корне
+    карты; второй вариант — `ftp:///<имя>.3mf`, если прошивка понимает только
+    схему FTP). Отправка в брокер
     ничего не подтверждает (QoS 0), поэтому метод ждёт отчёт принтера с тем же
     `sequence_id` и отдаёт его `result`/`reason` в `last_error`: «команда
     отправлена» и «печать началась» — разные вещи;
@@ -126,11 +127,6 @@ FTP_PORT = 990
 
 # Пользователь у Bambu всегда один; пароль — LAN access code с экрана принтера.
 DEVICE_USER = "bblp"
-
-# Папка на карте, куда загрузка кладёт файл задания. Путь в команде печати
-# (`url` у `project_file`) и фактический путь файла обязаны совпадать, поэтому
-# оба строятся из `FTP_CACHE_DIRECTORY`.
-FTP_CACHE_DIRECTORY = "cache"
 
 # Keepalive MQTT: принтер замечает пропажу агента за минуту-две. Чаще слать
 # PINGREQ незачем — сеть мастерской и так нагружена отчётами.
@@ -224,11 +220,15 @@ SSDP_TARGET = "urn:bambulab-com:device:3dprinter:1"
 # запускает Bambu. Само значение живёт в formats.py (`BAMBU_GCODE_PART`): по
 # нему же собирается контейнер из G-code, и разойтись эти два места не должны.
 #
-# `url` контейнера в команде `project_file`: файл на карте памяти принтера.
-# Первый вариант — с папкой загрузки (`ftp:///cache/<имя>.3mf`); второй — без
-# неё, если прошивка сама подставляет `cache`. Варианты дешевле ещё одного
-# круга «правка — печать»: отказ приходит за секунды и виден в журнале.
-PROJECT_URL_PREFIX = "ftp:///"
+# `url` контейнера в команде `project_file`: файл лежит в корне карты памяти —
+# туда его кладёт `STOR <имя>`, как и Bambu Studio. Папку `cache` прошивка не
+# прощает: A1 отвечает `0500-C010` (ошибка файла), хотя карта исправна, —
+# поэтому путь всегда корневой. Первый вариант — путь LAN-режима
+# (`file:///sdcard/<имя>.3mf`), второй — тот же корень по FTP
+# (`ftp:///<имя>.3mf`): прошивки расходятся в схеме, а отказ приходит за
+# секунды и виден в журнале.
+PROJECT_URL_PREFIX = "file:///sdcard/"
+FTP_URL_PREFIX = "ftp:///"
 
 # Записи OPC-пакета (`[Content_Types].xml`, `_rels/.rels`, `3D/3dmodel.model`,
 # `Metadata/slice_info.config`) собираются в formats.py: контейнер нужен только
@@ -740,6 +740,18 @@ _RESET_MARKERS = (
 )
 
 
+def storage_path(remote_name: str) -> str:
+    """
+    Путь файла задания на карте памяти — всегда корень: `STOR <имя>`.
+
+    Bambu Studio сохраняет проекты в корень карты, и прошивка ищет файл по `url`
+    оттуда же. Папка (`cache/<имя>`) ломала печать: загрузка проходила, а
+    `project_file` возвращал `0500-C010` — принтер не находил файл, хотя карта
+    исправна. Имя папки больше не подставляется ни в `STOR`, ни в `url`.
+    """
+    return remote_name
+
+
 def _project_file_payloads(
     remote_name: str, gcode_part: str = BAMBU_GCODE_PART
 ) -> list[dict[str, Any]]:
@@ -760,9 +772,11 @@ def _project_file_payloads(
     контейнере нарезана не первая пластина, `param` с `plate_1` указал бы на
     несуществующую запись, и принтер ответил бы отказом.
 
-    Прошивки расходятся в том, строит ли `url` путь от корня карты или от папки
-    загрузки, поэтому первый вариант — фактический путь файла (`cache/<имя>`),
-    второй — имя без папки.
+    Файл лежит в корне карты (`storage_path()`), поэтому и `url` корневой:
+    первый вариант — путь LAN-режима (`file:///sdcard/<имя>`), второй — та же
+    карта по FTP (`ftp:///<имя>`). Схемы расходятся между прошивками, а отказ
+    приходит за секунды, поэтому вариант дешевле ещё одного круга «правка —
+    печать».
     """
     common: dict[str, Any] = {
         "command": "project_file",
@@ -786,9 +800,9 @@ def _project_file_payloads(
     return [
         {
             **common,
-            "url": f"{PROJECT_URL_PREFIX}{FTP_CACHE_DIRECTORY}/{remote_name}",
+            "url": f"{PROJECT_URL_PREFIX}{storage_path(remote_name)}",
         },
-        {**common, "url": f"{PROJECT_URL_PREFIX}{remote_name}"},
+        {**common, "url": f"{FTP_URL_PREFIX}{storage_path(remote_name)}"},
     ]
 
 
@@ -1622,12 +1636,14 @@ class BambuAdapter(BasePrinterAdapter):
 
     def _upload_file(self, local_path: str, remote_name: str) -> bool:
         """
-        Кладёт готовый файл в папку `cache` на карте памяти принтера.
+        Кладёт готовый файл в корень карты памяти принтера (`STOR <имя>`).
 
         FTPS, порт 990, логин `bblp` и код доступа: тот же пароль, что у MQTT.
-        Папка та же, откуда прошивка берёт файл по `url` команды `project_file`
-        (`FTP_CACHE_DIRECTORY`): путь в команде печати и фактический путь файла
-        обязаны совпадать, иначе A1 отвечает `0500-4003`.
+        Путь тот же, откуда прошивка берёт файл по `url` команды `project_file`
+        (`storage_path()`): путь в команде печати и фактический путь файла
+        обязаны совпадать. Папку загрузки прошивка не прощает: файл лежал в
+        `cache`, загрузка проходила, а печать падала с `0500-C010` — принтер
+        искал файл в корне карты.
 
         Порядок попыток:
 
@@ -1664,18 +1680,18 @@ class BambuAdapter(BasePrinterAdapter):
             logger.error("G-code %s не прочитан: %s", local_path, error)
             return False
 
-        # Имя файла с папкой: `STOR cache/<имя>` кладёт его туда, откуда прошивка
-        # берёт файл по `param` команды печати.
-        remote_path = f"{FTP_CACHE_DIRECTORY}/{remote_name}"
+        # Файл кладётся в корень карты (`STOR <имя>`): прошивка ищет его по
+        # `url` команды печати оттуда же, а папка (`cache/`) давала `0500-C010`.
+        remote_path = storage_path(remote_name)
         reason = "неизвестная ошибка"
 
         for attempt in range(1, FTP_UPLOAD_ATTEMPTS + 1):
             logger.info(
-                "Bambu %s: попытка %d/%d — загружаю %s (%d байт) по FTPS",
+                "Bambu %s: попытка %d/%d — STOR %s (%d байт) по FTPS",
                 self.host,
                 attempt,
                 FTP_UPLOAD_ATTEMPTS,
-                remote_name,
+                remote_path,
                 local_size,
             )
             failure = self._upload_once(local_path, remote_path, local_size)
@@ -1779,22 +1795,6 @@ class BambuAdapter(BasePrinterAdapter):
             logger.info(
                 "Bambu %s: FTPS — PROT P принят, канал данных под TLS", self.host
             )
-            # Папку `cache` создаём один раз: на чистой карте её может не быть, а
-            # `STOR cache/<имя>` без неё вернёт `550`. Ответ «уже существует» —
-            # это норма, поэтому отказ `mkd` здесь не ошибка загрузки.
-            try:
-                ftp.mkd(FTP_CACHE_DIRECTORY)
-                logger.info(
-                    "Bambu %s: FTPS — папка %s создана",
-                    self.host,
-                    FTP_CACHE_DIRECTORY,
-                )
-            except ftplib.error_perm:
-                logger.info(
-                    "Bambu %s: FTPS — папка %s уже есть",
-                    self.host,
-                    FTP_CACHE_DIRECTORY,
-                )
         except (OSError, ftplib.Error):
             _close_ftp(ftp)
             raise

@@ -139,6 +139,13 @@ PRINT_START_CHECKS = 3
 # но в работу не взят» всё равно закрывается отказом, только позже.
 PRINT_HEATING_CHECKS = 30
 
+# Сколько раз повторять закрывающий статус (`done`, `failed`, `cancelled`).
+# Один неудачный POST оставлял задание в CRM как «В печати» навсегда: цикл
+# мониторинга уже вышел, и повторить отправку было некому. Пауза нарастает:
+# 5 с, 10 с — сеть мастерской восстанавливается за считанные секунды.
+FINAL_STATUS_ATTEMPTS = 3
+FINAL_STATUS_RETRY_DELAY = 5.0
+
 # Пульс мастерской: принтеры отмечаются живыми каждые 30 секунд. Вдвое чаще,
 # чем ферма считает принтер офлайн (PRINTER_OFFLINE_AFTER_MS — две минуты):
 # один пропущенный запрос не должен красить живую ферму в «Офлайн».
@@ -678,6 +685,59 @@ def fetch_cancel_request(job_id: str) -> bool:
         return False
 
     return payload.get("cancelRequested") is True
+
+
+def send_final_status(
+    job_id: str,
+    status: str,
+    progress: int | None = None,
+    reason: str | None = None,
+    filament_grams: float | None = None,
+) -> bool:
+    """
+    Закрывающий статус задания (`done`, `failed`, `cancelled`) с повторами.
+
+    `send_status()` умеет не принять запрос (сеть, 401, 500) и вернуть False, а
+    цикл мониторинга после закрывающего статуса выходит — повторить отправку
+    было некому, и задание оставалось в CRM как «В печати» навсегда, хотя
+    печать давно закончилась. Поэтому закрывающий статус повторяется
+    `FINAL_STATUS_ATTEMPTS` раз с нарастающей паузой.
+
+    Повтор безопасен: роут пишет значения целиком и сам не даёт списать пластик
+    дважды (`POST /api/agent/status` смотрит прежний статус задания).
+
+    False — сервер так и не принял статус: причина остаётся в журнале агента,
+    мастер увидит задание открытым и закроет его вручную.
+    """
+    for attempt in range(1, FINAL_STATUS_ATTEMPTS + 1):
+        if send_status(
+            job_id,
+            status,
+            progress,
+            reason=reason,
+            filament_grams=filament_grams,
+        ):
+            return True
+
+        if attempt < FINAL_STATUS_ATTEMPTS:
+            logger.warning(
+                "Задание %s: статус %s не принят (попытка %d/%d) — повторяю",
+                job_id,
+                status,
+                attempt,
+                FINAL_STATUS_ATTEMPTS,
+            )
+            time.sleep(FINAL_STATUS_RETRY_DELAY * attempt)
+
+    logger.error(
+        "Задание %s: статус %s не принят сервером за %d попытки — задание "
+        "останется открытым, закройте его вручную",
+        job_id,
+        status,
+        FINAL_STATUS_ATTEMPTS,
+    )
+
+    return False
 
 
 def send_heartbeat(reset_errors: bool = False) -> HeartbeatResult:
@@ -1248,8 +1308,11 @@ def monitor_print(
 
     В CRM уходят только изменения прогресса: одинаковые проценты повторно не
     отправляются, иначе на каждую печать уходил бы лишний запрос каждые десять
-    секунд. 100 % или `idle` уже после старта — печать закончена (`done`),
-    `error` — печать встала (`failed`): мастер должен узнать об этом, а не ждать
+    секунд. 100 %, `idle` после старта или нулевой прогресс в простое после
+    старта — печать закончена (`done`): FlashForge заканчивает печать простоем
+    с нулевым `printProgress`, а не сотней процентов, и ждать 100 % значило бы
+    держать задание в CRM как «В печати» до ручной отмены. `error` — печать
+    встала (`failed`): мастер должен узнать об этом, а не ждать
     до утра. `paused` — печать стоит на паузе: задание в CRM тоже становится
     `paused`, принтер остаётся занятым, а цикл продолжает опрос (мастер может
     нажать «Продолжить» на станке, и печать пойдёт с того же места).
@@ -1315,14 +1378,27 @@ def monitor_print(
             # задания, и причину из `last_error` — раньше причина поминалась
             # только в карточке заказа, а в логах агента её не было.
             logger.error("Задание %s упало с ошибкой: %s", job_id, reason)
-            send_status(job_id, "failed", progress, reason=reason)
+            send_final_status(job_id, "failed", progress, reason=reason)
             return
 
-        if progress >= 100 or (started and state == "idle"):
+        # Печать закончена. Обычно это 100 %, но FlashForge 5.x после печати
+        # отдаёт простой (`ready` → `idle`) с нулевым `printProgress`, а не
+        # сотню: если задание уже начиналось, а принтер больше не печатает —
+        # это конец печати, и ждать процентов бессмысленно, иначе задание
+        # висело бы в CRM как «В печати» до ручной отмены. Ноль при `printing`
+        # концом печати не считается: нагрев и калибровка на старте тоже
+        # показывают ноль, и закрывать по ним задание нельзя.
+        finished = progress >= 100 or (started and state == "idle")
+        idle_after_start = started and progress == 0 and state != "printing"
+
+        if finished or idle_after_start:
             logger.info(
-                "Задание %s: печать закончена, прогресс %d%%", job_id, progress
+                "Задание %s: печать закончена%s, прогресс %d%%",
+                job_id,
+                " (принтер в простое после печати)" if idle_after_start else "",
+                progress,
             )
-            send_status(job_id, "done", 100, filament_grams=filament_grams)
+            send_final_status(job_id, "done", 100, filament_grams=filament_grams)
             return
 
         # Просьбу мастера проверяем после «печать закончена»: если принтер уже
@@ -1334,7 +1410,7 @@ def monitor_print(
                 job_id,
                 "принтер остановлен" if stopped else "принтер не подтвердил остановку",
             )
-            send_status(
+            send_final_status(
                 job_id,
                 "cancelled",
                 progress,
@@ -1383,7 +1459,7 @@ def monitor_print(
                 f"принтер не начал печать: состояние {state}, прогресс {progress}%"
             )
             logger.error("Задание %s: %s", job_id, reason)
-            send_status(job_id, "failed", progress, reason=reason)
+            send_final_status(job_id, "failed", progress, reason=reason)
             return
 
         if state != "printing":
