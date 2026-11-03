@@ -451,6 +451,74 @@ def _clean_serial(value: str) -> str:
     return serial
 
 
+def certificate_serial(host: str, port: int = MQTT_PORT) -> str:
+    """
+    Серийник Bambu из сертификата принтера на 8883: пустая строка — не вышло.
+
+    Прошивка отдаёт самоподписанный сертификат (`O` — BBL Technologies, `CN` —
+    `01S00C123456789`), и TLS поднимается раньше, чем нужен номер: это быстрее
+    SSDP и работает там, где multicast молчит. Функция модульная, а не метод
+    адаптера, потому что тот же номер нужен сканеру (`agent/scanner.py`): находка
+    Bambu приходит с SN, и мастеру не приходится переписывать его с наклейки.
+
+    Каждая неудача — WARNING с причиной: без него в журнале оставалось только
+    «серийный номер неизвестен», и нельзя было понять, порт закрыт, handshake
+    упал или в `CN` лежит не номер.
+
+    Разбор идёт через `ssl._ssl._test_decode_cert`: приватный, но стабильный
+    разборщик сертификатов из стандартной библиотеки — без него пришлось бы
+    тянуть `cryptography` ради одного поля.
+    """
+    try:
+        pem = ssl.get_server_certificate((host, port), timeout=CERTIFICATE_TIMEOUT)
+    except (OSError, ssl.SSLError) as error:
+        logger.warning(
+            "Bambu %s: не удалось получить SN из сертификата: %s", host, error
+        )
+        return ""
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".pem", delete=False, encoding="ascii"
+        ) as handle:
+            handle.write(pem)
+            path = handle.name
+
+        try:
+            decoded = _decode_certificate(path)
+        finally:
+            os.unlink(path)
+    except (OSError, ssl.SSLError, ValueError) as error:
+        logger.warning(
+            "Bambu %s: не удалось получить SN из сертификата: %s", host, error
+        )
+        return ""
+
+    for field in decoded.get("subject", ()):
+        for name, value in field:
+            if name != "commonName":
+                continue
+
+            serial = _clean_serial(value)
+
+            if serial:
+                return serial
+
+            logger.warning(
+                "Bambu %s: не удалось получить SN из сертификата: "
+                "CN %r не похож на серийный номер",
+                host,
+                value,
+            )
+            return ""
+
+    logger.warning(
+        "Bambu %s: не удалось получить SN из сертификата: в CN пусто", host
+    )
+
+    return ""
+
+
 class _ImplicitFtpTls(ftplib.FTP_TLS):
     """
     FTPS, который включает TLS сразу после TCP-соединения (implicit, порт 990).
@@ -1073,55 +1141,13 @@ class BambuAdapter(BasePrinterAdapter):
 
     def _serial_from_certificate(self) -> str:
         """
-        Серийник из сертификата принтера: `CN` в нём — это серийный номер.
+        Серийник из сертификата принтера: тонкая обёртка над `certificate_serial`.
 
-        Прошивка отдаёт на 8883 самоподписанный сертификат (`O` — BBL
-        Technologies, `CN` — `03900D650925979`), и MQTT поднимает с ним TLS
-        раньше, чем нужен номер. Способ быстрее SSDP и работает там, где SSDP
-        молчит (на этой машине он не ответил ни на один запрос).
-
-        Разбор идёт через `ssl._ssl._test_decode_cert`: приватный, но стабильный
-        разборщик сертификатов из стандартной библиотеки — без него пришлось бы
-        тянуть `cryptography` ради одного поля. Ошибка разбора — пустая строка:
-        номер попробуем взять по SSDP.
+        Разбор живёт в модульной функции, потому что тот же номер нужен сканеру
+        (`agent/scanner.py`): находка Bambu приходит с SN ещё до подключения.
+        Пустая строка — сертификат номера не дал, причину уже написал WARNING.
         """
-        try:
-            pem = ssl.get_server_certificate(
-                (self.host, MQTT_PORT), timeout=CERTIFICATE_TIMEOUT
-            )
-        except (OSError, ssl.SSLError) as error:
-            logger.debug(
-                "Bambu %s: сертификат не получен (%s) — ищу серийник дальше",
-                self.host,
-                error,
-            )
-            return ""
-
-        try:
-            with tempfile.NamedTemporaryFile(
-                "w", suffix=".pem", delete=False, encoding="ascii"
-            ) as handle:
-                handle.write(pem)
-                path = handle.name
-
-            try:
-                decoded = _decode_certificate(path)
-            finally:
-                os.unlink(path)
-        except (OSError, ssl.SSLError, ValueError) as error:
-            logger.debug(
-                "Bambu %s: сертификат не разобран (%s) — ищу серийник дальше",
-                self.host,
-                error,
-            )
-            return ""
-
-        for field in decoded.get("subject", ()):
-            for name, value in field:
-                if name == "commonName":
-                    return _clean_serial(value)
-
-        return ""
+        return certificate_serial(self.host)
 
     def _discover_serial(self) -> str:
         """

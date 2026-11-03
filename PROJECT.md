@@ -8585,6 +8585,38 @@ A1 принял `project_file`, а потом отменил печать на �
 Проверки: `python scripts/test-bambu.py` — 0 провалов, `npx pyright agent/` — 0 ошибок,
 `python -m py_compile agent/adapters/bambu.py agent/main.py` — чисто.
 
+**Автосерийник при сканировании: `CN` сертификата Bambu и сырой ответ FlashForge (3 ноября 2026).**
+Мастеру приходилось переписывать SN с наклейки, хотя принтер называет его сам. Теперь сканер
+приносит номер в находке:
+
+- `agent/adapters/bambu.py`: разбор сертификата вынесен в модульную функцию
+  `certificate_serial(host, port=8883)` — TLS-соединение с 8883, `CN` из субъекта, проверка
+  `_clean_serial`. Каждая неудача пишет WARNING «Bambu <адрес>: не удалось получить SN из
+  сертификата: <причина>» — порт закрыт или handshake упал, сертификат не разобран, в `CN` не номер
+  (`BBL CA`), `CN` пусто. Молчаливый `debug` заменён: в журнале агента было только «серийный номер
+  неизвестен», и нельзя было понять, какой шаг не сработал. Метод адаптера
+  `_serial_from_certificate()` — тонкая обёртка над функцией, `_ensure_serial()` по-прежнему идёт
+  «задание → сертификат → SSDP» и кэширует найденное в `self.serial_number`.
+- `agent/scanner.py`: `bambu_certificate_serial(ip_address)` — тот же разбор через импорт
+  `certificate_serial` (второй разборщик сертификатов разъехался бы с первым, цикла импортов нет).
+  `inspect_host()` отдаёт `found_printer(ip, "bambu", SN)`, а `scan_bambu_ssdp()` при ответе без
+  `USN` больше не пропускает принтер: адрес известен, номер спрашивается у сертификата (WARNING
+  «в ответе нет серийного номера — спрашиваю сертификат принтера»).
+- FlashForge: номер искался перебором написаний поля, и сборка с другим написанием теряла находку.
+  Теперь `normalize_json_key()` сравнивает ключи без регистра, пробелов, подчёркиваний и точек, а
+  `serial_in_json()` обходит все уровни вложенности (`SerialNumber`, `serialNumber`, `SN`,
+  `serialNo`, `serial_no`, `Serial Number`, `Data.SerialNumber`, `Detail.SerialNumber`; глубина —
+  `FLASHFORGE_JSON_DEPTH`). Когда номера нет, сканер печатает сырой ответ:
+  `WARNING: [UDP] FlashForge raw: <первые 500 символов>` — по нему видно, в каком поле прошивка
+  отдаёт номер.
+- Мастер подключения: поле Serial Number по-прежнему предзаполняется находкой (`serialOf()` берёт
+  `printer.serialNumber`), поэтому SN приходит в строку сам; подсказка `printerSerialHint` и
+  заглушка поля теперь говорят, что агент заполняет номер сам, а пустое поле остаётся обязательным.
+
+Проверки: `python scripts/test-bambu.py` — 0 провалов, `python scripts/test-flashforge.py` — 0
+провалов, `npx pyright agent/` — 0 ошибок, `python -m py_compile agent/scanner.py
+agent/adapters/bambu.py` — чисто.
+
 
 
 

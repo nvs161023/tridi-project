@@ -28,9 +28,10 @@ Moonraker, ни OctoPrint, зато он отвечает на multicast-зап�
 `urn:bambulab-com:device:3dprinter:1` заголовками `Location` (адрес) и `USN`
 (серийный номер). Номер уходит в CRM вместе с находкой: по нему агент строит
 MQTT-топики `device/<serial>/…`, и мастеру не приходится переписывать его с
-экрана принтера. Порт 8883 находит Bambu там, где роутер режет multicast, но
-номера не даёт — SSDP-находка перекрывает портовую в
-`merge_discovered_printers()`.
+экрана принтера. Порт 8883 находит Bambu там, где роутер режет multicast, — и
+тоже с номером: сертификат принтера содержит его в `CN`
+(`bambu_certificate_serial`), поэтому находка без SN остаётся только у машины,
+которая сертификат не отдала.
 
 FlashForge и Elegoo тоже ищутся широковещательным UDP-запросом — у них нет ни
 7125, ни 80/443 с подписью, зато есть собственный порт обнаружения.
@@ -70,6 +71,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import requests
+
+# Разбор сертификата Bambu живёт в адаптере (`certificate_serial`): номер из `CN`
+# нужен и подключению, и сканеру, а второй разборщик сертификатов разъехался бы
+# с первым. Цикла импортов нет: адаптер сканер не импортирует.
+from adapters.bambu import certificate_serial
 
 # Порт Moonraker (Klipper) и веб-порты OctoPrint: по ним мастер и отличает
 # принтер от роутера.
@@ -157,22 +163,17 @@ FLASHFORGE_SERIAL = re.compile(
     re.IGNORECASE,
 )
 
-# Поля JSON-ответа FlashForge: часть прошивок (Adventurer 5M, AD5X) отвечает на
+# Поля JSON-ответа FlashForge: часть прошивок (Adventurer 5M, ADX5) отвечает на
 # `~M115` не текстом G-code, а объектом со своим написанием номера. Сборки
-# называют поле по-разному, поэтому перебираются все варианты.
-FLASHFORGE_SERIAL_FIELDS = (
-    "SerialNumber",
-    "serialNumber",
-    "serial_number",
-    "SerialNo",
-    "serialno",
-    "serial_no",
-    "SN",
-    "sn",
-)
+# называют поле по-разному — `SerialNumber`, `serialNumber`, `SN`, `SerialNo`,
+# `serial_no`, `Serial Number`, — поэтому сравнение идёт по нормализованному
+# ключу (`normalize_json_key`): регистр, пробелы, подчёркивания и точки не важны.
+FLASHFORGE_SERIAL_KEYS = frozenset({"serialnumber", "serialno", "sn"})
 
-# Конверты, в которые прошивка прячет тот же объект: `{"code": 0, "detail": …}`.
-FLASHFORGE_PAYLOAD_KEYS = ("Data", "data", "Detail", "detail", "result")
+# Насколько глубоко искать номер в JSON-ответе. Прошивки прячут его в конверте
+# (`{"code": 0, "detail": {…}}`, `{"Data": {…}}`), но ответ на `~M115` — это
+# пара уровней: глубже рекурсия по чужому JSON только тратила бы время.
+FLASHFORGE_JSON_DEPTH = 3
 
 # Elegoo (SDCP): WebSocket 3030 для команд и UDP 3000 для обнаружения. `M99999`
 # — текстовый запрос, на который Centauri Carbon отвечает конвертом SDCP с
@@ -208,6 +209,12 @@ UDP_BROADCAST_ADDRESS = "255.255.255.255"
 # Сколько символов ответа показывать в журнале: в первых ста видны и
 # `MainboardID`, и `SN`, то есть ровно то, по чему сканер узнаёт принтер.
 UDP_PREVIEW = 100
+
+# Сколько символов сырого ответа печатать, когда номер в нём не нашёлся. Ответ
+# на `~M115` — это пара сотен байт, поэтому 500 символов показывают его целиком:
+# по журналу видно, в каком поле прошивка отдала номер, и парсер правится по
+# факту, а не по догадке.
+UDP_RAW_PREVIEW = 500
 
 # Коды «порт закрыт»: Windows сообщает ICMP `port unreachable` кодом 10054, а
 # POSIX — `ECONNRESET`. Это не сбой поиска, а отсутствие слушателя на одном из
@@ -670,6 +677,35 @@ def address_sort_key(printer: dict[str, Any]) -> tuple[int, int, str]:
         return (1, 0, address)
 
 
+def bambu_certificate_serial(
+    ip_address: str, port: int = BAMBU_MQTT_PORT
+) -> str | None:
+    """
+    Серийник Bambu из сертификата принтера на 8883: None — номер не получен.
+
+    Номер лежит в `CN` самоподписанного сертификата (тот же, что `USN` в
+    SSDP-ответе), и TLS отдаёт его раньше логина. Поэтому портовая находка
+    перестаёт быть «просто открытый порт»: мастеру не надо вписывать SN с
+    наклейки, а `merge_discovered_printers()` предпочитает находку с номером.
+
+    Разбор — в адаптере (`certificate_serial`): он же нужен подключению, а
+    причина неудачи уже написана WARNING'ом там. None оставляет находку без
+    номера — её подтвердит `connect()`, а поле в мастере будет обязательным.
+
+    `port` — для тестов: сканер всегда спрашивает 8883.
+    """
+    serial = certificate_serial(ip_address, port)
+
+    if not serial:
+        return None
+
+    logger.info(
+        "[Bambu] %s: серийный номер из сертификата — %s", ip_address, serial
+    )
+
+    return serial
+
+
 def scan_bambu_ssdp(timeout: float = BAMBU_SSDP_TIMEOUT) -> list[dict[str, Any]]:
     """
     Принтеры Bambu в локальной сети: `[{"ip_address": ..., "protocol_type": "bambu",
@@ -681,10 +717,11 @@ def scan_bambu_ssdp(timeout: float = BAMBU_SSDP_TIMEOUT) -> list[dict[str, Any]]
     собираются ответы всех принтеров подсети: один запрос дешевле обхода портов,
     которых у Bambu нет (у него MQTT 8883 и FTPS 990).
 
-    Ответ без `USN` пропускается: тип устройства спрашивали конкретный, но
-    отвечать в подсети может и чужое железо, а карточка без номера не годится для
-    MQTT-топиков. Если `Location` не разобрался, берётся адрес отправителя —
-    пакет пришёл от самого принтера.
+    Ответ без `USN` не пропускается: адрес уже известен, и номер спрашивает
+    сертификат принтера на 8883 (`bambu_certificate_serial`). Часть прошивок
+    (A1 в LAN-режиме) в SSDP номер не присылает, и раньше такая находка
+    терялась, хотя принтер в сети. Если `Location` не разобрался, берётся адрес
+    отправителя — пакет пришёл от самого принтера.
 
     Исключения наружу не летят: multicast запрещён политикой, интерфейс без
     маршрута, занятый порт — нормальная картина чужой сети, а не сбой агента.
@@ -747,15 +784,27 @@ def scan_bambu_ssdp(timeout: float = BAMBU_SSDP_TIMEOUT) -> list[dict[str, Any]]
                 )
 
                 headers = read_ssdp_headers(data)
-                serial = clean_bambu_serial(headers.get("usn", ""))
-
-                if serial is None:
-                    continue
-
                 ip_address = ssdp_location_host(headers.get("location", ""))
                 ip_address = ip_address or ssdp_location_host(str(sender[0]))
 
                 if ip_address is None:
+                    continue
+
+                serial = clean_bambu_serial(headers.get("usn", ""))
+
+                if serial is None:
+                    # `USN` в ответе нет — часть прошивок его не присылает, — но
+                    # адрес известен: номер спрашиваем у сертификата на 8883.
+                    # Раньше такой ответ пропускался, и принтер, который в сети и
+                    # отвечает, в список находок не попадал.
+                    logger.warning(
+                        "[SSDP] %s: в ответе нет серийного номера — спрашиваю "
+                        "сертификат принтера",
+                        ip_address,
+                    )
+                    serial = bambu_certificate_serial(ip_address)
+
+                if serial is None:
                     continue
 
                 found[ip_address.lower()] = found_printer(
@@ -904,6 +953,62 @@ def clean_flashforge_serial(value: Any) -> str | None:
     return serial
 
 
+def normalize_json_key(value: str) -> str:
+    """
+    Ключ JSON в сравнимом виде: без регистра, пробелов, подчёркиваний и точек.
+
+    Прошивки FlashForge называют одно и то же поле по-разному (`SerialNumber`,
+    `serial_number`, `Serial Number`, `SN`, `serialNo`). Перечислять написания
+    списком — значит потерять следующее, поэтому ключи сравниваются по буквам и
+    цифрам: `Serial Number` и `serial_number` дают одно и то же — `serialnumber`.
+    """
+    return "".join(character for character in value.lower() if character.isalnum())
+
+
+def serial_in_json(payload: Any, depth: int = 0) -> str | None:
+    """
+    Серийный номер в разобранном JSON: ищется на всех уровнях вложенности.
+
+    Прошивки прячут номер в конверте (`{"code": 0, "detail": {…}}`,
+    `{"Data": {"SerialNumber": …}}`), и уровень зависит от модели. Обход
+    ограничен `FLASHFORGE_JSON_DEPTH`: ответ на `~M115` — пара уровней, а
+    рекурсия по чужому JSON не должна крутиться на мегабайтах.
+
+    None — поля с номером нет ни на одном уровне.
+    """
+    if depth > FLASHFORGE_JSON_DEPTH:
+        return None
+
+    if isinstance(payload, dict):
+        # Сначала поля своего уровня, потом вложенные объекты: номер на верхнем
+        # уровне главнее номера из вложенного конверта.
+        for key, value in payload.items():
+            normalized = normalize_json_key(key) if isinstance(key, str) else ""
+
+            if normalized in FLASHFORGE_SERIAL_KEYS:
+                serial = clean_flashforge_serial(value)
+
+                if serial is not None:
+                    return serial
+
+        for value in payload.values():
+            serial = serial_in_json(value, depth + 1)
+
+            if serial is not None:
+                return serial
+
+        return None
+
+    if isinstance(payload, list):
+        for value in payload:
+            serial = serial_in_json(value, depth + 1)
+
+            if serial is not None:
+                return serial
+
+    return None
+
+
 def flashforge_json_serial(data: bytes) -> str | None:
     """
     Серийный номер из JSON-ответа FlashForge на `~M115`.
@@ -912,27 +1017,15 @@ def flashforge_json_serial(data: bytes) -> str | None:
     `{"SerialNumber": "SNM0001234", …}` либо конвертом
     `{"code": 0, "detail": {…}}`. Раньше такой ответ считался «без серийного
     номера», и принтер терялся при сканировании, хотя номер в пакете был.
-    Поля и конверты перебираются по спискам: сборки называют их по-разному.
+    Поиск идёт по всем уровням (`serial_in_json`), а написание поля
+    сравнивается без учёта регистра и разделителей.
     """
     payload = parse_udp_json(data)
 
     if payload is None:
         return None
 
-    sources: list[Any] = [payload]
-    sources.extend(payload.get(key) for key in FLASHFORGE_PAYLOAD_KEYS)
-
-    for source in sources:
-        if not isinstance(source, dict):
-            continue
-
-        for field in FLASHFORGE_SERIAL_FIELDS:
-            serial = clean_flashforge_serial(source.get(field))
-
-            if serial is not None:
-                return serial
-
-    return None
+    return serial_in_json(payload)
 
 
 def flashforge_serial(data: bytes) -> str | None:
@@ -1027,6 +1120,12 @@ def udp_printer(data: bytes, sender: tuple[str, int]) -> dict[str, Any] | None:
             sender[0],
             f" (поля JSON: {keys})" if keys else "",
         )
+        # Сырой ответ целиком: в журнале оставалось только «без серийного
+        # номера», и было не видно, в каком поле прошивка его отдаёт. Переводы
+        # строк схлопнуты, чтобы запись осталась одной строкой, а не порвала
+        # журнал на два десятка строк.
+        raw = data[:UDP_RAW_PREVIEW].decode("utf-8", errors="replace")
+        logger.warning("[UDP] FlashForge raw: %s", " ".join(raw.split()))
 
     return None
 
@@ -1326,7 +1425,9 @@ def is_bambu(ip_address: str, port: int = BAMBU_MQTT_PORT) -> bool:
     таймаута и растягивает обход подсети. Значит проверяется ровно одно: порт
     слушает. Открытый 8883 в мастерской почти всегда Bambu (у остальных
     протоколов из справочника номера другие: 7125 — Moonraker, 9999 — Creality,
-    9883 — Anycubic, 8898/8899 — FlashForge). Ошибку исправит `connect()`: без
+    9883 — Anycubic, 8898/8899 — FlashForge). Серийный номер при этом берётся из
+    сертификата (`bambu_certificate_serial`), поэтому находка приходит готовой к
+    подключению, а не «портом без номера». Ошибку исправит `connect()`: без
     отчёта в `device/<serial>/report` принтер не подключается.
 
     `port` — для тестов: сканер всегда проверяет 8883.
@@ -1374,9 +1475,12 @@ def inspect_host(ip_address: str) -> dict[str, Any] | None:
 
     Имя принтера читается там, где он его называет: Moonraker —
     `GET /printer/info` (`result.hostname`), Creality — тот же `/info`, что
-    подтвердил модель. У Anycubic, Bambu и FlashForge подписи в HTTP нет: имя
-    приносят SSDP и UDP-обнаружение (Bambu — серийник, FlashForge —
-    `Machine Name`), а без имени окно мастера подставляет «Принтер <адрес>».
+    подтвердил модель. У Anycubic подписи в HTTP нет, имя приносят SSDP и
+    UDP-обнаружение (Bambu — серийник, FlashForge — `Machine Name`), а без имени
+    окно мастера подставляет «Принтер <адрес>». Bambu сверх того называет
+    серийник в сертификате на 8883 (`bambu_certificate_serial`), поэтому и
+    портовая находка приходит с номером — мастеру не надо переписывать его с
+    наклейки.
     """
     if probe_port(ip_address, CREALITY_PORT):
         creality = creality_payload(ip_address)
@@ -1395,7 +1499,7 @@ def inspect_host(ip_address: str) -> dict[str, Any] | None:
         return found_printer(ip_address, "anycubic")
 
     if is_bambu(ip_address):
-        return found_printer(ip_address, "bambu")
+        return found_printer(ip_address, "bambu", bambu_certificate_serial(ip_address))
 
     if is_flashforge(ip_address):
         return found_printer(ip_address, "flashforge")
@@ -1416,10 +1520,11 @@ def scan_network(
     Три источника в одном списке: обход портов (Creality, Moonraker, Anycubic,
     Bambu, FlashForge, OctoPrint), SSDP (Bambu — с серийным номером) и
     широковещательный UDP-запрос (FlashForge и Elegoo — с серийным номером или
-    номером платы). Повтор адреса схлопывается в пользу обнаружения: оно точнее
-    знает и протокол, и номер. Anycubic находит только обход портов; Bambu и
-    FlashForge — и обход портов, и обнаружение, поэтому находка с номером
-    перекрывает портовую без номера.
+    номером платы). Bambu отдаёт номер и в сертификате на 8883, поэтому портовая
+    находка тоже приходит с SN (`bambu_certificate_serial`). Повтор адреса
+    схлопывается в пользу обнаружения: оно точнее знает и протокол, и номер.
+    Anycubic находит только обход портов; Bambu и FlashForge — и обход портов, и
+    обнаружение, поэтому находка с номером перекрывает портовую без номера.
 
     `networks` — для явных подсетей и тестов; по умолчанию решает
     `resolve_scan_networks()`. Результат отсортирован по адресу: два запуска

@@ -647,7 +647,8 @@ export function DiscoverPrintersDialog({
    * номера не подключаются (Bambu строит из него MQTT-топики `device/<SN>/…`,
    * FlashForge отправляет его заголовком каждого запроса), поэтому поле стоит в
    * строке, а не только в карточке принтера. Значение предзаполнено тем, что
-   * принтер назвал сам (Bambu — `USN` в SSDP-ответе).
+   * нашёл сканер: Bambu отдаёт номер в `USN` SSDP-ответа и в сертификате на
+   * 8883, FlashForge — в ответе на UDP-запрос.
    */
   const [serials, setSerials] = useState<Record<string, string>>({});
   /**
@@ -831,9 +832,9 @@ export function DiscoverPrintersDialog({
     names[printer.ipAddress] ?? discoveredPrinterName(printer);
   const apiKeyOf = (ipAddress: string) => apiKeys[ipAddress] ?? "";
   /**
-   * Серийный номер строки: правка мастера, иначе то, что принтер назвал сам
-   * (Bambu — `USN` в SSDP-ответе, FlashForge — номер из UDP-ответа). Пустая
-   * строка — номера нет, и принтер с обязательным SN сохранить нельзя.
+   * Серийный номер строки: правка мастера, иначе то, что нашёл сканер (Bambu —
+   * `USN` в SSDP-ответе или `CN` сертификата, FlashForge — номер из UDP-ответа).
+   * Пустая строка — номера нет, и принтер с обязательным SN сохранить нельзя.
    */
   const serialOf = (printer: DiscoveredPrinter) =>
     serials[printer.ipAddress] ?? printer.serialNumber ?? "";
@@ -1355,10 +1356,12 @@ export function DiscoverPrintersDialog({
                           Данные подключения, без которых принтер не работает:
                           Serial Number у Bambu (из него строятся MQTT-топики
                           `device/<SN>/…`) и FlashForge (заголовок каждого
-                          запроса), Check Code у FlashForge. Сеть номер иногда
-                          называет сама (Bambu — `USN` в SSDP-ответе), поэтому
-                          поле предзаполнено, но правится: на части прошивок
-                          SSDP молчит. Check Code — секрет: `type="password"`, и
+                          запроса), Check Code у FlashForge. Сеть обычно
+                          называет номер сама — Bambu в `USN` SSDP-ответа или в
+                          `CN` сертификата на 8883, FlashForge в ответе на
+                          UDP-запрос, — поэтому поле предзаполнено, но правится:
+                          на части прошивок номер не приходит, и тогда его вводят
+                          с наклейки. Check Code — секрет: `type="password"`, и
                           после сохранения в браузер он не возвращается.
                         */}
                         {connection.serialNumber ||
@@ -1389,7 +1392,7 @@ export function DiscoverPrintersDialog({
                                       [printer.ipAddress]: next,
                                     }));
                                   }}
-                                  placeholder="Номер с наклейки принтера"
+                                  placeholder="Агент заполнит сам или впишите с наклейки"
                                   aria-describedby={`${checkboxId}-serial-hint`}
                                   className={inputClassName}
                                 />
