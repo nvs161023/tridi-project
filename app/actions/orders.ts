@@ -177,7 +177,13 @@ const AUTO_SCHEDULE_FAILED =
  * Создание заказа с расходом ресурсов.
  *
  * Порядок: разбор формы → сессия → подписка → чтение принтера и катушки →
- * проверка остатка → вставка заказа → update наработки → update остатка.
+ * проверка остатка → вставка заказа → позиция из выбранного товара → update
+ * наработки → update остатка.
+ *
+ * Позиция (`workshop_order_items`) создаётся сразу: очередь печати берёт позиции
+ * заказа, и без неё мастер видел «Всего: 0» в карточке и добавлял тот же товар
+ * второй раз. Сбой вставки позиции заказ не отменяет — причина уходит в журнал,
+ * позицию можно добавить вручную.
  *
  * Почему вставка раньше update: у заказа нет ссылки на обновлённые строки, а
  * компенсировать неудачный update проще, если заказ уже существует — его можно
@@ -309,10 +315,16 @@ export async function createOrder(
     }
   }
 
+  // Товар из формы становится ещё и позицией заказа. Без этого мастер выбирал
+  // товар при создании, а в карточке видел «Всего: 0» и добавлял ту же позицию
+  // заново, чтобы отправить заказ на печать. `sku` нужен позиции как снимок
+  // артикула: товар могут удалить, позиция останется.
+  let orderedProduct: { sku: string | null } | null = null;
+
   if (draft.productId) {
     const { data, error } = await supabase
       .from("workshop_products")
-      .select("id")
+      .select("id, sku")
       .eq("id", draft.productId)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -330,6 +342,8 @@ export async function createOrder(
     if (!data) {
       return { fieldErrors: { productId: PRODUCT_NOT_FOUND } };
     }
+
+    orderedProduct = { sku: readOrderItemSku((data as { sku?: unknown }).sku) };
   }
 
   // Нехватку пластика проверяем до вставки: заказ без материала не нужен.
@@ -374,6 +388,31 @@ export async function createOrder(
   if (!isOrderId(orderId)) {
     console.warn("Заказ создан без id: откатывать нечего");
     return { error: INSERT_FAILED };
+  }
+
+  // Позиция заказа из выбранного товара — сразу, а не «добавьте её сами в
+  // карточке»: мастер выбирал товар при создании и ждёт его в заказе, а очередь
+  // печати берёт именно `workshop_order_items`. Количество — 1, его правят в
+  // карточке. Сбой вставки заказ не отменяет: он уже создан, и позицию можно
+  // добавить вручную; причина остаётся в журнале.
+  if (orderedProduct && draft.productId) {
+    const { error: itemError } = await supabase
+      .from("workshop_order_items")
+      .insert({
+        user_id: user.id,
+        order_id: orderId,
+        product_id: draft.productId,
+        sku: orderedProduct.sku,
+        quantity: 1,
+      });
+
+    if (itemError) {
+      console.warn(
+        "Позиция заказа не создана:",
+        itemError.code,
+        itemError.message,
+      );
+    }
   }
 
   const printerPlan =

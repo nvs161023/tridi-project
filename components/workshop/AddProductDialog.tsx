@@ -9,6 +9,7 @@ import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import {
   PRODUCT_FILE_LABEL,
   printFileExtension,
+  slicedForPrinterLabel,
 } from "@/lib/3d/print-compatibility";
 import type { WorkshopProduct } from "@/lib/workshop/products";
 import {
@@ -497,7 +498,7 @@ export function AddProductDialog({
                     className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-blue-400/40 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-100"
                   >
                     <span aria-hidden>🖨️</span>
-                    Нарезан для: {slicedPrinter}
+                    Нарезан для: {slicedForPrinterLabel(slicedPrinter)}
                   </p>
                 ) : null}
                 {currentFile ? (

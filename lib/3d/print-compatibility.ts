@@ -8,8 +8,15 @@
  * действие повторяет проверку — браузер мог устареть.
  *
  * Сравнение терпит разные написания одного принтера: «Bambu Lab A1», «Bambu
- * Lab A1 0.4 nozzle» и «A1» при бренде «Bambu Lab» — это одна модель.
+ * Lab A1 0.4 nozzle» и «A1» при бренде «Bambu Lab» — это одна модель. Служебный
+ * код профиля Bambu Studio («N2S») — тоже она: коды разворачиваются в названия
+ * (`lib/3d/printer-model-codes.ts`), иначе товар, размеченный старым разбором,
+ * навсегда остался бы «чужим» для своего же принтера.
  */
+import {
+  bambuPrinterCode,
+  resolvePrinterModelCode,
+} from "@/lib/3d/printer-model-codes";
 import { normalizePrinterModel } from "@/lib/workshop/printer-presets";
 
 /** Модель принтера из парка: бренд и модель — как в `workshop_printers`. */
@@ -156,6 +163,30 @@ function comparisonKey(value: string): string {
     .trim();
 }
 
+/**
+ * Ключ для сверки файла с принтером: у Bambu Lab модель заменяется кодом.
+ *
+ * «N2S», «Bambu Lab A1» и «A1» дают один ключ, «Bambu Lab X1 Carbon» и «X1C» —
+ * тоже: слайсер, карточка принтера и справочник зовут один станок по-разному.
+ * Остальные бренды сравниваются текстом, как раньше. Подпись для человека
+ * строится отдельно (`comparisonKey`), поэтому код в интерфейсе не появится.
+ */
+function canonicalKey(value: string): string {
+  const key = comparisonKey(value);
+
+  return bambuPrinterCode(key) ?? key;
+}
+
+/**
+ * Подпись разметки 3MF для интерфейса: код профиля разворачивается в название.
+ *
+ * В базе у товаров, загруженных до этого правила, лежит «N2S»: показывать его
+ * мастеру бессмысленно. Пустая разметка остаётся пустой строкой.
+ */
+export function slicedForPrinterLabel(slicedForPrinter: string | null): string {
+  return resolvePrinterModelCode(slicedForPrinter ?? "");
+}
+
 /** Подпись принтера для сообщений: бренд не дублируется в модели. */
 export function formatPrinterLabel({ brand, model }: PrinterIdentity): string {
   const brandText = brand.trim();
@@ -178,10 +209,11 @@ export function formatPrinterLabel({ brand, model }: PrinterIdentity): string {
  * Варианты ключей принтера из парка: «A1» и «Bambu Lab A1» — один принтер.
  *
  * Модель может уже содержать бренд («Bambu Lab A1» при бренде «Bambu Lab»),
- * поэтому набор собирается, а не сравнивается одной строкой.
+ * поэтому набор собирается, а не сравнивается одной строкой. Ключи канонические:
+ * у Bambu Lab это код модели, поэтому «X1C» и «X1 Carbon» сходятся.
  */
 function printerKeys({ brand, model }: PrinterIdentity): string[] {
-  const modelKey = comparisonKey(model);
+  const modelKey = canonicalKey(model);
   const brandKey = comparisonKey(brand);
   const keys = new Set<string>();
 
@@ -204,12 +236,15 @@ function printerKeys({ brand, model }: PrinterIdentity): string[] {
  * разметка должна совпасть с моделью принтера. Совпадение по концу строки
  * нужно для названий с уточнением впереди: «Original Prusa MK4» и модель
  * «MK4». Разные модели им не станут: «A1 mini» не заканчивается на «A1».
+ *
+ * Служебный код Bambu Studio («N2S») сравнивается как название: товары,
+ * загруженные до разбора кодов, продолжают печататься на своём принтере.
  */
 export function isSlicedForPrinter(
   slicedForPrinter: string | null,
   printer: PrinterIdentity,
 ): boolean {
-  const slicedKey = comparisonKey(slicedForPrinter ?? "");
+  const slicedKey = canonicalKey(slicedForPrinter ?? "");
 
   if (!slicedKey) {
     return true;
@@ -223,6 +258,8 @@ export function isSlicedForPrinter(
 /**
  * Текст отказа при несовпадении: что за принтер в файле и что делать.
  *
+ * В тексте — название модели, а не служебный код: «нарезан для N2S» мастеру
+ * ничего не говорит, а «нарезан для Bambu Lab A1» — говорит.
  * null — файл подходит, показывать нечего.
  */
 export function printerMismatchMessage(
@@ -233,7 +270,7 @@ export function printerMismatchMessage(
     return null;
   }
 
-  const slicedFor = (slicedForPrinter ?? "").trim();
+  const slicedFor = slicedForPrinterLabel(slicedForPrinter);
 
   return `Этот файл нарезан для ${slicedFor}. Выберите соответствующий принтер или загрузите файл, нарезанный для ${formatPrinterLabel(printer)}.`;
 }

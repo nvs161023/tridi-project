@@ -11,6 +11,7 @@ import {
   ProductsIcon,
   TrashIcon,
 } from "@/components/workshop/WorkshopIcons";
+import { slicedForPrinterLabel } from "@/lib/3d/print-compatibility";
 import type { WorkshopProduct } from "@/lib/workshop/products";
 import type { WorkshopPrinter } from "@/lib/workshop/printers";
 
@@ -562,7 +563,7 @@ function ProductsTable({
                         className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-blue-400/40 bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-blue-100"
                       >
                         <span aria-hidden>🖨️</span>
-                        Нарезан для: {product.slicedForPrinter}
+                        Нарезан для: {slicedForPrinterLabel(product.slicedForPrinter)}
                       </span>
                     ) : null}
                   </td>

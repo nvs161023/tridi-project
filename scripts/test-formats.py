@@ -10,6 +10,8 @@
      и STL с подсказкой о нарезке, проект Bambu Studio уходит как есть, а
      контейнер без нарезки и проект чужой модели — `FormatError` с понятным
      текстом; FlashForge без записей в контейнере тоже отклоняется;
+     служебный код модели из отчёта Bambu Studio 02.x («N2S») читается как
+     название, а сверка понимает и код, и название («X1 Carbon» = «X1C»);
   4. `prepare_upload()`: имя и формат приводятся в порядок до сети, Bambu
      запоминает запись пластины из проекта, отказывает проекту чужой модели и
      не создаёт временных файлов, Moonraker отказывает `.3mf` без запроса к
@@ -67,13 +69,16 @@ def write_gcode(directory: Path, name: str) -> Path:
 
 
 def write_bambu_project(
-    path: Path, printer_model: str, plate: int = 1
+    path: Path, printer_model: str, plate: int = 1, slice_model: str | None = None
 ) -> Path:
     """
     Собирает `.3mf` так, как его сохраняет Bambu Studio «Экспорт файла пластины».
 
     Внутри — нарезанный G-code пластины и профиль слайсера с моделью принтера:
-    ровно то, что проверяет `read_bambu_project()`.
+    ровно то, что проверяет `read_bambu_project()`. `slice_model` — значение
+    `printer_model_id` в отчёте слайсера, если оно отличается от модели в
+    профиле: Bambu Studio 02.x пишет там служебный код («N2S»), а название
+    станка оставляет только в `project_settings.config`.
     """
     with zipfile.ZipFile(path, "w") as project:
         project.writestr(f"Metadata/plate_{plate}.gcode", GCODE_BODY)
@@ -86,7 +91,7 @@ def write_bambu_project(
             "Metadata/slice_info.config",
             '<config><plate><metadata key="index" value="%d"/>'
             '<metadata key="printer_model_id" value="%s"/></plate></config>'
-            % (plate, printer_model),
+            % (plate, slice_model or printer_model),
         )
         project.writestr("3D/3dmodel.model", "<model/>")
 
@@ -263,6 +268,50 @@ def main() -> int:
             "bambu_compat_error: пустая модель принтера — проверять нечего",
             formats.bambu_compat_error("Bambu Lab A1", "", "") is None,
             "—",
+        )
+
+        coded_project = write_bambu_project(
+            directory / "coded.3mf", "Bambu Lab A1", slice_model="N2S"
+        )
+        check(
+            "read_bambu_project: служебный код уступает названию",
+            formats.read_bambu_project(str(coded_project)).printer_model,
+            "Bambu Lab A1",
+        )
+
+        only_code = write_bambu_project(directory / "code-only.3mf", "N2S")
+        check(
+            "read_bambu_project: код без названия разворачивается в модель",
+            formats.read_bambu_project(str(only_code)).printer_model,
+            "Bambu Lab A1",
+        )
+
+        check(
+            "bambu_compat_error: служебный код подходит своему принтеру",
+            formats.bambu_compat_error("N2S", "Bambu Lab", "A1") is None,
+            "—",
+        )
+
+        check(
+            "bambu_compat_error: код A1 mini не путается с A1",
+            formats.bambu_compat_error("N1", "Bambu Lab", "A1") is not None,
+            "—",
+        )
+
+        check(
+            "bambu_compat_error: X1 Carbon и X1C — один станок",
+            formats.bambu_compat_error("Bambu Lab X1 Carbon", "Bambu Lab", "X1C")
+            is None,
+            "—",
+        )
+
+        code_mismatch = formats.bambu_compat_error(
+            "N2S", "FlashForge", "Adventurer 5M Pro"
+        )
+        check(
+            "bambu_compat_error: код в отказе читается как название",
+            code_mismatch is not None and "Bambu Lab A1" in code_mismatch,
+            str(code_mismatch),
         )
 
         passthrough, passthrough_temp = formats.ensure_format(

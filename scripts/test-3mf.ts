@@ -30,6 +30,7 @@
 import { deflateRawSync } from "node:zlib";
 
 import {
+  cleanPrinterModel,
   extractPrinterModelFrom3mf,
   extractPrinterModelFromProjectSettings,
   extractPrinterModelFromSliceInfo,
@@ -40,6 +41,7 @@ import {
   isSlicedForPrinter,
   isSourceModelFile,
   printerMismatchMessage,
+  slicedForPrinterLabel,
   PRODUCT_FILE_LABEL,
 } from "../lib/3d/print-compatibility";
 import {
@@ -231,6 +233,89 @@ check(
   null,
 );
 
+console.log("Служебные коды Bambu Studio");
+
+/** Отчёт Bambu Studio 02.x: в метаданных пластины стоит код модели, не название. */
+const BAMBU_CODE_SLICE_INFO = `<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <header>
+    <header_item key="X-BBL-Client-Type" value="slicer"/>
+  </header>
+  <plate>
+    <metadata key="index" value="1"/>
+    <metadata key="printer_model_id" value="N2S"/>
+    <metadata key="nozzle_diameters" value="0.4"/>
+  </plate>
+</config>`;
+
+check(
+  "код модели разворачивается в название",
+  cleanPrinterModel("N2S"),
+  "Bambu Lab A1",
+);
+
+check(
+  "код из slice_info.config",
+  extractPrinterModelFrom3mf(
+    makeZip([
+      { name: "Metadata/slice_info.config", data: BAMBU_CODE_SLICE_INFO },
+    ]),
+  ),
+  "Bambu Lab A1",
+);
+
+check(
+  "название из project_settings.config важнее кода",
+  extractPrinterModelFrom3mf(
+    makeZip([
+      { name: "Metadata/slice_info.config", data: BAMBU_CODE_SLICE_INFO },
+      {
+        name: "Metadata/project_settings.config",
+        data: JSON.stringify({
+          printer_model: "Bambu Lab A1",
+          printer_settings_id: "Bambu Lab A1 0.4 nozzle",
+        }),
+      },
+    ]),
+  ),
+  "Bambu Lab A1",
+);
+
+check(
+  "незнакомый код уступает названию",
+  extractPrinterModelFrom3mf(
+    makeZip([
+      {
+        name: "Metadata/slice_info.config",
+        data: BAMBU_CODE_SLICE_INFO.replace('value="N2S"', 'value="O1S"'),
+      },
+      {
+        name: "Metadata/project_settings.config",
+        data: JSON.stringify({ printer_model: "Bambu Lab H2S" }),
+      },
+    ]),
+  ),
+  "Bambu Lab H2S",
+);
+
+check(
+  "название и код одного станка не спорят",
+  extractPrinterModelFrom3mf(
+    makeZip([
+      { name: "Metadata/slice_info.config", data: BAMBU_CODE_SLICE_INFO },
+      {
+        name: "Metadata/project_settings.config",
+        data: JSON.stringify({ printer_model: "Bambu Lab A1 0.4 nozzle" }),
+      },
+    ]),
+  ),
+  "Bambu Lab A1",
+);
+
+check("подпись кода для интерфейса", slicedForPrinterLabel("N2S"), "Bambu Lab A1");
+check("пустая разметка в подписи", slicedForPrinterLabel(null), "");
+check("название в подписи не меняется", slicedForPrinterLabel("Bambu Lab X1 Carbon"), "Bambu Lab X1 Carbon");
+
 console.log("Совместимость файла и принтера");
 
 const bambuA1 = { brand: "Bambu Lab", model: "A1" };
@@ -275,6 +360,44 @@ check(
   "уточнение перед моделью (Original Prusa MK4)",
   isSlicedForPrinter("Original Prusa MK4", { brand: "Prusa", model: "MK4" }),
   true,
+);
+
+console.log("Код модели в разметке товара");
+
+check(
+  "товар с кодом N2S подходит Bambu A1",
+  isSlicedForPrinter("N2S", bambuA1),
+  true,
+);
+
+check(
+  "товар с кодом N2S не подходит FlashForge",
+  isSlicedForPrinter("N2S", flashforge),
+  false,
+);
+
+check(
+  "код A1 mini не путается с A1",
+  isSlicedForPrinter("N1", bambuA1),
+  false,
+);
+
+check(
+  "код X1 Carbon сходится с моделью X1C",
+  isSlicedForPrinter("BL-P001", { brand: "Bambu Lab", model: "X1C" }),
+  true,
+);
+
+check(
+  "название X1 Carbon сходится с моделью X1C",
+  isSlicedForPrinter("Bambu Lab X1 Carbon", { brand: "Bambu Lab", model: "X1C" }),
+  true,
+);
+
+check(
+  "код в отказе читается как название",
+  printerMismatchMessage("N2S", flashforge),
+  "Этот файл нарезан для Bambu Lab A1. Выберите соответствующий принтер или загрузите файл, нарезанный для FlashForge Adventurer 5M Pro.",
 );
 
 check(

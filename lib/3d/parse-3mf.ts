@@ -7,8 +7,13 @@
  *     value="Bambu Lab A1"/>`;
  *   - `Metadata/project_settings.config` — JSON с полями `printer_model` и
  *     `printer_settings_id`.
- * Значение читаем из первого, второго — резерв: часть слайсеров пишет только
- * проект настроек, а не отчёт о нарезке.
+ *
+ * Значение читаем из обоих, и это не формальность: Bambu Studio 02.x пишет в
+ * `slice_info.config` служебный код модели (`value="N2S"` — это A1), а название
+ * станка оставляет только в `project_settings.config`. Поэтому код
+ * разворачивается в название (`lib/3d/printer-model-codes.ts`), а когда файлы
+ * расходятся и код незнаком — побеждает название: мастеру нужно «Bambu Lab A1»,
+ * а не «N2S».
  *
  * ZIP разбирается вручную на `node:zlib`, без сторонней библиотеки: `npm
  * install adm-zip` в этом окружении недоступен (реестр отвечает ECONNRESET), а
@@ -21,6 +26,11 @@
  * скачивает ссылку, которую прислал браузер.
  */
 import { inflateRawSync } from "node:zlib";
+
+import {
+  isPrinterModelCode,
+  resolvePrinterModelCode,
+} from "@/lib/3d/printer-model-codes";
 
 /** Сигнатура конца центрального каталога ZIP. */
 const EOCD_SIGNATURE = 0x06054b50;
@@ -66,8 +76,10 @@ type ZipEntry = {
  * хвоста про сопло.
  *
  * `printer_settings_id` у Bambu Studio выглядит как «Bambu Lab A1 0.4 nozzle»,
- * а сравнивать его нужно с моделью принтера из парка («A1»). Предел длины
- * совпадает с check в базе.
+ * а сравнивать его нужно с моделью принтера из парка («A1»). Служебный код
+ * модели («N2S») разворачивается в название — в базе и в карточке заказа должно
+ * стоять «Bambu Lab A1», а не код профиля слайсера. Предел длины совпадает с
+ * check в базе.
  */
 export function cleanPrinterModel(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -85,7 +97,10 @@ export function cleanPrinterModel(value: unknown): string | null {
     return null;
   }
 
-  return cleaned.slice(0, SLICED_PRINTER_LIMIT).trim() || null;
+  return (
+    resolvePrinterModelCode(cleaned).slice(0, SLICED_PRINTER_LIMIT).trim() ||
+    null
+  );
 }
 
 
@@ -304,8 +319,14 @@ export function extractPrinterModelFromProjectSettings(
  * Модель принтера из 3MF.
  *
  * Порядок источников повторяет доверие к данным: отчёт слайсера точнее проекта
- * настроек. Если архив не читается или в нём нет обоих файлов, возвращается
- * null — файл всё равно можно приложить, просто без подсказки о принтере.
+ * настроек. Но у Bambu Studio 02.x в отчёте лежит служебный код («N2S»), а
+ * название станка — только в проекте настроек, поэтому оба файла читаются
+ * всегда, и код уступает названию: мастеру нужно «Bambu Lab A1», а не «N2S».
+ * Код, которого нет в справочнике (`lib/3d/printer-model-codes.ts`), тоже
+ * уступает: новая модель Bambu не должна попадать в карточку товара шифром.
+ *
+ * Если архив не читается или в нём нет обоих файлов, возвращается null — файл
+ * всё равно можно приложить, просто без подсказки о принтере.
  */
 export function extractPrinterModelFrom3mf(buffer: Buffer): string | null {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
@@ -319,23 +340,26 @@ export function extractPrinterModelFrom3mf(buffer: Buffer): string | null {
   }
 
   const sliceInfo = findEntry(entries, SLICE_INFO_PATH);
-
-  if (sliceInfo) {
-    const xml = readEntryText(buffer, sliceInfo);
-    const model = xml ? extractPrinterModelFromSliceInfo(xml) : null;
-
-    if (model) {
-      return model;
-    }
-  }
+  const fromSliceInfo = sliceInfo
+    ? extractPrinterModelFromSliceInfo(readEntryText(buffer, sliceInfo) ?? "")
+    : null;
 
   const projectSettings = findEntry(entries, PROJECT_SETTINGS_PATH);
+  const fromProjectSettings = projectSettings
+    ? extractPrinterModelFromProjectSettings(
+        readEntryText(buffer, projectSettings) ?? "",
+      )
+    : null;
 
-  if (projectSettings) {
-    const json = readEntryText(buffer, projectSettings);
-
-    return json ? extractPrinterModelFromProjectSettings(json) : null;
+  if (
+    fromSliceInfo &&
+    fromProjectSettings &&
+    fromSliceInfo !== fromProjectSettings &&
+    isPrinterModelCode(fromSliceInfo) &&
+    !isPrinterModelCode(fromProjectSettings)
+  ) {
+    return fromProjectSettings;
   }
 
-  return null;
+  return fromSliceInfo ?? fromProjectSettings;
 }

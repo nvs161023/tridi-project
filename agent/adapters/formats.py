@@ -32,6 +32,8 @@ import zipfile
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 if TYPE_CHECKING:  # только для аннотаций: справочник тянет за собой адаптеры
+    from collections.abc import Callable
+
     from .registry import ProtocolSpec
 
 logger = logging.getLogger("agent.adapters.formats")
@@ -186,10 +188,57 @@ BAMBU_MODEL_KEYS: Final = (
     "printer_settings_id",
 )
 
+# Служебные коды моделей Bambu Lab. Bambu Studio 02.x пишет в
+# `slice_info.config` не название станка, а код профиля
+# (`<metadata key="printer_model_id" value="N2S"/>`): «N2S» — это A1. Коды взяты
+# из официальных профилей Bambu Studio (`resources/profiles/BBL/machine/*.json`,
+# поле `model_id`); версии до 02.x кладут в то же поле готовое название, поэтому
+# незнакомое значение остаётся как есть. Таблица повторяет
+# `lib/3d/printer-model-codes.ts`: веб-приложение и агент должны одинаково
+# понимать, под какой станок нарезан проект.
+BAMBU_MODELS: Final = (
+    ("N2S", "Bambu Lab A1", ("A1",)),
+    ("N1", "Bambu Lab A1 mini", ("A1 mini",)),
+    ("C11", "Bambu Lab P1P", ("P1P",)),
+    ("C12", "Bambu Lab P1S", ("P1S",)),
+    ("C13", "Bambu Lab X1E", ("X1E",)),
+    ("BL-P001", "Bambu Lab X1C", ("X1C", "X1 Carbon", "Bambu Lab X1 Carbon")),
+    ("BL-P002", "Bambu Lab X1", ("X1",)),
+    ("O1D", "Bambu Lab H2D", ("H2D",)),
+)
+
 # Хвост профиля слайсера про сопло: «Bambu Lab A1 0.4 nozzle» → «Bambu Lab A1».
 _NOZZLE_TAIL: Final = re.compile(r"\b\d+(?:\.\d+)?\s*(?:mm)?\s*nozzle\b", re.IGNORECASE)
 _NOZZLE_WORD: Final = re.compile(r"\bnozzle\b", re.IGNORECASE)
 _XML_METADATA_TAG: Final = re.compile(r"<metadata\b[^>]*>", re.IGNORECASE)
+# Примета служебного кода: «N2S», «C12», «O1S», «BL-P003». Название с пробелами
+# под неё не попадает.
+_MODEL_CODE: Final = re.compile(r"^[a-z]{1,3} ?[a-z0-9]{1,4}$", re.IGNORECASE)
+
+
+def _spelling_key(value: str) -> str:
+    """
+    Ключ написания модели: регистр, вид тире и лишние пробелы не важны.
+
+    «Bambu Lab — X1», «Bambu Lab-X1» и «bambu lab  x1» дают один ключ.
+    """
+    normalized = value.strip().lower()
+
+    for dash in ("—", "–", "-"):
+        normalized = normalized.replace(dash, " ")
+
+    return " ".join(normalized.split())
+
+
+# Код модели → подпись для человека («n2s» → «Bambu Lab A1»).
+BAMBU_NAME_BY_CODE: Final = {_spelling_key(code): name for code, name, _ in BAMBU_MODELS}
+
+# Код, подпись и другие написания → код модели («bambu lab x1 carbon» → «bl p001»).
+BAMBU_CODE_BY_NAME: Final = {
+    _spelling_key(name): _spelling_key(code)
+    for code, model_name, aliases in BAMBU_MODELS
+    for name in (code, model_name, *aliases)
+}
 
 def discard(path: str) -> None:
     """Удаляет временный файл: его отсутствие задание не ломает."""
@@ -231,7 +280,9 @@ def _clean_printer_model(value: str | None) -> str | None:
     Модель принтера в одном виде: без кавычек, лишних пробелов и хвоста сопла.
 
     `printer_settings_id` у Bambu Studio выглядит как «Bambu Lab A1 0.4 nozzle»,
-    а сравнивать его нужно с моделью принтера из парка («A1»).
+    а сравнивать его нужно с моделью принтера из парка («A1»). Служебный код
+    модели («N2S») разворачивается в название: отказ «проект нарезан для N2S»
+    мастеру ничего не говорил.
     """
     if not value:
         return None
@@ -241,7 +292,20 @@ def _clean_printer_model(value: str | None) -> str | None:
     text = _NOZZLE_WORD.sub(" ", text)
     text = " ".join(text.split())
 
-    return text or None
+    if not text:
+        return None
+
+    return BAMBU_NAME_BY_CODE.get(_spelling_key(text), text)
+
+
+def _is_model_code(value: str) -> bool:
+    """
+    Похоже на служебный код, а не на название модели: «N2S», «C12», «O1S».
+
+    По этой примете выбирается источник, когда слайсер написал в `slice_info` и
+    `project_settings` разное: название понятнее даже незнакомого кода.
+    """
+    return bool(_MODEL_CODE.match(_spelling_key(value)))
 
 
 def _slice_info_model(xml: str) -> str | None:
@@ -310,32 +374,56 @@ def _bambu_plate(parts: list[str]) -> tuple[int, str] | None:
     return min(plates) if plates else None
 
 
-def _bambu_model(container: zipfile.ZipFile, parts: set[str]) -> str | None:
+def _read_bambu_part(
+    container: zipfile.ZipFile,
+    parts: set[str],
+    part: str,
+    reader: "Callable[[str], str | None]",
+) -> str | None:
     """
-    Модель принтера из проекта: сначала отчёт слайсера, потом проект настроек.
+    Модель принтера из одного служебного файла проекта.
 
     Любая ошибка чтения — «модели нет»: подсказка нужна только для проверки
     совместимости, и портить ею загрузку готового проекта нельзя.
     """
-    for part, reader in (
-        (BAMBU_SLICE_INFO, _slice_info_model),
-        (BAMBU_PLATE_SETTINGS, _project_settings_model),
+    if part not in parts:
+        return None
+
+    try:
+        text = container.read(part).decode("utf-8", "replace")
+    except (OSError, KeyError, zipfile.BadZipFile) as error:
+        logger.warning("Bambu: %s не прочитан: %s", part, error)
+        return None
+
+    return reader(text)
+
+
+def _bambu_model(container: zipfile.ZipFile, parts: set[str]) -> str | None:
+    """
+    Модель принтера из проекта: отчёт слайсера, затем проект настроек.
+
+    Bambu Studio 02.x пишет в отчёт служебный код модели («N2S»), а название
+    станка — только в проект настроек, поэтому читаются оба файла и код уступает
+    названию. Незнакомый код тоже уступает: новая модель Bambu не должна
+    превращаться в отказ «проект нарезан для O1S».
+    """
+    from_slice_info = _read_bambu_part(
+        container, parts, BAMBU_SLICE_INFO, _slice_info_model
+    )
+    from_settings = _read_bambu_part(
+        container, parts, BAMBU_PLATE_SETTINGS, _project_settings_model
+    )
+
+    if (
+        from_slice_info
+        and from_settings
+        and from_slice_info != from_settings
+        and _is_model_code(from_slice_info)
+        and not _is_model_code(from_settings)
     ):
-        if part not in parts:
-            continue
+        return from_settings
 
-        try:
-            text = container.read(part).decode("utf-8", "replace")
-        except (OSError, KeyError, zipfile.BadZipFile) as error:
-            logger.warning("Bambu: %s не прочитан: %s", part, error)
-            continue
-
-        model = reader(text)
-
-        if model:
-            return model
-
-    return None
+    return from_slice_info or from_settings
 
 
 def read_bambu_project(path: str) -> BambuProject:
@@ -389,11 +477,13 @@ def _comparison_key(value: str) -> str:
     Ключ сравнения моделей: регистр, скобки и хвост сопла не важны.
 
     «Bambu Lab A1 0.4 nozzle» → «bambu lab a1»; «Original Prusa MK4» →
-    «original prusa mk4».
+    «original prusa mk4». У Bambu Lab ключом становится код модели, поэтому
+    «N2S», «Bambu Lab A1» и «A1» сходятся, а «A1 mini» — нет.
     """
     text = _clean_printer_model(value) or ""
+    key = " ".join(text.replace("(", " ").replace(")", " ").split()).lower()
 
-    return " ".join(text.replace("(", " ").replace(")", " ").split()).lower()
+    return BAMBU_CODE_BY_NAME.get(_spelling_key(key), key)
 
 
 def _printer_keys(brand: str, model: str) -> list[str]:
@@ -443,10 +533,13 @@ def bambu_compat_error(project_model: str | None, brand: str, model: str) -> str
     if any(sliced == key or sliced.endswith(f" {key}") for key in keys):
         return None
 
+    # В отказе — название модели, а не служебный код: «нарезан для N2S» мастеру
+    # ничего не говорит, «нарезан для Bambu Lab A1» — говорит.
+    sliced_for = _clean_printer_model(project_model) or (project_model or "")
     printer = " ".join(part.strip() for part in (brand, model) if part.strip())
 
     return (
-        f"проект .3mf нарезан для {project_model}, а принтер — "
+        f"проект .3mf нарезан для {sliced_for}, а принтер — "
         f"{printer or 'без модели в карточке'}: переслайсите модель под этот "
         "принтер и загрузите файл заново"
     )
