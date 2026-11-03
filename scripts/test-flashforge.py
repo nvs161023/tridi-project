@@ -3,10 +3,12 @@
 
 Что проверяет:
 
-  1. `connect()` идёт в `GET /detail` с заголовками `serialNumber` и
-     `checkCode`, читает модель и прошивку, а без Serial Number или Check Code
-     в сеть не выходит и объясняет, что заполнить в карточке принтера;
-     ответ 404 объясняется той же подсказкой, а не «прошивка не знает /detail»;
+  1. `connect()` идёт в `POST /detail` с `serialNumber` и `checkCode` в теле,
+     читает модель и прошивку, а без Serial Number или Check Code в сеть не
+     выходит и объясняет, что заполнить в карточке принтера; ранняя сборка,
+     которая паспорт в теле не понимает (404), находится запасным `GET` с
+     заголовками, а отказы в `code` (`Access code is different`, `Parameters is
+     error`) переводятся подсказками, а не остаются английским текстом;
   2. чужой JSON на 8898 принтером не считается: в ответе нет данных принтера —
      `False` и причина в `last_error`;
   3. `upload_file()` отправляет `POST /uploadGcode` multipart-формой с полем
@@ -163,6 +165,10 @@ class FakeFlashForge:
     остальные адреса. Запросы пишутся целиком: без этого не проверить ни
     заголовки `serialNumber`/`checkCode`/`fileSize`, ни поле `gcodeFile` в
     multipart, ни тело `/printGcode`.
+
+    `legacy_detail` переключает принтер на раннюю прошивку: паспорт в теле
+    `POST /detail` она не понимает (404) и отдаёт его только по `GET` с
+    заголовками — так проверяется запасной путь адаптера.
     """
 
     def __init__(self) -> None:
@@ -171,6 +177,7 @@ class FakeFlashForge:
         self.detail: dict[str, Any] | None = dict(DETAIL)
         self.detail_code = 0
         self.detail_message = "Success"
+        self.legacy_detail = False
         self.port = 0
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -185,6 +192,10 @@ class FakeFlashForge:
     ) -> None:
         """Ответ на конкретный запрос: маршруты главнее поведения по умолчанию."""
         self.routes[(method, path)] = (status, json.dumps(payload).encode())
+
+    def route_raw(self, method: str, path: str, status: int, body: bytes) -> None:
+        """Ответ без JSON: так на 8898 отвечает чужой сервис, а не прошивка."""
+        self.routes[(method, path)] = (status, body)
 
     def count(self, method: str, path: str | None = None) -> int:
         """Сколько таких запросов пришло: проверка «до сети не дошли»."""
@@ -201,6 +212,10 @@ class FakeFlashForge:
                 return request
 
         return None
+
+    def detail_requests(self) -> int:
+        """Сколько запросов пришло за паспортом: тело и заголовки вместе."""
+        return sum(1 for request in self.requests if request.path == "/detail")
 
     def detail_body(self) -> bytes:
         """
@@ -257,7 +272,13 @@ class FakeFlashForge:
                     fake.respond(self, route[0], route[1])
                     return
 
-                if (self.command, path) == ("GET", "/detail"):
+                if path == "/detail" and self.command in ("GET", "POST"):
+                    # Паспорт 3.x отдаёт на POST с парой в теле, ранние сборки —
+                    # на GET с заголовками; на чужой вид запроса 404.
+                    if (self.command == "POST") is fake.legacy_detail:
+                        fake.respond(self, 404, b'{"message": "Not found"}')
+                        return
+
                     fake.respond(self, 200, fake.detail_body())
                     return
 
@@ -405,18 +426,17 @@ def make_adapter(fake: FakeFlashForge) -> FlashForgeAdapter:
 
 
 def check_connect(fake: FakeFlashForge) -> None:
-    """Подключение: `/detail`, заголовки и паспорт."""
+    """Подключение: `/detail`, пара в теле, запасной GET и отказы."""
     adapter = make_adapter(fake)
     connected = adapter.connect()
-    request = fake.last("GET", "/detail")
-    headers = request.headers if request is not None else {}
+    request = fake.last("POST", "/detail")
+    payload = request.json() if request is not None else {}
 
     check(
-        "подключение: /detail 200 с заголовками serialNumber и checkCode",
+        "подключение: POST /detail с serialNumber и checkCode в теле",
         connected is True
-        and headers.get("serialnumber") == SERIAL
-        and headers.get("checkcode") == CHECK_CODE,
-        f"{connected!r}, {headers!r}",
+        and payload == {"serialNumber": SERIAL, "checkCode": CHECK_CODE},
+        f"{connected!r}, {payload!r}",
     )
     check(
         "подключение: модель и прошивка из паспорта",
@@ -424,9 +444,28 @@ def check_connect(fake: FakeFlashForge) -> None:
         f"{adapter.model!r}, {adapter.firmware!r}",
     )
 
-    # Без Serial Number и Check Code прошивка отвечает 404, поэтому адаптер
+    # Ранние сборки тело не понимают: на POST отвечают 404, а тот же паспорт
+    # отдают по GET с заголовками. Без запасного запроса такой принтер выглядел
+    # бы «не FlashForge», хотя он на связи.
+    fake.legacy_detail = True
+    legacy = make_adapter(fake)
+    legacy_connected = legacy.connect()
+    legacy_request = fake.last("GET", "/detail")
+    legacy_headers = legacy_request.headers if legacy_request is not None else {}
+    fake.legacy_detail = False
+
+    check(
+        "подключение: ранняя прошивка — запасной GET с заголовками",
+        legacy_connected is True
+        and legacy_headers.get("serialnumber") == SERIAL
+        and legacy_headers.get("checkcode") == CHECK_CODE
+        and legacy.model == "Adventurer 5M Pro",
+        f"{legacy_connected!r}, {legacy_headers!r}, {legacy.model!r}",
+    )
+
+    # Без Serial Number и Check Code прошивка отвечает отказом, поэтому адаптер
     # обязан не ходить в сеть: мастеру нужна причина, а не таймаут.
-    before = fake.count("GET", "/detail")
+    before = fake.detail_requests()
     missing = FlashForgeAdapter(fake.address, "", "", {})
     refused_missing = missing.connect()
     reason = missing.last_error or ""
@@ -435,9 +474,9 @@ def check_connect(fake: FakeFlashForge) -> None:
         "подключение: без Serial Number и Check Code запрос не уходит",
         refused_missing is False
         and "Не указан Serial Number или Check Code" in reason
-        and fake.count("GET", "/detail") == before,
+        and fake.detail_requests() == before,
         f"{refused_missing!r}, last_error={reason!r}, "
-        f"запросов {fake.count('GET', '/detail') - before}",
+        f"запросов {fake.detail_requests() - before}",
     )
 
     only_code = FlashForgeAdapter(fake.address, "", "", {"checkCode": CHECK_CODE})
@@ -448,20 +487,63 @@ def check_connect(fake: FakeFlashForge) -> None:
         "подключение: без Serial Number, но с Check Code запрос не уходит",
         refused_no_serial is False
         and "Serial Number" in reason
-        and fake.count("GET", "/detail") == before,
+        and fake.detail_requests() == before,
         f"{refused_no_serial!r}, last_error={reason!r}",
     )
 
-    # 404 у FlashForge — не «нет метода», а отказ запросу без нужных
-    # заголовков: подсказка должна называть поля карточки принтера.
+    # Отказ по существу: код с экрана не подошёл. Второй вид запроса его не
+    # исправит, а мастеру нужна подсказка про поле Check Code, а не английский
+    # текст прошивки.
+    fake.detail = None
+    fake.detail_code = 1
+    fake.detail_message = "Access code is different"
+    denied = make_adapter(fake)
+    denied_connect = denied.connect()
+    reason = denied.last_error or ""
+    fake.detail = dict(DETAIL)
+    fake.detail_code = 0
+    fake.detail_message = "Success"
+
+    check(
+        "подключение: чужой checkCode — подсказка про экран принтера",
+        denied_connect is False
+        and "checkCode не принят" in reason
+        and "Access code is different" not in reason,
+        f"{denied_connect!r}, last_error={reason!r}",
+    )
+
+    # `code: -1` — принтер не разобрал запрос. Это причина, а не «на 8898
+    # отвечает не FlashForge»: по такой подсказке мастер искал чужой сервис.
+    fake.detail = None
+    fake.detail_code = -1
+    fake.detail_message = "Parameters is error"
+    broken = make_adapter(fake)
+    refused_parameters = broken.connect()
+    reason = broken.last_error or ""
+    fake.detail = dict(DETAIL)
+    fake.detail_code = 0
+    fake.detail_message = "Success"
+
+    check(
+        "подключение: Parameters is error объясняется, а не «не FlashForge»",
+        refused_parameters is False
+        and "параметры" in reason
+        and "не FlashForge" not in reason,
+        f"{refused_parameters!r}, last_error={reason!r}",
+    )
+
+    # 404 на оба вида запроса — уже не пустая карточка (та отсекается до сети),
+    # а выключенный LAN-режим: подсказка называет и его, и поля принтера.
+    fake.route("POST", "/detail", 404, {"message": "Not Found"})
     fake.route("GET", "/detail", 404, {"message": "Not Found"})
     denied = make_adapter(fake)
     denied_connect = denied.connect()
     reason = denied.last_error or ""
+    fake.routes.pop(("POST", "/detail"))
     fake.routes.pop(("GET", "/detail"))
 
     check(
-        "подключение: 404 объясняется карточкой принтера",
+        "подключение: 404 на оба вида запроса объясняется карточкой принтера",
         denied_connect is False
         and "404" in reason
         and "Serial Number и Check Code" in reason,
@@ -477,6 +559,20 @@ def check_connect(fake: FakeFlashForge) -> None:
         "подключение: чужой JSON на 8898 принтером не считается",
         refused is False and "не FlashForge" in reason,
         f"{refused!r}, last_error={reason!r}",
+    )
+
+    # Веб-интерфейс соседнего устройства отвечает HTML: это не отказ прошивки,
+    # и подсказка не должна отправлять мастера сверять поля карточки.
+    fake.route_raw("POST", "/detail", 200, b"<html><body>router</body></html>")
+    html = make_adapter(fake)
+    refused_html = html.connect()
+    reason = html.last_error or ""
+    fake.routes.pop(("POST", "/detail"))
+
+    check(
+        "подключение: HTML вместо JSON — причина про чужой сервис",
+        refused_html is False and "не JSON" in reason,
+        f"{refused_html!r}, last_error={reason!r}",
     )
     fake.detail = dict(DETAIL)
 
@@ -651,6 +747,17 @@ def check_upload(
         and headers.get("levelingbeforeprint") == "true",
         f"{headers!r}",
     )
+    # `/uploadGcode` читает авторизацию только из заголовков: та же пара полями
+    # формы возвращается отказом «SN is different», и мастер ищет ошибку в
+    # серийном номере, хотя он верный.
+    check(
+        "загрузка: пара serialNumber/checkCode только заголовками",
+        headers.get("serialnumber") == SERIAL
+        and headers.get("checkcode") == CHECK_CODE
+        and b'name="serialNumber"' not in body
+        and b'name="checkCode"' not in body,
+        f"{headers!r}",
+    )
 
     before = fake.count("POST", "/uploadGcode")
     rejected = adapter.upload_file(str(project_path), "project.3mf")
@@ -677,6 +784,23 @@ def check_upload(
         "загрузка: code 9 в теле ответа — отказ с причиной",
         refused is False and "No space left" in reason,
         f"{refused!r}, last_error={reason!r}",
+    )
+
+    fake.route(
+        "POST",
+        "/uploadGcode",
+        200,
+        {"code": 1, "message": "SN is different"},
+    )
+    wrong_serial = adapter.upload_file(str(gcode_path), "job.gcode")
+    reason = adapter.last_error or ""
+
+    check(
+        "загрузка: SN is different — подсказка про серийный номер",
+        wrong_serial is False
+        and "серийный номер не принят" in reason
+        and "SN is different" not in reason,
+        f"{wrong_serial!r}, last_error={reason!r}",
     )
 
     fake.detail = {"machineStatus": "READY", "printInfo": {}}

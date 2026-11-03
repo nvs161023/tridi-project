@@ -43,16 +43,27 @@
   - `get_status()`  — последний отчёт принтера: `print.gcode_state`,
     `print.mc_percent` (проценты) и `print.mc_remaining_time` (минуты).
 
-Серийный номер. Bambu адресует топики серийником, а в настройках Мастерской
-мастер вводит адрес, код доступа и — если знает — номер с наклейки. Цепочка
-такая: номер из задания (`printer.serialNumber`, поле «Серийный номер (SN)»
-карточки принтера) → SSDP-поиск (UDP 1990, в ответе поле `USN`) → отчёт
-принтера. Пока номер неизвестен, подписка идёт на `device/+/report`: первый же
-отчёт даёт настоящий серийник из топика, после чего адаптер переподписывается
-на точный. Команду печати без серийника отправить нельзя, поэтому
-`start_print()` не отказывает сразу: он ждёт восстановления MQTT (`CONNECT_RETRY_TIMEOUT`)
-и появления номера (`SERIAL_WAIT_TIMEOUT`), прося у принтера `pushing.pushall`,
-и только потом возвращает False с причиной в `last_error`.
+Серийный номер. Bambu адресует топики серийником, и в Мастерской это поле
+обязательное: форма принтера не сохранит Bambu без SN, потому что LAN-режим без
+номера не работает вообще. Адаптер ждёт номер из задания (`printer.serialNumber`,
+поле «Серийный номер (SN)» карточки принтера), а если его всё же нет — ищет сам:
+сертификат принтера на 8883 (в поле `CN` лежит тот же серийник,
+`03900D650925979`) → SSDP-поиск (UDP 1990, в ответе поле `USN`). Поиск —
+дополнительный способ, а не надежда: сертификат стоит первым, потому что
+приходит за доли секунды, а SSDP на части прошивок молчит совсем.
+
+Шаблонной подписки нет вовсе. `device/+/report` принтер не принимает: на
+SUBSCRIBE он отвечает не SUBACK, а разрывом TLS-соединения, и paho сообщает
+`MQTT-соединение потеряно: Unspecified error`. Пока шаблон был, агент попадал в
+петлю «подключился — подписался — оборвалось» на каждом опросе и не получал ни
+одного отчёта. Поэтому подписка всегда точная — `device/<serial>/report`, а нет
+номера — нет и подписки: `connect()` отказывает с `SERIAL_REQUIRED_ERROR`.
+
+Ждать номер из отчёта бессмысленно: отчёт приходит в точный топик, который
+строится из номера. Поэтому `start_print()` не ждёт и не переподключается, а
+первой же строкой проверяет `self.serial_number`: пусто — сразу `False` с тем же
+`SERIAL_REQUIRED_ERROR` в `last_error`. Иначе мастер видел бы «MQTT-соединение
+потеряно» вместо «впишите SN в карточку».
 
 Обрыв связи. Принтер закрывает MQTT-соединение сам (например, во время
 FTPS-загрузки), paho переподключается в своём потоке. Публикация идёт с QoS 0,
@@ -74,10 +85,11 @@ import logging
 import os
 import socket
 import ssl
+import tempfile
 import threading
 import time
 import zipfile
-from typing import Any
+from typing import Any, Callable
 
 import paho.mqtt.client as mqtt
 import requests
@@ -127,10 +139,20 @@ CONNECT_TIMEOUT = 10
 # до десяти секунд: этого хватает на переподключение по Wi-Fi.
 CONNECT_RETRY_TIMEOUT = 10.0
 
-# Сколько ждать серийник перед командой печати. Номер нужен для топика
-# `device/<serial>/request`, а после обрыва связи он терялся: подписка шла на
-# `device/+/report`, отчёт приходил не сразу — и печать не запускалась.
-SERIAL_WAIT_TIMEOUT = 5.0
+# Отказ по пустому серийнику. Один текст на `connect()` и `start_print()`:
+# мастер видит незаполненную карточку принтера, а не «MQTT-соединение потеряно».
+# Без SN брокер не даёт ни отчётов, ни команд — топики адресуются номером,
+# а шаблонную подписку принтер рвёт.
+SERIAL_REQUIRED_ERROR = (
+    "Не указан Serial Number. Он обязателен для LAN-режима Bambu Lab. "
+    "Укажите его в карточке принтера."
+)
+
+# Сколько ждать сертификат принтера при поиске серийника. В поле `CN` лежит
+# серийный номер, и на прошивках, где SSDP молчит, это единственный источник —
+# поэтому таймаут отдельный и с запасом: рукопожатие TLS у принтера по Wi-Fi
+# занимает доли секунды, но занятая карта памяти иногда задерживает ответ.
+CERTIFICATE_TIMEOUT = 5.0
 
 # Шаг опроса в ожиданиях: соединение и серийник меняются в потоке paho, а
 # событий «номер получен» у нас нет — дешевле проверять состояние.
@@ -218,6 +240,14 @@ _STATE_MAP: dict[str, str] = {
     "PAUSE": "error",
 }
 
+# Разбор PEM в поля сертификата. Публичного API у `ssl` нет: `getpeercert()`
+# отдаёт пустой словарь при `verify_mode = CERT_NONE`, а `cryptography` ради
+# одного `CN` агенту не нужна. Поэтому берётся приватная функция CPython — через
+# `getattr`, чтобы она не выглядела частью публичного API модуля `ssl`.
+_decode_certificate: Callable[[str], dict[str, Any]] = getattr(
+    ssl, "_ssl"
+)._test_decode_cert  # noqa: SLF001
+
 
 def _host(address: str) -> str:
     """
@@ -296,14 +326,19 @@ def _same_host(location: str, host: str) -> bool:
 
 def _clean_serial(value: str) -> str:
     """
-    Серийный номер из поля `USN` SSDP-ответа.
+    Серийный номер из `USN` SSDP-ответа или из `CN` сертификата принтера.
 
-    У Bambu это строка вида `00M09A123456789`. Пустое значение и строка с
-    пробелами — не серийник, а мусор от чужого устройства в подсети.
+    У Bambu это строка вида `00M09A123456789`: пятнадцать латинских букв и цифр.
+    Пустое значение, строка с пробелами и всё, что не похоже на номер (например,
+    `BBL CA` в сертификате), — не серийник, а мусор от чужого устройства или
+    поле сертификата с другим смыслом.
     """
     serial = value.strip()
 
     if not serial or any(character.isspace() for character in serial):
+        return ""
+
+    if not 8 <= len(serial) <= 24 or not serial.isalnum():
         return ""
 
     return serial
@@ -632,9 +667,11 @@ class BambuAdapter(BasePrinterAdapter):
 
         `api_key` — LAN access code с экрана принтера (Settings → Network).
 
-        `serial_number` — серийник с наклейки или из задания. Пустая строка не
-        ошибка: номер ищется по SSDP при `connect()`, а если и там не нашёлся —
-        берётся из топика первого отчёта.
+        `serial_number` — серийник с наклейки или из задания. В форме принтера
+        поле обязательное, но пустая строка не роняет адаптер: `connect()` ещё
+        раз попробует найти номер в сертификате принтера (поле `CN`), а затем по
+        SSDP — это дополнительный способ, а не замена карточке. Нашёлся —
+        `start_print()` работает, нет — отказывает с `SERIAL_REQUIRED_ERROR`.
 
         `brand` и `model` — карточка принтера. По ним `prepare_upload()`
         проверяет, что проект `.3mf` нарезан для этой модели: профиль чужого
@@ -689,6 +726,23 @@ class BambuAdapter(BasePrinterAdapter):
             return
 
         self._report.update(report)
+
+    def _forget_previous_print(self) -> None:
+        """
+        Забывает прогресс прошлой печати сразу после старта новой.
+
+        После `FINISH` принтер продолжает отдавать `mc_percent: 100` при
+        `gcode_state: IDLE`, пока не начнёт новое задание. Цикл агента опрашивает
+        состояние с задержкой `PRINT_START_DELAY`, и на медленном старте (файл
+        ещё разбирается) видел «100 %, простой» — задание закрывалось как `done`
+        без единого напечатанного слоя. Поэтому сразу после `success` на
+        `project_file` из кэша уходят процент и остаток: пока принтер не пришлёт
+        отчёт о новой печати, `get_status()` отдаёт простой с нулевым прогрессом.
+        Состояние (`gcode_state`) не подделываем — его принтер присылает сам, а
+        выдуманное значение скрыло бы отказ «файл не взят в работу».
+        """
+        self._report.pop("mc_percent", None)
+        self._report.pop("mc_remaining_time", None)
 
     def _remember_reply(self, payload: dict[str, Any]) -> None:
         """
@@ -815,12 +869,10 @@ class BambuAdapter(BasePrinterAdapter):
         """
         Отчёт принтера: `device/<serial>/report`.
 
-        Из топика берём серийник, если он ещё неизвестен (подписка была на
-        `device/+/report`), из тела — поля для `get_status()`. Разбор мусора не
-        должен ронять поток paho: ошибки только пишутся в журнал.
+        Топик точный (шаблон принтер рвёт), поэтому номер из него не берём — он
+        уже известен. Разбор мусора не должен ронять поток paho: ошибки только
+        пишутся в журнал.
         """
-        self._learn_serial_from_topic(message.topic)
-
         try:
             payload = json.loads(message.payload.decode("utf-8", errors="replace"))
         except ValueError:
@@ -835,48 +887,26 @@ class BambuAdapter(BasePrinterAdapter):
             self._remember_reply(payload)
             self._apply_report(payload)
 
-    def _learn_serial_from_topic(self, topic: str) -> None:
-        """
-        Серийник из топика `device/<serial>/report`.
-
-        Нужен, когда номер не передали в задании и SSDP не ответил: без него
-        нельзя ни отправить команду, ни подписаться на точный топик.
-        """
-        parts = topic.split("/")
-
-        if len(parts) < 3 or parts[0] != "device" or parts[2] != "report":
-            return
-
-        serial = _clean_serial(parts[1])
-
-        if not serial or serial == self.serial_number:
-            return
-
-        self.serial_number = serial
-        logger.info("Bambu %s: серийный номер %s из отчёта", self.host, serial)
-
-        # Точная подписка вместо `device/+/report`: иначе каждый отчёт пришёл
-        # бы дважды — по шаблону и по точному топику.
-        client = self._client
-
-        if client is not None:
-            client.unsubscribe("device/+/report")
-            self._subscribe(client)
-
     def _subscribe(self, client: mqtt.Client) -> bool:
         """
-        Подписка на отчёты принтера.
+        Подписка на отчёты принтера: только точный топик.
 
-        Пока серийник неизвестен, подписываемся шаблоном `device/+/report`:
-        отчёты придут, и первый же даст настоящий номер. Публиковать команды в
-        шаблонный топик нельзя — брокер не доставит их никому, поэтому печать
-        без серийника не запустится (см. `_publish`).
+        Шаблон `device/+/report` брокер принтера не принимает: на SUBSCRIBE он
+        отвечает не SUBACK, а разрывом TLS-соединения — paho видит это как
+        `MQTT-соединение потеряно: Unspecified error`, переподключается и снова
+        рвётся. Проверено на живой машине: `device/<serial>/report` даёт SUBACK
+        и отчёты, `device/+/report` — обрыв за миллисекунды. Поэтому без
+        серийника подписки нет: подписаться «на всё» нельзя.
         """
-        topic = (
-            f"device/{self.serial_number}/report"
-            if self.serial_number
-            else "device/+/report"
-        )
+        if not self.serial_number:
+            logger.error(
+                "Bambu %s: не подписываюсь — серийный номер неизвестен, "
+                "впишите его в карточке принтера (поле «Серийный номер (SN)»)",
+                self.host,
+            )
+            return False
+
+        topic = f"device/{self.serial_number}/report"
         result, _ = client.subscribe(topic, qos=0)
 
         if result != mqtt.MQTT_ERR_SUCCESS:
@@ -894,95 +924,86 @@ class BambuAdapter(BasePrinterAdapter):
 
     def _ensure_serial(self) -> str:
         """
-        Серийник принтера: из задания, из SSDP или пустая строка.
+        Серийник принтера: из задания, сертификата или SSDP.
 
-        Пустой результат — не ошибка: агент продолжит и получит состояние из
-        первого отчёта, а вот команду печати без номера отправить не сможет.
+        Bambu адресует топики номером, поэтому порядок — от быстрого к редкому:
+        задание (поле «Серийный номер (SN)» карточки), сертификат принтера на
+        8883 (`CN` — это и есть номер), SSDP-поиск (в ответе поле `USN`).
+
+        Пустая строка — номера нет: `connect()` откажет с просьбой заполнить
+        карточку, а печать без него всё равно не запустится.
         """
         if self.serial_number:
             return self.serial_number
 
-        serial = self._discover_serial()
+        serial = self._serial_from_certificate()
+
+        if not serial:
+            serial = self._discover_serial()
 
         if serial:
             self.serial_number = serial
-            logger.info(
-                "Bambu %s: серийный номер %s получен по SSDP",
-                self.host,
-                serial,
-            )
+            logger.info("Bambu %s: серийный номер %s", self.host, serial)
         else:
             logger.warning(
-                "Bambu %s: серийный номер неизвестен — беру из первого отчёта",
+                "Bambu %s: серийный номер неизвестен — подписка и команды "
+                "невозможны, впишите SN в карточке принтера",
                 self.host,
             )
 
         return self.serial_number
 
-    def _request_full_status(self) -> bool:
+    def _serial_from_certificate(self) -> str:
         """
-        `pushing.pushall`: просит принтер прислать полный отчёт.
+        Серийник из сертификата принтера: `CN` в нём — это серийный номер.
 
-        Нужен перед печатью, когда серийник неизвестен: отчёт придёт в
-        `device/<serial>/report`, и `_learn_serial_from_topic` достанет номер из
-        топика. Публиковать можно только после того, как номер известен, —
-        поэтому перед запросом ещё раз пробуем SSDP.
+        Прошивка отдаёт на 8883 самоподписанный сертификат (`O` — BBL
+        Technologies, `CN` — `03900D650925979`), и MQTT поднимает с ним TLS
+        раньше, чем нужен номер. Способ быстрее SSDP и работает там, где SSDP
+        молчит (на этой машине он не ответил ни на один запрос).
+
+        Разбор идёт через `ssl._ssl._test_decode_cert`: приватный, но стабильный
+        разборщик сертификатов из стандартной библиотеки — без него пришлось бы
+        тянуть `cryptography` ради одного поля. Ошибка разбора — пустая строка:
+        номер попробуем взять по SSDP.
         """
-        if not self.serial_number:
-            self._ensure_serial()
-
-        if not self.serial_number:
-            logger.warning(
-                "Bambu %s: серийник неизвестен — pushall не отправить, "
-                "жду отчёт по device/+/report",
-                self.host,
+        try:
+            pem = ssl.get_server_certificate(
+                (self.host, MQTT_PORT), timeout=CERTIFICATE_TIMEOUT
             )
-            return False
-
-        return self._publish(
-            {"pushing": {"sequence_id": self._next_sequence(), "command": "pushall"}},
-            retry=False,
-        )
-
-    def _await_serial(self, timeout: float) -> str:
-        """
-        Серийник для команды печати: из задания, SSDP или отчёта принтера.
-
-        После обрыва связи номер терялся: подписка снова шла на
-        `device/+/report`, отчёт приходил не сразу, и `start_print()` отказывал
-        «серийный номер неизвестен» на живой печати. Здесь ждём до `timeout`
-        секунд: сначала спрашиваем SSDP (принтер отвечает за секунды), затем
-        просим `pushall` и ждём отчёт с настоящим номером в топике.
-
-        Пустая строка — номера нет: команду печати отправить некуда, причину
-        пишет вызывающий (`start_print`).
-        """
-        if self.serial_number:
-            return self.serial_number
-
-        self._ensure_serial()
-
-        deadline = time.monotonic() + timeout
-        asked = False
-
-        while not self.serial_number:
-            if not asked:
-                asked = True
-                self._request_full_status()
-
-            if time.monotonic() >= deadline:
-                break
-
-            time.sleep(CONNECT_POLL)
-
-        if self.serial_number:
-            logger.info(
-                "Bambu %s: серийный номер %s получен от принтера",
+        except (OSError, ssl.SSLError) as error:
+            logger.debug(
+                "Bambu %s: сертификат не получен (%s) — ищу серийник дальше",
                 self.host,
-                self.serial_number,
+                error,
             )
+            return ""
 
-        return self.serial_number
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", suffix=".pem", delete=False, encoding="ascii"
+            ) as handle:
+                handle.write(pem)
+                path = handle.name
+
+            try:
+                decoded = _decode_certificate(path)
+            finally:
+                os.unlink(path)
+        except (OSError, ssl.SSLError, ValueError) as error:
+            logger.debug(
+                "Bambu %s: сертификат не разобран (%s) — ищу серийник дальше",
+                self.host,
+                error,
+            )
+            return ""
+
+        for field in decoded.get("subject", ()):
+            for name, value in field:
+                if name == "commonName":
+                    return _clean_serial(value)
+
+        return ""
 
     def _discover_serial(self) -> str:
         """
@@ -991,7 +1012,8 @@ class BambuAdapter(BasePrinterAdapter):
         Bambu отвечает на M-SEARCH заголовком `USN` с серийником. Если в
         подсети несколько принтеров, нужен тот, чей `Location` совпал с адресом
         задания; остальные — запасной вариант. Ни один не ответил — пустая
-        строка: номер возьмём из топика первого отчёта.
+        строка: номер уже пробовали взять из сертификата, а без него подписка и
+        команды невозможны (см. `connect()`).
         """
         search = (
             "M-SEARCH * HTTP/1.1\r\n"
@@ -1050,8 +1072,14 @@ class BambuAdapter(BasePrinterAdapter):
         Поднимает MQTT-соединение с принтером.
 
         True — CONNACK получен и подписка на отчёты оформлена. False — принтер
-        выключен, не в сети, не принял код доступа или молчал дольше
-        `CONNECT_TIMEOUT`: задание уйдёт в `failed`, а агент продолжит опрос.
+        выключен, не в сети, не принял код доступа, остался без серийника или
+        молчал дольше `CONNECT_TIMEOUT`: задание уйдёт в `failed`, а агент
+        продолжит опрос.
+
+        Серийник ищется здесь один раз (`_ensure_serial`: задание → сертификат →
+        SSDP). Не нашёлся — отказ с `SERIAL_REQUIRED_ERROR`: без номера топики
+        неизвестны, а шаблонную подписку принтер рвёт разрывом TLS, поэтому
+        «подключимся и подождём номер из отчёта» невозможно.
         """
         if self._client is not None:
             # Соединение уже поднято: повторный connect() ничего не ломает.
@@ -1067,7 +1095,13 @@ class BambuAdapter(BasePrinterAdapter):
             )
             return False
 
-        self._ensure_serial()
+        if not self._ensure_serial():
+            # Без серийника брокер не даёт ни отчётов, ни команд: топики
+            # адресуются номером, а шаблонную подписку принтер рвёт.
+            self.last_error = SERIAL_REQUIRED_ERROR
+            logger.error("Bambu %s: %s", self.host, self.last_error)
+            return False
+
         self._connected.clear()
 
         client = mqtt.Client(
@@ -1108,8 +1142,9 @@ class BambuAdapter(BasePrinterAdapter):
 
         if not self._subscribe(client):
             self.last_error = (
-                "не удалось подписаться на отчёты принтера: "
-                "проверьте серийный номер (SN)"
+                "принтер не принял подписку на отчёты "
+                f"(device/{self.serial_number}/report): проверьте серийный "
+                "номер (SN) в карточке принтера"
             )
             self._client = None
             self._stop(client)
@@ -1754,26 +1789,25 @@ class BambuAdapter(BasePrinterAdapter):
         `_remember_reply`, помечает `_command_error`, и `get_status()` начинает
         отдавать `error` — цикл мониторинга закроет задание как `failed`.
 
-        Перед командой адаптер ждёт связь и серийник. Обрыв MQTT во время
-        FTPS-загрузки — обычное дело, и раньше он закрывал задание ошибкой
-        «серийный номер неизвестен» на живой печати: соединение уже поднялось
-        заново, а номер ещё не пришёл. Теперь ждём `CONNECT_RETRY_TIMEOUT` на
-        переподключение и `SERIAL_WAIT_TIMEOUT` на номер (`pushing.pushall` +
-        отчёт в `device/<serial>/report`) и только потом отказываем.
+        Перед командой адаптер ждёт связь: обрыв MQTT во время FTPS-загрузки —
+        обычное дело, и paho поднимает соединение в своём потоке. Серийник при
+        этом не ждём и из отчётов его не берём: отчёт приходит в топик, который
+        из номера и строится. Пустой SN — сразу отказ с `SERIAL_REQUIRED_ERROR`,
+        без переподключений и таймаутов.
         """
+        # Серийник — первая проверка: без него неизвестен топик команды, и
+        # ожидание связи ничего не даст. Номер ищет `connect()` (задание →
+        # сертификат → SSDP), поэтому здесь остаётся только честный отказ.
+        if not self.serial_number:
+            self.last_error = SERIAL_REQUIRED_ERROR
+            logger.error("Bambu %s: %s", self.host, self.last_error)
+            return False
+
         # Пометка прошлого отказа не должна красить новую печать.
         self._command_error = None
 
         if not self._ensure_connection(CONNECT_RETRY_TIMEOUT):
             self.last_error = "команда печати не отправлена: нет MQTT-соединения"
-            logger.error("Bambu %s: %s", self.host, self.last_error)
-            return False
-
-        if not self._await_serial(SERIAL_WAIT_TIMEOUT):
-            self.last_error = (
-                "Не удалось получить серийный номер принтера. "
-                "Проверьте, что принтер в сети и в режиме LAN"
-            )
             logger.error("Bambu %s: %s", self.host, self.last_error)
             return False
 
@@ -1800,6 +1834,7 @@ class BambuAdapter(BasePrinterAdapter):
 
             if failure is None:
                 self.last_error = None
+                self._forget_previous_print()
                 logger.info("Bambu %s: печать %s запущена", self.host, printable)
                 return True
 

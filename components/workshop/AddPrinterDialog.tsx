@@ -29,6 +29,7 @@ import {
   formatPrinterHours,
   isUnknownPrinterModel,
   printerConnectionSpec,
+  printerSerialHint,
   type PrinterFormErrors,
 } from "@/lib/workshop/printers";
 import {
@@ -620,9 +621,7 @@ export function AddPrinterDialog({
                   id="printer-serial-number-hint"
                   className="mt-1.5 text-xs leading-relaxed text-slate-400"
                 >
-                  {spec.serialNumberRequired
-                    ? "С наклейки на корпусе: FlashForge отправляет номер в каждом запросе, без него принтер ответит отказом."
-                    : "С наклейки на задней стенке. Можно оставить пустым — тогда агент найдёт номер сам, поиском в сети."}
+                  {printerSerialHint(protocol)}
                 </p>
               )}
             </div>

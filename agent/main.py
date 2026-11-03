@@ -267,8 +267,10 @@ def read_printer(task: dict[str, Any]) -> PrinterSettings | None:
     ip_address = read_printer_field(printer, "ipAddress", "ip_address")
     api_key = read_printer_field(printer, "apiKey", "api_key") or ""
     # Серийник приходит из поля «Серийный номер (SN)» формы принтера
-    # (workshop_printers.serial_number). Поле необязательное: пустая строка —
-    # нормальный случай, и тогда адаптер находит номер сам (SSDP или топик).
+    # (workshop_printers.serial_number). Форма требует его у Bambu и FlashForge,
+    # но пустое значение агент всё равно терпит: старые записи сохранились без
+    # номера, и тогда Bambu ищет его сам (сертификат или SSDP), а FlashForge
+    # отказывает с понятной причиной.
     serial_number = (
         read_printer_field(printer, "serialNumber", "serial_number") or ""
     )

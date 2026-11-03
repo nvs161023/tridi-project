@@ -251,6 +251,44 @@ export function isPrinterSerialProtocol(value: PrinterProtocol): boolean {
   return PRINTER_SERIAL_PROTOCOLS.includes(value);
 }
 
+/**
+ * Подсказка под полем «Серийный номер»: где взять номер и что будет без него.
+ *
+ * Одна функция на форму добавления и на карточку принтера: подсказка зависит
+ * только от протокола, поэтому окна не разъедутся. Номер обязателен и у Bambu
+ * (без него нет MQTT-топиков `device/<SN>/…`, а шаблонную подписку принтер
+ * рвёт), и у FlashForge (он сверяет пару Serial Number + Check Code в каждом
+ * запросе) — в обоих случаях без номера печать невозможна.
+ */
+export function printerSerialHint(protocol: PrinterProtocol): string {
+  const spec = printerConnectionSpec(protocol);
+
+  if (!spec.serialNumberRequired) {
+    return "С наклейки на задней стенке. Можно оставить пустым — тогда агент найдёт номер сам, поиском в сети.";
+  }
+
+  return protocol === "flashforge"
+    ? "С наклейки на корпусе. FlashForge отправляет номер в каждом запросе: без пары Serial Number + Check Code печать невозможна."
+    : "С наклейки на корпусе или с экрана принтера. По номеру агент строит MQTT-топики: без него LAN-режим Bambu Lab не работает, и печать невозможна.";
+}
+
+/**
+ * Отказ по пустому серийному номеру: своя фраза у протоколов, которым SN нужен,
+ * общая — у остальных (проверка одна, текст зависит от причины).
+ *
+ * Мастеру нужен не «поле обязательно», а что именно указать и почему: без SN
+ * Bambu не поднимает MQTT, а FlashForge отклоняет каждый запрос.
+ */
+const PRINTER_SERIAL_REQUIRED_ERROR =
+  "Укажите серийный номер принтера: без него печать невозможна.";
+
+const PRINTER_SERIAL_REQUIRED_ERRORS: Partial<Record<PrinterProtocol, string>> = {
+  bambu:
+    "Укажите Serial Number принтера (наклейка на корпусе или экран). Без него MQTT-соединение с Bambu Lab не работает.",
+  flashforge:
+    "Укажите Serial Number принтера (наклейка на корпусе). Без него FlashForge отклоняет каждый запрос, и печать невозможна.",
+};
+
 /** Подпись протокола для интерфейса: «Moonraker (Klipper)». */
 export function formatPrinterProtocol(value: PrinterProtocol): string {
   return (
@@ -280,9 +318,10 @@ export type PrinterSecretKey =
  * Поле формы, которое уходит не в колонку, а в `printer_secrets`.
  *
  * `required` — без значения принтер откажет на первом же запросе (FlashForge
- * сверяет `checkCode`), `fallback` — что записать, если поле оставили пустым
- * (PrusaLink без `storage` не соберёт адрес файла, а `usb` — его значение по
- * умолчанию).
+ * сверяет `checkCode`), `requiredError` — текст отказа, если у поля своя
+ * причина («нужна пара SN + Check Code»), `fallback` — что записать, если поле
+ * оставили пустым (PrusaLink без `storage` не соберёт адрес файла, а `usb` —
+ * его значение по умолчанию).
  */
 export type PrinterSecretField = {
   key: PrinterSecretKey;
@@ -290,6 +329,8 @@ export type PrinterSecretField = {
   placeholder: string;
   hint: string;
   required: boolean;
+  /** Текст отказа для обязательного поля; без него — «Заполните поле …». */
+  requiredError?: string;
   /** Поле-пароль: браузер не должен показывать и запоминать значение. */
   password?: boolean;
   /** Список вместо текста (`storage`). */
@@ -321,8 +362,10 @@ export type PrinterApiKeyField = {
  * Один справочник на разметку и на разбор: `readPrinterForm()` проверяет те же
  * поля, что рисует окно «Добавить принтер», поэтому подпись и проверка не
  * разъедутся. `serialNumberRequired` отдельно от `serialNumber`: SN нужен Bambu
- * и FlashForge, но у Bambu адаптер находит номер сам (SSDP), а FlashForge
- * отправляет его заголовком каждого запроса — без номера он не ответит.
+ * и FlashForge, и у обоих он обязателен — Bambu строит из него MQTT-топики
+ * (`device/<SN>/…`, шаблонную подписку принтер рвёт разрывом TLS), FlashForge
+ * отправляет его заголовком каждого запроса. Без номера печать невозможна,
+ * поэтому форма не сохраняет такой принтер.
  */
 export type PrinterConnectionSpec = {
   apiKey: PrinterApiKeyField | null;
@@ -378,7 +421,7 @@ export const PRINTER_CONNECTION_SPECS: Record<
       exactLength: 8,
     },
     serialNumber: true,
-    serialNumberRequired: false,
+    serialNumberRequired: true,
     secrets: [],
   },
   prusa: {
@@ -458,8 +501,10 @@ export const PRINTER_CONNECTION_SPECS: Record<
         key: "checkCode",
         label: "Check Code",
         placeholder: "Код с наклейки",
-        hint: "Код проверки печатается на наклейке принтера. Без него FlashForge отвечает отказом на каждый запрос.",
+        hint: "Код проверки печатается на наклейке принтера. Без пары Serial Number + Check Code FlashForge отвечает отказом на каждый запрос, и печать невозможна.",
         required: true,
+        requiredError:
+          "Укажите Check Code с наклейки принтера. Без пары Serial Number + Check Code FlashForge отклоняет запросы, и печать невозможна.",
       },
     ],
   },
@@ -1263,6 +1308,9 @@ export function countMaintenanceDue(printer: WorkshopPrinter): number {
  * показываются пустыми, и пустота здесь значит «оставь сохранённое». Требовать
  * их заново и подставлять `fallback` в этом режиме нельзя: сохранённый
  * `checkCode` затёрся бы ошибкой формы, а `storage` — значением по умолчанию.
+ * Серийный номер — исключение: это не секрет, карточка показывает его
+ * заполненным, и пустой SN у Bambu и FlashForge отвергается в обоих режимах —
+ * иначе принтер сохранился бы, а печать не пошла.
  */
 function readConnectionFields(
   formData: FormData,
@@ -1277,18 +1325,23 @@ function readConnectionFields(
   const spec = printerConnectionSpec(protocolType);
   const errors: PrinterFormErrors = {};
 
-  // SN нужен Bambu (топики MQTT) и FlashForge (заголовок каждого запроса): у
-  // остальных протоколов такого понятия нет, а чужое значение агент подставил бы
-  // в топик чужого протокола.
+  // SN нужен Bambu (топики MQTT `device/<SN>/…`) и FlashForge (заголовок каждого
+  // запроса): у остальных протоколов такого понятия нет, а чужое значение агент
+  // подставил бы в топик чужого протокола.
   const serialNumber = spec.serialNumber
     ? readFormText(formData.get("serialNumber"))
     : "";
 
   if (serialNumber.length > PRINTER_TEXT_LIMITS.serialNumber) {
     errors.serialNumber = `Не больше ${PRINTER_TEXT_LIMITS.serialNumber} символов.`;
-  } else if (mode === "create" && spec.serialNumberRequired && !serialNumber) {
+  } else if (spec.serialNumberRequired && !serialNumber) {
+    // SN — не секрет: карточка принтера показывает его заполненным, поэтому
+    // требование действует в обоих режимах, а не только при добавлении. Без
+    // номера Bambu не подключается по MQTT, а FlashForge отклоняет запросы:
+    // сохранять такой принтер значит обещать печать, которой не будет.
     errors.serialNumber =
-      "Введите серийный номер с наклейки: FlashForge отправляет его в каждом запросе.";
+      PRINTER_SERIAL_REQUIRED_ERRORS[protocolType] ??
+      PRINTER_SERIAL_REQUIRED_ERROR;
   }
 
   // Ключ доступа: у Moonraker, OctoPrint и PrusaLink это ключ API, у Bambu — код
@@ -1329,7 +1382,10 @@ function readConnectionFields(
       }
 
       if (field.required) {
-        errors[field.key] = `Заполните поле «${field.label}».`;
+        // У обязательного поля бывает своя причина: FlashForge сверяет пару
+        // Serial Number + Check Code, поэтому «Заполните поле» тут мало.
+        errors[field.key] =
+          field.requiredError ?? `Заполните поле «${field.label}».`;
       } else if (field.fallback) {
         printerSecrets[field.key] = field.fallback;
       }

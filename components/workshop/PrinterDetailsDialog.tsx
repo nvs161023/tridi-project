@@ -39,6 +39,7 @@ import {
   isPrinterIdentityUnknown,
   isUnknownPrinterModel,
   printerConnectionSpec,
+  printerSerialHint,
   printerMaintenanceLevel,
   printerMaintenancePercent,
   type MaintenanceLevel,
@@ -903,6 +904,7 @@ export function PrinterDetailsDialog({
                       ? "Номер с наклейки принтера"
                       : "00M09A123456789"
                   }
+                  required={spec.serialNumberRequired}
                   aria-describedby="printer-connection-serial-hint"
                   aria-invalid={fieldErrors.serialNumber ? true : undefined}
                   className={inputClassName}
@@ -911,9 +913,7 @@ export function PrinterDetailsDialog({
                   id="printer-connection-serial-hint"
                   className={hintClassName}
                 >
-                  {spec.serialNumberRequired
-                    ? "FlashForge отправляет номер заголовком каждого запроса: без него принтер отвечает отказом."
-                    : "Нужен только Bambu Lab: по номеру агент строит топики MQTT. Если принтер его не сообщил, оставьте поле пустым."}
+                  {printerSerialHint(protocol)}
                 </p>
                 {fieldErrors.serialNumber ? (
                   <p className={fieldErrorClassName}>

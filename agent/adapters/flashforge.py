@@ -2,19 +2,26 @@
 Адаптер FlashForge (Adventurer 5M / 5M Pro / AD5X).
 
 FlashForge — HTTP-протокол на порту 8898: отдельная служба рядом с
-веб-интерфейсом принтера, без Moonraker и без WebSocket. Каждый запрос несёт
-заголовки `serialNumber` и `checkCode`: по ним прошивка понимает, кто ею
-управляет, поэтому оба значения здесь не «дополнительные», а обязательные.
+веб-интерфейсом принтера, без Moonraker и без WebSocket. Прошивка узнаёт
+мастера по паре `serialNumber` + `checkCode`, поэтому оба значения здесь не
+«дополнительные», а обязательные.
 
 Запросы:
 
-  - `GET /detail` — паспорт и состояние: `detail.name` (модель),
+  - `/detail` — паспорт и состояние: `detail.name` (модель),
     `detail.firmwareVersion`, `detail.serialNumber`, `machineStatus` и
     `printInfo` (`printProgress`, `remainingTimeEstimation`). Один адрес
-    отвечает и за «принтер на связи», и за опрос печати;
+    отвечает и за «принтер на связи», и за опрос печати. Где прошивка ждёт
+    пару `serialNumber`/`checkCode`, зависит от сборки: 3.x (`Adventurer 5M
+    Pro`, `AD5X`) читает её из JSON-тела `POST /detail`, ранние сборки — из
+    заголовков `GET /detail`. На чужой вид запроса принтер отвечает 404 и
+    пустым телом, поэтому адаптер пробует оба;
   - `POST /uploadGcode` — `multipart/form-data`, поле `gcodeFile`. Заголовки
-    `fileSize`, `printNow: false`, `levelingBeforePrint: true`: печать запускает
-    агент отдельной командой, а стол калибруется перед каждым заданием;
+    `fileSize`, `printNow: false`, `levelingBeforePrint: true` и та же пара
+    `serialNumber`/`checkCode`: этот адрес авторизует только по заголовкам
+    (номер полем формы прошивка не видит и отвечает «SN is different»).
+    `printNow: false` оставляет запуск агенту, а калибровка стола нужна любому
+    заданию;
   - `POST /printGcode` — `{"serialNumber", "checkCode", "fileName",
     "levelingBeforePrint": true}`;
   - `POST /control` — `{"serialNumber", "checkCode", "jobCtl_cmd"}`:
@@ -26,17 +33,19 @@ FlashForge — HTTP-протокол на порту 8898: отдельная с
 запасной путь для принтеров, заведённых до появления колонки SN). `checkCode`
 печатается на экране принтера и хранится только в секретах.
 
-Без любого из двух значений адаптер не выходит в сеть: прошивка ждёт оба
-заголовка в каждом запросе и на запрос без них отвечает 404 — мастер видел
-«прошивка не знает /detail» и искал обновление прошивки вместо пустого поля в
-карточке. Поэтому `connect()` возвращает `False` сразу, с текстом про Serial
-Number и Check Code, а 404 (код с экрана сменился после сброса настроек)
-объясняется той же подсказкой.
+Без любого из двух значений адаптер не выходит в сеть: прошивка без них отвечает
+отказом (`Parameters is error` у 3.x, 404 у ранних сборок), и мастер видел
+«прошивка не знает /detail», хотя пустое поле было в карточке принтера. Поэтому
+`connect()` возвращает `False` сразу и называет поля карточки. 404 на оба вида
+запроса — уже другая причина: выключенный LAN-режим или чужой сервис на 8898.
 
 Ответ на команду. Прошивка отвечает `{"code": 0, "message": "Success"}`: ноль —
 успех, остальное — отказ с текстом в `message`. Ответ без `code` (часть сборок
 отвечает пустым объектом) считается подтверждением: команда ушла, а правду
-покажет следующий `get_status()`.
+покажет следующий `get_status()`. HTTP при этом всегда 200, поэтому код в теле —
+единственный признак отказа, а английский текст переводится подсказкой
+(`_REFUSAL_HINTS`): «Access code is different» — про поле Check Code, «SN is
+different» — про серийный номер.
 
 Форматы. 5M печатает обычный G-code, AD5X и Creator 5 — контейнер `.3mf` с
 готовым G-code внутри. Проверку записей контейнера делает `formats.py`
@@ -85,21 +94,41 @@ UPLOAD_PATH: Final = "/uploadGcode"
 PRINT_PATH: Final = "/printGcode"
 CONTROL_PATH: Final = "/control"
 
-# Причина отказа, когда карточка принтера не заполнена. FlashForge ждёт
-# `serialNumber` и `checkCode` в заголовке каждого запроса и без них отвечает
-# 404 на `/detail` — мастер читал это как «прошивка не знает /detail» и искал
-# проблему в модели принтера вместо пустых полей. Запрос в сеть при пустых
+# Виды запроса `/detail`: `True` — пара `serialNumber`/`checkCode` в JSON-теле
+# `POST` (прошивки 3.x), `False` — в заголовках `GET` (ранние сборки). Порядок
+# важен: 404 от принтера дешёвый (доли секунды), а вот второй таймаут на
+# выключенном принтере мастеру ждать не за что — поэтому тело идёт первым, а
+# заголовки остаются запасным путём.
+DETAIL_REQUEST_SHAPES: Final[tuple[bool, ...]] = (True, False)
+
+# Причина отказа, когда карточка принтера не заполнена. Без этой пары прошивка
+# отвечает отказом на любой запрос, а мастер читал «прошивка не знает /detail» и
+# искал проблему в модели принтера вместо пустых полей. Запрос в сеть при пустых
 # полях не отправляется вовсе: незачем ждать таймаут десять секунд.
 CREDENTIALS_MISSING: Final = (
     "Не указан Serial Number или Check Code. Добавьте их в карточке принтера"
 )
 
-# 404 от `/detail`: у FlashForge это не «нет такого метода», а отказ запросу без
-# заголовков `serialNumber`/`checkCode` (или без них же после замены платы).
+# 404 от `/detail` на оба вида запроса: принтер не понял ни тело, ни заголовки.
+# Это уже не «пустая карточка» (та отсекается до сети), а выключенный LAN-режим,
+# чужой сервис на 8898 или прошивка без этого API.
 DETAIL_NOT_FOUND: Final = (
-    "FlashForge отклонил подключение (404). Проверьте, что в настройках "
-    "принтера указаны Serial Number и Check Code."
+    "FlashForge не ответил на /detail (404). Проверьте, что в настройках "
+    "принтера включён LAN-режим и указаны Serial Number и Check Code."
 )
+
+# Отказы прошивки в `message`: HTTP всегда 200, а исход лежит в `code`, и текст
+# английский — мастеру он ничего не объясняет. «Access code is different» и «SN
+# is different» относятся к двум разным полям карточки, и путать их нельзя:
+# новый код не исправит чужой серийный номер.
+_REFUSAL_HINTS: Final[dict[str, str]] = {
+    "access code is different": "checkCode не принят — сверьте код с экрана принтера",
+    "sn is different": "серийный номер не принят — сверьте SN с экрана принтера",
+    "parameters is error": "принтер не разобрал параметры запроса",
+    "content-type is error": "принтер не принял формат запроса",
+    "file is not exist": "такого файла нет на принтере — повторите загрузку",
+}
+
 
 # `jobCtl_cmd` в `POST /control`. Возврат прошивка называет `continue`, а не
 # `resume`: неизвестную команду она отклоняет, и печать осталась бы стоять.
@@ -363,7 +392,13 @@ def _detail_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def _ack_reason(payload: dict[str, Any] | None) -> str | None:
     """
-    Отказ в ответе на команду: `{"code": 0, "message": "Success"}` — успех.
+    Отказ прошивки: `{"code": 0, "message": "Success"}` — успех.
+
+    Конверт один у `/detail`, `/uploadGcode`, `/printGcode` и `/control`: HTTP
+    всегда 200, а исход лежит в `code` (`0` — успех, `1` — не принят код с
+    экрана или номер, `-1` — не разобраны параметры). Английский `message`
+    мастеру ничего не объясняет, поэтому известные отказы переводит
+    `_REFUSAL_HINTS`, а код остаётся в тексте для журнала.
 
     Пустое тело и ответ без `code` считаются подтверждением: часть сборок
     отвечает `{}` или строкой, а саму команду уже выполнила.
@@ -377,6 +412,10 @@ def _ack_reason(payload: dict[str, Any] | None) -> str | None:
         return None
 
     message = _first_text(payload, ("message", "msg"))
+    hint = _REFUSAL_HINTS.get(message.lower()) if message else None
+
+    if hint:
+        return f"{hint} (код {int(code)})"
 
     if message:
         return f"code {int(code)}: {message}"
@@ -425,8 +464,8 @@ class FlashForgeAdapter(BasePrinterAdapter):
         попадает на принтер через прокси. По умолчанию 8898.
 
         `serial_number` — поле «Серийный номер (SN)» формы принтера. Пустое
-        значение не «дозаполнится» позже: прошивка ждёт номер в заголовке
-        каждого запроса, поэтому `connect()` вернёт `False` с просьбой указать
+        значение не «дозаполнится» позже: прошивка сверяет номер с платой и без
+        него отказывает, поэтому `connect()` вернёт `False` с просьбой указать
         Serial Number и Check Code.
 
         `secrets` — содержимое `workshop_printers.printer_secrets`. Нужен
@@ -467,6 +506,9 @@ class FlashForgeAdapter(BasePrinterAdapter):
         """
         Заголовки запроса: `serialNumber`, `checkCode` и то, что нужно методу.
 
+        Пара нужна в заголовках всегда, даже если паспорт и команды берут её из
+        тела: `/uploadGcode` другого вида авторизации не знает.
+
         Пустые значения не отправляются: заголовок с пустым значением прошивка
         читает как «номер есть, но пустой» и отвечает отказом, который мастеру
         ничего не объясняет. Отсутствие номера ловит `_require_identity()`, а
@@ -488,17 +530,17 @@ class FlashForgeAdapter(BasePrinterAdapter):
         """
         Проверка серийного номера до сети.
 
-        False — номера нет, и запрос отправлять некуда: FlashForge ждёт
-        `serialNumber` в заголовке каждого запроса, а пустой номер прошивка
-        отклоняет. Причина остаётся в `last_error`, чтобы мастер увидел её в
-        карточке задания, а не «HTTP 400» из журнала.
+        False — номера нет, и запрос отправлять некуда: прошивка сверяет
+        `serialNumber` с платой и пустой номер отклоняет. Причина остаётся в
+        `last_error`, чтобы мастер увидел её в карточке задания, а не «HTTP
+        400» из журнала.
         """
         if self.serial_number:
             return True
 
         self.last_error = (
-            "не задан серийный номер принтера (SN): FlashForge ждёт его в "
-            f"заголовке каждого запроса, а без него {label} отклоняется"
+            "не задан серийный номер принтера (SN): FlashForge сверяет его с "
+            f"платой, а без него {label} отклоняется"
         )
         logger.error("FlashForge %s: %s", self.ip_address, self.last_error)
 
@@ -508,10 +550,10 @@ class FlashForgeAdapter(BasePrinterAdapter):
         """
         Чего не хватает для запроса к принтеру: `serialNumber` и `checkCode`.
 
-        Оба значения прошивка ждёт в заголовке каждого запроса. Без них она
-        отвечает 404, поэтому проверка стоит до сети: таймаут десять секунд
-        мастеру ждать не за что, а причина в `last_error` должна называть поля
-        карточки, а не HTTP-код.
+        Без любого из двух значений прошивка отвечает отказом (`Parameters is
+        error`) вместо паспорта, поэтому проверка стоит до сети: таймаут
+        десять секунд мастеру ждать не за что, а причина в `last_error` должна
+        называть поля карточки, а не HTTP-код.
         """
         if self.serial_number and self.check_code:
             return None
@@ -520,15 +562,20 @@ class FlashForgeAdapter(BasePrinterAdapter):
 
     def _read_detail(self) -> dict[str, Any] | None:
         """
-        `GET /detail`: паспорт и состояние печати.
+        Паспорт и состояние печати из `/detail`.
+
+        Прошивки 3.x читают `serialNumber` и `checkCode` из JSON-тела `POST`,
+        ранние сборки — из заголовков `GET`: на чужой вид запроса принтер
+        отвечает 404 и пустым телом. Поэтому сначала уходит тело, а
+        заголовочный запрос — только если тело не разобралось.
+
+        Отказ по существу (`code` не ноль: код с экрана или номер не приняты,
+        параметры не разобраны) второй запрос не оправдывает: вид запроса уже
+        верный, и мастеру нужна причина, а не второй таймаут.
 
         Ответ без `detail` и без полей принтера — не FlashForge: на 8898 в
         мастерской может оказаться чужой сервис, и «подключено» там было бы
         ложью. Причина отказа остаётся в `last_error`.
-
-        Пустые `serialNumber`/`checkCode` и 404 объясняются словами: прошивка
-        отвечает 404 на запрос без этих заголовков, и «прошивка не знает
-        /detail» уводило мастера искать обновление вместо карточки принтера.
         """
         missing = self._missing_credentials()
 
@@ -544,46 +591,96 @@ class FlashForgeAdapter(BasePrinterAdapter):
 
             return None
 
-        try:
-            response = requests.get(
-                f"{self.base_url}{DETAIL_PATH}",
-                headers=self._headers(),
-                timeout=REQUEST_TIMEOUT,
-            )
-        except requests.RequestException as error:
-            self.last_error = f"паспорт не получен: {error}"
-            logger.error(
-                "FlashForge %s: паспорт не получен: %s", self.ip_address, error
-            )
+        reason: str | None = None
 
-            return None
+        for in_body in DETAIL_REQUEST_SHAPES:
+            detail, attempt_reason, retry = self._detail_attempt(in_body)
 
-        if response.status_code != 200:
-            if response.status_code == 404:
-                reason = DETAIL_NOT_FOUND
-            else:
-                reason = f"паспорт не получен: {_http_reason(response, _DETAIL_HINTS)}"
+            if detail is not None:
+                self._remember_detail(detail)
 
+                return detail
+
+            # 404 запасного запроса не должен затирать причину первой попытки:
+            # чужой сервис на 8898 отвечает на `POST` посторонним JSON, а на
+            # `GET` — 404, и мастеру нужнее «отвечает не FlashForge», чем код.
+            if reason is None or reason == DETAIL_NOT_FOUND:
+                reason = attempt_reason
+
+            if not retry:
+                break
+
+        if reason is not None:
             self.last_error = reason
             logger.error("FlashForge %s: %s", self.ip_address, reason)
 
-            return None
+        return None
 
-        detail = _detail_payload(_read_json(response))
+    def _detail_attempt(
+        self, in_body: bool
+    ) -> tuple[dict[str, Any] | None, str | None, bool]:
+        """
+        Один запрос `/detail`: `(паспорт, причина отказа, пробовать другой вид)`.
 
-        if detail is None:
-            self.last_error = "на 8898 отвечает не FlashForge: нет данных принтера"
-            logger.error(
-                "FlashForge %s: в ответе /detail нет данных принтера: %s",
-                self.ip_address,
-                _response_text(response),
+        Третий элемент — «прошивка не поняла вид запроса»: 404, пустое тело и
+        не-JSON. Сеть и отказ по существу второй запрос не оправдывают: у
+        выключенного принтера это ещё один таймаут, а чужой код с экрана не
+        исправится сменой вида запроса.
+        """
+        try:
+            if in_body:
+                response = requests.post(
+                    f"{self.base_url}{DETAIL_PATH}",
+                    headers=self._headers(),
+                    json={
+                        "serialNumber": self.serial_number,
+                        "checkCode": self.check_code,
+                    },
+                    timeout=REQUEST_TIMEOUT,
+                )
+            else:
+                response = requests.get(
+                    f"{self.base_url}{DETAIL_PATH}",
+                    headers=self._headers(),
+                    timeout=REQUEST_TIMEOUT,
+                )
+        except requests.RequestException as error:
+            return None, f"паспорт не получен: {error}", False
+
+        if response.status_code != 200:
+            if response.status_code == 404:
+                return None, DETAIL_NOT_FOUND, True
+
+            return (
+                None,
+                f"паспорт не получен: {_http_reason(response, _DETAIL_HINTS)}",
+                False,
             )
 
-            return None
+        answer = _read_json(response)
 
-        self._remember_detail(detail)
+        # Пустое тело и HTML вместо JSON — тоже «не понял», но причина другая:
+        # так отвечает чужой сервис на 8898, а не прошивка с отказом. Второй
+        # вид запроса это не исправит, но проверить его дешевле, чем оставить
+        # мастера с догадками.
+        if answer is None:
+            return (
+                None,
+                "на /detail пришёл не JSON — на 8898 отвечает не прошивка",
+                True,
+            )
 
-        return detail
+        refusal = _ack_reason(answer)
+
+        if refusal is not None:
+            return None, refusal, False
+
+        detail = _detail_payload(answer)
+
+        if detail is None:
+            return None, "на 8898 отвечает не FlashForge: нет данных принтера", True
+
+        return detail, None, False
 
     def _remember_detail(self, detail: Mapping[str, Any]) -> None:
         """
@@ -591,21 +688,20 @@ class FlashForgeAdapter(BasePrinterAdapter):
 
         `name` у FlashForge — модель («Adventurer 5M Pro»), `firmwareVersion` —
         прошивка. Серийный номер отсюда не берётся: без него `_read_detail()` в
-        сеть не выходит (прошивка отвечает 404), поэтому номер всегда приходит
-        из карточки принтера.
+        сеть не выходит (прошивка отвечает отказом), поэтому номер всегда
+        приходит из карточки принтера.
         """
         self.model = _first_text(detail, _MODEL_FIELDS) or self.model
         self.firmware = _first_text(detail, _FIRMWARE_FIELDS) or self.firmware
 
     def connect(self) -> bool:
         """
-        `GET /detail`: 200 с данными принтера — принтер на связи.
+        `/detail` с паспортом принтера — принтер на связи.
 
         Без `serialNumber` и `checkCode` подключение не начинается: прошивка
-        ждёт оба заголовка в каждом запросе, а на запрос без них отвечает 404.
-        `last_error` в этом случае называет поля карточки принтера, а не
-        HTTP-код: мастеру нужно знать, что заполнить, а не что случилось с
-        `/detail`.
+        без них отвечает отказом, а не паспортом. `last_error` в этом случае
+        называет поля карточки принтера, а не HTTP-код: мастеру нужно знать,
+        что заполнить, а не что случилось с `/detail`.
         """
         detail = self._read_detail()
 
@@ -665,6 +761,10 @@ class FlashForgeAdapter(BasePrinterAdapter):
         Имя приходит из `prepare_upload()`: папки отброшены, кириллица снята,
         пробелы заменены на `-`. Файл прошивка кладёт в свою папку сама, а
         `start_print()` ищет его по этому же имени.
+
+        Пара `serialNumber`/`checkCode` здесь уходит заголовками: `/uploadGcode`
+        читает авторизацию только оттуда и на номер полем формы отвечает «SN is
+        different».
         """
         if not self._require_identity("загрузка файла"):
             return False
@@ -853,7 +953,7 @@ class FlashForgeAdapter(BasePrinterAdapter):
 
     def get_status(self) -> dict[str, Any]:
         """
-        Состояние из `GET /detail`: `machineStatus` и `printInfo`.
+        Состояние из `/detail`: `machineStatus` и `printInfo`.
 
         `machineStatus` переводится по `_STATE_MAP`: `READY` и `COMPLETED` —
         простой, `PRINTING`, `HEATING` и `BUSY` — печать, `PAUSED` — пауза,
@@ -914,7 +1014,7 @@ class FlashForgeAdapter(BasePrinterAdapter):
         """
         Паспорт для формы «Проверить принтер»: модель, прошивка, серийный номер.
 
-        `GET /detail` безвреден и отвечает за доли секунды: мастеру нужен ответ
+        `/detail` безвреден и отвечает за доли секунды: мастеру нужен ответ
         до сохранения принтера. Отказ сети возвращает статику класса, как у
         остальных адаптеров, и причину в `last_error`.
         """

@@ -2347,16 +2347,18 @@ Api-Key шифруется на сервере (`lib/crypto.ts`, AES-256-GCM): �
 
 Под брендом и моделью окно спрашивает подключение: `<select name="protocol">` — восемь протоколов
 (`PRINTER_PROTOCOL_OPTIONS`: moonraker, octoprint, bambu, prusa, creality, anycubic, flashforge,
-elegoo; по умолчанию `moonraker`), поле «Серийный номер (SN)» — для Bambu и, когда появится его
-драйвер, для FlashForge (`isPrinterSerialProtocol`: первому SN нужен для MQTT-топиков
-`device/<serial>/report`, второму — для заголовка `serialNumber` в каждом запросе; сама форма пока
-показывает поле только у Bambu), обязательный «IP-адрес» (`ipAddress`, проверка
-`normalizePrinterAddress`: IPv4, IPv6 или имя узла вроде `ender3.local`, до 253 символов) и
+elegoo; по умолчанию `moonraker`), поле «Серийный номер (SN)» — у Bambu и FlashForge
+(`isPrinterSerialProtocol`), и у обоих оно обязательное (`serialNumberRequired`: Bambu без номера не
+подключится по MQTT, FlashForge отклонит каждый запрос), поэтому в разметке стоит `required`, а разбор
+формы отклоняет пустое значение своим текстом на протокол. Обязательный «IP-адрес» (`ipAddress`,
+проверка `normalizePrinterAddress`: IPv4, IPv6 или имя узла вроде `ender3.local`, до 253 символов) и
 «API-ключ / Код доступа» (`apiKey`, `type="password"`, до 512 символов; у Bambu это 8-значный код с
-экрана принтера, у остальных можно оставить пустым). Пустые SN и ключ уходят в базу как null, а SN
-у прочих протоколов не сохраняется вовсе — иначе агент подставил бы чужой номер в топик MQTT.
-Остальные секреты протокола (`checkCode` FlashForge, `deviceId`/`modeId` Anycubic, `mainboardId`
-Elegoo) лежат в колонке `workshop_printers.printer_secrets` (jsonb) и в браузер не возвращаются.
+экрана принтера, у остальных можно оставить пустым). Подсказки под полями берутся из одного места —
+`printerSerialHint` (SN) и `hint` полей `PRINTER_CONNECTION_SPECS`. Пустые SN и ключ уходят в базу как
+null, а SN у прочих протоколов не сохраняется вовсе — иначе агент подставил бы чужой номер в топик
+MQTT. Остальные секреты протокола (`checkCode` FlashForge — обязателен, у него свой `requiredError`,
+`deviceId`/`modeId` Anycubic, `mainboardId` Elegoo) лежат в колонке `workshop_printers.printer_secrets`
+(jsonb) и в браузер не возвращаются.
 `createPrinterPayload` пишет `protocol_type`, `serial_number`, `ip_address` и `api_key`; ключ в браузер
 не возвращается: `PRINTER_COLUMNS` его не читает, он уходит только агенту через `/api/agent/tasks`.
 
@@ -2771,20 +2773,26 @@ WebSocket на 9999 и подтверждает `heart_beat`, грузит фа�
 `websockets.sync.server` на loopback изображают оба канала и проверяют `heart_beat`, `opGcodeFile`
 с обеими папками, разбор состояний, паузу и остановку, отказ `.3mf` до сети и порядок портов.
 
-FlashForge (шаг 5) — протокол, где авторизация живёт в заголовках: `FlashForgeAdapter` проверяет принтер
-запросом `GET /detail` с `serialNumber` и `checkCode`, грузит файл `POST /uploadGcode` multipart-формой
-(поле `gcodeFile`, заголовки `fileSize`, `printNow: false`, `levelingBeforePrint: true`), стартует печать
+FlashForge (шаг 5) — протокол, где место пары `serialNumber`/`checkCode` зависит от сборки: `FlashForgeAdapter`
+проверяет принтер запросом `POST /detail` с `{"serialNumber", "checkCode"}` в теле, а если ранняя прошивка
+на такой запрос отвечает 404 — повторяет `GET /detail` с теми же значениями в заголовках и только после
+двух отказов говорит, что принтер не найден (выключен LAN-режим или на 8898 чужой сервис). Грузит файл
+`POST /uploadGcode` multipart-формой
+(поле `gcodeFile`, заголовки `fileSize`, `printNow: false`, `levelingBeforePrint: true`; пару этот адрес
+принимает только заголовками, номер полем формы возвращается отказом «SN is different»), стартует печать
 `POST /printGcode` с `{"serialNumber", "checkCode", "fileName", "levelingBeforePrint": true}` и управляет
 ею `POST /control` с `jobCtl_cmd: pause | continue | cancel`. Серийный номер приходит из поля «Серийный
-номер (SN)» формы принтера, а если его не заполнили — подхватывается из `/detail` при подключении;
+номер (SN)» формы принтера, а если его не заполнили — из `serialNumber` в секретах;
 `checkCode` вводится только из секретов: он печатается на экране принтера, из сети его не узнать. Без
-номера загрузка и команды отклоняются до сети — пустой заголовок прошивка отвергает ответом, из которого
-мастеру ничего не понятно, — а пустой `checkCode` виден в журнале уже на подключении. `machineStatus`
+любого из двух значений адаптер не выходит в сеть и называет поля карточки: пустой заголовок прошивка
+отвергает ответом, из которого мастеру ничего не понятно, и он искал причину не там. `machineStatus`
 переводится так: `READY` и `COMPLETED` — `idle`, `PRINTING`, `HEATING`, `HOMING`, `LEVELING` и `BUSY` —
 `printing`, `PAUSED` — `paused`, `ERROR`, `CANCELLED` и `STOPPED` — `error` с причиной в `last_error`.
 Нагрев и калибровка считаются печатью намеренно: сразу после `/printGcode` прошивка греет стол, а `idle`
 main.py прочитал бы как «печать не начиналась» и закрыл задание провалом. Ответ на команду —
-`{"code": 0, "message": "Success"}`: ноль успех, остальное отказ с текстом. Ответ без `detail` и без полей
+`{"code": 0, "message": "Success"}`: ноль успех, остальное отказ с текстом, и английский `message`
+переводится подсказкой («Access code is different» — про поле Check Code, «SN is different» — про
+серийный номер, «Parameters is error» — про сам запрос). Ответ без `detail` и без полей
 принтера принтером не считается: на 8898 бывает чужой сервис. Тест без принтера — `scripts/test-flashforge.py`.
 
 Elegoo (шаг 5) — SDCP: `ElegooAdapter` держит WebSocket на 3030 (`/websocket`) для команд и HTTP для файла.
@@ -2853,11 +2861,19 @@ Elegoo, `Bambu Lab <SN>` для Bambu. Имя пишется в `workshop_discov
 печати и опрос состояния; Bambu Lab — тоже полностью, по LAN-протоколу принтера (MQTT с TLS на
 8883 и implicit FTPS на 990, пароль — код доступа с экрана): серийный номер берётся из задания —
 поле «Серийный номер (SN)» в форме принтера Мастерской (колонка `workshop_printers.serial_number`,
-протокол `bambu`), — затем SSDP-поиска и первого отчёта. Обрыв MQTT во время загрузки файла не
-закрывает задание ошибкой: перед командой печати адаптер ждёт переподключения paho (10 с) и
-серийника (5 с, с запросом `pushing.pushall` и разбором топика отчёта), публикация после обрыва
-делает одну повторную попытку, а если номера так и нет — мастер видит причину «Не удалось получить
-серийный номер принтера. Проверьте, что принтер в сети и в режиме LAN». Загрузка файла идёт FTPS с обязательными
+протокол `bambu`) — и оно обязательно, без него карточка не сохраняется. Если номер всё же пуст,
+адаптер ищет его сам: сертификат принтера (`CN` на 8883 — это и есть SN: `03900D650925979`), затем
+SSDP-поиск; это дополнительный способ, а не замена полю. Шаблонной подписки `device/+/report` нет
+вовсе: на SUBSCRIBE брокер отвечает не SUBACK, а разрывом TLS-соединения (`MQTT-соединение потеряно:
+Unspecified error`), и агент крутился в петле «подключился — подписался — оборвалось», не получая ни
+одного отчёта. Подписка только точная — `device/<serial>/report`, — а без серийника `connect()` и
+`start_print()` отказывают одной фразой `SERIAL_REQUIRED_ERROR`: «Не указан Serial Number. Он
+обязателен для LAN-режима Bambu Lab. Укажите его в карточке принтера.». Ждать номер из отчёта
+бесполезно (отчёт приходит в топик, который из номера и строится), поэтому `start_print()` проверяет
+SN первой строкой и не переподключается. Обрыв MQTT во время загрузки файла не закрывает задание
+ошибкой: перед командой печати адаптер ждёт переподключения paho (10 с), публикация после обрыва
+делает одну повторную попытку, а если связи так и нет — мастер видит причину «команда печати не
+отправлена: нет MQTT-соединения». Загрузка файла идёт FTPS с обязательными
 `PROT P` и `PASV`, а TLS ограничен 1.2: только в нём Python отдаёт TLS-сессию управляющего канала
 сразу после рукопожатия, и принтер принимает её в канале данных. Без переиспользования Bambu рвёт
 передачу (`WinError 10054`), поэтому после сброса файл отправляется вручную через сокет (`TYPE I`,
@@ -2866,7 +2882,11 @@ Elegoo, `Bambu Lab <SN>` для Bambu. Имя пишется в `workshop_discov
 отказа в `last_error`). На принтер уходит только проект `.3mf`, сохранённый из Bambu Studio
 («Экспорт файла пластины»): плоский G-code и STL A1 не нарезает, поэтому оба отклоняются до
 загрузки с подсказкой о нарезке, а контейнер проверяется на нарезку пластины, профиль слайсера и
-совпадение модели принтера с карточкой. OctoPrint и PrusaLink (шаг 8.3), Creality (шаг 4),
+совпадение модели принтера с карточкой. После `FINISH` прошивка Bambu продолжает отдавать
+`mc_percent: 100` при `gcode_state: IDLE`, пока не начнёт новое задание, поэтому сразу после
+`success` на команду печати адаптер чистит процент и остаток: иначе первый опрос после старта
+(задержка 60 с) видел «100 %, простой» и закрывал задание как `done` без единого слоя.
+OctoPrint и PrusaLink (шаг 8.3), Creality (шаг 4),
 FlashForge и Elegoo
 (шаг 5), Anycubic (шаг 6) тоже работают полностью: подключение, загрузка, старт печати, опрос
 состояния, пауза, возврат и отмена. Протокол без драйвера агент отмечает
@@ -3049,7 +3069,7 @@ FlashForge и Elegoo
 | `lib/workshop/payload.ts` | Строки для записи в таблицы Мастерской: `createWorkshopSettingsPayload(userId, settings, requisites, integrations)` (все три группы необязательны: сохранение калькулятора не перезаписывает реквизиты и ключи Ozon, вкладка «Реквизиты» — числа и ключи, «Интеграции» — числа и реквизиты; `undefined`-поля в запрос не попадают, а `null` в обоих ключах выключает интеграцию; `ozon_api_key` приходит уже зашифрованным из `saveWorkshopSettings`), `createFilamentPayload`, `createPrinterPayload`, `createOrderPayload`, а также `createPrinterUsagePayload` и `createFilamentUsagePayload` для update после заказа — единственное место перевода camelCase → snake_case; пустые ссылка, клиент, заметки и срок превращаются в `null`, `product_id` и `client_id` появляются только при выбранных товаре и клиенте, а переименование колонки ловит TypeScript, а не ответ PGRST204 из прода |
 | `lib/workshop/filaments.ts` | Склад пластика: `WorkshopFilament` (`usageType`: `stock` — складской, `ordered` — заказной), `FilamentOrderItem`, `FILAMENT_ORDER_LIMITS` (до 100 позиций, 1–100 000 г), `FILAMENT_COLUMNS`, `FILAMENT_NUMBER_FIELDS` (вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г; вес — integer), `FILAMENT_TEXT_LIMITS` (60/30/40/500), `FILAMENT_DEFAULTS` (1 000 / 200 / 1 500), `FILAMENT_BRANDS` (13 производителей для `<datalist id="brand-list">`), `FILAMENT_TYPE_SUGGESTIONS`, `FILAMENT_USAGE_TYPES` (`stock`/`ordered`), `FILAMENT_USAGE_TYPE_LABELS`, `isFilamentUsageType`, `readFilamentUsageType` (нет поля или неизвестное значение → `stock`), `IMPORTED_FILAMENTS_MAX` (100), `parseImportedFilamentName` (бренд и тип отдельными словами, остаток названия — цвет, иначе «Импорт» / «PLA» / «Разное»), `createImportedFilamentDraft` (кг → граммы, другая единица → 1 000 г, цена позиции → ₽/кг, без цены — 1 500), `SaveImportedFilamentsResult`, `normalizeFilamentRow` (битое число → значение по умолчанию, строка без UUID отбрасывается), `readFilamentForm` (текст, ссылка только `http(s)://`, остаток не больше общего веса), `readConsumeFilamentForm`, `isFilamentId`, `readFilamentOrderItems` (JSON из адреса → уникальные позиции с целыми граммами в допустимых пределах), `isLowStockFilament`, `filamentRemainingPercent`, `subtractFilamentWeight`, `formatGrams` |
 | `lib/workshop/filament-store.ts` | `getWorkshopFilaments(supabase, userId)` → `{ filaments, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой склад и признак неприменённой миграции через `isMissingTableSchema()`; `getWorkshopFilamentsByIds(supabase, userId, filamentIds)` для печатной закупки: `.in("id", …)` с обязательным `user_id`, до запроса отсекает мусорные id, повторы и всё сверх 100 позиций, ошибку так же превращает в пустой список |
-| `lib/workshop/printers.ts` | Принтеры: `WorkshopPrinter` (наработки и интервалы сопла, смазки осей и винта Z), `PRINTER_COLUMNS`, `PRINTER_TEXT_LIMITS` (60/40/60), `PRINTER_INTERVAL_LIMITS` (сопло и винт Z 1–10 000 ч, смазка 0–10 000 ч), `PRINTER_INTERVAL_DEFAULTS` (400/300/720), `readPrinterForm` (имя, бренд, модель — только из справочника бренда или `UNLISTED_PRINTER_MODEL` (`isPresetPrinterModel`, иначе ошибка «Выберите модель из списка…»), три интервала), `normalizePrinterRow` (битое число → значение по умолчанию; старые строки без винта Z получают 0/720), `isPrinterId`, `isIsoDate`, `printerMaintenancePercent` (дробный процент, 0…∞), `printerMaintenanceLevel` (`ok` до 80 %, `due` 80–100 %, `overdue` больше 100 %; `null` при интервале 0), `countMaintenanceDue` (три узла), `formatPrinterHours`, `formatPrinterDate`, `PRINTER_PROTOCOL_OPTIONS` (восемь протоколов: moonraker, octoprint, bambu, prusa, creality, anycubic, flashforge, elegoo) и `formatPrinterProtocol` (один список подписей протоколов для формы добавления и карточки), `PRINTER_SERIAL_PROTOCOLS` и `isPrinterSerialProtocol` (SN нужен только Bambu и FlashForge), `formatPrinterLastSeen` («29.10.2026, 14:05» или «ещё не выходил на связь»), `readPrinterConnectionForm` (`PrinterConnectionDraft`: протокол обязателен, адрес проверяется `normalizePrinterAddress`, SN остаётся только у Bambu и FlashForge (`isPrinterSerialProtocol`), пустой ключ — «оставить сохранённый»); `normalizePrinterRow` читает ещё `protocol_type` (незнакомое значение → `moonraker`) и `ip_address` (`null` без миграции); находка агента с незнакомым протоколом отбрасывается и считается в `skipped` (`readDiscoveredPrinters`), строка `workshop_discovered_printers` с таким протоколом не показывается (`normalizeDiscoveredPrinterRow`) — подставлять moonraker по умолчанию значило бы закрепить в базе чужой протокол |
+| `lib/workshop/printers.ts` | Принтеры: `WorkshopPrinter` (наработки и интервалы сопла, смазки осей и винта Z), `PRINTER_COLUMNS`, `PRINTER_TEXT_LIMITS` (60/40/60), `PRINTER_INTERVAL_LIMITS` (сопло и винт Z 1–10 000 ч, смазка 0–10 000 ч), `PRINTER_INTERVAL_DEFAULTS` (400/300/720), `readPrinterForm` (имя, бренд, модель — только из справочника бренда или `UNLISTED_PRINTER_MODEL` (`isPresetPrinterModel`, иначе ошибка «Выберите модель из списка…»), три интервала), `normalizePrinterRow` (битое число → значение по умолчанию; старые строки без винта Z получают 0/720), `isPrinterId`, `isIsoDate`, `printerMaintenancePercent` (дробный процент, 0…∞), `printerMaintenanceLevel` (`ok` до 80 %, `due` 80–100 %, `overdue` больше 100 %; `null` при интервале 0), `countMaintenanceDue` (три узла), `formatPrinterHours`, `formatPrinterDate`, `PRINTER_PROTOCOL_OPTIONS` (восемь протоколов: moonraker, octoprint, bambu, prusa, creality, anycubic, flashforge, elegoo) и `formatPrinterProtocol` (один список подписей протоколов для формы добавления и карточки), `PRINTER_SERIAL_PROTOCOLS` и `isPrinterSerialProtocol` (SN нужен только Bambu и FlashForge), `printerSerialHint` (подсказка под полем SN: у обоих протоколов без номера печать невозможна), `formatPrinterLastSeen` («29.10.2026, 14:05» или «ещё не выходил на связь»), `readPrinterConnectionForm` (`PrinterConnectionDraft`: протокол обязателен, адрес проверяется `normalizePrinterAddress`, SN остаётся только у Bambu и FlashForge (`isPrinterSerialProtocol`) и обязателен у обоих в любом режиме — пустой отклоняется текстом `PRINTER_SERIAL_REQUIRED_ERRORS`, у `checkCode` FlashForge свой `requiredError`, пустой ключ — «оставить сохранённый»); `normalizePrinterRow` читает ещё `protocol_type` (незнакомое значение → `moonraker`) и `ip_address` (`null` без миграции); находка агента с незнакомым протоколом отбрасывается и считается в `skipped` (`readDiscoveredPrinters`), строка `workshop_discovered_printers` с таким протоколом не показывается (`normalizeDiscoveredPrinterRow`) — подставлять moonraker по умолчанию значило бы закрепить в базе чужой протокол |
 | `lib/3d/printer-model-codes.ts` | Служебные коды моделей Bambu Lab и их названия: `BAMBU_MODELS` (`N2S` → Bambu Lab A1, `N1` → A1 mini, `C11`/`C12`/`C13` → P1P/P1S/X1E, `BL-P001`/`BL-P002` → X1C/X1, `O1D` → H2D — значения `model_id` из профилей Bambu Studio), `resolvePrinterModelCode` («N2S» → «Bambu Lab A1», незнакомое значение возвращается как есть), `bambuPrinterCode` (название или другое написание → код: «Bambu Lab X1 Carbon» и «X1C» сходятся при сверке) и `isPrinterModelCode` (примета служебного кода: «O1S» — код, «A1 mini» — название). Модуль без Node-зависимостей: его читают и разбор 3MF (`lib/3d/parse-3mf.ts`), и браузерная сверка (`lib/3d/print-compatibility.ts`) |
 | `lib/workshop/print-assignment.ts` | Одна проверка «можно ли печатать этот файл на этом принтере» для карточки, ручной очереди и планировщика: `checkPrintFormat` (расширение входит в `PRINTER_UPLOAD_FORMATS` протокола; STL и пустая ссылка — отдельный текст), `checkSlicedPrinter` (разметка `sliced_for_printer` против модели принтера, а `.3mf` без метки — отказ на любом принтере с маркой: «Невозможно проверить совместимость… сохраните файл в Bambu Studio»), `checkPrintAssignment` (формат, затем разметка) и `printFitsPrinter` (та же проверка одним булевым ответом для подбора). Универсальные протоколы (`moonraker`, `octoprint`) строгости к разметке не подчиняются, но `.3mf` они всё равно не принимают |
 | `lib/workshop/printer-store.ts` | `getWorkshopPrinters(supabase, userId)` → `{ printers, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой парк и признак неприменённой миграции |
@@ -7994,15 +8014,17 @@ Anycubic в адаптер не попадали: маршрут колонку 
 
 Форма «Добавить принтер» перестала быть статичной. Справочник `PRINTER_CONNECTION_SPECS` в
 `lib/workshop/printers.ts` описывает для каждого из восьми протоколов поле ключа (подпись,
-обязательность, предел длины, `exactLength`), нужен ли SN и какие секреты спрашивать (`label`,
-`placeholder`, `hint`, `required`, `password`, `options`, `fallback`). По нему рисуется
+обязательность, предел длины, `exactLength`), обязателен ли SN (`serialNumberRequired`, подсказка —
+`printerSerialHint`) и какие секреты спрашивать (`label`, `placeholder`, `hint`, `required`,
+`requiredError`, `password`, `options`, `fallback`). По нему рисуется
 разметка и по нему же проверяют `readPrinterForm()` и `readPrinterProbeForm()`; общая часть
 вынесена в `readConnectionFields()`, поэтому сохранение и проверка связи ругаются на одно и то
 же. Как выглядит форма:
 
 - `moonraker` — IP + API-ключ (необязательно): Klipper часто пускает без ключа;
 - `octoprint` — IP + API-ключ (обязательно): без него OctoPrint отвечает 403;
-- `bambu` — IP + Access Code (ровно 8 символов) + SN (необязательно, адаптер найдёт по SSDP);
+- `bambu` — IP + Access Code (ровно 8 символов) + SN (обязательно: без него неизвестны топики
+  `device/<serial>/…`; сертификат и SSDP остались запасным путём для старых записей);
 - `prusa` — IP + API-ключ (пароль PrusaLink, скрытый ввод) + Storage (usb/local, по умолчанию usb);
 - `creality` — только IP: команды идут по WebSocket 9999 без ключа;
 - `flashforge` — IP + SN (обязательно) + Check Code (обязательно): прошивка сверяет оба;
@@ -8430,3 +8452,70 @@ FlashForge с именем `Adventurer 5M Pro` теперь получает и 
 принимается, «Моя самоделка» и чужой «K1C» при бренде FlashForge отклоняются с новым текстом,
 «Не указана» проходит при любом бренде, пустая модель отклоняется, подтверждение находок чистит
 произвольную модель); `npx tsc --noEmit` — 0 ошибок, `npm run lint`, `npm run build`.
+
+**Агент: FlashForge отвечает прошивке её видом запроса (3 ноября 2026).** `Adventurer 5M Pro` в
+мастерской выглядел «чужим сервисом на 8898»: адаптер ходил в `/detail` запросом `GET` с парой
+`serialNumber`/`checkCode` в заголовках, а прошивка 3.x такого запроса не понимает и отвечает 404 с
+пустым телом. Живая проверка `192.168.0.5:8898` показала, что паспорт отдаёт `POST /detail` с
+`{"serialNumber", "checkCode"}` в теле, а те же значения заголовками — 404. Вид запроса зависит от
+сборки, поэтому `DETAIL_REQUEST_SHAPES = (True, False)` перебирает их по порядку: тело, затем
+заголовки. Порядок не случаен — 404 приходит за доли секунды, а второй таймаут на выключенном
+принтере мастеру ждать не за что.
+
+Запасной вид запроса пробуется только тогда, когда прошивка не поняла первый: 404, пустое тело или
+не-JSON (`_detail_attempt()` возвращает «пробовать другой вид»). Сетевая ошибка и отказ по существу
+(`code` не ноль) второго запроса не оправдывают — причина уже известна, и повтор только отнял бы
+время. 404 от запасного запроса не затирает причину первой попытки: чужой сервис на 8898 отвечает
+на `POST` посторонним JSON, а на `GET` — 404, и мастеру нужнее «отвечает не FlashForge», чем голый
+код.
+
+Отказы прошивки переведены на язык карточки принтера: конверт `{"code": N, "message": ...}` приходит
+с HTTP 200, поэтому единственный признак отказа — `code`. `_REFUSAL_HINTS` объясняет `access code is
+different` («сверьте код с экрана принтера»), `sn is different` («сверьте SN»), `parameters is
+error`, `content-type is error` и `file is not exist`, а номер кода остаётся в скобках для журнала.
+Пустые поля карточки по-прежнему отсекаются до сети (`CREDENTIALS_MISSING`), а 404 на оба вида
+запроса получил отдельный текст про выключенный LAN-режим: раньше этот случай читался как «прошивка
+не знает /detail», и мастер искал обновление прошивки вместо пустого поля.
+
+`/uploadGcode` — исключение, и оно осталось в силе: этот адрес авторизует только заголовками. Пара
+`serialNumber`/`checkCode` уходит заголовками всегда (даже когда `/detail` и команды берут её из
+тела), потому что номер полем формы прошивка возвращает отказом «SN is different».
+
+Проверки: `python scripts/test-flashforge.py` — 49 проверок, 0 провалов (вид запроса `/detail`,
+запасной `GET` у ранней сборки, отказы `code` 1 и -1 с подсказками вместо английского текста, 404 на
+оба вида запроса, посторонний JSON и HTML вместо JSON, пара только заголовками и подсказка на «SN is
+different» при загрузке); `python -m py_compile agent/adapters/flashforge.py
+scripts/test-flashforge.py` — без ошибок; `git status` — только изменённые файлы.
+
+**Агент и Мастерская: Serial Number обязателен, шаблонной подписки нет (3 ноября 2026).**
+Bambu-принтер в мастерской показывал «MQTT-соединение потеряно: Unspecified error» и агент
+переподключался по кругу, не выполняя ни одного задания. Причина — шаблонная подписка
+`device/+/report`: на SUBSCRIBE брокер принтера не отвечает SUBACK, а рвёт TLS-соединение, и
+paho честно сообщает об обрыве. Отчёт приходит в топик, который строится из серийного номера,
+поэтому «подключимся и подождём номер из отчёта» невозможно в принципе: подписка всегда точная
+(`_subscribe()` без номера возвращает `False` и клиента не трогает), а шаблона `device/+/report`
+в коде нет вовсе.
+
+Первопричина петли была в пустом поле: SN необязателен в форме, и карточка могла сохраниться без
+номера. Теперь это обязательное поле у обоих протоколов, которым номер нужен для работы: Bambu
+(топики `device/<serial>/report` и `device/<serial>/request`) и FlashForge (заголовок
+`serialNumber` в каждом запросе, плюс обязательный Check Code). `PrinterSecretField` получил
+`requiredError`, `serialNumberRequired: true` стоит в паспорте Bambu, разбор формы проверяет SN в
+обоих режимах — создание и правка: секрет при правке можно оставить пустым («оставить
+сохранённый»), а несекретный номер — нет, иначе карточка снова окажется без него. Подсказки под
+полями собраны в `printerSerialHint`, чтобы форма добавления и карточка не расходились в тексте.
+
+Отказ без номера теперь называет причину, а не сеть: `start_print()` проверяет
+`self.serial_number` первой строкой и возвращает `False` с `SERIAL_REQUIRED_ERROR` — «Не указан
+Serial Number. Он обязателен для LAN-режима Bambu Lab. Укажите его в карточке принтера.». Ждать
+переподключения и таймаутов не за что: топик команды неизвестен без номера. `connect()` ставит
+ту же причину, когда `_ensure_serial()` не нашёл номер ни в задании, ни в сертификате принтера
+(`CN` на 8883), ни по SSDP — эти поиски остались запасным путём для старых записей, но полем
+больше не заменяются. В журнале агента появился тот же текст с подсказкой, что делать.
+
+Проверки: `python scripts/test-bambu.py` — 0 провалов (пустой SN отклоняется без сети, подписка
+только точная, отчёт больше не подставляет номер, `_ensure_serial()` берёт номер задания),
+`npx pyright agent/` — 0 ошибок, `python -m py_compile agent/adapters/bambu.py
+scripts/test-bambu.py`, `npx tsc --noEmit` — 0 ошибок, `npm run build`, `npm run check:docs`,
+`npm run check:imports` — битых импортов нет.
+

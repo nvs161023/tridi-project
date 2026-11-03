@@ -12,7 +12,10 @@
      статус по `gcode_state`, прогресс из `mc_percent` и остаток в секундах
      (у Bambu он в минутах);
   4. отчёты приходят частичными, поэтому кэш дополняется, а не заменяется;
-  5. серийник, которого не было в задании, берётся из топика отчёта;
+  5. серийник обязателен: без него `connect()` и `start_print()` отказывают
+     одной фразой («Не указан Serial Number…»), а подписка «на всё»
+     (`device/+/report`, из-за неё агент переподключался по кругу) не
+     создаётся ни при каких условиях;
   6. фабрика передаёт серийник только Bambu, а `read_printer()` в main.py
      читает `printer.serialNumber` (и snake_case), подставляя пустую строку,
      если поля нет;
@@ -25,10 +28,9 @@
   9. `start_print()` отправляет `project_file` и считает печать запущенной только
      по ответу принтера;
   10. обрыв MQTT во время загрузки не убивает печать: `start_print()` ждёт
-      переподключения и серийника, а если номера так и нет — объясняет причину
-      («проверьте, что принтер в сети и в режиме LAN»);
+      переподключения, а без связи объясняет причину («нет MQTT-соединения»);
   11. `_publish()` после обрыва переподключается и повторяет команду один раз;
-  12. серийник из задания используется сразу, без SSDP и `pushall`.
+  12. серийник из задания используется сразу, без сертификата и SSDP.
 
 Запуск:
     python scripts/test-bambu.py
@@ -41,7 +43,6 @@ from __future__ import annotations
 
 import sys
 import tempfile
-import threading
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -420,7 +421,22 @@ def main() -> int:
     else:
         check("SSDP без принтера — пустой серийник", serial == "", f"{serial!r}")
 
-    expect_false("connect() на недоступном адресе", adapter.connect)
+    expect_false(
+        "connect() на недоступном адресе",
+        bambu.BambuAdapter(
+            ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+        ).connect,
+    )
+
+    # Без серийника сеть не трогаем вовсе: топики строятся из номера, а
+    # шаблонную подписку брокер принтера рвёт разрывом TLS.
+    no_serial_connect = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
+    expect_false("connect() без серийника", no_serial_connect.connect)
+    check(
+        "connect() без серийника — причина «Не указан Serial Number»",
+        no_serial_connect.last_error == bambu.SERIAL_REQUIRED_ERROR,
+        f"last_error={no_serial_connect.last_error!r}",
+    )
 
     gcode_path = Path(tempfile.gettempdir()) / "tridi-bambu-test.gcode"
     gcode_path.write_text("; test\nG28\n", encoding="utf-8")
@@ -433,7 +449,12 @@ def main() -> int:
     finally:
         gcode_path.unlink(missing_ok=True)
 
-    expect_false("start_print() без соединения", lambda: adapter.start_print("x.gcode"))
+    expect_false("start_print() без серийника", lambda: adapter.start_print("x.gcode"))
+    check(
+        "start_print() без серийника — причина та же",
+        adapter.last_error == bambu.SERIAL_REQUIRED_ERROR,
+        f"last_error={adapter.last_error!r}",
+    )
     expect_status(
         "get_status() без отчётов — idle",
         adapter,
@@ -674,58 +695,61 @@ def main() -> int:
         f"last_error={silent_print.last_error!r}",
     )
 
-    # Обрыв MQTT во время FTPS-загрузки: соединение paho поднимает заново, а
-    # серийник после реконнекта приходит не сразу. Раньше `start_print()` в этот
-    # момент отказывал «серийный номер неизвестен» — теперь ждёт и объясняет.
-    no_serial = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
-    no_serial._client = FakeMqttClient()
-    saved_serial_wait = bambu.SERIAL_WAIT_TIMEOUT
-
-    try:
-        bambu.SERIAL_WAIT_TIMEOUT = 0.1
-        serial_result = no_serial.start_print("job.gcode")
-    finally:
-        bambu.SERIAL_WAIT_TIMEOUT = saved_serial_wait
+    # Пустой SN — не «сеть отвалилась», а незаполненная карточка принтера.
+    # Проверка стоит первой строкой `start_print()`: ни таймаутов, ни
+    # переподключений, ни подписки — иначе мастер увидел бы «MQTT-соединение
+    # потеряно» вместо «впишите SN».
+    empty_serial = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
+    empty_client = FakeMqttClient()
+    empty_serial._client = empty_client
+    serial_result = empty_serial.start_print("job.gcode")
 
     check(
-        "start_print: серийник не получен — причина про сеть и LAN-режим",
+        "start_print: пустой SN — отказ без команд и подписки",
         serial_result is False
-        and "Не удалось получить серийный номер принтера"
-        in (no_serial.last_error or "")
-        and "режиме LAN" in (no_serial.last_error or ""),
-        f"last_error={no_serial.last_error!r}",
+        and empty_client.payloads == []
+        and empty_client.subscribed == [],
+        f"payloads={empty_client.payloads!r}, "
+        f"subscribed={empty_client.subscribed!r}",
+    )
+    check(
+        "start_print: пустой SN — причина «Не указан Serial Number»",
+        empty_serial.last_error == bambu.SERIAL_REQUIRED_ERROR
+        and "Не указан Serial Number" in (empty_serial.last_error or "")
+        and "обязателен для LAN-режима Bambu Lab" in (empty_serial.last_error or ""),
+        f"last_error={empty_serial.last_error!r}",
     )
 
-    # Тот же случай, но принтер успевает ответить отчётом: номер берётся из
-    # топика, и ожидание заканчивается успешно.
-    waiting = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
-    waiting._client = FakeMqttClient()
-    report_timer = threading.Timer(
-        0.05,
-        waiting._learn_serial_from_topic,
-        args=("device/00M09D777777777/report",),
-    )
-    report_timer.start()
-
-    try:
-        learned_serial = waiting._await_serial(3.0)
-    finally:
-        report_timer.cancel()
-        report_timer.join()
+    # Подписки «на всё» нет: шаблонный SUBSCRIBE принтер рвёт разрывом TLS, и
+    # агент крутился в петле «подключился — подписался — оборвалось».
+    bare = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
+    bare_client = FakeMqttClient()
 
     check(
-        "ожидание серийника: номер приходит из отчёта после обрыва",
-        learned_serial == "00M09D777777777",
-        f"serial={learned_serial!r}, subscribed={waiting._client.subscribed!r}",
+        "_subscribe без серийника: отказ и ни одного SUBSCRIBE",
+        bare._subscribe(bare_client) is False and bare_client.subscribed == [],
+        f"subscribed={bare_client.subscribed!r}",
     )
 
-    # Серийник из задания — самый быстрый путь: SSDP и pushall не нужны.
+    exact = bambu.BambuAdapter(
+        ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+    )
+    exact_client = FakeMqttClient()
+
+    check(
+        "_subscribe подписывается только на точный топик",
+        exact._subscribe(exact_client) is True
+        and exact_client.subscribed == [f"device/{CHECK_SERIAL}/report"],
+        f"subscribed={exact_client.subscribed!r}",
+    )
+
+    # Серийник из задания — самый быстрый путь: ни сертификата, ни SSDP.
     from_task = bambu.BambuAdapter(
         ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
     )
     check(
-        "серийник из задания используется без SSDP и отчётов",
-        from_task._await_serial(0) == CHECK_SERIAL,
+        "серийник из задания используется без сертификата и SSDP",
+        from_task._ensure_serial() == CHECK_SERIAL,
         f"serial={from_task.serial_number!r}",
     )
 
@@ -765,7 +789,9 @@ def main() -> int:
         f"last_error={dead_print.last_error!r}",
     )
 
-    # Серийник, которого не было в задании: его даёт топик первого отчёта.
+    # Отчёт приходит только в точный топик, поэтому номер из него не выучить:
+    # шаблонной подписки нет, и `_on_message` разбирает состояние, а серийник
+    # не подставляет — иначе адаптер снова ждал бы номер «из сети».
     learning = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
     learning._on_message(
         None,  # type: ignore[arg-type] — клиент в тесте не нужен
@@ -776,8 +802,8 @@ def main() -> int:
         ),  # type: ignore[arg-type] — SimpleNamespace вместо MQTTMessage
     )
     check(
-        "серийник из топика отчёта",
-        learning.serial_number == "00M09B987654321",
+        "отчёт не подставляет серийник (шаблонной подписки нет)",
+        learning.serial_number == "",
         f"serial={learning.serial_number!r}",
     )
 
@@ -1037,7 +1063,8 @@ def main() -> int:
     )
     check(
         "monitor: idle при нулевом прогрессе — failed",
-        idle_print == [("failed", 0, "Принтер не начал печать (ошибка файла)")],
+        idle_print
+        == [("failed", 0, "принтер не начал печать: состояние idle, прогресс 0%")],
         f"{idle_print!r}",
     )
 
