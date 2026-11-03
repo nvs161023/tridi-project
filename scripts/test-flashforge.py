@@ -1055,6 +1055,35 @@ def check_scanner() -> None:
         scanner.flashforge_serial(b"FMSN1234567 machine") is None,
         "SN внутри слова",
     )
+    # Прошивки расходятся даже в разделителе: номер может идти через пробел,
+    # через `-` или без разделителя вовсе. Все варианты дают один номер — тот,
+    # что уходит в заголовок `serialNumber`.
+    check(
+        "сканер: пробел между SN и номером не мешает",
+        scanner.flashforge_serial(b"CMD M115 Received.\r\nSN M0MF9201019\r\n")
+        == RAW_SERIAL,
+        "SN через пробел",
+    )
+    check(
+        "сканер: тире между SN и номером не мешает",
+        scanner.flashforge_serial(b"SN-M0MF9201019junk") == RAW_SERIAL,
+        "SN через тире",
+    )
+    # Нули между буквами (раскладка вида `S\x00N\x00M\x000…`) рвали номер на
+    # куски: шаблон видел один `S` и молчал.
+    check(
+        "сканер: нули между буквами номера не мешают",
+        scanner.flashforge_serial(
+            "SNM0MF9201019".encode("utf-16-le"),
+        )
+        == RAW_SERIAL,
+        "UTF-16",
+    )
+    check(
+        "сканер: обрывок короче шести знаков номером не считается",
+        scanner.flashforge_serial(b"SNM0F1 machine") is None,
+        "короткий SN",
+    )
 
     # Находка из сырого ответа: номер уходит в `serial_number`, а оттуда — в
     # `POST /api/agent/discover`, поэтому мастер не вбивает его руками.
@@ -1091,17 +1120,29 @@ def check_scanner() -> None:
 
     try:
         scanner.udp_printer(FLASHFORGE_RAW_UDP_REPLY, ("192.168.1.50", 19000))
+        # Ответ без номера и с «чужого» порта: сырой ответ печатается всегда,
+        # поэтому по журналу видно, что пришло от принтера, даже когда порт
+        # ответа не совпал с портом запроса.
+        scanner.udp_printer(b"CMD M115 Received.\r\nok\r\n", ("192.168.1.51", 51234))
     finally:
         scanner_logger.removeHandler(scanner_collector)
         scanner_logger.setLevel(previous_level)
 
     logged = [record.getMessage() for record in udp_records]
     found_line = f"[UDP] FlashForge SN найден: {RAW_SERIAL}"
+    raw_lines = [
+        line for line in logged if line.startswith("[UDP] FlashForge raw response: ")
+    ]
 
     check(
         "сканер: найденный SN виден в журнале",
         found_line in logged,
         f"{(logged[-1] if logged else '')!r}",
+    )
+    check(
+        "сканер: сырой ответ виден в журнале всегда",
+        len(raw_lines) == 2 and RAW_SERIAL in raw_lines[0],
+        f"{raw_lines!r}",
     )
     check(
         "сканер: JSON-ответ с SerialNumber",
