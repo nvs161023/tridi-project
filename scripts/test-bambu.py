@@ -1275,22 +1275,41 @@ def main() -> int:
 
     # FlashForge 5.x заканчивает печать простоем с нулевым `printProgress`:
     # сотни процентов прошивка не присылает, и задание висело в CRM как
-    # «В печати» до ручной отмены. После старта простой — это конец печати.
+    # «В печати» до ручной отмены. После старта простой — это конец печати, и
+    # закрывается она тем же опросом: третий снимок остался бы в статусах, если
+    # бы цикл ждал ещё круг.
     ff_finish = run_monitor(
         SilentPrintAdapter(
             [
                 {"status": "printing", "progress": 40, "remaining_time": 600},
                 {"status": "idle", "progress": 0, "remaining_time": 0},
+                {"status": "printing", "progress": 99, "remaining_time": 60},
             ],
             None,
         )
     )
     check(
-        "monitor: простой с нулевым прогрессом после старта — done",
-        len(ff_finish) == 2
-        and ff_finish[0] == ("printing", 40, None)
-        and ff_finish[1] == ("done", 100, None),
+        "monitor: простой с нулевым прогрессом после старта — done сразу",
+        ff_finish == [("printing", 40, None), ("done", 100, None)],
         f"{ff_finish!r}",
+    )
+
+    # Прогресс после печати прошивка может оставить прежним: `idle` важнее цифры,
+    # иначе задание с 98 % висело бы «В печати» навсегда.
+    ff_stale = run_monitor(
+        SilentPrintAdapter(
+            [
+                {"status": "printing", "progress": 98, "remaining_time": 30},
+                {"status": "idle", "progress": 98, "remaining_time": 0},
+                {"status": "printing", "progress": 99, "remaining_time": 20},
+            ],
+            None,
+        )
+    )
+    check(
+        "monitor: простой с прежним прогрессом после старта — done",
+        ff_stale == [("printing", 98, None), ("done", 100, None)],
+        f"{ff_stale!r}",
     )
 
     expect_false("stop_print() без соединения", adapter.stop_print)
