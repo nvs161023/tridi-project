@@ -43,6 +43,7 @@
 """
 from __future__ import annotations
 
+import ftplib
 import sys
 import tempfile
 import zipfile
@@ -162,6 +163,29 @@ class FlakyUploadAdapter(bambu.BambuAdapter):
     def _upload_via_http(self, local_path: str, remote_name: str) -> str | None:
         """HTTP-фолбэк без сети: адрес `*.invalid` не разрешается в DNS."""
         return "ConnectionError: имя не разрешается"
+
+
+class FakeFtpDirectory:
+    """
+    FTP без сети: помнит `MKD` и падает на существующей папке, как прошивка.
+
+    Нужен для `_ensure_remote_directory()`: настоящий FTPS в тесте недоступен, а
+    проверить надо ровно две вещи — что папка `model` создаётся и что отказ
+    «уже есть» (`550`) не считается ошибкой загрузки.
+    """
+
+    def __init__(self, existing: set[str] | None = None) -> None:
+        self.existing = set(existing or ())
+        self.made: list[str] = []
+
+    def mkd(self, directory: str) -> str:
+        if directory in self.existing:
+            raise ftplib.error_perm("550 Create directory operation failed.")
+
+        self.made.append(directory)
+        self.existing.add(directory)
+
+        return f"/{directory}"
 
 
 class CapturingUploadAdapter(bambu.BambuAdapter):
@@ -716,9 +740,9 @@ def main() -> int:
 
     project_payloads = bambu._project_file_payloads("job.3mf")
     check(
-        "project_file: param внутри контейнера, url от корня карты",
+        "project_file: param внутри контейнера, url из папки model",
         [item["url"] for item in project_payloads]
-        == ["file:///sdcard/job.3mf", "ftp:///job.3mf"]
+        == ["file:///sdcard/model/job.3mf", "ftp:///model/job.3mf"]
         and all(item["command"] == "project_file" for item in project_payloads)
         and all(item["param"] == "Metadata/plate_1.gcode" for item in project_payloads)
         and all(item["project_id"] == "0" for item in project_payloads)
@@ -727,9 +751,26 @@ def main() -> int:
     )
 
     check(
-        "загрузка: файл кладётся в корень карты, без папки cache",
-        bambu.storage_path("job.3mf") == "job.3mf",
+        "загрузка: файл кладётся в папку model на карте",
+        bambu.storage_path("job.3mf") == "model/job.3mf",
         f"{bambu.storage_path('job.3mf')!r}",
+    )
+
+    # Папку `model` загрузка создаёт сама: на чистой карте её нет, и первый
+    # `STOR model/<имя>` вернул бы `550`. Существующая папка — не отказ.
+    fresh_map = FakeFtpDirectory()
+    bambu._ensure_remote_directory(fresh_map, bambu.FTP_MODEL_DIRECTORY, CHECK_IP)
+    check(
+        "загрузка: папка model создаётся перед STOR",
+        fresh_map.made == ["model"],
+        f"{fresh_map.made!r}",
+    )
+    ready_map = FakeFtpDirectory({"model"})
+    bambu._ensure_remote_directory(ready_map, bambu.FTP_MODEL_DIRECTORY, CHECK_IP)
+    check(
+        "загрузка: существующая папка model не считается отказом",
+        ready_map.made == [],
+        f"{ready_map.made!r}",
     )
 
     check(
@@ -798,7 +839,7 @@ def main() -> int:
         rejected_print.start_print("job.3mf") is False
         and "error string" in (rejected_print.last_error or "")
         and len(rejected_print.commands) == len(project_payloads)
-        and rejected_print.commands[0]["print"]["url"] == "file:///sdcard/job.3mf",
+        and rejected_print.commands[0]["print"]["url"] == "file:///sdcard/model/job.3mf",
         f"команд {len(rejected_print.commands)}, "
         f"last_error={rejected_print.last_error!r}",
     )
@@ -810,7 +851,7 @@ def main() -> int:
         "start_print: принимается второй вариант url",
         second_variant.start_print("job.3mf") is True
         and len(second_variant.commands) == 2
-        and second_variant.commands[1]["print"]["url"] == "ftp:///job.3mf"
+        and second_variant.commands[1]["print"]["url"] == "ftp:///model/job.3mf"
         and second_variant.last_error is None,
         f"команд {len(second_variant.commands)}, "
         f"last_error={second_variant.last_error!r}",
@@ -1128,7 +1169,7 @@ def main() -> int:
         and len(ready_print.commands) == 1
         and ready_print.commands[0]["print"]["param"] == "Metadata/plate_1.gcode"
         and ready_print.commands[0]["print"]["subtask_name"] == "ready.3mf"
-        and ready_print.commands[0]["print"]["url"] == "file:///sdcard/ready.3mf",
+        and ready_print.commands[0]["print"]["url"] == "file:///sdcard/model/ready.3mf",
         f"{ready_print.commands!r}",
     )
 

@@ -8788,3 +8788,25 @@ FlashForge напечатал деталь, а задание на сайте о
 `python -m py_compile agent/scanner.py scripts/test-flashforge.py` — чисто, `npm run check:docs`,
 `npm run check:imports`, `npm run check:style` — без замечаний.
 
+**Bambu A1: файл задания кладётся в `/model/` (3 ноября 2026).**
+Мастер снова видел `0500-C010` на исправной карте: агент ушёл от папки `cache` в корень SD-карты, а
+прошивка A1 читает задания только из `/sdcard/model/` — файл лежал рядом, но `project_file` его не
+находил.
+
+- `agent/adapters/bambu.py`: новая константа `FTP_MODEL_DIRECTORY = "model"`, `storage_path()` отдаёт
+  `model/<имя>` — путь один для `STOR`, `url` команды печати и проверки размера после загрузки.
+- `agent/adapters/bambu.py`: `_ensure_remote_directory()` делает `MKD model` перед первым `STOR`
+  (на чистой карте папки нет, и без `MKD` прошивка ответила бы `550`); отказ `error_perm` на
+  существующей папке — не ошибка, а признак, что карту уже готовили: пишется в журнал строкой
+  `Bambu <ip>: FTPS — папка model уже есть (…)`, и загрузка продолжается.
+- `agent/adapters/bambu.py`: `project_file` отправляет `url=file:///sdcard/model/<имя>.3mf`, фолбэк —
+  `ftp:///model/<имя>.3mf`.
+- `scripts/test-bambu.py`: ожидания `url` обновлены (`file:///sdcard/model/…`, `ftp:///model/…`),
+  `storage_path()` проверяется как `model/<имя>`, плюс два новых случая с `FakeFtpDirectory` — папка
+  создаётся (`MKD model`) и её наличие отказом не считается; загрузку в `model/` описывает
+  `agent/README.md` (раздел Bambu).
+
+Проверки: `python scripts/test-bambu.py` — все проверки пройдены, `npx pyright agent/` — 0 ошибок,
+`python -m py_compile agent/adapters/bambu.py scripts/test-bambu.py` — чисто, `npm run check:docs`,
+`npm run check:imports`, `npm run check:style` — без замечаний.
+
