@@ -503,6 +503,9 @@ export const PRINTER_CONNECTION_SPECS: Record<
         placeholder: "Код с наклейки",
         hint: "Код проверки печатается на наклейке принтера. Без пары Serial Number + Check Code FlashForge отвечает отказом на каждый запрос, и печать невозможна.",
         required: true,
+        // Секрет, а не ключ для копирования: карточка и мастер подключения
+        // показывают его точками, как пароль.
+        password: true,
         requiredError:
           "Укажите Check Code с наклейки принтера. Без пары Serial Number + Check Code FlashForge отклоняет запросы, и печать невозможна.",
       },
@@ -529,6 +532,53 @@ export function printerConnectionSpec(
   protocol: PrinterProtocol,
 ): PrinterConnectionSpec {
   return PRINTER_CONNECTION_SPECS[protocol];
+}
+
+/**
+ * Все ключи секретов, которые формы Мастерской вообще могут прислать.
+ *
+ * Собирается из справочника протоколов, а не пишется списком: новый секрет
+ * появляется в форме и в разборе одной правкой, а незнакомый ключ из
+ * подделанного запроса в базу не попадёт.
+ */
+export const PRINTER_SECRET_KEYS: readonly PrinterSecretKey[] = Array.from(
+  new Set(
+    Object.values(PRINTER_CONNECTION_SPECS).flatMap((spec) =>
+      spec.secrets.map((field) => field.key),
+    ),
+  ),
+);
+
+/**
+ * Чего не хватает для подключения: подписи обязательных полей, которые пусты.
+ *
+ * Один список на мастер подключения и на Server Action: окно гасит кнопку и
+ * подсвечивает поле, а сервер всё равно отвечает отказом — запрос приходит и
+ * мимо формы. Пустой список — данных хватает; необязательные поля и поля с
+ * `fallback` не в счёт (у PrusaLink без `storage` подставится `usb`).
+ *
+ * `serialNumber` — номер принтера: у Bambu и FlashForge он обязателен, у
+ * остальных протоколов такого понятия нет, поэтому null и пустая строка для них
+ * одно и то же. `secrets` — секреты протокола из `printer_secrets`.
+ */
+export function missingConnectionFields(
+  protocol: PrinterProtocol,
+  fields: { serialNumber: string | null; secrets: PrinterSecrets },
+): string[] {
+  const spec = printerConnectionSpec(protocol);
+  const missing: string[] = [];
+
+  if (spec.serialNumberRequired && !fields.serialNumber?.trim()) {
+    missing.push("Serial Number");
+  }
+
+  for (const field of spec.secrets) {
+    if (field.required && !field.fallback && !fields.secrets[field.key]?.trim()) {
+      missing.push(field.label);
+    }
+  }
+
+  return missing;
 }
 
 /**
@@ -934,16 +984,21 @@ export type DiscoveredPrinterDraft = {
 };
 
 /**
- * Принтер, которого мастер подтвердил: к адресу добавлены имя, бренд, модель и
- * ключ.
+ * Принтер, которого мастер подтвердил: к адресу добавлены имя, бренд, модель,
+ * серийный номер и секреты протокола.
  *
  * `brand` и `model` мастер видит предзаполненными подсказкой
  * `suggestPrinterIdentity()` и может поправить: бренд и модель нужны проверке
  * совместимости 3MF, а сеть их не знает. Пустые строки допустимы — payload
  * подставит пресет по имени или заглушку «Неизвестно · Найден по сети».
  *
- * `apiKey` — то, что мастер ввёл в окне мастера подключения (или пустая строка,
- * если не вводил). Секрет: значение уходит только в базу, в браузер не
+ * `serialNumber` — то, что мастер ввёл в строке находки (поле «Serial Number»);
+ * пустая строка значит «номера нет», и тогда берётся номер из находки агента, а
+ * если и его нет — null. Bambu и FlashForge без номера не подключаются, поэтому
+ * Server Action такой принтер не сохраняет.
+ *
+ * `printerSecrets` — секреты протокола из той же строки: `checkCode` FlashForge,
+ * логин-пароль Anycubic. Секрет: значение уходит только в базу, в браузер не
  * возвращается.
  */
 export type ApprovedPrinterDraft = {
@@ -951,6 +1006,8 @@ export type ApprovedPrinterDraft = {
   name: string;
   brand: string;
   model: string;
+  serialNumber: string;
+  printerSecrets: PrinterSecrets;
   apiKey: string | null;
 };
 
@@ -1043,7 +1100,8 @@ export function readDiscoveredPrinters(
 
 /**
  * Список на подтверждение от мастера
- * `[{ "ip_address": ..., "name": ..., "brand": ..., "model": ..., "api_key": ... }]`.
+ * `[{ "ip_address": ..., "name": ..., "brand": ..., "model": ..., `
+ * `"serial_number": ..., "secrets": { "checkCode": ... }, "api_key": ... }]`.
  *
  * Подтверждается только принтер с именем: без имени карточка в парке была бы
  * безымянной, а мастер всё равно должен понимать, какой адрес он добавляет.
@@ -1060,6 +1118,14 @@ export function readDiscoveredPrinters(
  * только модели этого бренда, поэтому чужое название приходит лишь из
  * подделанного запроса. Произвольный профиль в базу не попадает — вместо него
  * остаётся «модель неизвестна», и проверка 3MF честно промолчит.
+ *
+ * `serial_number` и `secrets` необязательны, но именно они делают принтер
+ * рабочим: Bambu без SN не строит MQTT-топики, FlashForge без пары SN + Check
+ * Code отклоняет каждый запрос. Проверить это здесь нельзя — протокол принтера
+ * известен только из находки в базе, — поэтому обязательность полей проверяет
+ * Server Action (`missingConnectionFields()`), а окно гасит кнопку заранее.
+ * Незнакомый ключ секрета отбрасывается: в базу попадают только те, что есть в
+ * `PRINTER_CONNECTION_SPECS`, а слишком длинное значение считается неуказанным.
  *
  * `api_key` необязателен: пустое поле — «ключа нет» (в базе null). Слишком
  * длинный ключ не обрезается: усечённый секрет — это неверный секрет, принтер
@@ -1119,11 +1185,41 @@ export function readApprovedPrinters(
       name,
       brand,
       model: listedModel,
+      serialNumber: normalizePrinterSerial(row?.serial_number) ?? "",
+      printerSecrets: readApprovedSecrets(row?.secrets),
       apiKey: normalizePrinterApiKey(row?.api_key),
     });
   }
 
   return { drafts, skipped };
+}
+
+/**
+ * Секреты протокола из строки мастера: только известные ключи и только
+ * непустые значения.
+ *
+ * Ключи берутся из `PRINTER_SECRET_KEYS` — того же справочника, по которому
+ * рисуются поля, поэтому подделанный запрос не положит в `printer_secrets`
+ * произвольную пару, а новый секрет протокола не придётся вписывать здесь
+ * отдельно. Слишком длинное значение считается неуказанным: усечённый секрет —
+ * это неверный секрет, и принтер молча не подключится.
+ */
+function readApprovedSecrets(value: unknown): PrinterSecrets {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  const secrets: PrinterSecrets = {};
+
+  for (const key of PRINTER_SECRET_KEYS) {
+    const text = normalizePrinterApiKey(value[key]);
+
+    if (text !== null) {
+      secrets[key] = text;
+    }
+  }
+
+  return secrets;
 }
 
 /**

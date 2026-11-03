@@ -21,7 +21,9 @@
      если поля нет;
   7. ответ принтера на команду (`result`/`reason`) разбирается и не смешивается
      со статусом: отказ уходит в `last_error`, а не теряется, и `STANDBY` не
-     превращается в `error`;
+     превращается в `error`; `FAILED` и `CANCELLED` отдают `error`, а причина
+     остановки из `fail_reason`/`print_error`/`mc_print_error_code` попадает в
+     `last_error` (ноль и пустая строка — «причины нет», отказ команды важнее);
   8. проект `.3mf` из Bambu Studio уходит на карту как есть, адаптер помнит
      запись пластины (`Metadata/plate_N.gcode`) для команды печати, а плоский
      `.gcode` и STL отклоняются до сети с подсказкой о нарезке;
@@ -525,6 +527,118 @@ def main() -> int:
         "STANDBY → idle",
         reporting,
         {"status": "idle", "progress": 0, "remaining_time": 0},
+    )
+
+    # Причина остановки: принтер называет её сам (`fail_reason`, `print_error`,
+    # `mc_print_error_code`), и мастер должен видеть её в карточке заказа, а не
+    # общее «печать прервана». Проверки ниже — на отдельных адаптерах: `_report`
+    # копит поля отчёта, и причина одной печати не должна попасть в другую.
+    cancelled = bambu.BambuAdapter(
+        ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+    )
+    cancelled._apply_report(
+        {
+            "print": {
+                "gcode_state": "FAILED",
+                "mc_percent": 43,
+                "fail_reason": "cancelled",
+            }
+        }
+    )
+    expect_status(
+        "FAILED на середине печати → error",
+        cancelled,
+        {"status": "error", "progress": 43, "remaining_time": 0},
+    )
+    check(
+        "FAILED: причина отмены в last_error",
+        "fail_reason: cancelled" in (cancelled.last_error or ""),
+        f"last_error={cancelled.last_error!r}",
+    )
+
+    cancelled_state = bambu.BambuAdapter(
+        ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+    )
+    cancelled_state._apply_report(
+        {"print": {"gcode_state": "CANCELLED", "fail_reason": "stopped by user"}}
+    )
+    expect_status(
+        "CANCELLED → error",
+        cancelled_state,
+        {"status": "error", "progress": 0, "remaining_time": 0},
+    )
+    check(
+        "CANCELLED: причина в last_error",
+        "fail_reason: stopped by user" in (cancelled_state.last_error or ""),
+        f"last_error={cancelled_state.last_error!r}",
+    )
+
+    # Коды отказа приходят не вместе с состоянием, а отдельным сообщением —
+    # кэш отчёта копит оба, и причина собирается из всего, что нашлось.
+    error_codes = bambu.BambuAdapter(
+        ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+    )
+    error_codes._apply_report({"print": {"gcode_state": "FAILED", "print_error": 0}})
+    error_codes._apply_report(
+        {"print": {"print_error": 83935248, "mc_print_error_code": "0700_8010"}}
+    )
+    expect_status(
+        "FAILED с кодами отказа → error",
+        error_codes,
+        {"status": "error", "progress": 0, "remaining_time": 0},
+    )
+    check(
+        "FAILED: коды отказа в last_error",
+        "print_error: 83935248" in (error_codes.last_error or "")
+        and "mc_print_error_code: 0700_8010" in (error_codes.last_error or ""),
+        f"last_error={error_codes.last_error!r}",
+    )
+
+    # Причины нет — но мастер всё равно узнаёт, что печать прервана и чем именно
+    # принтер это назвал: «0» в коде ошибки означает «ошибки нет».
+    silent_failure = bambu.BambuAdapter(
+        ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+    )
+    silent_failure._apply_report(
+        {"print": {"gcode_state": "FAILED", "print_error": 0, "fail_reason": ""}}
+    )
+    expect_status(
+        "FAILED без причины → error",
+        silent_failure,
+        {"status": "error", "progress": 0, "remaining_time": 0},
+    )
+    check(
+        "FAILED без причины: состояние в last_error",
+        "gcode_state: FAILED" in (silent_failure.last_error or ""),
+        f"last_error={silent_failure.last_error!r}",
+    )
+
+    # Отказ команды важнее состояния: он говорит, почему печать не пошла.
+    rejected = bambu.BambuAdapter(
+        ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+    )
+    rejected._remember_reply(
+        {
+            "print": {
+                "command": "project_file",
+                "sequence_id": "4",
+                "result": "fail",
+                "reason": "error string",
+            }
+        }
+    )
+    rejected._apply_report(
+        {"print": {"gcode_state": "FAILED", "fail_reason": "cancelled"}}
+    )
+    expect_status(
+        "отказ команды и FAILED → error",
+        rejected,
+        {"status": "error", "progress": 0, "remaining_time": 0},
+    )
+    check(
+        "отказ команды важнее причины отчёта",
+        (rejected.last_error or "").startswith("принтер отклонил project_file"),
+        f"last_error={rejected.last_error!r}",
     )
 
     # Ответ принтера на команду — единственный признак, что печать принята:

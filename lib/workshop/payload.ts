@@ -281,10 +281,14 @@ export type DiscoveredPrinterPayload = WorkshopPrinterPayload & {
  * пресета: пустое поле бренда или модели заменяется значением из справочника,
  * если имя совпало с пресетом («Bambu Lab P1S»), а иначе — «Неизвестно ·
  * Найден по сети». Интервалы ТО по-прежнему берутся из пресета только по имени:
- * карточка не должна показывать чужой регламент. Номер приходит из SSDP-ответа
- * принтера; null — не пришёл, и адаптер найдёт его сам при подключении. Ключ
- * приходит из окна подтверждения или из находки агента; null — ключ не указан,
- * и адаптер попробует подключиться без него (пустая строка в базе недопустима).
+ * карточка не должна показывать чужой регламент. Номер приходит из строки
+ * мастера (поле «Serial Number») или из SSDP-ответа принтера; null — не пришёл,
+ * и адаптер найдёт его сам при подключении. Ключ приходит из окна подтверждения
+ * или из находки агента; null — ключ не указан, и адаптер попробует подключиться
+ * без него (пустая строка в базе недопустима). Секреты протокола (`checkCode`
+ * FlashForge, пароль Anycubic) приходят из тех же строк мастера: без них принтер
+ * отказывает на первом же запросе, а пустой объект — null, как и при добавлении
+ * руками.
  */
 export function createDiscoveredPrinterPayload(
   userId: string,
@@ -292,6 +296,7 @@ export function createDiscoveredPrinterPayload(
   protocolType: PrinterProtocol,
   serialNumber: string | null = null,
   apiKey: string | null = null,
+  printerSecrets: PrinterSecrets = {},
 ): DiscoveredPrinterPayload {
   const preset = findPrinterPresetByModel(draft.name);
 
@@ -304,6 +309,8 @@ export function createDiscoveredPrinterPayload(
     serial_number: serialNumber,
     ip_address: draft.ipAddress,
     api_key: apiKey,
+    printer_secrets:
+      Object.keys(printerSecrets).length > 0 ? printerSecrets : null,
     status: "idle",
     nozzle_interval: preset?.nozzleHours ?? PRINTER_INTERVAL_DEFAULTS.nozzle,
     lubrication_interval:

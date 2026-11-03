@@ -22,6 +22,7 @@ import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
 import {
   isPrinterId,
+  missingConnectionFields,
   normalizePrinterApiKey,
   normalizePrinterSerial,
   readApprovedPrinters,
@@ -58,6 +59,8 @@ const APPROVE_INVALID =
 const APPROVE_NO_NAMES =
   "Укажите имя хотя бы одному принтеру — без имени добавлять нечего.";
 const APPROVE_FAILED = "Не удалось добавить принтеры в парк. Попробуйте ещё раз.";
+const APPROVE_CONNECTION_REQUIRED =
+  "Данные подключения не заполнены: без Serial Number Bambu не подключается по LAN, а FlashForge не принимает запросы без пары Serial Number + Check Code. Проверьте:";
 const PARK_READ_FAILED =
   "Не удалось проверить, какие принтеры уже есть в парке. Попробуйте ещё раз.";
 const SCAN_REQUEST_FAILED =
@@ -504,7 +507,7 @@ function printerAddressKey(value: unknown): string {
  *
  * Агент сканирует сеть и складывает находки в workshop_discovered_printers
  * (POST /api/agent/discover), мастер только даёт имена, уточняет бренд с моделью
- * (и, если принтер их требует, вводит ключи доступа). Порядок:
+ * и вводит данные подключения (Serial Number, Check Code, ключ доступа). Порядок:
  *   1. разбор списка (lib/workshop/printers.ts): строка без имени, с мусорным
  *      адресом или повтором адреса отбрасывается, а не роняет всю пачку;
  *   2. сессия и подписка — как у добавления принтера вручную: Server Action
@@ -519,9 +522,13 @@ function printerAddressKey(value: unknown): string {
  *      Ключ доступа приходит из окна мастера; если поле оставили пустым, берётся
  *      ключ из находки (агент его сегодня не присылает), а иначе null — адаптер
  *      попробует подключиться без ключа;
- *   4. адреса, которые уже есть в парке, пропускаем: повторное подтверждение
+ *   4. обязательные данные подключения (SN у Bambu и FlashForge, Check Code у
+ *      FlashForge) проверяются здесь, а не в разборе формы: протокол известен
+ *      только из находки. Без них принтер нерабочий, и мастер узнал бы об этом
+ *      из «MQTT-соединение потеряно» вместо «впишите SN»;
+ *   5. адреса, которые уже есть в парке, пропускаем: повторное подтверждение
  *      старого списка не должно удвоить ферму;
- *   5. вставка в workshop_printers, затем удаление подтверждённых находок —
+ *   6. вставка в workshop_printers, затем удаление подтверждённых находок —
  *      таблица найденного остаётся списком «что ждёт мастера», а не историей
  *      сканирований.
  *
@@ -535,6 +542,9 @@ export async function approveDiscoveredPrinters(
     name: string;
     brand?: string | null;
     model?: string | null;
+    serial_number?: string | null;
+    /** Секреты протокола: `checkCode` FlashForge, пароль Anycubic. */
+    secrets?: Record<string, string> | null;
     api_key?: string | null;
   }[],
 ): Promise<DiscoveredPrintersState> {
@@ -620,6 +630,34 @@ export async function approveDiscoveredPrinters(
     }
   }
 
+  // Обязательные данные подключения: SN у Bambu и FlashForge, Check Code у
+  // FlashForge. Протокол известен только здесь — из находки агента, — поэтому
+  // проверка стоит после её чтения, а не в разборе формы. Без номера Bambu не
+  // построит MQTT-топики `device/<SN>/…`, а FlashForge отклоняет каждый запрос:
+  // сохранять такой принтер значит обещать печать, которой не будет, и мастер
+  // узнал бы об этом из «MQTT-соединение потеряно» вместо адреса и поля.
+  const incomplete = parsed.drafts
+    .map((draft) => {
+      const key = printerAddressKey(draft.ipAddress);
+      const protocol = protocols.get(key) ?? "moonraker";
+      const missing = missingConnectionFields(protocol, {
+        serialNumber: draft.serialNumber || serials.get(key) || "",
+        secrets: draft.printerSecrets,
+      });
+
+      return missing.length > 0
+        ? `${draft.ipAddress} — ${missing.join(", ")}`
+        : "";
+    })
+    .filter((line) => line.length > 0);
+
+  if (incomplete.length > 0) {
+    return {
+      ok: false,
+      error: `${APPROVE_CONNECTION_REQUIRED} ${incomplete.join("; ")}.`,
+    };
+  }
+
   const parkResult = await supabase
     .from("workshop_printers")
     .select("ip_address")
@@ -658,9 +696,12 @@ export async function approveDiscoveredPrinters(
         user.id,
         draft,
         protocols.get(key) ?? "moonraker",
-        serials.get(key) ?? null,
+        // Номер из строки мастера важнее номера из находки: мастер мог его
+        // исправить (SSDP отдаёт USN не на всех прошивках).
+        draft.serialNumber || serials.get(key) || null,
         // Ключ из окна мастера важнее ключа из находки: мастер мог его исправить.
         draft.apiKey ?? apiKeys.get(key) ?? null,
+        draft.printerSecrets,
       );
     });
 

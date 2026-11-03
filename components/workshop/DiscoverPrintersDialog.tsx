@@ -22,6 +22,7 @@ import { PrinterModelHint } from "@/components/workshop/PrinterModelHint";
 import {
   isPrinterProtocol,
   type PrinterProtocol,
+  type PrinterSecrets,
 } from "@/lib/db/workshop-types";
 import {
   PRINTER_BRAND_OPTIONS,
@@ -39,6 +40,9 @@ import {
   discoveredPrinterName,
   isPrinterIdentityUnknown,
   isUnknownPrinterModel,
+  missingConnectionFields,
+  printerConnectionSpec,
+  printerSerialHint,
   suggestPrinterIdentity,
   type DiscoveredPrinter,
 } from "@/lib/workshop/printers";
@@ -68,12 +72,12 @@ import {
  * руками — форма `ManualPrinterForm` принимает адрес, протокол, бренд, модель,
  * SN и ключ доступа и вызывает то же действие `addPrinter`, что и окно парка.
  *
- * Выбор, имена, бренд с моделью и ключи доступа хранятся как «правки поверх
- * умолчаний»: отмечено всё, что в списке, имя по умолчанию — то, что принтер
- * назвал сам (`printer.name`: хост Moonraker, подпись Creality, имя FlashForge,
- * серийник Bambu), а если не назвал — `Принтер 192.168.1.50`. Бренд и модель
- * подсказывает `suggestPrinterIdentity()`: бренд по протоколу, модель — из
- * `PRINTER_PRESETS` по имени. Без них проверка совместимости 3MF не сработает,
+ * Выбор, имена, бренд с моделью, SN и данные подключения хранятся как «правки
+ * поверх умолчаний»: отмечено всё, что в списке, имя по умолчанию — то, что
+ * принтер назвал сам (`printer.name`: хост Moonraker, подпись Creality, имя
+ * FlashForge, серийник Bambu), а если не назвал — `Принтер 192.168.1.50`. Бренд
+ * и модель подсказывает `suggestPrinterIdentity()`: бренд по протоколу, модель —
+ * из `PRINTER_PRESETS` по имени. Без них проверка совместимости 3MF не сработает,
  * поэтому поля стоят в строке и предупреждение янтарное, а не спрятано в
  * карточке. Подсказка модели у каждой строки своя — только модели её бренда
  * (`printerModelOptions`): общий список на все марки предлагал «K1C» в строке
@@ -82,6 +86,14 @@ import {
  * новые находки сразу видны и отмечены, а правки старых строк остаются. Ключ
  * вводится здесь, потому что агент видит в сети только адрес и протокол: код
  * доступа Bambu и ключ Moonraker с авторизацией знает лишь мастер.
+ *
+ * Serial Number и секреты протокола — тоже строки, а не карточки: без номера
+ * Bambu не построит MQTT-топики `device/<SN>/…`, а FlashForge без пары
+ * SN + Check Code отклоняет каждый запрос, и принтер попал бы в парк мёртвым.
+ * Номер приходит из находки (Bambu — `USN` в SSDP-ответе) и предзаполняет поле,
+ * Check Code — только с наклейки, поэтому поле пустое и `type="password"`.
+ * Пока обязательное поле пусто, кнопка добавления погашена: проверка
+ * `missingConnectionFields()` — та же, что в Server Action.
  *
  * После успеха окно закрывает родитель: страницу мастер обновляет сам
  * (`router.refresh()`), а вкладка показывает тост и оставляет ту же строку в
@@ -631,6 +643,21 @@ export function DiscoverPrintersDialog({
    */
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   /**
+   * Серийные номера, введённые мастером: ключ — адрес. Bambu и FlashForge без
+   * номера не подключаются (Bambu строит из него MQTT-топики `device/<SN>/…`,
+   * FlashForge отправляет его заголовком каждого запроса), поэтому поле стоит в
+   * строке, а не только в карточке принтера. Значение предзаполнено тем, что
+   * принтер назвал сам (Bambu — `USN` в SSDP-ответе).
+   */
+  const [serials, setSerials] = useState<Record<string, string>>({});
+  /**
+   * Секреты протокола, введённые мастером: ключ — адрес, значение — поля из
+   * `PRINTER_CONNECTION_SPECS` (Check Code FlashForge, логин-пароль Anycubic).
+   * Без них принтер отказывает на первом же запросе, а в браузер секреты не
+   * возвращаются — поэтому поля всегда пустые и живут только до сохранения.
+   */
+  const [secrets, setSecrets] = useState<Record<string, PrinterSecrets>>({});
+  /**
    * Бренд и модель, введённые мастером: ключ — адрес, значение — правка поверх
    * подсказки. Сеть бренда не знает, а без бренда и модели проверка
    * совместимости 3MF не сработает — поэтому поля редактируются здесь, а не
@@ -804,6 +831,23 @@ export function DiscoverPrintersDialog({
     names[printer.ipAddress] ?? discoveredPrinterName(printer);
   const apiKeyOf = (ipAddress: string) => apiKeys[ipAddress] ?? "";
   /**
+   * Серийный номер строки: правка мастера, иначе то, что принтер назвал сам
+   * (Bambu — `USN` в SSDP-ответе, FlashForge — номер из UDP-ответа). Пустая
+   * строка — номера нет, и принтер с обязательным SN сохранить нельзя.
+   */
+  const serialOf = (printer: DiscoveredPrinter) =>
+    serials[printer.ipAddress] ?? printer.serialNumber ?? "";
+  /** Секреты протокола строки: введённое мастером, иначе пусто. */
+  const secretsOf = (printer: DiscoveredPrinter) =>
+    secrets[printer.ipAddress] ?? {};
+  /** Правка одного секрета строки: остальные поля не трогаем. */
+  const setSecret = (ipAddress: string, key: string, value: string) => {
+    setSecrets((prev) => ({
+      ...prev,
+      [ipAddress]: { ...(prev[ipAddress] ?? {}), [key]: value },
+    }));
+  };
+  /**
    * Бренд и модель строки: правка мастера, иначе подсказка
    * `suggestPrinterIdentity()` — бренд по протоколу, модель из `PRINTER_PRESETS`
    * по имени, которое принтер назвал сам.
@@ -857,7 +901,26 @@ export function DiscoverPrintersDialog({
 
     return isPrinterIdentityUnknown(identity.brand, identity.model);
   });
-  const canSubmit = chosen.length > 0 && namelessChosen.length === 0 && !isPending;
+  /**
+   * Выбранные принтеры без обязательных данных подключения: Bambu и FlashForge
+   * не подключаются без Serial Number, FlashForge — ещё и без Check Code. Пока
+   * поле пустое, кнопка «Добавить выбранные в парк» погашена: иначе принтер
+   * попал бы в парк мёртвым, и мастер узнал бы об этом из «MQTT-соединение
+   * потеряно» вместо «укажите SN». Проверка общая с Server Action
+   * (`missingConnectionFields`), поэтому форма и сервер не разъедутся.
+   */
+  const incompleteChosen = chosen.filter(
+    (printer) =>
+      missingConnectionFields(printer.protocolType, {
+        serialNumber: serialOf(printer),
+        secrets: secretsOf(printer),
+      }).length > 0,
+  );
+  const canSubmit =
+    chosen.length > 0 &&
+    namelessChosen.length === 0 &&
+    incompleteChosen.length === 0 &&
+    !isPending;
 
   /**
    * Пока идёт сохранение, окно не закрывается: иначе мастер не увидит ответ
@@ -900,6 +963,10 @@ export function DiscoverPrintersDialog({
           name: nameOf(printer),
           brand: identity.brand,
           model: identity.model,
+          // Номер и секреты строки: сервер проверит их обязательность по
+          // протоколу находки и сохранит в serial_number и printer_secrets.
+          serial_number: serialOf(printer),
+          secrets: secretsOf(printer),
           api_key: apiKeyOf(printer.ipAddress),
         };
       }),
@@ -1138,6 +1205,13 @@ export function DiscoverPrintersDialog({
                 const identity = identityOf(printer);
                 /** Модели выбранного бренда: чужие в подсказку не попадают. */
                 const brandModels = printerModelOptions(identity.brand);
+                /**
+                 * Поля подключения этого протокола: SN нужен Bambu и FlashForge,
+                 * секреты — Check Code FlashForge и логин-пароль Anycubic. Тот же
+                 * справочник, по которому карточка принтера рисует и проверяет
+                 * поля, поэтому мастер и карточка спрашивают одно и то же.
+                 */
+                const connection = printerConnectionSpec(printer.protocolType);
 
                 return (
                   <li
@@ -1178,14 +1252,6 @@ export function DiscoverPrintersDialog({
                           <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-300 uppercase">
                             {PROTOCOL_LABELS[printer.protocolType]}
                           </span>
-                          {printer.serialNumber ? (
-                            <span
-                              className="rounded-md border border-white/10 bg-black/40 px-2 py-0.5 font-mono text-[10px] text-zinc-400"
-                              title="Серийный номер принтер назвал сам — по нему строятся MQTT-топики"
-                            >
-                              SN {printer.serialNumber}
-                            </span>
-                          ) : null}
                         </div>
                         <label
                           htmlFor={`${checkboxId}-name`}
@@ -1285,6 +1351,100 @@ export function DiscoverPrintersDialog({
                             />
                           </div>
                         </div>
+                        {/*
+                          Данные подключения, без которых принтер не работает:
+                          Serial Number у Bambu (из него строятся MQTT-топики
+                          `device/<SN>/…`) и FlashForge (заголовок каждого
+                          запроса), Check Code у FlashForge. Сеть номер иногда
+                          называет сама (Bambu — `USN` в SSDP-ответе), поэтому
+                          поле предзаполнено, но правится: на части прошивок
+                          SSDP молчит. Check Code — секрет: `type="password"`, и
+                          после сохранения в браузер он не возвращается.
+                        */}
+                        {connection.serialNumber ||
+                        connection.secrets.length > 0 ? (
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            {connection.serialNumber ? (
+                              <div>
+                                <label
+                                  htmlFor={`${checkboxId}-serial`}
+                                  className="text-[11px] font-semibold text-zinc-400"
+                                >
+                                  Serial Number
+                                </label>
+                                <input
+                                  id={`${checkboxId}-serial`}
+                                  type="text"
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  maxLength={PRINTER_TEXT_LIMITS.serialNumber}
+                                  disabled={!checked}
+                                  required={connection.serialNumberRequired}
+                                  value={serialOf(printer)}
+                                  onChange={(event) => {
+                                    const next = event.currentTarget.value;
+
+                                    setSerials((prev) => ({
+                                      ...prev,
+                                      [printer.ipAddress]: next,
+                                    }));
+                                  }}
+                                  placeholder="Номер с наклейки принтера"
+                                  aria-describedby={`${checkboxId}-serial-hint`}
+                                  className={inputClassName}
+                                />
+                                <p
+                                  id={`${checkboxId}-serial-hint`}
+                                  className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+                                >
+                                  {printerSerialHint(printer.protocolType)}
+                                </p>
+                              </div>
+                            ) : null}
+                            {connection.secrets.map((field) => (
+                              <div key={`${printer.ipAddress}-${field.key}`}>
+                                <label
+                                  htmlFor={`${checkboxId}-secret-${field.key}`}
+                                  className="text-[11px] font-semibold text-zinc-400"
+                                >
+                                  {field.label}
+                                </label>
+                                <input
+                                  id={`${checkboxId}-secret-${field.key}`}
+                                  type={field.password ? "password" : "text"}
+                                  autoComplete={
+                                    field.password ? "new-password" : "off"
+                                  }
+                                  spellCheck={false}
+                                  maxLength={PRINTER_TEXT_LIMITS.apiKey}
+                                  disabled={!checked}
+                                  required={
+                                    field.required && !field.fallback
+                                  }
+                                  value={secretsOf(printer)[field.key] ?? ""}
+                                  onChange={(event) => {
+                                    const next = event.currentTarget.value;
+
+                                    setSecret(
+                                      printer.ipAddress,
+                                      field.key,
+                                      next,
+                                    );
+                                  }}
+                                  placeholder={field.placeholder}
+                                  aria-describedby={`${checkboxId}-secret-${field.key}-hint`}
+                                  className={inputClassName}
+                                />
+                                <p
+                                  id={`${checkboxId}-secret-${field.key}-hint`}
+                                  className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+                                >
+                                  {field.hint}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                         <label
                           htmlFor={`${checkboxId}-key`}
                           className="sr-only"
@@ -1343,6 +1503,16 @@ export function DiscoverPrintersDialog({
                 заполните оба поля у выбранных принтеров — по ним файл сверяется
                 с профилем слайсера. Поправить можно и позже, в карточке
                 принтера.
+              </p>
+            ) : null}
+
+            {incompleteChosen.length > 0 ? (
+              <p className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
+                <span aria-hidden>⚠️ </span>
+                Заполните данные подключения у выбранных принтеров: Bambu Lab и
+                FlashForge не подключаются без Serial Number, а FlashForge — ещё
+                и без Check Code с наклейки. Без них принтер появится в парке
+                мёртвым, и печать не запустится.
               </p>
             ) : null}
 

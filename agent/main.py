@@ -1302,7 +1302,11 @@ def monitor_print(
         # Отказ принтера и причина из `last_error` важнее любого `idle`:
         # прошивка после `result: fail` (например, `error string` на
         # неразобранный файл) остаётся в простое, и раньше агент закрывал такое
-        # задание как `done`. Текст причины отправляется мастеру.
+        # задание как `done`. Текст причины отправляется мастеру — сервер пишет
+        # его в `workshop_print_jobs.last_error`, поэтому в карточке заказа
+        # видно, почему печать отменилась (Bambu кладёт туда свою причину из
+        # `fail_reason`/`print_error`/`mc_print_error_code`, Moonraker — текст
+        # отказа прошивки).
         failure = read_text(adapter.last_error)
 
         if state == "error" or (failure and progress < 100):

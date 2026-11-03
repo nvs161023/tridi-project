@@ -42,6 +42,12 @@
     отправлена» и «печать началась» — разные вещи;
   - `get_status()`  — последний отчёт принтера: `print.gcode_state`,
     `print.mc_percent` (проценты) и `print.mc_remaining_time` (минуты).
+    Остановку печати принтер называет сам: `gcode_state: "FAILED"` (или
+    `"CANCELLED"`) вместе с причиной в `print.fail_reason`,
+    `print.print_error` или `print.mc_print_error_code`. Причина попадает в
+    `last_error`, а main.py отправляет её в CRM статусом `failed`: без этого
+    мастер видел «печать прервана» без объяснения, а отмену с экрана принтера
+    принимал за потерю связи.
 
 Серийный номер. Bambu адресует топики серийником, и в Мастерской это поле
 обязательное: форма принтера не сохранит Bambu без SN, потому что LAN-режим без
@@ -237,8 +243,26 @@ _STATE_MAP: dict[str, str] = {
     "IDLE": "idle",
     "STANDBY": "idle",
     "FAILED": "error",
+    "CANCELLED": "error",
     "PAUSE": "error",
 }
+
+# Состояния, которыми принтер сообщает, что печать прервана: `FAILED` — сбой или
+# остановка, `CANCELLED` — отмена с экрана принтера или из Bambu Studio. Для обоих
+# `get_status()` ищет причину в отчёте и кладёт её в `last_error`: иначе отмена
+# выглядела бы как общая «потеря связи», и мастер не знал бы, что произошло.
+_FAILURE_STATES: frozenset[str] = frozenset({"FAILED", "CANCELLED"})
+
+# Поля отчёта, в которых Bambu называет причину остановки: `fail_reason` (строка
+# прошивки или Bambu Studio, например `cancelled`), `print_error` (числовой код
+# отказа) и `mc_print_error_code` (код ошибки контроллера). Приходят не всегда и
+# не всегда вместе: у отмены с экрана бывает только `fail_reason`, у сбоя подачи —
+# только коды. Поэтому причина собирается из всех трёх, что нашлись.
+_FAILURE_REPORT_FIELDS: tuple[str, ...] = (
+    "fail_reason",
+    "print_error",
+    "mc_print_error_code",
+)
 
 # Разбор PEM в поля сертификата. Публичного API у `ssl` нет: `getpeercert()`
 # отдаёт пустой словарь при `verify_mode = CERT_NONE`, а `cryptography` ради
@@ -289,6 +313,54 @@ def _as_number(value: Any) -> float:
 def _as_mapping(value: Any) -> dict[str, Any]:
     """Поле-объект из отчёта принтера; всё остальное — пустой словарь."""
     return value if isinstance(value, dict) else {}
+
+
+def _failure_text(value: Any) -> str | None:
+    """
+    Значение поля-причины в текст; «ошибки нет» — None.
+
+    Bambu пишет коды и числом, и строкой, а ноль (`print_error: 0`) значит
+    «ошибки нет»: без этой проверки каждая успешная печать закрывалась бы
+    отказом с причиной «0». Пустая строка и `none`/`null` — тоже «нет причины».
+    """
+    # bool — подкласс int, но True в поле кода означает ошибку разбора.
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float)):
+        return None if value == 0 else str(int(value))
+
+    if not isinstance(value, str):
+        return None
+
+    text = value.strip()
+
+    if not text or text.lower() in {"0", "none", "null", "success"}:
+        return None
+
+    return text
+
+
+def _report_failure(report: dict[str, Any]) -> str | None:
+    """
+    Причина остановки печати из отчёта: `fail_reason`, `print_error`,
+    `mc_print_error_code`.
+
+    Отчёт Bambu — только изменения, поэтому причина может прийти одним
+    сообщением, а `gcode_state: "FAILED"` другим; кэш `self._report` копит оба.
+    Поле подписывается своим именем, чтобы мастер видел, что именно прислал
+    принтер: `fail_reason: cancelled` читается, а голое `cancelled` — нет.
+    None — принтер не назвал причину, и `get_status()` скажет хотя бы состояние.
+    """
+    details: list[str] = []
+
+    for field in _FAILURE_REPORT_FIELDS:
+        text = _failure_text(report.get(field))
+
+        if text is not None:
+            details.append(f"{field}: {text}")
+
+    return "; ".join(details) if details else None
 
 
 def _read_ssdp_headers(data: bytes) -> dict[str, str]:
@@ -1911,6 +1983,35 @@ class BambuAdapter(BasePrinterAdapter):
         # `done` на 100 %, хотя печать не начиналась.
         if self._command_error:
             status = "error"
+
+        # Принтер сам сказал, что печать прервана: `FAILED` — сбой, `CANCELLED` —
+        # отмена с экрана или из Bambu Studio. Причину он пишет рядом
+        # (`fail_reason`, `print_error`, `mc_print_error_code`), и без неё в CRM
+        # уходило общее «печать прервана», а отмена выглядела как потеря связи.
+        # Отказ команды (`_command_error`) важнее: он называет первопричину —
+        # почему печать вообще не пошла.
+        if state in _FAILURE_STATES:
+            status = "error"
+            failure = _report_failure(report)
+
+            # Причина отчёта читается мастеру как есть, но с пояснением: голое
+            # `fail_reason: cancelled` в карточке заказа выглядело бы обрывком.
+            if failure:
+                self.last_error = (
+                    self._command_error or f"принтер прервал печать: {failure}"
+                )
+            else:
+                self.last_error = (
+                    self._command_error
+                    or f"принтер прервал печать (gcode_state: {state})"
+                )
+
+            logger.error(
+                "Bambu %s: печать прервана (%s): %s",
+                self.host,
+                state,
+                self.last_error,
+            )
 
         # Прогресс в отчёте уже в процентах; ограничение — от мусора в полях.
         percent = _as_number(report.get("mc_percent"))
