@@ -2213,7 +2213,8 @@ Api-Key шифруется на сервере (`lib/crypto.ts`, AES-256-GCM): �
 - амортизация = часы × амортизация за час;
 - работа = часы × стоимость часа;
 - себестоимость — сумма четырёх строк;
-- рекомендованная цена = себестоимость × 2,5 (наценка 150 %, `WORKSHOP_MARKUP`);
+- рекомендованная цена = себестоимость × (1 + наценка / 100), по умолчанию наценка 150 %
+  (`DEFAULT_MARKUP_PERCENT`) — то есть ×2,5;
 - прибыль = цена − себестоимость.
 
 Округление до копеек (`roundMoney`) делается на каждом шаге, иначе сумма строк в интерфейсе не
@@ -2223,6 +2224,14 @@ Api-Key шифруется на сервере (`lib/crypto.ts`, AES-256-GCM): �
 расчёта не бывает. Итог появляется по кнопке «Рассчитать», а не на каждый символ; при правке
 поля старый результат убирается, чтобы его не приняли за новый. Деньги форматирует
 `formatMoney` (`ru-RU`, RUB, две цифры после запятой).
+
+Наценку мастер вводит сам — поле «Наценка (%)» (`MARKUP_FIELD`) стоит под тремя входами и в
+себестоимость не входит: она только умножает её. Пределы 0…1000 % проверяет `readMarkupPercent`:
+отрицательное число даёт ошибку «Наценка не может быть отрицательной» и в расчёт не попадает —
+карточка остаётся на последнем верном проценте. 0 % — цена равна себестоимости, 150 % — ×2,5
+(`markupFactor`). В отличие от полей себестоимости, правка наценки не убирает результат: цена и
+прибыль пересчитываются на лету, без нажатия «Рассчитать». Значение живёт в состоянии вкладки —
+колонки в `workshop_settings` нет, поэтому после перезагрузки снова стоит 150 %.
 
 Вкладка «Склад» (`WorkshopStockTab`) — таблица катушек на широком экране и карточки на узком:
 бейдж типа («Складской» зелёный или «Заказной» янтарный), бренд, тип, цвет, остаток
@@ -3009,7 +3018,7 @@ FlashForge и Elegoo
 | `lib/analytics/generations.ts` | `recordConstructorGeneration(userId, modelType)` пишет успешную выдачу STL в `constructor_generations` (`model_type` обрезается до 64 символов). Вызывается из `/api/constructor/stl` до ответа: serverless-функцию могут заморозить сразу после отправки, и `void promise` потерялся бы. Никогда не бросает исключение — аналитика не должна ломать экспорт |
 | `lib/constructor/feedback.ts` | Счётчик скачиваний для опроса: `CONSTRUCTOR_DOWNLOADS_STORAGE_KEY` (`tridi-constructor-downloads`), `FEEDBACK_FIRST_DOWNLOAD` (3), `FEEDBACK_EVERY_DOWNLOADS` (10) и `FEEDBACK_OPEN_DELAY_MS` (1500); `registerConstructorDownload` пишет в `localStorage`, а при запрете хранилища считает в памяти вкладки; `shouldAskForConstructorFeedback` отвечает, пора ли открывать окно |
 | `lib/workshop/settings.ts` | Настройки калькулятора Мастерской: `WorkshopSettings` (тариф ₽/кВт·ч, мощность Вт, амортизация и час работы в ₽/час), `WORKSHOP_SETTINGS_DEFAULTS` (5.5 / 150 / 10 / 300), `WORKSHOP_FIELDS` (подпись, имя в `FormData`, колонка в базе, пределы, признак `integer`), `WORKSHOP_SETTINGS_COLUMNS`, `parseWorkshopNumber` («5,5» из формы и «5.50» из PostgREST → 5.5), `normalizeWorkshopSettings` (строка базы → числа, незнакомое значение заменяется значением по умолчанию) и `readWorkshopSettingsForm` (форма → числа или ошибки по полям) |
-| `lib/workshop/calculator.ts` | Формулы себестоимости: `calculateWorkshopCost` (материал, электричество, амортизация, работа, себестоимость, рекомендованная цена ×2,5 и прибыль), `roundMoney` до копеек на каждом шаге, `CALCULATOR_FIELDS` (вес 0,1–100 000 г, время печати 0,01–8 760 ч, цена пластика 0–100 000 ₽/кг), `readCalculatorInput`, `formatMoney` (`ru-RU`, RUB), `WORKSHOP_MARKUP` и `WORKSHOP_MARKUP_PERCENT` |
+| `lib/workshop/calculator.ts` | Формулы себестоимости: `calculateWorkshopCost` (материал, электричество, амортизация, работа, себестоимость, рекомендованная цена по наценке и прибыль), `roundMoney` до копеек на каждом шаге, `CALCULATOR_FIELDS` (вес 0,1–100 000 г, время печати 0,01–8 760 ч, цена пластика 0–100 000 ₽/кг), `readCalculatorInput`, наценка — `MARKUP_FIELD` (150 % по умолчанию), `DEFAULT_MARKUP_PERCENT`, `markupFactor` и `readMarkupPercent` (0–1000 %, отрицательная — ошибка), `formatMoney` (`ru-RU`, RUB) |
 | `lib/workshop/store.ts` | `getWorkshopSettings(supabase, userId)` → `{ settings, requisites, integrations, agentToken, isMissingTable, isRequisitesMissing, isIntegrationsMissing, isAgentTokenMissing }`: пять `maybeSingle()` по `user_id` параллельно — числа калькулятора, реквизиты, ключи Ozon, токен вебхука и токен агента печати читаются отдельными запросами, поэтому отсутствие миграции `workshop_requisites.sql`, `workshop_marketplace_integration.sql` или `workshop_farm_and_shop.sql` (PGRST204) не обнуляет расчёт, а если нет только колонки `webhook_token` — ключи всё равно показываются, если нет `agent_token` — ошибка только логируется, `agentToken` приходит `null`, а вкладка подскажет применить миграцию; сам токен агента проходит через `normalizeAgentToken()` и приводится к нижнему регистру; сбой чтения не роняет страницу — значения по умолчанию и признаки неприменённой миграции через `isMissingTableSchema()`. `ozon_api_key` в снимок попадает только маской: открытый ключ и ciphertext остаются на сервере |
 | `lib/workshop/payload.ts` | Строки для записи в таблицы Мастерской: `createWorkshopSettingsPayload(userId, settings, requisites, integrations)` (все три группы необязательны: сохранение калькулятора не перезаписывает реквизиты и ключи Ozon, вкладка «Реквизиты» — числа и ключи, «Интеграции» — числа и реквизиты; `undefined`-поля в запрос не попадают, а `null` в обоих ключах выключает интеграцию; `ozon_api_key` приходит уже зашифрованным из `saveWorkshopSettings`), `createFilamentPayload`, `createPrinterPayload`, `createOrderPayload`, а также `createPrinterUsagePayload` и `createFilamentUsagePayload` для update после заказа — единственное место перевода camelCase → snake_case; пустые ссылка, клиент, заметки и срок превращаются в `null`, `product_id` и `client_id` появляются только при выбранных товаре и клиенте, а переименование колонки ловит TypeScript, а не ответ PGRST204 из прода |
 | `lib/workshop/filaments.ts` | Склад пластика: `WorkshopFilament` (`usageType`: `stock` — складской, `ordered` — заказной), `FilamentOrderItem`, `FILAMENT_ORDER_LIMITS` (до 100 позиций, 1–100 000 г), `FILAMENT_COLUMNS`, `FILAMENT_NUMBER_FIELDS` (вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г; вес — integer), `FILAMENT_TEXT_LIMITS` (60/30/40/500), `FILAMENT_DEFAULTS` (1 000 / 200 / 1 500), `FILAMENT_BRANDS` (13 производителей для `<datalist id="brand-list">`), `FILAMENT_TYPE_SUGGESTIONS`, `FILAMENT_USAGE_TYPES` (`stock`/`ordered`), `FILAMENT_USAGE_TYPE_LABELS`, `isFilamentUsageType`, `readFilamentUsageType` (нет поля или неизвестное значение → `stock`), `IMPORTED_FILAMENTS_MAX` (100), `parseImportedFilamentName` (бренд и тип отдельными словами, остаток названия — цвет, иначе «Импорт» / «PLA» / «Разное»), `createImportedFilamentDraft` (кг → граммы, другая единица → 1 000 г, цена позиции → ₽/кг, без цены — 1 500), `SaveImportedFilamentsResult`, `normalizeFilamentRow` (битое число → значение по умолчанию, строка без UUID отбрасывается), `readFilamentForm` (текст, ссылка только `http(s)://`, остаток не больше общего веса), `readConsumeFilamentForm`, `isFilamentId`, `readFilamentOrderItems` (JSON из адреса → уникальные позиции с целыми граммами в допустимых пределах), `isLowStockFilament`, `filamentRemainingPercent`, `subtractFilamentWeight`, `formatGrams` |
@@ -3181,7 +3190,7 @@ Next.js, а не теряют историю браузера и prefetch. Гл�
 | `components/workshop/WorkshopSettingsForm.tsx` | клиентский | Форма четырёх настроек из `WORKSHOP_FIELDS`: `useActionState` с `saveWorkshopSettings`, ошибки под полями, общая ошибка и подтверждение под кнопкой; инпуты `rounded-xl bg-black/40 border-white/10` с мягким синим `focus:ring-2`, кнопка сохранения — тёмная с белой обводкой; после успеха отдаёт значения наверх (`onSaved`) и вызывает `router.refresh()` |
 | `components/workshop/WorkshopRequisitesTab.tsx` | клиентский | Вкладка «Реквизиты»: `<select name="companyType">` из `COMPANY_TYPES` (самозанятый по умолчанию) и семь текстовых полей — название с `maxLength` 200, ИНН, ОГРН, юридический адрес, банковские реквизиты в `textarea`, телефон (`type="tel"`) и email (`type="email"`); `useActionState` с `saveWorkshopSettings`, ошибки под полями и общими плашками, зелёное подтверждение «Реквизиты сохранены», жёлтое предупреждение про неприменённую миграцию `supabase/workshop_requisites.sql`; после успеха `router.refresh()` |
 | `components/workshop/WorkshopIntegrationsTab.tsx` | клиентский | Вкладка «Интеграции» из четырёх карточек одного ритма (`rounded-2xl border-white/10 bg-white/[0.03]`, `space-y-4`): «Ozon» с бейджем «Активна»/«Не настроена», полями Client-Id (`inputMode="numeric"`, до 64 символов) и Api-Key (`type="password"`, `spellCheck` выключен; сохранённый ключ приходит маской `••••••••`, кнопка «Заменить» очищает поле, без изменений отправляется маска и сервер оставляет прежний шифротекст; для нового ключа — «Показать/Скрыть»), ошибками (`aria-invalid`, `role="alert"`), белой кнопкой «Сохранить», `aria-live`-подтверждением и URL вебхука внутри той же карточки под кнопкой; «Wildberries (WB)» с бейджем «Активна» при существующем токене или «Готово к подключению», текстом об отсутствии API-ключей и адресом; «Яндекс.Маркет» с бейджем «Готово к подключению» и адресом. Все три адреса собирает `WebhookUrlField`: полный `code` (`?token=<uuid>`), кнопка «Скопировать» (`navigator.clipboard`, при запрете — `window.prompt`), своё подтверждение «Скопировано» на 3 секунды, без токена кнопка выключена и показана подсказка. `useActionState` с `saveWorkshopSettings`, после успеха `router.refresh()`; жёлтое предупреждение про миграцию `supabase/workshop_marketplace_integration.sql`. `integrations` необязателен и проходит через `ensureWorkshopIntegrations`: старый RSC-пейлоад не вызывает «Application error» и не показывает открытый Api-Key. В шапке вкладки — текстовая ссылка «Как подключить?» с иконкой `HelpIcon`, она ведёт на `/dashboard/workshop/integrations/help`. Четвёртая карточка — «Локальный агент (Печать)»: заголовок, текст «Скачайте и запустите Python-скрипт на компьютере рядом с принтерами…», бейдж «Активен»/«Готов к подключению», поле токена `type="password"` (клик по нему выделяет значение) с кнопкой «Показать/Скрыть», белая кнопка «Скопировать токен» (`navigator.clipboard`, при запрете — `window.prompt`, тост «Токен скопирован» на 3 секунды) и ссылка «Как установить агент» на `/dashboard/workshop/integrations/help#agent`; готового `agent.zip` нет, поэтому в карточке честно сказано, что скрипт лежит в папке `agent/`. Токен приходит пропом `agentToken`; если он пуст, вкладка один раз за монтирование (ref-флаг) зовёт `ensureAgentToken`, показывает «Создаём токен…», заполняет поле из ответа и делает `router.refresh()` — токен не меняется от повторных заходов, а ошибка действия выводится под полем. Признак `isAgentTokenMissing` рисует жёлтое предупреждение про `supabase/workshop_farm_and_shop.sql` вместо запроса действия |
-| `components/workshop/CostCalculator.tsx` | клиентский | Расчёт себестоимости: три поля из `CALCULATOR_FIELDS` в премиальных инпутах, dropzone «Перетащите .gcode сюда или нажмите, чтобы выбрать файл» с нативным drag-and-drop, `file.text()` и пределом 50 МБ; `parseGcode` подставляет вес и время из комментариев слайсера и честно говорит, чего в файле нет. Итог по белой кнопке «Рассчитать» (при правке поля старый результат убирается) — карточка с градиентом 10 %, рекомендованной ценой `text-4xl`, себестоимостью, прибылью, материалом, работой и отдельной строкой про электричество и амортизацию |
+| `components/workshop/CostCalculator.tsx` | клиентский | Расчёт себестоимости: три поля из `CALCULATOR_FIELDS` в премиальных инпутах и поле «Наценка (%)» (`MARKUP_FIELD`, 150 % по умолчанию), чья правка пересчитывает цену и прибыль на лету и результат не убирает, dropzone «Перетащите .gcode сюда или нажмите, чтобы выбрать файл» с нативным drag-and-drop, `file.text()` и пределом 50 МБ; `parseGcode` подставляет вес и время из комментариев слайсера и честно говорит, чего в файле нет. Итог по белой кнопке «Рассчитать» (при правке полей себестоимости старый результат убирается) — карточка с градиентом 10 %, рекомендованной ценой `text-4xl`, себестоимостью, прибылью, материалом, работой и отдельной строкой про электричество и амортизацию |
 | `components/forum/admin/ModerationControls.tsx` | клиентский | Кнопки «Одобрить/Отклонить», форма бана автора и снятие бана; действия приходят из `app/actions/forum-admin.ts` |
 
 ---
@@ -8188,6 +8197,30 @@ Kanban. Дата берётся из `created_at` своим `Intl.DateTimeForma
 (`/dashboard/workshop` — 71,1 kB, 265 kB первой загрузки), `npm run check:docs`, `npm run check:style`
 и `npm run check:imports` — без замечаний. Живой прогон (открыть карточку заказа и убедиться, что
 шапка стала короче, а очередь печати и позиции работают как раньше) остаётся за пользователем.
+
+**Мастерская: наценка в калькуляторе правится руками (3 ноября 2026).** Наценка была зашита в коде:
+`lib/workshop/calculator.ts` держал `WORKSHOP_MARKUP = 2.5` и подпись `WORKSHOP_MARKUP_PERCENT`, а
+`calculateWorkshopCost` умножала себестоимость на эту константу без спроса. Чтобы поставить другую
+цену, мастеру пришлось бы править исходник.
+
+Теперь это поле ввода. `DEFAULT_MARKUP_PERCENT = 150` оставляет прежнее значение по умолчанию (150 %
+— цена ×2,5), а `calculateWorkshopCost(settings, input, markupPercent)` принимает процент третьим
+аргументом и считает цену через `markupFactor` — `1 + наценка / 100`. Поле «Наценка (%)»
+(`MARKUP_FIELD`, шаг 1, пределы 0…1000) стоит в форме под тремя входами себестоимости: 0 % — цена
+равна себестоимости, 200 % — ×3.
+
+Правка наценки результат не убирает: `breakdown` в `CostCalculator` зависит и от `markupPercent`,
+поэтому цена и прибыль пересчитываются на лету. `readMarkupPercent` разбирает ввод теми же правилами,
+что и остальные числа («150», «150,5»), запрещает отрицательное («Наценка не может быть
+отрицательной») и следит за верхним пределом. Неверный ввод не применяется: в карточке остаётся
+последний верный процент, а под полем видна подсказка с коэффициентом. Колонки для наценки в
+`workshop_settings` нет, поэтому значение живёт в состоянии вкладки и после перезагрузки снова 150 % —
+миграция в базе не понадобилась.
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run build` — успешно
+(`/dashboard/workshop` — 71,6 kB, 265 kB первой загрузки), `npm run check:docs`, `npm run check:style`
+и `npm run check:imports` — без замечаний. Живой прогон (посчитать модель и поменять наценку на 0,
+200 и −10 %) остаётся за пользователем.
 
 
 

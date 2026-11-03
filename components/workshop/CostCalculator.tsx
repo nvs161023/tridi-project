@@ -12,11 +12,13 @@ import { CalculatorIcon, UploadIcon } from "@/components/workshop/WorkshopIcons"
 import { parseGcode } from "@/lib/gcode-parser";
 import {
   CALCULATOR_FIELDS,
-  WORKSHOP_MARKUP,
-  WORKSHOP_MARKUP_PERCENT,
+  DEFAULT_MARKUP_PERCENT,
+  MARKUP_FIELD,
   calculateWorkshopCost,
   formatMoney,
+  markupFactor,
   readCalculatorInput,
+  readMarkupPercent,
   type CalculatorFieldKey,
   type CalculatorInput,
 } from "@/lib/workshop/calculator";
@@ -32,6 +34,12 @@ import type { WorkshopSettings } from "@/lib/workshop/settings";
  *
  * Сами формулы лежат в lib/workshop/calculator.ts: этот компонент отвечает
  * только за поля, ошибки и показ разбивки.
+ *
+ * Наценка — единственное поле, которое не убирает результат: её меняют как раз
+ * для того, чтобы увидеть новую цену и прибыль по уже посчитанной
+ * себестоимости. Значение живёт в состоянии компонента — колонки в
+ * `workshop_settings` нет, поэтому при следующем открытии вкладки снова стоит
+ * 150 %.
  */
 
 type CostCalculatorProps = {
@@ -73,6 +81,11 @@ const gcodeNumberFormatter = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 2,
 });
 
+/** Числа наценки в подписях: «150», «2,5». */
+const markupNumberFormatter = new Intl.NumberFormat("ru-RU", {
+  maximumFractionDigits: 2,
+});
+
 /** Цвет строки состояния под кнопкой загрузки G-code. */
 const GCODE_TONE_CLASSES = {
   success: "border-emerald-400/40 bg-emerald-500/10 text-emerald-100",
@@ -90,12 +103,16 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
   const [gcodeMessage, setGcodeMessage] = useState<GcodeMessage | null>(null);
   const [isReadingGcode, setIsReadingGcode] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [markupText, setMarkupText] = useState(MARKUP_FIELD.placeholder);
+  const [markupPercent, setMarkupPercent] = useState(DEFAULT_MARKUP_PERCENT);
+  const [markupError, setMarkupError] = useState<string | null>(null);
 
   // Настройки могли только что сохранить: пересчитываем по ним же, без
-  // повторного нажатия «Рассчитать».
+  // повторного нажатия «Рассчитать». Наценка входит в те же зависимости,
+  // поэтому цена и прибыль меняются на лету.
   const breakdown = useMemo(
-    () => (input ? calculateWorkshopCost(settings, input) : null),
-    [input, settings],
+    () => (input ? calculateWorkshopCost(settings, input, markupPercent) : null),
+    [input, markupPercent, settings],
   );
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -109,6 +126,22 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
   function handleChange(key: CalculatorFieldKey, value: string) {
     setValues((previous) => ({ ...previous, [key]: value }));
     setInput(null);
+  }
+
+  /**
+   * Правка наценки: результат оставляем — мастер меняет её, чтобы сразу
+   * увидеть новую цену. Ошибка (пусто, буквы, минус) не применяется: расчёт
+   * идёт по последнему верному проценту, а под полем видна подсказка.
+   */
+  function handleMarkupChange(value: string) {
+    setMarkupText(value);
+
+    const parsed = readMarkupPercent(value);
+    setMarkupError(parsed.error);
+
+    if (parsed.percent !== null) {
+      setMarkupPercent(parsed.percent);
+    }
   }
 
   /**
@@ -379,6 +412,58 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
           })}
         </div>
 
+        <div className="mt-4 sm:max-w-xs">
+          <label
+            htmlFor="calculator-markup"
+            className="block text-sm font-semibold text-zinc-200"
+          >
+            {MARKUP_FIELD.label}
+          </label>
+          <div className="relative">
+            <input
+              id="calculator-markup"
+              data-calculator-markup
+              type="number"
+              autoComplete="off"
+              inputMode="decimal"
+              step={MARKUP_FIELD.step}
+              min={MARKUP_FIELD.min}
+              max={MARKUP_FIELD.max}
+              value={markupText}
+              onChange={(event) => handleMarkupChange(event.target.value)}
+              placeholder={MARKUP_FIELD.placeholder}
+              aria-invalid={markupError ? true : undefined}
+              aria-describedby={
+                markupError
+                  ? "calculator-markup-error"
+                  : "calculator-markup-hint"
+              }
+              className={inputClassName}
+            />
+            <span className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-xs font-medium text-zinc-500">
+              {MARKUP_FIELD.unit}
+            </span>
+          </div>
+          {markupError ? (
+            <p
+              id="calculator-markup-error"
+              role="alert"
+              className="mt-1.5 text-sm text-red-300"
+            >
+              {markupError}
+            </p>
+          ) : (
+            <p
+              id="calculator-markup-hint"
+              className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+            >
+              Цена = себестоимость ×{" "}
+              {markupNumberFormatter.format(markupFactor(markupPercent))}. 0 % —
+              продажа по себестоимости.
+            </p>
+          )}
+        </div>
+
         <button
           type="submit"
           className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
@@ -402,8 +487,9 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
                 {formatMoney(breakdown.recommendedPrice)}
               </p>
               <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-                себестоимость × {WORKSHOP_MARKUP} · наценка{" "}
-                {WORKSHOP_MARKUP_PERCENT} %
+                себестоимость ×{" "}
+                {markupNumberFormatter.format(markupFactor(markupPercent))} ·
+                наценка {markupNumberFormatter.format(markupPercent)} %
               </p>
 
               <dl className="mt-6 grid gap-x-8 gap-y-3 border-t border-white/10 pt-5 sm:grid-cols-2">
@@ -436,9 +522,11 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
 
           <p className="mt-3 text-xs leading-relaxed text-zinc-500">
             Материал — вес × цену за килограмм, электричество — мощность × часы ×
-            тариф. Рекомендуемая цена считается как себестоимость ×{" "}
-            {WORKSHOP_MARKUP}: это наценка {WORKSHOP_MARKUP_PERCENT} %, из которой
-            ещё платятся комиссии и доставка.
+            тариф. Рекомендуемая цена — себестоимость ×{" "}
+            {markupNumberFormatter.format(markupFactor(markupPercent))}: наценка{" "}
+            {markupNumberFormatter.format(markupPercent)} %, из которой ещё
+            платятся комиссии и доставка. Наценку меняют в поле выше — цена и
+            прибыль пересчитываются сразу.
           </p>
         </div>
       ) : (
