@@ -14,7 +14,8 @@
   5. `start_print()` отправляет `select` и `print` по имени файла в пути;
   6. `get_status()` разбирает `Printing`, `Paused` и `Operational`: проценты из
      `job.progress.completion`, остаток из `printTimeLeft`, а верхний `progress`
-     (старые сборки) не теряется;
+     (старые сборки) не теряется. `Offline` — отказ, а не простой: обрыв связи с
+     платой прерывает печать;
   7. пауза, возврат и отмена уходят в `POST /api/job` нужными командами, а
      отказ 409 не выдаётся за успех;
   8. не отвечающий принтер даёт `False` и `{"status": "error", ...}`, фабрика
@@ -448,6 +449,24 @@ def main() -> int:
             check(
                 "get_status: Operational → idle без прогресса",
                 status == {"status": "idle", "progress": 0, "remaining_time": 0},
+                f"{status!r}",
+            )
+            # Обрыв связи с платой — не простой: печать прервана. Показывать
+            # `idle` значит не сообщить мастеру об обрыве, и он узнает о нём
+            # только утром, найдя недопечатанное изделие на столе.
+            fake.route(
+                "GET",
+                "/api/job",
+                200,
+                {
+                    "job": {"progress": {"completion": 18.0, "printTimeLeft": 400}},
+                    "state": "Offline",
+                },
+            )
+            status = adapter.get_status()
+            check(
+                "get_status: Offline → error (печать прервана обрывом связи)",
+                status == {"status": "error", "progress": 18, "remaining_time": 400},
                 f"{status!r}",
             )
             fake.route(

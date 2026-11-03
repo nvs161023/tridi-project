@@ -162,11 +162,6 @@ def sanitize_remote_name(protocol: str, name: str) -> str:
 # запускает прошивка. Именно это значение присылает Bambu Studio в `project_file`.
 BAMBU_GCODE_PART: Final = "Metadata/plate_1.gcode"
 
-# `param` команды печати Bambu: запись с нарезанным G-code первой пластины.
-# Именно это значение присылает Bambu Studio в `project_file`, когда печатается
-# первая пластина проекта.
-BAMBU_GCODE_PART: Final = "Metadata/plate_1.gcode"
-
 # Записи с нарезанным G-code: по одной на пластину проекта (`plate_1.gcode`,
 # `plate_2.gcode`). Прошивка получает номер пластины в `param` команды печати,
 # поэтому имя записи читается из контейнера, а не угадывается: проект, где

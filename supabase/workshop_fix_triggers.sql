@@ -191,6 +191,12 @@ begin
 
     event_name := 'started';
     event_message := 'агент начал печать';
+  elsif new.status = 'paused' then
+    -- Пауза ничего не закрывает: печать стоит и может продолжиться, поэтому
+    -- `finished_at`, `last_error` и просьбу об отмене оставляем как есть, а заказ
+    -- не двигаем — он остаётся в своей колонке до продолжения или закрытия.
+    event_name := 'paused';
+    event_message := 'печать на паузе';
   elsif new.status = 'done' then
     next_finished_at := coalesce(new.finished_at, now());
     next_cancel_requested := false;
@@ -240,14 +246,15 @@ begin
      );
 
   -- Заказ закрывается, когда у него не осталось активных заданий: у заказа из
-  -- нескольких позиций последнее слово за последним заданием.
+  -- нескольких позиций последнее слово за последним заданием. `paused` считается
+  -- активным: позиция на паузе ещё не напечатана, и закрывать заказ рано.
   if new.status in ('done', 'failed', 'cancelled') then
     select count(*) into remaining_active
       from public.workshop_print_jobs
      where order_id = new.order_id
        and user_id = new.user_id
        and id <> new.id
-       and status in ('queued', 'printing');
+       and status in ('queued', 'printing', 'paused');
 
     if remaining_active = 0 then
       update public.workshop_orders
@@ -283,6 +290,38 @@ $$;
 
 comment on function public.workshop_print_jobs_sync_order() is
   'Двигает заказ по Канбану и пишет событие в журнал при смене статуса задания.';
+
+
+-- -----------------------------------------------------------------------------
+-- 4.1. Пауза в журнале событий
+-- -----------------------------------------------------------------------------
+-- Триггер пишет событие `paused`, и check журнала должен его знать: иначе
+-- вставка события упадёт, а вместе с ней откатится и смена статуса задания.
+-- Блок пропускается, если журнала ещё нет, — его создаёт hardening.
+do $$
+begin
+  if to_regclass('public.workshop_print_events') is null then
+    return;
+  end if;
+
+  alter table public.workshop_print_events
+    drop constraint if exists workshop_print_events_event_check;
+
+  alter table public.workshop_print_events
+    add constraint workshop_print_events_event_check
+    check (
+      event in (
+        'queued',
+        'started',
+        'paused',
+        'done',
+        'failed',
+        'cancelled',
+        'cancel_requested'
+      )
+    );
+end
+$$;
 
 
 -- -----------------------------------------------------------------------------

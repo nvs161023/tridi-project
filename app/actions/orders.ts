@@ -1507,8 +1507,8 @@ function scheduleReadError(
  *   4. позиции этих заказов одним запросом вместе с файлом печати товара;
  *   5. разметка 3MF отдельным запросом: колонки `sliced_for_printer` может не
  *      быть, если миграцию не применяли заново, и падать из-за этого нельзя;
- *   6. активные задания (`queued`/`printing`), чтобы не считать уже стоящее в
- *      очереди своей работой;
+ *   6. активные задания (`queued`/`printing`/`paused`), чтобы не считать уже
+ *      стоящее в очереди своей работой;
  *   7. подбор: один принтер — один заказ.
  *
  * Совместимость. Если 3MF нарезан под конкретный принтер, позиция уходит только
@@ -1521,8 +1521,8 @@ function scheduleReadError(
  * `workshop_printers_status_check` знает только idle/printing/paused/error/
  * offline, да и пишет `status` агент фермы — он вернул бы `idle` на следующем
  * же опросе. Поэтому занятость считается по очереди: принтер с заданием в
- * `queued`/`printing` в подбор не попадает. От двойного выбора в одном проходе
- * защищает ещё и сам цикл — каждый принтер проходится ровно один раз.
+ * `queued`/`printing`/`paused` в подбор не попадает. От двойного выбора в одном
+ * проходе защищает ещё и сам цикл — каждый принтер проходится ровно один раз.
  *
  * Задания создаёт `createPrintJob` — он же проверяет владельца, наличие G-code,
  * принадлежность принтера и «одно активное задание на позицию». Поэтому
@@ -1579,7 +1579,7 @@ export async function autoScheduleOrders(): Promise<AutoScheduleState> {
     .from("workshop_print_jobs")
     .select("printer_id")
     .eq("user_id", user.id)
-    .in("status", ["queued", "printing"])
+    .in("status", ["queued", "printing", "paused"])
     .not("printer_id", "is", null);
 
   if (busyPrintersResult.error) {
@@ -1722,7 +1722,7 @@ export async function autoScheduleOrders(): Promise<AutoScheduleState> {
     .select("order_item_id")
     .eq("user_id", user.id)
     .in("order_id", orderIds)
-    .in("status", ["queued", "printing"]);
+    .in("status", ["queued", "printing", "paused"]);
 
   if (activeJobsResult.error) {
     console.warn(

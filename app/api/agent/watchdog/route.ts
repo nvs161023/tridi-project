@@ -110,7 +110,9 @@ async function moveOrderBackToNew(
     .eq("order_id", job.orderId)
     .eq("user_id", job.userId)
     .neq("id", job.id)
-    .in("status", ["queued", "printing"]);
+    // `paused` — тоже активное задание: принтер стоит, но работа не закрыта, и
+    // возвращать заказ в «Новые» из-за паузы соседней позиции нельзя.
+    .in("status", ["queued", "printing", "paused"]);
 
   if (remaining.error) {
     return `Заказ ${job.orderId}: ${describe(remaining.error)}`;

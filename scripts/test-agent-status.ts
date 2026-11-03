@@ -507,6 +507,80 @@ async function main(): Promise<void> {
       );
     }
 
+    // 2.2 Пауза --------------------------------------------------------------
+    // Пауза не завершение и не отказ: задание остаётся активным, принтер —
+    // занятым, а заказ — в колонке «В печати». Раньше агент не мог сообщить о
+    // паузе вовсе, и многочасовая остановка выглядела обычной печатью.
+    const paused = await callStatus(authorized, {
+      jobId,
+      status: "paused",
+      progress: 60,
+      message: "кончился филамент",
+    });
+
+    check(
+      "POST paused: роут принимает статус паузы",
+      paused.status !== 400,
+      `status=${paused.status}, body=${JSON.stringify(paused.body).slice(0, 200)}`,
+    );
+
+    if (paused.status === 200) {
+      const afterPause = await readState(jobId, orderId, printerId);
+
+      check(
+        "paused: задание осталось активным (не done и не failed)",
+        afterPause.jobStatus !== "done" && afterPause.jobStatus !== "failed",
+        `job=${afterPause.jobStatus}`,
+      );
+
+      check(
+        "paused: принтер paused, прогресс 60",
+        afterPause.printerStatus === "paused" && afterPause.progress === 60,
+        `printer=${afterPause.printerStatus}, progress=${afterPause.progress}`,
+      );
+
+      check(
+        "paused: заказ остался в «В печати»",
+        afterPause.orderStatus === "printing",
+        `order=${afterPause.orderStatus}`,
+      );
+
+      if (hardening) {
+        const pausedDetails = await readJobDetails(jobId);
+
+        check(
+          "paused: last_error не записан, finished_at пуст",
+          pausedDetails.lastError === null && pausedDetails.finishedAt === null,
+          `last_error=${pausedDetails.lastError}, finished_at=${pausedDetails.finishedAt}`,
+        );
+      }
+
+      // Возврат к печати: прогресс мог не измениться, и агент присылает
+      // `printing` с тем же числом — статус в базе обязан вернуться в printing.
+      const resumed = await callStatus(authorized, {
+        jobId,
+        status: "printing",
+        progress: 60,
+      });
+
+      const afterResume = await readState(jobId, orderId, printerId);
+
+      check(
+        "paused → printing: задание и принтер снова printing",
+        resumed.status === 200 &&
+          afterResume.jobStatus === "printing" &&
+          afterResume.printerStatus === "printing",
+        `status=${resumed.status}, job=${afterResume.jobStatus}, printer=${afterResume.printerStatus}`,
+      );
+    } else {
+      // 500 — база не приняла статус: в check `workshop_print_jobs_status_check`
+      // нет `paused`, то есть миграцию применяли до паузы. Это схема, а не роут,
+      // поэтому проверки паузы пропускаются с подсказкой.
+      console.warn(
+        "⚠ База не знает статус paused: примените supabase/workshop_print_queue_hardening.sql заново — проверки паузы пропущены.",
+      );
+    }
+
     // 3. Опрос отмены ---------------------------------------------------------
     // Флаг ещё не поднят: агент обязан получить «печатай дальше», а не 404.
     const pollIdle = await callCancelPoll(authorized, `?jobId=${jobId}`);
@@ -590,10 +664,23 @@ async function main(): Promise<void> {
     );
 
     // 5. Ошибка печати: заказ возвращается в new, принтер — в error -----------
-    // Ветка проверяется на том же задании после done: переход уже не реалистичен,
-    // но роут обязан согласованно перевести все три строки.
+    // Перед отказом печать возвращают в работу: заказ уезжает в «Новые» только из
+    // колонки «В печати», а после `done` он уже в «Готово». Без этого шага
+    // проверка ловила бы состояние доски, а не поведение роута.
     // `message` — текст агента для карточки: без него мастер видит «провалено» без
     // причины.
+    const failedPrinting = await callStatus(authorized, {
+      jobId,
+      status: "printing",
+      progress: 70,
+    });
+
+    check(
+      "POST printing перед failed: 200 и success",
+      failedPrinting.status === 200 && failedPrinting.body.success === true,
+      `status=${failedPrinting.status}, body=${JSON.stringify(failedPrinting.body).slice(0, 300)}`,
+    );
+
     const failureReason = "Bambu: FTPS ответил 530";
     const failed = await callStatus(authorized, {
       jobId,

@@ -463,9 +463,11 @@ create index if not exists workshop_order_items_product_idx
 -- 7. Очередь печати для агента
 -- -----------------------------------------------------------------------------
 
--- Жизненный цикл задания: queued → printing → done | failed.
+-- Жизненный цикл задания: queued → printing ⇄ paused → done | failed.
 --     queued   — создано приложением и ждёт агента;
 --     printing — агент взял задание и печатает;
+--     paused   — печать стоит на паузе; задание живо, принтер занят, заказ
+--                остаётся на доске (миграция hardening добавляет статус в базу);
 --     done     — печать завершена;
 --     failed   — ошибка печати; причина пока остаётся в логах агента.
 -- printer_id необязателен: задание можно поставить в очередь до выбора
@@ -485,7 +487,7 @@ create table if not exists public.workshop_print_jobs (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint workshop_print_jobs_status_check
-    check (status in ('queued', 'printing', 'done', 'failed')),
+    check (status in ('queued', 'printing', 'paused', 'done', 'failed')),
   constraint workshop_print_jobs_gcode_url_check
     check (
       gcode_url is null
@@ -502,7 +504,7 @@ comment on column public.workshop_print_jobs.printer_id is
 comment on column public.workshop_print_jobs.gcode_url is
   'Ссылка на G-code на момент создания задания; null — у товара не было файла.';
 comment on column public.workshop_print_jobs.status is
-  'Статус: queued → printing → done или failed. Меняет только агент (service_role).';
+  'Статус: queued → printing ⇄ paused → done или failed. Меняет только агент (service_role).';
 comment on column public.workshop_print_jobs.updated_at is
   'Момент последнего изменения; выставляется триггером при каждом update.';
 
@@ -518,11 +520,12 @@ create index if not exists workshop_print_jobs_printer_idx
   on public.workshop_print_jobs (printer_id);
 
 -- У одной позиции заказа не может быть двух активных заданий: иначе повторный
--- вебхук или двойной клик отправит модель на печать дважды. Завершённые и
--- провалившиеся задания индекс не трогает — повторную печать можно поставить.
+-- вебхук или двойной клик отправит модель на печать дважды. `paused` — тоже
+-- активное задание: печать стоит, но позиция занята. Завершённые и провалившиеся
+-- задания индекс не трогает — повторную печать можно поставить.
 create unique index if not exists workshop_print_jobs_active_item_uidx
   on public.workshop_print_jobs (order_item_id)
-  where status in ('queued', 'printing');
+  where status in ('queued', 'printing', 'paused');
 
 -- updated_at не должен зависеть от клиента: даже если агент забыл передать
 -- поле, триггер перезапишет его при update.

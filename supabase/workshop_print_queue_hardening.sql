@@ -17,7 +17,9 @@
 --      длительность печати считаются по базе, а не по `updated_at`;
 --   4. флаг `cancel_requested`: кнопка «Отменить печать» останавливает уже
 --      начатую печать — агент видит флаг при следующем опросе;
---   5. статус `cancelled`: отмена не притворяется ошибкой печати;
+--   5. статусы `cancelled` и `paused`: отмена не притворяется ошибкой печати, а
+--      пауза — завершением. На паузе задание остаётся активным, принтер —
+--      занятым, а заказ не уезжает с колонки: печать может продолжиться;
 --   6. журнал `workshop_print_events`: кто и когда поставил, начал, закрыл или
 --      отменил задание. Таблица в публикации Realtime — карточка заказа
 --      обновляется без перезагрузки;
@@ -58,7 +60,16 @@ alter table public.workshop_print_jobs
   drop constraint if exists workshop_print_jobs_status_check;
 alter table public.workshop_print_jobs
   add constraint workshop_print_jobs_status_check
-  check (status in ('queued', 'printing', 'done', 'failed', 'cancelled'));
+  check (status in ('queued', 'printing', 'paused', 'done', 'failed', 'cancelled'));
+
+-- `paused` — тоже активное задание: печать стоит, но позиция занята. Без этого
+-- индекса на паузе можно было бы поставить вторую печать той же позиции и
+-- получить два задания на один принтер. Индекс пересоздаётся: старый знал
+-- только queued/printing.
+drop index if exists public.workshop_print_jobs_active_item_uidx;
+create unique index if not exists workshop_print_jobs_active_item_uidx
+  on public.workshop_print_jobs (order_item_id)
+  where status in ('queued', 'printing', 'paused');
 
 alter table public.workshop_print_jobs
   drop constraint if exists workshop_print_jobs_last_error_check;
@@ -127,6 +138,7 @@ create table if not exists public.workshop_print_events (
       event in (
         'queued',
         'started',
+        'paused',
         'done',
         'failed',
         'cancelled',
@@ -137,10 +149,29 @@ create table if not exists public.workshop_print_events (
     check (message is null or char_length(btrim(message)) between 1 and 500)
 );
 
+-- `create table if not exists` не трогает уже созданную таблицу, поэтому на
+-- базе без `paused` в check триггер падал бы на вставке события паузы — и вместе
+-- с ним откатывался бы сам статус задания. Ограничение пересоздаётся здесь.
+alter table public.workshop_print_events
+  drop constraint if exists workshop_print_events_event_check;
+alter table public.workshop_print_events
+  add constraint workshop_print_events_event_check
+  check (
+    event in (
+      'queued',
+      'started',
+      'paused',
+      'done',
+      'failed',
+      'cancelled',
+      'cancel_requested'
+    )
+  );
+
 comment on table public.workshop_print_events is
   'Журнал очереди печати: постановка, запуск, завершение, отказ и отмена заданий.';
 comment on column public.workshop_print_events.event is
-  'queued | started | done | failed | cancelled | cancel_requested.';
+  'queued | started | paused | done | failed | cancelled | cancel_requested.';
 comment on column public.workshop_print_events.message is
   'Пояснение: причина отказа или просьба об отмене (до 500 символов).';
 
@@ -169,6 +200,10 @@ create index if not exists workshop_print_events_user_idx
 -- Заказ двигается здесь, а не в Server Action: агент пишет статус через
 -- PostgREST и при обрыве сети после `update` доска раньше оставалась в
 -- колонке «В очереди». Теперь обе записи меняются одной транзакцией.
+--
+-- `paused` — единственный переход, который ничего не закрывает и заказ не
+-- двигает: журнал получает событие паузы, а метки этапов и причина отказа
+-- остаются прежними.
 create or replace function public.workshop_print_jobs_sync_order()
 returns trigger
 language plpgsql
@@ -220,6 +255,12 @@ begin
 
     event_name := 'started';
     event_message := 'агент начал печать';
+  elsif new.status = 'paused' then
+    -- Пауза ничего не закрывает: печать стоит и может продолжиться, поэтому
+    -- `finished_at`, `last_error` и просьбу об отмене оставляем как есть, а заказ
+    -- не двигаем — он остаётся в своей колонке до продолжения или закрытия.
+    event_name := 'paused';
+    event_message := 'печать на паузе';
   elsif new.status = 'done' then
     next_finished_at := coalesce(new.finished_at, now());
     next_cancel_requested := false;
@@ -270,14 +311,15 @@ begin
      );
 
   -- Заказ закрывается, когда у него не осталось активных заданий: у заказа из
-  -- нескольких позиций последнее слово за последним заданием.
+  -- нескольких позиций последнее слово за последним заданием. `paused` считается
+  -- активным: позиция на паузе ещё не напечатана, и закрывать заказ рано.
   if new.status in ('done', 'failed', 'cancelled') then
     select count(*) into remaining_active
       from public.workshop_print_jobs
      where order_id = new.order_id
        and user_id = new.user_id
        and id <> new.id
-       and status in ('queued', 'printing');
+       and status in ('queued', 'printing', 'paused');
 
     if remaining_active = 0 then
       update public.workshop_orders
@@ -331,9 +373,11 @@ create trigger workshop_print_jobs_sync_order
 -- authenticated есть только select/insert/delete (`workshop_farm_and_shop.sql`,
 -- раздел 9.3), статусы меняет агент. Функция вынесена в security definer,
 -- проверяет владельца и решает по статусу:
---   queued   → задание сразу закрывается как cancelled;
---   printing → поднимается cancel_requested, агент останавливает печать при
---              следующем опросе GET /api/agent/status.
+--   queued            → задание сразу закрывается как cancelled;
+--   printing, paused  → поднимается cancel_requested, агент останавливает печать
+--                       при следующем опросе GET /api/agent/status. Пауза тоже
+--                       подлежит отмене: печать стоит, но задание не закрыто, и
+--                       мастер вправе снять его с принтера.
 create or replace function public.workshop_cancel_print_job(p_job_id uuid)
 returns text
 language plpgsql
@@ -368,7 +412,7 @@ begin
     return 'cancelled';
   end if;
 
-  if job.status = 'printing' then
+  if job.status in ('printing', 'paused') then
     update public.workshop_print_jobs
        set cancel_requested = true
      where id = job.id;

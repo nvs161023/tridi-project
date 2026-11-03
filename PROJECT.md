@@ -2488,16 +2488,19 @@ snake_case — `createOrderPayload`, `createOrderUpdatePayload`, `createPrinterU
 `workshop_print_jobs` семь колонок: `last_error` (причина отказа от агента, до 500 символов),
 `estimated_seconds`, `filament_grams numeric(10, 2)`, метки `queued_at` (дозаполняется из `created_at`
 и получает `default now()`), `started_at`, `finished_at` и `cancel_requested boolean not null default
-false`. Ограничение статуса пересоздаётся с `cancelled` — отмена мастером не должна попадать в
-статистику поломок, как `failed`. Журнал `workshop_print_events` (`user_id`, `order_id`, `job_id`,
+false`. Ограничение статуса пересоздаётся с `cancelled` и `paused` — отмена мастером не должна
+попадать в статистику поломок, как `failed`, а пауза не завершает печать: задание живо, принтер
+занят, заказ не уезжает с доски. Журнал `workshop_print_events` (`user_id`, `order_id`, `job_id`,
 `printer_id`, `event`, `message`, `created_at`, индекс по `(user_id, created_at)`) пишется только
 триггером: authenticated читает его и не может подделать историю. Триггер
 `workshop_print_jobs_sync_order()` после вставки, смены статуса и подъёма флага делает три вещи
 одной транзакцией с записью задания: ставит метки этапов (`queued_at`/`started_at`/`finished_at`),
 двигает Канбан заказа (`printing` при старте задания, `ready` после `done`, `new` после
-`failed`/`cancelled`, но только когда у заказа не осталось активных заданий; постановка в очередь
-статус заказа не меняет) и пишет событие (`queued`, `started`, `done`, `failed`, `cancelled`); событие
-`cancel_requested` пишет сама RPC отмены. Поэтому статусный роут больше не правит заказ из
+`failed`/`cancelled`, но только когда у заказа не осталось активных заданий — `queued`, `printing`
+и `paused`; постановка в очередь статус заказа не меняет) и пишет событие (`queued`, `started`,
+`paused`, `done`, `failed`, `cancelled`); событие `cancel_requested` пишет сама RPC отмены. Пауза
+ничего не закрывает: `finished_at`, `last_error` и флаг отмены остаются как были, а заказ стоит в
+своей колонке до продолжения или закрытия задания. Поэтому статусный роут больше не правит заказ из
 приложения: он определяет наличие колонки `cancel_requested` и, если она есть, полагается на
 триггер, а прикладной `update` оставляет только для базы без миграции. Отмена — RPC
 `workshop_cancel_print_job(uuid)`: `queued` закрывается сразу как `cancelled`, `printing` получает
@@ -2720,7 +2723,13 @@ application/octet-stream`, `Print-After-Upload: ?0` и `Overwrite: ?1` для з
 значение подменяется на `usb`, чтобы путь загрузки не ушёл в чужую папку. Прошивки 2.x принимают
 `POST`, а документация PrusaLink описывает `PUT` с `command` и `DELETE` для отмены, поэтому на
 400/404/405 адаптер повторяет команду документированным запросом — иначе пауза на живом принтере
-молча не сработала бы. В обоих адаптерах `last_error` объясняет код отказа подсказкой (401 — ключ не
+молча не сработала бы. Состояния переводятся по машине состояний протокола: у OctoPrint `Printing`,
+`Starting`, `Resuming` и `Finishing` — `printing`, `Pausing` и `Paused` — `paused`, `Operational`,
+`Closed`, `Connecting` и `Transfering file` — `idle`, `Offline`, `Error` и `Cancelling` — `error`
+(обрыв связи с платой прерывает печать, и выдавать его за простой нельзя); у PrusaLink `PRINTING` и
+`BUSY` (нагрев, калибровка, первый слой) — `printing`, `PAUSED` — `paused`, `IDLE`, `READY` и
+`FINISHED` — `idle`, `STOPPED`, `ATTENTION` и `ERROR` — `error` (остановленная печать — не готовое
+изделие). В обоих адаптерах `last_error` объясняет код отказа подсказкой (401 — ключ не
 принят, 409 — занято, 415 — формат не поддерживается), а незнакомое состояние принтера считается
 ошибкой, а не простоем. Тесты без принтера — `scripts/test-octoprint.py` и `scripts/test-prusa.py`:
 `http.server` на loopback изображает API и записывает запросы целиком, поэтому проверяются URL,
@@ -8221,6 +8230,49 @@ Kanban. Дата берётся из `created_at` своим `Intl.DateTimeForma
 (`/dashboard/workshop` — 71,6 kB, 265 kB первой загрузки), `npm run check:docs`, `npm run check:style`
 и `npm run check:imports` — без замечаний. Живой прогон (посчитать модель и поменять наценку на 0,
 200 и −10 %) остаётся за пользователем.
+
+**Мастерская: пауза печати доходит до карточки (3 ноября 2026).** Пауза была только у принтера:
+`workshop_print_jobs` знал `queued`, `printing`, `done`, `failed` и `cancelled`, а `AGENT_STATUSES` в
+`agent/main.py` — четыре статуса без `paused`. Поэтому пауза в CRM не отражалась: задание оставалось
+`printing`, принтер тоже, и мастер по карточке не отличал стоящую печать от идущей. Хуже было до
+старта: пауза на нагреве давала простой на нулевом прогрессе, и цикл мониторинга закрывал задание
+отказом «принтер не начал печать».
+
+Теперь `paused` есть во всей цепочке. В базе это `queued → printing ⇄ paused → done | failed |
+cancelled`: ограничение статуса, частичный уникальный индекс активной позиции
+(`workshop_print_jobs_active_item_uidx`), проверка журнала `workshop_print_events`, RPC отмены
+(`printing` и `paused` получают `cancel_requested`, `queued` закрывается сразу) и триггер
+`workshop_print_jobs_sync_order()` — пауза пишет событие `paused`, но ничего не закрывает:
+`finished_at`, `last_error` и флаг отмены остаются как были, заказ стоит в своей колонке. В
+приложении статус расширен в `PRINT_JOB_STATUSES`, `OrderPrintJobState`, типах и всех фильтрах
+активных заданий (`getOrderActivePrintJob`, `countActivePrintJobsForItem`, подбор принтеров в
+`autoScheduleOrders`, `getActivePrinterJobs`, watchdog): пауза занимает принтер и позицию так же,
+как печать. Статусный роут принимает `paused`, ставит принтеру `paused` (свободным он не стал, а
+`error` врал бы о поломке), заказ не двигает и `last_error` не пишет — пауза не отказ. На базе без
+миграции пауза сохраняется как `printing`: это лучше, чем 500 и «задание висит в печати».
+
+Агент получил ветку `state == "paused"` в `monitor_print()`: статус уходит один раз (повтор на
+каждом опросе не нужен), цикл продолжает опрос, а флаг `paused` заставляет отправить `printing` при
+возврате к печати даже без смены процента — иначе задание осталось бы «на паузе» до следующего
+сантиметра. Терпение к нагреву стало отдельным: `PRINT_HEATING_CHECKS = 30` (около пяти минут)
+действует при нулевом прогрессе, а `PRINT_START_CHECKS` остаётся для незнакомого состояния с
+ненулевым прогрессом. Заодно исправлены два отображения состояний: PrusaLink `BUSY` (нагрев,
+калибровка, первый слой) — печать, `STOPPED` — отказ, а не готовое изделие; OctoPrint `Offline`
+(обрыв связи с платой) — отказ, а не простой. В карточке заказа активное задание показывает бейдж
+«Печать на паузе» фиолетовым с `⏸` и подсказку, что станок занят, а печать продолжится с того же
+места; карточка принтера уже показывала паузу.
+
+Проверки: `python scripts/test-prusa.py` (BUSY → `printing`, STOPPED → `error`),
+`python scripts/test-octoprint.py` (Offline → `error` с сохранённым прогрессом),
+`npx tsc --noEmit` — 0 ошибок, `npx pyright agent/` — 0 ошибок (заодно убрано повторное объявление
+`BAMBU_GCODE_PART` в `agent/adapters/formats.py`), `npm run build` — `Compiled successfully`,
+`npm run check:docs` и `npm run check:style` — без замечаний.
+`node --import ./scripts/register-alias.mjs scripts/test-agent-status.ts` прошёл на настоящей базе,
+но секция паузы в ней пока пропускается с подсказкой: у живого проекта ограничение
+`workshop_print_jobs_status_check` ещё без `paused`, то есть `supabase/workshop_print_queue_hardening.sql`
+не применена заново. После её применения роут принимает `paused` (200) и проверки паузы идут
+целиком: задание активно, принтер `paused` с прогрессом, заказ остаётся в «Печати», `last_error` и
+`finished_at` пусты, а возврат к печати снова даёт `printing`.
 
 
 

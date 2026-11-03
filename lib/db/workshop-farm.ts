@@ -491,7 +491,8 @@ export async function getOrderWithItems(
  * Активное задание позиции: созданное и ещё не завершённое.
  *
  * Повторный вебхук или двойной клик не должен печатать модель дважды, поэтому
- * createPrintJob сначала ищет queued/printing. Уникальный частичный индекс
+ * createPrintJob сначала ищет queued/printing/paused. Пауза — тоже «занято»:
+ * печать стоит, но задание живо и принтер за ним. Уникальный частичный индекс
  * workshop_print_jobs_active_item_uidx закрывает гонку двух параллельных
  * запросов на уровне базы.
  */
@@ -505,7 +506,7 @@ async function findActivePrintJob(
       .select(columns)
       .eq("user_id", ctx.userId)
       .eq("order_item_id", orderItemId)
-      .in("status", ["queued", "printing"])
+      .in("status", ["queued", "printing", "paused"])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -671,14 +672,18 @@ export async function createPrintJob(
  * после постановки, а печатать будет тот, которому задание отдали.
  *
  * Пустой ответ (`null`) — нормальное состояние «в очереди ничего нет»;
- * незавершённое задание ищется по статусам queued/printing, как и в
+ * незавершённое задание ищется по статусам queued/printing/paused, как и в
  * `findActivePrintJob`, и берётся самое свежее: старая история печати карточку не
  * интересует.
  */
 export type OrderActivePrintJob = {
   /** id нужен кнопке «Отменить печать»: отмена идёт через RPC по заданию. */
   id: string;
-  status: "queued" | "printing";
+  /**
+   * `paused` — отдельное состояние карточки: печать стоит, но не закончена, и
+   * показывать её как «в очереди» было бы неправдой.
+   */
+  status: "queued" | "printing" | "paused";
   printerId: string | null;
   /** null — принтер не назначен или его удалили из парка. */
   printerName: string | null;
@@ -715,7 +720,7 @@ export async function getOrderActivePrintJob(
       .select(columns)
       .eq("user_id", ctx.userId)
       .eq("order_id", orderId)
-      .in("status", ["queued", "printing"])
+      .in("status", ["queued", "printing", "paused"])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -751,7 +756,10 @@ export async function getOrderActivePrintJob(
 
   return ok({
     id: job.id,
-    status: job.status === "printing" ? "printing" : "queued",
+    status:
+      job.status === "printing" || job.status === "paused"
+        ? job.status
+        : "queued",
     printerId: job.printerId,
     printerName,
     cancelRequested: job.cancelRequested,
@@ -775,8 +783,9 @@ export type ActivePrintJobFilter = {
  * Нужно защите от удаления: заказ с живым заданием нельзя уносить с доски — он
  * забирает задание с собой (`order_id` во внешнем ключе), а принтер с заданием
  * нельзя убирать из парка, иначе `printer_id` станет null и агент останется с
- * заданием, которое некуда отправить. Считаются только `queued` и `printing`:
- * закрытые задания — история, она удалению не мешает.
+ * заданием, которое некуда отправить. Считаются `queued`, `printing` и `paused`:
+ * задание на паузе ещё не напечатано, и уносить из-под него заказ или принтер
+ * нельзя. Закрытые задания — история, она удалению не мешает.
  *
  * Миграция `workshop_farm_and_shop.sql` применяется вручную. Если таблицы
  * заданий нет, функция отвечает нулём: активных заданий в такой базе
@@ -811,7 +820,7 @@ export async function countActivePrintJobs(
     .from("workshop_print_jobs")
     .select("id", { count: "exact", head: true })
     .eq("user_id", ctx.userId)
-    .in("status", ["queued", "printing"]);
+    .in("status", ["queued", "printing", "paused"]);
 
   // Условия навешиваются только для переданных сущностей: PostgREST строит
   // фильтр из вызовов, и `eq(order_id, null)` превратился бы в `is null` —
@@ -839,8 +848,9 @@ export async function countActivePrintJobs(
  * Нужно правке и удалению позиции: пока задание живо, позиция занята. Она
  * закреплена за заданием через `order_item_id`, и удалённая строка оставила бы
  * агента с печатью, которой нет в базе, а уменьшенное количество — с заданием на
- * большее число копий. Считаются `queued` и `printing`: задание в очереди ещё
- * снимается кнопкой «Отменить печать», но менять позицию под ним нельзя.
+ * большее число копий. Считаются `queued`, `printing` и `paused`: задание в
+ * очереди ещё снимается кнопкой «Отменить печать», но менять позицию под ним
+ * нельзя — а на паузе оно тем более живо.
  *
  * Миграция `workshop_farm_and_shop.sql` применяется вручную. Если таблицы
  * заданий нет, функция отвечает нулём: активного задания в такой базе быть не
@@ -865,7 +875,7 @@ export async function countActivePrintJobsForItem(
     .select("id", { count: "exact", head: true })
     .eq("user_id", ctx.userId)
     .eq("order_item_id", orderItemId)
-    .in("status", ["queued", "printing"]);
+    .in("status", ["queued", "printing", "paused"]);
 
   if (result.error) {
     if (isSchemaError(result.error)) {
@@ -954,8 +964,9 @@ export type CancelPrintJobOutcome = "cancelled" | "requested";
  * Прямой `update` здесь невозможен: у роли authenticated есть только
  * select/insert/delete, статусы меняет агент. Поэтому вызывается
  * security-definer RPC `workshop_cancel_print_job`, которая сама решает, что
- * делать со статусом: `queued` закрывается сразу как `cancelled`, `printing`
- * получает `cancel_requested` и останавливается агентом на следующем опросе.
+ * делать со статусом: `queued` закрывается сразу как `cancelled`, `printing` и
+ * `paused` получают `cancel_requested` и останавливаются агентом на следующем
+ * опросе.
  * Логика в базе — не дублирование, а гарантия: задание и событие журнала
  * меняются одной транзакцией.
  *

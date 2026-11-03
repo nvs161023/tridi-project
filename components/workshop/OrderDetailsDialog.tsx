@@ -200,6 +200,10 @@ function printQueueHint({
       return "Отмена запрошена: агент остановит печать на следующем опросе — принтер ещё может быть занят.";
     }
 
+    if (status.activeJob.status === "paused") {
+      return "Печать на паузе: принтер занят, задание живо. Продолжите печать на станке — прогресс вернётся от агента 3D-фермы.";
+    }
+
     if (status.activeJob.status === "printing") {
       return status.activeJob.estimatedSeconds
         ? `Печать уже идёт: по оценке из G-кода ${formatPrintDuration(status.activeJob.estimatedSeconds)}.`
@@ -1002,9 +1006,13 @@ export function OrderDetailsDialog({
       ? activeJob.printerName
         ? `Печатается на «${activeJob.printerName}»`
         : "Печатается"
-      : activeJob.printerName
-        ? `В очереди на «${activeJob.printerName}»`
-        : "В очереди"
+      : activeJob.status === "paused"
+        ? activeJob.printerName
+          ? `Пауза на «${activeJob.printerName}»`
+          : "Печать на паузе"
+        : activeJob.printerName
+          ? `В очереди на «${activeJob.printerName}»`
+          : "В очереди"
     : "";
   /**
    * Первая причина, по которой позиция не уйдёт на этот принтер. Текст её же
@@ -1442,11 +1450,17 @@ export function OrderDetailsDialog({
                     className={
                       activeJob.status === "printing"
                         ? "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100"
-                        : "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 text-sm font-semibold text-amber-100"
+                        : activeJob.status === "paused"
+                          ? "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-violet-500/10 px-4 text-sm font-semibold text-violet-100"
+                          : "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 text-sm font-semibold text-amber-100"
                     }
                   >
                     <span aria-hidden>
-                      {activeJob.status === "printing" ? "▶" : "⏳"}
+                      {activeJob.status === "printing"
+                        ? "▶"
+                        : activeJob.status === "paused"
+                          ? "⏸"
+                          : "⏳"}
                     </span>
                     {activeJobLabel}
                   </span>

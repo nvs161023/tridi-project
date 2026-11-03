@@ -14,7 +14,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
  *   Authorization: Bearer <agent_token>
  *   {
  *     "jobId": "<uuid>",
- *     "status": "printing" | "done" | "failed" | "cancelled",
+ *     "status": "printing" | "paused" | "done" | "failed" | "cancelled",
  *     "progress": 0…100,
  *     "message": "почему не вышло",
  *     "estimatedSeconds": 7500,
@@ -36,6 +36,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * весь заказ, а остальные ещё стояли бы в очереди.
  *
  *   printing  → задание printing, принтер printing (+progress);
+ *   paused    → задание paused,   принтер paused: печать стоит, но принтер занят,
+ *               поэтому и не idle, и не error. Заказ при паузе не двигается —
+ *               печать не закончена и не сорвана;
  *   done      → задание done,     принтер idle (progress = 0, remaining_time = 0);
  *   failed    → задание failed,   принтер error (progress = 0);
  *   cancelled → задание cancelled, принтер idle: печать остановил мастер, это не
@@ -78,8 +81,19 @@ export const dynamic = "force-dynamic";
  * `cancelled` появился вместе с кнопкой «Отменить печать»: агент останавливает
  * принтер и закрывает задание отменой, а не отказом, — иначе отмены попадали бы
  * в статистику поломок.
+ *
+ * `paused` — печать стоит на паузе. Задание остаётся открытым, принтер занятым, а
+ * заказ — на своей колонке: пауза не завершение и не отказ. До этого статуса
+ * агент не мог сообщить о паузе вовсе, и многочасовая остановка выглядела как
+ * обычная печать.
  */
-const AGENT_JOB_STATUSES = ["printing", "done", "failed", "cancelled"] as const;
+const AGENT_JOB_STATUSES = [
+  "printing",
+  "paused",
+  "done",
+  "failed",
+  "cancelled",
+] as const;
 
 type AgentJobStatus = (typeof AGENT_JOB_STATUSES)[number];
 
@@ -152,7 +166,7 @@ function parsePayload(value: unknown): ParsedPayload {
     return {
       payload: null,
       error:
-        "status указан неверно: допустимы printing, done, failed и cancelled.",
+        "status указан неверно: допустимы printing, paused, done, failed и cancelled.",
     };
   }
 
@@ -304,10 +318,19 @@ function writeFailure(
  * Отмена и отказ возвращают заказ в «Новые»: печать не состоялась, и мастер
  * должен увидеть заказ на доске, а не в «Печатается». Применяется только в
  * режиме без триггера — с миграцией hardening заказ двигает база.
+ *
+ * `null` — заказ не двигаем: пауза не завершает печать и не возвращает его в
+ * «Новые», он остаётся в своей колонке до продолжения или закрытия задания.
  */
-function orderStatusFor(status: AgentJobStatus): "new" | "printing" | "ready" {
+function orderStatusFor(
+  status: AgentJobStatus,
+): "new" | "printing" | "ready" | null {
   if (status === "printing") {
     return "printing";
+  }
+
+  if (status === "paused") {
+    return null;
   }
 
   return status === "done" ? "ready" : "new";
@@ -315,18 +338,20 @@ function orderStatusFor(status: AgentJobStatus): "new" | "printing" | "ready" {
 
 /** Поля принтера, которые меняет агент. */
 type PrinterPatch = {
-  status: "printing" | "idle" | "error";
+  status: "printing" | "paused" | "idle" | "error";
   progress?: number;
   remaining_time?: number;
 };
 
 function printerPatchFor(payload: StatusPayload): PrinterPatch {
-  if (payload.status === "printing") {
-    // progress не передан — оставляем на принтере прошлое значение: агент
-    // сообщил только начало печати и ещё не знает процентов.
-    return payload.progress === null
-      ? { status: "printing" }
-      : { status: "printing", progress: payload.progress };
+  // `paused` — принтер занят заданием, но печать стоит: свободным он не стал
+  // (idle соврал бы, и принтер получил бы второй заказ), а поломки нет (error
+  // красил бы ферму в красное). progress не передан — оставляем прошлое
+  // значение: агент сообщил только сам факт паузы.
+  if (payload.status === "printing" || payload.status === "paused") {
+    const status = payload.status === "paused" ? "paused" : "printing";
+
+    return payload.progress === null ? { status } : { status, progress: payload.progress };
   }
 
   if (payload.status === "done") {
@@ -356,12 +381,17 @@ type JobPatch = {
  *
  * `last_error` пишется только у failed/cancelled. Если писать его всегда, то
  * повторный «printing» после отказа затирал бы причину, которую мастер ещё не
- * прочитал, а триггер журнала записал бы её в событие запуска.
+ * прочитал, а триггер журнала записал бы её в событие запуска. Пауза тоже не
+ * сюда: агент может прислать её с пояснением в `message` (например, «кончился
+ * филамент»), но `last_error` выдал бы паузу за отказ.
  */
 function jobPatchFor(payload: StatusPayload): JobPatch {
   const patch: JobPatch = { status: payload.status };
 
-  if (payload.message && payload.status !== "printing" && payload.status !== "done") {
+  if (
+    payload.message &&
+    (payload.status === "failed" || payload.status === "cancelled")
+  ) {
     patch.last_error = payload.message;
   }
 
@@ -471,12 +501,18 @@ export async function POST(request: Request): Promise<Response> {
   //
   // Без миграции hardening колонок нет: пишем только статус, а причину и оценки
   // теряем — это лучше, чем ответить 500 и оставить заказ в «Печатается».
-  // Старый check статусов тоже не знает `cancelled`, поэтому отмена до миграции
-  // закрывается как `failed`.
+  // Старый check статусов не знает ни `cancelled`, ни `paused`, поэтому отмена
+  // до миграции закрывается как `failed`, а пауза — как `printing` (принтер
+  // занят, печать не закончена).
   const jobPatch: JobPatch = hardening
     ? jobPatchFor(payload)
     : {
-        status: payload.status === "cancelled" ? "failed" : payload.status,
+        status:
+          payload.status === "cancelled"
+            ? "failed"
+            : payload.status === "paused"
+              ? "printing"
+              : payload.status,
       };
 
   const jobUpdate = await supabase
@@ -495,36 +531,41 @@ export async function POST(request: Request): Promise<Response> {
   // У заказа может быть несколько заданий — по одному на позицию. Закрывающий
   // статус поэтому двигает заказ только в том случае, когда это задание
   // последнее активное: иначе первая завершённая позиция уводила бы в «Готово»
-  // заказ, который ещё печатается. Триггер hardening считает так же, а без
-  // миграции расчёт лежит на роуте.
+  // заказ, который ещё печатается. Пауза заказ не двигает вовсе — см.
+  // `orderStatusFor()`. Триггер hardening считает так же, а без миграции расчёт
+  // лежит на роуте.
   if (!hardening) {
-    let shouldMoveOrder = payload.status === "printing";
+    const orderStatus = orderStatusFor(payload.status);
 
-    if (!shouldMoveOrder) {
-      const remaining = await supabase
-        .from("workshop_print_jobs")
-        .select("id", { count: "exact", head: true })
-        .eq("order_id", job.order_id)
-        .eq("user_id", identity.userId)
-        .neq("id", payload.jobId)
-        .in("status", ["queued", "printing"]);
+    if (orderStatus !== null) {
+      let shouldMoveOrder = payload.status === "printing";
 
-      if (remaining.error) {
-        return writeFailure(remaining.error, "Очередь заказа не прочитана.");
+      if (!shouldMoveOrder) {
+        const remaining = await supabase
+          .from("workshop_print_jobs")
+          .select("id", { count: "exact", head: true })
+          .eq("order_id", job.order_id)
+          .eq("user_id", identity.userId)
+          .neq("id", payload.jobId)
+          .in("status", ["queued", "printing", "paused"]);
+
+        if (remaining.error) {
+          return writeFailure(remaining.error, "Очередь заказа не прочитана.");
+        }
+
+        shouldMoveOrder = (remaining.count ?? 0) === 0;
       }
 
-      shouldMoveOrder = (remaining.count ?? 0) === 0;
-    }
+      if (shouldMoveOrder) {
+        const orderUpdate = await supabase
+          .from("workshop_orders")
+          .update({ status: orderStatus })
+          .eq("id", job.order_id)
+          .eq("user_id", identity.userId);
 
-    if (shouldMoveOrder) {
-      const orderUpdate = await supabase
-        .from("workshop_orders")
-        .update({ status: orderStatusFor(payload.status) })
-        .eq("id", job.order_id)
-        .eq("user_id", identity.userId);
-
-      if (orderUpdate.error) {
-        return writeFailure(orderUpdate.error, "Статус заказа не записан.");
+        if (orderUpdate.error) {
+          return writeFailure(orderUpdate.error, "Статус заказа не записан.");
+        }
       }
     }
   }

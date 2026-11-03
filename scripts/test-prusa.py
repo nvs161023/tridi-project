@@ -14,7 +14,9 @@
   5. `start_print()` отправляет `{"command": "print"}` по имени файла;
   6. `get_status()` собирает ответ из двух запросов: состояние из
      `/api/v1/status`, прогресс и остаток из `/api/v1/job`; пустое задание
-     (204) — это нули, а не ошибка;
+     (204) — это нули, а не ошибка. `PAUSED` — пауза, `BUSY` — печать (нагрев и
+     первый слой), `STOPPED` и `ATTENTION` — отказ: прерванная печать не должна
+     выглядеть как готовое изделие;
   7. пауза, возврат и остановка уходят в `POST /api/v1/job` с `action`, а на
      405 прошивка получает документированные `PUT`/`DELETE`;
   8. не отвечающий принтер даёт `False` и `{"status": "error", ...}`, фабрика
@@ -430,6 +432,38 @@ def main() -> int:
             status = adapter.get_status()
             check(
                 "get_status: ATTENTION → error (принтер ждёт мастера)",
+                status == {"status": "error", "progress": 0, "remaining_time": 0},
+                f"{status!r}",
+            )
+
+            # `busy` — принтер занят: греется, калибруется или печатает первый
+            # слой. Раньше он считался простоем, и цикл мониторинга закрывал
+            # такую печать как `done` на первом же опросе — изделия на столе нет,
+            # а заказ уехал в «Готово».
+            fake.route("GET", "/api/v1/status", 200, {"printer": {"state": "BUSY"}})
+            fake.route(
+                "GET",
+                "/api/v1/job",
+                200,
+                {"state": "BUSY", "progress": 0.0, "time_remaining": 0},
+            )
+            status = adapter.get_status()
+            check(
+                "get_status: BUSY → printing (нагрев, печать уже началась)",
+                status == {"status": "printing", "progress": 0, "remaining_time": 0},
+                f"{status!r}",
+            )
+
+            # `stopped` — печать прервали с экрана принтера: задание сорвано.
+            # Простой здесь означал бы «принтер свободен», и агент выдал бы брак
+            # за готовое изделие.
+            fake.route(
+                "GET", "/api/v1/status", 200, {"printer": {"state": "STOPPED"}}
+            )
+            fake.route("GET", "/api/v1/job", 204)
+            status = adapter.get_status()
+            check(
+                "get_status: STOPPED → error (печать прервана)",
                 status == {"status": "error", "progress": 0, "remaining_time": 0},
                 f"{status!r}",
             )

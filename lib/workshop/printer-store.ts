@@ -50,6 +50,9 @@ type ActiveJobRow = {
  * указано явно — у задания несколько внешних ключей, и без подсказки PostgREST
  * однажды ответит PGRST201 «ambiguous embedding».
  *
+ * `paused` ищется вместе с `printing`: карточка принтера показывает, что на нём
+ * стоит, а на паузе станок всё ещё занят тем же заказом.
+ *
  * Без миграции `workshop_farm_and_shop.sql` таблицы заданий нет: карточки
  * показываются без строки заказа, а ворнинг в лог не пишется — это ожидаемое
  * состояние, а не сбой.
@@ -64,7 +67,7 @@ export async function getActivePrinterJobs(
       "printer_id, order:workshop_orders!workshop_print_jobs_order_id_fkey(title)",
     )
     .eq("user_id", userId)
-    .eq("status", "printing");
+    .in("status", ["printing", "paused"]);
 
   if (error) {
     if (!isMissingTableSchema(error.code, error.message)) {

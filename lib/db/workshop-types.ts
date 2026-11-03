@@ -34,15 +34,21 @@ export function isMarketplace(value: unknown): value is Marketplace {
 }
 
 /**
- * Статусы задания печати: queued → printing → done | failed | cancelled.
+ * Статусы задания печати: queued → printing ⇄ paused → done | failed | cancelled.
  *
  * `cancelled` — мастер нажал «Отменить печать» (или снял задание из очереди).
  * Это не ошибка печати, поэтому отдельный статус, а не failed с текстом в
  * `last_error`: отмена не должна попадать в статистику отказов.
+ *
+ * `paused` — печать стоит на паузе (мастер нажал «Pause» на принтере или
+ * кончился филамент). Задание при этом живо, принтер занят и заказ с доски не
+ * уходит: пауза — не завершение и не отказ. Шесть адаптеров агента честно
+ * отдают это состояние, поэтому оно есть и у задания, а не только у принтера.
  */
 export const PRINT_JOB_STATUSES = [
   "queued",
   "printing",
+  "paused",
   "done",
   "failed",
   "cancelled",
