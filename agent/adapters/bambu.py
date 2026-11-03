@@ -47,7 +47,9 @@
     `print.print_error` или `print.mc_print_error_code`. Причина попадает в
     `last_error`, а main.py отправляет её в CRM статусом `failed`: без этого
     мастер видел «печать прервана» без объяснения, а отмену с экрана принтера
-    принимал за потерю связи.
+    принимал за потерю связи. Та же причина пишется в журнал агента строкой
+    «Bambu отменил печать. Причина: …» вместе с сырыми полями отказа — по ним
+    видно, что прислала прошивка, если причина лежит в незнакомом поле.
 
 Серийный номер. Bambu адресует топики серийником, и в Мастерской это поле
 обязательное: форма принтера не сохранит Bambu без SN, потому что LAN-режим без
@@ -341,6 +343,21 @@ def _failure_text(value: Any) -> str | None:
     return text
 
 
+def _failure_report_dump(report: dict[str, Any]) -> str:
+    """
+    Поля отказа из отчёта как есть: `fail_reason`, `print_error`,
+    `mc_print_error_code`.
+
+    В `last_error` причина собирается только из известных полей, а прошивки
+    кладут её по-разному (X1 — текст в `fail_reason`, A1 — коды в `print_error`).
+    Сырые значения показывают, что принтер прислал на самом деле: без них
+    «причина не названа» не отличить от «поле называется иначе».
+    """
+    return ", ".join(
+        f"{field}={report.get(field)!r}" for field in _FAILURE_REPORT_FIELDS
+    )
+
+
 def _report_failure(report: dict[str, Any]) -> str | None:
     """
     Причина остановки печати из отчёта: `fail_reason`, `print_error`,
@@ -361,6 +378,24 @@ def _report_failure(report: dict[str, Any]) -> str | None:
             details.append(f"{field}: {text}")
 
     return "; ".join(details) if details else None
+
+
+def _is_failure_report(report: dict[str, Any]) -> bool:
+    """
+    Пришёл ли отказ: состояние `FAILED`/`CANCELLED` или поле причины с текстом.
+
+    Нужен только для журнала: на отказе отчёт печатается целиком, чтобы было
+    видно все поля, которые прислала прошивка. Пустой `print_error: 0` отказом
+    не считается — ноль у Bambu значит «ошибки нет».
+    """
+    state = report.get("gcode_state")
+
+    if isinstance(state, str) and state.strip().upper() in _FAILURE_STATES:
+        return True
+
+    return any(
+        _failure_text(report.get(field)) is not None for field in _FAILURE_REPORT_FIELDS
+    )
 
 
 def _read_ssdp_headers(data: bytes) -> dict[str, str]:
@@ -798,6 +833,17 @@ class BambuAdapter(BasePrinterAdapter):
             return
 
         self._report.update(report)
+
+        # Отчёт с отказом печатается целиком: у прошивок причина лежит в разных
+        # полях, и когда известных (`fail_reason`, `print_error`,
+        # `mc_print_error_code`) не хватает, по полному набору видно, что
+        # принтер прислал на самом деле. Обрезаем: в отчёте бывают `hms` и AMS.
+        if _is_failure_report(report):
+            logger.warning(
+                "Bambu %s: отчёт с отказом: %s",
+                self.host,
+                repr(report)[:600],
+            )
 
     def _forget_previous_print(self) -> None:
         """
@@ -2011,6 +2057,18 @@ class BambuAdapter(BasePrinterAdapter):
                 self.host,
                 state,
                 self.last_error,
+            )
+
+            # Отдельная строка и всегда, даже когда причина не собралась:
+            # владелец искал причину отмены в логах агента и не находил её —
+            # единственная запись была общим «печать прервана». Вторая строка
+            # печатает поля отказа как есть: по ним видно, что прислала
+            # прошивка, если причина лежит в неизвестном адаптеру поле.
+            logger.warning("Bambu отменил печать. Причина: %s", self.last_error)
+            logger.warning(
+                "Bambu %s: поля отказа в отчёте: %s",
+                self.host,
+                _failure_report_dump(report),
             )
 
         # Прогресс в отчёте уже в процентах; ограничение — от мусора в полях.

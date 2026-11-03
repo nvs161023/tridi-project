@@ -1311,7 +1311,10 @@ def monitor_print(
 
         if state == "error" or (failure and progress < 100):
             reason = failure or "Печать прервана (принтер остановлен или потерял связь)"
-            logger.error("Задание %s: печать сорвалась: %s", job_id, reason)
+            # Строка для владельца: в журнале агента должно быть видно и номер
+            # задания, и причину из `last_error` — раньше причина поминалась
+            # только в карточке заказа, а в логах агента её не было.
+            logger.error("Задание %s упало с ошибкой: %s", job_id, reason)
             send_status(job_id, "failed", progress, reason=reason)
             return
 

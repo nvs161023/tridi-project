@@ -8569,6 +8569,22 @@ Check Code вынесен из списка `spec.secrets` в отдельное
 Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint`, `npm run build` — собралось,
 `npm run check:style`, `npm run check:docs`, `npm run check:imports` — замечаний нет.
 
+**Журнал агента: причина отмены Bambu и падение задания (3 ноября 2026).**
+A1 принял `project_file`, а потом отменил печать на экране — и в логах агента причины не было:
+адаптер писал одну строку «печать прервана (FAILED)», а собранный текст уходил только в CRM.
+Теперь `agent/adapters/bambu.py` на `FAILED`/`CANCELLED` пишет
+`logger.warning("Bambu отменил печать. Причина: …")` с текстом из `last_error` и второй строкой
+печатает поля отказа как есть (`fail_reason`, `print_error`, `mc_print_error_code`) — по ним видно,
+что прислала прошивка, если причина лежит в незнакомом поле. Отчёт с отказом, пришедший в MQTT,
+тоже попадает в журнал целиком (обрезан до 600 символов: в отчёте бывают `hms` и AMS).
+
+`agent/main.py`: ветка `error` в `monitor_print()` пишет
+`logger.error("Задание %s упало с ошибкой: %s", job_id, reason)` — номер задания и причину из
+`last_error` видно в журнале агента, а не только в карточке заказа.
+
+Проверки: `python scripts/test-bambu.py` — 0 провалов, `npx pyright agent/` — 0 ошибок,
+`python -m py_compile agent/adapters/bambu.py agent/main.py` — чисто.
+
 
 
 
