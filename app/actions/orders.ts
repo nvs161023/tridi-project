@@ -9,11 +9,7 @@ import type {
   OrderFormState,
   OrderPrintStatus,
 } from "@/app/actions/orders-state";
-import {
-  isPrintableFile,
-  isSlicedForPrinter,
-  printerMismatchMessage,
-} from "@/lib/3d/print-compatibility";
+import { isPrintableFile } from "@/lib/3d/print-compatibility";
 import {
   cancelPrintJob,
   countActivePrintJobs,
@@ -77,12 +73,17 @@ import {
   createPrinterUsagePayload,
 } from "@/lib/workshop/payload";
 import {
+  checkPrintFormat,
+  checkSlicedPrinter,
+  printFitsPrinter,
+  type PrintAssignmentPrinter,
+} from "@/lib/workshop/print-assignment";
+import {
   PRINTER_COLUMNS,
   formatPrinterHours,
   isPrinterId,
   normalizePrinterRow,
   printerMaintenanceLevel,
-  validatePrintFileForProtocol,
   type WorkshopPrinter,
 } from "@/lib/workshop/printers";
 
@@ -979,108 +980,33 @@ export async function loadOrderPrintStatus(
   };
 }
 
-/** Что нужно для сверки разметки 3MF: модель из файла и модель принтера. */
-type SlicedPrinterCheck = {
-  slicedForPrinter: string;
-  printerBrand: string;
-  printerModel: string;
-};
-
 /**
- * Разметка 3MF у товара и модель выбранного принтера.
+ * Принтер, которому ставят задание: модель, бренд и протокол.
  *
- * null — сравнивать нечего: у позиции нет товара, товар без файла, файл без
- * разметки (STL или G-code) или база ещё не знает колонку
- * `sliced_for_printer` (миграцию не применяли заново). Сбой чтения тоже даёт
- * null: проверка не должна мешать печати сильнее, чем помогает, — наличие
- * файла и принтера всё равно проверит `createPrintJob`.
- */
-async function readSlicedPrinterCheck(
-  supabase: Supabase,
-  options: { userId: string; productId: string | null; printerId: string },
-): Promise<SlicedPrinterCheck | null> {
-  if (!options.productId) {
-    return null;
-  }
-
-  const [productResult, printerResult] = await Promise.all([
-    supabase
-      .from("workshop_products")
-      .select("sliced_for_printer")
-      .eq("id", options.productId)
-      .eq("user_id", options.userId)
-      .maybeSingle(),
-    supabase
-      .from("workshop_printers")
-      .select("brand, model")
-      .eq("id", options.printerId)
-      .eq("user_id", options.userId)
-      .maybeSingle(),
-  ]);
-
-  if (productResult.error) {
-    console.warn(
-      "Разметка принтера у товара не прочитана:",
-      productResult.error.code,
-      productResult.error.message,
-    );
-
-    return null;
-  }
-
-  const productRow = productResult.data as Partial<
-    Record<string, unknown>
-  > | null;
-  const slicedForPrinter =
-    typeof productRow?.sliced_for_printer === "string"
-      ? productRow.sliced_for_printer.trim()
-      : "";
-
-  if (!slicedForPrinter) {
-    return null;
-  }
-
-  const printerRow = printerResult.data as Partial<
-    Record<string, unknown>
-  > | null;
-  const printerModel =
-    typeof printerRow?.model === "string" ? printerRow.model.trim() : "";
-
-  // Без модели принтера сравнивать не с чем: в парке могли остаться строки,
-  // добавленные до появления обязательных полей.
-  if (!printerModel) {
-    return null;
-  }
-
-  const printerBrand =
-    typeof printerRow?.brand === "string" ? printerRow.brand.trim() : "";
-
-  return { slicedForPrinter, printerBrand, printerModel };
-}
-
-/**
- * Протокол принтера, которому ставят задание.
+ * Всё, что нужно одной проверке совместимости (`checkPrintAssignment`): формат
+ * файла сверяется с протоколом, разметка 3MF — с моделью. Читается один раз на
+ * заказ, а не на позицию.
  *
- * Нужен проверке формата: `.3mf` печатают не все протоколы (PrusaLink, Creality,
- * Anycubic и Elegoo — только G-code). null — строку не прочитали или в ней
- * неизвестное значение: тогда проверку формата пропускаем, как и
- * `readSlicedPrinterCheck`. Сбой чтения не должен запрещать печать сильнее, чем
- * помогает, — `createPrintJob` всё равно проверит файл и принтер.
+ * null — читать нечего или сравнивать не с чем: строку не прочитали, принтера
+ * нет или у него пустая модель. Тогда проверки совместимости пропускаются:
+ * сбой чтения не должен запрещать печать сильнее, чем помогает, — наличие файла
+ * и принтера всё равно проверит `createPrintJob`. Незнакомый протокол оставляет
+ * `protocolType` пустым: формат не проверить, разметку всё равно сверяем.
  */
-async function readPrinterProtocol(
+async function readPrintTarget(
   supabase: Supabase,
   options: { userId: string; printerId: string },
-): Promise<PrinterProtocol | null> {
+): Promise<PrintAssignmentPrinter | null> {
   const result = await supabase
     .from("workshop_printers")
-    .select("protocol_type")
+    .select("brand, model, protocol_type")
     .eq("id", options.printerId)
     .eq("user_id", options.userId)
     .maybeSingle();
 
   if (result.error) {
     console.warn(
-      "Протокол принтера не прочитан:",
+      "Принтер для проверки совместимости не прочитан:",
       result.error.code,
       result.error.message,
     );
@@ -1088,11 +1014,76 @@ async function readPrinterProtocol(
     return null;
   }
 
-  const protocol = (
-    result.data as Partial<Record<string, unknown>> | null
-  )?.protocol_type;
+  const row = result.data as Partial<Record<string, unknown>> | null;
+  const model = readRowText(row?.model);
 
-  return isPrinterProtocol(protocol) ? protocol : null;
+  // Без модели принтера сравнивать не с чем: в парке могли остаться строки,
+  // добавленные до появления обязательных полей.
+  if (!model) {
+    return null;
+  }
+
+  return {
+    brand: readRowText(row?.brand),
+    model,
+    protocolType: isPrinterProtocol(row?.protocol_type)
+      ? row.protocol_type
+      : null,
+  };
+}
+
+/**
+ * Разметка 3MF у товаров позиций: `product_id` → `sliced_for_printer`.
+ *
+ * `isKnown` — разметку удалось прочитать. Колонки может не быть (миграцию не
+ * применяли заново), и тогда строгая проверка 3MF не должна отказывать:
+ * «метки нет» и «метку не прочитали» — разные вещи, и врать мастеру о причине
+ * отказа нельзя.
+ */
+async function readSlicedByProduct(
+  supabase: Supabase,
+  options: { userId: string; productIds: Array<string | null> },
+): Promise<{ slicedByProduct: Map<string, string>; isKnown: boolean }> {
+  const productIds = [
+    ...new Set(
+      options.productIds.filter(
+        (productId): productId is string => Boolean(productId),
+      ),
+    ),
+  ];
+
+  if (productIds.length === 0) {
+    return { slicedByProduct: new Map(), isKnown: true };
+  }
+
+  const result = await supabase
+    .from("workshop_products")
+    .select("id, sliced_for_printer")
+    .eq("user_id", options.userId)
+    .in("id", productIds);
+
+  if (result.error) {
+    console.warn(
+      "Разметка принтера у товаров не прочитана:",
+      result.error.code,
+      result.error.message,
+    );
+
+    return { slicedByProduct: new Map(), isKnown: false };
+  }
+
+  const slicedByProduct = new Map<string, string>();
+
+  for (const row of readRows(result.data)) {
+    const productId = readRowText(row.id);
+    const slicedForPrinter = readRowText(row.sliced_for_printer);
+
+    if (productId && slicedForPrinter) {
+      slicedByProduct.set(productId, slicedForPrinter);
+    }
+  }
+
+  return { slicedByProduct, isKnown: true };
 }
 
 /**
@@ -1227,13 +1218,16 @@ function readEmbeddedRow(
  * выбрать. Выбранный принтер получают все задания заказа: агент фермы печатает их
  * по очереди на одной машине, а распределение по парку — следующий шаг.
  *
- * Перед созданием задания сверяется разметка 3MF: файл, нарезанный под
- * FlashForge, нельзя отправить на Bambu A1. Проверка идёт по каждой позиции
- * отдельно, и несовпадение отсекает только свою позицию — один чужой профиль не
- * должен задерживать весь заказ. Если не подходит ни одна позиция с файлом,
- * отказываем и объясняем причину. Карточка уже гасит кнопку в этом случае, но
- * браузер мог устареть, а база должна отказать сама, а не полагаться на
- * интерфейс.
+ * Перед созданием задания позиция проходит одну проверку совместимости
+ * (`checkPrintAssignment`): формат файла против протокола принтера и разметка
+ * 3MF против модели. Файл, нарезанный под FlashForge, нельзя отправить на Bambu
+ * A1, а проект Bambu Studio — на Klipper; 3MF без метки слайсера тоже не идёт на
+ * принтер с маркой, потому что совместимость проверить нечем. Проверка идёт по
+ * каждой позиции отдельно, и несовпадение отсекает только свою позицию — один
+ * чужой профиль не должен задерживать весь заказ. Если не подходит ни одна
+ * позиция с файлом, отказываем и объясняем причину. Карточка уже гасит кнопку в
+ * этом случае, но браузер мог устареть, а база должна отказать сама, а не
+ * полагаться на интерфейс.
  *
  * Принтер приходит из карточки (`printerId`) и перекрывает значение заказа:
  * мастер мог выбрать принтер только что, а сохранение ещё не доехало до
@@ -1300,10 +1294,9 @@ export async function queueOrderForPrint(
     return { ok: false, error: PRINT_PRINTER_REQUIRED };
   }
 
-  // Протокол принтера — для проверки формата: `.3mf` печатают не все принтеры
-  // фермы, а агент откажет уже после загрузки файла. Читается один раз на
-  // заказ, а не на позицию.
-  const printerProtocol = await readPrinterProtocol(supabase, {
+  // Принтер нужен целиком: протокол решает, возьмёт ли он файл, а бренд с
+  // моделью — подходит ли к ним разметка 3MF. Читается один раз на заказ.
+  const printTarget = await readPrintTarget(supabase, {
     userId: user.id,
     printerId: targetPrinterId,
   });
@@ -1329,59 +1322,67 @@ export async function queueOrderForPrint(
   // 3MF помнит, под какой принтер его нарезали. Файл от другого слайсера
   // печатать на этой машине нельзя, поэтому такая позиция в очередь не идёт, а
   // остальные — идут: одна неверно нарезанная модель не должна задерживать весь
-  // заказ. Чтение разметки независимо по позициям, поэтому запросы идут
-  // параллельно.
-  const slicedChecks = await Promise.all(
-    printableItems.map((entry) =>
-      readSlicedPrinterCheck(supabase, {
-        userId: user.id,
-        productId: entry.productId,
-        printerId: targetPrinterId,
-      }),
-    ),
-  );
+  // заказ. Разметка читается одним запросом на заказ, а не на позицию.
+  const { slicedByProduct, isKnown: isSlicedKnown } =
+    await readSlicedByProduct(supabase, {
+      userId: user.id,
+      productIds: printableItems.map((entry) => entry.productId),
+    });
 
   const formatMismatches: string[] = [];
+  const unslicedMismatches: string[] = [];
   const slicedMismatches: string[] = [];
   const queueItems: typeof printableItems = [];
 
-  printableItems.forEach((entry, index) => {
-    const formatCheck = printerProtocol
-      ? validatePrintFileForProtocol(
-          printerProtocol,
-          entry.product?.gcodeUrl ?? "",
-        )
-      : null;
+  for (const entry of printableItems) {
+    const fileUrl = entry.product?.gcodeUrl ?? null;
 
-    if (formatCheck && !formatCheck.ok) {
-      formatMismatches.push(formatCheck.reason);
-      return;
-    }
+    if (printTarget) {
+      const formatCheck = checkPrintFormat(printTarget.protocolType, fileUrl);
 
-    const slicedCheck = slicedChecks[index];
-    const mismatch = slicedCheck
-      ? printerMismatchMessage(slicedCheck.slicedForPrinter, {
-          brand: slicedCheck.printerBrand,
-          model: slicedCheck.printerModel,
-        })
-      : null;
+      if (!formatCheck.ok) {
+        formatMismatches.push(formatCheck.reason);
+        continue;
+      }
 
-    if (mismatch) {
-      slicedMismatches.push(mismatch);
-      return;
+      // Разметку сверяем только когда её прочитали: «метки нет» и «метку не
+      // прочитали» — разные вещи, и отказ по несуществующей причине хуже отказа
+      // без неё.
+      if (isSlicedKnown) {
+        const slicedCheck = checkSlicedPrinter(
+          slicedByProduct.get(entry.productId ?? "") ?? "",
+          fileUrl,
+          printTarget,
+        );
+
+        if (!slicedCheck.ok) {
+          if (slicedCheck.kind === "unsliced") {
+            unslicedMismatches.push(slicedCheck.reason);
+          } else {
+            slicedMismatches.push(slicedCheck.reason);
+          }
+
+          continue;
+        }
+      }
     }
 
     queueItems.push(entry);
-  });
+  }
 
   // Ни одной подходящей позиции — задание в очереди висело бы заведомо
   // невыполнимым, поэтому отказываем до вставки и объясняем причину. Формат
   // важнее разметки: если принтер вообще не печатает такой файл, совет про
-  // слайсер — единственный полезный.
+  // слайсер — единственный полезный. 3MF без метки идёт перед чужой меткой: там
+  // чинится загрузка файла, а не выбор принтера.
   if (queueItems.length === 0) {
     return {
       ok: false,
-      error: formatMismatches[0] ?? slicedMismatches[0] ?? PRINT_QUEUE_FAILED,
+      error:
+        formatMismatches[0] ??
+        unslicedMismatches[0] ??
+        slicedMismatches[0] ??
+        PRINT_QUEUE_FAILED,
     };
   }
 
@@ -1415,8 +1416,8 @@ export async function queueOrderForPrint(
 
   // Сообщение собирается из итогов: мастер должен видеть, что в очередь встал
   // весь заказ, и что именно осталось за бортом — позиции без файла печати,
-  // файлы чужого формата, 3MF под другой принтер или отказ базы. Числа идут с
-  // двоеточием, чтобы не склонять слово «позиция» в каждой форме.
+  // файлы чужого формата, 3MF без метки или под другой принтер либо отказ базы.
+  // Числа идут с двоеточием, чтобы не склонять слово «позиция» в каждой форме.
   const notes: string[] = [];
   const noFileCount = order.data.items.length - printableItems.length;
 
@@ -1426,6 +1427,10 @@ export async function queueOrderForPrint(
 
   if (formatMismatches.length > 0) {
     notes.push(`не печатаются на этом принтере: ${formatMismatches.length}`);
+  }
+
+  if (unslicedMismatches.length > 0) {
+    notes.push(`3MF без данных о слайсере: ${unslicedMismatches.length}`);
   }
 
   if (slicedMismatches.length > 0) {
@@ -1460,6 +1465,8 @@ type AutoScheduleItem = {
   orderId: string;
   /** Товар нужен для разметки 3MF: она хранится на товаре, а не на позиции. */
   productId: string;
+  /** Файл печати товара: по расширению решается, возьмёт ли его принтер. */
+  gcodeUrl: string;
 };
 
 /** Свободный принтер, которому можно отдать заказ. */
@@ -1468,6 +1475,8 @@ type AutoSchedulePrinter = {
   name: string;
   brand: string;
   model: string;
+  /** Протокол загрузки: от него зависит набор форматов (`.3mf` или `.gcode`). */
+  protocolType: PrinterProtocol;
 };
 
 /**
@@ -1511,11 +1520,16 @@ function scheduleReadError(
  *      стоящее в очереди своей работой;
  *   7. подбор: один принтер — один заказ.
  *
- * Совместимость. Если 3MF нарезан под конкретный принтер, позиция уходит только
- * на него (`isSlicedForPrinter` — та же проверка, что в карточке заказа и в
- * `queueOrderForPrint`, иначе кнопки спорили бы друг с другом). Файл без
- * разметки (STL, G-code, 3MF без метаданных) подходит любой машине. Заказ, у
- * которого подходящих позиций нет, ждёт следующего принтера.
+ * Совместимость. Позиция уходит на принтер только если проходит
+ * `checkPrintAssignment` — ту же проверку, что гасит кнопку в карточке и
+ * повторяет `queueOrderForPrint`, иначе кнопки спорили бы друг с другом:
+ *   - формат файла против протокола: Bambu печатает `.3mf`, Klipper/Moonraker и
+ *     Creality — `.gcode`, поэтому проект слайсера не уходит на G-code станок, а
+ *     G-code — на Bambu;
+ *   - разметка 3MF против модели принтера. Файл без метки подходит не всем: у
+ *     проекта слайсера внутри G-code под конкретную модель, поэтому «нет метки»
+ *     читается как «неизвестно, подходит ли» и такой файл ждёт подходящий станок.
+ * Заказ, у которого подходящих позиций нет, ждёт следующего принтера.
  *
  * Принтер в базе остаётся `idle`. Записать «занят» нельзя: check
  * `workshop_printers_status_check` знает только idle/printing/paused/error/
@@ -1543,9 +1557,13 @@ export async function autoScheduleOrders(): Promise<AutoScheduleState> {
     return { ok: false, error: PRO_REQUIRED };
   }
 
+  // Свободный парк: только `status = 'idle'`. Печатающий, стоящий на паузе,
+  // сломанный и офлайн принтер задание не получает — там либо уже работа, либо
+  // станок не отвечает. Протокол нужен для проверки формата: без него неизвестно,
+  // возьмёт ли принтер `.3mf` или ему нужен `.gcode`.
   const printersResult = await supabase
     .from("workshop_printers")
-    .select("id, name, brand, model")
+    .select("id, name, brand, model, protocol_type")
     .eq("user_id", user.id)
     .eq("status", "idle")
     .order("name", { ascending: true });
@@ -1560,14 +1578,27 @@ export async function autoScheduleOrders(): Promise<AutoScheduleState> {
     return scheduleReadError(printersResult.error, MIGRATION_MISSING);
   }
 
-  const idlePrinters: AutoSchedulePrinter[] = readRows(printersResult.data)
-    .map((row) => ({
-      id: readRowText(row.id),
+  const idlePrinters: AutoSchedulePrinter[] = [];
+
+  for (const row of readRows(printersResult.data)) {
+    const id = readRowText(row.id);
+    const model = readRowText(row.model);
+
+    // Принтер без модели или с незнакомым протоколом проверить нечем: формат
+    // файла не сверить, разметку 3MF не с чем сравнить. Молча отдать ему заказ —
+    // значит повторить ту же лотерею, от которой эта проверка и появилась.
+    if (!id || !model || !isPrinterProtocol(row.protocol_type)) {
+      continue;
+    }
+
+    idlePrinters.push({
+      id,
       name: readRowText(row.name) || "Принтер",
       brand: readRowText(row.brand),
-      model: readRowText(row.model),
-    }))
-    .filter((printer) => printer.id !== "");
+      model,
+      protocolType: row.protocol_type,
+    });
+  }
 
   // Принтер с активным заданием не свободен, даже если агент ещё не начал печать
   // и `status` равен idle: задание на нём уже есть, и новый заказ встал бы за
@@ -1674,7 +1705,12 @@ export async function autoScheduleOrders(): Promise<AutoScheduleState> {
       continue;
     }
 
-    items.push({ id, orderId, productId: readRowText(product?.id) });
+    items.push({
+      id,
+      orderId,
+      productId: readRowText(product?.id),
+      gcodeUrl,
+    });
   }
 
   if (items.length === 0) {
@@ -1683,36 +1719,11 @@ export async function autoScheduleOrders(): Promise<AutoScheduleState> {
 
   // Разметка 3MF живёт на товаре, поэтому читается один раз на все позиции.
   // Ошибку чтения не считаем отказом: без миграции колонки нет ни у кого, и
-  // подбор идёт по наличию файла — так же поступает `readSlicedPrinterCheck`.
-  const productIds = [...new Set(items.map((item) => item.productId))].filter(
-    (productId) => productId !== "",
-  );
-  const slicedByProduct = new Map<string, string>();
-
-  if (productIds.length > 0) {
-    const slicedResult = await supabase
-      .from("workshop_products")
-      .select("id, sliced_for_printer")
-      .eq("user_id", user.id)
-      .in("id", productIds);
-
-    if (slicedResult.error) {
-      console.warn(
-        "Разметка принтера у товаров не прочитана:",
-        slicedResult.error.code,
-        slicedResult.error.message,
-      );
-    } else {
-      for (const row of readRows(slicedResult.data)) {
-        const productId = readRowText(row.id);
-        const slicedForPrinter = readRowText(row.sliced_for_printer);
-
-        if (productId && slicedForPrinter) {
-          slicedByProduct.set(productId, slicedForPrinter);
-        }
-      }
-    }
-  }
+  // подбор идёт по наличию файла — так же поступает `queueOrderForPrint`.
+  const { slicedByProduct } = await readSlicedByProduct(supabase, {
+    userId: user.id,
+    productIds: items.map((item) => item.productId),
+  });
 
   // Что уже в очереди. `createPrintJob` идемпотентен и вернул бы существующее
   // задание, но тогда повторный клик отчитался бы «распределено 3 заказа», где
@@ -1756,7 +1767,14 @@ export async function autoScheduleOrders(): Promise<AutoScheduleState> {
     itemsByOrder.set(item.orderId, [item]);
   }
 
-  /** Позиция подходит принтеру: не в очереди и нарезана под него (или без метки). */
+  /**
+   * Позиция подходит принтеру: не в очереди и проходит проверку совместимости.
+   *
+   * Проверка та же, что в карточке и в ручной очереди: формат файла против
+   * протокола и разметка 3MF против модели. Поэтому `.3mf` не уходит на станок,
+   * который печатает только `.gcode`, а проект без метки слайсера не уходит на
+   * принтер с маркой.
+   */
   function fitsPrinter(
     item: AutoScheduleItem,
     printer: AutoSchedulePrinter,
@@ -1765,10 +1783,15 @@ export async function autoScheduleOrders(): Promise<AutoScheduleState> {
       return false;
     }
 
-    return isSlicedForPrinter(slicedByProduct.get(item.productId) ?? "", {
-      brand: printer.brand,
-      model: printer.model,
-    });
+    return printFitsPrinter(
+      item.gcodeUrl,
+      slicedByProduct.get(item.productId) ?? "",
+      {
+        brand: printer.brand,
+        model: printer.model,
+        protocolType: printer.protocolType,
+      },
+    );
   }
 
   const assignedOrders = new Set<string>();

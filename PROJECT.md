@@ -2407,11 +2407,12 @@ delivered. На десктопе четыре колонки стоят в ря�
 заказа выбран принтер и есть хотя бы одна позиция с G-code, а `printQueueHint` заранее объясняет, чего не хватает
 («Выберите принтер для печати», «В заказе нет позиций — печатать нечего», «В заказе нет товаров с
 G-кодом»); для этого карточка спрашивает `loadOrderPrintStatus(orderId)` — число позиций, число
-позиций с G-code, активное задание и последний отказ — и отдельно сверяет разметку 3MF позиций с
-принтером (`printQueueCheck`, `readSlicedPrinterCheck`). Постановку делает `queueOrderForPrint(orderId)`:
+позиций с G-code, активное задание и последний отказ — и отдельно сверяет позиции с принтером
+(`printQueueCheck`, `checkPrintAssignment`). Постановку делает `queueOrderForPrint(orderId)`:
 UUID → сессия → `hasActiveSubscription` → чтение заказа с позициями → принтер обязателен → все позиции
-с файлом печати (чистый STL отсекается) → проверка разметки 3MF по каждой позиции отдельно, поэтому
-чужая разметка пропускает только свою позицию, а не весь заказ → `createPrintJob`
+с файлом печати (чистый STL отсекается) → одна проверка совместимости на позицию: формат файла против
+протокола принтера и разметка 3MF против его модели, поэтому чужой формат или чужая разметка пропускают
+только свою позицию, а не весь заказ → `createPrintJob`
 (`lib/db/workshop-farm.ts`) на каждую подходящую позицию с инвариантами «владелец, наличие G-code,
 принтер этой мастерской, одно активное задание на позицию». Повторный клик не создаёт дубль, а
 возвращает уже стоящие задания; после успеха карточка и доска показывают «В очередь добавлено 3
@@ -3033,6 +3034,7 @@ FlashForge и Elegoo
 | `lib/workshop/filaments.ts` | Склад пластика: `WorkshopFilament` (`usageType`: `stock` — складской, `ordered` — заказной), `FilamentOrderItem`, `FILAMENT_ORDER_LIMITS` (до 100 позиций, 1–100 000 г), `FILAMENT_COLUMNS`, `FILAMENT_NUMBER_FIELDS` (вес 1–100 000 г, остаток 0–100 000 г, цена 0–100 000 ₽/кг, порог 0–100 000 г; вес — integer), `FILAMENT_TEXT_LIMITS` (60/30/40/500), `FILAMENT_DEFAULTS` (1 000 / 200 / 1 500), `FILAMENT_BRANDS` (13 производителей для `<datalist id="brand-list">`), `FILAMENT_TYPE_SUGGESTIONS`, `FILAMENT_USAGE_TYPES` (`stock`/`ordered`), `FILAMENT_USAGE_TYPE_LABELS`, `isFilamentUsageType`, `readFilamentUsageType` (нет поля или неизвестное значение → `stock`), `IMPORTED_FILAMENTS_MAX` (100), `parseImportedFilamentName` (бренд и тип отдельными словами, остаток названия — цвет, иначе «Импорт» / «PLA» / «Разное»), `createImportedFilamentDraft` (кг → граммы, другая единица → 1 000 г, цена позиции → ₽/кг, без цены — 1 500), `SaveImportedFilamentsResult`, `normalizeFilamentRow` (битое число → значение по умолчанию, строка без UUID отбрасывается), `readFilamentForm` (текст, ссылка только `http(s)://`, остаток не больше общего веса), `readConsumeFilamentForm`, `isFilamentId`, `readFilamentOrderItems` (JSON из адреса → уникальные позиции с целыми граммами в допустимых пределах), `isLowStockFilament`, `filamentRemainingPercent`, `subtractFilamentWeight`, `formatGrams` |
 | `lib/workshop/filament-store.ts` | `getWorkshopFilaments(supabase, userId)` → `{ filaments, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой склад и признак неприменённой миграции через `isMissingTableSchema()`; `getWorkshopFilamentsByIds(supabase, userId, filamentIds)` для печатной закупки: `.in("id", …)` с обязательным `user_id`, до запроса отсекает мусорные id, повторы и всё сверх 100 позиций, ошибку так же превращает в пустой список |
 | `lib/workshop/printers.ts` | Принтеры: `WorkshopPrinter` (наработки и интервалы сопла, смазки осей и винта Z), `PRINTER_COLUMNS`, `PRINTER_TEXT_LIMITS` (60/40/60), `PRINTER_INTERVAL_LIMITS` (сопло и винт Z 1–10 000 ч, смазка 0–10 000 ч), `PRINTER_INTERVAL_DEFAULTS` (400/300/720), `readPrinterForm` (имя, бренд и модель — свободный текст, три интервала), `normalizePrinterRow` (битое число → значение по умолчанию; старые строки без винта Z получают 0/720), `isPrinterId`, `isIsoDate`, `printerMaintenancePercent` (дробный процент, 0…∞), `printerMaintenanceLevel` (`ok` до 80 %, `due` 80–100 %, `overdue` больше 100 %; `null` при интервале 0), `countMaintenanceDue` (три узла), `formatPrinterHours`, `formatPrinterDate`, `PRINTER_PROTOCOL_OPTIONS` (восемь протоколов: moonraker, octoprint, bambu, prusa, creality, anycubic, flashforge, elegoo) и `formatPrinterProtocol` (один список подписей протоколов для формы добавления и карточки), `PRINTER_SERIAL_PROTOCOLS` и `isPrinterSerialProtocol` (SN нужен только Bambu и FlashForge), `formatPrinterLastSeen` («29.10.2026, 14:05» или «ещё не выходил на связь»), `readPrinterConnectionForm` (`PrinterConnectionDraft`: протокол обязателен, адрес проверяется `normalizePrinterAddress`, SN остаётся только у Bambu и FlashForge (`isPrinterSerialProtocol`), пустой ключ — «оставить сохранённый»); `normalizePrinterRow` читает ещё `protocol_type` (незнакомое значение → `moonraker`) и `ip_address` (`null` без миграции); находка агента с незнакомым протоколом отбрасывается и считается в `skipped` (`readDiscoveredPrinters`), строка `workshop_discovered_printers` с таким протоколом не показывается (`normalizeDiscoveredPrinterRow`) — подставлять moonraker по умолчанию значило бы закрепить в базе чужой протокол |
+| `lib/workshop/print-assignment.ts` | Одна проверка «можно ли печатать этот файл на этом принтере» для карточки, ручной очереди и планировщика: `checkPrintFormat` (расширение входит в `PRINTER_UPLOAD_FORMATS` протокола; STL и пустая ссылка — отдельный текст), `checkSlicedPrinter` (разметка `sliced_for_printer` против модели принтера, а `.3mf` без метки — отказ на любом принтере с маркой: «Невозможно проверить совместимость… сохраните файл в Bambu Studio»), `checkPrintAssignment` (формат, затем разметка) и `printFitsPrinter` (та же проверка одним булевым ответом для подбора). Универсальные протоколы (`moonraker`, `octoprint`) строгости к разметке не подчиняются, но `.3mf` они всё равно не принимают |
 | `lib/workshop/printer-store.ts` | `getWorkshopPrinters(supabase, userId)` → `{ printers, isMissingTable }`: выборка по `user_id` с сортировкой по `created_at`, ошибку не пробрасывает — пустой парк и признак неприменённой миграции |
 | `lib/workshop/orders.ts` | Заказы: `WorkshopOrder`, `OrderStatus` и `ORDER_STATUS_META` (подписи и классы бейджей), `ORDER_STATUS_SEQUENCE`/`nextOrderStatus` (new → printing → ready → delivered, дальше `null`), `ORDER_COLUMNS`, `ORDER_TEXT_LIMITS` (80/60/1000), `ORDER_LIMITS` (стоимость 0–1 000 000 ₽, вес 0–100 000 г, время 0–100 000 ч), `readOrderForm` (числа с запятой, необязательные uuid принтера, катушки, товара и клиента, дата; `productId` и `clientId` в `OrderDraft`), `ORDER_CLIENT_COLUMNS` (`ORDER_COLUMNS` + `client_id` для накладной), `normalizeOrderRow` (битая ссылка клиента → null), `isOrderId`, `isOrderStatus`, `formatOrderCost`/`formatOrderDate`/`formatOrderHours`, `planPrinterUsage` (прибавляет время к четырём счётчикам: всего, сопло, смазка осей, винт Z) и `planFilamentUsage` (остаток или отказ «не хватает пластика»); комментарии: `OrderComment`, `ORDER_COMMENT_COLUMNS`, `ORDER_COMMENT_TEXT_LIMIT` (1000), `readOrderCommentText` (пустой текст и одни пробелы отклоняются) и `normalizeOrderComment` (ряд без UUID или текста отбрасывается), позиции заказа: `OrderItemSummary`, `ORDER_ITEM_COLUMNS` (связь `workshop_order_items_product_id_fkey`), `ORDER_ITEM_QUANTITY_LIMIT` (10 000), `readOrderItemSku` (пустой или длиннее 128 символов → `null`), `readOrderItemQuantity` (целое 1…10 000, запятая как разделитель) и `normalizeOrderItemSummary` (товар объектом или массивом, битый ряд отбрасывается) |
 | `lib/workshop/order-store.ts` | `getWorkshopOrders(supabase, userId)` → `{ orders, isMissingTable }`: выборка по `user_id`, новые сверху, ошибку не пробрасывает — пустой список и признак неприменённой миграции. `getWorkshopOrder(supabase, userId, orderId)` → `WorkshopOrder \| null`: один заказ по `id` и `user_id` для спецификации и накладной; сначала читает `ORDER_CLIENT_COLUMNS`, при отсутствии колонки `client_id` (42703/PGRST204) повторяет запрос с `ORDER_COLUMNS`; битый UUID, отсутствие строки и ошибка чтения дают `null`. `getOrderComments(orderId)` → `OrderComment[]`: битый UUID и отсутствие сессии дают пустой список, выборка по `order_id` и `user_id` с сортировкой `created_at asc`, ошибка чтения не роняет карточку заказа. `getOrderItems(orderId)` → `OrderItemSummary[]`: позиции для блока карточки (название товара и количество), выборка по `order_id` и `user_id` с порядком `created_at asc`, битый id и ошибка чтения дают пустой список. `getOrdersByClientId(clientId)` → `ClientOrdersSnapshot`: история покупок клиента (`{ orders, isMissingLink }`) для окна в карточке клиента — выборка по `client_id` и `user_id`, новые сверху; битый id и отсутствие сессии дают пустой список, при отсутствии колонки `client_id` (42703/PGRST204) возвращается `isMissingLink: true`, а отсутствие `source` лечится вторым проходом с `ORDER_CLIENT_BASE_COLUMNS` |
@@ -3089,7 +3091,7 @@ FlashForge и Elegoo
 | `addClient` | `app/actions/clients.ts` | База клиентов Мастерской: разбор формы (`readClientForm`: имя обязательно, телефон и email проверяются по формату) → реальная сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_clients` → `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции; логика, проверки и типы — в `lib/workshop/clients.ts` |
 | `updateClient`, `updateProduct` | `app/actions/clients.ts`, `app/actions/products.ts` | Правка карточек клиента и товара. Оба действия повторяют порядок «создающих» соседей: UUID → разбор формы (`readClientForm` / `readProductForm`, поэтому проверки и подсказки те же, что при добавлении) → реальная сессия → повторная проверка `hasActiveSubscription` → `update` с фильтром по `id` и `user_id` → `select('name')` / `select('title')`. Пустой ответ — «не найден»: строку могли удалить в другой вкладке. `updateProduct` дополнительно ловит 23505 («артикул занят») и откатывается на набор колонок без `gcode_url` и `sliced_for_printer`, если `supabase/workshop_farm_and_shop.sql` не применена заново. |
 | `deleteOrderItem`, `updateOrderItemQuantity` | `app/actions/orders.ts` | Правка позиций заказа из карточки. Общая проверка `readOrderItemContext`: UUID → `workshop_order_items` по `id` и `user_id` → активное задание позиции (`countActivePrintJobsForItem` из `lib/db/workshop-farm.ts`; `queued` и `printing` запрещают правку) → заказ с `material_weight_g` и `filament_id` → сумма количеств всех позиций → признак `done` по заказу. `updateOrderItemQuantity(orderItemId, quantity)`: `readOrderItemQuantity` (целое 1…10 000) → сессия → `hasActiveSubscription` → добавка списывается с катушки и отклоняется при нехватке (`chargePlasticFromFilament`), убавка возвращается (`refundPlasticToFilament`) → `update quantity` с `select('id')` → план заказа сдвигается на долю (`plasticForUnits`). `deleteOrderItem(orderItemId)`: те же проверки → `delete` с `select('id')` → план уменьшается на долю, катушка получает её обратно. После успеха — `revalidatePath('/dashboard/workshop')`. Возврат пропускается, если по заказу есть `done`: план вернул `writeOffFilamentFact`. `deleteOrder` тоже возвращает остаток плана на катушку, а `cancelOrderPrint` — только для задания из очереди, обнуляя план |
-| `autoScheduleOrders` | `app/actions/orders.ts` | Автопланировщик очереди — кнопка «Распределить на свободные принтеры» на вкладке «Заказы». Порядок: сессия → `hasActiveSubscription` → свободный парк (`status = 'idle'` и без задания в `queued`/`printing`, по алфавиту) → новые заказы (`status = 'new'`, старые первыми) → их позиции одним запросом вместе с `gcode_url` товара → разметка `sliced_for_printer` отдельным запросом (сбой чтения = «сравнивать нечего», как в `readSlicedPrinterCheck`) → позиции с активным заданием исключаются, чтобы повторный клик не считал чужие задания своими. Затем цикл по принтерам: каждый свободный получает самый старый заказ с подходящей позицией и ставит его `createPrintJob` (совместимость — `isSlicedForPrinter`). Ответ — `AutoScheduleState` (`orders`, `jobs`, `message`): ноль заказов — не ошибка («Нет свободных принтеров или подходящих заказов»), отказ базы на всех заданиях — ошибка. |
+| `autoScheduleOrders` | `app/actions/orders.ts` | Автопланировщик очереди — кнопка «Распределить на свободные принтеры» на вкладке «Заказы». Порядок: сессия → `hasActiveSubscription` → свободный парк (`status = 'idle'` — печатающий, стоящий на паузе, сломанный и офлайн задание не получает; кроме того принтер без модели или с неизвестным протоколом отбрасывается) и без задания в `queued`/`printing`/`paused`, по алфавиту → новые заказы (`status = 'new'`, старые первыми) → их позиции одним запросом вместе с `gcode_url` товара → разметка `sliced_for_printer` одним запросом на все товары (`readSlicedByProduct`, сбой чтения = «сравнивать нечего») → позиции с активным заданием исключаются, чтобы повторный клик не считал чужие задания своими. Затем цикл по принтерам: каждый свободный получает самый старый заказ с подходящей позицией и ставит его `createPrintJob` (совместимость — `printFitsPrinter`: формат файла против протокола принтера и разметка 3MF против модели, то есть `.3mf` не уходит на G-code станок, а проект без метки — на принтер с маркой). Ответ — `AutoScheduleState` (`orders`, `jobs`, `message`): ноль заказов — не ошибка («Нет свободных принтеров или подходящих заказов»), отказ базы на всех заданиях — ошибка. |
 
 
 Типы результатов описаны рядом с функциями (`CompleteLessonResult`, `CompleteModuleTestResult`,
@@ -7801,15 +7803,19 @@ Server Action `autoScheduleOrders()` в `app/actions/orders.ts`, ответ — 
 `app/actions/orders-state.ts`. Порядок: сессия → `hasActiveSubscription` → свободный парк
 (`workshop_printers` со `status = 'idle'` и без задания в `queued`/`printing`) по алфавиту → новые
 заказы (`status = 'new'`) старыми первыми → позиции этих заказов одним запросом вместе с `gcode_url`
-товара → разметка `sliced_for_printer` отдельным запросом (без колонки подбор идёт по наличию файла,
-как в `readSlicedPrinterCheck`) → позиции с активным заданием исключаются, иначе повторный клик
+товара → разметка `sliced_for_printer` отдельным запросом на все товары (`readSlicedByProduct`; без
+колонки подбор идёт по формату файла) → позиции с активным заданием исключаются, иначе повторный клик
 отчитался бы чужими заданиями. Затем цикл по принтерам: каждый свободный получает самый старый
 заказ, у которого есть подходящая позиция, и ставит все совместимые позиции заказа через
 `createPrintJob` — на одну машину, как `queueOrderForPrint`.
 
-Совместимость проверяет `isSlicedForPrinter`, та же функция, что гасит кнопку в карточке: 3MF с
-чужой меткой под принтер не уходит, файл без метки подходит любому. Статус принтера в базе не
-меняется: check `workshop_printers_status_check` допускает только idle/printing/paused/error/offline,
+Совместимость проверяет `printFitsPrinter` из `lib/workshop/print-assignment.ts` — та же функция, что
+гасит кнопку в карточке, поэтому планировщик не спорит с ручным путём. Два правила: формат файла
+против протокола принтера (Bambu печатает `.3mf`, Klipper/Moonraker и Creality — `.gcode`, PrusaLink —
+`.gcode` и `.bgcode`, FlashForge — оба) и разметка 3MF против модели принтера. Проект слайсера без
+метки не уходит на принтер с маркой: внутри него G-code под конкретную модель, и «метки нет» значит
+«неизвестно, подходит ли». Статус принтера в базе не меняется: check
+`workshop_printers_status_check` допускает только idle/printing/paused/error/offline,
 да и пишет `status` агент фермы, — роль «занят в этом проходе» играют чтение очереди и сам цикл,
 который проходит каждый принтер ровно один раз.
 
@@ -8274,7 +8280,32 @@ cancelled`: ограничение статуса, частичный уника
 целиком: задание активно, принтер `paused` с прогрессом, заказ остаётся в «Печати», `last_error` и
 `finished_at` пусты, а возврат к печати снова даёт `printing`.
 
+**Мастерская: планировщик учитывает формат файла (3 ноября 2026).** Автораспределение отдавало
+свободному принтеру любой заказ, у которого была позиция с файлом: проект `.3mf` уходил на Moonraker,
+OctoPrint, Creality, Anycubic и Elegoo, а `.gcode` — на Bambu, и агент отказывал уже после скачивания
+файла. Второй разрыв был в разметке: `isSlicedForPrinter` разрешал файл без метки любому принтеру, хотя
+внутри проекта слайсера лежит G-code под конкретную модель и сопло.
 
+Проверка теперь одна на всю систему — `lib/workshop/print-assignment.ts`. `checkPrintFormat` сверяет
+расширение файла с `PRINTER_UPLOAD_FORMATS` протокола, `checkSlicedPrinter` — метку `sliced_for_printer`
+с моделью принтера, `checkPrintAssignment` делает обе проверки подряд, `printFitsPrinter` отдаёт тот же
+ответ булевым значением для подбора. 3MF без метки на принтере с маркой получает отказ «Невозможно
+проверить совместимость: файл не содержит данных о слайсере. Пожалуйста, сохраните файл в Bambu Studio.»
+(для FlashForge и PrusaLink подставляется их слайсер): «метки нет» здесь значит «неизвестно, подходит
+ли», а не «подходит всем». Универсальные `moonraker` и `octoprint` под это правило не попадают, но
+`.3mf` они всё равно не принимают, поэтому формат отказывает раньше. Функцию используют
+`autoScheduleOrders`, `queueOrderForPrint` и `printQueueCheck` в карточке заказа, так что кнопка,
+ручная очередь и планировщик говорят одно и то же.
 
+`autoScheduleOrders` читает у принтера ещё `protocol_type` и отбрасывает принтер без модели или с
+неизвестным протоколом; печатающий, стоящий на паузе, сломанный и офлайн принтер по-прежнему не
+берётся (`status = 'idle'`). Разметка товаров читается одним запросом на заказ (`readSlicedByProduct`
+вместо `readSlicedPrinterCheck`, который делал два запроса на позицию), а сбой чтения остаётся
+«сравнивать нечего»: «метки нет» и «метку не прочитали» различаются, и `queueOrderForPrint` не
+отказывает по несуществующей причине. В сообщении об успехе появилась строка «3MF без данных о
+слайсере: N» — раньше такие позиции просто не попадали в очередь.
 
-
+Проверки: `node --import ./scripts/register-alias.mjs scripts/test-3mf.ts` — 0 провалов (новый блок
+«Планировщик: формат и разметка»: 3MF без метки на Bambu и FlashForge, G-code на Bambu, 3MF на Klipper,
+чужая метка, STL), `npx tsc --noEmit` — 0 ошибок, `npm run lint`, `npm run build`, `npm run check:docs`.
+Миграция не нужна: проверка читает те же колонки, что и раньше.

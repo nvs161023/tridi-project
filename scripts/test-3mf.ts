@@ -14,7 +14,9 @@
  *      принтеру;
  *   5. текст отказа совпадает с тем, что показывает карточка заказа;
  *   6. файл товара: карточка принимает 3MF, G-code и STL в одном поле, но в
- *      очередь печати STL не попадает — это модель для нарезки.
+ *      очередь печати STL не попадает — это модель для нарезки;
+ *   7. планировщик: формат против протокола (Bambu — `.3mf`, Klipper — `.gcode`) и
+ *      строгая разметка 3MF (проект без метки на принтер с маркой не идёт).
  *
  * ZIP собирается здесь же: нужен минимальный архив с двумя служебными файлами,
  * а тянуть в тест упаковщик незачем. CRC считается по-настоящему — тестовый
@@ -40,6 +42,10 @@ import {
   printerMismatchMessage,
   PRODUCT_FILE_LABEL,
 } from "../lib/3d/print-compatibility";
+import {
+  checkPrintAssignment,
+  printFitsPrinter,
+} from "../lib/workshop/print-assignment";
 
 /** Сколько проверок упало: из этого складывается код выхода. */
 let failures = 0;
@@ -312,6 +318,112 @@ check("STL — файл товара", isProductFile("https://x/vase.stl"), true
 check("PDF не файл товара", isProductFile("https://x/vase.pdf"), false);
 check("пустая ссылка — не файл товара", isProductFile(null), false);
 check("подпись файла товара", PRODUCT_FILE_LABEL, "Файл модели для печати");
+
+console.log("Планировщик: формат и разметка");
+
+const bambuPrinter = {
+  brand: "Bambu Lab",
+  model: "A1",
+  protocolType: "bambu" as const,
+};
+const klipperPrinter = {
+  brand: "Creality",
+  model: "Ender-3",
+  protocolType: "moonraker" as const,
+};
+const flashforgePrinter = {
+  brand: "FlashForge",
+  model: "Adventurer 5M Pro",
+  protocolType: "flashforge" as const,
+};
+
+const unmarkedOnBambu = checkPrintAssignment(
+  "https://x/vase.3mf",
+  "",
+  bambuPrinter,
+);
+
+check("3MF без метки на Bambu — отказ", unmarkedOnBambu.ok, false);
+check(
+  "3MF без метки на Bambu — причина unsliced",
+  unmarkedOnBambu.ok ? "" : unmarkedOnBambu.kind,
+  "unsliced",
+);
+check(
+  "3MF без метки на Bambu — просьба сохранить в Bambu Studio",
+  unmarkedOnBambu.ok ? "" : unmarkedOnBambu.reason,
+  "Невозможно проверить совместимость: файл не содержит данных о слайсере. Пожалуйста, сохраните файл в Bambu Studio.",
+);
+
+check(
+  "3MF без метки на FlashForge — тоже отказ",
+  printFitsPrinter("https://x/vase.3mf", null, flashforgePrinter),
+  false,
+);
+
+check(
+  "3MF с меткой уходит на Bambu",
+  printFitsPrinter("https://x/vase.3mf", "Bambu Lab A1", bambuPrinter),
+  true,
+);
+
+const gcodeOnBambu = checkPrintAssignment(
+  "https://x/vase.gcode",
+  null,
+  bambuPrinter,
+);
+
+check("G-code на Bambu — отказ по формату", gcodeOnBambu.ok, false);
+check(
+  "G-code на Bambu — причина format",
+  gcodeOnBambu.ok ? "" : gcodeOnBambu.kind,
+  "format",
+);
+
+check(
+  "G-code на Klipper печатается",
+  printFitsPrinter("https://x/vase.gcode", null, klipperPrinter),
+  true,
+);
+
+const projectOnKlipper = checkPrintAssignment(
+  "https://x/vase.3mf",
+  "Bambu Lab A1",
+  klipperPrinter,
+);
+
+check("3MF на Klipper — отказ по формату", projectOnKlipper.ok, false);
+check(
+  "3MF на Klipper — причина format",
+  projectOnKlipper.ok ? "" : projectOnKlipper.kind,
+  "format",
+);
+
+const foreignOnBambu = checkPrintAssignment(
+  "https://x/vase.3mf",
+  "FlashForge Adventurer 5M Pro",
+  bambuPrinter,
+);
+
+check("3MF под FlashForge на Bambu — отказ", foreignOnBambu.ok, false);
+check(
+  "3MF под FlashForge на Bambu — причина sliced",
+  foreignOnBambu.ok ? "" : foreignOnBambu.kind,
+  "sliced",
+);
+
+const stlCheck = checkPrintAssignment(
+  "https://x/vase.stl",
+  null,
+  klipperPrinter,
+);
+
+check("STL не ставится в очередь", stlCheck.ok, false);
+check(
+  "STL — причина no_file",
+  stlCheck.ok ? "" : stlCheck.kind,
+  "no_file",
+);
 
 if (failures > 0) {
   console.log(`\nПровалено проверок: ${failures}`);

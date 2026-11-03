@@ -35,10 +35,7 @@ import {
   PlusIcon,
   TrashIcon,
 } from "@/components/workshop/WorkshopIcons";
-import {
-  isPrintableFile,
-  printerMismatchMessage,
-} from "@/lib/3d/print-compatibility";
+import { isPrintableFile } from "@/lib/3d/print-compatibility";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import {
   formatGrams,
@@ -55,10 +52,8 @@ import {
   type WorkshopOrder,
 } from "@/lib/workshop/orders";
 import type { WorkshopProduct } from "@/lib/workshop/products";
-import {
-  type WorkshopPrinter,
-  validatePrintFileForProtocol,
-} from "@/lib/workshop/printers";
+import { checkPrintAssignment } from "@/lib/workshop/print-assignment";
+import { type WorkshopPrinter } from "@/lib/workshop/printers";
 
 /**
  * Карточка заказа: детали и переписка.
@@ -909,14 +904,16 @@ export function OrderDetailsDialog({
   /**
    * Сверка позиций заказа с выбранным принтером.
    *
-   * Две проверки на позицию, обе — из общих модулей, чтобы карточка и Server
-   * Action говорили одно и то же:
+   * Проверка одна на всю систему — `checkPrintAssignment` из
+   * `lib/workshop/print-assignment.ts`, — чтобы карточка, ручная очередь и
+   * автопланировщик говорили одно и то же:
    *
-   *   - формат файла против протокола принтера (`validatePrintFileForProtocol`):
-   *     `.3mf` не печатают PrusaLink и Moonraker, и агент откажет уже после
-   *     загрузки — лучше погасить кнопку сразу;
-   *   - модель принтера из разметки 3MF (`printerMismatchMessage`): чужой
-   *     профиль слайсера ломает печать.
+   *   - формат файла против протокола принтера: `.3mf` печатает Bambu, `.gcode` —
+   *     Klipper/Moonraker и Creality, и агент откажет уже после загрузки файла —
+   *     лучше погасить кнопку сразу;
+   *   - разметка 3MF против модели принтера: чужой профиль слайсера ломает печать,
+   *     а проект без метки на Bambu проверить нечем — его нужно пересохранить в
+   *     Bambu Studio.
    *
    * Считаются только позиции с файлом печати: `compatible` — сколько из них
    * уйдёт в очередь, `mismatch` — первая причина отказа. Одна неверно нарезанная
@@ -951,25 +948,18 @@ export function OrderDetailsDialog({
 
       printable += 1;
 
-      const formatCheck = validatePrintFileForProtocol(
-        printer.protocolType,
-        product?.gcodeUrl ?? "",
+      const check = checkPrintAssignment(
+        product?.gcodeUrl ?? null,
+        product?.slicedForPrinter ?? null,
+        {
+          brand: printer.brand,
+          model: printer.model,
+          protocolType: printer.protocolType,
+        },
       );
 
-      if (!formatCheck.ok) {
-        mismatch = mismatch ?? formatCheck.reason;
-        continue;
-      }
-
-      const message = product?.slicedForPrinter
-        ? printerMismatchMessage(product.slicedForPrinter, {
-            brand: printer.brand,
-            model: printer.model,
-          })
-        : null;
-
-      if (message) {
-        mismatch = mismatch ?? message;
+      if (!check.ok) {
+        mismatch = mismatch ?? check.reason;
         continue;
       }
 
