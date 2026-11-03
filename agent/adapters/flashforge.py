@@ -125,6 +125,17 @@ CREDENTIALS_MISSING: Final = (
     "Не указан Serial Number или Check Code. Добавьте их в карточке принтера"
 )
 
+# Причина отказа, когда в поле карточки попали недопустимые символы. Serial
+# Number и Check Code мастер копирует с экрана или наклейки, и туда легко
+# попадает кириллическая «с» вместо латинской «c» или невидимый символ из
+# буфера обмена: `requests` кодирует заголовки в latin-1 и падает
+# UnicodeEncodeError, а задание терялось целиком. Проверка, как и у пустых
+# полей, стоит до сети — исправить значение может только мастер.
+CREDENTIALS_INVALID: Final = (
+    "Serial Number или Check Code содержат недопустимые символы (кириллицу). "
+    "Введите их на английской раскладке"
+)
+
 # 404 от `/detail` на оба вида запроса: принтер не понял ни тело, ни заголовки.
 # Это уже не «пустая карточка» (та отсекается до сети), а выключенный LAN-режим,
 # чужой сервис на 8898 или прошивка без этого API.
@@ -293,6 +304,27 @@ _COMMAND_HINTS: Final[dict[int, str]] = {
     403: "принтеру запрещено управление по сети",
     409: "принтер занят: дождитесь окончания текущей печати",
 }
+
+
+def _ascii_credential(value: str) -> tuple[str, bool]:
+    """
+    Значение из карточки принтера: `(очищенная строка, изменилась ли она)`.
+
+    Serial Number и Check Code мастер копирует с экрана принтера или наклейки,
+    и в поле попадают кириллическая «с» вместо латинской «c», неразрывный
+    пробел, zero-width или перенос строки. Заголовки HTTP кодируются в latin-1,
+    поэтому такое значение роняло запрос UnicodeEncodeError — и агент терял
+    задание целиком. Здесь остаются только символы, которые прошивка принимает:
+    латинские буквы, цифры и дефис.
+    """
+    stripped = value.strip()
+    clean = "".join(
+        character
+        for character in stripped
+        if character.isascii() and (character.isalnum() or character == "-")
+    )
+
+    return clean, clean != stripped
 
 
 def _text(value: Any) -> str:
@@ -621,11 +653,28 @@ class FlashForgeAdapter(BasePrinterAdapter):
         self.base_url = f"http://{host}:{self.port}"
         # Номер из формы главнее секретов: мастер мог переписать его после
         # замены платы, а секреты остались от прежней записи.
-        self.serial_number = (
+        self.serial_number, serial_changed = _ascii_credential(
             serial_number or self.secrets.get("serialNumber") or ""
-        ).strip()
+        )
         # checkCode печатает сам принтер: из сети его не узнать.
-        self.check_code = (self.secrets.get("checkCode") or "").strip()
+        self.check_code, code_changed = _ascii_credential(
+            self.secrets.get("checkCode") or ""
+        )
+        # Очистка изменила значение — значит в поле попала кириллица или
+        # невидимый символ. Печатать с «исправленным» номером нельзя: прошивка
+        # сверит его с платой, а мастер так и не узнает, что карточка неверна.
+        self._credentials_error: str | None = (
+            CREDENTIALS_INVALID if serial_changed or code_changed else None
+        )
+
+        if self._credentials_error is not None:
+            logger.warning(
+                "FlashForge %s: %s (serialNumber: %s, checkCode: %s)",
+                self.ip_address,
+                self._credentials_error,
+                "очищен" if serial_changed else "как есть",
+                "очищен" if code_changed else "как есть",
+            )
         # Паспорт из `/detail`: модель и прошивка для журнала и пробы.
         self.model: str | None = None
         self.firmware: str | None = None
@@ -662,11 +711,20 @@ class FlashForgeAdapter(BasePrinterAdapter):
         """
         Проверка серийного номера до сети.
 
-        False — номера нет, и запрос отправлять некуда: прошивка сверяет
-        `serialNumber` с платой и пустой номер отклоняет. Причина остаётся в
+        False — номера нет или в него попали недопустимые символы: прошивка
+        сверяет `serialNumber` с платой и такой номер отклоняет, а заголовок с
+        кириллицей вообще не кодируется в latin-1. Причина остаётся в
         `last_error`, чтобы мастер увидел её в карточке задания, а не «HTTP
         400» из журнала.
         """
+        if self._credentials_error is not None:
+            self.last_error = self._credentials_error
+            logger.error(
+                "FlashForge %s: %s", self.ip_address, self._credentials_error
+            )
+
+            return False
+
         if self.serial_number:
             return True
 
@@ -685,8 +743,12 @@ class FlashForgeAdapter(BasePrinterAdapter):
         Без любого из двух значений прошивка отвечает отказом (`Parameters is
         error`) вместо паспорта, поэтому проверка стоит до сети: таймаут
         десять секунд мастеру ждать не за что, а причина в `last_error` должна
-        называть поля карточки, а не HTTP-код.
+        называть поля карточки, а не HTTP-код. Очищенные значения тоже отказ:
+        «исправленный» номер прошивка сверит с платой и не пустит.
         """
+        if self._credentials_error is not None:
+            return self._credentials_error
+
         if self.serial_number and self.check_code:
             return None
 

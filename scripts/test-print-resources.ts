@@ -5,10 +5,13 @@
  * Что проверяется без базы и без сети:
  *   1. порог просрочки считается от `started_at` и равен оценке слайсера плюс
  *      10 %, а без оценки — суткам; задание в будущем и без меток не снимается;
- *   2. план мастера возвращается на катушку ровно при первом завершённом
+ *   2. кнопка «Принудительно отменить» появляется через десять минут печати,
+ *      считается от `started_at`, а просьба об отмене делает задание зависшим
+ *      сразу;
+ *   3. план мастера возвращается на катушку ровно при первом завершённом
  *      задании заказа, поэтому факт не ложится сверху плана;
- *   3. остаток катушки зажимается в `0…total_weight_g` и остаётся целым;
- *   4. без катушки, без веса и при ошибке чтения функция не пишет в базу и
+ *   4. остаток катушки зажимается в `0…total_weight_g` и остаётся целым;
+ *   5. без катушки, без веса и при ошибке чтения функция не пишет в базу и
  *      объясняет причину.
  *
  * Клиент Supabase подменён заглушкой: она отдаёт заранее заданные ответы по
@@ -21,8 +24,10 @@
  */
 import { writeOffFilamentFact } from "../lib/db/workshop-filament-facts";
 import {
+  isActiveJobStuck,
   overduePrintMs,
   readStuckPrintJob,
+  type ActiveJobTiming,
 } from "../lib/workshop/stuck-print-jobs";
 
 /** Сколько проверок упало: из этого складывается код выхода. */
@@ -211,6 +216,61 @@ check(
     return [job?.orderId, job?.printerId];
   })(),
   [ORDER_ID, "55555555-5555-4555-8555-555555555555"],
+);
+
+// ── 1b. Кнопка «Принудительно отменить» ─────────────────────────────────────
+
+/** Момент `minutes` минут назад от NOW, ISO. */
+function minutesAgo(minutes: number): string {
+  return new Date(NOW - minutes * 60 * 1000).toISOString();
+}
+
+/** Активное задание для проверки порога: печатается или ждёт в очереди. */
+function activeJob(
+  overrides: Partial<ActiveJobTiming> = {},
+): ActiveJobTiming {
+  return {
+    id: JOB_ID,
+    status: "printing",
+    queuedAt: hoursAgo(3),
+    startedAt: minutesAgo(3),
+    cancelRequested: false,
+    ...overrides,
+  };
+}
+
+check(
+  "печать идёт 3 минуты — кнопки нет",
+  isActiveJobStuck(activeJob(), NOW),
+  false,
+);
+check(
+  "печать идёт ровно 10 минут — кнопка есть",
+  isActiveJobStuck(activeJob({ startedAt: minutesAgo(10) }), NOW),
+  true,
+);
+check(
+  "старт 9 минут назад, а в очереди 40 — кнопки нет: считаем от старта",
+  isActiveJobStuck(activeJob({ startedAt: minutesAgo(9) }), NOW),
+  false,
+);
+check(
+  "старта нет, в очереди 40 минут — кнопка есть",
+  isActiveJobStuck(activeJob({ startedAt: null }), NOW),
+  true,
+);
+check(
+  "отмена запрошена только что — кнопка есть",
+  isActiveJobStuck(activeJob({ cancelRequested: true }), NOW),
+  true,
+);
+check(
+  "меток этапов нет — кнопки нет: время неизвестно",
+  isActiveJobStuck(
+    activeJob({ queuedAt: null, startedAt: null }),
+    NOW,
+  ),
+  false,
 );
 
 // ── 2. Списание пластика по факту (C6) ──────────────────────────────────────

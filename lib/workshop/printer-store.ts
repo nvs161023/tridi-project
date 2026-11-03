@@ -6,8 +6,10 @@
  * вкладка «Принтеры» показывается пустой и с предупреждением, а остальные
  * разделы Мастерской продолжают работать.
  */
+import { isWorkshopUuid } from "@/lib/db/workshop-types";
 import type { createClient } from "@/lib/supabase/server";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
+import type { ActiveOrderJobs } from "@/lib/workshop/stuck-print-jobs";
 import {
   PRINTER_BASE_COLUMNS,
   PRINTER_COLUMNS,
@@ -26,11 +28,108 @@ export type WorkshopPrintersSnapshot = {
   printers: WorkshopPrinter[];
   /** Названия заказов, которые печатаются сейчас: `printer_id` → title. */
   activeJobs: PrinterActiveJobs;
+  /**
+   * Активные задания по заказам: `order_id` → задание.
+   *
+   * Доске заказов нужны id задания и метки этапов: по ним видно, что печать
+   * висит, и можно закрыть её силой, не дожидаясь ответа принтера.
+   */
+  orderJobs: ActiveOrderJobs;
   /** Причина последнего отказа: `printer_id` → текст от агента. */
   lastErrors: PrinterLastErrors;
   /** В базе нет таблицы workshop_printers — миграция не применена. */
   isMissingTable: boolean;
 };
+
+/** Статусы, в которых задание считается живым: печать идёт, ждёт или стоит. */
+const ACTIVE_JOB_STATUSES = ["queued", "printing", "paused"] as const;
+
+/** Колонки задания без миграции hardening: метка старта берётся из created_at. */
+const BASIC_ORDER_JOB_COLUMNS = "id, order_id, status, created_at";
+
+/** Колонки задания с миграцией hardening: точные метки этапов и просьба отмены. */
+const DETAILED_ORDER_JOB_COLUMNS =
+  "id, order_id, status, queued_at, started_at, cancel_requested";
+
+/**
+ * Активные задания по заказам: `order_id` → задание.
+ *
+ * Доске заказов нужны id задания (по нему закрывают зависшее), состояние и
+ * метки этапов. `getActivePrinterJobs` для этого не годится: там ключ — принтер,
+ * а название заказа вместо времени.
+ *
+ * `queued_at`/`started_at` появляются миграцией `workshop_print_queue_hardening`.
+ * Пока её не применили, запрос падает на 42703 — тогда читается `created_at`, и
+ * ожидание считается от постановки в очередь: карточка покажет кнопку позже, но
+ * не соврёт о времени. Нет таблицы вовсе (миграция farm не применена) — пустая
+ * карта без предупреждения: это ожидаемое состояние.
+ */
+export async function getActiveOrderJobs(
+  supabase: Supabase,
+  userId: string,
+): Promise<ActiveOrderJobs> {
+  let result: {
+    data: unknown;
+    error: { code?: string | null; message?: string | null } | null;
+  } = await supabase
+    .from("workshop_print_jobs")
+    .select(DETAILED_ORDER_JOB_COLUMNS)
+    .eq("user_id", userId)
+    .in("status", ACTIVE_JOB_STATUSES);
+
+  if (result.error && isMissingColumnSchema(result.error)) {
+    result = await supabase
+      .from("workshop_print_jobs")
+      .select(BASIC_ORDER_JOB_COLUMNS)
+      .eq("user_id", userId)
+      .in("status", ACTIVE_JOB_STATUSES);
+  }
+
+  if (result.error) {
+    if (!isMissingTableSchema(result.error.code, result.error.message)) {
+      console.warn(
+        "Активные задания заказов не прочитаны:",
+        result.error.code,
+        result.error.message,
+      );
+    }
+
+    return {};
+  }
+
+  const rows = (result.data ?? []) as Partial<Record<string, unknown>>[];
+  const jobs: ActiveOrderJobs = {};
+
+  for (const row of rows) {
+    if (!isWorkshopUuid(row.id) || !isWorkshopUuid(row.order_id)) {
+      continue;
+    }
+
+    const queuedAt =
+      readTimestamp(row.queued_at) ?? readTimestamp(row.created_at);
+
+    jobs[row.order_id] = {
+      id: row.id,
+      status:
+        row.status === "printing" || row.status === "paused"
+          ? row.status
+          : "queued",
+      queuedAt,
+      startedAt: readTimestamp(row.started_at),
+      cancelRequested: row.cancel_requested === true,
+    };
+  }
+
+  return jobs;
+}
+
+/** Метка времени из строки базы: null — значения нет или оно не дата. */
+function readTimestamp(value: unknown): string | null {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value))
+    ? value
+    : null;
+}
+
 
 /**
  * Строка задания с вложенным заказом: связь названа явно, чтобы PostgREST не
@@ -180,16 +279,17 @@ export async function getWorkshopPrinters(
   supabase: Supabase,
   userId: string,
 ): Promise<WorkshopPrintersSnapshot> {
-  // Три независимых запроса: список парка, названия заказов в печати и причины
-  // последних отказов. Параллельно, потому что карточке нужны все три, а ждать
-  // их по очереди незачем.
-  const [livePrinters, activeJobs, lastErrors] = await Promise.all([
+  // Четыре независимых запроса: список парка, названия заказов в печати,
+  // активные задания по заказам и причины последних отказов. Параллельно,
+  // потому что карточкам нужны все четыре, а ждать их по очереди незачем.
+  const [livePrinters, activeJobs, orderJobs, lastErrors] = await Promise.all([
     supabase
       .from("workshop_printers")
       .select(PRINTER_COLUMNS)
       .eq("user_id", userId)
       .order("created_at", { ascending: true }),
     getActivePrinterJobs(supabase, userId),
+    getActiveOrderJobs(supabase, userId),
     getPrinterLastErrors(supabase, userId),
   ]);
 
@@ -216,6 +316,7 @@ export async function getWorkshopPrinters(
     return {
       printers: [],
       activeJobs: {},
+      orderJobs: {},
       lastErrors: {},
       isMissingTable: isMissingTableSchema(error.code, error.message),
     };
@@ -228,6 +329,7 @@ export async function getWorkshopPrinters(
       .map(normalizePrinterRow)
       .filter((printer): printer is WorkshopPrinter => printer !== null),
     activeJobs,
+    orderJobs,
     lastErrors,
     isMissingTable: false,
   };

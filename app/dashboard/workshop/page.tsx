@@ -240,6 +240,7 @@ export default async function WorkshopPage() {
               printerLastErrors={fleet.lastErrors}
               discoveredPrinters={discovered?.printers ?? []}
               orders={orderBook.orders}
+              activeOrderJobs={fleet.orderJobs}
               products={productList ?? []}
               clients={clientList ?? []}
               isMissingTable={snapshot.isMissingTable}

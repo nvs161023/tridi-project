@@ -33,6 +33,7 @@ import type {
 import type { WorkshopProduct } from "@/lib/workshop/products";
 import type { WorkshopRequisites } from "@/lib/workshop/requisites";
 import type { WorkshopSettings } from "@/lib/workshop/settings";
+import type { ActiveOrderJobs } from "@/lib/workshop/stuck-print-jobs";
 
 /**
  * Рабочая область Мастерской: сайдбар на десктопе и сегментированные табы на
@@ -77,6 +78,13 @@ type WorkshopTabsProps = {
   /** Принтеры, которых агент нашёл в сети и которые ждут имён: мастер подключения. */
   discoveredPrinters: DiscoveredPrinter[];
   orders: WorkshopOrder[];
+  /**
+   * Активные задания печати по заказам: `order_id` → задание.
+   *
+   * Доске заказов нужны метка этапа (видно, что печать висит) и id задания
+   * (кнопка «Принудительно отменить»).
+   */
+  activeOrderJobs: ActiveOrderJobs;
   products: WorkshopProduct[];
   clients: WorkshopClient[];
   isMissingTable: boolean;
@@ -155,6 +163,7 @@ export function WorkshopTabs({
   printerLastErrors,
   discoveredPrinters,
   orders,
+  activeOrderJobs,
   products,
   clients,
   isMissingTable,
@@ -326,6 +335,7 @@ export function WorkshopTabs({
               filaments={filaments}
               products={products}
               clients={clients}
+              activeOrderJobs={activeOrderJobs}
               isMissingTable={isOrdersMissingTable}
             />
           </div>

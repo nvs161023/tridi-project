@@ -26,6 +26,7 @@ import {
   type AgentPrinter,
   type AgentQueue,
   type AgentQueuedJob,
+  type PrintJobStatus,
   type WorkshopFarmContext,
   type WorkshopFarmFailure,
   type WorkshopFarmFailureReason,
@@ -1033,6 +1034,147 @@ export async function cancelPrintJob(
   // принята, — иначе мастер нажал бы кнопку второй раз.
   console.warn("Мастерская: RPC отмены вернула неизвестный ответ:", outcome);
   return ok("requested");
+}
+
+/** Причина, с которой мастер закрывает зависшее задание: её видно в карточке. */
+export const FORCE_CANCEL_REASON =
+  "Отменено вручную мастером (принтер не отвечает)";
+
+/** Код check-ограничения Postgres: база не знает такого значения статуса. */
+const STATUS_CHECK_VIOLATION = "23514";
+
+/** Статусы, которые держат заказ и принтер: только их и закрывают силой. */
+const FORCED_CANCELLABLE_STATUSES: readonly PrintJobStatus[] = [
+  "queued",
+  "printing",
+  "paused",
+];
+
+/** Что закрыло принудительную отмену: id задания, заказ и принтер. */
+export type ForceCancelledJob = {
+  jobId: string;
+  orderId: string;
+  /** null — задание было без принтера: освобождать нечего. */
+  printerId: string | null;
+};
+
+/**
+ * Принудительная отмена зависшего задания.
+ *
+ * Обычная отмена (`cancelPrintJob`) вежливая: идущее задание получает
+ * `cancel_requested`, и печать гасит агент на следующем опросе. Если принтер
+ * повис (Bambu не отвечает по MQTT, плата не берёт команду) или агент не
+ * запущен, флаг никто не прочитает, а заказ остаётся в «Печати» навсегда.
+ * Здесь задание закрывается сразу, без ответа принтера: мастер уже видел, что
+ * печать не идёт.
+ *
+ * `cancelled` — это отмена мастером, а не отказ печати, поэтому в статистику
+ * отказов она не попадает. Старое ограничение статусов (миграция hardening не
+ * применена) такого значения не знает — тогда задание закрывается как `failed`:
+ * текст причины сохраняется, и мастер видит в карточке ту же фразу.
+ *
+ * Роль authenticated писать статусы не может, поэтому вызов идёт клиентом
+ * service_role (как у агента), а владелец проверяется фильтром `user_id`.
+ * Порядок — задание, принтер, заказ: если что-то ниже не записалось, задание
+ * всё равно закрыто, и повторный клик не нужен.
+ */
+export async function forceCancelPrintJob(
+  jobId: string,
+  context?: WorkshopFarmContext,
+): Promise<WorkshopFarmResult<ForceCancelledJob>> {
+  if (!isWorkshopUuid(jobId)) {
+    return fail("invalid_id", "Задание указано неверно.");
+  }
+
+  const ctx = await resolveContext(context);
+
+  if (!ctx) {
+    return fail("unauthorized", "Нужно войти в мастерскую.");
+  }
+
+  const jobResult = await withPrintJobDetails((columns) =>
+    ctx.supabase
+      .from("workshop_print_jobs")
+      .select(columns)
+      .eq("id", jobId)
+      .eq("user_id", ctx.userId)
+      .maybeSingle(),
+  );
+
+  if (jobResult.error) {
+    return readFailure(jobResult.error, "Задание не прочитано.");
+  }
+
+  const job = normalizePrintJob(jobResult.data);
+
+  if (!job) {
+    return fail("not_found", "Задание не найдено — возможно, его уже сняли.");
+  }
+
+  if (!FORCED_CANCELLABLE_STATUSES.includes(job.status)) {
+    return fail("not_found", "Задание уже закрыто — обновите страницу.");
+  }
+
+  let jobUpdate = await ctx.supabase
+    .from("workshop_print_jobs")
+    .update({ status: "cancelled", last_error: FORCE_CANCEL_REASON })
+    .eq("id", job.id)
+    .eq("user_id", ctx.userId);
+
+  if (jobUpdate.error?.code === STATUS_CHECK_VIOLATION) {
+    jobUpdate = await ctx.supabase
+      .from("workshop_print_jobs")
+      .update({ status: "failed", last_error: FORCE_CANCEL_REASON })
+      .eq("id", job.id)
+      .eq("user_id", ctx.userId);
+  }
+
+  if (jobUpdate.error) {
+    return writeFailure(jobUpdate.error, "Задание не закрыто.");
+  }
+
+  // Принтер снова свободен: закрывать нечего, держать станок занятым незачем.
+  // Отказ записи не отменяет результат — задание и заказ уже в порядке, — но
+  // причину видно в журнале, и мастер поправит статус вручную.
+  if (job.printerId) {
+    const printerUpdate = await ctx.supabase
+      .from("workshop_printers")
+      .update({ status: "idle", progress: 0 })
+      .eq("id", job.printerId)
+      .eq("user_id", ctx.userId);
+
+    if (printerUpdate.error) {
+      console.warn(
+        "Принтер не освобождён после принудительной отмены:",
+        printerUpdate.error.code,
+        printerUpdate.error.message,
+      );
+    }
+  }
+
+  // Заказ возвращается в «Новые»: печати больше нет, и мастер решает заново.
+  // Триггер задания делает то же самое, но только для заказа в «Печати»; явный
+  // update не даёт карточке остаться в старой колонке без миграции.
+  const orderUpdate = await ctx.supabase
+    .from("workshop_orders")
+    .update({ status: "new" })
+    .eq("id", job.orderId)
+    .eq("user_id", ctx.userId)
+    .in("status", ["printing", "ready"]);
+
+  if (orderUpdate.error) {
+    console.warn(
+      "Заказ не вернулся в «Новые» после принудительной отмены:",
+      orderUpdate.error.code,
+      orderUpdate.error.message,
+    );
+  }
+
+  return ok({
+    jobId: job.id,
+    orderId: job.orderId,
+    printerId: job.printerId,
+  });
 }
 
 /**

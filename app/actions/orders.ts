@@ -15,6 +15,7 @@ import {
   countActivePrintJobs,
   countActivePrintJobsForItem,
   createPrintJob,
+  forceCancelPrintJob as forceCancelPrintJobRecord,
   getOrderActivePrintJob,
   getOrderLastPrintFailure,
   getOrderWithItems,
@@ -24,6 +25,7 @@ import {
   type PrinterProtocol,
   type WorkshopFarmFailureReason,
 } from "@/lib/db/workshop-types";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
@@ -152,6 +154,14 @@ const PRINT_CANCEL_NOTHING =
   "Активного задания нет — отменять нечего. Обновите страницу.";
 const PRINT_CANCEL_MIGRATION_MISSING =
   "Отмена печати пока не работает: примените миграцию supabase/workshop_print_queue_hardening.sql.";
+/** Зависшее задание закрыто силой: печати нет, заказ снова в «Новых». */
+const PRINT_FORCE_CANCEL_DONE =
+  "Задание закрыто принудительно. Заказ вернулся в «Новые».";
+const PRINT_FORCE_CANCEL_FAILED =
+  "Не удалось закрыть задание. Попробуйте ещё раз.";
+const PRINT_FORCE_CANCEL_NOTHING =
+  "Задание уже закрыто — обновите страницу.";
+const INVALID_JOB_ID = "Задание не найдено — обновите страницу.";
 const ORDER_ITEM_PRODUCT_REQUIRED =
   "Выберите товар из каталога — без него позицию не добавить.";
 const ORDER_ITEM_ADD_FAILED =
@@ -2028,6 +2038,85 @@ export async function cancelOrderPrint(
     ok: true,
     message: [base, note, planNote].filter(Boolean).join(" "),
   };
+}
+
+/**
+ * Принудительно закрыть зависшее задание печати.
+ *
+ * Обычная отмена только просит агента остановить печать, и на живой машине этого
+ * достаточно. Если принтер повис (Bambu молчит по MQTT, плата не берёт команду)
+ * или агент не запущен, флаг никто не прочитает: задание держит заказ и принтер
+ * бесконечно. Кнопка нужна мастеру, который видит, что печать не идёт: задание
+ * закрывается в базе, принтер освобождается, заказ возвращается в «Новые».
+ *
+ * Запись идёт клиентом service_role: роль authenticated статусы не меняет
+ * (`workshop_print_jobs` — только select/insert/delete). Владельца проверяет
+ * сессия, `user_id` внутри `forceCancelPrintJob`, а из браузера приходит только
+ * id задания — что закрывать, решает база.
+ */
+export async function forceCancelPrintJob(
+  jobId: string,
+): Promise<OrderActionState> {
+  if (!isOrderId(jobId)) {
+    return { ok: false, error: INVALID_JOB_ID };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { ok: false, error: PRO_REQUIRED };
+  }
+
+  let admin: ReturnType<typeof createAdminClient>;
+
+  try {
+    admin = createAdminClient();
+  } catch (error) {
+    console.error(
+      "Принудительная отмена: клиент service_role не создан:",
+      error instanceof Error ? error.message : error,
+    );
+
+    return { ok: false, error: PRINT_FORCE_CANCEL_FAILED };
+  }
+
+  const result = await forceCancelPrintJobRecord(jobId, {
+    supabase: admin,
+    userId: user.id,
+  });
+
+  if (!result.ok) {
+    console.warn(
+      "Принудительная отмена не удалась:",
+      result.reason,
+      result.error,
+    );
+
+    if (result.reason === "migration_missing") {
+      return { ok: false, error: PRINT_QUEUE_MIGRATION_MISSING };
+    }
+
+    if (result.reason === "unauthorized") {
+      return { ok: false, error: SESSION_EXPIRED };
+    }
+
+    if (result.reason === "not_found" || result.reason === "invalid_id") {
+      return { ok: false, error: PRINT_FORCE_CANCEL_NOTHING };
+    }
+
+    return { ok: false, error: PRINT_FORCE_CANCEL_FAILED };
+  }
+
+  revalidatePath("/dashboard/workshop");
+
+  return { ok: true, message: PRINT_FORCE_CANCEL_DONE };
 }
 
 /**

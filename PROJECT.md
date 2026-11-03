@@ -3125,6 +3125,7 @@ FlashForge и Elegoo
 | `addOrderItem`, `loadOrderItems` | `app/actions/orders.ts` | Позиции заказа вручную. `loadOrderItems(orderId)` — обёртка над `getOrderItems()` из `lib/workshop/order-store.ts` (список с названием товара и количеством для блока «Позиции заказа»). `addOrderItem(orderId, productId, quantity)`: UUID заказа и товара проверяются до запроса, количество — `readOrderItemQuantity` (целое 1…10 000) → реальная сессия → `hasActiveSubscription` → заказ читается по `id` и `user_id` → товар читается по `id` и `user_id` → `insert` в `workshop_order_items` (`user_id`, `order_id`, `product_id`, `sku`-снимок, `quantity`) с `select` вставленной строки → `revalidatePath('/dashboard/workshop')`. Возвращает `{ ok: true, item, message }` или `{ ok: false, error }`; при отсутствии таблицы — текст про `supabase/workshop_farm_and_shop.sql`. `total_cost` не пересчитывается: стоимость заказа остаётся ручным полем |
 | `loadClientOrders` | `app/actions/orders.ts` | История заказов клиента для окна в карточке клиента. `loadClientOrders(clientId)` — тонкая обёртка над `getOrdersByClientId()` из `lib/workshop/order-store.ts`: клиент не может импортировать серверный модуль чтения, как и у `loadOrderComments`. Возвращает `{ orders, isMissingLink }`: битый id, отсутствие сессии и ошибка чтения дают пустой список, а `isMissingLink` сообщает о неприменённой миграции `supabase/workshop_orders_client_id.sql` |
 | `loadOrderPrintStatus`, `queueOrderForPrint`, `cancelOrderPrint` | `app/actions/orders.ts` | Блок «3D-печать» карточки заказа. `loadOrderPrintStatus(orderId)` читает позиции с G-code, активное задание (`getOrderActivePrintJob`) и последний отказ (`getOrderLastPrintFailure`); ошибка чтения даёт `null`, а отсутствие миграции — просто пустую очередь. `queueOrderForPrint(orderId, printerId?)`: UUID → сессия → `hasActiveSubscription` → заказ с позициями → принтер (из карточки, иначе из заказа) → первая позиция с G-code → `createPrintJob`; повторный клик не создаёт дубль. `cancelOrderPrint(orderId)`: UUID → сессия → `hasActiveSubscription` → активное задание ищется на сервере → `cancelPrintJob` (RPC `workshop_cancel_print_job`); сообщение зависит от ответа базы — «Задание снято с очереди» для `cancelled` и «Просьба об отмене отправлена…» для `requested`, повторный клик по уже поднятому флагу RPC не дёргает. После успеха — `revalidatePath('/dashboard/workshop')` |
+| `forceCancelPrintJob` | `app/actions/orders.ts` | Принудительное закрытие зависшего задания — красная кнопка «Принудительно отменить» на карточке заказа (доска и окно заказа). Кнопка видна, когда задание висит дольше десяти минут (`isActiveJobStuck` из `lib/workshop/stuck-print-jobs.ts`: отсчёт от `started_at`, затем `queued_at`, а поднятый `cancel_requested` делает задание зависшим сразу). Порядок: UUID задания (`isOrderId`) → сессия → `hasActiveSubscription` → клиент service_role (`createAdminClient`: роль authenticated статусы заданий не пишет) → `forceCancelPrintJob(jobId, { supabase, userId })` из `lib/db/workshop-farm.ts`: задание читается по `id` и `user_id`, пишется `status = 'cancelled'` (откат на `failed` при коде 23514 — старое check-ограничение без миграции hardening) с `last_error = 'Отменено вручную мастером (принтер не отвечает)'`, принтер переводится в `idle` с нулевым прогрессом, заказ из `printing`/`ready` — в `new` → `revalidatePath('/dashboard/workshop')`. Закрытое или чужое задание — «Задание уже закрыто, обновите страницу» |
 | `addClient` | `app/actions/clients.ts` | База клиентов Мастерской: разбор формы (`readClientForm`: имя обязательно, телефон и email проверяются по формату) → реальная сессия → повторная проверка `hasActiveSubscription` → `insert` в `workshop_clients` → `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции; логика, проверки и типы — в `lib/workshop/clients.ts` |
 | `updateClient`, `updateProduct` | `app/actions/clients.ts`, `app/actions/products.ts` | Правка карточек клиента и товара. Оба действия повторяют порядок «создающих» соседей: UUID → разбор формы (`readClientForm` / `readProductForm`, поэтому проверки и подсказки те же, что при добавлении) → реальная сессия → повторная проверка `hasActiveSubscription` → `update` с фильтром по `id` и `user_id` → `select('name')` / `select('title')`. Пустой ответ — «не найден»: строку могли удалить в другой вкладке. `updateProduct` дополнительно ловит 23505 («артикул занят») и откатывается на набор колонок без `gcode_url` и `sliced_for_printer`, если `supabase/workshop_farm_and_shop.sql` не применена заново. |
 | `deleteOrderItem`, `updateOrderItemQuantity` | `app/actions/orders.ts` | Правка позиций заказа из карточки. Общая проверка `readOrderItemContext`: UUID → `workshop_order_items` по `id` и `user_id` → активное задание позиции (`countActivePrintJobsForItem` из `lib/db/workshop-farm.ts`; `queued` и `printing` запрещают правку) → заказ с `material_weight_g` и `filament_id` → сумма количеств всех позиций → признак `done` по заказу. `updateOrderItemQuantity(orderItemId, quantity)`: `readOrderItemQuantity` (целое 1…10 000) → сессия → `hasActiveSubscription` → добавка списывается с катушки и отклоняется при нехватке (`chargePlasticFromFilament`), убавка возвращается (`refundPlasticToFilament`) → `update quantity` с `select('id')` → план заказа сдвигается на долю (`plasticForUnits`). `deleteOrderItem(orderItemId)`: те же проверки → `delete` с `select('id')` → план уменьшается на долю, катушка получает её обратно. После успеха — `revalidatePath('/dashboard/workshop')`. Возврат пропускается, если по заказу есть `done`: план вернул `writeOffFilamentFact`. `deleteOrder` тоже возвращает остаток плана на катушку, а `cancelOrderPrint` — только для задания из очереди, обнуляя план |
@@ -8658,6 +8659,42 @@ agent/adapters/bambu.py` — чисто.
 `python -m py_compile agent/adapters/flashforge.py scripts/test-ff.py` — чисто. Живой прогон
 адаптера по 192.168.0.5: `connect()` — `True`, модель `Adventurer 5M Pro`, прошивка `5.1.8`,
 `get_status()` — `idle`.
+**Кириллица в Serial Number и принудительная отмена зависших заданий (3 ноября 2026).**
+Агент упал с `UnicodeEncodeError: 'latin-1' codec can't encode character '\u0441'`: владелец скопировал
+Serial Number FlashForge, и в поле попала кириллическая «с» вместо латинской «c». Заголовки HTTP
+кодируются в latin-1, поэтому запрос не уходил вовсе. Вторая беда: Bambu завис, задание осталось
+активным, заказ не закрывался, а обычная отмена только поднимала `cancel_requested` — флаг, который
+никто не читает.
+
+- `agent/adapters/flashforge.py`: `_ascii_credential()` оставляет в Serial Number и Check Code только
+  латиницу, цифры и дефис. Очистка изменила значение — `CREDENTIALS_INVALID` («Serial Number или Check
+  Code содержат недопустимые символы (кириллицу). Введите их на английской раскладке»). Проверка стоит
+  до сети (`_require_identity()` и `_missing_credentials()`): печатать с «исправленным» номером нельзя,
+  прошивка сверит его с платой. Пробелы и переносы вокруг значения снимаются молча.
+- `agent/adapters/bambu.py`: та же очистка в `__init__` для SN и кода доступа и тот же текст. Отказ идёт
+  из `connect()` и `upload_file()`: из SN строятся топик `device/<sn>/request` и `client_id`, а код
+  доступа уходит в логин FTPS.
+- `lib/workshop/stuck-print-jobs.ts`: `isActiveJobStuck()` и `ACTIVE_JOB_STUCK_MINUTES = 10`. Порог
+  один для доски и карточки заказа, отсчёт от `started_at`, затем `queued_at`; поднятый
+  `cancel_requested` делает задание зависшим сразу.
+- `lib/db/workshop-farm.ts`: `forceCancelPrintJob()` закрывает задание как `cancelled` (откат на
+  `failed` при 23514 — старое check-ограничение без миграции hardening), пишет
+  `last_error = 'Отменено вручную мастером (принтер не отвечает)'`, переводит принтер в `idle` с нулевым
+  прогрессом и возвращает заказ из `printing`/`ready` в `new`. Роль authenticated статусы не пишет,
+  поэтому вызов идёт клиентом service_role, а владелец проверяется фильтром `user_id`.
+- `app/actions/orders.ts`: `forceCancelPrintJob(jobId)` — UUID → сессия → `hasActiveSubscription` →
+  `createAdminClient()` → `forceCancelPrintJob()` → `revalidatePath('/dashboard/workshop')`.
+- `lib/workshop/printer-store.ts`: `getActiveOrderJobs()` собирает `order_id` → задание с метками этапов
+  и читается в `getWorkshopPrinters()` параллельно с остальными запросами; без миграции hardening
+  отсчёт идёт от `created_at`.
+- `components/workshop/WorkshopOrdersTab.tsx`, `components/workshop/OrderDetailsDialog.tsx`: красная
+  кнопка «Принудительно отменить» на карточке доски и в блоке «3D-печать», с подтверждением и своей
+  блокировкой на время ответа сервера.
+
+Проверки: `python scripts/test-flashforge.py` — 0 провалов, `python scripts/test-bambu.py` — 0 провалов,
+`node --import ./scripts/register-alias.mjs scripts/test-print-resources.ts` — все проверки прошли,
+`npx pyright agent/` — 0 ошибок, `npx tsc --noEmit` — чисто, `npm run check:docs`,
+`npm run check:imports`, `npm run check:style` — без замечаний.
 
 
 

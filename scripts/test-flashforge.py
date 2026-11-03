@@ -496,6 +496,53 @@ def check_connect(fake: FakeFlashForge) -> None:
         f"{refused_no_serial!r}, last_error={reason!r}",
     )
 
+    # Кириллица в поле карточки: мастер копирует номер с экрана принтера, и туда
+    # попадает «с»/«М» вместо латинских букв. Заголовки кодируются в latin-1,
+    # поэтому такой запрос падал UnicodeEncodeError, а задание терялось целиком.
+    # Отправлять «исправленный» номер нельзя: прошивка сверит его с платой.
+    cyrillic_serial = FlashForgeAdapter(
+        fake.address, "", SERIAL.replace("M", "М"), {"checkCode": CHECK_CODE}
+    )
+    refused_cyrillic_serial = cyrillic_serial.connect()
+    reason = cyrillic_serial.last_error or ""
+
+    check(
+        "подключение: кириллица в Serial Number — отказ до сети",
+        refused_cyrillic_serial is False
+        and "недопустимые символы" in reason
+        and fake.detail_requests() == before,
+        f"{refused_cyrillic_serial!r}, last_error={reason!r}, "
+        f"запросов {fake.detail_requests() - before}",
+    )
+
+    cyrillic_code = FlashForgeAdapter(
+        fake.address, "", SERIAL, {"checkCode": CHECK_CODE.replace("a", "а")}
+    )
+    refused_cyrillic_code = cyrillic_code.connect()
+    reason = cyrillic_code.last_error or ""
+
+    check(
+        "подключение: кириллица в Check Code — отказ до сети",
+        refused_cyrillic_code is False
+        and "недопустимые символы" in reason
+        and fake.detail_requests() == before,
+        f"{refused_cyrillic_code!r}, last_error={reason!r}, "
+        f"запросов {fake.detail_requests() - before}",
+    )
+
+    # Пробелы и перенос строки вокруг значения — обычный след копирования: они
+    # снимаются, и подключение проходит с тем же номером.
+    padded = FlashForgeAdapter(
+        fake.address, "", f"  {SERIAL}\n", {"checkCode": f"{CHECK_CODE} "}
+    )
+    padded_connected = padded.connect()
+
+    check(
+        "подключение: пробелы вокруг значений снимаются",
+        padded_connected is True and padded.serial_number == SERIAL,
+        f"{padded_connected!r}, serial={padded.serial_number!r}",
+    )
+
     # Отказ по существу: код с экрана не подошёл. Второй вид запроса его не
     # исправит, а мастеру нужна подсказка про поле Check Code, а не английский
     # текст прошивки.

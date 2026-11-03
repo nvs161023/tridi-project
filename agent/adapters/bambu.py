@@ -156,6 +156,16 @@ SERIAL_REQUIRED_ERROR = (
     "Укажите его в карточке принтера."
 )
 
+# Отказ по недопустимым символам. Serial Number и код доступа мастер копирует с
+# экрана принтера, и в поле попадает кириллическая «с» вместо латинской «c» или
+# невидимый символ: paho кодирует топик и client_id, а FTPS — логин, и такое
+# значение роняло задание целиком. Текст один для `connect()` и `upload_file()`:
+# мастер видит, что править, а не «MQTT-соединение потеряно».
+CREDENTIALS_INVALID = (
+    "Serial Number или Check Code содержат недопустимые символы (кириллицу). "
+    "Введите их на английской раскладке"
+)
+
 # Сколько ждать сертификат принтера при поиске серийника. В поле `CN` лежит
 # серийный номер, и на прошивках, где SSDP молчит, это единственный источник —
 # поэтому таймаут отдельный и с запасом: рукопожатие TLS у принтера по Wi-Fi
@@ -449,6 +459,27 @@ def _clean_serial(value: str) -> str:
         return ""
 
     return serial
+
+
+def _ascii_credential(value: str) -> tuple[str, bool]:
+    """
+    Значение из карточки принтера: `(очищенная строка, изменилась ли она)`.
+
+    Serial Number и код доступа мастер копирует с экрана принтера или наклейки,
+    и в поле попадают кириллическая «с» вместо латинской «c», неразрывный
+    пробел или перенос строки. Из такого значения paho строит топик
+    `device/<serial>/request` и `client_id`, а `http.client` кодирует заголовки
+    в latin-1 — и задание терялось целиком с UnicodeEncodeError. Здесь остаются
+    только символы, которые прошивка принимает: латинские буквы, цифры и дефис.
+    """
+    stripped = value.strip()
+    clean = "".join(
+        character
+        for character in stripped
+        if character.isascii() and (character.isalnum() or character == "-")
+    )
+
+    return clean, clean != stripped
 
 
 def certificate_serial(host: str, port: int = MQTT_PORT) -> str:
@@ -853,7 +884,25 @@ class BambuAdapter(BasePrinterAdapter):
         принтера ломает печать. Пустая модель — проверять нечего.
         """
         super().__init__(ip_address=ip_address, api_key=api_key)
-        self.serial_number = serial_number.strip()
+        # Серийник и код доступа приходят из полей формы: кириллическая «с»
+        # вместо латинской «c» ломала и топик MQTT, и логин FTPS, поэтому
+        # значения чистятся до сети. Изменились при очистке — значит карточка
+        # заполнена неверно, и подключаться с «исправленным» номером нельзя.
+        self.serial_number, serial_changed = _ascii_credential(serial_number)
+        self.api_key, code_changed = _ascii_credential(api_key)
+        self._credentials_error: str | None = (
+            CREDENTIALS_INVALID if serial_changed or code_changed else None
+        )
+
+        if self._credentials_error is not None:
+            logger.warning(
+                "Bambu %s: %s (serialNumber: %s, код доступа: %s)",
+                ip_address,
+                self._credentials_error,
+                "очищен" if serial_changed else "как есть",
+                "очищен" if code_changed else "как есть",
+            )
+
         self.brand = brand.strip()
         self.model = model.strip()
         # Хост без схемы и порта: и MQTT, и FTPS ходят на свои фиксированные.
@@ -1233,6 +1282,14 @@ class BambuAdapter(BasePrinterAdapter):
             logger.error("Bambu: пустой адрес принтера — подключаться некуда")
             return False
 
+        if self._credentials_error is not None:
+            # В серийнике или коде доступа остались недопустимые символы:
+            # исправить их может только мастер, а топик из такого значения
+            # брокер не примет. Сеть не трогаем — причина уже понятна.
+            self.last_error = self._credentials_error
+            logger.error("Bambu %s: %s", self.host, self._credentials_error)
+            return False
+
         if not self.api_key.strip():
             logger.error(
                 "Bambu %s: не задан код доступа (LAN access code)", self.host
@@ -1586,6 +1643,13 @@ class BambuAdapter(BasePrinterAdapter):
         причина последнего отказа остаётся в `last_error`: main.py отправит её в
         мастерскую вместе со статусом, и мастер увидит, на каком шаге всё встало.
         """
+        if self._credentials_error is not None:
+            # Логин FTPS идёт из кода доступа: с недопустимыми символами его
+            # даже не отправить. Причина та же, что у connect().
+            self.last_error = self._credentials_error
+            logger.error("Bambu %s: %s", self.host, self._credentials_error)
+            return False
+
         if not self.api_key.strip():
             self.last_error = "не задан код доступа Bambu Lab (LAN access code)"
             logger.error(

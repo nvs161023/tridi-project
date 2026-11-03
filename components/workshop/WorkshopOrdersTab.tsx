@@ -15,6 +15,7 @@ import { createPortal } from "react-dom";
 import {
   autoScheduleOrders,
   deleteOrder,
+  forceCancelPrintJob,
   updateOrderStatus,
 } from "@/app/actions/orders";
 import { CreateOrderDialog } from "@/components/workshop/CreateOrderDialog";
@@ -39,6 +40,11 @@ import {
 } from "@/lib/workshop/orders";
 import type { WorkshopPrinter } from "@/lib/workshop/printers";
 import type { WorkshopProduct } from "@/lib/workshop/products";
+import {
+  isActiveJobStuck,
+  type ActiveJobTiming,
+  type ActiveOrderJobs,
+} from "@/lib/workshop/stuck-print-jobs";
 
 /**
  * Вкладка «Заказы» — Kanban-доска.
@@ -70,6 +76,13 @@ type WorkshopOrdersTabProps = {
   products: WorkshopProduct[];
   /** База клиентов для выбора готового контакта при создании заказа. */
   clients: WorkshopClient[];
+  /**
+   * Активные задания печати по заказам: `order_id` → задание.
+   *
+   * Нужны карточке: по метке этапа видно, что печать висит, а id задания
+   * позволяет закрыть его силой, не открывая окно заказа.
+   */
+  activeOrderJobs: ActiveOrderJobs;
   /** В базе нет таблицы workshop_orders — миграция не применена. */
   isMissingTable: boolean;
 };
@@ -167,6 +180,7 @@ export function WorkshopOrdersTab({
   filaments,
   products,
   clients,
+  activeOrderJobs,
   isMissingTable,
 }: WorkshopOrdersTabProps) {
   const router = useRouter();
@@ -184,6 +198,13 @@ export function WorkshopOrdersTab({
   const [pendingId, setPendingId] = useState<string | null>(null);
   /** Заказ, который удаляется: карточка блокируется до ответа сервера. */
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  /**
+   * Задание, которое закрывается принудительно.
+   *
+   * Отдельно от `deletingId`: карточка может быть и не удаляемой, а второй клик
+   * по кнопке отправил бы ту же просьбу ещё раз.
+   */
+  const [forcingJobId, setForcingJobId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<OrderFlowStatus | null>(
     null,
@@ -512,6 +533,50 @@ export function WorkshopOrdersTab({
     }
   }
 
+  /**
+   * Принудительное закрытие зависшего задания с карточки доски.
+   *
+   * Обычная отмена на карточке не нужна: она есть в окне заказа и работает через
+   * агента. Здесь мастер видит, что печать стоит (метка этапа старше десяти
+   * минут), и закрывает задание в базе: принтер освобождается, заказ
+   * возвращается в «Новые». `forcingJobId` держит кнопку занятой до ответа
+   * сервера, чтобы второй клик не повторял просьбу.
+   */
+  async function forceCancelJob(order: WorkshopOrder, job: ActiveJobTiming) {
+    if (forcingJobId !== null) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Закрыть зависшее задание заказа «${order.title}»? Печать будет отменена, принтер освободится, заказ вернётся в «Новые».`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setNotice(null);
+    setError(null);
+    setDeleteError(null);
+    setForcingJobId(job.id);
+
+    try {
+      const result = await forceCancelPrintJob(job.id);
+
+      if (!result.ok) {
+        setDeleteError(result.error ?? "Не удалось закрыть зависшее задание.");
+        return;
+      }
+
+      setNotice(result.message ?? "Задание закрыто принудительно.");
+      router.refresh();
+    } catch {
+      setDeleteError("Нет связи с сервером. Попробуйте ещё раз.");
+    } finally {
+      setForcingJobId(null);
+    }
+  }
+
   function handleDropOrder(orderId: string, nextStatus: OrderFlowStatus) {
     setDraggingId(null);
     setDragOverStatus(null);
@@ -723,6 +788,8 @@ export function WorkshopOrdersTab({
                   column={column}
                   orders={groupedOrders[column.status]}
                   printerById={printerById}
+                  activeOrderJobs={activeOrderJobs}
+                  forcingJobId={forcingJobId}
                   pendingId={pendingId}
                   deletingId={deletingId}
                   draggingId={draggingId}
@@ -736,6 +803,9 @@ export function WorkshopOrdersTab({
                   }}
                   onDeleteOrder={(order) => {
                     void removeOrder(order);
+                  }}
+                  onForceCancelJob={(order, job) => {
+                    void forceCancelJob(order, job);
                   }}
                   onOpenOrder={openDetails}
                   onCardClick={handleCardClick}
@@ -776,6 +846,10 @@ type KanbanColumnProps = {
   column: StatusColumn;
   orders: WorkshopOrder[];
   printerById: Map<string, WorkshopPrinter>;
+  /** Активные задания по заказам: `order_id` → задание. */
+  activeOrderJobs: ActiveOrderJobs;
+  /** id задания, которое уже закрывается принудительно. */
+  forcingJobId: string | null;
   pendingId: string | null;
   deletingId: string | null;
   draggingId: string | null;
@@ -789,6 +863,7 @@ type KanbanColumnProps = {
   onDropOrder: (orderId: string, status: OrderFlowStatus) => void;
   onMoveOrder: (order: WorkshopOrder, status: OrderFlowStatus) => void;
   onDeleteOrder: (order: WorkshopOrder) => void;
+  onForceCancelJob: (order: WorkshopOrder, job: ActiveJobTiming) => void;
   onOpenOrder: (order: WorkshopOrder) => void;
   onCardClick: (
     event: ReactMouseEvent<HTMLLIElement>,
@@ -807,6 +882,8 @@ function KanbanColumn({
   column,
   orders,
   printerById,
+  activeOrderJobs,
+  forcingJobId,
   pendingId,
   deletingId,
   draggingId,
@@ -817,6 +894,7 @@ function KanbanColumn({
   onDropOrder,
   onMoveOrder,
   onDeleteOrder,
+  onForceCancelJob,
   onOpenOrder,
   onCardClick,
 }: KanbanColumnProps) {
@@ -900,26 +978,33 @@ function KanbanColumn({
       <div aria-hidden className="mt-3 h-px bg-white/[0.06]" />
 
       <ul aria-label={`Заказы: ${column.label}`} className="mt-3 flex-1 space-y-2.5">
-        {orders.map((order) => (
-          <OrderCard
-            key={order.id}
-            order={order}
-            printer={
-              order.printerId
-                ? (printerById.get(order.printerId) ?? null)
-                : null
-            }
-            isPending={pendingId === order.id}
-            isDeleting={deletingId === order.id}
-            isDragging={draggingId === order.id}
-            onDragStart={onDragStart}
-            onDragEnd={onDragEnd}
-            onMoveOrder={onMoveOrder}
-            onDelete={onDeleteOrder}
-            onOpen={onOpenOrder}
-            onClick={onCardClick}
-          />
-        ))}
+        {orders.map((order) => {
+          const activeJob = activeOrderJobs[order.id] ?? null;
+
+          return (
+            <OrderCard
+              key={order.id}
+              order={order}
+              printer={
+                order.printerId
+                  ? (printerById.get(order.printerId) ?? null)
+                  : null
+              }
+              activeJob={activeJob}
+              isForcing={activeJob !== null && forcingJobId === activeJob.id}
+              isPending={pendingId === order.id}
+              isDeleting={deletingId === order.id}
+              isDragging={draggingId === order.id}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              onMoveOrder={onMoveOrder}
+              onDelete={onDeleteOrder}
+              onForceCancel={onForceCancelJob}
+              onOpen={onOpenOrder}
+              onClick={onCardClick}
+            />
+          );
+        })}
 
         {orders.length === 0 ? (
           <li className="flex min-h-36 flex-1 items-center justify-center rounded-xl border border-dashed border-white/10 px-4 py-6 text-center">
@@ -938,6 +1023,10 @@ function KanbanColumn({
 type OrderCardProps = {
   order: WorkshopOrder;
   printer: WorkshopPrinter | null;
+  /** Активное задание заказа; null — печати по заказу нет. */
+  activeJob: ActiveJobTiming | null;
+  /** Задание уже закрывается принудительно: кнопка блокируется. */
+  isForcing: boolean;
   isPending: boolean;
   /** Заказ удаляется: карточка блокируется так же, как при смене статуса. */
   isDeleting: boolean;
@@ -949,6 +1038,7 @@ type OrderCardProps = {
   onDragEnd: () => void;
   onMoveOrder: (order: WorkshopOrder, status: OrderFlowStatus) => void;
   onDelete: (order: WorkshopOrder) => void;
+  onForceCancel: (order: WorkshopOrder, job: ActiveJobTiming) => void;
   onOpen: (order: WorkshopOrder) => void;
   onClick: (
     event: ReactMouseEvent<HTMLLIElement>,
@@ -970,6 +1060,8 @@ type OrderCardProps = {
 function OrderCard({
   order,
   printer,
+  activeJob,
+  isForcing,
   isPending,
   isDeleting,
   isDragging,
@@ -977,11 +1069,18 @@ function OrderCard({
   onDragEnd,
   onMoveOrder,
   onDelete,
+  onForceCancel,
   onOpen,
   onClick,
 }: OrderCardProps) {
   const isOverdue = isOrderOverdue(order);
   const isBusy = isPending || isDeleting;
+  /**
+   * Задание висит: печать стоит дольше десяти минут или отмена не выполнилась.
+   * Только тогда на карточке появляется «Принудительно отменить» — на живой
+   * печати эта кнопка закрыла бы работу, которая просто идёт.
+   */
+  const isStuckJob = activeJob !== null && isActiveJobStuck(activeJob);
 
   return (
     <li
@@ -1076,6 +1175,21 @@ function OrderCard({
         <p className="mt-2 text-[10px] font-semibold text-blue-300">
           {isDeleting ? "Удаляем…" : "Сохраняем статус…"}
         </p>
+      ) : null}
+
+      {isStuckJob && activeJob ? (
+        <button
+          type="button"
+          draggable={false}
+          data-order-force-cancel={activeJob.id}
+          onClick={() => onForceCancel(order, activeJob)}
+          disabled={isForcing}
+          aria-busy={isForcing}
+          title="Закрыть задание в базе, не дожидаясь ответа принтера"
+          className="mt-2 inline-flex min-h-9 w-full items-center justify-center rounded-lg border border-red-500/60 bg-red-600/90 px-2.5 text-[11px] font-bold text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isForcing ? "Закрываем…" : "Принудительно отменить"}
+        </button>
       ) : null}
     </li>
   );

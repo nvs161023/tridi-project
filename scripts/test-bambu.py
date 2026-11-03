@@ -467,6 +467,33 @@ def main() -> int:
     no_code = bambu.BambuAdapter(ip_address=CHECK_IP, api_key="")
     expect_false("connect() без кода доступа", no_code.connect)
 
+    # Кириллица в поле карточки: из серийника строится топик `device/<sn>/…`, а
+    # код доступа уходит в FTPS-логин. Такое значение роняло задание
+    # UnicodeEncodeError, поэтому connect() отказывает до сети.
+    cyrillic_serial = bambu.BambuAdapter(
+        ip_address=CHECK_IP,
+        api_key=CHECK_CODE,
+        serial_number=CHECK_SERIAL.replace("0", "О"),
+    )
+    expect_false("connect() с кириллицей в серийнике", cyrillic_serial.connect)
+    check(
+        "connect() с кириллицей в серийнике — причина про раскладку",
+        "недопустимые символы" in (cyrillic_serial.last_error or ""),
+        f"last_error={cyrillic_serial.last_error!r}",
+    )
+
+    cyrillic_code = bambu.BambuAdapter(
+        ip_address=CHECK_IP,
+        api_key=CHECK_CODE.replace("1", "і"),
+        serial_number=CHECK_SERIAL,
+    )
+    expect_false("connect() с кириллицей в коде доступа", cyrillic_code.connect)
+    check(
+        "connect() с кириллицей в коде доступа — причина про раскладку",
+        "недопустимые символы" in (cyrillic_code.last_error or ""),
+        f"last_error={cyrillic_code.last_error!r}",
+    )
+
     # Дальше — разбор отчётов: сеть не нужна, кэш заполняем напрямую.
     reporting = bambu.BambuAdapter(
         ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL

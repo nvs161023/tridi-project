@@ -20,6 +20,7 @@ import {
   cancelOrderPrint,
   deleteOrder,
   deleteOrderItem,
+  forceCancelPrintJob,
   loadOrderComments,
   loadOrderItems,
   loadOrderPrintStatus,
@@ -52,6 +53,7 @@ import {
   type WorkshopOrder,
 } from "@/lib/workshop/orders";
 import type { WorkshopProduct } from "@/lib/workshop/products";
+import { isActiveJobStuck } from "@/lib/workshop/stuck-print-jobs";
 import { checkPrintAssignment } from "@/lib/workshop/print-assignment";
 import { type WorkshopPrinter } from "@/lib/workshop/printers";
 
@@ -191,6 +193,10 @@ function printQueueHint({
   queueItemCount: number;
 }): string {
   if (status?.activeJob) {
+    if (isActiveJobStuck(status.activeJob)) {
+      return "Задание висит: принтер не отвечает. Закройте его принудительно — заказ вернётся в «Новые», а станок освободится.";
+    }
+
     if (status.activeJob.cancelRequested) {
       return "Отмена запрошена: агент остановит печать на следующем опросе — принтер ещё может быть занят.";
     }
@@ -325,6 +331,8 @@ export function OrderDetailsDialog({
   const [isQueueing, startQueueing] = useTransition();
   /** Отмена печати: кнопка гаснет до ответа сервера, как и постановка в очередь. */
   const [isCancellingPrint, startCancellingPrint] = useTransition();
+  /** Принудительное закрытие зависшего задания: своя кнопка со своим ожиданием. */
+  const [isForcingCancel, startForcingCancel] = useTransition();
   const router = useRouter();
   const dialogRef = useRef<HTMLDivElement>(null);
   const editTriggerRef = useRef<HTMLButtonElement>(null);
@@ -807,6 +815,44 @@ export function OrderDetailsDialog({
   }
 
   /**
+   * Принудительное закрытие зависшего задания.
+   *
+   * Обычная отмена просит агента остановить печать — на живой машине этого
+   * достаточно. Когда принтер или агент не отвечает, задание висит, и
+   * `cancelOrderPrint` ничего не меняет. Здесь задание закрывается в базе:
+   * принтер освобождается, заказ возвращается в «Новые», и статус перечитывается
+   * (`queueVersion`), иначе кнопка осталась бы на месте.
+   */
+  function handleForceCancelPrint(jobId: string) {
+    if (isForcingCancel) {
+      return;
+    }
+
+    setPrintError(null);
+
+    startForcingCancel(async () => {
+      try {
+        const result = await forceCancelPrintJob(jobId);
+
+        if (!result.ok) {
+          setPrintError(
+            result.error ?? "Не удалось закрыть зависшее задание.",
+          );
+          return;
+        }
+
+        const message = result.message ?? "Задание закрыто принудительно.";
+        setPrintNotice(message);
+        onUpdated(message);
+        setQueueVersion((version) => version + 1);
+        router.refresh();
+      } catch {
+        setPrintError("Нет связи с сервером. Попробуйте ещё раз.");
+      }
+    });
+  }
+
+  /**
    * Смена принтера в карточке.
    *
    * Пишем сразу, без кнопки «Сохранить»: принтер — одна строка, и мастер
@@ -982,6 +1028,12 @@ export function OrderDetailsDialog({
   const activeJob = printStatus?.activeJob ?? null;
   /** Просьба об отмене уже в базе: агент остановит принтер на следующем опросе. */
   const cancelRequested = activeJob?.cancelRequested ?? false;
+  /**
+   * Задание висит: печать стоит дольше десяти минут или отмена не выполнилась.
+   * Только тогда показывается «Принудительно отменить» — на живой печати эта
+   * кнопка закрыла бы работу, которая просто идёт.
+   */
+  const isStuckJob = activeJob !== null && isActiveJobStuck(activeJob);
   /**
    * Последний отказ или отмена. Показываем только без активного задания: иначе
    * старый текст ошибки читался бы как причина текущей печати.
@@ -1468,6 +1520,21 @@ export function OrderDetailsDialog({
                         ? "Отменяем…"
                         : "Отменить печать"}
                   </button>
+                  {isStuckJob ? (
+                    <button
+                      type="button"
+                      onClick={() => handleForceCancelPrint(activeJob.id)}
+                      disabled={isForcingCancel}
+                      aria-busy={isForcingCancel}
+                      data-order-print-force-cancel
+                      title="Закрыть задание в базе, не дожидаясь ответа принтера"
+                      className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-red-500/60 bg-red-600/90 px-4 text-sm font-bold text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isForcingCancel
+                        ? "Закрываем…"
+                        : "Принудительно отменить"}
+                    </button>
+                  ) : null}
                 </div>
               ) : (
                 <button
