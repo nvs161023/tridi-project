@@ -64,7 +64,12 @@ import {
   type OrderFlowStatus,
   type OrderItemSummary,
 } from "@/lib/workshop/orders";
-import { getOrderComments, getOrderItems } from "@/lib/workshop/order-store";
+import {
+  getOrderComments,
+  getOrderItems,
+  getOrdersByClientId,
+  type ClientOrdersSnapshot,
+} from "@/lib/workshop/order-store";
 import {
   createFilamentUsagePayload,
   createOrderPayload,
@@ -882,6 +887,21 @@ export async function loadOrderComments(
   orderId: string,
 ): Promise<OrderComment[]> {
   return getOrderComments(orderId);
+}
+
+/**
+ * Заказы клиента для окна истории в карточке клиента.
+ *
+ * Окно клиентское, а `getOrdersByClientId` тянет серверный клиент Supabase и
+ * cookies — эта обёртка, как и `loadOrderComments`, служит границей Server
+ * Action. Пустой список при ошибке не мешает открыть окно: заголовок с именем
+ * клиента остаётся виден, а отсутствие колонки `client_id` приходит отдельным
+ * флагом `isMissingLink` и объясняется текстом про миграцию.
+ */
+export async function loadClientOrders(
+  clientId: string,
+): Promise<ClientOrdersSnapshot> {
+  return getOrdersByClientId(clientId);
 }
 
 /**

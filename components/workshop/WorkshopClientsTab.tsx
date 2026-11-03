@@ -3,8 +3,10 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { AddClientDialog } from "@/components/workshop/AddClientDialog";
+import { ClientOrdersDialog } from "@/components/workshop/ClientOrdersDialog";
 import {
   ClientsIcon,
+  OrdersIcon,
   PencilIcon,
 } from "@/components/workshop/WorkshopIcons";
 import type { WorkshopClient } from "@/lib/workshop/clients";
@@ -25,6 +27,11 @@ import type { WorkshopClient } from "@/lib/workshop/clients";
  * Поиск работает по уже загруженному массиву: имя ищется по вхождению
  * подстроки, телефон — и по написанию, и по цифрам, поэтому «+7 (999)»
  * находится и запросом «999». Новых запросов к базе поиск не делает.
+ *
+ * В строке две кнопки: список (`OrdersIcon`) открывает историю заказов клиента,
+ * карандаш — правку. Историю читает `ClientOrdersDialog` через Server Action
+ * `loadClientOrders`, поэтому заказы всех клиентов заранее не грузятся. Обе
+ * кнопки возвращают фокус на себя после закрытия своего окна.
  */
 
 type WorkshopClientsTabProps = {
@@ -82,6 +89,10 @@ export function WorkshopClientsTab({ clients }: WorkshopClientsTabProps) {
   const [editingClient, setEditingClient] = useState<WorkshopClient | null>(
     null,
   );
+  /** Клиент, чью историю заказов открыли: окно читает заказы при монтировании. */
+  const [historyClient, setHistoryClient] = useState<WorkshopClient | null>(
+    null,
+  );
   const addButtonRef = useRef<HTMLButtonElement>(null);
 
   const visibleClients = useMemo(
@@ -115,6 +126,27 @@ export function WorkshopClientsTab({ clients }: WorkshopClientsTabProps) {
         ?.focus();
     });
   }, [editingClient]);
+
+  /** Открытие истории: заказы читает само окно, вкладке они не нужны. */
+  const openHistory = useCallback((client: WorkshopClient) => {
+    setHistoryClient(client);
+  }, []);
+
+  /** Закрытие истории возвращает фокус на кнопку-источник той же строки. */
+  const closeHistory = useCallback(() => {
+    const clientId = historyClient?.id;
+    setHistoryClient(null);
+
+    if (!clientId) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(`[data-client-orders="${clientId}"]`)
+        ?.focus();
+    });
+  }, [historyClient]);
 
   return (
     <section
@@ -221,7 +253,11 @@ export function WorkshopClientsTab({ clients }: WorkshopClientsTabProps) {
               </button>
             </div>
           ) : (
-            <ClientsTable clients={visibleClients} onEdit={openEdit} />
+            <ClientsTable
+              clients={visibleClients}
+              onEdit={openEdit}
+              onOpenOrders={openHistory}
+            />
           )}
         </>
       )}
@@ -229,6 +265,9 @@ export function WorkshopClientsTab({ clients }: WorkshopClientsTabProps) {
       {isDialogOpen ? <AddClientDialog onClose={closeDialog} /> : null}
       {editingClient ? (
         <AddClientDialog initial={editingClient} onClose={closeEdit} />
+      ) : null}
+      {historyClient ? (
+        <ClientOrdersDialog client={historyClient} onClose={closeHistory} />
       ) : null}
     </section>
   );
@@ -238,9 +277,11 @@ export function WorkshopClientsTab({ clients }: WorkshopClientsTabProps) {
 function ClientsTable({
   clients,
   onEdit,
+  onOpenOrders,
 }: {
   clients: WorkshopClient[];
   onEdit: (client: WorkshopClient) => void;
+  onOpenOrders: (client: WorkshopClient) => void;
 }) {
   return (
     <div
@@ -250,7 +291,7 @@ function ClientsTable({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[800px] border-collapse text-sm">
           <caption className="sr-only">
-            Клиенты: имя, телефон, email, адрес и правка карточки
+            Клиенты: имя, телефон, email, адрес, история заказов и правка карточки
           </caption>
           <thead>
             <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
@@ -313,16 +354,28 @@ function ClientsTable({
                   {client.address ?? <span className="text-slate-500">—</span>}
                 </td>
                 <td className="px-3 py-4 text-right">
-                  <button
-                    type="button"
-                    onClick={() => onEdit(client)}
-                    aria-label={`Редактировать клиента «${client.name}»`}
-                    title="Редактировать клиента"
-                    data-client-edit={client.id}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-blue-400/50 hover:bg-blue-500/15 hover:text-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
-                  >
-                    <PencilIcon className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onOpenOrders(client)}
+                      aria-label={`История заказов клиента «${client.name}»`}
+                      title="История заказов"
+                      data-client-orders={client.id}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-blue-400/50 hover:bg-blue-500/15 hover:text-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                    >
+                      <OrdersIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onEdit(client)}
+                      aria-label={`Редактировать клиента «${client.name}»`}
+                      title="Редактировать клиента"
+                      data-client-edit={client.id}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-blue-400/50 hover:bg-blue-500/15 hover:text-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                    >
+                      <PencilIcon className="h-4 w-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

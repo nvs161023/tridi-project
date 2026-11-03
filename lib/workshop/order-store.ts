@@ -5,9 +5,12 @@
  * Отсутствие таблицы — ожидаемое состояние до применения миграции, поэтому
  * вкладка получает пустой список и признак `isMissingTable`, а не ошибку.
  * Комментарии читает окно карточки заказа: старые сверху, как переписка.
+ * Историю покупок читает окно в карточке клиента (`getOrdersByClientId`):
+ * сначала новые, как и на доске заказов.
  */
 import { createClient } from "@/lib/supabase/server";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
+import { isClientId } from "@/lib/workshop/clients";
 import {
   ORDER_BASE_COLUMNS,
   ORDER_CLIENT_BASE_COLUMNS,
@@ -38,6 +41,17 @@ const ORDER_SELECT_FALLBACKS = [
   ORDER_CLIENT_BASE_COLUMNS,
   ORDER_COLUMNS,
   ORDER_BASE_COLUMNS,
+] as const;
+
+/**
+ * Наборы колонок для истории клиента: полный и без `source`.
+ *
+ * `client_id` есть в обоих: без этой колонки фильтр невозможен, и пустой ответ
+ * значит «миграция не применена», а не «заказов не было».
+ */
+const CLIENT_ORDER_SELECT_FALLBACKS = [
+  ORDER_CLIENT_COLUMNS,
+  ORDER_CLIENT_BASE_COLUMNS,
 ] as const;
 
 export type WorkshopOrdersSnapshot = {
@@ -149,6 +163,90 @@ export async function getWorkshopOrders(
       .map(normalizeOrderRow)
       .filter((order): order is WorkshopOrder => order !== null),
     isMissingTable: false,
+  };
+}
+
+/**
+ * Заказы клиента для окна истории.
+ *
+ * `orders` — те же строки, что видит доска заказов (название, стоимость,
+ * статус, дата создания), поэтому таблица истории и Kanban показывают одни и
+ * те же цифры.
+ */
+export type ClientOrdersSnapshot = {
+  orders: WorkshopOrder[];
+  /**
+   * В базе нет колонки `workshop_orders.client_id`: миграция
+   * `supabase/workshop_orders_client_id.sql` не применена. Тогда истории нет ни
+   * у одного клиента, и окно говорит об этом, а не «заказов не было».
+   */
+  isMissingLink: boolean;
+};
+
+/**
+ * Заказы одного клиента: сначала новые.
+ *
+ * Читает окно истории в карточке клиента. Фильтр по `client_id` работает только
+ * после миграции `supabase/workshop_orders_client_id.sql`, поэтому отсутствие
+ * колонки — не ошибка: окно получает пустой список и признак `isMissingLink`,
+ * как вкладка заказов — `isMissingTable`. Отсутствие `source` (миграция
+ * `supabase/workshop_marketplace_integration.sql` тоже ручная) лечится вторым
+ * проходом с `ORDER_CLIENT_BASE_COLUMNS`.
+ *
+ * Битый id и отсутствие сессии дают пустой список без запроса к базе. `user_id`
+ * в запросе дублирует RLS: чужие заказы не попадут в историю, даже если
+ * политика ослабнет.
+ */
+export async function getOrdersByClientId(
+  clientId: string,
+): Promise<ClientOrdersSnapshot> {
+  if (!isClientId(clientId)) {
+    return { orders: [], isMissingLink: false };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { orders: [], isMissingLink: false };
+  }
+
+  let data: Partial<Record<string, unknown>>[] | null = null;
+  let error: { code?: string | null; message: string } | null = null;
+
+  for (const columns of CLIENT_ORDER_SELECT_FALLBACKS) {
+    const result = await supabase
+      .from("workshop_orders")
+      .select(columns)
+      .eq("client_id", clientId)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    data = (result.data ?? null) as
+      | Partial<Record<string, unknown>>[]
+      | null;
+    error = result.error;
+
+    if (!error || !isMissingColumnSchema(error)) {
+      break;
+    }
+  }
+
+  if (error) {
+    console.warn("Заказы клиента не прочитаны:", error.code, error.message);
+
+    return { orders: [], isMissingLink: isMissingColumnSchema(error) };
+  }
+
+  const rows = (data ?? []) as Partial<Record<string, unknown>>[];
+
+  return {
+    orders: rows
+      .map(normalizeOrderRow)
+      .filter((order): order is WorkshopOrder => order !== null),
+    isMissingLink: false,
   };
 }
 
