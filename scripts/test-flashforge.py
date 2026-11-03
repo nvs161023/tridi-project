@@ -26,8 +26,11 @@
      `cancel`, а 409 объясняется подсказкой;
   7. `get_status()` переводит `machineStatus` в статусы агента, читает проценты
      и остаток, а незнакомое состояние отдаёт как `error`;
-  8. сканер находит FlashForge по UDP-бродкасту `~M115` и берёт `SN` из ответа,
-     текстового или JSON, а запрос уходит на все три порта (8899, 19000, 48899);
+  8. сканер находит FlashForge по UDP-бродкасту `~M115` и берёт `SN` из ответа —
+     текста, JSON или сырой строки с мусором (`SNM0MF9201019♣♣qZ}…`), — пишет
+     номер в `serial_number` находки (а тот уходит в `/api/agent/discover`) и
+     строкой `[UDP] FlashForge SN найден: …` в журнал; запрос уходит на все три
+     порта FlashForge (8899, 19000, 48899);
   9. не отвечающий принтер даёт `False` и `{"status": "error", ...}`, фабрика
      собирает `FlashForgeAdapter` с секретами.
 
@@ -82,6 +85,13 @@ FLASHFORGE_UDP_REPLY = (
     b"X: 220 Y: 220 Z: 220\r\n"
     b"ok\r\n"
 )
+
+# Сырой ответ прошивки 5.x (Adventurer 5M Pro) из журнала агента: номер идёт
+# первым, без подписи и двоеточия, а следом лежит мусор из неинициализированного
+# буфера. Прежний шаблон (метка + `:`) такой ответ не находил, и принтер пропадал
+# из находок, хотя номер был в пакете.
+FLASHFORGE_RAW_UDP_REPLY = "SNM0MF9201019♣♣qZ}SNM0MF9201019Z".encode("utf-8")
+RAW_SERIAL = "SNM0MF9201019"
 
 # Паспорт принтера: `detail` из `/detail` в том виде, в каком его отдаёт
 # прошивка Adventurer 5M Pro.
@@ -1032,6 +1042,66 @@ def check_scanner() -> None:
         scanner.flashforge_serial(b"CMD M115 Received.\r\nSerial Number: SN99\n")
         == "SN99",
         "старый формат строки",
+    )
+    parsed_raw = scanner.flashforge_serial(FLASHFORGE_RAW_UDP_REPLY)
+
+    check(
+        "сканер: SN из сырого ответа с мусором",
+        parsed_raw == RAW_SERIAL,
+        f"{parsed_raw!r}",
+    )
+    check(
+        "сканер: хвост чужого слова номером не считается",
+        scanner.flashforge_serial(b"FMSN1234567 machine") is None,
+        "SN внутри слова",
+    )
+
+    # Находка из сырого ответа: номер уходит в `serial_number`, а оттуда — в
+    # `POST /api/agent/discover`, поэтому мастер не вбивает его руками.
+    raw_finding = scanner.udp_printer(FLASHFORGE_RAW_UDP_REPLY, ("192.168.1.50", 19000))
+
+    check(
+        "сканер: находка из сырого ответа несёт serial_number",
+        raw_finding
+        == {
+            "ip_address": "192.168.1.50",
+            "protocol_type": "flashforge",
+            "serial_number": RAW_SERIAL,
+        },
+        f"{raw_finding!r}",
+    )
+
+    # Журнал: строка `[UDP] FlashForge SN найден: …` — то, по чему видно, что
+    # номер подтянулся автоматически, без разбора сырого ответа.
+    udp_records: list[logging.LogRecord] = []
+
+    class ScannerLogCollector(logging.Handler):
+        """Собирает записи журнала сканера для проверки текста."""
+
+        def emit(self, record: logging.LogRecord) -> None:
+            udp_records.append(record)
+
+    scanner_logger = logging.getLogger("agent.scanner")
+    scanner_collector = ScannerLogCollector()
+    # Уровень поднимается на время проверки: тест молчит на INFO, а строка о
+    # находке пишется именно им.
+    previous_level = scanner_logger.level
+    scanner_logger.setLevel(logging.INFO)
+    scanner_logger.addHandler(scanner_collector)
+
+    try:
+        scanner.udp_printer(FLASHFORGE_RAW_UDP_REPLY, ("192.168.1.50", 19000))
+    finally:
+        scanner_logger.removeHandler(scanner_collector)
+        scanner_logger.setLevel(previous_level)
+
+    logged = [record.getMessage() for record in udp_records]
+    found_line = f"[UDP] FlashForge SN найден: {RAW_SERIAL}"
+
+    check(
+        "сканер: найденный SN виден в журнале",
+        found_line in logged,
+        f"{(logged[-1] if logged else '')!r}",
     )
     check(
         "сканер: JSON-ответ с SerialNumber",

@@ -90,8 +90,13 @@ import {
  * Serial Number и секреты протокола — тоже строки, а не карточки: без номера
  * Bambu не построит MQTT-топики `device/<SN>/…`, а FlashForge без пары
  * SN + Check Code отклоняет каждый запрос, и принтер попал бы в парк мёртвым.
- * Номер приходит из находки (Bambu — `USN` в SSDP-ответе) и предзаполняет поле,
- * Check Code — только с наклейки, поэтому поле пустое и `type="password"`.
+ * Номер приходит из находки (Bambu — `USN` в SSDP-ответе и `CN` сертификата,
+ * FlashForge — номер из UDP-ответа) и предзаполняет поле; у FlashForge такой
+ * номер помечен зелёным «Найден автоматически», чтобы мастер не переписывал его
+ * с наклейки, а пустое поле получает красную подсказку, где номер напечатан
+ * (`FLASHFORGE_SERIAL_MISSING_HINT`). Check Code по сети не приходит вовсе:
+ * только с экрана принтера (Настройки → Сеть), поэтому поле пустое и
+ * `type="password"`.
  * Пока обязательное поле пусто, кнопка добавления погашена: проверка
  * `missingConnectionFields()` — та же, что в Server Action.
  *
@@ -127,6 +132,20 @@ const PROTOCOL_LABELS: Record<PrinterProtocol, string> = {
   flashforge: "FlashForge",
   elegoo: "Elegoo",
 };
+
+/**
+ * Подсказка под пустым полем «Serial Number» FlashForge: где номер напечатан.
+ *
+ * Сканер тянет номер из UDP-ответа (`flashforge_serial()` в `agent/scanner.py`),
+ * но не каждая прошивка его отдаёт — тогда SN вводят руками. Писать мастеру
+ * «поле обязательно» бессмысленно: нужен адрес, где номер виден на самом
+ * принтере, — наклейка на задней стенке и экран (Настройки).
+ */
+const FLASHFORGE_SERIAL_MISSING_HINT =
+  "Посмотрите SN на наклейке сзади или в Настройках принтера.";
+
+/** Отметка у поля, которое заполнил сканер, а не мастер. */
+const DISCOVERED_SERIAL_NOTE = "Найден автоматически";
 
 /**
  * Как часто окно спрашивает находки, пока агент обходит сеть.
@@ -1213,6 +1232,21 @@ export function DiscoverPrintersDialog({
                  * поля, поэтому мастер и карточка спрашивают одно и то же.
                  */
                 const connection = printerConnectionSpec(printer.protocolType);
+                /**
+                 * Состояние поля «Serial Number» строки: номер мог подтянуться
+                 * сам (FlashForge — из UDP-ответа при сканировании), а мог не
+                 * прийти. Зелёная отметка «Найден автоматически» снимает с
+                 * мастера переписывание SN с наклейки; пустое поле — красная
+                 * подсказка, где номер напечатан.
+                 */
+                const serialValue = serialOf(printer);
+                const isMissingSerial = serialValue.trim() === "";
+                const isDiscoveredSerial =
+                  printer.protocolType === "flashforge" &&
+                  (printer.serialNumber ?? "") !== "" &&
+                  serialValue === printer.serialNumber;
+                const needsSerialHint =
+                  printer.protocolType === "flashforge" && isMissingSerial;
 
                 return (
                   <li
@@ -1361,8 +1395,13 @@ export function DiscoverPrintersDialog({
                           `CN` сертификата на 8883, FlashForge в ответе на
                           UDP-запрос, — поэтому поле предзаполнено, но правится:
                           на части прошивок номер не приходит, и тогда его вводят
-                          с наклейки. Check Code — секрет: `type="password"`, и
-                          после сохранения в браузер он не возвращается.
+                          с наклейки. У FlashForge подтянутый номер помечен
+                          зелёным «Найден автоматически», а пустое поле — красной
+                          подсказкой, где номер напечатан (`needsSerialHint`).
+                          Check Code по сети не приходит вовсе: его берут с
+                          экрана принтера (Настройки → Сеть), поле всегда пустое
+                          и `type="password"`, а после сохранения в браузер
+                          секрет не возвращается.
                         */}
                         {connection.serialNumber ||
                         connection.secrets.length > 0 ? (
@@ -1371,9 +1410,18 @@ export function DiscoverPrintersDialog({
                               <div>
                                 <label
                                   htmlFor={`${checkboxId}-serial`}
-                                  className="text-[11px] font-semibold text-zinc-400"
+                                  className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-zinc-400"
                                 >
                                   Serial Number
+                                  {isDiscoveredSerial ? (
+                                    <span
+                                      className="inline-flex items-center gap-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200"
+                                      title="Номер пришёл в ответе принтера при сканировании сети — переписывать его с наклейки не нужно"
+                                    >
+                                      <span aria-hidden="true">✓</span>
+                                      {DISCOVERED_SERIAL_NOTE}
+                                    </span>
+                                  ) : null}
                                 </label>
                                 <input
                                   id={`${checkboxId}-serial`}
@@ -1383,7 +1431,7 @@ export function DiscoverPrintersDialog({
                                   maxLength={PRINTER_TEXT_LIMITS.serialNumber}
                                   disabled={!checked}
                                   required={connection.serialNumberRequired}
-                                  value={serialOf(printer)}
+                                  value={serialValue}
                                   onChange={(event) => {
                                     const next = event.currentTarget.value;
 
@@ -1394,13 +1442,22 @@ export function DiscoverPrintersDialog({
                                   }}
                                   placeholder="Агент заполнит сам или впишите с наклейки"
                                   aria-describedby={`${checkboxId}-serial-hint`}
+                                  aria-invalid={
+                                    needsSerialHint ? true : undefined
+                                  }
                                   className={inputClassName}
                                 />
                                 <p
                                   id={`${checkboxId}-serial-hint`}
-                                  className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+                                  className={`mt-1.5 text-xs leading-relaxed ${
+                                    needsSerialHint
+                                      ? "text-red-300"
+                                      : "text-zinc-500"
+                                  }`}
                                 >
-                                  {printerSerialHint(printer.protocolType)}
+                                  {needsSerialHint
+                                    ? FLASHFORGE_SERIAL_MISSING_HINT
+                                    : printerSerialHint(printer.protocolType)}
                                 </p>
                               </div>
                             ) : null}
@@ -1514,8 +1571,8 @@ export function DiscoverPrintersDialog({
                 <span aria-hidden>⚠️ </span>
                 Заполните данные подключения у выбранных принтеров: Bambu Lab и
                 FlashForge не подключаются без Serial Number, а FlashForge — ещё
-                и без Check Code с наклейки. Без них принтер появится в парке
-                мёртвым, и печать не запустится.
+                и без Check Code с экрана принтера. Без них принтер появится в
+                парке мёртвым, и печать не запустится.
               </p>
             ) : null}
 

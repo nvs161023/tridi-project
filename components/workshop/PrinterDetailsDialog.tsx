@@ -964,7 +964,7 @@ export function PrinterDetailsDialog({
                 spellCheck={false}
                 maxLength={PRINTER_TEXT_LIMITS.apiKey}
                 defaultValue=""
-                placeholder={checkCodeField?.placeholder ?? "Код с наклейки"}
+                placeholder={checkCodeField?.placeholder ?? "Код с экрана принтера"}
                 aria-describedby={
                   fieldErrors.checkCode
                     ? "printer-connection-secret-checkCode-error"

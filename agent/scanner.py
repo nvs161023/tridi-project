@@ -37,9 +37,11 @@ FlashForge и Elegoo тоже ищутся широковещательным UD
 7125, ни 80/443 с подписью, зато есть собственный порт обнаружения.
 Elegoo (SDCP) ждёт на UDP 3000 текст `M99999` и отвечает конвертом с
 `MainboardID`, FlashForge — на 8899, 19000 или 48899 (порт зависит от модели) и
-отвечает на `~M115` строкой `SN:`. Номер платы и серийный номер едут в CRM
-вместе с находкой: адаптеру они нужны в каждом запросе, а вводить их руками
-мастеру не за что.
+отвечает на `~M115` по-разному: JSON-объектом с номером, строкой `SN: …` или
+голым номером `SNM0MF9201019` посреди мусора — все три вида разбирает
+`flashforge_serial()`. Номер платы и серийный номер едут в CRM вместе с
+находкой: адаптеру они нужны в каждом запросе, а вводить их руками мастеру не за
+что.
 
 Оба поиска — одно окно ожидания (`scan_udp_broadcast()`): принтеры отвечают за
 доли секунды, и ждать отдельно 3 секунды на каждый протокол значило бы утроить
@@ -162,6 +164,15 @@ FLASHFORGE_SERIAL = re.compile(
     r"(?:SN|S/N|Serial(?:\s*(?:Number|No\.?|#))?)\s*[:=]\s*([A-Za-z0-9._-]{4,64})",
     re.IGNORECASE,
 )
+
+# Голый номер: прошивка 5.x (Adventurer 5M Pro) отвечает на `~M115` строкой
+# `SNM0MF9201019♣♣qZ}SNM0MF9201019Z` — номер идёт первым, а следом лежит мусор
+# из неинициализированного буфера. Двоеточия перед номером нет, поэтому шаблон с
+# меткой выше давал пустоту, и принтер терялся при сканировании, хотя номер был
+# в пакете. Перед `SN` не должно быть буквы или цифры: иначе это хвост чужого
+# слова, а не подпись номера. Заглавные буквы обязательны — так номер печатают
+# и на наклейке, а мусор в нижнем регистре номером не считается.
+FLASHFORGE_SERIAL_TOKEN = re.compile(r"(?<![A-Za-z0-9])SN[0-9A-Z]{4,62}")
 
 # Поля JSON-ответа FlashForge: часть прошивок (Adventurer 5M, ADX5) отвечает на
 # `~M115` не текстом G-code, а объектом со своим написанием номера. Сборки
@@ -1032,12 +1043,16 @@ def flashforge_serial(data: bytes) -> str | None:
     """
     Серийный номер из UDP-ответа FlashForge на `~M115`.
 
-    Ответ бывает двух видов, и оба разбираются:
+    Ответ бывает трёх видов, и все три разбираются:
 
       - текст G-code: `CMD M115 Received.`, затем строки `Machine Type`,
-        `Machine Name`, `Firmware` и `SN`;
+        `Machine Name`, `Firmware` и `SN: SNM0MF9201019`;
       - JSON-объект с номером (Adventurer 5M Pro, AD5X): `SerialNumber`,
-        `serialNumber` или `SN`, в том числе внутри конверта `detail`.
+        `serialNumber` или `SN`, в том числе внутри конверта `detail`;
+      - сырая строка без подписи и двоеточия: `SNM0MF9201019♣♣qZ}…` — номер
+        стоит первым, за ним мусор из неинициализированного буфера. Шаблон с
+        меткой такой ответ не находил, и принтер пропадал из находок, хотя номер
+        был в пакете; теперь работает `FLASHFORGE_SERIAL_TOKEN`.
 
     Номер нужен адаптеру в заголовке каждого запроса, поэтому находка без него
     бесполезна — отказ пришёл бы уже на загрузке файла, а не при сканировании.
@@ -1047,12 +1062,22 @@ def flashforge_serial(data: bytes) -> str | None:
     if serial is not None:
         return serial
 
-    match = FLASHFORGE_SERIAL.search(data.decode("utf-8", errors="replace"))
+    text = data.decode("utf-8", errors="replace")
+    match = FLASHFORGE_SERIAL.search(text)
 
-    if match is None:
+    if match is not None:
+        serial = clean_flashforge_serial(match.group(1))
+
+        if serial is not None:
+            return serial
+
+    # Голый номер в сырой строке: подписи и двоеточия нет, за номером мусор.
+    token = FLASHFORGE_SERIAL_TOKEN.search(text)
+
+    if token is None:
         return None
 
-    return clean_flashforge_serial(match.group(1))
+    return clean_flashforge_serial(token.group(0))
 
 
 def udp_json_keys(data: bytes) -> str:
@@ -1084,7 +1109,9 @@ def udp_printer(data: bytes, sender: tuple[str, int]) -> dict[str, Any] | None:
 
     Вместе с номером читается имя (`Name`, `Machine Name` и их варианты в
     `PRINTER_NAME_FIELDS`): по нему мастер отличает находки друг от друга, а
-    прошивки называют себя по-разному.
+    прошивки называют себя по-разному. Номер найденного FlashForge пишется в
+    журнал строкой `[UDP] FlashForge SN найден: …` — по ней видно, что SN
+    подтянулся автоматически, и искать его в сыром ответе не нужно.
     """
     preview = data[:UDP_PREVIEW].decode("utf-8", errors="replace")
     # Перевод строки разорвал бы запись журнала на несколько строк, поэтому
@@ -1109,6 +1136,10 @@ def udp_printer(data: bytes, sender: tuple[str, int]) -> dict[str, Any] | None:
     serial = flashforge_serial(data)
 
     if serial is not None:
+        # Строка на каждую находку: по журналу агента видно, что номер пришёл из
+        # ответа принтера, а не введён руками, — и мастер не ищет SN в логах.
+        logger.info("[UDP] FlashForge SN найден: %s", serial)
+
         return found_printer(sender[0], "flashforge", serial, flashforge_name(data))
 
     if sender[1] == ELEGOO_UDP_PORT:

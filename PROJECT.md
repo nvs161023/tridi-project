@@ -8696,6 +8696,39 @@ Serial Number FlashForge, и в поле попала кириллическая
 `npx pyright agent/` — 0 ошибок, `npx tsc --noEmit` — чисто, `npm run check:docs`,
 `npm run check:imports`, `npm run check:style` — без замечаний.
 
+**FlashForge SN подтягивается из сырого UDP-ответа, а мастер видит, откуда номер (3 ноября 2026).**
+Владельцу приходилось искать SN в журнале агента: сканер находил принтер, но номер не подтягивался,
+и поле «Serial Number» в мастере оставалось пустым. Ответ прошивки 5.x на `~M115` —
+`SNM0MF9201019♣♣qZ}SNM0MF9201019Z`: номер идёт первым, без подписи и двоеточия, а следом лежит
+мусор из неинициализированного буфера. Шаблон `FLASHFORGE_SERIAL` (метка + `:`/`=`) по такой строке
+не срабатывал, находка отбрасывалась как «ответ FlashForge без серийного номера», и мастер вписывал
+номер с наклейки руками.
+
+- `agent/scanner.py`: `FLASHFORGE_SERIAL_TOKEN` — `(?<![A-Za-z0-9])SN[0-9A-Z]{4,62}`.
+  `flashforge_serial()` перебирает три вида ответа: JSON (`flashforge_json_serial`), текст с меткой
+  (`FLASHFORGE_SERIAL`) и голый номер. Границы `(?<![A-Za-z0-9])` не дают поймать хвост чужого слова
+  (`FMSN1234567` номером не считается), а длина ограничена `SERIAL_MAX` (64). Найденный номер, как и
+  раньше, попадает в `serial_number` находки и уходит в `POST /api/agent/discover`; `udp_printer()`
+  пишет `[UDP] FlashForge SN найден: SNM0MF9201019` — по журналу агента видно, что SN подтянулся сам.
+- `components/workshop/DiscoverPrintersDialog.tsx`: у FlashForge подтянутый сканером номер помечен
+  зелёной отметкой «Найден автоматически» (`isDiscoveredSerial`: значение совпадает с тем, что нашёл
+  сканер, то есть мастер его не правил), а пустое поле получает красную подсказку
+  «Посмотрите SN на наклейке сзади или в Настройках принтера» (`FLASHFORGE_SERIAL_MISSING_HINT`,
+  `aria-invalid`).
+- `lib/workshop/printers.ts`: подсказка Check Code переписана под экран принтера — «Введите код с
+  экрана принтера (Настройки → Сеть). Он не передается по сети в целях безопасности»
+  (`PRINTER_CONNECTION_SPECS.flashforge.secrets[0]`); поле в мастере всегда пустое — по сети код не
+  приходит, — и `type="password"`. Тот же текст, плейсхолдер и отказ пустого поля — в карточке принтера
+  (`components/workshop/PrinterDetailsDialog.tsx`).
+- `scripts/test-flashforge.py`: четыре новые проверки в `check_scanner()` — номер из сырой строки с
+  мусором, отказ на хвост чужого слова, `serial_number` в находке `udp_printer()` и строка
+  `[UDP] FlashForge SN найден: …` в журнале (уровень логгера поднимается на время проверки, иначе
+  INFO-запись не создаётся).
+
+Проверки: `python scripts/test-flashforge.py` — все проверки пройдены, `npx pyright agent/` — 0 ошибок,
+`npx tsc --noEmit` — чисто, `npx eslint` по изменённым файлам — без замечаний, `npm run build`,
+`npm run check:docs`, `npm run check:imports`, `npm run check:style` — без замечаний.
+
 
 
 
