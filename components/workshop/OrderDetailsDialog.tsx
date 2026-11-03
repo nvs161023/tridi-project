@@ -50,7 +50,6 @@ import {
   ORDER_STATUS_META,
   formatOrderCost,
   formatOrderDate,
-  formatOrderHours,
   type OrderComment,
   type OrderItemSummary,
   type WorkshopOrder,
@@ -82,6 +81,12 @@ import {
  * строке (`updateOrderItemQuantity`), позицию убирают корзиной
  * (`deleteOrderItem`). Пока по позиции есть задание печати, кнопки погашены:
  * сервер всё равно откажет, а мастер увидит причину рядом со списком.
+ *
+ * В шапке карточки остаются только рабочие поля: клиент, стоимость и срок
+ * сдачи. «Вес модели» и «Время печати» больше не показываются: они нужны
+ * калькулятору и списанию ресурса, а мастеру в карточке только мешали. Файлы
+ * печати загружают в карточке товара — в заказе их не прикладывают, форма
+ * позиции состоит из списка товаров каталога и количества.
  *
  * Блок «3D-печать» — центр управления заказом на ферме: здесь выбирают принтер
  * (сохраняется сразу через `updateOrderPrinter`), а кнопка «В очередь на печать»
@@ -1162,14 +1167,6 @@ export function OrderDetailsDialog({
             <DetailItem
               label="Стоимость"
               value={formatOrderCost(order.totalCost)}
-            />
-            <DetailItem
-              label="Вес модели"
-              value={formatGrams(order.materialWeightG)}
-            />
-            <DetailItem
-              label="Время печати"
-              value={formatOrderHours(order.printTimeHours)}
             />
             <DetailItem
               label="Срок сдачи"
