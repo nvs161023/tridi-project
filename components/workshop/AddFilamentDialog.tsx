@@ -1,10 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect } from "react";
+import { type FormEvent, useState } from "react";
 
-import { addFilament } from "@/app/actions/filaments";
-import { emptyFilamentFormState } from "@/app/actions/filaments-state";
+import { addFilament, updateFilament } from "@/app/actions/filaments";
+import {
+  type FilamentFormState,
+  emptyFilamentFormState,
+} from "@/app/actions/filaments-state";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import {
   FILAMENT_BRANDS,
@@ -16,22 +19,36 @@ import {
   FILAMENT_USAGE_TYPE_LABELS,
   type FilamentNumberKey,
   type FilamentTextKey,
+  type WorkshopFilament,
 } from "@/lib/workshop/filaments";
 
 /**
- * Окно «Добавить катушку».
+ * Окно «Добавить катушку» и «Редактировать катушку».
  *
  * Поля повторяют колонки workshop_filaments. Проверки живут в
  * lib/workshop/filaments.ts, здесь только разметка и ошибки, которые вернул
  * Server Action: одни и те же пределы работают и до отправки (атрибуты min/max),
  * и после (ответ сервера).
  *
- * После успеха окно закрывается само, а склад обновляется через router.refresh():
- * список рисуется на сервере, и без этого новая катушка появилась бы только
- * после ручной перезагрузки.
+ * Режим выбирает проп `initial`: без него форма вызывает `addFilament`, с ним —
+ * `updateFilament` и заполняет поля текущими значениями (`defaultValue`). Разбор
+ * формы общий, поэтому правка тоже не пропустит пустой бренд, ссылку без
+ * http(s) или остаток больше общего веса.
+ *
+ * После успеха окно закрывается, склад обновляется через router.refresh(), а на
+ * вкладке остаётся строка состояния: список рисуется на сервере, и без refresh
+ * правка была бы видна только после ручной перезагрузки.
  */
 
 type AddFilamentDialogProps = {
+  /**
+   * Катушка для правки.
+   *
+   * Без пропа окно добавляет новую, с ним — исправляет бренд, остаток, цену или
+   * ссылку: мастер ошибся при вводе, а удалять катушку и заводить её заново
+   * незачем.
+   */
+  initial?: WorkshopFilament | null;
   onClose: () => void;
   /** Сообщение для строки состояния на вкладке. */
   onCreated: (message: string) => void;
@@ -57,30 +74,66 @@ const DEFAULT_NUMBERS: Record<FilamentNumberKey, number> = {
 };
 
 export function AddFilamentDialog({
+  initial = null,
   onClose,
   onCreated,
 }: AddFilamentDialogProps) {
   const router = useRouter();
-  const [state, formAction, isPending] = useActionState(
-    addFilament,
-    emptyFilamentFormState,
-  );
+  const [state, setState] = useState<FilamentFormState>(emptyFilamentFormState);
+  const [isPending, setIsPending] = useState(false);
+
+  const isEditing = initial !== null;
+  /** Надписи кнопки: в правке «Сохранить», в добавлении — прежняя. */
+  const submitLabel = isEditing ? "Сохранить" : "Добавить катушку";
+  const pendingLabel = isEditing ? "Сохраняем…" : "Добавляем…";
 
   useDialogDismiss(onClose);
 
-  // Успех приходит новым объектом состояния: обновляем серверный список,
-  // показываем подтверждение на вкладке и закрываем окно. Состояние формы
-  // живёт только пока окно смонтировано, поэтому повторного срабатывания при
-  // следующем открытии нет.
-  useEffect(() => {
-    if (!state.success) {
+  /**
+   * Отправка формы в Server Action.
+   *
+   * FormData собираем до await: после него event.currentTarget уже обнулён.
+   * Ответ либо подтверждает сохранение (тогда обновляем серверный список,
+   * показываем сообщение на вкладке и закрываем окно), либо возвращает ошибки
+   * по полям — они остаются под теми же полями, что и при добавлении.
+   */
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (isPending) {
       return;
     }
 
-    router.refresh();
-    onCreated(state.message ?? "Катушка добавлена.");
-    onClose();
-  }, [onClose, onCreated, router, state.message, state.success]);
+    const formData = new FormData(event.currentTarget);
+
+    setState(emptyFilamentFormState);
+    setIsPending(true);
+
+    try {
+      const result = isEditing
+        ? await updateFilament(initial.id, formData)
+        : await addFilament(emptyFilamentFormState, formData);
+
+      if (result.error || result.fieldErrors) {
+        setState({ error: result.error, fieldErrors: result.fieldErrors });
+        return;
+      }
+
+      router.refresh();
+      onCreated(
+        result.message ??
+          (isEditing ? "Катушка сохранена." : "Катушка добавлена."),
+      );
+      onClose();
+    } catch {
+      setState({
+        error:
+          "Не удалось отправить форму. Проверьте соединение и попробуйте ещё раз.",
+      });
+    } finally {
+      setIsPending(false);
+    }
+  }
 
   return (
     <div
@@ -107,13 +160,18 @@ export function AddFilamentDialog({
               id="add-filament-title"
               className="mt-3 text-2xl font-extrabold tracking-tight text-white"
             >
-              Добавить катушку
+              {isEditing ? "Редактировать катушку" : "Добавить катушку"}
             </h2>
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-zinc-400">
+              {isEditing
+                ? "Поправьте остаток, цену или ссылку — заказы, где катушка уже списана, не изменятся."
+                : "Заполните карточку катушки: остаток и порог сразу покажут, когда пора покупать пластик."}
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Закрыть окно добавления катушки"
+            aria-label="Закрыть окно катушки"
             className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             <span aria-hidden>✕</span>
@@ -121,7 +179,7 @@ export function AddFilamentDialog({
         </div>
 
         <form
-          action={formAction}
+          onSubmit={handleSubmit}
           autoComplete="off"
           className="mt-6 space-y-4"
         >
@@ -131,6 +189,7 @@ export function AddFilamentDialog({
             hint="Начните вводить — подскажем популярные. Свой бренд тоже можно."
             placeholder="Prusament"
             maxLength={FILAMENT_TEXT_LIMITS.brand}
+            defaultValue={initial?.brand ?? ""}
             required
             autoFocus
             list="brand-list"
@@ -148,6 +207,7 @@ export function AddFilamentDialog({
             hint="Материал: PLA, PETG, ABS, TPU… Свой тип тоже можно."
             placeholder="PLA"
             maxLength={FILAMENT_TEXT_LIMITS.type}
+            defaultValue={initial?.type ?? ""}
             required
             list="filament-types-list"
             error={state.fieldErrors?.type}
@@ -164,6 +224,7 @@ export function AddFilamentDialog({
             hint="Как на катушке: «Чёрный», «Galaxy Black»."
             placeholder="Чёрный"
             maxLength={FILAMENT_TEXT_LIMITS.color}
+            defaultValue={initial?.color ?? ""}
             required
             error={state.fieldErrors?.color}
           />
@@ -185,7 +246,7 @@ export function AddFilamentDialog({
               id="filament-usageType"
               name="usageType"
               autoComplete="off"
-              defaultValue="stock"
+              defaultValue={initial?.usageType ?? "stock"}
               aria-describedby="filament-usageType-hint"
               className={selectClassName}
             >
@@ -210,6 +271,7 @@ export function AddFilamentDialog({
             hint="Появится в кнопке «Купить», когда остаток упадёт ниже порога."
             placeholder="https://example.com/filament"
             maxLength={FILAMENT_TEXT_LIMITS.purchaseUrl}
+            defaultValue={initial?.purchaseUrl ?? ""}
             type="url"
             error={state.fieldErrors?.purchaseUrl}
           />
@@ -237,7 +299,9 @@ export function AddFilamentDialog({
                     min={field.min}
                     max={field.max}
                     required
-                    defaultValue={DEFAULT_NUMBERS[field.key]}
+                    defaultValue={
+                      initial ? initial[field.key] : DEFAULT_NUMBERS[field.key]
+                    }
                     aria-invalid={error ? true : undefined}
                     aria-describedby={
                       error ? `${fieldId}-error` : `${fieldId}-hint`
@@ -282,7 +346,7 @@ export function AddFilamentDialog({
               aria-busy={isPending}
               className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isPending ? "Добавляем…" : "Добавить катушку"}
+              {isPending ? pendingLabel : submitLabel}
             </button>
             <button
               type="button"
@@ -305,6 +369,7 @@ function TextField({
   hint,
   placeholder,
   maxLength,
+  defaultValue,
   type = "text",
   list,
   required,
@@ -316,6 +381,8 @@ function TextField({
   hint: string;
   placeholder: string;
   maxLength: number;
+  /** Текущее значение при правке; у новой катушки поле пустое. */
+  defaultValue?: string;
   type?: "text" | "url";
   list?: string;
   required?: boolean;
@@ -340,6 +407,7 @@ function TextField({
         list={list}
         placeholder={placeholder}
         maxLength={maxLength}
+        defaultValue={defaultValue}
         required={required}
         autoFocus={autoFocus}
         aria-invalid={error ? true : undefined}

@@ -9,6 +9,7 @@ import { ConsumeFilamentDialog } from "@/components/workshop/ConsumeFilamentDial
 import { ImportStockFromPhotoDialog } from "@/components/workshop/ImportStockFromPhotoDialog";
 import { OrderFilamentsDialog } from "@/components/workshop/OrderFilamentsDialog";
 import {
+  PencilIcon,
   SpecificationIcon,
   TrashIcon,
 } from "@/components/workshop/WorkshopIcons";
@@ -27,8 +28,8 @@ import {
  * расходится с базой. Состояние вкладки — только открытые окна и строка
  * подтверждения.
  *
- * Окон четыре: «Добавить катушку», «Списать N грамм», «Импорт из фото» и
- * «Спецификация на закупку». Они
+ * Окон пять: «Добавить катушку», «Редактировать катушку», «Списать N грамм»,
+ * «Импорт из фото» и «Спецификация на закупку». Они
  * монтируются по условию: так состояние их форм сбрасывается при каждом
  * открытии, и старая ошибка не висит над новым вводом. Фокус после закрытия
  * возвращается на кнопку, которая открыла окно.
@@ -79,6 +80,9 @@ export function WorkshopStockTab({
   const [consumeTarget, setConsumeTarget] = useState<WorkshopFilament | null>(
     null,
   );
+  /** Катушка, открытая в окне правки: тот же диалог, что и добавление. */
+  const [editingFilament, setEditingFilament] =
+    useState<WorkshopFilament | null>(null);
   /** Катушка, которая удаляется: её корзина выключена до ответа сервера. */
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -147,6 +151,35 @@ export function WorkshopStockTab({
     setConsumeTarget(null);
     consumeTriggerRef.current?.focus();
   }, []);
+
+  /**
+   * Открытие правки катушки.
+   *
+   * Карандаш есть и в таблице, и в мобильной карточке, а окно одно: вкладка
+   * запоминает саму катушку, а не кнопку. Строка состояния и старая ошибка
+   * убираются — они относятся к прошлому действию.
+   */
+  const openEdit = useCallback((filament: WorkshopFilament) => {
+    setStatus(null);
+    setError(null);
+    setEditingFilament(filament);
+  }, []);
+
+  /** Закрытие правки возвращает фокус на карандаш той же строки. */
+  const closeEdit = useCallback(() => {
+    const filamentId = editingFilament?.id;
+    setEditingFilament(null);
+
+    if (!filamentId) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(`[data-stock-edit="${filamentId}"]`)
+        ?.focus();
+    });
+  }, [editingFilament]);
 
   /**
    * Удаление катушки.
@@ -290,12 +323,14 @@ export function WorkshopStockTab({
           <StockTable
             filaments={filaments}
             onConsume={openConsume}
+            onEdit={openEdit}
             onDelete={removeFilament}
             deletingId={deletingId}
           />
           <StockCards
             filaments={filaments}
             onConsume={openConsume}
+            onEdit={openEdit}
             onDelete={removeFilament}
             deletingId={deletingId}
           />
@@ -304,6 +339,14 @@ export function WorkshopStockTab({
 
       {isAddOpen ? (
         <AddFilamentDialog onClose={closeAdd} onCreated={setStatus} />
+      ) : null}
+
+      {editingFilament ? (
+        <AddFilamentDialog
+          initial={editingFilament}
+          onClose={closeEdit}
+          onCreated={setStatus}
+        />
       ) : null}
 
       {consumeTarget ? (
@@ -329,11 +372,13 @@ export function WorkshopStockTab({
 function StockTable({
   filaments,
   onConsume,
+  onEdit,
   onDelete,
   deletingId,
 }: {
   filaments: WorkshopFilament[];
   onConsume: (filament: WorkshopFilament, trigger: HTMLButtonElement) => void;
+  onEdit: (filament: WorkshopFilament) => void;
   onDelete: (filament: WorkshopFilament) => void;
   deletingId: string | null;
 }) {
@@ -420,6 +465,7 @@ function StockTable({
                 <td className="px-3 py-4">
                   <div className="flex items-center justify-end gap-2">
                     <ConsumeButton filament={filament} onOpen={onConsume} />
+                    <EditButton filament={filament} onEdit={onEdit} />
                     <DeleteButton
                       filament={filament}
                       isDeleting={deletingId === filament.id}
@@ -441,11 +487,13 @@ function StockTable({
 function StockCards({
   filaments,
   onConsume,
+  onEdit,
   onDelete,
   deletingId,
 }: {
   filaments: WorkshopFilament[];
   onConsume: (filament: WorkshopFilament, trigger: HTMLButtonElement) => void;
+  onEdit: (filament: WorkshopFilament) => void;
   onDelete: (filament: WorkshopFilament) => void;
   deletingId: string | null;
 }) {
@@ -504,7 +552,8 @@ function StockCards({
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <PurchaseLink filament={filament} isLow={needsRestock} />
               <ConsumeButton filament={filament} onOpen={onConsume} />
-              <span className="ml-auto">
+              <span className="ml-auto flex items-center gap-2">
+                <EditButton filament={filament} onEdit={onEdit} />
                 <DeleteButton
                   filament={filament}
                   isDeleting={deletingId === filament.id}
@@ -677,6 +726,35 @@ function ConsumeButton({
       className="inline-flex min-h-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-3.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-40"
     >
       Списать
+    </button>
+  );
+}
+
+/**
+ * Карандаш катушки: открывает окно правки — тот же `AddFilamentDialog`, что и
+ * добавление, но с пропом `initial`.
+ *
+ * Подтверждения нет: данные уйдут в базу только после «Сохранить», а «Отмена»
+ * закрывает окно без изменений. `data-stock-edit` запоминает катушку — по нему
+ * вкладка возвращает фокус на кнопку после закрытия окна.
+ */
+function EditButton({
+  filament,
+  onEdit,
+}: {
+  filament: WorkshopFilament;
+  onEdit: (filament: WorkshopFilament) => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-stock-edit={filament.id}
+      aria-label={`Редактировать катушку: ${filamentLabel(filament)}`}
+      title="Редактировать катушку"
+      onClick={() => onEdit(filament)}
+      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-blue-500/10 hover:text-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+    >
+      <PencilIcon className="h-4 w-4" />
     </button>
   );
 }

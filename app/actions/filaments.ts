@@ -32,6 +32,7 @@ const PRO_REQUIRED =
 const MIGRATION_MISSING =
   "Склад пока не сохраняется: в базе нет таблицы workshop_filaments. Примените миграцию supabase/workshop_filaments.sql.";
 const ADD_FAILED = "Не удалось добавить катушку. Попробуйте ещё раз.";
+const UPDATE_FAILED = "Не удалось сохранить катушку. Попробуйте ещё раз.";
 const CONSUME_FAILED = "Не удалось списать пластик. Попробуйте ещё раз.";
 const DELETE_FAILED = "Не удалось удалить катушку. Попробуйте ещё раз.";
 const LOAD_FAILED = "Не удалось прочитать катушку. Попробуйте ещё раз.";
@@ -93,6 +94,92 @@ export async function addFilament(
   return {
     success: true,
     message: `Катушка ${draft.brand} ${draft.type} добавлена.`,
+  };
+}
+
+/**
+ * Правка катушки на складе.
+ *
+ * Мастер ошибся при вводе — неверно поставил остаток, цену или ссылку, — и
+ * удалять катушку ради исправления не нужно: Server Action переписывает
+ * карточку теми же колонками, что и добавление.
+ *
+ * Порядок проверок повторяет `addFilament`: `isFilamentId` → `readFilamentForm`
+ * (он общий, поэтому и здесь пустой бренд или остаток больше общего веса
+ * отклоняются) → сессия → подписка → `update`. Фильтров два: `id` и `user_id`.
+ * Второй не формальность: политика RLS `workshop_filaments_update_own` уже
+ * проверяет владельца, а запрос повторяет условие — чужую катушку нельзя
+ * изменить даже зная её id.
+ *
+ * `select("id")` возвращает обновлённую строку: пустой ответ означает, что
+ * катушку удалили в другой вкладке, — тогда показываем «не найдена», а не
+ * «сохранено». Список рисуется на сервере, поэтому успех подтверждает
+ * `revalidatePath('/dashboard/workshop')`.
+ */
+export async function updateFilament(
+  filamentId: string,
+  formData: FormData,
+): Promise<FilamentFormState> {
+  if (!isFilamentId(filamentId)) {
+    return { error: NOT_FOUND };
+  }
+
+  const { draft, errors } = readFilamentForm(formData);
+
+  if (!draft) {
+    return { fieldErrors: errors };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: SESSION_EXPIRED };
+  }
+
+  if (!(await hasActiveSubscription(supabase, user.id))) {
+    return { error: PRO_REQUIRED };
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_filaments")
+    .update({
+      brand: draft.brand,
+      type: draft.type,
+      color: draft.color,
+      total_weight_g: draft.totalWeightG,
+      remaining_weight_g: draft.remainingWeightG,
+      price_per_kg: draft.pricePerKg,
+      min_threshold_g: draft.minThresholdG,
+      purchase_url: draft.purchaseUrl || null,
+      usage_type: draft.usageType,
+    })
+    .eq("id", filamentId)
+    .eq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Катушка не сохранена:", error.code, error.message);
+
+    return {
+      error: isMissingTableSchema(error.code, error.message)
+        ? MIGRATION_MISSING
+        : UPDATE_FAILED,
+    };
+  }
+
+  if (!data) {
+    return { error: NOT_FOUND };
+  }
+
+  revalidatePath("/dashboard/workshop");
+
+  return {
+    success: true,
+    message: `Катушка ${draft.brand} ${draft.type} сохранена.`,
   };
 }
 
