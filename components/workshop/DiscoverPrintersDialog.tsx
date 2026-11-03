@@ -26,8 +26,7 @@ import {
 import {
   PRINTER_BRAND_OPTIONS,
   findPrinterPresetByModel,
-  isKnownPrinterBrand,
-  isPrinterBrandModelPair,
+  isPresetPrinterModel,
   printerModelOptions,
 } from "@/lib/workshop/printer-presets";
 import {
@@ -35,9 +34,11 @@ import {
   PRINTER_INTERVAL_DEFAULTS,
   PRINTER_PROTOCOL_OPTIONS,
   PRINTER_TEXT_LIMITS,
+  UNLISTED_PRINTER_MODEL,
   defaultDiscoveredPrinterName,
   discoveredPrinterName,
   isPrinterIdentityUnknown,
+  isUnknownPrinterModel,
   suggestPrinterIdentity,
   type DiscoveredPrinter,
 } from "@/lib/workshop/printers";
@@ -283,15 +284,17 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
   }
 
   /**
-   * Модель из справочника: подставляем бренд и интервалы. Бренд берём из
-   * справочника даже поверх вписанного: модель выпускает один бренд, и пара
-   * «FlashForge + K1C» не должна уйти в базу — проверка совместимости 3MF
-   * сверяет файл именно с парой.
+   * Модель выбирают `<select>`-ом: либо модель из справочника бренда, либо «Не
+   * указана». Для модели из справочника бренд подставляется по нему же: модель
+   * выпускает одна марка, и пара «FlashForge + K1C» не должна уйти в базу —
+   * проверка совместимости 3MF сверяет файл именно с парой.
    */
   function handleModelChange(value: string) {
     setModel(value);
 
-    const next = findPrinterPresetByModel(value);
+    const next = isUnknownPrinterModel(value)
+      ? null
+      : findPrinterPresetByModel(value);
 
     if (!next) {
       return;
@@ -303,13 +306,18 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
 
   /**
    * Бренд выбрали — список моделей сузился до выпускаемых им, поэтому модель
-   * другого бренда сбрасывается: иначе в поле осталась бы несовместимая пара, а
-   * мастер не заметил бы подмены.
+   * другого бренда сбрасывается: иначе в поле осталась бы пара, которую сервер
+   * отклонит, а мастер не заметил бы подмены. «Не указана» к бренду не привязана
+   * и остаётся.
    */
   function handleBrandChange(value: string) {
     setBrand(value);
 
-    if (isKnownPrinterBrand(value) && !isPrinterBrandModelPair(value, model)) {
+    if (
+      model &&
+      !isUnknownPrinterModel(model) &&
+      !isPresetPrinterModel(value, model)
+    ) {
       setModel("");
     }
   }
@@ -482,25 +490,25 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
           >
             Модель
           </label>
-          <input
+          <select
             id="farm-wizard-manual-model"
             name="model"
-            type="text"
-            autoComplete="off"
-            list="farm-wizard-manual-models"
-            placeholder={brandModels[0] ?? "Модель принтера"}
-            maxLength={PRINTER_TEXT_LIMITS.model}
             required
             value={model}
             onChange={(event) => handleModelChange(event.currentTarget.value)}
             aria-invalid={modelError ? true : undefined}
-            className={inputClassName}
-          />
-          <datalist id="farm-wizard-manual-models">
+            className={selectClassName}
+          >
+            <option value="">— выберите модель —</option>
             {brandModels.map((option) => (
-              <option key={option} value={option} />
+              <option key={option} value={option}>
+                {option}
+              </option>
             ))}
-          </datalist>
+            <option value={UNLISTED_PRINTER_MODEL}>
+              {UNLISTED_PRINTER_MODEL} — модели нет в справочнике
+            </option>
+          </select>
           {modelError ? (
             <p role="alert" className="mt-1.5 text-xs text-red-300">
               {modelError}
@@ -510,7 +518,7 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
               brand={brand}
               model={model}
               options={brandModels}
-              fallback="Из списка своего бренда или своя: для известной модели интервалы ТО подставятся сами."
+              fallback="Модель из справочника: интервалы ТО подставятся сами."
             />
           )}
         </div>
@@ -810,13 +818,13 @@ export function DiscoverPrintersDialog({
   };
 
   /**
-   * Бренд строки: список моделей в подсказке сужается до выпускаемых им, а
-   * модель другого бренда сбрасывается.
+   * Бренд строки: список моделей сужается до выпускаемых им, а модель другого
+   * бренда сбрасывается.
    *
    * Проверка 3MF сверяет файл именно с парой «бренд — модель», поэтому
-   * «FlashForge + K1C» — не опечатка, а чужой профиль слайсера. Сброс идёт
-   * только когда бренд дописан целиком (`isKnownPrinterBrand`): пока его набирают
-   * по буквам, модель трогать нельзя, иначе она исчезала бы на первой правке.
+   * «FlashForge + K1C» — не опечатка, а чужой профиль слайсера. Сравнение
+   * терпит недописанный бренд (`findPrinterPresetsByBrand`), поэтому модель не
+   * исчезает на первой же букве. «Не указана» к бренду не привязана и остаётся.
    */
   function handleBrandChange(printer: DiscoveredPrinter, nextBrand: string) {
     const { ipAddress } = printer;
@@ -825,8 +833,9 @@ export function DiscoverPrintersDialog({
     setBrands((prev) => ({ ...prev, [ipAddress]: nextBrand }));
 
     if (
-      isKnownPrinterBrand(nextBrand) &&
-      !isPrinterBrandModelPair(nextBrand, model)
+      model &&
+      !isUnknownPrinterModel(model) &&
+      !isPresetPrinterModel(nextBrand, model)
     ) {
       setModels((prev) => ({ ...prev, [ipAddress]: "" }));
     }
@@ -1113,8 +1122,8 @@ export function DiscoverPrintersDialog({
             {/*
               Справочник брендов один на весь список: id datalist уникален в
               документе, а `<input list>` ссылается на него по имени. Модели у
-              каждой строки свои — список моделей зависит от бренда, поэтому
-              подсказка «K1C» рядом с «FlashForge» больше не появится.
+              каждой строки свои — `<select>` собирается по бренду строки,
+              поэтому «K1C» рядом с «FlashForge» не появится.
             */}
             <datalist id="farm-wizard-printer-brands">
               {PRINTER_BRAND_OPTIONS.map((option) => (
@@ -1205,15 +1214,12 @@ export function DiscoverPrintersDialog({
                           Бренд и модель: сеть их не знает, а без них проверка
                           совместимости 3MF не сработает. Значения предзаполнены
                           подсказкой `suggestPrinterIdentity()` и правятся здесь
-                          же — до того, как принтер попадёт в парк. Подсказка
-                          модели у каждой строки своя: список моделей зависит от
-                          бренда, поэтому id datalist собирается из `checkboxId`.
+                          же — до того, как принтер попадёт в парк. Модель —
+                          строгий `<select>` по справочнику бренда: чужого или
+                          выдуманного профиля в парке быть не должно, а «Не
+                          указана» значит «проверку 3MF по этому принтеру не
+                          делаем». Список моделей у каждой строки свой.
                         */}
-                        <datalist id={`${checkboxId}-models`}>
-                          {brandModels.map((option) => (
-                            <option key={option} value={option} />
-                          ))}
-                        </datalist>
                         <div className="mt-2 grid gap-2 sm:grid-cols-2">
                           <div>
                             <label
@@ -1247,12 +1253,8 @@ export function DiscoverPrintersDialog({
                             >
                               Модель
                             </label>
-                            <input
+                            <select
                               id={`${checkboxId}-model`}
-                              type="text"
-                              autoComplete="off"
-                              list={`${checkboxId}-models`}
-                              maxLength={PRINTER_TEXT_LIMITS.model}
                               disabled={!checked}
                               value={identity.model}
                               onChange={(event) => {
@@ -1263,9 +1265,19 @@ export function DiscoverPrintersDialog({
                                   [printer.ipAddress]: next,
                                 }));
                               }}
-                              placeholder={brandModels[0] ?? "Модель принтера"}
                               className={inputClassName}
-                            />
+                            >
+                              <option value="">— выберите модель —</option>
+                              {brandModels.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                              <option value={UNLISTED_PRINTER_MODEL}>
+                                {UNLISTED_PRINTER_MODEL} — модели нет в
+                                справочнике
+                              </option>
+                            </select>
                             <PrinterModelHint
                               brand={identity.brand}
                               model={identity.model}

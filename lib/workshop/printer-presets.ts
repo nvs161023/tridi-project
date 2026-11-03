@@ -14,12 +14,20 @@
  * поправить. `note` показываем рядом с выбранной моделью — человек видит, откуда
  * взялись числа и что именно нельзя делать.
  *
- * Модели в форме привязаны к бренду: подсказка «Модель» показывает только то,
- * что выпускает выбранный бренд (`printerModelOptions`), а пара «бренд — модель»
- * проверяется `isPrinterBrandModelPair`. Иначе список был общим на все марки, и
+ * Модели в форме привязаны к бренду: список «Модель» показывает только то, что
+ * выпускает выбранный бренд (`printerModelOptions`), а пара «бренд — модель»
+ * проверяется `isPresetPrinterModel`. Иначе список был общим на все марки, и
  * мастер фермы выбирал «K1C» в строке FlashForge: проверка совместимости 3MF
  * сверяет файл именно с парой, поэтому такая строка означала чужой профиль
  * слайсера.
+ *
+ * Модель выбирается только из справочника: `<select>` не даёт вписать своё
+ * название, а сервер (`readPrinterIdentity`) отклоняет всё, чего нет в списке
+ * бренда. Произвольный профиль — это чужая кинематика и чужие лимиты температур,
+ * за которые никто не отвечает, поэтому «Другой модели» здесь нет. Принтер с
+ * неизвестной моделью добавляют значением «Не указана»
+ * (`UNLISTED_PRINTER_MODEL`): проверка 3MF тогда молчит, а не сверяет файл с
+ * выдуманным профилем.
  */
 export type PrinterPreset = {
   brand: string;
@@ -100,53 +108,26 @@ export function findPrinterPresetsByBrand(
 }
 
 /**
- * Модели бренда для `<datalist>`: у каждой марки свой список, поэтому подсказка
- * в форме зависит от бренда, а не от всего справочника.
+ * Модели бренда для `<select>` в формах принтера: у каждой марки свой список,
+ * поэтому выбор зависит от бренда, а не от всего справочника.
  */
 export function printerModelOptions(brand: string): string[] {
   return findPrinterPresetsByBrand(brand).map((preset) => preset.model);
 }
 
 /**
- * Бренд есть в справочнике целиком: «Bambu Lab» — да, недопечатанное «Bambu» —
- * нет.
+ * Модель из справочника этого бренда: единственный вариант, который принимает
+ * форма и сервер.
  *
- * По этой проверке форма решает, пора ли сбрасывать модель: пока бренд набирают
- * по буквам, трогать её нельзя, иначе модель исчезала бы на первой же правке.
+ * Сравнение терпит регистр и лишние пробелы, поэтому «a1» и «A1» — одно и то же.
+ * Пустая модель пресетом не считается: «модели нет» — это отдельное значение
+ * `UNLISTED_PRINTER_MODEL`, а не пустая строка.
  */
-export function isKnownPrinterBrand(brand: string): boolean {
-  const key = normalizePrinterModel(brand);
-
-  if (!key) {
-    return false;
-  }
-
-  return PRINTER_PRESETS.some(
-    (preset) => normalizePrinterModel(preset.brand) === key,
-  );
-}
-
-/**
- * Пара «бренд — модель» не противоречит справочнику.
- *
- * false ровно в одном случае: модель из справочника выпускает другой бренд —
- * «FlashForge» и «K1C». Своя модель («X2») спорной не считается: справочник про
- * неё ничего не знает, и запрещать её незачем. Пустой бренд тоже не повод
- * ругаться — мастеру и так напоминают, что без бренда проверка 3MF не сработает.
- */
-export function isPrinterBrandModelPair(brand: string, model: string): boolean {
+export function isPresetPrinterModel(brand: string, model: string): boolean {
   const modelKey = normalizePrinterModel(model);
 
-  if (!modelKey || !normalizePrinterModel(brand)) {
-    return true;
-  }
-
-  const owners = PRINTER_PRESETS.filter(
-    (preset) => normalizePrinterModel(preset.model) === modelKey,
-  );
-
-  if (owners.length === 0) {
-    return true;
+  if (!modelKey) {
+    return false;
   }
 
   return findPrinterPresetsByBrand(brand).some(

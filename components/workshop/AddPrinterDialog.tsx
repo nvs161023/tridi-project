@@ -16,8 +16,7 @@ import { getMaintenanceGuide } from "@/lib/workshop/maintenance-guides";
 import {
   PRINTER_BRAND_OPTIONS,
   findPrinterPresetByModel,
-  isKnownPrinterBrand,
-  isPrinterBrandModelPair,
+  isPresetPrinterModel,
   printerModelOptions,
 } from "@/lib/workshop/printer-presets";
 import {
@@ -26,7 +25,9 @@ import {
   PRINTER_INTERVAL_LIMITS,
   PRINTER_PROTOCOL_OPTIONS,
   PRINTER_TEXT_LIMITS,
+  UNLISTED_PRINTER_MODEL,
   formatPrinterHours,
+  isUnknownPrinterModel,
   printerConnectionSpec,
   type PrinterFormErrors,
 } from "@/lib/workshop/printers";
@@ -108,12 +109,17 @@ async function waitForProbe(probeId: string): Promise<ProbeView> {
 /**
  * Окно «Добавить принтер».
  *
- * Бренд и модель — поля с `<datalist>`: можно выбрать модель из справочника
- * `PRINTER_PRESETS` или ввести свою. Подсказка модели привязана к бренду
- * (`printerModelOptions`): в списке только то, что выпускает выбранная марка,
- * поэтому «K1C» рядом с FlashForge не появится. Для известной модели форма
- * подставляет интервалы обслуживания и показывает подсказку `note`, для своей —
- * оставляет значения по умолчанию. Интервалы можно поправить в любом случае.
+ * Бренд — поле с `<datalist>` (своя марка тоже бывает), а модель — строгий
+ * `<select>` по справочнику `PRINTER_PRESETS`: в списке только то, что выпускает
+ * выбранный бренд (`printerModelOptions`), поэтому «K1C» рядом с FlashForge не
+ * появится, а вписать произвольный профиль нельзя. Профиль — это кинематика и
+ * лимиты температур конкретного станка, и за выдуманный никто не отвечает;
+ * сервер (`readPrinterIdentity`) отклоняет модель вне справочника, даже если
+ * запрос подделан. Если модели нет в списке, выбирают пункт «Не указана»: тогда
+ * проверка совместимости 3MF молчит, а не сверяет файл с чужим профилем.
+ * Для модели из справочника форма подставляет интервалы обслуживания и
+ * показывает подсказку `note`, для «Не указана» — оставляет значения по
+ * умолчанию. Интервалы можно поправить в любом случае.
  *
  * Ниже — данные подключения: протокол, IP-адрес и поля, которые нужны именно
  * этому протоколу (`PRINTER_CONNECTION_SPECS`): ключ API или код доступа, SN,
@@ -269,7 +275,7 @@ export function AddPrinterDialog({
   }, [onClose, onCreated, router, state.message, state.success]);
 
   const preset = findPrinterPresetByModel(model);
-  /** Модели выбранного бренда: подсказка «Модель» и её `<datalist>` строятся по ним. */
+  /** Модели выбранного бренда: пункты `<select>` «Модель» строятся по ним. */
   const brandModels = printerModelOptions(brand);
   /** Поля подключения выбранного протокола: разметка и проверки из одного справочника. */
   const spec = printerConnectionSpec(protocol);
@@ -289,21 +295,21 @@ export function AddPrinterDialog({
   const zScrewError = state.fieldErrors?.zScrewInterval;
 
   /**
-   * Ввод модели: для известной модели подставляем бренд и интервалы, для своей
-   * оставляем 400/300/720. Бренд берём из справочника даже поверх вписанного:
-   * модель выпускает одна марка, и пара «FlashForge + K1C» не должна уйти в
-   * базу — проверка совместимости 3MF сверяет файл именно с парой.
+   * Модель выбирают `<select>`-ом: значение приходит либо из справочника бренда,
+   * либо «Не указана». Для модели из справочника подставляем бренд и интервалы
+   * ТО, для «Не указана» оставляем значения по умолчанию — произвольного профиля
+   * в форме больше нет.
    */
   function handleModelChange(value: string) {
     setModel(value);
     setIsGuideOpen(false);
 
-    const next = findPrinterPresetByModel(value);
+    const next = isUnknownPrinterModel(value)
+      ? null
+      : findPrinterPresetByModel(value);
 
     if (!next) {
-      setNozzleInterval(String(PRINTER_INTERVAL_DEFAULTS.nozzle));
-      setLubricationInterval(String(PRINTER_INTERVAL_DEFAULTS.lubrication));
-      setZScrewInterval(String(PRINTER_INTERVAL_DEFAULTS.zScrew));
+      resetIntervals();
       return;
     }
 
@@ -314,26 +320,37 @@ export function AddPrinterDialog({
     setZScrewInterval(String(next.zScrewHours));
   }
 
+  /** Интервалы по умолчанию: у выбранной модели справочник их не знает. */
+  function resetIntervals() {
+    setNozzleInterval(String(PRINTER_INTERVAL_DEFAULTS.nozzle));
+    setLubricationInterval(String(PRINTER_INTERVAL_DEFAULTS.lubrication));
+    setZScrewInterval(String(PRINTER_INTERVAL_DEFAULTS.zScrew));
+  }
+
   /**
-   * Бренд: подсказка «Модель» показывает только его модели, а модель другого
-   * бренда сбрасывается вместе с интервалами — иначе в форме осталась бы
-   * несовместимая пара, которую мастер не заметит.
+   * Бренд: список моделей сузился до выпускаемых им, поэтому модель другого
+   * бренда сбрасывается вместе с интервалами — иначе в форме осталась бы пара,
+   * которую сервер отклонит, а мастер не заметил бы подмены.
    *
-   * Сброс идёт только когда бренд дописан целиком (`isKnownPrinterBrand`): пока
-   * его набирают по буквам, модель трогать нельзя.
+   * Сравнение идёт по справочнику бренда и терпит недописанное название
+   * (`findPrinterPresetsByBrand`): пока марку набирают по буквам, модель не
+   * исчезает. «Не указана» смены бренда не боится — она ни к какому бренду не
+   * привязана.
    */
   function handleBrandChange(value: string) {
     setBrand(value);
     setIsGuideOpen(false);
 
-    if (!isKnownPrinterBrand(value) || isPrinterBrandModelPair(value, model)) {
+    if (
+      !model ||
+      isUnknownPrinterModel(model) ||
+      isPresetPrinterModel(value, model)
+    ) {
       return;
     }
 
     setModel("");
-    setNozzleInterval(String(PRINTER_INTERVAL_DEFAULTS.nozzle));
-    setLubricationInterval(String(PRINTER_INTERVAL_DEFAULTS.lubrication));
-    setZScrewInterval(String(PRINTER_INTERVAL_DEFAULTS.zScrew));
+    resetIntervals();
   }
 
   return (
@@ -475,14 +492,9 @@ export function AddPrinterDialog({
               >
                 Модель
               </label>
-              <input
+              <select
                 id="printer-model"
                 name="model"
-                type="text"
-                autoComplete="off"
-                list="printer-models-list"
-                placeholder={brandModels[0] ?? "Модель принтера"}
-                maxLength={PRINTER_TEXT_LIMITS.model}
                 required
                 value={model}
                 onChange={(event) => handleModelChange(event.currentTarget.value)}
@@ -490,13 +502,18 @@ export function AddPrinterDialog({
                 aria-describedby={
                   modelError ? "printer-model-error" : "printer-model-hint"
                 }
-                className={inputClassName}
-              />
-              <datalist id="printer-models-list">
+                className={selectClassName}
+              >
+                <option value="">— выберите модель —</option>
                 {brandModels.map((option) => (
-                  <option key={option} value={option} />
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
                 ))}
-              </datalist>
+                <option value={UNLISTED_PRINTER_MODEL}>
+                  {UNLISTED_PRINTER_MODEL} — модели нет в справочнике
+                </option>
+              </select>
               {modelError ? (
                 <p
                   id="printer-model-error"
@@ -511,7 +528,7 @@ export function AddPrinterDialog({
                     brand={brand}
                     model={model}
                     options={brandModels}
-                    fallback="Из списка своего бренда или своя: для известной модели интервалы подставятся сами."
+                    fallback="Модель из справочника: интервалы ТО подставятся сами, а проверка 3MF сверит профиль слайсера."
                   />
                 </div>
               )}

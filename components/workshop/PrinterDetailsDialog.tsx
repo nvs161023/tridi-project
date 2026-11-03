@@ -20,24 +20,24 @@ import {
 import {
   PRINTER_BRAND_OPTIONS,
   findPrinterPresetByModel,
-  isKnownPrinterBrand,
-  isPrinterBrandModelPair,
+  isPresetPrinterModel,
   printerModelOptions,
 } from "@/lib/workshop/printer-presets";
 import {
   DISCOVERED_PRINTER_BRAND,
-  DISCOVERED_PRINTER_MODEL,
   PRINTER_ADDRESS_MAX,
   PRINTER_PROTOCOL_CAPABILITIES,
   PRINTER_PROTOCOL_OPTIONS,
   PRINTER_TEXT_LIMITS,
   PRINTER_UPLOAD_FORMATS,
+  UNLISTED_PRINTER_MODEL,
   formatPrinterCapabilities,
   formatPrinterDate,
   formatPrinterHours,
   formatPrinterLastSeen,
   formatPrinterProtocol,
   isPrinterIdentityUnknown,
+  isUnknownPrinterModel,
   printerConnectionSpec,
   printerMaintenanceLevel,
   printerMaintenancePercent,
@@ -180,21 +180,21 @@ export function PrinterDetailsDialog({
   /**
    * Бренд и модель — заглушки автообнаружения или пустые: ровно тот случай, когда
    * проверка совместимости 3MF не сработает. Подсвечиваем виновное поле, а не
-   * только весь блок, — мастеру видно, что именно вписать.
+   * только весь блок, — мастеру видно, что именно выбрать.
    */
   const isBrandMissing =
     brand.trim().length === 0 || brand.trim() === DISCOVERED_PRINTER_BRAND;
-  const isModelMissing =
-    model.trim().length === 0 || model.trim() === DISCOVERED_PRINTER_MODEL;
+  const isModelMissing = isUnknownPrinterModel(model);
   const identityUnknown = isPrinterIdentityUnknown(brand, model);
   /**
-   * Пара «бренд — модель» из разных марок: «FlashForge» и «K1C». Проверка
-   * совместимости 3MF сверяет файл именно с парой, поэтому такая строка означает
-   * чужой профиль слайсера — мастер должен это видеть до сохранения.
+   * Модель не из справочника выбранного бренда: строка, заведённая до строгого
+   * выбора, или чужой профиль слайсера. Проверка совместимости 3MF сверяет файл
+   * с парой «бренд — модель», поэтому сервер такую строку не сохранит — мастер
+   * должен видеть это до нажатия «Сохранить».
    */
   const identityMismatch =
-    !identityUnknown && !isPrinterBrandModelPair(brand, model);
-  /** Модели выбранного бренда: подсказка «Модель» и её `<datalist>` — по ним. */
+    !identityUnknown && !isPresetPrinterModel(brand, model);
+  /** Модели выбранного бренда: `<select>` модели строится по ним. */
   const brandModels = printerModelOptions(brand);
   /**
    * Поля подключения выбранного протокола: тот же справочник
@@ -229,17 +229,19 @@ export function PrinterDetailsDialog({
   ];
 
   /**
-   * Бренд поменяли — модель другой марки уходит из поля: проверка 3MF сверяет
-   * файл с парой «бренд — модель», и «FlashForge + K1C» означала бы чужой
-   * профиль слайсера.
-   *
-   * Сброс только на дописанный бренд (`isKnownPrinterBrand`): пока марку набирают
-   * по буквам, модель трогать нельзя, иначе она исчезала бы на первой правке.
+   * Бренд поменяли — модель другой марки уходит из поля: сервер принимает только
+   * модель из справочника бренда, и «FlashForge + K1C» он отклонит. Сравнение
+   * терпит недописанный бренд (`findPrinterPresetsByBrand`), поэтому модель не
+   * исчезает на первой букве; «Не указана» к бренду не привязана и остаётся.
    */
   function handleBrandChange(value: string) {
     setBrand(value);
 
-    if (isKnownPrinterBrand(value) && !isPrinterBrandModelPair(value, model)) {
+    if (
+      model &&
+      !isUnknownPrinterModel(model) &&
+      !isPresetPrinterModel(value, model)
+    ) {
       setModel("");
     }
   }
@@ -746,34 +748,34 @@ export function PrinterDetailsDialog({
                   >
                     Модель
                   </label>
-                  <input
+                  <select
                     id="printer-connection-model"
                     name="model"
-                    type="text"
-                    autoComplete="off"
-                    list="printer-details-models"
                     required
-                    maxLength={PRINTER_TEXT_LIMITS.model}
                     value={model}
                     onChange={(event) => setModel(event.currentTarget.value)}
-                    placeholder={brandModels[0] ?? "Модель принтера"}
                     aria-describedby="printer-connection-model-hint"
                     aria-invalid={fieldErrors.model ? true : undefined}
                     className={`${inputClassName}${
                       isModelMissing ? " ring-1 ring-amber-500/50" : ""
                     }`}
-                  />
-                  <datalist id="printer-details-models">
+                  >
+                    <option value="">— выберите модель —</option>
                     {brandModels.map((option) => (
-                      <option key={option} value={option} />
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
                     ))}
-                  </datalist>
+                    <option value={UNLISTED_PRINTER_MODEL}>
+                      {UNLISTED_PRINTER_MODEL} — модели нет в справочнике
+                    </option>
+                  </select>
                   <div id="printer-connection-model-hint">
                     <PrinterModelHint
                       brand={brand}
                       model={model}
                       options={brandModels}
-                      fallback="Из списка своего бренда или своя: так же, как модель называется в слайсере."
+                      fallback="Модель из справочника: интервалы ТО и проверка 3MF берут профиль отсюда."
                     />
                   </div>
                   {fieldErrors.model ? (
@@ -789,8 +791,10 @@ export function PrinterDetailsDialog({
                 >
                   <span aria-hidden>⚠️ </span>
                   Без бренда и модели проверка совместимости 3MF не сработает:
-                  заполните оба поля — по ним файл сверяется с профилем
-                  слайсера.
+                  выберите бренд и модель из списка — по ним файл сверяется с
+                  профилем слайсера. Если модели нет в списке, выберите «
+                  {UNLISTED_PRINTER_MODEL}
+                  ».
                 </p>
               ) : identityMismatch ? (
                 <p
@@ -798,9 +802,10 @@ export function PrinterDetailsDialog({
                   className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100"
                 >
                   <span aria-hidden>⚠️ </span>
-                  Модель «{model.trim()}» выпускает другой бренд: проверка
-                  совместимости 3MF сверит файл не с тем профилем. Выберите
-                  модель из списка «{brand.trim()}».
+                  Модель «{model.trim()}» не из справочника бренда «
+                  {brand.trim()}»: произвольные профили мы не принимаем — это
+                  чужой профиль слайсера и чужие лимиты температур. Выберите
+                  модель из списка.
                 </p>
               ) : null}
             </fieldset>

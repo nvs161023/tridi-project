@@ -17,7 +17,10 @@ import {
   type PrinterProtocol,
   type PrinterSecrets,
 } from "@/lib/db/workshop-types";
-import { findPrinterPresetByModel } from "@/lib/workshop/printer-presets";
+import {
+  findPrinterPresetByModel,
+  isPresetPrinterModel,
+} from "@/lib/workshop/printer-presets";
 import {
   formatWorkshopLimit,
   parseWorkshopNumber,
@@ -658,6 +661,36 @@ export const DISCOVERED_PRINTER_BRAND = "Неизвестно";
 export const DISCOVERED_PRINTER_MODEL = "Найден по сети";
 
 /**
+ * Модель не выбрана: `<select>` предлагает это значение, когда нужной модели нет
+ * в справочнике или мастер её пока не знает.
+ *
+ * Колонка `model` обязательная (1…60 символов), поэтому «ничего не выбрано» в
+ * базу так и не уходит — вместо пустой строки хранится эта заглушка. Всюду она
+ * читается как «личность принтера неизвестна» (`isUnknownPrinterModel`):
+ * проверка совместимости 3MF промолчит, а не сверит файл с выдуманным профилем.
+ * Старая заглушка автообнаружения «Найден по сети» тоже считается неизвестной —
+ * строки, добавленные до этого правила, не надо править руками.
+ */
+export const UNLISTED_PRINTER_MODEL = "Не указана";
+
+/**
+ * Модель не названа: пустая строка, заглушка `UNLISTED_PRINTER_MODEL` или
+ * автообнаружения.
+ *
+ * Такое значение не сверяется с профилем слайсера и не считается выбором
+ * модели: сервер пропускает его мимо проверки справочника.
+ */
+export function isUnknownPrinterModel(value: string): boolean {
+  const text = value.trim();
+
+  return (
+    text.length === 0 ||
+    text === UNLISTED_PRINTER_MODEL ||
+    text === DISCOVERED_PRINTER_MODEL
+  );
+}
+
+/**
  * Бренд, который подсказывает протокол: у Moonraker и OctoPrint своего бренда нет
  * (это прошивки, а не производители), поэтому для них подсказка пустая.
  */
@@ -678,7 +711,7 @@ const PROTOCOL_BRANDS: Partial<Record<PrinterProtocol, string>> = {
  * берётся из протокола (Bambu отвечает только Bambu Lab), а модель — из
  * справочника `PRINTER_PRESETS` по имени, которое принтер назвал сам: «Bambu Lab
  * P1S» и «P1S» дают одну модель. Не совпало — модель остаётся пустой, и мастер
- * впишет её сам; выдумывать «X1C» на основании протокола нельзя.
+ * выберет её в списке сам; выдумывать «X1C» на основании протокола нельзя.
  */
 export function suggestPrinterIdentity(printer: {
   protocolType: PrinterProtocol;
@@ -704,13 +737,11 @@ export function isPrinterIdentityUnknown(
   model: string,
 ): boolean {
   const brandText = brand.trim();
-  const modelText = model.trim();
 
   return (
     brandText.length === 0 ||
-    modelText.length === 0 ||
     brandText === DISCOVERED_PRINTER_BRAND ||
-    modelText === DISCOVERED_PRINTER_MODEL
+    isUnknownPrinterModel(model)
   );
 }
 
@@ -980,6 +1011,11 @@ export function readDiscoveredPrinters(
  * находку — `createDiscoveredPrinterPayload` подставит пресет по имени или
  * заглушку «Неизвестно · Найден по сети».
  *
+ * Модель вне справочника бренда обнуляется: `<select>` в окне мастера предлагает
+ * только модели этого бренда, поэтому чужое название приходит лишь из
+ * подделанного запроса. Произвольный профиль в базу не попадает — вместо него
+ * остаётся «модель неизвестна», и проверка 3MF честно промолчит.
+ *
  * `api_key` необязателен: пустое поле — «ключа нет» (в базе null). Слишком
  * длинный ключ не обрезается: усечённый секрет — это неверный секрет, принтер
  * молча не подключится, поэтому такой ключ считается неуказанным.
@@ -1013,6 +1049,15 @@ export function readApprovedPrinters(
         ? row.model.trim().slice(0, PRINTER_TEXT_LIMITS.model)
         : "";
 
+    // Модель не из справочника бренда — не выбор мастера, а мусор из
+    // подделанного запроса: в окне подтверждения `<select>` предлагает только
+    // модели своего бренда. Такое значение обнуляется, и payload подставляет
+    // пресет по имени или заглушку «Найден по сети».
+    const listedModel =
+      model && !isUnknownPrinterModel(model) && !isPresetPrinterModel(brand, model)
+        ? ""
+        : model;
+
     if (
       ipAddress === null ||
       name.length === 0 ||
@@ -1028,7 +1073,7 @@ export function readApprovedPrinters(
       ipAddress,
       name,
       brand,
-      model,
+      model: listedModel,
       apiKey: normalizePrinterApiKey(row?.api_key),
     });
   }
@@ -1314,12 +1359,27 @@ function readConnectionFields(
 
 
 /**
+ * Отказ на модель вне справочника — один текст на все формы принтера.
+ *
+ * Мастер видит причину, а не «неверная модель»: произвольный профиль никто не
+ * проверял, и печатать по нему — значит рисковать оборудованием.
+ */
+const PRINTER_MODEL_NOT_LISTED =
+  "Выберите модель из списка. Мы не поддерживаем произвольные профили принтеров для безопасности оборудования.";
+
+/**
  * Имя, бренд и модель принтера — общая часть формы добавления и карточки.
  *
  * Колонки name/brand/model обязательные (1…60, 1…40 и 1…60 символов в
  * `supabase/workshop_printers_orders.sql`), поэтому пустое поле — ошибка в обеих
  * формах. Одна функция на два разбора: карточка принтера больше не «только
  * подключение», и проверки не должны разъезжаться с формой добавления.
+ *
+ * Модель принимается только из справочника бренда (`isPresetPrinterModel`):
+ * `<select>` в форме не даёт вписать своё название, а здесь это повторяется на
+ * сервере — Server Action публичный, и подделанный запрос не должен принести
+ * произвольный профиль. Исключение одно — «модель неизвестна»
+ * (`isUnknownPrinterModel`): тогда проверка 3MF промолчит.
  */
 function readPrinterIdentity(formData: FormData): {
   name: string;
@@ -1347,10 +1407,14 @@ function readPrinterIdentity(formData: FormData): {
 
   const model = readFormText(formData.get("model"));
 
-  if (!model) {
-    errors.model = "Введите модель принтера.";
-  } else if (model.length > PRINTER_TEXT_LIMITS.model) {
+  if (model.length > PRINTER_TEXT_LIMITS.model) {
     errors.model = `Не больше ${PRINTER_TEXT_LIMITS.model} символов.`;
+  } else if (!model) {
+    // Пустое поле — не «модель неизвестна», а недовыбранная строка: в списке есть
+    // отдельный пункт «Не указана», и мастер должен выбрать осознанно.
+    errors.model = PRINTER_MODEL_NOT_LISTED;
+  } else if (!isUnknownPrinterModel(model) && !isPresetPrinterModel(brand, model)) {
+    errors.model = PRINTER_MODEL_NOT_LISTED;
   }
 
   return { name, brand, model, errors };
@@ -1359,9 +1423,10 @@ function readPrinterIdentity(formData: FormData): {
 /**
  * Форма «Добавить принтер» → проверенные значения.
  *
- * Бренд и модель — свободный текст: справочник `PRINTER_PRESETS` только
- * подставляет интервалы в форме, а модель может быть любой. Сервер проверяет
- * длину названий и интервалы теми же пределами, что SQL.
+ * Бренд — свободный текст (своя марка тоже возможна), а модель берётся только из
+ * справочника `PRINTER_PRESETS` для этого бренда: `readPrinterIdentity` отклоняет
+ * произвольный профиль и подставляет интервалы ТО. Сервер проверяет длину
+ * названий и интервалы теми же пределами, что SQL.
  *
  * Адрес обязателен: агент подключается к принтеру напрямую, и без `ip_address`
  * карточка в парке осталась бы мёртвой. Остальные поля подключения зависят от
