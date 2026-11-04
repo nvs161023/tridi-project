@@ -8896,3 +8896,32 @@ A1 при обрыве сети ушёл в паузу с вопросом на 
 `npx tsc --noEmit`, `npm run build`, `npm run check:docs`, `npm run check:imports`,
 `npm run check:style` — без замечаний.
 
+
+**Мастерская: SKU маркетплейсов в карточке товара и unmapped-заказы (4 ноября 2026).**
+Связи «артикул площадки → товар» можно было завести только на странице «Маркетплейсы»:
+мастер, глядя на карточку товара, не видел, по каким SKU она продаётся, а заказ без
+маппинга висел вне Kanban без объяснения и без кнопки.
+
+- `lib/workshop/marketplace-store.ts`: `getProductMarketplaceLinks(supabase, userId, productId)` —
+  связи одного товара (`LINK_COLUMNS`, фильтр по `product_id`, свежие сверху), битый id и ошибка
+  чтения дают пустой список.
+- `app/actions/marketplace.ts`: `getMarketplaceLinks(productId)` — обёртка над этим чтением для
+  клиентского окна товара; `linkUnmappedOrderItem(itemId, productId)` — связь SKU прямо из
+  карточки заказа: площадка и артикул читаются из строки `workshop_order_items` и заказа, товар
+  проверяется по `user_id`, после записи вызывается тот же `relinkUnmappedOrders`. Общая вставка
+  вынесена в `insertMarketplaceLink`, проверка товара — в `checkOwnProduct`, сообщение о
+  пересчёте — в `relinkAfterLink`; `addMarketplaceLink` отвечает как раньше.
+- `components/workshop/AddProductDialog.tsx`: в режиме правки появился блок «SKU на маркетплейсах»
+  (`data-product-marketplace-links`) — список связей с бейджем площадки и кнопкой удаления, а
+  кнопка «Добавить SKU» открывает мини-форму «площадка + SKU» (отказ — `data-product-link-error`).
+  Связи пишутся сразу, не дожидаясь «Сохранить»; у нового товара блока нет — id ещё нет.
+- `components/workshop/WorkshopOrdersTab.tsx`: в фильтре статусов появился чип «Без маппинга»
+  (`data-orders-filter`), янтарный баннер (`data-orders-unmapped-banner`) со счётчиком и кнопкой
+  «Показать», а панель `UnmappedOrdersPanel` рисует карточки `UnmappedOrderCard`: «Этот заказ не
+  привязан к товару. SKU: …». Позиции читает Server Action `loadOrderItems`, у каждой неизвестной
+  позиции — выбор товара каталога и кнопка «Связать». После связи `relinkUnmappedOrders`
+  возвращает заказ в «Новые», и он приходит с сервера уже в колонке.
+
+Проверки: `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm run check:docs` — без
+замечаний.
+

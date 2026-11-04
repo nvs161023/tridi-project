@@ -12,10 +12,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { linkUnmappedOrderItem } from "@/app/actions/marketplace";
 import {
   autoScheduleOrders,
   deleteOrder,
   forceCancelPrintJob,
+  loadOrderItems,
   updateOrderStatus,
 } from "@/app/actions/orders";
 import { CreateOrderDialog } from "@/components/workshop/CreateOrderDialog";
@@ -28,6 +30,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
+import { MARKETPLACE_META } from "@/lib/workshop/marketplace";
 import {
   ORDER_STATUS_META,
   ORDER_STATUS_SEQUENCE,
@@ -35,6 +38,7 @@ import {
   formatOrderDate,
   formatOrderHours,
   type OrderFlowStatus,
+  type OrderItemSummary,
   type OrderStatus,
   type WorkshopOrder,
 } from "@/lib/workshop/orders";
@@ -113,14 +117,19 @@ const STATUS_COLUMNS: readonly StatusColumn[] = [
   { status: "delivered", label: "Выданы", hint: "Переданы клиенту" },
 ];
 
-/** Какой статус показан: «all» — вся доска, остальные — одна колонка. */
-type OrderStatusFilter = OrderFlowStatus | "all";
+/**
+ * Какой статус показан: «all» — вся доска, «unmapped» — панель заказов без
+ * маппинга, остальные — одна колонка Kanban.
+ */
+type OrderStatusFilter = OrderFlowStatus | "all" | "unmapped";
 
 /**
  * Чипы фильтра над доской.
  *
  * «Все» — обычный вид с четырьмя колонками. Выбранный статус оставляет на
  * доске одну колонку: так выданные заказы не мешают смотреть, что печатается.
+ * «Без маппинга» показывает заказы маркетплейса, которым не хватило связи
+ * SKU → товар: у них своя панель, потому что в колонку их не перетащить.
  * Фильтр клиентский: массив заказов уже загружен серверным компонентом.
  */
 const STATUS_FILTERS: readonly {
@@ -132,6 +141,7 @@ const STATUS_FILTERS: readonly {
     status: column.status,
     label: column.label,
   })),
+  { status: "unmapped", label: "Без маппинга" },
 ];
 
 /**
@@ -247,20 +257,28 @@ export function WorkshopOrdersTab({
     return groups;
   }, [orders]);
 
+  /** Заказы маркетплейса без связи SKU → товар: фильтр и отдельная панель. */
+  const unmappedOrders = useMemo(
+    () => orders.filter((order) => order.status === "unmapped"),
+    [orders],
+  );
+
   /**
    * Колонки, которые видит мастер.
    *
-   * «Все» возвращает четыре колонки доски, выбранный статус — одну. Так
-   * фильтр не прячет данные: заказы остаются в `groupedOrders`, меняется
-   * только то, что нарисовано.
+   * «Все» возвращает четыре колонки доски, выбранный статус — одну. Панель
+   * «Без маппинга» колонок не рисует: у таких заказов своя раскладка, а
+   * перетаскивать их в Kanban нельзя.
    */
-  const visibleColumns = useMemo(
-    () =>
-      statusFilter === "all"
-        ? STATUS_COLUMNS
-        : STATUS_COLUMNS.filter((column) => column.status === statusFilter),
-    [statusFilter],
-  );
+  const visibleColumns = useMemo(() => {
+    if (statusFilter === "unmapped") {
+      return [];
+    }
+
+    return statusFilter === "all"
+      ? STATUS_COLUMNS
+      : STATUS_COLUMNS.filter((column) => column.status === statusFilter);
+  }, [statusFilter]);
 
   const summary = useMemo(
     () => ({
@@ -722,6 +740,11 @@ export function WorkshopOrdersTab({
                 Просрочен срок: {summary.overdue}
               </span>
             ) : null}
+            {unmappedOrders.length > 0 ? (
+              <span className="text-amber-300">
+                Без маппинга: {unmappedOrders.length}
+              </span>
+            ) : null}
           </p>
 
           <div
@@ -735,7 +758,9 @@ export function WorkshopOrdersTab({
               const count =
                 filter.status === "all"
                   ? orders.length
-                  : groupedOrders[filter.status].length;
+                  : filter.status === "unmapped"
+                    ? unmappedOrders.length
+                    : groupedOrders[filter.status].length;
 
               return (
                 <button
@@ -764,17 +789,49 @@ export function WorkshopOrdersTab({
             })}
           </div>
 
-          <p className="mt-3 text-[11px] text-zinc-500 lg:hidden">
-            Проведите пальцем в сторону, чтобы увидеть все этапы.
-          </p>
+          {unmappedOrders.length > 0 && statusFilter !== "unmapped" ? (
+            <div
+              data-orders-unmapped-banner
+              className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/[0.08] px-4 py-3"
+            >
+              <p className="text-xs leading-relaxed text-amber-100">
+                <span aria-hidden>⚠️ </span>
+                <strong className="font-bold">
+                  {unmappedOrders.length} заказ(ов) без маппинга.
+                </strong>{" "}
+                Заказ пришёл с маркетплейса, но его SKU нет в каталоге.
+              </p>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("unmapped")}
+                data-orders-unmapped-open
+                className="inline-flex min-h-9 items-center justify-center rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 text-xs font-bold text-amber-100 transition-colors hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              >
+                Показать
+              </button>
+            </div>
+          ) : null}
 
-          <p className="mt-1 text-[11px] text-zinc-500">
-            Нажмите на карточку, чтобы открыть заказ и комментарии. Чтобы сменить
-            статус, перетащите её в другую колонку или нажмите «⋯».
-          </p>
+          {statusFilter === "unmapped" ? (
+            <UnmappedOrdersPanel orders={unmappedOrders} products={products} />
+          ) : null}
+
+          {statusFilter === "unmapped" ? null : (
+            <p className="mt-3 text-[11px] text-zinc-500 lg:hidden">
+              Проведите пальцем в сторону, чтобы увидеть все этапы.
+            </p>
+          )}
+
+          {statusFilter === "unmapped" ? null : (
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Нажмите на карточку, чтобы открыть заказ и комментарии. Чтобы
+              сменить статус, перетащите её в другую колонку или нажмите «⋯».
+            </p>
+          )}
 
           <div
             data-kanban-board
+            hidden={statusFilter === "unmapped"}
             className="mt-2 max-w-full overflow-x-auto overscroll-x-contain pb-2 lg:overflow-visible"
           >
             <div
@@ -1431,3 +1488,277 @@ function EmptyOrders({ onAdd }: { onAdd: () => void }) {
     </div>
   );
 }
+
+/**
+ * Заказы, которым не хватило связи «SKU площадки → товар».
+ *
+ * Такие заказы приходят из вебхуков Ozon, Wildberries и Яндекс Маркета и в
+ * Kanban не попадают: печатать нечего, пока у позиции нет товара. Панель
+ * показывает SKU из уведомления и даёт связать его с карточкой каталога прямо
+ * здесь: после связи заказ сам возвращается в «Новые».
+ */
+function UnmappedOrdersPanel({
+  orders,
+  products,
+}: {
+  orders: WorkshopOrder[];
+  products: WorkshopProduct[];
+}) {
+  return (
+    <section
+      aria-labelledby="orders-unmapped-title"
+      data-orders-unmapped-panel
+      className="mt-3 rounded-2xl border border-amber-400/25 bg-amber-500/[0.06] p-4 sm:p-5"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-bold tracking-[0.16em] text-amber-300 uppercase">
+            Нужен маппинг
+          </p>
+          <h3
+            id="orders-unmapped-title"
+            className="mt-1 text-base font-extrabold text-amber-100"
+          >
+            Заказы без маппинга
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+            Площадка прислала SKU, которого нет в каталоге. Свяжите артикул с
+            товаром — заказ вернётся в «Новые».
+          </p>
+        </div>
+        <span className="rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1 text-xs font-bold text-amber-100">
+          Заказов: {orders.length}
+        </span>
+      </div>
+
+      {orders.length === 0 ? (
+        <p className="mt-4 rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm leading-relaxed text-zinc-400">
+          Заказов без маппинга нет: все артикулы площадок нашли товар.
+        </p>
+      ) : (
+        <ul className="mt-4 space-y-3">
+          {orders.map((order) => (
+            <UnmappedOrderCard
+              key={order.id}
+              order={order}
+              products={products}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Карточка заказа без маппинга: SKU позиций и выбор товара каталога.
+ *
+ * Позиции читаются при появлении карточки — Server Action `loadOrderItems`:
+ * доска заказов не держит их в памяти. Пока список грузится, карточка уже
+ * объясняет, что случилось, поэтому мастер не ждёт данных, чтобы понять экран.
+ */
+function UnmappedOrderCard({
+  order,
+  products,
+}: {
+  order: WorkshopOrder;
+  products: WorkshopProduct[];
+}) {
+  const router = useRouter();
+  /** null — позиции ещё читаются. */
+  const [items, setItems] = useState<OrderItemSummary[] | null>(null);
+  /** Выбранный товар по каждой позиции: `item.id` → `product_id`. */
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [pendingItemId, setPendingItemId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+
+    setItems(null);
+
+    loadOrderItems(order.id)
+      .then((list) => {
+        if (isActive) {
+          setItems(list);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setItems([]);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [order.id]);
+
+  const unknownItems = (items ?? []).filter((item) => item.productId === null);
+  const skus = unknownItems
+    .map((item) => item.sku)
+    .filter((sku): sku is string => Boolean(sku));
+  const sourceMeta =
+    order.source === "manual" ? null : MARKETPLACE_META[order.source];
+
+  /**
+   * Связь выбранного товара с позицией заказа.
+   *
+   * Площадка и артикул берутся из строки заказа на сервере, поэтому клиент
+   * отправляет только товар. После успеха позиции перечитываются: у связанной
+   * появляется товар, и она уходит из списка.
+   */
+  async function linkItem(item: OrderItemSummary) {
+    const productId = selected[item.id] ?? "";
+
+    if (!productId || pendingItemId) {
+      return;
+    }
+
+    setNotice(null);
+    setError(null);
+    setPendingItemId(item.id);
+
+    try {
+      const result = await linkUnmappedOrderItem(item.id, productId);
+
+      if (!result.ok) {
+        setError(result.error ?? "Не удалось связать SKU.");
+        return;
+      }
+
+      setNotice(result.message ?? "Связь создана.");
+      setSelected((current) => ({ ...current, [item.id]: "" }));
+      setItems(await loadOrderItems(order.id));
+      router.refresh();
+    } catch {
+      setError("Нет связи с сервером. Попробуйте ещё раз.");
+    } finally {
+      setPendingItemId(null);
+    }
+  }
+
+  return (
+    <li
+      data-unmapped-order={order.id}
+      className="rounded-xl border border-amber-400/20 bg-black/30 p-4"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        {sourceMeta ? (
+          <span
+            className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${sourceMeta.badgeClassName}`}
+          >
+            {sourceMeta.label}
+          </span>
+        ) : null}
+        <p className="text-sm font-bold text-white">{order.title}</p>
+        {order.clientName ? (
+          <p className="text-xs text-zinc-400">{order.clientName}</p>
+        ) : null}
+      </div>
+
+      <p className="mt-2 text-xs leading-relaxed text-amber-100/90">
+        Этот заказ не привязан к товару.{" "}
+        {skus.length > 0 ? (
+          <>
+            SKU:{" "}
+            <span className="font-mono font-semibold">{skus.join(", ")}</span>.{" "}
+          </>
+        ) : null}
+        Выберите товар из каталога, чтобы связать.
+      </p>
+
+      {items === null ? (
+        <p className="mt-3 text-xs text-amber-200/70">Читаем позиции заказа…</p>
+      ) : unknownItems.length === 0 ? (
+        <p className="mt-3 text-xs leading-relaxed text-zinc-400">
+          Позиции уже связаны — обновите страницу, статус заказа обновится сам.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {unknownItems.map((item) => {
+            const isPending = pendingItemId === item.id;
+            const skuLabel = item.sku ?? "без артикула";
+
+            return (
+              <li
+                key={item.id}
+                className="flex flex-wrap items-end justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="font-mono text-xs font-semibold text-amber-100">
+                    SKU: {skuLabel}
+                  </p>
+                  <p className="text-[11px] text-zinc-500">
+                    Количество: {item.quantity}
+                  </p>
+                </div>
+
+                {products.length === 0 ? (
+                  <p className="text-[11px] leading-relaxed text-amber-200/80">
+                    Сначала добавьте товар в каталог.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={selected[item.id] ?? ""}
+                      onChange={(event) =>
+                        setSelected((current) => ({
+                          ...current,
+                          [item.id]: event.currentTarget.value,
+                        }))
+                      }
+                      disabled={!item.sku || isPending}
+                      aria-label={`Товар для SKU ${skuLabel}`}
+                      className="min-h-9 rounded-lg border border-white/10 bg-black/60 px-2.5 text-xs text-white outline-none transition-colors focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="" disabled>
+                        Выберите товар
+                      </option>
+                      {products.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.title} — {product.sku}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void linkItem(item)}
+                      disabled={!item.sku || !selected[item.id] || isPending}
+                      aria-busy={isPending}
+                      title={
+                        item.sku
+                          ? undefined
+                          : "У позиции нет артикула — связать её автоматически нельзя"
+                      }
+                      className="inline-flex min-h-9 items-center justify-center rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 text-xs font-bold text-amber-100 transition-colors hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {isPending ? "Связываем…" : "Связать"}
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {notice ? (
+        <p
+          role="status"
+          className="mt-2 text-xs font-semibold text-emerald-300"
+        >
+          {notice}
+        </p>
+      ) : null}
+
+      {error ? (
+        <p role="alert" className="mt-2 text-xs leading-relaxed text-red-200">
+          {error}
+        </p>
+      ) : null}
+    </li>
+  );
+}
+

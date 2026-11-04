@@ -1,16 +1,34 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type ChangeEvent, type FormEvent, useState } from "react";
+import {
+  type ChangeEvent,
+  type FormEvent,
+  useEffect,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 
+import {
+  addMarketplaceLink,
+  deleteMarketplaceLink,
+  getMarketplaceLinks,
+} from "@/app/actions/marketplace";
 import { addProduct, updateProduct } from "@/app/actions/products";
 import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
+import { TrashIcon } from "@/components/workshop/WorkshopIcons";
 import {
   PRODUCT_FILE_LABEL,
   printFileExtension,
   slicedForPrinterLabel,
 } from "@/lib/3d/print-compatibility";
+import {
+  MARKETPLACES,
+  MARKETPLACE_LINK_LIMITS,
+  MARKETPLACE_META,
+  type Marketplace,
+  type MarketplaceLink,
+} from "@/lib/workshop/marketplace";
 import type { WorkshopProduct } from "@/lib/workshop/products";
 import {
   PRINTER_UPLOAD_FORMATS,
@@ -189,6 +207,48 @@ export function AddProductDialog({
   useDialogDismiss(onClose);
 
   /**
+   * Связи «SKU площадки → товар» для блока маркетплейсов.
+   *
+   * null — список ещё читается. У нового товара связей нет: они появляются
+   * только после сохранения карточки, когда у неё есть id.
+   */
+  const [links, setLinks] = useState<MarketplaceLink[] | null>(null);
+  const [linkFormOpen, setLinkFormOpen] = useState(false);
+  const [linkMarketplace, setLinkMarketplace] = useState<Marketplace>("ozon");
+  const [linkSku, setLinkSku] = useState("");
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
+  const [isLinkBusy, setIsLinkBusy] = useState(false);
+  const [deletingLinkId, setDeletingLinkId] = useState<string | null>(null);
+  /** id товара: по нему читаются связи и не перезапускается эффект. */
+  const productId = initial?.id ?? null;
+
+  useEffect(() => {
+    if (!productId) {
+      setLinks([]);
+      return;
+    }
+
+    let isActive = true;
+
+    getMarketplaceLinks(productId)
+      .then((list) => {
+        if (isActive) {
+          setLinks(list);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setLinks([]);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [productId]);
+
+  /**
    * Проверка файла модели до загрузки.
    *
    * Блок один и принимает .3mf, .gcode, .bgcode и .stl. Готовые форматы
@@ -284,6 +344,89 @@ export function AddProductDialog({
     } finally {
       setIsUploading(false);
       setIsSubmitting(false);
+    }
+  }
+
+  /**
+   * Связь SKU с этим товаром.
+   *
+   * Мини-форма блока маркетплейсов, а не главная форма карточки: она пишет в
+   * `workshop_marketplace_links` сразу, не дожидаясь «Сохранить». После успеха
+   * список перечитывается с сервера — id связей нужны кнопкам удаления.
+   */
+  async function saveLink() {
+    if (!productId || isLinkBusy) {
+      return;
+    }
+
+    const sku = linkSku.trim();
+
+    if (!sku) {
+      setLinkError("Введите SKU площадки.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("marketplace", linkMarketplace);
+    formData.set("sku", sku);
+    formData.set("productId", productId);
+
+    setLinkError(null);
+    setLinkNotice(null);
+    setIsLinkBusy(true);
+
+    try {
+      const result = await addMarketplaceLink(formData);
+
+      if (!result.ok) {
+        setLinkError(result.error ?? "Не удалось сохранить связь.");
+        return;
+      }
+
+      setLinks(await getMarketplaceLinks(productId));
+      setLinkSku("");
+      setLinkFormOpen(false);
+      setLinkNotice(result.message ?? "Связь сохранена.");
+      router.refresh();
+    } catch {
+      setLinkError("Не удалось отправить форму. Попробуйте ещё раз.");
+    } finally {
+      setIsLinkBusy(false);
+    }
+  }
+
+  /** Удаление связи: подтверждение обязательно, оно влияет на будущие заказы. */
+  async function removeLink(link: MarketplaceLink) {
+    if (
+      deletingLinkId ||
+      !window.confirm(
+        `Удалить связь SKU «${link.sku}» с этим товаром? Будущие заказы с таким артикулом снова потребуют маппинга.`,
+      )
+    ) {
+      return;
+    }
+
+    setLinkError(null);
+    setLinkNotice(null);
+    setDeletingLinkId(link.id);
+
+    try {
+      const result = await deleteMarketplaceLink(link.id);
+
+      if (!result.ok) {
+        setLinkError(result.error ?? "Не удалось удалить связь.");
+        return;
+      }
+
+      setLinks((current) =>
+        (current ?? []).filter((item) => item.id !== link.id),
+      );
+      setLinkNotice(result.message ?? "Связь удалена.");
+      router.refresh();
+    } catch {
+      setLinkError("Не удалось удалить связь. Попробуйте ещё раз.");
+    } finally {
+      setDeletingLinkId(null);
     }
   }
 
@@ -566,6 +709,172 @@ export function AddProductDialog({
               />
             </div>
           </fieldset>
+
+          {isEditing ? (
+            <fieldset data-product-marketplace-links>
+              <legend className={legendClassName}>SKU на маркетплейсах</legend>
+              <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-4">
+                <p className="text-xs leading-relaxed text-zinc-500">
+                  Заказы с этих площадок находят карточку по артикулу продавца:
+                  товар, файл печати и цену берём отсюда.
+                </p>
+
+                {links === null ? (
+                  <p
+                    data-product-links-loading
+                    className="mt-3 text-xs text-zinc-500"
+                  >
+                    Читаем связи…
+                  </p>
+                ) : links.length === 0 ? (
+                  <p className="mt-3 text-xs leading-relaxed text-zinc-400">
+                    Связей пока нет. Добавьте SKU, если изделие продаётся на
+                    Ozon, Wildberries или Яндекс Маркете.
+                  </p>
+                ) : (
+                  <ul data-product-links className="mt-3 space-y-2">
+                    {links.map((link) => {
+                      const meta = MARKETPLACE_META[link.marketplace];
+
+                      return (
+                        <li
+                          key={link.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span
+                              className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${meta.badgeClassName}`}
+                            >
+                              {meta.label}
+                            </span>
+                            <span className="truncate font-mono text-xs font-semibold text-blue-200">
+                              {link.sku}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void removeLink(link)}
+                            disabled={deletingLinkId === link.id}
+                            aria-label={`Удалить связь SKU «${link.sku}»`}
+                            aria-busy={deletingLinkId === link.id}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                {linkFormOpen ? (
+                  <div className="mt-3 space-y-3 rounded-xl border border-white/10 bg-black/40 p-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block text-sm font-semibold text-slate-200">
+                        <span>Площадка</span>
+                        <select
+                          value={linkMarketplace}
+                          onChange={(event) =>
+                            setLinkMarketplace(
+                              event.currentTarget.value as Marketplace,
+                            )
+                          }
+                          aria-label="Площадка"
+                          className={inputClassName}
+                        >
+                          {MARKETPLACES.map((marketplace) => (
+                            <option key={marketplace} value={marketplace}>
+                              {MARKETPLACE_META[marketplace].label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="block text-sm font-semibold text-slate-200">
+                        <span>SKU площадки</span>
+                        <input
+                          type="text"
+                          value={linkSku}
+                          onChange={(event) =>
+                            setLinkSku(event.currentTarget.value)
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              void saveLink();
+                            }
+                          }}
+                          maxLength={MARKETPLACE_LINK_LIMITS.sku}
+                          placeholder="OZON-123456789"
+                          spellCheck={false}
+                          autoComplete="off"
+                          aria-label="SKU площадки"
+                          className={`${inputClassName} font-mono`}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void saveLink()}
+                        disabled={isLinkBusy || !linkSku.trim()}
+                        aria-busy={isLinkBusy}
+                        className="inline-flex min-h-10 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isLinkBusy ? "Добавляем…" : "Добавить"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLinkFormOpen(false);
+                          setLinkSku("");
+                          setLinkError(null);
+                        }}
+                        className="inline-flex min-h-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLinkFormOpen(true);
+                      setLinkNotice(null);
+                      setLinkError(null);
+                    }}
+                    className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-white transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                  >
+                    <span aria-hidden>+</span>
+                    Добавить SKU
+                  </button>
+                )}
+
+                {linkNotice ? (
+                  <p
+                    role="status"
+                    data-product-link-notice
+                    className="mt-3 text-xs leading-relaxed text-emerald-300"
+                  >
+                    {linkNotice}
+                  </p>
+                ) : null}
+
+                {linkError ? (
+                  <p
+                    role="alert"
+                    data-product-link-error
+                    className="mt-3 text-xs leading-relaxed text-red-200"
+                  >
+                    <span aria-hidden>⚠️ </span>
+                    {linkError}
+                  </p>
+                ) : null}
+              </div>
+            </fieldset>
+          ) : null}
 
           {error ? (
             <p

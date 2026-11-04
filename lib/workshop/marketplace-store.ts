@@ -104,6 +104,44 @@ function normalizeItem(
   };
 }
 
+/**
+ * Связи одного товара: блок «SKU на маркетплейсах» в карточке каталога.
+ *
+ * Отдельная выборка по `product_id`, а не фильтр общего списка: карточка товара
+ * не должна тянуть связи всей мастерской. Битый id и ошибка чтения дают пустой
+ * список — окно товара просто покажет «связей пока нет».
+ */
+export async function getProductMarketplaceLinks(
+  supabase: Supabase,
+  userId: string,
+  productId: string,
+): Promise<MarketplaceLink[]> {
+  if (!isWorkshopUuid(productId)) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("workshop_marketplace_links")
+    .select(LINK_COLUMNS)
+    .eq("user_id", userId)
+    .eq("product_id", productId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.warn(
+      "Связи товара не прочитаны:",
+      error.code,
+      error.message,
+    );
+
+    return [];
+  }
+
+  return ((data ?? []) as Partial<Record<string, unknown>>[])
+    .map(normalizeLink)
+    .filter((link): link is MarketplaceLink => link !== null);
+}
+
 /** Связи, заказы unmapped и их позиции. */
 export async function getMarketplaceSnapshot(
   supabase: Supabase,
