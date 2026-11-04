@@ -13,6 +13,12 @@ import {
   measureKeychainNfc,
 } from "@/lib/constructor/keychain-geometry";
 import {
+  KEYCHAIN_PRESETS,
+  isKeychainPresetId,
+  keychainPresetById,
+  type KeychainPresetId,
+} from "@/lib/constructor/keychain-presets";
+import {
   BOX_CELL_MAX_MM,
   BOX_CELL_MIN_MM,
   BOX_PRESET_IDS,
@@ -441,6 +447,35 @@ const PATTERN_HINTS: Record<VasePattern, string> = {
     "Чешуйки: перекрывающиеся округлые пластины со смещённым рядом. Частота задаёт размер чешуйки.",
 };
 
+/**
+ * Значение списка «Форма брелока»: новый пресет из реестра или прежний силуэт.
+ *
+ * Идентификаторы не пересекаются (`hex` и `hexagon` — разные записи), поэтому
+ * один нативный список обслуживает оба набора без префиксов и групп.
+ */
+type KeychainShapeSelectValue = KeychainPresetId | KeychainShape;
+
+/**
+ * Пункты списка «Форма брелока».
+ *
+ * Восемь новых пресетов идут первыми, прежние силуэты — ниже: пользователь
+ * видит новые формы там, где раньше начинался старый список. Оба набора
+ * статичные, поэтому массив собирается один раз при импорте модуля.
+ */
+const KEYCHAIN_SHAPE_OPTIONS: readonly {
+  label: string;
+  value: KeychainShapeSelectValue;
+}[] = [
+  ...KEYCHAIN_PRESETS.map((preset) => ({
+    label: preset.label,
+    value: preset.id,
+  })),
+  ...KEYCHAIN_SHAPES.map((shapeType) => ({
+    label: KEYCHAIN_SHAPE_LABELS[shapeType],
+    value: shapeType,
+  })),
+];
+
 /** Сжатая картинка: яркость для API и маленькое превью для панели. */
 type LithophaneImage = {
   brightness: number[];
@@ -863,6 +898,15 @@ export function ParameterPanel({
   const [isProcessingContour, setIsProcessingContour] = useState(false);
   const [contourError, setContourError] = useState<string | null>(null);
   const [contourFileName, setContourFileName] = useState<string | null>(null);
+  /**
+   * Выбранный новый пресет силуэта.
+   *
+   * Живёт отдельно от `params.keychainShape`: геометрии пресетов ещё нет, и STL
+   * по-прежнему собирается по прежнему силуэту. Когда контуры появятся, эта
+   * пара превратится в один параметр.
+   */
+  const [keychainPresetId, setKeychainPresetId] =
+    useState<KeychainPresetId | null>(null);
   const [cellsXText, setCellsXText] = useState(() =>
     formatBoxCells(params.cellsX),
   );
@@ -906,6 +950,15 @@ export function ParameterPanel({
       setContourFileName(null);
     }
   }, [params.customSvgData]);
+
+  /**
+   * Силуэт сменили в обход списка: загрузка своего контура или возврат к
+   * встроенной форме. Выбранный пресет хранится отдельно, поэтому его отметку
+   * надо снять — иначе список показывал бы форму, которой нет в модели.
+   */
+  useEffect(() => {
+    setKeychainPresetId(null);
+  }, [params.keychainShape]);
 
   /**
    * Демонстрационный массив живёт в DEFAULT_LITHOPHANE_PARAMS и после сброса
@@ -979,6 +1032,7 @@ export function ParameterPanel({
 
       onCustomSvgChange(svg);
       onKeychainShapeChange("custom");
+      setKeychainPresetId(null);
       setContourFileName(file.name);
     } catch (error) {
       setContourError(
@@ -996,11 +1050,34 @@ export function ParameterPanel({
     onCustomSvgChange("");
     setContourFileName(null);
     setContourError(null);
+    setKeychainPresetId(null);
 
     if (params.shapeType === "custom") {
       onKeychainShapeChange("dog_tag");
     }
   }
+
+  /**
+   * Выбор в списке «Форма брелока».
+   *
+   * Новый пресет только запоминается: у него пока нет контура, поэтому модель
+   * остаётся прежней. Выбор старого силуэта, наоборот, сразу уходит в параметры и
+   * снимает отметку с пресета — иначе список показывал бы не то, что напечатается.
+   */
+  function handleKeychainShapeSelect(value: KeychainShapeSelectValue) {
+    if (isKeychainPresetId(value)) {
+      setKeychainPresetId(value);
+      return;
+    }
+
+    setKeychainPresetId(null);
+    onKeychainShapeChange(value);
+  }
+
+  /** Данные выбранного пресета: подпись, пояснение и размеры по умолчанию. */
+  const selectedKeychainPreset = keychainPresetId
+    ? keychainPresetById(keychainPresetId)
+    : null;
 
   /**
    * Текст поля ячеек уходит в состояние только когда строка разобралась.
@@ -1426,15 +1503,26 @@ export function ParameterPanel({
         <>
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="У каждого силуэта есть ушко с отверстием под кольцо 4 мм. Жетон и шестиугольник выглядят спокойнее, фигурные силуэты заметнее на связке."
+              hint="Первые восемь пунктов — новые пресеты, ниже идут прежние силуэты. У каждого встроенного силуэта есть ушко с отверстием под кольцо 4 мм."
               label="Форма брелока"
-              onChange={onKeychainShapeChange}
-              options={KEYCHAIN_SHAPES.map((shapeType) => ({
-                label: KEYCHAIN_SHAPE_LABELS[shapeType],
-                value: shapeType,
-              }))}
-              value={params.shapeType}
+              onChange={handleKeychainShapeSelect}
+              options={KEYCHAIN_SHAPE_OPTIONS}
+              value={keychainPresetId ?? params.shapeType}
             />
+
+            {selectedKeychainPreset ? (
+              <p className="mt-3 rounded-xl border border-sky-400/40 bg-sky-400/10 px-3 py-2 text-xs leading-relaxed text-sky-100">
+                <strong className="font-semibold">
+                  {selectedKeychainPreset.label}
+                </strong>
+                : {selectedKeychainPreset.description} Размеры по умолчанию —{" "}
+                {selectedKeychainPreset.defaultWidth} ×{" "}
+                {selectedKeychainPreset.defaultHeight} мм, толщина{" "}
+                {selectedKeychainPreset.defaultThickness} мм. Геометрия пресета ещё
+                в работе: модель строится по силуэту «
+                {KEYCHAIN_SHAPE_LABELS[params.shapeType]}».
+              </p>
+            ) : null}
           </div>
 
           <fieldset className="mt-6 border-t border-white/10 pt-5">
