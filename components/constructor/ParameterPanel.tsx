@@ -15,6 +15,7 @@ import {
 import {
   brickStudLayout,
   isKeychainPresetImplemented,
+  starburstLayout,
   ticketLayout,
 } from "@/lib/constructor/keychain-preset-geometry";
 import {
@@ -848,6 +849,11 @@ function presetReadyNote(
 
       return `билет ${params.width} × ${params.length} мм с корешком ${layout.stubHeight.toFixed(1)} мм снизу, перфорацией (${layout.slotCount} шт. щелей 4×0.9 мм с перемычкой 2.6 мм и вырезами R2.5 на кромках) и проушиной Ø11 мм с отверстием Ø5 мм (габарит по высоте ${params.length + layout.tabProtrusion} мм)`;
     }
+    case "starburst": {
+      const layout = starburstLayout(params.width, params.length);
+
+      return `вспышка ${layout.sizeMm} × ${layout.sizeMm} мм (поле 2 мм с кромки заготовки): ${layout.rayCount} лучей через ${layout.pitchDeg}° с впадиной ${layout.valleyDepth.toFixed(1)} мм, кончик R${layout.tipRadius.toFixed(1)} мм под ${layout.tipAngleDeg.toFixed(0)}°, отверстие Ø5 мм в теле (стенка до впадины ${layout.rimWidthMm.toFixed(1)} мм)`;
+    }
     default:
       return `форма ${params.width} × ${params.length} мм, отверстие Ø5 мм под кольцо`;
   }
@@ -1187,7 +1193,7 @@ export function ParameterPanel({
   /**
    * Почему нельзя скачать STL из-за выбранной формы.
    *
-   * Геометрии шести пресетов ещё нет: модель в предпросмотре собирается по
+   * Геометрии двух пресетов ещё нет: модель в предпросмотре собирается по
    * прежнему силуэту, и уходить в печать такой файл не должен. Причина формы
    * важнее причины NFC — пользователь только что выбрал именно её.
    */

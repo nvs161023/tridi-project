@@ -111,9 +111,9 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     id: "starburst",
     label: "Starburst",
     description:
-      "Вспышка из восьми лучей: кончики скруглены, чтобы не колоть ладонь и не ломаться в кармане.",
+      "Вспышка из восьми лучей с шагом 45°: глубокие впадины и скруглённые кончики, чтобы не колоть ладонь и не ломаться в кармане.",
     defaultWidth: 42,
-    defaultHeight: 44,
+    defaultHeight: 42,
     defaultThickness: 3,
   },
   {

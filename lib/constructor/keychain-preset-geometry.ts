@@ -158,6 +158,50 @@ const TICKET_TAB_DIAMETER_MM = 11;
 /** Выступ проушины над верхней кромкой билета, мм. */
 const TICKET_TAB_PROTRUSION_MM = 4;
 
+/** Лучей у вспышки: восемь вершин через 45° читаются как звезда, а не шестерня. */
+const STARBURST_RAY_COUNT = 8;
+
+/** Шаг между лучами, °. */
+const STARBURST_RAY_PITCH_DEG = 360 / STARBURST_RAY_COUNT;
+
+/** Поле от кромки заготовки до кончика луча, мм. */
+const STARBURST_EDGE_MARGIN_MM = 2;
+
+/**
+ * Доля внешнего радиуса, остающаяся на впадину между лучами.
+ *
+ * Глубина в 35 % радиуса — компромисс между силуэтом и скруглением кончика: при
+ * более глубоких впадинах дуга R2 на кончике съедает вершину на 3 мм, и чтобы
+ * габарит остался равен номиналу, лучи пришлось бы вытянуть в иглы.
+ */
+const STARBURST_INNER_SHARE = 0.65;
+
+/** Радиус впадины не меньше этого: отверстие Ø5 мм плюс стенка 3 мм, мм. */
+const STARBURST_INNER_MIN_MM = RING_HOLE_DIAMETER_MM / 2 + 3;
+
+/** Скругление кончика луча, мм: острый кончик колет ладонь и скалывается. */
+const STARBURST_TIP_RADIUS_MM = 2;
+
+/** Скругление впадины, мм: в полтора раза меньше кончика, иначе впадина — волна. */
+const STARBURST_VALLEY_RADIUS_MM = 1.5;
+
+/**
+ * Доля ребра луча под прямыми участками между скруглениями.
+ *
+ * Если оставить меньше, луч превращается в иглу: на 20 мм брелоке два скругления
+ * иначе смыкаются, и контур пересекает сам себя.
+ */
+const STARBURST_STRAIGHT_SHARE = 0.8;
+
+/**
+ * Проходов уточнения луча.
+ *
+ * Скругление кончика срезает вершину, а срезание зависит от раствора угла, тот —
+ * от выноса вершины: поправка уточняется итеративно, как у шестигранника, но
+ * здесь она меняет угол в разы сильнее, поэтому проходов больше.
+ */
+const STARBURST_SOLVE_PASSES = 80;
+
 /**
  * Раскладка билета: корешок снизу, линия отрыва со щелями и проушина.
  *
@@ -233,6 +277,133 @@ export function ticketLayout(width: number, height: number): TicketLayout {
 }
 
 /**
+ * Раскладка вспышки: лучи, впадины и скругления Starburst.
+ *
+ * Общая функция для геометрии и подписи в панели, как `ticketLayout`: числа на
+ * плашке обязаны совпадать с тем, что уедет в STL.
+ *
+ * Звезда вписывается в квадрат по меньшей стороне слайдера: лучи одинаковой
+ * длины, а разница `width × length` уходит в поле по краям. Внешний радиус — это
+ * профиль контура, то есть номинал минус поле 2 мм и минус фаска; на готовой
+ * модели фаска раздвигает контур обратно, и габарит совпадает с `sizeMm`.
+ *
+ * Скругление кончика срезает вершину луча, поэтому сама вершина выносится
+ * дальше внешнего радиуса ровно на срезание — так габарит остаётся равен
+ * `sizeMm`, а не теряет 2 мм на каждом луче. Срезание зависит от угла при
+ * кончике, угол — от выноса вершины, поэтому положение вершины ищется
+ * итеративно, и на малых размерах скругления поджимаются: иначе два соседних
+ * скругления на одном ребре сомкнулись бы и контур пересёк сам себя.
+ */
+export type StarburstLayout = {
+  /** Лучей у вспышки. */
+  rayCount: number;
+  /** Шаг между лучами, °. */
+  pitchDeg: number;
+  /** Габарит модели по обеим осям, мм: меньшая сторона слайдера минус поле. */
+  sizeMm: number;
+  /** Радиус кончика луча в профиле контура, мм. */
+  outerRadius: number;
+  /** Радиус впадины между лучами, мм. */
+  innerRadius: number;
+  /** Разница внешнего и внутреннего радиуса, мм: глубина впадины. */
+  valleyDepth: number;
+  /** Радиус математической вершины луча: вынесен на срезание скругления, мм. */
+  apexRadius: number;
+  /** Угол между рёбрами луча, °. */
+  tipAngleDeg: number;
+  /** Радиус скругления кончика, мм: 2 мм, если влезает между впадинами. */
+  tipRadius: number;
+  /** Радиус скругления впадины, мм. */
+  valleyRadius: number;
+  /** Длина ребра от впадины до вершины, мм. */
+  edgeLengthMm: number;
+  /** Доля ребра, остающаяся прямой между скруглениями, %. */
+  straightSharePct: number;
+  /** Стенка между впадиной и отверстием Ø5 мм, мм. */
+  rimWidthMm: number;
+};
+
+export function starburstLayout(
+  width: number,
+  height: number,
+): StarburstLayout {
+  const bevel = PRESET_BEVEL_SIZE_MM;
+  const sizeMm = Math.max(
+    Math.min(width, height) - STARBURST_EDGE_MARGIN_MM * 2,
+    STARBURST_INNER_MIN_MM * 2,
+  );
+  const outerRadius = Math.max((sizeMm - bevel * 2) / 2, 1);
+  // Впадина не может подойти к центру ближе стенки кольца: иначе отверстие
+  // вырвет кромку при первом же рывке за ключи.
+  const innerRadius = Math.min(
+    Math.max(outerRadius * STARBURST_INNER_SHARE, STARBURST_INNER_MIN_MM),
+    outerRadius - 1.5,
+  );
+  const halfPitch = (STARBURST_RAY_PITCH_DEG / 2) * (Math.PI / 180);
+  const sinPitch = Math.sin(halfPitch);
+  const cosPitch = Math.cos(halfPitch);
+  // Раствор угла при кончике: он и решает, насколько скругление срежет вершину.
+  const tipAngle = (apex: number): number =>
+    2 * Math.atan((innerRadius * sinPitch) / (apex - innerRadius * cosPitch));
+
+  let apexRadius = outerRadius;
+  let tipRadius = STARBURST_TIP_RADIUS_MM;
+  let valleyRadius = STARBURST_VALLEY_RADIUS_MM;
+
+  for (let pass = 0; pass < STARBURST_SOLVE_PASSES; pass += 1) {
+    const halfAngle = tipAngle(apexRadius) / 2;
+    const nextApex =
+      outerRadius + tipRadius / Math.sin(halfAngle) - tipRadius;
+    const edgeLength = Math.hypot(
+      nextApex - innerRadius * cosPitch,
+      innerRadius * sinPitch,
+    );
+    // Угол при впадине — по теореме косинусов в треугольнике из двух лучей.
+    const valleyChord = 2 * innerRadius * sinPitch;
+    const cosine =
+      1 - (valleyChord * valleyChord) / (2 * edgeLength * edgeLength);
+    const valleyHalf = Math.acos(Math.min(Math.max(cosine, -1), 1)) / 2;
+    const tipCut = STARBURST_TIP_RADIUS_MM / Math.tan(halfAngle);
+    const valleyCut = STARBURST_VALLEY_RADIUS_MM / Math.tan(valleyHalf);
+    const scale = Math.min(
+      1,
+      (STARBURST_STRAIGHT_SHARE * edgeLength) / (tipCut + valleyCut),
+    );
+
+    apexRadius = nextApex;
+    tipRadius = STARBURST_TIP_RADIUS_MM * scale;
+    valleyRadius = STARBURST_VALLEY_RADIUS_MM * scale;
+  }
+
+  const halfAngle = tipAngle(apexRadius) / 2;
+  const tipCut = tipRadius / Math.tan(halfAngle);
+  const edgeLength = Math.hypot(
+    apexRadius - innerRadius * cosPitch,
+    innerRadius * sinPitch,
+  );
+  const valleyChord = 2 * innerRadius * sinPitch;
+  const cosine = 1 - (valleyChord * valleyChord) / (2 * edgeLength * edgeLength);
+  const valleyHalf = Math.acos(Math.min(Math.max(cosine, -1), 1)) / 2;
+  const valleyCut = valleyRadius / Math.tan(valleyHalf);
+
+  return {
+    rayCount: STARBURST_RAY_COUNT,
+    pitchDeg: STARBURST_RAY_PITCH_DEG,
+    sizeMm,
+    outerRadius,
+    innerRadius,
+    valleyDepth: outerRadius - innerRadius,
+    apexRadius,
+    tipAngleDeg: (halfAngle * 360) / Math.PI,
+    tipRadius,
+    valleyRadius,
+    edgeLengthMm: edgeLength,
+    straightSharePct: ((edgeLength - tipCut - valleyCut) / edgeLength) * 100,
+    rimWidthMm: innerRadius - RING_HOLE_DIAMETER_MM / 2,
+  };
+}
+
+/**
  * Пресеты, у которых уже есть геометрия.
  *
  * Список читают панель (подсказка вместо плашки «в работе») и API (422 вместо
@@ -244,9 +415,10 @@ export const IMPLEMENTED_KEYCHAIN_PRESETS: readonly KeychainPresetId[] = [
   "hex",
   "brick",
   "ticket",
+  "starburst",
 ];
 
-/** Готова ли геометрия пресета: остальные три пока строятся старым силуэтом. */
+/** Готова ли геометрия пресета: остальные два пока строятся старым силуэтом. */
 export function isKeychainPresetImplemented(
   presetId: KeychainPresetId,
 ): boolean {
@@ -441,6 +613,34 @@ export function buildCapsule(
 
 /** Точка контура в плоскости XY, мм. */
 type ShapePoint = readonly [number, number];
+
+/** Точка на окружности радиуса `radius` под углом `angle` (радианы), мм. */
+function polarPoint(radius: number, angle: number): ShapePoint {
+  return [radius * Math.cos(angle), radius * Math.sin(angle)];
+}
+
+/** Единичный вектор из `from` в `to`: направление ребра без длины. */
+function unitVector(from: ShapePoint, to: ShapePoint): ShapePoint {
+  const length = Math.hypot(to[0] - from[0], to[1] - from[1]);
+
+  if (length === 0) {
+    return [0, 0];
+  }
+
+  return [(to[0] - from[0]) / length, (to[1] - from[1]) / length];
+}
+
+/** Точка начала дуги скругления по её центру, радиусу и углу, мм. */
+function arcStart(
+  center: ShapePoint,
+  radius: number,
+  angle: number,
+): ShapePoint {
+  return [
+    center[0] + radius * Math.cos(angle),
+    center[1] + radius * Math.sin(angle),
+  ];
+}
 
 /**
  * Точки, между которыми пройдёт скругление угла.
@@ -996,6 +1196,110 @@ export function buildTicket(
 }
 
 /**
+ * Вспышка из восьми лучей с отверстием под кольцо — пресет Starburst.
+ *
+ * Силуэт — звезда с шагом 45°, внешний радиус берётся по меньшей стороне
+ * слайдера и ужимается на поле 2 мм: при 42 × 44 мм габарит выходит 38 × 38,
+ * лучи одинаковой длины, а разница сторон уходит в поле. Глубина впадины —
+ * 35 % радиуса, кончик скруглён на 2 мм, впадина на 1.5 мм: этого хватает, чтобы
+ * силуэт читался как вспышка, а не как круг с волнами или шестерня.
+ *
+ * Скругление кончика срезает вершину луча, поэтому вершина выносится за внешний
+ * радиус на срезание: без этого габарит вышел бы меньше номинала почти на 2 мм.
+ * Отверстие Ø5 мм стоит в теле по центру: отдельное ушко вписывается только от
+ * 30 мм, а на 20 мм проушина не помещается между впадинами. Кольцо сквозное через
+ * `shape.holes` и упирается в впадину стенкой не меньше 3 мм.
+ */
+export function buildStarburst(
+  params: KeychainPresetGeometryParams,
+): ExtrudeGeometry {
+  const layout = starburstLayout(params.width, params.height);
+  const rayCount = layout.rayCount;
+  const pitch = (layout.pitchDeg * Math.PI) / 180;
+  const tips = Array.from({ length: rayCount }, (_, index) =>
+    polarPoint(layout.apexRadius, Math.PI / 2 + index * pitch),
+  );
+  const valleys = Array.from({ length: rayCount }, (_, index) =>
+    polarPoint(layout.innerRadius, Math.PI / 2 + pitch / 2 + index * pitch),
+  );
+  // Скругление кончика — дуга, вписанная в угол между рёбрами: её центр лежит на
+  // биссектрисе на расстоянии R / sin(θ / 2) от вершины, а разворот равен внешнему
+  // углу луча, то есть 180° − θ.
+  const arcs = tips.map((tip, index) => {
+    const toPrevious = unitVector(
+      tip,
+      valleys[(index + rayCount - 1) % rayCount],
+    );
+    const toNext = unitVector(tip, valleys[index]);
+    const cosine =
+      toPrevious[0] * toNext[0] + toPrevious[1] * toNext[1];
+    const halfAngle = Math.acos(Math.min(Math.max(cosine, -1), 1)) / 2;
+    const distance = layout.tipRadius / Math.sin(halfAngle);
+    const bisectorX = toPrevious[0] + toNext[0];
+    const bisectorY = toPrevious[1] + toNext[1];
+    const bisectorLength = Math.hypot(bisectorX, bisectorY);
+
+    return {
+      center: [
+        tip[0] + (bisectorX / bisectorLength) * distance,
+        tip[1] + (bisectorY / bisectorLength) * distance,
+      ] as ShapePoint,
+      startAngle:
+        Math.atan2(toPrevious[1], toPrevious[0]) + Math.PI / 2,
+      sweep: Math.PI - halfAngle * 2,
+    };
+  });
+  // Впадина скругляется квадратичной кривой с контрольной точкой в самой
+  // впадине: так же, как углы шестигранника, и без математики на вторую дугу.
+  const valleyRounds = valleys.map((valley, index) =>
+    cornerRoundPoints(
+      valley,
+      tips[index],
+      tips[(index + 1) % rayCount],
+      layout.valleyRadius,
+    ),
+  );
+  const shape = new Shape();
+  const start = arcStart(arcs[0].center, layout.tipRadius, arcs[0].startAngle);
+
+  shape.moveTo(start[0], start[1]);
+
+  // Обход против часовой стрелки: дуга кончика, ребро вниз к впадине, скругление
+  // впадины, ребро к следующему кончику.
+  for (let index = 0; index < rayCount; index += 1) {
+    const arc = arcs[index];
+    const round = valleyRounds[index];
+    const nextStart = arcStart(
+      arcs[(index + 1) % rayCount].center,
+      layout.tipRadius,
+      arcs[(index + 1) % rayCount].startAngle,
+    );
+
+    shape.absarc(
+      arc.center[0],
+      arc.center[1],
+      layout.tipRadius,
+      arc.startAngle,
+      arc.startAngle + arc.sweep,
+      false,
+    );
+    shape.lineTo(round.from[0], round.from[1]);
+    shape.quadraticCurveTo(
+      valleys[index][0],
+      valleys[index][1],
+      round.to[0],
+      round.to[1],
+    );
+    shape.lineTo(nextStart[0], nextStart[1]);
+  }
+  shape.closePath();
+
+  shape.holes.push(ringHolePath(0));
+
+  return extrudePresetShape(shape, params.thickness);
+}
+
+/**
  * Геометрия выбранного пресета.
  *
  * null означает «пресет ещё не реализован»: панель по этому же признаку гасит
@@ -1017,6 +1321,8 @@ export function buildKeychainPresetGeometry(
       return buildBrick(params);
     case "ticket":
       return buildTicket(params);
+    case "starburst":
+      return buildStarburst(params);
     default:
       return null;
   }
