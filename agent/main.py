@@ -44,15 +44,24 @@
 G-code не уходит. Пульс идёт отдельным потоком и не ждёт окончания печати: одно
 задание печатается часами.
 
-Сеть упала, сервер ответил 503 или не ответил вовсе — агент не вылетает:
-обрыв (`ConnectionError`) и таймаут уходят в журнал строкой «Сетевая ошибка,
-переподключение...», пульс повторяется через `RECONNECT_DELAY` секунд, а цикл
-опроса дожидается следующего интервала. Для фермы это важнее, чем «упасть и
+Сеть упала, сайт пересобирается (Rebuild, деплой, переезд на новый сервер) или
+сервер ответил 503 — агент не вылетает. Обрыв (`ConnectionError`) и таймаут
+уходят в журнал строкой «CRM недоступна (<причина>), повтор через 10 секунд...»,
+пульс повторяется через `RECONNECT_DELAY` секунд, а очередь — через
+`CRM_RETRY_DELAY` (десять: пересборка Next.js занимает десятки секунд, и опрос
+каждые пять секунд только долбит поднимающийся сайт). Любое неожиданное
+исключение ловится на верхнем уровне цикла: `logger.exception` пишет «Агент
+упал: …», процесс ждёт `RESTART_DELAY` секунд и продолжает опрос. Из процесса
+агент не выходит никогда — для фермы это важнее, чем «упасть и
 перезапуститься»: остановленный агент означает принтеры, которые стоят без
-задания и о поломке никто не узнает.
+задания, и о поломке никто не узнает.
 
-Запуск: `python main.py`. Переменные читаются из `.env` рядом с этим файлом
-(образец — `.env.example`, установка зависимостей — README.md).
+Запуск: `python main.py` или собранный `TriDiAgent.exe` (сборка —
+`python build_exe.py`, см. README.md). Переменные читаются из `.env` рядом с
+main.py, а у exe — рядом с самим exe: при первом запуске он создаётся из
+зашитого внутрь `.env.example`. Документы для мастера: SECURITY.md — что агент
+делает и чего не делает, AUTOSTART.md — автозапуск после перезагрузки Windows
+или Linux.
 """
 from __future__ import annotations
 
@@ -74,12 +83,35 @@ from adapters.factory import AdapterUnavailableError, get_adapter
 from gcode_metadata import read_gcode_estimate
 from scanner import scan_network, send_discovered_printers
 
-# `.env` ищем рядом с main.py, а не от текущей папки: агента запускают и из
-# своего каталога, и планировщиком из любого другого места.
-ENV_PATH = Path(__file__).resolve().parent / ".env"
+def read_app_dir() -> Path:
+    """
+    Папка, рядом с которой живут `.env` и `temp/`.
+
+    У скрипта это каталог `main.py`, у собранного `TriDiAgent.exe` — каталог
+    самого exe: PyInstaller `--onefile` распаковывает программу во временную
+    папку и подставляет туда `__file__`, поэтому без этой развилки `.env`
+    мастера искался бы в `%TEMP%`, а временные G-коды писались бы туда же.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+
+    return Path(__file__).resolve().parent
+
+
+APP_DIR = read_app_dir()
+
+# `.env` ищем рядом с программой, а не от текущей папки: агента запускают и из
+# своего каталога, и планировщиком или ярлыком автозагрузки из любого другого
+# места.
+ENV_PATH = APP_DIR / ".env"
+
+# Образец настроек, зашитый в exe (`--add-data .env.example`). При первом
+# запуске из него создаётся `.env`: мастеру остаётся вписать токен, а не искать
+# шаблон в архиве с программой.
+ENV_EXAMPLE_PATH = Path(getattr(sys, "_MEIPASS", APP_DIR)) / ".env.example"
 
 # Временные G-коды заданий: папка в `.gitignore`, файл удаляется после печати.
-TEMP_DIR = Path(__file__).resolve().parent / "temp"
+TEMP_DIR = APP_DIR / "temp"
 
 # Журнал в консоль: дата, время, уровень и сообщение.
 LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(message)s"
@@ -191,6 +223,18 @@ HEARTBEAT_INTERVAL = 30
 # Пауза после сетевой ошибки. Короче обычного интервала: связь могла моргнуть, и
 # пульс должен вернуться сразу, как только сеть появится.
 RECONNECT_DELAY = 5
+
+# Пауза, когда очередь печати не прочитана: CRM недоступна (обрыв, таймаут,
+# 503 вместо ответа). Десять секунд, а не пять: чаще всего это не «моргнувшая»
+# сеть, а Rebuild или деплой сайта — Next.js поднимается десятки секунд, и опрос
+# раз в пять секунд только долбит ещё не готовый сервер. Агент при этом жив:
+# принтеры не останавливаются, пульс идёт своим потоком.
+CRM_RETRY_DELAY = 10
+
+# Пауза после неожиданного исключения в цикле опроса (не сетевой ошибки, а
+# сломанного разбора или чужого ответа сервера). Минута: из процесса агент не
+# выходит никогда, но и крутить сломанный код в горячем цикле нельзя.
+RESTART_DELAY = 60
 
 # Пауза между сканированиями по просьбе мастера, если обход или сброс флага не
 # удался. Минута, а не пять секунд опроса: обход подсети на сотни адресов —
@@ -428,6 +472,35 @@ def read_scan_flag(raw: str) -> bool:
     return enabled
 
 
+def ensure_env_file() -> None:
+    """
+    Первый запуск exe: `.env` создаётся из зашитого образца.
+
+    У собранного `TriDiAgent.exe` рядом нет папки `agent/` с `.env.example`, и
+    мастер увидел бы только «заполните .env» — без файла, который можно открыть.
+    Образец едет внутри exe (`--add-data .env.example`), поэтому копию делаем
+    здесь и сразу пишем в журнал, что осталось вписать.
+
+    Ошибка файловой системы (нет прав на запись, диск только для чтения) агента
+    не роняет: `load_settings()` ниже скажет, чего не хватает.
+    """
+    if ENV_PATH.exists() or not ENV_EXAMPLE_PATH.exists():
+        return
+
+    try:
+        ENV_PATH.write_text(
+            ENV_EXAMPLE_PATH.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    except OSError as error:
+        logger.warning("Не удалось создать %s по образцу: %s", ENV_PATH, error)
+        return
+
+    logger.info(
+        "Создан %s по образцу .env.example: впишите AGENT_TOKEN и CRM_URL",
+        ENV_PATH,
+    )
+
+
 def load_settings() -> Settings | None:
     """
     Читает `.env` (и уже заданные переменные окружения) в Settings.
@@ -531,33 +604,68 @@ def parse_json_object(response: requests.Response) -> dict[str, Any] | None:
     return payload
 
 
-def log_network_error(action: str, error: requests.RequestException) -> None:
+def describe_network_error(error: requests.RequestException) -> str:
+    """
+    Причина сетевой ошибки словами — для строки «CRM недоступна (<причина>)».
+
+    Мастеру не нужен текст `HTTPConnectionPool(host=…): Max retries exceeded`,
+    ему нужно понять, что делать: ждать (сеть, таймаут) или проверять настройки
+    (неверный `CRM_URL`). Полный текст исключения всё равно остаётся в строке
+    журнала следом.
+    """
+    if isinstance(error, requests.Timeout):
+        return "таймаут"
+
+    if isinstance(error, requests.ConnectionError):
+        return "нет связи"
+
+    return type(error).__name__
+
+
+def log_network_error(
+    action: str,
+    error: requests.RequestException,
+    retry_delay: int = CRM_RETRY_DELAY,
+) -> None:
     """
     Сетевая ошибка — в журнал, а не наружу: агент продолжает работу.
 
-    `ConnectionError` и таймаут — это пропавшая сеть, а не отказ приложения и не
-    поломка принтера. Строка «Сетевая ошибка, переподключение...» подсказывает
-    мастеру, что делать ничего не нужно: агент повторит запрос сам. Остальные
-    отказы requests (например, неверный CRM_URL) — ошибка настройки, её пишем
-    как обычную ошибку.
+    `ConnectionError` и таймаут — это пропавшая сеть или пересобирающийся сайт,
+    а не отказ приложения и не поломка принтера. Строка «CRM недоступна
+    (нет связи), повтор через 10 секунд...» подсказывает мастеру, что делать
+    ничего не нужно: агент повторит запрос сам. Остальные отказы requests
+    (например, неверный CRM_URL) — ошибка настройки, её пишем как обычную
+    ошибку.
+
+    `retry_delay` — через сколько агент действительно повторит: у пульса свой
+    короткий `RECONNECT_DELAY`, у очереди — `CRM_RETRY_DELAY`.
 
     Исключение не выпускается: на ферме падение агента дороже неудачного запроса.
     """
     if isinstance(error, (requests.ConnectionError, requests.Timeout)):
-        logger.warning("Сетевая ошибка, переподключение... %s: %s", action, error)
+        logger.warning(
+            "CRM недоступна (%s), повтор через %s секунд... %s: %s",
+            describe_network_error(error),
+            retry_delay,
+            action,
+            error,
+        )
         return
 
     logger.error("%s: %s", action, error)
 
 
-def fetch_tasks() -> list[dict[str, Any]]:
+def fetch_tasks() -> list[dict[str, Any]] | None:
     """
     Очередь печати мастерской: `GET /api/agent/tasks`.
 
     Возвращает список заданий в формате роута (id, orderId, gcodeUrl, printer…
-    см. app/api/agent/tasks/route.ts). Пустой список — «печатать нечего» или
-    временная ошибка, которая уже записана в журнал: для вызывающего кода это
-    одно и то же — ждать следующего опроса.
+    см. app/api/agent/tasks/route.ts). Пустой список — «печатать нечего».
+
+    None — очередь не прочитана: нет сети, таймаут, отказ сервера (503 во время
+    Rebuild сайта, 401 из-за сменившегося токена) или непонятный ответ. Причина
+    уже в журнале, а `None` нужен вызывающему коду, чтобы отличить «нет заданий»
+    от «CRM недоступна» и выждать `CRM_RETRY_DELAY`, а не обычный интервал.
 
     Сетевые ошибки (нет сети, таймаут, обрыв) не бросаются наружу: агент должен
     дожить до следующего интервала.
@@ -572,14 +680,14 @@ def fetch_tasks() -> list[dict[str, Any]]:
         )
     except requests.RequestException as error:
         log_network_error("Очередь не запрошена", error)
-        return []
+        return None
 
     if response.status_code == 401:
         logger.error(
             "Сервер не принял AGENT_TOKEN (401): проверьте ключ в настройках "
             "мастерской — он мог смениться."
         )
-        return []
+        return None
 
     if not response.ok:
         logger.error(
@@ -587,18 +695,18 @@ def fetch_tasks() -> list[dict[str, Any]]:
             response.status_code,
             read_error_text(response),
         )
-        return []
+        return None
 
     payload = parse_json_object(response)
 
     if payload is None:
-        return []
+        return None
 
     tasks = payload.get("tasks")
 
     if not isinstance(tasks, list):
         logger.warning("В ответе нет списка tasks — пропускаю опрос")
-        return []
+        return None
 
     # Ответ сервера считаем недоверенным: в список берём только объекты.
     return [task for task in tasks if isinstance(task, dict)]
@@ -809,7 +917,7 @@ def send_heartbeat(reset_errors: bool = False) -> HeartbeatResult:
             timeout=REQUEST_TIMEOUT,
         )
     except requests.RequestException as error:
-        log_network_error("Пульс не отправлен", error)
+        log_network_error("Пульс не отправлен", error, RECONNECT_DELAY)
         return "network"
 
     if response.status_code == 401:
@@ -1982,9 +2090,14 @@ def stop_jobs(timeout: int = SHUTDOWN_JOIN_TIMEOUT) -> None:
             )
 
 
-def poll_once() -> list[dict[str, Any]]:
+def poll_once() -> tuple[list[dict[str, Any]], bool]:
     """
     Один опрос очереди: задачи плюс запись в журнал.
+
+    Возвращает пару «задания — очередь прочитана». Второе значение `False`
+    значит, что CRM не ответила (нет сети, таймаут, 503 во время Rebuild):
+    `run()` выждет `CRM_RETRY_DELAY` вместо обычного интервала, а пульс и
+    активные печати при этом продолжат работать.
 
     Исключения не выпускает: неожиданный ответ сервера или сломанный разбор не
     должны останавливать агента на ферме.
@@ -1993,17 +2106,20 @@ def poll_once() -> list[dict[str, Any]]:
         tasks = fetch_tasks()
     except Exception as error:  # noqa: BLE001 — агент не должен падать
         logger.exception("Очередь не прочитана: %s", error)
-        return []
+        return [], False
+
+    if tasks is None:
+        return [], False
 
     if not tasks:
-        return []
+        return [], True
 
     logger.info("Получено %d задач", len(tasks))
 
     for task in tasks:
         log_task(task)
 
-    return tasks
+    return tasks, True
 
 
 def run() -> int:
@@ -2021,10 +2137,21 @@ def run() -> int:
     Пульс мастерской идёт отдельным потоком (`heartbeat_loop()`), поэтому он не
     зависит ни от очереди, ни от длительности печати.
 
+    Агент не выходит из процесса при ошибках. Сеть и пересборка сайта — это
+    `CRM_RETRY_DELAY` (очередь) и `RECONNECT_DELAY` (пульс); любое неожиданное
+    исключение ловится на верхнем уровне цикла, пишется строкой «Агент упал:
+    …» и через `RESTART_DELAY` опрос продолжается. Перезапускать вручную не
+    нужно: на ферме остановленный агент — это принтеры без заданий.
+
     Возвращает код выхода: 0 — остановлено вручную (Ctrl+C), 1 — нет
     конфигурации, поэтому агент не запущен.
     """
     global _settings
+
+    # Первый запуск exe: `.env` рядом с программой создаётся из зашитого образца
+    # (`--add-data .env.example`), иначе мастеру нечего открывать и некуда
+    # вписать токен.
+    ensure_env_file()
 
     settings = load_settings()
 
@@ -2072,33 +2199,49 @@ def run() -> int:
 
     try:
         while True:
-            # Просьба мастера «найти принтеры в сети» проверяется на каждом
-            # опросе, но сам обход — не чаще SCAN_RETRY_DELAY: кнопка в
-            # интерфейсе ставит флаг, а не сканирует из браузера.
             try:
-                handle_scan_request()
-            except Exception as error:  # noqa: BLE001 — агент не должен падать
-                logger.exception("Запрос сканирования не обработан: %s", error)
-
-            # «Проверить связь» из формы принтера: просьба приходит тем же
-            # опросом, а ответ уходит в /api/agent/probe.
-            try:
-                handle_probe_requests()
-            except Exception as error:  # noqa: BLE001 — агент не должен падать
-                logger.exception("Проверка принтера не обработана: %s", error)
-
-            tasks = poll_once()
-
-            # Каждое задание — свой поток: десять принтеров печатают
-            # одновременно. Одно и то же задание (статус ещё `queued`) и занятый
-            # принтер отсекаются в start_job(), поэтому лишних печатей не будет.
-            for task in tasks:
+                # Просьба мастера «найти принтеры в сети» проверяется на каждом
+                # опросе, но сам обход — не чаще SCAN_RETRY_DELAY: кнопка в
+                # интерфейсе ставит флаг, а не сканирует из браузера.
                 try:
-                    start_job(task)
+                    handle_scan_request()
                 except Exception as error:  # noqa: BLE001 — агент не должен падать
-                    logger.exception("Задание не запущено: %s", error)
+                    logger.exception("Запрос сканирования не обработан: %s", error)
 
-            time.sleep(settings.poll_interval)
+                # «Проверить связь» из формы принтера: просьба приходит тем же
+                # опросом, а ответ уходит в /api/agent/probe.
+                try:
+                    handle_probe_requests()
+                except Exception as error:  # noqa: BLE001 — агент не должен падать
+                    logger.exception("Проверка принтера не обработана: %s", error)
+
+                tasks, crm_ok = poll_once()
+
+                # Каждое задание — свой поток: десять принтеров печатают
+                # одновременно. Одно и то же задание (статус ещё `queued`) и
+                # занятый принтер отсекаются в start_job(), поэтому лишних
+                # печатей не будет.
+                for task in tasks:
+                    try:
+                        start_job(task)
+                    except Exception as error:  # noqa: BLE001 — агент не должен падать
+                        logger.exception("Задание не запущено: %s", error)
+
+                # CRM не ответила (Rebuild, деплой, пропавшая сеть) — пауза
+                # длиннее обычной: сайт поднимается десятки секунд, а опрос
+                # каждые пять секунд ему не поможет.
+                time.sleep(settings.poll_interval if crm_ok else CRM_RETRY_DELAY)
+            except Exception as error:  # noqa: BLE001 — агент не выходит из процесса
+                # Любая неожиданность (сломанный разбор, чужая структура ответа,
+                # ошибка в адаптере до первого запроса) не должна убивать агента:
+                # на ферме это принтеры, которые стоят без заданий, и мастер,
+                # который об этом не знает.
+                logger.exception("Агент упал: %s", error)
+                logger.warning(
+                    "Цикл опроса перезапустится через %s секунд...", RESTART_DELAY
+                )
+                time.sleep(RESTART_DELAY)
+                continue
     except KeyboardInterrupt:
         logger.info("Агент остановлен")
         return 0

@@ -53,6 +53,11 @@ agent/temp/
 __pycache__/
 *.pyc
 
+# сборка локального агента (PyInstaller): exe, кеш и .spec — не в git
+agent/build/
+agent/dist/
+agent/*.spec
+
 # черновик аудита pre-launch (рабочие заметки, в репозиторий не идёт)
 scripts/pre-launch-audit.ts
 

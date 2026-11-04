@@ -15,3 +15,7 @@ websockets>=13
 # MQTT с TLS на порт 8883. Нужна версия 2.x — в ней явно выбирается версия
 # callback API (paho.mqtt.client.CallbackAPIVersion).
 paho-mqtt>=2.0
+
+# Сборка TriDiAgent.exe (build_exe.py). Нужен только на машине, которая собирает
+# установщик: на самой ферме exe работает без Python и без этих зависимостей.
+pyinstaller>=6.0

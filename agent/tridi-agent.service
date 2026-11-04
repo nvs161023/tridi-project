@@ -1,0 +1,40 @@
+# Служба systemd для локального агента TriDi (см. AUTOSTART.md).
+#
+# Установка:
+#   sudo cp tridi-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now tridi-agent
+#
+# Файл рассчитан на код и venv в /opt/tridi-agent; если папка другая —
+# поправьте WorkingDirectory и ExecStart.
+
+[Unit]
+Description=TriDi: локальный агент 3D-фермы
+Documentation=https://github.com/nvs161023/tridi-project/tree/main/agent
+# Сеть нужна до первого опроса: без неё агент стартует и всё равно ждёт, но
+# журнал начинался бы с ошибки соединения.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Без root: агенту нужны только сеть до принтеров и запись в свою папку.
+User=tridi
+Group=tridi
+WorkingDirectory=/opt/tridi-agent
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/tridi-agent/.venv/bin/python /opt/tridi-agent/main.py
+# Агент и сам не выходит из процесса при ошибках, но systemd страхует случай,
+# когда процесс всё-таки завершился: интерпретатор не запустился, файл
+# перезаписывали при обновлении.
+Restart=always
+RestartSec=10
+# Остановка по `systemctl stop`: агент получает SIGTERM и успевает закрыть
+# активные задания статусом.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
