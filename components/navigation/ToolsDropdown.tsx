@@ -3,23 +3,40 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+/**
+ * Пункт «Мастерская (Pro)»: ссылка и подпись под ним.
+ *
+ * Куда вести — решает шапка, а не меню: гость уходит на вход, ученик без
+ * пакета — на тарифы, обладатель пакета — в саму мастерскую. Так меню остаётся
+ * простым клиентским компонентом и не знает про сессию и подписку.
+ */
+export type WorkshopLink = {
+  href: string;
+  note: string;
+};
+
+type ToolIconName = "profiles" | "defects" | "workshop";
+
 type ToolLink = {
   href: string;
   title: string;
   description: string;
+  icon: ToolIconName;
 };
 
-/** Два инструмента, на которые ведёт меню «Инструменты» в шапке. */
-const TOOL_LINKS: ToolLink[] = [
+/** Инструменты, открытые всем: библиотека профилей и диагностика дефектов. */
+const OPEN_TOOL_LINKS: ToolLink[] = [
   {
     href: "/profiles",
     title: "Библиотека профилей",
     description: "Настройки слайсеров и материалов",
+    icon: "profiles",
   },
   {
     href: "/tools/defects",
     title: "Диагностика дефектов",
     description: "Причины и пошаговые решения",
+    icon: "defects",
   },
 ];
 
@@ -45,6 +62,105 @@ function ChevronIcon({ className }: { className?: string }) {
 }
 
 /**
+ * Иконка инструмента. Рисунок мелкий и декоративный: смысл несёт подпись,
+ * поэтому `aria-hidden`, а размер задаёт иконка-обёртка в ссылке.
+ */
+function ToolIcon({
+  name,
+  className,
+}: {
+  name: ToolIconName;
+  className?: string;
+}) {
+  if (name === "workshop") {
+    // Принтер: мастерская — про заказы, склад и печать.
+    return (
+      <svg
+        aria-hidden="true"
+        className={className}
+        fill="none"
+        focusable="false"
+        viewBox="0 0 24 24"
+      >
+        <path
+          d="M7.4 9V4.5h9.2V9"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M7.4 17.6H5.4A1.4 1.4 0 0 1 4 16.2v-5.4A1.4 1.4 0 0 1 5.4 9.4h13.2A1.4 1.4 0 0 1 20 10.8v5.4a1.4 1.4 0 0 1-1.4 1.4h-2"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M7.4 14.4h9.2V20H7.4z"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M16.6 12.4h.9"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeWidth="1.7"
+        />
+      </svg>
+    );
+  }
+
+  if (name === "profiles") {
+    return (
+      <svg
+        aria-hidden="true"
+        className={className}
+        fill="none"
+        focusable="false"
+        viewBox="0 0 24 24"
+      >
+        <path
+          d="m12 3.5 8.4 4.3-8.4 4.3-8.4-4.3L12 3.5Z"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+        <path
+          d="m3.6 12 8.4 4.3 8.4-4.3"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <circle
+        cx="10.6"
+        cy="10.6"
+        r="6.4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="m15.4 15.4 4.4 4.4"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
+/**
  * Выпадающее меню «Инструменты» для десктопной навигации.
  *
  * Это единственный клиентский элемент шапки: остальная навигация остаётся
@@ -52,11 +168,25 @@ function ChevronIcon({ className }: { className?: string }) {
  * ссылке; после Escape фокус возвращается на кнопку. Список ссылок — обычный
  * `<ul>`, а не `role="menu"`: так ссылки работают привычными Tab/Enter без
  * собственной реализации клавиатурного меню.
+ *
+ * «Мастерская (Pro)» стоит первой и подписана по доступу: новому пользователю
+ * она нужна больше всего, а подпись «Требуется подписка Pro» объясняет, почему
+ * пункт ведёт на тарифы.
  */
-export function ToolsDropdown() {
+export function ToolsDropdown({ workshop }: { workshop: WorkshopLink }) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const toolLinks: ToolLink[] = [
+    {
+      href: workshop.href,
+      title: "Мастерская (Pro)",
+      description: workshop.note,
+      icon: "workshop",
+    },
+    ...OPEN_TOOL_LINKS,
+  ];
 
   useEffect(() => {
     if (!isOpen) {
@@ -117,18 +247,23 @@ export function ToolsDropdown() {
             Инструменты TriDi
           </p>
           <ul className="space-y-1">
-            {TOOL_LINKS.map((tool) => (
+            {toolLinks.map((tool) => (
               <li key={tool.href}>
                 <Link
                   href={tool.href}
                   onClick={() => setIsOpen(false)}
-                  className="flex flex-col gap-0.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.07] focus-visible:bg-white/[0.07] focus-visible:outline-none"
+                  className="flex items-start gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.07] focus-visible:bg-white/[0.07] focus-visible:outline-none"
                 >
-                  <span className="text-sm font-semibold text-slate-100">
-                    {tool.title}
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-slate-300">
+                    <ToolIcon name={tool.icon} className="h-4 w-4" />
                   </span>
-                  <span className="text-xs leading-relaxed text-slate-300">
-                    {tool.description}
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-sm font-semibold text-slate-100">
+                      {tool.title}
+                    </span>
+                    <span className="text-xs leading-relaxed text-slate-300">
+                      {tool.description}
+                    </span>
                   </span>
                 </Link>
               </li>

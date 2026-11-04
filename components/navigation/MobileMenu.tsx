@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 type MobileMenuProps = {
   isAuthorized: boolean;
   lessonsHref: string;
+  /** Куда ведёт «Мастерская (Pro)»: в мастерскую, на тарифы или на вход. */
+  workshopHref: string;
 };
 
 type MenuLink = {
@@ -21,12 +23,6 @@ const MAIN_LINKS: MenuLink[] = [
   { href: "/blog", label: "Блог" },
   { href: "/forum", label: "Форум" },
   { href: "/subscription", label: "Тарифы" },
-];
-
-/** Инструменты — те же ссылки, что и в десктопном меню. */
-const TOOL_LINKS: MenuLink[] = [
-  { href: "/tools", label: "Центр инструментов" },
-  { href: "/tools/defects", label: "Диагностика дефектов" },
 ];
 
 const MOBILE_LINK_CLASS =
@@ -76,8 +72,15 @@ function BurgerIcon({ isOpen }: { isOpen: boolean }) {
  * Панель позиционируется абсолютно относительно `<header>` (у него
  * `position: sticky`), а не относительно кнопки: так на узких экранах она
  * растягивается по ширине окна и не уезжает за левый край.
+ *
+ * Ссылку «Мастерская (Pro)» меню получает готовой: шапка уже решила, ведёт она
+ * в мастерскую, на тарифы или на вход, поэтому меню не знает про сессию и Pro.
  */
-export function MobileMenu({ isAuthorized, lessonsHref }: MobileMenuProps) {
+export function MobileMenu({
+  isAuthorized,
+  lessonsHref,
+  workshopHref,
+}: MobileMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -117,6 +120,15 @@ export function MobileMenu({ isAuthorized, lessonsHref }: MobileMenuProps) {
   }, [isOpen]);
 
   const closeMenu = () => setIsOpen(false);
+
+  // «Инструменты» — те же ссылки, что в десктопном меню, плюс «Мастерская
+  // (Pro)». Она стоит сразу после «Центра инструментов»: это единственный пункт
+  // раздела, ради которого нужен пакет, и на телефоне его иначе не найти.
+  const toolLinks: MenuLink[] = [
+    { href: "/tools", label: "Центр инструментов" },
+    { href: workshopHref, label: "Мастерская (Pro)" },
+    { href: "/tools/defects", label: "Диагностика дефектов" },
+  ];
 
   return (
     <>
@@ -162,7 +174,7 @@ export function MobileMenu({ isAuthorized, lessonsHref }: MobileMenuProps) {
               Инструменты
             </p>
             <ul className="space-y-1">
-              {TOOL_LINKS.map((link) => (
+              {toolLinks.map((link) => (
                 <li key={link.href}>
                   <Link
                     href={link.href}

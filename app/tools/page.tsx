@@ -5,11 +5,13 @@ import { Header } from "@/components/Header";
 import { defects } from "@/lib/defects";
 import { profileCount } from "@/lib/profiles";
 import { OG_IMAGE } from "@/lib/seo";
+import { createClient } from "@/lib/supabase/server";
+import { hasActiveSubscription } from "@/lib/subscription";
 
-const PAGE_TITLE = "3D-инструменты: профили и диагностика";
+const PAGE_TITLE = "3D-инструменты: профили, дефекты и мастерская";
 const PAGE_DESCRIPTION =
-  "Центр инструментов TriDi: библиотека профилей слайсеров и справочник дефектов печати с причинами и пошаговыми решениями.";
-const PAGE_IMAGE_ALT = "TriDi: профили печати и справочник дефектов";
+  "Центр инструментов TriDi: библиотека профилей слайсеров, справочник дефектов печати и мастерская для 3D-фермы — заказы, принтеры и склад в одном окне.";
+const PAGE_IMAGE_ALT = "TriDi: профили печати, справочник дефектов и мастерская";
 
 export const metadata: Metadata = {
   title: PAGE_TITLE,
@@ -48,7 +50,7 @@ export const metadata: Metadata = {
 /** Шапка читает cookies, поэтому страница собирается на каждый запрос. */
 export const dynamic = "force-dynamic";
 
-type ToolIconName = "profiles" | "defects";
+type ToolIconName = "profiles" | "defects" | "workshop";
 
 type Tool = {
   href: string;
@@ -124,6 +126,44 @@ function DiagnosticIcon({ className }: { className?: string }) {
   );
 }
 
+/** Принтер — мастерская: заказы, склад и печать в одном окне. */
+function PrinterIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M7.4 9V4.5h9.2V9"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M7.4 17.6H5.4A1.4 1.4 0 0 1 4 16.2v-5.4A1.4 1.4 0 0 1 5.4 9.4h13.2A1.4 1.4 0 0 1 20 10.8v5.4a1.4 1.4 0 0 1-1.4 1.4h-2"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M7.4 14.4h9.2V20H7.4z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M16.6 12.4h.9"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.7"
+      />
+    </svg>
+  );
+}
+
 function ToolIcon({
   name,
   className,
@@ -137,6 +177,10 @@ function ToolIcon({
 
   if (name === "defects") {
     return <DiagnosticIcon className={className} />;
+  }
+
+  if (name === "workshop") {
+    return <PrinterIcon className={className} />;
   }
 
   return null;
@@ -183,7 +227,41 @@ const TOOLS: Tool[] = [
   },
 ];
 
-export default function ToolsPage() {
+/**
+ * Мастерская — Pro-инструмент, поэтому карточка отдельная: у неё своя кнопка
+ * «Оформить подписку» для тех, у кого пакета нет, и ссылка, которая ведёт гостя
+ * на вход, а ученика без пакета — на тарифы.
+ */
+const WORKSHOP_TOOL = {
+  title: "Мастерская (CRM для 3D-фермы)",
+  description:
+    "Управляйте заказами, принтерами и складом в одном окне. Канбан, интеграции с Ozon/WB/Яндекс, автоматизация печати.",
+  bullets: [
+    "Заказы и клиенты на канбане со статусами",
+    "Склад катушек, принтеры и обслуживание",
+    "Выгрузка на Ozon, Wildberries и Яндекс Маркет",
+  ],
+} as const;
+
+/** Три инструмента: две карточки из TOOLS и мастерская. */
+const TOOL_COUNT = TOOLS.length + 1;
+
+export default async function ToolsPage() {
+  // Доступ нужен карточке мастерской: гость уходит на вход с возвратом в
+  // мастерскую, ученик без пакета — на тарифы. Шапка проверяет то же самое для
+  // своего меню, поэтому пункты ведут в те же места.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const hasPro = user ? await hasActiveSubscription(supabase, user.id) : false;
+
+  const workshopHref = hasPro
+    ? "/dashboard/workshop"
+    : user
+      ? "/subscription"
+      : "/auth/login?next=/dashboard/workshop";
+
   return (
     <div className="min-h-screen text-slate-100">
       <Header />
@@ -209,14 +287,14 @@ export default function ToolsPage() {
             </h1>
 
             <p className="mt-6 max-w-3xl text-lg leading-relaxed text-slate-300 sm:text-xl">
-              Два помощника для практики: подобрать профиль слайсера и
-              разобраться, почему деталь не получилась. Начните с задачи, а не с
-              перебора настроек.
+              Три помощника для практики: подобрать профиль слайсера, разобраться,
+              почему деталь не получилась, и вести заказы мастерской. Начните с
+              задачи, а не с перебора настроек.
             </p>
 
             <div className="mt-7 flex flex-wrap gap-2.5 text-xs font-semibold sm:text-sm">
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                2 инструмента
+                {TOOL_COUNT} инструмента
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
                 {profileCount} профилей печати
@@ -246,12 +324,77 @@ export default function ToolsPage() {
                 </h2>
               </div>
               <p className="max-w-md text-sm leading-relaxed text-slate-300 sm:text-base">
-                Библиотека профилей открывается пакетом «Всё включено»,
-                диагностика дефектов доступна всем и без регистрации.
+                Мастерская и библиотека профилей открываются пакетом «Всё
+                включено», диагностика дефектов доступна всем и без регистрации.
               </p>
             </div>
 
             <div className="mt-8 grid gap-5 md:grid-cols-2">
+              <article className="flex h-full flex-col rounded-3xl border border-blue-400/20 bg-white/[0.04] p-6 transition duration-200 hover:border-blue-400/40 hover:bg-white/[0.07] sm:p-7 md:col-span-2">
+                <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 max-w-2xl">
+                    <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-400/30 bg-blue-500/10 text-blue-300">
+                      <ToolIcon name="workshop" className="h-7 w-7" />
+                    </span>
+
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
+                        CRM · 3D-печать
+                      </span>
+                      {hasPro ? (
+                        <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+                          Pro · доступ открыт
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-amber-400/25 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-200">
+                          Требуется Pro
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="mt-4 text-2xl font-bold tracking-tight text-white">
+                      {WORKSHOP_TOOL.title}
+                    </p>
+                    <p className="mt-3 text-base leading-relaxed text-slate-200">
+                      {WORKSHOP_TOOL.description}
+                    </p>
+
+                    <ul className="mt-5 space-y-2.5">
+                      {WORKSHOP_TOOL.bullets.map((bullet) => (
+                        <li
+                          key={bullet}
+                          className="flex gap-2.5 text-sm leading-relaxed text-slate-300"
+                        >
+                          <span
+                            aria-hidden="true"
+                            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400"
+                          />
+                          <span>{bullet}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="flex shrink-0 flex-col gap-2.5 sm:flex-row lg:flex-col lg:items-stretch">
+                    <Link
+                      href={workshopHref}
+                      className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-blue-500 px-6 text-sm font-semibold text-white transition-colors hover:bg-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    >
+                      Открыть мастерскую
+                      <span aria-hidden>→</span>
+                    </Link>
+                    {hasPro ? null : (
+                      <Link
+                        href="/subscription"
+                        className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/15 px-6 text-sm font-semibold text-slate-200 transition-colors hover:border-white/30 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                      >
+                        Оформить подписку
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              </article>
+
               {TOOLS.map((tool) => (
                 <Link
                   key={tool.href}

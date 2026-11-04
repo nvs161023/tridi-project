@@ -7,6 +7,7 @@ import { MobileMenu } from "@/components/navigation/MobileMenu";
 import { ToolsDropdown } from "@/components/navigation/ToolsDropdown";
 import { createClient } from "@/lib/supabase/server";
 import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
+import { hasActiveSubscription } from "@/lib/subscription";
 
 /**
  * Ссылка «Активировать код» — вторичная: серый текст, белый при наведении,
@@ -48,6 +49,14 @@ function getInitials(email: string | null): string {
  * Важно: cookies() делает страницу, где стоит шапка, динамической — Next.js
  * отдаёт её на каждый запрос, без статической генерации. Для страницы с
  * персональной шапкой это ожидаемая цена.
+ *
+ * Про-доступ нужен одному пункту меню «Инструменты» — «Мастерская (Pro)». Он
+ * проверяется здесь, потому что у гостя и ученика без пакета пункт ведёт в
+ * разные места: гостя отправляем на вход, ученика — на тарифы. Это две лёгкие
+ * выборки (purchases и subscriptions) и только для авторизованных: гость их не
+ * платит, а ошибка проверки означает «пакета нет» — так же, как в остальном
+ * сайте. Подпись под пунктом («Требуется подписка Pro») собирается из того же
+ * ответа, поэтому лишних запросов ради текста нет.
  */
 export async function Header() {
   const requestUser = decodeRequestUser((await headers()).get(USER_HEADER));
@@ -55,6 +64,7 @@ export async function Header() {
 
   let isAuthorized = Boolean(requestUser);
   let userEmail = requestUser?.email ?? null;
+  let userId = requestUser?.id ?? null;
 
   if (!isAuthorized) {
     const {
@@ -63,9 +73,24 @@ export async function Header() {
 
     isAuthorized = Boolean(user);
     userEmail = user?.email ?? null;
+    userId = user?.id ?? null;
   }
 
   const lessonsHref = isAuthorized ? "/dashboard" : "/course/lesson-1";
+  const hasPro = userId ? await hasActiveSubscription(supabase, userId) : false;
+
+  // Мастерская живёт в кабинете и открывается пакетом «Всё включено».
+  const workshop = hasPro
+    ? {
+        href: "/dashboard/workshop",
+        note: "Заказы, принтеры и склад в одном окне",
+      }
+    : isAuthorized
+      ? { href: "/subscription", note: "Требуется подписка Pro" }
+      : {
+          href: "/auth/login?next=/dashboard/workshop",
+          note: "Вход в аккаунт, затем пакет Pro",
+        };
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/5 bg-black/50 backdrop-blur-xl print:hidden">
@@ -110,14 +135,18 @@ export async function Header() {
             >
               Тарифы
             </Link>
-            <ToolsDropdown />
+            <ToolsDropdown workshop={workshop} />
           </nav>
 
           <Link href="/activate" className={activationLinkClassName}>
             Активировать код
           </Link>
 
-          <MobileMenu isAuthorized={isAuthorized} lessonsHref={lessonsHref} />
+          <MobileMenu
+            isAuthorized={isAuthorized}
+            lessonsHref={lessonsHref}
+            workshopHref={workshop.href}
+          />
 
           {isAuthorized ? (
             <>
