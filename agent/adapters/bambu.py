@@ -27,18 +27,22 @@
     финале делает `unwrap()` и ждёт ответный `close_notify`, которого Bambu не
     присылает, — передача висит уже после последнего байта. Последняя попытка —
     HTTP POST на `/api/files/local` с заголовком `X-Api-Key`. Файл кладём в
-    папку `model` на карте памяти (`STOR model/<имя>`): прошивка A1 берёт
-    задание только оттуда по `url` команды печати, а корень карты и папка
-    `cache` давали `0500-C010`. На принтер уходит только проект
+    папку `model` на карте памяти (`STOR model/<имя>.gcode.3mf`), а имя получает
+    двойное расширение `.gcode.3mf`: A1 принимает задание только в нём, с одним
+    `.3mf` команда печати отвечает `0500-C010`. После `226` размер файла
+    сверяется через `SIZE` (до трёх раз с паузой 2 с): `226` значит «данные
+    приняты», а не «легли на карту», и `project_file` на недописанном файле
+    встаёт с тем же `0500-C010`. На принтер уходит только проект
     `.3mf`, сохранённый из Bambu Studio («Экспорт файла пластины»): плоский
     `.gcode` A1 не разбирает, а STL не нарезает — оба отклоняются до сети
     (`formats.py`, `read_bambu_project()`), вместе с проверкой, что проект
     нарезан для этой модели принтера;
   - `start_print()` — команда `project_file` в `device/<serial>/request`:
     `param=Metadata/plate_<N>.gcode` (запись внутри контейнера, номер пластины
-    из самого проекта) и `url=file:///sdcard/model/<имя>.3mf` (сам файл в папке
-    `model` на карте; второй вариант — `ftp:///model/<имя>.3mf`, если прошивка
-    понимает только схему FTP). Отправка в брокер
+    из самого проекта), `url=file:///sdcard/model/<имя>.gcode.3mf` (сам файл в
+    папке `model` на карте) и `md5` загруженного файла. Схему `ftp:///` A1 не
+    понимает: на неё, как и на корень карты, приходит `0500-C010`. Отправка в
+    брокер
     ничего не подтверждает (QoS 0), поэтому метод ждёт отчёт принтера с тем же
     `sequence_id` и отдаёт его `result`/`reason` в `last_error`: «команда
     отправлена» и «печать началась» — разные вещи;
@@ -115,8 +119,10 @@ from .base import (
 )
 from .formats import (
     BAMBU_GCODE_PART,
+    REMOTE_NAME_MAX,
     FormatError,
     bambu_compat_error,
+    file_digest,
     read_bambu_project,
 )
 
@@ -224,12 +230,24 @@ SSDP_TARGET = "urn:bambulab-com:device:3dprinter:1"
 # `url` контейнера в команде `project_file`: файл лежит в папке `model` на
 # карте памяти — только оттуда прошивка A1 берёт задание. Корень карты она не
 # читает: `project_file` с корневым путём и путь из папки `cache` дают
-# `0500-C010` (ошибка файла), хотя загрузка проходит и карта исправна. Первый
-# вариант — путь LAN-режима (`file:///sdcard/model/<имя>.3mf`), второй — та же
-# папка по FTP (`ftp:///model/<имя>.3mf`): прошивки расходятся в схеме, а отказ
-# приходит за секунды и виден в журнале.
+# `0500-C010` (ошибка файла), хотя загрузка проходит и карта исправна. Схема
+# одна — `file:///sdcard/model/<имя>.gcode.3mf`: `ftp:///model/...` A1 тоже
+# отвергает с `0500-C010`.
 PROJECT_URL_PREFIX = "file:///sdcard/"
-FTP_URL_PREFIX = "ftp:///"
+
+# Двойное расширение файла на карте. A1 берёт задание только у проекта с
+# `.gcode.3mf`: с одним `.3mf` (так файл называет задание и Bambu Studio)
+# команда печати отвечает `0500-C010`, хотя загрузка прошла и `SIZE` совпал.
+# Поэтому при загрузке имя меняется один раз — и в `STOR`, и в `url`, и в
+# `start_print()` оно одно и то же.
+BAMBU_PROJECT_SUFFIX = ".gcode.3mf"
+
+# Сколько раз сверять размер файла на карте и сколько ждать между проверками.
+# `226` на `STOR` значит «данные приняты», а не «записаны на карту»: сразу после
+# ответа `SIZE` иногда отдаёт файл короче локального, и `project_file` на таком
+# файле встаёт с `0500-C010`. Пауза даёт карте дописать буферы.
+FTP_SIZE_ATTEMPTS = 3
+FTP_SIZE_RETRY_DELAY = 2.0
 
 # Папка на карте, куда кладётся файл задания (`STOR model/<имя>`) и откуда его
 # берёт прошивка. Одна константа на загрузку, `url` и проверку размера: путь в
@@ -757,6 +775,40 @@ def storage_path(remote_name: str) -> str:
     `STOR`, у `url` команды печати и у проверки размера файла.
     """
     return f"{FTP_MODEL_DIRECTORY}/{remote_name}"
+
+
+def project_name(remote_name: str) -> str:
+    """
+    Имя проекта на карте: `<основа>.gcode.3mf`.
+
+    A1 берёт задание только у файла с двойным расширением `.gcode.3mf`: с одним
+    `.3mf` (так называет файл задание, и так его сохраняет Bambu Studio) команда
+    печати отвечает `0500-C010`, хотя файл на карте и размер совпал.
+
+    Функция идемпотентна: имя, которое уже кончается на `.gcode.3mf`, не
+    меняется. Это важно потому, что `upload_file()` получает имя задания, а
+    `start_print()` — то же имя ещё раз (main.py передаёт его в оба метода), и
+    оба обязаны прийти к одному файлу на карте.
+
+    Длина ограничена `REMOTE_NAME_MAX`: `sanitize_remote_name()` уже обрезал имя
+    под `.3mf`, а `.gcode.3mf` на шесть символов длиннее — основу укорачиваем,
+    расширение оставляем: без него прошивка файл не примет.
+    """
+    name = remote_name.strip()
+
+    if name.lower().endswith(BAMBU_PROJECT_SUFFIX):
+        base = name[: -len(BAMBU_PROJECT_SUFFIX)]
+    elif name.lower().endswith(".3mf"):
+        base = name[: -len(".3mf")]
+    else:
+        base = name
+
+    base = base.strip("._-") or "job"
+    room = REMOTE_NAME_MAX - len(BAMBU_PROJECT_SUFFIX)
+
+    return f"{base[:room]}{BAMBU_PROJECT_SUFFIX}"
+
+
 def _ensure_remote_directory(ftp: _ImplicitFtpTls, directory: str, host: str) -> None:
     """
     Создаёт папку на карте, если её ещё нет: `MKD model`.
@@ -774,19 +826,18 @@ def _ensure_remote_directory(ftp: _ImplicitFtpTls, directory: str, host: str) ->
         logger.info("Bambu %s: FTPS — папка %s уже есть (%s)", host, directory, error)
 
 
-
-
-
-def _project_file_payloads(
-    remote_name: str, gcode_part: str = BAMBU_GCODE_PART
-) -> list[dict[str, Any]]:
+def _project_file_payload(
+    remote_name: str,
+    gcode_part: str = BAMBU_GCODE_PART,
+    md5: str | None = None,
+) -> dict[str, Any]:
     """
-    Варианты команды `project_file` — в порядке проверки.
+    Тело команды `project_file` — то, что присылает Bambu Studio.
 
-    Набор полей повторяет то, что присылает Bambu Studio: кроме `param` и `url`
-    прошивка ждёт `project_id`, `profile_id`, `task_id` и `subtask_id` (у
-    локальной печати они всегда `"0"`) и флаги калибровки. Без идентификаторов
-    часть прошивок отвечает `success`, но задание в работу не берёт.
+    Кроме `param` и `url` прошивка ждёт `project_id`, `profile_id`, `task_id` и
+    `subtask_id` (у локальной печати они всегда `"0"`) и флаги калибровки. Без
+    идентификаторов часть прошивок отвечает `success`, но задание в работу не
+    берёт.
 
     `param` — запись внутри контейнера (`Metadata/plate_1.gcode`), `url` — файл
     на карте памяти принтера: Bambu забирает его сам, второй раз по сети файл не
@@ -797,24 +848,22 @@ def _project_file_payloads(
     контейнере нарезана не первая пластина, `param` с `plate_1` указал бы на
     несуществующую запись, и принтер ответил бы отказом.
 
-    Файл лежит в папке `model` на карте (`storage_path()`), поэтому и `url`
-    ведёт в неё: первый вариант — путь LAN-режима
-    (`file:///sdcard/model/<имя>`), второй — та же папка по FTP
-    (`ftp:///model/<имя>`). Схемы расходятся между прошивками, а отказ приходит
-    за секунды, поэтому вариант дешевле ещё одного круга «правка — печать».
+    `md5` — контрольная сумма загруженного файла. Считается в
+    `prepare_upload()`; `None` — сумма неизвестна (файл на карте не от агента),
+    и поле в команду не попадает.
     """
-    common: dict[str, Any] = {
+    payload: dict[str, Any] = {
         "command": "project_file",
         "param": gcode_part,
+        "url": f"{PROJECT_URL_PREFIX}{storage_path(remote_name)}",
         "subtask_name": remote_name,
         "project_id": "0",
         "profile_id": "0",
         "task_id": "0",
         "subtask_id": "0",
         "bed_type": "auto",
-        "timelapse": False,
-        # Калибровки не запускаем: они удлиняют старт на несколько минут, а
-        # стол A1 выравнивает сам.
+        # Калибровки при старте не запускаем: они удлиняют старт на несколько
+        # минут, а стол A1 выравнивает сам (`bed_levelling`).
         "bed_levelling": True,
         "flow_cali": False,
         "vibration_cali": False,
@@ -822,13 +871,10 @@ def _project_file_payloads(
         "use_ams": False,
     }
 
-    return [
-        {
-            **common,
-            "url": f"{PROJECT_URL_PREFIX}{storage_path(remote_name)}",
-        },
-        {**common, "url": f"{FTP_URL_PREFIX}{storage_path(remote_name)}"},
-    ]
+    if md5:
+        payload["md5"] = md5
+
+    return payload
 
 
 def _reply_error(reply: dict[str, Any] | None) -> str | None:
@@ -965,6 +1011,11 @@ class BambuAdapter(BasePrinterAdapter):
         # проекта печатать нельзя, но значение по умолчанию не должно быть
         # пустым.
         self._gcode_part = BAMBU_GCODE_PART
+        # MD5 загруженного файла: его ждёт `project_file` (`md5`) и сверяет с тем,
+        # что лежит на карте. Считается один раз в `prepare_upload()`: файл
+        # десятки мегабайт, и повторный хеш перед командой печати — лишние
+        # секунды на каждое задание. `None` — сумма неизвестна.
+        self._upload_md5: str | None = None
 
     def _next_sequence(self) -> str:
         """Номер команды: Bambu сверяет ответ с запросом по нему."""
@@ -1603,9 +1654,15 @@ class BambuAdapter(BasePrinterAdapter):
         `self._gcode_part`: `start_print()` обязан указать её в `param`, иначе
         принтер ищет в контейнере несуществующую первую пластину.
 
-        Готовый `.3mf` уходит как есть, имя контейнера не меняется: команда
-        печати указывает на тот файл, который лёг на карту, иначе принтер
-        ответит «файл не найден».
+        Имя файла на карте получает двойное расширение (`project_name()`):
+        `42.3mf` → `42.gcode.3mf`. A1 берёт задание только у `.gcode.3mf`, а с
+        одним `.3mf` команда печати отвечает `0500-C010`, хотя файл на месте и
+        размер совпал. Имя меняется здесь, до загрузки: `start_print()` получает
+        от main.py то же имя задания и приводит его так же — файл на карте и
+        `url` команды печати обязаны совпадать.
+
+        MD5 считается здесь же (`file_digest()`): команда `project_file` несёт
+        его в поле `md5`, и второй раз по сотне мегабайт его никто не читает.
         """
         plan = super().prepare_upload(local_path, remote_name)
         project = read_bambu_project(plan.path)
@@ -1615,6 +1672,10 @@ class BambuAdapter(BasePrinterAdapter):
             raise FormatError(mismatch)
 
         self._gcode_part = project.gcode_part
+        name = project_name(plan.remote_name)
+        plan = plan._replace(remote_name=name, md5=file_digest(plan.path))
+        self._upload_md5 = plan.md5
+
         logger.info(
             "Bambu %s: проект %s — пластина %d (%s), нарезан для %s",
             self.host,
@@ -1984,20 +2045,68 @@ class BambuAdapter(BasePrinterAdapter):
     def _verify_remote_size(
         self, ftp: _ImplicitFtpTls, remote_path: str, local_size: int
     ) -> None:
-        """Сверяет размер файла на карте с локальным; расхождение — ошибка."""
-        try:
-            remote_size = ftp.size(remote_path)
-        except (OSError, ftplib.Error) as error:
-            logger.info(
-                "Bambu %s: размер %s не проверен (SIZE не поддержан: %s)",
+        """
+        Ждёт, пока файл на карте дочитается: сверяет `SIZE` с локальным размером.
+
+        `226` на `STOR` значит «данные приняты», а не «записаны на карту»: карта
+        дописывает буферы после ответа, и `SIZE` сразу после `226` иногда отдаёт
+        файл короче локального. `project_file` на таком файле встаёт с
+        `0500-C010` (ошибка файла), хотя загрузка прошла. Поэтому размер
+        спрашивается до `FTP_SIZE_ATTEMPTS` раз с паузой `FTP_SIZE_RETRY_DELAY`:
+        совпал — пишем подтверждение и выходим, нет — ждём и спрашиваем снова.
+
+        Не сошлось ни разу — `error_temp`: загрузка считается неудачной, и
+        `_upload_once()` повторит её целиком. Отправить `project_file` раньше
+        нельзя: команда печати на недописанный файл — это `0500-C010` уже на
+        экране принтера, а не причина в `last_error`.
+
+        `SIZE` не поддержан или размер неизвестен — проверка пропускается: это
+        подсказка, а не обязательный шаг, и отказывать в печати из-за неё нельзя.
+        """
+        remote_size: int | None = None
+
+        for attempt in range(1, FTP_SIZE_ATTEMPTS + 1):
+            try:
+                remote_size = ftp.size(remote_path)
+            except (OSError, ftplib.Error) as error:
+                logger.info(
+                    "Bambu %s: размер %s не проверен (SIZE не поддержан: %s)",
+                    self.host,
+                    remote_path,
+                    error,
+                )
+                return
+
+            if remote_size is None:
+                logger.info(
+                    "Bambu %s: размер %s не проверен (принтер не ответил на SIZE)",
+                    self.host,
+                    remote_path,
+                )
+                return
+
+            if remote_size == local_size:
+                logger.info(
+                    "Файл %s подтверждён на SD-карте (размер %d байт)",
+                    remote_path,
+                    remote_size,
+                )
+                return
+
+            logger.warning(
+                "Bambu %s: на карте %s — %d байт вместо %d (проверка %d/%d)",
                 self.host,
                 remote_path,
-                error,
+                remote_size,
+                local_size,
+                attempt,
+                FTP_SIZE_ATTEMPTS,
             )
-            return
 
-        if remote_size is None or remote_size == local_size:
-            return
+            if attempt < FTP_SIZE_ATTEMPTS:
+                # Карте нужно время дописать буферы: без паузы следующая
+                # проверка вернула бы тот же неполный размер.
+                time.sleep(FTP_SIZE_RETRY_DELAY)
 
         raise ftplib.error_temp(
             f"на карте {remote_size} байт вместо {local_size}: файл записан не целиком"
@@ -2011,15 +2120,18 @@ class BambuAdapter(BasePrinterAdapter):
         `gcode_file`, поэтому загружается только `.3mf` из Bambu Studio, а
         команда указывает на записи внутри контейнера — `param` это запись
         пластины (`Metadata/plate_1.gcode` или та, что нашлась в проекте), `url`
-        — сам файл на карте.
+        — сам файл на карте (`file:///sdcard/model/<имя>.gcode.3mf`), `md5` —
+        сумма загруженного файла.
 
-        Имя файла — то же, что легло на карту (`prepare_upload()` его не меняет):
-        команда с чужим именем заставила бы принтер искать несуществующий файл.
+        Имя приводится к тому, что легло на карту (`project_name()`): main.py
+        передаёт в `start_print()` то же имя задания, что и в `upload_file()`,
+        а файл на карте называется `<основа>.gcode.3mf`. Команда с чужим именем
+        заставила бы принтер искать несуществующий файл.
 
-        Отправка в брокер ничего не подтверждает (QoS 0), поэтому после каждой
-        команды ждём отчёт с тем же `sequence_id` (`_wait_reply`). Отказ принтера
-        — это `False` и его `reason` в `last_error`: main.py отправит причину
-        мастеру, а не «печать запущена» с последующим молчанием.
+        Отправка в брокер ничего не подтверждает (QoS 0), поэтому после команды
+        ждём отчёт с тем же `sequence_id` (`_wait_reply`). Отказ принтера — это
+        `False` и его `reason` в `last_error`: main.py отправит причину мастеру,
+        а не «печать запущена» с последующим молчанием.
 
         Принтер умеет ответить `success`, а через полминуты прислать `fail`
         с причиной (файл не разобран, `0500-4003`): такой отказ ловит
@@ -2048,47 +2160,41 @@ class BambuAdapter(BasePrinterAdapter):
             logger.error("Bambu %s: %s", self.host, self.last_error)
             return False
 
-        printable = remote_name
-        payloads = _project_file_payloads(printable, self._gcode_part)
-        last_error = "команда печати не отправлена: нет MQTT-соединения"
+        printable = project_name(remote_name)
+        sequence = self._next_sequence()
+        command = {
+            "print": {
+                "sequence_id": sequence,
+                **_project_file_payload(printable, self._gcode_part, self._upload_md5),
+            }
+        }
 
-        for fields in payloads:
-            sequence = self._next_sequence()
-            command = {"print": {"sequence_id": sequence, **fields}}
-
-            logger.info(
-                "Bambu %s: печать %s — отправляю %s",
-                self.host,
-                printable,
-                json.dumps(command, ensure_ascii=False),
-            )
-
-            if not self._publish(command):
-                self.last_error = last_error
-                return False
-
-            failure = _reply_error(self._wait_reply(sequence))
-
-            if failure is None:
-                self.last_error = None
-                self._forget_previous_print()
-                logger.info("Bambu %s: печать %s запущена", self.host, printable)
-                return True
-
-            last_error = failure
-            logger.warning(
-                "Bambu %s: печать %s не принята: %s",
-                self.host,
-                printable,
-                failure,
-            )
-
-        logger.error(
-            "Bambu %s: печать %s не запущена: %s", self.host, printable, last_error
+        logger.info(
+            "Bambu %s: печать %s — отправляю %s",
+            self.host,
+            printable,
+            json.dumps(command, ensure_ascii=False),
         )
-        self.last_error = last_error
 
-        return False
+        if not self._publish(command):
+            self.last_error = "команда печати не отправлена: нет MQTT-соединения"
+            logger.error("Bambu %s: %s", self.host, self.last_error)
+            return False
+
+        failure = _reply_error(self._wait_reply(sequence))
+
+        if failure is not None:
+            self.last_error = failure
+            logger.error(
+                "Bambu %s: печать %s не запущена: %s", self.host, printable, failure
+            )
+            return False
+
+        self.last_error = None
+        self._forget_previous_print()
+        logger.info("Bambu %s: печать %s запущена", self.host, printable)
+
+        return True
 
     def stop_print(self) -> bool:
         """

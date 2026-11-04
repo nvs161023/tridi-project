@@ -24,15 +24,22 @@
      превращается в `error`; `FAILED` и `CANCELLED` отдают `error`, а причина
      остановки из `fail_reason`/`print_error`/`mc_print_error_code` попадает в
      `last_error` (ноль и пустая строка — «причины нет», отказ команды важнее);
-  8. проект `.3mf` из Bambu Studio уходит на карту как есть, адаптер помнит
-     запись пластины (`Metadata/plate_N.gcode`) для команды печати, а плоский
-     `.gcode` и STL отклоняются до сети с подсказкой о нарезке;
-  9. `start_print()` отправляет `project_file` и считает печать запущенной только
-     по ответу принтера;
-  10. обрыв MQTT во время загрузки не убивает печать: `start_print()` ждёт
+  8. проект `.3mf` из Bambu Studio уходит на карту как есть, но под именем
+     `<основа>.gcode.3mf`: A1 берёт задание только с двойным расширением, а с
+     одним `.3mf` команда печати отвечает `0500-C010`. Адаптер помнит запись
+     пластины (`Metadata/plate_N.gcode`) для команды печати, а плоский `.gcode`
+     и STL отклоняются до сети с подсказкой о нарезке;
+  9. размер файла на карте сверяется после `STOR` до трёх раз с паузой: карта
+     дописывает буферы после `226`, и `project_file` на недописанном файле
+     встаёт с тем же `0500-C010`. Совпавший размер пишется в журнал
+     подтверждением, а неполный — отказ загрузки;
+  10. `start_print()` отправляет `project_file` с `url`
+      `file:///sdcard/model/<имя>.gcode.3mf`, выключенными калибровками и `md5`
+      загруженного файла, и считает печать запущенной только по ответу принтера;
+  11. обрыв MQTT во время загрузки не убивает печать: `start_print()` ждёт
       переподключения, а без связи объясняет причину («нет MQTT-соединения»);
-  11. `_publish()` после обрыва переподключается и повторяет команду один раз;
-  12. серийник из задания используется сразу, без сертификата и SSDP.
+  12. `_publish()` после обрыва переподключается и повторяет команду один раз;
+  13. серийник из задания используется сразу, без сертификата и SSDP.
 
 Запуск:
     python scripts/test-bambu.py
@@ -44,6 +51,7 @@
 from __future__ import annotations
 
 import ftplib
+import logging
 import sys
 import tempfile
 import zipfile
@@ -186,6 +194,46 @@ class FakeFtpDirectory:
         self.existing.add(directory)
 
         return f"/{directory}"
+
+
+class FakeFtpSize:
+    """
+    FTP без сети: `SIZE` отвечает по сценарию, как карта после `STOR`.
+
+    Нужен для `_verify_remote_size()`: настоящий FTPS в тесте недоступен, а
+    проверить надо ровно то, из-за чего A1 отвечал `0500-C010` — размер сразу
+    после `226` меньше локального, и файл дописывается на карту с задержкой.
+    """
+
+    def __init__(self, sizes: list[int | None]) -> None:
+        self.sizes = list(sizes)
+        self.calls = 0
+
+    def size(self, path: str) -> int | None:
+        self.calls += 1
+
+        if not self.sizes:
+            return None
+
+        return self.sizes.pop(0)
+
+
+class FakeFtpNoSize:
+    """FTP без команды `SIZE`: прошивка её не поддерживает — проверка пропускается."""
+
+    def size(self, path: str) -> int | None:
+        raise ftplib.error_perm("500 Unknown command.")
+
+
+class LogCapture(logging.Handler):
+    """Собирает сообщения журнала адаптера: проверяем текст подтверждения."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
 
 
 class CapturingUploadAdapter(bambu.BambuAdapter):
@@ -416,6 +464,8 @@ def main() -> int:
     bambu.CONNECT_RETRY_TIMEOUT = 0.2
     # Паузы между повторами загрузки в тесте не нужны: сеть недоступна сразу.
     bambu.FTP_RETRY_DELAY = 0
+    # Пауза между проверками размера на карте: в тесте карта «дописывает» сразу.
+    bambu.FTP_SIZE_RETRY_DELAY = 0
 
     adapter = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
 
@@ -738,22 +788,49 @@ def main() -> int:
         repr(bambu._reply_error({})),
     )
 
-    project_payloads = bambu._project_file_payloads("job.3mf")
+    project_payload = bambu._project_file_payload("job.gcode.3mf", md5="0123abcd")
     check(
         "project_file: param внутри контейнера, url из папки model",
-        [item["url"] for item in project_payloads]
-        == ["file:///sdcard/model/job.3mf", "ftp:///model/job.3mf"]
-        and all(item["command"] == "project_file" for item in project_payloads)
-        and all(item["param"] == "Metadata/plate_1.gcode" for item in project_payloads)
-        and all(item["project_id"] == "0" for item in project_payloads)
-        and all(item["bed_levelling"] is True for item in project_payloads),
-        f"{project_payloads!r}",
+        project_payload["url"] == "file:///sdcard/model/job.gcode.3mf"
+        and project_payload["command"] == "project_file"
+        and project_payload["param"] == "Metadata/plate_1.gcode"
+        and project_payload["project_id"] == "0"
+        and project_payload["subtask_name"] == "job.gcode.3mf",
+        f"{project_payload!r}",
+    )
+    check(
+        "project_file: калибровки и AMS выключены, md5 передан",
+        project_payload["bed_levelling"] is True
+        and project_payload["flow_cali"] is False
+        and project_payload["vibration_cali"] is False
+        and project_payload["layer_inspect"] is False
+        and project_payload["use_ams"] is False
+        and project_payload["md5"] == "0123abcd",
+        f"{project_payload!r}",
+    )
+    check(
+        "project_file: без md5 поле не отправляется",
+        "md5" not in bambu._project_file_payload("job.gcode.3mf"),
+        f"{bambu._project_file_payload('job.gcode.3mf')!r}",
     )
 
     check(
         "загрузка: файл кладётся в папку model на карте",
-        bambu.storage_path("job.3mf") == "model/job.3mf",
-        f"{bambu.storage_path('job.3mf')!r}",
+        bambu.storage_path("job.gcode.3mf") == "model/job.gcode.3mf",
+        f"{bambu.storage_path('job.gcode.3mf')!r}",
+    )
+
+    long_name = "a" * 300 + ".3mf"
+    trimmed_name = bambu.project_name(long_name)
+    check(
+        "project_name: имя на карте получает .gcode.3mf",
+        bambu.project_name("job.3mf") == "job.gcode.3mf"
+        and bambu.project_name("JOB.3MF") == "JOB.gcode.3mf"
+        and bambu.project_name("job.gcode.3mf") == "job.gcode.3mf"
+        and len(trimmed_name) == formats.REMOTE_NAME_MAX
+        and trimmed_name.endswith(".gcode.3mf"),
+        f"{bambu.project_name('job.3mf')!r}, {bambu.project_name('JOB.3MF')!r}, "
+        f"{bambu.project_name('job.gcode.3mf')!r}, {len(trimmed_name)} символов",
     )
 
     # Папку `model` загрузка создаёт сама: на чистой карте её нет, и первый
@@ -773,11 +850,74 @@ def main() -> int:
         f"{ready_map.made!r}",
     )
 
+    # Размер на карте: `226` — это «данные приняты», а не «записаны». Пока карта
+    # не дописала буферы, `SIZE` меньше локального, и `project_file` на таком
+    # файле встаёт с `0500-C010`. Проверка ждёт и спрашивает снова.
+    size_adapter = bambu.BambuAdapter(ip_address=CHECK_IP, api_key=CHECK_CODE)
+    log_capture = LogCapture()
+    saved_level = bambu.logger.level
+    # Подтверждение пишется на уровне INFO: без явного уровня корневой логгер
+    # (WARNING) отбросил бы его до обработчика.
+    bambu.logger.setLevel(logging.INFO)
+    bambu.logger.addHandler(log_capture)
+
+    try:
+        slow_card = FakeFtpSize([10, 20, 42])
+        confirmed = False
+
+        try:
+            size_adapter._verify_remote_size(slow_card, "model/job.gcode.3mf", 42)
+            confirmed = any(
+                "Файл model/job.gcode.3mf подтверждён на SD-карте (размер 42 байт)"
+                in message
+                for message in log_capture.messages
+            )
+        except Exception as error:  # noqa: BLE001 — падение и есть провал
+            log_capture.messages.append(f"исключение {type(error).__name__}: {error}")
+
+        check(
+            "проверка размера: ждёт карту и подтверждает файл в журнале",
+            confirmed and slow_card.calls == 3,
+            f"запросов SIZE {slow_card.calls}, журнал={log_capture.messages[-1]!r}",
+        )
+
+        stuck_card = FakeFtpSize([10, 20, 30])
+        stuck_error = ""
+
+        try:
+            size_adapter._verify_remote_size(stuck_card, "model/job.gcode.3mf", 42)
+        except ftplib.error_temp as error:
+            stuck_error = str(error)
+        except Exception as error:  # noqa: BLE001 — другое исключение тоже провал
+            stuck_error = f"{type(error).__name__}: {error}"
+
+        check(
+            "проверка размера: неполный файл — отказ загрузки",
+            "на карте 30 байт вместо 42" in stuck_error and stuck_card.calls == 3,
+            f"запросов SIZE {stuck_card.calls}, ошибка={stuck_error!r}",
+        )
+
+        try:
+            size_adapter._verify_remote_size(FakeFtpNoSize(), "model/job.gcode.3mf", 42)
+        except Exception as error:  # noqa: BLE001 — SIZE без поддержки не отказ
+            skipped = f"исключение {type(error).__name__}: {error}"
+        else:
+            skipped = "проверка пропущена"
+
+        check(
+            "проверка размера: без SIZE загрузка не отклоняется",
+            skipped == "проверка пропущена",
+            skipped,
+        )
+    finally:
+        bambu.logger.removeHandler(log_capture)
+        bambu.logger.setLevel(saved_level)
+
     check(
         "project_file: param берётся из пластины проекта",
-        bambu._project_file_payloads("job.3mf", "Metadata/plate_2.gcode")[0]["param"]
+        bambu._project_file_payload("job.gcode.3mf", "Metadata/plate_2.gcode")["param"]
         == "Metadata/plate_2.gcode",
-        bambu._project_file_payloads("job.3mf", "Metadata/plate_2.gcode")[0]["param"],
+        bambu._project_file_payload("job.gcode.3mf", "Metadata/plate_2.gcode")["param"],
     )
 
     # Проект проверяется до сети: без нарезки и профиля слайсера прошивка его не
@@ -828,33 +968,28 @@ def main() -> int:
         str(formats.bambu_compat_error("Bambu Lab X1 Carbon", "Bambu Lab", "A1")),
     )
 
-    rejected_print = ScriptedPrintAdapter(
-        [
-            {"result": "fail", "reason": "error string"},
-            {"result": "fail", "reason": "error string"},
-        ]
-    )
+    rejected_print = ScriptedPrintAdapter([{"result": "fail", "reason": "error string"}])
     check(
         "start_print: отказ принтера — False и причина в last_error",
         rejected_print.start_print("job.3mf") is False
         and "error string" in (rejected_print.last_error or "")
-        and len(rejected_print.commands) == len(project_payloads)
-        and rejected_print.commands[0]["print"]["url"] == "file:///sdcard/model/job.3mf",
+        and len(rejected_print.commands) == 1
+        and rejected_print.commands[0]["print"]["url"]
+        == "file:///sdcard/model/job.gcode.3mf",
         f"команд {len(rejected_print.commands)}, "
         f"last_error={rejected_print.last_error!r}",
     )
 
-    second_variant = ScriptedPrintAdapter(
-        [{"result": "fail", "reason": "file not found"}, {"result": "success"}]
-    )
+    # Схема `ftp:///` из команды убрана: A1 отвечала на неё `0500-C010` так же,
+    # как на корень карты. Остаётся один `url` — путь LAN-режима.
     check(
-        "start_print: принимается второй вариант url",
-        second_variant.start_print("job.3mf") is True
-        and len(second_variant.commands) == 2
-        and second_variant.commands[1]["print"]["url"] == "ftp:///model/job.3mf"
-        and second_variant.last_error is None,
-        f"команд {len(second_variant.commands)}, "
-        f"last_error={second_variant.last_error!r}",
+        "start_print: в команде только file:///sdcard/model/",
+        all(
+            "ftp://" not in command["print"]["url"]
+            and command["print"]["url"].startswith("file:///sdcard/model/")
+            for command in rejected_print.commands
+        ),
+        f"{rejected_print.commands!r}",
     )
 
     project_print = ScriptedPrintAdapter([{"result": "success"}])
@@ -863,7 +998,9 @@ def main() -> int:
         project_print.start_print("job.3mf") is True
         and len(project_print.commands) == 1
         and project_print.commands[0]["print"]["command"] == "project_file"
-        and project_print.commands[0]["print"]["subtask_name"] == "job.3mf",
+        and project_print.commands[0]["print"]["subtask_name"] == "job.gcode.3mf"
+        and project_print.commands[0]["print"]["url"]
+        == "file:///sdcard/model/job.gcode.3mf",
         f"{project_print.commands!r}",
     )
 
@@ -1142,22 +1279,48 @@ def main() -> int:
         f"last_error={alien.last_error!r}",
     )
 
-    # Проект уходит на карту как есть, а пластина проекта запоминается для
-    # `param` команды печати.
+    # Проект уходит на карту как есть, но под именем `.gcode.3mf`, а пластина
+    # проекта и md5 запоминаются для команды печати.
     ready_probe = Path(tempfile.gettempdir()) / "tridi-bambu-ready.3mf"
     passthrough = CapturingUploadAdapter()
 
     try:
         write_bambu_project(ready_probe, plate=2)
+        ready_digest = formats.file_digest(str(ready_probe))
         check(
             "upload_file: проект .3mf не пакуется повторно",
             passthrough.upload_file(str(ready_probe), "ready.3mf") is True
-            and passthrough.remote_name == "ready.3mf"
+            and passthrough.remote_name == "ready.gcode.3mf"
             and passthrough.wrapped_path == str(ready_probe)
             and passthrough._gcode_part == "Metadata/plate_2.gcode"
+            and passthrough._upload_md5 == ready_digest
             and "Metadata/project_settings.config" in passthrough.entries,
             f"{passthrough.remote_name!r}, {passthrough.wrapped_path!r}, "
-            f"запись={passthrough._gcode_part}, {sorted(passthrough.entries)!r}",
+            f"запись={passthrough._gcode_part}, md5={passthrough._upload_md5!r}, "
+            f"{sorted(passthrough.entries)!r}",
+        )
+
+        # Тот же адаптер готовит проект и запускает печать: main.py передаёт имя
+        # задания в оба метода, и `start_print()` обязан прийти к файлу на карте.
+        sized_print = ScriptedPrintAdapter([{"result": "success"}])
+        plan = sized_print.prepare_upload(str(ready_probe), "ready.3mf")
+        check(
+            "prepare_upload: имя на карте и md5 проекта",
+            plan.remote_name == "ready.gcode.3mf"
+            and plan.md5 == ready_digest
+            and plan.size == ready_probe.stat().st_size
+            and sized_print._gcode_part == "Metadata/plate_2.gcode",
+            f"{plan!r}",
+        )
+        check(
+            "start_print: имя задания приводит к файлу на карте и шлёт md5",
+            sized_print.start_print("ready.3mf") is True
+            and len(sized_print.commands) == 1
+            and sized_print.commands[0]["print"]["subtask_name"] == "ready.gcode.3mf"
+            and sized_print.commands[0]["print"]["url"]
+            == "file:///sdcard/model/ready.gcode.3mf"
+            and sized_print.commands[0]["print"]["md5"] == ready_digest,
+            f"{sized_print.commands!r}",
         )
     finally:
         ready_probe.unlink(missing_ok=True)
@@ -1168,8 +1331,9 @@ def main() -> int:
         ready_print.start_print("ready.3mf") is True
         and len(ready_print.commands) == 1
         and ready_print.commands[0]["print"]["param"] == "Metadata/plate_1.gcode"
-        and ready_print.commands[0]["print"]["subtask_name"] == "ready.3mf"
-        and ready_print.commands[0]["print"]["url"] == "file:///sdcard/model/ready.3mf",
+        and ready_print.commands[0]["print"]["subtask_name"] == "ready.gcode.3mf"
+        and ready_print.commands[0]["print"]["url"]
+        == "file:///sdcard/model/ready.gcode.3mf",
         f"{ready_print.commands!r}",
     )
 
