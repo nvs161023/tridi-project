@@ -816,6 +816,28 @@ function formatBoxCells(cells: readonly number[]): string {
 }
 
 /**
+ * Что именно строит геометрия готового пресета брелока.
+ *
+ * Числа берутся из параметров, а не из реестра: геометрия читает миллиметры
+ * слайдеров, поэтому плашка с размерами по умолчанию обещала бы не тот файл,
+ * который скачается. Строка для пресета без геометрии — общая заглушка: её
+ * всё равно перекрывает плашка «в работе».
+ */
+function presetReadyNote(
+  presetId: KeychainPresetId,
+  params: ConstructorParams,
+): string {
+  switch (presetId) {
+    case "apple-tag":
+      return `скруглённый прямоугольник ${params.width} × ${params.length} мм со скруглением 4 мм, отверстие Ø5 мм под кольцо`;
+    case "capsule":
+      return `капсула ${params.width} × ${params.length} мм с торцами-полукругами, отверстие Ø5 мм в верхней части`;
+    default:
+      return `форма ${params.width} × ${params.length} мм, отверстие Ø5 мм под кольцо`;
+  }
+}
+
+/**
  * Панель параметров модели.
  *
  * Тип модели и её варианты (форма, узор, шрифт, канал, крепление) выбираются
@@ -1149,13 +1171,13 @@ export function ParameterPanel({
   /**
    * Почему нельзя скачать STL из-за выбранной формы.
    *
-   * Геометрии семи пресетов ещё нет: модель в предпросмотре собирается по
+   * Геометрии шести пресетов ещё нет: модель в предпросмотре собирается по
    * прежнему силуэту, и уходить в печать такой файл не должен. Причина формы
    * важнее причины NFC — пользователь только что выбрал именно её.
    */
   const presetBlockReason =
     params.keychainPreset && !selectedPresetReady
-      ? "Этот пресет ещё в разработке. Выберите Apple Tag или прежний силуэт."
+      ? "Этот пресет ещё в разработке. Выберите готовый пресет или прежний силуэт."
       : null;
 
   /** Итоговая причина, по которой кнопки скачивания заблокированы. */
@@ -1533,11 +1555,11 @@ export function ParameterPanel({
             {selectedKeychainPreset ? (
               selectedPresetReady ? (
                 <p className="mt-3 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-xs leading-relaxed text-emerald-100">
-                  <strong className="font-semibold">Готово:</strong> скруглённый
-                  прямоугольник {params.width} × {params.length} мм, отверстие Ø5
-                  мм под кольцо. Скругление 4 мм, фаска 0.4 мм по контуру,
-                  толщина {params.thickness} мм — размеры берутся из слайдеров
-                  ниже. Имя и карман под NFC-метку подключим отдельными шагами.
+                  <strong className="font-semibold">Готово:</strong>{" "}
+                  {presetReadyNote(selectedKeychainPreset.id, params)}. Фаска 0.4
+                  мм по контуру, толщина {params.thickness} мм — размеры берутся
+                  из слайдеров ниже. Имя и карман под NFC-метку подключим
+                  отдельными шагами.
                 </p>
               ) : (
                 <p className="mt-3 rounded-xl border border-sky-400/40 bg-sky-400/10 px-3 py-2 text-xs leading-relaxed text-sky-100">
@@ -1545,7 +1567,11 @@ export function ParameterPanel({
                     {selectedKeychainPreset.label}
                   </strong>
                   : {selectedKeychainPreset.description} Геометрия пресета ещё в
-                  работе: модель строится по силуэту «{keychainShapeTitle(params)}
+                  работе: модель строится по запасному силуэту «
+                  {keychainShapeTitle({
+                    keychainPreset: null,
+                    keychainShape: params.keychainShape,
+                  })}
                   », а скачивание STL заблокировано.
                 </p>
               )

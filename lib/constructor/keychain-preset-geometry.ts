@@ -47,11 +47,19 @@ const PRESET_CURVE_SEGMENTS = 32;
 /** Радиус скругления корпуса Apple Tag, мм. */
 const APPLE_TAG_CORNER_RADIUS_MM = 4;
 
-/** Диаметр отверстия под кольцо в свету, мм. */
-const APPLE_TAG_RING_HOLE_DIAMETER_MM = 5;
+/** Диаметр отверстия под кольцо в свету, мм: общий для всех пресетов. */
+const RING_HOLE_DIAMETER_MM = 5;
 
-/** Отступ центра отверстия от верхнего края, мм. */
+/** Отступ центра отверстия от верхнего края корпуса Apple Tag, мм. */
 const APPLE_TAG_RING_HOLE_INSET_MM = 5;
+
+/**
+ * Отступ центра отверстия от верхнего края капсулы, мм.
+ *
+ * Больше, чем у Apple Tag: верх капсулы — полукруг, и отверстие должно целиком
+ * попасть в его плоскую часть, иначе стенка над кольцом вышла бы клином.
+ */
+const CAPSULE_RING_HOLE_INSET_MM = 8;
 
 /**
  * Пресеты, у которых уже есть геометрия.
@@ -61,13 +69,60 @@ const APPLE_TAG_RING_HOLE_INSET_MM = 5;
  */
 export const IMPLEMENTED_KEYCHAIN_PRESETS: readonly KeychainPresetId[] = [
   "apple-tag",
+  "capsule",
 ];
 
-/** Готова ли геометрия пресета: остальные семь пока строятся старым силуэтом. */
+/** Готова ли геометрия пресета: остальные шесть пока строятся старым силуэтом. */
 export function isKeychainPresetImplemented(
   presetId: KeychainPresetId,
 ): boolean {
   return IMPLEMENTED_KEYCHAIN_PRESETS.includes(presetId);
+}
+
+/**
+ * Контур отверстия под кольцо на высоте `centerY` по оси симметрии.
+ *
+ * Радиус берётся больше номинального на фаску: у отверстия three.js поджимает
+ * стенку на `bevelSize` так же, как расширяет корпус наружу. Центр отсчитывается
+ * от номинального габарита, а не от контура крышки: панель обещает миллиметры
+ * заготовки, а не профиля выдавливания.
+ */
+function ringHolePath(centerY: number): Path {
+  const hole = new Path();
+  const holeRadius = RING_HOLE_DIAMETER_MM / 2 + PRESET_BEVEL_SIZE_MM;
+
+  hole.absarc(0, centerY, holeRadius, 0, Math.PI * 2, true);
+
+  return hole;
+}
+
+/**
+ * Выдавливает контур в основу с фаской по обеим кромкам.
+ *
+ * Толщина держится ровно по слайдеру: выдавливание идёт на
+ * `thickness − 2 × bevelThickness`, а сдвиг на `bevelThickness` ставит нижнюю
+ * грань на Z = 0 — слайсер кладёт модель на стол без поворотов.
+ */
+function extrudePresetShape(
+  shape: Shape,
+  thickness: number,
+): ExtrudeGeometry {
+  const depth = Math.max(thickness - PRESET_BEVEL_THICKNESS_MM * 2, 0.05);
+  const geometry = new ExtrudeGeometry(shape, {
+    bevelEnabled: true,
+    bevelSegments: PRESET_BEVEL_SEGMENTS,
+    bevelSize: PRESET_BEVEL_SIZE_MM,
+    bevelThickness: PRESET_BEVEL_THICKNESS_MM,
+    curveSegments: PRESET_CURVE_SEGMENTS,
+    depth,
+    steps: 1,
+  });
+
+  geometry.translate(0, 0, PRESET_BEVEL_THICKNESS_MM);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+
+  return geometry;
 }
 
 /**
@@ -137,36 +192,78 @@ export function buildAppleTag(
   );
   shape.closePath();
 
-  // У отверстия фаска поджимает стенку так же, как расширяет корпус: в свету
-  // остаётся `radius − bevel`. Поэтому радиус профиля берётся с запасом на фаску,
-  // и Ø5 мм держится по всей высоте стенки. Центр отсчитывается от номинального
-  // габарита, а не от контура крышки: панель обещает 5 мм от края заготовки.
-  const holeY = params.height / 2 - APPLE_TAG_RING_HOLE_INSET_MM;
-  const holeRadius = APPLE_TAG_RING_HOLE_DIAMETER_MM / 2 + bevel;
-  const hole = new Path();
-
-  hole.absarc(0, holeY, holeRadius, 0, Math.PI * 2, true);
-  shape.holes.push(hole);
-
-  const depth = Math.max(
-    params.thickness - PRESET_BEVEL_THICKNESS_MM * 2,
-    0.05,
+  // Центр отверстия отсчитывается от номинального габарита, а не от контура
+  // крышки: панель обещает 5 мм от края заготовки.
+  shape.holes.push(
+    ringHolePath(params.height / 2 - APPLE_TAG_RING_HOLE_INSET_MM),
   );
-  const geometry = new ExtrudeGeometry(shape, {
-    bevelEnabled: true,
-    bevelSegments: PRESET_BEVEL_SEGMENTS,
-    bevelSize: bevel,
-    bevelThickness: PRESET_BEVEL_THICKNESS_MM,
-    curveSegments: PRESET_CURVE_SEGMENTS,
-    depth,
-    steps: 1,
-  });
 
-  geometry.translate(0, 0, PRESET_BEVEL_THICKNESS_MM);
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
+  return extrudePresetShape(shape, params.thickness);
+}
 
-  return geometry;
+/**
+ * Капсула с торцами-полукругами и отверстием под кольцо — пресет Capsule.
+ *
+ * Корпус — прямоугольник `width × height`, у которого верх и низ заменены
+ * полукругами радиусом в половину ширины: при 24 × 64 мм это два торца по
+ * 12 мм и прямая стенка 40 мм между ними. Углов у такой формы нет, поэтому она
+ * не цепляется за ключи и печатается без поддержек.
+ *
+ * Отверстие Ø5 мм стоит на оси симметрии (X = 0) в 8 мм от верхнего края. Центр
+ * верхнего полукруга лежит ниже, поэтому кольцо целиком попадает в плоскую
+ * часть торца, а стенка над ним ровная со всех сторон — это и держит прочность
+ * ушка при узкой капсуле. Если ширина больше высоты, капсула ложится набок:
+ * полукруги уходят на боковые торцы, а отверстие остаётся там же, где обещает
+ * панель — по центру и в 8 мм от верхнего края.
+ */
+export function buildCapsule(
+  params: KeychainPresetGeometryParams,
+): ExtrudeGeometry {
+  const bevel = PRESET_BEVEL_SIZE_MM;
+  // Профиль Shape — контур крышки: фаска раздвигает его на bevel наружу.
+  const profileWidth = Math.max(params.width - bevel * 2, 1);
+  const profileHeight = Math.max(params.height - bevel * 2, 1);
+  const halfWidth = profileWidth / 2;
+  const halfHeight = profileHeight / 2;
+  // Радиус торца — половина ширины, но не больше половины высоты: при широкой
+  // заготовке полукруги иначе наехали бы друг на друга.
+  const radius = Math.min(halfWidth, halfHeight);
+  const shape = new Shape();
+
+  if (halfWidth <= halfHeight) {
+    // Вертикальная капсула: торцы сверху и снизу, стенки идут по оси Y.
+    // Выше этой точки контур уже закругляется: там начинается верхний торец.
+    const topArcCenterY = halfHeight - radius;
+    const bottomArcCenterY = -halfHeight + radius;
+
+    shape.moveTo(halfWidth, bottomArcCenterY);
+    shape.lineTo(halfWidth, topArcCenterY);
+    // Полукруг по верхнему торцу: от правой стенки через верх к левой.
+    shape.absarc(0, topArcCenterY, radius, 0, Math.PI, false);
+    shape.lineTo(-halfWidth, bottomArcCenterY);
+    // Полукруг по нижнему торцу: от левой стенки через низ обратно к правой.
+    shape.absarc(0, bottomArcCenterY, radius, Math.PI, Math.PI * 2, false);
+  } else {
+    // Широкая заготовка: полукруги радиуса halfHeight уже не помещаются между
+    // верхом и низом, поэтому капсула ложится набок — торцы слева и справа,
+    // стенки параллельны оси X. Иначе контур вылезал бы за габарит.
+    const rightArcCenterX = halfWidth - radius;
+    const leftArcCenterX = -halfWidth + radius;
+
+    shape.moveTo(leftArcCenterX, -halfHeight);
+    shape.lineTo(rightArcCenterX, -halfHeight);
+    shape.absarc(rightArcCenterX, 0, radius, -Math.PI / 2, Math.PI / 2, false);
+    shape.lineTo(leftArcCenterX, halfHeight);
+    shape.absarc(leftArcCenterX, 0, radius, Math.PI / 2, Math.PI * 1.5, false);
+  }
+
+  shape.closePath();
+
+  shape.holes.push(
+    ringHolePath(params.height / 2 - CAPSULE_RING_HOLE_INSET_MM),
+  );
+
+  return extrudePresetShape(shape, params.thickness);
 }
 
 /**
@@ -183,6 +280,8 @@ export function buildKeychainPresetGeometry(
   switch (presetId) {
     case "apple-tag":
       return buildAppleTag(params);
+    case "capsule":
+      return buildCapsule(params);
     default:
       return null;
   }

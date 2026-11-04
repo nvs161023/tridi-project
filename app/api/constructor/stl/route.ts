@@ -1451,7 +1451,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "preset_not_implemented",
-      "Этот пресет ещё не реализован. Выберите Apple-Tag или прежний силуэт.",
+      "Этот пресет ещё не реализован. Выберите готовый пресет или прежний силуэт.",
     );
   }
 
