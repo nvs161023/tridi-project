@@ -9014,3 +9014,43 @@ HTTP, и конец печати виден сразу, а Bambu живёт на
 `npm run check:docs`, `npm run check:style` — без замечаний; `npm run build` —
 успешно.
 
+
+**Полоска печати и остаток времени на карточке «В печати» (4 ноября 2026).**
+Мастер видел на карточке только название, стоимость и часы печати из настроек заказа:
+идёт ли печать прямо сейчас и сколько осталось, доска не знала. Прогресс и остаток агент
+писал только в `workshop_printers`, поэтому полоска жила во вкладке «Принтеры», а карточка
+заказа в «Печати» стояла без движения до перезагрузки страницы.
+
+- `supabase/workshop_print_queue_hardening.sql`: у `workshop_print_jobs` появились `progress`
+  (0…100) и `remaining_time` (0…31 536 000 с) — те же пределы, что у колонок принтера, плюс
+  комментарии. `add column if not exists` держит файл применимым повторно.
+- `app/api/agent/status/route.ts`: `remainingSeconds` в теле (`parsePayload`: число 0…31 536 000,
+  дробное округляется) уходит и в задание, и в принтер. `jobPatchFor()` пишет `progress` всегда,
+  `remaining_time` — для `printing`/`paused`; `done` закрывает сотней процентов и нулём, а
+  `failed`/`cancelled` обнуляют остаток. База без новых колонок (42703) не теряет статус:
+  `withoutPrintProgress()` повторяет запись без прогресса и пишет предупреждение в журнал сервера.
+- `agent/main.py`: `send_status(..., remaining_seconds=None)` отправляет `remainingSeconds`.
+  `read_remaining_seconds()` берёт `remaining_time` адаптера, а ноль и мусор превращает в `None`
+  («время до конца неизвестно»). `monitor_print()` присылает остаток вместе с прогрессом и на паузе.
+- `lib/workshop/printer-store.ts`: `getActiveOrderJobs()` читает `progress`/`remaining_time`
+  третьим набором колонок — от нового к старому (`PROGRESS_ORDER_JOB_COLUMNS`, затем
+  `DETAILED_ORDER_JOB_COLUMNS`, затем `BASIC_ORDER_JOB_COLUMNS`), поэтому старая миграция не
+  отнимает у доски метки этапов. Несколько заданий заказа сворачиваются в одно: представитель —
+  дальше всех по этапу, прогресс — среднее, остаток — самый долгий, `jobsCount` — сколько заданий
+  в работе.
+- `lib/workshop/stuck-print-jobs.ts`: `ActiveJobTiming` получил `progress`, `remainingSeconds` и
+  `jobsCount`, а правило зависания принимает узкий `StuckJobTiming` (`Pick` по `queuedAt`,
+  `startedAt`, `cancelRequested`): окну заказа прогресс не нужен.
+- `components/workshop/WorkshopOrdersTab.tsx`: на карточке печати и паузы — полоска
+  (`role="progressbar"`, `aria-valuetext`) с подписью «42 % · Осталось: 45 мин»; синяя на печати,
+  янтарная на паузе, у очереди полоски нет (нулевая читалась бы как «печать встала»). Несколько
+  заданий — подпись «Заданий в работе: 3 · прогресс средний». Подписка Realtime расширена на
+  `workshop_print_jobs`: без неё полоска стояла бы до перезагрузки страницы.
+- `scripts/test-print-resources.ts`: фикстура задания получила новые поля.
+
+Проверки: `npx tsc --noEmit` — чисто, `npx eslint` по изменённым файлам — без замечаний,
+`npm run check:imports` (1926), `npm run check:docs`, `npm run check:style` — без замечаний,
+`python -m py_compile agent/main.py` — чисто,
+`node --import ./scripts/register-alias.mjs scripts/test-print-resources.ts` — все проверки
+прошли, `npm run build` — успешно.
+

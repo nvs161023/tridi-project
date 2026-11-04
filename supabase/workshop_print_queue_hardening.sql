@@ -29,7 +29,10 @@
 --      очереди, и при обрыве сети доска оставалась в неверной колонке;
 --   8. функция `workshop_cancel_print_job(uuid)` — единственный путь отмены:
 --      проверяет владельца и сама решает, отменять задание или просить агента
---      остановить печать.
+--      остановить печать;
+--   9. прогресс задания (`progress` — проценты, `remaining_time` — секунды):
+--      агент присылает их вместе со статусом, и карточка заказа в «Печати»
+--      показывает полоску и остаток времени. Раньше они были только у принтера.
 --
 -- Зависимости: `auth.users` и `auth.uid()` (Supabase), таблицы
 -- `workshop_orders`, `workshop_printers`, `workshop_print_jobs`.
@@ -45,7 +48,9 @@ alter table public.workshop_print_jobs
   add column if not exists queued_at timestamptz,
   add column if not exists started_at timestamptz,
   add column if not exists finished_at timestamptz,
-  add column if not exists cancel_requested boolean not null default false;
+  add column if not exists cancel_requested boolean not null default false,
+  add column if not exists progress integer not null default 0,
+  add column if not exists remaining_time integer not null default 0;
 
 -- Старые задания получили момент постановки из created_at: без этого очередь
 -- не смогла бы показать позицию задания в списке.
@@ -111,6 +116,26 @@ comment on column public.workshop_print_jobs.finished_at is
   'Момент закрытия задания (done, failed, cancelled); null — задание активно.';
 comment on column public.workshop_print_jobs.cancel_requested is
   'Мастер попросил остановить печать: агент увидит флаг при следующем опросе.';
+
+-- Прогресс и остаток — те же пределы, что у колонок принтера
+-- (`workshop_printers_farm_fields_check`): агент присылает одно и то же число в
+-- задание и в принтер, и разойтись в проверках они не должны.
+alter table public.workshop_print_jobs
+  drop constraint if exists workshop_print_jobs_progress_check;
+alter table public.workshop_print_jobs
+  add constraint workshop_print_jobs_progress_check
+  check (progress between 0 and 100);
+
+alter table public.workshop_print_jobs
+  drop constraint if exists workshop_print_jobs_remaining_time_check;
+alter table public.workshop_print_jobs
+  add constraint workshop_print_jobs_remaining_time_check
+  check (remaining_time between 0 and 31536000);
+
+comment on column public.workshop_print_jobs.progress is
+  'Прогресс печати задания, % (0…100); пишет агент вместе со статусом.';
+comment on column public.workshop_print_jobs.remaining_time is
+  'Остаток печати задания, с; 0 — неизвестен или печать закончена.';
 
 -- Позиция в очереди: задания мастерской в порядке постановки.
 create index if not exists workshop_print_jobs_queue_idx

@@ -9,7 +9,7 @@
 import { isWorkshopUuid } from "@/lib/db/workshop-types";
 import type { createClient } from "@/lib/supabase/server";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
-import type { ActiveOrderJobs } from "@/lib/workshop/stuck-print-jobs";
+import type { ActiveJobTiming, ActiveOrderJobs } from "@/lib/workshop/stuck-print-jobs";
 import {
   PRINTER_BASE_COLUMNS,
   PRINTER_COLUMNS,
@@ -52,17 +52,44 @@ const DETAILED_ORDER_JOB_COLUMNS =
   "id, order_id, status, queued_at, started_at, cancel_requested";
 
 /**
+ * Колонки задания вместе с прогрессом печати.
+ *
+ * `progress`/`remaining_time` появились позже остальных колонок hardening,
+ * поэтому идут отдельным набором: база со старой миграцией ответит на общий
+ * запрос 42703, и читатель потерял бы точные метки этапов вместе с полоской.
+ */
+const PROGRESS_ORDER_JOB_COLUMNS = `${DETAILED_ORDER_JOB_COLUMNS}, progress, remaining_time`;
+
+/** Наборы колонок от нового к старому: читается первый, ответивший без 42703. */
+const ORDER_JOB_COLUMN_SETS = [
+  PROGRESS_ORDER_JOB_COLUMNS,
+  DETAILED_ORDER_JOB_COLUMNS,
+  BASIC_ORDER_JOB_COLUMNS,
+] as const;
+
+/** Строка активного задания после разбора: всё, кроме счётчика заданий. */
+type ActiveJobRowTiming = Omit<ActiveJobTiming, "jobsCount">;
+
+/** Старшинство статусов: печать важнее паузы, пауза — очереди. */
+const ACTIVE_STATUS_RANK: Record<ActiveJobTiming["status"], number> = {
+  printing: 0,
+  paused: 1,
+  queued: 2,
+};
+
+/**
  * Активные задания по заказам: `order_id` → задание.
  *
- * Доске заказов нужны id задания (по нему закрывают зависшее), состояние и
- * метки этапов. `getActivePrinterJobs` для этого не годится: там ключ — принтер,
- * а название заказа вместо времени.
+ * Доске заказов нужны id задания (по нему закрывают зависшее), состояние,
+ * метки этапов, прогресс и остаток печати. `getActivePrinterJobs` для этого не
+ * годится: там ключ — принтер, а название заказа вместо времени.
  *
- * `queued_at`/`started_at` появляются миграцией `workshop_print_queue_hardening`.
- * Пока её не применили, запрос падает на 42703 — тогда читается `created_at`, и
- * ожидание считается от постановки в очередь: карточка покажет кнопку позже, но
- * не соврёт о времени. Нет таблицы вовсе (миграция farm не применена) — пустая
- * карта без предупреждения: это ожидаемое состояние.
+ * `queued_at`/`started_at` появляются миграцией `workshop_print_queue_hardening`,
+ * `progress`/`remaining_time` — её более поздней версией. Колонки читаются
+ * наборами от нового к старому: пока миграцию не применили, запрос падает на
+ * 42703, и остаются `created_at` и нулевой прогресс — карточка покажет кнопку
+ * позже и без полоски, но не соврёт о времени. Нет таблицы вовсе (миграция farm
+ * не применена) — пустая карта без предупреждения: это ожидаемое состояние.
  */
 export async function getActiveOrderJobs(
   supabase: Supabase,
@@ -71,18 +98,20 @@ export async function getActiveOrderJobs(
   let result: {
     data: unknown;
     error: { code?: string | null; message?: string | null } | null;
-  } = await supabase
-    .from("workshop_print_jobs")
-    .select(DETAILED_ORDER_JOB_COLUMNS)
-    .eq("user_id", userId)
-    .in("status", ACTIVE_JOB_STATUSES);
+  } = { data: null, error: null };
 
-  if (result.error && isMissingColumnSchema(result.error)) {
+  for (const columns of ORDER_JOB_COLUMN_SETS) {
     result = await supabase
       .from("workshop_print_jobs")
-      .select(BASIC_ORDER_JOB_COLUMNS)
+      .select(columns)
       .eq("user_id", userId)
       .in("status", ACTIVE_JOB_STATUSES);
+
+    // Колонки не найдены — пробуем более старый набор. Остальные ошибки (нет
+    // таблицы, сеть) повторным запросом не лечатся.
+    if (!result.error || !isMissingColumnSchema(result.error)) {
+      break;
+    }
   }
 
   if (result.error) {
@@ -98,29 +127,141 @@ export async function getActiveOrderJobs(
   }
 
   const rows = (result.data ?? []) as Partial<Record<string, unknown>>[];
-  const jobs: ActiveOrderJobs = {};
+  // Заказ может печататься сразу на нескольких принтерах: у трёх позиций будет
+  // три задания, а карточке нужно одно.
+  const orders = new Map<string, ActiveJobRowTiming[]>();
 
   for (const row of rows) {
     if (!isWorkshopUuid(row.id) || !isWorkshopUuid(row.order_id)) {
       continue;
     }
 
-    const queuedAt =
-      readTimestamp(row.queued_at) ?? readTimestamp(row.created_at);
+    const orderJobs = orders.get(row.order_id) ?? [];
 
-    jobs[row.order_id] = {
+    orderJobs.push({
       id: row.id,
       status:
         row.status === "printing" || row.status === "paused"
           ? row.status
           : "queued",
-      queuedAt,
+      queuedAt: readTimestamp(row.queued_at) ?? readTimestamp(row.created_at),
       startedAt: readTimestamp(row.started_at),
       cancelRequested: row.cancel_requested === true,
-    };
+      progress: readPercent(row.progress),
+      remainingSeconds: readRemainingSeconds(row.remaining_time),
+    });
+
+    orders.set(row.order_id, orderJobs);
+  }
+
+  const jobs: ActiveOrderJobs = {};
+
+  for (const [orderId, orderJobs] of orders) {
+    jobs[orderId] = aggregateActiveJobs(orderJobs);
   }
 
   return jobs;
+}
+
+/**
+ * Несколько заданий заказа → одно для карточки.
+ *
+ * Представитель — задание дальше всех по этапу (печать, затем пауза, затем
+ * очередь), при равенстве — раньше дошедшее до своего этапа: если из трёх
+ * позиций одна печатается, а другая висит, карточка должна говорить о той, что
+ * идёт.
+ *
+ * Прогресс — среднее по активным заданиям, остаток — самый долгий: заказ готов,
+ * когда допечатано последнее задание. `jobsCount` нужен, чтобы подпись
+ * «Заданий в работе: 3» объясняла, откуда среднее. Просьба отмены берётся с
+ * любого задания: мастер нажал кнопку, и она не должна потеряться.
+ */
+function aggregateActiveJobs(orderJobs: ActiveJobRowTiming[]): ActiveJobTiming {
+  const [first, ...rest] = orderJobs;
+
+  let primary = first;
+  let cancelRequested = first.cancelRequested;
+  let progressSum = first.progress;
+  let remainingSeconds = first.remainingSeconds;
+  let jobsCount = 1;
+
+  for (const job of rest) {
+    if (compareActiveStages(job, primary) < 0) {
+      primary = job;
+    }
+
+    cancelRequested = cancelRequested || job.cancelRequested;
+    progressSum += job.progress;
+    jobsCount += 1;
+
+    if (
+      job.remainingSeconds !== null &&
+      (remainingSeconds === null || job.remainingSeconds > remainingSeconds)
+    ) {
+      remainingSeconds = job.remainingSeconds;
+    }
+  }
+
+  return {
+    id: primary.id,
+    status: primary.status,
+    queuedAt: primary.queuedAt,
+    startedAt: primary.startedAt,
+    cancelRequested,
+    progress: Math.round(progressSum / jobsCount),
+    remainingSeconds,
+    jobsCount,
+  };
+}
+
+/**
+ * Порядок заданий: печать раньше паузы, пауза раньше очереди; внутри статуса
+ * раньше то, что раньше дошло до этапа (старт печати важнее постановки).
+ */
+function compareActiveStages(
+  left: ActiveJobRowTiming,
+  right: ActiveJobRowTiming,
+): number {
+  const byStatus =
+    ACTIVE_STATUS_RANK[left.status] - ACTIVE_STATUS_RANK[right.status];
+
+  return byStatus !== 0 ? byStatus : compareStageTime(left, right);
+}
+
+/** Сравнение меток этапа: задание без метки уходит в конец. */
+function compareStageTime(
+  left: ActiveJobRowTiming,
+  right: ActiveJobRowTiming,
+): number {
+  const leftTime = stageTime(left);
+  const rightTime = stageTime(right);
+
+  if (leftTime === rightTime) {
+    return 0;
+  }
+
+  if (leftTime === null) {
+    return 1;
+  }
+
+  if (rightTime === null) {
+    return -1;
+  }
+
+  return leftTime - rightTime;
+}
+
+/** Время этапа задания в мс: старт печати, иначе постановка в очередь. */
+function stageTime(job: ActiveJobRowTiming): number | null {
+  const stamp = job.startedAt ?? job.queuedAt;
+
+  if (stamp === null) {
+    return null;
+  }
+
+  const time = Date.parse(stamp);
+
+  return Number.isNaN(time) ? null : time;
 }
 
 /** Метка времени из строки базы: null — значения нет или оно не дата. */
@@ -130,6 +271,34 @@ function readTimestamp(value: unknown): string | null {
     : null;
 }
 
+/** Число из строки базы: null — значения нет, оно не число или это NaN. */
+function readNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+/** Прогресс из строки базы, %: 0…100, мусор и отсутствие — 0. */
+function readPercent(value: unknown): number {
+  const percent = readNumber(value);
+
+  return percent === null ? 0 : Math.min(100, Math.max(0, Math.round(percent)));
+}
+
+/** Остаток печати из строки базы, с: 0 и мусор — «время до конца неизвестно». */
+function readRemainingSeconds(value: unknown): number | null {
+  const seconds = readNumber(value);
+
+  return seconds !== null && seconds > 0 ? Math.round(seconds) : null;
+}
 
 /**
  * Строка задания с вложенным заказом: связь названа явно, чтобы PostgREST не

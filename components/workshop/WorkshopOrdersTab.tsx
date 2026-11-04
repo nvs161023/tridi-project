@@ -46,7 +46,10 @@ import {
   type OrderStatus,
   type WorkshopOrder,
 } from "@/lib/workshop/orders";
-import type { WorkshopPrinter } from "@/lib/workshop/printers";
+import {
+  formatPrinterRemaining,
+  type WorkshopPrinter,
+} from "@/lib/workshop/printers";
 import type { WorkshopProduct } from "@/lib/workshop/products";
 import {
   isActiveJobStuck,
@@ -465,7 +468,7 @@ export function WorkshopOrdersTab({
   }
 
   /**
-   * Realtime: доска видит заказы, изменённые не в этой вкладке.
+   * Realtime: доска видит заказы и печать, изменённые не в этой вкладке.
    *
    * Источник данных Kanban — серверный компонент страницы: в `WorkshopOrder`
    * уже присоединены принтер, катушка и позиции, а в событии `postgres_changes`
@@ -474,6 +477,10 @@ export function WorkshopOrdersTab({
    * страница перечитывает заказы тем же `getWorkshopOrders()`, что и при
    * загрузке. Так же поступают `moveOrder` и `removeOrder` после Server Action —
    * на доске всегда серверные данные, без «второй правды» в браузере.
+   *
+   * Слушаем и `workshop_print_jobs`: прогресс и остаток печати пишет агент
+   * фермы, а карточка показывает их полоской. Без подписки на задания полоска
+   * стояла бы на месте до перезагрузки страницы.
    *
    * События приходят только по своим заказам: RLS-политика
    * `workshop_orders_select_own` применяется к подписке так же, как к select.
@@ -506,21 +513,28 @@ export function WorkshopOrdersTab({
 
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const scheduleRefresh = () => {
+      if (refreshTimer !== null) {
+        clearTimeout(refreshTimer);
+      }
+
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        router.refresh();
+      }, REALTIME_REFRESH_DELAY_MS);
+    };
+
     const channel = supabase
       .channel("realtime-orders")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "workshop_orders" },
-        () => {
-          if (refreshTimer !== null) {
-            clearTimeout(refreshTimer);
-          }
-
-          refreshTimer = setTimeout(() => {
-            refreshTimer = null;
-            router.refresh();
-          }, REALTIME_REFRESH_DELAY_MS);
-        },
+        scheduleRefresh,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "workshop_print_jobs" },
+        scheduleRefresh,
       )
       .subscribe();
 
@@ -1217,6 +1231,21 @@ function OrderCard({
    * печати эта кнопка закрыла бы работу, которая просто идёт.
    */
   const isStuckJob = activeJob !== null && isActiveJobStuck(activeJob);
+  /**
+   * Полоска печати: печать идёт или стоит на паузе.
+   *
+   * Очередь её не получает — прогресса там ещё нет, и нулевая полоска читалась
+   * бы как «печать встала». Пауза показывается: видно, сколько напечатано и с
+   * какого места продолжат.
+   */
+  const showsJobProgress = activeJob !== null && activeJob.status !== "queued";
+  const jobProgress = activeJob
+    ? Math.min(100, Math.max(0, Math.round(activeJob.progress)))
+    : 0;
+  // Ноль секунд означает «время до конца неизвестно», и остаток не пишется.
+  const jobRemaining = activeJob?.remainingSeconds
+    ? formatPrinterRemaining(activeJob.remainingSeconds)
+    : null;
 
   return (
     <li
@@ -1304,6 +1333,43 @@ function OrderCard({
           <span className="truncate">
             {printer ? printer.name : "Принтер удалён"}
           </span>
+        </div>
+      ) : null}
+
+      {activeJob && showsJobProgress ? (
+        <div data-order-print-progress={activeJob.id} className="mt-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-[11px]">
+            <span className="font-semibold text-zinc-300">
+              {activeJob.status === "paused" ? "Пауза" : "Печать"}
+            </span>
+            <span className="tabular-nums text-zinc-400">
+              {jobProgress}%
+              {jobRemaining ? ` · Осталось: ${jobRemaining}` : ""}
+            </span>
+          </div>
+          <div
+            role="progressbar"
+            aria-valuenow={jobProgress}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuetext={`${jobProgress} %`}
+            aria-label={`Печать заказа «${order.title}»: ${jobProgress} %`}
+            className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]"
+          >
+            <div
+              className={`h-full rounded-full transition-[width] duration-700 ${
+                activeJob.status === "paused" ? "bg-amber-400" : "bg-blue-500"
+              }`}
+              style={{ width: `${jobProgress}%` }}
+            />
+          </div>
+          {/* Среднее по нескольким заданиям: цифра в строке выше — не одно
+              задание, и подпись объясняет, откуда она. */}
+          {activeJob.jobsCount > 1 ? (
+            <p className="mt-1 text-[10px] text-zinc-500">
+              Заданий в работе: {activeJob.jobsCount} · прогресс средний
+            </p>
+          ) : null}
         </div>
       ) : null}
 

@@ -46,6 +46,11 @@ export const ACTIVE_JOB_STUCK_MINUTES = 10;
  * `queuedAt` и `startedAt` — метки этапов из миграции hardening: по ним и
  * считается ожидание. `startedAt` главнее — мастер ждёт результат с момента
  * запуска печати, а не с постановки в очередь.
+ *
+ * `progress` и `remainingSeconds` пишет агент вместе со статусом (колонки
+ * `progress`/`remaining_time` миграции hardening). У заказа из нескольких
+ * позиций поле `progress` — среднее по активным заданиям, `remainingSeconds` —
+ * самый долгий остаток: заказ готов, когда допечатано последнее задание.
  */
 export type ActiveJobTiming = {
   /** id задания: по нему работает «Принудительно отменить». */
@@ -57,13 +62,31 @@ export type ActiveJobTiming = {
   startedAt: string | null;
   /** Мастер уже просил отмену, а агент её не выполнил. */
   cancelRequested: boolean;
+  /** Прогресс печати, % (0…100): полоска на карточке заказа. */
+  progress: number;
+  /** Остаток печати, с; null — принтер времени до конца не назвал. */
+  remainingSeconds: number | null;
+  /** Сколько активных заданий у заказа: у трёх позиций их может быть три. */
+  jobsCount: number;
 };
 
 /** Активные задания по заказам: `order_id` → задание. */
 export type ActiveOrderJobs = Record<string, ActiveJobTiming>;
 
+/**
+ * Всё, что нужно правилу зависания: ожидание считается по меткам этапов.
+ *
+ * Отдельный тип, а не `ActiveJobTiming`: окно заказа читает задание своим
+ * запросом (`OrderPrintJobState`) и о прогрессе не спрашивает — ему хватает
+ * статуса и времени. Так `isActiveJobStuck()` работает с обоими.
+ */
+export type StuckJobTiming = Pick<
+  ActiveJobTiming,
+  "queuedAt" | "startedAt" | "cancelRequested"
+>;
+
 /** Метка этапа, от которой считается ожидание: запуск печати важнее очереди. */
-function jobAnchor(job: ActiveJobTiming): number | null {
+function jobAnchor(job: StuckJobTiming): number | null {
   const anchor = job.startedAt ?? job.queuedAt;
 
   if (!anchor) {
@@ -84,7 +107,7 @@ function jobAnchor(job: ActiveJobTiming): number | null {
  * показывается: свежее задание мастер закроет обычной отменой.
  */
 export function isActiveJobStuck(
-  job: ActiveJobTiming,
+  job: StuckJobTiming,
   now: number = Date.now(),
 ): boolean {
   if (job.cancelRequested) {

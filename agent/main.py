@@ -611,6 +611,7 @@ def send_status(
     reason: str | None = None,
     estimated_seconds: int | None = None,
     filament_grams: float | None = None,
+    remaining_seconds: int | None = None,
 ) -> bool:
     """
     Сообщает статус задания: `POST /api/agent/status`.
@@ -629,6 +630,10 @@ def send_status(
     (см. gcode_metadata.py). Приходят один раз, вместе со стартом печати:
     сервер сохраняет их в задании, и карточка показывает «≈2 ч 5 мин» и
     стоимость пластика.
+
+    `remaining_seconds` — остаток печати из ответа адаптера (`remaining_time`):
+    сервер пишет его в задание, и карточка заказа показывает
+    «42% · Осталось: 45 мин». None — принтер времени до конца не назвал.
 
     True — сервер записал статус. False — не записал (сеть, 400, 401, 500):
     исключение наружу не летит, вызывающий код решает, повторить ли позже.
@@ -655,6 +660,9 @@ def send_status(
 
     if filament_grams is not None:
         body["filamentGrams"] = filament_grams
+
+    if remaining_seconds is not None:
+        body["remainingSeconds"] = remaining_seconds
 
     try:
         response = requests.post(
@@ -1277,6 +1285,22 @@ def read_progress(value: Any) -> int:
     return min(max(round(value), 0), 100)
 
 
+def read_remaining_seconds(value: Any) -> int | None:
+    """
+    Остаток печати из ответа адаптера: целые секунды; None — не назван.
+
+    Адаптеры отдают `remaining_time` секундами, а прошивки без оценки могут
+    прислать ноль или мусор: ноль — это «время до конца неизвестно», и в CRM
+    он уходит как отсутствие остатка, а не как «печать закончена».
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+
+    seconds = round(value)
+
+    return seconds if seconds > 0 else None
+
+
 def format_duration(seconds: int | None) -> str:
     """Секунды в «2 ч 5 мин» для журнала; None — «неизвестно»."""
     if seconds is None:
@@ -1431,6 +1455,9 @@ def monitor_print(
         status = adapter.get_status()
         state = read_text(status.get("status")) or ""
         progress = read_progress(status.get("progress"))
+        # Остаток времени до конца печати: адаптеры отдают его секундами, и
+        # карточка заказа показывает «Осталось: 45 мин» рядом с процентами.
+        remaining_seconds = read_remaining_seconds(status.get("remaining_time"))
         now = time.monotonic()
 
         # Молчание принтера: ни нового состояния, ни нового процента. Отсчёт
@@ -1574,7 +1601,12 @@ def monitor_print(
                 logger.warning(
                     "Задание %s: печать на паузе, прогресс %d%%", job_id, progress
                 )
-                send_status(job_id, "paused", progress)
+                send_status(
+                    job_id,
+                    "paused",
+                    progress,
+                    remaining_seconds=remaining_seconds,
+                )
                 paused = True
                 last_progress = progress
             continue
@@ -1619,7 +1651,12 @@ def monitor_print(
         # «на паузе», пока принтер не дойдёт до следующего процента.
         if progress != last_progress or paused:
             logger.info("Задание %s: прогресс %d%%", job_id, progress)
-            send_status(job_id, "printing", progress)
+            send_status(
+                job_id,
+                "printing",
+                progress,
+                remaining_seconds=remaining_seconds,
+            )
             last_progress = progress
             paused = False
 

@@ -259,7 +259,7 @@ python main.py
 | `load_settings()` | читает `.env` в `Settings`, проверяет `CRM_URL` и формат uuid у токена |
 | `fetch_tasks()` | `GET /api/agent/tasks`, возвращает список заданий (пустой — «печатать нечего») |
 | `log_network_error(action, error)` | сетевая ошибка в журнал: «Сетевая ошибка, переподключение...» вместо падения |
-| `send_status(job_id, status, progress=None)` | `POST /api/agent/status`; `True`, если сервер записал статус |
+| `send_status(job_id, status, progress=None, remaining_seconds=None)` | `POST /api/agent/status`; `True`, если сервер записал статус |
 | `send_heartbeat(reset_errors=False)` | `POST /api/agent/heartbeat`; `ok`, `network` или `rejected` |
 | `heartbeat_loop(stop_event)` | пульс раз в `HEARTBEAT_INTERVAL` (30 с) в отдельном потоке; сеть — повтор через 5 с |
 | `poll_once()` | один опрос: задачи и строка `Получено N задач` |
@@ -310,12 +310,14 @@ python main.py
 6. `finally` удаляет `agent/temp/{jobId}.gcode` при любом исходе.
 
 Цикл мониторинга (`monitor_print()`): пауза 5 секунд, затем `get_status()`.
-`printing` — в CRM уходит `printing` с прогрессом, но только когда проценты
-изменились (одинаковые не повторяются). `done` и выход из цикла — прогресс
-100 %, `idle` после старта или нулевой `printProgress` в простое после старта:
-FlashForge 5.x заканчивает печать простоем (`ready`), а не сотней процентов.
-Простой закрывает задание тем же опросом — следующего круга не ждём, поэтому
-«Готовы» в Канбане появляется сразу.
+`printing` — в CRM уходит `printing` с прогрессом и остатком: `remaining_time`
+адаптера переводит в `remainingSeconds` функция `read_remaining_seconds()`, и
+карточка заказа в «Печати» пишет «42 % · Осталось: 45 мин». Отчёт уходит, только
+когда проценты изменились (одинаковые не повторяются). `done` и выход из цикла —
+прогресс 100 %, `idle` после старта или нулевой `printProgress` в простое после
+старта: FlashForge 5.x заканчивает печать простоем (`ready`), а не сотней
+процентов. Простой закрывает задание тем же опросом — следующего круга не ждём,
+поэтому «Готовы» в Канбане появляется сразу.
 `error` — `failed`, но только после подтверждения: `error` (и текст в
 `last_error`) должны продержаться `FAILED_CONFIRM_CHECKS` опросов (3, то есть
 15 секунд). Bambu A1 на временный сбой — обрыв сети, вопрос на экране — уходит в

@@ -16,6 +16,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
  *     "jobId": "<uuid>",
  *     "status": "printing" | "paused" | "done" | "failed" | "cancelled",
  *     "progress": 0…100,
+ *     "remainingSeconds": 2700,
  *     "message": "почему не вышло",
  *     "estimatedSeconds": 7500,
  *     "filamentGrams": 42.5
@@ -54,7 +55,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
  *
  * `message` — причина отказа словами агента («Bambu: FTPS ответил 530»). Роут
  * кладёт её в `workshop_print_jobs.last_error`, и карточка заказа показывает
- * причину, а не «провалено». `estimatedSeconds`/`filamentGrams` — оценка из
+ * причину, а не «провалено». `progress` и `remainingSeconds` роут пишет и в
+ * задание, и в принтер: карточка заказа в «Печати» рисует по ним полоску и
+ * остаток времени, а карточка принтера — своё состояние.
+ * `estimatedSeconds`/`filamentGrams` — оценка из
  * самого G-кода: агент присылает её со стартом печати, карточка показывает
  * «≈2 ч 5 мин» и расход пластика.
  *
@@ -115,6 +119,12 @@ const STATUS_MESSAGE_MAX = 500;
 /** check workshop_print_jobs_estimated_seconds_check: от 1 секунды до года. */
 const ESTIMATED_SECONDS_MAX = 31_536_000;
 
+/**
+ * Остаток печати, секунды: 0 — «неизвестен или печать закончена», верхняя
+ * граница — та же, что у оценки слайсера (год). Меньше нуля база не примет.
+ */
+const REMAINING_SECONDS_MAX = ESTIMATED_SECONDS_MAX;
+
 /** check workshop_print_jobs_filament_grams_check: больше нуля, до 100 кг. */
 const FILAMENT_GRAMS_MAX = 100_000;
 
@@ -139,6 +149,8 @@ type StatusPayload = {
   status: AgentJobStatus;
   /** null — поле не передано, прогресс принтера не трогаем. */
   progress: number | null;
+  /** Остаток печати, секунды; null — агент его не прислал. */
+  remainingSeconds: number | null;
   /** Причина отказа словами агента; null — причина не передана. */
   message: string | null;
   /** Оценка слайсера, секунды; null — агент её не прислал. */
@@ -208,6 +220,28 @@ function parsePayload(value: unknown): ParsedPayload {
     progress = Math.round(value.progress);
   }
 
+  // Остаток печати необязателен так же, как прогресс: агент присылает его,
+  // когда принтер называет время до конца. Без него карточка показывает только
+  // проценты, а прошлое значение в базе не затирается.
+  let remainingSeconds: number | null = null;
+
+  if (value.remainingSeconds !== undefined && value.remainingSeconds !== null) {
+    if (
+      typeof value.remainingSeconds !== "number" ||
+      !Number.isFinite(value.remainingSeconds) ||
+      value.remainingSeconds < 0 ||
+      value.remainingSeconds > REMAINING_SECONDS_MAX
+    ) {
+      return {
+        payload: null,
+        error:
+          "remainingSeconds указан неверно: нужно число секунд от 0 до 31536000.",
+      };
+    }
+
+    remainingSeconds = Math.round(value.remainingSeconds);
+  }
+
   // Причина отказа: обрезаем до 500 символов, как char_length в базе. Пустая
   // строка — это «причины нет», а не причина из нуля байт.
   let message: string | null = null;
@@ -268,6 +302,7 @@ function parsePayload(value: unknown): ParsedPayload {
       jobId,
       status: value.status,
       progress,
+      remainingSeconds,
       message,
       estimatedSeconds,
       filamentGrams,
@@ -395,8 +430,19 @@ function printerPatchFor(payload: StatusPayload): PrinterPatch {
   // значение: агент сообщил только сам факт паузы.
   if (payload.status === "printing" || payload.status === "paused") {
     const status = payload.status === "paused" ? "paused" : "printing";
+    const patch: PrinterPatch = { status };
 
-    return payload.progress === null ? { status } : { status, progress: payload.progress };
+    if (payload.progress !== null) {
+      patch.progress = payload.progress;
+    }
+
+    // Остаток времени принтер называет не на каждой прошивке: без него карточка
+    // принтера показывает только проценты, а прежнее значение не затирается.
+    if (payload.remainingSeconds !== null) {
+      patch.remaining_time = payload.remainingSeconds;
+    }
+
+    return patch;
   }
 
   if (payload.status === "done") {
@@ -409,7 +455,9 @@ function printerPatchFor(payload: StatusPayload): PrinterPatch {
     return { status: "idle", progress: 0, remaining_time: 0 };
   }
 
-  return { status: "error", progress: 0 };
+  // Отказ: проценты и остаток сбрасываются — печать не идёт, и «Осталось 45 мин»
+  // на красной карточке было бы обманом.
+  return { status: "error", progress: 0, remaining_time: 0 };
 }
 
 /** Поля задания, которые пишет POST. */
@@ -419,6 +467,10 @@ type JobPatch = {
   last_error?: string;
   estimated_seconds?: number;
   filament_grams?: number;
+  /** Прогресс печати, %: карточка заказа рисует по нему полоску. */
+  progress?: number;
+  /** Остаток печати, с: карточка заказа пишет «Осталось 45 мин». */
+  remaining_time?: number;
 };
 
 /**
@@ -429,6 +481,10 @@ type JobPatch = {
  * прочитал, а триггер журнала записал бы её в событие запуска. Пауза тоже не
  * сюда: агент может прислать её с пояснением в `message` (например, «кончился
  * филамент»), но `last_error` выдал бы паузу за отказ.
+ *
+ * Прогресс и остаток пишутся для активных статусов: по ним карточка заказа в
+ * «Печати» рисует полоску. `done` закрывает печать сотней процентов, а у отказа и
+ * отмены остаток нулевой — время до конца там уже ничего не значит.
  */
 function jobPatchFor(payload: StatusPayload): JobPatch {
   const patch: JobPatch = { status: payload.status };
@@ -448,7 +504,40 @@ function jobPatchFor(payload: StatusPayload): JobPatch {
     patch.filament_grams = payload.filamentGrams;
   }
 
+  if (payload.progress !== null) {
+    patch.progress = payload.progress;
+  }
+
+  if (payload.status === "printing" || payload.status === "paused") {
+    // Остаток не пришёл — оставляем прошлый: агент мог сообщить только прогресс.
+    if (payload.remainingSeconds !== null) {
+      patch.remaining_time = payload.remainingSeconds;
+    }
+  } else if (payload.status === "done") {
+    patch.progress = 100;
+    patch.remaining_time = 0;
+  } else {
+    // failed и cancelled: печати больше нет, остаток обнуляем.
+    patch.remaining_time = 0;
+  }
+
   return patch;
+}
+
+/**
+ * Патч без прогресса и остатка.
+ *
+ * Нужен для базы, где `workshop_print_queue_hardening.sql` применена до
+ * появления этих колонок: статус задания важнее полоски на карточке, поэтому
+ * запись повторяется без них, а причина уходит в журнал сервера.
+ */
+function withoutPrintProgress(patch: JobPatch): JobPatch {
+  const trimmed: JobPatch = { ...patch };
+
+  delete trimmed.progress;
+  delete trimmed.remaining_time;
+
+  return trimmed;
 }
 
 /**
@@ -589,7 +678,33 @@ export async function POST(request: Request): Promise<Response> {
       .eq("user_id", identity.userId);
 
     if (jobUpdate.error) {
-      return writeFailure(jobUpdate.error, "Статус задания не записан.");
+      const jobError = jobUpdate.error;
+      // Колонок прогресса может ещё не быть: миграцию применяют вручную. Тогда
+      // статус пишется без них, а карточка просто остаётся без полоски.
+      const retry =
+        isMissingColumn(jobError) &&
+        (jobPatch.progress !== undefined ||
+          jobPatch.remaining_time !== undefined)
+          ? await supabase
+              .from("workshop_print_jobs")
+              .update(withoutPrintProgress(jobPatch))
+              .eq("id", payload.jobId)
+              .eq("user_id", identity.userId)
+          : null;
+
+      if (retry !== null && retry.error) {
+        return writeFailure(retry.error, "Статус задания не записан.");
+      }
+
+      if (retry === null) {
+        return writeFailure(jobError, "Статус задания не записан.");
+      }
+
+      console.warn(
+        "Агент: прогресс задания не записан — в базе нет колонок progress/remaining_time. Примените supabase/workshop_print_queue_hardening.sql:",
+        jobError.code,
+        jobError.message,
+      );
     }
   }
 

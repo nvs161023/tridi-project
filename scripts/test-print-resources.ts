@@ -235,6 +235,9 @@ function activeJob(
     queuedAt: hoursAgo(3),
     startedAt: minutesAgo(3),
     cancelRequested: false,
+    progress: 0,
+    remainingSeconds: null,
+    jobsCount: 1,
     ...overrides,
   };
 }
