@@ -112,91 +112,124 @@ const BRICK_STUD_TOP_RADIUS_MM = 2;
  */
 const BRICK_STUD_EMBED_MM = 0.2;
 
-/** Скругление четырёх углов билета, мм: крупное, как у настоящего билета. */
-const TICKET_CORNER_RADIUS_MM = 6;
-
-/** Ширина корешка (stub) слева, мм: по нему идёт линия перфорации. */
-const TICKET_STUB_WIDTH_MM = 10;
-
-/** Корешок узкой заготовки, мм: при 20 мм ширины 10 мм — это половина детали. */
-const TICKET_NARROW_STUB_WIDTH_MM = 8;
-
-/** Ширина, ниже которой корешок сужается, мм: 28 мм ещё даёт корешок 10 мм. */
-const TICKET_NARROW_WIDTH_MM = 26;
-
-/** Диаметр отверстия перфорации, мм. */
-const TICKET_PERFORATION_DIAMETER_MM = 1.8;
-
-/** Шаг перфорации, мм: перемычка между отверстиями остаётся 1.2 мм в свету. */
-const TICKET_PERFORATION_STEP_MM = 3;
-
-/** Отступ линии перфорации от верхнего и нижнего края, мм. */
-const TICKET_PERFORATION_INSET_MM = 4;
-
-/** Отступ центра кольца от верхнего края, мм: как у остальных пресетов. */
-const TICKET_RING_TOP_INSET_MM = 8;
-
-/** Минимальная перемычка от перфорации до кольца, мм: ближние отверстия снимаются. */
-const TICKET_PERFORATION_RING_GAP_MM = 1;
+/**
+ * Скругление четырёх углов билета, мм.
+ *
+ * Меньше, чем у остальных пресетов: у настоящего билета угол почти прямой, а
+ * 6 мм превращали силуэт в капсулу.
+ */
+const TICKET_CORNER_RADIUS_MM = 4;
 
 /**
- * Раскладка билета: корешок, линия перфорации и отверстие под кольцо.
+ * Доля высоты, уходящая под отрывной корешок.
+ *
+ * У бумажных билетов корешок — 25–33 % длины; 28 % попадает в середину вилки и
+ * оставляет основной части место под надпись.
+ */
+const TICKET_STUB_SHARE = 0.28;
+
+/** Корешок не ниже 12 мм: в нём должны уместиться полоса номера и штрихкода. */
+const TICKET_STUB_MIN_MM = 12;
+
+/** Корешок не выше 22 мм: на длинной заготовке он иначе съедает четверть детали. */
+const TICKET_STUB_MAX_MM = 22;
+
+/** Длина щели перфорации по ширине, мм. */
+const TICKET_SLOT_LENGTH_MM = 4;
+
+/** Высота щели в свету, мм: сквозной прокол, который перемычка держит от разрыва. */
+const TICKET_SLOT_HEIGHT_MM = 0.9;
+
+/** Перемычка между щелями, мм: 2.6 мм держат нагрузку и читаются как пунктир. */
+const TICKET_SLOT_GAP_MM = 2.6;
+
+/** Шаг между центрами щелей, мм: длина щели плюс перемычка. */
+const TICKET_SLOT_STEP_MM = TICKET_SLOT_LENGTH_MM + TICKET_SLOT_GAP_MM;
+
+/** Поле от боковой кромки до крайней щели, мм: щель не сливается с кромочным вырезом. */
+const TICKET_SLOT_EDGE_MARGIN_MM = 4;
+
+/** Радиус полукруглого выреза на боковой кромке, мм: «зацеп» линии отрыва. */
+const TICKET_NOTCH_RADIUS_MM = 2.5;
+
+/** Диаметр пятака проушины, мм. */
+const TICKET_TAB_DIAMETER_MM = 11;
+
+/** Выступ проушины над верхней кромкой билета, мм. */
+const TICKET_TAB_PROTRUSION_MM = 4;
+
+/**
+ * Раскладка билета: корешок снизу, линия отрыва со щелями и проушина.
  *
  * Общая функция для геометрии и подписи в панели, как `brickStudLayout`: числа
- * на плашке обязаны совпадать с тем, что уедет в STL, поэтому ширина корешка и
- * количество отверстий считаются в одном месте.
+ * на плашке обязаны совпадать с тем, что уедет в STL, поэтому высота корешка,
+ * число щелей и положение кольца считаются в одном месте.
  *
- * Корешок — полоса у левой кромки: 10 мм при ширине от 26 мм и 8 мм на узкой
- * заготовке. Уже 8 мм его делать нельзя — отверстию Ø5 мм нужны стенки по
- * 1.5 мм, иначе ушко рвётся под весом ключей. Кольцо стоит по центру корешка в
- * 8 мм от верхнего края, а перфорация идёт по его правой границе от
- * `−height/2 + 4` до `height/2 − 4` с шагом 3 мм: отверстия, которые подошли бы к
- * кольцу ближе 1 мм, из линии снимаются — на узкой заготовке у ушка появляется
- * разрыв, зато перемычка между отверстиями не превращается в щель.
+ * Корешок — полоса у нижней кромки, поперёк ширины: 28 % высоты в вилке 12–22 мм.
+ * Линия отрыва идёт по его верхней границе и упирается в полукруглые вырезы на
+ * обеих боковых кромках — так она «выходит на кромку», как у бумажного билета.
+ * Проушина выступает над верхней кромкой на 4 мм, поэтому габарит по высоте на
+ * эти 4 мм больше слайдера: `height` остаётся длиной самого билета.
  */
 export type TicketLayout = {
-  /** Ширина корешка слева, мм. */
-  stubWidth: number;
-  /** X линии перфорации от центра габарита, мм. */
-  perforationX: number;
-  /** Y отверстий перфорации от центра габарита, мм; снизу вверх. */
-  perforationYs: number[];
-  /** X центра отверстия под кольцо от центра габарита, мм. */
-  ringX: number;
-  /** Y центра отверстия под кольцо от центра габарита, мм. */
+  /** Высота корешка снизу, мм. */
+  stubHeight: number;
+  /** Y линии отрыва от центра габарита, мм: по ней идут щели и кромочные вырезы. */
+  perforationY: number;
+  /** Щелей в линии перфорации. */
+  slotCount: number;
+  /** Щелей в ряду: линия одна, поэтому совпадает с `slotCount`. */
+  slotsPerRow: number;
+  /** Шаг между центрами щелей, мм. */
+  slotStep: number;
+  /** X центров щелей от центра габарита, мм; слева направо. */
+  slotXs: number[];
+  /** Y центра отверстия под кольцо — он же центр пятака проушины, мм. */
   ringY: number;
+  /** Выступ проушины над верхней кромкой билета, мм. */
+  tabProtrusion: number;
 };
 
 export function ticketLayout(width: number, height: number): TicketLayout {
-  const stubWidth = Math.min(
-    width >= TICKET_NARROW_WIDTH_MM
-      ? TICKET_STUB_WIDTH_MM
-      : TICKET_NARROW_STUB_WIDTH_MM,
-    // Основная часть не уже 12 мм: иначе билет превращается в корешок.
-    Math.max(width - 12, 6),
+  // Корешок снизу: доля высоты в вилке 12–22 мм и не больше половины заготовки —
+  // иначе от билета остаётся один корешок.
+  const stubHeight = Math.min(
+    Math.max(height * TICKET_STUB_SHARE, TICKET_STUB_MIN_MM),
+    TICKET_STUB_MAX_MM,
+    height / 2,
   );
-  const holeRadius = TICKET_PERFORATION_DIAMETER_MM / 2;
-  const ringRadius = RING_HOLE_DIAMETER_MM / 2;
-  const ringX = -width / 2 + stubWidth / 2;
-  const ringY = height / 2 - TICKET_RING_TOP_INSET_MM;
-  const perforationX = -width / 2 + stubWidth;
-  const firstY = -height / 2 + TICKET_PERFORATION_INSET_MM;
-  const lastY = height / 2 - TICKET_PERFORATION_INSET_MM;
-  const perforationYs: number[] = [];
+  // Полоса под щели: от кромки до кромки без полей. Крайняя щель должна уложиться
+  // целиком, поэтому от полосы отнимается длина щели, а не шаг.
+  const slotField = Math.max(
+    width - TICKET_SLOT_EDGE_MARGIN_MM * 2,
+    TICKET_SLOT_LENGTH_MM,
+  );
+  const slotCount = Math.max(
+    1,
+    Math.floor((slotField + TICKET_SLOT_GAP_MM) / TICKET_SLOT_STEP_MM),
+  );
+  const slotSpan =
+    slotCount * TICKET_SLOT_LENGTH_MM + (slotCount - 1) * TICKET_SLOT_GAP_MM;
+  const slotXs = Array.from(
+    { length: slotCount },
+    (_, index) =>
+      -slotSpan / 2 + TICKET_SLOT_LENGTH_MM / 2 + index * TICKET_SLOT_STEP_MM,
+  );
+  // Проушина выступает над верхней кромкой ровно на 4 мм, поэтому центр пятака
+  // лежит на 1.5 мм ниже кромки: 5.5 − 4 = 1.5 при пятаке Ø11.
+  const ringY =
+    height / 2 + TICKET_TAB_PROTRUSION_MM - TICKET_TAB_DIAMETER_MM / 2;
 
-  for (
-    let y = firstY;
-    y <= lastY + 1e-9;
-    y += TICKET_PERFORATION_STEP_MM
-  ) {
-    const distanceToRing = Math.hypot(perforationX - ringX, y - ringY);
-
-    if (distanceToRing >= ringRadius + holeRadius + TICKET_PERFORATION_RING_GAP_MM) {
-      perforationYs.push(y);
-    }
-  }
-
-  return { stubWidth, perforationX, perforationYs, ringX, ringY };
+  return {
+    stubHeight,
+    perforationY: -height / 2 + stubHeight,
+    slotCount,
+    slotsPerRow: slotCount,
+    slotStep: TICKET_SLOT_STEP_MM,
+    slotXs,
+    ringY,
+    tabProtrusion: TICKET_TAB_PROTRUSION_MM,
+  };
 }
 
 /**
@@ -221,19 +254,19 @@ export function isKeychainPresetImplemented(
 }
 
 /**
- * Контур отверстия под кольцо на высоте `centerY` со смещением `centerX`.
+ * Контур отверстия под кольцо на высоте `centerY` по оси симметрии.
  *
- * Смещение нужно билету: у него кольцо стоит не на оси симметрии, а в корешке.
- * Радиус берётся больше номинального на фаску: у отверстия three.js поджимает
- * стенку на `bevelSize` так же, как расширяет корпус наружу. Центр отсчитывается
- * от номинального габарита, а не от контура крышки: панель обещает миллиметры
- * заготовки, а не профиля выдавливания.
+ * Кольцо у всех пресетов стоит на оси X = 0: у билета проушина с пятаком теперь
+ * по центру верхней кромки, а не в корешке. Радиус берётся больше номинального
+ * на фаску: у отверстия three.js поджимает стенку на `bevelSize` так же, как
+ * расширяет корпус наружу. Центр отсчитывается от номинального габарита, а не от
+ * контура крышки: панель обещает миллиметры заготовки, а не профиля выдавливания.
  */
-function ringHolePath(centerY: number, centerX = 0): Path {
+function ringHolePath(centerY: number): Path {
   const hole = new Path();
   const holeRadius = RING_HOLE_DIAMETER_MM / 2 + PRESET_BEVEL_SIZE_MM;
 
-  hole.absarc(centerX, centerY, holeRadius, 0, Math.PI * 2, true);
+  hole.absarc(0, centerY, holeRadius, 0, Math.PI * 2, true);
 
   return hole;
 }
@@ -792,44 +825,91 @@ export function buildBrick(
 }
 
 /**
- * Билет с корешком, линией перфорации и отверстием под кольцо — пресет Ticket.
+ * Щель перфорации: капсула 4 × 0.9 мм с закруглёнными торцами и центром в (x, y).
+ *
+ * Радиус и прямая часть больше номинала на фаску: на середине толщины three.js
+ * поджимает отверстие на `bevelSize`, и без добавки щель в свету вышла бы
+ * 0.1 × 3.2 мм вместо 0.9 × 4. Торцы скруглены на половину высоты, поэтому у
+ * капсулы нет углов, в которых фаска сходится клином и ломает сетку.
+ *
+ * Обход по часовой стрелке — как у остальных отверстий: three.js сам приводит
+ * дырки к обратному обходу, но одинаковое направление читается легче.
+ */
+function ticketSlotPath(x: number, y: number): Path {
+  const radius = TICKET_SLOT_HEIGHT_MM / 2 + PRESET_BEVEL_SIZE_MM;
+  // Половина прямой части: 4 − 0.9 = 3.1 мм, то есть по 1.55 мм от центра.
+  const straight = (TICKET_SLOT_LENGTH_MM - TICKET_SLOT_HEIGHT_MM) / 2;
+  const slot = new Path();
+
+  slot.moveTo(x - straight, y + radius);
+  slot.lineTo(x + straight, y + radius);
+  // Правый торец: сверху вниз через крайнюю точку.
+  slot.absarc(x + straight, y, radius, Math.PI / 2, -Math.PI / 2, true);
+  slot.lineTo(x - straight, y - radius);
+  // Левый торец: снизу вверх через крайнюю точку.
+  slot.absarc(x - straight, y, radius, -Math.PI / 2, Math.PI / 2, true);
+  slot.closePath();
+
+  return slot;
+}
+
+/**
+ * Билет с корешком снизу, пунктиром отрыва и проушиной — пресет Ticket.
  *
  * Корпус — прямоугольник `width × height` (28 × 60 по умолчанию) с углами,
- * скруглёнными на 6 мм: крупное скругление и есть то, что отличает билет от
- * бруска. Слева идёт корешок шириной 10 мм (8 мм на узкой заготовке) — от него
- * отделена основная часть линией сквозных отверстий Ø1.8 мм с шагом 3 мм. Линия
- * идёт по правой границе корешка от `−height/2 + 4` до `height/2 − 4`, то есть не
- * доходит до скруглений, где отверстие вышло бы на кромку. Отверстие под кольцо
- * Ø5 мм стоит в корешке, а не по центру верхней грани: при 28 × 60 его центр
- * приходится на X = −9, Y = 22, стенка до кромки — 2.5 мм, до линии перфорации —
- * 1.6 мм (0.8 мм на крышках, где фаска раскрывает отверстия).
+ * скруглёнными на 4 мм, а сверху по центру выступает проушина-пятак Ø11 мм на
+ * 4 мм: габарит по высоте поэтому на 4 мм больше слайдера. Отверстие под кольцо
+ * Ø5 мм стоит в пятаке, то есть в целой части билета, а не в отрывной.
+ *
+ * Корешок — полоса у нижней кромки высотой 28 % длины (вилка 12–22 мм). По его
+ * верхней границе идёт линия отрыва: щели-капсулы 4 × 0.9 мм с перемычкой
+ * 2.6 мм, а на обеих боковых кромках — полукруглые вырезы R 2.5 мм. Вырезы и
+ * делают линию отрыва линией: она выходит на кромку, как у бумажного билета, а
+ * не обрывается в теле. Сквозные щели вместо бороздки выбраны по прочности:
+ * перемычка 2.6 мм держит ключи, а «сэндвич» на толщине 2 мм оставил бы 0.8 мм
+ * тела.
  *
  * Контур обходится против часовой стрелки и построен точными дугами `absarc`:
- * на радиусе 6 мм квадратичная кривая ушла бы от окружности почти на 0.4 мм, и
- * угол выглядел бы приплюснутым. Габарит от этого не страдает — крайние точки
- * лежат на серединах прямых участков стенок, а фаска расширяет их ровно до
- * `width × height`.
+ * на радиусе 4 мм квадратичная кривая ушла бы от окружности, и угол выглядел бы
+ * приплюснутым. Проушина — не отдельная оболочка, а часть того же контура:
+ * дуга пятака подменяет собой участок верхней кромки, поэтому модель остаётся
+ * одним `ExtrudeGeometry` без слияния геометрий и без CSG.
  *
- * Отверстия перфорации и кольца добавляются в `shape.holes`, поэтому они
- * сквозные на всю толщину, и каждая оболочка остаётся замкнутой. Тиснёной
- * рамки по контуру нет: канавка 0.5 мм — это второй уровень выдавливания, а
- * пресет собирается одним `ExtrudeGeometry`, как и остальные.
+ * Щели и отверстие под кольцо добавляются в `shape.holes`, поэтому они сквозные
+ * на всю толщину, и каждая оболочка остаётся замкнутой. Тиснёной рамки по
+ * контуру нет: канавка 0.5 мм — это второй уровень выдавливания, а надпись и
+ * рамка подключутся отдельной задачей сразу для всех пресетов.
  */
 export function buildTicket(
   params: KeychainPresetGeometryParams,
 ): ExtrudeGeometry {
   const bevel = PRESET_BEVEL_SIZE_MM;
+  const layout = ticketLayout(params.width, params.height);
   // Профиль Shape — контур крышки: фаска раздвигает его на bevel наружу.
   const halfWidth = Math.max(params.width - bevel * 2, 1) / 2;
   const halfHeight = Math.max(params.height - bevel * 2, 1) / 2;
   // Скругление поджимается под половину габарита: на узкой заготовке углы иначе
   // наехали бы друг на друга.
   const corner = Math.min(TICKET_CORNER_RADIUS_MM, halfWidth, halfHeight);
-  const layout = ticketLayout(params.width, params.height);
+  // Пятак проушины: радиус профиля меньше номинала на фаску, центр совпадает с
+  // центром отверстия под кольцо.
+  const tabRadius = TICKET_TAB_DIAMETER_MM / 2 - bevel;
+  // Расстояние от центра пятака до верхней кромки профиля: 1.5 − 0.4 = 1.1 мм, то
+  // есть над габаритом проушина поднимается ровно на 4 мм. Берётся из геометрии,
+  // а не из номинала, чтобы дуга начиналась точно на кромке.
+  const tabDrop = halfHeight - layout.ringY;
+  // Полухорда, по которой дуга пятака пересекает верхнюю кромку: с неё начинается
+  // проушина, и туда же контур возвращается с другой стороны.
+  const tabChord = Math.sqrt(
+    Math.max(tabRadius * tabRadius - tabDrop * tabDrop, 0),
+  );
+  const tabStartAngle = Math.atan2(tabDrop, tabChord);
+  const tabEndAngle = Math.PI - tabStartAngle;
+  const notchY = layout.perforationY;
   const shape = new Shape();
 
-  // Обход против часовой стрелки: нижняя кромка слева направо, правая стенка,
-  // верхняя кромка справа налево, левая стенка.
+  // Обход против часовой стрелки: нижняя кромка слева направо, правая стенка с
+  // вырезом, верхняя кромка через проушину, левая стенка с вырезом.
   shape.moveTo(-halfWidth + corner, -halfHeight);
   shape.lineTo(halfWidth - corner, -halfHeight);
   // Правый нижний угол: от нижней кромки к правой стенке.
@@ -841,6 +921,17 @@ export function buildTicket(
     0,
     false,
   );
+  shape.lineTo(halfWidth, notchY - TICKET_NOTCH_RADIUS_MM);
+  // Кромочный вырез: дуга уходит внутрь тела, поэтому в контуре она обходится по
+  // часовой стрелке — материал остаётся снаружи выреза.
+  shape.absarc(
+    halfWidth,
+    notchY,
+    TICKET_NOTCH_RADIUS_MM,
+    -Math.PI / 2,
+    Math.PI / 2,
+    true,
+  );
   shape.lineTo(halfWidth, halfHeight - corner);
   // Правый верхний угол: от правой стенки к верхней кромке.
   shape.absarc(
@@ -849,6 +940,17 @@ export function buildTicket(
     corner,
     0,
     Math.PI / 2,
+    false,
+  );
+  // Верхняя кромка доходит до пятака и уступает ему место: дальше идёт дуга
+  // проушины от правой точки пересечения через верх к левой.
+  shape.lineTo(tabChord, halfHeight);
+  shape.absarc(
+    0,
+    layout.ringY,
+    tabRadius,
+    tabStartAngle,
+    tabEndAngle,
     false,
   );
   shape.lineTo(-halfWidth + corner, halfHeight);
@@ -860,6 +962,16 @@ export function buildTicket(
     Math.PI / 2,
     Math.PI,
     false,
+  );
+  shape.lineTo(-halfWidth, notchY + TICKET_NOTCH_RADIUS_MM);
+  // Левый кромочный вырез: та же дуга внутрь тела, но стенка обходится вниз.
+  shape.absarc(
+    -halfWidth,
+    notchY,
+    TICKET_NOTCH_RADIUS_MM,
+    Math.PI / 2,
+    -Math.PI / 2,
+    true,
   );
   shape.lineTo(-halfWidth, -halfHeight + corner);
   // Левый нижний угол: возврат к началу контура.
@@ -873,24 +985,12 @@ export function buildTicket(
   );
   shape.closePath();
 
-  // Линия перфорации: каждое отверстие — отдельная дырка в контуре. Радиус
-  // больше номинала на фаску: на середине толщины three.js поджимает отверстие
-  // на bevelSize, и без добавки в свету осталось бы 0.5 мм вместо 0.9 мм.
-  for (const y of layout.perforationYs) {
-    const perforation = new Path();
-
-    perforation.absarc(
-      layout.perforationX,
-      y,
-      TICKET_PERFORATION_DIAMETER_MM / 2 + bevel,
-      0,
-      Math.PI * 2,
-      true,
-    );
-    shape.holes.push(perforation);
+  // Линия отрыва: каждая щель — отдельная дырка в контуре.
+  for (const x of layout.slotXs) {
+    shape.holes.push(ticketSlotPath(x, notchY));
   }
 
-  shape.holes.push(ringHolePath(layout.ringY, layout.ringX));
+  shape.holes.push(ringHolePath(layout.ringY));
 
   return extrudePresetShape(shape, params.thickness);
 }

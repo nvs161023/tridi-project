@@ -846,7 +846,7 @@ function presetReadyNote(
     case "ticket": {
       const layout = ticketLayout(params.width, params.length);
 
-      return `билет ${params.width} × ${params.length} мм со скруглёнными углами 6 мм и перфорацией (${layout.perforationYs.length} отв. Ø1.8 мм шагом 3 мм, корешок ${layout.stubWidth} мм), отверстие Ø5 мм в корешке`;
+      return `билет ${params.width} × ${params.length} мм с корешком ${layout.stubHeight.toFixed(1)} мм снизу, перфорацией (${layout.slotCount} шт. щелей 4×0.9 мм с перемычкой 2.6 мм и вырезами R2.5 на кромках) и проушиной Ø11 мм с отверстием Ø5 мм (габарит по высоте ${params.length + layout.tabProtrusion} мм)`;
     }
     default:
       return `форма ${params.width} × ${params.length} мм, отверстие Ø5 мм под кольцо`;

@@ -102,10 +102,10 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     id: "ticket",
     label: "Ticket",
     description:
-      "Билет с корешком и линией перфорации: отверстие под кольцо в корешке, углы скруглены на 6 мм.",
+      "Билет с отрывным корешком снизу: пунктир сквозных щелей и вырезы на кромках, проушина Ø11 мм с отверстием под кольцо сверху.",
     defaultWidth: 28,
     defaultHeight: 60,
-    defaultThickness: 2.5,
+    defaultThickness: 3,
   },
   {
     id: "starburst",
