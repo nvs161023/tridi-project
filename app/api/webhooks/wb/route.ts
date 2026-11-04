@@ -36,7 +36,10 @@ import {
  * сумма делится на 100.
  *
  * WB может прислать заказ и в конверте со служебными полями
- * (`sellerId`, `createdAt`, `status`) — тогда заказ лежит в `body`.
+ * (`sellerId`, `createdAt`, `status`) — тогда заказ лежит в `body`. Старое
+ * уведомление приходит массивом: по объекту на заказ, без конверта. Раньше
+ * такой запрос получал 400 «invalid json» и заказы терялись, теперь массив
+ * разбирается по элементам (`handleOrders`).
  *
  * Заказ пишется с `source = 'wb'` и `status = 'new'`. Повтор уведомления с тем
  * же номером не создаёт дубль: заказ ищется по title, который собирается
@@ -61,6 +64,14 @@ const MAX_SKU_LENGTH = 128;
 
 /** Больше позиций в notes всё равно не поместится из-за лимита text. */
 const MAX_SKUS = 100;
+
+/**
+ * Сколько заказов принимаем в одном массиве.
+ *
+ * Старый формат уведомления присылает пачку заказов; предел нужен только
+ * чтобы запрос не превратился в бесконечный цикл по чужому телу.
+ */
+const MAX_ORDERS_IN_BATCH = 100;
 
 /** `workshop_orders.total_cost` — numeric(10,2) от 0 до 1 000 000. */
 const MAX_TOTAL_COST = 1_000_000;
@@ -490,11 +501,43 @@ async function handleOrder(token: string, body: JsonObject): Promise<Response> {
 }
 
 /**
+ * Пачка заказов из массива.
+ *
+ * Уведомление старого формата — массив объектов, по одному на заказ.
+ * Обрабатываем по порядку и отвечаем успехом, только если приняли все:
+ * частичный 2xx заставил бы WB считать доставленными и те заказы, которые мы не
+ * разобрали. Отказ на любом элементе возвращает его ответ, а WB повторит всю
+ * пачку — дублей не будет, заказ ищется по title.
+ */
+async function handleOrders(
+  token: string,
+  values: unknown[],
+): Promise<Response> {
+  if (values.length === 0 || values.length > MAX_ORDERS_IN_BATCH) {
+    return json({ error: "invalid json" }, 400);
+  }
+
+  for (const value of values) {
+    if (!isObject(value)) {
+      return json({ error: "invalid json" }, 400);
+    }
+
+    const response = await handleOrder(token, value);
+
+    if (!response.ok) {
+      return response;
+    }
+  }
+
+  return ok();
+}
+
+/**
  * POST /api/webhooks/wb?token=<uuid>.
  *
  * Без корректного UUID в адресе отвечаем 403 до чтения тела и запросов в базу.
  * Тело читаем текстом: в лог попадают длина и content-type, по ним видно, что
- * именно прислал WB, а не просто «invalid json».
+ * именно прислал WB, а не просто «invalid json». Массив — пачка заказов.
  */
 export async function POST(request: Request): Promise<Response> {
   const token = readWebhookToken(request);
@@ -525,6 +568,10 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     return json({ error: "invalid json" }, 400);
+  }
+
+  if (Array.isArray(body)) {
+    return handleOrders(token, body);
   }
 
   if (!isObject(body)) {
