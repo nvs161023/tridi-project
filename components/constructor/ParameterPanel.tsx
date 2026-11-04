@@ -842,6 +842,8 @@ function presetReadyNote(
 
       return `LEGO-кирпич ${params.width} × ${params.length} мм, шипы Ø4.7 мм (компенсация под FDM) шагом 8 мм: ${studs.total} шт. (${studs.columns} × ${studs.rows}), отверстие Ø5 мм в верхней части`;
     }
+    case "ticket":
+      return `билет ${params.width} × ${params.length} мм с полукруглыми вырезами по бокам и скруглёнными углами, отверстие Ø5 мм в верхней части`;
     default:
       return `форма ${params.width} × ${params.length} мм, отверстие Ø5 мм под кольцо`;
   }

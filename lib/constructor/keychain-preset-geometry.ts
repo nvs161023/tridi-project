@@ -113,6 +113,18 @@ const BRICK_STUD_TOP_RADIUS_MM = 2;
 const BRICK_STUD_EMBED_MM = 0.2;
 
 /**
+ * Радиус полукруглого выреза на боковых кромках билета, мм.
+ *
+ * Ø6 мм повторяет отрывную линию настоящего билета: вырез съедает материал с
+ * кромки и уходит внутрь, поэтому деталь держится на двух перемычках сверху и
+ * снизу и не режется пополам даже на минимальной ширине.
+ */
+const TICKET_NOTCH_RADIUS_MM = 3;
+
+/** Скругление четырёх углов билета, мм: мелкое, чтобы форма читалась как билет. */
+const TICKET_CORNER_RADIUS_MM = 2;
+
+/**
  * Пресеты, у которых уже есть геометрия.
  *
  * Список читают панель (подсказка вместо плашки «в работе») и API (422 вместо
@@ -123,9 +135,10 @@ export const IMPLEMENTED_KEYCHAIN_PRESETS: readonly KeychainPresetId[] = [
   "capsule",
   "hex",
   "brick",
+  "ticket",
 ];
 
-/** Готова ли геометрия пресета: остальные четыре пока строятся старым силуэтом. */
+/** Готова ли геометрия пресета: остальные три пока строятся старым силуэтом. */
 export function isKeychainPresetImplemented(
   presetId: KeychainPresetId,
 ): boolean {
@@ -703,6 +716,99 @@ export function buildBrick(
 }
 
 /**
+ * Билет с полукруглыми вырезами на боках и отверстием под кольцо — пресет Ticket.
+ *
+ * Корпус — прямоугольник `width × height` (28 × 60 по умолчанию) с углами,
+ * скруглёнными на 2 мм. На левой и правой стенках вырезаны полукруги радиусом
+ * 3 мм с центрами на самих кромках (X = ±width / 2): вырез заходит внутрь на 3 мм
+ * и оставляет сверху и снизу перемычки — так деталь читается как билет с
+ * отрывной линией, но остаётся целой. На минимальной ширине 20 мм перемычки
+ * между вырезами всего 20 − 6 = 14 мм, и порвать деталь пополам нельзя.
+ *
+ * Обход контура идёт против часовой стрелки, как у остальных пресетов: нижняя
+ * кромка слева направо, правый вырез снизу вверх, верхняя кромка справа налево,
+ * левый вырез сверху вниз. Дуги углов и вырезов рисуются через `absarc` с
+ * точными точками касания, а не квадратичной кривой: на радиусе 3 мм кривая
+ * ушла бы от окружности почти на 0.2 мм, и вырез перестал бы быть полукругом.
+ *
+ * Отверстие Ø5 мм — на оси симметрии в 8 мм от верхнего края, то есть выше
+ * вырезов: при 28 × 60 его центр на Y = 22, а вырезы занимают полосу |Y| ≤ 3.
+ * Стенка над кольцом остаётся ровной при любом размере заготовки, а габарит не
+ * меняется: крайние точки — середины прямых участков стенок между вырезом и
+ * углом, фаска расширяет их ровно до `width × height`.
+ */
+export function buildTicket(
+  params: KeychainPresetGeometryParams,
+): ExtrudeGeometry {
+  const bevel = PRESET_BEVEL_SIZE_MM;
+  // Профиль Shape — контур крышки: фаска раздвигает его на bevel наружу.
+  const halfWidth = Math.max(params.width - bevel * 2, 1) / 2;
+  const halfHeight = Math.max(params.height - bevel * 2, 1) / 2;
+  // На узкой заготовке углы и вырезы могли бы наехать друг на друга: радиус
+  // поджимается под половину габарита, а вырез — под оставшуюся стенку.
+  const corner = Math.min(TICKET_CORNER_RADIUS_MM, halfWidth, halfHeight);
+  const notch = Math.min(
+    TICKET_NOTCH_RADIUS_MM,
+    halfWidth,
+    Math.max(halfHeight - corner, 0.5),
+  );
+  const shape = new Shape();
+
+  shape.moveTo(-halfWidth + corner, -halfHeight);
+  shape.lineTo(halfWidth - corner, -halfHeight);
+  // Правый нижний угол: от нижней кромки к правой стенке.
+  shape.absarc(
+    halfWidth - corner,
+    -halfHeight + corner,
+    corner,
+    -Math.PI / 2,
+    0,
+    false,
+  );
+  shape.lineTo(halfWidth, -notch);
+  // Правый вырез: дуга уходит внутрь, к точке (halfWidth − notch, 0).
+  shape.absarc(halfWidth, 0, notch, -Math.PI / 2, Math.PI / 2, true);
+  shape.lineTo(halfWidth, halfHeight - corner);
+  // Правый верхний угол: от правой стенки к верхней кромке.
+  shape.absarc(
+    halfWidth - corner,
+    halfHeight - corner,
+    corner,
+    0,
+    Math.PI / 2,
+    false,
+  );
+  shape.lineTo(-halfWidth + corner, halfHeight);
+  // Левый верхний угол.
+  shape.absarc(
+    -halfWidth + corner,
+    halfHeight - corner,
+    corner,
+    Math.PI / 2,
+    Math.PI,
+    false,
+  );
+  shape.lineTo(-halfWidth, notch);
+  // Левый вырез — зеркало правого, тоже внутрь детали.
+  shape.absarc(-halfWidth, 0, notch, Math.PI / 2, -Math.PI / 2, true);
+  shape.lineTo(-halfWidth, -halfHeight + corner);
+  // Левый нижний угол: возврат к началу контура.
+  shape.absarc(
+    -halfWidth + corner,
+    -halfHeight + corner,
+    corner,
+    Math.PI,
+    Math.PI * 1.5,
+    false,
+  );
+  shape.closePath();
+
+  shape.holes.push(ringHolePath(params.height / 2 - RING_HOLE_INSET_MM));
+
+  return extrudePresetShape(shape, params.thickness);
+}
+
+/**
  * Геометрия выбранного пресета.
  *
  * null означает «пресет ещё не реализован»: панель по этому же признаку гасит
@@ -722,6 +828,8 @@ export function buildKeychainPresetGeometry(
       return buildHex(params);
     case "brick":
       return buildBrick(params);
+    case "ticket":
+      return buildTicket(params);
     default:
       return null;
   }
