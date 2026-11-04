@@ -44,13 +44,13 @@ export function AgentDownloadButton({
       data-agent-download
       className={`inline-flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-4 py-2 text-center text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] ${TONE_CLASSES[tone]} ${className}`}
     >
-      <span className="inline-flex items-center gap-2">
+      <span className="inline-flex items-center gap-2 whitespace-nowrap">
         <DownloadIcon className="h-4 w-4 shrink-0" />
         Скачать TriDiAgent.exe
       </span>
       {showHint ? (
         <span
-          className={`text-[10px] font-normal ${
+          className={`whitespace-nowrap text-[10px] font-normal ${
             tone === "primary" ? "text-black/60" : "text-zinc-500"
           }`}
         >

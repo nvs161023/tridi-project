@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -15,13 +16,19 @@ import { useDialogDismiss } from "@/components/workshop/use-dialog-dismiss";
 import { TAB_HELP } from "@/components/workshop/workshop-tab-help";
 
 /**
- * Онбординг Мастерской: два тура и кнопка «Показать тур снова».
+ * Онбординг Мастерской: два тура и кнопка перезапуска.
  *
- * Короткий тур (`WorkshopOnboarding`, шесть шагов) открывается сам при первом
- * заходе и объясняет порядок запуска: агент → принтеры → товар → заказ. Полный
- * тур (`WorkshopFullTour`, десять шагов) проходит по всем вкладкам и запускается
- * кнопкой «Полный тур» — сам он не всплывает: мастеру, который зашёл выдать
- * заказ, окно на десять шагов только мешает.
+ * Короткий тур (`STEPS`, шесть шагов) открывается сам при первом заходе и
+ * объясняет порядок запуска: агент → принтеры → товар → заказ. Полный тур
+ * (`FULL_TOUR_STEPS`, десять шагов) проходит по всем вкладкам и всплывает только
+ * по нажатию: мастеру, который зашёл выдать заказ, окно на десять шагов при
+ * каждом заходе мешало бы.
+ *
+ * «Показать тур снова» запускает полный тур, а не короткий: короткий мастер уже
+ * видел на первом заходе, а полный — нет. Так в шапке остаётся одна кнопка вместо
+ * двух, которые делали бы одно и то же. Найти расширенный тур можно и из
+ * короткого: на последнем шаге есть CTA, который закрывает короткий и сразу
+ * открывает полный.
  *
  * Флаги «видел тур» — `localStorage["workshop_onboarding_seen"]` и
  * `localStorage["workshop_full_tour_seen"]`. Проверка идёт в `useEffect`, а не при
@@ -227,106 +234,106 @@ function rememberTourSeen(key: string) {
 }
 
 /**
- * Кнопка «Показать тур снова» и само окно.
+ * Вид кнопки тура в шапке Мастерской — общий для одной кнопки, которая запускает
+ * полный тур.
  *
- * `closeTour` стабилен (`useCallback`): `useDialogDismiss` подписывается на
- * Escape именно на него, и новая функция на каждый рендер переподписывала бы
- * обработчик.
+ * `whitespace-nowrap` обязателен: на 375px подпись «Показать тур снова» иначе
+ * ломается на две строки, кнопка становится вдвое выше соседней «Скачать
+ * TriDiAgent.exe», и ряд в шапке выглядит рваным.
  */
-export function WorkshopOnboarding() {
-  const [isOpen, setIsOpen] = useState(false);
+const TOUR_TRIGGER_CLASSES =
+  "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-white/10 bg-white/[0.03] px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]";
+
+/**
+ * Кнопка «Показать тур снова» и оба окна.
+ *
+ * Кнопка открывает полный тур: короткий показывается один раз — сам при первом
+ * заходе. Оба окна живут в одном компоненте, потому что CTA последнего шага
+ * короткого тура переключает его на полный: два независимых компонента пришлось
+ * бы связывать пропсами через страницу, а она серверная.
+ *
+ * `closeShortTour`, `closeFullTour`, `openFullTour` стабильны (`useCallback`):
+ * `useDialogDismiss` подписывается на Escape именно на них, и новая функция на
+ * каждый рендер переподписывала бы обработчик.
+ *
+ * `hasSeenFullTour` начинается с `false`: до гидратации localStorage недоступен,
+ * и чтение в `useState` развело бы разметку сервера и клиента. Разница видна
+ * только в `title` кнопки, поэтому мигания нет.
+ *
+ * `data-workshop-full-tour-trigger` — метка для скриптов аудита. Прежний атрибут
+ * `data-workshop-onboarding-trigger` остаётся на той же кнопке: старые проверки
+ * ищут именно его и не должны «слепнуть» после слияния двух кнопок в одну.
+ */
+export function WorkshopTours() {
+  const [activeTour, setActiveTour] = useState<"short" | "full" | null>(null);
+  const [hasSeenFullTour, setHasSeenFullTour] = useState(false);
 
   useEffect(() => {
+    setHasSeenFullTour(hasSeenTour(FULL_TOUR_STORAGE_KEY));
+
     if (!hasSeenTour(STORAGE_KEY)) {
-      setIsOpen(true);
+      setActiveTour("short");
     }
   }, []);
 
-  const closeTour = useCallback(() => {
-    setIsOpen(false);
+  const closeShortTour = useCallback(() => {
+    setActiveTour(null);
     rememberTourSeen(STORAGE_KEY);
   }, []);
 
-  const restartTour = useCallback(() => setIsOpen(true), []);
+  /** CTA последнего шага: короткий тур закрывается, полный открывается сразу. */
+  const switchToFullTour = useCallback(() => {
+    rememberTourSeen(STORAGE_KEY);
+    setActiveTour("full");
+  }, []);
+
+  const closeFullTour = useCallback(() => {
+    setActiveTour(null);
+    setHasSeenFullTour(true);
+    rememberTourSeen(FULL_TOUR_STORAGE_KEY);
+  }, []);
+
+  const openFullTour = useCallback(() => setActiveTour("full"), []);
 
   return (
     <>
       <button
         type="button"
-        onClick={restartTour}
+        onClick={openFullTour}
+        data-workshop-full-tour-trigger
         data-workshop-onboarding-trigger
-        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
+        title={
+          hasSeenFullTour
+            ? "Пройти полный тур ещё раз"
+            : "Полный тур по всем вкладкам Мастерской"
+        }
+        className={TOUR_TRIGGER_CLASSES}
       >
         <HelpIcon className="h-4 w-4 shrink-0" />
         Показать тур снова
       </button>
 
-      {isOpen ? (
+      {activeTour === "short" ? (
         <TourDialog
           steps={STEPS}
           label="Мастерская · тур"
           titleId="workshop-onboarding-title"
           dataTour="short"
-          onClose={closeTour}
+          onClose={closeShortTour}
+          finalSecondaryAction={{
+            label: "Пройти полный тур по всем вкладкам",
+            onClick: switchToFullTour,
+          }}
         />
       ) : null}
-    </>
-  );
-}
 
-/**
- * Кнопка «Полный тур»: десять шагов по всем вкладкам Мастерской.
- *
- * Сам тур не всплывает — только по нажатию: короткий тур уже объяснил запуск, а
- * окно на десять шагов при каждом заходе раздражало бы. Флаг
- * `workshop_full_tour_seen` пишется при любом закрытии (Escape, «Пропустить»,
- * последний шаг) и меняет только подсказку кнопки: мастер видит, что тур уже
- * проходил, но может вернуться.
- *
- * `hasSeen` начинается с `false`: до гидратации localStorage недоступен, и
- * чтение в `useState` развело бы разметку сервера и клиента. Разница видна
- * только в `title` кнопки, поэтому мигания нет.
- */
-export function WorkshopFullTour() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [hasSeen, setHasSeen] = useState(false);
-
-  useEffect(() => {
-    setHasSeen(hasSeenTour(FULL_TOUR_STORAGE_KEY));
-  }, []);
-
-  const closeTour = useCallback(() => {
-    setIsOpen(false);
-    setHasSeen(true);
-    rememberTourSeen(FULL_TOUR_STORAGE_KEY);
-  }, []);
-
-  const restartTour = useCallback(() => setIsOpen(true), []);
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={restartTour}
-        data-workshop-full-tour-trigger
-        title={
-          hasSeen
-            ? "Пройти полный тур ещё раз"
-            : "Полный тур по всем вкладкам Мастерской"
-        }
-        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
-      >
-        <HelpIcon className="h-4 w-4 shrink-0" />
-        Полный тур
-      </button>
-
-      {isOpen ? (
+      {activeTour === "full" ? (
         <TourDialog
           steps={FULL_TOUR_STEPS}
           label="Мастерская · полный тур"
           titleId="workshop-full-tour-title"
           dataTour="full"
-          onClose={closeTour}
+          onClose={closeFullTour}
         />
       ) : null}
     </>
@@ -344,6 +351,17 @@ export function WorkshopFullTour() {
  * начинается с первого шага, а не с того, где остановились. Так обещает кнопка
  * перезапуска. Последняя кнопка закрывает окно, а флаг «видел» ставит родитель —
  * любым способом закрытия, включая Escape.
+ *
+ * Мобильная вёрстка: окно занимает не больше 90vw в ширину и 80vh в высоту, а
+ * внутри — три части. Шапка с «✕» и полоса кнопок не прокручиваются, крутится
+ * только текст шага: на 375×667 «Дальше» остаётся на месте, даже если шаг
+ * длинный. Окно растягивается по контенту, но не на весь экран, а прокрутка
+ * внутри `min-h-0 flex-1` не даёт кнопкам уехать за нижний край.
+ *
+ * `finalSecondaryAction` — кнопка-мостик на последнем шаге. Её передаёт только
+ * короткий тур: «Пройти полный тур по всем вкладкам» закрывает короткий и сразу
+ * открывает полный, чтобы мастер узнал о расширенном туре, не разыскивая его в
+ * шапке.
  */
 function TourDialog({
   steps,
@@ -351,6 +369,7 @@ function TourDialog({
   titleId,
   dataTour,
   onClose,
+  finalSecondaryAction,
 }: {
   steps: readonly TourStep[];
   /** Надпись над счётчиком шагов: «Мастерская · тур». */
@@ -359,9 +378,12 @@ function TourDialog({
   titleId: string;
   /** Метка тура в `data-`-атрибутах — для тестов и отладки. */
   dataTour: "short" | "full";
+  /** Вторая кнопка на последнем шаге: переход к полному туру. */
+  finalSecondaryAction?: { label: string; onClick: () => void };
   onClose: () => void;
 }) {
   const [stepIndex, setStepIndex] = useState(0);
+  const textRef = useRef<HTMLDivElement>(null);
 
   useDialogDismiss(onClose);
 
@@ -369,6 +391,12 @@ function TourDialog({
   const isFirst = stepIndex === 0;
   const isLast = stepIndex === steps.length - 1;
   const stepNumber = stepIndex + 1;
+
+  // Новый шаг читается с начала: после длинного абзаца прокрутка осталась бы
+  // внизу, и заголовок следующего шага оказался бы за верхней границей.
+  useEffect(() => {
+    textRef.current?.scrollTo({ top: 0 });
+  }, [stepIndex]);
 
   function handlePrimary() {
     if (isLast) {
@@ -391,7 +419,7 @@ function TourDialog({
           onClose();
         }
       }}
-      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/80 p-4 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm sm:p-4"
     >
       <div
         role="dialog"
@@ -400,71 +428,86 @@ function TourDialog({
         data-workshop-onboarding
         data-workshop-onboarding-step={stepNumber}
         data-workshop-tour={dataTour}
-        className="max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl shadow-black/60 sm:p-8"
+        className="flex max-h-[80vh] w-[min(90vw,36rem)] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0a0a0a] shadow-2xl shadow-black/60"
       >
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold tracking-[0.2em] text-blue-400 uppercase">
-              {label}
-            </p>
-            <p className="mt-2 text-xs font-semibold tabular-nums text-zinc-500">
-              Шаг {stepNumber} из {steps.length}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Закрыть тур"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
-          >
-            <span aria-hidden>✕</span>
-          </button>
-        </div>
-
-        <div aria-hidden className="mt-4 flex gap-1.5">
-          {steps.map((item, index) => (
-            <span
-              key={item.title}
-              className={`h-1 flex-1 rounded-full transition-colors ${
-                index <= stepIndex ? "bg-blue-500" : "bg-white/10"
-              }`}
-            />
-          ))}
-        </div>
-
-        <div aria-live="polite" className="mt-5">
-          <h2
-            id={titleId}
-            className="text-2xl font-extrabold tracking-tight text-white"
-          >
-            {step.title}
-          </h2>
-          <div className="mt-3 text-sm leading-relaxed text-zinc-400">
-            <p>{step.body}</p>
-          </div>
-
-          {step.showDownload ? (
-            <div className="mt-5 flex flex-col items-start gap-2">
-              <AgentDownloadButton tone="primary" showHint />
-              <p className="text-xs leading-relaxed text-zinc-500">
-                Запустите exe на компьютере рядом с принтерами: он создаст{" "}
-                <code className="rounded border border-white/10 bg-black/40 px-1.5 py-0.5 font-mono text-[0.85em] text-blue-200">
-                  .env
-                </code>{" "}
-                рядом с собой. Токен для него лежит на вкладке «Интеграции».
+        {/* Шапка и прогресс закреплены: «✕» и «Шаг N из 10» видны всегда. */}
+        <div className="shrink-0 px-4 pt-4 sm:px-8 sm:pt-6">
+          <div className="flex items-start justify-between gap-3 sm:gap-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold tracking-[0.2em] text-blue-400 uppercase sm:text-xs">
+                {label}
+              </p>
+              <p className="mt-1.5 text-xs font-semibold tabular-nums text-zinc-500">
+                Шаг {stepNumber} из {steps.length}
               </p>
             </div>
-          ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Закрыть тур"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            >
+              <span aria-hidden>✕</span>
+            </button>
+          </div>
+
+          <div aria-hidden className="mt-3 flex gap-1.5 sm:mt-4">
+            {steps.map((item, index) => (
+              <span
+                key={item.title}
+                className={`h-1 flex-1 rounded-full transition-colors ${
+                  index <= stepIndex ? "bg-blue-500" : "bg-white/10"
+                }`}
+              />
+            ))}
+          </div>
         </div>
 
-        <div className="mt-6 flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row sm:items-center">
+        {/* Крутится только текст шага: кнопки ниже остаются на месте. */}
+        <div
+          ref={textRef}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-8 sm:py-5"
+        >
+          <div aria-live="polite">
+            <h2
+              id={titleId}
+              className="text-xl font-extrabold tracking-tight text-white sm:text-2xl"
+            >
+              {step.title}
+            </h2>
+            <div className="mt-2.5 text-sm leading-relaxed text-zinc-400 sm:mt-3">
+              <p>{step.body}</p>
+            </div>
+
+            {step.showDownload ? (
+              <div className="mt-4 flex flex-col items-start gap-2 sm:mt-5">
+                <AgentDownloadButton tone="primary" showHint />
+                <p className="text-xs leading-relaxed text-zinc-500">
+                  Запустите exe на компьютере рядом с принтерами: он создаст{" "}
+                  <code className="rounded border border-white/10 bg-black/40 px-1.5 py-0.5 font-mono text-[0.85em] text-blue-200">
+                    .env
+                  </code>{" "}
+                  рядом с собой. Токен для него лежит на вкладке «Интеграции».
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {/*
+          Полоса кнопок вне прокрутки — «Назад / Пропустить / Дальше» не уезжают
+          за край. На узком экране они стоят в один ряд (три кнопки в колонку
+          съедали бы пол-экрана), а длинный CTA полного тура занимает отдельную
+          строку через `order-first` и `w-full`.
+        */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-white/10 bg-[#0a0a0a] px-4 py-3.5 sm:gap-3 sm:px-8 sm:py-5">
           {!isFirst ? (
             <button
               type="button"
               onClick={() =>
                 setStepIndex((current) => Math.max(current - 1, 0))
               }
-              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-3 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:px-5"
             >
               ← Назад
             </button>
@@ -474,9 +517,19 @@ function TourDialog({
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex min-h-11 items-center justify-center rounded-xl px-3 text-xs font-semibold text-zinc-500 transition-colors hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:mr-auto"
+              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl px-2.5 text-xs font-semibold text-zinc-500 transition-colors hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:px-3"
             >
               Пропустить
+            </button>
+          ) : null}
+
+          {isLast && finalSecondaryAction ? (
+            <button
+              type="button"
+              onClick={finalSecondaryAction.onClick}
+              className="order-first inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-blue-400/30 bg-blue-500/10 px-4 text-center text-xs font-semibold text-blue-100 transition-colors hover:border-blue-400/50 hover:bg-blue-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:order-none sm:w-auto"
+            >
+              {finalSecondaryAction.label}
             </button>
           ) : null}
 
@@ -484,7 +537,7 @@ function TourDialog({
             type="button"
             onClick={handlePrimary}
             autoFocus
-            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:ml-auto"
+            className="ml-auto inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-white px-5 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:px-6"
           >
             {step.primaryLabel}
           </button>

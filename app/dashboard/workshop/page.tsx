@@ -6,7 +6,7 @@ import { Header } from "@/components/Header";
 import { ButtonLink } from "@/components/ui";
 import { AgentDownloadButton } from "@/components/workshop/AgentDownloadButton";
 import { WorkshopCreateOrderButton } from "@/components/workshop/WorkshopCreateOrderButton";
-import { WorkshopFullTour, WorkshopOnboarding } from "@/components/workshop/WorkshopOnboarding";
+import { WorkshopTours } from "@/components/workshop/WorkshopOnboarding";
 import { WorkshopStats } from "@/components/workshop/WorkshopStats";
 import { WorkshopTabs } from "@/components/workshop/WorkshopTabs";
 import { resolveUserId } from "@/lib/current-user";
@@ -165,12 +165,7 @@ export default async function WorkshopPage() {
 
               <div className="mt-6 flex flex-col items-stretch gap-2.5 sm:flex-row sm:flex-wrap sm:items-start">
                 <AgentDownloadButton showHint />
-                {hasPro ? (
-                  <>
-                    <WorkshopOnboarding />
-                    <WorkshopFullTour />
-                  </>
-                ) : null}
+                {hasPro ? <WorkshopTours /> : null}
               </div>
             </div>
 
