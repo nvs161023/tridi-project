@@ -39,7 +39,15 @@
   11. обрыв MQTT во время загрузки не убивает печать: `start_print()` ждёт
       переподключения, а без связи объясняет причину («нет MQTT-соединения»);
   12. `_publish()` после обрыва переподключается и повторяет команду один раз;
-  13. серийник из задания используется сразу, без сертификата и SSDP.
+  13. серийник из задания используется сразу, без сертификата и SSDP;
+  14. `FINISH` — конец печати: `get_status()` отдаёт `idle`, 100 % и нулевой
+      остаток даже если в финальном отчёте остался прежний `mc_percent`; смена
+      состояния отчёта пишется в журнал на INFO (`gcode_state=…`), повтор того
+      же состояния — на DEBUG;
+  15. печать, о которой принтер перестал рассказывать, закрывается по таймауту:
+      оценка слайсера + 10 % (или сутки без оценки) и молчание дольше
+      `PRINT_TIMEOUT_SILENCE` — это `done` с пометкой «Печать завершена по
+      таймауту», а растущий прогресс под таймаут не попадает.
 
 Запуск:
     python scripts/test-bambu.py
@@ -408,12 +416,64 @@ class SilentPrintAdapter:
         return True
 
 
-def run_monitor(adapter: SilentPrintAdapter) -> list[tuple[str, int, str | None]]:
+class FakeClock:
+    """
+    Часы `monitor_print()`: `sleep()` двигает время, `monotonic()` его отдаёт.
+
+    Таймаут печати считается по монотонным часам, и без подмены проверка ждала бы
+    настоящие сутки. Подменяется весь модуль `time` в `main`: цикл мониторинга
+    живёт только на `sleep()` и `monotonic()`.
+    """
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+class GrowingPrintAdapter:
+    """
+    Печать дольше оценки: прогресс растёт на процент за опрос.
+
+    Нужна проверке таймаута: пока принтер рассказывает о прогрессе, закрывать
+    задание нельзя, сколько бы времени ни прошло. После сотни процентов станок
+    уходит в простой — это и есть конец печати.
+    """
+
+    def __init__(self, progress: int = 0) -> None:
+        self.progress = progress
+        self.last_error: str | None = None
+
+    def get_status(self) -> dict[str, Any]:
+        progress = self.progress
+        self.progress += 1
+
+        if progress >= 100:
+            return {"status": "idle", "progress": 100, "remaining_time": 0}
+
+        return {"status": "printing", "progress": progress, "remaining_time": 60}
+
+    def stop_print(self) -> bool:
+        return True
+
+
+def run_monitor(
+    adapter: Any,
+    estimated_seconds: int | None = None,
+    monitor_interval: float = 0,
+    clock: FakeClock | None = None,
+) -> list[tuple[str, int, str | None]]:
     """
     `monitor_print()` с отключёнными паузами: только отправленные статусы.
 
     Подменяются `send_status`, `fetch_cancel_request` и интервалы — сам цикл
-    остаётся настоящим, поэтому проверяется именно он.
+    остаётся настоящим, поэтому проверяется именно он. `monitor_interval` — шаг
+    между опросами (ноль там, где таймаут проверять не нужно), `clock` подменяет
+    модуль `time`: без него таймаут печати ждал бы настоящие сутки.
     """
     sent: list[tuple[str, int, str | None]] = []
     saved = (
@@ -422,11 +482,15 @@ def run_monitor(adapter: SilentPrintAdapter) -> list[tuple[str, int, str | None]
         agent_main.PRINT_START_CHECKS,
         agent_main.send_status,
         agent_main.fetch_cancel_request,
+        agent_main.time,
     )
 
     try:
-        agent_main.MONITOR_INTERVAL = 0
+        agent_main.MONITOR_INTERVAL = monitor_interval
         agent_main.PRINT_START_DELAY = 0
+
+        if clock is not None:
+            agent_main.time = clock
 
         def capture(
             job_id: str,
@@ -441,7 +505,7 @@ def run_monitor(adapter: SilentPrintAdapter) -> list[tuple[str, int, str | None]
 
         agent_main.send_status = capture
         agent_main.fetch_cancel_request = lambda job_id: False
-        agent_main.monitor_print("test-job", adapter)  # type: ignore[arg-type]
+        agent_main.monitor_print("test-job", adapter, estimated_seconds=estimated_seconds)
     finally:
         (
             agent_main.MONITOR_INTERVAL,
@@ -449,9 +513,11 @@ def run_monitor(adapter: SilentPrintAdapter) -> list[tuple[str, int, str | None]
             agent_main.PRINT_START_CHECKS,
             agent_main.send_status,
             agent_main.fetch_cancel_request,
+            agent_main.time,
         ) = saved
 
     return sent
+
 
 
 def main() -> int:
@@ -606,6 +672,75 @@ def main() -> int:
         "FINISH → idle, остаток 0",
         reporting,
         {"status": "idle", "progress": 100, "remaining_time": 0},
+    )
+
+    # Финал A1 приходит не всегда с сотней: в отчёте остаётся прежний процент и
+    # минута остатка. `FINISH` — это «задание выполнено», поэтому `get_status()`
+    # отдаёт конец печати явно, а не пересказывает `mc_percent`: иначе монитор
+    # закрывал бы задание только по простою, а «В печати» висело бы лишний круг.
+    stale_finish = bambu.BambuAdapter(
+        ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+    )
+    stale_finish._apply_report(
+        {"print": {"gcode_state": "FINISH", "mc_percent": 99, "mc_remaining_time": 3}}
+    )
+    expect_status(
+        "FINISH с прежним процентом → idle, 100 %",
+        stale_finish,
+        {"status": "idle", "progress": 100, "remaining_time": 0},
+    )
+
+    # Журнал отчётов: первый вопрос при разборе «задание висит в „В печати“» —
+    # прислал ли принтер `FINISH` вообще. Смена состояния и повтор финального
+    # состояния пишутся на INFO, одинаковые отчёты — на DEBUG: Bambu присылает
+    # их раз в секунду, и INFO на каждый забил бы журнал.
+    logged: list[str] = []
+
+    class CaptureReports(logging.Handler):
+        """Собирает строки журнала адаптера: уровень и текст сообщения."""
+
+        def emit(self, record: logging.LogRecord) -> None:
+            logged.append(f"{record.levelname} {record.getMessage()}")
+
+    report_log = CaptureReports()
+    saved_level = bambu.logger.level
+    bambu.logger.addHandler(report_log)
+    bambu.logger.setLevel(logging.INFO)
+
+    try:
+        chatty = bambu.BambuAdapter(
+            ip_address=CHECK_IP, api_key=CHECK_CODE, serial_number=CHECK_SERIAL
+        )
+        chatty._apply_report({"print": {"gcode_state": "RUNNING", "mc_percent": 10}})
+        chatty._apply_report({"print": {"gcode_state": "RUNNING", "mc_percent": 11}})
+        chatty._apply_report({"print": {"gcode_state": "FINISH", "mc_percent": 100}})
+        chatty._apply_report({"print": {"gcode_state": "FINISH", "mc_percent": 100}})
+        chatty._apply_report({"print": {"mc_percent": 100}})
+    finally:
+        bambu.logger.removeHandler(report_log)
+        bambu.logger.setLevel(saved_level)
+
+    check(
+        "журнал отчётов: смена состояния — INFO, повтор — не INFO",
+        len(
+            [
+                line
+                for line in logged
+                if line.startswith("INFO") and "gcode_state=RUNNING" in line
+            ]
+        )
+        == 1,
+        f"{logged!r}",
+    )
+    finish_lines = [
+        line
+        for line in logged
+        if line.startswith("INFO") and "gcode_state=FINISH" in line
+    ]
+    check(
+        "журнал отчётов: FINISH виден на INFO, отчёт без состояния — молчит",
+        len(finish_lines) == 2 and len(logged) == 3,
+        f"{logged!r}",
     )
 
     reporting._apply_report({"print": {"gcode_state": "FAILED"}})
@@ -1538,6 +1673,61 @@ def main() -> int:
         == [("failed", 40, "Печать прервана (принтер остановлен или потерял связь)")]
         and confirmed_adapter.index == agent_main.FAILED_CONFIRM_CHECKS,
         f"{confirmed_print!r}, опросов {confirmed_adapter.index}",
+    )
+
+    # Страховка от потерянного отчёта: деталь допечатана, а MQTT у Bambu молчит,
+    # и `get_status()` отдаёт последний отчёт «печатает» сколько угодно. Предел
+    # печати — оценка слайсера плюс 10 %, и молчание дольше
+    # `PRINT_TIMEOUT_SILENCE` закрывает задание как `done` с пометкой.
+    timeout_clock = FakeClock()
+    timeout_print = run_monitor(
+        SilentPrintAdapter(
+            [{"status": "printing", "progress": 40, "remaining_time": 600}], None
+        ),
+        estimated_seconds=600,
+        monitor_interval=300,
+        clock=timeout_clock,
+    )
+    check(
+        "monitor: молчащий принтер — done по таймауту с пометкой",
+        timeout_print
+        == [("printing", 40, None), ("done", 100, agent_main.PRINT_TIMEOUT_REASON)]
+        and timeout_clock.now > 600 * agent_main.PRINT_TIMEOUT_MARGIN,
+        f"{timeout_print!r}, прошло {timeout_clock.now} с",
+    )
+
+    # Оценки слайсера может не быть: тогда предел — сутки, а не бесконечность.
+    day_clock = FakeClock()
+    day_print = run_monitor(
+        SilentPrintAdapter(
+            [{"status": "printing", "progress": 40, "remaining_time": 600}], None
+        ),
+        monitor_interval=3600,
+        clock=day_clock,
+    )
+    check(
+        "monitor: без оценки слайсера предел — сутки",
+        day_print[-1] == ("done", 100, agent_main.PRINT_TIMEOUT_REASON)
+        and day_clock.now == agent_main.PRINT_TIMEOUT_WITHOUT_ESTIMATE,
+        f"{day_print!r}, прошло {day_clock.now} с",
+    )
+
+    # Печать, которая идёт дольше оценки (смена пластика, медленный участок), но
+    # рассказывает о прогрессе, таймаут закрывать не должен.
+    slow_clock = FakeClock()
+    slow_print = run_monitor(
+        GrowingPrintAdapter(),
+        estimated_seconds=60,
+        monitor_interval=300,
+        clock=slow_clock,
+    )
+    check(
+        "monitor: идущая дольше оценки печать таймаутом не закрывается",
+        not any(
+            reason == agent_main.PRINT_TIMEOUT_REASON for _, _, reason in slow_print
+        )
+        and slow_print[-1] == ("done", 100, None),
+        f"{slow_print!r}, прошло {slow_clock.now} с",
     )
 
     expect_false("stop_print() без соединения", adapter.stop_print)

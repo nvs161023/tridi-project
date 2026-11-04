@@ -275,6 +275,8 @@ COMMAND_REPLY_POLL = 0.2
 # отправляет `failed`), хотя станок печатает дальше. `STANDBY` — простой A1
 # (холодное сопло, стол опущен): без него `get_status()` считал бы любое такое
 # состояние неизвестным и отдавал `error`, то есть «печать встала» на ровном месте.
+# `FINISH` — конец печати: `get_status()` закрывает его отдельной веткой, отдавая
+# сотню процентов и нулевой остаток даже если в отчёте остались 99 %.
 _STATE_MAP: dict[str, str] = {
     "RUNNING": "printing",
     "PREPARE": "printing",
@@ -291,6 +293,15 @@ _STATE_MAP: dict[str, str] = {
 # `get_status()` ищет причину в отчёте и кладёт её в `last_error`: иначе отмена
 # выглядела бы как общая «потеря связи», и мастер не знал бы, что произошло.
 _FAILURE_STATES: frozenset[str] = frozenset({"FAILED", "CANCELLED"})
+
+# Состояния, которыми принтер подтверждает конец печати. `FINISH` — это именно
+# «задание выполнено», и `get_status()` отдаёт по нему сотню процентов явно:
+# в финальном отчёте A1 `mc_percent` иногда остаётся прежним (99 %), а
+# `mc_remaining_time` — минутой. Простой (`IDLE`/`STANDBY`) таким
+# подтверждением не считается: он же бывает до старта печати и после отказа
+# команды, и закрывать по нему задание значило бы писать «готово» на пустом
+# столе.
+_FINISHED_STATES: frozenset[str] = frozenset({"FINISH"})
 
 # Поля отчёта, в которых Bambu называет причину остановки: `fail_reason` (строка
 # прошивки или Bambu Studio, например `cancelled`), `print_error` (числовой код
@@ -1035,13 +1046,19 @@ class BambuAdapter(BasePrinterAdapter):
         Ответ на команду (`result`, `reason`, эхо `param`/`url`) в кэш не
         попадает: это реакция на запрос, а не состояние печати, — её разбирает
         `_remember_reply`.
+
+        Смена состояния уходит в журнал (`_log_report_state`): по строкам
+        `получен отчёт gcode_state=…` видно, прислал ли принтер `FINISH` в конце
+        печати или отчёты после старта прекратились.
         """
         report = _as_mapping(payload.get("print"))
 
         if not report or "result" in report:
             return
 
+        previous_state = self._report.get("gcode_state")
         self._report.update(report)
+        self._log_report_state(report, previous_state)
 
         # Отчёт с отказом печатается целиком: у прошивок причина лежит в разных
         # полях, и когда известных (`fail_reason`, `print_error`,
@@ -1053,6 +1070,49 @@ class BambuAdapter(BasePrinterAdapter):
                 self.host,
                 repr(report)[:600],
             )
+
+    def _log_report_state(self, report: dict[str, Any], previous: Any) -> None:
+        """
+        Строка журнала о состоянии печати из отчёта принтера.
+
+        Вопрос «почему задание осталось в „В печати“» упирается в один факт:
+        прислал ли принтер `FINISH` вообще, или печать кончилась `FAILED` /
+        `CANCELLED`, или отчётов после старта не было вовсе. Поэтому смена
+        состояния (`PREPARE` → `RUNNING` → `FINISH`) и повтор финального или
+        отказного состояния печатаются на уровне INFO: по этим строкам история
+        одной печати читается в журнале агента целиком.
+
+        Остальные отчёты — на уровне DEBUG. Bambu присылает их раз в секунду, и
+        INFO на каждый превратил бы журнал в поток одинаковых строк, в котором
+        ни старта, ни конца печати не найти.
+        """
+        raw_state = report.get("gcode_state")
+
+        if not isinstance(raw_state, str):
+            # Отчёт без состояния (один `mc_percent`, температуры, AMS) —
+            # новостей о печати в нём нет.
+            return
+
+        state = raw_state.strip().upper()
+
+        if not state:
+            return
+
+        previous_state = previous.strip().upper() if isinstance(previous, str) else ""
+
+        if (
+            state == previous_state
+            and state not in _FINISHED_STATES
+            and state not in _FAILURE_STATES
+        ):
+            logger.debug(
+                "Bambu %s: отчёт без смены состояния (gcode_state=%s)",
+                self.host,
+                state,
+            )
+            return
+
+        logger.info("Bambu %s: получен отчёт gcode_state=%s", self.host, state)
 
     def _forget_previous_print(self) -> None:
         """
@@ -2297,6 +2357,21 @@ class BambuAdapter(BasePrinterAdapter):
                 self.host,
                 _failure_report_dump(report),
             )
+
+        # Печать закончена: прошивка подтвердила это `FINISH`. Отдаём конец
+        # печати явно и сотней процентов — в финальном отчёте A1 `mc_percent`
+        # иногда остаётся прежним (99 %), а `mc_remaining_time` — минутой.
+        # `monitor_print()` закрывает задание по простою после старта, но
+        # завершение, названное принтером, важнее цифры: сотня здесь означает
+        # «задание выполнено», а не «принтер дошёл до последнего процента».
+        # Отказ команды печати сильнее: там `status` уже `error` (см. выше), и
+        # `FINISH` от прошлой печати не должен закрывать новое задание.
+        if state in _FINISHED_STATES and status == "idle":
+            return {
+                "status": "idle",
+                "progress": 100,
+                "remaining_time": 0,
+            }
 
         # Прогресс в отчёте уже в процентах; ограничение — от мусора в полях.
         percent = _as_number(report.get("mc_percent"))

@@ -153,6 +153,29 @@ PRINT_HEATING_CHECKS = 60
 # не отправляется вовсе.
 FAILED_CONFIRM_CHECKS = 3
 
+# Запас к оценке слайсера, после которого печать считается зависшей. Оценка —
+# это план, а не гарантия: смена пластика, повтор слоя и медленный участок
+# растягивают печать, но не на десятки процентов. Десяти процентов хватает
+# любому нормальному заданию, и по ним таймаут не срабатывает.
+PRINT_TIMEOUT_MARGIN = 1.1
+
+# Сколько ждать печать без оценки слайсера. Сутки: заведомо больше любой печати
+# на станке мастерской, а меньший предел закрывал бы нормальную работу.
+PRINT_TIMEOUT_WITHOUT_ESTIMATE = 24 * 60 * 60
+
+# Сколько принтер может молчать до закрытия по таймауту. Потерянное
+# MQTT-соединение (Bambu) и молчащий веб-сервер (FlashForge) выглядят в
+# `get_status()` одинаково: последний известный отчёт, прогресс не меняется, а
+# печать физически давно закончилась. Десять минут — это сто двадцать опросов
+# по `MONITOR_INTERVAL`: медленный участок печати столько не стоит на месте.
+PRINT_TIMEOUT_SILENCE = 10 * 60
+
+# Пометка в карточке задания, когда печать закрыта таймаутом, а не статусом
+# принтера: мастер должен знать, что сотня процентов пришла не от станка.
+PRINT_TIMEOUT_REASON = (
+    "Печать завершена по таймауту (принтер не прислал финальный статус)"
+)
+
 # Сколько раз повторять закрывающий статус (`done`, `failed`, `cancelled`).
 # Один неудачный POST оставлял задание в CRM как «В печати» навсегда: цикл
 # мониторинга уже вышел, и повторить отправку было некому. Пауза нарастает:
@@ -1315,6 +1338,7 @@ def monitor_print(
     job_id: str,
     adapter: BasePrinterAdapter,
     filament_grams: float | None = None,
+    estimated_seconds: int | None = None,
 ) -> None:
     """
     Цикл мониторинга: состояние принтера раз в `MONITOR_INTERVAL` секунд, пока
@@ -1362,6 +1386,19 @@ def monitor_print(
     `filament_grams` — вес модели из G-кода: уходит вместе с `done`, и сервер
     списывает его с катушки заказа (факт вместо плана из формы). Без веса
     печать закрывается как обычно — сервер возьмёт оценку из самого задания.
+
+    `estimated_seconds` — оценка слайсера из G-кода. По ней считается предел
+    печати для таймаута; None — оценки нет, предел — сутки.
+
+    Печать, о которой принтер перестал рассказывать, закрывается по таймауту:
+    если станок всё ещё «печатает», но с начала печати прошло больше
+    `estimated_seconds` + 10 % (или `PRINT_TIMEOUT_WITHOUT_ESTIMATE`, если оценки
+    нет), а состояние и прогресс не менялись `PRINT_TIMEOUT_SILENCE`, задание
+    закрывается как `done` с пометкой `PRINT_TIMEOUT_REASON`. Так теряется не
+    печать, а отчёт о ней: MQTT-соединение Bambu рвётся, физически допечатанная
+    деталь остаётся на столе, а задание висело «В печати» до ручной отмены.
+    Растущий прогресс под таймаут не попадает — печать идёт, пусть и дольше
+    плана, и закрывать её нельзя.
     """
     # Уже отправленный прогресс: 0 ушёл вместе с началом печати.
     last_progress = 0
@@ -1376,6 +1413,16 @@ def monitor_print(
     # Сколько опросов подряд принтер отдаёт отказ. Один `error` (и текст в
     # `last_error`) ещё не значит, что печать встала: ждём `FAILED_CONFIRM_CHECKS`.
     error_checks = 0
+    # Предел печати по времени (`print_deadline`) и момент последней новости от
+    # принтера: None и текущее время — печать ещё не началась.
+    print_deadline: float | None = None
+    last_change_at = time.monotonic()
+    seen: tuple[str, int] | None = None
+    timeout_seconds = (
+        estimated_seconds * PRINT_TIMEOUT_MARGIN
+        if estimated_seconds is not None
+        else float(PRINT_TIMEOUT_WITHOUT_ESTIMATE)
+    )
 
     while True:
         time.sleep(delay)
@@ -1384,8 +1431,19 @@ def monitor_print(
         status = adapter.get_status()
         state = read_text(status.get("status")) or ""
         progress = read_progress(status.get("progress"))
+        now = time.monotonic()
+
+        # Молчание принтера: ни нового состояния, ни нового процента. Отсчёт
+        # нужен таймауту ниже — медленная печать двигает прогресс и под него не
+        # попадает.
+        if (state, progress) != seen:
+            seen = (state, progress)
+            last_change_at = now
 
         if state == "printing" or progress > 0:
+            if not started:
+                print_deadline = now + timeout_seconds
+
             started = True
 
         # Отказ принтера и причина из `last_error` важнее любого `idle`:
@@ -1458,6 +1516,31 @@ def monitor_print(
                 progress,
             )
             send_final_status(job_id, "done", 100, filament_grams=filament_grams)
+            return
+
+        # Страховка от потерянного отчёта. MQTT у Bambu рвётся, и `get_status()`
+        # продолжает отдавать последний известный отчёт: станок допечатал деталь
+        # и молчит, а задание висело «В печати» до ручной отмены. Предел
+        # нормальной печати — оценка слайсера плюс `PRINT_TIMEOUT_MARGIN` (сутки
+        # без оценки); молчание дольше `PRINT_TIMEOUT_SILENCE` значит, что
+        # финального статуса уже не будет. Закрываем как `done`: деталь лежит на
+        # столе, и мастеру она нужна в «Готово», а не в отчёте о поломке.
+        # Растущий прогресс под таймаут не попадает — печать идёт, и закрывать
+        # её нельзя, сколько бы она ни шла.
+        if (
+            state == "printing"
+            and print_deadline is not None
+            and now >= print_deadline
+            and now - last_change_at >= PRINT_TIMEOUT_SILENCE
+        ):
+            logger.warning("Задание %s: %s", job_id, PRINT_TIMEOUT_REASON)
+            send_final_status(
+                job_id,
+                "done",
+                100,
+                reason=PRINT_TIMEOUT_REASON,
+                filament_grams=filament_grams,
+            )
             return
 
         # Просьбу мастера проверяем после «печать закончена»: если принтер уже
@@ -1691,7 +1774,7 @@ def process_task(task: dict[str, Any]) -> None:
             estimated_seconds=estimated_seconds,
             filament_grams=filament_grams,
         )
-        monitor_print(job_id, adapter, filament_grams)
+        monitor_print(job_id, adapter, filament_grams, estimated_seconds)
     except NotImplementedError as error:
         # Адаптер, у которого метод остался заглушкой: мастер увидит причину, а
         # агент не вылетит и продолжит опрос очереди.
