@@ -199,6 +199,17 @@ export function BoltIcon(props: WorkshopIconProps) {
   );
 }
 
+/** Скачивание: стрелка в лоток — кнопка «Скачать TriDiAgent.exe». */
+export function DownloadIcon(props: WorkshopIconProps) {
+  return (
+    <svg {...iconProps} {...props}>
+      <path d="M12 3v11" />
+      <path d="m7.5 10 4.5 4.5L16.5 10" />
+      <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+    </svg>
+  );
+}
+
 /** Подсказка: вопросительный знак в круге — ссылка на инструкцию. */
 export function HelpIcon(props: WorkshopIconProps) {
   return (

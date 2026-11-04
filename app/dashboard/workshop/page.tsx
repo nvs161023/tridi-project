@@ -4,7 +4,9 @@ import { redirect } from "next/navigation";
 
 import { Header } from "@/components/Header";
 import { ButtonLink } from "@/components/ui";
+import { AgentDownloadButton } from "@/components/workshop/AgentDownloadButton";
 import { WorkshopCreateOrderButton } from "@/components/workshop/WorkshopCreateOrderButton";
+import { WorkshopOnboarding } from "@/components/workshop/WorkshopOnboarding";
 import { WorkshopStats } from "@/components/workshop/WorkshopStats";
 import { WorkshopTabs } from "@/components/workshop/WorkshopTabs";
 import { resolveUserId } from "@/lib/current-user";
@@ -160,6 +162,11 @@ export default async function WorkshopPage() {
               <p className="mt-4 max-w-xl text-base leading-relaxed text-zinc-400 sm:text-lg">
                 Управление заказами, складом и принтерами в одном месте.
               </p>
+
+              <div className="mt-6 flex flex-col items-stretch gap-2.5 sm:flex-row sm:flex-wrap sm:items-start">
+                <AgentDownloadButton showHint />
+                {hasPro ? <WorkshopOnboarding /> : null}
+              </div>
             </div>
 
             <div className="flex shrink-0 flex-col items-stretch gap-2.5 sm:flex-row sm:items-center lg:flex-col lg:items-end">
@@ -212,6 +219,12 @@ export default async function WorkshopPage() {
                 className="inline-flex min-h-10 items-center rounded-xl border border-white/10 bg-white/[0.03] px-4 font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
               >
                 Маркетплейсы
+              </Link>
+              <Link
+                href="/dashboard/workshop/integrations/help"
+                className="inline-flex min-h-10 items-center rounded-xl border border-white/10 bg-white/[0.03] px-4 font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
+              >
+                Помощь и FAQ
               </Link>
             </div>
 

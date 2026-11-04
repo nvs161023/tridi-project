@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 
 import { ensureAgentToken, saveWorkshopSettings } from "@/app/actions/workshop";
 import { emptyWorkshopSettingsFormState } from "@/app/actions/workshop-state";
+import { AgentDownloadButton } from "@/components/workshop/AgentDownloadButton";
 import { HelpIcon } from "@/components/workshop/WorkshopIcons";
 import {
   buildOzonWebhookUrl,
@@ -616,14 +617,30 @@ export function WorkshopIntegrationsTab({
               Локальный агент (Печать)
             </h3>
             <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-zinc-400">
-              Скачайте и запустите Python-скрипт на компьютере рядом с
-              принтерами. Скрипт сам найдёт принтеры и будет управлять очередью.
+              Скачайте TriDiAgent.exe и запустите на компьютере рядом с
+              принтерами. Программа сама найдёт принтеры и будет управлять
+              очередью печати. Python и установка не нужны.
             </p>
           </div>
 
           <StatusBadge tone={agentTokenValue ? "active" : "ready"}>
             {agentTokenValue ? "Активен" : "Готов к подключению"}
           </StatusBadge>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <AgentDownloadButton tone="primary" showHint />
+          <p className="max-w-md text-xs leading-relaxed text-zinc-500">
+            Windows покажет «Неизвестный издатель»: файл не подписан платным
+            сертификатом. Это ожидаемо —{" "}
+            <Link
+              href="/dashboard/workshop/integrations/help#faq"
+              className="font-semibold text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
+            >
+              что делать
+            </Link>
+            .
+          </p>
         </div>
 
         {isAgentTokenMissing ? (
