@@ -15,8 +15,8 @@ OctoPrint — HTTP REST API вокруг G-code принтера: по умол�
     печать запускает агент отдельной командой, иначе принтер начал бы печатать
     раньше, чем агент узнал, что загрузка прошла;
   - `start_print()` — `POST /api/files/local/<remote_name>` с
-    `{"command": "select", "print": true}`: OctoPrint выбирает файл и сразу
-    ставит его в печать, а подтверждение приходит одним ответом;
+    `{"command": "select", "print": true}`: OctoPrint выбирает файл и ставит его
+    в очередь печати, а 204 без тела значит только «команда принята»;
   - `get_status()`  — `GET /api/job`: `state`, `job.progress.completion` (это
     уже проценты 0…100) и `job.progress.printTimeLeft` (секунды);
   - `pause_print()` / `resume_print()` — `POST /api/job` с
@@ -36,6 +36,17 @@ OctoPrint — HTTP REST API вокруг G-code принтера: по умол�
 запрещено действие, 409 — файл занят или принтер уже печатает, 413 — файл больше
 лимита принтера, 415 — тип файла не поддерживается.
 
+Старт подтверждается состоянием. Ответ 204 на `select + print` говорит лишь о
+том, что OctoPrint принял команду: печать начинается после нагрева стола, а на
+битом файле не начинается вовсе. Поэтому `start_print()` опрашивает
+`GET /api/job` (`START_CONFIRM_ATTEMPTS` раз с паузой `START_CONFIRM_DELAY`) и
+возвращает True только на `Printing`. Иначе мастер видел бы «printing» на
+стоящем принтере, а задание висело бы до первого опроса монитора.
+
+Загрузка повторяется. Обрыв и таймаут повторяются `UPLOAD_ATTEMPTS` раз с
+паузой `UPLOAD_RETRY_DELAY`: файл в сотни мегабайт по Wi-Fi теряется на
+середине, и повтор дешевле, чем «задание провалилось» у мастера.
+
 Сеть. Ни один метод не выпускает `requests.*` наружу: выключенный принтер — это
 запись в журнале и `False` (или статус `error` у `get_status()`), а не падение
 агента. Таймауты обязательны: без них цикл опроса встаёт вместе с принтером.
@@ -43,6 +54,7 @@ OctoPrint — HTTP REST API вокруг G-code принтера: по умол�
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Mapping
 from typing import Any, Final
 from urllib.parse import quote
@@ -70,6 +82,31 @@ REQUEST_TIMEOUT = 10
 # Загрузка G-code идёт дольше опроса: файл на десятки мегабайт по Wi-Fi
 # передаётся минутами, обрывать его на десяти секундах нельзя.
 UPLOAD_TIMEOUT = 120
+
+# Загрузка повторяется после обрыва: сеть на ферме пропадает на середине файла,
+# и повтор с нуля дешевле, чем «задание провалилось» у мастера.
+UPLOAD_ATTEMPTS = 3
+UPLOAD_RETRY_DELAY = 5
+
+# Ошибки, после которых повтор имеет смысл: сеть пропала, принтер закрыл
+# соединение или не ответил вовремя. HTTP-отказы сюда не входят: на 415 и 409
+# OctoPrint ответил осознанно, и повтор ничего не изменит.
+UPLOAD_RETRY_ERRORS: Final[tuple[type[BaseException], ...]] = (
+    requests.ConnectionError,
+    requests.Timeout,
+    ConnectionResetError,
+)
+
+# Подтверждение старта: 204 значит «команда принята», а печать начинается после
+# нагрева. 5 попыток по 2 секунды — это 10 секунд на первый слой.
+START_CONFIRM_ATTEMPTS = 5
+START_CONFIRM_DELAY = 2.0
+
+# Причина отказа, когда команда принята, а печать не началась.
+START_CONFIRM_REASON: Final = (
+    "Принтер принял команду, но не начал печать. "
+    "Проверьте файл и состояние принтера"
+)
 # `state` из `GET /api/job` (машина состояний OctoPrint) → статус агента.
 #
 # `paused` отдаём паузой, а не ошибкой: печать стоит по воле мастера, задание
@@ -380,38 +417,53 @@ class OctoPrintAdapter(BasePrinterAdapter):
         Успех — 201 (`{"done": true, "files": {...}}`); 200 принимаем на случай
         прокси, который переписывает код ответа. Файл открывается на время
         запроса: `requests` читает его потоком, закрывать нужно после отправки.
+
+        Обрыв и таймаут повторяются до `UPLOAD_ATTEMPTS` раз через
+        `_retry_upload()`: файл открывается заново, потому что прошлая попытка
+        могла прочитать только его часть.
         """
-        try:
-            with open(plan.path, "rb") as gcode:
-                response = requests.post(
-                    f"{self.base_url}/api/files/local",
-                    headers=self._headers(),
-                    files={
-                        "file": (
-                            plan.remote_name,
-                            gcode,
-                            "application/octet-stream",
-                        )
-                    },
-                    data={"select": "true", "print": "false"},
-                    timeout=UPLOAD_TIMEOUT,
+        attempt = 0
+
+        while True:
+            attempt += 1
+
+            try:
+                with open(plan.path, "rb") as gcode:
+                    response = requests.post(
+                        f"{self.base_url}/api/files/local",
+                        headers=self._headers(),
+                        files={
+                            "file": (
+                                plan.remote_name,
+                                gcode,
+                                "application/octet-stream",
+                            )
+                        },
+                        data={"select": "true", "print": "false"},
+                        timeout=UPLOAD_TIMEOUT,
+                    )
+                break
+            except UPLOAD_RETRY_ERRORS as error:
+                # Проверка раньше RequestException и OSError: обрыв сети — не
+                # нечитаемый файл, и мастеру нужен повтор, а не «нет прав».
+                if not self._retry_upload(plan, attempt, error):
+                    return False
+            except requests.RequestException as error:
+                self.last_error = f"G-code не загружен: {error}"
+                logger.error(
+                    "G-code %s не загружен на %s: %s",
+                    plan.remote_name,
+                    self.ip_address,
+                    error,
                 )
-        except requests.RequestException as error:
-            self.last_error = f"G-code не загружен: {error}"
-            logger.error(
-                "G-code %s не загружен на %s: %s",
-                plan.remote_name,
-                self.ip_address,
-                error,
-            )
-            return False
-        except OSError as error:
-            # Файла нет, он занят другой программой или нет прав на чтение.
-            # Проверка идёт после RequestException: он тоже наследник OSError,
-            # но сетевую ошибку нужно отличать от нечитаемого файла.
-            self.last_error = f"файл не прочитан: {error}"
-            logger.error("G-code %s не прочитан: %s", plan.path, error)
-            return False
+                return False
+            except OSError as error:
+                # Файла нет, он занят другой программой или нет прав на чтение.
+                # Проверка идёт после RequestException: он тоже наследник OSError,
+                # но сетевую ошибку нужно отличать от нечитаемого файла.
+                self.last_error = f"файл не прочитан: {error}"
+                logger.error("G-code %s не прочитан: %s", plan.path, error)
+                return False
 
         if response.status_code not in (200, 201):
             self.last_error = (
@@ -434,6 +486,40 @@ class OctoPrintAdapter(BasePrinterAdapter):
         self.last_error = None
         return True
 
+    def _retry_upload(
+        self, plan: UploadPlan, attempt: int, error: BaseException
+    ) -> bool:
+        """
+        Повторять ли загрузку после обрыва: пишет журнал, ждёт и говорит «да».
+
+        `False` — попытки кончились: в `last_error` уходит причина из
+        исключения, чтобы мастер увидел сеть, а не «задание провалилось».
+        Строка журнала называет номер следующей попытки: по ней видно, что
+        адаптер не сдался после первого обрыва.
+        """
+        if attempt >= UPLOAD_ATTEMPTS:
+            self.last_error = f"G-code не загружен: соединение прервано ({error})"
+            logger.error(
+                "[OctoPrint] Файл %s не загружен на %s за %d попытки: %s",
+                plan.remote_name,
+                self.ip_address,
+                attempt,
+                error,
+            )
+            return False
+
+        logger.warning(
+            "[OctoPrint] Соединение сброшено. Попытка %d/%d через %d секунд... "
+            "(причина: %s)",
+            attempt + 1,
+            UPLOAD_ATTEMPTS,
+            UPLOAD_RETRY_DELAY,
+            error,
+        )
+        time.sleep(UPLOAD_RETRY_DELAY)
+
+        return True
+
     def start_print(self, remote_name: str) -> bool:
         """
         Выбирает файл и запускает печать одним запросом.
@@ -446,6 +532,10 @@ class OctoPrintAdapter(BasePrinterAdapter):
 
         404 — файла на принтере нет (например, загрузка не дошла), 409 —
         принтер занят печатью или папка заблокирована.
+
+        204 подтверждает только приём команды: печать начинается после нагрева
+        стола. Поэтому успех подтверждает `_wait_for_start()` — опрос
+        `GET /api/job` до состояния `Printing`.
         """
         path = quote(remote_name, safe="")
 
@@ -478,9 +568,43 @@ class OctoPrintAdapter(BasePrinterAdapter):
             )
             return False
 
+        if not self._wait_for_start():
+            return False
+
         logger.info("Печать %s запущена на %s", remote_name, self.ip_address)
         self.last_error = None
         return True
+
+    def _wait_for_start(self) -> bool:
+        """
+        Ждёт, пока `GET /api/job` покажет `Printing`: старт подтверждён.
+
+        OctoPrint после `select + print` сначала греет стол и паркует голову,
+        поэтому пять попыток по `START_CONFIRM_DELAY` секунд. `Paused` тоже
+        подтверждение: печать началась и стоит по воле мастера, а не потерялась
+        в сети. `Operational` после десяти секунд значит, что принтер команду
+        принял, но печатать не начал — это отказ, а не успех.
+        """
+        for attempt in range(1, START_CONFIRM_ATTEMPTS + 1):
+            time.sleep(START_CONFIRM_DELAY)
+            logger.info(
+                "[OctoPrint] Ждём старта печати... попытка %d/%d",
+                attempt,
+                START_CONFIRM_ATTEMPTS,
+            )
+
+            if self.get_status().get("status") in ("printing", "paused"):
+                return True
+
+        self.last_error = START_CONFIRM_REASON
+        logger.error(
+            "OctoPrint %s принял команду, но печать не началась за %d попыток: %s",
+            self.ip_address,
+            START_CONFIRM_ATTEMPTS,
+            START_CONFIRM_REASON,
+        )
+
+        return False
 
     def _job_command(
         self, command: str, label: str, action: str | None = None

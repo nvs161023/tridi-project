@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import json
 import re
+import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -46,6 +48,7 @@ AGENT_DIR = ROOT / "agent"
 # Агент — не пакет в PYTHONPATH: импортируем так же, как при запуске main.py.
 sys.path.insert(0, str(AGENT_DIR))
 
+from adapters import octoprint  # noqa: E402 — константы повтора и подтверждения
 from adapters.factory import get_adapter  # noqa: E402 — путь к агенту выше
 from adapters.octoprint import OctoPrintAdapter  # noqa: E402
 
@@ -133,12 +136,16 @@ class FakeOctoPrint:
     Ключ проверяется как на настоящем принтере: чужой `X-Api-Key` получает 401
     раньше маршрута. Так тест ловит и адаптер, который забыл заголовок, а не
     только тот, который перепутал путь.
+
+    `dropped_uploads` — сколько ближайших загрузок оборвать сбросом соединения:
+    так ведёт себя Wi-Fi на ферме, когда пакеты теряются на середине файла.
     """
 
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
         self.requests: list[Recorded] = []
         self.routes: dict[tuple[str, str], tuple[int, bytes]] = {}
+        self.dropped_uploads = 0
         self.port = 0
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -167,6 +174,14 @@ class FakeOctoPrint:
 
         return None
 
+    def count(self, method: str, path: str | None = None) -> int:
+        """Сколько таких запросов пришло: проверка «до сети не дошли»."""
+        return sum(
+            1
+            for request in self.requests
+            if request.method == method and (path is None or request.path == path)
+        )
+
     def __enter__(self) -> "FakeOctoPrint":
         fake = self
 
@@ -193,6 +208,20 @@ class FakeOctoPrint:
                         body=body,
                     )
                 )
+
+                if path == "/api/files/local" and fake.dropped_uploads > 0:
+                    # Обрыв посреди файла: принтер не ответил и закрыл
+                    # соединение. `SO_LINGER` с нулём отправляет RST, и
+                    # `requests` получает `ConnectionError` — тот же обрыв, что
+                    # видит мастер на живой сети.
+                    fake.dropped_uploads -= 1
+                    self.close_connection = True
+                    self.connection.setsockopt(
+                        socket.SOL_SOCKET,
+                        socket.SO_LINGER,
+                        struct.pack("ii", 1, 0),
+                    )
+                    return
 
                 if self.headers.get("X-Api-Key", "") != fake.api_key:
                     fake.respond(
@@ -292,6 +321,11 @@ def multipart_fields(request: Recorded) -> dict[str, tuple[str | None, bytes]]:
 def main() -> int:
     print("Проверка адаптера OctoPrint:")
 
+    # Паузы повтора и ожидания старта обнуляются: тест проверяет логику, а не
+    # выдержку. На живом принтере пауза нужна, в прогоне она только тормозит.
+    octoprint.UPLOAD_RETRY_DELAY = 0
+    octoprint.START_CONFIRM_DELAY = 0
+
     with tempfile.TemporaryDirectory() as directory:
         gcode_path = Path(directory) / "my job.gcode"
         gcode_path.write_bytes(GCODE_BODY)
@@ -378,8 +412,42 @@ def main() -> int:
                 f"{project!r}, новых запросов={len(fake.requests) - before}, "
                 f"last_error={reason!r}",
             )
-            # 3. Запуск печати.
+            # Обрыв на середине файла: адаптер повторяет загрузку, а не сдаётся
+            # после первого обрыва.
+            fake.route("POST", "/api/files/local", 201, {"done": True})
+            before = fake.count("POST", "/api/files/local")
+            fake.dropped_uploads = 1
+            retried = adapter.upload_file(str(gcode_path), "retry.gcode")
+            attempts = fake.count("POST", "/api/files/local") - before
+            check(
+                "upload: обрыв соединения → повтор и успех",
+                retried is True and attempts == 2 and adapter.last_error is None,
+                f"{retried!r}, запросов={attempts}, last_error={adapter.last_error!r}",
+            )
+
+            before = fake.count("POST", "/api/files/local")
+            fake.dropped_uploads = octoprint.UPLOAD_ATTEMPTS + 1
+            dropped = adapter.upload_file(str(gcode_path), "busy.gcode")
+            attempts = fake.count("POST", "/api/files/local") - before
+            reason = adapter.last_error or ""
+            check(
+                "upload: все попытки оборваны → False с причиной",
+                dropped is False
+                and attempts == octoprint.UPLOAD_ATTEMPTS
+                and "соединение прервано" in reason,
+                f"{dropped!r}, запросов={attempts}, last_error={reason[:80]!r}",
+            )
+            fake.dropped_uploads = 0
+
+            # 3. Запуск печати: 204 — только «команда принята», печать
+            # подтверждает состояние из GET /api/job.
             fake.route("POST", "/api/files/local/job.gcode", 204)
+            fake.route(
+                "GET",
+                "/api/job",
+                200,
+                {"state": "Printing", "job": {"progress": {"completion": 0.0}}},
+            )
             started = adapter.start_print("job.gcode")
             record = fake.last("POST", "/api/files/local/job.gcode")
             body = record.json() if record is not None else {}
@@ -390,6 +458,21 @@ def main() -> int:
                 and record is not None
                 and record.header("x-api-key") == CHECK_API_KEY,
                 f"{started!r}, тело={body!r}",
+            )
+
+            # 204 значит «команда принята», а печать подтверждает состояние:
+            # `Operational` через десять секунд — отказ, а не успех.
+            fake.route("GET", "/api/job", 200, {"state": "Operational"})
+            before = fake.count("GET", "/api/job")
+            not_started = adapter.start_print("job.gcode")
+            polls = fake.count("GET", "/api/job") - before
+            reason = adapter.last_error or ""
+            check(
+                "start_print: команда принята, но печать не началась → False",
+                not_started is False
+                and polls == octoprint.START_CONFIRM_ATTEMPTS
+                and "не начал печать" in reason,
+                f"{not_started!r}, опросов={polls}, last_error={reason!r}",
             )
 
             missing = adapter.start_print("no-such.gcode")

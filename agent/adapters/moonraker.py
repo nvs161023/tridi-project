@@ -21,6 +21,18 @@ Moonraker — HTTP/WebSocket-сервер рядом с Klipper. Для маст
 `X-Api-Key` у каждого запроса. Пустой ключ — открытый Moonraker в локальной
 сети мастера, тогда заголовок не отправляется.
 
+Старт подтверждается состоянием. `POST /printer/print/start` отвечает 200, как
+только Klipper принял файл, а печать начинается с нагрева стола и парковки — и
+может не начаться вовсе (файл битый, принтер в ошибке). Поэтому после 200
+адаптер опрашивает `print_stats.state` (`START_CONFIRM_ATTEMPTS` раз с паузой
+`START_CONFIRM_DELAY`) и возвращает True только на `printing`. HTTP 200 сам по
+себе успехом больше не считается: задание висело бы в `printing` на пустом
+столе.
+
+Загрузка повторяется. Обрыв и таймаут повторяются `UPLOAD_ATTEMPTS` раз с
+паузой `UPLOAD_RETRY_DELAY`: файл в сотни мегабайт по Wi-Fi теряется на
+середине, и повтор дешевле, чем «задание провалено» у мастера.
+
 Сеть. Ни один метод не выпускает `requests.*` наружу: выключенный принтер —
 это запись в журнале и `False` (или статус `error` у `get_status()`), а не
 падение агента. Таймауты обязательны: без них `requests` ждёт вечно, и цикл
@@ -29,7 +41,8 @@ Moonraker — HTTP/WebSocket-сервер рядом с Klipper. Для маст
 from __future__ import annotations
 
 import logging
-from typing import Any
+import time
+from typing import Any, Final
 
 import requests
 
@@ -52,6 +65,32 @@ REQUEST_TIMEOUT = 10
 # Загрузка G-code идёт дольше опроса состояния: файл на десятки мегабайт по
 # Wi-Fi передаётся минутами, обрывать его на десяти секундах нельзя.
 UPLOAD_TIMEOUT = 120
+
+# Загрузка повторяется после обрыва: сеть на ферме пропадает на середине файла,
+# и повтор с нуля дешевле, чем «задание провалилось» у мастера.
+UPLOAD_ATTEMPTS = 3
+UPLOAD_RETRY_DELAY = 5
+
+# Ошибки, после которых повтор имеет смысл: сеть пропала, принтер закрыл
+# соединение или не ответил вовремя. HTTP-отказы сюда не входят: на 404 и 507
+# Moonraker ответил осознанно, и повтор ничего не изменит.
+UPLOAD_RETRY_ERRORS: Final[tuple[type[BaseException], ...]] = (
+    requests.ConnectionError,
+    requests.Timeout,
+    ConnectionResetError,
+)
+
+# Подтверждение старта: `print/start` отвечает до первого движения, поэтому
+# печать подтверждает только `print_stats.state`. 5 попыток по 2 секунды — это
+# 10 секунд на нагрев и парковку.
+START_CONFIRM_ATTEMPTS = 5
+START_CONFIRM_DELAY = 2.0
+
+# Причина отказа, когда команда принята, а печать не началась.
+START_CONFIRM_REASON: Final = (
+    "Принтер принял команду, но не начал печать. "
+    "Проверьте файл и состояние принтера"
+)
 
 # `print_stats.state` у Klipper (klippy/extras/print_stats.py) → статус агента.
 # `paused` отдаём как `error`: печать стоит и сама не продолжится, мастеру нужно
@@ -276,32 +315,47 @@ class MoonrakerAdapter(BasePrinterAdapter):
 
         Файл открывается на время запроса: `requests` читает его потоком, и
         закрывать его нужно после отправки, а не сразу.
+
+        Обрыв и таймаут повторяются до `UPLOAD_ATTEMPTS` раз через
+        `_retry_upload()`: файл открывается заново, потому что прошлая попытка
+        могла прочитать только его часть.
         """
-        try:
-            with open(plan.path, "rb") as gcode:
-                response = requests.post(
-                    f"{self.base_url}/server/files/upload",
-                    headers=self._headers(),
-                    files={"file": (plan.remote_name, gcode)},
-                    data={"root": "gcodes"},
-                    timeout=UPLOAD_TIMEOUT,
+        attempt = 0
+
+        while True:
+            attempt += 1
+
+            try:
+                with open(plan.path, "rb") as gcode:
+                    response = requests.post(
+                        f"{self.base_url}/server/files/upload",
+                        headers=self._headers(),
+                        files={"file": (plan.remote_name, gcode)},
+                        data={"root": "gcodes"},
+                        timeout=UPLOAD_TIMEOUT,
+                    )
+                break
+            except UPLOAD_RETRY_ERRORS as error:
+                # Проверка раньше RequestException и OSError: обрыв сети — не
+                # нечитаемый файл, и мастеру нужен повтор, а не «нет прав».
+                if not self._retry_upload(plan, attempt, error):
+                    return False
+            except requests.RequestException as error:
+                self.last_error = f"G-code не загружен: {error}"
+                logger.error(
+                    "G-code %s не загружен на %s: %s",
+                    plan.remote_name,
+                    self.ip_address,
+                    error,
                 )
-        except requests.RequestException as error:
-            self.last_error = f"G-code не загружен: {error}"
-            logger.error(
-                "G-code %s не загружен на %s: %s",
-                plan.remote_name,
-                self.ip_address,
-                error,
-            )
-            return False
-        except OSError as error:
-            # Файла нет, он занят другой программой или нет прав на чтение.
-            # Проверка идёт после RequestException: он тоже наследник OSError,
-            # но сетевую ошибку нужно отличать от нечитаемого файла.
-            self.last_error = f"файл не прочитан: {error}"
-            logger.error("G-code %s не прочитан: %s", plan.path, error)
-            return False
+                return False
+            except OSError as error:
+                # Файла нет, он занят другой программой или нет прав на чтение.
+                # Проверка идёт после RequestException: он тоже наследник OSError,
+                # но сетевую ошибку нужно отличать от нечитаемого файла.
+                self.last_error = f"файл не прочитан: {error}"
+                logger.error("G-code %s не прочитан: %s", plan.path, error)
+                return False
 
         if response.status_code not in (200, 201):
             self.last_error = (
@@ -326,6 +380,40 @@ class MoonrakerAdapter(BasePrinterAdapter):
         self.last_error = None
         return True
 
+    def _retry_upload(
+        self, plan: UploadPlan, attempt: int, error: BaseException
+    ) -> bool:
+        """
+        Повторять ли загрузку после обрыва: пишет журнал, ждёт и говорит «да».
+
+        `False` — попытки кончились: в `last_error` уходит причина из
+        исключения, чтобы мастер увидел сеть, а не «задание провалилось».
+        Строка журнала называет номер следующей попытки: по ней видно, что
+        адаптер не сдался после первого обрыва.
+        """
+        if attempt >= UPLOAD_ATTEMPTS:
+            self.last_error = f"G-code не загружен: соединение прервано ({error})"
+            logger.error(
+                "[Moonraker] Файл %s не загружен на %s за %d попытки: %s",
+                plan.remote_name,
+                self.ip_address,
+                attempt,
+                error,
+            )
+            return False
+
+        logger.warning(
+            "[Moonraker] Соединение сброшено. Попытка %d/%d через %d секунд... "
+            "(причина: %s)",
+            attempt + 1,
+            UPLOAD_ATTEMPTS,
+            UPLOAD_RETRY_DELAY,
+            error,
+        )
+        time.sleep(UPLOAD_RETRY_DELAY)
+
+        return True
+
     def start_print(self, remote_name: str) -> bool:
         """
         Запускает печать файла из корня `gcodes`.
@@ -334,6 +422,11 @@ class MoonrakerAdapter(BasePrinterAdapter):
         `params`, чтобы requests сам закодировал пробелы и кириллицу. Ответ
         `"ok"` — 200; 404 значит, что файла нет (например, загрузка не дошла),
         503 — Klipper не готов печатать.
+
+        Ответ 200 говорит только о том, что файл принят: печать начинается с
+        нагрева стола и парковки. Поэтому успех подтверждает `_wait_for_start()`
+        — опрос `print_stats.state` до `printing`. Иначе потерянная по сети
+        команда дала бы мастеру «printing» на стоящем принтере.
         """
         try:
             response = requests.post(
@@ -366,9 +459,43 @@ class MoonrakerAdapter(BasePrinterAdapter):
             )
             return False
 
+        if not self._wait_for_start():
+            return False
+
         logger.info("Печать %s запущена на %s", remote_name, self.ip_address)
         self.last_error = None
         return True
+
+    def _wait_for_start(self) -> bool:
+        """
+        Ждёт, пока `print_stats.state` станет `printing`: старт подтверждён.
+
+        Klipper после старта сначала нагревает стол и паркует голову, поэтому
+        пять попыток по `START_CONFIRM_DELAY` секунд: быстрее состояние не
+        сменится, а дольше мастер решит, что печать не пошла. Незнакомое
+        состояние и `error` подтверждением не считаются — их видно в журнале
+        через `get_status()`.
+        """
+        for attempt in range(1, START_CONFIRM_ATTEMPTS + 1):
+            time.sleep(START_CONFIRM_DELAY)
+            logger.info(
+                "[Moonraker] Ждём старта печати... попытка %d/%d",
+                attempt,
+                START_CONFIRM_ATTEMPTS,
+            )
+
+            if self.get_status().get("status") == "printing":
+                return True
+
+        self.last_error = START_CONFIRM_REASON
+        logger.error(
+            "Moonraker %s принял команду, но печать не началась за %d попыток: %s",
+            self.ip_address,
+            START_CONFIRM_ATTEMPTS,
+            START_CONFIRM_REASON,
+        )
+
+        return False
 
     def stop_print(self) -> bool:
         """

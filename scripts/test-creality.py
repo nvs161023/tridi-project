@@ -33,6 +33,8 @@
 from __future__ import annotations
 
 import json
+import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -48,6 +50,7 @@ AGENT_DIR = ROOT / "agent"
 sys.path.insert(0, str(AGENT_DIR))
 
 import scanner  # noqa: E402 — путь к агенту выше
+from adapters import creality  # noqa: E402 — константы повтора и подтверждения
 from adapters.creality import CrealityAdapter  # noqa: E402
 from adapters.factory import get_adapter  # noqa: E402
 from websockets.exceptions import ConnectionClosed  # noqa: E402
@@ -136,6 +139,9 @@ class FakeCreality:
 
     Каждое сообщение и каждый запрос записываются целиком: без этого не
     проверить ни `opGcodeFile`, ни имя файла в multipart, ни порядок папок.
+
+    `dropped_uploads` — сколько ближайших загрузок оборвать сбросом соединения:
+    так ведёт себя Wi-Fi на ферме, когда пакеты теряются на середине файла.
     """
 
     def __init__(self) -> None:
@@ -151,6 +157,7 @@ class FakeCreality:
         # запрос можно было сначала отклонить, а потом подтвердить.
         self.set_replies: dict[str, list[dict[str, Any] | None]] = {}
         self.heartbeat = True
+        self.dropped_uploads = 0
         self.port = 0
         self._http: ThreadingHTTPServer | None = None
         self._http_thread: threading.Thread | None = None
@@ -181,9 +188,13 @@ class FakeCreality:
 
         return None
 
-    def count(self, method: str) -> int:
-        """Сколько запросов этого метода пришло: проверка «до сети не дошли»."""
-        return sum(1 for request in self.requests if request.method == method)
+    def count(self, method: str, path: str | None = None) -> int:
+        """Сколько таких запросов пришло: проверка «до сети не дошли»."""
+        return sum(
+            1
+            for request in self.requests
+            if request.method == method and (path is None or request.path == path)
+        )
 
     def heartbeats(self) -> int:
         """Сколько `heart_beat` дошло до принтера."""
@@ -249,6 +260,20 @@ class FakeCreality:
                         body=body,
                     )
                 )
+
+                if path.startswith("/upload/") and fake.dropped_uploads > 0:
+                    # Обрыв посреди файла: принтер не ответил и закрыл
+                    # соединение. `SO_LINGER` с нулём отправляет RST, и
+                    # `requests` получает `ConnectionError` — тот же обрыв, что
+                    # видит мастер на живой сети.
+                    fake.dropped_uploads -= 1
+                    self.close_connection = True
+                    self.connection.setsockopt(
+                        socket.SOL_SOCKET,
+                        socket.SO_LINGER,
+                        struct.pack("ii", 1, 0),
+                    )
+                    return
 
                 route = fake.routes.get((self.command, path))
 
@@ -491,6 +516,34 @@ def check_adapter(fake: FakeCreality, gcode_path: Path, project_path: Path) -> N
         f"{refused!r}, last_error={reason!r}",
     )
 
+    # 5.1 Обрыв на середине файла: адаптер повторяет загрузку.
+    fake.route("POST", "/upload/retry.gcode", 200, {"code": 0, "msg": "success"})
+    before = fake.count("POST", "/upload/retry.gcode")
+    fake.dropped_uploads = 1
+    retried = adapter.upload_file(str(gcode_path), "retry.gcode")
+    attempts = fake.count("POST", "/upload/retry.gcode") - before
+
+    check(
+        "загрузка: обрыв соединения → повтор и успех",
+        retried is True and attempts == 2 and adapter.last_error is None,
+        f"{retried!r}, запросов={attempts}, last_error={adapter.last_error!r}",
+    )
+
+    before = fake.count("POST", "/upload/busy.gcode")
+    fake.dropped_uploads = creality.UPLOAD_ATTEMPTS + 1
+    dropped = adapter.upload_file(str(gcode_path), "busy.gcode")
+    attempts = fake.count("POST", "/upload/busy.gcode") - before
+    reason = adapter.last_error or ""
+
+    check(
+        "загрузка: все попытки оборваны → False с причиной",
+        dropped is False
+        and attempts == creality.UPLOAD_ATTEMPTS
+        and "соединение прервано" in reason,
+        f"{dropped!r}, запросов={attempts}, last_error={reason[:80]!r}",
+    )
+    fake.dropped_uploads = 0
+
 
     # 6. Старт печати: opGcodeFile с папкой /usr/data/.
     fake.set_replies = {}
@@ -534,6 +587,30 @@ def check_adapter(fake: FakeCreality, gcode_path: Path, project_path: Path) -> N
         paths[-1] == {"opGcodeFile": "printprt:/mnt/UDISK/next.gcode"},
         f"{paths[-1] if paths else None!r}",
     )
+
+    # Принятый `set` — не запущенная печать: state 2 значит, что прошивка
+    # ответила «ok», а печатать не начала. Это отказ, а не успех.
+    fake.status = {"state": 2, "printProgress": 0, "printLeftTime": 0}
+    seen = len(fake.messages)
+    not_started = adapter.start_print("idle.gcode")
+    polls = sum(
+        1
+        for message in fake.messages[seen:]
+        if message.get("method") == "get"
+        and isinstance(message.get("params"), dict)
+        and "ReqPrinterPara" in message["params"]
+    )
+    reason = adapter.last_error or ""
+
+    check(
+        "старт: команда принята, но печать не началась → False",
+        not_started is False
+        and polls == creality.START_CONFIRM_ATTEMPTS
+        and "не начал печать" in reason,
+        f"{not_started!r}, опросов={polls}, last_error={reason!r}",
+    )
+
+    fake.status = {"state": 1, "printProgress": 0, "printLeftTime": 0}
 
     # 8. Состояние: state, проценты и остаток.
     fake.status = {"state": 1, "printProgress": 42.6, "printLeftTime": 600}
@@ -691,6 +768,11 @@ def check_offline(gcode_path: Path) -> None:
 
 def main() -> int:
     print("Проверка адаптера Creality:")
+
+    # Паузы повтора и ожидания старта обнуляются: тест проверяет логику, а не
+    # выдержку. На живом принтере пауза нужна, в прогоне она только тормозит.
+    creality.UPLOAD_RETRY_DELAY = 0
+    creality.START_CONFIRM_DELAY = 0
 
     with tempfile.TemporaryDirectory() as directory:
         gcode_path = Path(directory) / "my job.gcode"

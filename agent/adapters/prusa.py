@@ -14,7 +14,8 @@ PrusaLink — HTTP API прошивки Prusa (MINI, MK3.5, MK4, XL): порт 8
     целиком, `Content-Type: application/octet-stream`,
     `Print-After-Upload: ?0` и `Overwrite: ?1`;
   - `start_print()` — `POST /api/v1/files/<storage>/<remote_name>` с
-    `{"command": "print"}`;
+    `{"command": "print"}`: 204 без тела значит «команда принята», а печать
+    подтверждает состояние из `GET /api/v1/status`;
   - `get_status()`  — `GET /api/v1/status` (состояние) и `GET /api/v1/job`
     (прогресс и остаток);
   - `pause_print()` / `resume_print()` / `stop_print()` — `POST /api/v1/job` с
@@ -39,6 +40,18 @@ PrusaLink — HTTP API прошивки Prusa (MINI, MK3.5, MK4, XL): порт 8
 Второй разрешает перезапись — повторная попытка после обрыва связи не упирается
 в 409 на уже отправленном файле.
 
+Старт подтверждается состоянием. 204 на `{"command": "print"}` говорит лишь о
+том, что PrusaLink принял команду: печать начинается после нагрева стола, а на
+файле, который принтер не смог открыть, не начинается вовсе. Поэтому после
+успешного POST адаптер опрашивает `printer.state` (`START_CONFIRM_ATTEMPTS` раз
+с паузой `START_CONFIRM_DELAY`) и возвращает True только на `printing` или
+`paused`. `READY` через десять секунд — отказ, а не успех.
+
+Загрузка повторяется. Обрыв и таймаут повторяются `UPLOAD_ATTEMPTS` раз с
+паузой `UPLOAD_RETRY_DELAY`: файл в сотни мегабайт по Wi-Fi теряется на
+середине. Повтор безопасен: `Overwrite: ?1` перезаписывает уже отправленный
+файл вместо 409.
+
 Сеть. Ни один метод не выпускает `requests.*` наружу: выключенный принтер — это
 запись в журнале и `False` (или статус `error` у `get_status()`), а не падение
 агента. Таймауты обязательны: без них цикл опроса встаёт вместе с принтером.
@@ -46,6 +59,7 @@ PrusaLink — HTTP API прошивки Prusa (MINI, MK3.5, MK4, XL): порт 8
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Mapping
 from typing import Any, Final
 from urllib.parse import quote
@@ -72,6 +86,31 @@ REQUEST_TIMEOUT = 10
 # Загрузка G-code идёт дольше опроса: файл на десятки мегабайт по Wi-Fi
 # передаётся минутами, обрывать его на десяти секундах нельзя.
 UPLOAD_TIMEOUT = 120
+
+# Загрузка повторяется после обрыва: сеть на ферме пропадает на середине файла.
+# Повтор безопасен — `Overwrite: ?1` перезаписывает уже отправленный файл.
+UPLOAD_ATTEMPTS = 3
+UPLOAD_RETRY_DELAY = 5
+
+# Ошибки, после которых повтор имеет смысл: сеть пропала, принтер закрыл
+# соединение или не ответил вовремя. HTTP-отказы сюда не входят: на 404 и 409
+# PrusaLink ответил осознанно, и повтор ничего не изменит.
+UPLOAD_RETRY_ERRORS: Final[tuple[type[BaseException], ...]] = (
+    requests.ConnectionError,
+    requests.Timeout,
+    ConnectionResetError,
+)
+
+# Подтверждение старта: 204 значит «команда принята», а печать начинается после
+# нагрева. 5 попыток по 2 секунды — это 10 секунд на первый слой.
+START_CONFIRM_ATTEMPTS = 5
+START_CONFIRM_DELAY = 2.0
+
+# Причина отказа, когда команда принята, а печать не началась.
+START_CONFIRM_REASON: Final = (
+    "Принтер принял команду, но не начал печать. "
+    "Проверьте файл и состояние принтера"
+)
 
 # Хранилища PrusaLink. Путь загрузки начинается с имени хранилища, поэтому
 # незнакомое значение из `printer_secrets` подменяем на `usb`, а не отправляем
@@ -455,36 +494,51 @@ class PrusaAdapter(BasePrinterAdapter):
 
         Успех — 201 (`{"storage": "USB", "path": …, "name": …}`); 200 принимаем
         на случай прошивки, которая отвечает 200 на перезапись.
+
+        Обрыв и таймаут повторяются до `UPLOAD_ATTEMPTS` раз через
+        `_retry_upload()`: файл открывается заново, потому что прошлая попытка
+        могла прочитать только его часть.
         """
         headers = self._headers()
         headers["Content-Type"] = "application/octet-stream"
         headers["Print-After-Upload"] = "?0"
         headers["Overwrite"] = "?1"
 
-        try:
-            with open(plan.path, "rb") as gcode:
-                response = requests.put(
-                    self._file_url(plan.remote_name),
-                    headers=headers,
-                    data=gcode,
-                    timeout=UPLOAD_TIMEOUT,
+        attempt = 0
+
+        while True:
+            attempt += 1
+
+            try:
+                with open(plan.path, "rb") as gcode:
+                    response = requests.put(
+                        self._file_url(plan.remote_name),
+                        headers=headers,
+                        data=gcode,
+                        timeout=UPLOAD_TIMEOUT,
+                    )
+                break
+            except UPLOAD_RETRY_ERRORS as error:
+                # Проверка раньше RequestException и OSError: обрыв сети — не
+                # нечитаемый файл, и мастеру нужен повтор, а не «нет прав».
+                if not self._retry_upload(plan, attempt, error):
+                    return False
+            except requests.RequestException as error:
+                self.last_error = f"G-code не загружен: {error}"
+                logger.error(
+                    "G-code %s не загружен на %s: %s",
+                    plan.remote_name,
+                    self.ip_address,
+                    error,
                 )
-        except requests.RequestException as error:
-            self.last_error = f"G-code не загружен: {error}"
-            logger.error(
-                "G-code %s не загружен на %s: %s",
-                plan.remote_name,
-                self.ip_address,
-                error,
-            )
-            return False
-        except OSError as error:
-            # Файла нет, он занят другой программой или нет прав на чтение.
-            # Проверка идёт после RequestException: он тоже наследник OSError,
-            # но сетевую ошибку нужно отличать от нечитаемого файла.
-            self.last_error = f"файл не прочитан: {error}"
-            logger.error("G-code %s не прочитан: %s", plan.path, error)
-            return False
+                return False
+            except OSError as error:
+                # Файла нет, он занят другой программой или нет прав на чтение.
+                # Проверка идёт после RequestException: он тоже наследник OSError,
+                # но сетевую ошибку нужно отличать от нечитаемого файла.
+                self.last_error = f"файл не прочитан: {error}"
+                logger.error("G-code %s не прочитан: %s", plan.path, error)
+                return False
 
         if response.status_code not in (200, 201):
             self.last_error = (
@@ -508,6 +562,40 @@ class PrusaAdapter(BasePrinterAdapter):
         self.last_error = None
         return True
 
+    def _retry_upload(
+        self, plan: UploadPlan, attempt: int, error: BaseException
+    ) -> bool:
+        """
+        Повторять ли загрузку после обрыва: пишет журнал, ждёт и говорит «да».
+
+        `False` — попытки кончились: в `last_error` уходит причина из
+        исключения, чтобы мастер увидел сеть, а не «задание провалилось».
+        Строка журнала называет номер следующей попытки: по ней видно, что
+        адаптер не сдался после первого обрыва.
+        """
+        if attempt >= UPLOAD_ATTEMPTS:
+            self.last_error = f"G-code не загружен: соединение прервано ({error})"
+            logger.error(
+                "[PrusaLink] Файл %s не загружен на %s за %d попытки: %s",
+                plan.remote_name,
+                self.ip_address,
+                attempt,
+                error,
+            )
+            return False
+
+        logger.warning(
+            "[PrusaLink] Соединение сброшено. Попытка %d/%d через %d секунд... "
+            "(причина: %s)",
+            attempt + 1,
+            UPLOAD_ATTEMPTS,
+            UPLOAD_RETRY_DELAY,
+            error,
+        )
+        time.sleep(UPLOAD_RETRY_DELAY)
+
+        return True
+
     def start_print(self, remote_name: str) -> bool:
         """
         Запускает печать загруженного файла.
@@ -515,6 +603,11 @@ class PrusaAdapter(BasePrinterAdapter):
         `POST /api/v1/files/<storage>/<remote_name>` с `{"command": "print"}`:
         PrusaLink отвечает 204 без тела, когда команда принята. 404 — файла на
         принтере нет (например, загрузка не дошла), 409 — принтер занят печатью.
+
+        204 подтверждает только приём команды: печать начинается после нагрева
+        стола. Поэтому успех подтверждает `_wait_for_start()` — опрос
+        `printer.state` до `printing` (или `paused`: печать началась и стоит по
+        воле мастера).
         """
         try:
             response = requests.post(
@@ -545,9 +638,43 @@ class PrusaAdapter(BasePrinterAdapter):
             )
             return False
 
+        if not self._wait_for_start():
+            return False
+
         logger.info("Печать %s запущена на %s", remote_name, self.ip_address)
         self.last_error = None
         return True
+
+    def _wait_for_start(self) -> bool:
+        """
+        Ждёт, пока `printer.state` станет `printing`: старт подтверждён.
+
+        PrusaLink после команды греет стол и паркует голову, поэтому пять
+        попыток по `START_CONFIRM_DELAY` секунд. `paused` тоже подтверждение:
+        печать началась и стоит по воле мастера, а не потерялась в сети.
+        `ready` через десять секунд значит, что команда ушла, а печать не
+        пошла, — это отказ.
+        """
+        for attempt in range(1, START_CONFIRM_ATTEMPTS + 1):
+            time.sleep(START_CONFIRM_DELAY)
+            logger.info(
+                "[PrusaLink] Ждём старта печати... попытка %d/%d",
+                attempt,
+                START_CONFIRM_ATTEMPTS,
+            )
+
+            if self.get_status().get("status") in ("printing", "paused"):
+                return True
+
+        self.last_error = START_CONFIRM_REASON
+        logger.error(
+            "PrusaLink %s принял команду, но печать не началась за %d попыток: %s",
+            self.ip_address,
+            START_CONFIRM_ATTEMPTS,
+            START_CONFIRM_REASON,
+        )
+
+        return False
 
     def _job_command(self, action: str, label: str) -> bool:
         """

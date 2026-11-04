@@ -39,10 +39,22 @@ K2 Plus печатает из `/usr/data/`, часть прошивок — из
 `failed` в первом же опросе, а деталь начала бы печататься без задания.
 
 Молчание в ответ на `set` — не отказ: часть прошивок команды не подтверждает,
-а просто выполняет. Такая команда считается отправленной (с записью в
-журнал): что вышло на самом деле, покажет следующий `get_status()`. Явный
-отказ (`error`, ненулевой `code`, `result` со словами `fail`/`error`/`not
-exist`) возвращает False и причину в `last_error`.
+а просто выполняет. Для паузы, возврата и остановки такая команда считается
+отправленной (с записью в журнал): что вышло на самом деле, покажет следующий
+`get_status()`. Явный отказ (`error`, ненулевой `code`, `result` со словами
+`fail`/`error`/`not exist`) возвращает False и причину в `last_error`.
+
+Старт подтверждается состоянием, а не ответом на команду. `opGcodeFile` уходит
+до первого движения: прошивка отвечает, а потом ищет файл и греет стол — или
+не начинает печать вовсе (файл не там, принтер занят). Поэтому после принятой
+команды `start_print()` опрашивает `ReqPrinterPara` (`START_CONFIRM_ATTEMPTS`
+раз с паузой `START_CONFIRM_DELAY`) и возвращает True только когда `state`
+стал 0 или 1. Молчание прошивки успехом больше не считается: задание, о
+котором принтер не знает, висело бы в `printing` на пустом столе.
+
+Загрузка повторяется. Обрыв сети и таймаут повторяются `UPLOAD_ATTEMPTS` раз с
+паузой `UPLOAD_RETRY_DELAY`: файл в сотни мегабайт по Wi-Fi теряется на
+середине, а повтор с нуля дешевле, чем «задание провалено» у мастера.
 
 Ключ принтера. `api_key` прошивка не проверяет и в запросах не ждёт: поле
 остаётся в контракте адаптера и в форме Мастерской, но в заголовки не
@@ -92,6 +104,31 @@ UPLOAD_TIMEOUT = 120
 # Опрос идёт раз в несколько секунд, и зависший сокет не должен держать очередь.
 WS_TIMEOUT = 5.0
 HEARTBEAT_TIMEOUT = 3.0
+
+# Загрузка: обрыв соединения не должен проваливать задание с первого раза.
+# Значения те же, что у FlashForge: одна пауза на все протоколы фермы.
+UPLOAD_ATTEMPTS = 3
+UPLOAD_RETRY_DELAY = 5
+
+# Ошибки, после которых загрузку имеет смысл повторить: сеть пропала, принтер
+# закрыл соединение или не ответил вовремя. HTTP-отказы сюда не входят: 404 и
+# 507 повторять бессмысленно, принтер ответил осознанно.
+UPLOAD_RETRY_ERRORS: Final[tuple[type[BaseException], ...]] = (
+    requests.ConnectionError,
+    requests.Timeout,
+    ConnectionResetError,
+)
+
+# Подтверждение старта: сколько раз и с какой паузой спрашивать состояние.
+# 5 попыток по 2 секунды — 10 секунд на нагрев и парковку головы.
+START_CONFIRM_ATTEMPTS = 5
+START_CONFIRM_DELAY = 2.0
+
+# Причина отказа, когда команда ушла, а печать не началась.
+START_CONFIRM_REASON: Final = (
+    "Принтер не начал печать после команды. "
+    "Проверьте, что он в сети и не заблокирован"
+)
 
 
 # `opGcodeFile` принимает полный путь, а папка зависит от модели: K2 Plus
@@ -836,39 +873,54 @@ class CrealityAdapter(BasePrinterAdapter):
         Успех — 200 или 201: прошивки отвечают по-разному, а тело всё равно
         проверяется отдельно (`{"code": 0}` — успех). Файл открывается на время
         запроса: `requests` читает его потоком, закрывать нужно после отправки.
+
+        Обрыв и таймаут повторяются до `UPLOAD_ATTEMPTS` раз через
+        `_retry_upload()`: файл открывается заново на каждую попытку, потому что
+        прошлый запрос мог прочитать только его часть.
         """
         path = quote(plan.remote_name, safe="")
 
-        try:
-            with open(plan.path, "rb") as gcode:
-                response = requests.post(
-                    f"{self.base_url}/upload/{path}",
-                    files={
-                        "file": (
-                            plan.remote_name,
-                            gcode,
-                            "application/octet-stream",
-                        )
-                    },
-                    timeout=UPLOAD_TIMEOUT,
+        attempt = 0
+
+        while True:
+            attempt += 1
+
+            try:
+                with open(plan.path, "rb") as gcode:
+                    response = requests.post(
+                        f"{self.base_url}/upload/{path}",
+                        files={
+                            "file": (
+                                plan.remote_name,
+                                gcode,
+                                "application/octet-stream",
+                            )
+                        },
+                        timeout=UPLOAD_TIMEOUT,
+                    )
+                break
+            except UPLOAD_RETRY_ERRORS as error:
+                # Проверка раньше RequestException и OSError: обрыв сети — не
+                # нечитаемый файл, и мастеру нужен повтор, а не «нет прав».
+                if not self._retry_upload(plan, attempt, error):
+                    return False
+            except requests.RequestException as error:
+                self.last_error = f"G-code не загружен: {error}"
+                logger.error(
+                    "G-code %s не загружен на %s: %s",
+                    plan.remote_name,
+                    self.ip_address,
+                    error,
                 )
-        except requests.RequestException as error:
-            self.last_error = f"G-code не загружен: {error}"
-            logger.error(
-                "G-code %s не загружен на %s: %s",
-                plan.remote_name,
-                self.ip_address,
-                error,
-            )
 
-            return False
-        except OSError as error:
-            # Проверка после RequestException: он тоже наследник OSError, но
-            # сетевую ошибку нужно отличать от нечитаемого файла.
-            self.last_error = f"файл не прочитан: {error}"
-            logger.error("G-code %s не прочитан: %s", plan.path, error)
+                return False
+            except OSError as error:
+                # Проверка после RequestException: он тоже наследник OSError, но
+                # сетевую ошибку нужно отличать от нечитаемого файла.
+                self.last_error = f"файл не прочитан: {error}"
+                logger.error("G-code %s не прочитан: %s", plan.path, error)
 
-            return False
+                return False
 
         if response.status_code not in (200, 201):
             reason = _http_reason(response, _UPLOAD_HINTS)
@@ -905,6 +957,41 @@ class CrealityAdapter(BasePrinterAdapter):
 
         return True
 
+    def _retry_upload(
+        self, plan: UploadPlan, attempt: int, error: BaseException
+    ) -> bool:
+        """
+        Повторять ли загрузку после обрыва: пишет журнал, ждёт и говорит «да».
+
+        `False` — попытки кончились: в `last_error` уходит причина из
+        исключения, чтобы мастер увидел сеть, а не «задание провалилось».
+        Строка журнала называет номер следующей попытки: по ней видно, что
+        адаптер не сдался после первого обрыва.
+        """
+        if attempt >= UPLOAD_ATTEMPTS:
+            self.last_error = f"G-code не загружен: соединение прервано ({error})"
+            logger.error(
+                "[Creality] Файл %s не загружен на %s за %d попытки: %s",
+                plan.remote_name,
+                self.ip_address,
+                attempt,
+                error,
+            )
+
+            return False
+
+        logger.warning(
+            "[Creality] Соединение сброшено. Попытка %d/%d через %d секунд... "
+            "(причина: %s)",
+            attempt + 1,
+            UPLOAD_ATTEMPTS,
+            UPLOAD_RETRY_DELAY,
+            error,
+        )
+        time.sleep(UPLOAD_RETRY_DELAY)
+
+        return True
+
     def start_print(self, remote_name: str) -> bool:
         """
         Запускает печать файла из папки принтера.
@@ -914,9 +1001,11 @@ class CrealityAdapter(BasePrinterAdapter):
         `/usr/data/` — вторая попытка с `/mnt/UDISK/`; рабочая папка
         запоминается, чтобы следующая печать не тратила лишний запрос.
 
-        Молчание прошивки в ответ на первую папку считается успехом: команды
-        отправлены, а правду покажет `get_status()`. Иначе пришлось бы гадать
-        по тишине и портить рабочий путь второй попыткой.
+        Принятая команда — не запущенная печать: файла может не быть по этому
+        пути, принтер мог остаться занятым. Поэтому после `set` адаптер ждёт
+        подтверждения состоянием (`_wait_for_start()`), и только `state` 0 или 1
+        делает ответ True. Молчание на `set` тоже не успех: без опроса задание
+        висело бы в `printing` на пустом столе.
         """
         for root in self._file_roots():
             params = {"opGcodeFile": f"{PRINT_PREFIX}{root}{remote_name}"}
@@ -933,14 +1022,16 @@ class CrealityAdapter(BasePrinterAdapter):
                     self.ip_address,
                     remote_name,
                 )
-            else:
-                logger.info(
-                    "Печать %s запущена на %s (%s)",
-                    remote_name,
-                    self.ip_address,
-                    root,
-                )
 
+            if not self._wait_for_start():
+                return False
+
+            logger.info(
+                "Печать %s запущена на %s (%s)",
+                remote_name,
+                self.ip_address,
+                root,
+            )
             self.last_error = None
 
             return True
@@ -950,6 +1041,37 @@ class CrealityAdapter(BasePrinterAdapter):
             self.ip_address,
             remote_name,
             self.last_error or "принтер не подтвердил запуск",
+        )
+
+        return False
+
+    def _wait_for_start(self) -> bool:
+        """
+        Ждёт, пока `ReqPrinterPara` покажет печать: старт подтверждён статусом.
+
+        Прошивка после `opGcodeFile` сначала греет стол и паркует голову —
+        `state` 0, потом 1. Пять попыток по `START_CONFIRM_DELAY` секунд дают
+        десять секунд: больше — и мастер решит, что печать не пошла, хотя
+        принтер ещё разогревается. Пауза тоже считается подтверждением: печать
+        началась и стоит по воле мастера, а не потерялась в сети.
+        """
+        for attempt in range(1, START_CONFIRM_ATTEMPTS + 1):
+            time.sleep(START_CONFIRM_DELAY)
+            logger.info(
+                "[Creality] Ждём старта печати... попытка %d/%d",
+                attempt,
+                START_CONFIRM_ATTEMPTS,
+            )
+
+            if self.get_status().get("status") in ("printing", "paused"):
+                return True
+
+        self.last_error = START_CONFIRM_REASON
+        logger.error(
+            "Creality %s не начал печать за %d попыток: %s",
+            self.ip_address,
+            START_CONFIRM_ATTEMPTS,
+            START_CONFIRM_REASON,
         )
 
         return False

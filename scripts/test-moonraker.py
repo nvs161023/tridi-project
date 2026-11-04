@@ -33,6 +33,8 @@
 from __future__ import annotations
 
 import json
+import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -47,6 +49,7 @@ AGENT_DIR = ROOT / "agent"
 # Агент — не пакет в PYTHONPATH: импортируем так же, как при запуске main.py.
 sys.path.insert(0, str(AGENT_DIR))
 
+from adapters import moonraker  # noqa: E402 — константы повтора и подтверждения
 from adapters.factory import get_adapter  # noqa: E402 — путь к агенту выше
 from adapters.moonraker import MoonrakerAdapter  # noqa: E402
 
@@ -135,12 +138,16 @@ class FakeMoonraker:
     Ключ проверяется как на настоящем Moonraker: чужой `X-Api-Key` получает
     401 раньше маршрута. Тест ловит и адаптер, который забыл заголовок, а не
     только тот, который перепутал путь.
+
+    `dropped_uploads` — сколько ближайших загрузок оборвать сбросом соединения:
+    так ведёт себя Wi-Fi на ферме, когда пакеты теряются на середине файла.
     """
 
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
         self.requests: list[Recorded] = []
         self.routes: dict[tuple[str, str], tuple[int, bytes]] = {}
+        self.dropped_uploads = 0
         self.port = 0
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -169,9 +176,13 @@ class FakeMoonraker:
 
         return None
 
-    def count(self, method: str) -> int:
-        """Сколько запросов этого метода пришло: проверка «до сети не дошли»."""
-        return sum(1 for request in self.requests if request.method == method)
+    def count(self, method: str, path: str | None = None) -> int:
+        """Сколько таких запросов пришло: проверка «до сети не дошли»."""
+        return sum(
+            1
+            for request in self.requests
+            if request.method == method and (path is None or request.path == path)
+        )
 
     def status(self, state: str, progress: float, duration: float = 0.0) -> None:
         """
@@ -222,6 +233,20 @@ class FakeMoonraker:
                         body=body,
                     )
                 )
+
+                if parts.path == "/server/files/upload" and fake.dropped_uploads > 0:
+                    # Обрыв посреди файла: принтер не ответил и закрыл
+                    # соединение. `SO_LINGER` с нулём отправляет RST, и
+                    # `requests` получает `ConnectionError` — тот же обрыв, что
+                    # видит мастер на живой сети.
+                    fake.dropped_uploads -= 1
+                    self.close_connection = True
+                    self.connection.setsockopt(
+                        socket.SOL_SOCKET,
+                        socket.SO_LINGER,
+                        struct.pack("ii", 1, 0),
+                    )
+                    return
 
                 if self.headers.get("X-Api-Key", "") != fake.api_key:
                     fake.respond(
@@ -400,6 +425,34 @@ def check_upload(fake: FakeMoonraker, gcode_path: Path, project_path: Path) -> N
         f"{failed!r}, last_error={reason!r}",
     )
 
+    # Обрыв на середине файла: адаптер повторяет загрузку, а не сдаётся сразу.
+    fake.route("POST", "/server/files/upload", 201, {"result": {"action": "create"}})
+    fake.dropped_uploads = 1
+    before = fake.count("POST", "/server/files/upload")
+    retried = adapter.upload_file(str(gcode_path), "retry.gcode")
+    attempts = fake.count("POST", "/server/files/upload") - before
+
+    check(
+        "загрузка: обрыв соединения → повтор и успех",
+        retried is True and attempts == 2 and adapter.last_error is None,
+        f"{retried!r}, запросов={attempts}, last_error={adapter.last_error!r}",
+    )
+
+    fake.dropped_uploads = moonraker.UPLOAD_ATTEMPTS + 1
+    before = fake.count("POST", "/server/files/upload")
+    dropped = adapter.upload_file(str(gcode_path), "busy.gcode")
+    attempts = fake.count("POST", "/server/files/upload") - before
+    reason = adapter.last_error or ""
+
+    check(
+        "загрузка: все попытки оборваны → False с причиной",
+        dropped is False
+        and attempts == moonraker.UPLOAD_ATTEMPTS
+        and "соединение прервано" in reason,
+        f"{dropped!r}, запросов={attempts}, last_error={reason[:80]!r}",
+    )
+    fake.dropped_uploads = 0
+
 
 def check_status(fake: FakeMoonraker) -> None:
     """Состояние: `print_stats`, `virtual_sdcard` и перевод состояний."""
@@ -465,9 +518,10 @@ def check_status(fake: FakeMoonraker) -> None:
 
 
 def check_start_and_cancel(fake: FakeMoonraker) -> None:
-    """Старт печати по имени файла и отмена текущей печати."""
+    """Старт печати по имени файла, подтверждение состоянием и отмена."""
     adapter = MoonrakerAdapter(fake.address, CHECK_API_KEY)
     fake.route("POST", "/printer/print/start", 200, {"result": "ok"})
+    fake.status("printing", 0.01, 0.0)
 
     started = adapter.start_print("my-job.gcode")
     request = fake.last("POST", "/printer/print/start")
@@ -478,6 +532,21 @@ def check_start_and_cancel(fake: FakeMoonraker) -> None:
         and request is not None
         and request.query == "filename=my-job.gcode",
         f"{started!r}, query={request.query if request else None!r}",
+    )
+
+    # 200 значит «файл принят», а печать подтверждает только `print_stats`.
+    fake.status("standby", 0.0)
+    before = fake.count("GET", STATUS_PATH)
+    not_started = adapter.start_print("idle.gcode")
+    polls = fake.count("GET", STATUS_PATH) - before
+    reason = adapter.last_error or ""
+
+    check(
+        "старт: команда принята, но печать не началась → False",
+        not_started is False
+        and polls == moonraker.START_CONFIRM_ATTEMPTS
+        and "не начал печать" in reason,
+        f"{not_started!r}, опросов={polls}, last_error={reason!r}",
     )
 
     fake.route(
@@ -523,6 +592,9 @@ def check_cycle(fake: FakeMoonraker, gcode_path: Path) -> None:
     connected = adapter.connect()
     idle = adapter.get_status()
     uploaded = adapter.upload_file(str(gcode_path), "cycle.gcode")
+    # Печать начинается с нагрева: старт подтвердится, когда фейк покажет
+    # `printing`, — тем же состоянием, что увидит монитор задания.
+    fake.status("printing", 0.01, 0.0)
     started = adapter.start_print("cycle.gcode")
 
     fake.status("printing", 0.25, 30.0)
@@ -590,6 +662,11 @@ def check_factory() -> None:
 
 def main() -> int:
     """Поднимает фейковый Moonraker и проверяет адаптер на нём."""
+    # Паузы повтора и ожидания старта обнуляются: тест проверяет логику, а не
+    # выдержку. На живом принтере пауза нужна, в прогоне она только тормозит.
+    moonraker.UPLOAD_RETRY_DELAY = 0
+    moonraker.START_CONFIRM_DELAY = 0
+
     with tempfile.TemporaryDirectory() as tmp:
         gcode_path = Path(tmp) / "job.gcode"
         gcode_path.write_bytes(GCODE_BODY)

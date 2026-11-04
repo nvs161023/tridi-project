@@ -32,6 +32,8 @@
 from __future__ import annotations
 
 import json
+import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -46,6 +48,7 @@ AGENT_DIR = ROOT / "agent"
 # Агент — не пакет в PYTHONPATH: импортируем так же, как при запуске main.py.
 sys.path.insert(0, str(AGENT_DIR))
 
+from adapters import prusa  # noqa: E402 — константы повтора и подтверждения
 from adapters.factory import get_adapter  # noqa: E402 — путь к агенту выше
 from adapters.prusa import PrusaAdapter  # noqa: E402
 
@@ -132,12 +135,16 @@ class FakePrusaLink:
 
     Ключ проверяется как на настоящем принтере: чужой `X-Api-Key` получает 401
     раньше маршрута. Так тест ловит и адаптер, который забыл заголовок.
+
+    `dropped_uploads` — сколько ближайших загрузок оборвать сбросом соединения:
+    так ведёт себя Wi-Fi на ферме, когда пакеты теряются на середине файла.
     """
 
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
         self.requests: list[Recorded] = []
         self.routes: dict[tuple[str, str], tuple[int, bytes]] = {}
+        self.dropped_uploads = 0
         self.port = 0
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -166,9 +173,13 @@ class FakePrusaLink:
 
         return None
 
-    def count(self, method: str) -> int:
-        """Сколько запросов этого метода пришло: проверка «до сети не дошли»."""
-        return sum(1 for request in self.requests if request.method == method)
+    def count(self, method: str, path: str | None = None) -> int:
+        """Сколько таких запросов пришло: проверка «до сети не дошли»."""
+        return sum(
+            1
+            for request in self.requests
+            if request.method == method and (path is None or request.path == path)
+        )
 
     def __enter__(self) -> "FakePrusaLink":
         fake = self
@@ -196,6 +207,20 @@ class FakePrusaLink:
                         body=body,
                     )
                 )
+
+                if self.command == "PUT" and fake.dropped_uploads > 0:
+                    # Обрыв посреди файла: принтер не ответил и закрыл
+                    # соединение. `SO_LINGER` с нулём отправляет RST, и
+                    # `requests` получает `ConnectionError` — тот же обрыв, что
+                    # видит мастер на живой сети.
+                    fake.dropped_uploads -= 1
+                    self.close_connection = True
+                    self.connection.setsockopt(
+                        socket.SOL_SOCKET,
+                        socket.SO_LINGER,
+                        struct.pack("ii", 1, 0),
+                    )
+                    return
 
                 if self.headers.get("X-Api-Key", "") != fake.api_key:
                     fake.respond(
@@ -256,6 +281,11 @@ class FakePrusaLink:
 
 def main() -> int:
     print("Проверка адаптера PrusaLink:")
+
+    # Паузы повтора и ожидания старта обнуляются: тест проверяет логику, а не
+    # выдержку. На живом принтере пауза нужна, в прогоне она только тормозит.
+    prusa.UPLOAD_RETRY_DELAY = 0
+    prusa.START_CONFIRM_DELAY = 0
 
     with tempfile.TemporaryDirectory() as directory:
         gcode_path = Path(directory) / "my job.gcode"
@@ -375,8 +405,37 @@ def main() -> int:
                 f"last_error={reason!r}",
             )
 
-            # 3. Запуск печати.
+            # Обрыв на середине файла: адаптер повторяет загрузку. Повтор
+            # безопасен — `Overwrite: ?1` перезаписывает уже отправленный файл.
+            fake.route("PUT", "/api/v1/files/usb/retry.gcode", 201, {"storage": "USB"})
+            before = fake.count("PUT")
+            fake.dropped_uploads = 1
+            retried = adapter.upload_file(str(gcode_path), "retry.gcode")
+            attempts = fake.count("PUT") - before
+            check(
+                "upload: обрыв соединения → повтор и успех",
+                retried is True and attempts == 2 and adapter.last_error is None,
+                f"{retried!r}, запросов={attempts}, last_error={adapter.last_error!r}",
+            )
+
+            before = fake.count("PUT")
+            fake.dropped_uploads = prusa.UPLOAD_ATTEMPTS + 1
+            dropped = adapter.upload_file(str(gcode_path), "busy.gcode")
+            attempts = fake.count("PUT") - before
+            reason = adapter.last_error or ""
+            check(
+                "upload: все попытки оборваны → False с причиной",
+                dropped is False
+                and attempts == prusa.UPLOAD_ATTEMPTS
+                and "соединение прервано" in reason,
+                f"{dropped!r}, запросов={attempts}, last_error={reason[:80]!r}",
+            )
+            fake.dropped_uploads = 0
+
+            # 3. Запуск печати: 204 — только «команда принята», печать
+            # подтверждает состояние из GET /api/v1/status.
             fake.route("POST", "/api/v1/files/usb/job.gcode", 204)
+            fake.route("GET", "/api/v1/status", 200, {"printer": {"state": "PRINTING"}})
             started = adapter.start_print("job.gcode")
             record = fake.last("POST", "/api/v1/files/usb/job.gcode")
             body = record.json() if record is not None else {}
@@ -387,6 +446,21 @@ def main() -> int:
                 and record is not None
                 and record.header("x-api-key") == CHECK_API_KEY,
                 f"{started!r}, тело={body!r}",
+            )
+
+            # `READY` через десять секунд значит, что команда ушла, а печать не
+            # пошла, — это отказ, а не успех.
+            fake.route("GET", "/api/v1/status", 200, {"printer": {"state": "READY"}})
+            before = fake.count("GET", "/api/v1/status")
+            not_started = adapter.start_print("job.gcode")
+            polls = fake.count("GET", "/api/v1/status") - before
+            reason = adapter.last_error or ""
+            check(
+                "start_print: команда принята, но печать не началась → False",
+                not_started is False
+                and polls == prusa.START_CONFIRM_ATTEMPTS
+                and "не начал печать" in reason,
+                f"{not_started!r}, опросов={polls}, last_error={reason!r}",
             )
             # 4. Состояние печати: состояние и прогресс — из разных запросов.
             fake.route("GET", "/api/v1/status", 200, {"printer": {"state": "PRINTING"}})
