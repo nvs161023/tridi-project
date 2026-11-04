@@ -8832,4 +8832,31 @@ FlashForge напечатал деталь, а задание на сайте о
 Проверки: `python scripts/test-bambu.py` — все проверки пройдены, `npx pyright agent/` — 0 ошибок,
 `python -m py_compile agent/main.py scripts/test-bambu.py` — чисто, `npm run check:docs`,
 `npm run check:imports`, `npm run check:style` — без замечаний.
+**Bambu A1: временный сбой больше не закрывает задание (4 ноября 2026).**
+A1 при обрыве сети ушёл в паузу с вопросом на экране, агент прислал `failed`, задание закрылось, а
+печать потом продолжилась: заказ вернулся в «Новые», хотя станок работал.
+
+- `agent/main.py`: новый счётчик `FAILED_CONFIRM_CHECKS = 3` — `error` и текст в `last_error`
+  подтверждаются тремя опросами (15 секунд), и только после этого уходит `failed`; если принтер
+  вернулся в `printing` или `paused`, счёт сбрасывается и задание остаётся открытым. Остаток
+  `last_error` от прошлой команды отказом не считается, пока принтер сообщает `printing`/`paused`.
+- `agent/adapters/bambu.py`: `_STATE_MAP["PAUSE"]` → `paused` вместо `error`: пауза не поломка, A1
+  уходит в неё сама при потере сети и продолжает печать с того же места.
+- `app/api/agent/status/route.ts`: `printing` по заданию, закрытому как `failed`, возвращает его в
+  печать, пока с `finished_at` не прошло `FAILED_RESUME_WINDOW_MS` (5 минут); заказ уезжает обратно в
+  «В печати» (без миграции — роутом, с миграцией — триггером задания). Поздний `printing` задание не
+  открывает: в ответе `resumed: false`, причина — в журнале сервера.
+- `scripts/test-bambu.py`: `PAUSE` → `paused` и три новые проверки цикла — временный `error` не
+  закрывает задание, пауза не закрывает задание, отказ подтверждается ровно тремя опросами.
+- `scripts/test-agent-status.ts`: новый блок 5.5 — возврат в печать после ложного отказа (задание и
+  заказ снова `printing`) и отказ в возврате спустя окно.
+- `agent/README.md`, `agent/protocol-test-report.md`: пауза в таблице состояний Bambu, подтверждение
+  отказа в описании цикла мониторинга, счётчики проверок протоколов (350).
+
+Проверки: `python scripts/test-bambu.py` и `python scripts/test-all-protocols.py` — все проверки
+пройдены, `npx pyright agent/` — 0 ошибок, `scripts/test-agent-status.ts` и `scripts/test-agent-tasks.ts`
+на живой базе — все проверки пройдены, `npx tsc --noEmit`, `npm run build`, `npm run check:docs`,
+`npm run check:imports`, `npm run check:style` — без замечаний.
+
+
 

@@ -44,6 +44,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
  *   cancelled → задание cancelled, принтер idle: печать остановил мастер, это не
  *               поломка и не повод красить принтер в ошибку.
  *
+ * `printing` по заданию, которое уже закрыто как `failed`, — возврат после
+ * ложного отказа: Bambu A1 на временный сбой (обрыв сети, вопрос на экране)
+ * стоит в паузе, а через несколько секунд печатает дальше. Агент прошлой версии
+ * успевал закрыть задание, и заказ уезжал в «Новые», хотя станок работал.
+ * Такой переход разрешён только в окне `FAILED_RESUME_WINDOW_MS` после
+ * `finished_at`, и заказ возвращается в «В печати»; позже это уже расхождение
+ * данных, а не возврат.
+ *
  * `message` — причина отказа словами агента («Bambu: FTPS ответил 530»). Роут
  * кладёт её в `workshop_print_jobs.last_error`, и карточка заказа показывает
  * причину, а не «провалено». `estimatedSeconds`/`filamentGrams` — оценка из
@@ -109,6 +117,16 @@ const ESTIMATED_SECONDS_MAX = 31_536_000;
 
 /** check workshop_print_jobs_filament_grams_check: больше нуля, до 100 кг. */
 const FILAMENT_GRAMS_MAX = 100_000;
+
+/**
+ * Окно, в котором задание, закрытое отказом, можно вернуть в печать.
+ *
+ * Столько принтер и стоит без связи при временном сбое: Bambu A1 уходит в паузу
+ * с вопросом на экране, и печать ждёт мастера. Пять минут — с запасом, но и не
+ * «навсегда»: закрытое давно задание возвращать нельзя, иначе мастер увидит
+ * «Печатается» у заказа, который уже закрыл.
+ */
+const FAILED_RESUME_WINDOW_MS = 5 * 60 * 1000;
 
 const MIGRATION_HINT =
   "Очередь печати недоступна: в базе нет нужных таблиц или колонок. Примените supabase/workshop_farm_and_shop.sql.";
@@ -279,6 +297,33 @@ function readFilamentGrams(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+/**
+ * `finished_at timestamptz` в миллисекундах: PostgREST отдаёт ISO-строку.
+ *
+ * `null` — метки нет: колонка появилась в миграции hardening, а без неё роут
+ * читает сокращённый набор колонок. Время тогда не проверить, и окно возврата
+ * не действует — старая схема вела себя так же.
+ */
+function readTimestampMs(value: unknown): number | null {
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  const parsed = Date.parse(value);
+
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Возврат после ложного отказа уже не в окне: задание закрыто слишком давно,
+ * чтобы принтер «оживал» по этой же печати.
+ */
+function isResumeExpired(job: Row): boolean {
+  const finishedAt = readTimestampMs(job.finished_at);
+
+  return finishedAt !== null && Date.now() - finishedAt >= FAILED_RESUME_WINDOW_MS;
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body, null, 2), {
     status,
@@ -413,7 +458,7 @@ function jobPatchFor(payload: StatusPayload): JobPatch {
  * повторяет запрос после таймаута, и списание пластика не должно пройти дважды.
  */
 const JOB_COLUMNS = "id, order_id, printer_id, status";
-const JOB_COLUMNS_HARDENED = `${JOB_COLUMNS}, cancel_requested, filament_grams`;
+const JOB_COLUMNS_HARDENED = `${JOB_COLUMNS}, cancel_requested, filament_grams, finished_at`;
 
 /**
  * 42703 — «колонки нет»: миграция hardening не применена. Отдельная проверка
@@ -497,6 +542,25 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: "Задание не найдено." }, 404);
   }
 
+  // 1.5. Возврат после ложного отказа: принтер ожил, и агент прислал `printing`
+  // по заданию, которое роут уже закрыл. Так выглядит временный сбой Bambu A1 —
+  // пауза на несколько секунд, после которой печать идёт дальше.
+  //
+  // Разрешаем только в окне `FAILED_RESUME_WINDOW_MS` после `finished_at`.
+  // Опоздавший `printing` по давно закрытому заданию — расхождение данных, а не
+  // возврат: открытое заново задание показало бы мастеру «Печатается» у заказа,
+  // который он уже закрыл.
+  const resuming = job.status === "failed" && payload.status === "printing";
+  const resumeExpired = resuming && isResumeExpired(job);
+
+  if (resumeExpired) {
+    console.warn(
+      "Агент: печать по заданию, закрытому отказом, пришла вне окна возврата:",
+      payload.jobId,
+      job.finished_at,
+    );
+  }
+
   // 2. Само задание вместе с причиной отказа и оценками слайсера.
   //
   // Без миграции hardening колонок нет: пишем только статус, а причину и оценки
@@ -504,25 +568,29 @@ export async function POST(request: Request): Promise<Response> {
   // Старый check статусов не знает ни `cancelled`, ни `paused`, поэтому отмена
   // до миграции закрывается как `failed`, а пауза — как `printing` (принтер
   // занят, печать не закончена).
-  const jobPatch: JobPatch = hardening
-    ? jobPatchFor(payload)
-    : {
-        status:
-          payload.status === "cancelled"
-            ? "failed"
-            : payload.status === "paused"
-              ? "printing"
-              : payload.status,
-      };
+  const jobPatch: JobPatch | null = resumeExpired
+    ? null
+    : hardening
+      ? jobPatchFor(payload)
+      : {
+          status:
+            payload.status === "cancelled"
+              ? "failed"
+              : payload.status === "paused"
+                ? "printing"
+                : payload.status,
+        };
 
-  const jobUpdate = await supabase
-    .from("workshop_print_jobs")
-    .update(jobPatch)
-    .eq("id", payload.jobId)
-    .eq("user_id", identity.userId);
+  if (jobPatch !== null) {
+    const jobUpdate = await supabase
+      .from("workshop_print_jobs")
+      .update(jobPatch)
+      .eq("id", payload.jobId)
+      .eq("user_id", identity.userId);
 
-  if (jobUpdate.error) {
-    return writeFailure(jobUpdate.error, "Статус задания не записан.");
+    if (jobUpdate.error) {
+      return writeFailure(jobUpdate.error, "Статус задания не записан.");
+    }
   }
 
   // 3. Заказ на Канбане — только если триггера нет: с миграцией hardening
@@ -534,7 +602,12 @@ export async function POST(request: Request): Promise<Response> {
   // заказ, который ещё печатается. Пауза заказ не двигает вовсе — см.
   // `orderStatusFor()`. Триггер hardening считает так же, а без миграции расчёт
   // лежит на роуте.
-  if (!hardening) {
+  //
+  // Возврат после ложного отказа двигает заказ обратно в «В печати» тем же
+  // путём, что и обычный старт: агент прислал `printing`, значит печать идёт, а
+  // заказ после `failed` уже уехал в «Новые». С миграцией это делает триггер
+  // задания (`status in ('new', 'ready')` → `printing`).
+  if (!hardening && jobPatch !== null) {
     const orderStatus = orderStatusFor(payload.status);
 
     if (orderStatus !== null) {
@@ -614,7 +687,10 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  return json({ success: true, filament });
+  // `resumed` — задание вернулось в печать после ложного отказа (см. шаг 1.5).
+  // `false` и тогда, когда возврат опоздал: задание осталось закрытым, но
+  // принтер всё равно обновлён — он печатает, и врать о его состоянии нельзя.
+  return json({ success: true, resumed: resuming && !resumeExpired, filament });
 }
 
 /**

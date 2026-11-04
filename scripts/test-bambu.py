@@ -615,11 +615,14 @@ def main() -> int:
         {"status": "error", "progress": 100, "remaining_time": 0},
     )
 
+    # Пауза — не отказ: A1 уходит в неё сама, когда теряет сеть или задаёт вопрос
+    # на экране, и печать продолжается с того же места. `error` здесь закрывал бы
+    # задание (`failed`), хотя станок печатает дальше.
     reporting._apply_report({"print": {"gcode_state": "PAUSE"}})
     expect_status(
-        "PAUSE → error",
+        "PAUSE → paused",
         reporting,
-        {"status": "error", "progress": 100, "remaining_time": 0},
+        {"status": "paused", "progress": 100, "remaining_time": 0},
     )
 
     # A1 в простое присылает STANDBY: без него статус был бы «печать встала».
@@ -1474,6 +1477,67 @@ def main() -> int:
         "monitor: простой с прежним прогрессом после старта — done",
         ff_stale == [("printing", 98, None), ("done", 100, None)],
         f"{ff_stale!r}",
+    )
+
+    # Временный сбой: A1 на обрыв сети и вопрос на экране отдаёт `error`, а через
+    # несколько секунд печатает дальше. Отказ подтверждается
+    # `FAILED_CONFIRM_CHECKS` опросов, поэтому `failed` не уходит, а задание
+    # остаётся открытым — иначе печатающий станок закрывал бы заказ отказом.
+    resumed_print = run_monitor(
+        SilentPrintAdapter(
+            [
+                {"status": "printing", "progress": 40, "remaining_time": 600},
+                {"status": "error", "progress": 40, "remaining_time": 600},
+                {"status": "error", "progress": 40, "remaining_time": 600},
+                {"status": "printing", "progress": 41, "remaining_time": 590},
+                {"status": "idle", "progress": 100, "remaining_time": 0},
+            ],
+            None,
+        )
+    )
+    check(
+        "monitor: временный error не закрывает задание — печать продолжается",
+        resumed_print
+        == [("printing", 40, None), ("printing", 41, None), ("done", 100, None)],
+        f"{resumed_print!r}",
+    )
+
+    # Пауза тоже не закрывает задание: принтер занят и печатает с того же места.
+    paused_print = run_monitor(
+        SilentPrintAdapter(
+            [
+                {"status": "printing", "progress": 40, "remaining_time": 600},
+                {"status": "paused", "progress": 40, "remaining_time": 600},
+                {"status": "printing", "progress": 41, "remaining_time": 590},
+                {"status": "idle", "progress": 100, "remaining_time": 0},
+            ],
+            None,
+        )
+    )
+    check(
+        "monitor: пауза не закрывает задание — paused, затем printing",
+        paused_print
+        == [
+            ("printing", 40, None),
+            ("paused", 40, None),
+            ("printing", 41, None),
+            ("done", 100, None),
+        ],
+        f"{paused_print!r}",
+    )
+
+    # Отказ, который не прошёл, закрывает задание только после подтверждения:
+    # ровно `FAILED_CONFIRM_CHECKS` опросов, а не с первого.
+    confirmed_adapter = SilentPrintAdapter(
+        [{"status": "error", "progress": 40, "remaining_time": 600}], None
+    )
+    confirmed_print = run_monitor(confirmed_adapter)
+    check(
+        "monitor: отказ подтверждается — failed после трёх опросов",
+        confirmed_print
+        == [("failed", 40, "Печать прервана (принтер остановлен или потерял связь)")]
+        and confirmed_adapter.index == agent_main.FAILED_CONFIRM_CHECKS,
+        f"{confirmed_print!r}, опросов {confirmed_adapter.index}",
     )
 
     expect_false("stop_print() без соединения", adapter.stop_print)

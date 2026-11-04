@@ -8,7 +8,9 @@
  *   2. `done` → задание done, заказ ready, принтер idle, progress = 0,
  *      remaining_time = 0;
  *   3. `failed` → задание failed, заказ new (мастер перезапустит), принтер
- *      error с progress = 0;
+ *      error с progress = 0; `printing` сразу после отказа возвращает задание в
+ *      печать (`resumed` и заказ снова в «В печати»), а спустя окно в пять
+ *      минут — уже нет: там это расхождение данных, а не временный сбой;
  *   4. `GET /api/agent/status?jobId=` — опрос отмены: без флага `false`, без
  *      `jobId` → 400, чужое задание → 404, неверный токен → 401;
  *   5. отмена мастером: флаг `cancel_requested` → GET отдаёт `true`, агент
@@ -155,7 +157,12 @@ function requireId(data: Row, what: string): string {
 }
 
 /** Тело ответа роута: успех или текст ошибки. */
-type StatusResponse = { success?: unknown; error?: unknown };
+type StatusResponse = {
+  success?: unknown;
+  error?: unknown;
+  /** true — задание вернулось в печать после ложного отказа. */
+  resumed?: unknown;
+};
 
 type StatusResult = {
   status: number;
@@ -722,6 +729,70 @@ async function main(): Promise<void> {
         failedDetails.lastError === failureReason &&
           failedDetails.finishedAt !== null,
         `last_error=${failedDetails.lastError}, finished_at=${failedDetails.finishedAt}`,
+      );
+    }
+
+    // 5.5 Возврат после ложного отказа ---------------------------------------
+    // Bambu A1 на временный сбой уходит в паузу и через несколько секунд печатает
+    // дальше, а агент прошлой версии успевал прислать `failed`. Печатающий
+    // станок не должен оставлять заказ в «Новых»: `printing` по закрытому
+    // заданию возвращает его в печать, пока не истекло окно
+    // `FAILED_RESUME_WINDOW_MS` (5 минут) после `finished_at`.
+    const resumeLate = await callStatus(authorized, {
+      jobId,
+      status: "printing",
+      progress: 72,
+    });
+
+    check(
+      "printing после failed: задание вернулось в печать",
+      resumeLate.status === 200 &&
+        resumeLate.body.success === true &&
+        resumeLate.body.resumed === true,
+      `status=${resumeLate.status}, body=${JSON.stringify(resumeLate.body).slice(0, 300)}`,
+    );
+
+    const afterResume = await readState(jobId, orderId, printerId);
+
+    check(
+      "printing после failed: задание и заказ снова printing",
+      afterResume.jobStatus === "printing" &&
+        afterResume.orderStatus === "printing",
+      `job=${afterResume.jobStatus}, order=${afterResume.orderStatus}`,
+    );
+
+    if (hardening) {
+      // Второй отказ, но окно возврата уже истекло: `finished_at` сдвигаем на
+      // десять минут назад — так выглядит задание, закрытое отказом давно.
+      await callStatus(authorized, {
+        jobId,
+        status: "failed",
+        message: failureReason,
+      });
+
+      const staleFinishedAt = new Date(
+        Date.now() - 10 * 60 * 1000,
+      ).toISOString();
+      const stale = await admin
+        .from("workshop_print_jobs")
+        .update({ finished_at: staleFinishedAt })
+        .eq("id", jobId);
+
+      throwIfError(stale.error, "сдвиг finished_at");
+
+      const expiredResume = await callStatus(authorized, {
+        jobId,
+        status: "printing",
+        progress: 72,
+      });
+      const afterExpired = await readState(jobId, orderId, printerId);
+
+      check(
+        "printing после давнего failed: задание осталось закрытым",
+        expiredResume.status === 200 &&
+          expiredResume.body.resumed === false &&
+          afterExpired.jobStatus === "failed",
+        `status=${expiredResume.status}, body=${JSON.stringify(expiredResume.body).slice(0, 200)}, job=${afterExpired.jobStatus}`,
       );
     }
 
