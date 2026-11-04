@@ -18,6 +18,7 @@ import {
   shouldAskForConstructorFeedback,
 } from "@/lib/constructor/feedback";
 import type { SavedProjectNotice } from "@/lib/constructor/projects";
+import { keychainPresetById, type KeychainPresetId } from "@/lib/constructor/keychain-presets";
 import {
   COASTER_PATTERN_LABELS,
   COASTER_SHAPE_LABELS,
@@ -43,7 +44,6 @@ import {
   DEFAULT_WALL_HOOK_PARAMS,
   GIFT_BOX_SHAPE_LABELS,
   JEWELRY_CONFIG_LABELS,
-  KEYCHAIN_SHAPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PART_LABELS,
   ORNAMENT_SHAPE_LABELS,
@@ -64,6 +64,7 @@ import {
   fabricPatchStlFileName,
   giftBoxStlFileName,
   jewelryStandStlFileName,
+  keychainShapeTitle,
   keychainStlFileName,
   listSignBlocks,
   listSignLetters,
@@ -567,6 +568,35 @@ export function ConstructorClient({
     );
   }
 
+  /**
+   * Выбор нового пресета силуэта.
+   *
+   * Пресет и силуэт — один пункт списка, поэтому при выборе пресета силуэт
+   * обнуляется: в модели всегда ровно один источник формы. Снятие пресета
+   * (`null`) возвращает панель к силуэту по умолчанию, а размеры пресета
+   * записываются в слайдеры — панель показывает те миллиметры, из которых
+   * сложится модель, и их можно править дальше.
+   */
+  function updateKeychainPreset(presetId: KeychainPresetId | null) {
+    setParams((current) => {
+      if (!presetId) {
+        return normalizeConstructorParams({ ...current, keychainPreset: null });
+      }
+
+      const preset = keychainPresetById(presetId);
+
+      return normalizeConstructorParams({
+        ...current,
+        keychainPreset: presetId,
+        keychainShape: null,
+        shapeType: null,
+        width: preset.defaultWidth,
+        length: preset.defaultHeight,
+        thickness: preset.defaultThickness,
+      });
+    });
+  }
+
   function updateKeychainText(text: string) {
     setParams((current) => normalizeConstructorParams({ ...current, text }));
   }
@@ -1010,9 +1040,10 @@ export function ConstructorClient({
           onGiftScrewLockChange={updateGiftScrewLock}
           onHasLidChange={updateHasLid}
           onJewelryConfigChange={updateJewelryConfig}
+          onKeychainPresetChange={updateKeychainPreset}
+          onKeychainShapeChange={updateKeychainShape}
           onLithoFrameChange={updateLithoFrame}
           onLithoMountChange={updateLithoMount}
-          onKeychainShapeChange={updateKeychainShape}
           onLithophaneBrightnessChange={updateLithophaneBrightness}
           onModelChange={updateModel}
           onNfcChange={updateKeychainNfc}
@@ -1057,7 +1088,7 @@ export function ConstructorClient({
                 </>
               ) : params.model === "keychain" ? (
                 <>
-                  {KEYCHAIN_SHAPE_LABELS[params.shapeType]} · {params.length} ×{" "}
+                  {keychainShapeTitle(params)} · {params.length} ×{" "}
                   {params.width} × {params.thickness} мм
                   {params.text.trim() ? ` · «${params.text.trim()}»` : ""}
                 </>

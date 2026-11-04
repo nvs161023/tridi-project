@@ -12,7 +12,6 @@ import {
   COASTER_PATTERN_LABELS,
   GIFT_BOX_SHAPE_LABELS,
   JEWELRY_CONFIG_LABELS,
-  KEYCHAIN_SHAPE_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PREVIEW_RESOLUTION,
   ORNAMENT_SHAPE_LABELS,
@@ -23,8 +22,8 @@ import {
   VASE_PATTERN_LABELS,
   WALL_HOOK_MOUNT_LABELS,
   downsampleLithophaneBrightness,
+  keychainShapeTitle,
   type ConstructorParams,
-  type KeychainShape,
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
@@ -262,7 +261,8 @@ type KeychainModelProps = {
   length: number;
   width: number;
   thickness: number;
-  shapeType: KeychainShape;
+  /** Отпечаток формы: пресет или силуэт. По нему пересчитывается тень. */
+  shapeKey: string;
   text: string;
 };
 
@@ -279,7 +279,7 @@ function KeychainModel({
   length,
   width,
   thickness,
-  shapeType,
+  shapeKey,
   text,
 }: KeychainModelProps) {
   const footprint = Math.max(length, width);
@@ -315,7 +315,7 @@ function KeychainModel({
         blur={2.6}
         far={Math.max(thickness * 20, 80)}
         frames={1}
-        key={`keychain-${length}-${width}-${thickness}-${shapeType}-${text}`}
+        key={`keychain-${length}-${width}-${thickness}-${shapeKey}-${text}`}
         opacity={0.5}
         position={[0, 0.02, 0]}
         resolution={512}
@@ -773,7 +773,7 @@ function Scene({ params, geometry, framing }: SceneProps) {
         <KeychainModel
           geometry={geometry}
           length={params.length}
-          shapeType={params.shapeType}
+          shapeKey={params.keychainPreset ?? params.keychainShape ?? "none"}
           text={params.text}
           thickness={params.thickness}
           width={params.width}
@@ -1294,7 +1294,7 @@ export function Viewport({ params }: ViewportProps) {
     params.model === "vase"
       ? `3D-предпросмотр вазы высотой ${params.height} миллиметров и диаметром ${params.diameter} миллиметров, узор «${VASE_PATTERN_LABELS[params.pattern]}»`
       : params.model === "keychain"
-        ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${KEYCHAIN_SHAPE_LABELS[params.shapeType]}», имя «${params.text.trim() || "без имени"}»`
+        ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${keychainShapeTitle(params)}», имя «${params.text.trim() || "без имени"}»`
         : params.model === "stand"
           ? `3D-предпросмотр подставки под телефон шириной ${params.standWidth} миллиметров, наклон ${params.standAngle} градусов, толщина телефона ${params.phoneThickness} миллиметров`
           : params.model === "clips"

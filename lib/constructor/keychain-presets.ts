@@ -56,7 +56,7 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     id: "apple-tag",
     label: "Apple Tag",
     description:
-      "Круглая бирка под метку-таблетку 32 мм: буртик по краю держит метку и прячет её срез.",
+      "Скруглённый корпус без отдельного ушка: кольцо проходит сквозь отверстие в теле брелока.",
     defaultWidth: 38,
     defaultHeight: 44,
     defaultThickness: 3.5,

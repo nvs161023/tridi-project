@@ -12,6 +12,7 @@ import {
   keychainNfcLayers,
   measureKeychainNfc,
 } from "@/lib/constructor/keychain-geometry";
+import { isKeychainPresetImplemented } from "@/lib/constructor/keychain-preset-geometry";
 import {
   KEYCHAIN_PRESETS,
   isKeychainPresetId,
@@ -66,6 +67,7 @@ import {
   VASE_SHAPE_LABELS,
   WALL_HOOK_MOUNTS,
   WALL_HOOK_MOUNT_LABELS,
+  keychainShapeTitle,
   sanitizeCipherLidText,
   sanitizeCipherWord,
   sanitizeKeychainText,
@@ -176,6 +178,13 @@ type ParameterPanelProps = {
   onShapeChange: (shape: VaseShape) => void;
   onPatternChange: (pattern: VasePattern) => void;
   onKeychainShapeChange: (shape: KeychainShape) => void;
+  /**
+   * Новый пресет силуэта; null снимает пресет и возвращает встроенный силуэт.
+   *
+   * Пресет живёт в параметрах модели (`params.keychainPreset`), а не в состоянии
+   * панели: иначе список, предпросмотр и STL могли бы показывать разные формы.
+   */
+  onKeychainPresetChange: (preset: KeychainPresetId | null) => void;
   /** Свой SVG-контур: текст SVG или SVG, собранный из загруженной картинки. */
   onCustomSvgChange: (svg: string) => void;
   /** Карман под NFC-метку в теле брелока. */
@@ -837,6 +846,7 @@ export function ParameterPanel({
   onShapeChange,
   onPatternChange,
   onKeychainShapeChange,
+  onKeychainPresetChange,
   onCustomSvgChange,
   onNfcChange,
   onTextChange,
@@ -898,15 +908,6 @@ export function ParameterPanel({
   const [isProcessingContour, setIsProcessingContour] = useState(false);
   const [contourError, setContourError] = useState<string | null>(null);
   const [contourFileName, setContourFileName] = useState<string | null>(null);
-  /**
-   * Выбранный новый пресет силуэта.
-   *
-   * Живёт отдельно от `params.keychainShape`: геометрии пресетов ещё нет, и STL
-   * по-прежнему собирается по прежнему силуэту. Когда контуры появятся, эта
-   * пара превратится в один параметр.
-   */
-  const [keychainPresetId, setKeychainPresetId] =
-    useState<KeychainPresetId | null>(null);
   const [cellsXText, setCellsXText] = useState(() =>
     formatBoxCells(params.cellsX),
   );
@@ -950,15 +951,6 @@ export function ParameterPanel({
       setContourFileName(null);
     }
   }, [params.customSvgData]);
-
-  /**
-   * Силуэт сменили в обход списка: загрузка своего контура или возврат к
-   * встроенной форме. Выбранный пресет хранится отдельно, поэтому его отметку
-   * надо снять — иначе список показывал бы форму, которой нет в модели.
-   */
-  useEffect(() => {
-    setKeychainPresetId(null);
-  }, [params.keychainShape]);
 
   /**
    * Демонстрационный массив живёт в DEFAULT_LITHOPHANE_PARAMS и после сброса
@@ -1030,9 +1022,11 @@ export function ParameterPanel({
     try {
       const svg = await keychainContourFromFile(file);
 
+      // Пресет снимается первым: пока он выбран, нормализация держит силуэт
+      // пустым, и «Свой SVG» не стал бы активной формой.
+      onKeychainPresetChange(null);
       onCustomSvgChange(svg);
       onKeychainShapeChange("custom");
-      setKeychainPresetId(null);
       setContourFileName(file.name);
     } catch (error) {
       setContourError(
@@ -1045,14 +1039,20 @@ export function ParameterPanel({
     }
   }
 
-  /** Возвращает встроенный силуэт: пустой customSvgData сервер не примет. */
+  /**
+   * Возвращает встроенный силуэт.
+   *
+   * Пресет тоже снимается: пустой `customSvgData` сервер не примет, а при
+   * выбранном пресете силуэт в модели пуст — без снятия отметки форма не
+   * сменилась бы, и кнопка «Сбросить контур» выглядела бы сломанной.
+   */
   function resetKeychainContour() {
+    onKeychainPresetChange(null);
     onCustomSvgChange("");
     setContourFileName(null);
     setContourError(null);
-    setKeychainPresetId(null);
 
-    if (params.shapeType === "custom") {
+    if (!params.keychainShape || params.keychainShape === "custom") {
       onKeychainShapeChange("dog_tag");
     }
   }
@@ -1060,24 +1060,27 @@ export function ParameterPanel({
   /**
    * Выбор в списке «Форма брелока».
    *
-   * Новый пресет только запоминается: у него пока нет контура, поэтому модель
-   * остаётся прежней. Выбор старого силуэта, наоборот, сразу уходит в параметры и
-   * снимает отметку с пресета — иначе список показывал бы не то, что напечатается.
+   * Список общий для пресетов и прежних силуэтов, но активным остаётся ровно
+   * один пункт: выбор пресета обнуляет силуэт, выбор силуэта снимает пресет.
+   * Поэтому форма в модели, подпись в сводке и файл STL всегда совпадают.
    */
   function handleKeychainShapeSelect(value: KeychainShapeSelectValue) {
     if (isKeychainPresetId(value)) {
-      setKeychainPresetId(value);
+      onKeychainPresetChange(value);
       return;
     }
 
-    setKeychainPresetId(null);
+    onKeychainPresetChange(null);
     onKeychainShapeChange(value);
   }
 
-  /** Данные выбранного пресета: подпись, пояснение и размеры по умолчанию. */
-  const selectedKeychainPreset = keychainPresetId
-    ? keychainPresetById(keychainPresetId)
+  /** Данные выбранного пресета: подпись, пояснение и готовность геометрии. */
+  const selectedKeychainPreset = params.keychainPreset
+    ? keychainPresetById(params.keychainPreset)
     : null;
+  const selectedPresetReady =
+    selectedKeychainPreset !== null &&
+    isKeychainPresetImplemented(selectedKeychainPreset.id);
 
   /**
    * Текст поля ячеек уходит в состояние только когда строка разобралась.
@@ -1142,6 +1145,21 @@ export function ParameterPanel({
       : nfcFit.fits
         ? null
         : `Карман под метку не помещается: в этом силуэте максимум ${nfcFit.cavityMm.toFixed(1)} × ${nfcFit.cavityMm.toFixed(1)} мм при метке ${KEYCHAIN_NFC_TAG_MM} × ${KEYCHAIN_NFC_TAG_MM} мм. Выберите другой силуэт или выключите карман.`;
+
+  /**
+   * Почему нельзя скачать STL из-за выбранной формы.
+   *
+   * Геометрии семи пресетов ещё нет: модель в предпросмотре собирается по
+   * прежнему силуэту, и уходить в печать такой файл не должен. Причина формы
+   * важнее причины NFC — пользователь только что выбрал именно её.
+   */
+  const presetBlockReason =
+    params.keychainPreset && !selectedPresetReady
+      ? "Этот пресет ещё в разработке. Выберите Apple Tag или прежний силуэт."
+      : null;
+
+  /** Итоговая причина, по которой кнопки скачивания заблокированы. */
+  const exportBlockReason = presetBlockReason ?? nfcBlockReason;
 
   /** Пауза и пластик над карманом без хвостовых нулей: 1.05 и 1.95. */
   const nfcPauseLabel = Number(nfcLayers.pauseZ.toFixed(2)).toString();
@@ -1503,25 +1521,34 @@ export function ParameterPanel({
         <>
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Первые восемь пунктов — новые пресеты, ниже идут прежние силуэты. У каждого встроенного силуэта есть ушко с отверстием под кольцо 4 мм."
+              hint="Восемь первых пунктов — новые пресеты со своей геометрией, ниже идут прежние силуэты. У встроенных силуэтов ушко с отверстием под кольцо 4 мм."
               label="Форма брелока"
               onChange={handleKeychainShapeSelect}
               options={KEYCHAIN_SHAPE_OPTIONS}
-              value={keychainPresetId ?? params.shapeType}
+              value={
+                params.keychainPreset ?? params.shapeType ?? KEYCHAIN_SHAPES[0]
+              }
             />
 
             {selectedKeychainPreset ? (
-              <p className="mt-3 rounded-xl border border-sky-400/40 bg-sky-400/10 px-3 py-2 text-xs leading-relaxed text-sky-100">
-                <strong className="font-semibold">
-                  {selectedKeychainPreset.label}
-                </strong>
-                : {selectedKeychainPreset.description} Размеры по умолчанию —{" "}
-                {selectedKeychainPreset.defaultWidth} ×{" "}
-                {selectedKeychainPreset.defaultHeight} мм, толщина{" "}
-                {selectedKeychainPreset.defaultThickness} мм. Геометрия пресета ещё
-                в работе: модель строится по силуэту «
-                {KEYCHAIN_SHAPE_LABELS[params.shapeType]}».
-              </p>
+              selectedPresetReady ? (
+                <p className="mt-3 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-xs leading-relaxed text-emerald-100">
+                  <strong className="font-semibold">Готово:</strong> скруглённый
+                  прямоугольник {params.width} × {params.length} мм, отверстие Ø5
+                  мм под кольцо. Скругление 4 мм, фаска 0.4 мм по контуру,
+                  толщина {params.thickness} мм — размеры берутся из слайдеров
+                  ниже. Имя и карман под NFC-метку подключим отдельными шагами.
+                </p>
+              ) : (
+                <p className="mt-3 rounded-xl border border-sky-400/40 bg-sky-400/10 px-3 py-2 text-xs leading-relaxed text-sky-100">
+                  <strong className="font-semibold">
+                    {selectedKeychainPreset.label}
+                  </strong>
+                  : {selectedKeychainPreset.description} Геометрия пресета ещё в
+                  работе: модель строится по силуэту «{keychainShapeTitle(params)}
+                  », а скачивание STL заблокировано.
+                </p>
+              )
             ) : null}
           </div>
 
@@ -1587,23 +1614,30 @@ export function ParameterPanel({
             ) : null}
           </fieldset>
 
-          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
-            <input
-              checked={params.nfcEnabled}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              onChange={(event) => onNfcChange(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              <span className="block text-sm font-semibold text-slate-200">
-                Карман под NFC-метку
+          {params.keychainPreset ? (
+            <p className="mt-6 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-xs leading-relaxed text-slate-300">
+              У пресетов карман под NFC-метку появится вместе с их геометрией:
+              сейчас корпус цельный, и полости под метку в нём нет.
+            </p>
+          ) : (
+            <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+              <input
+                checked={params.nfcEnabled}
+                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                onChange={(event) => onNfcChange(event.target.checked)}
+                type="checkbox"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-slate-200">
+                  Карман под NFC-метку
+                </span>
+                <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                  Открытое снизу углубление под квадрат 25 × 25 мм. Метку вкладывают
+                  в паузу печати, и последние слои закрывают её пластиком.
+                </span>
               </span>
-              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                Открытое снизу углубление под квадрат 25 × 25 мм. Метку вкладывают
-                в паузу печати, и последние слои закрывают её пластиком.
-              </span>
-            </span>
-          </label>
+            </label>
+          )}
 
           {nfcBlockReason ? (
             <p
@@ -3215,7 +3249,7 @@ export function ParameterPanel({
         {hasPro ? (
           <>
             <ExportButtons
-              blockedReason={nfcBlockReason}
+              blockedReason={exportBlockReason}
               exportingId={exportingId}
               onExport={onExport}
               options={exportOptions}
@@ -3247,7 +3281,7 @@ export function ParameterPanel({
 
             <div className="mt-3">
               <ExportButtons
-                blockedReason={nfcBlockReason}
+                blockedReason={exportBlockReason}
                 exportingId={exportingId}
                 onExport={onExport}
                 options={exportOptions}

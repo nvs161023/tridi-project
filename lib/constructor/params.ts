@@ -1,3 +1,9 @@
+import {
+  isKeychainPresetId,
+  keychainPresetById,
+  type KeychainPresetId,
+} from "@/lib/constructor/keychain-presets";
+
 /**
  * Параметры конструктора: границы, значения по умолчанию и нормализация.
  *
@@ -442,6 +448,25 @@ export function normalizeKeychainShapeAlias(value: unknown): KeychainShape | nul
   return isKeychainShape(value) ? value : null;
 }
 
+/**
+ * Подпись формы брелока для панели, сводки и aria-описания сцены.
+ *
+ * Форму задаёт либо пресет из реестра, либо встроенный силуэт. Одна функция на
+ * все три места не даёт подписям разойтись: пока пресет жил в отдельном
+ * состоянии панели, сводка читала силуэт и показывала форму, которой в модели
+ * уже не было.
+ */
+export function keychainShapeTitle(params: {
+  keychainPreset?: KeychainPresetId | null;
+  keychainShape: KeychainShape | null;
+}): string {
+  if (params.keychainPreset) {
+    return keychainPresetById(params.keychainPreset).label;
+  }
+
+  return KEYCHAIN_SHAPE_LABELS[params.keychainShape ?? KEYCHAIN_SHAPES[0]];
+}
+
 /** Ширина канала под светодиодную ленту, мм: другой не бывает. */
 export const SIGN_CHANNEL_WIDTHS = [8, 10] as const;
 
@@ -507,8 +532,23 @@ export type KeychainParams = {
   thickness: number;
   /** Имя или надпись на лицевой стороне, до 10 символов. */
   text: string;
-  /** Выбранный силуэт: встроенный SVG или загруженный пользователем. */
-  keychainShape: KeychainShape;
+  /**
+   * Встроенный силуэт: SVG из `lib/constructor/keychain-shapes.ts` или
+   * загруженный пользователем.
+   *
+   * null — форму задаёт пресет (`keychainPreset`), и силуэт не нужен: держать
+   * оба поля заполненными значило бы дать предпросмотру и экспорту два разных
+   * источника формы.
+   */
+  keychainShape: KeychainShape | null;
+  /**
+   * Новый пресет силуэта из `lib/constructor/keychain-presets.ts`.
+   *
+   * Пресет и встроенный силуэт взаимоисключающие: выбор пресета обнуляет
+   * `keychainShape`, выбор силуэта обнуляет это поле. Геометрия пресета строится
+   * кодом, поэтому размеры берутся из слайдеров, а не из SVG.
+   */
+  keychainPreset?: KeychainPresetId | null;
   /**
    * Разметка пользовательского SVG. Хранится строкой, потому что файл
    * разбирается и в браузере, и на сервере одним парсером без DOM.
@@ -522,7 +562,7 @@ export type KeychainParams = {
    *
    * @deprecated используйте `keychainShape`.
    */
-  shapeType: KeychainShape;
+  shapeType: KeychainShape | null;
 };
 
 /** Настраиваемые размеры, форма и рельеф вазы. */
@@ -1158,6 +1198,7 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   thickness: CONSTRUCTOR_LIMITS.thickness.defaultValue,
   text: "Аня",
   keychainShape: "dog_tag",
+  keychainPreset: null,
   customSvgData: "",
   nfcEnabled: false,
   shapeType: "dog_tag",
@@ -1488,12 +1529,15 @@ export function vaseStlFileName(params: VaseParams): string {
  *
  * В имя не попадает текст: кириллица в заголовке ответа требует
  * filename*=UTF-8, а запасное имя для старых клиентов всё равно останется
- * латинским. Размеры и форма уже однозначно описывают заготовку.
+ * латинским. Размеры и форма уже однозначно описывают заготовку. У пресета в
+ * имени стоит его идентификатор: `apple-tag` короче и точнее, чем `custom`,
+ * который остаётся у силуэта после выбора пресета.
  */
 export function keychainStlFileName(params: KeychainParams): string {
   const nfcSuffix = params.nfcEnabled ? "-nfc" : "";
+  const shape = params.keychainPreset ?? params.keychainShape ?? "custom";
 
-  return `tridi-brelyok-${params.keychainShape}-l${params.length}-w${params.width}-t${params.thickness}${nfcSuffix}.stl`;
+  return `tridi-brelyok-${shape}-l${params.length}-w${params.width}-t${params.thickness}${nfcSuffix}.stl`;
 }
 
 /**
@@ -2281,13 +2325,20 @@ export function normalizeVaseParams(params: Partial<VaseParams>): VaseParams {
 }
 
 /**
- * Проверяет и выравнивает параметры брелока.
+ * Силуэт из параметров: свежий выбор в интерфейсе важнее прежнего поля.
  *
- * Как и у вазы, числа зажимаются в границы и встают на шаг слайдера. Текст
- * очищается от символов вне шрифта и обрезается до 10 знаков; сервер до
- * вызова этой функции проверяет исходную строку строго.
+ * null возвращается и тогда, когда форму задаёт пресет: два источника формы в
+ * одном объекте недопустимы, иначе предпросмотр показывал бы силуэт, а STL
+ * собирался бы по пресету.
  */
-function resolveKeychainShape(params: Partial<KeychainParams>): KeychainShape {
+function resolveKeychainShape(
+  params: Partial<KeychainParams>,
+  preset: KeychainPresetId | null,
+): KeychainShape | null {
+  if (preset) {
+    return null;
+  }
+
   const fromKeychain = normalizeKeychainShapeAlias(params.keychainShape);
   const fromLegacy = normalizeKeychainShapeAlias(params.shapeType);
 
@@ -2310,11 +2361,18 @@ function resolveKeychainShape(params: Partial<KeychainParams>): KeychainShape {
  * вызова этой функции проверяет исходную строку строго. Силуэт и его прежний
  * псевдоним всегда совпадают, SVG ограничен размером и безопасными тегами,
  * а NFC-флаг принимается только настоящим boolean.
+ *
+ * Пресет и силуэт взаимоисключающие: выбранный пресет обнуляет силуэт, а
+ * NFC-карман при нём выключается — у пресетов пока нет полости под метку, и
+ * включённый флаг обещал бы карман, которого в модели нет.
  */
 export function normalizeKeychainParams(
   params: Partial<KeychainParams>,
 ): KeychainParams {
-  const keychainShape = resolveKeychainShape(params);
+  const keychainPreset = isKeychainPresetId(params.keychainPreset)
+    ? params.keychainPreset
+    : null;
+  const keychainShape = resolveKeychainShape(params, keychainPreset);
   const customSvgData = isCustomSvgData(params.customSvgData)
     ? params.customSvgData.trim()
     : "";
@@ -2334,9 +2392,11 @@ export function normalizeKeychainParams(
     ),
     text: sanitizeKeychainText(params.text ?? DEFAULT_KEYCHAIN_PARAMS.text),
     keychainShape,
+    keychainPreset,
     customSvgData,
-    nfcEnabled:
-      typeof params.nfcEnabled === "boolean"
+    nfcEnabled: keychainPreset
+      ? false
+      : typeof params.nfcEnabled === "boolean"
         ? params.nfcEnabled
         : DEFAULT_KEYCHAIN_PARAMS.nfcEnabled,
     shapeType: keychainShape,

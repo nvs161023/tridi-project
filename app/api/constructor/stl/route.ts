@@ -11,6 +11,8 @@ import {
   FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH,
   countConstructorDownloadsThisMonth,
 } from "@/lib/constructor/downloads";
+import { isKeychainPresetId } from "@/lib/constructor/keychain-presets";
+import { isKeychainPresetImplemented } from "@/lib/constructor/keychain-preset-geometry";
 import {
   CONSTRUCTOR_LIMITS,
   DEFAULT_LITHOPHANE_PARAMS,
@@ -275,12 +277,13 @@ function parseVaseParams(body: unknown): VaseParams | null {
  * Строгая проверка параметров брелока.
  *
  * Все размеры обязательны и должны лежать в границах слайдеров. Текст — не
- * длиннее 10 символов из набора шрифта; пустая строка допустима. Силуэт
- * проверяется по списку, причём старое `shapeType` ещё принимается, а
- * `rounded` превращается в жетон. Пользовательский SVG обязан быть строкой в
- * пределах 200 КБ, без скриптов и хотя бы с одним контуром: пустой `custom`
- * дал бы файл-заглушку вместо выбранной формы. NFC-флаг — только boolean,
- * иначе строка «false» включала бы карман.
+ * длиннее 10 символов из набора шрифта; пустая строка допустима. Форма
+ * задаётся либо пресетом из реестра, либо силуэтом: пресет главнее, при нём
+ * силуэт не проверяется вовсе. Старое `shapeType` ещё принимается, а `rounded`
+ * превращается в жетон. Пользовательский SVG обязан быть строкой в пределах
+ * 200 КБ, без скриптов и хотя бы с одним контуром: пустой `custom` дал бы
+ * файл-заглушку вместо выбранной формы. NFC-флаг — только boolean, иначе строка
+ * «false» включала бы карман.
  */
 function parseKeychainParams(
   body: Record<string, unknown>,
@@ -292,10 +295,20 @@ function parseKeychainParams(
     text,
     keychainShape,
     shapeType,
+    keychainPreset,
     customSvgData = "",
     nfcEnabled = false,
   } = body;
-  const shape = normalizeKeychainShapeAlias(keychainShape ?? shapeType);
+  const preset = isKeychainPresetId(keychainPreset) ? keychainPreset : null;
+  // Неизвестный идентификатор — ошибка ввода, а не «пресета нет»: иначе запрос
+  // с опечаткой молча собрал бы брелок по силуэту.
+  const presetInvalid =
+    keychainPreset !== null &&
+    keychainPreset !== undefined &&
+    preset === null;
+  const shape = preset
+    ? null
+    : normalizeKeychainShapeAlias(keychainShape ?? shapeType);
 
   if (
     !isNumberInRange(
@@ -314,7 +327,8 @@ function parseKeychainParams(
       CONSTRUCTOR_LIMITS.thickness.max,
     ) ||
     !isValidKeychainText(text) ||
-    !shape ||
+    presetInvalid ||
+    (!preset && !shape) ||
     !isCustomSvgData(customSvgData) ||
     typeof nfcEnabled !== "boolean" ||
     (shape === "custom" && !hasDrawableSvgData(customSvgData))
@@ -329,6 +343,7 @@ function parseKeychainParams(
     text,
     keychainShape: shape,
     shapeType: shape,
+    keychainPreset: preset,
     customSvgData,
     nfcEnabled,
   });
@@ -1423,6 +1438,20 @@ export async function POST(request: Request): Promise<Response> {
       422,
       "invalid_params",
       "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, диаметр кабеля и число зажимов, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений, форму и отделения органайзера для ручек, форму и стежки нашивки, размеры и число плафонов гирлянды, габарит и силуэт игрушки, размеры и крепление крючка, толщину борта и размеры клипсы, габарит и узор трафарета, габарит, код и надпись шкатулки, габарит, форму и замки подарочной коробки.",
+    );
+  }
+
+  // Пресет без геометрии не должен уходить в печать правдоподобной заглушкой:
+  // панель гасит кнопку, но запрос может прийти и напрямую.
+  if (
+    parsed.model === "keychain" &&
+    parsed.params.keychainPreset &&
+    !isKeychainPresetImplemented(parsed.params.keychainPreset)
+  ) {
+    return errorResponse(
+      422,
+      "preset_not_implemented",
+      "Этот пресет ещё не реализован. Выберите Apple-Tag или прежний силуэт.",
     );
   }
 

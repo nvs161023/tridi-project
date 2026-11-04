@@ -5,6 +5,7 @@ import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import { KEYCHAIN_SILHOUETTES } from "@/lib/constructor/keychain-shapes";
+import { buildKeychainPresetGeometry } from "@/lib/constructor/keychain-preset-geometry";
 import {
   normalizeKeychainParams,
   type KeychainParams,
@@ -581,16 +582,23 @@ function findEyeletY(groups: readonly ContourGroup[], length: number): number {
   return Math.min(base + EYELET_INSET_MM, maximum);
 }
 
-/** Разбирает выбранный силуэт и ставит его в габариты брелока. */
+/**
+ * Разбирает выбранный силуэт и ставит его в габариты брелока.
+ *
+ * null в `keychainShape` означает, что форму задаёт пресет. Если геометрии
+ * пресета ещё нет, предпросмотр показывает жетон — это временная замена, а
+ * скачивание такого файла API блокирует ответом 422.
+ */
 function createOutline(params: KeychainParams, bevel: number): KeychainOutline {
+  const shape = params.keychainShape;
   const custom =
-    params.keychainShape === "custom" && params.customSvgData.trim()
+    shape === "custom" && params.customSvgData.trim()
       ? params.customSvgData
       : null;
   const builtin =
-    params.keychainShape === "custom"
-      ? KEYCHAIN_SILHOUETTES.dog_tag
-      : KEYCHAIN_SILHOUETTES[params.keychainShape];
+    shape && shape !== "custom"
+      ? KEYCHAIN_SILHOUETTES[shape]
+      : KEYCHAIN_SILHOUETTES.dog_tag;
   const svg = custom ?? builtin;
 
   let contours = parseSvgOutline(svg);
@@ -647,6 +655,12 @@ export function measureKeychainNfc(
   const bevel = edgeBevel(normalized.thickness);
   const layers = keychainNfcLayers(normalized.thickness);
   let groups: KeychainOutline["groups"];
+
+  // У пресета кармана под метку нет: мерить силуэт, подставленный вместо него,
+  // значило бы показать размеры кармана, которого не будет в модели.
+  if (normalized.keychainPreset) {
+    return null;
+  }
 
   try {
     groups = createOutline(normalized, bevel).groups;
@@ -955,6 +969,21 @@ export function createKeychainGeometry(
   font: Font | null = null,
 ): BufferGeometry {
   const normalized = normalizeKeychainParams(params);
+  const preset = normalized.keychainPreset
+    ? buildKeychainPresetGeometry(normalized.keychainPreset, {
+        width: normalized.width,
+        height: normalized.length,
+        thickness: normalized.thickness,
+      })
+    : null;
+
+  // Пресет строится целиком из своих чисел: у него собственное отверстие под
+  // кольцо, поэтому ни ушко, ни NFC-карман, ни рельеф имени к нему не
+  // добавляются — это отдельные шаги. Шрифт для такой модели не нужен.
+  if (preset) {
+    return preset;
+  }
+
   const outline = createOutline(normalized, edgeBevel(normalized.thickness));
   const base = createBaseGeometry(normalized, outline);
 
