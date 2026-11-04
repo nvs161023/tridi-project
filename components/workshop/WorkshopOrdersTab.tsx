@@ -23,6 +23,10 @@ import {
 import { CreateOrderDialog } from "@/components/workshop/CreateOrderDialog";
 import { OrderDetailsDialog } from "@/components/workshop/OrderDetailsDialog";
 import {
+  PRINT_BED_WARNING_FLEET,
+  PrintBedConfirmDialog,
+} from "@/components/workshop/PrintBedConfirmDialog";
+import {
   BoltIcon,
   PrinterIcon,
   TrashIcon,
@@ -225,7 +229,17 @@ export function WorkshopOrdersTab({
   const [statusFilter, setStatusFilter] = useState<OrderStatusFilter>("all");
   /** Идёт автораспределение: кнопка блокируется до ответа сервера. */
   const [isAutoScheduling, setIsAutoScheduling] = useState(false);
+  /**
+   * Открыто окно «стол чистый» перед автораспределением.
+   *
+   * Планировщик ставит задания сразу на весь парк, а остатки прошлой модели на
+   * столах видит только мастер: сервер про столы ничего не знает. Поэтому кнопка
+   * «Распределить на свободные принтеры» не вызывает Server Action напрямую.
+   */
+  const [isBedConfirmOpen, setIsBedConfirmOpen] = useState(false);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
+  /** Кнопка автораспределения: после окна фокус возвращается на неё. */
+  const autoScheduleRef = useRef<HTMLButtonElement>(null);
   /**
    * Когда закончилось последнее перетаскивание.
    *
@@ -319,6 +333,10 @@ export function WorkshopOrdersTab({
    * заказов могло не быть), поэтому это сообщение в зелёной строке, а не плашка
    * отказа. После успеха `router.refresh()` перечитывает страницу: состояние
    * заданий живёт в серверном рендере карточек, а не в браузере.
+   *
+   * Вызывается только из окна «стол чистый» (`confirmAutoSchedule`): печать
+   * стартует без мастера, и ставить задания на весь парк поверх остатков
+   * прошлой модели нельзя.
    */
   const runAutoSchedule = useCallback(async () => {
     if (isAutoScheduling) {
@@ -347,6 +365,50 @@ export function WorkshopOrdersTab({
       setIsAutoScheduling(false);
     }
   }, [isAutoScheduling, router]);
+
+  /**
+   * Клик по «Распределить на свободные принтеры»: сначала окно про столы.
+   *
+   * Планировщик ставит задания на весь парк одним ответом, поэтому подтверждение
+   * спрашивается один раз и про все столы. Проверки те же, что у кнопки: во время
+   * прохода второй клик открыл бы окно поверх уже идущей работы, а без таблицы
+   * заказов распределять нечего.
+   */
+  const requestAutoSchedule = useCallback(() => {
+    if (isAutoScheduling || isMissingTable) {
+      return;
+    }
+
+    setNotice(null);
+    setError(null);
+    setDeleteError(null);
+    setIsBedConfirmOpen(true);
+  }, [isAutoScheduling, isMissingTable]);
+
+  /**
+   * Закрытие окна «стол чистый» на доске.
+   *
+   * Фокус возвращается на кнопку автораспределения: после Escape и после ответа
+   * сервера человек остаётся там, откуда начал, а не в начале страницы.
+   */
+  const closeBedConfirm = useCallback(() => {
+    setIsBedConfirmOpen(false);
+
+    requestAnimationFrame(() => {
+      autoScheduleRef.current?.focus();
+    });
+  }, []);
+
+  /**
+   * Подтверждение «столы чистые»: запускаем планировщик.
+   *
+   * Окно закрывается после ответа сервера, а не по клику: пока задания ставятся в
+   * очередь, кнопка показывает «Распределяем…», и причина отказа видна на доске,
+   * а не под уже убранным окном.
+   */
+  const confirmAutoSchedule = useCallback(() => {
+    void runAutoSchedule().finally(closeBedConfirm);
+  }, [closeBedConfirm, runAutoSchedule]);
 
   const openDetails = useCallback((order: WorkshopOrder) => {
     setNotice(null);
@@ -670,8 +732,9 @@ export function WorkshopOrdersTab({
 
         <div className="flex flex-wrap items-center gap-2">
           <button
+            ref={autoScheduleRef}
             type="button"
-            onClick={() => void runAutoSchedule()}
+            onClick={requestAutoSchedule}
             disabled={isAutoScheduling || isMissingTable}
             aria-busy={isAutoScheduling}
             data-auto-schedule
@@ -893,6 +956,22 @@ export function WorkshopOrdersTab({
           products={products}
           onUpdated={setNotice}
           onClose={closeDetails}
+        />
+      ) : null}
+
+      {/*
+        Подтверждение «столы чистые» перед автораспределением: задания уходят
+        сразу на весь парк, а остатки прошлой модели видит только мастер.
+      */}
+      {isBedConfirmOpen ? (
+        <PrintBedConfirmDialog
+          warning={PRINT_BED_WARNING_FLEET}
+          hint="Задания встанут в очередь на свободные принтеры: агент запустит печать на каждом, как только станок освободится."
+          isBusy={isAutoScheduling}
+          confirmLabel="Да, столы чистые, распределить"
+          busyLabel="Распределяем…"
+          onConfirm={confirmAutoSchedule}
+          onCancel={closeBedConfirm}
         />
       ) : null}
     </section>
