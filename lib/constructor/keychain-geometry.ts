@@ -56,13 +56,23 @@ const EYELET_INSET_MM = 3.4;
 /** Сколько высоты сверху оставляем под ушко, мм. */
 const EYELET_RESERVE_MM = 8;
 
-/** Размер NFC-метки, мм: стандартный квадратный стикер 25 × 25. */
-const NFC_CAVITY_MM = 25;
+/** Сторона квадратной NFC-метки, мм: стандартный стикер 25 × 25. */
+export const KEYCHAIN_NFC_TAG_MM = 25;
+
+/** Зазор вокруг метки на сторону, при котором она садится без подгонки, мм. */
+export const KEYCHAIN_NFC_CLEARANCE_MM = 0.2;
 
 /** Глубина кармана под метку, мм. */
 const NFC_DEPTH_MM = 1;
 
-/** Минимальная толщина пластика над карманом, мм. */
+/**
+ * Минимальная толщина переднего слоя над карманом, мм.
+ *
+ * Это не «крышка кармана»: пластик над углублением равен
+ * `толщина − глубина`, и при штатной толщине 3 мм его 1.95 мм (потолок кармана
+ * на 1.05 мм, лицо на 3 мм). Константа ограничивает глубину только на тонкой
+ * основе: `recess = min(NFC_DEPTH_MM, thickness − NFC_TOP_MM)`.
+ */
 const NFC_TOP_MM = 0.4;
 
 /** Перекрытие заднего и переднего слоёв вокруг кармана, мм. */
@@ -127,6 +137,40 @@ type NfcCavity = {
 /** Фаска кромок: доля толщины, но не больше 0.3 мм. */
 function edgeBevel(thickness: number): number {
   return Math.min(EDGE_BEVEL_MM, thickness * EDGE_BEVEL_SHARE);
+}
+
+/** Слои NFC-кармана при заданной толщине основы, мм. */
+export type KeychainNfcLayers = {
+  /** Глубина кармана: потолок углубления, мм. */
+  depth: number;
+  /** Верх заднего слоя вместе с перекрытием: на этом слое ставится пауза, мм. */
+  pauseZ: number;
+  /** Толщина переднего слоя, мм. */
+  frontHeight: number;
+  /** Пластик над карманом: от потолка углубления до лица, мм. */
+  topMm: number;
+};
+
+/**
+ * Слои NFC-кармана — единственный источник правды для геометрии и подсказок.
+ *
+ * Карман открыт снизу: задний слой с квадратным отверстием печатается от 0 до
+ * `pauseZ`, передний — от `depth` до `thickness`. Пауза возможна только на
+ * верхе заднего слоя: выше начинается сплошной передний слой, и метку уже
+ * некуда вложить. Поэтому `pauseZ` считается от глубины кармана, а не от
+ * толщины минус `NFC_TOP_MM`: последняя формула давала 2.6 мм при толщине 3 мм,
+ * то есть на 1.55 мм выше потолка кармана.
+ */
+export function keychainNfcLayers(thickness: number): KeychainNfcLayers {
+  const depth = Math.max(0, Math.min(NFC_DEPTH_MM, thickness - NFC_TOP_MM));
+  const pauseZ = Math.min(depth + NFC_JOIN_MM, thickness);
+
+  return {
+    depth,
+    pauseZ,
+    frontHeight: thickness - depth,
+    topMm: Math.max(0, thickness - pauseZ),
+  };
 }
 
 /**
@@ -468,7 +512,7 @@ function findCavity(
   }
 
   for (
-    let half = NFC_CAVITY_MM / 2 + bevel;
+    let half = KEYCHAIN_NFC_TAG_MM / 2 + bevel;
     half >= NFC_MIN_CAVITY_MM / 2;
     half -= 0.25
   ) {
@@ -573,6 +617,57 @@ function createOutline(params: KeychainParams, bevel: number): KeychainOutline {
   };
 }
 
+/** Замер NFC-кармана для интерфейса: что вырежется и куда ставить паузу. */
+export type KeychainNfcFit = {
+  /** Сторона квадрата кармана в свету, мм; 0 — карман не вырезается. */
+  cavityMm: number;
+  /** Зазор вокруг метки на сторону, мм; отрицательный — метка не влезает. */
+  clearanceMm: number;
+  /** Метка 25 × 25 мм садится в карман целиком. */
+  fits: boolean;
+  /** Слой паузы M600: верх заднего слоя, мм. */
+  pauseZ: number;
+  /** Пластик над карманом, мм. */
+  topMm: number;
+};
+
+/**
+ * Меряет карман теми же функциями, что и геометрия.
+ *
+ * Панель показывает предупреждение, только если карман действительно меньше
+ * метки или не вырезается вовсе: у `car`, `star` и `lightning` под квадрат
+ * 25 мм нет места, и раньше такой брелок молча уходил в печать. Возвращает
+ * null, если контур не разобрался — тогда ошибку показывает загрузка контура,
+ * а не NFC-плашка.
+ */
+export function measureKeychainNfc(
+  params: Partial<KeychainParams>,
+): KeychainNfcFit | null {
+  const normalized = normalizeKeychainParams(params);
+  const bevel = edgeBevel(normalized.thickness);
+  const layers = keychainNfcLayers(normalized.thickness);
+  let groups: KeychainOutline["groups"];
+
+  try {
+    groups = createOutline(normalized, bevel).groups;
+  } catch {
+    return null;
+  }
+
+  const cavity = findCavity(groups, bevel);
+  // Фаска поджимает отверстие у лица и у стола, поэтому в свету остаётся
+  // квадрат без двух фасок — именно его видит метка.
+  const cavityMm = cavity ? Math.max(0, 2 * (cavity.half - bevel)) : 0;
+  const clearanceMm = (cavityMm - KEYCHAIN_NFC_TAG_MM) / 2;
+
+  return {
+    cavityMm,
+    clearanceMm,
+    fits: cavityMm > 0 && clearanceMm >= 0,
+    pauseZ: layers.pauseZ,
+    topMm: layers.topMm,
+  };
+}
 
 /**
  * Выдавливает Shape на заданный слой по Z.
@@ -626,9 +721,11 @@ function createEyeletTab(centerY: number): Shape {
  * Основа целиком: силуэт (при NFC — два слоя с карманом) и ушко.
  *
  * Без NFC силуэт выдавливается на полную толщину одной оболочкой. С карманом
- * задний слой идёт от 0 до recess + join и содержит квадратное отверстие,
- * передний — от recess до thickness. Карман открыт снизу, а над ним остаётся
- * ровно NFC_TOP_MM пластика; перекрытие 0.05 мм не даёт слоям разойтись.
+ * задний слой идёт от 0 до pauseZ и содержит квадратное отверстие, передний — от
+ * depth до thickness. Карман открыт снизу, поэтому метку вкладывают в паузу на
+ * верхе заднего слоя; пластик над карманом — это передний слой целиком
+ * (`thickness − depth`, при толщине 3 мм — 2 мм), а не отдельная крышка
+ * 0.4 мм. Перекрытие 0.05 мм не даёт слоям разойтись.
  */
 function createBaseGeometry(
   params: KeychainParams,
@@ -636,12 +733,13 @@ function createBaseGeometry(
 ): BufferGeometry {
   const bevel = edgeBevel(params.thickness);
   const cavity = params.nfcEnabled ? findCavity(outline.groups, bevel) : null;
-  const recess = Math.min(NFC_DEPTH_MM, params.thickness - NFC_TOP_MM);
+  const layers = keychainNfcLayers(params.thickness);
+  const recess = layers.depth;
   const parts: BufferGeometry[] = [];
 
   if (cavity && recess > 0.2) {
-    const backHeight = Math.min(recess + NFC_JOIN_MM, params.thickness);
-    const frontHeight = params.thickness - recess;
+    const backHeight = layers.pauseZ;
+    const frontHeight = layers.frontHeight;
 
     for (const shape of buildShapes(outline.groups, cavity)) {
       parts.push(extrudeShape(shape, 0, backHeight, bevel));

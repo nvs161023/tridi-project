@@ -1,11 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useRef, useState, useEffect, type ChangeEvent } from "react";
+import { useId, useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
 
 import { NumberSlider } from "@/components/constructor/NumberSlider";
 import { ParameterSelect } from "@/components/constructor/ParameterSelect";
 import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
+import {
+  KEYCHAIN_NFC_CLEARANCE_MM,
+  KEYCHAIN_NFC_TAG_MM,
+  keychainNfcLayers,
+  measureKeychainNfc,
+} from "@/lib/constructor/keychain-geometry";
 import {
   BOX_CELL_MAX_MM,
   BOX_CELL_MIN_MM,
@@ -274,12 +280,18 @@ function ExportButtons({
   exportingId,
   partsHeading,
   onExport,
+  blockedReason,
 }: {
   options: StlExportOption[];
   exportingId: string | null;
   /** Заголовок над компактными кнопками: детали вывески или литофана. */
   partsHeading: string | null;
   onExport: (option: StlExportOption) => void;
+  /**
+   * Причина, по которой скачивание запрещено. Сейчас она одна: NFC-карман не
+   * вмещает метку 25 мм, и файл заведомо не годится для печати.
+   */
+  blockedReason: string | null;
 }) {
   const [primary, ...parts] = options;
 
@@ -288,14 +300,25 @@ function ExportButtons({
   }
 
   const isExporting = exportingId !== null;
+  const isBlocked = blockedReason !== null;
 
   return (
     <>
+      {blockedReason ? (
+        <p
+          className="mb-3 rounded-xl border border-rose-400/40 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
+          role="alert"
+        >
+          {blockedReason}
+        </p>
+      ) : null}
+
       <button
         aria-busy={exportingId === primary.id}
         className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-5 text-base font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-wait disabled:bg-blue-600/60 disabled:text-white/80 disabled:shadow-none"
-        disabled={isExporting}
+        disabled={isExporting || isBlocked}
         onClick={() => onExport(primary)}
+        title={blockedReason ?? undefined}
         type="button"
       >
         {exportingId === primary.id ? (
@@ -324,10 +347,10 @@ function ExportButtons({
                 aria-busy={exportingId === option.id}
                 aria-label={option.description}
                 className="inline-flex min-h-9 min-w-11 items-center justify-center rounded-full border border-white/15 px-3 text-sm font-semibold text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-wait disabled:text-slate-300/60"
-                disabled={isExporting}
+                disabled={isExporting || isBlocked}
                 key={option.id}
                 onClick={() => onExport(option)}
-                title={option.description}
+                title={blockedReason ?? option.description}
                 type="button"
               >
                 {exportingId === option.id ? (
@@ -1012,8 +1035,40 @@ export function ParameterPanel({
     cellsXText.trim().length > 0 && parseBoxCellsInput(cellsXText) === null;
   const cellsYInvalid =
     cellsYText.trim().length > 0 && parseBoxCellsInput(cellsYText) === null;
-  /** Слой паузы M600: метка ложится под верхней крышкой кармана. */
-  const nfcPauseZ = Math.max(0, params.thickness - 0.4).toFixed(1);
+  /**
+   * NFC-карман для текущих параметров: сторона в свету, зазор под метку и слой
+   * паузы. Считается теми же функциями, что и геометрия, поэтому подсказка не
+   * может разойтись с моделью.
+   */
+  const nfcFit = useMemo(
+    () =>
+      params.model === "keychain" && params.nfcEnabled
+        ? measureKeychainNfc(params)
+        : null,
+    [params],
+  );
+
+  /** Слои кармана: пауза стоит на верхе задней части, лицо идёт поверх метки. */
+  const nfcLayers = keychainNfcLayers(params.thickness);
+
+  /**
+   * Почему NFC-брелок нельзя скачать. Пусто — карман под метку 25 мм есть.
+   *
+   * У `car`, `star` и `lightning` квадрат 25 мм не влезает вовсе и карман не
+   * режется, у остальных силуэтов он выходит меньше метки. Раньше такой файл
+   * молча уходил в печать, хотя метку в него не вложить.
+   */
+  const nfcBlockReason = !nfcFit
+    ? null
+    : nfcFit.cavityMm <= 0
+      ? "Этот силуэт не поддерживает NFC-метку: карман под квадрат 25 × 25 мм не вырезается. Выберите другой силуэт или выключите карман."
+      : nfcFit.fits
+        ? null
+        : `Карман под метку не помещается: в этом силуэте максимум ${nfcFit.cavityMm.toFixed(1)} × ${nfcFit.cavityMm.toFixed(1)} мм при метке ${KEYCHAIN_NFC_TAG_MM} × ${KEYCHAIN_NFC_TAG_MM} мм. Выберите другой силуэт или выключите карман.`;
+
+  /** Пауза и пластик над карманом без хвостовых нулей: 1.05 и 1.95. */
+  const nfcPauseLabel = Number(nfcLayers.pauseZ.toFixed(2)).toString();
+  const nfcTopLabel = Number(nfcLayers.topMm.toFixed(2)).toString();
   /** Сколько потайных замков включено: их число попадает в сводку. */
   const giftLockCount = [
     params.giftScrewLock,
@@ -1456,19 +1511,38 @@ export function ParameterPanel({
                 Карман под NFC-метку
               </span>
               <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                Закрытое углубление с верхней крышкой 0.4 мм. Метку вкладывают
-                в паузу печати, поэтому карман не видно снаружи.
+                Открытое снизу углубление под квадрат 25 × 25 мм. Метку вкладывают
+                в паузу печати, и последние слои закрывают её пластиком.
               </span>
             </span>
           </label>
 
-          {params.nfcEnabled ? (
-            <aside className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
-              Добавьте паузу <code className="font-semibold">M600</code> в
-              слайсере на слое{" "}
-              <strong className="font-semibold">Z = {nfcPauseZ} мм</strong>{" "}
-              (толщина минус 0.4 мм), вложите метку и продолжите печать.
-            </aside>
+          {nfcBlockReason ? (
+            <p
+              className="mt-3 rounded-2xl border border-rose-400/40 bg-rose-400/10 px-4 py-3 text-xs leading-relaxed text-rose-100"
+              role="alert"
+            >
+              {nfcBlockReason} Скачивание STL заблокировано: иначе уйдёт в печать
+              брелок, в который метка не влезает.
+            </p>
+          ) : null}
+
+          {nfcFit?.fits && nfcFit.clearanceMm < KEYCHAIN_NFC_CLEARANCE_MM ? (
+            <p className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
+              Карман {nfcFit.cavityMm.toFixed(1)} ×{" "}
+              {nfcFit.cavityMm.toFixed(1)} мм: метка 25 × 25 садится без зазора.
+              Снимите защитный слой наклейки или подрежьте её по контуру — иначе
+              она не ляжет заподлицо.
+            </p>
+          ) : null}
+
+          {params.nfcEnabled && !nfcBlockReason ? (
+            <p className="mt-3 rounded-2xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-3 text-xs leading-relaxed text-emerald-100">
+              Добавьте паузу <code className="font-semibold">M600</code> на слое{" "}
+              <strong className="font-semibold">Z = {nfcPauseLabel} мм</strong> —
+              это верх задней части кармана. Вложите метку в открытое отверстие и
+              продолжите печать: поверх неё останется {nfcTopLabel} мм пластика.
+            </p>
           ) : null}
 
           <fieldset className="mt-6 border-t border-white/10 pt-5">
@@ -3053,6 +3127,7 @@ export function ParameterPanel({
         {hasPro ? (
           <>
             <ExportButtons
+              blockedReason={nfcBlockReason}
               exportingId={exportingId}
               onExport={onExport}
               options={exportOptions}
@@ -3084,6 +3159,7 @@ export function ParameterPanel({
 
             <div className="mt-3">
               <ExportButtons
+                blockedReason={nfcBlockReason}
                 exportingId={exportingId}
                 onExport={onExport}
                 options={exportOptions}
