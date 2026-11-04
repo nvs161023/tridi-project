@@ -69,11 +69,24 @@ different» — про серийный номер.
 Сеть. Ни один метод не выпускает `requests.*` наружу: выключенный принтер — это
 запись в журнале и `False` (или статус `error` у `get_status()`), а не падение
 агента. Таймауты обязательны: без них цикл опроса встаёт вместе с принтером.
+
+Повтор загрузки. После конца печати прошивка перезапускает службу на 8898, и
+первый `POST /uploadGcode` нового задания получает сброс соединения
+(`ConnectionResetError` 10054 на Windows; `requests` отдаёт его как
+`ConnectionError`). Поэтому `upload_file()` повторяет загрузку до
+`UPLOAD_ATTEMPTS` раз с паузой `UPLOAD_RETRY_DELAY`: мастер видел «задание
+провалилось» и запускал печать заново, хотя принтеру нужно было несколько
+секунд. Повторяются только сетевые обрывы и таймауты, а отказы прошивки (`code`
+в теле, 4xx, «SN is different») — нет: их повтор ничего не исправит. Когда
+оборвались все попытки, `last_error` говорит «принтер занят или недоступен,
+подождите 10 секунд».
 """
 from __future__ import annotations
 
 import json
 import logging
+import socket
+import time
 from collections.abc import Mapping
 from typing import Any, Final
 
@@ -104,6 +117,33 @@ REQUEST_TIMEOUT = 10
 # Загрузка файла идёт дольше опроса: контейнер `.3mf` на десятки мегабайт по
 # Wi-Fi передаётся минутами, обрывать его на десяти секундах нельзя.
 UPLOAD_TIMEOUT = 120
+
+# Сколько раз пробовать загрузку и сколько ждать между попытками. После печати
+# прошивка перезапускает службу на 8898, и первый `POST /uploadGcode` получает
+# сброс соединения (`ConnectionResetError` 10054 на Windows) — файл при этом не
+# принят. Без повтора мастер видел «задание провалилось» и запускал печать
+# заново руками, хотя принтеру нужно было несколько секунд.
+UPLOAD_ATTEMPTS = 3
+UPLOAD_RETRY_DELAY = 5
+
+# Причина, которую видит мастер, когда все попытки оборвались сетью. Про 10
+# секунд — из практики: столько служба принтера поднимается после печати.
+UPLOAD_BUSY_ERROR = (
+    "Не удалось загрузить файл на FlashForge: принтер занят или недоступен. "
+    "Подождите 10 секунд и попробуйте снова."
+)
+
+# Обрыв соединения и таймаут — единственные ошибки, которые лечатся повтором:
+# принтер перезапускает службу, а запрос уходит в уже закрытый сокет. Отказы
+# прошивки (`code` в теле, 4xx, чужой SN) сюда не входят — их повтор не
+# исправит. `socket.timeout` в Python 3.10+ — это `TimeoutError`, и оба имени
+# в списке не нужны.
+UPLOAD_RETRY_ERRORS: Final[tuple[type[BaseException], ...]] = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    ConnectionResetError,
+    socket.timeout,
+)
 
 DETAIL_PATH: Final = "/detail"
 UPLOAD_PATH: Final = "/uploadGcode"
@@ -1010,6 +1050,11 @@ class FlashForgeAdapter(BasePrinterAdapter):
         Пара `serialNumber`/`checkCode` здесь уходит заголовками: `/uploadGcode`
         читает авторизацию только оттуда и на номер полем формы отвечает «SN is
         different».
+
+        Сброс соединения и таймаут повторяются до `UPLOAD_ATTEMPTS` раз
+        (`_retry_upload()`): после печати принтер перезапускает службу на 8898, и
+        первый запрос обрывается. Файл на каждой попытке открывается заново —
+        недочитанный поток повторно не отправить.
         """
         if not self._require_identity("загрузка файла"):
             return False
@@ -1022,37 +1067,35 @@ class FlashForgeAdapter(BasePrinterAdapter):
             }
         )
 
-        try:
-            with open(plan.path, "rb") as gcode:
-                response = requests.post(
-                    f"{self.base_url}{UPLOAD_PATH}",
-                    headers=headers,
-                    files={
-                        "gcodeFile": (
-                            plan.remote_name,
-                            gcode,
-                            "application/octet-stream",
-                        )
-                    },
-                    timeout=UPLOAD_TIMEOUT,
+        attempt = 0
+
+        while True:
+            attempt += 1
+
+            try:
+                response = self._post_upload(plan, headers)
+                break
+            except UPLOAD_RETRY_ERRORS as error:
+                if not self._retry_upload(plan, attempt, error):
+                    return False
+            except requests.RequestException as error:
+                self.last_error = f"файл не загружен: {error}"
+                logger.error(
+                    "Файл %s не загружен на %s: %s",
+                    plan.remote_name,
+                    self.ip_address,
+                    error,
                 )
-        except requests.RequestException as error:
-            self.last_error = f"файл не загружен: {error}"
-            logger.error(
-                "Файл %s не загружен на %s: %s",
-                plan.remote_name,
-                self.ip_address,
-                error,
-            )
 
-            return False
-        except OSError as error:
-            # Проверка после RequestException: он тоже наследник OSError, но
-            # сетевую ошибку нужно отличать от нечитаемого файла.
-            self.last_error = f"файл не прочитан: {error}"
-            logger.error("Файл %s не прочитан: %s", plan.path, error)
+                return False
+            except OSError as error:
+                # Проверка после обрывов и `RequestException`: сокет и `requests`
+                # тоже наследники OSError, а здесь остаётся только нечитаемый
+                # файл — его повтор не вылечит.
+                self.last_error = f"файл не прочитан: {error}"
+                logger.error("Файл %s не прочитан: %s", plan.path, error)
 
-            return False
+                return False
 
         if response.status_code not in (200, 201):
             reason = _http_reason(response, _UPLOAD_HINTS)
@@ -1086,6 +1129,69 @@ class FlashForgeAdapter(BasePrinterAdapter):
             plan.size,
         )
         self.last_error = None
+
+        return True
+
+    def _post_upload(
+        self, plan: UploadPlan, headers: Mapping[str, str]
+    ) -> requests.Response:
+        """
+        Одна попытка загрузки: файл открывается заново на каждый вызов.
+
+        Поток нельзя переиспользовать после обрыва — часть файла уже ушла, и
+        принтер получил бы огрызок. Поэтому `open()` живёт здесь, а не в
+        `_upload_prepared()`, который повторяет вызов.
+        """
+        with open(plan.path, "rb") as gcode:
+            return requests.post(
+                f"{self.base_url}{UPLOAD_PATH}",
+                headers=dict(headers),
+                files={
+                    "gcodeFile": (
+                        plan.remote_name,
+                        gcode,
+                        "application/octet-stream",
+                    )
+                },
+                timeout=UPLOAD_TIMEOUT,
+            )
+
+    def _retry_upload(
+        self, plan: UploadPlan, attempt: int, error: BaseException
+    ) -> bool:
+        """
+        Повторять ли загрузку после обрыва: пишет журнал, ждёт и говорит «да».
+
+        `False` — попытки кончились: в `last_error` уходит текст про занятый
+        принтер, чтобы мастер подождал и запустил печать снова, а не искал
+        поломку в задании. Про обрыв сообщается строкой «Соединение сброшено»
+        (это ответ на `ConnectionResetError` 10054), про молчание принтера —
+        «Принтер не ответил»: причину видно в журнале, не догадываясь.
+        """
+        if attempt >= UPLOAD_ATTEMPTS:
+            self.last_error = UPLOAD_BUSY_ERROR
+            logger.error(
+                "[FlashForge] Файл %s не загружен на %s за %d попытки: %s",
+                plan.remote_name,
+                self.ip_address,
+                attempt,
+                error,
+            )
+
+            return False
+
+        dropped = isinstance(
+            error, (ConnectionResetError, requests.exceptions.ConnectionError)
+        )
+        logger.warning(
+            "[FlashForge] %s. Попытка %d/%d через %d секунд... (причина: %s)",
+            "Соединение сброшено" if dropped else "Принтер не ответил",
+            attempt + 1,
+            UPLOAD_ATTEMPTS,
+            UPLOAD_RETRY_DELAY,
+            error,
+        )
+        time.sleep(UPLOAD_RETRY_DELAY)
 
         return True
 

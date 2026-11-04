@@ -90,6 +90,11 @@ import { type WorkshopPrinter } from "@/lib/workshop/printers";
  * уступает место статусу задания («В очереди» / «Печатается на …»), когда
  * очередь уже создана. Так мастер не ищет принтер в другой вкладке и не ставит
  * дубль поверх работающего задания.
+ *
+ * Кнопка не ставит задание сразу: сначала окно `PrintBedConfirmDialog`
+ * спрашивает, чистый ли стол. Остатки прошлой модели сервер увидеть не может, а
+ * печать стартует без мастера, поэтому `queueOrderForPrint` вызывается только
+ * после подтверждения — оно же защищает от случайного клика.
  */
 
 type OrderDetailsDialogProps = {
@@ -328,6 +333,15 @@ export function OrderDetailsDialog({
   const [printerError, setPrinterError] = useState<string | null>(null);
   /** Всплывающее уведомление после успешной постановки в очередь. */
   const [printNotice, setPrintNotice] = useState<string | null>(null);
+  /**
+   * Открыто окно «стол чистый».
+   *
+   * Печать стартует без мастера, поэтому очередь ставится только после
+   * подтверждения: остатки прошлой модели на столе — это брак и сорванное
+   * сопло. Состояние живёт здесь, а не в окне, потому что после подтверждения
+   * карточка сама показывает «Ставим в очередь…» и закрывает окно.
+   */
+  const [isBedConfirmOpen, setIsBedConfirmOpen] = useState(false);
   const [isQueueing, startQueueing] = useTransition();
   /** Отмена печати: кнопка гаснет до ответа сервера, как и постановка в очередь. */
   const [isCancellingPrint, startCancellingPrint] = useTransition();
@@ -350,6 +364,16 @@ export function OrderDetailsDialog({
   }, [isDeleting, onClose]);
 
   useDialogDismiss(closeDialog);
+
+  /**
+   * Закрытие окна «стол чистый».
+   *
+   * `useCallback` обязателен: `PrintBedConfirmDialog` вешает на него Escape, и
+   * новая функция на каждый рендер переподписывала бы эффект закрытия.
+   */
+  const closeBedConfirm = useCallback(() => {
+    setIsBedConfirmOpen(false);
+  }, []);
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -744,6 +768,9 @@ export function OrderDetailsDialog({
    * сразу после выбора он может ещё не доехать до строки в базе. `useTransition`
    * держит кнопку в состоянии загрузки до ответа, а `router.refresh()`
    * перечитывает заказы — задание могло появиться в другой вкладке.
+   *
+   * Вызывается только из окна «стол чистый» (`handleQueuePrintRequest`): без
+   * подтверждения мастер не должен запускать печать поверх прошлой модели.
    */
   function handleQueuePrint() {
     if (isQueueing) {
@@ -775,8 +802,30 @@ export function OrderDetailsDialog({
         router.refresh();
       } catch {
         setPrintError("Нет связи с сервером. Попробуйте ещё раз.");
+      } finally {
+        // Окно закрывается после ответа сервера, а не по клику: пока задание
+        // ставится в очередь, мастер видит «Ставим в очередь…», и причина
+        // отказа появляется в карточке, а не под уже убранным окном.
+        setIsBedConfirmOpen(false);
       }
     });
+  }
+
+  /**
+   * Запрос подтверждения «стол чистый» вместо мгновенной постановки в очередь.
+   *
+   * Двойная проверка на стороне клиента: кнопка и так гаснет без принтера и
+   * позиций с файлом, но остатки прошлой модели на столе сервер увидеть не
+   * может — это видит только мастер. Поэтому между кликом и `queueOrderForPrint`
+   * стоит окно `PrintBedConfirmDialog`.
+   */
+  function handleQueuePrintRequest() {
+    if (isQueueing) {
+      return;
+    }
+
+    setPrintError(null);
+    setIsBedConfirmOpen(true);
   }
 
   /**
@@ -1023,6 +1072,13 @@ export function OrderDetailsDialog({
   const createdAt = formatCommentDate(order.createdAt);
   const hasCreatedAt = Boolean(order.createdAt);
   const hasPrinter = Boolean(selectedPrinterId);
+  /**
+   * Имя выбранного принтера для окна подтверждения: мастер подтверждает стол у
+   * конкретной машины, а не «у принтера вообще». Удалённый из парка принтер
+   * имени не даёт — окно тогда говорит просто «на выбранный принтер».
+   */
+  const selectedPrinterName =
+    printers.find((printer) => printer.id === selectedPrinterId)?.name ?? null;
   const hasGcode = (printStatus?.gcodeItemCount ?? 0) > 0;
   /** Задание, которое уже стоит в очереди или печатается. */
   const activeJob = printStatus?.activeJob ?? null;
@@ -1539,7 +1595,7 @@ export function OrderDetailsDialog({
               ) : (
                 <button
                   type="button"
-                  onClick={handleQueuePrint}
+                  onClick={handleQueuePrintRequest}
                   disabled={!canQueuePrint || isQueueing}
                   aria-busy={isQueueing}
                   data-order-print-queue-button
@@ -1820,6 +1876,132 @@ export function OrderDetailsDialog({
           onSaved={handleEdited}
         />
       ) : null}
+      {/*
+        Подтверждение «стол чистый» — поверх карточки и тоста: печать стартует
+        без мастера, поэтому очередь ставится только после ответа про стол.
+      */}
+      {isBedConfirmOpen ? (
+        <PrintBedConfirmDialog
+          printerName={selectedPrinterName}
+          isQueueing={isQueueing}
+          onConfirm={handleQueuePrint}
+          onCancel={closeBedConfirm}
+        />
+      ) : null}
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * Окно «стол чистый» перед постановкой заказа в очередь.
+ *
+ * Печать на ферме стартует без мастера, поэтому остатки прошлой модели на столе
+ * — это брак и сорванное сопло. Сервер про стол ничего не знает, и
+ * подтверждение — единственное место, где мастер его проверяет.
+ *
+ * Окно живёт поверх карточки (`z-[95]`) и обрабатывает Escape в фазе перехвата
+ * (`useDialogDismiss(..., { isTopmost: true })`): закрывается только оно, а
+ * карточка остаётся открытой — так же устроена правка заказа. Фокус получает
+ * «Отмена»: промах по Enter не запускает печать на грязном столе.
+ */
+function PrintBedConfirmDialog({
+  printerName,
+  isQueueing,
+  onConfirm,
+  onCancel,
+}: {
+  /** Имя принтера: «на «Bambu A1»». Пусто — машина удалена из парка. */
+  printerName: string | null;
+  /** Задание уже ставится в очередь: кнопки гаснут, окно не закрывается. */
+  isQueueing: boolean;
+  /** Подтверждение: карточка вызывает `queueOrderForPrint`. */
+  onConfirm: () => void;
+  /** Отмена и Escape — очередь не создаётся. */
+  onCancel: () => void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  /**
+   * Пока задание ставится в очередь, окно не закрывается: иначе мастер не
+   * поймёт, ушёл ли запрос, и нажмёт кнопку второй раз.
+   */
+  const closeDialog = useCallback(() => {
+    if (!isQueueing) {
+      onCancel();
+    }
+  }, [isQueueing, onCancel]);
+
+  useDialogDismiss(closeDialog, { isTopmost: true });
+
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, []);
+
+  return createPortal(
+    <div
+      role="presentation"
+      data-print-bed-confirm-overlay
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          closeDialog();
+        }
+      }}
+      className="fixed inset-0 z-[95] flex items-end justify-center bg-black/80 p-4 backdrop-blur-sm sm:items-center"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="print-bed-confirm-title"
+        aria-describedby="print-bed-confirm-text"
+        data-print-bed-confirm
+        className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0a0a0a] p-5 shadow-2xl shadow-black/60"
+      >
+        <h3
+          id="print-bed-confirm-title"
+          className="text-base font-bold text-white"
+        >
+          Стол принтера чистый?
+        </h3>
+
+        <p
+          id="print-bed-confirm-text"
+          data-print-bed-confirm-text
+          className="mt-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2.5 text-sm leading-relaxed text-amber-100"
+        >
+          Внимание! Перед запуском печати убедитесь, что на столе принтера нет
+          остатков предыдущей модели. Стол должен быть чистым.
+        </p>
+
+        <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+          {printerName
+            ? `Задание встанет в очередь на «${printerName}»: агент запустит печать, как только принтер освободится.`
+            : "Задание встанет в очередь на выбранный принтер: агент запустит печать, как только принтер освободится."}
+        </p>
+
+        <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+          <button
+            ref={cancelRef}
+            type="button"
+            onClick={closeDialog}
+            disabled={isQueueing}
+            data-print-bed-confirm-cancel
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-white/30 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Отмена
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isQueueing}
+            aria-busy={isQueueing}
+            data-print-bed-confirm-accept
+            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-blue-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(59,130,246,0.8)] transition-colors hover:bg-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isQueueing ? "Ставим в очередь…" : "Да, стол чистый, начать печать"}
+          </button>
+        </div>
+      </div>
     </div>,
     document.body,
   );

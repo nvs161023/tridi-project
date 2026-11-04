@@ -303,6 +303,9 @@ python main.py
 4. `get_adapter(protocol_type, ip_address, api_key)` → `connect()` →
    `upload_file(local_path, remote_name="{jobId}.gcode")` (для готового проекта —
    `{jobId}.3mf`) → `start_print(remote_name)`. Любой `False` — `failed` и выход.
+   FlashForge загрузку повторяет: после печати прошивка перезапускает службу на
+   8898, и первый `POST /uploadGcode` получает сброс соединения
+   (`ConnectionResetError` 10054).
 5. Печать началась — `send_status(jobId, "printing", 0)`, дальше мониторинг.
 6. `finally` удаляет `agent/temp/{jobId}.gcode` при любом исходе.
 
@@ -355,7 +358,7 @@ Anycubic разговаривают с принтером по-настояще�
 | `octoprint.py` | `OctoPrintAdapter` — OctoPrint: `/api/version`, `POST /api/files/local`, `POST /api/files/local/<name>`, `GET /api/job`, команды в `POST /api/job` |
 | `prusa.py` | `PrusaAdapter` — PrusaLink: `GET /api/v1/status`, `PUT /api/v1/files/<storage>/<name>`, `POST /api/v1/files/<storage>/<name>`, `GET /api/v1/job`, команды в `/api/v1/job` |
 | `creality.py` | `CrealityAdapter` — Creality OS: `GET /info` (модель), `POST /upload/<имя>`, WebSocket 9999 — `heart_beat`, `get` с `ReqPrinterPara`, `set` с `opGcodeFile`, `pause` и `stop` |
-| `flashforge.py` | `FlashForgeAdapter` — FlashForge: `/detail` (пара `serialNumber`/`checkCode` в теле `POST`, у ранних сборок — заголовками `GET`), `POST /uploadGcode` (поле `gcodeFile`, пара только заголовками), `POST /printGcode`, `POST /control` |
+| `flashforge.py` | `FlashForgeAdapter` — FlashForge: `/detail` (пара `serialNumber`/`checkCode` в теле `POST`, у ранних сборок — заголовками `GET`), `POST /uploadGcode` (поле `gcodeFile`, пара только заголовками; сброс соединения и таймаут повторяются до 3 раз с паузой 5 с), `POST /printGcode`, `POST /control` |
 | `elegoo.py` | `ElegooAdapter` — Elegoo (SDCP): WebSocket 3030 с командами `Cmd: 0/128/129/130/131` и `POST /uploadFile/upload` с полями `S-File-MD5`, `Check`, `Offset`, `Uuid`, `TotalSize` |
 | `anycubic.py` | `AnycubicAdapter` — Anycubic в LAN-режиме: MQTT 9883 под TLS (`anycubic/anycubicCloud/v1/printer/public/<modeId>/<deviceId>/request` и `/report`) для паспорта и команд, `POST <urls.fileUploadurl>` с файлом в поле `gcode` и заголовком `X-File-Length` |
 | `bambu.py` | `BambuAdapter` — Bambu в LAN-режиме: MQTT с TLS (8883) для команд и отчётов, implicit FTPS (990) для файлов |
@@ -369,6 +372,16 @@ Anycubic разговаривают с принтером по-настояще�
 `upload_file()` адаптера ловит `FormatError` и `OSError`, кладёт текст в `last_error` и
 возвращает `False`, поэтому мастер видит причину («Prusa (PrusaLink) не печатает .3mf —
 переслайсите в .gcode или .bgcode»), а не «задание провалилось».
+
+Сетевой обрыв отличается от отказа прошивки. FlashForge повторяет `POST /uploadGcode`
+до `UPLOAD_ATTEMPTS` (3) раз с паузой `UPLOAD_RETRY_DELAY` (5 с), когда соединение
+сброшено или принтер не ответил: после печати его служба на 8898 перезапускается, и
+первый запрос обрывается (`ConnectionResetError` 10054). В журнале это строка
+`[FlashForge] Соединение сброшено. Попытка 2/3 через 5 секунд...`. Когда оборвались все
+попытки, `last_error` говорит «Не удалось загрузить файл на FlashForge: принтер занят или
+недоступен. Подождите 10 секунд и попробуйте снова», а задание закрывается `failed` —
+мастеру видно, что делать. Отказы прошивки (`code` в теле, 4xx, чужой SN) не
+повторяются: их повтор ничего не исправит.
 
 Bambu печатает только проект `.3mf`, сохранённый из Bambu Studio («Экспорт файла
 пластины»): `read_bambu_project()` требует нарезанный G-code пластины

@@ -17,7 +17,11 @@
      `pid`, а `name` с серийным номером моделью не считается;
   3. `upload_file()` отправляет `POST /uploadGcode` multipart-формой с полем
      `gcodeFile` и заголовками `fileSize`, `printNow: false`,
-     `levelingBeforePrint: true`; имя с пробелом приходит уже через `-`;
+     `levelingBeforePrint: true`; имя с пробелом приходит уже через `-`; сброс
+     соединения (так ведёт себя прошивка, пока перезапускает службу после
+     печати) повторяется со строкой `[FlashForge] Соединение сброшено. Попытка
+     2/3 через 5 секунд...`, а три обрыва подряд дают «принтер занят или
+     недоступен, подождите 10 секунд»;
   4. `.3mf` без готового G-code отклоняется до сети, `{"code": 9}` в ответе
      объясняется в `last_error`, а без серийного номера загрузка не уходит;
   5. `start_print()` отправляет `POST /printGcode` с `serialNumber`,
@@ -50,6 +54,7 @@ import ipaddress
 import json
 import logging
 import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -65,6 +70,7 @@ AGENT_DIR = ROOT / "agent"
 sys.path.insert(0, str(AGENT_DIR))
 
 import scanner  # noqa: E402 — путь к агенту выше
+from adapters import flashforge  # noqa: E402 — константы повтора загрузки
 from adapters.factory import get_adapter  # noqa: E402
 from adapters.flashforge import FlashForgeAdapter  # noqa: E402
 
@@ -184,6 +190,9 @@ class FakeFlashForge:
     `legacy_detail` переключает принтер на раннюю прошивку: паспорт в теле
     `POST /detail` она не понимает (404) и отдаёт его только по `GET` с
     заголовками — так проверяется запасной путь адаптера.
+
+    `dropped_uploads` — сколько ближайших загрузок оборвать сбросом соединения:
+    так прошивка ведёт себя, пока перезапускает службу на 8898 после печати.
     """
 
     def __init__(self) -> None:
@@ -193,6 +202,7 @@ class FakeFlashForge:
         self.detail_code = 0
         self.detail_message = "Success"
         self.legacy_detail = False
+        self.dropped_uploads = 0
         self.port = 0
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -280,6 +290,21 @@ class FakeFlashForge:
                         body=body,
                     )
                 )
+
+                if path == "/uploadGcode" and fake.dropped_uploads > 0:
+                    # Перезапуск службы 8898 после печати: принтер рвёт
+                    # соединение, не ответив. `SO_LINGER` с нулём отправляет RST,
+                    # и клиент получает `ConnectionResetError` (10054 на
+                    # Windows) — тот же обрыв, что видел мастер на живой машине.
+                    fake.dropped_uploads -= 1
+                    self.close_connection = True
+                    self.connection.setsockopt(
+                        socket.SOL_SOCKET,
+                        socket.SO_LINGER,
+                        struct.pack("ii", 1, 0),
+                    )
+
+                    return
 
                 route = fake.routes.get((self.command, path))
 
@@ -936,6 +961,81 @@ def check_upload(
         and "серийный номер не принят" in reason
         and "SN is different" not in reason,
         f"{wrong_serial!r}, last_error={reason!r}",
+    )
+
+    # После конца печати прошивка перезапускает службу на 8898, и первый
+    # `POST /uploadGcode` нового задания получает сброс соединения. Адаптер
+    # обязан повторить загрузку, иначе мастер видит «задание провалилось» и
+    # запускает печать руками, хотя принтеру нужно несколько секунд.
+    fake.route("POST", "/uploadGcode", 200, {"code": 0, "message": "Success"})
+    upload_records: list[logging.LogRecord] = []
+
+    class UploadLogCollector(logging.Handler):
+        """Собирает записи журнала адаптера для проверки текста о повторе."""
+
+        def emit(self, record: logging.LogRecord) -> None:
+            upload_records.append(record)
+
+    upload_logger = logging.getLogger("agent.adapters.flashforge")
+    upload_collector = UploadLogCollector()
+    upload_logger.addHandler(upload_collector)
+
+    try:
+        before = fake.count("POST", "/uploadGcode")
+        fake.dropped_uploads = 1
+        retried = adapter.upload_file(str(gcode_path), "after-print.gcode")
+        attempts = fake.count("POST", "/uploadGcode") - before
+    finally:
+        upload_logger.removeHandler(upload_collector)
+        fake.dropped_uploads = 0
+
+    retry_line = next(
+        (
+            record.getMessage()
+            for record in upload_records
+            if "Соединение сброшено" in record.getMessage()
+        ),
+        "",
+    )
+
+    check(
+        "загрузка: после сброса соединения запрос повторяется",
+        retried is True and attempts == 2,
+        f"{retried!r}, запросов={attempts}",
+    )
+    # Пауза здесь настоящая (5 секунд): проверяется и текст строки, по которой
+    # в журнале видно, что агент ждёт принтер, а не падает.
+    check(
+        "загрузка: журнал ждёт — «Соединение сброшено. Попытка 2/3 через 5 секунд»",
+        retry_line.startswith(
+            "[FlashForge] Соединение сброшено. Попытка 2/3 через 5 секунд..."
+        ),
+        f"{retry_line[:120]!r}",
+    )
+
+    # Три обрыва подряд — принтер так и не поднялся: отказ с текстом про занятый
+    # принтер, а повторов ровно `UPLOAD_ATTEMPTS`. Пауза обнуляется: ждать 10
+    # секунд в тесте незачем, важны число попыток и сообщение.
+    previous_delay = flashforge.UPLOAD_RETRY_DELAY
+    flashforge.UPLOAD_RETRY_DELAY = 0
+
+    try:
+        before = fake.count("POST", "/uploadGcode")
+        fake.dropped_uploads = flashforge.UPLOAD_ATTEMPTS + 1
+        dropped = adapter.upload_file(str(gcode_path), "busy.gcode")
+        attempts = fake.count("POST", "/uploadGcode") - before
+    finally:
+        flashforge.UPLOAD_RETRY_DELAY = previous_delay
+        fake.dropped_uploads = 0
+
+    reason = adapter.last_error or ""
+
+    check(
+        "загрузка: три обрыва подряд — «принтер занят или недоступен»",
+        dropped is False
+        and attempts == flashforge.UPLOAD_ATTEMPTS
+        and reason == flashforge.UPLOAD_BUSY_ERROR,
+        f"{dropped!r}, запросов={attempts}, last_error={reason[:80]!r}",
     )
 
     fake.detail = {"machineStatus": "READY", "printInfo": {}}
