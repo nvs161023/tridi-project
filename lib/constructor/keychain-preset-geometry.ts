@@ -1,4 +1,12 @@
-import { ExtrudeGeometry, Path, Shape } from "three";
+import {
+  CircleGeometry,
+  CylinderGeometry,
+  ExtrudeGeometry,
+  Path,
+  Shape,
+} from "three";
+import type { BufferGeometry } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import type { KeychainPresetId } from "@/lib/constructor/keychain-presets";
 
@@ -72,6 +80,31 @@ const HEX_CORNER_RADIUS_MM = 2;
  * цепляется за ключи и колет ладонь в кармане.
  */
 const BRICK_CORNER_RADIUS_MM = 8;
+
+/** Шаг сетки шипов, мм: стандарт LEGO, под него же сделаны отверстия в деталях. */
+const BRICK_STUD_PITCH_MM = 8;
+
+/** Диаметр шипа, мм: стандарт LEGO — Ø4.8 входит в любую деталь с зазором. */
+const BRICK_STUD_DIAMETER_MM = 4.8;
+
+/** Высота шипа над верхней площадкой, мм. */
+const BRICK_STUD_HEIGHT_MM = 1.7;
+
+/** Высота фаски на верхней кромке шипа, мм. */
+const BRICK_STUD_CHAMFER_MM = 0.5;
+
+/** Радиус верхней площадки шипа, мм: фаска снимает 0.5 мм высоты и 0.4 мм радиуса. */
+const BRICK_STUD_TOP_RADIUS_MM = 2;
+
+/**
+ * Насколько низ шипа утоплен в тело, мм.
+ *
+ * Тело и шипы сливаются через `mergeGeometries`, а не вычитаются друг из друга:
+ * CSG в проекте нет, и литофан, вывеска и подставка собраны так же. Оболочки
+ * поэтому должны пересекаться объёмом — касание плоскостями дало бы на верхней
+ * грани совпадающие треугольники, и слайсер показал бы самопересечение.
+ */
+const BRICK_STUD_EMBED_MM = 0.2;
 
 /**
  * Пресеты, у которых уже есть геометрия.
@@ -453,22 +486,163 @@ export function buildHex(params: KeychainPresetGeometryParams): ExtrudeGeometry 
 }
 
 /**
- * Прямоугольник с крупным скруглением и отверстием под кольцо — пресет Brick.
+ * Сколько шипов встаёт по стороне `dimension` при шаге 8 мм.
+ *
+ * Сетка отступает от кромки на половину шага, поэтому крайний шип стоит в 4 мм
+ * от края и в 1.6 мм от кромки — так же, как у настоящей детали. Это и есть
+ * `floor((dimension − 8) / 8) + 1`: «+1» — первый шип, «−8» — два отступа.
+ */
+function brickStudLineCount(dimension: number): number {
+  return Math.max(
+    1,
+    Math.floor((dimension - BRICK_STUD_PITCH_MM) / BRICK_STUD_PITCH_MM) + 1,
+  );
+}
+
+/** Раскладка шипов на кирпиче: сколько их и как они стоят. */
+export type BrickStudLayout = {
+  /** Шипов поперёк ширины. */
+  columns: number;
+  /** Рядов по высоте; верхний ряд снят под отверстие. */
+  rows: number;
+  /** Всего шипов. */
+  total: number;
+};
+
+/**
+ * Раскладка шипов для габарита — общая для геометрии и подписи в панели.
+ *
+ * Верхний ряд снимается всегда: отверстие Ø5 мм стоит в 8 мм от верхнего края,
+ * то есть как раз в полосе верхнего ряда. У 32 × 64 шипы этого ряда проходят в
+ * 5.66 мм от центра отверстия при сумме радиусов 4.9 мм и кольцо не задевают —
+ * ряд снимается ради гладкой полосы под кольцо. Зато при 50 × 100 и 20 × 30
+ * тот же шип подходит на 4.47 и 4.12 мм и врезался бы в отверстие.
+ */
+export function brickStudLayout(width: number, height: number): BrickStudLayout {
+  const columns = brickStudLineCount(width);
+  const rows = Math.max(brickStudLineCount(height) - 1, 1);
+
+  return { columns, rows, total: columns * rows };
+}
+
+/**
+ * Центры шипов, мм: сетка от центра габарита, без верхнего ряда.
+ *
+ * Ряды после снятия не пересчитываются: сетка остаётся на своей высоте, сверху
+ * освобождается полоса. Иначе шипы съехали бы к отверстию и потеряли шаг 8 мм
+ * относительно соседних деталей.
+ */
+function brickStudCenters(width: number, height: number): ShapePoint[] {
+  const { columns, rows } = brickStudLayout(width, height);
+  const startX = -((columns - 1) * BRICK_STUD_PITCH_MM) / 2;
+  const startY = -((brickStudLineCount(height) - 1) * BRICK_STUD_PITCH_MM) / 2;
+  const centers: ShapePoint[] = [];
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      centers.push([
+        startX + column * BRICK_STUD_PITCH_MM,
+        startY + row * BRICK_STUD_PITCH_MM,
+      ]);
+    }
+  }
+
+  return centers;
+}
+
+/**
+ * Оболочка одного шипа: цилиндр Ø4.8 мм с фаской на верхней кромке.
+ *
+ * Шип собран из четырёх кусков — стенки, конуса фаски и двух донышек, — а не из
+ * двух готовых цилиндров: у стопки цилиндров совпадающие диски остаются внутри
+ * оболочки, и рёбра колец сходятся по три, то есть сетка перестаёт быть
+ * watertight. Каждый кусок здесь замкнут, кольца соседних кусков совпадают по
+ * вершинам, а низ шипа уходит в тело на `BRICK_STUD_EMBED_MM`.
+ */
+function brickStudGeometry(): BufferGeometry {
+  const radius = BRICK_STUD_DIAMETER_MM / 2;
+  const baseZ = -BRICK_STUD_EMBED_MM;
+  // Фаска начинается на 0.5 мм ниже верха: цилиндрическая часть шипа — 1.2 мм.
+  const wallTopZ = BRICK_STUD_HEIGHT_MM - BRICK_STUD_CHAMFER_MM;
+  const wallHeight = wallTopZ - baseZ;
+  const segments = PRESET_CURVE_SEGMENTS;
+  // CylinderGeometry строится вдоль Y: поворот на 90° ставит ось шипа по Z.
+  const wall = new CylinderGeometry(
+    radius,
+    radius,
+    wallHeight,
+    segments,
+    1,
+    true,
+  );
+
+  wall.rotateX(Math.PI / 2);
+  wall.translate(0, 0, baseZ + wallHeight / 2);
+
+  const chamfer = new CylinderGeometry(
+    BRICK_STUD_TOP_RADIUS_MM,
+    radius,
+    BRICK_STUD_CHAMFER_MM,
+    segments,
+    1,
+    true,
+  );
+
+  chamfer.rotateX(Math.PI / 2);
+  chamfer.translate(0, 0, wallTopZ + BRICK_STUD_CHAMFER_MM / 2);
+
+  // Донышки — плоские многоугольники: верхнее смотрит вверх, нижнее вниз.
+  const top = new CircleGeometry(BRICK_STUD_TOP_RADIUS_MM, segments);
+
+  top.translate(0, 0, BRICK_STUD_HEIGHT_MM);
+
+  const bottom = new CircleGeometry(radius, segments);
+
+  bottom.rotateX(Math.PI);
+  bottom.translate(0, 0, baseZ);
+
+  const pieces = [wall, chamfer, top, bottom];
+  const merged = mergeGeometries(pieces);
+
+  for (const piece of pieces) {
+    piece.dispose();
+  }
+
+  if (!merged) {
+    throw new Error("Не удалось собрать оболочку шипа кирпича");
+  }
+
+  // Тело кирпича выдавливается без индекса, поэтому и шип отдаётся без него.
+  const stud = merged.toNonIndexed();
+
+  merged.dispose();
+
+  return stud;
+}
+
+
+/**
+ * LEGO-кирпич с шипами и отверстием под кольцо — пресет Brick.
  *
  * Основа — прямоугольник `width × height` (по умолчанию 32 × 64, то есть плита
- * четыре на восемь с шагом 8 мм), углы скруглены на 8 мм: у такой формы нет
- * кромок, за которые цепляются ключи, и она не колет ладонь в кармане.
+ * четыре на восемь), углы скруглены на 8 мм: у такой формы нет кромок, за
+ * которые цепляются ключи, и она не колет ладонь в кармане.
  *
- * Габарит от скругления не страдает, и в отличие от шестигранника компенсация
- * здесь не нужна: крайние точки прямоугольника — середины прямых сторон, а
- * скругление их не трогает. Сама квадратичная кривая доходит только до
- * `(A + 2V + B) / 4`, то есть до 2.83 мм от вершины, тогда как дуга 8 мм
- * выгнулась бы на 3.31 мм: угол выходит чуть собраннее номинального радиуса,
- * но гладким, и одного прохода хватает.
+ * Сверху — шипы стандарта LEGO: Ø4.8 мм, высота 1.7 мм, шаг 8 мм, фаска 0.5 мм
+ * по верхней кромке. Размеры взяты из стандарта, поэтому брелок стыкуется с
+ * обычными деталями, а 32 × 64 — это ровно 4 × 8 шипов. Сетка считается от
+ * центра габарита, верхний ряд снят под отверстие (`brickStudLayout`).
  *
- * На крайних значениях слайдеров (20 × 30) срез скругления 8 мм всё ещё меньше
- * половины короткой стороны профиля (9.6 мм), поэтому `cornerRoundPoints` не
- * поджимает радиус и соседние скругления не наезжают друг на друга: посередине
+ * Габарит от шипов не растёт: крайний шип стоит в 4 мм от кромки при радиусе
+ * 2.4 мм, то есть до края остаётся 1.6 мм. Исключение — углы: у 32 × 64 шип в
+ * углу выступает за дугу скругления на 0.6 мм и висит крошечным козырьком над
+ * фаской. Это осознанная плата за честный шаг 8 мм: у настоящих деталей LEGO
+ * углы квадратные, а брелок без скругления царапается в кармане.
+ *
+ * Компенсация габарита, как у шестигранника, здесь не нужна: крайние точки
+ * прямоугольника — середины прямых сторон, и скругление их не трогает даже на
+ * крайних значениях слайдеров (20 × 30): срез 8 мм меньше половины короткой
+ * стороны профиля (9.6 мм), поэтому радиус не поджимается, а посередине
  * короткой стороны остаётся прямая грань 3.2 мм.
  *
  * Отверстие Ø5 мм — на оси симметрии в 8 мм от верхнего края, верхняя кромка
@@ -477,7 +651,7 @@ export function buildHex(params: KeychainPresetGeometryParams): ExtrudeGeometry 
  */
 export function buildBrick(
   params: KeychainPresetGeometryParams,
-): ExtrudeGeometry {
+): BufferGeometry {
   const bevel = PRESET_BEVEL_SIZE_MM;
   // Профиль Shape — контур крышки: фаска раздвигает его на bevel наружу.
   const halfWidth = Math.max(params.width - bevel * 2, 1) / 2;
@@ -493,7 +667,31 @@ export function buildBrick(
 
   shape.holes.push(ringHolePath(params.height / 2 - RING_HOLE_INSET_MM));
 
-  return extrudePresetShape(shape, params.thickness);
+  const body = extrudePresetShape(shape, params.thickness);
+  const stud = brickStudGeometry();
+  const parts: BufferGeometry[] = [body];
+
+  // Шип стоит на верхней грани: низ утоплен в тело, верх поднят на 1.7 мм.
+  for (const [x, y] of brickStudCenters(params.width, params.height)) {
+    parts.push(stud.clone().translate(x, y, params.thickness));
+  }
+
+  stud.dispose();
+
+  const brick = mergeGeometries(parts);
+
+  for (const part of parts) {
+    part.dispose();
+  }
+
+  if (!brick) {
+    throw new Error("Не удалось соединить кирпич и шипы");
+  }
+
+  brick.computeBoundingBox();
+  brick.computeBoundingSphere();
+
+  return brick;
 }
 
 /**
@@ -506,7 +704,7 @@ export function buildBrick(
 export function buildKeychainPresetGeometry(
   presetId: KeychainPresetId,
   params: KeychainPresetGeometryParams,
-): ExtrudeGeometry | null {
+): BufferGeometry | null {
   switch (presetId) {
     case "apple-tag":
       return buildAppleTag(params);
