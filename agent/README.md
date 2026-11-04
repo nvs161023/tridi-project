@@ -142,8 +142,13 @@ python build_exe.py
 Скрипт зовёт PyInstaller с теми же ключами, что в этом README, —
 
 ```
-pyinstaller --onefile --name TriDiAgent --add-data ".env.example;." --icon=icon.ico main.py
+pyinstaller --onefile --name TriDiAgent --add-data "<agent>/.env.example;." --icon="<agent>/icon.ico" main.py
 ```
+
+Пути к образцу настроек и значку передаются абсолютными. `--specpath build`
+кладёт spec-файл в `build/`, и относительный `.env.example` PyInstaller искал
+рядом с ним — сборка падала с `Unable to find
+'...\agent\build\.env.example' when adding binary and data files`.
 
 — и кладёт результат в `agent/dist/TriDiAgent.exe`. Значок берётся из
 `agent/icon.ico` (заглушка в цветах логотипа: тёмно-синий квадрат с вазой).

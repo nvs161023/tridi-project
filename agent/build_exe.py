@@ -15,8 +15,10 @@
   2. проверяет, установлен ли PyInstaller, и подсказывает команду установки,
      если нет (в requirements.txt он объявлен как `pyinstaller>=6.0`);
   3. зовёт PyInstaller ровно с теми ключами, что описаны в README:
-     `--onefile --name TriDiAgent --add-data ".env.example;." --icon=icon.ico
-     main.py`.
+     `--onefile --name TriDiAgent --add-data "<путь к .env.example>;."
+     --icon=<путь к icon.ico> main.py`. Пути к образцу и значку передаются
+     абсолютными: spec-файл лежит в `build/` (`--specpath`), и относительные пути
+     PyInstaller искал бы рядом с ним, а не в `agent/`.
 
 Итог — `agent/dist/TriDiAgent.exe` (десятки мегабайт: внутри интерпретатор
 Python, `requests`, `python-dotenv`, `paho-mqtt` и `websockets`). Журнал агента
@@ -42,6 +44,13 @@ APP_NAME = "TriDiAgent"
 ENV_EXAMPLE = ".env.example"
 ICON = "icon.ico"
 
+# Абсолютные пути к файлам, которые PyInstaller читает уже из spec-файла. Spec
+# лежит в `build/` (`--specpath build`), и относительный `.env.example` он искал
+# бы рядом с собой: сборка падала с `Unable to find
+# 'C:\...\agent\build\.env.example' when adding binary and data files`.
+ENV_EXAMPLE_FILE = AGENT_DIR / ENV_EXAMPLE
+ICON_FILE = AGENT_DIR / ICON
+
 
 def missing_requirements() -> list[str]:
     """
@@ -57,7 +66,7 @@ def missing_requirements() -> list[str]:
             f"нет {ENTRY_POINT} рядом со скриптом: положите build_exe.py в папку agent/"
         )
 
-    if not (AGENT_DIR / ENV_EXAMPLE).is_file():
+    if not ENV_EXAMPLE_FILE.is_file():
         problems.append(
             f"нет {ENV_EXAMPLE}: без образца exe не создаст .env при первом запуске"
         )
@@ -77,10 +86,8 @@ def build_command() -> list[str]:
     """
     Аргументы PyInstaller — те же, что в README.
 
-    `os.pathsep` вместо жёсткой точки с запятой: на Windows разделитель
-    `--add-data` — `;`, на Linux и macOS — `:`, и один и тот же скрипт должен
-    собирать exe на любой машине. `--clean` убирает кеш прошлой сборки: иначе
-    после правки main.py в файл попадает старая версия модуля.
+    `--clean` убирает кеш прошлой сборки: иначе после правки main.py в файл
+    попадает старая версия модуля.
     """
     command = [
         sys.executable,
@@ -91,8 +98,13 @@ def build_command() -> list[str]:
         "--clean",
         "--name",
         APP_NAME,
+        # Абсолютный путь: `--specpath build` заставляет PyInstaller разбирать
+        # относительные пути от `build/`, и короткое `.env.example` он там не
+        # находил (`Unable to find '...\agent\build\.env.example'`).
+        # Разделитель берём из `os.pathsep`: на Windows это `;`, на Linux и
+        # macOS — `:`, и один скрипт собирает exe на любой машине.
         "--add-data",
-        f"{ENV_EXAMPLE}{os.pathsep}.",
+        f"{ENV_EXAMPLE_FILE}{os.pathsep}.",
         "--distpath",
         "dist",
         "--workpath",
@@ -101,8 +113,9 @@ def build_command() -> list[str]:
         "build",
     ]
 
-    if (AGENT_DIR / ICON).is_file():
-        command += ["--icon", ICON]
+    # Значок тоже абсолютным путём: он попадает в тот же spec-файл в `build/`.
+    if ICON_FILE.is_file():
+        command += ["--icon", str(ICON_FILE)]
     else:
         print(f"! {ICON} не найден: собираю без значка")
 
@@ -111,8 +124,26 @@ def build_command() -> list[str]:
     return command
 
 
+def setup_output() -> None:
+    """
+    Консоль Windows не знает «✓», «✗» и «МБ».
+
+    Кодировка консоли (cp866) и cp1251 при перенаправлении вывода в файл или pipe
+    роняли сборку на последней строке: `UnicodeEncodeError: 'charmap' codec can't
+    encode character '\u2713'`. `errors="replace"` заменяет незнакомый символ на
+    «?» — сборка завершается, а сообщение остаётся читаемым.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+
+        if reconfigure is not None:
+            reconfigure(errors="replace")
+
+
 def main() -> int:
     """Сборка exe. Возвращает код выхода: 0 — успех, иначе код PyInstaller."""
+    setup_output()
+
     problems = missing_requirements()
 
     if problems:
