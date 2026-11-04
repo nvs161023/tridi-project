@@ -2,6 +2,7 @@
 
 import { useRef, useState, type KeyboardEvent } from "react";
 
+import { TabHelpButton } from "@/components/workshop/TabHelpButton";
 import { WorkshopCalculatorTab } from "@/components/workshop/WorkshopCalculatorTab";
 import {
   CalculatorIcon,
@@ -20,6 +21,7 @@ import { WorkshopPrintersTab } from "@/components/workshop/WorkshopPrintersTab";
 import { WorkshopProductsTab } from "@/components/workshop/WorkshopProductsTab";
 import { WorkshopRequisitesTab } from "@/components/workshop/WorkshopRequisitesTab";
 import { WorkshopStockTab } from "@/components/workshop/WorkshopStockTab";
+import { TAB_HELP } from "@/components/workshop/workshop-tab-help";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
 import type { WorkshopIntegrations } from "@/lib/workshop/integrations";
@@ -316,9 +318,18 @@ export function WorkshopTabs({
               {activeTabMeta.label}
             </p>
           </div>
-          <p className="hidden text-[11px] text-zinc-600 sm:block">
-            Данные сохраняются в аккаунте
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="hidden text-[11px] text-zinc-600 sm:block">
+              Данные сохраняются в аккаунте
+            </p>
+            {/*
+              «?» рядом с названием активной вкладки: подсказка берёт текст из
+              того же TAB_HELP, что и шаг полного тура, и меняется при
+              переключении вкладки — запускать тур из десяти шагов ради одного
+              абзаца не нужно.
+            */}
+            <TabHelpButton help={TAB_HELP[activeTab]} />
+          </div>
         </div>
 
         <div className="p-4 sm:p-6">

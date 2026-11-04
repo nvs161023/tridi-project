@@ -10,7 +10,7 @@ import { DownloadIcon } from "@/components/workshop/WorkshopIcons";
  * написано в `public/downloads/README.md`. Пока файла нет, ссылка ведёт на 404:
  * это честный слот под сборку, а не битая кнопка с другим адресом.
  *
- * Подсказка «Windows, ~15 МБ, без установки Python» — часть ссылки, а не
+ * Подсказка «Windows, ~11 МБ, без установки Python» — часть ссылки, а не
  * отдельный абзац: так она попадает и в озвучку скринридером, и в подсказку при
  * наведении, и не разъезжается с кнопкой в узких колонках.
  */
@@ -54,7 +54,7 @@ export function AgentDownloadButton({
             tone === "primary" ? "text-black/60" : "text-zinc-500"
           }`}
         >
-          Windows, ~15 МБ, без установки Python
+          Windows, ~11 МБ, без установки Python
         </span>
       ) : null}
     </a>
