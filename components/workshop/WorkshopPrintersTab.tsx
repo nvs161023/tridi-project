@@ -146,7 +146,7 @@ const STATE_STYLES: Record<
   },
   error: {
     label: "Ошибка",
-    badge: "border-red-400/40 bg-red-500/10 text-red-100",
+    badge: "border-red-400/40 bg-red-400/10 text-red-100",
     dot: "bg-red-400",
     bar: "bg-red-400",
   },
@@ -487,12 +487,12 @@ export function WorkshopPrintersTab({
             ref={discoverTriggerRef}
             type="button"
             onClick={openDiscover}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-violet-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(59,130,246,0.8)] transition-colors hover:from-blue-400 hover:to-violet-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-violet-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(59,130,246,0.8)] transition-colors hover:from-blue-400 hover:to-violet-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             <RadarIcon className="h-4 w-4" />
             Найти принтеры в сети
             {discoveredPrinters.length > 0 ? (
-              <span className="inline-flex min-w-5 items-center justify-center rounded-md bg-black/25 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
+              <span className="inline-flex min-w-5 items-center justify-center rounded-md bg-black/25 px-1.5 py-0.5 text-xs font-bold text-white tabular-nums">
                 {discoveredPrinters.length}
               </span>
             ) : null}
@@ -502,7 +502,7 @@ export function WorkshopPrintersTab({
             ref={addTriggerRef}
             type="button"
             onClick={openAdd}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             <span aria-hidden>+</span>
             Добавить принтер
@@ -527,7 +527,7 @@ export function WorkshopPrintersTab({
         <EmptyPrinters onAdd={openAdd} />
       ) : (
         <>
-          <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-zinc-500">
+          <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-zinc-400">
             <span>Принтеров: {printers.length}</span>
             <span>
               Общая наработка: {formatPrinterHours(summary.totalHours)}
@@ -666,11 +666,11 @@ function PrinterCard({
               {printer.name}
             </button>
           </p>
-          <p className="mt-0.5 text-xs text-zinc-500">
+          <p className="mt-0.5 text-xs text-zinc-400">
             {model || "Модель не указана"}
           </p>
         </div>
-        <span className="shrink-0 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-semibold tabular-nums text-zinc-300">
+        <span className="shrink-0 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-semibold tabular-nums text-zinc-300">
           {formatPrinterHours(printer.totalHours)} всего
         </span>
       </div>
@@ -678,7 +678,7 @@ function PrinterCard({
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span
           data-printer-status={liveStatus}
-          className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-semibold ${state.badge}`}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold ${state.badge}`}
         >
           <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${state.dot}`} />
           {state.label}
@@ -696,7 +696,7 @@ function PrinterCard({
 
       {showsProgress ? (
         <div data-printer-print-progress className="mt-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-[11px]">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-xs">
             <span className="font-semibold text-zinc-300">Печать</span>
             <span className="tabular-nums text-zinc-400">
               {progressText}%
@@ -737,11 +737,11 @@ function PrinterCard({
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <span className="font-semibold text-zinc-300">Смазка</span>
-              <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-bold tracking-wide text-zinc-400 uppercase">
+              <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-bold tracking-wide text-zinc-400 uppercase">
                 Без смазки
               </span>
             </div>
-            <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+            <p className="mt-2 text-xs leading-relaxed text-zinc-400">
               Смазка не требуется: карбоновые стержни чистят спиртом — смазка
               их портит.
             </p>
@@ -756,7 +756,7 @@ function PrinterCard({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-4">
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-zinc-400">
           Обслуживание: {formatPrinterDate(printer.lastMaintenanceDate)}
         </p>
         <div className="flex flex-wrap gap-2">
@@ -829,7 +829,7 @@ function MaintenanceGauge({
     <div data-printer-gauge={label}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-2">
         <span className="text-xs font-semibold text-zinc-300">{label}</span>
-        <span className="text-[11px] tabular-nums text-zinc-500">
+        <span className="text-xs tabular-nums text-zinc-400">
           {formatPrinterHours(hours)} / {formatPrinterHours(interval)}
         </span>
       </div>
@@ -847,9 +847,9 @@ function MaintenanceGauge({
           style={{ width: `${Math.min(100, percent)}%` }}
         />
       </div>
-      <p className={`mt-1.5 flex flex-wrap gap-x-1.5 text-[11px] ${styles.text}`}>
+      <p className={`mt-1.5 flex flex-wrap gap-x-1.5 text-xs ${styles.text}`}>
         <span>{percentFormatter.format(percent)}% до замены</span>
-        <span className="text-zinc-500">· {styles.label}</span>
+        <span className="text-zinc-400">· {styles.label}</span>
       </p>
     </div>
   );
@@ -871,7 +871,7 @@ function EmptyPrinters({ onAdd }: { onAdd: () => void }) {
       <button
         type="button"
         onClick={onAdd}
-        className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+        className="mt-5 inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
       >
         Добавить первый принтер
       </button>

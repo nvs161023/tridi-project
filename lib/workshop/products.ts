@@ -521,13 +521,14 @@ function readProductForm(formData: FormData): {
     "name",
     "Введите название.",
   );
+  // Описание необязательно: карточка живёт и без него, а маркетплейсам оно
+  // нужно только при выгрузке. Пустое поле сохраняется как NULL.
   const description = readTextValue(
     formData,
     "description",
     PRODUCT_TEXT_LIMITS.description,
     errors,
     "description",
-    "Введите описание.",
   );
   const price = readPriceValue(formData, "price", errors, "price", true);
   const oldPrice = readPriceValue(

@@ -29,7 +29,7 @@ type WorkshopSettingsFormProps = {
 };
 
 const inputClassName =
-  "w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+  "w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 export function WorkshopSettingsForm({
   settings,
@@ -109,7 +109,7 @@ export function WorkshopSettingsForm({
               ) : (
                 <p
                   id={`${fieldId}-hint`}
-                  className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+                  className="mt-1.5 text-xs leading-relaxed text-zinc-400"
                 >
                   {field.hint}
                 </p>

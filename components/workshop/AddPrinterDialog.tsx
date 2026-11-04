@@ -151,7 +151,7 @@ type AddPrinterDialogProps = {
  */
 
 const inputClassName =
-  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 /** Список протоколов: та же рамка, что у полей, но с курсором и тёмной схемой. */
 const selectClassName =
@@ -368,9 +368,10 @@ export function AddPrinterDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-printer-title"
-        className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl shadow-black/60 sm:p-8"
+        className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0a0a0a] shadow-2xl shadow-black/60 sm:max-h-[calc(100vh-2rem)]"
       >
-        <div className="flex items-start justify-between gap-4">
+        {/* Шапка закреплена: «✕» виден всегда, прокручивается только содержимое. */}
+        <div className="flex shrink-0 items-start justify-between gap-4 px-6 pt-6 sm:px-8 sm:pt-8">
           <div>
             <p className="text-xs font-semibold tracking-[0.2em] text-blue-400 uppercase">
               Принтеры
@@ -396,7 +397,7 @@ export function AddPrinterDialog({
           ref={formRef}
           action={formAction}
           autoComplete="off"
-          className="mt-6 space-y-4"
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-6 sm:px-8"
         >
           <div>
             <label
@@ -990,7 +991,7 @@ export function AddPrinterDialog({
           {probe.status === "failed" ? (
             <p
               role="alert"
-              className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+              className="rounded-2xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
             >
               <span aria-hidden>⚠️ </span>
               Принтер недоступен: {probe.error}
@@ -1004,7 +1005,7 @@ export function AddPrinterDialog({
               className={
                 probe.result.ok
                   ? "rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm leading-relaxed text-emerald-100"
-                  : "rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+                  : "rounded-2xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
               }
             >
               <p className="font-semibold">
@@ -1039,7 +1040,7 @@ export function AddPrinterDialog({
             </p>
           ) : null}
 
-          <div className="flex flex-col gap-3 pt-1 sm:flex-row">
+          <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex shrink-0 flex-col gap-3 border-t border-white/10 bg-[#0a0a0a] px-6 pt-4 pb-6 sm:-mx-8 sm:-mb-8 sm:flex-row sm:px-8">
             <button
               type="submit"
               disabled={isPending}

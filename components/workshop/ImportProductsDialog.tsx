@@ -217,14 +217,14 @@ export function ImportProductsDialog({ onClose }: ImportProductsDialogProps) {
               </select>
               <span
                 aria-hidden
-                className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-zinc-500"
+                className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-zinc-400"
               >
                 ▾
               </span>
             </div>
             <p
               id="import-products-columns-hint"
-              className="mt-2 text-xs leading-relaxed text-zinc-500"
+              className="mt-2 text-xs leading-relaxed text-zinc-400"
             >
               Ожидаемые колонки: {CSV_COLUMN_HINTS[platform]}.
             </p>
@@ -246,14 +246,14 @@ export function ImportProductsDialog({ onClose }: ImportProductsDialogProps) {
                   </p>
                   <p
                     id="import-products-file-hint"
-                    className="mt-1 text-xs leading-relaxed text-zinc-500"
+                    className="mt-1 text-xs leading-relaxed text-zinc-400"
                   >
                     CSV из личного кабинета Ozon или Wildberries.
                   </p>
                 </div>
                 <label
                   htmlFor="import-products-file"
-                  className={`inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors focus-within:ring-2 focus-within:ring-blue-500/60 focus-within:ring-offset-2 focus-within:ring-offset-[#0a0a0a] ${
+                  className={`inline-flex min-h-12 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors focus-within:ring-2 focus-within:ring-blue-500/60 focus-within:ring-offset-2 focus-within:ring-offset-[#0a0a0a] ${
                     isSubmitting
                       ? "cursor-not-allowed opacity-60"
                       : "cursor-pointer hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
@@ -299,7 +299,7 @@ export function ImportProductsDialog({ onClose }: ImportProductsDialogProps) {
           {error ? (
             <p
               role="alert"
-              className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-200"
+              className="rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-200"
             >
               <span aria-hidden>⚠️ </span>
               {error}

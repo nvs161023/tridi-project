@@ -1196,12 +1196,12 @@ export function OrderDetailsDialog({
             </h2>
             <p className="mt-2 flex flex-wrap items-center gap-2">
               <span
-                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${status.badgeClassName}`}
+                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${status.badgeClassName}`}
               >
                 {status.label}
               </span>
               {hasCreatedAt ? (
-                <span className="text-[11px] text-zinc-500">
+                <span className="text-xs text-zinc-400">
                   Создан {createdAt}
                 </span>
               ) : null}
@@ -1228,7 +1228,7 @@ export function OrderDetailsDialog({
               aria-label="Удалить заказ"
               title="Удалить заказ"
               data-order-delete
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-red-400/30 bg-red-500/10 text-red-300 transition-colors hover:border-red-400/60 hover:bg-red-500/20 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-red-400/30 bg-red-400/10 text-red-300 transition-colors hover:border-red-400/60 hover:bg-red-400/20 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-wait disabled:opacity-60"
             >
               <TrashIcon className="h-4 w-4" />
             </button>
@@ -1259,7 +1259,7 @@ export function OrderDetailsDialog({
             <p
               role="alert"
               data-order-delete-error
-              className="mb-4 rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+              className="mb-4 rounded-xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
             >
               {deleteError}
             </p>
@@ -1290,7 +1290,7 @@ export function OrderDetailsDialog({
               <div className="min-w-0">
                 <h3
                   id="order-items-title"
-                  className="text-[10px] font-semibold tracking-wide text-zinc-500 uppercase"
+                  className="text-xs font-semibold tracking-wide text-zinc-400 uppercase"
                 >
                   Позиции заказа
                 </h3>
@@ -1315,7 +1315,7 @@ export function OrderDetailsDialog({
                 aria-expanded={isItemFormOpen}
                 aria-controls="order-item-form"
                 data-order-item-add
-                className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
               >
                 <PlusIcon className="h-4 w-4" />
                 {isItemFormOpen ? "Свернуть" : "Добавить позицию"}
@@ -1325,7 +1325,7 @@ export function OrderDetailsDialog({
             {itemsError ? (
               <p
                 role="alert"
-                className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm leading-relaxed text-red-100"
+                className="mt-3 rounded-xl border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm leading-relaxed text-red-100"
               >
                 {itemsError}
               </p>
@@ -1347,7 +1347,7 @@ export function OrderDetailsDialog({
                       <span className="min-w-0 text-sm leading-relaxed break-words text-zinc-200">
                         {item.productTitle ?? item.sku ?? "Позиция без товара"}
                         {item.productTitle && item.sku ? (
-                          <span className="ml-2 text-[11px] text-zinc-500">
+                          <span className="ml-2 text-xs text-zinc-400">
                             {item.sku}
                           </span>
                         ) : null}
@@ -1391,7 +1391,7 @@ export function OrderDetailsDialog({
                           aria-label={`Удалить позицию: ${itemTitle}`}
                           title={isItemLocked ? ORDER_ITEMS_LOCKED_HINT : undefined}
                           data-order-item-delete
-                          className={`${ORDER_ITEM_ACTION_CLASS} hover:border-red-400/50 hover:bg-red-500/10 hover:text-red-200`}
+                          className={`${ORDER_ITEM_ACTION_CLASS} hover:border-red-400/50 hover:bg-red-400/10 hover:text-red-200`}
                         >
                           <TrashIcon className="h-4 w-4" />
                         </button>
@@ -1405,7 +1405,7 @@ export function OrderDetailsDialog({
             {items.length > 0 && isItemLocked ? (
               <p
                 data-order-items-locked
-                className="mt-2 text-[11px] leading-relaxed text-amber-200/80"
+                className="mt-2 text-xs leading-relaxed text-amber-200/80"
               >
                 {ORDER_ITEMS_LOCKED_HINT}
               </p>
@@ -1415,7 +1415,7 @@ export function OrderDetailsDialog({
               <p
                 role="alert"
                 data-order-item-row-error
-                className="mt-2 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm leading-relaxed text-red-100"
+                className="mt-2 rounded-xl border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm leading-relaxed text-red-100"
               >
                 {itemRowError}
               </p>
@@ -1424,7 +1424,7 @@ export function OrderDetailsDialog({
             {itemsTotal > 0 ? (
               <p
                 data-order-items-total
-                className="mt-2 text-[11px] leading-relaxed text-zinc-500"
+                className="mt-2 text-xs leading-relaxed text-zinc-400"
               >
                 Сумма по товарам: {formatOrderCost(itemsTotal)}. Стоимость
                 заказа выше задаётся вручную и не меняется.
@@ -1464,7 +1464,7 @@ export function OrderDetailsDialog({
                     ))}
                   </select>
                   {products.length === 0 ? (
-                    <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+                    <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
                       Каталог пуст — добавьте товары на вкладке «Товары».
                     </p>
                   ) : null}
@@ -1496,7 +1496,7 @@ export function OrderDetailsDialog({
                     disabled={isAddingItem || products.length === 0}
                     aria-busy={isAddingItem}
                     data-order-item-submit
-                    className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-5 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-5 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isAddingItem ? "Добавляем…" : "Добавить"}
                   </button>
@@ -1506,7 +1506,7 @@ export function OrderDetailsDialog({
                   <p
                     role="alert"
                     data-order-item-error
-                    className="rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm leading-relaxed text-red-100"
+                    className="rounded-xl border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm leading-relaxed text-red-100"
                   >
                     {itemFormError}
                   </p>
@@ -1531,7 +1531,7 @@ export function OrderDetailsDialog({
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+                <p className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
                   3D-печать
                 </p>
                 <p
@@ -1548,10 +1548,10 @@ export function OrderDetailsDialog({
                     data-order-print-job-status={activeJob.status}
                     className={
                       activeJob.status === "printing"
-                        ? "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100"
+                        ? "inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100"
                         : activeJob.status === "paused"
-                          ? "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-violet-500/10 px-4 text-sm font-semibold text-violet-100"
-                          : "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 text-sm font-semibold text-amber-100"
+                          ? "inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-violet-400/40 bg-violet-500/10 px-4 text-sm font-semibold text-violet-100"
+                          : "inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 text-sm font-semibold text-amber-100"
                     }
                   >
                     <span aria-hidden>
@@ -1569,7 +1569,7 @@ export function OrderDetailsDialog({
                     disabled={isCancellingPrint || cancelRequested}
                     aria-busy={isCancellingPrint}
                     data-order-print-cancel-button
-                    className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-red-400/40 bg-red-500/10 px-4 text-sm font-semibold text-red-100 transition-colors hover:border-red-400/60 hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl border border-red-400/40 bg-red-400/10 px-4 text-sm font-semibold text-red-100 transition-colors hover:border-red-400/60 hover:bg-red-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {cancelRequested
                       ? "Отмена запрошена…"
@@ -1585,7 +1585,7 @@ export function OrderDetailsDialog({
                       aria-busy={isForcingCancel}
                       data-order-print-force-cancel
                       title="Закрыть задание в базе, не дожидаясь ответа принтера"
-                      className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-red-500/60 bg-red-600/90 px-4 text-sm font-bold text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl border border-red-400/60 bg-red-600 px-4 text-sm font-bold text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isForcingCancel
                         ? "Закрываем…"
@@ -1600,7 +1600,7 @@ export function OrderDetailsDialog({
                   disabled={!canQueuePrint || isQueueing}
                   aria-busy={isQueueing}
                   data-order-print-queue-button
-                  className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(59,130,246,0.8)] transition-colors hover:bg-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(59,130,246,0.8)] transition-colors hover:bg-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isQueueing ? "Ставим в очередь…" : "В очередь на печать"}
                 </button>
@@ -1614,7 +1614,7 @@ export function OrderDetailsDialog({
               >
                 {typeof activeJob.estimatedSeconds === "number" ? (
                   <div className="flex items-center gap-1.5">
-                    <dt className="text-zinc-500">Оценка</dt>
+                    <dt className="text-zinc-400">Оценка</dt>
                     <dd className="tabular-nums">
                       {formatPrintDuration(activeJob.estimatedSeconds)}
                     </dd>
@@ -1622,7 +1622,7 @@ export function OrderDetailsDialog({
                 ) : null}
                 {typeof activeJob.filamentGrams === "number" ? (
                   <div className="flex items-center gap-1.5">
-                    <dt className="text-zinc-500">Пластик</dt>
+                    <dt className="text-zinc-400">Пластик</dt>
                     <dd className="tabular-nums">
                       {formatGrams(activeJob.filamentGrams)}
                     </dd>
@@ -1630,13 +1630,13 @@ export function OrderDetailsDialog({
                 ) : null}
                 {activeJob.queuedAt ? (
                   <div className="flex items-center gap-1.5">
-                    <dt className="text-zinc-500">В очереди с</dt>
+                    <dt className="text-zinc-400">В очереди с</dt>
                     <dd>{formatCommentDate(activeJob.queuedAt)}</dd>
                   </div>
                 ) : null}
                 {activeJob.startedAt ? (
                   <div className="flex items-center gap-1.5">
-                    <dt className="text-zinc-500">Печать начата</dt>
+                    <dt className="text-zinc-400">Печать начата</dt>
                     <dd>{formatCommentDate(activeJob.startedAt)}</dd>
                   </div>
                 ) : null}
@@ -1649,7 +1649,7 @@ export function OrderDetailsDialog({
                 data-order-print-last-failure={lastFailure.status}
                 className={
                   lastFailure.status === "failed"
-                    ? "mt-2 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-100"
+                    ? "mt-2 rounded-xl border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs leading-relaxed text-red-100"
                     : "mt-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs leading-relaxed text-zinc-400"
                 }
               >
@@ -1676,7 +1676,7 @@ export function OrderDetailsDialog({
                 onChange={handlePrinterChange}
                 disabled={isPrinterSaving}
                 data-order-print-printer
-                className="min-h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-all duration-200 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-12 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-all duration-200 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <option value="">Не выбран</option>
                 {isSelectedPrinterMissing ? (
@@ -1691,12 +1691,12 @@ export function OrderDetailsDialog({
                 ))}
               </select>
               {isPrinterSaving ? (
-                <span className="text-xs text-zinc-500">Сохраняем…</span>
+                <span className="text-xs text-zinc-400">Сохраняем…</span>
               ) : null}
             </div>
 
             {printers.length === 0 ? (
-              <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+              <p className="mt-2 text-xs leading-relaxed text-zinc-400">
                 Принтеров пока нет — добавьте их на вкладке «Принтеры», иначе
                 задание некуда поставить.
               </p>
@@ -1706,7 +1706,7 @@ export function OrderDetailsDialog({
               <p
                 role="alert"
                 data-order-print-printer-error
-                className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm leading-relaxed text-red-100"
+                className="mt-3 rounded-xl border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm leading-relaxed text-red-100"
               >
                 {printerError}
               </p>
@@ -1715,7 +1715,7 @@ export function OrderDetailsDialog({
               <p
                 role="alert"
                 data-order-print-error
-                className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm leading-relaxed text-red-100"
+                className="mt-3 rounded-xl border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm leading-relaxed text-red-100"
               >
                 {printError}
               </p>
@@ -1737,11 +1737,11 @@ export function OrderDetailsDialog({
               target="_blank"
               rel="noopener noreferrer"
               data-order-specification
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
             >
               <span aria-hidden>📄</span>
               Спецификация
-              <span aria-hidden className="text-xs text-zinc-500">
+              <span aria-hidden className="text-xs text-zinc-400">
                 ↗
               </span>
             </a>
@@ -1750,22 +1750,22 @@ export function OrderDetailsDialog({
               target="_blank"
               rel="noopener noreferrer"
               data-order-waybill
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-blue-400/50 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
             >
               <span aria-hidden>📦</span>
               Накладная
-              <span aria-hidden className="text-xs text-zinc-500">
+              <span aria-hidden className="text-xs text-zinc-400">
                 ↗
               </span>
             </a>
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-zinc-400">
               Печатные формы заказа
             </span>
           </div>
 
           {order.notes ? (
             <div className="mt-4 rounded-xl border border-white/[0.07] bg-white/[0.025] px-4 py-3">
-              <p className="text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+              <p className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
                 Заметки
               </p>
               <p className="mt-1.5 text-sm leading-relaxed break-words whitespace-pre-line text-zinc-300">
@@ -1783,7 +1783,7 @@ export function OrderDetailsDialog({
                 Комментарии
               </h3>
               {!isLoading && comments.length > 0 ? (
-                <span className="text-[11px] text-zinc-500 tabular-nums">
+                <span className="text-xs text-zinc-400 tabular-nums">
                   Всего: {comments.length}
                 </span>
               ) : null}
@@ -1791,13 +1791,13 @@ export function OrderDetailsDialog({
 
             <div aria-live="polite">
               {isLoading ? (
-                <p className="mt-3 rounded-xl border border-dashed border-white/10 px-4 py-5 text-center text-sm text-zinc-500">
+                <p className="mt-3 rounded-xl border border-dashed border-white/10 px-4 py-5 text-center text-sm text-zinc-400">
                   Загружаем комментарии…
                 </p>
               ) : loadError ? (
                 <p
                   role="alert"
-                  className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+                  className="mt-3 rounded-xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
                 >
                   {loadError}
                 </p>
@@ -1827,17 +1827,17 @@ export function OrderDetailsDialog({
                 maxLength={ORDER_COMMENT_TEXT_LIMIT}
                 placeholder="Написать комментарий..."
                 autoComplete="off"
-                className="min-h-24 w-full resize-y rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base leading-relaxed text-white outline-none transition-all duration-200 placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset"
+                className="min-h-24 w-full resize-y rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base leading-relaxed text-white outline-none transition-all duration-200 placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset"
               />
               <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-[11px] text-zinc-500 tabular-nums">
+                <p className="text-xs text-zinc-400 tabular-nums">
                   {text.length} / {ORDER_COMMENT_TEXT_LIMIT}
                 </p>
                 <button
                   type="submit"
                   disabled={isSubmitting}
                   aria-busy={isSubmitting}
-                  className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-5 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-5 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isSubmitting ? "Отправка..." : "Отправить"}
                 </button>
@@ -1847,7 +1847,7 @@ export function OrderDetailsDialog({
             {submitError ? (
               <p
                 role="alert"
-                className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+                className="mt-3 rounded-xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
               >
                 {submitError}
               </p>
@@ -1907,7 +1907,7 @@ export function OrderCommentsList({
 }) {
   if (comments.length === 0) {
     return (
-      <p className="mt-3 rounded-xl border border-dashed border-white/10 px-4 py-5 text-center text-sm leading-relaxed text-zinc-500">
+      <p className="mt-3 rounded-xl border border-dashed border-white/10 px-4 py-5 text-center text-sm leading-relaxed text-zinc-400">
         Комментариев пока нет. Напишите первый — он сохранится в заказе.
       </p>
     );
@@ -1923,7 +1923,7 @@ export function OrderCommentsList({
           <p className="text-sm leading-relaxed break-words whitespace-pre-line text-zinc-200">
             {comment.text}
           </p>
-          <p className="mt-2 text-[11px] text-zinc-500">
+          <p className="mt-2 text-xs text-zinc-400">
             <time dateTime={comment.createdAt ?? undefined}>
               {formatCommentDate(comment.createdAt)}
             </time>
@@ -1946,7 +1946,7 @@ function DetailItem({
 }) {
   return (
     <div className={`min-w-0 ${className ?? ""}`}>
-      <dt className="text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+      <dt className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
         {label}
       </dt>
       <dd className="mt-1 text-sm font-semibold break-words text-white tabular-nums">

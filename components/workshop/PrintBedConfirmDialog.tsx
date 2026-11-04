@@ -131,7 +131,7 @@ export function PrintBedConfirmDialog({
           {warning}
         </p>
 
-        <p className="mt-2 text-xs leading-relaxed text-zinc-500">{text}</p>
+        <p className="mt-2 text-xs leading-relaxed text-zinc-400">{text}</p>
 
         <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
           <button
@@ -140,7 +140,7 @@ export function PrintBedConfirmDialog({
             onClick={closeDialog}
             disabled={isBusy}
             data-print-bed-confirm-cancel
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-white/30 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-slate-200 transition-colors hover:border-white/30 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
           >
             Отмена
           </button>
@@ -150,7 +150,7 @@ export function PrintBedConfirmDialog({
             disabled={isBusy}
             aria-busy={isBusy}
             data-print-bed-confirm-accept
-            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-blue-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(59,130,246,0.8)] transition-colors hover:bg-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex min-h-12 items-center justify-center rounded-xl bg-blue-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(59,130,246,0.8)] transition-colors hover:bg-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isBusy ? busyLabel : confirmLabel}
           </button>

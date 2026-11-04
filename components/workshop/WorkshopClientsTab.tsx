@@ -175,7 +175,7 @@ export function WorkshopClientsTab({ clients }: WorkshopClientsTabProps) {
             ref={addButtonRef}
             type="button"
             onClick={openDialog}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             <span aria-hidden>+</span>
             Добавить клиента
@@ -223,10 +223,10 @@ export function WorkshopClientsTab({ clients }: WorkshopClientsTabProps) {
                 spellCheck={false}
                 placeholder="Поиск: имя или телефон"
                 data-clients-search
-                className="min-h-11 w-full rounded-xl border border-white/10 bg-black/40 px-4 text-sm text-white outline-none transition-all duration-200 placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset"
+                className="min-h-12 w-full rounded-xl border border-white/10 bg-black/40 px-4 text-sm text-white outline-none transition-all duration-200 placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset"
               />
             </div>
-            <p className="text-xs font-semibold text-zinc-500">
+            <p className="text-xs font-semibold text-zinc-400">
               Клиентов: {clients.length}
               {isSearching ? ` · найдено: ${visibleClients.length}` : ""}
             </p>
@@ -247,7 +247,7 @@ export function WorkshopClientsTab({ clients }: WorkshopClientsTabProps) {
               <button
                 type="button"
                 onClick={() => setSearch("")}
-                className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-5 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                className="mt-5 inline-flex min-h-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-5 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
               >
                 Сбросить поиск
               </button>
@@ -294,7 +294,7 @@ function ClientsTable({
             Клиенты: имя, телефон, email, адрес, история заказов и правка карточки
           </caption>
           <thead>
-            <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+            <tr className="border-b border-white/5 bg-white/[0.02] text-left text-xs font-semibold tracking-wide text-zinc-400 uppercase">
               <th scope="col" className="px-3 py-3">
                 Имя
               </th>
@@ -321,7 +321,7 @@ function ClientsTable({
                 <td className="px-3 py-4">
                   <p className="font-semibold text-white">{client.name}</p>
                   {client.notes ? (
-                    <p className="mt-1 max-w-xs text-xs leading-relaxed text-zinc-500">
+                    <p className="mt-1 max-w-xs text-xs leading-relaxed text-zinc-400">
                       {client.notes}
                     </p>
                   ) : null}
@@ -335,7 +335,7 @@ function ClientsTable({
                       {client.phone}
                     </a>
                   ) : (
-                    <span className="text-slate-500">—</span>
+                    <span className="text-slate-400">—</span>
                   )}
                 </td>
                 <td className="px-3 py-4 break-words text-zinc-300">
@@ -347,11 +347,11 @@ function ClientsTable({
                       {client.email}
                     </a>
                   ) : (
-                    <span className="text-slate-500">—</span>
+                    <span className="text-slate-400">—</span>
                   )}
                 </td>
                 <td className="max-w-[18rem] px-3 py-4 break-words text-zinc-300">
-                  {client.address ?? <span className="text-slate-500">—</span>}
+                  {client.address ?? <span className="text-slate-400">—</span>}
                 </td>
                 <td className="px-3 py-4 text-right">
                   <div className="flex items-center justify-end gap-2">

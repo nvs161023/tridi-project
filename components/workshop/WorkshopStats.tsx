@@ -106,7 +106,7 @@ export function WorkshopStats({
               className={`pointer-events-none absolute -top-10 -right-8 h-24 w-24 rounded-full blur-2xl ${stat.glow}`}
             />
             <div className="relative flex items-start justify-between gap-3">
-              <p className="max-w-[9rem] text-[10px] leading-snug font-semibold tracking-[0.12em] text-zinc-500 uppercase sm:text-[11px]">
+              <p className="max-w-[9rem] text-xs leading-snug font-semibold tracking-[0.12em] text-zinc-400 uppercase sm:text-xs">
                 {stat.label}
               </p>
               <span
@@ -118,7 +118,7 @@ export function WorkshopStats({
             <p className="relative mt-4 text-[1.55rem] leading-none font-bold tracking-tight break-words text-white tabular-nums sm:text-3xl lg:text-[2rem]">
               {stat.value}
             </p>
-            <p className="relative mt-2 text-[11px] leading-relaxed text-zinc-500">
+            <p className="relative mt-2 text-xs leading-relaxed text-zinc-400">
               {stat.hint}
             </p>
           </li>

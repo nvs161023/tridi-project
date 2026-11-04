@@ -120,7 +120,7 @@ const FIELDS: readonly RequisitesTextConfig[] = [
 ];
 
 const fieldClassName =
-  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset";
+  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset";
 
 export function WorkshopRequisitesTab({
   requisites,
@@ -174,7 +174,7 @@ export function WorkshopRequisitesTab({
             </p>
           </div>
 
-          <p className="flex shrink-0 flex-wrap items-center gap-2 text-[11px] font-semibold">
+          <p className="flex shrink-0 flex-wrap items-center gap-2 text-xs font-semibold">
             <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-zinc-300">
               {workshopCompanyTypeLabel(requisites.companyType)}
             </span>
@@ -232,7 +232,7 @@ export function WorkshopRequisitesTab({
             ) : (
               <p
                 id="workshop-requisites-companyType-hint"
-                className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+                className="mt-1.5 text-xs leading-relaxed text-zinc-400"
               >
                 Самозанятый, ИП или ООО — от этого зависит набор документов.
               </p>
@@ -258,7 +258,7 @@ export function WorkshopRequisitesTab({
                 >
                   {field.label}
                   {field.required ? null : (
-                    <span className="ml-1 text-xs font-normal text-zinc-500">
+                    <span className="ml-1 text-xs font-normal text-zinc-400">
                       (необязательно)
                     </span>
                   )}
@@ -305,7 +305,7 @@ export function WorkshopRequisitesTab({
                 ) : (
                   <p
                     id={`${fieldId}-hint`}
-                    className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+                    className="mt-1.5 text-xs leading-relaxed text-zinc-400"
                   >
                     {field.hint}
                   </p>

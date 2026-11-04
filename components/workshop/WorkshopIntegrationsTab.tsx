@@ -83,7 +83,7 @@ type WorkshopIntegrationsTabProps = {
 };
 
 const fieldClassName =
-  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset";
+  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset";
 
 /** Общая рамка карточки площадки: один ритм у Ozon, WB и Яндекса. */
 const platformCardClassName =
@@ -366,7 +366,7 @@ export function WorkshopIntegrationsTab({
             ) : (
               <p
                 id="workshop-integrations-ozonClientId-hint"
-                className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+                className="mt-1.5 text-xs leading-relaxed text-zinc-400"
               >
                 Номер кабинета продавца из личного кабинета Ozon, раздел Seller API.
               </p>
@@ -399,7 +399,7 @@ export function WorkshopIntegrationsTab({
                     : isKeyVisible
                 }
                 aria-controls="workshop-integrations-ozonApiKey"
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[11px] font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
               >
                 {apiKeyValue === MASKED_OZON_API_KEY
                   ? "Заменить"
@@ -449,7 +449,7 @@ export function WorkshopIntegrationsTab({
             ) : (
               <p
                 id="workshop-integrations-ozonApiKey-hint"
-                className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+                className="mt-1.5 text-xs leading-relaxed text-zinc-400"
               >
                 {apiKeyValue === MASKED_OZON_API_KEY
                   ? "Сохранённый ключ скрыт. Нажмите «Заменить», чтобы ввести новый: без изменений останется прежний."
@@ -467,7 +467,7 @@ export function WorkshopIntegrationsTab({
               {isPending ? "Сохраняем…" : "Сохранить"}
             </button>
 
-            <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+            <p className="mt-2 text-xs leading-relaxed text-zinc-400">
               Чтобы отключить интеграцию, очистите оба поля и сохраните.
             </p>
 
@@ -630,7 +630,7 @@ export function WorkshopIntegrationsTab({
 
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
           <AgentDownloadButton tone="primary" showHint />
-          <p className="max-w-md text-xs leading-relaxed text-zinc-500">
+          <p className="max-w-md text-xs leading-relaxed text-zinc-400">
             Windows покажет «Неизвестный издатель»: файл не подписан платным
             сертификатом. Это ожидаемо —{" "}
             <Link
@@ -668,7 +668,7 @@ export function WorkshopIntegrationsTab({
                 onClick={() => setIsAgentTokenVisible((visible) => !visible)}
                 aria-pressed={isAgentTokenVisible}
                 aria-controls="workshop-integrations-agent-token"
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[11px] font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
               >
                 {isAgentTokenVisible ? "Скрыть" : "Показать"}
               </button>
@@ -690,7 +690,7 @@ export function WorkshopIntegrationsTab({
             />
             <p
               id="workshop-integrations-agent-token-hint"
-              className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+              className="mt-1.5 text-xs leading-relaxed text-zinc-400"
             >
               Впишите токен в <code>agent/.env</code> как{" "}
               <code>AGENT_TOKEN</code>. Храните его как пароль: он открывает
@@ -708,7 +708,7 @@ export function WorkshopIntegrationsTab({
               type="button"
               onClick={copyAgentToken}
               disabled={!agentTokenValue}
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-bold text-black transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-bold text-black transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span aria-hidden>⧉</span>
               Скопировать токен
@@ -716,7 +716,7 @@ export function WorkshopIntegrationsTab({
 
             <Link
               href="/dashboard/workshop/integrations/help#agent"
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
             >
               Как установить агент
               <span aria-hidden>→</span>
@@ -735,7 +735,7 @@ export function WorkshopIntegrationsTab({
             </div>
           </div>
 
-          <p className="text-xs leading-relaxed text-zinc-500">
+          <p className="text-xs leading-relaxed text-zinc-400">
             Готового архива agent.zip пока нет: скрипт лежит в папке{" "}
             <code>agent/</code> репозитория, шаги установки — в инструкции.
             Нужен Python 3.8 или новее.
@@ -777,7 +777,7 @@ function WebhookUrlField({
     <div className="rounded-xl border border-white/[0.07] bg-black/30 p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
+          <p className="text-xs font-semibold tracking-[0.16em] text-zinc-400 uppercase">
             {title}
           </p>
           {url ? (
@@ -799,14 +799,14 @@ function WebhookUrlField({
           aria-label={
             isCopied ? `Скопировано: ${title}` : `Скопировать ${title}`
           }
-          className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span aria-hidden>{isCopied ? "✓" : "⧉"}</span>
           {isCopied ? "Скопировано" : "Скопировать"}
         </button>
       </div>
 
-      <p className="mt-3 text-xs leading-relaxed text-zinc-500">{hint}</p>
+      <p className="mt-3 text-xs leading-relaxed text-zinc-400">{hint}</p>
     </div>
   );
 }
@@ -837,7 +837,7 @@ function StatusBadge({
   return (
     <p className="shrink-0">
       <span
-        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold ${STATUS_TONE_CLASSES[tone]}`}
+        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${STATUS_TONE_CLASSES[tone]}`}
       >
         <span
           aria-hidden

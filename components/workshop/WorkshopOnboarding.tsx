@@ -242,7 +242,7 @@ function rememberTourSeen(key: string) {
  * TriDiAgent.exe», и ряд в шапке выглядит рваным.
  */
 const TOUR_TRIGGER_CLASSES =
-  "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-white/10 bg-white/[0.03] px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]";
+  "inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-white/10 bg-white/[0.03] px-4 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]";
 
 /**
  * Кнопка «Показать тур снова» и оба окна.
@@ -434,10 +434,10 @@ function TourDialog({
         <div className="shrink-0 px-4 pt-4 sm:px-8 sm:pt-6">
           <div className="flex items-start justify-between gap-3 sm:gap-4">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold tracking-[0.2em] text-blue-400 uppercase sm:text-xs">
+              <p className="text-xs font-semibold tracking-[0.2em] text-blue-400 uppercase sm:text-xs">
                 {label}
               </p>
-              <p className="mt-1.5 text-xs font-semibold tabular-nums text-zinc-500">
+              <p className="mt-1.5 text-xs font-semibold tabular-nums text-zinc-400">
                 Шаг {stepNumber} из {steps.length}
               </p>
             </div>
@@ -482,7 +482,7 @@ function TourDialog({
             {step.showDownload ? (
               <div className="mt-4 flex flex-col items-start gap-2 sm:mt-5">
                 <AgentDownloadButton tone="primary" showHint />
-                <p className="text-xs leading-relaxed text-zinc-500">
+                <p className="text-xs leading-relaxed text-zinc-400">
                   Запустите exe на компьютере рядом с принтерами: он создаст{" "}
                   <code className="rounded border border-white/10 bg-black/40 px-1.5 py-0.5 font-mono text-[0.85em] text-blue-200">
                     .env
@@ -507,7 +507,7 @@ function TourDialog({
               onClick={() =>
                 setStepIndex((current) => Math.max(current - 1, 0))
               }
-              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-3 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:px-5"
+              className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-3 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:px-5"
             >
               ← Назад
             </button>
@@ -517,7 +517,7 @@ function TourDialog({
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl px-2.5 text-xs font-semibold text-zinc-500 transition-colors hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:px-3"
+              className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl px-2.5 text-xs font-semibold text-zinc-400 transition-colors hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:px-3"
             >
               Пропустить
             </button>
@@ -527,7 +527,7 @@ function TourDialog({
             <button
               type="button"
               onClick={finalSecondaryAction.onClick}
-              className="order-first inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-blue-400/30 bg-blue-500/10 px-4 text-center text-xs font-semibold text-blue-100 transition-colors hover:border-blue-400/50 hover:bg-blue-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:order-none sm:w-auto"
+              className="order-first inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-blue-400/30 bg-blue-500/10 px-4 text-center text-xs font-semibold text-blue-100 transition-colors hover:border-blue-400/50 hover:bg-blue-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:order-none sm:w-auto"
             >
               {finalSecondaryAction.label}
             </button>
@@ -537,7 +537,7 @@ function TourDialog({
             type="button"
             onClick={handlePrimary}
             autoFocus
-            className="ml-auto inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-white px-5 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:px-6"
+            className="ml-auto inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl bg-white px-5 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] sm:px-6"
           >
             {step.primaryLabel}
           </button>

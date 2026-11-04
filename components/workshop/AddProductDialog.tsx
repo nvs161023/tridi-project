@@ -60,7 +60,7 @@ type AddProductDialogProps = {
 };
 
 const inputClassName =
-  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 const legendClassName =
   "text-xs font-semibold tracking-[0.16em] text-blue-300 uppercase";
@@ -549,9 +549,10 @@ export function AddProductDialog({
         aria-labelledby="product-dialog-title"
         data-product-dialog
         data-product-dialog-mode={isEditing ? "edit" : "add"}
-        className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl shadow-black/60 sm:p-8"
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0a0a0a] shadow-2xl shadow-black/60 sm:max-h-[calc(100vh-2rem)]"
       >
-        <div className="flex items-start justify-between gap-4">
+        {/* Шапка закреплена: «✕» виден всегда, прокручивается только содержимое. */}
+        <div className="flex shrink-0 items-start justify-between gap-4 px-6 pt-6 sm:px-8 sm:pt-8">
           <div>
             <p className="text-xs font-semibold tracking-[0.2em] text-blue-400 uppercase">
               Товары
@@ -586,7 +587,7 @@ export function AddProductDialog({
           onSubmit={handleSubmit}
           autoComplete="off"
           data-product-form
-          className="mt-6 space-y-6"
+          className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-6 py-6 sm:px-8"
         >
           {isEditing ? (
             // Ссылки на приложенные файлы и разметку принтера сохраняем, если
@@ -635,9 +636,8 @@ export function AddProductDialog({
               <TextareaField
                 id="product-description"
                 name="description"
-                label="Описание"
+                label="Описание (необязательно)"
                 placeholder="Материал, особенности, что входит в комплект"
-                required
                 className="sm:col-span-2"
                 defaultValue={initial?.description ?? ""}
                 maxLength={2000}
@@ -719,7 +719,7 @@ export function AddProductDialog({
                   onChange={handleProductFileChange}
                   className={fileInputClassName}
                 />
-                <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                <p className="mt-2 text-xs leading-relaxed text-zinc-400">
                   .3mf, .gcode, .bgcode или .stl, до 50 МБ. 3MF и G-code агент
                   фермы отправит на принтер как есть, STL пригодится для нарезки.
                 </p>
@@ -743,7 +743,7 @@ export function AddProductDialog({
                   </p>
                 ) : null}
                 {currentFile ? (
-                  <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                  <p className="mt-2 text-xs leading-relaxed text-zinc-400">
                     Текущий файл:{" "}
                     <a
                       href={currentFile}
@@ -811,7 +811,7 @@ export function AddProductDialog({
           <fieldset data-product-marketplace-links>
             <legend className={legendClassName}>SKU на маркетплейсах</legend>
             <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-4">
-              <p className="text-xs leading-relaxed text-zinc-500">
+              <p className="text-xs leading-relaxed text-zinc-400">
                 Заказы с этих площадок находят карточку по артикулу продавца:
                 товар, файл печати и цену берём отсюда.
               </p>
@@ -829,7 +829,7 @@ export function AddProductDialog({
               {isEditing && links === null ? (
                 <p
                   data-product-links-loading
-                  className="mt-3 text-xs text-zinc-500"
+                  className="mt-3 text-xs text-zinc-400"
                 >
                   Читаем связи…
                 </p>
@@ -850,7 +850,7 @@ export function AddProductDialog({
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <span
-                            className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${meta.badgeClassName}`}
+                            className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-bold uppercase ${meta.badgeClassName}`}
                           >
                             {meta.label}
                           </span>
@@ -864,7 +864,7 @@ export function AddProductDialog({
                           disabled={row.busy}
                           aria-label={`Удалить связь SKU «${row.sku}»`}
                           aria-busy={row.busy}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-400/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <TrashIcon className="h-4 w-4" />
                         </button>
@@ -927,7 +927,7 @@ export function AddProductDialog({
                       onClick={() => void saveLink()}
                       disabled={isLinkBusy || !linkSku.trim()}
                       aria-busy={isLinkBusy}
-                      className="inline-flex min-h-10 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isLinkBusy ? "Добавляем…" : "Добавить"}
                     </button>
@@ -938,7 +938,7 @@ export function AddProductDialog({
                         setLinkSku("");
                         setLinkError(null);
                       }}
-                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                      className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
                     >
                       Отмена
                     </button>
@@ -952,7 +952,7 @@ export function AddProductDialog({
                     setLinkNotice(null);
                     setLinkError(null);
                   }}
-                  className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-white transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                  className="mt-3 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-white transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
                 >
                   <span aria-hidden>+</span>
                   Добавить SKU
@@ -986,14 +986,14 @@ export function AddProductDialog({
             <p
               role="alert"
               data-product-error
-              className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+              className="rounded-2xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
             >
               <span aria-hidden>⚠️ </span>
               {error}
             </p>
           ) : null}
 
-          <div className="flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row">
+          <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex shrink-0 flex-col gap-3 border-t border-white/10 bg-[#0a0a0a] px-6 pt-5 pb-6 sm:-mx-8 sm:-mb-8 sm:flex-row sm:px-8">
             <button
               type="submit"
               disabled={isSubmitting || isUploading}

@@ -47,7 +47,7 @@ type CostCalculatorProps = {
 };
 
 const inputClassName =
-  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 pr-10 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 pr-10 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 /**
  * Стартовые значения: цена пластика подставлена типичная, вес и время пустые —
@@ -90,7 +90,7 @@ const markupNumberFormatter = new Intl.NumberFormat("ru-RU", {
 const GCODE_TONE_CLASSES = {
   success: "border-emerald-400/40 bg-emerald-500/10 text-emerald-100",
   warning: "border-amber-400/40 bg-amber-500/10 text-amber-100",
-  error: "border-red-400/40 bg-red-500/10 text-red-100",
+  error: "border-red-400/40 bg-red-400/10 text-red-100",
 } as const;
 
 export function CostCalculator({ settings }: CostCalculatorProps) {
@@ -293,7 +293,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
             Себестоимость заказа
           </h2>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-[11px] font-semibold text-zinc-300">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-xs font-semibold text-zinc-300">
           <span
             aria-hidden
             className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"
@@ -332,7 +332,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
             ? "Читаем файл…"
             : "Перетащите .gcode сюда или нажмите, чтобы выбрать файл"}
         </span>
-        <span className="mt-1 text-xs leading-relaxed text-zinc-500">
+        <span className="mt-1 text-xs leading-relaxed text-zinc-400">
           Вес модели и время печати возьмём из комментариев слайсера. Файл
           остаётся в браузере.
         </span>
@@ -394,7 +394,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
                     aria-describedby={error ? `${fieldId}-error` : undefined}
                     className={inputClassName}
                   />
-                  <span className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-xs font-medium text-zinc-500">
+                  <span className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-xs font-medium text-zinc-400">
                     {field.unit}
                   </span>
                 </div>
@@ -440,7 +440,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
               }
               className={inputClassName}
             />
-            <span className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-xs font-medium text-zinc-500">
+            <span className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-xs font-medium text-zinc-400">
               {MARKUP_FIELD.unit}
             </span>
           </div>
@@ -455,7 +455,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
           ) : (
             <p
               id="calculator-markup-hint"
-              className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+              className="mt-1.5 text-xs leading-relaxed text-zinc-400"
             >
               Цена = себестоимость ×{" "}
               {markupNumberFormatter.format(markupFactor(markupPercent))}. 0 % —
@@ -512,7 +512,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
                 />
               </dl>
 
-              <p className="mt-4 text-[11px] leading-relaxed text-zinc-400">
+              <p className="mt-4 text-xs leading-relaxed text-zinc-400">
                 В себестоимость также входят электричество —{" "}
                 {formatMoney(breakdown.electricity)} и амортизация —{" "}
                 {formatMoney(breakdown.depreciation)}.
@@ -520,7 +520,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
             </div>
           </div>
 
-          <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+          <p className="mt-3 text-xs leading-relaxed text-zinc-400">
             Материал — вес × цену за килограмм, электричество — мощность × часы ×
             тариф. Рекомендуемая цена — себестоимость ×{" "}
             {markupNumberFormatter.format(markupFactor(markupPercent))}: наценка{" "}
@@ -537,7 +537,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
           <p className="mt-3 text-sm font-semibold text-zinc-300">
             Результат появится здесь
           </p>
-          <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-zinc-500">
+          <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-zinc-400">
             Заполните поля и нажмите «Рассчитать» — покажем себестоимость,
             рекомендуемую цену и прибыль.
           </p>

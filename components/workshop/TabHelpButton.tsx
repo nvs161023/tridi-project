@@ -216,7 +216,7 @@ export function TabHelpButton({ help, className = "" }: TabHelpButtonProps) {
               }
               className="fixed z-[70] rounded-2xl border border-white/10 bg-[#0a0a0a] p-4 text-left shadow-[0_24px_70px_-30px_rgba(0,0,0,0.95)]"
             >
-              <p className="text-[10px] font-semibold tracking-[0.18em] text-blue-300 uppercase">
+              <p className="text-xs font-semibold tracking-[0.18em] text-blue-300 uppercase">
                 {help.title}
               </p>
               <p className="mt-2 text-xs leading-relaxed text-zinc-300">

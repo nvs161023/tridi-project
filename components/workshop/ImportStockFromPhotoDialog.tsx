@@ -48,7 +48,7 @@ const UNIT_SUGGESTIONS = ["г", "кг", "шт"] as const;
 
 /** Поля таблицы в CRM-стиле: тёмный фон, тонкая обводка, синий фокус. */
 const cellInputClassName =
-  "w-full min-w-0 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-colors [appearance:textfield] placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+  "w-full min-w-0 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-colors [appearance:textfield] placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 /**
  * Список «Добавить распознанные позиции как»: тот же CRM-стиль, что у полей
@@ -463,14 +463,14 @@ export function ImportStockFromPhotoDialog({
                 </p>
                 <p
                   id="import-stock-file-hint"
-                  className="mt-1 text-xs leading-relaxed text-zinc-500"
+                  className="mt-1 text-xs leading-relaxed text-zinc-400"
                 >
                   JPEG, PNG, WebP или GIF до 10 МБ.
                 </p>
               </div>
               <label
                 htmlFor="import-stock-file"
-                className={`inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors focus-within:ring-2 focus-within:ring-blue-500/60 focus-within:ring-offset-2 focus-within:ring-offset-[#0a0a0a] ${
+                className={`inline-flex min-h-12 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors focus-within:ring-2 focus-within:ring-blue-500/60 focus-within:ring-offset-2 focus-within:ring-offset-[#0a0a0a] ${
                   isBusy
                     ? "cursor-not-allowed opacity-60"
                     : "cursor-pointer hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
@@ -530,7 +530,7 @@ export function ImportStockFromPhotoDialog({
             </select>
             <p
               id="import-stock-usage-type-hint"
-              className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+              className="mt-1.5 text-xs leading-relaxed text-zinc-400"
             >
               Тип применяется ко всем строкам сразу. Поменять его можно до
               нажатия «Сохранить на склад».
@@ -558,7 +558,7 @@ export function ImportStockFromPhotoDialog({
           {error ? (
             <p
               role="alert"
-              className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-200"
+              className="rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-200"
             >
               <span aria-hidden>⚠️ </span>
               {error}
@@ -574,7 +574,7 @@ export function ImportStockFromPhotoDialog({
                 <p className="text-xs font-bold tracking-wide text-zinc-300 uppercase">
                   Распознанные материалы
                 </p>
-                <p className="text-xs font-semibold text-zinc-500">
+                <p className="text-xs font-semibold text-zinc-400">
                   Найдено: {items.length}
                 </p>
               </div>
@@ -591,7 +591,7 @@ export function ImportStockFromPhotoDialog({
                     сохранением
                   </caption>
                   <thead>
-                    <tr className="border-b border-white/10 text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+                    <tr className="border-b border-white/10 text-left text-xs font-semibold tracking-wide text-zinc-400 uppercase">
                       <th scope="col" className="px-3 py-3">
                         Материал
                       </th>
@@ -614,7 +614,7 @@ export function ImportStockFromPhotoDialog({
                       <tr>
                         <td
                           colSpan={5}
-                          className="px-4 py-6 text-center text-sm text-zinc-500"
+                          className="px-4 py-6 text-center text-sm text-zinc-400"
                         >
                           Все строки удалены — сохранять на склад нечего.
                         </td>
@@ -712,7 +712,7 @@ export function ImportStockFromPhotoDialog({
                               }`}
                               title="Удалить строку"
                               data-import-stock-remove
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-400 transition-colors hover:bg-red-400/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               <TrashIcon className="h-4 w-4" />
                             </button>
@@ -723,7 +723,7 @@ export function ImportStockFromPhotoDialog({
                   </tbody>
                 </table>
               </div>
-              <p className="border-t border-white/5 px-4 py-3 text-xs leading-relaxed text-zinc-500">
+              <p className="border-t border-white/5 px-4 py-3 text-xs leading-relaxed text-zinc-400">
                 Проверьте таблицу: название, количество, единицу и стоимость
                 можно исправить, а лишние строки — удалить корзиной.
               </p>

@@ -222,10 +222,10 @@ export function WorkshopTabs({
           className="min-w-0 rounded-2xl border border-white/[0.07] bg-[#0a0a0a]/90 p-2 shadow-[0_24px_70px_-40px_rgba(0,0,0,0.95)] backdrop-blur-xl"
         >
           <div className="hidden items-center justify-between px-3 pt-2 pb-3 lg:flex">
-            <p className="text-[10px] font-semibold tracking-[0.18em] text-zinc-500 uppercase">
+            <p className="text-xs font-semibold tracking-[0.18em] text-zinc-400 uppercase">
               Разделы
             </p>
-            <span className="rounded-md border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500 tabular-nums">
+            <span className="rounded-md border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-xs font-semibold text-zinc-400 tabular-nums">
               {TABS.length}
             </span>
           </div>
@@ -255,7 +255,7 @@ export function WorkshopTabs({
                   title={tab.description}
                   onClick={() => setActiveTab(tab.id)}
                   onKeyDown={(event) => handleKeyDown(event, index)}
-                  className={`group flex min-h-11 shrink-0 items-center gap-2.5 rounded-xl border px-3.5 text-left text-sm font-semibold whitespace-nowrap transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] lg:w-full ${
+                  className={`group flex min-h-12 shrink-0 items-center gap-2.5 rounded-xl border px-3.5 text-left text-sm font-semibold whitespace-nowrap transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] lg:w-full ${
                     isActive
                       ? "border-white/10 bg-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
                       : "border-transparent text-zinc-400 hover:bg-white/[0.04] hover:text-white"
@@ -265,7 +265,7 @@ export function WorkshopTabs({
                     className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors ${
                       isActive
                         ? "bg-blue-500/15 text-blue-300"
-                        : "text-zinc-500 group-hover:text-zinc-300"
+                        : "text-zinc-400 group-hover:text-zinc-300"
                     }`}
                   >
                     <Icon className="h-[18px] w-[18px]" />
@@ -273,10 +273,10 @@ export function WorkshopTabs({
                   <span className="lg:flex-1">{tab.label}</span>
                   {count !== undefined && count > 0 ? (
                     <span
-                      className={`inline-flex min-w-5 items-center justify-center rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
+                      className={`inline-flex min-w-5 items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-bold tabular-nums ${
                         isActive
                           ? "bg-white/10 text-zinc-200"
-                          : "bg-white/[0.04] text-zinc-500"
+                          : "bg-white/[0.04] text-zinc-400"
                       }`}
                     >
                       {count}
@@ -288,10 +288,10 @@ export function WorkshopTabs({
           </div>
 
           <div className="mt-2 hidden border-t border-white/5 px-3 pt-4 pb-2 lg:block">
-            <p className="text-[10px] font-semibold tracking-[0.16em] text-zinc-600 uppercase">
+            <p className="text-xs font-semibold tracking-[0.16em] text-zinc-400 uppercase">
               Pro workspace
             </p>
-            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+            <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
               Заказы, склад и техника в одном аккаунте.
             </p>
           </div>
@@ -308,7 +308,7 @@ export function WorkshopTabs({
               aria-hidden
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]"
             />
-            <p className="text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
+            <p className="text-xs font-semibold tracking-[0.16em] text-zinc-400 uppercase">
               Рабочая область
             </p>
             <span aria-hidden className="text-white/20">
@@ -319,7 +319,7 @@ export function WorkshopTabs({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <p className="hidden text-[11px] text-zinc-600 sm:block">
+            <p className="hidden text-xs text-zinc-400 sm:block">
               Данные сохраняются в аккаунте
             </p>
             {/*

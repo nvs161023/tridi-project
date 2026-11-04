@@ -753,7 +753,7 @@ export function WorkshopOrdersTab({
             aria-busy={isAutoScheduling}
             data-auto-schedule
             title="Найти свободные принтеры и поставить подходящие новые заказы в очередь"
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-violet-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(99,102,241,0.75)] transition-colors hover:from-blue-400 hover:to-violet-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-violet-500 px-4 text-sm font-bold text-white shadow-[0_10px_30px_-12px_rgba(99,102,241,0.75)] transition-colors hover:from-blue-400 hover:to-violet-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isAutoScheduling ? (
               <span
@@ -772,7 +772,7 @@ export function WorkshopOrdersTab({
             ref={createTriggerRef}
             type="button"
             onClick={openCreate}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             <span aria-hidden>+</span>
             Создать заказ
@@ -798,7 +798,7 @@ export function WorkshopOrdersTab({
         <p
           role="alert"
           data-order-delete-error
-          className="mb-3 rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+          className="mb-3 rounded-2xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
         >
           {deleteError}
         </p>
@@ -808,7 +808,7 @@ export function WorkshopOrdersTab({
         <EmptyOrders onAdd={openCreate} />
       ) : (
         <>
-          <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-zinc-500">
+          <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-zinc-400">
             <span>Заказов: {orders.length}</span>
             <span>В печати: {summary.inProgress}</span>
             <span>Сумма: {formatOrderCost(summary.totalCost)}</span>
@@ -856,7 +856,7 @@ export function WorkshopOrdersTab({
                   <span
                     aria-hidden
                     className={`tabular-nums ${
-                      isActive ? "text-black/60" : "text-zinc-500"
+                      isActive ? "text-black/60" : "text-zinc-400"
                     }`}
                   >
                     {count}
@@ -894,13 +894,13 @@ export function WorkshopOrdersTab({
           ) : null}
 
           {statusFilter === "unmapped" ? null : (
-            <p className="mt-3 text-[11px] text-zinc-500 lg:hidden">
+            <p className="mt-3 text-xs text-zinc-400 lg:hidden">
               Проведите пальцем в сторону, чтобы увидеть все этапы.
             </p>
           )}
 
           {statusFilter === "unmapped" ? null : (
-            <p className="mt-1 text-[11px] text-zinc-500">
+            <p className="mt-1 text-xs text-zinc-400">
               Нажмите на карточку, чтобы открыть заказ и комментарии. Чтобы
               сменить статус, перетащите её в другую колонку или нажмите «⋯».
             </p>
@@ -1115,11 +1115,11 @@ function KanbanColumn({
               {column.label}
             </h3>
           </div>
-          <p className="mt-1 text-[11px] leading-none text-zinc-500">
+          <p className="mt-1 text-xs leading-none text-zinc-400">
             {column.hint}
           </p>
         </div>
-        <span className="inline-flex min-w-7 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[11px] font-bold text-zinc-300 tabular-nums">
+        <span className="inline-flex min-w-7 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-xs font-bold text-zinc-300 tabular-nums">
           <span className="sr-only">Заказов: </span>
           {orders.length}
         </span>
@@ -1158,7 +1158,7 @@ function KanbanColumn({
 
         {orders.length === 0 ? (
           <li className="flex min-h-36 flex-1 items-center justify-center rounded-xl border border-dashed border-white/10 px-4 py-6 text-center">
-            <span className="text-xs leading-relaxed text-zinc-600">
+            <span className="text-xs leading-relaxed text-zinc-400">
               {isDragOver
                 ? "Отпустите карточку здесь"
                 : "Перетащите заказ сюда или смените статус через «⋯»"}
@@ -1292,7 +1292,7 @@ function OrderCard({
 
       <dl className="mt-3 grid grid-cols-2 gap-2 rounded-xl border border-white/[0.06] bg-white/[0.025] px-2.5 py-2">
         <div className="min-w-0">
-          <dt className="text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+          <dt className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
             Стоимость
           </dt>
           <dd className="mt-0.5 truncate text-[13px] font-semibold text-white tabular-nums">
@@ -1300,7 +1300,7 @@ function OrderCard({
           </dd>
         </div>
         <div className="min-w-0">
-          <dt className="text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+          <dt className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
             Печать
           </dt>
           <dd className="mt-0.5 truncate text-[13px] font-semibold text-zinc-200 tabular-nums">
@@ -1309,27 +1309,27 @@ function OrderCard({
         </div>
       </dl>
 
-      <div className="mt-2.5 text-[11px]">
+      <div className="mt-2.5 text-xs">
         {isOverdue ? (
-          <span className="inline-flex items-center gap-1 rounded-md border border-red-400/35 bg-red-500/10 px-2 py-0.5 font-semibold text-red-200">
+          <span className="inline-flex items-center gap-1 rounded-md border border-red-400/35 bg-red-400/10 px-2 py-0.5 font-semibold text-red-200">
             <span aria-hidden>!</span>
             Просрочен · {formatOrderDate(order.deadline)}
           </span>
         ) : order.deadline ? (
-          <span className="text-zinc-500">
+          <span className="text-zinc-400">
             Срок:{" "}
             <span className="font-medium text-zinc-300">
               {formatOrderDate(order.deadline)}
             </span>
           </span>
         ) : (
-          <span className="text-zinc-600">Без срока</span>
+          <span className="text-zinc-400">Без срока</span>
         )}
       </div>
 
       {order.printerId ? (
-        <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[11px] text-zinc-400">
-          <PrinterIcon className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+        <div className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-zinc-400">
+          <PrinterIcon className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
           <span className="truncate">
             {printer ? printer.name : "Принтер удалён"}
           </span>
@@ -1338,7 +1338,7 @@ function OrderCard({
 
       {activeJob && showsJobProgress ? (
         <div data-order-print-progress={activeJob.id} className="mt-2">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-[11px]">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-xs">
             <span className="font-semibold text-zinc-300">
               {activeJob.status === "paused" ? "Пауза" : "Печать"}
             </span>
@@ -1366,7 +1366,7 @@ function OrderCard({
           {/* Среднее по нескольким заданиям: цифра в строке выше — не одно
               задание, и подпись объясняет, откуда она. */}
           {activeJob.jobsCount > 1 ? (
-            <p className="mt-1 text-[10px] text-zinc-500">
+            <p className="mt-1 text-xs text-zinc-400">
               Заданий в работе: {activeJob.jobsCount} · прогресс средний
             </p>
           ) : null}
@@ -1374,7 +1374,7 @@ function OrderCard({
       ) : null}
 
       {isBusy ? (
-        <p className="mt-2 text-[10px] font-semibold text-blue-300">
+        <p className="mt-2 text-xs font-semibold text-blue-300">
           {isDeleting ? "Удаляем…" : "Сохраняем статус…"}
         </p>
       ) : null}
@@ -1388,7 +1388,7 @@ function OrderCard({
           disabled={isForcing}
           aria-busy={isForcing}
           title="Закрыть задание в базе, не дожидаясь ответа принтера"
-          className="mt-2 inline-flex min-h-9 w-full items-center justify-center rounded-lg border border-red-500/60 bg-red-600/90 px-2.5 text-[11px] font-bold text-white transition-colors hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-2 inline-flex min-h-9 w-full items-center justify-center rounded-lg border border-red-400/60 bg-red-600 px-2.5 text-xs font-bold text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isForcing ? "Закрываем…" : "Принудительно отменить"}
         </button>
@@ -1554,7 +1554,7 @@ function StatusMenu({
               }}
               className="fixed z-[70] w-48 rounded-xl border border-white/10 bg-[#111111] p-1.5 shadow-2xl shadow-black/70"
             >
-              <p className="px-2.5 pt-1 pb-1.5 text-[10px] font-semibold tracking-[0.12em] text-zinc-500 uppercase">
+              <p className="px-2.5 pt-1 pb-1.5 text-xs font-semibold tracking-[0.12em] text-zinc-400 uppercase">
                 Новый статус
               </p>
               <ul aria-label="Статусы заказа" className="space-y-0.5">
@@ -1570,7 +1570,7 @@ function StatusMenu({
                         onClick={() => chooseStatus(status)}
                         className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
                           isCurrent
-                            ? "cursor-default bg-white/[0.04] text-zinc-500"
+                            ? "cursor-default bg-white/[0.04] text-zinc-400"
                             : "text-zinc-200 hover:bg-white/[0.07] focus-visible:bg-white/[0.07]"
                         }`}
                       >
@@ -1580,7 +1580,7 @@ function StatusMenu({
                         />
                         {ORDER_STATUS_META[status].label}
                         {isCurrent ? (
-                          <span className="ml-auto text-[10px] text-zinc-600">
+                          <span className="ml-auto text-xs text-zinc-400">
                             Текущий
                           </span>
                         ) : null}
@@ -1597,7 +1597,7 @@ function StatusMenu({
                 data-order-menu-delete
                 onClick={chooseDelete}
                 disabled={isPending || isDeleting}
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-red-300 transition-colors hover:bg-red-500/15 hover:text-red-200 focus-visible:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 disabled:cursor-wait disabled:opacity-50"
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-red-300 transition-colors hover:bg-red-400/15 hover:text-red-200 focus-visible:bg-red-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 disabled:cursor-wait disabled:opacity-50"
               >
                 <TrashIcon className="h-3.5 w-3.5 shrink-0" />
                 {isDeleting ? "Удаляем…" : "Удалить"}
@@ -1626,7 +1626,7 @@ function EmptyOrders({ onAdd }: { onAdd: () => void }) {
       <button
         type="button"
         onClick={onAdd}
-        className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+        className="mt-5 inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
       >
         Создать первый заказ
       </button>
@@ -1657,7 +1657,7 @@ function UnmappedOrdersPanel({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] font-bold tracking-[0.16em] text-amber-300 uppercase">
+          <p className="text-xs font-bold tracking-[0.16em] text-amber-300 uppercase">
             Нужен маппинг
           </p>
           <h3
@@ -1792,7 +1792,7 @@ function UnmappedOrderCard({
       <div className="flex flex-wrap items-center gap-2">
         {sourceMeta ? (
           <span
-            className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${sourceMeta.badgeClassName}`}
+            className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-bold uppercase ${sourceMeta.badgeClassName}`}
           >
             {sourceMeta.label}
           </span>
@@ -1835,13 +1835,13 @@ function UnmappedOrderCard({
                   <p className="font-mono text-xs font-semibold text-amber-100">
                     SKU: {skuLabel}
                   </p>
-                  <p className="text-[11px] text-zinc-500">
+                  <p className="text-xs text-zinc-400">
                     Количество: {item.quantity}
                   </p>
                 </div>
 
                 {products.length === 0 ? (
-                  <p className="text-[11px] leading-relaxed text-amber-200/80">
+                  <p className="text-xs leading-relaxed text-amber-200/80">
                     Сначала добавьте товар в каталог.
                   </p>
                 ) : (

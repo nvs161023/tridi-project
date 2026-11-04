@@ -45,7 +45,7 @@ type DialogInitial = {
 };
 
 const inputClassName =
-  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset";
+  "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-base text-white outline-none transition-all duration-200 placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset";
 
 const labelClassName = "block text-sm font-semibold text-slate-200";
 
@@ -128,7 +128,7 @@ export function WorkshopMarketplaceTab({
           type="button"
           onClick={() => openDialog()}
           disabled={products.length === 0}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span aria-hidden>+</span>
           Добавить связь
@@ -146,7 +146,7 @@ export function WorkshopMarketplaceTab({
       {error ? (
         <p
           role="alert"
-          className="mt-5 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+          className="mt-5 rounded-2xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
         >
           {error}
         </p>
@@ -180,7 +180,7 @@ export function WorkshopMarketplaceTab({
         <h3 className="text-sm font-bold text-white">
           Связи SKU → товар
         </h3>
-        <p className="text-xs font-semibold text-zinc-500">
+        <p className="text-xs font-semibold text-zinc-400">
           Всего связей: {links.length}
         </p>
       </div>
@@ -201,7 +201,7 @@ export function WorkshopMarketplaceTab({
             type="button"
             onClick={() => openDialog()}
             disabled={products.length === 0}
-            className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-5 text-sm font-semibold text-white transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-5 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-5 text-sm font-semibold text-white transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span aria-hidden>+</span>
             Добавить связь
@@ -245,7 +245,7 @@ function LinksTable({
             Связи артикулов маркетплейсов с товарами каталога
           </caption>
           <thead>
-            <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+            <tr className="border-b border-white/5 bg-white/[0.02] text-left text-xs font-semibold tracking-wide text-zinc-400 uppercase">
               <th scope="col" className="px-3 py-3">
                 Площадка
               </th>
@@ -279,7 +279,7 @@ function LinksTable({
                 >
                   <td className="px-3 py-4">
                     <span
-                      className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase ${meta.badgeClassName}`}
+                      className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold uppercase ${meta.badgeClassName}`}
                     >
                       {meta.label}
                     </span>
@@ -291,7 +291,7 @@ function LinksTable({
                     <p className="font-semibold text-white">
                       {link.productTitle}
                     </p>
-                    <p className="mt-0.5 font-mono text-[11px] text-zinc-500">
+                    <p className="mt-0.5 font-mono text-xs text-zinc-400">
                       {link.productSku}
                     </p>
                   </td>
@@ -316,7 +316,7 @@ function LinksTable({
                       disabled={isDeleting}
                       aria-label={`Удалить связь SKU «${link.sku}»`}
                       aria-busy={isDeleting}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-400/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <TrashIcon className="h-4 w-4" />
                     </button>
@@ -352,7 +352,7 @@ function AttentionBlock({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] font-bold tracking-[0.16em] text-amber-300 uppercase">
+          <p className="text-xs font-bold tracking-[0.16em] text-amber-300 uppercase">
             Нужен маппинг
           </p>
           <h3
@@ -382,7 +382,7 @@ function AttentionBlock({
             >
               <div className="flex flex-wrap items-center gap-2">
                 <span
-                  className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${meta.badgeClassName}`}
+                  className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-bold uppercase ${meta.badgeClassName}`}
                 >
                   {meta.label}
                 </span>
@@ -407,7 +407,7 @@ function AttentionBlock({
                         <p className="font-mono text-xs font-semibold text-amber-100">
                           {formatMarketplaceSku(item.sku)}
                         </p>
-                        <p className="text-[11px] text-zinc-500">
+                        <p className="text-xs text-zinc-400">
                           Количество: {item.quantity}
                         </p>
                       </div>
@@ -567,7 +567,7 @@ function LinkDialog({
               spellCheck={false}
               className={`${inputClassName} font-mono`}
             />
-            <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+            <p className="mt-2 text-xs leading-relaxed text-zinc-400">
               Артикул из кабинета продавца — тот же, что приходит в уведомлении
               о заказе.
             </p>
@@ -600,7 +600,7 @@ function LinkDialog({
             <p
               role="alert"
               data-marketplace-link-error
-              className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+              className="rounded-2xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
             >
               {error}
             </p>

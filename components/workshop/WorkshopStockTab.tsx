@@ -267,7 +267,7 @@ export function WorkshopStockTab({
             ref={orderTriggerRef}
             type="button"
             onClick={openOrder}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             <SpecificationIcon className="h-4 w-4" />
             Спецификация на закупку
@@ -276,7 +276,7 @@ export function WorkshopStockTab({
             ref={importTriggerRef}
             type="button"
             onClick={openImport}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             Импорт из фото
           </button>
@@ -284,7 +284,7 @@ export function WorkshopStockTab({
             ref={addTriggerRef}
             type="button"
             onClick={openAdd}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             <span aria-hidden>+</span>
             Добавить катушку
@@ -299,7 +299,7 @@ export function WorkshopStockTab({
       {error ? (
         <p
           role="alert"
-          className="mb-3 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+          className="mb-3 rounded-2xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
         >
           <span aria-hidden>⚠️ </span>
           {error}
@@ -310,7 +310,7 @@ export function WorkshopStockTab({
         <EmptyStock onAdd={openAdd} />
       ) : (
         <>
-          <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-zinc-500">
+          <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-zinc-400">
             <span>Катушек: {filaments.length}</span>
             <span>Остаток: {formatGrams(summary.totalRemainingG)}</span>
             {summary.lowCount > 0 ? (
@@ -394,7 +394,7 @@ function StockTable({
             ссылка на товар
           </caption>
           <thead>
-            <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+            <tr className="border-b border-white/5 bg-white/[0.02] text-left text-xs font-semibold tracking-wide text-zinc-400 uppercase">
             <th scope="col" className="px-3 py-3">
               Бренд
             </th>
@@ -426,13 +426,13 @@ function StockTable({
               <tr
                 key={filament.id}
                 className={`border-b border-white/5 align-top last:border-b-0 ${
-                  needsRestock ? "bg-red-500/10" : ""
+                  needsRestock ? "bg-red-400/10" : ""
                 }`}
               >
                 <td className="px-3 py-4 font-semibold text-white">
                   {filament.brand || "—"}
                   {needsRestock ? (
-                    <span className="mt-1 block text-[11px] font-bold tracking-wide text-red-300 uppercase">
+                    <span className="mt-1 block text-xs font-bold tracking-wide text-red-300 uppercase">
                       Пора купить
                     </span>
                   ) : null}
@@ -508,7 +508,7 @@ function StockCards({
             data-stock-card
             className={`rounded-2xl border p-4 ${
               needsRestock
-                ? "border-red-400/30 bg-red-500/[0.07]"
+                ? "border-red-400/30 bg-red-400/[0.07]"
                 : "border-white/5 bg-[#0a0a0a]"
             }`}
           >
@@ -517,7 +517,7 @@ function StockCards({
                 <p className="text-sm font-bold text-white">
                   {filament.brand || "Без бренда"}
                 </p>
-                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-400">
                   <span>
                     {filament.type || "—"} · {filament.color || "—"}
                   </span>
@@ -525,14 +525,14 @@ function StockCards({
                 </p>
               </div>
               {needsRestock ? (
-                <span className="rounded-full border border-red-400/40 bg-red-500/15 px-2.5 py-1 text-[11px] font-bold tracking-wide text-red-200 uppercase">
+                <span className="rounded-full border border-red-400/40 bg-red-400/15 px-2.5 py-1 text-xs font-bold tracking-wide text-red-200 uppercase">
                   Пора купить
                 </span>
               ) : null}
             </div>
 
             <div className="mt-3">
-              <p className="text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+              <p className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
                 Остаток (г)
               </p>
               <p
@@ -542,7 +542,7 @@ function StockCards({
               >
                 {formatGrams(filament.remainingWeightG)}
               </p>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-zinc-400">
                 из {formatGrams(filament.totalWeightG)} · порог{" "}
                 {formatGrams(filament.minThresholdG)}
               </p>
@@ -586,7 +586,7 @@ function UsageTypeBadge({
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold tracking-wide whitespace-nowrap uppercase ${
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-bold tracking-wide whitespace-nowrap uppercase ${
         isOrdered
           ? "border-amber-500/30 bg-amber-500/20 text-amber-300"
           : "border-green-500/30 bg-green-500/20 text-green-300"
@@ -618,7 +618,7 @@ function EmptyStock({ onAdd }: { onAdd: () => void }) {
       <button
         type="button"
         onClick={onAdd}
-        className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+        className="mt-5 inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
       >
         Добавить первую катушку
       </button>
@@ -661,7 +661,7 @@ function RemainingBar({
           style={{ width: `${percent}%` }}
         />
       </div>
-      <p className="mt-1 text-[11px] text-zinc-500">
+      <p className="mt-1 text-xs text-zinc-400">
         {percent}% от {formatGrams(filament.totalWeightG)}
       </p>
     </div>
@@ -680,11 +680,11 @@ function PurchaseLink({
   isLow: boolean;
 }) {
   if (!filament.purchaseUrl) {
-    return <span className="text-sm text-slate-500">—</span>;
+    return <span className="text-sm text-slate-400">—</span>;
   }
 
   const className = isLow
-    ? "inline-flex min-h-9 items-center justify-center rounded-lg border border-red-400/30 bg-red-500/10 px-3.5 text-xs font-bold text-red-200 transition-colors hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+    ? "inline-flex min-h-9 items-center justify-center rounded-lg border border-red-400/30 bg-red-400/10 px-3.5 text-xs font-bold text-red-200 transition-colors hover:bg-red-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
     : "text-sm font-semibold text-blue-300 underline-offset-4 transition-colors hover:text-blue-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]";
 
   return (
@@ -787,7 +787,7 @@ function DeleteButton({
       aria-label={`Удалить катушку: ${label}`}
       title={isDeleting ? "Удаляем…" : "Удалить катушку"}
       onClick={() => onDelete(filament)}
-      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-wait disabled:opacity-60"
+      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-red-400 transition-colors hover:bg-red-400/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-wait disabled:opacity-60"
     >
       <TrashIcon className="h-4 w-4" />
     </button>

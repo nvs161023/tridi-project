@@ -85,7 +85,7 @@ export function PrinterModelHint({
   return (
     <p
       className={`mt-1.5 text-xs leading-relaxed ${
-        message.tone === "warn" ? "text-amber-300" : "text-zinc-500"
+        message.tone === "warn" ? "text-amber-300" : "text-zinc-400"
       }`}
     >
       {message.text}

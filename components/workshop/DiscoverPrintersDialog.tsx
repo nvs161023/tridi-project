@@ -186,7 +186,7 @@ const SCAN_NOT_FOUND_MESSAGE =
   "Агент не нашел принтеров. Убедитесь, что принтер включен и находится в той же сети.";
 
 const inputClassName =
-  "mt-2 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset disabled:cursor-not-allowed disabled:opacity-40";
+  "mt-2 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset disabled:cursor-not-allowed disabled:opacity-40";
 
 const primaryButtonClassName =
   "inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60";
@@ -447,7 +447,7 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
               {ipAddressError}
             </p>
           ) : (
-            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+            <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
               Без «http://» и «/»: адрес вида 192.168.1.50 или ender3.local.
             </p>
           )}
@@ -608,7 +608,7 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
               {apiKeyError}
             </p>
           ) : (
-            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+            <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
               Необязательно. Ключ уходит только агенту и в интерфейс не
               возвращается.
             </p>
@@ -619,7 +619,7 @@ function ManualPrinterForm({ onCreated, onCancel }: ManualPrinterFormProps) {
       {state.error ? (
         <p
           role="alert"
-          className="mt-4 rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+          className="mt-4 rounded-2xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
         >
           {state.error}
         </p>
@@ -1126,7 +1126,7 @@ export function DiscoverPrintersDialog({
               {scanError ? (
                 <p
                   role="alert"
-                  className="mt-3 rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+                  className="mt-3 rounded-2xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
                 >
                   {scanError}
                 </p>
@@ -1199,7 +1199,7 @@ export function DiscoverPrintersDialog({
               >
                 {allChosen ? "Снять выбор" : "Выбрать все"}
               </button>
-              <p className="text-xs font-semibold text-zinc-500">
+              <p className="text-xs font-semibold text-zinc-400">
                 Выбрано:{" "}
                 <span className="text-white tabular-nums">{chosen.length}</span>{" "}
                 из <span className="tabular-nums">{found.length}</span>
@@ -1278,13 +1278,13 @@ export function DiscoverPrintersDialog({
                           </label>
                           {printer.name ? (
                             <span
-                              className="rounded-md border border-blue-400/30 bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-blue-100"
+                              className="rounded-md border border-blue-400/30 bg-blue-500/10 px-2 py-0.5 text-xs font-semibold text-blue-100"
                               title="Так принтер называет себя сам — по этой подписи его и узнают"
                             >
                               {printer.name}
                             </span>
                           ) : null}
-                          <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-300 uppercase">
+                          <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-xs font-semibold tracking-wide text-zinc-300 uppercase">
                             {PROTOCOL_LABELS[printer.protocolType]}
                           </span>
                         </div>
@@ -1325,7 +1325,7 @@ export function DiscoverPrintersDialog({
                           <div>
                             <label
                               htmlFor={`${checkboxId}-brand`}
-                              className="text-[11px] font-semibold text-zinc-400"
+                              className="text-xs font-semibold text-zinc-400"
                             >
                               Бренд
                             </label>
@@ -1350,7 +1350,7 @@ export function DiscoverPrintersDialog({
                           <div>
                             <label
                               htmlFor={`${checkboxId}-model`}
-                              className="text-[11px] font-semibold text-zinc-400"
+                              className="text-xs font-semibold text-zinc-400"
                             >
                               Модель
                             </label>
@@ -1410,12 +1410,12 @@ export function DiscoverPrintersDialog({
                               <div>
                                 <label
                                   htmlFor={`${checkboxId}-serial`}
-                                  className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold text-zinc-400"
+                                  className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-zinc-400"
                                 >
                                   Serial Number
                                   {isDiscoveredSerial ? (
                                     <span
-                                      className="inline-flex items-center gap-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200"
+                                      className="inline-flex items-center gap-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 px-1.5 py-0.5 text-xs font-semibold text-emerald-200"
                                       title="Номер пришёл в ответе принтера при сканировании сети — переписывать его с наклейки не нужно"
                                     >
                                       <span aria-hidden="true">✓</span>
@@ -1452,7 +1452,7 @@ export function DiscoverPrintersDialog({
                                   className={`mt-1.5 text-xs leading-relaxed ${
                                     needsSerialHint
                                       ? "text-red-300"
-                                      : "text-zinc-500"
+                                      : "text-zinc-400"
                                   }`}
                                 >
                                   {needsSerialHint
@@ -1465,7 +1465,7 @@ export function DiscoverPrintersDialog({
                               <div key={`${printer.ipAddress}-${field.key}`}>
                                 <label
                                   htmlFor={`${checkboxId}-secret-${field.key}`}
-                                  className="text-[11px] font-semibold text-zinc-400"
+                                  className="text-xs font-semibold text-zinc-400"
                                 >
                                   {field.label}
                                 </label>
@@ -1497,7 +1497,7 @@ export function DiscoverPrintersDialog({
                                 />
                                 <p
                                   id={`${checkboxId}-secret-${field.key}-hint`}
-                                  className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+                                  className="mt-1.5 text-xs leading-relaxed text-zinc-400"
                                 >
                                   {field.hint}
                                 </p>
@@ -1537,7 +1537,7 @@ export function DiscoverPrintersDialog({
                         />
                         <p
                           id={`${checkboxId}-key-hint`}
-                          className="mt-1.5 text-xs leading-relaxed text-zinc-500"
+                          className="mt-1.5 text-xs leading-relaxed text-zinc-400"
                         >
                           Необязательно. Ключ уходит только агенту и в интерфейс
                           не возвращается.
@@ -1579,7 +1579,7 @@ export function DiscoverPrintersDialog({
             {error ? (
               <p
                 role="alert"
-                className="mt-4 rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+                className="mt-4 rounded-2xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
               >
                 {error}
               </p>

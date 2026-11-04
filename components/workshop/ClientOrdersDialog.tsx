@@ -189,7 +189,7 @@ export function ClientOrdersDialog({
         {loadError ? (
           <p
             role="alert"
-            className="mt-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-200"
+            className="mt-5 rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-200"
           >
             {loadError}
           </p>
@@ -235,7 +235,7 @@ export function ClientOrdersDialog({
                   Заказы клиента {client.name}: дата, название, сумма и статус
                 </caption>
                 <thead>
-                  <tr className="border-b border-white/5 text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+                  <tr className="border-b border-white/5 text-left text-xs font-semibold tracking-wide text-zinc-400 uppercase">
                     <th scope="col" className="px-3 py-2.5">
                       Дата
                     </th>
@@ -269,7 +269,7 @@ export function ClientOrdersDialog({
                         </td>
                         <td className="px-3 py-3">
                           <span
-                            className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${meta.badgeClassName}`}
+                            className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${meta.badgeClassName}`}
                           >
                             {meta.label}
                           </span>
@@ -287,7 +287,7 @@ export function ClientOrdersDialog({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-5 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-5 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             Закрыть
           </button>

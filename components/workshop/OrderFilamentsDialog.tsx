@@ -193,11 +193,11 @@ export function OrderFilamentsDialog({
           <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
             {candidates.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 px-5 py-10 text-center">
-                <SpecificationIcon className="mx-auto h-9 w-9 text-zinc-500" />
+                <SpecificationIcon className="mx-auto h-9 w-9 text-zinc-400" />
                 <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-zinc-400">
                   Все катушки на складе в норме. Заказывать пока нечего
                 </p>
-                <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-zinc-500">
+                <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-zinc-400">
                   Заказные позиции не участвуют в автозакупке.
                 </p>
               </div>
@@ -249,7 +249,7 @@ export function OrderFilamentsDialog({
                             >
                               Осталось: {formatGrams(filament.remainingWeightG)}
                             </p>
-                            <p className="text-[11px] text-zinc-500">
+                            <p className="text-xs text-zinc-400">
                               Порог: {formatGrams(filament.minThresholdG)}
                             </p>
                           </div>
@@ -257,7 +257,7 @@ export function OrderFilamentsDialog({
                         <div className="w-24 shrink-0 sm:w-28">
                           <label
                             htmlFor={quantityId}
-                            className="block text-[10px] font-semibold tracking-wide text-zinc-500 uppercase"
+                            className="block text-xs font-semibold tracking-wide text-zinc-400 uppercase"
                           >
                             К заказу, г
                           </label>

@@ -305,7 +305,7 @@ export function WorkshopProductsTab({
             ref={importButtonRef}
             type="button"
             onClick={openImportDialog}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+            className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
           >
             Импорт
           </button>
@@ -316,7 +316,7 @@ export function WorkshopProductsTab({
               aria-expanded={isExportMenuOpen}
               aria-controls="workshop-export-menu"
               onClick={() => setIsExportMenuOpen((open) => !open)}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
             >
               Экспорт
               <svg
@@ -343,7 +343,7 @@ export function WorkshopProductsTab({
                 id="workshop-export-menu"
                 className="absolute top-full right-0 z-30 mt-2 w-56 rounded-xl border border-white/10 bg-[#0a0a0a] p-1.5 shadow-2xl shadow-black/70"
               >
-                <p className="px-2.5 pt-1 pb-1.5 text-[10px] font-semibold tracking-[0.12em] text-zinc-500 uppercase">
+                <p className="px-2.5 pt-1 pb-1.5 text-xs font-semibold tracking-[0.12em] text-zinc-400 uppercase">
                   Маркетплейс
                 </p>
                 <ul aria-label="Площадки для экспорта" className="space-y-0.5">
@@ -368,7 +368,7 @@ export function WorkshopProductsTab({
               ref={addButtonRef}
               type="button"
               onClick={openDialog}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-black shadow-[0_10px_30px_-12px_rgba(255,255,255,0.35)] transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
             >
               <span aria-hidden>+</span>
               Добавить товар
@@ -380,7 +380,7 @@ export function WorkshopProductsTab({
       {error ? (
         <p
           role="alert"
-          className="mt-5 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm leading-relaxed text-red-100"
+          className="mt-5 rounded-2xl border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm leading-relaxed text-red-100"
         >
           {error}
         </p>
@@ -435,10 +435,10 @@ export function WorkshopProductsTab({
                 spellCheck={false}
                 placeholder="Поиск: название или артикул"
                 data-products-search
-                className="min-h-11 w-full rounded-xl border border-white/10 bg-black/40 px-4 text-sm text-white outline-none transition-all duration-200 placeholder:text-zinc-500 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset"
+                className="min-h-12 w-full rounded-xl border border-white/10 bg-black/40 px-4 text-sm text-white outline-none transition-all duration-200 placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset"
               />
             </div>
-            <p className="text-xs font-semibold text-zinc-500">
+            <p className="text-xs font-semibold text-zinc-400">
               Товаров: {products.length}
               {isSearching ? ` · найдено: ${visibleProducts.length}` : ""}
             </p>
@@ -459,7 +459,7 @@ export function WorkshopProductsTab({
               <button
                 type="button"
                 onClick={() => setSearch("")}
-                className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-5 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                className="mt-5 inline-flex min-h-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-5 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
               >
                 Сбросить поиск
               </button>
@@ -515,7 +515,7 @@ function ProductsTable({
             Товары: артикул, название, цена, вес, габариты и файл модели
           </caption>
           <thead>
-            <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] font-semibold tracking-wide text-zinc-500 uppercase">
+            <tr className="border-b border-white/5 bg-white/[0.02] text-left text-xs font-semibold tracking-wide text-zinc-400 uppercase">
               <th scope="col" className="px-3 py-3">
                 Артикул
               </th>
@@ -560,7 +560,7 @@ function ProductsTable({
                       <span
                         data-product-sliced-printer
                         title="Файл 3MF нарезан под эту модель принтера"
-                        className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-blue-400/40 bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-blue-100"
+                        className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-blue-400/40 bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-blue-100"
                       >
                         <span aria-hidden>🖨️</span>
                         Нарезан для: {slicedForPrinterLabel(product.slicedForPrinter)}
@@ -586,7 +586,7 @@ function ProductsTable({
                       ) : (
                         <span
                           title="Мастер не приложил файл: позицию нельзя поставить в очередь печати"
-                          className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] font-semibold text-zinc-400"
+                          className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-xs font-semibold text-zinc-400"
                         >
                           Нет файла
                         </span>
@@ -611,7 +611,7 @@ function ProductsTable({
                         disabled={isDeleting}
                         aria-label={`Удалить товар «${product.title}»`}
                         aria-busy={isDeleting}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-400/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <TrashIcon className="h-4 w-4" />
                       </button>
