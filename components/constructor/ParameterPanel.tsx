@@ -834,6 +834,8 @@ function presetReadyNote(
       return `капсула ${params.width} × ${params.length} мм с торцами-полукругами, отверстие Ø5 мм в верхней части`;
     case "hex":
       return `шестигранник ${params.width} × ${params.length} мм со скруглёнными углами, отверстие Ø5 мм в верхней части`;
+    case "brick":
+      return `прямоугольник ${params.width} × ${params.length} мм со скруглением 8 мм, отверстие Ø5 мм в верхней части`;
     default:
       return `форма ${params.width} × ${params.length} мм, отверстие Ø5 мм под кольцо`;
   }

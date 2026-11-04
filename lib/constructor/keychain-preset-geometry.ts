@@ -66,6 +66,14 @@ const RING_HOLE_INSET_MM = 8;
 const HEX_CORNER_RADIUS_MM = 2;
 
 /**
+ * Скругление углов кирпича, мм.
+ *
+ * Крупное, потому что основа — прямоугольник 32 × 64: с малым радиусом он
+ * цепляется за ключи и колет ладонь в кармане.
+ */
+const BRICK_CORNER_RADIUS_MM = 8;
+
+/**
  * Пресеты, у которых уже есть геометрия.
  *
  * Список читают панель (подсказка вместо плашки «в работе») и API (422 вместо
@@ -75,9 +83,10 @@ export const IMPLEMENTED_KEYCHAIN_PRESETS: readonly KeychainPresetId[] = [
   "apple-tag",
   "capsule",
   "hex",
+  "brick",
 ];
 
-/** Готова ли геометрия пресета: остальные пять пока строятся старым силуэтом. */
+/** Готова ли геометрия пресета: остальные четыре пока строятся старым силуэтом. */
 export function isKeychainPresetImplemented(
   presetId: KeychainPresetId,
 ): boolean {
@@ -352,6 +361,50 @@ function hexCorners(halfWidth: number, halfHeight: number): ShapePoint[] {
 }
 
 /**
+ * Контур многоугольника с углами, скруглёнными квадратичными кривыми.
+ *
+ * Общий шаг для шестигранника и кирпича: углы обходятся против часовой стрелки,
+ * каждый угол даёт одну кривую с контрольной точкой в самой вершине, между
+ * углами остаются прямые грани. Точки касания считает `cornerRoundPoints`,
+ * поэтому скругление само ужимается на вытянутом контуре и не пересекает
+ * соседнее.
+ */
+function roundedPolygonShape(
+  corners: readonly ShapePoint[],
+  radius: number,
+): Shape {
+  const rounds = corners.map((corner, index) =>
+    cornerRoundPoints(
+      corner,
+      corners[(index + corners.length - 1) % corners.length],
+      corners[(index + 1) % corners.length],
+      radius,
+    ),
+  );
+  const shape = new Shape();
+
+  shape.moveTo(rounds[0].from[0], rounds[0].from[1]);
+
+  rounds.forEach((round, index) => {
+    shape.quadraticCurveTo(
+      corners[index][0],
+      corners[index][1],
+      round.to[0],
+      round.to[1],
+    );
+    // Угол закругляется кривой, а между углами идёт прямая грань.
+    if (index < rounds.length - 1) {
+      const nextRound = rounds[index + 1];
+
+      shape.lineTo(nextRound.from[0], nextRound.from[1]);
+    }
+  });
+  shape.closePath();
+
+  return shape;
+}
+
+/**
  * Шестигранник со скруглёнными углами и отверстием под кольцо — пресет Hex.
  *
  * Острые вершины смотрят вверх и вниз, бока — две вертикальные стенки: так
@@ -392,31 +445,51 @@ export function buildHex(params: KeychainPresetGeometryParams): ExtrudeGeometry 
     corners = hexCorners(halfWidth, apexHalfHeight + inset);
   }
 
-  const rounds = corners.map((corner, index) =>
-    cornerRoundPoints(
-      corner,
-      corners[(index + corners.length - 1) % corners.length],
-      corners[(index + 1) % corners.length],
-      HEX_CORNER_RADIUS_MM,
-    ),
-  );
-  const shape = new Shape();
+  const shape = roundedPolygonShape(corners, HEX_CORNER_RADIUS_MM);
 
-  shape.moveTo(rounds[0].from[0], rounds[0].from[1]);
-  rounds.forEach((round, index) => {
-    shape.quadraticCurveTo(
-      corners[index][0],
-      corners[index][1],
-      round.to[0],
-      round.to[1],
-    );
-    // Угол закругляется кривой, а между углами идёт прямая грань.
-    if (index < rounds.length - 1) {
-      const nextRound = rounds[index + 1];
-      shape.lineTo(nextRound.from[0], nextRound.from[1]);
-    }
-  });
-  shape.closePath();
+  shape.holes.push(ringHolePath(params.height / 2 - RING_HOLE_INSET_MM));
+
+  return extrudePresetShape(shape, params.thickness);
+}
+
+/**
+ * Прямоугольник с крупным скруглением и отверстием под кольцо — пресет Brick.
+ *
+ * Основа — прямоугольник `width × height` (по умолчанию 32 × 64, то есть плита
+ * четыре на восемь с шагом 8 мм), углы скруглены на 8 мм: у такой формы нет
+ * кромок, за которые цепляются ключи, и она не колет ладонь в кармане.
+ *
+ * Габарит от скругления не страдает, и в отличие от шестигранника компенсация
+ * здесь не нужна: крайние точки прямоугольника — середины прямых сторон, а
+ * скругление их не трогает. Сама квадратичная кривая доходит только до
+ * `(A + 2V + B) / 4`, то есть до 2.83 мм от вершины, тогда как дуга 8 мм
+ * выгнулась бы на 3.31 мм: угол выходит чуть собраннее номинального радиуса,
+ * но гладким, и одного прохода хватает.
+ *
+ * На крайних значениях слайдеров (20 × 30) срез скругления 8 мм всё ещё меньше
+ * половины короткой стороны профиля (9.6 мм), поэтому `cornerRoundPoints` не
+ * поджимает радиус и соседние скругления не наезжают друг на друга: посередине
+ * короткой стороны остаётся прямая грань 3.2 мм.
+ *
+ * Отверстие Ø5 мм — на оси симметрии в 8 мм от верхнего края, верхняя кромка
+ * горизонтальная, поэтому пластик над кольцом всегда один и тот же: 4.7 мм у
+ * крышек и 5.5 мм на середине толщины, при любом размере заготовки.
+ */
+export function buildBrick(
+  params: KeychainPresetGeometryParams,
+): ExtrudeGeometry {
+  const bevel = PRESET_BEVEL_SIZE_MM;
+  // Профиль Shape — контур крышки: фаска раздвигает его на bevel наружу.
+  const halfWidth = Math.max(params.width - bevel * 2, 1) / 2;
+  const halfHeight = Math.max(params.height - bevel * 2, 1) / 2;
+  const corners: ShapePoint[] = [
+    [halfWidth, halfHeight],
+    [-halfWidth, halfHeight],
+    [-halfWidth, -halfHeight],
+    [halfWidth, -halfHeight],
+  ];
+
+  const shape = roundedPolygonShape(corners, BRICK_CORNER_RADIUS_MM);
 
   shape.holes.push(ringHolePath(params.height / 2 - RING_HOLE_INSET_MM));
 
@@ -441,6 +514,8 @@ export function buildKeychainPresetGeometry(
       return buildCapsule(params);
     case "hex":
       return buildHex(params);
+    case "brick":
+      return buildBrick(params);
     default:
       return null;
   }
