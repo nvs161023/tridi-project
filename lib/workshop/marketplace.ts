@@ -43,6 +43,16 @@ export type MarketplaceLink = {
   createdAt: string | null;
 };
 
+/**
+ * Черновик связи «SKU площадки → товар».
+ *
+ * Форма «Добавить товар» копит такие связи до сохранения: у новой карточки ещё
+ * нет id, и записывать в `workshop_marketplace_links` нечего. Массив уходит в
+ * FormData полем `marketplaceLinks` (JSON), а `addProduct` создаёт связи сразу
+ * после вставки товара.
+ */
+export type MarketplaceLinkDraft = { marketplace: Marketplace; sku: string };
+
 /** Связь вместе с товаром: страница собирает её из двух таблиц. */
 export type MarketplaceLinkView = MarketplaceLink & {
   productTitle: string;

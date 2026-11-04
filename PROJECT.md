@@ -8912,10 +8912,17 @@ A1 при обрыве сети ушёл в паузу с вопросом на 
   проверяется по `user_id`, после записи вызывается тот же `relinkUnmappedOrders`. Общая вставка
   вынесена в `insertMarketplaceLink`, проверка товара — в `checkOwnProduct`, сообщение о
   пересчёте — в `relinkAfterLink`; `addMarketplaceLink` отвечает как раньше.
-- `components/workshop/AddProductDialog.tsx`: в режиме правки появился блок «SKU на маркетплейсах»
+- `components/workshop/AddProductDialog.tsx`: блок «SKU на маркетплейсах»
   (`data-product-marketplace-links`) — список связей с бейджем площадки и кнопкой удаления, а
   кнопка «Добавить SKU» открывает мини-форму «площадка + SKU» (отказ — `data-product-link-error`).
-  Связи пишутся сразу, не дожидаясь «Сохранить»; у нового товара блока нет — id ещё нет.
+  У правки связи пишутся сразу, не дожидаясь «Сохранить»; у нового товара id ещё нет, поэтому SKU
+  копится в `pendingLinks` и уходит в `addProduct` полем `marketplaceLinks` (JSON).
+- `lib/workshop/products.ts`: `addProduct` вставляет карточку через `.select("id")` и создаёт связи
+  из `marketplaceLinks` (`readPendingMarketplaceLinks`, `createMarketplaceLinks`). Дубль артикула
+  или неприменённая миграция товар не откатывают — в журнал уходит
+  `WARNING: не удалось создать связь <площадка>/<sku>`, а ответ дополнен `productId` и
+  `linksCreated`. Записанные связи сразу пересчитывают unmapped-заказы (`relinkUnmappedOrders`),
+  как в окне правки; `updateProduct` по-прежнему не трогает связи — их ведёт окно правки.
 - `components/workshop/WorkshopOrdersTab.tsx`: в фильтре статусов появился чип «Без маппинга»
   (`data-orders-filter`), янтарный баннер (`data-orders-unmapped-banner`) со счётчиком и кнопкой
   «Показать», а панель `UnmappedOrdersPanel` рисует карточки `UnmappedOrderCard`: «Этот заказ не

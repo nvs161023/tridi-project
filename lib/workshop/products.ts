@@ -19,9 +19,15 @@ import {
   isSourceModelFile,
   printFileExtension,
 } from "@/lib/3d/print-compatibility";
+import { isMarketplace } from "@/lib/db/workshop-types";
+import { relinkUnmappedOrders } from "@/lib/order-processor";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
+import {
+  MARKETPLACE_LINK_LIMITS,
+  type MarketplaceLinkDraft,
+} from "@/lib/workshop/marketplace";
 import {
   formatWorkshopLimit,
   parseWorkshopNumber,
@@ -86,6 +92,16 @@ export type AddProductResult = {
   fieldErrors?: ProductFieldErrors;
   success?: boolean;
   message?: string;
+  /**
+   * id сохранённого товара.
+   *
+   * Окно каталога заводит SKU маркетплейсов ещё до сохранения карточки, а
+   * `addProduct` пишет их вместе с товаром. Пустой id значит, что база не
+   * вернула строку: товар создан, но связи могло и не записаться.
+   */
+  productId?: string;
+  /** Сколько связей SKU записалось вместе с товаром. */
+  linksCreated?: number;
 };
 
 /**
@@ -1073,6 +1089,140 @@ function isDuplicateSkuError(error: {
 }
 
 /**
+ * Черновые связи SKU из формы «Добавить товар».
+ *
+ * У новой карточки ещё нет id, поэтому окно копит связи у себя и отдаёт их
+ * полем `marketplaceLinks` — JSON-массивом `{marketplace, sku}`. Разбор
+ * всепрощающий: битый JSON, чужая площадка и пустой артикул просто не создают
+ * связь, ронять из-за них товар нельзя. Повторы внутри списка отбрасываются,
+ * иначе unique(user_id, marketplace, sku) ругался бы на собственную форму.
+ */
+function readPendingMarketplaceLinks(
+  formData: FormData,
+): MarketplaceLinkDraft[] {
+  const raw = formData.get("marketplaceLinks");
+
+  if (typeof raw !== "string" || !raw.trim()) {
+    return [];
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.warn(
+      "Связи SKU из формы не разобраны: поле marketplaceLinks — не JSON.",
+    );
+
+    return [];
+  }
+
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const links: MarketplaceLinkDraft[] = [];
+
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const row = item as Partial<Record<string, unknown>>;
+    const sku =
+      typeof row.sku === "string"
+        ? row.sku.trim().slice(0, MARKETPLACE_LINK_LIMITS.sku)
+        : "";
+
+    if (!isMarketplace(row.marketplace) || !sku) {
+      continue;
+    }
+
+    // Артикул площадки — текст: «abc» и «ABC» это один и тот же SKU.
+    const key = `${row.marketplace}:${sku.toLowerCase()}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    links.push({ marketplace: row.marketplace, sku });
+  }
+
+  return links;
+}
+
+/**
+ * Запись связей, которые мастер завёл до сохранения товара.
+ *
+ * Ошибка одной связи не откатывает ни карточку, ни остальные связи: дубль
+ * артикула (23505) или неприменённая миграция — повод для записи в журнал, а
+ * товар уже создан. Возвращается число записанных связей: его показывает
+ * сообщение об успехе.
+ */
+async function createMarketplaceLinks(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  productId: string,
+  links: MarketplaceLinkDraft[],
+): Promise<number> {
+  let created = 0;
+
+  for (const link of links) {
+    const { error } = await supabase.from("workshop_marketplace_links").insert({
+      user_id: userId,
+      marketplace: link.marketplace,
+      sku: link.sku,
+      product_id: productId,
+    });
+
+    if (error) {
+      console.warn(
+        `WARNING: не удалось создать связь ${link.marketplace}/${link.sku}:`,
+        error.code,
+        error.message,
+      );
+
+      continue;
+    }
+
+    created += 1;
+  }
+
+  return created;
+}
+
+/** id из `insert().select("id")`: один товар — одна строка в ответе. */
+function readCreatedProductId(rows: unknown): string | null {
+  const row = Array.isArray(rows)
+    ? (rows[0] as Partial<Record<string, unknown>> | undefined)
+    : undefined;
+
+  return typeof row?.id === "string" ? row.id : null;
+}
+
+/** Сообщение об успехе: сколько связей SKU записалось вместе с карточкой. */
+function productAddedMessage(
+  title: string,
+  created: number,
+  total: number,
+): string {
+  const message = `Товар «${title}» добавлен.`;
+
+  if (total === 0) {
+    return message;
+  }
+
+  if (created === total) {
+    return `${message} Связей SKU: ${created}.`;
+  }
+
+  return `${message} Связей SKU: ${created} из ${total} — остальные не записались, добавьте их в карточке товара.`;
+}
+
+/**
  * Добавление товара в каталог.
  *
  * Порядок проверок тот же, что у склада и принтеров: разбор формы → сессия →
@@ -1084,6 +1234,10 @@ function isDuplicateSkuError(error: {
  * Артикул уникален в пределах пользователя: нарушение
  * `workshop_products_user_sku_uidx` (код 23505) превращается в понятную
  * подсказку, а не в общий «не удалось сохранить».
+ *
+ * Связи SKU маркетплейсов приходят тем же запросом (поле `marketplaceLinks`):
+ * у новой карточки ещё нет id, поэтому окно копит их у себя, а запись идёт
+ * после вставки товара. Сбой отдельной связи карточку не откатывает.
  */
 export async function addProduct(
   formData: FormData,
@@ -1108,6 +1262,10 @@ export async function addProduct(
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { error: PRO_REQUIRED, fieldErrors: errors };
   }
+
+  // Связи SKU, заведённые в форме до сохранения: у нового товара нет id,
+  // поэтому окно отдаёт их списком, а запись идёт после вставки карточки.
+  const pendingLinks = readPendingMarketplaceLinks(formData);
 
   // `model_url` и `sliced_for_printer` — необязательные колонки миграций
   // supabase/workshop_product_model_url.sql и
@@ -1146,21 +1304,26 @@ export async function addProduct(
     (column) => column in insertPayload,
   );
 
-  let error = (await supabase.from("workshop_products").insert(insertPayload))
-    .error;
+  // `.select("id")` возвращает созданную строку: id нужен, чтобы сразу
+  // записать связи SKU из той же формы. Вставка идёт одним построителем,
+  // поэтому повтор после PGRST204 тоже возвращает id.
+  const insertOnce = (payload: Record<string, unknown>) =>
+    supabase.from("workshop_products").insert(payload).select("id");
+
+  let inserted = await insertOnce(insertPayload);
 
   // Миграции применяют вручную: пока колонок нет, товар сохраняется без
   // исходника и разметки принтера. Терять из-за этого карточку нельзя —
   // проверка при заказе просто не сработает, пока мастер не обновит схему.
   if (
-    error &&
+    inserted.error &&
     optionalColumns.length > 0 &&
-    isMissingTableSchema(error.code, error.message)
+    isMissingTableSchema(inserted.error.code, inserted.error.message)
   ) {
     console.warn(
       "Товар сохранён без исходника или разметки принтера: примените supabase/workshop_product_model_url.sql и заново supabase/workshop_farm_and_shop.sql.",
-      error.code,
-      error.message,
+      inserted.error.code,
+      inserted.error.message,
     );
 
     const retryPayload: Record<string, unknown> = { ...insertPayload };
@@ -1169,9 +1332,10 @@ export async function addProduct(
       delete retryPayload[column];
     }
 
-    error = (await supabase.from("workshop_products").insert(retryPayload))
-      .error;
+    inserted = await insertOnce(retryPayload);
   }
+
+  const error = inserted.error;
 
   if (error) {
     console.warn("Товар не добавлен:", error.code, error.message);
@@ -1190,14 +1354,61 @@ export async function addProduct(
     };
   }
 
+  // Связи SKU пишутся после товара: без id вставлять их некуда. Сбой одной
+  // связи не откатывает карточку — мастер добавит её в окне правки.
+  const productId = readCreatedProductId(inserted.data);
+  let linksCreated = 0;
+
+  if (pendingLinks.length > 0) {
+    if (productId) {
+      linksCreated = await createMarketplaceLinks(
+        supabase,
+        user.id,
+        productId,
+        pendingLinks,
+      );
+    } else {
+      console.warn(
+        "WARNING: связи SKU не созданы — база не вернула id нового товара.",
+      );
+    }
+  }
+
+  // Новая связь могла разблокировать заказы без маппинга: пересчёт тот же, что
+  // в окне правки (`addMarketplaceLink`). Сбой пересчёта товар не откатывает.
+  let ordersReady = 0;
+
+  if (linksCreated > 0) {
+    try {
+      ordersReady = (await relinkUnmappedOrders(supabase, user.id)).ordersReady;
+    } catch (relinkError) {
+      console.warn(
+        "Связи SKU записаны, но unmapped-заказы не обновлены:",
+        relinkError,
+      );
+    }
+  }
+
   // Каталог рисуется на сервере: без этого следующий переход покажет старый список.
   revalidatePath("/dashboard/workshop");
   revalidatePath("/dashboard/workshop/products");
   revalidatePath("/dashboard/workshop/marketplace");
 
+  let message = productAddedMessage(
+    draft.title,
+    linksCreated,
+    pendingLinks.length,
+  );
+
+  if (ordersReady > 0) {
+    message = `${message} Заказов вернулось в работу: ${ordersReady}.`;
+  }
+
   return {
     success: true,
-    message: `Товар «${draft.title}» добавлен.`,
+    message,
+    productId: productId ?? undefined,
+    linksCreated,
   };
 }
 

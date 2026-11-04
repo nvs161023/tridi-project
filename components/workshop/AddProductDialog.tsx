@@ -28,6 +28,7 @@ import {
   MARKETPLACE_META,
   type Marketplace,
   type MarketplaceLink,
+  type MarketplaceLinkDraft,
 } from "@/lib/workshop/marketplace";
 import type { WorkshopProduct } from "@/lib/workshop/products";
 import {
@@ -72,6 +73,21 @@ const fileInputClassName =
 type UploadOutcome =
   | { ok: true; url: string; printerModel: string }
   | { ok: false; error: string };
+
+/**
+ * Строка блока маркетплейсов.
+ *
+ * У правки это сохранённая связь (удаляется сразу), у нового товара — черновик
+ * из формы: строки отличаются только источником и способом удаления, поэтому
+ * разметка у списка одна.
+ */
+type MarketplaceLinkRow = {
+  key: string;
+  marketplace: Marketplace;
+  sku: string;
+  busy: boolean;
+  remove: () => void;
+};
 
 /**
  * Отправка файла товара в `/api/workshop/gcode`.
@@ -180,6 +196,11 @@ function farmFormatError(
  * только открытым: состояние полей и подписка на Escape живут ровно столько,
  * сколько оно на экране. У всех полей `autoComplete="off"`, чтобы браузер не
  * рисовал белые панели автозаполнения поверх тёмной формы.
+ *
+ * Блок «SKU на маркетплейсах» есть в обоих режимах: у правки он пишет связи в
+ * `workshop_marketplace_links` сразу, а у нового товара копит их в черновике
+ * `pendingLinks` и отдаёт в `addProduct` — id карточки появляется только после
+ * вставки.
  */
 export function AddProductDialog({
   initial = null,
@@ -210,9 +231,17 @@ export function AddProductDialog({
    * Связи «SKU площадки → товар» для блока маркетплейсов.
    *
    * null — список ещё читается. У нового товара связей нет: они появляются
-   * только после сохранения карточки, когда у неё есть id.
+   * только после сохранения карточки, когда у неё есть id, поэтому до
+   * сохранения блок показывает черновик `pendingLinks`.
    */
   const [links, setLinks] = useState<MarketplaceLink[] | null>(null);
+  /**
+   * Связи, добавленные до сохранения нового товара.
+   *
+   * В базе их ещё нет: id карточки не существует. Массив уходит в `addProduct`
+   * полем `marketplaceLinks` (JSON), а после успеха очищается.
+   */
+  const [pendingLinks, setPendingLinks] = useState<MarketplaceLinkDraft[]>([]);
   const [linkFormOpen, setLinkFormOpen] = useState(false);
   const [linkMarketplace, setLinkMarketplace] = useState<Marketplace>("ozon");
   const [linkSku, setLinkSku] = useState("");
@@ -291,6 +320,13 @@ export function AddProductDialog({
     // попадают только его публичная ссылка и модель принтера из 3MF.
     formData.delete("productFile");
 
+    // Связи SKU нового товара: у него ещё нет id, поэтому пишет их сервер —
+    // сразу после вставки карточки. Пустой список отправляем тоже, чтобы
+    // действие не гадало, была ли в форме блока маркетплейсов.
+    if (!isEditing) {
+      formData.set("marketplaceLinks", JSON.stringify(pendingLinks));
+    }
+
     setError(null);
     setIsSubmitting(true);
 
@@ -335,6 +371,9 @@ export function AddProductDialog({
         return;
       }
 
+      // Товар создан, связи записаны вместе с ним (`result.productId`):
+      // черновик маркетплейсов форме больше не нужен.
+      setPendingLinks([]);
       router.refresh();
       onClose();
     } catch {
@@ -350,12 +389,14 @@ export function AddProductDialog({
   /**
    * Связь SKU с этим товаром.
    *
-   * Мини-форма блока маркетплейсов, а не главная форма карточки: она пишет в
-   * `workshop_marketplace_links` сразу, не дожидаясь «Сохранить». После успеха
-   * список перечитывается с сервера — id связей нужны кнопкам удаления.
+   * Мини-форма блока маркетплейсов, а не главная форма карточки. У
+   * существующего товара она пишет в `workshop_marketplace_links` сразу, не
+   * дожидаясь «Сохранить», и перечитывает список с сервера — id связей нужны
+   * кнопкам удаления. У нового товара id ещё нет: SKU копится в `pendingLinks`
+   * и уходит в `addProduct` вместе с остальной формой.
    */
   async function saveLink() {
-    if (!productId || isLinkBusy) {
+    if (isLinkBusy) {
       return;
     }
 
@@ -363,6 +404,29 @@ export function AddProductDialog({
 
     if (!sku) {
       setLinkError("Введите SKU площадки.");
+      return;
+    }
+
+    if (!productId) {
+      const isDuplicate = pendingLinks.some(
+        (link) =>
+          link.marketplace === linkMarketplace &&
+          link.sku.toLowerCase() === sku.toLowerCase(),
+      );
+
+      if (isDuplicate) {
+        setLinkError(`SKU «${sku}» уже добавлен для этой площадки.`);
+        return;
+      }
+
+      setPendingLinks((current) => [
+        ...current,
+        { marketplace: linkMarketplace, sku },
+      ]);
+      setLinkSku("");
+      setLinkFormOpen(false);
+      setLinkError(null);
+      setLinkNotice("SKU добавлен. Связь сохранится вместе с товаром.");
       return;
     }
 
@@ -429,6 +493,40 @@ export function AddProductDialog({
       setDeletingLinkId(null);
     }
   }
+
+  /** Снятие чернового SKU: в базе такой связи ещё нет, запрос не нужен. */
+  function removePendingLink(link: MarketplaceLinkDraft) {
+    setPendingLinks((current) =>
+      current.filter(
+        (item) => item.marketplace !== link.marketplace || item.sku !== link.sku,
+      ),
+    );
+    setLinkError(null);
+    setLinkNotice(null);
+  }
+
+  /**
+   * Строки блока маркетплейсов.
+   *
+   * У правки это связи из базы (`links`), у нового товара — черновик формы: в
+   * базе его ещё нет, поэтому и удаление локальное. Разметка у списка одна,
+   * различается только источник строк.
+   */
+  const linkRows: MarketplaceLinkRow[] = isEditing
+    ? (links ?? []).map((link) => ({
+        key: link.id,
+        marketplace: link.marketplace,
+        sku: link.sku,
+        busy: deletingLinkId === link.id,
+        remove: () => void removeLink(link),
+      }))
+    : pendingLinks.map((link) => ({
+        key: `${link.marketplace}:${link.sku}`,
+        marketplace: link.marketplace,
+        sku: link.sku,
+        busy: false,
+        remove: () => removePendingLink(link),
+      }));
 
   if (typeof document === "undefined") {
     return null;
@@ -710,171 +808,179 @@ export function AddProductDialog({
             </div>
           </fieldset>
 
-          {isEditing ? (
-            <fieldset data-product-marketplace-links>
-              <legend className={legendClassName}>SKU на маркетплейсах</legend>
-              <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-4">
-                <p className="text-xs leading-relaxed text-zinc-500">
-                  Заказы с этих площадок находят карточку по артикулу продавца:
-                  товар, файл печати и цену берём отсюда.
+          <fieldset data-product-marketplace-links>
+            <legend className={legendClassName}>SKU на маркетплейсах</legend>
+            <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-4">
+              <p className="text-xs leading-relaxed text-zinc-500">
+                Заказы с этих площадок находят карточку по артикулу продавца:
+                товар, файл печати и цену берём отсюда.
+              </p>
+
+              {isEditing ? null : (
+                <p
+                  data-product-links-pending-hint
+                  className="mt-2 text-xs leading-relaxed text-blue-200"
+                >
+                  Связи запишутся вместе с товаром: заполните их до сохранения
+                  карточки.
                 </p>
+              )}
 
-                {links === null ? (
-                  <p
-                    data-product-links-loading
-                    className="mt-3 text-xs text-zinc-500"
-                  >
-                    Читаем связи…
-                  </p>
-                ) : links.length === 0 ? (
-                  <p className="mt-3 text-xs leading-relaxed text-zinc-400">
-                    Связей пока нет. Добавьте SKU, если изделие продаётся на
-                    Ozon, Wildberries или Яндекс Маркете.
-                  </p>
-                ) : (
-                  <ul data-product-links className="mt-3 space-y-2">
-                    {links.map((link) => {
-                      const meta = MARKETPLACE_META[link.marketplace];
+              {isEditing && links === null ? (
+                <p
+                  data-product-links-loading
+                  className="mt-3 text-xs text-zinc-500"
+                >
+                  Читаем связи…
+                </p>
+              ) : linkRows.length === 0 ? (
+                <p className="mt-3 text-xs leading-relaxed text-zinc-400">
+                  Связей пока нет. Добавьте SKU, если изделие продаётся на
+                  Ozon, Wildberries или Яндекс Маркете.
+                </p>
+              ) : (
+                <ul data-product-links className="mt-3 space-y-2">
+                  {linkRows.map((row) => {
+                    const meta = MARKETPLACE_META[row.marketplace];
 
-                      return (
-                        <li
-                          key={link.id}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2"
-                        >
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span
-                              className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${meta.badgeClassName}`}
-                            >
-                              {meta.label}
-                            </span>
-                            <span className="truncate font-mono text-xs font-semibold text-blue-200">
-                              {link.sku}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => void removeLink(link)}
-                            disabled={deletingLinkId === link.id}
-                            aria-label={`Удалить связь SKU «${link.sku}»`}
-                            aria-busy={deletingLinkId === link.id}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
+                    return (
+                      <li
+                        key={row.key}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${meta.badgeClassName}`}
                           >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-
-                {linkFormOpen ? (
-                  <div className="mt-3 space-y-3 rounded-xl border border-white/10 bg-black/40 p-3">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="block text-sm font-semibold text-slate-200">
-                        <span>Площадка</span>
-                        <select
-                          value={linkMarketplace}
-                          onChange={(event) =>
-                            setLinkMarketplace(
-                              event.currentTarget.value as Marketplace,
-                            )
-                          }
-                          aria-label="Площадка"
-                          className={inputClassName}
+                            {meta.label}
+                          </span>
+                          <span className="truncate font-mono text-xs font-semibold text-blue-200">
+                            {row.sku}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={row.remove}
+                          disabled={row.busy}
+                          aria-label={`Удалить связь SKU «${row.sku}»`}
+                          aria-busy={row.busy}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {MARKETPLACES.map((marketplace) => (
-                            <option key={marketplace} value={marketplace}>
-                              {MARKETPLACE_META[marketplace].label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
 
-                      <label className="block text-sm font-semibold text-slate-200">
-                        <span>SKU площадки</span>
-                        <input
-                          type="text"
-                          value={linkSku}
-                          onChange={(event) =>
-                            setLinkSku(event.currentTarget.value)
+              {linkFormOpen ? (
+                <div className="mt-3 space-y-3 rounded-xl border border-white/10 bg-black/40 p-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-sm font-semibold text-slate-200">
+                      <span>Площадка</span>
+                      <select
+                        value={linkMarketplace}
+                        onChange={(event) =>
+                          setLinkMarketplace(
+                            event.currentTarget.value as Marketplace,
+                          )
+                        }
+                        aria-label="Площадка"
+                        className={inputClassName}
+                      >
+                        {MARKETPLACES.map((marketplace) => (
+                          <option key={marketplace} value={marketplace}>
+                            {MARKETPLACE_META[marketplace].label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block text-sm font-semibold text-slate-200">
+                      <span>SKU площадки</span>
+                      <input
+                        type="text"
+                        value={linkSku}
+                        onChange={(event) =>
+                          setLinkSku(event.currentTarget.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void saveLink();
                           }
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              void saveLink();
-                            }
-                          }}
-                          maxLength={MARKETPLACE_LINK_LIMITS.sku}
-                          placeholder="OZON-123456789"
-                          spellCheck={false}
-                          autoComplete="off"
-                          aria-label="SKU площадки"
-                          className={`${inputClassName} font-mono`}
-                        />
-                      </label>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void saveLink()}
-                        disabled={isLinkBusy || !linkSku.trim()}
-                        aria-busy={isLinkBusy}
-                        className="inline-flex min-h-10 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {isLinkBusy ? "Добавляем…" : "Добавить"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLinkFormOpen(false);
-                          setLinkSku("");
-                          setLinkError(null);
                         }}
-                        className="inline-flex min-h-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
-                      >
-                        Отмена
-                      </button>
-                    </div>
+                        maxLength={MARKETPLACE_LINK_LIMITS.sku}
+                        placeholder="OZON-123456789"
+                        spellCheck={false}
+                        autoComplete="off"
+                        aria-label="SKU площадки"
+                        className={`${inputClassName} font-mono`}
+                      />
+                    </label>
                   </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLinkFormOpen(true);
-                      setLinkNotice(null);
-                      setLinkError(null);
-                    }}
-                    className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-white transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
-                  >
-                    <span aria-hidden>+</span>
-                    Добавить SKU
-                  </button>
-                )}
 
-                {linkNotice ? (
-                  <p
-                    role="status"
-                    data-product-link-notice
-                    className="mt-3 text-xs leading-relaxed text-emerald-300"
-                  >
-                    {linkNotice}
-                  </p>
-                ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void saveLink()}
+                      disabled={isLinkBusy || !linkSku.trim()}
+                      aria-busy={isLinkBusy}
+                      className="inline-flex min-h-10 items-center justify-center rounded-xl bg-white px-4 text-sm font-bold text-black transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isLinkBusy ? "Добавляем…" : "Добавить"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLinkFormOpen(false);
+                        setLinkSku("");
+                        setLinkError(null);
+                      }}
+                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLinkFormOpen(true);
+                    setLinkNotice(null);
+                    setLinkError(null);
+                  }}
+                  className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-white transition-colors hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+                >
+                  <span aria-hidden>+</span>
+                  Добавить SKU
+                </button>
+              )}
 
-                {linkError ? (
-                  <p
-                    role="alert"
-                    data-product-link-error
-                    className="mt-3 text-xs leading-relaxed text-red-200"
-                  >
-                    <span aria-hidden>⚠️ </span>
-                    {linkError}
-                  </p>
-                ) : null}
-              </div>
-            </fieldset>
-          ) : null}
+              {linkNotice ? (
+                <p
+                  role="status"
+                  data-product-link-notice
+                  className="mt-3 text-xs leading-relaxed text-emerald-300"
+                >
+                  {linkNotice}
+                </p>
+              ) : null}
+
+              {linkError ? (
+                <p
+                  role="alert"
+                  data-product-link-error
+                  className="mt-3 text-xs leading-relaxed text-red-200"
+                >
+                  <span aria-hidden>⚠️ </span>
+                  {linkError}
+                </p>
+              ) : null}
+            </div>
+          </fieldset>
 
           {error ? (
             <p
