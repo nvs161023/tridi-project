@@ -102,7 +102,7 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     id: "ticket",
     label: "Ticket",
     description:
-      "Билет с полукруглыми вырезами по бокам: вырезы экономят пластик и дают зацеп за кольцо.",
+      "Билет с корешком и линией перфорации: отверстие под кольцо в корешке, углы скруглены на 6 мм.",
     defaultWidth: 28,
     defaultHeight: 60,
     defaultThickness: 2.5,

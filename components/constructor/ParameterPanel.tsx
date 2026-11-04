@@ -15,6 +15,7 @@ import {
 import {
   brickStudLayout,
   isKeychainPresetImplemented,
+  ticketLayout,
 } from "@/lib/constructor/keychain-preset-geometry";
 import {
   KEYCHAIN_PRESETS,
@@ -842,8 +843,11 @@ function presetReadyNote(
 
       return `LEGO-кирпич ${params.width} × ${params.length} мм, шипы Ø4.7 мм (компенсация под FDM) шагом 8 мм: ${studs.total} шт. (${studs.columns} × ${studs.rows}), отверстие Ø5 мм в верхней части`;
     }
-    case "ticket":
-      return `билет ${params.width} × ${params.length} мм с полукруглыми вырезами по бокам и скруглёнными углами, отверстие Ø5 мм в верхней части`;
+    case "ticket": {
+      const layout = ticketLayout(params.width, params.length);
+
+      return `билет ${params.width} × ${params.length} мм со скруглёнными углами 6 мм и перфорацией (${layout.perforationYs.length} отв. Ø1.8 мм шагом 3 мм, корешок ${layout.stubWidth} мм), отверстие Ø5 мм в корешке`;
+    }
     default:
       return `форма ${params.width} × ${params.length} мм, отверстие Ø5 мм под кольцо`;
   }
