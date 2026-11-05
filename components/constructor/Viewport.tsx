@@ -261,7 +261,7 @@ type KeychainModelProps = {
   length: number;
   width: number;
   thickness: number;
-  /** Отпечаток формы: пресет или силуэт. По нему пересчитывается тень. */
+  /** Отпечаток формы: пресет или свой контур. По нему пересчитывается тень. */
   shapeKey: string;
   text: string;
 };

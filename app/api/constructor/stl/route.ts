@@ -32,6 +32,7 @@ import {
   isCustomSvgData,
   isGiftBoxShape,
   isJewelryConfig,
+  isKeychainShape,
   isLithophaneBrightness,
   isLithophaneMount,
   isLithophanePart,
@@ -63,7 +64,6 @@ import {
   normalizeGiftBoxParams,
   normalizeJewelryStandParams,
   normalizeKeychainParams,
-  normalizeKeychainShapeAlias,
   normalizeLithophaneParams,
   normalizeOrnamentParams,
   normalizePenHolderParams,
@@ -278,12 +278,13 @@ function parseVaseParams(body: unknown): VaseParams | null {
  *
  * Все размеры обязательны и должны лежать в границах слайдеров. Текст — не
  * длиннее 10 символов из набора шрифта; пустая строка допустима. Форма
- * задаётся либо пресетом из реестра, либо силуэтом: пресет главнее, при нём
- * силуэт не проверяется вовсе. Старое `shapeType` ещё принимается, а `rounded`
- * превращается в жетон. Пользовательский SVG обязан быть строкой в пределах
- * 200 КБ, без скриптов и хотя бы с одним контуром: пустой `custom` дал бы
- * файл-заглушку вместо выбранной формы. NFC-флаг — только boolean, иначе строка
- * «false» включала бы карман.
+ * задаётся либо пресетом из реестра, либо своим контуром: пресет главнее, при
+ * нём контур не проверяется вовсе. Четырнадцати встроенных силуэтов больше нет,
+ * поэтому `dog_tag`, `hexagon`, `cat` и остальные прежние значения отклоняются —
+ * это ошибка ввода, а не повод собрать брелок по чужой форме. Пользовательский
+ * SVG обязан быть строкой в пределах 200 КБ, без скриптов и хотя бы с одним
+ * контуром: пустой `custom` дал бы файл-заглушку вместо выбранной формы.
+ * NFC-флаг — только boolean, иначе строка «false» включала бы карман.
  */
 function parseKeychainParams(
   body: Record<string, unknown>,
@@ -301,14 +302,21 @@ function parseKeychainParams(
   } = body;
   const preset = isKeychainPresetId(keychainPreset) ? keychainPreset : null;
   // Неизвестный идентификатор — ошибка ввода, а не «пресета нет»: иначе запрос
-  // с опечаткой молча собрал бы брелок по силуэту.
+  // с опечаткой молча собрал бы брелок по своему контуру.
   const presetInvalid =
     keychainPreset !== null &&
     keychainPreset !== undefined &&
     preset === null;
+  // `shapeType` — прежнее имя того же поля, поэтому принимается вторым. Всё,
+  // что не `custom`, — удалённый силуэт или `rounded`: такая форма в проекте
+  // больше не существует, и запрос отклоняется.
   const shape = preset
     ? null
-    : normalizeKeychainShapeAlias(keychainShape ?? shapeType);
+    : isKeychainShape(keychainShape)
+      ? keychainShape
+      : isKeychainShape(shapeType)
+        ? shapeType
+        : null;
 
   if (
     !isNumberInRange(
@@ -1451,7 +1459,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "preset_not_implemented",
-      "Этот пресет ещё не реализован. Выберите готовый пресет или прежний силуэт.",
+      "Этот пресет ещё не реализован. Выберите готовый пресет или загрузите свой контур.",
     );
   }
 

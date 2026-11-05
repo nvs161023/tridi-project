@@ -32,11 +32,16 @@ const DOCS_PATH = "PROJECT.md";
  * `lib/lesson-outline.ts` — там же с 24 октября 2026: боковое оглавление урока
  * убрано, текст растянут на всю страницу, и история изменений называет файл,
  * который больше не нужен.
+ *
+ * `lib/constructor/keychain-shapes.ts` — там же с 4 ноября 2026: четырнадцать
+ * встроенных силуэтов брелока удалены, остались восемь пресетов и свой контур, а
+ * история изменений по-прежнему называет файл, в котором лежали SVG-строки.
  */
 const REMOVED_PATHS = new Set([
   "data/course.json",
   "app/favicon.ico",
   "lib/constructor/lamp-geometry.ts",
+  "lib/constructor/keychain-shapes.ts",
   "lib/lesson-outline.ts",
 ]);
 

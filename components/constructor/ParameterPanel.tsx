@@ -74,7 +74,6 @@ import {
   VASE_SHAPE_LABELS,
   WALL_HOOK_MOUNTS,
   WALL_HOOK_MOUNT_LABELS,
-  keychainShapeTitle,
   sanitizeCipherLidText,
   sanitizeCipherWord,
   sanitizeKeychainText,
@@ -184,9 +183,17 @@ type ParameterPanelProps = {
   onModelChange: (model: ModelType) => void;
   onShapeChange: (shape: VaseShape) => void;
   onPatternChange: (pattern: VasePattern) => void;
-  onKeychainShapeChange: (shape: KeychainShape) => void;
   /**
-   * Новый пресет силуэта; null снимает пресет и возвращает встроенный силуэт.
+   * Форма брелока: `custom` — свой контур из `customSvgData`, null — вернуть
+   * пресет по умолчанию.
+   *
+   * Встроенных силуэтов больше нет, поэтому других значений не бывает: выбор
+   * пресета идёт через `onKeychainPresetChange`, и он же обнуляет контур.
+   */
+  onKeychainShapeChange: (shape: KeychainShape | null) => void;
+  /**
+   * Новый пресет силуэта; null снимает пресет, и нормализация возвращает пресет
+   * по умолчанию.
    *
    * Пресет живёт в параметрах модели (`params.keychainPreset`), а не в состоянии
    * панели: иначе список, предпросмотр и STL могли бы показывать разные формы.
@@ -464,18 +471,18 @@ const PATTERN_HINTS: Record<VasePattern, string> = {
 };
 
 /**
- * Значение списка «Форма брелока»: новый пресет из реестра или прежний силуэт.
+ * Значение списка «Форма брелока»: пресет из реестра или свой контур.
  *
- * Идентификаторы не пересекаются (`hex` и `hexagon` — разные записи), поэтому
- * один нативный список обслуживает оба набора без префиксов и групп.
+ * Идентификаторы не пересекаются (`custom` не встречается среди пресетов),
+ * поэтому один нативный список обслуживает оба набора без префиксов и групп.
  */
 type KeychainShapeSelectValue = KeychainPresetId | KeychainShape;
 
 /**
  * Пункты списка «Форма брелока».
  *
- * Восемь новых пресетов идут первыми, прежние силуэты — ниже: пользователь
- * видит новые формы там, где раньше начинался старый список. Оба набора
+ * Восемь пресетов идут первыми, «Свой SVG» — последним: пользователь видит
+ * готовые формы там, где раньше начинался старый список силуэтов. Оба набора
  * статичные, поэтому массив собирается один раз при импорте модуля.
  */
 const KEYCHAIN_SHAPE_OPTIONS: readonly {
@@ -486,9 +493,9 @@ const KEYCHAIN_SHAPE_OPTIONS: readonly {
     label: preset.label,
     value: preset.id,
   })),
-  ...KEYCHAIN_SHAPES.map((shapeType) => ({
-    label: KEYCHAIN_SHAPE_LABELS[shapeType],
-    value: shapeType,
+  ...KEYCHAIN_SHAPES.map((shape) => ({
+    label: KEYCHAIN_SHAPE_LABELS[shape],
+    value: shape,
   })),
 ];
 
@@ -1084,9 +1091,8 @@ export function ParameterPanel({
     try {
       const svg = await keychainContourFromFile(file);
 
-      // Пресет снимается первым: пока он выбран, нормализация держит силуэт
-      // пустым, и «Свой SVG» не стал бы активной формой.
-      onKeychainPresetChange(null);
+      // Сначала данные, потом форма: обновление формы само снимает пресет, а
+      // обратный порядок оставил бы в модели пресет без загруженного контура.
       onCustomSvgChange(svg);
       onKeychainShapeChange("custom");
       setContourFileName(file.name);
@@ -1102,29 +1108,26 @@ export function ParameterPanel({
   }
 
   /**
-   * Возвращает встроенный силуэт.
+   * Возвращает форму к пресету по умолчанию.
    *
-   * Пресет тоже снимается: пустой `customSvgData` сервер не примет, а при
-   * выбранном пресете силуэт в модели пуст — без снятия отметки форма не
-   * сменилась бы, и кнопка «Сбросить контур» выглядела бы сломанной.
+   * Загруженный контур стирается вместе с пресетом: без файла `custom` — форма
+   * без геометрии, и сервер не примет такой брелок. Нормализация сама подставит
+   * первый пресет реестра, потому что встроенных силуэтов больше нет.
    */
   function resetKeychainContour() {
-    onKeychainPresetChange(null);
     onCustomSvgChange("");
+    onKeychainShapeChange(null);
     setContourFileName(null);
     setContourError(null);
-
-    if (!params.keychainShape || params.keychainShape === "custom") {
-      onKeychainShapeChange("dog_tag");
-    }
   }
 
   /**
    * Выбор в списке «Форма брелока».
    *
-   * Список общий для пресетов и прежних силуэтов, но активным остаётся ровно
-   * один пункт: выбор пресета обнуляет силуэт, выбор силуэта снимает пресет.
-   * Поэтому форма в модели, подпись в сводке и файл STL всегда совпадают.
+   * Список общий для пресетов и своего контура, но активным остаётся ровно один
+   * пункт: выбор пресета обнуляет контур, выбор «Свой SVG» снимает пресет — это
+   * делает `updateKeychainShape` в `ConstructorClient`. Поэтому форма в модели,
+   * подпись в сводке и файл STL всегда совпадают.
    */
   function handleKeychainShapeSelect(value: KeychainShapeSelectValue) {
     if (isKeychainPresetId(value)) {
@@ -1132,7 +1135,6 @@ export function ParameterPanel({
       return;
     }
 
-    onKeychainPresetChange(null);
     onKeychainShapeChange(value);
   }
 
@@ -1196,28 +1198,27 @@ export function ParameterPanel({
   /**
    * Почему NFC-брелок нельзя скачать. Пусто — карман под метку 25 мм есть.
    *
-   * У `car`, `star` и `lightning` квадрат 25 мм не влезает вовсе и карман не
-   * режется, у остальных силуэтов он выходит меньше метки. Раньше такой файл
-   * молча уходил в печать, хотя метку в него не вложить.
+   * У узкого своего контура квадрат 25 мм не влезает вовсе и карман не режется,
+   * у остальных он выходит меньше метки. Раньше такой файл молча уходил в
+   * печать, хотя метку в него не вложить.
    */
   const nfcBlockReason = !nfcFit
     ? null
     : nfcFit.cavityMm <= 0
-      ? "Этот силуэт не поддерживает NFC-метку: карман под квадрат 25 × 25 мм не вырезается. Выберите другой силуэт или выключите карман."
+      ? "Этот контур не поддерживает NFC-метку: карман под квадрат 25 × 25 мм не вырезается. Загрузите контур шире или выключите карман."
       : nfcFit.fits
         ? null
-        : `Карман под метку не помещается: в этом силуэте максимум ${nfcFit.cavityMm.toFixed(1)} × ${nfcFit.cavityMm.toFixed(1)} мм при метке ${KEYCHAIN_NFC_TAG_MM} × ${KEYCHAIN_NFC_TAG_MM} мм. Выберите другой силуэт или выключите карман.`;
+        : `Карман под метку не помещается: в этом контуре максимум ${nfcFit.cavityMm.toFixed(1)} × ${nfcFit.cavityMm.toFixed(1)} мм при метке ${KEYCHAIN_NFC_TAG_MM} × ${KEYCHAIN_NFC_TAG_MM} мм. Загрузите контур шире или выключите карман.`;
 
   /**
    * Почему нельзя скачать STL из-за выбранной формы.
    *
-   * Геометрии двух пресетов ещё нет: модель в предпросмотре собирается по
-   * прежнему силуэту, и уходить в печать такой файл не должен. Причина формы
-   * важнее причины NFC — пользователь только что выбрал именно её.
+   * Геометрия есть у всех восьми пресетов, поэтому причина одна: пресет в
+   * разработке. Она важнее причины NFC — пользователь только что выбрал форму.
    */
   const presetBlockReason =
     params.keychainPreset && !selectedPresetReady
-      ? "Этот пресет ещё в разработке. Выберите готовый пресет или прежний силуэт."
+      ? "Этот пресет ещё в разработке. Выберите готовый пресет или свой контур."
       : null;
 
   /** Итоговая причина, по которой кнопки скачивания заблокированы. */
@@ -1583,12 +1584,12 @@ export function ParameterPanel({
         <>
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Восемь первых пунктов — новые пресеты со своей геометрией, ниже идут прежние силуэты. У встроенных силуэтов ушко с отверстием под кольцо 4 мм."
+              hint="Восемь пунктов — готовые пресеты со своей геометрией, девятый — свой SVG-контур: у него ушко с отверстием под кольцо 4 мм."
               label="Форма брелока"
               onChange={handleKeychainShapeSelect}
               options={KEYCHAIN_SHAPE_OPTIONS}
               value={
-                params.keychainPreset ?? params.shapeType ?? KEYCHAIN_SHAPES[0]
+                params.keychainPreset ?? params.keychainShape ?? KEYCHAIN_SHAPES[0]
               }
             />
 
@@ -1607,12 +1608,8 @@ export function ParameterPanel({
                     {selectedKeychainPreset.label}
                   </strong>
                   : {selectedKeychainPreset.description} Геометрия пресета ещё в
-                  работе: модель строится по запасному силуэту «
-                  {keychainShapeTitle({
-                    keychainPreset: null,
-                    keychainShape: params.keychainShape,
-                  })}
-                  », а скачивание STL заблокировано.
+                  работе, поэтому скачивание STL заблокировано. Выберите готовый
+                  пресет или загрузите свой контур.
                 </p>
               )
             ) : null}

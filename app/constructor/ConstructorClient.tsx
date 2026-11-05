@@ -562,19 +562,32 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, pattern }));
   }
 
-  function updateKeychainShape(shapeType: KeychainShape) {
+  /**
+   * Выбор формы брелока: `custom` — свой контур, null — пресет по умолчанию.
+   *
+   * Одно обновление на оба поля формы (`keychainShape` и прежнее `shapeType`) и
+   * на снятие пресета: два отдельных `setParams` нормализовались бы по очереди,
+   * и промежуточное состояние успело бы вернуть пресет — список и предпросмотр
+   * показали бы разное.
+   */
+  function updateKeychainShape(shape: KeychainShape | null) {
     setParams((current) =>
-      normalizeConstructorParams({ ...current, shapeType }),
+      normalizeConstructorParams({
+        ...current,
+        keychainShape: shape,
+        shapeType: shape,
+        keychainPreset: shape ? null : current.keychainPreset,
+      }),
     );
   }
 
   /**
    * Выбор нового пресета силуэта.
    *
-   * Пресет и силуэт — один пункт списка, поэтому при выборе пресета силуэт
+   * Пресет и свой контур — один пункт списка, поэтому при выборе пресета контур
    * обнуляется: в модели всегда ровно один источник формы. Снятие пресета
-   * (`null`) возвращает панель к силуэту по умолчанию, а размеры пресета
-   * записываются в слайдеры — панель показывает те миллиметры, из которых
+   * (`null`) возвращает форму по умолчанию — первый пресет реестра, — а размеры
+   * пресета записываются в слайдеры: панель показывает те миллиметры, из которых
    * сложится модель, и их можно править дальше.
    */
   function updateKeychainPreset(presetId: KeychainPresetId | null) {

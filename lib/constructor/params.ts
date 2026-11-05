@@ -386,72 +386,35 @@ export const VASE_PATTERN_LABELS = {
 /**
  * Силуэты брелока.
  *
- * Встроенные формы — SVG-контуры из lib/constructor/keychain-shapes.ts: жетон,
- * шестигранник, животные, транспорт и символы. `custom` означает загруженный
- * пользователем SVG из `customSvgData`. Прежние значения `rounded` и `hexagon`
- * остаются совместимыми: `rounded` нормализуется в `dog_tag`, а `hexagon`
- * остался отдельным силуэтом.
+ * Встроенных силуэтов больше нет — четырнадцать прежних (`dog_tag`, `hexagon`,
+ * `cat`, …, `lightning`) удалены: форму задаёт либо пресет из
+ * `lib/constructor/keychain-presets.ts`, либо контур, загруженный пользователем.
+ * Поэтому `custom` — единственное значение: он означает «форма в
+ * `customSvgData`». Первый пункт списка формы — пресет, и нормализация всегда
+ * оставляет в модели ровно один источник формы.
  *
  * Ушко под кольцо не входит в SVG: geometry добавляет его в верхнюю точку
- * контура, поэтому новая форма не может остаться без отверстия.
+ * контура, поэтому своя форма не может остаться без отверстия.
  */
-export const KEYCHAIN_SHAPES = [
-  "dog_tag",
-  "hexagon",
-  "cat",
-  "dog",
-  "car",
-  "gamepad",
-  "heart",
-  "star",
-  "rocket",
-  "fish",
-  "house",
-  "crown",
-  "mushroom",
-  "lightning",
-  "custom",
-] as const;
+export const KEYCHAIN_SHAPES = ["custom"] as const;
 
 export type KeychainShape = (typeof KEYCHAIN_SHAPES)[number];
 
 export const KEYCHAIN_SHAPE_LABELS = {
-  dog_tag: "Жетон",
-  hexagon: "Шестиугольник",
-  cat: "Кошка",
-  dog: "Собака",
-  car: "Машина",
-  gamepad: "Геймпад",
-  heart: "Сердце",
-  star: "Звезда",
-  rocket: "Ракета",
-  fish: "Рыба",
-  house: "Домик",
-  crown: "Корона",
-  mushroom: "Гриб",
-  lightning: "Молния",
   custom: "Свой SVG",
 } as const satisfies Record<KeychainShape, string>;
+
+/** Пресет брелока по умолчанию: с него начинается модель и «Сброс». */
+export const DEFAULT_KEYCHAIN_PRESET_ID: KeychainPresetId = "apple-tag";
 
 /** Предел размера загруженного SVG: 200 КБ хватает логотипу с контурами. */
 export const KEYCHAIN_SVG_MAX_LENGTH = 200_000;
 
-/**
- * Прежнее значение формы для совместимости со старыми запросами.
- * `rounded` был скруглённым прямоугольником — это и есть жетон.
- */
-export function normalizeKeychainShapeAlias(value: unknown): KeychainShape | null {
-  if (value === "rounded") {
-    return "dog_tag";
-  }
-
-  return isKeychainShape(value) ? value : null;
-}
 
 /**
  * Подпись формы брелока для панели, сводки и aria-описания сцены.
  *
- * Форму задаёт либо пресет из реестра, либо встроенный силуэт. Одна функция на
+ * Форму задаёт либо пресет из реестра, либо свой контур. Одна функция на
  * все три места не даёт подписям разойтись: пока пресет жил в отдельном
  * состоянии панели, сводка читала силуэт и показывала форму, которой в модели
  * уже не было.
@@ -533,8 +496,9 @@ export type KeychainParams = {
   /** Имя или надпись на лицевой стороне, до 10 символов. */
   text: string;
   /**
-   * Встроенный силуэт: SVG из `lib/constructor/keychain-shapes.ts` или
-   * загруженный пользователем.
+   * Свой контур: `custom` — форма берётся из `customSvgData`, и встроенных
+   * силуэтов в проекте больше нет (`lib/constructor/keychain-fallback-shape.ts`
+   * остался только запасным жетоном на случай неразобранного файла).
    *
    * null — форму задаёт пресет (`keychainPreset`), и силуэт не нужен: держать
    * оба поля заполненными значило бы дать предпросмотру и экспорту два разных
@@ -544,9 +508,9 @@ export type KeychainParams = {
   /**
    * Новый пресет силуэта из `lib/constructor/keychain-presets.ts`.
    *
-   * Пресет и встроенный силуэт взаимоисключающие: выбор пресета обнуляет
-   * `keychainShape`, выбор силуэта обнуляет это поле. Геометрия пресета строится
-   * кодом, поэтому размеры берутся из слайдеров, а не из SVG.
+   * Пресет и свой контур взаимоисключающие: выбор пресета обнуляет
+   * `keychainShape`, выбор `custom` обнуляет это поле. Геометрия пресета
+   * строится кодом, поэтому размеры берутся из слайдеров, а не из SVG.
    */
   keychainPreset?: KeychainPresetId | null;
   /**
@@ -1191,17 +1155,24 @@ export const DEFAULT_VASE_PARAMS: VaseParams = {
   patternFrequency: CONSTRUCTOR_LIMITS.patternFrequency.defaultValue,
 };
 
-/** Значения брелока по умолчанию: имя видно сразу, без пустой заготовки. */
+/**
+ * Значения брелока по умолчанию: модель открывается с готовым пресетом.
+ *
+ * Раньше здесь стоял жетон `dog_tag`, но встроенных силуэтов больше нет, а
+ * `custom` без загруженного файла — форма без геометрии: предпросмотр показал бы
+ * заглушку, а API вернул бы 422 на первый же запрос. Поэтому по умолчанию
+ * выбран первый пресет реестра.
+ */
 export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   length: CONSTRUCTOR_LIMITS.length.defaultValue,
   width: CONSTRUCTOR_LIMITS.width.defaultValue,
   thickness: CONSTRUCTOR_LIMITS.thickness.defaultValue,
   text: "Аня",
-  keychainShape: "dog_tag",
-  keychainPreset: null,
+  keychainShape: null,
+  keychainPreset: DEFAULT_KEYCHAIN_PRESET_ID,
   customSvgData: "",
   nfcEnabled: false,
-  shapeType: "dog_tag",
+  shapeType: null,
 };
 
 /** Подставка по умолчанию: наклон 65°, телефон 11 мм, ширина 80 мм. */
@@ -2325,11 +2296,13 @@ export function normalizeVaseParams(params: Partial<VaseParams>): VaseParams {
 }
 
 /**
- * Силуэт из параметров: свежий выбор в интерфейсе важнее прежнего поля.
+ * Свой контур из параметров: `custom` или null.
  *
- * null возвращается и тогда, когда форму задаёт пресет: два источника формы в
- * одном объекте недопустимы, иначе предпросмотр показывал бы силуэт, а STL
- * собирался бы по пресету.
+ * Значение принимается из обоих полей — свежего `keychainShape` и прежнего
+ * `shapeType`: панель шлёт согласованную пару, а старые ссылки и проекты могли
+ * сохранить только одно. Всё, что не `custom` (в том числе удалённые `dog_tag`,
+ * `hexagon`, `cat` и остальные), даёт null — такая форма больше не существует, и
+ * нормализация вернёт пресет по умолчанию вместо неё.
  */
 function resolveKeychainShape(
   params: Partial<KeychainParams>,
@@ -2339,18 +2312,11 @@ function resolveKeychainShape(
     return null;
   }
 
-  const fromKeychain = normalizeKeychainShapeAlias(params.keychainShape);
-  const fromLegacy = normalizeKeychainShapeAlias(params.shapeType);
-
-  // Панель пока меняет только старое поле shapeType, а normalizeConstructorParams
-  // получает весь объект с прежним keychainShape. Поэтому при расхождении
-  // побеждает shapeType: это признак свежего выбора в интерфейсе. Запросы API
-  // передают согласованные поля (или только keychainShape).
-  if (fromLegacy && fromKeychain && fromLegacy !== fromKeychain) {
-    return fromLegacy;
+  if (isKeychainShape(params.keychainShape)) {
+    return params.keychainShape;
   }
 
-  return fromKeychain ?? fromLegacy ?? DEFAULT_KEYCHAIN_PARAMS.keychainShape;
+  return isKeychainShape(params.shapeType) ? params.shapeType : null;
 }
 
 /**
@@ -2358,21 +2324,28 @@ function resolveKeychainShape(
  *
  * Как и у вазы, числа зажимаются в границы и встают на шаг слайдера. Текст
  * очищается от символов вне шрифта и обрезается до 10 знаков; сервер до
- * вызова этой функции проверяет исходную строку строго. Силуэт и его прежний
+ * вызова этой функции проверяет исходную строку строго. Контур и его прежний
  * псевдоним всегда совпадают, SVG ограничен размером и безопасными тегами,
  * а NFC-флаг принимается только настоящим boolean.
  *
- * Пресет и силуэт взаимоисключающие: выбранный пресет обнуляет силуэт, а
+ * Пресет и контур взаимоисключающие: выбранный пресет обнуляет контур, а
  * NFC-карман при нём выключается — у пресетов пока нет полости под метку, и
- * включённый флаг обещал бы карман, которого в модели нет.
+ * включённый флаг обещал бы карман, которого в модели нет. Если ни пресета, ни
+ * контура не осталось (старый силуэт, сброшенный файл), в модель встаёт пресет
+ * по умолчанию: без формы предпросмотр и экспорт падать не должны.
  */
 export function normalizeKeychainParams(
   params: Partial<KeychainParams>,
 ): KeychainParams {
-  const keychainPreset = isKeychainPresetId(params.keychainPreset)
+  const requestedPreset = isKeychainPresetId(params.keychainPreset)
     ? params.keychainPreset
     : null;
-  const keychainShape = resolveKeychainShape(params, keychainPreset);
+  const requestedShape = resolveKeychainShape(params, requestedPreset);
+  // Ни пресета, ни своего контура не осталось — в модель встаёт первый пресет:
+  // без формы предпросмотр показал бы заглушку, а экспорт вернул бы 422.
+  const keychainPreset =
+    requestedPreset ?? (requestedShape ? null : DEFAULT_KEYCHAIN_PRESET_ID);
+  const keychainShape = keychainPreset ? null : requestedShape;
   const customSvgData = isCustomSvgData(params.customSvgData)
     ? params.customSvgData.trim()
     : "";

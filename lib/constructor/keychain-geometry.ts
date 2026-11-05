@@ -4,7 +4,7 @@ import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-import { KEYCHAIN_SILHOUETTES } from "@/lib/constructor/keychain-shapes";
+import { KEYCHAIN_FALLBACK_SVG } from "@/lib/constructor/keychain-fallback-shape";
 import { buildKeychainPresetGeometry } from "@/lib/constructor/keychain-preset-geometry";
 import {
   normalizeKeychainParams,
@@ -583,28 +583,24 @@ function findEyeletY(groups: readonly ContourGroup[], length: number): number {
 }
 
 /**
- * Разбирает выбранный силуэт и ставит его в габариты брелока.
+ * Разбирает контур брелока и ставит его в габариты.
  *
- * null в `keychainShape` означает, что форму задаёт пресет. Если геометрии
- * пресета ещё нет, предпросмотр показывает жетон — это временная замена, а
- * скачивание такого файла API блокирует ответом 422.
+ * Форму даёт `customSvgData` — загруженный SVG или обводка картинки. Пока файл
+ * не разобрался (или параметры пришли без него), берётся запасной жетон: пустой
+ * предпросмотр выглядел бы поломкой, а такой файл всё равно не скачивается —
+ * API требует непустой контур для `custom`. Пресет сюда не попадает: у него своя
+ * геометрия, и `createKeychainGeometry` возвращает её раньше.
  */
 function createOutline(params: KeychainParams, bevel: number): KeychainOutline {
-  const shape = params.keychainShape;
   const custom =
-    shape === "custom" && params.customSvgData.trim()
+    params.keychainShape === "custom" && params.customSvgData.trim()
       ? params.customSvgData
       : null;
-  const builtin =
-    shape && shape !== "custom"
-      ? KEYCHAIN_SILHOUETTES[shape]
-      : KEYCHAIN_SILHOUETTES.dog_tag;
-  const svg = custom ?? builtin;
 
-  let contours = parseSvgOutline(svg);
+  let contours = parseSvgOutline(custom ?? KEYCHAIN_FALLBACK_SVG);
 
-  if (contours.length === 0) {
-    contours = parseSvgOutline(KEYCHAIN_SILHOUETTES.dog_tag);
+  if (contours.length === 0 && custom) {
+    contours = parseSvgOutline(KEYCHAIN_FALLBACK_SVG);
   }
 
   if (contours.length === 0) {
@@ -643,10 +639,10 @@ export type KeychainNfcFit = {
  * Меряет карман теми же функциями, что и геометрия.
  *
  * Панель показывает предупреждение, только если карман действительно меньше
- * метки или не вырезается вовсе: у `car`, `star` и `lightning` под квадрат
- * 25 мм нет места, и раньше такой брелок молча уходил в печать. Возвращает
- * null, если контур не разобрался — тогда ошибку показывает загрузка контура,
- * а не NFC-плашка.
+ * метки или не вырезается вовсе: у узкого своего контура под квадрат 25 мм места
+ * может не быть, и раньше такой брелок молча уходил в печать. Возвращает null,
+ * если контур не разобрался — тогда ошибку показывает загрузка контура, а не
+ * NFC-плашка.
  */
 export function measureKeychainNfc(
   params: Partial<KeychainParams>,
