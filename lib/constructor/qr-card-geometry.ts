@@ -760,18 +760,18 @@ function qrCardRingHolePath(centerY: number): Path {
 }
 
 /**
- * Выдавливает контур в тело с фаской по обеим кромкам.
+ * Выдавливает контур в слой тела с фаской по обеим кромкам, мм.
  *
- * Повторяет `extrudePresetShape` из `keychain-preset-geometry.ts`, а не импортирует
- * его: тот модуль уже импортирует `buildQrCard`, и обратный импорт закрыл бы цикл.
- * Толщина держится ровно по слайдеру — выдавливание идёт на
- * `thickness − 2 × bevelThickness`, а сдвиг ставит нижнюю грань на Z = 0.
+ * Полная высота слоя равна `height`: выдавливание идёт на
+ * `height − 2 × bevelThickness`, а сдвиг ставит нижнюю грань ровно на `startZ` —
+ * так два слоя корпуса с карманом под NFC-метку стыкуются без щели.
  */
-function extrudeQrCardBody(
+function extrudeQrCardLayer(
   shape: Shape,
-  thickness: number,
+  startZ: number,
+  height: number,
 ): ExtrudeGeometry {
-  const depth = Math.max(thickness - QR_CARD_BEVEL_THICKNESS_MM * 2, 0.05);
+  const depth = Math.max(height - QR_CARD_BEVEL_THICKNESS_MM * 2, 0.05);
   const geometry = new ExtrudeGeometry(shape, {
     bevelEnabled: true,
     bevelSegments: QR_CARD_BEVEL_SEGMENTS,
@@ -782,10 +782,65 @@ function extrudeQrCardBody(
     steps: 1,
   });
 
-  geometry.translate(0, 0, QR_CARD_BEVEL_THICKNESS_MM);
+  geometry.translate(0, 0, startZ + QR_CARD_BEVEL_THICKNESS_MM);
 
   return geometry;
 }
+
+/**
+ * Выдавливает контур в тело с фаской по обеим кромкам.
+ *
+ * Повторяет `extrudePresetShape` из `keychain-preset-geometry.ts`, а не импортирует
+ * его: тот модуль уже импортирует `buildQrCard`, и обратный импорт закрыл бы цикл.
+ * Толщина держится ровно по слайдеру — нижняя грань на Z = 0, верхняя на
+ * `thickness`.
+ */
+function extrudeQrCardBody(
+  shape: Shape,
+  thickness: number,
+): ExtrudeGeometry {
+  return extrudeQrCardLayer(shape, 0, thickness);
+}
+/**
+ * Корпус с карманом под NFC-метку: два слоя вместо одного.
+ *
+ * Задний слой (0 … `pauseZ`) несёт круглое отверстие кармана, передний
+ * (`depth` … `thickness`) остаётся сплошным — он и есть крышка над меткой.
+ * Перекрытие 0.05 мм не даёт слоям разойтись. Контур строится дважды готовой
+ * фабрикой: `qrCardOutline` — чистая функция, и копировать дырки вручную не
+ * нужно, а карман попадает только в задний слой.
+ */
+function qrCardPocketBody(
+  outline: () => Shape,
+  thickness: number,
+  pocket: QrCardNfcPocket,
+): BufferGeometry {
+  const backShape = outline();
+  const hole = new Path();
+
+  hole.absarc(0, pocket.pocketY, pocket.radiusMm, 0, Math.PI * 2, true);
+  backShape.holes.push(hole);
+
+  const parts: BufferGeometry[] = [
+    extrudeQrCardLayer(backShape, 0, pocket.pauseZ),
+    extrudeQrCardLayer(outline(), pocket.depthMm, thickness - pocket.depthMm),
+  ];
+  const body = mergeGeometries(parts);
+
+  for (const part of parts) {
+    part.dispose();
+  }
+
+  if (!body) {
+    throw new Error(
+      "Не удалось соединить слои корпуса визитки с карманом под NFC-метку",
+    );
+  }
+
+  return body;
+}
+
+
 
 /**
  * Выдавливает плиту без фаски — второй слой гравировки.
@@ -1036,6 +1091,24 @@ function engravedReliefGeometry(
 
 
 /** Габарит и толщина из слайдеров плюс всё, что выбрано для визитки. */
+/**
+ * Карман под NFC-метку в корпусе визитки.
+ *
+ * Числа считает `nfcLayout` в `keychain-preset-geometry.ts`: этот модуль не знает
+ * ни про метку, ни про стенку — он только вырезает круг в заднем слое.
+ */
+export type QrCardNfcPocket = {
+  /** Центр круга по Y, мм. */
+  pocketY: number;
+  /** Радиус круга по контуру, мм. */
+  radiusMm: number;
+  /** Глубина кармана от нижней грани, мм. */
+  depthMm: number;
+  /** Верх заднего слоя: на нём ставится пауза M600, мм. */
+  pauseZ: number;
+};
+
+/** Параметры геометрии визитки: габарит, толщина и содержимое кода. */
 export type QrCardGeometryParams = {
   /** Ширина заготовки, мм: у пресета равна выбранному размеру. */
   width: number;
@@ -1045,6 +1118,12 @@ export type QrCardGeometryParams = {
   thickness: number;
   /** Размер, крепление, рельеф и содержимое кода. */
   qr?: QrCardSpec | null;
+  /**
+   * Карман под NFC-метку; null — корпус цельный.
+   *
+   * Приходит готовой раскладкой: глубина, радиус и центр круга.
+   */
+  nfc?: QrCardNfcPocket | null;
 };
 
 /** Одна оболочка или слияние: габарит и сфера нужны сцене и экспорту. */
@@ -1066,6 +1145,9 @@ function finishQrCard(geometry: BufferGeometry): BufferGeometry {
  * рельефа. Это не «тихая подмена»: панель и API блокируют скачивание с той же
  * причиной, а сцена остаётся живой и показывает карту целиком — по ней видно
  * проушину и габарит.
+ *
+ * NFC-карман делит только корпус: рельеф кода остаётся на лице, а пауза
+ * печатается на верхе заднего слоя — там же, где у остальных пресетов.
  */
 export function buildQrCard(params: QrCardGeometryParams): BufferGeometry {
   const spec = params.qr ?? DEFAULT_QR_CARD_SPEC;
@@ -1076,10 +1158,10 @@ export function buildQrCard(params: QrCardGeometryParams): BufferGeometry {
     spec.mode === "engraved"
       ? Math.max(params.thickness - QR_ENGRAVED_DEPTH_MM, 0.4)
       : params.thickness;
-  const body = extrudeQrCardBody(
-    qrCardOutline(params.width, params.height, spec.tab),
-    bodyThickness,
-  );
+  const outline = () => qrCardOutline(params.width, params.height, spec.tab);
+  const body = params.nfc
+    ? qrCardPocketBody(outline, bodyThickness, params.nfc)
+    : extrudeQrCardBody(outline(), bodyThickness);
 
   if (plan.layout.blockedReason || plan.contentError) {
     return finishQrCard(body);

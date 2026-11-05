@@ -17,6 +17,7 @@ import {
   gearLayout,
   heartLayout,
   isKeychainPresetImplemented,
+  nfcLayout,
   starburstLayout,
   ticketLayout,
 } from "@/lib/constructor/keychain-preset-geometry";
@@ -1279,19 +1280,57 @@ export function ParameterPanel({
   const nfcLayers = keychainNfcLayers(params.thickness);
 
   /**
-   * Почему NFC-брелок нельзя скачать. Пусто — карман под метку 25 мм есть.
+   * Раскладка кармана у выбранного пресета.
    *
-   * У узкого своего контура квадрат 25 мм не влезает вовсе и карман не режется,
-   * у остальных он выходит меньше метки. Раньше такой файл молча уходил в
-   * печать, хотя метку в него не вложить.
+   * Считается той же `nfcLayout`, что и геометрия: радиус круга, глубина,
+   * пауза и причина отказа берутся из одного места, поэтому подсказка «пауза на
+   * Z = 1.05 мм» не может разойтись с моделью. Для своего контура — null: у него
+   * карман квадратный и считается по `measureKeychainNfc`.
    */
-  const nfcBlockReason = !nfcFit
-    ? null
-    : nfcFit.cavityMm <= 0
+  const presetNfc = params.keychainPreset
+    ? nfcLayout(params.keychainPreset, {
+        width: params.width,
+        height: params.length,
+        thickness: params.thickness,
+        nfcEnabled: params.nfcEnabled,
+        qr:
+          params.keychainPreset === "qr-card"
+            ? keychainQrCardSpec(params)
+            : null,
+      })
+    : null;
+
+  /** Почему пресет не получит карман: силуэт не держит метку или основа тонкая. */
+  const presetNfcBlocked = presetNfc?.blockedReason ?? null;
+
+  /** Пауза и пластик над карманом пресета без хвостовых нулей: 1.05 и 1.95. */
+  const presetNfcPauseLabel = presetNfc
+    ? Number(presetNfc.pauseZ.toFixed(2)).toString()
+    : "";
+  const presetNfcLidLabel = presetNfc
+    ? Number(presetNfc.lidMm.toFixed(2)).toString()
+    : "";
+  const presetNfcDiameterLabel = presetNfc
+    ? Number((presetNfc.pocketRadiusMm * 2).toFixed(1)).toString()
+    : "";
+
+  /**
+   * Почему NFC-брелок нельзя скачать. Пусто — карман есть и метка влезает.
+   *
+   * У своего контура карман квадратный: у узкого силуэта 25 мм не влезают вовсе
+   * и карман не режется, у остальных он выходит меньше метки. У пресета причина
+   * одна — `nfcLayout` уже знает и про силуэт, и про толщину. Раньше такой файл
+   * молча уходил в печать, хотя метку в него не вложить.
+   */
+  const nfcBlockReason = nfcFit
+    ? nfcFit.cavityMm <= 0
       ? "Этот контур не поддерживает NFC-метку: карман под квадрат 25 × 25 мм не вырезается. Загрузите контур шире или выключите карман."
       : nfcFit.fits
         ? null
-        : `Карман под метку не помещается: в этом контуре максимум ${nfcFit.cavityMm.toFixed(1)} × ${nfcFit.cavityMm.toFixed(1)} мм при метке ${KEYCHAIN_NFC_TAG_MM} × ${KEYCHAIN_NFC_TAG_MM} мм. Загрузите контур шире или выключите карман.`;
+        : `Карман под метку не помещается: в этом контуре максимум ${nfcFit.cavityMm.toFixed(1)} × ${nfcFit.cavityMm.toFixed(1)} мм при метке ${KEYCHAIN_NFC_TAG_MM} × ${KEYCHAIN_NFC_TAG_MM} мм. Загрузите контур шире или выключите карман.`
+    : params.nfcEnabled
+      ? presetNfcBlocked
+      : null;
 
   /**
    * Почему нельзя скачать STL из-за выбранной формы.
@@ -1922,10 +1961,71 @@ export function ParameterPanel({
           </fieldset>
 
           {params.keychainPreset ? (
-            <p className="mt-6 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-xs leading-relaxed text-slate-300">
-              У пресетов карман под NFC-метку появится вместе с их геометрией:
-              сейчас корпус цельный, и полости под метку в нём нет.
-            </p>
+            <>
+              <label
+                className={`mt-6 flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors ${
+                  presetNfcBlocked
+                    ? "cursor-not-allowed opacity-70"
+                    : "cursor-pointer hover:border-white/25 hover:bg-white/5"
+                }`}
+              >
+                <input
+                  checked={params.nfcEnabled}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed"
+                  disabled={Boolean(presetNfcBlocked)}
+                  onChange={(event) => onNfcChange(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-200">
+                    Карман под NFC-метку
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                    Круглый карман Ø{presetNfcDiameterLabel} мм глубиной 1 мм с
+                    обратной стороны. Метку Ø26 мм вкладывают в паузу печати, и
+                    верхние слои закрывают её пластиком.
+                  </span>
+                </span>
+              </label>
+
+              {presetNfcBlocked ? (
+                <p
+                  className="mt-3 rounded-2xl border border-rose-400/40 bg-rose-400/10 px-4 py-3 text-xs leading-relaxed text-rose-100"
+                  role={params.nfcEnabled ? "alert" : "status"}
+                >
+                  {presetNfcBlocked}
+                  {params.nfcEnabled
+                    ? " Скачивание STL заблокировано: иначе уйдёт в печать брелок, в который метка не влезает."
+                    : null}
+                </p>
+              ) : null}
+
+              {params.nfcEnabled && !presetNfcBlocked && presetNfc ? (
+                presetNfc.tight ? (
+                  <p className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
+                    Карман впритык, зазор 1.5 мм: метка садится, но от кармана до
+                    кромки корпуса остаётся 1.3 мм вместо нормы 1.5 мм. Пауза{" "}
+                    <code className="font-semibold">M600</code> на слое{" "}
+                    <strong className="font-semibold">
+                      Z = {presetNfcPauseLabel} мм
+                    </strong>
+                    , над меткой {presetNfcLidLabel} мм пластика. Тонкую стенку
+                    лучше печатать PETG: PLA в кармане лопается по слоям.
+                  </p>
+                ) : (
+                  <p className="mt-3 rounded-2xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-3 text-xs leading-relaxed text-emerald-100">
+                    Карман Ø{presetNfcDiameterLabel} мм, глубина 1 мм. Добавьте
+                    паузу <code className="font-semibold">M600</code> на слое{" "}
+                    <strong className="font-semibold">
+                      Z = {presetNfcPauseLabel} мм
+                    </strong>
+                    : это верх задней части кармана. Вложите метку в открытое
+                    отверстие и продолжите печать — поверх неё останется{" "}
+                    {presetNfcLidLabel} мм пластика.
+                  </p>
+                )
+              ) : null}
+            </>
           ) : (
             <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
               <input
@@ -1946,7 +2046,7 @@ export function ParameterPanel({
             </label>
           )}
 
-          {nfcBlockReason ? (
+          {!presetNfc && nfcBlockReason ? (
             <p
               className="mt-3 rounded-2xl border border-rose-400/40 bg-rose-400/10 px-4 py-3 text-xs leading-relaxed text-rose-100"
               role="alert"
@@ -1965,7 +2065,7 @@ export function ParameterPanel({
             </p>
           ) : null}
 
-          {params.nfcEnabled && !nfcBlockReason ? (
+          {!presetNfc && params.nfcEnabled && !nfcBlockReason ? (
             <p className="mt-3 rounded-2xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-3 text-xs leading-relaxed text-emerald-100">
               Добавьте паузу <code className="font-semibold">M600</code> на слое{" "}
               <strong className="font-semibold">Z = {nfcPauseLabel} мм</strong> —

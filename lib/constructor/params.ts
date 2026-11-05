@@ -2468,11 +2468,14 @@ function resolveKeychainShape(
  * псевдоним всегда совпадают, SVG ограничен размером и безопасными тегами,
  * а NFC-флаг принимается только настоящим boolean.
  *
- * Пресет и контур взаимоисключающие: выбранный пресет обнуляет контур, а
- * NFC-карман при нём выключается — у пресетов пока нет полости под метку, и
- * включённый флаг обещал бы карман, которого в модели нет. Если ни пресета, ни
- * контура не осталось (старый силуэт, сброшенный файл), в модель встаёт пресет
- * по умолчанию: без формы предпросмотр и экспорт падать не должны.
+ * Пресет и контур взаимоисключающие: выбранный пресет обнуляет контур. Карман
+ * под NFC-метку держат только Apple Tag, Brick и QR-визитка — у них в реестре
+ * есть `nfcPocketY`; у остальных пресетов флаг гасится, потому что включённый
+ * флаг обещал бы карман, которого в модели нет. Тонкую основу нормализация не
+ * чинит: глубину и толщину проверяет `nfcLayout`, и панель с API блокируют
+ * скачивание с понятной причиной. Если ни пресета, ни контура не осталось
+ * (старый силуэт, сброшенный файл), в модель встаёт пресет по умолчанию: без
+ * формы предпросмотр и экспорт падать не должны.
  *
  * У QR-визитки ширина и длина берутся не из слайдеров, а из размера кода: 60 × 40
  * и 70 × 45 мм обе выше границы `width`, поэтому габарит выводится из
@@ -2499,6 +2502,15 @@ export function normalizeKeychainParams(
   // Габарит визитки задаёт размер кода, а не слайдер: 60 и 70 мм шире его границы.
   const qrCard = keychainPreset === "qr-card" ? QR_CARD_SIZES[qrCardSize] : null;
   const thicknessLimits = keychainThicknessLimits(keychainPreset);
+  // Карман под метку обещан только там, где он есть в геометрии: реестр хранит
+  // центр кармана, и его отсутствие — единственный признак «пресет не держит».
+  const presetNfc =
+    keychainPreset !== null &&
+    keychainPresetById(keychainPreset).nfcPocketY !== undefined;
+  const requestedNfc =
+    typeof params.nfcEnabled === "boolean"
+      ? params.nfcEnabled
+      : DEFAULT_KEYCHAIN_PARAMS.nfcEnabled;
 
   return {
     length:
@@ -2521,11 +2533,7 @@ export function normalizeKeychainParams(
     keychainShape,
     keychainPreset,
     customSvgData,
-    nfcEnabled: keychainPreset
-      ? false
-      : typeof params.nfcEnabled === "boolean"
-        ? params.nfcEnabled
-        : DEFAULT_KEYCHAIN_PARAMS.nfcEnabled,
+    nfcEnabled: keychainPreset && !presetNfc ? false : requestedNfc,
     qrCardSize,
     qrCardTab: isQrCardTab(params.qrCardTab)
       ? params.qrCardTab

@@ -976,11 +976,14 @@ export function createKeychainGeometry(
           normalized.keychainPreset === "qr-card"
             ? keychainQrCardSpec(normalized)
             : null,
+        // Карман под метку есть только у трёх пресетов; у остальных
+        // нормализация уже обнулила флаг.
+        nfcEnabled: normalized.nfcEnabled,
       })
     : null;
 
   // Пресет строится целиком из своих чисел: у него собственное отверстие под
-  // кольцо, поэтому ни ушко, ни NFC-карман, ни рельеф имени к нему не
+  // кольцо, поэтому ни ушко, ни карман под NFC-метку, ни рельеф имени к нему не
   // добавляются — это отдельные шаги. Шрифт для такой модели не нужен.
   if (preset) {
     return preset;

@@ -8,8 +8,12 @@ import {
 import type { BufferGeometry } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-import type { KeychainPresetId } from "@/lib/constructor/keychain-presets";
 import {
+  keychainPresetById,
+  type KeychainPresetId,
+} from "@/lib/constructor/keychain-presets";
+import {
+  QR_ENGRAVED_DEPTH_MM,
   buildQrCard,
   type QrCardSpec,
 } from "@/lib/constructor/qr-card-geometry";
@@ -49,6 +53,14 @@ export type KeychainPresetGeometryParams = {
    * длинная ссылка делает модуль мельче.
    */
   qr?: QrCardSpec | null;
+  /**
+   * Вырезать карман под NFC-метку.
+   *
+   * Приходит из `params.ts` уже проверенным: у пресета без `nfcPocketY` флаг
+   * обнулён, поэтому здесь достаточно одного булева. Глубину, радиус и место
+   * кармана считает `nfcLayout` — геометрия и панель берут числа оттуда.
+   */
+  nfcEnabled?: boolean;
 };
 
 /** Ширина фаски по контуру: 0.4 мм читается как скругление кромки. */
@@ -1084,17 +1096,19 @@ function ringHolePath(centerY: number): Path {
 }
 
 /**
- * Выдавливает контур в основу с фаской по обеим кромкам.
+ * Выдавливает контур в слой с фаской по обеим кромкам, мм.
  *
- * Толщина держится ровно по слайдеру: выдавливание идёт на
- * `thickness − 2 × bevelThickness`, а сдвиг на `bevelThickness` ставит нижнюю
- * грань на Z = 0 — слайсер кладёт модель на стол без поворотов.
+ * Полная высота слоя равна `height`: выдавливание идёт на
+ * `height − 2 × bevelThickness`, а сдвиг на `bevelThickness` ставит нижнюю грань
+ * ровно на `startZ`. Так два слоя основы с NFC-карманом стыкуются без щели, а
+ * одиночный слой встаёт на Z = 0 — слайсер кладёт модель на стол без поворотов.
  */
-function extrudePresetShape(
+function extrudePresetLayer(
   shape: Shape,
-  thickness: number,
+  startZ: number,
+  height: number,
 ): ExtrudeGeometry {
-  const depth = Math.max(thickness - PRESET_BEVEL_THICKNESS_MM * 2, 0.05);
+  const depth = Math.max(height - PRESET_BEVEL_THICKNESS_MM * 2, 0.05);
   const geometry = new ExtrudeGeometry(shape, {
     bevelEnabled: true,
     bevelSegments: PRESET_BEVEL_SEGMENTS,
@@ -1105,11 +1119,234 @@ function extrudePresetShape(
     steps: 1,
   });
 
-  geometry.translate(0, 0, PRESET_BEVEL_THICKNESS_MM);
+  geometry.translate(0, 0, startZ + PRESET_BEVEL_THICKNESS_MM);
+
+  return geometry;
+}
+
+/**
+ * Выдавливает контур в основу на всю толщину.
+ *
+ * Толщина держится ровно по слайдеру: нижняя грань на Z = 0, верхняя — на
+ * `thickness`.
+ */
+function extrudePresetShape(
+  shape: Shape,
+  thickness: number,
+): ExtrudeGeometry {
+  const geometry = extrudePresetLayer(shape, 0, thickness);
+
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
 
   return geometry;
+}
+
+/** Радиус NFC-метки в свету, мм: круглая метка Ø26, наклеенная на кольцо. */
+const NFC_TAG_RADIUS_MM = 13;
+
+/**
+ * Минимальная стенка между карманом и кромкой силуэта, мм.
+ *
+ * Тоньше — пластик вокруг метки прогибается и ломается в кармане. Отсюда и
+ * правило отбора: в силуэт должен вписаться круг радиусом
+ * `13 + 1.5 + 0.4 = 14.9` мм, иначе пресет карман не получает.
+ */
+const NFC_WALL_MIN_MM = 1.5;
+
+/**
+ * Радиус кармана по контуру, мм — Ø29.8 в свету.
+ *
+ * Три слагаемых: 13 мм метки, 1.5 мм стенки и 0.4 мм фаски. Фаска нужна потому,
+ * что three.js поджимает отверстие на `bevelSize` на середине толщины: по
+ * контуру выходит 14.9, в самом узком месте 14.5 — ровно метка и стенка.
+ */
+const NFC_POCKET_RADIUS_MM =
+  NFC_TAG_RADIUS_MM + NFC_WALL_MIN_MM + PRESET_BEVEL_SIZE_MM;
+
+/** Глубина кармана, мм: та же, что у классического брелока (`NFC_DEPTH_MM`). */
+const NFC_POCKET_DEPTH_MM = 1;
+
+/**
+ * Минимум пластика над карманом, мм.
+ *
+ * Это и есть отсекатель по толщине: `1 + 1.5 = 2.5` мм, а у гравированной
+ * визитки плита лица съедает ещё 0.3 мм — там нужно 2.8.
+ */
+const NFC_LID_MIN_MM = 1.5;
+
+/** Перекрытие заднего и переднего слоёв вокруг кармана, мм: щели не остаётся. */
+const NFC_JOIN_MM = 0.05;
+
+/**
+ * Сдвиг кармана вниз у QR-визитки с креплением «отверстие», мм.
+ *
+ * Отверстие Ø5 мм занимает верхнюю часть тела, поэтому круг опускается на 2.2 мм:
+ * иначе он подрезал бы стенку кольца. У проушины сверху карман стоит выше.
+ */
+const QR_CARD_NFC_HOLE_SHIFT_MM = 2.2;
+
+/** Раскладка кармана под NFC-метку: что вырезать и куда ставить паузу. */
+export type KeychainNfcLayout = {
+  /** Карман действительно вырезается: флаг включён и пресет его держит. */
+  enabled: boolean;
+  /** Почему кармана не будет: пресет не держит метку или основа тонкая. */
+  blockedReason: string | null;
+  /** Центр кармана по Y, мм; null — у пресета кармана нет вовсе. */
+  pocketY: number | null;
+  /** Радиус кармана по контуру, мм. */
+  pocketRadiusMm: number;
+  /** Глубина кармана от нижней грани, мм. */
+  depthMm: number;
+  /** Верх заднего слоя: на нём ставится пауза M600, мм. */
+  pauseZ: number;
+  /** Пластик над карманом, мм. */
+  lidMm: number;
+  /**
+   * Стенка вокруг кармана впритык — меньше нормы `NFC_WALL_MIN_MM`.
+   *
+   * Панель показывает жёлтую плашку вместо зелёной: карман вырезать можно, но
+   * стенка держится на пределе.
+   */
+  tight: boolean;
+};
+
+/**
+ * Раскладка кармана под NFC-метку для пресета.
+ *
+ * Единственный источник правды для геометрии и панели: и вырезаемый круг, и
+ * «пауза на Z = 1.05» считаются здесь, поэтому подсказка не может разойтись с
+ * моделью. Проверок две — пресет и толщина:
+ *
+ * - карман есть только у пресетов с `nfcPocketY` (Apple Tag, Brick, QR-визитка);
+ * - над карманом должно остаться `NFC_LID_MIN_MM` пластика, а у гравированной
+ *   визитки ещё и плита лица: иначе крышка над меткой прогибается.
+ *
+ * Габарит сюда не входит: центры карманов подобраны так, что стенка не тоньше
+ * `NFC_WALL_MIN_MM` при любом размере из слайдеров — расчёт в
+ * `nfc-compatibility.md`.
+ */
+export function nfcLayout(
+  presetId: KeychainPresetId,
+  params: KeychainPresetGeometryParams,
+): KeychainNfcLayout {
+  const preset = keychainPresetById(presetId);
+  const qr = params.qr ?? null;
+  const basePocketY = preset.nfcPocketY ?? null;
+  const pocketY =
+    basePocketY === null
+      ? null
+      : presetId === "qr-card" && qr?.tab === "hole"
+        ? basePocketY - QR_CARD_NFC_HOLE_SHIFT_MM
+        : basePocketY;
+  // Гравировка снимает 0.3 мм с лица: пластик над карманом тоньше на столько же.
+  const reliefMm = qr?.mode === "engraved" ? QR_ENGRAVED_DEPTH_MM : 0;
+  const minThicknessMm = Number(
+    (NFC_POCKET_DEPTH_MM + NFC_LID_MIN_MM + reliefMm).toFixed(1),
+  );
+  const thicknessMm = Number(params.thickness.toFixed(1));
+
+  const blockedReason =
+    pocketY === null
+      ? "Этот пресет не поддерживает NFC-карман: в его силуэте нет места под метку Ø26 мм со стенкой 1.5 мм."
+      : params.thickness < minThicknessMm - 1e-6
+        ? `Толщина ${thicknessMm} мм: для кармана нужно минимум ${minThicknessMm} мм, иначе над меткой останется меньше ${NFC_LID_MIN_MM} мм пластика.`
+        : null;
+
+  return {
+    enabled: Boolean(params.nfcEnabled) && blockedReason === null,
+    blockedReason,
+    pocketY,
+    pocketRadiusMm: NFC_POCKET_RADIUS_MM,
+    depthMm: NFC_POCKET_DEPTH_MM,
+    pauseZ: NFC_POCKET_DEPTH_MM + NFC_JOIN_MM,
+    lidMm: Math.max(0, params.thickness - NFC_POCKET_DEPTH_MM - reliefMm),
+    // Компактная визитка с отверстием — единственный силуэт, где вписанный круг
+    // (15.8 мм) меньше нормы 16 мм: стенка 1.3 мм вместо 1.5.
+    tight:
+      presetId === "qr-card" && qr?.size === "compact" && qr?.tab === "hole",
+  };
+}
+
+/**
+ * Круг кармана в контуре, обход по часовой стрелке — как у `ringHolePath`.
+ *
+ * Радиус берётся как есть, без добавки на фаску: `nfcLayout` уже отдаёт 14.9 мм,
+ * чтобы в самом узком месте осталось 14.5 — метка Ø26 и стенка 1.5 мм.
+ */
+function nfcHolePath(centerY: number, radius: number): Path {
+  const hole = new Path();
+
+  hole.absarc(0, centerY, radius, 0, Math.PI * 2, true);
+
+  return hole;
+}
+
+/**
+ * Копия контура с независимыми дырками.
+ *
+ * `ExtrudeGeometry` читает `shape.curves` и `shape.holes` при каждом вызове,
+ * поэтому задний слой получает свою копию с карманом: иначе круг попал бы и в
+ * сплошную крышку, и карман вышел бы сквозным.
+ */
+function cloneShape(shape: Shape): Shape {
+  const copy = new Shape();
+
+  copy.autoClose = shape.autoClose;
+  copy.curves = shape.curves.map((curve) => curve.clone());
+  copy.holes = shape.holes.map((hole) => {
+    const path = new Path();
+
+    path.autoClose = hole.autoClose;
+    path.curves = hole.curves.map((curve) => curve.clone());
+
+    return path;
+  });
+
+  return copy;
+}
+
+/**
+ * Основа пресета: сплошная плита или два слоя с карманом под NFC-метку.
+ *
+ * Без кармана контур выдавливается на всю толщину одной оболочкой. С карманом
+ * основа делится по Z: задний слой (0 … `pauseZ`) несёт круглое отверстие, а
+ * передний (`depth` … `thickness`) — сплошной контур. Карман открыт снизу, метку
+ * вкладывают в паузу, и пластик над ней — весь передний слой. Перекрытие
+ * `NFC_JOIN_MM` не даёт слоям разойтись, как у классического брелока.
+ */
+function extrudePresetBody(
+  shape: Shape,
+  params: KeychainPresetGeometryParams,
+  nfc: KeychainNfcLayout,
+): BufferGeometry {
+  if (!nfc.enabled || nfc.pocketY === null) {
+    return extrudePresetShape(shape, params.thickness);
+  }
+
+  const backShape = cloneShape(shape);
+
+  backShape.holes.push(nfcHolePath(nfc.pocketY, nfc.pocketRadiusMm));
+
+  const parts: BufferGeometry[] = [
+    extrudePresetLayer(backShape, 0, nfc.pauseZ),
+    extrudePresetLayer(shape, nfc.depthMm, params.thickness - nfc.depthMm),
+  ];
+
+  const body = mergeGeometries(parts);
+
+  for (const part of parts) {
+    part.dispose();
+  }
+
+  if (!body) {
+    throw new Error("Не удалось соединить слои основы с карманом под NFC-метку");
+  }
+
+  body.computeBoundingBox();
+  body.computeBoundingSphere();
+
+  return body;
 }
 
 /**
@@ -1123,10 +1360,13 @@ function extrudePresetShape(
  * Толщина держится ровно по слайдеру: выдавливание идёт на
  * `thickness − 2 × bevelThickness`, а сдвиг на `bevelThickness` ставит нижнюю
  * грань на Z = 0 — так же, как у старой геометрии.
+ *
+ * С включённым NFC-карманом (`nfcLayout`) основа делится на два слоя: в заднем
+ * вырезан круг Ø29.8 мм, передний остаётся сплошной крышкой над меткой.
  */
 export function buildAppleTag(
   params: KeychainPresetGeometryParams,
-): ExtrudeGeometry {
+): BufferGeometry {
   const bevel = PRESET_BEVEL_SIZE_MM;
   // Профиль Shape — это контур крышки: фаска раздвигает его на bevel наружу.
   const profileWidth = Math.max(params.width - bevel * 2, 1);
@@ -1185,7 +1425,7 @@ export function buildAppleTag(
     ringHolePath(params.height / 2 - APPLE_TAG_RING_HOLE_INSET_MM),
   );
 
-  return extrudePresetShape(shape, params.thickness);
+  return extrudePresetBody(shape, params, nfcLayout("apple-tag", params));
 }
 
 /**
@@ -1655,6 +1895,9 @@ function brickStudGeometry(): BufferGeometry {
  * Отверстие Ø5 мм — на оси симметрии в 8 мм от верхнего края, верхняя кромка
  * горизонтальная, поэтому пластик над кольцом всегда один и тот же: 4.7 мм у
  * крышек и 5.5 мм на середине толщины, при любом размере заготовки.
+ *
+ * NFC-карман (`nfcLayout`) делит тело на два слоя, шипы остаются сверху: карман
+ * открыт снизу, метку вкладывают в паузу на Z = 1.05 мм.
  */
 export function buildBrick(
   params: KeychainPresetGeometryParams,
@@ -1674,7 +1917,7 @@ export function buildBrick(
 
   shape.holes.push(ringHolePath(params.height / 2 - RING_HOLE_INSET_MM));
 
-  const body = extrudePresetShape(shape, params.thickness);
+  const body = extrudePresetBody(shape, params, nfcLayout("brick", params));
   const stud = brickStudGeometry();
   const parts: BufferGeometry[] = [body];
 
@@ -2400,6 +2643,10 @@ export function buildGear(
  * null означает «пресет ещё не реализован»: панель по этому же признаку гасит
  * кнопку скачивания, а API отвечает 422, поэтому заглушка не может уехать в
  * печать как правдоподобная модель.
+ *
+ * Карман под NFC-метку считается здесь же: `nfcLayout` — общий источник правды
+ * для геометрии и панели. QR-визитка собирается в своём модуле, ей раскладка
+ * передаётся готовыми числами: её корпус — отдельная деталь со своей фаской.
  */
 export function buildKeychainPresetGeometry(
   presetId: KeychainPresetId,
@@ -2422,8 +2669,25 @@ export function buildKeychainPresetGeometry(
       return buildStarburst(params);
     case "heart":
       return buildHeart(params);
-    case "qr-card":
-      return buildQrCard(params);
+    case "qr-card": {
+      const nfc = nfcLayout(presetId, params);
+
+      return buildQrCard({
+        width: params.width,
+        height: params.height,
+        thickness: params.thickness,
+        qr: params.qr,
+        nfc:
+          nfc.enabled && nfc.pocketY !== null
+            ? {
+                pocketY: nfc.pocketY,
+                radiusMm: nfc.pocketRadiusMm,
+                depthMm: nfc.depthMm,
+                pauseZ: nfc.pauseZ,
+              }
+            : null,
+      });
+    }
     default:
       return null;
   }

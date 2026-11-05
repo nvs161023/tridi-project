@@ -12,7 +12,10 @@ import {
   countConstructorDownloadsThisMonth,
 } from "@/lib/constructor/downloads";
 import { isKeychainPresetId } from "@/lib/constructor/keychain-presets";
-import { isKeychainPresetImplemented } from "@/lib/constructor/keychain-preset-geometry";
+import {
+  isKeychainPresetImplemented,
+  nfcLayout,
+} from "@/lib/constructor/keychain-preset-geometry";
 import { qrCardPlan } from "@/lib/constructor/qr-card-geometry";
 import {
   isQrCardSize,
@@ -1537,6 +1540,30 @@ export async function POST(request: Request): Promise<Response> {
 
     if (qrPlan.layout.blockedReason) {
       return errorResponse(422, "qr_too_dense", qrPlan.layout.blockedReason);
+    }
+  }
+
+  // Карман под NFC-метку у пресета: глубина и толщина проверяются той же
+  // `nfcLayout`, что и в панели. Флаг на тонкой основе иначе ушёл бы в печать
+  // моделью без полости — а панель в этом случае гасит кнопку.
+  if (
+    parsed.model === "keychain" &&
+    parsed.params.keychainPreset &&
+    parsed.params.nfcEnabled
+  ) {
+    const nfc = nfcLayout(parsed.params.keychainPreset, {
+      width: parsed.params.width,
+      height: parsed.params.length,
+      thickness: parsed.params.thickness,
+      nfcEnabled: parsed.params.nfcEnabled,
+      qr:
+        parsed.params.keychainPreset === "qr-card"
+          ? keychainQrCardSpec(parsed.params)
+          : null,
+    });
+
+    if (nfc.blockedReason) {
+      return errorResponse(422, "nfc_pocket_unavailable", nfc.blockedReason);
     }
   }
 
