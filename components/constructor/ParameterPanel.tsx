@@ -843,8 +843,12 @@ function presetReadyNote(
       return `шестигранник ${params.width} × ${params.length} мм со скруглёнными углами, отверстие Ø5 мм в верхней части`;
     case "gear": {
       const layout = gearLayout(params.width, params.length);
+      const ring =
+        layout.ringY > 0
+          ? `отверстие Ø5 мм на ${layout.ringY.toFixed(1)} мм выше центра, между ступицей и верхним зубом (стенка до ступицы ${layout.ringWallMm.toFixed(1)} мм)`
+          : `отверстие Ø5 мм по центру ступицы (стенка ${layout.ringWallMm.toFixed(1)} мм)`;
 
-      return `шестерня Ø${layout.diameterMm.toFixed(1)} мм (вписана в ${params.width} × ${params.length} мм): ${layout.teeth} зубьев с модулем ${layout.moduleMm.toFixed(2)} мм и шагом ${layout.pitchMm.toFixed(1)} мм, впадина до Ø${(layout.rootRadiusMm * 2).toFixed(1)} мм, ступица Ø${layout.hubDiameterMm.toFixed(1)} мм с выступом 0.6 мм, отверстие Ø5 мм по центру (стенка ступицы ${layout.hubWallMm.toFixed(1)} мм)`;
+      return `шестерня Ø${layout.diameterMm.toFixed(1)} мм (вписана в ${params.width} × ${params.length} мм): ${layout.teeth} зубьев с модулем ${layout.moduleMm.toFixed(2)} мм и шагом ${layout.pitchMm.toFixed(1)} мм, впадина до Ø${(layout.rootRadiusMm * 2).toFixed(1)} мм, ступица Ø${layout.hubDiameterMm.toFixed(1)} мм с выступом 0.6 мм, ${ring}`;
     }
     case "brick": {
       const studs = brickStudLayout(params.width, params.length);

@@ -376,12 +376,32 @@ const GEAR_ARC_SEGMENTS = 4;
 /**
  * Диаметр ступицы в долях диаметра вершин и минимальная стенка вокруг кольца, мм.
  *
- * Ступица отделяет тело от обода — без неё шестерня читается звёздочкой.
- * Стенка вокруг отверстия Ø5 мм не тоньше 2.5 мм: кольцо вырывает пластик при
- * первом же рывке за ключи, а 5 мм материала держат и на 20 × 30.
+ * Ступица остаётся акцентом в центре шестерни и отделяет тело от обода — без неё
+ * силуэт читается звёздочкой. 0.4 диаметра дают Ø17.3 мм на 44 × 44, и на всех
+ * размерах, где отверстие уходит наверх, этого хватает. На 20 × 30 отверстию
+ * места нет, оно остаётся в центре, и там диаметр поднимается до
+ * `Ø5 + 2 × 2.5 мм`: кольцо не должно вырвать ступицу при первом рывке за ключи.
  */
 const GEAR_HUB_SHARE = 0.4;
 const GEAR_HUB_MIN_WALL_MM = 2.5;
+
+/**
+ * Стенка от отверстия Ø5 до внешнего контура и до ступицы, мм.
+ *
+ * Отверстие смещено вверх, к верхнему зубу, поэтому ближайшая кромка — то дно
+ * впадины сбоку, то кромка ступицы снизу. 1.5 мм — минимум, при котором кольцо
+ * ещё держится в пластике и стенка печатается соплом 0.4 мм в два прохода.
+ */
+const GEAR_RING_WALL_MM = 1.5;
+
+/**
+ * Запас на скругления при поиске верхней границы отверстия, мм.
+ *
+ * Контур проверяется по вершинам до скруглений, а галтель впадины добавляет
+ * материал в угол и подходит к отверстию примерно на 0.4 своего радиуса. 0.6 мм
+ * запаса держат стенку и после `roundedPointLoop`, где галтель уже срезана.
+ */
+const GEAR_RING_CONTOUR_MARGIN_MM = 0.6;
 
 /**
  * Выступ ступицы над полем и её утопление в тело, мм.
@@ -860,9 +880,11 @@ export type GearLayout = {
   hubRadiusMm: number;
   /** Номинальный диаметр ступицы, мм. */
   hubDiameterMm: number;
-  /** Стенка между отверстием Ø5 и кромкой ступицы, мм. */
-  hubWallMm: number;
-  /** Стенка от отверстия до впадины, мм. */
+  /** Радиус отверстия в ступице, мм; ноль — ступица сплошная. */
+  hubBoreRadiusMm: number;
+  /** Высота центра отверстия Ø5 над центром шестерни, мм. */
+  ringY: number;
+  /** Стенка от отверстия Ø5 до кромки ступицы, мм. */
   ringWallMm: number;
 };
 
@@ -934,13 +956,54 @@ export function gearLayout(width: number, height: number): GearLayout {
   );
   // Ступица не подходит вплотную к впадинам: между её кромкой и дном впадины
   // остаётся 1.5 мм, иначе обод превращается в лепестки.
-  const hubDiameter = Math.min(
+  const hubDiameterMax = Math.min(
     Math.max(
       GEAR_HUB_SHARE * diameter,
       RING_HOLE_DIAMETER_MM + 2 * GEAR_HUB_MIN_WALL_MM,
     ),
     (rootRadius - 1.5) * 2,
   );
+  // Отверстие под кольцо уходит вверх, к верхнему зубу: центр занят ступицей, и
+  // кольцо в центре превращает шестерню в медаль. Верхняя граница считается по
+  // вершинам контура до скруглений, с запасом на галтель впадины, — иначе на
+  // крышке, где фаска сжимает контур и расширяет отверстие, стенка проседает.
+  const holeRadius = RING_HOLE_DIAMETER_MM / 2 + bevel;
+  const reach = holeRadius + GEAR_RING_WALL_MM + GEAR_RING_CONTOUR_MARGIN_MM;
+  const profile: GearProfile = {
+    teeth,
+    tipRadiusMm: tipRadius,
+    baseRadiusMm: baseRadius,
+    rootRadiusMm: rootRadius,
+    tipHalfAngle,
+    baseHalfAngle,
+    tipRoundMm: tipRound,
+    rootRoundMm: rootRoundSafe,
+    shoulderRoundMm: shoulderRound,
+  };
+  let contourTop = Infinity;
+
+  for (const [x, y] of gearContour(profile).points) {
+    // Нижняя половина контура отверстие не ограничивает: центр всегда выше нуля,
+    // а расстояние до этих вершин заведомо больше стенки.
+    if (y <= 0 || Math.abs(x) >= reach) {
+      continue;
+    }
+
+    contourTop = Math.min(contourTop, y - Math.sqrt(reach * reach - x * x));
+  }
+  // Верхнее мясо достаётся отверстию уступкой ступицы: её кромка отходит вниз
+  // ровно на стенку. Где места не хватает совсем — 20 × 30: диск 19.2 мм,
+  // ступица 10 мм, впадины в 6.5 мм от центра, — отверстие остаётся в центре, а
+  // ступица работает кольцом вокруг него, как и до смещения.
+  const hubDiameterFit =
+    2 * (contourTop - (holeRadius + GEAR_RING_WALL_MM) + bevel);
+  const ringFits =
+    Number.isFinite(contourTop) && hubDiameterFit >= RING_HOLE_DIAMETER_MM;
+  const hubDiameter = ringFits
+    ? Math.min(hubDiameterMax, hubDiameterFit)
+    : hubDiameterMax;
+  const hubRadius = hubDiameter / 2 - bevel;
+  const ringY = ringFits ? contourTop : 0;
 
   return {
     diameterMm: diameter,
@@ -956,10 +1019,13 @@ export function gearLayout(width: number, height: number): GearLayout {
     tipRoundMm: tipRound,
     rootRoundMm: rootRoundSafe,
     shoulderRoundMm: shoulderRound,
-    hubRadiusMm: hubDiameter / 2 - bevel,
+    hubRadiusMm: hubRadius,
     hubDiameterMm: hubDiameter,
-    hubWallMm: hubDiameter / 2 - RING_HOLE_DIAMETER_MM / 2,
-    ringWallMm: rootRadius - (RING_HOLE_DIAMETER_MM / 2 + bevel),
+    hubBoreRadiusMm: ringFits ? 0 : holeRadius + GEAR_HUB_HOLE_GAP_MM,
+    ringY,
+    ringWallMm: ringFits
+      ? ringY - hubRadius - RING_HOLE_DIAMETER_MM / 2 - bevel
+      : hubRadius - RING_HOLE_DIAMETER_MM / 2 - bevel,
   };
 }
 
@@ -2144,6 +2210,26 @@ function roundedPointLoop(
 }
 
 /**
+ * Профиль шестерни: всё, что нужно контуру, без раскладки отверстия.
+ *
+ * Отдельный тип нужен, чтобы `gearLayout` мог построить контур до расчёта
+ * положения отверстия: контур от него не зависит, а отверстие считается по
+ * расстоянию до контура.
+ */
+type GearProfile = Pick<
+  GearLayout,
+  | "teeth"
+  | "tipRadiusMm"
+  | "baseRadiusMm"
+  | "rootRadiusMm"
+  | "tipHalfAngle"
+  | "baseHalfAngle"
+  | "tipRoundMm"
+  | "rootRoundMm"
+  | "shoulderRoundMm"
+>;
+
+/**
  * Точки контура шестерни и радиусы скруглений по ним.
  *
  * Зуб обходится против часовой стрелки: галтель впадины, радиальная стенка до
@@ -2151,59 +2237,59 @@ function roundedPointLoop(
  * пара стенок вниз. Между зубьями — дуга впадины. Плоская вершина важна не
  * меньше глубины: без неё силуэт читается звёздочкой, а не шестернёй.
  */
-function gearContour(layout: GearLayout): {
+function gearContour(profile: GearProfile): {
   points: ShapePoint[];
   radii: number[];
 } {
   const points: ShapePoint[] = [];
   const radii: number[] = [];
-  const pitch = (Math.PI * 2) / layout.teeth;
+  const pitch = (Math.PI * 2) / profile.teeth;
   const push = (point: ShapePoint, radius: number): void => {
     points.push(point);
     radii.push(radius);
   };
 
-  for (let tooth = 0; tooth < layout.teeth; tooth += 1) {
+  for (let tooth = 0; tooth < profile.teeth; tooth += 1) {
     const centre = Math.PI / 2 + tooth * pitch;
-    const tipFrom = centre - layout.tipHalfAngle;
-    const tipTo = centre + layout.tipHalfAngle;
-    const valleyFrom = centre + layout.baseHalfAngle;
-    const valleyTo = centre + pitch - layout.baseHalfAngle;
+    const tipFrom = centre - profile.tipHalfAngle;
+    const tipTo = centre + profile.tipHalfAngle;
+    const valleyFrom = centre + profile.baseHalfAngle;
+    const valleyTo = centre + pitch - profile.baseHalfAngle;
 
     push(
-      polarPoint(layout.rootRadiusMm, centre - layout.baseHalfAngle),
-      layout.rootRoundMm,
+      polarPoint(profile.rootRadiusMm, centre - profile.baseHalfAngle),
+      profile.rootRoundMm,
     );
     push(
-      polarPoint(layout.baseRadiusMm, centre - layout.baseHalfAngle),
-      layout.shoulderRoundMm,
+      polarPoint(profile.baseRadiusMm, centre - profile.baseHalfAngle),
+      profile.shoulderRoundMm,
     );
-    push(polarPoint(layout.tipRadiusMm, tipFrom), layout.tipRoundMm);
+    push(polarPoint(profile.tipRadiusMm, tipFrom), profile.tipRoundMm);
 
     for (let step = 1; step < GEAR_ARC_SEGMENTS; step += 1) {
       push(
         polarPoint(
-          layout.tipRadiusMm,
+          profile.tipRadiusMm,
           tipFrom + ((tipTo - tipFrom) * step) / GEAR_ARC_SEGMENTS,
         ),
         0,
       );
     }
 
-    push(polarPoint(layout.tipRadiusMm, tipTo), layout.tipRoundMm);
+    push(polarPoint(profile.tipRadiusMm, tipTo), profile.tipRoundMm);
     push(
-      polarPoint(layout.baseRadiusMm, centre + layout.baseHalfAngle),
-      layout.shoulderRoundMm,
+      polarPoint(profile.baseRadiusMm, centre + profile.baseHalfAngle),
+      profile.shoulderRoundMm,
     );
     push(
-      polarPoint(layout.rootRadiusMm, centre + layout.baseHalfAngle),
-      layout.rootRoundMm,
+      polarPoint(profile.rootRadiusMm, centre + profile.baseHalfAngle),
+      profile.rootRoundMm,
     );
 
     for (let step = 1; step < GEAR_ARC_SEGMENTS; step += 1) {
       push(
         polarPoint(
-          layout.rootRadiusMm,
+          profile.rootRadiusMm,
           valleyFrom + ((valleyTo - valleyFrom) * step) / GEAR_ARC_SEGMENTS,
         ),
         0,
@@ -2231,13 +2317,17 @@ function gearShape(layout: GearLayout): Shape {
  * подрез у корня, и именно эта стенка делает впадину широкой, а силуэт —
  * шестернёй, а не кругом с зубчиками.
  *
- * Отверстие Ø5 мм стоит в центре ступицы: кольцо проходит через ось, силуэт
- * остаётся круглым, и ушко не превращает деталь в медаль. Ступица Ø17.3 мм
- * поднята над полем на 0.6 мм и собрана отдельной оболочкой через
+ * Отверстие Ø5 мм смещено вверх, к верхнему зубу, а ступица остаётся в центре
+ * акцентом и сквозного отверстия не несёт: кольцо в центре превращало шестерню
+ * в медаль, а подвес сверху — то, за что брелок и цепляют. Стенка до контура и
+ * до кромки ступицы держится 1.5 мм (расчёт — в `gearLayout`). Там, где
+ * отверстию не хватает места (20 × 30), оно остаётся в центре, и ступица
+ * работает кольцом вокруг него — иначе кольцо идёт сквозь ступицу и рвёт её.
+ *
+ * Ступица поднята над полем на 0.6 мм и собрана отдельной оболочкой через
  * `mergeGeometries` — вычитания тел (CSG) в проекте нет, так же собраны шипы
  * кирпича. Низ ступицы утоплен в тело на 0.2 мм: оболочки должны пересекаться
- * объёмом, а не касаться плоскостями, а её отверстие на 0.15 мм шире отверстия
- * тела — иначе общие стенки дают рёбра с четырьмя треугольниками.
+ * объёмом, а не касаться плоскостями.
  *
  * Габарит держится точно по обеим осям без всякой компенсации: при числе зубьев,
  * кратном четырём, по одному зубу смотрит ровно вверх, вниз, вправо и влево.
@@ -2251,28 +2341,22 @@ export function buildGear(
   const layout = gearLayout(params.width, params.height);
   const shape = gearShape(layout);
 
-  shape.holes.push(ringHolePath(0));
+  shape.holes.push(ringHolePath(layout.ringY));
 
   const body = extrudePresetShape(shape, params.thickness);
-  // Ступица — кольцо с той же фаской, что у тела: стенка отверстия продолжается
-  // без ступеньки, а кромка ступицы скруглена, как и кромка корпуса.
+  // Ступица — вторая оболочка с той же фаской, что у тела. Отверстие в ней есть
+  // только когда кольцо осталось в центре: тогда её стенка на 0.15 мм шире
+  // стенки тела, иначе совпадающие стенки дают рёбра с четырьмя треугольниками.
   const hubShape = new Shape();
 
   hubShape.absarc(0, 0, layout.hubRadiusMm, 0, Math.PI * 2, false);
 
-  const hubHole = new Path();
+  if (layout.hubBoreRadiusMm > 0) {
+    const hubHole = new Path();
 
-  hubHole.absarc(
-    0,
-    0,
-    RING_HOLE_DIAMETER_MM / 2 +
-      PRESET_BEVEL_SIZE_MM +
-      GEAR_HUB_HOLE_GAP_MM,
-    0,
-    Math.PI * 2,
-    true,
-  );
-  hubShape.holes.push(hubHole);
+    hubHole.absarc(0, 0, layout.hubBoreRadiusMm, 0, Math.PI * 2, true);
+    hubShape.holes.push(hubHole);
+  }
 
   const hub = extrudePresetShape(
     hubShape,
