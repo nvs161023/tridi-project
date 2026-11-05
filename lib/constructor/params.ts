@@ -3,6 +3,34 @@ import {
   keychainPresetById,
   type KeychainPresetId,
 } from "@/lib/constructor/keychain-presets";
+import {
+  DEFAULT_QR_CARD_SPEC,
+  QR_CARD_CONTENT_MAX_LENGTH,
+  QR_CARD_NAME_MAX_LENGTH,
+  QR_CARD_SIZES,
+  isQrCardSize,
+  isQrCardTab,
+  isQrContentType,
+  isQrMode,
+  type QrCardSize,
+  type QrCardSpec,
+  type QrCardTab,
+  type QrContentType,
+  type QrMode,
+} from "@/lib/constructor/qr-card-geometry";
+
+/**
+ * Словарь QR-визитки живёт в `qr-card-geometry.ts`, но панели и API удобнее
+ * брать его вместе с параметрами модели: один импорт на всё, что связано с
+ * брелоком, и никакой возможности подключить половину набора.
+ */
+export type {
+  QrCardSize,
+  QrCardSpec,
+  QrCardTab,
+  QrContentType,
+  QrMode,
+} from "@/lib/constructor/qr-card-geometry";
 
 /**
  * Параметры конструктора: границы, значения по умолчанию и нормализация.
@@ -40,7 +68,7 @@ import {
  */
 
 /** Размерный параметр: границы, шаг и значение по умолчанию. */
-type NumericLimit = {
+export type NumericLimit = {
   min: number;
   max: number;
   step: number;
@@ -410,6 +438,55 @@ export const DEFAULT_KEYCHAIN_PRESET_ID: KeychainPresetId = "apple-tag";
 /** Предел размера загруженного SVG: 200 КБ хватает логотипу с контурами. */
 export const KEYCHAIN_SVG_MAX_LENGTH = 200_000;
 
+/**
+ * Границы толщины QR-визитки, мм.
+ *
+ * Уже общих 2–5: визитка лежит в кармане плашмя, и на 2 мм пластик под кольцом
+ * прогибается, а на 5 мм выпуклый рельеф 0.4 мм перестаёт читаться пальцем.
+ * Шаг и точность те же, что у общего слайдера, — панель показывает одни и те же
+ * миллиметры.
+ */
+export const QR_CARD_THICKNESS_LIMITS = {
+  min: 2.5,
+  max: 3.5,
+  step: 0.5,
+  defaultValue: 3,
+  decimals: 1,
+} satisfies NumericLimit;
+
+/**
+ * Границы толщины для выбранного пресета.
+ *
+ * Одна функция на панель, нормализацию и API: у QR-визитки свой диапазон, у
+ * остальных пресетов — общий. Разойтись они не могут, потому что слайдер,
+ * округление и серверная проверка читают одно число.
+ */
+export function keychainThicknessLimits(
+  preset?: KeychainPresetId | null,
+): NumericLimit {
+  return preset === "qr-card"
+    ? QR_CARD_THICKNESS_LIMITS
+    : CONSTRUCTOR_LIMITS.thickness;
+}
+
+/**
+ * Содержимое визитки из параметров модели.
+ *
+ * Одна функция на предпросмотр, панель и API: матрица кода строится из того же
+ * объекта, поэтому подпись «модуль 0.85 мм» и файл не могут разойтись.
+ */
+export function keychainQrCardSpec(params: KeychainParams): QrCardSpec {
+  return {
+    size: params.qrCardSize,
+    tab: params.qrCardTab,
+    mode: params.qrMode,
+    contentType: params.qrContentType,
+    content: params.qrContent,
+    name: params.qrName,
+    phone: params.qrPhone,
+  };
+}
+
 
 /**
  * Подпись формы брелока для панели, сводки и aria-описания сцены.
@@ -520,6 +597,27 @@ export type KeychainParams = {
   customSvgData: string;
   /** Вырезать с обратной стороны карман 25 × 25 мм под NFC-метку. */
   nfcEnabled: boolean;
+  /**
+   * Размер QR-визитки: 60 × 40 или 70 × 45 мм.
+   *
+   * Габарит визитки определяется кодом, а не слайдером: оба размера шире
+   * границы `width` (50 мм), поэтому ширина с высотой выводятся из этого поля, а
+   * слайдеры размеров в панели скрыты. У остальных пресетов поле не влияет ни на
+   * что — это память выбора на случай возврата к визитке.
+   */
+  qrCardSize: QrCardSize;
+  /** Крепление визитки: проушина Ø11 мм сверху или отверстие Ø5 мм в теле. */
+  qrCardTab: QrCardTab;
+  /** Рельеф кода: выпуклый 0.4 мм или углублённый 0.3 мм. */
+  qrMode: QrMode;
+  /** Что зашито в код: ссылка, телефон, почта или визитка. */
+  qrContentType: QrContentType;
+  /** Ссылка, телефон или почта. У визитки поле пустое: там имя и телефон. */
+  qrContent: string;
+  /** Имя для визитки vCard. */
+  qrName: string;
+  /** Телефон для визитки vCard. */
+  qrPhone: string;
   /**
    * Прежнее имя той же формы. Оставлено, пока панель параметров обновляется:
    * нормализация всегда держит `shapeType === keychainShape`.
@@ -1172,6 +1270,13 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   keychainPreset: DEFAULT_KEYCHAIN_PRESET_ID,
   customSvgData: "",
   nfcEnabled: false,
+  qrCardSize: DEFAULT_QR_CARD_SPEC.size,
+  qrCardTab: DEFAULT_QR_CARD_SPEC.tab,
+  qrMode: DEFAULT_QR_CARD_SPEC.mode,
+  qrContentType: DEFAULT_QR_CARD_SPEC.contentType,
+  qrContent: DEFAULT_QR_CARD_SPEC.content,
+  qrName: DEFAULT_QR_CARD_SPEC.name,
+  qrPhone: DEFAULT_QR_CARD_SPEC.phone,
   shapeType: null,
 };
 
@@ -2220,6 +2325,41 @@ export function sanitizeSignText(value: string): string {
 }
 
 /**
+ * Символы, допустимые в содержимом QR.
+ *
+ * Набор шире, чем у имени: в ссылке есть `:/?&=#%+~`, в почте — `@` и точки, в
+ * телефоне — скобки. Управляющие символы и перевод строки не проходят: строка
+ * уходит в код как есть, и лишний перевод строки сломал бы разметку vCard.
+ */
+const QR_CARD_CHAR = /^[^\u0000-\u001f\u007f]$/u;
+
+/** Общая очистка строки визитки: только печатные символы и лимит длины. */
+function cleanQrText(value: string, maxLength: number): string {
+  return Array.from(value)
+    .filter((char) => QR_CARD_CHAR.test(char))
+    .slice(0, maxLength)
+    .join("");
+}
+
+/** Очистка содержимого QR: ссылка, телефон или почта. */
+export function sanitizeQrCardContent(value: string): string {
+  return cleanQrText(value, QR_CARD_CONTENT_MAX_LENGTH);
+}
+
+/** Очистка имени для визитки vCard: те же символы, лимит 40. */
+export function sanitizeQrCardName(value: string): string {
+  return cleanQrText(value, QR_CARD_NAME_MAX_LENGTH);
+}
+
+/** Очистка телефона для визитки: цифры, плюс, скобки, пробел и дефис. */
+export function sanitizeQrCardPhone(value: string): string {
+  return Array.from(value)
+    .filter((char) => /^[\d+()\s-]$/.test(char))
+    .slice(0, 20)
+    .join("");
+}
+
+/**
  * Очистка кода шкатулки для поля ввода.
  *
  * Остаются только буквы в верхнем регистре: код набирают заглавными, а строчная
@@ -2333,6 +2473,10 @@ function resolveKeychainShape(
  * включённый флаг обещал бы карман, которого в модели нет. Если ни пресета, ни
  * контура не осталось (старый силуэт, сброшенный файл), в модель встаёт пресет
  * по умолчанию: без формы предпросмотр и экспорт падать не должны.
+ *
+ * У QR-визитки ширина и длина берутся не из слайдеров, а из размера кода: 60 × 40
+ * и 70 × 45 мм обе выше границы `width`, поэтому габарит выводится из
+ * `qrCardSize`, а толщина держится в границах пресета.
  */
 export function normalizeKeychainParams(
   params: Partial<KeychainParams>,
@@ -2349,19 +2493,29 @@ export function normalizeKeychainParams(
   const customSvgData = isCustomSvgData(params.customSvgData)
     ? params.customSvgData.trim()
     : "";
+  const qrCardSize = isQrCardSize(params.qrCardSize)
+    ? params.qrCardSize
+    : DEFAULT_KEYCHAIN_PARAMS.qrCardSize;
+  // Габарит визитки задаёт размер кода, а не слайдер: 60 и 70 мм шире его границы.
+  const qrCard = keychainPreset === "qr-card" ? QR_CARD_SIZES[qrCardSize] : null;
+  const thicknessLimits = keychainThicknessLimits(keychainPreset);
 
   return {
-    length: snap(
-      params.length ?? DEFAULT_KEYCHAIN_PARAMS.length,
-      CONSTRUCTOR_LIMITS.length,
-    ),
-    width: snap(
-      params.width ?? DEFAULT_KEYCHAIN_PARAMS.width,
-      CONSTRUCTOR_LIMITS.width,
-    ),
+    length:
+      qrCard?.height ??
+      snap(
+        params.length ?? DEFAULT_KEYCHAIN_PARAMS.length,
+        CONSTRUCTOR_LIMITS.length,
+      ),
+    width:
+      qrCard?.width ??
+      snap(
+        params.width ?? DEFAULT_KEYCHAIN_PARAMS.width,
+        CONSTRUCTOR_LIMITS.width,
+      ),
     thickness: snap(
-      params.thickness ?? DEFAULT_KEYCHAIN_PARAMS.thickness,
-      CONSTRUCTOR_LIMITS.thickness,
+      params.thickness ?? thicknessLimits.defaultValue,
+      thicknessLimits,
     ),
     text: sanitizeKeychainText(params.text ?? DEFAULT_KEYCHAIN_PARAMS.text),
     keychainShape,
@@ -2372,6 +2526,23 @@ export function normalizeKeychainParams(
       : typeof params.nfcEnabled === "boolean"
         ? params.nfcEnabled
         : DEFAULT_KEYCHAIN_PARAMS.nfcEnabled,
+    qrCardSize,
+    qrCardTab: isQrCardTab(params.qrCardTab)
+      ? params.qrCardTab
+      : DEFAULT_KEYCHAIN_PARAMS.qrCardTab,
+    qrMode: isQrMode(params.qrMode)
+      ? params.qrMode
+      : DEFAULT_KEYCHAIN_PARAMS.qrMode,
+    qrContentType: isQrContentType(params.qrContentType)
+      ? params.qrContentType
+      : DEFAULT_KEYCHAIN_PARAMS.qrContentType,
+    qrContent: sanitizeQrCardContent(
+      params.qrContent ?? DEFAULT_KEYCHAIN_PARAMS.qrContent,
+    ),
+    qrName: sanitizeQrCardName(params.qrName ?? DEFAULT_KEYCHAIN_PARAMS.qrName),
+    qrPhone: sanitizeQrCardPhone(
+      params.qrPhone ?? DEFAULT_KEYCHAIN_PARAMS.qrPhone,
+    ),
     shapeType: keychainShape,
   };
 }

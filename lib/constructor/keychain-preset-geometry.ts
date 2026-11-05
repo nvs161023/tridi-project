@@ -9,6 +9,10 @@ import type { BufferGeometry } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import type { KeychainPresetId } from "@/lib/constructor/keychain-presets";
+import {
+  buildQrCard,
+  type QrCardSpec,
+} from "@/lib/constructor/qr-card-geometry";
 
 /**
  * Геометрия пресетов брелока.
@@ -37,6 +41,14 @@ export type KeychainPresetGeometryParams = {
   height: number;
   /** Толщина основы вместе с фасками, мм. */
   thickness: number;
+  /**
+   * Содержимое QR-визитки: размер, крепление, рельеф и строка кода.
+   *
+   * У остальных пресетов поля нет: их форма задаётся тремя числами. Визитка —
+   * исключение, потому что её раскладку определяет содержимое, а не габарит:
+   * длинная ссылка делает модуль мельче.
+   */
+  qr?: QrCardSpec | null;
 };
 
 /** Ширина фаски по контуру: 0.4 мм читается как скругление кромки. */
@@ -1043,6 +1055,7 @@ export const IMPLEMENTED_KEYCHAIN_PRESETS: readonly KeychainPresetId[] = [
   "ticket",
   "starburst",
   "heart",
+  "qr-card",
 ];
 
 /** Готова ли геометрия пресета: список выше — единственный источник правды. */
@@ -2409,6 +2422,8 @@ export function buildKeychainPresetGeometry(
       return buildStarburst(params);
     case "heart":
       return buildHeart(params);
+    case "qr-card":
+      return buildQrCard(params);
     default:
       return null;
   }

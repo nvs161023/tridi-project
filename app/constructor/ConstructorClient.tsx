@@ -66,6 +66,9 @@ import {
   jewelryStandStlFileName,
   keychainShapeTitle,
   keychainStlFileName,
+  sanitizeQrCardContent,
+  sanitizeQrCardName,
+  sanitizeQrCardPhone,
   listSignBlocks,
   listSignLetters,
   lithophaneStlFileName,
@@ -85,6 +88,7 @@ import {
   type ConstructorParams,
   type GiftBoxShape,
   type JewelryConfig,
+  type KeychainParams,
   type KeychainShape,
   type LithophaneMount,
   type LithophanePart,
@@ -93,6 +97,10 @@ import {
   type PatchShape,
   type PenShape,
   type PlanterShape,
+  type QrCardSize,
+  type QrCardTab,
+  type QrContentType,
+  type QrMode,
   type SignChannelWidth,
   type SignFont,
   type StencilPattern,
@@ -627,6 +635,46 @@ export function ConstructorClient({
     );
   }
 
+  /**
+   * Содержимое QR-визитки: размер, крепление, рельеф и строка кода.
+   *
+   * Один обработчик на все поля визитки: нормализация сама выводит габарит из
+   * размера и держит толщину в границах пресета, поэтому панель не повторяет
+   * эти правила. Строки чистятся до состояния: в состоянии модели не должно быть
+   * управляющих символов, которые потом попали бы в код.
+   */
+  function updateQrCard(patch: Partial<KeychainParams>) {
+    setParams((current) => normalizeConstructorParams({ ...current, ...patch }));
+  }
+
+  function updateQrCardSize(qrCardSize: QrCardSize) {
+    updateQrCard({ qrCardSize });
+  }
+
+  function updateQrCardTab(qrCardTab: QrCardTab) {
+    updateQrCard({ qrCardTab });
+  }
+
+  function updateQrMode(qrMode: QrMode) {
+    updateQrCard({ qrMode });
+  }
+
+  function updateQrContentType(qrContentType: QrContentType) {
+    updateQrCard({ qrContentType });
+  }
+
+  function updateQrContent(qrContent: string) {
+    updateQrCard({ qrContent: sanitizeQrCardContent(qrContent) });
+  }
+
+  function updateQrName(qrName: string) {
+    updateQrCard({ qrName: sanitizeQrCardName(qrName) });
+  }
+
+  function updateQrPhone(qrPhone: string) {
+    updateQrCard({ qrPhone: sanitizeQrCardPhone(qrPhone) });
+  }
+
   function updateSignText(signText: string) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, signText }),
@@ -1067,6 +1115,13 @@ export function ConstructorClient({
           onPenShapeChange={updatePenShape}
           onPlanterDrainageChange={updatePlanterDrainage}
           onPlanterShapeChange={updatePlanterShape}
+          onQrCardSizeChange={updateQrCardSize}
+          onQrCardTabChange={updateQrCardTab}
+          onQrContentChange={updateQrContent}
+          onQrContentTypeChange={updateQrContentType}
+          onQrModeChange={updateQrMode}
+          onQrNameChange={updateQrName}
+          onQrPhoneChange={updateQrPhone}
           onOrnamentLoopChange={updateOrnamentLoop}
           onOrnamentShapeChange={updateOrnamentShape}
           onReset={resetParams}

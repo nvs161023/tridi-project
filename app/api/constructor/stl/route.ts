@@ -13,6 +13,13 @@ import {
 } from "@/lib/constructor/downloads";
 import { isKeychainPresetId } from "@/lib/constructor/keychain-presets";
 import { isKeychainPresetImplemented } from "@/lib/constructor/keychain-preset-geometry";
+import { qrCardPlan } from "@/lib/constructor/qr-card-geometry";
+import {
+  isQrCardSize,
+  isQrCardTab,
+  isQrContentType,
+  isQrMode,
+} from "@/lib/constructor/qr-card-geometry";
 import {
   CONSTRUCTOR_LIMITS,
   DEFAULT_LITHOPHANE_PARAMS,
@@ -53,6 +60,8 @@ import {
   giftBoxStlFileName,
   jewelryStandStlFileName,
   keychainStlFileName,
+  keychainThicknessLimits,
+  keychainQrCardSpec,
   listSignBlocks,
   lithophaneStlFileName,
   normalizeBoxParams,
@@ -277,14 +286,20 @@ function parseVaseParams(body: unknown): VaseParams | null {
  * Строгая проверка параметров брелока.
  *
  * Все размеры обязательны и должны лежать в границах слайдеров. Текст — не
- * длиннее 10 символов из набора шрифта; пустая строка допустима. Форма
- * задаётся либо пресетом из реестра, либо своим контуром: пресет главнее, при
- * нём контур не проверяется вовсе. Четырнадцати встроенных силуэтов больше нет,
- * поэтому `dog_tag`, `hexagon`, `cat` и остальные прежние значения отклоняются —
- * это ошибка ввода, а не повод собрать брелок по чужой форме. Пользовательский
- * SVG обязан быть строкой в пределах 200 КБ, без скриптов и хотя бы с одним
- * контуром: пустой `custom` дал бы файл-заглушку вместо выбранной формы.
- * NFC-флаг — только boolean, иначе строка «false» включала бы карман.
+ * длиннее 10 символов из набора шрифта; пустая строка допустима. Форма задаётся
+ * либо пресетом из реестра, либо своим контуром: пресет главнее, при нём контур
+ * не проверяется вовсе. Четырнадцати встроенных силуэтов больше нет, поэтому
+ * `dog_tag`, `hexagon`, `cat` и остальные прежние значения отклоняются — это
+ * ошибка ввода, а не повод собрать брелок по чужой форме. Пользовательский SVG
+ * обязан быть строкой в пределах 200 КБ, без скриптов и хотя бы с одним контуром:
+ * пустой `custom` дал бы файл-заглушку вместо выбранной формы. NFC-флаг — только
+ * boolean, иначе строка «false» включала бы карман.
+ *
+ * У QR-визитки ширина и длина не проверяются: оба её размера (60 × 40 и 70 × 45)
+ * выводятся из `qrCardSize` и выше границы слайдера ширины. Вместо них строго
+ * проверяются размер, крепление, рельеф и тип содержимого, а толщина — в границах
+ * пресета. Смысл самого содержимого (ссылка, телефон, почта, визитка) проверяет
+ * `qrCardPlan` уже после нормализации: у него те же правила, что и в панели.
  */
 function parseKeychainParams(
   body: Record<string, unknown>,
@@ -299,6 +314,13 @@ function parseKeychainParams(
     keychainPreset,
     customSvgData = "",
     nfcEnabled = false,
+    qrCardSize = null,
+    qrCardTab = null,
+    qrMode = null,
+    qrContentType = null,
+    qrContent = "",
+    qrName = "",
+    qrPhone = "",
   } = body;
   const preset = isKeychainPresetId(keychainPreset) ? keychainPreset : null;
   // Неизвестный идентификатор — ошибка ввода, а не «пресета нет»: иначе запрос
@@ -317,43 +339,82 @@ function parseKeychainParams(
       : isKeychainShape(shapeType)
         ? shapeType
         : null;
-
-  if (
-    !isNumberInRange(
+  const isQrCard = preset === "qr-card";
+  // Толщина визитки живёт в своих границах: 2.5–3.5 мм вместо общих 2–5.
+  const thicknessLimits = keychainThicknessLimits(preset);
+  // Габарит визитки выводится из размера кода, поэтому в запросе он не сверяется
+  // с границами слайдера ширины: 60 и 70 мм в них не помещаются по определению.
+  const sizeInvalid =
+    !isQrCard &&
+    (!isNumberInRange(
       length,
       CONSTRUCTOR_LIMITS.length.min,
       CONSTRUCTOR_LIMITS.length.max,
     ) ||
-    !isNumberInRange(
-      width,
-      CONSTRUCTOR_LIMITS.width.min,
-      CONSTRUCTOR_LIMITS.width.max,
-    ) ||
-    !isNumberInRange(
-      thickness,
-      CONSTRUCTOR_LIMITS.thickness.min,
-      CONSTRUCTOR_LIMITS.thickness.max,
-    ) ||
+      !isNumberInRange(
+        width,
+        CONSTRUCTOR_LIMITS.width.min,
+        CONSTRUCTOR_LIMITS.width.max,
+      ));
+  const qrInvalid =
+    isQrCard &&
+    (!isQrCardSize(qrCardSize) ||
+      !isQrCardTab(qrCardTab) ||
+      !isQrMode(qrMode) ||
+      !isQrContentType(qrContentType) ||
+      typeof qrContent !== "string" ||
+      typeof qrName !== "string" ||
+      typeof qrPhone !== "string");
+
+  if (
+    sizeInvalid ||
+    !isNumberInRange(thickness, thicknessLimits.min, thicknessLimits.max) ||
     !isValidKeychainText(text) ||
     presetInvalid ||
     (!preset && !shape) ||
     !isCustomSvgData(customSvgData) ||
     typeof nfcEnabled !== "boolean" ||
-    (shape === "custom" && !hasDrawableSvgData(customSvgData))
+    (shape === "custom" && !hasDrawableSvgData(customSvgData)) ||
+    qrInvalid
   ) {
     return null;
   }
 
   return normalizeKeychainParams({
-    length,
-    width,
-    thickness,
+    length: isNumberInRange(
+      length,
+      CONSTRUCTOR_LIMITS.length.min,
+      CONSTRUCTOR_LIMITS.length.max,
+    )
+      ? length
+      : undefined,
+    width: isNumberInRange(
+      width,
+      CONSTRUCTOR_LIMITS.width.min,
+      CONSTRUCTOR_LIMITS.width.max,
+    )
+      ? width
+      : undefined,
+    thickness: isNumberInRange(
+      thickness,
+      thicknessLimits.min,
+      thicknessLimits.max,
+    )
+      ? thickness
+      : undefined,
     text,
     keychainShape: shape,
     shapeType: shape,
     keychainPreset: preset,
     customSvgData,
     nfcEnabled,
+    qrCardSize: isQrCardSize(qrCardSize) ? qrCardSize : undefined,
+    qrCardTab: isQrCardTab(qrCardTab) ? qrCardTab : undefined,
+    qrMode: isQrMode(qrMode) ? qrMode : undefined,
+    qrContentType: isQrContentType(qrContentType) ? qrContentType : undefined,
+    qrContent: typeof qrContent === "string" ? qrContent : undefined,
+    qrName: typeof qrName === "string" ? qrName : undefined,
+    qrPhone: typeof qrPhone === "string" ? qrPhone : undefined,
   });
 }
 
@@ -1461,6 +1522,22 @@ export async function POST(request: Request): Promise<Response> {
       "preset_not_implemented",
       "Этот пресет ещё не реализован. Выберите готовый пресет или загрузите свой контур.",
     );
+  }
+
+  // Содержимое QR-визитки проверяется здесь, а не в parseKeychainParams: текст
+  // отказа зависит от матрицы кода, и тот же текст показывается в панели. Так 422
+  // объясняет причину — «укоротите ссылку» или «в визитку входят только имя и
+  // телефон», — вместо общего «проверьте параметры».
+  if (parsed.model === "keychain" && parsed.params.keychainPreset === "qr-card") {
+    const qrPlan = qrCardPlan(keychainQrCardSpec(parsed.params));
+
+    if (qrPlan.contentError) {
+      return errorResponse(422, "qr_content_invalid", qrPlan.contentError);
+    }
+
+    if (qrPlan.layout.blockedReason) {
+      return errorResponse(422, "qr_too_dense", qrPlan.layout.blockedReason);
+    }
   }
 
   try {

@@ -27,6 +27,19 @@ import {
   type KeychainPresetId,
 } from "@/lib/constructor/keychain-presets";
 import {
+  QR_CARD_MIN_MODULE_MM,
+  QR_CARD_SIZE_IDS,
+  QR_CARD_SIZE_LABELS,
+  QR_CARD_TABS,
+  QR_CARD_TAB_LABELS,
+  QR_CONTENT_TYPES,
+  QR_CONTENT_TYPE_LABELS,
+  QR_MODES,
+  QR_MODE_LABELS,
+  qrCardPlan,
+  qrCardReport,
+} from "@/lib/constructor/qr-card-geometry";
+import {
   BOX_CELL_MAX_MM,
   BOX_CELL_MIN_MM,
   BOX_PRESET_IDS,
@@ -45,6 +58,8 @@ import {
   KEYCHAIN_SHAPE_LABELS,
   KEYCHAIN_SVG_MAX_LENGTH,
   KEYCHAIN_TEXT_MAX_LENGTH,
+  keychainQrCardSpec,
+  keychainThicknessLimits,
   GIFT_BOX_SHAPES,
   GIFT_BOX_SHAPE_LABELS,
   hasDrawableSvgData,
@@ -91,6 +106,10 @@ import {
   type PatchShape,
   type PenShape,
   type PlanterShape,
+  type QrCardSize,
+  type QrCardTab,
+  type QrContentType,
+  type QrMode,
   type SignChannelWidth,
   type SignFont,
   type StencilPattern,
@@ -136,6 +155,13 @@ type SizeParam = Exclude<
   | "giftScrewLock"
   | "giftFalseBottom"
   | "giftMazeLock"
+  | "qrCardSize"
+  | "qrCardTab"
+  | "qrMode"
+  | "qrContentType"
+  | "qrContent"
+  | "qrName"
+  | "qrPhone"
 >;
 
 /** Ошибка экспорта и действие, которое поможет её исправить. */
@@ -203,6 +229,20 @@ type ParameterPanelProps = {
   onCustomSvgChange: (svg: string) => void;
   /** Карман под NFC-метку в теле брелока. */
   onNfcChange: (enabled: boolean) => void;
+  /** Размер QR-визитки: 60 × 40 или 70 × 45 мм; габарит выводится из него. */
+  onQrCardSizeChange: (size: QrCardSize) => void;
+  /** Крепление визитки: проушина сверху или отверстие в теле. */
+  onQrCardTabChange: (tab: QrCardTab) => void;
+  /** Рельеф кода: выпуклый или углублённый. */
+  onQrModeChange: (mode: QrMode) => void;
+  /** Что зашито в код: ссылка, телефон, почта или визитка. */
+  onQrContentTypeChange: (contentType: QrContentType) => void;
+  /** Ссылка, телефон или почта. */
+  onQrContentChange: (content: string) => void;
+  /** Имя для визитки vCard. */
+  onQrNameChange: (name: string) => void;
+  /** Телефон для визитки vCard. */
+  onQrPhoneChange: (phone: string) => void;
   onTextChange: (text: string) => void;
   onSignTextChange: (text: string) => void;
   onSignFontChange: (font: SignFont) => void;
@@ -481,7 +521,7 @@ type KeychainShapeSelectValue = KeychainPresetId | KeychainShape;
 /**
  * Пункты списка «Форма брелока».
  *
- * Восемь пресетов идут первыми, «Свой SVG» — последним: пользователь видит
+ * Девять пресетов идут первыми, «Свой SVG» — последним: пользователь видит
  * готовые формы там, где раньше начинался старый список силуэтов. Оба набора
  * статичные, поэтому массив собирается один раз при импорте модуля.
  */
@@ -498,6 +538,34 @@ const KEYCHAIN_SHAPE_OPTIONS: readonly {
     value: shape,
   })),
 ];
+
+/**
+ * Пункты списков QR-визитки.
+ *
+ * Подписи берутся из `qr-card-geometry.ts` — того же модуля, что строит матрицу и
+ * геометрию: миллиметры в списке и в файле не могут разойтись.
+ */
+const QR_CARD_SIZE_OPTIONS: readonly {
+  label: string;
+  value: QrCardSize;
+}[] = QR_CARD_SIZE_IDS.map((size) => ({
+  label: QR_CARD_SIZE_LABELS[size],
+  value: size,
+}));
+
+const QR_CARD_TAB_OPTIONS: readonly { label: string; value: QrCardTab }[] =
+  QR_CARD_TABS.map((tab) => ({ label: QR_CARD_TAB_LABELS[tab], value: tab }));
+
+const QR_MODE_OPTIONS: readonly { label: string; value: QrMode }[] =
+  QR_MODES.map((mode) => ({ label: QR_MODE_LABELS[mode], value: mode }));
+
+const QR_CONTENT_TYPE_OPTIONS: readonly {
+  label: string;
+  value: QrContentType;
+}[] = QR_CONTENT_TYPES.map((type) => ({
+  label: QR_CONTENT_TYPE_LABELS[type],
+  value: type,
+}));
 
 /** Сжатая картинка: яркость для API и маленькое превью для панели. */
 type LithophaneImage = {
@@ -879,6 +947,11 @@ function presetReadyNote(
 
       return `сердце ${params.width} × ${params.length} мм: доли с выемкой ${layout.valleyDepthMm.toFixed(1)} мм (дно R${layout.valleyRadiusMm.toFixed(1)} мм), плечи на ${layout.shoulderY.toFixed(1)} мм выше центра, кончик R${layout.tipRadiusMm.toFixed(1)} мм под ${((layout.tipAngle * 180) / Math.PI).toFixed(0)}°, отверстие Ø5 мм по центру на ${layout.ringY.toFixed(1)} мм от центра (стенка до дна выемки ${layout.ringWallMm.toFixed(1)} мм)`;
     }
+    case "qr-card": {
+      const plan = qrCardPlan(keychainQrCardSpec(params));
+
+      return `${QR_CARD_SIZE_LABELS[plan.spec.size]}, ${qrCardReport(plan)} Тёмные модули ${plan.spec.mode === "raised" ? "выступают на 0.4 мм" : "утоплены на 0.3 мм"}`;
+    }
     default:
       return `форма ${params.width} × ${params.length} мм, отверстие Ø5 мм под кольцо`;
   }
@@ -918,6 +991,13 @@ export function ParameterPanel({
   onKeychainPresetChange,
   onCustomSvgChange,
   onNfcChange,
+  onQrCardSizeChange,
+  onQrCardTabChange,
+  onQrModeChange,
+  onQrContentTypeChange,
+  onQrContentChange,
+  onQrNameChange,
+  onQrPhoneChange,
   onTextChange,
   onSignTextChange,
   onSignFontChange,
@@ -963,6 +1043,9 @@ export function ParameterPanel({
   const lithophaneHintId = `${lithophaneInputId}-hint`;
   const keychainContourInputId = useId();
   const keychainContourHintId = `${keychainContourInputId}-hint`;
+  const qrContentInputId = useId();
+  const qrNameInputId = useId();
+  const qrPhoneInputId = useId();
   const boxCellsXInputId = useId();
   const boxCellsYInputId = useId();
   const cipherWordInputId = useId();
@@ -1213,7 +1296,7 @@ export function ParameterPanel({
   /**
    * Почему нельзя скачать STL из-за выбранной формы.
    *
-   * Геометрия есть у всех восьми пресетов, поэтому причина одна: пресет в
+   * Геометрия есть у всех девяти пресетов, поэтому причина одна: пресет в
    * разработке. Она важнее причины NFC — пользователь только что выбрал форму.
    */
   const presetBlockReason =
@@ -1221,8 +1304,54 @@ export function ParameterPanel({
       ? "Этот пресет ещё в разработке. Выберите готовый пресет или свой контур."
       : null;
 
+  /**
+   * Раскладка QR-визитки: матрица, размер модуля и причина отказа.
+   *
+   * Считается теми же функциями, что и геометрия, поэтому плашка «модуль 0.85 мм»
+   * и скачанный файл всегда про один и тот же код. Для остальных пресетов — null.
+   */
+  const qrCardLayoutPlan = useMemo(
+    () =>
+      params.keychainPreset === "qr-card"
+        ? qrCardPlan(keychainQrCardSpec(params))
+        : null,
+    [params],
+  );
+
+  /** Почему визитку нельзя скачать: содержимое не годится или код слишком плотный. */
+  const qrBlockReason = qrCardLayoutPlan
+    ? (qrCardLayoutPlan.contentError ?? qrCardLayoutPlan.layout.blockedReason)
+    : null;
+
+  /**
+   * Поле содержимого: у ссылки, телефона и почты разные подпись, подсказка и
+   * клавиатура. У визитки поля нет — там имя и телефон.
+   */
+  const qrContentField =
+    params.qrContentType === "tel"
+      ? {
+          label: "Телефон",
+          placeholder: "+7 900 123-45-67",
+          inputMode: "tel" as const,
+        }
+      : params.qrContentType === "email"
+        ? {
+            label: "Почта",
+            placeholder: "name@example.ru",
+            inputMode: "email" as const,
+          }
+        : {
+            label: "Ссылка",
+            placeholder: "https://tridi.ru",
+            inputMode: "url" as const,
+          };
+
+  /** Границы толщины выбранного пресета: у визитки они свои. */
+  const keychainThickness = keychainThicknessLimits(params.keychainPreset);
+
   /** Итоговая причина, по которой кнопки скачивания заблокированы. */
-  const exportBlockReason = presetBlockReason ?? nfcBlockReason;
+  const exportBlockReason =
+    presetBlockReason ?? qrBlockReason ?? nfcBlockReason;
 
   /** Пауза и пластик над карманом без хвостовых нулей: 1.05 и 1.95. */
   const nfcPauseLabel = Number(nfcLayers.pauseZ.toFixed(2)).toString();
@@ -1615,6 +1744,121 @@ export function ParameterPanel({
             ) : null}
           </div>
 
+          {params.keychainPreset === "qr-card" && qrCardLayoutPlan ? (
+            <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+              <ParameterSelect
+                hint="Компактная 60 × 40 помещается в карман, широкая 70 × 45 даёт крупный модуль и вмещает визитку с именем."
+                label="Размер визитки"
+                onChange={onQrCardSizeChange}
+                options={QR_CARD_SIZE_OPTIONS}
+                value={params.qrCardSize}
+              />
+
+              <ParameterSelect
+                hint="Проушина Ø11 мм выступает над корпусом на 4 мм и входит в габарит по высоте. Отверстие Ø5 мм остаётся в теле: размер ровно по заготовке, но код опускается ниже."
+                label="Крепление"
+                onChange={onQrCardTabChange}
+                options={QR_CARD_TAB_OPTIONS}
+                value={params.qrCardTab}
+              />
+
+              <ParameterSelect
+                hint="Выпуклый рельеф 0.4 мм читается пальцем, углублённый 0.3 мм не стирается о карман. Сканер читает оба."
+                label="Рельеф кода"
+                onChange={onQrModeChange}
+                options={QR_MODE_OPTIONS}
+                value={params.qrMode}
+              />
+
+              <ParameterSelect
+                hint="Ссылка открывает сайт, телефон предлагает звонок, почта — письмо. Визитка сохраняет контакт целиком: имя и телефон."
+                label="Что зашить в код"
+                onChange={onQrContentTypeChange}
+                options={QR_CONTENT_TYPE_OPTIONS}
+                value={params.qrContentType}
+              />
+
+              {params.qrContentType === "vcard" ? (
+                <>
+                  <div>
+                    <label
+                      className="text-sm font-medium text-slate-200"
+                      htmlFor={qrNameInputId}
+                    >
+                      Имя
+                    </label>
+                    <input
+                      autoComplete="off"
+                      className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                      id={qrNameInputId}
+                      onChange={(event) => onQrNameChange(event.target.value)}
+                      placeholder="Иван Петров"
+                      spellCheck={false}
+                      type="text"
+                      value={params.qrName}
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      className="text-sm font-medium text-slate-200"
+                      htmlFor={qrPhoneInputId}
+                    >
+                      Телефон
+                    </label>
+                    <input
+                      autoComplete="off"
+                      className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                      id={qrPhoneInputId}
+                      inputMode="tel"
+                      onChange={(event) => onQrPhoneChange(event.target.value)}
+                      placeholder="+7 900 123-45-67"
+                      spellCheck={false}
+                      type="tel"
+                      value={params.qrPhone}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label
+                    className="text-sm font-medium text-slate-200"
+                    htmlFor={qrContentInputId}
+                  >
+                    {qrContentField.label}
+                  </label>
+                  <input
+                    autoComplete="off"
+                    className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    id={qrContentInputId}
+                    inputMode={qrContentField.inputMode}
+                    onChange={(event) => onQrContentChange(event.target.value)}
+                    placeholder={qrContentField.placeholder}
+                    spellCheck={false}
+                    type="text"
+                    value={params.qrContent}
+                  />
+                </div>
+              )}
+
+              {qrBlockReason ? (
+                <p
+                  className="rounded-xl border border-rose-400/40 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
+                  role="alert"
+                >
+                  {qrBlockReason} Скачивание STL заблокировано: иначе уйдёт в
+                  печать код, который не сканируется.
+                </p>
+              ) : (
+                <p className="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-xs leading-relaxed text-emerald-100">
+                  <strong className="font-semibold">Код влезает:</strong>{" "}
+                  {qrCardReport(qrCardLayoutPlan)} Минимальный модуль для печати
+                  — {QR_CARD_MIN_MODULE_MM} мм.
+                </p>
+              )}
+            </div>
+          ) : null}
+
           <fieldset className="mt-6 border-t border-white/10 pt-5">
             <legend className="text-sm font-medium text-slate-200">
               Свой контур
@@ -1768,36 +2012,44 @@ export function ParameterPanel({
           </fieldset>
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Расстояние от верхнего края с кольцом до нижнего. 60 мм — удобный размер для связки ключей."
-              label="Длина"
-              max={CONSTRUCTOR_LIMITS.length.max}
-              min={CONSTRUCTOR_LIMITS.length.min}
-              onChange={(value) => onParamChange("length", value)}
-              step={CONSTRUCTOR_LIMITS.length.step}
-              unit="мм"
-              value={params.length}
-            />
+            {params.keychainPreset === "qr-card" ? null : (
+              <>
+                <NumberSlider
+                  hint="Расстояние от верхнего края с кольцом до нижнего. 60 мм — удобный размер для связки ключей."
+                  label="Длина"
+                  max={CONSTRUCTOR_LIMITS.length.max}
+                  min={CONSTRUCTOR_LIMITS.length.min}
+                  onChange={(value) => onParamChange("length", value)}
+                  step={CONSTRUCTOR_LIMITS.length.step}
+                  unit="мм"
+                  value={params.length}
+                />
+
+                <NumberSlider
+                  hint="Ширина заготовки. Длинное имя автоматически становится мельче, но остаётся в пределах кромок."
+                  label="Ширина"
+                  max={CONSTRUCTOR_LIMITS.width.max}
+                  min={CONSTRUCTOR_LIMITS.width.min}
+                  onChange={(value) => onParamChange("width", value)}
+                  step={CONSTRUCTOR_LIMITS.width.step}
+                  unit="мм"
+                  value={params.width}
+                />
+              </>
+            )}
 
             <NumberSlider
-              hint="Ширина заготовки. Длинное имя автоматически становится мельче, но остаётся в пределах кромок."
-              label="Ширина"
-              max={CONSTRUCTOR_LIMITS.width.max}
-              min={CONSTRUCTOR_LIMITS.width.min}
-              onChange={(value) => onParamChange("width", value)}
-              step={CONSTRUCTOR_LIMITS.width.step}
-              unit="мм"
-              value={params.width}
-            />
-
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.thickness.decimals}
-              hint="2–3 мм — лёгкий брелок, 4–5 мм — прочный. Края скруглены фаской, чтобы не резали руки."
+              decimals={keychainThickness.decimals}
+              hint={
+                params.keychainPreset === "qr-card"
+                  ? "2.5–3.5 мм: тоньше карта прогибается в кармане, толще рельеф кода перестаёт читаться пальцем. Ширина и высота приходят из размера визитки."
+                  : "2–3 мм — лёгкий брелок, 4–5 мм — прочный. Края скруглены фаской, чтобы не резали руки."
+              }
               label="Толщина"
-              max={CONSTRUCTOR_LIMITS.thickness.max}
-              min={CONSTRUCTOR_LIMITS.thickness.min}
+              max={keychainThickness.max}
+              min={keychainThickness.min}
               onChange={(value) => onParamChange("thickness", value)}
-              step={CONSTRUCTOR_LIMITS.thickness.step}
+              step={keychainThickness.step}
               unit="мм"
               value={params.thickness}
             />

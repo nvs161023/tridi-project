@@ -7,6 +7,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { KEYCHAIN_FALLBACK_SVG } from "@/lib/constructor/keychain-fallback-shape";
 import { buildKeychainPresetGeometry } from "@/lib/constructor/keychain-preset-geometry";
 import {
+  keychainQrCardSpec,
   normalizeKeychainParams,
   type KeychainParams,
 } from "@/lib/constructor/params";
@@ -970,6 +971,11 @@ export function createKeychainGeometry(
         width: normalized.width,
         height: normalized.length,
         thickness: normalized.thickness,
+        // Визитке мало трёх чисел: её раскладку задаёт содержимое кода.
+        qr:
+          normalized.keychainPreset === "qr-card"
+            ? keychainQrCardSpec(normalized)
+            : null,
       })
     : null;
 
