@@ -2013,15 +2013,14 @@ export function ParameterPanel({
               ) : null}
 
               {params.nfcEnabled && !presetNfcBlocked && presetNfc ? (
-                presetNfc.tight ? (
+                presetNfc.tightReason ? (
                   <p className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
-                    Карман впритык: над меткой останется {presetNfcLidLabel} мм
-                    пластика вместо нормы 1.1 мм. Пауза{" "}
+                    Карман на пределе: {presetNfc.tightReason} Пауза{" "}
                     <code className="font-semibold">M600</code> на слое{" "}
                     <strong className="font-semibold">
                       Z = {presetNfcPauseLabel} мм
                     </strong>
-                    . Тонкую крышку лучше печатать PETG: PLA в ней лопается по
+                    . Тонкий пластик лучше печатать PETG: PLA в нём лопается по
                     слоям.
                   </p>
                 ) : (

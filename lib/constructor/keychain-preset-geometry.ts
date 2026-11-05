@@ -1275,30 +1275,70 @@ export type KeychainNfcLayout = {
   /** Пластик над полостью, мм. */
   lidMm: number;
   /**
-   * Крышка тоньше нормы 1.1 мм — карман идёт впритык.
+   * Стенка от полости до кромки силуэта, мм.
    *
-   * Панель показывает жёлтую плашку вместо зелёной: карман вырезать можно, но
-   * пластик над меткой держится на пределе.
+   * Отрицательная — полость вылезает за силуэт, карман не режется. Меньше
+   * `NFC_WALL_MIN_MM` — деталь печатается, но метка садится впритык.
    */
-  tight: boolean;
+  wallMm: number;
+  /**
+   * Почему карман идёт впритык: тонкая стенка или тонкая крышка, null — норма.
+   *
+   * Карман при этом режется: панель показывает жёлтую плашку вместо зелёной.
+   * Отдельная строка, а не флаг: пользователю нужна цифра, которая не сошлась с
+   * нормой, — «стенка 1.1 мм» читается, «впритык» нет.
+   */
+  tightReason: string | null;
 };
+
+/** Число без хвостовых нулей для текстов панели и API: 1.1, 0.9, 32. */
+function nfcMmLabel(value: number, digits = 2): string {
+  return Number(value.toFixed(digits)).toString();
+}
+
+/**
+ * Стенка от полости кармана до кромки силуэта, мм.
+ *
+ * Полость стоит по центру ширины, поэтому ближайшая кромка — боковая или
+ * верхняя/нижняя: стенка считается по осям X и Y, скругления углов не в счёт
+ * (при полости Ø29 в центральной полосе радиус 4–8 мм от неё дальше, чем кромка).
+ * Низ кармана отдельно: центр смещён на `nfcPocketY`, и у Apple Tag карман
+ * опущен на 3.7 мм — там стенка и самая тонкая.
+ *
+ * Габарит берётся в профиле, то есть меньше слайдера на фаску: полость и губа
+ * режутся полосами без фаски, их силуэт — это контур крышки
+ * (`PRESET_BEVEL_SIZE_MM`, у визитки та же фаска в своём модуле), а не заготовка.
+ *
+ * Отрицательное значение означает, что полость вылезает за силуэт.
+ */
+function nfcWallMm(width: number, height: number, pocketY: number): number {
+  const halfWidth = Math.max(width - PRESET_BEVEL_SIZE_MM * 2, 1) / 2;
+  const halfHeight = Math.max(height - PRESET_BEVEL_SIZE_MM * 2, 1) / 2;
+  const sideMm = halfWidth - NFC_POCKET_RADIUS_MM;
+  const alongMm = halfHeight - Math.abs(pocketY) - NFC_POCKET_RADIUS_MM;
+
+  return Number(Math.min(sideMm, alongMm).toFixed(2));
+}
 
 /**
  * Раскладка кармана под NFC-метку для пресета.
  *
  * Единственный источник правды для геометрии и панели: границы зон, «пауза на
- * Z = 1.8» и причина отказа считаются здесь, поэтому подсказка не может
- * разойтись с моделью. Проверок две — пресет и толщина:
+ * Z = 1.8» и причины берутся здесь, поэтому подсказка не может разойтись с
+ * моделью. Проверок три — пресет, силуэт и толщина:
  *
  * - карман есть только у пресетов с `nfcPocketY` (Apple Tag, Brick, QR-визитка);
+ * - в силуэт должна вписаться полость вместе с зазором `NFC_WALL_MIN_MM`: у
+ *   заготовки узкая сторона не меньше `2 × (radius + зазор) = 32` мм, а у
+ *   профиля — стенка не в минус (карман смещён по Y, поэтому вторая проверка
+ *   режет и по высоте: у Apple Tag уже при 34 мм карман вылезает за низ);
  * - лицо должно быть не тоньше `NFC_BLOCK_THICKNESS_MM`, а у гравированной
  *   визитки — на 0.3 мм больше: плита лица снимает эту толщину с тела.
  *
- * Габарит здесь проверяется только на толщину: стенку меряет `nfc-compatibility.md`
- * растром настоящей геометрии. Полость и губа выдавливаются без фаски, поэтому
- * силуэт у них на `PRESET_BEVEL_SIZE_MM` уже, чем у дна и крышки, и стенка выходит на
- * те же 0.4 мм тоньше: у Apple Tag 3.3 мм, у Brick 32 мм — 1.1, у компактной
- * визитки с отверстием — 0.8. Полость не должна выйти за силуэт вовсе.
+ * Тонкая стенка и тонкая крышка карман не отменяют: они уходят в `tightReason`,
+ * по которому панель показывает жёлтую плашку вместо зелёной. Стенка в профиле
+ * на фаску тоньше, чем обещает заготовка: у Apple Tag 3.4 мм, у Brick 32 мм —
+ * 1.1, у компактной визитки с отверстием — 0.9.
  */
 export function nfcLayout(
   presetId: KeychainPresetId,
@@ -1325,13 +1365,51 @@ export function nfcLayout(
   const normLidMm = (NFC_TIGHT_THICKNESS_MM - NFC_LID_START_Z_MM).toFixed(1);
   const reliefNote =
     reliefMm > 0 ? ` + гравировка ${QR_ENGRAVED_DEPTH_MM}` : "";
+  const lidMm = Math.max(
+    0,
+    Number((faceThicknessMm - NFC_LID_START_Z_MM).toFixed(2)),
+  );
+  // Стенка и порог вписывания. Порог считается по заготовке из слайдеров —
+  // полость плюс зазор должны уложиться в половину узкой стороны, — а стенка по
+  // профилю: он меньше заготовки на фаску, поэтому ровно 32 мм узкой стороны
+  // дают 1.1 мм пластика и жёлтую плашку, а не блок.
+  const wallMm =
+    pocketY === null ? 0 : nfcWallMm(params.width, params.height, pocketY);
+  const fitNeedMm = (NFC_POCKET_RADIUS_MM + NFC_WALL_MIN_MM) * 2;
+  const narrowMm = Math.min(params.width, params.height);
+  const sizeLabel = `${nfcMmLabel(params.width, 1)}×${nfcMmLabel(params.height, 1)}`;
 
+  // Стенка в минус — полость вылезает за силуэт: у кармана смещённый центр, и
+  // узкой стороны мало, чтобы поймать ещё и низ (Apple Tag при высоте 34 мм).
   const blockedReason =
     pocketY === null
       ? "Этот пресет не поддерживает NFC-карман."
-      : faceThicknessMm <= NFC_BLOCK_THICKNESS_MM + 1e-6
-        ? `Толщина ${thicknessMm} мм: для кармана нужно минимум ${blockThicknessMm} мм (сплошное дно ${NFC_FLOOR_MM} + полость ${NFC_CAVITY_HEIGHT_MM} + губа ${NFC_LIP_MM} + крышка ${minLidMm}${reliefNote}), а с запасом — от ${tightThicknessMm} мм, где крышка ${normLidMm} мм.`
-        : null;
+      : wallMm < 0 || narrowMm < fitNeedMm - 1e-6
+        ? `Полость Ø${nfcMmLabel(NFC_POCKET_RADIUS_MM * 2, 1)} мм не вписывается в силуэт ${sizeLabel} мм: нужно минимум ${nfcMmLabel(fitNeedMm, 1)}×${nfcMmLabel(fitNeedMm, 1)} мм для радиуса ${nfcMmLabel(NFC_POCKET_RADIUS_MM, 1)} и зазора ${nfcMmLabel(NFC_WALL_MIN_MM, 1)}.`
+        : faceThicknessMm <= NFC_BLOCK_THICKNESS_MM + 1e-6
+          ? `Толщина ${thicknessMm} мм: для кармана нужно минимум ${blockThicknessMm} мм (сплошное дно ${NFC_FLOOR_MM} + полость ${NFC_CAVITY_HEIGHT_MM} + губа ${NFC_LIP_MM} + крышка ${minLidMm}${reliefNote}), а с запасом — от ${tightThicknessMm} мм, где крышка ${normLidMm} мм.`
+          : null;
+
+  // Жёлтая плашка: карман режется, но на пределе. Причины могут сойтись —
+  // тонкая стенка и тонкая крышка сразу, — тогда обе идут в одну строку, чтобы
+  // панель не выбирала, какую из них показать.
+  const tightReasons: string[] = [];
+
+  if (pocketY !== null && wallMm < NFC_WALL_MIN_MM) {
+    tightReasons.push(
+      `Стенка ${nfcMmLabel(wallMm)} мм, метка Ø${nfcMmLabel(NFC_TAG_RADIUS_MM * 2, 0)} впритык.`,
+    );
+  }
+
+  if (
+    pocketY !== null &&
+    faceThicknessMm > NFC_BLOCK_THICKNESS_MM + 1e-6 &&
+    faceThicknessMm < NFC_TIGHT_THICKNESS_MM - 1e-6
+  ) {
+    tightReasons.push(
+      `Крышка ${nfcMmLabel(lidMm)} мм вместо нормы ${normLidMm} мм.`,
+    );
+  }
 
   return {
     enabled: Boolean(params.nfcEnabled) && blockedReason === null,
@@ -1344,17 +1422,12 @@ export function nfcLayout(
     lipRadiusMm: NFC_LIP_HOLE_RADIUS_MM,
     pauseZ: NFC_PAUSE_Z_MM,
     lidStartZ: NFC_LID_START_Z_MM,
-    lidMm: Math.max(
-      0,
-      Number((faceThicknessMm - NFC_LID_START_Z_MM).toFixed(2)),
-    ),
-    // Крышка тоньше нормы 1.1 мм: карман режется, но пластик над меткой на
-    // пределе. Полоса впритык — от 3 до 3.3 мм лица (у гравированной визитки от
-    // 3.3 до 3.6 мм).
-    tight:
-      pocketY !== null &&
-      faceThicknessMm > NFC_BLOCK_THICKNESS_MM + 1e-6 &&
-      faceThicknessMm < NFC_TIGHT_THICKNESS_MM - 1e-6,
+    lidMm,
+    wallMm,
+    tightReason:
+      blockedReason === null && tightReasons.length > 0
+        ? tightReasons.join(" ")
+        : null,
   };
 }
 
