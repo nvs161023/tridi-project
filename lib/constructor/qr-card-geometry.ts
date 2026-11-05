@@ -165,6 +165,9 @@ const QR_CARD_BEVEL_SEGMENTS = 2;
 /** 32 сегмента на дугу: скругления и отверстие выходят гладкими. */
 const QR_CARD_CURVE_SEGMENTS = 32;
 
+/** Перекрытие полос корпуса с полостью под метку, мм: щели между ними нет. */
+const QR_CARD_NFC_JOIN_MM = 0.05;
+
 /**
  * Поле от кромки корпуса до кода, мм.
  *
@@ -802,28 +805,52 @@ function extrudeQrCardBody(
   return extrudeQrCardLayer(shape, 0, thickness);
 }
 /**
- * Корпус с карманом под NFC-метку: два слоя вместо одного.
+ * Корпус с запечатанной полостью под NFC-метку: четыре полосы вместо одной.
  *
- * Задний слой (0 … `pauseZ`) несёт круглое отверстие кармана, передний
- * (`depth` … `thickness`) остаётся сплошным — он и есть крышка над меткой.
- * Перекрытие 0.05 мм не даёт слоям разойтись. Контур строится дважды готовой
- * фабрикой: `qrCardOutline` — чистая функция, и копировать дырки вручную не
- * нужно, а карман попадает только в задний слой.
+ * Раскладка та же, что у пресетов (`nfcLayout` в `keychain-preset-geometry.ts`):
+ * сплошное дно `0 … floorMm`, полость `floorMm … pauseZ`, губа с отверстием
+ * `pauseZ … lidStartZ` и сплошная крышка до лица. Метку кладут в полость на
+ * паузе, дальше губа и крышка закрывают её навсегда.
+ *
+ * Полость и губа выдавливаются без фаски (`extrudeQrCardPlate`): фаска поджала бы
+ * круг на середине полосы и оставила ступеньку на стыке. Дно и крышка остаются с
+ * фаской — их кромки это внешние грани детали. Контур строится фабрикой
+ * `qrCardOutline`: она чистая, поэтому у каждой полосы свои дырки.
  */
 function qrCardPocketBody(
   outline: () => Shape,
   thickness: number,
   pocket: QrCardNfcPocket,
 ): BufferGeometry {
-  const backShape = outline();
-  const hole = new Path();
+  const cavityShape = outline();
+  const cavityHole = new Path();
 
-  hole.absarc(0, pocket.pocketY, pocket.radiusMm, 0, Math.PI * 2, true);
-  backShape.holes.push(hole);
+  cavityHole.absarc(0, pocket.pocketY, pocket.radiusMm, 0, Math.PI * 2, true);
+  cavityShape.holes.push(cavityHole);
+
+  const lipShape = outline();
+  const lipHole = new Path();
+
+  lipHole.absarc(0, pocket.pocketY, pocket.lipRadiusMm, 0, Math.PI * 2, true);
+  lipShape.holes.push(lipHole);
 
   const parts: BufferGeometry[] = [
-    extrudeQrCardLayer(backShape, 0, pocket.pauseZ),
-    extrudeQrCardLayer(outline(), pocket.depthMm, thickness - pocket.depthMm),
+    extrudeQrCardLayer(outline(), 0, pocket.floorMm),
+    extrudeQrCardPlate(
+      cavityShape,
+      pocket.floorMm - QR_CARD_NFC_JOIN_MM,
+      pocket.cavityHeightMm + QR_CARD_NFC_JOIN_MM * 2,
+    ),
+    extrudeQrCardPlate(
+      lipShape,
+      pocket.pauseZ,
+      pocket.lipMm + QR_CARD_NFC_JOIN_MM,
+    ),
+    extrudeQrCardLayer(
+      outline(),
+      pocket.lidStartZ,
+      thickness - pocket.lidStartZ,
+    ),
   ];
   const body = mergeGeometries(parts);
 
@@ -833,7 +860,7 @@ function qrCardPocketBody(
 
   if (!body) {
     throw new Error(
-      "Не удалось соединить слои корпуса визитки с карманом под NFC-метку",
+      "Не удалось собрать корпус визитки с полостью под NFC-метку",
     );
   }
 
@@ -1098,14 +1125,22 @@ function engravedReliefGeometry(
  * ни про метку, ни про стенку — он только вырезает круг в заднем слое.
  */
 export type QrCardNfcPocket = {
-  /** Центр круга по Y, мм. */
+  /** Центр полости по Y, мм. */
   pocketY: number;
-  /** Радиус круга по контуру, мм. */
+  /** Радиус полости по контуру, мм. */
   radiusMm: number;
-  /** Глубина кармана от нижней грани, мм. */
-  depthMm: number;
-  /** Верх заднего слоя: на нём ставится пауза M600, мм. */
+  /** Сплошное дно от нижней грани, мм. */
+  floorMm: number;
+  /** Высота полости, мм. */
+  cavityHeightMm: number;
+  /** Высота губы над полостью, мм. */
+  lipMm: number;
+  /** Радиус отверстия в губе, мм: метка через него не проходит. */
+  lipRadiusMm: number;
+  /** Верх полости: на нём ставится пауза M600, мм. */
   pauseZ: number;
+  /** Низ крышки, мм. */
+  lidStartZ: number;
 };
 
 /** Параметры геометрии визитки: габарит, толщина и содержимое кода. */
@@ -1147,7 +1182,7 @@ function finishQrCard(geometry: BufferGeometry): BufferGeometry {
  * проушину и габарит.
  *
  * NFC-карман делит только корпус: рельеф кода остаётся на лице, а пауза
- * печатается на верхе заднего слоя — там же, где у остальных пресетов.
+ * печатается на верхе полости — там же, где у остальных пресетов.
  */
 export function buildQrCard(params: QrCardGeometryParams): BufferGeometry {
   const spec = params.qr ?? DEFAULT_QR_CARD_SPEC;

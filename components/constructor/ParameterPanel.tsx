@@ -1282,9 +1282,9 @@ export function ParameterPanel({
   /**
    * Раскладка кармана у выбранного пресета.
    *
-   * Считается той же `nfcLayout`, что и геометрия: радиус круга, глубина,
+   * Считается той же `nfcLayout`, что и геометрия: радиус полости, границы зон,
    * пауза и причина отказа берутся из одного места, поэтому подсказка «пауза на
-   * Z = 1.05 мм» не может разойтись с моделью. Для своего контура — null: у него
+   * Z = 1.8 мм» не может разойтись с моделью. Для своего контура — null: у него
    * карман квадратный и считается по `measureKeychainNfc`.
    */
   const presetNfc = params.keychainPreset
@@ -1303,7 +1303,7 @@ export function ParameterPanel({
   /** Почему пресет не получит карман: силуэт не держит метку или основа тонкая. */
   const presetNfcBlocked = presetNfc?.blockedReason ?? null;
 
-  /** Пауза и пластик над карманом пресета без хвостовых нулей: 1.05 и 1.95. */
+  /** Пауза и пластик над карманом пресета без хвостовых нулей: 1.8 и 1.7. */
   const presetNfcPauseLabel = presetNfc
     ? Number(presetNfc.pauseZ.toFixed(2)).toString()
     : "";
@@ -1311,7 +1311,16 @@ export function ParameterPanel({
     ? Number(presetNfc.lidMm.toFixed(2)).toString()
     : "";
   const presetNfcDiameterLabel = presetNfc
-    ? Number((presetNfc.pocketRadiusMm * 2).toFixed(1)).toString()
+    ? Number((presetNfc.radiusMm * 2).toFixed(1)).toString()
+    : "";
+  const presetNfcLipLabel = presetNfc
+    ? Number((presetNfc.lipRadiusMm * 2).toFixed(0)).toString()
+    : "";
+  const presetNfcFloorLabel = presetNfc
+    ? Number(presetNfc.floorMm.toFixed(1)).toString()
+    : "";
+  const presetNfcCavityLabel = presetNfc
+    ? Number(presetNfc.cavityHeightMm.toFixed(1)).toString()
     : "";
 
   /**
@@ -1981,9 +1990,12 @@ export function ParameterPanel({
                     Карман под NFC-метку
                   </span>
                   <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                    Круглый карман Ø{presetNfcDiameterLabel} мм глубиной 1 мм с
-                    обратной стороны. Метку Ø26 мм вкладывают в паузу печати, и
-                    верхние слои закрывают её пластиком.
+                    Карман Ø{presetNfcDiameterLabel} мм внутри корпуса: сплошное
+                    дно {presetNfcFloorLabel} мм снизу, полость{" "}
+                    {presetNfcCavityLabel} мм под метку и губа Ø
+                    {presetNfcLipLabel} мм сверху. Метку Ø22–26 мм толщиной до 1.1
+                    мм вкладывают в паузу печати. Без паузы карман останется
+                    запечатанной пустой полостью.
                   </span>
                 </span>
               </label>
@@ -2003,25 +2015,26 @@ export function ParameterPanel({
               {params.nfcEnabled && !presetNfcBlocked && presetNfc ? (
                 presetNfc.tight ? (
                   <p className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
-                    Карман впритык, зазор 1.5 мм: метка садится, но от кармана до
-                    кромки корпуса остаётся 1.3 мм вместо нормы 1.5 мм. Пауза{" "}
+                    Карман впритык: над меткой останется {presetNfcLidLabel} мм
+                    пластика вместо нормы 1.1 мм. Пауза{" "}
                     <code className="font-semibold">M600</code> на слое{" "}
                     <strong className="font-semibold">
                       Z = {presetNfcPauseLabel} мм
                     </strong>
-                    , над меткой {presetNfcLidLabel} мм пластика. Тонкую стенку
-                    лучше печатать PETG: PLA в кармане лопается по слоям.
+                    . Тонкую крышку лучше печатать PETG: PLA в ней лопается по
+                    слоям.
                   </p>
                 ) : (
                   <p className="mt-3 rounded-2xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-3 text-xs leading-relaxed text-emerald-100">
-                    Карман Ø{presetNfcDiameterLabel} мм, глубина 1 мм. Добавьте
-                    паузу <code className="font-semibold">M600</code> на слое{" "}
+                    Карман Ø{presetNfcDiameterLabel} мм: дно {presetNfcFloorLabel}{" "}
+                    мм, губа Ø{presetNfcLipLabel} мм и {presetNfcLidLabel} мм
+                    пластика над меткой. Добавьте паузу{" "}
+                    <code className="font-semibold">M600</code> на слое{" "}
                     <strong className="font-semibold">
                       Z = {presetNfcPauseLabel} мм
                     </strong>
-                    : это верх задней части кармана. Вложите метку в открытое
-                    отверстие и продолжите печать — поверх неё останется{" "}
-                    {presetNfcLidLabel} мм пластика.
+                    , вложите метку Ø22–26 мм в открытую полость и продолжите
+                    печать — губа и крышка закроют её навсегда.
                   </p>
                 )
               ) : null}

@@ -1125,6 +1125,31 @@ function extrudePresetLayer(
 }
 
 /**
+ * Выдавливает контур в полосу без фаски, мм.
+ *
+ * Нужна полостям кармана: фаска three.js расширяет наружу и контур, и дырки, из-за
+ * чего стенка полости выходит наклонной, а на стыке с соседней полосой появляется
+ * ступенька 0.4 мм. Без фаски стенка отвесная, и круг в слайсере равен радиусу
+ * из `nfcLayout`.
+ */
+function extrudePresetBand(
+  shape: Shape,
+  startZ: number,
+  height: number,
+): ExtrudeGeometry {
+  const geometry = new ExtrudeGeometry(shape, {
+    bevelEnabled: false,
+    curveSegments: PRESET_CURVE_SEGMENTS,
+    depth: Math.max(height, 0.05),
+    steps: 1,
+  });
+
+  geometry.translate(0, 0, startZ);
+
+  return geometry;
+}
+
+/**
  * Выдавливает контур в основу на всю толщину.
  *
  * Толщина держится ровно по слайдеру: нижняя грань на Z = 0, верхняя — на
@@ -1149,33 +1174,63 @@ const NFC_TAG_RADIUS_MM = 13;
  * Минимальная стенка между карманом и кромкой силуэта, мм.
  *
  * Тоньше — пластик вокруг метки прогибается и ломается в кармане. Отсюда и
- * правило отбора: в силуэт должен вписаться круг радиусом
- * `13 + 1.5 + 0.4 = 14.9` мм, иначе пресет карман не получает.
+ * правило отбора: в силуэт должен вписаться круг радиусом `13 + 1.5 = 14.5` мм,
+ * иначе пресет карман не получает.
  */
 const NFC_WALL_MIN_MM = 1.5;
 
 /**
- * Радиус кармана по контуру, мм — Ø29.8 в свету.
+ * Радиус полости по контуру, мм — Ø29 в свету.
  *
- * Три слагаемых: 13 мм метки, 1.5 мм стенки и 0.4 мм фаски. Фаска нужна потому,
- * что three.js поджимает отверстие на `bevelSize` на середине толщины: по
- * контуру выходит 14.9, в самом узком месте 14.5 — ровно метка и стенка.
+ * Два слагаемых: 13 мм метки и 1.5 мм стенки. Добавки на фаску нет: полость
+ * режется полосами без фаски, стенки у неё отвесные, и three.js не поджимает
+ * круг на середине толщины.
  */
-const NFC_POCKET_RADIUS_MM =
-  NFC_TAG_RADIUS_MM + NFC_WALL_MIN_MM + PRESET_BEVEL_SIZE_MM;
-
-/** Глубина кармана, мм: та же, что у классического брелока (`NFC_DEPTH_MM`). */
-const NFC_POCKET_DEPTH_MM = 1;
+const NFC_POCKET_RADIUS_MM = NFC_TAG_RADIUS_MM + NFC_WALL_MIN_MM;
 
 /**
- * Минимум пластика над карманом, мм.
+ * Сплошное дно под полостью, мм.
  *
- * Это и есть отсекатель по толщине: `1 + 1.5 = 2.5` мм, а у гравированной
- * визитки плита лица съедает ещё 0.3 мм — там нужно 2.8.
+ * Три слоя по 0.2 мм: снизу деталь закрыта, и метка лежит на пластике, а не
+ * висит над сквозной дырой. Прежняя схема резала карман от Z = 0 — снизу была
+ * дыра во весь Ø29, и деталь держалась кольцом вокруг метки.
  */
-const NFC_LID_MIN_MM = 1.5;
+const NFC_FLOOR_MM = 0.6;
 
-/** Перекрытие заднего и переднего слоёв вокруг кармана, мм: щели не остаётся. */
+/** Высота полости, мм: метка 1 мм и зазор 0.2 мм на её толщину. */
+const NFC_CAVITY_HEIGHT_MM = 1.2;
+
+/** Верх полости, мм: на этом слое ставится пауза M600 — метку кладут сюда. */
+const NFC_PAUSE_Z_MM = Number(
+  (NFC_FLOOR_MM + NFC_CAVITY_HEIGHT_MM).toFixed(2),
+);
+
+/**
+ * Губа над полостью, мм.
+ *
+ * Узкое кольцо, которое печатается после паузы: оно сужает мост с 29 до 22 мм и
+ * физически не даёт метке выпасть из полости, даже если она не приклеена.
+ */
+const NFC_LIP_MM = 0.4;
+
+/** Радиус отверстия в губе, мм — Ø22: метка Ø26 проходит только в полость. */
+const NFC_LIP_HOLE_RADIUS_MM = 11;
+
+/** Низ крышки, мм: губа кончилась, дальше сплошной пластик до лица. */
+const NFC_LID_START_Z_MM = Number((NFC_PAUSE_Z_MM + NFC_LIP_MM).toFixed(2));
+
+/**
+ * Толщина, ниже которой карман не режется, мм.
+ *
+ * Дно 0.6 + полость 1.2 + губа 0.4 + крышка 0.8: тоньше крышка над меткой
+ * прогибается пальцем и трескается по слоям.
+ */
+const NFC_BLOCK_THICKNESS_MM = 3;
+
+/** Толщина, до которой крышка тоньше нормы 1.1 мм: карман идёт «впритык», мм. */
+const NFC_TIGHT_THICKNESS_MM = 3.3;
+
+/** Перекрытие соседних полос тела, мм: слайсер не видит щели между ними. */
 const NFC_JOIN_MM = 0.05;
 
 /**
@@ -1186,7 +1241,16 @@ const NFC_JOIN_MM = 0.05;
  */
 const QR_CARD_NFC_HOLE_SHIFT_MM = 2.2;
 
-/** Раскладка кармана под NFC-метку: что вырезать и куда ставить паузу. */
+/**
+ * Раскладка кармана под NFC-метку: четыре зоны по Z.
+ *
+ * Деталь с меткой устроена как слоёный пирог, и все числа ниже — границы зон:
+ *
+ * 1. `0 … floorMm` — сплошное дно: силуэт целиком, снизу карман закрыт;
+ * 2. `floorMm … pauseZ` — полость Ø29 мм: сюда падает метка;
+ * 3. `pauseZ … lidStartZ` — губа с отверстием Ø22 мм: она держит метку;
+ * 4. `lidStartZ … thickness` — сплошная крышка над меткой.
+ */
 export type KeychainNfcLayout = {
   /** Карман действительно вырезается: флаг включён и пресет его держит. */
   enabled: boolean;
@@ -1194,19 +1258,27 @@ export type KeychainNfcLayout = {
   blockedReason: string | null;
   /** Центр кармана по Y, мм; null — у пресета кармана нет вовсе. */
   pocketY: number | null;
-  /** Радиус кармана по контуру, мм. */
-  pocketRadiusMm: number;
-  /** Глубина кармана от нижней грани, мм. */
-  depthMm: number;
-  /** Верх заднего слоя: на нём ставится пауза M600, мм. */
+  /** Радиус полости по контуру, мм. */
+  radiusMm: number;
+  /** Сплошное дно от нижней грани, мм. */
+  floorMm: number;
+  /** Высота полости, мм. */
+  cavityHeightMm: number;
+  /** Высота губы над полостью, мм. */
+  lipMm: number;
+  /** Радиус отверстия в губе, мм: метка через него не проходит. */
+  lipRadiusMm: number;
+  /** Верх полости: на нём ставится пауза M600, мм. */
   pauseZ: number;
-  /** Пластик над карманом, мм. */
+  /** Низ крышки, мм. */
+  lidStartZ: number;
+  /** Пластик над полостью, мм. */
   lidMm: number;
   /**
-   * Стенка вокруг кармана впритык — меньше нормы `NFC_WALL_MIN_MM`.
+   * Крышка тоньше нормы 1.1 мм — карман идёт впритык.
    *
    * Панель показывает жёлтую плашку вместо зелёной: карман вырезать можно, но
-   * стенка держится на пределе.
+   * пластик над меткой держится на пределе.
    */
   tight: boolean;
 };
@@ -1214,17 +1286,19 @@ export type KeychainNfcLayout = {
 /**
  * Раскладка кармана под NFC-метку для пресета.
  *
- * Единственный источник правды для геометрии и панели: и вырезаемый круг, и
- * «пауза на Z = 1.05» считаются здесь, поэтому подсказка не может разойтись с
- * моделью. Проверок две — пресет и толщина:
+ * Единственный источник правды для геометрии и панели: границы зон, «пауза на
+ * Z = 1.8» и причина отказа считаются здесь, поэтому подсказка не может
+ * разойтись с моделью. Проверок две — пресет и толщина:
  *
  * - карман есть только у пресетов с `nfcPocketY` (Apple Tag, Brick, QR-визитка);
- * - над карманом должно остаться `NFC_LID_MIN_MM` пластика, а у гравированной
- *   визитки ещё и плита лица: иначе крышка над меткой прогибается.
+ * - лицо должно быть не тоньше `NFC_BLOCK_THICKNESS_MM`, а у гравированной
+ *   визитки — на 0.3 мм больше: плита лица снимает эту толщину с тела.
  *
- * Габарит сюда не входит: центры карманов подобраны так, что стенка не тоньше
- * `NFC_WALL_MIN_MM` при любом размере из слайдеров — расчёт в
- * `nfc-compatibility.md`.
+ * Габарит здесь проверяется только на толщину: стенку меряет `nfc-compatibility.md`
+ * растром настоящей геометрии. Полость и губа выдавливаются без фаски, поэтому
+ * силуэт у них на `PRESET_BEVEL_SIZE_MM` уже, чем у дна и крышки, и стенка выходит на
+ * те же 0.4 мм тоньше: у Apple Tag 3.3 мм, у Brick 32 мм — 1.1, у компактной
+ * визитки с отверстием — 0.8. Полость не должна выйти за силуэт вовсе.
  */
 export function nfcLayout(
   presetId: KeychainPresetId,
@@ -1239,40 +1313,57 @@ export function nfcLayout(
       : presetId === "qr-card" && qr?.tab === "hole"
         ? basePocketY - QR_CARD_NFC_HOLE_SHIFT_MM
         : basePocketY;
-  // Гравировка снимает 0.3 мм с лица: пластик над карманом тоньше на столько же.
+  // Гравировка снимает 0.3 мм с лица, но зоны кармана отсчитываются от нижней
+  // грани, поэтому пороги толщины у такой визитки выше на ту же величину.
   const reliefMm = qr?.mode === "engraved" ? QR_ENGRAVED_DEPTH_MM : 0;
-  const minThicknessMm = Number(
-    (NFC_POCKET_DEPTH_MM + NFC_LID_MIN_MM + reliefMm).toFixed(1),
-  );
-  const thicknessMm = Number(params.thickness.toFixed(1));
+  const faceThicknessMm = Number((params.thickness - reliefMm).toFixed(2));
+  const thicknessMm = params.thickness.toFixed(1);
+  const blockThicknessMm = (NFC_BLOCK_THICKNESS_MM + reliefMm).toFixed(1);
+  const tightThicknessMm = (NFC_TIGHT_THICKNESS_MM + reliefMm).toFixed(1);
+  // Крышка на пороге и по норме: 3 и 3.3 мм лица дают 0.8 и 1.1 мм пластика.
+  const minLidMm = (NFC_BLOCK_THICKNESS_MM - NFC_LID_START_Z_MM).toFixed(1);
+  const normLidMm = (NFC_TIGHT_THICKNESS_MM - NFC_LID_START_Z_MM).toFixed(1);
+  const reliefNote =
+    reliefMm > 0 ? ` + гравировка ${QR_ENGRAVED_DEPTH_MM}` : "";
 
   const blockedReason =
     pocketY === null
-      ? "Этот пресет не поддерживает NFC-карман: в его силуэте нет места под метку Ø26 мм со стенкой 1.5 мм."
-      : params.thickness < minThicknessMm - 1e-6
-        ? `Толщина ${thicknessMm} мм: для кармана нужно минимум ${minThicknessMm} мм, иначе над меткой останется меньше ${NFC_LID_MIN_MM} мм пластика.`
+      ? "Этот пресет не поддерживает NFC-карман."
+      : faceThicknessMm <= NFC_BLOCK_THICKNESS_MM + 1e-6
+        ? `Толщина ${thicknessMm} мм: для кармана нужно минимум ${blockThicknessMm} мм (сплошное дно ${NFC_FLOOR_MM} + полость ${NFC_CAVITY_HEIGHT_MM} + губа ${NFC_LIP_MM} + крышка ${minLidMm}${reliefNote}), а с запасом — от ${tightThicknessMm} мм, где крышка ${normLidMm} мм.`
         : null;
 
   return {
     enabled: Boolean(params.nfcEnabled) && blockedReason === null,
     blockedReason,
     pocketY,
-    pocketRadiusMm: NFC_POCKET_RADIUS_MM,
-    depthMm: NFC_POCKET_DEPTH_MM,
-    pauseZ: NFC_POCKET_DEPTH_MM + NFC_JOIN_MM,
-    lidMm: Math.max(0, params.thickness - NFC_POCKET_DEPTH_MM - reliefMm),
-    // Компактная визитка с отверстием — единственный силуэт, где вписанный круг
-    // (15.8 мм) меньше нормы 16 мм: стенка 1.3 мм вместо 1.5.
+    radiusMm: NFC_POCKET_RADIUS_MM,
+    floorMm: NFC_FLOOR_MM,
+    cavityHeightMm: NFC_CAVITY_HEIGHT_MM,
+    lipMm: NFC_LIP_MM,
+    lipRadiusMm: NFC_LIP_HOLE_RADIUS_MM,
+    pauseZ: NFC_PAUSE_Z_MM,
+    lidStartZ: NFC_LID_START_Z_MM,
+    lidMm: Math.max(
+      0,
+      Number((faceThicknessMm - NFC_LID_START_Z_MM).toFixed(2)),
+    ),
+    // Крышка тоньше нормы 1.1 мм: карман режется, но пластик над меткой на
+    // пределе. Полоса впритык — от 3 до 3.3 мм лица (у гравированной визитки от
+    // 3.3 до 3.6 мм).
     tight:
-      presetId === "qr-card" && qr?.size === "compact" && qr?.tab === "hole",
+      pocketY !== null &&
+      faceThicknessMm > NFC_BLOCK_THICKNESS_MM + 1e-6 &&
+      faceThicknessMm < NFC_TIGHT_THICKNESS_MM - 1e-6,
   };
 }
 
 /**
  * Круг кармана в контуре, обход по часовой стрелке — как у `ringHolePath`.
  *
- * Радиус берётся как есть, без добавки на фаску: `nfcLayout` уже отдаёт 14.9 мм,
- * чтобы в самом узком месте осталось 14.5 — метка Ø26 и стенка 1.5 мм.
+ * Радиус берётся как есть, без добавки на фаску: полость и губа выдавливаются
+ * полосами без фаски, поэтому круг в слайсере выходит ровно `radius`. По этому же
+ * вызову строится и отверстие губы — отличается только радиус.
  */
 function nfcHolePath(centerY: number, radius: number): Path {
   const hole = new Path();
@@ -1307,13 +1398,25 @@ function cloneShape(shape: Shape): Shape {
 }
 
 /**
- * Основа пресета: сплошная плита или два слоя с карманом под NFC-метку.
+ * Основа пресета: сплошная плита или тело с запечатанной полостью под метку.
  *
  * Без кармана контур выдавливается на всю толщину одной оболочкой. С карманом
- * основа делится по Z: задний слой (0 … `pauseZ`) несёт круглое отверстие, а
- * передний (`depth` … `thickness`) — сплошной контур. Карман открыт снизу, метку
- * вкладывают в паузу, и пластик над ней — весь передний слой. Перекрытие
- * `NFC_JOIN_MM` не даёт слоям разойтись, как у классического брелока.
+ * тело собирается из четырёх полос по Z — дно, полость, губа, крышка:
+ *
+ * 1. `0 … floorMm` — силуэт целиком с фаской по кромкам полосы: снизу деталь
+ *    закрыта, метка лежит на пластике;
+ * 2. `floorMm … pauseZ` — силуэт с кругом Ø29: полость, куда падает метка;
+ * 3. `pauseZ … lidStartZ` — силуэт с кругом Ø22: губа, она держит метку и сужает
+ *    мост над полостью до кольца 3.5 мм;
+ * 4. `lidStartZ … thickness` — силуэт целиком: крышка над меткой.
+ *
+ * Полость и губа выдавливаются без фаски (`extrudePresetBand`), иначе three.js
+ * поджимает круг на середине полосы и стенка выходит наклонной. Дно и крышка
+ * остаются с фаской: их кромки — это внешние грани детали.
+ *
+ * Полосы перекрываются на `NFC_JOIN_MM`, поэтому щели между ними нет: слайсер
+ * объединяет пересекающиеся оболочки, а полость остаётся замкнутой — сплошное
+ * дно снизу и крышка сверху.
  */
 function extrudePresetBody(
   shape: Shape,
@@ -1324,13 +1427,27 @@ function extrudePresetBody(
     return extrudePresetShape(shape, params.thickness);
   }
 
-  const backShape = cloneShape(shape);
+  const cavityShape = cloneShape(shape);
 
-  backShape.holes.push(nfcHolePath(nfc.pocketY, nfc.pocketRadiusMm));
+  cavityShape.holes.push(nfcHolePath(nfc.pocketY, nfc.radiusMm));
+
+  const lipShape = cloneShape(shape);
+
+  lipShape.holes.push(nfcHolePath(nfc.pocketY, nfc.lipRadiusMm));
 
   const parts: BufferGeometry[] = [
-    extrudePresetLayer(backShape, 0, nfc.pauseZ),
-    extrudePresetLayer(shape, nfc.depthMm, params.thickness - nfc.depthMm),
+    extrudePresetLayer(shape, 0, nfc.floorMm),
+    extrudePresetBand(
+      cavityShape,
+      nfc.floorMm - NFC_JOIN_MM,
+      nfc.cavityHeightMm + NFC_JOIN_MM * 2,
+    ),
+    extrudePresetBand(lipShape, nfc.pauseZ, nfc.lipMm + NFC_JOIN_MM),
+    extrudePresetLayer(
+      shape,
+      nfc.lidStartZ,
+      params.thickness - nfc.lidStartZ,
+    ),
   ];
 
   const body = mergeGeometries(parts);
@@ -1340,7 +1457,7 @@ function extrudePresetBody(
   }
 
   if (!body) {
-    throw new Error("Не удалось соединить слои основы с карманом под NFC-метку");
+    throw new Error("Не удалось собрать тело с полостью под NFC-метку");
   }
 
   body.computeBoundingBox();
@@ -1361,8 +1478,8 @@ function extrudePresetBody(
  * `thickness − 2 × bevelThickness`, а сдвиг на `bevelThickness` ставит нижнюю
  * грань на Z = 0 — так же, как у старой геометрии.
  *
- * С включённым NFC-карманом (`nfcLayout`) основа делится на два слоя: в заднем
- * вырезан круг Ø29.8 мм, передний остаётся сплошной крышкой над меткой.
+ * С включённым NFC-карманом (`nfcLayout`) основа собирается из четырёх полос:
+ * сплошное дно, полость Ø29 мм, губа с отверстием Ø22 мм и крышка над меткой.
  */
 export function buildAppleTag(
   params: KeychainPresetGeometryParams,
@@ -1896,8 +2013,9 @@ function brickStudGeometry(): BufferGeometry {
  * горизонтальная, поэтому пластик над кольцом всегда один и тот же: 4.7 мм у
  * крышек и 5.5 мм на середине толщины, при любом размере заготовки.
  *
- * NFC-карман (`nfcLayout`) делит тело на два слоя, шипы остаются сверху: карман
- * открыт снизу, метку вкладывают в паузу на Z = 1.05 мм.
+ * NFC-карман (`nfcLayout`) собирает тело из четырёх полос и оставляет шипы
+ * сверху: сплошное дно 0.6 мм, полость Ø29 мм, губа Ø22 мм и крышка. Метку
+ * вкладывают в паузу на Z = 1.8 мм, после чего губа и крышка закрывают полость.
  */
 export function buildBrick(
   params: KeychainPresetGeometryParams,
@@ -2681,9 +2799,13 @@ export function buildKeychainPresetGeometry(
           nfc.enabled && nfc.pocketY !== null
             ? {
                 pocketY: nfc.pocketY,
-                radiusMm: nfc.pocketRadiusMm,
-                depthMm: nfc.depthMm,
+                radiusMm: nfc.radiusMm,
+                floorMm: nfc.floorMm,
+                cavityHeightMm: nfc.cavityHeightMm,
+                lipMm: nfc.lipMm,
+                lipRadiusMm: nfc.lipRadiusMm,
                 pauseZ: nfc.pauseZ,
+                lidStartZ: nfc.lidStartZ,
               }
             : null,
       });
