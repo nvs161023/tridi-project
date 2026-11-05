@@ -164,17 +164,26 @@ const STARBURST_RAY_COUNT = 8;
 /** Шаг между лучами, °. */
 const STARBURST_RAY_PITCH_DEG = 360 / STARBURST_RAY_COUNT;
 
+/**
+ * Множители длины лучей: вспышка выходит неровной, как настоящая.
+ *
+ * Массив фиксированный, а не случайный: STL обеих моделей обязан совпадать
+ * бит в бит, иначе один и тот же пресет печатался бы по-разному при каждом
+ * скачивании. Порядок — по часовой стрелке от верхнего луча.
+ */
+const STARBURST_RAY_VARIATION = [1, 0.85, 0.95, 1.1, 0.9, 1.05, 0.88, 1.02];
+
 /** Поле от кромки заготовки до кончика луча, мм. */
 const STARBURST_EDGE_MARGIN_MM = 2;
 
 /**
  * Доля внешнего радиуса, остающаяся на впадину между лучами.
  *
- * 40 % радиуса дают глубокую впадину, а не волну: при 65 % силуэт читался
- * шестернёй, а при 35 % и ниже луч вырождается в иглу — на 20 × 30 он сужается
- * до 1.7 мм посередине и пружинит под пальцем вместо того, чтобы держать форму.
+ * 47 % радиуса дают глубокую впадину и в то же время держат угол при кончике
+ * около 30°: при 40 % лучи выходили шипами, которые гнутся в кармане, а при
+ * 65 % силуэт читался шестернёй.
  */
-const STARBURST_INNER_SHARE = 0.4;
+const STARBURST_INNER_SHARE = 0.47;
 
 /**
  * Радиус впадины не меньше этого, мм: отверстие Ø5 мм, стенка кольца 1.5 мм и
@@ -200,6 +209,15 @@ const STARBURST_VALLEY_RADIUS_MM = 1;
  * иначе смыкаются, и контур пересекает сам себя.
  */
 const STARBURST_STRAIGHT_SHARE = 0.8;
+
+/** Доля верхнего луча, на которую отверстие под кольцо смещается к кончику. */
+const STARBURST_RING_SHARE = 0.65;
+
+/** Стенка между отверстием под кольцо и кромкой луча, мм. */
+const STARBURST_RING_WALL_MM = 1.5;
+
+/** Шаг поиска смещения отверстия, мм: точнее сетка STL всё равно не нужна. */
+const STARBURST_RING_STEP_MM = 0.05;
 
 /**
  * Проходов уточнения луча.
@@ -285,24 +303,41 @@ export function ticketLayout(width: number, height: number): TicketLayout {
 }
 
 /**
- * Раскладка вспышки: лучи, впадины и скругления Starburst.
+ * Раскладка вспышки: лучи разной длины, впадины, скругления и отверстие Starburst.
  *
  * Общая функция для геометрии и подписи в панели, как `ticketLayout`: числа на
  * плашке обязаны совпадать с тем, что уедет в STL.
  *
- * Звезда вписывается в квадрат по меньшей стороне слайдера: лучи одинаковой
- * длины, а разница `width × length` уходит в поле по краям. Внешний радиус — это
- * профиль контура, то есть номинал минус поле 2 мм и минус фаска; на готовой
- * модели фаска раздвигает контур обратно, и габарит совпадает с `sizeMm`.
+ * Звезда вписывается в квадрат по меньшей стороне слайдера: разница
+ * `width × length` уходит в поле по краям. Внешний радиус — это профиль контура,
+ * то есть номинал минус поле 2 мм и минус фаска; на готовой модели фаска
+ * раздвигает контур обратно, и габарит совпадает с `sizeMm`. Длины лучей идут по
+ * фиксированным множителям `STARBURST_RAY_VARIATION` и нормируются на самый
+ * длинный: он один дотягивается до номинала, остальные короче.
  *
  * Скругление кончика срезает вершину луча, поэтому сама вершина выносится
- * дальше внешнего радиуса ровно на срезание — так габарит остаётся равен
- * `sizeMm`, а не теряет 2 мм на каждом луче. Срезание зависит от угла при
- * кончике, угол — от выноса вершины, поэтому положение вершины ищется
- * итеративно: чем глубже впадина, тем уже луч и тем дальше уезжает его вершина.
- * На малых размерах скругления поджимаются: иначе два соседних скругления на
- * одном ребре сомкнулись бы и контур пересёк сам себя.
+ * дальше длины луча ровно на срезание — так габарит остаётся равен `sizeMm`, а не
+ * теряет 2 мм на самом длинном луче. Срезание зависит от угла при кончике, угол —
+ * от выноса вершины, поэтому положение вершины ищется итеративно для каждого
+ * луча: короткий луч шире, и вынос у него меньше. Скругления поджимаются общим
+ * множителем по самому тесному ребру — иначе на 20 мм два скругления на одном
+ * ребре сомкнулись бы и контур пересёк сам себя.
+ *
+ * Отверстие Ø5 мм смещается в верхний луч к кончику, но только пока от его
+ * кромки до ребра луча остаётся стенка `STARBURST_RING_WALL_MM`: на малых
+ * размерах луч уже кольца со стенками, и отверстие остаётся ближе к центру.
  */
+export type StarburstRay = {
+  /** Длина луча в профиле контура, мм: радиус с поправкой на вариацию. */
+  lengthMm: number;
+  /** Радиус математической вершины: вынесен на срезание скругления, мм. */
+  apexRadiusMm: number;
+  /** Радиус скругления кончика, мм: поджат под длину ребра. */
+  tipRadiusMm: number;
+  /** Угол между рёбрами луча, °. */
+  tipAngleDeg: number;
+};
+
 export type StarburstLayout = {
   /** Лучей у вспышки. */
   rayCount: number;
@@ -310,25 +345,29 @@ export type StarburstLayout = {
   pitchDeg: number;
   /** Габарит модели по обеим осям, мм: меньшая сторона слайдера минус поле. */
   sizeMm: number;
-  /** Радиус кончика луча в профиле контура, мм. */
+  /** Радиус самого длинного луча в профиле контура, мм. */
   outerRadius: number;
   /** Радиус впадины между лучами, мм. */
   innerRadius: number;
-  /** Разница внешнего и внутреннего радиуса, мм: глубина впадины. */
+  /** Глубина впадины у длинного луча, мм: разница его радиуса и впадины. */
   valleyDepth: number;
-  /** Радиус математической вершины луча: вынесен на срезание скругления, мм. */
-  apexRadius: number;
-  /** Угол между рёбрами луча, °. */
-  tipAngleDeg: number;
-  /** Радиус скругления кончика, мм: 0.8 мм, если влезает между впадинами. */
-  tipRadius: number;
-  /** Радиус скругления впадины, мм. */
-  valleyRadius: number;
-  /** Длина ребра от впадины до вершины, мм. */
-  edgeLengthMm: number;
-  /** Доля ребра, остающаяся прямой между скруглениями, %. */
+  /** Лучи по порядку от верхнего, по часовой стрелке. */
+  rays: StarburstRay[];
+  /** Длины лучей по порядку, мм: от верхнего луча по часовой стрелке. */
+  rayLengths: number[];
+  /** Радиус скругления впадин, мм: общий, поджат под короткие рёбра. */
+  valleyRadiusMm: number;
+  /** Доля ребра, остающаяся прямой между скруглениями, %: по тесному ребру. */
   straightSharePct: number;
-  /** Стенка между впадиной и отверстием Ø5 мм, мм. */
+  /** Наименьший угол при кончике, °: у самого короткого луча. */
+  tipAngleMinDeg: number;
+  /** Наибольший угол при кончике, °: у самого длинного луча. */
+  tipAngleMaxDeg: number;
+  /** Смещение отверстия Ø5 мм по X, мм: ноль, отверстие на оси верхнего луча. */
+  ringX: number;
+  /** Смещение отверстия Ø5 мм по Y, мм: в верхний луч к кончику. */
+  ringY: number;
+  /** Стенка между отверстием Ø5 мм и кромкой луча, мм. */
   rimWidthMm: number;
 };
 
@@ -348,52 +387,148 @@ export function starburstLayout(
     Math.max(outerRadius * STARBURST_INNER_SHARE, STARBURST_INNER_MIN_MM),
     outerRadius - 1.5,
   );
-  const halfPitch = (STARBURST_RAY_PITCH_DEG / 2) * (Math.PI / 180);
+  const pitch = (STARBURST_RAY_PITCH_DEG * Math.PI) / 180;
+  const halfPitch = pitch / 2;
   const sinPitch = Math.sin(halfPitch);
   const cosPitch = Math.cos(halfPitch);
   // Раствор угла при кончике: он и решает, насколько скругление срежет вершину.
-  const tipAngle = (apex: number): number =>
+  const tipAngleAt = (apex: number): number =>
     2 * Math.atan((innerRadius * sinPitch) / (apex - innerRadius * cosPitch));
+  const longestVariation = Math.max(...STARBURST_RAY_VARIATION);
+  // Самый длинный луч достаёт до номинала, остальные короче по множителям.
+  const rayLengths = STARBURST_RAY_VARIATION.map(
+    (variation) => (outerRadius * variation) / longestVariation,
+  );
+  // Вынос вершины ищется для каждого луча отдельно: короткий луч шире, и
+  // скругление срезает у него меньшую величину.
+  const apexRadii = rayLengths.map((length) => {
+    let apex = length;
 
-  let apexRadius = outerRadius;
-  let tipRadius = STARBURST_TIP_RADIUS_MM;
-  let valleyRadius = STARBURST_VALLEY_RADIUS_MM;
+    for (let pass = 0; pass < STARBURST_SOLVE_PASSES; pass += 1) {
+      const halfAngle = tipAngleAt(apex) / 2;
 
-  for (let pass = 0; pass < STARBURST_SOLVE_PASSES; pass += 1) {
-    const halfAngle = tipAngle(apexRadius) / 2;
-    const nextApex =
-      outerRadius + tipRadius / Math.sin(halfAngle) - tipRadius;
-    const edgeLength = Math.hypot(
-      nextApex - innerRadius * cosPitch,
-      innerRadius * sinPitch,
+      apex =
+        length +
+        STARBURST_TIP_RADIUS_MM / Math.sin(halfAngle) -
+        STARBURST_TIP_RADIUS_MM;
+    }
+
+    return apex;
+  });
+  const baseAngle = Math.PI / 2;
+  const apexPoints = apexRadii.map((radius, index) =>
+    polarPoint(radius, baseAngle + index * pitch),
+  );
+  const valleyPoints = Array.from({ length: STARBURST_RAY_COUNT }, (_, index) =>
+    polarPoint(innerRadius, baseAngle + halfPitch + index * pitch),
+  );
+  // Угол при впадине считается по двум рёбрам сразу: лучи разной длины, и
+  // треугольник «впадина — две вершины» перестал быть равнобедренным.
+  const valleyHalfAngles = valleyPoints.map((valley, index) => {
+    const previous = apexPoints[index];
+    const next = apexPoints[(index + 1) % STARBURST_RAY_COUNT];
+    const toPrevious = Math.hypot(
+      previous[0] - valley[0],
+      previous[1] - valley[1],
     );
-    // Угол при впадине — по теореме косинусов в треугольнике из двух лучей.
-    const valleyChord = 2 * innerRadius * sinPitch;
+    const toNext = Math.hypot(next[0] - valley[0], next[1] - valley[1]);
+    const chord = Math.hypot(previous[0] - next[0], previous[1] - next[1]);
     const cosine =
-      1 - (valleyChord * valleyChord) / (2 * edgeLength * edgeLength);
-    const valleyHalf = Math.acos(Math.min(Math.max(cosine, -1), 1)) / 2;
-    const tipCut = STARBURST_TIP_RADIUS_MM / Math.tan(halfAngle);
-    const valleyCut = STARBURST_VALLEY_RADIUS_MM / Math.tan(valleyHalf);
-    const scale = Math.min(
-      1,
-      (STARBURST_STRAIGHT_SHARE * edgeLength) / (tipCut + valleyCut),
-    );
+      (toPrevious ** 2 + toNext ** 2 - chord ** 2) / (2 * toPrevious * toNext);
 
-    apexRadius = nextApex;
-    tipRadius = STARBURST_TIP_RADIUS_MM * scale;
-    valleyRadius = STARBURST_VALLEY_RADIUS_MM * scale;
+    return Math.acos(Math.min(Math.max(cosine, -1), 1)) / 2;
+  });
+  const tipCutUnits = apexRadii.map(
+    (apex) => STARBURST_TIP_RADIUS_MM / Math.tan(tipAngleAt(apex) / 2),
+  );
+  const valleyCutUnits = valleyHalfAngles.map(
+    (halfAngle) => STARBURST_VALLEY_RADIUS_MM / Math.tan(halfAngle),
+  );
+  // Скругления поджимаются одним множителем: он держит прямые участки на всех
+  // рёбрах сразу, поэтому контур остаётся простым даже на коротких лучах.
+  const edges = apexPoints.map((apex, index) =>
+    [
+      (index + STARBURST_RAY_COUNT - 1) % STARBURST_RAY_COUNT,
+      index,
+    ].map((valleyIndex) => ({
+      valleyIndex,
+      length: Math.hypot(
+        apex[0] - valleyPoints[valleyIndex][0],
+        apex[1] - valleyPoints[valleyIndex][1],
+      ),
+    })),
+  );
+  let scale = 1;
+
+  for (const [index, rayEdges] of edges.entries()) {
+    for (const edge of rayEdges) {
+      const cuts = tipCutUnits[index] + valleyCutUnits[edge.valleyIndex];
+
+      scale = Math.min(scale, (STARBURST_STRAIGHT_SHARE * edge.length) / cuts);
+    }
   }
 
-  const halfAngle = tipAngle(apexRadius) / 2;
-  const tipCut = tipRadius / Math.tan(halfAngle);
-  const edgeLength = Math.hypot(
-    apexRadius - innerRadius * cosPitch,
-    innerRadius * sinPitch,
-  );
-  const valleyChord = 2 * innerRadius * sinPitch;
-  const cosine = 1 - (valleyChord * valleyChord) / (2 * edgeLength * edgeLength);
-  const valleyHalf = Math.acos(Math.min(Math.max(cosine, -1), 1)) / 2;
-  const valleyCut = valleyRadius / Math.tan(valleyHalf);
+  // Множитель уже известен, поэтому остаток прямой части считается по нему.
+  let straightShare = 1;
+
+  for (const [index, rayEdges] of edges.entries()) {
+    for (const edge of rayEdges) {
+      const cuts =
+        (tipCutUnits[index] + valleyCutUnits[edge.valleyIndex]) * scale;
+
+      straightShare = Math.min(
+        straightShare,
+        (edge.length - cuts) / edge.length,
+      );
+    }
+  }
+
+  const rays = rayLengths.map((length, index) => ({
+    lengthMm: length,
+    apexRadiusMm: apexRadii[index],
+    tipRadiusMm: STARBURST_TIP_RADIUS_MM * scale,
+    tipAngleDeg: (tipAngleAt(apexRadii[index]) * 180) / Math.PI,
+  }));
+  const holeRadius = RING_HOLE_DIAMETER_MM / 2;
+  // Стенка кольца — это расстояние от кромки отверстия до ребра верхнего луча:
+  // рёбра берутся прямые, без скруглений, поэтому запас только растёт.
+  const ringGap = (y: number): number =>
+    Math.min(
+      distanceToSegment(
+        0,
+        y,
+        valleyPoints[STARBURST_RAY_COUNT - 1][0],
+        valleyPoints[STARBURST_RAY_COUNT - 1][1],
+        apexPoints[0][0],
+        apexPoints[0][1],
+      ),
+      distanceToSegment(
+        0,
+        y,
+        apexPoints[0][0],
+        apexPoints[0][1],
+        valleyPoints[0][0],
+        valleyPoints[0][1],
+      ),
+    ) - holeRadius;
+  const targetRingY = rayLengths[0] * STARBURST_RING_SHARE;
+  let ringY = 0;
+
+  // Отверстие забирается вверх, пока выдержана стенка: на малых размерах луч
+  // уже кольца со стенками, и подвеска остаётся ближе к центру — иначе кромку
+  // разорвёт первым рывком за ключи.
+  for (
+    let candidate = targetRingY;
+    candidate >= 0;
+    candidate -= STARBURST_RING_STEP_MM
+  ) {
+    if (ringGap(candidate) >= STARBURST_RING_WALL_MM) {
+      ringY = Math.round(candidate * 100) / 100;
+      break;
+    }
+  }
+
+  const tipAngles = rays.map((ray) => ray.tipAngleDeg);
 
   return {
     rayCount: STARBURST_RAY_COUNT,
@@ -402,13 +537,15 @@ export function starburstLayout(
     outerRadius,
     innerRadius,
     valleyDepth: outerRadius - innerRadius,
-    apexRadius,
-    tipAngleDeg: (halfAngle * 360) / Math.PI,
-    tipRadius,
-    valleyRadius,
-    edgeLengthMm: edgeLength,
-    straightSharePct: ((edgeLength - tipCut - valleyCut) / edgeLength) * 100,
-    rimWidthMm: innerRadius - RING_HOLE_DIAMETER_MM / 2,
+    rays,
+    rayLengths,
+    valleyRadiusMm: STARBURST_VALLEY_RADIUS_MM * scale,
+    straightSharePct: straightShare * 100,
+    tipAngleMinDeg: Math.min(...tipAngles),
+    tipAngleMaxDeg: Math.max(...tipAngles),
+    ringX: 0,
+    ringY,
+    rimWidthMm: ringGap(ringY),
   };
 }
 
@@ -637,6 +774,43 @@ function unitVector(from: ShapePoint, to: ShapePoint): ShapePoint {
   }
 
   return [(to[0] - from[0]) / length, (to[1] - from[1]) / length];
+}
+
+/**
+ * Расстояние от точки до отрезка, мм.
+ *
+ * Нужно для стенки кольца: отверстие стоит в теле, и ближайшая кромка — это не
+ * обязательно впадина, а ребро луча, идущее к кончику. Параметр проекции
+ * зажимается в [0, 1], иначе для точки «за» концом отрезка считалась бы высота
+ * треугольника, а не расстояние до кромки.
+ */
+function distanceToSegment(
+  pointX: number,
+  pointY: number,
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+): number {
+  const edgeX = toX - fromX;
+  const edgeY = toY - fromY;
+  const lengthSquared = edgeX * edgeX + edgeY * edgeY;
+  const projection =
+    lengthSquared > 0
+      ? Math.min(
+          Math.max(
+            ((pointX - fromX) * edgeX + (pointY - fromY) * edgeY) /
+              lengthSquared,
+            0,
+          ),
+          1,
+        )
+      : 0;
+
+  return Math.hypot(
+    pointX - (fromX + edgeX * projection),
+    pointY - (fromY + edgeY * projection),
+  );
 }
 
 /** Точка начала дуги скругления по её центру, радиусу и углу, мм. */
@@ -1208,16 +1382,17 @@ export function buildTicket(
  * Вспышка из восьми лучей с отверстием под кольцо — пресет Starburst.
  *
  * Силуэт — звезда с шагом 45°, внешний радиус берётся по меньшей стороне
- * слайдера и ужимается на поле 2 мм: при 42 × 44 мм габарит выходит 38 × 38,
- * лучи одинаковой длины, а разница сторон уходит в поле. Впадина лежит на 40 %
- * радиуса, кончик скруглён на 0.8 мм, впадина на 1 мм: лучи выходят тонкими и
- * острыми, поэтому силуэт читается вспышкой, а не шестернёй.
+ * слайдера и ужимается на поле 2 мм: при 42 × 44 мм габарит выходит 38 × 38, а
+ * разница сторон уходит в поле. Лучи разной длины по фиксированным множителям,
+ * впадина лежит на 47 % радиуса, кончик скруглён на 0.8 мм, впадина на 1 мм:
+ * угол при кончике выходит около 30°, поэтому луч держит форму, а не гнётся.
  *
- * Скругление кончика срезает вершину луча, поэтому вершина выносится за внешний
- * радиус на срезание: без этого габарит вышел бы меньше номинала почти на 2 мм.
- * Отверстие Ø5 мм стоит в теле по центру: отдельное ушко вписывается только от
- * 30 мм, а на 20 мм проушина не помещается между впадинами. Кольцо сквозное через
- * `shape.holes` и упирается в впадину стенкой не меньше 1.5 мм.
+ * Скругление кончика срезает вершину луча, поэтому вершина выносится за длину
+ * луча на срезание: без этого габарит вышел бы меньше номинала почти на 2 мм.
+ * Отверстие Ø5 мм стоит на оси верхнего луча со сдвигом к кончику: на 42 мм это
+ * 1/3 луча, на малых размерах сдвиг поджимается, потому что луч там уже кольца
+ * со стенками. Кольцо сквозное через `shape.holes` и упирается в ребро луча
+ * стенкой не меньше 1.5 мм.
  */
 export function buildStarburst(
   params: KeychainPresetGeometryParams,
@@ -1225,15 +1400,17 @@ export function buildStarburst(
   const layout = starburstLayout(params.width, params.height);
   const rayCount = layout.rayCount;
   const pitch = (layout.pitchDeg * Math.PI) / 180;
-  const tips = Array.from({ length: rayCount }, (_, index) =>
-    polarPoint(layout.apexRadius, Math.PI / 2 + index * pitch),
+  const tipRadii = layout.rays.map((ray) => ray.tipRadiusMm);
+  const tips = layout.rays.map((ray, index) =>
+    polarPoint(ray.apexRadiusMm, Math.PI / 2 + index * pitch),
   );
   const valleys = Array.from({ length: rayCount }, (_, index) =>
     polarPoint(layout.innerRadius, Math.PI / 2 + pitch / 2 + index * pitch),
   );
   // Скругление кончика — дуга, вписанная в угол между рёбрами: её центр лежит на
   // биссектрисе на расстоянии R / sin(θ / 2) от вершины, а разворот равен внешнему
-  // углу луча, то есть 180° − θ.
+  // углу луча, то есть 180° − θ. Радиус свой у каждого луча: скругления поджаты
+  // под самое тесное ребро, а на коротком луче ребро короче.
   const arcs = tips.map((tip, index) => {
     const toPrevious = unitVector(
       tip,
@@ -1243,7 +1420,7 @@ export function buildStarburst(
     const cosine =
       toPrevious[0] * toNext[0] + toPrevious[1] * toNext[1];
     const halfAngle = Math.acos(Math.min(Math.max(cosine, -1), 1)) / 2;
-    const distance = layout.tipRadius / Math.sin(halfAngle);
+    const distance = tipRadii[index] / Math.sin(halfAngle);
     const bisectorX = toPrevious[0] + toNext[0];
     const bisectorY = toPrevious[1] + toNext[1];
     const bisectorLength = Math.hypot(bisectorX, bisectorY);
@@ -1265,11 +1442,11 @@ export function buildStarburst(
       valley,
       tips[index],
       tips[(index + 1) % rayCount],
-      layout.valleyRadius,
+      layout.valleyRadiusMm,
     ),
   );
   const shape = new Shape();
-  const start = arcStart(arcs[0].center, layout.tipRadius, arcs[0].startAngle);
+  const start = arcStart(arcs[0].center, tipRadii[0], arcs[0].startAngle);
 
   shape.moveTo(start[0], start[1]);
 
@@ -1278,16 +1455,14 @@ export function buildStarburst(
   for (let index = 0; index < rayCount; index += 1) {
     const arc = arcs[index];
     const round = valleyRounds[index];
-    const nextStart = arcStart(
-      arcs[(index + 1) % rayCount].center,
-      layout.tipRadius,
-      arcs[(index + 1) % rayCount].startAngle,
-    );
+    const nextArc = arcs[(index + 1) % rayCount];
+    const nextRadius = tipRadii[(index + 1) % rayCount];
+    const nextStart = arcStart(nextArc.center, nextRadius, nextArc.startAngle);
 
     shape.absarc(
       arc.center[0],
       arc.center[1],
-      layout.tipRadius,
+      tipRadii[index],
       arc.startAngle,
       arc.startAngle + arc.sweep,
       false,
@@ -1303,7 +1478,9 @@ export function buildStarburst(
   }
   shape.closePath();
 
-  shape.holes.push(ringHolePath(0));
+  // Отверстие уезжает в верхний луч: X = 0, Y — из раскладки, где уже проверена
+  // стенка до рёбер.
+  shape.holes.push(ringHolePath(layout.ringY));
 
   return extrudePresetShape(shape, params.thickness);
 }

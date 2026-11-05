@@ -851,8 +851,10 @@ function presetReadyNote(
     }
     case "starburst": {
       const layout = starburstLayout(params.width, params.length);
+      const shortestRay = Math.min(...layout.rayLengths);
+      const longestRay = Math.max(...layout.rayLengths);
 
-      return `вспышка ${layout.sizeMm} × ${layout.sizeMm} мм (поле 2 мм с кромки заготовки): ${layout.rayCount} лучей через ${layout.pitchDeg}° с впадиной ${layout.valleyDepth.toFixed(1)} мм, кончик R${layout.tipRadius.toFixed(1)} мм под ${layout.tipAngleDeg.toFixed(0)}°, отверстие Ø5 мм в теле (стенка до впадины ${layout.rimWidthMm.toFixed(1)} мм)`;
+      return `вспышка: ${layout.rayCount} лучей через ${layout.pitchDeg}° разной длины (${shortestRay.toFixed(1)}–${longestRay.toFixed(1)} мм от центра, вписана в ${layout.sizeMm} × ${layout.sizeMm} мм с полем 2 мм от кромки заготовки), кончик R${layout.rays[0].tipRadiusMm.toFixed(1)} мм под ${layout.tipAngleMinDeg.toFixed(0)}–${layout.tipAngleMaxDeg.toFixed(0)}°, отверстие Ø5 мм в верхнем луче на ${layout.ringY.toFixed(1)} мм от центра (стенка до кромки ${layout.rimWidthMm.toFixed(1)} мм)`;
     }
     default:
       return `форма ${params.width} × ${params.length} мм, отверстие Ø5 мм под кольцо`;
