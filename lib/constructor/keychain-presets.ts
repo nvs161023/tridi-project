@@ -84,9 +84,9 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     id: "gear",
     label: "Gear",
     description:
-      "Шестерня с восьмью зубьями: зубья читаются и на тонкой основе, поэтому печатается прочно.",
+      "Шестерня с двадцатью зубьями и плоской вершиной: ступица Ø17 мм с отверстием под кольцо по центру, шаг зубьев 6.2 мм.",
     defaultWidth: 44,
-    defaultHeight: 46,
+    defaultHeight: 44,
     defaultThickness: 4,
   },
   {

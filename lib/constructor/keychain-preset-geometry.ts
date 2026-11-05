@@ -289,6 +289,122 @@ const HEART_LOWER_TANGENT_SHARE = 0.45;
 const HEART_RING_WALL_MM = 2;
 
 /**
+ * Целевой модуль шестерни, мм.
+ *
+ * Модуль — это шаг зубьев, делённый на π, и главный размер шестерни: диаметр по
+ * вершинам равен `m × (z + 2)`. 2.16 даёт 20 зубьев на 44 × 44 и окружной шаг
+ * 6.2 мм: у печатных брелоков шаг держат в вилке 3–6 мм, и 6.2 — её верхняя
+ * граница. Меньше 2 мм зубья сливаются в пилу, больше 2.6 — деталь становится
+ * звёздочкой.
+ */
+const GEAR_MODULE_TARGET_MM = 2.16;
+
+/**
+ * Границы числа зубьев и шаг сетки.
+ *
+ * 12 — минимум, при котором впадина ещё шире сопла 0.4 мм и на 20 × 30 деталь не
+ * превращается в звёздочку; 20 — максимум, после которого силуэт читается
+ * «монетой с насечкой». Число зубьев кратно четырём: тогда по одному зубу
+ * смотрит ровно вверх, вниз, вправо и влево — габарит держится по обеим осям без
+ * компенсации, а деталь симметрична относительно обеих осей. При 18 зубьях
+ * пришлось бы либо терять 0.65 мм по оси X, либо поворачивать контур на 5° и
+ * терять симметрию.
+ */
+const GEAR_TEETH_MIN = 12;
+const GEAR_TEETH_MAX = 20;
+const GEAR_TEETH_STEP = 4;
+
+/**
+ * Угол профиля зуба, °.
+ *
+ * 20° — стандарт эвольвентного зацепления, и он же лучший компромисс для FDM:
+ * при 14.5° зубья у корня толще и впадина уже, при 25° вершина выходит такой
+ * узкой, что сопло её не пропечатывает.
+ */
+const GEAR_PRESSURE_ANGLE_DEG = 20;
+
+/**
+ * Радиальный зазор под зубом в долях модуля.
+ *
+ * 1.25m — стандарт: впадина глубже рабочей высоты зуба, поэтому вершина
+ * соседней шестерни не упирается в дно.
+ */
+const GEAR_ROOT_CLEARANCE_SHARE = 1.25;
+
+/**
+ * Скругления вершины и впадины в долях модуля и их потолки в мм.
+ *
+ * Вершина: 0.3m срезает острый угол, но оставляет плоскую площадку — именно она
+ * читается как фрезерованный зуб. Впадина крупнее (0.5m) — это галтель, без неё
+ * угол корня становится концентратором и первым ломается на ключах.
+ */
+const GEAR_TIP_RADIUS_SHARE = 0.3;
+const GEAR_TIP_RADIUS_MAX_MM = 0.8;
+const GEAR_ROOT_RADIUS_SHARE = 0.5;
+const GEAR_ROOT_RADIUS_MAX_MM = 1.2;
+
+/**
+ * Предел скругления в долях ширины площадки, на которой оно стоит.
+ *
+ * На 20 × 30 впадина сужается до 1.3 мм, и два скругления по 0.7 мм смыкаются в
+ * точке: там сходятся четыре треугольника, и сетка перестаёт быть манифолдной.
+ * 35 % ширины оставляют между скруглениями прямую площадку.
+ */
+const GEAR_ROUND_WIDTH_SHARE = 0.35;
+
+/**
+ * Во сколько раз радиус галтели должен превышать фаску, чтобы его ставить.
+ *
+ * Фаска смещает контур внутрь на 0.4 мм, и при галтели меньше 0.55 мм впадина на
+ * крышке вырождается в точку. На 20 × 30 галтель 0.45 мм — там угол остаётся
+ * острым, его всё равно срезает сама фаска.
+ */
+const GEAR_ROOT_ROUND_BEVEL_RATIO = 1.4;
+
+/**
+ * Скругление излома между радиальной стенкой и эвольвентой, доли модуля и мм.
+ *
+ * Угол там всего 10–15°, но острым он выглядит как заусенец, поэтому малый
+ * радиус всё равно нужен.
+ */
+const GEAR_SHOULDER_RADIUS_SHARE = 0.25;
+const GEAR_SHOULDER_RADIUS_MAX_MM = 0.5;
+
+/** Сегментов на дугу вершины и впадины: 4 дают хорду ≤0.5 мм на 44 мм. */
+const GEAR_ARC_SEGMENTS = 4;
+
+/**
+ * Диаметр ступицы в долях диаметра вершин и минимальная стенка вокруг кольца, мм.
+ *
+ * Ступица отделяет тело от обода — без неё шестерня читается звёздочкой.
+ * Стенка вокруг отверстия Ø5 мм не тоньше 2.5 мм: кольцо вырывает пластик при
+ * первом же рывке за ключи, а 5 мм материала держат и на 20 × 30.
+ */
+const GEAR_HUB_SHARE = 0.4;
+const GEAR_HUB_MIN_WALL_MM = 2.5;
+
+/**
+ * Выступ ступицы над полем и её утопление в тело, мм.
+ *
+ * 0.6 мм видно на просвет и на ощупь, но ступица не цепляется за ключи. Низ
+ * утоплен на 0.2 мм: оболочки сливаются `mergeGeometries` и должны
+ * пересекаться объёмом — касание плоскостями дало бы совпадающие треугольники
+ * на верхней грани, как у шипов кирпича.
+ */
+const GEAR_HUB_LIFT_MM = 0.6;
+const GEAR_HUB_EMBED_MM = 0.2;
+
+/**
+ * Зазор между отверстием ступицы и отверстием тела, мм.
+ *
+ * Если обе стенки совпадают по координатам, на цилиндре остаются рёбра, где
+ * сходятся четыре треугольника: сетка перестаёт быть манифолдной, и слайсер
+ * показывает самопересечение. 0.15 мм разводят стенки в стороны — в свету это
+ * расширение вокруг кольца, которое читается как зенковка.
+ */
+const GEAR_HUB_HOLE_GAP_MM = 0.15;
+
+/**
  * Раскладка билета: корешок снизу, линия отрыва со щелями и проушина.
  *
  * Общая функция для геометрии и подписи в панели, как `brickStudLayout`: числа
@@ -698,6 +814,156 @@ export function heartLayout(width: number, height: number): HeartLayout {
 }
 
 /**
+ * Раскладка шестерни: число зубьев, модуль, ступица и отверстие под кольцо.
+ *
+ * Общая функция для геометрии и подписи в панели, как `heartLayout`: числа на
+ * плашке обязаны совпадать с тем, что уедет в STL.
+ *
+ * Зубьев столько, сколько влезает при целевом модуле: `D / m − 2`, округлённое до
+ * кратного четырём. Модуль после округления пересчитывается от габарита, поэтому
+ * `D = m × (z + 2)` выполняется точно, а не «примерно».
+ *
+ * Профиль зуба — реечный, а не эвольвентный, и это осознанно: у шестерни меньше
+ * 41 зуба основная окружность лежит выше впадин, эвольвенты там не существует, и
+ * настоящий зуб у корня переходит в трохоиду. Радиальная стенка от впадины до
+ * основной окружности повторяет эту трохоиду с точностью 0.02 мм и даёт широкую
+ * впадину, по которой шестерня и узнаётся.
+ */
+export type GearLayout = {
+  /** Габарит по слайдерам минус фаска, мм: он же диаметр по вершинам. */
+  diameterMm: number;
+  /** Число зубьев. */
+  teeth: number;
+  /** Модуль, мм: диаметр по вершинам, делённый на `z + 2`. */
+  moduleMm: number;
+  /** Окружной шаг на делительной окружности, мм. */
+  pitchMm: number;
+  /** Радиус вершин, мм. */
+  tipRadiusMm: number;
+  /** Радиус делительной окружности, мм. */
+  pitchRadiusMm: number;
+  /** Радиус основной окружности, мм: ниже него зуб идёт радиальной стенкой. */
+  baseRadiusMm: number;
+  /** Радиус впадин, мм. */
+  rootRadiusMm: number;
+  /** Полуугол зуба на вершине, рад. */
+  tipHalfAngle: number;
+  /** Полуугол зуба на основной окружности — он же на впадине, рад. */
+  baseHalfAngle: number;
+  /** Радиус скругления вершины, мм. */
+  tipRoundMm: number;
+  /** Радиус галтели впадины, мм; ноль, если она не переживёт фаску. */
+  rootRoundMm: number;
+  /** Радиус скругления излома между стенкой и эвольвентой, мм. */
+  shoulderRoundMm: number;
+  /** Радиус профиля ступицы, мм: фаска добавит к нему `bevel`. */
+  hubRadiusMm: number;
+  /** Номинальный диаметр ступицы, мм. */
+  hubDiameterMm: number;
+  /** Стенка между отверстием Ø5 и кромкой ступицы, мм. */
+  hubWallMm: number;
+  /** Стенка от отверстия до впадины, мм. */
+  ringWallMm: number;
+};
+
+export function gearLayout(width: number, height: number): GearLayout {
+  const bevel = PRESET_BEVEL_SIZE_MM;
+  // Шестерня круглая, поэтому вписана в меньшую сторону: разница уходит в поле,
+  // как у вспышки, которая тоже не растягивается на вытянутый габарит.
+  const diameter = Math.max(
+    Math.min(width, height) - bevel * 2,
+    GEAR_TEETH_MIN,
+  );
+  const teeth = Math.min(
+    Math.max(
+      Math.round(
+        Math.round(diameter / GEAR_MODULE_TARGET_MM - 2) / GEAR_TEETH_STEP,
+      ) * GEAR_TEETH_STEP,
+      GEAR_TEETH_MIN,
+    ),
+    GEAR_TEETH_MAX,
+  );
+  const pressureAngle = (GEAR_PRESSURE_ANGLE_DEG * Math.PI) / 180;
+  const tanPressure = Math.tan(pressureAngle);
+  // Полуугол зуба на делительной: толщина зуба равна половине шага.
+  const halfToothPitch = Math.PI / (2 * teeth);
+  // Толщина зуба по рейке растёт к основанию на `(r_p − r) × tanα`, поэтому
+  // полуугол на радиусе r: θ(r) = θ_p × r_p / r + (r_p − r) × tanα / r.
+  const halfAngleAt = (radius: number, tipRadius: number): number => {
+    const moduleMm = (2 * tipRadius) / (teeth + 2);
+    const pitchRadius = tipRadius - moduleMm;
+
+    return (
+      (halfToothPitch * pitchRadius) / radius +
+      ((pitchRadius - radius) * tanPressure) / radius
+    );
+  };
+  const tipRadius = diameter / 2;
+  const moduleMm = (2 * tipRadius) / (teeth + 2);
+  const pitchRadius = tipRadius - moduleMm;
+  // Основная окружность: ниже неё эвольвента не существует, и зуб идёт
+  // радиальной стенкой — так у настоящей шестерни выглядит подрез у корня.
+  const baseRadius = pitchRadius * Math.cos(pressureAngle);
+  const rootRadius = pitchRadius - GEAR_ROOT_CLEARANCE_SHARE * moduleMm;
+  const tipHalfAngle = halfAngleAt(tipRadius, tipRadius);
+  const baseHalfAngle = halfAngleAt(baseRadius, tipRadius);
+  // Ширина площадки вершины и впадины по дуге: скругление не может занять её
+  // целиком, иначе два скругления смыкаются в точке.
+  const tipWidthMm = 2 * tipHalfAngle * tipRadius;
+  const rootWidthMm = ((Math.PI * 2) / teeth - 2 * baseHalfAngle) * rootRadius;
+  const tipRound = Math.min(
+    GEAR_TIP_RADIUS_SHARE * moduleMm,
+    GEAR_TIP_RADIUS_MAX_MM,
+    tipWidthMm * GEAR_ROUND_WIDTH_SHARE,
+  );
+  const rootRound = Math.min(
+    GEAR_ROOT_RADIUS_SHARE * moduleMm,
+    GEAR_ROOT_RADIUS_MAX_MM,
+    rootWidthMm * GEAR_ROUND_WIDTH_SHARE,
+  );
+  // Фаска смещает контур внутрь на 0.4 мм. Если радиус галтели меньше этой
+  // величины с запасом, впадина на крышке вырождается в точку: там сходятся
+  // четыре треугольника, и сетка перестаёт быть манифолдной. На 20 × 30 впадина
+  // 1.3 мм, галтель 0.45 — не влезает, поэтому угол остаётся острым: его всё
+  // равно срезает сама фаска.
+  const rootRoundSafe =
+    rootRound < bevel * GEAR_ROOT_ROUND_BEVEL_RATIO ? 0 : rootRound;
+  const shoulderRound = Math.min(
+    GEAR_SHOULDER_RADIUS_SHARE * moduleMm,
+    GEAR_SHOULDER_RADIUS_MAX_MM,
+  );
+  // Ступица не подходит вплотную к впадинам: между её кромкой и дном впадины
+  // остаётся 1.5 мм, иначе обод превращается в лепестки.
+  const hubDiameter = Math.min(
+    Math.max(
+      GEAR_HUB_SHARE * diameter,
+      RING_HOLE_DIAMETER_MM + 2 * GEAR_HUB_MIN_WALL_MM,
+    ),
+    (rootRadius - 1.5) * 2,
+  );
+
+  return {
+    diameterMm: diameter,
+    teeth,
+    moduleMm,
+    pitchMm: Math.PI * moduleMm,
+    tipRadiusMm: tipRadius,
+    pitchRadiusMm: pitchRadius,
+    baseRadiusMm: baseRadius,
+    rootRadiusMm: rootRadius,
+    tipHalfAngle,
+    baseHalfAngle,
+    tipRoundMm: tipRound,
+    rootRoundMm: rootRoundSafe,
+    shoulderRoundMm: shoulderRound,
+    hubRadiusMm: hubDiameter / 2 - bevel,
+    hubDiameterMm: hubDiameter,
+    hubWallMm: hubDiameter / 2 - RING_HOLE_DIAMETER_MM / 2,
+    ringWallMm: rootRadius - (RING_HOLE_DIAMETER_MM / 2 + bevel),
+  };
+}
+
+/**
  * Пресеты, у которых уже есть геометрия.
  *
  * Список читают панель (подсказка вместо плашки «в работе») и API (422 вместо
@@ -707,13 +973,14 @@ export const IMPLEMENTED_KEYCHAIN_PRESETS: readonly KeychainPresetId[] = [
   "apple-tag",
   "capsule",
   "hex",
+  "gear",
   "brick",
   "ticket",
   "starburst",
   "heart",
 ];
 
-/** Готова ли геометрия пресета: `gear` пока строится старым силуэтом. */
+/** Готова ли геометрия пресета: список выше — единственный источник правды. */
 export function isKeychainPresetImplemented(
   presetId: KeychainPresetId,
 ): boolean {
@@ -1818,6 +2085,220 @@ export function buildHeart(
 }
 
 /**
+ * Контур из точек, где скруглена только часть углов.
+ *
+ * Обобщение `roundedPolygonShape`: там радиус один на все углы, а у зуба их три
+ * вида — вершина, галтель впадины и излом профиля. Точки дуг вершины и впадины
+ * идут с нулевым радиусом: излом между соседними точками дуги всего 2°, и
+ * скруглять там нечего. Скругление, как и у многоугольника, — одна квадратичная
+ * кривая с контрольной точкой в самом углу, а точки касания считает
+ * `cornerRoundPoints`, поэтому на узкой впадине оно само ужимается.
+ */
+function roundedPointLoop(
+  points: readonly ShapePoint[],
+  radii: readonly number[],
+): Shape {
+  const count = points.length;
+  const rounds = points.map((point, index) =>
+    radii[index] > 0
+      ? cornerRoundPoints(
+          point,
+          points[(index + count - 1) % count],
+          points[(index + 1) % count],
+          radii[index],
+        )
+      : { from: point, to: point },
+  );
+  const shape = new Shape();
+
+  shape.moveTo(rounds[0].from[0], rounds[0].from[1]);
+
+  for (let index = 0; index < count; index += 1) {
+    if (radii[index] > 0) {
+      shape.quadraticCurveTo(
+        points[index][0],
+        points[index][1],
+        rounds[index].to[0],
+        rounds[index].to[1],
+      );
+    }
+
+    const nextIndex = (index + 1) % count;
+
+    // Замыкание делает `closePath`: последнее ребро ведёт к началу первого
+    // скругления, а не к его концу — иначе на стыке осталась бы петля.
+    if (nextIndex === 0) {
+      break;
+    }
+
+    if (radii[nextIndex] > 0) {
+      shape.lineTo(rounds[nextIndex].from[0], rounds[nextIndex].from[1]);
+    } else {
+      shape.lineTo(points[nextIndex][0], points[nextIndex][1]);
+    }
+  }
+
+  shape.closePath();
+
+  return shape;
+}
+
+/**
+ * Точки контура шестерни и радиусы скруглений по ним.
+ *
+ * Зуб обходится против часовой стрелки: галтель впадины, радиальная стенка до
+ * основной окружности, излом, наклон к вершине, плоская вершина дугой, и та же
+ * пара стенок вниз. Между зубьями — дуга впадины. Плоская вершина важна не
+ * меньше глубины: без неё силуэт читается звёздочкой, а не шестернёй.
+ */
+function gearContour(layout: GearLayout): {
+  points: ShapePoint[];
+  radii: number[];
+} {
+  const points: ShapePoint[] = [];
+  const radii: number[] = [];
+  const pitch = (Math.PI * 2) / layout.teeth;
+  const push = (point: ShapePoint, radius: number): void => {
+    points.push(point);
+    radii.push(radius);
+  };
+
+  for (let tooth = 0; tooth < layout.teeth; tooth += 1) {
+    const centre = Math.PI / 2 + tooth * pitch;
+    const tipFrom = centre - layout.tipHalfAngle;
+    const tipTo = centre + layout.tipHalfAngle;
+    const valleyFrom = centre + layout.baseHalfAngle;
+    const valleyTo = centre + pitch - layout.baseHalfAngle;
+
+    push(
+      polarPoint(layout.rootRadiusMm, centre - layout.baseHalfAngle),
+      layout.rootRoundMm,
+    );
+    push(
+      polarPoint(layout.baseRadiusMm, centre - layout.baseHalfAngle),
+      layout.shoulderRoundMm,
+    );
+    push(polarPoint(layout.tipRadiusMm, tipFrom), layout.tipRoundMm);
+
+    for (let step = 1; step < GEAR_ARC_SEGMENTS; step += 1) {
+      push(
+        polarPoint(
+          layout.tipRadiusMm,
+          tipFrom + ((tipTo - tipFrom) * step) / GEAR_ARC_SEGMENTS,
+        ),
+        0,
+      );
+    }
+
+    push(polarPoint(layout.tipRadiusMm, tipTo), layout.tipRoundMm);
+    push(
+      polarPoint(layout.baseRadiusMm, centre + layout.baseHalfAngle),
+      layout.shoulderRoundMm,
+    );
+    push(
+      polarPoint(layout.rootRadiusMm, centre + layout.baseHalfAngle),
+      layout.rootRoundMm,
+    );
+
+    for (let step = 1; step < GEAR_ARC_SEGMENTS; step += 1) {
+      push(
+        polarPoint(
+          layout.rootRadiusMm,
+          valleyFrom + ((valleyTo - valleyFrom) * step) / GEAR_ARC_SEGMENTS,
+        ),
+        0,
+      );
+    }
+  }
+
+  return { points, radii };
+}
+
+/** Контур шестерни: зубья по кругу со скруглениями вершины, излома и впадины. */
+function gearShape(layout: GearLayout): Shape {
+  const { points, radii } = gearContour(layout);
+
+  return roundedPointLoop(points, radii);
+}
+
+/**
+ * Шестерня с плоской вершиной зуба, ступицей и отверстием под кольцо — пресет Gear.
+ *
+ * Зубьев столько, сколько влезает при модуле 2.16 мм, с округлением до кратного
+ * четырём: на 44 × 44 это 20 зубьев, диаметр по вершинам 43.2 мм, шаг 6.17 мм и
+ * глубина впадины 4.4 мм (20 % радиуса). Профиль реечный (20°), ниже основной
+ * окружности зуб идёт радиальной стенкой — так у настоящей шестерни выглядит
+ * подрез у корня, и именно эта стенка делает впадину широкой, а силуэт —
+ * шестернёй, а не кругом с зубчиками.
+ *
+ * Отверстие Ø5 мм стоит в центре ступицы: кольцо проходит через ось, силуэт
+ * остаётся круглым, и ушко не превращает деталь в медаль. Ступица Ø17.3 мм
+ * поднята над полем на 0.6 мм и собрана отдельной оболочкой через
+ * `mergeGeometries` — вычитания тел (CSG) в проекте нет, так же собраны шипы
+ * кирпича. Низ ступицы утоплен в тело на 0.2 мм: оболочки должны пересекаться
+ * объёмом, а не касаться плоскостями, а её отверстие на 0.15 мм шире отверстия
+ * тела — иначе общие стенки дают рёбра с четырьмя треугольниками.
+ *
+ * Габарит держится точно по обеим осям без всякой компенсации: при числе зубьев,
+ * кратном четырём, по одному зубу смотрит ровно вверх, вниз, вправо и влево.
+ * Шестерня круглая, поэтому вписана в меньшую сторону слайдеров, а разница
+ * уходит в поле — как у вспышки, которая тоже не растягивается на вытянутый
+ * габарит.
+ */
+export function buildGear(
+  params: KeychainPresetGeometryParams,
+): BufferGeometry {
+  const layout = gearLayout(params.width, params.height);
+  const shape = gearShape(layout);
+
+  shape.holes.push(ringHolePath(0));
+
+  const body = extrudePresetShape(shape, params.thickness);
+  // Ступица — кольцо с той же фаской, что у тела: стенка отверстия продолжается
+  // без ступеньки, а кромка ступицы скруглена, как и кромка корпуса.
+  const hubShape = new Shape();
+
+  hubShape.absarc(0, 0, layout.hubRadiusMm, 0, Math.PI * 2, false);
+
+  const hubHole = new Path();
+
+  hubHole.absarc(
+    0,
+    0,
+    RING_HOLE_DIAMETER_MM / 2 +
+      PRESET_BEVEL_SIZE_MM +
+      GEAR_HUB_HOLE_GAP_MM,
+    0,
+    Math.PI * 2,
+    true,
+  );
+  hubShape.holes.push(hubHole);
+
+  const hub = extrudePresetShape(
+    hubShape,
+    GEAR_HUB_LIFT_MM + GEAR_HUB_EMBED_MM,
+  );
+
+  hub.translate(0, 0, params.thickness - GEAR_HUB_EMBED_MM);
+
+  const parts = [body, hub];
+  const gear = mergeGeometries(parts);
+
+  for (const part of parts) {
+    part.dispose();
+  }
+
+  if (!gear) {
+    throw new Error("Не удалось соединить шестерню и ступицу");
+  }
+
+  gear.computeBoundingBox();
+  gear.computeBoundingSphere();
+
+  return gear;
+}
+
+/**
  * Геометрия выбранного пресета.
  *
  * null означает «пресет ещё не реализован»: панель по этому же признаку гасит
@@ -1835,6 +2316,8 @@ export function buildKeychainPresetGeometry(
       return buildCapsule(params);
     case "hex":
       return buildHex(params);
+    case "gear":
+      return buildGear(params);
     case "brick":
       return buildBrick(params);
     case "ticket":
