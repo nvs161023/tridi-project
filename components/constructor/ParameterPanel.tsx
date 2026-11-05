@@ -14,6 +14,7 @@ import {
 } from "@/lib/constructor/keychain-geometry";
 import {
   brickStudLayout,
+  heartLayout,
   isKeychainPresetImplemented,
   starburstLayout,
   ticketLayout,
@@ -855,6 +856,11 @@ function presetReadyNote(
       const longestRay = Math.max(...layout.rayLengths);
 
       return `вспышка: ${layout.rayCount} лучей через ${layout.pitchDeg}° разной длины (${shortestRay.toFixed(1)}–${longestRay.toFixed(1)} мм от центра, вписана в ${layout.sizeMm} × ${layout.sizeMm} мм с полем 2 мм от кромки заготовки), кончик R${layout.rays[0].tipRadiusMm.toFixed(1)} мм под ${layout.tipAngleMinDeg.toFixed(0)}–${layout.tipAngleMaxDeg.toFixed(0)}°, отверстие Ø5 мм в верхнем луче на ${layout.ringY.toFixed(1)} мм от центра (стенка до кромки ${layout.rimWidthMm.toFixed(1)} мм)`;
+    }
+    case "heart": {
+      const layout = heartLayout(params.width, params.length);
+
+      return `сердце ${params.width} × ${params.length} мм: доли с выемкой ${layout.valleyDepthMm.toFixed(1)} мм (дно R${layout.valleyRadiusMm.toFixed(1)} мм), плечи на ${layout.shoulderY.toFixed(1)} мм выше центра, кончик R${layout.tipRadiusMm.toFixed(1)} мм под ${((layout.tipAngle * 180) / Math.PI).toFixed(0)}°, отверстие Ø5 мм по центру на ${layout.ringY.toFixed(1)} мм от центра (стенка до дна выемки ${layout.ringWallMm.toFixed(1)} мм)`;
     }
     default:
       return `форма ${params.width} × ${params.length} мм, отверстие Ø5 мм под кольцо`;

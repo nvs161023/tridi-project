@@ -228,6 +228,66 @@ const STARBURST_RING_STEP_MM = 0.05;
  */
 const STARBURST_SOLVE_PASSES = 80;
 
+/** Скругление кончика сердца, мм: острый кончик колет ладонь и скалывается. */
+const HEART_TIP_RADIUS_MM = 1;
+
+/** Раствор, под которым нижние ветви сходятся в кончик, °. */
+const HEART_TIP_ANGLE_DEG = 60;
+
+/**
+ * Глубина выемки между долями в долях высоты слайдера.
+ *
+ * 15 % оставляют доли круглыми: при 8 % выемка почти исчезает и сердце читается
+ * яблоком, а глубже 22 % верх превращается в галочку.
+ */
+const HEART_VALLEY_DEPTH_SHARE = 0.15;
+
+/** Скругление дна выемки, мм: 3–4 мм держат выемку выемкой, а не надрезом. */
+const HEART_VALLEY_RADIUS_MM = 3.5;
+
+/**
+ * Полураствор дуги дна выемки, °.
+ *
+ * Под этим углом дуга переходит в ветвь доли: 55° дают пологий вход и оставляют
+ * долям место; при 70° ветви встают почти вертикально, и выемка читается щелью.
+ */
+const HEART_VALLEY_JOIN_ANGLE_DEG = 55;
+
+/**
+ * Уровень максимальной ширины в долях полувысоты профиля.
+ *
+ * 0.15 ставит плечи выше середины. На 0.10 широкий участок приходился на центр,
+ * и силуэт выглядел яблоком с выемкой, а не сердцем.
+ */
+const HEART_SHOULDER_SHARE = 0.15;
+
+/** X верхушки доли в долях полуширины: 0.52 оставляют доли круглыми. */
+const HEART_LOBE_TOP_SHARE = 0.52;
+
+/** Длина контрольного «уса» Безье в долях хорды ветви. */
+const HEART_BEZIER_TANGENT_SHARE = 0.55;
+
+/** Доля хорды, на которую ус верхушки доли отодвинут вдоль верхней кромки. */
+const HEART_LOBE_TANGENT_SHARE = 0.42;
+
+/**
+ * Длина «уса» нижней ветви в долях её хорды.
+ *
+ * Меньше, чем у долей: нижняя ветвь длинная, и с длинным усом она выгибается
+ * боками наружу, как у яблока. 0.45 держат сторону почти прямой у кончика и
+ * дают выпуклость только под плечом.
+ */
+const HEART_LOWER_TANGENT_SHARE = 0.45;
+
+/**
+ * Стенка между отверстием под кольцо и дном выемки, мм.
+ *
+ * Дно выемки — тонкая точка над кольцом: в стороны материал быстро набирает
+ * толщину. При 1.5 мм кромка под кольцом выходила на грань печати, 2 мм
+ * держатся и на 20 × 30.
+ */
+const HEART_RING_WALL_MM = 2;
+
 /**
  * Раскладка билета: корешок снизу, линия отрыва со щелями и проушина.
  *
@@ -550,6 +610,94 @@ export function starburstLayout(
 }
 
 /**
+ * Раскладка сердца: доли, выемка, кончик и отверстие под кольцо.
+ *
+ * Общая функция для геометрии и подписи в панели, как `ticketLayout` и
+ * `starburstLayout`: числа на плашке обязаны совпадать с тем, что уедет в STL.
+ *
+ * Сердце вписывается в `width × height` слайдеров целиком: верхнюю кромку
+ * габарита держат верхушки долей, нижнюю — дуга кончика, а максимальную ширину —
+ * плечи. Отверстие Ø5 мм стоит на оси симметрии под выемкой, в теле: проушина
+ * поверх выемки не влезает в габарит, а пятак Ø11 мм закрыл бы саму выемку —
+ * сердце перестало бы читаться.
+ */
+export type HeartLayout = {
+  /** Полуширина профиля (заготовка минус фаска), мм. */
+  halfWidthMm: number;
+  /** Полувысота профиля, мм. */
+  halfHeightMm: number;
+  /** Глубина выемки между долями, мм. */
+  valleyDepthMm: number;
+  /** Y дна выемки, мм: он же верхняя кромка материала над кольцом. */
+  valleyY: number;
+  /** Радиус скругления дна выемки, мм. */
+  valleyRadiusMm: number;
+  /** Полураствор дуги дна выемки, рад: под ним дуга переходит в ветвь доли. */
+  valleyJoinAngle: number;
+  /** Радиус скругления кончика, мм. */
+  tipRadiusMm: number;
+  /** Раствор, под которым ветви сходятся в кончик, рад. */
+  tipAngle: number;
+  /** Y центра дуги кончика, мм. */
+  tipCenterY: number;
+  /** Y уровня максимальной ширины (плеча), мм. */
+  shoulderY: number;
+  /** X верхушки доли, мм. */
+  lobeTopX: number;
+  /** Y верхушки доли — верхняя кромка габарита, мм. */
+  lobeTopY: number;
+  /** Y центра отверстия под кольцо, мм. */
+  ringY: number;
+  /** Стенка между отверстием и дном выемки в свету, мм. */
+  ringWallMm: number;
+};
+
+export function heartLayout(width: number, height: number): HeartLayout {
+  const bevel = PRESET_BEVEL_SIZE_MM;
+  const halfWidth = Math.max(width - bevel * 2, 1) / 2;
+  const halfHeight = Math.max(height - bevel * 2, 1) / 2;
+  // Выемка — доля высоты слайдера, но не глубже половины полувысоты: иначе на
+  // низкой заготовке доли съедаются и сердце превращается в два круга с провалом.
+  const valleyDepth = Math.min(
+    height * HEART_VALLEY_DEPTH_SHARE,
+    halfHeight * 0.5,
+  );
+  const valleyY = halfHeight - valleyDepth;
+  // Дно выемки скругляется не крупнее половины её глубины и трети полуширины: на
+  // 20 × 30 дуга R3.5 иначе заняла бы всю выемку и срезала вход в доли.
+  const valleyRadius = Math.min(
+    HEART_VALLEY_RADIUS_MM,
+    valleyDepth / 2,
+    halfWidth * 0.3,
+  );
+  const tipRadius = Math.min(HEART_TIP_RADIUS_MM, halfHeight * 0.08);
+  const tipAngle = (HEART_TIP_ANGLE_DEG * Math.PI) / 180;
+  // Габарит снизу держит не вершина угла, а нижняя точка дуги кончика: центр
+  // поднимается ровно на радиус от нижней кромки, поэтому высота модели
+  // совпадает со слайдером, а ветви касаются дуги под заданным раствором θ.
+  const tipCenterY = -halfHeight + tipRadius;
+  const ringY =
+    valleyY - (RING_HOLE_DIAMETER_MM / 2 + bevel + HEART_RING_WALL_MM);
+
+  return {
+    halfWidthMm: halfWidth,
+    halfHeightMm: halfHeight,
+    valleyDepthMm: valleyDepth,
+    valleyY,
+    valleyRadiusMm: valleyRadius,
+    valleyJoinAngle: (HEART_VALLEY_JOIN_ANGLE_DEG * Math.PI) / 180,
+    tipRadiusMm: tipRadius,
+    tipAngle,
+    tipCenterY,
+    shoulderY: halfHeight * HEART_SHOULDER_SHARE,
+    lobeTopX: halfWidth * HEART_LOBE_TOP_SHARE,
+    lobeTopY: halfHeight,
+    ringY,
+    ringWallMm: valleyY - ringY - RING_HOLE_DIAMETER_MM / 2,
+  };
+}
+
+/**
  * Пресеты, у которых уже есть геометрия.
  *
  * Список читают панель (подсказка вместо плашки «в работе») и API (422 вместо
@@ -562,9 +710,10 @@ export const IMPLEMENTED_KEYCHAIN_PRESETS: readonly KeychainPresetId[] = [
   "brick",
   "ticket",
   "starburst",
+  "heart",
 ];
 
-/** Готова ли геометрия пресета: остальные два пока строятся старым силуэтом. */
+/** Готова ли геометрия пресета: `gear` пока строится старым силуэтом. */
 export function isKeychainPresetImplemented(
   presetId: KeychainPresetId,
 ): boolean {
@@ -1485,6 +1634,189 @@ export function buildStarburst(
   return extrudePresetShape(shape, params.thickness);
 }
 
+/** Кубическая Безье по точкам: `Shape` ждёт шесть чисел, а не пару точек. */
+function bezierTo(
+  shape: Shape,
+  control1: ShapePoint,
+  control2: ShapePoint,
+  to: ShapePoint,
+): void {
+  shape.bezierCurveTo(
+    control1[0],
+    control1[1],
+    control2[0],
+    control2[1],
+    to[0],
+    to[1],
+  );
+}
+
+/**
+ * Контур сердца: две доли, скруглённая выемка между ними и скруглённый кончик.
+ *
+ * Обход против часовой стрелки, как у остальных пресетов: от левой точки стыка с
+ * дугой кончика через низ вправо, затем по правой половине вверх к верхушке
+ * доли, через дно выемки и обратно по левой половине.
+ *
+ * Все стыки гладкие по построению: дуга кончика переходит в нижнюю ветвь по
+ * общей касательной, ветви доли подходят к верхушке горизонтально (поэтому
+ * верхнюю кромку габарита держит верхушка), а усы Безье у дна выемки ставятся
+ * вдоль её дуги.
+ */
+function heartShape(layout: HeartLayout): Shape {
+  const tipHalf = layout.tipAngle / 2;
+  const tipCenterY = layout.tipCenterY;
+  const tipLeft = arcStart([0, tipCenterY], layout.tipRadiusMm, -Math.PI + tipHalf);
+  const tipRight = arcStart([0, tipCenterY], layout.tipRadiusMm, -tipHalf);
+  // Касательная к дуге кончика в правой точке стыка: ветвь уходит вверх-вправо
+  // под `tipHalf` к вертикали, поэтому низ габарита держит дуга, а не излом.
+  const tipTangent: ShapePoint = [Math.sin(tipHalf), Math.cos(tipHalf)];
+  const shoulderRight: ShapePoint = [layout.halfWidthMm, layout.shoulderY];
+  const shoulderLeft: ShapePoint = [-layout.halfWidthMm, layout.shoulderY];
+  const lobeRight: ShapePoint = [layout.lobeTopX, layout.lobeTopY];
+  const lobeLeft: ShapePoint = [-layout.lobeTopX, layout.lobeTopY];
+  // Центр дуги дна выемки лежит выше дна: дно — её нижняя точка, поэтому
+  // скругление входит в материал, а не выпирает бугром между долями.
+  const valleyCenterY = layout.valleyY + layout.valleyRadiusMm;
+  const valleyRightAngle = -Math.PI / 2 + layout.valleyJoinAngle;
+  const valleyLeftAngle = -Math.PI / 2 - layout.valleyJoinAngle;
+  const valleyRight = arcStart(
+    [0, valleyCenterY],
+    layout.valleyRadiusMm,
+    valleyRightAngle,
+  );
+  const valleyLeft = arcStart(
+    [0, valleyCenterY],
+    layout.valleyRadiusMm,
+    valleyLeftAngle,
+  );
+  // Направление касательной дна выемки в стыке: вправо-вниз и влево-вверх.
+  const valleyCosine = Math.cos(layout.valleyJoinAngle);
+  const valleySine = Math.sin(layout.valleyJoinAngle);
+  // Правая нижняя ветвь: кончик → плечо.
+  const lowerLength = Math.hypot(
+    shoulderRight[0] - tipRight[0],
+    shoulderRight[1] - tipRight[1],
+  );
+  const lowerShare = lowerLength * HEART_LOWER_TANGENT_SHARE;
+  const lowerRightC1: ShapePoint = [
+    tipRight[0] + lowerShare * tipTangent[0],
+    tipRight[1] + lowerShare * tipTangent[1],
+  ];
+  const lowerRightC2: ShapePoint = [
+    shoulderRight[0],
+    shoulderRight[1] - lowerShare,
+  ];
+  // Внешняя часть правой доли: плечо → верхушка.
+  const lobeLength = Math.hypot(
+    lobeRight[0] - shoulderRight[0],
+    lobeRight[1] - shoulderRight[1],
+  );
+  const lobeShare = lobeLength * HEART_BEZIER_TANGENT_SHARE;
+  const outerRightC1: ShapePoint = [
+    shoulderRight[0],
+    shoulderRight[1] + lobeShare,
+  ];
+  const outerRightC2: ShapePoint = [
+    lobeRight[0] + (shoulderRight[0] - lobeRight[0]) * HEART_LOBE_TANGENT_SHARE,
+    lobeRight[1],
+  ];
+  // Внутренняя часть правой доли: верхушка → дно выемки.
+  const innerLength = Math.hypot(
+    valleyRight[0] - lobeRight[0],
+    valleyRight[1] - lobeRight[1],
+  );
+  const innerShare = innerLength * HEART_BEZIER_TANGENT_SHARE;
+  const innerRightC1: ShapePoint = [lobeRight[0] - innerShare, lobeRight[1]];
+  const innerRightC2: ShapePoint = [
+    valleyRight[0] + innerShare * valleyCosine,
+    valleyRight[1] + innerShare * valleySine,
+  ];
+  // Левая половина — та же геометрия с обратным знаком X и обратным порядком:
+  // первый ус левой ветви — это второй ус правой, и наоборот.
+  const innerLeftC1: ShapePoint = [
+    valleyLeft[0] - innerShare * valleyCosine,
+    valleyLeft[1] + innerShare * valleySine,
+  ];
+  const innerLeftC2: ShapePoint = [lobeLeft[0] + innerShare, lobeLeft[1]];
+  const outerLeftC1: ShapePoint = [
+    lobeLeft[0] - (shoulderRight[0] - lobeRight[0]) * HEART_LOBE_TANGENT_SHARE,
+    lobeLeft[1],
+  ];
+  const outerLeftC2: ShapePoint = [
+    shoulderLeft[0],
+    shoulderLeft[1] + lobeShare,
+  ];
+  const lowerLeftC1: ShapePoint = [
+    shoulderLeft[0],
+    shoulderLeft[1] - lowerShare,
+  ];
+  const lowerLeftC2: ShapePoint = [
+    -(tipRight[0] + lowerShare * tipTangent[0]),
+    tipRight[1] + lowerShare * tipTangent[1],
+  ];
+  const shape = new Shape();
+
+  shape.moveTo(tipLeft[0], tipLeft[1]);
+  // Дуга кончика: слева через нижнюю точку (0, −B) к правой точке стыка.
+  shape.absarc(
+    0,
+    tipCenterY,
+    layout.tipRadiusMm,
+    -Math.PI + tipHalf,
+    -tipHalf,
+    false,
+  );
+  bezierTo(shape, lowerRightC1, lowerRightC2, shoulderRight);
+  bezierTo(shape, outerRightC1, outerRightC2, lobeRight);
+  bezierTo(shape, innerRightC1, innerRightC2, valleyRight);
+  // Дно выемки: справа налево через нижнюю точку дуги.
+  shape.absarc(
+    0,
+    valleyCenterY,
+    layout.valleyRadiusMm,
+    valleyRightAngle,
+    valleyLeftAngle,
+    true,
+  );
+  bezierTo(shape, innerLeftC1, innerLeftC2, lobeLeft);
+  bezierTo(shape, outerLeftC1, outerLeftC2, shoulderLeft);
+  bezierTo(shape, lowerLeftC1, lowerLeftC2, tipLeft);
+  shape.closePath();
+
+  return shape;
+}
+
+/**
+ * Сердце с выемкой между долями и отверстием в теле — пресет Heart.
+ *
+ * Классическая форма: две круглые доли сверху, плавная выемка глубиной 15 %
+ * высоты со скруглённым дном R3–4 мм, максимальная ширина на 15 % полувысоты
+ * выше центра и кончик, сходящийся под 60° со скруглением R1 мм. Доли остаются
+ * круглыми, а широкий участок приходится выше середины — иначе силуэт читается
+ * яблоком с вырезкой.
+ *
+ * Отверстие Ø5 мм стоит по центру на оси симметрии под дном выемки: проушина
+ * поверх выемки не влезает в габарит `width × height`, а пятак Ø11 мм закрыл бы
+ * саму выемку. Стенка над кольцом — 2 мм в свету, в стороны материала больше,
+ * поэтому ушко держит нагрузку и на 20 × 30.
+ *
+ * Габарит держится точно по слайдерам: верхнюю кромку даёт горизонтальная
+ * касательная в верхушке доли, нижнюю — дуга кончика, ширину — вертикальная
+ * касательная в плече. Фаска расширяет контур на 0.4 мм по нормали, а профиль
+ * построен меньше на эту же величину, поэтому STL совпадает со слайдером.
+ */
+export function buildHeart(
+  params: KeychainPresetGeometryParams,
+): ExtrudeGeometry {
+  const layout = heartLayout(params.width, params.height);
+  const shape = heartShape(layout);
+
+  shape.holes.push(ringHolePath(layout.ringY));
+
+  return extrudePresetShape(shape, params.thickness);
+}
+
 /**
  * Геометрия выбранного пресета.
  *
@@ -1509,6 +1841,8 @@ export function buildKeychainPresetGeometry(
       return buildTicket(params);
     case "starburst":
       return buildStarburst(params);
+    case "heart":
+      return buildHeart(params);
     default:
       return null;
   }

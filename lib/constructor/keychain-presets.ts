@@ -120,7 +120,7 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     id: "heart",
     label: "Heart",
     description:
-      "Сердце с выемкой между долями: ушко садится в выемку и не выходит за габарит.",
+      "Классическое сердце с долями и выемкой между ними: кончик скруглён, отверстие под кольцо Ø5 мм стоит по центру в теле под выемкой.",
     defaultWidth: 38,
     defaultHeight: 40,
     defaultThickness: 3,
