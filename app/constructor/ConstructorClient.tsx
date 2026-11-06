@@ -34,6 +34,7 @@ import {
   DEFAULT_CUP_CLIP_PARAMS,
   DEFAULT_FABRIC_PATCH_PARAMS,
   DEFAULT_GIFT_BOX_PARAMS,
+  DEFAULT_HEAT_TRANSFER_PARAMS,
   DEFAULT_JEWELRY_STAND_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
   DEFAULT_LITHOPHANE_PARAMS,
@@ -63,6 +64,7 @@ import {
   cupClipStlFileName,
   fabricPatchStlFileName,
   giftBoxStlFileName,
+  heatTransferStlFileName,
   jewelryStandStlFileName,
   keychainShapeTitle,
   keychainStlFileName,
@@ -175,6 +177,7 @@ const MODEL_DEFAULT_PARAMS: Record<ModelType, Partial<ConstructorParams>> = {
   cup_clip: DEFAULT_CUP_CLIP_PARAMS,
   cipher_box: DEFAULT_CIPHER_BOX_PARAMS,
   gift_box: DEFAULT_GIFT_BOX_PARAMS,
+  heat_transfer: DEFAULT_HEAT_TRANSFER_PARAMS,
 };
 
 /**
@@ -327,8 +330,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
   // с одним STL: ваза, брелок, коробка, подставка, клипсы, кашпо, подставка под
   // кружку, подставка для украшений, органайзер для ручек, нашивка, плафоны
-  // гирлянды, настенный крючок, клипса для кружки, шкатулка с кодом
-  // и подарочная коробка.
+  // гирлянды, настенный крючок, клипса для кружки, шкатулка с кодом,
+  // подарочная коробка и термопринт.
   return [
     {
       id: params.model,
@@ -363,7 +366,9 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
                                   ? cipherBoxStlFileName(params)
                                   : params.model === "gift_box"
                                     ? giftBoxStlFileName(params)
-                                    : boxStlFileName(params),
+                                    : params.model === "heat_transfer"
+                                      ? heatTransferStlFileName(params)
+                                      : boxStlFileName(params),
     },
   ];
 }

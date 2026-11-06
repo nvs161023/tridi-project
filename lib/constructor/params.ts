@@ -173,6 +173,31 @@ export const CONSTRUCTOR_LIMITS = {
   cipherSize: { min: 70, max: 160, step: 5, defaultValue: 110, decimals: 0 },
   // Подарочная коробка: высота тоже выводится из габарита, а не из слайдера.
   giftSize: { min: 60, max: 160, step: 5, defaultValue: 120, decimals: 0 },
+  // Термопринт: лист A4 — 210 мм, поэтому 200 мм — самый крупный принт,
+  // который ещё переносится на футболку целиком.
+  heatTransferWidth: {
+    min: 20,
+    max: 200,
+    step: 5,
+    defaultValue: 100,
+    decimals: 0,
+  },
+  heatTransferHeight: {
+    min: 20,
+    max: 200,
+    step: 5,
+    defaultValue: 100,
+    decimals: 0,
+  },
+  // Толщина задаётся слоями по 0.2 мм: 0.4 мм гнётся по ткани, 0.8 мм — уже
+  // пластиковая нашлёпка.
+  heatTransferLayers: {
+    min: 1,
+    max: 4,
+    step: 1,
+    defaultValue: 2,
+    decimals: 0,
+  },
 } as const satisfies Record<string, NumericLimit>;
 
 /** Типы моделей, которые умеет собирать конструктор. */
@@ -194,6 +219,7 @@ export const MODEL_TYPES = [
   "cup_clip",
   "cipher_box",
   "gift_box",
+  "heat_transfer",
 ] as const;
 
 export type ModelType = (typeof MODEL_TYPES)[number];
@@ -217,6 +243,7 @@ export const MODEL_TYPE_LABELS = {
   cup_clip: "Клипса для кружки",
   cipher_box: "Шкатулка с кодом",
   gift_box: "Подарочная коробка",
+  heat_transfer: "Термопринт",
 } as const satisfies Record<ModelType, string>;
 
 /** Инструмент конструктора в витринах: идентификатор, название и описание. */
@@ -322,6 +349,11 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
     id: "gift_box",
     title: "Генератор подарочных коробок",
     desc: "Коробки с потайным замком на выбор: винт под отвёртку, двойное дно или лабиринт в юбке крышки.",
+  },
+  {
+    id: "heat_transfer",
+    title: "Генератор термопринтов",
+    desc: "Логотип из PNG или SVG превращается в тонкую наклейку: контуры, зеркало и толщина в слоях под ткань.",
   },
 ];
 
@@ -841,6 +873,28 @@ export type FabricPatchParams = {
 };
 
 /**
+ * Термопринт: логотип, который печатается плоской наклейкой и переносится на
+ * ткань утюгом.
+ *
+ * Разметка приходит из SVG-файла или из PNG: в `heatTransferSvg` лежат уже
+ * готовые замкнутые контуры, а не исходный файл, — так панель, предпросмотр и
+ * сервер разбирают одну и ту же строку. Толщина задаётся слоями по 0.2 мм:
+ * 0.4 мм гнётся вместе с тканью, 0.8 мм уже держит форму и топорщится.
+ */
+export type HeatTransferParams = {
+  /** Контуры печати в координатах viewBox исходника; "" — файл не загружен. */
+  heatTransferSvg: string;
+  /** Ширина принта по X, мм. Это габарит детали, а не масштаб SVG. */
+  heatTransferWidth: number;
+  /** Высота принта по Y, мм: при загрузке выводится из пропорций контуров. */
+  heatTransferHeight: number;
+  /** Толщина слоями по 0.2 мм: от 1 до 4 слоёв, то есть 0.2–0.8 мм. */
+  heatTransferLayers: number;
+  /** Зеркало по X: принт переносится на ткань лицом вниз, иначе текст читается наоборот. */
+  heatTransferMirror: boolean;
+};
+
+/**
  * Абажур для гирлянды: диаметр, высота, посадка на цоколь, стенка и число штук.
  *
  * Плафон — усечённый конус со стенкой: сверху остаётся отверстие под цоколь
@@ -1266,6 +1320,15 @@ export const DEFAULT_FABRIC_PATCH_PARAMS: FabricPatchParams = {
   patchStitches: CONSTRUCTOR_LIMITS.patchStitches.defaultValue,
 };
 
+/** Термопринт по умолчанию: 100 × 100 мм, два слоя, без файла и зеркала. */
+export const DEFAULT_HEAT_TRANSFER_PARAMS: HeatTransferParams = {
+  heatTransferSvg: "",
+  heatTransferWidth: CONSTRUCTOR_LIMITS.heatTransferWidth.defaultValue,
+  heatTransferHeight: CONSTRUCTOR_LIMITS.heatTransferHeight.defaultValue,
+  heatTransferLayers: CONSTRUCTOR_LIMITS.heatTransferLayers.defaultValue,
+  heatTransferMirror: false,
+};
+
 /** Плафон по умолчанию: раструб Ø 44 мм, высота 34 мм, отверстие 10 мм. */
 export const DEFAULT_STRING_LIGHT_PARAMS: StringLightParams = {
   lightDiameter: CONSTRUCTOR_LIMITS.lightDiameter.defaultValue,
@@ -1467,7 +1530,8 @@ export type ConstructorParams = { model: ModelType } & VaseParams &
   WallHookParams &
   CupClipParams &
   CipherBoxParams &
-  GiftBoxParams;
+  GiftBoxParams &
+  HeatTransferParams;
 
 /** Стартовое состояние: открывается ваза, остальные модели ждут на вкладках. */
 export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
@@ -1489,6 +1553,7 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   ...DEFAULT_CUP_CLIP_PARAMS,
   ...DEFAULT_CIPHER_BOX_PARAMS,
   ...DEFAULT_GIFT_BOX_PARAMS,
+  ...DEFAULT_HEAT_TRANSFER_PARAMS,
 };
 
 /**
@@ -1601,6 +1666,20 @@ export function fabricPatchStlFileName(params: FabricPatchParams): string {
     params.patchStitches > 0 ? `-stezhki${params.patchStitches}` : "";
 
   return `tridi-nashivka-${params.patchShape}-d${params.patchSize}-t${params.patchThickness}${borderSuffix}${stitchesSuffix}.stl`;
+}
+
+/**
+ * Имя файла STL для термопринта.
+ *
+ * Габарит и число слоёв входят в имя: толщина выводится из слоёв, а не
+ * хранится отдельным полем. Зеркальная деталь получает суффикс — она печатается
+ * тем же контуром, но кладётся на ткань другой стороной, и файлы нельзя
+ * перепутать.
+ */
+export function heatTransferStlFileName(params: HeatTransferParams): string {
+  const mirrorSuffix = params.heatTransferMirror ? "-zerkalo" : "";
+
+  return `tridi-termoprint-${params.heatTransferWidth}x${params.heatTransferHeight}-sl${params.heatTransferLayers}${mirrorSuffix}.stl`;
 }
 
 /**
@@ -2265,6 +2344,18 @@ function snap(value: number, limit: NumericLimit): number {
 }
 
 /**
+ * Число из состояния или дефолт.
+ *
+ * `snap` пропускает `NaN` насквозь: арифметика с ним возвращает `NaN`, и такой
+ * габарит ломает геометрию уже на сервере. Для термопринта это важнее
+ * терпимости к строке — габарит приходит из пропорций файла, — поэтому всё, что
+ * не конечное число, честно заменяется дефолтом.
+ */
+function finiteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/**
  * Проверяет и выравнивает параметры перед отрисовкой или экспортом.
  *
  * Функция нужна и клиенту, и серверу: значения могут прийти из слайдера,
@@ -2640,6 +2731,61 @@ export function normalizeFabricPatchParams(
         CONSTRUCTOR_LIMITS.patchStitches,
       ),
     ),
+  };
+}
+
+/**
+ * Проверяет и выравнивает параметры термопринта.
+ *
+ * Разметка принимается только целой: пустая строка — штатное «файл ещё не
+ * загружен», а строка без поддерживаемых контуров или длиннее 200 000 символов
+ * отбрасывается целиком, как свой контур брелока. Обрезать SVG нельзя: половина
+ * разметки — это невалидный файл.
+ *
+ * Габарит и число слоёв выравниваются по шагам слайдеров, а всё, что не
+ * конечное число, заменяется дефолтом: `NaN` из пустого слайдера сломал бы
+ * геометрию. Ширина и высота независимы: ни одна не выводится из другой,
+ * пропорции применяются при загрузке файла в панели, а не при нормализации.
+ * Зеркало принимается только булевым, как бортик нашивки.
+ */
+export function normalizeHeatTransferParams(
+  params: Partial<HeatTransferParams>,
+): HeatTransferParams {
+  const heatTransferSvg =
+    isCustomSvgData(params.heatTransferSvg) &&
+    hasDrawableSvgData(params.heatTransferSvg)
+      ? params.heatTransferSvg.trim()
+      : "";
+
+  return {
+    heatTransferSvg,
+    heatTransferWidth: snap(
+      finiteNumber(
+        params.heatTransferWidth,
+        DEFAULT_HEAT_TRANSFER_PARAMS.heatTransferWidth,
+      ),
+      CONSTRUCTOR_LIMITS.heatTransferWidth,
+    ),
+    heatTransferHeight: snap(
+      finiteNumber(
+        params.heatTransferHeight,
+        DEFAULT_HEAT_TRANSFER_PARAMS.heatTransferHeight,
+      ),
+      CONSTRUCTOR_LIMITS.heatTransferHeight,
+    ),
+    heatTransferLayers: Math.round(
+      snap(
+        finiteNumber(
+          params.heatTransferLayers,
+          DEFAULT_HEAT_TRANSFER_PARAMS.heatTransferLayers,
+        ),
+        CONSTRUCTOR_LIMITS.heatTransferLayers,
+      ),
+    ),
+    heatTransferMirror:
+      typeof params.heatTransferMirror === "boolean"
+        ? params.heatTransferMirror
+        : DEFAULT_HEAT_TRANSFER_PARAMS.heatTransferMirror,
   };
 }
 
@@ -3042,5 +3188,6 @@ export function normalizeConstructorParams(
     ...normalizeCupClipParams(params),
     ...normalizeCipherBoxParams(params),
     ...normalizeGiftBoxParams(params),
+    ...normalizeHeatTransferParams(params),
   };
 }
