@@ -322,6 +322,14 @@ const HEART_LOWER_TANGENT_SHARE = 0.45;
 const HEART_RING_WALL_MM = 2;
 
 /**
+ * Сколько точек берётся на кривую контура сердца при измерении стенки у кольца.
+ *
+ * 48 — вдвое больше, чем у выдавливания: подпись в панели не должна занижать
+ * стенку из-за того, что хорда между точками проходит внутри дуги.
+ */
+const HEART_CONTOUR_SAMPLES = 48;
+
+/**
  * Целевой модуль шестерни, мм.
  *
  * Модуль — это шаг зубьев, делённый на π, и главный размер шестерни: диаметр по
@@ -1109,39 +1117,50 @@ function ringHolePath(centerX: number, centerY: number): Path {
 }
 
 /**
- * Смещение отверстия от оси при боковой установке, мм.
+ * Пределы бокового сдвига по силуэтам: желаемый сдвиг и минимальный отступ от
+ * кромки, мм.
  *
- * 8 мм — середина между центром и кромкой: при ширине 38 заготовка даёт 19 мм до
- * края, то есть стенка до боковой кромки выходит 8.5 мм. У самой кромки (5 мм, как
- * в аудите) стенка была бы 2.5 мм, и рядом с карманом NFC её вырвало бы первым
- * рывком за ключи.
+ * Apple Tag: 8 мм — середина между центром и кромкой. При ширине 38 заготовка
+ * даёт 19 мм до края, то есть стенка до боковой кромки выходит 8.5 мм. У самой
+ * кромки (5 мм, как в аудите) стенка была бы 2.5 мм, и рядом с карманом NFC её
+ * вырвало бы первым рывком за ключи. Отступ 5 мм — тот же, что сверху, и та же
+ * стенка 2.5 мм: на узкой заготовке фиксированный сдвиг 8 мм вынес бы отверстие
+ * за силуэт (при ширине 20 мм кромка идёт по X = 10).
  *
- * Число читает и панель: подпись и подсказка считают стенку до кромки той же
- * цифрой, поэтому список и STL не разойдутся.
+ * Сердце: 6 + 6, потому что кромка на высоте отверстия уже габарита — контур
+ * идёт по внешней ветви доли, а не по краю заготовки. На 20 мм ширины он стоит
+ * в 9.1 мм от оси, и сдвиг 5 мм оставил бы стенку 1.2 мм; 6 + 6 держит её не
+ * тоньше 2.2 мм на всей сетке слайдеров.
  */
-export const RING_HOLE_SIDE_OFFSET_MM = 8;
-
-/**
- * Минимальный отступ центра бокового отверстия от кромки, мм.
- *
- * 5 мм — тот же отступ, что сверху, и та же стенка 2.5 мм: на узкой заготовке
- * фиксированный сдвиг 8 мм вынес бы отверстие за силуэт (при ширине 20 мм кромка
- * идёт по X = 10).
- */
-export const RING_HOLE_SIDE_INSET_MM = 5;
+const RING_HOLE_SIDE_LIMITS: Partial<
+  Record<KeychainPresetId, { offsetMm: number; edgeInsetMm: number }>
+> = {
+  "apple-tag": { offsetMm: 8, edgeInsetMm: 5 },
+  heart: { offsetMm: 6, edgeInsetMm: 6 },
+};
 
 /**
  * Фактический сдвиг бокового отверстия от оси, мм.
  *
- * Общее правило для геометрии и панели: 8 мм, пока до кромки остаётся не меньше
- * `RING_HOLE_SIDE_INSET_MM`, иначе — сколько есть. На ширине 38 это 8 мм, на 20 —
- * 5 мм, и стенка до кромки никогда не бывает тоньше 2.5 мм.
+ * Общее правило для геометрии и панели: желаемый сдвиг, пока до кромки остаётся
+ * не меньше отступа силуэта, иначе — сколько есть. На ширине 38 у Apple Tag это
+ * 8 мм, на 20 — 5 мм. Ноль означает, что силуэт боковую позицию не строит:
+ * отверстие останется на оси, даже если реестр её заявил.
  */
-export function ringHoleSideOffsetMm(width: number): number {
+export function ringHoleSideOffsetMm(
+  presetId: KeychainPresetId,
+  width: number,
+): number {
+  const limit = RING_HOLE_SIDE_LIMITS[presetId];
+
+  if (!limit) {
+    return 0;
+  }
+
   return Number(
     Math.min(
-      RING_HOLE_SIDE_OFFSET_MM,
-      Math.max(width / 2 - RING_HOLE_SIDE_INSET_MM, 0),
+      limit.offsetMm,
+      Math.max(width / 2 - limit.edgeInsetMm, 0),
     ).toFixed(2),
   );
 }
@@ -1173,10 +1192,10 @@ function presetHolePlacement(
 /**
  * Центр отверстия Ø5 мм при боковой установке, мм; null — позиция не боковая.
  *
- * Y остаётся прежним: смещение идёт только по X, поэтому панель обещает те же
- * 5 мм от верхней кромки, что и у центрального отверстия. Пресеты, у которых
- * геометрия боковой позиции ещё не написана, возвращают null — отверстие у них
- * остаётся на оси, даже если реестр позицию уже заявил.
+ * Смещение идёт только по X, Y берётся из силуэта, поэтому панель обещает те же
+ * миллиметры от верхней кромки, что и у центрального отверстия. Пресеты, у
+ * которых геометрия боковой позиции ещё не написана, возвращают null — отверстие
+ * у них остаётся на оси, даже если реестр позицию уже заявил.
  */
 function sideHoleCenter(
   presetId: KeychainPresetId,
@@ -1188,16 +1207,112 @@ function sideHoleCenter(
     return null;
   }
 
-  switch (presetId) {
-    case "apple-tag": {
-      // Сдвиг поджимается на узкой заготовке: 8 мм по умолчанию, но не ближе
-      // 5 мм к кромке — иначе на ширине 20 мм отверстие вышло бы за силуэт.
-      const offset = ringHoleSideOffsetMm(params.width);
+  const offset = ringHoleSideOffsetMm(presetId, params.width);
 
+  if (offset === 0) {
+    return null;
+  }
+
+  switch (presetId) {
+    case "apple-tag":
       return {
         x: placement === "left" ? -offset : offset,
         y: params.height / 2 - APPLE_TAG_RING_HOLE_INSET_MM,
       };
+    case "heart":
+      return {
+        x: placement === "left" ? -offset : offset,
+        // Отверстие сердца стоит под дном выемки: Y задаёт раскладка, а не край
+        // заготовки, иначе на вытянутом сердце оно уехало бы в сужение к кончику.
+        y: heartLayout(params.width, params.height).ringY,
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Контур отверстия под кольцо для пресета: X из позиции, Y из силуэта.
+ *
+ * null — позиция `none`: отверстия нет вовсе. Одна функция на все силуэты,
+ * поэтому «без отверстия» и «отверстие сбоку» не могут разойтись между
+ * пресетами: разницу задаёт только `sideHoleCenter`.
+ */
+function presetRingHole(
+  presetId: KeychainPresetId,
+  params: KeychainPresetGeometryParams,
+  centerY: number,
+): Path | null {
+  if (presetHolePlacement(presetId, params) === "none") {
+    return null;
+  }
+
+  return ringHolePath(sideHoleCenter(presetId, params)?.x ?? 0, centerY);
+}
+
+/**
+ * Стенка от бокового отверстия до кромки силуэта в плоскости профиля, мм.
+ *
+ * Считается в ту сторону, куда сдвинуто отверстие: у Apple Tag это боковая
+ * кромка заготовки, у сердца — внешняя ветвь доли на высоте отверстия (она идёт
+ * внутри габарита, поэтому ширина слайдера здесь ничего не обещает). Отсчёт — от
+ * кромки отверстия Ø5 мм, то есть так, как её увидит кольцо.
+ *
+ * null — отверстие стоит по центру: сравнивать нечего, стенка та же, что у
+ * центральной позиции.
+ */
+export function ringHoleSideWallMm(
+  presetId: KeychainPresetId,
+  params: KeychainPresetGeometryParams,
+): number | null {
+  const center = sideHoleCenter(presetId, params);
+
+  if (!center) {
+    return null;
+  }
+
+  switch (presetId) {
+    case "apple-tag": {
+      // Контур — скруглённый прямоугольник, и на высоте отверстия кромка прямая:
+      // отступ считаем от профиля, а не от габарита, — фаска снимает 0.4 мм.
+      const halfWidth =
+        Math.max(params.width - PRESET_BEVEL_SIZE_MM * 2, 1) / 2;
+
+      return Number(
+        (
+          halfWidth -
+          Math.abs(center.x) -
+          RING_HOLE_DIAMETER_MM / 2
+        ).toFixed(2),
+      );
+    }
+    case "heart": {
+      // Ближайшая к отверстию точка контура с той же стороны: у доли ветвь почти
+      // вертикальная, поэтому это и есть «кромка вбок». Точки берём из того же
+      // контура, который уйдёт в выдавливание, — подпись и STL не разойдутся.
+      const points = heartShape(
+        heartLayout(params.width, params.height),
+      ).getPoints(HEART_CONTOUR_SAMPLES);
+      const sign = center.x < 0 ? -1 : 1;
+      let edgeX = 0;
+
+      for (const point of points) {
+        if (point.x * sign <= 0 || Math.abs(point.y - center.y) > 1) {
+          continue;
+        }
+
+        edgeX = Math.max(edgeX, Math.abs(point.x));
+      }
+
+      // Ни одной точки на высоте отверстия — контур здесь не описан, и врать
+      // нулём или отрицательной стенкой нельзя.
+      if (edgeX === 0) {
+        return null;
+      }
+
+      return Number(
+        (edgeX - Math.abs(center.x) - RING_HOLE_DIAMETER_MM / 2).toFixed(2),
+      );
     }
     default:
       return null;
@@ -1774,20 +1889,17 @@ export function buildAppleTag(
   );
   shape.closePath();
 
-  // Отверстие ставится по выбранной позиции: центр, сдвиг 8 мм к кромке или без
+  // Отверстие ставится по выбранной позиции: центр, сдвиг к кромке или без
   // отверстия вовсе. Центр отсчитывается от номинального габарита, а не от
   // контура крышки: панель обещает 5 мм от края заготовки.
-  const placement = presetHolePlacement("apple-tag", params);
+  const hole = presetRingHole(
+    "apple-tag",
+    params,
+    params.height / 2 - APPLE_TAG_RING_HOLE_INSET_MM,
+  );
 
-  if (placement !== "none") {
-    const hole = sideHoleCenter("apple-tag", params);
-
-    shape.holes.push(
-      ringHolePath(
-        hole?.x ?? 0,
-        params.height / 2 - APPLE_TAG_RING_HOLE_INSET_MM,
-      ),
-    );
+  if (hole) {
+    shape.holes.push(hole);
   }
 
   return extrudePresetBody(shape, params, nfcLayout("apple-tag", params));
@@ -1851,9 +1963,16 @@ export function buildCapsule(
 
   shape.closePath();
 
-  shape.holes.push(
-    ringHolePath(0, params.height / 2 - RING_HOLE_INSET_MM),
+  // Позиция `none` оставляет капсулу без ушка: отверстие не вырезается вовсе.
+  const hole = presetRingHole(
+    "capsule",
+    params,
+    params.height / 2 - RING_HOLE_INSET_MM,
   );
+
+  if (hole) {
+    shape.holes.push(hole);
+  }
 
   return extrudePresetShape(shape, params.thickness);
 }
@@ -2092,9 +2211,17 @@ export function buildHex(params: KeychainPresetGeometryParams): ExtrudeGeometry 
 
   const shape = roundedPolygonShape(corners, HEX_CORNER_RADIUS_MM);
 
-  shape.holes.push(
-    ringHolePath(0, params.height / 2 - RING_HOLE_INSET_MM),
+  // Шестигранник держит только центр и `none`: боковой позиции у него в реестре
+  // нет, и нормализация не пустит её дальше параметров.
+  const hole = presetRingHole(
+    "hex",
+    params,
+    params.height / 2 - RING_HOLE_INSET_MM,
   );
+
+  if (hole) {
+    shape.holes.push(hole);
+  }
 
   return extrudePresetShape(shape, params.thickness);
 }
@@ -2285,9 +2412,17 @@ export function buildBrick(
 
   const shape = roundedPolygonShape(corners, BRICK_CORNER_RADIUS_MM);
 
-  shape.holes.push(
-    ringHolePath(0, params.height / 2 - RING_HOLE_INSET_MM),
+  // Шипы живут отдельными телами и позиции не касаются: `none` убирает только
+  // отверстие в теле, ряд шипов над ним остаётся на месте.
+  const hole = presetRingHole(
+    "brick",
+    params,
+    params.height / 2 - RING_HOLE_INSET_MM,
   );
+
+  if (hole) {
+    shape.holes.push(hole);
+  }
 
   const body = extrudePresetBody(shape, params, nfcLayout("brick", params));
   const stud = brickStudGeometry();
@@ -2482,7 +2617,13 @@ export function buildTicket(
     shape.holes.push(ticketSlotPath(x, notchY));
   }
 
-  shape.holes.push(ringHolePath(0, layout.ringY));
+  // `none` убирает только отверстие Ø5 мм: проушина Ø11 мм остаётся частью
+  // силуэта — она держит габарит по высоте, который обещает панель.
+  const hole = presetRingHole("ticket", params, layout.ringY);
+
+  if (hole) {
+    shape.holes.push(hole);
+  }
 
   return extrudePresetShape(shape, params.thickness);
 }
@@ -2588,8 +2729,12 @@ export function buildStarburst(
   shape.closePath();
 
   // Отверстие уезжает в верхний луч: X = 0, Y — из раскладки, где уже проверена
-  // стенка до рёбер.
-  shape.holes.push(ringHolePath(0, layout.ringY));
+  // стенка до рёбер. Лучи от позиции не зависят: `none` оставляет их как есть.
+  const hole = presetRingHole("starburst", params, layout.ringY);
+
+  if (hole) {
+    shape.holes.push(hole);
+  }
 
   return extrudePresetShape(shape, params.thickness);
 }
@@ -2771,8 +2916,13 @@ export function buildHeart(
 ): ExtrudeGeometry {
   const layout = heartLayout(params.width, params.height);
   const shape = heartShape(layout);
+  // Отверстие стоит под дном выемки: `left`/`right` сдвигают его вдоль X в теле
+  // доли, `none` оставляет сердце целым.
+  const hole = presetRingHole("heart", params, layout.ringY);
 
-  shape.holes.push(ringHolePath(0, layout.ringY));
+  if (hole) {
+    shape.holes.push(hole);
+  }
 
   return extrudePresetShape(shape, params.thickness);
 }
@@ -2967,18 +3117,26 @@ export function buildGear(
 ): BufferGeometry {
   const layout = gearLayout(params.width, params.height);
   const shape = gearShape(layout);
+  // У шестерни позиция только центр или `none`: сдвиг вбок уводит отверстие во
+  // впадину, где стенка отрицательная.
+  const placement = presetHolePlacement("gear", params);
+  const hole = presetRingHole("gear", params, layout.ringY);
 
-  shape.holes.push(ringHolePath(0, layout.ringY));
+  if (hole) {
+    shape.holes.push(hole);
+  }
 
   const body = extrudePresetShape(shape, params.thickness);
   // Ступица — вторая оболочка с той же фаской, что у тела. Отверстие в ней есть
   // только когда кольцо осталось в центре: тогда её стенка на 0.15 мм шире
   // стенки тела, иначе совпадающие стенки дают рёбра с четырьмя треугольниками.
+  // При `none` ступица остаётся, но сплошной: иначе её канал повис бы над телом
+  // без отверстия и превратился в глухой карман.
   const hubShape = new Shape();
 
   hubShape.absarc(0, 0, layout.hubRadiusMm, 0, Math.PI * 2, false);
 
-  if (layout.hubBoreRadiusMm > 0) {
+  if (layout.hubBoreRadiusMm > 0 && placement !== "none") {
     const hubHole = new Path();
 
     hubHole.absarc(0, 0, layout.hubBoreRadiusMm, 0, Math.PI * 2, true);

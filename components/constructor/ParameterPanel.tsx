@@ -21,6 +21,7 @@ import {
   isKeychainPresetImplemented,
   nfcLayout,
   ringHoleSideOffsetMm,
+  ringHoleSideWallMm,
   starburstLayout,
   ticketLayout,
 } from "@/lib/constructor/keychain-preset-geometry";
@@ -917,13 +918,16 @@ function formatBoxCells(cells: readonly number[]): string {
  * «Готово» обещает ту же дырку, что уедет в STL. Позиции `tab` здесь нет — она
  * ещё не реализована и в реестре не заявлена.
  */
-function holePlacementNote(params: ConstructorParams): string {
+function holePlacementNote(
+  presetId: KeychainPresetId,
+  params: ConstructorParams,
+): string {
   const hole = `отверстие Ø${RING_HOLE_DIAMETER_MM} мм под кольцо`;
 
   switch (params.holePlacement) {
     case "left":
     case "right":
-      return `${hole} ${params.holePlacement === "left" ? "слева" : "справа"}: ${ringHoleSideOffsetMm(params.width)} мм от оси и ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края`;
+      return `${hole} ${params.holePlacement === "left" ? "слева" : "справа"}: ${ringHoleSideOffsetMm(presetId, params.width)} мм от оси и ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края`;
 
     case "none":
       return "без отверстия под кольцо";
@@ -931,6 +935,37 @@ function holePlacementNote(params: ConstructorParams): string {
     default:
       return `${hole} в ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края`;
   }
+}
+
+/**
+ * Фраза про отверстие Ø5 мм для подписи пресета.
+ *
+ * Подпись обещает ровно то, что вырезано: `none` — «без отверстия», боковая
+ * позиция — сдвиг в миллиметрах из той же функции, что строит геометрию. Так
+ * список и STL не могут разойтись.
+ */
+function ringPhrase(
+  presetId: KeychainPresetId,
+  params: ConstructorParams,
+  centered: string,
+  centeredNone: string | null = null,
+  sided: (offsetMm: number, sideLabel: string) => string = (offsetMm, sideLabel) =>
+    `отверстие Ø${RING_HOLE_DIAMETER_MM} мм сдвинуто на ${offsetMm} мм ${sideLabel}`,
+): string {
+  const placement = params.holePlacement;
+
+  if (placement === "none") {
+    return centeredNone ?? "без отверстия под кольцо";
+  }
+
+  if (placement === "left" || placement === "right") {
+    return sided(
+      ringHoleSideOffsetMm(presetId, params.width),
+      placement === "left" ? "влево" : "вправо",
+    );
+  }
+
+  return centered;
 }
 
 /**
@@ -947,11 +982,11 @@ function presetReadyNote(
 ): string {
   switch (presetId) {
     case "apple-tag":
-      return `скруглённый прямоугольник ${params.width} × ${params.length} мм со скруглением 4 мм, ${holePlacementNote(params)}`;
+      return `скруглённый прямоугольник ${params.width} × ${params.length} мм со скруглением 4 мм, ${holePlacementNote(presetId, params)}`;
     case "capsule":
-      return `капсула ${params.width} × ${params.length} мм с торцами-полукругами, отверстие Ø5 мм в верхней части`;
+      return `капсула ${params.width} × ${params.length} мм с торцами-полукругами, ${ringPhrase("capsule", params, "отверстие Ø5 мм в верхней части")}`;
     case "hex":
-      return `шестигранник ${params.width} × ${params.length} мм со скруглёнными углами, отверстие Ø5 мм в верхней части`;
+      return `шестигранник ${params.width} × ${params.length} мм со скруглёнными углами, ${ringPhrase("hex", params, "отверстие Ø5 мм в верхней части")}`;
     case "gear": {
       const layout = gearLayout(params.width, params.length);
       const ring =
@@ -959,29 +994,39 @@ function presetReadyNote(
           ? `отверстие Ø5 мм на ${layout.ringY.toFixed(1)} мм выше центра, между ступицей и верхним зубом (стенка до ступицы ${layout.ringWallMm.toFixed(1)} мм)`
           : `отверстие Ø5 мм по центру ступицы (стенка ${layout.ringWallMm.toFixed(1)} мм)`;
 
-      return `шестерня Ø${layout.diameterMm.toFixed(1)} мм (вписана в ${params.width} × ${params.length} мм): ${layout.teeth} зубьев с модулем ${layout.moduleMm.toFixed(2)} мм и шагом ${layout.pitchMm.toFixed(1)} мм, впадина до Ø${(layout.rootRadiusMm * 2).toFixed(1)} мм, ступица Ø${layout.hubDiameterMm.toFixed(1)} мм с выступом 0.6 мм, ${ring}`;
+      return `шестерня Ø${layout.diameterMm.toFixed(1)} мм (вписана в ${params.width} × ${params.length} мм): ${layout.teeth} зубьев с модулем ${layout.moduleMm.toFixed(2)} мм и шагом ${layout.pitchMm.toFixed(1)} мм, впадина до Ø${(layout.rootRadiusMm * 2).toFixed(1)} мм, ступица Ø${layout.hubDiameterMm.toFixed(1)} мм с выступом 0.6 мм, ${ringPhrase("gear", params, ring, "без отверстия под кольцо — ступица сплошная")}`;
     }
     case "brick": {
       const studs = brickStudLayout(params.width, params.length);
 
-      return `LEGO-кирпич ${params.width} × ${params.length} мм, шипы Ø4.7 мм (компенсация под FDM) шагом 8 мм: ${studs.total} шт. (${studs.columns} × ${studs.rows}), отверстие Ø5 мм в верхней части`;
+      return `LEGO-кирпич ${params.width} × ${params.length} мм, шипы Ø4.7 мм (компенсация под FDM) шагом 8 мм: ${studs.total} шт. (${studs.columns} × ${studs.rows}), ${ringPhrase("brick", params, "отверстие Ø5 мм в верхней части")}`;
     }
     case "ticket": {
       const layout = ticketLayout(params.width, params.length);
 
-      return `билет ${params.width} × ${params.length} мм с корешком ${layout.stubHeight.toFixed(1)} мм снизу, перфорацией (${layout.slotCount} шт. щелей 4×0.9 мм с перемычкой 2.6 мм и вырезами R2.5 на кромках) и проушиной Ø11 мм с отверстием Ø5 мм (габарит по высоте ${params.length + layout.tabProtrusion} мм)`;
+      return `билет ${params.width} × ${params.length} мм с корешком ${layout.stubHeight.toFixed(1)} мм снизу, перфорацией (${layout.slotCount} шт. щелей 4×0.9 мм с перемычкой 2.6 мм и вырезами R2.5 на кромках) и проушиной Ø11 мм ${ringPhrase("ticket", params, "с отверстием Ø5 мм", "без отверстия")} (габарит по высоте ${params.length + layout.tabProtrusion} мм)`;
     }
     case "starburst": {
       const layout = starburstLayout(params.width, params.length);
       const shortestRay = Math.min(...layout.rayLengths);
       const longestRay = Math.max(...layout.rayLengths);
 
-      return `вспышка: ${layout.rayCount} лучей через ${layout.pitchDeg}° разной длины (${shortestRay.toFixed(1)}–${longestRay.toFixed(1)} мм от центра, вписана в ${layout.sizeMm} × ${layout.sizeMm} мм с полем 2 мм от кромки заготовки), кончик R${layout.rays[0].tipRadiusMm.toFixed(1)} мм под ${layout.tipAngleMinDeg.toFixed(0)}–${layout.tipAngleMaxDeg.toFixed(0)}°, отверстие Ø5 мм в верхнем луче на ${layout.ringY.toFixed(1)} мм от центра (стенка до кромки ${layout.rimWidthMm.toFixed(1)} мм)`;
+      return `вспышка: ${layout.rayCount} лучей через ${layout.pitchDeg}° разной длины (${shortestRay.toFixed(1)}–${longestRay.toFixed(1)} мм от центра, вписана в ${layout.sizeMm} × ${layout.sizeMm} мм с полем 2 мм от кромки заготовки), кончик R${layout.rays[0].tipRadiusMm.toFixed(1)} мм под ${layout.tipAngleMinDeg.toFixed(0)}–${layout.tipAngleMaxDeg.toFixed(0)}°, ${ringPhrase("starburst", params, `отверстие Ø5 мм в верхнем луче на ${layout.ringY.toFixed(1)} мм от центра (стенка до кромки ${layout.rimWidthMm.toFixed(1)} мм)`)}`;
     }
     case "heart": {
       const layout = heartLayout(params.width, params.length);
+      const ringY = layout.ringY.toFixed(1);
+      const wall = layout.ringWallMm.toFixed(1);
+      const ring = ringPhrase(
+        "heart",
+        params,
+        `отверстие Ø5 мм по центру на ${ringY} мм от центра (стенка до дна выемки ${wall} мм)`,
+        "без отверстия под кольцо",
+        (offsetMm, sideLabel) =>
+          `отверстие Ø5 мм сдвинуто на ${offsetMm} мм ${sideLabel} на ${ringY} мм от центра (стенка до кромки ${(ringHoleSideWallMm("heart", params) ?? 0).toFixed(1)} мм, до дна выемки ${wall} мм)`,
+      );
 
-      return `сердце ${params.width} × ${params.length} мм: доли с выемкой ${layout.valleyDepthMm.toFixed(1)} мм (дно R${layout.valleyRadiusMm.toFixed(1)} мм), плечи на ${layout.shoulderY.toFixed(1)} мм выше центра, кончик R${layout.tipRadiusMm.toFixed(1)} мм под ${((layout.tipAngle * 180) / Math.PI).toFixed(0)}°, отверстие Ø5 мм по центру на ${layout.ringY.toFixed(1)} мм от центра (стенка до дна выемки ${layout.ringWallMm.toFixed(1)} мм)`;
+      return `сердце ${params.width} × ${params.length} мм: доли с выемкой ${layout.valleyDepthMm.toFixed(1)} мм (дно R${layout.valleyRadiusMm.toFixed(1)} мм), плечи на ${layout.shoulderY.toFixed(1)} мм выше центра, кончик R${layout.tipRadiusMm.toFixed(1)} мм под ${((layout.tipAngle * 180) / Math.PI).toFixed(0)}°, ${ring}`;
     }
     case "qr-card": {
       const plan = qrCardPlan(keychainQrCardSpec(params));
@@ -1439,38 +1484,48 @@ export function ParameterPanel({
   /**
    * Пункты списка «Отверстие»: только позиции, которые держит силуэт.
    *
-   * Пока список видит один Apple Tag: остальные пресеты переезжают на общий
-   * механизм вместе со своей геометрией, и предлагать им позицию, которую она ещё
-   * не строит, было бы обманом — модель пришла бы с отверстием по центру.
+   * Список берётся из реестра: Apple Tag и Heart заявляют четыре позиции, шесть
+   * простых силуэтов — центр и «без отверстия», у QR-визитки крепление своё и
+   * список пуст, поэтому селекта у неё нет вовсе — обещать позицию, которую
+   * геометрия не строит, было бы обманом.
    */
-  const holePlacementOptions =
-    selectedKeychainPreset?.id === "apple-tag"
-      ? selectedKeychainPreset.holePlacements.map((placement) => ({
-          value: placement,
-          label: HOLE_PLACEMENT_LABELS[placement],
-        }))
-      : [];
+  const holePlacementOptions = (
+    selectedKeychainPreset?.holePlacements ?? []
+  ).map((placement) => ({
+    value: placement,
+    label: HOLE_PLACEMENT_LABELS[placement],
+  }));
 
-  /** Стенка от бокового отверстия до кромки, мм: та же арифметика, что в геометрии. */
-  const holeSideWallMm = Number(
-    (
-      params.width / 2 -
-      ringHoleSideOffsetMm(params.width) -
-      RING_HOLE_DIAMETER_MM / 2
-    ).toFixed(1),
-  );
+  /** Сдвиг бокового отверстия от оси, мм: та же функция, что режет STL. */
+  const holeSideOffsetMm = params.keychainPreset
+    ? ringHoleSideOffsetMm(params.keychainPreset, params.width)
+    : 0;
 
   /**
-   * Подсказка под списком позиций.
+   * Стенка от бокового отверстия до кромки, мм.
    *
-   * Если карман и боковое отверстие пересеклись, подсказка повторяет причину из
-   * `nfcLayout` — с той же цифрой зазора, что и красная плашка. Иначе рядом стоят
-   * миллиметры, которые сложатся в модель.
+   * Считает геометрия, а не панель: у сердца кромка на высоте отверстия идёт по
+   * внешней ветви доли, и ширина слайдера здесь ничего не обещает. null —
+   * отверстие по центру или позиция силуэту недоступна.
    */
+  const holeSideWallMm = params.keychainPreset
+    ? ringHoleSideWallMm(params.keychainPreset, {
+        width: params.width,
+        height: params.length,
+        thickness: params.thickness,
+        holePlacement: params.holePlacement,
+      })
+    : null;
+
+  /** Куда сдвинулось отверстие и что при этом не изменилось: у каждого силуэта своё. */
   const holePlacementHint =
     params.nfcEnabled && presetNfc?.holeConflictReason
       ? presetNfc.holeConflictReason
-      : `Смещение ${ringHoleSideOffsetMm(params.width)} мм от оси, отступ от верхнего края прежний — ${APPLE_TAG_RING_HOLE_INSET_MM} мм. Стенка до боковой кромки ${holeSideWallMm} мм, габарит и толщина не меняются.`;
+      : params.holePlacement === "none"
+        ? `Отверстия не будет: брелок напечатается без крепления под кольцо${params.keychainPreset === "ticket" ? ", проушина Ø11 мм остаётся частью силуэта" : ""}. Габарит и толщина не меняются.`
+        : params.holePlacement === "center"
+          ? `Отверстие Ø${RING_HOLE_DIAMETER_MM} мм по центру силуэта${params.keychainPreset === "apple-tag" ? ` в ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края` : ""}: остальные размеры не меняются.`
+          : `Смещение ${holeSideOffsetMm} мм от оси${holeSideWallMm !== null ? `, стенка до кромки ${holeSideWallMm.toFixed(1)} мм` : ""}, высота отверстия прежняя${params.keychainPreset === "apple-tag" ? ` — ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края` : ""}. Габарит и толщина не меняются.`;
 
   /** Итоговая причина, по которой кнопки скачивания заблокированы. */
   const exportBlockReason =
