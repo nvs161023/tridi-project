@@ -507,6 +507,26 @@ export function simplifyContour(
   return simplified.length >= 3 ? simplified : [];
 }
 
+/**
+ * Знаковая площадь контура по формуле шнурка.
+ *
+ * Своя реализация, а не `outlineArea` из `svg-outline.ts`: растровый модуль
+ * импортирует клиент, и тянуть в бандл разбор SVG ради двенадцати строк
+ * незачем. Знак показывает направление обхода — у отверстия он другой, поэтому
+ * фильтр «нулевая площадь» сравнивает модуль.
+ */
+export function contourArea(points: readonly Point2[]): number {
+  let doubled = 0;
+
+  for (let index = 0; index < points.length; index += 1) {
+    const [x1, y1] = points[index];
+    const [x2, y2] = points[(index + 1) % points.length];
+    doubled += x1 * y2 - x2 * y1;
+  }
+
+  return doubled / 2;
+}
+
 /** Координата для `d`: три знака после точки, без хвостов плавающей арифметики. */
 function formatCoordinate(value: number): string {
   const rounded = Math.round(value * 1000) / 1000;
