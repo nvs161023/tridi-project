@@ -8,10 +8,11 @@ import { OG_IMAGE } from "@/lib/seo";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
 
-const PAGE_TITLE = "3D-инструменты: профили, дефекты и мастерская";
+const PAGE_TITLE = "3D-инструменты: конструктор, профили, дефекты и мастерская";
 const PAGE_DESCRIPTION =
-  "Центр инструментов TriDi: библиотека профилей слайсеров, справочник дефектов печати и мастерская для 3D-фермы — заказы, принтеры и склад в одном окне.";
-const PAGE_IMAGE_ALT = "TriDi: профили печати, справочник дефектов и мастерская";
+  "Центр инструментов TriDi: конструктор 3D-моделей с предпросмотром и STL, библиотека профилей слайсеров, справочник дефектов печати и мастерская для 3D-фермы — заказы, принтеры и склад в одном окне.";
+const PAGE_IMAGE_ALT =
+  "TriDi: конструктор 3D-моделей, профили печати и мастерская";
 
 export const metadata: Metadata = {
   title: PAGE_TITLE,
@@ -50,7 +51,7 @@ export const metadata: Metadata = {
 /** Шапка читает cookies, поэтому страница собирается на каждый запрос. */
 export const dynamic = "force-dynamic";
 
-type ToolIconName = "profiles" | "defects" | "workshop";
+type ToolIconName = "profiles" | "defects" | "workshop" | "constructor";
 
 type Tool = {
   href: string;
@@ -164,6 +165,38 @@ function PrinterIcon({ className }: { className?: string }) {
   );
 }
 
+/** Куб — конструктор 3D-моделей: параметры превращаются в объём. */
+function CubeIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="m12 3.4 7.6 4.3v8.6L12 20.6 4.4 16.3V7.7L12 3.4Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+      <path
+        d="m4.6 7.8 7.4 4.2 7.4-4.2"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M12 12v8.5"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
 function ToolIcon({
   name,
   className,
@@ -183,10 +216,33 @@ function ToolIcon({
     return <PrinterIcon className={className} />;
   }
 
+  if (name === "constructor") {
+    return <CubeIcon className={className} />;
+  }
+
   return null;
 }
 
 const TOOLS: Tool[] = [
+  {
+    href: "/constructor",
+    title: "Конструктор 3D-моделей",
+    description:
+      "19 моделей с параметрами: ваза, брелок с QR-визиткой и NFC-карманом, подставки, клипсы, вывеска, органайзер и литофан. Параметры — слайдерами, результат — файлом STL.",
+    icon: "constructor",
+    badges: ["19 моделей", "QR и NFC"],
+    bullets: [
+      "Ваза, брелок, подставка, клипсы, вывеска и коробки",
+      "Брелок: девять пресетов, QR-визитка и карман под NFC-метку",
+      "Литофан из фотографии, кашпо, нашивка, трафарет и игрушка",
+    ],
+    cta: "Открыть конструктор",
+    accent: {
+      icon: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
+      hover: "hover:border-emerald-400/50",
+      cta: "text-emerald-300 group-hover:text-emerald-200",
+    },
+  },
   {
     href: "/profiles",
     title: "Библиотека профилей",
@@ -243,7 +299,7 @@ const WORKSHOP_TOOL = {
   ],
 } as const;
 
-/** Три инструмента: две карточки из TOOLS и мастерская. */
+/** Карточки инструментов из TOOLS и мастерская: счётчик для плашки в hero. */
 const TOOL_COUNT = TOOLS.length + 1;
 
 export default async function ToolsPage() {
@@ -287,9 +343,10 @@ export default async function ToolsPage() {
             </h1>
 
             <p className="mt-6 max-w-3xl text-lg leading-relaxed text-slate-300 sm:text-xl">
-              Три помощника для практики: подобрать профиль слайсера, разобраться,
-              почему деталь не получилась, и вести заказы мастерской. Начните с
-              задачи, а не с перебора настроек.
+              Четыре инструмента для практики: собрать модель в конструкторе и
+              скачать STL, подобрать профиль слайсера, разобраться, почему деталь
+              не получилась, и вести заказы мастерской. Начните с задачи, а не с
+              перебора настроек.
             </p>
 
             <div className="mt-7 flex flex-wrap gap-2.5 text-xs font-semibold sm:text-sm">
@@ -325,7 +382,8 @@ export default async function ToolsPage() {
               </div>
               <p className="max-w-md text-sm leading-relaxed text-slate-300 sm:text-base">
                 Мастерская и библиотека профилей открываются пакетом «Всё
-                включено», диагностика дефектов доступна всем и без регистрации.
+                включено», конструктор — сразу после входа, диагностика дефектов
+                доступна всем и без регистрации.
               </p>
             </div>
 

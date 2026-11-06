@@ -15,7 +15,7 @@ export type WorkshopLink = {
   note: string;
 };
 
-type ToolIconName = "profiles" | "defects" | "workshop";
+type ToolIconName = "profiles" | "defects" | "workshop" | "constructor";
 
 type ToolLink = {
   href: string;
@@ -24,8 +24,21 @@ type ToolLink = {
   icon: ToolIconName;
 };
 
-/** Инструменты, открытые всем: библиотека профилей и диагностика дефектов. */
+/**
+ * Инструменты, открытые всем: конструктор моделей, библиотека профилей и
+ * диагностика дефектов.
+ *
+ * Конструктор стоит первым: это единственный инструмент с 3D-предпросмотром, и
+ * ради него в меню заходят чаще всего. Сам он открывается только вошедшему —
+ * гость уйдёт на вход уже со страницы, шапке про сессию знать не нужно.
+ */
 const OPEN_TOOL_LINKS: ToolLink[] = [
+  {
+    href: "/constructor",
+    title: "Конструктор 3D-моделей",
+    description: "9 пресетов брелоков, QR и NFC-карман",
+    icon: "constructor",
+  },
   {
     href: "/profiles",
     title: "Библиотека профилей",
@@ -105,6 +118,38 @@ function ToolIcon({
           stroke="currentColor"
           strokeLinecap="round"
           strokeWidth="1.7"
+        />
+      </svg>
+    );
+  }
+
+  if (name === "constructor") {
+    // Куб: конструктор собирает объёмные модели из параметров.
+    return (
+      <svg
+        aria-hidden="true"
+        className={className}
+        fill="none"
+        focusable="false"
+        viewBox="0 0 24 24"
+      >
+        <path
+          d="m12 3.4 7.6 4.3v8.6L12 20.6 4.4 16.3V7.7L12 3.4Z"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+        <path
+          d="m4.6 7.8 7.4 4.2 7.4-4.2"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M12 12v8.5"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
         />
       </svg>
     );

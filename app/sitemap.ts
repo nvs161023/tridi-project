@@ -63,9 +63,8 @@ const STATIC_PAGES: {
  *
  * Закрытые разделы сюда не попадают: /dashboard, /course/* и /admin закрыты
  * middleware и закрыты в robots.txt, а /constructor не публикуется вовсе —
- * раздел скрыт (middleware.ts редиректит его на /tools, см.
- * lib/hidden-routes.ts), поэтому строки в карте сайта ему не нужно, и noindex
- * тоже остаётся. `/verify` тоже не публикуется: это проверка конкретного
+ * раздел открыт только вошедшим и держит noindex, поэтому строки в карте сайта
+ * ему не нужно. `/verify` тоже не публикуется: это проверка конкретного
  * сертификата по токену, а не страница для поиска.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
