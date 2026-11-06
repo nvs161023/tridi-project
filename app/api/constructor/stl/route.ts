@@ -64,6 +64,7 @@ import {
   isWallHookMount,
   fabricPatchStlFileName,
   giftBoxStlFileName,
+  heatTransferStlFileName,
   jewelryStandStlFileName,
   keychainStlFileName,
   keychainThicknessLimits,
@@ -77,6 +78,7 @@ import {
   normalizeCupClipParams,
   normalizeFabricPatchParams,
   normalizeGiftBoxParams,
+  normalizeHeatTransferParams,
   normalizeJewelryStandParams,
   normalizeKeychainParams,
   normalizeLithophaneParams,
@@ -101,6 +103,7 @@ import {
   type CupClipParams,
   type FabricPatchParams,
   type GiftBoxParams,
+  type HeatTransferParams,
   type JewelryStandParams,
   type KeychainParams,
   type LithophaneParams,
@@ -121,6 +124,7 @@ import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
 import { createCupClipGeometry } from "@/lib/constructor/cup-clip-geometry";
 import { createFabricPatchGeometry } from "@/lib/constructor/fabric-patch-geometry";
 import { createGiftBoxGeometry } from "@/lib/constructor/gift-box-geometry";
+import { createHeatTransferGeometry } from "@/lib/constructor/heat-transfer-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import {
   KEYCHAIN_FONT_URL,
@@ -138,6 +142,7 @@ import { createStringLightGeometry } from "@/lib/constructor/string-light-geomet
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
 import { createWallHookGeometry } from "@/lib/constructor/wall-hook-geometry";
+import { parseSvgOutline } from "@/lib/constructor/svg-outline";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -159,7 +164,7 @@ import { createClient } from "@/lib/supabase/server";
  *      бортиком, стойка для украшений с набором держателей, органайзер для
  *      ручек с формой, стенкой и отделениями, нашивка с формой, бортиком и
  *      стежками, плафоны гирлянды с раструбом, посадкой на цоколь и числом
- *      штук.
+ *      штук, логотип, габарит, слои и зеркало термопринта.
  *
  * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
  * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
@@ -1169,6 +1174,62 @@ function parseGiftBoxParams(
   });
 }
 
+/**
+ * Строгая проверка параметров термопринта.
+ *
+ * Разметка обязательна: контур — единственный источник формы, и пустая строка
+ * дала бы файл-заглушку вместо логотипа. Принимается только целая безопасная
+ * SVG-строка с хотя бы одним контуром: обрезанная или со скриптом она не
+ * разберётся, а подставлять чужой силуэт нельзя.
+ *
+ * Габарит проверяется в границах слайдеров, слои — целое число от 1 до 4,
+ * зеркало — только boolean: строка «true» иначе перевернула бы принт против
+ * выбора пользователя.
+ */
+function parseHeatTransferParams(
+  body: Record<string, unknown>,
+): HeatTransferParams | null {
+  const {
+    heatTransferSvg,
+    heatTransferWidth,
+    heatTransferHeight,
+    heatTransferLayers,
+    heatTransferMirror,
+  } = body;
+
+  if (
+    !isCustomSvgData(heatTransferSvg) ||
+    !hasDrawableSvgData(heatTransferSvg) ||
+    !isNumberInRange(
+      heatTransferWidth,
+      CONSTRUCTOR_LIMITS.heatTransferWidth.min,
+      CONSTRUCTOR_LIMITS.heatTransferWidth.max,
+    ) ||
+    !isNumberInRange(
+      heatTransferHeight,
+      CONSTRUCTOR_LIMITS.heatTransferHeight.min,
+      CONSTRUCTOR_LIMITS.heatTransferHeight.max,
+    ) ||
+    !isNumberInRange(
+      heatTransferLayers,
+      CONSTRUCTOR_LIMITS.heatTransferLayers.min,
+      CONSTRUCTOR_LIMITS.heatTransferLayers.max,
+    ) ||
+    !Number.isInteger(heatTransferLayers) ||
+    typeof heatTransferMirror !== "boolean"
+  ) {
+    return null;
+  }
+
+  return normalizeHeatTransferParams({
+    heatTransferSvg,
+    heatTransferWidth,
+    heatTransferHeight,
+    heatTransferLayers,
+    heatTransferMirror,
+  });
+}
+
 /** Разобранный запрос: модель и её проверенные параметры. */
 type ParsedConstructorRequest =
   | { model: "vase"; params: VaseParams }
@@ -1187,7 +1248,8 @@ type ParsedConstructorRequest =
   | { model: "wall_hook"; params: WallHookParams }
   | { model: "cup_clip"; params: CupClipParams }
   | { model: "cipher_box"; params: CipherBoxParams }
-  | { model: "gift_box"; params: GiftBoxParams };
+  | { model: "gift_box"; params: GiftBoxParams }
+  | { model: "heat_transfer"; params: HeatTransferParams };
 
 /**
  * Выбирает набор параметров по полю model.
@@ -1307,6 +1369,12 @@ function parseConstructorRequest(
     return params ? { model: "gift_box", params } : null;
   }
 
+  if (model === "heat_transfer") {
+    const params = parseHeatTransferParams(body);
+
+    return params ? { model: "heat_transfer", params } : null;
+  }
+
   return null;
 }
 
@@ -1402,7 +1470,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, диаметр кабеля и число зажимов, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений, форму и отделения органайзера для ручек, форму и стежки нашивки, размеры и число плафонов гирлянды, размеры и крепление крючка, толщину борта и размеры клипсы, габарит и узор трафарета, габарит, код и надпись шкатулки, габарит, форму и замки подарочной коробки.",
+      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, диаметр кабеля и число зажимов, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений, форму и отделения органайзера для ручек, форму и стежки нашивки, размеры и число плафонов гирлянды, размеры и крепление крючка, толщину борта и размеры клипсы, габарит и узор трафарета, габарит, код и надпись шкатулки, габарит, форму и замки подарочной коробки, логотип, габарит, слои и зеркало термопринта.",
     );
   }
 
@@ -1492,6 +1560,20 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
+  // Контур — единственный источник формы термопринта: разметка без замкнутых
+  // путей дала бы пустой файл, а не принт. Проверка идёт до сборки, чтобы
+  // пользователь получил 422 с причиной, а бесплатное скачивание не списалось.
+  if (
+    parsed.model === "heat_transfer" &&
+    parseSvgOutline(parsed.params.heatTransferSvg).length === 0
+  ) {
+    return errorResponse(
+      422,
+      "contour_invalid",
+      "Из логотипа не получилось контуров. Загрузите PNG с прозрачным фоном или SVG с замкнутыми путями.",
+    );
+  }
+
   try {
     // Шрифт читается брелоку, вывеске и шкатулке с кодом; остальные модели
     // собираются без него, чтобы не парсить 130 КБ JSON.
@@ -1531,21 +1613,25 @@ export async function POST(request: Request): Promise<Response> {
                                         )
                                       : parsed.model === "gift_box"
                                         ? createGiftBoxGeometry(parsed.params)
-                                        : parsed.model === "keychain"
-                                          ? createKeychainGeometry(
+                                        : parsed.model === "heat_transfer"
+                                          ? createHeatTransferGeometry(
                                               parsed.params,
-                                              await loadFont(KEYCHAIN_FONT_URL),
                                             )
-                                          : createSignBlockGeometry(
-                                              parsed.params,
-                                              await loadFont(
-                                                SIGN_FONT_URLS[
-                                                  parsed.params.signFont
-                                                ],
-                                              ),
-                                              parsed.block,
-                                              parsed.part,
-                                            );
+                                          : parsed.model === "keychain"
+                                            ? createKeychainGeometry(
+                                                parsed.params,
+                                                await loadFont(KEYCHAIN_FONT_URL),
+                                              )
+                                            : createSignBlockGeometry(
+                                                parsed.params,
+                                                await loadFont(
+                                                  SIGN_FONT_URLS[
+                                                    parsed.params.signFont
+                                                  ],
+                                                ),
+                                                parsed.block,
+                                                parsed.part,
+                                              );
 
     try {
       const mesh = new Mesh(geometry);
@@ -1588,11 +1674,15 @@ export async function POST(request: Request): Promise<Response> {
                                         ? cipherBoxStlFileName(parsed.params)
                                           : parsed.model === "gift_box"
                                             ? giftBoxStlFileName(parsed.params)
-                                            : signStlFileName(
-                                                parsed.params,
-                                                parsed.block,
-                                                parsed.part,
-                                              );
+                                            : parsed.model === "heat_transfer"
+                                              ? heatTransferStlFileName(
+                                                  parsed.params,
+                                                )
+                                              : signStlFileName(
+                                                  parsed.params,
+                                                  parsed.block,
+                                                  parsed.part,
+                                                );
 
       // Запись появляется после успешной генерации: упавшая сборка не должна
       // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —
