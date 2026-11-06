@@ -169,6 +169,15 @@ const QR_CARD_CURVE_SEGMENTS = 32;
 const QR_CARD_NFC_JOIN_MM = 0.05;
 
 /**
+ * Высота колпака корпуса с фаской, мм.
+ *
+ * Колпак — это нижняя и верхняя полоса, у которых кромка скруглена фаской: 0.2
+ * скос, 0.1 вертикали, 0.2 скос. Середина толщины остаётся отвесной, поэтому
+ * «талии» на боку между полосами не появляется.
+ */
+const QR_CARD_CAP_MM = 0.5;
+
+/**
  * Поле от кромки корпуса до кода, мм.
  *
  * 3 мм — это стенка, которую держит рука, и запас под фаску: код не должен
@@ -647,6 +656,19 @@ export function qrCardReport(plan: QrCardPlan): string {
 
 
 /**
+ * Центр отверстия под кольцо, мм от центра габарита.
+ *
+ * Одна формула на контур и на проверку зазора до NFC-полости в `nfcLayout`: у
+ * проушины это центр пятака (1.5 мм ниже верхней кромки), у отверстия в теле —
+ * 6 мм от верхнего края.
+ */
+export function qrCardRingHoleY(height: number, tab: QrCardTab): number {
+  return tab === "tab"
+    ? height / 2 - (QR_TAB_DIAMETER_MM / 2 - QR_TAB_PROTRUSION_MM)
+    : height / 2 - QR_HOLE_INSET_MM;
+}
+
+/**
  * Контур корпуса: скруглённый прямоугольник плюс крепление.
  *
  * Проушина — не отдельная оболочка, а часть того же контура: дуга пятака
@@ -662,12 +684,7 @@ function qrCardOutline(width: number, height: number, tab: QrCardTab): Shape {
   const halfWidth = Math.max(width - bevel * 2, 1) / 2;
   const halfHeight = Math.max(height - bevel * 2, 1) / 2;
   const corner = Math.min(QR_CARD_CORNER_RADIUS_MM, halfWidth, halfHeight);
-  // Центр кольца: у проушины — центр пятака (4 − 5.5 от кромки), у отверстия в
-  // теле — 6 мм от верхнего края.
-  const ringY =
-    tab === "tab"
-      ? height / 2 - (QR_TAB_DIAMETER_MM / 2 - QR_TAB_PROTRUSION_MM)
-      : height / 2 - QR_HOLE_INSET_MM;
+  const ringY = qrCardRingHoleY(height, tab);
   const shape = new Shape();
 
   // Обход против часовой стрелки: нижняя кромка, правая стенка, верх с
@@ -805,17 +822,19 @@ function extrudeQrCardBody(
   return extrudeQrCardLayer(shape, 0, thickness);
 }
 /**
- * Корпус с запечатанной полостью под NFC-метку: четыре полосы вместо одной.
+ * Корпус с запечатанной полостью под NFC-метку: шесть полос вместо одной.
  *
  * Раскладка та же, что у пресетов (`nfcLayout` в `keychain-preset-geometry.ts`):
- * сплошное дно `0 … floorMm`, полость `floorMm … pauseZ`, губа с отверстием
- * `pauseZ … lidStartZ` и сплошная крышка до лица. Метку кладут в полость на
- * паузе, дальше губа и крышка закрывают её навсегда.
+ * колпак с фаской, сплошное дно, полость, губа с отверстием, сплошная крышка и
+ * второй колпак. Метку кладут в полость на паузе, дальше губа и крышка закрывают
+ * её навсегда.
  *
- * Полость и губа выдавливаются без фаски (`extrudeQrCardPlate`): фаска поджала бы
- * круг на середине полосы и оставила ступеньку на стыке. Дно и крышка остаются с
- * фаской — их кромки это внешние грани детали. Контур строится фабрикой
- * `qrCardOutline`: она чистая, поэтому у каждой полосы свои дырки.
+ * Фаска остаётся только на внешних кромках — в колпаках. Полость и губа
+ * выдавливаются без фаски (`extrudeQrCardPlate`): фаска поджала бы круг на
+ * середине полосы и оставила ступеньку на стыке. Дно и крышка — тоже полосы без
+ * фаски, иначе их кромка сужалась бы посреди стенки и на боку появлялась «талия».
+ * Контур строится фабрикой `qrCardOutline`: она чистая, поэтому у каждой полосы
+ * свои дырки.
  */
 function qrCardPocketBody(
   outline: () => Shape,
@@ -834,8 +853,17 @@ function qrCardPocketBody(
   lipHole.absarc(0, pocket.pocketY, pocket.lipRadiusMm, 0, Math.PI * 2, true);
   lipShape.holes.push(lipHole);
 
+  const capMm = Math.min(QR_CARD_CAP_MM, thickness / 4);
   const parts: BufferGeometry[] = [
-    extrudeQrCardLayer(outline(), 0, pocket.floorMm),
+    extrudeQrCardLayer(outline(), 0, capMm),
+    extrudeQrCardPlate(
+      outline(),
+      QR_CARD_BEVEL_THICKNESS_MM,
+      Math.max(
+        pocket.floorMm - QR_CARD_BEVEL_THICKNESS_MM + QR_CARD_NFC_JOIN_MM,
+        0.05,
+      ),
+    ),
     extrudeQrCardPlate(
       cavityShape,
       pocket.floorMm - QR_CARD_NFC_JOIN_MM,
@@ -846,11 +874,15 @@ function qrCardPocketBody(
       pocket.pauseZ,
       pocket.lipMm + QR_CARD_NFC_JOIN_MM,
     ),
-    extrudeQrCardLayer(
+    extrudeQrCardPlate(
       outline(),
-      pocket.lidStartZ,
-      thickness - pocket.lidStartZ,
+      pocket.lidStartZ - QR_CARD_NFC_JOIN_MM,
+      Math.max(
+        thickness - capMm - pocket.lidStartZ + QR_CARD_NFC_JOIN_MM,
+        0.05,
+      ),
     ),
+    extrudeQrCardLayer(outline(), thickness - capMm, capMm),
   ];
   const body = mergeGeometries(parts);
 
