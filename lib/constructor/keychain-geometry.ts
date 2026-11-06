@@ -12,8 +12,12 @@ import {
   type KeychainParams,
 } from "@/lib/constructor/params";
 import {
+  buildShapes,
+  groupContours,
+  type ContourGroup,
+} from "@/lib/constructor/shape-utils";
+import {
   isPointInsideOutline,
-  outlineArea,
   parseSvgOutline,
   type OutlinePoint,
 } from "@/lib/constructor/svg-outline";
@@ -115,12 +119,6 @@ const TEXT_CURVE_SEGMENTS = 8;
 
 /** Сегменты фаски букв. */
 const TEXT_BEVEL_SEGMENTS = 2;
-
-/** Внешний контур силуэта и отверстия внутри него. */
-type ContourGroup = {
-  outer: OutlinePoint[];
-  holes: OutlinePoint[][];
-};
 
 /** Разобранный силуэт в миллиметрах с готовым положением ушка. */
 type KeychainOutline = {
@@ -234,111 +232,6 @@ function transformContours(
   );
 }
 
-/** Центр контура: средняя точка, по ней определяется вложенность. */
-function contourCenter(points: readonly OutlinePoint[]): OutlinePoint {
-  let x = 0;
-  let y = 0;
-
-  for (const point of points) {
-    x += point[0];
-    y += point[1];
-  }
-
-  return [x / points.length, y / points.length];
-}
-
-/**
- * Делит контуры на внешние и отверстия по правилу чётности.
- *
- * Вложенность считается по центру контура: контур внутри другого — отверстие,
- * отверстие внутри отверстия снова становится телом. Каждое отверстие
- * привязывается к ближайшему внешнему контуру с наименьшей площадью, поэтому
- * глаз рыбы или окно ракеты не «прилипают» к чужому силуэту.
- */
-function groupContours(contours: readonly OutlinePoint[][]): ContourGroup[] {
-  const centers = contours.map(contourCenter);
-  const areas = contours.map((contour) => Math.abs(outlineArea(contour)));
-  // Вложенность считается по вершине контура, а не по центру: у кольца центр
-  // внешнего прямоугольника лежит внутри отверстия, и по центру внешний
-  // контур ошибочно стал бы дырой. Контейнер обязан быть больше по площади,
-  // поэтому концентрические окружности не путают направления вложенности.
-  const depths = contours.map((contour, index) =>
-    contours.reduce((depth, other, otherIndex) => {
-      if (otherIndex === index || areas[otherIndex] <= areas[index]) {
-        return depth;
-      }
-
-      return isPointInsideOutline(contour[0], [other]) ? depth + 1 : depth;
-    }, 0),
-  );
-  const groups: ContourGroup[] = [];
-
-  contours.forEach((contour, index) => {
-    if (depths[index] % 2 === 0) {
-      groups.push({ outer: [...contour], holes: [] });
-    }
-  });
-
-  contours.forEach((contour, index) => {
-    if (depths[index] % 2 === 0) {
-      return;
-    }
-
-    let target: ContourGroup | null = null;
-    let targetArea = Infinity;
-
-    for (const group of groups) {
-      if (!isPointInsideOutline(centers[index], [group.outer])) {
-        continue;
-      }
-
-      const area = Math.abs(outlineArea(group.outer));
-
-      if (area < targetArea) {
-        target = group;
-        targetArea = area;
-      }
-    }
-
-    target?.holes.push([...contour]);
-  });
-
-  return groups;
-}
-
-
-/** Shape из набора точек: обход замыкается через closePath. */
-function createShape(points: readonly OutlinePoint[]): Shape {
-  const shape = new Shape();
-  const [first, ...rest] = points;
-
-  shape.moveTo(first[0], first[1]);
-
-  for (const point of rest) {
-    shape.lineTo(point[0], point[1]);
-  }
-
-  shape.closePath();
-
-  return shape;
-}
-
-/** Path отверстия из набора точек. */
-function createHolePath(points: readonly OutlinePoint[]): Path {
-  const path = new Path();
-  const [first, ...rest] = points;
-
-  path.moveTo(first[0], first[1]);
-
-  for (const point of rest) {
-    path.lineTo(point[0], point[1]);
-  }
-
-  path.closePath();
-
-  return path;
-}
-
 /** Прямоугольный карман как отверстие заднего слоя. */
 function createCavityPath(cavity: NfcCavity): Path {
   const path = new Path();
@@ -352,27 +245,20 @@ function createCavityPath(cavity: NfcCavity): Path {
   return path;
 }
 
-/** Собирает THREE.Shape из групп контуров, при необходимости с карманом. */
-function buildShapes(
-  groups: readonly ContourGroup[],
-  cavity: NfcCavity | null,
-): Shape[] {
-  return groups.map((group) => {
-    const shape = createShape(group.outer);
-
-    for (const hole of group.holes) {
-      shape.holes.push(createHolePath(hole));
-    }
-
-    if (
-      cavity &&
-      isPointInsideOutline([cavity.centerX, cavity.centerY], [group.outer])
-    ) {
-      shape.holes.push(createCavityPath(cavity));
-    }
-
-    return shape;
-  });
+/**
+ * Карман как отверстие силуэта: колбэк для `buildShapes` из shape-utils.
+ *
+ * Карман вырезается только в том внешнем контуре, внутри которого стоит его
+ * центр: у составного силуэта (имя отдельными буквами) иначе появилась бы дыра
+ * в чужой оболочке.
+ */
+function cavityHoles(
+  cavity: NfcCavity,
+): (outer: readonly OutlinePoint[]) => Path[] {
+  return (outer: readonly OutlinePoint[]): Path[] =>
+    isPointInsideOutline([cavity.centerX, cavity.centerY], [outer])
+      ? [createCavityPath(cavity)]
+      : [];
 }
 
 /** Точка внутри квадрата кармана с запасом на погрешность. */
@@ -752,15 +638,15 @@ function createBaseGeometry(
     const backHeight = layers.pauseZ;
     const frontHeight = layers.frontHeight;
 
-    for (const shape of buildShapes(outline.groups, cavity)) {
+    for (const shape of buildShapes(outline.groups, cavityHoles(cavity))) {
       parts.push(extrudeShape(shape, 0, backHeight, bevel));
     }
 
-    for (const shape of buildShapes(outline.groups, null)) {
+    for (const shape of buildShapes(outline.groups)) {
       parts.push(extrudeShape(shape, recess, frontHeight, bevel));
     }
   } else {
-    for (const shape of buildShapes(outline.groups, null)) {
+    for (const shape of buildShapes(outline.groups)) {
       parts.push(extrudeShape(shape, 0, params.thickness, bevel));
     }
   }
