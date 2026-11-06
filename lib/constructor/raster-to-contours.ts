@@ -132,6 +132,40 @@ export function binarizeByLuminance(
   return mask;
 }
 
+/** Горизонтальная полоса маски: пиксели `[x; x + w)` в строке `y`. */
+export type RasterRect = { x: number; y: number; w: number };
+
+/**
+ * Склеивает подряд идущие пиксели маски в полосы по строке.
+ *
+ * Брелок рисует силуэт горизонтальными `<rect height="1">`: полоса — это run
+ * единиц в одной строке растра. Порядок — сверху вниз и слева направо, поэтому
+ * строка SVG не зависит от того, как полосы собирались раньше.
+ */
+export function runsToRects(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+): RasterRect[] {
+  const rects: RasterRect[] = [];
+
+  for (let y = 0; y < height; y += 1) {
+    let runStart = -1;
+
+    for (let x = 0; x <= width; x += 1) {
+      const inked = x < width && mask[y * width + x] === 1;
+
+      if (inked && runStart < 0) {
+        runStart = x;
+      } else if (!inked && runStart >= 0) {
+        rects.push({ x: runStart, y, w: x - runStart });
+        runStart = -1;
+      }
+    }
+  }
+
+  return rects;
+}
 
 /** Код превышения пределов растра: текст ошибки собирает вызывающий слой. */
 export type RasterLimitCode = "too_many_contours" | "too_many_points";

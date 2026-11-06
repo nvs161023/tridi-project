@@ -119,6 +119,10 @@ import {
   type VaseShape,
   type WallHookMount,
 } from "@/lib/constructor/params";
+import {
+  binarizeByLuminance,
+  runsToRects,
+} from "@/lib/constructor/raster-to-contours";
 
 /** Числовые параметры: форму, узор и текст меняют отдельные обработчики. */
 type SizeParam = Exclude<
@@ -718,34 +722,17 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   });
 }
 
-/** Пиксель считается контуром, если он непрозрачный и не белый. */
-function isContourPixel(pixels: Uint8ClampedArray, index: number): boolean {
-  const alpha = pixels[index + 3];
-
-  if (alpha < 128) {
-    return false;
-  }
-
-  const luminance =
-    0.299 * pixels[index] +
-    0.587 * pixels[index + 1] +
-    0.114 * pixels[index + 2];
-
-  // Светлый фон фотографии не должен стать силуэтом: контуром считается
-  // только заметно тёмная и непрозрачная часть кадра.
-  return luminance < 200;
-}
-
 /**
- * Переводит картинку в SVG из горизонтальных полос.
+ * Рисует картинку в canvas и отдаёт пиксели сетки.
  *
- * Полноценная трассировка кривых в браузере не нужна: брелок печатается
- * размером 30–100 мм, поэтому сетка 96 × 96 и склейка соседних пикселей в
- * полосы дают узнаваемый контур. Полосы — обычные `<rect>`, которые разбирает
- * серверный svg-outline.ts, а прозрачный фон PNG и белый фон JPG не попадают
- * в силуэт.
+ * Canvas — браузерная часть: в `raster-to-contours.ts` его нет, модуль работает
+ * с готовым `Uint8ClampedArray`. Центральный квадрат сохраняет пропорции:
+ * вытянутое фото не растянется.
  */
-async function rasterToContourSvg(file: File): Promise<string> {
+async function readImagePixels(
+  file: File,
+  gridSize: number,
+): Promise<Uint8ClampedArray> {
   const dataUrl = await readFileAsDataUrl(file);
   const image = await loadImage(dataUrl);
   const size = Math.min(image.naturalWidth, image.naturalHeight);
@@ -755,8 +742,8 @@ async function rasterToContourSvg(file: File): Promise<string> {
   }
 
   const canvas = document.createElement("canvas");
-  canvas.width = CONTOUR_GRID_SIZE;
-  canvas.height = CONTOUR_GRID_SIZE;
+  canvas.width = gridSize;
+  canvas.height = gridSize;
 
   const context = canvas.getContext("2d", { willReadFrequently: true });
 
@@ -764,7 +751,6 @@ async function rasterToContourSvg(file: File): Promise<string> {
     throw new Error("Браузер не смог подготовить canvas для контура.");
   }
 
-  // Центральный квадрат сохраняет пропорции: вытянутое фото не растянется.
   context.drawImage(
     image,
     (image.naturalWidth - size) / 2,
@@ -773,38 +759,34 @@ async function rasterToContourSvg(file: File): Promise<string> {
     size,
     0,
     0,
+    gridSize,
+    gridSize,
+  );
+
+  return context.getImageData(0, 0, gridSize, gridSize).data;
+}
+
+/**
+ * Переводит картинку в SVG из горизонтальных полос.
+ *
+ * Полноценная трассировка кривых в браузере не нужна: брелок печатается
+ * размером 30–100 мм, поэтому сетка 96 × 96 и склейка соседних пикселей в
+ * полосы дают узнаваемый контур. Полосы — обычные `<rect>`, которые разбирает
+ * серверный svg-outline.ts, а прозрачный фон PNG и белый фон JPG не попадают
+ * в силуэт. Пиксели, маска и полосы живут в `raster-to-contours.ts`: здесь
+ * остаются canvas и строка `<svg>`.
+ */
+async function rasterToContourSvg(file: File): Promise<string> {
+  const pixels = await readImagePixels(file, CONTOUR_GRID_SIZE);
+  const mask = binarizeByLuminance(
+    pixels,
     CONTOUR_GRID_SIZE,
     CONTOUR_GRID_SIZE,
   );
-
-  const pixels = context.getImageData(
-    0,
-    0,
-    CONTOUR_GRID_SIZE,
-    CONTOUR_GRID_SIZE,
-  ).data;
-  const rects: string[] = [];
-
-  for (let y = 0; y < CONTOUR_GRID_SIZE; y += 1) {
-    let runStart = -1;
-
-    for (let x = 0; x <= CONTOUR_GRID_SIZE; x += 1) {
-      const inked =
-        x < CONTOUR_GRID_SIZE &&
-        isContourPixel(pixels, (y * CONTOUR_GRID_SIZE + x) * 4);
-
-      if (inked && runStart < 0) {
-        runStart = x;
-      }
-
-      if (!inked && runStart >= 0) {
-        rects.push(
-          `<rect x="${runStart}" y="${y}" width="${x - runStart}" height="1"/>`,
-        );
-        runStart = -1;
-      }
-    }
-  }
+  const rects = runsToRects(mask, CONTOUR_GRID_SIZE, CONTOUR_GRID_SIZE).map(
+    (rect) =>
+      `<rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="1"/>`,
+  );
 
   if (rects.length === 0) {
     throw new Error(
