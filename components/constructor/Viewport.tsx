@@ -14,7 +14,6 @@ import {
   JEWELRY_CONFIG_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PREVIEW_RESOLUTION,
-  ORNAMENT_SHAPE_LABELS,
   PATCH_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
@@ -41,7 +40,6 @@ import { createFabricPatchGeometry } from "@/lib/constructor/fabric-patch-geomet
 import { createGiftBoxGeometry } from "@/lib/constructor/gift-box-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
-import { createOrnamentGeometry } from "@/lib/constructor/ornament-geometry";
 import { createPenHolderGeometry } from "@/lib/constructor/pen-holder-geometry";
 import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
 import { createStandGeometry } from "@/lib/constructor/phone-stand-geometry";
@@ -860,14 +858,6 @@ function Scene({ params, geometry, framing }: SceneProps) {
           height={framing.height}
           shadowKey={`light-${params.lightDiameter}-${params.lightHeight}-${params.lightSocket}-${params.lightWall}-${params.lightCount}`}
         />
-      ) : params.model === "ornament" ? (
-        <ZUpModel
-          color="#f472b6"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`ornament-${params.ornamentShape}-${params.ornamentDiameter}-${params.ornamentHeight}-${params.ornamentWall}-${params.ornamentLoop}`}
-        />
       ) : params.model === "wall_hook" ? (
         <ZUpModel
           color="#94a3b8"
@@ -1093,10 +1083,6 @@ export function Viewport({ params }: ViewportProps) {
       return createStringLightGeometry(params);
     }
 
-    if (params.model === "ornament") {
-      return createOrnamentGeometry(params);
-    }
-
     if (params.model === "wall_hook") {
       return createWallHookGeometry(params);
     }
@@ -1171,7 +1157,6 @@ export function Viewport({ params }: ViewportProps) {
       params.model === "pen_holder" ||
       params.model === "fabric_patch" ||
       params.model === "string_light" ||
-      params.model === "ornament" ||
       params.model === "wall_hook" ||
       params.model === "cup_clip" ||
       params.model === "cipher_box" ||
@@ -1181,7 +1166,7 @@ export function Viewport({ params }: ViewportProps) {
       const box = geometry.boundingBox;
 
       // Подставка, клипсы, кашпо, подставка под кружку, стойка украшений,
-      // органайзер для ручек, нашивка, плафоны, игрушка, крючок, клипса
+      // органайзер для ручек, нашивка, плафоны, крючок, клипса
       // кружки, шкатулка с кодом и подарочная коробка построены Z-вверх:
       // после поворота меша высотой становится Z,
       // а длиной и шириной — X и Y.
@@ -1276,9 +1261,7 @@ export function Viewport({ params }: ViewportProps) {
                         ? `${params.patchSize} × ${params.patchThickness.toFixed(1)} мм`
                         : params.model === "string_light"
                           ? `${Math.round(framing.footprint)} × ${params.lightHeight} мм`
-                          : params.model === "ornament"
-                            ? `${params.ornamentDiameter} × ${params.ornamentHeight} мм`
-                            : params.model === "wall_hook"
+                          : params.model === "wall_hook"
                               ? `${params.hookWidth} × ${params.hookHeight} × ${params.hookDepth} мм`
                               : params.model === "cup_clip"
                                 ? `${params.cupClipWidth} × ${params.cupClipLength} мм`
@@ -1315,9 +1298,7 @@ export function Viewport({ params }: ViewportProps) {
                         ? `3D-предпросмотр нашивки «${PATCH_SHAPE_LABELS[params.patchShape]}» ${params.patchSize} миллиметров, толщина ${params.patchThickness} миллиметров, ${params.patchBorder ? "с бортиком" : "без бортика"}, ${params.patchStitches} стежков`
                         : params.model === "string_light"
                           ? `3D-предпросмотр плафонов для гирлянды: ${params.lightCount} штук, раструб ${params.lightDiameter} миллиметров, высота ${params.lightHeight} миллиметров, отверстие под цоколь ${params.lightSocket} миллиметров`
-                          : params.model === "ornament"
-                            ? `3D-предпросмотр ёлочной игрушки «${ORNAMENT_SHAPE_LABELS[params.ornamentShape]}» диаметром ${params.ornamentDiameter} миллиметров и высотой ${params.ornamentHeight} миллиметров, стенка ${params.ornamentWall} миллиметров, ${params.ornamentLoop ? "с кольцом под ленту" : "без кольца"}`
-                            : params.model === "wall_hook"
+                          : params.model === "wall_hook"
                               ? `3D-предпросмотр настенного крючка: плита ${params.hookWidth} на ${params.hookHeight} миллиметров, вынос штыря ${params.hookDepth} миллиметров, крепление «${WALL_HOOK_MOUNT_LABELS[params.hookMount]}»`
                               : params.model === "cup_clip"
                                 ? `3D-предпросмотр клипсы для кружки: борт ${params.cupRim} миллиметров, ширина ${params.cupClipWidth} миллиметров, наружная ножка ${params.cupClipLength} миллиметров, ${params.cupClipHook ? "с прорезью под нитку" : "без прорези"}`

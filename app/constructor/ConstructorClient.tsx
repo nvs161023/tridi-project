@@ -37,7 +37,6 @@ import {
   DEFAULT_JEWELRY_STAND_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
   DEFAULT_LITHOPHANE_PARAMS,
-  DEFAULT_ORNAMENT_PARAMS,
   DEFAULT_PEN_HOLDER_PARAMS,
   DEFAULT_PLANTER_PARAMS,
   DEFAULT_SIGN_PARAMS,
@@ -50,7 +49,6 @@ import {
   JEWELRY_CONFIG_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PART_LABELS,
-  ORNAMENT_SHAPE_LABELS,
   PATCH_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
@@ -77,7 +75,6 @@ import {
   listSignLetters,
   lithophaneStlFileName,
   normalizeConstructorParams,
-  ornamentStlFileName,
   penHolderStlFileName,
   planterStlFileName,
   signStlFileName,
@@ -97,7 +94,6 @@ import {
   type LithophaneMount,
   type LithophanePart,
   type ModelType,
-  type OrnamentShape,
   type PatchShape,
   type PenShape,
   type PlanterShape,
@@ -147,8 +143,6 @@ type SizeParam = Exclude<
   | "penShape"
   | "patchShape"
   | "patchBorder"
-  | "ornamentShape"
-  | "ornamentLoop"
   | "hookMount"
   | "cupClipHook"
   | "stencilPattern"
@@ -182,7 +176,6 @@ const MODEL_DEFAULT_PARAMS: Record<ModelType, Partial<ConstructorParams>> = {
   pen_holder: DEFAULT_PEN_HOLDER_PARAMS,
   fabric_patch: DEFAULT_FABRIC_PATCH_PARAMS,
   string_light: DEFAULT_STRING_LIGHT_PARAMS,
-  ornament: DEFAULT_ORNAMENT_PARAMS,
   wall_hook: DEFAULT_WALL_HOOK_PARAMS,
   cup_clip: DEFAULT_CUP_CLIP_PARAMS,
   stencil: DEFAULT_STENCIL_PARAMS,
@@ -340,8 +333,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
   // с одним STL: ваза, брелок, коробка, подставка, клипсы, кашпо, подставка под
   // кружку, подставка для украшений, органайзер для ручек, нашивка, плафоны
-  // гирлянды, ёлочная игрушка, настенный крючок, клипса для кружки, трафарет,
-  // шкатулка с кодом и подарочная коробка.
+  // гирлянды, настенный крючок, клипса для кружки, трафарет, шкатулка с кодом
+  // и подарочная коробка.
   return [
     {
       id: params.model,
@@ -368,19 +361,17 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
                           ? fabricPatchStlFileName(params)
                           : params.model === "string_light"
                             ? stringLightStlFileName(params)
-                            : params.model === "ornament"
-                              ? ornamentStlFileName(params)
-                              : params.model === "wall_hook"
-                                ? wallHookStlFileName(params)
-                                : params.model === "cup_clip"
-                                  ? cupClipStlFileName(params)
-                                  : params.model === "stencil"
-                                    ? stencilStlFileName(params)
-                                    : params.model === "cipher_box"
-                                      ? cipherBoxStlFileName(params)
-                                      : params.model === "gift_box"
-                                        ? giftBoxStlFileName(params)
-                                        : boxStlFileName(params),
+                            : params.model === "wall_hook"
+                              ? wallHookStlFileName(params)
+                              : params.model === "cup_clip"
+                                ? cupClipStlFileName(params)
+                                : params.model === "stencil"
+                                  ? stencilStlFileName(params)
+                                  : params.model === "cipher_box"
+                                    ? cipherBoxStlFileName(params)
+                                    : params.model === "gift_box"
+                                      ? giftBoxStlFileName(params)
+                                      : boxStlFileName(params),
     },
   ];
 }
@@ -815,18 +806,6 @@ export function ConstructorClient({
     );
   }
 
-  function updateOrnamentShape(ornamentShape: OrnamentShape) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, ornamentShape }),
-    );
-  }
-
-  function updateOrnamentLoop(ornamentLoop: boolean) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, ornamentLoop }),
-    );
-  }
-
   function updateWallHookMount(hookMount: WallHookMount) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, hookMount }),
@@ -1038,8 +1017,8 @@ export function ConstructorClient({
             светодиодная вывеска с надписью, коробка-органайзер с сеткой и
             крышкой, литофан из фотографии, кашпо с поддоном, подставка под
             кружку, стойка для украшений, органайзер для ручек, нашивка на
-            ткань, плафоны для гирлянды, ёлочная игрушка, настенный крючок,
-            клипса для кружки, трафарет, шкатулка с кодом и подарочная коробка.
+            ткань, плафоны для гирлянды, настенный крючок, клипса для кружки,
+            трафарет, шкатулка с кодом и подарочная коробка.
             Настройте размеры, проверьте результат в 3D и скачайте STL.
           </p>
         </div>
@@ -1137,8 +1116,6 @@ export function ConstructorClient({
           onQrModeChange={updateQrMode}
           onQrNameChange={updateQrName}
           onQrPhoneChange={updateQrPhone}
-          onOrnamentLoopChange={updateOrnamentLoop}
-          onOrnamentShapeChange={updateOrnamentShape}
           onReset={resetParams}
           onShapeChange={updateShape}
           onSignChannelWidthChange={updateSignChannelWidth}
@@ -1230,13 +1207,6 @@ export function ConstructorClient({
                   {params.lightCount} шт. · раструб Ø {params.lightDiameter} мм ·
                   высота {params.lightHeight} мм · цоколь Ø{" "}
                   {params.lightSocket} мм
-                </>
-              ) : params.model === "ornament" ? (
-                <>
-                  {ORNAMENT_SHAPE_LABELS[params.ornamentShape]} ·{" "}
-                  {params.ornamentDiameter} × {params.ornamentHeight} мм · стенка{" "}
-                  {params.ornamentWall.toFixed(1)} мм ·{" "}
-                  {params.ornamentLoop ? "с кольцом" : "без кольца"}
                 </>
               ) : params.model === "wall_hook" ? (
                 <>

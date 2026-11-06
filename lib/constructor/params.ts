@@ -161,10 +161,6 @@ export const CONSTRUCTOR_LIMITS = {
   lightWall: { min: 1.2, max: 3, step: 0.2, defaultValue: 1.6, decimals: 1 },
   // Сколько плафонов печатается одним файлом: гирлянду собирают партиями.
   lightCount: { min: 1, max: 4, step: 1, defaultValue: 1, decimals: 0 },
-  // Игрушка: габарит шара и высота тела без петельки.
-  ornamentDiameter: { min: 40, max: 100, step: 5, defaultValue: 60, decimals: 0 },
-  ornamentHeight: { min: 50, max: 140, step: 5, defaultValue: 90, decimals: 0 },
-  ornamentWall: { min: 1.2, max: 3, step: 0.2, defaultValue: 1.6, decimals: 1 },
   // Крючок: плита на стену и вынос штыря от неё.
   hookWidth: { min: 20, max: 80, step: 5, defaultValue: 40, decimals: 0 },
   hookHeight: { min: 30, max: 100, step: 5, defaultValue: 60, decimals: 0 },
@@ -198,7 +194,6 @@ export const MODEL_TYPES = [
   "pen_holder",
   "fabric_patch",
   "string_light",
-  "ornament",
   "wall_hook",
   "cup_clip",
   "stencil",
@@ -223,7 +218,6 @@ export const MODEL_TYPE_LABELS = {
   pen_holder: "Органайзер для ручек",
   fabric_patch: "Нашивка",
   string_light: "Абажур для гирлянды",
-  ornament: "Ёлочная игрушка",
   wall_hook: "Настенный крючок",
   cup_clip: "Клипса для кружки",
   stencil: "Трафарет",
@@ -314,11 +308,6 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
     id: "string_light",
     title: "Генератор абажуров для гирлянды",
     desc: "Плафоны под LED-гирлянду: конус с посадкой на цоколь, набор из нескольких штук в одном STL.",
-  },
-  {
-    id: "ornament",
-    title: "Генератор ёлочных игрушек",
-    desc: "Полые игрушки на ёлку: шар, капля или колокол со стенкой по профилю и кольцом под ленту.",
   },
   {
     id: "wall_hook",
@@ -883,38 +872,6 @@ export type StringLightParams = {
   lightCount: number;
 };
 
-/** Три силуэта ёлочной игрушки: шар, капля и колокол. */
-export const ORNAMENT_SHAPES = ["ball", "drop", "bell"] as const;
-
-export type OrnamentShape = (typeof ORNAMENT_SHAPES)[number];
-
-export const ORNAMENT_SHAPE_LABELS = {
-  ball: "Шар",
-  drop: "Капля",
-  bell: "Колокол",
-} as const satisfies Record<OrnamentShape, string>;
-
-/**
- * Ёлочная игрушка: габарит, высота, стенка, силуэт и кольцо под ленту.
- *
- * Игрушка полая: стенка идёт по профилю силуэта, снизу остаётся широкое
- * отверстие — деталь печатается без поддержек и без заполнения внутри. Сверху
- * стоит бобышка с отверстием, а над ней — кольцо в вертикальной плоскости:
- * лента проходит через него, и игрушку можно вешать сразу после печати.
- */
-export type OrnamentParams = {
-  /** Диаметр самой широкой части, мм. */
-  ornamentDiameter: number;
-  /** Высота тела игрушки без кольца, мм. */
-  ornamentHeight: number;
-  /** Толщина стенки, мм. */
-  ornamentWall: number;
-  /** Силуэт: шар, капля или колокол. */
-  ornamentShape: OrnamentShape;
-  /** Кольцо под ленту над бобышкой. */
-  ornamentLoop: boolean;
-};
-
 /** Как крепится настенный крючок: саморезами или клейкой площадкой. */
 export const WALL_HOOK_MOUNTS = ["screw", "adhesive"] as const;
 
@@ -1372,19 +1329,6 @@ export const DEFAULT_SIGN_PARAMS: SignParams = {
 };
 
 
-/**
- * Игрушка по умолчанию: шар Ø 60 мм, высота 90 мм, стенка 1.6 мм, с кольцом.
- * Такой шар печатается примерно за два часа и сразу показывает и полость,
- * и посадку кольца под ленту.
- */
-export const DEFAULT_ORNAMENT_PARAMS: OrnamentParams = {
-  ornamentDiameter: CONSTRUCTOR_LIMITS.ornamentDiameter.defaultValue,
-  ornamentHeight: CONSTRUCTOR_LIMITS.ornamentHeight.defaultValue,
-  ornamentWall: CONSTRUCTOR_LIMITS.ornamentWall.defaultValue,
-  ornamentShape: "ball",
-  ornamentLoop: true,
-};
-
 /** Крючок по умолчанию: плита 40 × 60 мм, вынос 35 мм, под саморезы. */
 export const DEFAULT_WALL_HOOK_PARAMS: WallHookParams = {
   hookWidth: CONSTRUCTOR_LIMITS.hookWidth.defaultValue,
@@ -1569,7 +1513,6 @@ export type ConstructorParams = { model: ModelType } & VaseParams &
   PenHolderParams &
   FabricPatchParams &
   StringLightParams &
-  OrnamentParams &
   WallHookParams &
   CupClipParams &
   StencilParams &
@@ -1592,7 +1535,6 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   ...DEFAULT_PEN_HOLDER_PARAMS,
   ...DEFAULT_FABRIC_PATCH_PARAMS,
   ...DEFAULT_STRING_LIGHT_PARAMS,
-  ...DEFAULT_ORNAMENT_PARAMS,
   ...DEFAULT_WALL_HOOK_PARAMS,
   ...DEFAULT_CUP_CLIP_PARAMS,
   ...DEFAULT_STENCIL_PARAMS,
@@ -1720,19 +1662,6 @@ export function fabricPatchStlFileName(params: FabricPatchParams): string {
  */
 export function stringLightStlFileName(params: StringLightParams): string {
   return `tridi-abazhur-girlyandy-d${params.lightDiameter}-h${params.lightHeight}-o${params.lightSocket}-n${params.lightCount}.stl`;
-}
-
-/**
- * Имя файла STL для ёлочной игрушки.
- *
- * Силуэт, габарит, высота и стенка описывают деталь целиком, а суффикс
- * `petlya` говорит, что сверху есть кольцо под ленту. Значения уже выровнены
- * normalizeOrnamentParams, поэтому лишних нулей в имени нет.
- */
-export function ornamentStlFileName(params: OrnamentParams): string {
-  const loopSuffix = params.ornamentLoop ? "-petlya" : "";
-
-  return `tridi-elka-igrushka-${params.ornamentShape}-d${params.ornamentDiameter}-h${params.ornamentHeight}-t${params.ornamentWall}${loopSuffix}.stl`;
 }
 
 /**
@@ -2101,14 +2030,6 @@ export function isJewelryConfig(value: unknown): value is JewelryConfig {
   return (
     typeof value === "string" &&
     (JEWELRY_CONFIGS as readonly string[]).includes(value)
-  );
-}
-
-/** Проверка силуэта ёлочной игрушки из формы или API. */
-export function isOrnamentShape(value: unknown): value is OrnamentShape {
-  return (
-    typeof value === "string" &&
-    (ORNAMENT_SHAPES as readonly string[]).includes(value)
   );
 }
 
@@ -2839,45 +2760,6 @@ export function normalizeStringLightParams(
 }
 
 /**
- * Проверяет и выравнивает параметры ёлочной игрушки.
- *
- * Диаметр, высота и стенка выравниваются по шагу слайдеров, силуэт и кольцо
- * проверяются отдельно. Стенка дополнительно ограничена четвертью диаметра:
- * при более толстой стенке внутренняя поверхность профиля сходится сама с
- * собой и полость игрушки исчезает.
- */
-export function normalizeOrnamentParams(
-  params: Partial<OrnamentParams>,
-): OrnamentParams {
-  const ornamentDiameter = snap(
-    params.ornamentDiameter ?? DEFAULT_ORNAMENT_PARAMS.ornamentDiameter,
-    CONSTRUCTOR_LIMITS.ornamentDiameter,
-  );
-
-  return {
-    ornamentDiameter,
-    ornamentHeight: snap(
-      params.ornamentHeight ?? DEFAULT_ORNAMENT_PARAMS.ornamentHeight,
-      CONSTRUCTOR_LIMITS.ornamentHeight,
-    ),
-    ornamentWall: snap(
-      Math.min(
-        params.ornamentWall ?? DEFAULT_ORNAMENT_PARAMS.ornamentWall,
-        ornamentDiameter / 4,
-      ),
-      CONSTRUCTOR_LIMITS.ornamentWall,
-    ),
-    ornamentShape: isOrnamentShape(params.ornamentShape)
-      ? params.ornamentShape
-      : DEFAULT_ORNAMENT_PARAMS.ornamentShape,
-    ornamentLoop:
-      typeof params.ornamentLoop === "boolean"
-        ? params.ornamentLoop
-        : DEFAULT_ORNAMENT_PARAMS.ornamentLoop,
-  };
-}
-
-/**
  * Проверяет и выравнивает параметры настенного крючка.
  *
  * Плита и вынос выравниваются по шагу 5 мм, крепление — только `screw` или
@@ -3254,7 +3136,6 @@ export function normalizeConstructorParams(
     ...normalizePenHolderParams(params),
     ...normalizeFabricPatchParams(params),
     ...normalizeStringLightParams(params),
-    ...normalizeOrnamentParams(params),
     ...normalizeWallHookParams(params),
     ...normalizeCupClipParams(params),
     ...normalizeStencilParams(params),

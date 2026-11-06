@@ -51,7 +51,6 @@ import {
   isLithophaneBrightness,
   isLithophaneMount,
   isLithophanePart,
-  isOrnamentShape,
   isPatchShape,
   isPenShape,
   isPlanterShape,
@@ -82,7 +81,6 @@ import {
   normalizeJewelryStandParams,
   normalizeKeychainParams,
   normalizeLithophaneParams,
-  normalizeOrnamentParams,
   normalizePenHolderParams,
   normalizePlanterParams,
   normalizeSignParams,
@@ -91,7 +89,6 @@ import {
   normalizeStringLightParams,
   normalizeVaseParams,
   normalizeWallHookParams,
-  ornamentStlFileName,
   penHolderStlFileName,
   planterStlFileName,
   signStlFileName,
@@ -111,7 +108,6 @@ import {
   type KeychainParams,
   type LithophaneParams,
   type LithophanePart,
-  type OrnamentParams,
   type PenHolderParams,
   type PlanterParams,
   type SignParams,
@@ -135,7 +131,6 @@ import {
   createKeychainGeometry,
 } from "@/lib/constructor/keychain-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
-import { createOrnamentGeometry } from "@/lib/constructor/ornament-geometry";
 import { createPenHolderGeometry } from "@/lib/constructor/pen-holder-geometry";
 import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
 import { createStandGeometry } from "@/lib/constructor/phone-stand-geometry";
@@ -1021,58 +1016,6 @@ function parseStringLightParams(
 }
 
 /**
- * Строгая проверка параметров ёлочной игрушки.
- *
- * Диаметр, высота и стенка проверяются в границах слайдеров, силуэт — по
- * списку, кольцо — только настоящим boolean: строка «false» иначе добавила бы
- * в файл петлю против выбора пользователя. Стенка дополнительно ограничена
- * четвертью диаметра: у более толстой стенки профиль сходится сам с собой и
- * полость игрушки исчезает, а молча подрезать размер нельзя.
- */
-function parseOrnamentParams(
-  body: Record<string, unknown>,
-): OrnamentParams | null {
-  const {
-    ornamentDiameter,
-    ornamentHeight,
-    ornamentWall,
-    ornamentShape,
-    ornamentLoop,
-  } = body;
-
-  if (
-    !isNumberInRange(
-      ornamentDiameter,
-      CONSTRUCTOR_LIMITS.ornamentDiameter.min,
-      CONSTRUCTOR_LIMITS.ornamentDiameter.max,
-    ) ||
-    !isNumberInRange(
-      ornamentHeight,
-      CONSTRUCTOR_LIMITS.ornamentHeight.min,
-      CONSTRUCTOR_LIMITS.ornamentHeight.max,
-    ) ||
-    !isNumberInRange(
-      ornamentWall,
-      CONSTRUCTOR_LIMITS.ornamentWall.min,
-      CONSTRUCTOR_LIMITS.ornamentWall.max,
-    ) ||
-    ornamentWall > ornamentDiameter / 4 ||
-    !isOrnamentShape(ornamentShape) ||
-    typeof ornamentLoop !== "boolean"
-  ) {
-    return null;
-  }
-
-  return normalizeOrnamentParams({
-    ornamentDiameter,
-    ornamentHeight,
-    ornamentWall,
-    ornamentShape,
-    ornamentLoop,
-  });
-}
-
-/**
  * Строгая проверка параметров настенного крючка.
  *
  * Ширина, высота плиты и вынос штыря лежат в границах, крепление — по списку
@@ -1287,7 +1230,6 @@ type ParsedConstructorRequest =
   | { model: "pen_holder"; params: PenHolderParams }
   | { model: "fabric_patch"; params: FabricPatchParams }
   | { model: "string_light"; params: StringLightParams }
-  | { model: "ornament"; params: OrnamentParams }
   | { model: "wall_hook"; params: WallHookParams }
   | { model: "cup_clip"; params: CupClipParams }
   | { model: "stencil"; params: StencilParams }
@@ -1386,12 +1328,6 @@ function parseConstructorRequest(
     const params = parseStringLightParams(body);
 
     return params ? { model: "string_light", params } : null;
-  }
-
-  if (model === "ornament") {
-    const params = parseOrnamentParams(body);
-
-    return params ? { model: "ornament", params } : null;
   }
 
   if (model === "wall_hook") {
@@ -1519,7 +1455,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, диаметр кабеля и число зажимов, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений, форму и отделения органайзера для ручек, форму и стежки нашивки, размеры и число плафонов гирлянды, габарит и силуэт игрушки, размеры и крепление крючка, толщину борта и размеры клипсы, габарит и узор трафарета, габарит, код и надпись шкатулки, габарит, форму и замки подарочной коробки.",
+      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, диаметр кабеля и число зажимов, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений, форму и отделения органайзера для ручек, форму и стежки нашивки, размеры и число плафонов гирлянды, размеры и крепление крючка, толщину борта и размеры клипсы, габарит и узор трафарета, габарит, код и надпись шкатулки, габарит, форму и замки подарочной коробки.",
     );
   }
 
@@ -1637,9 +1573,7 @@ export async function POST(request: Request): Promise<Response> {
                           ? createFabricPatchGeometry(parsed.params)
                           : parsed.model === "string_light"
                             ? createStringLightGeometry(parsed.params)
-                            : parsed.model === "ornament"
-                              ? createOrnamentGeometry(parsed.params)
-                              : parsed.model === "wall_hook"
+                            : parsed.model === "wall_hook"
                                 ? createWallHookGeometry(parsed.params)
                                 : parsed.model === "cup_clip"
                                   ? createCupClipGeometry(parsed.params)
@@ -1701,9 +1635,7 @@ export async function POST(request: Request): Promise<Response> {
                               ? fabricPatchStlFileName(parsed.params)
                               : parsed.model === "string_light"
                                 ? stringLightStlFileName(parsed.params)
-                                : parsed.model === "ornament"
-                                  ? ornamentStlFileName(parsed.params)
-                                  : parsed.model === "wall_hook"
+                                : parsed.model === "wall_hook"
                                     ? wallHookStlFileName(parsed.params)
                                     : parsed.model === "cup_clip"
                                       ? cupClipStlFileName(parsed.params)

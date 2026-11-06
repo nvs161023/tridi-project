@@ -77,8 +77,6 @@ import {
   LITHOPHANE_PIXEL_COUNT,
   LITHOPHANE_RESOLUTION,
   MODEL_TYPE_LABELS,
-  ORNAMENT_SHAPES,
-  ORNAMENT_SHAPE_LABELS,
   PATCH_SHAPES,
   PATCH_SHAPE_LABELS,
   PEN_SHAPES,
@@ -110,7 +108,6 @@ import {
   type KeychainShape,
   type LithophaneMount,
   type ModelType,
-  type OrnamentShape,
   type PatchShape,
   type PenShape,
   type PlanterShape,
@@ -151,8 +148,6 @@ type SizeParam = Exclude<
   | "penShape"
   | "patchShape"
   | "patchBorder"
-  | "ornamentShape"
-  | "ornamentLoop"
   | "hookMount"
   | "cupClipHook"
   | "stencilPattern"
@@ -292,10 +287,6 @@ type ParameterPanelProps = {
   onPatchShapeChange: (shape: PatchShape) => void;
   /** Бортик и строчка по краю нашивки. */
   onPatchBorderChange: (enabled: boolean) => void;
-  /** Силуэт ёлочной игрушки: шар, капля или колокол. */
-  onOrnamentShapeChange: (shape: OrnamentShape) => void;
-  /** Кольцо под ленту над шейкой игрушки. */
-  onOrnamentLoopChange: (enabled: boolean) => void;
   /** Крепление настенного крючка: саморезы или клейкая площадка. */
   onWallHookMountChange: (mount: WallHookMount) => void;
   /** Прорезь под нитку на конце наружной ножки клипсы. */
@@ -475,7 +466,6 @@ const MODEL_CARDS: ModelCard[] = [
   { id: "pen_holder", icon: "🖊️", title: MODEL_TYPE_LABELS.pen_holder },
   { id: "fabric_patch", icon: "🧵", title: MODEL_TYPE_LABELS.fabric_patch },
   { id: "string_light", icon: "💡", title: MODEL_TYPE_LABELS.string_light },
-  { id: "ornament", icon: "🎄", title: MODEL_TYPE_LABELS.ornament },
   { id: "wall_hook", icon: "🪝", title: MODEL_TYPE_LABELS.wall_hook },
   { id: "cup_clip", icon: "🍵", title: MODEL_TYPE_LABELS.cup_clip },
   { id: "stencil", icon: "🖌️", title: MODEL_TYPE_LABELS.stencil },
@@ -1101,7 +1091,7 @@ function presetReadyNote(
  * коробки — пресеты, ширины ячеек текстом, размеры, стенку и крышку, у
  * литофана — фото, превью и толщины, у кашпо — форма, высота, стенка и дренаж,
  * у подставки под кружку — форма, узор, бортик и толщина, у стойки украшений —
- * высота, основание и набор держателей, у игрушки — силуэт и кольцо под ленту,
+ * высота, основание и набор держателей,
  * у крючка — крепление, у трафарета — узор.
  * Параметры компонент не хранит: они приходят из ConstructorClient, поэтому
  * 3D-сцена и подписи всегда читают один и тот же объект. Локальное состояние
@@ -1151,8 +1141,6 @@ export function ParameterPanel({
   onPenShapeChange,
   onPatchShapeChange,
   onPatchBorderChange,
-  onOrnamentShapeChange,
-  onOrnamentLoopChange,
   onWallHookMountChange,
   onCupClipHookChange,
   onStencilPatternChange,
@@ -1726,22 +1714,7 @@ export function ParameterPanel({
                                 value: `${params.lightCount} шт.`,
                               },
                             ]
-                          : params.model === "ornament"
-                            ? [
-                                {
-                                  label: "Диаметр",
-                                  value: `Ø ${params.ornamentDiameter} мм`,
-                                },
-                                {
-                                  label: "Высота",
-                                  value: `${params.ornamentHeight} мм`,
-                                },
-                                {
-                                  label: "Стенка",
-                                  value: `${params.ornamentWall.toFixed(1)} мм`,
-                                },
-                              ]
-                            : params.model === "wall_hook"
+                          : params.model === "wall_hook"
                               ? [
                                   {
                                     label: "Ширина",
@@ -2842,84 +2815,6 @@ export function ParameterPanel({
             патроне, нижний раструб рассеивает свет. Каждый плафон — замкнутая
             оболочка, поэтому поддержки не нужны, а несколько штук печатаются
             одной деталью в ряд.
-          </p>
-        </>
-      ) : params.model === "ornament" ? (
-        <>
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <ParameterSelect
-              hint="Шар — ровная сфера с шейкой сверху, капля вытянута книзу, колокол расширяется к нижней кромке. Полость повторяет силуэт с отступом на стенку."
-              label="Силуэт"
-              onChange={onOrnamentShapeChange}
-              options={ORNAMENT_SHAPES.map((shape) => ({
-                label: ORNAMENT_SHAPE_LABELS[shape],
-                value: shape,
-              }))}
-              value={params.ornamentShape}
-            />
-          </div>
-
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Диаметр самой широкой части. 60–80 мм — привычная игрушка на ёлку, 40–50 мм — миниатюра для набора из нескольких штук."
-              label="Диаметр"
-              max={CONSTRUCTOR_LIMITS.ornamentDiameter.max}
-              min={CONSTRUCTOR_LIMITS.ornamentDiameter.min}
-              onChange={(value) => onParamChange("ornamentDiameter", value)}
-              step={CONSTRUCTOR_LIMITS.ornamentDiameter.step}
-              unit="мм"
-              value={params.ornamentDiameter}
-            />
-
-            <NumberSlider
-              hint="Высота тела без кольца. 90–110 мм читаются как классический шар, ниже 70 мм игрушка становится приземистой."
-              label="Высота"
-              max={CONSTRUCTOR_LIMITS.ornamentHeight.max}
-              min={CONSTRUCTOR_LIMITS.ornamentHeight.min}
-              onChange={(value) => onParamChange("ornamentHeight", value)}
-              step={CONSTRUCTOR_LIMITS.ornamentHeight.step}
-              unit="мм"
-              value={params.ornamentHeight}
-            />
-
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.ornamentWall.decimals}
-              hint="Толщина стенки. 1.4–1.8 мм держат форму и печатаются без заполнения, 2.4 мм и больше заметно тяжелее для ветки."
-              label="Стенка"
-              max={CONSTRUCTOR_LIMITS.ornamentWall.max}
-              min={CONSTRUCTOR_LIMITS.ornamentWall.min}
-              onChange={(value) => onParamChange("ornamentWall", value)}
-              step={CONSTRUCTOR_LIMITS.ornamentWall.step}
-              unit="мм"
-              value={params.ornamentWall}
-            />
-          </div>
-
-          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
-            <input
-              checked={params.ornamentLoop}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-pink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              onChange={(event) => onOrnamentLoopChange(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              <span className="block text-sm font-semibold text-slate-200">
-                Кольцо под ленту
-              </span>
-              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                Над шейкой печатается кольцо в вертикальной плоскости: лента
-                проходит через него, и игрушку вешают сразу после печати. Без
-                кольца остаётся только отверстие в бобышке.
-              </span>
-            </span>
-          </label>
-
-          <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Игрушка полая: стенка идёт по профилю силуэта, снизу остаётся
-            широкое отверстие, поэтому деталь печатается краем вниз — без
-            поддержек и без заполнения. Кольцо набрано короткими цилиндрами,
-            которые входят друг в друга и в шейку: слайсер печатает его одной
-            деталью.
           </p>
         </>
       ) : params.model === "wall_hook" ? (
