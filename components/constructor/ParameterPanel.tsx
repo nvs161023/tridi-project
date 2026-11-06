@@ -64,8 +64,6 @@ import {
   BOX_CELL_MIN_MM,
   BOX_PRESET_IDS,
   BOX_PRESET_LABELS,
-  CIPHER_LID_TEXT_MAX_LENGTH,
-  CIPHER_WORD_MAX_LENGTH,
   COASTER_PATTERNS,
   COASTER_PATTERN_LABELS,
   COASTER_SHAPES,
@@ -80,8 +78,6 @@ import {
   KEYCHAIN_TEXT_MAX_LENGTH,
   keychainQrCardSpec,
   keychainThicknessLimits,
-  GIFT_BOX_SHAPES,
-  GIFT_BOX_SHAPE_LABELS,
   hasDrawableSvgData,
   isCustomSvgData,
   LITHOPHANE_MOUNTS,
@@ -89,8 +85,6 @@ import {
   LITHOPHANE_PIXEL_COUNT,
   LITHOPHANE_RESOLUTION,
   MODEL_TYPE_LABELS,
-  PATCH_SHAPES,
-  PATCH_SHAPE_LABELS,
   PEN_SHAPES,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPES,
@@ -103,22 +97,16 @@ import {
   VASE_PATTERN_LABELS,
   VASE_SHAPES,
   VASE_SHAPE_LABELS,
-  WALL_HOOK_MOUNTS,
-  WALL_HOOK_MOUNT_LABELS,
-  sanitizeCipherLidText,
-  sanitizeCipherWord,
   sanitizeKeychainText,
   sanitizeSignText,
   type BoxPresetId,
   type CoasterPattern,
   type CoasterShape,
   type ConstructorParams,
-  type GiftBoxShape,
   type JewelryConfig,
   type KeychainShape,
   type LithophaneMount,
   type ModelType,
-  type PatchShape,
   type PenShape,
   type PlanterShape,
   type QrCardSize,
@@ -129,7 +117,6 @@ import {
   type SignFont,
   type VasePattern,
   type VaseShape,
-  type WallHookMount,
 } from "@/lib/constructor/params";
 import {
   binarizeByLuminance,
@@ -159,17 +146,6 @@ type SizeParam = Exclude<
   | "coasterRim"
   | "jewelryConfig"
   | "penShape"
-  | "patchShape"
-  | "patchBorder"
-  | "hookMount"
-  | "cupClipHook"
-  | "cipherWord"
-  | "cipherInserts"
-  | "cipherLidText"
-  | "giftShape"
-  | "giftScrewLock"
-  | "giftFalseBottom"
-  | "giftMazeLock"
   | "heatTransferSvg"
   | "heatTransferMirror"
   | "qrCardSize"
@@ -297,28 +273,6 @@ type ParameterPanelProps = {
   onJewelryConfigChange: (config: JewelryConfig) => void;
   /** Форма органайзера для ручек в плане. */
   onPenShapeChange: (shape: PenShape) => void;
-  /** Форма нашивки в плане. */
-  onPatchShapeChange: (shape: PatchShape) => void;
-  /** Бортик и строчка по краю нашивки. */
-  onPatchBorderChange: (enabled: boolean) => void;
-  /** Крепление настенного крючка: саморезы или клейкая площадка. */
-  onWallHookMountChange: (mount: WallHookMount) => void;
-  /** Прорезь под нитку на конце наружной ножки клипсы. */
-  onCupClipHookChange: (enabled: boolean) => void;
-  /** Код шкатулки: 2–3 буквы, по одной на кольцо. */
-  onCipherWordChange: (word: string) => void;
-  /** Надпись на крышке шкатулки; пустая строка — без надписи. */
-  onCipherLidTextChange: (text: string) => void;
-  /** Перегородки под кольца внутри шкатулки. */
-  onCipherInsertsChange: (enabled: boolean) => void;
-  /** Форма подарочной коробки в плане. */
-  onGiftShapeChange: (shape: GiftBoxShape) => void;
-  /** Замок-винт в углу подарочной коробки. */
-  onGiftScrewLockChange: (enabled: boolean) => void;
-  /** Двойное дно: съёмная пластина и тайник под ней. */
-  onGiftFalseBottomChange: (enabled: boolean) => void;
-  /** Лабиринт: крышка садится в одном положении и поворачивается до упора. */
-  onGiftMazeLockChange: (enabled: boolean) => void;
   /** Разметка логотипа термопринта: текст SVG или контур, собранный из PNG. */
   onHeatTransferSvgChange: (svg: string) => void;
   /** Зеркало принта для переноса утюгом. */
@@ -468,7 +422,6 @@ const MODEL_CARDS: ModelCard[] = [
   { id: "vase", icon: "🏺", title: MODEL_TYPE_LABELS.vase },
   { id: "keychain", icon: "🔑", title: MODEL_TYPE_LABELS.keychain },
   { id: "stand", icon: "📱", title: MODEL_TYPE_LABELS.stand },
-  { id: "clips", icon: "🧷", title: MODEL_TYPE_LABELS.clips },
   { id: "sign", icon: "🪧", title: MODEL_TYPE_LABELS.sign },
   { id: "box", icon: "📦", title: MODEL_TYPE_LABELS.box },
   { id: "lithophane", icon: "🖼️", title: MODEL_TYPE_LABELS.lithophane },
@@ -480,12 +433,6 @@ const MODEL_CARDS: ModelCard[] = [
     title: MODEL_TYPE_LABELS.jewelry_stand,
   },
   { id: "pen_holder", icon: "🖊️", title: MODEL_TYPE_LABELS.pen_holder },
-  { id: "fabric_patch", icon: "🧵", title: MODEL_TYPE_LABELS.fabric_patch },
-  { id: "string_light", icon: "💡", title: MODEL_TYPE_LABELS.string_light },
-  { id: "wall_hook", icon: "🪝", title: MODEL_TYPE_LABELS.wall_hook },
-  { id: "cup_clip", icon: "🍵", title: MODEL_TYPE_LABELS.cup_clip },
-  { id: "cipher_box", icon: "🔐", title: MODEL_TYPE_LABELS.cipher_box },
-  { id: "gift_box", icon: "🎁", title: MODEL_TYPE_LABELS.gift_box },
   {
     id: "heat_transfer",
     icon: "🖨️",
@@ -1169,19 +1116,127 @@ function presetReadyNote(
 }
 
 /**
+ * Три главных размера выбранной модели для нижней сводки панели.
+ *
+ * Функция, а не каскад тернарников: моделей много, а сводка у каждой — это
+ * ровно три пары «подпись — значение». Логотип термопринта приходит флагом:
+ * сама панель знает, загружен ли контур, а сводка только показывает это.
+ */
+function modelSummary(
+  params: ConstructorParams,
+  hasHeatTransferLogo: boolean,
+): { label: string; value: string }[] {
+  if (params.model === "vase") {
+    return [
+      { label: "Высота", value: `${params.height} мм` },
+      { label: "Диаметр", value: `Ø ${params.diameter} мм` },
+      { label: "Стенка", value: `${params.wall.toFixed(1)} мм` },
+    ];
+  }
+
+  if (params.model === "keychain") {
+    return [
+      { label: "Длина", value: `${params.length} мм` },
+      { label: "Ширина", value: `${params.width} мм` },
+      { label: "Толщина", value: `${params.thickness.toFixed(1)} мм` },
+    ];
+  }
+
+  if (params.model === "stand") {
+    return [
+      { label: "Наклон", value: `${params.standAngle}°` },
+      { label: "Телефон", value: `${params.phoneThickness} мм` },
+      { label: "Ширина", value: `${params.standWidth} мм` },
+    ];
+  }
+
+  if (params.model === "box") {
+    return [
+      { label: "Длина", value: `${params.boxLength} мм` },
+      { label: "Ширина", value: `${params.boxWidth} мм` },
+      { label: "Ячейки", value: `${params.gridX} × ${params.gridY}` },
+    ];
+  }
+
+  if (params.model === "lithophane") {
+    return [
+      { label: "Ширина", value: `${params.lithophaneWidth} мм` },
+      { label: "Высота", value: `${params.lithophaneHeight} мм` },
+      {
+        label: "Рельеф",
+        value: `${params.lithophaneMinThickness.toFixed(1)}–${params.lithophaneMaxThickness.toFixed(1)} мм`,
+      },
+    ];
+  }
+
+  if (params.model === "planter") {
+    return [
+      { label: "Габарит", value: `${params.planterSize} мм` },
+      { label: "Высота", value: `${params.planterHeight} мм` },
+      { label: "Стенка", value: `${params.planterWall.toFixed(1)} мм` },
+    ];
+  }
+
+  if (params.model === "coaster") {
+    return [
+      { label: "Габарит", value: `${params.coasterSize} мм` },
+      {
+        label: "Толщина",
+        value: `${params.coasterThickness.toFixed(1)} мм`,
+      },
+      { label: "Узор", value: COASTER_PATTERN_LABELS[params.coasterPattern] },
+    ];
+  }
+
+  if (params.model === "jewelry_stand") {
+    return [
+      { label: "Высота", value: `${params.jewelryHeight} мм` },
+      { label: "Основание", value: `Ø ${params.jewelryBase} мм` },
+      { label: "Держатели", value: JEWELRY_CONFIG_LABELS[params.jewelryConfig] },
+    ];
+  }
+
+  if (params.model === "pen_holder") {
+    return [
+      { label: "Габарит", value: `${params.penSize} мм` },
+      { label: "Высота", value: `${params.penHeight} мм` },
+      { label: "Отделения", value: `${params.penSections} шт.` },
+    ];
+  }
+
+  if (params.model === "heat_transfer") {
+    return [
+      {
+        label: "Габарит",
+        value: `${params.heatTransferWidth} × ${params.heatTransferHeight} мм`,
+      },
+      {
+        label: "Толщина",
+        value: `${heatTransferThickness(params.heatTransferLayers).toFixed(1)} мм`,
+      },
+      { label: "Логотип", value: hasHeatTransferLogo ? "загружен" : "нет" },
+    ];
+  }
+
+  return [
+    { label: "Кегль", value: `${params.signFontSize} мм` },
+    { label: "Выступ", value: `${params.signDepth} мм` },
+    { label: "Канал", value: `${params.signChannelWidth} мм` },
+  ];
+}
+
+/**
  * Панель параметров модели.
  *
  * Тип модели и её варианты (форма, узор, шрифт, канал, крепление) выбираются
  * выпадающими списками, размеры меняют слайдеры, а имя, надпись и фото —
  * текстовое поле и загрузка файла. У брелока появляются длина, ширина,
  * толщина, силуэт, своя загрузка контура и карман под NFC-метку. У подставки —
- * наклон, толщина телефона и ширина, у клипс — диаметр кабеля, число зажимов и
- * шаг, у вывески — надпись, кегль, выступ букв и ширину канала под ленту, у
- * коробки — пресеты, ширины ячеек текстом, размеры, стенку и крышку, у
- * литофана — фото, превью и толщины, у кашпо — форма, высота, стенка и дренаж,
- * у подставки под кружку — форма, узор, бортик и толщина, у стойки украшений —
- * высота, основание и набор держателей,
- * у крючка — крепление.
+ * наклон, толщина телефона и ширина, у вывески — надпись, кегль, выступ букв и
+ * ширина канала под ленту, у коробки — пресеты, ширины ячеек текстом, размеры,
+ * стенку и крышку, у литофана — фото, превью и толщины, у кашпо — форма,
+ * высота, стенка и дренаж, у подставки под кружку — форма, узор, бортик и
+ * толщина, у стойки украшений — высота, основание и набор держателей.
  * Параметры компонент не хранит: они приходят из ConstructorClient, поэтому
  * 3D-сцена и подписи всегда читают один и тот же объект. Локальное состояние
  * есть только у загрузки изображения — текст ошибки и превью на время сеанса.
@@ -1228,17 +1283,6 @@ export function ParameterPanel({
   onCoasterRimChange,
   onJewelryConfigChange,
   onPenShapeChange,
-  onPatchShapeChange,
-  onPatchBorderChange,
-  onWallHookMountChange,
-  onCupClipHookChange,
-  onCipherWordChange,
-  onCipherLidTextChange,
-  onCipherInsertsChange,
-  onGiftShapeChange,
-  onGiftScrewLockChange,
-  onGiftFalseBottomChange,
-  onGiftMazeLockChange,
   onHeatTransferSvgChange,
   onHeatTransferMirrorChange,
   onReset,
@@ -1259,12 +1303,6 @@ export function ParameterPanel({
   const qrPhoneInputId = useId();
   const boxCellsXInputId = useId();
   const boxCellsYInputId = useId();
-  const cipherWordInputId = useId();
-  const cipherWordHintId = `${cipherWordInputId}-hint`;
-  const cipherWordLength = Array.from(params.cipherWord).length;
-  const cipherLidTextInputId = useId();
-  const cipherLidTextHintId = `${cipherLidTextInputId}-hint`;
-  const cipherLidTextLength = Array.from(params.cipherLidText).length;
   const heatTransferInputId = useId();
   const heatTransferHintId = `${heatTransferInputId}-hint`;
   const [isProcessingImage, setIsProcessingImage] = useState(false);
@@ -1583,7 +1621,7 @@ export function ParameterPanel({
    *
    * Считается той же `nfcLayout`, что и геометрия: радиус полости, границы зон,
    * пауза и причина отказа берутся из одного места, поэтому подсказка «пауза на
-   * Z = 1.8 мм» не может разойтись с моделью. Для своего контура — null: у него
+   * Z = 2.35 мм» не может разойтись с моделью. Для своего контура — null: у него
    * карман квадратный и считается по `measureKeychainNfc`.
    */
   const presetNfc = params.keychainPreset
@@ -1751,12 +1789,6 @@ export function ParameterPanel({
   /** Пауза и пластик над карманом без хвостовых нулей: 1.05 и 1.95. */
   const nfcPauseLabel = Number(nfcLayers.pauseZ.toFixed(2)).toString();
   const nfcTopLabel = Number(nfcLayers.topMm.toFixed(2)).toString();
-  /** Сколько потайных замков включено: их число попадает в сводку. */
-  const giftLockCount = [
-    params.giftScrewLock,
-    params.giftFalseBottom,
-    params.giftMazeLock,
-  ].filter((lock) => lock).length;
 
   /**
    * Заголовок над компактными кнопками. У вывески и литофана файлов несколько —
@@ -1769,220 +1801,7 @@ export function ParameterPanel({
       : null;
 
   /** Три главных размера выбранной модели для нижней сводки. */
-  const summary: { label: string; value: string }[] =
-    params.model === "vase"
-      ? [
-          { label: "Высота", value: `${params.height} мм` },
-          { label: "Диаметр", value: `Ø ${params.diameter} мм` },
-          { label: "Стенка", value: `${params.wall.toFixed(1)} мм` },
-        ]
-      : params.model === "keychain"
-        ? [
-            { label: "Длина", value: `${params.length} мм` },
-            { label: "Ширина", value: `${params.width} мм` },
-            { label: "Толщина", value: `${params.thickness.toFixed(1)} мм` },
-          ]
-        : params.model === "stand"
-          ? [
-              { label: "Наклон", value: `${params.standAngle}°` },
-              {
-                label: "Телефон",
-                value: `${params.phoneThickness} мм`,
-              },
-              { label: "Ширина", value: `${params.standWidth} мм` },
-            ]
-          : params.model === "clips"
-            ? [
-                { label: "Зажимы", value: `${params.clipCount} шт.` },
-                { label: "Кабель", value: `Ø ${params.cableDiameter} мм` },
-                { label: "Шаг", value: `${params.clipSpacing} мм` },
-              ]
-            : params.model === "box"
-            ? [
-                { label: "Длина", value: `${params.boxLength} мм` },
-                { label: "Ширина", value: `${params.boxWidth} мм` },
-                {
-                  label: "Ячейки",
-                  value: `${params.gridX} × ${params.gridY}`,
-                },
-              ]
-            : params.model === "lithophane"
-              ? [
-                  { label: "Ширина", value: `${params.lithophaneWidth} мм` },
-                  { label: "Высота", value: `${params.lithophaneHeight} мм` },
-                  {
-                    label: "Рельеф",
-                    value: `${params.lithophaneMinThickness.toFixed(1)}–${params.lithophaneMaxThickness.toFixed(1)} мм`,
-                  },
-                ]
-              : params.model === "planter"
-                ? [
-                    { label: "Габарит", value: `${params.planterSize} мм` },
-                    { label: "Высота", value: `${params.planterHeight} мм` },
-                    {
-                      label: "Стенка",
-                      value: `${params.planterWall.toFixed(1)} мм`,
-                    },
-                  ]
-                : params.model === "coaster"
-                  ? [
-                      { label: "Габарит", value: `${params.coasterSize} мм` },
-                      {
-                        label: "Толщина",
-                        value: `${params.coasterThickness.toFixed(1)} мм`,
-                      },
-                      {
-                        label: "Узор",
-                        value: COASTER_PATTERN_LABELS[params.coasterPattern],
-                      },
-                    ]
-                  : params.model === "jewelry_stand"
-                    ? [
-                        {
-                          label: "Высота",
-                          value: `${params.jewelryHeight} мм`,
-                        },
-                        {
-                          label: "Основание",
-                          value: `Ø ${params.jewelryBase} мм`,
-                        },
-                        {
-                          label: "Держатели",
-                          value: JEWELRY_CONFIG_LABELS[params.jewelryConfig],
-                        },
-                      ]
-                    : params.model === "pen_holder"
-                      ? [
-                          {
-                            label: "Габарит",
-                            value: `${params.penSize} мм`,
-                          },
-                          {
-                            label: "Высота",
-                            value: `${params.penHeight} мм`,
-                          },
-                          {
-                            label: "Отделения",
-                            value: `${params.penSections} шт.`,
-                          },
-                        ]
-                      : params.model === "fabric_patch"
-                        ? [
-                            { label: "Габарит", value: `${params.patchSize} мм` },
-                            {
-                              label: "Толщина",
-                              value: `${params.patchThickness.toFixed(1)} мм`,
-                            },
-                            {
-                              label: "Стежки",
-                              value: `${params.patchStitches} шт.`,
-                            },
-                          ]
-                        : params.model === "string_light"
-                          ? [
-                              {
-                                label: "Раструб",
-                                value: `Ø ${params.lightDiameter} мм`,
-                              },
-                              {
-                                label: "Высота",
-                                value: `${params.lightHeight} мм`,
-                              },
-                              {
-                                label: "Плафоны",
-                                value: `${params.lightCount} шт.`,
-                              },
-                            ]
-                          : params.model === "wall_hook"
-                              ? [
-                                  {
-                                    label: "Ширина",
-                                    value: `${params.hookWidth} мм`,
-                                  },
-                                  {
-                                    label: "Высота",
-                                    value: `${params.hookHeight} мм`,
-                                  },
-                                  {
-                                    label: "Вынос",
-                                    value: `${params.hookDepth} мм`,
-                                  },
-                                ]
-                              : params.model === "cup_clip"
-                                ? [
-                                    {
-                                      label: "Борт",
-                                      value: `${params.cupRim} мм`,
-                                    },
-                                    {
-                                      label: "Ширина",
-                                      value: `${params.cupClipWidth} мм`,
-                                    },
-                                    {
-                                      label: "Ножка",
-                                      value: `${params.cupClipLength} мм`,
-                                    },
-                                  ]
-                                : params.model === "cipher_box"
-                                  ? [
-                                      {
-                                        label: "Код",
-                                        value: params.cipherWord,
-                                      },
-                                      {
-                                        label: "Кольца",
-                                        value: `${cipherWordLength} шт.`,
-                                      },
-                                      {
-                                        label: "Корпус",
-                                        value: `${params.cipherSize} мм`,
-                                      },
-                                    ]
-                                  : params.model === "gift_box"
-                                    ? [
-                                        {
-                                          label: "Габарит",
-                                          value: `${params.giftSize} мм`,
-                                        },
-                                        {
-                                          label: "Форма",
-                                          value:
-                                            GIFT_BOX_SHAPE_LABELS[
-                                              params.giftShape
-                                            ],
-                                        },
-                                        {
-                                          label: "Замки",
-                                          value: `${giftLockCount} шт.`,
-                                        },
-                                      ]
-                                    : params.model === "heat_transfer"
-                                      ? [
-                                          {
-                                            label: "Габарит",
-                                            value: `${params.heatTransferWidth} × ${params.heatTransferHeight} мм`,
-                                          },
-                                          {
-                                            label: "Толщина",
-                                            value: `${heatTransferThickness(
-                                              params.heatTransferLayers,
-                                            ).toFixed(1)} мм`,
-                                          },
-                                          {
-                                            label: "Логотип",
-                                            value: hasHeatTransferLogo
-                                              ? "загружен"
-                                              : "нет",
-                                          },
-                                        ]
-                                      : [
-                        { label: "Кегль", value: `${params.signFontSize} мм` },
-                        { label: "Выступ", value: `${params.signDepth} мм` },
-                        {
-                          label: "Канал",
-                          value: `${params.signChannelWidth} мм`,
-                        },
-                      ];
+  const summary = modelSummary(params, hasHeatTransferLogo);
 
   return (
     <section
@@ -2326,12 +2145,12 @@ export function ParameterPanel({
                     Карман под NFC-метку
                   </span>
                   <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                    Карман Ø{presetNfcDiameterLabel} мм внутри корпуса: сплошное
+                    Карман Ø{presetNfcDiameterLabel} мм по центру корпуса: сплошное
                     дно {presetNfcFloorLabel} мм снизу, полость{" "}
                     {presetNfcCavityLabel} мм под метку и губа Ø
-                    {presetNfcLipLabel} мм сверху. Метку Ø22–26 мм толщиной до 1.1
-                    мм вкладывают в паузу печати. Без паузы карман останется
-                    запечатанной пустой полостью.
+                    {presetNfcLipLabel} мм сверху. Метку Ø25–26 мм (не шире
+                    полости) толщиной до 1.1 мм вкладывают в паузу печати. Без паузы
+                    карман останется запечатанной пустой полостью.
                   </span>
                 </span>
               </label>
@@ -2361,15 +2180,16 @@ export function ParameterPanel({
                   </p>
                 ) : (
                   <p className="mt-3 rounded-2xl border border-emerald-400/40 bg-emerald-400/10 px-4 py-3 text-xs leading-relaxed text-emerald-100">
-                    Карман Ø{presetNfcDiameterLabel} мм: дно {presetNfcFloorLabel}{" "}
-                    мм, губа Ø{presetNfcLipLabel} мм и {presetNfcLidLabel} мм
-                    пластика над меткой. Добавьте паузу{" "}
+                    Карман Ø{presetNfcDiameterLabel} мм по центру: дно{" "}
+                    {presetNfcFloorLabel} мм, губа Ø{presetNfcLipLabel} мм и{" "}
+                    {presetNfcLidLabel} мм пластика над меткой. Добавьте паузу{" "}
                     <code className="font-semibold">M600</code> на слое{" "}
                     <strong className="font-semibold">
                       Z = {presetNfcPauseLabel} мм
                     </strong>
-                    , вложите метку Ø22–26 мм в открытую полость и продолжите
-                    печать — губа и крышка закроют её навсегда.
+                    , вложите метку Ø25–26 мм в открытую полость и продолжите
+                    печать — губа и крышка закроют её навсегда. Мост над полостью
+                    печатайте на 20–25 мм/с со 100 % заполнением.
                   </p>
                 )
               ) : null}
@@ -2547,44 +2367,6 @@ export function ParameterPanel({
               step={CONSTRUCTOR_LIMITS.standWidth.step}
               unit="мм"
               value={params.standWidth}
-            />
-          </div>
-        </>
-      ) : params.model === "clips" ? (
-        <>
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.cableDiameter.decimals}
-              hint="Наружный диаметр кабеля. Зажим шире на 0.3 мм на сторону: шнур входит с нажимом, но не закусывает."
-              label="Диаметр кабеля"
-              max={CONSTRUCTOR_LIMITS.cableDiameter.max}
-              min={CONSTRUCTOR_LIMITS.cableDiameter.min}
-              onChange={(value) => onParamChange("cableDiameter", value)}
-              step={CONSTRUCTOR_LIMITS.cableDiameter.step}
-              unit="мм"
-              value={params.cableDiameter}
-            />
-
-            <NumberSlider
-              hint="Сколько зажимов на общей планке. Крайние получают запас 3 мм, поэтому набор печатается одной деталью."
-              label="Количество зажимов"
-              max={CONSTRUCTOR_LIMITS.clipCount.max}
-              min={CONSTRUCTOR_LIMITS.clipCount.min}
-              onChange={(value) => onParamChange("clipCount", value)}
-              step={CONSTRUCTOR_LIMITS.clipCount.step}
-              unit="шт."
-              value={params.clipCount}
-            />
-
-            <NumberSlider
-              hint="Расстояние между центрами зажимов. Чем больше шаг, тем свободнее лежит кабель между фиксаторами."
-              label="Шаг зажимов"
-              max={CONSTRUCTOR_LIMITS.clipSpacing.max}
-              min={CONSTRUCTOR_LIMITS.clipSpacing.min}
-              onChange={(value) => onParamChange("clipSpacing", value)}
-              step={CONSTRUCTOR_LIMITS.clipSpacing.step}
-              unit="мм"
-              value={params.clipSpacing}
             />
           </div>
         </>
@@ -2855,499 +2637,6 @@ export function ParameterPanel({
             друг в друга: органайзер печатается одной деталью без клея и
             поддержек. Перегородки подрезаны по хорде сечения, поэтому не
             выходят за грани квадрата или шестигранника.
-          </p>
-        </>
-      ) : params.model === "fabric_patch" ? (
-        <>
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <ParameterSelect
-              hint="Круглая нашивка — классика для рюкзака, квадратная — под шеврон, шестигранная — под эмблему. Форма задаёт и контур плиты, и дорожку стежков."
-              label="Форма"
-              onChange={onPatchShapeChange}
-              options={PATCH_SHAPES.map((patchShape) => ({
-                label: PATCH_SHAPE_LABELS[patchShape],
-                value: patchShape,
-              }))}
-              value={params.patchShape}
-            />
-          </div>
-
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Габарит «под ключ»: у круга — диаметр, у квадрата и шестигранника — расстояние между гранями. 60–90 мм — размер нашивки на рюкзак или куртку."
-              label="Габарит"
-              max={CONSTRUCTOR_LIMITS.patchSize.max}
-              min={CONSTRUCTOR_LIMITS.patchSize.min}
-              onChange={(value) => onParamChange("patchSize", value)}
-              step={CONSTRUCTOR_LIMITS.patchSize.step}
-              unit="мм"
-              value={params.patchSize}
-            />
-
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.patchThickness.decimals}
-              hint="Толщина плиты. 1.4–1.8 мм гнутся вместе с тканью, 2.5 мм и больше держат форму, но хуже ложатся на изгиб."
-              label="Толщина"
-              max={CONSTRUCTOR_LIMITS.patchThickness.max}
-              min={CONSTRUCTOR_LIMITS.patchThickness.min}
-              onChange={(value) => onParamChange("patchThickness", value)}
-              step={CONSTRUCTOR_LIMITS.patchThickness.step}
-              unit="мм"
-              value={params.patchThickness}
-            />
-
-            <NumberSlider
-              hint="Число стежков по краю. 24 стежка читаются как машинная строчка, 0 оставляет гладкий край без точек."
-              label="Стежки"
-              max={CONSTRUCTOR_LIMITS.patchStitches.max}
-              min={CONSTRUCTOR_LIMITS.patchStitches.min}
-              onChange={(value) => onParamChange("patchStitches", value)}
-              step={CONSTRUCTOR_LIMITS.patchStitches.step}
-              unit="шт."
-              value={params.patchStitches}
-            />
-          </div>
-
-          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
-            <input
-              checked={params.patchBorder}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              onChange={(event) => onPatchBorderChange(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              <span className="block text-sm font-semibold text-slate-200">
-                Бортик и строчка
-              </span>
-              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                Кольцо по краю высотой 1 мм, на котором стоят стежки. Без бортика
-                стежки ложатся прямо на плиту, а нашивка остаётся плоской.
-              </span>
-            </span>
-          </label>
-
-          <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Плита, бортик и стежки — отдельные замкнутые тела: стежок входит в
-            плиту на 0.4 мм и выступает на 0.6 мм, поэтому слайсер печатает
-            нашивку одной деталью. Строчка повторяет форму нашивки и не доходит
-            до края 2 мм.
-          </p>
-        </>
-      ) : params.model === "string_light" ? (
-        <>
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Диаметр раструба снизу. 40–55 мм — привычный размер плафона на гирлянде из лампочек E14."
-              label="Раструб"
-              max={CONSTRUCTOR_LIMITS.lightDiameter.max}
-              min={CONSTRUCTOR_LIMITS.lightDiameter.min}
-              onChange={(value) => onParamChange("lightDiameter", value)}
-              step={CONSTRUCTOR_LIMITS.lightDiameter.step}
-              unit="мм"
-              value={params.lightDiameter}
-            />
-
-            <NumberSlider
-              hint="Высота плафона. Чем выше конус, тем уже пучок света; 30–40 мм дают мягкое пятно на столе."
-              label="Высота"
-              max={CONSTRUCTOR_LIMITS.lightHeight.max}
-              min={CONSTRUCTOR_LIMITS.lightHeight.min}
-              onChange={(value) => onParamChange("lightHeight", value)}
-              step={CONSTRUCTOR_LIMITS.lightHeight.step}
-              unit="мм"
-              value={params.lightHeight}
-            />
-
-            <NumberSlider
-              hint="Диаметр верхнего отверстия под цоколь. Патрон и провод проходят в него, поэтому плафон держится без клея; отверстие всегда уже раструба на две стенки."
-              label="Цоколь"
-              max={CONSTRUCTOR_LIMITS.lightSocket.max}
-              min={CONSTRUCTOR_LIMITS.lightSocket.min}
-              onChange={(value) => onParamChange("lightSocket", value)}
-              step={CONSTRUCTOR_LIMITS.lightSocket.step}
-              unit="мм"
-              value={params.lightSocket}
-            />
-
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.lightWall.decimals}
-              hint="Толщина стенки конуса. 1.6–2 мм не пропускают свет через пластик, 1.2 мм дают мягкое свечение по всей поверхности."
-              label="Стенка"
-              max={CONSTRUCTOR_LIMITS.lightWall.max}
-              min={CONSTRUCTOR_LIMITS.lightWall.min}
-              onChange={(value) => onParamChange("lightWall", value)}
-              step={CONSTRUCTOR_LIMITS.lightWall.step}
-              unit="мм"
-              value={params.lightWall}
-            />
-
-            <NumberSlider
-              hint="Сколько плафонов печатается одним файлом. Штуки стоят в ряд с зазором: гирлянду собирают партией за одну печать."
-              label="Плафоны"
-              max={CONSTRUCTOR_LIMITS.lightCount.max}
-              min={CONSTRUCTOR_LIMITS.lightCount.min}
-              onChange={(value) => onParamChange("lightCount", value)}
-              step={CONSTRUCTOR_LIMITS.lightCount.step}
-              unit="шт."
-              value={params.lightCount}
-            />
-          </div>
-
-          <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Плафон — усечённый конус с полостью: верхнее отверстие держит его на
-            патроне, нижний раструб рассеивает свет. Каждый плафон — замкнутая
-            оболочка, поэтому поддержки не нужны, а несколько штук печатаются
-            одной деталью в ряд.
-          </p>
-        </>
-      ) : params.model === "wall_hook" ? (
-        <>
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <ParameterSelect
-              hint="Саморезы — два сквозных отверстия в плите, крючок держится на любой стене. Клейкая площадка — целая плита под двустороннюю ленту, но только для гладкой поверхности."
-              label="Крепление"
-              onChange={onWallHookMountChange}
-              options={WALL_HOOK_MOUNTS.map((mount) => ({
-                label: WALL_HOOK_MOUNT_LABELS[mount],
-                value: mount,
-              }))}
-              value={params.hookMount}
-            />
-          </div>
-
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Ширина плиты вдоль стены. Узкая плита 20–30 мм нужна для лёгких ключей, широкая 60–80 мм держит сумку."
-              label="Ширина"
-              max={CONSTRUCTOR_LIMITS.hookWidth.max}
-              min={CONSTRUCTOR_LIMITS.hookWidth.min}
-              onChange={(value) => onParamChange("hookWidth", value)}
-              step={CONSTRUCTOR_LIMITS.hookWidth.step}
-              unit="мм"
-              value={params.hookWidth}
-            />
-
-            <NumberSlider
-              hint="Высота плиты на стене: по ней разносятся отверстия под саморезы. 60–80 мм — универсальный размер для прихожей."
-              label="Высота"
-              max={CONSTRUCTOR_LIMITS.hookHeight.max}
-              min={CONSTRUCTOR_LIMITS.hookHeight.min}
-              onChange={(value) => onParamChange("hookHeight", value)}
-              step={CONSTRUCTOR_LIMITS.hookHeight.step}
-              unit="мм"
-              value={params.hookHeight}
-            />
-
-            <NumberSlider
-              hint="Вынос штыря от стены. 25–35 мм — под ключи и полотенце, 50–60 мм — под ручку сумки."
-              label="Вынос"
-              max={CONSTRUCTOR_LIMITS.hookDepth.max}
-              min={CONSTRUCTOR_LIMITS.hookDepth.min}
-              onChange={(value) => onParamChange("hookDepth", value)}
-              step={CONSTRUCTOR_LIMITS.hookDepth.step}
-              unit="мм"
-              value={params.hookDepth}
-            />
-          </div>
-
-          <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Плита и штырь — два тела: штырь входит в плиту на миллиметр, поэтому
-            слайсер печатает крючок одной деталью. Деталь построена в позе
-            печати — плита лежит на столе, штырь поднимается под 45°, — а на
-            стене крючок поворачивают на 90°.
-          </p>
-        </>
-      ) : params.model === "cup_clip" ? (
-        <>
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.cupRim.decimals}
-              hint="Толщина стенки кружки: вокруг неё строится зазор между ножками. 3–4 мм — тонкий фарфор, 5–6 мм — толстая керамика."
-              label="Борт"
-              max={CONSTRUCTOR_LIMITS.cupRim.max}
-              min={CONSTRUCTOR_LIMITS.cupRim.min}
-              onChange={(value) => onParamChange("cupRim", value)}
-              step={CONSTRUCTOR_LIMITS.cupRim.step}
-              unit="мм"
-              value={params.cupRim}
-            />
-
-            <NumberSlider
-              hint="Ширина клипсы вдоль борта. 15–20 мм хватает, чтобы зажим не крутился; 30–40 мм — для широких кружек."
-              label="Ширина"
-              max={CONSTRUCTOR_LIMITS.cupClipWidth.max}
-              min={CONSTRUCTOR_LIMITS.cupClipWidth.min}
-              onChange={(value) => onParamChange("cupClipWidth", value)}
-              step={CONSTRUCTOR_LIMITS.cupClipWidth.step}
-              unit="мм"
-              value={params.cupClipWidth}
-            />
-
-            <NumberSlider
-              hint="Длина наружной ножки: она свисает по стенке и несёт прорезь под нитку. 25–35 мм — под обычную кружку."
-              label="Ножка"
-              max={CONSTRUCTOR_LIMITS.cupClipLength.max}
-              min={CONSTRUCTOR_LIMITS.cupClipLength.min}
-              onChange={(value) => onParamChange("cupClipLength", value)}
-              step={CONSTRUCTOR_LIMITS.cupClipLength.step}
-              unit="мм"
-              value={params.cupClipLength}
-            />
-          </div>
-
-          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
-            <input
-              checked={params.cupClipHook}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              onChange={(event) => onCupClipHookChange(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              <span className="block text-sm font-semibold text-slate-200">
-                Прорезь под нитку
-              </span>
-              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                Треугольное отверстие на конце наружной ножки: нитка входит в
-                него и зажимается в узкой части. Без прорези клипса остаётся
-                ровной пластиной и держит пакетик только за край.
-              </span>
-            </span>
-          </label>
-
-          <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Профиль — буква «П»: мостик ложится на борт, короткая ножка уходит
-            внутрь кружки, длинная свисает снаружи. Клипса построена в позе
-            печати — профиль лежит в плоскости стола, ширина идёт по высоте, —
-            поэтому каждый слой повторяет один профиль и поддержки не нужны.
-          </p>
-        </>
-      ) : params.model === "cipher_box" ? (
-        <>
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">
-              Код шкатулки
-            </legend>
-
-            <label className="sr-only" htmlFor={cipherWordInputId}>
-              Код шкатулки: две или три буквы
-            </label>
-            <input
-              aria-describedby={cipherWordHintId}
-              autoComplete="off"
-              className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-semibold tracking-[0.4em] text-white uppercase placeholder:tracking-normal placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              id={cipherWordInputId}
-              maxLength={CIPHER_WORD_MAX_LENGTH}
-              onChange={(event) =>
-                onCipherWordChange(sanitizeCipherWord(event.target.value))
-              }
-              placeholder="КОД"
-              spellCheck={false}
-              type="text"
-              value={params.cipherWord}
-            />
-
-            <div className="mt-2 flex items-start justify-between gap-3">
-              <p
-                className="text-xs leading-relaxed text-slate-300"
-                id={cipherWordHintId}
-              >
-                Две или три буквы — по одной на кольцо. Буквы печатаются рельефом
-                0.8 мм, кольца поворачиваются пальцем за насечки.
-              </p>
-              <span className="shrink-0 text-xs tabular-nums text-slate-300">
-                {cipherWordLength}/{CIPHER_WORD_MAX_LENGTH}
-              </span>
-            </div>
-          </fieldset>
-
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Габарит корпуса в плане. От него считаются диаметр колец, толщина трубки-оси и высота шкатулки."
-              label="Габарит"
-              max={CONSTRUCTOR_LIMITS.cipherSize.max}
-              min={CONSTRUCTOR_LIMITS.cipherSize.min}
-              onChange={(value) => onParamChange("cipherSize", value)}
-              step={CONSTRUCTOR_LIMITS.cipherSize.step}
-              unit="мм"
-              value={params.cipherSize}
-            />
-          </div>
-
-          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
-            <input
-              checked={params.cipherInserts}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              onChange={(event) =>
-                onCipherInsertsChange(event.target.checked)
-              }
-              type="checkbox"
-            />
-            <span>
-              <span className="block text-sm font-semibold text-slate-200">
-                Перегородки внутри
-              </span>
-              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                Четыре тонкие стенки от трубки к борту делят дно на отсеки: в них
-                не путаются цепочки, кольца и серьги. Без перегородок остаётся
-                один общий тайник.
-              </span>
-            </span>
-          </label>
-
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">
-              Надпись на крышке
-            </legend>
-
-            <label className="sr-only" htmlFor={cipherLidTextInputId}>
-              Надпись на крышке шкатулки
-            </label>
-            <input
-              aria-describedby={cipherLidTextHintId}
-              autoComplete="off"
-              className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              id={cipherLidTextInputId}
-              maxLength={CIPHER_LID_TEXT_MAX_LENGTH}
-              onChange={(event) =>
-                onCipherLidTextChange(sanitizeCipherLidText(event.target.value))
-              }
-              placeholder="СЕКРЕТ"
-              spellCheck={false}
-              type="text"
-              value={params.cipherLidText}
-            />
-
-            <div className="mt-2 flex items-start justify-between gap-3">
-              <p
-                className="text-xs leading-relaxed text-slate-300"
-                id={cipherLidTextHintId}
-              >
-                Рельеф по верхней плоскости крышки. Пустое поле оставляет крышку
-                гладкой.
-              </p>
-              <span className="shrink-0 text-xs tabular-nums text-slate-300">
-                {cipherLidTextLength}/{CIPHER_LID_TEXT_MAX_LENGTH}
-              </span>
-            </div>
-          </fieldset>
-
-          <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Шкатулка печатается тремя деталями на одном столе: корпус с
-            трубкой-осью, крышка и колпачок. Язычки колец разнесены по кругу, а
-            в юбке колпачка напротив каждого кольца есть прорезь. Колпачок
-            снимается только тогда, когда язычки встали в один ряд, — то есть
-            при верном коде.
-          </p>
-        </>
-      ) : params.model === "gift_box" ? (
-        <>
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <ParameterSelect
-              hint="Круглая коробка ровно ложится под ленту, квадратная — под подарочную бумагу, шестигранная жёстче всех держит форму."
-              label="Форма"
-              onChange={onGiftShapeChange}
-              options={GIFT_BOX_SHAPES.map((shape) => ({
-                label: GIFT_BOX_SHAPE_LABELS[shape],
-                value: shape,
-              }))}
-              value={params.giftShape}
-            />
-          </div>
-
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Габарит в плане. От него считаются стенка 3 мм, юбка крышки и положение всех замков, поэтому маленькая коробка удобна для кольца, большая — для свитера."
-              label="Габарит"
-              max={CONSTRUCTOR_LIMITS.giftSize.max}
-              min={CONSTRUCTOR_LIMITS.giftSize.min}
-              onChange={(value) => onParamChange("giftSize", value)}
-              step={CONSTRUCTOR_LIMITS.giftSize.step}
-              unit="мм"
-              value={params.giftSize}
-            />
-          </div>
-
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">
-              Потайные замки
-            </legend>
-
-            <div className="mt-3 space-y-3">
-              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
-                <input
-                  checked={params.giftScrewLock}
-                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  onChange={(event) =>
-                    onGiftScrewLockChange(event.target.checked)
-                  }
-                  type="checkbox"
-                />
-                <span>
-                  <span className="block text-sm font-semibold text-slate-200">
-                    Винт в углу
-                  </span>
-                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                    Крышку держит саморез: в стойке корпуса есть гладкое
-                    отверстие Ø 1.9 мм, в крышке — Ø 2.4 мм под шляпку. Крышка
-                    снимается только с отверткой.
-                  </span>
-                </span>
-              </label>
-
-              <label
-                className={`flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors ${
-                  params.giftMazeLock
-                    ? "cursor-not-allowed opacity-60"
-                    : "cursor-pointer hover:border-white/25 hover:bg-white/5"
-                }`}
-              >
-                <input
-                  checked={params.giftFalseBottom}
-                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed"
-                  disabled={params.giftMazeLock}
-                  onChange={(event) =>
-                    onGiftFalseBottomChange(event.target.checked)
-                  }
-                  type="checkbox"
-                />
-                <span>
-                  <span className="block text-sm font-semibold text-slate-200">
-                    Двойное дно
-                  </span>
-                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                    Съёмная пластина лежит на четырёх полках, под ней — плоский
-                    тайник. Пластину поддевают через боковое отверстие Ø 3 мм.
-                    Печатается отдельной деталью.
-                  </span>
-                </span>
-              </label>
-
-              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
-                <input
-                  checked={params.giftMazeLock}
-                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  onChange={(event) => onGiftMazeLockChange(event.target.checked)}
-                  type="checkbox"
-                />
-                <span>
-                  <span className="block text-sm font-semibold text-slate-200">
-                    Лабиринт в крышке
-                  </span>
-                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                    Две стенки с проёмами: внутренняя пропускает штифты в трёх
-                    положениях, внешняя — только в одном. Крышка садится с
-                    поворотом на 90° и фиксируется у упора. Занимает объём
-                    двойного дна, поэтому вместе они не включаются.
-                  </span>
-                </span>
-              </label>
-            </div>
-          </fieldset>
-
-          <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Коробка печатается без поддержек: стенки идут вертикально, юбка
-            крышки — вниз, пластина двойного дна лежит на столе рядом. Замки
-            независимы, кроме двойного дна и лабиринта — они делят один объём.
           </p>
         </>
       ) : params.model === "heat_transfer" ? (

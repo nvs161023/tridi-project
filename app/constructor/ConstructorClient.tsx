@@ -27,13 +27,8 @@ import {
   COASTER_PATTERN_LABELS,
   COASTER_SHAPE_LABELS,
   DEFAULT_BOX_PARAMS,
-  DEFAULT_CIPHER_BOX_PARAMS,
-  DEFAULT_CLIPS_PARAMS,
   DEFAULT_COASTER_PARAMS,
   DEFAULT_CONSTRUCTOR_PARAMS,
-  DEFAULT_CUP_CLIP_PARAMS,
-  DEFAULT_FABRIC_PATCH_PARAMS,
-  DEFAULT_GIFT_BOX_PARAMS,
   DEFAULT_HEAT_TRANSFER_PARAMS,
   DEFAULT_JEWELRY_STAND_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
@@ -42,28 +37,18 @@ import {
   DEFAULT_PLANTER_PARAMS,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_STAND_PARAMS,
-  DEFAULT_STRING_LIGHT_PARAMS,
   DEFAULT_VASE_PARAMS,
-  DEFAULT_WALL_HOOK_PARAMS,
-  GIFT_BOX_SHAPE_LABELS,
   JEWELRY_CONFIG_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PART_LABELS,
-  PATCH_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
-  WALL_HOOK_MOUNT_LABELS,
   boxPresetParams,
   boxStlFileName,
-  cipherBoxStlFileName,
-  clipsStlFileName,
   coasterStlFileName,
-  cupClipStlFileName,
-  fabricPatchStlFileName,
-  giftBoxStlFileName,
   heatTransferStlFileName,
   jewelryStandStlFileName,
   keychainShapeTitle,
@@ -79,21 +64,17 @@ import {
   planterStlFileName,
   signStlFileName,
   standStlFileName,
-  stringLightStlFileName,
   vaseStlFileName,
-  wallHookStlFileName,
   type BoxPresetId,
   type CoasterPattern,
   type CoasterShape,
   type ConstructorParams,
-  type GiftBoxShape,
   type JewelryConfig,
   type KeychainParams,
   type KeychainShape,
   type LithophaneMount,
   type LithophanePart,
   type ModelType,
-  type PatchShape,
   type PenShape,
   type PlanterShape,
   type QrCardSize,
@@ -104,7 +85,6 @@ import {
   type SignFont,
   type VasePattern,
   type VaseShape,
-  type WallHookMount,
 } from "@/lib/constructor/params";
 
 type ConstructorClientProps = {
@@ -139,17 +119,6 @@ type SizeParam = Exclude<
   | "coasterRim"
   | "jewelryConfig"
   | "penShape"
-  | "patchShape"
-  | "patchBorder"
-  | "hookMount"
-  | "cupClipHook"
-  | "cipherWord"
-  | "cipherInserts"
-  | "cipherLidText"
-  | "giftShape"
-  | "giftScrewLock"
-  | "giftFalseBottom"
-  | "giftMazeLock"
   | "heatTransferSvg"
   | "heatTransferMirror"
 >;
@@ -168,17 +137,10 @@ const MODEL_DEFAULT_PARAMS: Record<ModelType, Partial<ConstructorParams>> = {
   box: DEFAULT_BOX_PARAMS,
   lithophane: DEFAULT_LITHOPHANE_PARAMS,
   stand: DEFAULT_STAND_PARAMS,
-  clips: DEFAULT_CLIPS_PARAMS,
   planter: DEFAULT_PLANTER_PARAMS,
   coaster: DEFAULT_COASTER_PARAMS,
   jewelry_stand: DEFAULT_JEWELRY_STAND_PARAMS,
   pen_holder: DEFAULT_PEN_HOLDER_PARAMS,
-  fabric_patch: DEFAULT_FABRIC_PATCH_PARAMS,
-  string_light: DEFAULT_STRING_LIGHT_PARAMS,
-  wall_hook: DEFAULT_WALL_HOOK_PARAMS,
-  cup_clip: DEFAULT_CUP_CLIP_PARAMS,
-  cipher_box: DEFAULT_CIPHER_BOX_PARAMS,
-  gift_box: DEFAULT_GIFT_BOX_PARAMS,
   heat_transfer: DEFAULT_HEAT_TRANSFER_PARAMS,
 };
 
@@ -330,10 +292,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   }
 
   // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
-  // с одним STL: ваза, брелок, коробка, подставка, клипсы, кашпо, подставка под
-  // кружку, подставка для украшений, органайзер для ручек, нашивка, плафоны
-  // гирлянды, настенный крючок, клипса для кружки, шкатулка с кодом,
-  // подарочная коробка и термопринт.
+  // с одним STL: ваза, брелок, коробка, подставка, кашпо, подставка под кружку,
+  // подставка для украшений, органайзер для ручек и термопринт.
   return [
     {
       id: params.model,
@@ -346,49 +306,19 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
             ? keychainStlFileName(params)
             : params.model === "stand"
               ? standStlFileName(params)
-              : params.model === "clips"
-                ? clipsStlFileName(params)
-                : params.model === "planter"
-                  ? planterStlFileName(params)
-                  : params.model === "coaster"
-                    ? coasterStlFileName(params)
-                    : params.model === "jewelry_stand"
-                      ? jewelryStandStlFileName(params)
-                      : params.model === "pen_holder"
-                        ? penHolderStlFileName(params)
-                        : params.model === "fabric_patch"
-                          ? fabricPatchStlFileName(params)
-                          : params.model === "string_light"
-                            ? stringLightStlFileName(params)
-                            : params.model === "wall_hook"
-                              ? wallHookStlFileName(params)
-                              : params.model === "cup_clip"
-                                ? cupClipStlFileName(params)
-                                : params.model === "cipher_box"
-                                  ? cipherBoxStlFileName(params)
-                                  : params.model === "gift_box"
-                                    ? giftBoxStlFileName(params)
-                                    : params.model === "heat_transfer"
-                                      ? heatTransferStlFileName(params)
-                                      : boxStlFileName(params),
+              : params.model === "planter"
+                ? planterStlFileName(params)
+                : params.model === "coaster"
+                  ? coasterStlFileName(params)
+                  : params.model === "jewelry_stand"
+                    ? jewelryStandStlFileName(params)
+                    : params.model === "pen_holder"
+                      ? penHolderStlFileName(params)
+                      : params.model === "heat_transfer"
+                        ? heatTransferStlFileName(params)
+                        : boxStlFileName(params),
     },
   ];
-}
-
-/**
- * Замки подарочной коробки в подписи под сценой.
- *
- * Перечисление читается до выгрузки: по нему видно, какие тайники попали в
- * модель, не открывая панель параметров заново.
- */
-function giftLockLabels(params: ConstructorParams): string {
-  const locks = [
-    params.giftScrewLock ? "винт" : null,
-    params.giftFalseBottom ? "двойное дно" : null,
-    params.giftMazeLock ? "лабиринт" : null,
-  ].filter((lock): lock is string => lock !== null);
-
-  return locks.length > 0 ? locks.join(", ") : "без замка";
 }
 
 /**
@@ -793,76 +723,6 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, penShape }));
   }
 
-  function updatePatchShape(patchShape: PatchShape) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, patchShape }),
-    );
-  }
-
-  function updatePatchBorder(patchBorder: boolean) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, patchBorder }),
-    );
-  }
-
-  function updateWallHookMount(hookMount: WallHookMount) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, hookMount }),
-    );
-  }
-
-  function updateCupClipHook(cupClipHook: boolean) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, cupClipHook }),
-    );
-  }
-
-  /** Код шкатулки приходит уже очищенным: только буквы, до трёх штук. */
-  function updateCipherWord(cipherWord: string) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, cipherWord }),
-    );
-  }
-
-  function updateCipherLidText(cipherLidText: string) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, cipherLidText }),
-    );
-  }
-
-  function updateCipherInserts(cipherInserts: boolean) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, cipherInserts }),
-    );
-  }
-
-  function updateGiftShape(giftShape: GiftBoxShape) {
-    setParams((current) => normalizeConstructorParams({ ...current, giftShape }));
-  }
-
-  function updateGiftScrewLock(giftScrewLock: boolean) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, giftScrewLock }),
-    );
-  }
-
-  /**
-   * Включение лабиринта снимает двойное дно — это делает нормализация.
-   * Панель показывает обе галочки, но состояние всегда одно: замки занимают
-   * один объём, и пластина при лабиринте не печатается.
-   */
-  function updateGiftFalseBottom(giftFalseBottom: boolean) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, giftFalseBottom }),
-    );
-  }
-
-  function updateGiftMazeLock(giftMazeLock: boolean) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, giftMazeLock }),
-    );
-  }
-
   /**
    * Логотип термопринта приходит уже проверенным: текст SVG или контур из PNG.
    *
@@ -1024,12 +884,10 @@ export function ConstructorClient({
 
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300">
             Параметрические модели под ваш принтер: ваза с математическим узором,
-            брелок с именем, подставка под телефон, набор клипс для кабелей,
-            светодиодная вывеска с надписью, коробка-органайзер с сеткой и
-            крышкой, литофан из фотографии, кашпо с поддоном, подставка под
-            кружку, стойка для украшений, органайзер для ручек, нашивка на
-            ткань, плафоны для гирлянды, настенный крючок, клипса для кружки,
-            шкатулка с кодом и подарочная коробка.
+            брелок с именем, подставка под телефон, светодиодная вывеска с
+            надписью, коробка-органайзер с сеткой и крышкой, литофан из
+            фотографии, кашпо с поддоном, подставка под кружку, стойка для
+            украшений, органайзер для ручек и термопринт логотипа.
             Настройте размеры, проверьте результат в 3D и скачайте STL.
           </p>
         </div>
@@ -1090,19 +948,11 @@ export function ConstructorClient({
           exportOptions={exportOptions}
           onBoxCellsChange={updateBoxCells}
           onBoxPresetChange={updateBoxPreset}
-          onCipherInsertsChange={updateCipherInserts}
-          onCipherLidTextChange={updateCipherLidText}
-          onCipherWordChange={updateCipherWord}
           onCoasterPatternChange={updateCoasterPattern}
           onCoasterRimChange={updateCoasterRim}
           onCoasterShapeChange={updateCoasterShape}
-          onCupClipHookChange={updateCupClipHook}
           onCustomSvgChange={updateKeychainCustomSvg}
           onExport={exportStl}
-          onGiftFalseBottomChange={updateGiftFalseBottom}
-          onGiftMazeLockChange={updateGiftMazeLock}
-          onGiftShapeChange={updateGiftShape}
-          onGiftScrewLockChange={updateGiftScrewLock}
           onHasLidChange={updateHasLid}
           onHeatTransferMirrorChange={updateHeatTransferMirror}
           onHeatTransferSvgChange={updateHeatTransferSvg}
@@ -1116,8 +966,6 @@ export function ConstructorClient({
           onModelChange={updateModel}
           onNfcChange={updateKeychainNfc}
           onParamChange={updateParam}
-          onPatchBorderChange={updatePatchBorder}
-          onPatchShapeChange={updatePatchShape}
           onPatternChange={updatePattern}
           onPenShapeChange={updatePenShape}
           onPlanterDrainageChange={updatePlanterDrainage}
@@ -1136,7 +984,6 @@ export function ConstructorClient({
           onSignFontChange={updateSignFont}
           onSignTextChange={updateSignText}
           onTextChange={updateKeychainText}
-          onWallHookMountChange={updateWallHookMount}
           params={params}
         />
 
@@ -1168,11 +1015,6 @@ export function ConstructorClient({
                 <>
                   наклон {params.standAngle}° · телефон{" "}
                   {params.phoneThickness} мм · ширина {params.standWidth} мм
-                </>
-              ) : params.model === "clips" ? (
-                <>
-                  {params.clipCount} зажимов · кабель Ø {params.cableDiameter} мм
-                  · шаг {params.clipSpacing} мм
                 </>
               ) : params.model === "lithophane" ? (
                 <>
@@ -1206,42 +1048,6 @@ export function ConstructorClient({
                   {PEN_SHAPE_LABELS[params.penShape]} · {params.penSize} ×{" "}
                   {params.penHeight} мм · отделения: {params.penSections} · стенка{" "}
                   {params.penWall.toFixed(1)} мм
-                </>
-              ) : params.model === "fabric_patch" ? (
-                <>
-                  {PATCH_SHAPE_LABELS[params.patchShape]} · {params.patchSize} ×{" "}
-                  {params.patchThickness.toFixed(1)} мм ·{" "}
-                  {params.patchBorder ? "бортик и строчка" : "без бортика"} ·{" "}
-                  {params.patchStitches} стежков
-                </>
-              ) : params.model === "string_light" ? (
-                <>
-                  {params.lightCount} шт. · раструб Ø {params.lightDiameter} мм ·
-                  высота {params.lightHeight} мм · цоколь Ø{" "}
-                  {params.lightSocket} мм
-                </>
-              ) : params.model === "wall_hook" ? (
-                <>
-                  {WALL_HOOK_MOUNT_LABELS[params.hookMount]} · {params.hookWidth} ×{" "}
-                  {params.hookHeight} мм · вынос {params.hookDepth} мм
-                </>
-              ) : params.model === "cup_clip" ? (
-                <>
-                  борт {params.cupRim} мм · {params.cupClipWidth} ×{" "}
-                  {params.cupClipLength} мм ·{" "}
-                  {params.cupClipHook ? "прорезь под нитку" : "без прорези"}
-                </>
-              ) : params.model === "cipher_box" ? (
-                <>
-                  код «{params.cipherWord}» ·{" "}
-                  {Array.from(params.cipherWord).length} кольца ·{" "}
-                  {params.cipherSize} мм ·{" "}
-                  {params.cipherLidText ? "с надписью на крышке" : "без надписи"}
-                </>
-              ) : params.model === "gift_box" ? (
-                <>
-                  {GIFT_BOX_SHAPE_LABELS[params.giftShape]} · {params.giftSize} мм
-                  · замки: {giftLockLabels(params)}
                 </>
               ) : params.model === "heat_transfer" ? (
                 <>

@@ -10,15 +10,12 @@ import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 
 import {
   COASTER_PATTERN_LABELS,
-  GIFT_BOX_SHAPE_LABELS,
   JEWELRY_CONFIG_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PREVIEW_RESOLUTION,
-  PATCH_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   VASE_PATTERN_LABELS,
-  WALL_HOOK_MOUNT_LABELS,
   downsampleLithophaneBrightness,
   keychainShapeTitle,
   type ConstructorParams,
@@ -31,12 +28,7 @@ import {
   createKeychainGeometry,
 } from "@/lib/constructor/keychain-geometry";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
-import { createCipherBoxGeometry } from "@/lib/constructor/cipher-box-geometry";
-import { createClipsGeometry } from "@/lib/constructor/cable-clips-geometry";
 import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
-import { createCupClipGeometry } from "@/lib/constructor/cup-clip-geometry";
-import { createFabricPatchGeometry } from "@/lib/constructor/fabric-patch-geometry";
-import { createGiftBoxGeometry } from "@/lib/constructor/gift-box-geometry";
 import {
   createHeatTransferGeometry,
   heatTransferThickness,
@@ -50,10 +42,8 @@ import {
   SIGN_FONT_URLS,
   createSignGeometry,
 } from "@/lib/constructor/sign-geometry";
-import { createStringLightGeometry } from "@/lib/constructor/string-light-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
-import { createWallHookGeometry } from "@/lib/constructor/wall-hook-geometry";
 
 /** Параметры выбранной модели: сцена пересобирается при любом изменении. */
 type ViewportProps = {
@@ -380,73 +370,6 @@ function StandModel({ geometry, angle, thickness, width }: StandModelProps) {
         position={[0, 0.02, 0]}
         resolution={512}
         scale={Math.max(width * 3, 480)}
-      />
-    </group>
-  );
-}
-
-type ClipsModelProps = {
-  geometry: BufferGeometry;
-  /** Диаметр кабеля, мм: от него зависит дуга зажима. */
-  cableDiameter: number;
-  /** Сколько зажимов на планке: от этого зависит длина набора. */
-  clipCount: number;
-  /** Шаг между зажимами, мм. */
-  spacing: number;
-  /** Длина набора по готовой сетке, мм: из неё считаются пол и тень. */
-  footprint: number;
-};
-
-/**
- * Клипсы лежат на столе планкой вниз, разрезом вверх: геометрия построена
- * Z-вверх, поворот на -90° вокруг X кладёт её так же, как коробку.
- *
- * Тень пересчитывается при смене диаметра кабеля, числа зажимов и шага: набор
- * меняет длину и силуэт, а старая тень стала бы неверной.
- */
-function ClipsModel({
-  geometry,
-  cableDiameter,
-  clipCount,
-  spacing,
-  footprint,
-}: ClipsModelProps) {
-  return (
-    <group>
-      <group rotation={[-Math.PI / 2, 0, 0]}>
-        <mesh castShadow geometry={geometry} receiveShadow>
-          <meshStandardMaterial
-            color="#f472b6"
-            metalness={0.05}
-            roughness={0.42}
-          />
-        </mesh>
-      </group>
-
-      {/* Тёмный пол: на нём читаются контактные тени. */}
-      <mesh
-        position={[0, -0.3, 0]}
-        receiveShadow
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <circleGeometry args={[Math.max(footprint * 2.4, 320), 64]} />
-        <meshStandardMaterial color="#0b1220" roughness={1} />
-      </mesh>
-
-      <gridHelper
-        args={[Math.max(footprint * 3, 960), 24, "#1e293b", "#0f172a"]}
-        position={[0, 0.01, 0]}
-      />
-
-      <ContactShadows
-        blur={2.6}
-        far={Math.max(cableDiameter * 10, 120)}
-        frames={1}
-        key={`clips-${cableDiameter}-${clipCount}-${spacing}`}
-        opacity={0.55}
-        position={[0, 0.02, 0]}
-        resolution={512}
-        scale={Math.max(footprint * 2.2, 480)}
       />
     </group>
   );
@@ -785,14 +708,6 @@ function Scene({ params, geometry, framing }: SceneProps) {
           thickness={params.phoneThickness}
           width={params.standWidth}
         />
-      ) : params.model === "clips" ? (
-        <ClipsModel
-          cableDiameter={params.cableDiameter}
-          clipCount={params.clipCount}
-          footprint={framing.footprint}
-          geometry={geometry}
-          spacing={params.clipSpacing}
-        />
       ) : params.model === "box" ? (
         <BoxModel
           geometry={geometry}
@@ -843,54 +758,6 @@ function Scene({ params, geometry, framing }: SceneProps) {
           geometry={geometry}
           height={framing.height}
           shadowKey={`pen-${params.penSize}-${params.penHeight}-${params.penWall}-${params.penShape}-${params.penSections}`}
-        />
-      ) : params.model === "fabric_patch" ? (
-        <ZUpModel
-          color="#4ade80"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`patch-${params.patchSize}-${params.patchThickness}-${params.patchShape}-${params.patchBorder}-${params.patchStitches}`}
-        />
-      ) : params.model === "string_light" ? (
-        <ZUpModel
-          color="#fde047"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`light-${params.lightDiameter}-${params.lightHeight}-${params.lightSocket}-${params.lightWall}-${params.lightCount}`}
-        />
-      ) : params.model === "wall_hook" ? (
-        <ZUpModel
-          color="#94a3b8"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`hook-${params.hookMount}-${params.hookWidth}-${params.hookHeight}-${params.hookDepth}`}
-        />
-      ) : params.model === "cup_clip" ? (
-        <ZUpModel
-          color="#2dd4bf"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`cup-clip-${params.cupRim}-${params.cupClipWidth}-${params.cupClipLength}-${params.cupClipHook}`}
-        />
-      ) : params.model === "cipher_box" ? (
-        <ZUpModel
-          color="#f0abfc"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`cipher-${params.cipherSize}-${params.cipherWord}-${params.cipherInserts}-${params.cipherLidText}`}
-        />
-      ) : params.model === "gift_box" ? (
-        <ZUpModel
-          color="#fdba74"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`gift-${params.giftSize}-${params.giftShape}-${params.giftScrewLock}-${params.giftFalseBottom}-${params.giftMazeLock}`}
         />
       ) : params.model === "heat_transfer" ? (
         <ZUpModel
@@ -945,20 +812,16 @@ function Scene({ params, geometry, framing }: SceneProps) {
  */
 export function Viewport({ params }: ViewportProps) {
   /**
-   * Брелок, вывеска и шкатулка с кодом подписываются шрифтом, остальным моделям
-   * он не нужен. У вывески шрифт выбирает пользователь, поэтому путь зависит от
-   * signFont: смена шрифта в панели загружает другой JSON. Шкатулке подходит тот
-   * же кириллический шрифт, что и брелоку: буквы кода и надпись на крышке —
-   * обычный текст.
+   * Брелок и вывеска подписываются шрифтом, остальным моделям он не нужен. У
+   * вывески шрифт выбирает пользователь, поэтому путь зависит от signFont:
+   * смена шрифта в панели загружает другой JSON.
    */
   const fontUrl =
     params.model === "sign"
       ? SIGN_FONT_URLS[params.signFont]
       : params.model === "keychain"
         ? KEYCHAIN_FONT_URL
-        : params.model === "cipher_box"
-          ? KEYCHAIN_FONT_URL
-          : null;
+        : null;
   const needsFont = fontUrl !== null;
   /**
    * Загруженный шрифт помнит свой путь. Пока новый файл не пришёл, сцена
@@ -1039,10 +902,6 @@ export function Viewport({ params }: ViewportProps) {
       return createStandGeometry(params);
     }
 
-    if (params.model === "clips") {
-      return createClipsGeometry(params);
-    }
-
     if (params.model === "sign") {
       return createSignGeometry(params, font);
     }
@@ -1075,30 +934,6 @@ export function Viewport({ params }: ViewportProps) {
 
     if (params.model === "pen_holder") {
       return createPenHolderGeometry(params);
-    }
-
-    if (params.model === "fabric_patch") {
-      return createFabricPatchGeometry(params);
-    }
-
-    if (params.model === "string_light") {
-      return createStringLightGeometry(params);
-    }
-
-    if (params.model === "wall_hook") {
-      return createWallHookGeometry(params);
-    }
-
-    if (params.model === "cup_clip") {
-      return createCupClipGeometry(params);
-    }
-
-    if (params.model === "cipher_box") {
-      return createCipherBoxGeometry(params, font);
-    }
-
-    if (params.model === "gift_box") {
-      return createGiftBoxGeometry(params);
     }
 
     if (params.model === "heat_transfer") {
@@ -1141,27 +976,18 @@ export function Viewport({ params }: ViewportProps) {
 
     if (
       params.model === "stand" ||
-      params.model === "clips" ||
       params.model === "planter" ||
       params.model === "coaster" ||
       params.model === "jewelry_stand" ||
       params.model === "pen_holder" ||
-      params.model === "fabric_patch" ||
-      params.model === "string_light" ||
-      params.model === "wall_hook" ||
-      params.model === "cup_clip" ||
-      params.model === "cipher_box" ||
-      params.model === "gift_box" ||
       params.model === "heat_transfer"
     ) {
       geometry.computeBoundingBox();
       const box = geometry.boundingBox;
 
-      // Подставка, клипсы, кашпо, подставка под кружку, стойка украшений,
-      // органайзер для ручек, нашивка, плафоны, крючок, клипса
-      // кружки, шкатулка с кодом, подарочная коробка и термопринт построены
-      // Z-вверх: после поворота меша высотой становится Z,
-      // а длиной и шириной — X и Y.
+      // Подставка, кашпо, подставка под кружку, стойка украшений,
+      // органайзер для ручек и термопринт построены Z-вверх: после поворота
+      // меша высотой становится Z, а длиной и шириной — X и Y.
       return {
         height: box ? Math.max(box.max.z - box.min.z, 1) : 1,
         footprint: box
@@ -1235,9 +1061,7 @@ export function Viewport({ params }: ViewportProps) {
         ? `${params.length} × ${params.width} × ${params.thickness} мм`
         : params.model === "stand"
           ? `${params.standWidth} × ${Math.round(framing.height)} мм`
-          : params.model === "clips"
-            ? `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`
-            : params.model === "box"
+          : params.model === "box"
             ? `${params.boxLength} × ${params.boxWidth} × ${params.boxHeight} мм`
             : params.model === "lithophane"
               ? `${params.lithophaneWidth} × ${params.lithophaneHeight} × ${params.lithophaneMaxThickness.toFixed(1)} мм`
@@ -1249,21 +1073,9 @@ export function Viewport({ params }: ViewportProps) {
                     ? `${params.jewelryBase} × ${params.jewelryHeight} мм`
                     : params.model === "pen_holder"
                       ? `${params.penSize} × ${params.penHeight} мм`
-                      : params.model === "fabric_patch"
-                        ? `${params.patchSize} × ${params.patchThickness.toFixed(1)} мм`
-                        : params.model === "string_light"
-                          ? `${Math.round(framing.footprint)} × ${params.lightHeight} мм`
-                          : params.model === "wall_hook"
-                              ? `${params.hookWidth} × ${params.hookHeight} × ${params.hookDepth} мм`
-                              : params.model === "cup_clip"
-                                ? `${params.cupClipWidth} × ${params.cupClipLength} мм`
-                                : params.model === "cipher_box"
-                                    ? `${params.cipherSize} × ${Math.round(framing.height)} мм`
-                                    : params.model === "gift_box"
-                                      ? `${params.giftSize} × ${Math.round(framing.height)} мм`
-                                      : params.model === "heat_transfer"
-                                        ? `${params.heatTransferWidth} × ${params.heatTransferHeight} × ${heatTransferThickness(params.heatTransferLayers).toFixed(1)} мм`
-                                        : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
+                      : params.model === "heat_transfer"
+                        ? `${params.heatTransferWidth} × ${params.heatTransferHeight} × ${heatTransferThickness(params.heatTransferLayers).toFixed(1)} мм`
+                        : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
 
   const ariaLabel =
     params.model === "vase"
@@ -1272,9 +1084,7 @@ export function Viewport({ params }: ViewportProps) {
         ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${keychainShapeTitle(params)}», имя «${params.text.trim() || "без имени"}»`
         : params.model === "stand"
           ? `3D-предпросмотр подставки под телефон шириной ${params.standWidth} миллиметров, наклон ${params.standAngle} градусов, толщина телефона ${params.phoneThickness} миллиметров`
-          : params.model === "clips"
-            ? `3D-предпросмотр набора клипс: ${params.clipCount} зажимов под кабель диаметром ${params.cableDiameter} миллиметров с шагом ${params.clipSpacing} миллиметров`
-            : params.model === "box"
+          : params.model === "box"
             ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
             : params.model === "lithophane"
               ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : "без рамки"}`
@@ -1286,21 +1096,9 @@ export function Viewport({ params }: ViewportProps) {
                     ? `3D-предпросмотр подставки для украшений высотой ${params.jewelryHeight} миллиметров на основании ${params.jewelryBase} миллиметров, «${JEWELRY_CONFIG_LABELS[params.jewelryConfig]}»`
                     : params.model === "pen_holder"
                       ? `3D-предпросмотр органайзера для ручек «${PEN_SHAPE_LABELS[params.penShape]}» ${params.penSize} миллиметров по ключу и высотой ${params.penHeight} миллиметров, стенка ${params.penWall} миллиметров, ${params.penSections} отделений`
-                      : params.model === "fabric_patch"
-                        ? `3D-предпросмотр нашивки «${PATCH_SHAPE_LABELS[params.patchShape]}» ${params.patchSize} миллиметров, толщина ${params.patchThickness} миллиметров, ${params.patchBorder ? "с бортиком" : "без бортика"}, ${params.patchStitches} стежков`
-                        : params.model === "string_light"
-                          ? `3D-предпросмотр плафонов для гирлянды: ${params.lightCount} штук, раструб ${params.lightDiameter} миллиметров, высота ${params.lightHeight} миллиметров, отверстие под цоколь ${params.lightSocket} миллиметров`
-                          : params.model === "wall_hook"
-                              ? `3D-предпросмотр настенного крючка: плита ${params.hookWidth} на ${params.hookHeight} миллиметров, вынос штыря ${params.hookDepth} миллиметров, крепление «${WALL_HOOK_MOUNT_LABELS[params.hookMount]}»`
-                              : params.model === "cup_clip"
-                                ? `3D-предпросмотр клипсы для кружки: борт ${params.cupRim} миллиметров, ширина ${params.cupClipWidth} миллиметров, наружная ножка ${params.cupClipLength} миллиметров, ${params.cupClipHook ? "с прорезью под нитку" : "без прорези"}`
-                                : params.model === "cipher_box"
-                                    ? `3D-предпросмотр шкатулки с кодовым замком: корпус ${params.cipherSize} миллиметров, код «${params.cipherWord}», ${Array.from(params.cipherWord).length} кольца, ${params.cipherLidText ? `надпись на крышке «${params.cipherLidText}»` : "крышка без надписи"}`
-                                    : params.model === "gift_box"
-                                      ? `3D-предпросмотр подарочной коробки «${GIFT_BOX_SHAPE_LABELS[params.giftShape]}» ${params.giftSize} миллиметров, замки: ${[params.giftScrewLock ? "винт" : null, params.giftFalseBottom ? "двойное дно" : null, params.giftMazeLock ? "лабиринт" : null].filter((lock) => lock !== null).join(", ") || "нет"}`
-                                      : params.model === "heat_transfer"
-                                        ? `3D-предпросмотр термопринта ${params.heatTransferWidth} на ${params.heatTransferHeight} миллиметров, толщина ${heatTransferThickness(params.heatTransferLayers).toFixed(1)} миллиметра, ${params.heatTransferMirror ? "с зеркалом" : "без зеркала"}, ${params.heatTransferSvg ? "логотип загружен" : "логотип не загружен"}`
-                                        : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
+                      : params.model === "heat_transfer"
+                        ? `3D-предпросмотр термопринта ${params.heatTransferWidth} на ${params.heatTransferHeight} миллиметров, толщина ${heatTransferThickness(params.heatTransferLayers).toFixed(1)} миллиметра, ${params.heatTransferMirror ? "с зеркалом" : "без зеркала"}, ${params.heatTransferSvg ? "логотип загружен" : "логотип не загружен"}`
+                        : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
     <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-900 to-slate-900 shadow-2xl shadow-blue-950/50 sm:h-[32rem] lg:h-[38rem]">

@@ -51,8 +51,7 @@ export type {
  * Подставка под телефон ограничена углом 45–75°: на меньшем наклоне телефон
  * падает назад, на большем — стоит почти вертикально и опрокидывается вперёд.
  * Толщина 8–15 мм оставляет место чехлу, а ширина 60–100 мм совпадает с
- * шириной корпуса. Клипсы держат кабели 3–8 мм: это весь ряд USB, зарядных и
- * сетевых шнуров. Вывеска ограничена кеглем 120 мм и пятнадцатью символами:
+ * шириной корпуса. Вывеска ограничена кеглем 120 мм и пятнадцатью символами:
  * длинная строка крупным кеглем упирается в лимит ширины 800 мм, и геометрия
  * сама уменьшает буквы.
  *
@@ -101,9 +100,6 @@ export const CONSTRUCTOR_LIMITS = {
   standAngle: { min: 45, max: 75, step: 1, defaultValue: 65, decimals: 0 },
   phoneThickness: { min: 8, max: 15, step: 1, defaultValue: 11, decimals: 0 },
   standWidth: { min: 60, max: 100, step: 5, defaultValue: 80, decimals: 0 },
-  cableDiameter: { min: 3, max: 8, step: 0.5, defaultValue: 5, decimals: 1 },
-  clipCount: { min: 1, max: 10, step: 1, defaultValue: 3, decimals: 0 },
-  clipSpacing: { min: 10, max: 40, step: 1, defaultValue: 20, decimals: 0 },
   signFontSize: { min: 20, max: 120, step: 2, defaultValue: 60, decimals: 0 },
   // Меньше 11 мм полость буквы не вмещает ленту: 11 − 2 мм лица = 9 мм канала.
   signDepth: { min: 11, max: 40, step: 1, defaultValue: 18, decimals: 0 },
@@ -150,29 +146,6 @@ export const CONSTRUCTOR_LIMITS = {
   penWall: { min: 1.2, max: 4, step: 0.2, defaultValue: 1.6, decimals: 1 },
   // Число отделений: больше четырёх в габарит 50 мм уже не помещаются.
   penSections: { min: 1, max: 4, step: 1, defaultValue: 2, decimals: 0 },
-  patchSize: { min: 40, max: 140, step: 5, defaultValue: 80, decimals: 0 },
-  // Тонкая нашивка гнётся, толстая уже похожа на медаль.
-  patchThickness: { min: 1, max: 3, step: 0.2, defaultValue: 1.6, decimals: 1 },
-  patchStitches: { min: 0, max: 48, step: 4, defaultValue: 24, decimals: 0 },
-  // Плафон гирлянды: снизу широкий, сверху садится на цоколь.
-  lightDiameter: { min: 24, max: 80, step: 2, defaultValue: 44, decimals: 0 },
-  lightHeight: { min: 20, max: 60, step: 2, defaultValue: 34, decimals: 0 },
-  lightSocket: { min: 6, max: 20, step: 1, defaultValue: 10, decimals: 0 },
-  lightWall: { min: 1.2, max: 3, step: 0.2, defaultValue: 1.6, decimals: 1 },
-  // Сколько плафонов печатается одним файлом: гирлянду собирают партиями.
-  lightCount: { min: 1, max: 4, step: 1, defaultValue: 1, decimals: 0 },
-  // Крючок: плита на стену и вынос штыря от неё.
-  hookWidth: { min: 20, max: 80, step: 5, defaultValue: 40, decimals: 0 },
-  hookHeight: { min: 30, max: 100, step: 5, defaultValue: 60, decimals: 0 },
-  hookDepth: { min: 15, max: 60, step: 5, defaultValue: 35, decimals: 0 },
-  // Клипса кружки: зазор строится по толщине борта.
-  cupRim: { min: 2, max: 8, step: 0.5, defaultValue: 4, decimals: 1 },
-  cupClipWidth: { min: 10, max: 40, step: 5, defaultValue: 20, decimals: 0 },
-  cupClipLength: { min: 15, max: 50, step: 5, defaultValue: 30, decimals: 0 },
-  // Шкатулка с кодом: от габарита считаются кольца, трубка и высота корпуса.
-  cipherSize: { min: 70, max: 160, step: 5, defaultValue: 110, decimals: 0 },
-  // Подарочная коробка: высота тоже выводится из габарита, а не из слайдера.
-  giftSize: { min: 60, max: 160, step: 5, defaultValue: 120, decimals: 0 },
   // Термопринт: лист A4 — 210 мм, поэтому 200 мм — самый крупный принт,
   // который ещё переносится на футболку целиком.
   heatTransferWidth: {
@@ -208,17 +181,10 @@ export const MODEL_TYPES = [
   "box",
   "lithophane",
   "stand",
-  "clips",
   "planter",
   "coaster",
   "jewelry_stand",
   "pen_holder",
-  "fabric_patch",
-  "string_light",
-  "wall_hook",
-  "cup_clip",
-  "cipher_box",
-  "gift_box",
   "heat_transfer",
 ] as const;
 
@@ -232,17 +198,10 @@ export const MODEL_TYPE_LABELS = {
   box: "Коробки",
   lithophane: "Литофан",
   stand: "Подставка",
-  clips: "Клипсы",
   planter: "Кашпо",
   coaster: "Подставка под кружку",
   jewelry_stand: "Подставка для украшений",
   pen_holder: "Органайзер для ручек",
-  fabric_patch: "Нашивка",
-  string_light: "Абажур для гирлянды",
-  wall_hook: "Настенный крючок",
-  cup_clip: "Клипса для кружки",
-  cipher_box: "Шкатулка с кодом",
-  gift_box: "Подарочная коробка",
   heat_transfer: "Термопринт",
 } as const satisfies Record<ModelType, string>;
 
@@ -268,7 +227,7 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
   {
     id: "vase",
     title: "Генератор ваз",
-    desc: "Параметрические вазы с узорами: шесть силуэтов, математические волны и точные размеры под ваш принтер.",
+    desc: "Параметрические вазы с узорами: восемь силуэтов, математические волны и точные размеры под ваш принтер.",
   },
   {
     id: "keychain",
@@ -296,11 +255,6 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
     desc: "Настольные подставки под телефон с окном под кабель: наклон и ширина подбираются под корпус.",
   },
   {
-    id: "clips",
-    title: "Генератор клипс",
-    desc: "Держатели кабелей на планке: пружинящие C-образные зажимы под любой диаметр шнура.",
-  },
-  {
     id: "planter",
     title: "Генератор кашпо",
     desc: "Кашпо с дренажными отверстиями и поддоном в одном STL: круглая, квадратная или гранёная форма.",
@@ -319,36 +273,6 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
     id: "pen_holder",
     title: "Генератор органайзеров для ручек",
     desc: "Стаканчик с перегородками: круглая, квадратная или гранёная форма и точная толщина стенки.",
-  },
-  {
-    id: "fabric_patch",
-    title: "Генератор нашивок",
-    desc: "Нашивки с бортиком и стежками: круглая, квадратная или шестигранная форма без швейной машинки.",
-  },
-  {
-    id: "string_light",
-    title: "Генератор абажуров для гирлянды",
-    desc: "Плафоны под LED-гирлянду: конус с посадкой на цоколь, набор из нескольких штук в одном STL.",
-  },
-  {
-    id: "wall_hook",
-    title: "Генератор настенных крючков",
-    desc: "Крючки с плитой под саморезы или клейкую ленту: наклонный штырь печатается без поддержек.",
-  },
-  {
-    id: "cup_clip",
-    title: "Генератор клипс для кружки",
-    desc: "Зажим на борт кружки с прорезью под нитку: чайный пакетик больше не тонет в чашке.",
-  },
-  {
-    id: "cipher_box",
-    title: "Генератор шкатулок с кодом",
-    desc: "Шкатулка с кодовым замком из поворотных колец: колпачок снимается, только когда буквы кода встали в ряд.",
-  },
-  {
-    id: "gift_box",
-    title: "Генератор подарочных коробок",
-    desc: "Коробки с потайным замком на выбор: винт под отвёртку, двойное дно или лабиринт в юбке крышки.",
   },
   {
     id: "heat_transfer",
@@ -684,22 +608,6 @@ export type StandParams = {
 };
 
 /**
- * Клипсы для кабелей: диаметр шнура, число зажимов и шаг между ними.
- *
- * Зажимы стоят на общей планке, поэтому набор печатается одной деталью.
- * Диаметр задаёт внутренний размер C-образного зажима, шаг — расстояние между
- * центрами соседних зажимов.
- */
-export type ClipsParams = {
-  /** Наружный диаметр кабеля, мм: от него считается внутренний размер зажима. */
-  cableDiameter: number;
-  /** Сколько зажимов на планке, от 1 до 10. */
-  clipCount: number;
-  /** Расстояние между центрами соседних зажимов, мм. */
-  clipSpacing: number;
-};
-
-/**
  * Форма кашпо: круг, квадрат или шестигранник.
  *
  * `planterSize` у всех трёх форм означает один и тот же габарит «под ключ»:
@@ -840,38 +748,6 @@ export type PenHolderParams = {
   penSections: number;
 };
 
-/** Нашивка повторяет три формы кашпо: круг, квадрат и шестигранник. */
-export const PATCH_SHAPES = PLANTER_SHAPES;
-
-export type PatchShape = (typeof PATCH_SHAPES)[number];
-
-export const PATCH_SHAPE_LABELS = {
-  round: "Круглая",
-  square: "Квадратная",
-  hex: "Шестигранная",
-} as const satisfies Record<PatchShape, string>;
-
-/**
- * Тканевая нашивка: габарит, толщина, форма, бортик и число стежков.
- *
- * Плита — основа, бортик лежит по краю, а стежки идут выпуклыми точками по
- * бортику: так нашивка читается как тканая, хотя печатается пластиком.
- * Отверстия под нить не режутся — в проекте нет булевых операций, а точки
- * стоят на том же месте, где прошла бы строчка.
- */
-export type FabricPatchParams = {
-  /** Габарит «под ключ», мм: диаметр или размер многоугольника. */
-  patchSize: number;
-  /** Толщина плиты, мм. */
-  patchThickness: number;
-  /** Форма в плане: круг, квадрат или шестигранник. */
-  patchShape: PatchShape;
-  /** Бортик по краю плиты высотой 1 мм. */
-  patchBorder: boolean;
-  /** Число стежков по бортику: 0 — без строчки. */
-  patchStitches: number;
-};
-
 /**
  * Термопринт: логотип, который печатается плоской наклейкой и переносится на
  * ткань утюгом.
@@ -892,143 +768,6 @@ export type HeatTransferParams = {
   heatTransferLayers: number;
   /** Зеркало по X: принт переносится на ткань лицом вниз, иначе текст читается наоборот. */
   heatTransferMirror: boolean;
-};
-
-/**
- * Абажур для гирлянды: диаметр, высота, посадка на цоколь, стенка и число штук.
- *
- * Плафон — усечённый конус со стенкой: сверху остаётся отверстие под цоколь
- * LED-лампы, снизу — широкий раструб. Верхнее отверстие и держит плафон на
- * проводе, поэтому крепёж не нужен. Несколько штук печатаются в одном STL
- * рядом друг с другом — гирлянду собирают партиями.
- */
-export type StringLightParams = {
-  /** Диаметр раструба снизу, мм. */
-  lightDiameter: number;
-  /** Высота плафона, мм. */
-  lightHeight: number;
-  /** Диаметр верхнего отверстия под цоколь, мм. */
-  lightSocket: number;
-  /** Толщина стенки, мм. */
-  lightWall: number;
-  /** Сколько плафонов печатается одним файлом: от 1 до 4. */
-  lightCount: number;
-};
-
-/** Как крепится настенный крючок: саморезами или клейкой площадкой. */
-export const WALL_HOOK_MOUNTS = ["screw", "adhesive"] as const;
-
-export type WallHookMount = (typeof WALL_HOOK_MOUNTS)[number];
-
-export const WALL_HOOK_MOUNT_LABELS = {
-  screw: "Саморезы",
-  adhesive: "Клейкая площадка",
-} as const satisfies Record<WallHookMount, string>;
-
-/**
- * Настенный крючок: плита на стену и наклонный штырь.
- *
- * При печати плита лежит на столе, поэтому штырь растёт прямо из неё: его
- * нижняя грань идёт под 45°, и поддержки не нужны. На стене штырь смотрит
- * вверх и наружу, а вещь соскальзывает по нему к основанию и остаётся в
- * углу между плитой и штырём. Отверстия под саморезы сквозные; у клейкой
- * версии плита целая, с ровной площадкой под двустороннюю ленту.
- */
-export type WallHookParams = {
-  /** Ширина плиты вдоль стены, мм. */
-  hookWidth: number;
-  /** Высота плиты на стене, мм. */
-  hookHeight: number;
-  /** Вынос штыря от стены, мм. */
-  hookDepth: number;
-  /** Крепление: два отверстия под саморезы или клейкая площадка. */
-  hookMount: WallHookMount;
-};
-
-/**
- * Клипса для кружки: зажим на борт держит нитку чайного пакетика.
- *
- * Профиль — буква «П»: мостик ложится на борт кружки, короткая ножка уходит
- * внутрь, длинная свисает снаружи и несёт треугольную прорезь под нитку.
- * Стенка кружки проходит между ножками с зазором, поэтому клипса садится на
- * любой борт нужной толщины и снимается без усилия.
- */
-export type CupClipParams = {
-  /** Толщина стенки кружки, мм: зазор строится вокруг неё. */
-  cupRim: number;
-  /** Ширина клипсы вдоль борта, мм. */
-  cupClipWidth: number;
-  /** Длина наружной ножки, мм: она свисает по стенке. */
-  cupClipLength: number;
-  /** Прорезь под нитку на конце наружной ножки. */
-  cupClipHook: boolean;
-};
-
-/**
- * Шкатулка с кодовым замком.
- *
- * Кодовое слово — не надпись, а набор колёс: одна буква на кольцо. Язычки колец
- * разнесены по кругу, а в юбке колпачка напротив каждого кольца есть прорезь.
- * Колпачок снимается только тогда, когда все кольца повёрнуты в положение,
- * собравшее язычки в один ряд, поэтому код — это буквы, которые видны в этот
- * момент.
- */
-export type CipherBoxParams = {
-  /** Габарит корпуса в плане, мм: от него считаются кольца и трубка. */
-  cipherSize: number;
-  /** Код из 2–3 букв: по одной букве на кольцо. */
-  cipherWord: string;
-  /** Перегородки-разделители под кольца, цепочки и серьги. */
-  cipherInserts: boolean;
-  /** Надпись на крышке, до 14 символов; пустая строка — без надписи. */
-  cipherLidText: string;
-};
-
-/** Длина кода: одно кольцо кода не образует, больше трёх не влезает в корпус. */
-export const CIPHER_WORD_MIN_LENGTH = 2;
-export const CIPHER_WORD_MAX_LENGTH = 3;
-
-/** Лимит надписи на крышке шкатулки, символы. */
-export const CIPHER_LID_TEXT_MAX_LENGTH = 14;
-
-/** Буква кода: латиница и кириллица, без цифр, пробелов и знаков. */
-const CIPHER_LETTER = /^[\p{Script=Cyrillic}A-Z]$/u;
-
-/**
- * Форма подарочной коробки в плане: та же тройка, что у кашпо.
- *
- * Круг, квадрат и шестигранник строятся одним контуром, поэтому зазоры
- * посадки крышки и стенки одинаковы для всех трёх.
- */
-export const GIFT_BOX_SHAPES = PLANTER_SHAPES;
-
-export type GiftBoxShape = (typeof GIFT_BOX_SHAPES)[number];
-
-export const GIFT_BOX_SHAPE_LABELS = {
-  round: "Круглая",
-  square: "Квадратная",
-  hex: "Шестигранная",
-} as const satisfies Record<GiftBoxShape, string>;
-
-/**
- * Подарочная коробка с потайными замками.
- *
- * Снаружи это обычная коробка с крышкой. Замки независимы: винт в углу,
- * пластина двойного дна и лабиринт из двух стенок с проёмами. Двойное дно и
- * лабиринт занимают один и тот же объём, поэтому вместе они не включаются:
- * при включённом лабиринте пластина не печатается.
- */
-export type GiftBoxParams = {
-  /** Габарит коробки в плане, мм. */
-  giftSize: number;
-  /** Форма в плане: круглая, квадратная или шестигранная. */
-  giftShape: GiftBoxShape;
-  /** Замок-винт: крышку держит саморез в стойке корпуса. */
-  giftScrewLock: boolean;
-  /** Двойное дно: съёмная пластина, под ней тайник. */
-  giftFalseBottom: boolean;
-  /** Лабиринт: крышка садится в одном положении и поворачивается до упора. */
-  giftMazeLock: boolean;
 };
 
 /**
@@ -1270,13 +1009,6 @@ export const DEFAULT_STAND_PARAMS: StandParams = {
   standWidth: CONSTRUCTOR_LIMITS.standWidth.defaultValue,
 };
 
-/** Клипсы по умолчанию: кабель 5 мм, три зажима через 20 мм. */
-export const DEFAULT_CLIPS_PARAMS: ClipsParams = {
-  cableDiameter: CONSTRUCTOR_LIMITS.cableDiameter.defaultValue,
-  clipCount: CONSTRUCTOR_LIMITS.clipCount.defaultValue,
-  clipSpacing: CONSTRUCTOR_LIMITS.clipSpacing.defaultValue,
-};
-
 /** Кашпо по умолчанию: круглое 120 × 110 мм, стенка 2 мм, дренаж и поддон. */
 export const DEFAULT_PLANTER_PARAMS: PlanterParams = {
   planterSize: CONSTRUCTOR_LIMITS.planterSize.defaultValue,
@@ -1311,15 +1043,6 @@ export const DEFAULT_PEN_HOLDER_PARAMS: PenHolderParams = {
   penSections: CONSTRUCTOR_LIMITS.penSections.defaultValue,
 };
 
-/** Нашивка по умолчанию: круглая Ø 80 × 1.6 мм, бортик и 24 стежка. */
-export const DEFAULT_FABRIC_PATCH_PARAMS: FabricPatchParams = {
-  patchSize: CONSTRUCTOR_LIMITS.patchSize.defaultValue,
-  patchThickness: CONSTRUCTOR_LIMITS.patchThickness.defaultValue,
-  patchShape: "round",
-  patchBorder: true,
-  patchStitches: CONSTRUCTOR_LIMITS.patchStitches.defaultValue,
-};
-
 /** Термопринт по умолчанию: 100 × 100 мм, два слоя, без файла и зеркала. */
 export const DEFAULT_HEAT_TRANSFER_PARAMS: HeatTransferParams = {
   heatTransferSvg: "",
@@ -1327,15 +1050,6 @@ export const DEFAULT_HEAT_TRANSFER_PARAMS: HeatTransferParams = {
   heatTransferHeight: CONSTRUCTOR_LIMITS.heatTransferHeight.defaultValue,
   heatTransferLayers: CONSTRUCTOR_LIMITS.heatTransferLayers.defaultValue,
   heatTransferMirror: false,
-};
-
-/** Плафон по умолчанию: раструб Ø 44 мм, высота 34 мм, отверстие 10 мм. */
-export const DEFAULT_STRING_LIGHT_PARAMS: StringLightParams = {
-  lightDiameter: CONSTRUCTOR_LIMITS.lightDiameter.defaultValue,
-  lightHeight: CONSTRUCTOR_LIMITS.lightHeight.defaultValue,
-  lightSocket: CONSTRUCTOR_LIMITS.lightSocket.defaultValue,
-  lightWall: CONSTRUCTOR_LIMITS.lightWall.defaultValue,
-  lightCount: CONSTRUCTOR_LIMITS.lightCount.defaultValue,
 };
 
 /** Вывеска по умолчанию: короткое имя бренда, Roboto Bold, канал 8 мм, блоки по три буквы. */
@@ -1348,51 +1062,6 @@ export const DEFAULT_SIGN_PARAMS: SignParams = {
   signLetterGap: CONSTRUCTOR_LIMITS.signLetterGap.defaultValue,
   signBlockSize: CONSTRUCTOR_LIMITS.signBlockSize.defaultValue,
   signBaseMount: true,
-};
-
-
-/** Крючок по умолчанию: плита 40 × 60 мм, вынос 35 мм, под саморезы. */
-export const DEFAULT_WALL_HOOK_PARAMS: WallHookParams = {
-  hookWidth: CONSTRUCTOR_LIMITS.hookWidth.defaultValue,
-  hookHeight: CONSTRUCTOR_LIMITS.hookHeight.defaultValue,
-  hookDepth: CONSTRUCTOR_LIMITS.hookDepth.defaultValue,
-  hookMount: "screw",
-};
-
-/** Клипса по умолчанию: борт 4 мм, ширина 20 мм, наружная ножка 30 мм. */
-export const DEFAULT_CUP_CLIP_PARAMS: CupClipParams = {
-  cupRim: CONSTRUCTOR_LIMITS.cupRim.defaultValue,
-  cupClipWidth: CONSTRUCTOR_LIMITS.cupClipWidth.defaultValue,
-  cupClipLength: CONSTRUCTOR_LIMITS.cupClipLength.defaultValue,
-  cupClipHook: true,
-};
-
-/**
- * Шкатулка по умолчанию: корпус 110 мм, код «КОД» из трёх колец.
- *
- * Три кольца сразу показывают, как работает замок: язычки разнесены на 120°,
- * и в ряд они встают только в одном положении каждого кольца.
- */
-export const DEFAULT_CIPHER_BOX_PARAMS: CipherBoxParams = {
-  cipherSize: CONSTRUCTOR_LIMITS.cipherSize.defaultValue,
-  cipherWord: "КОД",
-  cipherInserts: true,
-  cipherLidText: "СЕКРЕТ",
-};
-
-/**
- * Подарочная коробка по умолчанию: 120 мм, квадратная, с двойным дном.
- *
- * Двойное дно включено, потому что это единственный замок, у которого на
- * столе появляется третья деталь: сразу видно, что тайник — отдельная
- * пластина, а не выемка в дне.
- */
-export const DEFAULT_GIFT_BOX_PARAMS: GiftBoxParams = {
-  giftSize: CONSTRUCTOR_LIMITS.giftSize.defaultValue,
-  giftShape: "square",
-  giftScrewLock: false,
-  giftFalseBottom: true,
-  giftMazeLock: false,
 };
 
 /**
@@ -1520,17 +1189,10 @@ export type ConstructorParams = { model: ModelType } & VaseParams &
   BoxParams &
   LithophaneParams &
   StandParams &
-  ClipsParams &
   PlanterParams &
   CoasterParams &
   JewelryStandParams &
   PenHolderParams &
-  FabricPatchParams &
-  StringLightParams &
-  WallHookParams &
-  CupClipParams &
-  CipherBoxParams &
-  GiftBoxParams &
   HeatTransferParams;
 
 /** Стартовое состояние: открывается ваза, остальные модели ждут на вкладках. */
@@ -1542,17 +1204,10 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   ...DEFAULT_BOX_PARAMS,
   ...DEFAULT_LITHOPHANE_PARAMS,
   ...DEFAULT_STAND_PARAMS,
-  ...DEFAULT_CLIPS_PARAMS,
   ...DEFAULT_PLANTER_PARAMS,
   ...DEFAULT_COASTER_PARAMS,
   ...DEFAULT_JEWELRY_STAND_PARAMS,
   ...DEFAULT_PEN_HOLDER_PARAMS,
-  ...DEFAULT_FABRIC_PATCH_PARAMS,
-  ...DEFAULT_STRING_LIGHT_PARAMS,
-  ...DEFAULT_WALL_HOOK_PARAMS,
-  ...DEFAULT_CUP_CLIP_PARAMS,
-  ...DEFAULT_CIPHER_BOX_PARAMS,
-  ...DEFAULT_GIFT_BOX_PARAMS,
   ...DEFAULT_HEAT_TRANSFER_PARAMS,
 };
 
@@ -1594,16 +1249,6 @@ export function keychainStlFileName(params: KeychainParams): string {
  */
 export function standStlFileName(params: StandParams): string {
   return `tridi-podstavka-a${params.standAngle}-t${params.phoneThickness}-w${params.standWidth}.stl`;
-}
-
-/**
- * Имя файла STL для клипс.
- *
- * Диаметр кабеля и число зажимов описывают набор полностью: шаг важен для
- * раскладки кабелей по столу, поэтому тоже входит в имя.
- */
-export function clipsStlFileName(params: ClipsParams): string {
-  return `tridi-klipsy-d${params.cableDiameter}-n${params.clipCount}-s${params.clipSpacing}.stl`;
 }
 
 /**
@@ -1655,20 +1300,6 @@ export function penHolderStlFileName(params: PenHolderParams): string {
 }
 
 /**
- * Имя файла STL для нашивки.
- *
- * Бортик и число стежков попадают суффиксами: две нашивки одного габарита
- * отличаются как раз строчкой, и по имени видно, какую деталь печатали.
- */
-export function fabricPatchStlFileName(params: FabricPatchParams): string {
-  const borderSuffix = params.patchBorder ? "-bort" : "";
-  const stitchesSuffix =
-    params.patchStitches > 0 ? `-stezhki${params.patchStitches}` : "";
-
-  return `tridi-nashivka-${params.patchShape}-d${params.patchSize}-t${params.patchThickness}${borderSuffix}${stitchesSuffix}.stl`;
-}
-
-/**
  * Имя файла STL для термопринта.
  *
  * Габарит и число слоёв входят в имя: толщина выводится из слоёв, а не
@@ -1680,70 +1311,6 @@ export function heatTransferStlFileName(params: HeatTransferParams): string {
   const mirrorSuffix = params.heatTransferMirror ? "-zerkalo" : "";
 
   return `tridi-termoprint-${params.heatTransferWidth}x${params.heatTransferHeight}-sl${params.heatTransferLayers}${mirrorSuffix}.stl`;
-}
-
-/**
- * Имя файла STL для плафонов гирлянды.
- *
- * Посадка на цоколь и число плафонов входят в имя: один и тот же раструб с
- * разным верхним отверстием на провод не наденется.
- */
-export function stringLightStlFileName(params: StringLightParams): string {
-  return `tridi-abazhur-girlyandy-d${params.lightDiameter}-h${params.lightHeight}-o${params.lightSocket}-n${params.lightCount}.stl`;
-}
-
-/**
- * Имя файла STL для настенного крючка.
- *
- * Крепление входит в имя: у версии под саморезы в плите сквозные отверстия, у
- * клейкой плита целая, и перепутать файлы в папке загрузок нельзя.
- */
-export function wallHookStlFileName(params: WallHookParams): string {
-  return `tridi-kryuchok-${params.hookMount}-w${params.hookWidth}-h${params.hookHeight}-d${params.hookDepth}.stl`;
-}
-
-/**
- * Имя файла STL для клипсы кружки.
- *
- * Толщина борта и длина ножки входят в имя: клипса под тонкий борт не сядет на
- * толстую кружку, а разная длина ножки — это разные детали.
- */
-export function cupClipStlFileName(params: CupClipParams): string {
-  const hookSuffix = params.cupClipHook ? "-nit" : "";
-
-  return `tridi-klipsa-kruzhka-t${params.cupRim}-w${params.cupClipWidth}-l${params.cupClipLength}${hookSuffix}.stl`;
-}
-
-/**
- * Имя файла STL для шкатулки с кодом.
- *
- * Само слово в имя не попадает: кириллица в заголовке ответа требует
- * filename*=UTF-8, а запасное имя всё равно осталось бы латинским. Вместо него
- * число колец — оно и есть длина кода, а буквы пользователь и так знает.
- */
-export function cipherBoxStlFileName(params: CipherBoxParams): string {
-  const rings = Array.from(params.cipherWord).length;
-
-  return `tridi-shkatulka-kod-s${params.cipherSize}-r${rings}.stl`;
-}
-
-/**
- * Имя файла STL для подарочной коробки.
- *
- * Замки перечислены в имени: коробки одного габарита отличаются только ими, и
- * в папке загрузок они не должны сливаться в один файл. Коробка без замка тоже
- * допустима — это обычная крышка с юбкой.
- */
-export function giftBoxStlFileName(params: GiftBoxParams): string {
-  const locks = [
-    params.giftScrewLock ? "vint" : "",
-    params.giftFalseBottom ? "dno" : "",
-    params.giftMazeLock ? "labirint" : "",
-  ].filter((lock) => lock !== "");
-
-  return `tridi-podarok-${params.giftShape}-s${params.giftSize}-${
-    locks.length > 0 ? locks.join("-") : "bez-zamka"
-  }.stl`;
 }
 
 /**
@@ -2031,10 +1598,6 @@ export const isCoasterShape: (value: unknown) => value is CoasterShape =
  */
 export const isPenShape: (value: unknown) => value is PenShape = isPlanterShape;
 
-/** Проверка формы нашивки: круг, квадрат или шестигранник, как у кашпо. */
-export const isPatchShape: (value: unknown) => value is PatchShape =
-  isPlanterShape;
-
 /** Проверка рельефа подставки под кружку из формы или API. */
 export function isCoasterPattern(value: unknown): value is CoasterPattern {
   return (
@@ -2048,51 +1611,6 @@ export function isJewelryConfig(value: unknown): value is JewelryConfig {
   return (
     typeof value === "string" &&
     (JEWELRY_CONFIGS as readonly string[]).includes(value)
-  );
-}
-
-/** Проверка крепления настенного крючка из формы или API. */
-export function isWallHookMount(value: unknown): value is WallHookMount {
-  return (
-    typeof value === "string" &&
-    (WALL_HOOK_MOUNTS as readonly string[]).includes(value)
-  );
-}
-
-/** Проверка формы подарочной коробки из формы или API. */
-export function isGiftBoxShape(value: unknown): value is GiftBoxShape {
-  return (
-    typeof value === "string" &&
-    (GIFT_BOX_SHAPES as readonly string[]).includes(value)
-  );
-}
-
-/**
- * Строгая проверка кода шкатулки.
- *
- * Код состоит только из букв: цифры и знаки на маленьком паду не читаются, а
- * пробел сдвинул бы кольца. Длина — от двух до трёх букв, по букве на кольцо.
- */
-export function isCipherWord(value: unknown): value is string {
-  if (typeof value !== "string") {
-    return false;
-  }
-
-  const length = Array.from(value).length;
-
-  return (
-    length >= CIPHER_WORD_MIN_LENGTH &&
-    length <= CIPHER_WORD_MAX_LENGTH &&
-    sanitizeCipherWord(value) === value
-  );
-}
-
-/** Строгая проверка надписи на крышке: пустая строка допустима. */
-export function isCipherLidText(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    Array.from(value).length <= CIPHER_LID_TEXT_MAX_LENGTH &&
-    Array.from(value).every((char) => TEXT_CHAR.test(char))
   );
 }
 
@@ -2301,26 +1819,6 @@ export function sanitizeQrCardPhone(value: string): string {
     .filter((char) => /^[\d+()\s-]$/.test(char))
     .slice(0, 20)
     .join("");
-}
-
-/**
- * Очистка кода шкатулки для поля ввода.
- *
- * Остаются только буквы в верхнем регистре: код набирают заглавными, а строчная
- * буква на маленьком паду сливалась бы с рельефом. Пробелы и знаки отбрасываются,
- * а лишние буквы обрезаются: кольца строятся по длине слова, и «А Б В» должно
- * дать три кольца, а не пять символов.
- */
-export function sanitizeCipherWord(value: string): string {
-  return Array.from(value.toUpperCase())
-    .filter((char) => CIPHER_LETTER.test(char))
-    .slice(0, CIPHER_WORD_MAX_LENGTH)
-    .join("");
-}
-
-/** Очистка надписи на крышке шкатулки: те же символы, лимит 14. */
-export function sanitizeCipherLidText(value: string): string {
-  return cleanText(value, CIPHER_LID_TEXT_MAX_LENGTH);
 }
 
 /** Значение внутри границ. */
@@ -2549,32 +2047,6 @@ export function normalizeStandParams(params: Partial<StandParams>): StandParams 
 }
 
 /**
- * Проверяет и выравнивает параметры клипс.
- *
- * Диаметр кабеля выравнивается по шагу 0.5 мм: зажим держит шнур за счёт
- * натяга, и полмиллиметра уже заметны. Число зажимов — целое от 1 до 10, шаг
- * между ними — от 10 до 40 мм, иначе соседние зажимы срастаются в один.
- */
-export function normalizeClipsParams(params: Partial<ClipsParams>): ClipsParams {
-  return {
-    cableDiameter: snap(
-      params.cableDiameter ?? DEFAULT_CLIPS_PARAMS.cableDiameter,
-      CONSTRUCTOR_LIMITS.cableDiameter,
-    ),
-    clipCount: Math.round(
-      snap(
-        params.clipCount ?? DEFAULT_CLIPS_PARAMS.clipCount,
-        CONSTRUCTOR_LIMITS.clipCount,
-      ),
-    ),
-    clipSpacing: snap(
-      params.clipSpacing ?? DEFAULT_CLIPS_PARAMS.clipSpacing,
-      CONSTRUCTOR_LIMITS.clipSpacing,
-    ),
-  };
-}
-
-/**
  * Проверяет и выравнивает параметры кашпо.
  *
  * Три числа выравниваются по шагу слайдеров: габарит и высота — по 5 мм,
@@ -2700,41 +2172,6 @@ export function normalizePenHolderParams(
 }
 
 /**
- * Проверяет и выравнивает параметры нашивки.
- *
- * Толщина выравнивается по 0.2 мм, стежки — целое число от 0 до 48: 0 честно
- * выключает строчку, а не оставляет одну точку. Бортик принимается только
- * булевым значением, как дренаж кашпо.
- */
-export function normalizeFabricPatchParams(
-  params: Partial<FabricPatchParams>,
-): FabricPatchParams {
-  return {
-    patchSize: snap(
-      params.patchSize ?? DEFAULT_FABRIC_PATCH_PARAMS.patchSize,
-      CONSTRUCTOR_LIMITS.patchSize,
-    ),
-    patchThickness: snap(
-      params.patchThickness ?? DEFAULT_FABRIC_PATCH_PARAMS.patchThickness,
-      CONSTRUCTOR_LIMITS.patchThickness,
-    ),
-    patchShape: isPatchShape(params.patchShape)
-      ? params.patchShape
-      : DEFAULT_FABRIC_PATCH_PARAMS.patchShape,
-    patchBorder:
-      typeof params.patchBorder === "boolean"
-        ? params.patchBorder
-        : DEFAULT_FABRIC_PATCH_PARAMS.patchBorder,
-    patchStitches: Math.round(
-      snap(
-        params.patchStitches ?? DEFAULT_FABRIC_PATCH_PARAMS.patchStitches,
-        CONSTRUCTOR_LIMITS.patchStitches,
-      ),
-    ),
-  };
-}
-
-/**
  * Проверяет и выравнивает параметры термопринта.
  *
  * Разметка принимается только целой: пустая строка — штатное «файл ещё не
@@ -2746,7 +2183,7 @@ export function normalizeFabricPatchParams(
  * конечное число, заменяется дефолтом: `NaN` из пустого слайдера сломал бы
  * геометрию. Ширина и высота независимы: ни одна не выводится из другой,
  * пропорции применяются при загрузке файла в панели, а не при нормализации.
- * Зеркало принимается только булевым, как бортик нашивки.
+ * Зеркало принимается только булевым, как дренаж кашпо.
  */
 export function normalizeHeatTransferParams(
   params: Partial<HeatTransferParams>,
@@ -2786,194 +2223,6 @@ export function normalizeHeatTransferParams(
       typeof params.heatTransferMirror === "boolean"
         ? params.heatTransferMirror
         : DEFAULT_HEAT_TRANSFER_PARAMS.heatTransferMirror,
-  };
-}
-
-/**
- * Проверяет и выравнивает параметры плафона для гирлянды.
- *
- * Диаметр, высота и стенка выравниваются по шагу слайдеров. Верхнее отверстие
- * дополнительно ограничено габаритом: если оно вместе со стенкой шире раструба,
- * внутренняя поверхность конуса пересекает наружную и деталь выворачивается.
- * Число плафонов целое, от 1 до 4.
- */
-export function normalizeStringLightParams(
-  params: Partial<StringLightParams>,
-): StringLightParams {
-  const lightDiameter = snap(
-    params.lightDiameter ?? DEFAULT_STRING_LIGHT_PARAMS.lightDiameter,
-    CONSTRUCTOR_LIMITS.lightDiameter,
-  );
-  const lightWall = snap(
-    params.lightWall ?? DEFAULT_STRING_LIGHT_PARAMS.lightWall,
-    CONSTRUCTOR_LIMITS.lightWall,
-  );
-  const maxSocket = Math.max(
-    CONSTRUCTOR_LIMITS.lightSocket.min,
-    lightDiameter - 4 * lightWall - 2,
-  );
-
-  return {
-    lightDiameter,
-    lightHeight: snap(
-      params.lightHeight ?? DEFAULT_STRING_LIGHT_PARAMS.lightHeight,
-      CONSTRUCTOR_LIMITS.lightHeight,
-    ),
-    lightSocket: snap(
-      Math.min(
-        params.lightSocket ?? DEFAULT_STRING_LIGHT_PARAMS.lightSocket,
-        maxSocket,
-      ),
-      CONSTRUCTOR_LIMITS.lightSocket,
-    ),
-    lightWall,
-    lightCount: Math.round(
-      snap(
-        params.lightCount ?? DEFAULT_STRING_LIGHT_PARAMS.lightCount,
-        CONSTRUCTOR_LIMITS.lightCount,
-      ),
-    ),
-  };
-}
-
-/**
- * Проверяет и выравнивает параметры настенного крючка.
- *
- * Плита и вынос выравниваются по шагу 5 мм, крепление — только `screw` или
- * `adhesive`. Отдельных ограничений между полями нет: короткий штырь на высокой
- * плите — это осознанный выбор, а не ошибка ввода.
- */
-export function normalizeWallHookParams(
-  params: Partial<WallHookParams>,
-): WallHookParams {
-  return {
-    hookWidth: snap(
-      params.hookWidth ?? DEFAULT_WALL_HOOK_PARAMS.hookWidth,
-      CONSTRUCTOR_LIMITS.hookWidth,
-    ),
-    hookHeight: snap(
-      params.hookHeight ?? DEFAULT_WALL_HOOK_PARAMS.hookHeight,
-      CONSTRUCTOR_LIMITS.hookHeight,
-    ),
-    hookDepth: snap(
-      params.hookDepth ?? DEFAULT_WALL_HOOK_PARAMS.hookDepth,
-      CONSTRUCTOR_LIMITS.hookDepth,
-    ),
-    hookMount: isWallHookMount(params.hookMount)
-      ? params.hookMount
-      : DEFAULT_WALL_HOOK_PARAMS.hookMount,
-  };
-}
-
-/**
- * Проверяет и выравнивает параметры клипсы для кружки.
- *
- * Толщина борта выравнивается по шагу 0.5: от неё зависит зазор между ножками,
- * и полмиллиметра здесь заметны. Прорезь под нитку принимается только как
- * boolean — в геометрии это либо вырез в ножке, либо ровный край.
- */
-export function normalizeCupClipParams(
-  params: Partial<CupClipParams>,
-): CupClipParams {
-  return {
-    cupRim: snap(
-      params.cupRim ?? DEFAULT_CUP_CLIP_PARAMS.cupRim,
-      CONSTRUCTOR_LIMITS.cupRim,
-    ),
-    cupClipWidth: snap(
-      params.cupClipWidth ?? DEFAULT_CUP_CLIP_PARAMS.cupClipWidth,
-      CONSTRUCTOR_LIMITS.cupClipWidth,
-    ),
-    cupClipLength: snap(
-      params.cupClipLength ?? DEFAULT_CUP_CLIP_PARAMS.cupClipLength,
-      CONSTRUCTOR_LIMITS.cupClipLength,
-    ),
-    cupClipHook:
-      typeof params.cupClipHook === "boolean"
-        ? params.cupClipHook
-        : DEFAULT_CUP_CLIP_PARAMS.cupClipHook,
-  };
-}
-
-/**
- * Проверяет и выравнивает параметры шкатулки с кодом.
- *
- * Габарит выравнивается по шагу слайдера, код очищается до букв: по нему
- * строятся кольца, поэтому пустое поле возвращает слово по умолчанию. Надпись
- * на крышке принимается как текст без знаков вне шрифта.
- */
-export function normalizeCipherBoxParams(
-  params: Partial<CipherBoxParams>,
-): CipherBoxParams {
-  return {
-    cipherSize: snap(
-      params.cipherSize ?? DEFAULT_CIPHER_BOX_PARAMS.cipherSize,
-      CONSTRUCTOR_LIMITS.cipherSize,
-    ),
-    cipherWord: normalizeCipherWord(
-      params.cipherWord ?? DEFAULT_CIPHER_BOX_PARAMS.cipherWord,
-    ),
-    cipherInserts:
-      typeof params.cipherInserts === "boolean"
-        ? params.cipherInserts
-        : DEFAULT_CIPHER_BOX_PARAMS.cipherInserts,
-    cipherLidText: sanitizeCipherLidText(
-      params.cipherLidText ?? DEFAULT_CIPHER_BOX_PARAMS.cipherLidText,
-    ),
-  };
-}
-
-/**
- * Код не короче двух колец.
- *
- * Одно кольцо — не код: его язычок открывает единственную прорезь в любом
- * положении, и колпачок снимается без подбора букв. Поэтому одна введённая
- * буква повторяется, а пустое поле превращается в слово по умолчанию.
- */
-function normalizeCipherWord(value: string): string {
-  const word = sanitizeCipherWord(value);
-
-  if (word === "") {
-    return DEFAULT_CIPHER_BOX_PARAMS.cipherWord;
-  }
-
-  return Array.from(word).length < CIPHER_WORD_MIN_LENGTH ? word + word : word;
-}
-
-/**
- * Проверяет и выравнивает параметры подарочной коробки.
- *
- * Габарит и форма проверяются теми же правилами, что у кашпо. Двойное дно и
- * лабиринт занимают один объём: полки двойного дна перекрыли бы стойку, и
- * крышка не села бы, поэтому при включённом лабиринте пластина выключается.
- * Винт совместим с обоими — он стоит в углу корпуса.
- */
-export function normalizeGiftBoxParams(
-  params: Partial<GiftBoxParams>,
-): GiftBoxParams {
-  const mazeLock =
-    typeof params.giftMazeLock === "boolean"
-      ? params.giftMazeLock
-      : DEFAULT_GIFT_BOX_PARAMS.giftMazeLock;
-  const falseBottom =
-    typeof params.giftFalseBottom === "boolean"
-      ? params.giftFalseBottom
-      : DEFAULT_GIFT_BOX_PARAMS.giftFalseBottom;
-
-  return {
-    giftSize: snap(
-      params.giftSize ?? DEFAULT_GIFT_BOX_PARAMS.giftSize,
-      CONSTRUCTOR_LIMITS.giftSize,
-    ),
-    giftShape: isGiftBoxShape(params.giftShape)
-      ? params.giftShape
-      : DEFAULT_GIFT_BOX_PARAMS.giftShape,
-    giftScrewLock:
-      typeof params.giftScrewLock === "boolean"
-        ? params.giftScrewLock
-        : DEFAULT_GIFT_BOX_PARAMS.giftScrewLock,
-    giftFalseBottom: mazeLock ? false : falseBottom,
-    giftMazeLock: mazeLock,
   };
 }
 
@@ -3177,17 +2426,10 @@ export function normalizeConstructorParams(
     ...normalizeBoxParams(params),
     ...normalizeLithophaneParams(params),
     ...normalizeStandParams(params),
-    ...normalizeClipsParams(params),
     ...normalizePlanterParams(params),
     ...normalizeCoasterParams(params),
     ...normalizeJewelryStandParams(params),
     ...normalizePenHolderParams(params),
-    ...normalizeFabricPatchParams(params),
-    ...normalizeStringLightParams(params),
-    ...normalizeWallHookParams(params),
-    ...normalizeCupClipParams(params),
-    ...normalizeCipherBoxParams(params),
-    ...normalizeGiftBoxParams(params),
     ...normalizeHeatTransferParams(params),
   };
 }
