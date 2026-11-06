@@ -20,6 +20,7 @@ import {
   heartLayout,
   isKeychainPresetImplemented,
   nfcLayout,
+  protrudingTabLayout,
   ringHoleSideOffsetMm,
   ringHoleSideWallMm,
   starburstLayout,
@@ -915,8 +916,8 @@ function formatBoxCells(cells: readonly number[]): string {
  * Где стоит отверстие Ø5 мм у выбранного пресета.
  *
  * Числа берутся из констант геометрии, а не набираются здесь заново: подпись
- * «Готово» обещает ту же дырку, что уедет в STL. Позиции `tab` здесь нет — она
- * ещё не реализована и в реестре не заявлена.
+ * «Готово» обещает ту же дырку, что уедет в STL. Ушко считается через
+ * `protrudingTabLayout` — та же функция, что строит дугу пятака.
  */
 function holePlacementNote(
   presetId: KeychainPresetId,
@@ -932,6 +933,12 @@ function holePlacementNote(
     case "none":
       return "без отверстия под кольцо";
 
+    case "tab": {
+      const tab = protrudingTabLayout(params.length);
+
+      return `ушко Ø${tab.diameterMm} мм сверху, ${hole} внутри ушка (габарит +${tab.protrusionMm} мм по высоте)`;
+    }
+
     default:
       return `${hole} в ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края`;
   }
@@ -941,8 +948,8 @@ function holePlacementNote(
  * Фраза про отверстие Ø5 мм для подписи пресета.
  *
  * Подпись обещает ровно то, что вырезано: `none` — «без отверстия», боковая
- * позиция — сдвиг в миллиметрах из той же функции, что строит геометрию. Так
- * список и STL не могут разойтись.
+ * позиция — сдвиг в миллиметрах из той же функции, что строит геометрию, `tab` —
+ * ушко с числами из `protrudingTabLayout`. Так список и STL не могут разойтись.
  */
 function ringPhrase(
   presetId: KeychainPresetId,
@@ -958,6 +965,12 @@ function ringPhrase(
     return centeredNone ?? "без отверстия под кольцо";
   }
 
+  if (placement === "tab") {
+    const tab = protrudingTabLayout(params.length);
+
+    return `ушко Ø${tab.diameterMm} мм сверху с отверстием Ø${RING_HOLE_DIAMETER_MM} мм внутри (габарит +${tab.protrusionMm} мм по высоте)`;
+  }
+
   if (placement === "left" || placement === "right") {
     return sided(
       ringHoleSideOffsetMm(presetId, params.width),
@@ -966,6 +979,44 @@ function ringPhrase(
   }
 
   return centered;
+}
+
+/**
+ * Подсказка под списком «Отверстие»: что именно меняется в геометрии.
+ *
+ * Первой идёт причина NFC-конфликта: если карман перекрывает отверстие, совет про
+ * миллиметры сдвига только мешает. Дальше — ветка по позиции: у ушка габарит
+ * растёт на выступ пятака, у остальных меняется только само отверстие. Ширина и
+ * толщина не меняются никогда, о чём и говорит последняя фраза.
+ */
+function holePlacementHintText(
+  presetId: KeychainPresetId | null,
+  params: ConstructorParams,
+  sideOffsetMm: number,
+  sideWallMm: number | null,
+  nfcConflictReason: string | null,
+): string {
+  if (params.nfcEnabled && nfcConflictReason) {
+    return nfcConflictReason;
+  }
+
+  switch (params.holePlacement) {
+    case "none":
+      return `Отверстия не будет: брелок напечатается без крепления под кольцо${presetId === "ticket" ? ", проушина Ø11 мм остаётся частью силуэта" : ""}. Габарит и толщина не меняются.`;
+
+    case "tab": {
+      const tab = protrudingTabLayout(params.length);
+
+      return `Ушко Ø${tab.diameterMm} мм выступает на ${tab.protrusionMm} мм над верхним краем, отверстие Ø${RING_HOLE_DIAMETER_MM} мм — внутри ушка. Габарит по высоте ${params.length + tab.protrusionMm} мм вместо ${params.length}, ширина и толщина не меняются.`;
+    }
+
+    case "left":
+    case "right":
+      return `Смещение ${sideOffsetMm} мм от оси${sideWallMm !== null ? `, стенка до кромки ${sideWallMm.toFixed(1)} мм` : ""}, высота отверстия прежняя${presetId === "apple-tag" ? ` — ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края` : ""}. Габарит и толщина не меняются.`;
+
+    default:
+      return `Отверстие Ø${RING_HOLE_DIAMETER_MM} мм по центру силуэта${presetId === "apple-tag" ? ` в ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края` : ""}: остальные размеры не меняются.`;
+  }
 }
 
 /**
@@ -1484,10 +1535,10 @@ export function ParameterPanel({
   /**
    * Пункты списка «Отверстие»: только позиции, которые держит силуэт.
    *
-   * Список берётся из реестра: Apple Tag и Heart заявляют четыре позиции, шесть
-   * простых силуэтов — центр и «без отверстия», у QR-визитки крепление своё и
-   * список пуст, поэтому селекта у неё нет вовсе — обещать позицию, которую
-   * геометрия не строит, было бы обманом.
+   * Список берётся из реестра: Apple Tag заявляет пять позиций (включая ушко),
+   * Heart — четыре, Brick — три, остальные простые силуэты — центр и «без
+   * отверстия», у QR-визитки крепление своё и список пуст, поэтому селекта у неё
+   * нет вовсе — обещать позицию, которую геометрия не строит, было бы обманом.
    */
   const holePlacementOptions = (
     selectedKeychainPreset?.holePlacements ?? []
@@ -1517,15 +1568,14 @@ export function ParameterPanel({
       })
     : null;
 
-  /** Куда сдвинулось отверстие и что при этом не изменилось: у каждого силуэта своё. */
-  const holePlacementHint =
-    params.nfcEnabled && presetNfc?.holeConflictReason
-      ? presetNfc.holeConflictReason
-      : params.holePlacement === "none"
-        ? `Отверстия не будет: брелок напечатается без крепления под кольцо${params.keychainPreset === "ticket" ? ", проушина Ø11 мм остаётся частью силуэта" : ""}. Габарит и толщина не меняются.`
-        : params.holePlacement === "center"
-          ? `Отверстие Ø${RING_HOLE_DIAMETER_MM} мм по центру силуэта${params.keychainPreset === "apple-tag" ? ` в ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края` : ""}: остальные размеры не меняются.`
-          : `Смещение ${holeSideOffsetMm} мм от оси${holeSideWallMm !== null ? `, стенка до кромки ${holeSideWallMm.toFixed(1)} мм` : ""}, высота отверстия прежняя${params.keychainPreset === "apple-tag" ? ` — ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края` : ""}. Габарит и толщина не меняются.`;
+  /** Куда переехало отверстие и что при этом не изменилось: у каждого силуэта своё. */
+  const holePlacementHint = holePlacementHintText(
+    params.keychainPreset ?? null,
+    params,
+    holeSideOffsetMm,
+    holeSideWallMm,
+    params.nfcEnabled ? (presetNfc?.holeConflictReason ?? null) : null,
+  );
 
   /** Итоговая причина, по которой кнопки скачивания заблокированы. */
   const exportBlockReason =

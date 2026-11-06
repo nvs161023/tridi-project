@@ -185,11 +185,22 @@ const TICKET_SLOT_EDGE_MARGIN_MM = 4;
 /** Радиус полукруглого выреза на боковой кромке, мм: «зацеп» линии отрыва. */
 const TICKET_NOTCH_RADIUS_MM = 2.5;
 
-/** Диаметр пятака проушины, мм. */
-const TICKET_TAB_DIAMETER_MM = 11;
+/**
+ * Диаметр пятака проушины, мм.
+ *
+ * Один и тот же пятак у билета, Apple Tag и кирпича: Ø11 мм — это 3 мм мяса вокруг
+ * отверстия Ø5 мм в самом узком месте ушка, то есть вдвое больше стенки сопла.
+ */
+const PROTRUDING_TAB_DIAMETER_MM = 11;
 
-/** Выступ проушины над верхней кромкой билета, мм. */
-const TICKET_TAB_PROTRUSION_MM = 4;
+/**
+ * Выступ проушины над верхней кромкой заготовки, мм.
+ *
+ * 4 мм — видимая часть пятака: его центр стоит на 1.5 мм ниже кромки, поэтому дуга
+ * выходит наружу ровно на 5.5 − 1.5 = 4 мм, и габарит по высоте растёт на те же
+ * 4 мм. Кольцо проходит сквозь ушко, не задевая тело.
+ */
+const PROTRUDING_TAB_PROTRUSION_MM = 4;
 
 /** Лучей у вспышки: восемь вершин через 45° читаются как звезда, а не шестерня. */
 const STARBURST_RAY_COUNT = 8;
@@ -466,6 +477,85 @@ const GEAR_HUB_EMBED_MM = 0.2;
 const GEAR_HUB_HOLE_GAP_MM = 0.15;
 
 /**
+ * Раскладка проушины, выступающей над верхней кромкой: пятак Ø11 мм с отверстием
+ * Ø5 мм внутри.
+ *
+ * Общая функция для билета, Apple Tag и кирпича: числа на плашке в панели и контур
+ * в STL считаются в одном месте, поэтому «ушко Ø11, +4 мм» не может разойтись с
+ * моделью. Пятак — не отдельное тело: его дуга подменяет участок верхней кромки,
+ * контур остаётся одним, без слияния геометрий и без CSG.
+ *
+ * Центр отсчитывается от номинального габарита: `height / 2 + 4 − 5.5`, то есть на
+ * 1.5 мм ниже кромки. В профиле радиус меньше номинала на фаску, и разность
+ * `profileHalfHeight − centerY` от высоты не зависит (0.4 + 1.5 = 1.1 мм), поэтому
+ * полухорда одна на любой размер: ушко не вырождается ни на 20, ни на 100 мм.
+ */
+export type ProtrudingTabLayout = {
+  /** Номинальный Y центра пятака — он же центр отверстия Ø5 мм, мм. */
+  centerY: number;
+  /** Диаметр пятака по номиналу, мм. */
+  diameterMm: number;
+  /** Выступ пятака над верхней кромкой заготовки, мм. */
+  protrusionMm: number;
+  /** Радиус пятака по профилю, мм: номинал минус фаска. */
+  profileRadiusMm: number;
+  /** Полухорда пересечения дуги с верхней кромкой профиля, мм. */
+  chordMm: number;
+  /** Угол начала дуги от правой точки пересечения, рад. */
+  startAngle: number;
+  /** Угол возврата дуги к левой точке пересечения, рад. */
+  endAngle: number;
+};
+
+export function protrudingTabLayout(height: number): ProtrudingTabLayout {
+  const centerY =
+    height / 2 + PROTRUDING_TAB_PROTRUSION_MM - PROTRUDING_TAB_DIAMETER_MM / 2;
+  const profileHalfHeight = Math.max(height - PRESET_BEVEL_SIZE_MM * 2, 1) / 2;
+  const profileRadiusMm = PROTRUDING_TAB_DIAMETER_MM / 2 - PRESET_BEVEL_SIZE_MM;
+  // Насколько центр пятака ниже верхней кромки профиля: 1.1 мм при любой высоте.
+  const drop = profileHalfHeight - centerY;
+  const chordMm = Math.sqrt(
+    Math.max(profileRadiusMm * profileRadiusMm - drop * drop, 0),
+  );
+  const startAngle = Math.atan2(drop, chordMm);
+
+  return {
+    centerY,
+    diameterMm: PROTRUDING_TAB_DIAMETER_MM,
+    protrusionMm: PROTRUDING_TAB_PROTRUSION_MM,
+    profileRadiusMm,
+    chordMm,
+    startAngle,
+    endAngle: Math.PI - startAngle,
+  };
+}
+
+/**
+ * Верхняя кромка с проушиной: правая точка пересечения, дуга пятака, левая.
+ *
+ * Общий кусок контура для билета, Apple Tag и кирпича. Контур уходит на дугу ровно
+ * там, где пятак пересекает кромку, поэтому ушко растёт из тела, а не садится на
+ * него сверху, — и модель остаётся одним контуром. Обход против часовой стрелки,
+ * как у всего силуэта.
+ */
+function appendTabTopEdge(
+  shape: Shape,
+  halfHeight: number,
+  tab: ProtrudingTabLayout,
+): void {
+  shape.lineTo(tab.chordMm, halfHeight);
+  shape.absarc(
+    0,
+    tab.centerY,
+    tab.profileRadiusMm,
+    tab.startAngle,
+    tab.endAngle,
+    false,
+  );
+  shape.lineTo(-tab.chordMm, halfHeight);
+}
+
+/**
  * Раскладка билета: корешок снизу, линия отрыва со щелями и проушина.
  *
  * Общая функция для геометрии и подписи в панели, как `brickStudLayout`: числа
@@ -524,8 +614,7 @@ export function ticketLayout(width: number, height: number): TicketLayout {
   );
   // Проушина выступает над верхней кромкой ровно на 4 мм, поэтому центр пятака
   // лежит на 1.5 мм ниже кромки: 5.5 − 4 = 1.5 при пятаке Ø11.
-  const ringY =
-    height / 2 + TICKET_TAB_PROTRUSION_MM - TICKET_TAB_DIAMETER_MM / 2;
+  const ringY = protrudingTabLayout(height).centerY;
 
   return {
     stubHeight,
@@ -535,7 +624,7 @@ export function ticketLayout(width: number, height: number): TicketLayout {
     slotStep: TICKET_SLOT_STEP_MM,
     slotXs,
     ringY,
-    tabProtrusion: TICKET_TAB_PROTRUSION_MM,
+    tabProtrusion: PROTRUDING_TAB_PROTRUSION_MM,
   };
 }
 
@@ -1169,8 +1258,8 @@ export function ringHoleSideOffsetMm(
  * Позиция отверстия для пресета: значение из параметров, если силуэт его держит.
  *
  * Панель и геометрия читают одно правило, поэтому список пунктов и вырезанное
- * отверстие не могут разойтись. `tab` пока не реализована: до T3 она возвращает
- * центр, чтобы модель не осталась без крепления вовсе.
+ * отверстие не могут разойтись. `tab` — не исключение: её строят только те
+ * силуэты, у которых она заявлена в реестре, остальным она достаётся как центр.
  */
 function presetHolePlacement(
   presetId: KeychainPresetId,
@@ -1179,10 +1268,6 @@ function presetHolePlacement(
   const placement = isHolePlacement(params.holePlacement)
     ? params.holePlacement
     : "center";
-
-  if (placement === "tab") {
-    return "center";
-  }
 
   return keychainPresetById(presetId).holePlacements.includes(placement)
     ? placement
@@ -1825,7 +1910,12 @@ function extrudePresetBody(
  *
  * Позиция отверстия приходит из `holePlacements`: `center` — по оси, `left` и
  * `right` — те же 5 мм от верхнего края, но со сдвигом 8 мм к боковой кромке,
- * `none` — отверстия нет вовсе. `tab` ещё не реализована и пока строит центр.
+ * `none` — отверстия нет вовсе, `tab` — отверстие переезжает в проушину Ø11 мм,
+ * которая выступает над верхней кромкой на 4 мм (`protrudingTabLayout`).
+ *
+ * Проушина — часть того же контура, а не второе тело: её дуга подменяет участок
+ * верхней кромки, поэтому модель остаётся одним `ExtrudeGeometry`, и скругление
+ * поджимается так, чтобы на кромке осталось место под эту дугу.
  *
  * Толщина держится ровно по слайдеру: выдавливание идёт на
  * `thickness − 2 × bevelThickness`, а сдвиг на `bevelThickness` ставит нижнюю
@@ -1841,12 +1931,19 @@ export function buildAppleTag(
   // Профиль Shape — это контур крышки: фаска раздвигает его на bevel наружу.
   const profileWidth = Math.max(params.width - bevel * 2, 1);
   const profileHeight = Math.max(params.height - bevel * 2, 1);
+  const halfWidth = profileWidth / 2;
+  const halfHeight = profileHeight / 2;
+  const tab =
+    presetHolePlacement("apple-tag", params) === "tab"
+      ? protrudingTabLayout(params.height)
+      : null;
+  // Скругление не должно съесть верхнюю кромку целиком: на неё садится дуга
+  // проушины, и между ними обязан остаться прямой участок.
   const radius = Math.min(
     APPLE_TAG_CORNER_RADIUS_MM,
     Math.min(profileWidth, profileHeight) / 2,
+    tab ? Math.max(halfWidth - tab.chordMm, 0) : halfWidth,
   );
-  const halfWidth = profileWidth / 2;
-  const halfHeight = profileHeight / 2;
 
   const shape = new Shape();
 
@@ -1869,6 +1966,11 @@ export function buildAppleTag(
     Math.PI / 2,
     false,
   );
+  // Верхняя кромка: без проушины — прямая, с проушиной — дуга пятака.
+  if (tab) {
+    appendTabTopEdge(shape, halfHeight, tab);
+  }
+
   shape.lineTo(-halfWidth + radius, halfHeight);
   shape.absarc(
     -halfWidth + radius,
@@ -1889,13 +1991,14 @@ export function buildAppleTag(
   );
   shape.closePath();
 
-  // Отверстие ставится по выбранной позиции: центр, сдвиг к кромке или без
-  // отверстия вовсе. Центр отсчитывается от номинального габарита, а не от
-  // контура крышки: панель обещает 5 мм от края заготовки.
+  // Отверстие ставится по выбранной позиции: центр, сдвиг к кромке, проушина или
+  // без отверстия вовсе. Центр отсчитывается от номинального габарита, а не от
+  // контура крышки: панель обещает 5 мм от края заготовки, а у проушины — центр
+  // пятака из `protrudingTabLayout`.
   const hole = presetRingHole(
     "apple-tag",
     params,
-    params.height / 2 - APPLE_TAG_RING_HOLE_INSET_MM,
+    tab ? tab.centerY : params.height / 2 - APPLE_TAG_RING_HOLE_INSET_MM,
   );
 
   if (hole) {
@@ -2363,6 +2466,55 @@ function brickStudGeometry(): BufferGeometry {
 
 
 /**
+ * Контур кирпича с проушиной сверху.
+ *
+ * Повторяет `roundedPolygonShape` теми же квадратичными углами, но верхняя грань
+ * уступает место дуге пятака: между скруглениями остаются два прямых участка, а
+ * посередине контур уходит на дугу и возвращается обратно. Отдельная функция, а не
+ * ветка внутри `roundedPolygonShape`: у шестигранника ушка нет и не будет.
+ */
+function brickTabShape(
+  halfWidth: number,
+  halfHeight: number,
+  corner: number,
+  tab: ProtrudingTabLayout,
+): Shape {
+  const shape = new Shape();
+
+  // Правый нижний угол: от нижней кромки к правой стенке.
+  shape.moveTo(halfWidth - corner, -halfHeight);
+  shape.quadraticCurveTo(
+    halfWidth,
+    -halfHeight,
+    halfWidth,
+    -halfHeight + corner,
+  );
+  // Правый верхний угол: от правой стенки к верхней кромке.
+  shape.lineTo(halfWidth, halfHeight - corner);
+  shape.quadraticCurveTo(halfWidth, halfHeight, halfWidth - corner, halfHeight);
+  // Верхняя кромка с проушиной, затем левый верхний угол.
+  appendTabTopEdge(shape, halfHeight, tab);
+  shape.lineTo(-halfWidth + corner, halfHeight);
+  shape.quadraticCurveTo(
+    -halfWidth,
+    halfHeight,
+    -halfWidth,
+    halfHeight - corner,
+  );
+  // Левый нижний угол: возврат к началу контура.
+  shape.lineTo(-halfWidth, -halfHeight + corner);
+  shape.quadraticCurveTo(
+    -halfWidth,
+    -halfHeight,
+    -halfWidth + corner,
+    -halfHeight,
+  );
+  shape.closePath();
+
+  return shape;
+}
+
+/**
  * LEGO-кирпич с шипами и отверстием под кольцо — пресет Brick.
  *
  * Основа — прямоугольник `width × height` (по умолчанию 32 × 64, то есть плита
@@ -2392,6 +2544,12 @@ function brickStudGeometry(): BufferGeometry {
  * горизонтальная, поэтому пластик над кольцом всегда один и тот же: 4.7 мм у
  * крышек и 5.5 мм на середине толщины, при любом размере заготовки.
  *
+ * Позиция отверстия приходит из `holePlacements`: центр, отверстия нет вовсе или
+ * ушко Ø11 мм сверху (`protrudingTabLayout`). Ушко — часть того же контура: дуга
+ * пятака подменяет участок верхней кромки, габарит по высоте растёт на 4 мм, а
+ * шипы остаются на месте. Верхний ряд стоит в 12 мм от кромки, поэтому пятак
+ * опускается в тело на 6.6 мм и ни один шип не пересекает.
+ *
  * NFC-карман (`nfcLayout`) собирает тело из четырёх полос и оставляет шипы
  * сверху: сплошное дно 0.6 мм, полость Ø29 мм, губа Ø22 мм и крышка. Метку
  * вкладывают в паузу на Z = 1.8 мм, после чего губа и крышка закрывают полость.
@@ -2403,21 +2561,36 @@ export function buildBrick(
   // Профиль Shape — контур крышки: фаска раздвигает его на bevel наружу.
   const halfWidth = Math.max(params.width - bevel * 2, 1) / 2;
   const halfHeight = Math.max(params.height - bevel * 2, 1) / 2;
+  const tab =
+    presetHolePlacement("brick", params) === "tab"
+      ? protrudingTabLayout(params.height)
+      : null;
+  // Угол зажимается так, чтобы на верхней кромке осталось место под дугу пятака:
+  // на 20 мм ширины скругление 8 мм оставило бы прямую грань 3.2 мм, а полухорда
+  // ушка — 4.98 мм, и контур вернулся бы назад по кромке.
+  const corner = Math.min(
+    BRICK_CORNER_RADIUS_MM,
+    halfWidth,
+    halfHeight,
+    tab ? Math.max(halfWidth - tab.chordMm, 0) : halfWidth,
+  );
   const corners: ShapePoint[] = [
     [halfWidth, halfHeight],
     [-halfWidth, halfHeight],
     [-halfWidth, -halfHeight],
     [halfWidth, -halfHeight],
   ];
-
-  const shape = roundedPolygonShape(corners, BRICK_CORNER_RADIUS_MM);
+  const shape = tab
+    ? brickTabShape(halfWidth, halfHeight, corner, tab)
+    : roundedPolygonShape(corners, corner);
 
   // Шипы живут отдельными телами и позиции не касаются: `none` убирает только
-  // отверстие в теле, ряд шипов над ним остаётся на месте.
+  // отверстие в теле, ряд шипов над ним остаётся на месте. Ушко тоже не задевает
+  // шипы: верхний ряд стоит в 12 мм от кромки, а пятак опускается в тело на 6.6 мм.
   const hole = presetRingHole(
     "brick",
     params,
-    params.height / 2 - RING_HOLE_INSET_MM,
+    tab ? tab.centerY : params.height / 2 - RING_HOLE_INSET_MM,
   );
 
   if (hole) {
@@ -2518,20 +2691,9 @@ export function buildTicket(
   // Скругление поджимается под половину габарита: на узкой заготовке углы иначе
   // наехали бы друг на друга.
   const corner = Math.min(TICKET_CORNER_RADIUS_MM, halfWidth, halfHeight);
-  // Пятак проушины: радиус профиля меньше номинала на фаску, центр совпадает с
-  // центром отверстия под кольцо.
-  const tabRadius = TICKET_TAB_DIAMETER_MM / 2 - bevel;
-  // Расстояние от центра пятака до верхней кромки профиля: 1.5 − 0.4 = 1.1 мм, то
-  // есть над габаритом проушина поднимается ровно на 4 мм. Берётся из геометрии,
-  // а не из номинала, чтобы дуга начиналась точно на кромке.
-  const tabDrop = halfHeight - layout.ringY;
-  // Полухорда, по которой дуга пятака пересекает верхнюю кромку: с неё начинается
-  // проушина, и туда же контур возвращается с другой стороны.
-  const tabChord = Math.sqrt(
-    Math.max(tabRadius * tabRadius - tabDrop * tabDrop, 0),
-  );
-  const tabStartAngle = Math.atan2(tabDrop, tabChord);
-  const tabEndAngle = Math.PI - tabStartAngle;
+  // Пятак проушины и полухорда, по которой его дуга пересекает верхнюю кромку:
+  // числа общие с Apple Tag и кирпичом (`protrudingTabLayout`).
+  const tab = protrudingTabLayout(params.height);
   const notchY = layout.perforationY;
   const shape = new Shape();
 
@@ -2569,17 +2731,9 @@ export function buildTicket(
     Math.PI / 2,
     false,
   );
-  // Верхняя кромка доходит до пятака и уступает ему место: дальше идёт дуга
-  // проушины от правой точки пересечения через верх к левой.
-  shape.lineTo(tabChord, halfHeight);
-  shape.absarc(
-    0,
-    layout.ringY,
-    tabRadius,
-    tabStartAngle,
-    tabEndAngle,
-    false,
-  );
+  // Верхняя кромка доходит до проушины и уступает ей место: дальше идёт дуга
+  // пятака от правой точки пересечения через верх к левой.
+  appendTabTopEdge(shape, halfHeight, tab);
   shape.lineTo(-halfWidth + corner, halfHeight);
   // Левый верхний угол.
   shape.absarc(
