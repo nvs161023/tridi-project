@@ -150,6 +150,8 @@ type SizeParam = Exclude<
   | "giftScrewLock"
   | "giftFalseBottom"
   | "giftMazeLock"
+  | "heatTransferSvg"
+  | "heatTransferMirror"
 >;
 
 /**
@@ -861,6 +863,24 @@ export function ConstructorClient({
     );
   }
 
+  /**
+   * Логотип термопринта приходит уже проверенным: текст SVG или контур из PNG.
+   *
+   * Одно поле на сцену, экспорт и сохранение проекта — поэтому предпросмотр не
+   * может показать не тот контур, который уйдёт в STL.
+   */
+  function updateHeatTransferSvg(heatTransferSvg: string) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, heatTransferSvg }),
+    );
+  }
+
+  function updateHeatTransferMirror(heatTransferMirror: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, heatTransferMirror }),
+    );
+  }
+
   /** Сброс возвращает к старту только текущую модель, не трогая остальные. */
   function resetParams() {
     setParams((current) =>
@@ -1084,6 +1104,8 @@ export function ConstructorClient({
           onGiftShapeChange={updateGiftShape}
           onGiftScrewLockChange={updateGiftScrewLock}
           onHasLidChange={updateHasLid}
+          onHeatTransferMirrorChange={updateHeatTransferMirror}
+          onHeatTransferSvgChange={updateHeatTransferSvg}
           onHolePlacementChange={updateHolePlacement}
           onJewelryConfigChange={updateJewelryConfig}
           onKeychainPresetChange={updateKeychainPreset}
@@ -1220,6 +1242,13 @@ export function ConstructorClient({
                 <>
                   {GIFT_BOX_SHAPE_LABELS[params.giftShape]} · {params.giftSize} мм
                   · замки: {giftLockLabels(params)}
+                </>
+              ) : params.model === "heat_transfer" ? (
+                <>
+                  {params.heatTransferWidth} × {params.heatTransferHeight} мм ·{" "}
+                  {params.heatTransferLayers} сл. ·{" "}
+                  {params.heatTransferMirror ? "зеркало" : "без зеркала"} ·{" "}
+                  {params.heatTransferSvg ? "логотип загружен" : "логотипа нет"}
                 </>
               ) : (
                 <>

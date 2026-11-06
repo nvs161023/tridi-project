@@ -6,6 +6,18 @@ import { useId, useMemo, useRef, useState, useEffect, type ChangeEvent } from "r
 import { NumberSlider } from "@/components/constructor/NumberSlider";
 import { ParameterSelect } from "@/components/constructor/ParameterSelect";
 import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
+import { heatTransferThickness } from "@/lib/constructor/heat-transfer-geometry";
+import {
+  HEAT_TRANSFER_LOW_RESOLUTION_HINT,
+  HEAT_TRANSFER_NO_TRANSPARENCY_HINT,
+  HEAT_TRANSFER_RECOMMENDED_SIDE_PX,
+  checkHeatTransferSource,
+  heatTransferGridSize,
+  heatTransferImportError,
+  heatTransferSourceError,
+  rasterToHeatTransferSvg,
+  type HeatTransferWarning,
+} from "@/lib/constructor/heat-transfer-import";
 import {
   KEYCHAIN_NFC_CLEARANCE_MM,
   KEYCHAIN_NFC_TAG_MM,
@@ -158,6 +170,8 @@ type SizeParam = Exclude<
   | "giftScrewLock"
   | "giftFalseBottom"
   | "giftMazeLock"
+  | "heatTransferSvg"
+  | "heatTransferMirror"
   | "qrCardSize"
   | "qrCardTab"
   | "qrMode"
@@ -305,6 +319,10 @@ type ParameterPanelProps = {
   onGiftFalseBottomChange: (enabled: boolean) => void;
   /** Лабиринт: крышка садится в одном положении и поворачивается до упора. */
   onGiftMazeLockChange: (enabled: boolean) => void;
+  /** Разметка логотипа термопринта: текст SVG или контур, собранный из PNG. */
+  onHeatTransferSvgChange: (svg: string) => void;
+  /** Зеркало принта для переноса утюгом. */
+  onHeatTransferMirrorChange: (enabled: boolean) => void;
   onReset: () => void;
 };
 
@@ -468,6 +486,11 @@ const MODEL_CARDS: ModelCard[] = [
   { id: "cup_clip", icon: "🍵", title: MODEL_TYPE_LABELS.cup_clip },
   { id: "cipher_box", icon: "🔐", title: MODEL_TYPE_LABELS.cipher_box },
   { id: "gift_box", icon: "🎁", title: MODEL_TYPE_LABELS.gift_box },
+  {
+    id: "heat_transfer",
+    icon: "🖨️",
+    title: MODEL_TYPE_LABELS.heat_transfer,
+  },
 ];
 
 /**
@@ -836,6 +859,97 @@ async function keychainContourFromFile(file: File): Promise<string> {
 }
 
 /**
+ * Готовит логотип термопринта: SVG берётся как текст, PNG и WebP — контуром.
+ *
+ * В отличие от брелока кадр не обрезается до квадрата: логотип 3:1 должен
+ * прийти 3:1, иначе габарит в миллиметрах исказил бы форму. Canvas есть только
+ * в браузере, поэтому пиксели здесь, а пороги размеров, сетки и тексты отказов
+ * живут в `heat-transfer-import.ts` — том же модуле, что строит разметку.
+ *
+ * «Нет прозрачности» — не отказ, поэтому возвращается предупреждением: фон
+ * ушёл в силуэт по яркости, и об этом честно сообщает панель.
+ */
+async function heatTransferSvgFromFile(file: File): Promise<{
+  svg: string;
+  warning: HeatTransferWarning | null;
+  lowResolution: boolean;
+  contourCount: number | null;
+  pointCount: number | null;
+}> {
+  const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+
+  if (isSvg) {
+    const svg = await readFileAsText(file);
+
+    if (!isCustomSvgData(svg)) {
+      throw new Error(
+        "Файл слишком большой или содержит скрипты. Нужен SVG до 200 КБ.",
+      );
+    }
+
+    if (!hasDrawableSvgData(svg)) {
+      throw new Error(
+        "В файле нет контура. Нужен SVG с path, polygon, rect, circle или ellipse.",
+      );
+    }
+
+    return {
+      svg,
+      warning: null,
+      lowResolution: false,
+      contourCount: null,
+      pointCount: null,
+    };
+  }
+
+  const dataUrl = await readFileAsDataUrl(file);
+  const image = await loadImage(dataUrl);
+  const longest = Math.max(image.naturalWidth, image.naturalHeight);
+  const sourceError = checkHeatTransferSource({
+    fileName: file.name,
+    mimeType: file.type,
+    bytes: file.size,
+    width: image.naturalWidth,
+    height: image.naturalHeight,
+  });
+
+  if (sourceError) {
+    throw new Error(heatTransferSourceError(sourceError));
+  }
+
+  const grid = heatTransferGridSize(image.naturalWidth, image.naturalHeight);
+  const canvas = document.createElement("canvas");
+  canvas.width = grid.width;
+  canvas.height = grid.height;
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+
+  if (!context) {
+    throw new Error("Браузер не смог подготовить canvas для логотипа.");
+  }
+
+  context.drawImage(image, 0, 0, grid.width, grid.height);
+
+  const imported = rasterToHeatTransferSvg(
+    context.getImageData(0, 0, grid.width, grid.height).data,
+    grid.width,
+    grid.height,
+  );
+
+  if (!imported.ok) {
+    throw new Error(heatTransferImportError(imported.code));
+  }
+
+  return {
+    svg: imported.svg,
+    warning: imported.warning,
+    lowResolution: longest < HEAT_TRANSFER_RECOMMENDED_SIDE_PX,
+    contourCount: imported.contourCount,
+    pointCount: imported.pointCount,
+  };
+}
+
+/**
  * Разбирает строку «20, 40, 20» в ширины ячеек.
  *
  * Пустые куски после запятой игнорируются, чтобы «20, » не считался ошибкой
@@ -1125,6 +1239,8 @@ export function ParameterPanel({
   onGiftScrewLockChange,
   onGiftFalseBottomChange,
   onGiftMazeLockChange,
+  onHeatTransferSvgChange,
+  onHeatTransferMirrorChange,
   onReset,
 }: ParameterPanelProps) {
   const isExporting = exportingId !== null;
@@ -1149,12 +1265,22 @@ export function ParameterPanel({
   const cipherLidTextInputId = useId();
   const cipherLidTextHintId = `${cipherLidTextInputId}-hint`;
   const cipherLidTextLength = Array.from(params.cipherLidText).length;
+  const heatTransferInputId = useId();
+  const heatTransferHintId = `${heatTransferInputId}-hint`;
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isProcessingContour, setIsProcessingContour] = useState(false);
   const [contourError, setContourError] = useState<string | null>(null);
   const [contourFileName, setContourFileName] = useState<string | null>(null);
+  const [isProcessingTransfer, setIsProcessingTransfer] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [transferFileName, setTransferFileName] = useState<string | null>(null);
+  const [transferWarning, setTransferWarning] = useState<string | null>(null);
+  const [transferStats, setTransferStats] = useState<{
+    contourCount: number;
+    pointCount: number;
+  } | null>(null);
   const [cellsXText, setCellsXText] = useState(() =>
     formatBoxCells(params.cellsX),
   );
@@ -1300,6 +1426,74 @@ export function ParameterPanel({
   }
 
   /**
+   * Загружает логотип термопринта.
+   *
+   * Разметка уходит в параметры сразу после разбора: сцена и STL читают её из
+   * одного поля, поэтому предпросмотр не может разойтись с файлом. Имя файла и
+   * счётчики контуров живут в состоянии панели: в `params_json` им места нет, а
+   * после загрузки сохранённого проекта панель честно покажет «логотип есть» без
+   * подробностей.
+   *
+   * Старое предупреждение сбрасывается до разбора: иначе совет от прошлого
+   * файла висел бы над новым логотипом.
+   */
+  async function handleHeatTransferFileChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    setIsProcessingTransfer(true);
+    setTransferError(null);
+    setTransferWarning(null);
+    setTransferStats(null);
+
+    try {
+      const result = await heatTransferSvgFromFile(file);
+
+      onHeatTransferSvgChange(result.svg);
+      setTransferFileName(file.name);
+      setTransferWarning(
+        result.warning === "no_transparency"
+          ? HEAT_TRANSFER_NO_TRANSPARENCY_HINT
+          : result.lowResolution
+            ? HEAT_TRANSFER_LOW_RESOLUTION_HINT
+            : null,
+      );
+      setTransferStats(
+        result.contourCount !== null && result.pointCount !== null
+          ? {
+              contourCount: result.contourCount,
+              pointCount: result.pointCount,
+            }
+          : null,
+      );
+    } catch (error) {
+      setTransferError(
+        error instanceof Error
+          ? error.message
+          : "Не удалось обработать логотип. Попробуйте другой файл.",
+      );
+    } finally {
+      setIsProcessingTransfer(false);
+    }
+  }
+
+  /** Убирает логотип: без разметки термопринт нечего печатать. */
+  function resetHeatTransferLogo() {
+    onHeatTransferSvgChange("");
+    setTransferFileName(null);
+    setTransferError(null);
+    setTransferWarning(null);
+    setTransferStats(null);
+  }
+
+  /**
    * Выбор в списке «Форма брелока».
    *
    * Список общий для пресетов и своего контура, но активным остаётся ровно один
@@ -1323,6 +1517,17 @@ export function ParameterPanel({
   const selectedPresetReady =
     selectedKeychainPreset !== null &&
     isKeychainPresetImplemented(selectedKeychainPreset.id);
+
+  /**
+   * Есть ли логотип у термопринта.
+   *
+   * Нормализация оставляет в поле только разметку с контуром, поэтому пустая
+   * строка означает ровно «файла нет»: сервер такой запрос отклонит, и панель
+   * говорит об этом заранее, а не после нажатия «Скачать STL».
+   */
+  const hasHeatTransferLogo =
+    isCustomSvgData(params.heatTransferSvg) &&
+    hasDrawableSvgData(params.heatTransferSvg);
 
   /**
    * Текст поля ячеек уходит в состояние только когда строка разобралась.
@@ -1751,7 +1956,26 @@ export function ParameterPanel({
                                           value: `${giftLockCount} шт.`,
                                         },
                                       ]
-                                    : [
+                                    : params.model === "heat_transfer"
+                                      ? [
+                                          {
+                                            label: "Габарит",
+                                            value: `${params.heatTransferWidth} × ${params.heatTransferHeight} мм`,
+                                          },
+                                          {
+                                            label: "Толщина",
+                                            value: `${heatTransferThickness(
+                                              params.heatTransferLayers,
+                                            ).toFixed(1)} мм`,
+                                          },
+                                          {
+                                            label: "Логотип",
+                                            value: hasHeatTransferLogo
+                                              ? "загружен"
+                                              : "нет",
+                                          },
+                                        ]
+                                      : [
                         { label: "Кегль", value: `${params.signFontSize} мм` },
                         { label: "Выступ", value: `${params.signDepth} мм` },
                         {
@@ -3124,6 +3348,164 @@ export function ParameterPanel({
             Коробка печатается без поддержек: стенки идут вертикально, юбка
             крышки — вниз, пластина двойного дна лежит на столе рядом. Замки
             независимы, кроме двойного дна и лабиринта — они делят один объём.
+          </p>
+        </>
+      ) : params.model === "heat_transfer" ? (
+        <>
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Логотип
+            </legend>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <label
+                className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-blue-400/60 bg-blue-500/15 px-3 text-sm font-semibold text-white transition-colors hover:bg-blue-500/25 focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
+                htmlFor={heatTransferInputId}
+              >
+                {isProcessingTransfer
+                  ? "Обводим контур…"
+                  : hasHeatTransferLogo
+                    ? "Заменить логотип"
+                    : "Загрузить логотип"}
+              </label>
+              <input
+                accept=".svg,.png,.webp"
+                aria-describedby={heatTransferHintId}
+                className="sr-only"
+                disabled={isProcessingTransfer}
+                id={heatTransferInputId}
+                onChange={handleHeatTransferFileChange}
+                type="file"
+              />
+              {hasHeatTransferLogo ? (
+                <button
+                  className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/15 px-3 text-sm font-semibold text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  onClick={resetHeatTransferLogo}
+                  type="button"
+                >
+                  Убрать
+                </button>
+              ) : null}
+            </div>
+
+            <p
+              className="mt-2 text-xs leading-relaxed text-slate-300"
+              id={heatTransferHintId}
+            >
+              PNG или WebP с прозрачным фоном либо SVG с замкнутыми путями.
+              Контур обводится в браузере: непрозрачные пиксели становятся
+              пластиком, прозрачные остаются тканью. Логотип от{" "}
+              {HEAT_TRANSFER_RECOMMENDED_SIDE_PX} px по длинной стороне даёт
+              ровный край.
+            </p>
+
+            {hasHeatTransferLogo ? (
+              <p className="mt-2 truncate text-xs text-emerald-200">
+                Логотип: {transferFileName ?? "загруженный контур"}
+              </p>
+            ) : null}
+
+            {transferStats ? (
+              <p className="mt-2 text-xs text-emerald-200">
+                Контуров: {transferStats.contourCount} · точек:{" "}
+                {transferStats.pointCount}
+              </p>
+            ) : null}
+
+            {transferWarning ? (
+              <p className="mt-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-100">
+                {transferWarning}
+              </p>
+            ) : null}
+
+            {transferError ? (
+              <p
+                className="mt-2 rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
+                role="alert"
+              >
+                {transferError}
+              </p>
+            ) : null}
+
+            {!hasHeatTransferLogo && !transferError ? (
+              <p className="mt-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-100">
+                Без логотипа печатать нечего: у термопринта нет своей формы.
+                Загрузите PNG или SVG — до этого скачивание вернёт ошибку.
+              </p>
+            ) : null}
+          </fieldset>
+
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <NumberSlider
+              hint="Ширина принта в миллиметрах. Лист A4 — 210 мм, поэтому 200 мм — самый крупный перенос целиком."
+              label="Ширина"
+              max={CONSTRUCTOR_LIMITS.heatTransferWidth.max}
+              min={CONSTRUCTOR_LIMITS.heatTransferWidth.min}
+              onChange={(value) => onParamChange("heatTransferWidth", value)}
+              step={CONSTRUCTOR_LIMITS.heatTransferWidth.step}
+              unit="мм"
+              value={params.heatTransferWidth}
+            />
+
+            <NumberSlider
+              hint="Высота принта. Ширина и высота независимы: узкий логотип можно вытянуть в полосу под рукав."
+              label="Высота"
+              max={CONSTRUCTOR_LIMITS.heatTransferHeight.max}
+              min={CONSTRUCTOR_LIMITS.heatTransferHeight.min}
+              onChange={(value) => onParamChange("heatTransferHeight", value)}
+              step={CONSTRUCTOR_LIMITS.heatTransferHeight.step}
+              unit="мм"
+              value={params.heatTransferHeight}
+            />
+
+            <NumberSlider
+              decimals={1}
+              hint={`Толщина — слои по 0.2 мм: сейчас ${heatTransferThickness(
+                params.heatTransferLayers,
+              ).toFixed(1)} мм. Два слоя гнутся по ткани, четыре держат форму жёсткой наклейки.`}
+              label="Толщина"
+              max={CONSTRUCTOR_LIMITS.heatTransferLayers.max}
+              min={CONSTRUCTOR_LIMITS.heatTransferLayers.min}
+              onChange={(value) => onParamChange("heatTransferLayers", value)}
+              step={CONSTRUCTOR_LIMITS.heatTransferLayers.step}
+              unit="сл."
+              value={params.heatTransferLayers}
+            />
+          </div>
+
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Перенос на ткань
+            </legend>
+
+            <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+              <input
+                checked={params.heatTransferMirror}
+                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                onChange={(event) =>
+                  onHeatTransferMirrorChange(event.target.checked)
+                }
+                type="checkbox"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-slate-200">
+                  Зеркалить принт
+                </span>
+                <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                  Нужно при переносе утюгом: плёнка прижимается к ткани лицевой
+                  стороной вниз, и рисунок переворачивается. Для термопресса
+                  наклейкой вверх зеркало не включают.
+                </span>
+              </span>
+            </label>
+          </fieldset>
+
+          <p className="mt-4 text-xs leading-relaxed text-slate-300">
+            Принт — плоская наклейка{" "}
+            {heatTransferThickness(params.heatTransferLayers).toFixed(1)} мм:
+            печатается слоями по 0.2 мм без поддержек и переносится на ткань.
+            Части логотипа тоньше 0.4 мм отбрасываются, поэтому мелкие детали
+            узкого шрифта могут не пропечататься.
           </p>
         </>
       ) : params.model === "box" ? (

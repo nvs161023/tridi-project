@@ -3,8 +3,8 @@
 import { ContactShadows, OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Vector3 } from "three";
-import type { BufferGeometry, PerspectiveCamera } from "three";
+import { BufferGeometry, Vector3 } from "three";
+import type { PerspectiveCamera } from "three";
 import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 
@@ -37,6 +37,10 @@ import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
 import { createCupClipGeometry } from "@/lib/constructor/cup-clip-geometry";
 import { createFabricPatchGeometry } from "@/lib/constructor/fabric-patch-geometry";
 import { createGiftBoxGeometry } from "@/lib/constructor/gift-box-geometry";
+import {
+  createHeatTransferGeometry,
+  heatTransferThickness,
+} from "@/lib/constructor/heat-transfer-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
 import { createPenHolderGeometry } from "@/lib/constructor/pen-holder-geometry";
@@ -888,6 +892,14 @@ function Scene({ params, geometry, framing }: SceneProps) {
           height={framing.height}
           shadowKey={`gift-${params.giftSize}-${params.giftShape}-${params.giftScrewLock}-${params.giftFalseBottom}-${params.giftMazeLock}`}
         />
+      ) : params.model === "heat_transfer" ? (
+        <ZUpModel
+          color="#f97316"
+          footprint={framing.footprint}
+          geometry={geometry}
+          height={framing.height}
+          shadowKey={`transfer-${params.heatTransferWidth}-${params.heatTransferHeight}-${params.heatTransferLayers}-${params.heatTransferMirror}-${params.heatTransferSvg.length}`}
+        />
       ) : (
         <SignModel
           baseMount={params.signBaseMount}
@@ -1089,6 +1101,14 @@ export function Viewport({ params }: ViewportProps) {
       return createGiftBoxGeometry(params);
     }
 
+    if (params.model === "heat_transfer") {
+      // Без логотипа у модели нет формы: пустая сетка оставляет сцену, но не
+      // роняет предпросмотр исключением из геометрии.
+      return params.heatTransferSvg
+        ? createHeatTransferGeometry(params)
+        : new BufferGeometry();
+    }
+
     return createVaseGeometry(createVaseProfile(params), params);
   }, [font, lithophanePreviewBrightness, params]);
 
@@ -1131,15 +1151,16 @@ export function Viewport({ params }: ViewportProps) {
       params.model === "wall_hook" ||
       params.model === "cup_clip" ||
       params.model === "cipher_box" ||
-      params.model === "gift_box"
+      params.model === "gift_box" ||
+      params.model === "heat_transfer"
     ) {
       geometry.computeBoundingBox();
       const box = geometry.boundingBox;
 
       // Подставка, клипсы, кашпо, подставка под кружку, стойка украшений,
       // органайзер для ручек, нашивка, плафоны, крючок, клипса
-      // кружки, шкатулка с кодом и подарочная коробка построены Z-вверх:
-      // после поворота меша высотой становится Z,
+      // кружки, шкатулка с кодом, подарочная коробка и термопринт построены
+      // Z-вверх: после поворота меша высотой становится Z,
       // а длиной и шириной — X и Y.
       return {
         height: box ? Math.max(box.max.z - box.min.z, 1) : 1,
@@ -1240,7 +1261,9 @@ export function Viewport({ params }: ViewportProps) {
                                     ? `${params.cipherSize} × ${Math.round(framing.height)} мм`
                                     : params.model === "gift_box"
                                       ? `${params.giftSize} × ${Math.round(framing.height)} мм`
-                                      : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
+                                      : params.model === "heat_transfer"
+                                        ? `${params.heatTransferWidth} × ${params.heatTransferHeight} × ${heatTransferThickness(params.heatTransferLayers).toFixed(1)} мм`
+                                        : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
 
   const ariaLabel =
     params.model === "vase"
@@ -1275,7 +1298,9 @@ export function Viewport({ params }: ViewportProps) {
                                     ? `3D-предпросмотр шкатулки с кодовым замком: корпус ${params.cipherSize} миллиметров, код «${params.cipherWord}», ${Array.from(params.cipherWord).length} кольца, ${params.cipherLidText ? `надпись на крышке «${params.cipherLidText}»` : "крышка без надписи"}`
                                     : params.model === "gift_box"
                                       ? `3D-предпросмотр подарочной коробки «${GIFT_BOX_SHAPE_LABELS[params.giftShape]}» ${params.giftSize} миллиметров, замки: ${[params.giftScrewLock ? "винт" : null, params.giftFalseBottom ? "двойное дно" : null, params.giftMazeLock ? "лабиринт" : null].filter((lock) => lock !== null).join(", ") || "нет"}`
-                                      : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
+                                      : params.model === "heat_transfer"
+                                        ? `3D-предпросмотр термопринта ${params.heatTransferWidth} на ${params.heatTransferHeight} миллиметров, толщина ${heatTransferThickness(params.heatTransferLayers).toFixed(1)} миллиметра, ${params.heatTransferMirror ? "с зеркалом" : "без зеркала"}, ${params.heatTransferSvg ? "логотип загружен" : "логотип не загружен"}`
+                                        : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
     <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-900 to-slate-900 shadow-2xl shadow-blue-950/50 sm:h-[32rem] lg:h-[38rem]">
