@@ -9584,7 +9584,7 @@ STL лежат в `%TEMP%\tridi-qr-card-check`, отчёт — `report.txt` ря
 
 Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:imports` — 1963
 импорта без битых, `npm run check:docs` — сводка сходится, `npm run check:style` — 0 нарушений.
-Гостевые прогоны: `/constructor` и подпути отдают 307 на `/login` с `next`, STL — 401, на `/tools`
+Гостевые прогоны: `/constructor` и подпути отдают 307 на `/auth/login` с `next`, STL — 401, на `/tools`
 есть карточка и счётчик, `robots.txt` закрывает путь, `sitemap.xml` его не содержит. Живой прогон
 под временным пользователем: страница 200, три STL скачались и прошли проверку замкнутости и
 объёма, четвёртый отдал 403 `free_limit_reached`. Геометрия: 44 сочетания пресетов, креплений и
