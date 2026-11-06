@@ -41,7 +41,6 @@ import {
   DEFAULT_PLANTER_PARAMS,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_STAND_PARAMS,
-  DEFAULT_STENCIL_PARAMS,
   DEFAULT_STRING_LIGHT_PARAMS,
   DEFAULT_VASE_PARAMS,
   DEFAULT_WALL_HOOK_PARAMS,
@@ -53,7 +52,6 @@ import {
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
-  STENCIL_PATTERN_LABELS,
   VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
   WALL_HOOK_MOUNT_LABELS,
@@ -79,7 +77,6 @@ import {
   planterStlFileName,
   signStlFileName,
   standStlFileName,
-  stencilStlFileName,
   stringLightStlFileName,
   vaseStlFileName,
   wallHookStlFileName,
@@ -103,7 +100,6 @@ import {
   type QrMode,
   type SignChannelWidth,
   type SignFont,
-  type StencilPattern,
   type VasePattern,
   type VaseShape,
   type WallHookMount,
@@ -145,7 +141,6 @@ type SizeParam = Exclude<
   | "patchBorder"
   | "hookMount"
   | "cupClipHook"
-  | "stencilPattern"
   | "cipherWord"
   | "cipherInserts"
   | "cipherLidText"
@@ -178,7 +173,6 @@ const MODEL_DEFAULT_PARAMS: Record<ModelType, Partial<ConstructorParams>> = {
   string_light: DEFAULT_STRING_LIGHT_PARAMS,
   wall_hook: DEFAULT_WALL_HOOK_PARAMS,
   cup_clip: DEFAULT_CUP_CLIP_PARAMS,
-  stencil: DEFAULT_STENCIL_PARAMS,
   cipher_box: DEFAULT_CIPHER_BOX_PARAMS,
   gift_box: DEFAULT_GIFT_BOX_PARAMS,
 };
@@ -333,7 +327,7 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
   // с одним STL: ваза, брелок, коробка, подставка, клипсы, кашпо, подставка под
   // кружку, подставка для украшений, органайзер для ручек, нашивка, плафоны
-  // гирлянды, настенный крючок, клипса для кружки, трафарет, шкатулка с кодом
+  // гирлянды, настенный крючок, клипса для кружки, шкатулка с кодом
   // и подарочная коробка.
   return [
     {
@@ -365,13 +359,11 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
                               ? wallHookStlFileName(params)
                               : params.model === "cup_clip"
                                 ? cupClipStlFileName(params)
-                                : params.model === "stencil"
-                                  ? stencilStlFileName(params)
-                                  : params.model === "cipher_box"
-                                    ? cipherBoxStlFileName(params)
-                                    : params.model === "gift_box"
-                                      ? giftBoxStlFileName(params)
-                                      : boxStlFileName(params),
+                                : params.model === "cipher_box"
+                                  ? cipherBoxStlFileName(params)
+                                  : params.model === "gift_box"
+                                    ? giftBoxStlFileName(params)
+                                    : boxStlFileName(params),
     },
   ];
 }
@@ -818,12 +810,6 @@ export function ConstructorClient({
     );
   }
 
-  function updateStencilPattern(stencilPattern: StencilPattern) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, stencilPattern }),
-    );
-  }
-
   /** Код шкатулки приходит уже очищенным: только буквы, до трёх штук. */
   function updateCipherWord(cipherWord: string) {
     setParams((current) =>
@@ -1018,7 +1004,7 @@ export function ConstructorClient({
             крышкой, литофан из фотографии, кашпо с поддоном, подставка под
             кружку, стойка для украшений, органайзер для ручек, нашивка на
             ткань, плафоны для гирлянды, настенный крючок, клипса для кружки,
-            трафарет, шкатулка с кодом и подарочная коробка.
+            шкатулка с кодом и подарочная коробка.
             Настройте размеры, проверьте результат в 3D и скачайте STL.
           </p>
         </div>
@@ -1122,7 +1108,6 @@ export function ConstructorClient({
           onSignBaseMountChange={updateSignBaseMount}
           onSignFontChange={updateSignFont}
           onSignTextChange={updateSignText}
-          onStencilPatternChange={updateStencilPattern}
           onTextChange={updateKeychainText}
           onWallHookMountChange={updateWallHookMount}
           params={params}
@@ -1218,12 +1203,6 @@ export function ConstructorClient({
                   борт {params.cupRim} мм · {params.cupClipWidth} ×{" "}
                   {params.cupClipLength} мм ·{" "}
                   {params.cupClipHook ? "прорезь под нитку" : "без прорези"}
-                </>
-              ) : params.model === "stencil" ? (
-                <>
-                  {STENCIL_PATTERN_LABELS[params.stencilPattern]} ·{" "}
-                  {params.stencilWidth} × {params.stencilHeight} мм ·{" "}
-                  {params.stencilThickness.toFixed(1)} мм
                 </>
               ) : params.model === "cipher_box" ? (
                 <>

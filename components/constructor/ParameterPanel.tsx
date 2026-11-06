@@ -87,8 +87,6 @@ import {
   SIGN_FONTS,
   SIGN_FONT_LABELS,
   SIGN_TEXT_MAX_LENGTH,
-  STENCIL_PATTERNS,
-  STENCIL_PATTERN_LABELS,
   VASE_PATTERNS,
   VASE_PATTERN_LABELS,
   VASE_SHAPES,
@@ -117,7 +115,6 @@ import {
   type QrMode,
   type SignChannelWidth,
   type SignFont,
-  type StencilPattern,
   type VasePattern,
   type VaseShape,
   type WallHookMount,
@@ -150,7 +147,6 @@ type SizeParam = Exclude<
   | "patchBorder"
   | "hookMount"
   | "cupClipHook"
-  | "stencilPattern"
   | "cipherWord"
   | "cipherInserts"
   | "cipherLidText"
@@ -291,8 +287,6 @@ type ParameterPanelProps = {
   onWallHookMountChange: (mount: WallHookMount) => void;
   /** Прорезь под нитку на конце наружной ножки клипсы. */
   onCupClipHookChange: (enabled: boolean) => void;
-  /** Узор прорезей трафарета: полосы, точки или соты. */
-  onStencilPatternChange: (pattern: StencilPattern) => void;
   /** Код шкатулки: 2–3 буквы, по одной на кольцо. */
   onCipherWordChange: (word: string) => void;
   /** Надпись на крышке шкатулки; пустая строка — без надписи. */
@@ -468,7 +462,6 @@ const MODEL_CARDS: ModelCard[] = [
   { id: "string_light", icon: "💡", title: MODEL_TYPE_LABELS.string_light },
   { id: "wall_hook", icon: "🪝", title: MODEL_TYPE_LABELS.wall_hook },
   { id: "cup_clip", icon: "🍵", title: MODEL_TYPE_LABELS.cup_clip },
-  { id: "stencil", icon: "🖌️", title: MODEL_TYPE_LABELS.stencil },
   { id: "cipher_box", icon: "🔐", title: MODEL_TYPE_LABELS.cipher_box },
   { id: "gift_box", icon: "🎁", title: MODEL_TYPE_LABELS.gift_box },
 ];
@@ -1092,7 +1085,7 @@ function presetReadyNote(
  * литофана — фото, превью и толщины, у кашпо — форма, высота, стенка и дренаж,
  * у подставки под кружку — форма, узор, бортик и толщина, у стойки украшений —
  * высота, основание и набор держателей,
- * у крючка — крепление, у трафарета — узор.
+ * у крючка — крепление.
  * Параметры компонент не хранит: они приходят из ConstructorClient, поэтому
  * 3D-сцена и подписи всегда читают один и тот же объект. Локальное состояние
  * есть только у загрузки изображения — текст ошибки и превью на время сеанса.
@@ -1143,7 +1136,6 @@ export function ParameterPanel({
   onPatchBorderChange,
   onWallHookMountChange,
   onCupClipHookChange,
-  onStencilPatternChange,
   onCipherWordChange,
   onCipherLidTextChange,
   onCipherInsertsChange,
@@ -1744,55 +1736,40 @@ export function ParameterPanel({
                                       value: `${params.cupClipLength} мм`,
                                     },
                                   ]
-                                : params.model === "stencil"
+                                : params.model === "cipher_box"
                                   ? [
                                       {
-                                        label: "Ширина",
-                                        value: `${params.stencilWidth} мм`,
+                                        label: "Код",
+                                        value: params.cipherWord,
                                       },
                                       {
-                                        label: "Высота",
-                                        value: `${params.stencilHeight} мм`,
+                                        label: "Кольца",
+                                        value: `${cipherWordLength} шт.`,
                                       },
                                       {
-                                        label: "Толщина",
-                                        value: `${params.stencilThickness.toFixed(1)} мм`,
+                                        label: "Корпус",
+                                        value: `${params.cipherSize} мм`,
                                       },
                                     ]
-                                  : params.model === "cipher_box"
+                                  : params.model === "gift_box"
                                     ? [
                                         {
-                                          label: "Код",
-                                          value: params.cipherWord,
+                                          label: "Габарит",
+                                          value: `${params.giftSize} мм`,
                                         },
                                         {
-                                          label: "Кольца",
-                                          value: `${cipherWordLength} шт.`,
+                                          label: "Форма",
+                                          value:
+                                            GIFT_BOX_SHAPE_LABELS[
+                                              params.giftShape
+                                            ],
                                         },
                                         {
-                                          label: "Корпус",
-                                          value: `${params.cipherSize} мм`,
+                                          label: "Замки",
+                                          value: `${giftLockCount} шт.`,
                                         },
                                       ]
-                                    : params.model === "gift_box"
-                                      ? [
-                                          {
-                                            label: "Габарит",
-                                            value: `${params.giftSize} мм`,
-                                          },
-                                          {
-                                            label: "Форма",
-                                            value:
-                                              GIFT_BOX_SHAPE_LABELS[
-                                                params.giftShape
-                                              ],
-                                          },
-                                          {
-                                            label: "Замки",
-                                            value: `${giftLockCount} шт.`,
-                                          },
-                                        ]
-                                      : [
+                                    : [
                         { label: "Кегль", value: `${params.signFontSize} мм` },
                         { label: "Выступ", value: `${params.signDepth} мм` },
                         {
@@ -2936,63 +2913,6 @@ export function ParameterPanel({
             внутрь кружки, длинная свисает снаружи. Клипса построена в позе
             печати — профиль лежит в плоскости стола, ширина идёт по высоте, —
             поэтому каждый слой повторяет один профиль и поддержки не нужны.
-          </p>
-        </>
-      ) : params.model === "stencil" ? (
-        <>
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <ParameterSelect
-              hint="Полосы — ровные линии с равным шагом, точки — сетка круглых прорезей, соты — шестигранники со стенками-перемычками."
-              label="Узор"
-              onChange={onStencilPatternChange}
-              options={STENCIL_PATTERNS.map((pattern) => ({
-                label: STENCIL_PATTERN_LABELS[pattern],
-                value: pattern,
-              }))}
-              value={params.stencilPattern}
-            />
-          </div>
-
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Ширина плиты. 100–160 мм удобно держать одной рукой, 200 мм и больше — под настенный рисунок."
-              label="Ширина"
-              max={CONSTRUCTOR_LIMITS.stencilWidth.max}
-              min={CONSTRUCTOR_LIMITS.stencilWidth.min}
-              onChange={(value) => onParamChange("stencilWidth", value)}
-              step={CONSTRUCTOR_LIMITS.stencilWidth.step}
-              unit="мм"
-              value={params.stencilWidth}
-            />
-
-            <NumberSlider
-              hint="Высота плиты. Шаг узора считается от габарита: на большой плите прорези не превращаются в сито, на маленькой не сливаются в одну дырку."
-              label="Высота"
-              max={CONSTRUCTOR_LIMITS.stencilHeight.max}
-              min={CONSTRUCTOR_LIMITS.stencilHeight.min}
-              onChange={(value) => onParamChange("stencilHeight", value)}
-              step={CONSTRUCTOR_LIMITS.stencilHeight.step}
-              unit="мм"
-              value={params.stencilHeight}
-            />
-
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.stencilThickness.decimals}
-              hint="Толщина плиты. 0.8–1.2 мм плотно прилегает к поверхности, 2–3 мм жёстче держит форму и не рвётся при снятии."
-              label="Толщина"
-              max={CONSTRUCTOR_LIMITS.stencilThickness.max}
-              min={CONSTRUCTOR_LIMITS.stencilThickness.min}
-              onChange={(value) => onParamChange("stencilThickness", value)}
-              step={CONSTRUCTOR_LIMITS.stencilThickness.step}
-              unit="мм"
-              value={params.stencilThickness}
-            />
-          </div>
-
-          <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Узор собран сквозными прорезями в сплошной плите: перемычки держат
-            трафарет целым, а по краю остаётся рамка, за которую его снимают.
-            Плита печатается плашмя, поэтому поддержки и заполнение не нужны.
           </p>
         </>
       ) : params.model === "cipher_box" ? (

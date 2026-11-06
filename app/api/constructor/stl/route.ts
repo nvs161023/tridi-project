@@ -57,7 +57,6 @@ import {
   isSignChannelWidth,
   isSignFont,
   isSignPart,
-  isStencilPattern,
   isVasePattern,
   isVaseShape,
   isValidKeychainText,
@@ -85,7 +84,6 @@ import {
   normalizePlanterParams,
   normalizeSignParams,
   normalizeStandParams,
-  normalizeStencilParams,
   normalizeStringLightParams,
   normalizeVaseParams,
   normalizeWallHookParams,
@@ -93,7 +91,6 @@ import {
   planterStlFileName,
   signStlFileName,
   standStlFileName,
-  stencilStlFileName,
   stringLightStlFileName,
   vaseStlFileName,
   wallHookStlFileName,
@@ -113,7 +110,6 @@ import {
   type SignParams,
   type SignPart,
   type StandParams,
-  type StencilParams,
   type StringLightParams,
   type VaseParams,
   type WallHookParams,
@@ -138,7 +134,6 @@ import {
   SIGN_FONT_URLS,
   createSignBlockGeometry,
 } from "@/lib/constructor/sign-geometry";
-import { createStencilGeometry } from "@/lib/constructor/stencil-geometry";
 import { createStringLightGeometry } from "@/lib/constructor/string-light-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
@@ -1099,47 +1094,6 @@ function parseCupClipParams(
 }
 
 /**
- * Строгая проверка параметров трафарета.
- *
- * Ширина, высота и толщина проверяются в границах, узор — по списку трёх
- * вариантов. Шаг прорезей в запрос не входит: он считается от габарита плиты,
- * поэтому одинаковый узор выглядит целым и на открытке, и на половине листа.
- */
-function parseStencilParams(
-  body: Record<string, unknown>,
-): StencilParams | null {
-  const { stencilWidth, stencilHeight, stencilThickness, stencilPattern } = body;
-
-  if (
-    !isNumberInRange(
-      stencilWidth,
-      CONSTRUCTOR_LIMITS.stencilWidth.min,
-      CONSTRUCTOR_LIMITS.stencilWidth.max,
-    ) ||
-    !isNumberInRange(
-      stencilHeight,
-      CONSTRUCTOR_LIMITS.stencilHeight.min,
-      CONSTRUCTOR_LIMITS.stencilHeight.max,
-    ) ||
-    !isNumberInRange(
-      stencilThickness,
-      CONSTRUCTOR_LIMITS.stencilThickness.min,
-      CONSTRUCTOR_LIMITS.stencilThickness.max,
-    ) ||
-    !isStencilPattern(stencilPattern)
-  ) {
-    return null;
-  }
-
-  return normalizeStencilParams({
-    stencilWidth,
-    stencilHeight,
-    stencilThickness,
-    stencilPattern,
-  });
-}
-
-/**
  * Строгая проверка параметров шкатулки с кодом.
  *
  * Габарит проверяется в границах слайдера, код — только буквами: цифры и знаки
@@ -1232,7 +1186,6 @@ type ParsedConstructorRequest =
   | { model: "string_light"; params: StringLightParams }
   | { model: "wall_hook"; params: WallHookParams }
   | { model: "cup_clip"; params: CupClipParams }
-  | { model: "stencil"; params: StencilParams }
   | { model: "cipher_box"; params: CipherBoxParams }
   | { model: "gift_box"; params: GiftBoxParams };
 
@@ -1340,12 +1293,6 @@ function parseConstructorRequest(
     const params = parseCupClipParams(body);
 
     return params ? { model: "cup_clip", params } : null;
-  }
-
-  if (model === "stencil") {
-    const params = parseStencilParams(body);
-
-    return params ? { model: "stencil", params } : null;
   }
 
   if (model === "cipher_box") {
@@ -1577,9 +1524,7 @@ export async function POST(request: Request): Promise<Response> {
                                 ? createWallHookGeometry(parsed.params)
                                 : parsed.model === "cup_clip"
                                   ? createCupClipGeometry(parsed.params)
-                                  : parsed.model === "stencil"
-                                    ? createStencilGeometry(parsed.params)
-                                    : parsed.model === "cipher_box"
+                                  : parsed.model === "cipher_box"
                                       ? createCipherBoxGeometry(
                                           parsed.params,
                                           await loadFont(KEYCHAIN_FONT_URL),
@@ -1639,10 +1584,8 @@ export async function POST(request: Request): Promise<Response> {
                                     ? wallHookStlFileName(parsed.params)
                                     : parsed.model === "cup_clip"
                                       ? cupClipStlFileName(parsed.params)
-                                      : parsed.model === "stencil"
-                                        ? stencilStlFileName(parsed.params)
-                                        : parsed.model === "cipher_box"
-                                          ? cipherBoxStlFileName(parsed.params)
+                                      : parsed.model === "cipher_box"
+                                        ? cipherBoxStlFileName(parsed.params)
                                           : parsed.model === "gift_box"
                                             ? giftBoxStlFileName(parsed.params)
                                             : signStlFileName(

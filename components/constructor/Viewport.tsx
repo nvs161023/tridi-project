@@ -17,7 +17,6 @@ import {
   PATCH_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
-  STENCIL_PATTERN_LABELS,
   VASE_PATTERN_LABELS,
   WALL_HOOK_MOUNT_LABELS,
   downsampleLithophaneBrightness,
@@ -47,7 +46,6 @@ import {
   SIGN_FONT_URLS,
   createSignGeometry,
 } from "@/lib/constructor/sign-geometry";
-import { createStencilGeometry } from "@/lib/constructor/stencil-geometry";
 import { createStringLightGeometry } from "@/lib/constructor/string-light-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
@@ -874,14 +872,6 @@ function Scene({ params, geometry, framing }: SceneProps) {
           height={framing.height}
           shadowKey={`cup-clip-${params.cupRim}-${params.cupClipWidth}-${params.cupClipLength}-${params.cupClipHook}`}
         />
-      ) : params.model === "stencil" ? (
-        <ZUpModel
-          color="#a3e635"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`stencil-${params.stencilPattern}-${params.stencilWidth}-${params.stencilHeight}-${params.stencilThickness}`}
-        />
       ) : params.model === "cipher_box" ? (
         <ZUpModel
           color="#f0abfc"
@@ -1091,10 +1081,6 @@ export function Viewport({ params }: ViewportProps) {
       return createCupClipGeometry(params);
     }
 
-    if (params.model === "stencil") {
-      return createStencilGeometry(params);
-    }
-
     if (params.model === "cipher_box") {
       return createCipherBoxGeometry(params, font);
     }
@@ -1129,21 +1115,6 @@ export function Viewport({ params }: ViewportProps) {
       return {
         height: params.thickness,
         footprint: Math.max(params.length, params.width),
-        flat: true,
-      };
-    }
-
-    if (params.model === "stencil") {
-      geometry.computeBoundingBox();
-      const box = geometry.boundingBox;
-
-      // Трафарет лежит на столе плашмя, как брелок: иначе тонкая плита видна
-      // почти с ребра и прорези узора не читаются.
-      return {
-        height: box ? Math.max(box.max.z - box.min.z, 1) : 1,
-        footprint: box
-          ? Math.max(box.max.x - box.min.x, box.max.y - box.min.y, 1)
-          : 1,
         flat: true,
       };
     }
@@ -1265,9 +1236,7 @@ export function Viewport({ params }: ViewportProps) {
                               ? `${params.hookWidth} × ${params.hookHeight} × ${params.hookDepth} мм`
                               : params.model === "cup_clip"
                                 ? `${params.cupClipWidth} × ${params.cupClipLength} мм`
-                                : params.model === "stencil"
-                                  ? `${params.stencilWidth} × ${params.stencilHeight} × ${params.stencilThickness.toFixed(1)} мм`
-                                  : params.model === "cipher_box"
+                                : params.model === "cipher_box"
                                     ? `${params.cipherSize} × ${Math.round(framing.height)} мм`
                                     : params.model === "gift_box"
                                       ? `${params.giftSize} × ${Math.round(framing.height)} мм`
@@ -1302,9 +1271,7 @@ export function Viewport({ params }: ViewportProps) {
                               ? `3D-предпросмотр настенного крючка: плита ${params.hookWidth} на ${params.hookHeight} миллиметров, вынос штыря ${params.hookDepth} миллиметров, крепление «${WALL_HOOK_MOUNT_LABELS[params.hookMount]}»`
                               : params.model === "cup_clip"
                                 ? `3D-предпросмотр клипсы для кружки: борт ${params.cupRim} миллиметров, ширина ${params.cupClipWidth} миллиметров, наружная ножка ${params.cupClipLength} миллиметров, ${params.cupClipHook ? "с прорезью под нитку" : "без прорези"}`
-                                : params.model === "stencil"
-                                  ? `3D-предпросмотр трафарета «${STENCIL_PATTERN_LABELS[params.stencilPattern]}» ${params.stencilWidth} на ${params.stencilHeight} миллиметров, толщина ${params.stencilThickness} миллиметров`
-                                  : params.model === "cipher_box"
+                                : params.model === "cipher_box"
                                     ? `3D-предпросмотр шкатулки с кодовым замком: корпус ${params.cipherSize} миллиметров, код «${params.cipherWord}», ${Array.from(params.cipherWord).length} кольца, ${params.cipherLidText ? `надпись на крышке «${params.cipherLidText}»` : "крышка без надписи"}`
                                     : params.model === "gift_box"
                                       ? `3D-предпросмотр подарочной коробки «${GIFT_BOX_SHAPE_LABELS[params.giftShape]}» ${params.giftSize} миллиметров, замки: ${[params.giftScrewLock ? "винт" : null, params.giftFalseBottom ? "двойное дно" : null, params.giftMazeLock ? "лабиринт" : null].filter((lock) => lock !== null).join(", ") || "нет"}`

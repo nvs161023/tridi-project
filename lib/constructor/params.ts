@@ -169,10 +169,6 @@ export const CONSTRUCTOR_LIMITS = {
   cupRim: { min: 2, max: 8, step: 0.5, defaultValue: 4, decimals: 1 },
   cupClipWidth: { min: 10, max: 40, step: 5, defaultValue: 20, decimals: 0 },
   cupClipLength: { min: 15, max: 50, step: 5, defaultValue: 30, decimals: 0 },
-  // Трафарет: плита от открытки до половины листа A4.
-  stencilWidth: { min: 60, max: 220, step: 5, defaultValue: 140, decimals: 0 },
-  stencilHeight: { min: 40, max: 220, step: 5, defaultValue: 100, decimals: 0 },
-  stencilThickness: { min: 0.8, max: 3, step: 0.2, defaultValue: 1.2, decimals: 1 },
   // Шкатулка с кодом: от габарита считаются кольца, трубка и высота корпуса.
   cipherSize: { min: 70, max: 160, step: 5, defaultValue: 110, decimals: 0 },
   // Подарочная коробка: высота тоже выводится из габарита, а не из слайдера.
@@ -196,7 +192,6 @@ export const MODEL_TYPES = [
   "string_light",
   "wall_hook",
   "cup_clip",
-  "stencil",
   "cipher_box",
   "gift_box",
 ] as const;
@@ -220,7 +215,6 @@ export const MODEL_TYPE_LABELS = {
   string_light: "Абажур для гирлянды",
   wall_hook: "Настенный крючок",
   cup_clip: "Клипса для кружки",
-  stencil: "Трафарет",
   cipher_box: "Шкатулка с кодом",
   gift_box: "Подарочная коробка",
 } as const satisfies Record<ModelType, string>;
@@ -318,11 +312,6 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
     id: "cup_clip",
     title: "Генератор клипс для кружки",
     desc: "Зажим на борт кружки с прорезью под нитку: чайный пакетик больше не тонет в чашке.",
-  },
-  {
-    id: "stencil",
-    title: "Генератор трафаретов",
-    desc: "Трафареты для краски и аэрографа: полосы, точки или соты со сквозными прорезями и рамкой.",
   },
   {
     id: "cipher_box",
@@ -921,36 +910,6 @@ export type CupClipParams = {
   cupClipHook: boolean;
 };
 
-/** Узор трафарета: полосы, точки или соты. */
-export const STENCIL_PATTERNS = ["stripes", "dots", "hexes"] as const;
-
-export type StencilPattern = (typeof STENCIL_PATTERNS)[number];
-
-export const STENCIL_PATTERN_LABELS = {
-  stripes: "Полосы",
-  dots: "Точки",
-  hexes: "Соты",
-} as const satisfies Record<StencilPattern, string>;
-
-/**
- * Трафарет для краски: плита с прорезями узора.
- *
- * Узор собирается отверстиями в сплошной плите: перемычки между ними держат
- * трафарет целым, а по краю остаётся рамка, чтобы плита не рвалась при
- * снятии с поверхности. Все прорези сквозные, краска проходит насквозь, а
- * сама плита печатается плашмя — без поддержек и без заполнения.
- */
-export type StencilParams = {
-  /** Ширина плиты, мм. */
-  stencilWidth: number;
-  /** Высота плиты, мм. */
-  stencilHeight: number;
-  /** Толщина плиты, мм: тонкая плотнее прилегает, толстая жёстче. */
-  stencilThickness: number;
-  /** Узор прорезей: полосы, точки или соты. */
-  stencilPattern: StencilPattern;
-};
-
 /**
  * Шкатулка с кодовым замком.
  *
@@ -1345,14 +1304,6 @@ export const DEFAULT_CUP_CLIP_PARAMS: CupClipParams = {
   cupClipHook: true,
 };
 
-/** Трафарет по умолчанию: 140 × 100 × 1.2 мм с полосами. */
-export const DEFAULT_STENCIL_PARAMS: StencilParams = {
-  stencilWidth: CONSTRUCTOR_LIMITS.stencilWidth.defaultValue,
-  stencilHeight: CONSTRUCTOR_LIMITS.stencilHeight.defaultValue,
-  stencilThickness: CONSTRUCTOR_LIMITS.stencilThickness.defaultValue,
-  stencilPattern: "stripes",
-};
-
 /**
  * Шкатулка по умолчанию: корпус 110 мм, код «КОД» из трёх колец.
  *
@@ -1515,7 +1466,6 @@ export type ConstructorParams = { model: ModelType } & VaseParams &
   StringLightParams &
   WallHookParams &
   CupClipParams &
-  StencilParams &
   CipherBoxParams &
   GiftBoxParams;
 
@@ -1537,7 +1487,6 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   ...DEFAULT_STRING_LIGHT_PARAMS,
   ...DEFAULT_WALL_HOOK_PARAMS,
   ...DEFAULT_CUP_CLIP_PARAMS,
-  ...DEFAULT_STENCIL_PARAMS,
   ...DEFAULT_CIPHER_BOX_PARAMS,
   ...DEFAULT_GIFT_BOX_PARAMS,
 };
@@ -1684,16 +1633,6 @@ export function cupClipStlFileName(params: CupClipParams): string {
   const hookSuffix = params.cupClipHook ? "-nit" : "";
 
   return `tridi-klipsa-kruzhka-t${params.cupRim}-w${params.cupClipWidth}-l${params.cupClipLength}${hookSuffix}.stl`;
-}
-
-/**
- * Имя файла STL для трафарета.
- *
- * Узор входит в имя: трафареты одного габарита отличаются только рисунком
- * прорезей, и в папке загрузок они не должны сливаться в один файл.
- */
-export function stencilStlFileName(params: StencilParams): string {
-  return `tridi-trafaret-${params.stencilPattern}-w${params.stencilWidth}-h${params.stencilHeight}-t${params.stencilThickness}.stl`;
 }
 
 /**
@@ -2038,14 +1977,6 @@ export function isWallHookMount(value: unknown): value is WallHookMount {
   return (
     typeof value === "string" &&
     (WALL_HOOK_MOUNTS as readonly string[]).includes(value)
-  );
-}
-
-/** Проверка узора трафарета из формы или API. */
-export function isStencilPattern(value: unknown): value is StencilPattern {
-  return (
-    typeof value === "string" &&
-    (STENCIL_PATTERNS as readonly string[]).includes(value)
   );
 }
 
@@ -2819,35 +2750,6 @@ export function normalizeCupClipParams(
 }
 
 /**
- * Проверяет и выравнивает параметры трафарета.
- *
- * Ширина, высота и толщина выравниваются по шагу слайдеров, узор проверяется
- * по списку. Число прорезей не задаётся отдельно: шаг узора считается от
- * габарита, чтобы трафарет не превращался в сито на большом размере.
- */
-export function normalizeStencilParams(
-  params: Partial<StencilParams>,
-): StencilParams {
-  return {
-    stencilWidth: snap(
-      params.stencilWidth ?? DEFAULT_STENCIL_PARAMS.stencilWidth,
-      CONSTRUCTOR_LIMITS.stencilWidth,
-    ),
-    stencilHeight: snap(
-      params.stencilHeight ?? DEFAULT_STENCIL_PARAMS.stencilHeight,
-      CONSTRUCTOR_LIMITS.stencilHeight,
-    ),
-    stencilThickness: snap(
-      params.stencilThickness ?? DEFAULT_STENCIL_PARAMS.stencilThickness,
-      CONSTRUCTOR_LIMITS.stencilThickness,
-    ),
-    stencilPattern: isStencilPattern(params.stencilPattern)
-      ? params.stencilPattern
-      : DEFAULT_STENCIL_PARAMS.stencilPattern,
-  };
-}
-
-/**
  * Проверяет и выравнивает параметры шкатулки с кодом.
  *
  * Габарит выравнивается по шагу слайдера, код очищается до букв: по нему
@@ -3138,7 +3040,6 @@ export function normalizeConstructorParams(
     ...normalizeStringLightParams(params),
     ...normalizeWallHookParams(params),
     ...normalizeCupClipParams(params),
-    ...normalizeStencilParams(params),
     ...normalizeCipherBoxParams(params),
     ...normalizeGiftBoxParams(params),
   };
