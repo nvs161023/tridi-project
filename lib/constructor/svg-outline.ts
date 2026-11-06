@@ -8,11 +8,13 @@
  * polygon, rect, circle и ellipse. Контуры возвращаются в координатах SVG
  * (ось Y вниз), а масштабирование и переворот делает вызывающий код.
  *
- * Трансформации (`transform="..."`) не применяются: силуэты конструктора их
- * не используют, а для пользовательского файла это явное ограничение, которое
- * описано в PROJECT.md. Кривые сглаживаются в полилинию: брелок печатается
- * размером 30–100 мм, поэтому 12–16 отрезков на кривую дают гладкий контур без
- * раздувания STL.
+ * `transform` применяется: у элемента — свой атрибут, у вложенных `<g>` —
+ * накопленный от родителей, как в спецификации SVG (сначала трансформация
+ * элемента, потом родительские). Поддерживаются matrix, translate, scale,
+ * rotate (в том числе с центром), skewX и skewY; испорченный атрибут целиком
+ * игнорируется, чтобы силуэт не пропал из-за одной опечатки. Кривые
+ * сглаживаются в полилинию: брелок печатается размером 30–100 мм, поэтому
+ * 12–16 отрезков на кривую дают гладкий контур без раздувания STL.
  */
 
 /** Точка контура в координатах SVG. */
@@ -582,29 +584,228 @@ function ellipseContour(
   return points;
 }
 
+/** Аффинная матрица SVG: `matrix(a b c d e f)`, точка — вектор-столбец. */
+type AffineMatrix = readonly [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+];
+
+/** Единичная матрица: контур остаётся как есть. */
+const IDENTITY_MATRIX: AffineMatrix = [1, 0, 0, 1, 0, 0];
+
+/** Произведение матриц: `m2` применяется к точке первой, затем `m1`. */
+function multiplyMatrix(m1: AffineMatrix, m2: AffineMatrix): AffineMatrix {
+  return [
+    m1[0] * m2[0] + m1[2] * m2[1],
+    m1[1] * m2[0] + m1[3] * m2[1],
+    m1[0] * m2[2] + m1[2] * m2[3],
+    m1[1] * m2[2] + m1[3] * m2[3],
+    m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+    m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+  ];
+}
+
+/** Точка после матрицы. */
+function applyMatrix(point: OutlinePoint, matrix: AffineMatrix): OutlinePoint {
+  return [
+    matrix[0] * point[0] + matrix[2] * point[1] + matrix[4],
+    matrix[1] * point[0] + matrix[3] * point[1] + matrix[5],
+  ];
+}
+
+/** Матрица не меняет координаты: контур можно не пересчитывать. */
+function isIdentityMatrix(matrix: AffineMatrix): boolean {
+  return (
+    matrix[0] === 1 &&
+    matrix[1] === 0 &&
+    matrix[2] === 0 &&
+    matrix[3] === 1 &&
+    matrix[4] === 0 &&
+    matrix[5] === 0
+  );
+}
+
+/** Числа из аргументов transform: запятая и пробел равнозначны. */
+function readNumbers(value: string): number[] {
+  return [...value.matchAll(/-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g)].map(
+    (match) => Number.parseFloat(match[0]),
+  );
+}
+
+/** Добавляет контур в результат, применяя матрицу; единичная — без пересчёта. */
+function pushContour(
+  target: OutlinePoint[][],
+  points: readonly OutlinePoint[],
+  matrix: AffineMatrix,
+): void {
+  if (isIdentityMatrix(matrix)) {
+    target.push([...points]);
+    return;
+  }
+
+  target.push(points.map((point) => applyMatrix(point, matrix)));
+}
+
+/** Одна функция `transform` в матрицу; null — имя чужое или аргументы не те. */
+function transformToMatrix(
+  name: string,
+  values: readonly number[],
+): AffineMatrix | null {
+  switch (name.toLowerCase()) {
+    case "matrix":
+      return values.length === 6
+        ? [values[0], values[1], values[2], values[3], values[4], values[5]]
+        : null;
+    case "translate":
+      if (values.length === 1) {
+        return [1, 0, 0, 1, values[0], 0];
+      }
+
+      return values.length === 2 ? [1, 0, 0, 1, values[0], values[1]] : null;
+    case "scale":
+      if (values.length === 1) {
+        return [values[0], 0, 0, values[0], 0, 0];
+      }
+
+      return values.length === 2
+        ? [values[0], 0, 0, values[1], 0, 0]
+        : null;
+    case "rotate": {
+      if (values.length !== 1 && values.length !== 3) {
+        return null;
+      }
+
+      const angle = (values[0] * Math.PI) / 180;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const rotation: AffineMatrix = [cos, sin, -sin, cos, 0, 0];
+
+      if (values.length === 1) {
+        return rotation;
+      }
+
+      // rotate(a cx cy) — поворот вокруг центра: сдвиг к центру, поворот, сдвиг назад.
+      return multiplyMatrix(
+        multiplyMatrix([1, 0, 0, 1, values[1], values[2]], rotation),
+        [1, 0, 0, 1, -values[1], -values[2]],
+      );
+    }
+    case "skewx":
+      return values.length === 1
+        ? [1, 0, Math.tan((values[0] * Math.PI) / 180), 1, 0, 0]
+        : null;
+    case "skewy":
+      return values.length === 1
+        ? [1, Math.tan((values[0] * Math.PI) / 180), 0, 1, 0, 0]
+        : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Матрица из атрибута `transform`.
+ *
+ * Список функций читается слева направо: `translate(10) scale(2)` сначала
+ * масштабирует точку, потом сдвигает — так же, как в SVG. Непонятный
+ * синтаксис даёт единичную матрицу: один испорченный атрибут не должен
+ * стирать силуэт.
+ */
+function parseTransform(value: string | undefined): AffineMatrix {
+  const text = value?.trim() ?? "";
+
+  if (text === "") {
+    return IDENTITY_MATRIX;
+  }
+
+  let matrix = IDENTITY_MATRIX;
+
+  for (const match of text.matchAll(/([a-zA-Z]+)\s*\(([^)]*)\)/g)) {
+    const step = transformToMatrix(match[1], readNumbers(match[2]));
+
+    if (!step) {
+      return IDENTITY_MATRIX;
+    }
+
+    matrix = multiplyMatrix(matrix, step);
+  }
+
+  // Между вызовами допустимы только пробелы и запятые: `translate(1) oops`
+  // считается испорченным атрибутом целиком.
+  const leftovers = text
+    .replace(/([a-zA-Z]+)\s*\([^)]*\)/g, "")
+    .replace(/[\s,]+/g, "");
+
+  return leftovers === "" ? matrix : IDENTITY_MATRIX;
+}
 
 /**
  * Извлекает все контуры из SVG-разметки.
  *
- * Поддерживаются path, polygon, rect, circle и ellipse. Повторяющиеся вершины
- * и контуры короче треугольника отбрасываются: они не дают площади и только
+ * Поддерживаются path, polygon, rect, circle и ellipse, а также вложенные
+ * `<g>`: матрица родительских групп накапливается в стеке и применяется к
+ * контуру вместе с `transform` самого элемента. Повторяющиеся вершины и
+ * контуры короче треугольника отбрасываются: они не дают площади и только
  * путают триангуляцию.
  */
 export function parseSvgOutline(markup: string): OutlinePoint[][] {
   const contours: OutlinePoint[][] = [];
-  const elements = markup.matchAll(
-    /<(path|polygon|rect|circle|ellipse)\b([^>]*)>/gi,
-  );
+  const elements = markup.matchAll(/<\/?([a-zA-Z][\w:.-]*)([^>]*)>/g);
+  // Стек матриц: внизу единица (корень документа), выше — по одной на открытый <g>.
+  const stack: AffineMatrix[] = [IDENTITY_MATRIX];
 
   for (const element of elements) {
+    const source = element[0];
     const tag = element[1].toLowerCase();
     const attributes = element[2];
+    const closing = source.startsWith("</");
+
+    if (tag === "g") {
+      if (closing) {
+        // Лишний </g> матрицу не ломает: ниже корня стек не опускается.
+        if (stack.length > 1) {
+          stack.pop();
+        }
+      } else if (!source.endsWith("/>")) {
+        stack.push(
+          multiplyMatrix(
+            stack[stack.length - 1],
+            parseTransform(attribute(attributes, "transform")),
+          ),
+        );
+      }
+
+      continue;
+    }
+
+    if (
+      closing ||
+      (tag !== "path" &&
+        tag !== "polygon" &&
+        tag !== "rect" &&
+        tag !== "circle" &&
+        tag !== "ellipse")
+    ) {
+      continue;
+    }
+
+    // Сначала трансформация самого элемента, затем накопленная родителями.
+    const matrix = multiplyMatrix(
+      stack[stack.length - 1],
+      parseTransform(attribute(attributes, "transform")),
+    );
 
     if (tag === "path") {
       const data = attribute(attributes, "d");
 
       if (data) {
-        contours.push(...parseSvgPath(data));
+        for (const contour of parseSvgPath(data)) {
+          pushContour(contours, contour, matrix);
+        }
       }
 
       continue;
@@ -627,7 +828,7 @@ export function parseSvgOutline(markup: string): OutlinePoint[][] {
       }
 
       if (points.length >= 3) {
-        contours.push(points);
+        pushContour(contours, points, matrix);
       }
 
       continue;
@@ -642,7 +843,8 @@ export function parseSvgOutline(markup: string): OutlinePoint[][] {
         continue;
       }
 
-      contours.push(
+      pushContour(
+        contours,
         rectangleContour(
           readNumber(attribute(attributes, "x")),
           readNumber(attribute(attributes, "y")),
@@ -651,6 +853,7 @@ export function parseSvgOutline(markup: string): OutlinePoint[][] {
           radius,
           readNumber(attribute(attributes, "ry"), radius),
         ),
+        matrix,
       );
 
       continue;
@@ -660,13 +863,15 @@ export function parseSvgOutline(markup: string): OutlinePoint[][] {
       const radius = readNumber(attribute(attributes, "r"));
 
       if (radius > 0) {
-        contours.push(
+        pushContour(
+          contours,
           ellipseContour(
             readNumber(attribute(attributes, "cx")),
             readNumber(attribute(attributes, "cy")),
             radius,
             radius,
           ),
+          matrix,
         );
       }
 
@@ -677,13 +882,15 @@ export function parseSvgOutline(markup: string): OutlinePoint[][] {
     const radiusY = readNumber(attribute(attributes, "ry"));
 
     if (radiusX > 0 && radiusY > 0) {
-      contours.push(
+      pushContour(
+        contours,
         ellipseContour(
           readNumber(attribute(attributes, "cx")),
           readNumber(attribute(attributes, "cy")),
           radiusX,
           radiusY,
         ),
+        matrix,
       );
     }
   }
