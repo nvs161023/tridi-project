@@ -979,6 +979,9 @@ export function createKeychainGeometry(
         // Карман под метку есть только у трёх пресетов; у остальных
         // нормализация уже обнулила флаг.
         nfcEnabled: normalized.nfcEnabled,
+        // Позиция отверстия: набор проверила нормализация по реестру пресета,
+        // здесь остаётся передать её геометрии.
+        holePlacement: normalized.holePlacement,
       })
     : null;
 

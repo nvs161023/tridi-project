@@ -13,18 +13,23 @@ import {
   measureKeychainNfc,
 } from "@/lib/constructor/keychain-geometry";
 import {
+  APPLE_TAG_RING_HOLE_INSET_MM,
+  RING_HOLE_DIAMETER_MM,
   brickStudLayout,
   gearLayout,
   heartLayout,
   isKeychainPresetImplemented,
   nfcLayout,
+  ringHoleSideOffsetMm,
   starburstLayout,
   ticketLayout,
 } from "@/lib/constructor/keychain-preset-geometry";
 import {
+  HOLE_PLACEMENT_LABELS,
   KEYCHAIN_PRESETS,
   isKeychainPresetId,
   keychainPresetById,
+  type HolePlacement,
   type KeychainPresetId,
 } from "@/lib/constructor/keychain-presets";
 import {
@@ -230,6 +235,13 @@ type ParameterPanelProps = {
   onCustomSvgChange: (svg: string) => void;
   /** Карман под NFC-метку в теле брелока. */
   onNfcChange: (enabled: boolean) => void;
+  /**
+   * Куда ставить отверстие Ø5 мм под кольцо.
+   *
+   * Набор пунктов берётся из реестра пресета, поэтому панель не предлагает
+   * позицию, которую силуэт не держит, и не повторяет его геометрию у себя.
+   */
+  onHolePlacementChange: (placement: HolePlacement) => void;
   /** Размер QR-визитки: 60 × 40 или 70 × 45 мм; габарит выводится из него. */
   onQrCardSizeChange: (size: QrCardSize) => void;
   /** Крепление визитки: проушина сверху или отверстие в теле. */
@@ -899,6 +911,29 @@ function formatBoxCells(cells: readonly number[]): string {
 }
 
 /**
+ * Где стоит отверстие Ø5 мм у выбранного пресета.
+ *
+ * Числа берутся из констант геометрии, а не набираются здесь заново: подпись
+ * «Готово» обещает ту же дырку, что уедет в STL. Позиции `tab` здесь нет — она
+ * ещё не реализована и в реестре не заявлена.
+ */
+function holePlacementNote(params: ConstructorParams): string {
+  const hole = `отверстие Ø${RING_HOLE_DIAMETER_MM} мм под кольцо`;
+
+  switch (params.holePlacement) {
+    case "left":
+    case "right":
+      return `${hole} ${params.holePlacement === "left" ? "слева" : "справа"}: ${ringHoleSideOffsetMm(params.width)} мм от оси и ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края`;
+
+    case "none":
+      return "без отверстия под кольцо";
+
+    default:
+      return `${hole} в ${APPLE_TAG_RING_HOLE_INSET_MM} мм от верхнего края`;
+  }
+}
+
+/**
  * Что именно строит геометрия готового пресета брелока.
  *
  * Числа берутся из параметров, а не из реестра: геометрия читает миллиметры
@@ -912,7 +947,7 @@ function presetReadyNote(
 ): string {
   switch (presetId) {
     case "apple-tag":
-      return `скруглённый прямоугольник ${params.width} × ${params.length} мм со скруглением 4 мм, отверстие Ø5 мм под кольцо`;
+      return `скруглённый прямоугольник ${params.width} × ${params.length} мм со скруглением 4 мм, ${holePlacementNote(params)}`;
     case "capsule":
       return `капсула ${params.width} × ${params.length} мм с торцами-полукругами, отверстие Ø5 мм в верхней части`;
     case "hex":
@@ -992,6 +1027,7 @@ export function ParameterPanel({
   onKeychainPresetChange,
   onCustomSvgChange,
   onNfcChange,
+  onHolePlacementChange,
   onQrCardSizeChange,
   onQrCardTabChange,
   onQrModeChange,
@@ -1293,6 +1329,9 @@ export function ParameterPanel({
         height: params.length,
         thickness: params.thickness,
         nfcEnabled: params.nfcEnabled,
+        // Позиция отверстия важна и здесь: карман и боковое отверстие могут
+        // пересечься, и `nfcLayout` вернёт причину для красной плашки.
+        holePlacement: params.holePlacement,
         qr:
           params.keychainPreset === "qr-card"
             ? keychainQrCardSpec(params)
@@ -1396,6 +1435,42 @@ export function ParameterPanel({
 
   /** Границы толщины выбранного пресета: у визитки они свои. */
   const keychainThickness = keychainThicknessLimits(params.keychainPreset);
+
+  /**
+   * Пункты списка «Отверстие»: только позиции, которые держит силуэт.
+   *
+   * Пока список видит один Apple Tag: остальные пресеты переезжают на общий
+   * механизм вместе со своей геометрией, и предлагать им позицию, которую она ещё
+   * не строит, было бы обманом — модель пришла бы с отверстием по центру.
+   */
+  const holePlacementOptions =
+    selectedKeychainPreset?.id === "apple-tag"
+      ? selectedKeychainPreset.holePlacements.map((placement) => ({
+          value: placement,
+          label: HOLE_PLACEMENT_LABELS[placement],
+        }))
+      : [];
+
+  /** Стенка от бокового отверстия до кромки, мм: та же арифметика, что в геометрии. */
+  const holeSideWallMm = Number(
+    (
+      params.width / 2 -
+      ringHoleSideOffsetMm(params.width) -
+      RING_HOLE_DIAMETER_MM / 2
+    ).toFixed(1),
+  );
+
+  /**
+   * Подсказка под списком позиций.
+   *
+   * Если карман и боковое отверстие пересеклись, подсказка повторяет причину из
+   * `nfcLayout` — с той же цифрой зазора, что и красная плашка. Иначе рядом стоят
+   * миллиметры, которые сложатся в модель.
+   */
+  const holePlacementHint =
+    params.nfcEnabled && presetNfc?.holeConflictReason
+      ? presetNfc.holeConflictReason
+      : `Смещение ${ringHoleSideOffsetMm(params.width)} мм от оси, отступ от верхнего края прежний — ${APPLE_TAG_RING_HOLE_INSET_MM} мм. Стенка до боковой кромки ${holeSideWallMm} мм, габарит и толщина не меняются.`;
 
   /** Итоговая причина, по которой кнопки скачивания заблокированы. */
   const exportBlockReason =
@@ -2165,6 +2240,16 @@ export function ParameterPanel({
               unit="мм"
               value={params.thickness}
             />
+
+            {holePlacementOptions.length > 0 ? (
+              <ParameterSelect
+                hint={holePlacementHint}
+                label="Отверстие"
+                onChange={onHolePlacementChange}
+                options={holePlacementOptions}
+                value={params.holePlacement}
+              />
+            ) : null}
           </div>
         </>
       ) : params.model === "stand" ? (

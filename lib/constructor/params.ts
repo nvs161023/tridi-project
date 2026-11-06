@@ -1,6 +1,8 @@
 import {
+  isHolePlacement,
   isKeychainPresetId,
   keychainPresetById,
+  type HolePlacement,
   type KeychainPresetId,
 } from "@/lib/constructor/keychain-presets";
 import {
@@ -597,6 +599,16 @@ export type KeychainParams = {
   customSvgData: string;
   /** Вырезать с обратной стороны карман 25 × 25 мм под NFC-метку. */
   nfcEnabled: boolean;
+  /**
+   * Куда ставить отверстие Ø5 мм под кольцо.
+   *
+   * Одно поле на все пресеты: доступный набор лежит в реестре
+   * (`holePlacements`), и нормализация держит значение внутри него — присланная
+   * позиция, которой у силуэта нет, молча становится `center`. Так же ведёт себя
+   * `nfcEnabled`: включённый признак у пресета без `nfcPocketY` гасится, а не
+   * обещает ушко, которого в модели не будет.
+   */
+  holePlacement: HolePlacement;
   /**
    * Размер QR-визитки: 60 × 40 или 70 × 45 мм.
    *
@@ -1270,6 +1282,7 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   keychainPreset: DEFAULT_KEYCHAIN_PRESET_ID,
   customSvgData: "",
   nfcEnabled: false,
+  holePlacement: "center",
   qrCardSize: DEFAULT_QR_CARD_SPEC.size,
   qrCardTab: DEFAULT_QR_CARD_SPEC.tab,
   qrMode: DEFAULT_QR_CARD_SPEC.mode,
@@ -2511,6 +2524,18 @@ export function normalizeKeychainParams(
     typeof params.nfcEnabled === "boolean"
       ? params.nfcEnabled
       : DEFAULT_KEYCHAIN_PARAMS.nfcEnabled;
+  // Позиция отверстия живёт в наборе пресета: у Starburst боковой стенки нет, у
+  // Cap/Hex её пока не строит геометрия, у QR-визитки крепление своё. Значение вне
+  // набора не ошибка состояния — это устаревший выбор после смены силуэта, и он
+  // откатывается к центру, как `nfcEnabled` у пресета без кармана.
+  const presetHolePlacements = keychainPreset
+    ? keychainPresetById(keychainPreset).holePlacements
+    : [];
+  const holePlacement =
+    isHolePlacement(params.holePlacement) &&
+    presetHolePlacements.includes(params.holePlacement)
+      ? params.holePlacement
+      : DEFAULT_KEYCHAIN_PARAMS.holePlacement;
 
   return {
     length:
@@ -2534,6 +2559,7 @@ export function normalizeKeychainParams(
     keychainPreset,
     customSvgData,
     nfcEnabled: keychainPreset && !presetNfc ? false : requestedNfc,
+    holePlacement,
     qrCardSize,
     qrCardTab: isQrCardTab(params.qrCardTab)
       ? params.qrCardTab

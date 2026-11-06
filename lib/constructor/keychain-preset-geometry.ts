@@ -9,7 +9,9 @@ import type { BufferGeometry } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import {
+  isHolePlacement,
   keychainPresetById,
+  type HolePlacement,
   type KeychainPresetId,
 } from "@/lib/constructor/keychain-presets";
 import {
@@ -61,6 +63,14 @@ export type KeychainPresetGeometryParams = {
    * кармана считает `nfcLayout` — геометрия и панель берут числа оттуда.
    */
   nfcEnabled?: boolean;
+  /**
+   * Куда ставить отверстие Ø5 мм под кольцо.
+   *
+   * Приходит из `params.ts` уже проверенным по набору реестра: значение, которого
+   * у силуэта нет, нормализация заменила центром. Пресеты, которым позиция ещё не
+   * реализована, поле не читают — у них отверстие остаётся на оси.
+   */
+  holePlacement?: HolePlacement;
 };
 
 /** Ширина фаски по контуру: 0.4 мм читается как скругление кромки. */
@@ -79,10 +89,10 @@ const PRESET_CURVE_SEGMENTS = 32;
 const APPLE_TAG_CORNER_RADIUS_MM = 4;
 
 /** Диаметр отверстия под кольцо в свету, мм: общий для всех пресетов. */
-const RING_HOLE_DIAMETER_MM = 5;
+export const RING_HOLE_DIAMETER_MM = 5;
 
 /** Отступ центра отверстия от верхнего края корпуса Apple Tag, мм. */
-const APPLE_TAG_RING_HOLE_INSET_MM = 5;
+export const APPLE_TAG_RING_HOLE_INSET_MM = 5;
 
 /**
  * Отступ центра отверстия от верхнего края у пресетов с сужающимся верхом, мм.
@@ -1078,21 +1088,120 @@ export function isKeychainPresetImplemented(
 }
 
 /**
- * Контур отверстия под кольцо на высоте `centerY` по оси симметрии.
+ * Контур отверстия под кольцо в точке (`centerX`, `centerY`).
  *
- * Кольцо у всех пресетов стоит на оси X = 0: у билета проушина с пятаком теперь
- * по центру верхней кромки, а не в корешке. Радиус берётся больше номинального
- * на фаску: у отверстия three.js поджимает стенку на `bevelSize` так же, как
- * расширяет корпус наружу. Центр отсчитывается от номинального габарита, а не от
- * контура крышки: панель обещает миллиметры заготовки, а не профиля выдавливания.
+ * Кольцо стоит на оси X = 0 у большинства пресетов: у билета проушина с пятаком
+ * по центру верхней кромки, а не в корешке. Боковые позиции (`left`/`right`)
+ * передают смещение по X — так одно и то же отверстие переезжает к кромке, не
+ * меняя ни диаметра, ни отступа от верхнего края. Радиус берётся больше
+ * номинального на фаску: у отверстия three.js поджимает стенку на `bevelSize` так
+ * же, как расширяет корпус наружу. Центр отсчитывается от номинального габарита, а
+ * не от контура крышки: панель обещает миллиметры заготовки, а не профиля
+ * выдавливания.
  */
-function ringHolePath(centerY: number): Path {
+function ringHolePath(centerX: number, centerY: number): Path {
   const hole = new Path();
   const holeRadius = RING_HOLE_DIAMETER_MM / 2 + PRESET_BEVEL_SIZE_MM;
 
-  hole.absarc(0, centerY, holeRadius, 0, Math.PI * 2, true);
+  hole.absarc(centerX, centerY, holeRadius, 0, Math.PI * 2, true);
 
   return hole;
+}
+
+/**
+ * Смещение отверстия от оси при боковой установке, мм.
+ *
+ * 8 мм — середина между центром и кромкой: при ширине 38 заготовка даёт 19 мм до
+ * края, то есть стенка до боковой кромки выходит 8.5 мм. У самой кромки (5 мм, как
+ * в аудите) стенка была бы 2.5 мм, и рядом с карманом NFC её вырвало бы первым
+ * рывком за ключи.
+ *
+ * Число читает и панель: подпись и подсказка считают стенку до кромки той же
+ * цифрой, поэтому список и STL не разойдутся.
+ */
+export const RING_HOLE_SIDE_OFFSET_MM = 8;
+
+/**
+ * Минимальный отступ центра бокового отверстия от кромки, мм.
+ *
+ * 5 мм — тот же отступ, что сверху, и та же стенка 2.5 мм: на узкой заготовке
+ * фиксированный сдвиг 8 мм вынес бы отверстие за силуэт (при ширине 20 мм кромка
+ * идёт по X = 10).
+ */
+export const RING_HOLE_SIDE_INSET_MM = 5;
+
+/**
+ * Фактический сдвиг бокового отверстия от оси, мм.
+ *
+ * Общее правило для геометрии и панели: 8 мм, пока до кромки остаётся не меньше
+ * `RING_HOLE_SIDE_INSET_MM`, иначе — сколько есть. На ширине 38 это 8 мм, на 20 —
+ * 5 мм, и стенка до кромки никогда не бывает тоньше 2.5 мм.
+ */
+export function ringHoleSideOffsetMm(width: number): number {
+  return Number(
+    Math.min(
+      RING_HOLE_SIDE_OFFSET_MM,
+      Math.max(width / 2 - RING_HOLE_SIDE_INSET_MM, 0),
+    ).toFixed(2),
+  );
+}
+
+/**
+ * Позиция отверстия для пресета: значение из параметров, если силуэт его держит.
+ *
+ * Панель и геометрия читают одно правило, поэтому список пунктов и вырезанное
+ * отверстие не могут разойтись. `tab` пока не реализована: до T3 она возвращает
+ * центр, чтобы модель не осталась без крепления вовсе.
+ */
+function presetHolePlacement(
+  presetId: KeychainPresetId,
+  params: KeychainPresetGeometryParams,
+): HolePlacement {
+  const placement = isHolePlacement(params.holePlacement)
+    ? params.holePlacement
+    : "center";
+
+  if (placement === "tab") {
+    return "center";
+  }
+
+  return keychainPresetById(presetId).holePlacements.includes(placement)
+    ? placement
+    : "center";
+}
+
+/**
+ * Центр отверстия Ø5 мм при боковой установке, мм; null — позиция не боковая.
+ *
+ * Y остаётся прежним: смещение идёт только по X, поэтому панель обещает те же
+ * 5 мм от верхней кромки, что и у центрального отверстия. Пресеты, у которых
+ * геометрия боковой позиции ещё не написана, возвращают null — отверстие у них
+ * остаётся на оси, даже если реестр позицию уже заявил.
+ */
+function sideHoleCenter(
+  presetId: KeychainPresetId,
+  params: KeychainPresetGeometryParams,
+): { x: number; y: number } | null {
+  const placement = presetHolePlacement(presetId, params);
+
+  if (placement !== "left" && placement !== "right") {
+    return null;
+  }
+
+  switch (presetId) {
+    case "apple-tag": {
+      // Сдвиг поджимается на узкой заготовке: 8 мм по умолчанию, но не ближе
+      // 5 мм к кромке — иначе на ширине 20 мм отверстие вышло бы за силуэт.
+      const offset = ringHoleSideOffsetMm(params.width);
+
+      return {
+        x: placement === "left" ? -offset : offset,
+        y: params.height / 2 - APPLE_TAG_RING_HOLE_INSET_MM,
+      };
+    }
+    default:
+      return null;
+  }
 }
 
 /**
@@ -1256,6 +1365,21 @@ export type KeychainNfcLayout = {
   enabled: boolean;
   /** Почему кармана не будет: пресет не держит метку или основа тонкая. */
   blockedReason: string | null;
+  /**
+   * Почему боковое отверстие не уживается с полостью, null — уживается.
+   *
+   * Считается по тем же центрам, что строит геометрия: `sideHoleCenter` и
+   * `pocketY`. В минус — круг отверстия заходит в полость, и карман тогда не
+   * режется: метка легла бы в дырку от кольца. Причина не отменяет позицию в
+   * состоянии, а объясняет, что выбрать: `center` или `none`.
+   *
+   * У нынешних пресетов это страховка, а не рабочий режим: у Apple Tag полость
+   * перестаёт вписываться в силуэт уже при высоте 37 мм, а зазор уходит в минус
+   * только на 30–32 мм, где карман всё равно не режется и выше в очереди стоит его
+   * собственная причина. Проверка держит инвариант «метка не лежит в отверстии»,
+   * чтобы новая позиция или новый пресет не собрали такую модель молча.
+   */
+  holeConflictReason: string | null;
   /** Центр кармана по Y, мм; null — у пресета кармана нет вовсе. */
   pocketY: number | null;
   /** Радиус полости по контуру, мм. */
@@ -1381,6 +1505,30 @@ export function nfcLayout(
 
   // Стенка в минус — полость вылезает за силуэт: у кармана смещённый центр, и
   // узкой стороны мало, чтобы поймать ещё и низ (Apple Tag при высоте 34 мм).
+  // Боковое отверстие проверяется последним: сначала карман должен вписаться в
+  // силуэт, и только потом обсуждается, мешает ли ему отверстие. Иначе брелок
+  // 38 × 30 мм получил бы совет про отверстие вместо «увеличьте высоту».
+  const sideHole = sideHoleCenter(presetId, params);
+  const holeClearanceMm =
+    sideHole === null || pocketY === null
+      ? null
+      : Number(
+          (
+            Math.hypot(sideHole.x, sideHole.y - pocketY) -
+            NFC_POCKET_RADIUS_MM -
+            RING_HOLE_DIAMETER_MM / 2
+          ).toFixed(2),
+        );
+  const holeSideLabel =
+    holeClearanceMm === null || sideHole === null
+      ? ""
+      : sideHole.x < 0
+        ? "слева"
+        : "справа";
+  const holeConflictReason =
+    holeClearanceMm !== null && holeClearanceMm < 0
+      ? `При NFC полость Ø${nfcMmLabel(NFC_POCKET_RADIUS_MM * 2, 1)} мм перекрывает отверстие Ø${nfcMmLabel(RING_HOLE_DIAMETER_MM, 0)} мм ${holeSideLabel}: зазор ${nfcMmLabel(holeClearanceMm)} мм. Оставьте center или none.`
+      : null;
   const blockedReason =
     pocketY === null
       ? "Этот пресет не поддерживает NFC-карман."
@@ -1388,7 +1536,7 @@ export function nfcLayout(
         ? `Полость Ø${nfcMmLabel(NFC_POCKET_RADIUS_MM * 2, 1)} мм не вписывается в силуэт ${sizeLabel} мм: нужно минимум ${nfcMmLabel(fitNeedMm, 1)}×${nfcMmLabel(fitNeedMm, 1)} мм для радиуса ${nfcMmLabel(NFC_POCKET_RADIUS_MM, 1)} и зазора ${nfcMmLabel(NFC_WALL_MIN_MM, 1)}.`
         : faceThicknessMm <= NFC_BLOCK_THICKNESS_MM + 1e-6
           ? `Толщина ${thicknessMm} мм: для кармана нужно минимум ${blockThicknessMm} мм (сплошное дно ${NFC_FLOOR_MM} + полость ${NFC_CAVITY_HEIGHT_MM} + губа ${NFC_LIP_MM} + крышка ${minLidMm}${reliefNote}), а с запасом — от ${tightThicknessMm} мм, где крышка ${normLidMm} мм.`
-          : null;
+          : holeConflictReason;
 
   // Жёлтая плашка: карман режется, но на пределе. Причины могут сойтись —
   // тонкая стенка и тонкая крышка сразу, — тогда обе идут в одну строку, чтобы
@@ -1411,9 +1559,22 @@ export function nfcLayout(
     );
   }
 
+  // Зазор между боковым отверстием и полостью: в плюс, но тоньше нормы — деталь
+  // печатается, метка встаёт рядом с кольцом, и пластик между ними прогибается.
+  if (
+    holeClearanceMm !== null &&
+    holeClearanceMm >= 0 &&
+    holeClearanceMm < NFC_WALL_MIN_MM
+  ) {
+    tightReasons.push(
+      `Между отверстием и полостью ${nfcMmLabel(holeClearanceMm)} мм пластика, впритык.`,
+    );
+  }
+
   return {
     enabled: Boolean(params.nfcEnabled) && blockedReason === null,
     blockedReason,
+    holeConflictReason,
     pocketY,
     radiusMm: NFC_POCKET_RADIUS_MM,
     floorMm: NFC_FLOOR_MM,
@@ -1547,6 +1708,10 @@ function extrudePresetBody(
  * корпус, и брелок не цепляется ушком за ключи. Отверстие вырезано через
  * `shape.holes`, поэтому оно сквозное на всю толщину.
  *
+ * Позиция отверстия приходит из `holePlacements`: `center` — по оси, `left` и
+ * `right` — те же 5 мм от верхнего края, но со сдвигом 8 мм к боковой кромке,
+ * `none` — отверстия нет вовсе. `tab` ещё не реализована и пока строит центр.
+ *
  * Толщина держится ровно по слайдеру: выдавливание идёт на
  * `thickness − 2 × bevelThickness`, а сдвиг на `bevelThickness` ставит нижнюю
  * грань на Z = 0 — так же, как у старой геометрии.
@@ -1609,11 +1774,21 @@ export function buildAppleTag(
   );
   shape.closePath();
 
-  // Центр отверстия отсчитывается от номинального габарита, а не от контура
-  // крышки: панель обещает 5 мм от края заготовки.
-  shape.holes.push(
-    ringHolePath(params.height / 2 - APPLE_TAG_RING_HOLE_INSET_MM),
-  );
+  // Отверстие ставится по выбранной позиции: центр, сдвиг 8 мм к кромке или без
+  // отверстия вовсе. Центр отсчитывается от номинального габарита, а не от
+  // контура крышки: панель обещает 5 мм от края заготовки.
+  const placement = presetHolePlacement("apple-tag", params);
+
+  if (placement !== "none") {
+    const hole = sideHoleCenter("apple-tag", params);
+
+    shape.holes.push(
+      ringHolePath(
+        hole?.x ?? 0,
+        params.height / 2 - APPLE_TAG_RING_HOLE_INSET_MM,
+      ),
+    );
+  }
 
   return extrudePresetBody(shape, params, nfcLayout("apple-tag", params));
 }
@@ -1676,7 +1851,9 @@ export function buildCapsule(
 
   shape.closePath();
 
-  shape.holes.push(ringHolePath(params.height / 2 - RING_HOLE_INSET_MM));
+  shape.holes.push(
+    ringHolePath(0, params.height / 2 - RING_HOLE_INSET_MM),
+  );
 
   return extrudePresetShape(shape, params.thickness);
 }
@@ -1915,7 +2092,9 @@ export function buildHex(params: KeychainPresetGeometryParams): ExtrudeGeometry 
 
   const shape = roundedPolygonShape(corners, HEX_CORNER_RADIUS_MM);
 
-  shape.holes.push(ringHolePath(params.height / 2 - RING_HOLE_INSET_MM));
+  shape.holes.push(
+    ringHolePath(0, params.height / 2 - RING_HOLE_INSET_MM),
+  );
 
   return extrudePresetShape(shape, params.thickness);
 }
@@ -2106,7 +2285,9 @@ export function buildBrick(
 
   const shape = roundedPolygonShape(corners, BRICK_CORNER_RADIUS_MM);
 
-  shape.holes.push(ringHolePath(params.height / 2 - RING_HOLE_INSET_MM));
+  shape.holes.push(
+    ringHolePath(0, params.height / 2 - RING_HOLE_INSET_MM),
+  );
 
   const body = extrudePresetBody(shape, params, nfcLayout("brick", params));
   const stud = brickStudGeometry();
@@ -2301,7 +2482,7 @@ export function buildTicket(
     shape.holes.push(ticketSlotPath(x, notchY));
   }
 
-  shape.holes.push(ringHolePath(layout.ringY));
+  shape.holes.push(ringHolePath(0, layout.ringY));
 
   return extrudePresetShape(shape, params.thickness);
 }
@@ -2408,7 +2589,7 @@ export function buildStarburst(
 
   // Отверстие уезжает в верхний луч: X = 0, Y — из раскладки, где уже проверена
   // стенка до рёбер.
-  shape.holes.push(ringHolePath(layout.ringY));
+  shape.holes.push(ringHolePath(0, layout.ringY));
 
   return extrudePresetShape(shape, params.thickness);
 }
@@ -2591,7 +2772,7 @@ export function buildHeart(
   const layout = heartLayout(params.width, params.height);
   const shape = heartShape(layout);
 
-  shape.holes.push(ringHolePath(layout.ringY));
+  shape.holes.push(ringHolePath(0, layout.ringY));
 
   return extrudePresetShape(shape, params.thickness);
 }
@@ -2787,7 +2968,7 @@ export function buildGear(
   const layout = gearLayout(params.width, params.height);
   const shape = gearShape(layout);
 
-  shape.holes.push(ringHolePath(layout.ringY));
+  shape.holes.push(ringHolePath(0, layout.ringY));
 
   const body = extrudePresetShape(shape, params.thickness);
   // Ступица — вторая оболочка с той же фаской, что у тела. Отверстие в ней есть

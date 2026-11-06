@@ -11,7 +11,12 @@ import {
   FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH,
   countConstructorDownloadsThisMonth,
 } from "@/lib/constructor/downloads";
-import { isKeychainPresetId } from "@/lib/constructor/keychain-presets";
+import {
+  HOLE_PLACEMENT_LABELS,
+  isHolePlacement,
+  isKeychainPresetId,
+  keychainPresetById,
+} from "@/lib/constructor/keychain-presets";
 import {
   isKeychainPresetImplemented,
   nfcLayout,
@@ -317,6 +322,7 @@ function parseKeychainParams(
     keychainPreset,
     customSvgData = "",
     nfcEnabled = false,
+    holePlacement = null,
     qrCardSize = null,
     qrCardTab = null,
     qrMode = null,
@@ -377,6 +383,9 @@ function parseKeychainParams(
     (!preset && !shape) ||
     !isCustomSvgData(customSvgData) ||
     typeof nfcEnabled !== "boolean" ||
+    (holePlacement !== null &&
+      holePlacement !== undefined &&
+      !isHolePlacement(holePlacement)) ||
     (shape === "custom" && !hasDrawableSvgData(customSvgData)) ||
     qrInvalid
   ) {
@@ -411,6 +420,7 @@ function parseKeychainParams(
     keychainPreset: preset,
     customSvgData,
     nfcEnabled,
+    holePlacement: isHolePlacement(holePlacement) ? holePlacement : undefined,
     qrCardSize: isQrCardSize(qrCardSize) ? qrCardSize : undefined,
     qrCardTab: isQrCardTab(qrCardTab) ? qrCardTab : undefined,
     qrMode: isQrMode(qrMode) ? qrMode : undefined,
@@ -1527,6 +1537,35 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // Позиция отверстия проверяется по реестру пресета: у Starburst боковой стенки
+  // нет, у Brick её ломает шип, а у QR-визитки крепление своё. Запрос мимо набора
+  // отклоняется, а не подрезается к центру: иначе пользователь получил бы файл с
+  // отверстием не там, где просил, и без единого слова об этом.
+  const requestedPlacement = isRecord(body) ? body.holePlacement : undefined;
+
+  if (
+    parsed.model === "keychain" &&
+    parsed.params.keychainPreset &&
+    isHolePlacement(requestedPlacement)
+  ) {
+    const preset = keychainPresetById(parsed.params.keychainPreset);
+
+    if (
+      preset.holePlacements.length > 0 &&
+      !preset.holePlacements.includes(requestedPlacement)
+    ) {
+      const available = preset.holePlacements
+        .map((placement) => `«${HOLE_PLACEMENT_LABELS[placement]}»`)
+        .join(", ");
+
+      return errorResponse(
+        422,
+        "hole_placement_unavailable",
+        `Позиция отверстия «${HOLE_PLACEMENT_LABELS[requestedPlacement]}» недоступна для пресета ${preset.label}. Доступно: ${available}.`,
+      );
+    }
+  }
+
   // Содержимое QR-визитки проверяется здесь, а не в parseKeychainParams: текст
   // отказа зависит от матрицы кода, и тот же текст показывается в панели. Так 422
   // объясняет причину — «укоротите ссылку» или «в визитку входят только имя и
@@ -1556,6 +1595,9 @@ export async function POST(request: Request): Promise<Response> {
       height: parsed.params.length,
       thickness: parsed.params.thickness,
       nfcEnabled: parsed.params.nfcEnabled,
+      // Та же позиция, что уйдёт в геометрию: пересечение с полостью считается по
+      // фактическим центрам, а не по «обычно по центру».
+      holePlacement: parsed.params.holePlacement,
       qr:
         parsed.params.keychainPreset === "qr-card"
           ? keychainQrCardSpec(parsed.params)

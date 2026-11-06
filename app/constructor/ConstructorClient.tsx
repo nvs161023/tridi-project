@@ -18,7 +18,11 @@ import {
   shouldAskForConstructorFeedback,
 } from "@/lib/constructor/feedback";
 import type { SavedProjectNotice } from "@/lib/constructor/projects";
-import { keychainPresetById, type KeychainPresetId } from "@/lib/constructor/keychain-presets";
+import {
+  keychainPresetById,
+  type HolePlacement,
+  type KeychainPresetId,
+} from "@/lib/constructor/keychain-presets";
 import {
   COASTER_PATTERN_LABELS,
   COASTER_SHAPE_LABELS,
@@ -636,6 +640,16 @@ export function ConstructorClient({
   }
 
   /**
+   * Позиция отверстия под кольцо: набор значений проверяет нормализация по
+   * реестру пресета, поэтому панель передаёт выбор как есть.
+   */
+  function updateHolePlacement(holePlacement: HolePlacement) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, holePlacement }),
+    );
+  }
+
+  /**
    * Содержимое QR-визитки: размер, крепление, рельеф и строка кода.
    *
    * Один обработчик на все поля визитки: нормализация сама выводит габарит из
@@ -1100,6 +1114,7 @@ export function ConstructorClient({
           onGiftShapeChange={updateGiftShape}
           onGiftScrewLockChange={updateGiftScrewLock}
           onHasLidChange={updateHasLid}
+          onHolePlacementChange={updateHolePlacement}
           onJewelryConfigChange={updateJewelryConfig}
           onKeychainPresetChange={updateKeychainPreset}
           onKeychainShapeChange={updateKeychainShape}

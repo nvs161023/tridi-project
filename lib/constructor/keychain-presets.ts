@@ -34,6 +34,48 @@ export const KEYCHAIN_PRESET_IDS = [
 
 export type KeychainPresetId = (typeof KEYCHAIN_PRESET_IDS)[number];
 
+/**
+ * Позиция отверстия Ø5 мм под кольцо.
+ *
+ * Одно значение на все пресеты вместо отдельных полей вроде `qrCardTab`: панель,
+ * состояние модели и API читают одно имя, поэтому позиция не может разойтись
+ * между предпросмотром и файлом. Какой набор доступен — решает не пользователь, а
+ * силуэт: у Starburst боковой стенки нет вовсе, у Brick боковое отверстие ломает
+ * шип. Набор лежит в реестре (`holePlacements`), обоснование — в
+ * `hole-placement-audit.md`.
+ *
+ * - `center` — по оси симметрии, как было у всех пресетов;
+ * - `left` / `right` — то же отверстие, сдвинутое от оси к левой или правой кромке;
+ * - `none` — отверстия нет: брелок печатается без ушка;
+ * - `tab` — проушина Ø11 мм выступает над верхней кромкой (в работе, T3).
+ */
+export const HOLE_PLACEMENTS = [
+  "center",
+  "left",
+  "right",
+  "none",
+  "tab",
+] as const;
+
+export type HolePlacement = (typeof HOLE_PLACEMENTS)[number];
+
+/** Подписи позиций для выпадающего списка «Отверстие». */
+export const HOLE_PLACEMENT_LABELS: Record<HolePlacement, string> = {
+  center: "По центру",
+  left: "Слева",
+  right: "Справа",
+  none: "Без отверстия",
+  tab: "Проушина сверху",
+};
+
+/** Проверка значения из состояния или API: только пять известных позиций. */
+export function isHolePlacement(value: unknown): value is HolePlacement {
+  return (
+    typeof value === "string" &&
+    (HOLE_PLACEMENTS as readonly string[]).includes(value)
+  );
+}
+
 /** Описание одного силуэта: что за форма и с каких размеров её начинать. */
 export type KeychainPreset = {
   /** Идентификатор в реестре и в состоянии панели. */
@@ -64,6 +106,17 @@ export type KeychainPreset = {
    * перепроверить тем же скриптом (`scripts/tmp-nfc-fit.mjs`).
    */
   nfcPocketY?: number;
+  /**
+   * Позиции отверстия под кольцо, которые держит силуэт.
+   *
+   * Порядок массива задаёт порядок пунктов в панели. Пустой список — пресет живёт
+   * своим креплением (QR-визитка: проушина или отверстие в теле через
+   * `qrCardTab`) и в общем механизме не участвует. Числа-обоснования — в
+   * `hole-placement-audit.md`: у Apple Tag боковая стенка 2.5 мм, у Starburst
+   * боковой стенки нет (−2.00 мм), а шип Brick режет боковую стенку в −0.73 мм,
+   * поэтому `left`/`right` у них не предлагаются вовсе.
+   */
+  holePlacements: HolePlacement[];
 };
 
 /**
@@ -88,6 +141,9 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     // Карман стоит ниже кольца: отверстие Ø5 мм в 5 мм от верхнего края, и
     // верхняя кромка круга не должна его подрезать.
     nfcPocketY: -3.7,
+    // Полный набор: сдвиг 8 мм, а на узкой заготовке он поджимается так, чтобы до
+    // кромки осталось 5 мм — стенка 2.5 мм держится на всей ширине слайдера.
+    holePlacements: ["center", "left", "right", "none"],
   },
   {
     id: "capsule",
@@ -97,6 +153,10 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     defaultWidth: 24,
     defaultHeight: 64,
     defaultThickness: 3,
+    // Отверстие живёт в верхнем полукруге: по аудиту боковая позиция проходит
+    // (стенка 2.19 мм), но геометрия капсулы её пока не строит — набор
+    // расширится вместе с ней.
+    holePlacements: ["center", "none"],
   },
   {
     id: "hex",
@@ -106,6 +166,10 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     defaultWidth: 34,
     defaultHeight: 40,
     defaultThickness: 3,
+    // Верхняя грань горизонтальная, боковая позиция по аудиту проходит (стенка
+    // 2.42 мм), но геометрия шестигранника её пока не строит — набор расширится
+    // вместе с ней.
+    holePlacements: ["center", "none"],
   },
   {
     id: "gear",
@@ -115,6 +179,9 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     defaultWidth: 44,
     defaultHeight: 44,
     defaultThickness: 4,
+    // Отверстие стоит в ступице и в верхнем зубе: сдвиг вбок уводит его во
+    // впадину, где стенка отрицательная (−0.15 мм).
+    holePlacements: ["center", "none"],
   },
   {
     id: "brick",
@@ -127,6 +194,9 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     // Самый тесный из «влезающих»: стенка в узком месте ровно 1.5 мм, потому что
     // ширина профиля — ровно 32 мм. Карман уходит от отверстия вниз, к центру.
     nfcPocketY: -5.2,
+    // Шип стоит ровно там, где прошло бы боковое отверстие: стенка −0.73 мм даже
+    // без кармана.
+    holePlacements: ["center", "none"],
   },
   {
     id: "ticket",
@@ -136,6 +206,9 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     defaultWidth: 28,
     defaultHeight: 60,
     defaultThickness: 3,
+    // Отверстие сидит в проушине сверху: боковая позиция требует высоты не меньше
+    // 34 мм и второй проушины не даёт, поэтому набор — центр и «без отверстия».
+    holePlacements: ["center", "none"],
   },
   {
     id: "starburst",
@@ -145,6 +218,8 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     defaultWidth: 42,
     defaultHeight: 42,
     defaultThickness: 3,
+    // Боковая стенка впадины отрицательная (−2.00 мм): сбоку отверстие не режется.
+    holePlacements: ["center", "none"],
   },
   {
     id: "heart",
@@ -154,6 +229,9 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     defaultWidth: 38,
     defaultHeight: 40,
     defaultThickness: 3,
+    // Плечи поднимаются над центром, поэтому боковое отверстие остаётся в мясе
+    // доли — стенка 2.19 мм на всей ширине слайдера.
+    holePlacements: ["center", "left", "right", "none"],
   },
   {
     id: "qr-card",
@@ -167,6 +245,9 @@ export const KEYCHAIN_PRESETS: KeychainPreset[] = [
     // опускается на 2.2 мм (отверстие Ø5 мм занимает верхнюю часть тела) —
     // сдвиг задаёт `QR_CARD_NFC_HOLE_SHIFT_MM` в геометрии пресетов.
     nfcPocketY: -2,
+    // Пресет живёт своим креплением: проушина или отверстие в теле (`qrCardTab`),
+    // поэтому общий механизм позиций его не касается — миграция отдельной задачей.
+    holePlacements: [],
   },
 ];
 
