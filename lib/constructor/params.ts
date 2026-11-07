@@ -91,6 +91,10 @@ export const CONSTRUCTOR_LIMITS = {
   // шире 6 мм на вазе 60 мм уже спорят с силуэтом, а не дополняют его.
   footMm: { min: 0, max: 12, step: 1, defaultValue: 0, decimals: 0 },
   rimMm: { min: 0, max: 6, step: 1, defaultValue: 0, decimals: 0 },
+  // Грани сечения: 0–2 — «как в силуэте» (круг у плавных, 4 и 8 у квадрата и
+  // восьмигранника), 3–12 — столько граней у любой формы. Ноль по умолчанию,
+  // поэтому старые вазы остаются ровно такими, какими были.
+  sectionSides: { min: 0, max: 12, step: 1, defaultValue: 0, decimals: 0 },
   patternIntensity: {
     min: 0,
     max: 5,
@@ -291,9 +295,10 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
  * строится в lib/constructor/vase-profile.ts по этим идентификаторам.
  *
  * square и octagon — не просто другой силуэт: их сечение в плане
- * превращается в правильный многоугольник в lib/constructor/vase-geometry.ts.
+ * превращается в правильный многоугольник в lib/constructor/vase-section.ts.
  * Профиль по высоте остаётся плавным, а радиус зависит от угла, поэтому
- * квадратная ваза сохраняет толщину стенки на гранях и в углах.
+ * квадратная ваза сохраняет толщину стенки на гранях и в углах. Слайдер «Грани»
+ * обобщает это на любое сечение от 3 до 12 граней.
  */
 export const VASE_SHAPES = [
   "classic",
@@ -612,6 +617,16 @@ export type VaseParams = {
    * цилиндра, где горло и так самое широкое место, слайдер ничего не меняет.
    */
   rimMm: number;
+  /**
+   * Грани сечения: 0 — «как в силуэте», 3–12 — столько граней у любой формы.
+   *
+   * Сечение в плане — правильный N-угольник: плоские грани и острые углы, вид
+   * «кристалла» или low-poly вазы. Стенка при этом остаётся заданной по нормали
+   * (`vase-section.ts` отдаёт сжатие грани, а геометрия строит внутренний контур
+   * вписанным многоугольником). Габарит не выходит за `diameter`: углы ложатся
+   * ровно на радиус, грани — на `diameter / 2 · cos(π/N)`.
+   */
+  sectionSides: number;
 };
 
 /**
@@ -997,6 +1012,7 @@ export const DEFAULT_VASE_PARAMS: VaseParams = {
   patternFrequency: CONSTRUCTOR_LIMITS.patternFrequency.defaultValue,
   footMm: CONSTRUCTOR_LIMITS.footMm.defaultValue,
   rimMm: CONSTRUCTOR_LIMITS.rimMm.defaultValue,
+  sectionSides: CONSTRUCTOR_LIMITS.sectionSides.defaultValue,
 };
 
 /**
@@ -1918,6 +1934,10 @@ export function normalizeVaseParams(params: Partial<VaseParams>): VaseParams {
     rimMm: snap(
       params.rimMm ?? DEFAULT_VASE_PARAMS.rimMm,
       CONSTRUCTOR_LIMITS.rimMm,
+    ),
+    sectionSides: snap(
+      params.sectionSides ?? DEFAULT_VASE_PARAMS.sectionSides,
+      CONSTRUCTOR_LIMITS.sectionSides,
     ),
   };
 }

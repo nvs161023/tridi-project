@@ -18,6 +18,8 @@
  *     --shape classic --pattern honeycomb --freq 20 --size 900 \
  *     --out .fonttmp/shots/classic-honeycomb-f20.png
  *
+ * Гранёная ваза: `--sides 5` строит пятигранник на любом силуэте.
+ *
  * Лист целиком (8 силуэтов × 6 узоров, по строке на силуэт):
  *   node --import ./scripts/register-alias.mjs scripts/vase-render.mjs \
  *     --freq 8 --out .fonttmp/shots/vase-f8.png
@@ -416,6 +418,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   );
   const footMm = numberOption(args.foot, DEFAULT_CONSTRUCTOR_PARAMS.footMm);
   const rimMm = numberOption(args.rim, DEFAULT_CONSTRUCTOR_PARAMS.rimMm);
+  const sectionSides = numberOption(
+    args.sides,
+    DEFAULT_CONSTRUCTOR_PARAMS.sectionSides,
+  );
   const azimuth = numberOption(args.azimuth, 24);
   const elevation = numberOption(args.elevation, 12);
   const size = numberOption(args.size, 760);
@@ -427,6 +433,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     patternFrequency: frequency,
     footMm,
     rimMm,
+    sectionSides,
   };
 
   mkdirSync(path.dirname(out), { recursive: true });
@@ -447,7 +454,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     writeFileSync(out, encodePng(frame.width, frame.height, frame.rgb));
     console.log(
       `${params.shape}/${params.pattern} f${frequency}, цоколь ${footMm}, ` +
-        `обод ${rimMm}: ${frame.triangles} треугольников, ` +
+        `обод ${rimMm}, граней ${sectionSides}: ${frame.triangles} треугольников, ` +
         `${frame.width} × ${frame.height} → ${out}`,
     );
   } else {

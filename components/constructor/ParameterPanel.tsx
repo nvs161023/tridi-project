@@ -1873,7 +1873,7 @@ export function ParameterPanel({
 
       {params.model === "vase" ? (
         <>
-          <div className="mt-6 border-t border-white/10 pt-5">
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
             <ParameterSelect
               hint={SHAPE_HINTS[params.shape]}
               label="Форма"
@@ -1883,6 +1883,18 @@ export function ParameterPanel({
                 value: shape,
               }))}
               value={params.shape}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.sectionSides.decimals}
+              hint="Сечение в плане: 3–12 граней превращают круг в правильный многоугольник — плоские грани и острые углы, вид кристалла. 0–2 — как в силуэте (круг у плавных форм, четыре грани у квадрата, восемь у восьмигранника): меньше трёх граней не бывает. Толщина стенки остаётся заданной и на гранях, и в углах."
+              label="Грани"
+              max={CONSTRUCTOR_LIMITS.sectionSides.max}
+              min={CONSTRUCTOR_LIMITS.sectionSides.min}
+              onChange={(value) => onParamChange("sectionSides", value)}
+              step={CONSTRUCTOR_LIMITS.sectionSides.step}
+              unit="шт"
+              value={params.sectionSides}
             />
           </div>
 

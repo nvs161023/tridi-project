@@ -22,7 +22,12 @@
  *   6. цоколь и обод не меняют высоту и диаметр, стенка на их полосах остаётся
  *      заданной, а самый тесный случай (Ø40 × 60, стенка 4) замкнут;
  *   7. у дна и под кромкой узор гаснет до нуля: кольца кромки и дна совпадают с
- *      той же вазой при нулевой амплитуде, а в теле рельеф остаётся прежним.
+ *      той же вазой при нулевой амплитуде, а в теле рельеф остаётся прежним;
+ *   8. грани 3–12 дают точный правильный N-угольник: угол лежит на радиусе
+ *      `diameter / 2`, середина грани — на `diameter / 2 · cos(π/N)`, сетка
+ *      замкнута, а стенка на гранях и в углах равна заданной по нормали.
+ *      Слайдер «0–2» повторяет силуэт: у квадрата это четыре грани, у классики
+ *      круг.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
@@ -974,6 +979,171 @@ console.log("\n7. Затухание узора у кромки и дна");
     wall - WALL_TOLERANCE_MM,
     wall + WALL_TOLERANCE_MM,
   );
+
+  geometry.dispose();
+}
+
+console.log("\n8. Грани: правильный N-угольник от 3 до 12");
+
+{
+  // Силуэт `square` выбран потому, что его самая широкая точка — ровно
+  // `diameter / 2`: на таком кольце угол многоугольника должен лежать на этом
+  // радиусе, а середина грани — на `diameter / 2 · cos(π/N)`. Проверка ловит
+  // и ошибку формулы, и невыровненное число сегментов: если окружность не
+  // делится на грани, угол срезается хордой между соседними кольцами.
+  const sidesList = [3, 5, 6, 7, 12];
+  const broken: string[] = [];
+  const cornerErrors: number[] = [];
+  const flatErrors: number[] = [];
+  const normal: number[] = [];
+  const radial: number[] = [];
+  let minVolume = Number.POSITIVE_INFINITY;
+
+  for (const sides of sidesList) {
+    const geometry = buildGeometry(
+      vaseParams({ shape: "square", pattern: "smooth", sectionSides: sides }),
+    );
+    const open = openEdges(geometry);
+    const nan = nanVertices(geometry);
+    const volume = volumeMm3(geometry);
+
+    minVolume = Math.min(minVolume, volume);
+
+    if (open !== 0 || nan !== 0 || volume <= 0) {
+      broken.push(
+        `${sides} граней: рёбер ${open}, NaN ${nan}, объём ${volume.toFixed(1)}`,
+      );
+    }
+
+    let widest: RingPoint[] = [];
+    let widestRadius = 0;
+
+    for (const ring of ringsByHeight(geometry).values()) {
+      const { outer } = splitRing(ring);
+
+      if (outer.length < sides) {
+        continue;
+      }
+
+      const radius = Math.max(...outer.map((point) => point.radius));
+
+      if (radius > widestRadius) {
+        widestRadius = radius;
+        widest = outer;
+      }
+    }
+
+    const radii = widest.map((point) => point.radius);
+
+    cornerErrors.push(Math.abs(Math.max(...radii) - diameter / 2));
+    flatErrors.push(
+      Math.abs(Math.min(...radii) - (diameter / 2) * Math.cos(Math.PI / sides)),
+    );
+
+    const measurements = wallMeasurements(geometry);
+
+    normal.push(...measurements.normal);
+    radial.push(...measurements.radial);
+
+    geometry.dispose();
+  }
+
+  check("грани 3, 5, 6, 7, 12: замкнутость, NaN и объём", broken, []);
+  console.log(`       минимальный объём ${minVolume.toFixed(1)} мм³`);
+  checkRange(
+    "угол лежит на радиусе diameter / 2",
+    cornerErrors,
+    0,
+    BOX_TOLERANCE_MM,
+  );
+  checkRange(
+    "середина грани = diameter / 2 · cos(π/N)",
+    flatErrors,
+    0,
+    BOX_TOLERANCE_MM,
+  );
+  checkRange(
+    "стенка по нормали: грани и углы",
+    normal,
+    wall - WALL_TOLERANCE_MM,
+    wall + WALL_TOLERANCE_MM,
+  );
+  checkRange(
+    "стенка по лучу: от wall до wall / cos(π/3)",
+    radial,
+    wall - WALL_TOLERANCE_MM,
+    wall / Math.cos(Math.PI / 3) + WALL_TOLERANCE_MM,
+  );
+}
+
+{
+  // Слайдер: 0, 1 и 2 — «как в силуэте», 3–12 — столько граней у любой формы.
+  // Габарит — самый простой признак: у круга это диаметр, у квадрата
+  // `diameter · cos(π/4)`, и значения не должны меняться от того, задан силуэт
+  // или слайдер.
+  const footprint = (params: VaseParams): number => {
+    const geometry = buildGeometry(params);
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox;
+    const width = Math.max(
+      (box?.max.x ?? 0) - (box?.min.x ?? 0),
+      (box?.max.z ?? 0) - (box?.min.z ?? 0),
+    );
+
+    geometry.dispose();
+
+    return width;
+  };
+
+  const circle = footprint(vaseParams({ shape: "classic", pattern: "smooth" }));
+
+  checkRange("classic без граней: габарит = диаметр", [circle], 89.99, 90.01);
+  checkRange(
+    "classic, грани 0–2: габарит тот же, что у круга",
+    [
+      footprint(
+        vaseParams({ shape: "classic", pattern: "smooth", sectionSides: 1 }),
+      ),
+      footprint(
+        vaseParams({ shape: "classic", pattern: "smooth", sectionSides: 2 }),
+      ),
+    ],
+    89.99,
+    90.01,
+  );
+  checkRange(
+    "classic, грани 4: габарит = 90 · cos(π/4)",
+    [
+      footprint(
+        vaseParams({ shape: "classic", pattern: "smooth", sectionSides: 4 }),
+      ),
+      footprint(vaseParams({ shape: "square", pattern: "smooth" })),
+    ],
+    diameter * Math.cos(Math.PI / 4) - BOX_TOLERANCE_MM,
+    diameter * Math.cos(Math.PI / 4) + BOX_TOLERANCE_MM,
+  );
+}
+
+{
+  // Треугольник — самый тесный случай: внутренняя стенка отходит от внешней на
+  // `w / cos(π/3) = 2·w`, то есть на 90 % самого узкого радиуса при предельной
+  // стенке. Полость не должна сложиться через ось.
+  const geometry = buildGeometry(
+    vaseParams({
+      shape: "classic",
+      pattern: "smooth",
+      diameter: 40,
+      height: 60,
+      wall: 4,
+      sectionSides: 3,
+    }),
+  );
+  const volume = volumeMm3(geometry);
+
+  check("треугольник Ø40 со стенкой 4: открытых рёбер 0", openEdges(geometry), 0);
+  check("треугольник Ø40 со стенкой 4: NaN 0", nanVertices(geometry), 0);
+  check("треугольник Ø40 со стенкой 4: объём больше нуля", volume > 0, true);
+  console.log(`       объём ${volume.toFixed(1)} мм³`);
 
   geometry.dispose();
 }

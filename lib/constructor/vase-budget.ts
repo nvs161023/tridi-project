@@ -2,10 +2,15 @@ import {
   CONSTRUCTOR_LIMITS,
   DEFAULT_VASE_PARAMS,
   isVasePattern,
+  isVaseShape,
   type VaseParams,
   type VasePattern,
 } from "@/lib/constructor/params";
 import { DETAIL_PATTERN_SCALE } from "@/lib/constructor/pattern-waves";
+import {
+  resolveSectionSides,
+  VASE_SECTION_MIN_SIDES,
+} from "@/lib/constructor/vase-section";
 
 /**
  * Разрешение вазы по окружности и бюджет треугольников.
@@ -59,7 +64,7 @@ export type VaseBudget = "preview" | "export";
 
 /** Поля параметров, от которых зависит разрешение по окружности. */
 export type VaseBudgetParams = Partial<
-  Pick<VaseParams, "pattern" | "patternFrequency">
+  Pick<VaseParams, "pattern" | "patternFrequency" | "shape" | "sectionSides">
 >;
 
 function clamp(value: number, min: number, max: number): number {
@@ -157,12 +162,45 @@ export function vaseTriangleBudget(budget: VaseBudget = "preview"): number {
 }
 
 /**
+ * Во сколько раз шаг колец должен нацело делиться, чтобы грани были точными.
+ *
+ * LatheGeometry ставит вершины через равный угол, а угол многоугольника
+ * приходится ровно на середину сектора (`π/N`). Чтобы он попал в вершину,
+ * полный круг должен делиться на целое число углов: `segments = 2 · m · N`.
+ * Для квадрата и восьмиугольника это 8 и 16 — оба делят 128, поэтому старые
+ * вазы не меняются вовсе. Без выравнивания 3, 5, 6, 7, 9, 10, 11 и 12-гранник
+ * терял бы углы: между соседними кольцами проходит хорда, и угол срезается
+ * фаской (в замерах до 0.76 мм).
+ */
+export function sectionSegmentStep(sides: number): number {
+  if (!Number.isFinite(sides) || sides < VASE_SECTION_MIN_SIDES) {
+    return 1;
+  }
+
+  return Math.round(sides) * 2;
+}
+
+/** Округляет число сегментов вверх до кратного граням. */
+export function alignSegmentsToSection(segments: number, sides: number): number {
+  const step = sectionSegmentStep(sides);
+
+  if (step <= 1) {
+    return segments;
+  }
+
+  return Math.ceil(segments / step) * step;
+}
+
+/**
  * Число сегментов по окружности для конкретной вазы.
  *
- * Порядок: взять требование рельефа, затем урезать его бюджетом. Профиль
- * важнее окружности (силуэт видно на просвет), поэтому ниже базы разрешение не
- * опускается никогда: 128 сегментов при 129 точках — это 32 768 треугольников,
- * они влезают даже в самый скромный лимит.
+ * Порядок: взять требование рельефа, затем урезать его бюджетом, затем
+ * округлить вверх до кратного граням. Профиль важнее окружности (силуэт видно
+ * на просвет), поэтому ниже базы разрешение не опускается никогда: 128
+ * сегментов при 129 точках — это 32 768 треугольников, они влезают даже в самый
+ * скромный лимит. Если выравнивание под грани вылезает за бюджет (это возможно
+ * только на вазе с очень подробным профилем), бюджет важнее: углы тогда
+ * срезаются хордой, но файл остаётся в лимите.
  */
 export function vaseSegments(
   params: VaseBudgetParams,
@@ -172,10 +210,16 @@ export function vaseSegments(
   const pattern = isVasePattern(params.pattern)
     ? params.pattern
     : DEFAULT_VASE_PARAMS.pattern;
+  const shape = isVaseShape(params.shape) ? params.shape : DEFAULT_VASE_PARAMS.shape;
   const required = requiredVaseSegments(pattern, params.patternFrequency);
   const byBudget = Math.floor(
     vaseTriangleBudget(budget) / (2 * Math.max(profilePointCount - 1, 1)),
   );
+  const base = Math.max(VASE_MIN_SEGMENTS, Math.min(required, byBudget));
+  const aligned = alignSegmentsToSection(
+    base,
+    resolveSectionSides(shape, params.sectionSides),
+  );
 
-  return Math.max(VASE_MIN_SEGMENTS, Math.min(required, byBudget));
+  return aligned <= byBudget ? aligned : base;
 }

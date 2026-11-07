@@ -44,6 +44,10 @@ import {
 } from "@/lib/constructor/sign-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
+import {
+  VASE_SECTION_MIN_SIDES,
+  resolveSectionSides,
+} from "@/lib/constructor/vase-section";
 
 /** Параметры выбранной модели: сцена пересобирается при любом изменении. */
 type ViewportProps = {
@@ -183,6 +187,8 @@ type VaseModelProps = {
   pattern: VasePattern;
   patternIntensity: number;
   patternFrequency: number;
+  /** Грани сечения: 0–2 — как в силуэте, 3–12 — правильный N-угольник. */
+  sectionSides: number;
 };
 
 /**
@@ -191,6 +197,12 @@ type VaseModelProps = {
  * Геометрию создаёт и освобождает Viewport: меш только подключает готовый
  * BufferGeometry. Так старая сетка освобождается в одном месте, а не при
  * каждом обновлении материала или света.
+ *
+ * У гранёной вазы материал включает `flatShading`: нормали в сетке остаются
+ * гладкими (иначе вырос бы буфер вершин, а сварка и проверки объёма считали бы
+ * другую геометрию), а плоское затенение даёт тот же вид — каждая грань
+ * освещается целиком, ребро между гранями остаётся резким. STL и так состоит
+ * из плоских треугольников, поэтому на файл это не влияет.
  */
 function VaseModel({
   geometry,
@@ -201,12 +213,17 @@ function VaseModel({
   pattern,
   patternIntensity,
   patternFrequency,
+  sectionSides,
 }: VaseModelProps) {
+  const faceted =
+    resolveSectionSides(shape, sectionSides) >= VASE_SECTION_MIN_SIDES;
+
   return (
     <group>
       <mesh castShadow geometry={geometry} receiveShadow>
         <meshStandardMaterial
           color="#60a5fa"
+          flatShading={faceted}
           metalness={0.05}
           roughness={0.38}
         />
@@ -236,7 +253,7 @@ function VaseModel({
         blur={2.6}
         far={Math.max(height * 0.9, 120)}
         frames={1}
-        key={`${height}-${diameter}-${wall}-${shape}-${pattern}-${patternIntensity}-${patternFrequency}`}
+        key={`${height}-${diameter}-${wall}-${shape}-${pattern}-${patternIntensity}-${patternFrequency}-${sectionSides}`}
         opacity={0.55}
         position={[0, 0.02, 0]}
         resolution={512}
@@ -689,6 +706,7 @@ function Scene({ params, geometry, framing }: SceneProps) {
           pattern={params.pattern}
           patternFrequency={params.patternFrequency}
           patternIntensity={params.patternIntensity}
+          sectionSides={params.sectionSides}
           shape={params.shape}
           wall={params.wall}
         />
