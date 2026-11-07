@@ -12,13 +12,17 @@
  *   1. все восемь силуэтов и шесть узоров на дефолтных размерах замкнуты
  *      (у каждого ребра ровно два треугольника), без NaN и с объёмом больше нуля;
  *   2. у квадрата и восьмигранника перпендикулярная толщина на всех кольцах и на
- *      кромке равна заданной ±0.05 мм;
- *   3. толщина по лучу у них же лежит от `wall` до `wall / cos(π/N)` — это
- *      обратная сторона отступа по нормали, и её тоже нельзя терять;
- *   4. у круглых силуэтов толщина по лучу равна заданной;
- *   5. габарит гладкой многоугольной вазы равен `diameter · cos(π/N)`
+ *      кромке равна заданной ±0.05 мм, а толщина по лучу лежит от `wall` до
+ *      `wall / cos(π/N)` — это обратная сторона отступа по нормали, и её тоже
+ *      нельзя терять;
+ *   3. у круглых силуэтов толщина по лучу равна заданной;
+ *   4. габарит гладкой многоугольной вазы равен `diameter · cos(π/N)`
  *      (63.64 мм для квадрата и 83.15 мм для восьмигранника при 90 мм);
- *   6. толстая стенка на маленьком квадрате не выворачивает полость.
+ *   5. толстая стенка на маленьком квадрате не выворачивает полость;
+ *   6. цоколь и обод не меняют высоту и диаметр, стенка на их полосах остаётся
+ *      заданной, а самый тесный случай (Ø40 × 60, стенка 4) замкнут;
+ *   7. у дна и под кромкой узор гаснет до нуля: кольца кромки и дна совпадают с
+ *      той же вазой при нулевой амплитуде, а в теле рельеф остаётся прежним.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
@@ -392,6 +396,94 @@ function wallMeasurements(geometry: BufferGeometry): {
   return { normal, radial, rimNormal };
 }
 
+/**
+ * Радиусы вершин по высотам, мм.
+ *
+ * Узор двигает вершины только по радиусу, поэтому поведение затухания видно
+ * простым сравнением наборов радиусов на одной высоте: у вазы с амплитудой и у
+ * той же вазы с нулевой амплитудой они должны совпасть там, где рельеф погашен.
+ * Вершины на оси пропускаются — их радиус нулевой всегда.
+ */
+function radiiByHeight(geometry: BufferGeometry): Map<string, number[]> {
+  const position = geometry.getAttribute("position");
+  const rings = new Map<string, number[]>();
+
+  for (let index = 0; index < position.count; index += 1) {
+    const radius = Math.hypot(position.getX(index), position.getZ(index));
+
+    if (radius <= 1e-4) {
+      continue;
+    }
+
+    const key = position.getY(index).toFixed(4);
+    const ring = rings.get(key);
+
+    if (ring) {
+      ring.push(radius);
+    } else {
+      rings.set(key, [radius]);
+    }
+  }
+
+  for (const ring of rings.values()) {
+    ring.sort((first, second) => first - second);
+  }
+
+  return rings;
+}
+
+/** Нижняя и верхняя границы сетки по высоте, мм. */
+function heightSpan(geometry: BufferGeometry): { min: number; max: number } {
+  const position = geometry.getAttribute("position");
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const y = position.getY(index);
+
+    min = Math.min(min, y);
+    max = Math.max(max, y);
+  }
+
+  return { min, max };
+}
+
+/**
+ * Наибольшее расхождение радиусов двух сеток на кольцах в полосе высот, мм.
+ *
+ * Кольца сопоставляются по высоте и сравниваются попарно после сортировки по
+ * радиусу. Если набор вершин в кольце разошёлся (одна сетка сварила вершину,
+ * другая нет), расхождение не число — тогда возвращается бесконечность и
+ * проверка падает, а не молча проходит.
+ */
+function shiftInBand(
+  base: Map<string, number[]>,
+  other: Map<string, number[]>,
+  from: number,
+  to: number,
+): number {
+  let worst = 0;
+
+  for (const [key, baseRing] of base) {
+    const height = Number(key);
+
+    if (height < from || height > to) {
+      continue;
+    }
+
+    const otherRing = other.get(key);
+
+    if (!otherRing || otherRing.length !== baseRing.length) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    for (let index = 0; index < baseRing.length; index += 1) {
+      worst = Math.max(worst, Math.abs(baseRing[index] - otherRing[index]));
+    }
+  }
+
+  return worst;
+}
 
 const wall = DEFAULT_VASE_PARAMS.wall;
 const diameter = DEFAULT_VASE_PARAMS.diameter;
@@ -689,6 +781,199 @@ for (const overrides of [
     [0, 0],
   );
   check("объём больше нуля", volumeMm3(geometry) > 0, true);
+
+  geometry.dispose();
+}
+
+console.log("\n7. Затухание узора у кромки и дна");
+
+{
+  // Самый злой случай для кромки: максимальная амплитуда и максимальная
+  // частота. Именно на нём венец выходил зубчатым гребешком. Опорой служит та
+  // же ваза с нулевой амплитудой: разрешение по окружности зависит от узора и
+  // частоты, поэтому «гладкая» ваза другого разрешения не подошла бы — кольца
+  // сравнивались бы через разное число вершин.
+  const dense = { patternIntensity: 5, patternFrequency: 20 } as const;
+  const rimShifted: string[] = [];
+  const floorShifted: string[] = [];
+  const flatBody: string[] = [];
+  let maxRimShift = 0;
+  let maxFloorShift = 0;
+  let minBodyShift = Number.POSITIVE_INFINITY;
+
+  for (const shape of VASE_SHAPES) {
+    for (const pattern of VASE_PATTERNS) {
+      if (pattern === "smooth") {
+        continue;
+      }
+
+      const flat = buildGeometry(
+        vaseParams({ shape, pattern, ...dense, patternIntensity: 0 }),
+      );
+      const geometry = buildGeometry(vaseParams({ shape, pattern, ...dense }));
+      const baseRings = radiiByHeight(flat);
+      const rings = radiiByHeight(geometry);
+      const { min: base, max: top } = heightSpan(flat);
+      const body = top - base;
+      const rimShift = shiftInBand(baseRings, rings, top - 1e-3, top + 1e-3);
+      const floorShift = shiftInBand(baseRings, rings, base - 1e-3, base + 1e-3);
+      const bodyShift = shiftInBand(
+        baseRings,
+        rings,
+        base + body * 0.25,
+        base + body * 0.75,
+      );
+
+      if (rimShift > 1e-3) {
+        rimShifted.push(`${shape}/${pattern}: ${rimShift.toFixed(3)} мм`);
+      }
+
+      if (floorShift > 1e-3) {
+        floorShifted.push(`${shape}/${pattern}: ${floorShift.toFixed(3)} мм`);
+      }
+
+      if (bodyShift < 0.5) {
+        flatBody.push(`${shape}/${pattern}: ${bodyShift.toFixed(3)} мм`);
+      }
+
+      maxRimShift = Math.max(maxRimShift, rimShift);
+      maxFloorShift = Math.max(maxFloorShift, floorShift);
+      minBodyShift = Math.min(minBodyShift, bodyShift);
+
+      flat.dispose();
+      geometry.dispose();
+    }
+  }
+
+  check("кромка при любом узоре осталась ровным кольцом", rimShifted, []);
+  check("дно при любом узоре осталось ровным кругом", floorShifted, []);
+  check("в теле узор работает: сдвиг ≥ 0.5 мм", flatBody, []);
+  console.log(
+    `       кромка ≤ ${maxRimShift.toFixed(4)} мм, дно ≤ ${maxFloorShift.toFixed(4)} мм, ` +
+      `тело ≥ ${minBodyShift.toFixed(3)} мм`,
+  );
+}
+
+{
+  // Спорный кадр гейта: спираль на частоте 20 с цоколем и ободом. Затухание
+  // привязано к тем же полосам, что и профиль, поэтому цоколь обязан остаться
+  // гладким на всю свою высоту, а не только на первые три миллиметра.
+  const shape = "classic" as const;
+  const bands = { footMm: 10, rimMm: 6 } as const;
+  const flat = buildGeometry(
+    vaseParams({
+      shape,
+      pattern: "spiral",
+      patternIntensity: 0,
+      patternFrequency: 20,
+      ...bands,
+    }),
+  );
+  const spiral = buildGeometry(
+    vaseParams({
+      shape,
+      pattern: "spiral",
+      patternIntensity: 5,
+      patternFrequency: 20,
+      ...bands,
+    }),
+  );
+  const baseRings = radiiByHeight(flat);
+  const rings = radiiByHeight(spiral);
+  const { max: top } = heightSpan(flat);
+
+  checkRange(
+    "спираль 20, обод 6: кольцо кромки не тронуто",
+    [shiftInBand(baseRings, rings, top - 1e-3, top + 1e-3)],
+    0,
+    1e-3,
+  );
+  checkRange(
+    "спираль 20, цоколь 10: полоса цоколя гладкая",
+    [shiftInBand(baseRings, rings, 1, 9.99)],
+    0,
+    1e-3,
+  );
+  checkRange(
+    "спираль 20: выше цоколя узор уже работает",
+    [shiftInBand(baseRings, rings, 20, top * 0.5)],
+    1,
+    5.01,
+  );
+
+  flat.dispose();
+  spiral.dispose();
+}
+
+{
+  // Цоколь и обод не должны ломать сетку вместе с узором: сварка сравнивает
+  // координаты, а смещение зависит только от высоты, поэтому совпадающие
+  // вершины остаются совпадающими.
+  const broken: string[] = [];
+  let minVolume = Number.POSITIVE_INFINITY;
+
+  for (const shape of VASE_SHAPES) {
+    for (const pattern of VASE_PATTERNS) {
+      const geometry = buildGeometry(
+        vaseParams({
+          shape,
+          pattern,
+          patternIntensity: 5,
+          patternFrequency: 20,
+          footMm: 10,
+          rimMm: 4,
+        }),
+      );
+      const open = openEdges(geometry);
+      const nan = nanVertices(geometry);
+      const volume = volumeMm3(geometry);
+
+      minVolume = Math.min(minVolume, volume);
+
+      if (open !== 0 || nan !== 0 || volume <= 0) {
+        broken.push(
+          `${shape}/${pattern}: рёбер ${open}, NaN ${nan}, объём ${volume.toFixed(1)}`,
+        );
+      }
+
+      geometry.dispose();
+    }
+  }
+
+  check("цоколь 10 + обод 4 + все узоры: 48 комбинаций замкнуты", broken, []);
+  console.log(`       минимальный объём ${minVolume.toFixed(1)} мм³`);
+}
+
+{
+  // Толщина на рельефе: смещение радиальное и одинаковое для внешней и
+  // внутренней стенки, поэтому толщина по лучу остаётся заданной. Толщину по
+  // нормали здесь не проверяем: узор наклоняет контур, и перпендикуляр между
+  // двумя волнистыми линиями короче толщины по лучу — это свойство самого
+  // радиального смещения, а не затухания.
+  const geometry = buildGeometry(
+    vaseParams({
+      shape: "square",
+      pattern: "ribs",
+      patternIntensity: 5,
+      patternFrequency: 8,
+      footMm: 10,
+      rimMm: 4,
+    }),
+  );
+  const { radial, rimNormal } = wallMeasurements(geometry);
+
+  checkRange(
+    "square, рёбра 8, цоколь 10, обод 4: по лучу",
+    radial,
+    wall - WALL_TOLERANCE_MM,
+    wall / Math.cos(Math.PI / 4) + WALL_TOLERANCE_MM,
+  );
+  checkRange(
+    "square, рёбра 8, цоколь 10, обод 4: кромка по нормали",
+    rimNormal,
+    wall - WALL_TOLERANCE_MM,
+    wall + WALL_TOLERANCE_MM,
+  );
 
   geometry.dispose();
 }

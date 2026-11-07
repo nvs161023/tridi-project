@@ -196,7 +196,7 @@ function createOuterProfile(params: VaseProfileParams): Vector2[] {
   );
   const spline = new SplineCurve(controls);
   const points: Vector2[] = [];
-  const foot = footHeight(params, height);
+  const foot = vaseFootHeight(height, params.footMm);
   const bodyHeight = Math.max(height - foot, MIN_FLOOR_MM * 2);
   const bandRadius = clamp(controls[0].x, minRadius, maxRadius);
 
@@ -241,15 +241,41 @@ function createOuterProfile(params: VaseProfileParams): Vector2[] {
  * Значение приходит из слайдера, но профиль строится и из чужих данных —
  * скриптов проверки и старых ссылок, — поэтому мусор превращается в ноль, а
  * слишком высокий цоколь обрезается долей высоты.
+ *
+ * Функция экспортируется: `vase-geometry` гасит узор на той же полосе, что и
+ * профиль. Иначе цоколь остался бы гладким по силуэту, но зубчатым по
+ * рельефу — «ножка на ножке», которая читается как брак печати.
  */
-function footHeight(params: VaseProfileParams, height: number): number {
-  const requested = params.footMm ?? 0;
+export function vaseFootHeight(
+  height: number,
+  requested: number | undefined,
+): number {
+  const value = requested ?? 0;
 
-  if (!Number.isFinite(requested) || requested <= 0) {
+  if (!Number.isFinite(value) || value <= 0) {
     return 0;
   }
 
-  return Math.min(requested, height * MAX_FOOT_SHARE);
+  return Math.min(value, height * MAX_FOOT_SHARE);
+}
+
+/**
+ * Высота раструба обода, мм: та же доля высоты и тот же мусорный ноль.
+ *
+ * Экспортируется по той же причине, что и `vaseFootHeight`: обод — вторая
+ * полоса, где узор обязан погаснуть до нуля, иначе венец становится гребешком.
+ */
+export function vaseRimHeight(
+  height: number,
+  requested: number | undefined,
+): number {
+  const value = requested ?? 0;
+
+  if (!Number.isFinite(value) || value <= PROFILE_EPSILON) {
+    return 0;
+  }
+
+  return Math.min(value, height * MAX_RIM_SHARE);
 }
 
 /**
@@ -267,13 +293,12 @@ function applyRim(
   height: number,
   maxRadius: number,
 ): Vector2[] {
-  const requested = params.rimMm ?? 0;
+  const rim = vaseRimHeight(height, params.rimMm);
 
-  if (!Number.isFinite(requested) || requested <= PROFILE_EPSILON) {
+  if (rim <= 0) {
     return points;
   }
 
-  const rim = Math.min(requested, height * MAX_RIM_SHARE);
   const start = height - rim;
 
   for (const point of points) {

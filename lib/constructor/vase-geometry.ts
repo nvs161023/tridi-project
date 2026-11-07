@@ -21,6 +21,7 @@ import {
   vaseSegments,
   type VaseBudget,
 } from "@/lib/constructor/vase-budget";
+import { vaseFootHeight, vaseRimHeight } from "@/lib/constructor/vase-profile";
 
 /**
  * Превращает осевой профиль в замкнутую геометрию вазы.
@@ -30,8 +31,8 @@ import {
  * появляются совпадающие вершины и треугольники нулевой площади. Для
  * предпросмотра они безвредны, но STL и слайсеры любят чистую сетку, поэтому
  * здесь пять шагов: многоугольное сечение для square и octagon, смещение
- * вершин узором, сварка по координатам, удаление вырожденных треугольников и
- * пересчёт нормалей по итоговому обходу.
+ * вершин узором с затуханием у дна и под кромкой, сварка по координатам,
+ * удаление вырожденных треугольников и пересчёт нормалей по итоговому обходу.
  *
  * Сколько сегментов по окружности, решает lib/constructor/vase-budget.ts:
  * 128 по умолчанию и до 256 там, где рельеф мельче сетки.
@@ -74,15 +75,54 @@ const MIN_SHAPED_RADIUS_MM = 0.2;
  */
 const MAX_PATTERN_RADIUS_SHARE = 0.45;
 
+/**
+ * Минимальная гладкая полоса у кромки, мм.
+ *
+ * Кромка вазы — это кольцо, и оно должно остаться ровным. Спираль и рёбра на
+ * частоте 20 двигали вершины горла, и венец превращался в зубчатый гребешок:
+ * на снимках предпросмотра это читалось как дефект печати, хотя ни замкнутость,
+ * ни толщина стенки не страдали. Пяти миллиметров хватает, чтобы под кромкой
+ * прошло одно-два кольца профиля при высоте 140 мм.
+ */
+const RIM_FADE_MM = 5;
+
+/**
+ * Минимальная гладкая полоса у стола, мм.
+ *
+ * Первый слой должен лечь полным кругом: если рельеф гуляет по периметру дна,
+ * край печатается волной и хуже держится за стол. Три миллиметра — это один-два
+ * слоя на стандартной высоте, дальше узор уже не мешает.
+ */
+const FLOOR_FADE_MM = 3;
+
+/**
+ * Длина плавного перехода от гладкой полосы к узору, мм.
+ *
+ * Без перехода амплитуда включалась бы ступенькой: на границе полосы появился
+ * бы уступ в четверть амплитуды, и он читался бы как след слайсера, а не как
+ * узор. Шесть миллиметров — примерно три кольца профиля: сглаженная ступенька
+ * успевает развернуться, а полосы у дна и у кромки остаются короткими.
+ */
+const FADE_RAMP_MM = 6;
+
 /** Параметры формы и рельефа, которые нужны геометрии вазы. */
 export type VaseGeometryParams = Partial<
-  Pick<VaseParams, "shape" | "pattern" | "patternIntensity" | "patternFrequency">
+  Pick<
+    VaseParams,
+    | "shape"
+    | "pattern"
+    | "patternIntensity"
+    | "patternFrequency"
+    | "footMm"
+    | "rimMm"
+  >
 >;
 
 /** Минимум полей BufferAttribute, которые нужны для чтения радиуса. */
 type PositionAttribute = {
   readonly count: number;
   getX(index: number): number;
+  getY(index: number): number;
   getZ(index: number): number;
 };
 
@@ -117,6 +157,52 @@ function findMaxRadius(position: PositionAttribute): number {
   }
 
   return maximum;
+}
+
+/**
+ * Нижняя и верхняя границы сетки по высоте, мм.
+ *
+ * Высота вазы берётся из самой сетки, а не из параметров: `applyPattern`
+ * вызывается и тогда, когда параметров нет вовсе (скрипты проверки строят
+ * геометрию из одного профиля). Границы нужны, чтобы отмерить гладкие полосы у
+ * дна и у кромки.
+ */
+function findHeightSpan(position: PositionAttribute): {
+  min: number;
+  max: number;
+} {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const y = position.getY(index);
+
+    min = Math.min(min, y);
+    max = Math.max(max, y);
+  }
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return { min: 0, max: 0 };
+  }
+
+  return { min, max };
+}
+
+/**
+ * Плавная ступенька 0…1: ноль до `edge0`, единица после `edge1`.
+ *
+ * Линейный переход оставил бы излом производной на обеих границах, и на
+ * глянцевой стенке он читается как кольцевая складка. Кубическая сглаженная
+ * ступенька (`t² · (3 − 2t)`) начинается и заканчивается горизонтально.
+ */
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  if (edge1 <= edge0) {
+    return value >= edge1 ? 1 : 0;
+  }
+
+  const share = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+
+  return share * share * (3 - 2 * share);
 }
 
 /**
@@ -426,6 +512,34 @@ function patternWave(
 }
 
 /**
+ * Множитель амплитуды узора по высоте: 0 у дна и у кромки, 1 в теле вазы.
+ *
+ * `bottom` и `top` — границы сетки по высоте, `foot` и `rim` — высоты полос,
+ * где рельеф обязан быть нулевым. Полосы считаются от того же профиля, что и
+ * цоколь с ободом (`vaseFootHeight` / `vaseRimHeight`), но каждая имеет ещё и
+ * собственный минимум: даже на 140 мм пять миллиметров под кромкой нужны, чтобы
+ * сглаживание уложилось в кольца профиля.
+ */
+function patternFade(
+  y: number,
+  bottom: number,
+  top: number,
+  foot: number,
+  rim: number,
+): number {
+  const floorBand = Math.max(foot, FLOOR_FADE_MM);
+  const rimBand = Math.max(rim, RIM_FADE_MM);
+  const rise = smoothstep(
+    bottom + floorBand,
+    bottom + floorBand + FADE_RAMP_MM,
+    y,
+  );
+  const fall = 1 - smoothstep(top - rimBand - FADE_RAMP_MM, top - rimBand, y);
+
+  return rise * fall;
+}
+
+/**
  * Смещает вершины LatheGeometry по математическому узору.
  *
  * Функция работает до сварки: шов окружности и ось ещё продублированы, но
@@ -433,6 +547,12 @@ function patternWave(
  * остаются совпадающими и после mergeVertices. Внешняя и внутренняя стенки на
  * одной высоте получают одинаковый сдвиг радиуса — толщина стенки сохраняется.
  * Вершины на оси не двигаются, иначе дно и кромка отошли бы от центра.
+ *
+ * Амплитуда умножается на `patternFade`: у дна и под кромкой узор гаснет до
+ * нуля. Без этого венец вазы на частоте 20 выходил зубчатым гребешком, а край
+ * первого слоя гулял волной по периметру. Затухание зависит только от высоты,
+ * поэтому кольца остаются кольцами, а стенка — стенкой: на каждой высоте
+ * смещение одинаково для всех вершин кольца.
  *
  * Топология не меняется: вершины только переставляются, число треугольников
  * остаётся прежним. Нормали считаются позже, после сварки и очистки.
@@ -481,6 +601,11 @@ function applyPattern(
     return;
   }
 
+  const { min: bottom, max: top } = findHeightSpan(position);
+  const height = top - bottom;
+  const foot = vaseFootHeight(height, params.footMm);
+  const rim = vaseRimHeight(height, params.rimMm);
+
   for (let index = 0; index < position.count; index += 1) {
     const x = position.getX(index);
     const y = position.getY(index);
@@ -493,10 +618,17 @@ function applyPattern(
       continue;
     }
 
+    const fade = patternFade(y, bottom, top, foot, rim);
+
+    if (fade <= 0) {
+      continue;
+    }
+
     const angle = Math.atan2(z, x);
     const offset =
       patternWave(pattern, angle, y, frequency, referenceRadius) *
-      safeIntensity;
+      safeIntensity *
+      fade;
     const scale = (radius + offset) / radius;
 
     position.setX(index, x * scale);
