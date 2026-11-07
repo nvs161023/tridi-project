@@ -78,6 +78,7 @@ import {
   standStlFileName,
   vaseGenerationDetails,
   vaseStlFileName,
+  VASE_MAX_PATTERN_LAYERS,
   type BoxParams,
   type CoasterParams,
   type HeatTransferParams,
@@ -85,12 +86,14 @@ import {
   type KeychainParams,
   type LithophaneParams,
   type LithophanePart,
+  type PatternLayer,
   type PenHolderParams,
   type PlanterParams,
   type SignParams,
   type SignPart,
   type StandParams,
   type VaseParams,
+  type VasePatternInput,
 } from "@/lib/constructor/params";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
@@ -182,6 +185,125 @@ function isNumberInRange(
 }
 
 /**
+ * Один слой узора из тела запроса.
+ *
+ * Обязательны тип, амплитуда и частота; фазу и затухание клиент может не
+ * присылать — нормализация подставит значения по умолчанию. Всё присланное
+ * проверяется строго: молча заменить 300° фазы на 360° так же плохо, как молча
+ * заменить высоту вазы.
+ */
+function isPatternLayerBody(value: unknown): value is Partial<PatternLayer> {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const { type, amplitude, frequency, phaseDeg, envelope } = value;
+
+  if (
+    !isVasePattern(type) ||
+    !isNumberInRange(
+      amplitude,
+      CONSTRUCTOR_LIMITS.patternIntensity.min,
+      CONSTRUCTOR_LIMITS.patternIntensity.max,
+    ) ||
+    !isNumberInRange(
+      frequency,
+      CONSTRUCTOR_LIMITS.patternFrequency.min,
+      CONSTRUCTOR_LIMITS.patternFrequency.max,
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    phaseDeg !== undefined &&
+    !isNumberInRange(
+      phaseDeg,
+      CONSTRUCTOR_LIMITS.patternPhaseDeg.min,
+      CONSTRUCTOR_LIMITS.patternPhaseDeg.max,
+    )
+  ) {
+    return false;
+  }
+
+  if (envelope === undefined) {
+    return true;
+  }
+
+  return (
+    isRecord(envelope) &&
+    isNumberInRange(
+      envelope.fadeTopMm,
+      CONSTRUCTOR_LIMITS.patternFadeMm.min,
+      CONSTRUCTOR_LIMITS.patternFadeMm.max,
+    ) &&
+    isNumberInRange(
+      envelope.fadeBottomMm,
+      CONSTRUCTOR_LIMITS.patternFadeMm.min,
+      CONSTRUCTOR_LIMITS.patternFadeMm.max,
+    )
+  );
+}
+
+/**
+ * Узор из тела запроса: слои композиции или прежний один узор.
+ *
+ * Новый клиент присылает `patterns`, старый — `pattern` с силой и частотой;
+ * поддерживаются оба вида, потому что старые запросы и сохранённые ссылки не
+ * должны ломаться. Больше `VASE_MAX_PATTERN_LAYERS` слоёв — ошибка ввода, а не
+ * повод молча отбросить лишние: пользователь просил рисунок, которого не будет.
+ *
+ * Если узор не передан вовсе, возвращается гладкий слой: тело запроса без узора
+ * по-прежнему собирает вазу, а «сила 1.5 мм» у гладкого слоя ни на что не влияет.
+ */
+function parseVasePatternInput(
+  body: Record<string, unknown>,
+): VasePatternInput | null {
+  const { patterns, pattern, patternIntensity, patternFrequency } = body;
+
+  if (patterns !== undefined) {
+    if (
+      !Array.isArray(patterns) ||
+      patterns.length === 0 ||
+      patterns.length > VASE_MAX_PATTERN_LAYERS ||
+      !patterns.every(isPatternLayerBody)
+    ) {
+      return null;
+    }
+
+    return { patterns };
+  }
+
+  const type = pattern ?? DEFAULT_VASE_PARAMS.patterns[0].type;
+  const amplitude =
+    patternIntensity ?? DEFAULT_VASE_PARAMS.patterns[0].amplitude;
+  const frequency =
+    patternFrequency ?? DEFAULT_VASE_PARAMS.patterns[0].frequency;
+
+  if (
+    !isVasePattern(type) ||
+    !isNumberInRange(
+      amplitude,
+      CONSTRUCTOR_LIMITS.patternIntensity.min,
+      CONSTRUCTOR_LIMITS.patternIntensity.max,
+    ) ||
+    !isNumberInRange(
+      frequency,
+      CONSTRUCTOR_LIMITS.patternFrequency.min,
+      CONSTRUCTOR_LIMITS.patternFrequency.max,
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    pattern: type,
+    patternIntensity: amplitude,
+    patternFrequency: frequency,
+  };
+}
+
+/**
  * Строгая проверка тела запроса.
  *
  * normalizeVaseParams() умеет дополнять и обрезать значения, но для API этого
@@ -189,14 +311,16 @@ function isNumberInRange(
  * отклоняем отсутствующие размеры, NaN/Infinity, чужие формы и узоры, выход за
  * границы, и только потом выравниваем валидные числа по шагу слайдеров.
  *
- * Поля узора необязательны: старые клиенты без них получают гладкую стенку с
- * амплитудой 0. Если же поле передано, оно проверяется так же строго, как
- * размеры, — иначе экспорт молча подменил бы узор. Цоколь, обод, грани, закрутка,
- * каннелюры, органика и наклон устроены так же: ноль по умолчанию, потому что это
- * ровно прежняя форма (круг у плавных силуэтов, 4 и 8 у квадрата и
- * восьмигранника, без закрутки, без жёлобов, без складок и без перекоса). Сид
- * по умолчанию равен единице и без органики ни на что не влияет: он задаёт
- * только рисунок складок и микро-вариации силуэта.
+ * Узор принимается в двух видах: слои композиции (`patterns`) или прежние
+ * `pattern` / `patternIntensity` / `patternFrequency`. Второй вид — не
+ * совместимость ради галочки: старые клиенты и ссылки живут в закладках, а
+ * разбирает оба вида `parseVasePatternInput`. Поля необязательны: без них
+ * получается гладкая стенка. Цоколь, обод, грани, закрутка, каннелюры, органика
+ * и наклон устроены так же: ноль по умолчанию, потому что это ровно прежняя
+ * форма (круг у плавных силуэтов, 4 и 8 у квадрата и восьмигранника, без
+ * закрутки, без жёлобов, без складок и без перекоса). Сид по умолчанию равен
+ * единице и без органики ни на что не влияет: он задаёт только рисунок складок
+ * и микро-вариации силуэта.
  */
 function parseVaseParams(body: unknown): VaseParams | null {
   if (!isRecord(body)) {
@@ -208,9 +332,6 @@ function parseVaseParams(body: unknown): VaseParams | null {
     diameter,
     wall,
     shape,
-    pattern = DEFAULT_VASE_PARAMS.pattern,
-    patternIntensity = DEFAULT_VASE_PARAMS.patternIntensity,
-    patternFrequency = DEFAULT_VASE_PARAMS.patternFrequency,
     footMm = DEFAULT_VASE_PARAMS.footMm,
     rimMm = DEFAULT_VASE_PARAMS.rimMm,
     sectionSides = DEFAULT_VASE_PARAMS.sectionSides,
@@ -221,6 +342,7 @@ function parseVaseParams(body: unknown): VaseParams | null {
     leanDeg = DEFAULT_VASE_PARAMS.leanDeg,
     vaseSeed = DEFAULT_VASE_PARAMS.vaseSeed,
   } = body;
+  const patternInput = parseVasePatternInput(body);
 
   if (
     !isNumberInRange(
@@ -239,17 +361,7 @@ function parseVaseParams(body: unknown): VaseParams | null {
       CONSTRUCTOR_LIMITS.wall.max,
     ) ||
     !isVaseShape(shape) ||
-    !isVasePattern(pattern) ||
-    !isNumberInRange(
-      patternIntensity,
-      CONSTRUCTOR_LIMITS.patternIntensity.min,
-      CONSTRUCTOR_LIMITS.patternIntensity.max,
-    ) ||
-    !isNumberInRange(
-      patternFrequency,
-      CONSTRUCTOR_LIMITS.patternFrequency.min,
-      CONSTRUCTOR_LIMITS.patternFrequency.max,
-    ) ||
+    patternInput === null ||
     !isNumberInRange(
       footMm,
       CONSTRUCTOR_LIMITS.footMm.min,
@@ -304,9 +416,7 @@ function parseVaseParams(body: unknown): VaseParams | null {
     diameter,
     wall,
     shape,
-    pattern,
-    patternIntensity,
-    patternFrequency,
+    ...patternInput,
     footMm,
     rimMm,
     sectionSides,

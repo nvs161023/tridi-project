@@ -126,6 +126,15 @@ export const CONSTRUCTOR_LIMITS = {
     decimals: 1,
   },
   patternFrequency: { min: 1, max: 20, step: 1, defaultValue: 8, decimals: 0 },
+  // Фаза слоя по окружности: сдвиг узора относительно нулевого угла. Шаг 15° —
+  // при частоте 20 один шаг двигает гребень на треть периода; мелкий шаг был бы
+  // незаметен, а точная подгонка нужна только совмещению слоёв, и её делает
+  // сохранённый проект, а не слайдер.
+  patternPhaseDeg: { min: 0, max: 360, step: 15, defaultValue: 0, decimals: 0 },
+  // Затухание слоя у кромки и дна, мм: 0 — слой идёт до самой полосы, которую
+  // всё равно гасит геометрия ради печати. 30 мм — треть вазы высотой 90 мм;
+  // больше это уже не затухание, а «узора нет на верхней половине».
+  patternFadeMm: { min: 0, max: 30, step: 1, defaultValue: 5, decimals: 0 },
   length: { min: 30, max: 100, step: 1, defaultValue: 60, decimals: 0 },
   width: { min: 20, max: 50, step: 1, defaultValue: 30, decimals: 0 },
   thickness: { min: 2, max: 5, step: 0.5, defaultValue: 3, decimals: 1 },
@@ -259,7 +268,7 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
   {
     id: "vase",
     title: "Генератор ваз",
-    desc: "Параметрические вазы с узорами: восемь силуэтов, математические волны и точные размеры под ваш принтер.",
+    desc: "Параметрические вазы: двенадцать силуэтов, математические волны, закрутка, грани и точные размеры под ваш принтер.",
   },
   {
     id: "keychain",
@@ -392,6 +401,69 @@ export const VASE_PATTERN_LABELS = {
   honeycomb: "Соты",
   scales: "Чешуйки",
 } as const satisfies Record<VasePattern, string>;
+
+/**
+ * Сколько слоёв узора помещается на одной вазе.
+ *
+ * Три — предел композиции, а не техники: рёбра, спираль и волны вместе уже дают
+ * рябь, в которой не читается ни один рисунок, а цикл по вершинам и бюджет
+ * сегментов растут линейно по числу слоёв. Ограничение общее для нормализации и
+ * API, поэтому «лишние» слои не отвергаются по-разному в разных местах.
+ */
+export const VASE_MAX_PATTERN_LAYERS = 3;
+
+/**
+ * Затухание слоя у кромки по умолчанию, мм.
+ *
+ * Пять миллиметров — та же полоса, что держит кромку ровным кольцом
+ * (`RIM_FADE_MM` в геометрии): она нужна не узору, а печати. Декор гасится
+ * раньше, потому что у кромки рельеф читается как брак литья, а не как рисунок.
+ */
+export const VASE_DEFAULT_FADE_TOP_MM = 5;
+
+/**
+ * Затухание слоя у дна по умолчанию, мм.
+ *
+ * Три миллиметра — один-два слоя печати: первый слой должен лечь полным диском,
+ * иначе край дна идёт волной и хуже держится за стол.
+ */
+export const VASE_DEFAULT_FADE_BOTTOM_MM = 3;
+
+/**
+ * Один слой узора на стенке.
+ *
+ * Слой — это самостоятельный рисунок со своей силой, частотой, фазой и
+ * затуханием у краёв. Композиция из 1–3 слоёв даёт рельеф, которого не получить
+ * одним узором: рёбра и спираль вместе читаются как кручёная грань, волны поверх
+ * рёбер — как стихийная керамика. Слои складываются, а не заменяют друг друга:
+ *
+ *   Δr(θ, v) = Σ amplitude × shape(type, θ, frequency, phase) × envelope(v)
+ *
+ * `amplitude` — в миллиметрах, как и прежняя «сила узора»: два миллиметра рёбер
+ * выглядят одинаково на маленькой и большой вазе. Сумма амплитуд всех слоёв
+ * ограничена геометрией (45% самого узкого радиуса), поэтому глубокая
+ * композиция не выворачивает кольцо через ось.
+ *
+ * `envelope` — затухание у кромки и дна в миллиметрах, а не «проценты высоты»:
+ * пять миллиметров у вазы на 90 и на 200 мм означают одно и то же для печати.
+ * Ноль выключает затухание совсем — так открываются проекты, сохранённые до
+ * появления слоёв (см. `resolvePatternLayers`).
+ */
+export type PatternLayer = {
+  /** Тип рисунка; `smooth` — слой есть, но ничего не смещает. */
+  type: VasePattern;
+  /** Амплитуда смещения стенки, мм; 0 — слой молчит. */
+  amplitude: number;
+  /** Частота повторов: число гребней по окружности. */
+  frequency: number;
+  /** Сдвиг фазы, градусы: совмещает слои друг с другом. */
+  phaseDeg: number;
+  /** Затухание слоя у кромки и дна, мм. */
+  envelope: {
+    fadeTopMm: number;
+    fadeBottomMm: number;
+  };
+};
 
 /**
  * Силуэты брелока.
@@ -629,12 +701,15 @@ export type VaseParams = {
   wall: number;
   /** Пресет силуэта: классическая ваза, конус, цилиндр и т. д. */
   shape: VaseShape;
-  /** Тип математического узора на стенке. */
-  pattern: VasePattern;
-  /** Амплитуда смещения стенки, мм; 0 — ровная поверхность. */
-  patternIntensity: number;
-  /** Частота повторов узора. */
-  patternFrequency: number;
+  /**
+   * Слои узора: от одного до `VASE_MAX_PATTERN_LAYERS`.
+   *
+   * Один слой — прежний узор, три — композиция. Порядок слоёв не важен: они
+   * складываются. Каждый слой несёт свою амплитуду в миллиметрах, частоту, фазу
+   * и затухание у кромки и дна; пустой список нормализация заменяет гладким
+   * слоем, поэтому в параметрах всегда есть хотя бы один элемент.
+   */
+  patterns: PatternLayer[];
   /**
    * Высота прямого цоколя, мм.
    *
@@ -1094,9 +1169,21 @@ export const DEFAULT_VASE_PARAMS: VaseParams = {
   diameter: CONSTRUCTOR_LIMITS.diameter.defaultValue,
   wall: CONSTRUCTOR_LIMITS.wall.defaultValue,
   shape: "classic",
-  pattern: "smooth",
-  patternIntensity: CONSTRUCTOR_LIMITS.patternIntensity.defaultValue,
-  patternFrequency: CONSTRUCTOR_LIMITS.patternFrequency.defaultValue,
+  // Один гладкий слой: конструктор открывается ровной вазой, а слайдер узора
+  // меняет тип этого же слоя. Амплитуда и частота лежат в слое, поэтому выбор
+  // рёбер сразу даёт прежние 1.5 мм на частоте 8.
+  patterns: [
+    {
+      type: "smooth",
+      amplitude: CONSTRUCTOR_LIMITS.patternIntensity.defaultValue,
+      frequency: CONSTRUCTOR_LIMITS.patternFrequency.defaultValue,
+      phaseDeg: CONSTRUCTOR_LIMITS.patternPhaseDeg.defaultValue,
+      envelope: {
+        fadeTopMm: VASE_DEFAULT_FADE_TOP_MM,
+        fadeBottomMm: VASE_DEFAULT_FADE_BOTTOM_MM,
+      },
+    },
+  ],
   footMm: CONSTRUCTOR_LIMITS.footMm.defaultValue,
   rimMm: CONSTRUCTOR_LIMITS.rimMm.defaultValue,
   sectionSides: CONSTRUCTOR_LIMITS.sectionSides.defaultValue,
@@ -1367,9 +1454,15 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
  * рядом с их числом (`-flutes8x2`): восемь жёлобов по 0.2 мм и по 6 мм — разные
  * вазы. Наклон бывает отрицательным, и знак остаётся как есть (`-lean-10`):
  * слово «minus» в имени длиннее самого числа.
+ *
+ * Композиция узоров пишется через плюс (`-ribs+spiral`): плюс — разделитель
+ * слоёв, а не ещё один суффикс, и он допустим в имени файла на всех системах.
+ * Один слой даёт прежнее имя (`-spiral`), гладкая ваза — прежнее совсем без
+ * суффикса, поэтому ссылки и папки загрузок не меняются.
  */
 export function vaseStlFileName(params: VaseParams): string {
-  const patternSuffix = params.pattern === "smooth" ? "" : `-${params.pattern}`;
+  const pattern = vasePatternSlug(params.patterns);
+  const patternSuffix = pattern === "smooth" ? "" : `-${pattern}`;
   const twistSuffix = params.twistDeg > 0 ? `-twist${params.twistDeg}` : "";
   const fluteSuffix =
     params.flutes > 0
@@ -1414,7 +1507,14 @@ function formatMillimetres(value: number): string {
  */
 export type VaseGenerationDetails = {
   shape: VaseShape;
-  pattern: VasePattern;
+  /**
+   * Набор слоёв строкой: `smooth`, `ribs` или `ribs+spiral`.
+   *
+   * Поле осталось тем же и с тем же ключом, что до композиции: дашборд и
+   * запросы группируют генерации по `->>pattern`, и ломать их ради того, чтобы
+   * положить сюда массив, незачем. Композиция видна прямо в строке.
+   */
+  pattern: string;
   twistDeg: number;
   flutes: number;
   fluteDepthMm: number;
@@ -1429,7 +1529,7 @@ export function vaseGenerationDetails(
 ): VaseGenerationDetails {
   return {
     shape: params.shape,
-    pattern: params.pattern,
+    pattern: vasePatternSlug(params.patterns),
     twistDeg: params.twistDeg,
     flutes: params.flutes,
     fluteDepthMm: params.fluteDepthMm,
@@ -2070,13 +2170,166 @@ function finiteNumber(value: unknown, fallback: number): number {
 }
 
 /**
+ * Ввод узора: новые слои или прежний один узор строкой.
+ *
+ * До этапа композиции у вазы были три поля — `pattern`, `patternIntensity` и
+ * `patternFrequency`. В сохранённых проектах, старых запросах к API и прежних
+ * ссылках они остались, поэтому геометрия и бюджет сегментов принимают оба
+ * вида ввода, а не требуют ручной миграции. Поля помечены `@deprecated`, но не
+ * удалены: иначе пришлось бы переписать все сохранёнки разом.
+ */
+export type VasePatternInput = {
+  /**
+   * Новый вид: 1–3 слоя. Неполный слой допустим — нормализация подставит
+   * значения по умолчанию, поэтому API может прислать только тип и амплитуду.
+   */
+  patterns?: ReadonlyArray<Partial<PatternLayer>>;
+  /** @deprecated прежний один узор; превращается в единственный слой. */
+  pattern?: VasePattern;
+  /** @deprecated амплитуда прежнего узора, мм. */
+  patternIntensity?: number;
+  /** @deprecated частота прежнего узора. */
+  patternFrequency?: number;
+};
+
+/** Слой по умолчанию: его значения подставляются в неполный слой. */
+const DEFAULT_PATTERN_LAYER = DEFAULT_VASE_PARAMS.patterns[0];
+
+/**
+ * Приводит один слой к границам слайдеров.
+ *
+ * Неполный слой получает значения по умолчанию: проект мог сохраниться в
+ * середине разработки этапа, а API — прислать только тип и амплитуду. Числа
+ * выравниваются по шагу так же, как размеры вазы, поэтому сохранённый проект и
+ * тот же проект, открытый заново, дают одну и ту же геометрию.
+ */
+function normalizePatternLayer(layer: Partial<PatternLayer> | undefined): PatternLayer {
+  const envelope = layer?.envelope;
+
+  return {
+    type: isVasePattern(layer?.type) ? layer.type : DEFAULT_PATTERN_LAYER.type,
+    amplitude: snap(
+      finiteNumber(layer?.amplitude, DEFAULT_PATTERN_LAYER.amplitude),
+      CONSTRUCTOR_LIMITS.patternIntensity,
+    ),
+    frequency: snap(
+      finiteNumber(layer?.frequency, DEFAULT_PATTERN_LAYER.frequency),
+      CONSTRUCTOR_LIMITS.patternFrequency,
+    ),
+    phaseDeg: snap(
+      finiteNumber(layer?.phaseDeg, DEFAULT_PATTERN_LAYER.phaseDeg),
+      CONSTRUCTOR_LIMITS.patternPhaseDeg,
+    ),
+    envelope: {
+      fadeTopMm: snap(
+        finiteNumber(envelope?.fadeTopMm, DEFAULT_PATTERN_LAYER.envelope.fadeTopMm),
+        CONSTRUCTOR_LIMITS.patternFadeMm,
+      ),
+      fadeBottomMm: snap(
+        finiteNumber(
+          envelope?.fadeBottomMm,
+          DEFAULT_PATTERN_LAYER.envelope.fadeBottomMm,
+        ),
+        CONSTRUCTOR_LIMITS.patternFadeMm,
+      ),
+    },
+  };
+}
+
+/**
+ * Слои узора из любого вида ввода: новый список или прежний один узор.
+ *
+ * Правило одно на всю программу — клиент, сервер и проверочные скрипты зовут
+ * эту функцию, — и оно же открывает старые сохранёнки без изменений:
+ *
+ *   — если пришло хоть одно поле прежнего вида (`pattern`, `patternIntensity`,
+ *     `patternFrequency`), собирается один слой из них с нулевым затуханием:
+ *     старый проект — это весь узор целиком, и половина нового вида в нём
+ *     появиться не может. Поля прежнего вида главнее, поэтому объект вида
+ *     `{ ...DEFAULT_VASE_PARAMS, pattern: "ribs" }` ведёт себя как до этапа;
+ *   — иначе берутся первые `VASE_MAX_PATTERN_LAYERS` слоя нового вида; лишние
+ *     отбрасываются, а не ломают проект.
+ *
+ * Нули в envelope — не заглушка: до этапа композиции затухание было общим и
+ * считалось от цоколя и обода (`patternFade` в геометрии), и оно там осталось.
+ * Поэтому старый проект даёт вершина в вершину прежнюю вазу, а не «похожую с
+ * другим краем».
+ *
+ * Слой `smooth` остаётся в списке: он не смещает ничего, но панель и имя файла
+ * должны видеть, что узор выключен, а не что слоёв нет вовсе.
+ */
+export function resolvePatternLayers(params: VasePatternInput): PatternLayer[] {
+  const hasLegacyFields =
+    params.pattern !== undefined ||
+    params.patternIntensity !== undefined ||
+    params.patternFrequency !== undefined;
+  const layers = Array.isArray(params.patterns) ? params.patterns : [];
+
+  if (!hasLegacyFields && layers.length > 0) {
+    return layers
+      .slice(0, VASE_MAX_PATTERN_LAYERS)
+      .map((layer) => normalizePatternLayer(layer));
+  }
+
+  return [
+    {
+      type: isVasePattern(params.pattern)
+        ? params.pattern
+        : DEFAULT_PATTERN_LAYER.type,
+      amplitude: snap(
+        finiteNumber(params.patternIntensity, DEFAULT_PATTERN_LAYER.amplitude),
+        CONSTRUCTOR_LIMITS.patternIntensity,
+      ),
+      frequency: snap(
+        finiteNumber(params.patternFrequency, DEFAULT_PATTERN_LAYER.frequency),
+        CONSTRUCTOR_LIMITS.patternFrequency,
+      ),
+      phaseDeg: 0,
+      envelope: { fadeTopMm: 0, fadeBottomMm: 0 },
+    },
+  ];
+}
+
+/**
+ * Короткое имя набора слоёв: `smooth`, `ribs` или `ribs+spiral`.
+ *
+ * Им подписаны имя STL и метаданные генерации, поэтому строка безопасна для
+ * файла и для группировки в SQL: только латиница и плюс между слоями.
+ */
+export function vasePatternSlug(patterns: readonly PatternLayer[]): string {
+  const types = patterns
+    .map((layer) => layer.type)
+    .filter((type) => type !== "smooth");
+
+  return types.length > 0 ? types.join("+") : "smooth";
+}
+
+/** Человеческая подпись набора слоёв: «Рёбра + Спираль». */
+export function vasePatternLabel(patterns: readonly PatternLayer[]): string {
+  const types = patterns
+    .map((layer) => layer.type)
+    .filter((type) => type !== "smooth");
+
+  if (types.length === 0) {
+    return VASE_PATTERN_LABELS.smooth;
+  }
+
+  return types.map((type) => VASE_PATTERN_LABELS[type]).join(" + ");
+}
+
+/**
  * Проверяет и выравнивает параметры перед отрисовкой или экспортом.
  *
  * Функция нужна и клиенту, и серверу: значения могут прийти из слайдера,
  * из будущей ссылки с настройками или из запроса к API. Отсутствующие поля
  * заменяются значениями по умолчанию, поэтому неполный объект безопасен.
+ *
+ * Узор приходит либо слоями, либо прежними полями — оба вида разбирает
+ * `resolvePatternLayers`, поэтому старый проект открывается без правок.
  */
-export function normalizeVaseParams(params: Partial<VaseParams>): VaseParams {
+export function normalizeVaseParams(
+  params: Omit<Partial<VaseParams>, "patterns"> & VasePatternInput,
+): VaseParams {
   return {
     height: snap(
       params.height ?? DEFAULT_VASE_PARAMS.height,
@@ -2091,17 +2344,7 @@ export function normalizeVaseParams(params: Partial<VaseParams>): VaseParams {
       CONSTRUCTOR_LIMITS.wall,
     ),
     shape: isVaseShape(params.shape) ? params.shape : DEFAULT_VASE_PARAMS.shape,
-    pattern: isVasePattern(params.pattern)
-      ? params.pattern
-      : DEFAULT_VASE_PARAMS.pattern,
-    patternIntensity: snap(
-      params.patternIntensity ?? DEFAULT_VASE_PARAMS.patternIntensity,
-      CONSTRUCTOR_LIMITS.patternIntensity,
-    ),
-    patternFrequency: snap(
-      params.patternFrequency ?? DEFAULT_VASE_PARAMS.patternFrequency,
-      CONSTRUCTOR_LIMITS.patternFrequency,
-    ),
+    patterns: resolvePatternLayers(params),
     footMm: snap(
       params.footMm ?? DEFAULT_VASE_PARAMS.footMm,
       CONSTRUCTOR_LIMITS.footMm,
@@ -2666,7 +2909,7 @@ export function normalizeLithophaneParams(
  * превращается в вазу.
  */
 export function normalizeConstructorParams(
-  params: Partial<ConstructorParams>,
+  params: Omit<Partial<ConstructorParams>, "patterns"> & VasePatternInput,
 ): ConstructorParams {
   return {
     model: isModelType(params.model)

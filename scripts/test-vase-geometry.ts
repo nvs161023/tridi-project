@@ -36,9 +36,10 @@
  *      закладывает петлю по высоте, имеет свой профиль (никаких копий пресета) и
  *      остаётся замкнутой вместе с каннелюрами и закруткой;
  *  11. органика и наклон: один сид даёт ту же сетку вершина в вершину, без
- *      органики сид не влияет, складки гаснут у дна и под кромкой, стенка на
- *      двух диаметрах не тоньше 0.8 мм, а наклон сохраняет объём, оставляет
- *      дно на столе и добавляет к габариту ровно tan(угла) · высоту;
+ *      органики сид не влияет, складки гаснут у дна и под кромкой, шум замыкается
+ *      на шве окружности (угол ±π и 0/2π дают одно значение), стенка не тоньше
+ *      0.8 мм на двух диаметрах и на гранёных сечениях, а наклон сохраняет объём,
+ *      оставляет дно на столе и добавляет к габариту ровно tan(угла) · высоту;
  *  12. галерея вариантов: «Другая ваза» даёт целый сид в пределах слайдера и не
  *      повторяет текущий, серия из двенадцати сидов воспроизводима и без
  *      повторов, а плитка превью детерминирована, отличается между сидами и
@@ -59,12 +60,17 @@ import type { BufferGeometry } from "three";
 import {
   CONSTRUCTOR_LIMITS,
   DEFAULT_VASE_PARAMS,
+  VASE_MAX_PATTERN_LAYERS,
   VASE_PATTERNS,
   VASE_SHAPES,
   normalizeVaseParams,
   vaseGenerationDetails,
+  vasePatternLabel,
+  vasePatternSlug,
   vaseStlFileName,
+  type PatternLayer,
   type VaseParams,
+  type VasePatternInput,
 } from "../lib/constructor/params";
 import {
   VASE_EXPORT_TRIANGLE_BUDGET,
@@ -80,7 +86,11 @@ import {
   VASE_PREVIEW_BACKGROUND,
   renderVaseRgb,
 } from "../lib/constructor/vase-preview";
-import { nextVaseSeed, vaseSeedSeries } from "../lib/constructor/vase-seed";
+import {
+  nextVaseSeed,
+  organicOffset,
+  vaseSeedSeries,
+} from "../lib/constructor/vase-seed";
 
 /** Допуск толщины стенки, мм: столько же требует план для этапа сечения. */
 const WALL_TOLERANCE_MM = 0.05;
@@ -137,8 +147,36 @@ function checkRange(
   );
 }
 
-function vaseParams(overrides: Partial<VaseParams> = {}): VaseParams {
-  return { ...DEFAULT_VASE_PARAMS, ...overrides };
+function vaseParams(
+  overrides: Partial<VaseParams> & VasePatternInput = {},
+): VaseParams {
+  const { pattern, patternIntensity, patternFrequency, ...rest } = overrides;
+  const params = { ...DEFAULT_VASE_PARAMS, ...rest };
+
+  // Узор можно задать по-старому: хелпер переводит три прежних поля в один
+  // слой, как это делает нормализация старых проектов. Без этого каждая
+  // проверка «спираль на частоте 20» превратилась бы в литерал слоя.
+  if (
+    pattern === undefined &&
+    patternIntensity === undefined &&
+    patternFrequency === undefined
+  ) {
+    return params;
+  }
+
+  const [base] = DEFAULT_VASE_PARAMS.patterns;
+
+  return {
+    ...params,
+    patterns: [
+      {
+        ...base,
+        type: pattern ?? base.type,
+        amplitude: patternIntensity ?? base.amplitude,
+        frequency: patternFrequency ?? base.frequency,
+      },
+    ],
+  };
 }
 
 function buildGeometry(params: VaseParams): BufferGeometry {
@@ -1828,6 +1866,81 @@ console.log("\n11. Органика и наклон: сид, толщина ст
     `       толщина по нормали: ${minNormal.toFixed(3)}…${maxNormal.toFixed(3)} мм`,
   );
 }
+{
+  // Гранёное сечение — самый злой случай для органики: на угле внешняя
+  // поверхность идёт по хорде, а шум сдвигает радиус. Пока решётка шума не
+  // замыкалась по кругу, на шве (угол ±π) появлялась ступенька, и стенка
+  // квадрата при `organic = 1` падала до 0.695 мм вместо 1.6. Критерии те же,
+  // что у круглых силуэтов, но проверяются квадрат и восьмигранник.
+  const broken: string[] = [];
+  let minNormal = Number.POSITIVE_INFINITY;
+
+  for (const shape of ["square", "octagon"] as const) {
+    for (const organic of [0.25, 0.5, 1]) {
+      for (const vaseSeed of [1, 42, 777]) {
+        const geometry = buildGeometry(
+          vaseParams({ shape, organic, vaseSeed }),
+        );
+        const open = openEdges(geometry);
+        const nan = nanVertices(geometry);
+        const volume = volumeMm3(geometry);
+
+        for (const thickness of wallMeasurements(geometry).normal) {
+          minNormal = Math.min(minNormal, thickness);
+        }
+
+        if (open !== 0 || nan !== 0 || volume <= 0) {
+          broken.push(
+            `${shape}, органика ${organic}, сид ${vaseSeed}: ` +
+              `рёбер ${open}, NaN ${nan}, объём ${volume.toFixed(1)}`,
+          );
+        }
+
+        geometry.dispose();
+      }
+    }
+  }
+
+  check("органика на гранях: замкнуто, без NaN, объём положителен", broken, []);
+  check("органика на гранях: стенка не тоньше 0.8 мм", minNormal >= 0.8, true);
+  console.log(`       минимальная стенка на гранях ${minNormal.toFixed(3)} мм`);
+}
+
+{
+  // Шов окружности: шум органики обязан замыкаться. Углы −π и +π — это одна и
+  // та же точка стенки (как и 0 с 2π), и любая разница между ними становится
+  // ступенькой на поверхности, то есть утоньшением стенки. Проверка чистая: по
+  // значениям шума, без сборки сетки, поэтому сразу называет виновника.
+  let maxStep = 0;
+  let maxStepAt = "";
+
+  for (const vaseSeed of [1, 42, 777]) {
+    for (const heightShare of [0, 0.37, 1]) {
+      for (const [left, right, label] of [
+        [-Math.PI, Math.PI, "от −π до +π"],
+        [0, Math.PI * 2, "от 0 до 2π"],
+      ] as const) {
+        const step = Math.abs(
+          organicOffset(left, heightShare, vaseSeed, 1) -
+            organicOffset(right, heightShare, vaseSeed, 1),
+        );
+
+        if (step > maxStep) {
+          maxStep = step;
+          maxStepAt = `${label}, сид ${vaseSeed}, высота ${heightShare}`;
+        }
+      }
+    }
+  }
+
+  check("органика: шум замыкается на шве окружности", maxStep <= 1e-9, true);
+  console.log(
+    `       ступенька на шве ${maxStep.toExponential(1)} мм` +
+      (maxStepAt ? ` (${maxStepAt})` : ""),
+  );
+}
+
+
 
 {
   // Складки на стенке и их затухание: разброс радиусов в кольце равен нулю у
@@ -2126,6 +2239,348 @@ console.log("\n13. Имя файла STL и метаданные генерац�
   console.log(
     `       имя с деформациями: ${fullName.length} символов, ` +
       `метаданные: ${Object.keys(details).length} полей`,
+  );
+}
+
+console.log("\n14. Композиция слоёв и затухание у краёв");
+
+{
+  /** Слой для проверок: амплитуда в мм, частота, затухание у кромки и дна. */
+  const layer = (
+    type: PatternLayer["type"],
+    amplitude: number,
+    frequency: number,
+    fadeTopMm = 5,
+    fadeBottomMm = 3,
+  ): PatternLayer => ({
+    type,
+    amplitude,
+    frequency,
+    phaseDeg: 0,
+    envelope: { fadeTopMm, fadeBottomMm },
+  });
+
+  // 1. Прежний проект: строка узора и её сила становятся единственным слоем.
+  // Затухание при этом нулевое — прежнее считалось от цоколя и обода и осталось
+  // в геометрии, поэтому миграция не меняет ни одной вершины.
+  const legacy = normalizeVaseParams({
+    ...DEFAULT_VASE_PARAMS,
+    pattern: "ribs",
+    patternIntensity: 2.5,
+    patternFrequency: 12,
+  });
+
+  check(
+    "старый проект: строка узора стала единственным слоем",
+    legacy.patterns.map((item) => [item.type, item.amplitude, item.frequency]),
+    [["ribs", 2.5, 12]],
+  );
+  check(
+    "старый проект: затухание нулевое — край как раньше",
+    [
+      legacy.patterns[0].phaseDeg,
+      legacy.patterns[0].envelope.fadeTopMm,
+      legacy.patterns[0].envelope.fadeBottomMm,
+    ],
+    [0, 0, 0],
+  );
+
+  // Миграция не меняет ни одного числа, а значит и ни одной вершины: старый
+  // проект и ручной слой без затухания должны совпасть бит в бит.
+  const legacyGeometry = buildGeometry(legacy);
+  const manualLegacy = buildGeometry(
+    vaseParams({ patterns: [layer("ribs", 2.5, 12, 0, 0)] }),
+  );
+
+  check(
+    "старый проект: геометрия совпала с ручным слоем",
+    positionsMatch(legacyGeometry, manualLegacy),
+    true,
+  );
+  legacyGeometry.dispose();
+  manualLegacy.dispose();
+
+  // 2. Новый вид: лимит слоёв, порядок и выравнивание чисел по шагу слайдера.
+  const many = normalizeVaseParams({
+    ...DEFAULT_VASE_PARAMS,
+    patterns: [
+      layer("ribs", 2, 8),
+      layer("spiral", 1.5, 5),
+      layer("waves", 1, 4),
+      layer("scales", 3, 9),
+    ],
+  });
+
+  check(
+    "слои: больше трёх не бывает",
+    many.patterns.length,
+    VASE_MAX_PATTERN_LAYERS,
+  );
+  check(
+    "слои: порядок сохранён",
+    many.patterns.map((item) => item.type),
+    ["ribs", "spiral", "waves"],
+  );
+  check(
+    "слои: числа выровнены по шагу слайдера",
+    normalizeVaseParams({
+      ...DEFAULT_VASE_PARAMS,
+      patterns: [layer("ribs", 99, 0.2)],
+    }).patterns[0],
+    {
+      type: "ribs",
+      amplitude: 5,
+      frequency: 1,
+      phaseDeg: 0,
+      envelope: { fadeTopMm: 5, fadeBottomMm: 3 },
+    },
+  );
+  check(
+    "слои: незнакомый тип заменяется гладким",
+    normalizeVaseParams({
+      ...DEFAULT_VASE_PARAMS,
+      patterns: JSON.parse('[{"type":"не-узор","amplitude":2}]') as PatternLayer[],
+    }).patterns[0].type,
+    "smooth",
+  );
+
+  // 3. Композиция: в середине вазы слои складываются. Затухание взято заведомо
+  // шире печатных полос, чтобы в полосе 0.3–0.7 высоты и оно, и `patternFade`
+  // были равны единице: тогда смещение обязано быть ровной суммой двух слоёв.
+  const shape = "classic" as const;
+  const fadeTop = 18;
+  const fadeBottom = 12;
+  const ribs = layer("ribs", 2, 8, fadeTop, fadeBottom);
+  const spiral = layer("spiral", 1.5, 5, fadeTop, fadeBottom);
+  const ribsOnly = buildGeometry(vaseParams({ shape, patterns: [ribs] }));
+  const spiralOnly = buildGeometry(vaseParams({ shape, patterns: [spiral] }));
+  const both = buildGeometry(vaseParams({ shape, patterns: [ribs, spiral] }));
+  const flat = buildGeometry(
+    vaseParams({
+      shape,
+      patterns: [
+        layer("ribs", 0, 8, fadeTop, fadeBottom),
+        layer("spiral", 0, 5, fadeTop, fadeBottom),
+      ],
+    }),
+  );
+  const positions = both.getAttribute("position");
+  const ribsPositions = ribsOnly.getAttribute("position");
+  const spiralPositions = spiralOnly.getAttribute("position");
+  const flatPositions = flat.getAttribute("position");
+  const radiusAt = (attribute: typeof positions, index: number): number =>
+    Math.hypot(attribute.getX(index), attribute.getZ(index));
+
+  check(
+    "композиция: сетка та же, что у одиночных слоёв",
+    new Set([
+      positions.count,
+      ribsPositions.count,
+      spiralPositions.count,
+      flatPositions.count,
+    ]).size,
+    1,
+  );
+
+  const { min: bottom, max: top } = heightSpan(flat);
+  const height = top - bottom;
+  let worstSum = 0;
+  let widestMiddle = 0;
+
+  for (let index = 0; index < positions.count; index += 1) {
+    const share = (positions.getY(index) - bottom) / height;
+
+    if (share < 0.3 || share > 0.7) {
+      continue;
+    }
+
+    const base = radiusAt(flatPositions, index);
+    const sum =
+      radiusAt(ribsPositions, index) -
+      base +
+      (radiusAt(spiralPositions, index) - base);
+    const shift = radiusAt(positions, index) - base;
+
+    worstSum = Math.max(worstSum, Math.abs(shift - sum));
+    widestMiddle = Math.max(widestMiddle, Math.abs(shift));
+  }
+
+  check(
+    "композиция: два слоя складываются в середине вазы",
+    worstSum < 1e-4,
+    true,
+  );
+  checkRange(
+    "композиция: в середине рельеф не пропал",
+    [widestMiddle],
+    1,
+    3.6,
+  );
+  console.log(
+    `       сумма слоёв: расхождение ${worstSum.toExponential(2)} мм ` +
+      `(точность float32), рельеф в середине ${widestMiddle.toFixed(2)} мм`,
+  );
+
+  // 4. Затухание слоя: у самой кромки и у самого дна смещение нулевое, а на
+  // высоте, где печатная полоса ещё не началась, слой уже погашен наполовину.
+  const flatRings = radiiByHeight(flat);
+  const ribsRings = radiiByHeight(ribsOnly);
+  // Полоса 13–11 мм под кромкой: `patternFade` там равен единице (обод гасит
+  // только последние 5 мм и переход), значит остаток рельефа — работа envelope.
+  const quietNearRim = shiftInBand(flatRings, ribsRings, top - 13, top - 11);
+  const loudLower = shiftInBand(flatRings, ribsRings, top - 40, top - 35);
+  const noFade = buildGeometry(vaseParams({ shape, patterns: [layer("ribs", 2, 8, 0, 0)] }));
+  const noFadeRings = radiiByHeight(noFade);
+  const withoutEnvelope = shiftInBand(flatRings, noFadeRings, top - 13, top - 11);
+
+  checkRange(
+    "затухание: кольцо кромки не тронуто",
+    [shiftInBand(flatRings, ribsRings, top - 1e-3, top + 1e-3)],
+    0,
+    1e-6,
+  );
+  checkRange(
+    "затухание: дно не тронуто",
+    [shiftInBand(flatRings, ribsRings, bottom - 1e-3, bottom + 1e-3)],
+    0,
+    1e-6,
+  );
+  check(
+    "затухание: слой гаснет к кромке сам, без печатной полосы",
+    [
+      quietNearRim > 0,
+      quietNearRim < loudLower * 0.85,
+      withoutEnvelope > loudLower * 0.95,
+    ],
+    [true, true, true],
+  );
+  console.log(
+    `       под кромкой ${quietNearRim.toFixed(2)} мм из ${loudLower.toFixed(2)} мм, ` +
+      `без envelope — ${withoutEnvelope.toFixed(2)} мм`,
+  );
+  check(
+    "затухание: у дна слой гаснет к столу",
+    shiftInBand(flatRings, ribsRings, bottom + 4, bottom + 5) <
+      shiftInBand(flatRings, ribsRings, bottom + 25, bottom + 26),
+    true,
+  );
+  noFade.dispose();
+
+  // 5. Стенка и замкнутость: композиция смещает обе поверхности одинаково,
+  // поэтому толщина по лучу остаётся заданной, а сетка — замкнутой. Толщина по
+  // нормали на крутом рельефе короче на косинус наклона стенки: это геометрия
+  // радиального смещения, а не потеря пластика — у одиночного слоя той же
+  // амплитуды она такая же.
+  const wallValues = wallMeasurements(both);
+
+  check(
+    "композиция: сетка замкнута и без NaN",
+    [openEdges(both), nanVertices(both)],
+    [0, 0],
+  );
+  checkRange(
+    "композиция: толщина стенки по лучу",
+    wallValues.radial,
+    wall - WALL_TOLERANCE_MM,
+    wall + WALL_TOLERANCE_MM,
+  );
+  check(
+    "композиция: стенка не тоньше миллиметра даже на крутом рельефе",
+    Math.min(...wallValues.normal) >= 1,
+    true,
+  );
+  check("композиция: объём положителен", volumeMm3(both) > 0, true);
+
+  // Суммарная амплитуда укладывается в 45% самого узкого радиуса: на узкой вазе
+  // три слоя по 5 мм просят больше бюджета, и слои делят его пропорционально.
+  const narrow = vaseParams({
+    diameter: 40,
+    wall: 1.2,
+    patterns: [
+      layer("ribs", 5, 8),
+      layer("spiral", 5, 5),
+      layer("waves", 5, 4),
+    ],
+  });
+  const narrowFlat = vaseParams({
+    diameter: 40,
+    wall: 1.2,
+    patterns: [
+      layer("ribs", 0, 8),
+      layer("spiral", 0, 5),
+      layer("waves", 0, 4),
+    ],
+  });
+  const narrowGeometry = buildGeometry(narrow);
+  const narrowFlatGeometry = buildGeometry(narrowFlat);
+  const narrowPositions = narrowGeometry.getAttribute("position");
+  const narrowFlatPositions = narrowFlatGeometry.getAttribute("position");
+  let minRadius = Number.POSITIVE_INFINITY;
+  let widestShift = 0;
+
+  for (let index = 0; index < narrowPositions.count; index += 1) {
+    const base = radiusAt(narrowFlatPositions, index);
+
+    if (base <= 1e-4) {
+      continue;
+    }
+
+    minRadius = Math.min(minRadius, base);
+    widestShift = Math.max(
+      widestShift,
+      Math.abs(radiusAt(narrowPositions, index) - base),
+    );
+  }
+
+  checkRange(
+    "композиция: сумма амплитуд уложилась в 45% самого узкого радиуса",
+    [widestShift],
+    0,
+    minRadius * 0.45 + 1e-6,
+  );
+  console.log(
+    `       самый узкий радиус ${minRadius.toFixed(2)} мм, ` +
+      `бюджет ${(minRadius * 0.45).toFixed(2)} мм, ` +
+      `смещение ${widestShift.toFixed(2)} мм`,
+  );
+
+  narrowGeometry.dispose();
+  narrowFlatGeometry.dispose();
+  ribsOnly.dispose();
+  spiralOnly.dispose();
+  both.dispose();
+  flat.dispose();
+
+  // 6. Рецепт в имени файла и метаданных: композиция видна с первого взгляда.
+  const composition = vaseParams({
+    patterns: [layer("ribs", 2, 8), layer("spiral", 1.5, 5)],
+  });
+  const compositionName = vaseStlFileName(composition);
+
+  check(
+    "имя файла: композиция через плюс",
+    compositionName,
+    "tridi-vaza-classic-ribs+spiral-h140-d90-w1.6.stl",
+  );
+  check(
+    "имя файла: композиция из безопасных символов",
+    /^[a-z0-9._+-]+$/.test(compositionName),
+    true,
+  );
+  check(
+    "подпись: рёбра и спираль",
+    vasePatternLabel(composition.patterns),
+    "Рёбра + Спираль",
+  );
+  check(
+    "метаданные: композиция строкой",
+    vaseGenerationDetails(composition).pattern,
+    "ribs+spiral",
+  );
+  check(
+    "метаданные: гладкая ваза без суффикса",
+    vasePatternSlug([layer("smooth", 1.5, 8)]),
+    "smooth",
   );
 }
 

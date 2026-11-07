@@ -1,10 +1,11 @@
 import {
   CONSTRUCTOR_LIMITS,
   DEFAULT_VASE_PARAMS,
-  isVasePattern,
   isVaseShape,
+  resolvePatternLayers,
   type VaseParams,
   type VasePattern,
+  type VasePatternInput,
 } from "@/lib/constructor/params";
 import { DETAIL_PATTERN_SCALE } from "@/lib/constructor/pattern-waves";
 import { resolveFluteCount } from "@/lib/constructor/vase-deformation";
@@ -65,11 +66,9 @@ export type VaseBudget = "preview" | "export";
 
 /** Поля параметров, от которых зависит разрешение по окружности. */
 export type VaseBudgetParams = Partial<
-  Pick<
-    VaseParams,
-    "pattern" | "patternFrequency" | "shape" | "sectionSides" | "flutes"
-  >
->;
+  Pick<VaseParams, "shape" | "sectionSides" | "flutes">
+> &
+  VasePatternInput;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -86,7 +85,7 @@ function clamp(value: number, min: number, max: number): number {
 function safeFrequency(frequency: number | undefined): number {
   const value = Number.isFinite(frequency)
     ? Math.round(frequency as number)
-    : DEFAULT_VASE_PARAMS.patternFrequency;
+    : DEFAULT_VASE_PARAMS.patterns[0].frequency;
 
   return clamp(
     value,
@@ -291,13 +290,13 @@ export function vaseSegments(
   profilePointCount: number,
   budget: VaseBudget = "preview",
 ): number {
-  const pattern = isVasePattern(params.pattern)
-    ? params.pattern
-    : DEFAULT_VASE_PARAMS.pattern;
+  const layers = resolvePatternLayers(params);
   const shape = isVaseShape(params.shape) ? params.shape : DEFAULT_VASE_PARAMS.shape;
   const flutes = resolveFluteCount(params.flutes);
+  // Слоёв до трёх, а разрешение одно на всех: сетка обязана обслужить самый
+  // частый слой, иначе именно он превратится в шум, а редкие останутся гладкими.
   const required = Math.max(
-    requiredVaseSegments(pattern, params.patternFrequency),
+    ...layers.map((layer) => requiredVaseSegments(layer.type, layer.frequency)),
     requiredFluteSegments(flutes),
   );
   const byBudget = Math.floor(

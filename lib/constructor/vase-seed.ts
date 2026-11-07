@@ -40,9 +40,9 @@ const OCTAVE_WEIGHTS = [0.65, 0.35] as const;
 /**
  * Частоты октав по кругу и по высоте.
  *
- * По кругу частоты целые — иначе на шве окружности шум не сошёлся бы, и после
- * сварки по координатам осталась бы ступенька. По высоте дробиться можно:
- * низ и верх вазы не замыкаются друг на друга.
+ * По кругу частоты целые: `organicOffset` передаёт их как период решётки, иначе
+ * на шве окружности осталась бы ступенька. По высоте дробиться можно: низ и верх
+ * вазы не замыкаются друг на друга.
  */
 const OCTAVE_U = [2, 5] as const;
 const OCTAVE_V = [1.5, 4] as const;
@@ -83,10 +83,22 @@ export function hashSeed(seed: number): number {
   return (state ^ (state >>> 15)) >>> 0;
 }
 
-/** Псевдослучайное значение решётки в узле (ix, iy): 0…1. */
-function latticeValue(ix: number, iy: number, seed: number): number {
+/**
+ * Псевдослучайное значение решётки в узле (ix, iy): 0…1.
+ *
+ * `periodX` замыкает решётку по `ix`: при `periodX = 4` узлы 0 и 4 — один и тот
+ * же. Это нужно шву окружности в `organicOffset`: без замыкания шум на угле −π
+ * и +π расходится на целую амплитуду, и на стенке появляется ступенька.
+ */
+function latticeValue(
+  ix: number,
+  iy: number,
+  seed: number,
+  periodX = 0,
+): number {
+  const wrappedX = periodX > 0 ? ((ix % periodX) + periodX) % periodX : ix;
   let hash =
-    Math.imul(ix | 0, 0x27d4eb2d) ^
+    Math.imul(wrappedX | 0, 0x27d4eb2d) ^
     Math.imul(iy | 0, 0x85ebca6b) ^
     (seed | 0);
 
@@ -109,16 +121,21 @@ function smoothShare(share: number): number {
 }
 
 /** Шум по готовому 32-битному сиду: вызывающий не платит за `hashSeed`. */
-function noiseWithBase(x: number, y: number, base: number): number {
+function noiseWithBase(
+  x: number,
+  y: number,
+  base: number,
+  periodX = 0,
+): number {
   const x0 = Math.floor(x);
   const y0 = Math.floor(y);
   const tx = smoothShare(x - x0);
   const ty = smoothShare(y - y0);
 
-  const leftTop = latticeValue(x0, y0, base);
-  const rightTop = latticeValue(x0 + 1, y0, base);
-  const leftBottom = latticeValue(x0, y0 + 1, base);
-  const rightBottom = latticeValue(x0 + 1, y0 + 1, base);
+  const leftTop = latticeValue(x0, y0, base, periodX);
+  const rightTop = latticeValue(x0 + 1, y0, base, periodX);
+  const leftBottom = latticeValue(x0, y0 + 1, base, periodX);
+  const rightBottom = latticeValue(x0 + 1, y0 + 1, base, periodX);
 
   const top = leftTop + (rightTop - leftTop) * tx;
   const bottom = leftBottom + (rightBottom - leftBottom) * tx;
@@ -130,8 +147,9 @@ function noiseWithBase(x: number, y: number, base: number): number {
  * Value noise 2D: значение в диапазоне −1…1.
  *
  * `seed` перемешивается здесь же (`hashSeed`), поэтому вызывающий код может
- * передавать целый сид из параметров как есть. По `x` шум периодичен с
- * периодом 1: этим пользуется `organicOffset`, чтобы шов окружности сошёлся.
+ * передавать целый сид из параметров как есть. Замыкание по `x` задаёт
+ * вызывающий (`periodX` в `noiseWithBase`): этим пользуется `organicOffset`,
+ * чтобы шов окружности сошёлся.
  */
 export function valueNoise2d(x: number, y: number, seed: number): number {
   return noiseWithBase(x, y, hashSeed(seed));
@@ -147,8 +165,10 @@ export function valueNoise2d(x: number, y: number, seed: number): number {
  * ещё раз после суммирования.
  *
  * По кругу координата сдвинута на полпериода: угол от −π до π превращается в
- * 0…1 без разрыва на шве. Частоты октав целые, поэтому значение в угле 0 и в
- * угле 2π совпадает — после сварки шов склеивается без ступеньки.
+ * 0…1 без разрыва на шве. Решётка шума замкнута по кругу (`periodX` = частота
+ * октавы), поэтому значение в угле −π и в угле +π совпадает, и на стенке нет
+ * ступеньки — иначе внешняя поверхность «срезала» бы угол и подошла вплотную к
+ * внутренней (на квадрате при `organic = 1` стенка падала до 0.7 мм).
  */
 export function organicOffset(
   angle: number,
@@ -174,6 +194,7 @@ export function organicOffset(
         around * OCTAVE_U[index],
         heightShare * OCTAVE_V[index],
         (base + index * OCTAVE_SEED_STEP) | 0,
+        OCTAVE_U[index],
       );
     weights += weight;
   }

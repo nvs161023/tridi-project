@@ -15,11 +15,11 @@ import {
   LITHOPHANE_PREVIEW_RESOLUTION,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
-  VASE_PATTERN_LABELS,
   downsampleLithophaneBrightness,
   keychainShapeTitle,
+  vasePatternLabel,
   type ConstructorParams,
-  type VasePattern,
+  type PatternLayer,
   type VaseShape,
 } from "@/lib/constructor/params";
 import { calculateGeometryWeightGrams } from "@/lib/constructor/geometry-volume";
@@ -184,9 +184,8 @@ type VaseModelProps = {
   diameter: number;
   wall: number;
   shape: VaseShape;
-  pattern: VasePattern;
-  patternIntensity: number;
-  patternFrequency: number;
+  /** Слои узора: по ним пересчитывается тень и собирается подпись. */
+  patterns: PatternLayer[];
   /** Грани сечения: 0–2 — как в силуэте, 3–12 — правильный N-угольник. */
   sectionSides: number;
   /** Закрутка рельефа по высоте, градусы. */
@@ -216,15 +215,36 @@ type VaseModelProps = {
  * освещается целиком, ребро между гранями остаётся резким. STL и так состоит
  * из плоских треугольников, поэтому на файл это не влияет.
  */
+/**
+ * Отпечаток слоёв узора для ключа пересчёта тени.
+ *
+ * Тень зависит от силуэта, а силуэт меняют все поля слоя, поэтому в отпечаток
+ * идут все: смена фазы или затухания иначе оставила бы тень от другого рельефа.
+ * Формат — просто строка, читать её не нужно; важно лишь, чтобы разные слои
+ * давали разные строки.
+ */
+function patternShadowKey(patterns: readonly PatternLayer[]): string {
+  return patterns
+    .map((layer) =>
+      [
+        layer.type,
+        layer.amplitude,
+        layer.frequency,
+        layer.phaseDeg,
+        layer.envelope.fadeTopMm,
+        layer.envelope.fadeBottomMm,
+      ].join(":"),
+    )
+    .join("+");
+}
+
 function VaseModel({
   geometry,
   height,
   diameter,
   wall,
   shape,
-  pattern,
-  patternIntensity,
-  patternFrequency,
+  patterns,
   sectionSides,
   twistDeg,
   flutes,
@@ -271,7 +291,7 @@ function VaseModel({
         blur={2.6}
         far={Math.max(height * 0.9, 120)}
         frames={1}
-        key={`${height}-${diameter}-${wall}-${shape}-${pattern}-${patternIntensity}-${patternFrequency}-${sectionSides}-${flutes}-${fluteDepthMm}-${twistDeg}-${organic}-${leanDeg}-${vaseSeed}`}
+        key={`${height}-${diameter}-${wall}-${shape}-${patternShadowKey(patterns)}-${sectionSides}-${flutes}-${fluteDepthMm}-${twistDeg}-${organic}-${leanDeg}-${vaseSeed}`}
         opacity={0.55}
         position={[0, 0.02, 0]}
         resolution={512}
@@ -721,9 +741,7 @@ function Scene({ params, geometry, framing }: SceneProps) {
           diameter={params.diameter}
           geometry={geometry}
           height={params.height}
-          pattern={params.pattern}
-          patternFrequency={params.patternFrequency}
-          patternIntensity={params.patternIntensity}
+          patterns={params.patterns}
           sectionSides={params.sectionSides}
           shape={params.shape}
           twistDeg={params.twistDeg}
@@ -1134,7 +1152,7 @@ export function Viewport({ params }: ViewportProps) {
 
   const ariaLabel =
     params.model === "vase"
-      ? `3D-предпросмотр вазы высотой ${params.height} миллиметров и диаметром ${params.diameter} миллиметров, узор «${VASE_PATTERN_LABELS[params.pattern]}»`
+      ? `3D-предпросмотр вазы высотой ${params.height} миллиметров и диаметром ${params.diameter} миллиметров, узор «${vasePatternLabel(params.patterns)}»`
       : params.model === "keychain"
         ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${keychainShapeTitle(params)}», имя «${params.text.trim() || "без имени"}»`
         : params.model === "stand"

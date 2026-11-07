@@ -127,39 +127,48 @@ import {
 } from "@/lib/constructor/raster-to-contours";
 import { nextVaseSeed } from "@/lib/constructor/vase-seed";
 
-/** Числовые параметры: форму, узор и текст меняют отдельные обработчики. */
-type SizeParam = Exclude<
-  keyof ConstructorParams,
-  | "model"
-  | "shape"
-  | "pattern"
-  | "shapeType"
-  | "text"
-  | "signText"
-  | "signFont"
-  | "signChannelWidth"
-  | "signBaseMount"
-  | "hasLid"
-  | "lithoFrame"
-  | "lithoMount"
-  | "lithophaneBrightness"
-  | "planterShape"
-  | "planterDrainage"
-  | "coasterShape"
-  | "coasterPattern"
-  | "coasterRim"
-  | "jewelryConfig"
-  | "penShape"
-  | "heatTransferSvg"
-  | "heatTransferMirror"
-  | "qrCardSize"
-  | "qrCardTab"
-  | "qrMode"
-  | "qrContentType"
-  | "qrContent"
-  | "qrName"
-  | "qrPhone"
->;
+/**
+ * Числовые параметры: форму, узор и текст меняют отдельные обработчики.
+ *
+ * `patternIntensity` и `patternFrequency` — ключи панели, а не поля параметров:
+ * с этапа композиции сила и частота живут в слое узора, а три слайдера узора
+ * по-прежнему правят первый слой.
+ */
+type SizeParam =
+  | Exclude<
+      keyof ConstructorParams,
+      | "model"
+      | "shape"
+      | "patterns"
+      | "shapeType"
+      | "text"
+      | "signText"
+      | "signFont"
+      | "signChannelWidth"
+      | "signBaseMount"
+      | "hasLid"
+      | "lithoFrame"
+      | "lithoMount"
+      | "lithophaneBrightness"
+      | "planterShape"
+      | "planterDrainage"
+      | "coasterShape"
+      | "coasterPattern"
+      | "coasterRim"
+      | "jewelryConfig"
+      | "penShape"
+      | "heatTransferSvg"
+      | "heatTransferMirror"
+      | "qrCardSize"
+      | "qrCardTab"
+      | "qrMode"
+      | "qrContentType"
+      | "qrContent"
+      | "qrName"
+      | "qrPhone"
+    >
+  | "patternIntensity"
+  | "patternFrequency";
 
 /** Ошибка экспорта и действие, которое поможет её исправить. */
 export type StlExportError = {
@@ -1909,38 +1918,38 @@ export function ParameterPanel({
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint={PATTERN_HINTS[params.pattern]}
+              hint={PATTERN_HINTS[params.patterns[0].type]}
               label="Узор"
               onChange={onPatternChange}
               options={VASE_PATTERNS.map((pattern) => ({
                 label: VASE_PATTERN_LABELS[pattern],
                 value: pattern,
               }))}
-              value={params.pattern}
+              value={params.patterns[0].type}
             />
 
             <NumberSlider
               decimals={CONSTRUCTOR_LIMITS.patternIntensity.decimals}
-              hint="0 — ровная стенка, 5 мм — глубокий рельеф. В узкой горловине амплитуда ограничивается автоматически, чтобы стенка не разорвалась."
+              hint="Амплитуда первого слоя: 0 — ровная стенка, 5 мм — глубокий рельеф. В узкой горловине сумма слоёв ограничивается автоматически, чтобы стенка не разорвалась."
               label="Сила узора"
               max={CONSTRUCTOR_LIMITS.patternIntensity.max}
               min={CONSTRUCTOR_LIMITS.patternIntensity.min}
               onChange={(value) => onParamChange("patternIntensity", value)}
               step={CONSTRUCTOR_LIMITS.patternIntensity.step}
               unit="мм"
-              value={params.patternIntensity}
+              value={params.patterns[0].amplitude}
             />
 
             <NumberSlider
               decimals={CONSTRUCTOR_LIMITS.patternFrequency.decimals}
-              hint="1 — крупный узор, 20 — частый. Для рёбер это число гребней по окружности; волны и спираль считают фазу от высоты в миллиметрах."
+              hint="Частота первого слоя: 1 — крупный узор, 20 — частый. Для рёбер это число гребней по окружности; волны и спираль считают фазу от высоты в миллиметрах."
               label="Частота узора"
               max={CONSTRUCTOR_LIMITS.patternFrequency.max}
               min={CONSTRUCTOR_LIMITS.patternFrequency.min}
               onChange={(value) => onParamChange("patternFrequency", value)}
               step={CONSTRUCTOR_LIMITS.patternFrequency.step}
               unit="раз"
-              value={params.patternFrequency}
+              value={params.patterns[0].frequency}
             />
 
             <NumberSlider

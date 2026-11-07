@@ -44,7 +44,6 @@ import {
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
-  VASE_PATTERN_LABELS,
   VASE_SHAPE_LABELS,
   boxPresetParams,
   boxStlFileName,
@@ -64,6 +63,7 @@ import {
   planterStlFileName,
   signStlFileName,
   standStlFileName,
+  vasePatternLabel,
   vaseStlFileName,
   type BoxPresetId,
   type CoasterPattern,
@@ -96,32 +96,42 @@ type ConstructorClientProps = {
   initialProjectId?: string | null;
 };
 
-/** Числовые параметры: форму, узор, надпись и флаги меняют отдельные обработчики. */
-type SizeParam = Exclude<
-  keyof ConstructorParams,
-  | "model"
-  | "shape"
-  | "pattern"
-  | "shapeType"
-  | "text"
-  | "signText"
-  | "signFont"
-  | "signChannelWidth"
-  | "signBaseMount"
-  | "hasLid"
-  | "lithoFrame"
-  | "lithoMount"
-  | "lithophaneBrightness"
-  | "planterShape"
-  | "planterDrainage"
-  | "coasterShape"
-  | "coasterPattern"
-  | "coasterRim"
-  | "jewelryConfig"
-  | "penShape"
-  | "heatTransferSvg"
-  | "heatTransferMirror"
->;
+/**
+ * Числовые параметры: форму, узор, надпись и флаги меняют отдельные обработчики.
+ *
+ * `patternIntensity` и `patternFrequency` — ключи панели, а не поля параметров:
+ * с этапа композиции сила и частота живут в слое узора. Панель осталась с тремя
+ * слайдерами и правит первый слой, поэтому ключи объявлены здесь явно, а
+ * переводит их `updateParam`.
+ */
+type SizeParam =
+  | Exclude<
+      keyof ConstructorParams,
+      | "model"
+      | "shape"
+      | "patterns"
+      | "shapeType"
+      | "text"
+      | "signText"
+      | "signFont"
+      | "signChannelWidth"
+      | "signBaseMount"
+      | "hasLid"
+      | "lithoFrame"
+      | "lithoMount"
+      | "lithophaneBrightness"
+      | "planterShape"
+      | "planterDrainage"
+      | "coasterShape"
+      | "coasterPattern"
+      | "coasterRim"
+      | "jewelryConfig"
+      | "penShape"
+      | "heatTransferSvg"
+      | "heatTransferMirror"
+    >
+  | "patternIntensity"
+  | "patternFrequency";
 
 /**
  * Дефолты каждой модели.
@@ -494,10 +504,35 @@ export function ConstructorClient({
     }, FEEDBACK_OPEN_DELAY_MS);
   }
 
+  /**
+   * Числовой слайдер, включая два «виртуальных» ключа узора.
+   *
+   * `patternIntensity` и `patternFrequency` остались ключами панели, но полями
+   * параметров больше не являются: сила и частота живут в первом слое узора.
+   * Переводим их здесь, а не в панели: панель не должна знать про композицию, а
+   * нормализация проигнорировала бы поля, которых нет в параметрах.
+   */
   function updateParam(key: SizeParam, value: number) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, [key]: value }),
-    );
+    setParams((current) => {
+      if (key === "patternIntensity" || key === "patternFrequency") {
+        return normalizeConstructorParams({
+          ...current,
+          patterns: current.patterns.map((layer, index) =>
+            index === 0
+              ? {
+                  ...layer,
+                  amplitude:
+                    key === "patternIntensity" ? value : layer.amplitude,
+                  frequency:
+                    key === "patternFrequency" ? value : layer.frequency,
+                }
+              : layer,
+          ),
+        });
+      }
+
+      return normalizeConstructorParams({ ...current, [key]: value });
+    });
   }
 
   /**
@@ -524,7 +559,14 @@ export function ConstructorClient({
   }
 
   function updatePattern(pattern: VasePattern) {
-    setParams((current) => normalizeConstructorParams({ ...current, pattern }));
+    setParams((current) =>
+      normalizeConstructorParams({
+        ...current,
+        patterns: current.patterns.map((layer, index) =>
+          index === 0 ? { ...layer, type: pattern } : layer,
+        ),
+      }),
+    );
   }
 
   /**
@@ -1035,7 +1077,7 @@ export function ConstructorClient({
               {params.model === "vase" ? (
                 <>
                   {VASE_SHAPE_LABELS[params.shape]} ·{" "}
-                  {VASE_PATTERN_LABELS[params.pattern]} · {params.height} × Ø{" "}
+                  {vasePatternLabel(params.patterns)} · {params.height} × Ø{" "}
                   {params.diameter} мм
                 </>
               ) : params.model === "keychain" ? (

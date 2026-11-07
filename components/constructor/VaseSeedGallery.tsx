@@ -62,9 +62,9 @@ function geometryKey(params: ConstructorParams): string {
     params.wall,
     params.footMm,
     params.rimMm,
-    params.pattern,
-    params.patternIntensity,
-    params.patternFrequency,
+    // Слои целиком, а не три поля: композиция меняет силуэт любым своим полем —
+    // амплитудой, фазой и затуханием, — и плитки должны обновиться на каждое.
+    JSON.stringify(params.patterns),
     params.sectionSides,
     params.flutes,
     params.fluteDepthMm,

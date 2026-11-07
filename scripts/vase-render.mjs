@@ -155,7 +155,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const args = parseArgs(process.argv.slice(2));
   const frequency = numberOption(
     args.freq,
-    DEFAULT_CONSTRUCTOR_PARAMS.patternFrequency,
+    DEFAULT_CONSTRUCTOR_PARAMS.patterns[0].frequency,
   );
   const footMm = numberOption(args.foot, DEFAULT_CONSTRUCTOR_PARAMS.footMm);
   const rimMm = numberOption(args.rim, DEFAULT_CONSTRUCTOR_PARAMS.rimMm);
@@ -177,10 +177,18 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const size = numberOption(args.size, 760);
   const tile = numberOption(args.tile, 300);
   const out = path.resolve(args.out ?? ".fonttmp/shots/vase.png");
+  // Слой узора для рендера: тип из флага, остальное — из дефолтного слоя.
+  // Затухание берём из дефолта, поэтому край кромки в кадре выглядит так же,
+  // как в конструкторе.
+  const layer = (type) => ({
+    ...DEFAULT_CONSTRUCTOR_PARAMS.patterns[0],
+    type,
+    frequency,
+  });
   const base = {
     ...DEFAULT_CONSTRUCTOR_PARAMS,
     model: "vase",
-    patternFrequency: frequency,
+    patterns: [layer(DEFAULT_CONSTRUCTOR_PARAMS.patterns[0].type)],
     footMm,
     rimMm,
     sectionSides,
@@ -195,10 +203,13 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   mkdirSync(path.dirname(out), { recursive: true });
 
   if (args.shape !== undefined || args.pattern !== undefined) {
+    const patterns = [
+      layer(args.pattern ?? DEFAULT_CONSTRUCTOR_PARAMS.patterns[0].type),
+    ];
     const params = {
       ...base,
       shape: args.shape ?? DEFAULT_CONSTRUCTOR_PARAMS.shape,
-      pattern: args.pattern ?? DEFAULT_CONSTRUCTOR_PARAMS.pattern,
+      patterns,
     };
     const frame = renderVaseRgb(params, {
       width: size,
@@ -209,7 +220,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 
     writeFileSync(out, encodePng(frame.width, frame.height, frame.rgb));
     console.log(
-      `${params.shape}/${params.pattern} f${frequency}, цоколь ${footMm}, ` +
+      `${params.shape}/${patterns[0].type} f${frequency}, цоколь ${footMm}, ` +
         `обод ${rimMm}, граней ${sectionSides}, каннелюр ${flutes} × ` +
         `${fluteDepthMm} мм, закрутка ${twistDeg}°, органика ${organic} ` +
         `(сид ${vaseSeed}), наклон ${leanDeg}°: ${frame.triangles} ` +
@@ -239,7 +250,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
           {
             ...base,
             shape: VASE_SHAPES[row],
-            pattern: VASE_PATTERNS[column],
+            patterns: [layer(VASE_PATTERNS[column])],
           },
           { width: tile, height: tileHeight, azimuth, elevation },
         );

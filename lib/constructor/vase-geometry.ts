@@ -3,11 +3,11 @@ import type { BufferGeometry, Vector2 } from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import {
-  CONSTRUCTOR_LIMITS,
-  DEFAULT_VASE_PARAMS,
-  isVasePattern,
+  resolvePatternLayers,
+  type PatternLayer,
   type VaseParams,
   type VasePattern,
+  type VasePatternInput,
 } from "@/lib/constructor/params";
 import {
   DETAIL_PATTERN_SCALE,
@@ -115,9 +115,6 @@ export type VaseGeometryParams = Partial<
   Pick<
     VaseParams,
     | "shape"
-    | "pattern"
-    | "patternIntensity"
-    | "patternFrequency"
     | "footMm"
     | "rimMm"
     | "sectionSides"
@@ -128,7 +125,8 @@ export type VaseGeometryParams = Partial<
     | "leanDeg"
     | "vaseSeed"
   >
->;
+> &
+  VasePatternInput;
 
 /** Минимум полей BufferAttribute, которые нужны для чтения радиуса. */
 type PositionAttribute = {
@@ -478,6 +476,11 @@ function applyShape(
  * должны быть мельче рёбер. Опорный радиус переводит миллиметры высоты в те же
  * единицы, что и дуга окружности, поэтому ячейки остаются правильными при
  * любом диаметре. Без divisor соты на высокой вазе вытянулись бы по вертикали.
+ *
+ * `phaseRad` — фаза слоя. У угловых узоров (рёбра, спираль, соты, чешуйки) она
+ * сдвигает рисунок по окружности, у «волн» — по высоте, потому что волны по
+ * окружности не повторяются и сдвиг по углу для них не значил бы ничего.
+ * Шов окружности сходится: фаза — постоянное слагаемое, а не множитель угла.
  */
 function patternWave(
   pattern: VasePattern,
@@ -485,12 +488,13 @@ function patternWave(
   height: number,
   frequency: number,
   referenceRadius: number,
+  phaseRad = 0,
 ): number {
   const phaseFrequency =
     pattern === "honeycomb" || pattern === "scales"
       ? frequency * DETAIL_PATTERN_SCALE
       : frequency;
-  const circumferencePhase = angle * phaseFrequency;
+  const circumferencePhase = angle * phaseFrequency + phaseRad;
   const verticalPhase =
     (height * phaseFrequency) / Math.max(referenceRadius, 1);
 
@@ -500,7 +504,7 @@ function patternWave(
     case "ribs":
       return Math.sin(circumferencePhase);
     case "waves":
-      return Math.sin(height * frequency);
+      return Math.sin(height * frequency + phaseRad);
     case "honeycomb":
       return honeycombWave(circumferencePhase, verticalPhase);
     case "scales":
@@ -539,6 +543,91 @@ function patternFade(
 }
 
 /**
+ * Слой узора, подготовленный к циклу по вершинам.
+ *
+ * Доли затухания считаются один раз: пять миллиметров у вазы на 140 мм — это
+ * 0.036 высоты, а делить на высоту в цикле по десяткам тысяч вершин незачем.
+ * Амплитуда здесь уже в миллиметрах и ещё до бюджета смещения — общий
+ * масштаб применяет `applyRelief` одной операцией на весь набор.
+ */
+type ActivePatternLayer = {
+  type: VasePattern;
+  amplitudeMm: number;
+  frequency: number;
+  phaseRad: number;
+  /** Доля высоты, где слой гаснет у кромки; 0 — не гаснет. */
+  topFadeShare: number;
+  /** Доля высоты, где слой гаснет у дна; 0 — не гаснет. */
+  bottomFadeShare: number;
+};
+
+/**
+ * Слои, которые действительно смещают стенку.
+ *
+ * Гладкий слой и слой с нулевой амплитудой отбрасываются: смещать нечего, а
+ * цикл по слоям идёт в каждой вершине. После фильтра `smooth` не остаётся,
+ * поэтому `patternWave` для «пустого» типа не вызывается вовсе.
+ *
+ * Затухание ограничено высотой вазы сверху: `fadeTopMm = 30` на вазе в 40 мм
+ * не должен превращать слой в ноль по всей высоте — он просто дойдёт до дна.
+ */
+function activePatternLayers(
+  layers: readonly PatternLayer[],
+  height: number,
+): ActivePatternLayer[] {
+  const active: ActivePatternLayer[] = [];
+
+  for (const layer of layers) {
+    if (layer.type === "smooth" || layer.amplitude <= 0) {
+      continue;
+    }
+
+    const fadeTop = clamp(layer.envelope.fadeTopMm, 0, Math.max(height, 0));
+    const fadeBottom = clamp(
+      layer.envelope.fadeBottomMm,
+      0,
+      Math.max(height, 0),
+    );
+
+    active.push({
+      type: layer.type,
+      amplitudeMm: layer.amplitude,
+      frequency: layer.frequency,
+      phaseRad: (layer.phaseDeg * Math.PI) / 180,
+      topFadeShare: height > 0 ? fadeTop / height : 0,
+      bottomFadeShare: height > 0 ? fadeBottom / height : 0,
+    });
+  }
+
+  return active;
+}
+
+/**
+ * Затухание слоя по высоте: 0 у самой кромки и у самого дна, 1 в теле вазы.
+ *
+ * Зона кромки — последние `fadeTopMm` миллиметров: амплитуда плавно уходит в
+ * ноль сглаженной ступенькой, а не обрывается. Резкая граница читается как
+ * поясок — кольцевая складка от слайсера, а не композиция. У дна та же история
+ * с полосой `fadeBottomMm`.
+ *
+ * Это затухание слоя, а не печатное: `patternFade` гасит весь рельеф у цоколя и
+ * обода при любых настройках, потому что первый слой должен лечь полным диском,
+ * а кромка — остаться ровным кольцом.
+ */
+function layerEnvelope(layer: ActivePatternLayer, heightShare: number): number {
+  const top =
+    layer.topFadeShare > 0
+      ? 1 - smoothstep(1 - layer.topFadeShare, 1, heightShare)
+      : 1;
+  const bottom =
+    layer.bottomFadeShare > 0
+      ? smoothstep(0, layer.bottomFadeShare, heightShare)
+      : 1;
+
+  return top * bottom;
+}
+
+/**
  * Смещает вершины LatheGeometry по узору и каннелюрам.
  *
  * Функция работает до сварки: шов окружности и ось ещё продублированы, но
@@ -548,9 +637,16 @@ function patternFade(
  * Вершины на оси не двигаются, иначе дно и кромка отошли бы от центра.
  *
  * Смещение собирается из трёх слагаемых:
- *   — узор (`patternWave`, амплитуда в мм) — прежний рельеф, синусы и соты;
+ *   — узор — сумма слоёв (`patternWave`, амплитуда в мм), у каждого своя
+ *     частота, фаза и затухание у краёв;
  *   — каннелюры — канавка с почти плоским дном, глубина тоже в миллиметрах;
  *   — органика (`vase-seed.ts`) — складки по сиду, амплитуда в миллиметрах.
+ *
+ * Слои складываются, а не заменяют друг друга:
+ * `Δr = Σ amplitude × shape × envelope`. Это и есть композиция: рёбра плюс
+ * спираль дают кручёную грань, волны поверх рёбер — стихийную керамику. Один
+ * слой с нулевым затуханием даёт в точности прежний рельеф, поэтому проекты,
+ * сохранённые до композиции, открываются без изменений.
  *
  * Закрутка здесь не участвует: она поворачивает готовое кольцо целиком
  * (`applyTwist`), и это то же самое, что сдвинуть фазу рельефа по высоте, но без
@@ -558,19 +654,22 @@ function patternFade(
  * на прежних углах, и дно жёлоба с углом многоугольника попадали бы в сетку
  * через раз — ребро шло бы пилой.
  *
- * Амплитуда умножается на `patternFade`: у дна и под кромкой рельеф гаснет до
- * нуля. Без этого венец вазы на частоте 20 выходил зубчатым гребешком, а край
- * первого слоя гулял волной по периметру. Каннелюры и органика гаснут по той же
- * причине: первый слой должен лечь полным диском, а кромка остаться ровной.
- * Затухание зависит только от высоты, поэтому кольца остаются кольцами, а
- * стенка — стенкой: на каждой высоте смещение одинаково для всех вершин кольца.
+ * Затуханий два, и они не дублируют друг друга. `layerEnvelope` — затухание
+ * слоя: у кромки и дна на заданных миллиметрах слой гаснет сам, чтобы
+ * композиция не упиралась в край. `patternFade` — печатное: цоколь и обод
+ * остаются гладкими при любых настройках. Без второго венец вазы на частоте 20
+ * выходил зубчатым гребешком, а край первого слоя гулял волной по периметру.
+ * Оба зависят только от высоты, поэтому кольца остаются кольцами, а стенка —
+ * стенкой: на каждой высоте смещение одинаково для всех вершин кольца.
  *
  * Глубина жёлоба ограничивается на каждой высоте отдельно: `0.6 · стенка` и
  * `0.45 · самый узкий радиус`. Второе не даёт кольцу вывернуться через ось,
  * первое — кривизне дна жёлоба превысить половину толщины стенки (иначе
- * треугольники на дне начинают пересекаться). Органика добавляется последней и
- * получает только остаток общего бюджета смещения (см. `reliefBudget`): сумма
- * трёх слагаемых никогда не превышает `0.45 · самый узкий радиус`.
+ * треугольники на дне начинают пересекаться). Сумма амплитуд слоёв тоже
+ * укладывается в `0.45 · самый узкий радиус`: если вместе они просят больше,
+ * слои масштабируются пропорционально, а не отбрасываются по одному. Органика
+ * добавляется последней и получает только остаток общего бюджета смещения
+ * (см. `reliefBudget`).
  *
  * Топология не меняется: вершины только переставляются, число треугольников
  * остаётся прежним. Нормали считаются позже, после сварки и очистки.
@@ -580,54 +679,48 @@ function applyRelief(
   profile: Vector2[],
   params: VaseGeometryParams,
 ): void {
-  const pattern = isVasePattern(params.pattern)
-    ? params.pattern
-    : DEFAULT_VASE_PARAMS.pattern;
   const deformation = createVaseDeformation(params);
   const position = lathe.getAttribute("position");
   const minRadius = findMinRadius(position);
-  const intensity = clamp(
-    params.patternIntensity ?? DEFAULT_VASE_PARAMS.patternIntensity,
-    CONSTRUCTOR_LIMITS.patternIntensity.min,
-    CONSTRUCTOR_LIMITS.patternIntensity.max,
+  const { min: bottom, max: top } = findHeightSpan(position);
+  const height = top - bottom;
+  const layers = activePatternLayers(resolvePatternLayers(params), height);
+  const requestedAmplitude = layers.reduce(
+    (sum, layer) => sum + layer.amplitudeMm,
+    0,
   );
-  const frequency = clamp(
-    Math.round(
-      params.patternFrequency ?? DEFAULT_VASE_PARAMS.patternFrequency,
-    ),
-    CONSTRUCTOR_LIMITS.patternFrequency.min,
-    CONSTRUCTOR_LIMITS.patternFrequency.max,
-  );
+  // Бюджет смещения общий: сумма амплитуд слоёв не должна уводить стенку внутрь
+  // дальше 45% самого узкого радиуса, иначе кольцо вывернется через ось. Слои
+  // делят бюджет пропорционально, поэтому композиция «рёбра 3 мм + спираль
+  // 3 мм» на узкой горловине становится тише, а не теряет один из слоёв.
+  const reliefBudget = minRadius * MAX_PATTERN_RADIUS_SHARE;
+  const patternScale =
+    requestedAmplitude > reliefBudget && requestedAmplitude > 0
+      ? reliefBudget / requestedAmplitude
+      : 1;
+  const patternStrength = requestedAmplitude * patternScale;
 
-  // Ноль означает «рельефа нет»: гладкая стенка, нулевая сила узора,
-  // выключенные каннелюры и нулевая органика не должны попадать в цикл по
-  // вершинам.
-  const patternStrength =
-    pattern === "smooth" || intensity <= 0
-      ? 0
-      : Math.min(intensity, minRadius * MAX_PATTERN_RADIUS_SHARE);
   const flutesActive =
     deformation.fluteCount > 0 && deformation.fluteDepthMm > 0;
   const organicAmplitude = deformation.organicAmplitudeMm(minRadius);
 
+  // Ноль означает «рельефа нет»: гладкая стенка, нулевая сила слоёв,
+  // выключенные каннелюры и нулевая органика не должны попадать в цикл по
+  // вершинам.
   if (patternStrength <= 0 && !flutesActive && organicAmplitude <= 0) {
     return;
   }
 
   const wallAt = flutesActive ? createWallLookup(profile) : () => 0;
-  const referenceRadius =
-    pattern === "honeycomb" || pattern === "scales"
-      ? findMaxRadius(position)
-      : 1;
-  const { min: bottom, max: top } = findHeightSpan(position);
-  const height = top - bottom;
+  const detailPattern = layers.some(
+    (layer) => layer.type === "honeycomb" || layer.type === "scales",
+  );
+  // Соты и чешуйки меряют высоту дугой окружности, поэтому им нужен опорный
+  // радиус. Остальным узорам фаза считается по углу, и единица дешевле: радиус
+  // пришлось бы искать по всей сетке.
+  const referenceRadius = detailPattern ? findMaxRadius(position) : 1;
   const foot = vaseFootHeight(height, params.footMm);
   const rim = vaseRimHeight(height, params.rimMm);
-  // Общий бюджет смещения: узор, каннелюры и органика вместе не должны увести
-  // стенку внутрь дальше 45% самого узкого радиуса, иначе кольцо вывернется
-  // через ось. Узор и жёлоба ограничены и по отдельности, поэтому органика
-  // получает то, что осталось, — на узкой горловине её амплитуда гаснет сама.
-  const reliefBudget = minRadius * MAX_PATTERN_RADIUS_SHARE;
 
   for (let index = 0; index < position.count; index += 1) {
     const x = position.getX(index);
@@ -648,11 +741,31 @@ function applyRelief(
     }
 
     const angle = Math.atan2(z, x);
-    const waveOffset =
-      patternStrength > 0
-        ? patternWave(pattern, angle, y, frequency, referenceRadius) *
-          patternStrength
-        : 0;
+    const heightShare = height > WELD_TOLERANCE_MM ? (y - bottom) / height : 0;
+    let waveOffset = 0;
+
+    for (const layer of layers) {
+      const envelope = layerEnvelope(layer, heightShare);
+
+      if (envelope <= 0) {
+        continue;
+      }
+
+      waveOffset +=
+        layer.amplitudeMm *
+        patternWave(
+          layer.type,
+          angle,
+          y,
+          layer.frequency,
+          referenceRadius,
+          layer.phaseRad,
+        ) *
+        envelope;
+    }
+
+    waveOffset *= patternScale;
+
     const fluteDepth = flutesActive
       ? Math.min(
           deformation.fluteDepthMm,
@@ -661,18 +774,11 @@ function applyRelief(
       : 0;
     const fluteOffset =
       fluteDepth > 0 ? -fluteDepth * deformation.fluteNotchAt(angle) : 0;
-    const organicRoom = Math.max(
-      0,
-      reliefBudget - patternStrength - fluteDepth,
-    );
+    const organicRoom = Math.max(0, reliefBudget - patternStrength - fluteDepth);
     const organicDepth = Math.min(organicAmplitude, organicRoom);
     const organicShift =
       organicDepth > 0
-        ? deformation.organicAt(
-            angle,
-            height > WELD_TOLERANCE_MM ? (y - bottom) / height : 0,
-            organicDepth,
-          )
+        ? deformation.organicAt(angle, heightShare, organicDepth)
         : 0;
     const offset = (waveOffset + fluteOffset + organicShift) * fade;
     const scale = (radius + offset) / radius;
