@@ -944,7 +944,11 @@ export function Viewport({ params }: ViewportProps) {
         : new BufferGeometry();
     }
 
-    return createVaseGeometry(createVaseProfile(params), params);
+    // Предпросмотр считает бюджет треугольников по-своему (120 000): модель
+    // крутится в браузере, а рельеф высокой частоты поднимает разрешение.
+    return createVaseGeometry(createVaseProfile(params), params, {
+      budget: "preview",
+    });
   }, [font, lithophanePreviewBrightness, params]);
 
   // Старая сетка живёт в GPU-буфере: без dispose каждая правка слайдера

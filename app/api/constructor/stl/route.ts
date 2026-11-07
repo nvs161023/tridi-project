@@ -1196,7 +1196,11 @@ export async function POST(request: Request): Promise<Response> {
     // повторный вызов и смена шрифта вывески ничего не стоят.
     const geometry =
       parsed.model === "vase"
-        ? createVaseGeometry(createVaseProfile(parsed.params), parsed.params)
+        ? // STL собирается с бюджетом 400 000: файл скачивают один раз, а
+          // рельеф высокой частоты требует больше сегментов, чем экран.
+          createVaseGeometry(createVaseProfile(parsed.params), parsed.params, {
+            budget: "export",
+          })
         : parsed.model === "box"
           ? createBoxGeometry(parsed.params)
           : parsed.model === "lithophane"

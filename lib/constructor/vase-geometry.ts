@@ -16,6 +16,11 @@ import {
   honeycombWave,
   scalesWave,
 } from "@/lib/constructor/pattern-waves";
+import {
+  VASE_MIN_SEGMENTS,
+  vaseSegments,
+  type VaseBudget,
+} from "@/lib/constructor/vase-budget";
 
 /**
  * Превращает осевой профиль в замкнутую геометрию вазы.
@@ -27,10 +32,26 @@ import {
  * здесь пять шагов: многоугольное сечение для square и octagon, смещение
  * вершин узором, сварка по координатам, удаление вырожденных треугольников и
  * пересчёт нормалей по итоговому обходу.
+ *
+ * Сколько сегментов по окружности, решает lib/constructor/vase-budget.ts:
+ * 128 по умолчанию и до 256 там, где рельеф мельче сетки.
  */
 
-/** 128 сегментов: при диаметре 200 мм хорда около 4.9 мм, силуэт гладкий. */
-export const LATHE_SEGMENTS = 128;
+/**
+ * Базовое число сегментов по окружности.
+ *
+ * Оставлено для обратной совместимости: разрешение больше не константа, его
+ * считает `vaseSegments` из `@/lib/constructor/vase-budget` по рельефу и
+ * бюджету треугольников. Значение равно базе: 128 сегментов при диаметре
+ * 200 мм дают хорду около 4.9 мм, силуэт гладкий.
+ */
+export const LATHE_SEGMENTS = VASE_MIN_SEGMENTS;
+
+/** В каком режиме собирается сетка: для экрана или для файла. */
+export type VaseGeometryOptions = {
+  /** Бюджет треугольников: предпросмотр — 120 000, STL — 400 000. */
+  budget?: VaseBudget;
+};
 
 /** Допуск сварки: координаты ближе 0.0001 мм считаем одной вершиной. */
 const WELD_TOLERANCE_MM = 1e-4;
@@ -590,16 +611,29 @@ function signedVolumeTimesSix(geometry: BufferGeometry): number {
  * разворачиваем индексы), и только потом computeVertexNormals — он считает
  * нормали по итоговому обходу треугольников уже с рельефом. Благодаря этому
  * внешние стенки смотрят наружу, а внутренние — в полость.
+ *
+ * Число сегментов по окружности больше не константа: его считает
+ * `vaseSegments` по частоте рельефа и бюджету треугольников. Для гладких ваз и
+ * для узоров на частоте до 8 это ровно 128 сегментов, то есть прежняя сетка
+ * вершина в вершину; вырастает оно только там, где рельеф действительно мельче
+ * сетки. Режим сборки передаётся третьим аргументом: предпросмотр (по
+ * умолчанию) и STL считают бюджет по-разному.
  */
 export function createVaseGeometry(
   profile: Vector2[],
   params: VaseGeometryParams = {},
+  options: VaseGeometryOptions = {},
 ): BufferGeometry {
   if (profile.length < 3) {
     throw new Error("Профиль вазы должен содержать минимум три точки");
   }
 
-  const lathe = new LatheGeometry(profile, LATHE_SEGMENTS);
+  const segments = vaseSegments(
+    params,
+    profile.length,
+    options.budget ?? "preview",
+  );
+  const lathe = new LatheGeometry(profile, segments);
   applyShape(lathe, profile, params);
   applyPattern(lathe, params);
 
