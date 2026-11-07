@@ -1,6 +1,11 @@
 import { SplineCurve, Vector2 } from "three";
 
 import type { VaseParams, VaseShape } from "@/lib/constructor/params";
+import {
+  resolveOrganic,
+  resolveVaseSeed,
+} from "@/lib/constructor/vase-deformation";
+import { organicProfileShare } from "@/lib/constructor/vase-seed";
 
 /**
  * Осевое сечение вазы в плоскости (радиус, высота).
@@ -50,8 +55,18 @@ const MAX_RIM_SHARE = 0.12;
 /** Параметры, из которых строится осевое сечение: узор на профиль не влияет. */
 export type VaseProfileParams = Pick<
   VaseParams,
-  "height" | "diameter" | "wall" | "shape" | "footMm" | "rimMm"
+  "height" | "diameter" | "wall" | "shape" | "footMm" | "rimMm" | "organic" | "vaseSeed"
 >;
+
+/**
+ * Насколько сид может сжать радиус опорной точки силуэта.
+ *
+ * Два процента — предел, при котором ваза остаётся «той же моделью»: силуэт
+ * читается, диаметр и расход пластика не уезжают. Вариация только сжимает, а не
+ * расширяет, потому что диаметр — обещание слайдера: «самая широкая часть»
+ * никогда не должна оказаться шире заказанного.
+ */
+const MAX_PROFILE_VARIATION = 0.02;
 
 /** Точка пресета: доля высоты и доля максимального радиуса. */
 type PresetPoint = readonly [heightShare: number, radiusShare: number];
@@ -243,13 +258,23 @@ function createOuterProfile(params: VaseProfileParams): Vector2[] {
   const maxRadius = Math.max(params.diameter / 2, MIN_OUTER_RADIUS_MM);
   const minRadius = Math.min(MIN_OUTER_RADIUS_MM, maxRadius * 0.5);
   const preset = SHAPE_PRESETS[params.shape] ?? SHAPE_PRESETS.classic;
-  const controls = preset.map(
-    ([heightShare, radiusShare]) =>
-      new Vector2(
-        clamp(radiusShare * maxRadius, minRadius, maxRadius),
-        clamp(heightShare * height, 0, height),
-      ),
-  );
+  const organic = resolveOrganic(params.organic);
+  const seed = resolveVaseSeed(params.vaseSeed);
+  const controls = preset.map(([heightShare, radiusShare]) => {
+    // Микро-вариация силуэта: при органике сид сжимает опорные радиусы до 2%.
+    // Кривая зависит только от доли высоты, поэтому ваза остаётся той же формы,
+    // а серия с разными сидами — разной по пропорциям. Без органики множитель
+    // равен единице: старые вазы строятся вершина в вершину как раньше.
+    const shrink =
+      organic > 0
+        ? organic * MAX_PROFILE_VARIATION * organicProfileShare(heightShare, seed)
+        : 0;
+
+    return new Vector2(
+      clamp(radiusShare * (1 - shrink) * maxRadius, minRadius, maxRadius),
+      clamp(heightShare * height, 0, height),
+    );
+  });
   const spline = new SplineCurve(controls);
   const points: Vector2[] = [];
   const foot = vaseFootHeight(height, params.footMm);

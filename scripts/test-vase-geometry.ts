@@ -34,7 +34,11 @@
  *      меняя ни объём, ни шов;
  *  10. силуэты — это данные: каждая форма доходит до заданного диаметра, не
  *      закладывает петлю по высоте, имеет свой профиль (никаких копий пресета) и
- *      остаётся замкнутой вместе с каннелюрами и закруткой.
+ *      остаётся замкнутой вместе с каннелюрами и закруткой;
+ *  11. органика и наклон: один сид даёт ту же сетку вершина в вершину, без
+ *      органики сид не влияет, складки гаснут у дна и под кромкой, стенка на
+ *      двух диаметрах не тоньше 0.8 мм, а наклон сохраняет объём, оставляет
+ *      дно на столе и добавляет к габариту ровно tan(угла) · высоту.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
@@ -1488,6 +1492,103 @@ console.log("\n9. Каннелюры и закрутка: глубина, сте
   geometry.dispose();
 }
 
+/** Сколько треугольников в сетке. */
+function triangleCount(geometry: BufferGeometry): number {
+  const index = geometry.getIndex();
+
+  return index ? Math.floor(index.count / 3) : 0;
+}
+
+/** Две сетки совпадают вершина в вершину: сид — чистая функция, а не «почти». */
+function positionsMatch(first: BufferGeometry, second: BufferGeometry): boolean {
+  const a = first.getAttribute("position");
+  const b = second.getAttribute("position");
+
+  if (a.count !== b.count) {
+    return false;
+  }
+
+  for (let index = 0; index < a.count; index += 1) {
+    if (
+      a.getX(index) !== b.getX(index) ||
+      a.getY(index) !== b.getY(index) ||
+      a.getZ(index) !== b.getZ(index)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Разброс радиусов в кольце по высотам: «насколько стенка гуляет по кругу».
+ *
+ * У круглой вазы без узора кольцо ровное, поэтому разброс равен нулю. Органика
+ * смещает разные углы по-разному, и разброс становится мерой её амплитуды. У дна
+ * и у кромки он обязан остаться нулевым — там рельеф погашен.
+ */
+function ringSpreads(geometry: BufferGeometry): Map<string, number> {
+  const spreads = new Map<string, number>();
+
+  for (const [key, ring] of ringsByHeight(geometry)) {
+    const { outer } = splitRing(ring);
+
+    if (outer.length < 8) {
+      continue;
+    }
+
+    const radii = outer.map((point) => point.radius);
+
+    spreads.set(key, Math.max(...radii) - Math.min(...radii));
+  }
+
+  return spreads;
+}
+
+/** Габарит сетки по X, мм. */
+function boxWidthX(geometry: BufferGeometry): number {
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+
+  return box ? box.max.x - box.min.x : Number.NaN;
+}
+
+/**
+ * Центр кольца по X на заданной высоте.
+ *
+ * У ровной вазы он равен нулю, у наклонённой — сдвигу кромки: `tan(угла) ·
+ * высоту`. Габарит для проверки не годится: у силуэта с широким низом самые
+ * левые и самые правые точки лежат на разных высотах, и ширина меняется не на
+ * `tan · высота`, а по-своему. А центр кольца — ровно то, что обещает слайдер.
+ */
+function ringCenterX(geometry: BufferGeometry, heightMm: number): number {
+  const position = geometry.getAttribute("position");
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < position.count; index += 1) {
+    if (Math.abs(position.getY(index) - heightMm) > 1e-3) {
+      continue;
+    }
+
+    const x = position.getX(index);
+
+    min = Math.min(min, x);
+    max = Math.max(max, x);
+  }
+
+  return Number.isFinite(min) ? (min + max) / 2 : Number.NaN;
+}
+
+/** Нижняя точка сетки: у вазы она должна стоять на столе даже с наклоном. */
+function boxMinY(geometry: BufferGeometry): number {
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+
+  return box ? box.min.y : Number.NaN;
+}
+
 console.log("\n10. Силуэты: данные, а не код");
 
 {
@@ -1591,6 +1692,173 @@ console.log("\n10. Силуэты: данные, а не код");
     normal,
     0.8,
     wall / Math.cos(Math.PI / 3) + WALL_TOLERANCE_MM,
+  );
+}
+
+console.log("\n11. Органика и наклон: сид, толщина стенки и габарит");
+
+{
+  // Сид — чистая функция, а не «похожий» генератор: один и тот же набор
+  // параметров даёт ту же сетку вершина в вершину, поэтому предпросмотр и STL
+  // не могут разойтись. Без органики сид не влияет вовсе: «Другая ваза» меняет
+  // только рисунок складок, а старые проекты с другим сидом выглядят как раньше.
+  const base = vaseParams({ organic: 0.6, vaseSeed: 42 });
+  const first = buildGeometry(base);
+  const second = buildGeometry(base);
+  const otherSeed = buildGeometry(vaseParams({ organic: 0.6, vaseSeed: 777 }));
+  const plainFirst = buildGeometry(vaseParams({ organic: 0, vaseSeed: 1 }));
+  const plainOther = buildGeometry(vaseParams({ organic: 0, vaseSeed: 777 }));
+
+  check(
+    "один сид — та же сетка вершина в вершину",
+    positionsMatch(first, second),
+    true,
+  );
+  check("другой сид — другая сетка", positionsMatch(first, otherSeed), false);
+  check("без органики сид не влияет", positionsMatch(plainFirst, plainOther), true);
+  check(
+    "сид не меняет число треугольников",
+    triangleCount(first),
+    triangleCount(plainFirst),
+  );
+
+  first.dispose();
+  second.dispose();
+  otherSeed.dispose();
+  plainFirst.dispose();
+  plainOther.dispose();
+}
+
+{
+  // Матрица органики: два диаметра (узкая ваза получает меньшую амплитуду),
+  // три степени и три сида. Критерии те же, что у каннелюр: 0 открытых рёбер,
+  // 0 NaN, объём больше нуля и стенка не тоньше 0.8 мм.
+  const broken: string[] = [];
+  let minNormal = Number.POSITIVE_INFINITY;
+  let maxNormal = 0;
+
+  for (const diameterMm of [40, 90]) {
+    for (const organic of [0.25, 0.5, 1]) {
+      for (const vaseSeed of [1, 42, 777]) {
+        const geometry = buildGeometry(
+          vaseParams({ diameter: diameterMm, organic, vaseSeed }),
+        );
+        const open = openEdges(geometry);
+        const nan = nanVertices(geometry);
+        const volume = volumeMm3(geometry);
+
+        for (const thickness of wallMeasurements(geometry).normal) {
+          minNormal = Math.min(minNormal, thickness);
+          maxNormal = Math.max(maxNormal, thickness);
+        }
+
+        if (open !== 0 || nan !== 0 || volume <= 0) {
+          broken.push(
+            `Ø${diameterMm}, органика ${organic}, сид ${vaseSeed}: ` +
+              `рёбер ${open}, NaN ${nan}, объём ${volume.toFixed(1)}`,
+          );
+        }
+
+        geometry.dispose();
+      }
+    }
+  }
+
+  check("органика: сетка замкнута, NaN нет, объём положителен", broken, []);
+  check("органика: стенка не тоньше 0.8 мм", minNormal >= 0.8, true);
+  check("органика: стенка не толще заданной", maxNormal <= wall + WALL_TOLERANCE_MM, true);
+  console.log(
+    `       толщина по нормали: ${minNormal.toFixed(3)}…${maxNormal.toFixed(3)} мм`,
+  );
+}
+
+{
+  // Складки на стенке и их затухание: разброс радиусов в кольце равен нулю у
+  // дна и под кромкой (первый слой — полный диск, венец — ровный) и достигает
+  // амплитуды в теле вазы.
+  const lumpy = buildGeometry(vaseParams({ organic: 1, vaseSeed: 42 }));
+  const spreads = ringSpreads(lumpy);
+  const heights = [...spreads.keys()].map(Number).sort((a, b) => a - b);
+  const bottomKey = heights[0].toFixed(4);
+  const rimKey = heights[heights.length - 1].toFixed(4);
+  const bodySpread = Math.max(
+    ...heights
+      .filter(
+        (height) => height > 0 && height < DEFAULT_VASE_PARAMS.height,
+      )
+      .map((height) => spreads.get(height.toFixed(4)) ?? 0),
+  );
+
+  check("у дна органика погашена", (spreads.get(bottomKey) ?? 0) <= 1e-3, true);
+  check("под кромкой органика погашена", (spreads.get(rimKey) ?? 0) <= 1e-3, true);
+  check("в теле вазы органика смещает стенку", bodySpread > 0.5, true);
+  console.log(`       разброс радиусов в теле ${bodySpread.toFixed(2)} мм`);
+
+  lumpy.dispose();
+}
+
+{
+  // Наклон — преобразование сдвига: дно остаётся на столе, объём и толщина
+  // стенки не меняются, а кромка уходит в сторону ровно на tan(угла) · высоту.
+  // Это и есть обещание слайдера — его легко проверить одним числом.
+  const broken: string[] = [];
+  const volumes: number[] = [];
+  const rimCenters: number[] = [];
+  const widths: number[] = [];
+
+  for (const leanDeg of [-30, -10, 0, 10, 30]) {
+    for (const organic of [0, 1]) {
+      const geometry = buildGeometry(vaseParams({ leanDeg, organic }));
+
+      if (openEdges(geometry) !== 0 || nanVertices(geometry) !== 0) {
+        broken.push(`наклон ${leanDeg}°, органика ${organic}`);
+      }
+
+      if (organic === 0) {
+        volumes.push(volumeMm3(geometry));
+        widths.push(boxWidthX(geometry));
+        rimCenters.push(ringCenterX(geometry, DEFAULT_VASE_PARAMS.height));
+        checkRange(
+          `наклон ${leanDeg}°: дно на столе`,
+          [boxMinY(geometry)],
+          -1e-3,
+          1e-3,
+        );
+      }
+
+      geometry.dispose();
+    }
+  }
+
+  const uprightVolume = volumes[2];
+  const volumeDrift = Math.max(
+    ...volumes.map((value) => Math.abs(value - uprightVolume) / uprightVolume),
+  );
+  // tan(30°) · 140 = 80.83 мм: на столько уходит кромка. Знак угла — сторона.
+  const expectedShift =
+    Math.abs(Math.tan((30 * Math.PI) / 180)) * DEFAULT_VASE_PARAMS.height;
+
+  check("наклон: сетка замкнута", broken, []);
+  check("наклон сохраняет объём", volumeDrift <= 0.001, true);
+  checkRange(
+    "наклон +30°: кромка сдвинута на tan(30°) · высоту",
+    [rimCenters[4]],
+    expectedShift - 0.1,
+    expectedShift + 0.1,
+  );
+  checkRange(
+    "наклон −30°: кромка сдвинута в другую сторону",
+    [rimCenters[0]],
+    -expectedShift - 0.1,
+    -expectedShift + 0.1,
+  );
+  checkRange("наклон 0°: кромка на оси", [rimCenters[2]], -1e-3, 1e-3);
+  checkRange("наклон: габарит симметричен по знаку угла", [Math.abs(widths[4] - widths[0])], 0, 0.1);
+  check("наклон расширяет габарит по X", widths[4] > diameter + 1, true);
+  console.log(
+    `       кромка: ровная ${rimCenters[2].toFixed(2)} мм, ` +
+      `наклон 30° ${rimCenters[4].toFixed(2)} мм, габарит ${widths[4].toFixed(2)} мм, ` +
+      `объём ${(volumeDrift * 100).toFixed(3)} %`,
   );
 }
 

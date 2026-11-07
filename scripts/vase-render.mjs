@@ -20,6 +20,7 @@
  *
  * Гранёная ваза: `--sides 5` строит пятигранник на любом силуэте.
  * Каннелюры и закрутка: `--flutes 12 --flute-depth 2 --twist 180`.
+ * Органика, сид и наклон: `--organic 1 --seed 42 --lean 12`.
  *
  * Лист целиком (по строке на силуэт, по столбцу на узор):
  *   node --import ./scripts/register-alias.mjs scripts/vase-render.mjs \
@@ -429,6 +430,9 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     args["flute-depth"],
     DEFAULT_CONSTRUCTOR_PARAMS.fluteDepthMm,
   );
+  const organic = numberOption(args.organic, DEFAULT_CONSTRUCTOR_PARAMS.organic);
+  const leanDeg = numberOption(args.lean, DEFAULT_CONSTRUCTOR_PARAMS.leanDeg);
+  const vaseSeed = numberOption(args.seed, DEFAULT_CONSTRUCTOR_PARAMS.vaseSeed);
   const azimuth = numberOption(args.azimuth, 24);
   const elevation = numberOption(args.elevation, 12);
   const size = numberOption(args.size, 760);
@@ -444,6 +448,9 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     twistDeg,
     flutes,
     fluteDepthMm,
+    organic,
+    leanDeg,
+    vaseSeed,
   };
 
   mkdirSync(path.dirname(out), { recursive: true });
@@ -465,7 +472,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     console.log(
       `${params.shape}/${params.pattern} f${frequency}, цоколь ${footMm}, ` +
         `обод ${rimMm}, граней ${sectionSides}, каннелюр ${flutes} × ` +
-        `${fluteDepthMm} мм, закрутка ${twistDeg}°: ${frame.triangles} ` +
+        `${fluteDepthMm} мм, закрутка ${twistDeg}°, органика ${organic} ` +
+        `(сид ${vaseSeed}), наклон ${leanDeg}°: ${frame.triangles} ` +
         `треугольников, ${frame.width} × ${frame.height} → ${out}`,
     );
   } else {

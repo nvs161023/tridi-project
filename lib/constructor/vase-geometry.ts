@@ -35,9 +35,9 @@ import { createVaseSection } from "@/lib/constructor/vase-section";
  * появляются совпадающие вершины и треугольники нулевой площади. Для
  * предпросмотра они безвредны, но STL и слайсеры любят чистую сетку, поэтому
  * здесь шесть шагов: N-угольное сечение (грани 3–12, «как в силуэте» у square и
- * octagon), смещение вершин узором и каннелюрами с затуханием у дна и под
- * кромкой, закрутка фазы по высоте, сварка по координатам, удаление вырожденных
- * треугольников и пересчёт нормалей по итоговому обходу.
+ * octagon), смещение вершин узором, каннелюрами и органикой с затуханием у дна и
+ * под кромкой, закрутка фазы по высоте, наклон модели, сварка по координатам,
+ * удаление вырожденных треугольников и пересчёт нормалей по итоговому обходу.
  *
  * Сколько сегментов по окружности, решает lib/constructor/vase-budget.ts:
  * 128 по умолчанию и до 256 там, где рельеф мельче сетки.
@@ -124,6 +124,9 @@ export type VaseGeometryParams = Partial<
     | "twistDeg"
     | "flutes"
     | "fluteDepthMm"
+    | "organic"
+    | "leanDeg"
+    | "vaseSeed"
   >
 >;
 
@@ -544,9 +547,10 @@ function patternFade(
  * одной высоте получают одинаковый сдвиг радиуса — толщина стенки сохраняется.
  * Вершины на оси не двигаются, иначе дно и кромка отошли бы от центра.
  *
- * Смещение собирается из двух слагаемых:
+ * Смещение собирается из трёх слагаемых:
  *   — узор (`patternWave`, амплитуда в мм) — прежний рельеф, синусы и соты;
- *   — каннелюры — канавка с почти плоским дном, глубина тоже в миллиметрах.
+ *   — каннелюры — канавка с почти плоским дном, глубина тоже в миллиметрах;
+ *   — органика (`vase-seed.ts`) — складки по сиду, амплитуда в миллиметрах.
  *
  * Закрутка здесь не участвует: она поворачивает готовое кольцо целиком
  * (`applyTwist`), и это то же самое, что сдвинуть фазу рельефа по высоте, но без
@@ -556,15 +560,17 @@ function patternFade(
  *
  * Амплитуда умножается на `patternFade`: у дна и под кромкой рельеф гаснет до
  * нуля. Без этого венец вазы на частоте 20 выходил зубчатым гребешком, а край
- * первого слоя гулял волной по периметру. Каннелюры гаснут по той же причине:
- * первый слой должен лечь полным диском, а кромка остаться ровной. Затухание
- * зависит только от высоты, поэтому кольца остаются кольцами, а стенка —
- * стенкой: на каждой высоте смещение одинаково для всех вершин кольца.
+ * первого слоя гулял волной по периметру. Каннелюры и органика гаснут по той же
+ * причине: первый слой должен лечь полным диском, а кромка остаться ровной.
+ * Затухание зависит только от высоты, поэтому кольца остаются кольцами, а
+ * стенка — стенкой: на каждой высоте смещение одинаково для всех вершин кольца.
  *
  * Глубина жёлоба ограничивается на каждой высоте отдельно: `0.6 · стенка` и
  * `0.45 · самый узкий радиус`. Второе не даёт кольцу вывернуться через ось,
  * первое — кривизне дна жёлоба превысить половину толщины стенки (иначе
- * треугольники на дне начинают пересекаться).
+ * треугольники на дне начинают пересекаться). Органика добавляется последней и
+ * получает только остаток общего бюджета смещения (см. `reliefBudget`): сумма
+ * трёх слагаемых никогда не превышает `0.45 · самый узкий радиус`.
  *
  * Топология не меняется: вершины только переставляются, число треугольников
  * остаётся прежним. Нормали считаются позже, после сварки и очистки.
@@ -593,16 +599,18 @@ function applyRelief(
     CONSTRUCTOR_LIMITS.patternFrequency.max,
   );
 
-  // Ноль означает «рельефа нет»: гладкая стенка, нулевая сила узора или
-  // выключенные каннелюры не должны попадать в цикл по вершинам.
+  // Ноль означает «рельефа нет»: гладкая стенка, нулевая сила узора,
+  // выключенные каннелюры и нулевая органика не должны попадать в цикл по
+  // вершинам.
   const patternStrength =
     pattern === "smooth" || intensity <= 0
       ? 0
       : Math.min(intensity, minRadius * MAX_PATTERN_RADIUS_SHARE);
   const flutesActive =
     deformation.fluteCount > 0 && deformation.fluteDepthMm > 0;
+  const organicAmplitude = deformation.organicAmplitudeMm(minRadius);
 
-  if (patternStrength <= 0 && !flutesActive) {
+  if (patternStrength <= 0 && !flutesActive && organicAmplitude <= 0) {
     return;
   }
 
@@ -615,6 +623,11 @@ function applyRelief(
   const height = top - bottom;
   const foot = vaseFootHeight(height, params.footMm);
   const rim = vaseRimHeight(height, params.rimMm);
+  // Общий бюджет смещения: узор, каннелюры и органика вместе не должны увести
+  // стенку внутрь дальше 45% самого узкого радиуса, иначе кольцо вывернется
+  // через ось. Узор и жёлоба ограничены и по отдельности, поэтому органика
+  // получает то, что осталось, — на узкой горловине её амплитуда гаснет сама.
+  const reliefBudget = minRadius * MAX_PATTERN_RADIUS_SHARE;
 
   for (let index = 0; index < position.count; index += 1) {
     const x = position.getX(index);
@@ -648,7 +661,20 @@ function applyRelief(
       : 0;
     const fluteOffset =
       fluteDepth > 0 ? -fluteDepth * deformation.fluteNotchAt(angle) : 0;
-    const offset = (waveOffset + fluteOffset) * fade;
+    const organicRoom = Math.max(
+      0,
+      reliefBudget - patternStrength - fluteDepth,
+    );
+    const organicDepth = Math.min(organicAmplitude, organicRoom);
+    const organicShift =
+      organicDepth > 0
+        ? deformation.organicAt(
+            angle,
+            height > WELD_TOLERANCE_MM ? (y - bottom) / height : 0,
+            organicDepth,
+          )
+        : 0;
+    const offset = (waveOffset + fluteOffset + organicShift) * fade;
     const scale = (radius + offset) / radius;
 
     position.setX(index, x * scale);
@@ -708,6 +734,49 @@ function applyTwist(lathe: LatheGeometry, phaseAt: (y: number) => number): void 
   if (twisted) {
     position.needsUpdate = true;
   }
+}
+
+/**
+ * Наклон: сдвигает каждую вершину по X пропорционально её высоте над дном.
+ *
+ * Это преобразование сдвига (shear), а не поворот: горизонтальные сечения
+ * остаются горизонтальными и той же формы, поэтому толщина стенки в каждом
+ * сечении и объём тела не меняются. Дно стоит на столе (`y = bottom` даёт
+ * нулевой сдвиг), а кромка уходит в сторону на `tan(угол) · высота` — при 30°
+ * и высоте 140 мм это 81 мм.
+ *
+ * Порядок важен: сдвиг идёт после закрутки и перед сваркой. Закрутка — тоже
+ * аффинное преобразование, но она поворачивает кольца вокруг оси; если наклонить
+ * раньше, ось закрутки осталась бы вертикальной в локальных координатах, а ваза
+ * уже была бы наклонена — спираль пошла бы вокруг наклонной оси. Сварка после
+ * сдвига безопасна: преобразование инъективно, разные вершины не слипаются.
+ *
+ * При нулевом угле функция выходит сразу, не трогая ни одной вершины: это
+ * условие сохранности старых ваз.
+ */
+function applyLean(
+  lathe: LatheGeometry,
+  deformation: VaseDeformation,
+  bottom: number,
+): void {
+  if (deformation.leanRad === 0) {
+    return;
+  }
+
+  const position = lathe.getAttribute("position");
+
+  for (let index = 0; index < position.count; index += 1) {
+    const y = position.getY(index);
+    const shift = deformation.leanShiftAt(y, bottom);
+
+    if (shift === 0) {
+      continue;
+    }
+
+    position.setX(index, position.getX(index) + shift);
+  }
+
+  position.needsUpdate = true;
 }
 
 /**
@@ -849,6 +918,10 @@ function signedVolumeTimesSix(geometry: BufferGeometry): number {
  * кольце остаётся той же самой. Высота фазовой функции берётся из готовой сетки —
  * та же, по которой гаснет рельеф у дна и кромки.
  *
+ * Наклон (`applyLean`) — сдвиг по X после закрутки: дно остаётся на столе, объём
+ * не меняется, а кромка уходит в сторону. При нулевом угле ни одна вершина не
+ * трогается.
+ *
  * Число сегментов по окружности больше не константа: его считает
  * `vaseSegments` по частоте рельефа, граням сечения, каннелюрам и бюджету
  * треугольников. Для гладких ваз и для узоров на частоте до 8 это ровно 128
@@ -874,14 +947,14 @@ export function createVaseGeometry(
     options.budget ?? "preview",
   );
   const lathe = new LatheGeometry(profile, segments);
-  const phaseAt = createTwistPhase(
-    createVaseDeformation(params),
-    findHeightSpan(lathe.getAttribute("position")),
-  );
+  const span = findHeightSpan(lathe.getAttribute("position"));
+  const deformation = createVaseDeformation(params);
+  const phaseAt = createTwistPhase(deformation, span);
 
   applyShape(lathe, profile, params);
   applyRelief(lathe, profile, params);
   applyTwist(lathe, phaseAt);
+  applyLean(lathe, deformation, span.min);
 
   const geometry = weldAndClean(lathe);
 

@@ -190,10 +190,12 @@ function isNumberInRange(
  *
  * Поля узора необязательны: старые клиенты без них получают гладкую стенку с
  * амплитудой 0. Если же поле передано, оно проверяется так же строго, как
- * размеры, — иначе экспорт молча подменил бы узор. Цоколь, обод, грани, закрутка
- * и каннелюры устроены так же: ноль по умолчанию, потому что это ровно прежняя
- * форма (круг у плавных силуэтов, 4 и 8 у квадрата и восьмигранника, без
- * закрутки и без жёлобов).
+ * размеры, — иначе экспорт молча подменил бы узор. Цоколь, обод, грани, закрутка,
+ * каннелюры, органика и наклон устроены так же: ноль по умолчанию, потому что это
+ * ровно прежняя форма (круг у плавных силуэтов, 4 и 8 у квадрата и
+ * восьмигранника, без закрутки, без жёлобов, без складок и без перекоса). Сид
+ * по умолчанию равен единице и без органики ни на что не влияет: он задаёт
+ * только рисунок складок и микро-вариации силуэта.
  */
 function parseVaseParams(body: unknown): VaseParams | null {
   if (!isRecord(body)) {
@@ -214,6 +216,9 @@ function parseVaseParams(body: unknown): VaseParams | null {
     twistDeg = DEFAULT_VASE_PARAMS.twistDeg,
     flutes = DEFAULT_VASE_PARAMS.flutes,
     fluteDepthMm = DEFAULT_VASE_PARAMS.fluteDepthMm,
+    organic = DEFAULT_VASE_PARAMS.organic,
+    leanDeg = DEFAULT_VASE_PARAMS.leanDeg,
+    vaseSeed = DEFAULT_VASE_PARAMS.vaseSeed,
   } = body;
 
   if (
@@ -273,6 +278,21 @@ function parseVaseParams(body: unknown): VaseParams | null {
       fluteDepthMm,
       CONSTRUCTOR_LIMITS.fluteDepthMm.min,
       CONSTRUCTOR_LIMITS.fluteDepthMm.max,
+    ) ||
+    !isNumberInRange(
+      organic,
+      CONSTRUCTOR_LIMITS.organic.min,
+      CONSTRUCTOR_LIMITS.organic.max,
+    ) ||
+    !isNumberInRange(
+      leanDeg,
+      CONSTRUCTOR_LIMITS.leanDeg.min,
+      CONSTRUCTOR_LIMITS.leanDeg.max,
+    ) ||
+    !isNumberInRange(
+      vaseSeed,
+      CONSTRUCTOR_LIMITS.vaseSeed.min,
+      CONSTRUCTOR_LIMITS.vaseSeed.max,
     )
   ) {
     return null;
@@ -292,6 +312,9 @@ function parseVaseParams(body: unknown): VaseParams | null {
     twistDeg,
     flutes,
     fluteDepthMm,
+    organic,
+    leanDeg,
+    vaseSeed,
   });
 }
 

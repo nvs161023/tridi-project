@@ -106,6 +106,18 @@ export const CONSTRUCTOR_LIMITS = {
   // большой вазе выглядят одинаково. Реальный предел считает геометрия —
   // min(0.6 · стенка, 0.45 · самый узкий радиус).
   fluteDepthMm: { min: 0, max: 6, step: 0.2, defaultValue: 0, decimals: 1 },
+  // Органика — складки «мятой глины» по сиду: 0 — гладкая стенка, 1 — полная
+  // амплитуда. Предел считает геометрия: min(4 мм, 0.15 · самый узкий радиус),
+  // чтобы кольцо не вывернулось через ось, а на большой вазе волны не выросли
+  // до сантиметра.
+  organic: { min: 0, max: 1, step: 0.05, defaultValue: 0, decimals: 2 },
+  // Наклон — сдвиг модели по X, пропорциональный высоте: дно остаётся на столе,
+  // а верх уходит в сторону. 30° при высоте 140 мм смещает кромку на 81 мм,
+  // поэтому дальше начинается не декор, а падающая ваза.
+  leanDeg: { min: -30, max: 30, step: 1, defaultValue: 0, decimals: 0 },
+  // Сид меняет только рисунок складок и микро-вариации силуэта: размеры, число
+  // граней и расход пластика от него не зависят.
+  vaseSeed: { min: 1, max: 999999, step: 1, defaultValue: 1, decimals: 0 },
   patternIntensity: {
     min: 0,
     max: 5,
@@ -671,6 +683,37 @@ export type VaseParams = {
   flutes: number;
   /** Глубина каннелюры, мм; ограничена стенкой и радиусом (см. `flutes`). */
   fluteDepthMm: number;
+  /**
+   * Органика: 0 — гладкая стенка, 1 — складки полной глубины.
+   *
+   * Детерминированный шум по сиду (`vase-seed.ts`) смещает стенку наружу и
+   * внутрь двумя октавами: крупные складки через всю вазу и мелкая рябь поверх.
+   * Смещение получают обе поверхности одинаково, поэтому толщина стенки
+   * сохраняется, а у дна и под кромкой амплитуда гаснет — первый слой ложится
+   * полным диском, венец остаётся ровным. Предел — min(4 мм, 0.15 · самый узкий
+   * радиус): сумма с узором и каннелюрами на каждой высоте укладывается в ту же
+   * долю радиуса, что и у них.
+   */
+  organic: number;
+  /**
+   * Наклон модели, градусы от вертикали: −30…30, 0 — ровная ваза.
+   *
+   * Верх сдвигается по X пропорционально высоте, дно остаётся на столе. Это
+   * тот же приём, что у карандаша, поставленного под углом: горизонтальные
+   * сечения не меняются, поэтому толщина стенки и объём сохраняются. Габарит по
+   * X растёт на `tan(угол) · высота`, а одна сторона стенки становится круче —
+   * при больших углах печать требует поддержек.
+   */
+  leanDeg: number;
+  /**
+   * Сид шума, целое 1…999999.
+   *
+   * «Другая ваза» меняет только его: силуэт, размеры и число граней остаются, а
+   * рисунок складок и микро-вариации профиля — новые. Один и тот же сид даёт
+   * одну и ту же геометрию на клиенте и в API, поэтому рецепт из проекта
+   * воспроизводим.
+   */
+  vaseSeed: number;
 };
 
 /**
@@ -1060,6 +1103,9 @@ export const DEFAULT_VASE_PARAMS: VaseParams = {
   twistDeg: CONSTRUCTOR_LIMITS.twistDeg.defaultValue,
   flutes: CONSTRUCTOR_LIMITS.flutes.defaultValue,
   fluteDepthMm: CONSTRUCTOR_LIMITS.fluteDepthMm.defaultValue,
+  organic: CONSTRUCTOR_LIMITS.organic.defaultValue,
+  leanDeg: CONSTRUCTOR_LIMITS.leanDeg.defaultValue,
+  vaseSeed: CONSTRUCTOR_LIMITS.vaseSeed.defaultValue,
 };
 
 /**
@@ -1997,6 +2043,18 @@ export function normalizeVaseParams(params: Partial<VaseParams>): VaseParams {
     fluteDepthMm: snap(
       params.fluteDepthMm ?? DEFAULT_VASE_PARAMS.fluteDepthMm,
       CONSTRUCTOR_LIMITS.fluteDepthMm,
+    ),
+    organic: snap(
+      params.organic ?? DEFAULT_VASE_PARAMS.organic,
+      CONSTRUCTOR_LIMITS.organic,
+    ),
+    leanDeg: snap(
+      params.leanDeg ?? DEFAULT_VASE_PARAMS.leanDeg,
+      CONSTRUCTOR_LIMITS.leanDeg,
+    ),
+    vaseSeed: snap(
+      params.vaseSeed ?? DEFAULT_VASE_PARAMS.vaseSeed,
+      CONSTRUCTOR_LIMITS.vaseSeed,
     ),
   };
 }

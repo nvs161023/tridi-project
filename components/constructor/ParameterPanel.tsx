@@ -1977,6 +1977,41 @@ export function ParameterPanel({
               unit="°"
               value={params.twistDeg}
             />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.organic.decimals}
+              hint="Складки «мятой глины» по сиду: крупные волны через всю вазу плюс мелкая рябь. 0.2–0.4 — ручная лепка, 1 — сильная деформация. Стенка сохраняет толщину, у дна и под кромкой складки гаснут, а глубина ограничена 4 мм и 15% самого узкого радиуса."
+              label="Органика"
+              max={CONSTRUCTOR_LIMITS.organic.max}
+              min={CONSTRUCTOR_LIMITS.organic.min}
+              onChange={(value) => onParamChange("organic", value)}
+              step={CONSTRUCTOR_LIMITS.organic.step}
+              unit=""
+              value={params.organic}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.leanDeg.decimals}
+              hint="Наклон всей модели: верх уходит в сторону, дно остаётся на столе. Толщина стенки и объём не меняются, но габарит по ширине растёт на tan(угла) × высоту, а одна сторона стенки становится круче — при больших углах нужны поддержки."
+              label="Наклон"
+              max={CONSTRUCTOR_LIMITS.leanDeg.max}
+              min={CONSTRUCTOR_LIMITS.leanDeg.min}
+              onChange={(value) => onParamChange("leanDeg", value)}
+              step={CONSTRUCTOR_LIMITS.leanDeg.step}
+              unit="°"
+              value={params.leanDeg}
+            />
+
+            <NumberSlider
+              hint="Сид шума: одна и та же ваза с одним сидом собирается одинаково в предпросмотре и в STL, а другой сид меняет рисунок складок и на 2% — пропорции силуэта. Размеры, число граней и расход пластика не меняются, поэтому серия «одна ваза, но у всех разные» печатается одинаково по времени."
+              label="Сид"
+              max={CONSTRUCTOR_LIMITS.vaseSeed.max}
+              min={CONSTRUCTOR_LIMITS.vaseSeed.min}
+              onChange={(value) => onParamChange("vaseSeed", value)}
+              step={CONSTRUCTOR_LIMITS.vaseSeed.step}
+              unit=""
+              value={params.vaseSeed}
+            />
           </div>
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">

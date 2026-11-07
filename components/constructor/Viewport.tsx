@@ -195,6 +195,12 @@ type VaseModelProps = {
   flutes: number;
   /** Глубина каннелюры, мм. */
   fluteDepthMm: number;
+  /** Органика по сиду: 0 — гладкая стенка, 1 — складки полной глубины. */
+  organic: number;
+  /** Наклон от вертикали, градусы: верх уходит в сторону, дно остаётся на столе. */
+  leanDeg: number;
+  /** Сид шума: меняет рисунок складок и микро-вариации силуэта. */
+  vaseSeed: number;
 };
 
 /**
@@ -223,6 +229,9 @@ function VaseModel({
   twistDeg,
   flutes,
   fluteDepthMm,
+  organic,
+  leanDeg,
+  vaseSeed,
 }: VaseModelProps) {
   const faceted =
     resolveSectionSides(shape, sectionSides) >= VASE_SECTION_MIN_SIDES;
@@ -262,7 +271,7 @@ function VaseModel({
         blur={2.6}
         far={Math.max(height * 0.9, 120)}
         frames={1}
-        key={`${height}-${diameter}-${wall}-${shape}-${pattern}-${patternIntensity}-${patternFrequency}-${sectionSides}-${flutes}-${fluteDepthMm}-${twistDeg}`}
+        key={`${height}-${diameter}-${wall}-${shape}-${pattern}-${patternIntensity}-${patternFrequency}-${sectionSides}-${flutes}-${fluteDepthMm}-${twistDeg}-${organic}-${leanDeg}-${vaseSeed}`}
         opacity={0.55}
         position={[0, 0.02, 0]}
         resolution={512}
@@ -720,6 +729,9 @@ function Scene({ params, geometry, framing }: SceneProps) {
           twistDeg={params.twistDeg}
           flutes={params.flutes}
           fluteDepthMm={params.fluteDepthMm}
+          organic={params.organic}
+          leanDeg={params.leanDeg}
+          vaseSeed={params.vaseSeed}
           wall={params.wall}
         />
       ) : params.model === "keychain" ? (
@@ -987,15 +999,24 @@ export function Viewport({ params }: ViewportProps) {
 
   /**
    * Габариты для камеры и подписи. У вывески ширина и высота зависят от
-   * надписи, у подставки — от наклона, поэтому их берём из готовой сетки.
-   * Остальные модели считаются по параметрам: bounding box совпадает со
-   * слайдерами с точностью до амплитуды узора.
+   * надписи, у подставки — от наклона, у вазы — от наклона и органики, поэтому
+   * здесь они берутся из готовой сетки. Остальные модели считаются по
+   * параметрам: bounding box совпадает со слайдерами с точностью до амплитуды
+   * узора.
    */
   const framing = useMemo<Framing>(() => {
     if (params.model === "vase") {
+      // У наклонённой вазы кромка уходит в сторону (и органика гуляет по
+      // окружности), поэтому ширина берётся из готовой сетки, а не из
+      // параметра «диаметр»: иначе камера обрезала бы верх модели.
+      geometry.computeBoundingBox();
+      const box = geometry.boundingBox;
+      const width = box ? box.max.x - box.min.x : params.diameter;
+      const depth = box ? box.max.z - box.min.z : params.diameter;
+
       return {
         height: params.height,
-        footprint: params.diameter,
+        footprint: Math.max(width, depth, params.diameter),
         flat: false,
       };
     }
