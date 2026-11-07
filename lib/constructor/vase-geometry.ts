@@ -137,6 +137,20 @@ function polygonSides(shape: VaseShape): number | null {
 }
 
 /**
+ * Многоугольное сечение: множитель радиуса по лучу и сжатие вписанной окружности.
+ *
+ * `factorAt` равен 1 в углу многоугольника и cos(π/N) на середине грани,
+ * `flatShare` — это тот же cos(π/N). Оба нужны: первый масштабирует оболочку,
+ * второй переводит отступ по нормали в отступ по лучу.
+ */
+type PolygonSection = {
+  /** Множитель радиуса для луча: 1 в углу, cos(π/N) на середине грани. */
+  factorAt: (angle: number) => number;
+  /** Отношение радиуса вписанной окружности к радиусу угла — cos(π/N). */
+  flatShare: number;
+};
+
+/**
  * Множитель радиуса для многоугольного сечения.
  *
  * В полярных координатах правильный многоугольник с центром в оси задаётся
@@ -151,9 +165,7 @@ function polygonSides(shape: VaseShape): number | null {
  * одинаково и сечение остаётся звездообразным: кольца не пересекаются, сетка
  * не рвётся.
  */
-function createPolygonFactor(
-  shape: VaseShape,
-): ((angle: number) => number) | null {
+function createPolygonSection(shape: VaseShape): PolygonSection | null {
   const sides = polygonSides(shape);
 
   if (sides === null) {
@@ -162,13 +174,16 @@ function createPolygonFactor(
 
   const sector = (Math.PI * 2) / sides;
   const halfSector = sector / 2;
-  const flatRadiusShare = Math.cos(halfSector);
+  const flatShare = Math.cos(halfSector);
 
-  return (angle) => {
-    const wrapped = ((angle % sector) + sector) % sector;
-    const distance = Math.min(wrapped, sector - wrapped);
+  return {
+    flatShare,
+    factorAt: (angle) => {
+      const wrapped = ((angle % sector) + sector) % sector;
+      const distance = Math.min(wrapped, sector - wrapped);
 
-    return flatRadiusShare / Math.cos(distance);
+      return flatShare / Math.cos(distance);
+    },
   };
 }
 
@@ -289,10 +304,23 @@ function radiusAtHeight(samples: HeightRadius[], height: number): number {
  *
  * Для внешней стенки достаточно умножить радиус на множитель многоугольника.
  * Внутреннюю стенку нельзя просто масштабировать: на гранях множитель меньше
- * единицы, и стенка стала бы тоньше почти на 29%. Поэтому внутренняя точка
- * сдвигается на ту же величину, что и внешняя на своём луче: из нового внешнего
- * радиуса вычитается прежняя толщина. Тогда на любой высоте и под любым углом
- * стенка остаётся ровно такой, какой её задал слайдер.
+ * единицы, и стенка стала бы тоньше почти на 29%.
+ *
+ * Наивное «сдвинуть внутреннюю точку на ту же величину, что и внешнюю» (то есть
+ * оставить ту же толщину по лучу) выглядит правильным и таковым не является.
+ * Толщина по лучу постоянна, а по нормали — нет: у квадрата на 1.6 мм стенки
+ * в углах печаталось 1.131 мм (cos 45° = 0.707), у восьмигранника 1.478
+ * (cos 22.5° = 0.924). Хуже того, кромка переставала быть кольцом постоянной
+ * ширины: её внутренний контур отходил от внешнего на 1.131 мм в углу и на
+ * 1.6 мм на грани, поэтому у угла появлялся диагональный перегиб — он и был
+ * виден на снимках гейта.
+ *
+ * Поэтому внутренние точки строятся как вписанный многоугольник: отступ
+ * откладывается по нормали, а переводится в радиус делением на cos(π/N).
+ * Радиус грани становится R·cos(π/N) − w, радиус угла — R − w/cos(π/N), и
+ * перпендикулярная толщина равна заданной везде. Запас есть: стенка ограничена
+ * 45% самого узкого радиуса (lib/constructor/vase-profile.ts), а w/cos(π/N) даже
+ * у квадрата даёт 63.6% — внутренний контур не выворачивается через ось.
  *
  * Точки на оси остаются на месте — иначе дно и кольцо кромки потеряли бы
  * герметичность. Горизонтальные поверхности (дно, дно полости, кромка) состоят
@@ -307,9 +335,9 @@ function applyShape(
     return;
   }
 
-  const factorAt = createPolygonFactor(params.shape);
+  const section = createPolygonSection(params.shape);
 
-  if (!factorAt) {
+  if (!section) {
     return;
   }
 
@@ -331,7 +359,7 @@ function applyShape(
       continue;
     }
 
-    const factor = factorAt(Math.atan2(z, x));
+    const factor = section.factorAt(Math.atan2(z, x));
     const outerRadius = radiusAtHeight(outer, y);
     const innerRadius = radiusAtHeight(inner, y);
 
@@ -339,12 +367,12 @@ function applyShape(
       continue;
     }
 
+    const wall = Math.max(outerRadius - innerRadius, 0);
     const isOuterWall = radius >= (outerRadius + innerRadius) / 2;
     const nextRadius = isOuterWall
       ? radius * factor
       : Math.max(
-          radius * factor -
-            (1 - factor) * Math.max(outerRadius - innerRadius, 0),
+          factor * (outerRadius - wall / section.flatShare),
           MIN_SHAPED_RADIUS_MM,
         );
     const scale = nextRadius / radius;
