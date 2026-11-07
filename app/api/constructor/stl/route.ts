@@ -190,7 +190,8 @@ function isNumberInRange(
  *
  * Поля узора необязательны: старые клиенты без них получают гладкую стенку с
  * амплитудой 0. Если же поле передано, оно проверяется так же строго, как
- * размеры, — иначе экспорт молча подменил бы узор.
+ * размеры, — иначе экспорт молча подменил бы узор. Цоколь и обод устроены так
+ * же: ноль по умолчанию, потому что это ровно прежний силуэт.
  */
 function parseVaseParams(body: unknown): VaseParams | null {
   if (!isRecord(body)) {
@@ -205,6 +206,8 @@ function parseVaseParams(body: unknown): VaseParams | null {
     pattern = DEFAULT_VASE_PARAMS.pattern,
     patternIntensity = DEFAULT_VASE_PARAMS.patternIntensity,
     patternFrequency = DEFAULT_VASE_PARAMS.patternFrequency,
+    footMm = DEFAULT_VASE_PARAMS.footMm,
+    rimMm = DEFAULT_VASE_PARAMS.rimMm,
   } = body;
 
   if (
@@ -234,6 +237,16 @@ function parseVaseParams(body: unknown): VaseParams | null {
       patternFrequency,
       CONSTRUCTOR_LIMITS.patternFrequency.min,
       CONSTRUCTOR_LIMITS.patternFrequency.max,
+    ) ||
+    !isNumberInRange(
+      footMm,
+      CONSTRUCTOR_LIMITS.footMm.min,
+      CONSTRUCTOR_LIMITS.footMm.max,
+    ) ||
+    !isNumberInRange(
+      rimMm,
+      CONSTRUCTOR_LIMITS.rimMm.min,
+      CONSTRUCTOR_LIMITS.rimMm.max,
     )
   ) {
     return null;
@@ -247,6 +260,8 @@ function parseVaseParams(body: unknown): VaseParams | null {
     pattern,
     patternIntensity,
     patternFrequency,
+    footMm,
+    rimMm,
   });
 }
 

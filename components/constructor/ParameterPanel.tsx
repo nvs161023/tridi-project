@@ -1957,6 +1957,30 @@ export function ParameterPanel({
               unit="мм"
               value={params.wall}
             />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.footMm.decimals}
+              hint="0 — силуэт начинается от самого дна. 3–12 мм — прямая вертикальная ножка: первый слой ложится полным диском без нависаний, ваза стоит устойчиво и не обрастает «юбкой» от растекания пластика."
+              label="Цоколь"
+              max={CONSTRUCTOR_LIMITS.footMm.max}
+              min={CONSTRUCTOR_LIMITS.footMm.min}
+              onChange={(value) => onParamChange("footMm", value)}
+              step={CONSTRUCTOR_LIMITS.footMm.step}
+              unit="мм"
+              value={params.footMm}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.rimMm.decimals}
+              hint="Насколько горло шире стенки: кромка уходит наружу под 45°, поэтому печатается без поддержек, а вода не льётся по стенке. Раструб не выходит за диаметр — у цилиндра, где горло и так самое широкое место, слайдер ничего не меняет."
+              label="Обод"
+              max={CONSTRUCTOR_LIMITS.rimMm.max}
+              min={CONSTRUCTOR_LIMITS.rimMm.min}
+              onChange={(value) => onParamChange("rimMm", value)}
+              step={CONSTRUCTOR_LIMITS.rimMm.step}
+              unit="мм"
+              value={params.rimMm}
+            />
           </div>
         </>
       ) : params.model === "keychain" ? (

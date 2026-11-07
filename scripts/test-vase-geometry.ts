@@ -101,6 +101,36 @@ function buildGeometry(params: VaseParams): BufferGeometry {
   });
 }
 
+/** Радиус дна: первая точка профиля после оси. */
+function bottomRadius(profile: { x: number }[]): number {
+  for (const point of profile) {
+    if (point.x > 1e-6) {
+      return point.x;
+    }
+  }
+
+  return Number.NaN;
+}
+
+/** Радиус самой широкой точки кромки. */
+function topRadius(profile: { x: number; y: number }[]): number {
+  const top = Math.max(...profile.map((point) => point.y));
+  let radius = 0;
+
+  for (const point of profile) {
+    if (Math.abs(point.y - top) <= 1e-6) {
+      radius = Math.max(radius, point.x);
+    }
+  }
+
+  return radius;
+}
+
+/** Высота модели по профилю: должна совпадать с параметром высоты. */
+function profileHeight(profile: { y: number }[]): number {
+  return Math.max(...profile.map((point) => point.y));
+}
+
 /** Сколько рёбер встречается не дважды: ненулевое значение — дыра в сетке. */
 function openEdges(geometry: BufferGeometry): number {
   const index = geometry.getIndex();
@@ -488,6 +518,177 @@ console.log("\n5. Толстая стенка на маленьком квадр
   check("NaN 0", nanVertices(geometry), 0);
   check("объём больше нуля", volume > 0, true);
   console.log(`       объём ${volume.toFixed(1)} мм³`);
+
+  geometry.dispose();
+}
+
+console.log("\n6. Цоколь и обод: профиль и сетка");
+
+{
+  const plain = createVaseProfile(vaseParams({ shape: "classic" }));
+  const footed = createVaseProfile(
+    vaseParams({ shape: "classic", footMm: 10 }),
+  );
+  const rimmed = createVaseProfile(vaseParams({ shape: "classic", rimMm: 4 }));
+
+  checkRange(
+    "classic: радиус дна = 0.55 · 45 = 24.75",
+    [bottomRadius(plain)],
+    24.74,
+    24.76,
+  );
+  checkRange(
+    "classic: радиус кромки = 0.57 · 45 = 25.65",
+    [topRadius(plain)],
+    25.64,
+    25.66,
+  );
+
+  // Цоколь — вертикальная полоса: внешние точки профиля до его высоты стоят на
+  // радиусе дна, поэтому первый слой ложится полным диском без нависаний.
+  // Профиль идёт снизу вверх по внешней стенке и обратно по внутренней, так что
+  // полоса ищется по обе стороны от верхней точки.
+  const topIndex = footed.findIndex(
+    (point) => point.y >= profileHeight(footed) - 1e-4,
+  );
+  const bandFilter = (point: { x: number; y: number }): boolean =>
+    point.x > 1e-6 && point.y <= 10 + 1e-4;
+  const footOuter = footed.slice(0, topIndex).filter(bandFilter);
+  const footInner = footed.slice(topIndex).filter(bandFilter);
+  const footWall = bottomRadius(plain) - wall;
+
+  checkRange(
+    "цоколь 10 мм: внешняя полоса стоит на радиусе дна",
+    footOuter.map((point) => point.x),
+    24.74,
+    24.76,
+  );
+  checkRange(
+    "цоколь 10 мм: внутренняя стенка полосы сохраняет толщину",
+    footInner.map((point) => point.x),
+    footWall - 0.01,
+    footWall + 0.01,
+  );
+  checkRange(
+    "цоколь: высота модели не выросла",
+    [profileHeight(footed)],
+    139.99,
+    140.01,
+  );
+
+  checkRange(
+    "обод 4 мм: кромка шире на 4",
+    [topRadius(rimmed) - topRadius(plain)],
+    3.99,
+    4.01,
+  );
+  checkRange(
+    "обод: высота модели не тронута",
+    [profileHeight(rimmed)],
+    139.99,
+    140.01,
+  );
+
+  const cylinder = createVaseProfile(vaseParams({ shape: "cylinder" }));
+  const cylinderRim = createVaseProfile(
+    vaseParams({ shape: "cylinder", rimMm: 6 }),
+  );
+
+  checkRange(
+    "обод в цилиндре упирается в диаметр и ничего не меняет",
+    [topRadius(cylinderRim) - topRadius(cylinder)],
+    -0.01,
+    0.01,
+  );
+
+  // Ни цоколь, ни обод не могут выйти за заданный диаметр: слайдер «Диаметр»
+  // обещает самую широкую часть модели.
+  const overflow = VASE_SHAPES.filter(
+    (shape) =>
+      Math.max(
+        ...createVaseProfile(
+          vaseParams({ shape, footMm: 12, rimMm: 6 }),
+        ).map((point) => point.x),
+      ) >
+      diameter / 2 + 1e-3,
+  );
+
+  check("цоколь 12 + обод 6 не выходят за диаметр", overflow, []);
+}
+
+{
+  const broken: string[] = [];
+
+  for (const shape of VASE_SHAPES) {
+    const geometry = buildGeometry(
+      vaseParams({ shape, pattern: "smooth", footMm: 10, rimMm: 4 }),
+    );
+    const open = openEdges(geometry);
+    const nan = nanVertices(geometry);
+    const volume = volumeMm3(geometry);
+
+    if (open !== 0 || nan !== 0 || volume <= 0) {
+      broken.push(
+        `${shape}: рёбер ${open}, NaN ${nan}, объём ${volume.toFixed(1)}`,
+      );
+    }
+
+    geometry.dispose();
+  }
+
+  check("цоколь 10 + обод 4: все восемь силуэтов замкнуты", broken, []);
+}
+
+for (const overrides of [
+  { footMm: 10 },
+  { rimMm: 4 },
+  { footMm: 10, rimMm: 4 },
+] as const) {
+  const geometry = buildGeometry(
+    vaseParams({ shape: "square", pattern: "smooth", ...overrides }),
+  );
+  const { normal, rimNormal } = wallMeasurements(geometry);
+  const label = Object.entries(overrides)
+    .map(([key, value]) => `${key} ${value}`)
+    .join(", ");
+
+  checkRange(
+    `square, ${label}: стенка по нормали`,
+    normal,
+    wall - WALL_TOLERANCE_MM,
+    wall + WALL_TOLERANCE_MM,
+  );
+  checkRange(
+    `square, ${label}: кромка по нормали`,
+    rimNormal,
+    wall - WALL_TOLERANCE_MM,
+    wall + WALL_TOLERANCE_MM,
+  );
+
+  geometry.dispose();
+}
+
+{
+  // Самый тесный случай: минимальный диаметр, максимальная стенка, цоколь
+  // обрезан долей высоты, обод упирается в диаметр.
+  const geometry = buildGeometry(
+    vaseParams({
+      shape: "square",
+      pattern: "smooth",
+      diameter: 40,
+      height: 60,
+      wall: 4,
+      footMm: 12,
+      rimMm: 6,
+    }),
+  );
+
+  check(
+    "Ø40 × 60, стенка 4, цоколь 12, обод 6: замкнуто",
+    [openEdges(geometry), nanVertices(geometry)],
+    [0, 0],
+  );
+  check("объём больше нуля", volumeMm3(geometry) > 0, true);
 
   geometry.dispose();
 }

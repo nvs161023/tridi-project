@@ -414,6 +414,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     args.freq,
     DEFAULT_CONSTRUCTOR_PARAMS.patternFrequency,
   );
+  const footMm = numberOption(args.foot, DEFAULT_CONSTRUCTOR_PARAMS.footMm);
+  const rimMm = numberOption(args.rim, DEFAULT_CONSTRUCTOR_PARAMS.rimMm);
   const azimuth = numberOption(args.azimuth, 24);
   const elevation = numberOption(args.elevation, 12);
   const size = numberOption(args.size, 760);
@@ -423,6 +425,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     ...DEFAULT_CONSTRUCTOR_PARAMS,
     model: "vase",
     patternFrequency: frequency,
+    footMm,
+    rimMm,
   };
 
   mkdirSync(path.dirname(out), { recursive: true });
@@ -442,8 +446,9 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 
     writeFileSync(out, encodePng(frame.width, frame.height, frame.rgb));
     console.log(
-      `${params.shape}/${params.pattern} f${frequency}: ` +
-        `${frame.triangles} треугольников, ${frame.width} × ${frame.height} → ${out}`,
+      `${params.shape}/${params.pattern} f${frequency}, цоколь ${footMm}, ` +
+        `обод ${rimMm}: ${frame.triangles} треугольников, ` +
+        `${frame.width} × ${frame.height} → ${out}`,
     );
   } else {
     // Лист всей матрицы: строка — силуэт, столбец — узор. Одного взгляда
@@ -487,7 +492,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 
     writeFileSync(out, encodePng(width, height, sheet));
     console.log(
-      `Лист ${rows} силуэтов × ${columns} узоров, частота ${frequency}: ` +
+      `Лист ${rows} силуэтов × ${columns} узоров, частота ${frequency}, ` +
+        `цоколь ${footMm}, обод ${rimMm}: ` +
         `${width} × ${height}, максимум ${worst} треугольников → ${out}`,
     );
   }

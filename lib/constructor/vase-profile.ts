@@ -35,10 +35,22 @@ const MIN_FLOOR_MM = 1.2;
 /** Допуск, ниже которого соседние точки профиля считаем совпавшими. */
 const PROFILE_EPSILON = 1e-4;
 
+/**
+ * Доля высоты, которую может занять цоколь.
+ *
+ * Цоколь отнимает высоту у силуэта, а не добавляет её сверху: иначе модель
+ * выросла бы выше заказанной. 15% — предел, после которого силуэт читается как
+ * «стакан на ножке», а не как ваза.
+ */
+const MAX_FOOT_SHARE = 0.15;
+
+/** Доля высоты, которую может занять раструб обода: 45° на 12% высоты — уже много. */
+const MAX_RIM_SHARE = 0.12;
+
 /** Параметры, из которых строится осевое сечение: узор на профиль не влияет. */
 export type VaseProfileParams = Pick<
   VaseParams,
-  "height" | "diameter" | "wall" | "shape"
+  "height" | "diameter" | "wall" | "shape" | "footMm" | "rimMm"
 >;
 
 /** Точка пресета: доля высоты и доля максимального радиуса. */
@@ -184,11 +196,28 @@ function createOuterProfile(params: VaseProfileParams): Vector2[] {
   );
   const spline = new SplineCurve(controls);
   const points: Vector2[] = [];
+  const foot = footHeight(params, height);
+  const bodyHeight = Math.max(height - foot, MIN_FLOOR_MM * 2);
+  const bandRadius = clamp(controls[0].x, minRadius, maxRadius);
+
+  // Цоколь: вертикальная стенка на радиусе силуэта у дна. Точка на оси не
+  // нужна — дно замыкает профиль, — но нижняя кромка должна стоять ровно на
+  // y = 0, иначе модель повиснет над столом.
+  if (foot > PROFILE_EPSILON) {
+    points.push(new Vector2(bandRadius, 0));
+  }
+
   let previousY = 0;
 
   for (let index = 0; index <= OUTER_SEGMENTS; index += 1) {
     const sampled = spline.getPoint(index / OUTER_SEGMENTS);
-    const y = clamp(Math.max(sampled.y, previousY), 0, height);
+    // При цоколе силуэт сжимается в оставшуюся высоту: ножка не удлиняет
+    // модель, а забирает нижние миллиметры у силуэта.
+    const raw =
+      foot > PROFILE_EPSILON
+        ? foot + (sampled.y / height) * bodyHeight
+        : sampled.y;
+    const y = clamp(Math.max(raw, previousY), 0, height);
     const x = clamp(sampled.x, minRadius, maxRadius);
 
     pushUnique(points, new Vector2(x, y));
@@ -201,6 +230,60 @@ function createOuterProfile(params: VaseProfileParams): Vector2[] {
 
   if (last) {
     last.set(clamp(controls.at(-1)!.x, minRadius, maxRadius), height);
+  }
+
+  return applyRim(points, params, height, maxRadius);
+}
+
+/**
+ * Высота прямого цоколя, мм.
+ *
+ * Значение приходит из слайдера, но профиль строится и из чужих данных —
+ * скриптов проверки и старых ссылок, — поэтому мусор превращается в ноль, а
+ * слишком высокий цоколь обрезается долей высоты.
+ */
+function footHeight(params: VaseProfileParams, height: number): number {
+  const requested = params.footMm ?? 0;
+
+  if (!Number.isFinite(requested) || requested <= 0) {
+    return 0;
+  }
+
+  return Math.min(requested, height * MAX_FOOT_SHARE);
+}
+
+/**
+ * Раструб обода: последние `rimMm` миллиметров высоты расширяются наружу.
+ *
+ * Кромка идёт под 45°, поэтому печатается без поддержек, а стенка остаётся
+ * постоянной толщины: внутренний контур строится от нового внешнего радиуса.
+ * Радиус не выходит за `diameter / 2` — обещание «диаметр в самой широкой
+ * части» важнее декора: у цилиндра горло и так самое широкое место, и
+ * слайдер там ничего не меняет.
+ */
+function applyRim(
+  points: Vector2[],
+  params: VaseProfileParams,
+  height: number,
+  maxRadius: number,
+): Vector2[] {
+  const requested = params.rimMm ?? 0;
+
+  if (!Number.isFinite(requested) || requested <= PROFILE_EPSILON) {
+    return points;
+  }
+
+  const rim = Math.min(requested, height * MAX_RIM_SHARE);
+  const start = height - rim;
+
+  for (const point of points) {
+    if (point.y <= start + PROFILE_EPSILON) {
+      continue;
+    }
+
+    const share = clamp((point.y - start) / rim, 0, 1);
+
+    point.x = Math.min(point.x + rim * share, maxRadius);
   }
 
   return points;

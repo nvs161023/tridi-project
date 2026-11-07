@@ -86,6 +86,11 @@ export const CONSTRUCTOR_LIMITS = {
   height: { min: 60, max: 300, step: 5, defaultValue: 140, decimals: 0 },
   diameter: { min: 40, max: 200, step: 5, defaultValue: 90, decimals: 0 },
   wall: { min: 0.8, max: 4, step: 0.1, defaultValue: 1.6, decimals: 1 },
+  // Цоколь и обод — декоративные, поэтому по умолчанию ноль: силуэт остаётся
+  // ровно таким, каким был до появления слайдеров. Цоколь выше 12 мм и обод
+  // шире 6 мм на вазе 60 мм уже спорят с силуэтом, а не дополняют его.
+  footMm: { min: 0, max: 12, step: 1, defaultValue: 0, decimals: 0 },
+  rimMm: { min: 0, max: 6, step: 1, defaultValue: 0, decimals: 0 },
   patternIntensity: {
     min: 0,
     max: 5,
@@ -589,6 +594,24 @@ export type VaseParams = {
   patternIntensity: number;
   /** Частота повторов узора. */
   patternFrequency: number;
+  /**
+   * Высота прямого цоколя, мм.
+   *
+   * Нижние `footMm` миллиметров модели идут вертикальной стенкой на радиусе
+   * силуэта у дна, а сам силуэт сжимается в оставшуюся высоту. Первый слой
+   * ложится полным диском без нависаний, поэтому ваза не отрывается от стола и
+   * не обрастает «юбкой» от растекания пластика.
+   */
+  footMm: number;
+  /**
+   * Насколько обод шире стенки, мм.
+   *
+   * Кромка горла расширяется наружу раструбом на высоте `rimMm` (45°, без
+   * поддержек); полость при этом расширяется на ту же величину, поэтому стенка
+   * у кромки сохраняет толщину. Обод не выходит за заданный диаметр: у
+   * цилиндра, где горло и так самое широкое место, слайдер ничего не меняет.
+   */
+  rimMm: number;
 };
 
 /**
@@ -972,6 +995,8 @@ export const DEFAULT_VASE_PARAMS: VaseParams = {
   pattern: "smooth",
   patternIntensity: CONSTRUCTOR_LIMITS.patternIntensity.defaultValue,
   patternFrequency: CONSTRUCTOR_LIMITS.patternFrequency.defaultValue,
+  footMm: CONSTRUCTOR_LIMITS.footMm.defaultValue,
+  rimMm: CONSTRUCTOR_LIMITS.rimMm.defaultValue,
 };
 
 /**
@@ -1885,6 +1910,14 @@ export function normalizeVaseParams(params: Partial<VaseParams>): VaseParams {
     patternFrequency: snap(
       params.patternFrequency ?? DEFAULT_VASE_PARAMS.patternFrequency,
       CONSTRUCTOR_LIMITS.patternFrequency,
+    ),
+    footMm: snap(
+      params.footMm ?? DEFAULT_VASE_PARAMS.footMm,
+      CONSTRUCTOR_LIMITS.footMm,
+    ),
+    rimMm: snap(
+      params.rimMm ?? DEFAULT_VASE_PARAMS.rimMm,
+      CONSTRUCTOR_LIMITS.rimMm,
     ),
   };
 }
