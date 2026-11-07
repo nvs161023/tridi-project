@@ -10,6 +10,7 @@
     "check:imports": "node scripts/check-imports.mjs",
     "check:style": "node scripts/style-check.mjs",
     "stats:lesson": "node scripts/lesson-stats.mjs",
+    "shots:vase": "node --import ./scripts/register-alias.mjs scripts/vase-render.mjs",
     "ensure:tsconfig": "node scripts/ensure-tsconfig.mjs",
     "clean": "node -e \"require('node:fs').rmSync('.next',{recursive:true,force:true})\"",
     "start": "next start",
