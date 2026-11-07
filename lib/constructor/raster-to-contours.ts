@@ -38,17 +38,6 @@ export const RASTER_MAX_CONTOURS = 200;
 /** Предел суммы точек после упрощения: защита STL от микрокривых. */
 export const RASTER_MAX_POINTS_TOTAL = 20000;
 
-/** Направления обхода границы: восток, юг, запад, север (ось Y вниз). */
-const STEPS: readonly (readonly [number, number])[] = [
-  [1, 0],
-  [0, 1],
-  [-1, 0],
-  [0, -1],
-];
-
-/** Очередь попыток при обходе: направо, прямо, налево, назад. */
-const TURNS: readonly number[] = [1, 0, 3, 2];
-
 /**
  * Есть ли у картинки прозрачный фон.
  *
@@ -80,23 +69,6 @@ export function hasTransparency(
   }
 
   return false;
-}
-
-/** Маска по прозрачности: 1 — пиксель непрозрачный и печатается. */
-export function binarizeByAlpha(
-  pixels: Uint8ClampedArray,
-  width: number,
-  height: number,
-  threshold = OPAQUE_ALPHA,
-): Uint8Array {
-  const total = width * height;
-  const mask = new Uint8Array(total);
-
-  for (let index = 0; index < total; index += 1) {
-    mask[index] = pixels[index * 4 + 3] >= threshold ? 1 : 0;
-  }
-
-  return mask;
 }
 
 /**
@@ -132,7 +104,360 @@ export function binarizeByLuminance(
   return mask;
 }
 
-/** Горизонтальная полоса маски: пиксели `[x; x + w)` в строке `y`. */
+/**
+ * Поле покрытия по альфе: 1 — пиксель целиком пластик, 0 — целиком ткань.
+ *
+ * В отличие от `binarizeByAlpha`, полупрозрачные края не отбрасываются: доля
+ * альфы и есть доля пластика в пикселе. Так граница проходит через середину
+ * перехода, а не по ступеньке растра.
+ */
+export function coverageByAlpha(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+): Float32Array {
+  const total = width * height;
+  const field = new Float32Array(total);
+
+  for (let index = 0; index < total; index += 1) {
+    field[index] = pixels[index * 4 + 3] / 255;
+  }
+
+  return field;
+}
+
+/** Перцентиль по гистограмме канала: значение, ниже которого `share` массы. */
+function percentile(histogram: Uint32Array, share: number): number {
+  let total = 0;
+
+  for (const count of histogram) {
+    total += count;
+  }
+
+  if (total === 0) {
+    return 0;
+  }
+
+  const limit = total * share;
+  let seen = 0;
+
+  for (let value = 0; value < histogram.length; value += 1) {
+    seen += histogram[value];
+
+    if (seen >= limit) {
+      return value;
+    }
+  }
+
+  return histogram.length - 1;
+}
+
+/**
+ * Поле покрытия для картинки без прозрачности: 0 — цвет фона, 1 — цвет пластика.
+ *
+ * Фон оценивается по рамке кадра: у логотипа это всегда поля вокруг рисунка.
+ * «Цвет пластика» — не фиксированный порог яркости, а самый далёкий от фона
+ * оттенок: расстояние в RGB растёт линейно на сглаженном крае, поэтому граница
+ * покрытия 0.5 проходит точно посередине перехода. Прежний порог яркости 200
+ * срабатывал на 78 % перехода, из-за чего край уезжал внутрь и получался рваным.
+ *
+ * Если рамка пёстрая (фотография, скриншот с фоном), берётся медианный цвет
+ * рамки: он всё равно ближе к фону, чем к рисунку.
+ */
+export function coverageByColor(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+): Float32Array {
+  const total = width * height;
+  const field = new Float32Array(total);
+
+  if (total <= 0) {
+    return field;
+  }
+
+  const band = Math.max(1, Math.round(Math.min(width, height) / 64));
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  let samples = 0;
+
+  const collect = (x: number, y: number): void => {
+    const offset = (y * width + x) * 4;
+
+    if (pixels[offset + 3] < OPAQUE_ALPHA) {
+      return;
+    }
+
+    red += pixels[offset];
+    green += pixels[offset + 1];
+    blue += pixels[offset + 2];
+    samples += 1;
+  };
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (x < band || y < band || x >= width - band || y >= height - band) {
+        collect(x, y);
+      }
+    }
+  }
+
+  if (samples === 0) {
+    return field;
+  }
+
+  const background = [red / samples, green / samples, blue / samples];
+  const histogram = new Uint32Array(256);
+  const distances = new Float32Array(total);
+
+  for (let index = 0; index < total; index += 1) {
+    const offset = index * 4;
+
+    if (pixels[offset + 3] < OPAQUE_ALPHA) {
+      continue;
+    }
+
+    const dx = pixels[offset] - background[0];
+    const dy = pixels[offset + 1] - background[1];
+    const dz = pixels[offset + 2] - background[2];
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    distances[index] = distance;
+    histogram[Math.min(255, Math.round(distance))] += 1;
+  }
+
+  // Девяносто пятый перцентиль — цвет самого плотного пластика. Ноль означает,
+  // что рисунок совпадает с фоном: трассировать нечего.
+  const ink = percentile(histogram, 0.95);
+
+  if (ink <= 2) {
+    return field;
+  }
+
+  // Шум сжатия у самого фона не должен давать покрытие: восемь процентов от
+  // контраста отсекает артефакты WebP и остаются на границе рисунка.
+  const noise = ink * 0.08;
+
+  for (let index = 0; index < total; index += 1) {
+    const coverage = (distances[index] - noise) / (ink - noise);
+    field[index] = coverage <= 0 ? 0 : coverage >= 1 ? 1 : coverage;
+  }
+
+  return field;
+}
+
+/**
+ * Значение поля в узле решётки: за границей растра всегда фон.
+ *
+ * Узлы идут по углам пикселей: у растра `width × height` узлов
+ * `(width + 1) × (height + 1)`, и ячейка `(x, y)` соединяет четыре соседних.
+ */
+function fieldAt(
+  field: Float32Array,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+): number {
+  if (x < 0 || y < 0 || x > width || y > height) {
+    return 0;
+  }
+
+  if (x === width || y === height) {
+    return 0;
+  }
+
+  return field[y * width + x];
+}
+
+/** Идентификатор горизонтального ребра: чётный, чтобы не спорить с вертикальным. */
+function horizontalEdge(x: number, y: number, width: number): number {
+  return (y * width + x) * 2;
+}
+
+/** Идентификатор вертикального ребра: нечётный. */
+function verticalEdge(x: number, y: number, width: number): number {
+  return (y * width + x) * 2 + 1;
+}
+
+/**
+ * Отрезки изолинии по коду ячейки: пары «ребро входа, ребро выхода».
+ *
+ * Углы: 1 — левый верхний, 2 — правый верхний, 4 — правый нижний, 8 — левый
+ * нижний. Рёбра: 0 — верхнее, 1 — правое, 2 — нижнее, 3 — левое. Направление
+ * выбрано так, чтобы у общего ребра двух ячеек выход одной совпадал со входом
+ * другой: только тогда отрезки складываются в замкнутый контур.
+ */
+const CASE_SEGMENTS: readonly (readonly (readonly [number, number])[])[] = [
+  [],
+  [[3, 0]],
+  [[0, 1]],
+  [[3, 1]],
+  [[1, 2]],
+  [],
+  [[0, 2]],
+  [[3, 2]],
+  [[2, 3]],
+  [[2, 0]],
+  [],
+  [[2, 1]],
+  [[1, 3]],
+  [[1, 0]],
+  [[0, 3]],
+  [],
+];
+
+/**
+ * Обводит изолинию поля покрытия: контуры проходят между пикселями.
+ *
+ * Это marching squares, а не обход границы маски: пересечение ребра ячейки
+ * ищется линейной интерполяцией, поэтому контур получает дробные координаты.
+ * Граница круга выходит гладкой ломаной, а не лестницей из целых пикселей, и
+ * после упрощения даёт ровный край на печати. Седловые ячейки (5 и 10)
+ * разрешаются по среднему значению четырёх углов: так тонкие штрихи не
+ * распадаются на шахматку.
+ *
+ * Порог 0.5 — середина перехода «фон → пластик», поэтому сдвига края нет.
+ */
+export function traceCoverageContours(
+  field: Float32Array,
+  width: number,
+  height: number,
+  threshold = 0.5,
+): Point2[][] {
+  if (width < 2 || height < 2) {
+    return [];
+  }
+
+  const edgeCount = (width + 1) * (height + 1) * 2;
+  const next = new Int32Array(edgeCount).fill(-1);
+  const pointX = new Float32Array(edgeCount);
+  const pointY = new Float32Array(edgeCount);
+
+  /** Точка пересечения на ребре: интерполяция по его концам. */
+  const cross = (
+    id: number,
+    ax: number,
+    ay: number,
+    av: number,
+    bx: number,
+    by: number,
+    bv: number,
+  ): void => {
+    const denominator = bv - av;
+    const raw = denominator === 0 ? 0.5 : (threshold - av) / denominator;
+    const t = raw < 0 ? 0 : raw > 1 ? 1 : raw;
+
+    pointX[id] = ax + (bx - ax) * t;
+    pointY[id] = ay + (by - ay) * t;
+  };
+
+  const link = (from: number, to: number): void => {
+    next[from] = to;
+  };
+
+  // Последняя строка и столбец узлов лежат на краю кадра: ячеек за ними нет,
+  // поэтому цикл до `width - 1`. Сама граница кадра контуром не считается.
+  for (let y = 0; y < height - 1; y += 1) {
+    for (let x = 0; x < width - 1; x += 1) {
+      const topLeft = fieldAt(field, width, height, x, y);
+      const topRight = fieldAt(field, width, height, x + 1, y);
+      const bottomRight = fieldAt(field, width, height, x + 1, y + 1);
+      const bottomLeft = fieldAt(field, width, height, x, y + 1);
+      let code = 0;
+
+      if (topLeft >= threshold) {
+        code |= 1;
+      }
+
+      if (topRight >= threshold) {
+        code |= 2;
+      }
+
+      if (bottomRight >= threshold) {
+        code |= 4;
+      }
+
+      if (bottomLeft >= threshold) {
+        code |= 8;
+      }
+
+      if (code === 0 || code === 15) {
+        continue;
+      }
+
+      const top = horizontalEdge(x, y, width);
+      const right = verticalEdge(x + 1, y, width);
+      const bottom = horizontalEdge(x, y + 1, width);
+      const left = verticalEdge(x, y, width);
+      const edges = [top, right, bottom, left];
+      // Узел — центр пикселя: растр занимает [0; width], а пиксель — [x; x + 1],
+      // поэтому центр сдвинут на полпикселя. Без этого сдвига контур уезжает на
+      // 0.5 px влево-вверх и тонкие штрихи теряют край.
+      const leftX = x + 0.5;
+      const topY = y + 0.5;
+      const rightX = x + 1.5;
+      const bottomY = y + 1.5;
+
+      cross(top, leftX, topY, topLeft, rightX, topY, topRight);
+      cross(right, rightX, topY, topRight, rightX, bottomY, bottomRight);
+      cross(bottom, leftX, bottomY, bottomLeft, rightX, bottomY, bottomRight);
+      cross(left, leftX, topY, topLeft, leftX, bottomY, bottomLeft);
+
+      if (code === 5 || code === 10) {
+        const center = (topLeft + topRight + bottomRight + bottomLeft) / 4;
+        const solid = center >= threshold;
+        const segments: readonly (readonly [number, number])[] =
+          code === 5
+            ? solid
+              ? [[0, 1], [2, 3]]
+              : [[3, 0], [1, 2]]
+            : solid
+              ? [[0, 3], [1, 2]]
+              : [[0, 1], [2, 3]];
+
+        for (const [from, to] of segments) {
+          link(edges[from], edges[to]);
+        }
+
+        continue;
+      }
+
+      for (const [from, to] of CASE_SEGMENTS[code]) {
+        link(edges[from], edges[to]);
+      }
+    }
+  }
+
+  const used = new Uint8Array(edgeCount);
+  const contours: Point2[][] = [];
+
+  for (let start = 0; start < edgeCount; start += 1) {
+    if (next[start] < 0 || used[start] === 1) {
+      continue;
+    }
+
+    const points: Point2[] = [];
+    let current = start;
+    let guard = edgeCount;
+
+    while (guard > 0 && used[current] === 0 && next[current] >= 0) {
+      used[current] = 1;
+      points.push([pointX[current], pointY[current]]);
+      current = next[current];
+      guard -= 1;
+    }
+
+    if (current === start && points.length >= 3) {
+      points.push([points[0][0], points[0][1]]);
+      contours.push(points);
+    }
+  }
+
+  return contours;
+}
+
 export type RasterRect = { x: number; y: number; w: number };
 
 /**
@@ -194,183 +519,6 @@ export function checkRasterLimits(
   }
 
   return null;
-}
-
-/** Значение маски: за границей растра всегда фон. */
-function maskAt(
-  mask: Uint8Array,
-  width: number,
-  height: number,
-  x: number,
-  y: number,
-): number {
-  if (x < 0 || y < 0 || x >= width || y >= height) {
-    return 0;
-  }
-
-  return mask[y * width + x];
-}
-
-/**
- * Граничное ребро решётки, направленное так, что объект лежит справа.
- *
- * Ребро идёт из угла `(x, y)` в соседний угол по направлению `step`. Пиксели
- * по сторонам ребра ищутся на полпикселя вправо и влево от его середины:
- * нормаль вправо в экранных координатах — это `(−dy, dx)`.
- */
-function isBorderEdge(
-  mask: Uint8Array,
-  width: number,
-  height: number,
-  x: number,
-  y: number,
-  step: number,
-): boolean {
-  const [dx, dy] = STEPS[step];
-  const middleX = x + dx / 2;
-  const middleY = y + dy / 2;
-
-  if (
-    maskAt(
-      mask,
-      width,
-      height,
-      Math.floor(middleX - dy / 2),
-      Math.floor(middleY + dx / 2),
-    ) !== 1
-  ) {
-    return false;
-  }
-
-  return (
-    maskAt(
-      mask,
-      width,
-      height,
-      Math.floor(middleX + dy / 2),
-      Math.floor(middleY - dx / 2),
-    ) === 0
-  );
-}
-
-/** Ключ направленного ребра решётки: по нему видно, что контур уже собран. */
-function edgeKey(x: number, y: number, step: number, width: number): number {
-  return (y * (width + 1) + x) * 4 + step;
-}
-
-/**
- * Обходит один контур по правилу правой руки: сначала поворот направо.
- *
- * Старт — вершина решётки и направление первого ребра. Возвращает замкнутый
- * контур (первая точка равна последней) либо `null`, если граница не сходится:
- * тогда контур отбрасывается, чтобы не отдавать в триангуляцию обрывок.
- */
-function followBorder(
-  mask: Uint8Array,
-  width: number,
-  height: number,
-  startX: number,
-  startY: number,
-  startStep: number,
-  visited: Set<number>,
-): Point2[] | null {
-  const points: Point2[] = [];
-  const maxSteps = (width + 1) * (height + 1) * 4;
-  let x = startX;
-  let y = startY;
-  let step = startStep;
-
-  for (let guard = 0; guard < maxSteps; guard += 1) {
-    const key = edgeKey(x, y, step, width);
-
-    if (visited.has(key)) {
-      return null;
-    }
-
-    visited.add(key);
-    points.push([x, y]);
-
-    x += STEPS[step][0];
-    y += STEPS[step][1];
-
-    if (x === startX && y === startY) {
-      points.push([startX, startY]);
-      return points;
-    }
-
-    let next = -1;
-
-    for (const turn of TURNS) {
-      const candidate = (step + turn) % 4;
-
-      if (isBorderEdge(mask, width, height, x, y, candidate)) {
-        next = candidate;
-        break;
-      }
-    }
-
-    if (next < 0) {
-      return null;
-    }
-
-    step = next;
-  }
-
-  return null;
-}
-
-/**
- * Обходит маску и возвращает все контуры: внешние и отверстия.
- *
- * Внешний контур начинается с верхней кромки объекта, отверстие — с верхней
- * кромки прозрачной области внутри объекта. Обход идёт по углам пикселей, а не
- * по их центрам, поэтому контур квадрата — это ровно его пиксельные границы.
- * Каждый контур замкнут: первая точка повторяет последнюю.
- */
-export function traceMaskContours(
-  mask: Uint8Array,
-  width: number,
-  height: number,
-): Point2[][] {
-  const contours: Point2[][] = [];
-  const visited = new Set<number>();
-
-  const start = (x: number, y: number, step: number): void => {
-    if (visited.has(edgeKey(x, y, step, width))) {
-      return;
-    }
-
-    const contour = followBorder(mask, width, height, x, y, step, visited);
-
-    if (contour && contour.length >= 4) {
-      contours.push(contour);
-    }
-  };
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      if (
-        mask[y * width + x] !== 1 ||
-        maskAt(mask, width, height, x, y - 1) === 1
-      ) {
-        continue;
-      }
-
-      start(x, y, 0);
-    }
-  }
-
-  for (let y = 1; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      if (mask[y * width + x] !== 0 || mask[(y - 1) * width + x] !== 1) {
-        continue;
-      }
-
-      start(x + 1, y, 2);
-    }
-  }
-
-  return contours;
 }
 
 /** Совпадают ли две вершины: по этой проверке контур считается замкнутым. */

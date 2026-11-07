@@ -1438,12 +1438,17 @@ M117, моторы) и правило «без отвода — вмятина �
   `mergeGeometries` объём проверяется через `calculateGeometryVolumeMm3`: нулевой объём означает,
   что части не сложились, и это ошибка с текстом для пользователя.
   `lib/constructor/heat-transfer-import.ts` готовит логотип на клиенте: PNG и WebP до 5 МБ и от 128
-  до 4096 px по длинной стороне, рабочая сетка — длинная сторона до 1024 px с сохранением
-  пропорций (логотип 3:1 приходит 3:1, а не квадратом). Прозрачный фон даёт силуэт по альфе, а без
-  прозрачности порог считается по яркости, и панель честно предупреждает об этом
-  (`no_transparency`). Контуры упрощаются алгоритмом Дугласа — Пекера, контуры нулевой площади
-  выбрасываются, а число точек и контуров ограничено до сборки строки: SVG попадает в `params_json`
-  проекта.
+  до 4096 px по длинной стороне, рабочая сетка — длинная сторона от 512 до 1024 px с сохранением
+  пропорций (логотип 3:1 приходит 3:1, а не квадратом; мелкий исходник растягивается до 512 px,
+  чтобы сглаженные переходы дали трассировке точку опоры). Прозрачный фон даёт поле покрытия по
+  альфе, без прозрачности — по расстоянию до цвета фона: граница покрытия `0.5` проходит ровно
+  посередине сглаженного края, поэтому кромка не уезжает внутрь и не рвётся (панель предупреждает
+  об этом через `no_transparency`). Контур обводится изолинией поля (marching squares) с линейной
+  интерполяцией: точки получаются дробными, и край выходит гладким, а не лестницей по пикселям —
+  на тестовом логотипе доля стыков под прямым углом упала с 64 % до 0 %, IoU с эталоном вырос с
+  0.947 до 0.981. Контуры упрощаются Дугласом — Пекером с допуском `0.35 px`; если разметка не
+  влезает в пределы точек, допуск удваивается, а деталь меньше `1 px²` считается шумом. Число
+  контуров и точек проверяется до сборки строки: SVG попадает в `params_json` проекта.
 - **Вывеска:** `lib/constructor/sign-geometry.ts` строит модульную надпись: слово делится на блоки
   по `signBlockSize` букв (`listSignBlocks`), и каждый блок печатается двумя деталями — `face`
   (объёмные полые буквы на общей плите) и `cover` (задняя крышка). Глифы берутся
@@ -3232,7 +3237,9 @@ FlashForge и Elegoo
 | `lib/constructor/sign-geometry.ts` | Вывеска: карта шрифтов `SIGN_FONT_URLS` (`sans-bold` — Roboto Bold, `sans` — Roboto Regular, `serif` — PT Serif Bold), блоки по `signBlockSize` букв, полые буквы из пересекающихся watertight-тел (лицо 2 мм, стенка 2 мм с пазом 2 × 1.5 мм на заднем торце, камера под ленту), стенки вокруг отверстий глифов, проверка ширины штриха по вписанной окружности и откат к сплошной букве, плита блока с шипом и пазом (натяг 0.15 мм), канал под ленту на стыке, крышка — плита 2 мм по контуру каждой буквы с шипом 1.4 мм в паз и отверстием под провод Ø4/Ø3 мм над планкой, общая планка крышек, раскладка с зазором и автоподгонкой кегля, `createSignGeometry` (собранная строка) и `createSignBlockGeometry` (деталь блока: `face` или `cover`) |
 | `lib/constructor/geometry-volume.ts` | Объём готовой сетки в мм³ по сумме ориентированных объёмов треугольников и вес в граммах `calculateGeometryWeightGrams` (объём в см³ × плотность PLA 1.24 г/см³); работает с индексированной и неиндексированной геометрией (`LatheGeometry`, `ExtrudeGeometry`) |
 | `lib/constructor/heat-transfer-geometry.ts` | Термопринт: контуры логотипа из `parseSvgOutline` делятся на внешние и отверстия, части тоньше `HEAT_TRANSFER_MIN_PART_MM` (0.4 мм) отбрасываются, габарит из bounding box с независимым масштабом по X и Y, инверсия Y (SVG-вниз → стол вверх) с разворотом обхода контура, зеркало отражением по X, выдавливание `ExtrudeGeometry` без фаски на `heatTransferThickness(layers)` (0.2 мм на слой, округление до сотых), объединение `mergeGeometries` и проверка `calculateGeometryVolumeMm3 > 0`; константы `HEAT_TRANSFER_LAYER_MM` и `HEAT_TRANSFER_MIN_PART_MM` — для панели |
-| `lib/constructor/heat-transfer-import.ts` | Логотип термопринта из растра: пределы файла (`HEAT_TRANSFER_MAX_FILE_BYTES` 5 МБ, стороны 128–4096 px, `HEAT_TRANSFER_RECOMMENDED_SIDE_PX` 512), `checkHeatTransferSource` по MIME и расширению (PNG/WebP, JPG отклоняется), `heatTransferGridSize` — длинная сторона до 1024 px с сохранением пропорций, `rasterToHeatTransferSvg` бинаризует по альфе (без прозрачности — по яркости и предупреждение `no_transparency`), трассирует маску, упрощает контуры Дугласом — Пекером, выбрасывает нулевую площадь, проверяет пределы точек и контуров и собирает `<svg><path d="…"/></svg>`; тексты отказов — `heatTransferSourceError`, `heatTransferImportError`, подсказки `HEAT_TRANSFER_LOW_RESOLUTION_HINT` и `HEAT_TRANSFER_NO_TRANSPARENCY_HINT` |
+| `lib/constructor/heat-transfer-import.ts` | Логотип термопринта из растра: пределы файла (`HEAT_TRANSFER_MAX_FILE_BYTES` 5 МБ, стороны 128–4096 px, `HEAT_TRANSFER_RECOMMENDED_SIDE_PX` 512), `checkHeatTransferSource` по MIME и расширению (PNG/WebP, JPG отклоняется), `heatTransferGridSize` — длинная сторона от `HEAT_TRANSFER_GRID_MIN_PX` 512 до `HEAT_TRANSFER_GRID_MAX_PX` 1024 px с сохранением пропорций, `rasterToHeatTransferSvg` строит поле покрытия по альфе (`coverageByAlpha`) или, без прозрачности, по расстоянию до цвета фона (`coverageByColor`) с предупреждением `no_transparency`, обводит изолинию `traceCoverageContours` (marching squares с линейной интерполяцией), упрощает контуры Дугласом — Пекером с `HEAT_TRANSFER_RDP_EPSILON_PX` 0.35 и удвоением допуска, пока разметка не влезет в пределы, выбрасывает детали меньше 1 px², проверяет пределы точек и контуров и собирает `<svg><path d="…"/></svg>`; тексты отказов — `heatTransferSourceError`, `heatTransferImportError`, подсказки `HEAT_TRANSFER_LOW_RESOLUTION_HINT` и `HEAT_TRANSFER_NO_TRANSPARENCY_HINT` |
+| `lib/constructor/raster-to-contours.ts` | Растр → контуры без DOM: `hasTransparency` (доля `alpha < 250`), `binarizeByLuminance` + `runsToRects` — полосы `<rect>` для брелока, поля покрытия `coverageByAlpha` (доля альфы) и `coverageByColor` (расстояние до цвета фона по рамке кадра, нормировка по 95-му перцентилю, шум 8 %), `traceCoverageContours` — marching squares с линейной интерполяцией и разрешением седловых ячеек по среднему четырёх углов, `simplifyContour` — Дуглас — Пекер с итеративным стеком, `contourArea`, `checkRasterLimits` (`RASTER_MAX_CONTOURS` 200, `RASTER_MAX_POINTS_TOTAL` 20000), `contoursToSvgPath` с тремя знаками после точки |
+
 | `lib/constructor/box-geometry.ts` | Коробка-органайзер: замкнутый лоток из дна, стенок, кромки и полости, перегородки отдельными брусками с заходом 0.4 мм в дно и стенки и фиксированной толщиной `boxWall`, распределение свободного места по массивам `cellsX`/`cellsY` (ячейки разной ширины), крышка из плиты и бортика высотой 6 мм с зазором 0.3 мм на сторону; при включённой крышке обе детали разложены рядом |
 | `lib/constructor/lithophane-geometry.ts` | Литофан тремя деталями: плита-рельеф, рамка и подставка. Рельеф — замкнутый heightfield 400 × 400 с билинейной выборкой яркости 150 × 150 (чёрный — максимальная толщина, белый — минимальная), плоский тыл, боковины и бортик на максимальной толщине; без рамки бортик 6 мм по периметру. Рамка — кольцо с задней полкой 1.6 мм, передней накладкой 2.4 мм и петлями подвеса при `hook`; подставка — база 6 мм, губа 2.5 мм и наклонная стенка 12°; `createLithophaneGeometry(params, part)` отдаёт деталь (`relief`, `frame`, `stand`) или собранный вид (`all`) |
 | `lib/constructor/projects.ts` | Общие правила сохранённых проектов: `SAVED_PROJECT_TITLE_MIN`/`MAX` (1–60), `SAVED_PROJECTS_LIMIT` (12), `FEEDBACK_RATING_MIN`/`MAX` и `FEEDBACK_TEXT_MAX`, типы `SavedProjectSummary`/`SavedProject`/`SavedProjectNotice`; `isProjectId` (UUID из `?project=` до запроса к базе), `savedProjectModelLabel`, `formatSavedProjectDate`, `normalizeProjectTitle`, `suggestProjectTitle`, `normalizeSavedProjectParams` (JSONB → состояние конструктора) и `isMissingTableSchema` (реэкспорт из `lib/supabase/schema-errors.ts`: 42P01/PGRST204/PGRST205 — «миграция ещё не применена», а не поломка страницы) |
@@ -9727,4 +9734,36 @@ successfully`, `npm run check:docs` — сводка сходится, `npm run 
 
 Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:docs` — сводка
 сходится, `scripts/nfc-fit.mjs` отрабатывает и печатает растр и `nfcLayout`.
+
+**Качество термопринта: субпиксельная трассировка (7 ноября 2026).** Загруженный логотип выходил
+рваным: контур обводился по границам пикселей, поэтому край был лестницей, а порог «тёмное — пластик»
+считался по фиксированной яркости 200 и срабатывал на 78 % сглаженного перехода — кромка уезжала
+внутрь и получалась неровной. На тестовом логотипе 700 × 350 px (жирный текст, тонкие линии, мелкие
+подписи) 63.6 % стыков контура были прямыми углами, IoU с эталоном 0.9465.
+
+- `lib/constructor/raster-to-contours.ts`: добавлены поля покрытия `coverageByAlpha` (доля альфы =
+  доля пластика в пикселе) и `coverageByColor` (расстояние до цвета фона по рамке кадра, нормировка по
+  95-му перцентилю, шум сжатия 8 %), а также `traceCoverageContours` — marching squares с линейной
+  интерполяцией на ребре ячейки. Точки выходят дробными, узлы берутся в центрах пикселей (без сдвига
+  на полпикселя тонкие штрихи теряли край), седловые ячейки 5 и 10 разрешаются по среднему четырёх
+  углов, контур собирается по направленным рёбрам и замыкается.
+- `lib/constructor/heat-transfer-import.ts`: рабочая сетка — от `HEAT_TRANSFER_GRID_MIN_PX` 512 до
+  `HEAT_TRANSFER_GRID_MAX_PX` 1024 px (мелкий исходник растягивается, крупный сжимается),
+  `HEAT_TRANSFER_RDP_EPSILON_PX` 0.35 вместо 0.75, удвоение допуска до пяти раз, пока разметка не
+  влезет в пределы точек; контуры меньше 1 px² считаются шумом; при переполнении по числу контуров
+  возвращается `too_many_contours`, а не пустая разметка. Подсказка `no_transparency` теперь говорит
+  про контраст с фоном, а не про яркость.
+- `components/constructor/ParameterPanel.tsx`: canvas рисует логотип со
+  `imageSmoothingQuality = "high"` — сглаженные переходы нужны трассировке как опора.
+- Замеры после правки: прямых стыков 0 %, IoU 0.9804 на 700 px, 0.9880 на 1024 px, 0.9913 на
+  2400 px, 0.9771 для картинки без прозрачности; время импорта 5–170 мс на сетке до 1024 × 512.
+  Исходник 300 px по-прежнему теряет мелкие детали (30 контуров против 45) — это предел файла, о нём
+  предупреждает `HEAT_TRANSFER_LOW_RESOLUTION_HINT`.
+- `PROJECT.md` (разделы 3 и 6) и `heat-transfer-architecture.md` описывают новый пайплайн; брелочная
+  ветка не изменилась байт-в-байт (`binarizeByLuminance` + `runsToRects`).
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `check:imports` — 1945 импортов,
+`check:docs`, `check:style`, временные скрипты `.fonttmp/check-heat-transfer-import.mjs`,
+`check-heat-transfer-geometry.mjs`, `check-raster-refactor.mjs` и `check-coverage-trace.mjs` — все
+проверки прошли.
 

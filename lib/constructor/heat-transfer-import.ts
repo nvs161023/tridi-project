@@ -14,14 +14,14 @@
 
 import type { Point2 } from "@/lib/constructor/prism-mesh";
 import {
-  binarizeByAlpha,
-  binarizeByLuminance,
   checkRasterLimits,
   contourArea,
   contoursToSvgPath,
+  coverageByAlpha,
+  coverageByColor,
   hasTransparency,
   simplifyContour,
-  traceMaskContours,
+  traceCoverageContours,
   type RasterLimitCode,
 } from "@/lib/constructor/raster-to-contours";
 
@@ -38,6 +38,30 @@ export const HEAT_TRANSFER_MAX_SIDE_PX = 4096;
 export const HEAT_TRANSFER_GRID_MAX_PX = 1024;
 
 /**
+ * Нижняя граница рабочей сетки: мелкий исходник растягивается до неё.
+ *
+ * Пикселей в файле от этого не прибавится, зато сглаженные переходы дают
+ * субпиксельной трассировке точки опоры: контур выходит ровным, а не лестницей
+ * по целым пикселям. Растяжение выше 4× (128 px → 512) размыло бы форму.
+ */
+export const HEAT_TRANSFER_GRID_MIN_PX = 512;
+
+/**
+ * Упрощение контура принта, px: втрое мельче, чем у брелока.
+ *
+ * Трассировка даёт дробные точки, и допуск 0.75 px срезал бы как раз те
+ * полпикселя, которые делают край гладким. Предел точек всё равно удержит
+ * разметку в разумных размерах.
+ */
+export const HEAT_TRANSFER_RDP_EPSILON_PX = 0.35;
+
+/** Сколько раз удваивать допуск упрощения, пока разметка не влезет в пределы. */
+const HEAT_TRANSFER_RDP_ATTEMPTS = 5;
+
+/** Площадь контура, ниже которой это шум растра, а не деталь, px². */
+const HEAT_TRANSFER_MIN_CONTOUR_AREA_PX = 1;
+
+/**
  * Рекомендуемая длинная сторона: при 200 мм принта пиксель равен шагу сопла
  * 0.4 мм, мельче рисовать смысла нет.
  */
@@ -47,9 +71,9 @@ export const HEAT_TRANSFER_RECOMMENDED_SIDE_PX = 512;
 export const HEAT_TRANSFER_LOW_RESOLUTION_HINT =
   "Картинка мелкая: контур будет грубым. Лучше загрузить логотип от 512 px по длинной стороне.";
 
-/** Подсказка, когда прозрачности нет и силуэт пришлось искать по яркости. */
+/** Подсказка, когда прозрачности нет и силуэт пришлось искать по цвету фона. */
 export const HEAT_TRANSFER_NO_TRANSPARENCY_HINT =
-  "Фон не прозрачный: силуэт построен по яркости. Белые и светлые части логотипа останутся пустыми.";
+  "Фон не прозрачный: силуэт построен по контрасту с фоном. Белые и светлые части логотипа останутся пустыми.";
 
 /** Что известно о файле до чтения пикселей. */
 export type HeatTransferSource = {
@@ -110,7 +134,11 @@ export function heatTransferGridSize(
     return { width: 1, height: 1 };
   }
 
-  const scale = Math.min(1, HEAT_TRANSFER_GRID_MAX_PX / longest);
+  const target = Math.min(
+    HEAT_TRANSFER_GRID_MAX_PX,
+    Math.max(HEAT_TRANSFER_GRID_MIN_PX, longest),
+  );
+  const scale = target / longest;
 
   return {
     width: Math.max(1, Math.round(width * scale)),
@@ -157,15 +185,21 @@ export function checkHeatTransferSource(
 /**
  * Строит печатную разметку из пикселей рабочей сетки.
  *
- * Порог выбирается по содержимому: есть прозрачность — печатается всё
- * непрозрачное, потому что дизайнер именно это нарисовал как пластик. Если
- * прозрачности нет (скриншот, JPG), остаётся яркость: тёмный непрозрачный
- * пиксель — силуэт, светлый фон отбрасывается, и об этом честно предупреждаем.
+ * Источник формы выбирается по содержимому: есть прозрачность — покрытие берётся
+ * по альфе (`coverageByAlpha`), потому что дизайнер именно это нарисовал как
+ * пластик. Если прозрачности нет (скриншот, WebP с белым фоном), покрытие
+ * считается по расстоянию до цвета фона (`coverageByColor`), а не по порогу
+ * яркости: только так середина сглаженного края попадает ровно на границу, без
+ * сдвига внутрь и рваной кромки.
  *
- * Контуры после RDP фильтруются по нулевой площади: треугольник из трёх
- * коллинеарных точек триангуляция всё равно выбросит, а лимит точек он бы съел.
- * Пределы проверяются до сборки строки — иначе SVG на тысячи подпутей уже не
- * влезет в `params_json`.
+ * Контур обводит `traceCoverageContours` — изолиния покрытия с линейной
+ * интерполяцией. Край получается гладким, а не лестницей по пикселям растра.
+ *
+ * Упрощение адаптивное: сначала точное (`HEAT_TRANSFER_RDP_EPSILON_PX`), но
+ * если точек больше предела `params_json`, допуск удваивается. Отказать в
+ * импорте из-за плотной разметки хуже, чем отдать чуть более грубый, но
+ * печатаемый контур. Совсем без площади контуры отбрасываются: треугольник из
+ * трёх коллинеарных точек триангуляция всё равно выбросит.
  */
 export function rasterToHeatTransferSvg(
   pixels: Uint8ClampedArray,
@@ -177,18 +211,50 @@ export function rasterToHeatTransferSvg(
   }
 
   const transparent = hasTransparency(pixels, width, height);
-  const mask = transparent
-    ? binarizeByAlpha(pixels, width, height)
-    : binarizeByLuminance(pixels, width, height);
+  const field = transparent
+    ? coverageByAlpha(pixels, width, height)
+    : coverageByColor(pixels, width, height);
+  const traced = traceCoverageContours(field, width, height);
 
-  const contours: Point2[][] = [];
+  if (traced.length === 0) {
+    return { ok: false, code: "empty_mask" };
+  }
 
-  for (const traced of traceMaskContours(mask, width, height)) {
-    const simplified = simplifyContour(traced);
+  let epsilon = HEAT_TRANSFER_RDP_EPSILON_PX;
+  let contours: Point2[][] = [];
 
-    if (simplified.length >= 3 && contourArea(simplified) !== 0) {
-      contours.push(simplified);
+  for (let attempt = 0; attempt < HEAT_TRANSFER_RDP_ATTEMPTS; attempt += 1) {
+    contours = [];
+
+    for (const contour of traced) {
+      const simplified = simplifyContour(contour, epsilon);
+
+      if (
+        simplified.length >= 3 &&
+        Math.abs(contourArea(simplified)) >=
+          HEAT_TRANSFER_MIN_CONTOUR_AREA_PX
+      ) {
+        contours.push(simplified);
+      }
     }
+
+    if (contours.length === 0) {
+      break;
+    }
+
+    const limit = checkRasterLimits(contours);
+
+    if (limit === null) {
+      break;
+    }
+
+    // Грубый допуск убирает точки, но не островки: если деталей больше предела,
+    // упрощение не поможет и пользователю нужен ответ, а не пустая разметка.
+    if (limit === "too_many_contours") {
+      return { ok: false, code: limit };
+    }
+
+    epsilon *= 2;
   }
 
   if (contours.length === 0) {

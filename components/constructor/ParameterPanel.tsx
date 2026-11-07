@@ -875,6 +875,10 @@ async function heatTransferSvgFromFile(file: File): Promise<{
     throw new Error("Браузер не смог подготовить canvas для логотипа.");
   }
 
+  // Сглаженное уменьшение и растяжение дают субпиксельные переходы: по ним
+  // трассировка ведёт ровную границу, а не лестницу по целым пикселям.
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
   context.drawImage(image, 0, 0, grid.width, grid.height);
 
   const imported = rasterToHeatTransferSvg(
