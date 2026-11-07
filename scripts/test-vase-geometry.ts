@@ -129,8 +129,15 @@ function checkRange(
     return;
   }
 
-  const actualMin = Math.min(...values);
-  const actualMax = Math.max(...values);
+  // Без spread: замеров бывает больше ста тысяч (толщина по всем вершинам
+  // плотной сетки), и Math.min(...values) переполняет стек вызовов.
+  let actualMin = Number.POSITIVE_INFINITY;
+  let actualMax = Number.NEGATIVE_INFINITY;
+
+  for (const value of values) {
+    actualMin = Math.min(actualMin, value);
+    actualMax = Math.max(actualMax, value);
+  }
 
   if (actualMin >= min && actualMax <= max) {
     console.log(
@@ -180,7 +187,9 @@ function vaseParams(
 }
 
 function buildGeometry(params: VaseParams): BufferGeometry {
-  return createVaseGeometry(createVaseProfile(params), params, {
+  // Профиль строится с тем же бюджетом, что и сетка, иначе шаг строк по высоте
+  // посчитается по предпросмотру, а сегменты — по STL.
+  return createVaseGeometry(createVaseProfile(params, "export"), params, {
     budget: "export",
   });
 }
@@ -1440,15 +1449,20 @@ console.log("\n9. Каннелюры и закрутка: глубина, сте
   const twistedPhase = degrees(
     deepestAngleWithinPeriod(ringAtHeightShare(twisted, 0.25), period),
   );
+  // Ближайшее к четверти высоты кольцо может стоять чуть ниже цели, и тогда
+  // фаза подходит к нулю с другой стороны — через границу периода: 44.7° вместо
+  // 0.3°. Поэтому считается расстояние по кругу, а не само значение.
+  const twistError = Math.min(twistedPhase, degrees(period) - twistedPhase);
 
   check("закрутка 90°: открытых рёбер 0", openEdges(twisted), 0);
   check("закрутка 90°: NaN 0", nanVertices(twisted), 0);
   checkRange(
     "закрутка 90°: дно ушло в ноль на четверти высоты",
-    [twistedPhase],
+    [twistError],
     0,
     3.2,
   );
+  console.log(`       дно на ${twistedPhase.toFixed(2)}°, до нуля ${twistError.toFixed(2)}°`);
 
   twisted.dispose();
 }

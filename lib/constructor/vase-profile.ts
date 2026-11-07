@@ -1,6 +1,7 @@
 import { SplineCurve, Vector2 } from "three";
 
 import type { VaseParams, VaseShape } from "@/lib/constructor/params";
+import { vaseProfileRows, type VaseBudget } from "@/lib/constructor/vase-budget";
 import {
   resolveOrganic,
   resolveVaseSeed,
@@ -17,10 +18,11 @@ import { organicProfileShare } from "@/lib/constructor/vase-seed";
  *
  * Все размеры в миллиметрах: STL не хранит единицы, и слайсеры читают
  * координаты как мм.
+ *
+ * Сколько точек снимается со сплайна силуэта, module не решает: это функция
+ * размера вазы и бюджета треугольников (`vaseProfileRows`), и она приходит
+ * аргументом — иначе шаг по высоте и шаг по окружности разъезжались бы.
  */
-
-/** Сколько точек снимаем со сплайна внешнего силуэта. */
-const OUTER_SEGMENTS = 64;
 
 /** Минимальный внешний радиус: горловина не должна схлопнуться в точку. */
 const MIN_OUTER_RADIUS_MM = 0.8;
@@ -253,7 +255,7 @@ function pushUnique(points: Vector2[], point: Vector2): void {
  * радиус каждый раз ограничиваем диапазоном [минимум, diameter / 2], а высоту
  * держим неубывающей: точки идут строго снизу вверх, без петель.
  */
-function createOuterProfile(params: VaseProfileParams): Vector2[] {
+function createOuterProfile(params: VaseProfileParams, rows: number): Vector2[] {
   const height = Math.max(params.height, MIN_FLOOR_MM * 2);
   const maxRadius = Math.max(params.diameter / 2, MIN_OUTER_RADIUS_MM);
   const minRadius = Math.min(MIN_OUTER_RADIUS_MM, maxRadius * 0.5);
@@ -290,8 +292,8 @@ function createOuterProfile(params: VaseProfileParams): Vector2[] {
 
   let previousY = 0;
 
-  for (let index = 0; index <= OUTER_SEGMENTS; index += 1) {
-    const sampled = spline.getPoint(index / OUTER_SEGMENTS);
+  for (let index = 0; index <= rows; index += 1) {
+    const sampled = spline.getPoint(index / rows);
     // При цоколе силуэт сжимается в оставшуюся высоту: ножка не удлиняет
     // модель, а забирает нижние миллиметры у силуэта.
     const raw =
@@ -427,10 +429,20 @@ function radiusAtHeight(profile: Vector2[], height: number): number {
  *
  * Дно имеет толщину max(wall, 1.2 мм): более тонкое дно сложно снять со стола
  * без повреждений.
+ *
+ * Сколько точек снимать со сплайна, решает `vaseProfileRows`: шаг по высоте
+ * должен совпасть с шагом по окружности, иначе поверхность собирается в
+ * горизонтальные «террасы». Поэтому бюджет треугольников — второй аргумент:
+ * предпросмотр (по умолчанию) и STL делят его по-своему, и профиль обязан
+ * строиться с тем же бюджетом, с каким потом собирается сетка.
  */
-export function createVaseProfile(params: VaseProfileParams): Vector2[] {
+export function createVaseProfile(
+  params: VaseProfileParams,
+  budget: VaseBudget = "preview",
+): Vector2[] {
   const height = Math.max(params.height, MIN_FLOOR_MM * 2);
-  const outer = createOuterProfile(params);
+  const rows = vaseProfileRows(params.diameter, height, budget);
+  const outer = createOuterProfile(params, rows);
   const minOuterRadius = outer.reduce(
     (minimum, point) => Math.min(minimum, point.x),
     Number.POSITIVE_INFINITY,

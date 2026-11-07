@@ -124,7 +124,9 @@ export function renderVaseRgb(
     plastic = VASE_PREVIEW_PLASTIC,
   } = options;
 
-  const geometry = createVaseGeometry(createVaseProfile(params), params, {
+  // Профиль строится с тем же бюджетом, что и сетка: от бюджета зависит шаг
+  // строк по высоте, и строки должны совпасть с шагом по окружности.
+  const geometry = createVaseGeometry(createVaseProfile(params, budget), params, {
     budget,
   });
   const position = geometry.getAttribute("position").array as Float32Array;

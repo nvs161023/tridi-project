@@ -1,6 +1,5 @@
-import { LatheGeometry } from "three";
-import type { BufferGeometry, Vector2 } from "three";
-import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { BufferAttribute, BufferGeometry, LatheGeometry } from "three";
+import type { Vector2 } from "three";
 
 import {
   resolvePatternLayers,
@@ -40,16 +39,18 @@ import { createVaseSection } from "@/lib/constructor/vase-section";
  * удаление вырожденных треугольников и пересчёт нормалей по итоговому обходу.
  *
  * Сколько сегментов по окружности, решает lib/constructor/vase-budget.ts:
- * 128 по умолчанию и до 256 там, где рельеф мельче сетки.
+ * требование хорды (0.6 мм на STL и 1.2 мм на экране при данном диаметре) и
+ * требование рельефа, урезанные бюджетом треугольников.
  */
 
 /**
  * Базовое число сегментов по окружности.
  *
  * Оставлено для обратной совместимости: разрешение больше не константа, его
- * считает `vaseSegments` из `@/lib/constructor/vase-budget` по рельефу и
- * бюджету треугольников. Значение равно базе: 128 сегментов при диаметре
- * 200 мм дают хорду около 4.9 мм, силуэт гладкий.
+ * считает `vaseSegments` из `@/lib/constructor/vase-budget` по хорде, рельефу и
+ * бюджету треугольников. Значение равно нижней границе: 128 сегментов получает
+ * ваза диаметром до 50 мм, крупнее — столько, чтобы хорда была не длиннее 0.6 мм
+ * в STL.
  */
 export const LATHE_SEGMENTS = VASE_MIN_SEGMENTS;
 
@@ -115,6 +116,7 @@ export type VaseGeometryParams = Partial<
   Pick<
     VaseParams,
     | "shape"
+    | "diameter"
     | "footMm"
     | "rimMm"
     | "sectionSides"
@@ -632,7 +634,7 @@ function layerEnvelope(layer: ActivePatternLayer, heightShare: number): number {
  *
  * Функция работает до сварки: шов окружности и ось ещё продублированы, но
  * смещение зависит только от угла и высоты, поэтому совпадающие вершины
- * остаются совпадающими и после mergeVertices. Внешняя и внутренняя стенки на
+ * остаются совпадающими и после сварки. Внешняя и внутренняя стенки на
  * одной высоте получают одинаковый сдвиг радиуса — толщина стенки сохраняется.
  * Вершины на оси не двигаются, иначе дно и кромка отошли бы от центра.
  *
@@ -893,34 +895,135 @@ function applyLean(
 const MIN_CROSS_LENGTH_SQ = 1e-10;
 
 /**
- * Сварка вершин и удаление треугольников с нулевой площадью.
+ * Сварка вершин по координатам: тот же результат, что у `mergeVertices` из three.
  *
- * mergeVertices сравнивает все атрибуты вершины. Если оставить normal и uv,
- * вершины на шве окружности и на кромке не совпадут из-за разных UV и
- * нормалей, и сварка ничего не сделает. Поэтому удаляем их до сварки, а
- * нормали считаем заново после очистки.
+ * Совпадающие вершины сливаются в первую по порядку обхода индексного буфера,
+ * оставшиеся получают координаты первого вхождения, индексы переписываются.
+ * Ячейка — округлённая координата с шагом `tolerance`, ровно как в three
+ * (`Math.trunc(v / tolerance + 0.5)`), поэтому «совпадение» здесь означает то же
+ * самое, что и раньше. Обход именно по индексам, а не по вершинам: three
+ * назначает новые номера в порядке первого появления в треугольниках, и
+ * повторение этого порядка оставляет сетку вершина в вершину прежней.
+ *
+ * Своя реализация нужна из-за скорости. three строит ключ строкой вида
+ * «12.5,3.25,8.75,» и складывает его в обычный объект: на сетке вазы из 62 000
+ * вершин это 427 мс — больше, чем всё остальное построение вместе (кольца 12 мс,
+ * нормали 10 мс). Здесь ключ — хеш из трёх целых ячеек, а совпадения проверяются
+ * по массивам, поэтому на ту же сетку уходит 15 мс.
+ *
+ * Открытая адресация с линейным пробированием: таблица вдвое больше числа
+ * вершин, в каждой ячейке «новый индекс + 1» (ноль означает пусто). Сравнение
+ * идёт по трём целым координатам ячейки, а не по хешу, поэтому коллизии хеша
+ * ничего не склеивают лишнего.
  */
-function weldAndClean(lathe: LatheGeometry): BufferGeometry {
-  lathe.deleteAttribute("normal");
-  lathe.deleteAttribute("uv");
+function weldPositions(
+  position: Float32Array,
+  index: ArrayLike<number>,
+  tolerance: number,
+): { positions: Float32Array; map: Uint32Array } {
+  const count = Math.floor(position.length / 3);
+  const scale = 1 / Math.max(tolerance, Number.EPSILON);
+  const welded = new Float32Array(position.length);
+  const map = new Uint32Array(count);
+  const cellX = new Int32Array(count);
+  const cellY = new Int32Array(count);
+  const cellZ = new Int32Array(count);
 
-  const geometry = mergeVertices(lathe, WELD_TOLERANCE_MM);
-  lathe.dispose();
+  let size = 1;
 
-  const index = geometry.getIndex();
-  const position = geometry.getAttribute("position");
-
-  if (!index || !position) {
-    throw new Error("LatheGeometry: после сварки нет индекса или позиций");
+  while (size < count * 2) {
+    size *= 2;
   }
 
-  const source = index.array;
+  const table = new Int32Array(size);
+  let unique = 0;
+
+  for (let step = 0; step < index.length; step += 1) {
+    const index3 = index[step];
+    const source = index3 * 3;
+    const x = position[source];
+    const y = position[source + 1];
+    const z = position[source + 2];
+    const cx = Math.trunc(x * scale + 0.5);
+    const cy = Math.trunc(y * scale + 0.5);
+    const cz = Math.trunc(z * scale + 0.5);
+    let slot =
+      (Math.imul(cx, 73856093) ^ Math.imul(cy, 19349663) ^ Math.imul(cz, 83492791)) >>>
+      0;
+
+    slot &= size - 1;
+
+    for (;;) {
+      const entry = table[slot];
+
+      if (entry === 0) {
+        cellX[unique] = cx;
+        cellY[unique] = cy;
+        cellZ[unique] = cz;
+        welded[unique * 3] = x;
+        welded[unique * 3 + 1] = y;
+        welded[unique * 3 + 2] = z;
+        map[index3] = unique;
+        table[slot] = unique + 1;
+        unique += 1;
+        break;
+      }
+
+      const candidate = entry - 1;
+
+      if (
+        cellX[candidate] === cx &&
+        cellY[candidate] === cy &&
+        cellZ[candidate] === cz
+      ) {
+        map[index3] = candidate;
+        break;
+      }
+
+      slot = (slot + 1) & (size - 1);
+    }
+  }
+
+  return { positions: welded.slice(0, unique * 3), map };
+}
+
+/**
+ * Сварка вершин и удаление треугольников с нулевой площадью.
+ *
+ * У `LatheGeometry` на шве окружности и на оси вращения остаются совпадающие
+ * вершины, а вместе с ними треугольники нулевой площади: для экрана они
+ * безвредны, но STL и слайсеры любят чистую сетку. Порядок шагов важен:
+ * сварка по координатам (normal и uv до неё не доживают — они у каждой копии
+ * вершины свои и не дали бы склеиться), затем отбрасывание вырожденных
+ * треугольников, и только потом нормали считается вызывающий код — уже по
+ * итоговому обходу с рельефом.
+ */
+function weldAndClean(lathe: LatheGeometry): BufferGeometry {
+  const source = lathe.getAttribute("position");
+  const sourceIndex = lathe.getIndex();
+
+  if (!source || !sourceIndex) {
+    throw new Error("LatheGeometry: нет позиций или индекса");
+  }
+
+  const { positions, map } = weldPositions(
+    source.array as Float32Array,
+    sourceIndex.array,
+    WELD_TOLERANCE_MM,
+  );
+  const index = sourceIndex.array;
+
+  lathe.dispose();
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(positions, 3));
+
   const kept: number[] = [];
 
-  for (let offset = 0; offset < source.length; offset += 3) {
-    const a = source[offset];
-    const b = source[offset + 1];
-    const c = source[offset + 2];
+  for (let offset = 0; offset < index.length; offset += 3) {
+    const a = map[index[offset]];
+    const b = map[index[offset + 1]];
+    const c = map[index[offset + 2]];
 
     // На оси вращения все кольцевые копии точки слились в одну вершину:
     // у таких треугольников два индекса совпадают.
@@ -928,15 +1031,15 @@ function weldAndClean(lathe: LatheGeometry): BufferGeometry {
       continue;
     }
 
-    const ax = position.getX(a);
-    const ay = position.getY(a);
-    const az = position.getZ(a);
-    const bx = position.getX(b);
-    const by = position.getY(b);
-    const bz = position.getZ(b);
-    const cx = position.getX(c);
-    const cy = position.getY(c);
-    const cz = position.getZ(c);
+    const ax = positions[a * 3];
+    const ay = positions[a * 3 + 1];
+    const az = positions[a * 3 + 2];
+    const bx = positions[b * 3];
+    const by = positions[b * 3 + 1];
+    const bz = positions[b * 3 + 2];
+    const cx = positions[c * 3];
+    const cy = positions[c * 3 + 1];
+    const cz = positions[c * 3 + 2];
 
     const abx = bx - ax;
     const aby = by - ay;
@@ -1029,14 +1132,15 @@ function signedVolumeTimesSix(geometry: BufferGeometry): number {
  * трогается.
  *
  * Число сегментов по окружности больше не константа: его считает
- * `vaseSegments` по частоте рельефа, граням сечения, каннелюрам и бюджету
- * треугольников. Для гладких ваз и для узоров на частоте до 8 это ровно 128
- * сегментов, то есть прежняя сетка вершина в вершину; вырастает оно только там,
- * где рельеф действительно мельче сетки, и округляется вверх до кратного граням
+ * `vaseSegments` по хорде (она зависит от диаметра), частоте рельефа, граням
+ * сечения, каннелюрам и бюджету треугольников. Для вазы Ø90 это 236 сегментов в
+ * предпросмотре и 472 в STL — вдвое и вчетверо плотнее прежних 128, потому что
+ * при 128 кольцо собиралось огранкой по 2.2 мм и печать выглядела гранёной.
+ * Растёт оно и под мелкий рельеф, и всегда округляется вверх до кратного граням
  * и жёлобам — иначе углы 3, 5, 6, 7, 9, 10, 11 и 12-гранника срезались бы
  * хордой между соседними кольцами, а дно жёлоба не попало бы в вершину. Режим
  * сборки передаётся третьим аргументом: предпросмотр (по умолчанию) и STL
- * считают бюджет по-разному.
+ * считают и хорду, и бюджет по-разному.
  */
 export function createVaseGeometry(
   profile: Vector2[],
