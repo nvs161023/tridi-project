@@ -42,7 +42,12 @@
  *  12. галерея вариантов: «Другая ваза» даёт целый сид в пределах слайдера и не
  *      повторяет текущий, серия из двенадцати сидов воспроизводима и без
  *      повторов, а плитка превью детерминирована, отличается между сидами и
- *      занимает разумную долю кадра.
+ *      занимает разумную долю кадра;
+ *  13. имя STL — это рецепт: у дефолтной вазы оно прежнее, деформации и сид
+ *      добавляются суффиксами в порядке панели, разные деформации дают разные
+ *      имена, а без органики сид имя не меняет. Метаданные генерации — плоский
+ *      объект из нормализованных значений, который сериализуется в JSON без
+ *      потерь.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
@@ -56,6 +61,9 @@ import {
   DEFAULT_VASE_PARAMS,
   VASE_PATTERNS,
   VASE_SHAPES,
+  normalizeVaseParams,
+  vaseGenerationDetails,
+  vaseStlFileName,
   type VaseParams,
 } from "../lib/constructor/params";
 import {
@@ -1972,6 +1980,152 @@ console.log("\n12. Галерея вариантов: сид, серия и ка
   console.log(
     `       плитка ${tile.width} × ${tile.height}: ${tile.triangles} треугольников, ` +
       `ваза на ${(share * 100).toFixed(1)} % кадра`,
+  );
+}
+
+console.log("\n13. Имя файла STL и метаданные генерации");
+
+{
+  // Имя файла — это рецепт для папки загрузок. Деформации и сид попадают в
+  // него суффиксами, иначе вазы одной формы и размера перезаписывали бы друг
+  // друга, а браузер молча добавлял бы «(1)».
+  const base = vaseParams();
+
+  check(
+    "имя: дефолтная ваза — прежний формат",
+    vaseStlFileName(base),
+    "tridi-vaza-classic-h140-d90-w1.6.stl",
+  );
+  check(
+    "имя: узор — суффиксом",
+    vaseStlFileName(vaseParams({ pattern: "spiral" })),
+    "tridi-vaza-classic-spiral-h140-d90-w1.6.stl",
+  );
+  check(
+    "имя: закрутка",
+    vaseStlFileName(vaseParams({ twistDeg: 180 })),
+    "tridi-vaza-classic-h140-d90-w1.6-twist180.stl",
+  );
+  check(
+    "имя: жёлобы и их глубина",
+    vaseStlFileName(vaseParams({ flutes: 8, fluteDepthMm: 2 })),
+    "tridi-vaza-classic-h140-d90-w1.6-flutes8x2.stl",
+  );
+  check(
+    "имя: грани",
+    vaseStlFileName(vaseParams({ sectionSides: 6 })),
+    "tridi-vaza-classic-h140-d90-w1.6-sides6.stl",
+  );
+  check(
+    "имя: органика в процентах и сид",
+    vaseStlFileName(vaseParams({ organic: 0.5, vaseSeed: 42 })),
+    "tridi-vaza-classic-h140-d90-w1.6-organic50-s42.stl",
+  );
+  check(
+    "имя: наклон сохраняет знак",
+    vaseStlFileName(vaseParams({ leanDeg: -10 })),
+    "tridi-vaza-classic-h140-d90-w1.6-lean-10.stl",
+  );
+
+  // Полный набор: порядок суффиксов повторяет порядок панели, поэтому имя
+  // читается как рецепт слева направо.
+  const full = vaseParams({
+    shape: "bottle",
+    pattern: "spiral",
+    twistDeg: 180,
+    flutes: 8,
+    fluteDepthMm: 2,
+    sectionSides: 6,
+    organic: 0.5,
+    leanDeg: -10,
+    vaseSeed: 42,
+  });
+  const fullName = vaseStlFileName(full);
+
+  check(
+    "имя: все деформации в порядке панели",
+    fullName,
+    "tridi-vaza-bottle-spiral-h140-d90-w1.6-twist180-flutes8x2-sides6-organic50-lean-10-s42.stl",
+  );
+
+  // Символы, которые ломают Content-Disposition и имена в Windows. Значение
+  // проверяется на самом длинном имени: точка есть только в wall.
+  check("имя: только безопасные символы", /^[a-z0-9._-]+$/.test(fullName), true);
+  check("имя: длина в пределах файловой системы", fullName.length <= 120, true);
+  check("имя: одно расширение .stl", fullName.endsWith(".stl"), true);
+
+  // Сид без органики ни на что не влияет — и имя не должно расходиться: два
+  // одинаковых файла с разными именами только запутали бы.
+  check(
+    "имя: без органики сид не меняет имя",
+    vaseStlFileName(vaseParams({ vaseSeed: 42 })),
+    vaseStlFileName(vaseParams({ vaseSeed: 777 })),
+  );
+
+  // Обратное свойство: разные деформации — разные имена, иначе файлы
+  // перезапишут друг друга в папке загрузок.
+  const variants = [
+    vaseParams(),
+    vaseParams({ twistDeg: 90 }),
+    vaseParams({ twistDeg: 180 }),
+    vaseParams({ flutes: 8, fluteDepthMm: 0.2 }),
+    vaseParams({ flutes: 8, fluteDepthMm: 2 }),
+    vaseParams({ sectionSides: 4 }),
+    vaseParams({ sectionSides: 8 }),
+    vaseParams({ organic: 0.25, vaseSeed: 42 }),
+    vaseParams({ organic: 0.5, vaseSeed: 42 }),
+    vaseParams({ organic: 0.5, vaseSeed: 777 }),
+    vaseParams({ leanDeg: 10 }),
+    vaseParams({ leanDeg: -10 }),
+  ];
+  const names = variants.map((params) => vaseStlFileName(params));
+
+  check("имя: двенадцать разных вариантов — двенадцать имён", new Set(names).size, names.length);
+
+  // Метаданные генерации: то, что уходит в constructor_generations.details.
+  // Размеры не пишем — они в имени файла, — а вот форму и деформации видно.
+  const details = vaseGenerationDetails(base);
+
+  check(
+    "метаданные: набор полей",
+    Object.keys(details),
+    [
+      "shape",
+      "pattern",
+      "twistDeg",
+      "flutes",
+      "fluteDepthMm",
+      "sectionSides",
+      "organic",
+      "leanDeg",
+      "vaseSeed",
+    ],
+  );
+  check("метаданные: силуэт и узор", [details.shape, details.pattern], ["classic", "smooth"]);
+  check(
+    "метаданные: деформации по умолчанию нулевые",
+    [details.twistDeg, details.flutes, details.sectionSides, details.organic, details.leanDeg],
+    [0, 0, 0, 0, 0],
+  );
+  check("метаданные: сид по умолчанию", details.vaseSeed, 1);
+  check(
+    "метаданные: плоский объект сериализуется в JSON без потерь",
+    JSON.stringify(vaseGenerationDetails(full)),
+    '{"shape":"bottle","pattern":"spiral","twistDeg":180,"flutes":8,"fluteDepthMm":2,"sectionSides":6,"organic":0.5,"leanDeg":-10,"vaseSeed":42}',
+  );
+
+  // Значения берутся из нормализованных параметров: иначе группировка по
+  // органике распалась бы на 0.53, 0.54, 0.55 — почти одинаковые числа.
+  const snapped = normalizeVaseParams({ ...base, organic: 0.53, vaseSeed: 42.7 });
+
+  check(
+    "метаданные: значения выровнены по шагу слайдера",
+    [vaseGenerationDetails(snapped).organic, vaseGenerationDetails(snapped).vaseSeed],
+    [0.55, 43],
+  );
+  console.log(
+    `       имя с деформациями: ${fullName.length} символов, ` +
+      `метаданные: ${Object.keys(details).length} полей`,
   );
 }
 

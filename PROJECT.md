@@ -218,8 +218,9 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) запускает
 (401), активный доступ к инструментам или бесплатный лимит 3 скачивания в календарный месяц по UTC (403 после
 исчерпания, 503 если счётчик недоступен), параметры выбранной модели (422), затем собирает
 бинарный файл `model/stl`. Для вазы имя —
-`tridi-vaza-{shape}[-{pattern}]-h{height}-d{diameter}-w{wall}.stl` (суффикс узора не добавляется
-только для гладкой стенки), для брелока — `tridi-brelyok-{keychainShape|keychainPreset}-l{length}-w{width}-t{thickness}[-nfc].stl`,
+`tridi-vaza-{shape}[-{pattern}]-h{height}-d{diameter}-w{wall}[-twist{deg}][-flutes{n}x{depth}][-sides{n}][-organic{pct}][-lean{deg}][-s{seed}].stl`
+(суффикс узора не добавляется только для гладкой стенки; деформации — только ненулевые, органика
+в процентах, сид — только при органике), для брелока — `tridi-brelyok-{keychainShape|keychainPreset}-l{length}-w{width}-t{thickness}[-nfc].stl`,
 для подставки — `tridi-podstavka-a{standAngle}-t{phoneThickness}-w{standWidth}.stl`,
 для вывески —
 `tridi-vyveska-{word}-b{n}-{face|cover}.stl`, где `{word}` — надпись латиницей, `n` — номер блока
@@ -1633,7 +1634,7 @@ M117, моторы) и правило «без отвода — вмятина �
   Деталь литофана сверяется с формой: без рамки принимается только `relief`, а `stand` требует ещё
   и своего крепления. Остальные сочетания отклоняются с 422: собирать нечего.
   Ответ — `Content-Type: model/stl`, `Content-Disposition: attachment` с именем
-  `tridi-vaza-{shape}[-{pattern}]-h{height}-d{diameter}-w{wall}.stl`,
+  `tridi-vaza-{shape}[-{pattern}]-h{height}-d{diameter}-w{wall}[-twist{deg}][-flutes{n}x{depth}][-sides{n}][-organic{pct}][-lean{deg}][-s{seed}].stl`,
   `tridi-brelyok-{keychainShape|keychainPreset}-l{length}-w{width}-t{thickness}[-nfc].stl`,
   `tridi-podstavka-a{standAngle}-t{phoneThickness}-w{standWidth}.stl`,
   `tridi-vyveska-{word}-b{n}-{face|cover}.stl`,
@@ -3274,7 +3275,7 @@ FlashForge и Elegoo
 | `lib/forum-moderation.ts` | Стоп-слова форума и `checkForumBan` (только `forum_bans`); не связан с подпиской и доступом к курсам |
 | `lib/supabase/server.ts` | Серверный клиент Supabase с cookies (Server Components и Server Actions) |
 | `lib/supabase/admin.ts` | Клиент с ключом `service_role` для фоновых задач: вебхук Robokassa пишет покупки в обход RLS, middleware — посещения, роут STL — генерации |
-| `lib/supabase/schema-errors.ts` | `isMissingTableSchema(code, message)`: 42P01, PGRST204, PGRST205 и тексты «does not exist» / «schema cache» означают «миграция ещё не применена». Общая проверка для `saved_projects`, `constructor_feedback`, `site_visits` и `constructor_generations`: страницы и отчёт показывают «нет данных», а не падают с 500 |
+| `lib/supabase/schema-errors.ts` | `isMissingTableSchema(code, message)`: 42P01, PGRST204, PGRST205 и тексты «does not exist» / «schema cache» означают «миграция ещё не применена». Общая проверка для `saved_projects`, `constructor_feedback`, `site_visits` и `constructor_generations`: страницы и отчёт показывают «нет данных», а не падают с 500. Вторая функция, `isMissingColumnSchema(code, message, column)`, отличает PGRST204 с именем новой колонки: там, где запись можно повторить без необязательного поля (журнал генераций и `details`), строка не теряется |
 | `lib/supabase/client.ts` | Браузерный клиент: страницы `/auth/confirm` и `/auth/reset-password` — сессию после клика по кнопке записывает браузер |
 | `lib/supabase/middleware.ts` | `updateSession`: обновление сессии, защита закрытых маршрутов, гейт неподтверждённой почты, проброс пользователя заголовком, редиректы авторизованных со страниц входа |
 | `lib/supabase/user-headers.ts` | Кодирование и чтение заголовка `x-supabase-user`: страницы не делают лишний сетевой `getUser()`. Заголовок всегда перезаписывается middleware, поэтому подделать его нельзя |
@@ -3309,7 +3310,7 @@ FlashForge и Elegoo
 | `lib/constructor/projects.ts` | Общие правила сохранённых проектов: `SAVED_PROJECT_TITLE_MIN`/`MAX` (1–60), `SAVED_PROJECTS_LIMIT` (12), `FEEDBACK_RATING_MIN`/`MAX` и `FEEDBACK_TEXT_MAX`, типы `SavedProjectSummary`/`SavedProject`/`SavedProjectNotice`; `isProjectId` (UUID из `?project=` до запроса к базе), `savedProjectModelLabel`, `formatSavedProjectDate`, `normalizeProjectTitle`, `suggestProjectTitle`, `normalizeSavedProjectParams` (JSONB → состояние конструктора) и `isMissingTableSchema` (реэкспорт из `lib/supabase/schema-errors.ts`: 42P01/PGRST204/PGRST205 — «миграция ещё не применена», а не поломка страницы) |
 | `lib/constructor/project-store.ts` | Чтение сохранённых проектов из Supabase: `getSavedProjects(supabase, userId, limit)` — до 12 последних без `params_json` для блока кабинета, ошибку не пробрасывает и возвращает `[]`; `getSavedProject(supabase, userId, projectId)` — один проект с параметрами, фильтр по `user_id` дублирует RLS, незнакомый id не уходит в запрос |
 | `lib/analytics/visits.ts` | Счётчик посещений публичных страниц: `isTrackedPath` отбрасывает `/api`, `/admin`, `/dashboard`, `/auth`, `/_next` и файлы с расширением, `shouldTrackVisit` — не-GET, предзагрузку ссылок и RSC-запросы (иначе один переход считался бы дважды), `recordSiteVisit` пишет путь без query-строки в `site_visits` и не мешает отдаче страницы: ошибки только логируются, отсутствие таблицы — ожидаемое состояние |
-| `lib/analytics/generations.ts` | `recordConstructorGeneration(userId, modelType)` пишет успешную выдачу STL в `constructor_generations` (`model_type` обрезается до 64 символов). Вызывается из `/api/constructor/stl` до ответа: serverless-функцию могут заморозить сразу после отправки, и `void promise` потерялся бы. Никогда не бросает исключение — аналитика не должна ломать экспорт |
+| `lib/analytics/generations.ts` | `recordConstructorGeneration(userId, modelType)` пишет успешную выдачу STL в `constructor_generations` (`model_type` обрезается до 64 символов, третий необязательный аргумент — плоские подробности модели в колонку `details`; если колонки в базе ещё нет, запись повторяется без неё, чтобы строка журнала не терялась). Вызывается из `/api/constructor/stl` до ответа: serverless-функцию могут заморозить сразу после отправки, и `void promise` потерялся бы. Никогда не бросает исключение — аналитика не должна ломать экспорт |
 | `lib/constructor/feedback.ts` | Счётчик скачиваний для опроса: `CONSTRUCTOR_DOWNLOADS_STORAGE_KEY` (`tridi-constructor-downloads`), `FEEDBACK_FIRST_DOWNLOAD` (3), `FEEDBACK_EVERY_DOWNLOADS` (10) и `FEEDBACK_OPEN_DELAY_MS` (1500); `registerConstructorDownload` пишет в `localStorage`, а при запрете хранилища считает в памяти вкладки; `shouldAskForConstructorFeedback` отвечает, пора ли открывать окно |
 | `lib/workshop/settings.ts` | Настройки калькулятора Мастерской: `WorkshopSettings` (тариф ₽/кВт·ч, мощность Вт, амортизация и час работы в ₽/час), `WORKSHOP_SETTINGS_DEFAULTS` (5.5 / 150 / 10 / 300), `WORKSHOP_FIELDS` (подпись, имя в `FormData`, колонка в базе, пределы, признак `integer`), `WORKSHOP_SETTINGS_COLUMNS`, `parseWorkshopNumber` («5,5» из формы и «5.50» из PostgREST → 5.5), `normalizeWorkshopSettings` (строка базы → числа, незнакомое значение заменяется значением по умолчанию) и `readWorkshopSettingsForm` (форма → числа или ошибки по полям) |
 | `lib/workshop/calculator.ts` | Формулы себестоимости: `calculateWorkshopCost` (материал, электричество, амортизация, работа, себестоимость, рекомендованная цена по наценке и прибыль), `roundMoney` до копеек на каждом шаге, `CALCULATOR_FIELDS` (вес 0,1–100 000 г, время печати 0,01–8 760 ч, цена пластика 0–100 000 ₽/кг), `readCalculatorInput`, наценка — `MARKUP_FIELD` (150 % по умолчанию), `DEFAULT_MARKUP_PERCENT`, `markupFactor` и `readMarkupPercent` (0–1000 %, отрицательная — ошибка), `formatMoney` (`ru-RU`, RUB) |
@@ -3514,7 +3515,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `saved_projects` | `id uuid`, `user_id uuid`, `title text`, `model_type text`, `params_json jsonb`, `created_at timestamptz` | Сохранённые проекты конструктора: название 1–60 символов, модель отдельной колонкой для списка в кабинете, параметры — объектом в `params_json`. RLS: `select`, `insert`, `update` и `delete` только своих строк (`auth.uid() = user_id`), `anon` доступа нет; индекс `(user_id, created_at desc)` под последние 12. Схема — `supabase/saved_projects.sql` |
 | `constructor_feedback` | `id uuid`, `user_id uuid`, `model_type text`, `rating integer`, `feedback_text text`, `created_at timestamptz` | Оценки конструктора после скачивания STL: `rating` 1–5, комментарий до 1000 символов или `null`, модель — из списка генераторов. RLS: только `select` и `insert` своих строк, правок и удаления через API нет; сводку владелец смотрит service-role клиентом или в SQL Editor. Схема — `supabase/constructor_feedback.sql` |
 | `site_visits` | `id uuid`, `path text`, `created_at timestamptz` | Обезличенный счётчик просмотров публичных страниц: путь без query-строки (1–512 символов) и время, без IP и `user_id`. Политик RLS нет вовсе, у `anon` и `authenticated` отозваны гранты — пишет и читает только `service_role` из middleware и ежедневного отчёта. Схема — `supabase/site_visits.sql` |
-| `constructor_generations` | `id uuid`, `user_id uuid`, `model_type text`, `created_at timestamptz` | Журнал успешных выдач STL (бесплатные и с активным доступом): тип модели и время, `user_id` с `on delete set null` — удаление аккаунта не стирает историю. В отличие от `constructor_downloads` это не лимит, а аналитика: ошибка записи не мешает отдать файл. Доступ только у `service_role`. Схема — `supabase/constructor_generations.sql` |
+| `constructor_generations` | `id uuid`, `user_id uuid`, `model_type text`, `details jsonb`, `created_at timestamptz` | Журнал успешных выдач STL (бесплатные и с активным доступом): тип модели и время, `user_id` с `on delete set null` — удаление аккаунта не стирает историю. В отличие от `constructor_downloads` это не лимит, а аналитика: ошибка записи не мешает отдать файл. Доступ только у `service_role`. Схема — `supabase/constructor_generations.sql`. Колонка `details` — параметры модели на момент генерации (у вазы силуэт, узор, деформации и сид): по ней видно, какие формы реально качают, а `null` означает старую запись или базу без применённого `alter table` |
 | `forum_categories` | `id uuid`, `slug text unique`, `title`, `description`, `"order" integer` | Разделы форума; наполняются отдельно после применения `supabase/forum.sql` |
 | `forum_threads` | `id uuid`, `category_id`, `slug text unique`, `title`, `content`, `author_id`, `created_at`, `views`, `status` | Темы форума; публично видны только `approved`, автор видит свои |
 | `forum_replies` | `id uuid`, `thread_id`, `content`, `author_id`, `created_at`, `status` | Ответы; публикуются сразу (`approved`), проверяются после публикации, нарушения удаляются из админки |
@@ -10331,6 +10332,41 @@ middleware и дев-сервер, а драйвер WebGL в headless-Chromium 
 Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:vase` — все
 проверки прошли (12 разделов), `check:docs` / `check:imports` / `check:style` — зелёные,
 `npm run build` — 32 страницы, золотые хеши — 72 из 72 без изменений.
+
+**Ваза: имя STL как рецепт и метаданные генерации (7 ноября 2026).** Этап 8 ветки Vases: файл в
+папке загрузок теперь отличается от соседа, а журнал знает, какие формы реально качают.
+
+- `vaseStlFileName` (`lib/constructor/params.ts`) добавляет деформации суффиксами в порядке панели:
+  `tridi-vaza-bottle-spiral-h140-d90-w1.6-twist180-flutes8x2-sides6-organic50-lean-10-s42.stl`.
+  Без суффиксов вазы одной формы и размера скачивались под одним именем, и браузер молча
+  переименовывал второй файл в «(1)» — рецепт из имени было не восстановить. Нулевые деформации
+  суффикса не дают, поэтому у прежней вазы имя прежнее:
+  `tridi-vaza-classic-h140-d90-w1.6.stl`. Органика пишется в процентах (`-organic50`): её шаг
+  0.05 даёт ровно проценты, а дробь с точкой в имени читается как второе расширение. Глубина
+  жёлобов стоит рядом с их числом (`-flutes8x2`): восемь жёлобов по 0.2 мм и по 6 мм — разные вазы.
+  Наклон сохраняет знак (`-lean-10`), сид (`-s42`) появляется только при органике — без складок он
+  не влияет на геометрию, и два одинаковых файла не должны расходиться в именах. Имя собирается
+  одной функцией для `Content-Disposition` на сервере и для подписи ссылки в панели, поэтому
+  скачанный файл и то, что было написано на кнопке, совпадают. Самое длинное имя — 90 символов.
+- `vaseGenerationDetails` — девять плоских полей (`shape`, `pattern`, `twistDeg`, `flutes`,
+  `fluteDepthMm`, `sectionSides`, `organic`, `leanDeg`, `vaseSeed`) из нормализованных параметров:
+  в журнал не попадают ни NaN, ни «сырые» значения слайдера, поэтому группировка по органике не
+  распадается на 0.53, 0.54, 0.55. Размеры не пишутся — они уже в имени файла и в самом STL.
+- `recordConstructorGeneration` принимает третий необязательный аргумент и пишет его в колонку
+  `details jsonb` (`supabase/constructor_generations.sql`, применяется вручную как остальные SQL).
+  Пока колонки в живой базе нет, `isMissingColumnSchema` ловит PGRST204 и запись повторяется без
+  подробностей: необязательное поле не должно стоить всей строки журнала. В конце SQL — готовые
+  запросы «какие формы вазы качают за месяц» и «как часто включают деформации».
+- Тринадцатый раздел `scripts/test-vase-geometry.ts`, девятнадцать проверок: у дефолтной вазы имя
+  прежнее, каждая деформация даёт свой суффикс, полный набор собирается в ожидаемую строку, имя
+  состоит только из `[a-z0-9._-]` и короче 120 символов, двенадцать разных наборов дают двенадцать
+  разных имён, без органики сид имя не меняет. Метаданные: ровно девять полей в ожидаемом порядке,
+  плоский объект сериализуется в JSON без потерь, значения выровнены по шагу слайдера
+  (`organic 0.53 → 0.55`, `vaseSeed 42.7 → 43`).
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run check:vase` — все
+проверки прошли (13 разделов), `check:docs` / `check:imports` / `check:style` — зелёные,
+`npm run build` — 32 страницы, имена файлов остальных моделей не изменились.
 
 
 

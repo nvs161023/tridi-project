@@ -26,3 +26,24 @@ export function isMissingTableSchema(
     text.includes("schema cache")
   );
 }
+
+/**
+ * Ошибка «в таблице нет такой колонки».
+ *
+ * Отдельная проверка нужна там, где запись можно повторить без нового поля:
+ * журнал генераций должен продолжать пополняться, пока колонку `details` не
+ * добавили в живой базе, — иначе одна необязательная колонка потеряла бы всю
+ * строку. PostgREST отвечает PGRST204 и называет колонку в тексте ошибки, но
+ * текст меняется между версиями, поэтому смотрим и на код, и на имя.
+ */
+export function isMissingColumnSchema(
+  code: string | null | undefined,
+  message: string | null | undefined,
+  column: string,
+): boolean {
+  if (code !== "PGRST204") {
+    return false;
+  }
+
+  return (message ?? "").toLowerCase().includes(column.toLowerCase());
+}

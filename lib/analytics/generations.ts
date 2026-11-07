@@ -5,26 +5,77 @@
  * сразу после отправки ответа, и `void promise` потерялся бы. Ошибка записи не
  * мешает экспорту — в отличие от constructor_downloads, это аналитика, а не
  * лимит, поэтому файл всё равно уходит пользователю.
+ *
+ * Подробности (`details`) необязательны: их присылают только те модели, у
+ * которых есть что записать. Колонка добавлена отдельным SQL, поэтому старую
+ * базу без неё запись не ломает — строка повторяется без подробностей.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
+import {
+  isMissingColumnSchema,
+  isMissingTableSchema,
+} from "@/lib/supabase/schema-errors";
+
+/**
+ * Подробности генерации: плоский набор нормализованных параметров модели.
+ *
+ * Вложенность запрещена намеренно — такие значения группируются в SQL одним
+ * `->>` и читаются глазами в дашборде.
+ */
+export type ConstructorGenerationDetails = Record<
+  string,
+  string | number | boolean
+>;
 
 /** Записывает тип сгенерированной модели; никогда не бросает исключение. */
 export async function recordConstructorGeneration(
   userId: string,
   modelType: string,
+  details?: ConstructorGenerationDetails,
 ): Promise<void> {
+  const row = { user_id: userId, model_type: modelType.slice(0, 64) };
+  const payload: Record<string, unknown> = details
+    ? { ...row, details }
+    : row;
+
   try {
     const admin = createAdminClient();
-    const { error } = await admin.from("constructor_generations").insert({
-      user_id: userId,
-      model_type: modelType.slice(0, 64),
-    });
+    const first = await admin
+      .from("constructor_generations")
+      .insert(payload);
 
-    if (error && !isMissingTableSchema(error.code, error.message)) {
+    if (!first.error) {
+      return;
+    }
+
+    // Колонку details добавляют вручную, поэтому живая база может быть на
+    // schema-шаге назад. Журнал должен пополняться и без подробностей: терять
+    // всю строку из-за необязательного поля нельзя.
+    if (
+      details &&
+      isMissingColumnSchema(first.error.code, first.error.message, "details")
+    ) {
+      const retry = await admin
+        .from("constructor_generations")
+        .insert(row);
+
+      if (
+        retry.error &&
+        !isMissingTableSchema(retry.error.code, retry.error.message)
+      ) {
+        console.error(
+          "[generations] Не удалось записать генерацию:",
+          retry.error.message,
+        );
+      }
+
+      return;
+    }
+
+    if (!isMissingTableSchema(first.error.code, first.error.message)) {
       console.error(
         "[generations] Не удалось записать генерацию:",
-        error.message,
+        first.error.message,
       );
     }
   } catch (error) {

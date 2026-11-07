@@ -34,6 +34,16 @@ create table if not exists public.constructor_generations (
 comment on table public.constructor_generations is
   'Успешные генерации STL: тип модели и время. Источник разбивки в ежедневном отчёте.';
 
+-- Подробности генерации: у вазы — силуэт, узор и деформации, по которым видно,
+-- какие формы реально скачивают. Колонка необязательная: приложение пишет её,
+-- только когда модели есть что записать, и повторяет запись без подробностей,
+-- пока этот SQL не применён в живой базе.
+alter table public.constructor_generations
+  add column if not exists details jsonb;
+
+comment on column public.constructor_generations.details is
+  'Параметры модели на момент генерации; у вазы — shape, pattern, twistDeg, flutes, fluteDepthMm, sectionSides, organic, leanDeg, vaseSeed.';
+
 -- Отчёт читает окно «24 часа» и «с начала месяца», иногда с группировкой.
 create index if not exists constructor_generations_created_idx
   on public.constructor_generations (created_at desc);
@@ -63,5 +73,25 @@ notify pgrst, 'reload schema';
 --        from public.constructor_generations
 --       where created_at >= date_trunc('month', now())
 --       group by model_type
+--       order by generated desc;
+--
+-- 3) Какие формы вазы качают за месяц:
+--      select details->>'shape' as shape,
+--             details->>'pattern' as pattern,
+--             count(*) as generated
+--        from public.constructor_generations
+--       where model_type = 'vase'
+--         and created_at >= date_trunc('month', now())
+--       group by 1, 2
+--       order by generated desc;
+--
+-- 4) Насколько часто включают деформации (0 в details — не включали):
+--      select details->>'twistDeg' as twist,
+--             details->>'flutes' as flutes,
+--             details->>'organic' as organic,
+--             count(*) as generated
+--        from public.constructor_generations
+--       where model_type = 'vase'
+--       group by 1, 2, 3
 --       order by generated desc;
 -- =============================================================================

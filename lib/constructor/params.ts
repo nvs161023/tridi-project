@@ -1346,16 +1346,98 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
 };
 
 /**
- * Имя файла STL для набора параметров.
+ * Имя файла STL для набора параметров вазы.
  *
  * Функция общая для серверного ответа и клиентской запасной подписи ссылки:
  * имя в Content-Disposition и в атрибуте download должно совпадать. Значение
  * wall уже выровнено normalizeVaseParams, поэтому лишние нули не появляются.
+ *
+ * Деформации попадают в имя суффиксами в порядке панели. Без них вазы с
+ * закруткой, жёлобами, гранями, складками и наклоном назывались бы одинаково:
+ * в папке загрузок браузер добавил бы «(1)», и по имени файла рецепт было бы
+ * не восстановить. Нулевые деформации суффикса не дают — у прежней вазы имя
+ * остаётся прежним.
+ *
+ * Сид пишется только при органике: без складок он не влияет на геометрию, а
+ * два одинаковых файла не должны расходиться в именах. Сид стоит последним,
+ * чтобы серия «других ваз» сортировалась рядом.
+ *
+ * Органика — в процентах (`-organic50`): её шаг 0.05 даёт ровно проценты, а
+ * дробь с точкой в имени читается как второе расширение. Глубина жёлобов идёт
+ * рядом с их числом (`-flutes8x2`): восемь жёлобов по 0.2 мм и по 6 мм — разные
+ * вазы. Наклон бывает отрицательным, и знак остаётся как есть (`-lean-10`):
+ * слово «minus» в имени длиннее самого числа.
  */
 export function vaseStlFileName(params: VaseParams): string {
   const patternSuffix = params.pattern === "smooth" ? "" : `-${params.pattern}`;
+  const twistSuffix = params.twistDeg > 0 ? `-twist${params.twistDeg}` : "";
+  const fluteSuffix =
+    params.flutes > 0
+      ? `-flutes${params.flutes}x${formatMillimetres(params.fluteDepthMm)}`
+      : "";
+  const sidesSuffix =
+    params.sectionSides > 0 ? `-sides${params.sectionSides}` : "";
+  const organicSuffix =
+    params.organic > 0 ? `-organic${Math.round(params.organic * 100)}` : "";
+  const leanSuffix = params.leanDeg !== 0 ? `-lean${params.leanDeg}` : "";
+  const seedSuffix = params.organic > 0 ? `-s${params.vaseSeed}` : "";
 
-  return `tridi-vaza-${params.shape}${patternSuffix}-h${params.height}-d${params.diameter}-w${params.wall}.stl`;
+  return [
+    `tridi-vaza-${params.shape}${patternSuffix}`,
+    `-h${params.height}-d${params.diameter}-w${formatMillimetres(params.wall)}`,
+    twistSuffix,
+    fluteSuffix,
+    sidesSuffix,
+    organicSuffix,
+    leanSuffix,
+    seedSuffix,
+    ".stl",
+  ].join("");
+}
+
+/** Число для имени файла: без хвостов плавающей точки, до двух знаков. */
+function formatMillimetres(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
+/**
+ * Метаданные генерации вазы для журнала `constructor_generations.details`.
+ *
+ * Пишем не размеры — они уже в имени файла и в самом STL, — а то, что отвечает
+ * на вопрос «какие вазы реально скачивают»: силуэт, узор, деформации и сид.
+ * Объект плоский, без вложенности: так его можно группировать в SQL одним
+ * `->>`, не разбирая структуру, и он читается глазами в дашборде.
+ *
+ * Сюда приходит результат normalizeVaseParams: в журнале не бывает NaN и «сырых»
+ * значений слайдера, поэтому группировка по `organic` не распадается на сотни
+ * почти одинаковых чисел.
+ */
+export type VaseGenerationDetails = {
+  shape: VaseShape;
+  pattern: VasePattern;
+  twistDeg: number;
+  flutes: number;
+  fluteDepthMm: number;
+  sectionSides: number;
+  organic: number;
+  leanDeg: number;
+  vaseSeed: number;
+};
+
+export function vaseGenerationDetails(
+  params: VaseParams,
+): VaseGenerationDetails {
+  return {
+    shape: params.shape,
+    pattern: params.pattern,
+    twistDeg: params.twistDeg,
+    flutes: params.flutes,
+    fluteDepthMm: params.fluteDepthMm,
+    sectionSides: params.sectionSides,
+    organic: params.organic,
+    leanDeg: params.leanDeg,
+    vaseSeed: params.vaseSeed,
+  };
 }
 
 /**

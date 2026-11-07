@@ -76,6 +76,7 @@ import {
   planterStlFileName,
   signStlFileName,
   standStlFileName,
+  vaseGenerationDetails,
   vaseStlFileName,
   type BoxParams,
   type CoasterParams,
@@ -1361,10 +1362,17 @@ export async function POST(request: Request): Promise<Response> {
         }
       }
 
-      // Журнал для ежедневного отчёта: тип модели и время. Это не лимит, а
-      // аналитика, поэтому пишем и Free, и Pro, а ошибку записи не превращаем
-      // в отказ: файл уже собран и должен уйти пользователю.
-      await recordConstructorGeneration(user.id, parsed.model);
+      // Журнал для ежедневного отчёта: тип модели, время и — у вазы — силуэт,
+      // узор и деформации. Это не лимит, а аналитика, поэтому пишем и Free, и
+      // Pro, а ошибку записи не превращаем в отказ: файл уже собран и должен
+      // уйти пользователю.
+      await recordConstructorGeneration(
+        user.id,
+        parsed.model,
+        parsed.model === "vase"
+          ? vaseGenerationDetails(parsed.params)
+          : undefined,
+      );
 
       return new Response(bytes, {
         status: 200,
