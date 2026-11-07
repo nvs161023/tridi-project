@@ -21,7 +21,7 @@
  * Гранёная ваза: `--sides 5` строит пятигранник на любом силуэте.
  * Каннелюры и закрутка: `--flutes 12 --flute-depth 2 --twist 180`.
  *
- * Лист целиком (8 силуэтов × 6 узоров, по строке на силуэт):
+ * Лист целиком (по строке на силуэт, по столбцу на узор):
  *   node --import ./scripts/register-alias.mjs scripts/vase-render.mjs \
  *     --freq 8 --out .fonttmp/shots/vase-f8.png
  */

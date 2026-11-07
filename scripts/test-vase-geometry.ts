@@ -9,7 +9,7 @@
  * и в углу появлялся диагональный перегиб.
  *
  * Что проверяется:
- *   1. все восемь силуэтов и шесть узоров на дефолтных размерах замкнуты
+ *   1. все двенадцать силуэтов и шесть узоров на дефолтных размерах замкнуты
  *      (у каждого ребра ровно два треугольника), без NaN и с объёмом больше нуля;
  *   2. у квадрата и восьмигранника перпендикулярная толщина на всех кольцах и на
  *      кромке равна заданной ±0.05 мм, а толщина по лучу лежит от `wall` до
@@ -31,7 +31,10 @@
  *   9. каннелюры и закрутка: матрица 4 × 3 × 3 (жёлоба, глубина, угол) остаётся
  *      замкнутой, стенка не тоньше 0.8 мм, глубина на цилиндре равна заданной,
  *      ограничение по стенке работает, а закрутка поворачивает фазу рельефа, не
- *      меняя ни объём, ни шов.
+ *      меняя ни объём, ни шов;
+ *  10. силуэты — это данные: каждая форма доходит до заданного диаметра, не
+ *      закладывает петлю по высоте, имеет свой профиль (никаких копий пресета) и
+ *      остаётся замкнутой вместе с каннелюрами и закруткой.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
@@ -51,7 +54,10 @@ import {
   vaseSegments,
 } from "../lib/constructor/vase-budget";
 import { createVaseGeometry } from "../lib/constructor/vase-geometry";
-import { createVaseProfile } from "../lib/constructor/vase-profile";
+import {
+  calculateVaseVolumeMm3,
+  createVaseProfile,
+} from "../lib/constructor/vase-profile";
 
 /** Допуск толщины стенки, мм: столько же требует план для этапа сечения. */
 const WALL_TOLERANCE_MM = 0.05;
@@ -550,7 +556,7 @@ function shiftInBand(
 const wall = DEFAULT_VASE_PARAMS.wall;
 const diameter = DEFAULT_VASE_PARAMS.diameter;
 
-console.log("1. Замкнутость, NaN и объём: восемь силуэтов и шесть узоров");
+console.log("1. Замкнутость, NaN и объём: двенадцать силуэтов и шесть узоров");
 
 {
   const broken: string[] = [];
@@ -577,9 +583,10 @@ console.log("1. Замкнутость, NaN и объём: восемь силу
     }
   }
 
-  check("48 комбинаций: дыр, NaN и нулевого объёма нет", broken, []);
+  check("все пары силуэт × узор: дыр, NaN и нулевого объёма нет", broken, []);
   console.log(
-    `       худшее ребро: ${worstOpen}, минимальный объём ${minVolume.toFixed(1)} мм³`,
+    `       комбинаций ${VASE_SHAPES.length * VASE_PATTERNS.length}, ` +
+      `худшее ребро: ${worstOpen}, минимальный объём ${minVolume.toFixed(1)} мм³`,
   );
 }
 
@@ -790,7 +797,7 @@ console.log("\n6. Цоколь и обод: профиль и сетка");
     geometry.dispose();
   }
 
-  check("цоколь 10 + обод 4: все восемь силуэтов замкнуты", broken, []);
+  check("цоколь 10 + обод 4: все силуэты замкнуты", broken, []);
 }
 
 for (const overrides of [
@@ -1002,7 +1009,7 @@ console.log("\n7. Затухание узора у кромки и дна");
     }
   }
 
-  check("цоколь 10 + обод 4 + все узоры: 48 комбинаций замкнуты", broken, []);
+  check("цоколь 10 + обод 4 + все узоры: замкнуты", broken, []);
   console.log(`       минимальный объём ${minVolume.toFixed(1)} мм³`);
 }
 
@@ -1479,6 +1486,112 @@ console.log("\n9. Каннелюры и закрутка: глубина, сте
   );
 
   geometry.dispose();
+}
+
+console.log("\n10. Силуэты: данные, а не код");
+
+{
+  // Новые силуэты отличаются от старых только набором опорных точек, поэтому у
+  // них те же обещания: самая широкая часть равна диаметру (слайдер «Диаметр»
+  // обещает габарит), площадь сечения положительна, силуэт не закладывает петлю
+  // по высоте, а профиль не совпадает с чужим — скопированный пресет видно сразу.
+  const profiles = new Map<string, string>();
+  const duplicated: string[] = [];
+  const narrow: string[] = [];
+  const flat: string[] = [];
+  const loops: string[] = [];
+  let minProfileVolume = Number.POSITIVE_INFINITY;
+
+  for (const shape of VASE_SHAPES) {
+    const profile = createVaseProfile(vaseParams({ shape }));
+    const height = profileHeight(profile);
+    const topIndex = profile.findIndex((point) => point.y >= height - 1e-4);
+    const outer = profile.slice(1, topIndex);
+    const maxRadius = Math.max(...profile.map((point) => point.x));
+    const volume = calculateVaseVolumeMm3(profile);
+    const signature = profile
+      .map((point) => `${point.x.toFixed(2)}:${point.y.toFixed(2)}`)
+      .join("|");
+    const twin = [...profiles.entries()].find(([, value]) => value === signature);
+
+    minProfileVolume = Math.min(minProfileVolume, volume);
+
+    // Сплайн снимается шагами и может пройти мимо опорной точки, а у hourglass
+    // вершина скруглена, поэтому до диаметра хватает 98%.
+    if (maxRadius < (diameter / 2) * 0.98) {
+      narrow.push(`${shape}: ${maxRadius.toFixed(2)}`);
+    }
+
+    if (volume <= 0) {
+      flat.push(`${shape}: ${volume.toFixed(1)}`);
+    }
+
+    const dip = outer.findIndex(
+      (point, index) => index > 0 && point.y < outer[index - 1].y - 1e-6,
+    );
+
+    if (dip > 0) {
+      loops.push(`${shape}: спуск на ${outer[dip].y.toFixed(1)} мм`);
+    }
+
+    if (twin) {
+      duplicated.push(`${shape} = ${twin[0]}`);
+    }
+
+    profiles.set(shape, signature);
+  }
+
+  check("каждый силуэт доходит до заданного диаметра", narrow, []);
+  check("площадь сечения положительна", flat, []);
+  check("силуэт не закладывает петлю по высоте", loops, []);
+  check("профили силуэтов не повторяются", duplicated, []);
+  console.log(
+    `       минимальный объём материала ${(minProfileVolume / 1000).toFixed(1)} см³`,
+  );
+}
+
+{
+  // Каннелюры и закрутка на новых силуэтах: рельеф зависит от угла, а узкое
+  // горло бутыли ограничивает глубину — оба механизма включаются на форме,
+  // которой не было при проверке этапа 3.
+  const broken: string[] = [];
+  const normal: number[] = [];
+
+  for (const shape of ["mushroom", "bud", "bottle", "bubble"] as const) {
+    for (const twistDeg of [0, 270]) {
+      const geometry = buildGeometry(
+        vaseParams({
+          shape,
+          pattern: "smooth",
+          flutes: 12,
+          fluteDepthMm: 4,
+          twistDeg,
+        }),
+      );
+      const open = openEdges(geometry);
+      const nan = nanVertices(geometry);
+      const volume = volumeMm3(geometry);
+
+      normal.push(...wallMeasurements(geometry).normal);
+
+      if (open !== 0 || nan !== 0 || volume <= 0) {
+        broken.push(
+          `${shape}, ${twistDeg}°: рёбер ${open}, NaN ${nan}, ` +
+            `объём ${volume.toFixed(1)}`,
+        );
+      }
+
+      geometry.dispose();
+    }
+  }
+
+  check("новые силуэты с 12 жёлобами и закруткой: замкнуты", broken, []);
+  checkRange(
+    "новые силуэты с жёлобами: стенка не тоньше 0.8 мм",
+    normal,
+    0.8,
+    wall / Math.cos(Math.PI / 3) + WALL_TOLERANCE_MM,
+  );
 }
 
 console.log("");

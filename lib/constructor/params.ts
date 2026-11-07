@@ -310,6 +310,11 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
  * Профиль по высоте остаётся плавным, а радиус зависит от угла, поэтому
  * квадратная ваза сохраняет толщину стенки на гранях и в углах. Слайдер «Грани»
  * обобщает это на любое сечение от 3 до 12 граней.
+ *
+ * mushroom, bud, bottle и bubble добавились на этапе «новые силуэты»: это только
+ * новые наборы опорных точек профиля, код геометрии и панели они не трогают.
+ * У mushroom широкая шляпка на узкой ножке, у bud силуэт сходится к узкой
+ * горловине, у bottle плечо и горлышко графина, у bubble стопка из трёх сфер.
  */
 export const VASE_SHAPES = [
   "classic",
@@ -320,6 +325,10 @@ export const VASE_SHAPES = [
   "double_bulb",
   "square",
   "octagon",
+  "mushroom",
+  "bud",
+  "bottle",
+  "bubble",
 ] as const;
 
 export type VaseShape = (typeof VASE_SHAPES)[number];
@@ -334,6 +343,10 @@ export const VASE_SHAPE_LABELS = {
   double_bulb: "Двойная сфера",
   square: "Квадратная",
   octagon: "Восьмигранная",
+  mushroom: "Гриб",
+  bud: "Бутон",
+  bottle: "Бутыль",
+  bubble: "Пузыри",
 } as const satisfies Record<VaseShape, string>;
 
 /**
