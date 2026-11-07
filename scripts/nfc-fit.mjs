@@ -1,20 +1,24 @@
 /**
- * Временный анализ: влезает ли круглая NFC-метка Ø26 × 1 мм в каждый пресет.
+ * Анализ растра: влезает ли круглая NFC-метка Ø26 × 1 мм в каждый пресет.
  *
- * Задача — не кодировать карман, а получить числа: силуэт каждого пресета
- * строится тем же `buildKeychainPresetGeometry`, что и предпросмотр, затем
- * проекция растрируется в маску 0.1 мм, и для каждой клетки считается точное
- * евклидово расстояние до ближайшего свободного места (преобразование
- * Фельзенцвальба). Максимум этого расстояния — радиус наибольшего вписанного
- * круга, его центр — рекомендуемый центр кармана.
+ * Задача — числа, а не геометрия кармана: силуэт каждого пресета строится тем же
+ * `buildKeychainPresetGeometry`, что и предпросмотр, затем проекция растрируется
+ * в маску 0.1 мм, и для каждой клетки считается точное евклидово расстояние до
+ * ближайшего свободного места (преобразование Фельзенцвальба). Максимум этого
+ * расстояния — радиус наибольшего вписанного круга, его центр — рекомендуемый
+ * центр кармана.
  *
- * Требования кармана: метка R13, кольцевая стенка 1.5 мм и слой крышки 1.5 мм.
- * Радиус вписанного круга должен быть не меньше 13 + 1.5 = 14.5 мм, а с учётом
- * фаски 0.4 мм, которая сжимает кромку со стороны задней грани, — 14.9 мм.
- * Толщина должна быть не меньше 1 + 1.5 = 2.5 мм.
+ * Требования взяты из кода (`lib/constructor/keychain-preset-geometry.ts`):
+ * полость равна метке — `NFC_POCKET_RADIUS_MM = 13`; кольцевая стенка
+ * `NFC_WALL_MIN_MM = 1.5`, поэтому нужен вписанный круг 14.5 мм, а с учётом
+ * фаски 0.4 мм, которая сжимает кромку профиля, — 14.9 мм. Крышка и дно не
+ * фиксированы: `nfcZones` делит остаток толщины пополам (`floor = (T − 1.2)/2`,
+ * `lid = floor − 0.2`), поэтому по толщине порог — блок ниже 3.0 мм и норма от
+ * 3.5 мм. Скрипт печатает и растр, и фактический `nfcLayout`, чтобы числа
+ * расчёта и кода не разошлись.
  *
  * Запуск:
- *   node --import ./scripts/register-alias.mjs scripts/tmp-nfc-fit.mjs
+ *   node --import ./scripts/register-alias.mjs scripts/nfc-fit.mjs
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -25,18 +29,22 @@ import {
   buildKeychainPresetGeometry,
   gearLayout,
   heartLayout,
+  nfcLayout,
   starburstLayout,
   ticketLayout,
 } from "../lib/constructor/keychain-preset-geometry";
 import { DEFAULT_QR_CARD_SPEC } from "../lib/constructor/qr-card-geometry";
 
-/** Метка: диаметр и глубина кармана, мм. */
+/** Метка: диаметр, мм. Глубина входит в высоту полости. */
 const TAG_DIAMETER_MM = 26;
-const TAG_DEPTH_MM = 1;
+/** Высота полости: метка плюс зазор, мм (`NFC_CAVITY_HEIGHT_MM`). */
+const CAVITY_MM = 1.2;
 /** Кольцевая стенка от края метки до контура, мм. */
 const WALL_MM = 1.5;
-/** Минимальный слой пластика над меткой, мм. */
-const CAP_MM = 1.5;
+/** Блок по толщине, мм (`NFC_BLOCK_THICKNESS_MM`): ниже карман не режется. */
+const BLOCK_MM = 3;
+/** Норма по толщине, мм (`NFC_TIGHT_THICKNESS_MM`): ниже — жёлтая плашка. */
+const NORM_MM = 3.5;
 /** Фаска контура: на столько сжимается кромка у задней грани, мм. */
 const BEVEL_MM = 0.4;
 /** Шаг растра, мм: 0.1 даёт погрешность радиуса ±0.05 мм. */
@@ -46,7 +54,16 @@ const PAD_MM = 2;
 
 const REQUIRED_MM = TAG_DIAMETER_MM / 2 + WALL_MM;
 const REQUIRED_BEVEL_MM = REQUIRED_MM + BEVEL_MM;
-const REQUIRED_THICKNESS_MM = TAG_DEPTH_MM + CAP_MM;
+
+/**
+ * Пластик над полостью при заданной толщине, мм.
+ *
+ * `nfcZones` делит остаток пополам, поэтому крышка повторяет дно: `(T − 1.2)/2`
+ * минус губа 0.2 мм. При 3.5 это 0.95, при 4 — 1.2.
+ */
+function lidMm(thickness) {
+  return (thickness - CAVITY_MM) / 2 - 0.2;
+}
 
 /** Огромное, но конечное значение: с ним арифметика преобразования не даёт NaN. */
 const FAR = 1e12;
@@ -469,9 +486,9 @@ for (const preset of KEYCHAIN_PRESETS) {
       null,
     );
     const thickness = preset.defaultThickness;
-    const capMm = thickness - TAG_DEPTH_MM;
+    const lid = lidMm(thickness);
     const fitsRadius = onAxis.radiusMm >= REQUIRED_BEVEL_MM;
-    const fitsThickness = capMm >= CAP_MM;
+    const fitsThickness = thickness >= BLOCK_MM - 1e-6;
     const recommendedY = widest
       ? Math.round(((widest[0] + widest[1]) / 2) * 10) / 10
       : null;
@@ -496,7 +513,7 @@ for (const preset of KEYCHAIN_PRESETS) {
         y: box.max.y - box.min.y,
         z: box.max.z - box.min.z,
       },
-      capMm,
+      lidMm: lid,
       onAxisRadiusMm: onAxis.radiusMm,
       onAxisY: onAxis.y,
       contourRadiusMm: contourRadius[onAxis.index],
@@ -544,7 +561,7 @@ for (const preset of KEYCHAIN_PRESETS) {
         `максимум везде R${anywhere.radiusMm.toFixed(2)} в (${anywhere.x.toFixed(1)}, ${anywhere.y.toFixed(1)}), ` +
         `препятствие на (${obstacle.dx.toFixed(1)}, ${obstacle.dy.toFixed(1)}), ` +
         `окна Y: ${ranges.map(([a, b]) => `${a.toFixed(1)}…${b.toFixed(1)}`).join(", ") || "нет"}, ` +
-        `крышка ${capMm.toFixed(2)} → ${fitsRadius && fitsThickness ? `ВЛЕЗАЕТ, Y=${recommendedY}` : "НЕ ВЛЕЗАЕТ"}`,
+        `крышка ${lid.toFixed(2)} → ${fitsRadius && fitsThickness ? `ВЛЕЗАЕТ, Y=${recommendedY}` : "НЕ ВЛЕЗАЕТ"}`,
     );
 
 
@@ -572,9 +589,39 @@ const ready = results.filter((item) => item.fits);
 
 console.log(
   `\nВлезает ${ready.length} из ${results.length}: ` +
-    ready.map((item) => `${item.id}@Y=${item.recommendedY}`).join(", "),
+    ready.map((item) => `${item.id}${item.variant ? ` (${item.variant})` : ""}@Y=${item.recommendedY}`).join(", "),
 );
-console.log(`Нужен радиус ${REQUIRED_BEVEL_MM} мм и толщина ${REQUIRED_THICKNESS_MM} мм.`);
+console.log(
+  `Нужен вписанный круг ${REQUIRED_MM} мм (14.9 с фаской профиля) и толщина от ${BLOCK_MM} мм, норма от ${NORM_MM} мм.`,
+);
+
+// Сверка с кодом: `nfcLayout` — единственный источник правды для панели и API.
+// Растр показывает, влезает ли метка физически; раскладка — где стоит полость и
+// какая стенка получается. Расхождение центров и есть повод править шаблон.
+console.log("\nnfcLayout на рабочих размерах:");
+
+for (const preset of KEYCHAIN_PRESETS) {
+  if (preset.nfcPocketY === undefined) {
+    continue;
+  }
+
+  const thickness = preset.id === "qr-card" ? 3.5 : preset.defaultThickness;
+  const layout = nfcLayout(preset.id, {
+    width: preset.defaultWidth,
+    height: preset.defaultHeight,
+    thickness,
+    nfcEnabled: true,
+    holePlacement: "center",
+    qr: preset.id === "qr-card" ? qrSpec("tab") : null,
+  });
+
+  console.log(
+    `${preset.id} ${preset.defaultWidth}×${preset.defaultHeight}×${thickness}: ` +
+      `центр ${layout.pocketY}, стенка ${layout.wallMm.toFixed(2)}, дно ${layout.floorMm.toFixed(2)}, ` +
+      `крышка ${layout.lidMm.toFixed(2)}, пауза ${layout.pauseZ.toFixed(2)}, ` +
+      `blocked=${layout.blockedReason ?? "нет"}, tight=${layout.tightReason ?? "нет"}`,
+  );
+}
 
 // Точные числа раскладок: ими в отчёте называются конкретные препятствия
 // (радиус впадины, положение отверстия), а не «примерно там».

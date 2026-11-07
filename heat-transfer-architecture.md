@@ -28,7 +28,7 @@
   `window.localStorage`), отдельного «серверного» ограничения нет;
 - проверять геометрию без интерфейса можно node-скриптом с алиасом:
   `node --import ./scripts/register-alias.mjs scripts/<name>.mjs`, образец —
-  `scripts/tmp-nfc-fit.mjs` (585 строк, строит пресеты тем же кодом, что
+  `scripts/nfc-fit.mjs` (строит пресеты тем же кодом, что
   предпросмотр);
 - `calculateGeometryVolumeMm3` (`lib/constructor/geometry-volume.ts:25`) даёт
   готовый критерий «оболочка замкнута и не вывернута»;
@@ -96,7 +96,7 @@ SVG в браузере ухудшает качество ровно там, г�
 готовым контурам элемента, а не к координатам внутри `d`.
 
 Проверка без интерфейса: временный скрипт по образцу
-`scripts/tmp-nfc-fit.mjs` прогоняет `KEYCHAIN_FALLBACK_SVG` и 2–3 пресета через
+`scripts/nfc-fit.mjs` прогоняет `KEYCHAIN_FALLBACK_SVG` и 2–3 пресета через
 `parseSvgOutline` до и после и сравнивает массивы точек. Второй прогон — SVG с
 вложенными `<g transform="translate(...)">` и `<g transform="scale(-1,1)">`:
 координаты должны совпасть с ожидаемыми.
@@ -257,7 +257,7 @@ SVG в браузере ухудшает качество ровно там, г�
    `createHolePath`, `buildShapes` + `extraHoles`. Готово, когда `npm run build`,
    `npm run lint` и `npm run check:imports` зелёные, а объём и габариты трёх
    пресетов и custom-брелока совпадают с замерами до переноса (скрипт по образцу
-   `scripts/tmp-nfc-fit.mjs`).
+   `scripts/nfc-fit.mjs`).
 2. **`feat(svg-outline): apply transform and group stack`** (A1).
    Матрицы, `parseTransform`, стек `<g>`, применение к готовым контурам.
    Готово, когда координаты `KEYCHAIN_FALLBACK_SVG` не изменились, а тестовый

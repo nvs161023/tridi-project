@@ -36,12 +36,18 @@ const DOCS_PATH = "PROJECT.md";
  * `lib/constructor/keychain-shapes.ts` — там же с 4 ноября 2026: четырнадцать
  * встроенных силуэтов брелока удалены, остались восемь пресетов и свой контур, а
  * история изменений по-прежнему называет файл, в котором лежали SVG-строки.
+ *
+ * `lib/constructor/cable-clips-geometry.ts` — там же с 6 ноября 2026: семь
+ * генераторов (крючок, клипсы, нашивка, абажур, держатель кружки, шкатулка и
+ * подарочная коробка) убраны из конструктора, а история изменений описывает,
+ * как клипсы собирались.
  */
 const REMOVED_PATHS = new Set([
   "data/course.json",
   "app/favicon.ico",
   "lib/constructor/lamp-geometry.ts",
   "lib/constructor/keychain-shapes.ts",
+  "lib/constructor/cable-clips-geometry.ts",
   "lib/lesson-outline.ts",
 ]);
 
