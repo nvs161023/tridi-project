@@ -3515,7 +3515,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `saved_projects` | `id uuid`, `user_id uuid`, `title text`, `model_type text`, `params_json jsonb`, `created_at timestamptz` | Сохранённые проекты конструктора: название 1–60 символов, модель отдельной колонкой для списка в кабинете, параметры — объектом в `params_json`. RLS: `select`, `insert`, `update` и `delete` только своих строк (`auth.uid() = user_id`), `anon` доступа нет; индекс `(user_id, created_at desc)` под последние 12. Схема — `supabase/saved_projects.sql` |
 | `constructor_feedback` | `id uuid`, `user_id uuid`, `model_type text`, `rating integer`, `feedback_text text`, `created_at timestamptz` | Оценки конструктора после скачивания STL: `rating` 1–5, комментарий до 1000 символов или `null`, модель — из списка генераторов. RLS: только `select` и `insert` своих строк, правок и удаления через API нет; сводку владелец смотрит service-role клиентом или в SQL Editor. Схема — `supabase/constructor_feedback.sql` |
 | `site_visits` | `id uuid`, `path text`, `created_at timestamptz` | Обезличенный счётчик просмотров публичных страниц: путь без query-строки (1–512 символов) и время, без IP и `user_id`. Политик RLS нет вовсе, у `anon` и `authenticated` отозваны гранты — пишет и читает только `service_role` из middleware и ежедневного отчёта. Схема — `supabase/site_visits.sql` |
-| `constructor_generations` | `id uuid`, `user_id uuid`, `model_type text`, `details jsonb`, `created_at timestamptz` | Журнал успешных выдач STL (бесплатные и с активным доступом): тип модели и время, `user_id` с `on delete set null` — удаление аккаунта не стирает историю. В отличие от `constructor_downloads` это не лимит, а аналитика: ошибка записи не мешает отдать файл. Доступ только у `service_role`. Схема — `supabase/constructor_generations.sql`. Колонка `details` — параметры модели на момент генерации (у вазы силуэт, узор, деформации и сид): по ней видно, какие формы реально качают, а `null` означает старую запись или базу без применённого `alter table` |
+| `constructor_generations` | `id uuid`, `user_id uuid not null`, `model_type text`, `details jsonb`, `created_at timestamptz` | Журнал успешных выдач STL (бесплатные и с активным доступом): тип модели и время, `user_id` с `on delete cascade` — удаление аккаунта удаляет и его генерации, обезличенной истории не остаётся. В отличие от `constructor_downloads` это не лимит, а аналитика: ошибка записи не мешает отдать файл. Доступ только у `service_role`. Схема — `supabase/constructor_generations.sql`. Колонка `details` — параметры модели на момент генерации (у вазы силуэт, узор, деформации и сид): по ней видно, какие формы реально качают, а `null` означает старую запись или базу без применённого `alter table` |
 | `forum_categories` | `id uuid`, `slug text unique`, `title`, `description`, `"order" integer` | Разделы форума; наполняются отдельно после применения `supabase/forum.sql` |
 | `forum_threads` | `id uuid`, `category_id`, `slug text unique`, `title`, `content`, `author_id`, `created_at`, `views`, `status` | Темы форума; публично видны только `approved`, автор видит свои |
 | `forum_replies` | `id uuid`, `thread_id`, `content`, `author_id`, `created_at`, `status` | Ответы; публикуются сразу (`approved`), проверяются после публикации, нарушения удаляются из админки |
@@ -3609,7 +3609,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
   политики `select`/`insert`, представление `course_review_authors` и гранты),
   `site_visits.sql` (обезличенный счётчик просмотров: RLS без политик, гранты только
   `service_role`, индекс по `created_at`), `constructor_generations.sql` (журнал выдач
-  STL с разбивкой по моделям, `user_id` с `on delete set null`, доступ только у
+  STL с разбивкой по моделям, `user_id` с `on delete cascade`, доступ только у
   `service_role`), `workshop_settings.sql` (настройки калькулятора Мастерской: одна строка на
   пользователя, check-пределы повторяют форму, RLS на свои строки, триггер `updated_at` и
   `notify pgrst, 'reload schema'`) и `workshop_filaments.sql` (склад пластика: катушки с весом,
@@ -10357,6 +10357,12 @@ middleware и дев-сервер, а драйвер WebGL в headless-Chromium 
   Пока колонки в живой базе нет, `isMissingColumnSchema` ловит PGRST204 и запись повторяется без
   подробностей: необязательное поле не должно стоить всей строки журнала. В конце SQL — готовые
   запросы «какие формы вазы качают за месяц» и «как часто включают деформации».
+- Схема журнала приведена к живой базе: `user_id uuid not null` с `on delete cascade`.
+  Удаление аккаунта уносит и его генерации, обезличенной истории не остаётся — правило
+  проверено на временном пользователе через Admin API (`DELETE` вернул 200, строки после
+  удаления не осталось). В `supabase/constructor_generations.sql` рядом с `on delete cascade`
+  стоит идемпотентный блок синхронизации: `alter column user_id set not null` и пересоздание
+  ключа `constructor_generations_user_id_fkey` (`drop constraint if exists` + `add constraint`).
 - Тринадцатый раздел `scripts/test-vase-geometry.ts`, девятнадцать проверок: у дефолтной вазы имя
   прежнее, каждая деформация даёт свой суффикс, полный набор собирается в ожидаемую строку, имя
   состоит только из `[a-z0-9._-]` и короче 120 символов, двенадцать разных наборов дают двенадцать

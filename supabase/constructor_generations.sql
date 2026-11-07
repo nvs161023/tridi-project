@@ -14,18 +14,24 @@
 --
 -- Модель доступа: как у site_visits — только service_role. Клиентским ролям
 -- таблица не нужна, персональных данных в ней нет (user_id нужен лишь для
--- возможной сверки и обезличивается при удалении аккаунта).
+-- сверки). Строка принадлежит аккаунту: при его удалении генерации уходят
+-- вместе с ним (on delete cascade), обезличенного хвоста не остаётся.
 --
 -- Проверить после применения:
 --   select column_name, data_type, is_nullable
 --     from information_schema.columns
 --    where table_schema = 'public' and table_name = 'constructor_generations';
+--   select conname, confdeltype
+--     from pg_constraint
+--    where conrelid = 'public.constructor_generations'::regclass
+--      and contype = 'f';   -- ожидается c: генерации уходят вместе с аккаунтом
 -- =============================================================================
 
 create table if not exists public.constructor_generations (
   id uuid primary key default gen_random_uuid(),
-  -- on delete set null: удаление аккаунта не должно стирать историю генераций.
-  user_id uuid references auth.users (id) on delete set null,
+  -- on delete cascade: генерация принадлежит аккаунту и уходит вместе с ним,
+  -- обезличенной истории не остаётся. `not null` повторяет живую базу.
+  user_id uuid not null references auth.users (id) on delete cascade,
   -- Ключ модели из lib/constructor/params.ts: vase, keychain, box и т.д.
   model_type text not null check (char_length(model_type) between 1 and 64),
   created_at timestamptz not null default now()
@@ -33,6 +39,21 @@ create table if not exists public.constructor_generations (
 
 comment on table public.constructor_generations is
   'Успешные генерации STL: тип модели и время. Источник разбивки в ежедневном отчёте.';
+
+-- Синхронизация с базой, созданной до этого файла: колонка user_id там уже
+-- `not null`, а ключ мог остаться с прежним правилом. Повторный запуск
+-- безопасен: ограничение снимается через `if exists` и создаётся заново.
+-- `set not null` требует, чтобы строк без user_id не было; писать их некому —
+-- /api/constructor/stl без сессии отвечает 401, и запись всегда идёт с user.id.
+alter table public.constructor_generations
+  alter column user_id set not null;
+
+alter table public.constructor_generations
+  drop constraint if exists constructor_generations_user_id_fkey;
+
+alter table public.constructor_generations
+  add constraint constructor_generations_user_id_fkey
+  foreign key (user_id) references auth.users (id) on delete cascade;
 
 -- Подробности генерации: у вазы — силуэт, узор и деформации, по которым видно,
 -- какие формы реально скачивают. Колонка необязательная: приложение пишет её,
@@ -94,4 +115,11 @@ notify pgrst, 'reload schema';
 --       where model_type = 'vase'
 --       group by 1, 2, 3
 --       order by generated desc;
+--
+-- 5) Правило удаления ключа: confdeltype = 'c' — строки уходят вместе с
+--    аккаунтом, 'n' — история остаётся обезличенной:
+--      select conname, confdeltype
+--        from pg_constraint
+--       where conrelid = 'public.constructor_generations'::regclass
+--         and contype = 'f';
 -- =============================================================================
