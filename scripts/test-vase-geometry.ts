@@ -38,7 +38,11 @@
  *  11. органика и наклон: один сид даёт ту же сетку вершина в вершину, без
  *      органики сид не влияет, складки гаснут у дна и под кромкой, стенка на
  *      двух диаметрах не тоньше 0.8 мм, а наклон сохраняет объём, оставляет
- *      дно на столе и добавляет к габариту ровно tan(угла) · высоту.
+ *      дно на столе и добавляет к габариту ровно tan(угла) · высоту;
+ *  12. галерея вариантов: «Другая ваза» даёт целый сид в пределах слайдера и не
+ *      повторяет текущий, серия из двенадцати сидов воспроизводима и без
+ *      повторов, а плитка превью детерминирована, отличается между сидами и
+ *      занимает разумную долю кадра.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
@@ -48,6 +52,7 @@
 import type { BufferGeometry } from "three";
 
 import {
+  CONSTRUCTOR_LIMITS,
   DEFAULT_VASE_PARAMS,
   VASE_PATTERNS,
   VASE_SHAPES,
@@ -55,6 +60,7 @@ import {
 } from "../lib/constructor/params";
 import {
   VASE_EXPORT_TRIANGLE_BUDGET,
+  VASE_PREVIEW_TRIANGLE_BUDGET,
   vaseSegments,
 } from "../lib/constructor/vase-budget";
 import { createVaseGeometry } from "../lib/constructor/vase-geometry";
@@ -62,6 +68,11 @@ import {
   calculateVaseVolumeMm3,
   createVaseProfile,
 } from "../lib/constructor/vase-profile";
+import {
+  VASE_PREVIEW_BACKGROUND,
+  renderVaseRgb,
+} from "../lib/constructor/vase-preview";
+import { nextVaseSeed, vaseSeedSeries } from "../lib/constructor/vase-seed";
 
 /** Допуск толщины стенки, мм: столько же требует план для этапа сечения. */
 const WALL_TOLERANCE_MM = 0.05;
@@ -1521,6 +1532,44 @@ function positionsMatch(first: BufferGeometry, second: BufferGeometry): boolean 
   return true;
 }
 
+/** Два кадра совпадают байт в байт: плитка галереи не «плывёт» между рендерами. */
+function bytesMatch(first: Uint8ClampedArray, second: Uint8ClampedArray): boolean {
+  if (first.length !== second.length) {
+    return false;
+  }
+
+  for (let index = 0; index < first.length; index += 1) {
+    if (first[index] !== second[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Какая доля кадра занята вазой.
+ *
+ * Фон у превью ровный, поэтому «не фон» — это модель. Доля нужна, чтобы гейт
+ * заметил пустую плитку: если камера уедет или растеризатор перестанет рисовать,
+ * проверка на разницу сидов этого не увидит.
+ */
+function coveredShare(rgb: Uint8ClampedArray): number {
+  let covered = 0;
+
+  for (let index = 0; index < rgb.length; index += 3) {
+    if (
+      rgb[index] !== VASE_PREVIEW_BACKGROUND[0] ||
+      rgb[index + 1] !== VASE_PREVIEW_BACKGROUND[1] ||
+      rgb[index + 2] !== VASE_PREVIEW_BACKGROUND[2]
+    ) {
+      covered += 1;
+    }
+  }
+
+  return covered / (rgb.length / 3);
+}
+
 /**
  * Разброс радиусов в кольце по высотам: «насколько стенка гуляет по кругу».
  *
@@ -1859,6 +1908,70 @@ console.log("\n11. Органика и наклон: сид, толщина ст
     `       кромка: ровная ${rimCenters[2].toFixed(2)} мм, ` +
       `наклон 30° ${rimCenters[4].toFixed(2)} мм, габарит ${widths[4].toFixed(2)} мм, ` +
       `объём ${(volumeDrift * 100).toFixed(3)} %`,
+  );
+}
+
+console.log("\n12. Галерея вариантов: сид, серия и кадр превью");
+
+{
+  // «Другая ваза» меняет ровно одно число — сид. Кнопка не бросает
+  // Math.random(): серия воспроизводима, и сохранённый проект открывается теми
+  // же вазами. Поэтому проверяются границы, несовпадение с текущим сидом и
+  // повторяемость результата.
+  const max = CONSTRUCTOR_LIMITS.vaseSeed.max;
+  const min = CONSTRUCTOR_LIMITS.vaseSeed.min;
+  const current = DEFAULT_VASE_PARAMS.vaseSeed;
+  const next = nextVaseSeed(current, max);
+  const series = vaseSeedSeries(current, 12, max);
+  const inRange = (seed: number) =>
+    Number.isInteger(seed) && seed >= min && seed <= max;
+
+  check("кнопка: сид — целое в пределах слайдера", inRange(next), true);
+  check("кнопка: новый сид не равен текущему", next !== current, true);
+  check("кнопка: повторный вызов даёт тот же сид", nextVaseSeed(current, max), next);
+  check("серия: двенадцать разных сидов", new Set(series).size, 12);
+  check("серия: все сиды в пределах слайдера", series.every(inRange), true);
+  check("серия: текущего сида в ней нет", series.includes(current), false);
+  check(
+    "серия: повторный вызов даёт тот же список",
+    JSON.stringify(vaseSeedSeries(current, 12, max)),
+    JSON.stringify(series),
+  );
+
+  // Плитка галереи — тот же растеризатор, что и снимок гейта, только мелкий.
+  const tileOptions = {
+    width: 64,
+    height: 80,
+    supersample: 1,
+    budget: "preview" as const,
+  };
+  const tile = renderVaseRgb(vaseParams({ organic: 1, vaseSeed: 42 }), tileOptions);
+  const tileAgain = renderVaseRgb(
+    vaseParams({ organic: 1, vaseSeed: 42 }),
+    tileOptions,
+  );
+  const tileOther = renderVaseRgb(
+    vaseParams({ organic: 1, vaseSeed: 777 }),
+    tileOptions,
+  );
+  const share = coveredShare(tile.rgb);
+
+  check("превью: размер кадра", [tile.width, tile.height], [64, 80]);
+  check("превью: тот же сид — те же байты", bytesMatch(tile.rgb, tileAgain.rgb), true);
+  check(
+    "превью: другой сид — другая картинка",
+    bytesMatch(tile.rgb, tileOther.rgb),
+    false,
+  );
+  check(
+    "превью: бюджет предпросмотра",
+    tile.triangles <= VASE_PREVIEW_TRIANGLE_BUDGET,
+    true,
+  );
+  checkRange("превью: ваза занимает разумную долю кадра", [share], 0.1, 0.8);
+  console.log(
+    `       плитка ${tile.width} × ${tile.height}: ${tile.triangles} треугольников, ` +
+      `ваза на ${(share * 100).toFixed(1)} % кадра`,
   );
 }
 

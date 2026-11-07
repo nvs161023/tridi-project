@@ -125,6 +125,7 @@ import {
   binarizeByLuminance,
   runsToRects,
 } from "@/lib/constructor/raster-to-contours";
+import { nextVaseSeed } from "@/lib/constructor/vase-seed";
 
 /** Числовые параметры: форму, узор и текст меняют отдельные обработчики. */
 type SizeParam = Exclude<
@@ -2012,6 +2013,33 @@ export function ParameterPanel({
               unit=""
               value={params.vaseSeed}
             />
+
+            {/*
+              Кнопка меняет только сид: силуэт, размеры и расход пластика
+              остаются, поэтому серия «одна ваза, но у всех разные» печатается
+              одинаково по времени. Сид считается хешем предыдущего, а не
+              случайным числом: серия воспроизводима после сохранения проекта.
+            */}
+            <button
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100 transition-colors hover:border-blue-300/60 hover:bg-blue-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onClick={() =>
+                onParamChange(
+                  "vaseSeed",
+                  nextVaseSeed(params.vaseSeed, CONSTRUCTOR_LIMITS.vaseSeed.max),
+                )
+              }
+              type="button"
+            >
+              <span aria-hidden>🎲</span>
+              Другая ваза
+            </button>
+
+            {params.organic === 0 ? (
+              <p className="text-xs leading-relaxed text-amber-200/90">
+                Органика на нуле, поэтому новый сид почти не виден: складки
+                появятся, когда слайдер «Органика» больше нуля.
+              </p>
+            ) : null}
           </div>
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">

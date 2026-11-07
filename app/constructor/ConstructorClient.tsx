@@ -352,6 +352,39 @@ function ViewportSkeleton() {
 }
 
 /**
+ * Галерею грузим только в браузере: она строит двенадцать сеток и рисует их на
+ * canvas, а на сервере это бессмысленная работа. Заглушка держит высоту ряда,
+ * чтобы макет не прыгал, пока чанк едет.
+ */
+const VaseSeedGallery = dynamic(
+  () =>
+    import("@/components/constructor/VaseSeedGallery").then(
+      (module) => module.VaseSeedGallery,
+    ),
+  {
+    ssr: false,
+    loading: () => <VaseGallerySkeleton />,
+  },
+);
+
+function VaseGallerySkeleton() {
+  return (
+    <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+      <p className="text-sm font-semibold text-white">Галерея вариантов</p>
+      <p className="mt-2 text-xs text-slate-300">Готовим двенадцать ваз…</p>
+      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+        {Array.from({ length: 6 }, (_, index) => (
+          <div
+            className="aspect-[18/23] w-full rounded-xl border border-white/10 bg-slate-950/60"
+            key={index}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Клиентская оболочка конструктора.
  *
  * Здесь живёт единственный источник правды — объект параметров. Панель меняет
@@ -1071,6 +1104,13 @@ export function ConstructorClient({
           <div className="mt-3">
             <Viewport params={params} />
           </div>
+
+          {/* Галерея живёт под сценой: сравнить двенадцать ваз удобнее рядом
+              с большой моделью, а не в узкой панели параметров. */}
+          <VaseSeedGallery
+            onSelectSeed={(seed) => updateParam("vaseSeed", seed)}
+            params={params}
+          />
 
           <p className="mt-3 text-xs leading-relaxed text-slate-300">
             Вращение — левая кнопка мыши или один палец, зум — колесо или два
