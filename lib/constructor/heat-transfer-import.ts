@@ -21,9 +21,19 @@ import {
   coverageByColor,
   hasTransparency,
   simplifyContour,
+  strokeWidthHistogram,
+  strokeWidthPercentile,
+  thinStrokeShare,
   traceCoverageContours,
   type RasterLimitCode,
+  type StrokeHistogram,
 } from "@/lib/constructor/raster-to-contours";
+
+/**
+ * Тип гистограммы штрихов реэкспортируется ради панели: ей нужен только он,
+ * и импортировать его отсюда короче, чем тянуть имя растрового модуля.
+ */
+export type { StrokeHistogram };
 
 /** Лимит файла: больше — `FileReader` и canvas подвешивают слабый ноутбук. */
 export const HEAT_TRANSFER_MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -34,8 +44,16 @@ export const HEAT_TRANSFER_MIN_SIDE_PX = 128;
 /** Крупнее 4096 px `getImageData` съедает 64 МБ на мобильном браузере. */
 export const HEAT_TRANSFER_MAX_SIDE_PX = 4096;
 
-/** Рабочая сетка: длинная сторона сжимается до неё, мельче — не растягивается. */
-export const HEAT_TRANSFER_GRID_MAX_PX = 1024;
+/**
+ * Рабочая сетка: длинная сторона сжимается до неё, мельче — не растягивается.
+ *
+ * 2048 px — не «на всякий случай»: на фикстуре с мелким текстом IoU вырос
+ * 0.9900 → 0.9957, а подписи 21 px высотой перестают рассыпаться на рваные
+ * пятна. Пиксель рабочей сетки при 200 мм принта равен 0.098 мм — вдвое мельче
+ * сопла, поэтому край ложится ровно, а не «по клеточкам». `getImageData` на
+ * 2048 × 683 (логотип 3:1) — это 5.6 МБ RGBA, мобильный браузер тянет.
+ */
+export const HEAT_TRANSFER_GRID_MAX_PX = 2048;
 
 /**
  * Нижняя граница рабочей сетки: мелкий исходник растягивается до неё.
@@ -107,6 +125,12 @@ export type HeatTransferImport =
       warning: HeatTransferWarning | null;
       contourCount: number;
       pointCount: number;
+      /**
+       * Распределение толщины штрихов в пикселях рабочей сетки. Панель делит его
+       * на ширину детали и говорит, при каком размере штрихи перестанут быть
+       * тоньше сопла: качество печати зависит от миллиметров, а не от пикселей.
+       */
+      strokes: StrokeHistogram;
     }
   | { ok: false; code: HeatTransferImportCode };
 
@@ -282,6 +306,7 @@ export function rasterToHeatTransferSvg(
     warning: transparent ? null : "no_transparency",
     contourCount: contours.length,
     pointCount,
+    strokes: strokeWidthHistogram(field, width, height),
   };
 }
 
@@ -316,3 +341,93 @@ const IMPORT_ERRORS: Record<HeatTransferImportCode, string> = {
 export function heatTransferImportError(code: HeatTransferImportCode): string {
   return IMPORT_ERRORS[code];
 }
+
+/**
+ * Порог сопла, мм: тоньше пластик не встанет даже на идеальной сетке.
+ *
+ * То же число, что `HEAT_TRANSFER_MIN_PART_MM` в геометрии, но здесь оно
+ * переведено в «сколько миллиметров должно быть у штриха на картинке».
+ */
+export const HEAT_TRANSFER_NOZZLE_MM = 0.4;
+
+/**
+ * Доля длины линий, с которой тонкие штрихи уже заметно портят печать, и
+ * одновременно перцентиль для «тонких мест»: одна константа, чтобы подсказка и
+ * совет по ширине не расходились.
+ *
+ * Два процента ловили иголки на кончиках букв и сглаженные засечки: в тестовом
+ * логотипе это 1.25 px штрихи, из-за которых совет «увеличьте до 330 мм»
+ * выходил при любой ширине. Пять процентов — это уже реальные тонкие линии и
+ * подписи, а не артефакты сглаживания.
+ */
+const HEAT_TRANSFER_THIN_SHARE = 0.05;
+
+/** Что можно сказать о печати логотипа по распределению штрихов. */
+export type HeatTransferLegibility = {
+  /** Толщина нижних 5 % скелета: тонкие места рисунка, мм. */
+  thinMm: number;
+  /** Доля длины линий тоньше сопла при текущей ширине. */
+  thinShare: number;
+  /** Ширина детали, при которой тонкие места дотянут до сопла, мм. */
+  minWidthMm: number;
+};
+
+/**
+ * Оценка печатной читаемости при заданной ширине детали.
+ *
+ * Пиксели рабочей сетки сами по себе ничего не значат: тот же логотип на 80 мм
+ * получает штрихи вдвое тоньше, чем на 160 мм. Поэтому панель пересчитывает
+ * гистограмму `rasterToHeatTransferSvg` в миллиметры при текущем значении
+ * `heatTransferWidth` и честно говорит, влезает ли рисунок в сопло.
+ *
+ * Берутся «нижние 5 % длины линий», а не минимум: одна пылинка в пиксель не
+ * должна давать совет увеличить деталь втрое, а тонкая подпись — должна.
+ * Порог подсказки — тот же 5 %: если тоньше сопла меньше пяти процентов линий,
+ * печать читается, и предупреждать не о чем.
+ */
+export function heatTransferLegibility(
+  strokes: StrokeHistogram,
+  gridWidth: number,
+  widthMm: number,
+): HeatTransferLegibility | null {
+  if (gridWidth <= 0 || widthMm <= 0 || strokes.total === 0) {
+    return null;
+  }
+
+  const mmPerPx = widthMm / gridWidth;
+  const thinPx = strokeWidthPercentile(strokes, HEAT_TRANSFER_THIN_SHARE);
+  const thinMm = thinPx * mmPerPx;
+  const minWidthMm =
+    thinPx > 0
+      ? Math.ceil((HEAT_TRANSFER_NOZZLE_MM * gridWidth) / thinPx / 5) * 5
+      : widthMm;
+
+  return {
+    thinMm,
+    thinShare: thinStrokeShare(strokes, HEAT_TRANSFER_NOZZLE_MM / mmPerPx),
+    minWidthMm: Math.max(widthMm, minWidthMm),
+  };
+}
+
+/**
+ * Подсказка про мелкие штрихи: `null`, если рисунок печатается как есть.
+ *
+ * Текст собирается здесь, а не в панели: числа и порог сопла живут в одном
+ * модуле с импортом, и проверяются node-скриптом без браузера.
+ */
+export function heatTransferStrokeHint(
+  legibility: HeatTransferLegibility | null,
+): string | null {
+  // Сравнение по миллиметрам, а не по доле: подсказка не должна говорить
+  // «штрихи 0.45 мм тоньше сопла 0.4 мм» из-за округления бакетов.
+  if (!legibility || legibility.thinMm >= HEAT_TRANSFER_NOZZLE_MM) {
+    return null;
+  }
+
+  return (
+    `Мелкие штрихи ${legibility.thinMm.toFixed(2)} мм — тоньше сопла ` +
+    `${HEAT_TRANSFER_NOZZLE_MM} мм: подписи и линии заплывут. ` +
+    `Увеличьте деталь до ${legibility.minWidthMm} мм по ширине.`
+  );
+}
+

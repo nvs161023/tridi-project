@@ -14,9 +14,12 @@ import {
   checkHeatTransferSource,
   heatTransferGridSize,
   heatTransferImportError,
+  heatTransferLegibility,
   heatTransferSourceError,
+  heatTransferStrokeHint,
   rasterToHeatTransferSvg,
   type HeatTransferWarning,
+  type StrokeHistogram,
 } from "@/lib/constructor/heat-transfer-import";
 import {
   KEYCHAIN_NFC_CLEARANCE_MM,
@@ -822,6 +825,9 @@ async function heatTransferSvgFromFile(file: File): Promise<{
   lowResolution: boolean;
   contourCount: number | null;
   pointCount: number | null;
+  /** Ширина рабочей сетки: по ней гистограмма штрихов переводится в мм. */
+  gridWidth: number | null;
+  strokes: StrokeHistogram | null;
 }> {
   const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
 
@@ -846,6 +852,8 @@ async function heatTransferSvgFromFile(file: File): Promise<{
       lowResolution: false,
       contourCount: null,
       pointCount: null,
+      gridWidth: null,
+      strokes: null,
     };
   }
 
@@ -897,6 +905,8 @@ async function heatTransferSvgFromFile(file: File): Promise<{
     lowResolution: longest < HEAT_TRANSFER_RECOMMENDED_SIDE_PX,
     contourCount: imported.contourCount,
     pointCount: imported.pointCount,
+    gridWidth: grid.width,
+    strokes: imported.strokes,
   };
 }
 
@@ -1323,6 +1333,10 @@ export function ParameterPanel({
     contourCount: number;
     pointCount: number;
   } | null>(null);
+  const [transferStrokes, setTransferStrokes] = useState<{
+    strokes: StrokeHistogram;
+    gridWidth: number;
+  } | null>(null);
   const [cellsXText, setCellsXText] = useState(() =>
     formatBoxCells(params.cellsX),
   );
@@ -1494,6 +1508,7 @@ export function ParameterPanel({
     setTransferError(null);
     setTransferWarning(null);
     setTransferStats(null);
+    setTransferStrokes(null);
 
     try {
       const result = await heatTransferSvgFromFile(file);
@@ -1515,6 +1530,11 @@ export function ParameterPanel({
             }
           : null,
       );
+      setTransferStrokes(
+        result.strokes !== null && result.gridWidth !== null
+          ? { strokes: result.strokes, gridWidth: result.gridWidth }
+          : null,
+      );
     } catch (error) {
       setTransferError(
         error instanceof Error
@@ -1533,6 +1553,7 @@ export function ParameterPanel({
     setTransferError(null);
     setTransferWarning(null);
     setTransferStats(null);
+    setTransferStrokes(null);
   }
 
   /**
@@ -1570,6 +1591,28 @@ export function ParameterPanel({
   const hasHeatTransferLogo =
     isCustomSvgData(params.heatTransferSvg) &&
     hasDrawableSvgData(params.heatTransferSvg);
+
+  /**
+   * Читаемость логотипа при текущей ширине детали.
+   *
+   * В пикселях штрихи не меняются, а в миллиметрах зависят от
+   * `heatTransferWidth`: поэтому расчёт идёт на каждом рендере, и совет
+   * «увеличьте до N мм» всегда соответствует положению слайдера, а не моменту
+   * загрузки файла.
+   */
+  const transferStrokeHint = useMemo(() => {
+    if (!transferStrokes) {
+      return null;
+    }
+
+    return heatTransferStrokeHint(
+      heatTransferLegibility(
+        transferStrokes.strokes,
+        transferStrokes.gridWidth,
+        params.heatTransferWidth,
+      ),
+    );
+  }, [transferStrokes, params.heatTransferWidth]);
 
   /**
    * Текст поля ячеек уходит в состояние только когда строка разобралась.
@@ -2708,6 +2751,12 @@ export function ParameterPanel({
             {transferWarning ? (
               <p className="mt-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-100">
                 {transferWarning}
+              </p>
+            ) : null}
+
+            {transferStrokeHint ? (
+              <p className="mt-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-100">
+                {transferStrokeHint}
               </p>
             ) : null}
 

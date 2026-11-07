@@ -720,3 +720,243 @@ export function contoursToSvgPath(
 
   return subpaths.join(" ");
 }
+
+/**
+ * Шаг гистограммы толщины штриха, px: полпикселя хватает для решений о сопле.
+ */
+export const RASTER_STROKE_BUCKET_PX = 0.5;
+
+/** Шире этого штрих уже не «тонкий»: 32 px при 0.1 мм/px — это 3.2 мм. */
+const RASTER_STROKE_MAX_PX = 32;
+
+/**
+ * Распределение толщины штрихов по скелету рисунка.
+ *
+ * Нужно, чтобы панель могла честно сказать: «штрихи 0.23 мм при ширине 120 мм —
+ * тоньше сопла 0.4 мм». Толщина — удвоенное расстояние до ближайшего фона:
+ * у полосы в 3 px оно равно 1 px.
+ *
+ * Считается только по скелету — пикселям, где расстояние до фона локально
+ * максимально. По всей площади метрика бессмысленна: у края любого штриха
+ * расстояние мало по определению, и доля «тоньше сопла» выходила бы 15 % даже
+ * у километровой плашки. Скелет же даёт ровно ширину линий.
+ *
+ * Гистограмма, а не минимум: единичная пылинка в 1 px не должна пугать
+ * пользователя, а тонкая подпись — должна.
+ */
+export type StrokeHistogram = {
+  /** Пикселей скелета в бакете: толщина от `index * bucketPx` до следующей. */
+  counts: Uint32Array;
+  bucketPx: number;
+  total: number;
+};
+
+/**
+ * Расстояние от каждого пикселя пластика до фона по Чамферу 3-4.
+ *
+ * Два прохода (вниз-вправо и вверх-влево) с весами 1 и 1.41: погрешность около
+ * 4 % против точного евклидова преобразования, зато один линейный проход без
+ * очередей и квадратов. Для «толще сопла или нет» этого хватает с запасом.
+ */
+function backgroundDistance(
+  field: Float32Array,
+  width: number,
+  height: number,
+): Float32Array {
+  const total = width * height;
+  const distance = new Float32Array(total);
+  const FAR = 1e6;
+
+  for (let index = 0; index < total; index += 1) {
+    distance[index] = field[index] >= 0.5 ? FAR : 0;
+  }
+
+  const relax = (target: number, source: number, cost: number): void => {
+    const next = distance[source] + cost;
+
+    if (next < distance[target]) {
+      distance[target] = next;
+    }
+  };
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+
+      if (distance[index] === 0) {
+        continue;
+      }
+
+      if (x > 0) {
+        relax(index, index - 1, 1);
+      }
+
+      if (y > 0) {
+        relax(index, index - width, 1);
+
+        if (x > 0) {
+          relax(index, index - width - 1, 1.41);
+        }
+
+        if (x + 1 < width) {
+          relax(index, index - width + 1, 1.41);
+        }
+      }
+    }
+  }
+
+  for (let y = height - 1; y >= 0; y -= 1) {
+    for (let x = width - 1; x >= 0; x -= 1) {
+      const index = y * width + x;
+
+      if (distance[index] === 0) {
+        continue;
+      }
+
+      if (x + 1 < width) {
+        relax(index, index + 1, 1);
+      }
+
+      if (y + 1 < height) {
+        relax(index, index + width, 1);
+
+        if (x + 1 < width) {
+          relax(index, index + width + 1, 1.41);
+        }
+
+        if (x > 0) {
+          relax(index, index + width - 1, 1.41);
+        }
+      }
+    }
+  }
+
+  return distance;
+}
+
+/**
+ * Гистограмма толщины штрихов поля покрытия.
+ *
+ * На входе — покрытие и его расстояния до фона; в гистограмму попадают только
+ * скелетные пиксели (локальный максимум расстояния в окне 3×3). Шаг 0.5 px:
+ * при 0.1 мм/px это 0.05 мм, мельче точности печати, поэтому граница «толще
+ * сопла» определяется без промаха.
+ */
+export function strokeWidthHistogram(
+  field: Float32Array,
+  width: number,
+  height: number,
+): StrokeHistogram {
+  const buckets = Math.ceil(RASTER_STROKE_MAX_PX / RASTER_STROKE_BUCKET_PX) + 1;
+  const counts = new Uint32Array(buckets);
+  let total = 0;
+
+  if (width <= 0 || height <= 0) {
+    return { counts, bucketPx: RASTER_STROKE_BUCKET_PX, total };
+  }
+
+  const distance = backgroundDistance(field, width, height);
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      const own = distance[index];
+
+      if (field[index] < 0.5 || own <= 0) {
+        continue;
+      }
+
+      let peak = true;
+
+      for (let dy = -1; dy <= 1 && peak; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          if (dx === 0 && dy === 0) {
+            continue;
+          }
+
+          const nx = x + dx;
+          const ny = y + dy;
+
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
+            continue;
+          }
+
+          if (distance[ny * width + nx] > own) {
+            peak = false;
+            break;
+          }
+        }
+      }
+
+      if (!peak) {
+        continue;
+      }
+
+      // −1: расстояние меряется до центра пикселя фона, а граница пластика
+      // проходит на полпикселя ближе. Штрих в 3 px иначе оценивался бы в 5.
+      const thickness = own * 2 - 1;
+      const bucket = Math.min(
+        buckets - 1,
+        Math.floor(thickness / RASTER_STROKE_BUCKET_PX),
+      );
+
+      counts[bucket] += 1;
+      total += 1;
+    }
+  }
+
+  return { counts, bucketPx: RASTER_STROKE_BUCKET_PX, total };
+}
+
+/** Доля длины скелета, у которой штрих тоньше `limitPx`. */
+export function thinStrokeShare(
+  histogram: StrokeHistogram,
+  limitPx: number,
+): number {
+  if (histogram.total === 0) {
+    return 0;
+  }
+
+  const lastThin = Math.ceil(limitPx / histogram.bucketPx) - 1;
+  let thin = 0;
+
+  for (
+    let index = 0;
+    index < histogram.counts.length && index <= lastThin;
+    index += 1
+  ) {
+    thin += histogram.counts[index];
+  }
+
+  return thin / histogram.total;
+}
+
+/**
+ * Толщина штриха, ниже которой лежит `share` площади пластика.
+ *
+ * По ней панель считает, до какой ширины детали нужно увеличить логотип:
+ * `нужная ширина = порог сопла * ширина кадра / перцентиль`.
+ */
+export function strokeWidthPercentile(
+  histogram: StrokeHistogram,
+  share: number,
+): number {
+  if (histogram.total === 0) {
+    return 0;
+  }
+
+  const limit = histogram.total * Math.min(1, Math.max(0, share));
+  let seen = 0;
+
+  for (let index = 0; index < histogram.counts.length; index += 1) {
+    seen += histogram.counts[index];
+
+    if (seen >= limit) {
+      // Середина бакета, а не верхняя граница: иначе штрих в 3 px весил бы 3.5
+      // и на границе сопла решение переворачивалось бы из-за округления.
+      return (index + 0.5) * histogram.bucketPx;
+    }
+  }
+
+  return histogram.counts.length * histogram.bucketPx;
+}
