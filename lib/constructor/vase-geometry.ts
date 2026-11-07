@@ -19,6 +19,11 @@ import {
   vaseSegments,
   type VaseBudget,
 } from "@/lib/constructor/vase-budget";
+import {
+  createVaseDeformation,
+  fluteDepthLimitMm,
+  type VaseDeformation,
+} from "@/lib/constructor/vase-deformation";
 import { vaseFootHeight, vaseRimHeight } from "@/lib/constructor/vase-profile";
 import { createVaseSection } from "@/lib/constructor/vase-section";
 
@@ -29,10 +34,10 @@ import { createVaseSection } from "@/lib/constructor/vase-section";
  * радиальном сегменте. На оси вращения и на шве окружности (φ = 0 и φ = 2π)
  * появляются совпадающие вершины и треугольники нулевой площади. Для
  * предпросмотра они безвредны, но STL и слайсеры любят чистую сетку, поэтому
- * здесь пять шагов: N-угольное сечение (грани 3–12, «как в силуэте» у square и
- * octagon), смещение вершин узором с затуханием у дна и под кромкой, сварка по
- * координатам, удаление вырожденных треугольников и пересчёт нормалей по
- * итоговому обходу.
+ * здесь шесть шагов: N-угольное сечение (грани 3–12, «как в силуэте» у square и
+ * octagon), смещение вершин узором и каннелюрами с затуханием у дна и под
+ * кромкой, закрутка фазы по высоте, сварка по координатам, удаление вырожденных
+ * треугольников и пересчёт нормалей по итоговому обходу.
  *
  * Сколько сегментов по окружности, решает lib/constructor/vase-budget.ts:
  * 128 по умолчанию и до 256 там, где рельеф мельче сетки.
@@ -116,6 +121,9 @@ export type VaseGeometryParams = Partial<
     | "footMm"
     | "rimMm"
     | "sectionSides"
+    | "twistDeg"
+    | "flutes"
+    | "fluteDepthMm"
   >
 >;
 
@@ -319,6 +327,54 @@ function radiusAtHeight(samples: HeightRadius[], height: number): number {
 }
 
 /**
+ * Толщина стенки по высоте, мм.
+ *
+ * Нужна каннелюрам: глубина жёлоба ограничена долей стенки, и брать для этого
+ * слайдер нельзя — в узкой горловине профиль сам утоньшает стенку, а жёлоб живёт
+ * по всей высоте. Поэтому толщина считается по тому же профилю, что и геометрия:
+ * на каждой высоте из внешнего радиуса вычитается внутренний. Ограничение
+ * получается мягким: в теле вазы жёлоб полной глубины, в горловине мельче — это
+ * и нужно, тонкая стенка глубокой канавки не выдержит.
+ *
+ * Ниже дна полости и выше кромки разность не имеет смысла (внутренней стенки там
+ * нет), поэтому она ограничена нулём: глубина жёлоба не станет отрицательной.
+ */
+function createWallLookup(profile: Vector2[]): (y: number) => number {
+  const { outer, inner } = buildProfileRadii(profile);
+
+  if (outer.length === 0 || inner.length === 0) {
+    return () => 0;
+  }
+
+  return (y) =>
+    Math.max(radiusAtHeight(outer, y) - radiusAtHeight(inner, y), 0);
+}
+
+/**
+ * Сдвиг фазы по высоте для закрутки.
+ *
+ * Возвращает функцию «высота → угол»: у дна ноль, у кромки полный угол
+ * закрутки. По ней поворачиваются кольца (`applyTwist`), поэтому грани,
+ * каннелюры и узор закручиваются вместе. Высота берётся из готовой сетки:
+ * `applyTwist` вызывается и тогда, когда параметров нет вовсе.
+ *
+ * При нулевом угле возвращается константа, и тогда вершины не трогаются вовсе —
+ * это условие сохранности старых ваз.
+ */
+function createTwistPhase(
+  deformation: VaseDeformation,
+  span: { min: number; max: number },
+): (y: number) => number {
+  const height = span.max - span.min;
+
+  if (deformation.twistRad === 0 || height <= WELD_TOLERANCE_MM) {
+    return () => 0;
+  }
+
+  return (y) => deformation.phaseAt((y - span.min) / height);
+}
+
+/**
  * Превращает круглое сечение в правильный N-угольник.
  *
  * N задаёт `sectionSides` (3–12), а силуэт — когда слайдер стоит на «как в
@@ -480,7 +536,7 @@ function patternFade(
 }
 
 /**
- * Смещает вершины LatheGeometry по математическому узору.
+ * Смещает вершины LatheGeometry по узору и каннелюрам.
  *
  * Функция работает до сварки: шов окружности и ось ещё продублированы, но
  * смещение зависит только от угла и высоты, поэтому совпадающие вершины
@@ -488,27 +544,42 @@ function patternFade(
  * одной высоте получают одинаковый сдвиг радиуса — толщина стенки сохраняется.
  * Вершины на оси не двигаются, иначе дно и кромка отошли бы от центра.
  *
- * Амплитуда умножается на `patternFade`: у дна и под кромкой узор гаснет до
+ * Смещение собирается из двух слагаемых:
+ *   — узор (`patternWave`, амплитуда в мм) — прежний рельеф, синусы и соты;
+ *   — каннелюры — канавка с почти плоским дном, глубина тоже в миллиметрах.
+ *
+ * Закрутка здесь не участвует: она поворачивает готовое кольцо целиком
+ * (`applyTwist`), и это то же самое, что сдвинуть фазу рельефа по высоте, но без
+ * потери точности. Если бы фаза входила в формулу, вершины кольца оставались бы
+ * на прежних углах, и дно жёлоба с углом многоугольника попадали бы в сетку
+ * через раз — ребро шло бы пилой.
+ *
+ * Амплитуда умножается на `patternFade`: у дна и под кромкой рельеф гаснет до
  * нуля. Без этого венец вазы на частоте 20 выходил зубчатым гребешком, а край
- * первого слоя гулял волной по периметру. Затухание зависит только от высоты,
- * поэтому кольца остаются кольцами, а стенка — стенкой: на каждой высоте
- * смещение одинаково для всех вершин кольца.
+ * первого слоя гулял волной по периметру. Каннелюры гаснут по той же причине:
+ * первый слой должен лечь полным диском, а кромка остаться ровной. Затухание
+ * зависит только от высоты, поэтому кольца остаются кольцами, а стенка —
+ * стенкой: на каждой высоте смещение одинаково для всех вершин кольца.
+ *
+ * Глубина жёлоба ограничивается на каждой высоте отдельно: `0.6 · стенка` и
+ * `0.45 · самый узкий радиус`. Второе не даёт кольцу вывернуться через ось,
+ * первое — кривизне дна жёлоба превысить половину толщины стенки (иначе
+ * треугольники на дне начинают пересекаться).
  *
  * Топология не меняется: вершины только переставляются, число треугольников
  * остаётся прежним. Нормали считаются позже, после сварки и очистки.
  */
-function applyPattern(
+function applyRelief(
   lathe: LatheGeometry,
+  profile: Vector2[],
   params: VaseGeometryParams,
 ): void {
   const pattern = isVasePattern(params.pattern)
     ? params.pattern
     : DEFAULT_VASE_PARAMS.pattern;
-
-  if (pattern === "smooth") {
-    return;
-  }
-
+  const deformation = createVaseDeformation(params);
+  const position = lathe.getAttribute("position");
+  const minRadius = findMinRadius(position);
   const intensity = clamp(
     params.patternIntensity ?? DEFAULT_VASE_PARAMS.patternIntensity,
     CONSTRUCTOR_LIMITS.patternIntensity.min,
@@ -522,25 +593,24 @@ function applyPattern(
     CONSTRUCTOR_LIMITS.patternFrequency.max,
   );
 
-  if (intensity <= 0) {
+  // Ноль означает «рельефа нет»: гладкая стенка, нулевая сила узора или
+  // выключенные каннелюры не должны попадать в цикл по вершинам.
+  const patternStrength =
+    pattern === "smooth" || intensity <= 0
+      ? 0
+      : Math.min(intensity, minRadius * MAX_PATTERN_RADIUS_SHARE);
+  const flutesActive =
+    deformation.fluteCount > 0 && deformation.fluteDepthMm > 0;
+
+  if (patternStrength <= 0 && !flutesActive) {
     return;
   }
 
-  const position = lathe.getAttribute("position");
-  const minRadius = findMinRadius(position);
+  const wallAt = flutesActive ? createWallLookup(profile) : () => 0;
   const referenceRadius =
     pattern === "honeycomb" || pattern === "scales"
       ? findMaxRadius(position)
       : 1;
-  const safeIntensity = Math.min(
-    intensity,
-    minRadius * MAX_PATTERN_RADIUS_SHARE,
-  );
-
-  if (safeIntensity <= 0) {
-    return;
-  }
-
   const { min: bottom, max: top } = findHeightSpan(position);
   const height = top - bottom;
   const foot = vaseFootHeight(height, params.footMm);
@@ -565,10 +635,20 @@ function applyPattern(
     }
 
     const angle = Math.atan2(z, x);
-    const offset =
-      patternWave(pattern, angle, y, frequency, referenceRadius) *
-      safeIntensity *
-      fade;
+    const waveOffset =
+      patternStrength > 0
+        ? patternWave(pattern, angle, y, frequency, referenceRadius) *
+          patternStrength
+        : 0;
+    const fluteDepth = flutesActive
+      ? Math.min(
+          deformation.fluteDepthMm,
+          fluteDepthLimitMm(wallAt(y), minRadius),
+        )
+      : 0;
+    const fluteOffset =
+      fluteDepth > 0 ? -fluteDepth * deformation.fluteNotchAt(angle) : 0;
+    const offset = (waveOffset + fluteOffset) * fade;
     const scale = (radius + offset) / radius;
 
     position.setX(index, x * scale);
@@ -576,6 +656,58 @@ function applyPattern(
   }
 
   position.needsUpdate = true;
+}
+
+/**
+ * Закрутка: поворачивает каждое кольцо вокруг оси на свой угол.
+ *
+ * Это последний шаг перед сваркой, и порядок не случаен. Радиусы к этому
+ * моменту уже посчитаны — сечение, узор, каннелюры — в «своей» системе координат
+ * кольца, а поворот кольца целиком переводит их в мировые углы. Результат тот же,
+ * что у сдвига фазы формул по высоте, но точнее: вершины стоят на сетке шагов,
+ * поэтому угол многоугольника и дно жёлоба попадают в них на любой высоте. Если
+ * бы фаза входила в формулу, а вершины оставались на месте, промах у угла был бы
+ * линейным — до 0.8 мм на диаметре 90 мм, и ребро гранёной вазы шло бы пилой.
+ *
+ * Толщина стенки сохраняется по построению: поворот — изометрия, все вершины
+ * кольца (внешние и внутренние) поворачиваются на один угол, а радиусы не меняются
+ * вовсе. Объём при этом гуляет на доли процента: поверхность между двумя
+ * повёрнутыми кольцами — уже не призма, а винтовая полоса (в тесте 0.34% на 90°).
+ *
+ * Шов окружности сходится при любом угле: обе его копии лежат на одной высоте и
+ * поворачиваются одинаково, поэтому после поворота они по-прежнему совпадают.
+ * Вершины на оси не трогаем — им нечего поворачивать.
+ */
+function applyTwist(lathe: LatheGeometry, phaseAt: (y: number) => number): void {
+  const position = lathe.getAttribute("position");
+  let twisted = false;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const y = position.getY(index);
+    const phase = phaseAt(y);
+
+    if (phase === 0) {
+      continue;
+    }
+
+    const x = position.getX(index);
+    const z = position.getZ(index);
+    const radius = Math.hypot(x, z);
+
+    if (radius <= WELD_TOLERANCE_MM) {
+      continue;
+    }
+
+    const angle = Math.atan2(z, x) + phase;
+
+    position.setX(index, radius * Math.cos(angle));
+    position.setZ(index, radius * Math.sin(angle));
+    twisted = true;
+  }
+
+  if (twisted) {
+    position.needsUpdate = true;
+  }
 }
 
 /**
@@ -706,20 +838,26 @@ function signedVolumeTimesSix(geometry: BufferGeometry): number {
  * Строит сетку вазы из профиля.
  *
  * Порядок важен: сначала LatheGeometry, затем сечение по граням (оно опирается
- * на исходный профиль, чтобы знать толщину стенки), смещение вершин узором,
- * сварка и очистка, проверка знака объёма (при необходимости разворачиваем
- * индексы), и только потом computeVertexNormals — он считает нормали по
- * итоговому обходу треугольников уже с рельефом. Благодаря этому внешние стенки
- * смотрят наружу, а внутренние — в полость.
+ * на исходный профиль, чтобы знать толщину стенки), смещение вершин узором и
+ * каннелюрами, сварка и очистка, проверка знака объёма (при необходимости
+ * разворачиваем индексы), и только потом computeVertexNormals — он считает
+ * нормали по итоговому обходу треугольников уже с рельефом. Благодаря этому
+ * внешние стенки смотрят наружу, а внутренние — в полость.
+ *
+ * Закрутка — последний шаг перед сваркой: кольцо целиком поворачивается на свой
+ * угол (`applyTwist`), поэтому рельеф и грани идут по спирали, а сетка в каждом
+ * кольце остаётся той же самой. Высота фазовой функции берётся из готовой сетки —
+ * та же, по которой гаснет рельеф у дна и кромки.
  *
  * Число сегментов по окружности больше не константа: его считает
- * `vaseSegments` по частоте рельефа, граням сечения и бюджету треугольников.
- * Для гладких ваз и для узоров на частоте до 8 это ровно 128 сегментов, то есть
- * прежняя сетка вершина в вершину; вырастает оно только там, где рельеф
- * действительно мельче сетки, и округляется вверх до кратного граням — иначе
- * углы 3, 5, 6, 7, 9, 10, 11 и 12-гранника срезались бы хордой между соседними
- * кольцами. Режим сборки передаётся третьим аргументом: предпросмотр (по
- * умолчанию) и STL считают бюджет по-разному.
+ * `vaseSegments` по частоте рельефа, граням сечения, каннелюрам и бюджету
+ * треугольников. Для гладких ваз и для узоров на частоте до 8 это ровно 128
+ * сегментов, то есть прежняя сетка вершина в вершину; вырастает оно только там,
+ * где рельеф действительно мельче сетки, и округляется вверх до кратного граням
+ * и жёлобам — иначе углы 3, 5, 6, 7, 9, 10, 11 и 12-гранника срезались бы
+ * хордой между соседними кольцами, а дно жёлоба не попало бы в вершину. Режим
+ * сборки передаётся третьим аргументом: предпросмотр (по умолчанию) и STL
+ * считают бюджет по-разному.
  */
 export function createVaseGeometry(
   profile: Vector2[],
@@ -736,8 +874,14 @@ export function createVaseGeometry(
     options.budget ?? "preview",
   );
   const lathe = new LatheGeometry(profile, segments);
+  const phaseAt = createTwistPhase(
+    createVaseDeformation(params),
+    findHeightSpan(lathe.getAttribute("position")),
+  );
+
   applyShape(lathe, profile, params);
-  applyPattern(lathe, params);
+  applyRelief(lathe, profile, params);
+  applyTwist(lathe, phaseAt);
 
   const geometry = weldAndClean(lathe);
 

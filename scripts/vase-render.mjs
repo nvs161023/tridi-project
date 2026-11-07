@@ -19,6 +19,7 @@
  *     --out .fonttmp/shots/classic-honeycomb-f20.png
  *
  * Гранёная ваза: `--sides 5` строит пятигранник на любом силуэте.
+ * Каннелюры и закрутка: `--flutes 12 --flute-depth 2 --twist 180`.
  *
  * Лист целиком (8 силуэтов × 6 узоров, по строке на силуэт):
  *   node --import ./scripts/register-alias.mjs scripts/vase-render.mjs \
@@ -422,6 +423,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     args.sides,
     DEFAULT_CONSTRUCTOR_PARAMS.sectionSides,
   );
+  const twistDeg = numberOption(args.twist, DEFAULT_CONSTRUCTOR_PARAMS.twistDeg);
+  const flutes = numberOption(args.flutes, DEFAULT_CONSTRUCTOR_PARAMS.flutes);
+  const fluteDepthMm = numberOption(
+    args["flute-depth"],
+    DEFAULT_CONSTRUCTOR_PARAMS.fluteDepthMm,
+  );
   const azimuth = numberOption(args.azimuth, 24);
   const elevation = numberOption(args.elevation, 12);
   const size = numberOption(args.size, 760);
@@ -434,6 +441,9 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     footMm,
     rimMm,
     sectionSides,
+    twistDeg,
+    flutes,
+    fluteDepthMm,
   };
 
   mkdirSync(path.dirname(out), { recursive: true });
@@ -454,8 +464,9 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     writeFileSync(out, encodePng(frame.width, frame.height, frame.rgb));
     console.log(
       `${params.shape}/${params.pattern} f${frequency}, цоколь ${footMm}, ` +
-        `обод ${rimMm}, граней ${sectionSides}: ${frame.triangles} треугольников, ` +
-        `${frame.width} × ${frame.height} → ${out}`,
+        `обод ${rimMm}, граней ${sectionSides}, каннелюр ${flutes} × ` +
+        `${fluteDepthMm} мм, закрутка ${twistDeg}°: ${frame.triangles} ` +
+        `треугольников, ${frame.width} × ${frame.height} → ${out}`,
     );
   } else {
     // Лист всей матрицы: строка — силуэт, столбец — узор. Одного взгляда

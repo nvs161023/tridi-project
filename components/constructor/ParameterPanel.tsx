@@ -1933,6 +1933,42 @@ export function ParameterPanel({
               unit="раз"
               value={params.patternFrequency}
             />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.flutes.decimals}
+              hint="Канавки с почти плоским дном вместо синуса: 8–12 читаются как античная каннелюра, 20–24 — как тонкая насечка. Глубина задаётся в миллиметрах и ограничена стенкой, поэтому тонкая ваза получит мелкие жёлоба."
+              label="Каннелюры"
+              max={CONSTRUCTOR_LIMITS.flutes.max}
+              min={CONSTRUCTOR_LIMITS.flutes.min}
+              onChange={(value) => onParamChange("flutes", value)}
+              step={CONSTRUCTOR_LIMITS.flutes.step}
+              unit="шт"
+              value={params.flutes}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.fluteDepthMm.decimals}
+              hint="1 мм — деликатная канавка, 3 мм — глубокий жёлоб. Больше не получится: геометрия ограничивает глубину 60% стенки и 45% самого узкого радиуса, иначе стенка на дне жёлоба вывернулась бы."
+              label="Глубина каннелюр"
+              max={CONSTRUCTOR_LIMITS.fluteDepthMm.max}
+              min={CONSTRUCTOR_LIMITS.fluteDepthMm.min}
+              onChange={(value) => onParamChange("fluteDepthMm", value)}
+              step={CONSTRUCTOR_LIMITS.fluteDepthMm.step}
+              unit="мм"
+              value={params.fluteDepthMm}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.twistDeg.decimals}
+              hint="Фаза рельефа поворачивается от дна к кромке: грани, каннелюры и узор идут по спирали. 90–180° — заметный поворот, 360–720° — тугая спираль. Ровный круг без узора не меняется: закручивать нечего, а шов сходится при любом угле."
+              label="Закрутка"
+              max={CONSTRUCTOR_LIMITS.twistDeg.max}
+              min={CONSTRUCTOR_LIMITS.twistDeg.min}
+              onChange={(value) => onParamChange("twistDeg", value)}
+              step={CONSTRUCTOR_LIMITS.twistDeg.step}
+              unit="°"
+              value={params.twistDeg}
+            />
           </div>
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">

@@ -7,6 +7,7 @@ import {
   type VasePattern,
 } from "@/lib/constructor/params";
 import { DETAIL_PATTERN_SCALE } from "@/lib/constructor/pattern-waves";
+import { resolveFluteCount } from "@/lib/constructor/vase-deformation";
 import {
   resolveSectionSides,
   VASE_SECTION_MIN_SIDES,
@@ -64,7 +65,10 @@ export type VaseBudget = "preview" | "export";
 
 /** Поля параметров, от которых зависит разрешение по окружности. */
 export type VaseBudgetParams = Partial<
-  Pick<VaseParams, "pattern" | "patternFrequency" | "shape" | "sectionSides">
+  Pick<
+    VaseParams,
+    "pattern" | "patternFrequency" | "shape" | "sectionSides" | "flutes"
+  >
 >;
 
 function clamp(value: number, min: number, max: number): number {
@@ -180,9 +184,85 @@ export function sectionSegmentStep(sides: number): number {
   return Math.round(sides) * 2;
 }
 
-/** Округляет число сегментов вверх до кратного граням. */
-export function alignSegmentsToSection(segments: number, sides: number): number {
-  const step = sectionSegmentStep(sides);
+/**
+ * Сколько сегментов нужно, чтобы каннелюры читались.
+ *
+ * У жёлоба один период на оборот, поэтому правило то же, что у узоров:
+ * `VASE_SAMPLES_PER_PERIOD` выборок на жёлоб. Даже 24 жёлоба требуют 192
+ * сегмента — меньше потолка, поэтому каннелюры никогда не упираются в
+ * разрешение.
+ */
+export function requiredFluteSegments(flutes: number): number {
+  const count = Math.round(flutes);
+
+  if (!Number.isFinite(count) || count <= 0) {
+    return 0;
+  }
+
+  return clamp(
+    count * VASE_SAMPLES_PER_PERIOD,
+    VASE_MIN_SEGMENTS,
+    VASE_MAX_SEGMENTS,
+  );
+}
+
+/**
+ * Во сколько раз шаг колец должен нацело делиться, чтобы жёлоба были точными.
+ *
+ * У жёлоба два характерных места — гребень и дно. Чтобы в вершины попали оба,
+ * круг должен делиться на `2 · flutes`: тогда сетка не «промахивается» мимо дна
+ * и глубина совпадает с заданной. Промах был бы второго порядка (у дна
+ * производная равна нулю), но 5–6% от трёх миллиметров видны на глаз, а лишние
+ * сегменты почти бесплатны.
+ */
+export function fluteSegmentStep(flutes: number): number {
+  const count = Math.round(flutes);
+
+  if (!Number.isFinite(count) || count <= 0) {
+    return 1;
+  }
+
+  return count * 2;
+}
+
+/** Наибольший общий делитель: нужен, чтобы сложить шаги выравнивания. */
+function greatestCommonDivisor(first: number, second: number): number {
+  let a = Math.abs(first);
+  let b = Math.abs(second);
+
+  while (b > 0) {
+    const rest = a % b;
+
+    a = b;
+    b = rest;
+  }
+
+  return a > 0 ? a : 1;
+}
+
+/**
+ * Округляет число сегментов вверх до кратного всем шагам сразу.
+ *
+ * Шаги бывают несовместимыми: 11 граней требуют кратности 22, а 23 каннелюры —
+ * 46, и общее кратное 506 вдвое больше нужного. Поэтому вызывающий код сначала
+ * пробует полное кратное, а если оно не влезает в бюджет — оставляет только
+ * геометрически обязательный шаг граней (`vaseSegments`).
+ */
+export function alignSegmentsToSteps(
+  segments: number,
+  steps: readonly number[],
+): number {
+  let step = 1;
+
+  for (const value of steps) {
+    const rounded = Math.round(value);
+
+    if (!Number.isFinite(rounded) || rounded <= 1) {
+      continue;
+    }
+
+    step = (step * rounded) / greatestCommonDivisor(step, rounded);
+  }
 
   if (step <= 1) {
     return segments;
@@ -194,13 +274,17 @@ export function alignSegmentsToSection(segments: number, sides: number): number 
 /**
  * Число сегментов по окружности для конкретной вазы.
  *
- * Порядок: взять требование рельефа, затем урезать его бюджетом, затем
- * округлить вверх до кратного граням. Профиль важнее окружности (силуэт видно
- * на просвет), поэтому ниже базы разрешение не опускается никогда: 128
- * сегментов при 129 точках — это 32 768 треугольников, они влезают даже в самый
- * скромный лимит. Если выравнивание под грани вылезает за бюджет (это возможно
- * только на вазе с очень подробным профилем), бюджет важнее: углы тогда
- * срезаются хордой, но файл остаётся в лимите.
+ * Порядок: взять требование рельефа (узор и каннелюры), затем урезать его
+ * бюджетом, затем округлить вверх до общего кратного граням и жёлобам. Профиль
+ * важнее окружности (силуэт видно на просвет), поэтому ниже базы разрешение не
+ * опускается никогда: 128 сегментов при 129 точках — это 32 768 треугольников,
+ * они влезают даже в самый скромный лимит.
+ *
+ * Выравнивание может потребовать вдвое больше сегментов, чем нужно рельефу
+ * (см. `alignSegmentsToSteps`), поэтому у него свой потолок — двойной максимум
+ * по окружности и бюджет. Если полное кратное в потолок не влезает, остаётся
+ * только шаг граней: каннелюры тогда получают на пару процентов меньше глубины,
+ * а углы многоугольника остаются точными — это важнее.
  */
 export function vaseSegments(
   params: VaseBudgetParams,
@@ -211,15 +295,29 @@ export function vaseSegments(
     ? params.pattern
     : DEFAULT_VASE_PARAMS.pattern;
   const shape = isVaseShape(params.shape) ? params.shape : DEFAULT_VASE_PARAMS.shape;
-  const required = requiredVaseSegments(pattern, params.patternFrequency);
+  const flutes = resolveFluteCount(params.flutes);
+  const required = Math.max(
+    requiredVaseSegments(pattern, params.patternFrequency),
+    requiredFluteSegments(flutes),
+  );
   const byBudget = Math.floor(
     vaseTriangleBudget(budget) / (2 * Math.max(profilePointCount - 1, 1)),
   );
   const base = Math.max(VASE_MIN_SEGMENTS, Math.min(required, byBudget));
-  const aligned = alignSegmentsToSection(
-    base,
+  const sectionStep = sectionSegmentStep(
     resolveSectionSides(shape, params.sectionSides),
   );
+  const ceiling = Math.min(byBudget, VASE_MAX_SEGMENTS * 2);
+  const aligned = alignSegmentsToSteps(base, [
+    sectionStep,
+    fluteSegmentStep(flutes),
+  ]);
 
-  return aligned <= byBudget ? aligned : base;
+  if (aligned <= ceiling) {
+    return aligned;
+  }
+
+  const bySection = alignSegmentsToSteps(base, [sectionStep]);
+
+  return bySection <= ceiling ? bySection : base;
 }

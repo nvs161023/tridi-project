@@ -27,7 +27,11 @@
  *      `diameter / 2`, середина грани — на `diameter / 2 · cos(π/N)`, сетка
  *      замкнута, а стенка на гранях и в углах равна заданной по нормали.
  *      Слайдер «0–2» повторяет силуэт: у квадрата это четыре грани, у классики
- *      круг.
+ *      круг;
+ *   9. каннелюры и закрутка: матрица 4 × 3 × 3 (жёлоба, глубина, угол) остаётся
+ *      замкнутой, стенка не тоньше 0.8 мм, глубина на цилиндре равна заданной,
+ *      ограничение по стенке работает, а закрутка поворачивает фазу рельефа, не
+ *      меняя ни объём, ни шов.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
@@ -42,6 +46,10 @@ import {
   VASE_SHAPES,
   type VaseParams,
 } from "../lib/constructor/params";
+import {
+  VASE_EXPORT_TRIANGLE_BUDGET,
+  vaseSegments,
+} from "../lib/constructor/vase-budget";
 import { createVaseGeometry } from "../lib/constructor/vase-geometry";
 import { createVaseProfile } from "../lib/constructor/vase-profile";
 
@@ -451,6 +459,55 @@ function heightSpan(geometry: BufferGeometry): { min: number; max: number } {
   }
 
   return { min, max };
+}
+
+/**
+ * Кольцо профиля, ближайшее к заданной доле высоты.
+ *
+ * Нужно там, где важна не вся сетка, а одно сечение: глубина жёлоба и фаза
+ * закрутки читаются на одном кольце, и перебирать ради этого все кольца профиля
+ * незачем. Доля 0.25 — четверть высоты: там затухание у дна уже кончилось, а
+ * закрутка прошла четверть своего угла.
+ */
+function ringAtHeightShare(
+  geometry: BufferGeometry,
+  share: number,
+): RingPoint[] {
+  const { min, max } = heightSpan(geometry);
+  const target = min + (max - min) * share;
+  let closest: RingPoint[] = [];
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  for (const [key, ring] of ringsByHeight(geometry)) {
+    const distance = Math.abs(Number(key) - target);
+
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closest = ring;
+    }
+  }
+
+  return closest;
+}
+
+/**
+ * Угол самого глубокого места кольца, приведённый к одному периоду узора.
+ *
+ * У жёлоба период — `2π / flutes`, и дно канавки лежит на определённой фазе
+ * внутри периода. Модуль убирает номер жёлоба: важно не «какой по счёту», а
+ * «где внутри своего периода», поэтому фазу закрутки можно сравнивать с нулём
+ * и с половиной периода, не зная, в каком месте круга мы смотрим.
+ */
+function deepestAngleWithinPeriod(ring: RingPoint[], period: number): number {
+  let deepest = ring[0];
+
+  for (const point of ring) {
+    if (point.radius < deepest.radius) {
+      deepest = point;
+    }
+  }
+
+  return ((deepest.angle % period) + period) % period;
 }
 
 /**
@@ -1144,6 +1201,282 @@ console.log("\n8. Грани: правильный N-угольник от 3 д�
   check("треугольник Ø40 со стенкой 4: NaN 0", nanVertices(geometry), 0);
   check("треугольник Ø40 со стенкой 4: объём больше нуля", volume > 0, true);
   console.log(`       объём ${volume.toFixed(1)} мм³`);
+
+  geometry.dispose();
+}
+
+console.log("\n9. Каннелюры и закрутка: глубина, стенка и шов");
+
+{
+  // Матрица плана: 4, 8, 16, 24 жёлоба × 1, 3, 6 мм × закрутка 0, 90, 180°.
+  // Классика выбрана как самый тесный силуэт: горловина узкая, стенка в ней
+  // тоньше заданной, поэтому ограничение глубины включается по-настоящему.
+  const broken: string[] = [];
+  let minVolume = Number.POSITIVE_INFINITY;
+  let maxTriangles = 0;
+
+  for (const flutes of [4, 8, 16, 24]) {
+    for (const depth of [1, 3, 6]) {
+      for (const twist of [0, 90, 180]) {
+        const geometry = buildGeometry(
+          vaseParams({
+            pattern: "smooth",
+            flutes,
+            fluteDepthMm: depth,
+            twistDeg: twist,
+          }),
+        );
+        const open = openEdges(geometry);
+        const nan = nanVertices(geometry);
+        const volume = volumeMm3(geometry);
+        const index = geometry.getIndex();
+
+        minVolume = Math.min(minVolume, volume);
+        maxTriangles = Math.max(maxTriangles, index ? index.count / 3 : 0);
+
+        if (open !== 0 || nan !== 0 || volume <= 0) {
+          broken.push(
+            `${flutes} × ${depth} мм, ${twist}°: рёбер ${open}, ` +
+              `NaN ${nan}, объём ${volume.toFixed(1)}`,
+          );
+        }
+
+        geometry.dispose();
+      }
+    }
+  }
+
+  check("матрица 4 × 3 × 3: замкнутость, NaN и объём", broken, []);
+  console.log(
+    `       минимальный объём ${minVolume.toFixed(1)} мм³, ` +
+      `максимум треугольников ${maxTriangles}`,
+  );
+  check(
+    "треугольников не больше бюджета STL",
+    maxTriangles <= VASE_EXPORT_TRIANGLE_BUDGET,
+    true,
+  );
+}
+
+{
+  // Стенка на жёлобах. Смещение одинаково для внешней и внутренней
+  // поверхностей, поэтому толщина по нормали остаётся заданной, но на дне
+  // жёлоба поверхность наклонена — допуск шире, чем у гладкой вазы. Порог
+  // 0.8 мм из плана: тоньше не печатается двумя периметрами.
+  const normal: number[] = [];
+
+  for (const flutes of [4, 8, 16, 24]) {
+    for (const twist of [0, 180]) {
+      const geometry = buildGeometry(
+        vaseParams({
+          pattern: "smooth",
+          flutes,
+          fluteDepthMm: 6,
+          twistDeg: twist,
+        }),
+      );
+
+      normal.push(...wallMeasurements(geometry).normal);
+      geometry.dispose();
+    }
+  }
+
+  // Гранёная ваза с жёлобами: внутренняя стенка строится вписанным
+  // многоугольником, поэтому смещение канавки проверяется и на гранях, и в углах.
+  for (const sectionSides of [4, 8]) {
+    for (const twist of [0, 180]) {
+      const geometry = buildGeometry(
+        vaseParams({
+          pattern: "smooth",
+          sectionSides,
+          flutes: 16,
+          fluteDepthMm: 6,
+          twistDeg: twist,
+        }),
+      );
+
+      normal.push(...wallMeasurements(geometry).normal);
+      geometry.dispose();
+    }
+  }
+
+  // Верхняя граница щедрая: на гранях и в углах расстояние от внутренней
+  // вершины до ближайшей точки контура может быть больше заданной стенки — важен
+  // только нижний порог 0.8 мм, тоньше пластик не печатается двумя периметрами.
+  checkRange(
+    "стенка на жёлобах: не тоньше 0.8 мм",
+    normal,
+    0.8,
+    wall / Math.cos(Math.PI / 3) + WALL_TOLERANCE_MM,
+  );
+}
+
+{
+  // Глубина жёлоба проверяется на цилиндре: только у него радиус по высоте
+  // постоянный, поэтому разница между самым далёким и самым близким радиусом
+  // кольца — это ровно глубина канавки. Стенка 2.4 мм выбрана так, чтобы
+  // ограничение по стенке не срабатывало: 1 мм меньше 60% от 2.4.
+  const radius = diameter / 2;
+  const depth = 1;
+  const period = (Math.PI * 2) / 8;
+  const degrees = (radians: number): number => (radians * 180) / Math.PI;
+  const geometry = buildGeometry(
+    vaseParams({
+      shape: "cylinder",
+      pattern: "smooth",
+      wall: 2.4,
+      flutes: 8,
+      fluteDepthMm: depth,
+    }),
+  );
+  const radii = splitRing(ringAtHeightShare(geometry, 0.5)).outer.map(
+    (point) => point.radius,
+  );
+  const crest = Math.max(...radii);
+  const trough = Math.min(...radii);
+
+  checkRange(
+    "гребень жёлоба на радиусе diameter / 2",
+    [crest],
+    radius - 0.02,
+    radius + 0.02,
+  );
+  checkRange(
+    "дно жёлоба: радиус = R − глубина",
+    [crest - trough],
+    depth - 0.02,
+    depth + 0.02,
+  );
+  checkRange(
+    "фаза без закрутки: дно на полпериода",
+    [degrees(deepestAngleWithinPeriod(ringAtHeightShare(geometry, 0.25), period))],
+    degrees(period / 2) - 3.2,
+    degrees(period / 2) + 3.2,
+  );
+
+  geometry.dispose();
+
+  // Та же ваза с закруткой 90°: на четверти высоты фаза прошла 22.5°, то есть
+  // дно жёлоба переехало в ноль. Это и есть доказательство, что закрутка —
+  // поворот фазы, а не вершин: угловое положение вершин осталось прежним.
+  const twisted = buildGeometry(
+    vaseParams({
+      shape: "cylinder",
+      pattern: "smooth",
+      wall: 2.4,
+      flutes: 8,
+      fluteDepthMm: depth,
+      twistDeg: 90,
+    }),
+  );
+  const twistedPhase = degrees(
+    deepestAngleWithinPeriod(ringAtHeightShare(twisted, 0.25), period),
+  );
+
+  check("закрутка 90°: открытых рёбер 0", openEdges(twisted), 0);
+  check("закрутка 90°: NaN 0", nanVertices(twisted), 0);
+  checkRange(
+    "закрутка 90°: дно ушло в ноль на четверти высоты",
+    [twistedPhase],
+    0,
+    3.2,
+  );
+
+  twisted.dispose();
+}
+
+{
+  // Ограничение глубины: 6 мм на стенке 1.6 мм не бывает. Предел — 60% стенки,
+  // то есть 0.96 мм; второе ограничение (45% самого узкого радиуса) здесь не
+  // работает: 43.4 мм полости дают 19.5 мм запаса.
+  const geometry = buildGeometry(
+    vaseParams({
+      shape: "cylinder",
+      pattern: "smooth",
+      wall: 1.6,
+      flutes: 12,
+      fluteDepthMm: 6,
+    }),
+  );
+  const radii = splitRing(ringAtHeightShare(geometry, 0.5)).outer.map(
+    (point) => point.radius,
+  );
+
+  checkRange(
+    "глубина 6 мм ограничена 60% стенки",
+    [Math.max(...radii) - Math.min(...radii)],
+    1.6 * 0.6 - 0.02,
+    1.6 * 0.6 + 0.02,
+  );
+
+  geometry.dispose();
+}
+
+{
+  // Закрутка не меняет ни один радиус: кольцо поворачивается целиком, а стенка
+  // и рельеф уже посчитаны. Объём при этом сходится не точно: поверхность между
+  // двумя повёрнутыми кольцами — уже не призма, а винтовая полоса, поэтому
+  // сумма по треугольникам отличается на доли процента. Полпроцента — граница,
+  // за которой это была бы уже не закрутка, а другая форма.
+  const straight = buildGeometry(
+    vaseParams({
+      shape: "cylinder",
+      pattern: "smooth",
+      wall: 2.4,
+      flutes: 8,
+      fluteDepthMm: 1,
+    }),
+  );
+  const twisted = buildGeometry(
+    vaseParams({
+      shape: "cylinder",
+      pattern: "smooth",
+      wall: 2.4,
+      flutes: 8,
+      fluteDepthMm: 1,
+      twistDeg: 90,
+    }),
+  );
+  const volume = volumeMm3(straight);
+  const difference = Math.abs(volume - volumeMm3(twisted));
+
+  checkRange("закрутка сохраняет объём", [difference / volume], 0, 0.005);
+  console.log(
+    `       объём ${volume.toFixed(1)} мм³, расхождение ${difference.toFixed(2)} мм³`,
+  );
+
+  straight.dispose();
+  twisted.dispose();
+}
+
+{
+  // Худшее сочетание для выравнивания сетки: 11 граней требуют кратности 22,
+  // 23 жёлоба — 46, а общее кратное 506 выходит за двойной потолок окружности.
+  // Бюджет важнее точности жёлоба, поэтому остаётся шаг граней, а сетка всё
+  // равно должна быть замкнутой и без NaN.
+  const params = vaseParams({
+    pattern: "smooth",
+    sectionSides: 11,
+    flutes: 23,
+    fluteDepthMm: 2,
+    twistDeg: 360,
+  });
+  const segments = vaseSegments(
+    params,
+    createVaseProfile(params).length,
+    "preview",
+  );
+  const geometry = buildGeometry(params);
+
+  check("11 граней + 23 жёлоба: сегментов не больше 512", segments <= 512, true);
+  console.log(`       сегментов ${segments}`);
+  check("11 граней + 23 жёлоба: открытых рёбер 0", openEdges(geometry), 0);
+  check("11 граней + 23 жёлоба: NaN 0", nanVertices(geometry), 0);
+  check(
+    "11 граней + 23 жёлоба: объём больше нуля",
+    volumeMm3(geometry) > 0,
+    true,
+  );
 
   geometry.dispose();
 }

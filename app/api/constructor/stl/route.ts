@@ -190,9 +190,10 @@ function isNumberInRange(
  *
  * Поля узора необязательны: старые клиенты без них получают гладкую стенку с
  * амплитудой 0. Если же поле передано, оно проверяется так же строго, как
- * размеры, — иначе экспорт молча подменил бы узор. Цоколь, обод и грани
- * устроены так же: ноль по умолчанию, потому что это ровно прежняя форма
- * (круг у плавных силуэтов, 4 и 8 у квадрата и восьмигранника).
+ * размеры, — иначе экспорт молча подменил бы узор. Цоколь, обод, грани, закрутка
+ * и каннелюры устроены так же: ноль по умолчанию, потому что это ровно прежняя
+ * форма (круг у плавных силуэтов, 4 и 8 у квадрата и восьмигранника, без
+ * закрутки и без жёлобов).
  */
 function parseVaseParams(body: unknown): VaseParams | null {
   if (!isRecord(body)) {
@@ -210,6 +211,9 @@ function parseVaseParams(body: unknown): VaseParams | null {
     footMm = DEFAULT_VASE_PARAMS.footMm,
     rimMm = DEFAULT_VASE_PARAMS.rimMm,
     sectionSides = DEFAULT_VASE_PARAMS.sectionSides,
+    twistDeg = DEFAULT_VASE_PARAMS.twistDeg,
+    flutes = DEFAULT_VASE_PARAMS.flutes,
+    fluteDepthMm = DEFAULT_VASE_PARAMS.fluteDepthMm,
   } = body;
 
   if (
@@ -254,6 +258,21 @@ function parseVaseParams(body: unknown): VaseParams | null {
       sectionSides,
       CONSTRUCTOR_LIMITS.sectionSides.min,
       CONSTRUCTOR_LIMITS.sectionSides.max,
+    ) ||
+    !isNumberInRange(
+      twistDeg,
+      CONSTRUCTOR_LIMITS.twistDeg.min,
+      CONSTRUCTOR_LIMITS.twistDeg.max,
+    ) ||
+    !isNumberInRange(
+      flutes,
+      CONSTRUCTOR_LIMITS.flutes.min,
+      CONSTRUCTOR_LIMITS.flutes.max,
+    ) ||
+    !isNumberInRange(
+      fluteDepthMm,
+      CONSTRUCTOR_LIMITS.fluteDepthMm.min,
+      CONSTRUCTOR_LIMITS.fluteDepthMm.max,
     )
   ) {
     return null;
@@ -270,6 +289,9 @@ function parseVaseParams(body: unknown): VaseParams | null {
     footMm,
     rimMm,
     sectionSides,
+    twistDeg,
+    flutes,
+    fluteDepthMm,
   });
 }
 

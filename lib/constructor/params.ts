@@ -95,6 +95,17 @@ export const CONSTRUCTOR_LIMITS = {
   // восьмигранника), 3–12 — столько граней у любой формы. Ноль по умолчанию,
   // поэтому старые вазы остаются ровно такими, какими были.
   sectionSides: { min: 0, max: 12, step: 1, defaultValue: 0, decimals: 0 },
+  // Закрутка и каннелюры — деформации стенки, а не силуэт: при нулях геометрия
+  // совпадает с прежней до вершины. Угол — целыми шагами по 15°: рельеф с
+  // шагом 1° печатается так же, а слайдер в 720 положений неудобен.
+  twistDeg: { min: 0, max: 720, step: 15, defaultValue: 0, decimals: 0 },
+  // 24 жёлоба — предел, где каннелюра ещё читается, а не сливается в шум:
+  // при диаметре 90 мм между жёлобами остаётся меньше 4 мм поля.
+  flutes: { min: 0, max: 24, step: 1, defaultValue: 0, decimals: 0 },
+  // Глубина в миллиметрах, а не «интенсивность»: 2 мм жёлоба на маленькой и
+  // большой вазе выглядят одинаково. Реальный предел считает геометрия —
+  // min(0.6 · стенка, 0.45 · самый узкий радиус).
+  fluteDepthMm: { min: 0, max: 6, step: 0.2, defaultValue: 0, decimals: 1 },
   patternIntensity: {
     min: 0,
     max: 5,
@@ -627,6 +638,26 @@ export type VaseParams = {
    * ровно на радиус, грани — на `diameter / 2 · cos(π/N)`.
    */
   sectionSides: number;
+  /**
+   * Закрутка рельефа по высоте, градусы: 0 — без закрутки, 720 — два оборота.
+   *
+   * Фаза угла растёт от дна к кромке, поэтому грани, каннелюры и узор идут по
+   * спирали. Ровный круг от закрутки не меняется: у него нечему закручиваться.
+   * Угловое положение вершин при этом остаётся прежним — меняется только фаза
+   * формул, поэтому шов окружности сходится при любом угле (`vase-deformation.ts`).
+   */
+  twistDeg: number;
+  /**
+   * Число каннелюр по кругу: 0 — ровная стенка, 1–24 — столько жёлобов.
+   *
+   * Жёлоб — это канавка с плоским дном, а не синус узора «рёбра»: глубина
+   * задаётся в миллиметрах и не зависит от диаметра, поэтому 2 мм на маленькой
+   * и большой вазе выглядят одинаково. Стенка сохраняет толщину: внешняя и
+   * внутренняя поверхности смещаются на одну величину.
+   */
+  flutes: number;
+  /** Глубина каннелюры, мм; ограничена стенкой и радиусом (см. `flutes`). */
+  fluteDepthMm: number;
 };
 
 /**
@@ -1013,6 +1044,9 @@ export const DEFAULT_VASE_PARAMS: VaseParams = {
   footMm: CONSTRUCTOR_LIMITS.footMm.defaultValue,
   rimMm: CONSTRUCTOR_LIMITS.rimMm.defaultValue,
   sectionSides: CONSTRUCTOR_LIMITS.sectionSides.defaultValue,
+  twistDeg: CONSTRUCTOR_LIMITS.twistDeg.defaultValue,
+  flutes: CONSTRUCTOR_LIMITS.flutes.defaultValue,
+  fluteDepthMm: CONSTRUCTOR_LIMITS.fluteDepthMm.defaultValue,
 };
 
 /**
@@ -1938,6 +1972,18 @@ export function normalizeVaseParams(params: Partial<VaseParams>): VaseParams {
     sectionSides: snap(
       params.sectionSides ?? DEFAULT_VASE_PARAMS.sectionSides,
       CONSTRUCTOR_LIMITS.sectionSides,
+    ),
+    twistDeg: snap(
+      params.twistDeg ?? DEFAULT_VASE_PARAMS.twistDeg,
+      CONSTRUCTOR_LIMITS.twistDeg,
+    ),
+    flutes: snap(
+      params.flutes ?? DEFAULT_VASE_PARAMS.flutes,
+      CONSTRUCTOR_LIMITS.flutes,
+    ),
+    fluteDepthMm: snap(
+      params.fluteDepthMm ?? DEFAULT_VASE_PARAMS.fluteDepthMm,
+      CONSTRUCTOR_LIMITS.fluteDepthMm,
     ),
   };
 }

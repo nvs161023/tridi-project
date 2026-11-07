@@ -189,6 +189,12 @@ type VaseModelProps = {
   patternFrequency: number;
   /** Грани сечения: 0–2 — как в силуэте, 3–12 — правильный N-угольник. */
   sectionSides: number;
+  /** Закрутка рельефа по высоте, градусы. */
+  twistDeg: number;
+  /** Число каннелюр: 0 — ровная стенка. */
+  flutes: number;
+  /** Глубина каннелюры, мм. */
+  fluteDepthMm: number;
 };
 
 /**
@@ -214,6 +220,9 @@ function VaseModel({
   patternIntensity,
   patternFrequency,
   sectionSides,
+  twistDeg,
+  flutes,
+  fluteDepthMm,
 }: VaseModelProps) {
   const faceted =
     resolveSectionSides(shape, sectionSides) >= VASE_SECTION_MIN_SIDES;
@@ -253,7 +262,7 @@ function VaseModel({
         blur={2.6}
         far={Math.max(height * 0.9, 120)}
         frames={1}
-        key={`${height}-${diameter}-${wall}-${shape}-${pattern}-${patternIntensity}-${patternFrequency}-${sectionSides}`}
+        key={`${height}-${diameter}-${wall}-${shape}-${pattern}-${patternIntensity}-${patternFrequency}-${sectionSides}-${flutes}-${fluteDepthMm}-${twistDeg}`}
         opacity={0.55}
         position={[0, 0.02, 0]}
         resolution={512}
@@ -708,6 +717,9 @@ function Scene({ params, geometry, framing }: SceneProps) {
           patternIntensity={params.patternIntensity}
           sectionSides={params.sectionSides}
           shape={params.shape}
+          twistDeg={params.twistDeg}
+          flutes={params.flutes}
+          fluteDepthMm={params.fluteDepthMm}
           wall={params.wall}
         />
       ) : params.model === "keychain" ? (
