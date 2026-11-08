@@ -45,6 +45,10 @@ const DOCS_PATH = "PROJECT.md";
  * `components/constructor/VaseSeedGallery.tsx` — там же с 8 ноября 2026:
  * галерея сидов стала галереей форм (`VaseShapeGallery.tsx`), а запись от
  * 7 ноября по-прежнему называет файл, где жили двенадцать плиток с сидами.
+ *
+ * `lib/constructor/keychain-relief.ts` — там же с 8 ноября 2026: утопленный
+ * рельеф убран вместе с полем `emboss`, а история изменений называет файл, в
+ * котором собиралась плита с окнами под рисунок.
  */
 const REMOVED_PATHS = new Set([
   "data/course.json",
@@ -54,6 +58,7 @@ const REMOVED_PATHS = new Set([
   "lib/constructor/cable-clips-geometry.ts",
   "components/constructor/VaseSeedGallery.tsx",
   "lib/lesson-outline.ts",
+  "lib/constructor/keychain-relief.ts",
 ]);
 
 /** Префиксы, по которым отличаем путь к файлу проекта от обычного слова. */
