@@ -9,8 +9,9 @@
  * и в углу появлялся диагональный перегиб.
  *
  * Что проверяется:
- *   1. все двенадцать силуэтов и шесть узоров на дефолтных размерах замкнуты
- *      (у каждого ребра ровно два треугольника), без NaN и с объёмом больше нуля;
+ *   1. все двенадцать силуэтов и все десять узоров на дефолтных размерах
+ *      замкнуты (у каждого ребра ровно два треугольника), без NaN и с объёмом
+ *      больше нуля;
  *   2. у квадрата и восьмигранника перпендикулярная толщина на всех кольцах и на
  *      кромке равна заданной ±0.05 мм, а толщина по лучу лежит от `wall` до
  *      `wall / cos(π/N)` — это обратная сторона отступа по нормали, и её тоже
@@ -54,6 +55,9 @@
  *      складываются, а новый слой кнопки «Добавить» берёт свободный узор.
  *  15. дефолт нового проекта: рёбра 1.2 мм на частоте 20 замкнуты, шире гладкой
  *      вазы на гребни и укладываются в бюджет предпросмотра.
+ *  16. новые узоры: плетение, шеврон, муар и каннелюры дают замкнутую сетку и
+ *      полную амплитуду в обе стороны от стенки, а сетка каннелюр попадает
+ *      вершиной в дно жёлоба — иначе выборка проходит мимо излома.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
@@ -66,6 +70,7 @@ import {
   CONSTRUCTOR_LIMITS,
   DEFAULT_VASE_PARAMS,
   VASE_MAX_PATTERN_LAYERS,
+  VASE_PATTERN_LABELS,
   VASE_PATTERNS,
   VASE_SHAPES,
   normalizeVaseParams,
@@ -2790,6 +2795,162 @@ console.log("\n15. Дефолт нового проекта");
 
   previewGeometry.dispose();
   exportGeometry.dispose();
+}
+
+console.log("\n16. Новые узоры: плетение, шеврон, муар и каннелюры");
+
+{
+  /** Слой для новых узоров: затухание нулевое, чтобы мерить тело вазы. */
+  const layer = (
+    type: PatternLayer["type"],
+    amplitude: number,
+    frequency: number,
+  ): PatternLayer => ({
+    type,
+    amplitude,
+    frequency,
+    phaseDeg: 0,
+    envelope: { fadeTopMm: 0, fadeBottomMm: 0 },
+  });
+
+  const AMPLITUDE = 2;
+  const FREQUENCY = 8;
+  const NEW_PATTERNS = ["basket", "chevron", "moire", "flutes"] as const;
+
+  check("новые узоры: всего в списке десять", VASE_PATTERNS.length, 10);
+  check(
+    "новые узоры: каждый доступен панели",
+    NEW_PATTERNS.filter((type) => VASE_PATTERNS.includes(type)).length,
+    NEW_PATTERNS.length,
+  );
+  check(
+    "новые узоры: подписи для списка",
+    NEW_PATTERNS.map((type) => VASE_PATTERN_LABELS[type]),
+    ["Плетение", "Шеврон", "Муар", "Каннелюры"],
+  );
+  check(
+    "новые узоры: нормализация сохраняет тип и числа",
+    normalizeVaseParams({
+      ...DEFAULT_VASE_PARAMS,
+      patterns: [layer("moire", 1.5, 10)],
+    }).patterns,
+    [layer("moire", 1.5, 10)],
+  );
+  check(
+    "новые узоры: кнопка «Добавить слой» берёт плетение",
+    nextPatternLayer([
+      layer("ribs", 1, 6),
+      layer("spiral", 1, 6),
+      layer("waves", 1, 6),
+      layer("honeycomb", 1, 6),
+      layer("scales", 1, 6),
+    ]).type,
+    "basket",
+  );
+  check(
+    "новые узоры: имя файла из двух новых слоёв",
+    vaseStlFileName(
+      vaseParams({
+        patterns: [layer("chevron", 1.5, 8), layer("moire", 1.2, 10)],
+      }),
+    ),
+    "tridi-vaza-classic-chevron+moire-h140-d90-w1.6.stl",
+  );
+
+  // Амплитуда меряется по геометрии, а не по формуле: сетка дискретна, и
+  // «правильная» формула на восьми выборках на период может дать половину
+  // глубины. База — тот же слой с нулевой амплитудой: число сегментов зависит от
+  // типа и частоты, а не от амплитуды, поэтому вершины сопоставляются по индексу.
+  for (const type of NEW_PATTERNS) {
+    const flat = buildGeometry(
+      vaseParams({ patterns: [layer(type, 0, FREQUENCY)] }),
+    );
+    const raised = buildGeometry(
+      vaseParams({ patterns: [layer(type, AMPLITUDE, FREQUENCY)] }),
+    );
+    const flatPositions = flat.getAttribute("position");
+    const positions = raised.getAttribute("position");
+    const { min: bottom, max: top } = heightSpan(flat);
+    const height = top - bottom;
+    let inward = 0;
+    let outward = 0;
+
+    for (let index = 0; index < positions.count; index += 1) {
+      const share = (positions.getY(index) - bottom) / height;
+
+      if (share < 0.3 || share > 0.7) {
+        continue;
+      }
+
+      const base = Math.hypot(
+        flatPositions.getX(index),
+        flatPositions.getZ(index),
+      );
+
+      if (base <= 1e-4) {
+        continue;
+      }
+
+      const shift =
+        Math.hypot(positions.getX(index), positions.getZ(index)) - base;
+
+      inward = Math.min(inward, shift);
+      outward = Math.max(outward, shift);
+    }
+
+    check(
+      `${type}: сетка замкнута, без NaN и с объёмом`,
+      [openEdges(raised), nanVertices(raised), volumeMm3(raised) > 0],
+      [0, 0, true],
+    );
+    checkRange(
+      `${type}: гребень на полную амплитуду`,
+      [outward],
+      AMPLITUDE * 0.98,
+      AMPLITUDE + 0.02,
+    );
+    checkRange(
+      `${type}: жёлоб на полную амплитуду`,
+      [-inward],
+      AMPLITUDE * 0.98,
+      AMPLITUDE + 0.02,
+    );
+    console.log(
+      `       ${VASE_PATTERN_LABELS[type]}: смещение ` +
+        `${inward.toFixed(3)}…${outward.toFixed(3)} мм`,
+    );
+
+    flat.dispose();
+    raised.dispose();
+  }
+
+  // Каннелюры — единственный узор с изломом: сетка обязана попасть вершиной в
+  // дно жёлоба. Иначе выборка проходит мимо, и жёлоб выходит вдвое мельче даже
+  // при верной формуле — поэтому у этого узора свой шаг выравнивания.
+  const fluteParams = vaseParams({
+    patterns: [layer("flutes", AMPLITUDE, FREQUENCY)],
+  });
+
+  check(
+    "каннелюры: сетка предпросмотра выровнена по жёлобам",
+    vaseSegments(
+      fluteParams,
+      createVaseProfile(fluteParams, "preview").length,
+      "preview",
+    ) %
+      (FREQUENCY * 2),
+    0,
+  );
+  check(
+    "каннелюры: сетка STL выровнена по жёлобам",
+    vaseSegments(
+      fluteParams,
+      createVaseProfile(fluteParams, "export").length,
+      "export",
+    ) %
+      (FREQUENCY * 2),
+    0,
+  );
 }
 
 console.log("");

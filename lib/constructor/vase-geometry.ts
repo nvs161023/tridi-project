@@ -9,8 +9,13 @@ import {
   type VasePatternInput,
 } from "@/lib/constructor/params";
 import {
-  DETAIL_PATTERN_SCALE,
+  basketWave,
+  chevronWave,
+  flutesWave,
   honeycombWave,
+  moireWave,
+  patternFrequencyScale,
+  patternUsesHeightSpacing,
   scalesWave,
 } from "@/lib/constructor/pattern-waves";
 import {
@@ -472,17 +477,19 @@ function applyShape(
 /**
  * Значение узора в диапазоне [-1, 1] для угла и высоты вершины.
  *
- * Соты и чешуйки считаются в безразмерных координатах: по окружности фаза
- * равна angle × frequency, а по высоте — height × frequency / referenceRadius.
- * Для этих двух узоров частота ещё умножается на DETAIL_PATTERN_SCALE: ячейки
- * должны быть мельче рёбер. Опорный радиус переводит миллиметры высоты в те же
- * единицы, что и дуга окружности, поэтому ячейки остаются правильными при
+ * Узоры с рисунком в двух направлениях (соты, чешуйки, плетение, шеврон, муар)
+ * считаются в безразмерных координатах: по окружности фаза равна angle ×
+ * frequency, по высоте — height × frequency / referenceRadius. Соты и чешуйки
+ * ещё и делят частоту на `DETAIL_PATTERN_SCALE` (см. `patternFrequencyScale`):
+ * ячейки должны быть мельче рёбер. Опорный радиус переводит миллиметры высоты в
+ * те же единицы, что и дуга окружности, поэтому ячейки остаются правильными при
  * любом диаметре. Без divisor соты на высокой вазе вытянулись бы по вертикали.
  *
- * `phaseRad` — фаза слоя. У угловых узоров (рёбра, спираль, соты, чешуйки) она
- * сдвигает рисунок по окружности, у «волн» — по высоте, потому что волны по
- * окружности не повторяются и сдвиг по углу для них не значил бы ничего.
- * Шов окружности сходится: фаза — постоянное слагаемое, а не множитель угла.
+ * `phaseRad` — фаза слоя. У угловых узоров (рёбра, спираль, соты, чешуйки,
+ * плетение, шеврон, муар, каннелюры) она сдвигает рисунок по окружности, у
+ * «волн» — по высоте, потому что волны по окружности не повторяются и сдвиг по
+ * углу для них не значил бы ничего. Шов окружности сходится: фаза — постоянное
+ * слагаемое, а не множитель угла.
  */
 function patternWave(
   pattern: VasePattern,
@@ -492,10 +499,7 @@ function patternWave(
   referenceRadius: number,
   phaseRad = 0,
 ): number {
-  const phaseFrequency =
-    pattern === "honeycomb" || pattern === "scales"
-      ? frequency * DETAIL_PATTERN_SCALE
-      : frequency;
+  const phaseFrequency = frequency * patternFrequencyScale(pattern);
   const circumferencePhase = angle * phaseFrequency + phaseRad;
   const verticalPhase =
     (height * phaseFrequency) / Math.max(referenceRadius, 1);
@@ -511,6 +515,15 @@ function patternWave(
       return honeycombWave(circumferencePhase, verticalPhase);
     case "scales":
       return scalesWave(circumferencePhase, verticalPhase);
+    case "basket":
+      return basketWave(circumferencePhase, verticalPhase);
+    case "chevron":
+      return chevronWave(circumferencePhase, verticalPhase);
+    case "moire":
+      return moireWave(circumferencePhase, verticalPhase);
+    // Каннелюрам высота не нужна: жёлоб идёт по всей стенке, как у рёбер.
+    case "flutes":
+      return flutesWave(circumferencePhase);
     default:
       return 0;
   }
@@ -714,12 +727,13 @@ function applyRelief(
   }
 
   const wallAt = flutesActive ? createWallLookup(profile) : () => 0;
-  const detailPattern = layers.some(
-    (layer) => layer.type === "honeycomb" || layer.type === "scales",
+  const detailPattern = layers.some((layer) =>
+    patternUsesHeightSpacing(layer.type),
   );
-  // Соты и чешуйки меряют высоту дугой окружности, поэтому им нужен опорный
-  // радиус. Остальным узорам фаза считается по углу, и единица дешевле: радиус
-  // пришлось бы искать по всей сетке.
+  // Соты, чешуйки, плетение, шеврон и муар меряют высоту дугой окружности,
+  // поэтому им нужен опорный радиус. Остальным узорам фаза считается по углу
+  // или по миллиметрам, и единица дешевле: радиус пришлось бы искать по всей
+  // сетке.
   const referenceRadius = detailPattern ? findMaxRadius(position) : 1;
   const foot = vaseFootHeight(height, params.footMm);
   const rim = vaseRimHeight(height, params.rimMm);

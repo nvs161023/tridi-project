@@ -7,7 +7,7 @@ import {
   type VasePattern,
   type VasePatternInput,
 } from "@/lib/constructor/params";
-import { DETAIL_PATTERN_SCALE } from "@/lib/constructor/pattern-waves";
+import { patternFrequencyScale } from "@/lib/constructor/pattern-waves";
 import { resolveFluteCount } from "@/lib/constructor/vase-deformation";
 import {
   resolveSectionSides,
@@ -141,10 +141,12 @@ function safeFrequency(frequency: number | undefined): number {
  * Сколько периодов рельефа укладывается по окружности.
  *
  * У гладкой вазы периодов нет. Соты и чешуйки мельче рёбер в
- * `DETAIL_PATTERN_SCALE` раз — множитель целый, поэтому периодов тоже целое
- * число. Спираль и волны считаются по той же частоте: у спирали это число
- * гребней, у волн — число колец (по окружности они не повторяются, но лишние
- * сегменты им не вредят).
+ * `DETAIL_PATTERN_SCALE` раз (`patternFrequencyScale`), множитель целый, поэтому
+ * периодов тоже целое число. Спираль, волны, плетение, шеврон и муар считаются
+ * по той же частоте: у спирали это число гребней, у волн — число колец, у
+ * плетения и муара — число полос по кругу (по окружности они не повторяются,
+ * но лишние сегменты им не вредят). Каннелюры рисуют столько же жёлобов, сколько
+ * рёбер гребней: у модуля синуса вдвое больше нулей при вдвое меньшей частоте.
  */
 export function patternPeriodsByTurn(
   pattern: VasePattern,
@@ -154,11 +156,7 @@ export function patternPeriodsByTurn(
     return 0;
   }
 
-  const value = safeFrequency(frequency);
-
-  return pattern === "honeycomb" || pattern === "scales"
-    ? value * DETAIL_PATTERN_SCALE
-    : value;
+  return safeFrequency(frequency) * patternFrequencyScale(pattern);
 }
 
 /**
@@ -265,6 +263,30 @@ export function fluteSegmentStep(flutes: number): number {
   }
 
   return count * 2;
+}
+
+/**
+ * Во сколько раз шаг колец должен делиться, чтобы узор попал в свои вершины.
+ *
+ * Узор «каннелюры» — единственный с изломом: `2 · |sin(u/2)|^0.5 − 1` растёт от
+ * дна жёлоба бесконечно круто. Выборка, прошедшая мимо дна на полшага, даёт
+ * вместо −1 около нуля, и жёлоб выходит вдвое мельче заданного. Если круг
+ * делится на `2 × частота`, вершины попадают ровно в дно жёлоба и в гребень:
+ * 240 сегментов на 20 жёлобов — по 12 выборок на жёлоб, дно и гребень точные.
+ *
+ * У остальных узоров излома нет (гладкий синус, произведение синусов, корзина с
+ * тангенсом), их экстремум лежит на площадке или параболе, и промах на полшага
+ * стоит меньше процента амплитуды — лишние кратности им не нужны.
+ */
+export function patternSegmentStep(
+  pattern: VasePattern,
+  frequency: number | undefined,
+): number {
+  if (pattern !== "flutes") {
+    return 1;
+  }
+
+  return safeFrequency(frequency) * 2;
 }
 
 /**
@@ -379,6 +401,23 @@ export function alignSegmentsToSteps(
   segments: number,
   steps: readonly number[],
 ): number {
+  const step = combinedSegmentStep(steps);
+
+  if (step <= 1) {
+    return segments;
+  }
+
+  return Math.ceil(segments / step) * step;
+}
+
+/**
+ * Общий шаг выравнивания: наименьшее общее кратное всех требований.
+ *
+ * Вынесено отдельно, потому что `vaseSegments` иногда нужно округлить не вверх, а
+ * вниз — когда кратное вверх не влезает в бюджет. Значение 1 означает «шагов
+ * нет»: любое число сегментов подходит.
+ */
+export function combinedSegmentStep(steps: readonly number[]): number {
   let step = 1;
 
   for (const value of steps) {
@@ -391,11 +430,7 @@ export function alignSegmentsToSteps(
     step = (step * rounded) / greatestCommonDivisor(step, rounded);
   }
 
-  if (step <= 1) {
-    return segments;
-  }
-
-  return Math.ceil(segments / step) * step;
+  return step;
 }
 
 /**
@@ -403,8 +438,8 @@ export function alignSegmentsToSteps(
  *
  * Порядок: взять максимум из двух требований — рельеф (узор и каннелюры) и шаг
  * сетки, который зависит от размера вазы и бюджета (см. `vaseDetailMm`), — затем
- * урезать его бюджетом, затем округлить вверх до общего кратного граням и
- * жёлобам.
+ * урезать его бюджетом, затем округлить вверх до общего кратного граням,
+ * жёлобам и узору.
  *
  * Шаг стоит первым по важности, потому что он единственный не связан с
  * рельефом: гладкая ваза Ø200 при 128 сегментах собиралась огранкой по 4.9 мм, и
@@ -415,6 +450,12 @@ export function alignSegmentsToSteps(
  * из требования шага и бюджета. Если полное кратное в потолок не влезает,
  * остаётся только шаг граней: каннелюры тогда получают на пару процентов меньше
  * глубины, а углы многоугольника остаются точными — это важнее.
+ *
+ * Отдельный случай — узор «каннелюры»: его дно жёлоба излом, и промах сетки на
+ * полшага стоит половины глубины (см. `patternSegmentStep`). Для него округление
+ * пробует ещё и вниз: если кратное вверх выходит за бюджет, берётся ближайшее
+ * кратное ниже базы, но не меньше требования рельефа. Два-три сегмента разницы
+ * на глаз не видно, а жёлоб совпадает с заданной глубиной.
  */
 export function vaseSegments(
   params: VaseBudgetParams,
@@ -445,13 +486,23 @@ export function vaseSegments(
     byBudget,
     Math.max(VASE_MAX_SEGMENTS, byDetail) * 2,
   );
-  const aligned = alignSegmentsToSteps(base, [
-    sectionStep,
-    fluteSegmentStep(flutes),
-  ]);
+  const patternStep = Math.max(
+    ...layers.map((layer) => patternSegmentStep(layer.type, layer.frequency)),
+  );
+  const steps = [sectionStep, fluteSegmentStep(flutes), patternStep];
+  const aligned = alignSegmentsToSteps(base, steps);
 
   if (aligned <= ceiling) {
     return aligned;
+  }
+
+  if (patternStep > 1) {
+    const step = combinedSegmentStep(steps);
+    const roundedDown = Math.floor(base / step) * step;
+
+    if (roundedDown >= required && roundedDown <= ceiling) {
+      return roundedDown;
+    }
   }
 
   const bySection = alignSegmentsToSteps(base, [sectionStep]);
