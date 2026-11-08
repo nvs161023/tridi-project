@@ -9,9 +9,10 @@
  * и в углу появлялся диагональный перегиб.
  *
  * Что проверяется:
- *   1. все двенадцать силуэтов и все десять узоров на дефолтных размерах
- *      замкнуты (у каждого ребра ровно два треугольника), без NaN и с объёмом
- *      больше нуля;
+ *   1. финальная матрица: все двенадцать силуэтов на всех десяти узорах (сто
+ *      двадцать пар) замкнуты (у каждого ребра ровно два треугольника), без NaN,
+ *      с объёмом больше нуля и в бюджете экспорта. Расхождения собираются все,
+ *      а не до первого: в лог уходит каждая упавшая пара;
  *   2. у квадрата и восьмигранника перпендикулярная толщина на всех кольцах и на
  *      кромке равна заданной ±0.05 мм, а толщина по лучу лежит от `wall` до
  *      `wall / cos(π/N)` — это обратная сторона отступа по нормали, и её тоже
@@ -48,8 +49,9 @@
  *  13. имя STL — это рецепт: у дефолтной вазы оно прежнее, деформации и сид
  *      добавляются суффиксами в порядке панели, разные деформации дают разные
  *      имена, а без органики сид имя не меняет. Метаданные генерации — плоский
- *      объект из нормализованных значений, который сериализуется в JSON без
- *      потерь.
+ *      объект из нормализованных значений: форма, композиция слоёв массивом,
+ *      цоколь с ободом, деформации и сид. Он сериализуется в JSON без потерь, а
+ *      проект без новых полей даёт нули, а не undefined.
  *  14. композиция слоёв: старый проект открывается одним слоем с нулевым
  *      затуханием, лимит трёх слоёв и выравнивание чисел работают, слои
  *      складываются, а новый слой кнопки «Добавить» берёт свободный узор.
@@ -688,26 +690,67 @@ function shiftInBand(
 const wall = DEFAULT_VASE_PARAMS.wall;
 const diameter = DEFAULT_VASE_PARAMS.diameter;
 
-console.log("1. Замкнутость, NaN и объём: двенадцать силуэтов и шесть узоров");
+/**
+ * Отчёт по матрице: строка на каждое расхождение и ни одного исключения.
+ *
+ * В матрице сто двадцать комбинаций, и останавливаться на первой упавшей нельзя:
+ * следующий прогон показал бы ещё одну, и починка растянулась бы на столько же
+ * запусков. Поэтому здесь собираются все расхождения сразу, а в лог уходит
+ * каждая строка с именем пары — по ней видно, что именно ломается.
+ */
+function reportMatrix(name: string, problems: readonly string[]): void {
+  if (problems.length === 0) {
+    console.log(`  ok   ${name}`);
+    return;
+  }
+
+  failures += 1;
+  console.log(`  FAIL ${name}`);
+  console.log(`       проблемных комбинаций: ${problems.length}`);
+  for (const problem of problems) {
+    console.log(`       • ${problem}`);
+  }
+}
+
+console.log(
+  `1. Финальная матрица: ${VASE_SHAPES.length} силуэтов × ${VASE_PATTERNS.length} узоров`,
+);
 
 {
-  const broken: string[] = [];
+  // Финальная проверка этапа 8: каждая ваза из матрицы — это файл, который
+  // уходит пользователю. Значит, нужны все три обещания сразу: сетка замкнута
+  // (слайсер не зальёт дыру), у вершин нет NaN (STL не откроется), а число
+  // треугольников укладывается в бюджет экспорта (файл не вырастет втрое).
+  const watertight: string[] = [];
+  const overBudget: string[] = [];
+  let combinations = 0;
   let minVolume = Number.POSITIVE_INFINITY;
   let worstOpen = 0;
+  let maxTriangles = 0;
 
   for (const shape of VASE_SHAPES) {
     for (const pattern of VASE_PATTERNS) {
+      combinations += 1;
+
       const geometry = buildGeometry(vaseParams({ shape, pattern }));
       const open = openEdges(geometry);
       const nan = nanVertices(geometry);
       const volume = volumeMm3(geometry);
+      const triangles = (geometry.getIndex()?.count ?? 0) / 3;
 
       worstOpen = Math.max(worstOpen, open);
       minVolume = Math.min(minVolume, volume);
+      maxTriangles = Math.max(maxTriangles, triangles);
 
       if (open !== 0 || nan !== 0 || volume <= 0) {
-        broken.push(
+        watertight.push(
           `${shape}/${pattern}: рёбер ${open}, NaN ${nan}, объём ${volume.toFixed(1)}`,
+        );
+      }
+
+      if (triangles > VASE_EXPORT_TRIANGLE_BUDGET) {
+        overBudget.push(
+          `${shape}/${pattern}: ${triangles} тр. при бюджете ${VASE_EXPORT_TRIANGLE_BUDGET}`,
         );
       }
 
@@ -715,10 +758,24 @@ console.log("1. Замкнутость, NaN и объём: двенадцать 
     }
   }
 
-  check("все пары силуэт × узор: дыр, NaN и нулевого объёма нет", broken, []);
+  reportMatrix(
+    `матрица ${combinations}: у каждой пары 0 открытых рёбер, 0 NaN и объём больше нуля`,
+    watertight,
+  );
+  reportMatrix(
+    `матрица ${combinations}: бюджет ${VASE_EXPORT_TRIANGLE_BUDGET} тр. не превышен`,
+    overBudget,
+  );
+  // Реестры — источник матрицы: дубликат в списке молча уменьшил бы её.
+  check(
+    "матрица: силуэтов и узоров столько же, сколько уникальных имён",
+    [new Set(VASE_SHAPES).size, new Set(VASE_PATTERNS).size],
+    [VASE_SHAPES.length, VASE_PATTERNS.length],
+  );
   console.log(
-    `       комбинаций ${VASE_SHAPES.length * VASE_PATTERNS.length}, ` +
-      `худшее ребро: ${worstOpen}, минимальный объём ${minVolume.toFixed(1)} мм³`,
+    `       комбинаций ${combinations}, худшее ребро: ${worstOpen}, ` +
+      `минимальный объём ${minVolume.toFixed(1)} мм³, ` +
+      `максимум ${maxTriangles} тр. при бюджете ${VASE_EXPORT_TRIANGLE_BUDGET}`,
   );
 }
 
@@ -2279,7 +2336,8 @@ console.log("\n13. Имя файла STL и метаданные генерац�
   check("имя: двенадцать разных вариантов — двенадцать имён", new Set(names).size, names.length);
 
   // Метаданные генерации: то, что уходит в constructor_generations.details.
-  // Размеры не пишем — они в имени файла, — а вот форму и деформации видно.
+  // Габарит не пишем — он в имени файла, — а форму, композицию слоёв, цоколь с
+  // ободом, деформации и сид видно.
   const details = vaseGenerationDetails(base);
 
   check(
@@ -2288,26 +2346,37 @@ console.log("\n13. Имя файла STL и метаданные генерац�
     [
       "shape",
       "pattern",
+      "patterns",
+      "sectionSides",
       "twistDeg",
       "flutes",
       "fluteDepthMm",
-      "sectionSides",
+      "footMm",
+      "rimMm",
       "organic",
       "leanDeg",
       "vaseSeed",
     ],
   );
   check("метаданные: силуэт и узор", [details.shape, details.pattern], ["classic", "smooth"]);
+  check("метаданные: гладкий слой строкой", details.patterns, ["smooth:0@8"]);
   check(
     "метаданные: деформации по умолчанию нулевые",
     [details.twistDeg, details.flutes, details.sectionSides, details.organic, details.leanDeg],
     [0, 0, 0, 0, 0],
   );
+  check(
+    "метаданные: цоколь и обод по умолчанию нулевые",
+    [details.footMm, details.rimMm],
+    [0, 0],
+  );
   check("метаданные: сид по умолчанию", details.vaseSeed, 1);
   check(
     "метаданные: плоский объект сериализуется в JSON без потерь",
     JSON.stringify(vaseGenerationDetails(full)),
-    '{"shape":"bottle","pattern":"spiral","twistDeg":180,"flutes":8,"fluteDepthMm":2,"sectionSides":6,"organic":0.5,"leanDeg":-10,"vaseSeed":42}',
+    '{"shape":"bottle","pattern":"spiral","patterns":["spiral:1.5@8"],"sectionSides":6,' +
+      '"twistDeg":180,"flutes":8,"fluteDepthMm":2,"footMm":0,"rimMm":0,"organic":0.5,' +
+      '"leanDeg":-10,"vaseSeed":42}',
   );
 
   // Значения берутся из нормализованных параметров: иначе группировка по
@@ -2318,6 +2387,26 @@ console.log("\n13. Имя файла STL и метаданные генерац�
     "метаданные: значения выровнены по шагу слайдера",
     [vaseGenerationDetails(snapped).organic, vaseGenerationDetails(snapped).vaseSeed],
     [0.55, 43],
+  );
+
+  // Старый проект: цоколя и обода в нём не было, а в журнале поля обязаны быть —
+  // нулями, а не undefined: JSON.stringify выкинул бы ключ, и группировка в SQL
+  // молча потеряла бы строку.
+  const legacyDetails = vaseGenerationDetails(normalizeVaseParams({}));
+
+  check(
+    "метаданные: проект без новых полей даёт нули, а не undefined",
+    [
+      legacyDetails.footMm,
+      legacyDetails.rimMm,
+      Object.values(legacyDetails).some((value) => value === undefined),
+    ],
+    [0, 0, false],
+  );
+  check(
+    "метаданные: JSON туда и обратно без потерь",
+    JSON.parse(JSON.stringify(legacyDetails)),
+    legacyDetails,
   );
   console.log(
     `       имя с деформациями: ${fullName.length} символов, ` +
@@ -2659,6 +2748,11 @@ console.log("\n14. Композиция слоёв и затухание у кр
     "метаданные: композиция строкой",
     vaseGenerationDetails(composition).pattern,
     "ribs+spiral",
+  );
+  check(
+    "метаданные: композиция слоями",
+    vaseGenerationDetails(composition).patterns,
+    ["ribs:2@8", "spiral:1.5@5"],
   );
   check(
     "метаданные: гладкая ваза без суффикса",

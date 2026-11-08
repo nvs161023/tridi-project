@@ -1517,14 +1517,23 @@ function formatMillimetres(value: number): string {
 /**
  * Метаданные генерации вазы для журнала `constructor_generations.details`.
  *
- * Пишем не размеры — они уже в имени файла и в самом STL, — а то, что отвечает
- * на вопрос «какие вазы реально скачивают»: силуэт, узор, деформации и сид.
- * Объект плоский, без вложенности: так его можно группировать в SQL одним
- * `->>`, не разбирая структуру, и он читается глазами в дашборде.
+ * Пишем не габарит — он уже в имени файла и в самом STL, — а то, что отвечает на
+ * вопрос «какие вазы реально скачивают»: силуэт, композицию слоёв, деформации,
+ * цоколь с ободом и сид.
  *
- * Сюда приходит результат normalizeVaseParams: в журнале не бывает NaN и «сырых»
- * значений слайдера, поэтому группировка по `organic` не распадается на сотни
- * почти одинаковых чисел.
+ * Объект плоский: так его группируют в SQL одним `->>`, не разбирая структуру.
+ * Единственное исключение — `patterns`: это массив, потому что слоёв до трёх и у
+ * каждого свои числа. Массив читается тем же `->` (jsonb) и не превращает строку
+ * журнала в дерево.
+ *
+ * Конусности стенки здесь нет намеренно: толщина по высоте постоянна, отдельного
+ * параметра в модели не существует, а поле, которое всегда ноль, обещало бы
+ * настройку, которой нет.
+ *
+ * Сюда приходит результат normalizeVaseParams: в журнале не бывает NaN,
+ * `undefined` и «сырых» значений слайдера, поэтому группировка по `organic` не
+ * распадается на сотни почти одинаковых чисел. Проект, сохранённый до появления
+ * цоколя и обода, нормализуется нулями — поля есть всегда.
  */
 export type VaseGenerationDetails = {
   shape: VaseShape;
@@ -1536,10 +1545,22 @@ export type VaseGenerationDetails = {
    * положить сюда массив, незачем. Композиция видна прямо в строке.
    */
   pattern: string;
+  /**
+   * Слои по строке на каждый: `ribs:1.2@24`, `spiral:1@6`.
+   *
+   * Строка собирается как `тип:амплитуда@частота`: её видно глазами и можно
+   * разобрать в SQL без отдельного jsonb-пути на каждое поле. Пустой список
+   * слоёв нормализуется в гладкий слой, поэтому массив никогда не пуст.
+   */
+  patterns: string[];
+  sectionSides: number;
   twistDeg: number;
   flutes: number;
   fluteDepthMm: number;
-  sectionSides: number;
+  /** Высота цоколя, мм: форма края, а не габарит, поэтому в журнале нужна. */
+  footMm: number;
+  /** Насколько обод шире стенки, мм. */
+  rimMm: number;
   organic: number;
   leanDeg: number;
   vaseSeed: number;
@@ -1548,13 +1569,20 @@ export type VaseGenerationDetails = {
 export function vaseGenerationDetails(
   params: VaseParams,
 ): VaseGenerationDetails {
+  // Слои читаются через нормализацию: у проекта до композиции их нет вовсе, а
+  // пустой массив превратился бы в строку без единого слоя.
+  const layers = resolvePatternLayers(params);
+
   return {
     shape: params.shape,
-    pattern: vasePatternSlug(params.patterns),
+    pattern: vasePatternSlug(layers),
+    patterns: vasePatternLayerTokens(layers),
+    sectionSides: params.sectionSides,
     twistDeg: params.twistDeg,
     flutes: params.flutes,
     fluteDepthMm: params.fluteDepthMm,
-    sectionSides: params.sectionSides,
+    footMm: params.footMm,
+    rimMm: params.rimMm,
     organic: params.organic,
     leanDeg: params.leanDeg,
     vaseSeed: params.vaseSeed,
@@ -2381,6 +2409,22 @@ export function vasePatternSlug(patterns: readonly PatternLayer[]): string {
     .filter((type) => type !== "smooth");
 
   return types.length > 0 ? types.join("+") : "smooth";
+}
+
+/**
+ * Слои узора строками для журнала генераций: по элементу на слой.
+ *
+ * Формат `тип:амплитуда@частота` (`ribs:1.2@24`) выбран ради дашборда и SQL: без
+ * пробелов и кавычек, поэтому `->` отдаёт готовый список, а `->>` — ту же строку
+ * для быстрой группировки. Фаза и затухание у краёв не пишутся: они нужны печати,
+ * а не рисунку, и у всех слоёв одинаковы. Числа уже выровнены нормализацией.
+ */
+export function vasePatternLayerTokens(
+  patterns: readonly PatternLayer[],
+): string[] {
+  return patterns.map(
+    (layer) => `${layer.type}:${layer.amplitude}@${layer.frequency}`,
+  );
 }
 
 /** Человеческая подпись набора слоёв: «Рёбра + Спираль». */
