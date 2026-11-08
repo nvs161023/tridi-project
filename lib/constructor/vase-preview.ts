@@ -4,26 +4,47 @@
  * Зачем свой растеризатор, а не WebGL: галерея форм показывает двенадцать
  * ваз одновременно, а двенадцать WebGL-контекстов на одной странице браузер не
  * держит — он начинает выгружать старые, и плитки мигают. Здесь та же сетка, что
- * уходит в STL, рисуется по z-буферу с плоским затенением в обычный массив
- * пикселей: его хватает и для `<canvas>` на экране, и для PNG в гейте этапа.
+ * уходит в STL, рисуется по z-буферу в обычный массив пикселей: его хватает и
+ * для `<canvas>` на экране, и для PNG в гейте этапа.
  *
- * Модуль чистый: координаты берутся из `createVaseGeometry`, освещение — из двух
- * постоянных векторов, поэтому один набор параметров даёт один и тот же кадр
+ * Студию снимок берёт из `lib/constructor/studio.ts` — того же описания, по
+ * которому собирается 3D-сцена: тёмный градиент, керамика с глазурью, стол с
+ * мягкими пятнами. Поэтому плитка галереи и viewport показывают одну вазу в
+ * одной студии, и разъехаться им больше негде.
+ *
+ * Модуль чистый: координаты берутся из `createVaseGeometry`, освещение — из
+ * постоянных студии, поэтому один набор параметров даёт один и тот же кадр
  * байт в байт и в браузере, и в Node.
  */
 import type { VaseParams } from "@/lib/constructor/params";
 import type { VaseBudget } from "@/lib/constructor/vase-budget";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
+import {
+  STUDIO_CAMERA,
+  STUDIO_FLOOR,
+  STUDIO_VIGNETTE,
+  fillStudioBackground,
+  hexToRgb,
+  studioSurfaceColor,
+  studioVignetteAlpha,
+  type StudioRgb,
+  type StudioVector,
+} from "@/lib/constructor/studio";
 
-/** Фон снимка: тёмная плита, как сцена конструктора. */
-export const VASE_PREVIEW_BACKGROUND = [17, 24, 39] as const;
+/**
+ * Где стоит дно модели, доля высоты кадра.
+ *
+ * Ниже линии стола остаётся место под тень: без него ваза упиралась бы в
+ * нижний край, как на чертеже, а не на студийном снимке.
+ */
+const FLOOR_LINE = 0.86;
 
-/** Цвет пластика: тёплый светлый, чтобы рельеф читался тенями. */
-export const VASE_PREVIEW_PLASTIC = [236, 227, 214] as const;
+/** Сколько ширины кадра может занять модель. */
+const MODEL_WIDTH_SHARE = 0.9;
 
-/** Три канала цвета: значения 0…255. */
-type Rgb = readonly [number, number, number];
+/** Сколько высоты кадра может занять модель: остальное — воздух и тень. */
+const MODEL_HEIGHT_SHARE = 0.74;
 
 /** Кадр: пиксели в порядке RGB, по три байта на точку. */
 export type VasePreview = {
@@ -35,6 +56,14 @@ export type VasePreview = {
   triangles: number;
   /** Сколько вершин в сетке: по ним видно, выросло ли разрешение. */
   vertices: number;
+  /**
+   * Какую долю кадра заняла модель: 0…1.
+   *
+   * Считается по маске при растеризации, а не сравнением с фоном: фон теперь
+   * градиент с тенью, и «не фон» больше не значит «ваза». Гейт по этому числу
+   * ловит пустую плитку: если растеризатор перестанет рисовать, доля упадёт.
+   */
+  coverage: number;
 };
 
 /** Настройки кадра: размер, ракурс и бюджет сетки. */
@@ -55,10 +84,6 @@ export type VasePreviewOptions = {
    * — она всё равно шириной в 160 пикселей.
    */
   budget?: VaseBudget;
-  /** Цвет фона: тёмная плита по умолчанию. */
-  background?: Rgb;
-  /** Цвет пластика: тёплый светлый по умолчанию. */
-  plastic?: Rgb;
 };
 
 /** Единичный вектор: нулевой длины не бывает, иначе деление даст NaN. */
@@ -102,12 +127,64 @@ export function cameraBasis(azimuthDeg: number, elevationDeg: number) {
   return { eye, right, up: normalize(cross(eye, right)) };
 }
 
+/** Точка в пикселях кадра: экранные координаты, y вниз. */
+type ScreenPoint = { x: number; y: number };
+
+/**
+ * Затухание радиального пятна: единица в центре, ноль на краю эллипса.
+ *
+ * Формула та же, что у `alphaMap` в сцене: квадрат расстояния, поэтому
+ * середина плотная, а край мягкий. Корень берётся только внутри эллипса:
+ * снаружи ответ и так ноль, а считать его приходится на каждый пиксель кадра.
+ */
+function spotFalloff(
+  x: number,
+  y: number,
+  center: ScreenPoint,
+  radiusX: number,
+  radiusY: number,
+): number {
+  const dx = (x - center.x) / radiusX;
+  const dy = (y - center.y) / radiusY;
+  const squared = dx * dx + dy * dy;
+
+  if (squared >= 1) {
+    return 0;
+  }
+
+  return (1 - Math.sqrt(squared)) ** 2;
+}
+
+/** Альфа-смешивание пикселя с цветом: так ложатся тень и пятна стола. */
+function blendPixel(
+  pixels: Uint8ClampedArray,
+  offset: number,
+  color: StudioRgb,
+  alpha: number,
+): void {
+  if (alpha <= 0) {
+    return;
+  }
+
+  const weight = Math.min(1, alpha);
+
+  pixels[offset] = pixels[offset] + (color[0] - pixels[offset]) * weight;
+  pixels[offset + 1] =
+    pixels[offset + 1] + (color[1] - pixels[offset + 1]) * weight;
+  pixels[offset + 2] =
+    pixels[offset + 2] + (color[2] - pixels[offset + 2]) * weight;
+}
+
 /**
  * Снимок вазы: RGB-буфер в размер `width × height`.
  *
  * Сглаживание — суперсэмплингом: кадр рисуется в `supersample` раз крупнее и
  * сводится усреднением. Порядок треугольников не важен, глубину решает
  * z-буфер, поэтому внутренние стенки сквозь горло видны правильно.
+ *
+ * Кадр собирается в том же порядке, что и сцена: фон-градиент, стол с пятнами,
+ * модель и виньетка поверх. Ваза стоит на линии стола, а не прижата к нижнему
+ * краю, — иначе тени было бы некуда лечь.
  */
 export function renderVaseRgb(
   params: VaseParams,
@@ -116,12 +193,10 @@ export function renderVaseRgb(
   const {
     width = 720,
     height = 900,
-    azimuth = 24,
-    elevation = 12,
+    azimuth = STUDIO_CAMERA.azimuthDeg,
+    elevation = STUDIO_CAMERA.elevationDeg,
     supersample = 2,
     budget = "export",
-    background = VASE_PREVIEW_BACKGROUND,
-    plastic = VASE_PREVIEW_PLASTIC,
   } = options;
 
   // Профиль строится с тем же бюджетом, что и сетка: от бюджета зависит шаг
@@ -145,6 +220,11 @@ export function renderVaseRgb(
   let maxU = -Infinity;
   let minV = Infinity;
   let maxV = -Infinity;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
 
   for (let i = 0; i < position.length; i += 3) {
     const x = position[i];
@@ -161,13 +241,34 @@ export function renderVaseRgb(
     if (u > maxU) maxU = u;
     if (v < minV) minV = v;
     if (v > maxV) maxV = v;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
   }
 
-  const scale =
-    Math.min(frameWidth / (maxU - minU || 1), frameHeight / (maxV - minV || 1)) *
-    0.92;
+  const modelWidth = maxU - minU || 1;
+  const modelHeight = maxV - minV || 1;
   const centerU = (minU + maxU) / 2;
-  const centerV = (minV + maxV) / 2;
+  const floorLine = frameHeight * FLOOR_LINE;
+  const scale = Math.min(
+    (frameWidth * MODEL_WIDTH_SHARE) / modelWidth,
+    (frameHeight * MODEL_HEIGHT_SHARE) / modelHeight,
+  );
+
+  // Мировая точка → пиксель кадра. Та же проекция, что у вершин: по ней
+  // считается место пятен на столе.
+  const project = (point: StudioVector): ScreenPoint => {
+    const u =
+      point[0] * right[0] + point[1] * right[1] + point[2] * right[2];
+    const v = point[0] * up[0] + point[1] * up[1] + point[2] * up[2];
+
+    return {
+      x: (u - centerU) * scale + frameWidth / 2,
+      y: floorLine - (v - minV) * scale,
+    };
+  };
 
   // Экранные координаты вершин: пиксели, y вниз.
   const screenX = new Float32Array(vertexCount);
@@ -176,29 +277,88 @@ export function renderVaseRgb(
 
   for (let i = 0; i < vertexCount; i += 1) {
     screenX[i] = (projected[i * 3] - centerU) * scale + frameWidth / 2;
-    screenY[i] = frameHeight / 2 - (projected[i * 3 + 1] - centerV) * scale;
+    screenY[i] = floorLine - (projected[i * 3 + 1] - minV) * scale;
     screenD[i] = projected[i * 3 + 2];
   }
 
   const pixels = new Uint8ClampedArray(frameWidth * frameHeight * 3);
 
-  for (let i = 0; i < pixels.length; i += 3) {
-    pixels[i] = background[0];
-    pixels[i + 1] = background[1];
-    pixels[i + 2] = background[2];
+  // Фон: тот же CSS-градиент, что лежит под канвасом в конструкторе.
+  fillStudioBackground(pixels, frameWidth, frameHeight);
+
+  // Стол: пятно контакта и свет софтбокса. Оба рисуются экранными эллипсами у
+  // линии стола, а не проекцией круга на плоскость: в ортопроекции стол виден
+  // почти с ребра, и настоящий круг под дном целиком прячется за вазой. Эллипс
+  // той же ширины повторяет ровно ту полосу, которую показывает перспективная
+  // камера сцены: тёмную у дна и мягкий свет вокруг.
+  const footprint = Math.max(maxX - minX, maxZ - minZ, 1) * scale;
+  const floorPoint = project([(minX + maxX) / 2, minY, (minZ + maxZ) / 2]);
+  const baseCenter: ScreenPoint = { x: floorPoint.x, y: floorLine };
+  // Ракурс сжимает круг в эллипс: высота пятна меньше ширины.
+  const squeeze = Math.max(
+    0.18,
+    Math.sin((Math.abs(elevation) * Math.PI) / 180),
+  );
+  const poolRadiusX = (footprint * STUDIO_FLOOR.poolScale) / 2;
+  const contactRadiusX = (footprint * STUDIO_FLOOR.contactScale) / 2;
+  const poolRadiusY = poolRadiusX * squeeze;
+  const contactRadiusY = contactRadiusX * squeeze;
+  const contactColor = hexToRgb(STUDIO_FLOOR.contactColor);
+  const poolColor = hexToRgb(STUDIO_FLOOR.poolColor);
+
+  for (let y = 0; y < frameHeight; y += 1) {
+    // Пятно контакта меньше светового, поэтому снаружи большого эллипса
+    // проверять его незачем: там заведомо ноль.
+    const poolFalloff = spotFalloff(
+      baseCenter.x,
+      y + 0.5,
+      baseCenter,
+      poolRadiusX,
+      poolRadiusY,
+    );
+
+    if (poolFalloff === 0) {
+      continue;
+    }
+
+    for (let x = 0; x < frameWidth; x += 1) {
+      const inPool = spotFalloff(
+        x + 0.5,
+        y + 0.5,
+        baseCenter,
+        poolRadiusX,
+        poolRadiusY,
+      );
+
+      if (inPool === 0) {
+        continue;
+      }
+
+      const offset = (y * frameWidth + x) * 3;
+
+      blendPixel(pixels, offset, poolColor, inPool * STUDIO_FLOOR.poolOpacity);
+      blendPixel(
+        pixels,
+        offset,
+        contactColor,
+        spotFalloff(
+          x + 0.5,
+          y + 0.5,
+          baseCenter,
+          contactRadiusX,
+          contactRadiusY,
+        ) * STUDIO_FLOOR.contactOpacity,
+      );
+    }
   }
 
   const depth = new Float32Array(frameWidth * frameHeight).fill(-Infinity);
+  const covered = new Uint8Array(frameWidth * frameHeight);
 
-  // Два источника света в мире: основной сверху-слева и слабая подсветка
-  // справа, чтобы глубина рельефа читалась и в тенях.
-  const lightA = normalize([-0.45, 0.75, 0.55]);
-  const lightB = normalize([0.65, -0.1, 0.35]);
-
-  for (let t = 0; t < triangles; t += 1) {
-    const i0 = corners ? corners[t * 3] : t * 3;
-    const i1 = corners ? corners[t * 3 + 1] : t * 3 + 1;
-    const i2 = corners ? corners[t * 3 + 2] : t * 3 + 2;
+  for (let triangle = 0; triangle < triangles; triangle += 1) {
+    const i0 = corners ? corners[triangle * 3] : triangle * 3;
+    const i1 = corners ? corners[triangle * 3 + 1] : triangle * 3 + 1;
+    const i2 = corners ? corners[triangle * 3 + 2] : triangle * 3 + 2;
 
     const ax = screenX[i0];
     const ay = screenY[i0];
@@ -238,28 +398,25 @@ export function renderVaseRgb(
       normal = [-normal[0], -normal[1], -normal[2]];
     }
 
-    const key = Math.max(
-      0,
-      normal[0] * lightA[0] + normal[1] * lightA[1] + normal[2] * lightA[2],
-    );
-    const fill = Math.max(
-      0,
-      normal[0] * lightB[0] + normal[1] * lightB[1] + normal[2] * lightB[2],
-    );
-    const shade = Math.min(1.15, 0.18 + 0.66 * key + 0.2 * fill);
-    const red = Math.min(255, Math.round(plastic[0] * shade));
-    const green = Math.min(255, Math.round(plastic[1] * shade));
-    const blue = Math.min(255, Math.round(plastic[2] * shade));
+    // Цвет поверхности считается один раз на грань: формула с глазурью и ACES
+    // заметно дороже прежних двух умножений, поэтому она вне цикла пикселей.
+    const color = studioSurfaceColor(normal, eye);
 
-    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-    const maxX = Math.min(frameWidth - 1, Math.ceil(Math.max(ax, bx, cx)));
-    const minY = Math.max(0, Math.floor(Math.min(ay, by, cy)));
-    const maxY = Math.min(frameHeight - 1, Math.ceil(Math.max(ay, by, cy)));
+    const minPixelX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
+    const maxPixelX = Math.min(
+      frameWidth - 1,
+      Math.ceil(Math.max(ax, bx, cx)),
+    );
+    const minPixelY = Math.max(0, Math.floor(Math.min(ay, by, cy)));
+    const maxPixelY = Math.min(
+      frameHeight - 1,
+      Math.ceil(Math.max(ay, by, cy)),
+    );
 
-    for (let y = minY; y <= maxY; y += 1) {
+    for (let y = minPixelY; y <= maxPixelY; y += 1) {
       const py = y + 0.5;
 
-      for (let x = minX; x <= maxX; x += 1) {
+      for (let x = minPixelX; x <= maxPixelX; x += 1) {
         const px = x + 0.5;
         const w0 = (cx - bx) * (py - by) - (px - bx) * (cy - by);
         const w1 = (ax - cx) * (py - cy) - (px - cx) * (ay - cy);
@@ -277,7 +434,8 @@ export function renderVaseRgb(
           continue;
         }
 
-        const z = (w0 * screenD[i0] + w1 * screenD[i1] + w2 * screenD[i2]) / sum;
+        const z =
+          (w0 * screenD[i0] + w1 * screenD[i1] + w2 * screenD[i2]) / sum;
         const pixel = y * frameWidth + x;
 
         if (z <= depth[pixel]) {
@@ -285,10 +443,12 @@ export function renderVaseRgb(
         }
 
         depth[pixel] = z;
-        const offset = pixel * 3;
-        pixels[offset] = red;
-        pixels[offset + 1] = green;
-        pixels[offset + 2] = blue;
+        covered[pixel] = 1;
+        const pixelOffset = pixel * 3;
+
+        pixels[pixelOffset] = color[0];
+        pixels[pixelOffset + 1] = color[1];
+        pixels[pixelOffset + 2] = color[2];
       }
     }
   }
@@ -296,30 +456,58 @@ export function renderVaseRgb(
   geometry.dispose();
 
   const rgb = new Uint8ClampedArray(width * height * 3);
+  const samples = supersample * supersample;
+  let modelPixels = 0;
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       let red = 0;
       let green = 0;
       let blue = 0;
+      let coveredSamples = 0;
 
       for (let sy = 0; sy < supersample; sy += 1) {
         for (let sx = 0; sx < supersample; sx += 1) {
-          const offset =
-            ((y * supersample + sy) * frameWidth + x * supersample + sx) * 3;
+          const frameX = x * supersample + sx;
+          const frameY = y * supersample + sy;
+          const offset = (frameY * frameWidth + frameX) * 3;
           red += pixels[offset];
           green += pixels[offset + 1];
           blue += pixels[offset + 2];
+          coveredSamples += covered[frameY * frameWidth + frameX];
         }
       }
 
-      const area = supersample * supersample;
+      let mixedRed = red / samples;
+      let mixedGreen = green / samples;
+      let mixedBlue = blue / samples;
+      // Виньетка: тот же слой, что лежит над канвасом в конструкторе.
+      const vignette = studioVignetteAlpha(x + 0.5, y + 0.5, width, height);
+
+      if (vignette > 0) {
+        mixedRed += (STUDIO_VIGNETTE.color[0] - mixedRed) * vignette;
+        mixedGreen += (STUDIO_VIGNETTE.color[1] - mixedGreen) * vignette;
+        mixedBlue += (STUDIO_VIGNETTE.color[2] - mixedBlue) * vignette;
+      }
+
       const offset = (y * width + x) * 3;
-      rgb[offset] = Math.round(red / area);
-      rgb[offset + 1] = Math.round(green / area);
-      rgb[offset + 2] = Math.round(blue / area);
+
+      rgb[offset] = mixedRed;
+      rgb[offset + 1] = mixedGreen;
+      rgb[offset + 2] = mixedBlue;
+
+      if (coveredSamples > 0) {
+        modelPixels += 1;
+      }
     }
   }
 
-  return { rgb, width, height, triangles, vertices: vertexCount };
+  return {
+    rgb,
+    width,
+    height,
+    triangles,
+    vertices: vertexCount,
+    coverage: modelPixels / (width * height),
+  };
 }

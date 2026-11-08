@@ -9,7 +9,9 @@
  *
  * Сам растеризатор живёт в `lib/constructor/vase-preview.ts`: тот же модуль
  * рисует плитки галереи вариантов в браузере, а здесь остаётся командная
- * строка — флаги, лист матрицы и PNG на `node:zlib`.
+ * строка — флаги, лист матрицы и PNG на `node:zlib`. Студию — фон, свет, стол и
+ * керамику — оба берут из `lib/constructor/studio.ts`, поэтому PNG совпадает по
+ * стилю с 3D-сценой конструктора.
  *
  * Запуск по одному сочетанию:
  *   node --import ./scripts/register-alias.mjs scripts/vase-render.mjs \
@@ -51,9 +53,11 @@ import {
   VASE_SHAPES,
 } from "../lib/constructor/params";
 import {
-  VASE_PREVIEW_BACKGROUND,
-  renderVaseRgb,
-} from "../lib/constructor/vase-preview";
+  STUDIO_BACKGROUND_EDGE,
+  STUDIO_CAMERA,
+  hexToRgb,
+} from "../lib/constructor/studio";
+import { renderVaseRgb } from "../lib/constructor/vase-preview";
 
 /**
  * Размер PNG плитки галереи рецептов и папка, откуда её берёт компонент.
@@ -177,6 +181,22 @@ function blit(sheet, sheetWidth, frame, left, top) {
   }
 }
 
+/**
+ * Заливает лист цветом дальнего края фона студии.
+ *
+ * Плитки на листе несут свой градиент, а промежутки между ними должны совпадать
+ * с тёмным краем — иначе лист выглядит сеткой картинок, а не студией.
+ */
+function fillSheet(sheet) {
+  const edge = hexToRgb(STUDIO_BACKGROUND_EDGE);
+
+  for (let i = 0; i < sheet.length; i += 3) {
+    sheet[i] = edge[0];
+    sheet[i + 1] = edge[1];
+    sheet[i + 2] = edge[2];
+  }
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const args = parseArgs(process.argv.slice(2));
   const frequency = numberOption(
@@ -198,8 +218,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const organic = numberOption(args.organic, DEFAULT_CONSTRUCTOR_PARAMS.organic);
   const leanDeg = numberOption(args.lean, DEFAULT_CONSTRUCTOR_PARAMS.leanDeg);
   const vaseSeed = numberOption(args.seed, DEFAULT_CONSTRUCTOR_PARAMS.vaseSeed);
-  const azimuth = numberOption(args.azimuth, 24);
-  const elevation = numberOption(args.elevation, 12);
+  const azimuth = numberOption(args.azimuth, STUDIO_CAMERA.azimuthDeg);
+  const elevation = numberOption(args.elevation, STUDIO_CAMERA.elevationDeg);
   const size = numberOption(args.size, 760);
   const tile = numberOption(args.tile, 300);
   const out = path.resolve(args.out ?? ".fonttmp/shots/vase.png");
@@ -279,11 +299,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     const height = rows * tileHeight + (rows + 1) * gap;
     const sheet = Buffer.alloc(width * height * 3);
 
-    for (let i = 0; i < sheet.length; i += 3) {
-      sheet[i] = VASE_PREVIEW_BACKGROUND[0];
-      sheet[i + 1] = VASE_PREVIEW_BACKGROUND[1];
-      sheet[i + 2] = VASE_PREVIEW_BACKGROUND[2];
-    }
+    fillSheet(sheet);
 
     VASE_SHAPES.forEach((shape, index) => {
       const frame = renderVaseRgb(
@@ -342,11 +358,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     const sheet = Buffer.alloc(width * height * 3);
     let worst = 0;
 
-    for (let i = 0; i < sheet.length; i += 3) {
-      sheet[i] = VASE_PREVIEW_BACKGROUND[0];
-      sheet[i + 1] = VASE_PREVIEW_BACKGROUND[1];
-      sheet[i + 2] = VASE_PREVIEW_BACKGROUND[2];
-    }
+    fillSheet(sheet);
 
     for (let row = 0; row < rows; row += 1) {
       for (let column = 0; column < columns; column += 1) {

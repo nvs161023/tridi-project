@@ -116,10 +116,7 @@ import {
   calculateVaseVolumeMm3,
   createVaseProfile,
 } from "../lib/constructor/vase-profile";
-import {
-  VASE_PREVIEW_BACKGROUND,
-  renderVaseRgb,
-} from "../lib/constructor/vase-preview";
+import { renderVaseRgb } from "../lib/constructor/vase-preview";
 import {
   organicOffset,
 } from "../lib/constructor/vase-seed";
@@ -1735,29 +1732,6 @@ function bytesMatch(first: Uint8ClampedArray, second: Uint8ClampedArray): boolea
 }
 
 /**
- * Какая доля кадра занята вазой.
- *
- * Фон у превью ровный, поэтому «не фон» — это модель. Доля нужна, чтобы гейт
- * заметил пустую плитку: если камера уедет или растеризатор перестанет рисовать,
- * проверка на разницу сидов этого не увидит.
- */
-function coveredShare(rgb: Uint8ClampedArray): number {
-  let covered = 0;
-
-  for (let index = 0; index < rgb.length; index += 3) {
-    if (
-      rgb[index] !== VASE_PREVIEW_BACKGROUND[0] ||
-      rgb[index + 1] !== VASE_PREVIEW_BACKGROUND[1] ||
-      rgb[index + 2] !== VASE_PREVIEW_BACKGROUND[2]
-    ) {
-      covered += 1;
-    }
-  }
-
-  return covered / (rgb.length / 3);
-}
-
-/**
  * Разброс радиусов в кольце по высотам: «насколько стенка гуляет по кругу».
  *
  * У круглой вазы без узора кольцо ровное, поэтому разброс равен нулю. Органика
@@ -2188,7 +2162,7 @@ console.log("\n12. Галерея форм: кадр плитки и его де
   const tile = renderVaseRgb(vaseParams({ shape: "classic" }), tileOptions);
   const tileAgain = renderVaseRgb(vaseParams({ shape: "classic" }), tileOptions);
   const tileOther = renderVaseRgb(vaseParams({ shape: "cone" }), tileOptions);
-  const share = coveredShare(tile.rgb);
+  const share = tile.coverage;
 
   check("превью: размер кадра", [tile.width, tile.height], [64, 80]);
   check(
@@ -3159,7 +3133,8 @@ console.log("\n17. Галерея рецептов: двенадцать ваз 
   }
 
   // Плитка — это картинка, но проверка кадра ловит случай «файл есть, а вазы в
-  // нём нет»: кадр рисуется тем же растеризатором, что и PNG в скрипте.
+  // нём нет»: кадр рисуется тем же растеризатором, что и PNG в скрипте, а доля
+  // кадра считается по маске при растеризации, поэтому фон-градиент ей не мешает.
   const frames = VASE_RECIPES.map((recipe) => {
     const params = vaseRecipeParams(recipe);
     const frame = renderVaseRgb(params, {
@@ -3169,10 +3144,10 @@ console.log("\n17. Галерея рецептов: двенадцать ваз 
       budget: "preview",
     });
 
-    return coveredShare(frame.rgb);
+    return frame.coverage;
   });
 
-  checkRange("рецепты: каждая ваза занимает кадр", frames, 0.2, 1);
+  checkRange("рецепты: каждая ваза занимает кадр", frames, 0.12, 1);
   console.log(
     `       доля кадра у плиток: ${Math.min(...frames).toFixed(2)}…` +
       `${Math.max(...frames).toFixed(2)}`,

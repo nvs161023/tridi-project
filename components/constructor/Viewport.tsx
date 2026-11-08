@@ -59,6 +59,17 @@ import {
   VASE_SECTION_MIN_SIDES,
   resolveSectionSides,
 } from "@/lib/constructor/vase-section";
+import {
+  STUDIO_BACKGROUND_CSS,
+  STUDIO_CAMERA,
+  STUDIO_CERAMIC,
+  STUDIO_ENVIRONMENT,
+  STUDIO_EXPOSURE,
+  STUDIO_FLOOR,
+  STUDIO_LIGHTS,
+  STUDIO_VIGNETTE,
+  studioSpan,
+} from "@/lib/constructor/studio";
 
 /** Параметры выбранной модели: сцена пересобирается при любом изменении. */
 type ViewportProps = {
@@ -96,7 +107,12 @@ type CameraRigProps = {
  * чуть справа и сверху. Дальше пользователь вращает сцену сам, а мы сохраняем
  * это направление при изменении размеров — камера не прыгает в исходную точку.
  */
-const INITIAL_DIRECTION = new Vector3(0.62, 0.3, 0.94).normalize();
+const INITIAL_DIRECTION = new Vector3(
+  STUDIO_CAMERA.direction[0],
+  STUDIO_CAMERA.direction[1],
+  STUDIO_CAMERA.direction[2],
+).normalize();
+
 
 /**
  * Для лежащего брелока взгляд должен быть круче: при 15° над столом тонкая
@@ -219,12 +235,12 @@ function VaseModel({ geometry, faceted }: VaseModelProps) {
         полутеней, и форма читается только по контуру.
       */}
       <meshPhysicalMaterial
-        clearcoat={0.5}
-        clearcoatRoughness={0.3}
-        color="#dbe3ee"
+        clearcoat={STUDIO_CERAMIC.clearcoat}
+        clearcoatRoughness={STUDIO_CERAMIC.clearcoatRoughness}
+        color={STUDIO_CERAMIC.color}
         flatShading={faceted}
-        metalness={0.1}
-        roughness={0.55}
+        metalness={STUDIO_CERAMIC.metalness}
+        roughness={STUDIO_CERAMIC.roughness}
       />
     </mesh>
   );
@@ -373,11 +389,6 @@ function SignModel({ geometry }: SignModelProps) {
   );
 }
 
-type StudioEnvironmentProps = {
-  /** Насколько сильно окружение подсвечивает модель. */
-  intensity: number;
-};
-
 /**
  * Окружение студии: программный PMREM вместо HDR-карты с CDN.
  *
@@ -391,53 +402,43 @@ type StudioEnvironmentProps = {
  * маленькая (0.22), потому что окружение здесь добавка к ключевому свету, а не
  * замена: сильнее оно поднимает тени и модель становится плоской.
  */
-function StudioEnvironment({ intensity }: StudioEnvironmentProps) {
+function StudioEnvironment() {
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
 
   useEffect(() => {
     const virtual = new ThreeScene();
-    virtual.background = new Color("#0b1220");
+    virtual.background = new Color(STUDIO_ENVIRONMENT.background);
 
-    /** Панель софтбокса: цвет, мощность, размер и место в виртуальной студии. */
-    const addPanel = (
-      color: string,
-      power: number,
-      [width, height]: [number, number],
-      [x, y, z]: [number, number, number],
-    ) => {
-      const panel = new Mesh(
-        new PlaneGeometry(width, height),
+    // Панели берутся из общего описания студии: те же числа разворачивает в
+    // отражения растеризатор превью, поэтому галерея не разъезжается со сценой.
+    const panels = STUDIO_ENVIRONMENT.panels.map((panel) => {
+      const mesh = new Mesh(
+        new PlaneGeometry(panel.size[0], panel.size[1]),
         new MeshBasicMaterial({
-          color: new Color(color).multiplyScalar(power),
+          color: new Color(panel.color).multiplyScalar(panel.power),
           side: DoubleSide,
         }),
       );
 
-      panel.position.set(x, y, z);
+      mesh.position.set(
+        panel.position[0],
+        panel.position[1],
+        panel.position[2],
+      );
       // Панель смотрит в центр студии: так её блик попадает на модель.
-      panel.lookAt(0, 0, 0);
-      virtual.add(panel);
+      mesh.lookAt(0, 0, 0);
+      virtual.add(mesh);
 
-      return panel;
-    };
-
-    const panels = [
-      // Верхний софтбокс: главный блик на плече и горле вазы.
-      addPanel("#ffffff", 3, [12, 12], [0, 9, 0]),
-      // Боковые полосы: длинные отражения вдоль силуэта.
-      addPanel("#dbeafe", 2, [6, 3], [-8, 3, 2]),
-      addPanel("#c7d2fe", 1.4, [6, 3], [8, 2.5, 1]),
-      // Тёплый акцент сзади: второй цвет в отражениях.
-      addPanel("#fdba74", 1.6, [4, 4], [2, 3, -8]),
-    ];
+      return mesh;
+    });
 
     const generator = new PMREMGenerator(gl);
     const target = generator.fromScene(virtual, 0.04, 0.1, 100);
     generator.dispose();
 
     scene.environment = target.texture;
-    scene.environmentIntensity = intensity;
+    scene.environmentIntensity = STUDIO_ENVIRONMENT.intensity;
 
     return () => {
       scene.environment = null;
@@ -450,20 +451,9 @@ function StudioEnvironment({ intensity }: StudioEnvironmentProps) {
         panel.material.dispose();
       }
     };
-  }, [gl, intensity, scene]);
+  }, [gl, scene]);
 
   return null;
-}
-
-/**
- * Радиус студии: по нему настраиваются свет и карта теней.
- *
- * Модели живут в миллиметрах, и ваза 120 мм с вывеской 400 мм требуют разного
- * удаления лампы и разного охвата тени: иначе тень либо не попадает в кадр,
- * либо размывается в серое пятно.
- */
-function studioSpan(height: number, footprint: number): number {
-  return Math.max(footprint * 1.8, height * 1.6, 220);
 }
 
 type StudioLightProps = {
@@ -500,35 +490,53 @@ function StudioLights({ span }: StudioLightProps) {
   return (
     <>
       {/* Верхний рассеянный: холодное небо сверху, тёмный стол снизу. */}
-      <hemisphereLight args={["#dbeafe", "#0b1120", 0.05]} />
+      <hemisphereLight
+        args={[
+          STUDIO_LIGHTS.hemisphere.sky,
+          STUDIO_LIGHTS.hemisphere.ground,
+          STUDIO_LIGHTS.hemisphere.intensity,
+        ]}
+      />
       {/* Ключевой: единственный источник тени. */}
       <directionalLight
         castShadow
-        color="#fff4e6"
-        intensity={2.4}
-        position={[span * 1.45, span * 1.15, span * 0.35]}
-        shadow-bias={-0.0005}
+        color={STUDIO_LIGHTS.key.color}
+        intensity={STUDIO_LIGHTS.key.intensity}
+        position={[
+          span * STUDIO_LIGHTS.key.position[0],
+          span * STUDIO_LIGHTS.key.position[1],
+          span * STUDIO_LIGHTS.key.position[2],
+        ]}
+        shadow-bias={STUDIO_LIGHTS.key.bias}
         shadow-camera-bottom={-span}
         shadow-camera-far={span * 6}
         shadow-camera-left={-span}
         shadow-camera-right={span}
         shadow-camera-top={span}
-        shadow-mapSize-height={1024}
-        shadow-mapSize-width={1024}
-        shadow-normalBias={0.02}
-        shadow-radius={16}
+        shadow-mapSize-height={STUDIO_LIGHTS.key.mapSize}
+        shadow-mapSize-width={STUDIO_LIGHTS.key.mapSize}
+        shadow-normalBias={STUDIO_LIGHTS.key.normalBias}
+        shadow-radius={STUDIO_LIGHTS.key.radius}
       />
       {/* Заполняющий: мягкий, с противоположной стороны, без тени. */}
       <directionalLight
-        color="#dbe6f4"
-        intensity={0.22}
-        position={[-span * 1.2, span * 0.5, span * 0.9]}
+        color={STUDIO_LIGHTS.fill.color}
+        intensity={STUDIO_LIGHTS.fill.intensity}
+        position={[
+          span * STUDIO_LIGHTS.fill.position[0],
+          span * STUDIO_LIGHTS.fill.position[1],
+          span * STUDIO_LIGHTS.fill.position[2],
+        ]}
       />
       {/* Контровой: кромка силуэта, стоит за моделью. */}
       <directionalLight
-        color="#bfd3ea"
-        intensity={0.55}
-        position={[-span * 0.35, span * 0.85, -span * 1.25]}
+        color={STUDIO_LIGHTS.rim.color}
+        intensity={STUDIO_LIGHTS.rim.intensity}
+        position={[
+          span * STUDIO_LIGHTS.rim.position[0],
+          span * STUDIO_LIGHTS.rim.position[1],
+          span * STUDIO_LIGHTS.rim.position[2],
+        ]}
       />
     </>
   );
@@ -594,23 +602,27 @@ function useRadialGradient() {
 function StudioFloor({ footprint }: StudioFloorProps) {
   const size = Math.max(footprint * 16, 6000);
   const gradient = useRadialGradient();
-  const contact = footprint * 1.6;
-  const pool = footprint * 4;
+  const contact = footprint * STUDIO_FLOOR.contactScale;
+  const pool = footprint * STUDIO_FLOOR.poolScale;
 
   return (
     <group>
       <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.5, 0]}>
         <planeGeometry args={[size, size]} />
-        <shadowMaterial color="#020617" transparent opacity={0.4} />
+        <shadowMaterial
+          color={STUDIO_FLOOR.shadowColor}
+          opacity={STUDIO_FLOOR.shadowOpacity}
+          transparent
+        />
       </mesh>
       {/* Свет софтбокса на столе: ниже пятна контакта и мягче его. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.45, 0]}>
         <planeGeometry args={[pool, pool]} />
         <meshBasicMaterial
           alphaMap={gradient}
-          color="#dbeafe"
+          color={STUDIO_FLOOR.poolColor}
           depthWrite={false}
-          opacity={0.08}
+          opacity={STUDIO_FLOOR.poolOpacity}
           transparent
         />
       </mesh>
@@ -619,9 +631,9 @@ function StudioFloor({ footprint }: StudioFloorProps) {
         <planeGeometry args={[contact, contact]} />
         <meshBasicMaterial
           alphaMap={gradient}
-          color="#020617"
+          color={STUDIO_FLOOR.contactColor}
           depthWrite={false}
-          opacity={0.4}
+          opacity={STUDIO_FLOOR.contactOpacity}
           transparent
         />
       </mesh>
@@ -646,7 +658,7 @@ function Scene({ params, geometry, framing }: SceneProps) {
         Окружение и свет: софтбоксы дают отражения, направленный свет — тень.
         Фон прозрачный, тёмный градиент задаёт обёртка viewport в CSS.
       */}
-      <StudioEnvironment intensity={0.22} />
+      <StudioEnvironment />
       <StudioLights span={span} />
 
       {params.model === "vase" ? (
@@ -1029,7 +1041,10 @@ export function Viewport({ params }: ViewportProps) {
         в тёмной студии. Канвас прозрачный (alpha), поэтому градиент живёт в
         CSS и не требует отдельной геометрии в three.js.
       */}
-      <div className="relative h-[min(40vh,20rem)] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_50%_16%,#1e293b_0%,#0f172a_46%,#050a14_100%)] shadow-2xl shadow-black/50 sm:h-[min(48vh,26rem)] lg:h-auto lg:min-h-[16rem] lg:flex-1">
+      <div
+        className="relative h-[min(40vh,20rem)] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 shadow-2xl shadow-black/50 sm:h-[min(48vh,26rem)] lg:h-auto lg:min-h-[16rem] lg:flex-1"
+        style={{ backgroundImage: STUDIO_BACKGROUND_CSS }}
+      >
         {/*
           Тени и цветопередача заданы на рендерере: PCF с мягким фильтром даёт
           размытый край тени (PCFSoftShadowMap в three r186 удалён, и рендерер
@@ -1053,7 +1068,7 @@ export function Viewport({ params }: ViewportProps) {
             alpha: true,
             antialias: true,
             toneMapping: ACESFilmicToneMapping,
-            toneMappingExposure: 0.92,
+            toneMappingExposure: STUDIO_EXPOSURE,
           }}
           shadows={{ enabled: true, type: PCFShadowMap }}
         >
@@ -1065,7 +1080,10 @@ export function Viewport({ params }: ViewportProps) {
           Градиент держит взгляд в центре сцены и прячет стык канваса с
           обёрткой на светлых мониторах.
         */}
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,transparent_42%,rgba(2,6,23,0.5)_100%)]" />
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{ backgroundImage: STUDIO_VIGNETTE.css }}
+        />
 
         {needsFont && !font ? (
           <div
