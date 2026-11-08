@@ -67,6 +67,8 @@ import {
   STUDIO_EXPOSURE,
   STUDIO_FLOOR,
   STUDIO_LIGHTS,
+  STUDIO_MODEL_TINTS,
+  STUDIO_PLASTIC,
   STUDIO_VIGNETTE,
   studioSpan,
 } from "@/lib/constructor/studio";
@@ -262,9 +264,9 @@ function KeychainModel({ geometry }: KeychainModelProps) {
     <group rotation={[-Math.PI / 2, 0, 0]}>
       <mesh castShadow geometry={geometry} receiveShadow>
         <meshStandardMaterial
-          color="#f59e0b"
-          metalness={0.1}
-          roughness={0.7}
+          color={STUDIO_MODEL_TINTS.keychain}
+          metalness={STUDIO_PLASTIC.metalness}
+          roughness={STUDIO_PLASTIC.roughness}
         />
       </mesh>
     </group>
@@ -286,9 +288,9 @@ function StandModel({ geometry }: StandModelProps) {
     <group rotation={[-Math.PI / 2, 0, 0]}>
       <mesh castShadow geometry={geometry} receiveShadow>
         <meshStandardMaterial
-          color="#38bdf8"
-          metalness={0.1}
-          roughness={0.7}
+          color={STUDIO_MODEL_TINTS.stand}
+          metalness={STUDIO_PLASTIC.metalness}
+          roughness={STUDIO_PLASTIC.roughness}
         />
       </mesh>
     </group>
@@ -309,9 +311,9 @@ function BoxModel({ geometry }: BoxModelProps) {
     <group rotation={[-Math.PI / 2, 0, 0]}>
       <mesh castShadow geometry={geometry} receiveShadow>
         <meshStandardMaterial
-          color="#34d399"
-          metalness={0.1}
-          roughness={0.7}
+          color={STUDIO_MODEL_TINTS.box}
+          metalness={STUDIO_PLASTIC.metalness}
+          roughness={STUDIO_PLASTIC.roughness}
         />
       </mesh>
     </group>
@@ -336,8 +338,8 @@ function ZUpModel({ geometry, color }: ZUpModelProps) {
       <mesh castShadow geometry={geometry} receiveShadow>
         <meshStandardMaterial
           color={color}
-          metalness={0.1}
-          roughness={0.7}
+          metalness={STUDIO_PLASTIC.metalness}
+          roughness={STUDIO_PLASTIC.roughness}
         />
       </mesh>
     </group>
@@ -360,9 +362,9 @@ function LithophaneModel({ geometry }: LithophaneModelProps) {
   return (
     <mesh castShadow geometry={geometry} receiveShadow>
       <meshStandardMaterial
-        color="#f1f5f9"
-        metalness={0.1}
-        roughness={0.7}
+        color={STUDIO_MODEL_TINTS.lithophane}
+        metalness={STUDIO_PLASTIC.metalness}
+        roughness={STUDIO_PLASTIC.roughness}
       />
     </mesh>
   );
@@ -381,9 +383,9 @@ function SignModel({ geometry }: SignModelProps) {
   return (
     <mesh castShadow geometry={geometry} receiveShadow>
       <meshStandardMaterial
-        color="#a78bfa"
-        metalness={0.1}
-        roughness={0.7}
+        color={STUDIO_MODEL_TINTS.sign}
+        metalness={STUDIO_PLASTIC.metalness}
+        roughness={STUDIO_PLASTIC.roughness}
       />
     </mesh>
   );
@@ -678,15 +680,15 @@ function Scene({ params, geometry, framing }: SceneProps) {
       ) : params.model === "lithophane" ? (
         <LithophaneModel geometry={geometry} />
       ) : params.model === "planter" ? (
-        <ZUpModel color="#fbbf24" geometry={geometry} />
+        <ZUpModel color={STUDIO_MODEL_TINTS.planter} geometry={geometry} />
       ) : params.model === "coaster" ? (
-        <ZUpModel color="#fb7185" geometry={geometry} />
+        <ZUpModel color={STUDIO_MODEL_TINTS.coaster} geometry={geometry} />
       ) : params.model === "jewelry_stand" ? (
-        <ZUpModel color="#c084fc" geometry={geometry} />
+        <ZUpModel color={STUDIO_MODEL_TINTS.jewelry_stand} geometry={geometry} />
       ) : params.model === "pen_holder" ? (
-        <ZUpModel color="#60a5fa" geometry={geometry} />
+        <ZUpModel color={STUDIO_MODEL_TINTS.pen_holder} geometry={geometry} />
       ) : params.model === "heat_transfer" ? (
-        <ZUpModel color="#f97316" geometry={geometry} />
+        <ZUpModel color={STUDIO_MODEL_TINTS.heat_transfer} geometry={geometry} />
       ) : (
         <SignModel geometry={geometry} />
       )}

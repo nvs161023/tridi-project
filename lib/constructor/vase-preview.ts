@@ -64,6 +64,17 @@ export type VasePreview = {
    * ловит пустую плитку: если растеризатор перестанет рисовать, доля упадёт.
    */
   coverage: number;
+  /**
+   * Локальный контраст внутри силуэта: средний перепад яркости соседних
+   * пикселей модели, ступени 0…255.
+   *
+   * Покрытие отвечает на вопрос «нарисовалось ли что-то», контраст — «видно ли
+   * на этом узор». Гладкая стенка на плитке 64 × 80 даёт около 4.6 ступени:
+   * сказывается наклон света по форме. Рёбра 1.2 мм на частоте 20 — около 20.
+   * Гейт превью требует, чтобы узор был в разы контрастнее гладкой стенки,
+   * иначе сплошная заливка проходила бы проверку покрытия.
+   */
+  contrast: number;
 };
 
 /** Настройки кадра: размер, ракурс и бюджет сетки. */
@@ -457,6 +468,8 @@ export function renderVaseRgb(
 
   const rgb = new Uint8ClampedArray(width * height * 3);
   const samples = supersample * supersample;
+  /** Маска готового кадра: 1 — пиксель накрыт моделью. По ней считается контраст. */
+  const silhouette = new Uint8Array(width * height);
   let modelPixels = 0;
 
   for (let y = 0; y < height; y += 1) {
@@ -498,7 +511,38 @@ export function renderVaseRgb(
 
       if (coveredSamples > 0) {
         modelPixels += 1;
+        silhouette[y * width + x] = 1;
       }
+    }
+  }
+
+  /*
+   * Локальный контраст: средний перепад яркости между соседними пикселями
+   * внутри силуэта. Гладкая стенка на этом масштабе почти не меняется, а рёбра,
+   * спираль и гранёный силуэт дают заметные перепады на каждой грани. Число
+   * нужно гейту: одного покрытия мало — сплошная заливка без узора тоже
+   * покрытие.
+   */
+  let contrastSum = 0;
+  let contrastPairs = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width - 1; x += 1) {
+      const index = y * width + x;
+
+      if (silhouette[index] === 0 || silhouette[index + 1] === 0) {
+        continue;
+      }
+
+      const left = index * 3;
+      const right = left + 3;
+      const leftLuminance =
+        0.2126 * rgb[left] + 0.7152 * rgb[left + 1] + 0.0722 * rgb[left + 2];
+      const rightLuminance =
+        0.2126 * rgb[right] + 0.7152 * rgb[right + 1] + 0.0722 * rgb[right + 2];
+
+      contrastSum += Math.abs(leftLuminance - rightLuminance);
+      contrastPairs += 1;
     }
   }
 
@@ -509,5 +553,6 @@ export function renderVaseRgb(
     triangles,
     vertices: vertexCount,
     coverage: modelPixels / (width * height),
+    contrast: contrastPairs ? contrastSum / contrastPairs : 0,
   };
 }
