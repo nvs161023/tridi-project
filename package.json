@@ -10,6 +10,7 @@
     "check:imports": "node scripts/check-imports.mjs",
     "check:style": "node scripts/style-check.mjs",
     "check:vase": "node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts",
+    "check:keychain": "node --import ./scripts/register-alias.mjs scripts/test-keychain-image.ts",
     "stats:lesson": "node scripts/lesson-stats.mjs",
     "shots:vase": "node --import ./scripts/register-alias.mjs scripts/vase-render.mjs",
     "shots:recipes": "node --import ./scripts/register-alias.mjs scripts/vase-render.mjs --recipes 1",
