@@ -29,11 +29,11 @@ import {
   type KeychainBuildReport,
 } from "@/lib/constructor/keychain-geometry";
 import {
-  KEYCHAIN_IMAGE_FIELD_LEVELS,
   KEYCHAIN_IMAGE_GRID,
   keychainImageErrorText,
   keychainImageField,
   keychainImageFromPixels,
+  keychainImageMask,
 } from "@/lib/constructor/keychain-image";
 import {
   APPLE_TAG_RING_HOLE_INSET_MM,
@@ -894,12 +894,10 @@ async function keychainImageDataFromFile(file: File): Promise<string> {
 /**
  * Собирает превью маски картинки: те ячейки, что станут пластиком.
  *
- * В `imageData` лежит полутон — шестнадцать уровней покрытия на ячейку, — а
- * рельефом становится только то, что выше порога детализации. Поэтому превью
- * рисуется тем же порогом, что и геометрия (`cells >= threshold` — то же
- * сравнение, что в `keychain-image.ts`): ползунок меняет картинку на экране
- * ровно так же, как в модели. Цвет рельефа светлый: точки печатаются на тёмной
- * подложке карточки.
+ * Превью считается той же функцией, что и геометрия, — `keychainImageMask`:
+ * порог яркости, инверсия и дилатация. Иначе пользователь настраивал бы одну
+ * картинку, а печатал другую: расширение штриха на ячейку видно только здесь.
+ * Цвет рельефа светлый: точки печатаются на тёмной подложке карточки.
  *
  * `null` — строку не разобрать. Так приходят проекты прежнего формата: там
  * `imageData` — настоящий SVG в base64, и карточка показывает его напрямую.
@@ -907,6 +905,7 @@ async function keychainImageDataFromFile(file: File): Promise<string> {
 function keychainImagePreviewUrl(
   imageData: string,
   threshold: number,
+  invert: boolean,
 ): string | null {
   const field = keychainImageField(imageData);
 
@@ -925,10 +924,10 @@ function keychainImagePreviewUrl(
   }
 
   const image = context.createImageData(field.width, field.height);
-  const cut = (threshold / 100) * (KEYCHAIN_IMAGE_FIELD_LEVELS - 1);
+  const mask = keychainImageMask(field, threshold, invert);
 
-  for (let index = 0; index < field.cells.length; index += 1) {
-    if (field.cells[index] < cut) {
+  for (let index = 0; index < mask.length; index += 1) {
+    if (mask[index] === 0) {
       continue;
     }
 
@@ -1746,12 +1745,13 @@ export function ParameterPanel({
     ? Array.from(keychainText.content).length
     : 0;
   /**
-   * Превью маски следует за порогом детализации.
+   * Превью маски следует за порогом яркости и инверсией.
    *
    * Ползунок ничего не пересчитывает в модели: порог применяется при обводке, а
-   * превью считается здесь же — поэтому пользователь видит ровно те пятна,
-   * которые станут пластиком. Старые проекты хранят SVG-обводку, для них
-   * `keychainImagePreviewUrl` вернёт `null`, а карточка покажет исходную строку.
+   * превью считается здесь же — поэтому пользователь видит ровно те ячейки,
+   * которые станут пластиком, вместе с дилатацией. Старые проекты хранят
+   * SVG-обводку, для них `keychainImagePreviewUrl` вернёт `null`, а карточка
+   * покажет исходную строку.
    */
   useEffect(() => {
     setKeychainImagePreview(
@@ -1759,6 +1759,7 @@ export function ParameterPanel({
         ? keychainImagePreviewUrl(
             keychainImage.imageData,
             keychainImage.imageThreshold,
+            keychainImage.imageInvert,
           )
         : null,
     );
@@ -2333,9 +2334,10 @@ export function ParameterPanel({
           id={keychainImageHintId}
         >
           PNG с прозрачным фоном или JPG. Рельефом становится тёмное и
-          непрозрачное, а полутон фото сохраняется дизерингом: на превью видно
-          ровно те точки, которые получатся пластиком. Место ищется по карте
-          грани, а имя и отверстие под кольцо логотип обходит сам.
+          непрозрачное: маска бинарная, полутон режет порог яркости, а тонкий
+          штрих расширяется до трёх ячеек — иначе сопло его не напечатает. На
+          превью видно ровно те ячейки, которые получатся пластиком. Место ищется
+          по карте грани, а имя и отверстие под кольцо логотип обходит сам.
         </p>
 
         {keychainImageError ? (
@@ -2401,8 +2403,8 @@ export function ParameterPanel({
 
           <NumberSlider
             decimals={KEYCHAIN_IMAGE_THRESHOLD_LIMITS.decimals}
-            hint="Порог детализации: выше — пластиком становится только плотное, и «каша» из пятен на фото исчезает; ниже — картинка плотнее, но мелкие точки сливаются. Превью в карточке показывает результат сразу, файл загружать заново не нужно."
-            label="Порог детализации"
+            hint="Ячейки темнее порога печатаются пластиком, светлее остаются фоном. Выше — в рельеф идёт больше полутонов и картинка плотнее, но соседние штрихи слипаются; ниже — на рельефе остаётся только самое тёмное. Белый фон не печатается при любом пороге. Превью в карточке показывает результат сразу, файл загружать заново не нужно."
+            label="Порог яркости"
             max={KEYCHAIN_IMAGE_THRESHOLD_LIMITS.max}
             min={KEYCHAIN_IMAGE_THRESHOLD_LIMITS.min}
             onChange={(value) =>
@@ -2412,6 +2414,30 @@ export function ParameterPanel({
             unit="%"
             value={decoration.imageThreshold}
           />
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+            <input
+              checked={decoration.imageInvert}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onChange={(event) =>
+                onKeychainDecorationChange("image", {
+                  imageInvert: event.target.checked,
+                })
+              }
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-200">
+                Инвертировать цвета
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                Пластик и фон меняются местами: печатается светлое, а тёмное
+                остаётся фоном. Нужно логотипам светлым по тёмному — у
+                чёрного рисунка на белом фоне вместо контура выйдет заливка с
+                окном по рисунку.
+              </span>
+            </span>
+          </label>
 
           {renderDecorationCommon(decoration)}
         </div>

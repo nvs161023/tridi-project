@@ -704,12 +704,13 @@ export const KEYCHAIN_IMAGE_PREFIX = "data:image/svg+xml;base64,";
 export const KEYCHAIN_IMAGE_MAX_LENGTH = 96 * 1024;
 
 /**
- * Порог детализации картинки, проценты.
+ * Порог яркости картинки, проценты.
  *
- * Ниже порога ячейка маски считается пустой, выше — рельефом. Это единственная
- * ручка, которой пользователь убирает «кашу» из пятен (порог выше) или делает
- * картинку плотнее (порог ниже). У PNG с прозрачностью порог режет край буквы,
- * у JPG — полутон: там же включается дизеринг Флойда — Стейнберга.
+ * Ячейка темнее порога становится пластиком, светлее — остаётся фоном. Порог выше
+ * — в рельеф идёт больше полутонов и картинка плотнее, ниже — остаётся только
+ * самое тёмное. У PNG с прозрачностью от порога зависит только сглаженный край:
+ * фигуру задаёт альфа. Дизеринга нет, маска бинарная, а белый фон не печатается
+ * никогда (границу держит `MIN_INK_SHARE` в `keychain-image.ts`).
  */
 export const KEYCHAIN_IMAGE_THRESHOLD_LIMITS: NumericLimit = {
   min: 10,
@@ -1012,8 +1013,11 @@ export type KeychainTextDecoration = KeychainDecorationBase & {
  * `imageData` — маска-растр в base64 (`KEYCHAIN_IMAGE_FIELD_PREFIX`): по ней
  * строятся и контуры рельефа, и превью в панели. `imageName` — имя загруженного
  * файла для панели: в геометрии оно не нужно, но без него после перезагрузки
- * проекта карточка логотипа обезличена. `imageThreshold` — порог детализации в
- * процентах: чем выше, тем меньше пятен остаётся рельефом.
+ * проекта карточка логотипа обезличена. `imageThreshold` — порог яркости в
+ * процентах: выше порог — больше полутонов уходит в пластик, ниже — рельефом
+ * остаётся только самое тёмное. `imageInvert` меняет пластик и фон местами — для
+ * логотипов светлым по тёмному; по умолчанию выключен, поэтому проекты прежних
+ * версий печатаются как раньше.
  */
 export type KeychainImageDecoration = KeychainDecorationBase & {
   kind: "image";
@@ -1021,6 +1025,7 @@ export type KeychainImageDecoration = KeychainDecorationBase & {
   imageScale: number;
   imageName: string;
   imageThreshold: number;
+  imageInvert: boolean;
 };
 
 /**
@@ -1689,9 +1694,9 @@ export function createKeychainTextDecoration(
  *
  * Панель передаёт готовую маску и имя файла: имя нужно только интерфейсу, но
  * хранится в параметрах, чтобы карточка «Картинка: logo.png» пережила
- * перезагрузку проекта. Порог детализации стартует с середины шкалы — 50%
- * повторяет прежнее поведение, когда рельефом становилась тёмная половина
- * картинки.
+ * перезагрузку проекта. Порог яркости стартует с середины шкалы — 50% повторяет
+ * прежнее поведение, когда рельефом становилась тёмная половина картинки;
+ * инверсия выключена, потому что большинство логотипов тёмные на светлом фоне.
  */
 export function createKeychainImageDecoration(
   imageData: string,
@@ -1701,6 +1706,7 @@ export function createKeychainImageDecoration(
     depth: KEYCHAIN_IMAGE_DEPTH_LIMITS.defaultValue,
     id: "image",
     imageData,
+    imageInvert: false,
     imageName,
     imageScale: KEYCHAIN_IMAGE_SCALE_LIMITS.defaultValue,
     imageThreshold: KEYCHAIN_IMAGE_THRESHOLD_LIMITS.defaultValue,
@@ -3101,8 +3107,11 @@ function normalizeTextDecoration(
  * Маска проходит только проверку формата: если поле покрытия испорчено или
  * слишком длинное, декорация гаснет и брелок печатается без логотипа. Так
  * сохранённый проект со старой маской не ломает ни предпросмотр, ни экспорт.
- * Порог детализации приходит из проекта прежней версии пустым и встаёт на 50% —
+ * Порог яркости приходит из проекта прежней версии пустым и встаёт на 50% —
  * это ровно то деление, которым рельеф отделялся от фона до появления слайдера.
+ * Инверсия в старых проектах не записана вовсе, поэтому читается строгим
+ * `=== true`: любое другое значение (в том числе отсутствие поля) — выключена, и
+ * сохранённый брелок печатается как раньше.
  */
 function normalizeImageDecoration(
   input: Readonly<Record<string, unknown>>,
@@ -3120,6 +3129,7 @@ function normalizeImageDecoration(
     ),
     id: "image",
     imageData,
+    imageInvert: input.imageInvert === true,
     imageName: sanitizeKeychainImageName(
       typeof input.imageName === "string" ? input.imageName : "",
     ),

@@ -51,15 +51,19 @@ import { parseSvgOutline, type OutlinePoint } from "@/lib/constructor/svg-outlin
  *   спокойно влезает в `params_json` вместе с остальными параметрами.
  *
  * Маска живёт в трёх видах: поле покрытия (0…1 на ячейку) обводится marching
- * squares, из него же берётся растровая маска проверки места, а порог
- * детализации решает, какая ступень считается пластиком. Поэтому рельеф и
- * проверка всегда говорят об одной картинке: точка печатается там, где маска
- * считает её тёмной.
+ * squares, из него же берётся растровая маска проверки места, а порог яркости
+ * решает, какая ячейка считается пластиком. Поэтому рельеф и проверка всегда
+ * говорят об одной картинке: точка печатается там, где маска считает её тёмной.
  *
- * Полутон фото сохраняется дизерингом Флойда — Стейнберга на этапе загрузки:
- * ошибка округления распределяется по соседям, и порог вырезает плотность
- * точек, а не полосы. Ячейка маски — 0.2 мм при логотипе 32 мм, то есть мельче
- * сопла: на печати крупа сливается в ровный полутон.
+ * Маска бинарная по смыслу, хотя хранится ступенями. Дизеринга нет: Флойд —
+ * Стейнберг превращал полутон в крупу, а ячейка маски — 0.2 мм при логотипе
+ * 32 мм, то есть мельче сопла: изолированную точку такого размера принтер не
+ * печатает, и рисунок рассыпался в шум. Вместо дизеринга работают два правила:
+ *
+ * - жёсткий порог: пластиком становится ячейка темнее `imageThreshold`
+ *   (у PNG с прозрачностью решает альфа, а белый фон не печатается никогда);
+ * - дилатация: пустая ячейка рядом с пластиком тоже становится пластиком, и
+ *   штрих в одну ячейку превращается в три — 0.6 мм при сетке 0.2 мм.
  *
  * Место ищется по карте грани 0.4 мм — той же, что у надписи. Отверстие под
  * кольцо, кромка силуэта, полость кармана NFC и буквы блокируют ячейки, поэтому
@@ -74,8 +78,8 @@ export const KEYCHAIN_IMAGE_GRID = 160;
 /**
  * Ступеней покрытия в ячейке маски.
  *
- * Четыре бита на ячейку: шестнадцати ступеней хватает, чтобы дизеринг держал
- * полутон, а строка маски оставалась короткой.
+ * Четыре бита на ячейку: шестнадцати ступеней хватает, чтобы порог яркости имел
+ * пятнадцать различимых положений, а строка маски оставалась короткой.
  */
 export const KEYCHAIN_IMAGE_FIELD_LEVELS = 16;
 
@@ -90,10 +94,19 @@ const MIN_CONTOUR_AREA_CELLS = 0.5;
  *
  * Пятна мельче этого размера выбрасываются при сборке геометрии, а не при
  * загрузке: маска от размера картинки не зависит, а ширина сопла — про печать.
- * Без фильтра дизеринг давал бы тысячи столбиков в четверть миллиметра, на
- * которых слайсер захлёбывается.
+ * После дилатации штрих выходит в три ячейки, поэтому фильтр ловит уже не крупу,
+ * а случайные хвосты инверсии и сглаженного края.
  */
 export const KEYCHAIN_IMAGE_MIN_FEATURE_MM = 0.4;
+
+/**
+ * Минимальная доля краски в ячейке, которая ещё становится пластиком.
+ *
+ * Это правило «белый фон не печатается»: ячейка светлее 90 % яркости остаётся
+ * фоном при любом пороге. Максимум слайдера и так равен 90 %, а константа держит
+ * правило, даже если из старого проекта придёт порог вне границ.
+ */
+const MIN_INK_SHARE = 0.1;
 
 /** Разрешение маски проверки у прежней SVG-обводки: она осталась для старых проектов. */
 const LEGACY_MASK_PIXELS = 96;
@@ -481,11 +494,13 @@ export function keychainImageField(
  * Правило выбора поля простое. У PNG-логотипа фон прозрачный, и яркость там не
  * значит ничего: покрытие задаёт альфа, и оно берётся мягким, чтобы сглаженный
  * край остался гладким. У фото и JPG прозрачности нет, поэтому покрытие — это
- * доля краски `1 − яркость`, а полутон сохраняется дизерингом.
+ * доля краски `1 − яркость`.
  *
- * Дальше поле уменьшается до рабочей сетки и квантуется в шестнадцать ступеней.
- * Обводка в контуры идёт уже при сборке модели: порог детализации меняется
- * слайдером, и маску из-за него пересобирать незачем.
+ * Дизеринга нет: поле квантуется в шестнадцать ступеней жёстко, а полутон режет
+ * порог яркости при сборке — крупа из точек на FDM не печатается (см.
+ * `quantizeCoverage`). Дальше поле уменьшается до рабочей сетки. Обводка в
+ * контуры идёт уже при сборке модели: порог меняется слайдером, и маску из-за
+ * него пересобирать незачем.
  *
  * Пустая картинка возвращает код ошибки: панель покажет его вместо превью.
  */
@@ -508,8 +523,6 @@ export function keychainImageFromPixels(
     grid.width,
     grid.height,
     KEYCHAIN_IMAGE_FIELD_LEVELS,
-    // Крупа на сглаженном крае логотипа была бы грязью, поэтому дизеринг — только для полутона.
-    !alpha,
   );
   let ink = 0;
 
@@ -565,27 +578,109 @@ function coarsenField(field: KeychainImageField): KeychainImageField {
 }
 
 /**
- * Обводит поле по порогу детализации.
+ * Бинарная маска картинки: порог яркости, инверсия и дилатация.
  *
- * Порог задан в процентах, а поле — в ступенях, поэтому сравнение идёт с
- * `threshold / 100`: marching squares интерполирует между ячейками, и край
- * выходит на дробной ступени, а не по сетке. Контуры меньше половины ячейки
- * выбрасываются: это крупа от дизеринга, а не рисунок.
+ * Три шага, строго в этом порядке:
+ *
+ * 1. Порог. Пластиком становится ячейка темнее `threshold` процентов яркости. В
+ *    маске яркость обратна покрытию, поэтому сравнение идёт с `1 − порог`: ячейка
+ *    проходит, если краски в ней больше. У PNG с прозрачностью край даёт ступени
+ *    0 и 15, и любая граница 10–90 % проходит по одному месту — фигуру задаёт
+ *    альфа. Белый фон не печатается никогда: `MIN_INK_SHARE` держит нижнюю
+ *    границу порога, и ячейка светлее 90 % яркости остаётся фоном.
+ * 2. Инверсия (`imageInvert`): пластик и фон меняются местами. Нужна логотипам
+ *    светлым по тёмному; у чёрного рисунка на белом фоне она даст заливку с
+ *    окном по рисунку.
+ * 3. Дилатация: пустая ячейка с соседом-пластиком тоже становится пластиком.
+ *
+ * Ячейки возвращаются в порядке растра: первая строка — верхняя. Переворачивает
+ * маску только `createFieldBuild`, а превью в панели рисует как есть.
+ */
+export function keychainImageMask(
+  field: KeychainImageField,
+  threshold: number,
+  invert: boolean,
+): Uint8Array {
+  const { cells, height, width } = field;
+  const cut =
+    Math.max(MIN_INK_SHARE, 1 - threshold / 100) *
+    (KEYCHAIN_IMAGE_FIELD_LEVELS - 1);
+  const bits = new Uint8Array(cells.length);
+
+  for (let index = 0; index < cells.length; index += 1) {
+    const plastic = cells[index] >= cut;
+
+    bits[index] = plastic === invert ? 0 : 1;
+  }
+
+  return dilateMask(bits, width, height);
+}
+
+/**
+ * Один проход дилатации по четырём соседям.
+ *
+ * Зачем: сопло 0.4 мм не печатает штрих тоньше своей ширины. Ячейка маски — 0.2 мм
+ * при логотипе 32 мм, поэтому линия в одну ячейку для принтера не существует:
+ * слайсер либо выбрасывает её, либо рвёт на пунктир. После расширения штрих
+ * занимает три ячейки (0.6 мм), а разрывы в один шаг сетки затягиваются — рисунок
+ * становится непрерывным.
+ *
+ * Четыре соседа, а не восемь: диагональ добавляет ширины, но съедает углы, и
+ * мелкая буква слипается в пятно. Проход ровно один: два прохода утолщали бы
+ * штрих до пяти ячеек и заливали просветы между линиями.
+ */
+function dilateMask(
+  bits: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
+  const grown = new Uint8Array(bits.length);
+
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      const index = row * width + column;
+
+      if (bits[index] === 1) {
+        grown[index] = 1;
+        continue;
+      }
+
+      const west = column > 0 && bits[index - 1] === 1;
+      const east = column + 1 < width && bits[index + 1] === 1;
+      const north = row > 0 && bits[index - width] === 1;
+      const south = row + 1 < height && bits[index + width] === 1;
+
+      if (west || east || north || south) {
+        grown[index] = 1;
+      }
+    }
+  }
+
+  return grown;
+}
+
+/**
+ * Обводит бинарную маску в контуры единичной сетки.
+ *
+ * Marching squares идёт по покрытию 0/1 с порогом 0.5: край ложится на середину
+ * между ячейками, ступенек растра не добавляя. Контуры меньше половины ячейки
+ * выбрасываются — после дилатации это уже не крупа, а случайные хвосты инверсии
+ * или сглаженного края.
  *
  * `null` — либо предел растра, либо порог съел всю картинку.
  */
-function traceField(
-  field: KeychainImageField,
-  threshold: number,
+function traceMask(
+  bits: Uint8Array,
+  width: number,
+  height: number,
 ): OutlinePoint[][] | null {
-  const { cells, height, width } = field;
-  const coverage = new Float32Array(cells.length);
+  const coverage = new Float32Array(bits.length);
 
-  for (let index = 0; index < cells.length; index += 1) {
-    coverage[index] = cells[index] / (KEYCHAIN_IMAGE_FIELD_LEVELS - 1);
+  for (let index = 0; index < bits.length; index += 1) {
+    coverage[index] = bits[index];
   }
 
-  const traced = traceCoverageContours(coverage, width, height, threshold / 100);
+  const traced = traceCoverageContours(coverage, width, height, 0.5);
 
   if (checkRasterLimits(traced) !== null) {
     return null;
@@ -619,19 +714,28 @@ function traceField(
  *
  * Строки маски перевёрнуты: в файле первая строка верхняя, а на грани Y растёт
  * вверх. Контуры переворачиваются тем же преобразованием.
+ *
+ * Шаги `keychainImageMask` (порог, инверсия, дилатация) уже позади: здесь маска
+ * только обводится. Если контуров больше, чем принимает геометрия, поле
+ * огрубляется вдвое и попытка повторяется — маска при этом собирается заново,
+ * чтобы дилатация работала на новой сетке.
  */
 function createFieldBuild(
   field: KeychainImageField,
   threshold: number,
+  invert: boolean,
 ): KeychainImageBuild | null {
-  const cut = (threshold / 100) * (KEYCHAIN_IMAGE_FIELD_LEVELS - 1);
   let grid = field;
   let traced: OutlinePoint[][] | null = null;
+  let grown: Uint8Array | null = null;
 
   for (let attempt = 0; attempt < COARSEN_ATTEMPTS; attempt += 1) {
-    traced = traceField(grid, threshold);
+    const mask = keychainImageMask(grid, threshold, invert);
+
+    traced = traceMask(mask, grid.width, grid.height);
 
     if (traced !== null) {
+      grown = mask;
       break;
     }
 
@@ -642,7 +746,7 @@ function createFieldBuild(
     grid = coarsenField(grid);
   }
 
-  if (traced === null) {
+  if (traced === null || grown === null) {
     return null;
   }
 
@@ -660,7 +764,7 @@ function createFieldBuild(
 
   for (let row = 0; row < grid.height; row += 1) {
     for (let column = 0; column < grid.width; column += 1) {
-      if (grid.cells[row * grid.width + column] >= cut) {
+      if (grown[row * grid.width + column] === 1) {
         bits[(grid.height - 1 - row) * grid.width + column] = 1;
       }
     }
@@ -678,28 +782,32 @@ function createFieldBuild(
 function createBuild(
   imageData: string,
   threshold: number,
+  invert: boolean,
 ): KeychainImageBuild | null {
   const field = keychainImageField(imageData);
 
-  return field ? createFieldBuild(field, threshold) : createSvgBuild(imageData);
+  return field
+    ? createFieldBuild(field, threshold, invert)
+    : createSvgBuild(imageData);
 }
 
 /**
- * Готовая маска из `params.imageData` и порога детализации.
+ * Готовая маска из `params.imageData`, порога яркости и галочки инверсии.
  *
  * `null` — картинки нет, строка испорчена или порог съел весь рисунок. Сборка
- * кешируется по паре «порог + маска»: геометрия пересобирается на каждое
- * движение слайдера, а обводка сотен тысяч ячеек не бесплатна.
+ * кешируется по тройке «порог + инверсия + маска»: геометрия пересобирается на
+ * каждое движение слайдера, а обводка сотен тысяч ячеек не бесплатна.
  */
 export function keychainImageBuild(
   imageData: string | null | undefined,
   threshold: number = KEYCHAIN_IMAGE_THRESHOLD_LIMITS.defaultValue,
+  invert = false,
 ): KeychainImageBuild | null {
   if (!imageData) {
     return null;
   }
 
-  const key = `${threshold}|${imageData}`;
+  const key = `${threshold}|${invert ? "invert" : "normal"}|${imageData}`;
 
   if (!buildCache.has(key)) {
     if (buildCache.size >= BUILD_CACHE_LIMIT) {
@@ -710,7 +818,7 @@ export function keychainImageBuild(
       }
     }
 
-    buildCache.set(key, createBuild(imageData, threshold));
+    buildCache.set(key, createBuild(imageData, threshold, invert));
   }
 
   return buildCache.get(key) ?? null;
@@ -1004,11 +1112,11 @@ export function keychainImageReliefMm(depth: number): number {
  * кромки съедало бы перемычки. Заодно толщина рельефа остаётся ровно
  * `imageDepth + 0.35` — без добавки на скругление.
  *
- * Пятна уже `KEYCHAIN_IMAGE_MIN_FEATURE_MM` в готовом размере выбрасываются: при
- * пороге детализации дизеринг даёт точки в одну ячейку маски, а это 0.2 мм при
- * логотипе 32 мм. Сопло их не напечатает, зато слайсер получит тысячи отдельных
- * столбиков. Проверка идёт в миллиметрах, поэтому зависит от размера логотипа, а
- * не от исходного файла.
+ * Пятна уже `KEYCHAIN_IMAGE_MIN_FEATURE_MM` в готовом размере выбрасываются: после
+ * дилатации штрих выходит в три ячейки маски, но хвосты инверсии и сглаженного
+ * края дают точки в одну — это 0.2 мм при логотипе 32 мм. Сопло их не напечатает,
+ * зато слайсер получит тысячи отдельных столбиков. Проверка идёт в миллиметрах,
+ * поэтому зависит от размера логотипа, а не от исходного файла.
  */
 export function createKeychainImageGeometry(options: {
   build: KeychainImageBuild;

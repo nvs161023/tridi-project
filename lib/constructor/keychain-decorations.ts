@@ -213,6 +213,7 @@ function placeImageDecoration(
   const build = keychainImageBuild(
     decoration.imageData,
     decoration.imageThreshold,
+    decoration.imageInvert,
   );
 
   if (!build) {
@@ -327,8 +328,8 @@ function createTextRelief(options: {
 /**
  * Рельеф картинки: выпуклая маска по контурам.
  *
- * Порог детализации уже применён при сборке маски (`keychainImageBuild`), здесь
- * остаются только размер и место.
+ * Порог яркости, инверсия и дилатация уже применены при сборке маски
+ * (`keychainImageBuild`), здесь остаются только размер и место.
  */
 function createImageRelief(options: {
   build: KeychainImageBuild;

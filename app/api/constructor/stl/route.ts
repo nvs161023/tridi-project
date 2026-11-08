@@ -546,6 +546,7 @@ function parseKeychainDecoration(value: unknown): KeychainDecoration | null {
     if (
       !isKeychainImageData(entry.imageData) ||
       (entry.imageName !== undefined && typeof entry.imageName !== "string") ||
+      (entry.imageInvert !== undefined && typeof entry.imageInvert !== "boolean") ||
       !isNumberInRange(
         entry.imageScale,
         KEYCHAIN_IMAGE_SCALE_LIMITS.min,
@@ -563,6 +564,7 @@ function parseKeychainDecoration(value: unknown): KeychainDecoration | null {
     return {
       ...base,
       imageData: entry.imageData,
+      imageInvert: entry.imageInvert === true,
       imageName: typeof entry.imageName === "string" ? entry.imageName : "",
       imageScale: entry.imageScale as number,
       imageThreshold: entry.imageThreshold as number,
