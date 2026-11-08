@@ -647,6 +647,18 @@ export type KeychainParams = {
   /** Имя или надпись на лицевой стороне, до 10 символов. */
   text: string;
   /**
+   * Показывать надпись в модели.
+   *
+   * Галочка в панели: выключенная не добавляет буквы в геометрию вовсе, и файл
+   * уходит без рельефа — это экономит треугольники и позволяет напечатать
+   * заготовку под гравировку. Пустое поле выключает галочку само: показывать
+   * нечего, и снятый флажок честнее пустой надписи.
+   *
+   * Старые проекты поля не знают: в них надпись печаталась всегда, поэтому
+   * отсутствие значения читается как `true`.
+   */
+  showText: boolean;
+  /**
    * Свой контур: `custom` — форма берётся из `customSvgData`, и встроенных
    * силуэтов в проекте больше нет (`lib/constructor/keychain-fallback-shape.ts`
    * остался только запасным жетоном на случай неразобранного файла).
@@ -1229,6 +1241,7 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   width: CONSTRUCTOR_LIMITS.width.defaultValue,
   thickness: CONSTRUCTOR_LIMITS.thickness.defaultValue,
   text: "Аня",
+  showText: true,
   keychainShape: null,
   keychainPreset: DEFAULT_KEYCHAIN_PRESET_ID,
   customSvgData: "",
@@ -2552,6 +2565,9 @@ function resolveKeychainShape(
  * У QR-визитки ширина и длина берутся не из слайдеров, а из размера кода: 60 × 40
  * и 70 × 45 мм обе выше границы `width`, поэтому габарит выводится из
  * `qrCardSize`, а толщина держится в границах пресета.
+ *
+ * Надпись нормализация не трогает, кроме галочки: `showText` включается, если
+ * проект поля не знает, — в старых проектах имя печаталось всегда.
  */
 export function normalizeKeychainParams(
   params: Partial<KeychainParams>,
@@ -2614,6 +2630,10 @@ export function normalizeKeychainParams(
       thicknessLimits,
     ),
     text: sanitizeKeychainText(params.text ?? DEFAULT_KEYCHAIN_PARAMS.text),
+    // Старые проекты поля не знают, а надпись в них печаталась всегда: любое
+    // значение, кроме явного false, читается как «показывать». Пустое поле
+    // геометрию не меняет — букв нет ни так, ни так.
+    showText: params.showText !== false,
     keychainShape,
     keychainPreset,
     customSvgData,

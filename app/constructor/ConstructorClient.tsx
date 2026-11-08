@@ -696,6 +696,16 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, text }));
   }
 
+  /**
+   * Галочка «Показывать текст на брелоке».
+   *
+   * Само имя остаётся в параметрах: снятая галочка убирает буквы из геометрии,
+   * а не из поля, поэтому вернуть надпись можно одним щелчком.
+   */
+  function updateKeychainShowText(showText: boolean) {
+    setParams((current) => normalizeConstructorParams({ ...current, showText }));
+  }
+
   /** Свой контур приходит уже проверенным SVG: текст файла или обводка PNG. */
   function updateKeychainCustomSvg(customSvgData: string) {
     setParams((current) =>
@@ -1145,6 +1155,7 @@ export function ConstructorClient({
             onSignFontChange={updateSignFont}
             onSignTextChange={updateSignText}
             onTextChange={updateKeychainText}
+            onShowTextChange={updateKeychainShowText}
             params={params}
           />
 

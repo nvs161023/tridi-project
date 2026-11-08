@@ -278,6 +278,14 @@ type ParameterPanelProps = {
   /** Телефон для визитки vCard. */
   onQrPhoneChange: (phone: string) => void;
   onTextChange: (text: string) => void;
+  /**
+   * Галочка «Показывать текст на брелоке».
+   *
+   * Отдельный обработчик, а не `onParamChange`: тот ведёт к числу. Выключенная
+   * галочка убирает буквы из геометрии совсем, значение остаётся в параметрах,
+   * поэтому включить надпись обратно можно без повторного ввода имени.
+   */
+  onShowTextChange: (show: boolean) => void;
   onSignTextChange: (text: string) => void;
   onSignFontChange: (font: SignFont) => void;
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
@@ -1374,6 +1382,7 @@ export function ParameterPanel({
   onQrNameChange,
   onQrPhoneChange,
   onTextChange,
+  onShowTextChange,
   onSignTextChange,
   onSignFontChange,
   onSignChannelWidthChange,
@@ -2751,12 +2760,41 @@ export function ParameterPanel({
                 id={textHintId}
               >
                 Кириллица, латиница, цифры и знаки. Имя выступает над основой на
-                0.8 мм и масштабируется под свободное место.
+                0.8 мм и масштабируется под свободное место. У кирпича и шестерни
+                оно уходит на обратную сторону: лицо занято шипами и ступицей.
               </p>
               <span className="shrink-0 text-xs tabular-nums text-slate-300">
                 {textLength}/{KEYCHAIN_TEXT_MAX_LENGTH}
               </span>
             </div>
+
+            {params.keychainPreset === "qr-card" ? null : (
+              <label
+                className={`mt-4 flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors ${
+                  textLength === 0
+                    ? "cursor-not-allowed opacity-60"
+                    : "cursor-pointer hover:border-white/25 hover:bg-white/5"
+                }`}
+              >
+                <input
+                  checked={params.showText && textLength > 0}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed"
+                  disabled={textLength === 0}
+                  onChange={(event) => onShowTextChange(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-200">
+                    Показывать текст на брелоке
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                    Снятая галочка убирает буквы из модели: файл уходит без
+                    рельефа и с меньшим числом треугольников. Надпись при этом
+                    остаётся в поле — включить её обратно можно одним щелчком.
+                  </span>
+                </span>
+              </label>
+            )}
           </fieldset>
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">

@@ -447,6 +447,12 @@ function parseVaseParams(body: unknown): VaseParams | null {
  * проверяются размер, крепление, рельеф и тип содержимого, а толщина — в границах
  * пресета. Смысл самого содержимого (ссылка, телефон, почта, визитка) проверяет
  * `qrCardPlan` уже после нормализации: у него те же правила, что и в панели.
+ *
+ * Галочка «Показывать текст» тоже доезжает до роута: без неё снятая в панели
+ * галочка не действовала бы на файл, и в печать уходило бы имя, которого
+ * пользователь не видит в предпросмотре. Отсутствие поля — не ошибка (в старых
+ * клиентах его нет, и нормализация включает надпись), а не-boolean отклоняется,
+ * как и у NFC-флага.
  */
 function parseKeychainParams(
   body: Record<string, unknown>,
@@ -456,6 +462,7 @@ function parseKeychainParams(
     width,
     thickness,
     text,
+    showText,
     keychainShape,
     shapeType,
     keychainPreset,
@@ -526,6 +533,7 @@ function parseKeychainParams(
       holePlacement !== undefined &&
       !isHolePlacement(holePlacement)) ||
     (shape === "custom" && !hasDrawableSvgData(customSvgData)) ||
+    (showText !== undefined && typeof showText !== "boolean") ||
     qrInvalid
   ) {
     return null;
@@ -554,6 +562,7 @@ function parseKeychainParams(
       ? thickness
       : undefined,
     text,
+    showText: typeof showText === "boolean" ? showText : undefined,
     keychainShape: shape,
     shapeType: shape,
     keychainPreset: preset,

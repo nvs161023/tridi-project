@@ -1,11 +1,23 @@
-import { ExtrudeGeometry, Path, Shape, ShapeGeometry } from "three";
+import { ExtrudeGeometry, Path, Shape } from "three";
 import type { BufferGeometry } from "three";
-import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import { KEYCHAIN_FALLBACK_SVG } from "@/lib/constructor/keychain-fallback-shape";
-import { buildKeychainPresetGeometry } from "@/lib/constructor/keychain-preset-geometry";
+import {
+  buildKeychainPresetGeometry,
+  nfcLayout,
+  type KeychainPresetGeometryParams,
+} from "@/lib/constructor/keychain-preset-geometry";
+import {
+  createKeychainTextGeometry,
+  findKeychainFaceBand,
+  measureKeychainText,
+  type KeychainFaceBand,
+  type KeychainTextKeepOut,
+  type KeychainTextMetrics,
+  type KeychainTextSide,
+} from "@/lib/constructor/keychain-text";
 import {
   keychainQrCardSpec,
   normalizeKeychainParams,
@@ -39,9 +51,12 @@ import {
  * 4 мм, который перекрывает верх силуэта на 1 мм. Поэтому кольцо проходит
  * сквозь пластик при любой форме, даже если верхушка узкая (звезда, молния).
  *
- * Имя не вырезается, а пересекается с основой: буквы уходят внутрь на
- * TEXT_EMBED_MM и выступают на TEXT_RELIEF_MM. Каждая оболочка замкнута
- * отдельно, слайсер объединяет их при печати.
+ * Имя не вырезается, а пересекается с основой: буквы входят в тело на
+ * `KEYCHAIN_TEXT_EMBED_MM` и выступают на `KEYCHAIN_TEXT_RELIEF_MM`
+ * (`lib/constructor/keychain-text.ts`). Каждая оболочка замкнута отдельно,
+ * слайсер объединяет их при печати. Тот же модуль ставит надпись и на пресеты:
+ * свободную полосу он ищет по готовой сетке, поэтому шипы кирпича, ступица
+ * шестерни и отверстие под кольцо обходятся без знания формул силуэта.
  */
 
 /** Публичный путь шрифта: его грузит браузер и читает серверный роут. */
@@ -105,20 +120,15 @@ const TEXT_EDGE_MARGIN_MM = 3;
 /** Зазор между нижней точкой ушка и верхом текста, мм. */
 const TEXT_HOLE_GAP_MM = 1.5;
 
-/** Насколько имя выступает над лицом брелока, мм. */
-const TEXT_RELIEF_MM = 0.8;
+/**
+ * Насколько оборот предпочтительнее лица при равном кегле.
+ *
+ * Лицо — главная сторона, поэтому на оборот имя уходит только тогда, когда там
+ * строка заметно крупнее: у кирпича шипы не оставляют на лице места вовсе, у
+ * шестерни мешает ступица. При близких полосах выигрывает лицо.
+ */
+const TEXT_FRONT_PREFERENCE = 0.9;
 
-/** Скругление кромок букв, мм. */
-const TEXT_BEVEL_MM = 0.1;
-
-/** Насколько буквы уходят внутрь основы для прочного соединения, мм. */
-const TEXT_EMBED_MM = 0.35;
-
-/** Сегменты контуров букв: 8 достаточно для мелкого рельефа. */
-const TEXT_CURVE_SEGMENTS = 8;
-
-/** Сегменты фаски букв. */
-const TEXT_BEVEL_SEGMENTS = 2;
 
 /** Разобранный силуэт в миллиметрах с готовым положением ушка. */
 type KeychainOutline = {
@@ -668,43 +678,6 @@ function createBaseGeometry(
 
 
 /**
- * Габариты текста при размере 1.
- *
- * TextGeometry строит контуры по глифам, но чтобы выбрать итоговый кегль,
- * нужны ширина и высота до выдавливания. ShapeGeometry даёт их без лишней
- * геометрии; после замера временная сетка освобождается.
- */
-function measureText(
-  text: string,
-  font: Font,
-): { width: number; height: number } | null {
-  const shapes = font.generateShapes(text, 1);
-
-  if (shapes.length === 0) {
-    return null;
-  }
-
-  const probe = new ShapeGeometry(shapes);
-  probe.computeBoundingBox();
-
-  const box = probe.boundingBox;
-  probe.dispose();
-
-  if (!box) {
-    return null;
-  }
-
-  const width = box.max.x - box.min.x;
-  const height = box.max.y - box.min.y;
-
-  if (width <= 0 || height <= 0) {
-    return null;
-  }
-
-  return { width, height };
-}
-
-/**
  * Ширина силуэта в полосе текста.
  *
  * У звезды и молнии на уровне середины контур узкий, поэтому имя не должно
@@ -758,7 +731,7 @@ function createTextGeometry(
     return null;
   }
 
-  const measured = measureText(text, font);
+  const measured = measureKeychainText(text, font);
 
   if (!measured) {
     return null;
@@ -797,44 +770,163 @@ function createTextGeometry(
     return null;
   }
 
-  // Мелкое имя при 10 символах на узком брелоке: фаска 0.1 мм съедала бы
-  // тонкие перемычки букв. Уменьшаем её вместе с кеглем, но не больше 0.1.
-  const bevel = Math.min(TEXT_BEVEL_MM, size * 0.03);
-  const geometry = new TextGeometry(text, {
-    bevelEnabled: true,
-    bevelSegments: TEXT_BEVEL_SEGMENTS,
-    bevelSize: bevel,
-    bevelThickness: bevel,
-    curveSegments: TEXT_CURVE_SEGMENTS,
-    depth: Math.max(TEXT_RELIEF_MM - bevel * 2, 0.1),
+  // Мелкое имя при 10 символах на узком брелоке: фаска и толщина рельефа
+  // подстраиваются под кегль и толщину основы в `keychain-text.ts`.
+  return createKeychainTextGeometry({
+    centerX: textCenterX,
+    centerY: textCenterY,
     font,
+    side: "front",
     size,
+    text,
+    thickness: params.thickness,
   });
+}
 
-  geometry.computeBoundingBox();
 
-  const box = geometry.boundingBox;
+/**
+ * Круги, которые надпись на пресете обязана обойти.
+ *
+ * Карман под NFC-метку снаружи не виден, но над полостью остаётся крышка
+ * 0.5 мм: внедрение букв на 0.35 мм прорезало бы её почти насквозь. Поэтому
+ * полость попадает в карту грани как вырез, а не как «вроде бы далеко».
+ */
+function presetTextKeepOut(
+  params: KeychainParams,
+  presetParams: KeychainPresetGeometryParams,
+): KeychainTextKeepOut[] {
+  if (!params.keychainPreset || !params.nfcEnabled) {
+    return [];
+  }
 
-  if (!box) {
-    geometry.dispose();
+  const nfc = nfcLayout(params.keychainPreset, presetParams);
+
+  if (!nfc.enabled || nfc.pocketY === null) {
+    return [];
+  }
+
+  return [
+    {
+      // Полость всегда по центру ширины: `pocketY` двигает её только по Y.
+      centerX: 0,
+      centerY: nfc.pocketY,
+      radius: Math.max(nfc.radiusMm, nfc.lipRadiusMm),
+    },
+  ];
+}
+
+/** Кегль и полоса для одной стороны: null — строка туда не влезает. */
+function fitPresetText(
+  body: BufferGeometry,
+  keepOut: readonly KeychainTextKeepOut[],
+  measured: KeychainTextMetrics,
+  side: KeychainTextSide,
+): { band: KeychainFaceBand; side: KeychainTextSide; size: number } | null {
+  const band = findKeychainFaceBand(body, { keepOut, side });
+
+  if (!band) {
     return null;
   }
 
-  const geometryCenterY = (box.min.y + box.max.y) / 2;
-  const geometryCenterX = (box.min.x + box.max.x) / 2;
-  // Нижняя грань текста после translateZ оказывается на
-  // thickness - TEXT_EMBED_MM, верхняя — на thickness + TEXT_RELIEF_MM -
-  // TEXT_EMBED_MM. Буквы входят в основу и не отрываются от неё.
-  const translateZ = params.thickness - TEXT_EMBED_MM + bevel;
-
-  geometry.translate(
-    textCenterX - geometryCenterX,
-    textCenterY - geometryCenterY,
-    translateZ,
+  const size = Math.min(
+    band.width / measured.width,
+    band.height / measured.height,
   );
 
-  return geometry;
+  return Number.isFinite(size) && size > 0 ? { band, side, size } : null;
 }
+
+/**
+ * Имя на пресете: лицо или оборот.
+ *
+ * Лицо — сторона по умолчанию, но у кирпича его занимают шипы, а у шестерни
+ * ступица, поэтому там выгоднее оборот. Сравниваются кегли: оборот выигрывает
+ * только тогда, когда строка на нём крупнее хотя бы на `TEXT_FRONT_PREFERENCE`.
+ */
+function createPresetTextGeometry(
+  body: BufferGeometry,
+  params: KeychainParams,
+  keepOut: readonly KeychainTextKeepOut[],
+  font: Font,
+): BufferGeometry | null {
+  const text = params.text.trim();
+
+  if (!text) {
+    return null;
+  }
+
+  const measured = measureKeychainText(text, font);
+
+  if (!measured) {
+    return null;
+  }
+
+  const front = fitPresetText(body, keepOut, measured, "front");
+  const back = fitPresetText(body, keepOut, measured, "back");
+  const chosen =
+    front && back
+      ? front.size >= back.size * TEXT_FRONT_PREFERENCE
+        ? front
+        : back
+      : (front ?? back);
+
+  if (!chosen) {
+    return null;
+  }
+
+  return createKeychainTextGeometry({
+    centerX: chosen.band.centerX,
+    centerY: chosen.band.centerY,
+    font,
+    side: chosen.side,
+    size: chosen.size,
+    text,
+    thickness: params.thickness,
+  });
+}
+
+/**
+ * Приклеивает имя к геометрии пресета.
+ *
+ * Буквы идут отдельной оболочкой, как у своего контура: слайсер объединяет её с
+ * телом при печати. Габарит и сфера пересчитываются всегда — по ним камера
+ * строит кадр, а роут считает вес детали.
+ *
+ * Визитка пропускается: у неё своё имя (`qrName`), и оно стоит под кодом.
+ */
+function attachPresetText(
+  body: BufferGeometry,
+  params: KeychainParams,
+  keepOut: readonly KeychainTextKeepOut[],
+  font: Font | null,
+): BufferGeometry {
+  const text =
+    font && params.showText && params.keychainPreset !== "qr-card"
+      ? createPresetTextGeometry(body, params, keepOut, font)
+      : null;
+
+  if (!text) {
+    body.computeBoundingBox();
+    body.computeBoundingSphere();
+
+    return body;
+  }
+
+  const merged = mergeGeometries([body, text]);
+
+  body.dispose();
+  text.dispose();
+
+  if (!merged) {
+    throw new Error("Не удалось объединить геометрию пресета и текст");
+  }
+
+  merged.computeBoundingBox();
+  merged.computeBoundingSphere();
+
+  return merged;
+}
+
 
 
 /**
@@ -852,36 +944,42 @@ export function createKeychainGeometry(
   font: Font | null = null,
 ): BufferGeometry {
   const normalized = normalizeKeychainParams(params);
+  const presetParams: KeychainPresetGeometryParams = {
+    width: normalized.width,
+    height: normalized.length,
+    thickness: normalized.thickness,
+    // Визитке мало трёх чисел: её раскладку задаёт содержимое кода.
+    qr:
+      normalized.keychainPreset === "qr-card"
+        ? keychainQrCardSpec(normalized)
+        : null,
+    // Карман под метку есть только у трёх пресетов; у остальных нормализация
+    // уже обнулила флаг.
+    nfcEnabled: normalized.nfcEnabled,
+    // Позиция отверстия: набор проверила нормализация по реестру пресета,
+    // здесь остаётся передать её геометрии.
+    holePlacement: normalized.holePlacement,
+  };
   const preset = normalized.keychainPreset
-    ? buildKeychainPresetGeometry(normalized.keychainPreset, {
-        width: normalized.width,
-        height: normalized.length,
-        thickness: normalized.thickness,
-        // Визитке мало трёх чисел: её раскладку задаёт содержимое кода.
-        qr:
-          normalized.keychainPreset === "qr-card"
-            ? keychainQrCardSpec(normalized)
-            : null,
-        // Карман под метку есть только у трёх пресетов; у остальных
-        // нормализация уже обнулила флаг.
-        nfcEnabled: normalized.nfcEnabled,
-        // Позиция отверстия: набор проверила нормализация по реестру пресета,
-        // здесь остаётся передать её геометрии.
-        holePlacement: normalized.holePlacement,
-      })
+    ? buildKeychainPresetGeometry(normalized.keychainPreset, presetParams)
     : null;
 
-  // Пресет строится целиком из своих чисел: у него собственное отверстие под
-  // кольцо, поэтому ни ушко, ни карман под NFC-метку, ни рельеф имени к нему не
-  // добавляются — это отдельные шаги. Шрифт для такой модели не нужен.
+  // Пресет строится из своих чисел: ушко и карман под метку у него собственные,
+  // поэтому к готовой сетке добавляется только имя — тем же способом, что и к
+  // своему контуру, но полосу под буквы ищет общий помощник.
   if (preset) {
-    return preset;
+    return attachPresetText(
+      preset,
+      normalized,
+      presetTextKeepOut(normalized, presetParams),
+      font,
+    );
   }
 
   const outline = createOutline(normalized, edgeBevel(normalized.thickness));
   const base = createBaseGeometry(normalized, outline);
 
-  if (!font) {
+  if (!font || !normalized.showText) {
     base.computeBoundingBox();
     base.computeBoundingSphere();
 
