@@ -1,9 +1,14 @@
 "use client";
 
-import { ContactShadows, OrbitControls } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BufferGeometry, Vector3 } from "three";
+import {
+  ACESFilmicToneMapping,
+  BufferGeometry,
+  PCFShadowMap,
+  Vector3,
+} from "three";
 import type { PerspectiveCamera } from "three";
 import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
@@ -19,8 +24,6 @@ import {
   keychainShapeTitle,
   vasePatternLabel,
   type ConstructorParams,
-  type PatternLayer,
-  type VaseShape,
 } from "@/lib/constructor/params";
 import { calculateGeometryWeightGrams } from "@/lib/constructor/geometry-volume";
 import {
@@ -180,26 +183,8 @@ function CameraRig({ height, footprint, flat }: CameraRigProps) {
 
 type VaseModelProps = {
   geometry: BufferGeometry;
-  height: number;
-  diameter: number;
-  wall: number;
-  shape: VaseShape;
-  /** Слои узора: по ним пересчитывается тень и собирается подпись. */
-  patterns: PatternLayer[];
-  /** Грани сечения: 0–2 — как в силуэте, 3–12 — правильный N-угольник. */
-  sectionSides: number;
-  /** Закрутка рельефа по высоте, градусы. */
-  twistDeg: number;
-  /** Число каннелюр: 0 — ровная стенка. */
-  flutes: number;
-  /** Глубина каннелюры, мм. */
-  fluteDepthMm: number;
-  /** Органика по сиду: 0 — гладкая стенка, 1 — складки полной глубины. */
-  organic: number;
-  /** Наклон от вертикали, градусы: верх уходит в сторону, дно остаётся на столе. */
-  leanDeg: number;
-  /** Сид шума: меняет рисунок складок и микро-вариации силуэта. */
-  vaseSeed: number;
+  /** Гранёный силуэт: у него рёбра затеняются плоско, без сглаживания. */
+  faceted: boolean;
 };
 
 /**
@@ -215,100 +200,21 @@ type VaseModelProps = {
  * освещается целиком, ребро между гранями остаётся резким. STL и так состоит
  * из плоских треугольников, поэтому на файл это не влияет.
  */
-/**
- * Отпечаток слоёв узора для ключа пересчёта тени.
- *
- * Тень зависит от силуэта, а силуэт меняют все поля слоя, поэтому в отпечаток
- * идут все: смена фазы или затухания иначе оставила бы тень от другого рельефа.
- * Формат — просто строка, читать её не нужно; важно лишь, чтобы разные слои
- * давали разные строки.
- */
-function patternShadowKey(patterns: readonly PatternLayer[]): string {
-  return patterns
-    .map((layer) =>
-      [
-        layer.type,
-        layer.amplitude,
-        layer.frequency,
-        layer.phaseDeg,
-        layer.envelope.fadeTopMm,
-        layer.envelope.fadeBottomMm,
-      ].join(":"),
-    )
-    .join("+");
-}
-
-function VaseModel({
-  geometry,
-  height,
-  diameter,
-  wall,
-  shape,
-  patterns,
-  sectionSides,
-  twistDeg,
-  flutes,
-  fluteDepthMm,
-  organic,
-  leanDeg,
-  vaseSeed,
-}: VaseModelProps) {
-  const faceted =
-    resolveSectionSides(shape, sectionSides) >= VASE_SECTION_MIN_SIDES;
-
+function VaseModel({ geometry, faceted }: VaseModelProps) {
   return (
-    <group>
-      <mesh castShadow geometry={geometry} receiveShadow>
-        <meshStandardMaterial
-          color="#60a5fa"
-          flatShading={faceted}
-          metalness={0.05}
-          roughness={0.38}
-        />
-      </mesh>
-
-      {/* Тёмный пол: на нём читаются контактные тени. */}
-      <mesh
-        position={[0, -0.3, 0]}
-        receiveShadow
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <circleGeometry args={[Math.max(diameter * 2.2, 320), 64]} />
-        <meshStandardMaterial color="#0b1220" roughness={1} />
-      </mesh>
-
-      <gridHelper
-        args={[Math.max(diameter * 6, 1200), 24, "#1e293b", "#0f172a"]}
-        position={[0, 0.01, 0]}
+    <mesh castShadow geometry={geometry} receiveShadow>
+      <meshStandardMaterial
+        color="#e2e8f0"
+        flatShading={faceted}
+        metalness={0.1}
+        roughness={0.7}
       />
-
-      {/*
-        frames={1} — тень пересчитывается один раз. Ключ перезапускает расчёт
-        при изменении размеров, формы или стенки: силуэт меняется, и старая
-        тень стала бы неверной. Постоянно считать её каждый кадр не нужно.
-      */}
-      <ContactShadows
-        blur={2.6}
-        far={Math.max(height * 0.9, 120)}
-        frames={1}
-        key={`${height}-${diameter}-${wall}-${shape}-${patternShadowKey(patterns)}-${sectionSides}-${flutes}-${fluteDepthMm}-${twistDeg}-${organic}-${leanDeg}-${vaseSeed}`}
-        opacity={0.55}
-        position={[0, 0.02, 0]}
-        resolution={512}
-        scale={Math.max(diameter * 3.2, 480)}
-      />
-    </group>
+    </mesh>
   );
 }
 
 type KeychainModelProps = {
   geometry: BufferGeometry;
-  length: number;
-  width: number;
-  thickness: number;
-  /** Отпечаток формы: пресет или свой контур. По нему пересчитывается тень. */
-  shapeKey: string;
-  text: string;
 };
 
 /**
@@ -316,68 +222,24 @@ type KeychainModelProps = {
  *
  * Геометрия построена в плоскости XY с толщиной по Z — так её удобно печатать.
  * Поворот на -90° вокруг X ставит толщину по Y: нижняя грань касается стола,
- * а имя смотрит на камеру. Тень пересчитывается при смене размеров, формы и
- * текста, потому что силуэт и рельеф меняются.
+ * а имя смотрит на камеру.
  */
-function KeychainModel({
-  geometry,
-  length,
-  width,
-  thickness,
-  shapeKey,
-  text,
-}: KeychainModelProps) {
-  const footprint = Math.max(length, width);
-
+function KeychainModel({ geometry }: KeychainModelProps) {
   return (
-    <group>
-      <group rotation={[-Math.PI / 2, 0, 0]}>
-        <mesh castShadow geometry={geometry} receiveShadow>
-          <meshStandardMaterial
-            color="#f59e0b"
-            metalness={0.08}
-            roughness={0.34}
-          />
-        </mesh>
-      </group>
-
-      {/* Тёмный пол: на нём читаются контактные тени. */}
-      <mesh
-        position={[0, -0.3, 0]}
-        receiveShadow
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <circleGeometry args={[Math.max(footprint * 2.2, 160), 64]} />
-        <meshStandardMaterial color="#0b1220" roughness={1} />
+    <group rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh castShadow geometry={geometry} receiveShadow>
+        <meshStandardMaterial
+          color="#f59e0b"
+          metalness={0.1}
+          roughness={0.7}
+        />
       </mesh>
-
-      <gridHelper
-        args={[Math.max(footprint * 6, 480), 24, "#1e293b", "#0f172a"]}
-        position={[0, 0.01, 0]}
-      />
-
-      <ContactShadows
-        blur={2.6}
-        far={Math.max(thickness * 20, 80)}
-        frames={1}
-        key={`keychain-${length}-${width}-${thickness}-${shapeKey}-${text}`}
-        opacity={0.5}
-        position={[0, 0.02, 0]}
-        resolution={512}
-        scale={Math.max(footprint * 2.6, 320)}
-      />
     </group>
   );
 }
 
 type StandModelProps = {
   geometry: BufferGeometry;
-  /** Наклон спинки в градусах: от него зависит глубина детали и тень. */
-  angle: number;
-  /** Толщина телефона, мм: она задаёт глубину жёлоба. */
-  thickness: number;
-  /** Ширина подставки, мм. */
-  width: number;
 };
 
 /**
@@ -385,197 +247,72 @@ type StandModelProps = {
  * построена Z-вверх, поворот на -90° вокруг X поднимает спинку и губу.
  *
  * Цвет холоднее вазы — по нему видно, что деталь относится к подставке.
- * Тень пересчитывается при смене наклона, толщины телефона и ширины: от них
- * зависит силуэт, а при постоянном расчёте тень стоила бы кадрового времени.
  */
-function StandModel({ geometry, angle, thickness, width }: StandModelProps) {
+function StandModel({ geometry }: StandModelProps) {
   return (
-    <group>
-      <group rotation={[-Math.PI / 2, 0, 0]}>
-        <mesh castShadow geometry={geometry} receiveShadow>
-          <meshStandardMaterial
-            color="#38bdf8"
-            metalness={0.05}
-            roughness={0.42}
-          />
-        </mesh>
-      </group>
-
-      {/* Тёмный пол: на нём читаются контактные тени. */}
-      <mesh
-        position={[0, -0.3, 0]}
-        receiveShadow
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <circleGeometry args={[Math.max(width * 2.2, 320), 64]} />
-        <meshStandardMaterial color="#0b1220" roughness={1} />
+    <group rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh castShadow geometry={geometry} receiveShadow>
+        <meshStandardMaterial
+          color="#38bdf8"
+          metalness={0.1}
+          roughness={0.7}
+        />
       </mesh>
-
-      <gridHelper
-        args={[Math.max(width * 5, 960), 24, "#1e293b", "#0f172a"]}
-        position={[0, 0.01, 0]}
-      />
-
-      <ContactShadows
-        blur={2.6}
-        far={Math.max(width * 1.6, 160)}
-        frames={1}
-        key={`stand-${angle}-${thickness}-${width}`}
-        opacity={0.55}
-        position={[0, 0.02, 0]}
-        resolution={512}
-        scale={Math.max(width * 3, 480)}
-      />
     </group>
   );
 }
 
 type BoxModelProps = {
   geometry: BufferGeometry;
-  length: number;
-  width: number;
-  height: number;
-  wall: number;
-  gridX: number;
-  gridY: number;
-  hasLid: boolean;
 };
 
 /**
  * Коробка стоит на столе так же, как её печатает слайсер: геометрия построена
  * в плоскости XY с высотой по Z, поворот на -90° вокруг X поднимает стенки.
  * Корпус и крышка уже разложены рядом в одной сетке, поэтому меш один.
- *
- * Ключ тени включает все размеры, сетку и крышку: каждая правка меняет
- * силуэт, и старая контактная тень стала бы неверной.
  */
-function BoxModel({
-  geometry,
-  length,
-  width,
-  height,
-  wall,
-  gridX,
-  gridY,
-  hasLid,
-}: BoxModelProps) {
-  const footprint = Math.max(length, width);
-
+function BoxModel({ geometry }: BoxModelProps) {
   return (
-    <group>
-      <group rotation={[-Math.PI / 2, 0, 0]}>
-        <mesh castShadow geometry={geometry} receiveShadow>
-          <meshStandardMaterial
-            color="#34d399"
-            metalness={0.05}
-            roughness={0.42}
-          />
-        </mesh>
-      </group>
-
-      {/* Тёмный пол: на нём читаются контактные тени. */}
-      <mesh
-        position={[0, -0.3, 0]}
-        receiveShadow
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <circleGeometry args={[Math.max(footprint * 2.2, 320), 64]} />
-        <meshStandardMaterial color="#0b1220" roughness={1} />
+    <group rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh castShadow geometry={geometry} receiveShadow>
+        <meshStandardMaterial
+          color="#34d399"
+          metalness={0.1}
+          roughness={0.7}
+        />
       </mesh>
-
-      <gridHelper
-        args={[Math.max(footprint * 5, 960), 24, "#1e293b", "#0f172a"]}
-        position={[0, 0.01, 0]}
-      />
-
-      <ContactShadows
-        blur={2.6}
-        far={Math.max(height * 1.2, 120)}
-        frames={1}
-        key={`box-${length}-${width}-${height}-${wall}-${gridX}-${gridY}-${hasLid}`}
-        opacity={0.55}
-        position={[0, 0.02, 0]}
-        resolution={512}
-        scale={Math.max(footprint * 3, 480)}
-      />
     </group>
   );
 }
 
 type ZUpModelProps = {
   geometry: BufferGeometry;
-  /** Высота модели над столом, мм: по ней считается дальность тени. */
-  height: number;
-  /** Наибольший горизонтальный размер, мм: по нему — пол и сетка. */
-  footprint: number;
   /** Цвет пластика: у каждой модели свой, чтобы сцены не путались. */
   color: string;
-  /** Подпись набора параметров: меняет силуэт — меняется и тень. */
-  shadowKey: string;
 };
 
 /**
  * Кашпо, подставка под кружку и подставка для украшений.
  *
  * Геометрия этих моделей построена Z-вверх, как у коробки, поэтому поворот на
- * -90° вокруг X ставит детали на виртуальный стол. Тень пересчитывается при
- * смене параметров: новая форма даёт другой силуэт, и старая тень стала бы
- * неверной.
+ * -90° вокруг X ставит детали на виртуальный стол.
  */
-function ZUpModel({
-  geometry,
-  height,
-  footprint,
-  color,
-  shadowKey,
-}: ZUpModelProps) {
+function ZUpModel({ geometry, color }: ZUpModelProps) {
   return (
-    <group>
-      <group rotation={[-Math.PI / 2, 0, 0]}>
-        <mesh castShadow geometry={geometry} receiveShadow>
-          <meshStandardMaterial
-            color={color}
-            metalness={0.05}
-            roughness={0.42}
-          />
-        </mesh>
-      </group>
-
-      {/* Тёмный пол: на нём читаются контактные тени. */}
-      <mesh
-        position={[0, -0.3, 0]}
-        receiveShadow
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <circleGeometry args={[Math.max(footprint * 2.2, 320), 64]} />
-        <meshStandardMaterial color="#0b1220" roughness={1} />
+    <group rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh castShadow geometry={geometry} receiveShadow>
+        <meshStandardMaterial
+          color={color}
+          metalness={0.1}
+          roughness={0.7}
+        />
       </mesh>
-
-      <gridHelper
-        args={[Math.max(footprint * 4, 960), 24, "#1e293b", "#0f172a"]}
-        position={[0, 0.01, 0]}
-      />
-
-      <ContactShadows
-        blur={2.6}
-        far={Math.max(height * 1.2, 120)}
-        frames={1}
-        key={shadowKey}
-        opacity={0.55}
-        position={[0, 0.02, 0]}
-        resolution={512}
-        scale={Math.max(footprint * 3, 480)}
-      />
     </group>
   );
 }
 
 type LithophaneModelProps = {
   geometry: BufferGeometry;
-  width: number;
-  height: number;
-  minThickness: number;
-  maxThickness: number;
 };
 
 /**
@@ -584,144 +321,130 @@ type LithophaneModelProps = {
  * Геометрия уже построена в плоскости XY нижней кромкой на Y = 0, поэтому
  * поворот не нужен: рамка и рельеф смотрят в +Z. Материал почти белый и
  * матовый — так на выступах читается светотень, а тонкие участки выглядят
- * светлее. Тень пересчитывается при смене размеров и толщин: каждая правка
- * меняет силуэт и глубину рельефа.
+ * светлее.
  */
-function LithophaneModel({
-  geometry,
-  width,
-  height,
-  minThickness,
-  maxThickness,
-}: LithophaneModelProps) {
-  const footprint = Math.max(width, height);
-
+function LithophaneModel({ geometry }: LithophaneModelProps) {
   return (
-    <group>
-      <mesh castShadow geometry={geometry} receiveShadow>
-        <meshStandardMaterial
-          color="#f1f5f9"
-          metalness={0.02}
-          roughness={0.48}
-        />
-      </mesh>
-
-      {/* Тёмный пол: на нём читаются контактные тени. */}
-      <mesh
-        position={[0, -0.3, 0]}
-        receiveShadow
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <circleGeometry args={[Math.max(footprint * 2.4, 400), 64]} />
-        <meshStandardMaterial color="#0b1220" roughness={1} />
-      </mesh>
-
-      <gridHelper
-        args={[Math.max(footprint * 4, 1200), 24, "#1e293b", "#0f172a"]}
-        position={[0, 0.01, 0]}
+    <mesh castShadow geometry={geometry} receiveShadow>
+      <meshStandardMaterial
+        color="#f1f5f9"
+        metalness={0.1}
+        roughness={0.7}
       />
-
-      <ContactShadows
-        blur={2.6}
-        far={Math.max(maxThickness * 24, 120)}
-        frames={1}
-        key={`lithophane-${width}-${height}-${minThickness}-${maxThickness}`}
-        opacity={0.5}
-        position={[0, 0.02, 0]}
-        resolution={512}
-        scale={Math.max(footprint * 2.8, 480)}
-      />
-    </group>
+    </mesh>
   );
 }
 
 type SignModelProps = {
   geometry: BufferGeometry;
-  fontSize: number;
-  depth: number;
-  channelWidth: number;
-  /** Зазор между буквами: он меняет ширину надписи и силуэт тени. */
-  letterGap: number;
-  /** Сколько букв в блоке: от него зависят плиты и стыки. */
-  blockSize: number;
-  /** Общее основание под буквами: плита вместо узкой рейки. */
-  baseMount: boolean;
-  text: string;
-  /** Фактическая ширина с учётом автоподбора кегля, мм. */
-  width: number;
 };
 
 /**
  * Вывеска собирается из блоков: в каждом полые буквы на общей плите, а плиты
  * соседей стыкуются шипом и пазом. Геометрия построена в плоскости XY, поэтому
  * поворот не нужен — так же детали ложатся в STL.
- *
- * Ключ тени включает текст, кегль, выступ, канал, зазор, размер блока и
- * основание: любая правка меняет силуэт, и старая тень стала бы неверной.
  */
-function SignModel({
-  geometry,
-  fontSize,
-  depth,
-  channelWidth,
-  letterGap,
-  blockSize,
-  baseMount,
-  text,
-  width,
-}: SignModelProps) {
+function SignModel({ geometry }: SignModelProps) {
   return (
-    <group>
-      <mesh castShadow geometry={geometry} receiveShadow>
-        <meshStandardMaterial
-          color="#a78bfa"
-          metalness={0.08}
-          roughness={0.34}
-        />
-      </mesh>
-
-      {/* Тёмный пол: на нём читаются контактные тени. */}
-      <mesh
-        position={[0, -0.3, 0]}
-        receiveShadow
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <circleGeometry args={[Math.max(width * 2.4, 400), 64]} />
-        <meshStandardMaterial color="#0b1220" roughness={1} />
-      </mesh>
-
-      <gridHelper
-        args={[Math.max(width * 4, 1200), 24, "#1e293b", "#0f172a"]}
-        position={[0, 0.01, 0]}
+    <mesh castShadow geometry={geometry} receiveShadow>
+      <meshStandardMaterial
+        color="#a78bfa"
+        metalness={0.1}
+        roughness={0.7}
       />
-
-      <ContactShadows
-        blur={2.6}
-        far={Math.max(fontSize * 2, 160)}
-        frames={1}
-        key={`sign-${text}-${fontSize}-${depth}-${channelWidth}-${letterGap}-${blockSize}-${baseMount}`}
-        opacity={0.5}
-        position={[0, 0.02, 0]}
-        resolution={512}
-        scale={Math.max(width * 2.6, 480)}
-      />
-    </group>
+    </mesh>
   );
 }
 
-/** Свет без внешних HDR: сцена должна работать без обращений к CDN. */
-function Lights() {
+/**
+ * Радиус студии: по нему настраиваются свет и карта теней.
+ *
+ * Модели живут в миллиметрах, и ваза 120 мм с вывеской 400 мм требуют разного
+ * удаления лампы и разного охвата тени: иначе тень либо не попадает в кадр,
+ * либо размывается в серое пятно.
+ */
+function studioSpan(height: number, footprint: number): number {
+  return Math.max(footprint * 1.8, height * 1.6, 220);
+}
+
+type StudioLightProps = {
+  /** Радиус студии в миллиметрах. */
+  span: number;
+};
+
+/**
+ * Студийный свет без внешних HDR: сцена должна работать без обращений к CDN.
+ *
+ * Тень отбрасывает только ключевой источник — вторая тень от заполняющего
+ * выглядела бы грязью под моделью. Контровой свет стоит за моделью и рисует
+ * светлую кромку по силуэту: на матовой керамике он подчёркивает рёбра
+ * фасеток там, где Fresnel-обводка показала бы край.
+ *
+ * Мягкость тени даёт `shadow-radius`: в three r186 встроенный PCF-фильтр
+ * сэмплирует карту с шагом радиуса, поэтому край тени размывается, а не
+ * повторяет лесенку текселя. Карта 1024 на радиусе 10 даёт на краю тени около
+ * полутора миллиметров полутени — на вазе это мягкая студийная тень, и при
+ * этом вдвое дешевле карты 2048 на телефоне.
+ */
+function StudioLights({ span }: StudioLightProps) {
   return (
     <>
-      <ambientLight intensity={0.45} />
-      <hemisphereLight args={["#bfdbfe", "#020617", 0.6]} />
-      <directionalLight intensity={2.4} position={[200, 320, 260]} />
+      {/* Верхний рассеянный: холодное небо сверху, тёмный стол снизу. */}
+      <hemisphereLight args={["#dbeafe", "#0b1120", 0.75]} />
+      {/* Ключевой: единственный источник тени. */}
+      <directionalLight
+        castShadow
+        intensity={2.6}
+        position={[span * 1.1, span * 1.7, span * 0.6]}
+        shadow-bias={-0.0005}
+        shadow-camera-bottom={-span}
+        shadow-camera-far={span * 6}
+        shadow-camera-left={-span}
+        shadow-camera-right={span}
+        shadow-camera-top={span}
+        shadow-mapSize-height={1024}
+        shadow-mapSize-width={1024}
+        shadow-normalBias={0.02}
+        shadow-radius={10}
+      />
+      {/* Заполняющий: мягкий, с противоположной стороны, без тени. */}
+      <directionalLight
+        color="#c7d2fe"
+        intensity={0.8}
+        position={[-span * 1.2, span * 0.5, span * 0.9]}
+      />
+      {/* Контровой: кромка силуэта, стоит за моделью. */}
       <directionalLight
         color="#93c5fd"
-        intensity={1.1}
-        position={[-260, 180, -220]}
+        intensity={1.3}
+        position={[-span * 0.35, span * 0.85, -span * 1.25]}
       />
     </>
+  );
+}
+
+type StudioFloorProps = {
+  /** Наибольший горизонтальный размер модели, мм. */
+  footprint: number;
+};
+
+/**
+ * Бесконечный стол: одна большая плоскость, видимая только в пятне тени.
+ *
+ * `shadowMaterial` рисует только тень, сама плоскость прозрачна: край не виден,
+ * и модель стоит над градиентом, как на студийном снимке. Сетка-помощник
+ * убрана — она давала вид чертежа, а не редактора. Плоскость на полмиллиметра
+ * ниже нуля, чтобы не спорить с нижними гранями лежащих моделей: у брелока и
+ * литофана низ идёт ровно по y = 0.
+ */
+function StudioFloor({ footprint }: StudioFloorProps) {
+  const size = Math.max(footprint * 16, 6000);
+
+  return (
+    <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.5, 0]}>
+      <planeGeometry args={[size, size]} />
+      <shadowMaterial color="#020617" transparent opacity={0.55} />
+    </mesh>
   );
 }
 
@@ -732,120 +455,60 @@ type SceneProps = {
 };
 
 function Scene({ params, geometry, framing }: SceneProps) {
+  // Радиус студии считается по габаритам модели: свет и карта теней должны
+  // покрывать её целиком при любой высоте и ширине.
+  const span = studioSpan(framing.height, framing.footprint);
+
   return (
     <>
-      {/* Фон прозрачный: градиент задаёт обёртка viewport в CSS. */}
-      <Lights />
+      {/* Фон прозрачный: тёмный градиент задаёт обёртка viewport в CSS. */}
+      <StudioLights span={span} />
+
       {params.model === "vase" ? (
         <VaseModel
-          diameter={params.diameter}
+          faceted={
+            resolveSectionSides(params.shape, params.sectionSides) >=
+            VASE_SECTION_MIN_SIDES
+          }
           geometry={geometry}
-          height={params.height}
-          patterns={params.patterns}
-          sectionSides={params.sectionSides}
-          shape={params.shape}
-          twistDeg={params.twistDeg}
-          flutes={params.flutes}
-          fluteDepthMm={params.fluteDepthMm}
-          organic={params.organic}
-          leanDeg={params.leanDeg}
-          vaseSeed={params.vaseSeed}
-          wall={params.wall}
         />
       ) : params.model === "keychain" ? (
-        <KeychainModel
-          geometry={geometry}
-          length={params.length}
-          shapeKey={params.keychainPreset ?? params.keychainShape ?? "none"}
-          text={params.text}
-          thickness={params.thickness}
-          width={params.width}
-        />
+        <KeychainModel geometry={geometry} />
       ) : params.model === "stand" ? (
-        <StandModel
-          angle={params.standAngle}
-          geometry={geometry}
-          thickness={params.phoneThickness}
-          width={params.standWidth}
-        />
+        <StandModel geometry={geometry} />
       ) : params.model === "box" ? (
-        <BoxModel
-          geometry={geometry}
-          gridX={params.gridX}
-          gridY={params.gridY}
-          hasLid={params.hasLid}
-          height={params.boxHeight}
-          length={params.boxLength}
-          wall={params.boxWall}
-          width={params.boxWidth}
-        />
+        <BoxModel geometry={geometry} />
       ) : params.model === "lithophane" ? (
-        <LithophaneModel
-          geometry={geometry}
-          height={params.lithophaneHeight}
-          maxThickness={params.lithophaneMaxThickness}
-          minThickness={params.lithophaneMinThickness}
-          width={params.lithophaneWidth}
-        />
+        <LithophaneModel geometry={geometry} />
       ) : params.model === "planter" ? (
-        <ZUpModel
-          color="#fbbf24"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`planter-${params.planterSize}-${params.planterHeight}-${params.planterWall}-${params.planterShape}-${params.planterDrainage}`}
-        />
+        <ZUpModel color="#fbbf24" geometry={geometry} />
       ) : params.model === "coaster" ? (
-        <ZUpModel
-          color="#fb7185"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`coaster-${params.coasterSize}-${params.coasterThickness}-${params.coasterShape}-${params.coasterPattern}-${params.coasterRim}`}
-        />
+        <ZUpModel color="#fb7185" geometry={geometry} />
       ) : params.model === "jewelry_stand" ? (
-        <ZUpModel
-          color="#c084fc"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`jewelry-${params.jewelryBase}-${params.jewelryHeight}-${params.jewelryConfig}`}
-        />
+        <ZUpModel color="#c084fc" geometry={geometry} />
       ) : params.model === "pen_holder" ? (
-        <ZUpModel
-          color="#60a5fa"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`pen-${params.penSize}-${params.penHeight}-${params.penWall}-${params.penShape}-${params.penSections}`}
-        />
+        <ZUpModel color="#60a5fa" geometry={geometry} />
       ) : params.model === "heat_transfer" ? (
-        <ZUpModel
-          color="#f97316"
-          footprint={framing.footprint}
-          geometry={geometry}
-          height={framing.height}
-          shadowKey={`transfer-${params.heatTransferWidth}-${params.heatTransferHeight}-${params.heatTransferLayers}-${params.heatTransferMirror}-${params.heatTransferSvg.length}`}
-        />
+        <ZUpModel color="#f97316" geometry={geometry} />
       ) : (
-        <SignModel
-          baseMount={params.signBaseMount}
-          blockSize={params.signBlockSize}
-          channelWidth={params.signChannelWidth}
-          depth={params.signDepth}
-          fontSize={params.signFontSize}
-          geometry={geometry}
-          letterGap={params.signLetterGap}
-          text={params.signText}
-          width={framing.footprint}
-        />
+        <SignModel geometry={geometry} />
       )}
+
+      {/* Стол под моделью: принимает тень от ключевого света. */}
+      <StudioFloor footprint={framing.footprint} />
+
       <CameraRig
         flat={framing.flat}
         footprint={framing.footprint}
         height={framing.height}
       />
 
+      {/*
+        zoomToCursor — колесо приближает к точке под курсором, а не к центру
+        кадра: на длинной вывеске иначе приходится приближать, а потом искать
+        деталь заново. Damping с инерцией гасит рывки вращения, поэтому сцена
+        крутится плавно.
+      */}
       <OrbitControls
         dampingFactor={0.08}
         enableDamping
@@ -857,6 +520,7 @@ function Scene({ params, geometry, framing }: SceneProps) {
         minPolarAngle={0.15}
         rotateSpeed={0.8}
         zoomSpeed={0.8}
+        zoomToCursor
       />
     </>
   );
@@ -1174,54 +838,74 @@ export function Viewport({ params }: ViewportProps) {
                         : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
-    <div className="relative h-[min(40vh,20rem)] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-900 to-slate-900 shadow-2xl shadow-blue-950/50 sm:h-[min(48vh,26rem)] lg:h-auto lg:min-h-[16rem] lg:flex-1">
-      <Canvas
-        aria-label={ariaLabel}
-        camera={{ fov: 35, near: 1, far: 6000, position: [0, 180, 320] }}
-        dpr={[1, 1.75]}
-        fallback={
-          <div className="flex h-full items-center justify-center p-6 text-center">
-            <p className="max-w-sm text-sm leading-relaxed text-slate-300">
-              Браузер не поддерживает WebGL, поэтому 3D-предпросмотр недоступен.
-              Попробуйте открыть страницу в другом браузере.
-            </p>
-          </div>
-        }
-        gl={{ antialias: true, alpha: true }}
-      >
-        <Scene framing={framing} geometry={geometry} params={params} />
-      </Canvas>
-
-      {needsFont && !font ? (
-        <div
-          className={
-            fontFailed
-              ? "pointer-events-none absolute top-3 right-3 rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-100"
-              : "pointer-events-none absolute top-3 right-3 rounded-full border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs font-medium text-slate-300"
+    <>
+      {/*
+        Фон — радиальный градиент в тон сайту: центр сцены светлее краёв, как
+        в тёмной студии. Канвас прозрачный (alpha), поэтому градиент живёт в
+        CSS и не требует отдельной геометрии в three.js.
+      */}
+      <div className="relative h-[min(40vh,20rem)] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_50%_16%,#1e293b_0%,#0f172a_46%,#050a14_100%)] shadow-2xl shadow-black/50 sm:h-[min(48vh,26rem)] lg:h-auto lg:min-h-[16rem] lg:flex-1">
+        {/*
+          Тени и цветопередача заданы на рендерере: PCF с мягким фильтром даёт
+          размытый край тени (PCFSoftShadowMap в three r186 удалён, и рендерер
+          сам откатывался к PCF с предупреждением в консоли), а ACES-тонмаппинг с
+          экспозицией 1 держит светлую керамику без пересвета и оставляет тёмный
+          фон глубоким.
+        */}
+        <Canvas
+          aria-label={ariaLabel}
+          camera={{ fov: 35, near: 1, far: 6000, position: [0, 180, 320] }}
+          dpr={[1, 1.75]}
+          fallback={
+            <div className="flex h-full items-center justify-center p-6 text-center">
+              <p className="max-w-sm text-sm leading-relaxed text-slate-300">
+                Браузер не поддерживает WebGL, поэтому 3D-предпросмотр недоступен.
+                Попробуйте открыть страницу в другом браузере.
+              </p>
+            </div>
           }
-          role={fontFailed ? "alert" : "status"}
+          gl={{
+            alpha: true,
+            antialias: true,
+            toneMapping: ACESFilmicToneMapping,
+            toneMappingExposure: 1,
+          }}
+          shadows={{ enabled: true, type: PCFShadowMap }}
         >
-          {fontFailed
-            ? "Шрифт не загрузился: подписи скрыты, STL соберётся на сервере"
-            : "Загружаем шрифт…"}
-        </div>
-      ) : null}
+          <Scene framing={framing} geometry={geometry} params={params} />
+        </Canvas>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-between gap-2 bg-gradient-to-t from-slate-950/80 to-transparent px-4 pt-10 pb-3 text-xs text-slate-300">
-        <span className="flex flex-wrap items-center gap-x-2">
+        {needsFont && !font ? (
+          <div
+            className={
+              fontFailed
+                ? "pointer-events-none absolute top-3 right-3 rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-100"
+                : "pointer-events-none absolute top-3 right-3 rounded-full border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs font-medium text-slate-300"
+            }
+            role={fontFailed ? "alert" : "status"}
+          >
+            {fontFailed
+              ? "Шрифт не загрузился: подписи скрыты, STL соберётся на сервере"
+              : "Загружаем шрифт…"}
+          </div>
+        ) : null}
+
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-between gap-2 bg-gradient-to-t from-slate-950/80 to-transparent px-4 pt-10 pb-3 text-xs text-slate-300">
           <span>{sizeLabel}</span>
-          <span aria-hidden className="text-slate-600">
-            •
-          </span>
           <span>Вес пластика: ~{materialWeightGrams.toFixed(1)} г</span>
-        </span>
-        <span className="hidden sm:inline">Вращение — мышь, зум — колесо</span>
+        </div>
+
+        <p className="sr-only">
+          Сцена вращается перетаскиванием, приближается колесом мыши или жестом
+          двух пальцев. {ariaLabel}.
+        </p>
       </div>
 
-      <p className="sr-only">
-        Сцена вращается перетаскиванием, приближается колесом мыши или жестом
-        двух пальцев. {ariaLabel}.
+      {/* Подсказка по управлению: обычный текст под сценой, а не надпись поверх канваса. */}
+      <p className="mt-2 text-sm text-slate-400">
+        Вращение — перетаскивание мышью или свайп, зум — колесо или щипок.
+        Приближение идёт к точке под курсором.
       </p>
-    </div>
+    </>
   );
 }
