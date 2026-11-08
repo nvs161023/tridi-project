@@ -1,7 +1,7 @@
 "use client";
 
 import { OrbitControls } from "@react-three/drei";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ACESFilmicToneMapping,
@@ -17,7 +17,7 @@ import {
   Scene as ThreeScene,
   Vector3,
 } from "three";
-import type { PerspectiveCamera } from "three";
+import type { Group, PerspectiveCamera } from "three";
 import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 
@@ -31,7 +31,7 @@ import {
   downsampleLithophaneBrightness,
   keychainDecorationFonts,
   keychainFontUrl,
-  keychainShapeTitle,
+  keychainShapeLabel,
   keychainTextDecoration,
   vasePatternLabel,
   type ConstructorParams,
@@ -137,6 +137,18 @@ const FLAT_DIRECTION = new Vector3(0.55, 0.85, 0.75).normalize();
 
 /** Запас вокруг модели, чтобы она не касалась краёв кадра. */
 const FRAME_MARGIN = 1.35;
+
+/**
+ * Переключатель сторон брелока.
+ *
+ * Рельефы оборота стоят под пластиной и с лица не видны, поэтому у сцены две
+ * кнопки: они переворачивают деталь так же, как это сделал бы владелец в руках.
+ * Подписи живут рядом с флагами, чтобы кнопка и сцена не разошлись.
+ */
+const KEYCHAIN_VIEW_SIDES = [
+  { back: false, label: "Лицо" },
+  { back: true, label: "Оборот" },
+] as const;
 
 /**
  * Минимальный набор методов OrbitControls, который нужен CameraRig.
@@ -262,7 +274,22 @@ function VaseModel({ geometry, faceted }: VaseModelProps) {
 
 type KeychainModelProps = {
   geometry: BufferGeometry;
+  /** Показан оборот: пластина перевёрнута лицом вниз. */
+  back: boolean;
+  /**
+   * Подъём на середине переворота, мм.
+   *
+   * В полпути пластина стоит на ребре, и её половина уходила бы под стол. Подъём
+   * по дуге оставляет переворот над столом: деталь поднимается, переворачивается
+   * через ребро и опускается обратно — так видно, что произошло.
+   */
+  lift: number;
+  /** Толщина детали, мм: ось переворота идёт по её середине. */
+  thickness: number;
 };
+
+/** Доля оставшегося пути за секунду: переворот занимает примерно треть секунды. */
+const KEYCHAIN_FLIP_SPEED = 9;
 
 /**
  * Брелок лежит на столе лицевой стороной вверх.
@@ -270,10 +297,45 @@ type KeychainModelProps = {
  * Геометрия построена в плоскости XY с толщиной по Z — так её удобно печатать.
  * Поворот на -90° вокруг X ставит толщину по Y: нижняя грань касается стола,
  * а имя смотрит на камеру.
+ *
+ * Оборот показывается тем же поворотом вокруг горизонтальной оси X: при 180°
+ * пластина встаёт обратной стороной вверх, а смещение на толщину возвращает
+ * нижнюю грань на стол. Рельефы оборота после этого видны сверху — ровно так,
+ * как их увидит владелец брелока, перевернув его в руках.
  */
-function KeychainModel({ geometry }: KeychainModelProps) {
+function KeychainModel({
+  back,
+  geometry,
+  lift,
+  thickness,
+}: KeychainModelProps) {
+  const group = useRef<Group>(null);
+  /** Прогресс переворота: 0 — лицо, 1 — оборот. */
+  const progress = useRef(back ? 1 : 0);
+
+  useFrame((_, delta) => {
+    const target = back ? 1 : 0;
+    const step = Math.min(1, delta * KEYCHAIN_FLIP_SPEED);
+    const next =
+      Math.abs(target - progress.current) <= 1e-3
+        ? target
+        : progress.current + (target - progress.current) * step;
+
+    progress.current = next;
+
+    if (!group.current) {
+      return;
+    }
+
+    // Один поворот вместо вложенных групп: -90° — пластина лежит лицом вверх,
+    // +90° — обратной стороной вверх. Дуга подъёма держит деталь над столом.
+    group.current.rotation.x = -Math.PI / 2 + Math.PI * next;
+    group.current.position.y =
+      thickness * next + Math.sin(Math.PI * next) * lift;
+  });
+
   return (
-    <group rotation={[-Math.PI / 2, 0, 0]}>
+    <group ref={group} rotation={[-Math.PI / 2, 0, 0]}>
       <mesh castShadow geometry={geometry} receiveShadow>
         <meshStandardMaterial
           color={STUDIO_MODEL_TINTS.keychain}
@@ -659,12 +721,20 @@ type SceneProps = {
   params: ConstructorParams;
   geometry: BufferGeometry;
   framing: Framing;
+  /** Показан оборот брелока: сцена переворачивает пластину лицом вниз. */
+  keychainBack: boolean;
 };
 
-function Scene({ params, geometry, framing }: SceneProps) {
+function Scene({ params, geometry, framing, keychainBack }: SceneProps) {
   // Радиус студии считается по габаритам модели: свет и карта теней должны
   // покрывать её целиком при любой высоте и ширине.
   const span = studioSpan(framing.height, framing.footprint);
+
+  /*
+    Дуга переворота: в полпути пластина стоит на ребре, и подъём должен вынести
+    над столом её половину (половину большего габарита), толщину и рельефы.
+  */
+  const keychainLift = framing.footprint / 2 + framing.height * 2 + 4;
 
   return (
     <>
@@ -684,7 +754,12 @@ function Scene({ params, geometry, framing }: SceneProps) {
           geometry={geometry}
         />
       ) : params.model === "keychain" ? (
-        <KeychainModel geometry={geometry} />
+        <KeychainModel
+          back={keychainBack}
+          geometry={geometry}
+          lift={keychainLift}
+          thickness={params.thickness}
+        />
       ) : params.model === "stand" ? (
         <StandModel geometry={geometry} />
       ) : params.model === "box" ? (
@@ -752,6 +827,65 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
    * setState из useMemo пересобирал бы сцену на каждом рендере.
    */
   const keychainReport = useRef<KeychainBuildReport>({ decorations: [] });
+
+  /**
+   * Какая сторона брелока показана.
+   *
+   * Рельефы оборота стоят под пластиной и с лица не видны, поэтому у сцены есть
+   * переключатель: он переворачивает деталь и показывает оборот так же, как её
+   * увидит владелец. Для остальных моделей состояние не нужно — оно сбрасывается
+   * при смене модели, чтобы возврат к брелоку начинался с лица.
+   */
+  const [keychainBack, setKeychainBack] = useState(false);
+
+  /**
+   * Панель двигает сторону декораций, а сцена следует за ней: выбрал «Оборот» —
+   * пластина перевернулась, и видно, куда встал рельеф. Реагируем только на
+   * смену значения у уже существующей декорации: первая сборка проекта и выбор
+   * «Авто» взгляд не трогают.
+   */
+  const decorationSides = useRef(new Map<string, string>());
+  useEffect(() => {
+    const next = new Map<string, string>(
+      params.model === "keychain"
+        ? (params.decorations ?? []).map(
+            (item) => [item.id, item.side] as const,
+          )
+        : [],
+    );
+    let back = false;
+    let front = false;
+
+    for (const [id, side] of next) {
+      const previous = decorationSides.current.get(id);
+
+      if (previous === undefined || previous === side) {
+        continue;
+      }
+
+      if (side === "back") {
+        back = true;
+      } else if (side === "front") {
+        front = true;
+      }
+    }
+
+    decorationSides.current = next;
+
+    if (back) {
+      setKeychainBack(true);
+    } else if (front) {
+      setKeychainBack(false);
+    }
+  }, [params.model, params.decorations]);
+
+  // Смена модели возвращает лицо: у вазы и подставки оборота нет, а вернувшись к
+  // брелоку, пользователь ждёт тот же вид, что и при первом открытии.
+  useEffect(() => {
+    if (params.model !== "keychain") {
+      setKeychainBack(false);
+    }
+  }, [params.model]);
 
   /**
    * Какие шрифты нужны модели.
@@ -1082,10 +1216,10 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
     params.model === "vase"
       ? `3D-предпросмотр вазы высотой ${params.height} миллиметров и диаметром ${params.diameter} миллиметров, узор «${vasePatternLabel(params.patterns)}»`
       : params.model === "keychain"
-        ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${keychainShapeTitle(params)}», имя «${
+        ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${keychainShapeLabel(params)}», имя «${
             keychainTextDecoration(params.decorations)?.content.trim() ||
             "без имени"
-          }»`
+          }»${keychainBack ? ", показан оборот" : ", показано лицо"}`
         : params.model === "stand"
           ? `3D-предпросмотр подставки под телефон шириной ${params.standWidth} миллиметров, наклон ${params.standAngle} градусов, толщина телефона ${params.phoneThickness} миллиметров`
           : params.model === "box"
@@ -1142,7 +1276,12 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
           }}
           shadows={{ enabled: true, type: PCFShadowMap }}
         >
-          <Scene framing={framing} geometry={geometry} params={params} />
+          <Scene
+            framing={framing}
+            geometry={geometry}
+            keychainBack={keychainBack}
+            params={params}
+          />
         </Canvas>
 
         {/*
@@ -1154,6 +1293,35 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
           className="pointer-events-none absolute inset-0"
           style={{ backgroundImage: STUDIO_VIGNETTE.css }}
         />
+
+        {params.model === "keychain" ? (
+          /*
+            Переключатель сторон: обычные кнопки поверх канваса, а не часть
+            сцены. Виньетка выше лежит с pointer-events-none, поэтому клики
+            доходят до них.
+          */
+          <div
+            aria-label="Сторона брелока"
+            className="absolute top-3 left-3 flex items-center gap-1 rounded-full border border-white/10 bg-slate-950/70 p-1 text-xs font-medium text-slate-300 backdrop-blur"
+            role="group"
+          >
+            {KEYCHAIN_VIEW_SIDES.map((side) => (
+              <button
+                aria-pressed={keychainBack === side.back}
+                className={
+                  keychainBack === side.back
+                    ? "rounded-full bg-white/15 px-3 py-1 text-white"
+                    : "rounded-full px-3 py-1 text-slate-400 transition hover:text-white"
+                }
+                key={side.label}
+                onClick={() => setKeychainBack(side.back)}
+                type="button"
+              >
+                {side.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         {needsFont && !fontsReady ? (
           <div
@@ -1177,7 +1345,11 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
 
         <p className="sr-only">
           Сцена вращается перетаскиванием, приближается колесом мыши или жестом
-          двух пальцев. {ariaLabel}.
+          двух пальцев.{" "}
+          {params.model === "keychain"
+            ? "Кнопки «Лицо» и «Оборот» переворачивают брелок и показывают его обратную сторону. "
+            : null}
+          {ariaLabel}.
         </p>
       </div>
 
@@ -1185,6 +1357,9 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
       <p className="mt-2 text-sm text-slate-400">
         Вращение — перетаскивание мышью или свайп, зум — колесо или щипок.
         Приближение идёт к точке под курсором.
+        {params.model === "keychain"
+          ? " Переключатель «Лицо» / «Оборот» показывает рельефы с обратной стороны."
+          : null}
       </p>
     </>
   );

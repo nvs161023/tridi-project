@@ -486,31 +486,27 @@ export type PatternLayer = {
 };
 
 /**
- * Силуэты брелока.
+ * Пресет брелока по умолчанию: с него начинается модель и «Сброс».
  *
- * Встроенных силуэтов больше нет — четырнадцать прежних (`dog_tag`, `hexagon`,
- * `cat`, …, `lightning`) удалены: форму задаёт либо пресет из
- * `lib/constructor/keychain-presets.ts`, либо контур, загруженный пользователем.
- * Поэтому `custom` — единственное значение: он означает «форма в
- * `customSvgData`». Первый пункт списка формы — пресет, и нормализация всегда
- * оставляет в модели ровно один источник формы.
+ * Он же — единственный источник формы. Своего контура больше нет: загрузка
+ * силуэта детали убрана из панели, потому что владелец тестировал формы живьём и
+ * своя обводка в печати не прижилась. Пресеты строятся кодом
+ * (`lib/constructor/keychain-presets.ts`), поэтому в модели всегда есть
+ * геометрия, а ушко под кольцо, фаска и карман под метку считаются по одним
+ * числам.
  *
- * Ушко под кольцо не входит в SVG: geometry добавляет его в верхнюю точку
- * контура, поэтому своя форма не может остаться без отверстия.
+ * Старые проекты с `custom` открываются этим пресетом: нормализация не находит в
+ * них `keychainPreset` и подставляет `DEFAULT_KEYCHAIN_PRESET_ID`.
  */
-export const KEYCHAIN_SHAPES = ["custom"] as const;
-
-export type KeychainShape = (typeof KEYCHAIN_SHAPES)[number];
-
-export const KEYCHAIN_SHAPE_LABELS = {
-  custom: "Свой SVG",
-} as const satisfies Record<KeychainShape, string>;
-
-/** Пресет брелока по умолчанию: с него начинается модель и «Сброс». */
 export const DEFAULT_KEYCHAIN_PRESET_ID: KeychainPresetId = "apple-tag";
 
-/** Предел размера загруженного SVG: 200 КБ хватает логотипу с контурами. */
-export const KEYCHAIN_SVG_MAX_LENGTH = 200_000;
+/**
+ * Предел размера загруженного SVG, символов.
+ *
+ * В брелоке так ограничен только логотип термопринта: своего контура у него
+ * больше нет, но SVG логотипа разбирается тем же парсером без DOM.
+ */
+export const CUSTOM_SVG_MAX_LENGTH = 200_000;
 
 /**
  * Границы толщины QR-визитки, мм.
@@ -624,20 +620,17 @@ export function keychainDecorationFonts(
 /**
  * Подпись формы брелока для панели, сводки и aria-описания сцены.
  *
- * Форму задаёт либо пресет из реестра, либо свой контур. Одна функция на
- * все три места не даёт подписям разойтись: пока пресет жил в отдельном
+ * Форму задаёт пресет из реестра, поэтому подпись берётся из его `label`. Одна
+ * функция на все места не даёт подписям разойтись: пока пресет жил в отдельном
  * состоянии панели, сводка читала силуэт и показывала форму, которой в модели
  * уже не было.
  */
-export function keychainShapeTitle(params: {
+export function keychainShapeLabel(params: {
   keychainPreset?: KeychainPresetId | null;
-  keychainShape: KeychainShape | null;
 }): string {
-  if (params.keychainPreset) {
-    return keychainPresetById(params.keychainPreset).label;
-  }
-
-  return KEYCHAIN_SHAPE_LABELS[params.keychainShape ?? KEYCHAIN_SHAPES[0]];
+  return keychainPresetById(
+    params.keychainPreset ?? DEFAULT_KEYCHAIN_PRESET_ID,
+  ).label;
 }
 
 /** Ширина канала под светодиодную ленту, мм: другой не бывает. */
@@ -689,16 +682,42 @@ export const SIGN_TEXT_MAX_LENGTH = 15;
 export const KEYCHAIN_TEXT_MAX_LENGTH = 10;
 
 /**
- * Префикс `imageData`: маска картинки хранится как SVG в base64.
+ * Префикс `imageData` нового формата: готовая маска-растр в base64.
  *
- * SVG, а не исходный PNG: контуры маски занимают единицы килобайт и
- * разбираются на сервере тем же кодом, что силуэт брелока (`svg-outline.ts`).
- * Своего декодера PNG на сервере нет, и бинарный растр в `params_json` не нужен.
+ * В параметрах лежит не файл и не SVG-обводка, а поле покрытия картинки: 160
+ * ячеек по длинной стороне, 4 бита на ячейку (16 уровней «сколько краски»).
+ * Такой растр занимает ~11 КБ в base64 и не теряет мелких деталей, которые
+ * теряла прежняя обводка контура. По этому полю строит рельеф и геометрия, и
+ * превью маски в панели — один и тот же код (`keychain-image.ts`).
+ */
+export const KEYCHAIN_IMAGE_FIELD_PREFIX = "data:image/x-keychain-mask;base64,";
+
+/**
+ * Прежний префикс `imageData`: маска хранилась как SVG-обводка в base64.
+ *
+ * Проекты, сохранённые до поля покрытия, открываются как есть: геометрия читает
+ * оба формата, а новая картинка пишется уже полем.
  */
 export const KEYCHAIN_IMAGE_PREFIX = "data:image/svg+xml;base64,";
 
 /** Предел длины `imageData`, символов: примерно 96 КБ маски. */
 export const KEYCHAIN_IMAGE_MAX_LENGTH = 96 * 1024;
+
+/**
+ * Порог детализации картинки, проценты.
+ *
+ * Ниже порога ячейка маски считается пустой, выше — рельефом. Это единственная
+ * ручка, которой пользователь убирает «кашу» из пятен (порог выше) или делает
+ * картинку плотнее (порог ниже). У PNG с прозрачностью порог режет край буквы,
+ * у JPG — полутон: там же включается дизеринг Флойда — Стейнберга.
+ */
+export const KEYCHAIN_IMAGE_THRESHOLD_LIMITS: NumericLimit = {
+  min: 10,
+  max: 90,
+  step: 5,
+  defaultValue: 50,
+  decimals: 0,
+};
 
 /**
  * Масштаб картинки относительно свободной полосы грани.
@@ -732,19 +751,26 @@ export const KEYCHAIN_IMAGE_DEPTH_LIMITS: NumericLimit = {
 /**
  * Похоже ли значение на маску картинки брелока.
  *
- * Проверяются только формат и предел длины: полный разбор SVG делает геометрия,
- * а нормализация должна оставаться дешёвой — она вызывается на каждый слайдер.
+ * Проверяются только формат и предел длины: поле покрытия разбирает геометрия, а
+ * нормализация должна оставаться дешёвой — она вызывается на каждый слайдер.
+ * Принимаются оба формата: поле нового образца и сохранённая SVG-обводка.
  */
 export function isKeychainImageData(value: unknown): value is string {
   if (typeof value !== "string" || value.length > KEYCHAIN_IMAGE_MAX_LENGTH) {
     return false;
   }
 
-  if (!value.startsWith(KEYCHAIN_IMAGE_PREFIX)) {
+  const prefix = value.startsWith(KEYCHAIN_IMAGE_FIELD_PREFIX)
+    ? KEYCHAIN_IMAGE_FIELD_PREFIX
+    : value.startsWith(KEYCHAIN_IMAGE_PREFIX)
+      ? KEYCHAIN_IMAGE_PREFIX
+      : null;
+
+  if (!prefix) {
     return false;
   }
 
-  const payload = value.slice(KEYCHAIN_IMAGE_PREFIX.length);
+  const payload = value.slice(prefix.length);
 
   return payload.length > 0 && /^[A-Za-z0-9+/=]+$/.test(payload);
 }
@@ -960,8 +986,6 @@ type KeychainDecorationBase = {
   rotation: KeychainRotation;
   /** Высота рельефа над пластиком, мм; внедрение 0.35 мм не входит. */
   depth: number;
-  /** `true` — рельеф выступает, `false` — утоплен в пластик. */
-  emboss: boolean;
   /** Сторона грани: любая, только лицо или только оборот. */
   side: KeychainDecorationSide;
 };
@@ -985,15 +1009,18 @@ export type KeychainTextDecoration = KeychainDecorationBase & {
 /**
  * Картинка на грани: маска рельефа и её происхождение.
  *
- * `imageData` — та же маска SVG в base64, что читает `svg-outline.ts`.
- * `imageName` — имя загруженного файла для панели: в геометрии оно не нужно, но
- * без него после перезагрузки проекта карточка логотипа обезличена.
+ * `imageData` — маска-растр в base64 (`KEYCHAIN_IMAGE_FIELD_PREFIX`): по ней
+ * строятся и контуры рельефа, и превью в панели. `imageName` — имя загруженного
+ * файла для панели: в геометрии оно не нужно, но без него после перезагрузки
+ * проекта карточка логотипа обезличена. `imageThreshold` — порог детализации в
+ * процентах: чем выше, тем меньше пятен остаётся рельефом.
  */
 export type KeychainImageDecoration = KeychainDecorationBase & {
   kind: "image";
   imageData: string;
   imageScale: number;
   imageName: string;
+  imageThreshold: number;
 };
 
 /**
@@ -1070,28 +1097,14 @@ export type KeychainParams = {
    */
   decorations: KeychainDecoration[];
   /**
-   * Свой контур: `custom` — форма берётся из `customSvgData`, и встроенных
-   * силуэтов в проекте больше нет (`lib/constructor/keychain-fallback-shape.ts`
-   * остался только запасным жетоном на случай неразобранного файла).
+   * Пресет силуэта из `lib/constructor/keychain-presets.ts`.
    *
-   * null — форму задаёт пресет (`keychainPreset`), и силуэт не нужен: держать
-   * оба поля заполненными значило бы дать предпросмотру и экспорту два разных
-   * источника формы.
-   */
-  keychainShape: KeychainShape | null;
-  /**
-   * Новый пресет силуэта из `lib/constructor/keychain-presets.ts`.
-   *
-   * Пресет и свой контур взаимоисключающие: выбор пресета обнуляет
-   * `keychainShape`, выбор `custom` обнуляет это поле. Геометрия пресета
-   * строится кодом, поэтому размеры берутся из слайдеров, а не из SVG.
+   * Единственный источник формы: своего контура больше нет. Нормализация всегда
+   * держит здесь идентификатор из реестра — проект со старым `custom` получает
+   * `DEFAULT_KEYCHAIN_PRESET_ID`, поэтому предпросмотр и экспорт никогда не
+   * остаются без геометрии.
    */
   keychainPreset?: KeychainPresetId | null;
-  /**
-   * Разметка пользовательского SVG. Хранится строкой, потому что файл
-   * разбирается и в браузере, и на сервере одним парсером без DOM.
-   */
-  customSvgData: string;
   /** Вырезать с обратной стороны карман 25 × 25 мм под NFC-метку. */
   nfcEnabled: boolean;
   /**
@@ -1115,13 +1128,6 @@ export type KeychainParams = {
   qrCardSize: QrCardSize;
   /** Крепление визитки: проушина Ø11 мм сверху или отверстие Ø5 мм в теле. */
   qrCardTab: QrCardTab;
-  /**
-   * Прежнее имя той же формы. Оставлено, пока панель параметров обновляется:
-   * нормализация всегда держит `shapeType === keychainShape`.
-   *
-   * @deprecated используйте `keychainShape`.
-   */
-  shapeType: KeychainShape | null;
 };
 
 /** Настраиваемые размеры, форма и рельеф вазы. */
@@ -1639,7 +1645,6 @@ export const DEFAULT_KEYCHAIN_TEXT_DECORATION: KeychainTextDecoration = {
   align: "center",
   content: "Аня",
   depth: KEYCHAIN_DECORATION_DEPTH_LIMITS.defaultValue,
-  emboss: true,
   font: "sans-bold",
   id: "text",
   kind: "text",
@@ -1654,12 +1659,11 @@ export const DEFAULT_KEYCHAIN_TEXT_DECORATION: KeychainTextDecoration = {
  * QR-код визитки по умолчанию: выпуклый рельеф и короткая ссылка.
  *
  * Общие поля нейтральные: код занимает лицо целиком, двигать и поворачивать его
- * нельзя, а `emboss` повторяет режим рельефа, чтобы карточка в панели показывала
- * то же, что напечатает силуэт.
+ * нельзя, а рельеф печатает силуэт визитки по `qrMode` — своей толщины у
+ * декорации кода нет.
  */
 export const DEFAULT_KEYCHAIN_QR_DECORATION: KeychainQrDecoration = {
   depth: KEYCHAIN_DECORATION_DEPTH_LIMITS.defaultValue,
-  emboss: DEFAULT_QR_CARD_SPEC.mode === "raised",
   id: "qr",
   kind: "qr",
   offsetX: 0,
@@ -1685,7 +1689,9 @@ export function createKeychainTextDecoration(
  *
  * Панель передаёт готовую маску и имя файла: имя нужно только интерфейсу, но
  * хранится в параметрах, чтобы карточка «Картинка: logo.png» пережила
- * перезагрузку проекта.
+ * перезагрузку проекта. Порог детализации стартует с середины шкалы — 50%
+ * повторяет прежнее поведение, когда рельефом становилась тёмная половина
+ * картинки.
  */
 export function createKeychainImageDecoration(
   imageData: string,
@@ -1693,11 +1699,11 @@ export function createKeychainImageDecoration(
 ): KeychainImageDecoration {
   return {
     depth: KEYCHAIN_IMAGE_DEPTH_LIMITS.defaultValue,
-    emboss: true,
     id: "image",
     imageData,
     imageName,
     imageScale: KEYCHAIN_IMAGE_SCALE_LIMITS.defaultValue,
+    imageThreshold: KEYCHAIN_IMAGE_THRESHOLD_LIMITS.defaultValue,
     kind: "image",
     offsetX: KEYCHAIN_DECORATION_OFFSET_LIMITS.defaultValue,
     offsetY: KEYCHAIN_DECORATION_OFFSET_LIMITS.defaultValue,
@@ -1709,24 +1715,21 @@ export function createKeychainImageDecoration(
 /**
  * Значения брелока по умолчанию: модель открывается с готовым пресетом.
  *
- * Раньше здесь стоял жетон `dog_tag`, но встроенных силуэтов больше нет, а
- * `custom` без загруженного файла — форма без геометрии: предпросмотр показал бы
- * заглушку, а API вернул бы 422 на первый же запрос. Поэтому по умолчанию
- * выбран первый пресет реестра.
+ * Раньше здесь стоял жетон `dog_tag`, потом своя форма `custom` — оба варианта
+ * оставляли модель без геометрии, если файл не загружен: предпросмотр показал бы
+ * заглушку, а API вернул бы 422 на первый же запрос. Поэтому по умолчанию выбран
+ * первый пресет реестра.
  */
 export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   length: CONSTRUCTOR_LIMITS.length.defaultValue,
   width: CONSTRUCTOR_LIMITS.width.defaultValue,
   thickness: CONSTRUCTOR_LIMITS.thickness.defaultValue,
   decorations: [DEFAULT_KEYCHAIN_TEXT_DECORATION],
-  keychainShape: null,
   keychainPreset: DEFAULT_KEYCHAIN_PRESET_ID,
-  customSvgData: "",
   nfcEnabled: false,
   holePlacement: "center",
   qrCardSize: DEFAULT_QR_CARD_SPEC.size,
   qrCardTab: DEFAULT_QR_CARD_SPEC.tab,
-  shapeType: null,
 };
 
 /** Подставка по умолчанию: наклон 65°, телефон 11 мм, ширина 80 мм. */
@@ -2079,13 +2082,12 @@ export function vaseGenerationDetails(
  *
  * В имя не попадает текст: кириллица в заголовке ответа требует
  * filename*=UTF-8, а запасное имя для старых клиентов всё равно останется
- * латинским. Размеры и форма уже однозначно описывают заготовку. У пресета в
- * имени стоит его идентификатор: `apple-tag` короче и точнее, чем `custom`,
- * который остаётся у силуэта после выбора пресета.
+ * латинским. Размеры и форма уже однозначно описывают заготовку: в имени стоит
+ * идентификатор пресета, потому что другой формы у брелока нет.
  */
 export function keychainStlFileName(params: KeychainParams): string {
   const nfcSuffix = params.nfcEnabled ? "-nfc" : "";
-  const shape = params.keychainPreset ?? params.keychainShape ?? "custom";
+  const shape = params.keychainPreset ?? DEFAULT_KEYCHAIN_PRESET_ID;
 
   return `tridi-brelyok-${shape}-l${params.length}-w${params.width}-t${params.thickness}${nfcSuffix}.stl`;
 }
@@ -2415,14 +2417,6 @@ export function isVasePattern(value: unknown): value is VasePattern {
   );
 }
 
-/** Проверка формы брелока из формы или API. */
-export function isKeychainShape(value: unknown): value is KeychainShape {
-  return (
-    typeof value === "string" &&
-    (KEYCHAIN_SHAPES as readonly string[]).includes(value)
-  );
-}
-
 /** Проверка формы кашпо из формы или API. */
 export function isPlanterShape(value: unknown): value is PlanterShape {
   return (
@@ -2480,7 +2474,7 @@ const CUSTOM_SVG_CONTOUR = /<(path|polygon|rect|circle|ellipse)\b/i;
 export function isCustomSvgData(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    value.length <= KEYCHAIN_SVG_MAX_LENGTH &&
+    value.length <= CUSTOM_SVG_MAX_LENGTH &&
     !CUSTOM_SVG_FORBIDDEN.test(value)
   );
 }
@@ -3011,33 +3005,25 @@ export function normalizeVaseParams(
 }
 
 /**
- * Свой контур из параметров: `custom` или null.
+ * Пресет из параметров: единственный источник формы брелока.
  *
- * Значение принимается из обоих полей — свежего `keychainShape` и прежнего
- * `shapeType`: панель шлёт согласованную пару, а старые ссылки и проекты могли
- * сохранить только одно. Всё, что не `custom` (в том числе удалённые `dog_tag`,
- * `hexagon`, `cat` и остальные), даёт null — такая форма больше не существует, и
- * нормализация вернёт пресет по умолчанию вместо неё.
+ * Своего контура больше нет, поэтому любое сохранённое значение формы, которого
+ * нет в реестре (прежние `custom`, `dog_tag`, `hexagon`, `cat` и остальные),
+ * даёт пресет по умолчанию: проект из старой версии открывается готовой
+ * моделью, а не пустой заготовкой без геометрии.
  */
-function resolveKeychainShape(
+function resolveKeychainPreset(
   params: Partial<KeychainParams>,
-  preset: KeychainPresetId | null,
-): KeychainShape | null {
-  if (preset) {
-    return null;
-  }
-
-  if (isKeychainShape(params.keychainShape)) {
-    return params.keychainShape;
-  }
-
-  return isKeychainShape(params.shapeType) ? params.shapeType : null;
+): KeychainPresetId {
+  return isKeychainPresetId(params.keychainPreset)
+    ? params.keychainPreset
+    : DEFAULT_KEYCHAIN_PRESET_ID;
 }
 
 /** Общие поля декорации: то, что есть у любого вида. */
 type KeychainDecorationCommon = Pick<
   KeychainDecoration,
-  "depth" | "emboss" | "offsetX" | "offsetY" | "rotation" | "side"
+  "depth" | "offsetX" | "offsetY" | "rotation" | "side"
 >;
 
 /**
@@ -3057,7 +3043,6 @@ function normalizeDecorationCommon(
       typeof input.depth === "number" ? input.depth : fallback.depth,
       KEYCHAIN_DECORATION_DEPTH_LIMITS,
     ),
-    emboss: typeof input.emboss === "boolean" ? input.emboss : fallback.emboss,
     offsetX: snap(
       typeof input.offsetX === "number" ? input.offsetX : fallback.offsetX,
       KEYCHAIN_DECORATION_OFFSET_LIMITS,
@@ -3113,9 +3098,11 @@ function normalizeTextDecoration(
 /**
  * Картинка из сырого ввода: без настоящей маски декорации нет.
  *
- * Маска проходит только проверку формата: если SVG битый или слишком длинный,
- * декорация гаснет и брелок печатается без логотипа. Так сохранённый проект со
- * старой маской не ломает ни предпросмотр, ни экспорт.
+ * Маска проходит только проверку формата: если поле покрытия испорчено или
+ * слишком длинное, декорация гаснет и брелок печатается без логотипа. Так
+ * сохранённый проект со старой маской не ломает ни предпросмотр, ни экспорт.
+ * Порог детализации приходит из проекта прежней версии пустым и встаёт на 50% —
+ * это ровно то деление, которым рельеф отделялся от фона до появления слайдера.
  */
 function normalizeImageDecoration(
   input: Readonly<Record<string, unknown>>,
@@ -3141,6 +3128,12 @@ function normalizeImageDecoration(
         ? input.imageScale
         : KEYCHAIN_IMAGE_SCALE_LIMITS.defaultValue,
       KEYCHAIN_IMAGE_SCALE_LIMITS,
+    ),
+    imageThreshold: snap(
+      typeof input.imageThreshold === "number"
+        ? input.imageThreshold
+        : KEYCHAIN_IMAGE_THRESHOLD_LIMITS.defaultValue,
+      KEYCHAIN_IMAGE_THRESHOLD_LIMITS,
     ),
     kind: "image",
   };
@@ -3318,19 +3311,17 @@ export function normalizeKeychainDecorations(
  * Проверяет и выравнивает параметры брелока.
  *
  * Как и у вазы, числа зажимаются в границы и встают на шаг слайдера. Текст
- * очищается от символов вне шрифта и обрезается до 10 знаков; сервер до
- * вызова этой функции проверяет исходную строку строго. Контур и его прежний
- * псевдоним всегда совпадают, SVG ограничен размером и безопасными тегами,
- * а NFC-флаг принимается только настоящим boolean.
+ * очищается от символов вне шрифта и обрезается до 10 знаков; сервер до вызова
+ * этой функции проверяет исходную строку строго. Маска картинки ограничена
+ * размером, а NFC-флаг принимается только настоящим boolean.
  *
- * Пресет и контур взаимоисключающие: выбранный пресет обнуляет контур. Карман
- * под NFC-метку держат только Apple Tag, Brick и QR-визитка — у них в реестре
- * есть `nfcPocketY`; у остальных пресетов флаг гасится, потому что включённый
- * флаг обещал бы карман, которого в модели нет. Тонкую основу нормализация не
- * чинит: глубину и толщину проверяет `nfcLayout`, и панель с API блокируют
- * скачивание с понятной причиной. Если ни пресета, ни контура не осталось
- * (старый силуэт, сброшенный файл), в модель встаёт пресет по умолчанию: без
- * формы предпросмотр и экспорт падать не должны.
+ * Форму задаёт только пресет: сохранённый `custom` и прочие прежние силуэты
+ * открываются пресетом по умолчанию, иначе предпросмотр и экспорт остались бы без
+ * геометрии. Карман под NFC-метку держат только Apple Tag, Brick и QR-визитка — у
+ * них в реестре есть `nfcPocketY`; у остальных пресетов флаг гасится, потому что
+ * включённый флаг обещал бы карман, которого в модели нет. Тонкую основу
+ * нормализация не чинит: глубину и толщину проверяет `nfcLayout`, и панель с API
+ * блокируют скачивание с понятной причиной.
  *
  * У QR-визитки ширина и длина берутся не из слайдеров, а из размера кода: 60 × 40
  * и 70 × 45 мм обе выше границы `width`, поэтому габарит выводится из
@@ -3344,18 +3335,7 @@ export function normalizeKeychainDecorations(
 export function normalizeKeychainParams(
   params: Partial<KeychainParams> & KeychainDecorationsInput,
 ): KeychainParams {
-  const requestedPreset = isKeychainPresetId(params.keychainPreset)
-    ? params.keychainPreset
-    : null;
-  const requestedShape = resolveKeychainShape(params, requestedPreset);
-  // Ни пресета, ни своего контура не осталось — в модель встаёт первый пресет:
-  // без формы предпросмотр показал бы заглушку, а экспорт вернул бы 422.
-  const keychainPreset =
-    requestedPreset ?? (requestedShape ? null : DEFAULT_KEYCHAIN_PRESET_ID);
-  const keychainShape = keychainPreset ? null : requestedShape;
-  const customSvgData = isCustomSvgData(params.customSvgData)
-    ? params.customSvgData.trim()
-    : "";
+  const keychainPreset = resolveKeychainPreset(params);
   const qrCardSize = isQrCardSize(params.qrCardSize)
     ? params.qrCardSize
     : DEFAULT_KEYCHAIN_PARAMS.qrCardSize;
@@ -3408,16 +3388,13 @@ export function normalizeKeychainParams(
     // Рельефы на гранях: надпись, картинка, QR-код. Плоских полей больше нет,
     // поэтому смещения, толщины, шрифт и строки живут внутри декораций.
     decorations,
-    keychainShape,
     keychainPreset,
-    customSvgData,
-    nfcEnabled: keychainPreset && !presetNfc ? false : requestedNfc,
+    nfcEnabled: presetNfc ? requestedNfc : false,
     holePlacement,
     qrCardSize,
     qrCardTab: isQrCardTab(params.qrCardTab)
       ? params.qrCardTab
       : DEFAULT_KEYCHAIN_PARAMS.qrCardTab,
-    shapeType: keychainShape,
   };
 }
 

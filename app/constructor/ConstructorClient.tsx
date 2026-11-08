@@ -61,7 +61,7 @@ import {
   createKeychainTextDecoration,
   heatTransferStlFileName,
   jewelryStandStlFileName,
-  keychainShapeTitle,
+  keychainShapeLabel,
   keychainStlFileName,
   keychainTextDecoration,
   sanitizeQrCardContent,
@@ -87,7 +87,6 @@ import {
   type KeychainDecorationKind,
   type KeychainParams,
   type KeychainQrDecoration,
-  type KeychainShape,
   type LithophaneMount,
   type LithophanePart,
   type ModelType,
@@ -707,32 +706,13 @@ export function ConstructorClient({
   }
 
   /**
-   * Выбор формы брелока: `custom` — свой контур, null — пресет по умолчанию.
-   *
-   * Одно обновление на оба поля формы (`keychainShape` и прежнее `shapeType`) и
-   * на снятие пресета: два отдельных `setParams` нормализовались бы по очереди,
-   * и промежуточное состояние успело бы вернуть пресет — список и предпросмотр
-   * показали бы разное.
-   */
-  function updateKeychainShape(shape: KeychainShape | null) {
-    setParams((current) =>
-      normalizeConstructorParams({
-        ...current,
-        keychainShape: shape,
-        shapeType: shape,
-        keychainPreset: shape ? null : current.keychainPreset,
-      }),
-    );
-  }
-
-  /**
    * Выбор нового пресета силуэта.
    *
-   * Пресет и свой контур — один пункт списка, поэтому при выборе пресета контур
-   * обнуляется: в модели всегда ровно один источник формы. Снятие пресета
-   * (`null`) возвращает форму по умолчанию — первый пресет реестра, — а размеры
-   * пресета записываются в слайдеры: панель показывает те миллиметры, из которых
-   * сложится модель, и их можно править дальше.
+   * Своего контура у брелока больше нет, поэтому пресет в модели — единственный
+   * источник формы. Снятие пресета (`null`) возвращает форму по умолчанию —
+   * первый пресет реестра, — а размеры пресета записываются в слайдеры: панель
+   * показывает те миллиметры, из которых сложится модель, и их можно править
+   * дальше.
    */
   function updateKeychainPreset(presetId: KeychainPresetId | null) {
     setParams((current) => {
@@ -745,8 +725,6 @@ export function ConstructorClient({
       return normalizeConstructorParams({
         ...current,
         keychainPreset: presetId,
-        keychainShape: null,
-        shapeType: null,
         width: preset.defaultWidth,
         length: preset.defaultHeight,
         thickness: preset.defaultThickness,
@@ -817,13 +795,6 @@ export function ConstructorClient({
     );
   }
 
-  /** Свой контур приходит уже проверенным SVG: текст файла или обводка PNG. */
-  function updateKeychainCustomSvg(customSvgData: string) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, customSvgData }),
-    );
-  }
-
   function updateKeychainNfc(nfcEnabled: boolean) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, nfcEnabled }),
@@ -882,7 +853,7 @@ export function ConstructorClient({
   }
 
   function updateQrMode(qrMode: QrMode) {
-    updateQrDecoration({ emboss: qrMode === "raised", qrMode });
+    updateQrDecoration({ qrMode });
   }
 
   function updateQrContentType(qrContentType: QrContentType) {
@@ -1251,7 +1222,6 @@ export function ConstructorClient({
             onCoasterPatternChange={updateCoasterPattern}
             onCoasterRimChange={updateCoasterRim}
             onCoasterShapeChange={updateCoasterShape}
-            onCustomSvgChange={updateKeychainCustomSvg}
             onExport={exportStl}
             onHasLidChange={updateHasLid}
             onHeatTransferMirrorChange={updateHeatTransferMirror}
@@ -1259,7 +1229,6 @@ export function ConstructorClient({
             onHolePlacementChange={updateHolePlacement}
             onJewelryConfigChange={updateJewelryConfig}
             onKeychainPresetChange={updateKeychainPreset}
-            onKeychainShapeChange={updateKeychainShape}
             onKeychainDecorationChange={updateKeychainDecoration}
             onAddKeychainText={addKeychainTextDecoration}
             onAddKeychainImage={addKeychainImageDecoration}
@@ -1347,7 +1316,7 @@ export function ConstructorClient({
                   </>
                 ) : params.model === "keychain" ? (
                   <>
-                    {keychainShapeTitle(params)} · {params.length} ×{" "}
+                    {keychainShapeLabel(params)} · {params.length} ×{" "}
                     {params.width} × {params.thickness} мм
                     {keychainTextDecoration(params.decorations)?.content.trim()
                       ? ` · «${keychainTextDecoration(params.decorations)?.content.trim()}»`

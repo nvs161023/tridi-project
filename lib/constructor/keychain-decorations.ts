@@ -10,13 +10,8 @@ import {
   type KeychainImageBuild,
 } from "@/lib/constructor/keychain-image";
 import {
-  createKeychainRecessedReliefGeometry,
-  KEYCHAIN_RECESS_FRAME_SHARE,
-} from "@/lib/constructor/keychain-relief";
-import {
   buildFaceMask,
   createKeychainTextGeometry,
-  keychainTextBlock,
   measureKeychainTextBlock,
   placeKeychainText,
   stampFaceObstacle,
@@ -31,8 +26,6 @@ import type {
   KeychainFontId,
   KeychainParams,
 } from "@/lib/constructor/params";
-import { groupContours } from "@/lib/constructor/shape-utils";
-import type { OutlinePoint } from "@/lib/constructor/svg-outline";
 
 /**
  * Декорации на гранях брелока: постановка, конфликты и отчёт.
@@ -147,15 +140,7 @@ function placeTextDecoration(
     return { reason: "empty" };
   }
 
-  // Утопленный рельеф занимает больше места, чем буквы: вокруг идёт поле плиты.
-  // Проверка постановки считает именно этот габарит, иначе плита вылезала бы за
-  // свободную полосу на величину поля.
-  const frame = decoration.emboss ? 0 : KEYCHAIN_RECESS_FRAME_SHARE * 2;
-  const fitMetrics = {
-    height: metrics.height + frame,
-    width: metrics.width + frame,
-  };
-
+  // Габарит проверки — габарит букв: рельеф выпуклый, плиты вокруг нет.
   for (const side of decorationSides(decoration.side)) {
     const mask = sideMask(side);
 
@@ -165,12 +150,13 @@ function placeTextDecoration(
 
     const placement = placeKeychainText(body, {
       mask,
-      metrics: fitMetrics,
+      metrics,
       offsetX: decoration.offsetX,
       offsetY: decoration.offsetY,
       rotation: decoration.rotation,
       side,
     });
+
     const geometry = placement
       ? createTextRelief({
           centerX: placement.centerX,
@@ -224,7 +210,10 @@ function placeImageDecoration(
   decoration: Extract<KeychainDecoration, { kind: "image" }>,
   sideMask: SideMaskLookup,
 ): KeychainPlacementOutcome {
-  const build = keychainImageBuild(decoration.imageData);
+  const build = keychainImageBuild(
+    decoration.imageData,
+    decoration.imageThreshold,
+  );
 
   if (!build) {
     return { reason: "image" };
@@ -303,12 +292,11 @@ function skippedFit(
 }
 
 /**
- * Рельеф надписи: выпуклый (по контурам блока) или утопленный (плита).
+ * Рельеф надписи: выпуклые буквы по контурам блока.
  *
- * Утопленный вариант строится по тем же контурам блока, что и выпуклый, поэтому
- * буквы, кегль и поворот у обоих совпадают. Плита берёт габарит блока плюс поле
- * `KEYCHAIN_RECESS_FRAME_MM`: карта грани уже несёт запас 1.2 мм, поэтому поле
- * помещается в свободные ячейки и не вылезает на кромку.
+ * Функция осталась обёрткой над `createKeychainTextGeometry`, потому что ставит
+ * её конвейер: габарит, поворот и толщина приходят из постановки, а не из
+ * параметров декорации.
  */
 function createTextRelief(options: {
   centerX: number;
@@ -320,58 +308,27 @@ function createTextRelief(options: {
   thickness: number;
 }): BufferGeometry | null {
   const { decoration, font } = options;
-  const block = keychainTextBlock({
+
+  return createKeychainTextGeometry({
     align: decoration.align,
-    font,
-    lineHeight: decoration.lineHeight,
-    size: options.size,
-    text: decoration.content,
-  });
-
-  if (block.groups.length === 0) {
-    return null;
-  }
-
-  if (decoration.emboss) {
-    return createKeychainTextGeometry({
-      align: decoration.align,
-      centerX: options.centerX,
-      centerY: options.centerY,
-      depth: decoration.depth,
-      font,
-      lineHeight: decoration.lineHeight,
-      rotation: decoration.rotation,
-      side: options.side,
-      size: options.size,
-      text: decoration.content,
-      thickness: options.thickness,
-    });
-  }
-
-  // Поле плиты — доля кегля, как и в проверке постановки: плита и её окна
-  // масштабируются вместе, поэтому поворот не выводит углы за свободную полосу.
-  const frame = options.size * KEYCHAIN_RECESS_FRAME_SHARE;
-
-  return createKeychainRecessedReliefGeometry({
     centerX: options.centerX,
     centerY: options.centerY,
-    contours: block.groups,
     depth: decoration.depth,
-    frame: {
-      height: block.height + frame * 2,
-      width: block.width + frame * 2,
-    },
+    font,
+    lineHeight: decoration.lineHeight,
     rotation: decoration.rotation,
     side: options.side,
+    size: options.size,
+    text: decoration.content,
     thickness: options.thickness,
   });
 }
 
 /**
- * Рельеф картинки: выпуклая маска или плита с окнами по её контурам.
+ * Рельеф картинки: выпуклая маска по контурам.
  *
- * Утопленный логотип — та же плита, что у букв: контуры маски становятся окнами, а
- * поле вокруг рамки не даёт плите слипнуться с соседним рельефом.
+ * Порог детализации уже применён при сборке маски (`keychainImageBuild`), здесь
+ * остаются только размер и место.
  */
 function createImageRelief(options: {
   build: KeychainImageBuild;
@@ -384,37 +341,14 @@ function createImageRelief(options: {
 }): BufferGeometry | null {
   const { build, decoration } = options;
 
-  if (decoration.emboss) {
-    return createKeychainImageGeometry({
-      build,
-      centerX: options.centerX,
-      centerY: options.centerY,
-      depth: decoration.depth,
-      rotation: decoration.rotation,
-      side: options.side,
-      size: options.size,
-      thickness: options.thickness,
-    });
-  }
-
-  const frame = options.size * KEYCHAIN_RECESS_FRAME_SHARE;
-  const scaled = build.contours.map((contour) =>
-    contour.map(
-      ([x, y]) => [x * options.size, y * options.size] as OutlinePoint,
-    ),
-  );
-
-  return createKeychainRecessedReliefGeometry({
+  return createKeychainImageGeometry({
+    build,
     centerX: options.centerX,
     centerY: options.centerY,
-    contours: groupContours(scaled),
     depth: decoration.depth,
-    frame: {
-      height: build.frame.height * options.size + frame * 2,
-      width: build.frame.width * options.size + frame * 2,
-    },
     rotation: decoration.rotation,
     side: options.side,
+    size: options.size,
     thickness: options.thickness,
   });
 }

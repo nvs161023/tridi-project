@@ -2,14 +2,16 @@ import { ExtrudeGeometry } from "three";
 import type { BufferGeometry } from "three";
 
 /**
- * Префикс и предел длины `imageData` живут в `params.ts`: там же нормализация
+ * Префиксы `imageData` и границы порога живут в `params.ts`: там же нормализация
  * проверяет поле, и одна константа на всех не даст панели сохранить маску,
  * которую геометрия потом не узнает.
  */
 import {
   isKeychainImageData,
+  KEYCHAIN_IMAGE_FIELD_PREFIX,
   KEYCHAIN_IMAGE_MAX_LENGTH,
   KEYCHAIN_IMAGE_PREFIX,
+  KEYCHAIN_IMAGE_THRESHOLD_LIMITS,
 } from "@/lib/constructor/params";
 import {
   buildFaceMask,
@@ -22,33 +24,42 @@ import {
   type KeychainTextSide,
 } from "@/lib/constructor/keychain-text";
 import {
-  binarizeByLuminance,
   checkRasterLimits,
   contourArea,
-  contoursToSvgPath,
+  coverageByAlpha,
+  coverageByLuminance,
   hasTransparency,
+  quantizeCoverage,
   simplifyContour,
   traceCoverageContours,
   type RasterLimitCode,
 } from "@/lib/constructor/raster-to-contours";
 import { buildShapes, groupContours } from "@/lib/constructor/shape-utils";
-import {
-  parseSvgOutline,
-  type OutlinePoint,
-} from "@/lib/constructor/svg-outline";
+import { parseSvgOutline, type OutlinePoint } from "@/lib/constructor/svg-outline";
 
 /**
  * Картинка на брелоке: маска из PNG/JPG, её место на грани и рельеф.
  *
- * Панель переводит загруженный файл в маску и хранит её в `params.imageData` как
- * SVG в base64. Почему SVG, а не PNG: сервер и предпросмотр собирают геометрию
- * одним кодом, а разбор SVG в проекте уже есть (`svg-outline.ts`) и работает без
- * DOM. Своего декодера PNG на сервере нет, а тянуть бинарный растр через
- * `params_json` незачем — контуры маски занимают единицы килобайт.
+ * Панель переводит загруженный файл в поле покрытия и хранит его в
+ * `params.imageData` как четырёхбитную маску в base64. Почему не PNG и не SVG:
  *
- * Маска живёт в двух видах: контуры идут в выдавливание, растровая маска по тому
- * же габариту — в проверку места. Так рельеф и проверка всегда говорят об одной
- * картинке: точка печатается там, где маска считает её тёмной.
+ * - сервер и предпросмотр собирают геометрию одним кодом, а своего декодера PNG
+ *   на сервере нет;
+ * - ступени серого в SVG-путях не выразить: прежняя маска была бинарной, и
+ *   полутон на логотипе превращался в рваное пятно;
+ * - маска 160×160 при четырёх битах на ячейку — около 11 КБ base64, она
+ *   спокойно влезает в `params_json` вместе с остальными параметрами.
+ *
+ * Маска живёт в трёх видах: поле покрытия (0…1 на ячейку) обводится marching
+ * squares, из него же берётся растровая маска проверки места, а порог
+ * детализации решает, какая ступень считается пластиком. Поэтому рельеф и
+ * проверка всегда говорят об одной картинке: точка печатается там, где маска
+ * считает её тёмной.
+ *
+ * Полутон фото сохраняется дизерингом Флойда — Стейнберга на этапе загрузки:
+ * ошибка округления распределяется по соседям, и порог вырезает плотность
+ * точек, а не полосы. Ячейка маски — 0.2 мм при логотипе 32 мм, то есть мельче
+ * сопла: на печати крупа сливается в ровный полутон.
  *
  * Место ищется по карте грани 0.4 мм — той же, что у надписи. Отверстие под
  * кольцо, кромка силуэта, полость кармана NFC и буквы блокируют ячейки, поэтому
@@ -57,11 +68,35 @@ import {
  * уходит в интерфейс.
  */
 
-/** Растр загрузки: картинка уменьшается до этого квадрата перед обводкой. */
-export const KEYCHAIN_IMAGE_GRID = 96;
+/** Растр загрузки: картинка уменьшается до этого квадрата перед сборкой маски. */
+export const KEYCHAIN_IMAGE_GRID = 160;
 
-/** Разрешение маски проверки: та же сотня пикселей по большей стороне. */
-const MASK_PIXELS = 96;
+/**
+ * Ступеней покрытия в ячейке маски.
+ *
+ * Четыре бита на ячейку: шестнадцати ступеней хватает, чтобы дизеринг держал
+ * полутон, а строка маски оставалась короткой.
+ */
+export const KEYCHAIN_IMAGE_FIELD_LEVELS = 16;
+
+/** Сколько раз маску можно огрубить, если контуров вышло слишком много. */
+const COARSEN_ATTEMPTS = 3;
+
+/** Площадь контура в ячейках, ниже которой это крупа, а не рисунок. */
+const MIN_CONTOUR_AREA_CELLS = 0.5;
+
+/**
+ * Тоньше сопла рельеф не напечатать, мм.
+ *
+ * Пятна мельче этого размера выбрасываются при сборке геометрии, а не при
+ * загрузке: маска от размера картинки не зависит, а ширина сопла — про печать.
+ * Без фильтра дизеринг давал бы тысячи столбиков в четверть миллиметра, на
+ * которых слайсер захлёбывается.
+ */
+export const KEYCHAIN_IMAGE_MIN_FEATURE_MM = 0.4;
+
+/** Разрешение маски проверки у прежней SVG-обводки: она осталась для старых проектов. */
+const LEGACY_MASK_PIXELS = 96;
 
 /**
  * Зазор между рельефами на одной грани, мм.
@@ -82,7 +117,7 @@ const IMAGE_MIN_SCALE_SHARE = 0.25;
 const IMAGE_SCALE_STEP = 0.05;
 
 /** Сколько разобранных картинок держим в памяти: слайдер зовёт сборку часто. */
-const BUILD_CACHE_LIMIT = 4;
+const BUILD_CACHE_LIMIT = 6;
 
 /** Почему из файла не вышло маски. */
 export type KeychainImageError = "empty" | RasterLimitCode;
@@ -90,9 +125,8 @@ export type KeychainImageError = "empty" | RasterLimitCode;
 /**
  * Текст отказа для панели.
  *
- * Коды ошибок общие с растеризацией своего контура, поэтому объяснение живёт
- * рядом с переводом картинки в маску: панель не повторяет формулировки и не
- * расходится с ними, когда пределы растра поменяются.
+ * Коды ошибок общие с растеризацией, поэтому объяснение живёт здесь: панель не
+ * повторяет формулировки и не расходится с ними, когда пределы растра поменяются.
  */
 export function keychainImageErrorText(error: KeychainImageError): string {
   if (error === "empty") {
@@ -105,6 +139,18 @@ export function keychainImageErrorText(error: KeychainImageError): string {
 
   return "Слишком подробная картинка. Упростите логотип: мелкие штрихи на брелоке всё равно сольются.";
 }
+
+/**
+ * Поле покрытия картинки: ступени 0…`KEYCHAIN_IMAGE_FIELD_LEVELS − 1`.
+ *
+ * Панель рисует по нему превью, геометрия — рельеф. Ячейки идут сверху вниз, как
+ * строки исходного файла: переворот по Y делает уже постановка.
+ */
+export type KeychainImageField = {
+  cells: Uint8Array;
+  height: number;
+  width: number;
+};
 
 /**
  * Маска, готовая к постановке.
@@ -149,106 +195,94 @@ export type KeychainImageFit = {
   size: number;
 };
 
-/** Декодированные маски по строке `imageData`: сборка идёт на каждый параметр. */
+/** Готовые маски по строке `imageData` и порогу: сборка идёт на каждый параметр. */
 const buildCache = new Map<string, KeychainImageBuild | null>();
 
 /**
- * Маска файла: рельеф — тёмные пиксели, а у картинки с прозрачным фоном —
- * непрозрачные.
+ * Уменьшает поле покрытия до рабочей сетки, если файл больше неё.
  *
- * Правило выбора простое. У PNG-логотипа фон прозрачный, и яркость там не значит
- * ничего: силуэт задаёт альфа. У фото и JPG прозрачности нет, поэтому рельеф
- * ищется по яркости — тёмное считается рисунком, светлое фоном.
+ * Панель уже отдаёт картинку уменьшенной до `KEYCHAIN_IMAGE_GRID`, но функция
+ * публичная: скрипты и тесты зовут её с исходными пикселями. Усреднение по
+ * площади (а не выбор пикселя) обязательно: иначе тонкий штрих логотипа на
+ * большой картинке просто пропадёт между ячейками.
  */
-function keychainImageMask(
-  pixels: Uint8ClampedArray,
+function packToGrid(
+  field: Float32Array,
   width: number,
   height: number,
-): Uint8Array | null {
-  if (width < 2 || height < 2) {
-    return null;
+): { field: Float32Array; height: number; width: number } {
+  const longest = Math.max(width, height);
+
+  if (longest <= KEYCHAIN_IMAGE_GRID) {
+    return { field, height, width };
   }
 
-  if (hasTransparency(pixels, width, height)) {
-    const total = width * height;
-    const mask = new Uint8Array(total);
+  const targetWidth = Math.max(2, Math.round((width * KEYCHAIN_IMAGE_GRID) / longest));
+  const targetHeight = Math.max(2, Math.round((height * KEYCHAIN_IMAGE_GRID) / longest));
+  const sums = new Float32Array(targetWidth * targetHeight);
+  const counts = new Uint32Array(targetWidth * targetHeight);
 
-    for (let index = 0; index < total; index += 1) {
-      mask[index] = pixels[index * 4 + 3] >= 128 ? 1 : 0;
+  for (let row = 0; row < height; row += 1) {
+    const targetRow = Math.min(
+      targetHeight - 1,
+      Math.floor((row * targetHeight) / height),
+    );
+
+    for (let column = 0; column < width; column += 1) {
+      const targetColumn = Math.min(
+        targetWidth - 1,
+        Math.floor((column * targetWidth) / width),
+      );
+      const target = targetRow * targetWidth + targetColumn;
+
+      sums[target] += field[row * width + column];
+      counts[target] += 1;
     }
-
-    return mask;
   }
 
-  return binarizeByLuminance(pixels, width, height);
-}
+  const packed = new Float32Array(targetWidth * targetHeight);
 
-/** Сколько пикселей маски закрашено: пустая маска — не картинка. */
-function maskInk(mask: Uint8Array): number {
-  let ink = 0;
-
-  for (const value of mask) {
-    ink += value;
+  for (let index = 0; index < packed.length; index += 1) {
+    packed[index] = counts[index] > 0 ? sums[index] / counts[index] : 0;
   }
 
-  return ink;
+  return { field: packed, height: targetHeight, width: targetWidth };
 }
 
 /**
- * Переводит пиксели файла в `imageData`.
+ * Упаковывает поле покрытия в `imageData`: два байта габарита и по четыре бита
+ * на ячейку.
  *
- * Шаги те же, что у своего контура брелока: бинаризация, обводка изолинии
- * marching squares и упрощение Дугласа—Пекера. Поэтому край маски после печати
- * получается ровным, а не лестницей из пикселей. Пустая маска и слишком
- * подробный рисунок возвращают код ошибки: панель покажет его вместо превью.
+ * Ячейки идут построчно слева направо, младшие четыре бита — чётная колонка,
+ * старшие — нечётная. Заголовок из двух байтов вместо JSON: строка и без него
+ * длинная, а `atob` в браузере и в Node разбирает её одинаково.
  */
-export function keychainImageFromPixels(
-  pixels: Uint8ClampedArray,
-  width: number,
-  height: number,
-): { imageData: string } | { error: KeychainImageError } {
-  const mask = keychainImageMask(pixels, width, height);
+function packField(field: KeychainImageField): string {
+  const { cells, height, width } = field;
+  const total = width * height;
+  const bytes = new Uint8Array(2 + Math.ceil(total / 2));
 
-  if (!mask || maskInk(mask) === 0) {
-    return { error: "empty" };
+  bytes[0] = width;
+  bytes[1] = height;
+
+  for (let index = 0; index < total; index += 1) {
+    const slot = 2 + (index >> 1);
+    const value = cells[index] & 0x0f;
+
+    bytes[slot] = index % 2 === 0 ? value : bytes[slot] | (value << 4);
   }
 
-  const field = new Float32Array(mask.length);
+  let binary = "";
 
-  for (let index = 0; index < mask.length; index += 1) {
-    field[index] = mask[index];
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
   }
 
-  const traced = traceCoverageContours(field, width, height);
-  const limit = checkRasterLimits(traced);
-
-  if (limit) {
-    return { error: limit };
-  }
-
-  const contours = traced
-    .map((contour) => simplifyContour(contour))
-    .filter((contour) => contour.length >= 3 && Math.abs(contourArea(contour)) > 0);
-
-  if (contours.length === 0) {
-    return { error: "empty" };
-  }
-
-  const path = contoursToSvgPath(contours);
-  const markup =
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">` +
-    `<path d="${path}" fill="#ffffff"/></svg>`;
-  const imageData = `${KEYCHAIN_IMAGE_PREFIX}${btoa(markup)}`;
-
-  // Контуры уже прошли пределы растра, но base64 добавляет треть объёма:
-  // слишком подробный логотип упрётся в лимит `params_json`.
-  return imageData.length > KEYCHAIN_IMAGE_MAX_LENGTH
-    ? { error: "too_many_points" }
-    : { imageData };
+  return `${KEYCHAIN_IMAGE_FIELD_PREFIX}${btoa(binary)}`;
 }
 
 /**
- * Разметка SVG из `imageData`.
+ * Разметка SVG из `imageData` прежних проектов.
  *
  * `atob` есть и в браузере, и в Node, поэтому разбор у панели и у роута общий.
  * Исключение из `atob` — испорченная строка: возвращаем `null`, а не роняем
@@ -257,7 +291,7 @@ export function keychainImageFromPixels(
 export function decodeKeychainImageMarkup(
   imageData: string | null | undefined,
 ): string | null {
-  if (!isKeychainImageData(imageData)) {
+  if (!isKeychainImageData(imageData) || !imageData.startsWith(KEYCHAIN_IMAGE_PREFIX)) {
     return null;
   }
 
@@ -276,8 +310,8 @@ function rasterizeContours(
   frame: { height: number; minX: number; minY: number; width: number },
   pixel: number,
 ): { bits: Uint8Array; height: number; width: number } {
-  const width = Math.max(1, Math.ceil(frame.width / pixel));
-  const height = Math.max(1, Math.ceil(frame.height / pixel));
+  const width = Math.max(1, Math.round(frame.width / pixel));
+  const height = Math.max(1, Math.round(frame.height / pixel));
   const bits = new Uint8Array(width * height);
   const crossings: number[] = [];
 
@@ -321,8 +355,14 @@ function rasterizeContours(
   return { bits, height, width };
 }
 
-/** Разбирает `imageData` в контуры единичного габарита и маску проверки. */
-function createBuild(imageData: string): KeychainImageBuild | null {
+/**
+ * Разбирает `imageData` прежних проектов: SVG с контурами маски.
+ *
+ * Ветка нужна, чтобы старый брелок открывался и печатался как раньше: пересжать
+ * маску на сервере нечем (PNG в параметрах не осталось), а бинарная обводка
+ * годится и сейчас.
+ */
+function createSvgBuild(imageData: string): KeychainImageBuild | null {
   const markup = decodeKeychainImageMarkup(imageData);
   const parsed = markup ? parseSvgOutline(markup) : [];
 
@@ -372,25 +412,296 @@ function createBuild(imageData: string): KeychainImageBuild | null {
     minY: -height / 2,
     width,
   };
-  const pixel = Math.max(width, height) / MASK_PIXELS;
+  const pixel = Math.max(width, height) / LEGACY_MASK_PIXELS;
 
   return { contours, frame, mask: rasterizeContours(contours, frame, pixel), pixel };
 }
 
 /**
- * Готовая маска из `params.imageData`.
+ * Разбирает маску из `imageData`: два байта габарита и полубайты покрытия.
  *
- * `null` — картинки нет или строка испорчена. Разбор кешируется: геометрия
- * пересобирается на каждое движение слайдера, а маска от параметров не зависит.
+ * `null` — строка не наша (прежняя SVG-обводка), испорчена или габарит в
+ * заголовке не сходится с длиной: файл могли обрезать в базе. Исключение из
+ * `atob` не роняет сборку модели, а превращается в «картинки нет».
+ */
+export function keychainImageField(
+  imageData: string | null | undefined,
+): KeychainImageField | null {
+  if (
+    !isKeychainImageData(imageData) ||
+    !imageData.startsWith(KEYCHAIN_IMAGE_FIELD_PREFIX)
+  ) {
+    return null;
+  }
+
+  let binary: string;
+
+  try {
+    binary = atob(imageData.slice(KEYCHAIN_IMAGE_FIELD_PREFIX.length));
+  } catch {
+    return null;
+  }
+
+  if (binary.length < 2) {
+    return null;
+  }
+
+  const width = binary.charCodeAt(0);
+  const height = binary.charCodeAt(1);
+
+  if (
+    width < 2 ||
+    height < 2 ||
+    width > KEYCHAIN_IMAGE_GRID ||
+    height > KEYCHAIN_IMAGE_GRID
+  ) {
+    return null;
+  }
+
+  const total = width * height;
+
+  if (binary.length < 2 + Math.ceil(total / 2)) {
+    return null;
+  }
+
+  const cells = new Uint8Array(total);
+
+  for (let index = 0; index < total; index += 1) {
+    const byte = binary.charCodeAt(2 + (index >> 1));
+
+    cells[index] = index % 2 === 0 ? byte & 0x0f : (byte >> 4) & 0x0f;
+  }
+
+  return { cells, height, width };
+}
+
+/**
+ * Переводит пиксели файла в `imageData`.
+ *
+ * Правило выбора поля простое. У PNG-логотипа фон прозрачный, и яркость там не
+ * значит ничего: покрытие задаёт альфа, и оно берётся мягким, чтобы сглаженный
+ * край остался гладким. У фото и JPG прозрачности нет, поэтому покрытие — это
+ * доля краски `1 − яркость`, а полутон сохраняется дизерингом.
+ *
+ * Дальше поле уменьшается до рабочей сетки и квантуется в шестнадцать ступеней.
+ * Обводка в контуры идёт уже при сборке модели: порог детализации меняется
+ * слайдером, и маску из-за него пересобирать незачем.
+ *
+ * Пустая картинка возвращает код ошибки: панель покажет его вместо превью.
+ */
+export function keychainImageFromPixels(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+): { imageData: string } | { error: KeychainImageError } {
+  if (width < 2 || height < 2) {
+    return { error: "empty" };
+  }
+
+  const alpha = hasTransparency(pixels, width, height);
+  const coverage = alpha
+    ? coverageByAlpha(pixels, width, height)
+    : coverageByLuminance(pixels, width, height);
+  const grid = packToGrid(coverage, width, height);
+  const cells = quantizeCoverage(
+    grid.field,
+    grid.width,
+    grid.height,
+    KEYCHAIN_IMAGE_FIELD_LEVELS,
+    // Крупа на сглаженном крае логотипа была бы грязью, поэтому дизеринг — только для полутона.
+    !alpha,
+  );
+  let ink = 0;
+
+  for (const cell of cells) {
+    if (cell > 0) {
+      ink += 1;
+    }
+  }
+
+  if (ink === 0) {
+    return { error: "empty" };
+  }
+
+  const imageData = packField({ cells, height: grid.height, width: grid.width });
+
+  // Заголовок и base64 добавляют к маске немного, но лимит `params_json` общий:
+  // его проверяет та же строка, что уходит в параметры.
+  return imageData.length > KEYCHAIN_IMAGE_MAX_LENGTH
+    ? { error: "too_many_points" }
+    : { imageData };
+}
+
+/**
+ * Огрубляет поле вдвое: соседние ячейки усредняются.
+ *
+ * Нужно, когда обводка упёрлась в предел числа контуров: у шумной маски пятен
+ * больше, чем принимает геометрия. Половинное разрешение сливает крупу в
+ * крупные пятна, рисунок остаётся, а параметры модели не растут. Усреднение, а
+ * не выбор ячейки: иначе тонкие штрихи рвутся на пунктир.
+ */
+function coarsenField(field: KeychainImageField): KeychainImageField {
+  const width = Math.max(2, Math.ceil(field.width / 2));
+  const height = Math.max(2, Math.ceil(field.height / 2));
+  const sums = new Uint32Array(width * height);
+  const counts = new Uint32Array(width * height);
+
+  for (let row = 0; row < field.height; row += 1) {
+    for (let column = 0; column < field.width; column += 1) {
+      const target = Math.floor(row / 2) * width + Math.floor(column / 2);
+
+      sums[target] += field.cells[row * field.width + column];
+      counts[target] += 1;
+    }
+  }
+
+  const cells = new Uint8Array(width * height);
+
+  for (let index = 0; index < cells.length; index += 1) {
+    cells[index] = counts[index] > 0 ? Math.round(sums[index] / counts[index]) : 0;
+  }
+
+  return { cells, height, width };
+}
+
+/**
+ * Обводит поле по порогу детализации.
+ *
+ * Порог задан в процентах, а поле — в ступенях, поэтому сравнение идёт с
+ * `threshold / 100`: marching squares интерполирует между ячейками, и край
+ * выходит на дробной ступени, а не по сетке. Контуры меньше половины ячейки
+ * выбрасываются: это крупа от дизеринга, а не рисунок.
+ *
+ * `null` — либо предел растра, либо порог съел всю картинку.
+ */
+function traceField(
+  field: KeychainImageField,
+  threshold: number,
+): OutlinePoint[][] | null {
+  const { cells, height, width } = field;
+  const coverage = new Float32Array(cells.length);
+
+  for (let index = 0; index < cells.length; index += 1) {
+    coverage[index] = cells[index] / (KEYCHAIN_IMAGE_FIELD_LEVELS - 1);
+  }
+
+  const traced = traceCoverageContours(coverage, width, height, threshold / 100);
+
+  if (checkRasterLimits(traced) !== null) {
+    return null;
+  }
+
+  const contours: OutlinePoint[][] = [];
+
+  for (const contour of traced) {
+    const simplified = simplifyContour(contour);
+
+    if (
+      simplified.length < 3 ||
+      Math.abs(contourArea(simplified)) < MIN_CONTOUR_AREA_CELLS
+    ) {
+      continue;
+    }
+
+    contours.push(simplified);
+  }
+
+  return contours.length > 0 ? contours : null;
+}
+
+/**
+ * Собирает маску из поля покрытия: контуры единичного габарита и маску проверки.
+ *
+ * Ячейка маски равна `1 / max(width, height)`, то есть её сторона в миллиметрах —
+ * это `size / max(width, height)`: при логотипе 32 мм и сетке 160 ячейка выходит
+ * 0.2 мм. Габарит берётся по сетке, а не по крайним точкам контуров: так маска
+ * проверки и рельеф гарантированно описывают один прямоугольник.
+ *
+ * Строки маски перевёрнуты: в файле первая строка верхняя, а на грани Y растёт
+ * вверх. Контуры переворачиваются тем же преобразованием.
+ */
+function createFieldBuild(
+  field: KeychainImageField,
+  threshold: number,
+): KeychainImageBuild | null {
+  const cut = (threshold / 100) * (KEYCHAIN_IMAGE_FIELD_LEVELS - 1);
+  let grid = field;
+  let traced: OutlinePoint[][] | null = null;
+
+  for (let attempt = 0; attempt < COARSEN_ATTEMPTS; attempt += 1) {
+    traced = traceField(grid, threshold);
+
+    if (traced !== null) {
+      break;
+    }
+
+    if (grid.width <= 4 || grid.height <= 4) {
+      break;
+    }
+
+    grid = coarsenField(grid);
+  }
+
+  if (traced === null) {
+    return null;
+  }
+
+  const scale = 1 / Math.max(grid.width, grid.height);
+  const width = grid.width * scale;
+  const height = grid.height * scale;
+  const minX = -width / 2;
+  const minY = -height / 2;
+  const contours = traced.map((contour) =>
+    contour.map(
+      ([x, y]) => [minX + x * scale, minY + height - y * scale] as OutlinePoint,
+    ),
+  );
+  const bits = new Uint8Array(grid.width * grid.height);
+
+  for (let row = 0; row < grid.height; row += 1) {
+    for (let column = 0; column < grid.width; column += 1) {
+      if (grid.cells[row * grid.width + column] >= cut) {
+        bits[(grid.height - 1 - row) * grid.width + column] = 1;
+      }
+    }
+  }
+
+  return {
+    contours,
+    frame: { height, minX, minY, width },
+    mask: { bits, height: grid.height, width: grid.width },
+    pixel: scale,
+  };
+}
+
+/** Разбирает `imageData` в маску: новое поле, иначе прежняя SVG-обводка. */
+function createBuild(
+  imageData: string,
+  threshold: number,
+): KeychainImageBuild | null {
+  const field = keychainImageField(imageData);
+
+  return field ? createFieldBuild(field, threshold) : createSvgBuild(imageData);
+}
+
+/**
+ * Готовая маска из `params.imageData` и порога детализации.
+ *
+ * `null` — картинки нет, строка испорчена или порог съел весь рисунок. Сборка
+ * кешируется по паре «порог + маска»: геометрия пересобирается на каждое
+ * движение слайдера, а обводка сотен тысяч ячеек не бесплатна.
  */
 export function keychainImageBuild(
   imageData: string | null | undefined,
+  threshold: number = KEYCHAIN_IMAGE_THRESHOLD_LIMITS.defaultValue,
 ): KeychainImageBuild | null {
   if (!imageData) {
     return null;
   }
 
-  if (!buildCache.has(imageData)) {
+  const key = `${threshold}|${imageData}`;
+
+  if (!buildCache.has(key)) {
     if (buildCache.size >= BUILD_CACHE_LIMIT) {
       const oldest = buildCache.keys().next().value;
 
@@ -399,10 +710,10 @@ export function keychainImageBuild(
       }
     }
 
-    buildCache.set(imageData, createBuild(imageData));
+    buildCache.set(key, createBuild(imageData, threshold));
   }
 
-  return buildCache.get(imageData) ?? null;
+  return buildCache.get(key) ?? null;
 }
 
 
@@ -692,6 +1003,12 @@ export function keychainImageReliefMm(depth: number): number {
  * Фаски нет намеренно: логотип приходит маской с тонкими штрихами, и скругление
  * кромки съедало бы перемычки. Заодно толщина рельефа остаётся ровно
  * `imageDepth + 0.35` — без добавки на скругление.
+ *
+ * Пятна уже `KEYCHAIN_IMAGE_MIN_FEATURE_MM` в готовом размере выбрасываются: при
+ * пороге детализации дизеринг даёт точки в одну ячейку маски, а это 0.2 мм при
+ * логотипе 32 мм. Сопло их не напечатает, зато слайсер получит тысячи отдельных
+ * столбиков. Проверка идёт в миллиметрах, поэтому зависит от размера логотипа, а
+ * не от исходного файла.
  */
 export function createKeychainImageGeometry(options: {
   build: KeychainImageBuild;
@@ -703,11 +1020,27 @@ export function createKeychainImageGeometry(options: {
   size: number;
   thickness: number;
 }): BufferGeometry | null {
-  const scaled = options.build.contours.map((contour) =>
-    contour.map(
-      ([x, y]) => [x * options.size, y * options.size] as OutlinePoint,
-    ),
-  );
+  const scaled = options.build.contours
+    .map((contour) =>
+      contour.map(
+        ([x, y]) => [x * options.size, y * options.size] as OutlinePoint,
+      ),
+    )
+    .filter((contour) => {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+
+      for (const [x, y] of contour) {
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+
+      return Math.max(maxX - minX, maxY - minY) >= KEYCHAIN_IMAGE_MIN_FEATURE_MM;
+    });
   const groups = groupContours(scaled);
 
   if (groups.length === 0) {

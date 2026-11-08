@@ -248,6 +248,112 @@ export function coverageByColor(
 }
 
 /**
+ * Поле покрытия по яркости: 1 — чёрный пиксель, 0 — белый.
+ *
+ * Для картинок без прозрачности: у фото и JPG фон светлый, а рисунок тёмный,
+ * поэтому доля краски в пикселе — это `1 − яркость`. Полутон не отбрасывается:
+ * градиент логотипа не превращается в рваное пятно, а порог детализации режет
+ * уже готовое поле. Прозрачные пиксели покрытия не дают вовсе.
+ */
+export function coverageByLuminance(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+): Float32Array {
+  const total = width * height;
+  const field = new Float32Array(total);
+
+  for (let index = 0; index < total; index += 1) {
+    const offset = index * 4;
+
+    if (pixels[offset + 3] < OPAQUE_ALPHA) {
+      continue;
+    }
+
+    const luminance =
+      0.299 * pixels[offset] +
+      0.587 * pixels[offset + 1] +
+      0.114 * pixels[offset + 2];
+
+    field[index] = 1 - luminance / 255;
+  }
+
+  return field;
+}
+
+/**
+ * Квантует поле покрытия в `levels` ступеней с дизерингом Флойда — Стейнберга.
+ *
+ * Зачем дизеринг: маска картинки на брелоке хранится четырьмя битами на ячейку —
+ * это шестнадцать ступеней, а полутонов в фотографии двести пятьдесят шесть.
+ * Ошибка округления не выбрасывается, а распределяется на соседей по змейке
+ * (7/16 вперёд, 3/16, 5/16 и 1/16 в следующую строку). Поэтому на градиенте
+ * вместо ступенек остаётся равномерная крупа, и порог детализации вырезает
+ * плотность точек, а не полосы.
+ *
+ * `dither: false` — для маски по альфе: сглаженный край логотипа должен остаться
+ * гладким, крупа на нём была бы грязью.
+ *
+ * Возвращает ячейки 0…`levels − 1`: их же пишет в параметры панель и читает
+ * геометрия.
+ */
+export function quantizeCoverage(
+  field: Float32Array,
+  width: number,
+  height: number,
+  levels = 16,
+  dither = true,
+): Uint8Array {
+  const steps = Math.max(1, Math.round(levels) - 1);
+  const total = width * height;
+  const work = new Float32Array(total);
+  const cells = new Uint8Array(total);
+
+  for (let index = 0; index < total; index += 1) {
+    const value = field[index];
+    work[index] = value < 0 ? 0 : value > 1 ? 1 : value;
+  }
+
+  for (let row = 0; row < height; row += 1) {
+    // Змейка: без неё ошибка уезжает вправо-вниз и на градиенте видны диагональные полосы.
+    const forward = row % 2 === 0;
+
+    for (let step = 0; step < width; step += 1) {
+      const column = forward ? step : width - 1 - step;
+      const index = row * width + column;
+      const value = work[index];
+      const quantized = Math.round(value * steps);
+
+      cells[index] = quantized;
+
+      if (!dither) {
+        continue;
+      }
+
+      const error = value - quantized / steps;
+      const sign = forward ? 1 : -1;
+      const diffuse = (dx: number, dy: number, share: number): void => {
+        const x = column + dx * sign;
+        const y = row + dy;
+
+        if (x < 0 || x >= width || y >= height) {
+          return;
+        }
+
+        work[y * width + x] += error * share;
+      };
+
+      diffuse(1, 0, 7 / 16);
+      diffuse(-1, 1, 3 / 16);
+      diffuse(0, 1, 5 / 16);
+      diffuse(1, 1, 1 / 16);
+    }
+  }
+
+  return cells;
+}
+
+/**
  * Значение поля в узле решётки: за границей растра всегда фон.
  *
  * Узлы идут по углам пикселей: у растра `width × height` узлов

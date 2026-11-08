@@ -36,6 +36,7 @@ import {
   KEYCHAIN_DECORATION_DEPTH_LIMITS,
   KEYCHAIN_DECORATION_OFFSET_LIMITS,
   KEYCHAIN_IMAGE_SCALE_LIMITS,
+  KEYCHAIN_IMAGE_THRESHOLD_LIMITS,
   KEYCHAIN_MAX_DECORATIONS,
   KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS,
   boxStlFileName,
@@ -51,7 +52,6 @@ import {
   isKeychainFontId,
   isKeychainImageData,
   isKeychainRotation,
-  isKeychainShape,
   isKeychainTextAlign,
   isLithophaneBrightness,
   isLithophaneMount,
@@ -502,7 +502,6 @@ function parseKeychainDecoration(value: unknown): KeychainDecoration | null {
       KEYCHAIN_DECORATION_DEPTH_LIMITS.min,
       KEYCHAIN_DECORATION_DEPTH_LIMITS.max,
     ) ||
-    typeof entry.emboss !== "boolean" ||
     !isKeychainDecorationKind(entry.kind)
   ) {
     return null;
@@ -516,7 +515,6 @@ function parseKeychainDecoration(value: unknown): KeychainDecoration | null {
     offsetY: entry.offsetY as number,
     rotation: entry.rotation as KeychainRotation,
     depth: entry.depth as number,
-    emboss: entry.emboss as boolean,
     side: entry.side as KeychainDecorationSide,
   };
 
@@ -552,6 +550,11 @@ function parseKeychainDecoration(value: unknown): KeychainDecoration | null {
         entry.imageScale,
         KEYCHAIN_IMAGE_SCALE_LIMITS.min,
         KEYCHAIN_IMAGE_SCALE_LIMITS.max,
+      ) ||
+      !isNumberInRange(
+        entry.imageThreshold,
+        KEYCHAIN_IMAGE_THRESHOLD_LIMITS.min,
+        KEYCHAIN_IMAGE_THRESHOLD_LIMITS.max,
       )
     ) {
       return null;
@@ -562,6 +565,7 @@ function parseKeychainDecoration(value: unknown): KeychainDecoration | null {
       imageData: entry.imageData,
       imageName: typeof entry.imageName === "string" ? entry.imageName : "",
       imageScale: entry.imageScale as number,
+      imageThreshold: entry.imageThreshold as number,
       kind: "image",
     };
   }
@@ -592,13 +596,10 @@ function parseKeychainDecoration(value: unknown): KeychainDecoration | null {
  *
  * Все размеры обязательны и должны лежать в границах слайдеров. Текст — не
  * длиннее 10 символов из набора шрифта; пустая строка допустима. Форма задаётся
- * либо пресетом из реестра, либо своим контуром: пресет главнее, при нём контур
- * не проверяется вовсе. Четырнадцати встроенных силуэтов больше нет, поэтому
- * `dog_tag`, `hexagon`, `cat` и остальные прежние значения отклоняются — это
- * ошибка ввода, а не повод собрать брелок по чужой форме. Пользовательский SVG
- * обязан быть строкой в пределах 200 КБ, без скриптов и хотя бы с одним контуром:
- * пустой `custom` дал бы файл-заглушку вместо выбранной формы. NFC-флаг — только
- * boolean, иначе строка «false» включала бы карман.
+ * только пресетом из реестра: своего контура у брелока больше нет, поэтому
+ * запрос без `keychainPreset` и с прежними значениями (`custom`, `dog_tag`,
+ * `hexagon`) отклоняется — это ошибка ввода, а не повод собрать брелок по чужой
+ * форме. NFC-флаг — только boolean, иначе строка «false» включала бы карман.
  *
  * У QR-визитки ширина и длина не проверяются: оба её размера (60 × 40 и 70 × 45)
  * выводятся из `qrCardSize` и выше границы слайдера ширины. Вместо них строго
@@ -628,10 +629,7 @@ function parseKeychainParams(
     textOffsetX,
     textOffsetY,
     textDepth,
-    keychainShape,
-    shapeType,
     keychainPreset,
-    customSvgData = "",
     nfcEnabled = false,
     holePlacement = null,
     qrCardSize = null,
@@ -655,21 +653,11 @@ function parseKeychainParams(
   const decorationsInvalid = parsedDecorations === null;
   const preset = isKeychainPresetId(keychainPreset) ? keychainPreset : null;
   // Неизвестный идентификатор — ошибка ввода, а не «пресета нет»: иначе запрос
-  // с опечаткой молча собрал бы брелок по своему контуру.
+  // с опечаткой молча собрал бы брелок по форме по умолчанию.
   const presetInvalid =
     keychainPreset !== null &&
     keychainPreset !== undefined &&
     preset === null;
-  // `shapeType` — прежнее имя того же поля, поэтому принимается вторым. Всё,
-  // что не `custom`, — удалённый силуэт или `rounded`: такая форма в проекте
-  // больше не существует, и запрос отклоняется.
-  const shape = preset
-    ? null
-    : isKeychainShape(keychainShape)
-      ? keychainShape
-      : isKeychainShape(shapeType)
-        ? shapeType
-        : null;
   const isQrCard = preset === "qr-card";
   // Толщина визитки живёт в своих границах: 2.5–3.5 мм вместо общих 2–5.
   const thicknessLimits = keychainThicknessLimits(preset);
@@ -763,13 +751,11 @@ function parseKeychainParams(
     !isNumberInRange(thickness, thicknessLimits.min, thicknessLimits.max) ||
     !isValidKeychainText(text) ||
     presetInvalid ||
-    (!preset && !shape) ||
-    !isCustomSvgData(customSvgData) ||
+    !preset ||
     typeof nfcEnabled !== "boolean" ||
     (holePlacement !== null &&
       holePlacement !== undefined &&
       !isHolePlacement(holePlacement)) ||
-    (shape === "custom" && !hasDrawableSvgData(customSvgData)) ||
     (showText !== undefined && typeof showText !== "boolean") ||
     qrInvalid
   ) {
@@ -824,10 +810,7 @@ function parseKeychainParams(
     )
       ? textDepth
       : undefined,
-    keychainShape: shape,
-    shapeType: shape,
     keychainPreset: preset,
-    customSvgData,
     nfcEnabled,
     holePlacement: isHolePlacement(holePlacement) ? holePlacement : undefined,
     qrCardSize: isQrCardSize(qrCardSize) ? qrCardSize : undefined,
@@ -1589,7 +1572,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "invalid_params",
-      "Проверьте размеры и узор вазы, силуэт и SVG брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений, форму и отделения органайзера для ручек, логотип, габарит, слои и зеркало термопринта.",
+      "Проверьте размеры и узор вазы, силуэт брелока, NFC-флаг, надпись вывески (нужна хотя бы одна буква), номер блока и его деталь, ячейки коробки, изображение литофана, наклон и ширину подставки, габарит кашпо, форму и узор подставки под кружку, высоту стойки для украшений, форму и отделения органайзера для ручек, логотип, габарит, слои и зеркало термопринта.",
     );
   }
 
@@ -1603,7 +1586,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       422,
       "preset_not_implemented",
-      "Этот пресет ещё не реализован. Выберите готовый пресет или загрузите свой контур.",
+      "Этот пресет ещё не реализован. Выберите другой пресет.",
     );
   }
 

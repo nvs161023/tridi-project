@@ -29,8 +29,10 @@ import {
   type KeychainBuildReport,
 } from "@/lib/constructor/keychain-geometry";
 import {
+  KEYCHAIN_IMAGE_FIELD_LEVELS,
   KEYCHAIN_IMAGE_GRID,
   keychainImageErrorText,
+  keychainImageField,
   keychainImageFromPixels,
 } from "@/lib/constructor/keychain-image";
 import {
@@ -50,7 +52,6 @@ import {
 import {
   HOLE_PLACEMENT_LABELS,
   KEYCHAIN_PRESETS,
-  isKeychainPresetId,
   keychainPresetById,
   type HolePlacement,
   type KeychainPresetId,
@@ -78,11 +79,10 @@ import {
   COASTER_SHAPES,
   COASTER_SHAPE_LABELS,
   CONSTRUCTOR_LIMITS,
+  DEFAULT_KEYCHAIN_PRESET_ID,
   DEFAULT_LITHOPHANE_PARAMS,
   JEWELRY_CONFIGS,
   JEWELRY_CONFIG_LABELS,
-  KEYCHAIN_SHAPES,
-  KEYCHAIN_SHAPE_LABELS,
   KEYCHAIN_DECORATION_DEPTH_LIMITS,
   KEYCHAIN_DECORATION_KIND_LABELS,
   KEYCHAIN_DECORATION_OFFSET_LIMITS,
@@ -92,8 +92,8 @@ import {
   KEYCHAIN_FONTS,
   KEYCHAIN_FONT_LABELS,
   KEYCHAIN_IMAGE_SCALE_LIMITS,
+  KEYCHAIN_IMAGE_THRESHOLD_LIMITS,
   KEYCHAIN_MAX_DECORATIONS,
-  KEYCHAIN_SVG_MAX_LENGTH,
   KEYCHAIN_TEXT_ALIGNS,
   KEYCHAIN_TEXT_ALIGN_LABELS,
   KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS,
@@ -137,7 +137,6 @@ import {
   type KeychainFontId,
   type KeychainImageDecoration,
   type KeychainRotation,
-  type KeychainShape,
   type KeychainTextAlign,
   type KeychainTextDecoration,
   type LithophaneMount,
@@ -154,10 +153,6 @@ import {
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
-import {
-  binarizeByLuminance,
-  runsToRects,
-} from "@/lib/constructor/raster-to-contours";
 import {
   VASE_SECTION_MIN_SIDES,
   resolveSectionSides,
@@ -268,23 +263,14 @@ type ParameterPanelProps = {
   /** Удалить слой по индексу; последний слой остаётся всегда. */
   onRemovePatternLayer: (index: number) => void;
   /**
-   * Форма брелока: `custom` — свой контур из `customSvgData`, null — вернуть
-   * пресет по умолчанию.
-   *
-   * Встроенных силуэтов больше нет, поэтому других значений не бывает: выбор
-   * пресета идёт через `onKeychainPresetChange`, и он же обнуляет контур.
-   */
-  onKeychainShapeChange: (shape: KeychainShape | null) => void;
-  /**
    * Новый пресет силуэта; null снимает пресет, и нормализация возвращает пресет
    * по умолчанию.
    *
    * Пресет живёт в параметрах модели (`params.keychainPreset`), а не в состоянии
    * панели: иначе список, предпросмотр и STL могли бы показывать разные формы.
+   * Своего контура у брелока больше нет — форму задаёт только реестр пресетов.
    */
   onKeychainPresetChange: (preset: KeychainPresetId | null) => void;
-  /** Свой SVG-контур: текст SVG или SVG, собранный из загруженной картинки. */
-  onCustomSvgChange: (svg: string) => void;
   /**
    * Правка декорации по виду: панель присылает только изменённые поля.
    *
@@ -636,33 +622,19 @@ function vaseHasRelief(params: ConstructorParams): boolean {
 }
 
 /**
- * Значение списка «Форма брелока»: пресет из реестра или свой контур.
- *
- * Идентификаторы не пересекаются (`custom` не встречается среди пресетов),
- * поэтому один нативный список обслуживает оба набора без префиксов и групп.
- */
-type KeychainShapeSelectValue = KeychainPresetId | KeychainShape;
-
-/**
  * Пункты списка «Форма брелока».
  *
- * Девять пресетов идут первыми, «Свой SVG» — последним: пользователь видит
- * готовые формы там, где раньше начинался старый список силуэтов. Оба набора
- * статичные, поэтому массив собирается один раз при импорте модуля.
+ * Один пункт на пресет реестра: своего контура у брелока больше нет, поэтому
+ * список, предпросмотр и STL читают один источник формы. Реестр статичный,
+ * массив собирается один раз при импорте модуля.
  */
 const KEYCHAIN_SHAPE_OPTIONS: readonly {
   label: string;
-  value: KeychainShapeSelectValue;
-}[] = [
-  ...KEYCHAIN_PRESETS.map((preset) => ({
-    label: preset.label,
-    value: preset.id,
-  })),
-  ...KEYCHAIN_SHAPES.map((shape) => ({
-    label: KEYCHAIN_SHAPE_LABELS[shape],
-    value: shape,
-  })),
-];
+  value: KeychainPresetId;
+}[] = KEYCHAIN_PRESETS.map((preset) => ({
+  label: preset.label,
+  value: preset.id,
+}));
 
 /**
  * Пункты списков QR-визитки.
@@ -783,18 +755,6 @@ async function compressLithophaneImage(
   }
 }
 
-/** Сетка перевода растровой картинки в контур: 96 × 96 даёт ровный силуэт. */
-const CONTOUR_GRID_SIZE = 96;
-
-/**
- * Предел числа прямоугольников контура.
- *
- * Сервер принимает SVG не длиннее 200 КБ. Каждый `<rect>` занимает около
- * 45 байт, поэтому 2400 полос — это ещё безопасный запас, а более подробная
- * картинка всё равно превратилась бы в кашу после масштабирования под брелок.
- */
-const CONTOUR_MAX_RECTS = 2400;
-
 /** Читает файл как текст: так приходит исходный SVG. */
 function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -843,87 +803,6 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
       reject(new Error("Картинка повреждена или не читается."));
     image.src = dataUrl;
   });
-}
-
-/**
- * Рисует картинку в canvas и отдаёт пиксели сетки.
- *
- * Canvas — браузерная часть: в `raster-to-contours.ts` его нет, модуль работает
- * с готовым `Uint8ClampedArray`. Центральный квадрат сохраняет пропорции:
- * вытянутое фото не растянется.
- */
-async function readImagePixels(
-  file: File,
-  gridSize: number,
-): Promise<Uint8ClampedArray> {
-  const dataUrl = await readFileAsDataUrl(file);
-  const image = await loadImage(dataUrl);
-  const size = Math.min(image.naturalWidth, image.naturalHeight);
-
-  if (size < 1) {
-    throw new Error("Изображение пустое или повреждено.");
-  }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = gridSize;
-  canvas.height = gridSize;
-
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-
-  if (!context) {
-    throw new Error("Браузер не смог подготовить canvas для контура.");
-  }
-
-  context.drawImage(
-    image,
-    (image.naturalWidth - size) / 2,
-    (image.naturalHeight - size) / 2,
-    size,
-    size,
-    0,
-    0,
-    gridSize,
-    gridSize,
-  );
-
-  return context.getImageData(0, 0, gridSize, gridSize).data;
-}
-
-/**
- * Переводит картинку в SVG из горизонтальных полос.
- *
- * Полноценная трассировка кривых в браузере не нужна: брелок печатается
- * размером 30–100 мм, поэтому сетка 96 × 96 и склейка соседних пикселей в
- * полосы дают узнаваемый контур. Полосы — обычные `<rect>`, которые разбирает
- * серверный svg-outline.ts, а прозрачный фон PNG и белый фон JPG не попадают
- * в силуэт. Пиксели, маска и полосы живут в `raster-to-contours.ts`: здесь
- * остаются canvas и строка `<svg>`.
- */
-async function rasterToContourSvg(file: File): Promise<string> {
-  const pixels = await readImagePixels(file, CONTOUR_GRID_SIZE);
-  const mask = binarizeByLuminance(
-    pixels,
-    CONTOUR_GRID_SIZE,
-    CONTOUR_GRID_SIZE,
-  );
-  const rects = runsToRects(mask, CONTOUR_GRID_SIZE, CONTOUR_GRID_SIZE).map(
-    (rect) =>
-      `<rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="1"/>`,
-  );
-
-  if (rects.length === 0) {
-    throw new Error(
-      "На картинке не найден контур: нужен тёмный силуэт на светлом фоне.",
-    );
-  }
-
-  if (rects.length > CONTOUR_MAX_RECTS) {
-    throw new Error(
-      "Слишком сложная картинка. Загрузите логотип с крупным силуэтом или готовый SVG.",
-    );
-  }
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CONTOUR_GRID_SIZE} ${CONTOUR_GRID_SIZE}">${rects.join("")}</svg>`;
 }
 
 /**
@@ -1012,36 +891,58 @@ async function keychainImageDataFromFile(file: File): Promise<string> {
   return converted.imageData;
 }
 
-/** SVG берём как текст, PNG и JPG переводим в контур на клиенте. */
-async function keychainContourFromFile(file: File): Promise<string> {
-  const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+/**
+ * Собирает превью маски картинки: те ячейки, что станут пластиком.
+ *
+ * В `imageData` лежит полутон — шестнадцать уровней покрытия на ячейку, — а
+ * рельефом становится только то, что выше порога детализации. Поэтому превью
+ * рисуется тем же порогом, что и геометрия (`cells >= threshold` — то же
+ * сравнение, что в `keychain-image.ts`): ползунок меняет картинку на экране
+ * ровно так же, как в модели. Цвет рельефа светлый: точки печатаются на тёмной
+ * подложке карточки.
+ *
+ * `null` — строку не разобрать. Так приходят проекты прежнего формата: там
+ * `imageData` — настоящий SVG в base64, и карточка показывает его напрямую.
+ */
+function keychainImagePreviewUrl(
+  imageData: string,
+  threshold: number,
+): string | null {
+  const field = keychainImageField(imageData);
 
-  // Лимит сервера считает символы, а file.size — байты. Кириллица в тексте
-  // SVG весит больше, поэтому грубая проверка ловит только явный перебор;
-  // точную проверку всё равно делает isCustomSvgData ниже.
-  if (isSvg && file.size > KEYCHAIN_SVG_MAX_LENGTH) {
-    throw new Error(
-      "SVG больше 200 КБ. Упростите контур или сохраните файл без встроенных картинок.",
-    );
+  if (!field) {
+    return null;
   }
 
-  const svg = isSvg
-    ? await readFileAsText(file)
-    : await rasterToContourSvg(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = field.width;
+  canvas.height = field.height;
 
-  if (!isCustomSvgData(svg)) {
-    throw new Error(
-      "Файл слишком большой или содержит скрипты. Нужен SVG до 200 КБ.",
-    );
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return null;
   }
 
-  if (!hasDrawableSvgData(svg)) {
-    throw new Error(
-      "В файле нет контура. Нужен SVG с path, polygon, rect, circle или ellipse.",
-    );
+  const image = context.createImageData(field.width, field.height);
+  const cut = (threshold / 100) * (KEYCHAIN_IMAGE_FIELD_LEVELS - 1);
+
+  for (let index = 0; index < field.cells.length; index += 1) {
+    if (field.cells[index] < cut) {
+      continue;
+    }
+
+    const offset = index * 4;
+
+    image.data[offset] = 226;
+    image.data[offset + 1] = 232;
+    image.data[offset + 2] = 240;
+    image.data[offset + 3] = 255;
   }
 
-  return svg;
+  context.putImageData(image, 0, 0);
+
+  return canvas.toDataURL("image/png");
 }
 
 /**
@@ -1506,14 +1407,12 @@ export function ParameterPanel({
   onPatternLayerChange,
   onAddPatternLayer,
   onRemovePatternLayer,
-  onKeychainShapeChange,
   onKeychainPresetChange,
   onKeychainDecorationChange,
   onAddKeychainText,
   onAddKeychainImage,
   onRemoveKeychainDecoration,
   keychainReport,
-  onCustomSvgChange,
   onNfcChange,
   onHolePlacementChange,
   onQrCardSizeChange,
@@ -1552,8 +1451,6 @@ export function ParameterPanel({
   const signTextLength = Array.from(params.signText).length;
   const lithophaneInputId = useId();
   const lithophaneHintId = `${lithophaneInputId}-hint`;
-  const keychainContourInputId = useId();
-  const keychainContourHintId = `${keychainContourInputId}-hint`;
   const keychainImageInputId = useId();
   const keychainImageHintId = `${keychainImageInputId}-hint`;
   const qrContentInputId = useId();
@@ -1566,14 +1463,21 @@ export function ParameterPanel({
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [isProcessingContour, setIsProcessingContour] = useState(false);
-  const [contourError, setContourError] = useState<string | null>(null);
-  const [contourFileName, setContourFileName] = useState<string | null>(null);
   const [isProcessingKeychainImage, setIsProcessingKeychainImage] =
     useState(false);
   const [keychainImageError, setKeychainImageError] = useState<string | null>(
     null,
   );
+  /**
+   * Превью маски картинки: PNG-строка, собранная из поля покрытия.
+   *
+   * `imageData` — не картинка, а четырёхбитное поле, и браузер его не нарисует.
+   * Превью считается эффектом, а не в рендере: canvas есть только в браузере, и
+   * серверный рендер панели упал бы на `document`.
+   */
+  const [keychainImagePreview, setKeychainImagePreview] = useState<
+    string | null
+  >(null);
   const [isProcessingTransfer, setIsProcessingTransfer] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
   const [transferFileName, setTransferFileName] = useState<string | null>(null);
@@ -1619,16 +1523,6 @@ export function ParameterPanel({
       setCellsYText(formatBoxCells(params.cellsY));
     }
   }, [params.cellsY]);
-
-  /**
-   * Сброс всех параметров очищает customSvgData, но имя файла живёт в панели.
-   * Без синхронизации плашка «Контур: logo.svg» осталась бы на пустом месте.
-   */
-  useEffect(() => {
-    if (!params.customSvgData) {
-      setContourFileName(null);
-    }
-  }, [params.customSvgData]);
 
   /**
    * Картинка ушла из модели (её удалили или загрузился другой проект) — ошибка
@@ -1683,61 +1577,6 @@ export function ParameterPanel({
     } finally {
       setIsProcessingImage(false);
     }
-  }
-
-  /**
-   * Загружает свой контур брелока.
-   *
-   * SVG читается как текст, картинка — как data URL и сразу переводится в
-   * контур на canvas: серверная геометрия понимает только SVG-примитивы.
-   * После успешного разбора форма переключается на «Свой SVG», иначе выбранный
-   * ранее силуэт остался бы и файл ни на что не влиял.
-   */
-  async function handleKeychainContourChange(
-    event: ChangeEvent<HTMLInputElement>,
-  ) {
-    const file = event.target.files?.[0];
-
-    event.target.value = "";
-
-    if (!file) {
-      return;
-    }
-
-    setIsProcessingContour(true);
-    setContourError(null);
-
-    try {
-      const svg = await keychainContourFromFile(file);
-
-      // Сначала данные, потом форма: обновление формы само снимает пресет, а
-      // обратный порядок оставил бы в модели пресет без загруженного контура.
-      onCustomSvgChange(svg);
-      onKeychainShapeChange("custom");
-      setContourFileName(file.name);
-    } catch (error) {
-      setContourError(
-        error instanceof Error
-          ? error.message
-          : "Не удалось обработать файл. Попробуйте другой контур.",
-      );
-    } finally {
-      setIsProcessingContour(false);
-    }
-  }
-
-  /**
-   * Возвращает форму к пресету по умолчанию.
-   *
-   * Загруженный контур стирается вместе с пресетом: без файла `custom` — форма
-   * без геометрии, и сервер не примет такой брелок. Нормализация сама подставит
-   * первый пресет реестра, потому что встроенных силуэтов больше нет.
-   */
-  function resetKeychainContour() {
-    onCustomSvgChange("");
-    onKeychainShapeChange(null);
-    setContourFileName(null);
-    setContourError(null);
   }
 
   /**
@@ -1871,18 +1710,13 @@ export function ParameterPanel({
   /**
    * Выбор в списке «Форма брелока».
    *
-   * Список общий для пресетов и своего контура, но активным остаётся ровно один
-   * пункт: выбор пресета обнуляет контур, выбор «Свой SVG» снимает пресет — это
-   * делает `updateKeychainShape` в `ConstructorClient`. Поэтому форма в модели,
-   * подпись в сводке и файл STL всегда совпадают.
+   * Пункты списка — только пресеты реестра: своего контура у брелока больше нет,
+   * поэтому выбор сразу уходит в параметры модели, а `keychainPresetById` в
+   * `ConstructorClient` записывает размеры пресета в слайдеры. Подпись в сводке
+   * и файл STL читают то же поле и разойтись не могут.
    */
-  function handleKeychainShapeSelect(value: KeychainShapeSelectValue) {
-    if (isKeychainPresetId(value)) {
-      onKeychainPresetChange(value);
-      return;
-    }
-
-    onKeychainShapeChange(value);
+  function handleKeychainShapeSelect(value: KeychainPresetId) {
+    onKeychainPresetChange(value);
   }
 
   /** Данные выбранного пресета: подпись, пояснение и готовность геометрии. */
@@ -1911,6 +1745,25 @@ export function ParameterPanel({
   const keychainTextLength = keychainText
     ? Array.from(keychainText.content).length
     : 0;
+  /**
+   * Превью маски следует за порогом детализации.
+   *
+   * Ползунок ничего не пересчитывает в модели: порог применяется при обводке, а
+   * превью считается здесь же — поэтому пользователь видит ровно те пятна,
+   * которые станут пластиком. Старые проекты хранят SVG-обводку, для них
+   * `keychainImagePreviewUrl` вернёт `null`, а карточка покажет исходную строку.
+   */
+  useEffect(() => {
+    setKeychainImagePreview(
+      keychainImage
+        ? keychainImagePreviewUrl(
+            keychainImage.imageData,
+            keychainImage.imageThreshold,
+          )
+        : null,
+    );
+  }, [keychainImage]);
+
   /**
    * Что вышло из картинки при последней сборке.
    *
@@ -2015,8 +1868,8 @@ export function ParameterPanel({
    *
    * Считается той же `nfcLayout`, что и геометрия: радиус полости, границы зон,
    * пауза и причина отказа берутся из одного места, поэтому подсказка «пауза на
-   * Z = 2.35 мм» не может разойтись с моделью. Для своего контура — null: у него
-   * карман квадратный и считается по `measureKeychainNfc`.
+   * Z = 2.35 мм» не может разойтись с моделью. Для силуэта без пресета — null:
+   * тогда карман квадратный и считается по `measureKeychainNfc`.
    */
   const presetNfc = params.keychainPreset
     ? nfcLayout(params.keychainPreset, {
@@ -2060,17 +1913,17 @@ export function ParameterPanel({
   /**
    * Почему NFC-брелок нельзя скачать. Пусто — карман есть и метка влезает.
    *
-   * У своего контура карман квадратный: у узкого силуэта 25 мм не влезают вовсе
-   * и карман не режется, у остальных он выходит меньше метки. У пресета причина
-   * одна — `nfcLayout` уже знает и про силуэт, и про толщину. Раньше такой файл
-   * молча уходил в печать, хотя метку в него не вложить.
+   * У силуэта без пресета карман квадратный: у узкого силуэта 25 мм не влезают
+   * вовсе и карман не режется, у остальных он выходит меньше метки. У пресета
+   * причина одна — `nfcLayout` уже знает и про силуэт, и про толщину. Раньше такой
+   * файл молча уходил в печать, хотя метку в него не вложить.
    */
   const nfcBlockReason = nfcFit
     ? nfcFit.cavityMm <= 0
-      ? "Этот контур не поддерживает NFC-метку: карман под квадрат 25 × 25 мм не вырезается. Загрузите контур шире или выключите карман."
+      ? "Этот силуэт не поддерживает NFC-метку: карман под квадрат 25 × 25 мм не вырезается. Выберите силуэт шире или выключите карман."
       : nfcFit.fits
         ? null
-        : `Карман под метку не помещается: в этом контуре максимум ${nfcFit.cavityMm.toFixed(1)} × ${nfcFit.cavityMm.toFixed(1)} мм при метке ${KEYCHAIN_NFC_TAG_MM} × ${KEYCHAIN_NFC_TAG_MM} мм. Загрузите контур шире или выключите карман.`
+        : `Карман под метку не помещается: в этом силуэте максимум ${nfcFit.cavityMm.toFixed(1)} × ${nfcFit.cavityMm.toFixed(1)} мм при метке ${KEYCHAIN_NFC_TAG_MM} × ${KEYCHAIN_NFC_TAG_MM} мм. Выберите силуэт шире или выключите карман.`
     : params.nfcEnabled
       ? presetNfcBlocked
       : null;
@@ -2083,7 +1936,7 @@ export function ParameterPanel({
    */
   const presetBlockReason =
     params.keychainPreset && !selectedPresetReady
-      ? "Этот пресет ещё в разработке. Выберите готовый пресет или свой контур."
+      ? "Этот пресет ещё в разработке. Выберите другой пресет."
       : null;
 
   /**
@@ -2251,29 +2104,6 @@ export function ParameterPanel({
           unit="мм"
           value={decoration.depth}
         />
-
-        <label className="flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
-          <input
-            checked={decoration.emboss}
-            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-            onChange={(event) =>
-              onKeychainDecorationChange(decoration.kind, {
-                emboss: event.target.checked,
-              })
-            }
-            type="checkbox"
-          />
-          <span>
-            <span className="block text-sm font-semibold text-slate-200">
-              Выступает над пластиком
-            </span>
-            <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-              Снятая галочка утопляет рельеф: вокруг остаётся поле толщиной с
-              рельеф, а сам рисунок лежит на лице. Вычитания в модели нет —
-              утопление печатается плитой с окнами, как углублённый QR-код.
-            </span>
-          </span>
-        </label>
 
         <NumberSlider
           decimals={KEYCHAIN_DECORATION_OFFSET_LIMITS.decimals}
@@ -2483,9 +2313,9 @@ export function ParameterPanel({
           <span className="grid size-14 shrink-0 place-items-center rounded-xl bg-slate-700/60 p-1.5">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              alt="Маска загруженной картинки"
+              alt="Рельеф картинки: точки, которые станут пластиком"
               className="size-full object-contain"
-              src={decoration.imageData}
+              src={keychainImagePreview ?? decoration.imageData}
             />
           </span>
           <div className="min-w-0 flex-1">
@@ -2503,8 +2333,9 @@ export function ParameterPanel({
           id={keychainImageHintId}
         >
           PNG с прозрачным фоном или JPG. Рельефом становится тёмное и
-          непрозрачное: логотип на светлом фоне тоже подойдёт. Место ищется по
-          карте грани, а имя и отверстие под кольцо логотип обходит сам.
+          непрозрачное, а полутон фото сохраняется дизерингом: на превью видно
+          ровно те точки, которые получатся пластиком. Место ищется по карте
+          грани, а имя и отверстие под кольцо логотип обходит сам.
         </p>
 
         {keychainImageError ? (
@@ -2566,6 +2397,20 @@ export function ParameterPanel({
             step={KEYCHAIN_IMAGE_SCALE_LIMITS.step}
             unit="×"
             value={decoration.imageScale}
+          />
+
+          <NumberSlider
+            decimals={KEYCHAIN_IMAGE_THRESHOLD_LIMITS.decimals}
+            hint="Порог детализации: выше — пластиком становится только плотное, и «каша» из пятен на фото исчезает; ниже — картинка плотнее, но мелкие точки сливаются. Превью в карточке показывает результат сразу, файл загружать заново не нужно."
+            label="Порог детализации"
+            max={KEYCHAIN_IMAGE_THRESHOLD_LIMITS.max}
+            min={KEYCHAIN_IMAGE_THRESHOLD_LIMITS.min}
+            onChange={(value) =>
+              onKeychainDecorationChange("image", { imageThreshold: value })
+            }
+            step={KEYCHAIN_IMAGE_THRESHOLD_LIMITS.step}
+            unit="%"
+            value={decoration.imageThreshold}
           />
 
           {renderDecorationCommon(decoration)}
@@ -3026,13 +2871,11 @@ export function ParameterPanel({
         <>
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Восемь пунктов — готовые пресеты со своей геометрией, девятый — свой SVG-контур: у него ушко с отверстием под кольцо 4 мм."
+              hint="Девять готовых форм со своей геометрией: у каждой свои пропорции, ушко с отверстием под кольцо и ширина под имя и логотип. Своего контура нет — форма всегда из этого списка."
               label="Форма брелока"
               onChange={handleKeychainShapeSelect}
               options={KEYCHAIN_SHAPE_OPTIONS}
-              value={
-                params.keychainPreset ?? params.keychainShape ?? KEYCHAIN_SHAPES[0]
-              }
+              value={params.keychainPreset ?? DEFAULT_KEYCHAIN_PRESET_ID}
             />
 
             {selectedKeychainPreset ? (
@@ -3051,7 +2894,7 @@ export function ParameterPanel({
                   </strong>
                   : {selectedKeychainPreset.description} Геометрия пресета ещё в
                   работе, поэтому скачивание STL заблокировано. Выберите готовый
-                  пресет или загрузите свой контур.
+                  пресет из списка выше.
                 </p>
               )
             ) : null}
@@ -3242,68 +3085,6 @@ export function ParameterPanel({
                 </div>
               ) : null}
             </div>
-          </fieldset>
-
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">
-              Силуэт детали
-            </legend>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <label
-                className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-blue-400/60 bg-blue-500/15 px-3 text-sm font-semibold text-white transition-colors hover:bg-blue-500/25 focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
-                htmlFor={keychainContourInputId}
-              >
-                {isProcessingContour
-                  ? "Обрабатываем…"
-                  : contourFileName
-                    ? "Заменить силуэт"
-                    : "Загрузить силуэт детали"}
-              </label>
-              <input
-                accept=".svg,.png,.jpg,.jpeg"
-                aria-describedby={keychainContourHintId}
-                className="sr-only"
-                disabled={isProcessingContour}
-                id={keychainContourInputId}
-                onChange={handleKeychainContourChange}
-                type="file"
-              />
-              {contourFileName ? (
-                <button
-                  className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/15 px-3 text-sm font-semibold text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  onClick={resetKeychainContour}
-                  type="button"
-                >
-                  Сбросить
-                </button>
-              ) : null}
-            </div>
-
-            <p
-              className="mt-2 text-xs leading-relaxed text-slate-300"
-              id={keychainContourHintId}
-            >
-              Форма самой детали, а не логотип: картинка на грани живёт в блоке
-              «Декор» выше. SVG с контуром или PNG/JPG — картинка переводится в
-              силуэт в браузере, лучше всего подходит тёмный логотип на светлом
-              фоне. Отверстия внутри силуэта при таком переводе заполняются.
-            </p>
-
-            {contourFileName ? (
-              <p className="mt-2 truncate text-xs text-emerald-200">
-                Силуэт: {contourFileName}
-              </p>
-            ) : null}
-
-            {contourError ? (
-              <p
-                className="mt-2 rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
-                role="alert"
-              >
-                {contourError}
-              </p>
-            ) : null}
           </fieldset>
 
           {params.keychainPreset ? (
