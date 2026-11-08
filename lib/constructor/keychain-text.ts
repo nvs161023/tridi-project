@@ -225,7 +225,7 @@ export function createKeychainTextGeometry(options: {
 }
 
 /** Карта грани: начало сетки и её размеры в ячейках. */
-type FaceGrid = {
+export type FaceGrid = {
   /** Сторона ячейки, мм. */
   cell: number;
   /** Столбцов по X. */
@@ -455,7 +455,7 @@ function facePlane(
  * препятствий уже вложен в карту, поэтому проверка постановки сводится к «все
  * ячейки под строкой свободны».
  */
-type FaceMask = {
+export type FaceMask = {
   blocked: Uint8Array;
   grid: FaceGrid;
 };
@@ -469,7 +469,7 @@ type FaceMask = {
  * кармана NFC добавляются отдельно, а расширение на `BAND_MARGIN_MM` даёт
  * свободной ячейке запас до кромки и до сквозных дырок.
  */
-function buildFaceMask(
+export function buildFaceMask(
   geometry: BufferGeometry,
   side: KeychainTextSide,
   keepOut: readonly KeychainTextKeepOut[] | undefined,
@@ -606,7 +606,7 @@ export function findKeychainFaceBand(
   const mask = buildFaceMask(geometry, options.side, options.keepOut);
 
   return mask
-    ? widestBand(mask.blocked, mask.grid, {
+    ? findWidestBand(mask.blocked, mask.grid, {
         minHeight: options.minHeight ?? BAND_MIN_HEIGHT_MM,
         minWidth: options.minWidth ?? BAND_MIN_WIDTH_MM,
       })
@@ -646,7 +646,7 @@ export function placeKeychainText(
     return null;
   }
 
-  const band = widestBand(mask.blocked, mask.grid, {
+  const band = findWidestBand(mask.blocked, mask.grid, {
     minHeight: BAND_MIN_HEIGHT_MM,
     minWidth: BAND_MIN_WIDTH_MM,
   });
@@ -837,7 +837,7 @@ function flatPlaneKey(zs: readonly number[]): number | null {
  * карты округлены до ячейки, и без поправки буква подходила бы к кромке на
  * половину её размера ближе задуманного.
  */
-function widestBand(
+export function findWidestBand(
   blocked: Uint8Array,
   grid: FaceGrid,
   limits: { minHeight: number; minWidth: number },
@@ -918,4 +918,47 @@ function widestBand(
     width: best.half * 2,
   };
 }
+/**
+ * Закрашивает в карте грани проекцию готовой оболочки.
+ *
+ * Нужно картинке: надпись приходит отдельной сеткой, а карта грани построена по
+ * телу без неё, поэтому буквы сами становятся препятствием для логотипа. Зазор
+ * `gapMm` расширяет закраску после штампа — рельефы не должны слипаться на
+ * печати, иначе картинка срастается с буквами в одно пятно.
+ *
+ * Треугольники берутся в проекции XY: поперёк толщины рельеф стоит на своём
+ * месте, а высота при поиске пятна не важна.
+ */
+export function stampFaceObstacle(
+  target: Uint8Array,
+  grid: FaceGrid,
+  geometry: BufferGeometry,
+  gapMm: number,
+): void {
+  const position = geometry.getAttribute("position");
+  const index = geometry.getIndex();
+  const cornerCount = index ? index.count : position.count;
+  const vertexAt = (corner: number): number =>
+    index ? index.getX(corner) : corner;
+
+  for (let corner = 0; corner + 2 < cornerCount; corner += 3) {
+    const [first, second, third] = [0, 1, 2].map((point) =>
+      vertexAt(corner + point),
+    );
+
+    stampTriangle(
+      target,
+      grid,
+      position.getX(first),
+      position.getY(first),
+      position.getX(second),
+      position.getY(second),
+      position.getX(third),
+      position.getY(third),
+    );
+  }
+
+  dilate(target, grid, Math.max(1, Math.round(gapMm / grid.cell)));
+}
+
 

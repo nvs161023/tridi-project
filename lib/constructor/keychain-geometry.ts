@@ -5,6 +5,12 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 
 import { KEYCHAIN_FALLBACK_SVG } from "@/lib/constructor/keychain-fallback-shape";
 import {
+  createKeychainImageGeometry,
+  keychainImageBuild,
+  placeKeychainImage,
+  type KeychainImageFit,
+} from "@/lib/constructor/keychain-image";
+import {
   buildKeychainPresetGeometry,
   nfcLayout,
   type KeychainPresetGeometryParams,
@@ -920,13 +926,16 @@ function fitPresetText(
  * Лицо — сторона по умолчанию, но у кирпича его занимают шипы, а у шестерни
  * ступица, поэтому там выгоднее оборот. Сравниваются кегли: оборот выигрывает
  * только тогда, когда строка на нём крупнее хотя бы на `TEXT_FRONT_PREFERENCE`.
+ *
+ * Сторона возвращается вместе с сеткой: картинка обходит буквы только на своей
+ * стороне, и без этого числа она штамповала бы чужой рельеф в собственную маску.
  */
 function createPresetTextGeometry(
   body: BufferGeometry,
   params: KeychainParams,
   keepOut: readonly KeychainTextKeepOut[],
   font: Font,
-): BufferGeometry | null {
+): { geometry: BufferGeometry; side: KeychainTextSide } | null {
   const text = params.text.trim();
 
   if (!text) {
@@ -952,7 +961,7 @@ function createPresetTextGeometry(
     return null;
   }
 
-  return createKeychainTextGeometry({
+  const geometry = createKeychainTextGeometry({
     centerX: chosen.centerX,
     centerY: chosen.centerY,
     depth: params.textDepth,
@@ -962,42 +971,39 @@ function createPresetTextGeometry(
     text,
     thickness: params.thickness,
   });
+
+  return geometry ? { geometry, side: chosen.side } : null;
 }
 
 /**
- * Приклеивает имя к геометрии пресета.
+ * Что получилось из картинки при сборке: по этим числам панель предупреждает.
  *
- * Буквы идут отдельной оболочкой, как у своего контура: слайсер объединяет её с
- * телом при печати. Габарит и сфера пересчитываются всегда — по ним камера
- * строит кадр, а роут считает вес детали.
- *
- * Визитка пропускается: у неё своё имя (`qrName`), и оно стоит под кодом.
+ * Отчёт заполняется только если картинка есть в параметрах. `image = null` —
+ * картинки нет вовсе; `image.side = null` — она не встала ни на одну сторону.
  */
-function attachPresetText(
+export type KeychainBuildReport = {
+  image: KeychainImageFit | null;
+};
+
+/**
+ * Приклеивает оболочку к телу и освобождает обе исходные сетки.
+ *
+ * `mergeGeometries` копирует данные: без `dispose` слайдер оставлял бы в памяти
+ * по паре буферов на каждое движение. Габарит и сфера пересчитываются всегда —
+ * по ним камера строит кадр, а роут считает вес детали.
+ */
+function mergeInto(
   body: BufferGeometry,
-  params: KeychainParams,
-  keepOut: readonly KeychainTextKeepOut[],
-  font: Font | null,
+  part: BufferGeometry,
+  error: string,
 ): BufferGeometry {
-  const text =
-    font && params.showText && params.keychainPreset !== "qr-card"
-      ? createPresetTextGeometry(body, params, keepOut, font)
-      : null;
-
-  if (!text) {
-    body.computeBoundingBox();
-    body.computeBoundingSphere();
-
-    return body;
-  }
-
-  const merged = mergeGeometries([body, text]);
+  const merged = mergeGeometries([body, part]);
 
   body.dispose();
-  text.dispose();
+  part.dispose();
 
   if (!merged) {
-    throw new Error("Не удалось объединить геометрию пресета и текст");
+    throw new Error(error);
   }
 
   merged.computeBoundingBox();
@@ -1006,7 +1012,164 @@ function attachPresetText(
   return merged;
 }
 
+/**
+ * Ставит картинку на брелок и приклеивает её рельеф.
+ *
+ * Сторона выбирается так же, как у имени: сначала лицо. Если на лице места нет
+ * (буквы и отверстие заняли всю полосу), картинка пробует оборот — там она
+ * обычно встаёт целиком. Запрошенный масштаб остаётся просьбой: подгонка шагом
+ * 5% ужимает логотип, пока он не обойдёт все препятствия, и отчёт говорит, во
+ * сколько раз он ужался.
+ *
+ * `null` в отчёте — картинки нет; `side: null` — не встала никуда. Модель в этом
+ * случае печатается без логотипа: пустой брелок честнее отдельной плавающей
+ * оболочки, которую слайсер не соединит с телом.
+ */
+function attachKeychainImage(
+  body: BufferGeometry,
+  params: KeychainParams,
+  keepOut: readonly KeychainTextKeepOut[],
+  text: { geometry: BufferGeometry; side: KeychainTextSide } | null,
+  report: KeychainBuildReport | undefined,
+): BufferGeometry {
+  // У визитки лицо занято кодом: логотип накрыл бы модули, а запас хода у
+  // картинки всего один — уменьшение сдвинуло бы её под код, но не спасло бы
+  // сканируемость. Поэтому рельефов у визитки нет вовсе: ни имени, ни картинки.
+  if (params.keychainPreset === "qr-card") {
+    if (report) {
+      report.image = null;
+    }
 
+    return body;
+  }
+
+  const build = keychainImageBuild(params.imageData);
+
+  if (!build) {
+    if (report) {
+      report.image = null;
+    }
+
+    return body;
+  }
+
+  const options = {
+    build,
+    keepOut,
+    offsetX: params.imageOffsetX,
+    offsetY: params.imageOffsetY,
+    scale: params.imageScale,
+    text,
+  };
+  const placement =
+    placeKeychainImage(body, { ...options, side: "front" }) ??
+    placeKeychainImage(body, { ...options, side: "back" });
+
+  if (!placement) {
+    if (report) {
+      report.image = {
+        actual: 0,
+        requested: params.imageScale,
+        side: null,
+        size: 0,
+      };
+    }
+
+    return body;
+  }
+
+  const geometry = createKeychainImageGeometry({
+    build,
+    centerX: placement.centerX,
+    centerY: placement.centerY,
+    depth: params.imageDepth,
+    side: placement.side,
+    size: placement.size,
+    thickness: params.thickness,
+  });
+
+  if (report) {
+    report.image = geometry
+      ? {
+          actual: placement.actual,
+          requested: placement.requested,
+          side: placement.side,
+          size: placement.size,
+        }
+      : { actual: 0, requested: params.imageScale, side: null, size: 0 };
+  }
+
+  if (!geometry) {
+    return body;
+  }
+
+  return mergeInto(body, geometry, "Не удалось объединить брелок и картинку");
+}
+
+/**
+ * Приклеивает к геометрии пресета картинку и имя.
+ *
+ * Сначала картинка: буквы ещё живут отдельной сеткой, и она обходит их через
+ * маску грани с зазором `IMAGE_TEXT_GAP_MM`. Если поставить имя первым, маска
+ * увидела бы его только как чужой рельеф — без запаса, вплотную.
+ *
+ * Буквы идут отдельной оболочкой, как у своего контура: слайсер объединяет её с
+ * телом при печати.
+ *
+ * Визитка пропускается: у неё своё имя (`qrName`), и оно стоит под кодом.
+ */
+function attachPresetDetails(
+  body: BufferGeometry,
+  params: KeychainParams,
+  keepOut: readonly KeychainTextKeepOut[],
+  font: Font | null,
+  report: KeychainBuildReport | undefined,
+): BufferGeometry {
+  const text =
+    font && params.showText && params.keychainPreset !== "qr-card"
+      ? createPresetTextGeometry(body, params, keepOut, font)
+      : null;
+  const withImage = attachKeychainImage(body, params, keepOut, text, report);
+
+  return text
+    ? mergeInto(
+        withImage,
+        text.geometry,
+        "Не удалось объединить геометрию пресета и текст",
+      )
+    : withImage;
+}
+
+
+
+/**
+ * Свой контур с именем и картинкой: разметка силуэта и обе оболочки.
+ *
+ * Имя у своего контура стоит на лице — сторону выбирает разметка, а не карта
+ * грани. Картинка идёт первой: буквы ещё отдельная сетка, и логотип обходит их с
+ * зазором, а не вплотную.
+ */
+function attachOwnTextAndImage(
+  params: KeychainParams,
+  font: Font | null,
+  report: KeychainBuildReport | undefined,
+): BufferGeometry {
+  const outline = createOutline(params, edgeBevel(params.thickness));
+  const base = createBaseGeometry(params, outline);
+  const text =
+    font && params.showText ? createTextGeometry(params, font, outline) : null;
+  const withImage = attachKeychainImage(
+    base,
+    params,
+    [],
+    text ? { geometry: text, side: "front" } : null,
+    report,
+  );
+
+  return text
+    ? mergeInto(withImage, text, "Не удалось объединить основу брелока и текст")
+    : withImage;
+}
 
 /**
  * Собирает брелок в одну сетку.
@@ -1015,12 +1178,17 @@ function attachPresetText(
  * сцена показывает силуэт без имени, а после загрузки пересобирает его.
  * Серверный экспорт передаёт шрифт всегда.
  *
+ * `report` — необязательный приёмник итогов: панель по нему узнаёт, во сколько
+ * раз ужалась картинка и на какую сторону она встала. Так отчёт не требует
+ * второй сборки модели: геометрия уже построена, остаётся записать числа.
+ *
  * mergeGeometries копирует данные в новую сетку; исходные оболочки
  * освобождаются сразу, чтобы слайдер не оставлял мусор в памяти.
  */
 export function createKeychainGeometry(
   params: Partial<KeychainParams>,
   font: Font | null = null,
+  report?: KeychainBuildReport,
 ): BufferGeometry {
   const normalized = normalizeKeychainParams(params);
   const presetParams: KeychainPresetGeometryParams = {
@@ -1044,47 +1212,22 @@ export function createKeychainGeometry(
     : null;
 
   // Пресет строится из своих чисел: ушко и карман под метку у него собственные,
-  // поэтому к готовой сетке добавляется только имя — тем же способом, что и к
-  // своему контуру, но полосу под буквы ищет общий помощник.
-  if (preset) {
-    return attachPresetText(
-      preset,
-      normalized,
-      presetTextKeepOut(normalized, presetParams),
-      font,
-    );
-  }
+  // поэтому к готовой сетке добавляются только имя и картинка — тем же способом,
+  // что и к своему контуру, но полосу под буквы ищет общий помощник.
+  const built = preset
+    ? attachPresetDetails(
+        preset,
+        normalized,
+        presetTextKeepOut(normalized, presetParams),
+        font,
+        report,
+      )
+    : attachOwnTextAndImage(normalized, font, report);
 
-  const outline = createOutline(normalized, edgeBevel(normalized.thickness));
-  const base = createBaseGeometry(normalized, outline);
+  // Габарит и сфера нужны камере и расчёту веса всегда, даже когда в модели нет
+  // ни имени, ни картинки: без них кадр строится по пустому bbox.
+  built.computeBoundingBox();
+  built.computeBoundingSphere();
 
-  if (!font || !normalized.showText) {
-    base.computeBoundingBox();
-    base.computeBoundingSphere();
-
-    return base;
-  }
-
-  const text = createTextGeometry(normalized, font, outline);
-
-  if (!text) {
-    base.computeBoundingBox();
-    base.computeBoundingSphere();
-
-    return base;
-  }
-
-  const merged = mergeGeometries([base, text]);
-
-  base.dispose();
-  text.dispose();
-
-  if (!merged) {
-    throw new Error("Не удалось объединить основу брелока и текст");
-  }
-
-  merged.computeBoundingBox();
-  merged.computeBoundingSphere();
-
-  return merged;
+  return built;
 }

@@ -23,6 +23,7 @@ import {
   shouldAskForConstructorFeedback,
 } from "@/lib/constructor/feedback";
 import type { SavedProjectNotice } from "@/lib/constructor/projects";
+import type { KeychainBuildReport } from "@/lib/constructor/keychain-geometry";
 import { randomVaseParams } from "@/lib/constructor/vase-random";
 import {
   keychainPresetById,
@@ -427,6 +428,15 @@ export function ConstructorClient({
   /** Сообщение о загрузке проекта в шапке: успех или «не нашли». */
   const [savedProjectNotice, setSavedProjectNotice] =
     useState<SavedProjectNotice | null>(null);
+  /**
+   * Итоги размещения картинки на брелоке.
+   *
+   * Заполняет сцена: только у неё есть собранная карта грани. Панель показывает
+   * по этим числам, встал ли логотип и насколько он ужался ради букв.
+   */
+  const [keychainImageReport, setKeychainImageReport] =
+    useState<KeychainBuildReport | null>(null);
+
   /** Модель, по которой открыт опрос после скачивания; null — окно закрыто. */
   const [feedbackModel, setFeedbackModel] = useState<ModelType | null>(null);
   /** Один и тот же проект не загружаем дважды (StrictMode в dev). */
@@ -485,6 +495,20 @@ export function ConstructorClient({
 
   /** Закрытие опроса: таймер уже отработал, окно убираем из разметки. */
   const closeFeedback = useCallback(() => setFeedbackModel(null), []);
+
+  /**
+   * Отчёт сцены о картинке на брелоке.
+   *
+   * Ссылка держится стабильной: эффект в сцене зависит от этого колбэка, и новая
+   * функция на каждый рендер вызывала бы его бесконечно. Пустой отчёт (нет
+   * картинки или модель не брелок) превращается в null, чтобы панель не
+   * показывала чужие числа после переключения модели.
+   */
+  const handleKeychainImageReport = useCallback(
+    (report: KeychainBuildReport | null) =>
+      setKeychainImageReport(report?.image ? report : null),
+    [],
+  );
 
   // Окно опроса не должно появиться после ухода со страницы.
   useEffect(
@@ -710,6 +734,19 @@ export function ConstructorClient({
   function updateKeychainCustomSvg(customSvgData: string) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, customSvgData }),
+    );
+  }
+
+  /**
+   * Картинка на грани брелока: маска SVG в base64 или null.
+   *
+   * Нормализация проверит длину и формат маски: панель собирает её на canvas, а
+   * сюда может попасть и проект из ссылки. Масштаб и смещения остаются как есть:
+   * они безвредны без картинки и возвращают подобранное место при новой загрузке.
+   */
+  function updateKeychainImage(imageData: string | null) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, imageData }),
     );
   }
 
@@ -1128,6 +1165,8 @@ export function ConstructorClient({
             onJewelryConfigChange={updateJewelryConfig}
             onKeychainPresetChange={updateKeychainPreset}
             onKeychainShapeChange={updateKeychainShape}
+            onKeychainImageChange={updateKeychainImage}
+            keychainImageReport={keychainImageReport}
             onLithoFrameChange={updateLithoFrame}
             onLithoMountChange={updateLithoMount}
             onLithophaneBrightnessChange={updateLithophaneBrightness}
@@ -1274,7 +1313,11 @@ export function ConstructorClient({
             </div>
 
             <div className="mt-3 flex min-h-0 flex-col lg:mt-2 lg:flex-1">
-              <Viewport params={params} />
+              <Viewport
+                params={params}
+                onKeychainImageReport={handleKeychainImageReport}
+              />
+
             </div>
           </div>
         </section>

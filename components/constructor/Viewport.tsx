@@ -37,6 +37,7 @@ import { calculateGeometryWeightGrams } from "@/lib/constructor/geometry-volume"
 import {
   KEYCHAIN_FONT_URL,
   createKeychainGeometry,
+  type KeychainBuildReport,
 } from "@/lib/constructor/keychain-geometry";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
@@ -77,7 +78,15 @@ import {
 type ViewportProps = {
   /** Все параметры выбранной модели: сцена читает их вместе с геометрией. */
   params: ConstructorParams;
+  /**
+   * Итоги сборки брелока: куда встала картинка и насколько ужалась.
+   *
+   * Отчёт считается той же сборкой, что показывает сцена: второй расчёт в
+   * панели разошёлся бы с предпросмотром на первом же изменении букв.
+   */
+  onKeychainImageReport?: (report: KeychainBuildReport | null) => void;
 };
+
 
 /**
  * Габариты модели для камеры и подписи под сценой.
@@ -733,7 +742,14 @@ function Scene({ params, geometry, framing }: SceneProps) {
  * высоту сцены, поэтому Canvas не схлопывается до нуля и не растягивает
  * страницу по горизонтали.
  */
-export function Viewport({ params }: ViewportProps) {
+export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
+  /**
+   * Приёмник отчёта о картинке. Живёт в ref, а не в состоянии: числа пишет
+   * сборка геометрии, а показывать их панель будет после коммита — иначе
+   * setState из useMemo пересобирал бы сцену на каждом рендере.
+   */
+  const keychainReport = useRef<KeychainBuildReport>({ image: null });
+
   /**
    * Брелок и вывеска подписываются шрифтом, остальным моделям он не нужен. У
    * вывески шрифт выбирает пользователь, поэтому путь зависит от signFont:
@@ -817,8 +833,12 @@ export function Viewport({ params }: ViewportProps) {
    * вывеска — без букв: пустая сетка честнее случайной надписи.
    */
   const geometry = useMemo(() => {
+    // Отчёт прошлой сборки не должен переживать смену модели: брелок в сцене
+    // остался один, и чужие числа картинки панели не нужны.
+    keychainReport.current = { image: null };
+
     if (params.model === "keychain") {
-      return createKeychainGeometry(params, font);
+      return createKeychainGeometry(params, font, keychainReport.current);
     }
 
     if (params.model === "stand") {
@@ -877,6 +897,17 @@ export function Viewport({ params }: ViewportProps) {
   // Старая сетка живёт в GPU-буфере: без dispose каждая правка слайдера
   // оставляла бы мусор до перезагрузки страницы.
   useEffect(() => () => geometry.dispose(), [geometry]);
+
+  /**
+   * Отчёт о картинке уходит наверх после коммита — когда сетка уже собрана.
+   *
+   * Зависимость — сама сетка: любая правка, меняющая геометрию, пересчитывает и
+   * размещение логотипа, а правка камеры или света сетку не трогает и лишнего
+   * обновления не вызовет.
+   */
+  useEffect(() => {
+    onKeychainImageReport?.(keychainReport.current);
+  }, [geometry, onKeychainImageReport]);
 
   /**
    * Габариты для камеры и подписи. У вывески ширина и высота зависят от

@@ -33,6 +33,9 @@ import {
   DEFAULT_LITHOPHANE_PARAMS,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
+  KEYCHAIN_IMAGE_DEPTH_LIMITS,
+  KEYCHAIN_IMAGE_OFFSET_LIMITS,
+  KEYCHAIN_IMAGE_SCALE_LIMITS,
   KEYCHAIN_TEXT_DEPTH_LIMITS,
   KEYCHAIN_TEXT_OFFSET_LIMITS,
   boxStlFileName,
@@ -43,6 +46,7 @@ import {
   isCoasterShape,
   isCustomSvgData,
   isJewelryConfig,
+  isKeychainImageData,
   isKeychainShape,
   isLithophaneBrightness,
   isLithophaneMount,
@@ -485,6 +489,11 @@ function parseKeychainParams(
     qrContent = "",
     qrName = "",
     qrPhone = "",
+    imageData = null,
+    imageScale,
+    imageOffsetX,
+    imageOffsetY,
+    imageDepth,
   } = body;
   const preset = isKeychainPresetId(keychainPreset) ? keychainPreset : null;
   // Неизвестный идентификатор — ошибка ввода, а не «пресета нет»: иначе запрос
@@ -552,10 +561,44 @@ function parseKeychainParams(
         KEYCHAIN_TEXT_DEPTH_LIMITS.min,
         KEYCHAIN_TEXT_DEPTH_LIMITS.max,
       ));
+  // Картинка на грани: сервер не разбирает пиксели — браузер присылает уже
+  // готовую маску, — но проверяет её формат и длину, иначе в файл уйдёт строка,
+  // которую геометрия не прочитает, и логотип из предпросмотра исчезнет молча.
+  // Числа размещения держатся в границах слайдеров, как смещение имени: 3 мм
+  // рельефа вместо 1 мм разошлись бы с тем, что человек видит на экране.
+  const imageInvalid =
+    (imageData !== null &&
+      imageData !== undefined &&
+      !isKeychainImageData(imageData)) ||
+    (imageScale !== undefined &&
+      !isNumberInRange(
+        imageScale,
+        KEYCHAIN_IMAGE_SCALE_LIMITS.min,
+        KEYCHAIN_IMAGE_SCALE_LIMITS.max,
+      )) ||
+    (imageOffsetX !== undefined &&
+      !isNumberInRange(
+        imageOffsetX,
+        KEYCHAIN_IMAGE_OFFSET_LIMITS.min,
+        KEYCHAIN_IMAGE_OFFSET_LIMITS.max,
+      )) ||
+    (imageOffsetY !== undefined &&
+      !isNumberInRange(
+        imageOffsetY,
+        KEYCHAIN_IMAGE_OFFSET_LIMITS.min,
+        KEYCHAIN_IMAGE_OFFSET_LIMITS.max,
+      )) ||
+    (imageDepth !== undefined &&
+      !isNumberInRange(
+        imageDepth,
+        KEYCHAIN_IMAGE_DEPTH_LIMITS.min,
+        KEYCHAIN_IMAGE_DEPTH_LIMITS.max,
+      ));
 
   if (
     sizeInvalid ||
     textStyleInvalid ||
+    imageInvalid ||
     !isNumberInRange(thickness, thicknessLimits.min, thicknessLimits.max) ||
     !isValidKeychainText(text) ||
     presetInvalid ||
@@ -630,6 +673,37 @@ function parseKeychainParams(
     qrContent: typeof qrContent === "string" ? qrContent : undefined,
     qrName: typeof qrName === "string" ? qrName : undefined,
     qrPhone: typeof qrPhone === "string" ? qrPhone : undefined,
+    // Маска картинки и её размещение: undefined оставляет значения по умолчанию,
+    // а null (картинки нет) нормализация принимает как «рельефа нет».
+    imageData: isKeychainImageData(imageData) ? imageData : undefined,
+    imageScale: isNumberInRange(
+      imageScale,
+      KEYCHAIN_IMAGE_SCALE_LIMITS.min,
+      KEYCHAIN_IMAGE_SCALE_LIMITS.max,
+    )
+      ? imageScale
+      : undefined,
+    imageOffsetX: isNumberInRange(
+      imageOffsetX,
+      KEYCHAIN_IMAGE_OFFSET_LIMITS.min,
+      KEYCHAIN_IMAGE_OFFSET_LIMITS.max,
+    )
+      ? imageOffsetX
+      : undefined,
+    imageOffsetY: isNumberInRange(
+      imageOffsetY,
+      KEYCHAIN_IMAGE_OFFSET_LIMITS.min,
+      KEYCHAIN_IMAGE_OFFSET_LIMITS.max,
+    )
+      ? imageOffsetY
+      : undefined,
+    imageDepth: isNumberInRange(
+      imageDepth,
+      KEYCHAIN_IMAGE_DEPTH_LIMITS.min,
+      KEYCHAIN_IMAGE_DEPTH_LIMITS.max,
+    )
+      ? imageDepth
+      : undefined,
   });
 }
 

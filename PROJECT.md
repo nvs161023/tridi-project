@@ -1713,7 +1713,7 @@ M117, моторы) и правило «без отвода — вмятина �
   сетки, поэтому верх рамки не обрезается.
 - **Экспорт STL:** `app/api/constructor/stl/route.ts` принимает `POST` с общим объектом
   параметров и полем `model`. Для вазы строит профильную сетку с узором, для брелока — основу с
-  отверстием и именем, для подставки — цельную П-образную деталь по наклону, толщине телефона и
+  отверстием, картинкой из маски `imageData` и именем, для подставки — цельную П-образную деталь по наклону, толщине телефона и
   ширине, для вывески — блок надписи выбранным шрифтом (`signFont`, путь берётся из
   `SIGN_FONT_URLS`, поэтому тело запроса не может прочитать произвольный файл): `face` с буквами и
   плитой или `cover` с задней крышкой (`blockIndex` — номер из `listSignBlocks`, где пробелы не
@@ -1728,6 +1728,9 @@ M117, моторы) и правило «без отвода — вмятина �
   старых клиентов, но переданные значения проверяются строго; запрос без `model` считается вазой.
   Деталь литофана сверяется с формой: без рамки принимается только `relief`, а `stand` требует ещё
   и своего крепления. Остальные сочетания отклоняются с 422: собирать нечего.
+  У брелока `imageData` проверяется по формату и пределу длины (`isKeychainImageData`, 96 КБ), а
+  `imageScale`, `imageOffsetX`, `imageOffsetY` и `imageDepth` — по границам слайдеров; значение вне
+  границ отклоняется с 422 `invalid_params`, а не подрезается молча.
   Ответ — `Content-Type: model/stl`, `Content-Disposition: attachment` с именем
   `tridi-vaza-{shape}[-{pattern}]-h{height}-d{diameter}-w{wall}[-twist{deg}][-flutes{n}x{depth}][-sides{n}][-organic{pct}][-lean{deg}][-s{seed}].stl`,
   `tridi-brelyok-{keychainShape|keychainPreset}-l{length}-w{width}-t{thickness}[-nfc].stl`,
@@ -3374,7 +3377,7 @@ FlashForge и Elegoo
 | `lib/supabase/client.ts` | Браузерный клиент: страницы `/auth/confirm` и `/auth/reset-password` — сессию после клика по кнопке записывает браузер |
 | `lib/supabase/middleware.ts` | `updateSession`: обновление сессии, защита закрытых маршрутов, гейт неподтверждённой почты, проброс пользователя заголовком, редиректы авторизованных со страниц входа |
 | `lib/supabase/user-headers.ts` | Кодирование и чтение заголовка `x-supabase-user`: страницы не делают лишний сетевой `getUser()`. Заголовок всегда перезаписывается middleware, поэтому подделать его нельзя |
-| `lib/constructor/params.ts` | Параметры конструктора: тип модели (`vase`, `keychain`, `stand`, `sign`, `box`, `lithophane`, `planter`, `coaster`, `jewelry_stand`, `pen_holder`, `heat_transfer`), список витрин `CONSTRUCTOR_TOOLS` (название и описание каждого генератора для `/subscription` и `/tools`), границы и шаг высоты, диаметра, стенки, силы и частоты узора, граней сечения вазы, длины, ширины и толщины брелока, наклона спинки, толщины телефона и ширины подставки (`standAngle`, `phoneThickness`, `standWidth`), шрифта вывески (`sans-bold`, `sans`, `serif`) с подписями `SIGN_FONT_LABELS`, кегля, выступа, зазора между буквами и размера блока вывески, размеров коробки, массивов ячеек `cellsX`/`cellsY`, трёх пресетов коробки и крышки, размеров и толщин литофана, флага рамки `lithoFrame`, крепления `lithoMount` (`none`, `stand`, `hook`) с подписями `LITHOPHANE_MOUNT_LABELS`, деталей литофана `relief`/`frame`/`stand`/`all` с подписями `LITHOPHANE_PART_LABELS`, сжатой яркости 150 × 150, габарита, высоты и стенки кашпо с флагом дренажа `planterDrainage`, габарита и толщины подставки под кружку с бортиком `coasterRim`, высоты, диаметра основания и набора украшений (`rings`, `necklace`, `combo`) с подписями `JEWELRY_CONFIG_LABELS`, габарита, высоты, стенки, формы и числа отделений органайзера для ручек (`penSize`, `penHeight`, `penWall`, `penShape`, `penSections`) и подписи `PEN_SHAPE_LABELS`, двенадцать пресетов формы (`classic`, `cone`, `cylinder`, `hourglass`, `teardrop`, `double_bulb`, `square`, `octagon`, `mushroom`, `bud`, `bottle`, `bubble`), восемь пресетов брелока в поле `keychainPreset` (`apple-tag`, `capsule`, `hex`, `gear`, `brick`, `ticket`, `starburst`, `heart`) и `custom` для загруженного контура (пресет и контур взаимоисключающие), строки `customSvgData` до 200 КБ, NFC-флага, десять узоров (`smooth`, `spiral`, `ribs`, `waves`, `honeycomb`, `scales`, `basket`, `chevron`, `moire`, `flutes`), 1–3 слоя узора с амплитудой 0–3 мм, частотой 1–32, фазой 0–360° и затуханием 0–30 мм (`PatternLayer`, `nextPatternLayer`), формы кашпо и подставки под кружку (`round`, `square`, `hex`) с подписями `PLANTER_SHAPE_LABELS`/`COASTER_SHAPE_LABELS`, трёх узоров подставки (`plain`, `rings`, `dots`) с подписями `COASTER_PATTERN_LABELS`, каналы вывески 8/10 мм, детали блока (`face`, `cover`), значения по умолчанию, нормализация всех моделей, проверка и очистка имени, `listSignBlocks`, `listSignLetters` (номер буквы без учёта пробелов) и общие имена STL `vaseStlFileName`, `keychainStlFileName`, `standStlFileName`, `signStlFileName`, `boxStlFileName`, `lithophaneStlFileName(params, part)`, `planterStlFileName`, `coasterStlFileName`, `jewelryStandStlFileName`, `penHolderStlFileName` и `heatTransferStlFileName`; `vaseGenerationDetails` отдаёт плоские поля генерации для журнала `constructor_generations` — форму, композицию слоёв строками (`vasePatternLayerTokens`), деформации, цоколь с ободом и сид |
+| `lib/constructor/params.ts` | Параметры конструктора: тип модели (`vase`, `keychain`, `stand`, `sign`, `box`, `lithophane`, `planter`, `coaster`, `jewelry_stand`, `pen_holder`, `heat_transfer`), список витрин `CONSTRUCTOR_TOOLS` (название и описание каждого генератора для `/subscription` и `/tools`), границы и шаг высоты, диаметра, стенки, силы и частоты узора, граней сечения вазы, длины, ширины и толщины брелока, наклона спинки, толщины телефона и ширины подставки (`standAngle`, `phoneThickness`, `standWidth`), шрифта вывески (`sans-bold`, `sans`, `serif`) с подписями `SIGN_FONT_LABELS`, кегля, выступа, зазора между буквами и размера блока вывески, размеров коробки, массивов ячеек `cellsX`/`cellsY`, трёх пресетов коробки и крышки, размеров и толщин литофана, флага рамки `lithoFrame`, крепления `lithoMount` (`none`, `stand`, `hook`) с подписями `LITHOPHANE_MOUNT_LABELS`, деталей литофана `relief`/`frame`/`stand`/`all` с подписями `LITHOPHANE_PART_LABELS`, сжатой яркости 150 × 150, габарита, высоты и стенки кашпо с флагом дренажа `planterDrainage`, габарита и толщины подставки под кружку с бортиком `coasterRim`, высоты, диаметра основания и набора украшений (`rings`, `necklace`, `combo`) с подписями `JEWELRY_CONFIG_LABELS`, габарита, высоты, стенки, формы и числа отделений органайзера для ручек (`penSize`, `penHeight`, `penWall`, `penShape`, `penSections`) и подписи `PEN_SHAPE_LABELS`, двенадцать пресетов формы (`classic`, `cone`, `cylinder`, `hourglass`, `teardrop`, `double_bulb`, `square`, `octagon`, `mushroom`, `bud`, `bottle`, `bubble`), восемь пресетов брелока в поле `keychainPreset` (`apple-tag`, `capsule`, `hex`, `gear`, `brick`, `ticket`, `starburst`, `heart`) и `custom` для загруженного контура (пресет и контур взаимоисключающие), строки `customSvgData` до 200 КБ, маски картинки `imageData` (`data:image/svg+xml;base64` до 96 КБ, проверка `isKeychainImageData`), масштаба картинки `imageScale` 0.5–2, её смещений `imageOffsetX`/`imageOffsetY` −20…20 мм и толщины `imageDepth` 0.2–1 мм с границами `KEYCHAIN_IMAGE_SCALE_LIMITS`, `KEYCHAIN_IMAGE_OFFSET_LIMITS`, `KEYCHAIN_IMAGE_DEPTH_LIMITS`, NFC-флага, десять узоров (`smooth`, `spiral`, `ribs`, `waves`, `honeycomb`, `scales`, `basket`, `chevron`, `moire`, `flutes`), 1–3 слоя узора с амплитудой 0–3 мм, частотой 1–32, фазой 0–360° и затуханием 0–30 мм (`PatternLayer`, `nextPatternLayer`), формы кашпо и подставки под кружку (`round`, `square`, `hex`) с подписями `PLANTER_SHAPE_LABELS`/`COASTER_SHAPE_LABELS`, трёх узоров подставки (`plain`, `rings`, `dots`) с подписями `COASTER_PATTERN_LABELS`, каналы вывески 8/10 мм, детали блока (`face`, `cover`), значения по умолчанию, нормализация всех моделей, проверка и очистка имени, `listSignBlocks`, `listSignLetters` (номер буквы без учёта пробелов) и общие имена STL `vaseStlFileName`, `keychainStlFileName`, `standStlFileName`, `signStlFileName`, `boxStlFileName`, `lithophaneStlFileName(params, part)`, `planterStlFileName`, `coasterStlFileName`, `jewelryStandStlFileName`, `penHolderStlFileName` и `heatTransferStlFileName`; `vaseGenerationDetails` отдаёт плоские поля генерации для журнала `constructor_generations` — форму, композицию слоёв строками (`vasePatternLayerTokens`), деформации, цоколь с ободом и сид |
 | `lib/constructor/vase-profile.ts` | Осевое сечение вазы: внешний силуэт Catmull-Rom-сплайном по одному из двенадцати пресетов (`classic`, `cone`, `cylinder`, `hourglass`, `teardrop`, `double_bulb`, `square`, `octagon`, `mushroom`, `bud`, `bottle`, `bubble`), число точек силуэта из `vaseProfileRows` (зависит от размера и бюджета, второй аргумент `createVaseProfile`), замкнутый контур со стенкой и дном, объём материала по теореме Паппуса |
 | `lib/constructor/vase-geometry.ts` | Сетка вазы: `LatheGeometry` с числом сегментов из `vase-budget.ts`, сечение по граням 3–12 из `vase-section.ts` с сохранением толщины стенки, радиальное смещение вершин по математическому узору и каннелюрам с затуханием у дна и под кромкой, закрутка поворотом колец по высоте, сварка вершин числовым хешем (`weldPositions`, тот же результат, что у `mergeVertices`, но в 8 раз быстрее), удаление вырожденных треугольников, проверка ориентации и пересчёт нормалей; третий аргумент `{ budget }` — режим сборки |
 | `lib/constructor/vase-deformation.ts` | Чистые деформации стенки вазы без three.js: закрутка как фаза по высоте (`phaseAt`) и каннелюры — канавка с плоским дном глубиной в миллиметрах (`fluteNotchAt`), плюс предел глубины по стенке и радиусу (`fluteDepthLimitMm`); общий для геометрии, бюджета сегментов и проверок |
@@ -3384,7 +3387,8 @@ FlashForge и Elegoo
 | `lib/constructor/studio.ts` | Описание студии конструктора — единственный источник чисел для 3D-сцены и для снимков превью: фон `STUDIO_BACKGROUND` с тремя остановками радиального градиента и готовой строкой `STUDIO_BACKGROUND_CSS`, край кадра `STUDIO_BACKGROUND_EDGE`, виньетка `STUDIO_VIGNETTE`, экспозиция `STUDIO_EXPOSURE` 0.92, керамика `STUDIO_CERAMIC` (`#dbe3ee`, `roughness` 0.55, `clearcoat` 0.5 при `clearcoatRoughness` 0.3), пластик остальных моделей `STUDIO_PLASTIC` (`roughness` 0.7, `metalness` 0.1) и его цвета `STUDIO_MODEL_TINTS` по модели, софтбоксы `STUDIO_ENVIRONMENT` (четыре панели, интенсивность 0.22), свет `STUDIO_LIGHTS` (полусфера 0.05, тёплый ключ `#fff4e6` 2.4, заполняющий `#dbe6f4` 0.22, контровой `#bfd3ea` 0.55), стол `STUDIO_FLOOR`, ракурс `STUDIO_CAMERA` и радиус студии `studioSpan`. Для растеризатора превью здесь же формулы: `fillStudioBackground`, `studioVignetteAlpha`, `studioToneMap` (ACES и кривая sRGB как в three, с таблицей вместо степени), `studioEnvironmentRadiance` и `studioSurfaceColor` — тот же `MeshPhysicalMaterial` с глазурью, но на процессоре |
 | `lib/constructor/vase-preview.ts` | Снимок вазы без WebGL и без браузера: `renderVaseRgb` (ортографическая камера, z-буфер, суперсэмплинг, возвращает ещё и `coverage` — долю кадра под моделью, и `contrast` — средний перепад яркости соседних пикселей силуэта) и `cameraBasis`. Студию берёт из `studio.ts`: тёмный градиент, керамика с глазурью, пятно контакта и свет софтбокса на столе, виньетка поверх. Один и тот же код рисует плитки «Галереи форм» в браузере и PNG `public/constructor/recipes` в `scripts/vase-render.mjs` |
 | `lib/constructor/pattern-waves.ts` | Чистые функции рельефа в безразмерных координатах: «соты» (три косинусоиды с поворотом на 60° и сжатием тангенсом), «чешуйки» (наложение синуса и диагонального косинуса), «плетение» (произведение двух сжатых тангенсом синусоид — полосы «над-под»), «шеврон» (фаза полосы сдвигается по высоте треугольной волной), «муар» (произведение двух решёток под прямым углом), «каннелюры» (`2 · |sin(u/2)|^0.5 − 1` — острые жёлоба с широкими гребнями); плюс метаданные узора для геометрии и бюджета — `patternFrequencyScale` (соты и чешуйки мельче в `DETAIL_PATTERN_SCALE` раза) и `patternUsesHeightSpacing` (каким узорам высоту нужно переводить в дугу окружности); без three.js и React, общие для геометрии вазы |
-| `lib/constructor/keychain-geometry.ts` | Сетка брелока: контур из `customSvgData` (запасной жетон, пока файл не разобрался), автоматическое ушко 4 мм в верхней точке контура, `ExtrudeGeometry` с фаской, двухслойный NFC-карман 25 × 25 × 1 мм с пластиком 0.4 мм сверху и поиском места без пересечения отверстий, `TextGeometry` по Roboto Bold с подгонкой по размаху силуэта, объединение оболочек через `mergeGeometries`. Пресет имя тоже получает: `createKeychainGeometry` строит геометрию пресета, затем `attachPresetText` ставит буквы через `placeKeychainText` (кегль по самой широкой полосе карты готовой сетки, ручное смещение `textOffsetX`/`textOffsetY` обрезается по той же карте), предпочитает лицо и уходит на оборот только при выигрыше в кегле (`TEXT_FRONT_PREFERENCE` 0.9), а полость NFC-кармана заранее вырезает из карты (`presetTextKeepOut`: крышка кармана 0.5 мм тоньше рельефа 0.8 мм, буквы над ней прорезали бы её). Своего контура смещение обрезает `clampOutlineOffset`: прямоугольник строки проверяется по точкам контура, шаг 0.5 мм. Флаг `showText` выключает буквы целиком — и у пресета, и у своего контура; `textDepth` задаёт высоту рельефа над пластиком при неизменном внедрении 0.35 мм |
+| `lib/constructor/keychain-geometry.ts` | Сетка брелока: контур из `customSvgData` (запасной жетон, пока файл не разобрался), автоматическое ушко 4 мм в верхней точке контура, `ExtrudeGeometry` с фаской, двухслойный NFC-карман 25 × 25 × 1 мм с пластиком 0.4 мм сверху и поиском места без пересечения отверстий, `TextGeometry` по Roboto Bold с подгонкой по размаху силуэта, объединение оболочек через `mergeGeometries`. Пресет имя тоже получает: `createKeychainGeometry` строит геометрию пресета, затем `attachPresetText` ставит буквы через `placeKeychainText` (кегль по самой широкой полосе карты готовой сетки, ручное смещение `textOffsetX`/`textOffsetY` обрезается по той же карте), предпочитает лицо и уходит на оборот только при выигрыше в кегле (`TEXT_FRONT_PREFERENCE` 0.9), а полость NFC-кармана заранее вырезает из карты (`presetTextKeepOut`: крышка кармана 0.5 мм тоньше рельефа 0.8 мм, буквы над ней прорезали бы её). Своего контура смещение обрезает `clampOutlineOffset`: прямоугольник строки проверяется по точкам контура, шаг 0.5 мм. Флаг `showText` выключает буквы целиком — и у пресета, и у своего контура; `textDepth` задаёт высоту рельефа над пластиком при неизменном внедрении 0.35 мм. Картинка встаёт раньше букв: `attachKeychainImage` берёт `keychainImageBuild` из `params.imageData`, пробует лицо и оборот через `placeKeychainImage`, свободные ячейки под буквы отдаются дальше — имя обходит картинку с зазором `IMAGE_TEXT_GAP_MM`. QR-визитка картинку и имя пропускает: её лицо занято кодом (`report.image = null`). Отчёт сборки `KeychainBuildReport` сообщает стороне панели `image` — фактический масштаб, запрошенный, сторону и размер в мм |
+| `lib/constructor/keychain-image.ts` | Картинка на грани брелока без three.js-сцены: `keychainImageFromPixels` переводит пиксели PNG/JPG в маску (порог по альфе и яркости, marching squares, упрощение Дугласа—Пекера) и отдаёт её строкой `imageData:` + base64 — одна строка в `params_json`, которую одинаково читают браузер и сервер; `decodeKeychainImageMarkup` разбирает её обратно, `keychainImageErrorText` даёт текст отказа для панели (`empty`, пределы растра). `keychainImageBuild` (кэш на 4 маски) разбирает маску обратно в контуры и рамку, `placeKeychainImage` ищет полосу на лице, затем на обороте: `imageFits` проверяет маску по карте грани с зазором `IMAGE_TEXT_GAP_MM` до букв, а запрошенный масштаб остаётся просьбой — при нехватке места размер уменьшается шагом `IMAGE_SCALE_STEP` до `IMAGE_MIN_SCALE_SHARE`; возвращает центр, сторону и фактический масштаб. `keychainImageReliefMm(depth)` = `depth + 0.35` (внедрение в тело), `createKeychainImageGeometry` выдавливает маску без фаски и ставит её на грань |
 | `lib/constructor/keychain-text.ts` | Надпись брелока без знания формул силуэта: `measureKeychainText` меряет строку через `ShapeGeometry`, `keychainTextReliefMm` считает выдавливание как `textDepth` из панели плюс внедрение 0.35 мм, `createKeychainTextGeometry` выдавливает `TextGeometry` с фаской и ставит её на лицо (растёт вверх от `thickness − внедрение`) или на оборот (растёт вниз, поворот 180° вокруг X). `buildFaceMask` растеризует грань сеткой 0.4 мм: `stampTriangle` закрашивает треугольники в плоскости грани, `dilate` наращивает запас 1.2 мм, `stampKeepOut` вырезает круги (полость NFC), `facePlane` и `widestBand` выбирают самую широкую полосу без учёта узких щелей. `placeKeychainText` ставит строку в эту полосу с ручным смещением `textOffsetX`/`textOffsetY`: `clampTextOffset` отступает к центру полосы шагами сетки, пока прямоугольник строки не ляжет на свободные ячейки (`rectFits`, `cellSpan`), поэтому буквы упираются в кромку, отверстие и чужой рельеф, но не сходят с детали. Без three.js-сцены и React: один код на пресеты, свой контур и серверный роут |
 
 | `lib/constructor/keychain-fallback-shape.ts` | Единственная SVG-строка брелока: запасной жетон viewBox 0 0 100 100 без `<style>` и `transform`, понятный серверному парсеру; показывается, пока свой контур не разобрался, и в печать не уходит |
@@ -11199,6 +11203,83 @@ QR-визитки флажок скрыт, у неё своё имя `qrName`. �
 
 Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `check:docs` /
 `check:imports` (1990 импортов) / `check:style` — зелёные, `npm run build` — без ошибок.
+
+**Картинка на брелоке: PNG/JPG с местом, размером и высотой (8 ноября 2026).**
+
+У брелока не было логотипа на грани. Кнопка «Загрузить свой контур» принимала SVG (а PNG и JPG
+переводила в силуэт) и подменяла форму детали: логотип становился контуром брелока, а не рельефом
+на его лице — загрузить картинку на грань было некуда.
+
+Сервер пиксели не разбирает. `lib/constructor/keychain-image.ts` переводит растр в маску ещё в
+браузере: `keychainImageFromPixels` бинаризует пиксели (альфа, а без неё — яркость), обводит
+изолинию marching squares, упрощает контуры Дугласом—Пекером и складывает их в
+`data:image/svg+xml;base64` — ту же строку, что читает свой контур (`svg-outline.ts`). Поэтому
+картинка живёт в `params_json` одной строкой до 96 КБ (`KEYCHAIN_IMAGE_MAX_LENGTH`), а формат
+проверяет дешёвая `isKeychainImageData`: полный разбор SVG остаётся в геометрии. Пустая маска и
+слишком подробный рисунок возвращают код ошибки, панель показывает его вместо превью.
+
+В панели рядом со «Своим контуром» появился блок «Картинка на брелоке»: кнопка загрузки (PNG и JPG,
+предел файла 10 МБ), превью маски, «Убрать» и свёрнутое «Настройки картинки» — масштаб 0.5–2,
+смещение по X и Y (−20…20 мм, шаг 1) и толщина рельефа 0.2–1 мм (по умолчанию 0.6). Файл читает
+`keychainImageDataFromFile` в `components/constructor/ParameterPanel.tsx`: рисует его в canvas
+сеткой 96 пикселей по большей стороне (пропорции сохраняются, кадр не обрезается) и отдаёт пиксели
+в `keychainImageFromPixels`, поэтому память не зависит от разрешения исходника.
+
+Размещение — тот же код, что у имени. `placeKeychainImage` строит карту грани сеткой 0.4 мм
+(`buildFaceMask` из `keychain-text.ts`: кромка, отверстие под кольцо, полость NFC-кармана), ищет
+самую широкую свободную полосу и вписывает в неё маску при масштабе 1. Число из слайдера — просьба:
+если картинка в запрошенном размере не ложится на свободные ячейки (`imageFits` смотрит на
+покрытие маски, а не на её прямоугольник), размер уменьшается шагом 5 % до 25 % от базового, а
+панель по отчёту пишет «ужалась до 85 % запрошенного размера: 27.0 мм на лице» либо «не поместилась:
+грань занята буквами и отверстием». Ручное смещение обрезается шагами сетки, как у
+букв: 20 мм — это «к краю», а не «за край».
+
+Картинка встаёт раньше букв. `attachKeychainImage` в `keychain-geometry.ts` вставляет рельеф в тело,
+и уже после этого `attachPresetText` ищет место для имени — буквы обходят логотип с зазором 0.8 мм
+(`IMAGE_TEXT_GAP_MM`), а не прорезают его. Сторона выбирается по месту: сначала лицо, при нехватке
+— оборот (у LEGO-кирпича лицо занято шипами, и картинка честно уходит на спину). Рельеф растёт от
+`thickness − 0.35` до `thickness + imageDepth`: 0.35 мм картинка входит в тело, поэтому слайсер
+печатает её частью брелока, а не отдельной оболочкой на весу. Фаски у картинки нет намеренно —
+скругление кромки съедало бы тонкие перемычки логотипа, и толщина остаётся ровно
+`imageDepth + 0.35`.
+
+Отчёт сборки получил поле `image`: сторона, запрошенный и фактический масштаб, размер в мм.
+`Viewport.tsx` держит `KeychainBuildReport` в `useRef` и отдаёт его наружу через
+`onKeychainImageReport`, `ConstructorClient.tsx` кладёт его в состояние и передаёт в панель, поэтому
+предпросмотр и панель считают одно и то же. У QR-визитки рельефа нет: её лицо занято кодом
+(`report.image = null`).
+
+Роут `app/api/constructor/stl/route.ts` проверяет маску и размещение строго: `imageData` — по
+формату и длине, `imageScale`, `imageOffsetX`, `imageOffsetY`, `imageDepth` — по границам
+слайдеров. Значение вне границ отклоняется с 422 `invalid_params`, а не подрезается молча; старый
+клиент поля не присылает, и нормализация ставит значения по умолчанию.
+
+Замеры `.fonttmp/check-keychain-image.mjs` (логотип-кольцо с крестом, 128 × 128, маска 1.0 КБ,
+имя выключено, масштаб 1):
+
+| пресет | сторона | размер | треугольников |
+| --- | --- | --- | --- |
+| Apple Tag | лицо | 32.0 мм | 4 136 |
+| Capsule | лицо | 20.4 мм | 2 576 |
+| Hex | лицо | 17.2 мм | 3 392 |
+| Gear | лицо | 4.4 мм | 50 740 |
+| Brick | оборот | 28.4 мм | 7 976 |
+| Ticket | лицо | 24.4 мм | 11 168 |
+| Starburst | лицо | 8.8 мм | 10 424 |
+| Heart | лицо | 10.0 мм | 4 856 |
+
+Размер у каждого свой, потому что свободная полоса разная: у шестерни между зубьями остаётся
+узкое окно 4.4 мм, у вспышки лучи съедают середину (8.8 мм). Это не ошибка, а честный ответ
+карты — человек поднимает масштаб, и картинка упирается в предел силуэта. Проверка печати: 28
+проверок, провалов 0 — незамкнутых рёбер нет ни у одного пресета, рельеф при толщине 3 и глубине
+0.6 занимает Z 2.65…3.60, смещение 20 мм даёт центр 0;7.6 при габарите −15…15 по X, сохранение
+проекта возвращает маску вместе с масштабом, смещением и толщиной, а бинарный STL
+(тот же `STLExporter`, что в роуте) сходится с формулой `84 + 50 × треугольники`: Apple Tag 5 308
+треугольников / 259 КБ, Hex 4 564 / 223 КБ.
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `check:docs` /
+`check:imports` / `check:style` — зелёные, `npm run build` — без ошибок.
+
 
 
 

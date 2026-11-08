@@ -26,7 +26,13 @@ import {
   KEYCHAIN_NFC_TAG_MM,
   keychainNfcLayers,
   measureKeychainNfc,
+  type KeychainBuildReport,
 } from "@/lib/constructor/keychain-geometry";
+import {
+  KEYCHAIN_IMAGE_GRID,
+  keychainImageErrorText,
+  keychainImageFromPixels,
+} from "@/lib/constructor/keychain-image";
 import {
   APPLE_TAG_RING_HOLE_INSET_MM,
   RING_HOLE_DIAMETER_MM,
@@ -77,6 +83,9 @@ import {
   JEWELRY_CONFIG_LABELS,
   KEYCHAIN_SHAPES,
   KEYCHAIN_SHAPE_LABELS,
+  KEYCHAIN_IMAGE_DEPTH_LIMITS,
+  KEYCHAIN_IMAGE_OFFSET_LIMITS,
+  KEYCHAIN_IMAGE_SCALE_LIMITS,
   KEYCHAIN_SVG_MAX_LENGTH,
   KEYCHAIN_TEXT_DEPTH_LIMITS,
   KEYCHAIN_TEXT_MAX_LENGTH,
@@ -85,6 +94,7 @@ import {
   keychainThicknessLimits,
   hasDrawableSvgData,
   isCustomSvgData,
+  isKeychainImageData,
   LITHOPHANE_MOUNTS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PIXEL_COUNT,
@@ -256,6 +266,22 @@ type ParameterPanelProps = {
   onKeychainPresetChange: (preset: KeychainPresetId | null) => void;
   /** Свой SVG-контур: текст SVG или SVG, собранный из загруженной картинки. */
   onCustomSvgChange: (svg: string) => void;
+  /**
+   * Картинка на грани брелока: маска SVG в base64 или null, если её убрали.
+   *
+   * Отдельный обработчик, а не `onParamChange`: тот ведёт к числу. Маску
+   * переводит `keychainImageFromPixels` на canvas, поэтому в параметры приходит
+   * уже проверенная строка, а не файл.
+   */
+  onKeychainImageChange: (imageData: string | null) => void;
+  /**
+   * Что вышло из картинки при последней сборке модели.
+   *
+   * Приходит из сцены: только там есть готовая карта грани, по которой видно,
+   * встал ли логотип и насколько он ужался ради букв. `null` — модель сейчас не
+   * брелок или картинки в параметрах нет.
+   */
+  keychainImageReport?: KeychainBuildReport | null;
   /** Карман под NFC-метку в теле брелока. */
   onNfcChange: (enabled: boolean) => void;
   /**
@@ -877,6 +903,92 @@ async function rasterToContourSvg(file: File): Promise<string> {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CONTOUR_GRID_SIZE} ${CONTOUR_GRID_SIZE}">${rects.join("")}</svg>`;
 }
 
+/**
+ * Предел исходного файла картинки, байт.
+ *
+ * Маска всё равно сжимается до 96 пикселей по большей стороне, поэтому большой
+ * файл — это только память браузера. 10 МБ хватает фотографии с телефона, а
+ * случайный RAW-файл отсекается до чтения.
+ */
+const KEYCHAIN_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Пиксели картинки брелока: пропорции сохраняются, кадр не обрезается.
+ *
+ * У своего контура квадрат режет вытянутое фото по центру — там важен силуэт
+ * целиком в квадрате. Логотип на брелоке, наоборот, приходит прямоугольным:
+ * обрезка съела бы края картинки 3:1, поэтому в квадрат вписывается большая
+ * сторона, а меньшая остаётся пропорциональной. Маска потом сама приводит
+ * габарит к единице, и на грани логотип получает исходные пропорции.
+ *
+ * Сглаживание включено: уменьшение до 96 пикселей даёт субпиксельные переходы,
+ * и обводка ведёт ровную границу, а не лестницу по целым пикселям.
+ */
+async function readKeychainImagePixels(file: File): Promise<{
+  pixels: Uint8ClampedArray;
+  width: number;
+  height: number;
+}> {
+  if (file.size > KEYCHAIN_IMAGE_MAX_BYTES) {
+    throw new Error(
+      "Картинка больше 10 МБ. Сохраните её поменьше: на брелоке всё равно останется контур 96 пикселей.",
+    );
+  }
+
+  const dataUrl = await readFileAsDataUrl(file);
+  const image = await loadImage(dataUrl);
+  const longest = Math.max(image.naturalWidth, image.naturalHeight);
+
+  if (longest < 2) {
+    throw new Error("Изображение пустое или повреждено.");
+  }
+
+  // Меньшая сторона не опускается ниже двух пикселей: у полоски 100:1 иначе
+  // получилась бы строка в один пиксель, из которой не собрать контур.
+  const width = Math.max(
+    2,
+    Math.round((image.naturalWidth / longest) * KEYCHAIN_IMAGE_GRID),
+  );
+  const height = Math.max(
+    2,
+    Math.round((image.naturalHeight / longest) * KEYCHAIN_IMAGE_GRID),
+  );
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+
+  if (!context) {
+    throw new Error("Браузер не смог подготовить canvas для картинки.");
+  }
+
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(image, 0, 0, width, height);
+
+  return { pixels: context.getImageData(0, 0, width, height).data, width, height };
+}
+
+/**
+ * Готовит `imageData` из файла PNG/JPG.
+ *
+ * В параметры уходит маска, а не файл: сервер не умеет декодировать PNG, зато
+ * разбирает SVG тем же кодом, что силуэт брелока. Пустой рисунок и слишком
+ * подробная картинка возвращаются текстом отказа — панель покажет его под
+ * кнопкой, а прежняя маска останется в модели.
+ */
+async function keychainImageDataFromFile(file: File): Promise<string> {
+  const { pixels, width, height } = await readKeychainImagePixels(file);
+  const converted = keychainImageFromPixels(pixels, width, height);
+
+  if ("error" in converted) {
+    throw new Error(keychainImageErrorText(converted.error));
+  }
+
+  return converted.imageData;
+}
+
 /** SVG берём как текст, PNG и JPG переводим в контур на клиенте. */
 async function keychainContourFromFile(file: File): Promise<string> {
   const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
@@ -1373,6 +1485,8 @@ export function ParameterPanel({
   onRemovePatternLayer,
   onKeychainShapeChange,
   onKeychainPresetChange,
+  onKeychainImageChange,
+  keychainImageReport,
   onCustomSvgChange,
   onNfcChange,
   onHolePlacementChange,
@@ -1417,6 +1531,8 @@ export function ParameterPanel({
   const lithophaneHintId = `${lithophaneInputId}-hint`;
   const keychainContourInputId = useId();
   const keychainContourHintId = `${keychainContourInputId}-hint`;
+  const keychainImageInputId = useId();
+  const keychainImageHintId = `${keychainImageInputId}-hint`;
   const qrContentInputId = useId();
   const qrNameInputId = useId();
   const qrPhoneInputId = useId();
@@ -1430,6 +1546,14 @@ export function ParameterPanel({
   const [isProcessingContour, setIsProcessingContour] = useState(false);
   const [contourError, setContourError] = useState<string | null>(null);
   const [contourFileName, setContourFileName] = useState<string | null>(null);
+  const [isProcessingKeychainImage, setIsProcessingKeychainImage] =
+    useState(false);
+  const [keychainImageError, setKeychainImageError] = useState<string | null>(
+    null,
+  );
+  const [keychainImageFileName, setKeychainImageFileName] = useState<
+    string | null
+  >(null);
   const [isProcessingTransfer, setIsProcessingTransfer] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
   const [transferFileName, setTransferFileName] = useState<string | null>(null);
@@ -1485,6 +1609,17 @@ export function ParameterPanel({
       setContourFileName(null);
     }
   }, [params.customSvgData]);
+
+  /**
+   * Картинка брелока приходит из параметров, а имя файла и ошибка — состояние
+   * панели: в `params_json` им места нет. После сброса параметров или удаления
+   * картинки плашка «Картинка: logo.png» должна исчезнуть вместе с маской.
+   */
+  useEffect(() => {
+    if (!params.imageData) {
+      setKeychainImageFileName(null);
+    }
+  }, [params.imageData]);
 
   /**
    * Демонстрационный массив живёт в DEFAULT_LITHOPHANE_PARAMS и после сброса
@@ -1584,6 +1719,60 @@ export function ParameterPanel({
     onKeychainShapeChange(null);
     setContourFileName(null);
     setContourError(null);
+  }
+
+  /**
+   * Загружает картинку на грань брелока.
+   *
+   * Файл превращается в маску прямо в браузере: сервер получает уже готовую
+   * строку `imageData` и не зависит от того, чем браузер декодировал JPEG. Поле
+   * очищается до await, иначе повторный выбор того же файла не вызвал бы change.
+   * Ошибка остаётся в панели: прежняя картинка в модели не портится.
+   *
+   * Масштаб и смещения не сбрасываются: пользователь мог подобрать место, а
+   * замена картинки на похожий логотип — это правка, а не новый брелок. Если
+   * новая маска крупнее, геометрия сама ужмёт её по свободной полосе.
+   */
+  async function handleKeychainImageChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    setIsProcessingKeychainImage(true);
+    setKeychainImageError(null);
+
+    try {
+      const imageData = await keychainImageDataFromFile(file);
+
+      onKeychainImageChange(imageData);
+      setKeychainImageFileName(file.name);
+    } catch (error) {
+      setKeychainImageError(
+        error instanceof Error
+          ? error.message
+          : "Не удалось обработать картинку. Попробуйте PNG с прозрачным фоном.",
+      );
+    } finally {
+      setIsProcessingKeychainImage(false);
+    }
+  }
+
+  /**
+   * Убирает картинку из модели.
+   *
+   * В параметрах остаются масштаб и смещения: они безвредны без маски, а при
+   * следующей загрузке человек вернётся к подобранному месту.
+   */
+  function removeKeychainImage() {
+    onKeychainImageChange(null);
+    setKeychainImageFileName(null);
+    setKeychainImageError(null);
   }
 
   /**
@@ -1696,6 +1885,42 @@ export function ParameterPanel({
   const hasHeatTransferLogo =
     isCustomSvgData(params.heatTransferSvg) &&
     hasDrawableSvgData(params.heatTransferSvg);
+
+  /**
+   * Есть ли картинка у брелока.
+   *
+   * Проверяется не пустая строка, а формат маски: в параметрах мог оказаться
+   * проект, сохранённый другой версией, и панель не должна обещать логотип,
+   * которого геометрия не увидит.
+   */
+  const hasKeychainImage = isKeychainImageData(params.imageData);
+
+  /**
+   * Что вышло из картинки при последней сборке.
+   *
+   * Отчёт приходит из сцены: карту грани знает только геометрия, и повторять
+   * её расчёт в панели значило бы держать вторую копию правил размещения.
+   * `side === null` — картинка не встала ни на лицо, ни на оборот; `actual`
+   * меньше `requested` — она ужалась, чтобы обойти буквы и кромку.
+   */
+  const keychainImageFit = keychainImageReport?.image ?? null;
+  const keychainImageStatus =
+    !hasKeychainImage || !keychainImageFit
+      ? null
+      : keychainImageFit.side === null
+        ? {
+            tone: "error" as const,
+            text: "Картинка не поместилась: грань занята буквами и отверстием. Уменьшите масштаб или сдвиньте имя.",
+          }
+        : keychainImageFit.actual < keychainImageFit.requested - 0.001
+          ? {
+              tone: "warning" as const,
+              text: `Картинка ужалась до ${Math.round(keychainImageFit.actual * 100)}% запрошенного размера: ${keychainImageFit.size.toFixed(1)} мм на ${keychainImageFit.side === "back" ? "обороте" : "лице"}. Освободите место или уменьшите имя.`,
+            }
+          : {
+              tone: "ok" as const,
+              text: `Картинка стоит на ${keychainImageFit.side === "back" ? "обороте" : "лице"}: ${keychainImageFit.size.toFixed(1)} мм по большей стороне, рельеф ${params.imageDepth.toFixed(1)} мм.`,
+            };
 
   /**
    * Читаемость логотипа при текущей ширине детали.
@@ -2864,6 +3089,187 @@ export function ParameterPanel({
               </details>
             )}
           </fieldset>
+          {/*
+            Картинка на грани. Файл переводится в маску в браузере, поэтому
+            исходник в параметрах не хранится: в проекте лежит готовая SVG-маска
+            в base64, по которой одинаково строится и предпросмотр, и STL.
+            Визитка пропускается: её лицо занято кодом, а имя у неё своё.
+          */}
+          {params.keychainPreset === "qr-card" ? null : (
+            <fieldset className="mt-6 border-t border-white/10 pt-5">
+              <legend className="text-sm font-medium text-slate-200">
+                Картинка на брелоке
+              </legend>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <label
+                  className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/15 px-3 text-sm font-semibold text-white transition-colors hover:bg-amber-500/25 focus-within:ring-2 focus-within:ring-amber-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
+                  htmlFor={keychainImageInputId}
+                >
+                  {isProcessingKeychainImage
+                    ? "Обрабатываем…"
+                    : hasKeychainImage
+                      ? "Заменить картинку"
+                      : "Загрузить картинку на брелок"}
+                </label>
+                <input
+                  accept="image/png,image/jpeg"
+                  aria-describedby={keychainImageHintId}
+                  className="sr-only"
+                  disabled={isProcessingKeychainImage}
+                  id={keychainImageInputId}
+                  onChange={handleKeychainImageChange}
+                  type="file"
+                />
+                {hasKeychainImage ? (
+                  <button
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/15 px-3 text-sm font-semibold text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    onClick={removeKeychainImage}
+                    type="button"
+                  >
+                    Удалить картинку
+                  </button>
+                ) : null}
+              </div>
+
+              <p
+                className="mt-2 text-xs leading-relaxed text-slate-300"
+                id={keychainImageHintId}
+              >
+                PNG с прозрачным фоном или JPG. Рельефом становится тёмное и
+                непрозрачное: логотип на светлом фоне тоже подойдёт. Картинка
+                сама находит свободное место, обходит имя и отверстие под кольцо
+                и при нехватке места ужимается.
+              </p>
+
+              {hasKeychainImage ? (
+                <div className="mt-3 flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3">
+                  {/*
+                    Превью — та же маска, что уходит в геометрию: белый силуэт на
+                    прозрачном. Подложка светлее панели, иначе белый рельеф на
+                    тёмном фоне читался бы как пустой квадрат.
+                  */}
+                  <span className="grid size-14 shrink-0 place-items-center rounded-xl bg-slate-700/60 p-1.5">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      alt="Маска загруженной картинки"
+                      className="size-full object-contain"
+                      src={params.imageData ?? undefined}
+                    />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-xs text-emerald-200">
+                      {keychainImageFileName ?? "Картинка сохранена в проекте"}
+                    </p>
+                    {keychainImageStatus ? (
+                      <p
+                        className={`mt-1 text-xs leading-relaxed ${
+                          keychainImageStatus.tone === "error"
+                            ? "text-rose-200"
+                            : keychainImageStatus.tone === "warning"
+                              ? "text-amber-200"
+                              : "text-slate-300"
+                        }`}
+                        role={
+                          keychainImageStatus.tone === "error"
+                            ? "alert"
+                            : undefined
+                        }
+                      >
+                        {keychainImageStatus.text}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                        Размер и место подбирает геометрия: масштаб ниже —
+                        просьба, а не приказ.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              {keychainImageError ? (
+                <p
+                  className="mt-2 rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
+                  role="alert"
+                >
+                  {keychainImageError}
+                </p>
+              ) : null}
+
+              {hasKeychainImage ? (
+                <details className="group mt-4 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-slate-200 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                    Настройки картинки
+                    <span
+                      aria-hidden
+                      className="text-xs text-slate-400 group-open:hidden"
+                    >
+                      ▾
+                    </span>
+                    <span
+                      aria-hidden
+                      className="hidden text-xs text-slate-400 group-open:inline"
+                    >
+                      ▴
+                    </span>
+                  </summary>
+
+                  <div className="mt-4 space-y-5">
+                    <NumberSlider
+                      decimals={KEYCHAIN_IMAGE_SCALE_LIMITS.decimals}
+                      hint="Во сколько раз увеличить картинку относительно свободной полосы. Если места мало, геометрия ужмёт логотип шагом 5% и напишет об этом над кнопками."
+                      label="Масштаб"
+                      max={KEYCHAIN_IMAGE_SCALE_LIMITS.max}
+                      min={KEYCHAIN_IMAGE_SCALE_LIMITS.min}
+                      onChange={(value) => onParamChange("imageScale", value)}
+                      step={KEYCHAIN_IMAGE_SCALE_LIMITS.step}
+                      unit="×"
+                      value={params.imageScale}
+                    />
+
+                    <NumberSlider
+                      decimals={KEYCHAIN_IMAGE_OFFSET_LIMITS.decimals}
+                      hint="Сдвигает картинку к левому или правому краю. Смещение обрезается по кромке, отверстию под кольцо и буквам: логотип упирается в границу, а не уезжает с детали."
+                      label="Смещение по горизонтали"
+                      max={KEYCHAIN_IMAGE_OFFSET_LIMITS.max}
+                      min={KEYCHAIN_IMAGE_OFFSET_LIMITS.min}
+                      onChange={(value) => onParamChange("imageOffsetX", value)}
+                      step={KEYCHAIN_IMAGE_OFFSET_LIMITS.step}
+                      unit="мм"
+                      value={params.imageOffsetX}
+                    />
+
+                    <NumberSlider
+                      decimals={KEYCHAIN_IMAGE_OFFSET_LIMITS.decimals}
+                      hint="Сдвигает картинку выше или ниже. Вверх путь упирается в отверстие под кольцо, вниз — в нижнюю кромку силуэта."
+                      label="Смещение по вертикали"
+                      max={KEYCHAIN_IMAGE_OFFSET_LIMITS.max}
+                      min={KEYCHAIN_IMAGE_OFFSET_LIMITS.min}
+                      onChange={(value) => onParamChange("imageOffsetY", value)}
+                      step={KEYCHAIN_IMAGE_OFFSET_LIMITS.step}
+                      unit="мм"
+                      value={params.imageOffsetY}
+                    />
+
+                    <NumberSlider
+                      decimals={KEYCHAIN_IMAGE_DEPTH_LIMITS.decimals}
+                      hint="Насколько картинка выступает над пластиком. Внедрение в тело остаётся 0.35 мм: 0.2 мм — почти гравировка, 1 мм — выпуклый логотип."
+                      label="Толщина картинки"
+                      max={KEYCHAIN_IMAGE_DEPTH_LIMITS.max}
+                      min={KEYCHAIN_IMAGE_DEPTH_LIMITS.min}
+                      onChange={(value) => onParamChange("imageDepth", value)}
+                      step={KEYCHAIN_IMAGE_DEPTH_LIMITS.step}
+                      unit="мм"
+                      value={params.imageDepth}
+                    />
+                  </div>
+                </details>
+              ) : null}
+            </fieldset>
+          )}
+
+
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
             {params.keychainPreset === "qr-card" ? null : (

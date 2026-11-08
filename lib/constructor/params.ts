@@ -630,6 +630,83 @@ export const SIGN_TEXT_MAX_LENGTH = 15;
 export const KEYCHAIN_TEXT_MAX_LENGTH = 10;
 
 /**
+ * Префикс `imageData`: маска картинки хранится как SVG в base64.
+ *
+ * SVG, а не исходный PNG: контуры маски занимают единицы килобайт и
+ * разбираются на сервере тем же кодом, что силуэт брелока (`svg-outline.ts`).
+ * Своего декодера PNG на сервере нет, и бинарный растр в `params_json` не нужен.
+ */
+export const KEYCHAIN_IMAGE_PREFIX = "data:image/svg+xml;base64,";
+
+/** Предел длины `imageData`, символов: примерно 96 КБ маски. */
+export const KEYCHAIN_IMAGE_MAX_LENGTH = 96 * 1024;
+
+/**
+ * Смещение картинки по X и Y, мм.
+ *
+ * Диапазон тот же, что у имени: картинка тоже двигается по свободной карте
+ * грани, а её размер задаёт масштаб. Просьба пользователя обрезается по кромке,
+ * отверстию под кольцо, карману NFC и буквам, поэтому 20 мм — это «к краю», а не
+ * «за край».
+ */
+export const KEYCHAIN_IMAGE_OFFSET_LIMITS: NumericLimit = {
+  min: -20,
+  max: 20,
+  step: 1,
+  defaultValue: 0,
+  decimals: 0,
+};
+
+/**
+ * Масштаб картинки относительно свободной полосы грани.
+ *
+ * 1.0 — картинка вписана в полосу целиком; меньше — логотип меньше, больше —
+ * крупнее, если место позволяет. При 2.0 картинка ужимается сама: рельеф не
+ * может выйти за брелок или наехать на буквы.
+ */
+export const KEYCHAIN_IMAGE_SCALE_LIMITS: NumericLimit = {
+  min: 0.5,
+  max: 2,
+  step: 0.1,
+  defaultValue: 1,
+  decimals: 1,
+};
+
+/**
+ * Толщина рельефа картинки над пластиком, мм.
+ *
+ * Как у имени: 0.35 мм картинка входит в тело и не считается. 0.2 мм — почти
+ * гравировка, 1 мм — выпуклый логотип, который читается на ощупь.
+ */
+export const KEYCHAIN_IMAGE_DEPTH_LIMITS: NumericLimit = {
+  min: 0.2,
+  max: 1,
+  step: 0.1,
+  defaultValue: 0.6,
+  decimals: 1,
+};
+
+/**
+ * Похоже ли значение на маску картинки брелока.
+ *
+ * Проверяются только формат и предел длины: полный разбор SVG делает геометрия,
+ * а нормализация должна оставаться дешёвой — она вызывается на каждый слайдер.
+ */
+export function isKeychainImageData(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > KEYCHAIN_IMAGE_MAX_LENGTH) {
+    return false;
+  }
+
+  if (!value.startsWith(KEYCHAIN_IMAGE_PREFIX)) {
+    return false;
+  }
+
+  const payload = value.slice(KEYCHAIN_IMAGE_PREFIX.length);
+
+  return payload.length > 0 && /^[A-Za-z0-9+/=]+$/.test(payload);
+}
+
+/**
  * Смещение надписи по X и Y, мм.
  *
  * Диапазон шире любого силуэта: смещение — просьба, а геометрия обрезает его по
@@ -710,6 +787,23 @@ export type KeychainParams = {
    * и почти не заметен на ощупь, толстый переживает карман и ключи.
    */
   textDepth: number;
+  /**
+   * Маска картинки на брелоке: SVG в base64, `null` — картинки нет.
+   *
+   * Панель переводит загруженный PNG/JPG в маску чёрно-белого рельефа и хранит
+   * её здесь. Формат один для предпросмотра, экспорта и сохранённого проекта:
+   * геометрия, роут и нормализация читают одно и то же поле. Старые проекты
+   * поля не знают — картинки в них не было.
+   */
+  imageData: string | null;
+  /** Смещение картинки по X от центра свободной полосы, мм. */
+  imageOffsetX: number;
+  /** Смещение картинки по Y, мм: вверх — плюс. */
+  imageOffsetY: number;
+  /** Масштаб картинки относительно полосы: 1.0 — вписана целиком. */
+  imageScale: number;
+  /** Насколько рельеф картинки выступает над пластиком, мм. */
+  imageDepth: number;
   /**
    * Свой контур: `custom` — форма берётся из `customSvgData`, и встроенных
    * силуэтов в проекте больше нет (`lib/constructor/keychain-fallback-shape.ts`
@@ -1297,6 +1391,11 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   textOffsetX: KEYCHAIN_TEXT_OFFSET_LIMITS.defaultValue,
   textOffsetY: KEYCHAIN_TEXT_OFFSET_LIMITS.defaultValue,
   textDepth: KEYCHAIN_TEXT_DEPTH_LIMITS.defaultValue,
+  imageData: null,
+  imageOffsetX: KEYCHAIN_IMAGE_OFFSET_LIMITS.defaultValue,
+  imageOffsetY: KEYCHAIN_IMAGE_OFFSET_LIMITS.defaultValue,
+  imageScale: KEYCHAIN_IMAGE_SCALE_LIMITS.defaultValue,
+  imageDepth: KEYCHAIN_IMAGE_DEPTH_LIMITS.defaultValue,
   keychainShape: null,
   keychainPreset: DEFAULT_KEYCHAIN_PRESET_ID,
   customSvgData: "",
@@ -2703,6 +2802,26 @@ export function normalizeKeychainParams(
     textDepth: snap(
       params.textDepth ?? DEFAULT_KEYCHAIN_PARAMS.textDepth,
       KEYCHAIN_TEXT_DEPTH_LIMITS,
+    ),
+    // Маска картинки проходит только проверку формата: если SVG битый или
+    // слишком длинный, поле гаснет и брелок печатается без логотипа. Так
+    // сохранённый проект со старой маской не ломает ни предпросмотр, ни экспорт.
+    imageData: isKeychainImageData(params.imageData) ? params.imageData : null,
+    imageOffsetX: snap(
+      params.imageOffsetX ?? DEFAULT_KEYCHAIN_PARAMS.imageOffsetX,
+      KEYCHAIN_IMAGE_OFFSET_LIMITS,
+    ),
+    imageOffsetY: snap(
+      params.imageOffsetY ?? DEFAULT_KEYCHAIN_PARAMS.imageOffsetY,
+      KEYCHAIN_IMAGE_OFFSET_LIMITS,
+    ),
+    imageScale: snap(
+      params.imageScale ?? DEFAULT_KEYCHAIN_PARAMS.imageScale,
+      KEYCHAIN_IMAGE_SCALE_LIMITS,
+    ),
+    imageDepth: snap(
+      params.imageDepth ?? DEFAULT_KEYCHAIN_PARAMS.imageDepth,
+      KEYCHAIN_IMAGE_DEPTH_LIMITS,
     ),
     keychainShape,
     keychainPreset,
