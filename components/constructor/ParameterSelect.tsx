@@ -2,6 +2,8 @@
 
 import { useId } from "react";
 
+import { ParamHint } from "@/components/constructor/ParamHint";
+
 /** Вариант списка: значение параметра и его подпись в панели. */
 type SelectOption<T extends string | number> = {
   /** Значение, которое уйдёт в обработчик: форма, узор или число. */
@@ -17,7 +19,12 @@ type ParameterSelectProps<T extends string | number> = {
   value: T;
   /** Все допустимые значения: порядок массива задаёт порядок пунктов. */
   options: readonly SelectOption<T>[];
-  /** Пояснение под списком: зачем параметр и на что влияет. */
+  /**
+   * Пояснение: зачем параметр и на что влияет.
+   *
+   * Показывается за кнопкой «?» рядом с подписью — постоянный абзац под списком
+   * занимал место у каждого поля панели.
+   */
   hint?: string;
   onChange: (value: T) => void;
 };
@@ -46,9 +53,12 @@ export function ParameterSelect<T extends string | number>({
 
   return (
     <div>
-      <label className="text-sm font-medium text-slate-200" htmlFor={id}>
-        {label}
-      </label>
+      <div className="flex items-center gap-1.5">
+        <label className="text-sm font-medium text-slate-200" htmlFor={id}>
+          {label}
+        </label>
+        {hint ? <ParamHint id={hintId} label={label} text={hint} /> : null}
+      </div>
 
       <div className="relative mt-3">
         <select
@@ -80,12 +90,6 @@ export function ParameterSelect<T extends string | number>({
           ▼
         </span>
       </div>
-
-      {hint ? (
-        <p className="mt-2 text-xs leading-relaxed text-slate-300" id={hintId}>
-          {hint}
-        </p>
-      ) : null}
     </div>
   );
 }

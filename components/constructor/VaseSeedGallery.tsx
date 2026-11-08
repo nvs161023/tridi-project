@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   CONSTRUCTOR_LIMITS,
+  VASE_SEED_GALLERY_ORGANIC,
   type ConstructorParams,
 } from "@/lib/constructor/params";
 import {
@@ -48,11 +49,31 @@ type VaseSeedGalleryProps = {
 };
 
 /**
+ * Органика, с которой рисуется плитка.
+ *
+ * Сид входит в геометрию только через органику: складки стенки
+ * (`organicOffset`) и микро-вариации силуэта (`organicProfileShare`)
+ * включаются при `organic > 0`. У нового проекта слайдер стоит на нуле, поэтому
+ * все двенадцать плиток выходили одним и тем же цилиндром — замер подтверждал
+ * совпадение кадров байт в байт. При нуле галерея показывает вазы с
+ * `VASE_SEED_GALLERY_ORGANIC`, а когда пользователь выставил складки сам —
+ * рисует ровно его настройки.
+ */
+function galleryOrganic(params: ConstructorParams): number {
+  return params.organic > 0 ? params.organic : VASE_SEED_GALLERY_ORGANIC;
+}
+
+/**
  * Отпечаток геометрии без сида.
  *
  * По нему галерея понимает, что плитки устарели: сменился силуэт, узор,
  * закрутка или размер. Сам сид в ключ не входит — при его смене перерисовываются
  * те же плитки с другим шумом, и старые кадры не нужно выбрасывать заранее.
+ *
+ * Органика в ключе — не сырая, а та, с которой плитка рисуется
+ * (`galleryOrganic`): при нуле это демонстрационная треть, поэтому клик по
+ * плитке, поднимающий слайдер с 0 до 0.3, не выбрасывает двенадцать готовых
+ * кадров ради тех же самых.
  */
 function geometryKey(params: ConstructorParams): string {
   return [
@@ -70,7 +91,7 @@ function geometryKey(params: ConstructorParams): string {
     params.flutes,
     params.fluteDepthMm,
     params.twistDeg,
-    params.organic,
+    galleryOrganic(params),
     params.leanDeg,
   ].join("|");
 }
@@ -255,8 +276,15 @@ export function VaseSeedGallery({ params, onSelectSeed }: VaseSeedGalleryProps) 
 
       for (const seed of batch) {
         try {
+          const params = paramsRef.current;
           rendered[seed] = renderVaseRgb(
-            { ...paramsRef.current, vaseSeed: seed },
+            {
+              ...params,
+              // Сид виден только через органику: при нуле плитки были бы
+              // двенадцатью копиями одной вазы.
+              organic: galleryOrganic(params),
+              vaseSeed: seed,
+            },
             TILE_RENDER_OPTIONS,
           );
         } catch {
@@ -330,7 +358,7 @@ export function VaseSeedGallery({ params, onSelectSeed }: VaseSeedGalleryProps) 
 
       <p aria-live="polite" className="mt-3 text-xs leading-relaxed text-slate-300">
         {params.organic === 0
-          ? "Органика 0: сид меняет только микро-вариации силуэта, до 2 %. Добавьте складки, чтобы варианты стали заметно разными."
+          ? `Органика 0: плитки показаны с демонстрационной органикой ${VASE_SEED_GALLERY_ORGANIC.toFixed(1)}, иначе сид не меняет форму. Клик по варианту заберёт его сид и включит органику.`
           : readyCount < seeds.length
             ? `Рисуем варианты: ${readyCount} из ${seeds.length}.`
             : "Плитка — это тот же сид, что попадёт в проект и в имя STL. Нажмите на вариант, чтобы забрать его форму."}

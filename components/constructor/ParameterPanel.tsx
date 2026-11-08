@@ -214,6 +214,14 @@ type ParameterPanelProps = {
   onModelChange: (model: ModelType) => void;
   onShapeChange: (shape: VaseShape) => void;
   /**
+   * Случайная ваза: силуэт, один-два слоя узора, амплитуда, частота и сид.
+   *
+   * Отдельный обработчик, а не набор `onParamChange`: рандом меняет несколько
+   * полей сразу, а `onParamChange` ведёт к одному числу. Размеры, стенка и
+   * деформации остаются прежними — кнопка крутит форму, а не стол принтера.
+   */
+  onRandomizeVase: () => void;
+  /**
    * Правка одного поля слоя узора: индекс слоя и изменённые поля.
    *
    * Патч приходит частичным, но `envelope` в нём всегда полный: нормализация
@@ -1321,6 +1329,7 @@ export function ParameterPanel({
   onParamChange,
   onModelChange,
   onShapeChange,
+  onRandomizeVase,
   onPatternLayerChange,
   onAddPatternLayer,
   onRemovePatternLayer,
@@ -1942,162 +1951,324 @@ export function ParameterPanel({
               value={params.shape}
             />
 
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.sectionSides.decimals}
-              hint="Сечение в плане: 3–12 граней превращают круг в правильный многоугольник — плоские грани и острые углы, вид кристалла. 0–2 — как в силуэте (круг у плавных форм, четыре грани у квадрата, восемь у восьмигранника): меньше трёх граней не бывает. Толщина стенки остаётся заданной и на гранях, и в углах."
-              label="Грани"
-              max={CONSTRUCTOR_LIMITS.sectionSides.max}
-              min={CONSTRUCTOR_LIMITS.sectionSides.min}
-              onChange={(value) => onParamChange("sectionSides", value)}
-              step={CONSTRUCTOR_LIMITS.sectionSides.step}
-              unit="шт"
-              value={params.sectionSides}
-            />
+            {/*
+              Рандом стоит сразу под силуэтом: «покажи что-нибудь другое»
+              дешевле, чем крутить шесть слайдеров. Кнопка меняет только
+              форму, узоры и сид — размеры и стенку оставляет как есть.
+            */}
+            <button
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 to-blue-500 px-4 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 transition-transform hover:scale-[1.01] hover:from-fuchsia-400 hover:to-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 active:scale-100"
+              onClick={onRandomizeVase}
+              title="Случайный силуэт, один-два узора, амплитуда и частота, новый сид"
+              type="button"
+            >
+              <span aria-hidden>🎲</span>
+              Сгенерировать случайную вазу
+            </button>
           </div>
 
-          <div className="mt-6 space-y-4 border-t border-white/10 pt-5">
+          {/*
+            Первый экран: узор и размеры. Один слой и три числа — то, что
+            действительно меняют у вазы. Всё остальное (композиция слоёв, грани,
+            края, деформации, сид) ушло в свёрнутое «Дополнительно»: раньше
+            панель занимала три экрана, и главные слайдеры терялись среди
+            подсказок.
+          */}
+          <div className="mt-6 space-y-5 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
             <div className="flex items-baseline justify-between gap-3">
-              <h3 className="text-sm font-semibold text-slate-200">
-                Слои узора
-              </h3>
+              <h3 className="text-sm font-semibold text-slate-200">Узор</h3>
               <p className="text-xs tabular-nums text-slate-400">
                 {params.patterns.length} из {VASE_MAX_PATTERN_LAYERS}
               </p>
             </div>
 
-            <p className="text-xs leading-relaxed text-slate-300">
-              Слои складываются: рёбра плюс спираль читаются как кручёная грань,
-              волны поверх рёбер — как лепная керамика. До трёх слоёв: дальше
-              рисунки перестают читаться по отдельности.
+            <ParameterSelect
+              hint={PATTERN_HINTS[params.patterns[0].type]}
+              label="Тип узора"
+              onChange={(type) => onPatternLayerChange(0, { type })}
+              options={VASE_PATTERNS.map((pattern) => ({
+                label: VASE_PATTERN_LABELS[pattern],
+                value: pattern,
+              }))}
+              value={params.patterns[0].type}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.patternIntensity.decimals}
+              hint={PATTERN_LAYER_HINTS.amplitude}
+              label="Амплитуда"
+              max={CONSTRUCTOR_LIMITS.patternIntensity.max}
+              min={CONSTRUCTOR_LIMITS.patternIntensity.min}
+              onChange={(value) => onPatternLayerChange(0, { amplitude: value })}
+              step={CONSTRUCTOR_LIMITS.patternIntensity.step}
+              unit="мм"
+              value={params.patterns[0].amplitude}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.patternFrequency.decimals}
+              hint={PATTERN_LAYER_HINTS.frequency}
+              label="Частота"
+              max={CONSTRUCTOR_LIMITS.patternFrequency.max}
+              min={CONSTRUCTOR_LIMITS.patternFrequency.min}
+              onChange={(value) => onPatternLayerChange(0, { frequency: value })}
+              step={CONSTRUCTOR_LIMITS.patternFrequency.step}
+              unit="раз"
+              value={params.patterns[0].frequency}
+            />
+          </div>
+
+          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+            <NumberSlider
+              hint="Высота готовой вазы. Для модели выше 250 мм добавьте brim в слайсере."
+              label="Высота"
+              max={CONSTRUCTOR_LIMITS.height.max}
+              min={CONSTRUCTOR_LIMITS.height.min}
+              onChange={(value) => onParamChange("height", value)}
+              step={CONSTRUCTOR_LIMITS.height.step}
+              unit="мм"
+              value={params.height}
+            />
+
+            <NumberSlider
+              hint="Внешний диаметр в самой широкой части. Проверьте, что модель влезает на стол принтера."
+              label="Диаметр"
+              max={CONSTRUCTOR_LIMITS.diameter.max}
+              min={CONSTRUCTOR_LIMITS.diameter.min}
+              onChange={(value) => onParamChange("diameter", value)}
+              step={CONSTRUCTOR_LIMITS.diameter.step}
+              unit="мм"
+              value={params.diameter}
+            />
+
+            <NumberSlider
+              decimals={CONSTRUCTOR_LIMITS.wall.decimals}
+              hint="0.8–1.2 мм — декоративная ваза, 1.6–2.4 мм — прочная под живые цветы. В узкой горловине стенка автоматически утончается."
+              label="Толщина стенки"
+              max={CONSTRUCTOR_LIMITS.wall.max}
+              min={CONSTRUCTOR_LIMITS.wall.min}
+              onChange={(value) => onParamChange("wall", value)}
+              step={CONSTRUCTOR_LIMITS.wall.step}
+              unit="мм"
+              value={params.wall}
+            />
+          </div>
+
+          {/*
+            Нативный details: раскрытие работает без состояния, а содержимое
+            остаётся в DOM для скринридеров и поиска по странице. `group` нужен
+            только затем, чтобы стрелка меняла направление.
+          */}
+          <details className="group mt-6 border-t border-white/10 pt-5">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-200 transition-colors hover:border-white/25 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+              Дополнительно: слои, грани, края и деформации
+              <span aria-hidden className="text-xs text-slate-400 group-open:hidden">
+                ▾
+              </span>
+              <span aria-hidden className="hidden text-xs text-slate-400 group-open:inline">
+                ▴
+              </span>
+            </summary>
+
+            <p className="mt-3 text-xs leading-relaxed text-slate-400">
+              Для печати и точной подгонки: композиция узоров, грани, цоколь и
+              обод, каннелюры, органика, сид. Первый экран работает без них.
             </p>
 
-            {params.patterns.map((layer, index) => (
-              // Ключ — индекс: у слоя нет своего идентификатора, а порядок
-              // задаёт пользователь. После удаления индексы сдвигаются, и это
-              // ожидаемо: панель показывает нумерацию списка, а не историю.
-              <div
-                className="space-y-5 rounded-2xl border border-white/10 bg-slate-950/40 p-4"
-                key={index}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-semibold text-slate-200">
-                    Слой {index + 1}
-                  </h4>
+            <div className="mt-4 space-y-5">
+              <NumberSlider
+                decimals={CONSTRUCTOR_LIMITS.sectionSides.decimals}
+                hint="Сечение в плане: 3–12 граней превращают круг в правильный многоугольник — плоские грани и острые углы, вид кристалла. 0–2 — как в силуэте (круг у плавных форм, четыре грани у квадрата, восемь у восьмигранника): меньше трёх граней не бывает. Толщина стенки остаётся заданной и на гранях, и в углах."
+                label="Грани"
+                max={CONSTRUCTOR_LIMITS.sectionSides.max}
+                min={CONSTRUCTOR_LIMITS.sectionSides.min}
+                onChange={(value) => onParamChange("sectionSides", value)}
+                step={CONSTRUCTOR_LIMITS.sectionSides.step}
+                unit="шт"
+                value={params.sectionSides}
+              />
+            </div>
 
-                  {params.patterns.length > 1 ? (
-                    <button
-                      aria-label={`Удалить слой ${index + 1}`}
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-slate-300 transition-colors hover:border-rose-400/50 hover:bg-rose-500/10 hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                      onClick={() => onRemovePatternLayer(index)}
-                      title="Удалить слой"
-                      type="button"
-                    >
-                      <span aria-hidden>🗑</span>
-                    </button>
+            <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+              <NumberSlider
+                decimals={CONSTRUCTOR_LIMITS.footMm.decimals}
+                hint="0 — силуэт начинается от самого дна. 3–12 мм — прямая вертикальная ножка: первый слой ложится полным диском без нависаний, ваза стоит устойчиво и не обрастает «юбкой» от растекания пластика."
+                label="Цоколь"
+                max={CONSTRUCTOR_LIMITS.footMm.max}
+                min={CONSTRUCTOR_LIMITS.footMm.min}
+                onChange={(value) => onParamChange("footMm", value)}
+                step={CONSTRUCTOR_LIMITS.footMm.step}
+                unit="мм"
+                value={params.footMm}
+              />
+
+              <NumberSlider
+                decimals={CONSTRUCTOR_LIMITS.rimMm.decimals}
+                hint="Насколько горло шире стенки: кромка уходит наружу под 45°, поэтому печатается без поддержек, а вода не льётся по стенке. Раструб не выходит за диаметр — у цилиндра, где горло и так самое широкое место, слайдер ничего не меняет."
+                label="Обод"
+                max={CONSTRUCTOR_LIMITS.rimMm.max}
+                min={CONSTRUCTOR_LIMITS.rimMm.min}
+                onChange={(value) => onParamChange("rimMm", value)}
+                step={CONSTRUCTOR_LIMITS.rimMm.step}
+                unit="мм"
+                value={params.rimMm}
+              />
+            </div>
+
+            <div className="mt-6 space-y-4 border-t border-white/10 pt-5">
+              <h3 className="text-sm font-semibold text-slate-200">
+                Слои узора
+              </h3>
+
+              <p className="text-xs leading-relaxed text-slate-300">
+                Слои складываются: рёбра плюс спираль читаются как кручёная грань,
+                волны поверх рёбер — как лепная керамика. До трёх слоёв: дальше
+                рисунки перестают читаться по отдельности. У первого слоя здесь
+                только фаза и затухание — тип, амплитуда и частота на первом
+                экране.
+              </p>
+
+              {params.patterns.map((layer, index) => (
+                // Ключ — индекс: у слоя нет своего идентификатора, а порядок
+                // задаёт пользователь. После удаления индексы сдвигаются, и это
+                // ожидаемо: панель показывает нумерацию списка, а не историю.
+                <div
+                  className="space-y-5 rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                  key={index}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <h4 className="text-sm font-semibold text-slate-200">
+                      {index === 0
+                        ? "Слой 1 · фаза и края"
+                        : `Слой ${index + 1}`}
+                    </h4>
+
+                    {params.patterns.length > 1 ? (
+                      <button
+                        aria-label={`Удалить слой ${index + 1}`}
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-slate-300 transition-colors hover:border-rose-400/50 hover:bg-rose-500/10 hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        onClick={() => onRemovePatternLayer(index)}
+                        title="Удалить слой"
+                        type="button"
+                      >
+                        <span aria-hidden>🗑</span>
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {/*
+                    Тип, амплитуда и частота первого слоя стоят на первом экране:
+                    здесь они не дублируются, остаются только фаза и затухание.
+                    У второго и третьего слоя полный набор — иначе новый слой
+                    нельзя было бы настроить.
+                  */}
+                  {index > 0 ? (
+                    <>
+                      <ParameterSelect
+                        hint={PATTERN_HINTS[layer.type]}
+                        label="Узор слоя"
+                        onChange={(type) =>
+                          onPatternLayerChange(index, { type })
+                        }
+                        options={VASE_PATTERNS.map((pattern) => ({
+                          label: VASE_PATTERN_LABELS[pattern],
+                          value: pattern,
+                        }))}
+                        value={layer.type}
+                      />
+
+                      <NumberSlider
+                        decimals={CONSTRUCTOR_LIMITS.patternIntensity.decimals}
+                        hint={PATTERN_LAYER_HINTS.amplitude}
+                        label="Амплитуда"
+                        max={CONSTRUCTOR_LIMITS.patternIntensity.max}
+                        min={CONSTRUCTOR_LIMITS.patternIntensity.min}
+                        onChange={(value) =>
+                          onPatternLayerChange(index, { amplitude: value })
+                        }
+                        step={CONSTRUCTOR_LIMITS.patternIntensity.step}
+                        unit="мм"
+                        value={layer.amplitude}
+                      />
+
+                      <NumberSlider
+                        decimals={CONSTRUCTOR_LIMITS.patternFrequency.decimals}
+                        hint={PATTERN_LAYER_HINTS.frequency}
+                        label="Частота"
+                        max={CONSTRUCTOR_LIMITS.patternFrequency.max}
+                        min={CONSTRUCTOR_LIMITS.patternFrequency.min}
+                        onChange={(value) =>
+                          onPatternLayerChange(index, { frequency: value })
+                        }
+                        step={CONSTRUCTOR_LIMITS.patternFrequency.step}
+                        unit="раз"
+                        value={layer.frequency}
+                      />
+                    </>
                   ) : null}
+
+                  <NumberSlider
+                    decimals={CONSTRUCTOR_LIMITS.patternPhaseDeg.decimals}
+                    hint={PATTERN_LAYER_HINTS.phase}
+                    label="Фаза"
+                    max={CONSTRUCTOR_LIMITS.patternPhaseDeg.max}
+                    min={CONSTRUCTOR_LIMITS.patternPhaseDeg.min}
+                    onChange={(value) =>
+                      onPatternLayerChange(index, { phaseDeg: value })
+                    }
+                    step={CONSTRUCTOR_LIMITS.patternPhaseDeg.step}
+                    unit="°"
+                    value={layer.phaseDeg}
+                  />
+
+                  <NumberSlider
+                    decimals={CONSTRUCTOR_LIMITS.patternFadeMm.decimals}
+                    hint={PATTERN_LAYER_HINTS.fadeTop}
+                    label="Затухание сверху"
+                    max={CONSTRUCTOR_LIMITS.patternFadeMm.max}
+                    min={CONSTRUCTOR_LIMITS.patternFadeMm.min}
+                    onChange={(value) =>
+                      onPatternLayerChange(index, {
+                        envelope: { ...layer.envelope, fadeTopMm: value },
+                      })
+                    }
+                    step={CONSTRUCTOR_LIMITS.patternFadeMm.step}
+                    unit="мм"
+                    value={layer.envelope.fadeTopMm}
+                  />
+
+                  <NumberSlider
+                    decimals={CONSTRUCTOR_LIMITS.patternFadeMm.decimals}
+                    hint={PATTERN_LAYER_HINTS.fadeBottom}
+                    label="Затухание снизу"
+                    max={CONSTRUCTOR_LIMITS.patternFadeMm.max}
+                    min={CONSTRUCTOR_LIMITS.patternFadeMm.min}
+                    onChange={(value) =>
+                      onPatternLayerChange(index, {
+                        envelope: { ...layer.envelope, fadeBottomMm: value },
+                      })
+                    }
+                    step={CONSTRUCTOR_LIMITS.patternFadeMm.step}
+                    unit="мм"
+                    value={layer.envelope.fadeBottomMm}
+                  />
                 </div>
+              ))}
 
-                <ParameterSelect
-                  hint={PATTERN_HINTS[layer.type]}
-                  label="Узор слоя"
-                  onChange={(type) => onPatternLayerChange(index, { type })}
-                  options={VASE_PATTERNS.map((pattern) => ({
-                    label: VASE_PATTERN_LABELS[pattern],
-                    value: pattern,
-                  }))}
-                  value={layer.type}
-                />
-
-                <NumberSlider
-                  decimals={CONSTRUCTOR_LIMITS.patternIntensity.decimals}
-                  hint={PATTERN_LAYER_HINTS.amplitude}
-                  label="Амплитуда"
-                  max={CONSTRUCTOR_LIMITS.patternIntensity.max}
-                  min={CONSTRUCTOR_LIMITS.patternIntensity.min}
-                  onChange={(value) =>
-                    onPatternLayerChange(index, { amplitude: value })
-                  }
-                  step={CONSTRUCTOR_LIMITS.patternIntensity.step}
-                  unit="мм"
-                  value={layer.amplitude}
-                />
-
-                <NumberSlider
-                  decimals={CONSTRUCTOR_LIMITS.patternFrequency.decimals}
-                  hint={PATTERN_LAYER_HINTS.frequency}
-                  label="Частота"
-                  max={CONSTRUCTOR_LIMITS.patternFrequency.max}
-                  min={CONSTRUCTOR_LIMITS.patternFrequency.min}
-                  onChange={(value) =>
-                    onPatternLayerChange(index, { frequency: value })
-                  }
-                  step={CONSTRUCTOR_LIMITS.patternFrequency.step}
-                  unit="раз"
-                  value={layer.frequency}
-                />
-
-                <NumberSlider
-                  decimals={CONSTRUCTOR_LIMITS.patternPhaseDeg.decimals}
-                  hint={PATTERN_LAYER_HINTS.phase}
-                  label="Фаза"
-                  max={CONSTRUCTOR_LIMITS.patternPhaseDeg.max}
-                  min={CONSTRUCTOR_LIMITS.patternPhaseDeg.min}
-                  onChange={(value) =>
-                    onPatternLayerChange(index, { phaseDeg: value })
-                  }
-                  step={CONSTRUCTOR_LIMITS.patternPhaseDeg.step}
-                  unit="°"
-                  value={layer.phaseDeg}
-                />
-
-                <NumberSlider
-                  decimals={CONSTRUCTOR_LIMITS.patternFadeMm.decimals}
-                  hint={PATTERN_LAYER_HINTS.fadeTop}
-                  label="Затухание сверху"
-                  max={CONSTRUCTOR_LIMITS.patternFadeMm.max}
-                  min={CONSTRUCTOR_LIMITS.patternFadeMm.min}
-                  onChange={(value) =>
-                    onPatternLayerChange(index, {
-                      envelope: { ...layer.envelope, fadeTopMm: value },
-                    })
-                  }
-                  step={CONSTRUCTOR_LIMITS.patternFadeMm.step}
-                  unit="мм"
-                  value={layer.envelope.fadeTopMm}
-                />
-
-                <NumberSlider
-                  decimals={CONSTRUCTOR_LIMITS.patternFadeMm.decimals}
-                  hint={PATTERN_LAYER_HINTS.fadeBottom}
-                  label="Затухание снизу"
-                  max={CONSTRUCTOR_LIMITS.patternFadeMm.max}
-                  min={CONSTRUCTOR_LIMITS.patternFadeMm.min}
-                  onChange={(value) =>
-                    onPatternLayerChange(index, {
-                      envelope: { ...layer.envelope, fadeBottomMm: value },
-                    })
-                  }
-                  step={CONSTRUCTOR_LIMITS.patternFadeMm.step}
-                  unit="мм"
-                  value={layer.envelope.fadeBottomMm}
-                />
-              </div>
-            ))}
-
-            {/*
-              Кнопка выключается на третьем слое, а не исчезает: так видно и
-              предел, и то, что список уже полон.
-            */}
-            <button
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100 transition-colors hover:border-blue-300/60 hover:bg-blue-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
-              disabled={params.patterns.length >= VASE_MAX_PATTERN_LAYERS}
-              onClick={onAddPatternLayer}
-              type="button"
-            >
-              <span aria-hidden>＋</span>
-              Добавить слой
-            </button>
-          </div>
+              {/*
+                Кнопка выключается на третьем слое, а не исчезает: так видно и
+                предел, и то, что список уже полон.
+              */}
+              <button
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100 transition-colors hover:border-blue-300/60 hover:bg-blue-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
+                disabled={params.patterns.length >= VASE_MAX_PATTERN_LAYERS}
+                onClick={onAddPatternLayer}
+                type="button"
+              >
+                <span aria-hidden>＋</span>
+                Добавить слой
+              </button>
+            </div>
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
             <NumberSlider
@@ -2187,7 +2358,7 @@ export function ParameterPanel({
               }
               type="button"
             >
-              <span aria-hidden>🎲</span>
+              <span aria-hidden>🔁</span>
               Другая ваза
             </button>
 
@@ -2198,66 +2369,7 @@ export function ParameterPanel({
               </p>
             ) : null}
           </div>
-
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Высота готовой вазы. Для модели выше 250 мм добавьте brim в слайсере."
-              label="Высота"
-              max={CONSTRUCTOR_LIMITS.height.max}
-              min={CONSTRUCTOR_LIMITS.height.min}
-              onChange={(value) => onParamChange("height", value)}
-              step={CONSTRUCTOR_LIMITS.height.step}
-              unit="мм"
-              value={params.height}
-            />
-
-            <NumberSlider
-              hint="Внешний диаметр в самой широкой части. Проверьте, что модель влезает на стол принтера."
-              label="Диаметр"
-              max={CONSTRUCTOR_LIMITS.diameter.max}
-              min={CONSTRUCTOR_LIMITS.diameter.min}
-              onChange={(value) => onParamChange("diameter", value)}
-              step={CONSTRUCTOR_LIMITS.diameter.step}
-              unit="мм"
-              value={params.diameter}
-            />
-
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.wall.decimals}
-              hint="0.8–1.2 мм — декоративная ваза, 1.6–2.4 мм — прочная под живые цветы. В узкой горловине стенка автоматически утончается."
-              label="Толщина стенки"
-              max={CONSTRUCTOR_LIMITS.wall.max}
-              min={CONSTRUCTOR_LIMITS.wall.min}
-              onChange={(value) => onParamChange("wall", value)}
-              step={CONSTRUCTOR_LIMITS.wall.step}
-              unit="мм"
-              value={params.wall}
-            />
-
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.footMm.decimals}
-              hint="0 — силуэт начинается от самого дна. 3–12 мм — прямая вертикальная ножка: первый слой ложится полным диском без нависаний, ваза стоит устойчиво и не обрастает «юбкой» от растекания пластика."
-              label="Цоколь"
-              max={CONSTRUCTOR_LIMITS.footMm.max}
-              min={CONSTRUCTOR_LIMITS.footMm.min}
-              onChange={(value) => onParamChange("footMm", value)}
-              step={CONSTRUCTOR_LIMITS.footMm.step}
-              unit="мм"
-              value={params.footMm}
-            />
-
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.rimMm.decimals}
-              hint="Насколько горло шире стенки: кромка уходит наружу под 45°, поэтому печатается без поддержек, а вода не льётся по стенке. Раструб не выходит за диаметр — у цилиндра, где горло и так самое широкое место, слайдер ничего не меняет."
-              label="Обод"
-              max={CONSTRUCTOR_LIMITS.rimMm.max}
-              min={CONSTRUCTOR_LIMITS.rimMm.min}
-              onChange={(value) => onParamChange("rimMm", value)}
-              step={CONSTRUCTOR_LIMITS.rimMm.step}
-              unit="мм"
-              value={params.rimMm}
-            />
-          </div>
+          </details>
         </>
       ) : params.model === "keychain" ? (
         <>

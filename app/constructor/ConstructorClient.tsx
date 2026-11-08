@@ -23,6 +23,7 @@ import {
   shouldAskForConstructorFeedback,
 } from "@/lib/constructor/feedback";
 import type { SavedProjectNotice } from "@/lib/constructor/projects";
+import { randomVaseParams } from "@/lib/constructor/vase-random";
 import {
   keychainPresetById,
   type HolePlacement,
@@ -50,6 +51,7 @@ import {
   PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
   VASE_MAX_PATTERN_LAYERS,
+  VASE_SEED_GALLERY_ORGANIC,
   VASE_SHAPE_LABELS,
   boxPresetParams,
   boxStlFileName,
@@ -540,6 +542,49 @@ export function ConstructorClient({
 
   function updateShape(shape: VaseShape) {
     setParams((current) => normalizeConstructorParams({ ...current, shape }));
+  }
+
+  /**
+   * Случайная ваза: силуэт, один-два узора, амплитуда, частота и сид.
+   *
+   * Кнопка в панели отвечает на «покажи что-нибудь другое»: это дешевле, чем
+   * крутить шесть слайдеров. Числа выбирает `randomVaseParams`, а `Math.random`
+   * передаётся аргументом — сама функция чистая и проверяется тестом с
+   * подставным генератором. Результат сразу становится параметрами модели, так
+   * что проект и STL остаются воспроизводимыми: в сохранёнке лежат конкретные
+   * числа, а не «рандом».
+   *
+   * Размеры, стенка и деформации не меняются: кнопка крутит форму вазы, а не
+   * стол принтера.
+   */
+  function randomizeVase() {
+    setParams((current) =>
+      normalizeConstructorParams({
+        ...current,
+        model: "vase",
+        ...randomVaseParams(() => Math.random()),
+      }),
+    );
+  }
+
+  /**
+   * Клик по плитке «Галереи вариантов»: сид и, при нуле, демонстрационная
+   * органика.
+   *
+   * Сид входит в геометрию только через органику, поэтому при нулевом слайдере
+   * все двенадцать плиток были одной и той же вазой. Галерея рисует их с
+   * `VASE_SEED_GALLERY_ORGANIC`, и клик обязан дать на сцене ровно ту вазу,
+   * которую выбрали глазами, — иначе выбор обманывает.
+   */
+  function selectVaseSeed(seed: number) {
+    setParams((current) =>
+      normalizeConstructorParams({
+        ...current,
+        vaseSeed: seed,
+        organic:
+          current.organic > 0 ? current.organic : VASE_SEED_GALLERY_ORGANIC,
+      }),
+    );
   }
 
   /**
@@ -1103,6 +1148,7 @@ export function ConstructorClient({
           onQrPhoneChange={updateQrPhone}
           onReset={resetParams}
           onShapeChange={updateShape}
+          onRandomizeVase={randomizeVase}
           onSignChannelWidthChange={updateSignChannelWidth}
           onSignBaseMountChange={updateSignBaseMount}
           onSignFontChange={updateSignFont}
@@ -1204,10 +1250,7 @@ export function ConstructorClient({
             params={params}
           />
 
-          <VaseSeedGallery
-            onSelectSeed={(seed) => updateParam("vaseSeed", seed)}
-            params={params}
-          />
+          <VaseSeedGallery onSelectSeed={selectVaseSeed} params={params} />
 
           <p className="mt-3 text-xs leading-relaxed text-slate-300">
             Вращение — левая кнопка мыши или один палец, зум — колесо или два

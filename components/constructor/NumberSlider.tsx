@@ -2,6 +2,8 @@
 
 import { useId } from "react";
 
+import { ParamHint } from "@/components/constructor/ParamHint";
+
 type NumberSliderProps = {
   /** Подпись параметра, она же label для range-инпута. */
   label: string;
@@ -13,7 +15,13 @@ type NumberSliderProps = {
   unit: string;
   /** Сколько знаков после запятой показывать. */
   decimals?: number;
-  /** Пояснение под слайдером: зачем параметр и на что влияет. */
+  /**
+   * Пояснение: зачем параметр и на что влияет.
+   *
+   * Показывается за кнопкой «?» рядом с подписью, а не постоянным абзацем под
+   * слайдером: текст остался тем же, но место в панели занимает только тогда,
+   * когда его открыли.
+   */
   hint?: string;
   onChange: (value: number) => void;
 };
@@ -44,9 +52,12 @@ export function NumberSlider({
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3">
-        <label className="text-sm font-medium text-slate-200" htmlFor={id}>
-          {label}
-        </label>
+        <span className="flex items-center gap-1.5">
+          <label className="text-sm font-medium text-slate-200" htmlFor={id}>
+            {label}
+          </label>
+          {hint ? <ParamHint id={hintId} label={label} text={hint} /> : null}
+        </span>
         <output
           className="rounded-full border border-white/10 bg-slate-950/60 px-2.5 py-1 text-sm font-semibold tabular-nums text-white"
           htmlFor={id}
@@ -66,12 +77,6 @@ export function NumberSlider({
         type="range"
         value={value}
       />
-
-      {hint ? (
-        <p className="mt-2 text-xs leading-relaxed text-slate-300" id={hintId}>
-          {hint}
-        </p>
-      ) : null}
     </div>
   );
 }

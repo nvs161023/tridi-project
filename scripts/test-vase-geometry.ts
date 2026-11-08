@@ -65,6 +65,11 @@
  *      объёмом, попадает в кадр превью, а её PNG лежит на диске того размера,
  *      который ждёт `next/image`. Подсветка плитки узнаёт рецепт по параметрам и
  *      гаснет после правки слайдера.
+ *  18. случайная ваза и галерея вариантов: рандом выдаёт силуэт из реестра,
+ *      один-два разных узора, амплитуду 0.5–2 мм, частоту 6–24 и целый сид, и
+ *      нормализация не двигает ни одного его числа. Галерея при органике 0
+ *      рисовала двенадцать одинаковых кадров (сид входит в геометрию только
+ *      через органику) — с демонстрационной органикой все двенадцать разные.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
@@ -90,6 +95,7 @@ import {
   VASE_MAX_PATTERN_LAYERS,
   VASE_PATTERN_LABELS,
   VASE_PATTERNS,
+  VASE_SEED_GALLERY_ORGANIC,
   VASE_SHAPES,
   normalizeConstructorParams,
   normalizeVaseParams,
@@ -121,6 +127,12 @@ import {
   organicOffset,
   vaseSeedSeries,
 } from "../lib/constructor/vase-seed";
+import {
+  VASE_RANDOM_AMPLITUDE,
+  VASE_RANDOM_FREQUENCY,
+  VASE_RANDOM_PATTERNS,
+  randomVaseParams,
+} from "../lib/constructor/vase-random";
 
 /** Допуск толщины стенки, мм: столько же требует план для этапа сечения. */
 const WALL_TOLERANCE_MM = 0.05;
@@ -3207,6 +3219,143 @@ console.log("\n17. Галерея рецептов: двенадцать ваз 
     "рецепты: правка слоя узора снимает подсветку",
     activeVaseRecipe({ ...base, patterns: [TEST_SMOOTH_LAYER] }),
     null,
+  );
+}
+
+console.log("\n18. Случайная ваза и «Галерея вариантов»");
+
+{
+  // Рандом проверяется подставным генератором: значения идут по кругу, поэтому
+  // тест знает, какие числа получит функция, и проверяет границы, а не «что-то
+  // произошло». Настоящий `Math.random` передаёт только конструктор.
+  const sequence = [0, 0.07, 0.19, 0.34, 0.48, 0.61, 0.73, 0.86, 0.95, 0.999];
+  let cursor = 0;
+  const random = () => sequence[cursor++ % sequence.length];
+
+  const shapes = new Set<string>();
+  const types = new Set<string>();
+  const amplitudes: number[] = [];
+  const frequencies: number[] = [];
+  const seeds: number[] = [];
+  let layersMin = Number.POSITIVE_INFINITY;
+  let layersMax = 0;
+  let repeatedTypes = 0;
+  let drift = 0;
+
+  for (let pick = 0; pick < 60; pick += 1) {
+    const randomVase = randomVaseParams(random);
+    // Рандом обязан выдавать значения, которые нормализация не тронет: иначе
+    // панель показала бы одни числа, а кнопка применила другие.
+    const normalized = normalizeVaseParams({
+      ...DEFAULT_CONSTRUCTOR_PARAMS,
+      ...randomVase,
+    });
+
+    shapes.add(normalized.shape);
+    layersMin = Math.min(layersMin, normalized.patterns.length);
+    layersMax = Math.max(layersMax, normalized.patterns.length);
+    seeds.push(normalized.vaseSeed);
+
+    if (
+      new Set(normalized.patterns.map((layer) => layer.type)).size !==
+      normalized.patterns.length
+    ) {
+      repeatedTypes += 1;
+    }
+
+    if (
+      JSON.stringify(normalized.patterns) !==
+      JSON.stringify(randomVase.patterns)
+    ) {
+      drift += 1;
+    }
+
+    for (const layer of normalized.patterns) {
+      types.add(layer.type);
+      amplitudes.push(layer.amplitude);
+      frequencies.push(layer.frequency);
+    }
+  }
+
+  const seedLimit = CONSTRUCTOR_LIMITS.vaseSeed;
+  const randomPatterns = new Set<string>(VASE_RANDOM_PATTERNS);
+
+  check("рандом: слоёв один или два", [layersMin, layersMax], [1, 2]);
+  check("рандом: силуэты не залипли на одном", shapes.size > 1, true);
+  check("рандом: гладкого слоя не бывает", types.has("smooth"), false);
+  check(
+    "рандом: узоры из реестра",
+    [...types].every((type) => randomPatterns.has(type)),
+    true,
+  );
+  check("рандом: тип не повторяется внутри вазы", repeatedTypes, 0);
+  check("рандом: нормализация не двигает числа", drift, 0);
+  check(
+    "рандом: сид — целое в пределах слайдера",
+    seeds.every(
+      (seed) =>
+        Number.isInteger(seed) && seed >= seedLimit.min && seed <= seedLimit.max,
+    ),
+    true,
+  );
+  checkRange(
+    "рандом: амплитуда в границах плана",
+    amplitudes,
+    VASE_RANDOM_AMPLITUDE.min,
+    VASE_RANDOM_AMPLITUDE.max,
+  );
+  checkRange(
+    "рандом: частота в границах плана",
+    frequencies,
+    VASE_RANDOM_FREQUENCY.min,
+    VASE_RANDOM_FREQUENCY.max,
+  );
+
+  // Плитки галереи. При органике 0 сид не входит в геометрию вовсе — и все
+  // двенадцать кадров совпадали байт в байт, то есть выглядели одним и тем же
+  // цилиндром. Это и была жалоба владельца. Галерея рисует при нуле с
+  // VASE_SEED_GALLERY_ORGANIC, и кадры обязаны разойтись.
+  const galleryOptions = {
+    width: 64,
+    height: 80,
+    supersample: 1,
+    budget: "preview" as const,
+  };
+  const gallerySeeds = [
+    DEFAULT_VASE_PARAMS.vaseSeed,
+    // Одиннадцать следующих сидов: всего двенадцать плиток, как в галерее.
+    ...vaseSeedSeries(DEFAULT_VASE_PARAMS.vaseSeed, 11, seedLimit.max),
+  ];
+
+  const distinctFrames = (organic: number) => {
+    const frames = gallerySeeds.map(
+      (seed) => renderVaseRgb(vaseParams({ organic, vaseSeed: seed }), galleryOptions).rgb,
+    );
+
+    return frames.filter(
+      (frame, index) =>
+        frames.findIndex((other) => bytesMatch(frame, other)) === index,
+    ).length;
+  };
+
+  check(
+    "галерея: при органике 0 сид не меняет кадр",
+    distinctFrames(CONSTRUCTOR_LIMITS.organic.min),
+    1,
+  );
+  check(
+    "галерея: демонстрационная органика — двенадцать разных ваз",
+    distinctFrames(VASE_SEED_GALLERY_ORGANIC),
+    gallerySeeds.length,
+  );
+  check(
+    "галерея: демо-органика внутри слайдера",
+    VASE_SEED_GALLERY_ORGANIC > CONSTRUCTOR_LIMITS.organic.min &&
+      VASE_SEED_GALLERY_ORGANIC <= CONSTRUCTOR_LIMITS.organic.max,
+    true,
+  );
+  console.log(
+    `       плиток ${gallerySeeds.length}, демо-органика ${VASE_SEED_GALLERY_ORGANIC}`,
   );
 }
 
