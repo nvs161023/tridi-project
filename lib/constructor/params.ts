@@ -548,18 +548,77 @@ export function keychainThicknessLimits(
  *
  * Одна функция на предпросмотр, панель и API: матрица кода строится из того же
  * объекта, поэтому подпись «модуль 0.85 мм» и файл не могут разойтись.
+ * Габарит и крепление остаются полями силуэта (`qrCardSize`, `qrCardTab`), а
+ * рельеф и содержимое живут в декорации `qr`: содержимое кода — это декорация, а
+ * размер и крепление меняют саму заготовку.
  */
 export function keychainQrCardSpec(params: KeychainParams): QrCardSpec {
+  const qr = keychainQrDecoration(params.decorations);
+
   return {
     size: params.qrCardSize,
     tab: params.qrCardTab,
-    mode: params.qrMode,
-    contentType: params.qrContentType,
-    content: params.qrContent,
-    name: params.qrName,
-    phone: params.qrPhone,
+    mode: qr?.qrMode ?? DEFAULT_QR_CARD_SPEC.mode,
+    contentType: qr?.qrContentType ?? DEFAULT_QR_CARD_SPEC.contentType,
+    content: qr?.qrContent ?? DEFAULT_QR_CARD_SPEC.content,
+    name: qr?.qrName ?? DEFAULT_QR_CARD_SPEC.name,
+    phone: qr?.qrPhone ?? DEFAULT_QR_CARD_SPEC.phone,
   };
 }
+
+/** Декорация нужного вида или null: список короткий, поиск дешёвый. */
+function findKeychainDecoration<K extends KeychainDecorationKind>(
+  decorations: readonly KeychainDecoration[] | undefined,
+  kind: K,
+): Extract<KeychainDecoration, { kind: K }> | null {
+  const found = decorations?.find((decoration) => decoration.kind === kind);
+
+  return (found as Extract<KeychainDecoration, { kind: K }> | undefined) ?? null;
+}
+
+/** Надпись на брелоке или null, если её нет в списке. */
+export function keychainTextDecoration(
+  decorations: readonly KeychainDecoration[] | undefined,
+): KeychainTextDecoration | null {
+  return findKeychainDecoration(decorations, "text");
+}
+
+/** Картинка на брелоке или null. */
+export function keychainImageDecoration(
+  decorations: readonly KeychainDecoration[] | undefined,
+): KeychainImageDecoration | null {
+  return findKeychainDecoration(decorations, "image");
+}
+
+/** Декорация QR-кода или null: у остальных силуэтов её может не быть. */
+export function keychainQrDecoration(
+  decorations: readonly KeychainDecoration[] | undefined,
+): KeychainQrDecoration | null {
+  return findKeychainDecoration(decorations, "qr");
+}
+
+/**
+ * Шрифты, которые нужны модели.
+ *
+ * Сцена грузит JSON-файлы только для тех наборов, что выбраны в декорациях:
+ * переключение на PT Serif не тянет Roboto, а брелок без надписи не грузит
+ * ничего. Серверный роут берёт тот же список, поэтому файл и предпросмотр
+ * собираются из одинаковых шрифтов.
+ */
+export function keychainDecorationFonts(
+  decorations: readonly KeychainDecoration[] | undefined,
+): KeychainFontId[] {
+  const fonts = new Set<KeychainFontId>();
+
+  for (const decoration of decorations ?? []) {
+    if (decoration.kind === "text") {
+      fonts.add(decoration.font);
+    }
+  }
+
+  return [...fonts];
+}
+
 
 
 /**
@@ -642,22 +701,6 @@ export const KEYCHAIN_IMAGE_PREFIX = "data:image/svg+xml;base64,";
 export const KEYCHAIN_IMAGE_MAX_LENGTH = 96 * 1024;
 
 /**
- * Смещение картинки по X и Y, мм.
- *
- * Диапазон тот же, что у имени: картинка тоже двигается по свободной карте
- * грани, а её размер задаёт масштаб. Просьба пользователя обрезается по кромке,
- * отверстию под кольцо, карману NFC и буквам, поэтому 20 мм — это «к краю», а не
- * «за край».
- */
-export const KEYCHAIN_IMAGE_OFFSET_LIMITS: NumericLimit = {
-  min: -20,
-  max: 20,
-  step: 1,
-  defaultValue: 0,
-  decimals: 0,
-};
-
-/**
  * Масштаб картинки относительно свободной полосы грани.
  *
  * 1.0 — картинка вписана в полосу целиком; меньше — логотип меньше, больше —
@@ -707,13 +750,13 @@ export function isKeychainImageData(value: unknown): value is string {
 }
 
 /**
- * Смещение надписи по X и Y, мм.
+ * Смещение любой декорации по X и Y, мм.
  *
  * Диапазон шире любого силуэта: смещение — просьба, а геометрия обрезает его по
  * свободному месту грани. Слайдер в 20 мм позволяет увести имя к краю, но не
- * дальше: буквы останавливаются на границе пластика сами.
+ * дальше: рельеф останавливается на границе пластика сам.
  */
-export const KEYCHAIN_TEXT_OFFSET_LIMITS: NumericLimit = {
+export const KEYCHAIN_DECORATION_OFFSET_LIMITS: NumericLimit = {
   min: -20,
   max: 20,
   step: 1,
@@ -722,17 +765,32 @@ export const KEYCHAIN_TEXT_OFFSET_LIMITS: NumericLimit = {
 };
 
 /**
- * Толщина рельефа имени над пластиком, мм.
+ * Толщина рельефа декорации над пластиком, мм.
  *
  * Внедрение в тело (0.35 мм) не входит в это число и не настраивается: слайдер
- * задаёт только видимую высоту букв. 0.2 мм — почти гравировка, 1 мм — выпуклое
- * имя, которое читается на ощупь даже на тонкой основе.
+ * задаёт только видимую высоту рельефа. 0.2 мм — почти гравировка, 1 мм —
+ * выпуклый рельеф, который читается на ощупь даже на тонкой основе.
  */
-export const KEYCHAIN_TEXT_DEPTH_LIMITS: NumericLimit = {
+export const KEYCHAIN_DECORATION_DEPTH_LIMITS: NumericLimit = {
   min: 0.2,
   max: 1,
   step: 0.1,
   defaultValue: 0.8,
+  decimals: 1,
+};
+
+/**
+ * Межстрочный интервал надписи, доли кегля.
+ *
+ * Кегль — это размер буквы в миллиметрах, поэтому шаг строки считается как
+ * `lineHeight · кегль`: 0.8 — строки почти слипаются, 1.2 — обычный набор,
+ * 2.0 — разрядка в две высоты буквы.
+ */
+export const KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS: NumericLimit = {
+  min: 0.8,
+  max: 2,
+  step: 0.1,
+  defaultValue: 1.2,
   decimals: 1,
 };
 
@@ -743,67 +801,274 @@ export const KEYCHAIN_TEXT_DEPTH_LIMITS: NumericLimit = {
  */
 const TEXT_CHAR = /^[A-Za-z0-9 .,'’\-\p{Script=Cyrillic}]$/u;
 
+/**
+ * Шрифты надписи на брелоке.
+ *
+ * Все три файла лежат в `public/fonts` в legacy-формате three.js и покрывают
+ * кириллицу: `sans-bold` — Roboto Bold (тот же, что у вывески), `sans` — Roboto
+ * Regular, `serif` — PT Serif Bold. Ключи короткие и латинские: они попадают в
+ * параметры проекта, а не в имя файла, поэтому кириллица в них не нужна.
+ */
+export const KEYCHAIN_FONTS = ["sans-bold", "sans", "serif"] as const;
+
+export type KeychainFontId = (typeof KEYCHAIN_FONTS)[number];
+
+/** Подписи шрифтов для панели: имена наборов не переводятся. */
+export const KEYCHAIN_FONT_LABELS = {
+  "sans-bold": "Roboto Bold",
+  sans: "Roboto Regular",
+  serif: "PT Serif Bold",
+} as const satisfies Record<KeychainFontId, string>;
+
+/**
+ * Пути шрифтов: их грузит браузер и читает серверный роут.
+ *
+ * Реестр один, поэтому набор в панели, предпросмотр и API не могут разойтись:
+ * ключ декорации превращается в файл одной функцией `keychainFontUrl`.
+ */
+export const KEYCHAIN_FONT_URLS = {
+  "sans-bold": "/fonts/cyrillic.typeface.json",
+  sans: "/fonts/roboto-regular.typeface.json",
+  serif: "/fonts/pt-serif-bold.typeface.json",
+} as const satisfies Record<KeychainFontId, string>;
+
+export function isKeychainFontId(value: unknown): value is KeychainFontId {
+  return (
+    typeof value === "string" &&
+    (KEYCHAIN_FONTS as readonly string[]).includes(value)
+  );
+}
+
+/** Путь JSON-файла шрифта по ключу декорации. */
+export function keychainFontUrl(font: KeychainFontId): string {
+  return KEYCHAIN_FONT_URLS[font];
+}
+
+/**
+ * Повороты декорации в плоскости грани, градусы.
+ *
+ * Набор фиксированный, а не слайдер: косой поворот текста на брелоке читается
+ * хуже прямого, и произвольный угол давал бы столько же сборок модели, сколько
+ * положений слайдера. 90° и 270° нужны вертикальным именам, 45° и 135° — угловым
+ * композициям, 180° — имени вверх ногами на обороте.
+ */
+export const KEYCHAIN_DECORATION_ROTATIONS = [0, 45, 90, 135, 180, 270] as const;
+
+export type KeychainRotation = (typeof KEYCHAIN_DECORATION_ROTATIONS)[number];
+
+export function isKeychainRotation(value: unknown): value is KeychainRotation {
+  return (
+    typeof value === "number" &&
+    (KEYCHAIN_DECORATION_ROTATIONS as readonly number[]).includes(value)
+  );
+}
+
+/**
+ * Сторона, на которую просится декорация.
+ *
+ * `auto` — самая свободная: лицо, а если там нет места, то оборот. `front` и
+ * `back` — просьба, а не приказ: если на выбранной стороне места нет, рельеф не
+ * печатается вовсе, и панель говорит об этом.
+ */
+export const KEYCHAIN_DECORATION_SIDES = ["auto", "front", "back"] as const;
+
+export type KeychainDecorationSide = (typeof KEYCHAIN_DECORATION_SIDES)[number];
+
+export const KEYCHAIN_DECORATION_SIDE_LABELS = {
+  auto: "Любая сторона",
+  front: "Только лицо",
+  back: "Только оборот",
+} as const satisfies Record<KeychainDecorationSide, string>;
+
+export function isKeychainDecorationSide(
+  value: unknown,
+): value is KeychainDecorationSide {
+  return (
+    typeof value === "string" &&
+    (KEYCHAIN_DECORATION_SIDES as readonly string[]).includes(value)
+  );
+}
+
+/** Выравнивание строк многострочной надписи. */
+export const KEYCHAIN_TEXT_ALIGNS = ["left", "center", "right"] as const;
+
+export type KeychainTextAlign = (typeof KEYCHAIN_TEXT_ALIGNS)[number];
+
+export const KEYCHAIN_TEXT_ALIGN_LABELS = {
+  left: "По левому краю",
+  center: "По центру",
+  right: "По правому краю",
+} as const satisfies Record<KeychainTextAlign, string>;
+
+export function isKeychainTextAlign(
+  value: unknown,
+): value is KeychainTextAlign {
+  return (
+    typeof value === "string" &&
+    (KEYCHAIN_TEXT_ALIGNS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Сколько декораций держит брелок: надпись, картинка и QR-код.
+ *
+ * Больше трёх рельефов на грани 30 × 60 мм не помещается: карта свободного места
+ * 0.4 мм показывает, что четвёртая декорация либо не встанет, либо съест кегль
+ * имени до нечитаемого.
+ */
+export const KEYCHAIN_MAX_DECORATIONS = 3;
+
+/** Сколько строк в надписи: три строки по 10 символов — предел грани. */
+export const KEYCHAIN_TEXT_MAX_LINES = 3;
+
+
+/** Виды декораций: по одной каждого вида на брелоке. */
+export const KEYCHAIN_DECORATION_KINDS = ["text", "image", "qr"] as const;
+
+export type KeychainDecorationKind =
+  (typeof KEYCHAIN_DECORATION_KINDS)[number];
+
+export const KEYCHAIN_DECORATION_KIND_LABELS = {
+  text: "Текст",
+  image: "Картинка",
+  qr: "QR-код",
+} as const satisfies Record<KeychainDecorationKind, string>;
+
+export function isKeychainDecorationKind(
+  value: unknown,
+): value is KeychainDecorationKind {
+  return (
+    typeof value === "string" &&
+    (KEYCHAIN_DECORATION_KINDS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Общие поля любой декорации грани.
+ *
+ * `id` — стабильный ключ для списка в панели. Декораций каждого вида не больше
+ * одной, поэтому нормализация пишет в `id` вид: он не зависит от случайностей и
+ * переживает сохранение проекта, а список в интерфейсе не пересоздаётся.
+ */
+type KeychainDecorationBase = {
+  id: string;
+  /** Смещение от центра свободной полосы, мм: просьба, обрезается картой. */
+  offsetX: number;
+  /** Смещение по Y, мм: вверх — плюс. */
+  offsetY: number;
+  /** Поворот в плоскости грани, градусы. */
+  rotation: KeychainRotation;
+  /** Высота рельефа над пластиком, мм; внедрение 0.35 мм не входит. */
+  depth: number;
+  /** `true` — рельеф выступает, `false` — утоплен в пластик. */
+  emboss: boolean;
+  /** Сторона грани: любая, только лицо или только оборот. */
+  side: KeychainDecorationSide;
+};
+
+/**
+ * Надпись на грани: строки, шрифт и выравнивание.
+ *
+ * `content` хранит переводы строк как есть (`\n`), поэтому многострочное имя
+ * переживает сохранение проекта одной строкой. `lineHeight` — шаг строки в долях
+ * кегля, `align` — выравнивание строк в блоке: у короткой второй строки при
+ * центрировании остаётся симметричный отступ.
+ */
+export type KeychainTextDecoration = KeychainDecorationBase & {
+  kind: "text";
+  content: string;
+  font: KeychainFontId;
+  align: KeychainTextAlign;
+  lineHeight: number;
+};
+
+/**
+ * Картинка на грани: маска рельефа и её происхождение.
+ *
+ * `imageData` — та же маска SVG в base64, что читает `svg-outline.ts`.
+ * `imageName` — имя загруженного файла для панели: в геометрии оно не нужно, но
+ * без него после перезагрузки проекта карточка логотипа обезличена.
+ */
+export type KeychainImageDecoration = KeychainDecorationBase & {
+  kind: "image";
+  imageData: string;
+  imageScale: number;
+  imageName: string;
+};
+
+/**
+ * QR-код визитки как декорация.
+ *
+ * Код целиком занимает лицо визитки, поэтому его нельзя двигать и поворачивать:
+ * поля общих настроек у него всегда нейтральные, а печатает его силуэт
+ * (`qr-card-geometry.ts`), а не общий конвейер рельефов. В массиве декораций он
+ * живёт ради единой схемы и ради памяти содержимого: ссылка и имя визитки
+ * сохраняются в проекте, даже если силуэт временно выбран другой.
+ */
+export type KeychainQrDecoration = KeychainDecorationBase & {
+  kind: "qr";
+  qrMode: QrMode;
+  qrContentType: QrContentType;
+  qrContent: string;
+  qrName: string;
+  qrPhone: string;
+};
+
+/** Любая декорация грани: вид различается полем `kind`. */
+export type KeychainDecoration =
+  | KeychainTextDecoration
+  | KeychainImageDecoration
+  | KeychainQrDecoration;
+
+/**
+ * Плоские поля прежних проектов.
+ *
+ * До массива декораций надпись и картинка жили отдельными полями, а визитка —
+ * ещё и своими. Нормализация читает их ради миграции, но в готовых параметрах
+ * этих полей нет: единственный источник рельефа — `decorations`.
+ */
+export type KeychainDecorationsInput = {
+  decorations?: readonly unknown[];
+  text?: string;
+  showText?: boolean;
+  textOffsetX?: number;
+  textOffsetY?: number;
+  textDepth?: number;
+  imageData?: string | null;
+  imageOffsetX?: number;
+  imageOffsetY?: number;
+  imageScale?: number;
+  imageDepth?: number;
+  qrMode?: QrMode;
+  qrContentType?: QrContentType;
+  qrContent?: string;
+  qrName?: string;
+  qrPhone?: string;
+};
+
 /** Настраиваемые размеры, имя, силуэт и NFC-углубление брелока. */
 export type KeychainParams = {
   /** Длина заготовки сверху вниз, мм; ушко входит в этот габарит. */
   length: number;
   /** Ширина в самой широкой части, мм. */
   width: number;
-  /** Толщина основы, мм; рельеф имени выступает над ней. */
+  /** Толщина основы, мм; рельеф декораций выступает над ней. */
   thickness: number;
-  /** Имя или надпись на лицевой стороне, до 10 символов. */
-  text: string;
   /**
-   * Показывать надпись в модели.
+   * Рельефы на гранях: надпись, картинка и QR-код.
    *
-   * Галочка в панели: выключенная не добавляет буквы в геометрию вовсе, и файл
-   * уходит без рельефа — это экономит треугольники и позволяет напечатать
-   * заготовку под гравировку. Пустое поле выключает галочку само: показывать
-   * нечего, и снятый флажок честнее пустой надписи.
+   * Массив вместо плоских полей. Каждый вид встречается не больше одного раза, а
+   * весь список — не длиннее `KEYCHAIN_MAX_DECORATIONS`. Порядок нормализация
+   * держит фиксированным (текст, картинка, QR), потому что он же задаёт карточки
+   * в панели; порядок постановки на грань считает геометрия: сначала картинка —
+   * она крупнее и хуже переносит ужимание, потом буквы, кегль которых
+   * подбирается по остатку полосы.
    *
-   * Старые проекты поля не знают: в них надпись печаталась всегда, поэтому
-   * отсутствие значения читается как `true`.
+   * Пустой массив — брелок без рельефа: так печатают заготовку под гравировку.
+   * Старые проекты поля не знают: их плоские поля собирает в массив миграция
+   * (`normalizeKeychainParams`).
    */
-  showText: boolean;
-  /**
-   * Смещение надписи от центра свободной полосы, мм.
-   *
-   * Полоса сама встаёт в самое широкое место грани, но у силуэта с выемкой или
-   * логотипом имя может читаться лучше сдвинутым к краю. Смещение — просьба, а не
-   * приказ: геометрия обрезает его по границе полосы, отверстию под кольцо и
-   * кромке силуэта, поэтому буквы не уезжают с детали.
-   *
-   * Старые проекты поля не знают: там имя стояло по центру, поэтому отсутствие
-   * значения читается как ноль.
-   */
-  textOffsetX: number;
-  /** То же смещение по вертикали, мм: вверх — плюс. */
-  textOffsetY: number;
-  /**
-   * Насколько буквы выступают над пластиком, мм.
-   *
-   * Меняется только выступающая часть: внедрение в тело остаётся 0.35 мм, иначе
-   * слайсер увидел бы надпись отдельной деталью. Тонкий рельеф печатается быстрее
-   * и почти не заметен на ощупь, толстый переживает карман и ключи.
-   */
-  textDepth: number;
-  /**
-   * Маска картинки на брелоке: SVG в base64, `null` — картинки нет.
-   *
-   * Панель переводит загруженный PNG/JPG в маску чёрно-белого рельефа и хранит
-   * её здесь. Формат один для предпросмотра, экспорта и сохранённого проекта:
-   * геометрия, роут и нормализация читают одно и то же поле. Старые проекты
-   * поля не знают — картинки в них не было.
-   */
-  imageData: string | null;
-  /** Смещение картинки по X от центра свободной полосы, мм. */
-  imageOffsetX: number;
-  /** Смещение картинки по Y, мм: вверх — плюс. */
-  imageOffsetY: number;
-  /** Масштаб картинки относительно полосы: 1.0 — вписана целиком. */
-  imageScale: number;
-  /** Насколько рельеф картинки выступает над пластиком, мм. */
-  imageDepth: number;
+  decorations: KeychainDecoration[];
   /**
    * Свой контур: `custom` — форма берётся из `customSvgData`, и встроенных
    * силуэтов в проекте больше нет (`lib/constructor/keychain-fallback-shape.ts`
@@ -850,16 +1115,6 @@ export type KeychainParams = {
   qrCardSize: QrCardSize;
   /** Крепление визитки: проушина Ø11 мм сверху или отверстие Ø5 мм в теле. */
   qrCardTab: QrCardTab;
-  /** Рельеф кода: выпуклый 0.4 мм или углублённый 0.3 мм. */
-  qrMode: QrMode;
-  /** Что зашито в код: ссылка, телефон, почта или визитка. */
-  qrContentType: QrContentType;
-  /** Ссылка, телефон или почта. У визитки поле пустое: там имя и телефон. */
-  qrContent: string;
-  /** Имя для визитки vCard. */
-  qrName: string;
-  /** Телефон для визитки vCard. */
-  qrPhone: string;
   /**
    * Прежнее имя той же формы. Оставлено, пока панель параметров обновляется:
    * нормализация всегда держит `shapeType === keychainShape`.
@@ -1375,6 +1630,83 @@ export const DEFAULT_VASE_PARAMS: VaseParams = {
 };
 
 /**
+ * Надпись по умолчанию: короткое имя видно сразу, без пустой заготовки.
+ *
+ * Тот же объект — образец для кнопки «Добавить текст»: клиент копирует его с
+ * пустым содержимым, поэтому новая карточка ждёт ввода, а не печатает чужое имя.
+ */
+export const DEFAULT_KEYCHAIN_TEXT_DECORATION: KeychainTextDecoration = {
+  align: "center",
+  content: "Аня",
+  depth: KEYCHAIN_DECORATION_DEPTH_LIMITS.defaultValue,
+  emboss: true,
+  font: "sans-bold",
+  id: "text",
+  kind: "text",
+  lineHeight: KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS.defaultValue,
+  offsetX: KEYCHAIN_DECORATION_OFFSET_LIMITS.defaultValue,
+  offsetY: KEYCHAIN_DECORATION_OFFSET_LIMITS.defaultValue,
+  rotation: 0,
+  side: "auto",
+};
+
+/**
+ * QR-код визитки по умолчанию: выпуклый рельеф и короткая ссылка.
+ *
+ * Общие поля нейтральные: код занимает лицо целиком, двигать и поворачивать его
+ * нельзя, а `emboss` повторяет режим рельефа, чтобы карточка в панели показывала
+ * то же, что напечатает силуэт.
+ */
+export const DEFAULT_KEYCHAIN_QR_DECORATION: KeychainQrDecoration = {
+  depth: KEYCHAIN_DECORATION_DEPTH_LIMITS.defaultValue,
+  emboss: DEFAULT_QR_CARD_SPEC.mode === "raised",
+  id: "qr",
+  kind: "qr",
+  offsetX: 0,
+  offsetY: 0,
+  qrContent: DEFAULT_QR_CARD_SPEC.content,
+  qrContentType: DEFAULT_QR_CARD_SPEC.contentType,
+  qrMode: DEFAULT_QR_CARD_SPEC.mode,
+  qrName: DEFAULT_QR_CARD_SPEC.name,
+  qrPhone: DEFAULT_QR_CARD_SPEC.phone,
+  rotation: 0,
+  side: "front",
+};
+
+/** Новая надпись для кнопки «Добавить текст»: поле пустое и ждёт ввода. */
+export function createKeychainTextDecoration(
+  content = "",
+): KeychainTextDecoration {
+  return { ...DEFAULT_KEYCHAIN_TEXT_DECORATION, content };
+}
+
+/**
+ * Новая картинка из загруженного файла.
+ *
+ * Панель передаёт готовую маску и имя файла: имя нужно только интерфейсу, но
+ * хранится в параметрах, чтобы карточка «Картинка: logo.png» пережила
+ * перезагрузку проекта.
+ */
+export function createKeychainImageDecoration(
+  imageData: string,
+  imageName: string,
+): KeychainImageDecoration {
+  return {
+    depth: KEYCHAIN_IMAGE_DEPTH_LIMITS.defaultValue,
+    emboss: true,
+    id: "image",
+    imageData,
+    imageName,
+    imageScale: KEYCHAIN_IMAGE_SCALE_LIMITS.defaultValue,
+    kind: "image",
+    offsetX: KEYCHAIN_DECORATION_OFFSET_LIMITS.defaultValue,
+    offsetY: KEYCHAIN_DECORATION_OFFSET_LIMITS.defaultValue,
+    rotation: 0,
+    side: "auto",
+  };
+}
+
+/**
  * Значения брелока по умолчанию: модель открывается с готовым пресетом.
  *
  * Раньше здесь стоял жетон `dog_tag`, но встроенных силуэтов больше нет, а
@@ -1386,16 +1718,7 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   length: CONSTRUCTOR_LIMITS.length.defaultValue,
   width: CONSTRUCTOR_LIMITS.width.defaultValue,
   thickness: CONSTRUCTOR_LIMITS.thickness.defaultValue,
-  text: "Аня",
-  showText: true,
-  textOffsetX: KEYCHAIN_TEXT_OFFSET_LIMITS.defaultValue,
-  textOffsetY: KEYCHAIN_TEXT_OFFSET_LIMITS.defaultValue,
-  textDepth: KEYCHAIN_TEXT_DEPTH_LIMITS.defaultValue,
-  imageData: null,
-  imageOffsetX: KEYCHAIN_IMAGE_OFFSET_LIMITS.defaultValue,
-  imageOffsetY: KEYCHAIN_IMAGE_OFFSET_LIMITS.defaultValue,
-  imageScale: KEYCHAIN_IMAGE_SCALE_LIMITS.defaultValue,
-  imageDepth: KEYCHAIN_IMAGE_DEPTH_LIMITS.defaultValue,
+  decorations: [DEFAULT_KEYCHAIN_TEXT_DECORATION],
   keychainShape: null,
   keychainPreset: DEFAULT_KEYCHAIN_PRESET_ID,
   customSvgData: "",
@@ -1403,11 +1726,6 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   holePlacement: "center",
   qrCardSize: DEFAULT_QR_CARD_SPEC.size,
   qrCardTab: DEFAULT_QR_CARD_SPEC.tab,
-  qrMode: DEFAULT_QR_CARD_SPEC.mode,
-  qrContentType: DEFAULT_QR_CARD_SPEC.contentType,
-  qrContent: DEFAULT_QR_CARD_SPEC.content,
-  qrName: DEFAULT_QR_CARD_SPEC.name,
-  qrPhone: DEFAULT_QR_CARD_SPEC.phone,
   shapeType: null,
 };
 
@@ -2237,13 +2555,24 @@ function cleanText(value: string, maxLength: number): string {
  *
  * Пустая строка допустима: заготовка без надписи — нормальный брелок. Длина
  * считается по символам Unicode, а не по единицам UTF-16, чтобы эмодзи или
- * редкая буква не обходили лимит.
+ * редкая буква не обходили лимит. Строк не больше `KEYCHAIN_TEXT_MAX_LINES`, и
+ * каждая держится в пределах `KEYCHAIN_TEXT_MAX_LENGTH`: перевод строки —
+ * разделитель, а не символ шрифта.
  */
 export function isValidKeychainText(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const lines = value.split("\n");
+
   return (
-    typeof value === "string" &&
-    Array.from(value).length <= KEYCHAIN_TEXT_MAX_LENGTH &&
-    Array.from(value).every((char) => TEXT_CHAR.test(char))
+    lines.length <= KEYCHAIN_TEXT_MAX_LINES &&
+    lines.every(
+      (line) =>
+        Array.from(line).length <= KEYCHAIN_TEXT_MAX_LENGTH &&
+        Array.from(line).every((char) => TEXT_CHAR.test(char)),
+    )
   );
 }
 
@@ -2308,9 +2637,16 @@ export function listSignBlocks(
  * обрезает строку до лимита. Нормализация не должна молча менять имя на
  * сервере — там isValidKeychainText отклоняет неверные данные, — но в
  * браузере так проще: ввод не ломает предпросмотр.
+ *
+ * Переводы строк сохраняются: многострочное имя чистится построчно, поэтому
+ * пользователь может печатать вторую строку, не теряя первую.
  */
 export function sanitizeKeychainText(value: string): string {
-  return cleanText(value, KEYCHAIN_TEXT_MAX_LENGTH);
+  return value
+    .split("\n")
+    .slice(0, KEYCHAIN_TEXT_MAX_LINES)
+    .map((line) => cleanText(line, KEYCHAIN_TEXT_MAX_LENGTH))
+    .join("\n");
 }
 
 /** Очистка надписи вывески для поля ввода: те же символы, лимит 15. */
@@ -2698,6 +3034,286 @@ function resolveKeychainShape(
   return isKeychainShape(params.shapeType) ? params.shapeType : null;
 }
 
+/** Общие поля декорации: то, что есть у любого вида. */
+type KeychainDecorationCommon = Pick<
+  KeychainDecoration,
+  "depth" | "emboss" | "offsetX" | "offsetY" | "rotation" | "side"
+>;
+
+/**
+ * Общие поля декорации из сырого ввода.
+ *
+ * Границы и шаг те же, что у слайдеров: панель, нормализация и серверная сверка
+ * читают одни числа. Значение вне набора (`rotation: 37`, `side: "top"`) — не
+ * ошибка состояния, а устаревший выбор, и он откатывается к образцу: так проект
+ * из старой версии открывается, а не падает.
+ */
+function normalizeDecorationCommon(
+  input: Readonly<Record<string, unknown>>,
+  fallback: KeychainDecorationCommon,
+): KeychainDecorationCommon {
+  return {
+    depth: snap(
+      typeof input.depth === "number" ? input.depth : fallback.depth,
+      KEYCHAIN_DECORATION_DEPTH_LIMITS,
+    ),
+    emboss: typeof input.emboss === "boolean" ? input.emboss : fallback.emboss,
+    offsetX: snap(
+      typeof input.offsetX === "number" ? input.offsetX : fallback.offsetX,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS,
+    ),
+    offsetY: snap(
+      typeof input.offsetY === "number" ? input.offsetY : fallback.offsetY,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS,
+    ),
+    rotation: isKeychainRotation(input.rotation)
+      ? input.rotation
+      : fallback.rotation,
+    side: isKeychainDecorationSide(input.side) ? input.side : fallback.side,
+  };
+}
+
+/**
+ * Имя файла картинки для панели.
+ *
+ * Хранится ради подписи «Картинка: logo.png»: путь отбрасывается, управляющие
+ * символы вырезаются, длина ограничена — в `params_json` не должно быть ни
+ * локальных путей, ни мусора из имени файла.
+ */
+function sanitizeKeychainImageName(value: string): string {
+  const name = value.split(/[\\/]/).pop() ?? "";
+
+  return name.replace(/[\u0000-\u001f]/g, "").trim().slice(0, 60);
+}
+
+/** Надпись из сырого ввода: пустое содержимое допустимо и ждёт ввода. */
+function normalizeTextDecoration(
+  input: Readonly<Record<string, unknown>>,
+): KeychainTextDecoration {
+  const sample = DEFAULT_KEYCHAIN_TEXT_DECORATION;
+
+  return {
+    ...normalizeDecorationCommon(input, sample),
+    align: isKeychainTextAlign(input.align) ? input.align : sample.align,
+    content: sanitizeKeychainText(
+      typeof input.content === "string" ? input.content : sample.content,
+    ),
+    font: isKeychainFontId(input.font) ? input.font : sample.font,
+    id: "text",
+    kind: "text",
+    lineHeight: snap(
+      typeof input.lineHeight === "number"
+        ? input.lineHeight
+        : sample.lineHeight,
+      KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS,
+    ),
+  };
+}
+
+/**
+ * Картинка из сырого ввода: без настоящей маски декорации нет.
+ *
+ * Маска проходит только проверку формата: если SVG битый или слишком длинный,
+ * декорация гаснет и брелок печатается без логотипа. Так сохранённый проект со
+ * старой маской не ломает ни предпросмотр, ни экспорт.
+ */
+function normalizeImageDecoration(
+  input: Readonly<Record<string, unknown>>,
+): KeychainImageDecoration | null {
+  const imageData = input.imageData;
+
+  if (!isKeychainImageData(imageData)) {
+    return null;
+  }
+
+  return {
+    ...normalizeDecorationCommon(
+      input,
+      createKeychainImageDecoration(imageData, ""),
+    ),
+    id: "image",
+    imageData,
+    imageName: sanitizeKeychainImageName(
+      typeof input.imageName === "string" ? input.imageName : "",
+    ),
+    imageScale: snap(
+      typeof input.imageScale === "number"
+        ? input.imageScale
+        : KEYCHAIN_IMAGE_SCALE_LIMITS.defaultValue,
+      KEYCHAIN_IMAGE_SCALE_LIMITS,
+    ),
+    kind: "image",
+  };
+}
+
+/** QR-код визитки из сырого ввода: содержимое чистится как в визитке. */
+function normalizeQrDecoration(
+  input: Readonly<Record<string, unknown>>,
+): KeychainQrDecoration {
+  const sample = DEFAULT_KEYCHAIN_QR_DECORATION;
+
+  return {
+    ...normalizeDecorationCommon(input, sample),
+    id: "qr",
+    kind: "qr",
+    qrContent: sanitizeQrCardContent(
+      typeof input.qrContent === "string" ? input.qrContent : sample.qrContent,
+    ),
+    qrContentType: isQrContentType(input.qrContentType)
+      ? input.qrContentType
+      : sample.qrContentType,
+    qrMode: isQrMode(input.qrMode) ? input.qrMode : sample.qrMode,
+    qrName: sanitizeQrCardName(
+      typeof input.qrName === "string" ? input.qrName : sample.qrName,
+    ),
+    qrPhone: sanitizeQrCardPhone(
+      typeof input.qrPhone === "string" ? input.qrPhone : sample.qrPhone,
+    ),
+  };
+}
+
+/** Декорация из записи массива: неизвестный вид и битая картинка отбрасываются. */
+function normalizeDecorationEntry(input: unknown): KeychainDecoration | null {
+  if (typeof input !== "object" || input === null) {
+    return null;
+  }
+
+  const entry = input as Record<string, unknown>;
+
+  if (entry.kind === "text") {
+    return normalizeTextDecoration(entry);
+  }
+
+  if (entry.kind === "image") {
+    return normalizeImageDecoration(entry);
+  }
+
+  if (entry.kind === "qr") {
+    return normalizeQrDecoration(entry);
+  }
+
+  return null;
+}
+
+/**
+ * Декорации из плоских полей прежних проектов.
+ *
+ * Так открываются проекты, сохранённые до массива: надпись собирается в
+ * текстовую декорацию, маска картинки — в картинку. Снятая галочка `showText`
+ * означает «надписи в модели нет», поэтому в массив она не попадает: вернуть её
+ * можно кнопкой «Добавить текст», а текст придётся набрать заново — в параметрах
+ * его не было.
+ *
+ * Имя файла в старых проектах не хранилось, поэтому `imageName` пустой, и
+ * панель подписывает карточку «Картинка из проекта», а не выдумывает имя.
+ */
+function legacyKeychainDecorations(
+  params: KeychainDecorationsInput,
+): KeychainDecoration[] {
+  const decorations: KeychainDecoration[] = [];
+  const content =
+    typeof params.text === "string" ? sanitizeKeychainText(params.text) : "";
+
+  if (params.showText !== false && content.trim()) {
+    decorations.push(
+      normalizeTextDecoration({
+        content,
+        depth: params.textDepth,
+        offsetX: params.textOffsetX,
+        offsetY: params.textOffsetY,
+      }),
+    );
+  }
+
+  const image = normalizeImageDecoration({
+    depth: params.imageDepth,
+    imageData: params.imageData,
+    imageScale: params.imageScale,
+    offsetX: params.imageOffsetX,
+    offsetY: params.imageOffsetY,
+  });
+
+  if (image) {
+    decorations.push(image);
+  }
+
+  return decorations;
+}
+
+/** QR-декорация из плоских полей визитки: только если хоть одно поле пришло. */
+function legacyKeychainQrDecoration(
+  params: KeychainDecorationsInput,
+): KeychainQrDecoration | null {
+  const present =
+    params.qrMode !== undefined ||
+    params.qrContentType !== undefined ||
+    params.qrContent !== undefined ||
+    params.qrName !== undefined ||
+    params.qrPhone !== undefined;
+
+  if (!present) {
+    return null;
+  }
+
+  return normalizeQrDecoration({
+    qrContent: params.qrContent,
+    qrContentType: params.qrContentType,
+    qrMode: params.qrMode,
+    qrName: params.qrName,
+    qrPhone: params.qrPhone,
+  });
+}
+
+/**
+ * Список декораций: новый массив или миграция плоских полей.
+ *
+ * Декораций каждого вида не больше одной, поэтому повтор вида в массиве
+ * отбрасывается: первый пункт списка и есть настройка этого рельефа. Порядок
+ * всегда один — текст, картинка, QR: он задаёт карточки в панели и не зависит от
+ * того, в каком порядке пользователь добавлял рельефы.
+ *
+ * У QR-визитки декорация `qr` есть всегда: её содержимое печатает силуэт, и без
+ * неё панели нечего показать в карточке кода. У остальных силуэтов она остаётся
+ * только если пришла из проекта — так ссылка и имя визитки переживают
+ * переключение формы туда и обратно.
+ */
+export function normalizeKeychainDecorations(
+  params: KeychainDecorationsInput,
+  preset: KeychainPresetId | null,
+): KeychainDecoration[] {
+  const source = Array.isArray(params.decorations) ? params.decorations : null;
+  const decorations = new Map<KeychainDecorationKind, KeychainDecoration>();
+  const entries = source
+    ? source.slice(0, KEYCHAIN_MAX_DECORATIONS)
+    : legacyKeychainDecorations(params);
+
+  for (const entry of entries) {
+    const decoration = normalizeDecorationEntry(entry);
+
+    if (decoration && !decorations.has(decoration.kind)) {
+      decorations.set(decoration.kind, decoration);
+    }
+  }
+
+  if (!decorations.has("qr")) {
+    const legacyQr = source ? null : legacyKeychainQrDecoration(params);
+
+    if (legacyQr) {
+      decorations.set("qr", legacyQr);
+    }
+  }
+
+  if (preset === "qr-card" && !decorations.has("qr")) {
+    decorations.set("qr", DEFAULT_KEYCHAIN_QR_DECORATION);
+  }
+
+  return KEYCHAIN_DECORATION_KINDS.flatMap((kind) => {
+    const decoration = decorations.get(kind);
+
+    return decoration ? [decoration] : [];
+  });
+}
+
 /**
  * Проверяет и выравнивает параметры брелока.
  *
@@ -2720,11 +3336,13 @@ function resolveKeychainShape(
  * и 70 × 45 мм обе выше границы `width`, поэтому габарит выводится из
  * `qrCardSize`, а толщина держится в границах пресета.
  *
- * Надпись нормализация не трогает, кроме галочки: `showText` включается, если
- * проект поля не знает, — в старых проектах имя печаталось всегда.
+ * Рельефы собираются в массив декораций: новый проект присылает его готовым, а
+ * проект прежней версии — плоскими полями, которые миграция превращает в текстовую
+ * декорацию и картинку (`normalizeKeychainDecorations`). Здесь же решается, есть
+ * ли у модели декорация QR-кода: у визитки она есть всегда.
  */
 export function normalizeKeychainParams(
-  params: Partial<KeychainParams>,
+  params: Partial<KeychainParams> & KeychainDecorationsInput,
 ): KeychainParams {
   const requestedPreset = isKeychainPresetId(params.keychainPreset)
     ? params.keychainPreset
@@ -2765,6 +3383,10 @@ export function normalizeKeychainParams(
     presetHolePlacements.includes(params.holePlacement)
       ? params.holePlacement
       : DEFAULT_KEYCHAIN_PARAMS.holePlacement;
+  // Рельефы: массив нового формата или миграция плоских полей. Одна функция на
+  // клиент, сервер и сохранённые проекты — расхождение «в панели имя есть, в
+  // файле нет» невозможно.
+  const decorations = normalizeKeychainDecorations(params, keychainPreset);
 
   return {
     length:
@@ -2783,46 +3405,9 @@ export function normalizeKeychainParams(
       params.thickness ?? thicknessLimits.defaultValue,
       thicknessLimits,
     ),
-    text: sanitizeKeychainText(params.text ?? DEFAULT_KEYCHAIN_PARAMS.text),
-    // Старые проекты поля не знают, а надпись в них печаталась всегда: любое
-    // значение, кроме явного false, читается как «показывать». Пустое поле
-    // геометрию не меняет — букв нет ни так, ни так.
-    showText: params.showText !== false,
-    // Смещение и толщина рельефа — такие же размеры, как длина и ширина: шаг
-    // слайдера и границы одни и те же у панели, нормализации и серверной сверки.
-    // Старые проекты полей не знают, поэтому ноль и 0.8 мм — их значения.
-    textOffsetX: snap(
-      params.textOffsetX ?? DEFAULT_KEYCHAIN_PARAMS.textOffsetX,
-      KEYCHAIN_TEXT_OFFSET_LIMITS,
-    ),
-    textOffsetY: snap(
-      params.textOffsetY ?? DEFAULT_KEYCHAIN_PARAMS.textOffsetY,
-      KEYCHAIN_TEXT_OFFSET_LIMITS,
-    ),
-    textDepth: snap(
-      params.textDepth ?? DEFAULT_KEYCHAIN_PARAMS.textDepth,
-      KEYCHAIN_TEXT_DEPTH_LIMITS,
-    ),
-    // Маска картинки проходит только проверку формата: если SVG битый или
-    // слишком длинный, поле гаснет и брелок печатается без логотипа. Так
-    // сохранённый проект со старой маской не ломает ни предпросмотр, ни экспорт.
-    imageData: isKeychainImageData(params.imageData) ? params.imageData : null,
-    imageOffsetX: snap(
-      params.imageOffsetX ?? DEFAULT_KEYCHAIN_PARAMS.imageOffsetX,
-      KEYCHAIN_IMAGE_OFFSET_LIMITS,
-    ),
-    imageOffsetY: snap(
-      params.imageOffsetY ?? DEFAULT_KEYCHAIN_PARAMS.imageOffsetY,
-      KEYCHAIN_IMAGE_OFFSET_LIMITS,
-    ),
-    imageScale: snap(
-      params.imageScale ?? DEFAULT_KEYCHAIN_PARAMS.imageScale,
-      KEYCHAIN_IMAGE_SCALE_LIMITS,
-    ),
-    imageDepth: snap(
-      params.imageDepth ?? DEFAULT_KEYCHAIN_PARAMS.imageDepth,
-      KEYCHAIN_IMAGE_DEPTH_LIMITS,
-    ),
+    // Рельефы на гранях: надпись, картинка, QR-код. Плоских полей больше нет,
+    // поэтому смещения, толщины, шрифт и строки живут внутри декораций.
+    decorations,
     keychainShape,
     keychainPreset,
     customSvgData,
@@ -2832,19 +3417,6 @@ export function normalizeKeychainParams(
     qrCardTab: isQrCardTab(params.qrCardTab)
       ? params.qrCardTab
       : DEFAULT_KEYCHAIN_PARAMS.qrCardTab,
-    qrMode: isQrMode(params.qrMode)
-      ? params.qrMode
-      : DEFAULT_KEYCHAIN_PARAMS.qrMode,
-    qrContentType: isQrContentType(params.qrContentType)
-      ? params.qrContentType
-      : DEFAULT_KEYCHAIN_PARAMS.qrContentType,
-    qrContent: sanitizeQrCardContent(
-      params.qrContent ?? DEFAULT_KEYCHAIN_PARAMS.qrContent,
-    ),
-    qrName: sanitizeQrCardName(params.qrName ?? DEFAULT_KEYCHAIN_PARAMS.qrName),
-    qrPhone: sanitizeQrCardPhone(
-      params.qrPhone ?? DEFAULT_KEYCHAIN_PARAMS.qrPhone,
-    ),
     shapeType: keychainShape,
   };
 }
@@ -3241,7 +3813,9 @@ export function normalizeLithophaneParams(
  * превращается в вазу.
  */
 export function normalizeConstructorParams(
-  params: Omit<Partial<ConstructorParams>, "patterns"> & VasePatternInput,
+  params: Omit<Partial<ConstructorParams>, "patterns"> &
+    VasePatternInput &
+    KeychainDecorationsInput,
 ): ConstructorParams {
   return {
     model: isModelType(params.model)

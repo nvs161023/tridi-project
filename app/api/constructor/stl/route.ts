@@ -33,11 +33,11 @@ import {
   DEFAULT_LITHOPHANE_PARAMS,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
-  KEYCHAIN_IMAGE_DEPTH_LIMITS,
-  KEYCHAIN_IMAGE_OFFSET_LIMITS,
+  KEYCHAIN_DECORATION_DEPTH_LIMITS,
+  KEYCHAIN_DECORATION_OFFSET_LIMITS,
   KEYCHAIN_IMAGE_SCALE_LIMITS,
-  KEYCHAIN_TEXT_DEPTH_LIMITS,
-  KEYCHAIN_TEXT_OFFSET_LIMITS,
+  KEYCHAIN_MAX_DECORATIONS,
+  KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS,
   boxStlFileName,
   coasterStlFileName,
   hasDrawableSvgData,
@@ -46,8 +46,13 @@ import {
   isCoasterShape,
   isCustomSvgData,
   isJewelryConfig,
+  isKeychainDecorationKind,
+  isKeychainDecorationSide,
+  isKeychainFontId,
   isKeychainImageData,
+  isKeychainRotation,
   isKeychainShape,
+  isKeychainTextAlign,
   isLithophaneBrightness,
   isLithophaneMount,
   isLithophanePart,
@@ -62,6 +67,7 @@ import {
   isValidSignText,
   heatTransferStlFileName,
   jewelryStandStlFileName,
+  keychainFontUrl,
   keychainStlFileName,
   keychainThicknessLimits,
   keychainQrCardSpec,
@@ -89,6 +95,9 @@ import {
   type CoasterParams,
   type HeatTransferParams,
   type JewelryStandParams,
+  type KeychainDecoration,
+  type KeychainDecorationSide,
+  type KeychainRotation,
   type KeychainParams,
   type LithophaneParams,
   type LithophanePart,
@@ -105,10 +114,7 @@ import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
 import { createHeatTransferGeometry } from "@/lib/constructor/heat-transfer-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
-import {
-  KEYCHAIN_FONT_URL,
-  createKeychainGeometry,
-} from "@/lib/constructor/keychain-geometry";
+import { createKeychainGeometry } from "@/lib/constructor/keychain-geometry";
 import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
 import { createPenHolderGeometry } from "@/lib/constructor/pen-holder-geometry";
 import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
@@ -436,6 +442,152 @@ function parseVaseParams(body: unknown): VaseParams | null {
 }
 
 /**
+ * Декорации из запроса: строгая проверка до нормализации.
+ *
+ * Проверяется всё, что может разойтись с предпросмотром: вид, число декораций,
+ * повторы вида, диапазоны смещений и толщины, наборы поворотов, сторон,
+ * выравниваний и шрифтов. Отдельно — содержимое каждого вида: строки надписи по
+ * правилам шрифта, маска картинки по формату, поля визитки по своим наборам.
+ *
+ * `undefined` возвращается, когда поля в запросе нет: это старый клиент с плоскими
+ * полями, и их разберёт миграция. `null` — ошибка ввода.
+ */
+function parseKeychainDecorations(value: unknown): KeychainDecoration[] | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value) || value.length > KEYCHAIN_MAX_DECORATIONS) {
+    return null;
+  }
+
+  const decorations: KeychainDecoration[] = [];
+
+  for (const entry of value) {
+    const decoration = parseKeychainDecoration(entry);
+
+    if (!decoration || decorations.some((item) => item.kind === decoration.kind)) {
+      return null;
+    }
+
+    decorations.push(decoration);
+  }
+
+  return decorations;
+}
+
+/** Одна декорация: общие поля и поля своего вида. */
+function parseKeychainDecoration(value: unknown): KeychainDecoration | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const entry = value as Record<string, unknown>;
+
+  if (
+    !isKeychainRotation(entry.rotation) ||
+    !isKeychainDecorationSide(entry.side) ||
+    !isNumberInRange(
+      entry.offsetX,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.min,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.max,
+    ) ||
+    !isNumberInRange(
+      entry.offsetY,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.min,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.max,
+    ) ||
+    !isNumberInRange(
+      entry.depth,
+      KEYCHAIN_DECORATION_DEPTH_LIMITS.min,
+      KEYCHAIN_DECORATION_DEPTH_LIMITS.max,
+    ) ||
+    typeof entry.emboss !== "boolean" ||
+    !isKeychainDecorationKind(entry.kind)
+  ) {
+    return null;
+  }
+
+  // Поля размечены выше: дальше они читаются как числа и наборы значений, а не
+  // как `unknown` из тела запроса.
+  const base = {
+    id: typeof entry.id === "string" ? entry.id : entry.kind,
+    offsetX: entry.offsetX as number,
+    offsetY: entry.offsetY as number,
+    rotation: entry.rotation as KeychainRotation,
+    depth: entry.depth as number,
+    emboss: entry.emboss as boolean,
+    side: entry.side as KeychainDecorationSide,
+  };
+
+  if (entry.kind === "text") {
+    if (
+      !isValidKeychainText(entry.content) ||
+      !isKeychainFontId(entry.font) ||
+      !isKeychainTextAlign(entry.align) ||
+      !isNumberInRange(
+        entry.lineHeight,
+        KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS.min,
+        KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS.max,
+      )
+    ) {
+      return null;
+    }
+
+    return {
+      ...base,
+      align: entry.align,
+      content: entry.content,
+      font: entry.font,
+      kind: "text",
+      lineHeight: entry.lineHeight as number,
+    };
+  }
+
+  if (entry.kind === "image") {
+    if (
+      !isKeychainImageData(entry.imageData) ||
+      (entry.imageName !== undefined && typeof entry.imageName !== "string") ||
+      !isNumberInRange(
+        entry.imageScale,
+        KEYCHAIN_IMAGE_SCALE_LIMITS.min,
+        KEYCHAIN_IMAGE_SCALE_LIMITS.max,
+      )
+    ) {
+      return null;
+    }
+
+    return {
+      ...base,
+      imageData: entry.imageData,
+      imageName: typeof entry.imageName === "string" ? entry.imageName : "",
+      imageScale: entry.imageScale as number,
+      kind: "image",
+    };
+  }
+
+  if (
+    !isQrMode(entry.qrMode) ||
+    !isQrContentType(entry.qrContentType) ||
+    typeof entry.qrContent !== "string" ||
+    typeof entry.qrName !== "string" ||
+    typeof entry.qrPhone !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    ...base,
+    kind: "qr",
+    qrContent: entry.qrContent,
+    qrContentType: entry.qrContentType,
+    qrMode: entry.qrMode,
+    qrName: entry.qrName,
+    qrPhone: entry.qrPhone,
+  };
+}
+
+/**
  * Строгая проверка параметров брелока.
  *
  * Все размеры обязательны и должны лежать в границах слайдеров. Текст — не
@@ -494,7 +646,13 @@ function parseKeychainParams(
     imageOffsetX,
     imageOffsetY,
     imageDepth,
+    decorations = undefined,
   } = body;
+  // Декорации нового формата: массив проверяется целиком до нормализации. Плоские
+  // поля ниже остаются ради старых клиентов — нормализация читает их только тогда,
+  // когда массива в запросе нет.
+  const parsedDecorations = parseKeychainDecorations(decorations);
+  const decorationsInvalid = parsedDecorations === null;
   const preset = isKeychainPresetId(keychainPreset) ? keychainPreset : null;
   // Неизвестный идентификатор — ошибка ввода, а не «пресета нет»: иначе запрос
   // с опечаткой молча собрал бы брелок по своему контуру.
@@ -529,8 +687,10 @@ function parseKeychainParams(
         CONSTRUCTOR_LIMITS.width.min,
         CONSTRUCTOR_LIMITS.width.max,
       ));
+  // Без массива декораций визитка приходит плоскими полями — их и проверяем.
   const qrInvalid =
     isQrCard &&
+    parsedDecorations === undefined &&
     (!isQrCardSize(qrCardSize) ||
       !isQrCardTab(qrCardTab) ||
       !isQrMode(qrMode) ||
@@ -546,20 +706,20 @@ function parseKeychainParams(
     (textOffsetX !== undefined &&
       !isNumberInRange(
         textOffsetX,
-        KEYCHAIN_TEXT_OFFSET_LIMITS.min,
-        KEYCHAIN_TEXT_OFFSET_LIMITS.max,
+        KEYCHAIN_DECORATION_OFFSET_LIMITS.min,
+        KEYCHAIN_DECORATION_OFFSET_LIMITS.max,
       )) ||
     (textOffsetY !== undefined &&
       !isNumberInRange(
         textOffsetY,
-        KEYCHAIN_TEXT_OFFSET_LIMITS.min,
-        KEYCHAIN_TEXT_OFFSET_LIMITS.max,
+        KEYCHAIN_DECORATION_OFFSET_LIMITS.min,
+        KEYCHAIN_DECORATION_OFFSET_LIMITS.max,
       )) ||
     (textDepth !== undefined &&
       !isNumberInRange(
         textDepth,
-        KEYCHAIN_TEXT_DEPTH_LIMITS.min,
-        KEYCHAIN_TEXT_DEPTH_LIMITS.max,
+        KEYCHAIN_DECORATION_DEPTH_LIMITS.min,
+        KEYCHAIN_DECORATION_DEPTH_LIMITS.max,
       ));
   // Картинка на грани: сервер не разбирает пиксели — браузер присылает уже
   // готовую маску, — но проверяет её формат и длину, иначе в файл уйдёт строка,
@@ -579,26 +739,27 @@ function parseKeychainParams(
     (imageOffsetX !== undefined &&
       !isNumberInRange(
         imageOffsetX,
-        KEYCHAIN_IMAGE_OFFSET_LIMITS.min,
-        KEYCHAIN_IMAGE_OFFSET_LIMITS.max,
+        KEYCHAIN_DECORATION_OFFSET_LIMITS.min,
+        KEYCHAIN_DECORATION_OFFSET_LIMITS.max,
       )) ||
     (imageOffsetY !== undefined &&
       !isNumberInRange(
         imageOffsetY,
-        KEYCHAIN_IMAGE_OFFSET_LIMITS.min,
-        KEYCHAIN_IMAGE_OFFSET_LIMITS.max,
+        KEYCHAIN_DECORATION_OFFSET_LIMITS.min,
+        KEYCHAIN_DECORATION_OFFSET_LIMITS.max,
       )) ||
     (imageDepth !== undefined &&
       !isNumberInRange(
         imageDepth,
-        KEYCHAIN_IMAGE_DEPTH_LIMITS.min,
-        KEYCHAIN_IMAGE_DEPTH_LIMITS.max,
+        KEYCHAIN_DECORATION_DEPTH_LIMITS.min,
+        KEYCHAIN_DECORATION_DEPTH_LIMITS.max,
       ));
 
   if (
     sizeInvalid ||
     textStyleInvalid ||
     imageInvalid ||
+    decorationsInvalid ||
     !isNumberInRange(thickness, thicknessLimits.min, thicknessLimits.max) ||
     !isValidKeychainText(text) ||
     presetInvalid ||
@@ -616,6 +777,9 @@ function parseKeychainParams(
   }
 
   return normalizeKeychainParams({
+    // Декорации: массив нового формата. Если его в запросе нет (старый клиент),
+    // поле остаётся undefined, и миграция соберёт рельефы из плоских полей ниже.
+    decorations: parsedDecorations,
     length: isNumberInRange(
       length,
       CONSTRUCTOR_LIMITS.length.min,
@@ -641,22 +805,22 @@ function parseKeychainParams(
     showText: typeof showText === "boolean" ? showText : undefined,
     textOffsetX: isNumberInRange(
       textOffsetX,
-      KEYCHAIN_TEXT_OFFSET_LIMITS.min,
-      KEYCHAIN_TEXT_OFFSET_LIMITS.max,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.min,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.max,
     )
       ? textOffsetX
       : undefined,
     textOffsetY: isNumberInRange(
       textOffsetY,
-      KEYCHAIN_TEXT_OFFSET_LIMITS.min,
-      KEYCHAIN_TEXT_OFFSET_LIMITS.max,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.min,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.max,
     )
       ? textOffsetY
       : undefined,
     textDepth: isNumberInRange(
       textDepth,
-      KEYCHAIN_TEXT_DEPTH_LIMITS.min,
-      KEYCHAIN_TEXT_DEPTH_LIMITS.max,
+      KEYCHAIN_DECORATION_DEPTH_LIMITS.min,
+      KEYCHAIN_DECORATION_DEPTH_LIMITS.max,
     )
       ? textDepth
       : undefined,
@@ -685,22 +849,22 @@ function parseKeychainParams(
       : undefined,
     imageOffsetX: isNumberInRange(
       imageOffsetX,
-      KEYCHAIN_IMAGE_OFFSET_LIMITS.min,
-      KEYCHAIN_IMAGE_OFFSET_LIMITS.max,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.min,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.max,
     )
       ? imageOffsetX
       : undefined,
     imageOffsetY: isNumberInRange(
       imageOffsetY,
-      KEYCHAIN_IMAGE_OFFSET_LIMITS.min,
-      KEYCHAIN_IMAGE_OFFSET_LIMITS.max,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.min,
+      KEYCHAIN_DECORATION_OFFSET_LIMITS.max,
     )
       ? imageOffsetY
       : undefined,
     imageDepth: isNumberInRange(
       imageDepth,
-      KEYCHAIN_IMAGE_DEPTH_LIMITS.min,
-      KEYCHAIN_IMAGE_DEPTH_LIMITS.max,
+      KEYCHAIN_DECORATION_DEPTH_LIMITS.min,
+      KEYCHAIN_DECORATION_DEPTH_LIMITS.max,
     )
       ? imageDepth
       : undefined,
@@ -1338,6 +1502,29 @@ function loadFont(url: string): Promise<Font> {
   return promise;
 }
 
+/**
+ * Шрифты всех надписей модели.
+ *
+ * Список берётся из самих декораций: брелок без надписи не читает ни одного JSON,
+ * а выбранный PT Serif не тянет Roboto. Недостающий файл — ошибка сервера, а не
+ * молчаливый экспорт без букв: файл обязан совпадать с предпросмотром.
+ */
+async function loadKeychainFonts(
+  decorations: readonly KeychainDecoration[],
+): Promise<Record<string, Font>> {
+  const fonts: Record<string, Font> = {};
+
+  for (const decoration of decorations) {
+    if (decoration.kind !== "text") {
+      continue;
+    }
+
+    fonts[decoration.font] ??= await loadFont(keychainFontUrl(decoration.font));
+  }
+
+  return fonts;
+}
+
 export async function POST(request: Request): Promise<Response> {
   const supabase = await createClient();
 
@@ -1538,7 +1725,9 @@ export async function POST(request: Request): Promise<Response> {
                         : parsed.model === "keychain"
                           ? createKeychainGeometry(
                               parsed.params,
-                              await loadFont(KEYCHAIN_FONT_URL),
+                              await loadKeychainFonts(
+                                parsed.params.decorations,
+                              ),
                             )
                           : createSignBlockGeometry(
                               parsed.params,

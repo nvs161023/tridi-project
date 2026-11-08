@@ -1,7 +1,14 @@
-import { ShapeGeometry } from "three";
+import { ExtrudeGeometry } from "three";
 import type { BufferGeometry } from "three";
-import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
+import type { Vector2 } from "three";
+
+import type { KeychainTextAlign } from "@/lib/constructor/params";
+import {
+  buildShapes,
+  type ContourGroup,
+} from "@/lib/constructor/shape-utils";
+import type { OutlinePoint } from "@/lib/constructor/svg-outline";
 
 /**
  * Надпись на брелоке: подбор кегля, выдавливание и поиск свободной полосы.
@@ -96,46 +103,6 @@ export type KeychainTextKeepOut = {
   radius: number;
 };
 
-
-/**
- * Ширина и высота строки кеглем 1.
- *
- * `TextGeometry` выдавливает глифы, но размер нужен до этого: `ShapeGeometry`
- * отдаёт габарит контуров без лишней геометрии, после замера временная сетка
- * освобождается.
- */
-export function measureKeychainText(
-  text: string,
-  font: Font,
-): KeychainTextMetrics | null {
-  const shapes = font.generateShapes(text, 1);
-
-  if (shapes.length === 0) {
-    return null;
-  }
-
-  const probe = new ShapeGeometry(shapes);
-
-  probe.computeBoundingBox();
-
-  const box = probe.boundingBox;
-
-  probe.dispose();
-
-  if (!box) {
-    return null;
-  }
-
-  const width = box.max.x - box.min.x;
-  const height = box.max.y - box.min.y;
-
-  if (width <= 0 || height <= 0) {
-    return null;
-  }
-
-  return { height, width };
-}
-
 /**
  * Толщина выдавливания буквы, мм: рельеф над пластиком плюс внедрение в тело.
  *
@@ -146,6 +113,215 @@ export function measureKeychainText(
  */
 export function keychainTextReliefMm(depth: number): number {
   return Math.max(depth, 0.1) + KEYCHAIN_TEXT_EMBED_MM;
+}
+
+/** Строка раскладки: контуры и габарит одной строки до выравнивания. */
+type KeychainTextRow = {
+  groups: ContourGroup[];
+  height: number;
+  maxX: number;
+  maxY: number;
+  minX: number;
+  minY: number;
+};
+
+/**
+ * Строки надписи.
+ *
+ * `content` хранит переводы строк как есть, поэтому одна функция делит его на ровно
+ * те строки, которые увидят и панель, и геометрия.
+ */
+export function splitKeychainTextLines(content: string): string[] {
+  return content.split("\n").map((line) => line.trim());
+}
+
+/** Блок надписи: контуры всех строк в координатах блока и его габарит. */
+export type KeychainTextBlock = {
+  /** Контуры букв: внешний контур и отверстия, как их понимает Earcut. */
+  groups: ContourGroup[];
+  /** Высота блока, мм: от верха первой строки до низа последней. */
+  height: number;
+  /** Ширина блока, мм: по самой длинной строке. */
+  width: number;
+};
+
+/** Точки пути шрифта в контур без повторов и замыкающей точки.
+ *
+ * `Shape.getPoints()` возвращает замкнутый обход: последняя точка равна первой.
+ * Для выдавливания это безвредно, а вот отверстие плиты с нулевым отрезком ломает
+ * триангуляцию крышки — в плите с окном буквы «А» оставалось 14 незамкнутых рёбер.
+ * Поэтому повторяющиеся подряд точки и замыкающая отбрасываются здесь, один раз,
+ * чтобы обе ветки рельефа получали чистый контур.
+ */
+function pathOutline(points: Vector2[]): OutlinePoint[] {
+  const outline: OutlinePoint[] = [];
+
+  for (const point of points) {
+    const last = outline[outline.length - 1];
+
+    if (
+      last &&
+      Math.abs(last[0] - point.x) < 1e-6 &&
+      Math.abs(last[1] - point.y) < 1e-6
+    ) {
+      continue;
+    }
+
+    outline.push([point.x, point.y]);
+  }
+
+  const first = outline[0];
+  const last = outline[outline.length - 1];
+
+  if (
+    outline.length > 1 &&
+    first &&
+    last &&
+    Math.abs(first[0] - last[0]) < 1e-6 &&
+    Math.abs(first[1] - last[1]) < 1e-6
+  ) {
+    outline.pop();
+  }
+
+  return outline;
+}
+
+/**
+ * Раскладка строк в один блок.
+ *
+ * Каждая строка генерируется шрифтом отдельно (`generateShapes`), поэтому
+ * межстрочный интервал — это шаг `lineHeight · size`, а не вынос глифа: на любом
+ * кегле строки стоят на одном расстоянии. Выравнивание сдвигает строку внутри
+ * блока: при `center` короткая вторая строка встаёт по центру первой, при `right`
+ * — по её правому краю. Пустая строка шага не занимает: перевод строки только
+ * разделяет строки, а не создаёт пустые.
+ *
+ * Контуры переводятся в точки сразу: по ним строятся и выдавливание
+ * (`buildShapes`), и плита углублённого рельефа — раскладка у обоих видов одна.
+ */
+export function keychainTextBlock(options: {
+  align: KeychainTextAlign;
+  font: Font;
+  lineHeight: number;
+  size: number;
+  text: string;
+}): KeychainTextBlock {
+  const step = options.size * options.lineHeight;
+  const rows: KeychainTextRow[] = [];
+
+  for (const line of splitKeychainTextLines(options.text)) {
+    if (!line) {
+      continue;
+    }
+
+    const groups: ContourGroup[] = options.font
+      .generateShapes(line, options.size)
+      .map((shape) => ({
+        holes: shape.holes.map((hole) =>
+          pathOutline(hole.getPoints(TEXT_CURVE_SEGMENTS)),
+        ),
+        outer: pathOutline(shape.getPoints(TEXT_CURVE_SEGMENTS)),
+      }));
+
+    if (groups.length === 0) {
+      continue;
+    }
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    for (const group of groups) {
+      for (const [x, y] of group.outer) {
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+
+    rows.push({ groups, height: maxY - minY, maxX, maxY, minX, minY });
+  }
+
+  const width = rows.reduce(
+    (widest, row) => Math.max(widest, row.maxX - row.minX),
+    0,
+  );
+
+  if (rows.length === 0 || width <= 0) {
+    return { groups: [], height: 0, width: 0 };
+  }
+
+  const groups: ContourGroup[] = [];
+  let height = 0;
+
+  rows.forEach((row, index) => {
+    const lineWidth = row.maxX - row.minX;
+    const shiftX =
+      options.align === "left"
+        ? -row.minX
+        : options.align === "right"
+          ? width - lineWidth - row.minX
+          : (width - lineWidth) / 2 - row.minX;
+    const shiftY = -index * step;
+    const move = ([x, y]: OutlinePoint): OutlinePoint => [
+      x + shiftX,
+      y + shiftY,
+    ];
+
+    for (const group of row.groups) {
+      groups.push({
+        holes: group.holes.map((hole) => hole.map(move)),
+        outer: group.outer.map(move),
+      });
+    }
+
+    height = Math.max(height, (rows.length - index - 1) * step + row.height);
+  });
+
+  return { groups, height, width };
+}
+
+/**
+ * Габарит блока кеглем 1, мм.
+ *
+ * По этим числам выбирается кегль: они линейны по размеру, поэтому
+ * `size = min(полоса / габарит)` даёт блок, вписанный в свободную полосу. `null` —
+ * в надписи нет ни одной буквы.
+ */
+export function measureKeychainTextBlock(options: {
+  align: KeychainTextAlign;
+  font: Font;
+  lineHeight: number;
+  text: string;
+}): KeychainTextMetrics | null {
+  const block = keychainTextBlock({ ...options, size: 1 });
+
+  return block.width > 0 && block.height > 0
+    ? { height: block.height, width: block.width }
+    : null;
+}
+
+/**
+ * Габарит прямоугольника после поворота, мм.
+ *
+ * Это AABB по четырём углам: сложная геометрия пересечений не нужна, потому что
+ * проверка постановки всё равно идёт по прямоугольнику. Для 45° габарит растёт в
+ * `√2` раз, для 90° стороны меняются местами.
+ */
+export function keychainRotatedSize(
+  size: KeychainTextMetrics,
+  rotationDeg: number,
+): KeychainTextMetrics {
+  const radians = (rotationDeg * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(radians));
+  const sin = Math.abs(Math.sin(radians));
+
+  return {
+    height: size.height * cos + size.width * sin,
+    width: size.width * cos + size.height * sin,
+  };
 }
 
 /**
@@ -159,19 +335,43 @@ export function keychainTextReliefMm(depth: number): number {
  * поворот собственный, поэтому обход треугольников остаётся правильным, а буквы
  * читаются после переворота детали.
  */
+/**
+ * Выдавленный блок надписи, поставленный на грань.
+ *
+ * Кегль и центр приходят готовыми: кегль выбирает вызывающий по свободной полосе,
+ * центр — `placeKeychainText` с учётом ручного смещения. `depth` — высота букв над
+ * пластиком из панели; внутрь тела буква по-прежнему входит на
+ * `KEYCHAIN_TEXT_EMBED_MM`.
+ *
+ * Строки собираются в один блок: раскладка считает габарит, блок центрируется в
+ * нуле и поворачивается на `rotation` вокруг своего центра, поэтому 45° не уводит
+ * имя вбок. На лице буквы растут вверх от `thickness − внедрение`, на обороте —
+ * вниз от `внедрение`; оборотная строка повёрнута на 180° вокруг X и читается
+ * после переворота детали (её собственный поворот при этом зеркалится: 45° на
+ * обороте выглядят с лица как −45°).
+ */
 export function createKeychainTextGeometry(options: {
+  align: KeychainTextAlign;
   centerX: number;
   centerY: number;
   depth: number;
   font: Font;
+  lineHeight: number;
+  rotation: number;
   side: KeychainTextSide;
   size: number;
   text: string;
   thickness: number;
 }): BufferGeometry | null {
-  const text = options.text.trim();
+  const block = keychainTextBlock({
+    align: options.align,
+    font: options.font,
+    lineHeight: options.lineHeight,
+    size: options.size,
+    text: options.text,
+  });
 
-  if (!text) {
+  if (block.groups.length === 0) {
     return null;
   }
 
@@ -179,20 +379,14 @@ export function createKeychainTextGeometry(options: {
   // Мелкое имя при десятке символов на узком брелоке: фаска 0.1 мм съедала бы
   // тонкие перемычки букв, поэтому она ужимается вместе с кеглем.
   const bevel = Math.min(TEXT_BEVEL_MM, options.size * 0.03);
-  const geometry = new TextGeometry(text, {
+  const geometry = new ExtrudeGeometry(buildShapes(block.groups), {
     bevelEnabled: true,
     bevelSegments: TEXT_BEVEL_SEGMENTS,
     bevelSize: bevel,
     bevelThickness: bevel,
     curveSegments: TEXT_CURVE_SEGMENTS,
     depth: Math.max(relief - bevel * 2, 0.1),
-    font: options.font,
-    size: options.size,
   });
-
-  if (options.side === "back") {
-    geometry.rotateX(Math.PI);
-  }
 
   geometry.computeBoundingBox();
 
@@ -204,10 +398,19 @@ export function createKeychainTextGeometry(options: {
     return null;
   }
 
-  // Центр по габариту, а не по началу координат шрифта: у глифов разный
-  // вынос, и без этого строка уезжала бы вбок.
-  const geometryCenterX = (box.min.x + box.max.x) / 2;
-  const geometryCenterY = (box.min.y + box.max.y) / 2;
+  // Центр по габариту, а не по началу координат шрифта: у глифов разный вынос, и
+  // без этого блок уезжал бы вбок.
+  geometry.translate(
+    -(box.min.x + box.max.x) / 2,
+    -(box.min.y + box.max.y) / 2,
+    0,
+  );
+  geometry.rotateZ((options.rotation * Math.PI) / 180);
+
+  if (options.side === "back") {
+    geometry.rotateX(Math.PI);
+  }
+
   // Лицо: нижняя грань буквы встаёт на `thickness − внедрение`.
   // Оборот: верхняя грань буквы встаёт на `внедрение`, буква уходит вниз.
   const translateZ =
@@ -215,11 +418,7 @@ export function createKeychainTextGeometry(options: {
       ? options.thickness - KEYCHAIN_TEXT_EMBED_MM + bevel
       : KEYCHAIN_TEXT_EMBED_MM - bevel;
 
-  geometry.translate(
-    options.centerX - geometryCenterX,
-    options.centerY - geometryCenterY,
-    translateZ,
-  );
+  geometry.translate(options.centerX, options.centerY, translateZ);
 
   return geometry;
 }
@@ -622,25 +821,36 @@ export type KeychainTextPlacement = {
 };
 
 /**
- * Ставит строку на грань с учётом ручного смещения.
+ * Ставит блок надписи на грань с учётом ручного смещения.
  *
- * Кегль по-прежнему выбирается по самой широкой полосе: смещение двигает готовую
- * строку, а не растягивает её. Дальше каждая ось обрезается свободной картой —
- * сначала X, потом Y, — поэтому буквы не выходят за грань, не наезжают на
- * отверстие под кольцо и не попадают на чужой рельеф. `null` — на этой стороне
- * места под буквы нет.
+ * Кегль по-прежнему выбирается по самой широкой полосе, но теперь по габариту
+ * повёрнутого блока: для 45° это AABB прямоугольника, для 90° — те же стороны
+ * наоборот. Смещение двигает готовый блок, а не растягивает его. Дальше каждая
+ * ось обрезается свободной картой — сначала X, потом Y, — поэтому буквы не
+ * выходят за грань, не наезжают на отверстие под кольцо и не попадают на чужой
+ * рельеф.
+ *
+ * `mask` передаёт вызывающий, когда рельефов несколько: карта одной стороны
+ * общая, и каждая поставленная декорация вычитается из неё же, становясь
+ * препятствием для следующей. Без `mask` карта строится по телу заново — так
+ * функция работает для одиночной надписи и в проверках.
+ *
+ * `null` — на этой стороне места под буквы нет.
  */
 export function placeKeychainText(
   geometry: BufferGeometry,
   options: {
     keepOut?: readonly KeychainTextKeepOut[];
+    mask?: FaceMask;
     metrics: KeychainTextMetrics;
     offsetX?: number;
     offsetY?: number;
+    rotation?: number;
     side: KeychainTextSide;
   },
 ): KeychainTextPlacement | null {
-  const mask = buildFaceMask(geometry, options.side, options.keepOut);
+  const mask =
+    options.mask ?? buildFaceMask(geometry, options.side, options.keepOut);
 
   if (!mask) {
     return null;
@@ -655,9 +865,12 @@ export function placeKeychainText(
     return null;
   }
 
+  // Кегль выбирается по габариту повёрнутого блока: AABB после поворота шире
+  // исходного прямоугольника, и без этой поправки 45° вылезал бы за полосу.
+  const rotated = keychainRotatedSize(options.metrics, options.rotation ?? 0);
   const size = Math.min(
-    band.width / options.metrics.width,
-    band.height / options.metrics.height,
+    band.width / rotated.width,
+    band.height / rotated.height,
   );
 
   if (!Number.isFinite(size) || size <= 0) {
@@ -665,8 +878,8 @@ export function placeKeychainText(
   }
 
   const span = {
-    height: options.metrics.height * size,
-    width: options.metrics.width * size,
+    height: rotated.height * size,
+    width: rotated.width * size,
   };
   const centerX = clampTextOffset(
     mask,
@@ -747,13 +960,16 @@ function clampTextOffset(
 }
 
 /**
- * Стоит ли прямоугольник строки целиком на свободных ячейках.
+ * Стоит ли прямоугольник рельефа целиком на свободных ячейках.
  *
  * Карта уже несёт запас `BAND_MARGIN_MM`, поэтому «свободно» значит «не ближе
  * запаса к кромке, отверстию и чужому рельефу». Выход за сетку — тоже отказ: за
- * ней детали нет, и буквы висели бы в воздухе.
+ * ней детали нет, и рельеф висел бы в воздухе.
+ *
+ * Функция общая с картинкой: повёрнутому логотипу считать AABB по маске дороже,
+ * чем проверить его прямоугольник, а запас карты делает проверку честной.
  */
-function rectFits(
+export function rectFits(
   blocked: Uint8Array,
   grid: FaceGrid,
   centerX: number,

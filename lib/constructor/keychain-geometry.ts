@@ -1,29 +1,23 @@
 import { ExtrudeGeometry, Path, Shape } from "three";
 import type { BufferGeometry } from "three";
-import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-import { KEYCHAIN_FALLBACK_SVG } from "@/lib/constructor/keychain-fallback-shape";
 import {
-  createKeychainImageGeometry,
-  keychainImageBuild,
-  placeKeychainImage,
-  type KeychainImageFit,
-} from "@/lib/constructor/keychain-image";
+  attachKeychainDecorations,
+  type KeychainBuildReport,
+  type KeychainDecorationFit,
+  type KeychainDecorationSkip,
+  type KeychainFontMap,
+} from "@/lib/constructor/keychain-decorations";
+import { KEYCHAIN_FALLBACK_SVG } from "@/lib/constructor/keychain-fallback-shape";
 import {
   buildKeychainPresetGeometry,
   nfcLayout,
   type KeychainPresetGeometryParams,
 } from "@/lib/constructor/keychain-preset-geometry";
+import type { KeychainTextKeepOut } from "@/lib/constructor/keychain-text";
 import {
-  createKeychainTextGeometry,
-  measureKeychainText,
-  placeKeychainText,
-  type KeychainTextKeepOut,
-  type KeychainTextMetrics,
-  type KeychainTextSide,
-} from "@/lib/constructor/keychain-text";
-import {
+  keychainFontUrl,
   keychainQrCardSpec,
   normalizeKeychainParams,
   type KeychainParams,
@@ -40,12 +34,24 @@ import {
 } from "@/lib/constructor/svg-outline";
 
 /**
- * Геометрия брелока: SVG-силуэт, ушко под кольцо, NFC-карман и имя.
+ * Отчёт сборки и его строки живут в конвейере декораций: там их пишут, там они и
+ * описаны. Реэкспорт оставлен, потому что панель и сцена импортируют отчёт отсюда
+ * вместе с самой сборкой.
+ */
+export type {
+  KeychainBuildReport,
+  KeychainDecorationFit,
+  KeychainDecorationSkip,
+  KeychainFontMap,
+};
+
+/**
+ * Геометрия брелока: SVG-силуэт, ушко под кольцо, NFC-карман и декорации.
  *
  * Основа лежит в плоскости XY, толщина идёт по Z от 0 до thickness. Такой
- * файл уже стоит на столе слайсера: нижняя грань на Z = 0, рельеф имени
- * выступает вверх. В предпросмотре группа поворачивается на -90° вокруг X,
- * чтобы брелок лежал на виртуальном столе.
+ * файл уже стоит на столе слайсера: нижняя грань на Z = 0, рельеф выступает
+ * вверх. В предпросмотре группа поворачивается на -90° вокруг X, чтобы брелок
+ * лежал на виртуальном столе.
  *
  * SVG разбирается без DOM (lib/constructor/svg-outline.ts): на сервере нет
  * DOMParser, а SVGLoader из three.js падает уже на импорте. Контур
@@ -56,17 +62,21 @@ import {
  * 4 мм, который перекрывает верх силуэта на 1 мм. Поэтому кольцо проходит
  * сквозь пластик при любой форме, даже если верхушка узкая (звезда, молния).
  *
- * Имя не вырезается, а пересекается с основой: буквы входят в тело на
- * `KEYCHAIN_TEXT_EMBED_MM` и выступают над пластиком на `textDepth` из панели
- * (`lib/constructor/keychain-text.ts`). Каждая оболочка замкнута отдельно,
- * слайсер объединяет их при печати. Тот же модуль ставит надпись и на пресеты:
- * свободную полосу он ищет по готовой сетке, поэтому шипы кирпича, ступица
- * шестерни и отверстие под кольцо обходятся без знания формул силуэта, а ручное
- * смещение обрезается по той же сетке.
+ * Рельефы не вырезаются, а пересекаются с основой: буквы и логотип входят в тело
+ * на `KEYCHAIN_TEXT_EMBED_MM` и выступают над пластиком на свою толщину из панели.
+ * Каждая оболочка замкнута отдельно, слайсер объединяет их при печати. Место для
+ * рельефов ищет общий конвейер (`keychain-decorations.ts`): карта грани 0.4 мм,
+ * полоса, ручное смещение, обход уже поставленных декораций — один код на пресеты
+ * и свой контур.
  */
 
-/** Публичный путь шрифта: его грузит браузер и читает серверный роут. */
-export const KEYCHAIN_FONT_URL = "/fonts/cyrillic.typeface.json";
+/**
+ * Публичный путь шрифта надписи по умолчанию.
+ *
+ * Оставлен ради вывески: `sign-geometry.ts` берёт этот же файл для `sans-bold`.
+ * У брелока шрифт выбирается декорацией, и путь считает `keychainFontUrl`.
+ */
+export const KEYCHAIN_FONT_URL = keychainFontUrl("sans-bold");
 
 /** Диаметр отверстия под кольцо, мм. */
 export const KEYCHAIN_HOLE_DIAMETER_MM = 4;
@@ -119,31 +129,6 @@ const EDGE_BEVEL_SEGMENTS = 3;
 
 /** Сегменты скруглённых контуров и отверстия. */
 const CURVE_SEGMENTS = 24;
-
-/** Отступ текста от боковых кромок, мм. */
-const TEXT_EDGE_MARGIN_MM = 3;
-
-/** Зазор между нижней точкой ушка и верхом текста, мм. */
-const TEXT_HOLE_GAP_MM = 1.5;
-
-/**
- * Насколько оборот предпочтительнее лица при равном кегле.
- *
- * Лицо — главная сторона, поэтому на оборот имя уходит только тогда, когда там
- * строка заметно крупнее: у кирпича шипы не оставляют на лице места вовсе, у
- * шестерни мешает ступица. При близких полосах выигрывает лицо.
- */
-const TEXT_FRONT_PREFERENCE = 0.9;
-
-/**
- * Шаг ручного смещения имени у своего контура, мм.
- *
- * У пресета смещение обрезается по сетке грани, а у контура карты нет: место
- * проверяется по точкам прямоугольника, и шаг грубее сетки. Полмиллиметра всё
- * равно мельче того, что видно на трёхсантиметровом имени.
- */
-const TEXT_OFFSET_STEP_MM = 0.5;
-
 
 /** Разобранный силуэт в миллиметрах с готовым положением ушка. */
 type KeychainOutline = {
@@ -691,175 +676,6 @@ function createBaseGeometry(
   return merged;
 }
 
-
-/**
- * Ширина силуэта в полосе текста.
- *
- * У звезды и молнии на уровне середины контур узкий, поэтому имя не должно
- * вылезать за пластик. Берём горизонтальный размах внешних контуров между
- * нижней кромкой текста и ушком: кегль и центр подбираются по нему.
- */
-function measureTextBand(
-  groups: readonly ContourGroup[],
-  bottom: number,
-  top: number,
-): { center: number; width: number } | null {
-  let minX = Infinity;
-  let maxX = -Infinity;
-
-  for (const group of groups) {
-    for (const [x, y] of group.outer) {
-      if (y < bottom || y > top) {
-        continue;
-      }
-
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-    }
-  }
-
-  if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {
-    return null;
-  }
-
-  return { center: (minX + maxX) / 2, width: maxX - minX };
-}
-
-/**
- * Выдавленное имя на лицевой стороне.
- *
- * Кегль выбирается по меньшему из двух ограничений: ширина силуэта в полосе
- * текста минус отступы и свободная высота между нижней кромкой и ушком.
- * Длинное имя становится мельче, короткое не упирается в кольцо. Центр
- * текста — середина полосы под ушком, а не всей заготовки.
- *
- * Ручное смещение двигает готовую строку, пока прямоугольник букв остаётся в
- * силуэте: у контура карты грани нет, поэтому место проверяется по точкам
- * прямоугольника. Возвращает null, если строка пустая или не помещается в 2 мм
- * ширины.
- */
-function createTextGeometry(
-  params: KeychainParams,
-  font: Font,
-  outline: KeychainOutline,
-): BufferGeometry | null {
-  const text = params.text.trim();
-
-  if (!text) {
-    return null;
-  }
-
-  const measured = measureKeychainText(text, font);
-
-  if (!measured) {
-    return null;
-  }
-
-  const halfLength = params.length / 2;
-  const holeBottom = outline.eyeletY - HOLE_RADIUS_MM;
-  const textTop = holeBottom - TEXT_HOLE_GAP_MM;
-  const textBottom = -halfLength + TEXT_EDGE_MARGIN_MM;
-  const band = measureTextBand(outline.groups, textBottom, textTop);
-  const availableWidth = band
-    ? band.width - TEXT_EDGE_MARGIN_MM * 2
-    : params.width - TEXT_EDGE_MARGIN_MM * 2;
-  const availableHeight = Math.max(textTop - textBottom, 1);
-
-  if (availableWidth < 2) {
-    return null;
-  }
-
-  const size = Math.min(
-    availableWidth / measured.width,
-    availableHeight / measured.height,
-  );
-
-  if (!Number.isFinite(size) || size <= 0) {
-    return null;
-  }
-
-  const textCenterY = (textTop + textBottom) / 2;
-  const textCenterX = band ? band.center : 0;
-
-  // Имя не должно висеть над вырезом логотипа: если центр полосы попал в
-  // отверстие, буквы не с чем соединить. Лучше показать чистый силуэт, чем
-  // отдельные плавающие оболочки в STL.
-  if (!isPointInsideOutline([textCenterX, textCenterY], outline.contours)) {
-    return null;
-  }
-
-  const textWidth = measured.width * size;
-  const textHeight = measured.height * size;
-  // Строка стоит в силуэте, пока в нём лежат её центр и четыре угла: контур
-  // сужается книзу, и смещение вбок могло бы увести буквы за пластик.
-  const fitsInside = (centerX: number, centerY: number): boolean => {
-    const halfWidth = textWidth / 2;
-    const halfHeight = textHeight / 2;
-    const probes: [number, number][] = [
-      [centerX, centerY],
-      [centerX - halfWidth, centerY - halfHeight],
-      [centerX + halfWidth, centerY - halfHeight],
-      [centerX - halfWidth, centerY + halfHeight],
-      [centerX + halfWidth, centerY + halfHeight],
-    ];
-
-    return probes.every((point) =>
-      isPointInsideOutline(point, outline.contours),
-    );
-  };
-  const offsetX = clampOutlineOffset(
-    params.textOffsetX,
-    (availableWidth - textWidth) / 2,
-    (offset) => fitsInside(textCenterX + offset, textCenterY),
-  );
-  const offsetY = clampOutlineOffset(
-    params.textOffsetY,
-    (availableHeight - textHeight) / 2,
-    (offset) => fitsInside(textCenterX + offsetX, textCenterY + offset),
-  );
-
-  // Мелкое имя при 10 символах на узком брелоке: фаска и толщина рельефа
-  // подстраиваются под кегль и толщину основы в `keychain-text.ts`.
-  return createKeychainTextGeometry({
-    centerX: textCenterX + offsetX,
-    centerY: textCenterY + offsetY,
-    depth: params.textDepth,
-    font,
-    side: "front",
-    size,
-    text,
-    thickness: params.thickness,
-  });
-}
-
-/**
- * Смещение буквы, обрезанное границей силуэта.
- *
- * Просьба исполняется, пока прямоугольник строки остаётся в контуре. Как только
- * угол выходит за пластик, смещение отступает к нулю: буквы не должны висеть над
- * вырезом логотипа или за кромкой.
- */
-function clampOutlineOffset(
-  desired: number,
-  limit: number,
-  fits: (offset: number) => boolean,
-): number {
-  const reach = Math.min(Math.abs(desired), Math.max(limit, 0));
-  const sign = desired < 0 ? -1 : 1;
-  let steps = Math.floor(reach / TEXT_OFFSET_STEP_MM);
-
-  while (steps > 0) {
-    if (fits(sign * steps * TEXT_OFFSET_STEP_MM)) {
-      return sign * steps * TEXT_OFFSET_STEP_MM;
-    }
-
-    steps -= 1;
-  }
-
-  return 0;
-}
-
-
 /**
  * Круги, которые надпись на пресете обязана обойти.
  *
@@ -892,302 +708,23 @@ function presetTextKeepOut(
 }
 
 /**
- * Постановка строки на одну сторону, мм: null — строка туда не влезает.
- *
- * Кегль и центр считает общий помощник: он же обрезает ручное смещение по карте
- * грани, поэтому буквы не уезжают с детали.
- */
-function fitPresetText(
-  body: BufferGeometry,
-  params: KeychainParams,
-  keepOut: readonly KeychainTextKeepOut[],
-  measured: KeychainTextMetrics,
-  side: KeychainTextSide,
-): {
-  centerX: number;
-  centerY: number;
-  side: KeychainTextSide;
-  size: number;
-} | null {
-  const placement = placeKeychainText(body, {
-    keepOut,
-    metrics: measured,
-    offsetX: params.textOffsetX,
-    offsetY: params.textOffsetY,
-    side,
-  });
-
-  return placement ? { ...placement, side } : null;
-}
-
-/**
- * Имя на пресете: лицо или оборот.
- *
- * Лицо — сторона по умолчанию, но у кирпича его занимают шипы, а у шестерни
- * ступица, поэтому там выгоднее оборот. Сравниваются кегли: оборот выигрывает
- * только тогда, когда строка на нём крупнее хотя бы на `TEXT_FRONT_PREFERENCE`.
- *
- * Сторона возвращается вместе с сеткой: картинка обходит буквы только на своей
- * стороне, и без этого числа она штамповала бы чужой рельеф в собственную маску.
- */
-function createPresetTextGeometry(
-  body: BufferGeometry,
-  params: KeychainParams,
-  keepOut: readonly KeychainTextKeepOut[],
-  font: Font,
-): { geometry: BufferGeometry; side: KeychainTextSide } | null {
-  const text = params.text.trim();
-
-  if (!text) {
-    return null;
-  }
-
-  const measured = measureKeychainText(text, font);
-
-  if (!measured) {
-    return null;
-  }
-
-  const front = fitPresetText(body, params, keepOut, measured, "front");
-  const back = fitPresetText(body, params, keepOut, measured, "back");
-  const chosen =
-    front && back
-      ? front.size >= back.size * TEXT_FRONT_PREFERENCE
-        ? front
-        : back
-      : (front ?? back);
-
-  if (!chosen) {
-    return null;
-  }
-
-  const geometry = createKeychainTextGeometry({
-    centerX: chosen.centerX,
-    centerY: chosen.centerY,
-    depth: params.textDepth,
-    font,
-    side: chosen.side,
-    size: chosen.size,
-    text,
-    thickness: params.thickness,
-  });
-
-  return geometry ? { geometry, side: chosen.side } : null;
-}
-
-/**
- * Что получилось из картинки при сборке: по этим числам панель предупреждает.
- *
- * Отчёт заполняется только если картинка есть в параметрах. `image = null` —
- * картинки нет вовсе; `image.side = null` — она не встала ни на одну сторону.
- */
-export type KeychainBuildReport = {
-  image: KeychainImageFit | null;
-};
-
-/**
- * Приклеивает оболочку к телу и освобождает обе исходные сетки.
- *
- * `mergeGeometries` копирует данные: без `dispose` слайдер оставлял бы в памяти
- * по паре буферов на каждое движение. Габарит и сфера пересчитываются всегда —
- * по ним камера строит кадр, а роут считает вес детали.
- */
-function mergeInto(
-  body: BufferGeometry,
-  part: BufferGeometry,
-  error: string,
-): BufferGeometry {
-  const merged = mergeGeometries([body, part]);
-
-  body.dispose();
-  part.dispose();
-
-  if (!merged) {
-    throw new Error(error);
-  }
-
-  merged.computeBoundingBox();
-  merged.computeBoundingSphere();
-
-  return merged;
-}
-
-/**
- * Ставит картинку на брелок и приклеивает её рельеф.
- *
- * Сторона выбирается так же, как у имени: сначала лицо. Если на лице места нет
- * (буквы и отверстие заняли всю полосу), картинка пробует оборот — там она
- * обычно встаёт целиком. Запрошенный масштаб остаётся просьбой: подгонка шагом
- * 5% ужимает логотип, пока он не обойдёт все препятствия, и отчёт говорит, во
- * сколько раз он ужался.
- *
- * `null` в отчёте — картинки нет; `side: null` — не встала никуда. Модель в этом
- * случае печатается без логотипа: пустой брелок честнее отдельной плавающей
- * оболочки, которую слайсер не соединит с телом.
- */
-function attachKeychainImage(
-  body: BufferGeometry,
-  params: KeychainParams,
-  keepOut: readonly KeychainTextKeepOut[],
-  text: { geometry: BufferGeometry; side: KeychainTextSide } | null,
-  report: KeychainBuildReport | undefined,
-): BufferGeometry {
-  // У визитки лицо занято кодом: логотип накрыл бы модули, а запас хода у
-  // картинки всего один — уменьшение сдвинуло бы её под код, но не спасло бы
-  // сканируемость. Поэтому рельефов у визитки нет вовсе: ни имени, ни картинки.
-  if (params.keychainPreset === "qr-card") {
-    if (report) {
-      report.image = null;
-    }
-
-    return body;
-  }
-
-  const build = keychainImageBuild(params.imageData);
-
-  if (!build) {
-    if (report) {
-      report.image = null;
-    }
-
-    return body;
-  }
-
-  const options = {
-    build,
-    keepOut,
-    offsetX: params.imageOffsetX,
-    offsetY: params.imageOffsetY,
-    scale: params.imageScale,
-    text,
-  };
-  const placement =
-    placeKeychainImage(body, { ...options, side: "front" }) ??
-    placeKeychainImage(body, { ...options, side: "back" });
-
-  if (!placement) {
-    if (report) {
-      report.image = {
-        actual: 0,
-        requested: params.imageScale,
-        side: null,
-        size: 0,
-      };
-    }
-
-    return body;
-  }
-
-  const geometry = createKeychainImageGeometry({
-    build,
-    centerX: placement.centerX,
-    centerY: placement.centerY,
-    depth: params.imageDepth,
-    side: placement.side,
-    size: placement.size,
-    thickness: params.thickness,
-  });
-
-  if (report) {
-    report.image = geometry
-      ? {
-          actual: placement.actual,
-          requested: placement.requested,
-          side: placement.side,
-          size: placement.size,
-        }
-      : { actual: 0, requested: params.imageScale, side: null, size: 0 };
-  }
-
-  if (!geometry) {
-    return body;
-  }
-
-  return mergeInto(body, geometry, "Не удалось объединить брелок и картинку");
-}
-
-/**
- * Приклеивает к геометрии пресета картинку и имя.
- *
- * Сначала картинка: буквы ещё живут отдельной сеткой, и она обходит их через
- * маску грани с зазором `IMAGE_TEXT_GAP_MM`. Если поставить имя первым, маска
- * увидела бы его только как чужой рельеф — без запаса, вплотную.
- *
- * Буквы идут отдельной оболочкой, как у своего контура: слайсер объединяет её с
- * телом при печати.
- *
- * Визитка пропускается: у неё своё имя (`qrName`), и оно стоит под кодом.
- */
-function attachPresetDetails(
-  body: BufferGeometry,
-  params: KeychainParams,
-  keepOut: readonly KeychainTextKeepOut[],
-  font: Font | null,
-  report: KeychainBuildReport | undefined,
-): BufferGeometry {
-  const text =
-    font && params.showText && params.keychainPreset !== "qr-card"
-      ? createPresetTextGeometry(body, params, keepOut, font)
-      : null;
-  const withImage = attachKeychainImage(body, params, keepOut, text, report);
-
-  return text
-    ? mergeInto(
-        withImage,
-        text.geometry,
-        "Не удалось объединить геометрию пресета и текст",
-      )
-    : withImage;
-}
-
-
-
-/**
- * Свой контур с именем и картинкой: разметка силуэта и обе оболочки.
- *
- * Имя у своего контура стоит на лице — сторону выбирает разметка, а не карта
- * грани. Картинка идёт первой: буквы ещё отдельная сетка, и логотип обходит их с
- * зазором, а не вплотную.
- */
-function attachOwnTextAndImage(
-  params: KeychainParams,
-  font: Font | null,
-  report: KeychainBuildReport | undefined,
-): BufferGeometry {
-  const outline = createOutline(params, edgeBevel(params.thickness));
-  const base = createBaseGeometry(params, outline);
-  const text =
-    font && params.showText ? createTextGeometry(params, font, outline) : null;
-  const withImage = attachKeychainImage(
-    base,
-    params,
-    [],
-    text ? { geometry: text, side: "front" } : null,
-    report,
-  );
-
-  return text
-    ? mergeInto(withImage, text, "Не удалось объединить основу брелока и текст")
-    : withImage;
-}
-
-/**
  * Собирает брелок в одну сетку.
  *
- * font = null допустим для предпросмотра, пока JSON шрифта ещё грузится:
- * сцена показывает силуэт без имени, а после загрузки пересобирает его.
- * Серверный экспорт передаёт шрифт всегда.
+ * `fonts` — загруженные шрифты по ключам декораций. Неполный набор допустим для
+ * предпросмотра, пока JSON ещё грузится: сцена показывает силуэт без букв, а после
+ * загрузки пересобирает его. Серверный экспорт передаёт все нужные шрифты.
  *
- * `report` — необязательный приёмник итогов: панель по нему узнаёт, во сколько
- * раз ужалась картинка и на какую сторону она встала. Так отчёт не требует
- * второй сборки модели: геометрия уже построена, остаётся записать числа.
+ * `report` — необязательный приёмник итогов: панель по нему узнаёт, на какую
+ * сторону встала каждая декорация, во сколько раз ужалась картинка и что не
+ * поместилось. Так отчёт не требует второй сборки модели: геометрия уже построена,
+ * остаётся записать числа.
  *
- * mergeGeometries копирует данные в новую сетку; исходные оболочки
- * освобождаются сразу, чтобы слайдер не оставлял мусор в памяти.
+ * mergeGeometries копирует данные в новую сетку; исходные оболочки освобождаются
+ * сразу, чтобы слайдер не оставлял мусор в памяти.
  */
 export function createKeychainGeometry(
   params: Partial<KeychainParams>,
-  font: Font | null = null,
+  fonts: KeychainFontMap | null = null,
   report?: KeychainBuildReport,
 ): BufferGeometry {
   const normalized = normalizeKeychainParams(params);
@@ -1210,22 +747,26 @@ export function createKeychainGeometry(
   const preset = normalized.keychainPreset
     ? buildKeychainPresetGeometry(normalized.keychainPreset, presetParams)
     : null;
-
   // Пресет строится из своих чисел: ушко и карман под метку у него собственные,
-  // поэтому к готовой сетке добавляются только имя и картинка — тем же способом,
-  // что и к своему контуру, но полосу под буквы ищет общий помощник.
-  const built = preset
-    ? attachPresetDetails(
-        preset,
+  // поэтому к готовой сетке добавляются только декорации — тем же конвейером, что
+  // и у своего контура. Своего контура без пресета тоже достаточно: карта грани
+  // строится по любой сетке.
+  const body = preset
+    ? preset
+    : createBaseGeometry(
         normalized,
-        presetTextKeepOut(normalized, presetParams),
-        font,
-        report,
-      )
-    : attachOwnTextAndImage(normalized, font, report);
+        createOutline(normalized, edgeBevel(normalized.thickness)),
+      );
+  const built = attachKeychainDecorations(
+    body,
+    normalized,
+    preset ? presetTextKeepOut(normalized, presetParams) : [],
+    fonts,
+    report,
+  );
 
   // Габарит и сфера нужны камере и расчёту веса всегда, даже когда в модели нет
-  // ни имени, ни картинки: без них кадр строится по пустому bbox.
+  // ни одного рельефа: без них кадр строится по пустому bbox.
   built.computeBoundingBox();
   built.computeBoundingSphere();
 

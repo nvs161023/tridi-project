@@ -29,13 +29,16 @@ import {
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   downsampleLithophaneBrightness,
+  keychainDecorationFonts,
+  keychainFontUrl,
   keychainShapeTitle,
+  keychainTextDecoration,
   vasePatternLabel,
   type ConstructorParams,
+  type KeychainFontId,
 } from "@/lib/constructor/params";
 import { calculateGeometryWeightGrams } from "@/lib/constructor/geometry-volume";
 import {
-  KEYCHAIN_FONT_URL,
   createKeychainGeometry,
   type KeychainBuildReport,
 } from "@/lib/constructor/keychain-geometry";
@@ -748,63 +751,94 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
    * сборка геометрии, а показывать их панель будет после коммита — иначе
    * setState из useMemo пересобирал бы сцену на каждом рендере.
    */
-  const keychainReport = useRef<KeychainBuildReport>({ image: null });
+  const keychainReport = useRef<KeychainBuildReport>({ decorations: [] });
 
   /**
-   * Брелок и вывеска подписываются шрифтом, остальным моделям он не нужен. У
-   * вывески шрифт выбирает пользователь, поэтому путь зависит от signFont:
-   * смена шрифта в панели загружает другой JSON.
+   * Какие шрифты нужны модели.
+   *
+   * Вывеска подписывается одним набором из `signFont`, брелок — тем, что выбрано в
+   * его текстовых декорациях: у надписи может быть PT Serif, а у второй надписи
+   * Roboto. Ключ — имя набора, путь — файл: и то и другое берётся из реестра
+   * `KEYCHAIN_FONTS`, поэтому панель, сцена и сервер не расходятся.
    */
-  const fontUrl =
-    params.model === "sign"
-      ? SIGN_FONT_URLS[params.signFont]
-      : params.model === "keychain"
-        ? KEYCHAIN_FONT_URL
-        : null;
-  const needsFont = fontUrl !== null;
+  const fontRequests = useMemo(() => {
+    if (params.model === "sign") {
+      return [{ id: params.signFont, url: SIGN_FONT_URLS[params.signFont] }];
+    }
+
+    if (params.model === "keychain") {
+      return keychainDecorationFonts(params.decorations).map((font) => ({
+        id: font,
+        url: keychainFontUrl(font),
+      }));
+    }
+
+    return [];
+  }, [params.model, params.signFont, params.decorations]);
+  const fontSignature = fontRequests
+    .map((request) => `${request.id}|${request.url}`)
+    .join(",");
   /**
-   * Загруженный шрифт помнит свой путь. Пока новый файл не пришёл, сцена
+   * Загруженные шрифты помнят свой набор. Пока новый файл не пришёл, сцена
    * показывает прежние буквы, а не пустоту: переключение шрифта не мигает.
    */
-  const [loaded, setLoaded] = useState<{ url: string; font: Font } | null>(null);
+  const [loaded, setLoaded] = useState<{
+    fonts: Partial<Record<KeychainFontId, Font>>;
+    signature: string;
+  } | null>(null);
   const [fontFailed, setFontFailed] = useState(false);
-  const font = loaded?.font ?? null;
+  const fonts = loaded?.fonts ?? null;
+  const font =
+    params.model === "sign" ? (fonts?.[params.signFont] ?? null) : null;
+  /** Плашка «Загружаем шрифт…»: она нужна, пока хоть один набор не пришёл. */
+  const needsFont = fontRequests.length > 0;
+  const fontsReady =
+    fonts !== null &&
+    fontRequests.every((request) => fonts[request.id as KeychainFontId]);
 
   /**
    * Шрифт грузим только при открытии брелока или вывески: вазе и подставке он
-   * не нужен, а лишние 130 КБ JSON незачем тянуть на первый экран.
+   * не нужен, а лишние 130–350 КБ JSON незачем тянуть на первый экран.
    * После загрузки состояние живёт до перезагрузки страницы, поэтому повторное
    * переключение вкладки не делает новый запрос.
    */
   useEffect(() => {
-    if (!fontUrl || loaded?.url === fontUrl) {
+    if (!fontSignature || loaded?.signature === fontSignature) {
       return;
     }
 
     let active = true;
     const loader = new FontLoader();
+    const requests = fontSignature.split(",").map((entry) => {
+      const [id, url] = entry.split("|");
+
+      return { id, url };
+    });
 
     setFontFailed(false);
-    loader.load(
-      fontUrl,
-      (font) => {
+    Promise.all(
+      requests.map((request) =>
+        loader
+          .loadAsync(request.url)
+          .then((loadedFont) => [request.id, loadedFont] as const),
+      ),
+    )
+      .then((pairs) => {
         if (active) {
-          setLoaded({ url: fontUrl, font });
+          setLoaded({ fonts: Object.fromEntries(pairs), signature: fontSignature });
           setFontFailed(false);
         }
-      },
-      undefined,
-      () => {
+      })
+      .catch(() => {
         if (active) {
           setFontFailed(true);
         }
-      },
-    );
+      });
 
     return () => {
       active = false;
     };
-  }, [fontUrl, loaded]);
+  }, [fontSignature, loaded]);
 
   /**
    * Предпросмотр литофана получает уменьшенную копию яркости: полные 400 × 400
@@ -834,11 +868,11 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
    */
   const geometry = useMemo(() => {
     // Отчёт прошлой сборки не должен переживать смену модели: брелок в сцене
-    // остался один, и чужие числа картинки панели не нужны.
-    keychainReport.current = { image: null };
+    // остался один, и чужие числа декораций панели не нужны.
+    keychainReport.current = { decorations: [] };
 
     if (params.model === "keychain") {
-      return createKeychainGeometry(params, font, keychainReport.current);
+      return createKeychainGeometry(params, fonts, keychainReport.current);
     }
 
     if (params.model === "stand") {
@@ -892,7 +926,7 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
     return createVaseGeometry(createVaseProfile(params), params, {
       budget: "preview",
     });
-  }, [font, lithophanePreviewBrightness, params]);
+  }, [font, fonts, lithophanePreviewBrightness, params]);
 
   // Старая сетка живёт в GPU-буфере: без dispose каждая правка слайдера
   // оставляла бы мусор до перезагрузки страницы.
@@ -1048,7 +1082,10 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
     params.model === "vase"
       ? `3D-предпросмотр вазы высотой ${params.height} миллиметров и диаметром ${params.diameter} миллиметров, узор «${vasePatternLabel(params.patterns)}»`
       : params.model === "keychain"
-        ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${keychainShapeTitle(params)}», имя «${params.text.trim() || "без имени"}»`
+        ? `3D-предпросмотр брелока ${params.length} на ${params.width} миллиметров, форма «${keychainShapeTitle(params)}», имя «${
+            keychainTextDecoration(params.decorations)?.content.trim() ||
+            "без имени"
+          }»`
         : params.model === "stand"
           ? `3D-предпросмотр подставки под телефон шириной ${params.standWidth} миллиметров, наклон ${params.standAngle} градусов, толщина телефона ${params.phoneThickness} миллиметров`
           : params.model === "box"
@@ -1118,7 +1155,7 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
           style={{ backgroundImage: STUDIO_VIGNETTE.css }}
         />
 
-        {needsFont && !font ? (
+        {needsFont && !fontsReady ? (
           <div
             className={
               fontFailed

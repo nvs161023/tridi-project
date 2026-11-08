@@ -14,7 +14,8 @@ import {
 import {
   buildFaceMask,
   findWidestBand,
-  stampFaceObstacle,
+  keychainRotatedSize,
+  rectFits,
   KEYCHAIN_TEXT_EMBED_MM,
   type FaceMask,
   type KeychainTextKeepOut,
@@ -62,8 +63,14 @@ export const KEYCHAIN_IMAGE_GRID = 96;
 /** Разрешение маски проверки: та же сотня пикселей по большей стороне. */
 const MASK_PIXELS = 96;
 
-/** Зазор между картинкой и буквами, мм: рельефы не должны слипаться. */
-const IMAGE_TEXT_GAP_MM = 0.8;
+/**
+ * Зазор между рельефами на одной грани, мм.
+ *
+ * Экспортируется: зазор ставит общий конвейер декораций
+ * (`keychain-geometry.ts`), когда вычитает уже placed рельеф из карты грани.
+ * Вплотную рельефы слиплись бы в одно пятно при печати.
+ */
+export const KEYCHAIN_DECORATION_GAP_MM = 0.8;
 
 /** Минимальная полоса под картинку, мм: мельче логотип не читается. */
 const IMAGE_MIN_BAND_MM = 4;
@@ -515,13 +522,14 @@ function imageFits(
  *
  * Как у надписи: просьба исполняется, пока картинка целиком лежит на пластике,
  * иначе смещение отступает назад шагами сетки. Соседняя ось берётся уже
- * обрезанной, поэтому итог всегда стоит на свободных ячейках.
+ * обрезанной, поэтому итог всегда стоит на свободных ячейках. Проверку `fits`
+ * передаёт вызывающий: у повёрнутой картинки она считает по AABB рамки, у
+ * прямой — по пикселям маски.
  */
 function clampImageOffset(
   mask: FaceMask,
-  build: KeychainImageBuild,
+  fits: (centerX: number, centerY: number) => boolean,
   base: { centerX: number; centerY: number },
-  size: number,
   desired: number,
   axis: "x" | "y",
 ): number {
@@ -531,15 +539,13 @@ function clampImageOffset(
 
   for (let step = 1; step <= steps; step += 1) {
     const value = sign * step * mask.grid.cell;
-    const fits = imageFits(
-      mask,
-      build,
-      axis === "x" ? base.centerX + value : base.centerX,
-      axis === "y" ? base.centerY + value : base.centerY,
-      size,
-    );
 
-    if (!fits) {
+    if (
+      !fits(
+        axis === "x" ? base.centerX + value : base.centerX,
+        axis === "y" ? base.centerY + value : base.centerY,
+      )
+    ) {
       break;
     }
 
@@ -557,6 +563,14 @@ function clampImageOffset(
  * больше, картинка может не влезть: тогда она ужимается шагом 5% и встаёт по
  * центру полосы. Ручное смещение обрезается по той же карте, что у букв.
  *
+ * Поворот (`rotation`) меняет только габарит проверки: AABB повёрнутого
+ * прямоугольника шире исходного, поэтому 45° логотип встаёт мельче — но встаёт
+ * целиком, а не углом за кромкой. При нулевом повороте проверка идёт по пикселям
+ * маски, как раньше: прямой логотип может стоять над просветом внутри буквы.
+ *
+ * `mask` передаёт вызывающий, когда рельефов несколько: каждая поставленная
+ * декорация уже вычтена из карты и стала препятствием с зазором.
+ *
  * `null` — места нет совсем: полоса уже минимума или даже уменьшенная картинка
  * упирается в кромку. Панель в этом случае предлагает уменьшить масштаб.
  */
@@ -565,29 +579,39 @@ export function placeKeychainImage(
   options: {
     build: KeychainImageBuild;
     keepOut?: readonly KeychainTextKeepOut[];
+    mask?: FaceMask;
     offsetX?: number;
     offsetY?: number;
+    rotation?: number;
     scale: number;
     side: KeychainTextSide;
-    text?: { geometry: BufferGeometry; side: KeychainTextSide } | null;
   },
 ): KeychainImagePlacement | null {
-  const mask = buildFaceMask(body, options.side, options.keepOut);
+  const mask =
+    options.mask ?? buildFaceMask(body, options.side, options.keepOut);
 
   if (!mask) {
     return null;
   }
 
-  // Буквы на этой же стороне — препятствие: они уже стоят в модели, и картинка
-  // обязана обойти их с зазором, а не прорезать.
-  if (options.text && options.text.side === options.side) {
-    stampFaceObstacle(
-      mask.blocked,
-      mask.grid,
-      options.text.geometry,
-      IMAGE_TEXT_GAP_MM,
-    );
-  }
+  const rotation = options.rotation ?? 0;
+  const rotated = keychainRotatedSize(
+    { height: options.build.frame.height, width: options.build.frame.width },
+    rotation,
+  );
+  // Прямая картинка проверяется по пикселям маски, повёрнутая — по AABB рамки:
+  // считать повёрнутую маску дороже, чем проверить прямоугольник с тем же запасом.
+  const fits = (centerX: number, centerY: number, size: number): boolean =>
+    rotation === 0
+      ? imageFits(mask, options.build, centerX, centerY, size)
+      : rectFits(
+          mask.blocked,
+          mask.grid,
+          centerX,
+          centerY,
+          rotated.width * size,
+          rotated.height * size,
+        );
 
   const band = findWidestBand(mask.blocked, mask.grid, {
     minHeight: IMAGE_MIN_BAND_MM,
@@ -599,8 +623,8 @@ export function placeKeychainImage(
   }
 
   const base = Math.min(
-    band.width / options.build.frame.width,
-    band.height / options.build.frame.height,
+    band.width / rotated.width,
+    band.height / rotated.height,
   );
 
   if (!Number.isFinite(base) || base <= 0) {
@@ -613,7 +637,7 @@ export function placeKeychainImage(
 
   while (
     size >= floor &&
-    !imageFits(mask, options.build, band.centerX, band.centerY, size)
+    !fits(band.centerX, band.centerY, size)
   ) {
     size -= base * IMAGE_SCALE_STEP;
   }
@@ -626,9 +650,8 @@ export function placeKeychainImage(
     band.centerX +
     clampImageOffset(
       mask,
-      options.build,
+      (x, y) => fits(x, y, size),
       { centerX: band.centerX, centerY: band.centerY },
-      size,
       options.offsetX ?? 0,
       "x",
     );
@@ -636,9 +659,8 @@ export function placeKeychainImage(
     band.centerY +
     clampImageOffset(
       mask,
-      options.build,
+      (x, y) => fits(x, y, size),
       { centerX, centerY: band.centerY },
-      size,
       options.offsetY ?? 0,
       "y",
     );
@@ -676,6 +698,7 @@ export function createKeychainImageGeometry(options: {
   centerX: number;
   centerY: number;
   depth: number;
+  rotation: number;
   side: KeychainTextSide;
   size: number;
   thickness: number;
@@ -697,10 +720,6 @@ export function createKeychainImageGeometry(options: {
     depth: keychainImageReliefMm(options.depth),
   });
 
-  if (options.side === "back") {
-    geometry.rotateX(Math.PI);
-  }
-
   geometry.computeBoundingBox();
 
   const box = geometry.boundingBox;
@@ -713,18 +732,23 @@ export function createKeychainImageGeometry(options: {
 
   // Центр по габариту: у маски он уже в нуле, но выдавливание округляет
   // контуры до долей миллиметра, и поправка держит картинку на месте.
-  const geometryCenterX = (box.min.x + box.max.x) / 2;
-  const geometryCenterY = (box.min.y + box.max.y) / 2;
+  geometry.translate(
+    -(box.min.x + box.max.x) / 2,
+    -(box.min.y + box.max.y) / 2,
+    0,
+  );
+  geometry.rotateZ((options.rotation * Math.PI) / 180);
+
+  if (options.side === "back") {
+    geometry.rotateX(Math.PI);
+  }
+
   const translateZ =
     options.side === "front"
       ? options.thickness - KEYCHAIN_TEXT_EMBED_MM
       : KEYCHAIN_TEXT_EMBED_MM;
 
-  geometry.translate(
-    options.centerX - geometryCenterX,
-    options.centerY - geometryCenterY,
-    translateZ,
-  );
+  geometry.translate(options.centerX, options.centerY, translateZ);
 
   return geometry;
 }

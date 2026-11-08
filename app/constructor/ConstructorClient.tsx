@@ -39,6 +39,7 @@ import {
   DEFAULT_HEAT_TRANSFER_PARAMS,
   DEFAULT_JEWELRY_STAND_PARAMS,
   DEFAULT_KEYCHAIN_PARAMS,
+  DEFAULT_KEYCHAIN_QR_DECORATION,
   DEFAULT_LITHOPHANE_PARAMS,
   DEFAULT_PEN_HOLDER_PARAMS,
   DEFAULT_PLANTER_PARAMS,
@@ -56,10 +57,13 @@ import {
   boxPresetParams,
   boxStlFileName,
   coasterStlFileName,
+  createKeychainImageDecoration,
+  createKeychainTextDecoration,
   heatTransferStlFileName,
   jewelryStandStlFileName,
   keychainShapeTitle,
   keychainStlFileName,
+  keychainTextDecoration,
   sanitizeQrCardContent,
   sanitizeQrCardName,
   sanitizeQrCardPhone,
@@ -79,7 +83,10 @@ import {
   type CoasterShape,
   type ConstructorParams,
   type JewelryConfig,
+  type KeychainDecoration,
+  type KeychainDecorationKind,
   type KeychainParams,
+  type KeychainQrDecoration,
   type KeychainShape,
   type LithophaneMount,
   type LithophanePart,
@@ -95,6 +102,27 @@ import {
   type SignFont,
   type VaseShape,
 } from "@/lib/constructor/params";
+
+/**
+ * Патч одной декорации по виду.
+ *
+ * Вид служит ключом: декораций каждого вида не больше одной, поэтому отдельного
+ * `id` в интерфейсе не требуется. Патч приходит частичным — нормализация доводит
+ * недостающие поля из образца, а границы и наборы значений проверяет сама.
+ */
+function patchKeychainDecoration(
+  decorations: readonly KeychainDecoration[],
+  kind: KeychainDecorationKind,
+  patch: Partial<KeychainDecoration>,
+): KeychainDecoration[] {
+  return decorations.map((decoration) =>
+    decoration.kind === kind
+      ? // Патч размечен по виду вызывающей стороной: у карточки текста не бывает
+        // полей картинки, а нормализация всё равно проверит каждое значение.
+        ({ ...decoration, ...patch } as KeychainDecoration)
+      : decoration,
+  );
+}
 
 type ConstructorClientProps = {
   /** Есть ли действующий доступ Pro: у Pro лимита на STL нет. */
@@ -504,9 +532,19 @@ export function ConstructorClient({
    * картинки или модель не брелок) превращается в null, чтобы панель не
    * показывала чужие числа после переключения модели.
    */
+  /**
+   * Отчёт сцены о декорациях брелока.
+   *
+   * Ссылка держится стабильной: эффект в сцене зависит от этого колбэка, и новая
+   * функция на каждый рендер вызывала бы его бесконечно. Пустой отчёт (нет
+   * декораций или модель не брелок) превращается в null, чтобы панель не
+   * показывала чужие числа после переключения модели.
+   */
   const handleKeychainImageReport = useCallback(
     (report: KeychainBuildReport | null) =>
-      setKeychainImageReport(report?.image ? report : null),
+      setKeychainImageReport(
+        report && report.decorations.length > 0 ? report : null,
+      ),
     [],
   );
 
@@ -716,37 +754,73 @@ export function ConstructorClient({
     });
   }
 
-  function updateKeychainText(text: string) {
-    setParams((current) => normalizeConstructorParams({ ...current, text }));
+  /** Правка одной декорации: панель присылает только изменённые поля. */
+  function updateKeychainDecoration(
+    kind: KeychainDecorationKind,
+    patch: Partial<KeychainDecoration>,
+  ) {
+    setParams((current) =>
+      normalizeConstructorParams({
+        ...current,
+        decorations: patchKeychainDecoration(current.decorations, kind, patch),
+      }),
+    );
   }
 
   /**
-   * Галочка «Показывать текст на брелоке».
+   * «Добавить текст»: пустая карточка ждёт ввода.
    *
-   * Само имя остаётся в параметрах: снятая галочка убирает буквы из геометрии,
-   * а не из поля, поэтому вернуть надпись можно одним щелчком.
+   * Содержимое пустое намеренно — буквы появятся, как только человек что-то
+   * наберёт. Повторное добавление ничего не делает: декорация этого вида уже есть.
    */
-  function updateKeychainShowText(showText: boolean) {
-    setParams((current) => normalizeConstructorParams({ ...current, showText }));
+  function addKeychainTextDecoration() {
+    setParams((current) =>
+      current.decorations.some((decoration) => decoration.kind === "text")
+        ? current
+        : normalizeConstructorParams({
+            ...current,
+            decorations: [...current.decorations, createKeychainTextDecoration()],
+          }),
+    );
+  }
+
+  /**
+   * «Добавить картинку»: панель присылает готовую маску и имя файла.
+   *
+   * Маску собирает canvas в браузере (`keychainImageFromPixels`), поэтому сюда
+   * приходит уже проверенная строка. Если картинка уже есть, она заменяется:
+   * второй логотип на брелок не помещается.
+   */
+  function addKeychainImageDecoration(imageData: string, imageName: string) {
+    setParams((current) =>
+      normalizeConstructorParams({
+        ...current,
+        decorations: [
+          ...current.decorations.filter(
+            (decoration) => decoration.kind !== "image",
+          ),
+          createKeychainImageDecoration(imageData, imageName),
+        ],
+      }),
+    );
+  }
+
+  /** «Удалить» у карточки: рельеф уходит из модели вместе с настройками. */
+  function removeKeychainDecoration(kind: KeychainDecorationKind) {
+    setParams((current) =>
+      normalizeConstructorParams({
+        ...current,
+        decorations: current.decorations.filter(
+          (decoration) => decoration.kind !== kind,
+        ),
+      }),
+    );
   }
 
   /** Свой контур приходит уже проверенным SVG: текст файла или обводка PNG. */
   function updateKeychainCustomSvg(customSvgData: string) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, customSvgData }),
-    );
-  }
-
-  /**
-   * Картинка на грани брелока: маска SVG в base64 или null.
-   *
-   * Нормализация проверит длину и формат маски: панель собирает её на canvas, а
-   * сюда может попасть и проект из ссылки. Масштаб и смещения остаются как есть:
-   * они безвредны без картинки и возвращают подобранное место при новой загрузке.
-   */
-  function updateKeychainImage(imageData: string | null) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, imageData }),
     );
   }
 
@@ -778,6 +852,27 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, ...patch }));
   }
 
+  /** Рельеф и содержимое кода живут в декорации `qr`, а не в полях модели. */
+  function updateQrDecoration(patch: Partial<KeychainQrDecoration>) {
+    setParams((current) => {
+      const hasQr = current.decorations.some(
+        (decoration) => decoration.kind === "qr",
+      );
+
+      return normalizeConstructorParams({
+        ...current,
+        decorations: hasQr
+          ? patchKeychainDecoration(current.decorations, "qr", patch)
+          : [
+              ...current.decorations,
+              // Декорации визитки ещё нет (её силуэт не выбран): карточка поля
+              // создаёт её из образца, чтобы введённое не потерялось.
+              { ...DEFAULT_KEYCHAIN_QR_DECORATION, ...patch } as KeychainQrDecoration,
+            ],
+      });
+    });
+  }
+
   function updateQrCardSize(qrCardSize: QrCardSize) {
     updateQrCard({ qrCardSize });
   }
@@ -787,23 +882,23 @@ export function ConstructorClient({
   }
 
   function updateQrMode(qrMode: QrMode) {
-    updateQrCard({ qrMode });
+    updateQrDecoration({ emboss: qrMode === "raised", qrMode });
   }
 
   function updateQrContentType(qrContentType: QrContentType) {
-    updateQrCard({ qrContentType });
+    updateQrDecoration({ qrContentType });
   }
 
   function updateQrContent(qrContent: string) {
-    updateQrCard({ qrContent: sanitizeQrCardContent(qrContent) });
+    updateQrDecoration({ qrContent: sanitizeQrCardContent(qrContent) });
   }
 
   function updateQrName(qrName: string) {
-    updateQrCard({ qrName: sanitizeQrCardName(qrName) });
+    updateQrDecoration({ qrName: sanitizeQrCardName(qrName) });
   }
 
   function updateQrPhone(qrPhone: string) {
-    updateQrCard({ qrPhone: sanitizeQrCardPhone(qrPhone) });
+    updateQrDecoration({ qrPhone: sanitizeQrCardPhone(qrPhone) });
   }
 
   function updateSignText(signText: string) {
@@ -1165,8 +1260,11 @@ export function ConstructorClient({
             onJewelryConfigChange={updateJewelryConfig}
             onKeychainPresetChange={updateKeychainPreset}
             onKeychainShapeChange={updateKeychainShape}
-            onKeychainImageChange={updateKeychainImage}
-            keychainImageReport={keychainImageReport}
+            onKeychainDecorationChange={updateKeychainDecoration}
+            onAddKeychainText={addKeychainTextDecoration}
+            onAddKeychainImage={addKeychainImageDecoration}
+            onRemoveKeychainDecoration={removeKeychainDecoration}
+            keychainReport={keychainImageReport}
             onLithoFrameChange={updateLithoFrame}
             onLithoMountChange={updateLithoMount}
             onLithophaneBrightnessChange={updateLithophaneBrightness}
@@ -1193,8 +1291,6 @@ export function ConstructorClient({
             onSignBaseMountChange={updateSignBaseMount}
             onSignFontChange={updateSignFont}
             onSignTextChange={updateSignText}
-            onTextChange={updateKeychainText}
-            onShowTextChange={updateKeychainShowText}
             params={params}
           />
 
@@ -1253,7 +1349,9 @@ export function ConstructorClient({
                   <>
                     {keychainShapeTitle(params)} · {params.length} ×{" "}
                     {params.width} × {params.thickness} мм
-                    {params.text.trim() ? ` · «${params.text.trim()}»` : ""}
+                    {keychainTextDecoration(params.decorations)?.content.trim()
+                      ? ` · «${keychainTextDecoration(params.decorations)?.content.trim()}»`
+                      : ""}
                   </>
                 ) : params.model === "stand" ? (
                   <>

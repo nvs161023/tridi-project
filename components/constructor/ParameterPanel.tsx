@@ -83,18 +83,29 @@ import {
   JEWELRY_CONFIG_LABELS,
   KEYCHAIN_SHAPES,
   KEYCHAIN_SHAPE_LABELS,
-  KEYCHAIN_IMAGE_DEPTH_LIMITS,
-  KEYCHAIN_IMAGE_OFFSET_LIMITS,
+  KEYCHAIN_DECORATION_DEPTH_LIMITS,
+  KEYCHAIN_DECORATION_KIND_LABELS,
+  KEYCHAIN_DECORATION_OFFSET_LIMITS,
+  KEYCHAIN_DECORATION_ROTATIONS,
+  KEYCHAIN_DECORATION_SIDE_LABELS,
+  KEYCHAIN_DECORATION_SIDES,
+  KEYCHAIN_FONTS,
+  KEYCHAIN_FONT_LABELS,
   KEYCHAIN_IMAGE_SCALE_LIMITS,
+  KEYCHAIN_MAX_DECORATIONS,
   KEYCHAIN_SVG_MAX_LENGTH,
-  KEYCHAIN_TEXT_DEPTH_LIMITS,
+  KEYCHAIN_TEXT_ALIGNS,
+  KEYCHAIN_TEXT_ALIGN_LABELS,
+  KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS,
   KEYCHAIN_TEXT_MAX_LENGTH,
-  KEYCHAIN_TEXT_OFFSET_LIMITS,
+  KEYCHAIN_TEXT_MAX_LINES,
+  keychainImageDecoration,
+  keychainQrDecoration,
   keychainQrCardSpec,
+  keychainTextDecoration,
   keychainThicknessLimits,
   hasDrawableSvgData,
   isCustomSvgData,
-  isKeychainImageData,
   LITHOPHANE_MOUNTS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PIXEL_COUNT,
@@ -120,7 +131,15 @@ import {
   type CoasterShape,
   type ConstructorParams,
   type JewelryConfig,
+  type KeychainDecoration,
+  type KeychainDecorationKind,
+  type KeychainDecorationSide,
+  type KeychainFontId,
+  type KeychainImageDecoration,
+  type KeychainRotation,
   type KeychainShape,
+  type KeychainTextAlign,
+  type KeychainTextDecoration,
   type LithophaneMount,
   type ModelType,
   type PatternLayer,
@@ -267,21 +286,34 @@ type ParameterPanelProps = {
   /** Свой SVG-контур: текст SVG или SVG, собранный из загруженной картинки. */
   onCustomSvgChange: (svg: string) => void;
   /**
-   * Картинка на грани брелока: маска SVG в base64 или null, если её убрали.
+   * Правка декорации по виду: панель присылает только изменённые поля.
    *
-   * Отдельный обработчик, а не `onParamChange`: тот ведёт к числу. Маску
-   * переводит `keychainImageFromPixels` на canvas, поэтому в параметры приходит
-   * уже проверенная строка, а не файл.
+   * Один обработчик на все карточки блока «Декор»: вид служит ключом, а границы,
+   * наборы значений и порядок в массиве доводит нормализация.
    */
-  onKeychainImageChange: (imageData: string | null) => void;
+  onKeychainDecorationChange: (
+    kind: KeychainDecorationKind,
+    patch: Partial<KeychainDecoration>,
+  ) => void;
+  /** «Добавить текст»: пустая карточка, содержимое вводит человек. */
+  onAddKeychainText: () => void;
   /**
-   * Что вышло из картинки при последней сборке модели.
+   * «Добавить картинку»: готовая маска из canvas и имя файла.
    *
-   * Приходит из сцены: только там есть готовая карта грани, по которой видно,
-   * встал ли логотип и насколько он ужался ради букв. `null` — модель сейчас не
-   * брелок или картинки в параметрах нет.
+   * Маску переводит `keychainImageFromPixels`, поэтому в параметры приходит уже
+   * проверенная строка, а имя файла остаётся в декорации для подписи карточки.
    */
-  keychainImageReport?: KeychainBuildReport | null;
+  onAddKeychainImage: (imageData: string, imageName: string) => void;
+  /** «Удалить» у карточки декорации. */
+  onRemoveKeychainDecoration: (kind: KeychainDecorationKind) => void;
+  /**
+   * Что вышло из декораций при последней сборке модели.
+   *
+   * Приходит из сцены: только там есть готовая карта грани, по которой видно, на
+   * какую сторону встал рельеф, насколько ужался логотип и что не поместилось.
+   * `null` — модель сейчас не брелок или декораций в параметрах нет.
+   */
+  keychainReport?: KeychainBuildReport | null;
   /** Карман под NFC-метку в теле брелока. */
   onNfcChange: (enabled: boolean) => void;
   /**
@@ -305,15 +337,6 @@ type ParameterPanelProps = {
   onQrNameChange: (name: string) => void;
   /** Телефон для визитки vCard. */
   onQrPhoneChange: (phone: string) => void;
-  onTextChange: (text: string) => void;
-  /**
-   * Галочка «Показывать текст на брелоке».
-   *
-   * Отдельный обработчик, а не `onParamChange`: тот ведёт к числу. Выключенная
-   * галочка убирает буквы из геометрии совсем, значение остаётся в параметрах,
-   * поэтому включить надпись обратно можно без повторного ввода имени.
-   */
-  onShowTextChange: (show: boolean) => void;
   onSignTextChange: (text: string) => void;
   onSignFontChange: (font: SignFont) => void;
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
@@ -1485,8 +1508,11 @@ export function ParameterPanel({
   onRemovePatternLayer,
   onKeychainShapeChange,
   onKeychainPresetChange,
-  onKeychainImageChange,
-  keychainImageReport,
+  onKeychainDecorationChange,
+  onAddKeychainText,
+  onAddKeychainImage,
+  onRemoveKeychainDecoration,
+  keychainReport,
   onCustomSvgChange,
   onNfcChange,
   onHolePlacementChange,
@@ -1497,8 +1523,6 @@ export function ParameterPanel({
   onQrContentChange,
   onQrNameChange,
   onQrPhoneChange,
-  onTextChange,
-  onShowTextChange,
   onSignTextChange,
   onSignFontChange,
   onSignChannelWidthChange,
@@ -1521,9 +1545,8 @@ export function ParameterPanel({
   onReset,
 }: ParameterPanelProps) {
   const isExporting = exportingId !== null;
-  const textInputId = useId();
-  const textHintId = `${textInputId}-hint`;
-  const textLength = Array.from(params.text).length;
+  const keychainTextInputId = useId();
+  const keychainTextHintId = `${keychainTextInputId}-hint`;
   const signTextInputId = useId();
   const signTextHintId = `${signTextInputId}-hint`;
   const signTextLength = Array.from(params.signText).length;
@@ -1551,9 +1574,6 @@ export function ParameterPanel({
   const [keychainImageError, setKeychainImageError] = useState<string | null>(
     null,
   );
-  const [keychainImageFileName, setKeychainImageFileName] = useState<
-    string | null
-  >(null);
   const [isProcessingTransfer, setIsProcessingTransfer] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
   const [transferFileName, setTransferFileName] = useState<string | null>(null);
@@ -1611,15 +1631,14 @@ export function ParameterPanel({
   }, [params.customSvgData]);
 
   /**
-   * Картинка брелока приходит из параметров, а имя файла и ошибка — состояние
-   * панели: в `params_json` им места нет. После сброса параметров или удаления
-   * картинки плашка «Картинка: logo.png» должна исчезнуть вместе с маской.
+   * Картинка ушла из модели (её удалили или загрузился другой проект) — ошибка
+   * обработки файла больше не нужна: она относилась к прежней карточке.
    */
   useEffect(() => {
-    if (!params.imageData) {
-      setKeychainImageFileName(null);
+    if (!keychainImageDecoration(params.decorations)) {
+      setKeychainImageError(null);
     }
-  }, [params.imageData]);
+  }, [params.decorations]);
 
   /**
    * Демонстрационный массив живёт в DEFAULT_LITHOPHANE_PARAMS и после сброса
@@ -1750,8 +1769,7 @@ export function ParameterPanel({
     try {
       const imageData = await keychainImageDataFromFile(file);
 
-      onKeychainImageChange(imageData);
-      setKeychainImageFileName(file.name);
+      onAddKeychainImage(imageData, file.name);
     } catch (error) {
       setKeychainImageError(
         error instanceof Error
@@ -1766,12 +1784,12 @@ export function ParameterPanel({
   /**
    * Убирает картинку из модели.
    *
-   * В параметрах остаются масштаб и смещения: они безвредны без маски, а при
-   * следующей загрузке человек вернётся к подобранному месту.
+   * Вместе с маской уходят её масштаб и смещения: карточки «Картинка» больше нет, и
+   * держать настройки невидимого рельефа незачем. Вернуть логотип можно кнопкой
+   * «Добавить картинку» — файл придётся выбрать заново.
    */
   function removeKeychainImage() {
-    onKeychainImageChange(null);
-    setKeychainImageFileName(null);
+    onRemoveKeychainDecoration("image");
     setKeychainImageError(null);
   }
 
@@ -1886,40 +1904,39 @@ export function ParameterPanel({
     isCustomSvgData(params.heatTransferSvg) &&
     hasDrawableSvgData(params.heatTransferSvg);
 
-  /**
-   * Есть ли картинка у брелока.
-   *
-   * Проверяется не пустая строка, а формат маски: в параметрах мог оказаться
-   * проект, сохранённый другой версией, и панель не должна обещать логотип,
-   * которого геометрия не увидит.
-   */
-  const hasKeychainImage = isKeychainImageData(params.imageData);
-
+  /** Надпись и картинка брелока: карточки блока «Декор» строятся по ним. */
+  const keychainText = keychainTextDecoration(params.decorations);
+  const keychainImage = keychainImageDecoration(params.decorations);
+  const keychainQr = keychainQrDecoration(params.decorations);
+  const keychainTextLength = keychainText
+    ? Array.from(keychainText.content).length
+    : 0;
   /**
    * Что вышло из картинки при последней сборке.
    *
-   * Отчёт приходит из сцены: карту грани знает только геометрия, и повторять
-   * её расчёт в панели значило бы держать вторую копию правил размещения.
-   * `side === null` — картинка не встала ни на лицо, ни на оборот; `actual`
-   * меньше `requested` — она ужалась, чтобы обойти буквы и кромку.
+   * Отчёт приходит из сцены: карту грани знает только геометрия, и повторять её
+   * расчёт в панели значило бы держать вторую копию правил размещения.
+   * `side === null` — картинка не встала ни на лицо, ни на оборот; `scale` меньше
+   * `requested` — она ужалась, чтобы обойти буквы и кромку.
    */
-  const keychainImageFit = keychainImageReport?.image ?? null;
+  const keychainImageFit =
+    keychainReport?.decorations.find((fit) => fit.kind === "image") ?? null;
   const keychainImageStatus =
-    !hasKeychainImage || !keychainImageFit
+    !keychainImage || !keychainImageFit
       ? null
       : keychainImageFit.side === null
         ? {
             tone: "error" as const,
-            text: "Картинка не поместилась: грань занята буквами и отверстием. Уменьшите масштаб или сдвиньте имя.",
+            text: "Картинка не поместилась: грань занята буквами и отверстием. Уменьшите масштаб, смените сторону или уберите надпись.",
           }
-        : keychainImageFit.actual < keychainImageFit.requested - 0.001
+        : keychainImageFit.scale < keychainImageFit.requested - 0.001
           ? {
               tone: "warning" as const,
-              text: `Картинка ужалась до ${Math.round(keychainImageFit.actual * 100)}% запрошенного размера: ${keychainImageFit.size.toFixed(1)} мм на ${keychainImageFit.side === "back" ? "обороте" : "лице"}. Освободите место или уменьшите имя.`,
+              text: `Картинка ужалась до ${Math.round(keychainImageFit.scale * 100)}% запрошенного размера: ${keychainImageFit.size.toFixed(1)} мм на ${keychainImageFit.side === "back" ? "обороте" : "лице"}. Освободите место или уменьшите масштаб логотипа.`,
             }
           : {
               tone: "ok" as const,
-              text: `Картинка стоит на ${keychainImageFit.side === "back" ? "обороте" : "лице"}: ${keychainImageFit.size.toFixed(1)} мм по большей стороне, рельеф ${params.imageDepth.toFixed(1)} мм.`,
+              text: `Картинка стоит на ${keychainImageFit.side === "back" ? "обороте" : "лице"}: ${keychainImageFit.size.toFixed(1)} мм по большей стороне, рельеф ${keychainImage.depth.toFixed(1)} мм.`,
             };
 
   /**
@@ -2093,13 +2110,13 @@ export function ParameterPanel({
    * клавиатура. У визитки поля нет — там имя и телефон.
    */
   const qrContentField =
-    params.qrContentType === "tel"
+    (keychainQr?.qrContentType ?? "url") === "tel"
       ? {
           label: "Телефон",
           placeholder: "+7 900 123-45-67",
           inputMode: "tel" as const,
         }
-      : params.qrContentType === "email"
+      : (keychainQr?.qrContentType ?? "url") === "email"
         ? {
             label: "Почта",
             placeholder: "name@example.ru",
@@ -2179,6 +2196,383 @@ export function ParameterPanel({
 
   /** Три главных размера выбранной модели для нижней сводки. */
   const summary = modelSummary(params, hasHeatTransferLogo);
+
+  /**
+   * Общие поля декорации: сторона, поворот, толщина, рельеф и смещения.
+   *
+   * Одна разметка на текст и картинку: у обоих видов эти поля значат одно и то же,
+   * и отдельная копия слайдеров разошлась бы с другой при первой правке.
+   */
+  function renderDecorationCommon(decoration: KeychainDecoration) {
+    const kindLabel = KEYCHAIN_DECORATION_KIND_LABELS[decoration.kind];
+
+    return (
+      <>
+        <ParameterSelect
+          hint={`Куда поставить ${kindLabel.toLowerCase()}. «Любая сторона» пробует лицо, а если там нет места — оборот. «Только лицо» и «только оборот» — просьба: если места нет, рельеф не печатается, и об этом скажет плашка выше.`}
+          label="Сторона"
+          onChange={(value) =>
+            onKeychainDecorationChange(decoration.kind, {
+              side: value as KeychainDecorationSide,
+            })
+          }
+          options={KEYCHAIN_DECORATION_SIDES.map((side) => ({
+            label: KEYCHAIN_DECORATION_SIDE_LABELS[side],
+            value: side,
+          }))}
+          value={decoration.side}
+        />
+
+        <ParameterSelect
+          hint="Поворот в плоскости грани. 90° и 270° дают вертикальный рельеф, 45° и 135° — угловой: габарит после поворота считается по крайним точкам, поэтому косой рельеф встаёт мельче прямого, но целиком."
+          label="Поворот"
+          onChange={(value) =>
+            onKeychainDecorationChange(decoration.kind, {
+              rotation: value as KeychainRotation,
+            })
+          }
+          options={KEYCHAIN_DECORATION_ROTATIONS.map((rotation) => ({
+            label: `${rotation}°`,
+            value: rotation,
+          }))}
+          value={decoration.rotation}
+        />
+
+        <NumberSlider
+          decimals={KEYCHAIN_DECORATION_DEPTH_LIMITS.decimals}
+          hint="Насколько рельеф выступает над пластиком. Внедрение в тело остаётся 0.35 мм: 0.2 мм — почти гравировка, 1 мм — выпуклый рельеф, который читается на ощупь."
+          label="Толщина рельефа"
+          max={KEYCHAIN_DECORATION_DEPTH_LIMITS.max}
+          min={KEYCHAIN_DECORATION_DEPTH_LIMITS.min}
+          onChange={(value) =>
+            onKeychainDecorationChange(decoration.kind, { depth: value })
+          }
+          step={KEYCHAIN_DECORATION_DEPTH_LIMITS.step}
+          unit="мм"
+          value={decoration.depth}
+        />
+
+        <label className="flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+          <input
+            checked={decoration.emboss}
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            onChange={(event) =>
+              onKeychainDecorationChange(decoration.kind, {
+                emboss: event.target.checked,
+              })
+            }
+            type="checkbox"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-slate-200">
+              Выступает над пластиком
+            </span>
+            <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+              Снятая галочка утопляет рельеф: вокруг остаётся поле толщиной с
+              рельеф, а сам рисунок лежит на лице. Вычитания в модели нет —
+              утопление печатается плитой с окнами, как углублённый QR-код.
+            </span>
+          </span>
+        </label>
+
+        <NumberSlider
+          decimals={KEYCHAIN_DECORATION_OFFSET_LIMITS.decimals}
+          hint="Сдвигает рельеф к левому или правому краю. Смещение — просьба: геометрия обрезает его по свободному месту грани, и рельеф останавливается на границе, а не уезжает с детали."
+          label="Смещение по горизонтали"
+          max={KEYCHAIN_DECORATION_OFFSET_LIMITS.max}
+          min={KEYCHAIN_DECORATION_OFFSET_LIMITS.min}
+          onChange={(value) =>
+            onKeychainDecorationChange(decoration.kind, { offsetX: value })
+          }
+          step={KEYCHAIN_DECORATION_OFFSET_LIMITS.step}
+          unit="мм"
+          value={decoration.offsetX}
+        />
+
+        <NumberSlider
+          decimals={KEYCHAIN_DECORATION_OFFSET_LIMITS.decimals}
+          hint="Сдвигает рельеф выше или ниже. Вверх путь упирается в отверстие под кольцо, вниз — в нижнюю кромку силуэта: дальше смещение обрезается само."
+          label="Смещение по вертикали"
+          max={KEYCHAIN_DECORATION_OFFSET_LIMITS.max}
+          min={KEYCHAIN_DECORATION_OFFSET_LIMITS.min}
+          onChange={(value) =>
+            onKeychainDecorationChange(decoration.kind, { offsetY: value })
+          }
+          step={KEYCHAIN_DECORATION_OFFSET_LIMITS.step}
+          unit="мм"
+          value={decoration.offsetY}
+        />
+      </>
+    );
+  }
+
+  /**
+   * Карточка «Текст»: содержимое, шрифт, выравнивание и строки.
+   *
+   * Поле — `textarea`, а не `input`: перевод строки и есть многострочность, и
+   * вторая строка вводится клавишей Enter. Санитайзер чистит каждую строку
+   * отдельно (`sanitizeKeychainText`), поэтому набор идёт без подмены на середине.
+   */
+  function renderTextCard(decoration: KeychainTextDecoration) {
+    const capacity = KEYCHAIN_TEXT_MAX_LENGTH * KEYCHAIN_TEXT_MAX_LINES;
+    const title = decoration.content.trim()
+      ? decoration.content.trim().replace(/\n/g, " / ")
+      : "Без надписи";
+
+    return (
+      <div
+        className="rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+        key={decoration.id}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-200">Текст</p>
+            <p className="mt-1 truncate text-xs text-slate-300">{title}</p>
+          </div>
+          <button
+            className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-xl border border-white/15 px-3 text-xs font-semibold text-slate-300 transition-colors hover:border-rose-400/60 hover:bg-rose-400/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            onClick={() => onRemoveKeychainDecoration("text")}
+            type="button"
+          >
+            Удалить
+          </button>
+        </div>
+
+        <label className="sr-only" htmlFor={keychainTextInputId}>
+          Надпись на брелоке
+        </label>
+        <textarea
+          aria-describedby={keychainTextHintId}
+          autoComplete="off"
+          className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-blue-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          id={keychainTextInputId}
+          maxLength={capacity + KEYCHAIN_TEXT_MAX_LINES - 1}
+          onChange={(event) =>
+            onKeychainDecorationChange("text", {
+              content: sanitizeKeychainText(event.target.value),
+            })
+          }
+          placeholder={"Например,\nАня"}
+          rows={2}
+          spellCheck={false}
+          value={decoration.content}
+        />
+
+        <div className="mt-2 flex items-start justify-between gap-3">
+          <p
+            className="text-xs leading-relaxed text-slate-300"
+            id={keychainTextHintId}
+          >
+            Кириллица, латиница, цифры и знаки; до {KEYCHAIN_TEXT_MAX_LINES}{" "}
+            строк по {KEYCHAIN_TEXT_MAX_LENGTH} символов. Enter — новая строка.
+            Кегль подбирается по свободному месту, а соседний рельеф буквы
+            обходят: место ищется по карте грани.
+          </p>
+          <span className="shrink-0 text-xs tabular-nums text-slate-300">
+            {keychainTextLength}/{capacity}
+          </span>
+        </div>
+
+        {renderTextStyleFields(decoration)}
+      </div>
+    );
+  }
+
+  /** Поля надписи внутри карточки: шрифт, выравнивание, строки и общий рельеф. */
+  function renderTextStyleFields(decoration: KeychainTextDecoration) {
+    return (
+      <details className="group mt-4 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-slate-200 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+          Настройки надписи
+          <span
+            aria-hidden
+            className="text-xs text-slate-400 group-open:hidden"
+          >
+            ▾
+          </span>
+          <span
+            aria-hidden
+            className="hidden text-xs text-slate-400 group-open:inline"
+          >
+            ▴
+          </span>
+        </summary>
+        <div className="mt-4 space-y-5">
+          <ParameterSelect
+            hint="Три набора из public/fonts: Roboto Bold — плотный и читаемый на мелком кегле, Roboto Regular — светлее, PT Serif Bold — с засечками для имени в подарок."
+            label="Шрифт"
+            onChange={(value) =>
+              onKeychainDecorationChange("text", {
+                font: value as KeychainFontId,
+              })
+            }
+            options={KEYCHAIN_FONTS.map((font) => ({
+              label: KEYCHAIN_FONT_LABELS[font],
+              value: font,
+            }))}
+            value={decoration.font}
+          />
+
+          <ParameterSelect
+            hint="Как строки выравниваются друг относительно друга: при центре короткая вторая строка встаёт по центру первой, при правом крае — по её правому краю."
+            label="Выравнивание строк"
+            onChange={(value) =>
+              onKeychainDecorationChange("text", {
+                align: value as KeychainTextAlign,
+              })
+            }
+            options={KEYCHAIN_TEXT_ALIGNS.map((align) => ({
+              label: KEYCHAIN_TEXT_ALIGN_LABELS[align],
+              value: align,
+            }))}
+            value={decoration.align}
+          />
+
+          <NumberSlider
+            decimals={KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS.decimals}
+            hint="Шаг между строками в долях кегля: 1.2 — обычный набор, 0.8 — строки почти слипаются, 2.0 — разрядка в две высоты буквы."
+            label="Межстрочный интервал"
+            max={KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS.max}
+            min={KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS.min}
+            onChange={(value) =>
+              onKeychainDecorationChange("text", { lineHeight: value })
+            }
+            step={KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS.step}
+            unit="×"
+            value={decoration.lineHeight}
+          />
+
+          {renderDecorationCommon(decoration)}
+        </div>
+      </details>
+    );
+  }
+
+  /**
+   * Карточка «Картинка»: маска, имя файла и настройки рельефа.
+   *
+   * Имя файла живёт в самой декорации (`imageName`), поэтому после перезагрузки
+   * проекта карточка подписана «Картинка: logo.png», а не обезличенным «сохранена
+   * в проекте». Превью — та же маска, что уходит в геометрию.
+   */
+  function renderImageCard(decoration: KeychainImageDecoration) {
+    const title = decoration.imageName
+      ? `Картинка: ${decoration.imageName}`
+      : "Картинка из проекта";
+
+    return (
+      <div
+        className="rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+        key={decoration.id}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-200">Картинка</p>
+            <p className="mt-1 truncate text-xs text-emerald-200">{title}</p>
+          </div>
+          <button
+            className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-xl border border-white/15 px-3 text-xs font-semibold text-slate-300 transition-colors hover:border-rose-400/60 hover:bg-rose-400/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            onClick={removeKeychainImage}
+            type="button"
+          >
+            Удалить
+          </button>
+        </div>
+
+        <div className="mt-3 flex items-start gap-3">
+          <span className="grid size-14 shrink-0 place-items-center rounded-xl bg-slate-700/60 p-1.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt="Маска загруженной картинки"
+              className="size-full object-contain"
+              src={decoration.imageData}
+            />
+          </span>
+          <div className="min-w-0 flex-1">
+            <label
+              className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-xl border border-white/15 px-3 text-xs font-semibold text-slate-200 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
+              htmlFor={keychainImageInputId}
+            >
+              {isProcessingKeychainImage ? "Обрабатываем…" : "Заменить картинку"}
+            </label>
+          </div>
+        </div>
+
+        <p
+          className="mt-2 text-xs leading-relaxed text-slate-300"
+          id={keychainImageHintId}
+        >
+          PNG с прозрачным фоном или JPG. Рельефом становится тёмное и
+          непрозрачное: логотип на светлом фоне тоже подойдёт. Место ищется по
+          карте грани, а имя и отверстие под кольцо логотип обходит сам.
+        </p>
+
+        {keychainImageError ? (
+          <p
+            className="mt-3 rounded-xl border border-rose-400/40 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
+            role="alert"
+          >
+            {keychainImageError}
+          </p>
+        ) : keychainImageStatus ? (
+          <p
+            className={`mt-3 rounded-xl border px-3 py-2 text-xs leading-relaxed ${
+              keychainImageStatus.tone === "error"
+                ? "border-rose-400/40 bg-rose-400/10 text-rose-100"
+                : keychainImageStatus.tone === "warning"
+                  ? "border-amber-400/40 bg-amber-400/10 text-amber-100"
+                  : "border-emerald-400/40 bg-emerald-400/10 text-emerald-100"
+            }`}
+            role={keychainImageStatus.tone === "error" ? "alert" : undefined}
+          >
+            {keychainImageStatus.text}
+          </p>
+        ) : null}
+
+        {renderImageStyleFields(decoration)}
+      </div>
+    );
+  }
+
+  /** Поля картинки внутри карточки: масштаб и общие настройки рельефа. */
+  function renderImageStyleFields(decoration: KeychainImageDecoration) {
+    return (
+      <details className="group mt-4 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-slate-200 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+          Настройки картинки
+          <span
+            aria-hidden
+            className="text-xs text-slate-400 group-open:hidden"
+          >
+            ▾
+          </span>
+          <span
+            aria-hidden
+            className="hidden text-xs text-slate-400 group-open:inline"
+          >
+            ▴
+          </span>
+        </summary>
+        <div className="mt-4 space-y-5">
+          <NumberSlider
+            decimals={KEYCHAIN_IMAGE_SCALE_LIMITS.decimals}
+            hint="1.0 — логотип вписан в свободную полосу целиком, больше — крупнее, если место позволяет. Масштаб — просьба: при нехватке места картинка ужимается до 25% и сообщает об этом плашкой."
+            label="Размер картинки"
+            max={KEYCHAIN_IMAGE_SCALE_LIMITS.max}
+            min={KEYCHAIN_IMAGE_SCALE_LIMITS.min}
+            onChange={(value) =>
+              onKeychainDecorationChange("image", { imageScale: value })
+            }
+            step={KEYCHAIN_IMAGE_SCALE_LIMITS.step}
+            unit="×"
+            value={decoration.imageScale}
+          />
+
+          {renderDecorationCommon(decoration)}
+        </div>
+      </details>
+    );
+  }
 
   return (
     <section
@@ -2663,8 +3057,77 @@ export function ParameterPanel({
             ) : null}
           </div>
 
-          {params.keychainPreset === "qr-card" && qrCardLayoutPlan ? (
-            <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Декор
+            </legend>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                className="inline-flex min-h-11 items-center justify-center rounded-xl border border-blue-400/60 bg-blue-500/15 px-3 text-sm font-semibold text-white transition-colors hover:bg-blue-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={
+                  keychainText !== null ||
+                  params.decorations.length >= KEYCHAIN_MAX_DECORATIONS
+                }
+                onClick={onAddKeychainText}
+                type="button"
+              >
+                Добавить текст
+              </button>
+              {keychainImage ? null : (
+                <label
+                  className={`inline-flex min-h-11 items-center justify-center rounded-xl border border-blue-400/60 bg-blue-500/15 px-3 text-sm font-semibold text-white transition-colors focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950 ${
+                    params.decorations.length >= KEYCHAIN_MAX_DECORATIONS
+                      ? "cursor-not-allowed opacity-50"
+                      : "cursor-pointer hover:bg-blue-500/25"
+                  }`}
+                  htmlFor={keychainImageInputId}
+                >
+                  {isProcessingKeychainImage
+                    ? "Обрабатываем…"
+                    : "Добавить картинку"}
+                </label>
+              )}
+              <input
+                accept="image/png,image/jpeg"
+                aria-describedby={keychainImageHintId}
+                className="sr-only"
+                disabled={isProcessingKeychainImage}
+                id={keychainImageInputId}
+                onChange={handleKeychainImageChange}
+                type="file"
+              />
+            </div>
+
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              До {KEYCHAIN_MAX_DECORATIONS} рельефов: текст, картинка и QR-код.
+              Порядок постановки задаёт геометрия — логотип встаёт первым, буквы
+              подстраиваются под остаток полосы, — поэтому рельефы не
+              пересекаются и не наезжают друг на друга.
+            </p>
+
+            <div className="mt-4 space-y-4">
+              {params.decorations.map((decoration) =>
+                decoration.kind === "text"
+                  ? renderTextCard(decoration)
+                  : decoration.kind === "image"
+                    ? renderImageCard(decoration)
+                    : null,
+              )}
+
+              {params.keychainPreset === "qr-card" && qrCardLayoutPlan ? (
+                <div
+                  className="rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                  key="qr"
+                >
+                  <p className="text-sm font-semibold text-slate-200">QR-код</p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                    Код занимает лицо визитки целиком, поэтому не двигается и не
+                    поворачивается. Надпись и картинка остаются в списке, но на
+                    визитке не печатаются.
+                  </p>
+
+                  <div className="mt-3 space-y-5">
               <ParameterSelect
                 hint="Компактная 60 × 40 помещается в карман, широкая 70 × 45 даёт крупный модуль и вмещает визитку с именем."
                 label="Размер визитки"
@@ -2686,7 +3149,7 @@ export function ParameterPanel({
                 label="Рельеф кода"
                 onChange={onQrModeChange}
                 options={QR_MODE_OPTIONS}
-                value={params.qrMode}
+                value={keychainQr?.qrMode ?? "raised"}
               />
 
               <ParameterSelect
@@ -2694,10 +3157,10 @@ export function ParameterPanel({
                 label="Что зашить в код"
                 onChange={onQrContentTypeChange}
                 options={QR_CONTENT_TYPE_OPTIONS}
-                value={params.qrContentType}
+                value={(keychainQr?.qrContentType ?? "url")}
               />
 
-              {params.qrContentType === "vcard" ? (
+              {(keychainQr?.qrContentType ?? "url") === "vcard" ? (
                 <>
                   <div>
                     <label
@@ -2714,7 +3177,7 @@ export function ParameterPanel({
                       placeholder="Иван Петров"
                       spellCheck={false}
                       type="text"
-                      value={params.qrName}
+                      value={keychainQr?.qrName ?? ""}
                     />
                   </div>
 
@@ -2734,7 +3197,7 @@ export function ParameterPanel({
                       placeholder="+7 900 123-45-67"
                       spellCheck={false}
                       type="tel"
-                      value={params.qrPhone}
+                      value={keychainQr?.qrPhone ?? ""}
                     />
                   </div>
                 </>
@@ -2755,7 +3218,7 @@ export function ParameterPanel({
                     placeholder={qrContentField.placeholder}
                     spellCheck={false}
                     type="text"
-                    value={params.qrContent}
+                    value={keychainQr?.qrContent ?? ""}
                   />
                 </div>
               )}
@@ -2775,12 +3238,15 @@ export function ParameterPanel({
                   — {QR_CARD_MIN_MODULE_MM} мм.
                 </p>
               )}
+                  </div>
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          </fieldset>
 
           <fieldset className="mt-6 border-t border-white/10 pt-5">
             <legend className="text-sm font-medium text-slate-200">
-              Свой контур
+              Силуэт детали
             </legend>
 
             <div className="mt-3 flex flex-wrap gap-2">
@@ -2791,8 +3257,8 @@ export function ParameterPanel({
                 {isProcessingContour
                   ? "Обрабатываем…"
                   : contourFileName
-                    ? "Заменить контур"
-                    : "Загрузить свой контур"}
+                    ? "Заменить силуэт"
+                    : "Загрузить силуэт детали"}
               </label>
               <input
                 accept=".svg,.png,.jpg,.jpeg"
@@ -2818,15 +3284,15 @@ export function ParameterPanel({
               className="mt-2 text-xs leading-relaxed text-slate-300"
               id={keychainContourHintId}
             >
-              SVG с контуром или картинка PNG/JPG. Картинка переводится в силуэт
-              в браузере: лучше всего подходит тёмный логотип на светлом фоне.
-              Учтите, что отверстия внутри силуэта при таком переводе
-              заполняются.
+              Форма самой детали, а не логотип: картинка на грани живёт в блоке
+              «Декор» выше. SVG с контуром или PNG/JPG — картинка переводится в
+              силуэт в браузере, лучше всего подходит тёмный логотип на светлом
+              фоне. Отверстия внутри силуэта при таком переводе заполняются.
             </p>
 
             {contourFileName ? (
               <p className="mt-2 truncate text-xs text-emerald-200">
-                Контур: {contourFileName}
+                Силуэт: {contourFileName}
               </p>
             ) : null}
 
@@ -2958,316 +3424,6 @@ export function ParameterPanel({
             </p>
           ) : null}
 
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
-            <legend className="text-sm font-medium text-slate-200">
-              Имя на брелоке
-            </legend>
-
-            <label className="sr-only" htmlFor={textInputId}>
-              Имя или надпись на брелоке
-            </label>
-            <input
-              aria-describedby={textHintId}
-              autoComplete="off"
-              className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              id={textInputId}
-              maxLength={KEYCHAIN_TEXT_MAX_LENGTH}
-              onChange={(event) =>
-                onTextChange(sanitizeKeychainText(event.target.value))
-              }
-              placeholder="Например, Аня"
-              spellCheck={false}
-              type="text"
-              value={params.text}
-            />
-
-            <div className="mt-2 flex items-start justify-between gap-3">
-              <p
-                className="text-xs leading-relaxed text-slate-300"
-                id={textHintId}
-              >
-                Кириллица, латиница, цифры и знаки. Имя масштабируется под
-                свободное место и выступает над основой на{" "}
-                {params.textDepth.toFixed(1)} мм. У кирпича и шестерни оно уходит
-                на обратную сторону: лицо занято шипами и ступицей.
-              </p>
-              <span className="shrink-0 text-xs tabular-nums text-slate-300">
-                {textLength}/{KEYCHAIN_TEXT_MAX_LENGTH}
-              </span>
-            </div>
-
-            {params.keychainPreset === "qr-card" ? null : (
-              <label
-                className={`mt-4 flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors ${
-                  textLength === 0
-                    ? "cursor-not-allowed opacity-60"
-                    : "cursor-pointer hover:border-white/25 hover:bg-white/5"
-                }`}
-              >
-                <input
-                  checked={params.showText && textLength > 0}
-                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed"
-                  disabled={textLength === 0}
-                  onChange={(event) => onShowTextChange(event.target.checked)}
-                  type="checkbox"
-                />
-                <span>
-                  <span className="block text-sm font-semibold text-slate-200">
-                    Показывать текст на брелоке
-                  </span>
-                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                    Снятая галочка убирает буквы из модели: файл уходит без
-                    рельефа и с меньшим числом треугольников. Надпись при этом
-                    остаётся в поле — включить её обратно можно одним щелчком.
-                  </span>
-                </span>
-              </label>
-            )}
-
-            {params.keychainPreset === "qr-card" ||
-            !params.showText ||
-            textLength === 0 ? null : (
-              /*
-                Нативный details: раскрытие работает без состояния, а содержимое
-                остаётся в DOM для скринридеров. Настройки показываются только у
-                включённой надписи: у снятой галочки двигать нечего.
-              */
-              <details className="group mt-4 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-slate-200 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
-                  Настройки текста
-                  <span
-                    aria-hidden
-                    className="text-xs text-slate-400 group-open:hidden"
-                  >
-                    ▾
-                  </span>
-                  <span
-                    aria-hidden
-                    className="hidden text-xs text-slate-400 group-open:inline"
-                  >
-                    ▴
-                  </span>
-                </summary>
-
-                <div className="mt-4 space-y-5">
-                  <NumberSlider
-                    decimals={KEYCHAIN_TEXT_OFFSET_LIMITS.decimals}
-                    hint="Сдвигает имя к левому или правому краю. Смещение — просьба: геометрия обрезает его по свободному месту грани, и буквы останавливаются на границе, а не уезжают с детали."
-                    label="Смещение по горизонтали"
-                    max={KEYCHAIN_TEXT_OFFSET_LIMITS.max}
-                    min={KEYCHAIN_TEXT_OFFSET_LIMITS.min}
-                    onChange={(value) => onParamChange("textOffsetX", value)}
-                    step={KEYCHAIN_TEXT_OFFSET_LIMITS.step}
-                    unit="мм"
-                    value={params.textOffsetX}
-                  />
-
-                  <NumberSlider
-                    decimals={KEYCHAIN_TEXT_OFFSET_LIMITS.decimals}
-                    hint="Сдвигает имя выше или ниже. Вверх путь упирается в отверстие под кольцо, вниз — в нижнюю кромку силуэта: дальше смещение обрезается само."
-                    label="Смещение по вертикали"
-                    max={KEYCHAIN_TEXT_OFFSET_LIMITS.max}
-                    min={KEYCHAIN_TEXT_OFFSET_LIMITS.min}
-                    onChange={(value) => onParamChange("textOffsetY", value)}
-                    step={KEYCHAIN_TEXT_OFFSET_LIMITS.step}
-                    unit="мм"
-                    value={params.textOffsetY}
-                  />
-
-                  <NumberSlider
-                    decimals={KEYCHAIN_TEXT_DEPTH_LIMITS.decimals}
-                    hint="Насколько буквы выступают над пластиком. Внедрение в тело остаётся 0.35 мм: 0.2 мм — почти гравировка, 1 мм — выпуклое имя, которое читается на ощупь."
-                    label="Толщина текста"
-                    max={KEYCHAIN_TEXT_DEPTH_LIMITS.max}
-                    min={KEYCHAIN_TEXT_DEPTH_LIMITS.min}
-                    onChange={(value) => onParamChange("textDepth", value)}
-                    step={KEYCHAIN_TEXT_DEPTH_LIMITS.step}
-                    unit="мм"
-                    value={params.textDepth}
-                  />
-                </div>
-              </details>
-            )}
-          </fieldset>
-          {/*
-            Картинка на грани. Файл переводится в маску в браузере, поэтому
-            исходник в параметрах не хранится: в проекте лежит готовая SVG-маска
-            в base64, по которой одинаково строится и предпросмотр, и STL.
-            Визитка пропускается: её лицо занято кодом, а имя у неё своё.
-          */}
-          {params.keychainPreset === "qr-card" ? null : (
-            <fieldset className="mt-6 border-t border-white/10 pt-5">
-              <legend className="text-sm font-medium text-slate-200">
-                Картинка на брелоке
-              </legend>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <label
-                  className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-amber-400/60 bg-amber-500/15 px-3 text-sm font-semibold text-white transition-colors hover:bg-amber-500/25 focus-within:ring-2 focus-within:ring-amber-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
-                  htmlFor={keychainImageInputId}
-                >
-                  {isProcessingKeychainImage
-                    ? "Обрабатываем…"
-                    : hasKeychainImage
-                      ? "Заменить картинку"
-                      : "Загрузить картинку на брелок"}
-                </label>
-                <input
-                  accept="image/png,image/jpeg"
-                  aria-describedby={keychainImageHintId}
-                  className="sr-only"
-                  disabled={isProcessingKeychainImage}
-                  id={keychainImageInputId}
-                  onChange={handleKeychainImageChange}
-                  type="file"
-                />
-                {hasKeychainImage ? (
-                  <button
-                    className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/15 px-3 text-sm font-semibold text-slate-300 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    onClick={removeKeychainImage}
-                    type="button"
-                  >
-                    Удалить картинку
-                  </button>
-                ) : null}
-              </div>
-
-              <p
-                className="mt-2 text-xs leading-relaxed text-slate-300"
-                id={keychainImageHintId}
-              >
-                PNG с прозрачным фоном или JPG. Рельефом становится тёмное и
-                непрозрачное: логотип на светлом фоне тоже подойдёт. Картинка
-                сама находит свободное место, обходит имя и отверстие под кольцо
-                и при нехватке места ужимается.
-              </p>
-
-              {hasKeychainImage ? (
-                <div className="mt-3 flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3">
-                  {/*
-                    Превью — та же маска, что уходит в геометрию: белый силуэт на
-                    прозрачном. Подложка светлее панели, иначе белый рельеф на
-                    тёмном фоне читался бы как пустой квадрат.
-                  */}
-                  <span className="grid size-14 shrink-0 place-items-center rounded-xl bg-slate-700/60 p-1.5">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      alt="Маска загруженной картинки"
-                      className="size-full object-contain"
-                      src={params.imageData ?? undefined}
-                    />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-xs text-emerald-200">
-                      {keychainImageFileName ?? "Картинка сохранена в проекте"}
-                    </p>
-                    {keychainImageStatus ? (
-                      <p
-                        className={`mt-1 text-xs leading-relaxed ${
-                          keychainImageStatus.tone === "error"
-                            ? "text-rose-200"
-                            : keychainImageStatus.tone === "warning"
-                              ? "text-amber-200"
-                              : "text-slate-300"
-                        }`}
-                        role={
-                          keychainImageStatus.tone === "error"
-                            ? "alert"
-                            : undefined
-                        }
-                      >
-                        {keychainImageStatus.text}
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-xs leading-relaxed text-slate-300">
-                        Размер и место подбирает геометрия: масштаб ниже —
-                        просьба, а не приказ.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-
-              {keychainImageError ? (
-                <p
-                  className="mt-2 rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
-                  role="alert"
-                >
-                  {keychainImageError}
-                </p>
-              ) : null}
-
-              {hasKeychainImage ? (
-                <details className="group mt-4 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-slate-200 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
-                    Настройки картинки
-                    <span
-                      aria-hidden
-                      className="text-xs text-slate-400 group-open:hidden"
-                    >
-                      ▾
-                    </span>
-                    <span
-                      aria-hidden
-                      className="hidden text-xs text-slate-400 group-open:inline"
-                    >
-                      ▴
-                    </span>
-                  </summary>
-
-                  <div className="mt-4 space-y-5">
-                    <NumberSlider
-                      decimals={KEYCHAIN_IMAGE_SCALE_LIMITS.decimals}
-                      hint="Во сколько раз увеличить картинку относительно свободной полосы. Если места мало, геометрия ужмёт логотип шагом 5% и напишет об этом над кнопками."
-                      label="Масштаб"
-                      max={KEYCHAIN_IMAGE_SCALE_LIMITS.max}
-                      min={KEYCHAIN_IMAGE_SCALE_LIMITS.min}
-                      onChange={(value) => onParamChange("imageScale", value)}
-                      step={KEYCHAIN_IMAGE_SCALE_LIMITS.step}
-                      unit="×"
-                      value={params.imageScale}
-                    />
-
-                    <NumberSlider
-                      decimals={KEYCHAIN_IMAGE_OFFSET_LIMITS.decimals}
-                      hint="Сдвигает картинку к левому или правому краю. Смещение обрезается по кромке, отверстию под кольцо и буквам: логотип упирается в границу, а не уезжает с детали."
-                      label="Смещение по горизонтали"
-                      max={KEYCHAIN_IMAGE_OFFSET_LIMITS.max}
-                      min={KEYCHAIN_IMAGE_OFFSET_LIMITS.min}
-                      onChange={(value) => onParamChange("imageOffsetX", value)}
-                      step={KEYCHAIN_IMAGE_OFFSET_LIMITS.step}
-                      unit="мм"
-                      value={params.imageOffsetX}
-                    />
-
-                    <NumberSlider
-                      decimals={KEYCHAIN_IMAGE_OFFSET_LIMITS.decimals}
-                      hint="Сдвигает картинку выше или ниже. Вверх путь упирается в отверстие под кольцо, вниз — в нижнюю кромку силуэта."
-                      label="Смещение по вертикали"
-                      max={KEYCHAIN_IMAGE_OFFSET_LIMITS.max}
-                      min={KEYCHAIN_IMAGE_OFFSET_LIMITS.min}
-                      onChange={(value) => onParamChange("imageOffsetY", value)}
-                      step={KEYCHAIN_IMAGE_OFFSET_LIMITS.step}
-                      unit="мм"
-                      value={params.imageOffsetY}
-                    />
-
-                    <NumberSlider
-                      decimals={KEYCHAIN_IMAGE_DEPTH_LIMITS.decimals}
-                      hint="Насколько картинка выступает над пластиком. Внедрение в тело остаётся 0.35 мм: 0.2 мм — почти гравировка, 1 мм — выпуклый логотип."
-                      label="Толщина картинки"
-                      max={KEYCHAIN_IMAGE_DEPTH_LIMITS.max}
-                      min={KEYCHAIN_IMAGE_DEPTH_LIMITS.min}
-                      onChange={(value) => onParamChange("imageDepth", value)}
-                      step={KEYCHAIN_IMAGE_DEPTH_LIMITS.step}
-                      unit="мм"
-                      value={params.imageDepth}
-                    />
-                  </div>
-                </details>
-              ) : null}
-            </fieldset>
-          )}
 
 
 
