@@ -225,6 +225,19 @@ export function MobileMenu({
                   >
                     Личный кабинет
                   </Link>
+                  {/*
+                    Выход есть и здесь: в шапке «Выйти» скрыта на экранах до
+                    400 px, и без этого пункта с телефона было бы не выйти.
+                    Форма настоящая, POST на /logout — как в шапке.
+                  */}
+                  <form action="/logout" method="post">
+                    <button
+                      type="submit"
+                      className={`${MOBILE_LINK_CLASS} w-full`}
+                    >
+                      Выйти
+                    </button>
+                  </form>
                 </>
               ) : (
                 <>

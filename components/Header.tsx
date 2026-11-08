@@ -177,7 +177,17 @@ export async function Header() {
                 </span>
               </Link>
 
-              <form action="/logout" method="post" className="shrink-0">
+              {/*
+                На самых узких экранах «Выйти» скрыта: на 360 px строка шапки
+                упиралась в край (правый край кнопки — 375 px, замер в Chromium).
+                Выход там есть в бургер-меню, рядом с «Личным кабинетом».
+                От 400 px кнопка возвращается: там строка помещается.
+              */}
+              <form
+                action="/logout"
+                method="post"
+                className="hidden shrink-0 min-[400px]:block"
+              >
                 <Button
                   type="submit"
                   variant="secondary"
