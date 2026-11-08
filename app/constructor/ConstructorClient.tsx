@@ -12,6 +12,11 @@ import {
   type StlExportOption,
 } from "@/components/constructor/ParameterPanel";
 import { SaveProjectDialog } from "@/components/constructor/SaveProjectDialog";
+import { VaseRecipeGallery } from "@/components/constructor/VaseRecipeGallery";
+import {
+  vaseRecipeParams,
+  type VaseRecipe,
+} from "@/data/vase-recipes";
 import {
   FEEDBACK_OPEN_DELAY_MS,
   registerConstructorDownload,
@@ -535,6 +540,24 @@ export function ConstructorClient({
 
   function updateShape(shape: VaseShape) {
     setParams((current) => normalizeConstructorParams({ ...current, shape }));
+  }
+
+  /**
+   * Клик по рецепту: готовая ваза вместо текущей.
+   *
+   * Рецепт приходит как `Partial<VaseParams>`, но применяется целиком, вместе со
+   * значениями по умолчанию: иначе цоколь, обод и сид прежней вазы остались бы в
+   * модели, и картинка в галерее перестала бы совпадать с результатом. Слои
+   * узора и размеры тоже приходят из рецепта — это и есть смысл плитки.
+   */
+  function applyVaseRecipe(recipe: VaseRecipe) {
+    setParams((current) =>
+      normalizeConstructorParams({
+        ...current,
+        model: "vase",
+        ...vaseRecipeParams(recipe),
+      }),
+    );
   }
 
   /**
@@ -1173,8 +1196,14 @@ export function ConstructorClient({
             <Viewport params={params} />
           </div>
 
-          {/* Галерея живёт под сценой: сравнить двенадцать ваз удобнее рядом
-              с большой моделью, а не в узкой панели параметров. */}
+          {/* Галереи живут под сценой: сравнивать вазы удобнее рядом с большой
+              моделью, а не в узкой панели параметров. Сначала рецепты — выбор
+              глазами, потом варианты сида — тонкая настройка поверхности. */}
+          <VaseRecipeGallery
+            onApplyRecipe={applyVaseRecipe}
+            params={params}
+          />
+
           <VaseSeedGallery
             onSelectSeed={(seed) => updateParam("vaseSeed", seed)}
             params={params}

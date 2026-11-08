@@ -58,21 +58,38 @@
  *  16. новые узоры: плетение, шеврон, муар и каннелюры дают замкнутую сетку и
  *      полную амплитуду в обе стороны от стенки, а сетка каннелюр попадает
  *      вершиной в дно жёлоба — иначе выборка проходит мимо излома.
+ *  17. галерея рецептов: двенадцать ваз с уникальными id и именами, каждая
+ *      проходит нормализацию без правок, собирается в замкнутую сетку с
+ *      объёмом, попадает в кадр превью, а её PNG лежит на диске того размера,
+ *      который ждёт `next/image`. Подсветка плитки узнаёт рецепт по параметрам и
+ *      гаснет после правки слайдера.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
  *
  * Выход: 0 — все проверки прошли, 1 — есть расхождения.
  */
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
 import type { BufferGeometry } from "three";
 
 import {
+  VASE_RECIPES,
+  activeVaseRecipe,
+  vaseRecipeImagePath,
+  vaseRecipeParams,
+} from "../data/vase-recipes";
+
+import {
   CONSTRUCTOR_LIMITS,
+  DEFAULT_CONSTRUCTOR_PARAMS,
   DEFAULT_VASE_PARAMS,
   VASE_MAX_PATTERN_LAYERS,
   VASE_PATTERN_LABELS,
   VASE_PATTERNS,
   VASE_SHAPES,
+  normalizeConstructorParams,
   normalizeVaseParams,
   nextPatternLayer,
   vaseGenerationDetails,
@@ -2950,6 +2967,152 @@ console.log("\n16. Новые узоры: плетение, шеврон, муа
     ) %
       (FREQUENCY * 2),
     0,
+  );
+}
+
+console.log("\n17. Галерея рецептов: двенадцать ваз и их PNG");
+
+{
+  /** Папка плиток: компонент берёт файлы по пути `/constructor/recipes/<id>.png`. */
+  const recipesDir = path.resolve("public/constructor/recipes");
+  /** Размер плитки: те же числа стоят в `VaseRecipeGallery.tsx`. */
+  const TILE_WIDTH = 320;
+  const TILE_HEIGHT = 400;
+
+  check("рецепты: всего двенадцать", VASE_RECIPES.length, 12);
+  check(
+    "рецепты: идентификаторы уникальны",
+    new Set(VASE_RECIPES.map((recipe) => recipe.id)).size,
+    VASE_RECIPES.length,
+  );
+  check(
+    "рецепты: названия уникальны",
+    new Set(VASE_RECIPES.map((recipe) => recipe.name)).size,
+    VASE_RECIPES.length,
+  );
+  check(
+    "рецепты: id — готовое имя файла",
+    VASE_RECIPES.filter((recipe) =>
+      /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(recipe.id),
+    ).length,
+    VASE_RECIPES.length,
+  );
+  check(
+    "рецепты: путь PNG собирается из id",
+    VASE_RECIPES.map((recipe) => vaseRecipeImagePath(recipe.id)),
+    VASE_RECIPES.map((recipe) => `/constructor/recipes/${recipe.id}.png`),
+  );
+
+  for (const recipe of VASE_RECIPES) {
+    // Ожидание — сам рецепт: если нормализация тронула хоть одно число, плитка
+    // покажет не ту вазу, которую применяет клик.
+    const expected = { ...DEFAULT_VASE_PARAMS, ...recipe.params };
+    const params = vaseRecipeParams(recipe);
+    const geometry = buildGeometry(params);
+    const { min: bottom, max: top } = heightSpan(geometry);
+    const file = path.join(recipesDir, `${recipe.id}.png`);
+    const exists = existsSync(file);
+    // PNG опознаётся по сигнатуре и заголовку IHDR: в нём лежат ширина и высота,
+    // которые `next/image` ждёт до загрузки.
+    const header = exists ? readFileSync(file).subarray(0, 24) : Buffer.alloc(24);
+
+    check(
+      `${recipe.id}: числа рецепта без правок нормализации`,
+      [
+        params.shape === expected.shape,
+        params.height === expected.height,
+        params.diameter === expected.diameter,
+        params.wall === expected.wall,
+        params.footMm === expected.footMm,
+        params.rimMm === expected.rimMm,
+        params.sectionSides === expected.sectionSides,
+        params.twistDeg === expected.twistDeg,
+        params.organic === expected.organic,
+        params.vaseSeed === expected.vaseSeed,
+        JSON.stringify(params.patterns) === JSON.stringify(expected.patterns),
+      ].every(Boolean),
+      true,
+    );
+    // Тот же путь, что у клика по плитке: рецепт кладётся поверх состояния
+    // конструктора и проходит `normalizeConstructorParams`. Проверка ловит
+    // расхождение, при котором клик давал бы не ту вазу, что на картинке.
+    check(
+      `${recipe.id}: клик применяет вазу целиком`,
+      activeVaseRecipe(
+        normalizeConstructorParams({
+          ...DEFAULT_CONSTRUCTOR_PARAMS,
+          model: "vase",
+          ...vaseRecipeParams(recipe),
+        }),
+      )?.id,
+      recipe.id,
+    );
+    check(
+      `${recipe.id}: сетка замкнута, без NaN и с объёмом`,
+      [openEdges(geometry), nanVertices(geometry), volumeMm3(geometry) > 0],
+      [0, 0, true],
+    );
+    checkRange(
+      `${recipe.id}: высота равна заявленной`,
+      [top - bottom],
+      params.height * 0.98,
+      params.height * 1.02,
+    );
+    check(
+      `${recipe.id}: PNG лежит в public и это PNG`,
+      [
+        exists,
+        header[0],
+        header[1],
+        header[2],
+        header[3],
+        header.readUInt32BE(16),
+        header.readUInt32BE(20),
+      ],
+      [true, 0x89, 0x50, 0x4e, 0x47, TILE_WIDTH, TILE_HEIGHT],
+    );
+    check(
+      "рецепты: подсветка узнаёт вазу по параметрам",
+      activeVaseRecipe(params)?.id,
+      recipe.id,
+    );
+
+    geometry.dispose();
+  }
+
+  // Плитка — это картинка, но проверка кадра ловит случай «файл есть, а вазы в
+  // нём нет»: кадр рисуется тем же растеризатором, что и PNG в скрипте.
+  const frames = VASE_RECIPES.map((recipe) => {
+    const params = vaseRecipeParams(recipe);
+    const frame = renderVaseRgb(params, {
+      width: 64,
+      height: 80,
+      supersample: 1,
+      budget: "preview",
+    });
+
+    return coveredShare(frame.rgb);
+  });
+
+  checkRange("рецепты: каждая ваза занимает кадр", frames, 0.2, 1);
+  console.log(
+    `       доля кадра у плиток: ${Math.min(...frames).toFixed(2)}…` +
+      `${Math.max(...frames).toFixed(2)}`,
+  );
+
+  // Правка слайдера уводит вазу от рецепта: 300 мм нет ни в одном рецепте, и
+  // подсветка обязана погаснуть, а не остаться на прежней плитке.
+  const base = vaseRecipeParams(VASE_RECIPES[0]);
+
+  check(
+    "рецепты: правка высоты снимает подсветку",
+    activeVaseRecipe({ ...base, height: CONSTRUCTOR_LIMITS.height.max }),
+    null,
+  );
+  check(
+    "рецепты: правка слоя узора снимает подсветку",
+    activeVaseRecipe({ ...base, patterns: [TEST_SMOOTH_LAYER] }),
+    null,
   );
 }
 

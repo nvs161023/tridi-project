@@ -23,12 +23,21 @@
  * Лист целиком (по строке на силуэт, по столбцу на узор):
  *   node --import ./scripts/register-alias.mjs scripts/vase-render.mjs \
  *     --freq 8 --out .fonttmp/shots/vase-f8.png
+ *
+ * Превью галереи рецептов (двенадцать PNG в public/constructor/recipes):
+ *   npm run shots:recipes
+ * Флаг `--recipes` рендерит ровно те вазы, что лежат в data/vase-recipes.ts:
+ * плитки галереи — это файлы, а не снимок текущего состояния конструктора.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import zlib from "node:zlib";
 
+import {
+  VASE_RECIPES,
+  vaseRecipeParams,
+} from "../data/vase-recipes";
 import {
   DEFAULT_CONSTRUCTOR_PARAMS,
   VASE_PATTERNS,
@@ -38,6 +47,16 @@ import {
   VASE_PREVIEW_BACKGROUND,
   renderVaseRgb,
 } from "../lib/constructor/vase-preview";
+
+/**
+ * Размер PNG плитки галереи рецептов и папка, откуда её берёт компонент.
+ *
+ * Те же 320 × 400 стоят в `VaseRecipeGallery.tsx`: картинка вдвое больше плитки
+ * на экране, поэтому остаётся резкой на Retina.
+ */
+const RECIPE_TILE_WIDTH = 320;
+const RECIPE_TILE_HEIGHT = 400;
+const RECIPE_TILE_DIR = "public/constructor/recipes";
 
 const CRC_TABLE = (() => {
   const table = new Int32Array(256);
@@ -202,7 +221,46 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 
   mkdirSync(path.dirname(out), { recursive: true });
 
-  if (args.shape !== undefined || args.pattern !== undefined) {
+  if (args.recipes !== undefined) {
+    // Плитки галереи: по файлу на рецепт. Азимут и подъём камеры те же, что в
+    // конструкторе, поэтому картинка совпадает с моделью, которую увидит
+    // человек после клика.
+    const tilesDir = path.resolve(RECIPE_TILE_DIR);
+    let bytes = 0;
+
+    mkdirSync(tilesDir, { recursive: true });
+
+    for (const recipe of VASE_RECIPES) {
+      const params = {
+        ...DEFAULT_CONSTRUCTOR_PARAMS,
+        ...vaseRecipeParams(recipe),
+      };
+      const frame = renderVaseRgb(params, {
+        width: RECIPE_TILE_WIDTH,
+        height: RECIPE_TILE_HEIGHT,
+        azimuth,
+        elevation,
+        supersample: 2,
+        budget: "preview",
+      });
+      const file = path.join(tilesDir, `${recipe.id}.png`);
+      const png = encodePng(frame.width, frame.height, frame.rgb);
+
+      writeFileSync(file, png);
+      bytes += png.length;
+      console.log(
+        `  ${recipe.id.padEnd(18)} ${params.shape}, ` +
+          `${params.height} × Ø${params.diameter} мм, ` +
+          `${frame.triangles} треугольников → ${path.relative(process.cwd(), file)}`,
+      );
+    }
+
+    console.log(
+      `Плиток галереи: ${VASE_RECIPES.length}, ` +
+        `${RECIPE_TILE_WIDTH} × ${RECIPE_TILE_HEIGHT}, ` +
+        `${(bytes / 1024).toFixed(0)} КБ всего → ${RECIPE_TILE_DIR}`,
+    );
+  } else if (args.shape !== undefined || args.pattern !== undefined) {
     const patterns = [
       layer(args.pattern ?? DEFAULT_CONSTRUCTOR_PARAMS.patterns[0].type),
     ];

@@ -12,6 +12,7 @@
     "check:vase": "node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts",
     "stats:lesson": "node scripts/lesson-stats.mjs",
     "shots:vase": "node --import ./scripts/register-alias.mjs scripts/vase-render.mjs",
+    "shots:recipes": "node --import ./scripts/register-alias.mjs scripts/vase-render.mjs --recipes 1",
     "ensure:tsconfig": "node scripts/ensure-tsconfig.mjs",
     "clean": "node -e \"require('node:fs').rmSync('.next',{recursive:true,force:true})\"",
     "start": "next start",
