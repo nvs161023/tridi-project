@@ -33,6 +33,8 @@ import {
   DEFAULT_LITHOPHANE_PARAMS,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
+  KEYCHAIN_TEXT_DEPTH_LIMITS,
+  KEYCHAIN_TEXT_OFFSET_LIMITS,
   boxStlFileName,
   coasterStlFileName,
   hasDrawableSvgData,
@@ -453,6 +455,10 @@ function parseVaseParams(body: unknown): VaseParams | null {
  * пользователь не видит в предпросмотре. Отсутствие поля — не ошибка (в старых
  * клиентах его нет, и нормализация включает надпись), а не-boolean отклоняется,
  * как и у NFC-флага.
+ *
+ * Смещение имени по X и Y и толщина рельефа проверяются по границам слайдеров:
+ * файл обязан повторять то, что видно в предпросмотре, поэтому 40 мм смещения
+ * или 3 мм рельефа отклоняются, а не подрезаются молча.
  */
 function parseKeychainParams(
   body: Record<string, unknown>,
@@ -463,6 +469,9 @@ function parseKeychainParams(
     thickness,
     text,
     showText,
+    textOffsetX,
+    textOffsetY,
+    textDepth,
     keychainShape,
     shapeType,
     keychainPreset,
@@ -520,9 +529,33 @@ function parseKeychainParams(
       typeof qrContent !== "string" ||
       typeof qrName !== "string" ||
       typeof qrPhone !== "string");
+  // Смещение и толщина рельефа: присланное число обязано лежать в границах
+  // слайдера, иначе файл разойдётся с предпросмотром. Отсутствие поля — не
+  // ошибка: старый клиент его не присылает, и нормализация ставит имя по центру
+  // с прежней высотой букв.
+  const textStyleInvalid =
+    (textOffsetX !== undefined &&
+      !isNumberInRange(
+        textOffsetX,
+        KEYCHAIN_TEXT_OFFSET_LIMITS.min,
+        KEYCHAIN_TEXT_OFFSET_LIMITS.max,
+      )) ||
+    (textOffsetY !== undefined &&
+      !isNumberInRange(
+        textOffsetY,
+        KEYCHAIN_TEXT_OFFSET_LIMITS.min,
+        KEYCHAIN_TEXT_OFFSET_LIMITS.max,
+      )) ||
+    (textDepth !== undefined &&
+      !isNumberInRange(
+        textDepth,
+        KEYCHAIN_TEXT_DEPTH_LIMITS.min,
+        KEYCHAIN_TEXT_DEPTH_LIMITS.max,
+      ));
 
   if (
     sizeInvalid ||
+    textStyleInvalid ||
     !isNumberInRange(thickness, thicknessLimits.min, thicknessLimits.max) ||
     !isValidKeychainText(text) ||
     presetInvalid ||
@@ -563,6 +596,27 @@ function parseKeychainParams(
       : undefined,
     text,
     showText: typeof showText === "boolean" ? showText : undefined,
+    textOffsetX: isNumberInRange(
+      textOffsetX,
+      KEYCHAIN_TEXT_OFFSET_LIMITS.min,
+      KEYCHAIN_TEXT_OFFSET_LIMITS.max,
+    )
+      ? textOffsetX
+      : undefined,
+    textOffsetY: isNumberInRange(
+      textOffsetY,
+      KEYCHAIN_TEXT_OFFSET_LIMITS.min,
+      KEYCHAIN_TEXT_OFFSET_LIMITS.max,
+    )
+      ? textOffsetY
+      : undefined,
+    textDepth: isNumberInRange(
+      textDepth,
+      KEYCHAIN_TEXT_DEPTH_LIMITS.min,
+      KEYCHAIN_TEXT_DEPTH_LIMITS.max,
+    )
+      ? textDepth
+      : undefined,
     keychainShape: shape,
     shapeType: shape,
     keychainPreset: preset,

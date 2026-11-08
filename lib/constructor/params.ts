@@ -630,6 +630,36 @@ export const SIGN_TEXT_MAX_LENGTH = 15;
 export const KEYCHAIN_TEXT_MAX_LENGTH = 10;
 
 /**
+ * Смещение надписи по X и Y, мм.
+ *
+ * Диапазон шире любого силуэта: смещение — просьба, а геометрия обрезает его по
+ * свободному месту грани. Слайдер в 20 мм позволяет увести имя к краю, но не
+ * дальше: буквы останавливаются на границе пластика сами.
+ */
+export const KEYCHAIN_TEXT_OFFSET_LIMITS: NumericLimit = {
+  min: -20,
+  max: 20,
+  step: 1,
+  defaultValue: 0,
+  decimals: 0,
+};
+
+/**
+ * Толщина рельефа имени над пластиком, мм.
+ *
+ * Внедрение в тело (0.35 мм) не входит в это число и не настраивается: слайдер
+ * задаёт только видимую высоту букв. 0.2 мм — почти гравировка, 1 мм — выпуклое
+ * имя, которое читается на ощупь даже на тонкой основе.
+ */
+export const KEYCHAIN_TEXT_DEPTH_LIMITS: NumericLimit = {
+  min: 0.2,
+  max: 1,
+  step: 0.1,
+  defaultValue: 0.8,
+  decimals: 1,
+};
+
+/**
  * Символы, которые есть в Roboto Bold и которые пропускает серверная
  * проверка. Латиница и любая кириллица покрывают имена, цифры — даты и
  * номера, пробел и знаки — двойные имена.
@@ -658,6 +688,28 @@ export type KeychainParams = {
    * отсутствие значения читается как `true`.
    */
   showText: boolean;
+  /**
+   * Смещение надписи от центра свободной полосы, мм.
+   *
+   * Полоса сама встаёт в самое широкое место грани, но у силуэта с выемкой или
+   * логотипом имя может читаться лучше сдвинутым к краю. Смещение — просьба, а не
+   * приказ: геометрия обрезает его по границе полосы, отверстию под кольцо и
+   * кромке силуэта, поэтому буквы не уезжают с детали.
+   *
+   * Старые проекты поля не знают: там имя стояло по центру, поэтому отсутствие
+   * значения читается как ноль.
+   */
+  textOffsetX: number;
+  /** То же смещение по вертикали, мм: вверх — плюс. */
+  textOffsetY: number;
+  /**
+   * Насколько буквы выступают над пластиком, мм.
+   *
+   * Меняется только выступающая часть: внедрение в тело остаётся 0.35 мм, иначе
+   * слайсер увидел бы надпись отдельной деталью. Тонкий рельеф печатается быстрее
+   * и почти не заметен на ощупь, толстый переживает карман и ключи.
+   */
+  textDepth: number;
   /**
    * Свой контур: `custom` — форма берётся из `customSvgData`, и встроенных
    * силуэтов в проекте больше нет (`lib/constructor/keychain-fallback-shape.ts`
@@ -1242,6 +1294,9 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   thickness: CONSTRUCTOR_LIMITS.thickness.defaultValue,
   text: "Аня",
   showText: true,
+  textOffsetX: KEYCHAIN_TEXT_OFFSET_LIMITS.defaultValue,
+  textOffsetY: KEYCHAIN_TEXT_OFFSET_LIMITS.defaultValue,
+  textDepth: KEYCHAIN_TEXT_DEPTH_LIMITS.defaultValue,
   keychainShape: null,
   keychainPreset: DEFAULT_KEYCHAIN_PRESET_ID,
   customSvgData: "",
@@ -2634,6 +2689,21 @@ export function normalizeKeychainParams(
     // значение, кроме явного false, читается как «показывать». Пустое поле
     // геометрию не меняет — букв нет ни так, ни так.
     showText: params.showText !== false,
+    // Смещение и толщина рельефа — такие же размеры, как длина и ширина: шаг
+    // слайдера и границы одни и те же у панели, нормализации и серверной сверки.
+    // Старые проекты полей не знают, поэтому ноль и 0.8 мм — их значения.
+    textOffsetX: snap(
+      params.textOffsetX ?? DEFAULT_KEYCHAIN_PARAMS.textOffsetX,
+      KEYCHAIN_TEXT_OFFSET_LIMITS,
+    ),
+    textOffsetY: snap(
+      params.textOffsetY ?? DEFAULT_KEYCHAIN_PARAMS.textOffsetY,
+      KEYCHAIN_TEXT_OFFSET_LIMITS,
+    ),
+    textDepth: snap(
+      params.textDepth ?? DEFAULT_KEYCHAIN_PARAMS.textDepth,
+      KEYCHAIN_TEXT_DEPTH_LIMITS,
+    ),
     keychainShape,
     keychainPreset,
     customSvgData,

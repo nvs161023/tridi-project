@@ -11,9 +11,8 @@ import {
 } from "@/lib/constructor/keychain-preset-geometry";
 import {
   createKeychainTextGeometry,
-  findKeychainFaceBand,
   measureKeychainText,
-  type KeychainFaceBand,
+  placeKeychainText,
   type KeychainTextKeepOut,
   type KeychainTextMetrics,
   type KeychainTextSide,
@@ -52,11 +51,12 @@ import {
  * сквозь пластик при любой форме, даже если верхушка узкая (звезда, молния).
  *
  * Имя не вырезается, а пересекается с основой: буквы входят в тело на
- * `KEYCHAIN_TEXT_EMBED_MM` и выступают на `KEYCHAIN_TEXT_RELIEF_MM`
+ * `KEYCHAIN_TEXT_EMBED_MM` и выступают над пластиком на `textDepth` из панели
  * (`lib/constructor/keychain-text.ts`). Каждая оболочка замкнута отдельно,
  * слайсер объединяет их при печати. Тот же модуль ставит надпись и на пресеты:
  * свободную полосу он ищет по готовой сетке, поэтому шипы кирпича, ступица
- * шестерни и отверстие под кольцо обходятся без знания формул силуэта.
+ * шестерни и отверстие под кольцо обходятся без знания формул силуэта, а ручное
+ * смещение обрезается по той же сетке.
  */
 
 /** Публичный путь шрифта: его грузит браузер и читает серверный роут. */
@@ -128,6 +128,15 @@ const TEXT_HOLE_GAP_MM = 1.5;
  * шестерни мешает ступица. При близких полосах выигрывает лицо.
  */
 const TEXT_FRONT_PREFERENCE = 0.9;
+
+/**
+ * Шаг ручного смещения имени у своего контура, мм.
+ *
+ * У пресета смещение обрезается по сетке грани, а у контура карты нет: место
+ * проверяется по точкам прямоугольника, и шаг грубее сетки. Полмиллиметра всё
+ * равно мельче того, что видно на трёхсантиметровом имени.
+ */
+const TEXT_OFFSET_STEP_MM = 0.5;
 
 
 /** Разобранный силуэт в миллиметрах с готовым положением ушка. */
@@ -718,7 +727,10 @@ function measureTextBand(
  * Длинное имя становится мельче, короткое не упирается в кольцо. Центр
  * текста — середина полосы под ушком, а не всей заготовки.
  *
- * Возвращает null, если строка пустая или не помещается в 2 мм ширины.
+ * Ручное смещение двигает готовую строку, пока прямоугольник букв остаётся в
+ * силуэте: у контура карты грани нет, поэтому место проверяется по точкам
+ * прямоугольника. Возвращает null, если строка пустая или не помещается в 2 мм
+ * ширины.
  */
 function createTextGeometry(
   params: KeychainParams,
@@ -770,17 +782,75 @@ function createTextGeometry(
     return null;
   }
 
+  const textWidth = measured.width * size;
+  const textHeight = measured.height * size;
+  // Строка стоит в силуэте, пока в нём лежат её центр и четыре угла: контур
+  // сужается книзу, и смещение вбок могло бы увести буквы за пластик.
+  const fitsInside = (centerX: number, centerY: number): boolean => {
+    const halfWidth = textWidth / 2;
+    const halfHeight = textHeight / 2;
+    const probes: [number, number][] = [
+      [centerX, centerY],
+      [centerX - halfWidth, centerY - halfHeight],
+      [centerX + halfWidth, centerY - halfHeight],
+      [centerX - halfWidth, centerY + halfHeight],
+      [centerX + halfWidth, centerY + halfHeight],
+    ];
+
+    return probes.every((point) =>
+      isPointInsideOutline(point, outline.contours),
+    );
+  };
+  const offsetX = clampOutlineOffset(
+    params.textOffsetX,
+    (availableWidth - textWidth) / 2,
+    (offset) => fitsInside(textCenterX + offset, textCenterY),
+  );
+  const offsetY = clampOutlineOffset(
+    params.textOffsetY,
+    (availableHeight - textHeight) / 2,
+    (offset) => fitsInside(textCenterX + offsetX, textCenterY + offset),
+  );
+
   // Мелкое имя при 10 символах на узком брелоке: фаска и толщина рельефа
   // подстраиваются под кегль и толщину основы в `keychain-text.ts`.
   return createKeychainTextGeometry({
-    centerX: textCenterX,
-    centerY: textCenterY,
+    centerX: textCenterX + offsetX,
+    centerY: textCenterY + offsetY,
+    depth: params.textDepth,
     font,
     side: "front",
     size,
     text,
     thickness: params.thickness,
   });
+}
+
+/**
+ * Смещение буквы, обрезанное границей силуэта.
+ *
+ * Просьба исполняется, пока прямоугольник строки остаётся в контуре. Как только
+ * угол выходит за пластик, смещение отступает к нулю: буквы не должны висеть над
+ * вырезом логотипа или за кромкой.
+ */
+function clampOutlineOffset(
+  desired: number,
+  limit: number,
+  fits: (offset: number) => boolean,
+): number {
+  const reach = Math.min(Math.abs(desired), Math.max(limit, 0));
+  const sign = desired < 0 ? -1 : 1;
+  let steps = Math.floor(reach / TEXT_OFFSET_STEP_MM);
+
+  while (steps > 0) {
+    if (fits(sign * steps * TEXT_OFFSET_STEP_MM)) {
+      return sign * steps * TEXT_OFFSET_STEP_MM;
+    }
+
+    steps -= 1;
+  }
+
+  return 0;
 }
 
 
@@ -815,25 +885,33 @@ function presetTextKeepOut(
   ];
 }
 
-/** Кегль и полоса для одной стороны: null — строка туда не влезает. */
+/**
+ * Постановка строки на одну сторону, мм: null — строка туда не влезает.
+ *
+ * Кегль и центр считает общий помощник: он же обрезает ручное смещение по карте
+ * грани, поэтому буквы не уезжают с детали.
+ */
 function fitPresetText(
   body: BufferGeometry,
+  params: KeychainParams,
   keepOut: readonly KeychainTextKeepOut[],
   measured: KeychainTextMetrics,
   side: KeychainTextSide,
-): { band: KeychainFaceBand; side: KeychainTextSide; size: number } | null {
-  const band = findKeychainFaceBand(body, { keepOut, side });
+): {
+  centerX: number;
+  centerY: number;
+  side: KeychainTextSide;
+  size: number;
+} | null {
+  const placement = placeKeychainText(body, {
+    keepOut,
+    metrics: measured,
+    offsetX: params.textOffsetX,
+    offsetY: params.textOffsetY,
+    side,
+  });
 
-  if (!band) {
-    return null;
-  }
-
-  const size = Math.min(
-    band.width / measured.width,
-    band.height / measured.height,
-  );
-
-  return Number.isFinite(size) && size > 0 ? { band, side, size } : null;
+  return placement ? { ...placement, side } : null;
 }
 
 /**
@@ -861,8 +939,8 @@ function createPresetTextGeometry(
     return null;
   }
 
-  const front = fitPresetText(body, keepOut, measured, "front");
-  const back = fitPresetText(body, keepOut, measured, "back");
+  const front = fitPresetText(body, params, keepOut, measured, "front");
+  const back = fitPresetText(body, params, keepOut, measured, "back");
   const chosen =
     front && back
       ? front.size >= back.size * TEXT_FRONT_PREFERENCE
@@ -875,8 +953,9 @@ function createPresetTextGeometry(
   }
 
   return createKeychainTextGeometry({
-    centerX: chosen.band.centerX,
-    centerY: chosen.band.centerY,
+    centerX: chosen.centerX,
+    centerY: chosen.centerY,
+    depth: params.textDepth,
     font,
     side: chosen.side,
     size: chosen.size,

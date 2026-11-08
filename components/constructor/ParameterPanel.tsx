@@ -78,7 +78,9 @@ import {
   KEYCHAIN_SHAPES,
   KEYCHAIN_SHAPE_LABELS,
   KEYCHAIN_SVG_MAX_LENGTH,
+  KEYCHAIN_TEXT_DEPTH_LIMITS,
   KEYCHAIN_TEXT_MAX_LENGTH,
+  KEYCHAIN_TEXT_OFFSET_LIMITS,
   keychainQrCardSpec,
   keychainThicknessLimits,
   hasDrawableSvgData,
@@ -2759,9 +2761,10 @@ export function ParameterPanel({
                 className="text-xs leading-relaxed text-slate-300"
                 id={textHintId}
               >
-                Кириллица, латиница, цифры и знаки. Имя выступает над основой на
-                0.8 мм и масштабируется под свободное место. У кирпича и шестерни
-                оно уходит на обратную сторону: лицо занято шипами и ступицей.
+                Кириллица, латиница, цифры и знаки. Имя масштабируется под
+                свободное место и выступает над основой на{" "}
+                {params.textDepth.toFixed(1)} мм. У кирпича и шестерни оно уходит
+                на обратную сторону: лицо занято шипами и ступицей.
               </p>
               <span className="shrink-0 text-xs tabular-nums text-slate-300">
                 {textLength}/{KEYCHAIN_TEXT_MAX_LENGTH}
@@ -2794,6 +2797,71 @@ export function ParameterPanel({
                   </span>
                 </span>
               </label>
+            )}
+
+            {params.keychainPreset === "qr-card" ||
+            !params.showText ||
+            textLength === 0 ? null : (
+              /*
+                Нативный details: раскрытие работает без состояния, а содержимое
+                остаётся в DOM для скринридеров. Настройки показываются только у
+                включённой надписи: у снятой галочки двигать нечего.
+              */
+              <details className="group mt-4 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-slate-200 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">
+                  Настройки текста
+                  <span
+                    aria-hidden
+                    className="text-xs text-slate-400 group-open:hidden"
+                  >
+                    ▾
+                  </span>
+                  <span
+                    aria-hidden
+                    className="hidden text-xs text-slate-400 group-open:inline"
+                  >
+                    ▴
+                  </span>
+                </summary>
+
+                <div className="mt-4 space-y-5">
+                  <NumberSlider
+                    decimals={KEYCHAIN_TEXT_OFFSET_LIMITS.decimals}
+                    hint="Сдвигает имя к левому или правому краю. Смещение — просьба: геометрия обрезает его по свободному месту грани, и буквы останавливаются на границе, а не уезжают с детали."
+                    label="Смещение по горизонтали"
+                    max={KEYCHAIN_TEXT_OFFSET_LIMITS.max}
+                    min={KEYCHAIN_TEXT_OFFSET_LIMITS.min}
+                    onChange={(value) => onParamChange("textOffsetX", value)}
+                    step={KEYCHAIN_TEXT_OFFSET_LIMITS.step}
+                    unit="мм"
+                    value={params.textOffsetX}
+                  />
+
+                  <NumberSlider
+                    decimals={KEYCHAIN_TEXT_OFFSET_LIMITS.decimals}
+                    hint="Сдвигает имя выше или ниже. Вверх путь упирается в отверстие под кольцо, вниз — в нижнюю кромку силуэта: дальше смещение обрезается само."
+                    label="Смещение по вертикали"
+                    max={KEYCHAIN_TEXT_OFFSET_LIMITS.max}
+                    min={KEYCHAIN_TEXT_OFFSET_LIMITS.min}
+                    onChange={(value) => onParamChange("textOffsetY", value)}
+                    step={KEYCHAIN_TEXT_OFFSET_LIMITS.step}
+                    unit="мм"
+                    value={params.textOffsetY}
+                  />
+
+                  <NumberSlider
+                    decimals={KEYCHAIN_TEXT_DEPTH_LIMITS.decimals}
+                    hint="Насколько буквы выступают над пластиком. Внедрение в тело остаётся 0.35 мм: 0.2 мм — почти гравировка, 1 мм — выпуклое имя, которое читается на ощупь."
+                    label="Толщина текста"
+                    max={KEYCHAIN_TEXT_DEPTH_LIMITS.max}
+                    min={KEYCHAIN_TEXT_DEPTH_LIMITS.min}
+                    onChange={(value) => onParamChange("textDepth", value)}
+                    step={KEYCHAIN_TEXT_DEPTH_LIMITS.step}
+                    unit="мм"
+                    value={params.textDepth}
+                  />
+                </div>
+              </details>
             )}
           </fieldset>
 
