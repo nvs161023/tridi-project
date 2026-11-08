@@ -305,7 +305,7 @@ export function VaseShapeGallery({
   return (
     <section
       aria-labelledby="vase-shape-gallery-heading"
-      className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4"
+      className="rounded-2xl border border-white/10 bg-white/5 p-4"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3
@@ -319,7 +319,7 @@ export function VaseShapeGallery({
         </p>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
         {shapes.map((shape) => (
           <ShapeTile
             isCurrent={shape === params.shape}

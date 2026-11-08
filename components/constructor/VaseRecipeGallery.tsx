@@ -56,7 +56,7 @@ export function VaseRecipeGallery({
   return (
     <section
       aria-labelledby="vase-recipes-heading"
-      className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4"
+      className="rounded-2xl border border-white/10 bg-white/5 p-4"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3
@@ -70,7 +70,7 @@ export function VaseRecipeGallery({
         </p>
       </div>
 
-      <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+      <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {VASE_RECIPES.map((recipe) => {
           const selected = activeRecipe?.id === recipe.id;
 

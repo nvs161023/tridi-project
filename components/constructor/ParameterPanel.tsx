@@ -1947,7 +1947,7 @@ export function ParameterPanel({
   return (
     <section
       aria-labelledby="parameters-heading"
-      className="order-2 min-w-0 rounded-3xl border border-white/10 bg-white/5 p-5 sm:p-6 lg:order-1 lg:sticky lg:top-6"
+      className="min-w-0 rounded-3xl border border-white/10 bg-white/5 p-5 sm:p-6"
     >
       <h2
         className="text-xs font-semibold tracking-wide text-slate-300 uppercase"

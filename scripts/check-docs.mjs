@@ -41,6 +41,10 @@ const DOCS_PATH = "PROJECT.md";
  * генераторов (крючок, клипсы, нашивка, абажур, держатель кружки, шкатулка и
  * подарочная коробка) убраны из конструктора, а история изменений описывает,
  * как клипсы собирались.
+ *
+ * `components/constructor/VaseSeedGallery.tsx` — там же с 8 ноября 2026:
+ * галерея сидов стала галереей форм (`VaseShapeGallery.tsx`), а запись от
+ * 7 ноября по-прежнему называет файл, где жили двенадцать плиток с сидами.
  */
 const REMOVED_PATHS = new Set([
   "data/course.json",
@@ -48,6 +52,7 @@ const REMOVED_PATHS = new Set([
   "lib/constructor/lamp-geometry.ts",
   "lib/constructor/keychain-shapes.ts",
   "lib/constructor/cable-clips-geometry.ts",
+  "components/constructor/VaseSeedGallery.tsx",
   "lib/lesson-outline.ts",
 ]);
 

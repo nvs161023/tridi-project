@@ -1174,7 +1174,7 @@ export function Viewport({ params }: ViewportProps) {
                         : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
-    <div className="relative h-[min(46vh,24rem)] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-900 to-slate-900 shadow-2xl shadow-blue-950/50 sm:h-[min(52vh,32rem)] lg:h-[calc(100vh-10rem)] lg:max-h-[38rem] lg:min-h-[20rem]">
+    <div className="relative h-[min(40vh,20rem)] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-900 to-slate-900 shadow-2xl shadow-blue-950/50 sm:h-[min(48vh,26rem)] lg:h-auto lg:min-h-[16rem] lg:flex-1">
       <Canvas
         aria-label={ariaLabel}
         camera={{ fov: 35, near: 1, far: 6000, position: [0, 180, 320] }}

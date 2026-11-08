@@ -355,7 +355,7 @@ const Viewport = dynamic(
 
 function ViewportSkeleton() {
   return (
-    <div className="flex h-[min(46vh,24rem)] w-full items-center justify-center rounded-3xl border border-white/10 bg-slate-900/60 sm:h-[min(52vh,32rem)] lg:h-[calc(100vh-10rem)] lg:max-h-[38rem] lg:min-h-[20rem]">
+    <div className="flex h-[min(40vh,20rem)] w-full items-center justify-center rounded-3xl border border-white/10 bg-slate-900/60 sm:h-[min(48vh,26rem)] lg:h-auto lg:min-h-[16rem] lg:flex-1">
       <div className="text-center">
         <span aria-hidden className="text-4xl">
           🌀
@@ -388,10 +388,10 @@ const VaseShapeGallery = dynamic(
 
 function VaseGallerySkeleton() {
   return (
-    <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
       <p className="text-sm font-semibold text-white">Галерея форм</p>
       <p className="mt-2 text-xs text-slate-300">Готовим двенадцать форм…</p>
-      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
         {Array.from({ length: 6 }, (_, index) => (
           <div
             className="aspect-[18/23] w-full rounded-xl border border-white/10 bg-slate-950/60"
@@ -1018,8 +1018,8 @@ export function ConstructorClient({
   }
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-5 py-10 sm:px-8 sm:py-14">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+    <main className="mx-auto flex w-full max-w-7xl flex-col px-5 py-10 sm:px-8 sm:py-14 lg:h-[calc(100dvh_-_var(--header-h))] lg:overflow-y-auto lg:py-4 xl:max-w-[96rem]">
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between lg:items-center lg:gap-8">
         <div className="min-w-0">
           <Link
             className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
@@ -1028,11 +1028,11 @@ export function ConstructorClient({
             <span aria-hidden>←</span>В кабинет
           </Link>
 
-          <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+          <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-4xl lg:mt-3 lg:text-3xl">
             Конструктор 3D
           </h1>
 
-          <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300">
+          <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300 lg:mt-2 lg:max-w-3xl lg:text-sm">
             Параметрические модели под ваш принтер: ваза с математическим узором,
             брелок с именем, подставка под телефон, светодиодная вывеска с
             надписью, коробка-органайзер с сеткой и крышкой, литофан из
@@ -1084,75 +1084,107 @@ export function ConstructorClient({
       ) : null}
 
       {/*
-        На мобильных первой идёт сцена (order-1), панель — второй: человек
-        сразу видит результат. На десктопе панель слева, сцена справа.
-        min-w-0 у обеих колонок не даёт Canvas и длинным подписям растянуть
-        страницу по горизонтали.
+        Рабочая область — две независимые колонки, как в 3D-редакторе.
+        Слева всё, что меняет модель: параметры, галерея рецептов и галерея
+        форм. Колонка прокручивается сама, поэтому длинная панель и новые слои
+        узора больше не утаскивают сцену из виду. Справа сцена: она занимает
+        высоту рабочей области и остаётся на месте, что бы ни происходило
+        слева.
+        Строка сетки задана как minmax(0, 1fr): без нулевого минимума grid
+        растянул бы строку по содержимому высокой панели, и внутренняя
+        прокрутка колонки перестала бы работать.
+        На мобильном порядок обратный (order): сцена прилипает под шапкой,
+        параметры и галереи едут под ней.
       */}
-      <div className="mt-8 grid gap-5 lg:grid-cols-[22rem_minmax(0,1fr)] lg:items-start xl:gap-6">
-        <ParameterPanel
-          exportError={exportError}
-          freeDownloadsLeft={freeDownloadsLeft}
-          hasPro={hasPro}
-          exportingId={exportingId}
-          exportOptions={exportOptions}
-          onBoxCellsChange={updateBoxCells}
-          onBoxPresetChange={updateBoxPreset}
-          onCoasterPatternChange={updateCoasterPattern}
-          onCoasterRimChange={updateCoasterRim}
-          onCoasterShapeChange={updateCoasterShape}
-          onCustomSvgChange={updateKeychainCustomSvg}
-          onExport={exportStl}
-          onHasLidChange={updateHasLid}
-          onHeatTransferMirrorChange={updateHeatTransferMirror}
-          onHeatTransferSvgChange={updateHeatTransferSvg}
-          onHolePlacementChange={updateHolePlacement}
-          onJewelryConfigChange={updateJewelryConfig}
-          onKeychainPresetChange={updateKeychainPreset}
-          onKeychainShapeChange={updateKeychainShape}
-          onLithoFrameChange={updateLithoFrame}
-          onLithoMountChange={updateLithoMount}
-          onLithophaneBrightnessChange={updateLithophaneBrightness}
-          onModelChange={updateModel}
-          onNfcChange={updateKeychainNfc}
-          onParamChange={updateParam}
-          onPatternLayerChange={updatePatternLayer}
-          onAddPatternLayer={addPatternLayer}
-          onRemovePatternLayer={removePatternLayer}
-          onPenShapeChange={updatePenShape}
-          onPlanterDrainageChange={updatePlanterDrainage}
-          onPlanterShapeChange={updatePlanterShape}
-          onQrCardSizeChange={updateQrCardSize}
-          onQrCardTabChange={updateQrCardTab}
-          onQrContentChange={updateQrContent}
-          onQrContentTypeChange={updateQrContentType}
-          onQrModeChange={updateQrMode}
-          onQrNameChange={updateQrName}
-          onQrPhoneChange={updateQrPhone}
-          onReset={resetParams}
-          onShapeChange={updateShape}
-          onRandomizeVase={randomizeVase}
-          onSignChannelWidthChange={updateSignChannelWidth}
-          onSignBaseMountChange={updateSignBaseMount}
-          onSignFontChange={updateSignFont}
-          onSignTextChange={updateSignText}
-          onTextChange={updateKeychainText}
-          params={params}
-        />
+      <div className="mt-8 flex flex-col gap-5 lg:mt-5 lg:grid lg:min-h-[26rem] lg:flex-1 lg:grid-cols-[minmax(19rem,25rem)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)] lg:gap-5 xl:grid-cols-[minmax(21rem,28rem)_minmax(0,1fr)]">
+        <div className="order-2 flex min-w-0 flex-col gap-5 lg:order-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1 lg:[scrollbar-color:#475569_transparent] lg:[scrollbar-width:thin]">
+          <ParameterPanel
+            exportError={exportError}
+            freeDownloadsLeft={freeDownloadsLeft}
+            hasPro={hasPro}
+            exportingId={exportingId}
+            exportOptions={exportOptions}
+            onBoxCellsChange={updateBoxCells}
+            onBoxPresetChange={updateBoxPreset}
+            onCoasterPatternChange={updateCoasterPattern}
+            onCoasterRimChange={updateCoasterRim}
+            onCoasterShapeChange={updateCoasterShape}
+            onCustomSvgChange={updateKeychainCustomSvg}
+            onExport={exportStl}
+            onHasLidChange={updateHasLid}
+            onHeatTransferMirrorChange={updateHeatTransferMirror}
+            onHeatTransferSvgChange={updateHeatTransferSvg}
+            onHolePlacementChange={updateHolePlacement}
+            onJewelryConfigChange={updateJewelryConfig}
+            onKeychainPresetChange={updateKeychainPreset}
+            onKeychainShapeChange={updateKeychainShape}
+            onLithoFrameChange={updateLithoFrame}
+            onLithoMountChange={updateLithoMount}
+            onLithophaneBrightnessChange={updateLithophaneBrightness}
+            onModelChange={updateModel}
+            onNfcChange={updateKeychainNfc}
+            onParamChange={updateParam}
+            onPatternLayerChange={updatePatternLayer}
+            onAddPatternLayer={addPatternLayer}
+            onRemovePatternLayer={removePatternLayer}
+            onPenShapeChange={updatePenShape}
+            onPlanterDrainageChange={updatePlanterDrainage}
+            onPlanterShapeChange={updatePlanterShape}
+            onQrCardSizeChange={updateQrCardSize}
+            onQrCardTabChange={updateQrCardTab}
+            onQrContentChange={updateQrContent}
+            onQrContentTypeChange={updateQrContentType}
+            onQrModeChange={updateQrMode}
+            onQrNameChange={updateQrName}
+            onQrPhoneChange={updateQrPhone}
+            onReset={resetParams}
+            onShapeChange={updateShape}
+            onRandomizeVase={randomizeVase}
+            onSignChannelWidthChange={updateSignChannelWidth}
+            onSignBaseMountChange={updateSignBaseMount}
+            onSignFontChange={updateSignFont}
+            onSignTextChange={updateSignText}
+            onTextChange={updateKeychainText}
+            params={params}
+          />
+
+          {/* Галереи стоят под панелью, в той же прокручиваемой колонке:
+              сравнивать вазы удобно рядом со слайдерами, а сцена справа в это
+              время не сдвигается. Сначала рецепты — готовая ваза целиком,
+              потом формы — тот же узор в другом силуэте. */}
+          <VaseRecipeGallery
+            onApplyRecipe={applyVaseRecipe}
+            params={params}
+          />
+
+          <VaseShapeGallery onSelectShape={updateShape} params={params} />
+
+          <p className="text-xs leading-relaxed text-slate-300">
+            Вращение — левая кнопка мыши или один палец, зум — колесо или два
+            пальца. Модель стоит на виртуальном столе: заглянуть под пол камера
+            не даст.
+          </p>
+        </div>
 
         <section
           aria-labelledby="preview-heading"
-          className="order-1 min-w-0 lg:order-2"
+          className="sticky top-[var(--header-h)] z-30 order-1 -mx-5 flex min-w-0 flex-col border-b border-white/10 bg-[#030303]/95 px-5 pt-1 pb-3 backdrop-blur-xl sm:-mx-8 sm:px-8 lg:static lg:z-auto lg:order-2 lg:mx-0 lg:min-h-0 lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none"
         >
           {/*
-            Сцена прилипает к верху экрана: панель слева длинная, и без этого
-            при прокрутке вниз модель уезжала из виду — человек крутил слайдер и
-            не видел, что меняется. Верхний отступ равен высоте шапки
-            (sticky top-0, py-4 ≈ 72 px), иначе сцена ушла бы под неё.
-            Полупрозрачная подложка с blur: галереи под сценой проезжают под
-            ней, но не просвечивают сквозь 3D.
+            На десктопе сцена — правая колонка сетки: она тянется на всю высоту
+            рабочей области, поэтому прокрутка панели слева её не касается и
+            галереи под неё не заезжают.
+            На мобильном липкая здесь вся секция: колонки идут в общем потоке,
+            и сцена держится под шапкой. Отступ — var(--header-h), та же
+            переменная, что задаёт высоту рабочей области на десктопе: шапка
+            липкая и накрывает верх окна, поэтому 72 px «на глаз» оставили бы
+            часть заголовка «Предпросмотр» под шапкой (замер: 83 px). Подложка
+            плотная, 95 % чёрного с blur: панель и плитки галерей проезжают под
+            сценой, но сквозь неё не просвечивают.
+            Липкой была бы не секция, а блок внутри неё — он прилипал бы только
+            к своей секции, а её высота равна его собственной.
           */}
-          <div className="sticky top-[4.5rem] z-30 -mx-5 bg-slate-950/80 px-5 pt-1 pb-2 backdrop-blur-md sm:-mx-8 sm:px-8 lg:top-24 lg:z-10 lg:mx-0 lg:bg-transparent lg:px-0 lg:pt-0 lg:backdrop-blur-none">
+          <div className="flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2
                 className="text-xs font-semibold tracking-wide text-slate-300 uppercase"
@@ -1230,26 +1262,10 @@ export function ConstructorClient({
               </span>
             </div>
 
-            <div className="mt-3">
+            <div className="mt-3 flex min-h-0 flex-col lg:mt-2 lg:flex-1">
               <Viewport params={params} />
             </div>
           </div>
-
-          {/* Галереи живут под сценой: сравнивать вазы удобнее рядом с большой
-              моделью, а не в узкой панели параметров. Сначала рецепты — готовая
-              ваза целиком, потом формы — тот же узор в другом силуэте. */}
-          <VaseRecipeGallery
-            onApplyRecipe={applyVaseRecipe}
-            params={params}
-          />
-
-          <VaseShapeGallery onSelectShape={updateShape} params={params} />
-
-          <p className="mt-3 text-xs leading-relaxed text-slate-300">
-            Вращение — левая кнопка мыши или один палец, зум — колесо или два
-            пальца. Модель стоит на виртуальном столе: заглянуть под пол камера
-            не даст.
-          </p>
         </section>
       </div>
 
