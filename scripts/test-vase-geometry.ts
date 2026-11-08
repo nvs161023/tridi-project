@@ -49,6 +49,11 @@
  *      имена, а без органики сид имя не меняет. Метаданные генерации — плоский
  *      объект из нормализованных значений, который сериализуется в JSON без
  *      потерь.
+ *  14. композиция слоёв: старый проект открывается одним слоем с нулевым
+ *      затуханием, лимит трёх слоёв и выравнивание чисел работают, слои
+ *      складываются, а новый слой кнопки «Добавить» берёт свободный узор.
+ *  15. дефолт нового проекта: рёбра 1.2 мм на частоте 20 замкнуты, шире гладкой
+ *      вазы на гребни и укладываются в бюджет предпросмотра.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
@@ -64,6 +69,7 @@ import {
   VASE_PATTERNS,
   VASE_SHAPES,
   normalizeVaseParams,
+  nextPatternLayer,
   vaseGenerationDetails,
   vasePatternLabel,
   vasePatternSlug,
@@ -154,33 +160,67 @@ function checkRange(
   );
 }
 
+/**
+ * Слой, на котором проверки считают голую геометрию.
+ *
+ * Дефолт нового проекта — рёбра 1.2 мм на частоте 20, а рельеф смещает стенку:
+ * габарит перестал бы совпадать с диаметром, а толщина по лучу — с заданной.
+ * Поэтому без явного узора хелпер подставляет гладкий слой, и проверки размеров,
+ * замыкания и сечения считаются на ровной вазе.
+ */
+const TEST_SMOOTH_LAYER: PatternLayer = {
+  type: "smooth",
+  amplitude: 0,
+  frequency: 8,
+  phaseDeg: 0,
+  envelope: { fadeTopMm: 5, fadeBottomMm: 3 },
+};
+
+/**
+ * Слой прежнего одного узора: амплитуда 1.5 мм, частота 8.
+ *
+ * Эти числа показывал слайдер до этапа слоёв, и проверки вида «спираль на частоте
+ * 20» опираются на них, когда частота не задана явно. Числа заморожены здесь,
+ * чтобы новый дефолт проекта не переписал ожидания старых проверок.
+ */
+const TEST_LEGACY_LAYER: PatternLayer = {
+  type: "smooth",
+  amplitude: 1.5,
+  frequency: 8,
+  phaseDeg: 0,
+  envelope: { fadeTopMm: 5, fadeBottomMm: 3 },
+};
+
 function vaseParams(
   overrides: Partial<VaseParams> & VasePatternInput = {},
 ): VaseParams {
   const { pattern, patternIntensity, patternFrequency, ...rest } = overrides;
   const params = { ...DEFAULT_VASE_PARAMS, ...rest };
 
-  // Узор можно задать по-старому: хелпер переводит три прежних поля в один
-  // слой, как это делает нормализация старых проектов. Без этого каждая
-  // проверка «спираль на частоте 20» превратилась бы в литерал слоя.
+  // Новый вид ввода важнее: слои пришли как есть, хелпер их не трогает.
+  if (rest.patterns !== undefined) {
+    return params;
+  }
+
   if (
     pattern === undefined &&
     patternIntensity === undefined &&
     patternFrequency === undefined
   ) {
-    return params;
+    return { ...params, patterns: [TEST_SMOOTH_LAYER] };
   }
 
-  const [base] = DEFAULT_VASE_PARAMS.patterns;
-
+  // Узор можно задать по-старому: хелпер переводит три прежних поля в один
+  // слой, как это делает нормализация старых проектов. Без этого каждая
+  // проверка «спираль на частоте 20» превратилась бы в литерал слоя.
   return {
     ...params,
     patterns: [
       {
-        ...base,
-        type: pattern ?? base.type,
-        amplitude: patternIntensity ?? base.amplitude,
-        frequency: patternFrequency ?? base.frequency,
+        ...TEST_LEGACY_LAYER,
+        type: pattern ?? TEST_LEGACY_LAYER.type,
+        amplitude: patternIntensity ?? TEST_LEGACY_LAYER.amplitude,
+        frequency: patternFrequency ?? TEST_LEGACY_LAYER.frequency,
       },
     ],
   };
@@ -2123,6 +2163,13 @@ console.log("\n13. Имя файла STL и метаданные генерац�
     vaseStlFileName(base),
     "tridi-vaza-classic-h140-d90-w1.6.stl",
   );
+  // Новый проект открывается рёбрами, поэтому имя настоящего дефолта несёт
+  // суффикс узора: файл из конструктора не должен называться «без узора».
+  check(
+    "имя: дефолт нового проекта — рёбра",
+    vaseStlFileName(DEFAULT_VASE_PARAMS),
+    "tridi-vaza-classic-ribs-h140-d90-w1.6.stl",
+  );
   check(
     "имя: узор — суффиксом",
     vaseStlFileName(vaseParams({ pattern: "spiral" })),
@@ -2343,19 +2390,19 @@ console.log("\n14. Композиция слоёв и затухание у кр
     }).patterns[0],
     {
       type: "ribs",
-      amplitude: 5,
+      amplitude: 3,
       frequency: 1,
       phaseDeg: 0,
       envelope: { fadeTopMm: 5, fadeBottomMm: 3 },
     },
   );
   check(
-    "слои: незнакомый тип заменяется гладким",
+    "слои: незнакомый тип заменяется дефолтным",
     normalizeVaseParams({
       ...DEFAULT_VASE_PARAMS,
       patterns: JSON.parse('[{"type":"не-узор","amplitude":2}]') as PatternLayer[],
     }).patterns[0].type,
-    "smooth",
+    DEFAULT_VASE_PARAMS.patterns[0].type,
   );
 
   // 3. Композиция: в середине вазы слои складываются. Затухание взято заведомо
@@ -2596,6 +2643,153 @@ console.log("\n14. Композиция слоёв и затухание у кр
     vasePatternSlug([layer("smooth", 1.5, 8)]),
     "smooth",
   );
+
+  // 7. Кнопка «Добавить слой»: новый слой берёт узор, которого ещё нет, и
+  // печатные числа. Порядок предпочтений — рёбра, спираль, волны, соты, чешуйки.
+  check(
+    "новый слой: из пустого списка — рёбра",
+    nextPatternLayer([]).type,
+    "ribs",
+  );
+  check(
+    "новый слой: к рёбрам — спираль",
+    nextPatternLayer(DEFAULT_VASE_PARAMS.patterns).type,
+    "spiral",
+  );
+  check(
+    "новый слой: к рёбрам и спирали — волны",
+    nextPatternLayer([
+      layer("ribs", 1.2, 20),
+      layer("spiral", 1, 6),
+    ]).type,
+    "waves",
+  );
+  check(
+    "новый слой: числа печатные и не спорят с первым",
+    nextPatternLayer(DEFAULT_VASE_PARAMS.patterns),
+    {
+      type: "spiral",
+      amplitude: 1,
+      frequency: 6,
+      phaseDeg: 0,
+      envelope: { fadeTopMm: 5, fadeBottomMm: 3 },
+    },
+  );
+  check(
+    "новый слой: за три нажатия — три разных узора",
+    new Set(
+      [1, 2, 3].map((count) => {
+        let layers = DEFAULT_VASE_PARAMS.patterns;
+
+        for (let step = 0; step < count; step += 1) {
+          layers = [...layers, nextPatternLayer(layers)];
+        }
+
+        return layers[layers.length - 1].type;
+      }),
+    ).size,
+    3,
+  );
+  // Новый слой не выходит за слайдеры: нормализация его не меняет.
+  check(
+    "новый слой: нормализация не меняет числа",
+    normalizeVaseParams({
+      ...DEFAULT_VASE_PARAMS,
+      patterns: [
+        ...DEFAULT_VASE_PARAMS.patterns,
+        nextPatternLayer(DEFAULT_VASE_PARAMS.patterns),
+      ],
+    }).patterns[1],
+    nextPatternLayer(DEFAULT_VASE_PARAMS.patterns),
+  );
+}
+
+console.log("\n15. Дефолт нового проекта");
+
+{
+  // Конструктор открывается рёбрами 1.2 мм на частоте 20: это первый экран
+  // пользователя, и он обязан быть рельефным, замкнутым и уложиться в бюджет
+  // предпросмотра — иначе браузер получит «тяжёлую» сцену вместо вазы.
+  const layers = DEFAULT_VASE_PARAMS.patterns;
+
+  check(
+    "дефолт: один слой рёбер 1.2 мм на частоте 20",
+    layers.map((layer) => [layer.type, layer.amplitude, layer.frequency]),
+    [["ribs", 1.2, 20]],
+  );
+  check(
+    "дефолт: затухание печатное",
+    [layers[0].envelope.fadeTopMm, layers[0].envelope.fadeBottomMm],
+    [5, 3],
+  );
+
+  const previewProfile = createVaseProfile(DEFAULT_VASE_PARAMS, "preview");
+  const previewSegments = vaseSegments(
+    DEFAULT_VASE_PARAMS,
+    previewProfile.length,
+    "preview",
+  );
+  const previewGeometry = createVaseGeometry(previewProfile, DEFAULT_VASE_PARAMS, {
+    budget: "preview",
+  });
+  const previewTriangles = previewGeometry.getIndex()!.count / 3;
+
+  // Габарит по X и Z: рельеф смещает стенку наружу на свою амплитуду, поэтому
+  // ваза с рёбрами шире гладкой ровно на гребни.
+  const previewPosition = previewGeometry.getAttribute("position");
+  let halfWidth = 0;
+
+  for (let index = 0; index < previewPosition.count; index += 1) {
+    halfWidth = Math.max(
+      halfWidth,
+      Math.abs(previewPosition.getX(index)),
+      Math.abs(previewPosition.getZ(index)),
+    );
+  }
+
+  const previewWidth = 2 * halfWidth;
+
+  check("дефолт: предпросмотр замкнут", openEdges(previewGeometry), 0);
+  check("дефолт: рёбра видны", previewSegments > 128, true);
+  check(
+    "дефолт: предпросмотр в бюджете треугольников",
+    previewTriangles <= VASE_PREVIEW_TRIANGLE_BUDGET,
+    true,
+  );
+  checkRange(
+    "дефолт: габарит вырос на амплитуду рёбер",
+    [previewWidth],
+    DEFAULT_VASE_PARAMS.diameter,
+    DEFAULT_VASE_PARAMS.diameter + 2 * layers[0].amplitude + BOX_TOLERANCE_MM,
+  );
+  console.log(
+    `       предпросмотр: ${previewSegments} сегментов, точек профиля ${previewProfile.length}, ` +
+      `${previewTriangles} треугольников, габарит ${previewWidth.toFixed(2)} мм`,
+  );
+
+  const exportProfile = createVaseProfile(DEFAULT_VASE_PARAMS, "export");
+  const exportSegments = vaseSegments(
+    DEFAULT_VASE_PARAMS,
+    exportProfile.length,
+    "export",
+  );
+  const exportGeometry = createVaseGeometry(exportProfile, DEFAULT_VASE_PARAMS, {
+    budget: "export",
+  });
+  const exportTriangles = exportGeometry.getIndex()!.count / 3;
+
+  check("дефолт: STL замкнут", openEdges(exportGeometry), 0);
+  check(
+    "дефолт: STL в бюджете треугольников",
+    exportTriangles <= VASE_EXPORT_TRIANGLE_BUDGET,
+    true,
+  );
+  console.log(
+    `       STL: ${exportSegments} сегментов, ${exportProfile.length} строк, ${exportTriangles} треугольников`,
+  );
+
+  previewGeometry.dispose();
+  exportGeometry.dispose();
 }
 
 console.log("");

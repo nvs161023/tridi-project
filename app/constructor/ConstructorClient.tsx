@@ -44,6 +44,7 @@ import {
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
+  VASE_MAX_PATTERN_LAYERS,
   VASE_SHAPE_LABELS,
   boxPresetParams,
   boxStlFileName,
@@ -59,6 +60,7 @@ import {
   listSignLetters,
   lithophaneStlFileName,
   normalizeConstructorParams,
+  nextPatternLayer,
   penHolderStlFileName,
   planterStlFileName,
   signStlFileName,
@@ -75,6 +77,7 @@ import {
   type LithophaneMount,
   type LithophanePart,
   type ModelType,
+  type PatternLayer,
   type PenShape,
   type PlanterShape,
   type QrCardSize,
@@ -83,7 +86,6 @@ import {
   type QrMode,
   type SignChannelWidth,
   type SignFont,
-  type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
 
@@ -97,41 +99,38 @@ type ConstructorClientProps = {
 };
 
 /**
- * Числовые параметры: форму, узор, надпись и флаги меняют отдельные обработчики.
+ * Числовые параметры: форму, слои узора, надпись и флаги меняют отдельные
+ * обработчики.
  *
- * `patternIntensity` и `patternFrequency` — ключи панели, а не поля параметров:
- * с этапа композиции сила и частота живут в слое узора. Панель осталась с тремя
- * слайдерами и правит первый слой, поэтому ключи объявлены здесь явно, а
- * переводит их `updateParam`.
+ * Слои узора правятся не этим ключом: у слоя пять чисел и тип, поэтому панель
+ * зовёт `updatePatternLayer` с индексом и патчем. `patterns` в `SizeParam` не
+ * входит по той же причине — ключ ведёт к одному числу.
  */
-type SizeParam =
-  | Exclude<
-      keyof ConstructorParams,
-      | "model"
-      | "shape"
-      | "patterns"
-      | "shapeType"
-      | "text"
-      | "signText"
-      | "signFont"
-      | "signChannelWidth"
-      | "signBaseMount"
-      | "hasLid"
-      | "lithoFrame"
-      | "lithoMount"
-      | "lithophaneBrightness"
-      | "planterShape"
-      | "planterDrainage"
-      | "coasterShape"
-      | "coasterPattern"
-      | "coasterRim"
-      | "jewelryConfig"
-      | "penShape"
-      | "heatTransferSvg"
-      | "heatTransferMirror"
-    >
-  | "patternIntensity"
-  | "patternFrequency";
+type SizeParam = Exclude<
+  keyof ConstructorParams,
+  | "model"
+  | "shape"
+  | "patterns"
+  | "shapeType"
+  | "text"
+  | "signText"
+  | "signFont"
+  | "signChannelWidth"
+  | "signBaseMount"
+  | "hasLid"
+  | "lithoFrame"
+  | "lithoMount"
+  | "lithophaneBrightness"
+  | "planterShape"
+  | "planterDrainage"
+  | "coasterShape"
+  | "coasterPattern"
+  | "coasterRim"
+  | "jewelryConfig"
+  | "penShape"
+  | "heatTransferSvg"
+  | "heatTransferMirror"
+>;
 
 /**
  * Дефолты каждой модели.
@@ -505,34 +504,14 @@ export function ConstructorClient({
   }
 
   /**
-   * Числовой слайдер, включая два «виртуальных» ключа узора.
+   * Числовой слайдер: ключ панели и новое значение.
    *
-   * `patternIntensity` и `patternFrequency` остались ключами панели, но полями
-   * параметров больше не являются: сила и частота живут в первом слое узора.
-   * Переводим их здесь, а не в панели: панель не должна знать про композицию, а
-   * нормализация проигнорировала бы поля, которых нет в параметрах.
+   * Слои узора сюда не попадают — у них свой обработчик. Нормализация вызывается
+   * на каждое изменение: она выравнивает число по шагу и держит его в границах,
+   * поэтому в состоянии модели не бывает 0.53 мм там, где шаг 0.1.
    */
   function updateParam(key: SizeParam, value: number) {
-    setParams((current) => {
-      if (key === "patternIntensity" || key === "patternFrequency") {
-        return normalizeConstructorParams({
-          ...current,
-          patterns: current.patterns.map((layer, index) =>
-            index === 0
-              ? {
-                  ...layer,
-                  amplitude:
-                    key === "patternIntensity" ? value : layer.amplitude,
-                  frequency:
-                    key === "patternFrequency" ? value : layer.frequency,
-                }
-              : layer,
-          ),
-        });
-      }
-
-      return normalizeConstructorParams({ ...current, [key]: value });
-    });
+    setParams((current) => normalizeConstructorParams({ ...current, [key]: value }));
   }
 
   /**
@@ -558,14 +537,59 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, shape }));
   }
 
-  function updatePattern(pattern: VasePattern) {
+  /**
+   * Правка полей одного слоя узора.
+   *
+   * Патч применяется поверх слоя, а `envelope` в нём приходит целиком: панель
+   * складывает его из текущих миллиметров и нового значения. Так в модели не
+   * появляется слой, у которого половина затухания осталась от другого слоя.
+   */
+  function updatePatternLayer(index: number, patch: Partial<PatternLayer>) {
     setParams((current) =>
       normalizeConstructorParams({
         ...current,
-        patterns: current.patterns.map((layer, index) =>
-          index === 0 ? { ...layer, type: pattern } : layer,
+        patterns: current.patterns.map((layer, layerIndex) =>
+          layerIndex === index ? { ...layer, ...patch } : layer,
         ),
       }),
+    );
+  }
+
+  /**
+   * Новый слой узора: тип и числа выбирает `nextPatternLayer`.
+   *
+   * Проверка на лимит нужна и здесь, а не только на выключенной кнопке: проект
+   * мог сохраниться с тремя слоями, а панель рисует кнопку по своему состоянию.
+   * Молчаливая обрезка списка нормализацией выглядела бы как «нажал — ничего».
+   */
+  function addPatternLayer() {
+    setParams((current) =>
+      current.patterns.length >= VASE_MAX_PATTERN_LAYERS
+        ? current
+        : normalizeConstructorParams({
+            ...current,
+            patterns: [...current.patterns, nextPatternLayer(current.patterns)],
+          }),
+    );
+  }
+
+  /**
+   * Удаление слоя по индексу.
+   *
+   * Последний слой не удаляется: пустой список нормализация заменила бы гладким
+   * слоем, и кнопка «Добавить» начала бы с рёбер — то есть удаление последнего
+   * слоя меняло бы узор вместо того, чтобы просто убрать рельеф.
+   */
+  function removePatternLayer(index: number) {
+    setParams((current) =>
+      current.patterns.length <= 1
+        ? current
+        : normalizeConstructorParams({
+            ...current,
+            patterns: current.patterns.filter(
+              (_layer, layerIndex) => layerIndex !== index,
+            ),
+          }),
     );
   }
 
@@ -1041,7 +1065,9 @@ export function ConstructorClient({
           onModelChange={updateModel}
           onNfcChange={updateKeychainNfc}
           onParamChange={updateParam}
-          onPatternChange={updatePattern}
+          onPatternLayerChange={updatePatternLayer}
+          onAddPatternLayer={addPatternLayer}
+          onRemovePatternLayer={removePatternLayer}
           onPenShapeChange={updatePenShape}
           onPlanterDrainageChange={updatePlanterDrainage}
           onPlanterShapeChange={updatePlanterShape}

@@ -96,6 +96,7 @@ import {
   SIGN_FONTS,
   SIGN_FONT_LABELS,
   SIGN_TEXT_MAX_LENGTH,
+  VASE_MAX_PATTERN_LAYERS,
   VASE_PATTERNS,
   VASE_PATTERN_LABELS,
   VASE_SHAPES,
@@ -110,6 +111,7 @@ import {
   type KeychainShape,
   type LithophaneMount,
   type ModelType,
+  type PatternLayer,
   type PenShape,
   type PlanterShape,
   type QrCardSize,
@@ -128,47 +130,44 @@ import {
 import { nextVaseSeed } from "@/lib/constructor/vase-seed";
 
 /**
- * Числовые параметры: форму, узор и текст меняют отдельные обработчики.
+ * Числовые параметры: форму, слои узора и текст меняют отдельные обработчики.
  *
- * `patternIntensity` и `patternFrequency` — ключи панели, а не поля параметров:
- * с этапа композиции сила и частота живут в слое узора, а три слайдера узора
- * по-прежнему правят первый слой.
+ * Слои узора правятся не этим ключом, а `onPatternLayerChange`: у слоя пять
+ * чисел и тип, поэтому панель передаёт индекс слоя и патч. `patterns` в
+ * `SizeParam` не входит — числа слоя не укладываются в «ключ → число».
  */
-type SizeParam =
-  | Exclude<
-      keyof ConstructorParams,
-      | "model"
-      | "shape"
-      | "patterns"
-      | "shapeType"
-      | "text"
-      | "signText"
-      | "signFont"
-      | "signChannelWidth"
-      | "signBaseMount"
-      | "hasLid"
-      | "lithoFrame"
-      | "lithoMount"
-      | "lithophaneBrightness"
-      | "planterShape"
-      | "planterDrainage"
-      | "coasterShape"
-      | "coasterPattern"
-      | "coasterRim"
-      | "jewelryConfig"
-      | "penShape"
-      | "heatTransferSvg"
-      | "heatTransferMirror"
-      | "qrCardSize"
-      | "qrCardTab"
-      | "qrMode"
-      | "qrContentType"
-      | "qrContent"
-      | "qrName"
-      | "qrPhone"
-    >
-  | "patternIntensity"
-  | "patternFrequency";
+type SizeParam = Exclude<
+  keyof ConstructorParams,
+  | "model"
+  | "shape"
+  | "patterns"
+  | "shapeType"
+  | "text"
+  | "signText"
+  | "signFont"
+  | "signChannelWidth"
+  | "signBaseMount"
+  | "hasLid"
+  | "lithoFrame"
+  | "lithoMount"
+  | "lithophaneBrightness"
+  | "planterShape"
+  | "planterDrainage"
+  | "coasterShape"
+  | "coasterPattern"
+  | "coasterRim"
+  | "jewelryConfig"
+  | "penShape"
+  | "heatTransferSvg"
+  | "heatTransferMirror"
+  | "qrCardSize"
+  | "qrCardTab"
+  | "qrMode"
+  | "qrContentType"
+  | "qrContent"
+  | "qrName"
+  | "qrPhone"
+>;
 
 /** Ошибка экспорта и действие, которое поможет её исправить. */
 export type StlExportError = {
@@ -214,7 +213,18 @@ type ParameterPanelProps = {
   onParamChange: (key: SizeParam, value: number) => void;
   onModelChange: (model: ModelType) => void;
   onShapeChange: (shape: VaseShape) => void;
-  onPatternChange: (pattern: VasePattern) => void;
+  /**
+   * Правка одного поля слоя узора: индекс слоя и изменённые поля.
+   *
+   * Патч приходит частичным, но `envelope` в нём всегда полный: нормализация
+   * подставляет недостающие миллиметры затухания из дефолтного слоя, а не из
+   * текущего, поэтому половина конверта сбросила бы вторую половину к 5 и 3 мм.
+   */
+  onPatternLayerChange: (index: number, patch: Partial<PatternLayer>) => void;
+  /** Добавить слой узора: тип и числа выбирает `nextPatternLayer`. */
+  onAddPatternLayer: () => void;
+  /** Удалить слой по индексу; последний слой остаётся всегда. */
+  onRemovePatternLayer: (index: number) => void;
   /**
    * Форма брелока: `custom` — свой контур из `customSvgData`, null — вернуть
    * пресет по умолчанию.
@@ -502,6 +512,25 @@ const PATTERN_HINTS: Record<VasePattern, string> = {
   scales:
     "Чешуйки: перекрывающиеся округлые пластины со смещённым рядом. Частота задаёт размер чешуйки.",
 };
+
+/**
+ * Пояснения к слайдерам слоя.
+ *
+ * Тексты общие для всех слоёв: числа у них независимы, поэтому пояснение
+ * описывает смысл параметра, а не конкретное значение.
+ */
+const PATTERN_LAYER_HINTS = {
+  amplitude:
+    "Насколько стенка уходит наружу и внутрь, мм: 0 — слой молчит, 1.2 мм — тонкие рёбра, 3 мм — глубокий рельеф. Сумма амплитуд всех слоёв автоматически делится до 45% самого узкого радиуса, поэтому композиция не вывернет стенку.",
+  frequency:
+    "Сколько раз рисунок повторяется по окружности: 6 — крупный, 20 — частые тонкие рёбра, 32 — предел, на котором сетка ещё различает гребни. Соты и чешуйки считают частоту вдвое мельче.",
+  phase:
+    "Сдвиг рисунка по кругу, градусы. Нужен, чтобы совместить слои: два одинаковых узора с разницей 180° гасят друг друга, а сдвиг на полпериода рисует вторую сетку между первой.",
+  fadeTop:
+    "Сколько миллиметров у кромки рисунок гаснет: 5 мм — горло остаётся ровным кольцом, 30 мм — узор не доходит до горла вовсе. Гасим не для красоты: гребешок на венце печатается как брак.",
+  fadeBottom:
+    "Сколько миллиметров от дна рисунок гаснет: 3 мм — два слоя печати ложатся полным диском, 30 мм — узор начинается только в середине вазы.",
+} as const;
 
 /**
  * Значение списка «Форма брелока»: пресет из реестра или свой контур.
@@ -1284,7 +1313,9 @@ export function ParameterPanel({
   onParamChange,
   onModelChange,
   onShapeChange,
-  onPatternChange,
+  onPatternLayerChange,
+  onAddPatternLayer,
+  onRemovePatternLayer,
   onKeychainShapeChange,
   onKeychainPresetChange,
   onCustomSvgChange,
@@ -1916,42 +1947,151 @@ export function ParameterPanel({
             />
           </div>
 
+          <div className="mt-6 space-y-4 border-t border-white/10 pt-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="text-sm font-semibold text-slate-200">
+                Слои узора
+              </h3>
+              <p className="text-xs tabular-nums text-slate-400">
+                {params.patterns.length} из {VASE_MAX_PATTERN_LAYERS}
+              </p>
+            </div>
+
+            <p className="text-xs leading-relaxed text-slate-300">
+              Слои складываются: рёбра плюс спираль читаются как кручёная грань,
+              волны поверх рёбер — как лепная керамика. До трёх слоёв: дальше
+              рисунки перестают читаться по отдельности.
+            </p>
+
+            {params.patterns.map((layer, index) => (
+              // Ключ — индекс: у слоя нет своего идентификатора, а порядок
+              // задаёт пользователь. После удаления индексы сдвигаются, и это
+              // ожидаемо: панель показывает нумерацию списка, а не историю.
+              <div
+                className="space-y-5 rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+                key={index}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-semibold text-slate-200">
+                    Слой {index + 1}
+                  </h4>
+
+                  {params.patterns.length > 1 ? (
+                    <button
+                      aria-label={`Удалить слой ${index + 1}`}
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-slate-300 transition-colors hover:border-rose-400/50 hover:bg-rose-500/10 hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                      onClick={() => onRemovePatternLayer(index)}
+                      title="Удалить слой"
+                      type="button"
+                    >
+                      <span aria-hidden>🗑</span>
+                    </button>
+                  ) : null}
+                </div>
+
+                <ParameterSelect
+                  hint={PATTERN_HINTS[layer.type]}
+                  label="Узор слоя"
+                  onChange={(type) => onPatternLayerChange(index, { type })}
+                  options={VASE_PATTERNS.map((pattern) => ({
+                    label: VASE_PATTERN_LABELS[pattern],
+                    value: pattern,
+                  }))}
+                  value={layer.type}
+                />
+
+                <NumberSlider
+                  decimals={CONSTRUCTOR_LIMITS.patternIntensity.decimals}
+                  hint={PATTERN_LAYER_HINTS.amplitude}
+                  label="Амплитуда"
+                  max={CONSTRUCTOR_LIMITS.patternIntensity.max}
+                  min={CONSTRUCTOR_LIMITS.patternIntensity.min}
+                  onChange={(value) =>
+                    onPatternLayerChange(index, { amplitude: value })
+                  }
+                  step={CONSTRUCTOR_LIMITS.patternIntensity.step}
+                  unit="мм"
+                  value={layer.amplitude}
+                />
+
+                <NumberSlider
+                  decimals={CONSTRUCTOR_LIMITS.patternFrequency.decimals}
+                  hint={PATTERN_LAYER_HINTS.frequency}
+                  label="Частота"
+                  max={CONSTRUCTOR_LIMITS.patternFrequency.max}
+                  min={CONSTRUCTOR_LIMITS.patternFrequency.min}
+                  onChange={(value) =>
+                    onPatternLayerChange(index, { frequency: value })
+                  }
+                  step={CONSTRUCTOR_LIMITS.patternFrequency.step}
+                  unit="раз"
+                  value={layer.frequency}
+                />
+
+                <NumberSlider
+                  decimals={CONSTRUCTOR_LIMITS.patternPhaseDeg.decimals}
+                  hint={PATTERN_LAYER_HINTS.phase}
+                  label="Фаза"
+                  max={CONSTRUCTOR_LIMITS.patternPhaseDeg.max}
+                  min={CONSTRUCTOR_LIMITS.patternPhaseDeg.min}
+                  onChange={(value) =>
+                    onPatternLayerChange(index, { phaseDeg: value })
+                  }
+                  step={CONSTRUCTOR_LIMITS.patternPhaseDeg.step}
+                  unit="°"
+                  value={layer.phaseDeg}
+                />
+
+                <NumberSlider
+                  decimals={CONSTRUCTOR_LIMITS.patternFadeMm.decimals}
+                  hint={PATTERN_LAYER_HINTS.fadeTop}
+                  label="Затухание сверху"
+                  max={CONSTRUCTOR_LIMITS.patternFadeMm.max}
+                  min={CONSTRUCTOR_LIMITS.patternFadeMm.min}
+                  onChange={(value) =>
+                    onPatternLayerChange(index, {
+                      envelope: { ...layer.envelope, fadeTopMm: value },
+                    })
+                  }
+                  step={CONSTRUCTOR_LIMITS.patternFadeMm.step}
+                  unit="мм"
+                  value={layer.envelope.fadeTopMm}
+                />
+
+                <NumberSlider
+                  decimals={CONSTRUCTOR_LIMITS.patternFadeMm.decimals}
+                  hint={PATTERN_LAYER_HINTS.fadeBottom}
+                  label="Затухание снизу"
+                  max={CONSTRUCTOR_LIMITS.patternFadeMm.max}
+                  min={CONSTRUCTOR_LIMITS.patternFadeMm.min}
+                  onChange={(value) =>
+                    onPatternLayerChange(index, {
+                      envelope: { ...layer.envelope, fadeBottomMm: value },
+                    })
+                  }
+                  step={CONSTRUCTOR_LIMITS.patternFadeMm.step}
+                  unit="мм"
+                  value={layer.envelope.fadeBottomMm}
+                />
+              </div>
+            ))}
+
+            {/*
+              Кнопка выключается на третьем слое, а не исчезает: так видно и
+              предел, и то, что список уже полон.
+            */}
+            <button
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100 transition-colors hover:border-blue-300/60 hover:bg-blue-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-slate-500"
+              disabled={params.patterns.length >= VASE_MAX_PATTERN_LAYERS}
+              onClick={onAddPatternLayer}
+              type="button"
+            >
+              <span aria-hidden>＋</span>
+              Добавить слой
+            </button>
+          </div>
+
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <ParameterSelect
-              hint={PATTERN_HINTS[params.patterns[0].type]}
-              label="Узор"
-              onChange={onPatternChange}
-              options={VASE_PATTERNS.map((pattern) => ({
-                label: VASE_PATTERN_LABELS[pattern],
-                value: pattern,
-              }))}
-              value={params.patterns[0].type}
-            />
-
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.patternIntensity.decimals}
-              hint="Амплитуда первого слоя: 0 — ровная стенка, 5 мм — глубокий рельеф. В узкой горловине сумма слоёв ограничивается автоматически, чтобы стенка не разорвалась."
-              label="Сила узора"
-              max={CONSTRUCTOR_LIMITS.patternIntensity.max}
-              min={CONSTRUCTOR_LIMITS.patternIntensity.min}
-              onChange={(value) => onParamChange("patternIntensity", value)}
-              step={CONSTRUCTOR_LIMITS.patternIntensity.step}
-              unit="мм"
-              value={params.patterns[0].amplitude}
-            />
-
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.patternFrequency.decimals}
-              hint="Частота первого слоя: 1 — крупный узор, 20 — частый. Для рёбер это число гребней по окружности; волны и спираль считают фазу от высоты в миллиметрах."
-              label="Частота узора"
-              max={CONSTRUCTOR_LIMITS.patternFrequency.max}
-              min={CONSTRUCTOR_LIMITS.patternFrequency.min}
-              onChange={(value) => onParamChange("patternFrequency", value)}
-              step={CONSTRUCTOR_LIMITS.patternFrequency.step}
-              unit="раз"
-              value={params.patterns[0].frequency}
-            />
-
             <NumberSlider
               decimals={CONSTRUCTOR_LIMITS.flutes.decimals}
               hint="Канавки с почти плоским дном вместо синуса: 8–12 читаются как античная каннелюра, 20–24 — как тонкая насечка. Глубина задаётся в миллиметрах и ограничена стенкой, поэтому тонкая ваза получит мелкие жёлоба."

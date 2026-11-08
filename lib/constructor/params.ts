@@ -118,14 +118,23 @@ export const CONSTRUCTOR_LIMITS = {
   // Сид меняет только рисунок складок и микро-вариации силуэта: размеры, число
   // граней и расход пластика от него не зависят.
   vaseSeed: { min: 1, max: 999999, step: 1, defaultValue: 1, decimals: 0 },
+  // Амплитуда слоя, мм. Три миллиметра — уже глубокий рельеф: сумма всех слоёв
+  // ограничена 45% самого узкого радиуса (у дефолтной вазы Ø90 × 140 это 9.4 мм),
+  // поэтому три слоя по 3 мм делят бюджет пропорционально. Прежние 5 мм слайдер
+  // предлагал, но вторая половина хода ничего не меняла.
   patternIntensity: {
     min: 0,
-    max: 5,
+    max: 3,
     step: 0.1,
-    defaultValue: 1.5,
+    defaultValue: 1.2,
     decimals: 1,
   },
-  patternFrequency: { min: 1, max: 20, step: 1, defaultValue: 8, decimals: 0 },
+  // Частота слоя: число повторов по окружности. 32 гребня — потолок сетки:
+  // восемь выборок на период дают ровно `VASE_MAX_SEGMENTS = 256` сегментов,
+  // выше которых разрешение по окружности не растёт. Соты и чешуйки считают
+  // частоту вдвое мельче, поэтому у них потолок наступает раньше — это
+  // записано в `vase-budget.ts`.
+  patternFrequency: { min: 1, max: 32, step: 1, defaultValue: 20, decimals: 0 },
   // Фаза слоя по окружности: сдвиг узора относительно нулевого угла. Шаг 15° —
   // при частоте 20 один шаг двигает гребень на треть периода; мелкий шаг был бы
   // незаметен, а точная подгонка нужна только совмещению слоёв, и её делает
@@ -1169,15 +1178,16 @@ export const DEFAULT_VASE_PARAMS: VaseParams = {
   diameter: CONSTRUCTOR_LIMITS.diameter.defaultValue,
   wall: CONSTRUCTOR_LIMITS.wall.defaultValue,
   shape: "classic",
-  // Один гладкий слой: конструктор открывается ровной вазой, а слайдер узора
-  // меняет тип этого же слоя. Амплитуда и частота лежат в слое, поэтому выбор
-  // рёбер сразу даёт прежние 1.5 мм на частоте 8.
+  // Новый проект открывается рёбрами: конструктор сразу показывает рельеф, а не
+  // пустую стенку. 1.2 мм на частоте 20 — тонкие частые рёбра: они читаются и на
+  // снимке печати, и в предпросмотре, и не выходят за бюджет амплитуд. Затухание
+  // печатное — 5 мм у кромки и 3 мм у дна (см. `VASE_DEFAULT_FADE_TOP_MM`).
   patterns: [
     {
-      type: "smooth",
-      amplitude: CONSTRUCTOR_LIMITS.patternIntensity.defaultValue,
-      frequency: CONSTRUCTOR_LIMITS.patternFrequency.defaultValue,
-      phaseDeg: CONSTRUCTOR_LIMITS.patternPhaseDeg.defaultValue,
+      type: "ribs",
+      amplitude: 1.2,
+      frequency: 20,
+      phaseDeg: 0,
       envelope: {
         fadeTopMm: VASE_DEFAULT_FADE_TOP_MM,
         fadeBottomMm: VASE_DEFAULT_FADE_BOTTOM_MM,
@@ -2192,7 +2202,13 @@ export type VasePatternInput = {
   patternFrequency?: number;
 };
 
-/** Слой по умолчанию: его значения подставляются в неполный слой. */
+/**
+ * Слой по умолчанию: его значения подставляются в неполный слой.
+ *
+ * Это дефолт нового проекта — рёбра 1.2 мм на частоте 20. Неполный слой от API
+ * получает те же числа, поэтому запрос `{ patterns: [{ type: "waves" }] }` даёт
+ * волны той же силы, что видит пользователь в конструкторе.
+ */
 const DEFAULT_PATTERN_LAYER = DEFAULT_VASE_PARAMS.patterns[0];
 
 /**
@@ -2288,6 +2304,54 @@ export function resolvePatternLayers(params: VasePatternInput): PatternLayer[] {
       envelope: { fadeTopMm: 0, fadeBottomMm: 0 },
     },
   ];
+}
+
+/**
+ * Порядок, в котором кнопка «Добавить слой» выбирает узоры.
+ *
+ * `smooth` в списке нет: слой без рельефа ничего не добавляет к композиции.
+ */
+const NEW_LAYER_ORDER: readonly VasePattern[] = [
+  "ribs",
+  "spiral",
+  "waves",
+  "honeycomb",
+  "scales",
+];
+
+/**
+ * Следующий слой для кнопки «Добавить слой».
+ *
+ * Новый слой берёт первый узор, которого в композиции ещё нет. Так нажатие сразу
+ * меняет рисунок: второй слой рёбер на тех же числах только удвоил бы глубину.
+ * Порядок предпочтений — рёбра, спираль, волны, соты, чешуйки: от самого
+ * читаемого рельефа к самому мелкому.
+ *
+ * Частота вдвое реже дефолтной (6 против 20): редкий рисунок поверх частого
+ * читается как композиция, а не как рябь в рябь. Амплитуда 1 мм — новый слой
+ * заметен, но не спорит с первым. Затухание печатное, как у дефолтного слоя.
+ *
+ * Функция не знает про лимит слоёв: панель выключает кнопку после
+ * `VASE_MAX_PATTERN_LAYERS`, а нормализация всё равно отбросит лишние.
+ */
+export function nextPatternLayer(
+  existing: readonly PatternLayer[],
+): PatternLayer {
+  const used = new Set(existing.map((layer) => layer.type));
+  const type =
+    NEW_LAYER_ORDER.find((pattern) => !used.has(pattern)) ??
+    NEW_LAYER_ORDER[NEW_LAYER_ORDER.length - 1];
+
+  return {
+    type,
+    amplitude: 1,
+    frequency: 6,
+    phaseDeg: 0,
+    envelope: {
+      fadeTopMm: VASE_DEFAULT_FADE_TOP_MM,
+      fadeBottomMm: VASE_DEFAULT_FADE_BOTTOM_MM,
+    },
+  };
 }
 
 /**
