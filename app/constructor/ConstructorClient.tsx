@@ -51,7 +51,6 @@ import {
   PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
   VASE_MAX_PATTERN_LAYERS,
-  VASE_SEED_GALLERY_ORGANIC,
   VASE_SHAPE_LABELS,
   boxPresetParams,
   boxStlFileName,
@@ -356,7 +355,7 @@ const Viewport = dynamic(
 
 function ViewportSkeleton() {
   return (
-    <div className="flex h-[24rem] w-full items-center justify-center rounded-3xl border border-white/10 bg-slate-900/60 sm:h-[32rem] lg:h-[38rem]">
+    <div className="flex h-[min(46vh,24rem)] w-full items-center justify-center rounded-3xl border border-white/10 bg-slate-900/60 sm:h-[min(52vh,32rem)] lg:h-[calc(100vh-10rem)] lg:max-h-[38rem] lg:min-h-[20rem]">
       <div className="text-center">
         <span aria-hidden className="text-4xl">
           🌀
@@ -368,14 +367,18 @@ function ViewportSkeleton() {
 }
 
 /**
- * Галерею грузим только в браузере: она строит двенадцать сеток и рисует их на
- * canvas, а на сервере это бессмысленная работа. Заглушка держит высоту ряда,
- * чтобы макет не прыгал, пока чанк едет.
+ * Галерея форм: двенадцать силуэтов из `VASE_SHAPES` с текущими настройками
+ * узора и размеров.
+ *
+ * Чем отличается от галереи рецептов выше: рецепт — готовая ваза целиком,
+ * поэтому клик по нему переписывает все параметры. Здесь меняется только
+ * силуэт, а узор, высота, диаметр и стенка остаются пользовательскими: это
+ * ответ на «а как моя ваза выглядела бы в другой форме».
  */
-const VaseSeedGallery = dynamic(
+const VaseShapeGallery = dynamic(
   () =>
-    import("@/components/constructor/VaseSeedGallery").then(
-      (module) => module.VaseSeedGallery,
+    import("@/components/constructor/VaseShapeGallery").then(
+      (module) => module.VaseShapeGallery,
     ),
   {
     ssr: false,
@@ -386,8 +389,8 @@ const VaseSeedGallery = dynamic(
 function VaseGallerySkeleton() {
   return (
     <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
-      <p className="text-sm font-semibold text-white">Галерея вариантов</p>
-      <p className="mt-2 text-xs text-slate-300">Готовим двенадцать ваз…</p>
+      <p className="text-sm font-semibold text-white">Галерея форм</p>
+      <p className="mt-2 text-xs text-slate-300">Готовим двенадцать форм…</p>
       <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
         {Array.from({ length: 6 }, (_, index) => (
           <div
@@ -563,26 +566,6 @@ export function ConstructorClient({
         ...current,
         model: "vase",
         ...randomVaseParams(() => Math.random()),
-      }),
-    );
-  }
-
-  /**
-   * Клик по плитке «Галереи вариантов»: сид и, при нуле, демонстрационная
-   * органика.
-   *
-   * Сид входит в геометрию только через органику, поэтому при нулевом слайдере
-   * все двенадцать плиток были одной и той же вазой. Галерея рисует их с
-   * `VASE_SEED_GALLERY_ORGANIC`, и клик обязан дать на сцене ровно ту вазу,
-   * которую выбрали глазами, — иначе выбор обманывает.
-   */
-  function selectVaseSeed(seed: number) {
-    setParams((current) =>
-      normalizeConstructorParams({
-        ...current,
-        vaseSeed: seed,
-        organic:
-          current.organic > 0 ? current.organic : VASE_SEED_GALLERY_ORGANIC,
       }),
     );
   }
@@ -1161,96 +1144,106 @@ export function ConstructorClient({
           aria-labelledby="preview-heading"
           className="order-1 min-w-0 lg:order-2"
         >
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2
-              className="text-xs font-semibold tracking-wide text-slate-300 uppercase"
-              id="preview-heading"
-            >
-              Предпросмотр
-            </h2>
-            <span className="text-xs tabular-nums text-slate-300">
-              {params.model === "vase" ? (
-                <>
-                  {VASE_SHAPE_LABELS[params.shape]} ·{" "}
-                  {vasePatternLabel(params.patterns)} · {params.height} × Ø{" "}
-                  {params.diameter} мм
-                </>
-              ) : params.model === "keychain" ? (
-                <>
-                  {keychainShapeTitle(params)} · {params.length} ×{" "}
-                  {params.width} × {params.thickness} мм
-                  {params.text.trim() ? ` · «${params.text.trim()}»` : ""}
-                </>
-              ) : params.model === "stand" ? (
-                <>
-                  наклон {params.standAngle}° · телефон{" "}
-                  {params.phoneThickness} мм · ширина {params.standWidth} мм
-                </>
-              ) : params.model === "lithophane" ? (
-                <>
-                  {params.lithophaneWidth} × {params.lithophaneHeight} мм · рельеф{" "}
-                  {params.lithophaneMinThickness.toFixed(1)}–
-                  {params.lithophaneMaxThickness.toFixed(1)} мм ·{" "}
-                  {params.lithoFrame
-                    ? `рамка · ${LITHOPHANE_MOUNT_LABELS[params.lithoMount].toLowerCase()}`
-                    : "без рамки"}
-                </>
-              ) : params.model === "planter" ? (
-                <>
-                  {PLANTER_SHAPE_LABELS[params.planterShape]} ·{" "}
-                  {params.planterSize} × {params.planterHeight} мм ·{" "}
-                  {params.planterDrainage ? "дренаж и поддон" : "без дренажа"}
-                </>
-              ) : params.model === "coaster" ? (
-                <>
-                  {COASTER_SHAPE_LABELS[params.coasterShape]} ·{" "}
-                  {COASTER_PATTERN_LABELS[params.coasterPattern].toLowerCase()} ·{" "}
-                  {params.coasterSize} × {params.coasterThickness} мм ·{" "}
-                  {params.coasterRim ? "с бортиком" : "без бортика"}
-                </>
-              ) : params.model === "jewelry_stand" ? (
-                <>
-                  {JEWELRY_CONFIG_LABELS[params.jewelryConfig]} ·{" "}
-                  {params.jewelryBase} × {params.jewelryHeight} мм
-                </>
-              ) : params.model === "pen_holder" ? (
-                <>
-                  {PEN_SHAPE_LABELS[params.penShape]} · {params.penSize} ×{" "}
-                  {params.penHeight} мм · отделения: {params.penSections} · стенка{" "}
-                  {params.penWall.toFixed(1)} мм
-                </>
-              ) : params.model === "heat_transfer" ? (
-                <>
-                  {params.heatTransferWidth} × {params.heatTransferHeight} мм ·{" "}
-                  {params.heatTransferLayers} сл. ·{" "}
-                  {params.heatTransferMirror ? "зеркало" : "без зеркала"} ·{" "}
-                  {params.heatTransferSvg ? "логотип загружен" : "логотипа нет"}
-                </>
-              ) : (
-                <>
-                  «{params.signText.trim() || "без надписи"}» · кегль{" "}
-                  {params.signFontSize} мм · букв{" "}
-                  {listSignLetters(params.signText).length} · блоков{" "}
-                  {listSignBlocks(params.signText, params.signBlockSize).length} ·
-                  выступ {params.signDepth} мм
-                </>
-              )}
-            </span>
-          </div>
+          {/*
+            Сцена прилипает к верху экрана: панель слева длинная, и без этого
+            при прокрутке вниз модель уезжала из виду — человек крутил слайдер и
+            не видел, что меняется. Верхний отступ равен высоте шапки
+            (sticky top-0, py-4 ≈ 72 px), иначе сцена ушла бы под неё.
+            Полупрозрачная подложка с blur: галереи под сценой проезжают под
+            ней, но не просвечивают сквозь 3D.
+          */}
+          <div className="sticky top-[4.5rem] z-30 -mx-5 bg-slate-950/80 px-5 pt-1 pb-2 backdrop-blur-md sm:-mx-8 sm:px-8 lg:top-24 lg:z-10 lg:mx-0 lg:bg-transparent lg:px-0 lg:pt-0 lg:backdrop-blur-none">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2
+                className="text-xs font-semibold tracking-wide text-slate-300 uppercase"
+                id="preview-heading"
+              >
+                Предпросмотр
+              </h2>
+              <span className="text-xs tabular-nums text-slate-300">
+                {params.model === "vase" ? (
+                  <>
+                    {VASE_SHAPE_LABELS[params.shape]} ·{" "}
+                    {vasePatternLabel(params.patterns)} · {params.height} × Ø{" "}
+                    {params.diameter} мм
+                  </>
+                ) : params.model === "keychain" ? (
+                  <>
+                    {keychainShapeTitle(params)} · {params.length} ×{" "}
+                    {params.width} × {params.thickness} мм
+                    {params.text.trim() ? ` · «${params.text.trim()}»` : ""}
+                  </>
+                ) : params.model === "stand" ? (
+                  <>
+                    наклон {params.standAngle}° · телефон{" "}
+                    {params.phoneThickness} мм · ширина {params.standWidth} мм
+                  </>
+                ) : params.model === "lithophane" ? (
+                  <>
+                    {params.lithophaneWidth} × {params.lithophaneHeight} мм · рельеф{" "}
+                    {params.lithophaneMinThickness.toFixed(1)}–
+                    {params.lithophaneMaxThickness.toFixed(1)} мм ·{" "}
+                    {params.lithoFrame
+                      ? `рамка · ${LITHOPHANE_MOUNT_LABELS[params.lithoMount].toLowerCase()}`
+                      : "без рамки"}
+                  </>
+                ) : params.model === "planter" ? (
+                  <>
+                    {PLANTER_SHAPE_LABELS[params.planterShape]} ·{" "}
+                    {params.planterSize} × {params.planterHeight} мм ·{" "}
+                    {params.planterDrainage ? "дренаж и поддон" : "без дренажа"}
+                  </>
+                ) : params.model === "coaster" ? (
+                  <>
+                    {COASTER_SHAPE_LABELS[params.coasterShape]} ·{" "}
+                    {COASTER_PATTERN_LABELS[params.coasterPattern].toLowerCase()} ·{" "}
+                    {params.coasterSize} × {params.coasterThickness} мм ·{" "}
+                    {params.coasterRim ? "с бортиком" : "без бортика"}
+                  </>
+                ) : params.model === "jewelry_stand" ? (
+                  <>
+                    {JEWELRY_CONFIG_LABELS[params.jewelryConfig]} ·{" "}
+                    {params.jewelryBase} × {params.jewelryHeight} мм
+                  </>
+                ) : params.model === "pen_holder" ? (
+                  <>
+                    {PEN_SHAPE_LABELS[params.penShape]} · {params.penSize} ×{" "}
+                    {params.penHeight} мм · отделения: {params.penSections} · стенка{" "}
+                    {params.penWall.toFixed(1)} мм
+                  </>
+                ) : params.model === "heat_transfer" ? (
+                  <>
+                    {params.heatTransferWidth} × {params.heatTransferHeight} мм ·{" "}
+                    {params.heatTransferLayers} сл. ·{" "}
+                    {params.heatTransferMirror ? "зеркало" : "без зеркала"} ·{" "}
+                    {params.heatTransferSvg ? "логотип загружен" : "логотипа нет"}
+                  </>
+                ) : (
+                  <>
+                    «{params.signText.trim() || "без надписи"}» · кегль{" "}
+                    {params.signFontSize} мм · букв{" "}
+                    {listSignLetters(params.signText).length} · блоков{" "}
+                    {listSignBlocks(params.signText, params.signBlockSize).length} ·
+                    выступ {params.signDepth} мм
+                  </>
+                )}
+              </span>
+            </div>
 
-          <div className="mt-3">
-            <Viewport params={params} />
+            <div className="mt-3">
+              <Viewport params={params} />
+            </div>
           </div>
 
           {/* Галереи живут под сценой: сравнивать вазы удобнее рядом с большой
-              моделью, а не в узкой панели параметров. Сначала рецепты — выбор
-              глазами, потом варианты сида — тонкая настройка поверхности. */}
+              моделью, а не в узкой панели параметров. Сначала рецепты — готовая
+              ваза целиком, потом формы — тот же узор в другом силуэте. */}
           <VaseRecipeGallery
             onApplyRecipe={applyVaseRecipe}
             params={params}
           />
 
-          <VaseSeedGallery onSelectSeed={selectVaseSeed} params={params} />
+          <VaseShapeGallery onSelectShape={updateShape} params={params} />
 
           <p className="mt-3 text-xs leading-relaxed text-slate-300">
             Вращение — левая кнопка мыши или один палец, зум — колесо или два

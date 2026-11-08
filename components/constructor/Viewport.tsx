@@ -1174,13 +1174,13 @@ export function Viewport({ params }: ViewportProps) {
                         : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
-    <div className="relative h-[24rem] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-900 to-slate-900 shadow-2xl shadow-blue-950/50 sm:h-[32rem] lg:h-[38rem]">
+    <div className="relative h-[min(46vh,24rem)] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-blue-900 to-slate-900 shadow-2xl shadow-blue-950/50 sm:h-[min(52vh,32rem)] lg:h-[calc(100vh-10rem)] lg:max-h-[38rem] lg:min-h-[20rem]">
       <Canvas
         aria-label={ariaLabel}
         camera={{ fov: 35, near: 1, far: 6000, position: [0, 180, 320] }}
         dpr={[1, 1.75]}
         fallback={
-          <div className="flex h-[24rem] items-center justify-center p-6 text-center sm:h-[32rem] lg:h-[38rem]">
+          <div className="flex h-full items-center justify-center p-6 text-center">
             <p className="max-w-sm text-sm leading-relaxed text-slate-300">
               Браузер не поддерживает WebGL, поэтому 3D-предпросмотр недоступен.
               Попробуйте открыть страницу в другом браузере.

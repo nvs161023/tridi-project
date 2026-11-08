@@ -28,6 +28,13 @@
  *   npm run shots:recipes
  * Флаг `--recipes` рендерит ровно те вазы, что лежат в data/vase-recipes.ts:
  * плитки галереи — это файлы, а не снимок текущего состояния конструктора.
+ *
+ * Лист галереи форм (двенадцать силуэтов с одними настройками):
+ *   node --import ./scripts/register-alias.mjs scripts/vase-render.mjs \
+ *     --shapes 1 --freq 12 --tile 260 --out .fonttmp/shots/shape-gallery.png
+ * Флаг `--shapes` отвечает на вопрос «а как мой узор выглядит на каждой из
+ * двенадцати форм»: плитки конструктора рисуются на canvas из текущих
+ * параметров, поэтому PNG здесь — артефакт проверки, а не файл для страницы.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -259,6 +266,45 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
       `Плиток галереи: ${VASE_RECIPES.length}, ` +
         `${RECIPE_TILE_WIDTH} × ${RECIPE_TILE_HEIGHT}, ` +
         `${(bytes / 1024).toFixed(0)} КБ всего → ${RECIPE_TILE_DIR}`,
+    );
+  } else if (args.shapes !== undefined) {
+    // Лист галереи форм: двенадцать силуэтов с одними и теми же настройками —
+    // то же, что рисует `VaseShapeGallery` в конструкторе. Четыре столбца на
+    // три строки: силуэты сравниваются глазами, а не по отдельности.
+    const columns = 4;
+    const rows = Math.ceil(VASE_SHAPES.length / columns);
+    const tileHeight = Math.round(tile * 1.25);
+    const gap = 8;
+    const width = columns * tile + (columns + 1) * gap;
+    const height = rows * tileHeight + (rows + 1) * gap;
+    const sheet = Buffer.alloc(width * height * 3);
+
+    for (let i = 0; i < sheet.length; i += 3) {
+      sheet[i] = VASE_PREVIEW_BACKGROUND[0];
+      sheet[i + 1] = VASE_PREVIEW_BACKGROUND[1];
+      sheet[i + 2] = VASE_PREVIEW_BACKGROUND[2];
+    }
+
+    VASE_SHAPES.forEach((shape, index) => {
+      const frame = renderVaseRgb(
+        { ...base, shape },
+        { width: tile, height: tileHeight, azimuth, elevation },
+      );
+
+      blit(
+        sheet,
+        width,
+        frame,
+        gap + (index % columns) * (tile + gap),
+        gap + Math.floor(index / columns) * (tileHeight + gap),
+      );
+    });
+
+    writeFileSync(out, encodePng(width, height, sheet));
+    console.log(
+      `Галерея форм: ${VASE_SHAPES.length} силуэтов, частота ${frequency}, ` +
+        `цоколь ${footMm}, обод ${rimMm}, каннелюры ${flutes} × ${fluteDepthMm} мм: ` +
+        `${width} × ${height} → ${out}`,
     );
   } else if (args.shape !== undefined || args.pattern !== undefined) {
     const patterns = [

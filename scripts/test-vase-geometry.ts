@@ -42,10 +42,9 @@
  *      на шве окружности (угол ±π и 0/2π дают одно значение), стенка не тоньше
  *      0.8 мм на двух диаметрах и на гранёных сечениях, а наклон сохраняет объём,
  *      оставляет дно на столе и добавляет к габариту ровно tan(угла) · высоту;
- *  12. галерея вариантов: «Другая ваза» даёт целый сид в пределах слайдера и не
- *      повторяет текущий, серия из двенадцати сидов воспроизводима и без
- *      повторов, а плитка превью детерминирована, отличается между сидами и
- *      занимает разумную долю кадра;
+ *  12. галерея форм: плитка превью детерминирована — один и тот же силуэт даёт
+ *      тот же кадр байт в байт, другой силуэт — другую картинку, а ваза занимает
+ *      разумную долю кадра;
  *  13. имя STL — это рецепт: у дефолтной вазы оно прежнее, деформации и сид
  *      добавляются суффиксами в порядке панели, разные деформации дают разные
  *      имена, а без органики сид имя не меняет. Метаданные генерации — плоский
@@ -65,11 +64,11 @@
  *      объёмом, попадает в кадр превью, а её PNG лежит на диске того размера,
  *      который ждёт `next/image`. Подсветка плитки узнаёт рецепт по параметрам и
  *      гаснет после правки слайдера.
- *  18. случайная ваза и галерея вариантов: рандом выдаёт силуэт из реестра,
+ *  18. случайная ваза и галерея форм: рандом выдаёт силуэт из реестра,
  *      один-два разных узора, амплитуду 0.5–2 мм, частоту 6–24 и целый сид, и
- *      нормализация не двигает ни одного его числа. Галерея при органике 0
- *      рисовала двенадцать одинаковых кадров (сид входит в геометрию только
- *      через органику) — с демонстрационной органикой все двенадцать разные.
+ *      нормализация не двигает ни одного его числа. Галерея — двенадцать
+ *      силуэтов реестра с текущими настройками: кадры расходятся и при органике
+ *      0 (прежде двенадцать плиток сида были одной вазой) и следуют за высотой.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts
@@ -95,7 +94,6 @@ import {
   VASE_MAX_PATTERN_LAYERS,
   VASE_PATTERN_LABELS,
   VASE_PATTERNS,
-  VASE_SEED_GALLERY_ORGANIC,
   VASE_SHAPES,
   normalizeConstructorParams,
   normalizeVaseParams,
@@ -123,9 +121,7 @@ import {
   renderVaseRgb,
 } from "../lib/constructor/vase-preview";
 import {
-  nextVaseSeed,
   organicOffset,
-  vaseSeedSeries,
 } from "../lib/constructor/vase-seed";
 import {
   VASE_RANDOM_AMPLITUDE,
@@ -2177,55 +2173,31 @@ console.log("\n11. Органика и наклон: сид, толщина ст
   );
 }
 
-console.log("\n12. Галерея вариантов: сид, серия и кадр превью");
+console.log("\n12. Галерея форм: кадр плитки и его детерминизм");
 
 {
-  // «Другая ваза» меняет ровно одно число — сид. Кнопка не бросает
-  // Math.random(): серия воспроизводима, и сохранённый проект открывается теми
-  // же вазами. Поэтому проверяются границы, несовпадение с текущим сидом и
-  // повторяемость результата.
-  const max = CONSTRUCTOR_LIMITS.vaseSeed.max;
-  const min = CONSTRUCTOR_LIMITS.vaseSeed.min;
-  const current = DEFAULT_VASE_PARAMS.vaseSeed;
-  const next = nextVaseSeed(current, max);
-  const series = vaseSeedSeries(current, 12, max);
-  const inRange = (seed: number) =>
-    Number.isInteger(seed) && seed >= min && seed <= max;
-
-  check("кнопка: сид — целое в пределах слайдера", inRange(next), true);
-  check("кнопка: новый сид не равен текущему", next !== current, true);
-  check("кнопка: повторный вызов даёт тот же сид", nextVaseSeed(current, max), next);
-  check("серия: двенадцать разных сидов", new Set(series).size, 12);
-  check("серия: все сиды в пределах слайдера", series.every(inRange), true);
-  check("серия: текущего сида в ней нет", series.includes(current), false);
-  check(
-    "серия: повторный вызов даёт тот же список",
-    JSON.stringify(vaseSeedSeries(current, 12, max)),
-    JSON.stringify(series),
-  );
-
-  // Плитка галереи — тот же растеризатор, что и снимок гейта, только мелкий.
+  // Плитка галереи — тот же растеризатор, что и снимок гейта, только мелкий:
+  // один и тот же силуэт даёт тот же кадр байт в байт, а разные силуэты —
+  // разные кадры. Сида в интерфейсе больше нет, поэтому проверяем силуэты.
   const tileOptions = {
     width: 64,
     height: 80,
     supersample: 1,
     budget: "preview" as const,
   };
-  const tile = renderVaseRgb(vaseParams({ organic: 1, vaseSeed: 42 }), tileOptions);
-  const tileAgain = renderVaseRgb(
-    vaseParams({ organic: 1, vaseSeed: 42 }),
-    tileOptions,
-  );
-  const tileOther = renderVaseRgb(
-    vaseParams({ organic: 1, vaseSeed: 777 }),
-    tileOptions,
-  );
+  const tile = renderVaseRgb(vaseParams({ shape: "classic" }), tileOptions);
+  const tileAgain = renderVaseRgb(vaseParams({ shape: "classic" }), tileOptions);
+  const tileOther = renderVaseRgb(vaseParams({ shape: "cone" }), tileOptions);
   const share = coveredShare(tile.rgb);
 
   check("превью: размер кадра", [tile.width, tile.height], [64, 80]);
-  check("превью: тот же сид — те же байты", bytesMatch(tile.rgb, tileAgain.rgb), true);
   check(
-    "превью: другой сид — другая картинка",
+    "превью: тот же силуэт — те же байты",
+    bytesMatch(tile.rgb, tileAgain.rgb),
+    true,
+  );
+  check(
+    "превью: другой силуэт — другая картинка",
     bytesMatch(tile.rgb, tileOther.rgb),
     false,
   );
@@ -3222,7 +3194,7 @@ console.log("\n17. Галерея рецептов: двенадцать ваз 
   );
 }
 
-console.log("\n18. Случайная ваза и «Галерея вариантов»");
+console.log("\n18. Случайная ваза и «Галерея форм»");
 
 {
   // Рандом проверяется подставным генератором: значения идут по кругу, поэтому
@@ -3311,51 +3283,57 @@ console.log("\n18. Случайная ваза и «Галерея вариан�
     VASE_RANDOM_FREQUENCY.max,
   );
 
-  // Плитки галереи. При органике 0 сид не входит в геометрию вовсе — и все
-  // двенадцать кадров совпадали байт в байт, то есть выглядели одним и тем же
-  // цилиндром. Это и была жалоба владельца. Галерея рисует при нуле с
-  // VASE_SEED_GALLERY_ORGANIC, и кадры обязаны разойтись.
+  // Галерея форм. Раньше здесь стояла галерея сидов: при органике 0 сид в
+  // геометрию не входит вовсе, и двенадцать кадров совпадали байт в байт — одна
+  // и та же ваза. Теперь плитки — двенадцать силуэтов реестра при одном наборе
+  // параметров, поэтому кадры обязаны разойтись при любой органике.
   const galleryOptions = {
     width: 64,
     height: 80,
     supersample: 1,
     budget: "preview" as const,
   };
-  const gallerySeeds = [
-    DEFAULT_VASE_PARAMS.vaseSeed,
-    // Одиннадцать следующих сидов: всего двенадцать плиток, как в галерее.
-    ...vaseSeedSeries(DEFAULT_VASE_PARAMS.vaseSeed, 11, seedLimit.max),
-  ];
 
-  const distinctFrames = (organic: number) => {
-    const frames = gallerySeeds.map(
-      (seed) => renderVaseRgb(vaseParams({ organic, vaseSeed: seed }), galleryOptions).rgb,
+  const galleryFrames = (
+    organic: number,
+    height: number = DEFAULT_VASE_PARAMS.height,
+  ) =>
+    VASE_SHAPES.map(
+      (shape) =>
+        renderVaseRgb(
+          vaseParams({
+            organic,
+            height,
+            shape,
+            patterns: DEFAULT_VASE_PARAMS.patterns,
+          }),
+          galleryOptions,
+        ).rgb,
     );
 
-    return frames.filter(
+  const countUnique = (frames: Uint8ClampedArray[]) =>
+    frames.filter(
       (frame, index) =>
         frames.findIndex((other) => bytesMatch(frame, other)) === index,
     ).length;
-  };
 
+  check("галерея форм: плитка на каждый силуэт", VASE_SHAPES.length, 12);
   check(
-    "галерея: при органике 0 сид не меняет кадр",
-    distinctFrames(CONSTRUCTOR_LIMITS.organic.min),
-    1,
+    "галерея форм: двенадцать разных кадров",
+    countUnique(galleryFrames(0)),
+    VASE_SHAPES.length,
   );
   check(
-    "галерея: демонстрационная органика — двенадцать разных ваз",
-    distinctFrames(VASE_SEED_GALLERY_ORGANIC),
-    gallerySeeds.length,
+    "галерея форм: разнообразие не зависит от органики",
+    countUnique(galleryFrames(0.5)),
+    VASE_SHAPES.length,
   );
   check(
-    "галерея: демо-органика внутри слайдера",
-    VASE_SEED_GALLERY_ORGANIC > CONSTRUCTOR_LIMITS.organic.min &&
-      VASE_SEED_GALLERY_ORGANIC <= CONSTRUCTOR_LIMITS.organic.max,
+    "галерея форм: плитки следуют за высотой",
+    galleryFrames(0, DEFAULT_VASE_PARAMS.height + 40).every(
+      (frame, index) => !bytesMatch(frame, galleryFrames(0)[index]),
+    ),
     true,
-  );
-  console.log(
-    `       плиток ${gallerySeeds.length}, демо-органика ${VASE_SEED_GALLERY_ORGANIC}`,
   );
 }
 

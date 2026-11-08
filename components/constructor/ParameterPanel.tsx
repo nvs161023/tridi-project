@@ -127,7 +127,10 @@ import {
   binarizeByLuminance,
   runsToRects,
 } from "@/lib/constructor/raster-to-contours";
-import { nextVaseSeed } from "@/lib/constructor/vase-seed";
+import {
+  VASE_SECTION_MIN_SIDES,
+  resolveSectionSides,
+} from "@/lib/constructor/vase-section";
 
 /**
  * Числовые параметры: форму, слои узора и текст меняют отдельные обработчики.
@@ -547,6 +550,31 @@ const PATTERN_LAYER_HINTS = {
   fadeBottom:
     "Сколько миллиметров от дна рисунок гаснет: 3 мм — два слоя печати ложатся полным диском, 30 мм — узор начинается только в середине вазы.",
 } as const;
+
+/**
+ * Есть ли на вазе что закручивать.
+ *
+ * Замер растеризатором: у гладкой вазы-цилиндра закрутка на 180° меняет 0.02%
+ * кадров — геометрия та же, поворачивать нечего. У гранёной формы, каннелюр и
+ * любого рельефного узора тот же поворот меняет 38–43% кадров. Слайдер
+ * «Закрутка» показываем только во втором случае: иначе это поле, которое
+ * человек честно двигает и не видит результата.
+ *
+ * Проверка повторяет то, что делает геометрия: грани силуэта приходят из
+ * `resolveSectionSides`, а не только из слайдера «Грани».
+ */
+function vaseHasRelief(params: ConstructorParams): boolean {
+  if (params.model !== "vase") {
+    return false;
+  }
+
+  return (
+    params.patterns.some((layer) => layer.type !== "smooth") ||
+    params.flutes > 0 ||
+    resolveSectionSides(params.shape, params.sectionSides) >=
+      VASE_SECTION_MIN_SIDES
+  );
+}
 
 /**
  * Значение списка «Форма брелока»: пресет из реестра или свой контур.
@@ -2072,7 +2100,7 @@ export function ParameterPanel({
 
             <p className="mt-3 text-xs leading-relaxed text-slate-400">
               Для печати и точной подгонки: композиция узоров, грани, цоколь и
-              обод, каннелюры, органика, сид. Первый экран работает без них.
+              обод, каннелюры, органика и наклон. Первый экран работает без них.
             </p>
 
             <div className="mt-4 space-y-5">
@@ -2139,7 +2167,9 @@ export function ParameterPanel({
                   <div className="flex items-center justify-between gap-3">
                     <h4 className="text-sm font-semibold text-slate-200">
                       {index === 0
-                        ? "Слой 1 · фаза и края"
+                        ? params.patterns.length > 1
+                          ? "Слой 1 · фаза и края"
+                          : "Слой 1 · края"
                         : `Слой ${index + 1}`}
                     </h4>
 
@@ -2207,19 +2237,27 @@ export function ParameterPanel({
                     </>
                   ) : null}
 
-                  <NumberSlider
-                    decimals={CONSTRUCTOR_LIMITS.patternPhaseDeg.decimals}
-                    hint={PATTERN_LAYER_HINTS.phase}
-                    label="Фаза"
-                    max={CONSTRUCTOR_LIMITS.patternPhaseDeg.max}
-                    min={CONSTRUCTOR_LIMITS.patternPhaseDeg.min}
-                    onChange={(value) =>
-                      onPatternLayerChange(index, { phaseDeg: value })
-                    }
-                    step={CONSTRUCTOR_LIMITS.patternPhaseDeg.step}
-                    unit="°"
-                    value={layer.phaseDeg}
-                  />
+                  {/*
+                    Фаза нужна, чтобы совместить слои. У единственного слоя это
+                    поворот и без того симметричного узора: силуэт не меняется, и
+                    поле только занимает место — поэтому показываем его со
+                    второго слоя.
+                  */}
+                  {params.patterns.length > 1 ? (
+                    <NumberSlider
+                      decimals={CONSTRUCTOR_LIMITS.patternPhaseDeg.decimals}
+                      hint={PATTERN_LAYER_HINTS.phase}
+                      label="Фаза"
+                      max={CONSTRUCTOR_LIMITS.patternPhaseDeg.max}
+                      min={CONSTRUCTOR_LIMITS.patternPhaseDeg.min}
+                      onChange={(value) =>
+                        onPatternLayerChange(index, { phaseDeg: value })
+                      }
+                      step={CONSTRUCTOR_LIMITS.patternPhaseDeg.step}
+                      unit="°"
+                      value={layer.phaseDeg}
+                    />
+                  ) : null}
 
                   <NumberSlider
                     decimals={CONSTRUCTOR_LIMITS.patternFadeMm.decimals}
@@ -2283,29 +2321,43 @@ export function ParameterPanel({
               value={params.flutes}
             />
 
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.fluteDepthMm.decimals}
-              hint="1 мм — деликатная канавка, 3 мм — глубокий жёлоб. Больше не получится: геометрия ограничивает глубину 60% стенки и 45% самого узкого радиуса, иначе стенка на дне жёлоба вывернулась бы."
-              label="Глубина каннелюр"
-              max={CONSTRUCTOR_LIMITS.fluteDepthMm.max}
-              min={CONSTRUCTOR_LIMITS.fluteDepthMm.min}
-              onChange={(value) => onParamChange("fluteDepthMm", value)}
-              step={CONSTRUCTOR_LIMITS.fluteDepthMm.step}
-              unit="мм"
-              value={params.fluteDepthMm}
-            />
+            {/*
+              Глубина без жёлобов невидима: геометрия умножает её на число
+              каннелюр, и при нуле результат нулевой — замер дал 0.00% кадров.
+              Поле появляется вместе с каннелюрами.
+            */}
+            {params.flutes > 0 ? (
+              <NumberSlider
+                decimals={CONSTRUCTOR_LIMITS.fluteDepthMm.decimals}
+                hint="1 мм — деликатная канавка, 3 мм — глубокий жёлоб. Больше не получится: геометрия ограничивает глубину 60% стенки и 45% самого узкого радиуса, иначе стенка на дне жёлоба вывернулась бы."
+                label="Глубина каннелюр"
+                max={CONSTRUCTOR_LIMITS.fluteDepthMm.max}
+                min={CONSTRUCTOR_LIMITS.fluteDepthMm.min}
+                onChange={(value) => onParamChange("fluteDepthMm", value)}
+                step={CONSTRUCTOR_LIMITS.fluteDepthMm.step}
+                unit="мм"
+                value={params.fluteDepthMm}
+              />
+            ) : null}
 
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.twistDeg.decimals}
-              hint="Фаза рельефа поворачивается от дна к кромке: грани, каннелюры и узор идут по спирали. 90–180° — заметный поворот, 360–720° — тугая спираль. Ровный круг без узора не меняется: закручивать нечего, а шов сходится при любом угле."
-              label="Закрутка"
-              max={CONSTRUCTOR_LIMITS.twistDeg.max}
-              min={CONSTRUCTOR_LIMITS.twistDeg.min}
-              onChange={(value) => onParamChange("twistDeg", value)}
-              step={CONSTRUCTOR_LIMITS.twistDeg.step}
-              unit="°"
-              value={params.twistDeg}
-            />
+            {/*
+              Закрутка поворачивает рельеф: грани, каннелюры и узор. На гладкой
+              вазе-цилиндре поворачивать нечего — слайдер виден только когда
+              рельеф есть (см. `vaseHasRelief`).
+            */}
+            {vaseHasRelief(params) ? (
+              <NumberSlider
+                decimals={CONSTRUCTOR_LIMITS.twistDeg.decimals}
+                hint="Фаза рельефа поворачивается от дна к кромке: грани, каннелюры и узор идут по спирали. 90–180° — заметный поворот, 360–720° — тугая спираль. Ровный круг без узора не меняется: закручивать нечего, а шов сходится при любом угле."
+                label="Закрутка"
+                max={CONSTRUCTOR_LIMITS.twistDeg.max}
+                min={CONSTRUCTOR_LIMITS.twistDeg.min}
+                onChange={(value) => onParamChange("twistDeg", value)}
+                step={CONSTRUCTOR_LIMITS.twistDeg.step}
+                unit="°"
+                value={params.twistDeg}
+              />
+            ) : null}
 
             <NumberSlider
               decimals={CONSTRUCTOR_LIMITS.organic.decimals}
@@ -2331,43 +2383,12 @@ export function ParameterPanel({
               value={params.leanDeg}
             />
 
-            <NumberSlider
-              hint="Сид шума: одна и та же ваза с одним сидом собирается одинаково в предпросмотре и в STL, а другой сид меняет рисунок складок и на 2% — пропорции силуэта. Размеры, число граней и расход пластика не меняются, поэтому серия «одна ваза, но у всех разные» печатается одинаково по времени."
-              label="Сид"
-              max={CONSTRUCTOR_LIMITS.vaseSeed.max}
-              min={CONSTRUCTOR_LIMITS.vaseSeed.min}
-              onChange={(value) => onParamChange("vaseSeed", value)}
-              step={CONSTRUCTOR_LIMITS.vaseSeed.step}
-              unit=""
-              value={params.vaseSeed}
-            />
-
             {/*
-              Кнопка меняет только сид: силуэт, размеры и расход пластика
-              остаются, поэтому серия «одна ваза, но у всех разные» печатается
-              одинаково по времени. Сид считается хешем предыдущего, а не
-              случайным числом: серия воспроизводима после сохранения проекта.
+              Сид из интерфейса убран: он входит в геометрию только через
+              органику, и человек всё равно не связывал число с рисунком.
+              Генератор случайной вазы ставит новый сид сам, а сохранённый
+              проект помнит его в параметрах.
             */}
-            <button
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/10 px-4 text-sm font-semibold text-blue-100 transition-colors hover:border-blue-300/60 hover:bg-blue-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              onClick={() =>
-                onParamChange(
-                  "vaseSeed",
-                  nextVaseSeed(params.vaseSeed, CONSTRUCTOR_LIMITS.vaseSeed.max),
-                )
-              }
-              type="button"
-            >
-              <span aria-hidden>🔁</span>
-              Другая ваза
-            </button>
-
-            {params.organic === 0 ? (
-              <p className="text-xs leading-relaxed text-amber-200/90">
-                Органика на нуле, поэтому новый сид почти не виден: складки
-                появятся, когда слайдер «Органика» больше нуля.
-              </p>
-            ) : null}
           </div>
           </details>
         </>
