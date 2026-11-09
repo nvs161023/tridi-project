@@ -27,10 +27,13 @@ import {
  * подставки база лежит на столе. Рельеф — heightfield по габаритам плиты: шаг
  * вершины считается из стандарта 0.3 мм (`lithophaneMeshSize`), поэтому на
  * панели 120 мм сетка 360 × 227, а на панели 200 мм — 626 × 460. Толщина каждой
- * вершины берётся из яркости фотографии билинейной выборкой из прямоугольной
- * сетки (400 × 267 для кадра 3:2), которую браузер уже сжал из кадра. Чёрный
- * пиксель даёт максимальную толщину, белый — минимальную, поэтому свет проходит
- * через тонкие участки сильнее.
+ * вершины берётся из яркости фотографии: билинейная выборка по четырём соседним
+ * пикселям прямоугольной сетки (400 × 267 для кадра 3:2), которую браузер уже
+ * сжал из кадра, а затем среднее по площади шага вершины (2 × 2 подвыборки).
+ * Площадное усреднение нужно потому, что частота сетки кадра и шаг вершин почти
+ * совпадают: точечная выборка попадала в центр пикселя, и край букв логотипа
+ * оставался лесенкой. Чёрный пиксель даёт максимальную толщину, белый —
+ * минимальную, поэтому свет проходит через тонкие участки сильнее.
  *
  * Кадр вписывается в панель по правилу cover: пропорции сохраняются, лишнее
  * обрезается поровну с краёв, поля не появляются. Раньше браузер вырезал из
@@ -38,12 +41,14 @@ import {
  * 120 × 80 — лицо выходило шире на 59 %.
  *
  * После выборки яркость проходит через лёгкий unsharp и контраст: без них
- * билинейное сглаживание размывало тонкие штрихи логотипа до «каши».
+ * площадное усреднение размывало тонкие штрихи логотипа до «каши».
  *
  * Деталей три, и каждая — отдельный замкнутый объект:
- *   `relief` — плита с плоским тылом и рельефом на лице;
- *   `frame`  — рамка с задней полкой (плита садится на неё с зазором 0.2 мм) и
- *              передней накладкой, которая прижимает её край;
+ *   `relief` — плита с плоским тылом и рельефом на лице; углы скруглены на
+ *              радиус окна рамки, чтобы плита входила в него с зазором;
+ *   `frame`  — скруглённое кольцо с задней полкой (плита садится на неё с
+ *              зазором 0.2 мм) и передней накладкой, которая прижимает её край;
+ *              наружные углы — дугой 6 мм, окно — дугой 2 мм;
  *   `stand`  — подставка: база, передняя губа и задняя стойка под наклоном 12°
  *              со скруглением в тыльном углу. Профиль один, поэтому шва, по
  *              которому деталь отламывается, нет; варианты — простая ножка и
@@ -58,6 +63,35 @@ import {
 
 /** Ширина бортика рамки по периметру, мм. */
 export const LITHOPHANE_FRAME_WIDTH_MM = 6;
+
+/**
+ * Радиус скругления наружных углов рамки, мм.
+ *
+ * Прямые углы читались на предпросмотре как коробка: рамка выглядела
+ * штампованным прямоугольником. 6 мм — верх рекомендуемого диапазона 4–6 мм:
+ * на панели 120 × 80 скругление занимает 7 % короткой стороны и заметно, но
+ * ещё не спорит с самим кадром. Радиус ограничивается четвертью меньшей стороны,
+ * поэтому маленькие панели остаются целыми.
+ */
+export const LITHOPHANE_FRAME_CORNER_RADIUS_MM = 6;
+
+/**
+ * Радиус скругления окна рамки, мм.
+ *
+ * Окно — то, что видно вокруг картинки. Углы окна скруглены, иначе рамка
+ * смотрелась бы коробкой в коробке. По этому радиусу скругляется и плита — на
+ * зазор посадки меньше, — поэтому её углы не упираются в накладку.
+ */
+export const LITHOPHANE_FRAME_OPENING_RADIUS_MM = 2;
+
+/**
+ * Сколько отрезков приходится на скруглённый угол.
+ *
+ * Восемь шагов по 11.25° — дуга на глаз гладкая, а вершины ещё свариваются
+ * `mergeVertices` и считаются миллисекунды: рамка строится на каждое движение
+ * слайдера.
+ */
+const LITHOPHANE_CORNER_SEGMENTS = 8;
 
 /**
  * Ширина бортика плиты по периметру, мм.
@@ -293,6 +327,14 @@ type FrameMetrics = {
   plateBack: number;
   /** Лицевая плоскость рамки: плита плюс выступ накладки. */
   frontZ: number;
+  /** Радиус скругления наружных углов рамки, мм. */
+  cornerRadius: number;
+  /** Радиус скругления окна накладки: видимый край кадра, мм. */
+  openingRadius: number;
+  /** Радиус скругления окна задней полки, мм. */
+  seatRadius: number;
+  /** Радиус скругления углов плиты: окно минус зазор посадки, мм. */
+  plateCornerRadius: number;
 };
 
 function lithophaneFrameMetrics(normalized: LithophaneParams): FrameMetrics {
@@ -311,6 +353,25 @@ function lithophaneFrameMetrics(normalized: LithophaneParams): FrameMetrics {
     openingHeight / 5,
   );
   const plateBack = LITHOPHANE_FRAME_SEAT_MM - BODY_OVERLAP_MM;
+  // Радиусы ограничены четвертью своего прямоугольника: на маленькой панели
+  // дуга иначе съела бы всю сторону.
+  const cornerRadius = Math.min(
+    LITHOPHANE_FRAME_CORNER_RADIUS_MM,
+    width / 4,
+    height / 4,
+  );
+  const openingRadius = Math.min(
+    LITHOPHANE_FRAME_OPENING_RADIUS_MM,
+    openingWidth / 4,
+    openingHeight / 4,
+  );
+  // Окно полки шире накладки на накладку с каждой стороны: дуга растёт вместе
+  // с ним, чтобы полка оставалась равномерной полосой под плитой.
+  const seatRadius = Math.min(
+    openingRadius + lip,
+    (openingWidth - 2 * lip) / 4,
+    (openingHeight - 2 * lip) / 4,
+  );
 
   return {
     width,
@@ -324,6 +385,12 @@ function lithophaneFrameMetrics(normalized: LithophaneParams): FrameMetrics {
     plateBack,
     frontZ:
       plateBack + normalized.lithophaneMaxThickness + LITHOPHANE_FRAME_RIM_MM,
+    cornerRadius,
+    openingRadius,
+    seatRadius,
+    // Плита входит в окно с зазором и повторяет его скругление: контуры
+    // параллельны, поэтому зазор одинаков по всему периметру, включая углы.
+    plateCornerRadius: Math.max(0, openingRadius - LITHOPHANE_FIT_GAP_MM),
   };
 }
 
@@ -332,9 +399,10 @@ function lithophaneFrameMetrics(normalized: LithophaneParams): FrameMetrics {
  *
  * Сетка прямоугольная: 400 × 267 для кадра 3:2, 150 × 100 для предпросмотра.
  * Оси нормируются отдельно, поэтому пиксель остаётся квадратным и кадр не
- * растягивается. Без выборки переходы читались бы ступенями.
+ * растягивается. Значение — взвешенное среднее четырёх соседних пикселей: они
+ * входят с весами `(1 − tx)(1 − ty)`, `tx(1 − ty)`, `(1 − tx)ty` и `tx·ty`.
  */
-function sampleBrightness(
+function bilinearBrightness(
   brightness: number[],
   width: number,
   height: number,
@@ -361,13 +429,79 @@ function sampleBrightness(
 }
 
 /**
+ * Сколько подвыборок берётся по каждой оси внутри шага вершины.
+ *
+ * Две — это четыре точки на площадь вершины: классическое сглаживание
+ * растеризатора. Больше не нужно: шаг вершины и пиксель сетки яркости почти
+ * совпадают, и склон получается шириной в шаг.
+ */
+const LITHOPHANE_SAMPLE_GRID = 2;
+
+/**
+ * Яркость вершины как среднее по площади шага сетки.
+ *
+ * Билинейная выборка интерполирует четыре пикселя, но берёт их в одной точке.
+ * Сетка яркости — 400 пикселей по длинной стороне кадра, а вершина панели
+ * 120 мм стоит через 0.3 мм, то есть ровно через пиксель. Точка выборки
+ * попадает в центр пикселя, интерполяция между соседями почти не работает, и
+ * край буквы логотипа остаётся лесенкой из ступенек в один пиксель.
+ *
+ * Поэтому яркость считается средним четырёх билинейных выборок, сдвинутых на
+ * четверть шага сетки: это площадь одной вершины. Ступенька растягивается в
+ * плавный склон, буквы печатаются гладкой линией, а тонкие штрихи не тонут —
+ * усредняется только площадь самой вершины, соседние пиксели не размазываются.
+ *
+ * `spreadU`/`spreadV` — половина шага вершины в долях кадра. Без них (0)
+ * функция равна точечной билинейной выборке.
+ */
+function sampleBrightness(
+  brightness: number[],
+  width: number,
+  height: number,
+  u: number,
+  v: number,
+  spreadU = 0,
+  spreadV = 0,
+): number {
+  if (spreadU <= 0 && spreadV <= 0) {
+    return bilinearBrightness(brightness, width, height, u, v);
+  }
+
+  const offsetU = spreadU / LITHOPHANE_SAMPLE_GRID;
+  const offsetV = spreadV / LITHOPHANE_SAMPLE_GRID;
+  let sum = 0;
+
+  for (let row = 0; row < LITHOPHANE_SAMPLE_GRID; row += 1) {
+    // Центры ячеек внутри площади вершины: -spread + (row + 0.5) * 2 * offset.
+    const shiftV = (2 * row + 1) * offsetV - spreadV;
+
+    for (let column = 0; column < LITHOPHANE_SAMPLE_GRID; column += 1) {
+      const shiftU = (2 * column + 1) * offsetU - spreadU;
+
+      sum += bilinearBrightness(
+        brightness,
+        width,
+        height,
+        u + shiftU,
+        v + shiftV,
+      );
+    }
+  }
+
+  return sum / (LITHOPHANE_SAMPLE_GRID * LITHOPHANE_SAMPLE_GRID);
+}
+
+/**
  * Насколько усиливается резкость: разница с средним четырёх соседей.
  *
- * Билинейная выборка — это фильтр низких частот: штрих логотипа в один пиксель
+ * Выборка по площади — это фильтр низких частот: штрих логотипа в один пиксель
  * теряет амплитуду, и на печати буквы сливаются. unsharp возвращает краю
  * контраст, а второй коэффициент расширяет диапазон вокруг середины, чтобы
  * тёмные линии уверенно доходили до максимальной толщины. Значения ниже 0 и
  * выше 255 обрезаются: толщина не может выйти за границы слайдеров.
+ *
+ * Соседи берутся с той же площадной выборкой, что и центр: иначе unsharp
+ * сравнивал бы сглаженную точку с резкой и возвращал бы лесенку обратно.
  */
 const LITHOPHANE_SHARPNESS = 0.5;
 const LITHOPHANE_CONTRAST = 1.15;
@@ -378,8 +512,18 @@ function sharpenBrightness(
   height: number,
   u: number,
   v: number,
+  spreadU = 0,
+  spreadV = 0,
 ): number {
-  const center = sampleBrightness(brightness, width, height, u, v);
+  const center = sampleBrightness(
+    brightness,
+    width,
+    height,
+    u,
+    v,
+    spreadU,
+    spreadV,
+  );
 
   if (width < 3 && height < 3) {
     return center;
@@ -391,15 +535,116 @@ function sharpenBrightness(
   const stepU = width > 1 ? 1 / (width - 1) : 0;
   const stepV = height > 1 ? 1 / (height - 1) : 0;
   const neighbors =
-    (sampleBrightness(brightness, width, height, u - stepU, v) +
-      sampleBrightness(brightness, width, height, u + stepU, v) +
-      sampleBrightness(brightness, width, height, u, v - stepV) +
-      sampleBrightness(brightness, width, height, u, v + stepV)) /
+    (sampleBrightness(
+      brightness,
+      width,
+      height,
+      u - stepU,
+      v,
+      spreadU,
+      spreadV,
+    ) +
+      sampleBrightness(
+        brightness,
+        width,
+        height,
+        u + stepU,
+        v,
+        spreadU,
+        spreadV,
+      ) +
+      sampleBrightness(
+        brightness,
+        width,
+        height,
+        u,
+        v - stepV,
+        spreadU,
+        spreadV,
+      ) +
+      sampleBrightness(
+        brightness,
+        width,
+        height,
+        u,
+        v + stepV,
+        spreadU,
+        spreadV,
+      )) /
     4;
   const sharpened = center + (center - neighbors) * LITHOPHANE_SHARPNESS;
   const contrasted = 127.5 + (sharpened - 127.5) * LITHOPHANE_CONTRAST;
 
   return Math.min(255, Math.max(0, contrasted));
+}
+
+/**
+ * Насколько вершина за дугой прижимается внутрь неё.
+ *
+ * Ноль — точная проекция на дугу, но тогда две вершины диагонали угла попадают
+ * в одну точку и грань между ними вырождается. Десятая часть разносит их на
+ * сотые доли миллиметра: на печати это не видно, а сетка остаётся без нулевых
+ * рёбер.
+ */
+const PLATE_CORNER_CONTRACT = 0.1;
+
+/**
+ * Скругляет углы плиты, перенося крайние вершины на дугу.
+ *
+ * Плита строится регулярной сеткой, и выбросить угловые ячейки нельзя: вместе с
+ * ними ушла бы замкнутость оболочки и разметка тыла. Поэтому вершины, попавшие
+ * за дугу радиуса `radius`, переносятся на саму дугу — по направлению от центра
+ * скругления. Топология и число треугольников не меняются, габарит тоже: вне
+ * угловых квадратов вершины остаются на месте.
+ *
+ * Скругление нужно посадке: окно рамки скруглено, и прямоугольная плита
+ * упиралась бы углами в накладку. Радиус плиты на зазор посадки меньше радиуса
+ * окна, поэтому контуры идут параллельно и зазор по всему периметру одинаков.
+ *
+ * `halfWidth` и `halfHeight` — половины габаритов плиты, а `positions` хранит
+ * Y от 0 до полной высоты, как у готовой детали.
+ */
+function roundPlateCorners(
+  positions: number[],
+  halfWidth: number,
+  halfHeight: number,
+  radius: number,
+): void {
+  if (radius <= 0) {
+    return;
+  }
+
+  const flatWidth = halfWidth - radius;
+  const flatHeight = halfHeight - radius;
+
+  for (let index = 0; index < positions.length; index += 3) {
+    const x = positions[index];
+    const y = positions[index + 1] - halfHeight;
+    const beyondX = Math.abs(x) - flatWidth;
+    const beyondY = Math.abs(y) - flatHeight;
+
+    if (beyondX <= 0 || beyondY <= 0) {
+      continue;
+    }
+
+    const distance = Math.sqrt(beyondX * beyondX + beyondY * beyondY);
+
+    if (distance <= radius) {
+      continue;
+    }
+
+    // Вершины за дугой садятся чуть внутрь неё, пропорционально своему удалению:
+    // строго радиальная проекция положила бы две вершины диагонали в одну
+    // точку, и грани между ними выродились бы в ноль. Сжатие на десятую часть
+    // разносит их на сотые доли миллиметра — дуга остаётся дугой, а сетка целой.
+    const projected = radius - (distance - radius) * PLATE_CORNER_CONTRACT;
+    const scale = projected / distance;
+    const signX = x < 0 ? -1 : 1;
+    const signY = y < 0 ? -1 : 1;
+
+    positions[index] = signX * (flatWidth + beyondX * scale);
+    positions[index + 1] = halfHeight + signY * (flatHeight + beyondY * scale);
+  }
 }
 
 /**
@@ -414,6 +659,10 @@ function sharpenBrightness(
  * бортика к фото идёт фаской `LITHOPHANE_BORDER_CHAMFER_MM`, поэтому на печати
  * нет уступа в 2.2 мм на одном шаге вершины.
  *
+ * `cornerRadius` — радиус скругления углов плиты. Окно рамки скруглено, и
+ * прямоугольная плита упиралась бы углами в накладку; плита повторяет это
+ * скругление за вычетом зазора посадки. Без рамки радиус равен нулю.
+ *
  * Кадр вписан в плиту по правилу cover: пропорции сохранены, лишнее обрезано
  * поровну с краёв, полей нет. В те же доли кадра размечаются `uv`: по ним
  * предпросмотр накладывает карту свечения, когда включена подсветка на просвет,
@@ -424,6 +673,7 @@ function createReliefBody(
   plateWidth: number,
   plateHeight: number,
   borderWidth: number,
+  cornerRadius: number,
 ): BufferGeometry {
   const minThickness = normalized.lithophaneMinThickness;
   const maxThickness = normalized.lithophaneMaxThickness;
@@ -469,6 +719,11 @@ function createReliefBody(
 
   const sourceWidth = sourceRight - sourceLeft;
   const sourceHeight = sourceBottom - sourceTop;
+  // Половина шага вершины в долях кадра: по этой площади усредняется яркость,
+  // иначе точка выборки совпадает с центром пикселя сетки и интерполяция между
+  // соседями не работает — на краях букв остаётся лесенка.
+  const spreadU = columns > 1 ? sourceWidth / (columns - 1) / 2 : 0;
+  const spreadV = rows > 1 ? sourceHeight / (rows - 1) / 2 : 0;
 
   // Лицо рельефа: одна вершина на узел сетки. Строка 0 — верхний край, как у
   // массива яркости; яркость 0 — самый толстый пластик, 255 — самый тонкий.
@@ -493,6 +748,8 @@ function createReliefBody(
             brightnessHeight,
             sourceLeft + u * sourceWidth,
             sourceV,
+            spreadU,
+            spreadV,
           ) /
             255);
       const edgeDistance = Math.min(fromLeft, fromRight, fromTop, fromBottom);
@@ -511,6 +768,10 @@ function createReliefBody(
       uvs.push(sourceLeft + u * sourceWidth, sourceV);
     }
   }
+
+  // Углы плите скругляются до построения тыла и боковин: они копируют уже
+  // сдвинутые координаты, поэтому обе оболочки остаются замкнутыми.
+  roundPlateCorners(positions, halfWidth, plateHeight / 2, cornerRadius);
 
   for (let row = 0; row < rows - 1; row += 1) {
     for (let column = 0; column < columns - 1; column += 1) {
@@ -620,12 +881,18 @@ export function createLithophaneReliefGeometry(
 ): BufferGeometry {
   const normalized = normalizeLithophaneParams(params);
   const plate = lithophanePlateSize(normalized);
+  // Без рамки плита прямоугольная: скруглять её не к чему, а в паз рамки она
+  // входит только вместе с его радиусом.
+  const cornerRadius = normalized.lithoFrame
+    ? lithophaneFrameMetrics(normalized).plateCornerRadius
+    : 0;
 
   return createReliefBody(
     normalized,
     plate.width,
     plate.height,
     LITHOPHANE_BORDER_MM,
+    cornerRadius,
   );
 }
 
@@ -717,27 +984,81 @@ function createBoxBody(
   return finalizeGeometry(positions, indices);
 }
 
-/** Прямоугольное кольцо, выдавленное по Z: полка рамки и бортик петли. */
-type RectRingOptions = {
+/** Точка контура в плоскости XY, мм. */
+type Point2 = readonly [number, number];
+
+/**
+ * Контур скруглённого прямоугольника против часовой стрелки.
+ *
+ * Обход начинается дугой правого нижнего угла: от (halfWidth − r, −halfHeight)
+ * против часовой стрелки до (halfWidth, −halfHeight + r), дальше правая кромка,
+ * дуга правого верхнего угла и так по кругу. Прямые кромки не разбиваются на
+ * точки — их дают рёбра между последней точкой одной дуги и первой точкой
+ * следующей. Углы всех четырёх дуг разбиты одинаково, поэтому наружный и
+ * внутренний контуры кольца совпадают по числу точек: кольцо строится парами
+ * `outer[i] — inner[i]` без поиска соответствий.
+ *
+ * Радиус не больше половины стороны: иначе дуга не поместилась бы в
+ * прямоугольник.
+ */
+function roundedRectOutline(
+  halfWidth: number,
+  halfHeight: number,
+  radius: number,
+): Point2[] {
+  const r = Math.max(0.001, Math.min(radius, halfWidth, halfHeight));
+  // Центры дуг и начальный угол каждой: правый нижний, правый верхний, левый
+  // верхний и левый нижний.
+  const corners: readonly (readonly [number, number, number])[] = [
+    [halfWidth - r, -halfHeight + r, -Math.PI / 2],
+    [halfWidth - r, halfHeight - r, 0],
+    [-halfWidth + r, halfHeight - r, Math.PI / 2],
+    [-halfWidth + r, -halfHeight + r, Math.PI],
+  ];
+  const points: Point2[] = [];
+
+  for (const [centerX, centerY, start] of corners) {
+    for (let step = 0; step <= LITHOPHANE_CORNER_SEGMENTS; step += 1) {
+      const angle =
+        start + (step / LITHOPHANE_CORNER_SEGMENTS) * (Math.PI / 2);
+
+      points.push([
+        centerX + r * Math.cos(angle),
+        centerY + r * Math.sin(angle),
+      ]);
+    }
+  }
+
+  return points;
+}
+
+/** Скруглённое кольцо, выдавленное по Z: задняя полка рамки и её накладка. */
+type RingOptions = {
   centerX: number;
   centerY: number;
   outerWidth: number;
   outerHeight: number;
   innerWidth: number;
   innerHeight: number;
+  /** Радиус скругления наружных углов, мм. */
+  outerRadius: number;
+  /** Радиус скругления окна, мм. */
+  innerRadius: number;
   z0: number;
   z1: number;
 };
 
 /**
- * Замкнутое прямоугольное кольцо: наружные и внутренние стенки плюс две
- * плоские полосы по торцам.
+ * Замкнутое скруглённое кольцо: наружные и внутренние стенки плюс две полосы
+ * по торцам.
  *
  * Кольцо — основа рамки: задняя полка держит плиту, передняя накладка её
- * прижимает. Обе собираются из одного кода, отличаются только размерами окна и
- * высотой по Z.
+ * прижимает. Обе собираются из одного кода и отличаются только размерами окна,
+ * высотой по Z и радиусами углов. Торец разбит на столько же участков, сколько
+ * у контура точек: каждая пара соседних точек наружного контура вместе с парой
+ * внутреннего даёт квад, поэтому скругление идёт по дуге, а не срезом.
  */
-function createRectRingBody(options: RectRingOptions): BufferGeometry {
+function createRingBody(options: RingOptions): BufferGeometry {
   const {
     centerX,
     centerY,
@@ -745,166 +1066,71 @@ function createRectRingBody(options: RectRingOptions): BufferGeometry {
     outerHeight,
     innerWidth,
     innerHeight,
+    outerRadius,
+    innerRadius,
     z0,
     z1,
   } = options;
-  const outerLeft = centerX - outerWidth / 2;
-  const outerRight = centerX + outerWidth / 2;
-  const outerBottom = centerY - outerHeight / 2;
-  const outerTop = centerY + outerHeight / 2;
-  const innerLeft = centerX - innerWidth / 2;
-  const innerRight = centerX + innerWidth / 2;
-  const innerBottom = centerY - innerHeight / 2;
-  const innerTop = centerY + innerHeight / 2;
+  const outer = roundedRectOutline(outerWidth / 2, outerHeight / 2, outerRadius);
+  const inner = roundedRectOutline(innerWidth / 2, innerHeight / 2, innerRadius);
+  const count = outer.length;
   const positions: number[] = [];
   const indices: number[] = [];
+  const at = (point: Point2, z: number): Point3 => [
+    centerX + point[0],
+    centerY + point[1],
+    z,
+  ];
 
+  // Торцы: полоса между наружным и внутренним контуром на обеих плоскостях.
   for (const z of [z0, z1]) {
     const normal: Point3 = z === z0 ? [0, 0, -1] : [0, 0, 1];
 
-    // Четыре трапеции торца: наружный край шире внутреннего.
-    addQuadFace(
-      indices,
-      positions,
-      [
-        [outerLeft, outerBottom, z],
-        [outerRight, outerBottom, z],
-        [innerRight, innerBottom, z],
-        [innerLeft, innerBottom, z],
-      ],
-      normal,
-    );
-    addQuadFace(
-      indices,
-      positions,
-      [
-        [outerRight, outerBottom, z],
-        [outerRight, outerTop, z],
-        [innerRight, innerTop, z],
-        [innerRight, innerBottom, z],
-      ],
-      normal,
-    );
-    addQuadFace(
-      indices,
-      positions,
-      [
-        [outerRight, outerTop, z],
-        [outerLeft, outerTop, z],
-        [innerLeft, innerTop, z],
-        [innerRight, innerTop, z],
-      ],
-      normal,
-    );
-    addQuadFace(
-      indices,
-      positions,
-      [
-        [outerLeft, outerTop, z],
-        [outerLeft, outerBottom, z],
-        [innerLeft, innerBottom, z],
-        [innerLeft, innerTop, z],
-      ],
-      normal,
-    );
+    for (let index = 0; index < count; index += 1) {
+      const next = (index + 1) % count;
+
+      addQuadFace(
+        indices,
+        positions,
+        [
+          at(outer[index], z),
+          at(outer[next], z),
+          at(inner[next], z),
+          at(inner[index], z),
+        ],
+        normal,
+      );
+    }
   }
 
-  // Наружные стенки смотрят наружу.
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [outerLeft, outerBottom, z0],
-      [outerRight, outerBottom, z0],
-      [outerRight, outerBottom, z1],
-      [outerLeft, outerBottom, z1],
-    ],
-    [0, -1, 0],
-  );
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [outerRight, outerBottom, z0],
-      [outerRight, outerTop, z0],
-      [outerRight, outerTop, z1],
-      [outerRight, outerBottom, z1],
-    ],
-    [1, 0, 0],
-  );
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [outerRight, outerTop, z0],
-      [outerLeft, outerTop, z0],
-      [outerLeft, outerTop, z1],
-      [outerRight, outerTop, z1],
-    ],
-    [0, 1, 0],
-  );
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [outerLeft, outerTop, z0],
-      [outerLeft, outerBottom, z0],
-      [outerLeft, outerBottom, z1],
-      [outerLeft, outerTop, z1],
-    ],
-    [-1, 0, 0],
-  );
+  // Стенки: наружные смотрят от центра, внутренние — в окно. Для обхода против
+  // часовой стрелки внешняя нормаль ребра равна (dy, −dx), у окна она
+  // разворачивается.
+  for (const [outline, direction] of [
+    [outer, 1],
+    [inner, -1],
+  ] as const) {
+    for (let index = 0; index < count; index += 1) {
+      const next = (index + 1) % count;
+      const dx = outline[next][0] - outline[index][0];
+      const dy = outline[next][1] - outline[index][1];
 
-  // Внутренние стенки смотрят в окно: иначе нормали завернулись бы внутрь
-  // пластика и объём кольца посчитался бы с другим знаком.
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [innerLeft, innerBottom, z0],
-      [innerRight, innerBottom, z0],
-      [innerRight, innerBottom, z1],
-      [innerLeft, innerBottom, z1],
-    ],
-    [0, 1, 0],
-  );
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [innerRight, innerBottom, z0],
-      [innerRight, innerTop, z0],
-      [innerRight, innerTop, z1],
-      [innerRight, innerBottom, z1],
-    ],
-    [-1, 0, 0],
-  );
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [innerRight, innerTop, z0],
-      [innerLeft, innerTop, z0],
-      [innerLeft, innerTop, z1],
-      [innerRight, innerTop, z1],
-    ],
-    [0, -1, 0],
-  );
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [innerLeft, innerTop, z0],
-      [innerLeft, innerBottom, z0],
-      [innerLeft, innerBottom, z1],
-      [innerLeft, innerTop, z1],
-    ],
-    [1, 0, 0],
-  );
+      addQuadFace(
+        indices,
+        positions,
+        [
+          at(outline[index], z0),
+          at(outline[next], z0),
+          at(outline[next], z1),
+          at(outline[index], z1),
+        ],
+        [direction * dy, direction * -dx, 0],
+      );
+    }
+  }
 
   return finalizeGeometry(positions, indices);
 }
-
 
 /**
  * Рамка литофана отдельной деталью.
@@ -918,6 +1144,12 @@ function createRectRingBody(options: RectRingOptions): BufferGeometry {
  * При креплении `hook` на тыльной стороне верхней планки появляются две петли.
  * Каждая — полка с бортиком сзади: шуруп вворачивается в стену, литофан
  * опускается на него, шляпка остаётся в кармане между рамкой и бортиком.
+ *
+ * Оба кольца — скруглённые: наружные углы идут дугой
+ * `LITHOPHANE_FRAME_CORNER_RADIUS_MM`, окно накладки — дугой
+ * `LITHOPHANE_FRAME_OPENING_RADIUS_MM`, окно полки — на накладку шире. Радиусы
+ * ограничены четвертью своего прямоугольника, поэтому маленькая панель 40 мм
+ * остаётся целой, а не превращается в овал.
  */
 export function createLithophaneFrameGeometry(
   params: Partial<LithophaneParams>,
@@ -926,23 +1158,27 @@ export function createLithophaneFrameGeometry(
   const metrics = lithophaneFrameMetrics(normalized);
   const { width, height, frameWidth, lip, frontZ } = metrics;
   const bodies: BufferGeometry[] = [
-    createRectRingBody({
+    createRingBody({
       centerX: 0,
       centerY: height / 2,
       outerWidth: width,
       outerHeight: height,
       innerWidth: width - 2 * (frameWidth + lip),
       innerHeight: height - 2 * (frameWidth + lip),
+      outerRadius: metrics.cornerRadius,
+      innerRadius: metrics.seatRadius,
       z0: 0,
       z1: LITHOPHANE_FRAME_SEAT_MM,
     }),
-    createRectRingBody({
+    createRingBody({
       centerX: 0,
       centerY: height / 2,
       outerWidth: width,
       outerHeight: height,
       innerWidth: width - 2 * frameWidth,
       innerHeight: height - 2 * frameWidth,
+      outerRadius: metrics.cornerRadius,
+      innerRadius: metrics.openingRadius,
       z0: LITHOPHANE_FRAME_SEAT_MM - 2 * BODY_OVERLAP_MM,
       z1: frontZ,
     }),

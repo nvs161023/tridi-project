@@ -37,7 +37,12 @@
  *      скругление из нескольких граней, а не острый стык;
  *   7. группы материалов: рельеф и крепление — одна сетка с двумя группами,
  *      группы покрывают все индексы, а сборка с основанием глубже и выше
- *      сборки без крепления.
+ *      сборки без крепления;
+ *   8. uv повторяют обрезанный кадр — карта свечения ложится на рельеф;
+ *   9. углы рамки скруглены: наружные дугой 6 мм, окно — дугой 2 мм, а плита
+ *      входит в окно с зазором 0.2 мм по всему периметру, включая углы;
+ *  10. яркость вершины усредняется по площади шага сетки: пиксельные ступеньки
+ *      растягиваются в склон, а штрихи в два-три пикселя держат полный контраст.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -50,6 +55,8 @@ import {
   LITHOPHANE_BORDER_MM,
   LITHOPHANE_DETAIL_GROUP,
   LITHOPHANE_FIT_GAP_MM,
+  LITHOPHANE_FRAME_CORNER_RADIUS_MM,
+  LITHOPHANE_FRAME_OPENING_RADIUS_MM,
   LITHOPHANE_FRAME_WIDTH_MM,
   LITHOPHANE_RELIEF_GROUP,
   LITHOPHANE_STAND_SHAPES,
@@ -432,6 +439,100 @@ function faceThickness(
 }
 
 /**
+ * Насколько далеко точка вышла за скруглённый прямоугольник, мм.
+ *
+ * Отрицательное значение — насколько точка внутри контура. Считается по
+ * расстоянию до ближайшей стороны или до дуги угла: так проверяется и зазор по
+ * кромкам, и зазор в скруглённых углах, где прямоугольная плита упиралась бы в
+ * накладку.
+ */
+function outsideRoundedRect(
+  x: number,
+  y: number,
+  halfWidth: number,
+  halfHeight: number,
+  radius: number,
+): number {
+  const flatWidth = halfWidth - radius;
+  const flatHeight = halfHeight - radius;
+  const beyondX = Math.abs(x) - flatWidth;
+  const beyondY = Math.abs(y) - flatHeight;
+
+  if (beyondX <= 0 || beyondY <= 0) {
+    return Math.max(Math.abs(x) - halfWidth, Math.abs(y) - halfHeight);
+  }
+
+  return Math.sqrt(beyondX * beyondX + beyondY * beyondY) - radius;
+}
+
+/** Кадр-шахматка: пиксель через пиксель — самая частая ступенька рельефа. */
+function chessFrame(width: number, height: number): LithophaneBrightnessGrid {
+  const brightness = new Array<number>(width * height);
+
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      brightness[row * width + column] = (row + column) % 2 === 0 ? 0 : 255;
+    }
+  }
+
+  return { brightness, width, height };
+}
+
+/** Кадр со штрихами: чёрные полосы шириной `stroke` пикселей через 12. */
+function stripeFrame(
+  width: number,
+  height: number,
+  stroke: number,
+): LithophaneBrightnessGrid {
+  const brightness = new Array<number>(width * height);
+
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      brightness[row * width + column] = column % 12 < stroke ? 0 : 255;
+    }
+  }
+
+  return { brightness, width, height };
+}
+
+/**
+ * Размах толщины лица, мм.
+ *
+ * Считается только по лицу и только в середине кадра: бортик и тыл дают свои
+ * значения и занизили бы контраст фото.
+ */
+function faceSpread(
+  geometry: BufferGeometry,
+  plateWidth: number,
+  plateHeight: number,
+): { min: number; max: number } {
+  const position = geometry.getAttribute("position");
+  const margin = 8;
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index);
+    const y = position.getY(index);
+    const z = position.getZ(index);
+
+    if (
+      Math.abs(x) > plateWidth / 2 - margin ||
+      y < margin ||
+      y > plateHeight - margin ||
+      z < 0.5
+    ) {
+      continue;
+    }
+
+    min = Math.min(min, z);
+    max = Math.max(max, z);
+  }
+
+  return { min, max };
+}
+
+/**
  * Сколько точек профиля попало в прямоугольник `y ∈ (yMin; yMax], z < zMax`.
  *
  * У подставки выше базы и позади стойки других вершин нет: там проходит дуга
@@ -729,6 +830,44 @@ for (const [brightness, expected] of [
   geometry.dispose();
 }
 
+{
+  /*
+    Максимум толщины расширен до 5 мм: перепад с минимумом 0.8 доходит до
+    4.2 мм, и буквы логотипа печатаются заметно глубже. Проверяется, что 4.5 мм
+    не зажимаются слайдером, а выше 5 мм значение возвращается к пределу.
+  */
+  const params: Partial<LithophaneParams> = {
+    ...reliefParams(120, 80, flatFrame(0)),
+    lithophaneMinThickness: 0.8,
+    lithophaneMaxThickness: 4.5,
+  };
+  const plate = lithophanePlateSize(params);
+  const geometry = createLithophaneReliefGeometry(params);
+  const dark = faceThickness(geometry, plate.width, plate.height);
+  const normalized = normalizeLithophaneParams(params);
+  const clamped = normalizeLithophaneParams({
+    ...params,
+    lithophaneMaxThickness: 5.4,
+  });
+
+  console.log(
+    `  тёмный кадр при 0.8…4.5 мм: перепад ${(
+      dark - normalized.lithophaneMinThickness
+    ).toFixed(2)} мм`,
+  );
+
+  check("максимум 4.5 мм не зажимается", normalized.lithophaneMaxThickness, 4.5);
+  checkRange(
+    "тёмный кадр доходит до 4.5 мм",
+    [dark - 4.5],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  check("максимум выше 5 мм зажимается", clamped.lithophaneMaxThickness, 5);
+
+  geometry.dispose();
+}
+
 console.log("\n6. Подставка: один профиль со скруглением вместо склейки");
 
 for (const mount of ["stand", "base"] as const) {
@@ -920,7 +1059,158 @@ console.log("\n8. uv рельефа: карта свечения ложится 
   assembled.dispose();
 }
 
+console.log("\n9. Скруглённые углы рамки и посадка плиты");
+
+{
+  const params: Partial<LithophaneParams> = {
+    lithophaneWidth: 120,
+    lithophaneHeight: 80,
+    lithoFrame: true,
+    lithoMount: "none",
+  };
+  const frame = createLithophaneFrameGeometry(params);
+  const relief = createLithophaneReliefGeometry(params);
+  const framePosition = frame.getAttribute("position");
+  const reliefPosition = relief.getAttribute("position");
+  const radius = LITHOPHANE_FRAME_CORNER_RADIUS_MM;
+  // Рамка стоит на Y = 0, поэтому центр дуги правого нижнего угла — на радиусе
+  // от нижней кромки и на радиусе левее правой.
+  const outerCorner = { x: 120 / 2 - radius, y: radius };
+  const openingHalfWidth = 120 / 2 - LITHOPHANE_FRAME_WIDTH_MM;
+  const openingHalfHeight = 80 / 2 - LITHOPHANE_FRAME_WIDTH_MM;
+  // Центр дуги окна: окно накладки — на `frameWidth` внутрь панели.
+  const openingCorner = {
+    x: openingHalfWidth - LITHOPHANE_FRAME_OPENING_RADIUS_MM,
+    y: 80 / 2 - openingHalfHeight + LITHOPHANE_FRAME_OPENING_RADIUS_MM,
+  };
+  const arc = new Set<string>();
+  const openingArc = new Set<string>();
+  let closestToCorner = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < framePosition.count; index += 1) {
+    const x = framePosition.getX(index);
+    const y = framePosition.getY(index);
+    const toOuterCorner = Math.hypot(x - 60, y);
+    const fromOuterArc = Math.hypot(x - outerCorner.x, y - outerCorner.y);
+    const fromOpeningArc = Math.hypot(
+      x - openingCorner.x,
+      y - openingCorner.y,
+    );
+
+    closestToCorner = Math.min(closestToCorner, toOuterCorner);
+
+    if (
+      x > outerCorner.x + 0.01 &&
+      y < outerCorner.y - 0.01 &&
+      Math.abs(fromOuterArc - radius) < 0.01
+    ) {
+      arc.add(`${x.toFixed(3)}:${y.toFixed(3)}`);
+    }
+
+    if (
+      x > openingCorner.x + 0.01 &&
+      y < openingCorner.y - 0.01 &&
+      Math.abs(fromOpeningArc - LITHOPHANE_FRAME_OPENING_RADIUS_MM) < 0.01
+    ) {
+      openingArc.add(`${x.toFixed(3)}:${y.toFixed(3)}`);
+    }
+  }
+
+  // Прямоугольная плита в скруглённом окне упиралась бы углами в накладку:
+  // проверяется худший выход за контур окна, а плита в сборке сдвинута на
+  // бортик рамки и зазор посадки.
+  let worstOutside = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < reliefPosition.count; index += 1) {
+    worstOutside = Math.max(
+      worstOutside,
+      outsideRoundedRect(
+        reliefPosition.getX(index),
+        reliefPosition.getY(index) + LITHOPHANE_FRAME_WIDTH_MM +
+          LITHOPHANE_FIT_GAP_MM - 80 / 2,
+        openingHalfWidth,
+        openingHalfHeight,
+        LITHOPHANE_FRAME_OPENING_RADIUS_MM,
+      ),
+    );
+  }
+
+  console.log(
+    `  дуга наружного угла: ${arc.size} точек, окна: ${openingArc.size}, ` +
+      `ближайшая вершина к углу ${closestToCorner.toFixed(3)} мм, ` +
+      `плита в окне с зазором ${(-worstOutside).toFixed(3)} мм`,
+  );
+
+  check(
+    `наружный угол скруглён дугой ${radius} мм`,
+    arc.size >= 6,
+    true,
+  );
+  check(
+    "окно накладки скруглено дугой 2 мм",
+    openingArc.size >= 6,
+    true,
+  );
+  checkRange(
+    "острого угла нет: дуга отступает от вершины",
+    [closestToCorner - radius * (Math.SQRT2 - 1)],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "плита входит в скруглённое окно с зазором посадки",
+    [-worstOutside - LITHOPHANE_FIT_GAP_MM],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+
+  frame.dispose();
+  relief.dispose();
+}
+
+console.log("\n10. Сглаживание: пиксельная ступенька растягивается в склон");
+
+{
+  const frame = flatFrame();
+  const params = reliefParams(120, 80, frame);
+  const plate = lithophanePlateSize(params);
+  const normalized = normalizeLithophaneParams(params);
+  const range =
+    normalized.lithophaneMaxThickness - normalized.lithophaneMinThickness;
+
+  for (const [note, source, minRatio, maxRatio] of [
+    // Шахматка — предельный случай: ступенька в один пиксель. Выборка по
+    // площади обязана её усреднить, иначе на буквах видна лесенка.
+    ["шахматка 1 px", chessFrame(400, 267), 0, 0.65],
+    // Штрихи логотипа в два-три пикселя — это буквы: контраст должен остаться.
+    ["штрих 2 px", stripeFrame(400, 267, 2), 0.9, 1],
+    ["штрих 3 px", stripeFrame(400, 267, 3), 0.9, 1],
+  ] as const) {
+    const geometry = createLithophaneReliefGeometry(
+      reliefParams(120, 80, source),
+    );
+    const spread = faceSpread(geometry, plate.width, plate.height);
+    const ratio = (spread.max - spread.min) / range;
+
+    console.log(
+      `  ${note}: толщина ${spread.min.toFixed(3)}…${spread.max.toFixed(
+        3,
+      )} мм, доля размаха ${ratio.toFixed(2)}`,
+    );
+
+    checkRange(
+      `${note}: сглаживание ${minRatio === 0 ? "гасит" : "сохраняет"} размах`,
+      [ratio],
+      minRatio,
+      maxRatio,
+    );
+
+    geometry.dispose();
+  }
+}
+
 console.log("");
+
 
 if (failures > 0) {
   console.log(`Провалено проверок: ${failures}`);
