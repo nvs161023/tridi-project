@@ -111,6 +111,8 @@ import {
   LITHOPHANE_MOUNTS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_RESOLUTION,
+  LITHOPHANE_SHAPES,
+  LITHOPHANE_SHAPE_LABELS,
   MODEL_TYPE_LABELS,
   PEN_SHAPES,
   PEN_SHAPE_LABELS,
@@ -125,6 +127,7 @@ import {
   VASE_PATTERN_LABELS,
   VASE_SHAPES,
   VASE_SHAPE_LABELS,
+  lithophaneShapeHasMounts,
   sanitizeKeychainText,
   sanitizeSignText,
   type BoxPresetId,
@@ -143,6 +146,7 @@ import {
   type LithophaneBrightnessGrid,
   type LithophaneLightSource,
   type LithophaneMount,
+  type LithophaneShape,
   type ModelType,
   type PatternLayer,
   type PenShape,
@@ -190,6 +194,7 @@ type SizeParam = Exclude<
   | "hasLid"
   | "lithoFrame"
   | "lithoMount"
+  | "lithoShape"
   | "lithophaneBrightness"
   | "planterShape"
   | "planterDrainage"
@@ -347,6 +352,14 @@ type ParameterPanelProps = {
   onLithoFrameChange: (hasFrame: boolean) => void;
   /** Крепление литофана: подставка, настенные петли или ничего. */
   onLithoMountChange: (mount: LithophaneMount) => void;
+  /**
+   * Форма панели литофана: плоская, изогнутая по дуге или полуцилиндр.
+   *
+   * У изогнутой формы и полуцилиндра креплений нет: паз, стойка и световой короб
+   * вырезаны в плоской рамке. Радиус изгиба правится слайдером через
+   * `onParamChange`.
+   */
+  onLithoShapeChange: (shape: LithophaneShape) => void;
   /**
    * Источник света в базе открытой арки: лента, USB-лампа, патрон E27 или
    * ничего. Другие крепления выборок под свет не имеют, поэтому список виден
@@ -1519,6 +1532,7 @@ export function ParameterPanel({
   onBoxPresetChange,
   onLithoFrameChange,
   onLithoMountChange,
+  onLithoShapeChange,
   onLithoLightSourceChange,
   onLithophaneBrightnessChange,
   onPlanterShapeChange,
@@ -4220,6 +4234,42 @@ export function ParameterPanel({
             />
           </div>
 
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Плоская панель — обычный литофан: рельеф по плоскости. Изогнутая гнётся по дуге вокруг вертикальной оси — край уходит назад, а ширина кадра на поверхности не меняется, поэтому фото не сжимается. Полуцилиндр заворачивается на 180°: он стоит на столе сам или надевается на круглую LED-лампу. У изогнутой формы и полуцилиндра креплений нет — паз, стойка и световой короб вырезаны в плоской рамке."
+              label="Форма панели"
+              onChange={onLithoShapeChange}
+              options={LITHOPHANE_SHAPES.map((shape) => ({
+                label: LITHOPHANE_SHAPE_LABELS[shape],
+                value: shape,
+              }))}
+              value={params.lithoShape}
+            />
+
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">
+              {params.lithoShape === "curved"
+                ? "Панель гнётся по дуге выбранного радиуса: центр остаётся на месте, а край уходит назад на R − √(R² − x²). Рамка гнётся вместе с плитой, поэтому зазор посадки 0.2 мм по всему периметру сохраняется. Панель стоит на столе сама — опорой служит дуга нижней кромки."
+                : params.lithoShape === "cylinder"
+                  ? "Полуцилиндр 180°: радиус равен ширине панели, делённой на π, поэтому рельеф заворачивается ровно на половину окружности. Рельеф остаётся снаружи, колба входит внутрь. Рамка гнётся вместе с плитой и держит края, крепление не печатается."
+                  : "Плоская панель: рельеф идёт по плоскости, рамка и крепление собираются как раньше. Это форма из референсов — изогнутую выбирают, когда нужна равномерная подсветка или необычный вид."}
+            </p>
+
+            {params.lithoShape === "curved" ? (
+              <div className="mt-5">
+                <NumberSlider
+                  hint="Радиус дуги. 250 мм — пологий изгиб: на панели 120 мм край уходит назад на 7 мм. Меньше радиус — круче дуга и заметнее «экран», больше — почти плоско."
+                  label="Радиус изгиба"
+                  max={CONSTRUCTOR_LIMITS.lithoCurveRadius.max}
+                  min={CONSTRUCTOR_LIMITS.lithoCurveRadius.min}
+                  onChange={(value) => onParamChange("lithoCurveRadius", value)}
+                  step={CONSTRUCTOR_LIMITS.lithoCurveRadius.step}
+                  unit="мм"
+                  value={params.lithoCurveRadius}
+                />
+              </div>
+            ) : null}
+          </div>
+
           <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
             <input
               checked={params.lithoFrame}
@@ -4239,7 +4289,7 @@ export function ParameterPanel({
             </span>
           </label>
 
-          {params.lithoFrame ? (
+          {params.lithoFrame && lithophaneShapeHasMounts(params.lithoShape) ? (
             <div className="mt-6 border-t border-white/10 pt-5">
               <ParameterSelect
                 label="Крепление"
@@ -4289,8 +4339,9 @@ export function ParameterPanel({
             </div>
           ) : (
             <p className="mt-4 text-xs leading-relaxed text-slate-300">
-              Рамка выключена: печатается только плита рельефа, крепления нет —
-              их паз вырезан в рамке.
+              {params.lithoFrame
+                ? "У изогнутой панели и полуцилиндра крепления нет: паз подставки, задняя стойка и световой короб вырезаны в плоской рамке, а гнуть их вместе с плитой нельзя — база встала бы на стол дугой. Выбранное крепление не потеряно: вернитесь к плоской форме, и оно снова появится."
+                : "Рамка выключена: печатается только плита рельефа, крепления нет — их паз вырезан в рамке."}
             </p>
           )}
 

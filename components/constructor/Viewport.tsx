@@ -30,6 +30,7 @@ import {
   JEWELRY_CONFIG_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PREVIEW_RESOLUTION,
+  LITHOPHANE_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   downsampleLithophaneBrightness,
@@ -38,6 +39,7 @@ import {
   keychainShapeLabel,
   keychainTextDecoration,
   lithophaneHasStand,
+  lithophaneShapeHasMounts,
   vasePatternLabel,
   type ConstructorParams,
   type KeychainFontId,
@@ -1402,9 +1404,14 @@ export function Viewport({
     }
 
     if (params.model === "lithophane") {
-      // С подставкой сборка наклонена и стоит на базе 6–9 мм, поэтому габарит
-      // берём из готовой сетки: камера не должна обрезать верх рамки.
-      if (lithophaneHasStand(params.lithoMount)) {
+      // С подставкой сборка наклонена и стоит на базе 6–9 мм, а у изогнутой
+      // панели габарит по X не совпадает с шириной развёртки: у полуцилиндра
+      // силуэт вдвое уже, у дуги чуть шире. В этих случаях габарит берём из
+      // готовой сетки — камера не должна обрезать верх рамки.
+      if (
+        params.lithoShape !== "flat" ||
+        lithophaneHasStand(params.lithoMount)
+      ) {
         geometry.computeBoundingBox();
         const box = geometry.boundingBox;
 
@@ -1479,7 +1486,7 @@ export function Viewport({
           : params.model === "box"
             ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
             : params.model === "lithophane"
-              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : "без рамки"}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}`
+              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, ${lithophaneShapeHasMounts(params.lithoShape) ? `крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : `форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»`}` : "без рамки"}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}`
               : params.model === "planter"
                 ? `3D-предпросмотр кашпо «${PLANTER_SHAPE_LABELS[params.planterShape]}» ${params.planterSize} миллиметров по ключу и высотой ${params.planterHeight} миллиметров, стенка ${params.planterWall} миллиметров, ${params.planterDrainage ? "с дренажными отверстиями и поддоном" : "без поддона"}`
                 : params.model === "coaster"

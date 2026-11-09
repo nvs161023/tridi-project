@@ -49,6 +49,7 @@ import {
   JEWELRY_CONFIG_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PART_LABELS,
+  LITHOPHANE_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
@@ -70,6 +71,7 @@ import {
   listSignBlocks,
   listSignLetters,
   lithophaneHasStand,
+  lithophaneShapeHasMounts,
   lithophaneStlFileName,
   normalizeConstructorParams,
   nextPatternLayer,
@@ -92,6 +94,7 @@ import {
   type LithophaneLightSource,
   type LithophaneMount,
   type LithophanePart,
+  type LithophaneShape,
   type ModelType,
   type PatternLayer,
   type PenShape,
@@ -157,6 +160,7 @@ type SizeParam = Exclude<
   | "hasLid"
   | "lithoFrame"
   | "lithoMount"
+  | "lithoShape"
   | "lithophaneBrightness"
   | "planterShape"
   | "planterDrainage"
@@ -315,7 +319,10 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
     // основании, петли подвеса — часть рамки.
     const parts: LithophanePart[] = ["relief", "frame"];
 
-    if (lithophaneHasStand(params.lithoMount)) {
+    if (
+      lithophaneShapeHasMounts(params.lithoShape) &&
+      lithophaneHasStand(params.lithoMount)
+    ) {
       parts.push("stand");
     }
 
@@ -1032,6 +1039,18 @@ export function ConstructorClient({
   }
 
   /**
+   * Форма панели: плоская, изогнутая по дуге или полуцилиндр.
+   *
+   * Крепление при этом не сбрасывается: у изогнутой панели и полуцилиндра его
+   * просто не печатают, и вернувшись к плоской форме человек получает прежнее.
+   */
+  function updateLithoShape(lithoShape: LithophaneShape) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lithoShape }),
+    );
+  }
+
+  /**
    * Источник света в базе арки.
    *
    * Крепление не меняется: выборок под свет нет только у сплошных подставок, и
@@ -1363,6 +1382,7 @@ export function ConstructorClient({
             onLithoFrameChange={updateLithoFrame}
             onLithoLightSourceChange={updateLithoLightSource}
             onLithoMountChange={updateLithoMount}
+            onLithoShapeChange={updateLithoShape}
             onLithophaneBrightnessChange={updateLithophaneBrightness}
             onModelChange={updateModel}
             onNfcChange={updateKeychainNfc}
@@ -1455,9 +1475,10 @@ export function ConstructorClient({
                     {params.lithophaneWidth} × {params.lithophaneHeight} мм · рельеф{" "}
                     {params.lithophaneMinThickness.toFixed(1)}–
                     {params.lithophaneMaxThickness.toFixed(1)} мм ·{" "}
-                    {params.lithoFrame
-                      ? `рамка · ${LITHOPHANE_MOUNT_LABELS[params.lithoMount].toLowerCase()}`
-                      : "без рамки"}
+                    {params.lithoFrame ? "рамка" : "без рамки"} ·{" "}
+                    {lithophaneShapeHasMounts(params.lithoShape)
+                      ? LITHOPHANE_MOUNT_LABELS[params.lithoMount].toLowerCase()
+                      : LITHOPHANE_SHAPE_LABELS[params.lithoShape].toLowerCase()}
                   </>
                 ) : params.model === "planter" ? (
                   <>

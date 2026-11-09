@@ -58,6 +58,7 @@ import {
   isLithophaneLightSource,
   isLithophaneMount,
   isLithophanePart,
+  isLithophaneShape,
   isPenShape,
   isPlanterShape,
   isSignChannelWidth,
@@ -76,6 +77,7 @@ import {
   listSignBlocks,
   lithophaneHasStand,
   lithophaneMeshSize,
+  lithophaneShapeHasMounts,
   lithophaneStlFileName,
   normalizeBoxParams,
   normalizeCoasterParams,
@@ -1074,11 +1076,14 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
  * появятся ли петли на рамке, — а нормализация сама снимает крепление, когда
  * рамка выключена. Источник света тоже из списка: он выбирает, что вырезано в
  * базе арки (канал под ленту, гнездо под USB-лампу или патрон), и опечатка в
- * запросе не должна превращаться в базу без крепления. Деталь (`part`) тоже из
- * списка, причём `frame`, `stand` и
- * `all` без рамки отклоняются: без неё в файле нечего собирать. Подставка
+ * запросе не должна превращаться в базу без крепления. Форма панели — из списка
+ * `flat`/`curved`/`cylinder`, радиус изгиба — в границах слайдера: старый клиент
+ * не присылает ни того, ни другого и получает плоскую панель. Деталь (`part`)
+ * тоже из списка, причём `frame`, `stand` и `all` без рамки отклоняются: без неё
+ * в файле нечего собирать. Подставка
  * отдельным файлом имеет смысл только при своём креплении (ножка или массивное
- * основание) — иначе клиент просит деталь, которой нет в выбранной сборке.
+ * основание) и только у плоской панели — иначе клиент просит деталь, которой нет
+ * в выбранной сборке.
  */
 function parseLithophaneParams(
   body: Record<string, unknown>,
@@ -1093,6 +1098,8 @@ function parseLithophaneParams(
     lithophaneBrightnessHeight,
     lithoFrame = DEFAULT_LITHOPHANE_PARAMS.lithoFrame,
     lithoMount = DEFAULT_LITHOPHANE_PARAMS.lithoMount,
+    lithoShape = DEFAULT_LITHOPHANE_PARAMS.lithoShape,
+    lithoCurveRadius = DEFAULT_LITHOPHANE_PARAMS.lithoCurveRadius,
     lithoLightSource = DEFAULT_LITHOPHANE_PARAMS.lithoLightSource,
     part = "all",
   } = body;
@@ -1126,10 +1133,17 @@ function parseLithophaneParams(
     ) ||
     typeof lithoFrame !== "boolean" ||
     !isLithophaneMount(lithoMount) ||
+    !isLithophaneShape(lithoShape) ||
+    !isNumberInRange(
+      lithoCurveRadius,
+      CONSTRUCTOR_LIMITS.lithoCurveRadius.min,
+      CONSTRUCTOR_LIMITS.lithoCurveRadius.max,
+    ) ||
     !isLithophaneLightSource(lithoLightSource) ||
     !isLithophanePart(part) ||
     (!lithoFrame && part !== "relief") ||
-    (part === "stand" && !lithophaneHasStand(lithoMount))
+    (part === "stand" &&
+      !(lithophaneShapeHasMounts(lithoShape) && lithophaneHasStand(lithoMount)))
   ) {
     return null;
   }
@@ -1153,6 +1167,8 @@ function parseLithophaneParams(
       lithophaneBrightnessHeight: grid.height,
       lithoFrame,
       lithoMount,
+      lithoShape,
+      lithoCurveRadius,
       lithoLightSource,
     }),
     part,

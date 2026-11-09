@@ -15,6 +15,7 @@ import {
   LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
   lithophaneHasStand,
   lithophaneMeshSize,
+  lithophaneShapeHasMounts,
   normalizeLithophaneParams,
   type LithophaneLightSource,
   type LithophaneMount,
@@ -67,6 +68,14 @@ import {
  * пересекающихся замкнутых кусков и `mergeGeometries`, как вывеска и подставка.
  * Нахлёст объединяемых кусков — BODY_OVERLAP_MM: слайсер видит один объект, а
  * каждая оболочка остаётся watertight.
+ *
+ * Форма панели (`lithoShape`) — отдельный режим поверх той же сборки. Плоская
+ * панель остаётся heightfield по плоскости. Изогнутая гнётся по дуге радиуса
+ * `lithoCurveRadius` вокруг вертикальной оси, полуцилиндр — на 180° с радиусом
+ * из ширины (R = ширина / π) и стоит на столе сам. Гнётся уже готовая деталь:
+ * каждое сечение поворачивается на угол x / R, поэтому сетка рельефа, посадка
+ * плиты в паз и толщины остаются прежними. Крепления у этих форм отключены:
+ * паз, стойка и короб вырезаны в плоской рамке, и база встала бы на стол дугой.
  */
 
 /** Ширина бортика рамки по периметру, мм. */
@@ -707,6 +716,294 @@ function roundPlateCorners(
 }
 
 /**
+ * Радиус изгиба панели, мм: null — форма плоская.
+ *
+ * У изогнутой панели радиус берётся из слайдера. Дуга при этом не доходит до
+ * полукруга: панель не шире 200 мм, а радиус не меньше 100 мм, поэтому угол
+ * заворота ограничен 114°. У полуцилиндра радиус выводится из ширины — половина
+ * окружности укладывается ровно в ширину панели, откуда R = ширина / π: панель
+ * 120 мм садится на лампу диаметром 76 мм.
+ *
+ * Радиус общий для плиты и рамки: обе детали получают одно и то же смещение по
+ * X, поэтому посадка плиты в паз остаётся прежней.
+ */
+function lithophaneBendRadius(normalized: LithophaneParams): number | null {
+  if (normalized.lithoShape === "cylinder") {
+    return normalized.lithophaneWidth / Math.PI;
+  }
+
+  if (normalized.lithoShape === "curved") {
+    return normalized.lithoCurveRadius;
+  }
+
+  return null;
+}
+
+/**
+ * Гнёт готовую деталь в цилиндр вокруг вертикальной оси.
+ *
+ * Развёртка детали сохраняется: точка (x, z) встаёт на радиус R + z под углом
+ * t = x / R. Поэтому ширина панели на поверхности не меняется — кадр не
+ * сжимается к краям, — а прогиб повторяет зависимость z = R - sqrt(R^2 - x^2) с
+ * точностью до второго порядка: R(1 - cos(x / R)) = x^2 / (2R). Сама формула-
+ * проекция годится только для малых углов: при x около R производная dx'/dx
+ * обращается в ноль, и сетка складывается в плоскость.
+ *
+ * Ось стоит на тыле детали (Z = -R): рельеф остаётся на выпуклой стороне, а
+ * вогнутая смотрит на свет. Для полуцилиндра это и есть ночник — колба входит
+ * внутрь, кадр светится снаружи, а панель стоит на дуге нижней кромки.
+ *
+ * Толщина переносится без искажений: слои идут по радиусу, поэтому плита и
+ * рамка гнутся одинаково и зазор посадки 0.2 мм остаётся прежним.
+ */
+function bendGeometryAroundY(geometry: BufferGeometry, radius: number): void {
+  const position = geometry.getAttribute("position");
+
+  for (let index = 0; index < position.count; index += 1) {
+    const angle = position.getX(index) / radius;
+    const radial = radius + position.getZ(index);
+
+    position.setX(index, radial * Math.sin(angle));
+    position.setZ(index, -radius + radial * Math.cos(angle));
+  }
+
+  // Нормали считаются заново: сечение повернулось, и прежние векторы больше не
+  // перпендикулярны поверхности. Сварка при этом цела — совпадавшие вершины
+  // получили одинаковые координаты и остались одной точкой.
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+}
+
+/**
+ * Ширина полосы, на которые режется деталь перед изгибом, мм.
+ *
+ * Изгиб считается по вершинам, поэтому длинная грань после него осталась бы
+ * плоской хордой: верхняя кромка рамки на панели 200 мм стала бы одной гранью
+ * через всю ширину, а тыл плиты — конусом из веера. Полоса 4 мм повторяет дугу
+ * с ошибкой step² / (8R) = 0.05 мм на самом тесном полуцилиндре (R = 38 мм у
+ * панели 120 мм): это в восемь раз меньше сопла. Плата — треугольники полос: у
+ * панели 120 мм их на 14 % больше, чем у плоской, у панели 200 × 150 — на 27 %.
+ * Бюджет в миллион треугольников проверяется до изгиба, поэтому запас на полосы
+ * остаётся у самых крупных панелей.
+ */
+const LITHOPHANE_BEND_STRIP_MM = 4;
+
+/**
+ * Режет треугольники плоскостями X = const на полосы шириной не больше `step`.
+ *
+ * Нужна только изогнутым формам: плоская деталь и так состоит из коротких
+ * граней — сетка рельефа идёт шагом 0.3 мм, — а тыл плиты собран веером от
+ * центра к контуру, и его лучи тянутся через всю ширину. После изгиба такой луч
+ * стал бы хордой, поэтому длинные рёбра режутся на полосы.
+ *
+ * Точки разреза на общем ребре двух треугольников считаются одинаково: концы
+ * ребра упорядочиваются по координатам, и обе грани приходят в одну вершину.
+ * Поэтому оболочка остаётся замкнутой, а соседние полосы сходятся без щели.
+ *
+ * Вершины и точки разреза живут в одной таблице, а нормали пересчитывает
+ * вызывающая сторона: рельефу они нужны по своей сетке, рамке — по сварке.
+ */
+function subdivideAlongX(
+  geometry: BufferGeometry,
+  step: number,
+): BufferGeometry {
+  const position = geometry.getAttribute("position");
+  const uv = geometry.getAttribute("uv");
+  const index = geometry.getIndex();
+  const positions: number[] = [];
+  const uvs: number[] = [];
+
+  for (let vertex = 0; vertex < position.count; vertex += 1) {
+    positions.push(
+      position.getX(vertex),
+      position.getY(vertex),
+      position.getZ(vertex),
+    );
+    uvs.push(uv ? uv.getX(vertex) : 0, uv ? uv.getY(vertex) : 0);
+  }
+
+  const indices: number[] = [];
+  const splitPoints = new Map<string, number>();
+
+  /** Сравнение концов ребра: от него зависит, с какой стороны считать разрез. */
+  const isOrdered = (from: number, to: number): boolean => {
+    for (let axis = 0; axis < 3; axis += 1) {
+      const difference =
+        positions[from * 3 + axis] - positions[to * 3 + axis];
+
+      if (difference !== 0) {
+        return difference < 0;
+      }
+    }
+
+    return true;
+  };
+
+  /** Точка разреза ребра плоскостью X = plane. */
+  const splitEdge = (from: number, to: number, plane: number): number => {
+    const a = isOrdered(from, to) ? from : to;
+    const b = a === from ? to : from;
+    const startX = positions[a * 3];
+    const endX = positions[b * 3];
+    const ratio = (plane - startX) / (endX - startX);
+
+    // Разрез ровно в конце ребра новых вершин не даёт: иначе на кромке копились
+    // бы точки, а вместе с ними и треугольники нулевой площади.
+    if (ratio <= 1e-6) {
+      return a;
+    }
+
+    if (ratio >= 1 - 1e-6) {
+      return b;
+    }
+
+    const coordinates = [plane];
+
+    for (const axis of [1, 2]) {
+      coordinates.push(
+        positions[a * 3 + axis] +
+          (positions[b * 3 + axis] - positions[a * 3 + axis]) * ratio,
+      );
+    }
+
+    for (const axis of [0, 1]) {
+      coordinates.push(
+        uvs[a * 2 + axis] + (uvs[b * 2 + axis] - uvs[a * 2 + axis]) * ratio,
+      );
+    }
+
+    const key = coordinates.map((value) => value.toFixed(6)).join(":");
+    const known = splitPoints.get(key);
+
+    if (known !== undefined) {
+      return known;
+    }
+
+    const vertex = positions.length / 3;
+
+    positions.push(coordinates[0], coordinates[1], coordinates[2]);
+    uvs.push(coordinates[3], coordinates[4]);
+    splitPoints.set(key, vertex);
+
+    return vertex;
+  };
+
+  /** Точки разреза ребра плоскостями сетки — по порядку от начала к концу. */
+  const edgeSplits = (from: number, to: number): number[] => {
+    const fromX = positions[from * 3];
+    const toX = positions[to * 3];
+
+    if (Math.abs(toX - fromX) <= step) {
+      return [];
+    }
+
+    const minX = Math.min(fromX, toX);
+    const maxX = Math.max(fromX, toX);
+    const splitted: number[] = [];
+    // Плоскости кратны step и общие для всей детали: сосед по ребру считает те
+    // же точки разреза и приходит в те же вершины.
+    let plane = (Math.floor(minX / step) + 1) * step;
+
+    while (plane < maxX - 1e-6) {
+      if (plane > minX + 1e-6) {
+        splitted.push(splitEdge(from, to, plane));
+      }
+
+      plane += step;
+    }
+
+    return toX > fromX ? splitted : splitted.reverse();
+  };
+
+  /**
+   * Треугольники по многоугольнику.
+   *
+   * Если рёбра не разрезаны, многоугольник — сам треугольник. Иначе веер идёт из
+   * центра тяжести: разрез добавляет точки на ребро, и веер из вершины дал бы на
+   * этом ребре вырожденные треугольники — полосы остались бы без граней, а тыл
+   * плиты после изгиба превратился бы в одну хорду.
+   */
+  const pushFan = (polygon: number[]): void => {
+    const emit = (a: number, b: number, c: number): void => {
+      const abx = positions[b * 3] - positions[a * 3];
+      const aby = positions[b * 3 + 1] - positions[a * 3 + 1];
+      const abz = positions[b * 3 + 2] - positions[a * 3 + 2];
+      const acx = positions[c * 3] - positions[a * 3];
+      const acy = positions[c * 3 + 1] - positions[a * 3 + 1];
+      const acz = positions[c * 3 + 2] - positions[a * 3 + 2];
+      const nx = aby * acz - abz * acy;
+      const ny = abz * acx - abx * acz;
+      const nz = abx * acy - aby * acx;
+
+      if (Math.hypot(nx, ny, nz) <= 1e-12) {
+        return;
+      }
+
+      indices.push(a, b, c);
+    };
+
+    if (polygon.length === 3) {
+      emit(polygon[0], polygon[1], polygon[2]);
+      return;
+    }
+
+    const center = positions.length / 3;
+    const sums = [0, 0, 0, 0, 0];
+
+    for (const vertex of polygon) {
+      for (let axis = 0; axis < 3; axis += 1) {
+        sums[axis] += positions[vertex * 3 + axis];
+      }
+
+      for (let axis = 0; axis < 2; axis += 1) {
+        sums[3 + axis] += uvs[vertex * 2 + axis];
+      }
+    }
+
+    positions.push(
+      sums[0] / polygon.length,
+      sums[1] / polygon.length,
+      sums[2] / polygon.length,
+    );
+    uvs.push(sums[3] / polygon.length, sums[4] / polygon.length);
+
+    for (let corner = 0; corner < polygon.length; corner += 1) {
+      emit(center, polygon[corner], polygon[(corner + 1) % polygon.length]);
+    }
+  };
+
+  const triangles = (index?.count ?? position.count) / 3;
+
+  for (let triangle = 0; triangle < triangles; triangle += 1) {
+    const corners = [0, 1, 2].map((corner) =>
+      index ? index.getX(triangle * 3 + corner) : triangle * 3 + corner,
+    );
+    // Треугольник обходится по кругу, и на каждом ребре вставляются его точки
+    // разреза: получается выпуклый многоугольник, который снова режется на
+    // треугольники. Режется ребро, а не грань, поэтому сосед по ребру получает
+    // ровно те же вершины, и шва между полосами не появляется.
+    const polygon: number[] = [];
+
+    for (let corner = 0; corner < 3; corner += 1) {
+      const from = corners[corner];
+
+      polygon.push(from, ...edgeSplits(from, corners[(corner + 1) % 3]));
+    }
+
+    pushFan(polygon);
+  }
+
+  const subdivided = new BufferGeometry();
+
+  subdivided.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  subdivided.setIndex(indices);
+  subdivided.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+
+  return subdivided;
+}
+
+/**
  * Замкнутая плита рельефа: heightfield по габаритам плиты, боковины и тыл.
  *
  * Сетка считается из габаритов (`lithophaneMeshSize`): шаг вершины 0.3 мм, а на
@@ -944,13 +1241,27 @@ export function createLithophaneReliefGeometry(
     ? lithophaneFrameMetrics(normalized).plateCornerRadius
     : 0;
 
-  return createReliefBody(
+  const geometry = createReliefBody(
     normalized,
     plate.width,
     plate.height,
     LITHOPHANE_BORDER_MM,
     cornerRadius,
   );
+  const radius = lithophaneBendRadius(normalized);
+
+  if (radius === null) {
+    return geometry;
+  }
+
+  // Сначала нарезка полосами, потом изгиб: иначе фан тыла и боковины остались бы
+  // плоскими хордами через всю ширину плиты.
+  const strips = subdivideAlongX(geometry, LITHOPHANE_BEND_STRIP_MM);
+
+  geometry.dispose();
+  bendGeometryAroundY(strips, radius);
+
+  return strips;
 }
 
 /**
@@ -1378,14 +1689,35 @@ export function createLithophaneFrameGeometry(
     }),
   ];
 
-  if (normalized.lithoMount === "hook") {
+  if (
+    normalized.lithoMount === "hook" &&
+    lithophaneShapeHasMounts(normalized.lithoShape)
+  ) {
     bodies.push(...createWallBoxBodies(width, height));
   }
 
   // Рамка собирается из двух колец и петель, но печатается одной деталью:
   // сварка вершин и пересчёт нормалей делают её поверхность гладкой — на
   // предпросмотре она читается литой и матовой, а не набором плоскостей.
-  return smoothGeometryNormals(mergeBodies(bodies, "рамки"));
+  const merged = mergeBodies(bodies, "рамки");
+  const radius = lithophaneBendRadius(normalized);
+
+  if (radius === null) {
+    return smoothGeometryNormals(merged);
+  }
+
+  // Нарезка идёт до сварки: верхняя и нижняя кромки рамки — по одной длинной
+  // грани, и без полос они остались бы хордами. Сварка после нарезки возвращает
+  // общие вершины полос, поэтому поверхность снова гладкая.
+  const strips = subdivideAlongX(merged, LITHOPHANE_BEND_STRIP_MM);
+  const frame = smoothGeometryNormals(strips);
+
+  merged.dispose();
+  // Радиус у рамки тот же, что у плиты: окно, полка и накладка получают то же
+  // смещение по X, поэтому зазор посадки по всему периметру не меняется.
+  bendGeometryAroundY(frame, radius);
+
+  return frame;
 }
 
 /**
@@ -2430,7 +2762,8 @@ function createArchStandGeometry(
  * открытой арки входят в тыл рамки, а низ рамки опущен в её паз, поэтому детали
  * держатся друг за друга.
  * Без рамки крепления нет (его паз вырезан в рамке), поэтому `all` возвращает
- * плиту.
+ * плиту. У изогнутой панели и полуцилиндра сборка — плита в рамке без наклона:
+ * подставка у этих форм не печатается, панель стоит сама.
  * Если деталь недоступна — например, `frame` при выключенной рамке, — функция
  * отдаёт рельеф: предпросмотр не должен падать из-за состояния формы. API такие
  * запросы отклоняет до построения.
@@ -2482,7 +2815,10 @@ export function createLithophaneGeometry(
     metrics.plateBack,
   );
 
-  if (lithophaneHasStand(normalized.lithoMount)) {
+  if (
+    lithophaneShapeHasMounts(normalized.lithoShape) &&
+    lithophaneHasStand(normalized.lithoMount)
+  ) {
     const tiltRadians = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
     const tilt = new Matrix4().makeRotationX(-tiltRadians);
     const baseTop = standBaseTop(normalized.lithoMount);

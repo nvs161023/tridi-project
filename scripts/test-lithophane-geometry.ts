@@ -115,9 +115,11 @@ import {
   CONSTRUCTOR_LIMITS,
   LITHOPHANE_VERTEX_STEP_MM,
   lithophaneMeshSize,
+  lithophaneShapeHasMounts,
   normalizeLithophaneParams,
   type LithophaneBrightnessGrid,
   type LithophaneParams,
+  type LithophaneShape,
 } from "../lib/constructor/params";
 
 /** Допуск габарита и толщины, мм. */
@@ -805,6 +807,44 @@ function downwardFaces(geometry: BufferGeometry, fromY: number): number {
   }
 
   return count;
+}
+
+/**
+ * Профиль изгиба: расстояние вершин от оси и угол заворота, градусы.
+ *
+ * Ось изгиба лежит на тыле детали (Z = −R), поэтому у плоской детали вершины
+ * стоят на разных расстояниях от неё, а у изогнутой — на R + толщина: это и есть
+ * признак цилиндра. Угол считается от плоскости симметрии, поэтому у
+ * полуцилиндра он доходит до ±90°, а размах говорит, на сколько градусов
+ * завернулась панель.
+ */
+function bendProfile(
+  geometry: BufferGeometry,
+  radius: number,
+): { minRadius: number; maxRadius: number; minAngle: number; maxAngle: number } {
+  const position = geometry.getAttribute("position");
+  let minRadius = Number.POSITIVE_INFINITY;
+  let maxRadius = Number.NEGATIVE_INFINITY;
+  let minAngle = Number.POSITIVE_INFINITY;
+  let maxAngle = Number.NEGATIVE_INFINITY;
+
+  for (let vertex = 0; vertex < position.count; vertex += 1) {
+    const x = position.getX(vertex);
+    const z = position.getZ(vertex);
+
+    minRadius = Math.min(minRadius, Math.hypot(x, z + radius));
+    maxRadius = Math.max(maxRadius, Math.hypot(x, z + radius));
+    minAngle = Math.min(
+      minAngle,
+      (Math.atan2(x, z + radius) * 180) / Math.PI,
+    );
+    maxAngle = Math.max(
+      maxAngle,
+      (Math.atan2(x, z + radius) * 180) / Math.PI,
+    );
+  }
+
+  return { minRadius, maxRadius, minAngle, maxAngle };
 }
 
 
@@ -2427,6 +2467,320 @@ console.log("\n16. Подвес: световой короб, окно под п
   );
 
   frame.dispose();
+}
+
+console.log("\n17. Форма панели: дуга по радиусу и полуцилиндр 180°");
+
+{
+  /*
+    Третья форма литофана — изогнутая панель. Плоская плита гнётся по дуге
+    вокруг вертикальной оси: сечение поворачивается на угол x / R, поэтому
+    ширина панели на поверхности не меняется, а прогиб повторяет зависимость
+    z = R − √(R² − x²) с точностью до второго порядка.
+    Раздел проверяет то, чего не видно на глаз: все вершины лежат на цилиндре
+    радиуса R (иначе «дуга» — это наклонная плоскость), угол заворота совпадает
+    с длиной дуги, оболочки остаются замкнутыми, сборка не тянет за собой
+    подставку, а полуцилиндр заворачивается ровно на 180°: его радиус —
+    ширина панели, делённая на π.
+  */
+  const width = 120;
+  const height = 80;
+  const radius = CONSTRUCTOR_LIMITS.lithoCurveRadius.defaultValue;
+  const maxThickness =
+    CONSTRUCTOR_LIMITS.lithophaneMaxThickness.defaultValue;
+  const curved: Partial<LithophaneParams> = {
+    lithophaneWidth: width,
+    lithophaneHeight: height,
+    lithoShape: "curved",
+  };
+  const plate = lithophanePlateSize(curved);
+  const halfPlate = plate.width / 2;
+  const halfWidth = width / 2;
+  // Передняя плоскость рамки: у плоской рамки это её габарит по Z. У изогнутой
+  // габарит по Z — это ещё и прогиб, поэтому толщину берём у плоской.
+  const frontZ = boxSize(
+    createLithophaneFrameGeometry({
+      lithophaneWidth: width,
+      lithophaneHeight: height,
+    }),
+  ).z;
+  const sagArc = radius * (1 - Math.cos(halfPlate / radius));
+  const sagProjection =
+    radius - Math.sqrt(radius * radius - halfPlate * halfPlate);
+  // Прогиб кромки рамки: её контур шире окна, поэтому дуга глубже плиточной.
+  const sagFrameArc = radius * (1 - Math.cos(halfWidth / radius));
+  const sagFrameProjection =
+    radius - Math.sqrt(radius * radius - halfWidth * halfWidth);
+  const relief = createLithophaneReliefGeometry(curved);
+  const frame = createLithophaneFrameGeometry(curved);
+  const reliefBend = bendProfile(relief, radius);
+  const frameBend = bendProfile(frame, radius);
+  const assembly = createLithophaneGeometry({ ...curved, lithoMount: "arch" });
+
+  relief.computeBoundingBox();
+  const reliefBack = -(relief.boundingBox?.min.z ?? Number.NaN);
+
+  console.log(
+    `  дуга R${radius}: плита уходит назад на ${reliefBack.toFixed(3)} мм ` +
+      `(по дуге ${sagArc.toFixed(3)}, по проекции ${sagProjection.toFixed(3)}), ` +
+      `заворот ${frameBend.minAngle.toFixed(2)}…${frameBend.maxAngle.toFixed(2)}°`,
+  );
+
+  check(
+    "дуга: по умолчанию радиус 250 мм",
+    normalizeLithophaneParams({ lithoShape: "curved" }).lithoCurveRadius,
+    radius,
+  );
+  check(
+    "дуга: радиус встаёт на шаг слайдера",
+    normalizeLithophaneParams({ lithoCurveRadius: 137 }).lithoCurveRadius,
+    140,
+  );
+  check(
+    "дуга: незнакомая форма превращается в плоскую",
+    normalizeLithophaneParams({
+      lithoShape: "spiral" as unknown as LithophaneShape,
+    }).lithoShape,
+    "flat",
+  );
+  // Вершины плиты лежат на цилиндре: от оси Z = −R расстояние равно R, а лицо
+  // рельефа отстоит от тыла не дальше максимальной толщины.
+  checkRange(
+    "дуга: плита лежит на цилиндре радиуса R",
+    [reliefBend.minRadius - radius, reliefBend.maxRadius - radius - maxThickness],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "дуга: прогиб по z = R − √(R² − x²)",
+    [reliefBack],
+    sagArc - TOLERANCE_MM,
+    sagProjection + TOLERANCE_MM,
+  );
+  checkRange(
+    "дуга: угол заворота равен длине дуги",
+    [
+      reliefBend.maxAngle - (halfPlate / radius) * (180 / Math.PI),
+      reliefBend.minAngle + (halfPlate / radius) * (180 / Math.PI),
+    ],
+    -0.05,
+    0.05,
+  );
+  // Рамка гнётся тем же радиусом, но её контур шире окна: угол считается по
+  // половине габарита панели, а передняя плоскость отстоит на frontZ.
+  checkRange(
+    "дуга: рамка гнётся вместе с плитой",
+    [
+      frameBend.minRadius - radius,
+      frameBend.maxRadius - radius - frontZ,
+      frameBend.maxAngle - (halfWidth / radius) * (180 / Math.PI),
+    ],
+    -0.05,
+    0.05,
+  );
+  check("дуга: оболочки замкнуты", openEdges(relief) + openEdges(frame), 0);
+  check("дуга: NaN 0", nanVertices(relief) + nanVertices(frame), 0);
+
+  const assemblySize = boxSize(assembly);
+  const expectedWidth = 2 * (radius + frontZ) * Math.sin(halfWidth / radius);
+
+  checkRange(
+    "дуга: габарит сборки по X и высота панели",
+    [assemblySize.x - expectedWidth, assemblySize.y - height],
+    -0.02,
+    0.02,
+  );
+  checkRange(
+    "дуга: глубина сборки — дуга плюс передняя плоскость",
+    [assemblySize.z],
+    frontZ + sagFrameArc - TOLERANCE_MM,
+    frontZ + sagFrameProjection + TOLERANCE_MM,
+  );
+  check("дуга: сборка замкнута", openEdges(assembly), 0);
+
+  relief.dispose();
+  frame.dispose();
+  assembly.dispose();
+}
+
+console.log("\n18. Крепления и бюджет изогнутых форм");
+
+{
+  /*
+    У изогнутой панели и полуцилиндра креплений нет: паз подставки, задняя
+    стойка и световой короб вырезаны в плоской рамке, а гнуть их вместе с плитой
+    нельзя — база встала бы на стол дугой. Выбор человека при этом не
+    сбрасывается: вернувшись к плоской форме, он получает то же крепление.
+    Проверяется, что сборка с креплением совпадает со сборкой без него, что
+    световой короб не появляется на изогнутой рамке и что полосы нарезки не
+    выбивают плиту из бюджета треугольников.
+  */
+  const width = 120;
+  const height = 80;
+  const radius = CONSTRUCTOR_LIMITS.lithoCurveRadius.defaultValue;
+  const cylinderRadius = width / Math.PI;
+  const curved: Partial<LithophaneParams> = {
+    lithophaneWidth: width,
+    lithophaneHeight: height,
+    lithoShape: "curved",
+  };
+  const cylinder: Partial<LithophaneParams> = {
+    lithophaneWidth: width,
+    lithophaneHeight: height,
+    lithoShape: "cylinder",
+  };
+  const frontZ = boxSize(
+    createLithophaneFrameGeometry({
+      lithophaneWidth: width,
+      lithophaneHeight: height,
+    }),
+  ).z;
+  const flatPlate = createLithophaneReliefGeometry({
+    lithophaneWidth: width,
+    lithophaneHeight: height,
+  });
+  const curvedPlate = createLithophaneReliefGeometry(curved);
+  const curvedStand = createLithophaneGeometry({ ...curved, lithoMount: "arch" });
+  const curvedBare = createLithophaneGeometry({ ...curved, lithoMount: "none" });
+  const flatStand = createLithophaneGeometry({
+    lithophaneWidth: width,
+    lithophaneHeight: height,
+    lithoMount: "arch",
+  });
+  const hookFrame = createLithophaneFrameGeometry({
+    ...curved,
+    lithoMount: "hook",
+  });
+  const plainFrame = createLithophaneFrameGeometry({
+    ...curved,
+    lithoMount: "none",
+  });
+  const hookSize = boxSize(hookFrame);
+  const plainSize = boxSize(plainFrame);
+
+  curvedStand.computeBoundingBox();
+  flatStand.computeBoundingBox();
+
+  console.log(
+    `  изогнутая плита: ${triangleCount(curvedPlate)} треугольников против ` +
+      `${triangleCount(flatPlate)} у плоской, сборка уходит назад на ` +
+      `${(curvedStand.boundingBox?.min.z ?? Number.NaN).toFixed(2)} мм`,
+  );
+
+  check(
+    "крепления: есть только у плоской формы",
+    [
+      lithophaneShapeHasMounts("flat"),
+      lithophaneShapeHasMounts("curved"),
+      lithophaneShapeHasMounts("cylinder"),
+    ],
+    [true, false, false],
+  );
+  // Нормализация сохраняет выбор: иначе переключение формы туда и обратно
+  // стирало бы крепление, которое человек уже настроил.
+  check(
+    "крепления: выбор переживает смену формы",
+    normalizeLithophaneParams({ lithoShape: "curved", lithoMount: "hook" })
+      .lithoMount,
+    "hook",
+  );
+  check(
+    "крепления: изогнутая сборка не тянет подставку",
+    [triangleCount(curvedStand), triangleCount(curvedBare)],
+    [triangleCount(curvedBare), triangleCount(curvedBare)],
+  );
+  checkRange(
+    "крепления: у изогнутой сборки нет базы под столом",
+    [curvedStand.boundingBox?.min.z ?? Number.NaN],
+    -(radius * (1 - Math.cos(width / 2 / radius))) - 0.5,
+    0,
+  );
+  check(
+    "крепления: плоская сборка с аркой по-прежнему глубже",
+    (flatStand.boundingBox?.min.z ?? 0) < -20,
+    true,
+  );
+  // Короб подвеса гнётся вместе с рамкой, поэтому у изогнутой формы его просто
+  // нет: число треугольников и габарит совпадают с рамкой без крепления.
+  check(
+    "крепления: у изогнутой рамки нет светового короба",
+    [triangleCount(hookFrame), openEdges(hookFrame)],
+    [triangleCount(plainFrame), 0],
+  );
+  checkRange(
+    "крепления: изогнутая рамка не глубже своей дуги",
+    [hookSize.z - plainSize.z],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+
+  const cylinderFrame = createLithophaneFrameGeometry(cylinder);
+  const cylinderBend = bendProfile(cylinderFrame, cylinderRadius);
+  const cylinderAssembly = createLithophaneGeometry({
+    ...cylinder,
+    lithoMount: "base",
+  });
+  const cylinderSize = boxSize(cylinderAssembly);
+  const cylinderFrameSize = boxSize(cylinderFrame);
+
+  console.log(
+    `  полуцилиндр: R = ${cylinderRadius.toFixed(3)} мм, заворот ` +
+      `${cylinderBend.minAngle.toFixed(2)}…${cylinderBend.maxAngle.toFixed(2)}°, ` +
+      `силуэт ${cylinderSize.x.toFixed(2)} × ${cylinderSize.z.toFixed(2)} мм`,
+  );
+
+  // Полуцилиндр: угол ровно 180°, радиус выведен из ширины, тыл на R, лицо на
+  // R + frontZ. Силуэт вдвое уже развёртки — это и есть половина окружности.
+  checkRange(
+    "полуцилиндр: ровно 180° заворота",
+    [cylinderBend.minAngle, cylinderBend.maxAngle],
+    -90.01,
+    90.01,
+  );
+  checkRange(
+    "полуцилиндр: радиус равен ширине панели, делённой на π",
+    [cylinderBend.minRadius - cylinderRadius],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "полуцилиндр: силуэт равен двум радиусам с толщиной",
+    [
+      cylinderFrameSize.x - 2 * (cylinderRadius + frontZ),
+      cylinderFrameSize.z - (cylinderRadius + frontZ),
+    ],
+    -0.02,
+    0.02,
+  );
+  checkRange(
+    "полуцилиндр: сборка стоит на дуге нижней кромки",
+    [cylinderSize.y - height, cylinderSize.x - 2 * (cylinderRadius + frontZ)],
+    -0.02,
+    0.02,
+  );
+  check(
+    "полуцилиндр: сборка замкнута",
+    openEdges(cylinderAssembly) + nanVertices(cylinderAssembly),
+    0,
+  );
+  // Нарезка полосами добавляет треугольники: их число задаёт точность дуги, а
+  // не бюджет. Предел — полтора лица, иначе изогнутая панель упиралась бы в
+  // миллион раньше плоской.
+  check(
+    "бюджет: полосы не больше половины лица",
+    triangleCount(curvedPlate) <= triangleCount(flatPlate) * 1.5,
+    true,
+  );
+
+  flatPlate.dispose();
+  curvedPlate.dispose();
+  curvedStand.dispose();
+  curvedBare.dispose();
+  flatStand.dispose();
+  hookFrame.dispose();
+  plainFrame.dispose();
+  cylinderFrame.dispose();
+  cylinderAssembly.dispose();
 }
 
 console.log("");

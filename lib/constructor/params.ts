@@ -194,6 +194,17 @@ export const CONSTRUCTOR_LIMITS = {
     defaultValue: 3,
     decimals: 1,
   },
+  // Радиус изгиба панели, мм. 250 мм — пологий «изогнутый экран»: на панели
+  // 120 мм дуга забирает край назад на 7.2 мм, кадр при этом не сжимается, а
+  // плита печатается стоя. 100 мм — предел: на панели 200 мм дуга доходит до
+  // 114°, и края заворачиваются почти в полуцилиндр. 500 мм — почти плоскость.
+  lithoCurveRadius: {
+    min: 100,
+    max: 500,
+    step: 10,
+    defaultValue: 250,
+    decimals: 0,
+  },
   planterSize: { min: 60, max: 200, step: 5, defaultValue: 120, decimals: 0 },
   planterHeight: { min: 50, max: 200, step: 5, defaultValue: 110, decimals: 0 },
   planterWall: { min: 1.2, max: 4, step: 0.2, defaultValue: 2, decimals: 1 },
@@ -1633,6 +1644,30 @@ export function lithophaneMeshSize(
 }
 
 /**
+ * Форма панели литофана.
+ *
+ * `flat` — прежняя плоская плита: рельеф идёт по плоскости, рамка и крепление
+ * собираются как раньше. `curved` — панель, согнутая по дуге радиуса
+ * `lithoCurveRadius`: край уходит назад, центр остаётся на месте, кадр не
+ * сжимается. `cylinder` — полуцилиндр 180°: панель стоит на столе сама или
+ * надевается на круглую LED-лампу, поэтому радиус выводится из ширины.
+ *
+ * Крепления есть только у плоской панели: паз подставки, стойка и световой
+ * короб вырезаны в плоской рамке, а гнуть их вместе с плитой нельзя — база
+ * встала бы на стол дугой.
+ */
+export const LITHOPHANE_SHAPES = ["flat", "curved", "cylinder"] as const;
+
+export type LithophaneShape = (typeof LITHOPHANE_SHAPES)[number];
+
+/** Подписи форм панели для панели конструктора. */
+export const LITHOPHANE_SHAPE_LABELS = {
+  flat: "Плоская (как фото)",
+  curved: "Изогнутая (по дуге)",
+  cylinder: "Цилиндр (как ночник)",
+} as const satisfies Record<LithophaneShape, string>;
+
+/**
  * Как литофан стоит или висит.
  *
  * `none` — только плита и рамка, крепление не печатается. `arch` — открытая
@@ -1705,6 +1740,19 @@ export function lithophaneHasStand(mount: LithophaneMount): boolean {
 }
 
 /**
+ * Есть ли у формы панели крепления.
+ *
+ * Паз подставки, задняя стойка и световой короб настенного крепления вырезаны в
+ * плоской рамке, и гнуть их вместе с плитой нельзя: база встала бы на стол
+ * дугой, а короб перестал бы прилегать к стене. Поэтому изогнутая панель и
+ * полуцилиндр печатаются без крепления, а выбор человека не сбрасывается —
+ * вернувшись к плоской форме, он получает то же крепление, что выбирал.
+ */
+export function lithophaneShapeHasMounts(shape: LithophaneShape): boolean {
+  return shape === "flat";
+}
+
+/**
  * Детали литофана: что выгружать в STL.
  *
  * Рельеф и рамка печатаются отдельно и собираются без клея: плита входит в
@@ -1761,6 +1809,22 @@ export type LithophaneParams = {
   lithophaneBrightnessHeight: number;
   /** Печатать рамку с пазом отдельной деталью. */
   lithoFrame: boolean;
+  /**
+   * Форма панели: плоская, изогнутая по дуге или полуцилиндр.
+   *
+   * Изгиб идёт вокруг вертикальной оси, поэтому высота панели не меняется, а
+   * габарит по X — меняется: лицевая сторона идёт по большему радиусу, и панель
+   * 120 мм с радиусом 250 занимает 121.1 мм, а полуцилиндр той же панели — 86 мм
+   * (2(R + передняя плоскость), где R = ширина / π).
+   * Крепления есть только у плоской формы — см. `lithophaneShapeHasMounts`.
+   */
+  lithoShape: LithophaneShape;
+  /**
+   * Радиус изгиба панели, мм. Читается только при `lithoShape === "curved"`:
+   * у полуцилиндра радиус выводится из ширины (R = ширина / π), а у плоской
+   * панели изгиба нет. Значение переживает смену формы, как и источник света.
+   */
+  lithoCurveRadius: number;
   /**
    * Крепление: открытая арка со светом, сплошная ножка, массивное основание,
    * петли под саморезы или без подставки. Арка, ножка и основание собираются
@@ -2096,6 +2160,10 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   lithophaneBrightnessHeight: LITHOPHANE_RESOLUTION,
   lithoFrame: true,
   lithoMount: "arch",
+  // Плоская панель — форма из референсов и прежнее поведение конструктора:
+  // изогнутую выбирают осознанно, а радиус 250 мм — пологий «изогнутый экран».
+  lithoShape: "flat",
+  lithoCurveRadius: CONSTRUCTOR_LIMITS.lithoCurveRadius.defaultValue,
   // Канал под ленту — самый дешёвый свет: лента 8–10 мм лежит в базе и светит
   // на тыл кадра, ничего докупать не нужно.
   lithoLightSource: "strip",
@@ -2663,6 +2731,14 @@ export function isLithophaneMount(value: unknown): value is LithophaneMount {
   return (
     typeof value === "string" &&
     (LITHOPHANE_MOUNTS as readonly string[]).includes(value)
+  );
+}
+
+/** Форма панели из запроса или сохранённого проекта. */
+export function isLithophaneShape(value: unknown): value is LithophaneShape {
+  return (
+    typeof value === "string" &&
+    (LITHOPHANE_SHAPES as readonly string[]).includes(value)
   );
 }
 
@@ -4035,6 +4111,12 @@ function normalizeBoxCells(
  * Крепление без рамки невозможно: паз подставки и петли подвеса вырезаны в
  * рамке. Поэтому при выключенной рамке `lithoMount` принудительно становится
  * `none`, и панель не обещает крепление, которого в файле не будет.
+ *
+ * Форма панели и радиус изгиба проходят проверку по списку и границам слайдера.
+ * Крепление при изогнутой форме и полуцилиндре не сбрасывается: выбор остаётся
+ * в состоянии, а геометрия и список файлов его не читают (см.
+ * `lithophaneShapeHasMounts`). Так переключение формы туда и обратно не стирает
+ * настройку крепления.
  */
 export function normalizeLithophaneParams(
   params: Partial<LithophaneParams>,
@@ -4058,6 +4140,9 @@ export function normalizeLithophaneParams(
         )
       : requestedMaxThickness;
   const lithoFrame = params.lithoFrame ?? DEFAULT_LITHOPHANE_PARAMS.lithoFrame;
+  const lithoShape = isLithophaneShape(params.lithoShape)
+    ? params.lithoShape
+    : DEFAULT_LITHOPHANE_PARAMS.lithoShape;
   const requestedMount = isLithophaneMount(params.lithoMount)
     ? params.lithoMount
     : DEFAULT_LITHOPHANE_PARAMS.lithoMount;
@@ -4084,6 +4169,11 @@ export function normalizeLithophaneParams(
     lithophaneBrightnessHeight: brightness.height,
     lithoFrame,
     lithoMount: lithoFrame ? requestedMount : "none",
+    lithoShape,
+    lithoCurveRadius: snap(
+      params.lithoCurveRadius ?? DEFAULT_LITHOPHANE_PARAMS.lithoCurveRadius,
+      CONSTRUCTOR_LIMITS.lithoCurveRadius,
+    ),
     lithoLightSource,
   };
 }
