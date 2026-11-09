@@ -57,13 +57,21 @@
  *      проходит на 6…33 мм над столом), ножки стоят по краям базы, в базе есть
  *      канал 10 × 2 мм под ленту и канавка под провод, а панель опускается в паз
  *      3.5 мм — сборка на 3.42 мм ниже, чем со сплошной подставкой;
- *  14. USB-лампа: паз 13 × 5.5 мм от 1.5 до 12.3 мм над столом (штекер Type-A
- *      12 мм стоит на дне паза), полукруглое гнездо Ø28 мм под корпус, стойка
- *      26 мм не наезжает на панель, канала под ленту в базе нет, а выше базы нет
- *      граней, смотрящих вниз круче 45° — печать без поддержек;
+ *  14. USB-лампа: круглая стойка Ø30.7 на 26 мм с каналом Ø14.2 мм — штекер
+ *      Type-A проходит чашу насквозь и стоит на верхе базы (6 мм), под каналом
+ *      пластик замкнут; чаша поднимается от канала к кромке, дно ниже кромки на
+ *      6 мм, стойка не наезжает на панель и не выходит за базу, канала под ленту
+ *      в базе нет, а выше базы нет граней, смотрящих вниз круче 45° — печать без
+ *      поддержек;
  *  15. патрон E27: круглое гнездо Ø40 × 15 мм (тело вращения, а не призма) с
- *      дном на 3 мм выше базы, база глубже на 6 мм под стакан, прорезь 18° в
- *      стенке пропускает провод, нависаний выше базы нет.
+ *      дном на 3 мм выше базы, база глубже на 10 мм под стакан и абажур, прорезь
+ *      18° в стенке пропускает провод, абажур Ø54 на 33 мм закрыт сзади и открыт
+ *      в сторону панели вырезом 120°, его кромка не наезжает на панель и не
+ *      выходит за базу, нависаний выше базы нет;
+ *  16. подвес: закрытый световой короб за рамкой — тыл в 15 мм от рамки, открыт
+ *      только в её окно, канал под ленту 10 × 2 мм с полом на 8.5 мм, окно под
+ *      провод 6 × 5 мм на уровне пола канала, две петли по 10 мм с выступом
+ *      12 мм и карманом под шляпку шурупа, короб вписан в контур рамки.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -87,6 +95,7 @@ import {
   LITHOPHANE_STAND_SHAPES,
   LITHOPHANE_STAND_TILT_DEG,
   LITHOPHANE_USB_LIGHT,
+  LITHOPHANE_WALL_BOX,
   createLithophaneFrameGeometry,
   createLithophaneGeometry,
   createLithophaneReliefGeometry,
@@ -711,8 +720,50 @@ function firstHit(
 }
 
 /**
- * Сколько граней выше `fromY` смотрят вниз круче 45°.
+ * Непрерывные участки отсортированных замеров со шагом сканирования.
  *
+ * Замеры собираются циклом по сетке точек, поэтому разрыв между соседними
+ * значениями — это граница окна или кармана. Каждый участок отдаётся с началом,
+ * концом, шириной и серединой: по ширине видно размер окна, а по середине — где
+ * оно стоит.
+ */
+function contiguousRuns(
+  values: number[],
+  step: number,
+): { from: number; to: number; width: number; center: number }[] {
+  const runs: { from: number; to: number; width: number; center: number }[] = [];
+  let from = Number.NaN;
+  let previous = Number.NaN;
+
+  const close = () => {
+    runs.push({
+      from,
+      to: previous,
+      width: previous - from + step,
+      center: (from + previous) / 2,
+    });
+  };
+
+  for (const value of values) {
+    if (!Number.isNaN(from) && value - previous > step * 1.5) {
+      close();
+      from = value;
+    } else if (Number.isNaN(from)) {
+      from = value;
+    }
+
+    previous = value;
+  }
+
+  if (!Number.isNaN(from)) {
+    close();
+  }
+
+  return runs;
+}
+
+/**
+ * Сколько граней выше `fromY` смотрят вниз круче 45°.
  * Это проверка печати без поддержек: вертикальная стенка (нормаль
  * горизонтальная) и наклон до 45° печатаются сами, а поверхность, которая
  * смотрит вниз круче, провисает. Считаются только треугольники целиком выше
@@ -1857,15 +1908,15 @@ console.log("\n13. Открытая арка: проём под свет и ка
   solidStand.dispose();
 }
 
-console.log("\n14. USB-лампа: паз 13 × 5.5 мм и полукруглое гнездо Ø28");
+console.log("\n14. USB-лампа: стойка с чашей и каналом под штекер");
 
 {
   /*
     Владелец предложил питать литофан обычной USB mini LED лампой: штекер Type-A
     12 × 4.5 мм и пластиковая колба Ø20–28 мм. Раздел проверяет крепление под
-    неё: паз с запасом на сторону, полукруглое гнездо под корпус и то, что деталь
-    печатается без поддержек. Паз сквозной, поэтому средняя часть базы собрана
-    из двух колонн — оболочка от этого не рвётся.
+    неё: канал под штекер, чашу под колбу, силуэт стойки и печать без поддержек.
+    Стойка — тело вращения, а не призма с пропилом: оболочка цельная, а штекер
+    вставляют сверху через чашу, и он стоит на базе.
   */
   const params: Partial<LithophaneParams> = {
     lithophaneWidth: 120,
@@ -1879,108 +1930,101 @@ console.log("\n14. USB-лампа: паз 13 × 5.5 мм и полукругло
   const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
   const stand = createLithophaneStandGeometry(params);
   const size = boxSize(stand);
-  const centerZ = (usb.housingFront + usb.housingBack) / 2;
-  // Самая глубокая точка гнезда: до неё же доходит паз под штекер.
-  const cradleFloor = usb.housingTop - usb.cradleRadius;
-  const mouthY =
-    usb.housingTop -
-    Math.sqrt(usb.cradleRadius ** 2 - (usb.slotDepth / 2) ** 2);
-  // Луч изнутри паза к его стенкам: так видно и ширину, и глубину паза.
-  const slotX = firstHit(stand, [0, 9, centerZ], [1, 0, 0]);
-  const slotZ = firstHit(stand, [0, 9, centerZ], [0, 0, 1]);
-  // Дно паза и низ базы: под пазом пластик остаётся, база стоит плоско.
-  const slotFloor = firstHit(stand, [0, 60, centerZ], [0, -1, 0]);
-  const underSlot = firstHit(stand, [0, -5, centerZ], [0, 1, 0]);
-  // Гнездо в стороне от паза: его дно на 14 мм ниже верха стойки.
-  const cradleFloorHit = firstHit(stand, [10, 60, centerZ], [0, -1, 0]);
+  const centerZ = usb.centerZ;
+  // Канал под штекер: луч поперёк стойки и луч сверху, который проходит чашу с
+  // каналом насквозь и останавливается на верхе базы.
+  const channel = firstHit(stand, [0, 10, centerZ], [1, 0, 0]);
+  const channelFloor = firstHit(stand, [0, 60, centerZ], [0, -1, 0]);
+  // Чаша в стороне от канала: чем дальше от оси, тем выше её дно.
+  const offsets = [0, 8, 11, 14];
+  const bowlProfile = offsets.map((offset) => {
+    const hit = firstHit(stand, [-offset, 60, centerZ], [0, -1, 0]);
+
+    return hit ? hit.y : Number.NaN;
+  });
+  // Наружная стенка стойки: луч сбоку на 5 мм выше пояса. Изнутри он упёрся бы
+  // в чашу, поэтому начинается он между стойкой и ножкой.
+  const podEdge = firstHit(stand, [30, usb.waistY + 5, centerZ], [-1, 0, 0]);
+  const edgeHalf =
+    usb.waistRadius +
+    ((usb.rimRadius - usb.waistRadius) * 5) / (usb.rimY - usb.waistY);
+  // За пазом рамки канала под ленту быть не должно: база под лампу гладкая.
+  const plainBase = firstHit(stand, [0, 60, -3], [0, -1, 0]);
+  // Под каналом база замкнута: штекер стоит на ней, а не уходит в стол.
+  const underChannel = firstHit(stand, [0, -5, centerZ], [0, 1, 0]);
+  const panelAboveRim = -(usb.rimY - shape.baseTop) * Math.tan(tilt);
   const position = stand.getAttribute("position");
-  let towerTop = 0;
+  let podTop = 0;
 
   for (let index = 0; index < position.count; index += 1) {
-    if (position.getZ(index) < usb.housingFront) {
-      towerTop = Math.max(towerTop, position.getY(index));
+    // Ножки стоят по краям базы, поэтому в середине остаётся только стойка.
+    if (Math.abs(position.getX(index)) < usb.rimRadius) {
+      podTop = Math.max(podTop, position.getY(index));
     }
   }
 
-  // Профиль гнезда: вертикальные лучи в стороне от паза.
-  const offsets = [-10, -7, 7, 10];
-  const cradleProfile = offsets.map((offset) => {
-    const hit = firstHit(stand, [0, 60, centerZ + offset], [0, -1, 0]);
-
-    return hit ? usb.housingTop - hit.y : Number.NaN;
-  });
-  const expectedProfile = offsets.map((offset) =>
-    Math.sqrt(usb.cradleRadius ** 2 - offset ** 2),
-  );
-  // За пазом рамки канала под ленту быть не должно: база под лампу гладкая.
-  const plainBase = firstHit(stand, [0, 60, -3], [0, -1, 0]);
-  const panelAtHousing = -(usb.housingTop - shape.baseTop) * Math.tan(tilt);
-
   console.log(
     `  подставка ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ` +
-      `${size.z.toFixed(2)} мм, паз ` +
-      `${((slotX?.x ?? Number.NaN) * 2).toFixed(2)} × ` +
-      `${(((slotZ?.z ?? Number.NaN) - centerZ) * 2).toFixed(2)} мм`,
+      `${size.z.toFixed(2)} мм, канал Ø` +
+      `${((channel?.x ?? Number.NaN) * 2).toFixed(2)} мм до ` +
+      `${(channelFloor?.y ?? Number.NaN).toFixed(2)} мм`,
   );
   console.log(
-    `  паз от ${(slotFloor?.y ?? Number.NaN).toFixed(2)} до ` +
-      `${mouthY.toFixed(2)} мм, гнездо Ø` +
-      `${(usb.cradleRadius * 2).toFixed(0)} мм с дном на ` +
-      `${cradleFloor.toFixed(2)} мм, профиль ` +
-      `${cradleProfile.map((value) => value.toFixed(2)).join(", ")}`,
-  );
-  console.log(
-    `  стойка ${towerTop.toFixed(2)} мм, панель над ней на ` +
-      `${panelAtHousing.toFixed(2)} мм по Z`,
+    `  стойка Ø${((podEdge?.x ?? Number.NaN) * 2).toFixed(2)} мм до ` +
+      `${podTop.toFixed(2)} мм, чаша ` +
+      `${bowlProfile.map((value) => value.toFixed(2)).join(", ")}`,
   );
 
   check("usb: подставка замкнута", openEdges(stand), 0);
   check("usb: NaN 0", nanVertices(stand), 0);
   checkRange(
-    "usb: верх стойки 26 мм",
-    [towerTop - usb.housingTop],
+    "usb: канал под штекер Ø14.2 мм",
+    [(channel?.x ?? Number.NaN) * 2],
+    usb.channelRadius * 2 - TOLERANCE_MM,
+    usb.channelRadius * 2 + TOLERANCE_MM,
+  );
+  checkRange(
+    "usb: канал проходит сквозь чашу",
+    [bowlProfile[0] - shape.baseTop],
     -TOLERANCE_MM,
     TOLERANCE_MM,
   );
   checkRange(
-    "usb: паз 13 мм по ширине",
-    [(slotX?.x ?? Number.NaN) * 2],
-    usb.slotWidth - TOLERANCE_MM,
-    usb.slotWidth + TOLERANCE_MM,
+    "usb: штекер стоит на базе, а не на столе",
+    [channelFloor?.y ?? Number.NaN],
+    shape.baseTop - TOLERANCE_MM,
+    shape.baseTop + TOLERANCE_MM,
   );
   checkRange(
-    "usb: паз 5.5 мм по глубине",
-    [((slotZ?.z ?? Number.NaN) - centerZ) * 2],
-    usb.slotDepth - TOLERANCE_MM,
-    usb.slotDepth + TOLERANCE_MM,
-  );
-  checkRange(
-    "usb: дно паза выше стола",
-    [slotFloor?.y ?? Number.NaN],
-    usb.slotFloor - TOLERANCE_MM,
-    usb.slotFloor + TOLERANCE_MM,
-  );
-  checkRange(
-    "usb: под пазом база замкнута, штекер не достаёт до стола",
-    [underSlot?.y ?? Number.NaN],
+    "usb: под каналом база замкнута",
+    [underChannel?.y ?? Number.NaN],
     -TOLERANCE_MM,
     TOLERANCE_MM,
   );
+  check(
+    "usb: чаша поднимается от канала к кромке",
+    bowlProfile[1] < bowlProfile[2] &&
+      bowlProfile[2] < bowlProfile[3] &&
+      bowlProfile[3] <= usb.rimY,
+    true,
+  );
+  // Луч на 8 мм от оси попадает не в самую глубокую точку чаши, а на 0.6 мм
+  // выше: глубина 6 мм — это дно у канала, поэтому допуск снизу свободный.
   checkRange(
-    "usb: паз глубже 10 мм — штекер 12 мм держится",
-    [mouthY - (slotFloor?.y ?? Number.NaN)],
-    10,
-    12,
+    "usb: дно чаши ниже кромки на 6 мм",
+    [usb.rimY - bowlProfile[1]],
+    5,
+    usb.bowlDepth + 0.1,
   );
   checkRange(
-    "usb: гнездо на 14 мм ниже верха стойки",
-    [cradleFloorHit ? usb.housingTop - cradleFloorHit.y : Number.NaN],
-    usb.cradleRadius - TOLERANCE_MM,
-    usb.cradleRadius + TOLERANCE_MM,
+    "usb: наружная стенка стойки — конус от пояса к кромке",
+    [(podEdge?.x ?? Number.NaN) - edgeHalf],
+    -0.2,
+    0.2,
   );
   checkRange(
-    "usb: профиль гнезда — полукруг Ø28",
-    cradleProfile.map((value, index) => value - expectedProfile[index]),
+    "usb: стойка не выше кромки",
+    [podTop - usb.rimY],
     -TOLERANCE_MM,
     TOLERANCE_MM,
   );
@@ -1992,7 +2036,12 @@ console.log("\n14. USB-лампа: паз 13 × 5.5 мм и полукругло
   );
   check(
     "usb: стойка стоит за панелью с зазором",
-    usb.housingFront < panelAtHousing - 1,
+    centerZ + usb.rimRadius < panelAboveRim - 1,
+    true,
+  );
+  check(
+    "usb: стойка не выходит за базу",
+    centerZ - usb.rimRadius > shape.back + 1,
     true,
   );
   check(
@@ -2004,14 +2053,15 @@ console.log("\n14. USB-лампа: паз 13 × 5.5 мм и полукругло
   stand.dispose();
 }
 
-console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм и прорезь под провод");
+console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм, прорезь под провод и абажур");
 
 {
   /*
     Патрон E27 — Ø40 мм: гнездо глубиной 15 мм прячет половину патрона, вторая
     половина остаётся над базой под лампу. Гнездо круглое, поэтому это тело
     вращения, а не призма: оболочка стакана собирается поворотом профиля, а
-    прорезь под провод — просто пропущенный сектор.
+    прорезь под провод — просто пропущенный сектор. Абажур — второй сектор того
+    же вращения: конус вокруг стакана с вырезом в сторону панели.
   */
   const params: Partial<LithophaneParams> = {
     lithophaneWidth: 120,
@@ -2035,6 +2085,12 @@ console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм и проре�
   // на передней стенке, а без прорези упёрся бы в наружную.
   const wireSlot = firstHit(stand, [0, probeY, -200], [0, 0, 1]);
   const panelAtRim = -(rim - shape.baseTop) * Math.tan(tilt);
+  // Абажур: кромка Ø54 на 33 мм, вырез 120° в сторону панели.
+  const shadeY = light.shadeRimY - 0.5;
+  const shadeEdge = firstHit(stand, [-200, shadeY, light.centerZ], [1, 0, 0]);
+  const shadeBack = firstHit(stand, [0, shadeY, light.centerZ], [0, 0, -1]);
+  const shadeGap = firstHit(stand, [0, shadeY, 200], [0, 0, -1]);
+  const panelAtShade = -(light.shadeRimY - shape.baseTop) * Math.tan(tilt);
 
   console.log(
     `  подставка ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ` +
@@ -2046,6 +2102,12 @@ console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм и проре�
     `  дно гнезда на ${floor.toFixed(2)} мм, кромка на ${rim.toFixed(2)} мм, ` +
       `прорезь ${light.wireSlotDeg}°: провод проходит на ` +
       `${(wireSlot?.z ?? Number.NaN).toFixed(2)} мм`,
+  );
+  console.log(
+    `  абажур Ø${(-(shadeEdge?.x ?? Number.NaN) * 2).toFixed(2)} мм на ` +
+      `${light.shadeRimY} мм, сзади закрыт на ` +
+      `${(light.centerZ - (shadeBack?.z ?? Number.NaN)).toFixed(2)} мм, ` +
+      `из-за панели виден на ${(shadeGap?.z ?? Number.NaN).toFixed(2)} мм`,
   );
 
   check("патрон: подставка замкнута", openEdges(stand), 0);
@@ -2083,6 +2145,40 @@ console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм и проре�
     light.centerZ + light.outerDiameter / 2 < panelAtRim - 1,
     true,
   );
+  checkRange(
+    "патрон: абажур Ø54 по кромке",
+    [-(shadeEdge?.x ?? Number.NaN) * 2],
+    (light.shadeRimRadius - 0.5) * 2,
+    light.shadeRimRadius * 2,
+  );
+  check(
+    "патрон: абажур выше стакана",
+    light.shadeRimY > rim,
+    true,
+  );
+  checkRange(
+    "патрон: абажур закрыт сзади на радиус кромки",
+    [light.centerZ - (shadeBack?.z ?? Number.NaN)],
+    light.shadeRimRadius - light.shadeWidth - 1,
+    light.shadeRimRadius + 1,
+  );
+  // Луч из-за панели проходит вырез и останавливается только на тылу абажура.
+  check(
+    "патрон: абажур открыт в сторону панели",
+    (shadeGap?.z ?? Number.NaN) < light.centerZ - 10,
+    true,
+  );
+  check(
+    "патрон: кромка абажура не наезжает на панель",
+    light.centerZ + light.shadeRimRadius * Math.cos(Math.PI / 3) <
+      panelAtShade - 1,
+    true,
+  );
+  check(
+    "патрон: абажур в габарите базы",
+    light.centerZ - light.shadeRimRadius >= shape.socketBack + 1,
+    true,
+  );
   check(
     "патрон: печать без поддержек",
     downwardFaces(stand, shape.baseTop + 0.5),
@@ -2090,6 +2186,247 @@ console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм и проре�
   );
 
   stand.dispose();
+}
+
+console.log("\n16. Подвес: световой короб, окно под провод и петли");
+
+{
+  /*
+    Крепление `hook` — не две бобышки на полке рамки, а закрытый световой короб за
+    ней: канал под ленту на уровне нижней кромки кадра, окно под провод в тыльной
+    стенке и две петли на ней же. Раздел проверяет, что короб открыт только в окно
+    рамки, лента ложится в канал, провод проходит окно, а петли стоят парой с
+    карманом под шляпку шурупа. Стенки короба стоят на тыльной полке рамки, поэтому
+    ни одна его часть не выходит за контур рамки.
+  */
+  const width = 120;
+  const height = 80;
+  const params: Partial<LithophaneParams> = {
+    lithophaneWidth: width,
+    lithophaneHeight: height,
+    lithoFrame: true,
+    lithoMount: "hook",
+  };
+  const box = LITHOPHANE_WALL_BOX;
+  const frame = createLithophaneFrameGeometry(params);
+  const size = boxSize(frame);
+  const halfWidth = width / 2 - box.inset;
+  const innerHalf = halfWidth - box.wall;
+  const backZ = -box.depth;
+  const railBack = backZ + box.wall + box.channelWidth;
+  const sillTop = box.channelFloor;
+  const top = height - box.inset;
+  const hookHalf = Math.min(box.hookWidth / 2, innerHalf / 2);
+  const hookCenter = halfWidth - box.wall - box.hookInset - hookHalf;
+  // Тыл короба и окно рамки: снаружи луч упирается в тыльную стенку, а изнутри
+  // короба на его пути нет ничего — свет уходит в кадр.
+  const backWall = firstHit(frame, [0, top / 2, -300], [0, 0, 1]);
+  const windowFront = firstHit(
+    frame,
+    [0, top / 2, backZ + box.wall + 1],
+    [0, 0, 1],
+  );
+  // Окно под провод: сканирование тыльной стенки построчно и по столбцам. За
+  // стенкой луча быть не должно: он либо прошёл в короб и остановился на бортике
+  // канала, либо ушёл в окно рамки насквозь.
+  const wireRows: number[] = [];
+
+  for (let y = box.inset; y <= top; y += 0.05) {
+    const hit = firstHit(frame, [0, y, -300], [0, 0, 1]);
+
+    if (!hit || hit.z > backZ + 0.5) {
+      wireRows.push(y);
+    }
+  }
+
+  const wireColumns: number[] = [];
+  const wireProbeY = sillTop + box.wireHeight - 0.5;
+
+  for (let x = -2 * box.wireWidth; x <= 2 * box.wireWidth; x += 0.05) {
+    const hit = firstHit(frame, [x, wireProbeY, -300], [0, 0, 1]);
+
+    if (!hit || hit.z > backZ + 0.5) {
+      wireColumns.push(x);
+    }
+  }
+
+  // Канал под ленту: пол на подоконнике, спереди бортик. Луч сверху попадает то
+  // на пол канала, то на бортик — по этим двум высотам видно и ширину, и глубину.
+  const floorZ: number[] = [];
+  const railZ: number[] = [];
+
+  for (let z = -box.depth - 6; z <= 2; z += 0.05) {
+    const hit = firstHit(frame, [0, top - 4, z], [0, -1, 0]);
+
+    if (!hit) {
+      continue;
+    }
+
+    if (Math.abs(hit.y - sillTop) < 0.05) {
+      floorZ.push(z);
+    } else if (Math.abs(hit.y - (sillTop + box.channelDepth)) < 0.05) {
+      railZ.push(z);
+    }
+  }
+
+  // Петли: полка с бортиком на тыльной стенке. Скан поперёк короба даёт пару
+  // выступов, скан по высоте — низ полки, а карман меряется от тыльной стенки.
+  const hookXs: number[] = [];
+
+  for (let x = -halfWidth; x <= halfWidth; x += 0.05) {
+    const hit = firstHit(frame, [x, top - 1, -300], [0, 0, 1]);
+
+    if (hit && hit.z < backZ - 1) {
+      hookXs.push(x);
+    }
+  }
+
+  const shelfYs: number[] = [];
+
+  for (let y = top - 20; y <= top; y += 0.05) {
+    const hit = firstHit(frame, [hookCenter, y, -300], [0, 0, 1]);
+
+    if (hit && hit.z < backZ - 1) {
+      shelfYs.push(y);
+    }
+  }
+
+  const hooks = contiguousRuns(hookXs, 0.05);
+  const [shelf] = contiguousRuns(shelfYs, 0.05);
+  const lip = firstHit(frame, [hookCenter, top - 1, -300], [0, 0, 1]);
+  const pocket = firstHit(frame, [hookCenter, top - 1, backZ - 1], [0, 0, -1]);
+  const outline = firstHit(frame, [halfWidth + 1, top / 2, -300], [0, 0, 1]);
+  const [wire] = contiguousRuns(wireRows, 0.05);
+  const [wireSpan] = contiguousRuns(wireColumns, 0.05);
+  const [channel] = contiguousRuns(floorZ, 0.05);
+  const [rail] = contiguousRuns(railZ, 0.05);
+  const channelFloorY = firstHit(
+    frame,
+    [0, top - 4, (railBack + backZ + box.wall) / 2],
+    [0, -1, 0],
+  );
+  const railTopY = firstHit(frame, [0, top - 4, (railBack + 1) / 2], [0, -1, 0]);
+  // Ширина канала: от тыльной стенки до бортика. Луч идёт по каналу назад мимо
+  // окна под провод и упирается во внутреннюю плоскость стенки.
+  const channelBack = firstHit(frame, [20, sillTop + 1, railBack - 1], [0, 0, -1]);
+  const channelSpan = (rail?.from ?? Number.NaN) - (channelBack?.z ?? Number.NaN);
+
+  console.log(
+    `  рамка ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ` +
+      `${size.z.toFixed(2)} мм: короб ${box.depth} мм, петли ` +
+      `${box.hookReach} мм`,
+  );
+  console.log(
+    `  окно провода ${(wireSpan?.width ?? Number.NaN).toFixed(2)} × ` +
+      `${(wire?.width ?? Number.NaN).toFixed(2)} мм от ` +
+      `${(wire?.from ?? Number.NaN).toFixed(2)} мм, канал ` +
+      `${channelSpan.toFixed(2)} мм, пол от ` +
+      `${(channel?.from ?? Number.NaN).toFixed(2)} мм`,
+  );
+  console.log(
+    `  петли ${hooks.map((run) => run.width.toFixed(2)).join(" + ")} мм с ` +
+      `центрами ${hooks.map((run) => run.center.toFixed(2)).join(", ")}, ` +
+      `полка от ${(shelf?.from ?? Number.NaN).toFixed(2)} мм`,
+  );
+
+  check("подвес: рамка с коробом замкнута", openEdges(frame), 0);
+  check("подвес: NaN 0", nanVertices(frame), 0);
+  checkRange(
+    "подвес: тыл короба в 15 мм от рамки",
+    [-(backWall?.z ?? Number.NaN)],
+    box.depth - TOLERANCE_MM,
+    box.depth + TOLERANCE_MM,
+  );
+  check("подвес: короб открыт в окно рамки", windowFront, null);
+  checkRange(
+    "подвес: окно под провод 6 мм по ширине",
+    [wireSpan?.width ?? Number.NaN],
+    box.wireWidth - 0.15,
+    box.wireWidth + 0.15,
+  );
+  // Высота окна считается по строкам до самого верха короба: лишний шаг
+  // сканирования добавляет к ней 0.05 мм.
+  checkRange(
+    "подвес: окно под провод 5 мм по высоте",
+    [wire?.width ?? Number.NaN],
+    box.wireHeight - 0.15,
+    box.wireHeight + 0.15,
+  );
+  checkRange(
+    "подвес: окно под провод на уровне пола канала",
+    [(wire?.from ?? Number.NaN) - box.channelFloor],
+    -0.1,
+    0.1,
+  );
+  // Внутренняя плоскость тыльной стенки заходит на нахлёст 0.2 мм: канал, в
+  // который ложится лента, получается на этот нахлёст уже проектных 10 мм.
+  checkRange(
+    "подвес: канал под ленту 10 мм",
+    [channelSpan],
+    box.channelWidth - 0.25,
+    box.channelWidth + 0.05,
+  );
+  checkRange(
+    "подвес: пол канала на 8.5 мм над столом",
+    [channelFloorY?.y ?? Number.NaN],
+    box.channelFloor - TOLERANCE_MM,
+    box.channelFloor + TOLERANCE_MM,
+  );
+  checkRange(
+    "подвес: бортик канала выше пола на 2 мм",
+    [(railTopY?.y ?? Number.NaN) - (channelFloorY?.y ?? Number.NaN)],
+    box.channelDepth - TOLERANCE_MM,
+    box.channelDepth + TOLERANCE_MM,
+  );
+  check(
+    "подвес: бортик стоит перед лентой",
+    (rail?.from ?? Number.NaN) > (channel?.to ?? Number.NaN),
+    true,
+  );
+  check("подвес: петли стоят парой", hooks.length, 2);
+  checkRange(
+    "подвес: петля 10 мм",
+    hooks.map((run) => run.width),
+    box.hookWidth - 0.15,
+    box.hookWidth + 0.15,
+  );
+  checkRange(
+    "подвес: петли по краям короба",
+    hooks.map((run) => Math.abs(run.center)),
+    hookCenter - 0.15,
+    hookCenter + 0.15,
+  );
+  checkRange(
+    "подвес: петля выступает на 12 мм",
+    [backZ - (lip?.z ?? Number.NaN)],
+    box.hookReach - 0.1,
+    box.hookReach + 0.1,
+  );
+  check(
+    "подвес: карман под шляпку шурупа не уже 8 мм",
+    backZ - (pocket?.z ?? Number.NaN) >= 8,
+    true,
+  );
+  checkRange(
+    "подвес: полка петли на 3 мм ниже верха короба",
+    [top - ((shelf?.from ?? Number.NaN) + box.hookShelf)],
+    2.9,
+    3.1,
+  );
+  checkRange(
+    "подвес: короб вписан в контур рамки",
+    [size.x - width, size.y - height],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "подвес: стенки короба не выходят за рамку",
+    [outline?.z ?? Number.NaN],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+
+  frame.dispose();
 }
 
 console.log("");
