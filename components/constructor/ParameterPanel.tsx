@@ -1797,11 +1797,7 @@ export function ParameterPanel({
         : keychainImageFit.scale < keychainImageFit.requested - 0.001
           ? {
               tone: "warning" as const,
-              text: `Картинка ужалась до ${Math.round(keychainImageFit.scale * 100)}% запрошенного размера: ${keychainImageFit.size.toFixed(1)} мм на ${keychainImageFit.side === "back" ? "обороте" : "лице"}.${
-                params.nfcEnabled
-                  ? " Карман под NFC-метку занимает центр грани."
-                  : ""
-              } Освободите место или уменьшите масштаб логотипа.`,
+              text: `Картинка ужалась до ${Math.round(keychainImageFit.scale * 100)}% запрошенного размера: ${keychainImageFit.size.toFixed(1)} мм на ${keychainImageFit.side === "back" ? "обороте" : "лице"}. Освободите место или уменьшите масштаб логотипа.`,
             }
           : {
               tone: "ok" as const,

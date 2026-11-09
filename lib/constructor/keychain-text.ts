@@ -92,18 +92,6 @@ export type KeychainTextMetrics = {
 };
 
 /**
- * Круг, который надпись обязана обойти.
- *
- * Так задаётся полость кармана NFC: снаружи лицо целое, но над полостью остаётся
- * крышка 0.5 мм, и внедрение букв на 0.35 мм прорезало бы её почти насквозь.
- */
-export type KeychainTextKeepOut = {
-  centerX: number;
-  centerY: number;
-  radius: number;
-};
-
-/**
  * Толщина выдавливания буквы, мм: рельеф над пластиком плюс внедрение в тело.
  *
  * Слайдер задаёт только то, что видно и щупается — высоту букв над основой.
@@ -515,57 +503,6 @@ function cellIndex(
 }
 
 /**
- * Круг выреза, который надо обойти, в ячейках карты.
- *
- * Радиус сразу с отступом: буква не должна подходить к полости кармана ближе
- * `BAND_MARGIN_MM`, как и к кромке силуэта.
- */
-function stampKeepOut(
-  target: Uint8Array,
-  grid: FaceGrid,
-  keepOut: KeychainTextKeepOut,
-): void {
-  const radius = keepOut.radius + BAND_MARGIN_MM;
-  const firstColumn = cellIndex(
-    keepOut.centerX - radius,
-    grid.minX,
-    grid.cell,
-    grid.columns,
-  );
-  const lastColumn = cellIndex(
-    keepOut.centerX + radius,
-    grid.minX,
-    grid.cell,
-    grid.columns,
-  );
-  const firstRow = cellIndex(
-    keepOut.centerY - radius,
-    grid.minY,
-    grid.cell,
-    grid.rows,
-  );
-  const lastRow = cellIndex(
-    keepOut.centerY + radius,
-    grid.minY,
-    grid.cell,
-    grid.rows,
-  );
-
-  for (let row = firstRow; row <= lastRow; row += 1) {
-    const y = grid.minY + (row + 0.5) * grid.cell;
-
-    for (let column = firstColumn; column <= lastColumn; column += 1) {
-      const x = grid.minX + (column + 0.5) * grid.cell;
-
-      if (Math.hypot(x - keepOut.centerX, y - keepOut.centerY) <= radius) {
-        target[row * grid.columns + column] = 1;
-      }
-    }
-  }
-}
-
-
-/**
  * Расширяет занятые ячейки на `radius` во все стороны.
  *
  * Два прохода — по строкам и по столбцам — дают квадратное расширение без
@@ -686,9 +623,10 @@ function facePlane(
  * Карта грани: сетка ячеек и признак «занято».
  *
  * Занятая ячейка — это место, куда буква не встанет: вне пластика, чужой
- * рельеф, кромка силуэта, сквозное отверстие или полость кармана. Запас до всех
- * препятствий уже вложен в карту, поэтому проверка постановки сводится к «все
- * ячейки под строкой свободны».
+ * рельеф, кромка силуэта или сквозное отверстие. Запас до всех препятствий уже
+ * вложен в карту, поэтому проверка постановки сводится к «все ячейки под строкой
+ * свободны». Внутренняя полость кармана под NFC-метку ячейки не занимает: лицо
+ * над ней сплошное.
  */
 export type FaceMask = {
   blocked: Uint8Array;
@@ -700,14 +638,19 @@ export type FaceMask = {
  *
  * Плоскость грани — самая большая крышка со своей стороны. Треугольники этой
  * плоскости закрашивают пластик, а всё, что выше на лице или ниже на обороте,
- * считается чужим рельефом: шипы кирпича, ступица шестерни, борт билета. Вырезы
- * кармана NFC добавляются отдельно, а расширение на `BAND_MARGIN_MM` даёт
- * свободной ячейке запас до кромки и до сквозных дырок.
+ * считается чужим рельефом: шипы кирпича, ступица шестерни, борт билета.
+ * Расширение на `BAND_MARGIN_MM` даёт свободной ячейке запас до кромки и до
+ * сквозных дырок.
+ *
+ * Внутренняя полость кармана под NFC-метку в карту не входит. Карман — это
+ * выемка в толще детали: снизу сплошное дно, сверху сплошная крышка, а наружная
+ * плоскость лица над ним целая. Рельеф ставится на неё и выступает наружу, ничего
+ * не проваливая. Поэтому лицо у брелока с карманом свободно ровно так же, как без
+ * него, и логотип не приходится ужимать.
  */
 export function buildFaceMask(
   geometry: BufferGeometry,
   side: KeychainTextSide,
-  keepOut: readonly KeychainTextKeepOut[] | undefined,
 ): FaceMask | null {
   const position = geometry.getAttribute("position");
   const index = geometry.getIndex();
@@ -811,12 +754,6 @@ export function buildFaceMask(
     }
   }
 
-  // Полость кармана NFC закрыта крышкой, но буква входит в тело на 0.35 мм и
-  // прорезала бы её почти насквозь, поэтому круг выреза блокируется как дырка.
-  for (const circle of keepOut ?? []) {
-    stampKeepOut(blocked, grid, circle);
-  }
-
   for (let cell = 0; cell < total; cell += 1) {
     if (!solid[cell] || blocked[cell]) {
       blocked[cell] = 1;
@@ -843,13 +780,12 @@ export function buildFaceMask(
 export function findKeychainFaceBand(
   geometry: BufferGeometry,
   options: {
-    keepOut?: readonly KeychainTextKeepOut[];
     minHeight?: number;
     minWidth?: number;
     side: KeychainTextSide;
   },
 ): KeychainFaceBand | null {
-  const mask = buildFaceMask(geometry, options.side, options.keepOut);
+  const mask = buildFaceMask(geometry, options.side);
 
   return mask
     ? findWidestBand(mask.blocked, mask.grid, {
@@ -887,7 +823,6 @@ export type KeychainTextPlacement = {
 export function placeKeychainText(
   geometry: BufferGeometry,
   options: {
-    keepOut?: readonly KeychainTextKeepOut[];
     mask?: FaceMask;
     metrics: KeychainTextMetrics;
     offsetX?: number;
@@ -896,8 +831,7 @@ export function placeKeychainText(
     side: KeychainTextSide;
   },
 ): KeychainTextPlacement | null {
-  const mask =
-    options.mask ?? buildFaceMask(geometry, options.side, options.keepOut);
+  const mask = options.mask ?? buildFaceMask(geometry, options.side);
 
   if (!mask) {
     return null;

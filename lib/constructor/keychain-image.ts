@@ -20,7 +20,6 @@ import {
   rectFits,
   KEYCHAIN_TEXT_EMBED_MM,
   type FaceMask,
-  type KeychainTextKeepOut,
   type KeychainTextSide,
 } from "@/lib/constructor/keychain-text";
 import {
@@ -67,10 +66,11 @@ import { parseSvgOutline, type OutlinePoint } from "@/lib/constructor/svg-outlin
  *   буквы остаются буквами — без неё слайсер рвёт тонкую линию на осколки.
  *
  * Место ищется по карте грани 0.4 мм — той же, что у надписи. Отверстие под
- * кольцо, кромка силуэта, полость кармана NFC и буквы блокируют ячейки, поэтому
- * картинка не выходит за брелок и не наезжает на имя. Запрошенный масштаб — не
- * приказ: если места мало, картинка ужимается шагом сетки, и отчёт об этом
- * уходит в интерфейс.
+ * кольцо, кромка силуэта и буквы блокируют ячейки, поэтому картинка не выходит за
+ * брелок и не наезжает на имя. Карман под NFC-метку в карту не попадает: это
+ * полость внутри толщины, а лицо над ней сплошное — рельеф встаёт на него и
+ * выступает наружу. Запрошенный масштаб — не приказ: если места мало, картинка
+ * ужимается шагом сетки, и отчёт об этом уходит в интерфейс.
  */
 
 /**
@@ -967,8 +967,8 @@ function imageCovered(
  * Стоит ли картинка на свободных ячейках грани.
  *
  * Проверяются только занятые ячейки карты: под ними либо кромка, либо отверстие
- * под кольцо, либо карман NFC, либо буквы. Пустые ячейки внутри габарита
- * картинки — её собственные просветы, печати они не мешают.
+ * под кольцо, либо буквы. Пустые ячейки внутри габарита картинки — её собственные
+ * просветы, печати они не мешают.
  */
 function imageFits(
   mask: FaceMask,
@@ -1093,7 +1093,6 @@ export function placeKeychainImage(
   body: BufferGeometry,
   options: {
     build: KeychainImageBuild;
-    keepOut?: readonly KeychainTextKeepOut[];
     mask?: FaceMask;
     offsetX?: number;
     offsetY?: number;
@@ -1102,8 +1101,7 @@ export function placeKeychainImage(
     side: KeychainTextSide;
   },
 ): KeychainImagePlacement | null {
-  const mask =
-    options.mask ?? buildFaceMask(body, options.side, options.keepOut);
+  const mask = options.mask ?? buildFaceMask(body, options.side);
 
   if (!mask) {
     return null;

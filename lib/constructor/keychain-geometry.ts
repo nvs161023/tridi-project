@@ -12,10 +12,8 @@ import {
 import { KEYCHAIN_FALLBACK_SVG } from "@/lib/constructor/keychain-fallback-shape";
 import {
   buildKeychainPresetGeometry,
-  nfcLayout,
   type KeychainPresetGeometryParams,
 } from "@/lib/constructor/keychain-preset-geometry";
-import type { KeychainTextKeepOut } from "@/lib/constructor/keychain-text";
 import {
   keychainFontUrl,
   keychainQrCardSpec,
@@ -669,37 +667,6 @@ function createBaseGeometry(
 }
 
 /**
- * Круги, которые надпись на пресете обязана обойти.
- *
- * Карман под NFC-метку снаружи не виден, но над полостью остаётся крышка
- * 0.5 мм: внедрение букв на 0.35 мм прорезало бы её почти насквозь. Поэтому
- * полость попадает в карту грани как вырез, а не как «вроде бы далеко».
- */
-function presetTextKeepOut(
-  params: KeychainParams,
-  presetParams: KeychainPresetGeometryParams,
-): KeychainTextKeepOut[] {
-  if (!params.keychainPreset || !params.nfcEnabled) {
-    return [];
-  }
-
-  const nfc = nfcLayout(params.keychainPreset, presetParams);
-
-  if (!nfc.enabled || nfc.pocketY === null) {
-    return [];
-  }
-
-  return [
-    {
-      // Полость всегда по центру ширины: `pocketY` двигает её только по Y.
-      centerX: 0,
-      centerY: nfc.pocketY,
-      radius: Math.max(nfc.radiusMm, nfc.lipRadiusMm),
-    },
-  ];
-}
-
-/**
  * Собирает брелок в одну сетку.
  *
  * `fonts` — загруженные шрифты по ключам декораций. Неполный набор допустим для
@@ -748,13 +715,7 @@ export function createKeychainGeometry(
         normalized,
         createOutline(normalized, edgeBevel(normalized.thickness)),
       );
-  const built = attachKeychainDecorations(
-    body,
-    normalized,
-    preset ? presetTextKeepOut(normalized, presetParams) : [],
-    fonts,
-    report,
-  );
+  const built = attachKeychainDecorations(body, normalized, fonts, report);
 
   // Габарит и сфера нужны камере и расчёту веса всегда, даже когда в модели нет
   // ни одного рельефа: без них кадр строится по пустому bbox.

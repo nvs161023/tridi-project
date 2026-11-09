@@ -16,7 +16,6 @@ import {
   placeKeychainText,
   stampFaceObstacle,
   type FaceMask,
-  type KeychainTextKeepOut,
   type KeychainTextSide,
 } from "@/lib/constructor/keychain-text";
 import type {
@@ -36,7 +35,8 @@ import type {
  *   1. Карта грани строится один раз на сторону (`buildFaceMask`) и общая для всех
  *      декораций этой стороны.
  *   2. Декорация ставится по карте: свободная полоса, ручное смещение, обрезка по
- *      кромке, отверстию и карману NFC.
+ *      кромке и сквозным отверстиям. Внутренняя полость кармана под NFC-метку
+ *      препятствием не считается: лицо над ней сплошное.
  *   3. Готовый рельеф штампуется обратно в ту же карту с зазором
  *      `KEYCHAIN_DECORATION_GAP_MM` — так вторая декорация обходит первую, а не
  *      наезжает на буквы. Это и есть разрешение конфликтов: не пересечение
@@ -205,8 +205,8 @@ function placeTextDecoration(
  * Если и этого мало — рельеф не печатается, а причина уходит в панель.
  *
  * «Любая сторона» примеряет обе грани и оставляет рельеф там, где он вышел
- * крупнее. Раньше бралась первая подходящая, то есть лицо: с карманом под NFC на
- * лице остаётся узкая полоса, логотип ужимался под неё, хотя оборот бывал шире.
+ * крупнее. Раньше бралась первая подходящая, то есть лицо: если на лице не
+ * хватало места, логотип ужимался под него, хотя оборот бывал шире.
  * Проигравшая примерка в карту не штампуется и в модель не идёт, поэтому
  * вторая декорация видит ровно ту грань, которая напечатается.
  */
@@ -405,7 +405,6 @@ function createImageRelief(options: {
 export function attachKeychainDecorations(
   body: BufferGeometry,
   params: KeychainParams,
-  keepOut: readonly KeychainTextKeepOut[],
   fonts: KeychainFontMap | null,
   report?: KeychainBuildReport,
 ): BufferGeometry {
@@ -414,7 +413,7 @@ export function attachKeychainDecorations(
   const masks = new Map<KeychainTextSide, FaceMask | null>();
   const sideMask = (side: KeychainTextSide): FaceMask | null => {
     if (!masks.has(side)) {
-      masks.set(side, buildFaceMask(body, side, keepOut));
+      masks.set(side, buildFaceMask(body, side));
     }
 
     return masks.get(side) ?? null;
