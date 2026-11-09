@@ -71,7 +71,18 @@
  *  16. подвес: закрытый световой короб за рамкой — тыл в 15 мм от рамки, открыт
  *      только в её окно, канал под ленту 10 × 2 мм с полом на 8.5 мм, окно под
  *      провод 6 × 5 мм на уровне пола канала, две петли по 10 мм с выступом
- *      12 мм и карманом под шляпку шурупа, короб вписан в контур рамки.
+ *      12 мм и карманом под шляпку шурупа, короб вписан в контур рамки;
+ *  17. форма панели: дуга по радиусу 250 мм (вершины лежат на цилиндре, заворот
+ *      равен длине дуги) и полуцилиндр ровно на 180° с радиусом «ширина / π»;
+ *      сборка стоит на рельсе базы — силуэт по X и глубина считаются по его
+ *      наружной стенке, а дуга панели помещается внутрь габарита;
+ *  18. крепления и бюджет: съёмные крепления есть только у плоской формы, у
+ *      изогнутых вместо стойки база на столе, короб подвеса не появляется, а
+ *      полосы нарезки дуги не выбивают плиту из бюджета треугольников;
+ *  19. калейдоскоп: призма из четырёх копий одной панели — силуэт квадратный,
+ *      пол и крышка замыкают призму, торцы панелей спрятаны внутрь соседних (в
+ *      углах нет совпадающих плоскостей), сетка рельефа делится на 4 копии, а
+ *      деталь «подставка» — только цоколь с полом, без крышки.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -83,6 +94,8 @@ import { Mesh, Raycaster, Vector3 } from "three";
 
 import {
   LITHOPHANE_ARCH_STAND,
+  LITHOPHANE_BENT_BASE,
+  LITHOPHANE_BENT_BASE_FLOOR_MM,
   LITHOPHANE_BORDER_CHAMFER_MM,
   LITHOPHANE_BORDER_MM,
   LITHOPHANE_DETAIL_GROUP,
@@ -90,6 +103,7 @@ import {
   LITHOPHANE_FRAME_CORNER_RADIUS_MM,
   LITHOPHANE_FRAME_OPENING_RADIUS_MM,
   LITHOPHANE_FRAME_WIDTH_MM,
+  LITHOPHANE_KALEIDOSCOPE,
   LITHOPHANE_RELIEF_GROUP,
   LITHOPHANE_SOCKET_LIGHT,
   LITHOPHANE_STAND_SHAPES,
@@ -113,8 +127,11 @@ import {
 } from "../lib/constructor/lithophane-image";
 import {
   CONSTRUCTOR_LIMITS,
+  LITHOPHANE_KALEIDOSCOPE_PANEL_STEP_MM,
   LITHOPHANE_VERTEX_STEP_MM,
+  lithophaneMeshOptions,
   lithophaneMeshSize,
+  lithophaneShapeHasBase,
   lithophaneShapeHasMounts,
   normalizeLithophaneParams,
   type LithophaneBrightnessGrid,
@@ -2582,19 +2599,49 @@ console.log("\n17. Форма панели: дуга по радиусу и по
   check("дуга: NaN 0", nanVertices(relief) + nanVertices(frame), 0);
 
   const assemblySize = boxSize(assembly);
-  const expectedWidth = 2 * (radius + frontZ) * Math.sin(halfWidth / radius);
+  // Сборка стоит на рельсе базы: снаружи он выходит за лицо панели на зазор
+  // посадки и наружную стенку, поэтому силуэт по X задаёт рельс, а не кромка
+  // рамки (она ближе к оси на толщину стенки).
+  const baseReach =
+    frontZ + LITHOPHANE_FIT_GAP_MM + LITHOPHANE_BENT_BASE.outerWall;
+  const channelRoom =
+    LITHOPHANE_FIT_GAP_MM +
+    LITHOPHANE_BENT_BASE.channelGap +
+    LITHOPHANE_BENT_BASE.channelWidth +
+    LITHOPHANE_BENT_BASE.innerRun;
+  const expectedWidth = 2 * (radius + baseReach) * Math.sin(halfWidth / radius);
+  // Глубина: спереди — наружная стенка рельса, сзади — внутренняя стенка канала
+  // под ленту. Дуга панели (7.1 мм) целиком внутри этого габарита.
+  const expectedDepth =
+    radius + baseReach - (radius - channelRoom) * Math.cos(halfWidth / radius);
 
   checkRange(
-    "дуга: габарит сборки по X и высота панели",
-    [assemblySize.x - expectedWidth, assemblySize.y - height],
+    "дуга: габарит сборки по X и высота с базой",
+    [
+      assemblySize.x - expectedWidth,
+      assemblySize.y - (height + LITHOPHANE_BENT_BASE_FLOOR_MM),
+    ],
     -0.02,
     0.02,
   );
   checkRange(
-    "дуга: глубина сборки — дуга плюс передняя плоскость",
-    [assemblySize.z],
-    frontZ + sagFrameArc - TOLERANCE_MM,
-    frontZ + sagFrameProjection + TOLERANCE_MM,
+    "дуга: глубина сборки — рельс спереди и канал сзади",
+    [assemblySize.z - expectedDepth],
+    -0.05,
+    0.02,
+  );
+  // Рельс спереди и канал сзади перекрывают прогиб рамки с запасом: панель с
+  // дугой целиком внутри габарита базы, поэтому сборка стоит на рельсе, а не на
+  // кромке панели. Замер и по дуге, и по проекции: дуга глубже проекции на
+  // толщину сегмента.
+  checkRange(
+    "дуга: база глубже дуги панели",
+    [
+      frontZ + sagFrameArc - assemblySize.z,
+      frontZ + sagFrameProjection - assemblySize.z,
+    ],
+    Number.NEGATIVE_INFINITY,
+    -TOLERANCE_MM,
   );
   check("дуга: сборка замкнута", openEdges(assembly), 0);
 
@@ -2609,7 +2656,8 @@ console.log("\n18. Крепления и бюджет изогнутых фор�
   /*
     У изогнутой панели и полуцилиндра креплений нет: паз подставки, задняя
     стойка и световой короб вырезаны в плоской рамке, а гнуть их вместе с плитой
-    нельзя — база встала бы на стол дугой. Выбор человека при этом не
+    нельзя — вместо стойки у этих форм своя база: рельс вдоль нижней кромки, а у
+    полуцилиндра ещё и круглая плита (раздел 19). Выбор человека при этом не
     сбрасывается: вернувшись к плоской форме, он получает то же крепление.
     Проверяется, что сборка с креплением совпадает со сборкой без него, что
     световой короб не появляется на изогнутой рамке и что полосы нарезки не
@@ -2617,7 +2665,6 @@ console.log("\n18. Крепления и бюджет изогнутых фор�
   */
   const width = 120;
   const height = 80;
-  const radius = CONSTRUCTOR_LIMITS.lithoCurveRadius.defaultValue;
   const cylinderRadius = width / Math.PI;
   const curved: Partial<LithophaneParams> = {
     lithophaneWidth: width,
@@ -2690,10 +2737,19 @@ console.log("\n18. Крепления и бюджет изогнутых фор�
     [triangleCount(curvedBare), triangleCount(curvedBare)],
   );
   checkRange(
-    "крепления: у изогнутой сборки нет базы под столом",
-    [curvedStand.boundingBox?.min.z ?? Number.NaN],
-    -(radius * (1 - Math.cos(width / 2 / radius))) - 0.5,
-    0,
+    "крепления: изогнутая сборка стоит на столе — база вместо стойки",
+    [curvedStand.boundingBox?.min.y ?? Number.NaN],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "крепления: у изогнутой сборки нет стойки под столом",
+    [
+      (curvedStand.boundingBox?.min.z ?? Number.NaN) -
+        (flatStand.boundingBox?.min.z ?? Number.NaN),
+    ],
+    20,
+    Number.POSITIVE_INFINITY,
   );
   check(
     "крепления: плоская сборка с аркой по-прежнему глубже",
@@ -2752,9 +2808,21 @@ console.log("\n18. Крепления и бюджет изогнутых фор�
     -0.02,
     0.02,
   );
+  // Круглая база полуцилиндра: плита радиусом до лица панели плюс наружная стенка
+  // рельса и вылет за неё. Панель стоит на дне паза, поэтому полный рост — с полом
+  // базы.
+  const discRadius =
+    cylinderRadius +
+    frontZ +
+    LITHOPHANE_BENT_BASE.outerWall +
+    LITHOPHANE_BENT_BASE.discMargin;
   checkRange(
-    "полуцилиндр: сборка стоит на дуге нижней кромки",
-    [cylinderSize.y - height, cylinderSize.x - 2 * (cylinderRadius + frontZ)],
+    "полуцилиндр: сборка стоит на круглой плите",
+    [
+      cylinderSize.y - (height + LITHOPHANE_BENT_BASE_FLOOR_MM),
+      cylinderSize.x - 2 * discRadius,
+      cylinderSize.z - 2 * discRadius,
+    ],
     -0.02,
     0.02,
   );
@@ -2781,6 +2849,138 @@ console.log("\n18. Крепления и бюджет изогнутых фор�
   plainFrame.dispose();
   cylinderFrame.dispose();
   cylinderAssembly.dispose();
+}
+
+console.log("\n19. Калейдоскоп: призма из четырёх панелей, пол и крышка");
+
+{
+  /*
+    Четвёртая форма — калейдоскоп. Плита и рамка считаются один раз и
+    поворачиваются на 90°, 180° и 270°, поэтому свет из пола проходит через
+    рельеф всех четырёх граней. Соседние рамки пересекаются в углу на толщину
+    бортика, и призма замкнута без отдельных стоек: пол под панелями и плита
+    поверх них закрывают световую камеру.
+
+    Проверяется то, что видно только в собранном файле: призма квадратная и по
+    силуэту совпадает с цоколем базы, панель стоит на полу базы на высоту дна
+    паза, пол и крышка не делят плоскостей с рамками (торцы панелей сжаты на
+    BODY_OVERLAP_MM и прячутся внутрь соседней панели — иначе слайсер увидел бы
+    в каждом углу две совпадающие плоскости), сборка замкнута, а бюджет сетки
+    делится на четыре копии рельефа.
+  */
+  const width = 120;
+  const height = 80;
+  const floor = LITHOPHANE_BENT_BASE_FLOOR_MM;
+  const base = LITHOPHANE_BENT_BASE;
+  const kaleido: Partial<LithophaneParams> = {
+    lithophaneWidth: width,
+    lithophaneHeight: height,
+    lithoShape: "kaleidoscope",
+  };
+  const prism = createLithophaneGeometry(kaleido);
+  const prismBase = createLithophaneStandGeometry(kaleido);
+  const prismSize = boxSize(prism);
+  const baseSize = boxSize(prismBase);
+  // Лицо панели ложится на грань квадрата w × w, а наружная стенка рельса выходит
+  // за него на зазор посадки и свою толщину — она и задаёт силуэт цоколя. Рельс
+  // вдоль соседней грани доходит до этой же плоскости, поэтому габарит цоколя и
+  // призмы совпадает.
+  const silhouette = 2 * (width / 2 + LITHOPHANE_FIT_GAP_MM + base.outerWall);
+
+  prismBase.computeBoundingBox();
+
+  console.log(
+    `  призма ${prismSize.x.toFixed(2)} × ${prismSize.y.toFixed(2)} × ` +
+      `${prismSize.z.toFixed(2)} мм, цоколь ${baseSize.x.toFixed(2)} × ` +
+      `${baseSize.y.toFixed(2)} мм, ${triangleCount(prism)} треугольников`,
+  );
+
+  check(
+    "калейдоскоп: база есть у всех форм, кроме плоской",
+    [
+      lithophaneShapeHasBase("flat"),
+      lithophaneShapeHasBase("curved"),
+      lithophaneShapeHasBase("cylinder"),
+      lithophaneShapeHasBase("kaleidoscope"),
+    ],
+    [false, true, true, true],
+  );
+  checkRange(
+    "калейдоскоп: квадратная призма на цоколе по силуэту",
+    [prismSize.x - prismSize.z, prismSize.x - silhouette],
+    -0.02,
+    0.02,
+  );
+  checkRange(
+    "калейдоскоп: высота — панель на полу базы плюс крышка",
+    [prismSize.y - (height + floor + LITHOPHANE_KALEIDOSCOPE.lidHeight)],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  // Панель стоит на дне паза: пол призмы и верх цоколя — одна плоскость, ниже
+  // которой начинается канал ленты.
+  checkRange(
+    "калейдоскоп: цоколь на столе, пол на дне паза",
+    [
+      prismBase.boundingBox?.min.y ?? Number.NaN,
+      baseSize.y - base.top,
+      baseSize.x - silhouette,
+      baseSize.z - silhouette,
+    ],
+    -STEP_TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  check(
+    "калейдоскоп: сборка и цоколь замкнуты",
+    [
+      openEdges(prism) + nanVertices(prism),
+      openEdges(prismBase) + nanVertices(prismBase),
+    ],
+    [0, 0],
+  );
+  // Бюджет: четыре копии рельефа идут с шагом 0.5 мм. Плита 200 × 150 — самая
+  // большая, которая проходит по сетке; на шаге 0.3 мм она уже не влезала бы.
+  check(
+    "калейдоскоп: четыре копии рельефа с шагом 0.5 мм",
+    [lithophaneMeshOptions("kaleidoscope"), lithophaneMeshOptions("flat")],
+    [
+      { step: LITHOPHANE_KALEIDOSCOPE_PANEL_STEP_MM, copies: LITHOPHANE_KALEIDOSCOPE.sides },
+      { step: LITHOPHANE_VERTEX_STEP_MM, copies: 1 },
+    ],
+  );
+
+  const maxPlate = lithophanePlateSize({
+    lithophaneWidth: 200,
+    lithophaneHeight: 150,
+    lithoShape: "kaleidoscope",
+  });
+  check(
+    "калейдоскоп: панель 200 × 150 влезает в бюджет сетки",
+    lithophaneMeshSize(
+      maxPlate.width,
+      maxPlate.height,
+      lithophaneMeshOptions("kaleidoscope"),
+    ) !== null,
+    true,
+  );
+
+  // Деталь «подставка» у калейдоскопа — только цоколь с полом: крышка входит в
+  // собранную призму, иначе в файле базы она висела бы в воздухе над панелью.
+  const prismStandPart = createLithophaneGeometry(kaleido, "stand");
+
+  check(
+    "калейдоскоп: деталь «подставка» — цоколь без крышки",
+    [
+      openEdges(prismStandPart) + nanVertices(prismStandPart),
+      Math.abs(boxSize(prismStandPart).y - base.top) <= STEP_TOLERANCE_MM,
+      triangleCount(prismStandPart) < triangleCount(prism),
+    ],
+    [0, true, true],
+  );
+
+  prism.dispose();
+  prismBase.dispose();
+  prismStandPart.dispose();
 }
 
 console.log("");

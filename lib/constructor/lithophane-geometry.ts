@@ -14,7 +14,9 @@ import { lithophaneContainRect } from "@/lib/constructor/lithophane-image";
 import {
   LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
   lithophaneHasStand,
+  lithophaneMeshOptions,
   lithophaneMeshSize,
+  lithophaneShapeHasBase,
   lithophaneShapeHasMounts,
   normalizeLithophaneParams,
   type LithophaneLightSource,
@@ -776,18 +778,47 @@ function bendGeometryAroundY(geometry: BufferGeometry, radius: number): void {
 }
 
 /**
- * Ширина полосы, на которые режется деталь перед изгибом, мм.
+ * Наибольшая ширина полосы, на которые режется деталь перед изгибом, мм.
  *
  * Изгиб считается по вершинам, поэтому длинная грань после него осталась бы
  * плоской хордой: верхняя кромка рамки на панели 200 мм стала бы одной гранью
- * через всю ширину, а тыл плиты — конусом из веера. Полоса 4 мм повторяет дугу
- * с ошибкой step² / (8R) = 0.05 мм на самом тесном полуцилиндре (R = 38 мм у
- * панели 120 мм): это в восемь раз меньше сопла. Плата — треугольники полос: у
- * панели 120 мм их на 14 % больше, чем у плоской, у панели 200 × 150 — на 27 %.
- * Бюджет в миллион треугольников проверяется до изгиба, поэтому запас на полосы
- * остаётся у самых крупных панелей.
+ * через всю ширину, а тыл плиты — конусом из веера.
+ *
+ * Полоса не постоянная: шаг фасетки в миллиметрах задаёт угол, и на тугом
+ * радиусе та же полоса даёт крупную грань. При фиксированных 4 мм силуэт рамки
+ * полуцилиндра 120 мм складывался из граней по 6° — наружная стенка и кромка
+ * читались гранёными. Поэтому ширина полосы считается от радиуса:
+ * `R · tan(1.5°)` — на полуцилиндре 120 мм это 1.0 мм, на изогнутой панели
+ * радиуса 250 мм — 4 мм (дальше растягивать нет смысла, там фасетка 0.92°).
  */
 const LITHOPHANE_BEND_STRIP_MM = 4;
+
+/** Наименьшая ширина полосы, мм: на крошечном радиусе режется не мельче. */
+const LITHOPHANE_BEND_STRIP_MIN_MM = 0.75;
+
+/** Угол одной фасетки изгиба, радианы: 1.5° — силуэт читается дугой. */
+const LITHOPHANE_BEND_FACET_RAD = (1.5 * Math.PI) / 180;
+
+/**
+ * Ширина полосы нарезки под радиус изгиба, мм.
+ *
+ * Нужна деталям, у которых силуэт задают длинные грани, — рамке. Число полос
+ * растёт как ширина / (R · tan 1.5°): на панели 120 мм с радиусом 38.2 мм
+ * (полуцилиндр) это 120 полос вместо 30, а на панели 200 мм с радиусом 63.7 мм —
+ * 120 вместо 50. Треугольники рамки от этого дорожают с 3.5 до 11 тысяч — на
+ * фоне ста тысяч рельефа незаметно, — а шаг фасетки по всему периметру
+ * становится 1.5° вместо 6°. Плита рельефа режется постоянным шагом: её
+ * поверхность и так собрана из ячеек 0.3 мм (см. `createLithophaneReliefGeometry`).
+ */
+function lithophaneBendStripMm(radius: number): number {
+  return Math.min(
+    LITHOPHANE_BEND_STRIP_MM,
+    Math.max(
+      LITHOPHANE_BEND_STRIP_MIN_MM,
+      radius * Math.tan(LITHOPHANE_BEND_FACET_RAD),
+    ),
+  );
+}
 
 /**
  * Режет треугольники плоскостями X = const на полосы шириной не больше `step`.
@@ -1037,7 +1068,13 @@ function createReliefBody(
   const brightness = normalized.lithophaneBrightness;
   const brightnessWidth = normalized.lithophaneBrightnessWidth;
   const brightnessHeight = normalized.lithophaneBrightnessHeight;
-  const mesh = lithophaneMeshSize(plateWidth, plateHeight);
+  // Шаг и число копий — по форме панели: калейдоскоп печатает четыре плиты, и
+  // они делят один бюджет треугольников (см. `lithophaneMeshOptions`).
+  const mesh = lithophaneMeshSize(
+    plateWidth,
+    plateHeight,
+    lithophaneMeshOptions(normalized.lithoShape),
+  );
 
   if (mesh === null) {
     throw new Error(LITHOPHANE_MESH_TOO_LARGE_MESSAGE);
@@ -1255,7 +1292,11 @@ export function createLithophaneReliefGeometry(
   }
 
   // Сначала нарезка полосами, потом изгиб: иначе фан тыла и боковины остались бы
-  // плоскими хордами через всю ширину плиты.
+  // плоскими хордами через всю ширину плиты. Шаг полосы у плиты постоянный:
+  // силуэт и освещение её лица задаёт сетка рельефа 0.3 мм, а от веера тыла
+  // остаётся ошибка формы step² / (8R) = 0.05 мм на самом тесном полуцилиндре —
+  // в восемь раз меньше сопла. Дробить веер мельче значило бы платить за это
+  // четвертью миллиона лишних треугольников.
   const strips = subdivideAlongX(geometry, LITHOPHANE_BEND_STRIP_MM);
 
   geometry.dispose();
@@ -1708,8 +1749,10 @@ export function createLithophaneFrameGeometry(
 
   // Нарезка идёт до сварки: верхняя и нижняя кромки рамки — по одной длинной
   // грани, и без полос они остались бы хордами. Сварка после нарезки возвращает
-  // общие вершины полос, поэтому поверхность снова гладкая.
-  const strips = subdivideAlongX(merged, LITHOPHANE_BEND_STRIP_MM);
+  // общие вершины полос, поэтому поверхность снова гладкая. Ширина полосы у
+  // рамки берётся от радиуса: наружная стенка и кромка окна — это её силуэт, и
+  // на полуцилиндре 120 мм фасетка 6° читалась гранью.
+  const strips = subdivideAlongX(merged, lithophaneBendStripMm(radius));
   const frame = smoothGeometryNormals(strips);
 
   merged.dispose();
@@ -2626,7 +2669,473 @@ function createSocketShadeBody(): BufferGeometry {
 }
 
 /**
- * Подставка отдельной деталью: открытая арка, сплошная ножка или основание.
+ * База изогнутых форм: паз под панель, канал под ленту и высота над столом.
+ *
+ * Сечение одно на все три формы: у полуцилиндра и изогнутой панели оно вращается
+ * вокруг оси изгиба, у калейдоскопа выдавливается вдоль каждой грани. Поэтому
+ * паз, канал и наружная стенка у них одинаковые, а панель садится в базу одним и
+ * тем же движением — сверху вниз, на дно паза.
+ *
+ * `u` — расстояние от тыльной плоскости рамки по нормали к панели (u = 0 — тыл
+ * рамки, u = frontZ — её лицевая плоскость), `y` — высота над столом.
+ *
+ * Панель стоит на дне паза, поэтому вся сборка поднимается на
+ * `LITHOPHANE_BENT_BASE_FLOOR_MM`: раньше изогнутая панель опиралась на стол дугой
+ * нижней кромки, и низ кадра уходил в тень — теперь под ним рельс с каналом.
+ */
+export const LITHOPHANE_BENT_BASE = {
+  /** Высота базы над столом, мм. */
+  top: 7,
+  /** Глубина паза под нижнюю кромку панели, мм. */
+  seatDepth: 3,
+  /** Канал под светодиодную ленту: ширина, глубина и отступ от панели, мм. */
+  channelWidth: 10,
+  channelDepth: 2,
+  channelGap: 1.6,
+  /** Материал за каналом (внутрь) и толщина наружной стенки паза, мм. */
+  innerRun: 3,
+  outerWall: 2.5,
+  /** Зазор от оси изгиба до внутренней стенки базы, мм. */
+  axisClearance: 1.5,
+  /** Вылет круглой базы полуцилиндра за лицевую плоскость панели, мм. */
+  discMargin: 5,
+  /** Отверстие под свечу или USB-лампу в круглой базе, мм. */
+  lampHole: 20,
+  /** Угол фасетки дуги базы, градусы: силуэт базы читается дугой. */
+  facetDeg: 1.5,
+  /** Наименьшее число отрезков дуги: короткая дуга остаётся гладкой. */
+  minSegments: 8,
+} as const;
+
+/**
+ * Дно паза базы, мм: высота, на которой стоит нижняя кромка панели.
+ *
+ * Из неё же считается высота пола призмы калейдоскопа: панель всех трёх форм
+ * стоит на одном уровне, а низ кадра открыт каналу ленты.
+ */
+export const LITHOPHANE_BENT_BASE_FLOOR_MM =
+  LITHOPHANE_BENT_BASE.top - LITHOPHANE_BENT_BASE.seatDepth;
+
+/**
+ * Призма калейдоскопа: четыре панели под 90° на общей базе.
+ *
+ * Панель шириной w встаёт гранью квадрата w × w: её лицевая плоскость совпадает
+ * с гранью, а тыл отстоит от оси призмы на w / 2 − frontZ. Соседние панели
+ * пересекаются в углу на толщину рамки, поэтому призма замкнута без угловых
+ * стоек, а крышка закрывает верх — свет остаётся внутри и выходит только через
+ * рельеф.
+ */
+export const LITHOPHANE_KALEIDOSCOPE = {
+  /** Граней в призме: квадрат, панели через 90°. */
+  sides: 4,
+  /**
+   * Вылет рельса за конец панели, мм.
+   *
+   * Цоколь выступает за лицо панели на `LITHOPHANE_BENT_BASE.outerWall`, и рельс
+   * по длине чуть не доходит до этой плоскости: иначе торец одного рельса и лицо
+   * соседнего легли бы в одну плоскость, и слайсер увидел бы две грани в одном
+   * месте. Ниша 0.2 мм в углу цоколя не видна — она спрятана под скруглением
+   * рамки.
+   */
+  railOverhang: LITHOPHANE_BENT_BASE.outerWall - BODY_OVERLAP_MM,
+  /** Отверстие под свечу в полу призмы, мм: чайная свеча Ø38 входит с запасом. */
+  lampHole: 44,
+  /** Материал пола вокруг отверстия, мм: тоньше — пол прогибается под свечой. */
+  floorRim: 5,
+  /** Высота крышки над верхней кромкой панели, мм. */
+  lidHeight: 5,
+  /** Нахлёст крышки на панель, мм: по нему крышка и призма срастаются. */
+  lidOverlap: 3,
+} as const;
+
+/** Точка сечения базы: наружу от тыла панели и вверх над столом. */
+type BaseSectionPoint = { u: number; y: number };
+
+/**
+ * Сечение базы в плоскости (u, y).
+ *
+ * Обход против часовой стрелки: низ слева направо, вверх по наружной стенке,
+ * обратно по верху с двумя выборками и вниз по внутренней стенке. Выборки — паз
+ * под панель и канал под ленту; между ними остаётся перемычка `channelGap`,
+ * поэтому свет ленты не уходит в щель посадки, а бьёт в тыл плиты.
+ *
+ * `innerRoom` — сколько места есть внутрь от тыла панели, мм: у тела вращения это
+ * расстояние до оси изгиба. Канал с материалом за ним занимают 14.8 мм, и на
+ * тугом полуцилиндре они не помещаются — ось стоит в 12.7 мм за панелью 40 мм.
+ * Тогда канал убирается: рельс остаётся сплошным цоколем с пазом, а свет даёт
+ * отверстие в плите базы.
+ */
+function bentBaseSection(
+  frontZ: number,
+  innerRoom = Number.POSITIVE_INFINITY,
+): BaseSectionPoint[] {
+  const base = LITHOPHANE_BENT_BASE;
+  const seatFloor = LITHOPHANE_BENT_BASE_FLOOR_MM;
+  const slotInner = -LITHOPHANE_FIT_GAP_MM;
+  const slotOuter = frontZ + LITHOPHANE_FIT_GAP_MM;
+  const outer = slotOuter + base.outerWall;
+  // Канал с материалом за ним занимает всю глубину от тыла панели до внутренней
+  // стенки базы: зазор посадки, перемычка, канал и `innerRun`.
+  const channelRoom =
+    LITHOPHANE_FIT_GAP_MM + base.channelGap + base.channelWidth + base.innerRun;
+
+  if (innerRoom < channelRoom) {
+    const inner = -Math.min(
+      base.innerRun,
+      Math.max(BODY_OVERLAP_MM, innerRoom),
+    );
+
+    return [
+      { u: inner, y: 0 },
+      { u: outer, y: 0 },
+      { u: outer, y: base.top },
+      { u: slotOuter, y: base.top },
+      { u: slotOuter, y: seatFloor },
+      { u: slotInner, y: seatFloor },
+      { u: slotInner, y: base.top },
+      { u: inner, y: base.top },
+    ];
+  }
+
+  const channelFloor = base.top - base.channelDepth;
+  const channelNear = slotInner - base.channelGap;
+  const channelFar = channelNear - base.channelWidth;
+  // Внутренняя стенка базы: ровно глубина канала, поэтому профиль и проверка
+  // `innerRoom` считают одно и то же расстояние.
+  const inner = -channelRoom;
+
+  return [
+    { u: inner, y: 0 },
+    { u: outer, y: 0 },
+    { u: outer, y: base.top },
+    { u: slotOuter, y: base.top },
+    { u: slotOuter, y: seatFloor },
+    { u: slotInner, y: seatFloor },
+    { u: slotInner, y: base.top },
+    { u: channelNear, y: base.top },
+    { u: channelNear, y: channelFloor },
+    { u: channelFar, y: channelFloor },
+    { u: channelFar, y: base.top },
+    { u: inner, y: base.top },
+  ];
+}
+
+/**
+ * Профиль базы для тела вращения: (радиус, высота) вокруг оси изгиба.
+ *
+ * Радиус отсчитывается от оси: тыл панели стоит на R, поэтому точка сечения `u`
+ * встаёт на R + u, а лицевая плоскость рамки — на R + frontZ.
+ */
+function bentBaseProfile(
+  radius: number,
+  frontZ: number,
+  innerRoom = Number.POSITIVE_INFINITY,
+): (readonly [number, number])[] {
+  return bentBaseSection(frontZ, innerRoom).map(
+    (point) => [radius + point.u, point.y] as const,
+  );
+}
+
+/**
+ * Плита под полуцилиндром: (радиус, высота) вокруг той же оси.
+ *
+ * Круглая база шире самой панели на `discMargin` и лежит на столе: на неё
+ * ночник и ставится. Отверстие по центру — под свечу или USB-лампу: лампа
+ * проходит в призму снизу, и свет уходит на тыл рельефа. Высота плиты равна дну
+ * паза, поэтому канал ленты она не заливает.
+ */
+function bentBaseDiscProfile(
+  radius: number,
+  frontZ: number,
+): (readonly [number, number])[] {
+  const base = LITHOPHANE_BENT_BASE;
+  const discRadius = radius + frontZ + base.outerWall + base.discMargin;
+  const holeRadius = base.lampHole / 2;
+  const floor = LITHOPHANE_BENT_BASE_FLOOR_MM;
+
+  return [
+    [holeRadius, 0] as const,
+    [discRadius, 0] as const,
+    [discRadius, floor] as const,
+    [holeRadius, floor] as const,
+  ];
+}
+
+/** Отрезков дуги базы: не крупнее фасетки `facetDeg`. */
+function baseArcSegments(sweepDeg: number): number {
+  return Math.max(
+    LITHOPHANE_BENT_BASE.minSegments,
+    Math.ceil(sweepDeg / LITHOPHANE_BENT_BASE.facetDeg),
+  );
+}
+
+
+/**
+ * База изогнутой панели и полуцилиндра: рельс по дуге.
+ *
+ * Рельс вращается вокруг той же оси, что и изгиб панели, поэтому его паз
+ * повторяет дугу нижней кромки с точностью до фасетки 1.5°: посадка та же, что у
+ * плоской подставки. У полуцилиндра рельс закрывает 180°, как и панель; у
+ * изогнутой — ровно тот угол, на который завёрнута её ширина (w / R).
+ *
+ * Полуцилиндру добавляется круглая плита: без неё рельс стоял бы на двух торцах
+ * дуги, а ночник не на что поставить. Плита с отверстием под лампу и рельс
+ * пересекаются, поэтому в файле это одно тело.
+ */
+function createBentStandGeometry(
+  normalized: LithophaneParams,
+  radius: number,
+  metrics: FrameMetrics,
+): BufferGeometry {
+  const bodies: BufferGeometry[] = [];
+  // Внутрь от тыла панели остаётся место только до оси изгиба: на тугом
+  // полуцилиндре канал ленты туда не влезает и рельс печатается сплошным.
+  const room = radius - LITHOPHANE_BENT_BASE.axisClearance;
+  const rail = bentBaseProfile(radius, metrics.frontZ, room);
+
+  if (normalized.lithoShape === "cylinder") {
+    bodies.push(
+      createRevolvedBody(rail, -radius, -90, 180, baseArcSegments(180)),
+      createRevolvedBody(
+        bentBaseDiscProfile(radius, metrics.frontZ),
+        -radius,
+        0,
+        360,
+        baseArcSegments(360),
+        false,
+      ),
+    );
+  } else {
+    // Изгиб отображает длину дуги в угол: x → x / R. Значит край панели шириной
+    // w отстоит от центра на w / 2 и стоит под углом (w / 2) / R.
+    const halfArc = (normalized.lithophaneWidth / 2 / radius) * (180 / Math.PI);
+
+    bodies.push(
+      createRevolvedBody(
+        rail,
+        -radius,
+        -halfArc,
+        2 * halfArc,
+        baseArcSegments(2 * halfArc),
+      ),
+    );
+  }
+
+  return smoothGeometryNormals(mergeBodies(bodies, "базы литофана"));
+}
+
+/**
+ * Матрица грани призмы: поворот на 90° · side и отступ от оси призмы.
+ *
+ * Поворот вокруг оси Y переводит тыл панели (Z = back) в нужную грань, поэтому
+ * одна и та же деталь встаёт на все четыре стороны без отдельной геометрии.
+ *
+ * `narrow` — сжатие детали по её ширине перед поворотом. Панель чуть уже грани
+ * призмы: иначе торец одной панели лёг бы ровно в плоскость лица соседней
+ * (сторона квадрата общая), и слайсер увидел бы две совпадающие грани в каждом
+ * углу. Сжатие на 0.2 мм с каждой стороны прячет торец внутрь соседней панели:
+ * угол заполнен её материалом, а совпадающих плоскостей нет.
+ */
+function kaleidoscopePanelMatrix(
+  side: number,
+  back: number,
+  lift: number,
+  narrow = 1,
+): Matrix4 {
+  return new Matrix4()
+    .makeRotationY((side * Math.PI) / 2)
+    .multiply(new Matrix4().makeTranslation(0, lift, back))
+    .multiply(new Matrix4().makeScale(narrow, 1, 1));
+}
+
+/**
+ * Пол калейдоскопа: кольцо с отверстием под свечу.
+ *
+ * Кольцо строится тем же контуром, что задняя полка рамки: снаружи квадрат со
+ * скруглением, изнутри — круглое окно. Одно замкнутое тело вместо четырёх коробок:
+ * у коробок торцы легли бы грань в грань, а слайсеру такие стыки не нужны.
+ * Внутренний край пола заходит в рельсы на BODY_OVERLAP_MM, поэтому в файле пол и
+ * цоколь — одно тело. Верх пола совпадает с дном паза: плиты панелей стоят на нём.
+ * На маленькой панели отверстие под свечу не влезает в кольцо материала, и пол
+ * печатается сплошным — подсветка лентой работает в любом случае.
+ */
+function createKaleidoscopeFloorBody(metrics: FrameMetrics): BufferGeometry {
+  const base = LITHOPHANE_BENT_BASE;
+  const kaleido = LITHOPHANE_KALEIDOSCOPE;
+  const floor = LITHOPHANE_BENT_BASE_FLOOR_MM;
+  // Внутренняя кромка рельса отстоит от оси на w / 2 − frontZ − innerRun.
+  const reach = Math.max(
+    BODY_OVERLAP_MM * 2,
+    metrics.width / 2 - metrics.frontZ - base.innerRun + BODY_OVERLAP_MM,
+  );
+  const hole = Math.min(
+    kaleido.lampHole,
+    Math.max(0, 2 * (reach - kaleido.floorRim)),
+  );
+
+  if (hole <= 0) {
+    return createBoxBody(-reach, reach, 0, floor, -reach, reach);
+  }
+
+  const ring = createRingBody({
+    centerX: 0,
+    centerY: 0,
+    outerWidth: 2 * reach,
+    outerHeight: 2 * reach,
+    innerWidth: hole,
+    innerHeight: hole,
+    // Углы пола спрятаны под рельсами, но нулевой радиус дал бы вырожденные
+    // треугольники: контур угла выродился бы в одну точку.
+    outerRadius: 1,
+    // Радиус чуть меньше половины стороны: при полном радиусе конец дуги одного
+    // угла попадает в начало дуги следующего, и стена окна вырождается в точку.
+    innerRadius: hole / 2 - 0.5,
+    z0: 0,
+    z1: floor,
+  });
+
+  // Кольцо строится в плоскости XY и выдавливается по Z — кладём его плашмя.
+  ring.applyMatrix4(new Matrix4().makeRotationX(-Math.PI / 2));
+
+  return ring;
+}
+
+/**
+ * Крышка призмы: плита на верхнюю кромку панелей.
+ *
+ * Плита закрывает световую камеру целиком: без неё свет уходил бы вверх, а не
+ * через рельеф. Она садится на верх рамки с нахлёстом `lidOverlap` и выступает за
+ * лицо панелей на BODY_OVERLAP_MM — иначе её боковая плоскость совпала бы с
+ * лицевой плоскостью рамки и слайсер увидел бы две грани в одном месте. Свес в
+ * 0.2 мм не заметен и прикрывает верхний срез панелей, а углы плиты приходится
+ * чуть подрезать скруглением рамки.
+ */
+function createKaleidoscopeLidBody(metrics: FrameMetrics): BufferGeometry {
+  const kaleido = LITHOPHANE_KALEIDOSCOPE;
+  const top = LITHOPHANE_BENT_BASE_FLOOR_MM + metrics.height;
+  const outer = metrics.width / 2 + BODY_OVERLAP_MM;
+
+  return createBoxBody(
+    -outer,
+    outer,
+    top - kaleido.lidOverlap,
+    top + kaleido.lidHeight,
+    -outer,
+    outer,
+  );
+}
+
+/**
+ * База калейдоскопа: четыре рельса и пол.
+ *
+ * Рельсы — то же сечение, что у изогнутых форм, выдавленное вдоль грани: паз
+ * принимает панель, канал ленты идёт за ней, а наружная стенка выходит за лицо
+ * на `outerWall` и образует цоколь призмы. Соседние рельсы пересекаются в углу,
+ * и каналы там тоже пересекаются — лента огибает призму кольцом без разрывов.
+ * Пол под панелями замыкает световую камеру снизу; сверху её закрывает крышка,
+ * которая ставится в сборке, а не в базе (см. `createKaleidoscopeGeometry`).
+ */
+function createKaleidoscopeBaseGeometry(
+  metrics: FrameMetrics,
+): BufferGeometry {
+  const kaleido = LITHOPHANE_KALEIDOSCOPE;
+  const profile: StandProfilePoint[] = bentBaseSection(metrics.frontZ).map(
+    (point) => ({ y: point.y, z: point.u }),
+  );
+  // Тыл панели отстоит от оси на w / 2 − frontZ: лицевая плоскость рамки ложится
+  // точно на грань квадрата w × w.
+  const back = metrics.width / 2 - metrics.frontZ;
+  // Рельс выходит за конец панели на railOverhang: соседние рельсы перекрываются
+  // в углу, но их плоскости не совпадают (см. `railOverhang`).
+  const reach = metrics.width / 2 + kaleido.railOverhang;
+  const bodies: BufferGeometry[] = [];
+
+  for (let side = 0; side < kaleido.sides; side += 1) {
+    const rail = createProfilePrismBody(profile, -reach, reach);
+
+    rail.applyMatrix4(kaleidoscopePanelMatrix(side, back, 0));
+    bodies.push(rail);
+  }
+
+  bodies.push(createKaleidoscopeFloorBody(metrics));
+
+  return smoothGeometryNormals(mergeBodies(bodies, "базы калейдоскопа"));
+}
+
+/**
+ * Собранный калейдоскоп: четыре панели, база и крышка.
+ *
+ * Панели — копии одной плиты и одной рамки: рельеф считается один раз, дальше
+ * три копии поворачиваются на 90°, 180° и 270°. Они стоят на полу базы, тылом к
+ * оси призмы, поэтому лица смотрят наружу, а свет изнутри проходит через рельеф
+ * всех четырёх граней. Сначала в сетку идут все плиты, потом рамки: границы
+ * групп материалов режутся по числу индексов рельефа, и перемежать копии нельзя.
+ */
+function createKaleidoscopeGeometry(
+  normalized: LithophaneParams,
+  metrics: FrameMetrics,
+): BufferGeometry {
+  const sides = LITHOPHANE_KALEIDOSCOPE.sides;
+  const floor = LITHOPHANE_BENT_BASE_FLOOR_MM;
+  const back = metrics.width / 2 - metrics.frontZ;
+  const panelLift = floor + metrics.frameWidth + LITHOPHANE_FIT_GAP_MM;
+  // Панель сжимается по ширине на BODY_OVERLAP_MM с каждой стороны: её торцы
+  // уходят внутрь соседней панели, и совпадающих плоскостей в углах призмы нет
+  // (см. `kaleidoscopePanelMatrix`). Плита сжимается тем же множителем, поэтому
+  // зазор посадки 0.2 мм в окне остаётся прежним.
+  const narrow = (metrics.width - 2 * BODY_OVERLAP_MM) / metrics.width;
+  const relief = createLithophaneReliefGeometry(normalized);
+  const frame = createLithophaneFrameGeometry(normalized);
+  const reliefIndices = (relief.getIndex()?.count ?? 0) * sides;
+  const bodies: BufferGeometry[] = [];
+
+  for (let side = 0; side < sides; side += 1) {
+    const plate = relief.clone();
+
+    // Плита садится в окно рамки так же, как у плоской панели: сдвиг на рамку и
+    // зазор по низу, а тыл — на глубину полки рамки дальше от оси призмы.
+    plate.applyMatrix4(
+      kaleidoscopePanelMatrix(
+        side,
+        back + metrics.plateBack,
+        panelLift,
+        narrow,
+      ),
+    );
+    bodies.push(plate);
+  }
+
+  relief.dispose();
+
+  for (let side = 0; side < sides; side += 1) {
+    const rim = frame.clone();
+
+    rim.applyMatrix4(kaleidoscopePanelMatrix(side, back, floor, narrow));
+    bodies.push(rim);
+  }
+
+  frame.dispose();
+  // Цоколь с полом и плита-крышка поверх панелей: вместе они замыкают световую
+  // камеру. Крышка ставится здесь, а не в `createKaleidoscopeBaseGeometry`: в
+  // детали «подставка» она висела бы в воздухе над цоколем.
+  bodies.push(
+    createKaleidoscopeBaseGeometry(metrics),
+    createKaleidoscopeLidBody(metrics),
+  );
+
+  return assignMaterialGroups(
+    mergeBodies(bodies, "калейдоскопа"),
+    reliefIndices,
+  );
+}
+
+/**
+ * Подставка отдельной деталью: база изогнутой формы, калейдоскоп, открытая арка,
+ * сплошная ножка или основание.
+ *
+ * У изогнутых форм и калейдоскопа база — их собственная часть: панель встаёт в её
+ * паз, а не в наклонную стойку (см. `lithophaneShapeHasBase`). Поэтому сменные
+ * подставки с наклоном к ним не применяются.
  *
  * База держит литофан на столе: спереди её край выходит за рамку, сзади уходит
  * на 38–52 мм — центр тяжести наклонённой панели остаётся над опорой. У сплошных
@@ -2649,6 +3158,17 @@ export function createLithophaneStandGeometry(
   params: Partial<LithophaneParams>,
 ): BufferGeometry {
   const normalized = normalizeLithophaneParams(params);
+
+  // Изогнутые формы и калейдоскоп держатся на собственной базе: рельс по дуге,
+  // круглая плита или цоколь призмы.
+  if (lithophaneShapeHasBase(normalized.lithoShape)) {
+    const metrics = lithophaneFrameMetrics(normalized);
+    const radius = lithophaneBendRadius(normalized);
+
+    return radius === null
+      ? createKaleidoscopeBaseGeometry(metrics)
+      : createBentStandGeometry(normalized, radius, metrics);
+  }
 
   if (normalized.lithoMount === "arch") {
     return createArchStandGeometry(normalized);
@@ -2762,8 +3282,10 @@ function createArchStandGeometry(
  * открытой арки входят в тыл рамки, а низ рамки опущен в её паз, поэтому детали
  * держатся друг за друга.
  * Без рамки крепления нет (его паз вырезан в рамке), поэтому `all` возвращает
- * плиту. У изогнутой панели и полуцилиндра сборка — плита в рамке без наклона:
- * подставка у этих форм не печатается, панель стоит сама.
+ * плиту. У изогнутой панели и полуцилиндра сборка — плита в рамке на собственной
+ * базе: наклона нет, низ рамки опущен в паз рельса, а круглый полуцилиндр стоит на
+ * плите с отверстием под лампу. Калейдоскоп собирается из четырёх панелей на
+ * цоколе с полом и крышкой (см. `createKaleidoscopeGeometry`).
  * Если деталь недоступна — например, `frame` при выключенной рамке, — функция
  * отдаёт рельеф: предпросмотр не должен падать из-за состояния формы. API такие
  * запросы отклоняет до построения.
@@ -2800,12 +3322,39 @@ export function createLithophaneGeometry(
   }
 
   const metrics = lithophaneFrameMetrics(normalized);
+
+  // Калейдоскоп собирается из четырёх копий одной панели: у него своя база-цоколь
+  // с полом и крышкой, поэтому общей ветки сборки для него нет.
+  if (normalized.lithoShape === "kaleidoscope") {
+    return createKaleidoscopeGeometry(normalized, metrics);
+  }
+
   const relief = createLithophaneReliefGeometry(normalized);
   // Порядок слияния задаёт диапазоны индексов: рельеф идёт первым, поэтому его
   // группа занимает начало сетки.
   const reliefIndices = relief.getIndex()?.count ?? 0;
   const frame = createLithophaneFrameGeometry(normalized);
   const bodies = [relief, frame];
+  const radius = lithophaneBendRadius(normalized);
+
+  if (radius !== null) {
+    /*
+      Изогнутая панель стоит на собственной базе: её нижняя кромка опущена в паз
+      рельса, поэтому вся сборка поднимается на дно паза. Наклона нет — дуга и так
+      держит панель, а рельс с каналом подсвечивает низ кадра.
+    */
+    const floor = LITHOPHANE_BENT_BASE_FLOOR_MM;
+
+    relief.translate(
+      0,
+      metrics.frameWidth + LITHOPHANE_FIT_GAP_MM + floor,
+      metrics.plateBack,
+    );
+    frame.translate(0, floor, 0);
+    bodies.push(createBentStandGeometry(normalized, radius, metrics));
+
+    return assignMaterialGroups(mergeBodies(bodies, "литофана"), reliefIndices);
+  }
 
   // Плита входит в окно с зазором и ложится на заднюю полку: по X она уже окна
   // на зазор с каждой стороны, по Y — на зазор сверху и снизу.

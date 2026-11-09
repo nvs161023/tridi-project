@@ -1601,6 +1601,36 @@ export type LithophaneMeshSize = {
 };
 
 /**
+ * Шаг вершины рельефа у калейдоскопа, мм.
+ *
+ * Калейдоскоп печатает четыре панели, и каждая — полная сетка рельефа. При шаге
+ * 0.3 мм панель 200 × 150 мм давала бы 583 000 треугольников, а четыре панели —
+ * 2.3 миллиона: такой файл (116 МБ) не откроет ни браузер, ни слайсер. Шаг
+ * 0.5 мм режет число треугольников в 2.8 раза (0.3² / 0.5²), и четыре панели
+ * того же размера укладываются в 840 000 — под бюджетом миллиона. Детализация
+ * падает незначительно: 0.5 мм — это 1.25 ширины сопла 0.4 мм, и фото на
+ * просвет остаётся читаемым.
+ */
+export const LITHOPHANE_KALEIDOSCOPE_PANEL_STEP_MM = 0.5;
+
+/**
+ * Поправки сетки под форму панели: шаг вершины и число копий рельефа.
+ *
+ * `copies` — сколько раз сетка попадает в файл: у калейдоскопа четыре панели, у
+ * остальных форм одна. Бюджет треугольников считается по сумме, иначе модель из
+ * четырёх панелей проходила бы проверку, а файл получался вчетверо больше
+ * предела.
+ */
+export function lithophaneMeshOptions(shape: LithophaneShape): {
+  step: number;
+  copies: number;
+} {
+  return shape === "kaleidoscope"
+    ? { step: LITHOPHANE_KALEIDOSCOPE_PANEL_STEP_MM, copies: 4 }
+    : { step: LITHOPHANE_VERTEX_STEP_MM, copies: 1 };
+}
+
+/**
  * Сетка рельефа под габариты плиты.
  *
  * Число вершин растёт вместе с панелью: `ceil(размер / 0.3) + 1` — округление
@@ -1609,28 +1639,32 @@ export type LithophaneMeshSize = {
  * панели 120 мм шаг выходил 0.27 мм, а на панели 200 мм — 0.50 мм, то есть
  * шире сопла, и мелкие детали терялись при печати.
  *
+ * Шаг и число копий берутся из `lithophaneMeshOptions`: калейдоскоп режется
+ * крупнее (0.5 мм), а его четыре панели делят один бюджет треугольников.
+ *
  * `null` — сетка не влезает в бюджет треугольников: геометрия тогда бросает
  * ошибку с текстом `LITHOPHANE_MESH_TOO_LARGE_MESSAGE`, а API отвечает 422.
  */
 export function lithophaneMeshSize(
   plateWidth: number,
   plateHeight: number,
+  options: { step?: number; copies?: number } = {},
 ): LithophaneMeshSize | null {
   if (!(plateWidth > 0) || !(plateHeight > 0)) {
     return null;
   }
 
-  const columns =
-    Math.max(2, Math.ceil(plateWidth / LITHOPHANE_VERTEX_STEP_MM)) + 1;
-  const rows =
-    Math.max(2, Math.ceil(plateHeight / LITHOPHANE_VERTEX_STEP_MM)) + 1;
+  const step = options.step ?? LITHOPHANE_VERTEX_STEP_MM;
+  const copies = options.copies ?? 1;
+  const columns = Math.max(2, Math.ceil(plateWidth / step)) + 1;
+  const rows = Math.max(2, Math.ceil(plateHeight / step)) + 1;
   // Контур плиты — 2(columns − 1) + 2(rows − 1) рёбер. На каждое ребро
   // приходится две боковины (один четырёхугольник) и один треугольник веера
   // центра тыла: два треугольника на ячейку лица плюс три на ребро контура.
   const boundary = 2 * (columns - 1) + 2 * (rows - 1);
   const triangles = 2 * (columns - 1) * (rows - 1) + 3 * boundary;
 
-  if (triangles > LITHOPHANE_MESH_MAX_TRIANGLES) {
+  if (triangles * copies > LITHOPHANE_MESH_MAX_TRIANGLES) {
     return null;
   }
 
@@ -1654,9 +1688,21 @@ export function lithophaneMeshSize(
  *
  * Крепления есть только у плоской панели: паз подставки, стойка и световой
  * короб вырезаны в плоской рамке, а гнуть их вместе с плитой нельзя — база
- * встала бы на стол дугой.
+ * встала бы на стол дугой. Зато у изогнутых форм и калейдоскопа своя база: она
+ * повторяет их дугу и держит панель без крепления (см.
+ * `lithophaneShapeHasBase`).
+ *
+ * `kaleidoscope` — светильник из четырёх панелей: они стоят под 90° друг к
+ * другу и смыкаются в закрытую призму на общей базе с отверстием под свечу или
+ * LED-лампу. Фото повторяется на каждой грани, а свет рассеивается внутри
+ * призмы и выходит через рельеф.
  */
-export const LITHOPHANE_SHAPES = ["flat", "curved", "cylinder"] as const;
+export const LITHOPHANE_SHAPES = [
+  "flat",
+  "curved",
+  "cylinder",
+  "kaleidoscope",
+] as const;
 
 export type LithophaneShape = (typeof LITHOPHANE_SHAPES)[number];
 
@@ -1665,6 +1711,7 @@ export const LITHOPHANE_SHAPE_LABELS = {
   flat: "Плоская (как фото)",
   curved: "Изогнутая (по дуге)",
   cylinder: "Цилиндр (как ночник)",
+  kaleidoscope: "Калейдоскоп (4 стороны)",
 } as const satisfies Record<LithophaneShape, string>;
 
 /**
@@ -1750,6 +1797,19 @@ export function lithophaneHasStand(mount: LithophaneMount): boolean {
  */
 export function lithophaneShapeHasMounts(shape: LithophaneShape): boolean {
   return shape === "flat";
+}
+
+/**
+ * Есть ли у формы своя база, вырезанная в её геометрии.
+ *
+ * Плоская панель опирается на съёмное крепление (арка, ножка, основание), а у
+ * изогнутых форм и калейдоскопа база — часть самой детали: рельс по дуге у
+ * изогнутой панели, круглая база с пазом под ленту у полуцилиндра и общая база
+ * призмы у калейдоскопа. Пока форма изогнута, съёмное крепление спрятано, и
+ * подставка строится по этой базе — панель стоит на столе сама.
+ */
+export function lithophaneShapeHasBase(shape: LithophaneShape): boolean {
+  return shape !== "flat";
 }
 
 /**

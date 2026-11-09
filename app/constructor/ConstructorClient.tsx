@@ -71,6 +71,7 @@ import {
   listSignBlocks,
   listSignLetters,
   lithophaneHasStand,
+  lithophaneShapeHasBase,
   lithophaneShapeHasMounts,
   lithophaneStlFileName,
   normalizeConstructorParams,
@@ -245,6 +246,22 @@ async function readServerMessage(response: Response): Promise<string | null> {
 }
 
 /**
+ * Подпись детали литофана.
+ *
+ * У изогнутой панели, полуцилиндра и калейдоскопа деталь `stand` — это их
+ * собственная база: рельс по дуге, круглая плита или цоколь призмы. Сменной
+ * подставки у этих форм нет, поэтому и подпись другая.
+ */
+function lithophanePartLabel(
+  params: ConstructorParams,
+  part: LithophanePart,
+): string {
+  return part === "stand" && lithophaneShapeHasBase(params.lithoShape)
+    ? "База"
+    : LITHOPHANE_PART_LABELS[part];
+}
+
+/**
  * Файлы, которые можно скачать для текущей модели.
  *
  * У вывески и литофана файлов несколько: блок вывески печатается лицом и
@@ -319,9 +336,13 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
     // основании, петли подвеса — часть рамки.
     const parts: LithophanePart[] = ["relief", "frame"];
 
+    // Подставка: у плоской формы — выбранное крепление с ножкой или основанием,
+    // у изогнутой панели, полуцилиндра и калейдоскопа — их собственная база
+    // (рельс по дуге, круглая плита, цоколь призмы).
     if (
-      lithophaneShapeHasMounts(params.lithoShape) &&
-      lithophaneHasStand(params.lithoMount)
+      lithophaneShapeHasBase(params.lithoShape) ||
+      (lithophaneShapeHasMounts(params.lithoShape) &&
+        lithophaneHasStand(params.lithoMount))
     ) {
       parts.push("stand");
     }
@@ -336,8 +357,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
       },
       ...parts.map((part) => ({
         id: `lithophane-${part}`,
-        label: LITHOPHANE_PART_LABELS[part],
-        description: `${LITHOPHANE_PART_LABELS[part]} литофана отдельным файлом`,
+        label: lithophanePartLabel(params, part),
+        description: `${lithophanePartLabel(params, part)} литофана отдельным файлом`,
         request: { part },
         fileName: lithophaneStlFileName(params, part),
       })),

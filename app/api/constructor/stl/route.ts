@@ -77,6 +77,7 @@ import {
   listSignBlocks,
   lithophaneHasStand,
   lithophaneMeshSize,
+  lithophaneShapeHasBase,
   lithophaneShapeHasMounts,
   lithophaneStlFileName,
   normalizeBoxParams,
@@ -1142,8 +1143,14 @@ function parseLithophaneParams(
     !isLithophaneLightSource(lithoLightSource) ||
     !isLithophanePart(part) ||
     (!lithoFrame && part !== "relief") ||
+    // Деталь «stand»: у плоской формы это выбранное крепление с ножкой или
+    // основанием, у изогнутой панели, полуцилиндра и калейдоскопа — их
+    // собственная база, которая печатается при любой форме, кроме плоской.
     (part === "stand" &&
-      !(lithophaneShapeHasMounts(lithoShape) && lithophaneHasStand(lithoMount)))
+      !(
+        lithophaneShapeHasBase(lithoShape) ||
+        (lithophaneShapeHasMounts(lithoShape) && lithophaneHasStand(lithoMount))
+      ))
   ) {
     return null;
   }
