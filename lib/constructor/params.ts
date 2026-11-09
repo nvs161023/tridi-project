@@ -1503,38 +1503,56 @@ export const BOX_PRESET_LABELS = {
 } as const satisfies Record<BoxPresetId, string>;
 
 /**
- * Сторона сетки изображения. Браузер рисует фотографию на canvas 400 × 400
- * сразу после выбора файла и считает по ней яркость.
+ * Длинная сторона сетки яркости: 400 пикселей.
  *
- * 150 × 150 не хватало: на панели 120 мм один пиксель — это 0.8 мм, и тонкие
- * линии логотипа сглаживались до «каши» ещё до геометрии. При 400 × 400
- * пиксель занимает 0.3 мм — примерно две ширины сопла, поэтому штрих в один
- * пиксель ещё читается на печати. Полный кадр фотографии в состоянии не
- * хранится: 160 000 чисел — это около 1 МБ JSON, а не 12 мегапикселей.
+ * Браузер рисует фотографию на canvas сразу после выбора файла и считает по ней
+ * яркость. Короткая сторона не назначается, а выводится из пропорций кадра,
+ * поэтому в состоянии лежит прямоугольная сетка: 400 × 267 для кадра 3:2,
+ * 267 × 400 для портрета. 400 пикселей дают 0.27 мм на пиксель на панели
+ * 120 мм — примерно две ширины сопла, и штрих в один пиксель ещё читается на
+ * печати. Прежние 150 × 150 не хватало: пиксель занимал 0.8 мм, и тонкие линии
+ * логотипа сглаживались до «каши» ещё до геометрии. Полный кадр фотографии в
+ * состоянии не хранится: 400 × 400 чисел — это около 1 МБ JSON, а не
+ * 12 мегапикселей.
  */
 export const LITHOPHANE_RESOLUTION = 400;
 
-/** Число пикселей в сжатом изображении: 400 × 400. */
-export const LITHOPHANE_PIXEL_COUNT = LITHOPHANE_RESOLUTION ** 2;
-
 /**
- * Сторона сетки рельефа, вершин на сторону.
+ * Шаг вершины сетки рельефа, мм.
  *
- * Совпадает с источником: 400 × 400 пикселей дают 400 × 400 вершин, и каждая
- * вершина получает свою яркость почти без билинейного размазывания. Шаг
- * вершины на панели 120 мм — 0.3 мм, примерно две ширины сопла; 160 801
- * вершина ещё помещается в память телефона, а выше 500 × 500 сетка начинает
- * заметно тормозить слайдеры.
+ * 0.3 мм — стандарт литофанов из референсов: примерно две ширины сопла
+ * 0.4 мм, поэтому рельеф печатается без провалов между вершинами. Число
+ * вершин больше не фиксировано: оно считается по габаритам плиты
+ * (`lithophaneMeshSize`), поэтому на панели 120 мм шаг равен 0.30 мм, а на
+ * панели 200 мм вершин вдвое больше и шаг остаётся тем же.
  */
-export const LITHOPHANE_MESH_RESOLUTION = 400;
+export const LITHOPHANE_VERTEX_STEP_MM = 0.3;
 
 /**
- * Сторона уменьшенной копии для предпросмотра в сцене.
+ * Бюджет треугольников рельефа: миллион.
  *
- * three.js пересобирает рельеф на каждое движение слайдера, и полные 400 × 400
- * вершин в браузере телефона заметно тормозят вращение. Сцена получает
- * усреднённую копию 150 × 150, а в запрос STL уходит полный массив из
- * состояния — предпросмотр остаётся отзывчивым, печать — подробной.
+ * Сетка 668 × 501 на панели 200 × 150 мм — это 667 000 треугольников лица и
+ * 7 002 на боковины и тыл, то есть файл на 34 МБ: столько разумно отдать один
+ * раз на печать. Миллион — предел, за которым браузер телефона и сервер
+ * начинают заметно тормозить. Плита 210 мм (701 × 701, 988 400 треугольников)
+ * ещё проходит, 215 мм (718 × 718, 1 036 782) — уже нет; слайдеры
+ * останавливаются на 200 мм, поэтому в интерфейсе отказ не появляется, но API
+ * и геометрия проверяют бюджет сами.
+ */
+export const LITHOPHANE_MESH_MAX_TRIANGLES = 1_000_000;
+
+/** Отказ по бюджету сетки: одинаковый текст в панели, геометрии и API. */
+export const LITHOPHANE_MESH_TOO_LARGE_MESSAGE =
+  "Слишком большой размер для такой детализации — уменьшите габариты панели.";
+
+/**
+ * Длинная сторона уменьшенной копии для предпросмотра в сцене.
+ *
+ * three.js пересобирает рельеф на каждое движение слайдера, и полная сетка
+ * яркости в браузере телефона заметно тормозит вращение. Сцена получает
+ * усреднённую копию с длинной стороной 150 пикселей (400 × 267 → 150 × 100), а
+ * в запрос STL уходит полный массив из состояния — предпросмотр остаётся
+ * отзывчивым, печать — подробной.
  */
 export const LITHOPHANE_PREVIEW_RESOLUTION = 150;
 
@@ -1543,9 +1561,65 @@ export const LITHOPHANE_PREVIEW_RESOLUTION = 150;
  *
  * Массив приходит из браузера, поэтому сервер не должен принимать гигантский
  * JSON: 1024 × 1024 — это уже миллион значений, дальше проверка отклоняет
- * запрос с 422.
+ * запрос с 422. Граница проверяется по каждой стороне: прямоугольная сетка
+ * 400 × 267 проходит, 2048 × 2 — нет.
  */
 export const LITHOPHANE_MAX_RESOLUTION = 1024;
+
+/** Размер сетки рельефа: вершины по осям, шаг в мм и число треугольников. */
+export type LithophaneMeshSize = {
+  columns: number;
+  rows: number;
+  /** Фактический шаг вершины по X, мм: не больше LITHOPHANE_VERTEX_STEP_MM. */
+  stepX: number;
+  /** Фактический шаг вершины по Y, мм. */
+  stepY: number;
+  /** Треугольники рельефа: лицо, боковины, тыл и веер центра тыла. */
+  triangles: number;
+};
+
+/**
+ * Сетка рельефа под габариты плиты.
+ *
+ * Число вершин растёт вместе с панелью: `ceil(размер / 0.3) + 1` — округление
+ * вверх, поэтому фактический шаг всегда не больше 0.3 мм (панель 107.6 мм даёт
+ * 360 вершин и шаг 0.2997 мм). Раньше сетка была фиксированной 400 × 400: на
+ * панели 120 мм шаг выходил 0.27 мм, а на панели 200 мм — 0.50 мм, то есть
+ * шире сопла, и мелкие детали терялись при печати.
+ *
+ * `null` — сетка не влезает в бюджет треугольников: геометрия тогда бросает
+ * ошибку с текстом `LITHOPHANE_MESH_TOO_LARGE_MESSAGE`, а API отвечает 422.
+ */
+export function lithophaneMeshSize(
+  plateWidth: number,
+  plateHeight: number,
+): LithophaneMeshSize | null {
+  if (!(plateWidth > 0) || !(plateHeight > 0)) {
+    return null;
+  }
+
+  const columns =
+    Math.max(2, Math.ceil(plateWidth / LITHOPHANE_VERTEX_STEP_MM)) + 1;
+  const rows =
+    Math.max(2, Math.ceil(plateHeight / LITHOPHANE_VERTEX_STEP_MM)) + 1;
+  // Контур плиты — 2(columns − 1) + 2(rows − 1) рёбер. На каждое ребро
+  // приходится две боковины (один четырёхугольник) и один треугольник веера
+  // центра тыла: два треугольника на ячейку лица плюс три на ребро контура.
+  const boundary = 2 * (columns - 1) + 2 * (rows - 1);
+  const triangles = 2 * (columns - 1) * (rows - 1) + 3 * boundary;
+
+  if (triangles > LITHOPHANE_MESH_MAX_TRIANGLES) {
+    return null;
+  }
+
+  return {
+    columns,
+    rows,
+    stepX: plateWidth / (columns - 1),
+    stepY: plateHeight / (rows - 1),
+    triangles,
+  };
+}
 
 /**
  * Как литофан стоит или висит.
@@ -1608,12 +1682,30 @@ export type LithophaneParams = {
   lithophaneMinThickness: number;
   /** Толщина тёмных участков и рамки, мм. */
   lithophaneMaxThickness: number;
-  /** Яркость 160 000 пикселей: сетка 400 × 400, значения 0–255. */
+  /** Яркость кадра построчно: width × height значений 0–255. */
   lithophaneBrightness: number[];
+  /**
+   * Ширина сетки яркости, пикселей.
+   *
+   * Хранится отдельным полем, потому что сетка прямоугольная: длинная сторона
+   * кадра — 400, короткая — по пропорциям (400 × 267 для 3:2). Старые проекты и
+   * клиенты присылают только массив: тогда обе стороны выводятся из длины как
+   * квадрат, и такие данные принимаются без изменений.
+   */
+  lithophaneBrightnessWidth: number;
+  /** Высота сетки яркости, пикселей. */
+  lithophaneBrightnessHeight: number;
   /** Печатать рамку с пазом отдельной деталью. */
   lithoFrame: boolean;
   /** Крепление: без него, подставка на стол или петли под саморезы. */
   lithoMount: LithophaneMount;
+};
+
+/** Сетка яркости вместе с её размерами: массив без полей не читается. */
+export type LithophaneBrightnessGrid = {
+  brightness: number[];
+  width: number;
+  height: number;
 };
 
 /** Значения, с которыми открывается конструктор. */
@@ -1921,6 +2013,8 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   lithophaneMaxThickness:
     CONSTRUCTOR_LIMITS.lithophaneMaxThickness.defaultValue,
   lithophaneBrightness: createDemoLithophaneBrightness(),
+  lithophaneBrightnessWidth: LITHOPHANE_RESOLUTION,
+  lithophaneBrightnessHeight: LITHOPHANE_RESOLUTION,
   lithoFrame: true,
   lithoMount: "stand",
 };
@@ -2301,43 +2395,58 @@ export function isModelType(value: unknown): value is ModelType {
 }
 
 /**
- * Сторона квадратной сетки яркости: 400 для 160 000 значений.
+ * Размеры сетки яркости: ширина и высота в пикселях.
  *
- * Сторона не хранится отдельным полем — её содержит длина массива. Поэтому
- * геометрия и проверка считают её одним и тем же способом, и массив
- * «400 × 300» не может пройти как валидный.
+ * Основной путь — пара полей `lithophaneBrightnessWidth`/`Height`: сетка
+ * прямоугольная, потому что кадр 3:2 занимает 400 × 267, а не квадрат. Если
+ * полей нет (старый проект или старый клиент), сторона выводится из длины
+ * массива как квадратная: 160 000 значений — это 400 × 400.
+ *
+ * `null` — данные испорчены: размеры переданы, но не сходятся с длиной массива,
+ * выходят за LITHOPHANE_MAX_RESOLUTION или длина не образует сетку вообще.
  */
-export function lithophaneBrightnessSide(brightness: number[]): number {
-  return Math.round(Math.sqrt(brightness.length));
-}
+export function lithophaneBrightnessSize(
+  brightness: number[],
+  width?: unknown,
+  height?: unknown,
+): { width: number; height: number } | null {
+  if (typeof width === "number" || typeof height === "number") {
+    if (
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      !Number.isInteger(width) ||
+      !Number.isInteger(height) ||
+      width < 2 ||
+      height < 2 ||
+      width > LITHOPHANE_MAX_RESOLUTION ||
+      height > LITHOPHANE_MAX_RESOLUTION ||
+      width * height !== brightness.length
+    ) {
+      return null;
+    }
 
-/**
- * Проверка сжатого изображения: квадратная сетка целых значений 0–255.
- *
- * Сторона выводится из длины и должна быть целой: 400 × 400 из браузера,
- * 150 × 150 из старого клиента. Строгая проверка нужна и API, и нормализации:
- * массив другого размера дал бы дыры в сетке, а дробное или отрицательное
- * число — неверную толщину.
- */
-export function isLithophaneBrightness(value: unknown): value is number[] {
-  if (!Array.isArray(value)) {
-    return false;
+    return { width, height };
   }
 
-  const side = lithophaneBrightnessSide(value);
+  const side = Math.round(Math.sqrt(brightness.length));
 
   if (
     side < 2 ||
     side > LITHOPHANE_MAX_RESOLUTION ||
-    side * side !== value.length
+    side * side !== brightness.length
   ) {
-    return false;
+    return null;
   }
 
+  return { width: side, height: side };
+}
+
+/** Значения сетки: целые числа 0–255 и ни одной дыры в массиве. */
+function hasLithophaneBrightnessValues(brightness: number[]): boolean {
   // Цикл по индексам, а не every(): разреженный массив every() пропускает
   // дыры, и undefined попал бы в геометрию как NaN.
-  for (let index = 0; index < value.length; index += 1) {
-    const pixel = value[index];
+  for (let index = 0; index < brightness.length; index += 1) {
+    const pixel = brightness[index];
 
     if (
       typeof pixel !== "number" ||
@@ -2353,39 +2462,101 @@ export function isLithophaneBrightness(value: unknown): value is number[] {
 }
 
 /**
- * Уменьшает сетку яркости усреднением блоков: 400 × 400 → 150 × 150.
+ * Проверка сжатого изображения: сетка целых значений 0–255.
+ *
+ * Размеры приходят отдельными полями и должны сходиться с длиной массива:
+ * 400 × 267 из нового клиента, 150 × 150 из старого. Без полей длина обязана
+ * быть полным квадратом — так проверяются проекты прежнего формата. Строгая
+ * проверка нужна и API, и нормализации: массив другого размера дал бы дыры в
+ * сетке, а дробное или отрицательное число — неверную толщину.
+ */
+export function isLithophaneBrightness(
+  value: unknown,
+  width?: unknown,
+  height?: unknown,
+): value is number[] {
+  return (
+    Array.isArray(value) &&
+    lithophaneBrightnessSize(value, width, height) !== null &&
+    hasLithophaneBrightnessValues(value)
+  );
+}
+
+/**
+ * Сетка яркости из параметров: массив вместе с его размерами.
+ *
+ * Нормализация и API зовут одну функцию: она проверяет и значения, и размеры, а
+ * испорченные данные заменяет демонстрационным рельефом — предпросмотр не
+ * должен падать из-за состояния формы.
+ */
+export function resolveLithophaneBrightness(source: {
+  lithophaneBrightness?: unknown;
+  lithophaneBrightnessWidth?: unknown;
+  lithophaneBrightnessHeight?: unknown;
+}): LithophaneBrightnessGrid {
+  const brightness = source.lithophaneBrightness;
+
+  if (Array.isArray(brightness)) {
+    const size = lithophaneBrightnessSize(
+      brightness,
+      source.lithophaneBrightnessWidth,
+      source.lithophaneBrightnessHeight,
+    );
+
+    if (size !== null && hasLithophaneBrightnessValues(brightness)) {
+      return { brightness, width: size.width, height: size.height };
+    }
+  }
+
+  return {
+    brightness: DEFAULT_LITHOPHANE_PARAMS.lithophaneBrightness,
+    width: LITHOPHANE_RESOLUTION,
+    height: LITHOPHANE_RESOLUTION,
+  };
+}
+
+/**
+ * Уменьшает сетку яркости усреднением блоков: 400 × 267 → 150 × 100.
  *
  * Предпросмотр в сцене получает уменьшенную копию, иначе three.js пересобирает
- * 160 801 вершину на каждое движение слайдера. Усреднение, а не выборка каждого
- * N-го пикселя: иначе тонкие штрихи логотипа пропадали бы в предпросмотре
- * целиком. Массив не увеличивается: если цель не меньше источника, он
- * возвращается как есть — ссылка на состояние остаётся прежней.
+ * сотни тысяч вершин на каждое движение слайдера. Усреднение, а не выборка
+ * каждого N-го пикселя: тонкие штрихи логотипа иначе пропадали бы в
+ * предпросмотре целиком. Пропорции сохраняются: длинная сторона сжимается до
+ * `targetLongSide`, короткая — во столько же раз, поэтому предпросмотр не
+ * растягивает кадр. Массив не увеличивается: если цель не меньше источника,
+ * сетка возвращается как есть — ссылка на состояние остаётся прежней.
  */
 export function downsampleLithophaneBrightness(
   brightness: number[],
-  targetSide: number,
-): number[] {
-  const side = lithophaneBrightnessSide(brightness);
+  width: number,
+  height: number,
+  targetLongSide: number,
+): LithophaneBrightnessGrid {
+  const longSide = Math.max(width, height);
 
-  if (targetSide < 2 || targetSide >= side) {
-    return brightness;
+  if (targetLongSide < 2 || targetLongSide >= longSide) {
+    return { brightness, width, height };
   }
 
-  const result = new Array<number>(targetSide * targetSide);
-  const scale = side / targetSide;
+  const scale = targetLongSide / longSide;
+  const targetWidth = Math.max(2, Math.round(width * scale));
+  const targetHeight = Math.max(2, Math.round(height * scale));
+  const result = new Array<number>(targetWidth * targetHeight);
+  const scaleX = width / targetWidth;
+  const scaleY = height / targetHeight;
 
-  for (let row = 0; row < targetSide; row += 1) {
-    const top = Math.floor(row * scale);
-    const bottom = Math.max(top + 1, Math.floor((row + 1) * scale));
+  for (let row = 0; row < targetHeight; row += 1) {
+    const top = Math.floor(row * scaleY);
+    const bottom = Math.max(top + 1, Math.floor((row + 1) * scaleY));
 
-    for (let column = 0; column < targetSide; column += 1) {
-      const left = Math.floor(column * scale);
-      const right = Math.max(left + 1, Math.floor((column + 1) * scale));
+    for (let column = 0; column < targetWidth; column += 1) {
+      const left = Math.floor(column * scaleX);
+      const right = Math.max(left + 1, Math.floor((column + 1) * scaleX));
       let sum = 0;
       let count = 0;
 
       for (let y = top; y < bottom; y += 1) {
-        const rowOffset = y * side;
+        const rowOffset = y * width;
 
         for (let x = left; x < right; x += 1) {
           sum += brightness[rowOffset + x];
@@ -2393,11 +2564,11 @@ export function downsampleLithophaneBrightness(
         }
       }
 
-      result[row * targetSide + column] = Math.round(sum / count);
+      result[row * targetWidth + column] = Math.round(sum / count);
     }
   }
 
-  return result;
+  return { brightness: result, width: targetWidth, height: targetHeight };
 }
 
 /**
@@ -3792,6 +3963,7 @@ export function normalizeLithophaneParams(
   const requestedMount = isLithophaneMount(params.lithoMount)
     ? params.lithoMount
     : DEFAULT_LITHOPHANE_PARAMS.lithoMount;
+  const brightness = resolveLithophaneBrightness(params);
 
   return {
     lithophaneWidth: snap(
@@ -3804,9 +3976,9 @@ export function normalizeLithophaneParams(
     ),
     lithophaneMinThickness,
     lithophaneMaxThickness,
-    lithophaneBrightness: isLithophaneBrightness(params.lithophaneBrightness)
-      ? params.lithophaneBrightness
-      : DEFAULT_LITHOPHANE_PARAMS.lithophaneBrightness,
+    lithophaneBrightness: brightness.brightness,
+    lithophaneBrightnessWidth: brightness.width,
+    lithophaneBrightnessHeight: brightness.height,
     lithoFrame,
     lithoMount: lithoFrame ? requestedMount : "none",
   };

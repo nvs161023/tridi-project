@@ -108,7 +108,6 @@ import {
   isCustomSvgData,
   LITHOPHANE_MOUNTS,
   LITHOPHANE_MOUNT_LABELS,
-  LITHOPHANE_PIXEL_COUNT,
   LITHOPHANE_RESOLUTION,
   MODEL_TYPE_LABELS,
   PEN_SHAPES,
@@ -139,6 +138,7 @@ import {
   type KeychainRotation,
   type KeychainTextAlign,
   type KeychainTextDecoration,
+  type LithophaneBrightnessGrid,
   type LithophaneMount,
   type ModelType,
   type PatternLayer,
@@ -337,7 +337,7 @@ type ParameterPanelProps = {
   /** Крепление литофана: подставка, настенные петли или ничего. */
   onLithoMountChange: (mount: LithophaneMount) => void;
   /** Готовая яркость 400 × 400 из canvas: 0 — чёрный, 255 — белый. */
-  onLithophaneBrightnessChange: (brightness: number[]) => void;
+  onLithophaneBrightnessChange: (grid: LithophaneBrightnessGrid) => void;
   /** Форма кашпо в плане: круг, квадрат или шестигранник. */
   onPlanterShapeChange: (shape: PlanterShape) => void;
   /** Дренажные отверстия и поддон рядом с горшком. */
@@ -664,23 +664,27 @@ const QR_CONTENT_TYPE_OPTIONS: readonly {
   value: type,
 }));
 
-/** Сжатая картинка: яркость для API и маленькое превью для панели. */
-type LithophaneImage = {
-  brightness: number[];
+/** Сжатая картинка: прямоугольная сетка яркости и маленькое превью для панели. */
+type LithophaneImage = LithophaneBrightnessGrid & {
   preview: string;
 };
 
 /**
- * Сжимает выбранный файл до 400 × 400 и считает яркость пикселей.
+ * Сжимает выбранный файл до 400 пикселей по длинной стороне и считает яркость.
  *
  * Полное фото нельзя класть в состояние: декодирование многомегапиксельного
  * кадра и передача его в three.js подвесили бы браузер. Canvas сразу уменьшает
- * картинку до 400 × 400, поэтому в React попадают 160 000 чисел, а не
- * 12 мегапикселей. Меньше нельзя: на панели 120 мм пиксель 150 × 150 — это
- * 0.8 мм, и тонкие линии логотипа сглаживались до «каши» ещё до геометрии.
- * Фон заливается белым: прозрачные участки PNG не должны стать чёрными и
- * превратиться в самый толстый пластик. Квадрат вырезается из центра кадра,
- * чтобы не растягивать пропорции.
+ * картинку до 400 пикселей по длинной стороне, поэтому в React попадает
+ * 400 × 267 чисел для кадра 3:2, а не 12 мегапикселей. Меньше нельзя: на панели
+ * 120 мм пиксель сетки 150 × 100 — это 0.8 мм, и тонкие линии логотипа
+ * сглаживались до «каши» ещё до геометрии.
+ *
+ * Пропорции кадра сохраняются: короткая сторона выводится из соотношения
+ * сторон, кадр рисуется целиком, без обрезки на этом шаге. Вписывает его в
+ * панель геометрия по правилу cover — лишнее срезается по краям панели, а не
+ * растягивается. Раньше из кадра вырезался центральный квадрат, и на панели
+ * 120 × 80 лицо выходило шире на 59 %. Фон заливается белым: прозрачные участки
+ * PNG не должны стать чёрными и превратиться в самый толстый пластик.
  */
 async function compressLithophaneImage(
   file: File,
@@ -698,9 +702,20 @@ async function compressLithophaneImage(
       throw new Error("Изображение пустое или повреждено.");
     }
 
+    // Сетка прямоугольная: 400 × 267 для кадра 3:2, 267 × 400 для портрета.
+    // Округление до целого не искажает кадр заметно: 400 / 1.5 = 266.67 → 267.
+    const aspect = bitmap.width / bitmap.height;
+    const landscape = bitmap.width >= bitmap.height;
+    const width = landscape
+      ? LITHOPHANE_RESOLUTION
+      : Math.max(2, Math.round(LITHOPHANE_RESOLUTION * aspect));
+    const height = landscape
+      ? Math.max(2, Math.round(LITHOPHANE_RESOLUTION / aspect))
+      : LITHOPHANE_RESOLUTION;
+
     const canvas = document.createElement("canvas");
-    canvas.width = LITHOPHANE_RESOLUTION;
-    canvas.height = LITHOPHANE_RESOLUTION;
+    canvas.width = width;
+    canvas.height = height;
 
     const context = canvas.getContext("2d", { willReadFrequently: true });
 
@@ -709,33 +724,17 @@ async function compressLithophaneImage(
     }
 
     context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, LITHOPHANE_RESOLUTION, LITHOPHANE_RESOLUTION);
+    context.fillRect(0, 0, width, height);
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
+    // Весь кадр в сетку пропорционально: обрезку делает геометрия, потому что
+    // только она знает пропорции панели.
+    context.drawImage(bitmap, 0, 0, width, height);
 
-    const sourceSize = Math.min(bitmap.width, bitmap.height);
+    const pixels = context.getImageData(0, 0, width, height).data;
+    const brightness = new Array<number>(width * height);
 
-    context.drawImage(
-      bitmap,
-      (bitmap.width - sourceSize) / 2,
-      (bitmap.height - sourceSize) / 2,
-      sourceSize,
-      sourceSize,
-      0,
-      0,
-      LITHOPHANE_RESOLUTION,
-      LITHOPHANE_RESOLUTION,
-    );
-
-    const pixels = context.getImageData(
-      0,
-      0,
-      LITHOPHANE_RESOLUTION,
-      LITHOPHANE_RESOLUTION,
-    ).data;
-    const brightness = new Array<number>(LITHOPHANE_PIXEL_COUNT);
-
-    for (let index = 0; index < LITHOPHANE_PIXEL_COUNT; index += 1) {
+    for (let index = 0; index < brightness.length; index += 1) {
       const offset = index * 4;
       // Воспринимаемая яркость, а не среднее RGB: зелёный вносит наибольший
       // вклад, поэтому лица и трава не становятся неожиданно тёмными.
@@ -748,6 +747,8 @@ async function compressLithophaneImage(
 
     return {
       brightness,
+      width,
+      height,
       preview: canvas.toDataURL("image/jpeg", 0.82),
     };
   } finally {
@@ -1566,7 +1567,11 @@ export function ParameterPanel({
       const image = await compressLithophaneImage(file);
 
       setImagePreview(image.preview);
-      onLithophaneBrightnessChange(image.brightness);
+      onLithophaneBrightnessChange({
+        brightness: image.brightness,
+        width: image.width,
+        height: image.height,
+      });
     } catch (error) {
       setImageError(
         error instanceof Error
@@ -3998,7 +4003,7 @@ export function ParameterPanel({
                 >
                   <span className="text-2xl">🖼️</span>
                   <span className="mt-1">
-                    {LITHOPHANE_RESOLUTION} × {LITHOPHANE_RESOLUTION}
+                    до {LITHOPHANE_RESOLUTION} px
                   </span>
                 </div>
               )}
@@ -4028,9 +4033,9 @@ export function ParameterPanel({
                   id={lithophaneHintId}
                 >
                   PNG, JPG или WebP. Браузер сразу сжимает кадр до{" "}
-                  {LITHOPHANE_RESOLUTION} × {LITHOPHANE_RESOLUTION}, поэтому
-                  большой файл не подвесит предпросмотр. Берётся центральная
-                  квадратная область.
+                  {LITHOPHANE_RESOLUTION} px по длинной стороне, поэтому большой
+                  файл не подвесит предпросмотр. Пропорции сохраняются: лишнее
+                  обрезается по краям панели, а не растягивается.
                 </p>
               </div>
             </div>

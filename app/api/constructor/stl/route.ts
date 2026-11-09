@@ -38,6 +38,7 @@ import {
   KEYCHAIN_IMAGE_SCALE_LIMITS,
   KEYCHAIN_IMAGE_THRESHOLD_LIMITS,
   KEYCHAIN_MAX_DECORATIONS,
+  LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
   KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS,
   boxStlFileName,
   coasterStlFileName,
@@ -72,6 +73,7 @@ import {
   keychainThicknessLimits,
   keychainQrCardSpec,
   listSignBlocks,
+  lithophaneMeshSize,
   lithophaneStlFileName,
   normalizeBoxParams,
   normalizeCoasterParams,
@@ -86,6 +88,7 @@ import {
   normalizeVaseParams,
   penHolderStlFileName,
   planterStlFileName,
+  resolveLithophaneBrightness,
   signStlFileName,
   standStlFileName,
   vaseGenerationDetails,
@@ -115,7 +118,10 @@ import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
 import { createHeatTransferGeometry } from "@/lib/constructor/heat-transfer-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import { createKeychainGeometry } from "@/lib/constructor/keychain-geometry";
-import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
+import {
+  createLithophaneGeometry,
+  lithophanePlateSize,
+} from "@/lib/constructor/lithophane-geometry";
 import { createPenHolderGeometry } from "@/lib/constructor/pen-holder-geometry";
 import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
 import { createStandGeometry } from "@/lib/constructor/phone-stand-geometry";
@@ -1055,9 +1061,10 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
  * Размеры и толщины должны лежать в границах слайдеров, причём максимум
  * обязан быть больше минимума до выравнивания по шагу: иначе рельеф стал бы
  * плоским. Массив яркости принимается только целыми числами 0–255 и обязан
- * быть квадратной сеткой со стороной от 2 до LITHOPHANE_MAX_RESOLUTION:
- * браузер присылает 400 × 400, а старый клиент мог прислать 150 × 150.
- * Строка base64 здесь не поддерживается: браузер уже
+ * сходиться с размерами сетки: новый клиент присылает ширину и высоту
+ * (400 × 267 для кадра 3:2), старый — только массив квадратной сетки 400 × 400
+ * или 150 × 150, и тогда обе стороны выводятся из длины. Обе стороны не больше
+ * LITHOPHANE_MAX_RESOLUTION. Строка base64 здесь не поддерживается: браузер уже
  * присылает готовую сетку, и серверу не нужно декодировать изображение.
  *
  * Рамка и крепление необязательны: старый клиент их не присылает и получает
@@ -1077,6 +1084,8 @@ function parseLithophaneParams(
     lithophaneMinThickness,
     lithophaneMaxThickness,
     lithophaneBrightness,
+    lithophaneBrightnessWidth,
+    lithophaneBrightnessHeight,
     lithoFrame = DEFAULT_LITHOPHANE_PARAMS.lithoFrame,
     lithoMount = DEFAULT_LITHOPHANE_PARAMS.lithoMount,
     part = "all",
@@ -1104,7 +1113,11 @@ function parseLithophaneParams(
       CONSTRUCTOR_LIMITS.lithophaneMaxThickness.max,
     ) ||
     lithophaneMaxThickness <= lithophaneMinThickness ||
-    !isLithophaneBrightness(lithophaneBrightness) ||
+    !isLithophaneBrightness(
+      lithophaneBrightness,
+      lithophaneBrightnessWidth,
+      lithophaneBrightnessHeight,
+    ) ||
     typeof lithoFrame !== "boolean" ||
     !isLithophaneMount(lithoMount) ||
     !isLithophanePart(part) ||
@@ -1114,13 +1127,23 @@ function parseLithophaneParams(
     return null;
   }
 
+  // Размеры сетки берутся из проверки, а не из тела запроса: без полей сетка
+  // квадратная, и в параметры должны попасть именно её стороны.
+  const grid = resolveLithophaneBrightness({
+    lithophaneBrightness,
+    lithophaneBrightnessWidth,
+    lithophaneBrightnessHeight,
+  });
+
   return {
     params: normalizeLithophaneParams({
       lithophaneWidth,
       lithophaneHeight,
       lithophaneMinThickness,
       lithophaneMaxThickness,
-      lithophaneBrightness,
+      lithophaneBrightness: grid.brightness,
+      lithophaneBrightnessWidth: grid.width,
+      lithophaneBrightnessHeight: grid.height,
       lithoFrame,
       lithoMount,
     }),
@@ -1678,6 +1701,22 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // Бюджет сетки рельефа. Шаг вершины 0.3 мм делает панель 200 мм вдвое
+  // плотнее прежней фиксированной сетки, и слишком крупная деталь положила бы
+  // и сервер, и скачивание. Отказ приходит до сборки: бесплатное скачивание не
+  // списывается, а пользователь видит причину, а не 500.
+  if (parsed.model === "lithophane") {
+    const plate = lithophanePlateSize(parsed.params);
+
+    if (lithophaneMeshSize(plate.width, plate.height) === null) {
+      return errorResponse(
+        422,
+        "lithophane_mesh_too_large",
+        LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
+      );
+    }
+  }
+
   try {
     // Шрифт читается брелоку и вывеске; остальные модели собираются без него,
     // чтобы не парсить 130 КБ JSON. loadFont() кэширует промис по пути, поэтому
@@ -1812,6 +1851,19 @@ export async function POST(request: Request): Promise<Response> {
     }
   } catch (error) {
     console.error("Не удалось собрать STL:", error);
+
+    // Геометрия рельефа проверяет бюджет сетки и сама: если сюда дошёл её
+    // отказ, это ошибка параметров, а не сервера, и текст уже готов для клиента.
+    if (
+      error instanceof Error &&
+      error.message === LITHOPHANE_MESH_TOO_LARGE_MESSAGE
+    ) {
+      return errorResponse(
+        422,
+        "lithophane_mesh_too_large",
+        LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
+      );
+    }
 
     return errorResponse(
       500,

@@ -988,23 +988,34 @@ export function Viewport({
   }, [fontSignature, loaded]);
 
   /**
-   * Предпросмотр литофана получает уменьшенную копию яркости: полные 400 × 400
-   * заставляют three.js пересобирать 160 801 вершину на каждое движение
-   * слайдера. Копия считается только при замене картинки — ссылка на массив в
-   * состоянии не меняется от правки толщин, поэтому useMemo не пересчитывает
-   * усреднение на каждый кадр.
+   * Предпросмотр литофана получает уменьшенную копию сетки яркости: полные
+   * 400 × 267 заставляют three.js пересобирать десятки тысяч вершин на каждое
+   * движение слайдера. Копия считается только при замене картинки — ссылка на
+   * массив в состоянии не меняется от правки толщин, поэтому useMemo не
+   * пересчитывает усреднение на каждый кадр. Пропорции копии те же, что у
+   * источника: сжимается длинная сторона, короткая — во столько же раз.
    */
   const lithophaneBrightness =
     params.model === "lithophane" ? params.lithophaneBrightness : null;
-  const lithophanePreviewBrightness = useMemo(
+  const lithophaneBrightnessWidth =
+    params.model === "lithophane" ? params.lithophaneBrightnessWidth : 0;
+  const lithophaneBrightnessHeight =
+    params.model === "lithophane" ? params.lithophaneBrightnessHeight : 0;
+  const lithophanePreview = useMemo(
     () =>
       lithophaneBrightness
         ? downsampleLithophaneBrightness(
             lithophaneBrightness,
+            lithophaneBrightnessWidth,
+            lithophaneBrightnessHeight,
             LITHOPHANE_PREVIEW_RESOLUTION,
           )
         : null,
-    [lithophaneBrightness],
+    [
+      lithophaneBrightness,
+      lithophaneBrightnessWidth,
+      lithophaneBrightnessHeight,
+    ],
   );
 
   /**
@@ -1036,10 +1047,16 @@ export function Viewport({
 
     if (params.model === "lithophane") {
       // В сцену уходит уменьшенная копия, а в запрос STL — полный массив из
-      // состояния: предпросмотр быстрый, печать подробная.
+      // состояния: предпросмотр быстрый, печать подробная. Размеры копии
+      // подменяются вместе с массивом, иначе нормализация не сойдётся с длиной.
       return createLithophaneGeometry(
-        lithophanePreviewBrightness
-          ? { ...params, lithophaneBrightness: lithophanePreviewBrightness }
+        lithophanePreview
+          ? {
+              ...params,
+              lithophaneBrightness: lithophanePreview.brightness,
+              lithophaneBrightnessWidth: lithophanePreview.width,
+              lithophaneBrightnessHeight: lithophanePreview.height,
+            }
           : params,
       );
     }
@@ -1073,7 +1090,7 @@ export function Viewport({
     return createVaseGeometry(createVaseProfile(params), params, {
       budget: "preview",
     });
-  }, [font, fonts, lithophanePreviewBrightness, params]);
+  }, [font, fonts, lithophanePreview, params]);
 
   // Старая сетка живёт в GPU-буфере: без dispose каждая правка слайдера
   // оставляла бы мусор до перезагрузки страницы.

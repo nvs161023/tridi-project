@@ -87,6 +87,7 @@ import {
   type KeychainDecorationKind,
   type KeychainParams,
   type KeychainQrDecoration,
+  type LithophaneBrightnessGrid,
   type LithophaneMount,
   type LithophanePart,
   type ModelType,
@@ -1029,13 +1030,20 @@ export function ConstructorClient({
   }
 
   /**
-   * Браузер уже сжал фотографию до 400 × 400 и отдал яркость. Массив идёт в
-   * общее состояние как есть: API принимает те же 160 000 целых чисел, поэтому
-   * сервер не декодирует картинку повторно.
+   * Браузер уже сжал фотографию до 400 пикселей по длинной стороне и отдал
+   * сетку яркости вместе с её размерами. Массив идёт в общее состояние как
+   * есть: API принимает те же числа, поэтому сервер не декодирует картинку
+   * повторно. Размеры обязательны — без них сетка 400 × 267 читалась бы как
+   * квадрат и нормализация подменила бы фото демонстрационным рельефом.
    */
-  function updateLithophaneBrightness(lithophaneBrightness: number[]) {
+  function updateLithophaneBrightness(grid: LithophaneBrightnessGrid) {
     setParams((current) =>
-      normalizeConstructorParams({ ...current, lithophaneBrightness }),
+      normalizeConstructorParams({
+        ...current,
+        lithophaneBrightness: grid.brightness,
+        lithophaneBrightnessWidth: grid.width,
+        lithophaneBrightnessHeight: grid.height,
+      }),
     );
   }
 

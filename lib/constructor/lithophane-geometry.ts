@@ -2,8 +2,8 @@ import { BufferGeometry, Float32BufferAttribute, Matrix4 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import {
-  LITHOPHANE_MESH_RESOLUTION,
-  lithophaneBrightnessSide,
+  LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
+  lithophaneMeshSize,
   normalizeLithophaneParams,
   type LithophaneParams,
   type LithophanePart,
@@ -13,10 +13,19 @@ import {
  * Геометрия литофана: рельеф, рамка с пазом и два съёмных крепления.
  *
  * Всё стоит в плоскости XY нижней кромкой на Y = 0, лицо смотрит в +Z; у
- * подставки база лежит на столе. Рельеф — heightfield 400 × 400: толщина каждой
- * вершины берётся из яркости фотографии билинейной выборкой из сетки 400 × 400,
- * которую браузер уже сжал из кадра. Чёрный пиксель даёт максимальную толщину,
- * белый — минимальную, поэтому свет проходит через тонкие участки сильнее.
+ * подставки база лежит на столе. Рельеф — heightfield по габаритам плиты: шаг
+ * вершины считается из стандарта 0.3 мм (`lithophaneMeshSize`), поэтому на
+ * панели 120 мм сетка 360 × 227, а на панели 200 мм — 626 × 460. Толщина каждой
+ * вершины берётся из яркости фотографии билинейной выборкой из прямоугольной
+ * сетки (400 × 267 для кадра 3:2), которую браузер уже сжал из кадра. Чёрный
+ * пиксель даёт максимальную толщину, белый — минимальную, поэтому свет проходит
+ * через тонкие участки сильнее.
+ *
+ * Кадр вписывается в панель по правилу cover: пропорции сохраняются, лишнее
+ * обрезается поровну с краёв, поля не появляются. Раньше браузер вырезал из
+ * фотографии центральный квадрат, а геометрия растягивала его на панель
+ * 120 × 80 — лицо выходило шире на 59 %.
+ *
  * После выборки яркость проходит через лёгкий unsharp и контраст: без них
  * билинейное сглаживание размывало тонкие штрихи логотипа до «каши».
  *
@@ -36,8 +45,31 @@ import {
 /** Ширина бортика рамки по периметру, мм. */
 export const LITHOPHANE_FRAME_WIDTH_MM = 6;
 
+/**
+ * Ширина бортика плиты по периметру, мм.
+ *
+ * 2 мм — стандарт литофанов из референсов: полоса максимальной толщины по краю
+ * не просвечивает, не крошится при обращении и держит рельеф у самой кромки.
+ * Бортик есть и при включённой рамке: фото заканчивается до рамки, а не
+ * наезжает на накладку. Плита в окне уже панели на 8.4 мм с каждой стороны,
+ * поэтому 0.2 мм бортика прячется под накладкой, а остальные 1.8 мм видны как
+ * узкая полка вокруг кадра.
+ */
+export const LITHOPHANE_BORDER_MM = 2;
+
+/**
+ * Ширина фаски бортика, мм.
+ *
+ * Бортик заканчивается не вертикальной стенкой, а скосом: толщина плавно
+ * переходит от максимальной к толщине фото. Раньше на границе был обрыв 2.2 мм
+ * на одном шаге вершины (0.3 мм) — на печати это уступ в 11 слоёв, у которого
+ * собираются сопли. Фаска растягивает тот же перепад на 1 мм: 0.66 мм на шаг.
+ */
+export const LITHOPHANE_BORDER_CHAMFER_MM = 1;
+
 /** Зазор посадки плиты в паз на сторону, мм. */
 export const LITHOPHANE_FIT_GAP_MM = 0.2;
+
 
 /** Высота задней полки рамки: на неё опирается плита, мм. */
 export const LITHOPHANE_FRAME_SEAT_MM = 1.6;
@@ -188,23 +220,24 @@ function finalizeGeometry(
  * снизу вверх, верхняя справа налево, левая сверху вниз. Для такого контура
  * внешняя нормаль ребра равна (dy, -dx, 0).
  */
-function collectBoundaryIndices(n: number): number[] {
+function collectBoundaryIndices(columns: number, rows: number): number[] {
   const boundary: number[] = [];
+  const bottomRow = (rows - 1) * columns;
 
-  for (let column = 0; column < n; column += 1) {
-    boundary.push((n - 1) * n + column);
+  for (let column = 0; column < columns; column += 1) {
+    boundary.push(bottomRow + column);
   }
 
-  for (let row = n - 2; row >= 0; row -= 1) {
-    boundary.push(row * n + n - 1);
+  for (let row = rows - 2; row >= 0; row -= 1) {
+    boundary.push(row * columns + columns - 1);
   }
 
-  for (let column = n - 2; column >= 0; column -= 1) {
+  for (let column = columns - 2; column >= 0; column -= 1) {
     boundary.push(column);
   }
 
-  for (let row = 1; row <= n - 2; row += 1) {
-    boundary.push(row * n);
+  for (let row = 1; row <= rows - 2; row += 1) {
+    boundary.push(row * columns);
   }
 
   return boundary;
@@ -272,27 +305,27 @@ function lithophaneFrameMetrics(normalized: LithophaneParams): FrameMetrics {
 /**
  * Билинейная выборка яркости в точке 0…1 по обеим осям.
  *
- * Сторона сетки выводится из длины массива и приходит аргументом: при
- * источнике 400 × 400 и сетке рельефа 400 × 400 вершина попадает почти в центр
- * пикселя, но дробные координаты всё равно встречаются — на предпросмотре
- * сцена присылает уменьшенную копию 150 × 150. Без выборки переходы читались
- * бы ступенями.
+ * Сетка прямоугольная: 400 × 267 для кадра 3:2, 150 × 100 для предпросмотра.
+ * Оси нормируются отдельно, поэтому пиксель остаётся квадратным и кадр не
+ * растягивается. Без выборки переходы читались бы ступенями.
  */
 function sampleBrightness(
   brightness: number[],
-  side: number,
+  width: number,
+  height: number,
   u: number,
   v: number,
 ): number {
-  const last = side - 1;
-  const x = Math.min(Math.max(u, 0), 1) * last;
-  const y = Math.min(Math.max(v, 0), 1) * last;
-  const x0 = Math.min(Math.floor(x), last - 1);
-  const y0 = Math.min(Math.floor(y), last - 1);
+  const lastX = width - 1;
+  const lastY = height - 1;
+  const x = Math.min(Math.max(u, 0), 1) * lastX;
+  const y = Math.min(Math.max(v, 0), 1) * lastY;
+  const x0 = Math.min(Math.floor(x), lastX - 1);
+  const y0 = Math.min(Math.floor(y), lastY - 1);
   const tx = x - x0;
   const ty = y - y0;
-  const topRow = y0 * side;
-  const bottomRow = topRow + side;
+  const topRow = y0 * width;
+  const bottomRow = topRow + width;
   const topLeft = brightness[topRow + x0];
   const bottomLeft = brightness[bottomRow + x0];
   const top = topLeft + (brightness[topRow + x0 + 1] - topLeft) * tx;
@@ -316,24 +349,27 @@ const LITHOPHANE_CONTRAST = 1.15;
 
 function sharpenBrightness(
   brightness: number[],
-  side: number,
+  width: number,
+  height: number,
   u: number,
   v: number,
 ): number {
-  const center = sampleBrightness(brightness, side, u, v);
+  const center = sampleBrightness(brightness, width, height, u, v);
 
-  if (side < 3) {
+  if (width < 3 && height < 3) {
     return center;
   }
 
   // Шаг в один пиксель источника: соседи берутся по осям, поэтому фильтр
-  // остаётся разделимым и стоит четыре выборки вместо девяти.
-  const step = 1 / (side - 1);
+  // остаётся разделимым и стоит четыре выборки вместо девяти. Оси сетки
+  // прямоугольные, поэтому шаг по X и по Y разный.
+  const stepU = width > 1 ? 1 / (width - 1) : 0;
+  const stepV = height > 1 ? 1 / (height - 1) : 0;
   const neighbors =
-    (sampleBrightness(brightness, side, u - step, v) +
-      sampleBrightness(brightness, side, u + step, v) +
-      sampleBrightness(brightness, side, u, v - step) +
-      sampleBrightness(brightness, side, u, v + step)) /
+    (sampleBrightness(brightness, width, height, u - stepU, v) +
+      sampleBrightness(brightness, width, height, u + stepU, v) +
+      sampleBrightness(brightness, width, height, u, v - stepV) +
+      sampleBrightness(brightness, width, height, u, v + stepV)) /
     4;
   const sharpened = center + (center - neighbors) * LITHOPHANE_SHARPNESS;
   const contrasted = 127.5 + (sharpened - 127.5) * LITHOPHANE_CONTRAST;
@@ -342,11 +378,19 @@ function sharpenBrightness(
 }
 
 /**
- * Замкнутая плита рельефа: heightfield, боковины и плоский тыл.
+ * Замкнутая плита рельефа: heightfield по габаритам плиты, боковины и тыл.
  *
- * `borderWidth > 0` оставляет по периметру плоскую полосу максимальной толщины:
- * так панель без рамки не просвечивает по краю и не крошится. `borderWidth = 0`
- * отдаёт фотографии всю площадь — у плиты в рамке край прикрыт накладкой.
+ * Сетка считается из габаритов (`lithophaneMeshSize`): шаг вершины 0.3 мм, а на
+ * большой панели вершин просто становится больше. Если бюджет треугольников
+ * превышен, функция бросает ошибку с текстом для панели и API: лучше отказ, чем
+ * зависший браузер и 45 МБ STL.
+ *
+ * `borderWidth` — плоская полоса максимальной толщины по периметру. Переход от
+ * бортика к фото идёт фаской `LITHOPHANE_BORDER_CHAMFER_MM`, поэтому на печати
+ * нет уступа в 2.2 мм на одном шаге вершины.
+ *
+ * Кадр вписан в плиту по правилу cover: пропорции сохранены, лишнее обрезано
+ * поровну с краёв, полей нет.
  */
 function createReliefBody(
   normalized: LithophaneParams,
@@ -357,46 +401,93 @@ function createReliefBody(
   const minThickness = normalized.lithophaneMinThickness;
   const maxThickness = normalized.lithophaneMaxThickness;
   const brightness = normalized.lithophaneBrightness;
-  const side = lithophaneBrightnessSide(brightness);
+  const brightnessWidth = normalized.lithophaneBrightnessWidth;
+  const brightnessHeight = normalized.lithophaneBrightnessHeight;
+  const mesh = lithophaneMeshSize(plateWidth, plateHeight);
+
+  if (mesh === null) {
+    throw new Error(LITHOPHANE_MESH_TOO_LARGE_MESSAGE);
+  }
+
+  const { columns, rows } = mesh;
   const halfWidth = plateWidth / 2;
   const thicknessRange = maxThickness - minThickness;
-  const n = LITHOPHANE_MESH_RESOLUTION;
-  const step = 1 / (n - 1);
+  const chamferWidth =
+    borderWidth > 0 ? Math.min(LITHOPHANE_BORDER_CHAMFER_MM, borderWidth) : 0;
+  const borderFlat = borderWidth - chamferWidth;
   const positions: number[] = [];
   const indices: number[] = [];
 
+  // cover: кадр заполняет плиту целиком, лишнее обрезается поровну с краёв.
+  // Кадр шире плиты — режем слева и справа, выше — сверху и снизу, поэтому
+  // пиксель остаётся квадратным и лицо не растягивается.
+  const sourceAspect = brightnessWidth / brightnessHeight;
+  const plateAspect = plateWidth / plateHeight;
+  let sourceLeft = 0;
+  let sourceRight = 1;
+  let sourceTop = 0;
+  let sourceBottom = 1;
+
+  if (sourceAspect > plateAspect) {
+    const keep = plateAspect / sourceAspect;
+    sourceLeft = (1 - keep) / 2;
+    sourceRight = 1 - sourceLeft;
+  } else if (sourceAspect < plateAspect) {
+    const keep = sourceAspect / plateAspect;
+    sourceTop = (1 - keep) / 2;
+    sourceBottom = 1 - sourceTop;
+  }
+
+  const sourceWidth = sourceRight - sourceLeft;
+  const sourceHeight = sourceBottom - sourceTop;
+
   // Лицо рельефа: одна вершина на узел сетки. Строка 0 — верхний край, как у
   // массива яркости; яркость 0 — самый толстый пластик, 255 — самый тонкий.
-  for (let row = 0; row < n; row += 1) {
-    const v = row * step;
+  for (let row = 0; row < rows; row += 1) {
+    const v = rows > 1 ? row / (rows - 1) : 0;
     const y = plateHeight - v * plateHeight;
     const fromTop = v * plateHeight;
-    const fromBottom = (1 - v) * plateHeight;
+    const fromBottom = plateHeight - fromTop;
+    const sourceV = sourceTop + v * sourceHeight;
 
-    for (let column = 0; column < n; column += 1) {
-      const u = column * step;
+    for (let column = 0; column < columns; column += 1) {
+      const u = columns > 1 ? column / (columns - 1) : 0;
       const x = -halfWidth + u * plateWidth;
-      const inBorder =
-        borderWidth > 0 &&
-        (u * plateWidth <= borderWidth ||
-          (1 - u) * plateWidth <= borderWidth ||
-          fromTop <= borderWidth ||
-          fromBottom <= borderWidth);
-      const thickness = inBorder
-        ? maxThickness
-        : maxThickness -
-          thicknessRange * (sharpenBrightness(brightness, side, u, v) / 255);
+      const fromLeft = u * plateWidth;
+      const fromRight = plateWidth - fromLeft;
+      const photoThickness =
+        maxThickness -
+        thicknessRange *
+          (sharpenBrightness(
+            brightness,
+            brightnessWidth,
+            brightnessHeight,
+            sourceLeft + u * sourceWidth,
+            sourceV,
+          ) /
+            255);
+      const edgeDistance = Math.min(fromLeft, fromRight, fromTop, fromBottom);
+      let thickness = photoThickness;
+
+      if (chamferWidth > 0 && edgeDistance < borderWidth) {
+        thickness =
+          edgeDistance <= borderFlat
+            ? maxThickness
+            : maxThickness +
+              (photoThickness - maxThickness) *
+                ((edgeDistance - borderFlat) / chamferWidth);
+      }
 
       positions.push(x, y, thickness);
     }
   }
 
-  for (let row = 0; row < n - 1; row += 1) {
-    for (let column = 0; column < n - 1; column += 1) {
-      const a = row * n + column;
+  for (let row = 0; row < rows - 1; row += 1) {
+    for (let column = 0; column < columns - 1; column += 1) {
+      const a = row * columns + column;
       const b = a + 1;
-      const c = a + n + 1;
-      const d = a + n;
+      const c = a + columns + 1;
+      const d = a + columns;
 
       // a — левый верхний угол ячейки, c — правый нижний. Такой обход даёт
       // нормаль +Z, то есть лицо смотрит на камеру и на слайсер сверху.
@@ -404,7 +495,7 @@ function createReliefBody(
     }
   }
 
-  const boundary = collectBoundaryIndices(n);
+  const boundary = collectBoundaryIndices(columns, rows);
   const bottomBoundary: number[] = [];
 
   // Тыл повторяет контур лица по X/Y и лежит на Z = 0. Отдельные вершины
@@ -455,6 +546,31 @@ function createReliefBody(
 }
 
 /**
+ * Габариты плиты рельефа, мм.
+ *
+ * С рамкой плита меньше панели на два бортика и на два зазора посадки; без
+ * рамки панель и есть плита. API зовёт эту функцию до сборки: по ней видно,
+ * влезает ли сетка в бюджет треугольников.
+ */
+export function lithophanePlateSize(params: Partial<LithophaneParams>): {
+  width: number;
+  height: number;
+} {
+  const normalized = normalizeLithophaneParams(params);
+
+  if (!normalized.lithoFrame) {
+    return {
+      width: normalized.lithophaneWidth,
+      height: normalized.lithophaneHeight,
+    };
+  }
+
+  const metrics = lithophaneFrameMetrics(normalized);
+
+  return { width: metrics.plateWidth, height: metrics.plateHeight };
+}
+
+/**
  * Плита рельефа отдельной деталью.
  *
  * `Partial<LithophaneParams>` допустим и на клиенте: normalizeLithophaneParams
@@ -466,16 +582,14 @@ export function createLithophaneReliefGeometry(
   params: Partial<LithophaneParams>,
 ): BufferGeometry {
   const normalized = normalizeLithophaneParams(params);
-  const metrics = lithophaneFrameMetrics(normalized);
+  const plate = lithophanePlateSize(normalized);
 
-  return normalized.lithoFrame
-    ? createReliefBody(normalized, metrics.plateWidth, metrics.plateHeight, 0)
-    : createReliefBody(
-        normalized,
-        normalized.lithophaneWidth,
-        normalized.lithophaneHeight,
-        metrics.frameWidth,
-      );
+  return createReliefBody(
+    normalized,
+    plate.width,
+    plate.height,
+    LITHOPHANE_BORDER_MM,
+  );
 }
 
 /**
