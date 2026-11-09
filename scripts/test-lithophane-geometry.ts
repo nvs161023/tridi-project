@@ -6,14 +6,19 @@
  * квадратом ещё на canvas, а геометрия размазывала этот квадрат по плите с
  * другим отношением сторон. Теперь в состоянии лежит прямоугольная сетка
  * (400 пикселей по длинной стороне), а вписывает её в панель геометрия по
- * правилу cover: лишнее срезается поровну с краёв, пиксель остаётся квадратным.
+ * правилу contain: кадр виден целиком, пиксель остаётся квадратным, а поля по
+ * краям печатаются на минимальной толщине.
  *
- * Второе правило — бортик. Фото кончается за 2 мм до кромки, и эти 2 мм
+ * Второе правило — умный выбор без ручного режима. Снимок вписывается целиком,
+ * логотип с прозрачным фоном обрезается по краю знака и получает контраст
+ * 0.6…3.5 мм: `lithophane-image.ts` решает это по доле прозрачного и пропорциям.
+ *
+ * Третье правило — бортик. Фото кончается за 2 мм до кромки, и эти 2 мм
  * печатаются на максимальной толщине: край не просвечивает и не крошится. В
  * рельеф бортик переходит фаской 1 мм, поэтому сопло не встречает вертикальную
  * стенку и над фото нет ступеньки в 2 мм.
  *
- * Третье правило — сетка. Шаг вершины больше не фиксирован числом вершин:
+ * Четвёртое правило — сетка. Шаг вершины больше не фиксирован числом вершин:
  * `lithophaneMeshSize` считает его по габаритам плиты из 0.3 мм (примерно две
  * ширины сопла), поэтому панель 200 мм получает вдвое больше вершин, чем
  * 120 мм, а не более грубый рельеф. Миллион треугольников — предел: деталь
@@ -38,11 +43,16 @@
  *   7. группы материалов: рельеф и крепление — одна сетка с двумя группами,
  *      группы покрывают все индексы, а сборка с основанием глубже и выше
  *      сборки без крепления;
- *   8. uv повторяют обрезанный кадр — карта свечения ложится на рельеф;
+ *   8. uv идут по плите: по ним карта свечения ложится на рельеф без сдвига;
  *   9. углы рамки скруглены: наружные дугой 6 мм, окно — дугой 2 мм, а плита
  *      входит в окно с зазором 0.2 мм по всему периметру, включая углы;
  *  10. яркость вершины усредняется по площади шага сетки: пиксельные ступеньки
- *      растягиваются в склон, а штрихи в два-три пикселя держат полный контраст.
+ *      растягиваются в склон, а штрихи в два-три пикселя держат полный контраст;
+ *  11. фото вписано целиком: кадр 4:3 в панели 120 × 80 остаётся круглым, а
+ *      поля по бокам печатаются на минимальной толщине 0.8 мм;
+ *  12. умный выбор кадра: снимок без прозрачности — фото, знак с прозрачным
+ *      фоном — логотип с контрастом 0.6…3.5 мм, поля карты свечения белые, а
+ *      минимальная толщина слайдера опущена до 0.6 мм.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -67,6 +77,16 @@ import {
   lithophanePlateSize,
 } from "../lib/constructor/lithophane-geometry";
 import {
+  LITHOPHANE_LOGO_MAX_THICKNESS_MM,
+  LITHOPHANE_LOGO_MIN_THICKNESS_MM,
+  lithophaneAlphaStats,
+  lithophaneContainRect,
+  lithophaneGlowPixels,
+  lithophaneImageKind,
+  lithophaneTrimBounds,
+} from "../lib/constructor/lithophane-image";
+import {
+  CONSTRUCTOR_LIMITS,
   LITHOPHANE_VERTEX_STEP_MM,
   lithophaneMeshSize,
   normalizeLithophaneParams,
@@ -164,11 +184,41 @@ function circleFrame(width = 400, height = 267): LithophaneBrightnessGrid {
   return { brightness, width, height };
 }
 
-/** Ровный серый кадр: толщина фото одна и та же во всех вершинах. */
-function flatFrame(value = 128): LithophaneBrightnessGrid {
-  const width = 400;
-  const height = 267;
+/**
+ * Кадр 4:3 с чёрной полосой по периметру и белой серединой.
+ *
+ * Полоса у самой кромки кадра — эталон обрезки: правило cover срезало её вместе
+ * с краем кадра, а contain обязан оставить на месте. На фото она печатается
+ * максимальной толщиной, и по ней видно, что кадр дошёл целиком.
+ */
+function edgeFrame(
+  width = 400,
+  height = 300,
+  edge = 10,
+): LithophaneBrightnessGrid {
+  const brightness = new Array<number>(width * height);
 
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      const onEdge =
+        row < edge ||
+        row >= height - edge ||
+        column < edge ||
+        column >= width - edge;
+
+      brightness[row * width + column] = onEdge ? 0 : 255;
+    }
+  }
+
+  return { brightness, width, height };
+}
+
+/** Ровный серый кадр: толщина фото одна и та же во всех вершинах. */
+function flatFrame(
+  value = 128,
+  width = 400,
+  height = 267,
+): LithophaneBrightnessGrid {
   return {
     brightness: new Array<number>(width * height).fill(value),
     width,
@@ -439,6 +489,42 @@ function faceThickness(
 }
 
 /**
+ * Толщина лица в точке (x, y), мм: по ближайшей вершине рельефа.
+ *
+ * Нужна для полей кадра: там толщина постоянная и равна минимуму, а `faceSpread`
+ * и `darkSpot` дают только максимумы и габариты. Тыл отсеивается по Z: у него та
+ * же X/Y, но лежит на нуле.
+ */
+function faceThicknessAt(
+  geometry: BufferGeometry,
+  x: number,
+  y: number,
+): number {
+  const position = geometry.getAttribute("position");
+  let best = Number.POSITIVE_INFINITY;
+  let thickness = 0;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const z = position.getZ(index);
+
+    if (z < 0.2) {
+      continue;
+    }
+
+    const dx = position.getX(index) - x;
+    const dy = position.getY(index) - y;
+    const distance = dx * dx + dy * dy;
+
+    if (distance < best) {
+      best = distance;
+      thickness = z;
+    }
+  }
+
+  return thickness;
+}
+
+/**
  * Насколько далеко точка вышла за скруглённый прямоугольник, мм.
  *
  * Отрицательное значение — насколько точка внутри контура. Считается по
@@ -565,7 +651,7 @@ function profilePoints(
 }
 
 
-console.log("\n1. Кадр не растягивается: cover вместо центрального квадрата");
+console.log("\n1. Кадр не растягивается: contain вместо центрального квадрата");
 
 for (const testCase of [
   { width: 120, height: 80, frame: circleFrame(), note: "кадр 3:2" },
@@ -628,8 +714,14 @@ for (const [width, height] of [
   [120, 80],
   [200, 150],
 ] as const) {
+  /*
+    Кадр берётся ровно по пропорциям панели: раздел проверяет бортик, а не
+    вписывание. Иначе поля по краям (contain) стояли бы на минимальной толщине
+    и «толщина фото» в профиле мерила бы их, а не серый кадр.
+  */
+  const frame = flatFrame(128, 400, Math.round((400 * height) / width));
   const geometry = createLithophaneReliefGeometry(
-    reliefParams(width, height, flatFrame()),
+    reliefParams(width, height, frame),
   );
   const step = stepOf(geometry);
   const profile = borderProfile(geometry);
@@ -1002,14 +1094,15 @@ console.log("\n7. Группы материалов и сборка с осно�
   framePart.dispose();
 }
 
-console.log("\n8. uv рельефа: карта свечения ложится на обрезанный кадр");
+console.log("\n8. uv рельефа: карта свечения ложится на плиту");
 
 {
   /*
-    Кадр 4 : 1 в плите 40 × 40: cover режет бока кадра, и uv обязаны попасть в
-    его центральную четверть. Иначе подсветка светила бы не там, где стоит
-    рельеф: карта свечения накладывается на лицо именно по uv. Панель ниже
-    40 мм нормализация поднимает до минимума, поэтому плита квадратная.
+    uv идут по плите, а не по кадру: карта свечения строится под пропорции
+    плиты (кадр по центру, поля белые), поэтому подсветка совпадает с рельефом
+    и на полях светит так же, как светится тонкий пластик. Кадр 4 : 1 в плите
+    40 × 40 — предельный случай: без полей в текстуре свечение уехало бы в
+    центр. Панель ниже 40 мм нормализация поднимает до минимума.
   */
   const params = reliefParams(40, 40, circleFrame(400, 100));
   const relief = createLithophaneGeometry(params, "relief");
@@ -1021,9 +1114,6 @@ console.log("\n8. uv рельефа: карта свечения ложится 
   const assembledValues = Array.from(
     (assembledUv?.array ?? []) as Float32Array,
   );
-  // Сколько кадра остаётся после кропа: отношение сторон плиты к кадру.
-  const keep = 40 / 40 / (400 / 100);
-  const left = (1 - keep) / 2;
   let minU = Number.POSITIVE_INFINITY;
   let maxU = Number.NEGATIVE_INFINITY;
   let minV = Number.POSITIVE_INFINITY;
@@ -1039,13 +1129,8 @@ console.log("\n8. uv рельефа: карта свечения ложится 
   check("uv рельефа есть", uv !== null, true);
   check("uv рельефа: пара на вершину", uv?.count ?? 0, positions.count);
   check("uv рельефа: без NaN", values.every(Number.isFinite), true);
-  checkRange("uv рельефа: кроп кадра слева", [minU - left], -1e-3, 1e-3);
-  checkRange(
-    "uv рельефа: кроп кадра справа",
-    [maxU - (1 - left)],
-    -1e-3,
-    1e-3,
-  );
+  checkRange("uv рельефа: левый край плиты", [minU], -1e-3, 1e-3);
+  checkRange("uv рельефа: правый край плиты", [maxU - 1], -1e-3, 1e-3);
   checkRange("uv рельефа: низ кадра", [minV], -1e-3, 1e-3);
   checkRange("uv рельефа: верх кадра", [maxV - 1], -1e-3, 1e-3);
   check(
@@ -1207,6 +1292,266 @@ console.log("\n10. Сглаживание: пиксельная ступеньк
 
     geometry.dispose();
   }
+}
+
+console.log("\n11. Фото вписано целиком: поля по краям на минимальной толщине");
+
+for (const [width, height, note] of [
+  [120, 80, "панель 3:2"],
+  [120, 120, "квадратная панель"],
+] as const) {
+  /*
+    Кадр 4:3 с чёрной полосой по периметру. Полоса у верхней и нижней кромки
+    кадра — главный признак обрезки: прежнее правило cover срезало её вместе с
+    краем, а contain обязан оставить на месте. Поля по краям печатаются на
+    минимуме и на просвет светлые.
+  */
+  const frame = edgeFrame(400, 300);
+  const params = reliefParams(width, height, frame);
+  const plate = lithophanePlateSize(params);
+  const normalized = normalizeLithophaneParams(params);
+  const geometry = createLithophaneReliefGeometry(params);
+  const fit = lithophaneContainRect(
+    frame.width,
+    frame.height,
+    plate.width,
+    plate.height,
+  );
+  const horizontalFields = fit.left > 0;
+  const fieldThickness = horizontalFields
+    ? faceThicknessAt(
+        geometry,
+        -plate.width / 2 + (fit.left * plate.width) / 2,
+        plate.height / 2,
+      )
+    : faceThicknessAt(
+        geometry,
+        0,
+        plate.height - (fit.top * plate.height) / 2,
+      );
+  // Точка в миллиметре от кромки кадра: там чёрная полоса кадра, то есть
+  // максимальная толщина. Для полей сверху и снизу отступ больше — полоса
+  // кадра занимает 2 мм своей высоты, и мерить надо внутри неё.
+  const inset = horizontalFields ? 1 : 1.5;
+  const topEdge = faceThicknessAt(
+    geometry,
+    0,
+    plate.height * (1 - fit.top) - inset,
+  );
+  const bottomEdge = faceThicknessAt(
+    geometry,
+    0,
+    plate.height * fit.top + inset,
+  );
+
+  console.log(
+    `  ${note}: кадр ${(fit.width * plate.width).toFixed(2)} × ` +
+      `${(fit.height * plate.height).toFixed(2)} мм, поле ` +
+      `${(horizontalFields ? fit.left * plate.width : fit.top * plate.height).toFixed(2)} мм ` +
+      `(толщина ${fieldThickness.toFixed(3)} мм), кромки кадра ` +
+      `${bottomEdge.toFixed(2)}…${topEdge.toFixed(2)} мм`,
+  );
+
+  check(
+    `${note}: поля только по одной оси`,
+    horizontalFields ? fit.height === 1 : fit.width === 1,
+    true,
+  );
+  checkRange(
+    `${note}: поле по краю на минимальной толщине`,
+    [fieldThickness - normalized.lithophaneMinThickness],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    `${note}: нижняя кромка кадра не срезана`,
+    [bottomEdge - normalized.lithophaneMaxThickness],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    `${note}: верхняя кромка кадра не срезана`,
+    [topEdge - normalized.lithophaneMaxThickness],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+
+  geometry.dispose();
+}
+
+console.log("\n12. Умный выбор кадра: фото, логотип и контраст");
+
+{
+  check(
+    "снимок без прозрачности — фото",
+    lithophaneImageKind(0, 4000, 3000),
+    "photo",
+  );
+  check(
+    "снимок 16:9 с прозрачными уголками — фото",
+    lithophaneImageKind(0.06, 1920, 1080),
+    "photo",
+  );
+  check(
+    "знак 1:1 с прозрачным фоном — логотип",
+    lithophaneImageKind(0.55, 1024, 1024),
+    "logo",
+  );
+  check(
+    "знак 4:3, прозрачного больше четверти — логотип",
+    lithophaneImageKind(0.4, 800, 600),
+    "logo",
+  );
+
+  const fit = lithophaneContainRect(400, 300, 120, 80);
+  const square = lithophaneContainRect(400, 300, 120, 120);
+
+  checkRange("contain 4:3 в панели 3:2: ширина кадра", [fit.width], 0.888, 0.89);
+  checkRange(
+    "contain 4:3 в панели 3:2: поля по 5.6 % с каждой стороны",
+    [fit.left],
+    0.055,
+    0.056,
+  );
+  check("contain в квадрате: по ширине кадр целиком", square.width, 1);
+  checkRange(
+    "contain в квадрате: поле сверху и снизу по четверти",
+    [1 - square.height],
+    0.249,
+    0.251,
+  );
+
+  // Логотип 100 × 100: прозрачный фон и знак 60 × 40 в центре.
+  const logoWidth = 100;
+  const logoHeight = 100;
+  const pixels = new Uint8Array(logoWidth * logoHeight * 4);
+
+  for (let row = 0; row < logoHeight; row += 1) {
+    for (let column = 0; column < logoWidth; column += 1) {
+      const inside = column >= 20 && column < 80 && row >= 30 && row < 70;
+      const offset = (row * logoWidth + column) * 4;
+
+      pixels[offset + 3] = inside ? 255 : 0;
+    }
+  }
+
+  const stats = lithophaneAlphaStats(pixels, logoWidth, logoHeight);
+
+  console.log(
+    `  логотип ${logoWidth} × ${logoHeight}: прозрачного ` +
+      `${(stats.transparentShare * 100).toFixed(1)} %, габарит краски ` +
+      `${JSON.stringify(stats.bounds)}`,
+  );
+
+  checkRange("логотип: доля прозрачного фона", [stats.transparentShare], 0.75, 0.77);
+  check("логотип: габарит краски по альфе", stats.bounds, {
+    left: 20,
+    top: 30,
+    right: 79,
+    bottom: 69,
+  });
+  check(
+    "логотип: обрезка с запасом в пиксель",
+    stats.bounds
+      ? lithophaneTrimBounds(stats.bounds, logoWidth, logoHeight)
+      : null,
+    { left: 19, top: 29, right: 80, bottom: 70 },
+  );
+}
+
+{
+  /*
+    Карта свечения: кадр 2 : 1 в плите 3 : 1. Кадр вписан, значит поля остаются
+    по бокам, и текстура шире сетки ровно на них. Поля белые: их толщина
+    минимальна, и на просвет они светятся — иначе на панели была бы тёмная
+    рамка, которой в пластике нет.
+  */
+  const glow = lithophaneGlowPixels(
+    { brightness: new Array<number>(4 * 2).fill(0), width: 4, height: 2 },
+    120,
+    40,
+  );
+  const leftEdge = Array.from(glow.pixels.slice(0, 4));
+  const rightEdge = Array.from(
+    glow.pixels.slice((glow.width - 1) * 4, glow.width * 4),
+  );
+
+  console.log(
+    `  карта свечения: ${glow.width} × ${glow.height} пикселей, ` +
+      `поле слева ${leftEdge.join(",")}`,
+  );
+
+  check("карта свечения: шире сетки на поля", glow.width, 6);
+  check("карта свечения: высота сетки", glow.height, 2);
+  check("карта свечения: поле белое", leftEdge, [255, 255, 255, 255]);
+  check("карта свечения: правое поле белое", rightEdge, [255, 255, 255, 255]);
+  check(
+    "карта свечения: кадр тёмный по центру",
+    Array.from(glow.pixels.slice(4, 8)),
+    [0, 0, 0, 255],
+  );
+}
+
+{
+  /*
+    Контраст логотипа: знак 3.5 мм на фоне 0.6 мм. С прежними 0.8…3.0 знак
+    сливался с прозрачным фоном на просвет — владелец показывал скриншот, где
+    буквы тонули в светлом фоне.
+  */
+  const logoParams: Partial<LithophaneParams> = {
+    ...reliefParams(120, 80, flatFrame(0)),
+    lithophaneMinThickness: LITHOPHANE_LOGO_MIN_THICKNESS_MM,
+    lithophaneMaxThickness: LITHOPHANE_LOGO_MAX_THICKNESS_MM,
+  };
+  const lightParams: Partial<LithophaneParams> = {
+    ...reliefParams(120, 80, flatFrame(255)),
+    lithophaneMinThickness: LITHOPHANE_LOGO_MIN_THICKNESS_MM,
+    lithophaneMaxThickness: LITHOPHANE_LOGO_MAX_THICKNESS_MM,
+  };
+  const logoGeometry = createLithophaneReliefGeometry(logoParams);
+  const lightGeometry = createLithophaneReliefGeometry(lightParams);
+  const plate = lithophanePlateSize(logoParams);
+  const sign = faceThickness(logoGeometry, plate.width, plate.height);
+  const backdrop = faceThickness(lightGeometry, plate.width, plate.height);
+
+  console.log(
+    `  логотип ${LITHOPHANE_LOGO_MIN_THICKNESS_MM}…` +
+      `${LITHOPHANE_LOGO_MAX_THICKNESS_MM} мм: фон ${backdrop.toFixed(3)} мм, ` +
+      `знак ${sign.toFixed(3)} мм`,
+  );
+
+  checkRange(
+    "логотип: знак на 3.5 мм",
+    [sign - LITHOPHANE_LOGO_MAX_THICKNESS_MM],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "логотип: прозрачный фон на 0.6 мм",
+    [backdrop - LITHOPHANE_LOGO_MIN_THICKNESS_MM],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  check(
+    "слайдер минимума опущен до толщины логотипа",
+    CONSTRUCTOR_LIMITS.lithophaneMinThickness.min,
+    LITHOPHANE_LOGO_MIN_THICKNESS_MM,
+  );
+  check(
+    "слайдер максимума вмещает толщину логотипа",
+    CONSTRUCTOR_LIMITS.lithophaneMaxThickness.max >=
+      LITHOPHANE_LOGO_MAX_THICKNESS_MM,
+    true,
+  );
+  check(
+    "нормализация принимает минимум логотипа",
+    normalizeLithophaneParams({ lithophaneMinThickness: 0.6 })
+      .lithophaneMinThickness,
+    0.6,
+  );
+
+  logoGeometry.dispose();
+  lightGeometry.dispose();
 }
 
 console.log("");

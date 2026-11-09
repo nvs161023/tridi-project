@@ -1036,14 +1036,26 @@ export function ConstructorClient({
    * есть: API принимает те же числа, поэтому сервер не декодирует картинку
    * повторно. Размеры обязательны — без них сетка 400 × 267 читалась бы как
    * квадрат и нормализация подменила бы фото демонстрационным рельефом.
+   *
+   * Панель может передать и толщины: распознанный логотип ставит 0.6…3.5 мм,
+   * чтобы знак не сливался с фоном на просвет. Фото толщины не трогает.
    */
-  function updateLithophaneBrightness(grid: LithophaneBrightnessGrid) {
+  function updateLithophaneBrightness(
+    grid: LithophaneBrightnessGrid,
+    thickness?: { min: number; max: number },
+  ) {
     setParams((current) =>
       normalizeConstructorParams({
         ...current,
         lithophaneBrightness: grid.brightness,
         lithophaneBrightnessWidth: grid.width,
         lithophaneBrightnessHeight: grid.height,
+        ...(thickness
+          ? {
+              lithophaneMinThickness: thickness.min,
+              lithophaneMaxThickness: thickness.max,
+            }
+          : null),
       }),
     );
   }

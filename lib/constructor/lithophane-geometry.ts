@@ -10,6 +10,7 @@ import {
   mergeVertices,
 } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
+import { lithophaneContainRect } from "@/lib/constructor/lithophane-image";
 import {
   LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
   lithophaneHasStand,
@@ -35,10 +36,12 @@ import {
  * оставался лесенкой. Чёрный пиксель даёт максимальную толщину, белый —
  * минимальную, поэтому свет проходит через тонкие участки сильнее.
  *
- * Кадр вписывается в панель по правилу cover: пропорции сохраняются, лишнее
- * обрезается поровну с краёв, поля не появляются. Раньше браузер вырезал из
- * фотографии центральный квадрат, а геометрия растягивала его на панель
- * 120 × 80 — лицо выходило шире на 59 %.
+ * Кадр вписывается в панель по правилу contain: пропорции сохраняются, кадр
+ * виден целиком, а поля по краям печатаются на минимальной толщине — на просвет
+ * они светлые. Режим не выбирается вручную: фотографии вписываются всегда, а у
+ * логотипа с прозрачным фоном обрезаются прозрачные поля (см.
+ * `lithophane-image.ts`). Раньше действовало правило cover: лишнее срезалось, и
+ * загруженное фото теряло края.
  *
  * После выборки яркость проходит через лёгкий unsharp и контраст: без них
  * площадное усреднение размывало тонкие штрихи логотипа до «каши».
@@ -663,10 +666,11 @@ function roundPlateCorners(
  * прямоугольная плита упиралась бы углами в накладку; плита повторяет это
  * скругление за вычетом зазора посадки. Без рамки радиус равен нулю.
  *
- * Кадр вписан в плиту по правилу cover: пропорции сохранены, лишнее обрезано
- * поровну с краёв, полей нет. В те же доли кадра размечаются `uv`: по ним
- * предпросмотр накладывает карту свечения, когда включена подсветка на просвет,
- * поэтому светится ровно то, что на фото, без сдвига и растяжения.
+ * Кадр вписан в плиту по правилу contain: пропорции сохранены, кадр виден
+ * целиком, а разница уходит в поля минимальной толщины. `uv` размечены по плите
+ * (0…1 по обеим осям): по ним предпросмотр накладывает карту свечения, когда
+ * включена подсветка на просвет, а карта строится под пропорции плиты с белыми
+ * полями — светится ровно то, что на фото, без сдвига и растяжения.
  */
 function createReliefBody(
   normalized: LithophaneParams,
@@ -693,37 +697,25 @@ function createReliefBody(
     borderWidth > 0 ? Math.min(LITHOPHANE_BORDER_CHAMFER_MM, borderWidth) : 0;
   const borderFlat = borderWidth - chamferWidth;
   const positions: number[] = [];
-  // uv в долях кадра: по ним подсветка накладывает карту свечения на рельеф.
+  // uv в долях плиты: по ним подсветка накладывает карту свечения на рельеф.
   const uvs: number[] = [];
   const indices: number[] = [];
 
-  // cover: кадр заполняет плиту целиком, лишнее обрезается поровну с краёв.
-  // Кадр шире плиты — режем слева и справа, выше — сверху и снизу, поэтому
-  // пиксель остаётся квадратным и лицо не растягивается.
-  const sourceAspect = brightnessWidth / brightnessHeight;
-  const plateAspect = plateWidth / plateHeight;
-  let sourceLeft = 0;
-  let sourceRight = 1;
-  let sourceTop = 0;
-  let sourceBottom = 1;
-
-  if (sourceAspect > plateAspect) {
-    const keep = plateAspect / sourceAspect;
-    sourceLeft = (1 - keep) / 2;
-    sourceRight = 1 - sourceLeft;
-  } else if (sourceAspect < plateAspect) {
-    const keep = sourceAspect / plateAspect;
-    sourceTop = (1 - keep) / 2;
-    sourceBottom = 1 - sourceTop;
-  }
-
-  const sourceWidth = sourceRight - sourceLeft;
-  const sourceHeight = sourceBottom - sourceTop;
+  // contain: кадр виден целиком. Пропорции сохраняются, а разница между
+  // кадром и плитой уходит в поля — они печатаются на минимальной толщине и на
+  // просвет остаются светлыми. Прежнее правило cover обрезало края кадра, и
+  // загруженное фото теряло часть изображения.
+  const fit = lithophaneContainRect(
+    brightnessWidth,
+    brightnessHeight,
+    plateWidth,
+    plateHeight,
+  );
   // Половина шага вершины в долях кадра: по этой площади усредняется яркость,
   // иначе точка выборки совпадает с центром пикселя сетки и интерполяция между
   // соседями не работает — на краях букв остаётся лесенка.
-  const spreadU = columns > 1 ? sourceWidth / (columns - 1) / 2 : 0;
-  const spreadV = rows > 1 ? sourceHeight / (rows - 1) / 2 : 0;
+  const spreadU = columns > 1 ? fit.width / (columns - 1) / 2 : 0;
+  const spreadV = rows > 1 ? fit.height / (rows - 1) / 2 : 0;
 
   // Лицо рельефа: одна вершина на узел сетки. Строка 0 — верхний край, как у
   // массива яркости; яркость 0 — самый толстый пластик, 255 — самый тонкий.
@@ -732,26 +724,33 @@ function createReliefBody(
     const y = plateHeight - v * plateHeight;
     const fromTop = v * plateHeight;
     const fromBottom = plateHeight - fromTop;
-    const sourceV = sourceTop + v * sourceHeight;
+    const sourceV = (v - fit.top) / fit.height;
+    const insideRow = sourceV >= 0 && sourceV <= 1;
 
     for (let column = 0; column < columns; column += 1) {
       const u = columns > 1 ? column / (columns - 1) : 0;
       const x = -halfWidth + u * plateWidth;
       const fromLeft = u * plateWidth;
       const fromRight = plateWidth - fromLeft;
+      const sourceU = (u - fit.left) / fit.width;
+      // Вершина вне кадра — это поле: пластик на минимальной толщине. Край
+      // кадра остаётся резким, как и на самом снимке, а сглаживать переход
+      // нечем: за кадром яркости нет.
       const photoThickness =
-        maxThickness -
-        thicknessRange *
-          (sharpenBrightness(
-            brightness,
-            brightnessWidth,
-            brightnessHeight,
-            sourceLeft + u * sourceWidth,
-            sourceV,
-            spreadU,
-            spreadV,
-          ) /
-            255);
+        insideRow && sourceU >= 0 && sourceU <= 1
+          ? maxThickness -
+            thicknessRange *
+              (sharpenBrightness(
+                brightness,
+                brightnessWidth,
+                brightnessHeight,
+                sourceU,
+                sourceV,
+                spreadU,
+                spreadV,
+              ) /
+                255)
+          : minThickness;
       const edgeDistance = Math.min(fromLeft, fromRight, fromTop, fromBottom);
       let thickness = photoThickness;
 
@@ -765,7 +764,9 @@ function createReliefBody(
       }
 
       positions.push(x, y, thickness);
-      uvs.push(sourceLeft + u * sourceWidth, sourceV);
+      // uv идут по плите, а не по кадру: карта свечения строится под пропорции
+      // плиты (кадр по центру, поля белые), поэтому кадр и подсветка совпадают.
+      uvs.push(u, v);
     }
   }
 

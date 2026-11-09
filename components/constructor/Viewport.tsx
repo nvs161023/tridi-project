@@ -55,7 +55,11 @@ import {
   heatTransferThickness,
 } from "@/lib/constructor/heat-transfer-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
-import { createLithophaneGeometry } from "@/lib/constructor/lithophane-geometry";
+import {
+  createLithophaneGeometry,
+  lithophanePlateSize,
+} from "@/lib/constructor/lithophane-geometry";
+import { lithophaneGlowPixels } from "@/lib/constructor/lithophane-image";
 import { createPenHolderGeometry } from "@/lib/constructor/pen-holder-geometry";
 import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
 import { createStandGeometry } from "@/lib/constructor/phone-stand-geometry";
@@ -442,6 +446,8 @@ type LithophaneModelProps = {
   backlight: boolean;
   /** Уменьшенная сетка яркости: из неё собирается карта свечения. */
   glow: LithophaneBrightnessGrid | null;
+  /** Габариты плиты без рамки: под них карта свечения получает светлые поля. */
+  plate: { width: number; height: number } | null;
 };
 
 /**
@@ -449,27 +455,23 @@ type LithophaneModelProps = {
  *
  * Светится сам пластик, а не фон: карта повторяет фото, поэтому на просвет
  * горят светлые участки и остаются тёмными тени — так же, как у напечатанного
- * литофана у окна. Текстура собирается один раз на переключение режима или
- * замену картинки: в цикле кадра new DataTexture не появляется. Размер — та же
- * уменьшенная сетка, из которой построен рельеф, поэтому uv рельефа ложатся на
- * неё один в один.
+ * литофана у окна. Кадр вписан в плиту по contain, и поля по краям тоже
+ * светятся (их толщина минимальна), поэтому текстура строится под пропорции
+ * плиты: кадр по центру, поля белые. Размер выходит на пиксели полей больше
+ * уменьшенной сетки, и uv рельефа (они идут по плите) ложатся на неё один в
+ * один. В цикле кадра new DataTexture не появляется: текстура собирается один
+ * раз на переключение режима, замену картинки или смену габарита.
  */
-function createGlowTexture(glow: LithophaneBrightnessGrid): DataTexture {
-  const pixels = new Uint8Array(glow.width * glow.height * 4);
-
-  for (let index = 0; index < glow.brightness.length; index += 1) {
-    const value = Math.round(
-      Math.min(255, Math.max(0, glow.brightness[index])),
-    );
-    const offset = index * 4;
-
-    pixels[offset] = value;
-    pixels[offset + 1] = value;
-    pixels[offset + 2] = value;
-    pixels[offset + 3] = 255;
-  }
-
-  const texture = new DataTexture(pixels, glow.width, glow.height);
+function createGlowTexture(
+  glow: LithophaneBrightnessGrid,
+  plate: { width: number; height: number },
+): DataTexture {
+  const { pixels, width, height } = lithophaneGlowPixels(
+    glow,
+    plate.width,
+    plate.height,
+  );
+  const texture = new DataTexture(pixels, width, height);
 
   // Сетка яркости приходит sRGB-байтами. Без перевода в линейное пространство
   // полутона свечения выходили бы мыльными, а светлые участки упирались бы в
@@ -508,10 +510,16 @@ function createGlowTexture(glow: LithophaneBrightnessGrid): DataTexture {
  * Материалы и текстура создаются один раз на режим и живут дольше сетки,
  * поэтому освобождаются на размонтировании и при смене режима.
  */
-function LithophaneModel({ backlight, geometry, glow }: LithophaneModelProps) {
+function LithophaneModel({
+  backlight,
+  geometry,
+  glow,
+  plate,
+}: LithophaneModelProps) {
   const glowTexture = useMemo(
-    () => (backlight && glow ? createGlowTexture(glow) : null),
-    [backlight, glow],
+    () =>
+      backlight && glow && plate ? createGlowTexture(glow, plate) : null,
+    [backlight, glow, plate],
   );
 
   const materials = useMemo(
@@ -881,6 +889,28 @@ function Scene({
   const lampDistance = span * STUDIO_BACKLIGHT.distance;
 
   /*
+    Габариты плиты: карта свечения строится под их пропорции, а не под кадр.
+    Зависимости — только габариты панели и флаг рамки: массив яркости сюда не
+    входит, поэтому движение слайдера толщин не пересобирает текстуру.
+  */
+  const lithophanePlate = useMemo(
+    () =>
+      params.model === "lithophane"
+        ? lithophanePlateSize({
+            lithophaneWidth: params.lithophaneWidth,
+            lithophaneHeight: params.lithophaneHeight,
+            lithoFrame: params.lithoFrame,
+          })
+        : null,
+    [
+      params.model,
+      params.lithophaneWidth,
+      params.lithophaneHeight,
+      params.lithoFrame,
+    ],
+  );
+
+  /*
     Дуга переворота: в полпути пластина стоит на ребре, и подъём должен вынести
     над столом её половину (половину большего габарита), толщину и рельефы.
   */
@@ -937,6 +967,7 @@ function Scene({
           backlight={backlightOn}
           geometry={geometry}
           glow={lithophaneGlow}
+          plate={lithophanePlate}
         />
       ) : params.model === "planter" ? (
         <ZUpModel color={STUDIO_MODEL_TINTS.planter} geometry={geometry} />

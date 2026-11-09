@@ -154,6 +154,14 @@ import {
   type VaseShape,
 } from "@/lib/constructor/params";
 import {
+  LITHOPHANE_LOGO_MAX_THICKNESS_MM,
+  LITHOPHANE_LOGO_MIN_THICKNESS_MM,
+  lithophaneAlphaStats,
+  lithophaneImageKind,
+  lithophaneTrimBounds,
+  type LithophaneImageKind,
+} from "@/lib/constructor/lithophane-image";
+import {
   VASE_SECTION_MIN_SIDES,
   resolveSectionSides,
 } from "@/lib/constructor/vase-section";
@@ -336,8 +344,17 @@ type ParameterPanelProps = {
   onLithoFrameChange: (hasFrame: boolean) => void;
   /** Крепление литофана: подставка, настенные петли или ничего. */
   onLithoMountChange: (mount: LithophaneMount) => void;
-  /** Готовая яркость 400 × 400 из canvas: 0 — чёрный, 255 — белый. */
-  onLithophaneBrightnessChange: (grid: LithophaneBrightnessGrid) => void;
+  /**
+   * Готовая сетка яркости из canvas: 0 — чёрный, 255 — белый.
+   *
+   * Второй аргумент — толщины, которые ставит распознанный логотип (0.6…3.5 мм):
+   * контраст знака важнее прежних настроек слайдеров. Снимок толщины не трогает:
+   * пользователь мог подобрать их под свою лампу.
+   */
+  onLithophaneBrightnessChange: (
+    grid: LithophaneBrightnessGrid,
+    thickness?: { min: number; max: number },
+  ) => void;
   /** Форма кашпо в плане: круг, квадрат или шестигранник. */
   onPlanterShapeChange: (shape: PlanterShape) => void;
   /** Дренажные отверстия и поддон рядом с горшком. */
@@ -664,10 +681,35 @@ const QR_CONTENT_TYPE_OPTIONS: readonly {
   value: type,
 }));
 
-/** Сжатая картинка: прямоугольная сетка яркости и маленькое превью для панели. */
+/** Сжатая картинка: прямоугольная сетка яркости, вид кадра и превью для панели. */
 type LithophaneImage = LithophaneBrightnessGrid & {
+  /** Фотография или логотип: от вида зависят толщины и обрезка прозрачных полей. */
+  kind: LithophaneImageKind;
   preview: string;
 };
+
+/**
+ * Размер сетки яркости для кадра: длинная сторона — `LITHOPHANE_RESOLUTION`.
+ *
+ * Короткая выводится из пропорций, поэтому сетка прямоугольная (400 × 267 для
+ * кадра 3:2). Округление до целого не искажает кадр заметно: 400 / 1.5 = 266.67.
+ */
+function lithophaneGridSize(
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  const aspect = width / height;
+  const landscape = width >= height;
+
+  return {
+    width: landscape
+      ? LITHOPHANE_RESOLUTION
+      : Math.max(2, Math.round(LITHOPHANE_RESOLUTION * aspect)),
+    height: landscape
+      ? Math.max(2, Math.round(LITHOPHANE_RESOLUTION / aspect))
+      : LITHOPHANE_RESOLUTION,
+  };
+}
 
 /**
  * Сжимает выбранный файл до 400 пикселей по длинной стороне и считает яркость.
@@ -679,16 +721,17 @@ type LithophaneImage = LithophaneBrightnessGrid & {
  * 120 мм пиксель сетки 150 × 100 — это 0.8 мм, и тонкие линии логотипа
  * сглаживались до «каши» ещё до геометрии.
  *
- * Пропорции кадра сохраняются: короткая сторона выводится из соотношения
- * сторон, кадр рисуется целиком, без обрезки на этом шаге. Вписывает его в
- * панель геометрия по правилу cover — лишнее срезается по краям панели, а не
- * растягивается. Раньше из кадра вырезался центральный квадрат, и на панели
- * 120 × 80 лицо выходило шире на 59 %. Фон заливается белым: прозрачные участки
- * PNG не должны стать чёрными и превратиться в самый толстый пластик.
+ * Здесь же решается, что за картинка пришла: признак — альфа. У JPG её нет, у
+ * PNG с прозрачным фоном доля прозрачного заметна, а по пропорциям проверяется
+ * вторая догадка (PNG-снимок с прозрачными уголками остаётся снимком). Логотип
+ * дополнительно обрезается по габариту краски: прозрачные поля иначе съедали бы
+ * половину панели, и знак печатался бы мельче, чем может.
+ *
+ * Фон заливается белым: прозрачные участки PNG не должны стать чёрными и
+ * превратиться в самый толстый пластик. Белый — это минимальная толщина, то есть
+ * светлый фон на просвет.
  */
-async function compressLithophaneImage(
-  file: File,
-): Promise<LithophaneImage> {
+async function compressLithophaneImage(file: File): Promise<LithophaneImage> {
   // Пустой MIME встречается у некоторых систем для обычного JPG. Такой файл
   // пропускаем до декодирования: canvas всё равно отклонит не-картинку.
   if (file.type && !file.type.startsWith("image/")) {
@@ -702,37 +745,72 @@ async function compressLithophaneImage(
       throw new Error("Изображение пустое или повреждено.");
     }
 
-    // Сетка прямоугольная: 400 × 267 для кадра 3:2, 267 × 400 для портрета.
-    // Округление до целого не искажает кадр заметно: 400 / 1.5 = 266.67 → 267.
-    const aspect = bitmap.width / bitmap.height;
-    const landscape = bitmap.width >= bitmap.height;
-    const width = landscape
-      ? LITHOPHANE_RESOLUTION
-      : Math.max(2, Math.round(LITHOPHANE_RESOLUTION * aspect));
-    const height = landscape
-      ? Math.max(2, Math.round(LITHOPHANE_RESOLUTION / aspect))
-      : LITHOPHANE_RESOLUTION;
-
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-
     const context = canvas.getContext("2d", { willReadFrequently: true });
 
     if (!context) {
       throw new Error("Браузер не смог подготовить canvas для изображения.");
     }
 
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, width, height);
+    // Первый проход — по всему кадру и без белой подложки: по альфе видно, что
+    // это за картинка и где кончается прозрачный фон.
+    const analysis = lithophaneGridSize(bitmap.width, bitmap.height);
+    canvas.width = analysis.width;
+    canvas.height = analysis.height;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+    const alpha = lithophaneAlphaStats(
+      context.getImageData(0, 0, canvas.width, canvas.height).data,
+      canvas.width,
+      canvas.height,
+    );
+    const kind = lithophaneImageKind(
+      alpha.transparentShare,
+      bitmap.width,
+      bitmap.height,
+    );
+    // Прозрачные поля обрезаются только у логотипа: у снимка прозрачный край —
+    // такая же часть кадра, как и всё остальное.
+    const trim =
+      kind === "logo" && alpha.bounds
+        ? lithophaneTrimBounds(alpha.bounds, canvas.width, canvas.height)
+        : null;
+    const scaleX = bitmap.width / canvas.width;
+    const scaleY = bitmap.height / canvas.height;
+    const cropLeft = trim ? Math.max(0, Math.floor(trim.left * scaleX)) : 0;
+    const cropTop = trim ? Math.max(0, Math.floor(trim.top * scaleY)) : 0;
+    const cropRight = trim
+      ? Math.min(bitmap.width, Math.ceil((trim.right + 1) * scaleX))
+      : bitmap.width;
+    const cropBottom = trim
+      ? Math.min(bitmap.height, Math.ceil((trim.bottom + 1) * scaleY))
+      : bitmap.height;
+    const cropWidth = Math.max(1, cropRight - cropLeft);
+    const cropHeight = Math.max(1, cropBottom - cropTop);
+    const grid = lithophaneGridSize(cropWidth, cropHeight);
+
+    // Второй проход — итоговая сетка: кадр (или обрезанный знак) на белом фоне.
+    canvas.width = grid.width;
+    canvas.height = grid.height;
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    // Весь кадр в сетку пропорционально: обрезку делает геометрия, потому что
-    // только она знает пропорции панели.
-    context.drawImage(bitmap, 0, 0, width, height);
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, grid.width, grid.height);
+    context.drawImage(
+      bitmap,
+      cropLeft,
+      cropTop,
+      cropWidth,
+      cropHeight,
+      0,
+      0,
+      grid.width,
+      grid.height,
+    );
 
-    const pixels = context.getImageData(0, 0, width, height).data;
-    const brightness = new Array<number>(width * height);
+    const pixels = context.getImageData(0, 0, grid.width, grid.height).data;
+    const brightness = new Array<number>(grid.width * grid.height);
 
     for (let index = 0; index < brightness.length; index += 1) {
       const offset = index * 4;
@@ -747,8 +825,9 @@ async function compressLithophaneImage(
 
     return {
       brightness,
-      width,
-      height,
+      width: grid.width,
+      height: grid.height,
+      kind,
       preview: canvas.toDataURL("image/jpeg", 0.82),
     };
   } finally {
@@ -1463,6 +1542,15 @@ export function ParameterPanel({
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  /**
+   * Вид последней загруженной картинки.
+   *
+   * Панель сама выбирает посадку и толщины, а по этому полю честно пишет, что
+   * произошло: «логотип обрезан и усилен» или «фото вписано целиком». После
+   * перезагрузки проекта вид неизвестен — там уже готовый рельеф, и обещать
+   * распознавание нечего.
+   */
+  const [imageKind, setImageKind] = useState<LithophaneImageKind | null>(null);
   const [isProcessingKeychainImage, setIsProcessingKeychainImage] =
     useState(false);
   const [keychainImageError, setKeychainImageError] = useState<string | null>(
@@ -1567,11 +1655,22 @@ export function ParameterPanel({
       const image = await compressLithophaneImage(file);
 
       setImagePreview(image.preview);
-      onLithophaneBrightnessChange({
-        brightness: image.brightness,
-        width: image.width,
-        height: image.height,
-      });
+      setImageKind(image.kind);
+      onLithophaneBrightnessChange(
+        {
+          brightness: image.brightness,
+          width: image.width,
+          height: image.height,
+        },
+        // Логотип получает контраст 0.6…3.5 мм: с прежними 0.8…3.0 знак
+        // сливался с прозрачным фоном на просвет.
+        image.kind === "logo"
+          ? {
+              min: LITHOPHANE_LOGO_MIN_THICKNESS_MM,
+              max: LITHOPHANE_LOGO_MAX_THICKNESS_MM,
+            }
+          : undefined,
+      );
     } catch (error) {
       setImageError(
         error instanceof Error
@@ -4034,8 +4133,9 @@ export function ParameterPanel({
                 >
                   PNG, JPG или WebP. Браузер сразу сжимает кадр до{" "}
                   {LITHOPHANE_RESOLUTION} px по длинной стороне, поэтому большой
-                  файл не подвесит предпросмотр. Пропорции сохраняются: лишнее
-                  обрезается по краям панели, а не растягивается.
+                  файл не подвесит предпросмотр. Фото вписывается целиком, поля
+                  по краям остаются светлыми. Логотип с прозрачным фоном
+                  обрезается по краю знака и получает контраст 0.6–3.5 мм.
                 </p>
               </div>
             </div>
@@ -4051,7 +4151,9 @@ export function ParameterPanel({
 
             <p className="mt-3 text-xs leading-relaxed text-slate-300">
               {hasUploadedImage
-                ? "Фото загружено. Тёмные участки станут толще, светлые — тоньше."
+                ? imageKind === "logo"
+                  ? "Распознан логотип: прозрачные поля обрезаны, фон печатается на 0.6 мм, знак — на 3.5 мм."
+                  : "Фото загружено целиком: тёмные участки стали толще, светлые — тоньше, а поля по краям остаются светлыми."
                 : "Пока показан демонстрационный рельеф. Загрузите фото, чтобы заменить его."}
             </p>
           </fieldset>
