@@ -863,6 +863,63 @@ console.log("\n7. Группы материалов и сборка с осно�
   framePart.dispose();
 }
 
+console.log("\n8. uv рельефа: карта свечения ложится на обрезанный кадр");
+
+{
+  /*
+    Кадр 4 : 1 в плите 40 × 40: cover режет бока кадра, и uv обязаны попасть в
+    его центральную четверть. Иначе подсветка светила бы не там, где стоит
+    рельеф: карта свечения накладывается на лицо именно по uv. Панель ниже
+    40 мм нормализация поднимает до минимума, поэтому плита квадратная.
+  */
+  const params = reliefParams(40, 40, circleFrame(400, 100));
+  const relief = createLithophaneGeometry(params, "relief");
+  const assembled = createLithophaneGeometry({ ...params, lithoFrame: true });
+  const uv = relief.getAttribute("uv");
+  const positions = relief.getAttribute("position");
+  const assembledUv = assembled.getAttribute("uv");
+  const values = Array.from((uv?.array ?? []) as Float32Array);
+  const assembledValues = Array.from(
+    (assembledUv?.array ?? []) as Float32Array,
+  );
+  // Сколько кадра остаётся после кропа: отношение сторон плиты к кадру.
+  const keep = 40 / 40 / (400 / 100);
+  const left = (1 - keep) / 2;
+  let minU = Number.POSITIVE_INFINITY;
+  let maxU = Number.NEGATIVE_INFINITY;
+  let minV = Number.POSITIVE_INFINITY;
+  let maxV = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < values.length; index += 2) {
+    minU = Math.min(minU, values[index]);
+    maxU = Math.max(maxU, values[index]);
+    minV = Math.min(minV, values[index + 1]);
+    maxV = Math.max(maxV, values[index + 1]);
+  }
+
+  check("uv рельефа есть", uv !== null, true);
+  check("uv рельефа: пара на вершину", uv?.count ?? 0, positions.count);
+  check("uv рельефа: без NaN", values.every(Number.isFinite), true);
+  checkRange("uv рельефа: кроп кадра слева", [minU - left], -1e-3, 1e-3);
+  checkRange(
+    "uv рельефа: кроп кадра справа",
+    [maxU - (1 - left)],
+    -1e-3,
+    1e-3,
+  );
+  checkRange("uv рельефа: низ кадра", [minV], -1e-3, 1e-3);
+  checkRange("uv рельефа: верх кадра", [maxV - 1], -1e-3, 1e-3);
+  check(
+    "сборка: uv пара на вершину",
+    assembledUv?.count ?? 0,
+    assembled.getAttribute("position").count,
+  );
+  check("сборка: uv без NaN", assembledValues.every(Number.isFinite), true);
+
+  relief.dispose();
+  assembled.dispose();
+}
+
 console.log("");
 
 if (failures > 0) {

@@ -415,7 +415,9 @@ function sharpenBrightness(
  * нет уступа в 2.2 мм на одном шаге вершины.
  *
  * Кадр вписан в плиту по правилу cover: пропорции сохранены, лишнее обрезано
- * поровну с краёв, полей нет.
+ * поровну с краёв, полей нет. В те же доли кадра размечаются `uv`: по ним
+ * предпросмотр накладывает карту свечения, когда включена подсветка на просвет,
+ * поэтому светится ровно то, что на фото, без сдвига и растяжения.
  */
 function createReliefBody(
   normalized: LithophaneParams,
@@ -441,6 +443,8 @@ function createReliefBody(
     borderWidth > 0 ? Math.min(LITHOPHANE_BORDER_CHAMFER_MM, borderWidth) : 0;
   const borderFlat = borderWidth - chamferWidth;
   const positions: number[] = [];
+  // uv в долях кадра: по ним подсветка накладывает карту свечения на рельеф.
+  const uvs: number[] = [];
   const indices: number[] = [];
 
   // cover: кадр заполняет плиту целиком, лишнее обрезается поровну с краёв.
@@ -504,6 +508,7 @@ function createReliefBody(
       }
 
       positions.push(x, y, thickness);
+      uvs.push(sourceLeft + u * sourceWidth, sourceV);
     }
   }
 
@@ -532,10 +537,13 @@ function createReliefBody(
       positions[topIndex * 3 + 1],
       0,
     );
+    // Тыл лежит под лицом в тех же X/Y: uv повторяют вершину контура.
+    uvs.push(uvs[topIndex * 2], uvs[topIndex * 2 + 1]);
   }
 
   const centerIndex = vertexIndex(positions);
   positions.push(0, plateHeight / 2, 0);
+  uvs.push(0.5, 0.5);
 
   const boundaryCount = boundary.length;
 
@@ -567,7 +575,11 @@ function createReliefBody(
     );
   }
 
-  return finalizeGeometry(positions, indices);
+  const geometry = finalizeGeometry(positions, indices);
+
+  geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+
+  return geometry;
 }
 
 /**
@@ -985,6 +997,28 @@ function mergeBodies(
   bodies: BufferGeometry[],
   name: string,
 ): BufferGeometry {
+  /*
+    uv размечает только рельеф: по ним предпросмотр кладёт карту свечения при
+    подсветке. `mergeGeometries` требует одинаковый набор атрибутов у всех тел,
+    поэтому рамке и подставке дописываются нулевые uv. Материал крепления карт
+    не читает, а сварка вершин видит в совпадающих точках те же значения и, как
+    раньше, склеивает стыки деталей.
+  */
+  const uvAttributes = bodies.map((body) => body.getAttribute("uv"));
+
+  if (uvAttributes.some(Boolean)) {
+    for (const body of bodies) {
+      if (!body.getAttribute("uv")) {
+        const count = body.getAttribute("position")?.count ?? 0;
+
+        body.setAttribute(
+          "uv",
+          new Float32BufferAttribute(new Float32Array(count * 2), 2),
+        );
+      }
+    }
+  }
+
   const merged = mergeGeometries(bodies);
 
   for (const body of bodies) {
