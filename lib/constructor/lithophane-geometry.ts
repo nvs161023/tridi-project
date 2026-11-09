@@ -54,8 +54,10 @@ import {
  *              наружные углы — дугой 6 мм, окно — дугой 2 мм;
  *   `stand`  — подставка: база, передняя губа и задняя стойка под наклоном 12°
  *              со скруглением в тыльном углу. Профиль один, поэтому шва, по
- *              которому деталь отламывается, нет; варианты — простая ножка и
- *              массивное основание.
+ *              которому деталь отламывается, нет. Подставок три: открытая арка
+ *              (две ножки по краям, паз под рамку и канал под светодиодную
+ *              ленту — низ панели открыт, и свет проходит к нему), сплошная
+ *              ножка и массивное основание.
  *
  * Крепление `hook` — две петли на тыльной стороне верхней планки рамки: литофан
  * висит на шурупах почти вплотную к стене. Вычитания тел (CSG) нет: деталь
@@ -1406,16 +1408,103 @@ export const LITHOPHANE_STAND_SHAPES = {
 const STAND_FILLET_SEGMENTS = 8;
 
 /**
- * Размеры профиля подставки для выбранного крепления.
+ * Открытая подставка: база с пазом под рамку и каналом под светодиодную ленту.
  *
- * Подставка печатается только при `stand` и `base`. Для остальных креплений
- * возвращается профиль ножки: сборке нужна высота её базы, даже когда сама
- * деталь в файл не попадает.
+ * Сплошная стойка старой ножки во всю ширину закрывала нижние 30 мм панели:
+ * на просвет там оставалось тёмное пятно, а светодиодную ленту поставить было
+ * некуда. Здесь стойки нет — её заменяют две ножки по краям базы, между ними
+ * панель открыта сзади и свет проходит к низу кадра.
+ *
+ * База 55 мм глубиной (от `back` до `front`) и 6 мм высотой несёт три выборки:
+ *   - паз под рамку: глубина `seatDepth` 3.5 мм, стенки наклонены на 12°, то
+ *     есть параллельны панели, а дно горизонтально. Рамка не упирается в глухую
+ *     стену, а опускается в паз и держится в нём без клея;
+ *   - канал под ленту: 10 мм по глубине и 2 мм по высоте, сразу за пазом.
+ *     Стандартная лента 8–10 мм ложится в него и светит вверх, на тыл кадра;
+ *   - канавка под провод: 2.4 мм шириной и 2 мм глубиной у тыльной кромки —
+ *     провод выходит вбок по канавке, и база стоит на столе всей плоскостью.
+ *
+ * Ножки 6 × 5 мм стоят по краям базы и наклонены вместе с панелью: их передние
+ * плоскости повторяют плоскость тыла рамки, поэтому рамка опирается на них всей
+ * плоскостью, а не ребром. Высота `legTop` 34 мм выше старой стойки: опора
+ * разнесена по краям, и панель не качается вокруг вертикальной оси.
+ */
+export const LITHOPHANE_ARCH_STAND = {
+  /** Ширина базы: доля ширины панели и минимум в миллиметрах. */
+  widthFactor: 0.92,
+  minWidth: 76,
+  /** Тыльная и передняя кромки базы по Z, мм. */
+  back: -46,
+  front: 9,
+  /** Высота базы над столом, мм. */
+  baseTop: 6,
+  /** Глубина паза под рамку вдоль плоскости панели, мм. */
+  seatDepth: 3.5,
+  /** Канал под светодиодную ленту: ширина по Z, глубина по Y, мм. */
+  channelWidth: 10,
+  channelDepth: 2,
+  /** Зазор от тыла рамки до передней стенки канала, мм. */
+  channelGap: 1.4,
+  /** Канавка под провод: ширина по Z и глубина по Y, мм. */
+  wireWidth: 2.4,
+  wireDepth: 2,
+  /** Расстояние от тыльной кромки базы до канавки, мм. */
+  wireGap: 6,
+  /**
+   * Ножка: ширина по X, толщина по нормали к панели, высота, мм.
+   *
+   * Ножка наклонена вместе с панелью и уходит в базу на 1 мм. Внутри базы она
+   * заходит и в канал ленты: его передние 3.3 мм на краях закрыты ножкой. Иначе
+   * задняя стенка ножки нависала бы над открытым каналом и печаталась с
+   * поддержкой — а так она повторяет наклон 12°, и деталь печатается как есть.
+   * Лента укладывается между ножками: на панели 120 мм это 98.4 мм.
+   */
+  legWidth: 6,
+  legThickness: 5,
+  legTop: 34,
+} as const;
+
+/**
+ * Размеры профиля сплошной подставки для выбранного крепления.
+ *
+ * Сплошная подставка печатается только при `stand` и `base`. Для остальных
+ * креплений возвращается профиль ножки: сборке нужна высота её базы, даже когда
+ * сама деталь в файл не попадает.
  */
 function standShape(mount: LithophaneMount): StandShape {
   return mount === "base"
     ? LITHOPHANE_STAND_SHAPES.massive
     : LITHOPHANE_STAND_SHAPES.leg;
+}
+
+/**
+ * Высота базы подставки: на неё сборка ставит наклонённую панель.
+ *
+ * У открытой арки высота своя (см. `LITHOPHANE_ARCH_STAND.baseTop`), у сплошных
+ * подставок — из их профиля. Общая функция нужна сборке: она не знает, какая
+ * деталь выбрана, а сдвиг панели по высоте зависит только от базы.
+ */
+function standBaseTop(mount: LithophaneMount): number {
+  return mount === "arch"
+    ? LITHOPHANE_ARCH_STAND.baseTop
+    : standShape(mount).baseTop;
+}
+
+/**
+ * Ширина базы подставки, мм.
+ *
+ * База шире панели не бывает и уже `minWidth` не бывает: на панели 120 × 80
+ * открытая арка получает 110.4 мм — ножки стоят под краями рамки, а на маленькой
+ * панели 40 мм ширина упирается в габарит.
+ */
+function standWidth(
+  shape: { widthFactor: number; minWidth: number },
+  panelWidth: number,
+): number {
+  return Math.min(
+    panelWidth,
+    Math.max(shape.minWidth, panelWidth * shape.widthFactor),
+  );
 }
 
 /**
@@ -1481,6 +1570,92 @@ function createStandProfile(
   );
 
   return profile;
+}
+
+/**
+ * Профиль базы открытой подставки: замкнутый контур в плоскости YZ.
+ *
+ * Обход идёт от передней нижней кромки назад по дну, вверх по тыльной стенке и
+ * дальше вперёд по верхней плоскости: в неё врезаны канавка провода, канал под
+ * ленту и паз под рамку. Все выборки — часть одного контура, поэтому деталь
+ * печатается одним профилем, без клея и без вычитания тел.
+ *
+ * Паз повторяет наклон панели: стенки параллельны плоскости тыла рамки, между
+ * ними и рамкой остаётся зазор `LITHOPHANE_FIT_GAP_MM`, а дно лежит ниже верха
+ * базы на `seatDepth`. Панель опускается в паз сверху и опирается на дно, так
+ * что низ рамки не упирается в глухую стену. Канал под ленту начинается сразу за
+ * тыльной стенкой паза: лента стоит в базе и светит вверх, на тыл кадра.
+ */
+function createArchBaseProfile(
+  shape: typeof LITHOPHANE_ARCH_STAND,
+  frameDepth: number,
+): StandProfilePoint[] {
+  const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
+  const slope = Math.tan(tilt);
+  const cos = Math.cos(tilt);
+  const baseTop = shape.baseTop;
+  // Пока стенка паза опускается до дна, она уходит вперёд по Z на seatShift:
+  // иначе наклонная рамка зажала бы её у верхней кромки.
+  const seatShift = shape.seatDepth * cos * slope;
+  const seatFloor = baseTop - shape.seatDepth * cos;
+  const seatBack = -LITHOPHANE_FIT_GAP_MM;
+  const seatFront = frameDepth + LITHOPHANE_FIT_GAP_MM;
+  const channelFront = seatBack - shape.channelGap;
+  const channelBack = channelFront - shape.channelWidth;
+  const wireFront = shape.back + shape.wireGap;
+  const wireBack = wireFront - shape.wireWidth;
+
+  return [
+    { y: 0, z: shape.front },
+    { y: 0, z: shape.back },
+    { y: baseTop, z: shape.back },
+    // Канавка под провод у тыльной кромки: в ней лежит кабель, база стоит ровно.
+    { y: baseTop, z: wireBack },
+    { y: baseTop - shape.wireDepth, z: wireBack },
+    { y: baseTop - shape.wireDepth, z: wireFront },
+    { y: baseTop, z: wireFront },
+    // Канал под светодиодную ленту 8–10 мм.
+    { y: baseTop, z: channelBack },
+    { y: baseTop - shape.channelDepth, z: channelBack },
+    { y: baseTop - shape.channelDepth, z: channelFront },
+    { y: baseTop, z: channelFront },
+    // Паз под рамку: наклонные стенки и горизонтальное дно.
+    { y: baseTop, z: seatBack },
+    { y: seatFloor, z: seatBack + seatShift },
+    { y: seatFloor, z: seatFront + seatShift },
+    { y: baseTop, z: seatFront },
+    // Передняя губа базы: рамка упирается в неё, а не в глухую стену.
+    { y: baseTop, z: shape.front },
+  ];
+}
+
+/**
+ * Профиль ножки открытой подставки: параллелограмм в плоскости YZ.
+ *
+ * Передняя плоскость ножки параллельна тылу рамки и стоит на
+ * `BODY_OVERLAP_MM` впереди неё: в собранном файле детали срастаются, а в
+ * напечатанной подставке рамка прижимается к ножкам всей плоскостью. Низ ножки
+ * уходит в базу на 1 мм — по этому стыку она срастается с базой, и отдельного
+ * шва, по которому деталь отламывается, нет.
+ */
+function createArchLegProfile(
+  shape: typeof LITHOPHANE_ARCH_STAND,
+): StandProfilePoint[] {
+  const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
+  const slope = Math.tan(tilt);
+  const cos = Math.cos(tilt);
+  const baseTop = shape.baseTop;
+  const frontAt = (y: number) => BODY_OVERLAP_MM - (y - baseTop) * slope;
+  const backAt = (y: number) => frontAt(y) - shape.legThickness / cos;
+  /** Низ ножки внутри базы: на столько она уходит в её тело. */
+  const bottom = 1;
+
+  return [
+    { y: bottom, z: frontAt(bottom) },
+    { y: bottom, z: backAt(bottom) },
+    { y: shape.legTop, z: backAt(shape.legTop) },
+    { y: shape.legTop, z: frontAt(shape.legTop) },
+  ];
 }
 
 /**
@@ -1580,15 +1755,18 @@ function createProfilePrismBody(
 }
 
 /**
- * Подставка отдельной деталью: простая ножка или массивное основание.
+ * Подставка отдельной деталью: открытая арка, сплошная ножка или основание.
  *
  * База держит литофан на столе: спереди её край выходит за рамку, сзади уходит
- * на 38–52 мм — центр тяжести наклонённой панели остаётся над опорой. Передняя
- * губа не даёт рамке съехать вперёд, задняя стойка наклонена на 12° и повторяет
- * наклон панели: рамка опирается на неё всей плоскостью, а не ребром. Стойка,
- * база и губа — один профиль, выдавленный по ширине детали: между ними нет
- * стыков, поэтому нет и шва, по которому деталь отламывается. Панель
- * опускается в паз сверху — клей не нужен.
+ * на 38–52 мм — центр тяжести наклонённой панели остаётся над опорой. У сплошных
+ * подставок передняя губа не даёт рамке съехать вперёд, а задняя стойка на 12°
+ * повторяет наклон панели: рамка опирается на неё всей плоскостью, а не ребром.
+ * Стойка, база и губа — один профиль, выдавленный по ширине детали: между ними
+ * нет стыков, поэтому нет и шва, по которому деталь отламывается.
+ *
+ * У открытой арки вместо стойки две ножки по краям базы, а рамка опускается в
+ * паз глубиной 3.5 мм — низ панели открыт, и свет от ленты проходит между
+ * ножками к низу кадра.
  *
  * Координаты те же, что у собранного литофана: стол — Y = 0, тыльная плоскость
  * рамки проходит через (Y = baseTop, Z = 0). Стойка стоит на 0.2 мм впереди неё:
@@ -1600,13 +1778,14 @@ export function createLithophaneStandGeometry(
   params: Partial<LithophaneParams>,
 ): BufferGeometry {
   const normalized = normalizeLithophaneParams(params);
+
+  if (normalized.lithoMount === "arch") {
+    return createArchStandGeometry(normalized);
+  }
+
   const metrics = lithophaneFrameMetrics(normalized);
   const shape = standShape(normalized.lithoMount);
-  const width = normalized.lithophaneWidth;
-  const standWidth = Math.min(
-    width,
-    Math.max(shape.minWidth, width * shape.widthFactor),
-  );
+  const standSpan = standWidth(shape, normalized.lithophaneWidth);
   const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
   // Стойка заходит в тыл рамки на BODY_OVERLAP_MM: иначе в собранном файле два
   // тела только касались бы плоскостями и слайсер видел бы два объекта. Панель
@@ -1618,8 +1797,53 @@ export function createLithophaneStandGeometry(
   return smoothGeometryNormals(
     createProfilePrismBody(
       createStandProfile(shape, lipBack),
-      -standWidth / 2,
-      standWidth / 2,
+      -standSpan / 2,
+      standSpan / 2,
+    ),
+  );
+}
+
+/**
+ * Открытая подставка: база с пазом под рамку, каналом под ленту и две ножки.
+ *
+ * Деталь собирается из трёх замкнутых тел: база во всю ширину и две ножки по её
+ * краям. Между ножками нет материала выше базы, поэтому свет от ленты, стоящей в
+ * канале, доходит до низа панели — старая сплошная стойка закрывала эти 30 мм.
+ * Ножки и база пересекаются на 1 мм и объединяются `mergeBodies`: в файле это
+ * один объект, шва по стыку нет.
+ *
+ * Проём между ножками считается по ширине базы: на панели 120 × 80 это
+ * 110.4 − 2 × 6 = 98.4 мм — под ленту 8–10 мм с запасом, а опора разнесена
+ * почти на всю ширину рамки, поэтому панель не качается.
+ */
+function createArchStandGeometry(
+  normalized: LithophaneParams,
+): BufferGeometry {
+  const metrics = lithophaneFrameMetrics(normalized);
+  const shape = LITHOPHANE_ARCH_STAND;
+  const standSpan = standWidth(shape, normalized.lithophaneWidth);
+  const leg = createArchLegProfile(shape);
+
+  return smoothGeometryNormals(
+    mergeBodies(
+      [
+        createProfilePrismBody(
+          createArchBaseProfile(shape, metrics.frontZ),
+          -standSpan / 2,
+          standSpan / 2,
+        ),
+        createProfilePrismBody(
+          leg,
+          standSpan / 2 - shape.legWidth,
+          standSpan / 2,
+        ),
+        createProfilePrismBody(
+          leg,
+          -standSpan / 2,
+          -standSpan / 2 + shape.legWidth,
+        ),
+      ],
+      "подставки",
     ),
   );
 }
@@ -1628,8 +1852,9 @@ export function createLithophaneStandGeometry(
  * Собирает литофан по детали: рельеф, рамка, подставка или всё сразу.
  *
  * `all` — собранный вид для предпросмотра и печати одним файлом: плита вставлена
- * в рамку, а с подставкой вся сборка наклонена на 12° и стоит в пазе; задняя
- * стойка подставки входит в тыл рамки, поэтому детали держатся друг за друга.
+ * в рамку, а с подставкой вся сборка наклонена на 12° и стоит на базе. Ножки
+ * открытой арки входят в тыл рамки, а низ рамки опущен в её паз, поэтому детали
+ * держатся друг за друга.
  * Без рамки крепления нет (его паз вырезан в рамке), поэтому `all` возвращает
  * плиту.
  * Если деталь недоступна — например, `frame` при выключенной рамке, — функция
@@ -1684,16 +1909,25 @@ export function createLithophaneGeometry(
   );
 
   if (lithophaneHasStand(normalized.lithoMount)) {
-    const tilt = new Matrix4().makeRotationX(
-      -(LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180,
-    );
-    const baseTop = standShape(normalized.lithoMount).baseTop;
+    const tiltRadians = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
+    const tilt = new Matrix4().makeRotationX(-tiltRadians);
+    const baseTop = standBaseTop(normalized.lithoMount);
+    /*
+      Открытая арка держит панель не на базе, а в пазу глубиной 3.5 мм: рамка
+      опускается вдоль своей плоскости, и её низ оказывается внутри базы. Сдвиг
+      идёт по плоскости панели, поэтому плоскость тыла рамки остаётся прежней —
+      на неё и опираются ножки, — а дно паза совпадает с нижней кромкой рамки.
+    */
+    const sinkDepth =
+      normalized.lithoMount === "arch" ? LITHOPHANE_ARCH_STAND.seatDepth : 0;
+    const sinkY = sinkDepth * Math.cos(tiltRadians);
+    const sinkZ = sinkDepth * Math.sin(tiltRadians);
 
     for (const body of bodies) {
       // Наклон вокруг ребра (Y = 0, Z = 0), затем перенос на верх базы: так
-      // тыл рамки ложится на наклонную стойку подставки.
+      // тыл рамки ложится на наклонные ножки или стойку подставки.
       body.applyMatrix4(tilt);
-      body.translate(0, baseTop, 0);
+      body.translate(0, baseTop - sinkY, sinkZ);
     }
 
     bodies.push(createLithophaneStandGeometry(normalized));

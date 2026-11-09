@@ -52,7 +52,11 @@
  *      поля по бокам печатаются на минимальной толщине 0.8 мм;
  *  12. умный выбор кадра: снимок без прозрачности — фото, знак с прозрачным
  *      фоном — логотип с контрастом 0.6…3.5 мм, поля карты свечения белые, а
- *      минимальная толщина слайдера опущена до 0.6 мм.
+ *      минимальная толщина слайдера опущена до 0.6 мм;
+ *  13. открытая арка: середина проёма свободна для света (луч из-за подставки
+ *      проходит на 6…33 мм над столом), ножки стоят по краям базы, в базе есть
+ *      канал 10 × 2 мм под ленту и канавка под провод, а панель опускается в паз
+ *      3.5 мм — сборка на 3.42 мм ниже, чем со сплошной подставкой.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -60,7 +64,10 @@
  */
 import type { BufferGeometry } from "three";
 
+import { Mesh, Raycaster, Vector3 } from "three";
+
 import {
+  LITHOPHANE_ARCH_STAND,
   LITHOPHANE_BORDER_CHAMFER_MM,
   LITHOPHANE_BORDER_MM,
   LITHOPHANE_DETAIL_GROUP,
@@ -70,6 +77,7 @@ import {
   LITHOPHANE_FRAME_WIDTH_MM,
   LITHOPHANE_RELIEF_GROUP,
   LITHOPHANE_STAND_SHAPES,
+  LITHOPHANE_STAND_TILT_DEG,
   createLithophaneFrameGeometry,
   createLithophaneGeometry,
   createLithophaneReliefGeometry,
@@ -648,6 +656,25 @@ function profilePoints(
   }
 
   return points.size;
+}
+
+/**
+ * Перекрыт ли пластик на высоте `y` по центру детали.
+ *
+ * Луч идёт из-за подставки вперёд вдоль Z: у открытой арки он проходит между
+ * ножками, у сплошной стойки упирается в пластик. Так проверяется то, ради чего
+ * арку и сделали, — свет от лампы за литофаном доходит до низа кадра.
+ */
+function blockedAt(geometry: BufferGeometry, x: number, y: number): boolean {
+  const mesh = new Mesh(geometry);
+  const ray = new Raycaster(
+    new Vector3(x, y, -200),
+    new Vector3(0, 0, 1),
+    0,
+    300,
+  );
+
+  return ray.intersectObject(mesh, false).length > 0;
 }
 
 
@@ -1554,8 +1581,204 @@ console.log("\n12. Умный выбор кадра: фото, логотип и
   lightGeometry.dispose();
 }
 
-console.log("");
+console.log("\n13. Открытая арка: проём под свет и канал под ленту");
 
+{
+  /*
+    Владелец заметил тёмное пятно на просвет: сплошная стойка во всю ширину
+    закрывала нижние 30 мм панели. Открытая арка держит панель двумя ножками по
+    краям базы, а рамка опускается в паз 3.5 мм. Раздел проверяет именно это:
+    середина проёма свободна для света, ножки стоят по краям, а в базе есть
+    канал 10 × 2 мм под ленту и канавка под провод.
+  */
+  const params: Partial<LithophaneParams> = {
+    lithophaneWidth: 120,
+    lithophaneHeight: 80,
+    lithoFrame: true,
+    lithoMount: "arch",
+  };
+  const shape = LITHOPHANE_ARCH_STAND;
+  const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
+  const stand = createLithophaneStandGeometry(params);
+  const size = boxSize(stand);
+  const expectedWidth = Math.min(
+    params.lithophaneWidth as number,
+    Math.max(
+      shape.minWidth,
+      (params.lithophaneWidth as number) * shape.widthFactor,
+    ),
+  );
+  // Габарит рамки по Z — глубина паза: рамка входит в него с зазором по сторонам.
+  const frameDepth = boxSize(createLithophaneFrameGeometry(params)).z;
+  const seatFloor = shape.baseTop - shape.seatDepth * Math.cos(tilt);
+  const channelFloor = shape.baseTop - shape.channelDepth;
+  const position = stand.getAttribute("position");
+  let channelMin = Number.POSITIVE_INFINITY;
+  let channelMax = Number.NEGATIVE_INFINITY;
+  let wireMin = Number.POSITIVE_INFINITY;
+  let wireMax = Number.NEGATIVE_INFINITY;
+  let seatMin = Number.POSITIVE_INFINITY;
+  let seatMax = Number.NEGATIVE_INFINITY;
+  let aboveMiddle = 0;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index);
+    const y = position.getY(index);
+    const z = position.getZ(index);
+
+    // Канал ленты ближе к панели, канавка провода — у тыльной кромки: их делит
+    // середина базы по Z, других выборок на этой глубине нет.
+    if (Math.abs(y - channelFloor) < TOLERANCE_MM) {
+      if (z > shape.back / 2) {
+        channelMin = Math.min(channelMin, z);
+        channelMax = Math.max(channelMax, z);
+      } else {
+        wireMin = Math.min(wireMin, z);
+        wireMax = Math.max(wireMax, z);
+      }
+    }
+
+    if (Math.abs(y - seatFloor) < TOLERANCE_MM) {
+      seatMin = Math.min(seatMin, z);
+      seatMax = Math.max(seatMax, z);
+    }
+
+    if (y > shape.baseTop + 0.5 && Math.abs(x) < 20) {
+      aboveMiddle += 1;
+    }
+  }
+
+  /*
+    Панель в сборке опускается в паз на `seatDepth` вдоль своей плоскости:
+    верх сборки с аркой ниже верха сборки со сплошной подставкой ровно на
+    seatDepth · cos 12°, то есть на 3.42 мм.
+  */
+  const archHeight = boxSize(createLithophaneGeometry(params)).y;
+  const solidHeight = boxSize(
+    createLithophaneGeometry({ ...params, lithoMount: "stand" }),
+  ).y;
+  const solidStand = createLithophaneStandGeometry({
+    ...params,
+    lithoMount: "stand",
+  });
+  const legX = expectedWidth / 2 - shape.legWidth / 2;
+
+  console.log(
+    `  подставка ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ` +
+      `${size.z.toFixed(2)} мм, канал ` +
+      `${(channelMax - channelMin).toFixed(2)} × ${shape.channelDepth} мм`,
+  );
+  console.log(
+    `  паз: дно на ${seatFloor.toFixed(2)} мм, ширина ` +
+      `${(seatMax - seatMin).toFixed(2)} мм; канавка провода ` +
+      `${(wireMax - wireMin).toFixed(2)} мм`,
+  );
+  console.log(
+    `  сборка с аркой: ${archHeight.toFixed(2)} мм против ` +
+      `${solidHeight.toFixed(2)} мм у сплошной — панель утоплена на ` +
+      `${(solidHeight - archHeight).toFixed(2)} мм`,
+  );
+
+  check("арка: подставка замкнута", openEdges(stand), 0);
+  check("арка: NaN 0", nanVertices(stand), 0);
+  checkRange(
+    "арка: ширина базы",
+    [size.x - expectedWidth],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "арка: высота ножек",
+    [size.y - shape.legTop],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "арка: глубина базы",
+    [size.z - (shape.front - shape.back)],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  check("арка: над базой материала в середине нет", aboveMiddle, 0);
+  checkRange(
+    "арка: канал под ленту 8–10 мм",
+    [channelMax - channelMin],
+    shape.channelWidth - TOLERANCE_MM,
+    shape.channelWidth + TOLERANCE_MM,
+  );
+  check(
+    "арка: канал вмещает ленту 8 мм",
+    channelMax - channelMin >= 8,
+    true,
+  );
+  check(
+    "арка: лента укладывается между ножками",
+    expectedWidth - 2 * shape.legWidth >= 20,
+    true,
+  );
+  checkRange(
+    "арка: канавка под провод 1–2 мм глубиной",
+    [shape.wireDepth],
+    1,
+    2,
+  );
+  checkRange(
+    "арка: канавка провода в базе",
+    [wireMax - wireMin],
+    shape.wireWidth - TOLERANCE_MM,
+    shape.wireWidth + TOLERANCE_MM,
+  );
+  checkRange(
+    "арка: паз глубже 3 мм",
+    [shape.seatDepth],
+    3,
+    4,
+  );
+  checkRange(
+    "арка: дно паза ниже верха базы на глубину паза",
+    [shape.baseTop - seatFloor - shape.seatDepth * Math.cos(tilt)],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "арка: паз по глубине рамки с зазором 0.2 мм",
+    [seatMax - seatMin],
+    frameDepth + 2 * LITHOPHANE_FIT_GAP_MM - TOLERANCE_MM,
+    frameDepth + 2 * LITHOPHANE_FIT_GAP_MM + TOLERANCE_MM,
+  );
+  checkRange(
+    "арка: панель опущена в паз на 3.42 мм",
+    [solidHeight - archHeight - shape.seatDepth * Math.cos(tilt)],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+
+  for (const y of [shape.baseTop + 1, 12, 20, 28, shape.legTop - 1]) {
+    check(
+      `арка: свет проходит в середине на ${y} мм`,
+      blockedAt(stand, 0, y),
+      false,
+    );
+  }
+
+  check(
+    "арка: ножка по краю базы перекрывает",
+    blockedAt(stand, legX, 20),
+    true,
+  );
+  for (const y of [shape.baseTop + 1, 20]) {
+    check(
+      `сплошная ножка: середина перекрыта на ${y} мм`,
+      blockedAt(solidStand, 0, y),
+      true,
+    );
+  }
+
+  stand.dispose();
+  solidStand.dispose();
+}
+
+console.log("");
 
 if (failures > 0) {
   console.log(`Провалено проверок: ${failures}`);
