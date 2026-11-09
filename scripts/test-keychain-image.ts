@@ -1,16 +1,24 @@
 /**
- * Тест маски картинки брелока: краска, порог, дилатация тонкого, обводка.
+ * Тест маски картинки брелока: краска, порог, дилатация, упаковка, обводка.
  *
- * Правила, которые здесь закреплены, выведены из жалобы «логотип в рельефе не
- * читается». Первое: доля краски в непрозрачной картинке — это
- * `1 − min(R,G,B)/255`, а не яркость. Прежняя формула по светлоте давала синему
- * 0.59, светло-синему 0.34 и жёлтому 0.09, поэтому при пороге 50 % цветные части
- * логотипа пропадали, и на рельефе оставались только тёмные фрагменты. Второе:
- * дилатация расширяет только штрих без «ядра» (ячейки, у которой все четыре соседа
- * тоже пластик). Сплошное расширение добавляло по ячейке с каждой стороны любому
- * контуру, просветы между буквами зарастали, и мелкий текст слипался в пятно.
- * Третье: обводка обязана повторять маску — иначе панель показывает одно, а STL
- * печатает другое.
+ * Правила, которые здесь закреплены, выведены из двух жалоб владельца. Первая:
+ * «логотип в рельефе не читается». Вторая: «коробка читается, а `tridi-print.ru` и
+ * мелкий текст разваливаются на осколки». Отсюда четыре правила.
+ *
+ * Доля краски в непрозрачной картинке — это `1 − min(R,G,B)/255`, а не яркость:
+ * прежняя формула по светлоте давала синему 0.59, светло-синему 0.34 и жёлтому
+ * 0.09, поэтому при пороге 50 % цветные части логотипа пропадали.
+ *
+ * Дилатация — ровный проход по четырём соседям, без «ядра» и без срезания хвостов:
+ * у подписи ядра нет вовсе, поэтому прежняя логика расширяла буквы неравномерно, а
+ * срезание одиночных ячеек отрезало у них куски. Прибавка в одну ячейку сетки
+ * 400 — это 0.065 мм, меньше сопла, и на глаз не видна.
+ *
+ * Упрощение контура — 0.4 ячейки, а не 1.5: полтора допуска схлопывали мелкие
+ * контуры в точку, и буквы до геометрии не доходили.
+ *
+ * Габарит маски лежит в заголовке двумя uint16 (сетка 400 в байт не влезает), а
+ * прежние маски с двумя байтами читаются по-прежнему.
  *
  * Что проверяется:
  *   1. цвет даёт краску: синий и жёлтый логотипы проходят порог 50 %, а пастельный
@@ -18,22 +26,26 @@
  *   2. пустая картинка возвращает `empty`, а не пустую маску;
  *   3. порог режет по ступеням: 13 проходит при 50 %, 6 нет, при 60 % проходит 6, а
  *      белый фон остаётся фоном даже при 100 %;
- *   4. дилатация меряется ядром: линия в одну ячейку становится тремя, полоса в
- *      пять ячеек остаётся пятью, а одиночная точка не раздувается в крест;
+ *   4. дилатация меряется ячейками: линия в одну ячейку становится тремя, полоса в
+ *      пять — семью, одиночная точка — крестом из пяти;
  *   5. инверсия меняет пластик и фон местами;
  *   6. маска переживает упаковку в строку `imageData` без потерь и влезает в предел
- *      `params_json`; габарит маски лежит в одном байте, поэтому сетка не больше 255;
- *   7. обводка совпадает с маской: заливка контуров обратно в сетку даёт не больше
+ *      `params_json`; заголовок нового образца хранит габарит двумя uint16, а строка
+ *      прежнего образца с двумя байтами читается;
+ *   7. тонкий мостик держит фигуру целиком, а просвет между двумя штрихами не
+ *      зарастает: упрощение не рвёт буквы и не сливает их в пятно;
+ *   8. обводка совпадает с маской: заливка контуров обратно в сетку даёт не больше
  *      4 % расхождения, инверсия даёт другую маску, а мягкий край отзывается на
  *      порог — кеш сборки различает параметры;
- *   8. рельеф входит в тело на 0.35 мм: `keychainImageReliefMm` складывает выступ и
- *      внедрение.
+ *   9. рельеф входит в тело на 0.35 мм, а у сетки есть нормали: `ExtrudeGeometry`
+ *      не остаётся без них, потому что материал брелока не включает `flatShading`.
  *
  * Запуск: `npm run check:keychain`.
  */
 import {
   KEYCHAIN_IMAGE_FIELD_LEVELS,
   KEYCHAIN_IMAGE_GRID,
+  createKeychainImageGeometry,
   keychainImageBuild,
   keychainImageErrorText,
   keychainImageField,
@@ -42,7 +54,10 @@ import {
   keychainImageReliefMm,
   type KeychainImageField,
 } from "../lib/constructor/keychain-image";
-import { KEYCHAIN_IMAGE_MAX_LENGTH } from "../lib/constructor/params";
+import {
+  KEYCHAIN_IMAGE_FIELD_PREFIX,
+  KEYCHAIN_IMAGE_MAX_LENGTH,
+} from "../lib/constructor/params";
 
 /** Сколько проверок упало: из этого складывается код выхода. */
 let failures = 0;
@@ -106,6 +121,32 @@ function countBits(bits: Uint8Array): number {
   }
 
   return total;
+}
+
+/**
+ * Строка `imageData` из поля покрытия: маркер 0, два uint16 и полубайты.
+ *
+ * Упаковка повторена здесь намеренно: тест собирает строку сам, а не через
+ * `packField`, поэтому формат проверяется снаружи — так же, как его прочитает
+ * проект из базы.
+ */
+function fieldImageData(field: KeychainImageField): string {
+  const { cells, height, width } = field;
+  const bytes = [
+    0,
+    (width >> 8) & 0xff,
+    width & 0xff,
+    (height >> 8) & 0xff,
+    height & 0xff,
+  ];
+
+  for (let index = 0; index < cells.length; index += 2) {
+    bytes.push(
+      (cells[index] & 0x0f) | (((cells[index + 1] ?? 0) & 0x0f) << 4),
+    );
+  }
+
+  return `${KEYCHAIN_IMAGE_FIELD_PREFIX}${btoa(String.fromCharCode(...bytes))}`;
 }
 
 /**
@@ -247,7 +288,7 @@ console.log("Порог");
 }
 
 console.log("");
-console.log("Дилатация тонкого");
+console.log("Дилатация");
 {
   // Линия в одну ячейку: девять строк, средний столбец.
   const line: number[] = [];
@@ -276,19 +317,18 @@ console.log("Дилатация тонкого");
 
   const barMask = keychainImageMask(fieldOf(bar, 9, 9), 50, false);
 
-  check("ширина полосы прежняя", rowWidth(barMask, 9, 4), 5);
-  check("полоса в пять ячеек не раздулась", countBits(barMask), 45);
+  check("полоса в пять ячеек стала семью", rowWidth(barMask, 9, 4), 7);
+  check("полоса выросла ровно на ячейку с каждой стороны", countBits(barMask), 63);
 
-  // Одиночная точка: крест из пяти ячеек срезается до одной — это крупа.
-  const dot = new Array(9).fill(0);
+  // Одиночная точка: ровный проход даёт крест из пяти ячеек, а не одну.
+  const dot = new Array(9 * 9).fill(0);
 
   dot[40] = KEYCHAIN_IMAGE_FIELD_LEVELS - 1;
 
-  check(
-    "одиночная точка не раздувается",
-    countBits(keychainImageMask(fieldOf(dot, 9, 9), 50, false)),
-    1,
-  );
+  const dotMask = keychainImageMask(fieldOf(dot, 9, 9), 50, false);
+
+  check("одиночная точка даёт крест из пяти", countBits(dotMask), 5);
+  check("крест шириной в три ячейки", rowWidth(dotMask, 9, 4), 3);
 }
 
 console.log("");
@@ -300,11 +340,11 @@ console.log("Инверсия");
 
   const field = fieldOf(dot, 5, 5);
 
-  check("без инверсии — одна ячейка", countBits(keychainImageMask(field, 50, false)), 1);
+  check("без инверсии — крест из пяти", countBits(keychainImageMask(field, 50, false)), 5);
   check(
-    "с инверсией — весь кадр без точки",
+    "с инверсией — весь кадр целиком",
     countBits(keychainImageMask(field, 50, true)),
-    24,
+    25,
   );
 }
 
@@ -333,8 +373,36 @@ console.log("Упаковка маски");
     true,
   );
 
-  check("сетка маски влезает в байт габарита", KEYCHAIN_IMAGE_GRID <= 255, true);
-  check("сетка не мельче 240 ячеек", KEYCHAIN_IMAGE_GRID >= 240, true);
+  check("сетка маски влезает в uint16 заголовка", KEYCHAIN_IMAGE_GRID <= 0xffff, true);
+  check("сетка не мельче 400 ячеек", KEYCHAIN_IMAGE_GRID >= 400, true);
+
+  // Маска прежнего образца: габарит двумя байтами и полубайты покрытия. Проекты,
+  // сохранённые до сетки 400, должны открываться без миграции — поле у них то же.
+  const legacyCells = new Array(16).fill(KEYCHAIN_IMAGE_FIELD_LEVELS - 1);
+
+  legacyCells[5] = 0;
+
+  const legacyBytes = [4, 4];
+
+  for (let index = 0; index < legacyCells.length; index += 2) {
+    legacyBytes.push(legacyCells[index] | (legacyCells[index + 1] << 4));
+  }
+
+  const legacy = keychainImageField(
+    `${KEYCHAIN_IMAGE_FIELD_PREFIX}${btoa(String.fromCharCode(...legacyBytes))}`,
+  );
+
+  check("маска прежнего образца читается", legacy !== null, true);
+  check(
+    "габарит прежней маски — из двух байтов",
+    legacy ? [legacy.width, legacy.height] : null,
+    [4, 4],
+  );
+  check(
+    "ступени прежней маски не поехали",
+    legacy ? [legacy.cells[5], legacy.cells[6]] : null,
+    [0, KEYCHAIN_IMAGE_FIELD_LEVELS - 1],
+  );
 
   const big = keychainImageFromPixels(
     pixelsOf(KEYCHAIN_IMAGE_GRID, KEYCHAIN_IMAGE_GRID, [27, 127, 196]),
@@ -353,6 +421,54 @@ console.log("Упаковка маски");
     "imageData" in big && big.imageData.length < KEYCHAIN_IMAGE_MAX_LENGTH,
     true,
   );
+
+  if ("imageData" in big && bigField) {
+    console.log(
+      `       маска ${bigField.width}×${bigField.height}: ${big.imageData.length} знаков base64 при пределе ${KEYCHAIN_IMAGE_MAX_LENGTH}`,
+    );
+  }
+}
+
+console.log("");
+console.log("Тонкие места букв");
+{
+  // Буква «П» из стоек в одну ячейку и тонкой перемычки: после расширения фигура
+  // остаётся одной, то есть упрощение не рвёт тонкое место на куски.
+  const letter = new Array(11 * 11).fill(0);
+
+  for (let row = 2; row <= 8; row += 1) {
+    letter[row * 11 + 2] = KEYCHAIN_IMAGE_FIELD_LEVELS - 1;
+    letter[row * 11 + 8] = KEYCHAIN_IMAGE_FIELD_LEVELS - 1;
+  }
+
+  for (let column = 2; column <= 8; column += 1) {
+    letter[2 * 11 + column] = KEYCHAIN_IMAGE_FIELD_LEVELS - 1;
+  }
+
+  const letterBuild = keychainImageBuild(
+    fieldImageData(fieldOf(letter, 11, 11)),
+    50,
+    false,
+  );
+
+  check("буква из тонких штрихов собирается", letterBuild !== null, true);
+  check("перемычка не рвёт букву на куски", letterBuild ? letterBuild.contours.length : -1, 1);
+
+  // Две стойки через три пустые ячейки: расширение съедает по одной с каждой
+  // стороны, просвет в одну ячейку остаётся — буквы не слипаются в пятно.
+  const pair = new Array(11 * 11).fill(0);
+
+  for (let row = 2; row <= 8; row += 1) {
+    pair[row * 11 + 3] = KEYCHAIN_IMAGE_FIELD_LEVELS - 1;
+    pair[row * 11 + 7] = KEYCHAIN_IMAGE_FIELD_LEVELS - 1;
+  }
+
+  const pairField = fieldOf(pair, 11, 11);
+  const pairMask = keychainImageMask(pairField, 50, false);
+  const pairBuild = keychainImageBuild(fieldImageData(pairField), 50, false);
+
+  check("две стойки через три ячейки остаются двумя", pairBuild ? pairBuild.contours.length : -1, 2);
+  check("просвет между стойками — одна ячейка", countBits(pairMask.slice(5 * 11, 6 * 11)), 6);
 }
 
 console.log("");
@@ -482,6 +598,40 @@ check(
   Number(keychainImageReliefMm(0).toFixed(2)),
   0.45,
 );
+
+{
+  const side = 32;
+  const converted = keychainImageFromPixels(
+    pixelsOf(side, side, [27, 127, 196]),
+    side,
+    side,
+  );
+  const imageData = "imageData" in converted ? converted.imageData : null;
+  const build = imageData ? keychainImageBuild(imageData, 50, false) : null;
+  const geometry = build
+    ? createKeychainImageGeometry({
+        build,
+        centerX: 0,
+        centerY: 0,
+        depth: 0.6,
+        rotation: 0,
+        side: "front",
+        size: 26,
+        thickness: 2.5,
+      })
+    : null;
+
+  // Материал брелока не включает `flatShading`, поэтому свет рисует по нормалям
+  // сетки: без атрибута `normal` рельеф освещался бы как чёрный силуэт.
+  check("рельеф собирается", geometry !== null, true);
+  check(
+    "у рельефа есть нормали",
+    geometry ? geometry.getAttribute("normal") !== undefined : false,
+    true,
+  );
+
+  geometry?.dispose();
+}
 
 console.log("");
 

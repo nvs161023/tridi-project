@@ -47,8 +47,8 @@ import { parseSvgOutline, type OutlinePoint } from "@/lib/constructor/svg-outlin
  *   на сервере нет;
  * - ступени серого в SVG-путях не выразить: прежняя маска была бинарной, и
  *   полутон на логотипе превращался в рваное пятно;
- * - маска 240×240 при четырёх битах на ячейку — около 38 КБ base64, она
- *   спокойно влезает в `params_json` вместе с остальными параметрами.
+ * - маска 400×400 при четырёх битах на ячейку — около 104 КБ base64, она
+ *   влезает в `KEYCHAIN_IMAGE_MAX_LENGTH` вместе с остальными параметрами.
  *
  * Маска живёт в трёх видах: поле покрытия (0…1 на ячейку) обводится marching
  * squares, из него же берётся растровая маска проверки места, а порог яркости
@@ -63,9 +63,8 @@ import { parseSvgOutline, type OutlinePoint } from "@/lib/constructor/svg-outlin
  *
  * - жёсткий порог: пластиком становится ячейка темнее `imageThreshold`
  *   (у PNG с прозрачностью решает альфа, а белый фон не печатается никогда);
- * - дилатация тонких штрихов: линия в одну-две ячейки расширяется до трёх, а
- *   кольцо, буквы и заливки остаются исходной толщины — иначе мелкий текст
- *   слипался в пятно.
+ * - дилатация в один проход: штрих тоньше сопла получает печатную ширину, и
+ *   буквы остаются буквами — без неё слайсер рвёт тонкую линию на осколки.
  *
  * Место ищется по карте грани 0.4 мм — той же, что у надписи. Отверстие под
  * кольцо, кромка силуэта, полость кармана NFC и буквы блокируют ячейки, поэтому
@@ -77,14 +76,19 @@ import { parseSvgOutline, type OutlinePoint } from "@/lib/constructor/svg-outlin
 /**
  * Растр загрузки: картинка уменьшается до этого квадрата перед сборкой маски.
  *
- * 240 ячеек по большей стороне — предел формата, а не вкус: габарит маски лежит в
- * одном байте заголовка. Двести сорок ячеек на логотип 26 мм дают 0.11 мм на
- * ячейку, и мелкий текст вроде «tridi-print.ru» остаётся буквами: при сетке 160
- * штрих буквы занимал две ячейки, расширение сливало соседние буквы в пятно, и
- * подпись читалась только на экране. Маска 240 × 240 — это 38 КБ base64, то есть
- * по-прежнему одна строка в `params_json`.
+ * 400 ячеек по большей стороне. На логотип 26 мм это 0.065 мм на ячейку, и мелкий
+ * текст вроде «tridi-print.ru» остаётся буквами: при сетке 240 ячейка была 0.11 мм,
+ * штрих подписи занимал две, и после расширения соседние буквы слипались. Запас
+ * взят не «на глаз»: в маске 400 ячеек просвет между буквами — это три-четыре
+ * ячейки против одной-двух, поэтому дилатация их больше не заливает.
+ *
+ * Предел задаёт формат: габарит маски лежит в заголовке (маркер и два uint16), а
+ * длина строки — в `KEYCHAIN_IMAGE_MAX_LENGTH`. Четыре бита на ячейку дают на сетке
+ * 400 маску 400 × 400 = 80 002 байта, то есть ~104 КБ base64: это вчетверо длиннее
+ * прежней 240-й маски, зато полутон и порог по-прежнему живут в самих данных, а не
+ * запекаются в момент загрузки файла.
  */
-export const KEYCHAIN_IMAGE_GRID = 240;
+export const KEYCHAIN_IMAGE_GRID = 400;
 
 /**
  * Ступеней покрытия в ячейке маски.
@@ -103,13 +107,29 @@ const MIN_CONTOUR_AREA_CELLS = 0.5;
 /**
  * Упрощение контура маски, в ячейках.
  *
- * Общий `RASTER_RDP_EPSILON_PX` 0.75 в ячейках маски — это 0.08 мм при сетке 240, а
- * сглаженный край логотипа гуляет по порогу на целую ячейку: обводка повторяет эту
- * рябь, и кромка на рельефе выглядит обкусанной. Полторы ячейки (0.16 мм при
- * логотипе 26 мм) снимают рябь, но держат угол: допуск меньше ширины штриха, поэтому
- * буквы и перемычки остаются на месте.
+ * 0.4 ячейки — это 0.026 мм при сетке 400 и логотипе 26 мм: допуск снимает только
+ * точки, которые лежат на прямой между соседями, то есть повторяющиеся узлы
+ * ступеньки marching squares. Форму буквы он не трогает.
+ *
+ * Почему не 1.5, как было: полтора допуска при сетке 240 съедали подпись целиком.
+ * Замер на логотипе 273 × 273 — из 38 обведённых контуров 14 схлопывались в
+ * отрезок или в точку и отбрасывались как крупа; при 0.4 остаются все 38, и
+ * «tridi-print.ru» доходит до геометрии буквами. Крупа сама по себе не проблема:
+ * её режут площадь контура (`MIN_CONTOUR_AREA_CELLS`) и ширина сопла.
+ *
+ * Если геометрия не примет столько точек (`RASTER_MAX_POINTS_TOTAL`), допуск
+ * растёт ступенями из `MASK_RDP_RETRY`, и только потом огрубляется сетка: убрать
+ * лишние узлы дешевле, чем потерять половину разрешения.
  */
-const MASK_RDP_CELLS = 1.5;
+const MASK_RDP_CELLS = 0.4;
+
+/**
+ * Ступени допуска на случай, если обводка не влезла в предел точек.
+ *
+ * 0.75 — прежний общий допуск растра, 1.5 — прежнее значение маски. Порядок важен:
+ * сначала пробуем сохранить форму, и лишь последняя ступень согласна на потери.
+ */
+const MASK_RDP_RETRY = [0.75, 1.5] as const;
 
 /**
  * Тоньше сопла рельеф не напечатать, мм.
@@ -284,24 +304,41 @@ function packToGrid(
   return { field: packed, height: targetHeight, width: targetWidth };
 }
 
+/** Байт-маркер заголовка маски: ноль не бывает началом прежнего габарита. */
+const MASK_HEADER_MARKER = 0;
+
+/** Длина заголовка маски нового образца: маркер и два uint16. */
+const MASK_HEADER_BYTES = 5;
+
+/** Длина заголовка прежней маски: ширина и высота по одному байту. */
+const MASK_HEADER_BYTES_LEGACY = 2;
+
 /**
- * Упаковывает поле покрытия в `imageData`: два байта габарита и по четыре бита
+ * Упаковывает поле покрытия в `imageData`: заголовок габарита и по четыре бита
  * на ячейку.
  *
+ * Заголовок — маркер 0 и два uint16 (ширина, высота) старшим байтом вперёд. Сетка
+ * 400 в один байт не влезает, а маркер отличает новую строку от прежней, где первым
+ * шёл сам габарит: он не бывает меньше двух, поэтому ноль однозначен и старые
+ * проекты читаются без миграции.
+ *
  * Ячейки идут построчно слева направо, младшие четыре бита — чётная колонка,
- * старшие — нечётная. Заголовок из двух байтов вместо JSON: строка и без него
- * длинная, а `atob` в браузере и в Node разбирает её одинаково.
+ * старшие — нечётная. Заголовок вместо JSON: строка и без него длинная, а `atob`
+ * в браузере и в Node разбирает её одинаково.
  */
 function packField(field: KeychainImageField): string {
   const { cells, height, width } = field;
   const total = width * height;
-  const bytes = new Uint8Array(2 + Math.ceil(total / 2));
+  const bytes = new Uint8Array(MASK_HEADER_BYTES + Math.ceil(total / 2));
 
-  bytes[0] = width;
-  bytes[1] = height;
+  bytes[0] = MASK_HEADER_MARKER;
+  bytes[1] = (width >> 8) & 0xff;
+  bytes[2] = width & 0xff;
+  bytes[3] = (height >> 8) & 0xff;
+  bytes[4] = height & 0xff;
 
   for (let index = 0; index < total; index += 1) {
-    const slot = 2 + (index >> 1);
+    const slot = MASK_HEADER_BYTES + (index >> 1);
     const value = cells[index] & 0x0f;
 
     bytes[slot] = index % 2 === 0 ? value : bytes[slot] | (value << 4);
@@ -453,7 +490,11 @@ function createSvgBuild(imageData: string): KeychainImageBuild | null {
 }
 
 /**
- * Разбирает маску из `imageData`: два байта габарита и полубайты покрытия.
+ * Разбирает маску из `imageData`: заголовок габарита и полубайты покрытия.
+ *
+ * Читаются оба образца заголовка: новый (маркер 0 и два uint16) и прежний (ширина и
+ * высота по одному байту). Проекты, сохранённые до сетки 400, открываются как есть:
+ * поле у них то же самое, отличается только габарит в начале строки.
  *
  * `null` — строка не наша (прежняя SVG-обводка), испорчена или габарит в
  * заголовке не сходится с длиной: файл могли обрезать в базе. Исключение из
@@ -477,12 +518,23 @@ export function keychainImageField(
     return null;
   }
 
-  if (binary.length < 2) {
+  if (binary.length < MASK_HEADER_BYTES_LEGACY) {
     return null;
   }
 
-  const width = binary.charCodeAt(0);
-  const height = binary.charCodeAt(1);
+  const legacy = binary.charCodeAt(0) !== MASK_HEADER_MARKER;
+  const header = legacy ? MASK_HEADER_BYTES_LEGACY : MASK_HEADER_BYTES;
+
+  if (binary.length < header) {
+    return null;
+  }
+
+  const width = legacy
+    ? binary.charCodeAt(0)
+    : (binary.charCodeAt(1) << 8) | binary.charCodeAt(2);
+  const height = legacy
+    ? binary.charCodeAt(1)
+    : (binary.charCodeAt(3) << 8) | binary.charCodeAt(4);
 
   if (
     width < 2 ||
@@ -495,14 +547,14 @@ export function keychainImageField(
 
   const total = width * height;
 
-  if (binary.length < 2 + Math.ceil(total / 2)) {
+  if (binary.length < header + Math.ceil(total / 2)) {
     return null;
   }
 
   const cells = new Uint8Array(total);
 
   for (let index = 0; index < total; index += 1) {
-    const byte = binary.charCodeAt(2 + (index >> 1));
+    const byte = binary.charCodeAt(header + (index >> 1));
 
     cells[index] = index % 2 === 0 ? byte & 0x0f : (byte >> 4) & 0x0f;
   }
@@ -613,9 +665,9 @@ function coarsenField(field: KeychainImageField): KeychainImageField {
  * 2. Инверсия (`imageInvert`): пластик и фон меняются местами. Нужна логотипам
  *    светлым по тёмному; у чёрного рисунка на белом фоне она даст заливку с
  *    окном по рисунку.
- * 3. Дилатация тонких штрихов: пластик без «ядра» (ячейки, у которой все четыре
- *    соседа тоже пластик) получает печатную ширину, а кольцо, буквы и заливки
- *    остаются исходной толщины. Однопиксельные усики срезаются.
+ * 3. Дилатация в один проход по четырём соседям: штрих тоньше сопла получает
+ *    печатную ширину. Расширяется всё — так буквы подписи остаются целыми, а
+ *    прибавка в одну ячейку (0.065 мм) меньше сопла и на глаз не видна.
  *
  * Ячейки возвращаются в порядке растра: первая строка — верхняя. Переворачивает
  * маску только `createFieldBuild`, а превью в панели рисует как есть.
@@ -641,95 +693,43 @@ export function keychainImageMask(
 }
 
 /**
- * Дилатация тонких штрихов: расширяется только то, что тоньше сопла.
+ * Дилатация: каждый проход добавляет пластику ячейку по четырём сторонам.
  *
  * Зачем вообще: сопло 0.4 мм не печатает штрих тоньше своей ширины. Ячейка маски —
- * 0.11 мм при логотипе 26 мм и сетке 240, поэтому линия в одну-две ячейки для
- * принтера не существует: слайсер либо выбрасывает её, либо рвёт на пунктир.
- * После расширения штрих занимает три-четыре ячейки (0.35–0.45 мм) и печатается.
+ * 0.065 мм при логотипе 26 мм и сетке 400, поэтому линия в одну-две ячейки для
+ * принтера не существует: слайсер либо выбрасывает её, либо рвёт на пунктир. После
+ * расширения подпись «tridi-print.ru» выходит штрихом 0.2–0.3 мм и печатается
+ * целиком, а не осколками.
  *
- * Почему не все подряд, как было: сплошная дилатация добавляла по ячейке с каждой
- * стороны любому контуру. Кольцо и буквы раздувались, просветы между буквами
- * зарастали, и «tridi-print.ru» превращалось в пятно.
+ * Проход ровно один и по четырём соседям. Восемь соседей съедали бы углы букв, а
+ * второй проход утолщал штрих до пяти ячеек и заливал просветы: на сетке 400
+ * просвет между буквами — три-четыре ячейки, и одна ячейка расширения его уже не
+ * схлопывает.
  *
- * Толщина меряется ядром, а не окном 3×3. Ядро — ячейка пластика, у которой все
- * четыре соседа тоже пластик: у штриха шире двух ячеек ядро есть, у линии в одну-две
- * ячейки его нет вовсе. Растёт только пластик без ядра и без соседства с ядром,
- * поэтому кольцо, заливки и изгибы букв остаются исходной толщины, а тонкие линии,
- * точки и хвосты получают печатную ширину. Окно 3×3 для этого не годится: на
- * изгибе у любой ячейки часть окна попадает в фон, штрих считается тонким и весь
- * контур раздувается.
- *
- * Четыре соседа, а не восемь: диагональ добавляет ширины, но съедает углы, и
- * мелкая буква слипается в пятно. Проход ровно один: второй утолщал бы штрих
- * до пяти ячеек и заливал просветы между линиями.
+ * Прежняя «дилатация по ядру» (расширять только пластик без четырёх соседей)
+ * оставляла толстые кольца в покое, но у подписи ядра нет вовсе: буквы считались
+ * тонкими и расширялись неравномерно, а срезание одиночных хвостов отрезало у них
+ * куски. Ровная прибавка 0.065 мм с каждой стороны меньше сопла и на глаз не видна.
  */
 function dilateMask(
   bits: Uint8Array,
   width: number,
   height: number,
 ): Uint8Array {
-  const grown = new Uint8Array(bits.length);
-  // Ячейки с четырьмя соседями-пластиками: середина штриха шире двух ячеек.
-  const core = new Uint8Array(bits.length);
-
-  for (let row = 1; row + 1 < height; row += 1) {
-    for (let column = 1; column + 1 < width; column += 1) {
-      const index = row * width + column;
-
-      if (
-        bits[index] === 1 &&
-        bits[index - 1] === 1 &&
-        bits[index + 1] === 1 &&
-        bits[index - width] === 1 &&
-        bits[index + width] === 1
-      ) {
-        core[index] = 1;
-      }
-    }
-  }
-
-  // Толстый пластик — ядро и всё, что к нему примыкает: у таких штрихов ширина
-  // уже больше двух ячеек, расширять нечего.
-  const thick = new Uint8Array(bits.length);
-
-  for (let row = 0; row < height; row += 1) {
-    for (let column = 0; column < width; column += 1) {
-      const index = row * width + column;
-
-      if (core[index] !== 1) {
-        continue;
-      }
-
-      thick[index] = 1;
-
-      if (column > 0) thick[index - 1] = 1;
-      if (column + 1 < width) thick[index + 1] = 1;
-      if (row > 0) thick[index - width] = 1;
-      if (row + 1 < height) thick[index + width] = 1;
-    }
-  }
+  const grown = new Uint8Array(bits);
 
   for (let row = 0; row < height; row += 1) {
     for (let column = 0; column < width; column += 1) {
       const index = row * width + column;
 
       if (bits[index] === 1) {
-        grown[index] = 1;
         continue;
       }
 
-      const west = column > 0 && bits[index - 1] === 1 && thick[index - 1] === 0;
-      const east =
-        column + 1 < width &&
-        bits[index + 1] === 1 &&
-        thick[index + 1] === 0;
-      const north =
-        row > 0 && bits[index - width] === 1 && thick[index - width] === 0;
-      const south =
-        row + 1 < height &&
-        bits[index + width] === 1 &&
-        thick[index + width] === 0;
+      const west = column > 0 && bits[index - 1] === 1;
+      const east = column + 1 < width && bits[index + 1] === 1;
+      const north = row > 0 && bits[index - width] === 1;
+      const south = row + 1 < height && bits[index + width] === 1;
 
       if (west || east || north || south) {
         grown[index] = 1;
@@ -737,45 +737,7 @@ function dilateMask(
     }
   }
 
-  return trimSpurs(grown, width, height);
-}
-
-/**
- * Срезает одиночные хвосты: ячейка с единственным соседом-пластиком — не рисунок.
- *
- * Хвосты появляются на стыке тонкого и толстого: расширение добавляет крест вокруг
- * ячейки, у которой ядра нет, и на рваном крае сглаженного контура это даёт
- * однопиксельные усики. У штриха после расширения три ячейки ширины, поэтому его
- * ячейки без единственного соседа не остаются — проход снимает только усики.
- */
-function trimSpurs(
-  bits: Uint8Array,
-  width: number,
-  height: number,
-): Uint8Array {
-  const trimmed = new Uint8Array(bits);
-
-  for (let row = 0; row < height; row += 1) {
-    for (let column = 0; column < width; column += 1) {
-      const index = row * width + column;
-
-      if (bits[index] !== 1) {
-        continue;
-      }
-
-      const neighbours =
-        (column > 0 && bits[index - 1] === 1 ? 1 : 0) +
-        (column + 1 < width && bits[index + 1] === 1 ? 1 : 0) +
-        (row > 0 && bits[index - width] === 1 ? 1 : 0) +
-        (row + 1 < height && bits[index + width] === 1 ? 1 : 0);
-
-      if (neighbours <= 1) {
-        trimmed[index] = 0;
-      }
-    }
-  }
-
-  return trimmed;
+  return grown;
 }
 
 /**
@@ -786,12 +748,16 @@ function trimSpurs(
  * выбрасываются — после дилатации это уже не крупа, а случайные хвосты инверсии
  * или сглаженного края.
  *
+ * `tolerance` — допуск упрощения в ячейках: сборка начинает с `MASK_RDP_CELLS` и
+ * поднимает его, если геометрия не приняла столько точек.
+ *
  * `null` — либо предел растра, либо порог съел всю картинку.
  */
 function traceMask(
   bits: Uint8Array,
   width: number,
   height: number,
+  tolerance: number,
 ): OutlinePoint[][] | null {
   const coverage = new Float32Array(bits.length);
 
@@ -808,7 +774,7 @@ function traceMask(
   const contours: OutlinePoint[][] = [];
 
   for (const contour of traced) {
-    const simplified = simplifyContour(contour, MASK_RDP_CELLS);
+    const simplified = simplifyContour(contour, tolerance);
 
     if (
       simplified.length < 3 ||
@@ -835,9 +801,10 @@ function traceMask(
  * вверх. Контуры переворачиваются тем же преобразованием.
  *
  * Шаги `keychainImageMask` (порог, инверсия, дилатация) уже позади: здесь маска
- * только обводится. Если контуров больше, чем принимает геометрия, поле
- * огрубляется вдвое и попытка повторяется — маска при этом собирается заново,
- * чтобы дилатация работала на новой сетке.
+ * только обводится. Допуск упрощения растёт ступенями (`MASK_RDP_CELLS`, затем
+ * `MASK_RDP_RETRY`): форма букв важнее числа узлов, поэтому сначала убираем
+ * лишние точки и только потом огрубляем сетку вдвое, собирая маску заново, чтобы
+ * дилатация работала на новой сетке.
  */
 function createFieldBuild(
   field: KeychainImageField,
@@ -851,10 +818,16 @@ function createFieldBuild(
   for (let attempt = 0; attempt < COARSEN_ATTEMPTS; attempt += 1) {
     const mask = keychainImageMask(grid, threshold, invert);
 
-    traced = traceMask(mask, grid.width, grid.height);
+    for (const tolerance of [MASK_RDP_CELLS, ...MASK_RDP_RETRY]) {
+      traced = traceMask(mask, grid.width, grid.height, tolerance);
+
+      if (traced !== null) {
+        grown = mask;
+        break;
+      }
+    }
 
     if (traced !== null) {
-      grown = mask;
       break;
     }
 
@@ -1280,6 +1253,12 @@ export function createKeychainImageGeometry(options: {
     depth: keychainImageReliefMm(options.depth),
   });
 
+  // Нормали считаем явно, а не надеемся на внутренний вызов `ExtrudeGeometry`:
+  // материал брелока (`meshStandardMaterial` во Viewport) не включает
+  // `flatShading`, поэтому свет рисует по этим нормалям. Сетка неиндексированная,
+  // и тройка вершин каждой грани получает нормаль своей плоскости — верх рельефа
+  // освещается ровно, без «шума» из мелких граней.
+  geometry.computeVertexNormals();
   geometry.computeBoundingBox();
 
   const box = geometry.boundingBox;
