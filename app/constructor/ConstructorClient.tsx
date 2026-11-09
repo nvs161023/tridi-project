@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { loadConstructorProject } from "@/app/actions/projects";
 import { FeedbackDialog } from "@/components/constructor/FeedbackDialog";
@@ -395,6 +395,86 @@ function ViewportSkeleton() {
 }
 
 /**
+ * Мобильное окно со сценой: «Показать 3D» на весь экран.
+ *
+ * На телефоне сцена стоит в потоке страницы обычным блоком — иначе она съедала
+ * пол-экрана и панель настроек начиналась ниже. Рассмотреть модель целиком
+ * можно здесь: канвас занимает всю высоту, настройки под окном не меняются.
+ *
+ * Окно живёт поверх страницы (`fixed inset-0`), поэтому прокрутка под ним
+ * заблокирована: жест по сцене вращает модель, а не листает слайдеры. Escape
+ * закрывает окно, как в остальных диалогах проекта, а кнопка «Закрыть» получает
+ * фокус — на телефоне она снимает клавиатуру, на планшете закрывает по Enter.
+ *
+ * Отчёт о размещении картинки окно не отдаёт: его уже считает сцена в потоке
+ * страницы, и второй расчёт перебил бы числа в панели, пока в окне грузятся
+ * шрифты.
+ */
+function MobileSceneDialog({
+  onClose,
+  params,
+}: {
+  /** Закрытие окна: конструктор убирает его из разметки. */
+  onClose: () => void;
+  /** Те же параметры, что у сцены в потоке: окно показывает ту же модель. */
+  params: ConstructorParams;
+}) {
+  const titleId = useId();
+
+  /** Escape и блокировка прокрутки страницы под окном. */
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      aria-labelledby={titleId}
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex flex-col bg-[#030303] lg:hidden"
+      role="dialog"
+    >
+      <div className="flex items-center justify-between gap-3 px-4 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-white" id={titleId}>
+            Предпросмотр
+          </h2>
+          <p className="mt-0.5 text-xs leading-relaxed text-slate-400">
+            Вращение — свайп, зум — щипок. Закройте окно, чтобы вернуться к
+            настройкам.
+          </p>
+        </div>
+        <button
+          autoFocus
+          className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-semibold text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          onClick={onClose}
+          type="button"
+        >
+          Закрыть
+        </button>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        <Viewport fullscreen params={params} />
+      </div>
+    </div>
+  );
+}
+
+/**
  * Галерея форм: двенадцать силуэтов из `VASE_SHAPES` с текущими настройками
  * узора и размеров.
  *
@@ -466,6 +546,14 @@ export function ConstructorClient({
 
   /** Модель, по которой открыт опрос после скачивания; null — окно закрыто. */
   const [feedbackModel, setFeedbackModel] = useState<ModelType | null>(null);
+  /**
+   * Мобильное окно со сценой.
+   *
+   * На телефоне сцена стоит в потоке страницы, поэтому «покрутить» её удобнее в
+   * отдельном окне на весь экран. Состояние живёт здесь: кнопка «Показать 3D»
+   * плавающая и не знает о разметке сцены, а окну нужны текущие параметры.
+   */
+  const [sceneOpen, setSceneOpen] = useState(false);
   /** Один и тот же проект не загружаем дважды (StrictMode в dev). */
   const loadedProjectRef = useRef<string | null>(null);
   /** Пауза перед опросом: файл должен начать сохраняться раньше окна. */
@@ -522,6 +610,9 @@ export function ConstructorClient({
 
   /** Закрытие опроса: таймер уже отработал, окно убираем из разметки. */
   const closeFeedback = useCallback(() => setFeedbackModel(null), []);
+
+  /** Закрытие мобильного окна со сценой: ссылка стабильна для эффекта Escape. */
+  const closeScene = useCallback(() => setSceneOpen(false), []);
 
   /**
    * Отчёт сцены о картинке на брелоке.
@@ -1131,7 +1222,7 @@ export function ConstructorClient({
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col px-5 py-10 sm:px-8 sm:py-14 lg:h-[calc(100dvh_-_var(--header-h))] lg:overflow-y-auto lg:py-4 xl:max-w-[96rem]">
+    <main className="mx-auto flex w-full max-w-7xl flex-col px-5 pt-10 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-8 sm:pt-14 lg:h-[calc(100dvh_-_var(--header-h))] lg:overflow-y-auto lg:pt-4 lg:pb-4 xl:max-w-[96rem]">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between lg:items-center lg:gap-8">
         <div className="min-w-0">
           <Link
@@ -1206,8 +1297,9 @@ export function ConstructorClient({
         Строка сетки задана как minmax(0, 1fr): без нулевого минимума grid
         растянул бы строку по содержимому высокой панели, и внутренняя
         прокрутка колонки перестала бы работать.
-        На мобильном порядок обратный (order): сцена прилипает под шапкой,
-        параметры и галереи едут под ней.
+        На мобильном порядок обратный (order): сцена стоит обычным блоком вверху,
+        параметры и галереи едут под ней — страница прокручивается целиком, а
+        сцену на весь экран открывает плавающая кнопка «Показать 3D».
       */}
       <div className="mt-8 flex flex-col gap-5 lg:mt-5 lg:grid lg:min-h-[26rem] lg:flex-1 lg:grid-cols-[minmax(19rem,25rem)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)] lg:gap-5 xl:grid-cols-[minmax(21rem,28rem)_minmax(0,1fr)]">
         <div className="order-2 flex min-w-0 flex-col gap-5 lg:order-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1 lg:[scrollbar-color:#475569_transparent] lg:[scrollbar-width:thin]">
@@ -1283,21 +1375,17 @@ export function ConstructorClient({
 
         <section
           aria-labelledby="preview-heading"
-          className="sticky top-[var(--header-h)] z-30 order-1 -mx-5 flex min-w-0 flex-col border-b border-white/10 bg-[#030303]/95 px-5 pt-1 pb-3 backdrop-blur-xl sm:-mx-8 sm:px-8 lg:static lg:z-auto lg:order-2 lg:mx-0 lg:min-h-0 lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none"
+          className="order-1 flex min-w-0 flex-col lg:order-2 lg:min-h-0"
         >
           {/*
             На десктопе сцена — правая колонка сетки: она тянется на всю высоту
             рабочей области, поэтому прокрутка панели слева её не касается и
             галереи под неё не заезжают.
-            На мобильном липкая здесь вся секция: колонки идут в общем потоке,
-            и сцена держится под шапкой. Отступ — var(--header-h), та же
-            переменная, что задаёт высоту рабочей области на десктопе: шапка
-            липкая и накрывает верх окна, поэтому 72 px «на глаз» оставили бы
-            часть заголовка «Предпросмотр» под шапкой (замер: 83 px). Подложка
-            плотная, 95 % чёрного с blur: панель и плитки галерей проезжают под
-            сценой, но сквозь неё не просвечивают.
-            Липкой была бы не секция, а блок внутри неё — он прилипал бы только
-            к своей секции, а её высота равна его собственной.
+            На мобильном сцена — обычный блок в самом верху страницы, без sticky:
+            липкая сцена занимала под шапкой всё окно, и панель настроек
+            начиналась ниже, а прокрутка шла мимо неё. Теперь страница
+            прокручивается целиком, а покрутить модель можно в окне «Показать
+            3D» — плавающая кнопка внизу справа открывает сцену во весь экран.
           */}
           <div className="flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -1389,6 +1477,28 @@ export function ConstructorClient({
           </div>
         </section>
       </div>
+
+      {/*
+        Плавающая кнопка «Показать 3D»: только на мобильном, где сцена ушла в
+        поток страницы. Стоит над панелью справа снизу, отступ учитывает
+        safe-area — иначе на iPhone её срезала бы домашняя полоса. Когда окно
+        открыто, кнопка не нужна: его закрывает своя кнопка и Escape.
+      */}
+      {sceneOpen ? null : (
+        <button
+          className="fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 inline-flex min-h-12 items-center gap-2 rounded-full border border-blue-400/60 bg-blue-500/90 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-950/50 backdrop-blur transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 lg:hidden"
+          onClick={() => setSceneOpen(true)}
+          type="button"
+        >
+          <span aria-hidden>🧊</span>
+          Показать 3D
+        </button>
+      )}
+
+      {/* Окно со сценой живёт вне сетки: оно открывается поверх страницы. */}
+      {sceneOpen ? (
+        <MobileSceneDialog onClose={closeScene} params={params} />
+      ) : null}
 
       {/* Опрос живёт вне сетки: он открывается поверх страницы. */}
       {feedbackModel ? (

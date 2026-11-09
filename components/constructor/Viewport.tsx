@@ -82,6 +82,15 @@ type ViewportProps = {
   /** Все параметры выбранной модели: сцена читает их вместе с геометрией. */
   params: ConstructorParams;
   /**
+   * Сцена во весь экран: так её показывает мобильное окно «Показать 3D».
+   *
+   * На телефоне сцена в потоке страницы — обычный блок вверху, а не липкая
+   * панель, поэтому покрутить модель удобнее в отдельном окне поверх страницы:
+   * там она занимает всю высоту экрана, а не 40vh. Отличается только обёртка —
+   * канвас, камера и подсказки те же.
+   */
+  fullscreen?: boolean;
+  /**
    * Итоги сборки брелока: куда встала картинка и насколько ужалась.
    *
    * Отчёт считается той же сборкой, что показывает сцена: второй расчёт в
@@ -820,7 +829,11 @@ function Scene({ params, geometry, framing, keychainBack }: SceneProps) {
  * высоту сцены, поэтому Canvas не схлопывается до нуля и не растягивает
  * страницу по горизонтали.
  */
-export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
+export function Viewport({
+  fullscreen = false,
+  onKeychainImageReport,
+  params,
+}: ViewportProps) {
   /**
    * Приёмник отчёта о картинке. Живёт в ref, а не в состоянии: числа пишет
    * сборка геометрии, а показывать их панель будет после коммита — иначе
@@ -1246,7 +1259,11 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
         CSS и не требует отдельной геометрии в three.js.
       */}
       <div
-        className="relative h-[min(40vh,20rem)] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 shadow-2xl shadow-black/50 sm:h-[min(48vh,26rem)] lg:h-auto lg:min-h-[16rem] lg:flex-1"
+        className={
+          fullscreen
+            ? "relative min-h-0 w-full max-w-full flex-1 overflow-hidden rounded-2xl border border-white/10 shadow-2xl shadow-black/50"
+            : "relative h-[min(40vh,20rem)] w-full max-w-full overflow-hidden rounded-2xl border border-white/10 shadow-2xl shadow-black/50 sm:h-[min(48vh,26rem)] lg:h-auto lg:min-h-[16rem] lg:flex-1"
+        }
         style={{ backgroundImage: STUDIO_BACKGROUND_CSS }}
       >
         {/*
@@ -1354,13 +1371,15 @@ export function Viewport({ params, onKeychainImageReport }: ViewportProps) {
       </div>
 
       {/* Подсказка по управлению: обычный текст под сценой, а не надпись поверх канваса. */}
-      <p className="mt-2 text-sm text-slate-400">
-        Вращение — перетаскивание мышью или свайп, зум — колесо или щипок.
-        Приближение идёт к точке под курсором.
-        {params.model === "keychain"
-          ? " Переключатель «Лицо» / «Оборот» показывает рельефы с обратной стороны."
-          : null}
-      </p>
+      {fullscreen ? null : (
+        <p className="mt-2 text-sm text-slate-400">
+          Вращение — перетаскивание мышью или свайп, зум — колесо или щипок.
+          Приближение идёт к точке под курсором.
+          {params.model === "keychain"
+            ? " Переключатель «Лицо» / «Оборот» показывает рельефы с обратной стороны."
+            : null}
+        </p>
+      )}
     </>
   );
 }

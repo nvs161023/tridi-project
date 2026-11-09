@@ -203,6 +203,12 @@ function placeTextDecoration(
  * Запрошенный масштаб остаётся просьбой: при нехватке места логотип ужимается
  * шагом 5% до четверти базового размера, и в отчёт уходит фактическое значение.
  * Если и этого мало — рельеф не печатается, а причина уходит в панель.
+ *
+ * «Любая сторона» примеряет обе грани и оставляет рельеф там, где он вышел
+ * крупнее. Раньше бралась первая подходящая, то есть лицо: с карманом под NFC на
+ * лице остаётся узкая полоса, логотип ужимался под неё, хотя оборот бывал шире.
+ * Проигравшая примерка в карту не штампуется и в модель не идёт, поэтому
+ * вторая декорация видит ровно ту грань, которая напечатается.
  */
 function placeImageDecoration(
   body: BufferGeometry,
@@ -219,6 +225,12 @@ function placeImageDecoration(
   if (!build) {
     return { reason: "image" };
   }
+
+  const candidates: {
+    fit: KeychainDecorationFit;
+    geometry: BufferGeometry;
+    mask: FaceMask;
+  }[] = [];
 
   for (const side of decorationSides(decoration.side)) {
     const mask = sideMask(side);
@@ -252,14 +264,7 @@ function placeImageDecoration(
       continue;
     }
 
-    stampFaceObstacle(
-      mask.blocked,
-      mask.grid,
-      geometry,
-      KEYCHAIN_DECORATION_GAP_MM,
-    );
-
-    return {
+    candidates.push({
       fit: {
         id: decoration.id,
         kind: decoration.kind,
@@ -270,10 +275,38 @@ function placeImageDecoration(
         size: placement.size,
       },
       geometry,
-    };
+      mask,
+    });
   }
 
-  return { reason: "no_space" };
+  if (candidates.length === 0) {
+    return { reason: "no_space" };
+  }
+
+  // На равных размерах остаётся первая примерка — лицо: при равной площади
+  // владелец ждёт логотип на лицевой стороне.
+  let best = candidates[0];
+
+  for (const candidate of candidates) {
+    if (candidate.fit.size > best.fit.size + 1e-6) {
+      best = candidate;
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (candidate !== best) {
+      candidate.geometry.dispose();
+    }
+  }
+
+  stampFaceObstacle(
+    best.mask.blocked,
+    best.mask.grid,
+    best.geometry,
+    KEYCHAIN_DECORATION_GAP_MM,
+  );
+
+  return { fit: best.fit, geometry: best.geometry };
 }
 
 /** Строка отчёта для рельефа, которого в модели нет. */

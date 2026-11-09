@@ -1772,6 +1772,12 @@ export function ParameterPanel({
    * расчёт в панели значило бы держать вторую копию правил размещения.
    * `side === null` — картинка не встала ни на лицо, ни на оборот; `scale` меньше
    * `requested` — она ужалась, чтобы обойти буквы и кромку.
+   *
+   * Текст ошибки зависит от выбранной стороны: «Только лицо» — это просьба, и
+   * если места на лице нет, панель так и говорит, оставляя картинку в параметрах.
+   * Декор из памяти не удаляется: подсказка про переключение стороны и масштаб
+   * решает ту же задачу, а потерянный файл пользователю пришлось бы загружать
+   * заново.
    */
   const keychainImageFit =
     keychainReport?.decorations.find((fit) => fit.kind === "image") ?? null;
@@ -1781,12 +1787,21 @@ export function ParameterPanel({
       : keychainImageFit.side === null
         ? {
             tone: "error" as const,
-            text: "Картинка не поместилась: грань занята буквами и отверстием. Уменьшите масштаб, смените сторону или уберите надпись.",
+            text:
+              keychainImage.side === "front"
+                ? "Не хватает места на лице, переключите на оборот или уменьшите масштаб."
+                : keychainImage.side === "back"
+                  ? "Не хватает места на обороте, переключите на лицо или уменьшите масштаб."
+                  : "Не хватает места ни на лице, ни на обороте: уменьшите масштаб логотипа или уберите надпись.",
           }
         : keychainImageFit.scale < keychainImageFit.requested - 0.001
           ? {
               tone: "warning" as const,
-              text: `Картинка ужалась до ${Math.round(keychainImageFit.scale * 100)}% запрошенного размера: ${keychainImageFit.size.toFixed(1)} мм на ${keychainImageFit.side === "back" ? "обороте" : "лице"}. Освободите место или уменьшите масштаб логотипа.`,
+              text: `Картинка ужалась до ${Math.round(keychainImageFit.scale * 100)}% запрошенного размера: ${keychainImageFit.size.toFixed(1)} мм на ${keychainImageFit.side === "back" ? "обороте" : "лице"}.${
+                params.nfcEnabled
+                  ? " Карман под NFC-метку занимает центр грани."
+                  : ""
+              } Освободите место или уменьшите масштаб логотипа.`,
             }
           : {
               tone: "ok" as const,
@@ -2983,6 +2998,14 @@ export function ParameterPanel({
               подстраиваются под остаток полосы, — поэтому рельефы не
               пересекаются и не наезжают друг на друга.
             </p>
+
+            {params.decorations.length === 0 ? (
+              <p className="mt-3 rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-xs leading-relaxed text-slate-300">
+                Декор пуст: брелок печатается чистым силуэтом. Нажмите кнопку —
+                надпись или картинка появятся здесь, а рельеф встанет на грань
+                сам.
+              </p>
+            ) : null}
 
             <div className="mt-4 space-y-4">
               {params.decorations.map((decoration) =>

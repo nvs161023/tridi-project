@@ -615,31 +615,67 @@ function dilate(mask: Uint8Array, grid: FaceGrid, radius: number): void {
 }
 
 /**
- * Плоскость грани: самая большая крышка со своей стороны.
+ * Доля площади самой большой плоскости, при которой плоскость ещё считается гранью.
+ *
+ * Грань — не обязательно самая большая крышка: у детали с карманом под NFC верхний
+ * колпак лежит поверх крышки кармана и вдвое меньше её по сумме треугольников,
+ * зато именно он и есть лицо. Порог отсекает мелочь вроде площадок шипов, а среди
+ * оставшихся кандидатов гранью считается самая внешняя плоскость.
+ */
+const FACE_SHARE = 0.4;
+
+/**
+ * Плоскость грани: самая внешняя крышка размера грани.
  *
  * Крышки выдавливания лежат на постоянном Z, поэтому каждая плоскость — набор
- * треугольников с одинаковой высотой. Берём ту, что набрала большую площадь: у
- * кирпича это верх тела, а не площадки шипов, у шестерни — тело, а не вершина
- * ступицы. Так лицо находится без знания конкретного пресета.
+ * треугольников с одинаковой высотой. Прежнее правило «берём самую большую по
+ * площади» ломалось на слоёной геометрии: у Apple Tag с карманом под NFC крышка
+ * кармана на 3.0 мм и колпак над ней делят одну плоскость, площадь считается по
+ * обоим слоям сразу и перевешивает настоящее лицо на 3.5 мм. Лицом становилась
+ * внутренняя плоскость, всё, что выше, попадало в «чужой рельеф», и карта грани
+ * блокировалась целиком — рельеф на такую грань не ставился вовсе.
+ *
+ * Поэтому кандидаты — все плоскости не меньше `FACE_SHARE` от самой крупной, а
+ * из них берётся крайняя: сверху для лица, снизу для оборота. Площадки шипов и
+ * вершины ступицы не проходят порог, борт билета меньше лица, так что силуэты
+ * без слоёв находят грань как раньше.
  */
 function facePlane(
   planes: Map<number, number>,
   side: KeychainTextSide,
   middleZ: number,
 ): number | null {
-  let faceKey: number | null = null;
-  let faceArea = 0;
+  let largest = 0;
 
   for (const [key, area] of planes) {
-    const z = key / 1000;
+    const z = key * PLANE_TOLERANCE_MM;
     const onSide = side === "front" ? z >= middleZ : z <= middleZ;
 
-    if (!onSide || area <= faceArea) {
+    if (onSide && area > largest) {
+      largest = area;
+    }
+  }
+
+  if (largest <= 0) {
+    return null;
+  }
+
+  const minArea = largest * FACE_SHARE;
+  let faceKey: number | null = null;
+  let faceZ = 0;
+
+  for (const [key, area] of planes) {
+    const z = key * PLANE_TOLERANCE_MM;
+    const onSide = side === "front" ? z >= middleZ : z <= middleZ;
+
+    if (!onSide || area < minArea) {
       continue;
     }
 
-    faceArea = area;
-    faceKey = key;
+    if (faceKey === null || (side === "front" ? z > faceZ : z < faceZ)) {
+      faceKey = key;
+      faceZ = z;
+    }
   }
 
   return faceKey;
@@ -698,6 +734,11 @@ export function buildFaceMask(
   let minZ = Infinity;
   let maxZ = -Infinity;
   const planes = new Map<number, number>();
+  // Площадь считается отдельно по направлению обмотки: у слоёной детали соседние
+  // слои делят плоскость, и внутренняя крышка снизу колпака суммировалась бы с
+  // настоящей гранью, перевешивая её.
+  const upPlanes = new Map<number, number>();
+  const downPlanes = new Map<number, number>();
 
   for (let corner = 0; corner + 2 < cornerCount; corner += 3) {
     readTriangle(corner);
@@ -714,12 +755,13 @@ export function buildFaceMask(
     const planeKey = flatPlaneKey(zs);
 
     if (planeKey !== null) {
-      const area =
-        Math.abs(
-          (xs[1] - xs[0]) * (ys[2] - ys[0]) - (ys[1] - ys[0]) * (xs[2] - xs[0]),
-        ) / 2;
+      const signed =
+        (xs[1] - xs[0]) * (ys[2] - ys[0]) - (ys[1] - ys[0]) * (xs[2] - xs[0]);
+      const area = Math.abs(signed) / 2;
+      const oriented = signed >= 0 ? upPlanes : downPlanes;
 
       planes.set(planeKey, (planes.get(planeKey) ?? 0) + area);
+      oriented.set(planeKey, (oriented.get(planeKey) ?? 0) + area);
     }
   }
 
@@ -727,7 +769,12 @@ export function buildFaceMask(
     return null;
   }
 
-  const faceKey = facePlane(planes, side, (minZ + maxZ) / 2);
+  const outward = side === "front" ? upPlanes : downPlanes;
+  const faceKey = facePlane(
+    outward.size > 0 ? outward : planes,
+    side,
+    (minZ + maxZ) / 2,
+  );
 
   if (faceKey === null) {
     return null;
