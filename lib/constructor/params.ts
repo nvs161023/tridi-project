@@ -1665,6 +1665,33 @@ export const LITHOPHANE_MOUNT_LABELS = {
 } as const satisfies Record<LithophaneMount, string>;
 
 /**
+ * Источники света, под которые в базе открытой арки вырезано крепление.
+ *
+ * `strip` — канал 10 × 2 мм под светодиодную ленту и канавка под провод;
+ * `usb_bulb` — стойка за пазом рамки с полукруглым гнездом Ø28 мм под колбу и
+ * пазом 13 × 5.5 мм под штекер Type-A; `socket` — цилиндрическое гнездо
+ * Ø40 × 15 мм под пластиковый патрон E27 с прорезью под провод; `none` — база
+ * без выборок, подсветку ставят отдельно.
+ */
+export const LITHOPHANE_LIGHT_SOURCES = [
+  "strip",
+  "usb_bulb",
+  "socket",
+  "none",
+] as const;
+
+export type LithophaneLightSource =
+  (typeof LITHOPHANE_LIGHT_SOURCES)[number];
+
+/** Подписи источников света: по ним клиент строит выпадающий список. */
+export const LITHOPHANE_LIGHT_SOURCE_LABELS = {
+  strip: "Светодиодная лента (канал 10 мм)",
+  usb_bulb: "USB-лампа (Type-A)",
+  socket: "LED-патрон (E14/E27)",
+  none: "Без подсветки",
+} as const satisfies Record<LithophaneLightSource, string>;
+
+/**
  * Нужна ли отдельная деталь подставки.
  *
  * У открытой арки, сплошной ножки и массивного основания правила сборки общие:
@@ -1740,6 +1767,15 @@ export type LithophaneParams = {
    * паз под рамку и канал под светодиодную ленту.
    */
   lithoMount: LithophaneMount;
+  /**
+   * Источник света в базе открытой арки: лента, USB-лампа, патрон E27 или
+   * ничего.
+   *
+   * Другие крепления его не читают: канал и гнёзда вырезаны только в базе арки.
+   * Значение переживает смену крепления — вернувшись на арку, человек получает
+   * тот источник, который выбирал.
+   */
+  lithoLightSource: LithophaneLightSource;
 };
 
 /** Сетка яркости вместе с её размерами: массив без полей не читается. */
@@ -2059,6 +2095,9 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   lithophaneBrightnessHeight: LITHOPHANE_RESOLUTION,
   lithoFrame: true,
   lithoMount: "arch",
+  // Канал под ленту — самый дешёвый свет: лента 8–10 мм лежит в базе и светит
+  // на тыл кадра, ничего докупать не нужно.
+  lithoLightSource: "strip",
 };
 
 /**
@@ -2623,6 +2662,21 @@ export function isLithophaneMount(value: unknown): value is LithophaneMount {
   return (
     typeof value === "string" &&
     (LITHOPHANE_MOUNTS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Проверка источника света из формы или API.
+ *
+ * Незнакомое значение — это не ошибка ввода: старый проект или ссылка без поля
+ * получают ленту, а не падение сборки.
+ */
+export function isLithophaneLightSource(
+  value: unknown,
+): value is LithophaneLightSource {
+  return (
+    typeof value === "string" &&
+    (LITHOPHANE_LIGHT_SOURCES as readonly string[]).includes(value)
   );
 }
 
@@ -4006,6 +4060,11 @@ export function normalizeLithophaneParams(
   const requestedMount = isLithophaneMount(params.lithoMount)
     ? params.lithoMount
     : DEFAULT_LITHOPHANE_PARAMS.lithoMount;
+  // Источник света не зависит от крепления: у сплошной ножки выборок нет, но
+  // выбор человека остаётся, и на арке он получит то же гнездо, что и раньше.
+  const lithoLightSource = isLithophaneLightSource(params.lithoLightSource)
+    ? params.lithoLightSource
+    : DEFAULT_LITHOPHANE_PARAMS.lithoLightSource;
   const brightness = resolveLithophaneBrightness(params);
 
   return {
@@ -4024,6 +4083,7 @@ export function normalizeLithophaneParams(
     lithophaneBrightnessHeight: brightness.height,
     lithoFrame,
     lithoMount: lithoFrame ? requestedMount : "none",
+    lithoLightSource,
   };
 }
 

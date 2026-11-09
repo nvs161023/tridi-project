@@ -56,7 +56,14 @@
  *  13. открытая арка: середина проёма свободна для света (луч из-за подставки
  *      проходит на 6…33 мм над столом), ножки стоят по краям базы, в базе есть
  *      канал 10 × 2 мм под ленту и канавка под провод, а панель опускается в паз
- *      3.5 мм — сборка на 3.42 мм ниже, чем со сплошной подставкой.
+ *      3.5 мм — сборка на 3.42 мм ниже, чем со сплошной подставкой;
+ *  14. USB-лампа: паз 13 × 5.5 мм от 1.5 до 12.3 мм над столом (штекер Type-A
+ *      12 мм стоит на дне паза), полукруглое гнездо Ø28 мм под корпус, стойка
+ *      26 мм не наезжает на панель, канала под ленту в базе нет, а выше базы нет
+ *      граней, смотрящих вниз круче 45° — печать без поддержек;
+ *  15. патрон E27: круглое гнездо Ø40 × 15 мм (тело вращения, а не призма) с
+ *      дном на 3 мм выше базы, база глубже на 6 мм под стакан, прорезь 18° в
+ *      стенке пропускает провод, нависаний выше базы нет.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -76,8 +83,10 @@ import {
   LITHOPHANE_FRAME_OPENING_RADIUS_MM,
   LITHOPHANE_FRAME_WIDTH_MM,
   LITHOPHANE_RELIEF_GROUP,
+  LITHOPHANE_SOCKET_LIGHT,
   LITHOPHANE_STAND_SHAPES,
   LITHOPHANE_STAND_TILT_DEG,
+  LITHOPHANE_USB_LIGHT,
   createLithophaneFrameGeometry,
   createLithophaneGeometry,
   createLithophaneReliefGeometry,
@@ -675,6 +684,76 @@ function blockedAt(geometry: BufferGeometry, x: number, y: number): boolean {
   );
 
   return ray.intersectObject(mesh, false).length > 0;
+}
+/**
+ * Первое попадание луча в деталь.
+ *
+ * `origin` и `direction` — точка и вектор направления в миллиметрах. Паз под
+ * штекер и гнездо под патрон проверяются именно так: по координате попадания
+ * видно, на какой стенке луч остановился, а `null` значит, что луч прошёл насквозь
+ * — гнездо открыто.
+ */
+function firstHit(
+  geometry: BufferGeometry,
+  origin: readonly [number, number, number],
+  direction: readonly [number, number, number],
+): Vector3 | null {
+  const mesh = new Mesh(geometry);
+  const ray = new Raycaster(
+    new Vector3(...origin),
+    new Vector3(...direction).normalize(),
+    0,
+    400,
+  );
+  const [hit] = ray.intersectObject(mesh, false);
+
+  return hit ? hit.point.clone() : null;
+}
+
+/**
+ * Сколько граней выше `fromY` смотрят вниз круче 45°.
+ *
+ * Это проверка печати без поддержек: вертикальная стенка (нормаль
+ * горизонтальная) и наклон до 45° печатаются сами, а поверхность, которая
+ * смотрит вниз круче, провисает. Считаются только треугольники целиком выше
+ * `fromY` — низ базы и её паз лежат на столе и поддержек не требуют.
+ */
+function downwardFaces(geometry: BufferGeometry, fromY: number): number {
+  const index = geometry.getIndex();
+  const position = geometry.getAttribute("position");
+  const triangles = (index?.count ?? position.count) / 3;
+  let count = 0;
+
+  for (let triangle = 0; triangle < triangles; triangle += 1) {
+    const corners = [0, 1, 2].map((corner) => {
+      const id = index ? index.getX(triangle * 3 + corner) : triangle * 3 + corner;
+
+      return new Vector3(
+        position.getX(id),
+        position.getY(id),
+        position.getZ(id),
+      );
+    });
+
+    if (Math.min(...corners.map((corner) => corner.y)) <= fromY) {
+      continue;
+    }
+
+    const normal = new Vector3()
+      .subVectors(corners[1], corners[0])
+      .cross(new Vector3().subVectors(corners[2], corners[0]));
+
+    if (normal.lengthSq() === 0) {
+      continue;
+    }
+
+    // cos 45° — граница между нависанием и наклонной стенкой.
+    if (normal.normalize().y < -Math.SQRT1_2) {
+      count += 1;
+    }
+  }
+
+  return count;
 }
 
 
@@ -1776,6 +1855,241 @@ console.log("\n13. Открытая арка: проём под свет и ка
 
   stand.dispose();
   solidStand.dispose();
+}
+
+console.log("\n14. USB-лампа: паз 13 × 5.5 мм и полукруглое гнездо Ø28");
+
+{
+  /*
+    Владелец предложил питать литофан обычной USB mini LED лампой: штекер Type-A
+    12 × 4.5 мм и пластиковая колба Ø20–28 мм. Раздел проверяет крепление под
+    неё: паз с запасом на сторону, полукруглое гнездо под корпус и то, что деталь
+    печатается без поддержек. Паз сквозной, поэтому средняя часть базы собрана
+    из двух колонн — оболочка от этого не рвётся.
+  */
+  const params: Partial<LithophaneParams> = {
+    lithophaneWidth: 120,
+    lithophaneHeight: 80,
+    lithoFrame: true,
+    lithoMount: "arch",
+    lithoLightSource: "usb_bulb",
+  };
+  const shape = LITHOPHANE_ARCH_STAND;
+  const usb = LITHOPHANE_USB_LIGHT;
+  const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
+  const stand = createLithophaneStandGeometry(params);
+  const size = boxSize(stand);
+  const centerZ = (usb.housingFront + usb.housingBack) / 2;
+  // Самая глубокая точка гнезда: до неё же доходит паз под штекер.
+  const cradleFloor = usb.housingTop - usb.cradleRadius;
+  const mouthY =
+    usb.housingTop -
+    Math.sqrt(usb.cradleRadius ** 2 - (usb.slotDepth / 2) ** 2);
+  // Луч изнутри паза к его стенкам: так видно и ширину, и глубину паза.
+  const slotX = firstHit(stand, [0, 9, centerZ], [1, 0, 0]);
+  const slotZ = firstHit(stand, [0, 9, centerZ], [0, 0, 1]);
+  // Дно паза и низ базы: под пазом пластик остаётся, база стоит плоско.
+  const slotFloor = firstHit(stand, [0, 60, centerZ], [0, -1, 0]);
+  const underSlot = firstHit(stand, [0, -5, centerZ], [0, 1, 0]);
+  // Гнездо в стороне от паза: его дно на 14 мм ниже верха стойки.
+  const cradleFloorHit = firstHit(stand, [10, 60, centerZ], [0, -1, 0]);
+  const position = stand.getAttribute("position");
+  let towerTop = 0;
+
+  for (let index = 0; index < position.count; index += 1) {
+    if (position.getZ(index) < usb.housingFront) {
+      towerTop = Math.max(towerTop, position.getY(index));
+    }
+  }
+
+  // Профиль гнезда: вертикальные лучи в стороне от паза.
+  const offsets = [-10, -7, 7, 10];
+  const cradleProfile = offsets.map((offset) => {
+    const hit = firstHit(stand, [0, 60, centerZ + offset], [0, -1, 0]);
+
+    return hit ? usb.housingTop - hit.y : Number.NaN;
+  });
+  const expectedProfile = offsets.map((offset) =>
+    Math.sqrt(usb.cradleRadius ** 2 - offset ** 2),
+  );
+  // За пазом рамки канала под ленту быть не должно: база под лампу гладкая.
+  const plainBase = firstHit(stand, [0, 60, -3], [0, -1, 0]);
+  const panelAtHousing = -(usb.housingTop - shape.baseTop) * Math.tan(tilt);
+
+  console.log(
+    `  подставка ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ` +
+      `${size.z.toFixed(2)} мм, паз ` +
+      `${((slotX?.x ?? Number.NaN) * 2).toFixed(2)} × ` +
+      `${(((slotZ?.z ?? Number.NaN) - centerZ) * 2).toFixed(2)} мм`,
+  );
+  console.log(
+    `  паз от ${(slotFloor?.y ?? Number.NaN).toFixed(2)} до ` +
+      `${mouthY.toFixed(2)} мм, гнездо Ø` +
+      `${(usb.cradleRadius * 2).toFixed(0)} мм с дном на ` +
+      `${cradleFloor.toFixed(2)} мм, профиль ` +
+      `${cradleProfile.map((value) => value.toFixed(2)).join(", ")}`,
+  );
+  console.log(
+    `  стойка ${towerTop.toFixed(2)} мм, панель над ней на ` +
+      `${panelAtHousing.toFixed(2)} мм по Z`,
+  );
+
+  check("usb: подставка замкнута", openEdges(stand), 0);
+  check("usb: NaN 0", nanVertices(stand), 0);
+  checkRange(
+    "usb: верх стойки 26 мм",
+    [towerTop - usb.housingTop],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "usb: паз 13 мм по ширине",
+    [(slotX?.x ?? Number.NaN) * 2],
+    usb.slotWidth - TOLERANCE_MM,
+    usb.slotWidth + TOLERANCE_MM,
+  );
+  checkRange(
+    "usb: паз 5.5 мм по глубине",
+    [((slotZ?.z ?? Number.NaN) - centerZ) * 2],
+    usb.slotDepth - TOLERANCE_MM,
+    usb.slotDepth + TOLERANCE_MM,
+  );
+  checkRange(
+    "usb: дно паза выше стола",
+    [slotFloor?.y ?? Number.NaN],
+    usb.slotFloor - TOLERANCE_MM,
+    usb.slotFloor + TOLERANCE_MM,
+  );
+  checkRange(
+    "usb: под пазом база замкнута, штекер не достаёт до стола",
+    [underSlot?.y ?? Number.NaN],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "usb: паз глубже 10 мм — штекер 12 мм держится",
+    [mouthY - (slotFloor?.y ?? Number.NaN)],
+    10,
+    12,
+  );
+  checkRange(
+    "usb: гнездо на 14 мм ниже верха стойки",
+    [cradleFloorHit ? usb.housingTop - cradleFloorHit.y : Number.NaN],
+    usb.cradleRadius - TOLERANCE_MM,
+    usb.cradleRadius + TOLERANCE_MM,
+  );
+  checkRange(
+    "usb: профиль гнезда — полукруг Ø28",
+    cradleProfile.map((value, index) => value - expectedProfile[index]),
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "usb: канала под ленту в базе нет",
+    [plainBase?.y ?? Number.NaN],
+    shape.baseTop - TOLERANCE_MM,
+    shape.baseTop + TOLERANCE_MM,
+  );
+  check(
+    "usb: стойка стоит за панелью с зазором",
+    usb.housingFront < panelAtHousing - 1,
+    true,
+  );
+  check(
+    "usb: печать без поддержек",
+    downwardFaces(stand, shape.baseTop + 0.5),
+    0,
+  );
+
+  stand.dispose();
+}
+
+console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм и прорезь под провод");
+
+{
+  /*
+    Патрон E27 — Ø40 мм: гнездо глубиной 15 мм прячет половину патрона, вторая
+    половина остаётся над базой под лампу. Гнездо круглое, поэтому это тело
+    вращения, а не призма: оболочка стакана собирается поворотом профиля, а
+    прорезь под провод — просто пропущенный сектор.
+  */
+  const params: Partial<LithophaneParams> = {
+    lithophaneWidth: 120,
+    lithophaneHeight: 80,
+    lithoFrame: true,
+    lithoMount: "arch",
+    lithoLightSource: "socket",
+  };
+  const shape = LITHOPHANE_ARCH_STAND;
+  const light = LITHOPHANE_SOCKET_LIGHT;
+  const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
+  const stand = createLithophaneStandGeometry(params);
+  const size = boxSize(stand);
+  const floor = shape.baseTop + light.floorAboveBase;
+  const rim = floor + light.cavityDepth;
+  const probeY = floor + light.cavityDepth / 2;
+  const left = firstHit(stand, [0, probeY, light.centerZ], [-1, 0, 0]);
+  const right = firstHit(stand, [0, probeY, light.centerZ], [1, 0, 0]);
+  const bottom = firstHit(stand, [0, 80, light.centerZ], [0, -1, 0]);
+  // Луч из-за тыльной кромки: через прорезь он проходит в гнездо и останавливается
+  // на передней стенке, а без прорези упёрся бы в наружную.
+  const wireSlot = firstHit(stand, [0, probeY, -200], [0, 0, 1]);
+  const panelAtRim = -(rim - shape.baseTop) * Math.tan(tilt);
+
+  console.log(
+    `  подставка ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ` +
+      `${size.z.toFixed(2)} мм, гнездо ` +
+      `${((right?.x ?? Number.NaN) - (left?.x ?? Number.NaN)).toFixed(2)} × ` +
+      `${(rim - (bottom?.y ?? Number.NaN)).toFixed(2)} мм`,
+  );
+  console.log(
+    `  дно гнезда на ${floor.toFixed(2)} мм, кромка на ${rim.toFixed(2)} мм, ` +
+      `прорезь ${light.wireSlotDeg}°: провод проходит на ` +
+      `${(wireSlot?.z ?? Number.NaN).toFixed(2)} мм`,
+  );
+
+  check("патрон: подставка замкнута", openEdges(stand), 0);
+  check("патрон: NaN 0", nanVertices(stand), 0);
+  checkRange(
+    "патрон: гнездо Ø40 мм",
+    [(right?.x ?? Number.NaN) - (left?.x ?? Number.NaN)],
+    light.cavityDiameter - 0.05,
+    light.cavityDiameter + 0.05,
+  );
+  checkRange(
+    "патрон: глубина гнезда 15 мм",
+    [rim - (bottom?.y ?? Number.NaN)],
+    light.cavityDepth - TOLERANCE_MM,
+    light.cavityDepth + TOLERANCE_MM,
+  );
+  checkRange(
+    "патрон: дно гнезда выше верха базы",
+    [(bottom?.y ?? Number.NaN) - shape.baseTop],
+    light.floorAboveBase - TOLERANCE_MM,
+    light.floorAboveBase + TOLERANCE_MM,
+  );
+  check(
+    "патрон: прорезь под провод проходит через стенку",
+    (wireSlot?.z ?? Number.NaN) > light.centerZ,
+    true,
+  );
+  check(
+    "патрон: база глубже под гнездо",
+    light.centerZ - light.outerDiameter / 2 >= shape.socketBack + 1,
+    true,
+  );
+  check(
+    "патрон: стакан не наезжает на панель",
+    light.centerZ + light.outerDiameter / 2 < panelAtRim - 1,
+    true,
+  );
+  check(
+    "патрон: печать без поддержек",
+    downwardFaces(stand, shape.baseTop + 0.5),
+    0,
+  );
+
+  stand.dispose();
 }
 
 console.log("");

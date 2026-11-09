@@ -16,6 +16,7 @@ import {
   lithophaneHasStand,
   lithophaneMeshSize,
   normalizeLithophaneParams,
+  type LithophaneLightSource,
   type LithophaneMount,
   type LithophaneParams,
   type LithophanePart,
@@ -55,9 +56,9 @@ import {
  *   `stand`  — подставка: база, передняя губа и задняя стойка под наклоном 12°
  *              со скруглением в тыльном углу. Профиль один, поэтому шва, по
  *              которому деталь отламывается, нет. Подставок три: открытая арка
- *              (две ножки по краям, паз под рамку и канал под светодиодную
- *              ленту — низ панели открыт, и свет проходит к нему), сплошная
- *              ножка и массивное основание.
+ *              (две ножки по краям, паз под рамку и крепление под свет в базе —
+ *              низ панели открыт, и свет проходит к нему), сплошная ножка и
+ *              массивное основание.
  *
  * Крепление `hook` — две петли на тыльной стороне верхней планки рамки: литофан
  * висит на шурупах почти вплотную к стене. Вычитания тел (CSG) нет: деталь
@@ -1462,7 +1463,95 @@ export const LITHOPHANE_ARCH_STAND = {
   legWidth: 6,
   legThickness: 5,
   legTop: 34,
+  /**
+   * Тыльная кромка базы под патрон E27, мм.
+   *
+   * Гнезду Ø40 с прорезью под провод нужно 44 мм позади паза рамки, а наклонная
+   * панель над базой оставляет спереди только 6 мм: при кромке −46 цилиндр
+   * наезжал бы на тыл рамки. Поэтому база под патрон глубже на 6 мм — 61 мм
+   * вместо 55, и центр гнезда стоит на −28.
+   */
+  socketBack: -52,
 } as const;
+
+/**
+ * USB-лампа в базе открытой арки: паз под штекер Type-A и гнездо под колбу.
+ *
+ * Штекер Type-A — 12 × 4.5 мм и 12 мм длиной, поэтому паз 13 × 5.5 мм: запас
+ * 0.5–1 мм на сторону, чтобы лампа входила от руки. Паз начинается на 1.5 мм
+ * выше стола и идёт до самой глубокой точки гнезда — это 10.8 мм, штекер уходит
+ * в него почти целиком и стоит на дне. Нижнюю плоскость базы паз не пробивает:
+ * база остаётся плоской, а штекер не упирается в стол.
+ *
+ * Гнездо — полукруг радиусом 14 мм (Ø28) в стойке 30 мм шириной: корпус
+ * USB-лампы Ø20–28 мм ложится в него. Стойка стоит за пазом рамки, её передняя
+ * стенка на 7.8 мм позади плоскости панели, поэтому колба не мешает ставить
+ * литофан. Стенки стойки вертикальные, а полукруг переходит в них по
+ * касательной — деталь печатается без поддержек.
+ */
+export const LITHOPHANE_USB_LIGHT = {
+  /** Ширина стойки и её кромки по Z, мм. */
+  housingWidth: 30,
+  housingFront: -12,
+  housingBack: -40,
+  /** Верх стойки над столом: он же центр полукруга гнезда, мм. */
+  housingTop: 26,
+  /** Радиус гнезда под колбу, мм. */
+  cradleRadius: 14,
+  /** Паз под штекер: ширина по X и глубина по Z, мм. */
+  slotWidth: 13,
+  slotDepth: 5.5,
+  /**
+   * Дно паза над столом, мм.
+   *
+   * База под пазом остаётся замкнутой: штекер упирается в дно паза, а не в стол,
+   * и подставка стоит на нём всей плоскостью. 1.5 мм — семь слоёв по 0.2 мм:
+   * столько пластика держит вес лампы и не продавливается её кончиком.
+   */
+  slotFloor: 1.5,
+  /** Отрезков на полный полукруг гнезда. */
+  cradleSegments: 64,
+} as const;
+
+/**
+ * Патрон E27 в базе открытой арки: стакан с гнездом и прорезью под провод.
+ *
+ * Пластиковый патрон E27 — Ø40 мм и 30–40 мм высотой, поэтому гнездо Ø40 × 15 мм:
+ * половина патрона прячется в стакане, вторая остаётся над базой под лампу.
+ * Стенка 2 мм, дно гнезда на 3 мм выше верха базы — стакан стоит на базе, а не
+ * висит на ней. Прорезь 18° во всю высоту стенки обращена назад: провод выходит
+ * из патрона и уходит за тыльную кромку базы. Деталь печатается как есть:
+ * стенки вертикальные, дно гнезда горизонтальное, прорезь открыта сверху.
+ */
+export const LITHOPHANE_SOCKET_LIGHT = {
+  /** Наружный диаметр стакана, мм. */
+  outerDiameter: 44,
+  /** Гнездо под патрон и его глубина, мм. */
+  cavityDiameter: 40,
+  cavityDepth: 15,
+  /** Дно гнезда над верхом базы, мм. */
+  floorAboveBase: 3,
+  /** Центр гнезда по Z, мм. */
+  centerZ: -28,
+  /** Прорезь под провод: угол сектора, градусы. */
+  wireSlotDeg: 18,
+  /** Отрезков на оборот стакана: 96 сторон дают круг с ошибкой 0.01 мм. */
+  segments: 96,
+} as const;
+
+/**
+ * Тыльная кромка базы арки для выбранного источника света, мм.
+ *
+ * Канал под ленту и USB-стойка укладываются в 55 мм базы, а стакану под патрон
+ * E27 нужно на 6 мм больше: центр гнезда на −28 при наружном Ø44 доходит до
+ * −50, и кромка −46 не оставила бы под ним материала.
+ */
+function archBaseBack(
+  shape: typeof LITHOPHANE_ARCH_STAND,
+  light: LithophaneLightSource,
+): number {
+  return light === "socket" ? shape.socketBack : shape.back;
+}
 
 /**
  * Размеры профиля сплошной подставки для выбранного крепления.
@@ -1585,10 +1674,16 @@ function createStandProfile(
  * базы на `seatDepth`. Панель опускается в паз сверху и опирается на дно, так
  * что низ рамки не упирается в глухую стену. Канал под ленту начинается сразу за
  * тыльной стенкой паза: лента стоит в базе и светит вверх, на тыл кадра.
+ *
+ * Канал и канавка нужны только ленте. Под USB-лампу база остаётся гладкой, а её
+ * стойка с гнездом собирается отдельными телами (`createUsbFrontColumnProfile`
+ * и соседние). Под патрон E27 база глубже на `socketBack`: гнездо Ø40 уходит за
+ * кромку −46.
  */
 function createArchBaseProfile(
   shape: typeof LITHOPHANE_ARCH_STAND,
   frameDepth: number,
+  light: LithophaneLightSource,
 ): StandProfilePoint[] {
   const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
   const slope = Math.tan(tilt);
@@ -1600,25 +1695,37 @@ function createArchBaseProfile(
   const seatFloor = baseTop - shape.seatDepth * cos;
   const seatBack = -LITHOPHANE_FIT_GAP_MM;
   const seatFront = frameDepth + LITHOPHANE_FIT_GAP_MM;
+  const back = archBaseBack(shape, light);
   const channelFront = seatBack - shape.channelGap;
   const channelBack = channelFront - shape.channelWidth;
-  const wireFront = shape.back + shape.wireGap;
+  const wireFront = back + shape.wireGap;
   const wireBack = wireFront - shape.wireWidth;
+  // Канал и канавка нужны только ленте: под USB-лампу и патрон они не годятся, а
+  // под «без подсветки» в базе не должно быть лишних выборок.
+  const withStrip = light === "strip";
 
   return [
     { y: 0, z: shape.front },
-    { y: 0, z: shape.back },
-    { y: baseTop, z: shape.back },
+    { y: 0, z: back },
+    { y: baseTop, z: back },
     // Канавка под провод у тыльной кромки: в ней лежит кабель, база стоит ровно.
-    { y: baseTop, z: wireBack },
-    { y: baseTop - shape.wireDepth, z: wireBack },
-    { y: baseTop - shape.wireDepth, z: wireFront },
-    { y: baseTop, z: wireFront },
+    ...(withStrip
+      ? [
+          { y: baseTop, z: wireBack },
+          { y: baseTop - shape.wireDepth, z: wireBack },
+          { y: baseTop - shape.wireDepth, z: wireFront },
+          { y: baseTop, z: wireFront },
+        ]
+      : []),
     // Канал под светодиодную ленту 8–10 мм.
-    { y: baseTop, z: channelBack },
-    { y: baseTop - shape.channelDepth, z: channelBack },
-    { y: baseTop - shape.channelDepth, z: channelFront },
-    { y: baseTop, z: channelFront },
+    ...(withStrip
+      ? [
+          { y: baseTop, z: channelBack },
+          { y: baseTop - shape.channelDepth, z: channelBack },
+          { y: baseTop - shape.channelDepth, z: channelFront },
+          { y: baseTop, z: channelFront },
+        ]
+      : []),
     // Паз под рамку: наклонные стенки и горизонтальное дно.
     { y: baseTop, z: seatBack },
     { y: seatFloor, z: seatBack + seatShift },
@@ -1655,6 +1762,118 @@ function createArchLegProfile(
     { y: bottom, z: backAt(bottom) },
     { y: shape.legTop, z: backAt(shape.legTop) },
     { y: shape.legTop, z: frontAt(shape.legTop) },
+  ];
+}
+
+/**
+ * Дуга полукруглого гнезда под колбу USB-лампы: точки стойки в плоскости YZ.
+ *
+ * `from` и `to` — смещения по Z от центра гнезда, мм. Стойка 30 мм шириной и
+ * гнездо радиусом 14 мм делят дугу на три части: переднюю, между стенками паза
+ * под штекер и тыльную. Все точки помечены `smooth`: гнездо должно читаться
+ * желобом, а не набором граней. На стыке с вертикальной стенкой паза плавность
+ * снимает вызывающая сторона — там угол острый.
+ */
+function usbCradleArc(from: number, to: number): StandProfilePoint[] {
+  const light = LITHOPHANE_USB_LIGHT;
+  const centerZ = (light.housingFront + light.housingBack) / 2;
+  const steps = Math.max(
+    2,
+    Math.round(
+      (light.cradleSegments * Math.abs(to - from)) / (2 * light.cradleRadius),
+    ),
+  );
+  const points: StandProfilePoint[] = [];
+
+  for (let index = 0; index <= steps; index += 1) {
+    const offset = from + ((to - from) * index) / steps;
+    const depth = Math.sqrt(light.cradleRadius ** 2 - offset ** 2);
+
+    points.push({ y: light.housingTop - depth, z: centerZ + offset, smooth: true });
+  }
+
+  return points;
+}
+
+/**
+ * Колонна под USB-лампу: седло рамки, тело базы, стойка с гнездом и пазом.
+ *
+ * Паз под штекер вырезан в профиле колонны, а не между телами: профиль призмы
+ * выдавливается по X, поэтому ширина паза равна ширине колонны. Колонна на
+ * `BODY_OVERLAP_MM` шире паза с каждой стороны, и этот нахлёст заходит под
+ * боковые брусья стойки: готовый паз получается ровно 13 мм, а стык колонны с
+ * боками не расходится.
+ *
+ * Обход: низ базы, тыльная стенка, верх базы до тыльной кромки стойки, тыльная
+ * половина гнезда, стенки и дно паза, передняя половина гнезда, стенка стойки,
+ * верх базы с пазом под рамку и передняя губа.
+ */
+function createUsbColumnProfile(
+  shape: typeof LITHOPHANE_ARCH_STAND,
+  frameDepth: number,
+): StandProfilePoint[] {
+  const light = LITHOPHANE_USB_LIGHT;
+  const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
+  const slope = Math.tan(tilt);
+  const cos = Math.cos(tilt);
+  const baseTop = shape.baseTop;
+  const seatShift = shape.seatDepth * cos * slope;
+  const seatFloor = baseTop - shape.seatDepth * cos;
+  const seatBack = -LITHOPHANE_FIT_GAP_MM;
+  const seatFront = frameDepth + LITHOPHANE_FIT_GAP_MM;
+  const centerZ = (light.housingFront + light.housingBack) / 2;
+  const slotBack = centerZ - light.slotDepth / 2;
+  const slotFront = centerZ + light.slotDepth / 2;
+  const [backMouth, ...backArc] = usbCradleArc(
+    -light.cradleRadius,
+    -light.slotDepth / 2,
+  );
+  const [frontMouth, ...frontArc] = usbCradleArc(
+    light.slotDepth / 2,
+    light.cradleRadius,
+  );
+
+  return [
+    { y: 0, z: shape.front },
+    { y: 0, z: shape.back },
+    { y: baseTop, z: shape.back },
+    { y: baseTop, z: light.housingBack },
+    backMouth,
+    ...backArc,
+    // Дно паза: штекер стоит на нём, а не на столе.
+    { y: light.slotFloor, z: slotBack },
+    { y: light.slotFloor, z: slotFront },
+    // Стенка паза упирается в дугу гнезда: угол острый, плавность не нужна.
+    { ...frontMouth, smooth: false },
+    ...frontArc,
+    { y: baseTop, z: light.housingFront },
+    { y: baseTop, z: seatBack },
+    { y: seatFloor, z: seatBack + seatShift },
+    { y: seatFloor, z: seatFront + seatShift },
+    { y: baseTop, z: seatFront },
+    { y: baseTop, z: shape.front },
+  ];
+}
+
+/**
+ * Боковые брусья стойки под USB-лампу: гнездо без паза.
+ *
+ * Брус начинается на 4 мм ниже верха базы и уходит в её тело: по этому стыку он
+ * срастается с базой, и отдельного шва нет. Полукруг гнезда идёт от передней
+ * кромки до тыльной, поэтому верх бруса целиком занят желобом.
+ */
+function createUsbSideProfile(
+  shape: typeof LITHOPHANE_ARCH_STAND,
+): StandProfilePoint[] {
+  const light = LITHOPHANE_USB_LIGHT;
+  const bottom = shape.baseTop - 4;
+  const [rim, ...arc] = usbCradleArc(light.cradleRadius, -light.cradleRadius);
+
+  return [
+    { y: bottom, z: light.housingFront },
+    rim,
+    ...arc,
+    { y: bottom, z: light.housingBack },
   ];
 }
 
@@ -1755,6 +1974,155 @@ function createProfilePrismBody(
 }
 
 /**
+ * Тело вращения: замкнутый профиль в плоскости (радиус, высота), повёрнутый
+ * вокруг вертикальной оси, проходящей через (X = 0, Z = centerZ).
+ *
+ * Профиль приводится к обходу против часовой стрелки: только тогда наружная
+ * нормаль ребра равна (dy, −dr), и грань получает нужную сторону без
+ * угадывания. Торцы поворота закрываются треугольниками самого профиля: у
+ * прорези под провод две стенки, и без них тело осталось бы открытым.
+ *
+ * Вершины колец не переиспользуются — их всё равно сваривает
+ * `smoothGeometryNormals`, а лишние копии топологию не портят. Точка на оси
+ * (r = 0) даёт треугольник вместо четырёхугольника: две вершины совпали бы в
+ * одной точке, и в сетке появилась бы грань нулевой площади.
+ */
+function createRevolvedBody(
+  profile: readonly (readonly [number, number])[],
+  centerZ: number,
+  startDeg: number,
+  sweepDeg: number,
+  segmentCount: number,
+): BufferGeometry {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const outline = profile.map(([radius, height]) => new Vector2(radius, height));
+  const samples = ShapeUtils.isClockWise(outline)
+    ? [...outline].reverse()
+    : outline;
+  const start = (startDeg * Math.PI) / 180;
+  const sweep = (sweepDeg * Math.PI) / 180;
+  const at = (radius: number, height: number, angle: number): Point3 => [
+    radius * Math.sin(angle),
+    height,
+    centerZ + radius * Math.cos(angle),
+  ];
+  const push = (point: Point3): number => {
+    const index = vertexIndex(positions);
+
+    positions.push(point[0], point[1], point[2]);
+
+    return index;
+  };
+
+  for (let side = 0; side < samples.length; side += 1) {
+    const from = samples[side];
+    const to = samples[(side + 1) % samples.length];
+    const dr = to.x - from.x;
+    const dh = to.y - from.y;
+
+    if (Math.hypot(dr, dh) < 1e-6 || (from.x <= 0 && to.x <= 0)) {
+      continue;
+    }
+
+    for (let step = 0; step < segmentCount; step += 1) {
+      const angle = start + (sweep * step) / segmentCount;
+      const next = start + (sweep * (step + 1)) / segmentCount;
+      const middle = (angle + next) / 2;
+      // Наружная нормаль ребра в плоскости профиля — (dh, −dr); радиус смотрит
+      // по (sin θ, cos θ), поэтому вектор нормали раскладывается по обеим осям.
+      const normal: Point3 = [
+        dh * Math.sin(middle),
+        -dr,
+        dh * Math.cos(middle),
+      ];
+      const a = push(at(from.x, from.y, angle));
+      const b = push(at(to.x, to.y, angle));
+      const c = push(at(to.x, to.y, next));
+      const d = push(at(from.x, from.y, next));
+
+      if (from.x <= 0) {
+        addOrientedTriangle(indices, positions, a, b, c, normal);
+      } else if (to.x <= 0) {
+        addOrientedTriangle(indices, positions, a, b, d, normal);
+      } else {
+        addOrientedQuad(indices, positions, a, b, c, d, normal);
+      }
+    }
+  }
+
+  const caps = ShapeUtils.triangulateShape(samples, []);
+
+  for (const [angle, sign] of [
+    [start, -1],
+    [start + sweep, 1],
+  ] as const) {
+    const normal: Point3 = [
+      sign * Math.cos(angle),
+      0,
+      -sign * Math.sin(angle),
+    ];
+
+    for (const triangle of caps) {
+      const first = vertexIndex(positions);
+
+      for (const corner of triangle) {
+        const point = at(samples[corner].x, samples[corner].y, angle);
+
+        positions.push(point[0], point[1], point[2]);
+      }
+
+      addOrientedTriangle(
+        indices,
+        positions,
+        first,
+        first + 1,
+        first + 2,
+        normal,
+      );
+    }
+  }
+
+  return finalizeGeometry(positions, indices);
+}
+
+/**
+ * Стакан под патрон E27: тело вращения с прорезью под провод.
+ *
+ * Профиль в плоскости (радиус, высота): наружная стенка Ø44 от низа до кромки
+ * гнезда, кромка 2 мм, внутренняя стенка Ø40 вниз до дна и дно. Низ стакана
+ * уходит в базу на 4 мм — по этому стыку он срастается с базой, и отдельного
+ * шва нет. Дно гнезда на 3 мм выше верха базы: патрон стоит в стакане, а не
+ * висит на его стенках. Прорезь 18° обращена назад (θ = 180°): провод выходит из
+ * патрона и уходит за тыльную кромку базы.
+ */
+function createSocketLightBody(
+  shape: typeof LITHOPHANE_ARCH_STAND,
+): BufferGeometry {
+  const light = LITHOPHANE_SOCKET_LIGHT;
+  const outerRadius = light.outerDiameter / 2;
+  const cavityRadius = light.cavityDiameter / 2;
+  const floor = shape.baseTop + light.floorAboveBase;
+  const rim = floor + light.cavityDepth;
+  const bottom = shape.baseTop - 4;
+
+  return createRevolvedBody(
+    [
+      [0, bottom],
+      [outerRadius, bottom],
+      [outerRadius, rim],
+      [cavityRadius, rim],
+      [cavityRadius, floor],
+      [0, floor],
+    ],
+    light.centerZ,
+    180 + light.wireSlotDeg / 2,
+    360 - light.wireSlotDeg,
+    light.segments,
+  );
+}
+
+/**
  * Подставка отдельной деталью: открытая арка, сплошная ножка или основание.
  *
  * База держит литофан на столе: спереди её край выходит за рамку, сзади уходит
@@ -1804,17 +2172,66 @@ export function createLithophaneStandGeometry(
 }
 
 /**
- * Открытая подставка: база с пазом под рамку, каналом под ленту и две ножки.
+ * Тела базы открытой арки для выбранного источника света.
  *
- * Деталь собирается из трёх замкнутых тел: база во всю ширину и две ножки по её
- * краям. Между ножками нет материала выше базы, поэтому свет от ленты, стоящей в
- * канале, доходит до низа панели — старая сплошная стойка закрывала эти 30 мм.
- * Ножки и база пересекаются на 1 мм и объединяются `mergeBodies`: в файле это
- * один объект, шва по стыку нет.
+ * Лента, патрон и «без подсветки» — одна призма во всю ширину: все выборки
+ * вырезаны в её профиле, а стакан под патрон добавляется отдельным телом
+ * вращения. USB-лампа так не собирается: паз под штекер — это вырез в профиле
+ * колонны, а профиль призмы выдавливается по X, поэтому ширина паза равна ширине
+ * колонны. Колонна на нахлёст шире паза с каждой стороны, боковые брусья стойки
+ * заходят на неё, и готовый паз получается ровно `slotWidth` — а стык деталей не
+ * расходится, потому что тела пересекаются, а не касаются.
+ */
+function createArchBaseBodies(
+  shape: typeof LITHOPHANE_ARCH_STAND,
+  frameDepth: number,
+  standSpan: number,
+  light: LithophaneLightSource,
+): BufferGeometry[] {
+  const base = createArchBaseProfile(shape, frameDepth, light);
+
+  if (light !== "usb_bulb") {
+    return [
+      createProfilePrismBody(base, -standSpan / 2, standSpan / 2),
+      ...(light === "socket" ? [createSocketLightBody(shape)] : []),
+    ];
+  }
+
+  const usb = LITHOPHANE_USB_LIGHT;
+  // Колонна шире паза на нахлёст с каждой стороны: боковые брусья заходят на неё,
+  // и готовый паз получается ровно `slotWidth`, а стык не расходится.
+  const columnHalf = usb.slotWidth / 2 + BODY_OVERLAP_MM;
+  const housingHalf = usb.housingWidth / 2;
+  const side = createUsbSideProfile(shape);
+
+  return [
+    createProfilePrismBody(base, -standSpan / 2, -usb.slotWidth / 2),
+    createProfilePrismBody(base, usb.slotWidth / 2, standSpan / 2),
+    createProfilePrismBody(
+      createUsbColumnProfile(shape, frameDepth),
+      -columnHalf,
+      columnHalf,
+    ),
+    createProfilePrismBody(side, -housingHalf, -usb.slotWidth / 2),
+    createProfilePrismBody(side, usb.slotWidth / 2, housingHalf),
+  ];
+}
+
+/**
+ * Открытая подставка: база с пазом под рамку, креплением под свет и две ножки.
+ *
+ * Деталь собирается из замкнутых тел: база (или её части — см.
+ * `createArchBaseBodies`) и две ножки по краям. Между ножками нет материала
+ * выше базы, поэтому свет от лампы в базе доходит до низа панели — старая
+ * сплошная стойка закрывала эти 30 мм.
+ * Ножки и база пересекаются и объединяются `mergeBodies`: в файле это один
+ * объект, шва по стыку нет.
  *
  * Проём между ножками считается по ширине базы: на панели 120 × 80 это
  * 110.4 − 2 × 6 = 98.4 мм — под ленту 8–10 мм с запасом, а опора разнесена
- * почти на всю ширину рамки, поэтому панель не качается.
+ * почти на всю ширину рамки, поэтому панель не качается. Стойка под USB-лампу
+ * и стакан под патрон стоят в середине и выше ножек не поднимаются: свет
+ * остаётся открытым с обеих сторон.
  */
 function createArchStandGeometry(
   normalized: LithophaneParams,
@@ -1827,10 +2244,11 @@ function createArchStandGeometry(
   return smoothGeometryNormals(
     mergeBodies(
       [
-        createProfilePrismBody(
-          createArchBaseProfile(shape, metrics.frontZ),
-          -standSpan / 2,
-          standSpan / 2,
+        ...createArchBaseBodies(
+          shape,
+          metrics.frontZ,
+          standSpan,
+          normalized.lithoLightSource,
         ),
         createProfilePrismBody(
           leg,

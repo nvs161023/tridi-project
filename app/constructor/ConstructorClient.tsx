@@ -89,6 +89,7 @@ import {
   type KeychainParams,
   type KeychainQrDecoration,
   type LithophaneBrightnessGrid,
+  type LithophaneLightSource,
   type LithophaneMount,
   type LithophanePart,
   type ModelType,
@@ -1031,6 +1032,18 @@ export function ConstructorClient({
   }
 
   /**
+   * Источник света в базе арки.
+   *
+   * Крепление не меняется: выборок под свет нет только у сплошных подставок, и
+   * выбранный источник ждёт возврата на арку.
+   */
+  function updateLithoLightSource(lithoLightSource: LithophaneLightSource) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lithoLightSource }),
+    );
+  }
+
+  /**
    * Браузер уже сжал фотографию до 400 пикселей по длинной стороне и отдал
    * сетку яркости вместе с её размерами. Массив идёт в общее состояние как
    * есть: API принимает те же числа, поэтому сервер не декодирует картинку
@@ -1348,6 +1361,7 @@ export function ConstructorClient({
             onRemoveKeychainDecoration={removeKeychainDecoration}
             keychainReport={keychainImageReport}
             onLithoFrameChange={updateLithoFrame}
+            onLithoLightSourceChange={updateLithoLightSource}
             onLithoMountChange={updateLithoMount}
             onLithophaneBrightnessChange={updateLithophaneBrightness}
             onModelChange={updateModel}

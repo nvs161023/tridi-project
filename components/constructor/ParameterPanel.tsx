@@ -106,6 +106,8 @@ import {
   keychainThicknessLimits,
   hasDrawableSvgData,
   isCustomSvgData,
+  LITHOPHANE_LIGHT_SOURCES,
+  LITHOPHANE_LIGHT_SOURCE_LABELS,
   LITHOPHANE_MOUNTS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_RESOLUTION,
@@ -139,6 +141,7 @@ import {
   type KeychainTextAlign,
   type KeychainTextDecoration,
   type LithophaneBrightnessGrid,
+  type LithophaneLightSource,
   type LithophaneMount,
   type ModelType,
   type PatternLayer,
@@ -344,6 +347,12 @@ type ParameterPanelProps = {
   onLithoFrameChange: (hasFrame: boolean) => void;
   /** Крепление литофана: подставка, настенные петли или ничего. */
   onLithoMountChange: (mount: LithophaneMount) => void;
+  /**
+   * Источник света в базе открытой арки: лента, USB-лампа, патрон E27 или
+   * ничего. Другие крепления выборок под свет не имеют, поэтому список виден
+   * только у арки.
+   */
+  onLithoLightSourceChange: (light: LithophaneLightSource) => void;
   /**
    * Готовая сетка яркости из canvas: 0 — чёрный, 255 — белый.
    *
@@ -1510,6 +1519,7 @@ export function ParameterPanel({
   onBoxPresetChange,
   onLithoFrameChange,
   onLithoMountChange,
+  onLithoLightSourceChange,
   onLithophaneBrightnessChange,
   onPlanterShapeChange,
   onPlanterDrainageChange,
@@ -4243,7 +4253,7 @@ export function ParameterPanel({
 
               <p className="mt-2 text-xs leading-relaxed text-slate-300">
                 {params.lithoMount === "arch"
-                  ? "Открытая арка: две тонкие ножки по краям и база с каналом под светодиодную ленту 8–10 мм. Рамка опускается в паз глубиной 3.5 мм, а низ панели остаётся открытым — свет от лампы за литофаном проходит между ножками и подсвечивает кадр снизу. Канавка на тыльной кромке базы убирает провод, чтобы подставка стояла ровно."
+                  ? "Открытая арка: две тонкие ножки по краям и база с креплением под свет. Рамка опускается в паз глубиной 3.5 мм, а низ панели остаётся открытым — свет из базы проходит между ножками и подсвечивает кадр снизу."
                   : params.lithoMount === "stand"
                     ? "Сплошная ножка: база с передней губой и задней стойкой под наклоном 12°. Стойка переходит в базу скруглением — деталь печатается одним профилем и не отламывается по шву. Панель с рамкой ставится в паз сверху. Стойка закрывает низ панели, поэтому на просвет там будет темнее."
                     : params.lithoMount === "base"
@@ -4252,6 +4262,30 @@ export function ParameterPanel({
                         ? "Петли: две проушины на тыльной стороне верхней планки. Литофан висит на двух шурупах почти вплотную к стене, шляпка прячется в кармане петли."
                         : "Без подставки: печатается только рамка с плитой. Её можно поставить на полку или вставить в свою подставку."}
               </p>
+
+              {params.lithoMount === "arch" ? (
+                <div className="mt-5">
+                  <ParameterSelect
+                    label="Источник света"
+                    onChange={onLithoLightSourceChange}
+                    options={LITHOPHANE_LIGHT_SOURCES.map((source) => ({
+                      label: LITHOPHANE_LIGHT_SOURCE_LABELS[source],
+                      value: source,
+                    }))}
+                    value={params.lithoLightSource}
+                  />
+
+                  <p className="mt-2 text-xs leading-relaxed text-slate-300">
+                    {params.lithoLightSource === "strip"
+                      ? "Канал 10 × 2 мм за пазом рамки и канавка 2.4 × 2 мм под провод у тыльной кромки: лента 8–10 мм ложится между ножками и светит на тыл панели."
+                      : params.lithoLightSource === "usb_bulb"
+                        ? "USB-лампа вставляется штекером Type-A в паз 13 × 5.5 мм: корпус садится в полукруглое гнездо Ø28 мм в стойке за панелью, а гибкую ножку отгибают к кадру. Стойка стоит за пазом рамки и не мешает ставить литофан."
+                        : params.lithoLightSource === "socket"
+                          ? "Круглое гнездо Ø40 мм глубиной 15 мм под пластиковый патрон E27 с прорезью под провод: патрон вставляется сверху, лампа остаётся над базой. База глубже на 6 мм — гнезду нужно место за панелью."
+                          : "База без выборок: только паз под рамку. Подсветку ставят отдельно или литофан печатают как есть."}
+                  </p>
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="mt-4 text-xs leading-relaxed text-slate-300">

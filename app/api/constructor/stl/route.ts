@@ -55,6 +55,7 @@ import {
   isKeychainRotation,
   isKeychainTextAlign,
   isLithophaneBrightness,
+  isLithophaneLightSource,
   isLithophaneMount,
   isLithophanePart,
   isPenShape,
@@ -1071,7 +1072,10 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
  * Рамка и крепление необязательны: старый клиент их не присылает и получает
  * значения по умолчанию. Крепление проверяется по списку — от него зависит,
  * появятся ли петли на рамке, — а нормализация сама снимает крепление, когда
- * рамка выключена. Деталь (`part`) тоже из списка, причём `frame`, `stand` и
+ * рамка выключена. Источник света тоже из списка: он выбирает, что вырезано в
+ * базе арки (канал под ленту, гнездо под USB-лампу или патрон), и опечатка в
+ * запросе не должна превращаться в базу без крепления. Деталь (`part`) тоже из
+ * списка, причём `frame`, `stand` и
  * `all` без рамки отклоняются: без неё в файле нечего собирать. Подставка
  * отдельным файлом имеет смысл только при своём креплении (ножка или массивное
  * основание) — иначе клиент просит деталь, которой нет в выбранной сборке.
@@ -1089,6 +1093,7 @@ function parseLithophaneParams(
     lithophaneBrightnessHeight,
     lithoFrame = DEFAULT_LITHOPHANE_PARAMS.lithoFrame,
     lithoMount = DEFAULT_LITHOPHANE_PARAMS.lithoMount,
+    lithoLightSource = DEFAULT_LITHOPHANE_PARAMS.lithoLightSource,
     part = "all",
   } = body;
 
@@ -1121,6 +1126,7 @@ function parseLithophaneParams(
     ) ||
     typeof lithoFrame !== "boolean" ||
     !isLithophaneMount(lithoMount) ||
+    !isLithophaneLightSource(lithoLightSource) ||
     !isLithophanePart(part) ||
     (!lithoFrame && part !== "relief") ||
     (part === "stand" && !lithophaneHasStand(lithoMount))
@@ -1147,6 +1153,7 @@ function parseLithophaneParams(
       lithophaneBrightnessHeight: grid.height,
       lithoFrame,
       lithoMount,
+      lithoLightSource,
     }),
     part,
   };
