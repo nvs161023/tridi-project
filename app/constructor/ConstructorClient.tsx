@@ -69,6 +69,7 @@ import {
   sanitizeQrCardPhone,
   listSignBlocks,
   listSignLetters,
+  lithophaneHasStand,
   lithophaneStlFileName,
   normalizeConstructorParams,
   nextPatternLayer,
@@ -309,11 +310,11 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
 
     // Первый файл — собранный литофан: плита уже вставлена в рамку и, если
     // выбрана подставка, наклонена вместе с ней. Дальше детали по отдельности:
-    // рельеф и рамка есть всегда, подставка — только при своём креплении,
-    // петли подвеса — часть рамки.
+    // рельеф и рамка есть всегда, подставка — только при ножке или массивном
+    // основании, петли подвеса — часть рамки.
     const parts: LithophanePart[] = ["relief", "frame"];
 
-    if (params.lithoMount === "stand") {
+    if (lithophaneHasStand(params.lithoMount)) {
       parts.push("stand");
     }
 

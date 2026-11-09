@@ -29,7 +29,15 @@
  *      дважды, а габарит рамки и сборки равен панели;
  *   4. сетка: 401 × 268 вершин и 217 602 треугольника на панели 120 × 80,
  *      668 × 501 и 674 002 на панели 200 × 150, плита 210 мм ещё проходит по
- *      бюджету, а 215 мм — уже нет.
+ *      бюджету, а 215 мм — уже нет;
+ *   5. слайдеры толщин задают размах: при 0.8…3.5 мм белый кадр печатается на
+ *      0.8 мм, чёрный — на 3.5 мм, а по умолчанию минимум 0.8 и максимум 3.0;
+ *   6. подставка — один профиль без стыков: у ножки и у основания оболочка
+ *      замкнута, габарит совпадает с профилем, а в углу «база — стойка» есть
+ *      скругление из нескольких граней, а не острый стык;
+ *   7. группы материалов: рельеф и крепление — одна сетка с двумя группами,
+ *      группы покрывают все индексы, а сборка с основанием глубже и выше
+ *      сборки без крепления.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -40,11 +48,15 @@ import type { BufferGeometry } from "three";
 import {
   LITHOPHANE_BORDER_CHAMFER_MM,
   LITHOPHANE_BORDER_MM,
+  LITHOPHANE_DETAIL_GROUP,
   LITHOPHANE_FIT_GAP_MM,
   LITHOPHANE_FRAME_WIDTH_MM,
+  LITHOPHANE_RELIEF_GROUP,
+  LITHOPHANE_STAND_SHAPES,
   createLithophaneFrameGeometry,
   createLithophaneGeometry,
   createLithophaneReliefGeometry,
+  createLithophaneStandGeometry,
   lithophanePlateSize,
 } from "../lib/constructor/lithophane-geometry";
 import {
@@ -384,6 +396,73 @@ function darkSpot(
   };
 }
 
+/**
+ * Толщина лица в середине кадра, мм.
+ *
+ * Кромка плиты печатается на максимальной толщине (бортик), а в фото переходит
+ * фаской, поэтому вершины ближе `margin` мм к краю не учитываются: иначе
+ * толщиной лица считался бы бортик и размах слайдеров было бы не проверить.
+ */
+function faceThickness(
+  geometry: BufferGeometry,
+  plateWidth: number,
+  plateHeight: number,
+  margin = 8,
+): number {
+  const position = geometry.getAttribute("position");
+  const halfWidth = plateWidth / 2;
+  let thickness = 0;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index);
+    const y = position.getY(index);
+
+    if (
+      Math.abs(x) > halfWidth - margin ||
+      y < margin ||
+      y > plateHeight - margin
+    ) {
+      continue;
+    }
+
+    thickness = Math.max(thickness, position.getZ(index));
+  }
+
+  return thickness;
+}
+
+/**
+ * Сколько точек профиля попало в прямоугольник `y ∈ (yMin; yMax], z < zMax`.
+ *
+ * У подставки выше базы и позади стойки других вершин нет: там проходит дуга
+ * скругления, по точке на каждый отрезок. Острый стык в этом углу дал бы одну
+ * точку на пересечении плоскостей, поэтому счёт и есть проверка скругления.
+ * Точки сравниваются по координатам: на скруглении вершины общие, но их ещё раз
+ * копирует торец детали.
+ */
+function profilePoints(
+  geometry: BufferGeometry,
+  yMin: number,
+  yMax: number,
+  zMax: number,
+): number {
+  const position = geometry.getAttribute("position");
+  const points = new Set<string>();
+
+  for (let index = 0; index < position.count; index += 1) {
+    const y = position.getY(index);
+    const z = position.getZ(index);
+
+    if (y <= yMin || y > yMax || z >= zMax) {
+      continue;
+    }
+
+    points.add(`${y.toFixed(3)}:${z.toFixed(3)}`);
+  }
+
+  return points.size;
+}
+
 
 console.log("\n1. Кадр не растягивается: cover вместо центрального квадрата");
 
@@ -612,6 +691,177 @@ for (const [width, height, columns, rows, triangles] of [
 
 check("плита 210 × 210 в бюджете", lithophaneMeshSize(210, 210) !== null, true);
 check("плита 215 × 215 сверх бюджета", lithophaneMeshSize(215, 215), null);
+
+console.log("\n5. Слайдеры толщин: белое на минимуме, чёрное на максимуме");
+
+{
+  const defaults = normalizeLithophaneParams({});
+
+  check("по умолчанию минимум 0.8 мм", defaults.lithophaneMinThickness, 0.8);
+  check("по умолчанию максимум 3.0 мм", defaults.lithophaneMaxThickness, 3);
+}
+
+for (const [brightness, expected] of [
+  [255, 0.8],
+  [0, 3.5],
+  [128, 2.15],
+] as const) {
+  const params: Partial<LithophaneParams> = {
+    ...reliefParams(120, 80, flatFrame(brightness)),
+    lithophaneMinThickness: 0.8,
+    lithophaneMaxThickness: 3.5,
+  };
+  const plate = lithophanePlateSize(params);
+  const geometry = createLithophaneReliefGeometry(params);
+  const thickness = faceThickness(geometry, plate.width, plate.height);
+
+  console.log(
+    `  кадр ${brightness}/255: толщина лица ` + `${thickness.toFixed(3)} мм`,
+  );
+
+  checkRange(
+    `кадр ${brightness}: толщина лица ${expected} мм`,
+    [thickness - expected],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+
+  geometry.dispose();
+}
+
+console.log("\n6. Подставка: один профиль со скруглением вместо склейки");
+
+for (const mount of ["stand", "base"] as const) {
+  const shape =
+    mount === "base"
+      ? LITHOPHANE_STAND_SHAPES.massive
+      : LITHOPHANE_STAND_SHAPES.leg;
+  const params: Partial<LithophaneParams> = {
+    lithophaneWidth: 120,
+    lithophaneHeight: 80,
+    lithoFrame: true,
+    lithoMount: mount,
+  };
+  const stand = createLithophaneStandGeometry(params);
+  const size = boxSize(stand);
+  const expectedWidth = Math.min(
+    params.lithophaneWidth as number,
+    Math.max(shape.minWidth, (params.lithophaneWidth as number) * shape.widthFactor),
+  );
+  // Дуга скругления идёт от базы до касания со стойкой: выше базы и позади
+  // губы на профиле больше ничего нет.
+  const arc = profilePoints(
+    stand,
+    shape.baseTop + 0.05,
+    shape.baseTop + shape.filletRadius + 1,
+    -2,
+  );
+
+  console.log(
+    `  ${mount}: ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ` +
+      `${size.z.toFixed(2)} мм, скругление ${shape.filletRadius} мм ` +
+      `из ${arc} точек`,
+  );
+
+  check(`${mount}: подставка замкнута`, openEdges(stand), 0);
+  check(`${mount}: NaN 0`, nanVertices(stand), 0);
+  checkRange(
+    `${mount}: ширина базы`,
+    [size.x - expectedWidth],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    `${mount}: глубина базы`,
+    [size.z - (shape.front - shape.back)],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    `${mount}: высота стойки`,
+    [size.y - shape.strutTop],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  check(
+    `${mount}: скругление дугой, а не острым стыком`,
+    arc >= 6,
+    true,
+  );
+
+  stand.dispose();
+}
+
+console.log("\n7. Группы материалов и сборка с основанием");
+
+{
+  // Сборка проверяется на маленькой панели: группы и замыкание не зависят от
+  // габарита, а рельеф 120 × 80 считался бы секунды.
+  const small = reliefParams(40, 30, circleFrame());
+  const mounted = createLithophaneGeometry({
+    ...small,
+    lithoFrame: true,
+    lithoMount: "base",
+  });
+  const bare = createLithophaneGeometry({
+    ...small,
+    lithoFrame: true,
+    lithoMount: "none",
+  });
+  const reliefPart = createLithophaneGeometry(small, "relief");
+  const framePart = createLithophaneGeometry(
+    { ...small, lithoFrame: true },
+    "frame",
+  );
+  const indexCount = mounted.getIndex()?.count ?? 0;
+  const covered = mounted.groups.reduce((sum, group) => sum + group.count, 0);
+
+  check("сборка с основанием: открытых рёбер 0", openEdges(mounted), 0);
+  check("сборка с основанием: групп материалов 2", mounted.groups.length, 2);
+  check(
+    "сборка: рельеф красится группой рельефа",
+    mounted.groups[0]?.materialIndex,
+    LITHOPHANE_RELIEF_GROUP,
+  );
+  check(
+    "сборка: крепление красится группой деталей",
+    mounted.groups[1]?.materialIndex,
+    LITHOPHANE_DETAIL_GROUP,
+  );
+  check("сборка: группы покрывают все индексы", covered, indexCount);
+  check(
+    "сборка: рельеф идёт первым",
+    mounted.groups[0]?.start,
+    0,
+  );
+
+  const mountedSize = boxSize(mounted);
+  const bareSize = boxSize(bare);
+
+  check("основание поднимает сборку", mountedSize.y > bareSize.y, true);
+  check("основание углубляет сборку", mountedSize.z > bareSize.z, true);
+
+  check(
+    "деталь «рельеф»: одна группа рельефа",
+    reliefPart.groups.map((group) => group.materialIndex),
+    [LITHOPHANE_RELIEF_GROUP],
+  );
+  check(
+    "деталь «рамка»: одна группа деталей",
+    framePart.groups.map((group) => group.materialIndex),
+    [LITHOPHANE_DETAIL_GROUP],
+  );
+  check(
+    "деталь «рамка»: группа покрывает все индексы",
+    framePart.groups[0]?.count,
+    framePart.getIndex()?.count ?? 0,
+  );
+
+  mounted.dispose();
+  bare.dispose();
+  reliefPart.dispose();
+  framePart.dispose();
+}
 
 console.log("");
 

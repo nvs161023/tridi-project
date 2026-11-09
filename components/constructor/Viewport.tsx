@@ -11,6 +11,7 @@ import {
   DoubleSide,
   Mesh,
   MeshBasicMaterial,
+  MeshStandardMaterial,
   PCFShadowMap,
   PlaneGeometry,
   PMREMGenerator,
@@ -33,6 +34,7 @@ import {
   keychainFontUrl,
   keychainShapeLabel,
   keychainTextDecoration,
+  lithophaneHasStand,
   vasePatternLabel,
   type ConstructorParams,
   type KeychainFontId,
@@ -440,16 +442,45 @@ type LithophaneModelProps = {
  * поворот не нужен: рамка и рельеф смотрят в +Z. Материал почти белый и
  * матовый — так на выступах читается светотень, а тонкие участки выглядят
  * светлее.
+ *
+ * Материалов два, потому что сетка размечена группами
+ * (`LITHOPHANE_RELIEF_GROUP` / `LITHOPHANE_DETAIL_GROUP`). Рельеф выводится с
+ * `flatShading`: нормаль каждой грани совпадает с высотой пикселя, и на свету
+ * видно, где фото толще — без этого шума не было бы видно рельефа вообще.
+ * Рамка и подставка идут гладким материалом: их нормали посчитаны после сварки
+ * вершин, поэтому скругление стойки и накладка выглядят литыми и матовыми.
+ * Материалы создаются один раз и живут дольше сетки, поэтому освобождаются на
+ * размонтировании.
  */
 function LithophaneModel({ geometry }: LithophaneModelProps) {
+  const materials = useMemo(
+    () => [
+      new MeshStandardMaterial({
+        color: STUDIO_MODEL_TINTS.lithophane,
+        flatShading: true,
+        metalness: STUDIO_PLASTIC.metalness,
+        roughness: STUDIO_PLASTIC.roughness,
+      }),
+      new MeshStandardMaterial({
+        color: STUDIO_MODEL_TINTS.lithophane,
+        metalness: STUDIO_PLASTIC.metalness,
+        roughness: STUDIO_PLASTIC.roughness,
+      }),
+    ],
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      for (const material of materials) {
+        material.dispose();
+      }
+    },
+    [materials],
+  );
+
   return (
-    <mesh castShadow geometry={geometry} receiveShadow>
-      <meshStandardMaterial
-        color={STUDIO_MODEL_TINTS.lithophane}
-        metalness={STUDIO_PLASTIC.metalness}
-        roughness={STUDIO_PLASTIC.roughness}
-      />
-    </mesh>
+    <mesh castShadow geometry={geometry} material={materials} receiveShadow />
   );
 }
 
@@ -1178,9 +1209,9 @@ export function Viewport({
     }
 
     if (params.model === "lithophane") {
-      // С подставкой сборка наклонена и стоит на базе 6 мм, поэтому габарит
+      // С подставкой сборка наклонена и стоит на базе 6–9 мм, поэтому габарит
       // берём из готовой сетки: камера не должна обрезать верх рамки.
-      if (params.lithoMount === "stand") {
+      if (lithophaneHasStand(params.lithoMount)) {
         geometry.computeBoundingBox();
         const box = geometry.boundingBox;
 

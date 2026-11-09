@@ -1,10 +1,21 @@
-import { BufferGeometry, Float32BufferAttribute, Matrix4 } from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import {
+  BufferGeometry,
+  Float32BufferAttribute,
+  Matrix4,
+  ShapeUtils,
+  Vector2,
+} from "three";
+import {
+  mergeGeometries,
+  mergeVertices,
+} from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import {
   LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
+  lithophaneHasStand,
   lithophaneMeshSize,
   normalizeLithophaneParams,
+  type LithophaneMount,
   type LithophaneParams,
   type LithophanePart,
 } from "@/lib/constructor/params";
@@ -33,7 +44,10 @@ import {
  *   `relief` — плита с плоским тылом и рельефом на лице;
  *   `frame`  — рамка с задней полкой (плита садится на неё с зазором 0.2 мм) и
  *              передней накладкой, которая прижимает её край;
- *   `stand`  — подставка: база, передняя губа и задняя стенка под наклоном 12°.
+ *   `stand`  — подставка: база, передняя губа и задняя стойка под наклоном 12°
+ *              со скруглением в тыльном углу. Профиль один, поэтому шва, по
+ *              которому деталь отламывается, нет; варианты — простая ножка и
+ *              массивное основание.
  *
  * Крепление `hook` — две петли на тыльной стороне верхней планки рамки: литофан
  * висит на шурупах почти вплотную к стене. Вычитания тел (CSG) нет: деталь
@@ -87,11 +101,20 @@ export const LITHOPHANE_STAND_TILT_DEG = 12;
 export const LITHOPHANE_HOOK_WIDTH_MM = 8;
 export const LITHOPHANE_HOOK_DEPTH_MM = 9;
 
+/**
+ * Группы материалов в собранной сетке литофана.
+ *
+ * Группа — диапазон индексов, а не отдельный меш: сборка остаётся одной сеткой,
+ * и вес, габарит и STL считаются как раньше. Предпросмотр красит рельеф
+ * плоскостями (`flatShading`): по граням читается высота пикселя. Рамка и
+ * подставка идут вторым материалом со сглаженными нормалями — они должны
+ * выглядеть литыми и матовыми.
+ */
+export const LITHOPHANE_RELIEF_GROUP = 0;
+export const LITHOPHANE_DETAIL_GROUP = 1;
+
 /** Нахлёст двух объединяемых оболочек, мм: без него слайсер видит два тела. */
 const BODY_OVERLAP_MM = 0.2;
-
-/** Верх базы подставки: на нём стоит рамка, мм. */
-const STAND_BASE_TOP_MM = 6;
 
 type Point3 = readonly [number, number, number];
 
@@ -168,8 +191,10 @@ function addOrientedTriangle(
 /**
  * Добавляет четырёхугольник четырьмя новыми вершинами.
  *
- * Вершины не переиспользуются: у рамки и подставки острые рёбра, и общие вершины
- * размазали бы нормали между гранями — деталь выглядела бы оплавленной.
+ * На построении грани остаются плоскими: у каждой свой набор вершин и своя
+ * нормаль, поэтому силуэт и объём считаются точно. Сглаживание делается один раз
+ * на готовую деталь (`smoothGeometryNormals`) — тогда нормаль учитывает всю
+ * поверхность, а не только соседнюю грань.
  */
 function addQuadFace(
   indices: number[],
@@ -944,7 +969,10 @@ export function createLithophaneFrameGeometry(
     }
   }
 
-  return mergeBodies(bodies, "рамки");
+  // Рамка собирается из двух колец и петель, но печатается одной деталью:
+  // сварка вершин и пересчёт нормалей делают её поверхность гладкой — на
+  // предпросмотре она читается литой и матовой, а не набором плоскостей.
+  return smoothGeometryNormals(mergeBodies(bodies, "рамки"));
 }
 
 /**
@@ -973,19 +1001,327 @@ function mergeBodies(
   return merged;
 }
 
+/**
+ * Сглаживает нормали детали.
+ *
+ * Вершины свариваются по координатам, и нормали считаются заново: рамка
+ * перестаёт выглядеть набором плоскостей — свет ложится градиентом, поверхность
+ * читается литой и матовой. Рельеф так не сглаживается: там нормаль вершины
+ * задаёт высоту пикселя и должна считаться по сетке рельефа.
+ *
+ * Сварка не меняет топологию: совпадающие вершины и раньше лежали в одних и тех
+ * же точках, поэтому каждая оболочка остаётся замкнутой, а число треугольников
+ * не меняется.
+ */
+function smoothGeometryNormals(geometry: BufferGeometry): BufferGeometry {
+  geometry.deleteAttribute("normal");
+
+  const welded = mergeVertices(geometry, 1e-4);
+
+  geometry.dispose();
+  welded.computeVertexNormals();
+  welded.computeBoundingBox();
+  welded.computeBoundingSphere();
+
+  return welded;
+}
+
+/** Деталь без второй половины: вся сетка красится материалом своей группы. */
+function markPartGroup(
+  geometry: BufferGeometry,
+  material: number,
+): BufferGeometry {
+  geometry.clearGroups();
+  geometry.addGroup(0, geometry.getIndex()?.count ?? 0, material);
+
+  return geometry;
+}
+
+/** Две группы собранной сетки: рельеф с начала индексов, крепление — до конца. */
+function assignMaterialGroups(
+  geometry: BufferGeometry,
+  reliefIndices: number,
+): BufferGeometry {
+  const total = geometry.getIndex()?.count ?? 0;
+
+  geometry.clearGroups();
+  geometry.addGroup(0, reliefIndices, LITHOPHANE_RELIEF_GROUP);
+
+  if (total > reliefIndices) {
+    geometry.addGroup(
+      reliefIndices,
+      total - reliefIndices,
+      LITHOPHANE_DETAIL_GROUP,
+    );
+  }
+
+  return geometry;
+}
+
 
 /**
- * Подставка отдельной деталью.
+ * Профиль подставки в плоскости YZ: высота над столом и глубина.
  *
- * База 6 мм держит литофан на столе: спереди её край выходит за рамку, сзади
- * уходит на 32 мм — центр тяжести наклонённой панели остаётся над опорой.
- * Передняя губа не даёт рамке съехать вперёд, задняя стенка наклонена на 12°
- * и повторяет наклон панели: рамка опирается на неё всей плоскостью, а не
- * ребром. Панель опускается в паз сверху — клей не нужен.
+ * `smooth` — точка лежит на скруглении: соседние рёбра делят её вершины, и свет
+ * ложится градиентом. На острых углах вершины раздельные, грань остаётся резкой.
+ */
+type StandProfilePoint = {
+  y: number;
+  z: number;
+  smooth?: boolean;
+};
+
+/** Размеры профиля подставки: различают простую ножку и массивное основание. */
+type StandShape = {
+  /** Ширина базы: доля ширины панели и минимум в миллиметрах. */
+  widthFactor: number;
+  minWidth: number;
+  /** Тыльная и передняя кромки базы по Z, мм. */
+  back: number;
+  front: number;
+  /** Верх базы: на нём стоит рамка, мм. */
+  baseTop: number;
+  /** Толщина и высота наклонной стойки, мм. */
+  strutThickness: number;
+  strutTop: number;
+  /** Радиус скругления в углу «база — стойка», мм. */
+  filletRadius: number;
+  /** Передняя губа: толщина и высота над базой, мм. */
+  lipThickness: number;
+  lipHeight: number;
+};
+
+/**
+ * Два типа подставки.
+ *
+ * Ножка: база 66 % ширины панели (не уже 58 мм) уходит назад на 38 мм — этого
+ * хватает панели 120 × 80. Массивное основание: база 92 % ширины и 52 мм назад,
+ * сама база 9 мм вместо 6, стойка 8 мм вместо 4 и скругление 7 мм вместо 4.
+ * Панель 200 × 150 весит около 120 г, её центр тяжести на наклоне 12° вынесен
+ * вперёд — узкая ножка опрокидывалась бы, а толстая стойка со скруглением не
+ * отламывается от базы при снятии со стола.
+ *
+ * Числа наружу нужны тесту: он сверяет габарит готовой детали с профилем, из
+ * которого она построена, а не с зашитыми в тест миллиметрами.
+ */
+export const LITHOPHANE_STAND_SHAPES = {
+  leg: {
+    widthFactor: 0.66,
+    minWidth: 58,
+    back: -38,
+    front: 12,
+    baseTop: 6,
+    strutThickness: 4,
+    strutTop: 30,
+    filletRadius: 4,
+    lipThickness: 2.5,
+    lipHeight: 4,
+  },
+  massive: {
+    widthFactor: 0.92,
+    minWidth: 76,
+    back: -52,
+    front: 16,
+    baseTop: 9,
+    strutThickness: 8,
+    strutTop: 34,
+    filletRadius: 7,
+    lipThickness: 3,
+    lipHeight: 5,
+  },
+} as const satisfies Record<"leg" | "massive", StandShape>;
+
+/** Сколько отрезков у скругления: восемь шагов по 13° дают гладкую дугу. */
+const STAND_FILLET_SEGMENTS = 8;
+
+/**
+ * Размеры профиля подставки для выбранного крепления.
+ *
+ * Подставка печатается только при `stand` и `base`. Для остальных креплений
+ * возвращается профиль ножки: сборке нужна высота её базы, даже когда сама
+ * деталь в файл не попадает.
+ */
+function standShape(mount: LithophaneMount): StandShape {
+  return mount === "base"
+    ? LITHOPHANE_STAND_SHAPES.massive
+    : LITHOPHANE_STAND_SHAPES.leg;
+}
+
+/**
+ * Профиль подставки: замкнутый контур в плоскости YZ.
+ *
+ * Спереди — губа, сзади — наклонная стойка под 12°, в углу между базой и
+ * тыльной плоскостью стойки — скругление. Стойка и скругление считаются от
+ * одной линии: лицевая плоскость стойки проходит через (Y = baseTop,
+ * Z = BODY_OVERLAP_MM), поэтому тыл рамки входит в неё на 0.2 мм, и в собранном
+ * файле детали держатся друг за друга.
+ *
+ * Скругление стоит в тыльном углу, а не в лицевом: лицевой угол — это паз, куда
+ * опускается рамка, и материал там мешал бы посадке. Центр дуги выше базы на
+ * радиус и на радиус же отодвинут от плоскости стойки, поэтому дуга касается
+ * базы и стойки без изломов: напряжение от изгиба панели уходит в тело базы, а
+ * не в тонкое ребро.
+ */
+function createStandProfile(
+  shape: StandShape,
+  lipBack: number,
+): StandProfilePoint[] {
+  const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
+  const slope = Math.tan(tilt);
+  const cos = Math.cos(tilt);
+  const baseTop = shape.baseTop;
+  const frontAt = (y: number) => BODY_OVERLAP_MM - (y - baseTop) * slope;
+  const backAt = (y: number) => frontAt(y) - shape.strutThickness / cos;
+  const radius = shape.filletRadius;
+  const centerY = baseTop + radius;
+  const centerZ = backAt(centerY) - radius / cos;
+  // Дуга в параметрическом виде: угол отсчитывается от направления на базу (π)
+  // к направлению на стойку (π/2 − наклон). Касание стойки приходится на точку,
+  // сдвинутую от центра на радиус по нормали её плоскости.
+  const startAngle = Math.PI;
+  const endAngle = Math.PI / 2 - tilt;
+  const profile: StandProfilePoint[] = [
+    { y: 0, z: shape.front },
+    { y: 0, z: shape.back },
+    { y: baseTop, z: shape.back },
+    { y: baseTop, z: centerZ, smooth: true },
+  ];
+
+  for (let step = 1; step <= STAND_FILLET_SEGMENTS; step += 1) {
+    const angle =
+      startAngle + ((endAngle - startAngle) * step) / STAND_FILLET_SEGMENTS;
+
+    profile.push({
+      y: centerY + radius * Math.cos(angle),
+      z: centerZ + radius * Math.sin(angle),
+      smooth: true,
+    });
+  }
+
+  profile.push(
+    { y: shape.strutTop, z: backAt(shape.strutTop) },
+    { y: shape.strutTop, z: frontAt(shape.strutTop) },
+    { y: baseTop, z: frontAt(baseTop) },
+    { y: baseTop, z: lipBack },
+    { y: baseTop + shape.lipHeight, z: lipBack },
+    { y: baseTop + shape.lipHeight, z: lipBack + shape.lipThickness },
+    { y: baseTop, z: lipBack + shape.lipThickness },
+    { y: baseTop, z: shape.front },
+  );
+
+  return profile;
+}
+
+/**
+ * Замкнутая призма: профиль в плоскости YZ, выдавленный по X от x0 до x1.
+ *
+ * Торцы разбивает `ShapeUtils.triangulateShape`: профиль подставки невыпуклый
+ * (губа и стойка), веер из одной вершины на нём не работает. Боковины собираются
+ * из колец по две вершины; кольцо точки со `smooth` общее с соседним ребром,
+ * поэтому скругление считается гладким ещё до финальной сварки нормалей.
+ */
+function createProfilePrismBody(
+  profile: readonly StandProfilePoint[],
+  x0: number,
+  x1: number,
+): BufferGeometry {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  // Обход профиля влияет только на нормали: площадь приводит его к одному виду,
+  // чтобы наружное направление ребра считалось по одной формуле.
+  const samples = ShapeUtils.isClockWise(
+    profile.map((point) => new Vector2(point.z, point.y)),
+  )
+    ? [...profile].reverse()
+    : profile;
+  const outline = samples.map((point) => new Vector2(point.z, point.y));
+  const triangles = ShapeUtils.triangulateShape(outline, []);
+
+  for (const [x, normal] of [
+    [x0, [-1, 0, 0]],
+    [x1, [1, 0, 0]],
+  ] as const) {
+    for (const triangle of triangles) {
+      const first = vertexIndex(positions);
+
+      for (const corner of triangle) {
+        positions.push(x, samples[corner].y, samples[corner].z);
+      }
+
+      addOrientedTriangle(
+        indices,
+        positions,
+        first,
+        first + 1,
+        first + 2,
+        normal,
+      );
+    }
+  }
+
+  const rings: (readonly [number, number] | null)[] = samples.map(() => null);
+  const ringAt = (index: number): readonly [number, number] => {
+    const cached = rings[index];
+
+    if (cached) {
+      return cached;
+    }
+
+    const first = vertexIndex(positions);
+
+    positions.push(
+      x0,
+      samples[index].y,
+      samples[index].z,
+      x1,
+      samples[index].y,
+      samples[index].z,
+    );
+
+    const ring: readonly [number, number] = [first, first + 1];
+
+    if (samples[index].smooth) {
+      rings[index] = ring;
+    }
+
+    return ring;
+  };
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const next = (index + 1) % samples.length;
+    const from = samples[index];
+    const to = samples[next];
+    const start = ringAt(index);
+    const end = ringAt(next);
+
+    addOrientedQuad(
+      indices,
+      positions,
+      start[0],
+      end[0],
+      end[1],
+      start[1],
+      [0, from.z - to.z, to.y - from.y],
+    );
+  }
+
+  return finalizeGeometry(positions, indices);
+}
+
+/**
+ * Подставка отдельной деталью: простая ножка или массивное основание.
+ *
+ * База держит литофан на столе: спереди её край выходит за рамку, сзади уходит
+ * на 38–52 мм — центр тяжести наклонённой панели остаётся над опорой. Передняя
+ * губа не даёт рамке съехать вперёд, задняя стойка наклонена на 12° и повторяет
+ * наклон панели: рамка опирается на неё всей плоскостью, а не ребром. Стойка,
+ * база и губа — один профиль, выдавленный по ширине детали: между ними нет
+ * стыков, поэтому нет и шва, по которому деталь отламывается. Панель
+ * опускается в паз сверху — клей не нужен.
  *
  * Координаты те же, что у собранного литофана: стол — Y = 0, тыльная плоскость
- * рамки проходит через (Y = 6, Z = 0). Стенка стоит на 0.2 мм впереди неё: в
- * сборке она входит в тыл рамки, и слайсер видит один объект. Поэтому панель,
+ * рамки проходит через (Y = baseTop, Z = 0). Стойка стоит на 0.2 мм впереди неё:
+ * в сборке она входит в тыл рамки, и слайсер видит один объект. Поэтому панель,
  * вставленная в напечатанную подставку, сдвинута вперёд на те же 0.2 мм, а
  * зазор до губы остаётся прежним.
  */
@@ -994,47 +1330,27 @@ export function createLithophaneStandGeometry(
 ): BufferGeometry {
   const normalized = normalizeLithophaneParams(params);
   const metrics = lithophaneFrameMetrics(normalized);
+  const shape = standShape(normalized.lithoMount);
   const width = normalized.lithophaneWidth;
-  const standWidth = Math.min(width, Math.max(50, width * 0.6));
-  const halfWidth = standWidth / 2;
+  const standWidth = Math.min(
+    width,
+    Math.max(shape.minWidth, width * shape.widthFactor),
+  );
   const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
-  const lipThickness = 2.5;
-  // Задняя стенка заходит в тыл рамки на BODY_OVERLAP_MM: иначе в собранном
-  // файле два тела только касались бы плоскостями и слайсер видел бы два
-  // объекта. Панель от нахлёста сдвигается вперёд, поэтому губа отодвигается
-  // на ту же величину и зазор посадки остаётся LITHOPHANE_FIT_GAP_MM.
+  // Стойка заходит в тыл рамки на BODY_OVERLAP_MM: иначе в собранном файле два
+  // тела только касались бы плоскостями и слайсер видел бы два объекта. Панель
+  // от нахлёста сдвигается вперёд, поэтому губа отодвигается на ту же величину и
+  // зазор посадки остаётся LITHOPHANE_FIT_GAP_MM.
   const lipBack =
     metrics.frontZ * Math.cos(tilt) + LITHOPHANE_FIT_GAP_MM + BODY_OVERLAP_MM;
 
-  const base = createBoxBody(
-    -halfWidth,
-    halfWidth,
-    0,
-    STAND_BASE_TOP_MM,
-    -32,
-    10,
+  return smoothGeometryNormals(
+    createProfilePrismBody(
+      createStandProfile(shape, lipBack),
+      -standWidth / 2,
+      standWidth / 2,
+    ),
   );
-  const lip = createBoxBody(
-    -halfWidth,
-    halfWidth,
-    STAND_BASE_TOP_MM - 2,
-    STAND_BASE_TOP_MM + 4,
-    lipBack,
-    lipBack + lipThickness,
-  );
-  const wall = createBoxBody(-halfWidth, halfWidth, 4, 30, -4, 0);
-
-  // Стенка наклонена назад вокруг нижней кромки и сдвинута так, чтобы её лицевая
-  // плоскость прошла через (Y = 6, Z = BODY_OVERLAP_MM): в неё на 0.2 мм входит
-  // тыл рамки. Низ стенки уходит внутрь базы, наружу торчит только рабочая часть.
-  wall.applyMatrix4(new Matrix4().makeRotationX(-tilt));
-  wall.translate(
-    0,
-    0,
-    STAND_BASE_TOP_MM * Math.tan(tilt) + BODY_OVERLAP_MM,
-  );
-
-  return mergeBodies([base, lip, wall], "подставки");
 }
 
 /**
@@ -1042,12 +1358,16 @@ export function createLithophaneStandGeometry(
  *
  * `all` — собранный вид для предпросмотра и печати одним файлом: плита вставлена
  * в рамку, а с подставкой вся сборка наклонена на 12° и стоит в пазе; задняя
- * стенка подставки входит в тыл рамки, поэтому детали держатся друг за друга.
+ * стойка подставки входит в тыл рамки, поэтому детали держатся друг за друга.
  * Без рамки крепления нет (его паз вырезан в рамке), поэтому `all` возвращает
  * плиту.
  * Если деталь недоступна — например, `frame` при выключенной рамке, — функция
  * отдаёт рельеф: предпросмотр не должен падать из-за состояния формы. API такие
  * запросы отклоняет до построения.
+ *
+ * На собранную сетку вешаются группы материалов: рельеф и крепление красятся
+ * по-разному (см. `LITHOPHANE_RELIEF_GROUP`), но остаются одной сеткой, поэтому
+ * вес, габарит и STL считаются как раньше.
  */
 export function createLithophaneGeometry(
   params: Partial<LithophaneParams>,
@@ -1056,19 +1376,31 @@ export function createLithophaneGeometry(
   const normalized = normalizeLithophaneParams(params);
 
   if (part === "relief" || !normalized.lithoFrame) {
-    return createLithophaneReliefGeometry(normalized);
+    return markPartGroup(
+      createLithophaneReliefGeometry(normalized),
+      LITHOPHANE_RELIEF_GROUP,
+    );
   }
 
   if (part === "frame") {
-    return createLithophaneFrameGeometry(normalized);
+    return markPartGroup(
+      createLithophaneFrameGeometry(normalized),
+      LITHOPHANE_DETAIL_GROUP,
+    );
   }
 
   if (part === "stand") {
-    return createLithophaneStandGeometry(normalized);
+    return markPartGroup(
+      createLithophaneStandGeometry(normalized),
+      LITHOPHANE_DETAIL_GROUP,
+    );
   }
 
   const metrics = lithophaneFrameMetrics(normalized);
   const relief = createLithophaneReliefGeometry(normalized);
+  // Порядок слияния задаёт диапазоны индексов: рельеф идёт первым, поэтому его
+  // группа занимает начало сетки.
+  const reliefIndices = relief.getIndex()?.count ?? 0;
   const frame = createLithophaneFrameGeometry(normalized);
   const bodies = [relief, frame];
 
@@ -1080,21 +1412,22 @@ export function createLithophaneGeometry(
     metrics.plateBack,
   );
 
-  if (normalized.lithoMount === "stand") {
+  if (lithophaneHasStand(normalized.lithoMount)) {
     const tilt = new Matrix4().makeRotationX(
       -(LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180,
     );
+    const baseTop = standShape(normalized.lithoMount).baseTop;
 
     for (const body of bodies) {
       // Наклон вокруг ребра (Y = 0, Z = 0), затем перенос на верх базы: так
-      // тыл рамки ложится на наклонную стенку подставки.
+      // тыл рамки ложится на наклонную стойку подставки.
       body.applyMatrix4(tilt);
-      body.translate(0, STAND_BASE_TOP_MM, 0);
+      body.translate(0, baseTop, 0);
     }
 
     bodies.push(createLithophaneStandGeometry(normalized));
   }
 
-  return mergeBodies(bodies, "литофана");
+  return assignMaterialGroups(mergeBodies(bodies, "литофана"), reliefIndices);
 }
 

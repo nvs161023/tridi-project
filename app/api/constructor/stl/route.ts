@@ -73,6 +73,7 @@ import {
   keychainThicknessLimits,
   keychainQrCardSpec,
   listSignBlocks,
+  lithophaneHasStand,
   lithophaneMeshSize,
   lithophaneStlFileName,
   normalizeBoxParams,
@@ -1072,8 +1073,8 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
  * появятся ли петли на рамке, — а нормализация сама снимает крепление, когда
  * рамка выключена. Деталь (`part`) тоже из списка, причём `frame`, `stand` и
  * `all` без рамки отклоняются: без неё в файле нечего собирать. Подставка
- * отдельным файлом имеет смысл только при своём креплении — иначе клиент просит
- * деталь, которой нет в выбранной сборке.
+ * отдельным файлом имеет смысл только при своём креплении (ножка или массивное
+ * основание) — иначе клиент просит деталь, которой нет в выбранной сборке.
  */
 function parseLithophaneParams(
   body: Record<string, unknown>,
@@ -1122,7 +1123,7 @@ function parseLithophaneParams(
     !isLithophaneMount(lithoMount) ||
     !isLithophanePart(part) ||
     (!lithoFrame && part !== "relief") ||
-    (part === "stand" && lithoMount !== "stand")
+    (part === "stand" && !lithophaneHasStand(lithoMount))
   ) {
     return null;
   }
