@@ -5,6 +5,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ACESFilmicToneMapping,
+  BufferAttribute,
   BufferGeometry,
   Color,
   DataTexture,
@@ -57,6 +58,14 @@ import {
   heatTransferThickness,
 } from "@/lib/constructor/heat-transfer-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
+import {
+  LITHO_LIGHT_KIND_LABELS,
+  lithophaneHeatColor,
+  lithophaneHeatMesh,
+  lithophaneLightPlan,
+  type LithoLightFace,
+  type LithoLightPlan,
+} from "@/lib/constructor/litho-light-calc";
 import {
   createLithophaneGeometry,
   lithophanePlateSize,
@@ -595,6 +604,158 @@ function LithophaneModel({
   );
 }
 
+/** Зазор карты света над рельефом, мм: карта не режет выступы фото. */
+const HEAT_MAP_LIFT_MM = 0.6;
+
+/** Слой карты света: сетка грани и её цвета. */
+type HeatLayer = {
+  geometry: BufferGeometry;
+  texture: DataTexture;
+};
+
+/**
+ * Карта света на грани панели.
+ *
+ * Сетку, развёртку и цвета считает `lithophaneHeatMesh` — та же параметризация
+ * `u`–`v`, что и у люксов, поэтому плоская панель, изогнутая и грань призмы
+ * получают карту без отдельной развёртки. Здесь буферы заворачиваются в объекты
+ * three и помечаются как готовая sRGB-текстура.
+ */
+function createHeatLayer(
+  face: LithoLightFace,
+  map: readonly number[],
+  columns: number,
+  rows: number,
+  average: number,
+  lift: number,
+): HeatLayer {
+  const mesh = lithophaneHeatMesh(face, map, columns, rows, average, lift);
+  const geometry = new BufferGeometry();
+
+  geometry.setAttribute("position", new BufferAttribute(mesh.positions, 3));
+  geometry.setAttribute("uv", new BufferAttribute(mesh.uvs, 2));
+  geometry.setIndex(new BufferAttribute(mesh.indices, 1));
+
+  const texture = new DataTexture(mesh.pixels, columns, rows);
+
+  // Цвета карты — готовые sRGB-байты, как у карты свечения: без пометки палитра
+  // вышла бы блёклой. Сетка карты грубее панели на экране, поэтому фильтр
+  // линейный: иначе карта рассыпается на клетки.
+  texture.colorSpace = SRGBColorSpace;
+  texture.magFilter = LinearFilter;
+  texture.minFilter = LinearFilter;
+  texture.needsUpdate = true;
+
+  return { geometry, texture };
+}
+
+type LithophaneBacklightProps = {
+  /** Расчёт по текущим параметрам: где лампы и как ложится свет. */
+  plan: LithoLightPlan;
+  /** Показана карта света: панель красится по ровности, у ламп видны колбы. */
+  heatMap: boolean;
+  /** Толщина плиты по максимуму, мм: на неё карта выносится вперёд рельефа. */
+  thickness: number;
+};
+
+/**
+ * Свет по расчёту: у ленты это линия точек по каналу, у лампы и свечи — одна.
+ *
+ * Расчёт отвечает в люксах, а студия живёт в условных единицах, поэтому канделы
+ * умножаются на множитель, при котором средняя освещённость панели совпадает с
+ * `STUDIO_BACKLIGHT.illuminance`: включённая подсветка не пересвечивает кадр, но
+ * сохраняет перепад низа и верха. Множитель 1e6 переводит метры в миллиметры:
+ * затухание в three физическое (`decay = 2`), а сцена построена в миллиметрах.
+ *
+ * Карта света — отладочный слой поверх панели. Заодно она показывает колбы: сами
+ * источники в кадре не видны, и без шариков непонятно, откуда взялось пятно.
+ */
+function LithophaneBacklight({
+  heatMap,
+  plan,
+  thickness,
+}: LithophaneBacklightProps) {
+  const scale =
+    plan.average > 0 ? (STUDIO_BACKLIGHT.illuminance / plan.average) * 1e6 : 0;
+
+  const layers = useMemo(
+    () =>
+      heatMap
+        ? plan.faces.map((face, index) =>
+            createHeatLayer(
+              face,
+              plan.maps[index] ?? [],
+              plan.columns,
+              plan.rows,
+              plan.average,
+              thickness + HEAT_MAP_LIFT_MM,
+            ),
+          )
+        : [],
+    [heatMap, plan, thickness],
+  );
+
+  useEffect(
+    () => () => {
+      for (const layer of layers) {
+        layer.geometry.dispose();
+        layer.texture.dispose();
+      }
+    },
+    [layers],
+  );
+
+  return (
+    <>
+      {plan.emitters.map((emitter, index) => (
+        <pointLight
+          color={STUDIO_BACKLIGHT.color}
+          decay={2}
+          intensity={emitter.intensity * scale}
+          key={`lamp-${index}`}
+          position={[
+            emitter.position[0],
+            emitter.position[1],
+            emitter.position[2],
+          ]}
+        />
+      ))}
+
+      {heatMap
+        ? plan.emitters.map((emitter, index) => (
+            <mesh
+              key={`bulb-${index}`}
+              position={[
+                emitter.position[0],
+                emitter.position[1],
+                emitter.position[2],
+              ]}
+            >
+              <sphereGeometry args={[1.2, 12, 12]} />
+              <meshBasicMaterial
+                color={STUDIO_BACKLIGHT.color}
+                toneMapped={false}
+              />
+            </mesh>
+          ))
+        : null}
+
+      {layers.map((layer, index) => (
+        <mesh geometry={layer.geometry} key={`heat-${index}`} renderOrder={2}>
+          <meshBasicMaterial
+            depthWrite={false}
+            map={layer.texture}
+            opacity={0.85}
+            side={DoubleSide}
+            toneMapped={false}
+            transparent
+          />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
 type SignModelProps = {
   geometry: BufferGeometry;
 };
@@ -882,16 +1043,22 @@ type SceneProps = {
   keychainBack: boolean;
   /** Включена подсветка литофана: лампа за панелью и просвет в пластике. */
   backlight: boolean;
+  /** Показана карта света: панель красится по ровности освещения. */
+  heatMap: boolean;
   /** Уменьшенная сетка яркости литофана: из неё собирается карта свечения. */
   lithophaneGlow: LithophaneBrightnessGrid | null;
+  /** Расчёт света: где стоят лампы и как они освещают панель. */
+  lithophaneLight: LithoLightPlan | null;
 };
 
 function Scene({
   backlight,
   framing,
   geometry,
+  heatMap,
   keychainBack,
   lithophaneGlow,
+  lithophaneLight,
   params,
 }: SceneProps) {
   // Радиус студии считается по габаритам модели: свет и карта теней должны
@@ -900,12 +1067,20 @@ function Scene({
 
   /*
     Подсветка есть только у литофана: остальные модели печатают плотными, и
-    лампа за ними ничего не проявляет. Лампа стоит за панелью — навстречу
-    камере, чтобы свет шёл сквозь рельеф; затухание у точечного источника
-    физическое, поэтому интенсивность пересчитывается из освещённости и
-    расстояния (сцена живёт в миллиметрах).
+    лампа за ними ничего не проявляет. Где стоят лампы, решает расчёт: у ленты
+    это линия точек по каналу, у патрона E27 и USB-лампы — одна точка в гнезде.
+    Карта света без подсветки не читается, поэтому включается вместе с ней.
   */
-  const backlightOn = backlight && params.model === "lithophane";
+  const backlightOn =
+    (backlight || heatMap) && params.model === "lithophane";
+
+  /*
+    Запасной свет для сборки без источника: у литофана без рамки, на ножке или с
+    «без подсветки» лампу ставить некуда, а посмотреть деталь на просвет всё
+    равно хочется — она и стоит за панелью, как окно. Затухание у точечного
+    источника физическое, поэтому интенсивность пересчитывается из освещённости
+    и расстояния (сцена живёт в миллиметрах).
+  */
   const lampDistance = span * STUDIO_BACKLIGHT.distance;
 
   /*
@@ -949,20 +1124,27 @@ function Scene({
       />
 
       {backlightOn ? (
-        /*
-          Лампа за литофаном: пластик пропускает её свет к камере, поэтому
-          панель проявляется на просвет. Тень она не отбрасывает — у панели
-          подсветки рассеянный свет, и вторая карта теней только удорожала бы
-          кадр. Лампа стоит выше стола и дальше тыльной кромки подставки, так
-          что её свет идёт к низу панели поверх базы, а проём открытой арки
-          между ножками оставляет низ кадра освещённым.
-        */
-        <pointLight
-          color={STUDIO_BACKLIGHT.color}
-          decay={2}
-          intensity={STUDIO_BACKLIGHT.illuminance * lampDistance * lampDistance}
-          position={[0, framing.height * 0.55, -lampDistance]}
-        />
+        lithophaneLight ? (
+          <LithophaneBacklight
+            heatMap={heatMap}
+            plan={lithophaneLight}
+            thickness={params.lithophaneMaxThickness}
+          />
+        ) : (
+          /*
+            Плана нет — значит, ленту или лампу в этой сборке не ставят. Тогда за
+            панелью стоит общий свет, как окно: смотреть деталь на просвет можно,
+            но к конкретному креплению он не относится. Тень он не отбрасывает —
+            у подсветки рассеянный свет, и вторая карта теней только удорожала бы
+            кадр.
+          */
+          <pointLight
+            color={STUDIO_BACKLIGHT.color}
+            decay={2}
+            intensity={STUDIO_BACKLIGHT.illuminance * lampDistance * lampDistance}
+            position={[0, framing.height * 0.55, -lampDistance]}
+          />
+        )
       ) : null}
 
       {params.model === "vase" ? (
@@ -1080,6 +1262,46 @@ export function Viewport({
   const [lithophaneBacklight, setLithophaneBacklight] = useState(false);
 
   /**
+   * Показана ли карта света: отладочный слой по ровности освещения.
+   *
+   * Карта отвечает на вопрос «где будет пятно»: панель красится от синего к
+   * красному по отношению к средней, а на месте ламп появляются колбы. Режим
+   * включает подсветку — на тёмной панели карту не прочитать, — но сам
+   * выключается вместе с моделью, как и подсветка.
+   */
+  const [lithophaneHeatMap, setLithophaneHeatMap] = useState(false);
+
+  /**
+   * Светотехнический расчёт по параметрам: лампы, карта и предупреждения.
+   *
+   * Считается здесь, а не в сцене, потому что тех же чисел ждут панель и
+   * подпись под канвасом. Функция чистая и на панели 120 × 80 считает карту за
+   * доли миллисекунды, поэтому лишний пересчёт на движение слайдера дешевле
+   * лишней синхронизации состояния.
+   */
+  const lithophaneLight = useMemo(
+    () => (params.model === "lithophane" ? lithophaneLightPlan(params) : null),
+    [params],
+  );
+
+  /**
+   * Легенда карты света: та же палитра, что у слоя в сцене.
+   *
+   * Градиент собирается из `lithophaneHeatColor`, поэтому подпись не разойдётся
+   * с картой: поменяется палитра — поменяется и полоска.
+   */
+  const heatLegend = useMemo(() => {
+    const stops = [0.25, 0.6, 0.85, 1, 1.3, 1.8, 2.5];
+    const colors = stops.map((ratio) => {
+      const [red, green, blue] = lithophaneHeatColor(ratio);
+
+      return `rgb(${Math.round(red * 255)} ${Math.round(green * 255)} ${Math.round(blue * 255)})`;
+    });
+
+    return `linear-gradient(90deg, ${colors.join(", ")})`;
+  }, []);
+
+  /**
    * Панель двигает сторону декораций, а сцена следует за ней: выбрал «Оборот» —
    * пластина перевернулась, и видно, куда встал рельеф. Реагируем только на
    * смену значения у уже существующей декорации: первая сборка проекта и выбор
@@ -1129,15 +1351,27 @@ export function Viewport({
   }, [params.model]);
 
   /*
-    Подсветка — режим просмотра одной детали. Ушёл на другую модель — режим
-    сброшен: возвращаясь к литофану, пользователь видит обычную студию, а не
-    забытую лампу за панелью.
+    Подсветка и карта света — режимы просмотра одной детали. Ушёл на другую
+    модель — режимы сброшены: возвращаясь к литофану, пользователь видит обычную
+    студию, а не забытую лампу за панелью.
   */
   useEffect(() => {
     if (params.model !== "lithophane") {
       setLithophaneBacklight(false);
+      setLithophaneHeatMap(false);
     }
   }, [params.model]);
+
+  /*
+    Карту не на что накладывать, если источник убрали: «без подсветки», ножка или
+    массивная база. Тогда режим гаснет сам — иначе остался бы включённым флаг
+    без слоя, и кнопка вернулась бы уже нажатой.
+  */
+  useEffect(() => {
+    if (!lithophaneLight) {
+      setLithophaneHeatMap(false);
+    }
+  }, [lithophaneLight]);
 
   /**
    * Какие шрифты нужны модели.
@@ -1529,7 +1763,7 @@ export function Viewport({
           : params.model === "box"
             ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
             : params.model === "lithophane"
-              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, ${lithophaneShapeHasMounts(params.lithoShape) ? `крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : `форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»`}` : "без рамки"}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}`
+              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, ${lithophaneShapeHasMounts(params.lithoShape) ? `крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : `форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»`}` : "без рамки"}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}${lithophaneHeatMap ? ", включена карта света" : ""}`
               : params.model === "planter"
                 ? `3D-предпросмотр кашпо «${PLANTER_SHAPE_LABELS[params.planterShape]}» ${params.planterSize} миллиметров по ключу и высотой ${params.planterHeight} миллиметров, стенка ${params.planterWall} миллиметров, ${params.planterDrainage ? "с дренажными отверстиями и поддоном" : "без поддона"}`
                 : params.model === "coaster"
@@ -1588,8 +1822,10 @@ export function Viewport({
             backlight={lithophaneBacklight}
             framing={framing}
             geometry={geometry}
+            heatMap={lithophaneHeatMap}
             keychainBack={keychainBack}
             lithophaneGlow={lithophanePreview}
+            lithophaneLight={lithophaneLight}
             params={params}
           />
         </Canvas>
@@ -1635,10 +1871,11 @@ export function Viewport({
 
         {params.model === "lithophane" ? (
           /*
-            Подсветка на просвет: та же кнопка поверх канваса, что и
-            переключатель сторон брелока. Включённая, она ставит лампу за
-            панелью, гасит студию и делает рельеф полупрозрачным — видно, как
-            деталь будет выглядеть у окна.
+            Подсветка на просвет и карта света: те же кнопки поверх канваса, что
+            и переключатель сторон брелока. Подсветка ставит лампы за панелью,
+            гасит студию и делает рельеф полупрозрачным — видно, как деталь будет
+            выглядеть у окна. Карта света красит панель по ровности освещения: от
+            синего (темно) к красному (пересвет), с колбами на месте ламп.
           */
           <div
             aria-label="Подсветка литофана"
@@ -1658,6 +1895,47 @@ export function Viewport({
             >
               Подсветка
             </button>
+            {lithophaneLight ? (
+              <button
+                aria-label="Карта света"
+                aria-pressed={lithophaneHeatMap}
+                className={
+                  lithophaneHeatMap
+                    ? "rounded-full bg-white/15 px-3 py-1 text-white"
+                    : "rounded-full px-3 py-1 text-slate-400 transition hover:text-white"
+                }
+                onClick={() => setLithophaneHeatMap((current) => !current)}
+                type="button"
+              >
+                Карта света
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {params.model === "lithophane" && lithophaneHeatMap ? (
+          /*
+            Легенда карты: полоска той же палитры и подписи краёв. Абсолютные
+            люксы здесь не нужны — карта показывает ровность, поэтому шкала
+            подписана словами, а не числами.
+          */
+          <div className="pointer-events-none absolute top-3 right-3 w-40 rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-[0.65rem] text-slate-300 backdrop-blur">
+            <div
+              className="h-2 w-full rounded-full border border-white/10"
+              style={{ backgroundImage: heatLegend }}
+            />
+            <div className="mt-1 flex justify-between">
+              <span>темно</span>
+              <span>ровно</span>
+              <span>пересвет</span>
+            </div>
+            <p className="mt-1 leading-snug text-slate-400">
+              {lithophaneLight
+                ? `${LITHO_LIGHT_KIND_LABELS[lithophaneLight.kind]}: ${(
+                    lithophaneLight.average / 1000
+                  ).toFixed(2)} клк в среднем`
+                : "Источника в этой сборке нет"}
+            </p>
           </div>
         ) : null}
 
@@ -1688,7 +1966,7 @@ export function Viewport({
             ? "Кнопки «Лицо» и «Оборот» переворачивают брелок и показывают его обратную сторону. "
             : null}
           {params.model === "lithophane"
-            ? "Кнопка «Подсветка» показывает литофан на просвет: светлые участки светятся, тёмные остаются тёмными. "
+            ? "Кнопка «Подсветка» показывает литофан на просвет: светлые участки светятся, тёмные остаются тёмными. Кнопка «Карта света» красит панель по ровности освещения и показывает лампы: синий — темно, зелёный — ровно, красный — пересвет. "
             : null}
           {ariaLabel}.
         </p>

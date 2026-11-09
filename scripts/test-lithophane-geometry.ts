@@ -146,6 +146,16 @@ import {
   calculateGeometryVolumeMm3,
   calculateGeometryWeightGrams,
 } from "../lib/constructor/geometry-volume";
+import {
+  LITHO_LIGHT_MODEL,
+  LITHO_LIGHT_SEATS,
+  lithophaneHeatColor,
+  lithophaneHeatMesh,
+  lithophaneLightMetrics,
+  lithophaneLightPlan,
+  type LithoLightEmitter,
+  type LithoLightFace,
+} from "../lib/constructor/litho-light-calc";
 
 /** Допуск габарита и толщины, мм. */
 const TOLERANCE_MM = 0.01;
@@ -3178,6 +3188,268 @@ console.log("\n19. Калейдоскоп: четыре панели без ра
   singlePrism.dispose();
   mixedPrism.dispose();
 }
+
+console.log("\n20. Свет: где стоят лампы и как ложится свет");
+
+{
+  /*
+    Светотехника — то, что раньше проверялось только печатью: ляжет ли подсветка
+    пятном. Считается карта освещённости панели, и проверяем мы её свойства, а не
+    абсолютные люксы: закон обратных квадратов на синтетической грани, линию
+    ленты по каналу, места ламп из геометрии креплений и порядок «лента хуже
+    лампы». Заодно проверяется, у каких сборок источника нет вовсе.
+  */
+  const syntheticFace: LithoLightFace = {
+    origin: [0, 0, 0],
+    right: [1, 0, 0],
+    up: [0, 1, 0],
+    normal: [0, 0, 1],
+    width: 100,
+    height: 100,
+    bend: null,
+  };
+  // Лампа на 100 мм позади центра панели, светит на панель: 1 кд / (0.1 м)² = 100 лк.
+  const lamp: LithoLightEmitter = {
+    position: [0, 50, -100],
+    axis: [0, 1, 0],
+    lobe: 0,
+    intensity: 1,
+  };
+  const spot = lithophaneLightMetrics([syntheticFace], [lamp], 1, 1);
+  // Та же лампа с диаграммой ленты: косинус к вертикали, вниз не светит вовсе.
+  const beam = lithophaneLightMetrics(
+    [syntheticFace],
+    [{ ...lamp, lobe: 1 }],
+    1,
+    2,
+  );
+
+  const plate = lithophanePlateSize(normalizeLithophaneParams({}));
+  const strip = lithophaneLightPlan({
+    lithoMount: "arch",
+    lithoLightSource: "strip",
+  });
+  const bulb = lithophaneLightPlan({
+    lithoMount: "arch",
+    lithoLightSource: "usb_bulb",
+  });
+  const socket = lithophaneLightPlan({
+    lithoMount: "arch",
+    lithoLightSource: "socket",
+  });
+  const prism = lithophaneLightPlan({ lithoShape: "kaleidoscope" });
+  const disc = lithophaneLightPlan({ lithoShape: "cylinder" });
+  const stripSpots = strip?.emitters.map((item) => item.position) ?? [];
+  const stripX = stripSpots.map((point) => point[0]);
+
+  console.log(
+    `  верх/низ: лента ${(strip?.topShare ?? 0).toFixed(2)}, ` +
+      `USB ${(bulb?.topShare ?? 0).toFixed(2)}, ` +
+      `E27 ${(socket?.topShare ?? 0).toFixed(2)}; ` +
+      `до панели: лента ${(strip?.actualDistance ?? 0).toFixed(1)} мм, ` +
+      `E27 ${(socket?.actualDistance ?? 0).toFixed(1)} мм`,
+  );
+
+  checkRange("свет: закон обратных квадратов", [spot.average], 99.9, 100.1);
+  check(
+    "свет: лента вниз не светит",
+    [beam.floor, beam.peak > 31 && beam.peak < 33],
+    [0, true],
+  );
+
+  check(
+    "свет: без рамки источника нет",
+    lithophaneLightPlan({ lithoFrame: false }),
+    null,
+  );
+  check(
+    "свет: у сплошной ножки источника нет",
+    lithophaneLightPlan({ lithoMount: "stand" }),
+    null,
+  );
+  check(
+    "свет: у массивного основания источника нет",
+    lithophaneLightPlan({ lithoMount: "base" }),
+    null,
+  );
+  check(
+    "свет: «без подсветки» — плана нет",
+    lithophaneLightPlan({ lithoMount: "arch", lithoLightSource: "none" }),
+    null,
+  );
+  check(
+    "свет: у подвеса лента в коробе",
+    lithophaneLightPlan({ lithoMount: "hook" })?.kind,
+    "strip",
+  );
+
+  check(
+    "свет: лента разложена на точки по каналу",
+    [strip?.kind, strip?.emitters.length, strip?.emitters[0].lobe],
+    ["strip", LITHO_LIGHT_MODEL.stripEmitters, 1],
+  );
+  check(
+    "свет: точки ленты лежат в одну линию",
+    [
+      new Set(stripSpots.map((point) => point[1].toFixed(3))).size,
+      new Set(stripSpots.map((point) => point[2].toFixed(3))).size,
+    ],
+    [1, 1],
+  );
+  checkRange(
+    "свет: лента идёт по всей ширине панели",
+    [Math.max(...stripX) - Math.min(...stripX)],
+    plate.width - TOLERANCE_MM,
+    plate.width + TOLERANCE_MM,
+  );
+  check(
+    "свет: лампа в гнезде — одна точка в центре",
+    [
+      socket?.kind,
+      socket?.emitters.length,
+      socket?.emitters[0].position.map((value) => Math.round(value)),
+    ],
+    ["socket", 1, [0, LITHO_LIGHT_SEATS.socketY, LITHOPHANE_SOCKET_LIGHT.centerZ]],
+  );
+  check(
+    "свет: колба USB стоит в чаше стойки",
+    [bulb?.emitters[0].position[1], bulb?.emitters[0].position[2]],
+    [LITHO_LIGHT_SEATS.usbBulbY, LITHOPHANE_USB_LIGHT.centerZ],
+  );
+
+  // Патрон стоит выше колбы, поэтому верх панели получает больше света.
+  check(
+    "свет: чем выше лампа, тем ровнее по высоте",
+    [
+      strip!.topShare < bulb!.topShare,
+      bulb!.topShare < socket!.topShare,
+    ],
+    [true, true],
+  );
+  check(
+    "свет: у ленты в канале есть и пятно, и тёмный верх",
+    strip?.warnings.map((item) => item.id),
+    ["too_close", "dark_top"],
+  );
+  check(
+    "свет: у гнезда E27 расстояния не хватает",
+    [
+      socket?.warnings.map((item) => item.id),
+      socket!.actualDistance < socket!.recommendedDistance,
+    ],
+    [["too_close"], true],
+  );
+
+  check(
+    "свет: призма — четыре грани и свеча в центре",
+    [prism?.kind, prism?.faces.length, prism?.maps.length],
+    ["candle", 4, 4],
+  );
+  checkRange(
+    "свет: свеча на оси светит всем граням одинаково",
+    [prism?.faceSpread ?? Number.NaN],
+    0,
+    0.05,
+  );
+  check(
+    "свет: у диска полуцилиндра лампа на оси",
+    [disc?.kind, disc?.warnings.map((item) => item.id).includes("too_close")],
+    ["disc_lamp", false],
+  );
+  checkRange(
+    "свет: карта на грань нужного размера",
+    [strip?.maps[0].length ?? Number.NaN],
+    LITHO_LIGHT_MODEL.columns * LITHO_LIGHT_MODEL.rows,
+    LITHO_LIGHT_MODEL.columns * LITHO_LIGHT_MODEL.rows,
+  );
+
+  // Палитра карты: синий — провал, зелёный — рабочая зона, красный — пересвет.
+  const [darkRed, , darkBlue] = lithophaneHeatColor(0.1);
+  const [midRed, midGreen] = lithophaneHeatColor(1);
+  const [hotRed, , hotBlue] = lithophaneHeatColor(5);
+  check(
+    "свет: палитра карты читается как термометр",
+    [darkBlue > darkRed, midGreen > midRed, hotRed > hotBlue],
+    [true, true, true],
+  );
+
+  /*
+    Сетка карты: сцена только заворачивает эти буферы в three, поэтому проверяем
+    то, что видно глазом, — карта лежит на грани размером с панель, вынесена вперёд
+    рельефа, индексы полные, а низ панели у ленты теплее верха. Сдвиг берём тот же,
+    что в предпросмотре: максимальная толщина плюс зазор.
+  */
+  const heatLift = normalizeLithophaneParams({}).lithophaneMaxThickness + 0.6;
+  const layer = lithophaneHeatMesh(
+    strip!.faces[0],
+    strip!.maps[0],
+    LITHO_LIGHT_MODEL.columns,
+    LITHO_LIGHT_MODEL.rows,
+    strip!.average,
+    heatLift,
+  );
+  const corners = layer.positions.length / 3;
+  const vertices = Array.from({ length: corners }, (_, index) => index);
+  const face = strip!.faces[0];
+  /*
+    Панель арки стоит под наклоном 12°, поэтому мерить габарит по мировому `y`
+    нельзя: карта лежит в плоскости грани. Проекции на `right` и `up` дают ширину и
+    высоту плиты независимо от наклона.
+  */
+  const project = (index: number, axis: readonly number[]) =>
+    axis[0] * (layer.positions[index * 3] - face.origin[0]) +
+    axis[1] * (layer.positions[index * 3 + 1] - face.origin[1]) +
+    axis[2] * (layer.positions[index * 3 + 2] - face.origin[2]);
+  const xspan = vertices.map((index) => project(index, face.right));
+  const yspan = vertices.map((index) => project(index, face.up));
+  // Тыл плиты — плоскость грани; карта должна стоять на `heatLift` впереди неё.
+  const plane = (index: number) => project(index, face.normal);
+
+  check(
+    "свет: сетка карты без дыр и NaN",
+    [
+      corners,
+      layer.positions.every(Number.isFinite),
+      layer.indices.length / 6,
+      layer.pixels.length / 4,
+      Math.max(...layer.indices) < corners,
+    ],
+    [
+      LITHO_LIGHT_MODEL.columns * LITHO_LIGHT_MODEL.rows,
+      true,
+      (LITHO_LIGHT_MODEL.columns - 1) * (LITHO_LIGHT_MODEL.rows - 1),
+      LITHO_LIGHT_MODEL.columns * LITHO_LIGHT_MODEL.rows,
+      true,
+    ],
+  );
+  checkRange(
+    "свет: карта кроет панель по ширине",
+    [Math.max(...xspan) - Math.min(...xspan)],
+    plate.width - TOLERANCE_MM,
+    plate.width + TOLERANCE_MM,
+  );
+  checkRange(
+    "свет: карта кроет панель по высоте",
+    [Math.max(...yspan) - Math.min(...yspan)],
+    plate.height - TOLERANCE_MM,
+    plate.height + TOLERANCE_MM,
+  );
+  checkRange(
+    "свет: карта стоит впереди тыла на толщину плиты",
+    [plane(0), plane(corners - 1)],
+    heatLift - TOLERANCE_MM,
+    heatLift + TOLERANCE_MM,
+  );
+
+  // Строка 0 карты — низ панели, там у ленты пятно: красного больше, синего меньше.
+  const topIndex = (LITHO_LIGHT_MODEL.rows - 1) * LITHO_LIGHT_MODEL.columns * 4;
+  check(
+    "свет: низ карты теплее верха",
+    [layer.pixels[0] > layer.pixels[topIndex], layer.pixels[2] < layer.pixels[topIndex + 2]],
+    [true, true],
+  );
+}
+
 
 console.log("");
 

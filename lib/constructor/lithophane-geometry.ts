@@ -223,8 +223,14 @@ export const LITHOPHANE_WALL_BOX = {
 export const LITHOPHANE_RELIEF_GROUP = 0;
 export const LITHOPHANE_DETAIL_GROUP = 1;
 
-/** Нахлёст двух объединяемых оболочек, мм: без него слайсер видит два тела. */
-const BODY_OVERLAP_MM = 0.2;
+/**
+ * Нахлёст двух объединяемых оболочек, мм: без него слайсер видит два тела.
+ *
+ * На этот же размер плита сдвинута вперёд относительно тыла рамки, поэтому
+ * плоскость её тыла — `LITHOPHANE_FRAME_SEAT_MM - BODY_OVERLAP_MM`. Светотехника
+ * берёт отсюда положение панели, чтобы лампы стояли в сборке, а не рядом.
+ */
+export const BODY_OVERLAP_MM = 0.2;
 
 type Point3 = readonly [number, number, number];
 

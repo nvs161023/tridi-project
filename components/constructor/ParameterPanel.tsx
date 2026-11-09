@@ -161,6 +161,10 @@ import {
   type VaseShape,
 } from "@/lib/constructor/params";
 import {
+  LITHO_LIGHT_KIND_LABELS,
+  lithophaneLightPlan,
+} from "@/lib/constructor/litho-light-calc";
+import {
   LITHOPHANE_LOGO_MAX_THICKNESS_MM,
   LITHOPHANE_LOGO_MIN_THICKNESS_MM,
   lithophaneAlphaStats,
@@ -1505,6 +1509,86 @@ function modelSummary(
  * 3D-сцена и подписи всегда читают один и тот же объект. Локальное состояние
  * есть только у загрузки изображения — текст ошибки и превью на время сеанса.
  */
+/**
+ * Светотехнический расчёт подсветки литофана.
+ *
+ * Блок отвечает на вопрос, который иначе проверяется печатью: ляжет ли свет
+ * пятном. Расчёт тот же, что рисует карту света в предпросмотре, поэтому цифры
+ * здесь и пятно в сцене не расходятся. Предупреждения даны с числами: высота
+ * крепления зашита в рамку, поэтому совет «поднять лампу» бесполезен — модель
+ * говорит, чего добиваться рассеивателем или другим креплением.
+ */
+function LithophaneLightReport({ params }: { params: ConstructorParams }) {
+  const plan = useMemo(() => lithophaneLightPlan(params), [params]);
+
+  /*
+    Блока нет, если источника в сборке нет: у ножки, массивной базы и «без
+    подсветки» ставить лампу некуда, и пустая рамка с надписью «не считается»
+    только занимала бы место. У изогнутой панели, полуцилиндра и призмы лампа
+    напечатана в базе, поэтому расчёт есть и у них.
+  */
+  if (!plan) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-3">
+      <p className="text-xs font-semibold tracking-wide text-slate-200 uppercase">
+        Светотехнический расчёт
+      </p>
+      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-300">
+        <dt>Источник</dt>
+        <dd className="text-right text-white">
+          {LITHO_LIGHT_KIND_LABELS[plan.kind]}
+        </dd>
+        <dt>Расстояние до панели</dt>
+        <dd className="text-right tabular-nums text-white">
+          {plan.actualDistance.toFixed(0)} мм
+        </dd>
+        <dt>Рекомендованное</dt>
+        <dd className="text-right tabular-nums text-white">
+          {plan.recommendedDistance.toFixed(0)} мм
+        </dd>
+        <dt>Высота лампы</dt>
+        <dd className="text-right tabular-nums text-white">
+          {plan.recommendedHeight.toFixed(0)} мм над столом
+        </dd>
+        <dt>Пик к средней</dt>
+        <dd className="text-right tabular-nums text-white">
+          ×{plan.peakRatio.toFixed(2)}
+        </dd>
+        <dt>Низ к верху</dt>
+        <dd className="text-right tabular-nums text-white">
+          {(plan.topShare * 100).toFixed(0)} %
+        </dd>
+      </dl>
+
+      {plan.warnings.length > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {plan.warnings.map((warning) => (
+            <li
+              className={
+                warning.severity === "error"
+                  ? "rounded-lg border border-rose-400/40 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
+                  : "rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-100"
+              }
+              key={warning.id}
+            >
+              <span className="font-semibold">{warning.title}</span>{" "}
+              {warning.hint}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-xs leading-relaxed text-emerald-100">
+          Свет ложится ровно: перепад по высоте в пределах рабочего, пик не
+          больше двух с половиной средних.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function ParameterPanel({
   params,
   hasPro,
@@ -4506,6 +4590,8 @@ export function ParameterPanel({
             поддержки не нужны. Детали собираются без клея — плита входит в паз
             рамки с зазором 0.2 мм.
           </p>
+
+          <LithophaneLightReport params={params} />
         </>
       ) : (
         <>
