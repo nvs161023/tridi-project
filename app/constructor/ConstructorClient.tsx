@@ -1113,6 +1113,29 @@ export function ConstructorClient({
     );
   }
 
+  /**
+   * Фото на одну из остальных граней калейдоскопа.
+   *
+   * Слот копируется в новый массив: ссылка на массив — это признак «какие грани
+   * уже заняты», и мутация на месте не пересобрала бы ни предпросмотр, ни бюджет.
+   * `null` очищает слот, и грань снова повторяет предыдущую.
+   */
+  function updateLithophaneSideBrightness(
+    slot: number,
+    grid: LithophaneBrightnessGrid | null,
+  ) {
+    setParams((current) => {
+      const slots = current.lithophaneSideBrightness.map((value, index) =>
+        index === slot ? grid : value,
+      );
+
+      return normalizeConstructorParams({
+        ...current,
+        lithophaneSideBrightness: slots,
+      });
+    });
+  }
+
   function updatePlanterShape(planterShape: PlanterShape) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, planterShape }),
@@ -1405,6 +1428,7 @@ export function ConstructorClient({
             onLithoMountChange={updateLithoMount}
             onLithoShapeChange={updateLithoShape}
             onLithophaneBrightnessChange={updateLithophaneBrightness}
+            onLithophaneSideBrightnessChange={updateLithophaneSideBrightness}
             onModelChange={updateModel}
             onNfcChange={updateKeychainNfc}
             onParamChange={updateParam}

@@ -59,6 +59,7 @@ import {
   isLithophaneMount,
   isLithophanePart,
   isLithophaneShape,
+  isLithophaneSideBrightness,
   isPenShape,
   isPlanterShape,
   isSignChannelWidth,
@@ -94,6 +95,7 @@ import {
   penHolderStlFileName,
   planterStlFileName,
   resolveLithophaneBrightness,
+  resolveLithophaneSideBrightness,
   signStlFileName,
   standStlFileName,
   vaseGenerationDetails,
@@ -1084,7 +1086,8 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
  * в файле нечего собирать. Подставка
  * отдельным файлом имеет смысл только при своём креплении (ножка или массивное
  * основание) и только у плоской панели — иначе клиент просит деталь, которой нет
- * в выбранной сборке.
+ * в выбранной сборке. Кадры остальных граней калейдоскопа необязательны: их нет у
+ * старого клиента, и тогда одна картинка повторяется на всех четырёх гранях.
  */
 function parseLithophaneParams(
   body: Record<string, unknown>,
@@ -1097,6 +1100,7 @@ function parseLithophaneParams(
     lithophaneBrightness,
     lithophaneBrightnessWidth,
     lithophaneBrightnessHeight,
+    lithophaneSideBrightness,
     lithoFrame = DEFAULT_LITHOPHANE_PARAMS.lithoFrame,
     lithoMount = DEFAULT_LITHOPHANE_PARAMS.lithoMount,
     lithoShape = DEFAULT_LITHOPHANE_PARAMS.lithoShape,
@@ -1132,6 +1136,10 @@ function parseLithophaneParams(
       lithophaneBrightnessWidth,
       lithophaneBrightnessHeight,
     ) ||
+    // Кадры остальных граней калейдоскопа необязательны: старый клиент их не
+    // присылает, и одна картинка повторяется на всех четырёх гранях.
+    (lithophaneSideBrightness !== undefined &&
+      !isLithophaneSideBrightness(lithophaneSideBrightness)) ||
     typeof lithoFrame !== "boolean" ||
     !isLithophaneMount(lithoMount) ||
     !isLithophaneShape(lithoShape) ||
@@ -1172,6 +1180,11 @@ function parseLithophaneParams(
       lithophaneBrightness: grid.brightness,
       lithophaneBrightnessWidth: grid.width,
       lithophaneBrightnessHeight: grid.height,
+      // Слоты граней нормализуются той же функцией, что и в предпросмотре:
+      // испорченный слот заменяется пустым, а недостающие дополняются.
+      lithophaneSideBrightness: resolveLithophaneSideBrightness(
+        lithophaneSideBrightness,
+      ),
       lithoFrame,
       lithoMount,
       lithoShape,

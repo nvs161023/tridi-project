@@ -1614,20 +1614,59 @@ export type LithophaneMeshSize = {
 export const LITHOPHANE_KALEIDOSCOPE_PANEL_STEP_MM = 0.5;
 
 /**
- * Поправки сетки под форму панели: шаг вершины и число копий рельефа.
+ * Шаг нарезки изогнутых деталей, мм.
+ *
+ * Изогнутая панель рождается сразу на цилиндре, но её тыл собран веером от центра
+ * к контуру: луч веера идёт от центра до кромки, и без нарезки его середина ушла
+ * бы внутрь радиуса на R(1 − cos(θ/2)). Поэтому тыл режется вдоль лучей на
+ * отрезки не длиннее 4 мм (ошибка формы 0.05 мм на самом тесном полуцилиндре), а
+ * контур рамки — на точки с тем же шагом. Бюджет треугольников считает эту
+ * нарезку отдельным слагаемым: без неё проверка API обещала бы на треть меньше.
+ */
+export const LITHOPHANE_BEND_STRIP_MM = 4;
+
+/**
+ * Слотов под отдельные фото у калейдоскопа: три остальные грани.
+ *
+ * Граней у призмы четыре, и первая всегда берёт основной кадр
+ * (`lithophaneBrightness`). Остальные три лежат в `lithophaneSideBrightness` по
+ * порядку: слот 0 — грань 2, слот 1 — грань 3, слот 2 — грань 4. Длина массива
+ * постоянная, поэтому пустой слот в середине не сдвигает соседние, а `null`
+ * означает «как у предыдущей грани».
+ */
+export const LITHOPHANE_SIDE_IMAGE_SLOTS = 3;
+
+/**
+ * Поправки сетки под форму панели: шаг вершины, число копий рельефа и шаг
+ * нарезки тыла.
  *
  * `copies` — сколько раз сетка попадает в файл: у калейдоскопа четыре панели, у
  * остальных форм одна. Бюджет треугольников считается по сумме, иначе модель из
  * четырёх панелей проходила бы проверку, а файл получался вчетверо больше
- * предела.
+ * предела. `fanStep` — шаг нарезки тыла вдоль лучей: у изогнутой панели и
+ * полуцилиндра тыл режется полосами, у плоской он остаётся одним веером.
  */
 export function lithophaneMeshOptions(shape: LithophaneShape): {
   step: number;
   copies: number;
+  fanStep: number;
 } {
-  return shape === "kaleidoscope"
-    ? { step: LITHOPHANE_KALEIDOSCOPE_PANEL_STEP_MM, copies: 4 }
-    : { step: LITHOPHANE_VERTEX_STEP_MM, copies: 1 };
+  if (shape === "kaleidoscope") {
+    return {
+      step: LITHOPHANE_KALEIDOSCOPE_PANEL_STEP_MM,
+      copies: 4,
+      fanStep: 0,
+    };
+  }
+
+  return {
+    step: LITHOPHANE_VERTEX_STEP_MM,
+    copies: 1,
+    fanStep:
+      shape === "curved" || shape === "cylinder"
+        ? LITHOPHANE_BEND_STRIP_MM
+        : 0,
+  };
 }
 
 /**
@@ -1648,7 +1687,7 @@ export function lithophaneMeshOptions(shape: LithophaneShape): {
 export function lithophaneMeshSize(
   plateWidth: number,
   plateHeight: number,
-  options: { step?: number; copies?: number } = {},
+  options: { step?: number; copies?: number; fanStep?: number } = {},
 ): LithophaneMeshSize | null {
   if (!(plateWidth > 0) || !(plateHeight > 0)) {
     return null;
@@ -1659,10 +1698,19 @@ export function lithophaneMeshSize(
   const columns = Math.max(2, Math.ceil(plateWidth / step)) + 1;
   const rows = Math.max(2, Math.ceil(plateHeight / step)) + 1;
   // Контур плиты — 2(columns − 1) + 2(rows − 1) рёбер. На каждое ребро
-  // приходится две боковины (один четырёхугольник) и один треугольник веера
-  // центра тыла: два треугольника на ячейку лица плюс три на ребро контура.
+  // приходится две боковины (один четырёхугольник) и треугольники веера центра
+  // тыла: два треугольника на ячейку лица плюс три на ребро контура.
   const boundary = 2 * (columns - 1) + 2 * (rows - 1);
-  const triangles = 2 * (columns - 1) * (rows - 1) + 3 * boundary;
+  // У изогнутой панели тыл режется вдоль лучей веера: на каждое ребро контура
+  // приходится по два луча, и каждый луч длиной не больше диагонали плиты даёт
+  // диагональ / fanStep отрезков. Без этого слагаемого бюджет обещал бы на
+  // треть меньше, чем получается в файле.
+  const fanStep = options.fanStep ?? 0;
+  const fan =
+    fanStep > 0
+      ? 2 * boundary * Math.ceil(Math.hypot(plateWidth, plateHeight) / fanStep)
+      : 0;
+  const triangles = 2 * (columns - 1) * (rows - 1) + 3 * boundary + fan;
 
   if (triangles * copies > LITHOPHANE_MESH_MAX_TRIANGLES) {
     return null;
@@ -1867,6 +1915,16 @@ export type LithophaneParams = {
   lithophaneBrightnessWidth: number;
   /** Высота сетки яркости, пикселей. */
   lithophaneBrightnessHeight: number;
+  /**
+   * Кадры остальных граней калейдоскопа: три слота, в каждом сетка или `null`.
+   *
+   * Первая грань всегда берёт `lithophaneBrightness`, а эти три — грани 2, 3 и 4.
+   * Пустой слот повторяет последний загруженный кадр, поэтому одна картинка
+   * печатается на всех четырёх гранях, как раньше. Массив одной длины (3) —
+   * индекс слота совпадает с номером грани, и снятие фото в середине не сдвигает
+   * остальные.
+   */
+  lithophaneSideBrightness: (LithophaneBrightnessGrid | null)[];
   /** Печатать рамку с пазом отдельной деталью. */
   lithoFrame: boolean;
   /**
@@ -2218,6 +2276,9 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   lithophaneBrightness: createDemoLithophaneBrightness(),
   lithophaneBrightnessWidth: LITHOPHANE_RESOLUTION,
   lithophaneBrightnessHeight: LITHOPHANE_RESOLUTION,
+  // Остальные три грани калейдоскопа пусты: демонстрационный рельеф повторяется
+  // на всех четырёх гранях, пока человек не загрузит разные фото.
+  lithophaneSideBrightness: [null, null, null],
   lithoFrame: true,
   lithoMount: "arch",
   // Плоская панель — форма из референсов и прежнее поведение конструктора:
@@ -2723,6 +2784,117 @@ export function resolveLithophaneBrightness(source: {
     width: LITHOPHANE_RESOLUTION,
     height: LITHOPHANE_RESOLUTION,
   };
+}
+
+/**
+ * Проверка одного слота грани: сетка яркости или `null`.
+ *
+ * Слот принимает только настоящую сетку с целыми значениями 0–255 и сходящимися
+ * размерами — те же требования, что у основной сетки. Испорченный слот
+ * отбрасывается целиком: подставить чужой кадр хуже, чем повторить предыдущую
+ * грань.
+ */
+export function isLithophaneBrightnessGrid(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+
+  if (typeof value !== "object") {
+    return false;
+  }
+
+  const grid = value as {
+    brightness?: unknown;
+    width?: unknown;
+    height?: unknown;
+  };
+
+  return (
+    Array.isArray(grid.brightness) &&
+    isLithophaneBrightness(grid.brightness, grid.width, grid.height)
+  );
+}
+
+/**
+ * Проверка массива слотов остальных граней калейдоскопа.
+ *
+ * Массив короткий (до трёх слотов) и каждый слот — сетка или `null`. Клиент
+ * присылает ровно три слота, но старый проект мог сохранить меньше: длина до
+ * `LITHOPHANE_SIDE_IMAGE_SLOTS` принимается как есть, а нормализация дополнит её
+ * пустыми слотами.
+ */
+export function isLithophaneSideBrightness(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= LITHOPHANE_SIDE_IMAGE_SLOTS &&
+    value.every((slot) => isLithophaneBrightnessGrid(slot))
+  );
+}
+
+/**
+ * Слоты граней из состояния: всегда три, пустые — `null`.
+ *
+ * Функция одна на нормализацию и API: она проверяет каждый слот и выбрасывает
+ * испорченные, а недостающие дополняет `null`. Так предпросмотр и файл печати
+ * видят одинаковый набор кадров, и грань без фото честно повторяет предыдущую.
+ */
+export function resolveLithophaneSideBrightness(
+  value: unknown,
+): (LithophaneBrightnessGrid | null)[] {
+  const slots: (LithophaneBrightnessGrid | null)[] = [];
+
+  for (let slot = 0; slot < LITHOPHANE_SIDE_IMAGE_SLOTS; slot += 1) {
+    const candidate = Array.isArray(value) ? value[slot] : null;
+
+    if (
+      candidate &&
+      typeof candidate === "object" &&
+      isLithophaneBrightnessGrid(candidate)
+    ) {
+      const grid = candidate as {
+        brightness: number[];
+        width: number;
+        height: number;
+      };
+
+      slots.push({
+        brightness: grid.brightness,
+        width: grid.width,
+        height: grid.height,
+      });
+    } else {
+      slots.push(null);
+    }
+  }
+
+  return slots;
+}
+
+/**
+ * Кадры четырёх граней калейдоскопа: основной и три слота.
+ *
+ * Пустой слот повторяет предыдущую грань — так одна загруженная картинка
+ * печатается на всех четырёх гранях, как у прежнего калейдоскопа, а человек,
+ * загрузивший четыре разных фото, получает по кадру на грань. Возвращаются
+ * ссылки на исходные сетки: копировать 400 × 267 чисел на каждую отрисовку
+ * незачем.
+ */
+export function lithophaneFaceBrightness(
+  params: LithophaneParams,
+): LithophaneBrightnessGrid[] {
+  const faces: LithophaneBrightnessGrid[] = [
+    {
+      brightness: params.lithophaneBrightness,
+      width: params.lithophaneBrightnessWidth,
+      height: params.lithophaneBrightnessHeight,
+    },
+  ];
+
+  for (const slot of params.lithophaneSideBrightness) {
+    faces.push(slot ?? faces[faces.length - 1]);
+  }
+
+  return faces;
 }
 
 /**
@@ -4212,6 +4384,9 @@ export function normalizeLithophaneParams(
     ? params.lithoLightSource
     : DEFAULT_LITHOPHANE_PARAMS.lithoLightSource;
   const brightness = resolveLithophaneBrightness(params);
+  const sideBrightness = resolveLithophaneSideBrightness(
+    params.lithophaneSideBrightness,
+  );
 
   return {
     lithophaneWidth: snap(
@@ -4227,6 +4402,7 @@ export function normalizeLithophaneParams(
     lithophaneBrightness: brightness.brightness,
     lithophaneBrightnessWidth: brightness.width,
     lithophaneBrightnessHeight: brightness.height,
+    lithophaneSideBrightness: sideBrightness,
     lithoFrame,
     lithoMount: lithoFrame ? requestedMount : "none",
     lithoShape,

@@ -377,6 +377,18 @@ type ParameterPanelProps = {
     grid: LithophaneBrightnessGrid,
     thickness?: { min: number; max: number },
   ) => void;
+  /**
+   * Фото на одну из остальных граней калейдоскопа: слот 0 — грань 2, слот 1 —
+   * грань 3, слот 2 — грань 4.
+   *
+   * `null` очищает слот: грань снова повторяет предыдущий кадр, поэтому одна
+   * загруженная картинка печатается на всех четырёх гранях. Толщины слайдеров
+   * слоты не трогают — они общие для всей призмы.
+   */
+  onLithophaneSideBrightnessChange: (
+    slot: number,
+    grid: LithophaneBrightnessGrid | null,
+  ) => void;
   /** Форма кашпо в плане: круг, квадрат или шестигранник. */
   onPlanterShapeChange: (shape: PlanterShape) => void;
   /** Дренажные отверстия и поддон рядом с горшком. */
@@ -1535,6 +1547,7 @@ export function ParameterPanel({
   onLithoShapeChange,
   onLithoLightSourceChange,
   onLithophaneBrightnessChange,
+  onLithophaneSideBrightnessChange,
   onPlanterShapeChange,
   onPlanterDrainageChange,
   onCoasterShapeChange,
@@ -1575,6 +1588,21 @@ export function ParameterPanel({
    * распознавание нечего.
    */
   const [imageKind, setImageKind] = useState<LithophaneImageKind | null>(null);
+  /**
+   * Превью фотографий остальных граней калейдоскопа.
+   *
+   * Слоты идут по порядку: 0 — грань 2, 1 — грань 3, 2 — грань 4. Превью живут
+   * только в панели: в параметрах лежит сетка яркости, а не картинка. После
+   * загрузки сохранённого проекта превью нет — там уже готовый рельеф, и слот
+   * показывает только то, что фото на грани есть.
+   */
+  const [sidePreviews, setSidePreviews] = useState<(string | null)[]>([
+    null,
+    null,
+    null,
+  ]);
+  const [sideProcessing, setSideProcessing] = useState<number | null>(null);
+
   const [isProcessingKeychainImage, setIsProcessingKeychainImage] =
     useState(false);
   const [keychainImageError, setKeychainImageError] = useState<string | null>(
@@ -1704,6 +1732,61 @@ export function ParameterPanel({
     } finally {
       setIsProcessingImage(false);
     }
+  }
+
+  /**
+   * Загружает фото на одну из остальных граней калейдоскопа.
+   *
+   * Обработка та же, что у основного кадра (`compressLithophaneImage`), но
+   * толщины слайдеров не меняются: они общие для всей призмы, и логотип на одной
+   * грани не должен перекраивать остальные три. Поле очищается до await, иначе
+   * повторный выбор того же файла не вызвал бы change.
+   */
+  async function handleLithophaneSideImageChange(
+    slot: number,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    setSideProcessing(slot);
+    setImageError(null);
+
+    try {
+      const image = await compressLithophaneImage(file);
+
+      setSidePreviews((current) =>
+        current.map((value, index) => (index === slot ? image.preview : value)),
+      );
+      onLithophaneSideBrightnessChange(slot, {
+        brightness: image.brightness,
+        width: image.width,
+        height: image.height,
+      });
+    } catch (error) {
+      setImageError(
+        error instanceof Error
+          ? error.message
+          : "Не удалось обработать изображение. Попробуйте другой файл.",
+      );
+    } finally {
+      setSideProcessing(null);
+    }
+  }
+
+  /**
+   * Убирает фото с грани: слот очищается, и грань повторяет предыдущий кадр.
+   */
+  function removeLithophaneSideImage(slot: number) {
+    setSidePreviews((current) =>
+      current.map((value, index) => (index === slot ? null : value)),
+    );
+    onLithophaneSideBrightnessChange(slot, null);
   }
 
   /**
@@ -4180,6 +4263,77 @@ export function ParameterPanel({
                   : "Фото загружено целиком: тёмные участки стали толще, светлые — тоньше, а поля по краям остаются светлыми."
                 : "Пока показан демонстрационный рельеф. Загрузите фото, чтобы заменить его."}
             </p>
+
+            {params.lithoShape === "kaleidoscope" ? (
+              <div className="mt-4">
+                <p className="text-xs font-semibold text-slate-200">
+                  Грани 2–4
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                  У калейдоскопа четыре грани, и на каждой может быть своё фото.
+                  Пустая грань повторяет предыдущую, поэтому одного кадра тоже
+                  достаточно — он напечатается на всех четырёх сторонах.
+                </p>
+
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {[1, 2, 3].map((face) => {
+                    const slot = face - 1;
+                    const side = params.lithophaneSideBrightness[slot];
+                    const preview = sidePreviews[slot];
+                    const busy = sideProcessing === slot;
+
+                    return (
+                      <div
+                        className="rounded-2xl border border-white/10 bg-slate-950/40 p-2"
+                        key={face}
+                      >
+                        {preview ? (
+                          <div
+                            aria-label={`Превью фото грани ${face + 1}`}
+                            className="h-16 w-full rounded-xl border border-white/15 bg-cover bg-center"
+                            role="img"
+                            style={{ backgroundImage: `url(${preview})` }}
+                          />
+                        ) : (
+                          <div
+                            aria-hidden
+                            className="flex h-16 w-full flex-col items-center justify-center rounded-xl border border-dashed border-white/20 bg-slate-950/60 text-center text-[0.65rem] leading-tight font-medium tracking-wide text-slate-300 uppercase"
+                          >
+                            <span className="text-lg">🖼️</span>
+                            <span className="mt-1">
+                              {side ? "фото есть" : "грань " + (face + 1)}
+                            </span>
+                          </div>
+                        )}
+
+                        <label className="mt-2 flex min-h-9 cursor-pointer items-center justify-center rounded-lg border border-white/15 bg-white/5 px-1 text-center text-xs font-semibold text-slate-100 transition-colors hover:bg-white/10 focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950">
+                          {busy ? "Сжимаем…" : side ? "Заменить" : "Добавить"}
+                          <input
+                            accept="image/*"
+                            className="sr-only"
+                            disabled={busy}
+                            onChange={(event) =>
+                              handleLithophaneSideImageChange(slot, event)
+                            }
+                            type="file"
+                          />
+                        </label>
+
+                        {side ? (
+                          <button
+                            className="mt-1 w-full rounded-lg border border-white/10 px-1 py-1 text-xs font-medium text-slate-300 transition-colors hover:border-rose-400/40 hover:text-rose-200 focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:outline-none"
+                            onClick={() => removeLithophaneSideImage(slot)}
+                            type="button"
+                          >
+                            Убрать
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
           </fieldset>
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
@@ -4236,7 +4390,7 @@ export function ParameterPanel({
 
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Плоская панель — обычный литофан: рельеф по плоскости. Изогнутая гнётся по дуге вокруг вертикальной оси — край уходит назад, а ширина кадра на поверхности не меняется, поэтому фото не сжимается. Полуцилиндр заворачивается на 180°: он стоит на круглой плите или надевается на лампу. Калейдоскоп — четыре панели под 90° на общем цоколе: фото повторяется на каждой грани, а свет рассеивается внутри призмы. У этих трёх форм своя база, поэтому сменные крепления к ним не применяются."
+              hint="Плоская панель — обычный литофан: рельеф по плоскости. Изогнутая идёт по дуге вокруг вертикальной оси — край уходит назад, а ширина кадра на поверхности не меняется, поэтому фото не сжимается; вершины рождаются сразу на цилиндре, без изгиба готовой сетки. Полуцилиндр заворачивается на 180° и стоит на круглом диске с пазом и отверстием под лампу. Калейдоскоп — четыре панели без рамок под 90° на полом цоколе: на каждой грани может быть своё фото, а свет свечи выходит через рельеф. У этих трёх форм своя база, поэтому сменные крепления к ним не применяются."
               label="Форма панели"
               onChange={onLithoShapeChange}
               options={LITHOPHANE_SHAPES.map((shape) => ({
@@ -4250,9 +4404,9 @@ export function ParameterPanel({
               {params.lithoShape === "curved"
                 ? "Панель гнётся по дуге выбранного радиуса: центр остаётся на месте, а край уходит назад на R − √(R² − x²). Рамка гнётся вместе с плитой, поэтому зазор посадки 0.2 мм по всему периметру сохраняется. Панель стоит на рельсе, повторяющем дугу: в нём паз под рамку и канал 10 × 2 мм под ленту."
                 : params.lithoShape === "cylinder"
-                  ? "Полуцилиндр 180°: радиус равен ширине панели, делённой на π, поэтому рельеф заворачивается ровно на половину окружности. Рельеф остаётся снаружи, колба входит внутрь. Рамка гнётся вместе с плитой и держит края, а на круглой плите с отверстием под лампу стоит вся сборка."
+                  ? "Полуцилиндр 180°: радиус равен ширине панели, делённой на π, поэтому рельеф заворачивается ровно на половину окружности. Вершины считаются сразу в цилиндрических координатах, поэтому лицо гладкое, без муара от фасеток. Панель опускается в круговой паз плоского диска с отверстием Ø40 мм: лампа или свеча стоит в центре и светит прямо внутрь полуцилиндра."
                   : params.lithoShape === "kaleidoscope"
-                    ? "Калейдоскоп: четыре копии панели стоят под 90° и смыкаются в закрытую призму на общем цоколе. Фото повторяется на каждой грани, свет от свечи или ленты рассеивается внутри, поэтому кадр виден с любой стороны. Пол с отверстием Ø44 мм и крышка закрывают призму, а каналы соседних граней стыкуются в углах — лента огибает цоколь кольцом без разрывов."
+                    ? "Калейдоскоп: четыре панели без рамок стоят под 90° на полом цоколе — их края входят в паз цоколя и паз тонкой крышки. На каждой грани может быть своё фото; пустая грань повторяет предыдущую. Свечу Ø40 держит кольцо в центре дна, свет выходит через рельеф, а четыре окна в крышке дают тягу: свеча не гаснет. Весит такая призма около 110 грамм вместо прежних 380."
                     : "Плоская панель: рельеф идёт по плоскости, рамка и крепление собираются как раньше. Это форма из референсов — изогнутую выбирают, когда нужна равномерная подсветка или необычный вид."}
             </p>
 

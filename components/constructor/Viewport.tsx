@@ -446,6 +446,15 @@ type LithophaneModelProps = {
   geometry: BufferGeometry;
   /** Включена подсветка на просвет: пластик пропускает свет и светится картой. */
   backlight: boolean;
+  /**
+   * Рельеф красится плоскостями (`flatShading`).
+   *
+   * Так видно высоту пикселя на плоской панели: у неё все грани лежат в одной
+   * плоскости, и без плоского затенения рельеф читался бы только по карте
+   * свечения. У изогнутой панели фасетки стоят под углом друг к другу, и плоское
+   * затенение превращает их в муар — там нормали сглажены по сетке лица.
+   */
+  faceted: boolean;
   /** Уменьшенная сетка яркости: из неё собирается карта свечения. */
   glow: LithophaneBrightnessGrid | null;
   /** Габариты плиты без рамки: под них карта свечения получает светлые поля. */
@@ -497,11 +506,13 @@ function createGlowTexture(
  * светлее.
  *
  * Материалов два, потому что сетка размечена группами
- * (`LITHOPHANE_RELIEF_GROUP` / `LITHOPHANE_DETAIL_GROUP`). Рельеф выводится с
- * `flatShading`: нормаль каждой грани совпадает с высотой пикселя, и на свету
- * видно, где фото толще — без этого шума не было бы видно рельефа вообще.
- * Рамка и подставка идут гладким материалом: их нормали посчитаны после сварки
- * вершин, поэтому скругление стойки и накладка выглядят литыми и матовыми.
+ * (`LITHOPHANE_RELIEF_GROUP` / `LITHOPHANE_DETAIL_GROUP`). Рельеф плоской панели
+ * выводится с `flatShading`: нормаль каждой грани совпадает с высотой пикселя, и
+ * на свету видно, где фото толще — без этого шума не было бы видно рельефа
+ * вообще. У изогнутой панели, полуцилиндра и калейдоскопа плоское затенение
+ * выключено: их грани стоят под углом друг к другу, и фасетки 0.3 мм складывались
+ * в муар. Рамка и подставка идут гладким материалом всегда: их нормали посчитаны
+ * после сварки вершин, поэтому скругление стойки и накладка выглядят литыми.
  *
  * В режиме подсветки рельеф становится полупрозрачным (`transmission`): сквозь
  * него проходит свет лампы, стоящей за моделью, а карта свечения повторяет
@@ -514,6 +525,7 @@ function createGlowTexture(
  */
 function LithophaneModel({
   backlight,
+  faceted,
   geometry,
   glow,
   plate,
@@ -533,12 +545,12 @@ function LithophaneModel({
             emissive: STUDIO_BACKLIGHT.color,
             emissiveIntensity: STUDIO_BACKLIGHT.glow,
             emissiveMap: glowTexture,
-            flatShading: true,
+            flatShading: faceted,
             metalness: 0,
           })
         : new MeshStandardMaterial({
             color: STUDIO_MODEL_TINTS.lithophane,
-            flatShading: true,
+            flatShading: faceted,
             metalness: STUDIO_PLASTIC.metalness,
             roughness: STUDIO_PLASTIC.roughness,
           }),
@@ -548,7 +560,7 @@ function LithophaneModel({
         roughness: STUDIO_PLASTIC.roughness,
       }),
     ],
-    [backlight, glowTexture],
+    [backlight, faceted, glowTexture],
   );
 
   useEffect(
@@ -975,6 +987,7 @@ function Scene({
       ) : params.model === "lithophane" ? (
         <LithophaneModel
           backlight={backlightOn}
+          faceted={params.lithoShape === "flat"}
           geometry={geometry}
           glow={lithophaneGlow}
           plate={lithophanePlate}
@@ -1245,6 +1258,33 @@ export function Viewport({
   );
 
   /**
+   * Кадры остальных граней калейдоскопа — тоже уменьшенные.
+   *
+   * Уменьшение то же, что у основной сетки: полные 400 × 267 на четыре грани
+   * заставляли бы three.js пересобирать сотни тысяч вершин на каждое движение
+   * слайдера. Ссылка на массив слотов в состоянии не меняется от правки толщин,
+   * поэтому усреднение считается только при замене фото.
+   */
+  const lithophaneSides =
+    params.model === "lithophane" ? params.lithophaneSideBrightness : null;
+  const lithophaneSidePreview = useMemo(
+    () =>
+      lithophaneSides
+        ? lithophaneSides.map((slot) =>
+            slot
+              ? downsampleLithophaneBrightness(
+                  slot.brightness,
+                  slot.width,
+                  slot.height,
+                  LITHOPHANE_PREVIEW_RESOLUTION,
+                )
+              : null,
+          )
+        : [],
+    [lithophaneSides],
+  );
+
+  /**
    * Профиль и сетка пересчитываются только при изменении параметров или
    * загрузке шрифта. Смена камеры, света или материала не создаёт новую
    * геометрию. Пока шрифт не пришёл, брелок показывается без имени, а
@@ -1275,6 +1315,8 @@ export function Viewport({
       // В сцену уходит уменьшенная копия, а в запрос STL — полный массив из
       // состояния: предпросмотр быстрый, печать подробная. Размеры копии
       // подменяются вместе с массивом, иначе нормализация не сойдётся с длиной.
+      // Кадры остальных граней калейдоскопа уменьшаются так же: пустой слот
+      // остаётся пустым и повторяет предыдущую грань.
       return createLithophaneGeometry(
         lithophanePreview
           ? {
@@ -1282,6 +1324,7 @@ export function Viewport({
               lithophaneBrightness: lithophanePreview.brightness,
               lithophaneBrightnessWidth: lithophanePreview.width,
               lithophaneBrightnessHeight: lithophanePreview.height,
+              lithophaneSideBrightness: lithophaneSidePreview,
             }
           : params,
       );
@@ -1316,7 +1359,7 @@ export function Viewport({
     return createVaseGeometry(createVaseProfile(params), params, {
       budget: "preview",
     });
-  }, [font, fonts, lithophanePreview, params]);
+  }, [font, fonts, lithophanePreview, lithophaneSidePreview, params]);
 
   // Старая сетка живёт в GPU-буфере: без dispose каждая правка слайдера
   // оставляла бы мусор до перезагрузки страницы.
