@@ -55,7 +55,7 @@ import {
   isKeychainRotation,
   isKeychainTextAlign,
   isLithophaneBrightness,
-  isLithophaneLightSource,
+  isLithophaneBulb,
   isLithophaneMount,
   isLithophanePart,
   isLithophaneShape,
@@ -78,8 +78,6 @@ import {
   listSignBlocks,
   lithophaneHasStand,
   lithophaneMeshSize,
-  lithophaneShapeHasBase,
-  lithophaneShapeHasMounts,
   lithophaneStlFileName,
   normalizeBoxParams,
   normalizeCoasterParams,
@@ -1076,18 +1074,17 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
  *
  * Рамка и крепление необязательны: старый клиент их не присылает и получает
  * значения по умолчанию. Крепление проверяется по списку — от него зависит,
- * появятся ли петли на рамке, — а нормализация сама снимает крепление, когда
- * рамка выключена. Источник света тоже из списка: он выбирает, что вырезано в
- * базе арки (канал под ленту, гнездо под USB-лампу или патрон), и опечатка в
- * запросе не должна превращаться в базу без крепления. Форма панели — из списка
- * `flat`/`curved`/`cylinder`, радиус изгиба — в границах слайдера: старый клиент
- * не присылает ни того, ни другого и получает плоскую панель. Деталь (`part`)
- * тоже из списка, причём `frame`, `stand` и `all` без рамки отклоняются: без неё
- * в файле нечего собирать. Подставка
- * отдельным файлом имеет смысл только при своём креплении (ножка или массивное
- * основание) и только у плоской панели — иначе клиент просит деталь, которой нет
- * в выбранной сборке. Кадры остальных граней калейдоскопа необязательны: их нет у
- * старого клиента, и тогда одна картинка повторяется на всех четырёх гранях.
+ * появится ли съёмная деталь, — а нормализация сама снимает крепление, когда
+ * рамка выключена. Цоколь лампы и расстояние до площадки патрона — тоже из
+ * списков и границ слайдера: от цоколя зависит отверстие кольца, от расстояния
+ * — длина рельса. Форма панели бывает только `flat` и `round`: старый проект с
+ * изогнутой панелью нормализуется в плоскую, а не падает. Деталь (`part`) — из
+ * списка, причём `frame`, `mount` и `all` без рамки отклоняются: без неё в файле
+ * нечего собирать. Деталь `mount` (отсекатель короба или кольцо монорельса)
+ * имеет смысл только при выбранном креплении — иначе клиент просит файл,
+ * которого нет в сборке. Кадры остальных секторов круглой панели
+ * необязательны: их нет у старого клиента, и тогда одна картинка повторяется
+ * по всему диску.
  */
 function parseLithophaneParams(
   body: Record<string, unknown>,
@@ -1104,8 +1101,8 @@ function parseLithophaneParams(
     lithoFrame = DEFAULT_LITHOPHANE_PARAMS.lithoFrame,
     lithoMount = DEFAULT_LITHOPHANE_PARAMS.lithoMount,
     lithoShape = DEFAULT_LITHOPHANE_PARAMS.lithoShape,
-    lithoCurveRadius = DEFAULT_LITHOPHANE_PARAMS.lithoCurveRadius,
-    lithoLightSource = DEFAULT_LITHOPHANE_PARAMS.lithoLightSource,
+    lithoBulb = DEFAULT_LITHOPHANE_PARAMS.lithoBulb,
+    lithoRailDistance = DEFAULT_LITHOPHANE_PARAMS.lithoRailDistance,
     part = "all",
   } = body;
 
@@ -1143,22 +1140,17 @@ function parseLithophaneParams(
     typeof lithoFrame !== "boolean" ||
     !isLithophaneMount(lithoMount) ||
     !isLithophaneShape(lithoShape) ||
+    !isLithophaneBulb(lithoBulb) ||
     !isNumberInRange(
-      lithoCurveRadius,
-      CONSTRUCTOR_LIMITS.lithoCurveRadius.min,
-      CONSTRUCTOR_LIMITS.lithoCurveRadius.max,
+      lithoRailDistance,
+      CONSTRUCTOR_LIMITS.lithoRailDistance.min,
+      CONSTRUCTOR_LIMITS.lithoRailDistance.max,
     ) ||
-    !isLithophaneLightSource(lithoLightSource) ||
     !isLithophanePart(part) ||
     (!lithoFrame && part !== "relief") ||
-    // Деталь «stand»: у плоской формы это выбранное крепление с ножкой или
-    // основанием, у изогнутой панели, полуцилиндра и калейдоскопа — их
-    // собственная база, которая печатается при любой форме, кроме плоской.
-    (part === "stand" &&
-      !(
-        lithophaneShapeHasBase(lithoShape) ||
-        (lithophaneShapeHasMounts(lithoShape) && lithophaneHasStand(lithoMount))
-      ))
+    // Деталь «mount» — отсекатель короба или кольцо монорельса: она есть
+    // только при выбранном креплении.
+    (part === "mount" && !lithophaneHasStand(lithoMount))
   ) {
     return null;
   }
@@ -1188,8 +1180,8 @@ function parseLithophaneParams(
       lithoFrame,
       lithoMount,
       lithoShape,
-      lithoCurveRadius,
-      lithoLightSource,
+      lithoBulb,
+      lithoRailDistance,
     }),
     part,
   };

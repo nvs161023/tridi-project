@@ -49,7 +49,6 @@ import {
   JEWELRY_CONFIG_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PART_LABELS,
-  LITHOPHANE_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
@@ -71,8 +70,6 @@ import {
   listSignBlocks,
   listSignLetters,
   lithophaneHasStand,
-  lithophaneShapeHasBase,
-  lithophaneShapeHasMounts,
   lithophaneStlFileName,
   normalizeConstructorParams,
   nextPatternLayer,
@@ -92,8 +89,7 @@ import {
   type KeychainParams,
   type KeychainQrDecoration,
   type LithophaneBrightnessGrid,
-  type LithophaneLightSeat,
-  type LithophaneLightSource,
+  type LithophaneBulb,
   type LithophaneMount,
   type LithophanePart,
   type LithophaneShape,
@@ -138,13 +134,6 @@ type ConstructorClientProps = {
   freeDownloadsLeft: number;
   /** Проект из адреса `?project=ID`: его параметры применяются после загрузки. */
   initialProjectId?: string | null;
-  /**
-   * `?debug=light`: показать в сцене отладочный слой «Карта света».
-   *
-   * Слой считает ровность освещения панели и нужен разработчику, а не
-   * покупателю, поэтому без флага кнопки «Карта света» в сцене нет вовсе.
-   */
-  debugLight?: boolean;
 };
 
 /**
@@ -170,6 +159,7 @@ type SizeParam = Exclude<
   | "lithoFrame"
   | "lithoMount"
   | "lithoShape"
+  | "lithoBulb"
   | "lithophaneBrightness"
   | "planterShape"
   | "planterDrainage"
@@ -253,20 +243,9 @@ async function readServerMessage(response: Response): Promise<string | null> {
   return null;
 }
 
-/**
- * Подпись детали литофана.
- *
- * У изогнутой панели, полуцилиндра и калейдоскопа деталь `stand` — это их
- * собственная база: рельс по дуге, круглая плита или цоколь призмы. Сменной
- * подставки у этих форм нет, поэтому и подпись другая.
- */
-function lithophanePartLabel(
-  params: ConstructorParams,
-  part: LithophanePart,
-): string {
-  return part === "stand" && lithophaneShapeHasBase(params.lithoShape)
-    ? "База"
-    : LITHOPHANE_PART_LABELS[part];
+/** Подпись детали литофана. */
+function lithophanePartLabel(part: LithophanePart): string {
+  return LITHOPHANE_PART_LABELS[part];
 }
 
 /**
@@ -324,7 +303,7 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   }
 
   if (params.model === "lithophane") {
-    // Без рамки печатается одна плита рельефа: крепления вырезаны в рамке,
+    // Без рамки печатается одна плита рельефа: крепления крепятся к рамке,
     // поэтому дополнительных файлов нет.
     if (!params.lithoFrame) {
       return [
@@ -338,21 +317,13 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
       ];
     }
 
-    // Первый файл — собранный литофан: плита уже вставлена в рамку и, если
-    // выбрана подставка, наклонена вместе с ней. Дальше детали по отдельности:
-    // рельеф и рамка есть всегда, подставка — только при ножке или массивном
-    // основании, петли подвеса — часть рамки.
+    // Первый файл — собранный литофан: плита уже вставлена в рамку, а кольцо
+    // монорельса стоит на своём расстоянии. Дальше детали по отдельности:
+    // рельеф и рамка есть всегда, крепление — только у короба и монорельса.
     const parts: LithophanePart[] = ["relief", "frame"];
 
-    // Подставка: у плоской формы — выбранное крепление с ножкой или основанием,
-    // у изогнутой панели, полуцилиндра и калейдоскопа — их собственная база
-    // (рельс по дуге, круглая плита, цоколь призмы).
-    if (
-      lithophaneShapeHasBase(params.lithoShape) ||
-      (lithophaneShapeHasMounts(params.lithoShape) &&
-        lithophaneHasStand(params.lithoMount))
-    ) {
-      parts.push("stand");
+    if (lithophaneHasStand(params.lithoMount)) {
+      parts.push("mount");
     }
 
     return [
@@ -365,8 +336,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
       },
       ...parts.map((part) => ({
         id: `lithophane-${part}`,
-        label: lithophanePartLabel(params, part),
-        description: `${lithophanePartLabel(params, part)} литофана отдельным файлом`,
+        label: lithophanePartLabel(part),
+        description: `${lithophanePartLabel(part)} литофана отдельным файлом`,
         request: { part },
         fileName: lithophaneStlFileName(params, part),
       })),
@@ -450,15 +421,9 @@ function ViewportSkeleton() {
  * шрифты.
  */
 function MobileSceneDialog({
-  debugLight,
   onClose,
   params,
 }: {
-  /**
-   * `?debug=light`: тот же флаг, что у сцены в потоке — окно показывает ту же
-   * модель, и отладочных кнопок в нём должно быть столько же.
-   */
-  debugLight: boolean;
   /** Закрытие окна: конструктор убирает его из разметки. */
   onClose: () => void;
   /** Те же параметры, что у сцены в потоке: окно показывает ту же модель. */
@@ -513,7 +478,7 @@ function MobileSceneDialog({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-        <Viewport debugLight={debugLight} fullscreen params={params} />
+        <Viewport fullscreen params={params} />
       </div>
     </div>
   );
@@ -565,7 +530,6 @@ function VaseGallerySkeleton() {
  * значения вне границ слайдеров.
  */
 export function ConstructorClient({
-  debugLight = false,
   hasPro,
   freeDownloadsLeft: initialFreeDownloadsLeft,
   initialProjectId = null,
@@ -1068,19 +1032,7 @@ export function ConstructorClient({
     );
   }
 
-  /**
-   * Рассеиватель: лист матового акрила 2 мм в пазу базы.
-   *
-   * Паз напечатан всегда, а флаг только переключает расчёт: без листа карта света
-   * в предпросмотре прямая, с листом — размытая. Так человек видит, что даёт
-   * деталь, которую он, возможно, ещё не купил.
-   */
-  function updateLithoDiffuser(lithoDiffuser: boolean) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, lithoDiffuser }),
-    );
-  }
-
+  /** Крепление литофана: короб под LED-матрицу, монорельс с кольцом или ничего. */
   function updateLithoMount(lithoMount: LithophaneMount) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, lithoMount }),
@@ -1088,10 +1040,10 @@ export function ConstructorClient({
   }
 
   /**
-   * Форма панели: плоская, изогнутая по дуге или полуцилиндр.
+   * Форма панели: плоская или круглая.
    *
-   * Крепление при этом не сбрасывается: у изогнутой панели и полуцилиндра его
-   * просто не печатают, и вернувшись к плоской форме человек получает прежнее.
+   * Крепление при этом не сбрасывается: обе формы держат короб и рельс на тылу
+   * рамки, поэтому выбор переезжает вместе с панелью.
    */
   function updateLithoShape(lithoShape: LithophaneShape) {
     setParams((current) =>
@@ -1100,43 +1052,29 @@ export function ConstructorClient({
   }
 
   /**
-   * Источник света в базе.
+   * Цоколь лампы на кольце монорельса.
    *
-   * Читают арка, изогнутая панель и полуцилиндр: у каждого своя база под выбранный
-   * источник. Крепление не меняется: выборок под свет нет только у сплошных
-   * подставок, и выбранный источник ждёт возврата на арку или на изогнутую форму.
-   *
-   * Вместе с лампой выбирается и сборка под неё. У скобы два гнезда, и ровно
-   * светит только дальнее: в ближнем лампа стоит в 39 мм от панели против
-   * рекомендованных 75, пик выходит ×2.5 средней. Лист-рассеиватель включается там
-   * же: паз напечатан у всех баз со светом, и расчёт сразу показывает свет той
-   * сборкой, которую человек соберёт — с листом, а не с одним пятном. Оба выбора
-   * остаются переключаемыми: гнездо и лист можно вернуть как было.
+   * От него зависят отверстие площадки (14.6 мм у E14, 28.6 мм у E27) и бортик
+   * под штатную гайку, поэтому кольцо пересобирается вместе с выбором.
    */
-  function updateLithoLightSource(lithoLightSource: LithophaneLightSource) {
+  function updateLithoBulb(lithoBulb: LithophaneBulb) {
     setParams((current) =>
-      normalizeConstructorParams({
-        ...current,
-        lithoLightSource,
-        ...(lithoLightSource === "strip"
-          ? {}
-          : { lithoLightSeat: "far", lithoDiffuser: true }),
-      }),
+      normalizeConstructorParams({ ...current, lithoBulb }),
     );
   }
 
   /**
-   * Гнездо скобы: ближнее или дальнее.
+   * Расстояние от панели до площадки патрона.
    *
-   * Читает только арка под патрон и USB-лампу: в её держателе напечатаны две
-   * скобы, и лампа переставляется между ними при сборке. Выбор переживает смену
-   * источника и формы — вернувшись на арку, человек получает то же гнездо.
+   * Кольцо печатается на этом месте рельса: слайдер задаёт и положение каретки
+   * в сборке, и длину рельса в детали.
    */
-  function updateLithoLightSeat(lithoLightSeat: LithophaneLightSeat) {
+  function updateLithoRailDistance(lithoRailDistance: number) {
     setParams((current) =>
-      normalizeConstructorParams({ ...current, lithoLightSeat }),
+      normalizeConstructorParams({ ...current, lithoRailDistance }),
     );
   }
+
 
   /**
    * Браузер уже сжал фотографию до 400 пикселей по длинной стороне и отдал
@@ -1479,11 +1417,10 @@ export function ConstructorClient({
             onRemoveKeychainDecoration={removeKeychainDecoration}
             keychainReport={keychainImageReport}
             onLithoFrameChange={updateLithoFrame}
-            onLithoDiffuserChange={updateLithoDiffuser}
-            onLithoLightSourceChange={updateLithoLightSource}
-            onLithoLightSeatChange={updateLithoLightSeat}
             onLithoMountChange={updateLithoMount}
             onLithoShapeChange={updateLithoShape}
+            onLithoBulbChange={updateLithoBulb}
+            onLithoRailDistanceChange={updateLithoRailDistance}
             onLithophaneBrightnessChange={updateLithophaneBrightness}
             onLithophaneSideBrightnessChange={updateLithophaneSideBrightness}
             onModelChange={updateModel}
@@ -1574,13 +1511,13 @@ export function ConstructorClient({
                   </>
                 ) : params.model === "lithophane" ? (
                   <>
-                    {params.lithophaneWidth} × {params.lithophaneHeight} мм · рельеф{" "}
-                    {params.lithophaneMinThickness.toFixed(1)}–
+                    {params.lithoShape === "round"
+                      ? `Ø ${params.lithophaneWidth} мм`
+                      : `${params.lithophaneWidth} × ${params.lithophaneHeight} мм`}{" "}
+                    · рельеф {params.lithophaneMinThickness.toFixed(1)}–
                     {params.lithophaneMaxThickness.toFixed(1)} мм ·{" "}
                     {params.lithoFrame ? "рамка" : "без рамки"} ·{" "}
-                    {lithophaneShapeHasMounts(params.lithoShape)
-                      ? LITHOPHANE_MOUNT_LABELS[params.lithoMount].toLowerCase()
-                      : LITHOPHANE_SHAPE_LABELS[params.lithoShape].toLowerCase()}
+                    {LITHOPHANE_MOUNT_LABELS[params.lithoMount].toLowerCase()}
                   </>
                 ) : params.model === "planter" ? (
                   <>
@@ -1627,7 +1564,6 @@ export function ConstructorClient({
 
             <div className="mt-3 flex min-h-0 flex-col lg:mt-2 lg:flex-1">
               <Viewport
-                debugLight={debugLight}
                 params={params}
                 onKeychainImageReport={handleKeychainImageReport}
               />
@@ -1657,7 +1593,6 @@ export function ConstructorClient({
       {/* Окно со сценой живёт вне сетки: оно открывается поверх страницы. */}
       {sceneOpen ? (
         <MobileSceneDialog
-          debugLight={debugLight}
           onClose={closeScene}
           params={params}
         />
@@ -1670,3 +1605,4 @@ export function ConstructorClient({
     </main>
   );
 }
+
