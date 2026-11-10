@@ -95,12 +95,7 @@ export type LithoLightFace = {
 };
 
 /** Источник, под который в базе вырезано крепление. */
-export type LithoLightKind =
-  | "strip"
-  | "usb_bulb"
-  | "socket"
-  | "candle"
-  | "disc_lamp";
+export type LithoLightKind = "strip" | "usb_bulb" | "socket" | "candle";
 
 /** Подписи источников для панели конструктора. */
 export const LITHO_LIGHT_KIND_LABELS = {
@@ -108,7 +103,6 @@ export const LITHO_LIGHT_KIND_LABELS = {
   usb_bulb: "USB-лампа",
   socket: "Лампа E27 в патроне",
   candle: "Свеча",
-  disc_lamp: "LED-лампа в диске",
 } as const satisfies Record<LithoLightKind, string>;
 
 /**
@@ -208,7 +202,6 @@ export const LITHO_LIGHT_MODEL = {
     usbBulb: 2.4,
     socket: 30,
     candle: 1.2,
-    discLamp: 12,
   },
 } as const;
 
@@ -217,21 +210,14 @@ export const LITHO_LIGHT_MODEL = {
  *
  * Числа выведены из геометрии, а не выбраны на глаз: у колбы USB-лампы это центр
  * стеклянного шара в чаше, у патрона E27 — центр колбы Ø60, надетой на цоколь, у
- * свечи в призме и лампы в чаше полуцилиндра — центр светящейся части в гнезде
- * пьедестала. Крепления держат источник в единственном положении, поэтому и
- * расчёт берёт его отсюда.
+ * свечи в призме — центр пламени в гнезде пьедестала. Крепления держат источник в
+ * единственном положении, поэтому и расчёт берёт его отсюда. У изогнутых форм
+ * лампа стоит на полке базы, поэтому её центр считается от полки, а не от стола.
  */
 
-/** Дно гнезда пьедестала призмы, мм: на нём стоит свеча или пилюля. */
+/** Дно гнезда пьедестала призмы, мм: на нём стоит свеча. */
 const CANDLE_FLOOR_MM =
   LITHOPHANE_KALEIDOSCOPE.pedestalTop - LITHOPHANE_KALEIDOSCOPE.pedestalDepth;
-
-/** Дно гнезда пьедестала чаши полуцилиндра, мм. */
-const DISC_FLOOR_MM =
-  LITHOPHANE_BENT_BASE.pedestalTop - LITHOPHANE_BENT_BASE.pedestalDepth;
-
-/** Радиус LED-пилюли Ø36, которая стоит в гнезде пьедестала, мм. */
-const PILLAR_RADIUS_MM = 18;
 
 /** Пламя чайной свечи над её дном, мм. */
 const CANDLE_FLAME_MM = 18;
@@ -255,20 +241,25 @@ export const LITHO_LIGHT_SEATS = {
     LITHOPHANE_SOCKET_LIGHT.floorAboveBase +
     30,
   /**
+   * Центр колбы USB-лампы над полкой базы изогнутой формы, мм.
+   *
+   * Стойка та же, что в арке: её колба на `usbBulbY` при базе 10 мм, значит над
+   * полкой она поднимается на `usbBulbY − baseTop`.
+   */
+  usbBulbAbove:
+    LITHOPHANE_USB_LIGHT.rimY -
+    LITHOPHANE_USB_LIGHT.bowlDepth +
+    13 -
+    LITHOPHANE_ARCH_STAND.baseTop,
+  /** Центр колбы патрона над полкой: дно гнезда плюс радиус лампы A60. */
+  socketAbove: LITHOPHANE_SOCKET_LIGHT.floorAboveBase + 30,
+  /**
    * Пламя свечи в пьедестале калейдоскопа, мм.
    *
    * Чайная свеча Ø38 стоит в гнезде Ø40: её дно на дне гнезда, пламя — на 18 мм
    * выше. Раньше свеча стояла на столе, и источник оказывался у самого низа кадра.
    */
   candleY: CANDLE_FLOOR_MM + CANDLE_FLAME_MM,
-  /**
-   * Центр светящейся части LED-лампы на пьедестале чаши полуцилиндра, мм.
-   *
-   * Пилюля Ø36 стоит в гнезде Ø37: дно гнезда на 53 мм, центр свечения — на её
-   * радиус выше. Источник оказывается ровно на середине кадра, поэтому верх и низ
-   * получают свет поровну.
-   */
-  discLampY: DISC_FLOOR_MM + PILLAR_RADIUS_MM,
 } as const;
 
 /** Сумма векторов. */
@@ -769,36 +760,93 @@ function bentFace(
 }
 
 /**
- * Источники изогнутых форм.
+ * Источники изогнутых форм: лента в базе, USB-лампа или патрон E27 на полке.
  *
  * У изогнутой панели лента лежит в канале бруска, заметённого по дуге: он идёт
- * сразу за пазом рамки, повторяя её прогиб, поэтому точки ленты встают на радиус
- * `R − (зазор + канал)`. У полуцилиндра базы-рельса нет: в центре диска
- * отверстие Ø40, и лампа стоит на столе прямо на оси панели.
+ * за пазом рамки, повторяя её прогиб, а канал вынесен назад на 26 мм, поэтому
+ * точки ленты встают на радиус `R − (зазор + отступ + канал)`. У полуцилиндра
+ * ленте отведена круговая канавка в дне чаши — кольцо точек по всему
+ * полуцилиндру. USB-лампа и патрон стоят на полке базы: у бруска на оси панели,
+ * в чаше — в её центре, на оси вращения. «Без подсветки» источника не даёт.
  */
-function bentEmitters(
+function bentSeat(
   normalized: LithophaneParams,
-  face: LithoLightFace,
   plate: { width: number; height: number },
-): LithoLightSeat {
-  const radius = face.bend?.radius ?? 0;
+): LithoLightSeat | null {
+  const face = bentFace(normalized, plate);
+  const kind = normalized.lithoLightSource;
 
-  if (normalized.lithoShape === "cylinder") {
+  if (kind === "none") {
+    return null;
+  }
+
+  if (kind === "usb_bulb" || kind === "socket") {
+    const cylinder = normalized.lithoShape === "cylinder";
+    const shelf = cylinder
+      ? LITHOPHANE_BENT_BASE.perchTop
+      : LITHOPHANE_BENT_BASE.railTop;
+    const above =
+      kind === "usb_bulb"
+        ? LITHO_LIGHT_SEATS.usbBulbAbove
+        : LITHO_LIGHT_SEATS.socketAbove;
+    // В чаше лампа стоит на оси вращения, на бруске — на оси панели.
+    const z = cylinder
+      ? -(face.bend?.radius ?? 0)
+      : kind === "usb_bulb"
+        ? LITHOPHANE_USB_LIGHT.centerZ
+        : LITHOPHANE_SOCKET_LIGHT.centerZ;
+
     return {
-      kind: "disc_lamp",
+      kind,
       faces: [face],
       emitters: [
         {
-          position: [0, LITHO_LIGHT_SEATS.discLampY, -radius],
+          position: [0, shelf + above, z],
           axis: [0, 1, 0],
           lobe: 0,
-          intensity: LITHO_LIGHT_MODEL.candelas.discLamp,
+          intensity:
+            kind === "usb_bulb"
+              ? LITHO_LIGHT_MODEL.candelas.usbBulb
+              : LITHO_LIGHT_MODEL.candelas.socket,
         },
       ],
     };
   }
 
   const base = LITHOPHANE_BENT_BASE;
+  const radius = face.bend?.radius ?? 0;
+
+  if (normalized.lithoShape === "cylinder") {
+    const ring =
+      radius -
+      (LITHOPHANE_FIT_GAP_MM +
+        base.bowlWall +
+        base.ringInset +
+        base.channelWidth / 2);
+    const y =
+      base.bowlFloor - base.channelDepth + LITHO_LIGHT_MODEL.stripLift;
+    const count = LITHO_LIGHT_MODEL.stripEmitters;
+
+    return {
+      kind: "strip",
+      faces: [face],
+      emitters: Array.from({ length: count }, (_, index) => {
+        const angle = (2 * Math.PI * index) / count;
+
+        return {
+          position: [
+            ring * Math.sin(angle),
+            y,
+            -radius + ring * Math.cos(angle),
+          ],
+          axis: [0, 1, 0],
+          lobe: 1,
+          intensity: LITHO_LIGHT_MODEL.candelas.strip / count,
+        };
+      }),
+    };
+  }
+
   const radial =
     radius - (LITHOPHANE_FIT_GAP_MM + base.channelGap + base.channelWidth / 2);
   const y = base.top - base.channelDepth + LITHO_LIGHT_MODEL.stripLift;
@@ -1107,9 +1155,10 @@ function flatLightKind(normalized: LithophaneParams): LithoLightKind | null {
  * Грань и источники по форме и креплению: единственное место, где они выбираются.
  *
  * Плоская панель светит тем, что выбрано в параметрах, и только в арке или в коробе
- * подвеса. Изогнутая форма и полуцилиндр держат свой источник — канал в рельсе или
- * отверстие в диске, призма — свечу в кольце: выбора лампы у них нет, поэтому
- * расчёт берёт то, что напечатано.
+ * подвеса. Изогнутая панель и полуцилиндр тоже читают `lithoLightSource`: лента
+ * ложится в канал бруска или в круговую канавку чаши, USB-лампа и патрон встают на
+ * полку базы. Призма держит свечу в пьедестале: другой источник внутрь камеры не
+ * встаёт.
  */
 function lightSeat(
   normalized: LithophaneParams,
@@ -1123,7 +1172,7 @@ function lightSeat(
     normalized.lithoShape === "curved" ||
     normalized.lithoShape === "cylinder"
   ) {
-    return bentEmitters(normalized, bentFace(normalized, plate), plate);
+    return bentSeat(normalized, plate);
   }
 
   const kind = flatLightKind(normalized);

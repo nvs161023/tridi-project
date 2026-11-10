@@ -67,6 +67,7 @@ import {
   type LithoLightPlan,
 } from "@/lib/constructor/litho-light-calc";
 import {
+  LITHOPHANE_KALEIDOSCOPE,
   createLithophaneGeometry,
   lithophanePlateSize,
 } from "@/lib/constructor/lithophane-geometry";
@@ -466,6 +467,13 @@ type LithophaneModelProps = {
   faceted: boolean;
   /** Уменьшенная сетка яркости: из неё собирается карта свечения. */
   glow: LithophaneBrightnessGrid | null;
+  /**
+   * Кадры граней калейдоскопа: у каждой грани своя карта свечения.
+   *
+   * `null` — у панели один кадр (плоская, изогнутая, полуцилиндр). Четыре сетки
+   * приходят только у призмы: без них на всех гранях светился бы первый кадр.
+   */
+  faces: LithophaneBrightnessGrid[] | null;
   /** Габариты плиты без рамки: под них карта свечения получает светлые поля. */
   plate: { width: number; height: number } | null;
 };
@@ -523,37 +531,62 @@ function createGlowTexture(
  * в муар. Рамка и подставка идут гладким материалом всегда: их нормали посчитаны
  * после сварки вершин, поэтому скругление стойки и накладка выглядят литыми.
  *
+ * У калейдоскопа материалов больше: `createLithophaneGeometry` режет его сетку
+ * по группам на четыре грани, и каждая получает свою текстуру. Иначе на всех
+ * четырёх гранях светился первый загруженный кадр, хотя рельеф у них разный.
+ *
  * В режиме подсветки рельеф становится полупрозрачным (`transmission`): сквозь
  * него проходит свет лампы, стоящей за моделью, а карта свечения повторяет
  * фото — тёмные пиксели остаются тёмными. Крепление при этом остаётся
  * обычным пластиком: рамку и подставку печатают плотными, на просвет они не
  * работают, и подсвечивать их незачем.
  *
- * Материалы и текстура создаются один раз на режим и живут дольше сетки,
+ * Материалы и текстуры создаются один раз на режим и живут дольше сетки,
  * поэтому освобождаются на размонтировании и при смене режима.
  */
 function LithophaneModel({
   backlight,
   faceted,
+  faces,
   geometry,
   glow,
   plate,
 }: LithophaneModelProps) {
-  const glowTexture = useMemo(
-    () =>
-      backlight && glow && plate ? createGlowTexture(glow, plate) : null,
-    [backlight, glow, plate],
-  );
+  /*
+    Кадр каждой грани: у плоской панели, дуги и полуцилиндра он один, у призмы —
+    до четырёх. Пустой слот грани уже заменён предыдущим кадром в `Scene`, поэтому
+    здесь только сборка текстур под пропорции плиты.
+  */
+  const faceCount = faces && faces.length > 0 ? faces.length : 1;
 
-  const materials = useMemo(
-    () => [
-      backlight
+  const glowTextures = useMemo(() => {
+    if (!backlight || !plate) {
+      return null;
+    }
+
+    const grids =
+      faces && faces.length > 0
+        ? faces
+        : glow
+          ? Array.from({ length: faceCount }, () => glow)
+          : [];
+
+    return grids.length > 0
+      ? grids.map((grid) => createGlowTexture(grid, plate))
+      : null;
+  }, [backlight, faceCount, faces, glow, plate]);
+
+  const materials = useMemo(() => {
+    const relief = Array.from({ length: faceCount }, (_, index) => {
+      const texture = glowTextures?.[index] ?? null;
+
+      return texture
         ? new MeshPhysicalMaterial({
             ...STUDIO_BACKLIGHT.material,
             color: STUDIO_MODEL_TINTS.lithophane,
             emissive: STUDIO_BACKLIGHT.color,
             emissiveIntensity: STUDIO_BACKLIGHT.glow,
-            emissiveMap: glowTexture,
+            emissiveMap: texture,
             flatShading: faceted,
             metalness: 0,
           })
@@ -562,15 +595,19 @@ function LithophaneModel({
             flatShading: faceted,
             metalness: STUDIO_PLASTIC.metalness,
             roughness: STUDIO_PLASTIC.roughness,
-          }),
+          });
+    });
+
+    // Последний материал — крепление: его номер замыкает группы сетки.
+    return [
+      ...relief,
       new MeshStandardMaterial({
         color: STUDIO_MODEL_TINTS.lithophane,
         metalness: STUDIO_PLASTIC.metalness,
         roughness: STUDIO_PLASTIC.roughness,
       }),
-    ],
-    [backlight, faceted, glowTexture],
-  );
+    ];
+  }, [faceCount, faceted, glowTextures]);
 
   useEffect(
     () => () => {
@@ -581,7 +618,14 @@ function LithophaneModel({
     [materials],
   );
 
-  useEffect(() => () => glowTexture?.dispose(), [glowTexture]);
+  useEffect(
+    () => () => {
+      for (const texture of glowTextures ?? []) {
+        texture.dispose();
+      }
+    },
+    [glowTextures],
+  );
 
   /*
     В режиме просвета тень снимается: пластик прозрачный, и сплошная тень на
@@ -1047,6 +1091,12 @@ type SceneProps = {
   heatMap: boolean;
   /** Уменьшенная сетка яркости литофана: из неё собирается карта свечения. */
   lithophaneGlow: LithophaneBrightnessGrid | null;
+  /**
+   * Кадры граней калейдоскопа для подсветки: у призмы своя текстура на грань.
+   *
+   * `null` — у панели один кадр, и хватает `lithophaneGlow`.
+   */
+  lithophaneFaces: LithophaneBrightnessGrid[] | null;
   /** Расчёт света: где стоят лампы и как они освещают панель. */
   lithophaneLight: LithoLightPlan | null;
 };
@@ -1057,6 +1107,7 @@ function Scene({
   geometry,
   heatMap,
   keychainBack,
+  lithophaneFaces,
   lithophaneGlow,
   lithophaneLight,
   params,
@@ -1170,6 +1221,7 @@ function Scene({
         <LithophaneModel
           backlight={backlightOn}
           faceted={params.lithoShape === "flat"}
+          faces={lithophaneFaces}
           geometry={geometry}
           glow={lithophaneGlow}
           plate={lithophanePlate}
@@ -1519,6 +1571,38 @@ export function Viewport({
   );
 
   /**
+   * Кадры граней калейдоскопа: основа и три слота.
+   *
+   * Пустой слот повторяет предыдущую грань — ровно как в
+   * `lithophaneFaceBrightness` при построении геометрии. Поэтому рельеф и
+   * текстура на каждой грани совпадают: в предпросмотре видно то же фото, что
+   * напечатается.
+   */
+  const lithophaneFaces = useMemo(() => {
+    if (params.model !== "lithophane" || params.lithoShape !== "kaleidoscope") {
+      return null;
+    }
+
+    if (!lithophanePreview) {
+      return null;
+    }
+
+    const sides = lithophaneSidePreview ?? [];
+    const frames = [lithophanePreview];
+
+    for (let index = 1; index < LITHOPHANE_KALEIDOSCOPE.sides; index += 1) {
+      frames.push(sides[index - 1] ?? frames[index - 1]);
+    }
+
+    return frames;
+  }, [
+    lithophanePreview,
+    lithophaneSidePreview,
+    params.lithoShape,
+    params.model,
+  ]);
+
+  /**
    * Профиль и сетка пересчитываются только при изменении параметров или
    * загрузке шрифта. Смена камеры, света или материала не создаёт новую
    * геометрию. Пока шрифт не пришёл, брелок показывается без имени, а
@@ -1824,6 +1908,7 @@ export function Viewport({
             geometry={geometry}
             heatMap={lithophaneHeatMap}
             keychainBack={keychainBack}
+            lithophaneFaces={lithophaneFaces}
             lithophaneGlow={lithophanePreview}
             lithophaneLight={lithophaneLight}
             params={params}

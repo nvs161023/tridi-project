@@ -2842,37 +2842,68 @@ console.log("\n17. Форма панели: вершины рождаются с
 }
 
 
-console.log("\n18. Базы изогнутых форм: брусок с каналом и диск с пазом");
+console.log(
+  "\n18. Базы изогнутых форм: брусок по дуге и чаша, источник по выбору",
+);
 
 {
   /*
     У изогнутой панели база — брусок, заметённый по её дуге: паз под нижнюю
-    кромку, канал под ленту за тылом панели (открыт вверх, поэтому лента светит
-    на панель) и наружная стенка перед лицом. У полуцилиндра рельса нет: панель
-    опускается в круговой паз плоского диска с отверстием Ø40 в центре, и лампа
-    светит прямо внутрь панели, а не в её торец.
+    кромку и выборка под источник. Лента лежит в канале, вынесенном на 26 мм
+    назад: у самой панели она давала пересвет по центру и тёмные края. Под
+    USB-лампу и патрон E27 канала нет — за пазом поднимается полка, на которой
+    стоят стойка или стакан.
 
-    Проверяется разрез, которого не видно на предпросмотре: дно паза на высоте
-    LITHOPHANE_BENT_BASE_FLOOR_MM, канал глубиной 2 мм за панелью, пластик за
-    каналом и перед панелью, у диска — сквозное отверстие по центру, круговой паз
-    на верхней плоскости и выборка снизу. Раньше у полуцилиндра рельс закрывал
-    180° и свет лампы упирался в его стенку.
+    У полуцилиндра — чаша: круговой паз на кромке, а в дне либо кольцевая канавка
+    под ленту, либо площадка Ø44 под стойку и стакан, либо гладкое дно.
+
+    Проверяется разрез, которого не видно на предпросмотре: дно паза, глубина
+    канала и канавки, высота полки, пластик за выборкой, замкнутость и вес.
   */
   const base = LITHOPHANE_BENT_BASE;
   const width = 120;
   const height = 80;
-  const curved = normalizeLithophaneParams({
-    lithophaneWidth: width,
-    lithophaneHeight: height,
-    lithoShape: "curved",
-  });
-  const cylinder = normalizeLithophaneParams({
-    lithophaneWidth: width,
-    lithophaneHeight: height,
-    lithoShape: "cylinder",
-  });
-  const bar = createLithophaneGeometry(curved, "stand");
-  const disc = createLithophaneGeometry(cylinder, "stand");
+  const plate = { lithophaneWidth: width, lithophaneHeight: height };
+  const bar = createLithophaneGeometry(
+    normalizeLithophaneParams({ ...plate, lithoShape: "curved" }),
+    "stand",
+  );
+  const railUsb = createLithophaneGeometry(
+    normalizeLithophaneParams({
+      ...plate,
+      lithoShape: "curved",
+      lithoLightSource: "usb_bulb",
+    }),
+    "stand",
+  );
+  const railSocket = createLithophaneGeometry(
+    normalizeLithophaneParams({
+      ...plate,
+      lithoShape: "curved",
+      lithoLightSource: "socket",
+    }),
+    "stand",
+  );
+  const ring = createLithophaneGeometry(
+    normalizeLithophaneParams({ ...plate, lithoShape: "cylinder" }),
+    "stand",
+  );
+  const bowlUsb = createLithophaneGeometry(
+    normalizeLithophaneParams({
+      ...plate,
+      lithoShape: "cylinder",
+      lithoLightSource: "usb_bulb",
+    }),
+    "stand",
+  );
+  const bowlSocket = createLithophaneGeometry(
+    normalizeLithophaneParams({
+      ...plate,
+      lithoShape: "cylinder",
+      lithoLightSource: "socket",
+    }),
+    "stand",
+  );
   const frontZ = boxSize(
     createLithophaneFrameGeometry({
       lithophaneWidth: width,
@@ -2881,14 +2912,18 @@ console.log("\n18. Базы изогнутых форм: брусок с кан�
   ).z;
   const cylinderRadius = width / Math.PI;
   const discRadius = cylinderRadius + frontZ + base.discRim;
-  // Канал ленты стоит за тылом панели: зазор посадки, перемычка и середина канала.
+  // Канал ленты стоит за тылом панели: зазор посадки, отступ и середина канала.
   const channelCenter =
     -(LITHOPHANE_FIT_GAP_MM + base.channelGap + base.channelWidth / 2);
   // За каналом остаётся внутренняя стенка: её середина — проверка материала.
   const behindChannel =
     channelCenter - base.channelWidth / 2 - base.innerRun / 2;
+  // Кольцевая канавка ленты в дне чаши: от середины кольца до оси чаши.
+  const ringOuter =
+    cylinderRadius - LITHOPHANE_FIT_GAP_MM - base.bowlWall - base.ringInset;
+  const ringCenter = ringOuter - base.channelWidth / 2;
   const barSize = boxSize(bar);
-  const discSize = boxSize(disc);
+  const ringSize = boxSize(ring);
   const seatHit = firstHit(bar, [0, base.top + 30, 0], [0, -1, 0]);
   const channelHit = firstHit(
     bar,
@@ -2901,26 +2936,51 @@ console.log("\n18. Базы изогнутых форм: брусок с кан�
     [0, base.top + 30, frontZ + LITHOPHANE_FIT_GAP_MM + base.outerWall / 2],
     [0, -1, 0],
   );
-  const grooveHit = firstHit(disc, [0, base.bowlHeight + 30, 2], [0, -1, 0]);
-  const bowlHit = firstHit(disc, [0, base.bowlHeight + 30, -10], [0, -1, 0]);
-  // Гнездо пьедестала: по оси чаши луч проходит кромку и упирается в его дно.
-  const pedestalRim = firstHit(
-    disc,
-    [0, base.pedestalTop + 30, -cylinderRadius + base.pedestalCavity + 1],
+  const grooveHit = firstHit(ring, [0, base.bowlHeight + 30, 2], [0, -1, 0]);
+  const bowlHit = firstHit(
+    ring,
+    [0, base.bowlHeight + 30, -cylinderRadius + 15],
     [0, -1, 0],
   );
-  const pedestalFloor = firstHit(
-    disc,
-    [0, base.pedestalTop + 30, -cylinderRadius],
+  // Кольцевая канавка: луч идёт мимо панели в дно канавки.
+  const ringHit = firstHit(
+    ring,
+    [0, base.bowlHeight + 30, -cylinderRadius + ringCenter],
+    [0, -1, 0],
+  );
+  // Полка бруска: луч падает в её тыльную часть, мимо стойки лампы.
+  const railHit = firstHit(
+    railUsb,
+    [0, base.railTop + 40, base.railBack + 4],
+    [0, -1, 0],
+  );
+  // Площадка в чаше: луч идёт в кольцо площадки мимо подошвы стойки.
+  const perchHit = firstHit(
+    bowlUsb,
+    [0, base.perchTop + 40, -cylinderRadius + base.pedestalRadius - 3],
+    [0, -1, 0],
+  );
+  // Стакан патрона: луч в стенку кромки и луч в дно гнезда.
+  const socketRimHit = firstHit(
+    bowlSocket,
+    [0, base.perchTop + 40, -cylinderRadius + LITHOPHANE_SOCKET_LIGHT.outerDiameter / 2 - 1],
+    [0, -1, 0],
+  );
+  const socketCavityHit = firstHit(
+    bowlSocket,
+    [0, base.perchTop + 40, -cylinderRadius + 12],
     [0, -1, 0],
   );
 
   console.log(
     `  брусок дуги: ${barSize.x.toFixed(2)} × ${barSize.y.toFixed(2)} × ` +
       `${barSize.z.toFixed(2)} мм, вес ` +
-      `${calculateGeometryWeightGrams(bar).toFixed(1)} г; диск: Ø` +
-      `${discSize.x.toFixed(2)} × ${discSize.y.toFixed(2)} мм, вес ` +
-      `${calculateGeometryWeightGrams(disc).toFixed(1)} г`,
+      `${calculateGeometryWeightGrams(bar).toFixed(1)} г; рельс с USB: ` +
+      `${boxSize(railUsb).z.toFixed(2)} мм по глубине; чаша с лентой: Ø` +
+      `${ringSize.x.toFixed(2)} × ${ringSize.y.toFixed(2)} мм, вес ` +
+      `${calculateGeometryWeightGrams(ring).toFixed(1)} г; чаша с патроном: ` +
+      `${boxSize(bowlSocket).y.toFixed(2)} мм, вес ` +
+      `${calculateGeometryWeightGrams(bowlSocket).toFixed(1)} г`,
   );
 
   // Сменные крепления остаются только у плоской панели: у изогнутых своя база.
@@ -2964,8 +3024,18 @@ console.log("\n18. Базы изогнутых форм: брусок с кан�
     0,
   );
   checkRange(
+    "брусок: канал отодвинут от панели на 26 мм",
+    [
+      Math.abs(channelCenter) -
+        LITHOPHANE_FIT_GAP_MM -
+        base.channelWidth / 2,
+    ],
+    Math.abs(base.channelGap) - TOLERANCE_MM,
+    Math.abs(base.channelGap) + TOLERANCE_MM,
+  );
+  checkRange(
     "чаша: наружный радиус — панель, стенка и кромка",
-    [discSize.x / 2 - discRadius, discSize.y - base.pedestalTop],
+    [ringSize.x / 2 - discRadius, ringSize.y - base.bowlHeight],
     -0.02,
     0.02,
   );
@@ -2982,27 +3052,70 @@ console.log("\n18. Базы изогнутых форм: брусок с кан�
     base.bowlFloor + TOLERANCE_MM,
   );
   checkRange(
-    "чаша: пьедестал поднимает лампу к середине кадра",
-    [base.pedestalTop - base.bowlFloor],
-    25,
-    60,
-  );
-  checkRange(
-    "чаша: гнездо пьедестала глубиной 5 мм",
-    [
-      (pedestalRim?.y ?? Number.NaN) - (pedestalFloor?.y ?? Number.NaN),
-    ],
-    base.pedestalDepth - TOLERANCE_MM,
-    base.pedestalDepth + TOLERANCE_MM,
+    "чаша: кольцевая канавка под ленту глубиной 2 мм",
+    [ringHit?.y ?? Number.NaN],
+    base.bowlFloor - base.channelDepth - TOLERANCE_MM,
+    base.bowlFloor - base.channelDepth + TOLERANCE_MM,
   );
   check(
     "чаша: оболочка замкнута и стоит на столе",
-    [openEdges(disc) + nanVertices(disc), disc.boundingBox?.min.y ?? Number.NaN],
+    [
+      openEdges(ring) + nanVertices(ring),
+      ring.boundingBox?.min.y ?? Number.NaN,
+    ],
     [0, 0],
   );
 
+  // Источник выбирается: под лампу база получает полку, а не канал.
+  checkRange(
+    "рельс: полка под лампу на 16 мм",
+    [railHit?.y ?? Number.NaN],
+    base.railTop - TOLERANCE_MM,
+    base.railTop + TOLERANCE_MM,
+  );
+  checkRange(
+    "рельс: полка доходит до тыльной кромки",
+    [boxSize(railUsb).z, boxSize(railSocket).z],
+    Math.abs(base.railBack) + TOLERANCE_MM,
+    Math.abs(base.railBack) + 20,
+  );
+  checkRange(
+    "рельс: стакан патрона поднимает лампу над полкой",
+    [boxSize(railSocket).y],
+    base.railTop + 20,
+    base.railTop + 40,
+  );
+  checkRange(
+    "чаша: площадка под лампу на 43 мм",
+    [perchHit?.y ?? Number.NaN],
+    base.perchTop - TOLERANCE_MM,
+    base.perchTop + TOLERANCE_MM,
+  );
+  checkRange(
+    "чаша: гнездо стакана глубиной 15 мм",
+    [
+      (socketRimHit?.y ?? Number.NaN) - (socketCavityHit?.y ?? Number.NaN),
+    ],
+    LITHOPHANE_SOCKET_LIGHT.cavityDepth - TOLERANCE_MM,
+    LITHOPHANE_SOCKET_LIGHT.cavityDepth + TOLERANCE_MM,
+  );
+  check(
+    "базы с лампой: оболочки замкнуты",
+    [
+      openEdges(railUsb) + nanVertices(railUsb),
+      openEdges(railSocket) + nanVertices(railSocket),
+      openEdges(bowlUsb) + nanVertices(bowlUsb),
+      openEdges(bowlSocket) + nanVertices(bowlSocket),
+    ],
+    [0, 0, 0, 0],
+  );
+
   bar.dispose();
-  disc.dispose();
+  railUsb.dispose();
+  railSocket.dispose();
+  ring.dispose();
+  bowlUsb.dispose();
+  bowlSocket.dispose();
 }
 
 
@@ -3162,6 +3275,21 @@ console.log("\n19. Калейдоскоп: четыре панели без ра
     triangleCount(panels),
     (plateMesh?.triangles ?? 0) * LITHOPHANE_KALEIDOSCOPE.sides,
   );
+  /*
+    Группы материалов: по одной на грань и одна на крепление. Предпросмотр
+    красит грани разными кадрами — без групп на всех светился бы первый.
+  */
+  check(
+    "калейдоскоп: у каждой грани своя группа материалов",
+    [
+      prism.groups.map((group) => group.materialIndex),
+      panels.groups.map((group) => group.materialIndex),
+    ],
+    [
+      [0, 1, 2, 3, LITHOPHANE_KALEIDOSCOPE.sides],
+      [0, 1, 2, 3],
+    ],
+  );
 
   // Один кадр повторяется на всех гранях — так калейдоскоп работает по умолчанию.
   const black = flatFrame(0, 40, 40);
@@ -3300,7 +3428,24 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     lithoLightSource: "socket",
   });
   const prism = lithophaneLightPlan({ lithoShape: "kaleidoscope" });
-  const disc = lithophaneLightPlan({ lithoShape: "cylinder" });
+  const curvedStrip = lithophaneLightPlan({ lithoShape: "curved" });
+  const ringStrip = lithophaneLightPlan({ lithoShape: "cylinder" });
+  const railBulb = lithophaneLightPlan({
+    lithoShape: "curved",
+    lithoLightSource: "usb_bulb",
+  });
+  const railSocket = lithophaneLightPlan({
+    lithoShape: "curved",
+    lithoLightSource: "socket",
+  });
+  const bowlBulb = lithophaneLightPlan({
+    lithoShape: "cylinder",
+    lithoLightSource: "usb_bulb",
+  });
+  const bowlSocket = lithophaneLightPlan({
+    lithoShape: "cylinder",
+    lithoLightSource: "socket",
+  });
   const stripSpots = strip?.emitters.map((item) => item.position) ?? [];
   const stripX = stripSpots.map((point) => point[0]);
 
@@ -3455,24 +3600,87 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     ],
     ["candle", [0, Math.round(LITHO_LIGHT_SEATS.candleY), 0]],
   );
+  /*
+    Источник у изогнутых форм теперь выбирается. Лента в чаше уложена кольцом по
+    всему полуцилиндру, а лампа и патрон стоят на полке базы: их центр считается
+    от полки, поэтому у дуги и в чаше он разный.
+  */
+  const bowlRadius = -(bowlBulb?.faces[0].bend?.radius ?? 0);
+  const ringSpots = ringStrip?.emitters.map((item) => item.position) ?? [];
+  const ringRadius = ringSpots.map((point) =>
+    Math.hypot(point[0], point[2] - bowlRadius),
+  );
+  const shelf = LITHOPHANE_BENT_BASE;
+
   check(
-    "свет: в чаше полуцилиндра лампа на оси пьедестала",
+    "свет: в чаше лента уложена кольцом по всему полуцилиндру",
     [
-      disc?.kind,
-      disc?.emitters[0].position[1],
-      disc?.emitters[0].position[2],
-      -(disc?.faces[0].bend?.radius ?? 0),
+      ringStrip?.kind,
+      ringSpots.length,
+      Math.max(...ringRadius) - Math.min(...ringRadius) < 0.01,
+      new Set(ringSpots.map((point) => point[1].toFixed(3))).size,
+    ],
+    ["strip", LITHO_LIGHT_MODEL.stripEmitters, true, 1],
+  );
+  check(
+    "свет: в чаше лампа и патрон стоят на площадке по оси",
+    [
+      bowlBulb?.kind,
+      bowlBulb?.emitters[0].position.map((value) => Math.round(value)),
+      bowlSocket?.kind,
+      bowlSocket?.emitters[0].position.map((value) => Math.round(value)),
     ],
     [
-      "disc_lamp",
-      LITHO_LIGHT_SEATS.discLampY,
-      -(disc?.faces[0].bend?.radius ?? 0),
-      -(disc?.faces[0].bend?.radius ?? 0),
+      "usb_bulb",
+      [0, Math.round(shelf.perchTop + LITHO_LIGHT_SEATS.usbBulbAbove), Math.round(bowlRadius)],
+      "socket",
+      [0, Math.round(shelf.perchTop + LITHO_LIGHT_SEATS.socketAbove), Math.round(bowlRadius)],
     ],
   );
   check(
+    "свет: на рельсе дуги лампа и патрон стоят на полке",
+    [
+      railBulb?.kind,
+      railBulb?.emitters[0].position.map((value) => Math.round(value)),
+      railSocket?.kind,
+      railSocket?.emitters[0].position.map((value) => Math.round(value)),
+    ],
+    [
+      "usb_bulb",
+      [
+        0,
+        Math.round(shelf.railTop + LITHO_LIGHT_SEATS.usbBulbAbove),
+        LITHOPHANE_USB_LIGHT.centerZ,
+      ],
+      "socket",
+      [
+        0,
+        Math.round(shelf.railTop + LITHO_LIGHT_SEATS.socketAbove),
+        LITHOPHANE_SOCKET_LIGHT.centerZ,
+      ],
+    ],
+  );
+  check(
+    "свет: «без подсветки» у изогнутой панели плана нет",
+    lithophaneLightPlan({ lithoShape: "curved", lithoLightSource: "none" }),
+    null,
+  );
+  check(
+    "свет: лента в рельсе дуги отодвинута от панели",
+    [
+      curvedStrip?.kind,
+      curvedStrip!.actualDistance > 25,
+    ],
+    ["strip", true],
+  );
+  check(
+    "свет: лампа в чаше светит ровнее ленты в дне",
+    [bowlBulb!.topShare > ringStrip!.topShare, bowlSocket!.topShare > ringStrip!.topShare],
+    [true, true],
+  );
+  check(
     "свет: в чаше полуцилиндра верх не темнее низа вдвое",
-    disc!.topShare > 0.5,
+    bowlBulb!.topShare > 0.5,
     true,
   );
   checkRange(

@@ -1957,6 +1957,36 @@ function assignMaterialGroups(
 
 
 /**
+ * Группы материалов сборки: по одной на грань калейдоскопа, крепление — последняя.
+ *
+ * Предпросмотр рисует грани разными текстурами, поэтому одной общей карты
+ * свечения мало: с ней на всех четырёх гранях светился первый кадр. Границы
+ * групп режутся по числу индексов каждой панели, цоколь и крышка получают
+ * последний номер материала.
+ */
+function assignFaceGroups(
+  geometry: BufferGeometry,
+  panels: readonly number[],
+): BufferGeometry {
+  const total = geometry.getIndex()?.count ?? 0;
+  let start = 0;
+
+  geometry.clearGroups();
+
+  for (let face = 0; face < panels.length; face += 1) {
+    geometry.addGroup(start, panels[face], face);
+    start += panels[face];
+  }
+
+  if (total > start) {
+    geometry.addGroup(start, total - start, panels.length);
+  }
+
+  return geometry;
+}
+
+
+/**
  * Профиль подставки в плоскости YZ: высота над столом и глубина.
  *
  * `smooth` — точка лежит на скруглении: соседние рёбра делят её вершины, и свет
@@ -2820,15 +2850,13 @@ function createRevolvedBody(
  * висит на его стенках. Прорезь 18° обращена назад (θ = 180°): провод выходит из
  * патрона и уходит за тыльную кромку базы.
  */
-function createSocketLightBody(
-  shape: typeof LITHOPHANE_ARCH_STAND,
-): BufferGeometry {
+function createSocketLightBody(baseTop: number): BufferGeometry {
   const light = LITHOPHANE_SOCKET_LIGHT;
   const outerRadius = light.outerDiameter / 2;
   const cavityRadius = light.cavityDiameter / 2;
-  const floor = shape.baseTop + light.floorAboveBase;
+  const floor = baseTop + light.floorAboveBase;
   const rim = floor + light.cavityDepth;
-  const bottom = shape.baseTop - 4;
+  const bottom = baseTop - 4;
 
   return createRevolvedBody(
     [
@@ -2877,29 +2905,49 @@ function createSocketShadeBody(): BufferGeometry {
 }
 
 /**
- * База изогнутой панели: изогнутый брусок с пазом и каналом под ленту.
+ * База изогнутой панели: изогнутый брусок по дуге панели.
  *
- * Сечение одно: снаружи перед панелью узкая стена, под панелью паз, за тылом
- * панели канал под светодиодную ленту, открытый вверх, и тонкая внутренняя
- * стенка. Брусок заметает дугу панели, поэтому паз повторяет её нижнюю кромку, а
- * лента лежит в канале и светит вверх на тыл плиты — издалека база читается
- * изогнутой планкой под панелью.
+ * Сечение зависит от источника света. Под ленту снаружи перед панелью узкая
+ * стена, под панелью паз, за тылом панели канал 10 × 2 мм, открытый вверх, и
+ * тонкая внутренняя стенка. Канал вынесен на 26 мм назад: чем дальше лента от
+ * панели, тем ровнее пятно. Под USB-лампу и патрон E27 канала нет: за пазом
+ * начинается пандус, который поднимается к полке под стойку лампы.
  *
- * `u` — расстояние от тыльной плоскости рамки по нормали к панели (u = 0 — тыл
- * рамки, u = frontZ — её лицевая плоскость), `y` — высота над столом.
+ * Брусок заметает дугу панели, поэтому паз повторяет её нижнюю кромку, а
+ * основание читается изогнутой планкой под панелью. `u` — расстояние от тыльной
+ * плоскости рамки по нормали к панели (u = 0 — тыл рамки, u = frontZ — её
+ * лицевая плоскость), `y` — высота над столом.
  *
  * Панель стоит на дне паза, поэтому вся сборка поднимается на
  * `LITHOPHANE_BENT_BASE_FLOOR_MM`: низ кадра открыт каналу ленты, а не тени стола.
  */
 export const LITHOPHANE_BENT_BASE = {
   /** Высота базы над столом, мм. */
-  top: 7,
+  top: 12,
   /** Глубина паза под нижнюю кромку панели, мм. */
   seatDepth: 3,
-  /** Канал под светодиодную ленту: ширина, глубина и отступ от панели, мм. */
+  /**
+   * Канал под светодиодную ленту: ширина, глубина и отступ от панели, мм.
+   *
+   * Отступ 26 мм — максимальное удаление, которое держит основание под панелью:
+   * лента в канале у самой панели светила в упор и давала пятно по центру с
+   * тёмными краями. Канал вынесен назад на 26 мм, поэтому расстояние от ленты
+   * до плоскости панели выходит около 31 мм — вчетверо больше прежних 6.6.
+   */
   channelWidth: 10,
   channelDepth: 2,
-  channelGap: 1.6,
+  channelGap: 26,
+  /**
+   * Полка под стойку USB-лампы и стакан патрона E27: глубина начала подъёма,
+   * высота полки и тыльная кромка, мм.
+   *
+   * Полка выше базы: стойка USB поднимает колбу к середине кадра, а стакан
+   * ставит цоколь лампы E27 так, чтобы её колба светила ровно по высоте панели.
+   * Пандус от паза к полке наклонён на 19° — печатается без поддержки.
+   */
+  railShoulder: -26,
+  railTop: 16,
+  railBack: -64,
   /** Материал за каналом (внутрь) и толщина наружной стенки паза, мм. */
   innerRun: 2,
   outerWall: 3,
@@ -2909,26 +2957,31 @@ export const LITHOPHANE_BENT_BASE = {
    * Чаша полуцилиндра: высота кромки, толщина стенки и дна, мм.
    *
    * Плоский диск оставлял панель на 4 мм над столом, а лампу — вплотную к её низу:
-   * низ горел, верх уходил в тень. Чаша поднимает панель на 31 мм, а лампу — на
-   * пьедестал внутри, к середине кадра: свет ложится ровно по всей высоте, а
-   * стол под панелью не пересвечен.
+   * низ горел, верх уходил в тень. Чаша поднимает панель на 31 мм, а источник — на
+   * полку внутри, к середине кадра: свет ложится ровно по всей высоте, а стол под
+   * панелью не пересвечен.
    */
   bowlHeight: 34,
   bowlWall: 3.5,
   bowlFloor: 7,
   /**
-   * Пьедестал под лампу внутри чаши: радиус, высота и гнездо, мм.
+   * Круговая канавка под ленту в дне чаши: отступ от внутренней стенки, мм.
    *
-   * Конус от дна к кромке чаши поднимает источник к середине кадра: гнездо Ø37
-   * глубиной 5 держит LED-свечу или пилюлю Ø36, их центр свечения выходит на
-   * 71 мм — ровно на середину кадра высотой 80. Конус расширяется вверх, поэтому
-   * печатается без поддержки, а дно чаши закрывает свет снизу — в стол он не бьёт.
+   * Лента укладывается кольцом по всему полуцилиндру и светит вверх: так она
+   * закрывает всю дугу, а не один сектор. Глубина канавки — общая с рельсом.
+   */
+  ringInset: 1,
+  /**
+   * Площадка под стойку USB-лампы и стакан E27 в чаше: радиус и высота, мм.
+   *
+   * Конус от дна к площадке поднимает лампу к середине кадра: колба USB-лампы
+   * выходит на 66 мм, лампа E27 — на 76 мм при середине кадра 71 мм. Конус
+   * расширяется вверх, поэтому печатается без поддержки, а дно чаши закрывает
+   * свет снизу — в стол он не бьёт.
    */
   pedestalRadius: 22,
   pedestalFoot: 10,
-  pedestalTop: 58,
-  pedestalCavity: 18.5,
-  pedestalDepth: 5,
+  perchTop: 43,
   /** Угол фасетки дуги базы, градусы: силуэт базы читается дугой. */
   facetDeg: 1.5,
   /** Наименьшее число отрезков дуги: короткая дуга остаётся гладкой. */
@@ -3024,24 +3077,39 @@ type BaseSectionPoint = { u: number; y: number };
  * Сечение базы в плоскости (u, y).
  *
  * Обход против часовой стрелки: низ слева направо, вверх по наружной стенке,
- * обратно по верху с двумя выборками и вниз по внутренней стенке. Выборки — паз
- * под панель и канал под ленту; между ними остаётся перемычка `channelGap`,
- * поэтому свет ленты не уходит в щель посадки, а бьёт в тыл плиты. Канал открыт
- * вверх: лента лежит в нём и светит вверх на панель.
+ * обратно по верху с выборками и вниз по внутренней стенке. Под ленту выборок
+ * две — паз под панель и канал под ленту, между ними перемычка `channelGap`:
+ * свет не уходит в щель посадки, а бьёт в тыл плиты. Под USB-лампу и патрон
+ * канала нет — вместо него пандус и полка под лампу, иначе стойке не на что
+ * встать.
  */
-function bentBaseSection(frontZ: number): BaseSectionPoint[] {
+function bentBaseSection(
+  frontZ: number,
+  light: LithophaneLightSource,
+): BaseSectionPoint[] {
   const base = LITHOPHANE_BENT_BASE;
   const seatFloor = LITHOPHANE_BENT_BASE_FLOOR_MM;
   const slotInner = -LITHOPHANE_FIT_GAP_MM;
   const slotOuter = frontZ + LITHOPHANE_FIT_GAP_MM;
   const outer = slotOuter + base.outerWall;
+  const withStrip = light === "strip";
+  // Полка нужна тем источникам, которые стоят на базе стойкой или стаканом.
+  const withShelf = light === "usb_bulb" || light === "socket";
   const channelFloor = base.top - base.channelDepth;
   const channelNear = slotInner - base.channelGap;
   const channelFar = channelNear - base.channelWidth;
-  // Внутренняя стенка — ровно материал за каналом: тоньше 2 мм лента греет пластик.
-  const inner = channelFar - base.innerRun;
+  /*
+    Внутренняя стенка: под лентой — материал за каналом (тоньше 2 мм лента греет
+    пластик), у полки — её тыльная кромка, у «без подсветки» — короткий хвост за
+    пазом.
+  */
+  const inner = withStrip
+    ? channelFar - base.innerRun
+    : withShelf
+      ? base.railBack
+      : slotInner - base.innerRun;
 
-  return [
+  const section: BaseSectionPoint[] = [
     { u: inner, y: 0 },
     { u: outer, y: 0 },
     { u: outer, y: base.top },
@@ -3049,12 +3117,33 @@ function bentBaseSection(frontZ: number): BaseSectionPoint[] {
     { u: slotOuter, y: seatFloor },
     { u: slotInner, y: seatFloor },
     { u: slotInner, y: base.top },
-    { u: channelNear, y: base.top },
-    { u: channelNear, y: channelFloor },
-    { u: channelFar, y: channelFloor },
-    { u: channelFar, y: base.top },
-    { u: inner, y: base.top },
   ];
+
+  if (withStrip) {
+    section.push(
+      { u: channelNear, y: base.top },
+      { u: channelNear, y: channelFloor },
+      { u: channelFar, y: channelFloor },
+      { u: channelFar, y: base.top },
+      { u: inner, y: base.top },
+    );
+
+    return section;
+  }
+
+  if (withShelf) {
+    // Пандус от паза к полке и сама полка: на ней стоит стойка лампы.
+    section.push(
+      { u: base.railShoulder, y: base.railTop },
+      { u: inner, y: base.railTop },
+    );
+
+    return section;
+  }
+
+  section.push({ u: inner, y: base.top });
+
+  return section;
 }
 
 /**
@@ -3066,33 +3155,34 @@ function bentBaseSection(frontZ: number): BaseSectionPoint[] {
 function bentBaseProfile(
   radius: number,
   frontZ: number,
+  light: LithophaneLightSource,
 ): (readonly [number, number])[] {
-  return bentBaseSection(frontZ).map(
+  return bentBaseSection(frontZ, light).map(
     (point) => [radius + point.u, point.y] as const,
   );
 }
 
 /**
- * Чаша под полуцилиндром: глубокая база с пазом на кромке и пьедесталом в центре.
+ * Чаша под полуцилиндром: база с пазом на кромке и местом под источник.
  *
  * Плоский диск оставлял панель на 4 мм над столом, а лампу — вплотную к её низу:
  * низ горел, верх уходил в тень, а свет уходил в стол. Здесь профиль вращается на
  * 360° и даёт чашу: наружная стенка до `bowlHeight`, круговой паз на кромке (в
- * него опускается нижняя кромка полуцилиндра), дно на `bowlFloor` и пьедестал под
- * лампу в центре.
+ * него опускается нижняя кромка полуцилиндра) и дно на `bowlFloor`.
  *
- * Стенка чаши держит панель на 31 мм над столом, а пьедестал поднимает источник к
- * середине кадра: гнездо Ø37 глубиной 5 держит LED-свечу Ø36, её центр свечения
- * оказывается на 71 мм при середине кадра 71 мм. Свет при этом не бьёт в стол —
- * его закрывает дно чаши.
+ * Внутри чаши место под источник зависит от выбора. Под ленту в дне вырезана
+ * круговая канавка: лента укладывается кольцом по всему полуцилиндру и светит
+ * вверх. Под USB-лампу и патрон E27 из дна растёт площадка Ø44 на `perchTop` —
+ * лампа стоит на ней, и её колба оказывается у середины кадра. Под «без
+ * подсветки» дно гладкое.
  *
- * Пьедестал растёт из дна, поэтому профиль замкнут без отверстий: точки на оси
- * (r = 0) дают треугольники, а не вырожденные четырёхугольники, — так же, как у
- * донышка пьедестала.
+ * Площадка растёт из дна, поэтому профиль замкнут без отверстий: точки на оси
+ * (r = 0) дают треугольники, а не вырожденные четырёхугольники.
  */
 function bentBaseDiscProfile(
   radius: number,
   frontZ: number,
+  light: LithophaneLightSource,
 ): (readonly [number, number])[] {
   const base = LITHOPHANE_BENT_BASE;
   const discRadius = radius + frontZ + base.discRim;
@@ -3100,9 +3190,13 @@ function bentBaseDiscProfile(
   const grooveOuter = radius + frontZ + LITHOPHANE_FIT_GAP_MM;
   const floor = LITHOPHANE_CYLINDER_FLOOR_MM;
   const cavityWall = grooveInner - base.bowlWall;
-  const pedestalFloor = base.pedestalTop - base.pedestalDepth;
+  const ringOuter = cavityWall - base.ringInset;
+  const ringInner = ringOuter - base.channelWidth;
+  const ringFloor = base.bowlFloor - base.channelDepth;
+  const withShelf =
+    light === "usb_bulb" || light === "socket";
 
-  return [
+  const shell: (readonly [number, number])[] = [
     [0, 0] as const,
     [discRadius, 0] as const,
     [discRadius, base.bowlHeight] as const,
@@ -3112,12 +3206,30 @@ function bentBaseDiscProfile(
     [grooveInner, base.bowlHeight] as const,
     [cavityWall, base.bowlHeight] as const,
     [cavityWall, base.bowlFloor] as const,
-    [base.pedestalFoot, base.bowlFloor] as const,
-    [base.pedestalRadius, base.pedestalTop] as const,
-    [base.pedestalCavity, base.pedestalTop] as const,
-    [base.pedestalCavity, pedestalFloor] as const,
-    [0, pedestalFloor] as const,
   ];
+
+  if (withShelf) {
+    shell.push(
+      [base.pedestalFoot, base.bowlFloor] as const,
+      [base.pedestalRadius, base.perchTop] as const,
+      [0, base.perchTop] as const,
+    );
+
+    return shell;
+  }
+
+  if (light === "strip") {
+    shell.push(
+      [ringOuter, base.bowlFloor] as const,
+      [ringOuter, ringFloor] as const,
+      [ringInner, ringFloor] as const,
+      [ringInner, base.bowlFloor] as const,
+    );
+  }
+
+  shell.push([0, base.bowlFloor] as const);
+
+  return shell;
 }
 
 /** Отрезков дуги базы: не крупнее фасетки `facetDeg`. */
@@ -3130,34 +3242,80 @@ function baseArcSegments(sweepDeg: number): number {
 
 
 /**
- * Базы изогнутых форм: брусок по дуге у изогнутой панели, плоский диск у
- * полуцилиндра.
+ * Тела лампы на полке базы изогнутой формы и в чаше полуцилиндра.
+ *
+ * Стойка USB-лампы и стакан патрона E27 — те же тела, что в базе арки: их
+ * подошва садится на верх базы с нахлёстом 5 и 4 мм, поэтому на полке высотой
+ * `perchTop` тела поднимаются на `perchTop − baseTop` арки. `axisZ` — ось, на
+ * которую встаёт лампа: у бруска дуги тело остаётся на своём месте, в чаше
+ * переезжает в её центр.
+ */
+function bentLampBodies(
+  light: LithophaneLightSource,
+  perchTop: number,
+  axisZ?: number,
+): BufferGeometry[] {
+  const lift = perchTop - LITHOPHANE_ARCH_STAND.baseTop;
+
+  if (light === "socket") {
+    const shift =
+      axisZ === undefined ? 0 : axisZ - LITHOPHANE_SOCKET_LIGHT.centerZ;
+
+    return [
+      createSocketLightBody(perchTop).translate(0, 0, shift),
+      createSocketShadeBody().translate(0, lift, shift),
+    ];
+  }
+
+  if (light === "usb_bulb") {
+    const shift = axisZ === undefined ? 0 : axisZ - LITHOPHANE_USB_LIGHT.centerZ;
+
+    return [createUsbPodBody().translate(0, lift, shift)];
+  }
+
+  return [];
+}
+
+/**
+ * Базы изогнутых форм: брусок по дуге у изогнутой панели, чаша у полуцилиндра.
  *
  * У изогнутой панели брусок заметает дугу её нижней кромки — ровно тот угол, на
  * который завёрнута ширина (w / R). Паз повторяет дугу с точностью до фасетки
- * 1.5°, канал под ленту открыт вверх, поэтому лента лежит за тылом панели и
- * светит на него снизу. Торцы дуги закрыты плоскостями профиля: брусок замкнут.
+ * 1.5°. Под ленту в бруске вырезан канал, вынесенный на 26 мм назад: у панели
+ * лента светила в упор и давала пересвеченный центр с тёмными краями. Под
+ * USB-лампу и патрон E27 на бруске стоит полка, и стойка со стаканом встают на
+ * неё теми же телами, что в арке. Торцы дуги закрыты плоскостями профиля: деталь
+ * замкнута.
  *
- * У полуцилиндра базы-рельса нет: панель опускается в круговой паз плоского диска
- * с отверстием Ø40 в центре. Лампа или свеча стоит в центре диска и светит прямо
- * внутрь полуцилиндра, а не в торец панели. Рельс по дуге 180° тут не нужен — он
- * закрывал бы свет лампы и читался бы на столе бесформенной тумбой.
+ * У полуцилиндра панель опускается в круговой паз чаши. Внутри чаши источник
+ * выбирает сам форму дна: под ленту — круговая канавка по всему полуцилиндру,
+ * под USB-лампу и патрон — площадка Ø44 в центре, под «без подсветки» — гладкое
+ * дно. Рельс по дуге 180° тут не нужен: он закрывал бы свет и читался бы на
+ * столе бесформенной тумбой.
  */
 function createBentStandGeometry(
   normalized: LithophaneParams,
   radius: number,
   metrics: FrameMetrics,
 ): BufferGeometry {
+  const light = normalized.lithoLightSource;
+
   if (normalized.lithoShape === "cylinder") {
     return mergeBodies(
       [
         createRevolvedBody(
-          bentBaseDiscProfile(radius, metrics.frontZ),
+          bentBaseDiscProfile(radius, metrics.frontZ, light),
           -radius,
           0,
           360,
           baseArcSegments(360),
           false,
+        ),
+        // Лампа в чаше стоит на площадке в центре — на оси вращения чаши.
+        ...bentLampBodies(
+          light,
+          LITHOPHANE_BENT_BASE.perchTop,
+          -radius,
         ),
       ],
       "плиты полуцилиндра",
@@ -3171,12 +3329,14 @@ function createBentStandGeometry(
   return mergeBodies(
     [
       createRevolvedBody(
-        bentBaseProfile(radius, metrics.frontZ),
+        bentBaseProfile(radius, metrics.frontZ, light),
         -radius,
         -halfArc,
         2 * halfArc,
         baseArcSegments(2 * halfArc),
       ),
+      // Стойка лампы встаёт на полку бруска: её ось уже на оси панели.
+      ...bentLampBodies(light, LITHOPHANE_BENT_BASE.railTop),
     ],
     "бруска базы",
   );
@@ -3501,16 +3661,19 @@ function createKaleidoscopeLidBody(
  * У каждой грани может быть свой кадр: сетка берётся из `lithophaneFaceBrightness`
  * по номеру грани. Панель чуть уже грани призмы — её торец уходит внутрь соседней
  * (см. матрицу), — а лицевая плоскость встаёт на грань, тыл на `back`, низ на дно
- * паза цоколя.
+ * паза цоколя. Возвращаются и размеры индексов каждой панели: по ним сборка режет
+ * группы материалов.
  */
-function createKaleidoscopePanelsGeometry(
-  normalized: LithophaneParams,
-): BufferGeometry {
+function createKaleidoscopePanelsGeometry(normalized: LithophaneParams): {
+  geometry: BufferGeometry;
+  spans: number[];
+} {
   const kaleido = LITHOPHANE_KALEIDOSCOPE;
   const metrics = kaleidoscopeMetrics(normalized);
   const faces = lithophaneFaceBrightness(normalized);
   const narrow = (metrics.width - 2 * BODY_OVERLAP_MM) / metrics.width;
   const bodies: BufferGeometry[] = [];
+  const spans: number[] = [];
 
   for (let side = 0; side < kaleido.sides; side += 1) {
     const plate = createKaleidoscopePanelBody(
@@ -3521,32 +3684,35 @@ function createKaleidoscopePanelsGeometry(
     plate.applyMatrix4(
       kaleidoscopePanelMatrix(side, metrics.back, metrics.floor, narrow),
     );
+    spans.push(plate.getIndex()?.count ?? 0);
     bodies.push(plate);
   }
 
-  return mergeBodies(bodies, "панелей калейдоскопа");
+  return { geometry: mergeBodies(bodies, "панелей калейдоскопа"), spans };
 }
 
 /**
  * Собранный калейдоскоп: четыре панели, цоколь и крышка.
  *
- * Панели идут в сетку первыми — граница групп материалов режется по их числу
- * индексов, — а цоколь и крышка после них.
+ * Панели идут в сетку первыми и каждая — своей группой материалов: у грани
+ * может быть свой кадр, и предпросмотр красит их разными текстурами. Цоколь и
+ * крышка замыкают группы последним номером.
  */
 function createKaleidoscopeGeometry(
   normalized: LithophaneParams,
 ): BufferGeometry {
   const panels = createKaleidoscopePanelsGeometry(normalized);
-  const reliefIndices = panels.getIndex()?.count ?? 0;
-  const bodies = [
-    panels,
-    createKaleidoscopeBaseGeometry(normalized),
-    createKaleidoscopeLidBody(normalized),
-  ];
 
-  return assignMaterialGroups(
-    mergeBodies(bodies, "калейдоскопа"),
-    reliefIndices,
+  return assignFaceGroups(
+    mergeBodies(
+      [
+        panels.geometry,
+        createKaleidoscopeBaseGeometry(normalized),
+        createKaleidoscopeLidBody(normalized),
+      ],
+      "калейдоскопа",
+    ),
+    panels.spans,
   );
 }
 
@@ -3642,7 +3808,10 @@ function createArchBaseBodies(
   ];
 
   if (light === "socket") {
-    bodies.push(createSocketLightBody(shape), createSocketShadeBody());
+    bodies.push(
+      createSocketLightBody(shape.baseTop),
+      createSocketShadeBody(),
+    );
   } else if (light === "usb_bulb") {
     bodies.push(createUsbPodBody());
   }
@@ -3727,12 +3896,12 @@ export function createLithophaneGeometry(
 
   if (part === "relief" || !normalized.lithoFrame) {
     // У калейдоскопа «рельеф» — это все четыре панели: у каждой грани может быть
-    // свой кадр, и печатают их вместе.
+    // свой кадр, и печатают их вместе. Группы по граням остаются и здесь: панель
+    // без рамки тоже светится своим кадром на каждой стороне.
     if (normalized.lithoShape === "kaleidoscope") {
-      return markPartGroup(
-        createKaleidoscopePanelsGeometry(normalized),
-        LITHOPHANE_RELIEF_GROUP,
-      );
+      const panels = createKaleidoscopePanelsGeometry(normalized);
+
+      return assignFaceGroups(panels.geometry, panels.spans);
     }
 
     return markPartGroup(
