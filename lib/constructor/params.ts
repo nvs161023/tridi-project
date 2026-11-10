@@ -1781,6 +1781,7 @@ export const LITHOPHANE_KALEIDOSCOPE_SIDES = 4;
  */
 export const LITHOPHANE_MOUNTS = [
   "none",
+  "rail",
   "arch",
   "stand",
   "base",
@@ -1792,11 +1793,38 @@ export type LithophaneMount = (typeof LITHOPHANE_MOUNTS)[number];
 /** Подписи креплений: по ним клиент строит кнопки выбора. */
 export const LITHOPHANE_MOUNT_LABELS = {
   none: "Без подставки",
+  rail: "Монорельс с кареткой",
   arch: "Открытая арка со светом",
   stand: "Сплошная ножка",
   base: "Массивное основание",
   hook: "Подвес на стену",
 } as const satisfies Record<LithophaneMount, string>;
+
+/**
+ * Патроны каретки монорельса: обычный миньон E14 и стандартный E27.
+ *
+ * Диаметр — резьбовая часть патрона, та, что проходит сквозь плиту каретки:
+ * 14.6 и 28.6 мм. Гайка патрона садится в шестигранное гнездо плиты, поэтому
+ * размеры обоих креплений лежат рядом в `LITHOPHANE_RAIL_SOCKET_SIZES`.
+ */
+export const LITHOPHANE_RAIL_SOCKETS = ["e14", "e27"] as const;
+
+export type LithophaneRailSocket = (typeof LITHOPHANE_RAIL_SOCKETS)[number];
+
+/** Подписи патронов: по ним клиент строит выбор. */
+export const LITHOPHANE_RAIL_SOCKET_LABELS = {
+  e14: "E14 (Ø14.6 мм)",
+  e27: "E27 (Ø28.6 мм)",
+} as const satisfies Record<LithophaneRailSocket, string>;
+
+/** Резьба патрона и гайка под него, мм. */
+export const LITHOPHANE_RAIL_SOCKET_SIZES = {
+  e14: { thread: 14.6, nut: 22 },
+  e27: { thread: 28.6, nut: 33 },
+} as const satisfies Record<
+  LithophaneRailSocket,
+  { thread: number; nut: number }
+>;
 
 /**
  * Источники света, под которые в базе открытой арки вырезано крепление.
@@ -1853,6 +1881,21 @@ export const LITHOPHANE_LIGHT_SEAT_LABELS = {
  */
 export function lithophaneHasStand(mount: LithophaneMount): boolean {
   return mount === "arch" || mount === "stand" || mount === "base";
+}
+
+/**
+ * Печатается ли монорельс с кареткой.
+ *
+ * Рельс намертво врезан в тыл плоской рамки, а каретка надевается на него и
+ * везёт патрон. Ни у плафона, ни у калейдоскопа тыла рамки нет, поэтому
+ * крепление читается только у плоской формы и только вместе с рамкой.
+ */
+export function lithophaneHasRail(
+  mount: LithophaneMount,
+  shape: LithophaneShape,
+  hasFrame = true,
+): boolean {
+  return mount === "rail" && shape === "flat" && hasFrame;
 }
 
 /**
@@ -1915,18 +1958,27 @@ export function lithophanePanelCount(
  *
  * Рельеф и рамка печатаются отдельно и собираются без клея: плита входит в
  * паз рамки с зазором 0.2 мм. Подставка — третья деталь, она нужна только при
- * `lithoMount === "stand"` или `"base"`. `all` — собранный вид для проверки и
- * печати одним файлом.
+ * `lithoMount === "stand"` или `"base"`. Каретка (`carriage`) — деталь
+ * монорельса: её печатают, когда `lithophaneHasRail`, и надевают на шину,
+ * врезанную в тыл рамки. `all` — собранный вид для проверки и печати одним
+ * файлом.
  */
-export const LITHOPHANE_PARTS = ["relief", "frame", "stand", "all"] as const;
+export const LITHOPHANE_PARTS = [
+  "relief",
+  "frame",
+  "stand",
+  "carriage",
+  "all",
+] as const;
 
 export type LithophanePart = (typeof LITHOPHANE_PARTS)[number];
 
 /** Подписи деталей литофана для панели и имён файлов. */
 export const LITHOPHANE_PART_LABELS = {
   relief: "Рельеф",
-  frame: "Рамка",
+  frame: "Рамка с рельсом",
   stand: "Подставка",
+  carriage: "Каретка",
   all: "Все детали",
 } as const satisfies Record<LithophanePart, string>;
 
@@ -2002,6 +2054,13 @@ export type LithophaneParams = {
    * паз под рамку и канал под светодиодную ленту.
    */
   lithoMount: LithophaneMount;
+  /**
+   * Патрон каретки монорельса: миньон E14 или стандартный E27.
+   *
+   * Читает только каретка: в её плите вырезана резьба патрона и шестигранное
+   * гнездо под штатную гайку. Значение переживает смену формы и крепления.
+   */
+  lithoRailSocket: LithophaneRailSocket;
   /**
    * Источник света в базе: лента, USB-лампа, патрон E27 или ничего.
    *
@@ -2350,6 +2409,9 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   lithophaneSideBrightness: [null, null, null],
   lithoFrame: true,
   lithoMount: "none",
+  // Миньон по умолчанию: каретка 40 × 40 мм держит его с запасом, а E27
+  // выбирают осознанно, когда нужен свет поярче.
+  lithoRailSocket: "e14",
   // Плоская панель — форма из референсов и прежнее поведение конструктора:
   // плафон и калейдоскоп выбирают осознанно.
   lithoShape: "flat",
@@ -3039,6 +3101,16 @@ export function isLithophaneMount(value: unknown): value is LithophaneMount {
   return (
     typeof value === "string" &&
     (LITHOPHANE_MOUNTS as readonly string[]).includes(value)
+  );
+}
+
+/** Патрон каретки из запроса или сохранённого проекта. */
+export function isLithophaneRailSocket(
+  value: unknown,
+): value is LithophaneRailSocket {
+  return (
+    typeof value === "string" &&
+    (LITHOPHANE_RAIL_SOCKETS as readonly string[]).includes(value)
   );
 }
 
@@ -4473,6 +4545,11 @@ export function normalizeLithophaneParams(
   const requestedMount = isLithophaneMount(params.lithoMount)
     ? params.lithoMount
     : DEFAULT_LITHOPHANE_PARAMS.lithoMount;
+  // Патрон переживает смену крепления: у подставки он не читается, а вернувшись
+  // к монорельсу, человек получает тот же выбор.
+  const lithoRailSocket = isLithophaneRailSocket(params.lithoRailSocket)
+    ? params.lithoRailSocket
+    : DEFAULT_LITHOPHANE_PARAMS.lithoRailSocket;
   // Источник света не зависит от крепления: у сплошной ножки выборок нет, но
   // выбор человека остаётся, и на арке он получит то же гнездо, что и раньше.
   const lithoLightSource = isLithophaneLightSource(params.lithoLightSource)
@@ -4505,6 +4582,7 @@ export function normalizeLithophaneParams(
     lithophaneSideBrightness: sideBrightness,
     lithoFrame,
     lithoMount: lithoFrame ? requestedMount : "none",
+    lithoRailSocket,
     lithoShape,
     lithophanePanels,
     lithoLightSource,

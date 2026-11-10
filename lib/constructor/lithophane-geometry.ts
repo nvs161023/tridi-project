@@ -15,7 +15,9 @@ import {
   LITHOPHANE_BEND_STRIP_MM,
   LITHOPHANE_KALEIDOSCOPE_SIDES,
   LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
+  LITHOPHANE_RAIL_SOCKET_SIZES,
   lithophaneFaceBrightness,
+  lithophaneHasRail,
   lithophaneHasStand,
   lithophaneMeshOptions,
   lithophaneMeshSize,
@@ -220,6 +222,85 @@ export const LITHOPHANE_DETAIL_GROUP = 1;
  * берёт отсюда положение панели, чтобы лампы стояли в сборке, а не рядом.
  */
 export const BODY_OVERLAP_MM = 0.2;
+
+/**
+ * Монорельс: горизонтальная Т-образная шина на тылу плоской рамки.
+ *
+ * Рельс печатается вместе с рамкой одной деталью и повторяет её ширину с
+ * отступом 10 мм с каждого торца — за края панели он не выходит. Профиль
+ * Т-образный: полка 12 × 1.5 мм прилегает к тылу рамки, шейка 6 × 1.5 мм
+ * выступает назад, шляпка 10 × 2 мм держит каретку — от тыла рамки до тыла
+ * шляпки ровно 5 мм.
+ *
+ * Саморезы входят в открытые торцы полки: шейка и шляпка короче полки на
+ * `headEndInset`, поэтому шляпки саморезов не мешают каретке ехать. Отверстия
+ * стоят на оси полки (6 мм от верхней кромки панели): они попадают в заднюю
+ * полку рамки шириной 8.4 мм и не задевают плиту.
+ *
+ * Канал под провод вырезан в нижней кромке полки по центру: ширина 6 мм,
+ * глубина 2.5 мм. Глубже нельзя — дно канала упирается в основание шейки.
+ */
+export const LITHOPHANE_RAIL = {
+  /** Длина рельса: ширина панели минус суммарный отступ торцов, мм. */
+  lengthInset: 20,
+  /** Нижняя граница длины: на панели 40 мм рельс остаётся рельсом, мм. */
+  minLength: 20,
+  /** Полка, прилегающая к рамке: ширина и толщина, мм. */
+  flangeWidth: 12,
+  flangeDepth: 1.5,
+  /** Шейка: ширина и выступ от полки назад, мм. */
+  neckWidth: 6,
+  neckDepth: 1.5,
+  /** Шляпка: ширина и толщина, мм. */
+  headWidth: 10,
+  headDepth: 2,
+  /** Отверстие под саморез Ø3 в полке, мм. */
+  screwDiameter: 3,
+  /** Мясо между отверстием и торцом полки, мм. */
+  screwMargin: 0.8,
+  /** Насколько шейка и шляпка короче полки с каждого торца, мм. */
+  headEndInset: 12,
+  /** Канал под провод в нижней кромке полки, мм. */
+  channelWidth: 6,
+  channelDepth: 2.5,
+  /** Зазор между рельсом и кареткой на сторону, мм. */
+  clearance: 0.2,
+  /** Отступ верхней кромки рельса от верхней кромки панели, мм. */
+  topGap: 0,
+} as const;
+
+/**
+ * Каретка монорельса: плита под патрон и обойма, которой она висит на рельсе.
+ *
+ * Плита 40 × 40 мм толщиной 3 мм висит за рельсом; сверху её продолжает обойма
+ * с Т-образным пазом — его стенки держат каретку на шляпке и не дают ей
+ * соскочить. Гнездо патрона проходит сквозь плиту по её центру, а с лицевой
+ * стороны (к рамке) на 2 мм утоплено шестигранное гнездо под штатную гайку
+ * патрона: гайка не проворачивается, а патрон вставляется с тыла. От гнезда до
+ * нижней кромки идёт прорезь 6 мм — провод выходит вниз, как и из канала
+ * рельса. Козырёк 50 × 30 мм выходит из верха обоймы под 45° и прикрывает
+ * лампу сверху.
+ */
+export const LITHOPHANE_CARRIAGE = {
+  /** Плита под патрон: сторона квадрата и толщина пластика, мм. */
+  size: 40,
+  wall: 3,
+  /** Глубина шестигранного гнезда под гайку патрона, мм. */
+  nutDepth: 2,
+  /** Зазор шестигранного гнезда под гайку на сторону, мм. */
+  nutClearance: 0.2,
+  /** Прорезь под провод от гнезда до нижней кромки плиты, мм. */
+  slotWidth: 6,
+  /** Стенка обоймы вокруг шляпки рельса, мм. */
+  gripWall: 1.8,
+  /** Козырёк: ширина, длина по склону, толщина и угол к панели. */
+  visorWidth: 50,
+  visorLength: 30,
+  visorThickness: 3,
+  visorTiltDeg: 45,
+  /** Сколько козырёк заходит в обойму для сварки деталей, мм. */
+  visorOverlap: 2,
+} as const;
 
 type Point3 = readonly [number, number, number];
 
@@ -1642,6 +1723,453 @@ function createWallBoxBodies(width: number, height: number): BufferGeometry[] {
 }
 
 /**
+ * Точки дуги окружности в плоскости XY, мм.
+ *
+ * Обход задаётся начальным углом и разверткой в градусах: отрицательная
+ * развертка идёт по часовой стрелке.
+ */
+function arcPoints(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  fromDeg: number,
+  sweepDeg: number,
+  steps: number,
+): Point2[] {
+  const points: Point2[] = [];
+
+  for (let step = 0; step <= steps; step += 1) {
+    const angle = ((fromDeg + (sweepDeg * step) / steps) * Math.PI) / 180;
+
+    points.push([
+      centerX + radius * Math.cos(angle),
+      centerY + radius * Math.sin(angle),
+    ]);
+  }
+
+  return points;
+}
+
+/**
+ * Пластина: плоский контур с отверстиями, выдавленный по Z от `z0` до `z1`.
+ *
+ * Торцы режутся триангуляцией контура (`ShapeUtils.triangulateShape`), боковые
+ * стенки — по рёбрам контура и отверстий. Нормаль ребра контура против часовой
+ * стрелки равна (dy, -dx, 0); отверстия обходятся по часовой стрелке, поэтому та
+ * же формула даёт нормаль наружу материала — в сторону отверстия.
+ */
+function createPlateBody(
+  outline: readonly Point2[],
+  holes: readonly (readonly Point2[])[],
+  z0: number,
+  z1: number,
+): BufferGeometry {
+  const toVectors = (points: readonly Point2[]): Vector2[] =>
+    points.map(([x, y]) => new Vector2(x, y));
+  // Контур растягивается против часовой стрелки, отверстия — по часовой.
+  const order = (points: Vector2[], clockwise: boolean): Point2[] => {
+    const ordered = [...points];
+
+    if (ShapeUtils.isClockWise(ordered) !== clockwise) {
+      ordered.reverse();
+    }
+
+    return ordered.map((point): Point2 => [point.x, point.y]);
+  };
+  const contour = order(toVectors(outline), false);
+  const loops = holes.map((hole) => order(toVectors(hole), true));
+  const triangles = ShapeUtils.triangulateShape(
+    toVectors(contour),
+    loops.map((loop) => toVectors(loop)),
+  );
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const capPoints = [...contour, ...loops.flat()];
+
+  // Торцы: задний смотрит в −Z, передний в +Z.
+  for (const [z, normal] of [
+    [z0, [0, 0, -1]],
+    [z1, [0, 0, 1]],
+  ] as const) {
+    const base = vertexIndex(positions);
+
+    for (const [x, y] of capPoints) {
+      positions.push(x, y, z);
+    }
+
+    for (const [a, b, c] of triangles) {
+      addOrientedTriangle(
+        indices,
+        positions,
+        base + a,
+        base + b,
+        base + c,
+        normal,
+      );
+    }
+  }
+
+  for (const loop of [contour, ...loops]) {
+    for (let index = 0; index < loop.length; index += 1) {
+      const [ax, ay] = loop[index];
+      const [bx, by] = loop[(index + 1) % loop.length];
+
+      addQuadFace(
+        indices,
+        positions,
+        [
+          [ax, ay, z0],
+          [bx, by, z0],
+          [bx, by, z1],
+          [ax, ay, z1],
+        ],
+        [by - ay, ax - bx, 0],
+      );
+    }
+  }
+
+  return finalizeGeometry(positions, indices);
+}
+
+/** Габариты монорельса: положение оси, длина полки и открытые торцы, мм. */
+export type RailMetrics = {
+  /** Ось полки по Y: середина полосы, прижатой к тылу рамки. */
+  centerY: number;
+  /** Половина длины полки, мм. */
+  half: number;
+  /** Половина длины шейки и шляпки, мм. */
+  headHalf: number;
+  /** Оси отверстий под саморез по X, мм. */
+  screwX: readonly number[];
+};
+
+/**
+ * Габариты монорельса по нормализованным параметрам.
+ *
+ * Экспортируется для теста геометрии: по этим числам проверяются длина полки,
+ * отступ шляпки от торцов и число саморезов, которые иначе пришлось бы
+ * выковыривать из готовой сетки.
+ */
+export function lithophaneRailMetrics(
+  normalized: LithophaneParams,
+): RailMetrics {
+  const rail = LITHOPHANE_RAIL;
+  const metrics = lithophaneFrameMetrics(normalized);
+  const length = Math.max(
+    rail.minLength,
+    Math.min(metrics.width - rail.lengthInset, metrics.width),
+  );
+  const half = length / 2;
+  /*
+    Торцы шейки открыты на 12 мм, но не больше десятой части рельса: на панели
+    40 мм рельс всего 20 мм, и отступ в 12 мм съел бы шейку целиком. В открытом
+    торце полки остаётся место под саморез: пока торцевая полоса шире двух
+    отверстий с мясом, ставим по два на торец, иначе один по центру полосы — на
+    панели 120 мм это 45 мм от оси, а на 200 мм уже два, 80.3 и 87.7. Пустой
+    список — защита от торца уже отверстия: такое отверстие вышло бы за край
+    полки.
+  */
+  const endInset = Math.min(rail.headEndInset, Math.max(5, length * 0.1));
+  const headHalf = half - endInset;
+  const radius = rail.screwDiameter / 2;
+  const from = headHalf + radius + rail.screwMargin;
+  const to = half - radius - rail.screwMargin;
+  const screwX =
+    to - from >= rail.screwDiameter * 2
+      ? [from, to]
+      : to >= from
+        ? [(from + to) / 2]
+        : [];
+
+  return {
+    centerY: metrics.height - rail.flangeWidth / 2 - rail.topGap,
+    half,
+    headHalf,
+    screwX,
+  };
+}
+
+/**
+ * Рельс на тылу плоской рамки: полка с каналом и саморезами, шейка и шляпка.
+ *
+ * Полка лежит на плоскости тыла рамки (Z = 0) и начинается от самой верхней
+ * кромки панели: там задняя полка рамки шириной 8.4 мм, поэтому отверстия под
+ * саморез на оси полки проходят через рамку, а не через плиту. Оболочки
+ * объединяются нахлёстом `BODY_OVERLAP_MM`, чтобы слайсер видел одно тело.
+ */
+function createRailBodies(normalized: LithophaneParams): BufferGeometry[] {
+  const rail = LITHOPHANE_RAIL;
+  const { centerY, half, headHalf, screwX } = lithophaneRailMetrics(
+    normalized,
+  );
+  const bottom = centerY - rail.flangeWidth / 2;
+  const top = centerY + rail.flangeWidth / 2;
+  const channelHalf = Math.min(rail.channelWidth / 2, half / 2);
+  const screwRadius = rail.screwDiameter / 2;
+  // Полка: прямоугольник с каналом под провод в нижней кромке. Обход против
+  // часовой стрелки, канал — врезка от нижней кромки вверх.
+  const flange: Point2[] = [
+    [-half, bottom],
+    [-channelHalf, bottom],
+    [-channelHalf, bottom + rail.channelDepth],
+    [channelHalf, bottom + rail.channelDepth],
+    [channelHalf, bottom],
+    [half, bottom],
+    [half, top],
+    [-half, top],
+  ];
+  const holes: Point2[][] = [];
+
+  for (const holeX of screwX) {
+    holes.push(arcPoints(holeX, centerY, screwRadius, 0, 360, 10).slice(0, 10));
+  }
+
+  const neckZ = -rail.flangeDepth - rail.neckDepth;
+  const headZ = neckZ - rail.headDepth;
+
+  return [
+    // Полка утоплена в тыл рамки на нахлёст: два тела сливаются в одно.
+    createPlateBody(flange, holes, -rail.flangeDepth, BODY_OVERLAP_MM),
+    // Шейка и шляпка начинаются внутри полки: нахлёст прячет стык.
+    createBoxBody(
+      -headHalf,
+      headHalf,
+      centerY - rail.neckWidth / 2,
+      centerY + rail.neckWidth / 2,
+      neckZ,
+      -rail.flangeDepth + BODY_OVERLAP_MM,
+    ),
+    createBoxBody(
+      -headHalf,
+      headHalf,
+      centerY - rail.headWidth / 2,
+      centerY + rail.headWidth / 2,
+      headZ,
+      neckZ + BODY_OVERLAP_MM,
+    ),
+  ];
+}
+
+/** Габариты каретки: плита, гнездо патрона и обойма рельса, мм. */
+export type CarriageMetrics = {
+  /** Ось рельса по Y: середина полки. */
+  railY: number;
+  /** Верх плиты: он же низ обоймы. */
+  plateTop: number;
+  /** Низ плиты. */
+  plateBottom: number;
+  /** Центр гнезда патрона по Y. */
+  socketY: number;
+  /** Резьба патрона: диаметр сквозного отверстия. */
+  thread: number;
+  /** Гайка патрона: размер под ключ. */
+  nut: number;
+};
+
+/**
+ * Габариты каретки по нормализованным параметрам.
+ *
+ * Экспортируется для теста геометрии: ось рельса, плита и размеры гнезда
+ * патрона считаются здесь, а сетка только повторяет эти числа.
+ */
+export function lithophaneCarriageMetrics(
+  normalized: LithophaneParams,
+): CarriageMetrics {
+  const carriage = LITHOPHANE_CARRIAGE;
+  const rail = LITHOPHANE_RAIL;
+  const { centerY } = lithophaneRailMetrics(normalized);
+  const socket = LITHOPHANE_RAIL_SOCKET_SIZES[normalized.lithoRailSocket];
+  // Низ обоймы — там, где кончается стенка вокруг шляпки рельса.
+  const plateTop =
+    centerY - (rail.headWidth / 2 + rail.clearance + carriage.gripWall);
+
+  return {
+    railY: centerY,
+    plateTop,
+    plateBottom: plateTop - carriage.size,
+    socketY: plateTop - carriage.size / 2,
+    thread: socket.thread,
+    nut: socket.nut,
+  };
+}
+
+/**
+ * Каретка монорельса отдельной деталью.
+ *
+ * Плита висит за рельсом: её лицевая плоскость отстоит от тыла шляпки на зазор
+ * `clearance`, поэтому каретка едет по рельсу без затирания. Сверху плиту
+ * продолжает обойма — две стенки вокруг шляпки и две по шейке, — она держит
+ * каретку на рельсе и не даёт ей соскочить. Гнездо патрона сквозное; с лицевой
+ * стороны (к рамке) утоплено шестигранное гнездо под штатную гайку, поэтому
+ * патрон вставляется с тыла, а гайка не проворачивается. От гнезда до нижней
+ * кромки идёт прорезь под провод. Козырёк выходит из верха обоймы под 45° к
+ * панели и прикрывает лампу сверху.
+ */
+export function createLithophaneCarriageGeometry(
+  params: Partial<LithophaneParams>,
+): BufferGeometry {
+  const normalized = normalizeLithophaneParams(params);
+  const carriage = LITHOPHANE_CARRIAGE;
+  const rail = LITHOPHANE_RAIL;
+  const { railY, plateTop, plateBottom, socketY, thread, nut } =
+    lithophaneCarriageMetrics(normalized);
+  const half = carriage.size / 2;
+  const gripInner = rail.headWidth / 2 + rail.clearance;
+  const neckInner = rail.neckWidth / 2 + rail.clearance;
+  const sleeveTop = railY + gripInner + carriage.gripWall;
+  // Лицевая плоскость плиты — от тыла шляпки рельса на зазор каретки.
+  const plateFront = -(
+    rail.flangeDepth +
+    rail.neckDepth +
+    rail.headDepth +
+    rail.clearance
+  );
+  const plateBack = plateFront - carriage.wall;
+  // Плоскости рельса по Z: тыл полки — 0, её лицо — −flangeDepth, лицо шейки —
+  // −(flangeDepth+neckDepth), тыл шляпки — на headDepth дальше.
+  const neckFront = -rail.flangeDepth;
+  const headFront = neckFront - rail.neckDepth;
+  /* Стенка вокруг шляпки идёт от плиты до лица шляпки: её передняя плоскость
+     вынесена на два нахлёста, чтобы задняя стенка шейки начиналась за ней и
+     прятала стык, но не касалась шляпки рельса. */
+  const headWallFront = headFront + 2 * BODY_OVERLAP_MM;
+  const neckWallBack = headFront + rail.clearance;
+  const neckWallFront = neckFront - rail.clearance;
+  // Гайка сидит в плиту на `nutDepth`: задний слой остаётся под резьбу патрона.
+  const nutFlats = nut + 2 * carriage.nutClearance;
+  const nutRadius = nutFlats / Math.sqrt(3);
+  const nutLayer = plateBack + (carriage.wall - carriage.nutDepth);
+  const slotHalf = Math.min(carriage.slotWidth / 2, nutRadius / 2);
+  const boreRadius = thread / 2;
+  // Прорезь под провод заходит в гнездо под гайку и в отверстие патрона: её
+  // устье на плите — ниже самой нижней точки обоих.
+  const pocketBottom = socketY - nutFlats / 2;
+  const hitY = socketY - Math.sqrt(Math.max(0, boreRadius ** 2 - slotHalf ** 2));
+  const fromDeg = (Math.atan2(hitY - socketY, -slotHalf) * 180) / Math.PI;
+  const toDeg = (Math.atan2(hitY - socketY, slotHalf) * 180) / Math.PI;
+  // Дуга отверстия идёт по часовой стрелке — через верх, как врезка контура.
+  const boreArc = arcPoints(
+    0,
+    socketY,
+    boreRadius,
+    fromDeg,
+    toDeg - fromDeg - 360,
+    24,
+  );
+  const hexHalf = nutRadius / 2;
+  // Задний слой: прямоугольник плиты с прорезью и отверстием патрона.
+  const backOutline: Point2[] = [
+    [-half, plateBottom],
+    [-slotHalf, plateBottom],
+    ...boreArc,
+    [slotHalf, plateBottom],
+    [half, plateBottom],
+    [half, plateTop],
+    [-half, plateTop],
+  ];
+  // Передний слой: прямоугольник плиты с шестигранным гнездом и прорезью.
+  const frontOutline: Point2[] = [
+    [-half, plateBottom],
+    [-slotHalf, plateBottom],
+    [-slotHalf, pocketBottom],
+    [-hexHalf, pocketBottom],
+    [-nutRadius, socketY],
+    [-hexHalf, socketY + nutFlats / 2],
+    [hexHalf, socketY + nutFlats / 2],
+    [nutRadius, socketY],
+    [hexHalf, pocketBottom],
+    [slotHalf, pocketBottom],
+    [slotHalf, plateBottom],
+    [half, plateBottom],
+    [half, plateTop],
+    [-half, plateTop],
+  ];
+  const bodies: BufferGeometry[] = [
+    createPlateBody(backOutline, [], plateBack, nutLayer),
+    createPlateBody(frontOutline, [], nutLayer - BODY_OVERLAP_MM, plateFront),
+    // Обойма: задняя стенка под шляпку и плиту, затем стенки по бокам.
+    createBoxBody(
+      -half,
+      half,
+      railY - carriage.wall * 3,
+      sleeveTop,
+      plateBack,
+      plateFront,
+    ),
+  ];
+
+  for (const side of [-1, 1]) {
+    bodies.push(
+      // Стенка вокруг шляпки: зазор по Y, спереди уходит за гнездо шейки.
+      createBoxBody(
+        -half,
+        half,
+        railY + side * gripInner,
+        railY + side * (gripInner + carriage.gripWall),
+        plateFront - BODY_OVERLAP_MM,
+        headWallFront,
+      ),
+      // Стенка вокруг шейки: начинается за лицом шляпки, не касаясь её.
+      createBoxBody(
+        -half,
+        half,
+        railY + side * neckInner,
+        railY + side * (gripInner + carriage.gripWall),
+        neckWallBack,
+        neckWallFront,
+      ),
+    );
+  }
+
+  bodies.push(createCarriageVisorBody(normalized));
+
+  return smoothGeometryNormals(mergeBodies(bodies, "каретки"));
+}
+
+/**
+ * Козырёк каретки: пластина `visorWidth × visorLength × visorThickness`,
+ * поднятая к панели под углом `visorTiltDeg`.
+ *
+ * Пластина строится в своём базисе и поворачивается вокруг X: склон уходит в +Y
+ * и вперёд, к рамке. Кромка у обоймы утоплена в её заднюю стенку, поэтому
+ * козырёк не висит отдельной деталью и не загораживает паз под рельс.
+ */
+function createCarriageVisorBody(normalized: LithophaneParams): BufferGeometry {
+  const carriage = LITHOPHANE_CARRIAGE;
+  const rail = LITHOPHANE_RAIL;
+  const { railY } = lithophaneCarriageMetrics(normalized);
+  const half = carriage.visorWidth / 2;
+  const tilt = (carriage.visorTiltDeg * Math.PI) / 180;
+  const visor = createBoxBody(
+    -half,
+    half,
+    0,
+    carriage.visorLength,
+    0,
+    carriage.visorThickness,
+  );
+  // Начало козырька — верхний угол обоймы, сдвинутый внутрь на нахлёст: кромка
+  // тонет в её задней стенке, а наклон уводит пластину вверх и к панели.
+  const anchorY =
+    railY +
+    rail.headWidth / 2 +
+    rail.clearance +
+    carriage.gripWall -
+    BODY_OVERLAP_MM;
+  const anchorZ = -(
+    rail.flangeDepth +
+    rail.neckDepth +
+    rail.headDepth +
+    carriage.wall
+  ) + BODY_OVERLAP_MM;
+
+  visor.applyMatrix4(new Matrix4().makeRotationX(tilt));
+  visor.applyMatrix4(new Matrix4().makeTranslation(0, anchorY, anchorZ));
+
+  return visor;
+}
+
+/**
  * Рамка литофана отдельной деталью.
  *
  * Задняя полка поднимается до `LITHOPHANE_FRAME_SEAT_MM`, и её внутренний край
@@ -1701,6 +2229,18 @@ export function createLithophaneFrameGeometry(
     lithophaneShapeHasMounts(normalized.lithoShape)
   ) {
     bodies.push(...createWallBoxBodies(width, height));
+  }
+
+  // Монорельс печатается вместе с рамкой: его полка лежит на тыле, поэтому
+  // каретка едет по самой панели, а не по отдельной стойке.
+  if (
+    lithophaneHasRail(
+      normalized.lithoMount,
+      normalized.lithoShape,
+      normalized.lithoFrame,
+    )
+  ) {
+    bodies.push(...createRailBodies(normalized));
   }
 
   // Рамка собирается из двух колец и, при подвесе, короба, но печатается одной
@@ -3703,6 +4243,15 @@ export function createLithophaneGeometry(
     );
   }
 
+  // Каретка монорельса печатается отдельно: плита с гнездом патрона, обойма с
+  // Т-пазом и козырёк. На рельс рамки она надевается при сборке.
+  if (part === "carriage") {
+    return markPartGroup(
+      createLithophaneCarriageGeometry(normalized),
+      LITHOPHANE_DETAIL_GROUP,
+    );
+  }
+
   const metrics = lithophaneFrameMetrics(normalized);
 
   // Калейдоскоп собирается по своей схеме: четыре панели без рамок, цоколь и
@@ -3753,6 +4302,18 @@ export function createLithophaneGeometry(
     }
 
     bodies.push(createLithophaneStandGeometry(normalized));
+  }
+
+  // Каретка встаёт на рельс рамки: на собранном виде её видно на месте, а в
+  // списке деталей она идёт отдельным файлом.
+  if (
+    lithophaneHasRail(
+      normalized.lithoMount,
+      normalized.lithoShape,
+      normalized.lithoFrame,
+    )
+  ) {
+    bodies.push(createLithophaneCarriageGeometry(normalized));
   }
 
   return assignMaterialGroups(mergeBodies(bodies, "литофана"), reliefIndices);

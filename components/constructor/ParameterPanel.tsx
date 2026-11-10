@@ -106,6 +106,8 @@ import {
   keychainThicknessLimits,
   hasDrawableSvgData,
   isCustomSvgData,
+  LITHOPHANE_RAIL_SOCKETS,
+  LITHOPHANE_RAIL_SOCKET_LABELS,
   LITHOPHANE_RESOLUTION,
   LITHOPHANE_SHAPES,
   LITHOPHANE_SHAPE_LABELS,
@@ -141,6 +143,8 @@ import {
   type KeychainTextAlign,
   type KeychainTextDecoration,
   type LithophaneBrightnessGrid,
+  type LithophaneMount,
+  type LithophaneRailSocket,
   type LithophaneShape,
   type ModelType,
   type PatternLayer,
@@ -189,6 +193,7 @@ type SizeParam = Exclude<
   | "hasLid"
   | "lithoFrame"
   | "lithoMount"
+  | "lithoRailSocket"
   | "lithoShape"
   | "lithophaneBrightness"
   | "planterShape"
@@ -345,6 +350,16 @@ type ParameterPanelProps = {
   onBoxPresetChange: (preset: BoxPresetId) => void;
   /** Рамка литофана: отдельная деталь с пазом под плиту. */
   onLithoFrameChange: (hasFrame: boolean) => void;
+  /**
+   * Крепление литофана: монорельс с кареткой или ничего.
+   *
+   * В интерфейсе осталось одно крепление — рельс на тылу плоской рамки: старые
+   * подставки, арка и подвес печатаются по сохранённым проектам, но выбрать их
+   * заново нельзя.
+   */
+  onLithoMountChange: (mount: LithophaneMount) => void;
+  /** Патрон каретки монорельса: миньон E14 или стандартный E27. */
+  onLithoRailSocketChange: (socket: LithophaneRailSocket) => void;
   /**
    * Форма панели литофана: плоская, круглый плафон или калейдоскоп.
    *
@@ -1537,6 +1552,8 @@ export function ParameterPanel({
   onBoxCellsChange,
   onBoxPresetChange,
   onLithoFrameChange,
+  onLithoMountChange,
+  onLithoRailSocketChange,
   onLithoShapeChange,
   onLithophanePanelsChange,
   onLithophaneBrightnessChange,
@@ -4469,9 +4486,54 @@ export function ParameterPanel({
             </label>
           ) : null}
 
+          {/* Монорельс врезан в тыл рамки: без неё рельс печатать не на чем,
+              поэтому выбор появляется только при включённой рамке. */}
+          {lithophaneShapeHasFrame(params.lithoShape) && params.lithoFrame ? (
+            <>
+              <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+                <input
+                  checked={params.lithoMount === "rail"}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  onChange={(event) =>
+                    onLithoMountChange(event.target.checked ? "rail" : "none")
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-200">
+                    Монорельс с кареткой
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                    Горизонтальная Т-образная шина на тылу рамки: каретка с
+                    гнездом патрона едет по ней вбок и держит лампу напротив
+                    панели. Рельс печатается вместе с рамкой, каретка — отдельным
+                    файлом и надевается на рельс при сборке.
+                  </span>
+                </span>
+              </label>
+
+              {params.lithoMount === "rail" ? (
+                <div className="mt-3">
+                  <ParameterSelect
+                    hint="Резьба патрона проходит сквозь плиту каретки, а с тыла утоплено шестигранное гнездо под штатную гайку — патрон вставляется сзади и не проворачивается. E14 — миньон под лампу до 40 мм, E27 — стандартный цоколь, ему нужна плита 40 × 40 мм целиком."
+                    label="Патрон каретки"
+                    onChange={onLithoRailSocketChange}
+                    options={LITHOPHANE_RAIL_SOCKETS.map((socket) => ({
+                      label: LITHOPHANE_RAIL_SOCKET_LABELS[socket],
+                      value: socket,
+                    }))}
+                    value={params.lithoRailSocket}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
             {lithophaneShapeHasFrame(params.lithoShape)
-              ? "Рельеф смотрит вверх: плита и рамка печатаются плашмя, поддержки не нужны. Детали собираются без клея — плита входит в паз рамки с зазором 0.2 мм."
+              ? params.lithoMount === "rail"
+                ? "Рельеф смотрит вверх: плита плашмя, поддержки не нужны, а Т-шина растёт из тыла рамки вместе с ней. Каретку кладите тылом плиты на стол — козырёк под 45° смотрит вверх и печатается с поддержкой из-под него."
+                : "Рельеф смотрит вверх: плита и рамка печатаются плашмя, поддержки не нужны. Детали собираются без клея — плита входит в паз рамки с зазором 0.2 мм."
               : "Панели печатаются плашмя и собираются в деталь без клея: у плафона они смыкаются по стыкам кольца, у калейдоскопа входят в паз цоколя и крышки."}
           </p>
         </>

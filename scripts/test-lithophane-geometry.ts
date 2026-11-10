@@ -83,7 +83,14 @@
  *      каждой грани может быть свой кадр (пустой слот повторяет предыдущий);
  *  19. свет: где стоят лампы и как ложится свет — обратные квадраты, канал под
  *      ленту, скобы, гнездо E27, лист-рассеиватель и карта света; у круглого
- *      плафона расчёта нет: лампу в него ставят отдельно.
+ *      плафона расчёта нет: лампу в него ставят отдельно;
+ *  20. монорельс: полка длиной «ширина минус отступ торцов» прижата к тылу
+ *      рамки, шляпка открывает торцы под саморез, канал 6 × 2.5 мм проходит
+ *      полку насквозь, а отверстие целиком лежит в задней полке рамки; каретка —
+ *      плита 40 × 40 мм с козырьком 50 × 30 мм под 45°, сквозным гнездом патрона
+ *      (Ø14.6 или Ø28.6), шестигранным гнездом на 2 мм под гайку и прорезью под
+ *      провод до нижней кромки; обойма держит рельс с зазором 0.2 мм, оболочка
+ *      замкнута, а круглый плафон и калейдоскоп от монорельса не меняются.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -94,29 +101,36 @@ import type { BufferGeometry } from "three";
 import { DoubleSide, Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 
 import {
+  BODY_OVERLAP_MM,
   LITHOPHANE_ARCH_STAND,
   LITHOPHANE_ARCH_STRIP,
   LITHOPHANE_BORDER_CHAMFER_MM,
   LITHOPHANE_BORDER_MM,
+  LITHOPHANE_CARRIAGE,
   LITHOPHANE_DETAIL_GROUP,
   LITHOPHANE_FIT_GAP_MM,
   LITHOPHANE_FRAME_CORNER_RADIUS_MM,
+  LITHOPHANE_FRAME_LIP_MM,
   LITHOPHANE_FRAME_OPENING_RADIUS_MM,
   LITHOPHANE_FRAME_WIDTH_MM,
   LITHOPHANE_KALEIDOSCOPE,
   LITHOPHANE_LAMP_CLAMP,
+  LITHOPHANE_RAIL,
   LITHOPHANE_RELIEF_GROUP,
   LITHOPHANE_ROUND,
   LITHOPHANE_STAND_SHAPES,
   LITHOPHANE_STAND_TILT_DEG,
   LITHOPHANE_WALL_BOX,
   clampPostWidth,
+  createLithophaneCarriageGeometry,
   createLithophaneFrameGeometry,
   createLithophaneGeometry,
   createLithophaneReliefGeometry,
   createLithophaneStandGeometry,
+  lithophaneCarriageMetrics,
   lithophaneClampBulb,
   lithophanePlateSize,
+  lithophaneRailMetrics,
   type LithophaneClampKind,
 } from "../lib/constructor/lithophane-geometry";
 import {
@@ -131,8 +145,11 @@ import {
 import {
   CONSTRUCTOR_LIMITS,
   LITHOPHANE_KALEIDOSCOPE_PANEL_STEP_MM,
+  LITHOPHANE_RAIL_SOCKETS,
+  LITHOPHANE_RAIL_SOCKET_SIZES,
   LITHOPHANE_VERTEX_STEP_MM,
   lithophaneFaceBrightness,
+  lithophaneHasRail,
   lithophaneMeshOptions,
   lithophaneMeshSize,
   lithophanePanelCount,
@@ -3584,6 +3601,421 @@ console.log("\n19. Свет: где стоят лампы и как ложитс
   );
 }
 
+console.log(
+  "\n20. Монорельс: рельс на тылу рамки, каретка с патроном и козырёк",
+);
+
+{
+  /*
+    Плоская панель с рамкой получает горизонтальный рельс: полка врезана в тыл
+    рамки, шейка и шляпка выступают назад, а каретка с патроном печатается
+    отдельной деталью и надевается на шляпку при сборке.
+
+    Проверяется то, чего не видно на предпросмотре: длина полки и открытые торцы
+    под саморез, канал под провод, зазор между рельсом и обоймой каретки, глубина
+    шестигранного гнезда, диаметр сквозного отверстия патрона, прорезь под провод
+    до нижней кромки плиты и наклон козырька 45°. Лучи идут из-за детали и с
+    лицевой стороны: первый замер говорит, где начинается пластик, а прошедший
+    насквозь луч — что отверстие действительно сквозное.
+  */
+  const width = 120;
+  const height = 80;
+  const rail = LITHOPHANE_RAIL;
+  const railParams: Partial<LithophaneParams> = {
+    lithophaneWidth: width,
+    lithophaneHeight: height,
+    lithoFrame: true,
+    lithoMount: "rail",
+  };
+  const normalized = normalizeLithophaneParams(railParams);
+  const railMetrics = lithophaneRailMetrics(normalized);
+  const railY = height - rail.flangeWidth / 2 - rail.topGap;
+  const railLength = Math.max(rail.minLength, width - rail.lengthInset);
+  // Отступ торцов шляпки: не больше десятой части рельса, иначе на короткой
+  // панели шейка исчезла бы целиком.
+  const headInset = Math.min(rail.headEndInset, Math.max(5, railLength * 0.1));
+  const railDepth = rail.flangeDepth + rail.neckDepth + rail.headDepth;
+  // Задняя полка рамки: бортик плюс накладка — в неё и входят саморезы.
+  const rearBand = LITHOPHANE_FRAME_WIDTH_MM + LITHOPHANE_FRAME_LIP_MM;
+
+  const frame = createLithophaneFrameGeometry(railParams);
+  const plainFrame = createLithophaneFrameGeometry({
+    ...railParams,
+    lithoMount: "none",
+  });
+  const frameSize = boxSize(frame);
+  const plainSize = boxSize(plainFrame);
+  const railBack = frame.boundingBox?.min.z ?? 0;
+  const plainBack = plainFrame.boundingBox?.min.z ?? 0;
+  const frameObject = new Mesh(
+    frame,
+    new MeshBasicMaterial({ side: DoubleSide }),
+  );
+  // Первое попадание луча из-за детали: NaN — луч прошёл её насквозь.
+  const frameHitZ = (x: number, y: number): number => {
+    const hits = new Raycaster(
+      new Vector3(x, y, -40),
+      new Vector3(0, 0, 1),
+      0,
+      100,
+    ).intersectObject(frameObject, false);
+
+    return hits.length === 0 ? Number.NaN : hits[0].point.z;
+  };
+
+  checkRange(
+    "рельс: полка длиной «ширина панели минус отступ торцов»",
+    [railMetrics.half * 2],
+    railLength - TOLERANCE_MM,
+    railLength + TOLERANCE_MM,
+  );
+  checkRange(
+    "рельс: шляпка короче полки и открывает торцы под саморез",
+    [railMetrics.half - railMetrics.headHalf],
+    headInset - TOLERANCE_MM,
+    headInset + TOLERANCE_MM,
+  );
+  checkRange(
+    "рельс: полка прижата к верхней кромке панели",
+    [railMetrics.centerY],
+    railY - TOLERANCE_MM,
+    railY + TOLERANCE_MM,
+  );
+  check(
+    "рельс: на панели 120 мм один саморез по центру торца",
+    railMetrics.screwX.length,
+    1,
+  );
+  check(
+    "рельс: на панели 200 мм два самореза",
+    lithophaneRailMetrics(
+      normalizeLithophaneParams({ ...railParams, lithophaneWidth: 200 }),
+    ).screwX.length,
+    2,
+  );
+  checkRange(
+    "рельс: отверстие целиком в задней полке рамки",
+    [railY - rail.screwDiameter / 2],
+    height - rearBand,
+    height,
+  );
+  check(
+    "рельс: габарит панели не меняется",
+    [frameSize.x, frameSize.y],
+    [plainSize.x, plainSize.y],
+  );
+  checkRange(
+    "рельс: тыл шляпки в 5 мм от тыла рамки",
+    [railBack],
+    -railDepth - TOLERANCE_MM,
+    -railDepth + TOLERANCE_MM,
+  );
+  checkRange(
+    "рельс: без рельса рамка начинается с нуля",
+    [plainBack],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "рельс: саморез проходит полку насквозь и упирается в рамку",
+    [frameHitZ(railMetrics.screwX[0], railY)],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "рельс: шляпка 10 мм вширь, за ней полка",
+    [
+      frameHitZ(0, railY + rail.headWidth / 2 - 0.5),
+      frameHitZ(0, railY + rail.headWidth / 2 + 0.5),
+    ],
+    -railDepth - TOLERANCE_MM,
+    -rail.flangeDepth + TOLERANCE_MM,
+  );
+
+  /*
+    Канал вырезан в нижней кромке полки, ниже полосы шейки и шляпки: за ним
+    остаётся пустое окно рамки, поэтому луч уходит насквозь. Рядом с каналом
+    полка на месте — значит, ширина канала та, что задана.
+  */
+  const channelY = railY - rail.flangeWidth / 2 + rail.channelDepth / 4;
+  const channelWallX = Math.min(rail.channelWidth / 2, railLength / 4);
+
+  check(
+    "рельс: канал под провод проходит полку насквозь",
+    Number.isNaN(frameHitZ(0, channelY)),
+    true,
+  );
+  check(
+    "рельс: канал под провод той же ширины",
+    [
+      Number.isNaN(frameHitZ(channelWallX - 0.5, channelY)),
+      Number.isNaN(frameHitZ(channelWallX + 0.5, channelY)),
+    ],
+    [true, false],
+  );
+  checkRange(
+    "рельс: стенка канала на месте",
+    [frameHitZ(channelWallX + 1, channelY)],
+    -rail.flangeDepth - TOLERANCE_MM,
+    -rail.flangeDepth + TOLERANCE_MM,
+  );
+
+  frame.dispose();
+  plainFrame.dispose();
+}
+
+{
+  /*
+    Каретка — вторая печатная деталь: плита с патроном, обойма с Т-пазом и
+    козырёк. Патрон вставляется с тыла, гайка садится в шестигранное гнездо с
+    лицевой стороны, провод выходит вниз через прорезь. Проверяются оба патрона:
+    диаметр сквозного отверстия, глубину гнезда под гайку и зазор обоймы вокруг
+    шляпки рельса.
+  */
+  const rail = LITHOPHANE_RAIL;
+  const carriage = LITHOPHANE_CARRIAGE;
+  const railParams: Partial<LithophaneParams> = {
+    lithophaneWidth: 120,
+    lithophaneHeight: 80,
+    lithoFrame: true,
+    lithoMount: "rail",
+  };
+  const railY = 80 - rail.flangeWidth / 2 - rail.topGap;
+  // Лицевая и тыльная плоскости плиты относительно тыла рамки, мм.
+  const plateFront = -(
+    rail.flangeDepth +
+    rail.neckDepth +
+    rail.headDepth +
+    rail.clearance
+  );
+  const plateBack = plateFront - carriage.wall;
+  const nutFloor = plateFront - carriage.nutDepth;
+  // Низ обоймы: там кончается стенка вокруг шляпки рельса.
+  const anchorY =
+    railY +
+    rail.headWidth / 2 +
+    rail.clearance +
+    carriage.gripWall -
+    BODY_OVERLAP_MM;
+
+  for (const socketId of LITHOPHANE_RAIL_SOCKETS) {
+    const socket = LITHOPHANE_RAIL_SOCKET_SIZES[socketId];
+    const params: Partial<LithophaneParams> = {
+      ...railParams,
+      lithoRailSocket: socketId,
+    };
+    const metrics = lithophaneCarriageMetrics(
+      normalizeLithophaneParams(params),
+    );
+    const geometry = createLithophaneCarriageGeometry(params);
+    const size = boxSize(geometry);
+    const object = new Mesh(
+      geometry,
+      new MeshBasicMaterial({ side: DoubleSide }),
+    );
+    // Луч из-за плиты: `true` — пластика на пути нет, отверстие сквозное.
+    const through = (x: number, y: number): boolean =>
+      new Raycaster(
+        new Vector3(x, y, -40),
+        new Vector3(0, 0, 1),
+        0,
+        100,
+      ).intersectObject(object, false).length === 0;
+    // Первое попадание луча, мм по Z: NaN — луч прошёл деталь насквозь.
+    const hitZ = (x: number, y: number, fromFront: boolean): number => {
+      const hits = new Raycaster(
+        new Vector3(x, y, fromFront ? 40 : -40),
+        new Vector3(0, 0, fromFront ? -1 : 1),
+        0,
+        100,
+      ).intersectObject(object, false);
+
+      return hits.length === 0 ? Number.NaN : hits[0].point.z;
+    };
+    // Первое попадание луча вдоль Y из точки (x, y, z): NaN — пластика нет.
+    const hitY = (
+      x: number,
+      y: number,
+      z: number,
+      direction: 1 | -1,
+    ): number => {
+      const hits = new Raycaster(
+        new Vector3(x, y, z),
+        new Vector3(0, direction, 0),
+        0,
+        200,
+      ).intersectObject(object, false);
+
+      return hits.length === 0 ? Number.NaN : hits[0].point.y;
+    };
+    // Край плиты и стенку гнезда ищем шагом `probe`: замер промахивается не
+    // больше чем на шаг, поэтому допуски здесь шире обычного.
+    const probe = 0.05;
+    // Обойма вокруг шляпки: внутренняя кромка стенки и её ось по Y.
+    const gripInner = rail.headWidth / 2 + rail.clearance;
+    let plateHalf = 0;
+
+    for (let x = carriage.size; x > 0; x -= probe) {
+      if (!through(x, metrics.socketY)) {
+        plateHalf = x;
+        break;
+      }
+    }
+
+    // Полость патрона: от оси гнезда вбок, пока луч проходит насквозь.
+    let boreHalf = 0;
+
+    while (
+      boreHalf < carriage.size &&
+      through(boreHalf + probe, metrics.socketY)
+    ) {
+      boreHalf += probe;
+    }
+
+    checkRange(
+      `каретка ${socketId}: плита ${carriage.size} × ${carriage.size} мм`,
+      [plateHalf * 2, metrics.plateTop - metrics.plateBottom],
+      carriage.size - 2 * probe - TOLERANCE_MM,
+      carriage.size + TOLERANCE_MM,
+    );
+    checkRange(
+      `каретка ${socketId}: отверстие патрона Ø${socket.thread} сквозное`,
+      [boreHalf * 2],
+      // 24-гранник вписан в окружность резьбы, а замер отстаёт на шаг.
+      socket.thread - 0.25 - 2 * probe,
+      socket.thread + TOLERANCE_MM,
+    );
+    checkRange(
+      `каретка ${socketId}: тыл плиты за шляпкой рельса на зазор ${rail.clearance} мм`,
+      // Плита не должна упираться в шляпку: её тыл — на зазор от тыла шляпки.
+      [hitZ(carriage.size / 2 - 5, metrics.socketY, false)],
+      plateBack - TOLERANCE_MM,
+      plateBack + TOLERANCE_MM,
+    );
+    checkRange(
+      `каретка ${socketId}: шестигранное гнездо под гайку ${metrics.nut} мм`,
+      [metrics.nut],
+      socket.nut - TOLERANCE_MM,
+      socket.nut + TOLERANCE_MM,
+    );
+    checkRange(
+      `каретка ${socketId}: гнездо утоплено на ${carriage.nutDepth} мм`,
+      // За гнездом начинается задний слой: он держит гайку на глубине.
+      [hitZ(metrics.thread / 2 + 2, metrics.socketY, true)],
+      nutFloor - TOLERANCE_MM,
+      nutFloor + TOLERANCE_MM,
+    );
+    check(
+      `каретка ${socketId}: прорезь под провод выходит к нижней кромке`,
+      through(0, metrics.plateBottom + 1),
+      true,
+    );
+    /*
+      Обойма держит каретку на шляпке с зазором. Задняя стенка тянется от плиты
+      до верха обоймы, а поперечные стенки идут по сторонам шляпки и шейки: луч
+      вдоль Y из полосы рельса находит нижнюю кромку верхней стенки на зазор выше
+      шляпки, а из полосы шейки — на зазор выше шейки. Значит, Т-паз собран и
+      рельс в нём не зажат. Начало луча — между шляпкой и плитой (−4.5 мм) и
+      посередине шейки (−2 мм): там у каретки только стенки обоймы, самого рельса
+      в её сетке нет.
+    */
+    const gripBottom = hitY(0, railY - rail.headWidth / 2, -4.5, 1);
+
+    checkRange(
+      `каретка ${socketId}: задняя стенка обоймы от плиты до верха`,
+      [hitZ(0, railY + gripInner + rail.clearance / 2, false)],
+      plateBack - TOLERANCE_MM,
+      plateBack + TOLERANCE_MM,
+    );
+    checkRange(
+      `каретка ${socketId}: обойма держит шляпку с зазором ${rail.clearance} мм`,
+      [gripBottom - (railY + rail.headWidth / 2)],
+      rail.clearance - TOLERANCE_MM,
+      rail.clearance + TOLERANCE_MM,
+    );
+    checkRange(
+      `каретка ${socketId}: стенка не касается шейки рельса`,
+      [
+        hitY(0, railY - rail.neckWidth / 2, -2, 1) -
+          (railY + rail.neckWidth / 2),
+      ],
+      rail.clearance - TOLERANCE_MM,
+      rail.clearance + TOLERANCE_MM,
+    );
+    checkRange(
+      `каретка ${socketId}: козырёк ${carriage.visorWidth} мм шириной`,
+      [size.x],
+      carriage.visorWidth - TOLERANCE_MM,
+      carriage.visorWidth + TOLERANCE_MM,
+    );
+    checkRange(
+      `каретка ${socketId}: козырёк ${carriage.visorLength} мм под ${carriage.visorTiltDeg}°`,
+      [size.y],
+      anchorY + carriage.visorLength * Math.SQRT1_2 - metrics.plateBottom -
+        TOLERANCE_MM,
+      anchorY + carriage.visorLength * Math.SQRT1_2 - metrics.plateBottom +
+        TOLERANCE_MM,
+    );
+    check(
+      `каретка ${socketId}: оболочка замкнута, NaN нет`,
+      [openEdges(geometry), nanVertices(geometry)],
+      [0, 0],
+    );
+
+    geometry.dispose();
+  }
+
+  /*
+    Крепление читается только у плоской формы и только вместе с рамкой: у куба и
+    круглого плафона панели собираются своим кодом, и монорельс туда не попадает.
+    Отдельной деталью `carriage` отдаётся ровно та же сетка, что и из функции
+    каретки, — по ней же считается вес и STL.
+  */
+  check(
+    "рельс: только плоская панель с рамкой",
+    [
+      lithophaneHasRail("rail", "flat", true),
+      lithophaneHasRail("rail", "round", true),
+      lithophaneHasRail("rail", "kaleidoscope", true),
+      lithophaneHasRail("rail", "flat", false),
+      lithophaneHasRail("stand", "flat", true),
+    ],
+    [true, false, false, false, false],
+  );
+
+  for (const shape of ["round", "kaleidoscope"] as const) {
+    const base: Partial<LithophaneParams> = { ...railParams, lithoShape: shape };
+    const plain = createLithophaneGeometry({ ...base, lithoMount: "none" });
+    const mounted = createLithophaneGeometry(base);
+
+    check(
+      `${shape}: монорельс не меняет деталь`,
+      [boxSize(mounted), mounted.getAttribute("position").count],
+      [boxSize(plain), plain.getAttribute("position").count],
+    );
+
+    plain.dispose();
+    mounted.dispose();
+  }
+
+  const carriagePart = createLithophaneGeometry(
+    { ...railParams, lithoRailSocket: "e27" },
+    "carriage",
+  );
+  const carriageBody = createLithophaneCarriageGeometry({
+    ...railParams,
+    lithoRailSocket: "e27",
+  });
+
+  check(
+    "каретка: деталь `carriage` — та же сетка, что из функции каретки",
+    [boxSize(carriagePart), carriagePart.getAttribute("position").count],
+    [boxSize(carriageBody), carriageBody.getAttribute("position").count],
+  );
+
+  carriagePart.dispose();
+  carriageBody.dispose();
+}
 
 console.log("");
 

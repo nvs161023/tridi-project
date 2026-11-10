@@ -69,6 +69,7 @@ import {
   sanitizeQrCardPhone,
   listSignBlocks,
   listSignLetters,
+  lithophaneHasRail,
   lithophaneHasStand,
   lithophaneShapeHasFrame,
   lithophaneShapeHasMounts,
@@ -91,7 +92,9 @@ import {
   type KeychainParams,
   type KeychainQrDecoration,
   type LithophaneBrightnessGrid,
+  type LithophaneMount,
   type LithophanePart,
+  type LithophaneRailSocket,
   type LithophaneShape,
   type ModelType,
   type PatternLayer,
@@ -165,6 +168,7 @@ type SizeParam = Exclude<
   | "hasLid"
   | "lithoFrame"
   | "lithoMount"
+  | "lithoRailSocket"
   | "lithoShape"
   | "lithophaneBrightness"
   | "planterShape"
@@ -354,6 +358,18 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
       lithophaneHasStand(params.lithoMount)
     ) {
       parts.push("stand");
+    }
+
+    // Монорельс: рельс врезан в тыл рамки и печатается вместе с ней, поэтому
+    // отдельный файл есть только у каретки.
+    if (
+      lithophaneHasRail(
+        params.lithoMount,
+        params.lithoShape,
+        params.lithoFrame,
+      )
+    ) {
+      parts.push("carriage");
     }
 
     return [
@@ -1070,6 +1086,32 @@ export function ConstructorClient({
   }
 
   /**
+   * Крепление литофана.
+   *
+   * В интерфейсе доступен только монорельс: старые подставки, арка и подвес
+   * читаются у сохранённых проектов, но заново не выбираются. Крепление без
+   * рамки не существует — рельс врезан в её тыл, — поэтому нормализация сама
+   * сбрасывает его в `none`.
+   */
+  function updateLithoMount(lithoMount: LithophaneMount) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lithoMount }),
+    );
+  }
+
+  /**
+   * Патрон каретки: E14 или E27.
+   *
+   * Значение не зависит от крепления и запоминается: у подставки гнездо не
+   * печатается, а вернувшись к монорельсу человек получает прежний выбор.
+   */
+  function updateLithoRailSocket(lithoRailSocket: LithophaneRailSocket) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lithoRailSocket }),
+    );
+  }
+
+  /**
    * Форма панели: плоская, круглый плафон или калейдоскоп.
    *
    * Крепление при этом не сбрасывается: у плафона и призмы его просто не печатают,
@@ -1435,6 +1477,8 @@ export function ConstructorClient({
             onRemoveKeychainDecoration={removeKeychainDecoration}
             keychainReport={keychainImageReport}
             onLithoFrameChange={updateLithoFrame}
+            onLithoMountChange={updateLithoMount}
+            onLithoRailSocketChange={updateLithoRailSocket}
             onLithoShapeChange={updateLithoShape}
             onLithophanePanelsChange={updateLithophanePanels}
             onLithophaneBrightnessChange={updateLithophaneBrightness}
