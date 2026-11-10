@@ -57,6 +57,8 @@ type ConstructorPageProps = {
   /** `?project=ID` — проект из кабинета, который нужно открыть в конструкторе. */
   searchParams: Promise<{
     project?: string | string[];
+    /** `?debug=light` — показать отладочный слой «Карта света». */
+    debug?: string | string[];
   }>;
 };
 
@@ -81,6 +83,14 @@ export default async function ConstructorPage({
     : query.project;
   const initialProjectId =
     typeof projectParam === "string" && projectParam ? projectParam : null;
+  /*
+    Отладочный слой «Карта света» прячется за адресом `?debug=light`: это
+    инструмент разработчика, а не функция конструктора. В обычном сеансе карта не
+    показывается вовсе — кнопки нет, легенды нет, — поэтому и флаг читается здесь,
+    на сервере: клиент получает готовое булево, а не разбирает адрес.
+  */
+  const debugParam = Array.isArray(query.debug) ? query.debug[0] : query.debug;
+  const debugLight = debugParam === "light";
 
   if (!identity) {
     // Возврат после входа сохраняет проект: ссылка из кабинета должна открыть
@@ -120,6 +130,7 @@ export default async function ConstructorPage({
     <div className="min-h-screen text-slate-100">
       <Header />
       <ConstructorClient
+        debugLight={debugLight}
         freeDownloadsLeft={freeDownloadsLeft}
         hasPro={hasPro}
         initialProjectId={initialProjectId}

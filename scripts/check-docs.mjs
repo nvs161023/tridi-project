@@ -49,10 +49,6 @@ const DOCS_PATH = "PROJECT.md";
  * `lib/constructor/keychain-relief.ts` — там же с 8 ноября 2026: утопленный
  * рельеф убран вместе с полем `emboss`, а история изменений называет файл, в
  * котором собиралась плита с окнами под рисунок.
- *
- * `lib/constructor/litho-light-calc.ts` — там же с 10 ноября 2026: расчёт
- * подсветки, лист-рассеиватель и все источники света убраны из конструктора,
- * а история изменений по-прежнему называет файл, где считалась карта.
  */
 const REMOVED_PATHS = new Set([
   "data/course.json",
@@ -63,7 +59,6 @@ const REMOVED_PATHS = new Set([
   "components/constructor/VaseSeedGallery.tsx",
   "lib/lesson-outline.ts",
   "lib/constructor/keychain-relief.ts",
-  "lib/constructor/litho-light-calc.ts",
 ]);
 
 /** Префиксы, по которым отличаем путь к файлу проекта от обычного слова. */

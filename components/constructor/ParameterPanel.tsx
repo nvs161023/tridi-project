@@ -106,12 +106,15 @@ import {
   keychainThicknessLimits,
   hasDrawableSvgData,
   isCustomSvgData,
+  LITHOPHANE_LIGHT_SEATS,
+  LITHOPHANE_LIGHT_SEAT_LABELS,
+  LITHOPHANE_LIGHT_SOURCES,
+  LITHOPHANE_LIGHT_SOURCE_LABELS,
   LITHOPHANE_MOUNTS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_RESOLUTION,
   LITHOPHANE_SHAPES,
   LITHOPHANE_SHAPE_LABELS,
-  LITHOPHANE_SIDE_IMAGE_SLOTS,
   MODEL_TYPE_LABELS,
   PEN_SHAPES,
   PEN_SHAPE_LABELS,
@@ -126,6 +129,7 @@ import {
   VASE_PATTERN_LABELS,
   VASE_SHAPES,
   VASE_SHAPE_LABELS,
+  lithophaneShapeHasMounts,
   sanitizeKeychainText,
   sanitizeSignText,
   type BoxPresetId,
@@ -142,6 +146,8 @@ import {
   type KeychainTextAlign,
   type KeychainTextDecoration,
   type LithophaneBrightnessGrid,
+  type LithophaneLightSeat,
+  type LithophaneLightSource,
   type LithophaneMount,
   type LithophaneShape,
   type ModelType,
@@ -158,6 +164,10 @@ import {
   type VaseShape,
 } from "@/lib/constructor/params";
 import {
+  LITHO_LIGHT_KIND_LABELS,
+  lithophaneLightPlan,
+} from "@/lib/constructor/litho-light-calc";
+import {
   LITHOPHANE_LOGO_MAX_THICKNESS_MM,
   LITHOPHANE_LOGO_MIN_THICKNESS_MM,
   lithophaneAlphaStats,
@@ -165,7 +175,6 @@ import {
   lithophaneTrimBounds,
   type LithophaneImageKind,
 } from "@/lib/constructor/lithophane-image";
-import { lithophanePanelCount } from "@/lib/constructor/lithophane-panels";
 import {
   VASE_SECTION_MIN_SIDES,
   resolveSectionSides,
@@ -348,10 +357,35 @@ type ParameterPanelProps = {
   onBoxPresetChange: (preset: BoxPresetId) => void;
   /** Рамка литофана: отдельная деталь с пазом под плиту. */
   onLithoFrameChange: (hasFrame: boolean) => void;
-  /** Крепление литофана: сейчас доступно только «без подставки». */
+  /** Рассеиватель: лист матового акрила в пазу базы, размывает пятно лампы. */
+  onLithoDiffuserChange: (enabled: boolean) => void;
+  /** Крепление литофана: подставка, настенные петли или ничего. */
   onLithoMountChange: (mount: LithophaneMount) => void;
-  /** Форма литофана: плоская панель, куб или цилиндрический плафон. */
+  /**
+   * Форма панели литофана: плоская, изогнутая по дуге или полуцилиндр.
+   *
+   * У изогнутой формы и полуцилиндра креплений нет: паз, стойка и световой короб
+   * вырезаны в плоской рамке. Радиус изгиба правится слайдером через
+   * `onParamChange`.
+   */
   onLithoShapeChange: (shape: LithophaneShape) => void;
+  /**
+   * Источник света в базе: лента, USB-лампа, патрон E27 или ничего.
+   *
+   * Список виден у арки, изогнутой панели и полуцилиндра: у каждой своя база под
+   * выбранный источник. Сплошная ножка и массивное основание выборок не имеют, а
+   * у подвеса лента заложена в короб.
+   */
+  onLithoLightSourceChange: (light: LithophaneLightSource) => void;
+  /**
+   * Какое гнездо скобы занимает лампа.
+   *
+   * В держателе арки напечатаны две скобы: ближняя ставит лампу почти к панели,
+   * дальняя отодвигает её на 90–120 мм и выравнивает свет. Параметр виден только
+   * у патрона и USB-лампы: у ленты и «без подсветки» скобы нет, а у изогнутых
+   * баз лампа стоит в единственном гнезде на полке.
+   */
+  onLithoLightSeatChange: (seat: LithophaneLightSeat) => void;
   /**
    * Готовая сетка яркости из canvas: 0 — чёрный, 255 — белый.
    *
@@ -364,12 +398,12 @@ type ParameterPanelProps = {
     thickness?: { min: number; max: number },
   ) => void;
   /**
-   * Фото на один из остальных секторов круглой панели: слот 0 — сектор 2,
-   * слот 1 — сектор 3, слот 2 — сектор 4.
+   * Фото на одну из остальных граней калейдоскопа: слот 0 — грань 2, слот 1 —
+   * грань 3, слот 2 — грань 4.
    *
-   * `null` очищает слот: сектор снова повторяет основной кадр, поэтому одна
-   * загруженная картинка печатается по всему диску. Толщины слайдеров слоты не
-   * трогают — они общие для всей панели.
+   * `null` очищает слот: грань снова повторяет предыдущий кадр, поэтому одна
+   * загруженная картинка печатается на всех четырёх гранях. Толщины слайдеров
+   * слоты не трогают — они общие для всей призмы.
    */
   onLithophaneSideBrightnessChange: (
     slot: number,
@@ -854,106 +888,6 @@ async function compressLithophaneImage(file: File): Promise<LithophaneImage> {
     bitmap.close();
   }
 }
-
-/**
- * Слоты панелей 2–4: индексы слотов `lithophaneSideBrightness`.
- *
- * Первая панель задаётся основным полем фотографии, поэтому в сетке слотов она
- * стоит отдельной карточкой, а остальные перебираются по этим номерам: индекс
- * слота совпадает с номером панели минус один. Сколько слотов показывать, решает
- * форма: у куба их четыре, у цилиндра — столько, сколько выбрано панелей.
- */
-const LITHOPHANE_SIDE_SLOTS = Array.from(
-  { length: LITHOPHANE_SIDE_IMAGE_SLOTS },
-  (_unused, index) => index,
-);
-
-type LithophanePhotoSlotProps = {
-  /** Подпись слота: «Грань 1» … «Панель 4». */
-  label: string;
-  /** Превью кадра, если он загружен. */
-  preview: string | null;
-  /** Кадр загружен: кнопка меняет подпись на «Заменить». */
-  hasPhoto: boolean;
-  /** Браузер сжимает кадр прямо сейчас. */
-  busy: boolean;
-  /** Что написано в пустом слоте. */
-  emptyHint: string;
-  /** Идентификатор скрытого поля: по нему работает кнопка-метка. */
-  inputId: string;
-  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  /** Пустой слот панелей 2–4 снова повторяет первый кадр. */
-  onRemove?: () => void;
-};
-
-/**
- * Слот одной панели ночника.
- *
- * Слоты стоят сеткой: превью кадра, подпись панели, кнопка загрузки и, для
- * панелей 2–4, кнопка «Убрать». Пустой слот ничего не ломает: он повторяет
- * первый кадр, поэтому одной фотографии достаточно на весь ночник.
- */
-function LithophanePhotoSlot({
-  busy,
-  emptyHint,
-  hasPhoto,
-  inputId,
-  label,
-  onFileChange,
-  onRemove,
-  preview,
-}: LithophanePhotoSlotProps) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-2">
-      {preview ? (
-        <div
-          aria-label={`Превью кадра: ${label}`}
-          className="h-20 w-full rounded-xl border border-white/15 bg-cover bg-center"
-          role="img"
-          style={{ backgroundImage: `url(${preview})` }}
-        />
-      ) : (
-        <div
-          aria-hidden
-          className="flex h-20 w-full flex-col items-center justify-center rounded-xl border border-dashed border-white/20 bg-slate-950/60 text-center text-[0.65rem] leading-tight font-medium tracking-wide text-slate-300 uppercase"
-        >
-          <span className="text-lg">🖼️</span>
-          <span className="mt-1">{emptyHint}</span>
-        </div>
-      )}
-
-      <p className="mt-2 text-center text-xs font-semibold text-slate-200">
-        {label}
-      </p>
-
-      <label
-        className="mt-2 flex min-h-9 cursor-pointer items-center justify-center rounded-lg border border-white/15 bg-white/5 px-1 text-center text-xs font-semibold text-slate-100 transition-colors hover:bg-white/10 focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
-        htmlFor={inputId}
-      >
-        {busy ? "Сжимаем…" : hasPhoto ? "Заменить" : "Загрузить"}
-        <input
-          accept="image/*"
-          className="sr-only"
-          disabled={busy}
-          id={inputId}
-          onChange={onFileChange}
-          type="file"
-        />
-      </label>
-
-      {onRemove ? (
-        <button
-          className="mt-1 w-full rounded-lg border border-white/10 px-1 py-1 text-xs font-medium text-slate-300 transition-colors hover:border-rose-400/40 hover:text-rose-200 focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:outline-none"
-          onClick={onRemove}
-          type="button"
-        >
-          Убрать
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 
 /** Читает файл как текст: так приходит исходный SVG. */
 function readFileAsText(file: File): Promise<string> {
@@ -1591,6 +1525,165 @@ function modelSummary(
  * 3D-сцена и подписи всегда читают один и тот же объект. Локальное состояние
  * есть только у загрузки изображения — текст ошибки и превью на время сеанса.
  */
+/**
+ * Светотехнический расчёт подсветки литофана.
+ *
+ * Блок отвечает на вопрос, который иначе проверяется печатью: ляжет ли свет
+ * пятном. Расчёт тот же, что рисует карту света в предпросмотре, поэтому цифры
+ * здесь и пятно в сцене не расходятся. Предупреждения даны с числами: высота
+ * крепления зашита в рамку, поэтому совет «поднять лампу» бесполезен — модель
+ * говорит, чего добиваться рассеивателем или другим креплением.
+ */
+function LithophaneLightReport({
+  params,
+  onLithoDiffuserChange,
+}: {
+  params: ConstructorParams;
+  onLithoDiffuserChange: (enabled: boolean) => void;
+}) {
+  const plan = useMemo(() => lithophaneLightPlan(params), [params]);
+
+  /*
+    Блока нет, если источника в сборке нет: у ножки, массивной базы и «без
+    подсветки» ставить лампу некуда, и пустая рамка с надписью «не считается»
+    только занимала бы место. У изогнутой панели, полуцилиндра и призмы лампа
+    напечатана в базе, поэтому расчёт есть и у них.
+  */
+  if (!plan) {
+    return null;
+  }
+
+  /*
+    Паз напечатан в трёх местах, и в тексте они называются по-разному: «паз базы
+    арки» в падеже паза и «в базе арки» в падеже места. У бруска дуги паз заметён
+    по дуге, у полуцилиндра — седло по окружности, поэтому лист там сгибают: об этом
+    одна оговорка в конце.
+  */
+  const seatOf =
+    plan.shape === "curved"
+      ? "бруска дуги"
+      : plan.shape === "cylinder"
+        ? "седла обоймы"
+        : "базы арки";
+  const seatIn =
+    plan.shape === "curved"
+      ? "бруске дуги"
+      : plan.shape === "cylinder"
+        ? "обойме полуцилиндра"
+        : "базе арки";
+  const seatBend =
+    plan.shape === "curved"
+      ? " Лист 2 мм гнётся по дуге."
+      : plan.shape === "cylinder"
+        ? " Лист 2 мм гнётся в кольцо по седлу."
+        : "";
+
+  /*
+    Плашка «свет подобран» встаёт на место предупреждений, когда их нет. Текст
+    зависит от листа: с ним пик уже размыт, без него лист остаётся единственным
+    шагом к ровности. Паза нет только у призмы — там про лист не говорим.
+  */
+  const calm = plan.diffuser
+    ? `Свет подобран оптимально: лист в пазу размывает пятно лампы, пик не больше ×${plan.peakRatio.toFixed(
+        2,
+      )} средней, и кадр читается по всей высоте.`
+    : plan.diffuserSupported
+      ? `Свет подобран оптимально: место лампы рассчитано под панель, пик ×${plan.peakRatio.toFixed(
+          2,
+        )} средней. Лист в пазу сделает засветку ещё ровнее.`
+      : `Свет подобран оптимально: место источника рассчитано под панель, пик ×${plan.peakRatio.toFixed(
+          2,
+        )} средней.`;
+
+  return (
+    <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-3">
+      <p className="text-xs font-semibold tracking-wide text-slate-200 uppercase">
+        Светотехнический расчёт
+      </p>
+      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-300">
+        <dt>Источник</dt>
+        <dd className="text-right text-white">
+          {LITHO_LIGHT_KIND_LABELS[plan.kind]}
+        </dd>
+        <dt>Расстояние до панели</dt>
+        <dd className="text-right tabular-nums text-white">
+          {plan.actualDistance.toFixed(0)} мм
+        </dd>
+        <dt>Рекомендованное</dt>
+        <dd className="text-right tabular-nums text-white">
+          {plan.recommendedDistance.toFixed(0)} мм
+        </dd>
+        <dt>Высота лампы</dt>
+        <dd className="text-right tabular-nums text-white">
+          {plan.recommendedHeight.toFixed(0)} мм над столом
+        </dd>
+        <dt>Пик к средней</dt>
+        <dd className="text-right tabular-nums text-white">
+          ×{plan.peakRatio.toFixed(2)}
+        </dd>
+        <dt>Низ к верху</dt>
+        <dd className="text-right tabular-nums text-white">
+          {(plan.topShare * 100).toFixed(0)} %
+        </dd>
+      </dl>
+
+      {/*
+        Переключатель стоит у всех форм, где ставится источник: паз напечатан в
+        базе арки, в бруске дуги и в обойме полуцилиндра. Нет его только у призмы
+        калейдоскопа — там свет горит в камере за плитами.
+      */}
+      {plan.diffuserSupported ? (
+        <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-slate-950/40 p-3 transition-colors hover:border-white/25 hover:bg-white/5">
+          <input
+            checked={params.lithoDiffuser}
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            onChange={(event) => onLithoDiffuserChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-slate-200">
+              Рассеиватель
+            </span>
+            <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+              {plan.diffuser
+                ? `Лист 2 мм стоит в пазу ${seatOf} на ${plan.diffuser.gap.toFixed(
+                    0,
+                  )} мм от панели и на ${(
+                    plan.diffuser.top - plan.diffuser.bottom
+                  ).toFixed(0)} мм по высоте: он разбивает пятно лампы, и пик падает до ×${plan.peakRatio.toFixed(
+                    2,
+                  )} средней. Расчёт в панели и карта света в сцене уже считают его.${seatBend}`
+                : `В ${seatIn} напечатан паз под лист 2 мм: вставьте в него матовый акрил — расчёт пересчитает карту с ним, и станет видно, насколько ровнее ляжет свет.${seatBend}`}
+            </span>
+          </span>
+        </label>
+      ) : null}
+
+      {plan.warnings.length > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {plan.warnings.map((warning) => (
+            <li
+              className={
+                warning.severity === "error"
+                  ? "rounded-lg border border-rose-400/40 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
+                  : "rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-100"
+              }
+              key={warning.id}
+            >
+              <span className="font-semibold">{warning.title}</span>{" "}
+              {warning.hint}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-xs leading-relaxed text-emerald-100">
+          {calm}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function ParameterPanel({
   params,
   hasPro,
@@ -1629,8 +1722,11 @@ export function ParameterPanel({
   onBoxCellsChange,
   onBoxPresetChange,
   onLithoFrameChange,
+  onLithoDiffuserChange,
   onLithoMountChange,
   onLithoShapeChange,
+  onLithoLightSourceChange,
+  onLithoLightSeatChange,
   onLithophaneBrightnessChange,
   onLithophaneSideBrightnessChange,
   onPlanterShapeChange,
@@ -1674,12 +1770,12 @@ export function ParameterPanel({
    */
   const [imageKind, setImageKind] = useState<LithophaneImageKind | null>(null);
   /**
-   * Превью фотографий остальных секторов круглой панели.
+   * Превью фотографий остальных граней калейдоскопа.
    *
-   * Слоты идут по порядку: 0 — сектор 2, 1 — сектор 3, 2 — сектор 4. Превью живут
+   * Слоты идут по порядку: 0 — грань 2, 1 — грань 3, 2 — грань 4. Превью живут
    * только в панели: в параметрах лежит сетка яркости, а не картинка. После
    * загрузки сохранённого проекта превью нет — там уже готовый рельеф, и слот
-   * показывает только то, что фото в секторе есть.
+   * показывает только то, что фото на грани есть.
    */
   const [sidePreviews, setSidePreviews] = useState<(string | null)[]>([
     null,
@@ -1767,17 +1863,6 @@ export function ParameterPanel({
   const hasUploadedImage =
     params.lithophaneBrightness !==
     DEFAULT_LITHOPHANE_PARAMS.lithophaneBrightness;
-
-  /**
-   * Сколько панелей у выбранной формы: одна у плоской, четыре у куба, 2–4 у
-   * цилиндра. По нему строятся слоты фотографий и подписи «Грань» / «Панель».
-   */
-  const lithophanePanels = lithophanePanelCount(
-    params.lithoShape,
-    params.lithophanePanels,
-  );
-  const lithophanePanelNoun =
-    params.lithoShape === "cube" ? "Грань" : "Панель";
 
   /**
    * Читает файл, сразу сжимает его и отдаёт яркость наверх.
@@ -4290,106 +4375,58 @@ export function ParameterPanel({
               Фотография
             </legend>
 
-            {params.lithoShape === "flat" ? (
-              <div className="mt-3 flex items-start gap-3">
-                {hasUploadedImage && imagePreview ? (
-                  <div
-                    aria-label="Превью загруженного изображения"
-                    className="h-24 w-24 shrink-0 rounded-2xl border border-white/15 bg-cover bg-center"
-                    role="img"
-                    style={{ backgroundImage: `url(${imagePreview})` }}
-                  />
-                ) : (
-                  <div
-                    aria-hidden
-                    className="flex h-24 w-24 shrink-0 flex-col items-center justify-center rounded-2xl border border-dashed border-white/20 bg-slate-950/60 text-center text-[0.65rem] leading-tight font-medium tracking-wide text-slate-300 uppercase"
-                  >
-                    <span className="text-2xl">🖼️</span>
-                    <span className="mt-1">
-                      до {LITHOPHANE_RESOLUTION} px
-                    </span>
-                  </div>
-                )}
-
-                <div className="min-w-0 flex-1">
-                  <label
-                    className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-blue-400/60 bg-blue-500/15 px-3 text-center text-sm font-semibold text-white transition-colors hover:bg-blue-500/25 focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
-                    htmlFor={lithophaneInputId}
-                  >
-                    {isProcessingImage
-                      ? "Сжимаем…"
-                      : hasUploadedImage
-                        ? "Заменить фото"
-                        : "Загрузить фото"}
-                  </label>
-                  <input
-                    accept="image/*"
-                    aria-describedby={lithophaneHintId}
-                    className="sr-only"
-                    disabled={isProcessingImage}
-                    id={lithophaneInputId}
-                    onChange={handleLithophaneImageChange}
-                    type="file"
-                  />
-                  <p
-                    className="mt-2 text-xs leading-relaxed text-slate-300"
-                    id={lithophaneHintId}
-                  >
-                    PNG, JPG или WebP. Браузер сразу сжимает кадр до{" "}
-                    {LITHOPHANE_RESOLUTION} px по длинной стороне, поэтому
-                    большой файл не подвесит предпросмотр. Фото вписывается
-                    целиком, поля по краям остаются светлыми. Логотип с
-                    прозрачным фоном обрезается по краю знака и получает
-                    контраст 0.6–3.5 мм.
-                  </p>
+            <div className="mt-3 flex items-start gap-3">
+              {hasUploadedImage && imagePreview ? (
+                <div
+                  aria-label="Превью загруженного изображения"
+                  className="h-24 w-24 shrink-0 rounded-2xl border border-white/15 bg-cover bg-center"
+                  role="img"
+                  style={{ backgroundImage: `url(${imagePreview})` }}
+                />
+              ) : (
+                <div
+                  aria-hidden
+                  className="flex h-24 w-24 shrink-0 flex-col items-center justify-center rounded-2xl border border-dashed border-white/20 bg-slate-950/60 text-center text-[0.65rem] leading-tight font-medium tracking-wide text-slate-300 uppercase"
+                >
+                  <span className="text-2xl">🖼️</span>
+                  <span className="mt-1">
+                    до {LITHOPHANE_RESOLUTION} px
+                  </span>
                 </div>
-              </div>
-            ) : (
-              <>
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <LithophanePhotoSlot
-                    busy={isProcessingImage}
-                    emptyHint={hasUploadedImage ? "фото есть" : "нет фото"}
-                    hasPhoto={hasUploadedImage}
-                    inputId={lithophaneInputId}
-                    label={`${lithophanePanelNoun} 1`}
-                    onFileChange={handleLithophaneImageChange}
-                    preview={imagePreview}
-                  />
-                  {LITHOPHANE_SIDE_SLOTS.filter(
-                    (slot) => slot < lithophanePanels - 1,
-                  ).map((slot) => {
-                    const side = params.lithophaneSideBrightness[slot];
+              )}
 
-                    return (
-                      <LithophanePhotoSlot
-                        busy={sideProcessing === slot}
-                        emptyHint={side ? "фото есть" : `как ${lithophanePanelNoun.toLowerCase()} 1`}
-                        hasPhoto={side !== null}
-                        inputId={`${lithophaneInputId}-panel-${slot + 2}`}
-                        key={slot}
-                        label={`${lithophanePanelNoun} ${slot + 2}`}
-                        onFileChange={(event) =>
-                          handleLithophaneSideImageChange(slot, event)
-                        }
-                        onRemove={
-                          side
-                            ? () => removeLithophaneSideImage(slot)
-                            : undefined
-                        }
-                        preview={sidePreviews[slot]}
-                      />
-                    );
-                  })}
-                </div>
-
-                <p className="mt-3 text-xs leading-relaxed text-slate-300">
-                  {params.lithoShape === "cube"
-                    ? "Четыре грани стоят на общем каркасе, внутри пусто под лампу. Пустая грань повторяет кадр грани 1, поэтому одной фотографии хватает на весь куб."
-                    : `Панели крепятся снаружи цилиндра и гнутся по его радиусу, внутри пусто под лампу. Пустая панель повторяет кадр панели 1.`}
+              <div className="min-w-0 flex-1">
+                <label
+                  className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-blue-400/60 bg-blue-500/15 px-3 text-center text-sm font-semibold text-white transition-colors hover:bg-blue-500/25 focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950"
+                  htmlFor={lithophaneInputId}
+                >
+                  {isProcessingImage
+                    ? "Сжимаем…"
+                    : hasUploadedImage
+                      ? "Заменить фото"
+                      : "Загрузить фото"}
+                </label>
+                <input
+                  accept="image/*"
+                  aria-describedby={lithophaneHintId}
+                  className="sr-only"
+                  disabled={isProcessingImage}
+                  id={lithophaneInputId}
+                  onChange={handleLithophaneImageChange}
+                  type="file"
+                />
+                <p
+                  className="mt-2 text-xs leading-relaxed text-slate-300"
+                  id={lithophaneHintId}
+                >
+                  PNG, JPG или WebP. Браузер сразу сжимает кадр до{" "}
+                  {LITHOPHANE_RESOLUTION} px по длинной стороне, поэтому большой
+                  файл не подвесит предпросмотр. Фото вписывается целиком, поля
+                  по краям остаются светлыми. Логотип с прозрачным фоном
+                  обрезается по краю знака и получает контраст 0.6–3.5 мм.
                 </p>
-              </>
-            )}
+              </div>
+            </div>
 
             {imageError ? (
               <p
@@ -4407,6 +4444,77 @@ export function ParameterPanel({
                   : "Фото загружено целиком: тёмные участки стали толще, светлые — тоньше, а поля по краям остаются светлыми."
                 : "Пока показан демонстрационный рельеф. Загрузите фото, чтобы заменить его."}
             </p>
+
+            {params.lithoShape === "kaleidoscope" ? (
+              <div className="mt-4">
+                <p className="text-xs font-semibold text-slate-200">
+                  Грани 2–4
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                  У калейдоскопа четыре грани, и на каждой может быть своё фото.
+                  Пустая грань повторяет предыдущую, поэтому одного кадра тоже
+                  достаточно — он напечатается на всех четырёх сторонах.
+                </p>
+
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {[1, 2, 3].map((face) => {
+                    const slot = face - 1;
+                    const side = params.lithophaneSideBrightness[slot];
+                    const preview = sidePreviews[slot];
+                    const busy = sideProcessing === slot;
+
+                    return (
+                      <div
+                        className="rounded-2xl border border-white/10 bg-slate-950/40 p-2"
+                        key={face}
+                      >
+                        {preview ? (
+                          <div
+                            aria-label={`Превью фото грани ${face + 1}`}
+                            className="h-16 w-full rounded-xl border border-white/15 bg-cover bg-center"
+                            role="img"
+                            style={{ backgroundImage: `url(${preview})` }}
+                          />
+                        ) : (
+                          <div
+                            aria-hidden
+                            className="flex h-16 w-full flex-col items-center justify-center rounded-xl border border-dashed border-white/20 bg-slate-950/60 text-center text-[0.65rem] leading-tight font-medium tracking-wide text-slate-300 uppercase"
+                          >
+                            <span className="text-lg">🖼️</span>
+                            <span className="mt-1">
+                              {side ? "фото есть" : "грань " + (face + 1)}
+                            </span>
+                          </div>
+                        )}
+
+                        <label className="mt-2 flex min-h-9 cursor-pointer items-center justify-center rounded-lg border border-white/15 bg-white/5 px-1 text-center text-xs font-semibold text-slate-100 transition-colors hover:bg-white/10 focus-within:ring-2 focus-within:ring-blue-400 focus-within:ring-offset-2 focus-within:ring-offset-slate-950">
+                          {busy ? "Сжимаем…" : side ? "Заменить" : "Добавить"}
+                          <input
+                            accept="image/*"
+                            className="sr-only"
+                            disabled={busy}
+                            onChange={(event) =>
+                              handleLithophaneSideImageChange(slot, event)
+                            }
+                            type="file"
+                          />
+                        </label>
+
+                        {side ? (
+                          <button
+                            className="mt-1 w-full rounded-lg border border-white/10 px-1 py-1 text-xs font-medium text-slate-300 transition-colors hover:border-rose-400/40 hover:text-rose-200 focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:outline-none"
+                            onClick={() => removeLithophaneSideImage(slot)}
+                            type="button"
+                          >
+                            Убрать
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
           </fieldset>
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
@@ -4419,6 +4527,17 @@ export function ParameterPanel({
               step={CONSTRUCTOR_LIMITS.lithophaneWidth.step}
               unit="мм"
               value={params.lithophaneWidth}
+            />
+
+            <NumberSlider
+              hint="Высота панели вместе с рамкой. Пропорции фото подстраиваются под этот размер."
+              label="Высота"
+              max={CONSTRUCTOR_LIMITS.lithophaneHeight.max}
+              min={CONSTRUCTOR_LIMITS.lithophaneHeight.min}
+              onChange={(value) => onParamChange("lithophaneHeight", value)}
+              step={CONSTRUCTOR_LIMITS.lithophaneHeight.step}
+              unit="мм"
+              value={params.lithophaneHeight}
             />
 
             <NumberSlider
@@ -4452,8 +4571,8 @@ export function ParameterPanel({
 
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Плоская панель — обычный литофан: рельеф по плоскости, кадр вписан целиком. Куб — четыре плоские грани на общем каркасе, внутри пусто под лампу. Цилиндр — каркас-абажур: снаружи 2–4 изогнутые панели, изнутри пустота для лампы."
-              label="Форма литофана"
+              hint="Плоская панель — обычный литофан: рельеф по плоскости. Изогнутая идёт по дуге вокруг вертикальной оси — край уходит назад, а ширина кадра на поверхности не меняется, поэтому фото не сжимается; вершины рождаются сразу на цилиндре, без изгиба готовой сетки. Полуцилиндр заворачивается на 180° и стоит на круглом диске с пазом и отверстием под лампу. Калейдоскоп — четыре панели без рамок под 90° на полом цоколе: на каждой грани может быть своё фото, а свет свечи выходит через рельеф. У этих трёх форм своя база, поэтому сменные крепления к ним не применяются."
+              label="Форма панели"
               onChange={onLithoShapeChange}
               options={LITHOPHANE_SHAPES.map((shape) => ({
                 label: LITHOPHANE_SHAPE_LABELS[shape],
@@ -4463,72 +4582,51 @@ export function ParameterPanel({
             />
 
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              {params.lithoShape === "flat"
-                ? "Плоская панель: кадр вписан по правилу contain — пропорции сохранены, поля по краям печатаются на минимальной толщине и на просвет остаются светлыми."
-                : params.lithoShape === "cube"
-                  ? "Куб: четыре панели стоят гранями на поясах и угловых стойках, у каждой свой кадр. Внутри пусто — туда ставится лампа или свеча, поэтому грани и светятся."
-                  : "Цилиндр: два пояса и вертикальные стойки держат изогнутые панели снаружи, лицо смотрит наружу. Диаметр задаётся шириной, высота — высотой плафона, внутри пусто под лампу."}
+              {params.lithoShape === "curved"
+                ? "Панель гнётся по дуге выбранного радиуса: центр остаётся на месте, а край уходит назад на R − √(R² − x²). Рамка гнётся вместе с плитой, поэтому зазор посадки 0.2 мм по всему периметру сохраняется. Панель стоит на рельсе, повторяющем дугу: в нём паз под рамку и канал 10 × 2 мм под ленту."
+                : params.lithoShape === "cylinder"
+                  ? "Полуцилиндр 180°: радиус равен ширине панели, делённой на π, поэтому рельеф заворачивается ровно на половину окружности. Вершины считаются сразу в цилиндрических координатах, поэтому лицо гладкое, без муара от фасеток. Панель опускается в круговой паз плоского диска с отверстием Ø40 мм: лампа или свеча стоит в центре и светит прямо внутрь полуцилиндра."
+                  : params.lithoShape === "kaleidoscope"
+                    ? "Калейдоскоп: четыре панели без рамок стоят под 90° на полом цоколе — их края входят в паз цоколя и паз тонкой крышки. На каждой грани может быть своё фото; пустая грань повторяет предыдущую. Свечу Ø40 держит кольцо в центре дна, свет выходит через рельеф, а четыре окна в крышке дают тягу: свеча не гаснет. Весит такая призма около 110 грамм вместо прежних 380."
+                    : "Плоская панель: рельеф идёт по плоскости, рамка и крепление собираются как раньше. Это форма из референсов — изогнутую выбирают, когда нужна равномерная подсветка или необычный вид."}
             </p>
 
-            <div className="mt-5 space-y-5">
-              <NumberSlider
-                hint={
-                  params.lithoShape === "round"
-                    ? "Диаметр плафона по наружной стенке пояса. Внутри остаётся полость на 6 мм меньше — под лампу."
-                    : "Высота панели вместе с рамкой. Пропорции фото подстраиваются под этот размер."
-                }
-                label={params.lithoShape === "round" ? "Диаметр" : "Высота"}
-                max={CONSTRUCTOR_LIMITS.lithophaneHeight.max}
-                min={CONSTRUCTOR_LIMITS.lithophaneHeight.min}
-                onChange={(value) => onParamChange("lithophaneHeight", value)}
-                step={CONSTRUCTOR_LIMITS.lithophaneHeight.step}
-                unit="мм"
-                value={params.lithophaneHeight}
-              />
-
-              {params.lithoShape === "round" ? (
+            {params.lithoShape === "curved" ? (
+              <div className="mt-5">
                 <NumberSlider
-                  decimals={CONSTRUCTOR_LIMITS.lithophanePanels.decimals}
-                  hint="Сколько изогнутых панелей по кругу: две — абажур из двух половин с широкими стойками, четыре — полный круг почти без стоек."
-                  label="Панелей"
-                  max={CONSTRUCTOR_LIMITS.lithophanePanels.max}
-                  min={CONSTRUCTOR_LIMITS.lithophanePanels.min}
-                  onChange={(value) => onParamChange("lithophanePanels", value)}
-                  step={CONSTRUCTOR_LIMITS.lithophanePanels.step}
-                  unit="шт."
-                  value={params.lithophanePanels}
+                  hint="Радиус дуги. 250 мм — пологий изгиб: на панели 120 мм край уходит назад на 7 мм. Меньше радиус — круче дуга и заметнее «экран», больше — почти плоско."
+                  label="Радиус изгиба"
+                  max={CONSTRUCTOR_LIMITS.lithoCurveRadius.max}
+                  min={CONSTRUCTOR_LIMITS.lithoCurveRadius.min}
+                  onChange={(value) => onParamChange("lithoCurveRadius", value)}
+                  step={CONSTRUCTOR_LIMITS.lithoCurveRadius.step}
+                  unit="мм"
+                  value={params.lithoCurveRadius}
                 />
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
 
-          {params.lithoShape === "flat" ? (
-            <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
-              <input
-                checked={params.lithoFrame}
-                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                onChange={(event) => onLithoFrameChange(event.target.checked)}
-                type="checkbox"
-              />
-              <span>
-                <span className="block text-sm font-semibold text-slate-200">
-                  Рамка
-                </span>
-                <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                  Отдельная деталь: задняя полка с пазом, куда входит плита, и
-                  передняя накладка по периметру. Без рамки печатается только
-                  плита рельефа со своим бортиком.
-                </span>
+          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+            <input
+              checked={params.lithoFrame}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onChange={(event) => onLithoFrameChange(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-200">
+                Рамка
               </span>
-            </label>
-          ) : (
-            <p className="mt-6 text-xs leading-relaxed text-slate-300">
-              Панели держит каркас — пояса и стойки, поэтому рамка не нужна:
-              деталь печатается одной сборкой, без клея и поддержек.
-            </p>
-          )}
+              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                Отдельная деталь: задняя полка с пазом, куда входит плита, и
+                передняя накладка по периметру. Без рамки печатается только
+                плита рельефа со своим бортиком.
+              </span>
+            </span>
+          </label>
 
-          {params.lithoShape !== "flat" ? null : params.lithoFrame ? (
+          {params.lithoFrame && lithophaneShapeHasMounts(params.lithoShape) ? (
             <div className="mt-6 border-t border-white/10 pt-5">
               <ParameterSelect
                 label="Крепление"
@@ -4541,23 +4639,104 @@ export function ParameterPanel({
               />
 
               <p className="mt-2 text-xs leading-relaxed text-slate-300">
-                Без подставки: печатается только рамка с плитой, за панелью
-                ничего не торчит. Литофан можно поставить на полку или вставить
-                в свою подставку.
+                {params.lithoMount === "arch"
+                  ? "Открытая арка: две тонкие ножки по краям и база с креплением под свет. Рамка опускается в паз глубиной 3.5 мм, а низ панели остаётся открытым — свет из базы проходит между ножками и подсвечивает кадр снизу."
+                  : params.lithoMount === "stand"
+                    ? "Сплошная ножка: база с передней губой и задней стойкой под наклоном 12°. Стойка переходит в базу скруглением — деталь печатается одним профилем и не отламывается по шву. Панель с рамкой ставится в паз сверху. Стойка закрывает низ панели, поэтому на просвет там будет темнее."
+                    : params.lithoMount === "base"
+                      ? "Массивное основание: широкая база на 92% ширины панели, толстая стойка и скругление 7 мм. Держит крупный литофан 200 мм и не опрокидывается от толчка — для полки и стола."
+                      : params.lithoMount === "hook"
+                        ? "Световой бокс: за рамкой закрытый короб с каналом 10 × 2 мм под светодиодную ленту. Она лежит на уровне нижней кромки кадра и светит на тыл плиты, а с лица короб не виден. Провод выходит через отверстие в тыльной стенке, петли на ней же держат литофан на двух шурупах с зазором 12 мм от стены."
+                        : "Без подставки: печатается только рамка с плитой. Её можно поставить на полку или вставить в свою подставку."}
               </p>
             </div>
           ) : (
             <p className="mt-4 text-xs leading-relaxed text-slate-300">
-              Рамка выключена: печатается только плита рельефа со своим
-              бортиком.
+              {params.lithoFrame
+                ? "У изогнутой панели, полуцилиндра и калейдоскопа сменного крепления нет: паз подставки, задняя стойка и световой короб вырезаны в плоской рамке, а согнуть их вместе с плитой нельзя. Вместо него печатается своя база — рельс по дуге, круглая плита с отверстием под лампу или цоколь призмы. Выбранное крепление не потеряно: вернитесь к плоской форме, и оно снова появится."
+                : "Рамка выключена: печатается только плита рельефа, крепления нет — их паз вырезан в рамке."}
             </p>
           )}
 
+          {params.lithoFrame &&
+          (lithophaneShapeHasMounts(params.lithoShape) ||
+            params.lithoShape === "curved" ||
+            params.lithoShape === "cylinder") ? (
+            <div className="mt-6 border-t border-white/10 pt-5">
+              <ParameterSelect
+                label="Источник света"
+                onChange={onLithoLightSourceChange}
+                options={LITHOPHANE_LIGHT_SOURCES.map((source) => ({
+                  label: LITHOPHANE_LIGHT_SOURCE_LABELS[source],
+                  value: source,
+                }))}
+                value={params.lithoLightSource}
+              />
+
+              <p className="mt-2 text-xs leading-relaxed text-slate-300">
+                {params.lithoShape !== "flat"
+                  ? params.lithoLightSource === "strip"
+                    ? params.lithoShape === "cylinder"
+                      ? "В дне чаши вырезана круговая канавка: лента укладывается кольцом по всему полуцилиндру и светит вверх. Лента у панели даёт пересвет по центру и тёмные края — ровнее работают USB-лампа и патрон E27."
+                      : "Канал 10 × 2 мм вынесен на 26 мм назад, к тыльной кромке бруска: чем дальше лента от панели, тем ровнее пятно. Полностью пересвет не снимается — ровнее работают USB-лампа и патрон E27."
+                    : params.lithoLightSource === "usb_bulb"
+                      ? "Гибкая ножка USB-лампы входит в скобу Ø13.4 мм на стойке над полкой базы, а колба смотрит в панель. Скоба подпружинена проёмом сверху: лампа держится трением, провод уходит назад через открытый торец. Полка вынесена за панель, поэтому свет ложится ровно."
+                      : params.lithoLightSource === "socket"
+                        ? "Открытая скоба Ø39.8 мм на стойке над полкой базы: патрон E27 входит в неё с натягом 0.2 мм, а колба светит прямо в кадр без абажура. Провод выходит назад через открытый торец. Стойка стоит на полке базы за панелью."
+                        : "База без выборок: только паз под панель. Подсветку ставят отдельно."
+                  : params.lithoLightSource === "strip"
+                    ? "Канал 10 × 2 мм за пазом рамки и канавка 2.4 × 2 мм под провод у тыльной кромки: лента 8–10 мм ложится между ножками и светит на тыл панели."
+                    : params.lithoLightSource === "usb_bulb"
+                      ? "За панелью на штанге стоят две скобы под гибкую ножку USB-лампы: Ø13.4 мм с проёмом сверху. Ножка входит с натягом, колба Ø20–28 смотрит в кадр, провод уходит назад. Лампа переставляется между ближним и дальним гнездом — это выбор ниже. База при этом остаётся плоской планкой: за панелью только штанга, поэтому деталь легче."
+                      : params.lithoLightSource === "socket"
+                        ? "Открытая скоба Ø39.8 мм под патрон E27: патрон входит в неё с натягом 0.2 мм и держится трением, колба светит прямо в кадр — абажура нет. В держателе напечатаны две скобы, ближняя и дальняя: патрон переставляется между ними при сборке. Штанга по столу даёт подставке глубину, чтобы лампа не опрокинула её."
+                        : "База без выборок: только паз под рамку. Подсветку ставят отдельно или литофан печатают как есть."}
+              </p>
+
+              {(params.lithoLightSource === "socket" ||
+                params.lithoLightSource === "usb_bulb") &&
+              lithophaneShapeHasMounts(params.lithoShape) &&
+              params.lithoMount === "arch" ? (
+                <div className="mt-4">
+                  <ParameterSelect
+                    label="Гнездо лампы"
+                    onChange={onLithoLightSeatChange}
+                    options={LITHOPHANE_LIGHT_SEATS.map((seat) => ({
+                      label: LITHOPHANE_LIGHT_SEAT_LABELS[seat],
+                      value: seat,
+                    }))}
+                    value={params.lithoLightSeat}
+                  />
+
+                  <p className="mt-2 text-xs leading-relaxed text-slate-300">
+                    {params.lithoLightSeat === "far"
+                      ? "Дальнее гнездо: колба стоит от панели на 90–120 мм. Пятно света ровное по всему кадру — так считает и карта освещённости. Деталь при этом длиннее по столу."
+                      : "Ближнее гнездо: лампа почти у панели, подставка компактная и как на референсе. Свет ярче, но центр кадра пересвечен — для ровной заливки переставьте патрон в дальнее гнездо."}
+                  </p>
+                </div>
+              ) : null}
+
+              {params.lithoShape !== "flat" &&
+              params.lithoLightSource === "strip" ? (
+                <p className="mt-2 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-xs leading-relaxed text-amber-100">
+                  Для изогнутых форм лента даёт пересвет в центре и тёмные
+                  края. Рекомендуем USB-лампу или патрон E27: они стоят на
+                  полке базы, дальше от панели, и свет ложится ровнее.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            {params.lithoShape === "flat"
-              ? "Рельеф смотрит вверх: плита и рамка печатаются плашмя, поддержки не нужны. Детали собираются без клея — плита входит в паз рамки с зазором 0.2 мм."
-              : "Печать стоя, как на столе: панели вертикальные, поддержки не нужны. Панель входит в пояс и в стойку с нахлёстом, поэтому сборка держится без клея, а лампа ставится внутрь."}
+            Рельеф смотрит вверх: плита, рамка и подставка печатаются плашмя,
+            поддержки не нужны. Детали собираются без клея — плита входит в паз
+            рамки с зазором 0.2 мм.
           </p>
+
+          <LithophaneLightReport
+            onLithoDiffuserChange={onLithoDiffuserChange}
+            params={params}
+          />
         </>
       ) : (
         <>
@@ -4808,6 +4987,3 @@ export function ParameterPanel({
     </section>
   );
 }
-
-
-
