@@ -114,6 +114,14 @@ type ViewportProps = {
    */
   fullscreen?: boolean;
   /**
+   * `?debug=light`: показать отладочную кнопку «Карта света».
+   *
+   * Карта считает ровность освещения панели и красит по ней рельеф — это
+   * инструмент разработчика, а не режим просмотра. Без флага кнопки в сцене нет,
+   * и случайно включить слой нельзя.
+   */
+  debugLight?: boolean;
+  /**
    * Итоги сборки брелока: куда встала картинка и насколько ужалась.
    *
    * Отчёт считается той же сборкой, что показывает сцена: второй расчёт в
@@ -1281,6 +1289,7 @@ function Scene({
  * страницу по горизонтали.
  */
 export function Viewport({
+  debugLight = false,
   fullscreen = false,
   onKeychainImageReport,
   params,
@@ -1322,6 +1331,13 @@ export function Viewport({
    * выключается вместе с моделью, как и подсветка.
    */
   const [lithophaneHeatMap, setLithophaneHeatMap] = useState(false);
+
+  /*
+    Слой показывается только по адресу `?debug=light`: в обычном сеансе кнопки нет,
+    и карта не должна всплыть даже из прошлого состояния — поэтому флаг проверяется
+    ещё раз там, где карта попадает в сцену, легенду и подпись для скринридера.
+  */
+  const heatMap = lithophaneHeatMap && debugLight;
 
   /**
    * Светотехнический расчёт по параметрам: лампы, карта и предупреждения.
@@ -1847,7 +1863,7 @@ export function Viewport({
           : params.model === "box"
             ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
             : params.model === "lithophane"
-              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, ${lithophaneShapeHasMounts(params.lithoShape) ? `крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : `форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»`}` : "без рамки"}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}${lithophaneHeatMap ? ", включена карта света" : ""}`
+              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, ${lithophaneShapeHasMounts(params.lithoShape) ? `крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : `форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»`}` : "без рамки"}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}${heatMap ? ", включена карта света" : ""}`
               : params.model === "planter"
                 ? `3D-предпросмотр кашпо «${PLANTER_SHAPE_LABELS[params.planterShape]}» ${params.planterSize} миллиметров по ключу и высотой ${params.planterHeight} миллиметров, стенка ${params.planterWall} миллиметров, ${params.planterDrainage ? "с дренажными отверстиями и поддоном" : "без поддона"}`
                 : params.model === "coaster"
@@ -1906,7 +1922,7 @@ export function Viewport({
             backlight={lithophaneBacklight}
             framing={framing}
             geometry={geometry}
-            heatMap={lithophaneHeatMap}
+            heatMap={heatMap}
             keychainBack={keychainBack}
             lithophaneFaces={lithophaneFaces}
             lithophaneGlow={lithophanePreview}
@@ -1980,7 +1996,7 @@ export function Viewport({
             >
               Подсветка
             </button>
-            {lithophaneLight ? (
+            {lithophaneLight && debugLight ? (
               <button
                 aria-label="Карта света"
                 aria-pressed={lithophaneHeatMap}
@@ -1998,7 +2014,7 @@ export function Viewport({
           </div>
         ) : null}
 
-        {params.model === "lithophane" && lithophaneHeatMap ? (
+        {params.model === "lithophane" && heatMap ? (
           /*
             Легенда карты: полоска той же палитры и подписи краёв. Абсолютные
             люксы здесь не нужны — карта показывает ровность, поэтому шкала
@@ -2051,7 +2067,7 @@ export function Viewport({
             ? "Кнопки «Лицо» и «Оборот» переворачивают брелок и показывают его обратную сторону. "
             : null}
           {params.model === "lithophane"
-            ? "Кнопка «Подсветка» показывает литофан на просвет: светлые участки светятся, тёмные остаются тёмными. Кнопка «Карта света» красит панель по ровности освещения и показывает лампы: синий — темно, зелёный — ровно, красный — пересвет. "
+            ? `Кнопка «Подсветка» показывает литофан на просвет: светлые участки светятся, тёмные остаются тёмными. ${heatMap ? "Кнопка «Карта света» красит панель по ровности освещения и показывает лампы: синий — темно, зелёный — ровно, красный — пересвет. " : ""}`
             : null}
           {ariaLabel}.
         </p>

@@ -190,22 +190,23 @@ export const LITHO_LIGHT_MODEL = {
   /** Сколько точек раскладывается по каналу ленты. */
   stripEmitters: 13,
   /**
-   * Рассеиватель: конус рассеяния, пропускание и высота листа.
+   * Рассеиватель: конус рассеяния, пропускание и мягкий край.
    *
-   * Лист опалового акрила 2 мм рассеивает свет вперёд конусом с полушириной
-   * `diffuserSpreadDeg`: точка листа светит на панель пятном радиуса
-   * `gap · tan(spread)`, где `gap` — расстояние от листа до тыла панели. Паз базы
-   * арки стоит на 19.4 мм, отсюда радиус размытия σ ≈ 23 мм — свет уходит из пятна
-   * лампы в кольцо вокруг, и пик падает с 2.2 до 1.7 средних.
+   * Лист опалового акрила 2 мм рассеивает свет вперёд почти по Ламберту:
+   * полуширина конуса `diffuserSpreadDeg`. Точка листа светит на панель пятном
+   * радиусом `gap · tan(spread)`, где `gap` — расстояние от листа до тыла панели.
+   * Паз базы арки стоит на 12 мм от панели, отсюда σ ≈ 33 мм — свет уходит из
+   * пятна лампы на треть панели вокруг, и пик падает с 2.2 до 1.6 средних; у
+   * бруска дуги с его 20 мм каналом — с 3.0 до 1.8. Полуширина 70°, а не 45°:
+   * опал не линза, он светит во все стороны вперёд, и именно поэтому лист
+   * вытягивает верх кадра, а не только сглаживает кромку пятна.
    *
-   * Пропускание 0.85 — потери на отражение и поглощение в 2 мм опала. Высота 70
-   * мм: выше лист упёрся бы в тыл наклонной панели, которая уходит назад на 12°,
-   * поэтому верх кадра освещён прямым светом мимо листа — так и считает
-   * `diffuserShare`.
+   * Пропускание 0.85 — потери на отражение и поглощение в 2 мм опала. Лист кроится
+   * по панели, поэтому закрывает весь путь света: верх кадра тоже проходит через
+   * лист, и размытие достаётся всей высоте.
    */
-  diffuserSpreadDeg: 50,
+  diffuserSpreadDeg: 70,
   diffuserTransmission: 0.85,
-  diffuserSheetHeight: 70,
   /** Мягкий край листа в расчёте: переход от листа к прямому свету, мм. */
   diffuserEdge: 10,
   /**
@@ -958,8 +959,14 @@ function bentSeat(
     const shelf = cylinder
       ? LITHOPHANE_BENT_BASE.perchTop
       : LITHOPHANE_BENT_BASE.railTop;
-    // Ось скобы над полкой та же, что у тела: `bentAxisAbove` из геометрии.
-    const above = LITHOPHANE_LAMP_CLAMP.bentAxisAbove[kind];
+    /*
+      Ось скобы над полкой та же, что у тела: у бруска дуги — `bentAxisAbove`,
+      в полуцилиндре — `bentCylinderAxisAbove`. В чаше лампа стоит на оси
+      вращения ниже середины кадра, поэтому там её поднимают выше.
+    */
+    const above = cylinder
+      ? LITHOPHANE_LAMP_CLAMP.bentCylinderAxisAbove[kind]
+      : LITHOPHANE_LAMP_CLAMP.bentAxisAbove[kind];
     // В чаше лампа стоит на оси вращения, на бруске — на оси скобы.
     const z = cylinder
       ? -(face.bend?.radius ?? 0)
@@ -1194,7 +1201,13 @@ function evenHeightDistance(plateHeight: number): number {
   return plateHeight * Math.sqrt((1 - falloff) / falloff);
 }
 
-/** Основание для предупреждений: метрики карты и посчитанные рекомендации. */
+/**
+ * Основание для предупреждений: метрики карты и посчитанные рекомендации.
+ *
+ * `sheetAvailable` — в сборке напечатан паз под лист-рассеиватель. От него
+ * зависят советы: где паз есть, ровность правится листом, а не перестановкой
+ * лампы, и расчёт не пугает пятном, которое этот лист и снимает.
+ */
 type LithoLightVerdict = {
   kind: LithoLightKind;
   metrics: LithoLightMetrics;
@@ -1205,6 +1218,7 @@ type LithoLightVerdict = {
   /** Высота середины панели над столом, мм: лучшее место для лампы. */
   recommendedHeight: number;
   plateHeight: number;
+  sheetAvailable: boolean;
 };
 
 /**
@@ -1217,6 +1231,10 @@ type LithoLightVerdict = {
  * Расстояние и высоту лампы задаёт напечатанное крепление, поэтому советы
  * говорят не «передвиньте лампу», а что даёт результат: рассеиватель, бокс,
  * абажур. Числа в тексте — из карты света, чтобы их можно было сверить с ней.
+ *
+ * Где паз под лист уже напечатан, про пятно и тёмный верх молчим: переставить
+ * лампу нельзя, а лист — это ровно то, что советует текст этих предупреждений.
+ * Вместо двух красных карточек пользователь получает одну рабочую — про лист.
  */
 function lightWarnings(verdict: LithoLightVerdict): LithoLightWarning[] {
   const warnings: LithoLightWarning[] = [];
@@ -1246,8 +1264,9 @@ function lightWarnings(verdict: LithoLightVerdict): LithoLightWarning[] {
     на 54 мм лента светит ровно, хотя 88 мм формально ещё «не хватает».
   */
   if (
-    metrics.peakRatio > LITHO_LIGHT_MODEL.overexposure ||
-    verdict.actualDistance < verdict.recommendedDistance * 0.5
+    !verdict.sheetAvailable &&
+    (metrics.peakRatio > LITHO_LIGHT_MODEL.overexposure ||
+      verdict.actualDistance < verdict.recommendedDistance * 0.5)
   ) {
     warnings.push({
       id: "too_close",
@@ -1263,7 +1282,7 @@ function lightWarnings(verdict: LithoLightVerdict): LithoLightWarning[] {
     });
   }
 
-  if (shaded) {
+  if (!verdict.sheetAvailable && shaded) {
     warnings.push(
       verdict.kind === "strip"
         ? {
@@ -1361,24 +1380,28 @@ function lightSeat(
 }
 
 /**
- * Место листа-рассеивателя: есть только там, где напечатан его паз.
+ * Место листа-рассеивателя: паз напечатан в каждой базе, где ставится источник.
  *
- * Паз стоит в верхней плоскости базы арки и в бруске дуги — там лист вставляется
- * сверху и оказывается между лентой и панелью. У стойки USB-лампы и стакана
- * патрона лист упёрся бы в саму стойку: они занимают середину базы, поэтому
- * рассеиватель им не предлагается. В чаше полуцилиндра и в призме калейдоскопа
- * листу негде стоять: свет там идёт от центра кольцом по всей дуге.
+ * У арки лист вставляется сверху в щель верхней плоскости базы, у бруска дуги —
+ * в такую же щель, заметённую по дуге, у полуцилиндра лист гнётся в кольцо и
+ * встаёт в круговое седло. Паз режется при любом источнике: лист входит в
+ * комплект, и без него панель качается в пазу. У призмы калейдоскопа паза нет:
+ * там свет горит в камере за четырьмя плитами.
  *
- * Низ листа — дно паза, верх — на `diffuserSheetHeight` выше. Числа берутся из
+ * Низ листа — дно паза, верх — на высоту панели выше: лист кроится по тому же
+ * размеру, что и кадр, иначе верх кадра остаётся без размытия. Числа берутся из
  * геометрии, поэтому расчёт и напечатанный паз не разъезжаются.
  */
 function diffuserSeat(
   normalized: LithophaneParams,
   kind: LithoLightKind,
 ): LithoLightDiffuser | null {
-  if (!normalized.lithoDiffuser || kind !== "strip") {
+  if (!normalized.lithoDiffuser || kind === "candle") {
     return null;
   }
+
+  // Лист кроится по панели, а не по светящейся части кадра.
+  const sheet = normalized.lithophaneHeight;
 
   if (normalized.lithoShape === "flat") {
     const stand = LITHOPHANE_ARCH_STAND;
@@ -1387,7 +1410,7 @@ function diffuserSeat(
     return {
       gap: plateBack() - stand.diffuserZ,
       bottom,
-      top: bottom + LITHO_LIGHT_MODEL.diffuserSheetHeight,
+      top: bottom + sheet,
     };
   }
 
@@ -1398,11 +1421,19 @@ function diffuserSeat(
     return {
       gap: plateBack() - base.diffuserU,
       bottom,
-      top: bottom + LITHO_LIGHT_MODEL.diffuserSheetHeight,
+      top: bottom + sheet,
     };
   }
 
-  return null;
+  // Полуцилиндр: лист гнётся в кольцо по седлу, его низ — дно кругового паза.
+  const base = LITHOPHANE_BENT_BASE;
+  const bottom = base.cradleHeight - base.cradleDepth;
+
+  return {
+    gap: base.diffuserInset,
+    bottom,
+    top: bottom + sheet,
+  };
 }
 
 /**
@@ -1441,6 +1472,13 @@ export function lithophaneLightPlan(
   const actualDistance = distanceToFace(face, centroid);
   const distance = recommendedDistance(face, seat.emitters);
   const height = lithophaneFacePoint(face, 0.5, 0.5)[1];
+  /*
+    Рассеиватель не обязателен: лист — отдельная деталь, и без неё сборка
+    работает. Но лампа в базе светит пятном, поэтому о листе стоит сказать один
+    раз и с числом: до какого пика доходит карта. Паз напечатан у всех форм, где
+    ставится источник; у призмы калейдоскопа паза нет — свет горит в камере.
+  */
+  const diffuserSupported = seat.kind !== "candle";
   const warnings = lightWarnings({
     kind: seat.kind,
     metrics,
@@ -1449,32 +1487,44 @@ export function lithophaneLightPlan(
     actualHeight: centroid[1],
     recommendedHeight: height,
     plateHeight: plate.height,
+    sheetAvailable: diffuserSupported,
   });
 
   /*
-    Рассеиватель не обязателен: лист — отдельная деталь, и без неё сборка
-    работает. Но на широкой панели лампа в базе светит пятном, поэтому о листе
-    стоит сказать один раз и с числом: до какого пика доходит карта.
+    Совет про лист — единственный, который пользователь может выполнить, не меняя
+    модель: паз напечатан, лист вставляется сверху. Он заменяет предупреждения о
+    пятне и тёмном верхе, поэтому выходит и на узкой панели, где этих
+    предупреждений не было бы по ширине.
+
+    Повод — та же неровность, что раньше давала `too_close` или `dark_top`:
+    пятно у лампы, разница верха с низом (в любую сторону: в арке верх бывает и
+    светлее) и слишком близкая к панели лампа. Ширина панели осталась отдельным
+    поводом: на 150 мм и больше ровного света от одной лампы не бывает, даже когда
+    карта это ещё терпит.
   */
-  const diffuserSupported =
-    seat.kind === "strip" &&
-    (normalized.lithoShape === "flat" || normalized.lithoShape === "curved");
+  const shadeSpread =
+    metrics.topShare > 0 ? Math.max(metrics.topShare, 1 / metrics.topShare) : 0;
+  const uneven =
+    metrics.peakRatio > LITHO_LIGHT_MODEL.overexposure ||
+    shadeSpread > 1 / (1 - LITHO_LIGHT_MODEL.maxVerticalFalloff) ||
+    actualDistance < distance * 0.5;
 
   if (
     diffuserSupported &&
     !diffuser &&
-    plate.width >= LITHO_LIGHT_MODEL.diffuserPanelWidth
+    (uneven || plate.width >= LITHO_LIGHT_MODEL.diffuserPanelWidth)
   ) {
     warnings.push({
       id: "diffuser",
       severity: "warning",
       title: "Рассеиватель сделает свет ровнее",
       hint:
-        `Панель ${Math.round(plate.width)} мм шире ` +
-        `${LITHO_LIGHT_MODEL.diffuserPanelWidth} мм, и пик ярче средней в ` +
-        `${metrics.peakRatio.toFixed(1)} раза. Включите рассеиватель: паз под ` +
-        `лист 2 мм уже напечатан в базе, останется вставить лист матового ` +
-        `акрила — расчёт покажет свет с ним.`,
+        `Пик ярче средней в ${metrics.peakRatio.toFixed(1)} раза` +
+        (shadeSpread > 1.05
+          ? `, а верх и низ различаются в ${shadeSpread.toFixed(1)} раза`
+          : "") +
+        `. В базе уже напечатан паз под лист 2 мм: вставьте в него ` +
+        `матовый акрил — лист размывает пятно лампы, и расчёт покажет свет с ним.`,
     });
   }
 

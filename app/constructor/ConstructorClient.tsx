@@ -138,6 +138,13 @@ type ConstructorClientProps = {
   freeDownloadsLeft: number;
   /** Проект из адреса `?project=ID`: его параметры применяются после загрузки. */
   initialProjectId?: string | null;
+  /**
+   * `?debug=light`: показать в сцене отладочный слой «Карта света».
+   *
+   * Слой считает ровность освещения панели и нужен разработчику, а не
+   * покупателю, поэтому без флага кнопки «Карта света» в сцене нет вовсе.
+   */
+  debugLight?: boolean;
 };
 
 /**
@@ -443,9 +450,15 @@ function ViewportSkeleton() {
  * шрифты.
  */
 function MobileSceneDialog({
+  debugLight,
   onClose,
   params,
 }: {
+  /**
+   * `?debug=light`: тот же флаг, что у сцены в потоке — окно показывает ту же
+   * модель, и отладочных кнопок в нём должно быть столько же.
+   */
+  debugLight: boolean;
   /** Закрытие окна: конструктор убирает его из разметки. */
   onClose: () => void;
   /** Те же параметры, что у сцены в потоке: окно показывает ту же модель. */
@@ -500,7 +513,7 @@ function MobileSceneDialog({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-        <Viewport fullscreen params={params} />
+        <Viewport debugLight={debugLight} fullscreen params={params} />
       </div>
     </div>
   );
@@ -552,6 +565,7 @@ function VaseGallerySkeleton() {
  * значения вне границ слайдеров.
  */
 export function ConstructorClient({
+  debugLight = false,
   hasPro,
   freeDownloadsLeft: initialFreeDownloadsLeft,
   initialProjectId = null,
@@ -1091,10 +1105,23 @@ export function ConstructorClient({
    * Читают арка, изогнутая панель и полуцилиндр: у каждого своя база под выбранный
    * источник. Крепление не меняется: выборок под свет нет только у сплошных
    * подставок, и выбранный источник ждёт возврата на арку или на изогнутую форму.
+   *
+   * Вместе с лампой выбирается и сборка под неё. У скобы два гнезда, и ровно
+   * светит только дальнее: в ближнем лампа стоит в 39 мм от панели против
+   * рекомендованных 75, пик выходит ×2.5 средней. Лист-рассеиватель включается там
+   * же: паз напечатан у всех баз со светом, и расчёт сразу показывает свет той
+   * сборкой, которую человек соберёт — с листом, а не с одним пятном. Оба выбора
+   * остаются переключаемыми: гнездо и лист можно вернуть как было.
    */
   function updateLithoLightSource(lithoLightSource: LithophaneLightSource) {
     setParams((current) =>
-      normalizeConstructorParams({ ...current, lithoLightSource }),
+      normalizeConstructorParams({
+        ...current,
+        lithoLightSource,
+        ...(lithoLightSource === "strip"
+          ? {}
+          : { lithoLightSeat: "far", lithoDiffuser: true }),
+      }),
     );
   }
 
@@ -1600,6 +1627,7 @@ export function ConstructorClient({
 
             <div className="mt-3 flex min-h-0 flex-col lg:mt-2 lg:flex-1">
               <Viewport
+                debugLight={debugLight}
                 params={params}
                 onKeychainImageReport={handleKeychainImageReport}
               />
@@ -1628,7 +1656,11 @@ export function ConstructorClient({
 
       {/* Окно со сценой живёт вне сетки: оно открывается поверх страницы. */}
       {sceneOpen ? (
-        <MobileSceneDialog onClose={closeScene} params={params} />
+        <MobileSceneDialog
+          debugLight={debugLight}
+          onClose={closeScene}
+          params={params}
+        />
       ) : null}
 
       {/* Опрос живёт вне сетки: он открывается поверх страницы. */}

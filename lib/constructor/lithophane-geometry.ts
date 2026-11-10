@@ -2139,11 +2139,13 @@ export const LITHOPHANE_ARCH_STAND = {
   /**
    * Паз под рассеиватель: центр щели по Z, ширина и глубина, мм.
    *
-   * Щель вертикальна и режется в верхней плоскости базы между лентой и панелью:
-   * лист 2 мм вставляется сверху и стоит на пути света. 18 мм от паза рамки —
-   * лист не мешает панели и не упирается в неё.
+   * Щель вертикальна и режется в верхней плоскости базы между источником и
+   * панелью: лист 2 мм вставляется сверху и стоит на пути света. 12 мм от тыла
+   * панели — середина рабочего диапазона 10–15 мм: ближе лист греется от ленты,
+   * дальше он перестаёт размывать пятно, потому что сам становится источником
+   * пятна. Паз режется при любом источнике: лист входит в комплект.
    */
-  diffuserZ: -18,
+  diffuserZ: -12,
   diffuserWidth: 2.4,
   diffuserDepth: 6,
   /**
@@ -2232,8 +2234,17 @@ export const LITHOPHANE_LAMP_CLAMP = {
   usbBore: 13.4,
   /** Толщина стенки скобы, мм. */
   wall: 2,
-  /** Длина скобы вдоль оси гнезда, мм. */
-  length: 20,
+  /**
+   * Длина скобы вдоль оси гнезда, мм.
+   *
+   * 17 мм — не меньше натяга: патрон Ø40 входит в кольцо на две трети своего
+   * корпуса, а ножке USB-лампы хватает и того меньше. Скоба длиннее держала лампу
+   * не крепче, а стойка под ней росла вместе с ней: у бруска с патроном пара таких
+   * миллиметров весила больше грамма. Стойка-седло кроится по этому же числу (см.
+   * `postDepth`): полка под плоской полосой кольца не должна кончаться раньше
+   * самой полосы, иначе кромка скобы повисает в воздухе.
+   */
+  length: 17,
   /** Оборот скобы: остальные 150° — проём сверху, через него стенки пружинят. */
   sweepDeg: 210,
   /** Отрезков на дугу скобы: 48 дают круг с ошибкой 0.02 мм. */
@@ -2258,6 +2269,15 @@ export const LITHOPHANE_LAMP_CLAMP = {
   bentAxisZ: -28,
   /** Ось скобы над полкой изогнутой базы, мм: там высота лампы прежняя. */
   bentAxisAbove: { socket: 33, usb_bulb: 23 },
+  /**
+   * Ось скобы над обоймой полуцилиндра, мм.
+   *
+   * В полуцилиндре лампа стоит в центре обоймы, то есть на оси вращения, и низ
+   * панели оказывается ближе к ней, чем верх. USB-лампа в прежние 23 мм над
+   * кромкой светила в низ кадра: верх получал 38 % низа. 31 мм поднимают её к
+   * середине кадра — верх выходит за половину низа, как у патрона.
+   */
+  bentCylinderAxisAbove: { socket: 33, usb_bulb: 31 },
   /** Ширина и высота несущей штанги за панелью, мм. */
   beamWidth: 12,
   beamHeight: 6,
@@ -2274,7 +2294,14 @@ export const LITHOPHANE_LAMP_CLAMP = {
   postWidth: 20,
   /** Ширина седла под патрон E27: кольцо Ø44 не встаёт на стойку 20 мм. */
   socketPostWidth: 32,
-  postDepth: 20,
+  /**
+   * Глубина стойки-седла по Z, мм.
+   *
+   * Скоба входит в седло дном дуги, а не всей длиной: пятно контакта — дуга полки,
+   * и лишние 3 мм позади неё только добавляли пластик. Владелец попросил держать
+   * базу легче 70 г, и у бруска с патроном стойка была самым тяжёлым куском.
+   */
+  postDepth: 17,
 } as const;
 
 /** Скоба какого гнезда: патрон E27 или ножка USB-лампы. */
@@ -2522,8 +2549,10 @@ function createArchBaseProfile(
           { y: ledgeFoot.y, z: ledgeFoot.z },
         ]
       : [{ y: baseTop, z: back }]),
-    // Паз под рассеиватель: вертикальная щель в верхней плоскости базы.
-    ...(withStrip
+    // Паз под рассеиватель: вертикальная щель в верхней плоскости базы. Он
+    // режется при любом источнике — лист входит в комплект, — а под лентой
+    // встаёт между каналом и пазом рамки.
+    ...(diffuserFloor > 0
       ? [
           { y: baseTop, z: diffuserBack },
           { y: diffuserFloor, z: diffuserBack },
@@ -3104,65 +3133,83 @@ export const LITHOPHANE_BENT_BASE = {
    */
   channelWidth: 10,
   channelDepth: 2,
-  channelGap: 26,
+  channelGap: 20,
   /**
    * Паз под рассеиватель в верхней плоскости бруска: середина по `u`, ширина и
    * глубина, мм.
    *
-   * Стоит между каналом ленты (−26.2) и пазом панели (−0.2): 14.4 мм до панели
-   * против 19.4 у базы арки. Брусок уже базы арки, поэтому лист здесь ближе к
-   * панели и размывает пятно слабее — но канал ленты вынесен назад, и размытия
-   * хватает. Брусок заметён по дуге, поэтому и лист 2 мм гнётся по ней.
+   * Стоит между каналом ленты (−20.2) и пазом панели (−0.2): 13 мм до тыла
+   * панели. Это середина рабочего диапазона 10–15 мм — лист ближе к панели
+   * размывает пятно сильнее, но греется от ленты; дальше 15 мм он сам становится
+   * источником пятна. Брусок заметён по дуге, поэтому и лист 2 мм гнётся по ней.
    */
   diffuserU: -13,
   diffuserWidth: 2.4,
   diffuserDepth: 6,
   /**
-   * Полка под стойку-седло USB-лампы и патрона E27: глубина начала подъёма,
-   * высота полки и тыльная кромка, мм.
+   * Полка под стойку-седло USB-лампы и патрона E27: высота полки над столом, мм.
    *
-   * Полка выше базы: стойка USB поднимает колбу к середине кадра, а седло
-   * ставит цоколь лампы E27 так, чтобы её колба светила ровно по высоте панели.
-   * Пандус от паза к полке наклонён на 19° — печатается без поддержки.
+   * Полка выше базы на 4 мм: стойка USB поднимает колбу к середине кадра, а
+   * седло ставит цоколь лампы E27 так, чтобы её колба светила ровно по высоте
+   * панели. Сама полка — узкая лапка под седлом, а не брусок во всю ширину:
+   * широкий брусок весил 107 г, узкая лапка — 7.
    */
-  railShoulder: -26,
   railTop: 16,
-  railBack: -64,
+  /** Тыльная кромка узкой лапки под седло лампы, мм. */
+  footBack: -42,
+  /** Высота лапки над столом и её ширина сверх ширины седла, мм. */
+  footHeight: 4,
+  footBleed: 4,
   /** Материал за каналом (внутрь) и толщина наружной стенки паза, мм. */
   innerRun: 2,
   outerWall: 3,
   /** Материал плиты вокруг паза снаружи, мм. */
   discRim: 3,
   /**
-   * Чаша полуцилиндра: высота кромки, толщина стенки и дна, мм.
+   * Обойма полуцилиндра: высота кромки и толщина щеки паза, мм.
    *
-   * Плоский диск оставлял панель на 4 мм над столом, а лампу — вплотную к её низу:
-   * низ горел, верх уходил в тень. Чаша поднимает панель на 31 мм, а источник — на
-   * полку внутри, к середине кадра: свет ложится ровно по всей высоте, а стол под
-   * панелью не пересвечен.
+   * Раньше это была чаша высотой 34 мм с дном 7 мм — 146 г пластика, которые
+   * ничего не держали: панель стоит на кромке, а свет идёт изнутри. Теперь это
+   * низкая обойма 6 мм: панель опускается в паз на 3 мм, и её низ оказывается в
+   * 3 мм от стола. Держат обойму лоток с канавкой ленты и седло листа.
    */
-  bowlHeight: 34,
-  bowlWall: 3.5,
-  bowlFloor: 7,
+  bowlHeight: 6,
+  bowlWall: 2,
+  /** Толщина лотка под лентой, мм. */
+  bowlFloor: 3.5,
   /**
-   * Круговая канавка под ленту в дне чаши: отступ от внутренней стенки, мм.
+   * Круговая канавка под ленту в лотке: отступ от обоймы, мм.
    *
-   * Лента укладывается кольцом по всему полуцилиндру и светит вверх: так она
-   * закрывает всю дугу, а не один сектор. Глубина канавки — общая с рельсом.
+   * 14 мм отодвигают ленту на 21 мм от панели: ближе она бьёт пятном в низ кадра.
+   * Между лентой и панелью остаётся место пазу под рассеиватель — седло листа
+   * стоит в 12 мм от панели, и наружная стенка лотка кончается на его кромке,
+   * поэтому паз открыт сверху по всей окружности.
    */
-  ringInset: 1,
+  ringInset: 14,
   /**
-   * Площадка под стойку-седло USB-лампы и патрона E27 в чаше: радиус и высота,
-   * мм.
+   * Паз под рассеиватель у полуцилиндра: радиус от оси минус `diffuserInset`,
+   * ширина и глубина паза, ширина и высота седла, мм.
    *
-   * Конус от дна к площадке поднимает лампу к середине кадра: колба USB-лампы
-   * выходит на 66 мм, лампа E27 — на 76 мм при середине кадра 71 мм. Конус
-   * расширяется вверх, поэтому печатается без поддержки, а дно чаши закрывает
-   * свет снизу — в стол он не бьёт.
+   * Лист гнётся в кольцо и встаёт в круговое седло в 12 мм от панели: свет от
+   * ленты проходит через него по всей окружности, поэтому карта ровная и по
+   * высоте, и по дуге.
    */
-  pedestalRadius: 22,
-  pedestalFoot: 10,
-  perchTop: 43,
+  diffuserInset: 12,
+  cradleWidth: 6,
+  cradleHeight: 7,
+  cradleDepth: 4,
+  /** Ширина и число спиц, на которых кольцо ленты держится за обойму. */
+  spokeWidth: 5,
+  spokeCount: 3,
+  /**
+   * Площадка под стойку-седло лампы в полуцилиндре: высота над столом, мм.
+   *
+   * Седло лампы стоит прямо на лотке, поэтому площадкой служит верх обоймы, а
+   * высоту оси задаёт `bentCylinderAxisAbove`: 37 мм для USB-лампы и 39 для
+   * патрона при середине кадра 43 мм. Раньше под лампу рос сплошной конус на
+   * 43 мм — 86 г пластика.
+   */
+  perchTop: 6,
   /** Угол фасетки дуги базы, градусы: силуэт базы читается дугой. */
   facetDeg: 1.5,
   /** Наименьшее число отрезков дуги: короткая дуга остаётся гладкой. */
@@ -3274,21 +3321,21 @@ function bentBaseSection(
   const slotOuter = frontZ + LITHOPHANE_FIT_GAP_MM;
   const outer = slotOuter + base.outerWall;
   const withStrip = light === "strip";
-  // Полка нужна тем источникам, которые стоят на базе стойкой-седлом.
-  const withShelf = light === "usb_bulb" || light === "socket";
   const channelFloor = base.top - base.channelDepth;
   const channelNear = slotInner - base.channelGap;
   const channelFar = channelNear - base.channelWidth;
+  const diffuserNear = base.diffuserU + base.diffuserWidth / 2;
+  const diffuserFar = base.diffuserU - base.diffuserWidth / 2;
+  const diffuserFloor = base.top - base.diffuserDepth;
   /*
     Внутренняя стенка: под лентой — материал за каналом (тоньше 2 мм лента греет
-    пластик), у полки — её тыльная кромка, у «без подсветки» — короткий хвост за
-    пазом.
+    пластик), под лампой и «без подсветки» — материал за пазом листа. Канал под
+    ленту режется только под ленту: лампе он не нужен, а лишняя выборка — ещё одна
+    грань, в которую бьёт свет.
   */
   const inner = withStrip
     ? channelFar - base.innerRun
-    : withShelf
-      ? base.railBack
-      : slotInner - base.innerRun;
+    : diffuserFar - base.innerRun;
 
   const section: BaseSectionPoint[] = [
     { u: inner, y: 0 },
@@ -3298,42 +3345,25 @@ function bentBaseSection(
     { u: slotOuter, y: seatFloor },
     { u: slotInner, y: seatFloor },
     { u: slotInner, y: base.top },
-  ];
-
-  if (withStrip) {
     /*
       Паз под лист-рассеиватель: щель в верхней плоскости бруска между каналом
       ленты и панелью. Лист 2 мм вставляется сверху и стоит на пути света, как в
-      базе арки. От паза панели его отделяют 11.6 мм пластика, поэтому посадка
-      панели не меняется.
+      базе арки. Паз режется при любом источнике: лист входит в комплект по
+      умолчанию, и без него панель качается в пазу.
     */
-    const diffuserNear = base.diffuserU + base.diffuserWidth / 2;
-    const diffuserFar = base.diffuserU - base.diffuserWidth / 2;
-    const diffuserFloor = base.top - base.diffuserDepth;
+    { u: diffuserNear, y: base.top },
+    { u: diffuserNear, y: diffuserFloor },
+    { u: diffuserFar, y: diffuserFloor },
+    { u: diffuserFar, y: base.top },
+  ];
 
+  if (withStrip) {
     section.push(
-      { u: diffuserNear, y: base.top },
-      { u: diffuserNear, y: diffuserFloor },
-      { u: diffuserFar, y: diffuserFloor },
-      { u: diffuserFar, y: base.top },
       { u: channelNear, y: base.top },
       { u: channelNear, y: channelFloor },
       { u: channelFar, y: channelFloor },
       { u: channelFar, y: base.top },
-      { u: inner, y: base.top },
     );
-
-    return section;
-  }
-
-  if (withShelf) {
-    // Пандус от паза к полке и сама полка: на ней стоит стойка лампы.
-    section.push(
-      { u: base.railShoulder, y: base.railTop },
-      { u: inner, y: base.railTop },
-    );
-
-    return section;
   }
 
   section.push({ u: inner, y: base.top });
@@ -3358,74 +3388,103 @@ function bentBaseProfile(
 }
 
 /**
- * Чаша под полуцилиндром: база с пазом на кромке и местом под источник.
+ * Обойма полуцилиндра: низкое кольцо с круговым пазом под панель на кромке.
  *
- * Плоский диск оставлял панель на 4 мм над столом, а лампу — вплотную к её низу:
- * низ горел, верх уходил в тень, а свет уходил в стол. Здесь профиль вращается на
- * 360° и даёт чашу: наружная стенка до `bowlHeight`, круговой паз на кромке (в
- * него опускается нижняя кромка полуцилиндра) и дно на `bowlFloor`.
+ * Профиль — замкнутое кольцо без точек на оси, поэтому тело вращается на 360° без
+ * торцов, а середина остаётся открытой. Панель опускается в паз на `seatDepth` и
+ * стоит низом на `LITHOPHANE_CYLINDER_FLOOR_MM` над столом.
  *
- * Внутри чаши место под источник зависит от выбора. Под ленту в дне вырезана
- * круговая канавка: лента укладывается кольцом по всему полуцилиндру и светит
- * вверх. Под USB-лампу и патрон E27 из дна растёт площадка Ø44 на `perchTop` —
- * лампа стоит на ней, и её колба оказывается у середины кадра. Под «без
- * подсветки» дно гладкое.
- *
- * Площадка растёт из дна, поэтому профиль замкнут без отверстий: точки на оси
- * (r = 0) дают треугольники, а не вырожденные четырёхугольники.
+ * Раньше здесь была чаша высотой 34 мм с дном 7 мм: она поднимала панель над
+ * столом, но 146 г пластика ничего не держали — панель стоит кромкой в пазу, а
+ * свет идёт изнутри. Теперь кромка низкая (6 мм), а держат её лоток ленты и седло
+ * листа-рассеивателя.
  */
-function bentBaseDiscProfile(
+function cylinderCollarProfile(
   radius: number,
   frontZ: number,
-  light: LithophaneLightSource,
 ): (readonly [number, number])[] {
   const base = LITHOPHANE_BENT_BASE;
-  const discRadius = radius + frontZ + base.discRim;
   const grooveInner = radius - LITHOPHANE_FIT_GAP_MM;
   const grooveOuter = radius + frontZ + LITHOPHANE_FIT_GAP_MM;
-  const floor = LITHOPHANE_CYLINDER_FLOOR_MM;
-  const cavityWall = grooveInner - base.bowlWall;
-  const ringOuter = cavityWall - base.ringInset;
-  const ringInner = ringOuter - base.channelWidth;
-  const ringFloor = base.bowlFloor - base.channelDepth;
-  const withShelf =
-    light === "usb_bulb" || light === "socket";
+  const inner = grooveInner - base.bowlWall;
+  const outer = grooveOuter + base.discRim;
 
-  const shell: (readonly [number, number])[] = [
-    [0, 0] as const,
-    [discRadius, 0] as const,
-    [discRadius, base.bowlHeight] as const,
-    [grooveOuter, base.bowlHeight] as const,
-    [grooveOuter, floor] as const,
-    [grooveInner, floor] as const,
-    [grooveInner, base.bowlHeight] as const,
-    [cavityWall, base.bowlHeight] as const,
-    [cavityWall, base.bowlFloor] as const,
+  return [
+    [inner, 0],
+    [outer, 0],
+    [outer, base.bowlHeight],
+    [grooveOuter, base.bowlHeight],
+    [grooveOuter, LITHOPHANE_CYLINDER_FLOOR_MM],
+    [grooveInner, LITHOPHANE_CYLINDER_FLOOR_MM],
+    [grooveInner, base.bowlHeight],
+    [inner, base.bowlHeight],
   ];
-
-  if (withShelf) {
-    shell.push(
-      [base.pedestalFoot, base.bowlFloor] as const,
-      [base.pedestalRadius, base.perchTop] as const,
-      [0, base.perchTop] as const,
-    );
-
-    return shell;
-  }
-
-  if (light === "strip") {
-    shell.push(
-      [ringOuter, base.bowlFloor] as const,
-      [ringOuter, ringFloor] as const,
-      [ringInner, ringFloor] as const,
-      [ringInner, base.bowlFloor] as const,
-    );
-  }
-
-  shell.push([0, base.bowlFloor] as const);
-
-  return shell;
 }
+
+/**
+ * Лоток полуцилиндра: узкое кольцо с круговой канавкой под ленту.
+ *
+ * Лента укладывается кольцом по всей окружности, поэтому светит на панель со всех
+ * сторон, и карта ровная по дуге. Канавка отодвинута от обоймы на `ringInset`:
+ * вплотную к панели лента бьёт пятном в низ кадра. Между лентой и панелью
+ * остаётся место седлу листа-рассеивателя: наружная стенка лотка кончается на
+ * кромке седла, поэтому паз под лист открыт сверху по всей окружности.
+ *
+ * Кольцо держат три спицы от обоймы: сплошной диск весил 35 г и ничего не
+ * добавлял, кроме света в стол. Середина открыта — под лампу в ней стоит
+ * стойка-седло, под «без подсветки» она пустая.
+ */
+function cylinderTrayProfile(
+  radius: number,
+): (readonly [number, number])[] {
+  const base = LITHOPHANE_BENT_BASE;
+  const ringOuter =
+    radius - LITHOPHANE_FIT_GAP_MM - base.bowlWall - base.ringInset;
+  const ringInner = ringOuter - base.channelWidth;
+  const inner = ringInner - base.bowlWall;
+  const outer = ringOuter + base.bowlWall;
+  const floor = base.bowlFloor - base.channelDepth;
+
+  return [
+    [inner, 0],
+    [outer, 0],
+    [outer, base.bowlFloor],
+    [ringOuter, base.bowlFloor],
+    [ringOuter, floor],
+    [ringInner, floor],
+    [ringInner, base.bowlFloor],
+    [inner, base.bowlFloor],
+  ];
+}
+
+/**
+ * Седло листа-рассеивателя в полуцилиндре: круговое кольцо с пазом сверху.
+ *
+ * Стоит в `diffuserInset` от панели — там же, где лист в бруске дуги. Лист 2 мм
+ * гнётся в кольцо и входит в паз на `cradleDepth`; под пазом остаётся
+ * `cradleHeight − cradleDepth` пластика, поэтому кольцо печатается без поддержек и
+ * держит лист по всей окружности.
+ */
+function cylinderCradleProfile(
+  radius: number,
+): (readonly [number, number])[] {
+  const base = LITHOPHANE_BENT_BASE;
+  const middle = radius - base.diffuserInset;
+  const half = base.cradleWidth / 2;
+  const slot = base.diffuserWidth / 2;
+
+  return [
+    [middle - half, 0],
+    [middle + half, 0],
+    [middle + half, base.cradleHeight],
+    [middle + slot, base.cradleHeight],
+    [middle + slot, base.cradleHeight - base.cradleDepth],
+    [middle - slot, base.cradleHeight - base.cradleDepth],
+    [middle - slot, base.cradleHeight],
+    [middle - half, base.cradleHeight],
+  ];
+}
+
 
 /** Отрезков дуги базы: не крупнее фасетки `facetDeg`. */
 function baseArcSegments(sweepDeg: number): number {
@@ -3437,19 +3496,20 @@ function baseArcSegments(sweepDeg: number): number {
 
 
 /**
- * Тела лампы на полке базы изогнутой формы и в чаше полуцилиндра.
+ * Тела лампы на полке базы изогнутой формы и в обойме полуцилиндра.
  *
  * Скоба та же, что в базе арки, но выше полки её поднимает стойка: у бруска дуги и
- * в чаше лампа стоит над верхом базы, поэтому ось скобы — это верх полки плюс
- * `bentAxisAbove`. Высота лампы прежняя: в чаше полуцилиндра патрон E27 висит на
- * 75 мм, USB-лампа — на 65 мм.
+ * в полуцилиндре лампа стоит над верхом базы, поэтому ось скобы — это верх полки
+ * плюс `above`. У бруска это `bentAxisAbove` (39 мм для USB и 49 для патрона при
+ * середине кадра 49 мм), в полуцилиндре — `bentCylinderAxisAbove`.
  *
  * `axisZ` — ось, на которую встаёт лампа: у бруска дуги скоба остаётся на своём
- * месте (`bentAxisZ`), в чаше переезжает в её центр.
+ * месте (`bentAxisZ`), в полуцилиндре переезжает в центр обоймы.
  */
 function bentLampBodies(
   light: LithophaneLightSource,
   perchTop: number,
+  above: { socket: number; usb_bulb: number },
   axisZ?: number,
 ): BufferGeometry[] {
   if (light !== "socket" && light !== "usb_bulb") {
@@ -3457,7 +3517,7 @@ function bentLampBodies(
   }
 
   const clamp = LITHOPHANE_LAMP_CLAMP;
-  const axisY = perchTop + clamp.bentAxisAbove[light];
+  const axisY = perchTop + above[light];
   const axis = axisZ ?? clamp.bentAxisZ;
 
   return [
@@ -3467,21 +3527,88 @@ function bentLampBodies(
 }
 
 /**
- * Базы изогнутых форм: брусок по дуге у изогнутой панели, чаша у полуцилиндра.
+ * Лапка под стойку лампы у бруска дуги.
+ *
+ * Седло скобы стоит за бруском, на оси `bentAxisZ`, и вставать ему не на что: полка
+ * во всю ширину бруска весила 107 г. Лапка — узкая плита от тыльной кромки
+ * `footBack` до тела бруска: 4 мм высотой и по ширине седла, а её передний конец
+ * входит в брусок на 4 мм, поэтому деталь печатается одним телом.
+ */
+function bentFootBody(light: LithophaneClampKind): BufferGeometry {
+  const base = LITHOPHANE_BENT_BASE;
+  const width = clampPostWidth(light) + base.footBleed;
+  const inner =
+    base.diffuserU - base.diffuserWidth / 2 - base.innerRun + base.footBleed;
+
+  return createProfilePrismBody(
+    [
+      { y: 0, z: base.footBack },
+      { y: 0, z: inner },
+      { y: base.footHeight, z: inner },
+      { y: base.footHeight, z: base.footBack },
+    ],
+    -width / 2,
+    width / 2,
+  );
+}
+
+/**
+ * Спицы кольца ленты: три ребра от кольца к обойме.
+ *
+ * Кольцо ленты стоит в 14 мм от обоймы, и держать его больше нечему: сплошной
+ * лоток весил 35 г. Спица — призма `spokeWidth` шириной в толщину лотка:
+ * внутренний конец входит в наружную стенку седла листа, наружный — в обойму,
+ * поэтому деталь печатается одним телом. Через паз седла спица не проходит —
+ * лист 2 мм вставляется сверху по всей окружности.
+ */
+function cylinderSpokeBodies(radius: number): BufferGeometry[] {
+  const base = LITHOPHANE_BENT_BASE;
+  // Наружная стенка седла: от её середины спица уходит к обойме.
+  const inner = radius - base.diffuserInset + base.cradleWidth / 2 - 1;
+  const outer = radius - LITHOPHANE_FIT_GAP_MM - base.bowlWall + 0.5;
+
+  return Array.from({ length: base.spokeCount }, (_, index) => {
+    const spoke = createSectionPrismBody(
+      [
+        [inner, 0],
+        [outer, 0],
+        [outer, base.bowlFloor],
+        [inner, base.bowlFloor],
+      ],
+      -base.spokeWidth / 2,
+      base.spokeWidth / 2,
+    );
+
+    // Спица поворачивается вокруг оси обоймы: её центр — на Z = −radius.
+    spoke.applyMatrix4(
+      new Matrix4()
+        .makeTranslation(0, 0, -radius)
+        .multiply(
+          new Matrix4().makeRotationY((index * 2 * Math.PI) / base.spokeCount),
+        ),
+    );
+
+    return spoke;
+  });
+}
+
+/**
+ * Базы изогнутых форм: брусок по дуге у изогнутой панели, обойма у полуцилиндра.
  *
  * У изогнутой панели брусок заметает дугу её нижней кромки — ровно тот угол, на
  * который завёрнута ширина (w / R). Паз повторяет дугу с точностью до фасетки
- * 1.5°. Под ленту в бруске вырезан канал, вынесенный на 26 мм назад: у панели
- * лента светила в упор и давала пересвеченный центр с тёмными краями. Под
- * USB-лампу и патрон E27 на бруске стоит полка, и стойка-седло со скобой встаёт
- * на неё теми же телами, что в арке. Торцы дуги закрыты плоскостями профиля:
- * деталь замкнута.
+ * 1.5°. В верхней плоскости бруска два паза: канал под ленту, вынесенный назад на
+ * 20 мм (у панели лента светила в упор и давала пересвеченный центр), и паз под
+ * лист-рассеиватель между лентой и панелью. Паз листа режется при любом
+ * источнике. Под USB-лампу и патрон E27 за бруском стоит узкая лапка, на ней —
+ * седло со скобой: тех же тел, что в арке, но без полки во всю ширину. Торцы дуги
+ * закрыты плоскостями профиля: деталь замкнута.
  *
- * У полуцилиндра панель опускается в круговой паз чаши. Внутри чаши источник
- * выбирает сам форму дна: под ленту — круговая канавка по всему полуцилиндру,
- * под USB-лампу и патрон — площадка Ø44 в центре, под «без подсветки» — гладкое
- * дно. Рельс по дуге 180° тут не нужен: он закрывал бы свет и читался бы на
- * столе бесформенной тумбой.
+ * У полуцилиндра панель опускается в круговой паз низкой обоймы (6 мм). Дальше от
+ * оси идут лоток с круговой канавкой под ленту на трёх спицах и седло листа-
+ * рассеивателя: лента светит наружу, через лист, на панель по всей окружности.
+ * Под USB-лампу и патрон в середине стоит стойка-седло со скобой. Рельс по дуге
+ * 180° тут не нужен: он закрывал бы свет и читался бы на столе тумбой.
  */
 function createBentStandGeometry(
   normalized: LithophaneParams,
@@ -3489,47 +3616,77 @@ function createBentStandGeometry(
   metrics: FrameMetrics,
 ): BufferGeometry {
   const light = normalized.lithoLightSource;
+  const base = LITHOPHANE_BENT_BASE;
+  const segments = baseArcSegments(360);
 
   if (normalized.lithoShape === "cylinder") {
-    return mergeBodies(
-      [
+    const bodies = [
+      // Обойма с пазом под панель: стоит на столе по всей окружности.
+      createRevolvedBody(
+        cylinderCollarProfile(radius, metrics.frontZ),
+        -radius,
+        0,
+        360,
+        segments,
+        false,
+      ),
+      // Седло листа-рассеивателя — круговое кольцо с пазом сверху.
+      createRevolvedBody(
+        cylinderCradleProfile(radius),
+        -radius,
+        0,
+        360,
+        segments,
+        false,
+      ),
+      // Лампа стоит на оси вращения обоймы — в её центре.
+      ...bentLampBodies(
+        light,
+        base.perchTop,
+        LITHOPHANE_LAMP_CLAMP.bentCylinderAxisAbove,
+        -radius,
+      ),
+    ];
+
+    if (light === "strip") {
+      bodies.push(
         createRevolvedBody(
-          bentBaseDiscProfile(radius, metrics.frontZ, light),
+          cylinderTrayProfile(radius),
           -radius,
           0,
           360,
-          baseArcSegments(360),
+          segments,
           false,
         ),
-        // Лампа в чаше стоит на площадке в центре — на оси вращения чаши.
-        ...bentLampBodies(
-          light,
-          LITHOPHANE_BENT_BASE.perchTop,
-          -radius,
-        ),
-      ],
-      "плиты полуцилиндра",
-    );
+        ...cylinderSpokeBodies(radius),
+      );
+    }
+
+    return mergeBodies(bodies, "обоймы полуцилиндра");
   }
 
   // Изгиб отображает длину дуги в угол: x → x / R. Значит край панели шириной
   // w отстоит от центра на w / 2 и стоит под углом (w / 2) / R.
   const halfArc = (normalized.lithophaneWidth / 2 / radius) * (180 / Math.PI);
+  const bodies = [
+    createRevolvedBody(
+      bentBaseProfile(radius, metrics.frontZ, light),
+      -radius,
+      -halfArc,
+      2 * halfArc,
+      baseArcSegments(2 * halfArc),
+    ),
+  ];
 
-  return mergeBodies(
-    [
-      createRevolvedBody(
-        bentBaseProfile(radius, metrics.frontZ, light),
-        -radius,
-        -halfArc,
-        2 * halfArc,
-        baseArcSegments(2 * halfArc),
-      ),
-      // Стойка лампы встаёт на полку бруска: её ось уже на оси панели.
-      ...bentLampBodies(light, LITHOPHANE_BENT_BASE.railTop),
-    ],
-    "бруска базы",
-  );
+  if (light === "usb_bulb" || light === "socket") {
+    // Лапка идёт по столу от тыльной кромки в тело бруска: на ней стоит седло.
+    bodies.push(
+      bentFootBody(light),
+      ...bentLampBodies(light, base.railTop, LITHOPHANE_LAMP_CLAMP.bentAxisAbove),
+    );
+  }
+
+  return mergeBodies(bodies, "бруска базы");
 }
 
 /**
