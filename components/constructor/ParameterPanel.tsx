@@ -111,6 +111,7 @@ import {
   LITHOPHANE_RESOLUTION,
   LITHOPHANE_SHAPES,
   LITHOPHANE_SHAPE_LABELS,
+  LITHOPHANE_SIDE_IMAGE_SLOTS,
   MODEL_TYPE_LABELS,
   PEN_SHAPES,
   PEN_SHAPE_LABELS,
@@ -164,7 +165,7 @@ import {
   lithophaneTrimBounds,
   type LithophaneImageKind,
 } from "@/lib/constructor/lithophane-image";
-import { LITHOPHANE_SECTOR_COUNT } from "@/lib/constructor/lithophane-sectors";
+import { lithophanePanelCount } from "@/lib/constructor/lithophane-panels";
 import {
   VASE_SECTION_MIN_SIDES,
   resolveSectionSides,
@@ -349,7 +350,7 @@ type ParameterPanelProps = {
   onLithoFrameChange: (hasFrame: boolean) => void;
   /** Крепление литофана: сейчас доступно только «без подставки». */
   onLithoMountChange: (mount: LithophaneMount) => void;
-  /** Форма панели литофана: плоская или круглая «таблетка» на четыре фото. */
+  /** Форма литофана: плоская панель, куб или цилиндрический плафон. */
   onLithoShapeChange: (shape: LithophaneShape) => void;
   /**
    * Готовая сетка яркости из canvas: 0 — чёрный, 255 — белый.
@@ -855,19 +856,20 @@ async function compressLithophaneImage(file: File): Promise<LithophaneImage> {
 }
 
 /**
- * Слоты секторов 2–4 круглой панели.
+ * Слоты панелей 2–4: индексы слотов `lithophaneSideBrightness`.
  *
- * Первый сектор задаётся основным полем фотографии, поэтому в сетке слотов он
+ * Первая панель задаётся основным полем фотографии, поэтому в сетке слотов она
  * стоит отдельной карточкой, а остальные перебираются по этим номерам: индекс
- * слота в `lithophaneSideBrightness` совпадает с номером сектора минус один.
+ * слота совпадает с номером панели минус один. Сколько слотов показывать, решает
+ * форма: у куба их четыре, у цилиндра — столько, сколько выбрано панелей.
  */
 const LITHOPHANE_SIDE_SLOTS = Array.from(
-  { length: LITHOPHANE_SECTOR_COUNT - 1 },
+  { length: LITHOPHANE_SIDE_IMAGE_SLOTS },
   (_unused, index) => index,
 );
 
-type LithophaneSectorSlotProps = {
-  /** Подпись слота: «Сектор 1» … «Сектор 4». */
+type LithophanePhotoSlotProps = {
+  /** Подпись слота: «Грань 1» … «Панель 4». */
   label: string;
   /** Превью кадра, если он загружен. */
   preview: string | null;
@@ -880,18 +882,18 @@ type LithophaneSectorSlotProps = {
   /** Идентификатор скрытого поля: по нему работает кнопка-метка. */
   inputId: string;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  /** Пустой слот секторов 2–4 снова повторяет первый кадр. */
+  /** Пустой слот панелей 2–4 снова повторяет первый кадр. */
   onRemove?: () => void;
 };
 
 /**
- * Слот одного сектора круглой панели.
+ * Слот одной панели ночника.
  *
- * Четыре слота стоят сеткой 2 × 2: превью кадра, подпись сектора, кнопка загрузки
- * и, для секторов 2–4, кнопка «Убрать». Пустой слот ничего не ломает: он
- * повторяет первый кадр, поэтому одной фотографии достаточно на весь диск.
+ * Слоты стоят сеткой: превью кадра, подпись панели, кнопка загрузки и, для
+ * панелей 2–4, кнопка «Убрать». Пустой слот ничего не ломает: он повторяет
+ * первый кадр, поэтому одной фотографии достаточно на весь ночник.
  */
-function LithophaneSectorSlot({
+function LithophanePhotoSlot({
   busy,
   emptyHint,
   hasPhoto,
@@ -900,7 +902,7 @@ function LithophaneSectorSlot({
   onFileChange,
   onRemove,
   preview,
-}: LithophaneSectorSlotProps) {
+}: LithophanePhotoSlotProps) {
   return (
     <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-2">
       {preview ? (
@@ -1765,6 +1767,17 @@ export function ParameterPanel({
   const hasUploadedImage =
     params.lithophaneBrightness !==
     DEFAULT_LITHOPHANE_PARAMS.lithophaneBrightness;
+
+  /**
+   * Сколько панелей у выбранной формы: одна у плоской, четыре у куба, 2–4 у
+   * цилиндра. По нему строятся слоты фотографий и подписи «Грань» / «Панель».
+   */
+  const lithophanePanels = lithophanePanelCount(
+    params.lithoShape,
+    params.lithophanePanels,
+  );
+  const lithophanePanelNoun =
+    params.lithoShape === "cube" ? "Грань" : "Панель";
 
   /**
    * Читает файл, сразу сжимает его и отдаёт яркость наверх.
@@ -4277,51 +4290,7 @@ export function ParameterPanel({
               Фотография
             </legend>
 
-            {params.lithoShape === "round" ? (
-              <>
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <LithophaneSectorSlot
-                    busy={isProcessingImage}
-                    emptyHint={hasUploadedImage ? "фото есть" : "нет фото"}
-                    hasPhoto={hasUploadedImage}
-                    inputId={lithophaneInputId}
-                    label="Сектор 1"
-                    onFileChange={handleLithophaneImageChange}
-                    preview={imagePreview}
-                  />
-                  {LITHOPHANE_SIDE_SLOTS.map((slot) => {
-                    const side = params.lithophaneSideBrightness[slot];
-
-                    return (
-                      <LithophaneSectorSlot
-                        busy={sideProcessing === slot}
-                        emptyHint={side ? "фото есть" : "как сектор 1"}
-                        hasPhoto={side !== null}
-                        inputId={`${lithophaneInputId}-sector-${slot + 2}`}
-                        key={slot}
-                        label={`Сектор ${slot + 2}`}
-                        onFileChange={(event) =>
-                          handleLithophaneSideImageChange(slot, event)
-                        }
-                        onRemove={
-                          side
-                            ? () => removeLithophaneSideImage(slot)
-                            : undefined
-                        }
-                        preview={sidePreviews[slot]}
-                      />
-                    );
-                  })}
-                </div>
-
-                <p className="mt-3 text-xs leading-relaxed text-slate-300">
-                  Сектор 1 — правый верхний, дальше по часовой стрелке. Пустой
-                  сектор повторяет кадр сектора 1, поэтому одной фотографии
-                  достаточно на весь диск. Между секторами пропечатывается
-                  канавка 1.5 × 0.5 мм, а в центре остаётся плоский кружок Ø4 мм.
-                </p>
-              </>
-            ) : (
+            {params.lithoShape === "flat" ? (
               <div className="mt-3 flex items-start gap-3">
                 {hasUploadedImage && imagePreview ? (
                   <div
@@ -4375,6 +4344,51 @@ export function ParameterPanel({
                   </p>
                 </div>
               </div>
+            ) : (
+              <>
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <LithophanePhotoSlot
+                    busy={isProcessingImage}
+                    emptyHint={hasUploadedImage ? "фото есть" : "нет фото"}
+                    hasPhoto={hasUploadedImage}
+                    inputId={lithophaneInputId}
+                    label={`${lithophanePanelNoun} 1`}
+                    onFileChange={handleLithophaneImageChange}
+                    preview={imagePreview}
+                  />
+                  {LITHOPHANE_SIDE_SLOTS.filter(
+                    (slot) => slot < lithophanePanels - 1,
+                  ).map((slot) => {
+                    const side = params.lithophaneSideBrightness[slot];
+
+                    return (
+                      <LithophanePhotoSlot
+                        busy={sideProcessing === slot}
+                        emptyHint={side ? "фото есть" : `как ${lithophanePanelNoun.toLowerCase()} 1`}
+                        hasPhoto={side !== null}
+                        inputId={`${lithophaneInputId}-panel-${slot + 2}`}
+                        key={slot}
+                        label={`${lithophanePanelNoun} ${slot + 2}`}
+                        onFileChange={(event) =>
+                          handleLithophaneSideImageChange(slot, event)
+                        }
+                        onRemove={
+                          side
+                            ? () => removeLithophaneSideImage(slot)
+                            : undefined
+                        }
+                        preview={sidePreviews[slot]}
+                      />
+                    );
+                  })}
+                </div>
+
+                <p className="mt-3 text-xs leading-relaxed text-slate-300">
+                  {params.lithoShape === "cube"
+                    ? "Четыре грани стоят на общем каркасе, внутри пусто под лампу. Пустая грань повторяет кадр грани 1, поэтому одной фотографии хватает на весь куб."
+                    : `Панели крепятся снаружи цилиндра и гнутся по его радиусу, внутри пусто под лампу. Пустая панель повторяет кадр панели 1.`}
+                </p>
+              </>
             )}
 
             {imageError ? (
@@ -4438,8 +4452,8 @@ export function ParameterPanel({
 
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Плоская панель — обычный литофан: рельеф по плоскости, кадр вписан целиком. Круглая — «таблетка» диаметром до 200 мм: панель режется полярной сеткой, а кадр делится на четыре сектора, поэтому на одном диске помещается до четырёх разных фото."
-              label="Форма панели"
+              hint="Плоская панель — обычный литофан: рельеф по плоскости, кадр вписан целиком. Куб — четыре плоские грани на общем каркасе, внутри пусто под лампу. Цилиндр — каркас-абажур: снаружи 2–4 изогнутые панели, изнутри пустота для лампы."
+              label="Форма литофана"
               onChange={onLithoShapeChange}
               options={LITHOPHANE_SHAPES.map((shape) => ({
                 label: LITHOPHANE_SHAPE_LABELS[shape],
@@ -4449,47 +4463,72 @@ export function ParameterPanel({
             />
 
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
-              {params.lithoShape === "round"
-                ? "Круглая панель: диаметр задаётся шириной, высота у диска не читается. Сектор 1 — правый верхний, дальше по часовой стрелке; у каждого сектора своё фото, пустой повторяет первый кадр, а между секторами идёт канавка. Рамка считается по тому же диаметру."
-                : "Плоская панель: кадр вписан по правилу contain — пропорции сохранены, поля по краям печатаются на минимальной толщине и на просвет остаются светлыми."}
+              {params.lithoShape === "flat"
+                ? "Плоская панель: кадр вписан по правилу contain — пропорции сохранены, поля по краям печатаются на минимальной толщине и на просвет остаются светлыми."
+                : params.lithoShape === "cube"
+                  ? "Куб: четыре панели стоят гранями на поясах и угловых стойках, у каждой свой кадр. Внутри пусто — туда ставится лампа или свеча, поэтому грани и светятся."
+                  : "Цилиндр: два пояса и вертикальные стойки держат изогнутые панели снаружи, лицо смотрит наружу. Диаметр задаётся шириной, высота — высотой плафона, внутри пусто под лампу."}
             </p>
 
-            {params.lithoShape === "flat" ? (
-              <div className="mt-5">
+            <div className="mt-5 space-y-5">
+              <NumberSlider
+                hint={
+                  params.lithoShape === "round"
+                    ? "Диаметр плафона по наружной стенке пояса. Внутри остаётся полость на 6 мм меньше — под лампу."
+                    : "Высота панели вместе с рамкой. Пропорции фото подстраиваются под этот размер."
+                }
+                label={params.lithoShape === "round" ? "Диаметр" : "Высота"}
+                max={CONSTRUCTOR_LIMITS.lithophaneHeight.max}
+                min={CONSTRUCTOR_LIMITS.lithophaneHeight.min}
+                onChange={(value) => onParamChange("lithophaneHeight", value)}
+                step={CONSTRUCTOR_LIMITS.lithophaneHeight.step}
+                unit="мм"
+                value={params.lithophaneHeight}
+              />
+
+              {params.lithoShape === "round" ? (
                 <NumberSlider
-                  hint="Высота панели вместе с рамкой. Пропорции фото подстраиваются под этот размер."
-                  label="Высота"
-                  max={CONSTRUCTOR_LIMITS.lithophaneHeight.max}
-                  min={CONSTRUCTOR_LIMITS.lithophaneHeight.min}
-                  onChange={(value) => onParamChange("lithophaneHeight", value)}
-                  step={CONSTRUCTOR_LIMITS.lithophaneHeight.step}
-                  unit="мм"
-                  value={params.lithophaneHeight}
+                  decimals={CONSTRUCTOR_LIMITS.lithophanePanels.decimals}
+                  hint="Сколько изогнутых панелей по кругу: две — абажур из двух половин с широкими стойками, четыре — полный круг почти без стоек."
+                  label="Панелей"
+                  max={CONSTRUCTOR_LIMITS.lithophanePanels.max}
+                  min={CONSTRUCTOR_LIMITS.lithophanePanels.min}
+                  onChange={(value) => onParamChange("lithophanePanels", value)}
+                  step={CONSTRUCTOR_LIMITS.lithophanePanels.step}
+                  unit="шт."
+                  value={params.lithophanePanels}
                 />
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
 
-          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
-            <input
-              checked={params.lithoFrame}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              onChange={(event) => onLithoFrameChange(event.target.checked)}
-              type="checkbox"
-            />
-            <span>
-              <span className="block text-sm font-semibold text-slate-200">
-                Рамка
+          {params.lithoShape === "flat" ? (
+            <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+              <input
+                checked={params.lithoFrame}
+                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                onChange={(event) => onLithoFrameChange(event.target.checked)}
+                type="checkbox"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-slate-200">
+                  Рамка
+                </span>
+                <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                  Отдельная деталь: задняя полка с пазом, куда входит плита, и
+                  передняя накладка по периметру. Без рамки печатается только
+                  плита рельефа со своим бортиком.
+                </span>
               </span>
-              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                Отдельная деталь: задняя полка с пазом, куда входит плита, и
-                передняя накладка по периметру. Без рамки печатается только
-                плита рельефа со своим бортиком.
-              </span>
-            </span>
-          </label>
+            </label>
+          ) : (
+            <p className="mt-6 text-xs leading-relaxed text-slate-300">
+              Панели держит каркас — пояса и стойки, поэтому рамка не нужна:
+              деталь печатается одной сборкой, без клея и поддержек.
+            </p>
+          )}
 
-          {params.lithoFrame ? (
+          {params.lithoShape !== "flat" ? null : params.lithoFrame ? (
             <div className="mt-6 border-t border-white/10 pt-5">
               <ParameterSelect
                 label="Крепление"
@@ -4515,9 +4554,9 @@ export function ParameterPanel({
           )}
 
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Рельеф смотрит вверх: плита и рамка печатаются плашмя, поддержки не
-            нужны. Детали собираются без клея — плита входит в паз рамки с
-            зазором 0.2 мм.
+            {params.lithoShape === "flat"
+              ? "Рельеф смотрит вверх: плита и рамка печатаются плашмя, поддержки не нужны. Детали собираются без клея — плита входит в паз рамки с зазором 0.2 мм."
+              : "Печать стоя, как на столе: панели вертикальные, поддержки не нужны. Панель входит в пояс и в стойку с нахлёстом, поэтому сборка держится без клея, а лампа ставится внутрь."}
           </p>
         </>
       ) : (

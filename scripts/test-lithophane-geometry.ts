@@ -1,5 +1,5 @@
 /**
- * Тест геометрии литофана: рельеф, рамка и круглая панель на четыре фото.
+ * Тест геометрии литофана: рельеф, рамка и ночники на каркасе.
  *
  * Основные правила, которые закреплены здесь:
  *   • кадр вписывается в плиту по правилу contain, а не растягивается;
@@ -9,8 +9,8 @@
  *     лежит в плоскости Z = 0, лицо смотрит в +Z;
  *   • креплений нет: `lithoMount` знает только `none`, поэтому за панелью ничего
  *     не торчит и рамка печатается плоской;
- *   • у круглой панели четыре сектора по 90°, между ними канавка 1.5 × 0.5 мм,
- *     а на оси — плоский диск Ø4 мм.
+ *   • куб и цилиндр — ночники: панели держит каркас из поясов и стоек, внутри
+ *     пусто под лампу, а у цилиндра панели гнутся по радиусу плафона.
  *
  * Что проверяется:
  *   1. кадр не растягивается: чёрный круг в центре кадра 3:2 и 1:1 остаётся
@@ -40,13 +40,17 @@
  *      минимальная толщина слайдера опущена до 0.6 мм;
  *  13. крепления: в списке только `none`, деталь `mount` не принимается, а
  *      старые `led_box` и `socket_rail` нормализуются в `none`, а не падают;
- *  14. круглая панель: диаметр плиты, замкнутость, бюджет треугольников и своё
- *      фото у каждого из четырёх секторов;
- *  15. секторы: канавка 1.5 × 0.5 мм на границе, плоский диск Ø4 мм в центре с
- *      одной толщиной и полная толщина кадра в середине сектора;
- *  16. uv секторов и карта четырёх кадров: каждый сектор лежит в своём квадранте,
- *      а пустой слот повторяет первый кадр;
- *  17. вес собранной панели в пределах разумного у обеих форм.
+ *  14. формы: плоская панель, куб и цилиндр; у цилиндра панелей 2–4, у куба
+ *      всегда четыре, а шаг вершин у нескольких панелей 0.5 мм; оценка бюджета
+ *      треугольников совпадает с той сеткой, которую строит геометрия, а имя STL
+ *      несёт форму и диаметр;
+ *  15. куб: четыре грани на каркасе, габарит и высота, пустота внутри, а у
+ *      каждой грани своё фото;
+ *  16. цилиндр: панели 2, 3 и 4 гнутся по радиусу, каркас из двух поясов и
+ *      стоек, внутри пусто, тыл держится радиуса, а толщина панели задаётся её
+ *      кадром;
+ *  17. uv панелей и карта кадров: каждая панель лежит в своём квадранте, пустой
+ *      слот повторяет первый кадр, а вес сборок в разумных пределах.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -57,6 +61,7 @@ import type { BufferGeometry } from "three";
 import { DoubleSide, Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 
 import {
+  LITHOPHANE_BACK_SAGITTA_MM,
   LITHOPHANE_BORDER_CHAMFER_MM,
   LITHOPHANE_BORDER_MM,
   LITHOPHANE_DETAIL_GROUP,
@@ -64,12 +69,13 @@ import {
   LITHOPHANE_FRAME_CORNER_RADIUS_MM,
   LITHOPHANE_FRAME_OPENING_RADIUS_MM,
   LITHOPHANE_FRAME_WIDTH_MM,
+  LITHOPHANE_LANTERN,
   LITHOPHANE_RELIEF_GROUP,
-  LITHOPHANE_SECTOR_GROOVE,
   createLithophaneFrameGeometry,
   createLithophaneGeometry,
   createLithophaneReliefGeometry,
   lithophanePlateSize,
+  lithophaneTriangleCount,
 } from "../lib/constructor/lithophane-geometry";
 import {
   LITHOPHANE_LOGO_MAX_THICKNESS_MM,
@@ -80,20 +86,33 @@ import {
   lithophaneImageKind,
   lithophaneTrimBounds,
 } from "../lib/constructor/lithophane-image";
-import { createLithophaneSectorMapData } from "../lib/constructor/lithophane-sectors";
+import {
+  LITHOPHANE_PANEL_MAX,
+  LITHOPHANE_PANEL_MIN,
+  createLithophanePanelMapData,
+  lithophanePanelCount,
+  lithophanePanelQuadrant,
+  lithophanePanelUv,
+} from "../lib/constructor/lithophane-panels";
 import {
   CONSTRUCTOR_LIMITS,
+  LITHOPHANE_MESH_MAX_TRIANGLES,
   LITHOPHANE_MOUNTS,
   LITHOPHANE_MOUNT_LABELS,
+  LITHOPHANE_PANEL_STEP_MM,
   LITHOPHANE_PARTS,
+  LITHOPHANE_SHAPES,
+  LITHOPHANE_SHAPE_LABELS,
   LITHOPHANE_SIDE_IMAGE_SLOTS,
   LITHOPHANE_VERTEX_STEP_MM,
   isLithophaneMount,
   isLithophanePart,
   lithophaneMeshSize,
+  lithophaneStlFileName,
   normalizeLithophaneParams,
   type LithophaneBrightnessGrid,
   type LithophaneParams,
+  type LithophaneShape,
 } from "../lib/constructor/params";
 import {
   calculateGeometryVolumeMm3,
@@ -1520,54 +1539,166 @@ function hits(
   return found;
 }
 
-/**
- * Средняя толщина рельефа в кольце сектора, мм.
- *
- * Угол считается от +Y по часовой стрелке — так же, как секторы режут круглую
- * панель. В выборку попадают вершины лица в кольце 0.6…0.9 радиуса: бортик и
- * центр диска в замер не входят.
- */
-function sectorThickness(
-  geometry: BufferGeometry,
-  centerY: number,
-  radius: number,
-  fromDeg: number,
-  toDeg: number,
-): number {
-  const position = geometry.getAttribute("position");
-  let sum = 0;
-  let count = 0;
-
-  for (let index = 0; index < position.count; index += 1) {
-    const x = position.getX(index);
-    const y = position.getY(index) - centerY;
-    const z = position.getZ(index);
-    const distance = Math.hypot(x, y);
-
-    if (z <= 0 || distance < radius * 0.6 || distance > radius * 0.9) {
-      continue;
-    }
-
-    let angle = (Math.atan2(x, y) * 180) / Math.PI;
-
-    if (angle < 0) {
-      angle += 360;
-    }
-
-    if (angle >= fromDeg && angle < toDeg) {
-      sum += z;
-      count += 1;
-    }
-  }
-
-  return count > 0 ? sum / count : 0;
-}
 
 /** Параметры собранной панели: 120 × 80, серый кадр и рамка. */
 function panelParams(
   extra: Partial<LithophaneParams> = {},
 ): Partial<LithophaneParams> {
   return { ...reliefParams(120, 80, flatFrame(), true), ...extra };
+}
+
+/**
+ * Толщина панели ночника в её середине, мм.
+ *
+ * Панель стоит на радиусе `radius`: тыл лежит на радиусе, лицо — на радиусе плюс
+ * толщина. Толщина считается как наибольшее расстояние от оси по нормали панели
+ * (угол `centerDeg` от +Z), минус радиус каркаса. В выборку попадает средняя
+ * часть высоты: пояса и стойки в замер не входят. Смещение вдоль панели
+ * ограничено 10 мм — так в окно не попадают ни стойка на стыке, ни соседняя
+ * панель.
+ */
+function panelThickness(
+  geometry: BufferGeometry,
+  radius: number,
+  centerDeg: number,
+  height: number,
+): number {
+  const position = geometry.getAttribute("position");
+  const angle = (centerDeg * Math.PI) / 180;
+  const normalX = Math.sin(angle);
+  const normalZ = Math.cos(angle);
+  let farthest = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const y = position.getY(index);
+
+    if (y < height * 0.35 || y > height * 0.65) {
+      continue;
+    }
+
+    const x = position.getX(index);
+    const z = position.getZ(index);
+    const tangential = Math.abs(x * normalZ - z * normalX);
+
+    if (tangential > 10) {
+      continue;
+    }
+
+    farthest = Math.max(farthest, x * normalX + z * normalZ);
+  }
+
+  return Number.isFinite(farthest) ? farthest - radius : 0;
+}
+
+/**
+ * Радиус лица панели в заданном угле, мм.
+ *
+ * Вершины берутся в окне ±2° вокруг угла в средней части высоты, расстояние
+ * считается от оси Y. У изогнутой панели радиус одинаков по всей дуге, у плоской
+ * грани он растёт к краю: `R / cos φ`. Разница между центром и краем и есть
+ * проверка «панель действительно гнётся».
+ */
+function faceRadiusAt(
+  geometry: BufferGeometry,
+  angleDeg: number,
+  height: number,
+): number {
+  const position = geometry.getAttribute("position");
+  let farthest = 0;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const y = position.getY(index);
+
+    if (y < height * 0.35 || y > height * 0.65) {
+      continue;
+    }
+
+    const x = position.getX(index);
+    const z = position.getZ(index);
+    let angle = (Math.atan2(x, z) * 180) / Math.PI;
+
+    if (angle < 0) {
+      angle += 360;
+    }
+
+    const delta = Math.abs(((angle - angleDeg + 540) % 360) - 180);
+
+    if (delta <= 2) {
+      farthest = Math.max(farthest, Math.hypot(x, z));
+    }
+  }
+
+  return farthest;
+}
+
+/**
+ * Ближайшее попадание луча из оси Y наружу, мм.
+ *
+ * Внутри ночника пусто: от оси до стенки каркаса нет ни одной поверхности. Луч
+ * пускается в середине высоты под заданным углом, поэтому по расстоянию видно и
+ * пустоту, и то, что каркас стоит на своём месте: пояс выходит за тыл панели, а
+ * стойка стоит на стыке и уходит внутрь на толщину стенки.
+ */
+function firstHitFromAxis(
+  geometry: BufferGeometry,
+  height: number,
+  angleDeg: number,
+): number {
+  const material = new MeshBasicMaterial({ side: DoubleSide });
+  const mesh = new Mesh(geometry, material);
+  const angle = (angleDeg * Math.PI) / 180;
+  const raycaster = new Raycaster(
+    new Vector3(0, height / 2, 0),
+    new Vector3(Math.sin(angle), 0, Math.cos(angle)).normalize(),
+    0.01,
+    1000,
+  );
+  const found = raycaster.intersectObject(mesh);
+  const distance =
+    found.length > 0 ? found[0].distance : Number.POSITIVE_INFINITY;
+
+  material.dispose();
+
+  return distance;
+}
+
+/**
+ * Самый близкий к оси тыл панели, мм.
+ *
+ * Тыл изогнутой панели — веер из хорд: у самой вершины он лежит на радиусе, а в
+ * середине хорды уходит внутрь. Один луч в центр панели такой прогиб не поймает,
+ * поэтому берётся веер лучей с шагом 5° по всей дуге панели, кроме полосы у
+ * стойки на стыке: по самому близкому попаданию видно, держится ли тыл радиуса.
+ */
+function nearestBackRadius(
+  geometry: BufferGeometry,
+  height: number,
+  centerDeg: number,
+  sweepDeg: number,
+): number {
+  const half = sweepDeg / 2 - 5;
+  let nearest = Number.POSITIVE_INFINITY;
+
+  for (let offset = -half; offset <= half; offset += 5) {
+    nearest = Math.min(
+      nearest,
+      firstHitFromAxis(geometry, height, centerDeg + offset),
+    );
+  }
+
+  return nearest;
+}
+
+/** Самая низкая вершина детали, мм: по ней видно, стоит ли сборка на столе. */
+function lowestPoint(geometry: BufferGeometry): number {
+  const position = geometry.getAttribute("position");
+  let lowest = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < position.count; index += 1) {
+    lowest = Math.min(lowest, position.getY(index));
+  }
+
+  return Number.isFinite(lowest) ? lowest : 0;
 }
 
 console.log("\n13. Крепления: остался только пункт «Без подставки»");
@@ -1593,220 +1724,468 @@ console.log("\n13. Крепления: остался только пункт «
     normalizeLithophaneParams({ lithoFrame: false }).lithoMount,
     "none",
   );
+  check(
+    "старая круглая панель открывается цилиндром",
+    normalizeLithophaneParams({ lithoShape: "round" }).lithoShape,
+    "round",
+  );
+  check(
+    "старая изогнутая панель нормализуется в плоскую",
+    normalizeLithophaneParams({
+      lithoShape: "curved",
+    } as unknown as Partial<LithophaneParams>).lithoShape,
+    "flat",
+  );
+}
+
+console.log("\n14. Формы: плоская панель, куб и цилиндр на 2–4 панели");
+{
+  check("форм три", LITHOPHANE_SHAPES.join(","), "flat,cube,round");
+  check(
+    "подпись плоской формы",
+    LITHOPHANE_SHAPE_LABELS.flat,
+    "Плоская (как фото)",
+  );
+  check("подпись куба", LITHOPHANE_SHAPE_LABELS.cube, "Куб (4 грани)");
+  check(
+    "подпись цилиндра",
+    LITHOPHANE_SHAPE_LABELS.round,
+    "Цилиндр (2–4 панели)",
+  );
+  check("у плоской панели одна панель", lithophanePanelCount("flat", 4), 1);
+  check(
+    "у куба четыре панели",
+    lithophanePanelCount("cube", 2),
+    LITHOPHANE_PANEL_MAX,
+  );
+  check("у цилиндра две панели", lithophanePanelCount("round", 2), 2);
+  check("у цилиндра три панели", lithophanePanelCount("round", 3), 3);
+  check("у цилиндра четыре панели", lithophanePanelCount("round", 4), 4);
+  check(
+    "меньше двух панелей не бывает",
+    lithophanePanelCount("round", 1),
+    LITHOPHANE_PANEL_MIN,
+  );
+  check(
+    "больше четырёх панелей не бывает",
+    lithophanePanelCount("round", 9),
+    LITHOPHANE_PANEL_MAX,
+  );
+  check("слотов под кадры панелей три", LITHOPHANE_SIDE_IMAGE_SLOTS, 3);
+  check(
+    "предел панелей — основной кадр и три слота",
+    LITHOPHANE_PANEL_MAX,
+    LITHOPHANE_SIDE_IMAGE_SLOTS + 1,
+  );
+  check(
+    "слайдер панелей от 2 до 4",
+    `${CONSTRUCTOR_LIMITS.lithophanePanels.min}-${CONSTRUCTOR_LIMITS.lithophanePanels.max}`,
+    "2-4",
+  );
+  check(
+    "число панелей из проекта зажимается",
+    normalizeLithophaneParams({ lithophanePanels: 9 }).lithophanePanels,
+    LITHOPHANE_PANEL_MAX,
+  );
+  check(
+    "число панелей по умолчанию — три",
+    normalizeLithophaneParams({}).lithophanePanels,
+    CONSTRUCTOR_LIMITS.lithophanePanels.defaultValue,
+  );
+
+  const cubePlate = lithophanePlateSize({
+    lithoShape: "cube",
+    lithophaneWidth: 120,
+    lithophaneHeight: 80,
+  });
+
+  check(
+    "грань куба размером с панель",
+    `${cubePlate.width}×${cubePlate.height}`,
+    "120×80",
+  );
+  check("у куба четыре панели", cubePlate.count, LITHOPHANE_PANEL_MAX);
+  check("шаг вершин у панелей каркаса", cubePlate.step, LITHOPHANE_PANEL_STEP_MM);
+
+  const flatPlate = lithophanePlateSize({ lithoShape: "flat" });
+
+  check("у плоской панели шаг 0.3 мм", flatPlate.step, LITHOPHANE_VERTEX_STEP_MM);
+  check("у плоской панели одна копия", flatPlate.count, 1);
 
   const roundPlate = lithophanePlateSize({
     lithoShape: "round",
     lithophaneWidth: 100,
     lithophaneHeight: 60,
-    lithoFrame: true,
+    lithophanePanels: 2,
   });
+  const halfCircle = Math.PI * 50;
 
-  check("у круга плита квадратна по габариту", roundPlate.width, roundPlate.height);
-}
-
-console.log("\n14. Круглая панель: полярная сетка и четыре сектора");
-{
-  const params: Partial<LithophaneParams> = {
-    lithoShape: "round",
-    lithophaneWidth: 120,
-    lithoFrame: true,
-  };
-  const plate = lithophanePlateSize(params);
-  const relief = createLithophaneReliefGeometry(params);
-  const size = boxSize(relief);
-
+  check("у цилиндра две панели", roundPlate.count, 2);
+  check("панель цилиндра — дуга, а не диск", roundPlate.width < halfCircle, true);
   checkRange(
-    "диаметр плиты по X и Y совпадает",
-    [size.x, size.y],
-    plate.width - 0.2,
-    plate.width + 0.2,
+    "панель занимает почти всю свою дугу",
+    [roundPlate.width],
+    halfCircle - 6,
+    halfCircle,
   );
-  checkRange("толщина круга в границах слайдеров", [size.z], 1, 5);
-  check("круглый рельеф замкнут", openEdges(relief), 0);
-  check("в круглом рельефе нет NaN", nanVertices(relief), 0);
-  checkRange(
-    "треугольников у круга меньше миллиона",
-    [triangleCount(relief)],
-    1000,
-    1_000_000,
-  );
+  check("высота панели цилиндра — высота плафона", roundPlate.height, 60);
 
-  const frames = [255, 200, 128, 40].map((value) => flatFrame(value, 400, 400));
-  const four = createLithophaneReliefGeometry({
-    ...params,
-    lithophaneBrightness: frames[0].brightness,
-    lithophaneBrightnessWidth: 400,
-    lithophaneBrightnessHeight: 400,
-    lithophaneSideBrightness: [frames[1], frames[2], frames[3]],
-  });
-  const radius = plate.width / 2;
-  const centerY = radius;
-  const thicknesses = [0, 1, 2, 3].map((sector) =>
-    sectorThickness(four, centerY, radius, sector * 90 + 10, sector * 90 + 80),
+  const shapeFileName = (lithoShape: LithophaneShape) =>
+    lithophaneStlFileName(
+      normalizeLithophaneParams({
+        lithoShape,
+        lithophaneWidth: 120,
+        lithophaneHeight: 80,
+        lithophaneMinThickness: 0.8,
+        lithophaneMaxThickness: 3,
+      }),
+    );
+
+  check(
+    "имя файла цилиндра — диаметр и форма",
+    shapeFileName("round"),
+    "tridi-litofan-round-d120-h80-t0.8-3-all.stl",
+  );
+  check(
+    "имя файла куба — ширина панели",
+    shapeFileName("cube"),
+    "tridi-litofan-cube-w120-h80-t0.8-3-all.stl",
   );
 
   check(
-    "у каждого сектора свой кадр",
-    thicknesses.every(
-      (value, index) => index === 0 || thicknesses[index - 1] < value,
-    ),
+    "четыре панели 200 × 150 при шаге 0.5 проходят бюджет",
+    lithophaneMeshSize(200, 150, {
+      copies: LITHOPHANE_PANEL_MAX,
+      step: LITHOPHANE_PANEL_STEP_MM,
+    }) !== null,
     true,
   );
-  checkRange("самый светлый сектор на минимуме", [thicknesses[0]], 0.5, 1.2);
-  checkRange("самый тёмный сектор у максимума", [thicknesses[3]], 2.4, 3.2);
-  four.dispose();
-  relief.dispose();
+  check(
+    "четыре панели 200 × 150 при шаге 0.3 бюджет не проходят",
+    lithophaneMeshSize(200, 150, { copies: LITHOPHANE_PANEL_MAX }) === null,
+    true,
+  );
+  check(
+    "потолок бюджета — миллион треугольников",
+    LITHOPHANE_MESH_MAX_TRIANGLES,
+    1_000_000,
+  );
+
+  // Оценка бюджета — та же сетка, что строит геометрия. Если формула разойдётся
+  // со сборкой, API пропустит деталь, которую геометрия отвергнет уже после
+  // работы, поэтому число сверяется с настоящей сеткой у всех трёх форм.
+  for (const shape of LITHOPHANE_SHAPES) {
+    const params: Partial<LithophaneParams> = {
+      lithoShape: shape,
+      lithophaneWidth: 120,
+      lithophaneHeight: 80,
+    };
+    const relief = createLithophaneReliefGeometry(params);
+
+    check(
+      `оценка бюджета ${shape} совпадает с сеткой`,
+      lithophaneTriangleCount(params),
+      triangleCount(relief),
+    );
+    relief.dispose();
+  }
 }
 
-console.log("\n15. Секторы: канавка 1.5 × 0.5 мм и плоский диск Ø4 мм");
+console.log("\n15. Куб: четыре грани на каркасе и пустота внутри");
 {
-  const groove = LITHOPHANE_SECTOR_GROOVE;
-  const darkFrame = flatFrame(0, 400, 400);
-  const params: Partial<LithophaneParams> = {
-    lithoShape: "round",
-    lithophaneWidth: 120,
-    lithoFrame: true,
-    lithophaneBrightness: darkFrame.brightness,
-    lithophaneBrightnessWidth: darkFrame.width,
-    lithophaneBrightnessHeight: darkFrame.height,
-  };
-  const plate = lithophanePlateSize(params);
-  const radius = plate.width / 2;
+  const width = 120;
+  const height = 80;
+  const half = width / 2;
   const minThickness = CONSTRUCTOR_LIMITS.lithophaneMinThickness.defaultValue;
   const maxThickness = CONSTRUCTOR_LIMITS.lithophaneMaxThickness.defaultValue;
-  // Чёрный кадр печатается на максимуме: лицо сектора — это и есть поверхность,
-  // от которой считается глубина канавки.
-  const surface = maxThickness;
-  const hubThickness = minThickness + (maxThickness - minThickness) / 2;
-  const relief = createLithophaneReliefGeometry(params);
-  const position = relief.getAttribute("position");
-  const quarter = Math.PI / 2;
-  let hubMin = Number.POSITIVE_INFINITY;
-  let hubMax = Number.NEGATIVE_INFINITY;
-  let boundaryMin = Number.POSITIVE_INFINITY;
-  let sectorMax = Number.NEGATIVE_INFINITY;
-  let grooveHalfWidth = 0;
-
-  for (let index = 0; index < position.count; index += 1) {
-    const x = position.getX(index);
-    const y = position.getY(index) - radius;
-    const z = position.getZ(index);
-    const distance = Math.hypot(x, y);
-
-    if (z <= 0 || distance > radius - LITHOPHANE_BORDER_MM) {
-      continue;
-    }
-
-    if (distance <= groove.hubRadius - 0.2) {
-      hubMin = Math.min(hubMin, z);
-      hubMax = Math.max(hubMax, z);
-      continue;
-    }
-
-    let angle = Math.atan2(x, y);
-
-    if (angle < 0) {
-      angle += Math.PI * 2;
-    }
-
-    const wrapped = ((angle % quarter) + quarter) % quarter;
-    const toBoundary = Math.min(wrapped, quarter - wrapped);
-    const fromBoundary = distance * Math.sin(toBoundary);
-
-    if (distance >= 20 && distance <= 40) {
-      if (fromBoundary <= 0.15) {
-        boundaryMin = Math.min(boundaryMin, z);
-      }
-
-      if (fromBoundary >= 4) {
-        sectorMax = Math.max(sectorMax, z);
-      }
-    }
-
-    if (distance >= 29 && distance <= 31 && z < surface - 0.01) {
-      grooveHalfWidth = Math.max(grooveHalfWidth, fromBoundary);
-    }
-  }
-
-  checkRange(
-    "плоский диск в центре: одна толщина",
-    [hubMin, hubMax],
-    hubThickness - 0.01,
-    hubThickness + 0.01,
-  );
-  checkRange("середина сектора: полная толщина кадра", [sectorMax], surface - 0.01, surface + 0.01);
-  checkRange(
-    "канавка на границе секторов: 0.5 мм",
-    [surface - boundaryMin],
-    groove.depth - 0.06,
-    groove.depth + 0.01,
-  );
-  checkRange(
-    "ширина канавки: около 1.5 мм",
-    [grooveHalfWidth * 2],
-    1.1,
-    1.9,
-  );
-  check("рельеф с канавками замкнут", openEdges(relief), 0);
-  check("в рельефе с канавками нет NaN", nanVertices(relief), 0);
-  relief.dispose();
-}
-
-console.log("\n16. uv секторов и карта четырёх кадров");
-{
   const white = flatFrame(255, 400, 400);
   const dark = flatFrame(0, 400, 400);
   const params: Partial<LithophaneParams> = {
-    lithoShape: "round",
-    lithophaneWidth: 120,
-    lithoFrame: true,
+    ...panelParams({ lithoShape: "cube" }),
     lithophaneBrightness: white.brightness,
     lithophaneBrightnessWidth: white.width,
     lithophaneBrightnessHeight: white.height,
-    lithophaneSideBrightness: [
-      { brightness: dark.brightness, width: 400, height: 400 },
-      null,
-      null,
-    ],
   };
-  const plate = lithophanePlateSize(params);
-  const radius = plate.width / 2;
   const relief = createLithophaneReliefGeometry(params);
-  const position = relief.getAttribute("position");
-  const uv = relief.getAttribute("uv");
-  const quarter = Math.PI / 2;
-  let wrongQuadrant = 0;
+  const all = createLithophaneGeometry(params, "all");
+  const frame = createLithophaneGeometry(params, "frame");
+  const size = boxSize(all);
+  const outer = width + 2 * maxThickness;
+
+  checkRange("куб по ширине — панель плюс рельеф", [size.x], outer - 0.3, outer + 0.3);
+  checkRange("куб по глубине такой же", [size.z], outer - 0.3, outer + 0.3);
+  checkRange("высота куба — высота панели", [size.y], height - 0.02, height + 0.02);
+  checkRange("куб стоит на столе", [lowestPoint(all)], 0, TOLERANCE_MM);
+  check("грани куба замкнуты", openEdges(relief), 0);
+  check("сборка куба замкнута", openEdges(all), 0);
+  check("в кубе нет NaN", nanVertices(all), 0);
+  check("каркас куба — отдельная деталь", (frame.getIndex()?.count ?? 0) > 0, true);
+  checkRange(
+    "внутри куба пусто до тыла грани",
+    [firstHitFromAxis(all, height, 0)],
+    half - TOLERANCE_MM,
+    half + TOLERANCE_MM,
+  );
+  checkRange(
+    "угловая стойка куба держит грани",
+    [firstHitFromAxis(all, height, 45)],
+    half - TOLERANCE_MM,
+    (half + LITHOPHANE_LANTERN.grip) * Math.SQRT2,
+  );
+  checkRange(
+    "белая грань печатается на минимуме",
+    [panelThickness(relief, half, 0, height)],
+    minThickness - 0.05,
+    minThickness + 0.2,
+  );
+  checkRange(
+    "грань куба плоская: радиус растёт к краю",
+    [faceRadiusAt(relief, 20, height) - faceRadiusAt(relief, 0, height)],
+    2,
+    6,
+  );
+  check(
+    "треугольников у куба меньше миллиона",
+    triangleCount(all) < LITHOPHANE_MESH_MAX_TRIANGLES,
+    true,
+  );
+
+  const mixed = createLithophaneReliefGeometry({
+    ...params,
+    lithophaneSideBrightness: [dark, null, null],
+  });
+
+  checkRange(
+    "грань 1 светлая",
+    [panelThickness(mixed, half, 0, height)],
+    minThickness - 0.05,
+    minThickness + 0.2,
+  );
+  checkRange(
+    "грань 2 чёрная на максимуме",
+    [panelThickness(mixed, half, 90, height)],
+    maxThickness - 0.2,
+    maxThickness + 0.05,
+  );
+  checkRange(
+    "пустая грань 3 повторяет первую",
+    [panelThickness(mixed, half, 180, height)],
+    minThickness - 0.05,
+    minThickness + 0.2,
+  );
+
+  mixed.dispose();
+  frame.dispose();
+  relief.dispose();
+  all.dispose();
+}
+
+console.log("\n16. Цилиндр: 2–4 изогнутые панели по радиусу плафона");
+{
+  const width = 120;
+  const height = 80;
+  const radius = width / 2;
+  const minThickness = CONSTRUCTOR_LIMITS.lithophaneMinThickness.defaultValue;
+  const maxThickness = CONSTRUCTOR_LIMITS.lithophaneMaxThickness.defaultValue;
+  const dark = flatFrame(0, 400, 400);
+
+  for (const panels of [2, 3, 4] as const) {
+    const sweep = 360 / panels;
+    const params: Partial<LithophaneParams> = {
+      ...panelParams({ lithoShape: "round", lithophanePanels: panels }),
+      lithophaneBrightness: dark.brightness,
+      lithophaneBrightnessWidth: dark.width,
+      lithophaneBrightnessHeight: dark.height,
+    };
+    const relief = createLithophaneReliefGeometry(params);
+    const all = createLithophaneGeometry(params, "all");
+    const size = boxSize(all);
+    const outer = width + 2 * maxThickness;
+
+    checkRange(
+      `цилиндр на ${panels}: габарит по диаметру и рельефу`,
+      [size.x, size.z],
+      outer - 0.3,
+      outer + 0.3,
+    );
+    checkRange(
+      `цилиндр на ${panels}: высота`,
+      [size.y],
+      height - 0.02,
+      height + 0.02,
+    );
+    checkRange(
+      `цилиндр на ${panels}: стоит на столе`,
+      [lowestPoint(all)],
+      0,
+      TOLERANCE_MM,
+    );
+    check(`цилиндр на ${panels}: панели замкнуты`, openEdges(relief), 0);
+    check(`цилиндр на ${panels}: сборка замкнута`, openEdges(all), 0);
+    check(`цилиндр на ${panels}: без NaN`, nanVertices(all), 0);
+    checkRange(
+      `цилиндр на ${panels}: внутри пусто до тыла панели`,
+      [firstHitFromAxis(all, height, 0)],
+      radius - TOLERANCE_MM,
+      radius + TOLERANCE_MM,
+    );
+    checkRange(
+      `цилиндр на ${panels}: стойка на стыке уходит внутрь на стенку`,
+      [firstHitFromAxis(all, height, sweep / 2)],
+      radius - LITHOPHANE_LANTERN.wall - TOLERANCE_MM,
+      radius - LITHOPHANE_LANTERN.wall + TOLERANCE_MM,
+    );
+
+    let thinnest = Number.POSITIVE_INFINITY;
+    let thickest = 0;
+
+    for (let panel = 0; panel < panels; panel += 1) {
+      const thickness = panelThickness(all, radius, panel * sweep, height);
+
+      thinnest = Math.min(thinnest, thickness);
+      thickest = Math.max(thickest, thickness);
+    }
+
+    checkRange(
+      `цилиндр на ${panels}: у каждой панели свой кадр на максимуме`,
+      [thinnest, thickest],
+      maxThickness - 0.2,
+      maxThickness + 0.05,
+    );
+    checkRange(
+      `цилиндр на ${panels}: панель гнётся по радиусу`,
+      [
+        Math.abs(
+          faceRadiusAt(all, 0, height) - faceRadiusAt(all, 12, height),
+        ),
+      ],
+      0,
+      0.5,
+    );
+    checkRange(
+      `цилиндр на ${panels}: тыл панели держится радиуса`,
+      [nearestBackRadius(all, height, 0, sweep)],
+      radius - LITHOPHANE_BACK_SAGITTA_MM - 0.05,
+      radius + TOLERANCE_MM,
+    );
+    check(
+      `цилиндр на ${panels}: пояса не тоньше стенки`,
+      LITHOPHANE_LANTERN.band >= LITHOPHANE_LANTERN.wall,
+      true,
+    );
+    check(
+      `цилиндр на ${panels}: треугольников меньше миллиона`,
+      triangleCount(all) < LITHOPHANE_MESH_MAX_TRIANGLES,
+      true,
+    );
+
+    if (panels === 3) {
+      const white = flatFrame(255, 400, 400);
+      const light = createLithophaneGeometry({
+        ...params,
+        lithophaneBrightness: white.brightness,
+      });
+
+      checkRange(
+        `цилиндр на ${panels}: светлый кадр печатается на минимуме`,
+        [panelThickness(light, radius, 0, height)],
+        minThickness - 0.05,
+        minThickness + 0.2,
+      );
+      light.dispose();
+    }
+
+    relief.dispose();
+    all.dispose();
+  }
+}
+
+/**
+ * Какая панель отвечает углу точки.
+ *
+ * Панели стоят по кругу: у куба четыре грани по 90°, у цилиндра — по
+ * `360 / panels`. Угол считается от +Z. Точки у самого стыка возвращают −1:
+ * там панели встречаются, и по положению вершины панель не определить.
+ */
+function panelAt(angleDeg: number, panels: number): number {
+  const sweep = 360 / panels;
+  const local = ((angleDeg % sweep) + sweep) % sweep;
+
+  if (Math.abs(local - sweep / 2) < 2) {
+    return -1;
+  }
+
+  // Панель 1 стоит в угле 0°, поэтому полушаг прибавляется до деления: грань
+  // занимает -45…45°, а не 0…90°.
+  return Math.floor(
+    ((((angleDeg + sweep / 2) % 360) + 360) % 360) / sweep,
+  );
+}
+
+/** Сколько вершин панели лежат в чужом квадранте карты кадров. */
+function wrongQuadrants(geometry: BufferGeometry, panels: number): number {
+  const position = geometry.getAttribute("position");
+  const uv = geometry.getAttribute("uv");
+  let wrong = 0;
 
   for (let index = 0; index < position.count; index += 1) {
-    const x = position.getX(index);
-    const y = position.getY(index) - radius;
-    const z = position.getZ(index);
-    const distance = Math.hypot(x, y);
+    const angle =
+      (Math.atan2(position.getX(index), position.getZ(index)) * 180) / Math.PI;
+    const panel = panelAt(angle, panels);
 
-    if (z <= 0 || distance < radius * 0.3) {
+    if (panel < 0) {
       continue;
     }
 
-    let angle = Math.atan2(x, y);
+    const quadrant = lithophanePanelQuadrant(panel);
+    const u = uv.getX(index);
+    const v = uv.getY(index);
+    const insideU = u >= quadrant.u - 1e-6 && u <= quadrant.u + 0.5 + 1e-6;
+    const insideV = v >= quadrant.v - 1e-6 && v <= quadrant.v + 0.5 + 1e-6;
 
-    if (angle < 0) {
-      angle += Math.PI * 2;
-    }
-
-    const sector = Math.min(3, Math.floor(angle / quarter));
-    const u = uv?.getX(index) ?? 0;
-    const v = uv?.getY(index) ?? 0;
-    const right = u >= 0.5;
-    const top = v < 0.5;
-
-    if (right !== (sector === 0 || sector === 1) || top !== (sector === 0 || sector === 3)) {
-      wrongQuadrant += 1;
+    if (!insideU || !insideV) {
+      wrong += 1;
     }
   }
 
-  check("uv каждого сектора лежит в своём квадранте", wrongQuadrant, 0);
+  return wrong;
+}
 
-  const map = createLithophaneSectorMapData([white, dark, null, null], 100);
+console.log("\n17. uv панелей, карта кадров и вес сборок");
+{
+  const dark = flatFrame(0, 400, 400);
+  const white = flatFrame(255, 400, 400);
+
+  check(
+    "квадранты панелей",
+    [0, 1, 2, 3]
+      .map((panel) => {
+        const quadrant = lithophanePanelQuadrant(panel);
+
+        return `${quadrant.u}/${quadrant.v}`;
+      })
+      .join(","),
+    "0.5/0,0/0,0/0.5,0.5/0.5",
+  );
+  check(
+    "координата внутри кадра сжимается вдвое",
+    JSON.stringify(lithophanePanelUv(1, 0.4, 0.6)),
+    JSON.stringify({ u: 0.2, v: 0.3 }),
+  );
+
+  const cube = createLithophaneReliefGeometry({
+    ...panelParams({ lithoShape: "cube" }),
+    lithophaneSideBrightness: [dark, null, null],
+  });
+  const drum = createLithophaneReliefGeometry({
+    ...panelParams({ lithoShape: "round", lithophanePanels: 3 }),
+    lithophaneSideBrightness: [dark, null, null],
+  });
+
+  check("uv каждой грани куба в своём квадранте", wrongQuadrants(cube, 4), 0);
+  check("uv каждой панели цилиндра в своём квадранте", wrongQuadrants(drum, 3), 0);
+
+  const map = createLithophanePanelMapData([white, dark, null, null], 100);
   const pixel = (u: number, v: number): number => {
     const column = Math.floor(u * map.side);
     const row = Math.floor(v * map.side);
@@ -1814,22 +2193,16 @@ console.log("\n16. uv секторов и карта четырёх кадров
     return map.data[(row * map.side + column) * 4];
   };
 
-  check("сторона карты — две стороны кадра", map.side, 100);
-  check("сектор 1 в правом верхнем квадранте", pixel(0.75, 0.25), 255);
-  check("сектор 2 в правом нижнем квадранте", pixel(0.75, 0.75), 0);
-  check("пустой сектор 3 повторяет первый кадр", pixel(0.25, 0.75), 255);
-  check("пустой сектор 4 повторяет первый кадр", pixel(0.25, 0.25), 255);
-  check(
-    "слотов под кадры остальных секторов три",
-    LITHOPHANE_SIDE_IMAGE_SLOTS,
-    3,
-  );
-  relief.dispose();
-}
+  check("сторона карты — сторона кадра", map.side, 100);
+  check("панель 1 в правом верхнем квадранте", pixel(0.75, 0.25), 255);
+  check("панель 2 в левом верхнем квадранте", pixel(0.25, 0.25), 0);
+  check("пустая панель 3 повторяет первый кадр", pixel(0.25, 0.75), 255);
+  check("пустая панель 4 повторяет первый кадр", pixel(0.75, 0.75), 255);
 
-console.log("\n17. Вес сборок: плоская панель и круглая");
-{
-  for (const shape of ["flat", "round"] as const) {
+  cube.dispose();
+  drum.dispose();
+
+  for (const shape of LITHOPHANE_SHAPES) {
     const all = createLithophaneGeometry(
       panelParams({ lithoShape: shape }),
       "all",
@@ -1838,14 +2211,11 @@ console.log("\n17. Вес сборок: плоская панель и круг�
     const weight = calculateGeometryWeightGrams(all);
 
     checkRange(`сборка «${shape}» имеет объём`, [volume], 1000, 1_500_000);
-    checkRange(`сборка «${shape}» весит разумно`, [weight], 5, 500);
+    checkRange(`сборка «${shape}» весит разумно`, [weight], 5, 600);
     console.log(`       вес сборки «${shape}»: ${weight.toFixed(1)} г`);
     all.dispose();
   }
 }
-
-
-
 
 console.log("");
 if (failures > 0) {
@@ -1854,9 +2224,4 @@ if (failures > 0) {
 }
 
 console.log("Все проверки прошли.");
-
-
-
-
-
 

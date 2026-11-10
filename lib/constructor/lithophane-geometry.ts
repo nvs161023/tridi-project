@@ -5,12 +5,18 @@ import {
 } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import { lithophaneContainRect } from "@/lib/constructor/lithophane-image";
-import { lithophaneSectorUv } from "@/lib/constructor/lithophane-sectors";
 import {
+  LITHOPHANE_PANEL_MAX,
+  lithophanePanelCount,
+  lithophanePanelUv,
+} from "@/lib/constructor/lithophane-panels";
+import {
+  LITHOPHANE_MESH_MAX_TRIANGLES,
   LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
+  LITHOPHANE_PANEL_STEP_MM,
+  LITHOPHANE_VERTEX_STEP_MM,
   lithophaneFaceBrightness,
   lithophaneMeshSize,
-  lithophaneRoundMeshSize,
   normalizeLithophaneParams,
   type LithophaneBrightnessGrid,
   type LithophaneParams,
@@ -51,12 +57,14 @@ import {
  * watertight. Поэтому «дыра» в стенке — это не вырез, а рамка из четырёх
  * кусков вокруг неё.
  *
- * Круглая панель (`lithoShape === "round"`) собирается полярной сеткой: кольца
- * и секторы вместо строк и столбцов. Внутри сектора точка считается в долях
- * радиуса и угла, поэтому кадр ложится в четверть диска, а четыре сектора дают
- * четыре разных фото на одной панели. Границы секторов прорезаны канавкой
- * (`LITHOPHANE_SECTOR_GROOVE`), а на оси круга лежит плоский диск — иначе в
- * центре сходились бы четыре кадра сразу.
+ * Куб и цилиндр — ночники: панели печатаются той же плитой с рельефом, но
+ * собираются не на плоской рамке, а на каркасе (`createLanternFrame`), и внутри
+ * у них пусто под лампу. У куба четыре панели стоят гранями куба и повёрнуты
+ * друг к другу на 90°. У цилиндра панели гнутся по радиусу плафона
+ * (`wrapPanelAroundY`): плоская плита оборачивается вокруг вертикальной оси, лицо
+ * смотрит наружу, а каркас — два кольца и вертикальные стойки — держит их снаружи.
+ * Кадр каждой панели лежит в своём квадранте общей карты (`lithophanePanelUv`),
+ * а на каркасе ничего не светится: фото видно только на панелях.
  */
 
 /** Ширина бортика рамки по периметру, мм. */
@@ -128,41 +136,48 @@ export const LITHOPHANE_FRAME_LIP_MM = 2.4;
 export const LITHOPHANE_FRAME_RIM_MM = 0.4;
 
 /**
- * Разделители секторов круглой панели.
+ * Каркас ночника: куб и цилиндрический плафон.
  *
- * Четыре кадра на одном диске сходятся лучами из центра, и без разделителя
- * границы картинок сливаются: глаз не видит, где кончается один кадр. Поэтому
- * по каждой границе прорезана канавка от плоского диска на оси до бортика.
+ * Панели держатся не рамкой, а каркасом — двумя поясами (нижним и верхним) и
+ * стойками между ними. Пояс заходит за тыл панели на `grip`: панель стоит на
+ * внешней стороне каркаса и входит в пояс на полтора миллиметра, поэтому стык
+ * сваривается без клея и без паза. Внутрь каркас уходит на `wall` — это стенка,
+ * которая держит форму и оставляет внутри пустоту под лампу.
  *
- * Ширина 1.5 мм — чуть шире двух линий сопла 0.4 мм: канавка пропечатывается
- * стенками, а не одной нитью. Глубина 0.5 мм считается от соседней поверхности
- * лица, то есть от того пикселя, который лежит у края канавки. Дно не опускается
- * ниже `floor`: на светлом участке плита и так 0.8 мм, и вычитать полмиллиметра
- * до нуля нельзя — дно повисло бы дырой.
- *
- * `hubRadius` — радиус плоского диска на оси: 2 мм, то есть Ø 4 мм. В центре
- * сходятся все четыре кадра, и без диска получался бы артефакт в одну вершину.
+ * `band` — высота пояса: 6 мм хватает, чтобы панель не качалась, и это немного
+ * по сравнению с высотой плафона 80 мм. `rib` — ширина стойки по дуге: 5 мм на
+ * диаметре 120 мм занимают 4 % окружности, стойки не спорят с кадром. У куба
+ * `rib` — сторона угловой стойки.
  */
-
-export const LITHOPHANE_SECTOR_GROOVE = {
-  /** Ширина канавки по лицу, мм. */
-  width: 1.5,
-  /** Глубина от соседней поверхности лица, мм. */
-  depth: 0.5,
-  /** Минимальная толщина под дном канавки, мм. */
-  floor: 0.25,
-  /** Радиус плоского диска в центре, мм. */
-  hubRadius: 2,
+export const LITHOPHANE_LANTERN = {
+  /** Толщина пояса и стойки внутрь, мм. */
+  wall: 3,
+  /** Высота нижнего и верхнего пояса, мм. */
+  band: 6,
+  /** Ширина стойки по дуге (у куба — сторона угловой стойки), мм. */
+  rib: 5,
+  /** Выступ пояса за тыл панели: на столько панель входит в каркас, мм. */
+  grip: 1.5,
 } as const;
+
+/**
+ * Допустимый прогиб тыла изогнутой панели, мм.
+ *
+ * Тыл панели — веер из хорд: чем длиннее хорда, тем глубже она уходит внутрь
+ * радиуса. 0.05 мм — четверть слоя печати: на вес и на просвет такое отклонение
+ * не влияет, а отрезков остаётся немного. По этой величине считается, на сколько
+ * частей делится путь от центра плиты к её кромке.
+ */
+export const LITHOPHANE_BACK_SAGITTA_MM = 0.05;
 
 /**
  * Группы материалов в собранной сетке литофана.
  *
  * Группа — диапазон индексов, а не отдельный меш: сборка остаётся одной сеткой,
  * и вес, габарит и STL считаются как раньше. Предпросмотр красит рельеф
- * плоскостями (`flatShading`): по граням читается высота пикселя. Рамка идёт
- * вторым материалом со сглаженными нормалями — она должна выглядеть литой и
- * матовой.
+ * плоскостями (`flatShading`): по граням читается высота пикселя. Рамка и
+ * каркас идут вторым материалом со сглаженными нормалями — они должны выглядеть
+ * литыми и матовыми.
  */
 export const LITHOPHANE_RELIEF_GROUP = 0;
 export const LITHOPHANE_DETAIL_GROUP = 1;
@@ -183,10 +198,6 @@ function vertexIndex(positions: number[]): number {
   return positions.length / 3;
 }
 
-/** Зажимает значение в 0–1: доли перехода у канавки секторов и плоского диска. */
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
-}
 
 /**
  * Добавляет выпуклый четырёхугольник двумя треугольниками.
@@ -370,12 +381,7 @@ type FrameMetrics = {
 
 function lithophaneFrameMetrics(normalized: LithophaneParams): FrameMetrics {
   const width = normalized.lithophaneWidth;
-  // У круглой панели диаметр — это ширина, а отдельной высоты нет: диск
-  // квадратен по габариту, поэтому все метрики считаются по одной стороне.
-  const height =
-    normalized.lithoShape === "round"
-      ? width
-      : normalized.lithophaneHeight;
+  const height = normalized.lithophaneHeight;
   const frameWidth = Math.min(
     LITHOPHANE_FRAME_WIDTH_MM,
     width / 4,
@@ -691,6 +697,13 @@ function roundPlateCorners(
  * потому, что n-угольник слайсер триангулирует сам и может сделать это с
  * самопересечением на скруглённых углах: явные треугольники всегда корректны.
  *
+ * `steps` — на сколько отрезков делится путь от центра к контуру. У плоской
+ * панели хватает одного: тыл лежит в плоскости. У изогнутой панели веер
+ * оборачивается вокруг оси, и длинный луч от центра к кромке становится хордой:
+ * на панели 121 × 80 при радиусе 60 хорда в 72 мм уходит внутрь на 12 мм, то есть
+ * тыл «толстеет» втрое. Поэтому путь делится на отрезки по 4 мм — хорда в 4 мм
+ * уходит внутрь на 4² / (8 · 60) = 0.03 мм, и оболочка идёт по радиусу.
+ *
  * Функция возвращает индексы вершин тыла по контуру — по ним строятся боковины.
  */
 function addBackFan(
@@ -701,6 +714,7 @@ function addBackFan(
   boundary: readonly number[],
   plateWidth: number,
   plateHeight: number,
+  steps = 1,
 ): number[] {
   const cache = new Map<string, number>();
   const vertexAt = (x: number, y: number): number => {
@@ -720,25 +734,61 @@ function addBackFan(
 
     return index;
   };
-  const center = vertexAt(0, plateHeight / 2);
-  const backBoundary: number[] = [];
+  const centerX = 0;
+  const centerY = plateHeight / 2;
+  const center = vertexAt(centerX, centerY);
+  const totalSteps = Math.max(1, Math.floor(steps));
+  const rings: number[][] = [];
+
+  for (let ring = 1; ring <= totalSteps; ring += 1) {
+    const share = ring / totalSteps;
+    const row: number[] = [];
+
+    for (const node of boundary) {
+      const x = nodes[node * 3];
+      const y = nodes[node * 3 + 1];
+
+      row.push(
+        vertexAt(
+          centerX + (x - centerX) * share,
+          centerY + (y - centerY) * share,
+        ),
+      );
+    }
+
+    rings.push(row);
+  }
 
   for (let edge = 0; edge < boundary.length; edge += 1) {
     const next = (edge + 1) % boundary.length;
-    const a = vertexAt(
-      nodes[boundary[edge] * 3],
-      nodes[boundary[edge] * 3 + 1],
-    );
-    const b = vertexAt(
-      nodes[boundary[next] * 3],
-      nodes[boundary[next] * 3 + 1],
-    );
 
-    backBoundary.push(a);
-    addOrientedTriangle(indices, positions, center, a, b, [0, 0, -1]);
+    addOrientedTriangle(
+      indices,
+      positions,
+      center,
+      rings[0][edge],
+      rings[0][next],
+      [0, 0, -1],
+    );
   }
 
-  return backBoundary;
+  for (let ring = 1; ring < totalSteps; ring += 1) {
+    for (let edge = 0; edge < boundary.length; edge += 1) {
+      const next = (edge + 1) % boundary.length;
+
+      addOrientedQuad(
+        indices,
+        positions,
+        rings[ring - 1][edge],
+        rings[ring - 1][next],
+        rings[ring][next],
+        rings[ring][edge],
+        [0, 0, -1],
+      );
+    }
+  }
+
+  return rings[totalSteps - 1];
 }
 
 
@@ -759,8 +809,9 @@ function addBackFan(
  * прямоугольная плита упиралась бы углами в накладку; плита повторяет это
  * скругление за вычетом зазора посадки. Без рамки радиус равен нулю.
  *
- * `grid` — сетка яркости этой плиты: у круглой панели кадров четыре, и каждый
- * сектор берёт свой (см. `createRoundReliefBody`).
+ * `grid` — сетка яркости этой плиты: у панели ночника кадр свой, и он лежит в
+ * квадранте общей карты (см. `createLanternPanel`). `step` — шаг вершины: у
+ * панелей каркаса он крупнее, потому что их печатается несколько.
  *
  * Кадр вписан в плиту по правилу contain: пропорции сохранены, кадр виден
  * целиком, а разница уходит в поля минимальной толщины. `uv` размечены по плите
@@ -774,6 +825,8 @@ function createReliefBody(
   borderWidth: number,
   cornerRadius: number,
   grid: LithophaneBrightnessGrid,
+  step: number = LITHOPHANE_VERTEX_STEP_MM,
+  backSteps = 1,
 ): BufferGeometry {
   const minThickness = normalized.lithophaneMinThickness;
   const maxThickness = normalized.lithophaneMaxThickness;
@@ -781,8 +834,9 @@ function createReliefBody(
   const brightnessWidth = grid.width;
   const brightnessHeight = grid.height;
   // Шаг сетки — стандарт 0.3 мм: число вершин растёт вместе с плитой, поэтому
-  // панель 200 мм получает вдвое больше вершин, а не вдвое крупный шаг.
-  const mesh = lithophaneMeshSize(plateWidth, plateHeight);
+  // панель 200 мм получает вдвое больше вершин, а не вдвое крупный шаг. У панелей
+  // каркаса шаг 0.5 мм: их печатается несколько, и бюджет делится между ними.
+  const mesh = lithophaneMeshSize(plateWidth, plateHeight, { step });
 
   if (mesh === null) {
     throw new Error(LITHOPHANE_MESH_TOO_LARGE_MESSAGE);
@@ -904,6 +958,7 @@ function createReliefBody(
     boundary,
     plateWidth,
     plateHeight,
+    backSteps,
   );
 
   for (let edge = 0; edge < boundary.length; edge += 1) {
@@ -935,77 +990,145 @@ function createReliefBody(
 }
 
 /**
- * Габариты плиты рельефа, мм.
+ * План панелей: сколько их, какие у панели габариты и по какому радиусу она гнётся.
  *
- * С рамкой плита меньше панели на два бортика и на два зазора посадки; без
- * рамки панель и есть плита. API зовёт эту функцию до сборки: по ней видно,
- * влезает ли сетка в бюджет треугольников.
+ * У плоской формы панель одна и она же плита в рамке (или без неё). У куба
+ * панелей четыре, каждая размером с грань `lithophaneWidth × lithophaneHeight`.
+ * У цилиндра панель — развёртка дуги: длина равна `R · (2π/n − ширина стойки / R)`,
+ * высота — высоте плафона, а гнётся она по радиусу `lithophaneWidth / 2`. Панель
+ * шире стыка на два нахлёста (`BODY_OVERLAP_MM`), чтобы её край вошёл в стойку
+ * каркаса и сварился с ней.
+ */
+type LithophanePanelPlan = {
+  /** Сколько панелей печатается. */
+  count: number;
+  /** Ширина панели в развёртке, мм. */
+  width: number;
+  /** Высота панели, мм. */
+  height: number;
+  /** Радиус изгиба, мм: у плоской панели и куба его нет. */
+  radius: number | null;
+};
+
+function lithophanePanelPlan(
+  normalized: LithophaneParams,
+): LithophanePanelPlan {
+  if (normalized.lithoShape === "flat") {
+    // Без рамки панель и есть плита: скруглять и вычитать нечего.
+    const metrics = normalized.lithoFrame
+      ? lithophaneFrameMetrics(normalized)
+      : null;
+
+    return {
+      count: 1,
+      width: metrics ? metrics.plateWidth : normalized.lithophaneWidth,
+      height: metrics ? metrics.plateHeight : normalized.lithophaneHeight,
+      radius: null,
+    };
+  }
+
+  if (normalized.lithoShape === "cube") {
+    return {
+      count: LITHOPHANE_PANEL_MAX,
+      width: normalized.lithophaneWidth,
+      height: normalized.lithophaneHeight,
+      radius: null,
+    };
+  }
+
+  const radius = normalized.lithophaneWidth / 2;
+  const count = lithophanePanelCount("round", normalized.lithophanePanels);
+  const sweep = (Math.PI * 2) / count;
+  // Стойка занимает `rib` миллиметров дуги; нахлёст по краям панели входит в
+  // стойку, поэтому стык сваривается, а не встречается встык.
+  const arc = sweep - (LITHOPHANE_LANTERN.rib - 2 * BODY_OVERLAP_MM) / radius;
+
+  return {
+    count,
+    width: radius * Math.max(arc, 1 / radius),
+    height: normalized.lithophaneHeight,
+    radius,
+  };
+}
+
+/**
+ * Габариты одной панели рельефа, мм.
+ *
+ * API зовёт эту функцию до сборки: по ней видно, влезает ли сетка в бюджет
+ * треугольников. `count` — сколько таких панелей печатается, `step` — шаг
+ * вершины: у нескольких панелей он крупнее, чтобы бюджет миллиона делился
+ * между ними.
  */
 export function lithophanePlateSize(params: Partial<LithophaneParams>): {
   width: number;
   height: number;
+  count: number;
+  step: number;
 } {
-  const normalized = normalizeLithophaneParams(params);
+  const plan = lithophanePanelPlan(normalizeLithophaneParams(params));
 
-  // Без рамки панель и есть плита: скруглять и вычитать нечего.
-  if (!normalized.lithoFrame) {
-    return {
-      width: normalized.lithophaneWidth,
-      height:
-        normalized.lithoShape === "round"
-          ? normalized.lithophaneWidth
-          : normalized.lithophaneHeight,
-    };
-  }
-
-  const metrics = lithophaneFrameMetrics(normalized);
-
-  // У круглой панели габарит плиты — диаметр: и по X, и по Y он один и тот же,
-  // поэтому бюджет полярной сетки проверяется по одной стороне.
-  return { width: metrics.plateWidth, height: metrics.plateHeight };
+  return {
+    width: plan.width,
+    height: plan.height,
+    count: plan.count,
+    step: plan.count > 1 ? LITHOPHANE_PANEL_STEP_MM : LITHOPHANE_VERTEX_STEP_MM,
+  };
 }
 
 /**
- * Плита рельефа отдельной деталью.
+ * Панели рельефа отдельной деталью.
  *
  * `Partial<LithophaneParams>` допустим и на клиенте: normalizeLithophaneParams
  * дополнит недостающие поля значениями по умолчанию. Если массив яркости
  * повреждён, нормализация подставит демонстрационный рельеф — предпросмотр
  * останется рабочим.
+ *
+ * У плоской формы возвращается одна плита. У куба и цилиндра — все панели,
+ * собранные в одну сетку: бюджет треугольников проверяется сразу на все копии,
+ * иначе сборка из четырёх панелей прошла бы проверку по одной и упёрлась в
+ * миллион уже в браузере.
  */
 export function createLithophaneReliefGeometry(
   params: Partial<LithophaneParams>,
 ): BufferGeometry {
   const normalized = normalizeLithophaneParams(params);
-  const plate = lithophanePlateSize(normalized);
+  const plan = lithophanePanelPlan(normalized);
+  const step =
+    plan.count > 1 ? LITHOPHANE_PANEL_STEP_MM : LITHOPHANE_VERTEX_STEP_MM;
 
-  if (normalized.lithoShape === "round") {
-    // Круглая панель строится полярной сеткой: у неё нет ни углов, ни строк.
-    return createRoundReliefBody(
+  if (panelTriangleCount(plan) > LITHOPHANE_MESH_MAX_TRIANGLES) {
+    throw new Error(LITHOPHANE_MESH_TOO_LARGE_MESSAGE);
+  }
+
+  if (normalized.lithoShape === "flat") {
+    // Без рамки плита прямоугольная: скруглять её не к чему, а в паз рамки она
+    // входит только вместе с его радиусом.
+    const cornerRadius = normalized.lithoFrame
+      ? lithophaneFrameMetrics(normalized).plateCornerRadius
+      : 0;
+
+    return createReliefBody(
       normalized,
-      plate.width,
+      plan.width,
+      plan.height,
       LITHOPHANE_BORDER_MM,
+      cornerRadius,
+      {
+        brightness: normalized.lithophaneBrightness,
+        width: normalized.lithophaneBrightnessWidth,
+        height: normalized.lithophaneBrightnessHeight,
+      },
     );
   }
 
-  // Без рамки плита прямоугольная: скруглять её не к чему, а в паз рамки она
-  // входит только вместе с его радиусом.
-  const cornerRadius = normalized.lithoFrame
-    ? lithophaneFrameMetrics(normalized).plateCornerRadius
-    : 0;
+  const grids = lithophaneFaceBrightness(normalized);
+  const panels: BufferGeometry[] = [];
 
-  return createReliefBody(
-    normalized,
-    plate.width,
-    plate.height,
-    LITHOPHANE_BORDER_MM,
-    cornerRadius,
-    {
-      brightness: normalized.lithophaneBrightness,
-      width: normalized.lithophaneBrightnessWidth,
-      height: normalized.lithophaneBrightnessHeight,
-    },
-  );
+  for (let panel = 0; panel < plan.count; panel += 1) {
+    panels.push(createLanternPanel(normalized, plan, grids[panel], panel, step));
+  }
+
+  return mergeBodies(panels, "панелей");
 }
 
 /** Точка контура в плоскости XY, мм. */
@@ -1162,81 +1285,7 @@ function createRingBody(options: RingOptions): BufferGeometry {
 }
 
 ﻿/**
- * Круглое кольцо, выдавленное по Z: круглая рамка и площадка патрона.
- *
- * Контур круга не требует скруглений: дуга задаётся числом отрезков. Число
- * отрезков считается от радиуса — `π·R / 0.5`, то есть хорда не длиннее 0.5 мм.
- * Наружная и внутренняя стенки идут парами `outer[j] — inner[j]`, поэтому
- * кольцо замкнуто и без сварки вершин.
- */
-type CircularRingOptions = {
-  centerY: number;
-  outerRadius: number;
-  innerRadius: number;
-  z0: number;
-  z1: number;
-  segments: number;
-};
-
-function createCircularRingBody(options: CircularRingOptions): BufferGeometry {
-  const { centerY, outerRadius, innerRadius, z0, z1, segments } = options;
-  const count = Math.max(8, Math.floor(segments));
-  const positions: number[] = [];
-  const indices: number[] = [];
-  const angleAt = (step: number): number => (step / count) * Math.PI * 2;
-  const at = (radius: number, step: number, z: number): Point3 => [
-    radius * Math.sin(angleAt(step)),
-    centerY + radius * Math.cos(angleAt(step)),
-    z,
-  ];
-
-  for (let step = 0; step < count; step += 1) {
-    const next = (step + 1) % count;
-
-    // Торцы: полоса между наружным и внутренним контуром на обеих плоскостях.
-    for (const [z, normal] of [
-      [z0, [0, 0, -1]],
-      [z1, [0, 0, 1]],
-    ] as const) {
-      addQuadFace(
-        indices,
-        positions,
-        [
-          at(outerRadius, step, z),
-          at(outerRadius, next, z),
-          at(innerRadius, next, z),
-          at(innerRadius, step, z),
-        ],
-        normal,
-      );
-    }
-
-    // Стенки: наружная смотрит от оси, внутренняя — в отверстие.
-    for (const [radius, direction] of [
-      [outerRadius, 1],
-      [innerRadius, -1],
-    ] as const) {
-      const angle = angleAt(step);
-
-      addQuadFace(
-        indices,
-        positions,
-        [
-          at(radius, step, z0),
-          at(radius, next, z0),
-          at(radius, next, z1),
-          at(radius, step, z1),
-        ],
-        [direction * Math.sin(angle), direction * Math.cos(angle), 0],
-      );
-    }
-  }
-
-  return finalizeGeometry(positions, indices);
-}
-
-/**
- * Рамка литофана отдельной деталью.
+ * Рамка плоской панели отдельной деталью.
  *
  * Задняя полка поднимается до `LITHOPHANE_FRAME_SEAT_MM`, и её внутренний край
  * заходит под плиту на ширину накладки: плита ложится на полку и не проваливается
@@ -1244,75 +1293,53 @@ function createCircularRingBody(options: CircularRingOptions): BufferGeometry {
  * объединения) и поднимается над самым толстым пикселем на 0.4 мм — рельеф не
  * выступает за лицевую плоскость, и литофан можно ставить лицом вниз.
  *
- * У плоской панели оба кольца скруглённые: наружные углы идут дугой
+ * Оба кольца скруглённые: наружные углы идут дугой
  * `LITHOPHANE_FRAME_CORNER_RADIUS_MM`, окно накладки — дугой
  * `LITHOPHANE_FRAME_OPENING_RADIUS_MM`, окно полки — на накладку шире. Радиусы
  * ограничены четвертью своего прямоугольника, поэтому маленькая панель 40 мм
- * остаётся целой, а не превращается в овал. У круглой панели те же два кольца
- * строятся по кругу, без скруглений.
+ * остаётся целой, а не превращается в овал.
  *
  * Других деталей у рамки нет: крепления, короба и рельсы из конструктора убраны,
- * поэтому за панелью ничего не торчит и рама печатается плоской.
+ * поэтому за панелью ничего не торчит и рама печатается плоской. У куба и
+ * цилиндра рамки нет — там панели держит каркас (`createLanternFrame`).
  */
 export function createLithophaneFrameGeometry(
   params: Partial<LithophaneParams>,
 ): BufferGeometry {
   const normalized = normalizeLithophaneParams(params);
+
+  if (normalized.lithoShape !== "flat") {
+    return createLanternFrame(normalized);
+  }
+
   const metrics = lithophaneFrameMetrics(normalized);
   const { width, height, frameWidth, lip, frontZ } = metrics;
-  const round = normalized.lithoShape === "round";
-  const bodies: BufferGeometry[] = [];
-
-  if (round) {
-    const outerRadius = width / 2;
-    const segments = Math.ceil((Math.PI * outerRadius) / 0.5);
-
-    bodies.push(
-      createCircularRingBody({
-        centerY: height / 2,
-        outerRadius,
-        innerRadius: outerRadius - (frameWidth + lip),
-        z0: 0,
-        z1: LITHOPHANE_FRAME_SEAT_MM,
-        segments,
-      }),
-      createCircularRingBody({
-        centerY: height / 2,
-        outerRadius,
-        innerRadius: outerRadius - frameWidth,
-        z0: LITHOPHANE_FRAME_SEAT_MM - 2 * BODY_OVERLAP_MM,
-        z1: frontZ,
-        segments,
-      }),
-    );
-  } else {
-    bodies.push(
-      createRingBody({
-        centerX: 0,
-        centerY: height / 2,
-        outerWidth: width,
-        outerHeight: height,
-        innerWidth: width - 2 * (frameWidth + lip),
-        innerHeight: height - 2 * (frameWidth + lip),
-        outerRadius: metrics.cornerRadius,
-        innerRadius: metrics.seatRadius,
-        z0: 0,
-        z1: LITHOPHANE_FRAME_SEAT_MM,
-      }),
-      createRingBody({
-        centerX: 0,
-        centerY: height / 2,
-        outerWidth: width,
-        outerHeight: height,
-        innerWidth: width - 2 * frameWidth,
-        innerHeight: height - 2 * frameWidth,
-        outerRadius: metrics.cornerRadius,
-        innerRadius: metrics.openingRadius,
-        z0: LITHOPHANE_FRAME_SEAT_MM - 2 * BODY_OVERLAP_MM,
-        z1: frontZ,
-      }),
-    );
-  }
+  const bodies = [
+    createRingBody({
+      centerX: 0,
+      centerY: height / 2,
+      outerWidth: width,
+      outerHeight: height,
+      innerWidth: width - 2 * (frameWidth + lip),
+      innerHeight: height - 2 * (frameWidth + lip),
+      outerRadius: metrics.cornerRadius,
+      innerRadius: metrics.seatRadius,
+      z0: 0,
+      z1: LITHOPHANE_FRAME_SEAT_MM,
+    }),
+    createRingBody({
+      centerX: 0,
+      centerY: height / 2,
+      outerWidth: width,
+      outerHeight: height,
+      innerWidth: width - 2 * frameWidth,
+      innerHeight: height - 2 * frameWidth,
+      outerRadius: metrics.cornerRadius,
+      innerRadius: metrics.openingRadius,
+      z0: LITHOPHANE_FRAME_SEAT_MM - 2 * BODY_OVERLAP_MM,
+      z1: frontZ,
+    }),
+  ];
 
   // Рамка собирается из нескольких тел, но печатается одной деталью: сварка
   // вершин и пересчёт нормалей делают её поверхность гладкой — на предпросмотре
@@ -1324,11 +1351,12 @@ export function createLithophaneFrameGeometry(
 /**
  * Сборка литофана: деталь по имени или всё вместе.
  *
- * Плита ставится на заднюю полку рамки: по X и Y она уже окна на зазор посадки,
- * по Z — на плоскость полки.
+ * У плоской формы плита ставится на заднюю полку рамки: по X и Y она уже окна на
+ * зазор посадки, по Z — на плоскость полки. У куба и цилиндра панели и каркас
+ * собираются как есть: панели уже стоят на своих местах вокруг оси.
  *
  * Группы материалов: рельеф идёт первым, поэтому его диапазон индексов занимает
- * начало сетки; рамка красится вторым материалом со сглаженными нормалями.
+ * начало сетки; рамка или каркас красятся вторым материалом.
  */
 export function createLithophaneGeometry(
   params: Partial<LithophaneParams>,
@@ -1356,305 +1384,466 @@ export function createLithophaneGeometry(
   const reliefIndices = relief.getIndex()?.count ?? 0;
 
   /*
-    Без рамки печатается только плита: ни полки, ни паза нет, поэтому плита
-    остаётся на своём месте (тыл в плоскости Z = 0), а в предпросмотре нет
-    рамки, которой не будет в файле.
+    У плоской формы без рамки печатается только плита: ни полки, ни паза нет,
+    поэтому плита остаётся на своём месте (тыл в плоскости Z = 0), а в
+    предпросмотре нет рамки, которой не будет в файле.
   */
-  if (!normalized.lithoFrame) {
+  if (normalized.lithoShape === "flat" && !normalized.lithoFrame) {
     return assignMaterialGroups(relief, reliefIndices);
   }
 
-  const metrics = lithophaneFrameMetrics(normalized);
   const frame = createLithophaneFrameGeometry(normalized);
-  const bodies = [relief, frame];
 
-  relief.translate(
-    0,
-    metrics.frameWidth + LITHOPHANE_FIT_GAP_MM,
-    metrics.plateBack,
+  if (normalized.lithoShape === "flat") {
+    const metrics = lithophaneFrameMetrics(normalized);
+
+    relief.translate(
+      0,
+      metrics.frameWidth + LITHOPHANE_FIT_GAP_MM,
+      metrics.plateBack,
+    );
+  }
+
+  return assignMaterialGroups(
+    mergeBodies([relief, frame], "литофана"),
+    reliefIndices,
   );
-
-  return assignMaterialGroups(mergeBodies(bodies, "литофана"), reliefIndices);
 }
 
 
 /**
- * Круглая плита рельефа: полярная сетка, четыре сектора и плоский тыл.
+ * Замкнутая коробка по габаритам: стойки каркаса и пояса куба.
  *
- * Диск режется кольцами и секторами (`lithophaneRoundMeshSize`). Внутри сектора
- * точка считается в долях радиуса и угла: `x = r·sin φ`, `y = r·cos φ`. Эти же
- * доли задают место в кадре сектора, поэтому фото ложится в четверть диска —
- * центр кадра в центре панели, край кадра у кромки.
- *
- * Сектор 0 — правый верхний, дальше по часовой: у него основной кадр
- * (`lithophaneBrightness`), у остальных — слоты `lithophaneSideBrightness`.
- * Пустой слот повторяет основной кадр (см. `lithophaneFaceBrightness`), поэтому
- * одна фотография печатается на всех четырёх.
- *
- * Границы секторов — лучи из центра под 0°, 90°, 180° и 270° от оси Y. По
- * каждому лучу лицо прорезано канавкой `LITHOPHANE_SECTOR_GROOVE`: глубина
- * считается от поверхности соседних пикселей и плавно спадает к краям канавки,
- * поэтому стенки выходят скруглёнными, а не ступенькой. Канавка заканчивается у
- * бортика и у плоского диска на оси — в бортик и в центр она не заходит.
- *
- * Плоский диск `hubRadius` убирает главный артефакт четырёх кадров: в центре
- * сходятся четыре разных пикселя, и веер полярной сетки показывал из них
- * «вертушку». Диск держит постоянную толщину — середину перепада, — а за его
- * краем толщина за один шаг кольца переходит в рельеф.
- *
- * Оболочка замкнута тремя частями: лицо с толщиной по яркости, плоский тыл и
- * боковина по кромке. Бортик `borderWidth` и фаска работают так же, как у
- * плоской панели: по краю идёт полоса максимальной толщины.
+ * Ночник собирается из простых тел, а не из вырезанной оболочки: пояс — это
+ * коробка или кольцо, стойка — коробка. Каждое тело замкнуто само по себе, а
+ * нахлёст соседей делает их одной деталью после объединения. Нормали считаются
+ * по граням: стойка должна читаться гранёной, а не литой.
  */
-function createRoundReliefBody(
-  normalized: LithophaneParams,
-  diameter: number,
-  borderWidth: number,
-): BufferGeometry {
-  const mesh = lithophaneRoundMeshSize(diameter);
+type BoxBody = {
+  /** Границы по X, мм. */
+  x0: number;
+  x1: number;
+  /** Границы по Y, мм: у ночника это высота, ноль — стол. */
+  y0: number;
+  y1: number;
+  /** Границы по Z, мм. */
+  z0: number;
+  z1: number;
+};
 
-  if (mesh === null) {
-    throw new Error(LITHOPHANE_MESH_TOO_LARGE_MESSAGE);
-  }
-
-  const { rings, segments } = mesh;
-  const minThickness = normalized.lithophaneMinThickness;
-  const maxThickness = normalized.lithophaneMaxThickness;
-  const thicknessRange = maxThickness - minThickness;
-  const radius = diameter / 2;
-  const centerY = radius;
-  const chamferWidth =
-    borderWidth > 0 ? Math.min(LITHOPHANE_BORDER_CHAMFER_MM, borderWidth) : 0;
-  const borderFlat = borderWidth - chamferWidth;
-  const grids = lithophaneFaceBrightness(normalized);
-  const groove = LITHOPHANE_SECTOR_GROOVE;
-  const grooveHalfWidth = groove.width / 2;
-  const grooveFloor = Math.min(groove.floor, minThickness);
-  /**
-   * Ширина перехода от плоского диска к рельефу и от канавки к бортику, мм.
-   *
-   * Один шаг кольца — 0.4 мм. Без перехода на краю диска стояла бы стенка
-   * высотой до перепада толщин, а на печати это уступ из десятка слоёв.
-   */
-  const SECTOR_SEAM_RAMP_MM = 0.4;
-  // Плоский диск держит середину перепада: не самое тонкое и не самое толстое
-  // место панели, поэтому на просвет он не превращается ни в дыру, ни в пятно.
-  const hubThickness = minThickness + thicknessRange / 2;
+function createBoxBody(box: BoxBody): BufferGeometry {
+  const { x0, x1, y0, y1, z0, z1 } = box;
   const positions: number[] = [];
-  const uvs: number[] = [];
   const indices: number[] = [];
+  const at = (x: number, y: number, z: number): Point3 => [x, y, z];
 
-  /**
-   * Номер сектора и место точки в его кадре.
-   *
-   * Угол отсчитывается от оси Y по часовой стрелке, поэтому сектор — это
-   * `floor(угол / 90°)`, а остаток угла задаёт положение внутри кадра.
-   */
-  const sectorSample = (
-    radiusFraction: number,
-    angle: number,
-  ): { sector: number; u: number; v: number } => {
-    const sector = Math.min(3, Math.floor(angle / (Math.PI / 2)));
-    const local = angle - sector * (Math.PI / 2);
-    const x = radiusFraction * Math.sin(local);
-    const y = radiusFraction * Math.cos(local);
+  // Порядок вершин в грани не важен: `addQuadFace` разворачивает обход под
+  // ожидаемую нормаль, поэтому все грани смотрят наружу.
+  const faces: readonly (readonly [Point3, Point3, Point3, Point3, Point3])[] = [
+    [
+      at(x0, y0, z0),
+      at(x1, y0, z0),
+      at(x1, y0, z1),
+      at(x0, y0, z1),
+      [0, -1, 0],
+    ],
+    [
+      at(x0, y1, z0),
+      at(x1, y1, z0),
+      at(x1, y1, z1),
+      at(x0, y1, z1),
+      [0, 1, 0],
+    ],
+    [
+      at(x0, y0, z1),
+      at(x1, y0, z1),
+      at(x1, y1, z1),
+      at(x0, y1, z1),
+      [0, 0, 1],
+    ],
+    [
+      at(x0, y0, z0),
+      at(x1, y0, z0),
+      at(x1, y1, z0),
+      at(x0, y1, z0),
+      [0, 0, -1],
+    ],
+    [
+      at(x1, y0, z0),
+      at(x1, y0, z1),
+      at(x1, y1, z1),
+      at(x1, y1, z0),
+      [1, 0, 0],
+    ],
+    [
+      at(x0, y0, z0),
+      at(x0, y0, z1),
+      at(x0, y1, z1),
+      at(x0, y1, z0),
+      [-1, 0, 0],
+    ],
+  ];
 
-    if (sector === 0) {
-      return { sector, u: 0.5 + x / 2, v: 0.5 - y / 2 };
-    }
-
-    if (sector === 1) {
-      return { sector, u: 0.5 + x / 2, v: 0.5 + y / 2 };
-    }
-
-    if (sector === 2) {
-      return { sector, u: 0.5 - x / 2, v: 0.5 + y / 2 };
-    }
-
-    return { sector, u: 0.5 - x / 2, v: 0.5 - y / 2 };
-  };
-
-  const brightnessAt = (radiusFraction: number, angle: number): number => {
-    const sample = sectorSample(radiusFraction, angle);
-    const grid = grids[sample.sector];
-
-    return sharpenBrightness(
-      grid.brightness,
-      grid.width,
-      grid.height,
-      sample.u,
-      sample.v,
-    );
-  };
-
-  /**
-   * Глубина канавки в точке, мм.
-   *
-   * Расстояние до ближайшего луча-границы считается точно: `r · sin φ`, где φ —
-   * угол до луча. На самом луче оно нулевое, на краю канавки — половина ширины.
-   * Профиль smoothstep даёт скруглённое дно.
-   */
-  const grooveDepthAt = (
-    radiusMm: number,
-    angle: number,
-    edgeDistance: number,
-  ): number => {
-    const quarter = Math.PI / 2;
-    const wrapped = ((angle % quarter) + quarter) % quarter;
-    const toBoundary = Math.min(wrapped, quarter - wrapped);
-    const distance = Math.abs(radiusMm * Math.sin(toBoundary));
-    const t = 1 - distance / grooveHalfWidth;
-
-    if (t <= 0) {
-      return 0;
-    }
-
-    const profile = t * t * (3 - 2 * t);
-    // Канавка не заходит ни под бортик, ни в плоский диск.
-    const hubFade = clamp01(
-      (radiusMm - groove.hubRadius) / SECTOR_SEAM_RAMP_MM,
-    );
-    const borderFade = clamp01(
-      (edgeDistance - borderWidth) / SECTOR_SEAM_RAMP_MM,
-    );
-
-    return groove.depth * profile * Math.min(hubFade, borderFade);
-  };
-
-  const thicknessAt = (radiusFraction: number, angle: number): number => {
-    const radiusMm = radius * radiusFraction;
-    const edgeDistance = radius - radiusMm;
-
-    // Плоский диск на оси: кадра и рельефа у него нет.
-    if (radiusMm <= groove.hubRadius) {
-      return hubThickness;
-    }
-
-    if (edgeDistance <= borderFlat) {
-      return maxThickness;
-    }
-
-    const photoThickness =
-      maxThickness -
-      thicknessRange * (brightnessAt(radiusFraction, angle) / 255);
-    const surface =
-      edgeDistance >= borderWidth
-        ? photoThickness
-        : maxThickness +
-          (photoThickness - maxThickness) *
-            ((edgeDistance - borderFlat) / chamferWidth);
-    const hubBlend = clamp01(
-      (radiusMm - groove.hubRadius) / SECTOR_SEAM_RAMP_MM,
-    );
-    const blended = hubThickness + (surface - hubThickness) * hubBlend;
-    const cut = grooveDepthAt(radiusMm, angle, edgeDistance);
-
-    return Math.max(grooveFloor, blended - cut);
-  };
-
-  const pushVertex = (
-    radiusFraction: number,
-    angle: number,
-    z: number,
-  ): number => {
-    const x = radius * radiusFraction * Math.sin(angle);
-    const y = centerY + radius * radiusFraction * Math.cos(angle);
-    const index = positions.length / 3;
-    const sample = sectorSample(radiusFraction, angle);
-    const uv = lithophaneSectorUv(sample.sector, sample.u, sample.v);
-
-    positions.push(x, y, z);
-    uvs.push(uv.u, uv.v);
-
-    return index;
-  };
-
-  const center = pushVertex(0, 0, thicknessAt(0, 0));
-  const face: number[][] = [];
-
-  for (let ring = 1; ring <= rings; ring += 1) {
-    const radiusFraction = ring / rings;
-    const row: number[] = [];
-
-    for (let step = 0; step < segments; step += 1) {
-      const angle = (step / segments) * Math.PI * 2;
-
-      row.push(
-        pushVertex(radiusFraction, angle, thicknessAt(radiusFraction, angle)),
-      );
-    }
-
-    face.push(row);
+  for (const [a, b, c, d, normal] of faces) {
+    addQuadFace(indices, positions, [a, b, c, d], normal);
   }
 
-  // Лицо: веер у центра и кольца квадов между соседними кольцами.
-  for (let step = 0; step < segments; step += 1) {
-    const next = (step + 1) % segments;
+  return finalizeGeometry(positions, indices);
+}
 
-    addOrientedTriangle(
-      indices,
-      positions,
-      center,
-      face[0][step],
-      face[0][next],
-      [0, 0, 1],
-    );
+/**
+ * Пояс цилиндрического плафона: кольцо в плоскости XZ, выдавленное по высоте.
+ *
+ * Ось плафона — Y, поэтому угол отсчитывается от +Z к +X, как у панелей:
+ * `x = r·sin φ`, `z = r·cos φ`. Число отрезков считается от наружного радиуса —
+ * хорда не длиннее 0.5 мм, поэтому кольцо Ø200 идёт 1257 отрезками и на экране
+ * выглядит круглым. Вершины свариваются и нормали сглаживаются
+ * (`smoothGeometryNormals`): пояс должен читаться точёным, а не гранёным.
+ */
+type DrumRingOptions = {
+  /** Внутренний радиус пояса, мм: отсюда начинается пустота под лампу. */
+  innerRadius: number;
+  /** Наружный радиус пояса, мм: на столько он выступает за тыл панели. */
+  outerRadius: number;
+  /** Низ и верх пояса по Y, мм. */
+  y0: number;
+  y1: number;
+  segments: number;
+};
 
-    for (let ring = 1; ring < rings; ring += 1) {
-      addOrientedQuad(
+function createDrumRingBody(options: DrumRingOptions): BufferGeometry {
+  const { innerRadius, outerRadius, segments, y0, y1 } = options;
+  const count = Math.max(16, Math.floor(segments));
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const angleAt = (step: number): number => (step / count) * Math.PI * 2;
+  const at = (radius: number, step: number, y: number): Point3 => {
+    const angle = angleAt(step);
+
+    return [radius * Math.sin(angle), y, radius * Math.cos(angle)];
+  };
+
+  for (let step = 0; step < count; step += 1) {
+    const next = (step + 1) % count;
+    const angle = angleAt(step);
+
+    // Торцы: полоса между наружным и внутренним контуром снизу и сверху.
+    for (const [y, normal] of [
+      [y0, [0, -1, 0]],
+      [y1, [0, 1, 0]],
+    ] as const) {
+      addQuadFace(
         indices,
         positions,
-        face[ring - 1][step],
-        face[ring - 1][next],
-        face[ring][next],
-        face[ring][step],
-        [0, 0, 1],
+        [
+          at(innerRadius, step, y),
+          at(outerRadius, step, y),
+          at(outerRadius, next, y),
+          at(innerRadius, next, y),
+        ],
+        normal,
+      );
+    }
+
+    // Стенки: наружная смотрит от оси, внутренняя — в пустоту плафона.
+    for (const [radius, direction] of [
+      [outerRadius, 1],
+      [innerRadius, -1],
+    ] as const) {
+      addQuadFace(
+        indices,
+        positions,
+        [
+          at(radius, step, y0),
+          at(radius, step, y1),
+          at(radius, next, y1),
+          at(radius, next, y0),
+        ],
+        [direction * Math.sin(angle), 0, direction * Math.cos(angle)],
       );
     }
   }
 
-  // Тыл: диск от центра к внешнему кольцу, плоскость Z = 0.
-  const backCenter = pushVertex(0, 0, 0);
-  const backRing: number[] = [];
+  return finalizeGeometry(positions, indices);
+}
 
-  for (let step = 0; step < segments; step += 1) {
-    backRing.push(pushVertex(1, (step / segments) * Math.PI * 2, 0));
+/**
+ * Оборачивает плоскую панель вокруг вертикальной оси.
+ *
+ * Панель построена в плоскости XY: `x` — вдоль развёртки, `y` — высота, `z` —
+ * толщина. Оборачивание переводит её в цилиндрические координаты радиуса
+ * `radius`: точка с координатой `x` встаёт на угол `x / radius`, а толщина уходит
+ * по радиусу. Тыл панели (z = 0) ложится на радиус, лицо — на `radius + толщина`,
+ * поэтому панель стоит снаружи каркаса, как и требует плафон.
+ *
+ * Отображение применяется к каждой вершине одинаково, поэтому оболочка остаётся
+ * замкнутой. Нормали пересчитываются после изгиба: на ровной плите они смотрели
+ * в +Z, на цилиндре должны смотреть от оси.
+ */
+function wrapPanelAroundY(geometry: BufferGeometry, radius: number): void {
+  const position = geometry.getAttribute("position");
+
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index);
+    const y = position.getY(index);
+    const radial = radius + position.getZ(index);
+    const angle = x / radius;
+
+    position.setXYZ(
+      index,
+      radial * Math.sin(angle),
+      y,
+      radial * Math.cos(angle),
+    );
   }
 
-  for (let step = 0; step < segments; step += 1) {
-    const next = (step + 1) % segments;
-    const angle = ((step + 0.5) / segments) * Math.PI * 2;
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+}
 
-    addOrientedTriangle(
-      indices,
-      positions,
-      backCenter,
-      backRing[step],
-      backRing[next],
-      [0, 0, -1],
-    );
-    addOrientedQuad(
-      indices,
-      positions,
-      face[rings - 1][step],
-      face[rings - 1][next],
-      backRing[next],
-      backRing[step],
-      [Math.sin(angle), Math.cos(angle), 0],
-    );
+/**
+ * Раскладывает `uv` панели по квадрантам общей карты кадров.
+ *
+ * Плита размечает `uv` по своим габаритам (0…1), а предпросмотр держит четыре
+ * кадра в одной карте 2 × 2. Квадрант берётся по номеру панели
+ * (`lithophanePanelUv`), поэтому на каждой панели видно своё фото, а карта
+ * собирается той же таблицей.
+ */
+function mapPanelUv(geometry: BufferGeometry, panel: number): void {
+  const uv = geometry.getAttribute("uv");
+
+  for (let index = 0; index < uv.count; index += 1) {
+    const mapped = lithophanePanelUv(panel, uv.getX(index), uv.getY(index));
+
+    uv.setXY(index, mapped.u, mapped.v);
   }
 
-  const geometry = finalizeGeometry(positions, indices);
+  uv.needsUpdate = true;
+}
 
-  geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+/**
+ * На сколько отрезков делится веер тыла панели.
+ *
+ * У плоской панели и у грани куба тыл плоский — хватает одного отрезка. У
+ * изогнутой панели длина луча от центра плиты к кромке ограничена прогибом
+ * `LITHOPHANE_BACK_SAGITTA_MM`: хорда длиной `s` на радиусе `R` уходит внутрь на
+ * `s² / (8R)`, поэтому `s = √(8 · прогиб · R)`. Луч в 72 мм при радиусе 60 даёт
+ * 4.9 мм и 15 отрезков; ограничение в 24 отрезка держит сетку в бюджете даже на
+ * панели 200 × 150 с радиусом 100.
+ */
+function panelBackSteps(plan: LithophanePanelPlan): number {
+  if (plan.radius === null) {
+    return 1;
+  }
+
+  const longestRay = Math.hypot(plan.width, plan.height) / 2;
+  const chord = Math.sqrt(8 * LITHOPHANE_BACK_SAGITTA_MM * plan.radius);
+
+  return Math.min(24, Math.max(4, Math.ceil(longestRay / chord)));
+}
+
+/**
+ * Сколько треугольников выйдет у панелей рельефа, шт.
+ *
+ * Считается до сборки, потому что бюджет проверяется дважды: геометрия бросает
+ * ошибку сама, а API отвечает 422 ещё до того, как начнёт строить мегабайты.
+ * Формула обязана быть одна на оба места, иначе предварительная проверка
+ * пропустит деталь, которую сборка отвергнет.
+ *
+ * В счёт входят лицо, боковины и тыл; у изогнутых панелей тыл делится на
+ * отрезки веера, и на каждый лишний отрезок приходится по два треугольника на
+ * вершину контура плиты.
+ */
+function panelTriangleCount(plan: LithophanePanelPlan): number {
+  const step =
+    plan.count > 1 ? LITHOPHANE_PANEL_STEP_MM : LITHOPHANE_VERTEX_STEP_MM;
+  const mesh = lithophaneMeshSize(plan.width, plan.height, {
+    copies: plan.count,
+    step,
+  });
+
+  if (mesh === null) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const boundary = 2 * (mesh.columns - 1) + 2 * (mesh.rows - 1);
+
+  return (
+    mesh.triangles +
+    plan.count * 2 * boundary * Math.max(0, panelBackSteps(plan) - 1)
+  );
+}
+
+/**
+ * Сколько треугольников выйдет у панелей рельефа для этих параметров, шт.
+ *
+ * Та же оценка, что у сборки: по ней API отказывает до работы, а тест сверяет
+ * потолок миллиона с реальной сеткой.
+ */
+export function lithophaneTriangleCount(
+  params: Partial<LithophaneParams>,
+): number {
+  return panelTriangleCount(
+    lithophanePanelPlan(normalizeLithophaneParams(params)),
+  );
+}
+
+/**
+ * Панель ночника: плита с рельефом, поставленная на своё место.
+ *
+ * Плита строится плоской — той же функцией, что у обычного литофана, — и только
+ * потом встаёт в сборку. У куба тыл уходит на полстороны грани, и панель
+ * поворачивается на 90°: четыре грани дают квадрат. У цилиндра плита
+ * оборачивается по радиусу плафона и поворачивается на свой угол, так что
+ * панели идут по кругу без зазоров — стыки закрывают стойки каркаса.
+ *
+ * Тыл изогнутой панели делится на отрезки (`panelBackSteps`): иначе хорда от
+ * центра плиты к кромке уходила бы внутрь радиуса на сантиметры, и панель на
+ * просвет весила бы втрое больше тонкой пластины.
+ */
+function createLanternPanel(
+  normalized: LithophaneParams,
+  plan: LithophanePanelPlan,
+  grid: LithophaneBrightnessGrid,
+  panel: number,
+  step: number,
+): BufferGeometry {
+  const geometry = createReliefBody(
+    normalized,
+    plan.width,
+    plan.height,
+    LITHOPHANE_BORDER_MM,
+    0,
+    grid,
+    step,
+    panelBackSteps(plan),
+  );
+
+  mapPanelUv(geometry, panel);
+
+  if (plan.radius === null) {
+    geometry.translate(0, 0, normalized.lithophaneWidth / 2);
+    geometry.rotateY((panel * Math.PI) / 2);
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+
+    return geometry;
+  }
+
+  wrapPanelAroundY(geometry, plan.radius);
+  geometry.rotateY((panel * Math.PI * 2) / plan.count);
 
   return geometry;
 }
 
+/**
+ * Каркас ночника: два пояса и стойки между ними.
+ *
+ * У куба пояс — четыре коробки по граням, а стойки стоят на углах: они закрывают
+ * стык панелей и держат куб как каркас фонаря. У цилиндра пояс — кольцо, а между
+ * панелями идут вертикальные стойки по числу панелей. И там и там панель входит
+ * в пояс на `grip` и в стойку на нахлёст, поэтому деталь печатается одной
+ * сборкой без клея.
+ *
+ * Внутри каркас пуст: у куба это коробка без дна и крышки, у цилиндра — полая
+ * труба. Лампа ставится на стол внутрь плафона, свет выходит через тонкие
+ * участки панелей и через открытые торцы.
+ */
+function createLanternFrame(normalized: LithophaneParams): BufferGeometry {
+  const plan = lithophanePanelPlan(normalized);
+  const { band, grip, rib, wall } = LITHOPHANE_LANTERN;
+  const height = plan.height;
+  const bodies: BufferGeometry[] = [];
 
+  if (plan.radius === null) {
+    const half = normalized.lithophaneWidth / 2;
+    const inner = half - wall;
+    const outer = half + grip;
+    const length = normalized.lithophaneWidth + 2 * grip;
 
+    for (const [y0, y1] of [
+      [0, band],
+      [height - band, height],
+    ] as const) {
+      for (let face = 0; face < 4; face += 1) {
+        const body = createBoxBody({
+          x0: -length / 2,
+          x1: length / 2,
+          y0,
+          y1,
+          z0: inner,
+          z1: outer,
+        });
 
+        body.rotateY((face * Math.PI) / 2);
+        bodies.push(body);
+      }
+    }
 
+    // Угловые стойки: квадрат в плане на каждом углу куба. Внутренний угол
+    // стойки смотрит в пустоту, наружный выступает за тыл панелей и читается
+    // как ребро фонаря.
+    for (const [signX, signZ] of [
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+    ] as const) {
+      bodies.push(
+        createBoxBody({
+          x0: signX > 0 ? inner : -outer,
+          x1: signX > 0 ? outer : -inner,
+          y0: 0,
+          y1: height,
+          z0: signZ > 0 ? inner : -outer,
+          z1: signZ > 0 ? outer : -inner,
+        }),
+      );
+    }
+
+    return mergeBodies(bodies, "каркаса");
+  }
+
+  const radius = plan.radius;
+  const segments = Math.ceil((Math.PI * 2 * (radius + grip)) / 0.5);
+
+  for (const [y0, y1] of [
+    [0, band],
+    [height - band, height],
+  ] as const) {
+    bodies.push(
+      smoothGeometryNormals(
+        createDrumRingBody({
+          innerRadius: radius - wall,
+          outerRadius: radius + grip,
+          y0,
+          y1,
+          segments,
+        }),
+      ),
+    );
+  }
+
+  for (let panel = 0; panel < plan.count; panel += 1) {
+    // Стойка стоит на стыке соседних панелей, поэтому её угол сдвинут на полшага.
+    const angle = ((panel + 0.5) * Math.PI * 2) / plan.count;
+    const body = createBoxBody({
+      x0: -rib / 2,
+      x1: rib / 2,
+      y0: 0,
+      y1: height,
+      z0: radius - wall,
+      z1: radius + grip,
+    });
+
+    body.rotateY(angle);
+    bodies.push(body);
+  }
+
+  return mergeBodies(bodies, "каркаса");
+}
 
 /**
  * Объединяет оболочки детали в одну сетку и освобождает исходные.

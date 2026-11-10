@@ -38,6 +38,7 @@ import {
   KEYCHAIN_IMAGE_SCALE_LIMITS,
   KEYCHAIN_IMAGE_THRESHOLD_LIMITS,
   KEYCHAIN_MAX_DECORATIONS,
+  LITHOPHANE_MESH_MAX_TRIANGLES,
   LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
   KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS,
   boxStlFileName,
@@ -75,7 +76,6 @@ import {
   keychainThicknessLimits,
   keychainQrCardSpec,
   listSignBlocks,
-  lithophaneMeshSize,
   lithophaneStlFileName,
   normalizeBoxParams,
   normalizeCoasterParams,
@@ -123,7 +123,7 @@ import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geom
 import { createKeychainGeometry } from "@/lib/constructor/keychain-geometry";
 import {
   createLithophaneGeometry,
-  lithophanePlateSize,
+  lithophaneTriangleCount,
 } from "@/lib/constructor/lithophane-geometry";
 import { createPenHolderGeometry } from "@/lib/constructor/pen-holder-geometry";
 import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
@@ -1073,11 +1073,13 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
  * Рамка и крепление необязательны: старый клиент их не присылает и получает
  * значения по умолчанию. Крепление проверяется по списку — сейчас в нём только
  * `none`, а нормализация сама снимает крепление, когда рамка выключена. Форма
- * панели бывает только `flat` и `round`: старый проект с изогнутой панелью
- * нормализуется в плоскую, а не падает. Деталь (`part`) — из списка, причём
- * `frame` и `all` без рамки отклоняются: без неё в файле нечего собирать. Кадры
- * остальных секторов круглой панели необязательны: их нет у старого клиента, и
- * тогда одна картинка повторяется по всему диску.
+ * литофана бывает плоской, кубом или цилиндром: старый проект с изогнутой
+ * панелью нормализуется в плоскую, а не падает. Деталь (`part`) — из списка,
+ * причём `frame` и `all` у плоской формы без рамки отклоняются: без неё в файле
+ * нечего собирать. У куба и цилиндра каркас есть всегда, поэтому `frame` для них
+ * — это каркас. Число панелей цилиндра проверяется в границах 2–4. Кадры
+ * остальных панелей необязательны: их нет у старого клиента, и тогда одна
+ * картинка повторяется на всех панелях.
  */
 function parseLithophaneParams(
   body: Record<string, unknown>,
@@ -1094,6 +1096,7 @@ function parseLithophaneParams(
     lithoFrame = DEFAULT_LITHOPHANE_PARAMS.lithoFrame,
     lithoMount = DEFAULT_LITHOPHANE_PARAMS.lithoMount,
     lithoShape = DEFAULT_LITHOPHANE_PARAMS.lithoShape,
+    lithophanePanels = DEFAULT_LITHOPHANE_PARAMS.lithophanePanels,
     part = "all",
   } = body;
 
@@ -1124,15 +1127,20 @@ function parseLithophaneParams(
       lithophaneBrightnessWidth,
       lithophaneBrightnessHeight,
     ) ||
-    // Кадры остальных секторов необязательны: старый клиент их не присылает, и
-    // одна картинка повторяется на всех четырёх.
+    // Кадры остальных панелей необязательны: старый клиент их не присылает, и
+    // одна картинка повторяется на всех панелях.
     (lithophaneSideBrightness !== undefined &&
       !isLithophaneSideBrightness(lithophaneSideBrightness)) ||
     typeof lithoFrame !== "boolean" ||
     !isLithophaneMount(lithoMount) ||
     !isLithophaneShape(lithoShape) ||
+    !isNumberInRange(
+      lithophanePanels,
+      CONSTRUCTOR_LIMITS.lithophanePanels.min,
+      CONSTRUCTOR_LIMITS.lithophanePanels.max,
+    ) ||
     !isLithophanePart(part) ||
-    (!lithoFrame && part !== "relief")
+    (lithoShape === "flat" && !lithoFrame && part !== "relief")
   ) {
     return null;
   }
@@ -1162,6 +1170,7 @@ function parseLithophaneParams(
       lithoFrame,
       lithoMount,
       lithoShape,
+      lithophanePanels,
     }),
     part,
   };
@@ -1719,18 +1728,20 @@ export async function POST(request: Request): Promise<Response> {
 
   // Бюджет сетки рельефа. Шаг вершины 0.3 мм делает панель 200 мм вдвое
   // плотнее прежней фиксированной сетки, и слишком крупная деталь положила бы
-  // и сервер, и скачивание. Отказ приходит до сборки: бесплатное скачивание не
-  // списывается, а пользователь видит причину, а не 500.
-  if (parsed.model === "lithophane") {
-    const plate = lithophanePlateSize(parsed.params);
-
-    if (lithophaneMeshSize(plate.width, plate.height) === null) {
-      return errorResponse(
-        422,
-        "lithophane_mesh_too_large",
-        LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
-      );
-    }
+  // и сервер, и скачивание. У куба и цилиндра панелей несколько, поэтому бюджет
+  // делится между копиями, а у изогнутых панелей в него входит подразделённый
+  // тыл: `lithophaneTriangleCount` считает ту же сетку, что построит геометрия.
+  // Отказ приходит до сборки: бесплатное скачивание не списывается, а
+  // пользователь видит причину, а не 500.
+  if (
+    parsed.model === "lithophane" &&
+    lithophaneTriangleCount(parsed.params) > LITHOPHANE_MESH_MAX_TRIANGLES
+  ) {
+    return errorResponse(
+      422,
+      "lithophane_mesh_too_large",
+      LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
+    );
   }
 
   try {

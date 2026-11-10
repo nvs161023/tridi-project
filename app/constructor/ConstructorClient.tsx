@@ -25,6 +25,7 @@ import {
 import type { SavedProjectNotice } from "@/lib/constructor/projects";
 import type { KeychainBuildReport } from "@/lib/constructor/keychain-geometry";
 import { randomVaseParams } from "@/lib/constructor/vase-random";
+import { lithophanePanelCount } from "@/lib/constructor/lithophane-panels";
 import {
   keychainPresetById,
   type HolePlacement,
@@ -49,6 +50,7 @@ import {
   JEWELRY_CONFIG_LABELS,
   LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PART_LABELS,
+  LITHOPHANE_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
@@ -240,8 +242,20 @@ async function readServerMessage(response: Response): Promise<string | null> {
   return null;
 }
 
-/** Подпись детали литофана. */
-function lithophanePartLabel(part: LithophanePart): string {
+/**
+ * Подпись детали литофана.
+ *
+ * У плоской формы вторая деталь — рамка, у куба и цилиндра — каркас: панели
+ * стоят на поясах и стойках, и «рамкой» эту деталь называть неверно.
+ */
+function lithophanePartLabel(
+  part: LithophanePart,
+  shape: LithophaneShape,
+): string {
+  if (part === "frame" && shape !== "flat") {
+    return "Каркас";
+  }
+
   return LITHOPHANE_PART_LABELS[part];
 }
 
@@ -300,8 +314,10 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   }
 
   if (params.model === "lithophane") {
-    // Без рамки печатается одна плита рельефа, поэтому дополнительных файлов нет.
-    if (!params.lithoFrame) {
+    // У плоской формы без рамки печатается одна плита рельефа, поэтому
+    // дополнительных файлов нет. У куба и цилиндра каркас есть всегда: панели
+    // без него не стоят.
+    if (params.lithoShape === "flat" && !params.lithoFrame) {
       return [
         {
           id: "lithophane-relief",
@@ -313,8 +329,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
       ];
     }
 
-    // Первый файл — собранный литофан: плита уже вставлена в рамку. Дальше детали
-    // по отдельности: рельеф и рамка есть всегда.
+    // Первый файл — собранный литофан: плита уже вставлена в рамку, панели стоят
+    // на каркасе. Дальше детали по отдельности: рельеф и рамка или каркас.
     const parts: LithophanePart[] = ["relief", "frame"];
 
     return [
@@ -327,8 +343,8 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
       },
       ...parts.map((part) => ({
         id: `lithophane-${part}`,
-        label: lithophanePartLabel(part),
-        description: `${lithophanePartLabel(part)} литофана отдельным файлом`,
+        label: lithophanePartLabel(part, params.lithoShape),
+        description: `${lithophanePartLabel(part, params.lithoShape)} литофана отдельным файлом`,
         request: { part },
         fileName: lithophaneStlFileName(params, part),
       })),
@@ -1477,12 +1493,15 @@ export function ConstructorClient({
                 ) : params.model === "lithophane" ? (
                   <>
                     {params.lithoShape === "round"
-                      ? `Ø ${params.lithophaneWidth} мм`
+                      ? `Ø ${params.lithophaneWidth} × ${params.lithophaneHeight} мм`
                       : `${params.lithophaneWidth} × ${params.lithophaneHeight} мм`}{" "}
                     · рельеф {params.lithophaneMinThickness.toFixed(1)}–
                     {params.lithophaneMaxThickness.toFixed(1)} мм ·{" "}
-                    {params.lithoFrame ? "рамка" : "без рамки"} ·{" "}
-                    {LITHOPHANE_MOUNT_LABELS[params.lithoMount].toLowerCase()}
+                    {params.lithoShape === "flat"
+                      ? `${params.lithoFrame ? "рамка" : "без рамки"} · ${LITHOPHANE_MOUNT_LABELS[params.lithoMount].toLowerCase()}`
+                      : params.lithoShape === "cube"
+                        ? `${LITHOPHANE_SHAPE_LABELS.cube.toLowerCase()} · каркас`
+                        : `цилиндр · панелей ${lithophanePanelCount("round", params.lithophanePanels)}`}
                   </>
                 ) : params.model === "planter" ? (
                   <>

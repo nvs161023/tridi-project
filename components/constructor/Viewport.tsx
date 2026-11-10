@@ -28,8 +28,8 @@ import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 import {
   COASTER_PATTERN_LABELS,
   JEWELRY_CONFIG_LABELS,
-  LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PREVIEW_RESOLUTION,
+  LITHOPHANE_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
   downsampleLithophaneBrightness,
@@ -40,9 +40,13 @@ import {
   vasePatternLabel,
   type ConstructorParams,
   type KeychainFontId,
+  type LithophaneBrightnessGrid,
 } from "@/lib/constructor/params";
 import { calculateGeometryWeightGrams } from "@/lib/constructor/geometry-volume";
-import { createLithophaneSectorMapData } from "@/lib/constructor/lithophane-sectors";
+import {
+  createLithophanePanelMapData,
+  lithophanePanelCount,
+} from "@/lib/constructor/lithophane-panels";
 import {
   createKeychainGeometry,
   type KeychainBuildReport,
@@ -71,6 +75,7 @@ import {
   resolveSectionSides,
 } from "@/lib/constructor/vase-section";
 import {
+  STUDIO_BACKLIGHT,
   STUDIO_BACKGROUND_CSS,
   STUDIO_CAMERA,
   STUDIO_CERAMIC,
@@ -437,51 +442,67 @@ function ZUpModel({ geometry, color }: ZUpModelProps) {
 }
 
 type LithophaneModelProps = {
+  /** Включена подсветка: панели светятся картой кадра. */
+  backlight: boolean;
   geometry: BufferGeometry;
   /** Рельеф плоской панели красится плоскостями: так видно высоту пикселя. */
   faceted: boolean;
   /**
-   * Общая карта четырёх кадров круглой панели.
+   * Общая карта кадров панелей: у плоской панели она одна, у куба и цилиндра —
+   * 2 × 2, по кадру на квадрант.
    *
-   * Рельеф круга размечен координатами `uv` по квадрантам этой карты, поэтому
-   * предпросмотр показывает те же четыре фото, что уйдут в печать. У плоской
-   * панели карты нет: её рельеф остаётся пластиком.
+   * Рельеф размечен координатами `uv` по этой карте, поэтому предпросмотр
+   * показывает те же фото, что уйдут в печать, и в обычном режиме, и на просвет.
    */
-  sectorMap: DataTexture | null;
+  panelMap: DataTexture | null;
 };
 
 /**
  * Литофан стоит на столе лицевой стороной к камере.
  *
- * Геометрия уже построена в плоскости XY нижней кромкой на Y = 0, поэтому
- * поворот не нужен: рамка и рельеф смотрят в +Z. Материалов два, потому что
- * сетка размечена группами (`LITHOPHANE_RELIEF_GROUP` /
- * `LITHOPHANE_DETAIL_GROUP`). Рельеф плоской панели выводится с `flatShading`:
+ * Геометрия уже построена нижней кромкой на Y = 0, поэтому поворот не нужен:
+ * рамка и рельеф смотрят в +Z, а каркас ночника стоит вокруг вертикальной оси.
+ * Материалов два, потому что сетка размечена группами (`LITHOPHANE_RELIEF_GROUP`
+ * / `LITHOPHANE_DETAIL_GROUP`). Рельеф плоской панели выводится с `flatShading`:
  * нормаль каждой грани совпадает с высотой пикселя, и на свету видно, где фото
- * толще. У круглой панели фасетки полярной сетки стоят под углом друг к другу,
- * поэтому затенение гладкое — дуга выходит скруглённой сама. Рамка идёт гладким
- * материалом: её нормали посчитаны после сварки вершин.
+ * толще. У изогнутых панелей фасетки стоят под углом друг к другу, поэтому
+ * затенение гладкое — дуга выходит скруглённой сама. Каркас идёт гладким
+ * материалом: его нормали посчитаны после сварки вершин.
  *
- * Кадры секторов ложатся на рельеф картой (`sectorMap`) и слегка светятся: так
- * видно, что у каждого сектора своя фотография, а не только рельеф. Рамка карту
- * не читает.
+ * Режим подсветки (`backlight`) — это второй вид того же литофана. Пластик
+ * становится полупрозрачным на просвет, и работает не отражённый свет, а
+ * собственное свечение по карте кадра: светлые (тонкие) участки горят, тёмные
+ * (толстые) остаются тёмными, поэтому фото проявляется так же, как на окне.
+ * Тени в этом режиме выключаются: их рисует студийный ключ, а он погашен, и
+ * чёрные пятна от панелей только мешали бы.
  *
  * Материалы создаются один раз на смену формы и освобождаются при размонтировании.
  */
 function LithophaneModel({
+  backlight,
   faceted,
   geometry,
-  sectorMap,
+  panelMap,
 }: LithophaneModelProps) {
   const materials = useMemo(
     () => [
       new MeshStandardMaterial({
-        color: sectorMap ? 0xffffff : STUDIO_MODEL_TINTS.lithophane,
-        emissive: sectorMap ? 0xffffff : 0x000000,
-        emissiveIntensity: sectorMap ? 0.35 : 0,
-        emissiveMap: sectorMap,
+        // На просвет пластик светится картой кадра; без подсветки карта только
+        // подкрашивает рельеф, чтобы было видно, что за фото на панели.
+        color: panelMap ? 0xffffff : STUDIO_MODEL_TINTS.lithophane,
+        emissive: backlight
+          ? STUDIO_BACKLIGHT.color
+          : panelMap
+            ? 0xffffff
+            : 0x000000,
+        emissiveIntensity: backlight
+          ? STUDIO_BACKLIGHT.glow
+          : panelMap
+            ? 0.35
+            : 0,
+        emissiveMap: panelMap,
         flatShading: faceted,
-        map: sectorMap,
+        map: panelMap,
         metalness: STUDIO_PLASTIC.metalness,
         roughness: STUDIO_PLASTIC.roughness,
       }),
@@ -491,7 +512,7 @@ function LithophaneModel({
         roughness: STUDIO_PLASTIC.roughness,
       }),
     ],
-    [faceted, sectorMap],
+    [backlight, faceted, panelMap],
   );
 
   useEffect(
@@ -504,7 +525,60 @@ function LithophaneModel({
   );
 
   return (
-    <mesh castShadow geometry={geometry} material={materials} receiveShadow />
+    <mesh
+      castShadow={!backlight}
+      geometry={geometry}
+      material={materials}
+      receiveShadow={!backlight}
+    />
+  );
+}
+
+type LithophaneLampProps = {
+  /**
+   * Расстояние от лампы до панели, мм.
+   *
+   * Лампа светит с физическим затуханием, поэтому мощность в канделах —
+   * `illuminance` умножить на квадрат расстояния: сцена живёт в миллиметрах, и
+   * без этой поправки лампа на 180 мм светила бы в сотни раз слабее нужного.
+   */
+  distance: number;
+  /** Высота лампы: она стоит в середине плафона, мм. */
+  height: number;
+  /** Лампа внутри ночника: у плоской панели она стоит за плитой. */
+  inside: boolean;
+};
+
+/**
+ * Лампа подсветки: точка с физическим затуханием и шарик, который её обозначает.
+ *
+ * У куба и цилиндра лампа стоит на оси, в середине высоты, и светит изнутри
+ * наружу — так и работает ночник. У плоской панели источник за плитой: свет
+ * проходит через тонкие участки рельефа навстречу камере.
+ *
+ * Шарик нужен для честности: без него непонятно, откуда взялся свет, а на
+ * просвет видно только свечение пластика. `toneMapped` у шарика выключен, чтобы
+ * тонмаппинг не притушил саму лампу.
+ */
+function LithophaneLamp({ distance, height, inside }: LithophaneLampProps) {
+  const intensity = STUDIO_BACKLIGHT.illuminance * distance * distance;
+  const position: [number, number, number] = inside
+    ? [0, height / 2, 0]
+    : [0, height / 2, -distance];
+
+  return (
+    <>
+      <pointLight
+        color={STUDIO_BACKLIGHT.color}
+        decay={2}
+        intensity={intensity}
+        position={position}
+      />
+      <mesh position={position}>
+        <sphereGeometry args={[STUDIO_BACKLIGHT.bulbRadius, 12, 12]} />
+        <meshBasicMaterial color={STUDIO_BACKLIGHT.color} toneMapped={false} />
+      </mesh>
+    </>
   );
 }
 
@@ -734,6 +808,54 @@ function useRadialGradient() {
 }
 
 /**
+ * Текстура из готовых пикселей RGBA: общая обёртка для кадров литофана.
+ *
+ * `DataTexture` включает фильтрацию по умолчанию и не переворачивает данные
+ * (`flipY = false`), поэтому строка 0 совпадает с `v = 0`. Геометрия рельефа
+ * размечена `uv` от верха кадра, поэтому переворачивать ничего не нужно.
+ * Линейный фильтр сглаживает границу между пикселями: на панели 0.5 мм на
+ * вершину иначе видны квадраты.
+ */
+function createImageTexture(
+  data: Uint8Array,
+  width: number,
+  height: number,
+): DataTexture {
+  const texture = new DataTexture(data, width, height, RGBAFormat);
+
+  texture.colorSpace = SRGBColorSpace;
+  texture.magFilter = LinearFilter;
+  texture.minFilter = LinearFilter;
+  texture.needsUpdate = true;
+
+  return texture;
+}
+
+/**
+ * Карта одной панели: кадр яркости как есть.
+ *
+ * Кадр серый, поэтому все три канала равны яркости, а альфа непрозрачная.
+ * Размер текстуры — размер сетки предпросмотра (150 × 100): рельеф строится по
+ * тем же числам, и карта с ним совпадает.
+ */
+function createBrightnessTexture(grid: LithophaneBrightnessGrid): DataTexture {
+  const { brightness, width, height } = grid;
+  const data = new Uint8Array(width * height * 4);
+
+  for (let index = 0; index < width * height; index += 1) {
+    const value = brightness[index] ?? 0;
+    const offset = index * 4;
+
+    data[offset] = value;
+    data[offset + 1] = value;
+    data[offset + 2] = value;
+    data[offset + 3] = 255;
+  }
+
+  return createImageTexture(data, width, height);
+}
+
+/**
  * Бесконечный стол: три плоскости, видимые только там, где темнеет или светлеет.
  *
  * `shadowMaterial` рисует тень от ключевого света, тёмное пятно под деталью
@@ -794,15 +916,18 @@ type SceneProps = {
   framing: Framing;
   /** Показан оборот брелока: сцена переворачивает пластину лицом вниз. */
   keychainBack: boolean;
-  /** Карта четырёх кадров круглой панели: рельеф показывает по фото на сектор. */
-  lithophaneSectorMap: DataTexture | null;
+  /** Включена подсветка литофана: панели светятся, студия гаснет. */
+  lithophaneBacklight: boolean;
+  /** Карта кадров на панелях литофана: по ней рельеф и светится. */
+  lithophanePanelMap: DataTexture | null;
 };
 
 function Scene({
   framing,
   geometry,
   keychainBack,
-  lithophaneSectorMap,
+  lithophaneBacklight,
+  lithophanePanelMap,
   params,
 }: SceneProps) {
   // Радиус студии считается по габаритам модели: свет и карта теней должны
@@ -815,14 +940,31 @@ function Scene({
   */
   const keychainLift = framing.footprint / 2 + framing.height * 2 + 4;
 
+  /**
+   * Где стоит лампа подсветки и как далеко она от панели.
+   *
+   * У ночника (куб и цилиндр) лампа на оси: расстояние до панели — половина
+   * габарита. У плоской панели источник за плитой, на доле радиуса студии: там
+   * он светит навстречу камере через рельеф.
+   */
+  const lithophaneLampDistance =
+    params.model === "lithophane" && params.lithoShape !== "flat"
+      ? Math.max(framing.footprint / 2, 10)
+      : span * STUDIO_BACKLIGHT.distance;
+
   return (
     <>
       {/*
         Окружение и свет: софтбоксы дают отражения, направленный свет — тень.
-        Фон прозрачный, тёмный градиент задаёт обёртка viewport в CSS.
+        Фон прозрачный, тёмный градиент задаёт обёртка viewport в CSS. В режиме
+        подсветки студия гаснет (`STUDIO_BACKLIGHT.studioDim`): иначе отражённый
+        свет перебивает собственное свечение пластика и просвет не читается.
       */}
       <StudioEnvironment />
-      <StudioLights span={span} />
+      <StudioLights
+        dim={lithophaneBacklight ? STUDIO_BACKLIGHT.studioDim : 1}
+        span={span}
+      />
 
       {params.model === "vase" ? (
         <VaseModel
@@ -845,9 +987,10 @@ function Scene({
         <BoxModel geometry={geometry} />
       ) : params.model === "lithophane" ? (
         <LithophaneModel
+          backlight={lithophaneBacklight}
           faceted={params.lithoShape === "flat"}
           geometry={geometry}
-          sectorMap={lithophaneSectorMap}
+          panelMap={lithophanePanelMap}
         />
       ) : params.model === "planter" ? (
         <ZUpModel color={STUDIO_MODEL_TINTS.planter} geometry={geometry} />
@@ -862,6 +1005,14 @@ function Scene({
       ) : (
         <SignModel geometry={geometry} />
       )}
+
+      {params.model === "lithophane" && lithophaneBacklight ? (
+        <LithophaneLamp
+          distance={lithophaneLampDistance}
+          height={framing.height}
+          inside={params.lithoShape !== "flat"}
+        />
+      ) : null}
 
       {/* Стол под моделью: принимает тень от ключевого света. */}
       <StudioFloor footprint={framing.footprint} />
@@ -971,6 +1122,21 @@ export function Viewport({
   useEffect(() => {
     if (params.model !== "keychain") {
       setKeychainBack(false);
+    }
+  }, [params.model]);
+
+  /**
+   * Включена подсветка литофана.
+   *
+   * Режим не живёт дольше модели: при переходе на вазу или брелок он
+   * сбрасывается, как и сторона брелока, иначе сцена вернулась бы к литофану с
+   * погашенной студией. Для остальных моделей переключатель не показывается.
+   */
+  const [lithophaneBacklight, setLithophaneBacklight] = useState(false);
+
+  useEffect(() => {
+    if (params.model !== "lithophane") {
+      setLithophaneBacklight(false);
     }
   }, [params.model]);
 
@@ -1121,46 +1287,36 @@ export function Viewport({
   );
 
   /**
-   * Общая карта четырёх кадров круглой панели.
+   * Карта кадров на панелях литофана.
    *
-   * Геометрия круга размечена `uv` по квадрантам этой карты, поэтому в сцене
-   * видно ровно то, что уйдёт в печать: по фото на сектор, пустой слот повторяет
-   * первый кадр. Карта пересобирается только при замене фотографий — от правки
-   * толщин ссылки на массивы не меняются.
+   * Геометрия размечена `uv` по этой карте, поэтому в сцене видно ровно то, что
+   * уйдёт в печать: у плоской панели один кадр на всю плиту, у куба и цилиндра —
+   * по кадру на квадрант, пустой слот повторяет первый. Карта пересобирается
+   * только при замене фотографий или формы — от правки толщин ссылки на массивы
+   * не меняются.
    */
-  const lithophaneSectorMap = useMemo(() => {
-    if (params.model !== "lithophane" || params.lithoShape !== "round") {
+  const lithophanePanelMap = useMemo(() => {
+    if (params.model !== "lithophane" || !lithophanePreview) {
       return null;
     }
 
-    if (!lithophanePreview) {
-      return null;
+    if (params.lithoShape === "flat") {
+      return createBrightnessTexture(lithophanePreview);
     }
 
-    const map = createLithophaneSectorMapData(
+    const map = createLithophanePanelMapData(
       [lithophanePreview, ...lithophaneSidePreview],
       LITHOPHANE_PREVIEW_RESOLUTION * 2,
     );
-    const texture = new DataTexture(
-      map.data,
-      map.side,
-      map.side,
-      RGBAFormat,
-    );
 
-    texture.colorSpace = SRGBColorSpace;
-    texture.magFilter = LinearFilter;
-    texture.minFilter = LinearFilter;
-    texture.needsUpdate = true;
-
-    return texture;
+    return createImageTexture(map.data, map.side, map.side);
   }, [lithophanePreview, lithophaneSidePreview, params.lithoShape, params.model]);
 
   useEffect(
     () => () => {
-      lithophaneSectorMap?.dispose();
+      lithophanePanelMap?.dispose();
     },
-    [lithophaneSectorMap],
+    [lithophanePanelMap],
   );
 
   /**
@@ -1326,9 +1482,9 @@ export function Viewport({
     }
 
     if (params.model === "lithophane") {
-      // У круглой панели габарит по X равен диаметру, а у плоской — ширине
-      // рамки: в обоих случаях он берётся из готовой сетки, чтобы камера не
-      // обрезала верх рамки.
+      // У ночника габарит — это куб или диаметр плафона: он берётся из готовой
+      // сетки, чтобы камера не обрезала ни верх пояса, ни выступ панелей. У
+      // плоской панели габарит задан слайдерами.
       if (params.lithoShape !== "flat") {
         geometry.computeBoundingBox();
         const box = geometry.boundingBox;
@@ -1368,6 +1524,15 @@ export function Viewport({
     [geometry],
   );
 
+  /**
+   * Сколько панелей у выбранной формы: одна у плоской, четыре у куба, 2–4 у
+   * цилиндра. По этому числу считаются слоты фотографий и квадранты карты кадров.
+   */
+  const lithophanePanels =
+    params.model === "lithophane"
+      ? lithophanePanelCount(params.lithoShape, params.lithophanePanels)
+      : 1;
+
   const sizeLabel =
     params.model === "vase"
       ? `${params.height} × Ø ${params.diameter} мм`
@@ -1378,7 +1543,7 @@ export function Viewport({
           : params.model === "box"
             ? `${params.boxLength} × ${params.boxWidth} × ${params.boxHeight} мм`
             : params.model === "lithophane"
-              ? `${params.lithophaneWidth} × ${params.lithophaneHeight} × ${params.lithophaneMaxThickness.toFixed(1)} мм`
+              ? `${params.lithoShape === "round" ? "Ø " : ""}${params.lithophaneWidth} × ${params.lithophaneHeight} × ${params.lithophaneMaxThickness.toFixed(1)} мм`
               : params.model === "planter"
                 ? `${params.planterSize} × ${params.planterHeight} мм`
                 : params.model === "coaster"
@@ -1404,7 +1569,7 @@ export function Viewport({
           : params.model === "box"
             ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
             : params.model === "lithophane"
-              ? `3D-предпросмотр литофана ${params.lithophaneWidth}${params.lithoShape === "round" ? " миллиметров в диаметре" : ` на ${params.lithophaneHeight} миллиметров`}, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : "без рамки"}`
+              ? `3D-предпросмотр литофана «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}» ${params.lithophaneWidth}${params.lithoShape === "round" ? " миллиметров в диаметре" : ` на ${params.lithophaneHeight} миллиметров`}, панелей ${lithophanePanels}, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoShape === "flat" ? (params.lithoFrame ? "рамка" : "без рамки") : "с каркасом"}, ${lithophaneBacklight ? "включена подсветка на просвет" : "подсветка выключена"}`
               : params.model === "planter"
                 ? `3D-предпросмотр кашпо «${PLANTER_SHAPE_LABELS[params.planterShape]}» ${params.planterSize} миллиметров по ключу и высотой ${params.planterHeight} миллиметров, стенка ${params.planterWall} миллиметров, ${params.planterDrainage ? "с дренажными отверстиями и поддоном" : "без поддона"}`
                 : params.model === "coaster"
@@ -1463,7 +1628,8 @@ export function Viewport({
             framing={framing}
             geometry={geometry}
             keychainBack={keychainBack}
-            lithophaneSectorMap={lithophaneSectorMap}
+            lithophaneBacklight={lithophaneBacklight}
+            lithophanePanelMap={lithophanePanelMap}
             params={params}
           />
         </Canvas>
@@ -1507,6 +1673,33 @@ export function Viewport({
           </div>
         ) : null}
 
+        {params.model === "lithophane" ? (
+          /*
+            Подсветка: обычная кнопка поверх канваса, как у сторон брелока.
+            Один переключатель на все формы — квадратный куб, цилиндрический
+            плафон и плоскую панель: без него не видно, что получится на просвет,
+            а литофан читается только на свету.
+          */
+          <div
+            aria-label="Подсветка литофана"
+            className="absolute top-3 left-3 flex items-center gap-1 rounded-full border border-white/10 bg-slate-950/70 p-1 text-xs font-medium text-slate-300 backdrop-blur"
+            role="group"
+          >
+            <button
+              aria-pressed={lithophaneBacklight}
+              className={
+                lithophaneBacklight
+                  ? "rounded-full bg-white/15 px-3 py-1 text-white"
+                  : "rounded-full px-3 py-1 text-slate-400 transition hover:text-white"
+              }
+              onClick={() => setLithophaneBacklight((current) => !current)}
+              type="button"
+            >
+              Подсветка
+            </button>
+          </div>
+        ) : null}
+
         {needsFont && !fontsReady ? (
           <div
             className={
@@ -1533,6 +1726,9 @@ export function Viewport({
           {params.model === "keychain"
             ? "Кнопки «Лицо» и «Оборот» переворачивают брелок и показывают его обратную сторону. "
             : null}
+          {params.model === "lithophane"
+            ? "Кнопка «Подсветка» включает лампу: панели светятся кадром на просвет, а студия гаснет. "
+            : null}
           {ariaLabel}.
         </p>
       </div>
@@ -1544,6 +1740,9 @@ export function Viewport({
           Приближение идёт к точке под курсором.
           {params.model === "keychain"
             ? " Переключатель «Лицо» / «Оборот» показывает рельефы с обратной стороны."
+            : null}
+          {params.model === "lithophane"
+            ? " Кнопка «Подсветка» ставит лампу за панель или внутрь плафона — так литофан видно на просвет."
             : null}
         </p>
       )}
