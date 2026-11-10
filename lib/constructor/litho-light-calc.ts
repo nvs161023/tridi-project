@@ -34,8 +34,10 @@
 import {
   BODY_OVERLAP_MM,
   LITHOPHANE_ARCH_STAND,
+  LITHOPHANE_ARCH_STRIP,
   LITHOPHANE_BENT_BASE,
   LITHOPHANE_BENT_BASE_FLOOR_MM,
+  LITHOPHANE_CYLINDER_FLOOR_MM,
   LITHOPHANE_FIT_GAP_MM,
   LITHOPHANE_FRAME_SEAT_MM,
   LITHOPHANE_KALEIDOSCOPE,
@@ -214,11 +216,26 @@ export const LITHO_LIGHT_MODEL = {
  * Где стоит лампа в напечатанном креплении, мм над столом.
  *
  * Числа выведены из геометрии, а не выбраны на глаз: у колбы USB-лампы это центр
- * стеклянного шара в чаше, у патрона E27 — центр колбы Ø60, надетой на цоколь,
- * у свечи и лампы в диске полуцилиндра — центр светящейся части над отверстием
- * Ø40. Крепления держат источник в единственном положении, поэтому и расчёт берёт
- * его отсюда.
+ * стеклянного шара в чаше, у патрона E27 — центр колбы Ø60, надетой на цоколь, у
+ * свечи в призме и лампы в чаше полуцилиндра — центр светящейся части в гнезде
+ * пьедестала. Крепления держат источник в единственном положении, поэтому и
+ * расчёт берёт его отсюда.
  */
+
+/** Дно гнезда пьедестала призмы, мм: на нём стоит свеча или пилюля. */
+const CANDLE_FLOOR_MM =
+  LITHOPHANE_KALEIDOSCOPE.pedestalTop - LITHOPHANE_KALEIDOSCOPE.pedestalDepth;
+
+/** Дно гнезда пьедестала чаши полуцилиндра, мм. */
+const DISC_FLOOR_MM =
+  LITHOPHANE_BENT_BASE.pedestalTop - LITHOPHANE_BENT_BASE.pedestalDepth;
+
+/** Радиус LED-пилюли Ø36, которая стоит в гнезде пьедестала, мм. */
+const PILLAR_RADIUS_MM = 18;
+
+/** Пламя чайной свечи над её дном, мм. */
+const CANDLE_FLAME_MM = 18;
+
 export const LITHO_LIGHT_SEATS = {
   /** Диаметр колбы USB-лампы, мм: в чашу ложатся Ø20–28, берём середину. */
   bulbDiameter: 26,
@@ -237,10 +254,21 @@ export const LITHO_LIGHT_SEATS = {
     LITHOPHANE_ARCH_STAND.baseTop +
     LITHOPHANE_SOCKET_LIGHT.floorAboveBase +
     30,
-  /** Пламя чайной свечи в цоколе призмы, мм. */
-  candleY: 25,
-  /** Центр LED-лампы в отверстии диска полуцилиндра, мм. */
-  discLampY: 30,
+  /**
+   * Пламя свечи в пьедестале калейдоскопа, мм.
+   *
+   * Чайная свеча Ø38 стоит в гнезде Ø40: её дно на дне гнезда, пламя — на 18 мм
+   * выше. Раньше свеча стояла на столе, и источник оказывался у самого низа кадра.
+   */
+  candleY: CANDLE_FLOOR_MM + CANDLE_FLAME_MM,
+  /**
+   * Центр светящейся части LED-лампы на пьедестале чаши полуцилиндра, мм.
+   *
+   * Пилюля Ø36 стоит в гнезде Ø37: дно гнезда на 53 мм, центр свечения — на её
+   * радиус выше. Источник оказывается ровно на середине кадра, поэтому верх и низ
+   * получают свет поровну.
+   */
+  discLampY: DISC_FLOOR_MM + PILLAR_RADIUS_MM,
 } as const;
 
 /** Сумма векторов. */
@@ -539,11 +567,15 @@ type LithoLightSeat = {
  * Канал 98 мм на панели 120 мм: одна лампа в его середине дала бы пятно, поэтому
  * поток делится на `count` равных частей, а точки идут от края до края. Суммарная
  * сила света от числа точек не зависит — меняется только ровность.
+ *
+ * `axis` — куда светит лента: у канала в скате базы арки это нормаль ската, у
+ * ленты в коробе подвеса и в рельсе дуги — вертикаль.
  */
 function stripEmitterLine(
   count: number,
   candelas: number,
   place: (offset: number) => Vec3,
+  axis: Vec3 = [0, 1, 0],
 ): LithoLightEmitter[] {
   const emitters: LithoLightEmitter[] = [];
   const step = count > 1 ? 2 / (count - 1) : 0;
@@ -551,7 +583,7 @@ function stripEmitterLine(
   for (let index = 0; index < count; index += 1) {
     emitters.push({
       position: place(count > 1 ? -1 + index * step : 0),
-      axis: [0, 1, 0],
+      axis,
       lobe: 1,
       intensity: candelas / count,
     });
@@ -656,31 +688,46 @@ function flatEmitters(
 
   const arch = LITHOPHANE_ARCH_STAND;
   const box = LITHOPHANE_WALL_BOX;
-  const hook = normalized.lithoMount === "hook";
-  // Пол канала: у арки — верх базы без глубины канала, у короба — полка рамки.
-  const y = hook
-    ? box.channelFloor
-    : arch.baseTop - arch.channelDepth;
-  const z = hook
-    ? -(box.depth - box.wall) + box.channelWidth / 2
-    : -(LITHOPHANE_FIT_GAP_MM + arch.channelGap + arch.channelWidth / 2);
-  // Арка: канал между ножками. Короб: от стенки до стенки внутри контура рамки.
-  const half = hook
-    ? (plate.width - 2 * box.inset - 2 * box.wall) / 2
-    : Math.max(
-        plate.width / 2,
-        Math.max(
-          arch.minWidth,
-          normalized.lithophaneWidth * arch.widthFactor,
-        ) /
-          2 -
-          arch.legWidth,
-      );
+
+  if (normalized.lithoMount === "hook") {
+    // Короб подвеса: лента лежит на полке рамки у тыльной стенки и светит вверх.
+    const half = (plate.width - 2 * box.inset - 2 * box.wall) / 2;
+
+    return stripEmitterLine(
+      LITHO_LIGHT_MODEL.stripEmitters,
+      candelas.strip,
+      (offset) => [
+        offset * half,
+        box.channelFloor + LITHO_LIGHT_MODEL.stripLift,
+        -(box.depth - box.wall) + box.channelWidth / 2,
+      ],
+    );
+  }
+
+  /*
+    Арка: канал вырезан в скате задней стенки-клина, а не в верхней плоскости базы.
+    Точка и ось берутся из геометрии — это тот же скат, по которому режется канал.
+    Лента идёт по всей ширине базы: ножки стоят впереди и её не перекрывают.
+  */
+  const half = Math.min(
+    normalized.lithophaneWidth,
+    Math.max(
+      arch.minWidth,
+      normalized.lithophaneWidth * arch.widthFactor,
+    ),
+  ) / 2;
+  const lift = LITHO_LIGHT_MODEL.stripLift;
+  const start: Vec3 = [
+    0,
+    LITHOPHANE_ARCH_STRIP.y + LITHOPHANE_ARCH_STRIP.axis[1] * lift,
+    LITHOPHANE_ARCH_STRIP.z + LITHOPHANE_ARCH_STRIP.axis[2] * lift,
+  ];
 
   return stripEmitterLine(
     LITHO_LIGHT_MODEL.stripEmitters,
     candelas.strip,
-    (offset) => [offset * half, y + LITHO_LIGHT_MODEL.stripLift, z],
+    (offset) => [offset * half, start[1], start[2]],
+    LITHOPHANE_ARCH_STRIP.axis,
   );
 }
 
@@ -700,13 +747,16 @@ function bentFace(
     normalized.lithoShape === "cylinder"
       ? normalized.lithophaneWidth / Math.PI
       : normalized.lithoCurveRadius;
+  // У полуцилиндра панель стоит на кромке чаши, у изогнутой — на бруске дуги.
+  const floor =
+    normalized.lithoShape === "cylinder"
+      ? LITHOPHANE_CYLINDER_FLOOR_MM
+      : LITHOPHANE_BENT_BASE_FLOOR_MM;
 
   return {
     origin: [
       0,
-      LITHOPHANE_BENT_BASE_FLOOR_MM +
-        plateFrameWidth(normalized, plate) +
-        LITHOPHANE_FIT_GAP_MM,
+      floor + plateFrameWidth(normalized, plate) + LITHOPHANE_FIT_GAP_MM,
       plateBack(),
     ],
     right: [1, 0, 0],
@@ -968,9 +1018,16 @@ function lightWarnings(verdict: LithoLightVerdict): LithoLightWarning[] {
   const severity: LithoLightWarning["severity"] =
     metrics.topShare < LITHO_LIGHT_MODEL.darkTop ? "error" : "warning";
 
+  /*
+    Пересвет — это в первую очередь пик к средней: 2.5 раза уже видно глазом. Второй
+    признак — расстояние: если лампа ближе половины рекомендованного, пятно будет
+    при любом потоке. Порог половины, а не трёх четвертей, потому что у ленты в
+    наклонном канале правило 45° считается для линии источников и даёт с запасом:
+    на 54 мм лента светит ровно, хотя 88 мм формально ещё «не хватает».
+  */
   if (
     metrics.peakRatio > LITHO_LIGHT_MODEL.overexposure ||
-    verdict.actualDistance < verdict.recommendedDistance * 0.75
+    verdict.actualDistance < verdict.recommendedDistance * 0.5
   ) {
     warnings.push({
       id: "too_close",
@@ -1007,7 +1064,7 @@ function lightWarnings(verdict: LithoLightVerdict): LithoLightWarning[] {
             severity,
             title: "Верх панели темнее низа",
             hint:
-              `Лампа стоит на ${lampY} мм над столом, а середина панели — на ` +
+              `Источник стоит на ${lampY} мм над столом, а середина панели — на ` +
               `${plateY} мм: низ получает в ${falloff.toFixed(1)} раза больше ` +
               `света, чем верх. Высоту задаёт гнездо, поэтому верх ` +
               `подтягивает абажур, отражение от задней стенки или ` +
@@ -1133,13 +1190,6 @@ export function lithophaneLightPlan(
   };
 }
 
-/**
- * Цвет точки карты света по отношению к средней освещённости.
- *
- * Палитра читается как термометр: синий — свет не дошёл, зелёный — рабочая зона
- * (0.6–1.6 от средней), красный — пересвет. Отношение берётся к средней, а не к
- * абсолютной яркости: карта показывает ровность, а не мощность лампы.
- */
 /**
  * Цвет точки карты света по отношению к средней освещённости.
  *

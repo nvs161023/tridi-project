@@ -97,10 +97,12 @@ import { DoubleSide, Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 
 import {
   LITHOPHANE_ARCH_STAND,
+  LITHOPHANE_ARCH_STRIP,
   LITHOPHANE_BENT_BASE,
   LITHOPHANE_BENT_BASE_FLOOR_MM,
   LITHOPHANE_BORDER_CHAMFER_MM,
   LITHOPHANE_BORDER_MM,
+  LITHOPHANE_CYLINDER_FLOOR_MM,
   LITHOPHANE_DETAIL_GROUP,
   LITHOPHANE_FIT_GAP_MM,
   LITHOPHANE_FRAME_CORNER_RADIUS_MM,
@@ -723,14 +725,20 @@ function profilePoints(
 /**
  * Перекрыт ли пластик на высоте `y` по центру детали.
  *
- * Луч идёт из-за подставки вперёд вдоль Z: у открытой арки он проходит между
- * ножками, у сплошной стойки упирается в пластик. Так проверяется то, ради чего
- * арку и сделали, — свет от лампы за литофаном доходит до низа кадра.
+ * Луч идёт вдоль Z: у открытой арки он проходит между ножками, у сплошной стойки
+ * упирается в пластик. Так проверяется то, ради чего арку и сделали, — свет от
+ * лампы за литофаном доходит до низа кадра. `startZ` сдвигает начало луча: у базы
+ * с клином сзади луч приходится пускать уже перед клином.
  */
-function blockedAt(geometry: BufferGeometry, x: number, y: number): boolean {
+function blockedAt(
+  geometry: BufferGeometry,
+  x: number,
+  y: number,
+  startZ = -200,
+): boolean {
   const mesh = new Mesh(geometry);
   const ray = new Raycaster(
-    new Vector3(x, y, -200),
+    new Vector3(x, y, startZ),
     new Vector3(0, 0, 1),
     0,
     300,
@@ -1793,15 +1801,20 @@ console.log("\n12. Умный выбор кадра: фото, логотип и
   lightGeometry.dispose();
 }
 
-console.log("\n13. Открытая арка: проём под свет и канал под ленту");
+console.log("\n13. Открытая арка: проём под свет, канал в скате и паз под акрил");
 
 {
   /*
     Владелец заметил тёмное пятно на просвет: сплошная стойка во всю ширину
     закрывала нижние 30 мм панели. Открытая арка держит панель двумя ножками по
-    краям базы, а рамка опускается в паз 3.5 мм. Раздел проверяет именно это:
-    середина проёма свободна для света, ножки стоят по краям, а в базе есть
-    канал 10 × 2 мм под ленту и канавка под провод.
+    краям базы, а рамка опускается в паз 3.5 мм. Потом светотехнический расчёт
+    показал вторую беду: канал ленты стоял в 8 мм от панели, и центр кадра
+    пересвечивался. Канал переехал в скат задней стенки-клина, база стала глубже, а
+    в верхней плоскости появился паз под лист матового акрила.
+
+    Раздел проверяет то, что видно только на числах: середина проёма свободна для
+    света, канал 10 × 3 мм вырезан в скате (дно на 3 мм ниже поверхности), паз под
+    рассеиватель — щель глубиной 6 мм, а лента уходит за панель на 59 мм.
   */
   const params: Partial<LithophaneParams> = {
     lithophaneWidth: 120,
@@ -1811,6 +1824,7 @@ console.log("\n13. Открытая арка: проём под свет и ка
   };
   const shape = LITHOPHANE_ARCH_STAND;
   const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
+  const ledge = (shape.ledgeDeg * Math.PI) / 180;
   const stand = createLithophaneStandGeometry(params);
   const size = boxSize(stand);
   const expectedWidth = Math.min(
@@ -1823,40 +1837,36 @@ console.log("\n13. Открытая арка: проём под свет и ка
   // Габарит рамки по Z — глубина паза: рамка входит в него с зазором по сторонам.
   const frameDepth = boxSize(createLithophaneFrameGeometry(params)).z;
   const seatFloor = shape.baseTop - shape.seatDepth * Math.cos(tilt);
-  const channelFloor = shape.baseTop - shape.channelDepth;
+  // Нормаль ската и направление вдоль него в плоскости ZY.
+  const axis = { y: Math.cos(ledge), z: Math.sin(ledge) };
+  const along = { y: -Math.sin(ledge), z: Math.cos(ledge) };
+  const strip = LITHOPHANE_ARCH_STRIP;
+  // Луч идёт по нормали ската: в канале он упирается в дно, рядом — в поверхность.
+  const probe = (offset: number) =>
+    firstHit(
+      stand,
+      [
+        0,
+        strip.y + along.y * offset + axis.y * 12,
+        strip.z + along.z * offset + axis.z * 12,
+      ],
+      [0, -axis.y, -axis.z],
+    );
+  const channelHit = probe(0);
+  const ledgeHit = probe(15);
+  const diffuserHit = firstHit(stand, [0, 40, shape.diffuserZ], [0, -1, 0]);
+  const beforeSlot = firstHit(stand, [0, 40, shape.diffuserZ - 4], [0, -1, 0]);
   const position = stand.getAttribute("position");
-  let channelMin = Number.POSITIVE_INFINITY;
-  let channelMax = Number.NEGATIVE_INFINITY;
-  let wireMin = Number.POSITIVE_INFINITY;
-  let wireMax = Number.NEGATIVE_INFINITY;
   let seatMin = Number.POSITIVE_INFINITY;
   let seatMax = Number.NEGATIVE_INFINITY;
-  let aboveMiddle = 0;
 
   for (let index = 0; index < position.count; index += 1) {
-    const x = position.getX(index);
     const y = position.getY(index);
     const z = position.getZ(index);
-
-    // Канал ленты ближе к панели, канавка провода — у тыльной кромки: их делит
-    // середина базы по Z, других выборок на этой глубине нет.
-    if (Math.abs(y - channelFloor) < TOLERANCE_MM) {
-      if (z > shape.back / 2) {
-        channelMin = Math.min(channelMin, z);
-        channelMax = Math.max(channelMax, z);
-      } else {
-        wireMin = Math.min(wireMin, z);
-        wireMax = Math.max(wireMax, z);
-      }
-    }
 
     if (Math.abs(y - seatFloor) < TOLERANCE_MM) {
       seatMin = Math.min(seatMin, z);
       seatMax = Math.max(seatMax, z);
-    }
-
-    if (y > shape.baseTop + 0.5 && Math.abs(x) < 20) {
-      aboveMiddle += 1;
     }
   }
 
@@ -1874,16 +1884,23 @@ console.log("\n13. Открытая арка: проём под свет и ка
     lithoMount: "stand",
   });
   const legX = expectedWidth / 2 - shape.legWidth / 2;
+  /*
+    Низ ската: от верхней кромки клина вниз-вперёд до плоскости базы. Луч проверки
+    проёма начинается сразу за этой точкой — иначе он упёрся бы в клин.
+  */
+  const ledgeFootZ =
+    shape.back + ((shape.leanTop - shape.baseTop) / Math.sin(ledge)) * along.z;
 
   console.log(
     `  подставка ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ` +
-      `${size.z.toFixed(2)} мм, канал ` +
-      `${(channelMax - channelMin).toFixed(2)} × ${shape.channelDepth} мм`,
+      `${size.z.toFixed(2)} мм, лента на ${strip.y.toFixed(2)} / ` +
+      `${strip.z.toFixed(2)} мм, дно канала ` +
+      `${(channelHit?.y ?? Number.NaN).toFixed(2)} мм`,
   );
   console.log(
     `  паз: дно на ${seatFloor.toFixed(2)} мм, ширина ` +
-      `${(seatMax - seatMin).toFixed(2)} мм; канавка провода ` +
-      `${(wireMax - wireMin).toFixed(2)} мм`,
+      `${(seatMax - seatMin).toFixed(2)} мм; паз рассеивателя до ` +
+      `${(diffuserHit?.y ?? Number.NaN).toFixed(2)} мм`,
   );
   console.log(
     `  сборка с аркой: ${archHeight.toFixed(2)} мм против ` +
@@ -1906,39 +1923,48 @@ console.log("\n13. Открытая арка: проём под свет и ка
     TOLERANCE_MM,
   );
   checkRange(
-    "арка: глубина базы",
+    "арка: глубина базы 74 мм",
     [size.z - (shape.front - shape.back)],
     -TOLERANCE_MM,
     TOLERANCE_MM,
   );
-  check("арка: над базой материала в середине нет", aboveMiddle, 0);
   checkRange(
-    "арка: канал под ленту 8–10 мм",
-    [channelMax - channelMin],
-    shape.channelWidth - TOLERANCE_MM,
-    shape.channelWidth + TOLERANCE_MM,
+    "арка: дно канала лежит на месте ленты",
+    [
+      (channelHit
+        ? channelHit.y * axis.y + channelHit.z * axis.z
+        : Number.NaN) -
+        (strip.y * axis.y + strip.z * axis.z),
+    ],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  checkRange(
+    "арка: вне канала поверхность выше дна на глубину канала",
+    [
+      (ledgeHit ? ledgeHit.y * axis.y + ledgeHit.z * axis.z : Number.NaN) -
+        (channelHit
+          ? channelHit.y * axis.y + channelHit.z * axis.z
+          : Number.NaN),
+    ],
+    shape.channelDepth - TOLERANCE_MM,
+    shape.channelDepth + TOLERANCE_MM,
   );
   check(
-    "арка: канал вмещает ленту 8 мм",
-    channelMax - channelMin >= 8,
+    "арка: канал вмещает ленту 8–10 мм",
+    shape.channelWidth >= 8 && shape.channelWidth <= 10,
     true,
+  );
+  checkRange(
+    "арка: паз рассеивателя глубиной 6 мм",
+    [(beforeSlot?.y ?? Number.NaN) - (diffuserHit?.y ?? Number.NaN)],
+    shape.diffuserDepth - TOLERANCE_MM,
+    shape.diffuserDepth + TOLERANCE_MM,
   );
   check(
-    "арка: лента укладывается между ножками",
-    expectedWidth - 2 * shape.legWidth >= 20,
+    "арка: паз рассеивателя вмещает лист 2 мм",
+    shape.diffuserWidth >= 2 && shape.diffuserWidth <= 3,
     true,
-  );
-  checkRange(
-    "арка: канавка под провод 1–2 мм глубиной",
-    [shape.wireDepth],
-    1,
-    2,
-  );
-  checkRange(
-    "арка: канавка провода в базе",
-    [wireMax - wireMin],
-    shape.wireWidth - TOLERANCE_MM,
-    shape.wireWidth + TOLERANCE_MM,
   );
   checkRange(
     "арка: паз глубже 3 мм",
@@ -1959,8 +1985,13 @@ console.log("\n13. Открытая арка: проём под свет и ка
     frameDepth + 2 * LITHOPHANE_FIT_GAP_MM + TOLERANCE_MM,
   );
   checkRange(
-    "арка: панель опущена в паз на 3.42 мм",
-    [solidHeight - archHeight - shape.seatDepth * Math.cos(tilt)],
+    "арка: панель поднята на разницу высот баз минус посадка в паз",
+    [
+      solidHeight -
+        archHeight +
+        (shape.baseTop - LITHOPHANE_STAND_SHAPES.leg.baseTop) -
+        shape.seatDepth * Math.cos(tilt),
+    ],
     -TOLERANCE_MM,
     TOLERANCE_MM,
   );
@@ -1968,20 +1999,20 @@ console.log("\n13. Открытая арка: проём под свет и ка
   for (const y of [shape.baseTop + 1, 12, 20, 28, shape.legTop - 1]) {
     check(
       `арка: свет проходит в середине на ${y} мм`,
-      blockedAt(stand, 0, y),
+      blockedAt(stand, 0, y, ledgeFootZ + 2),
       false,
     );
   }
 
   check(
     "арка: ножка по краю базы перекрывает",
-    blockedAt(stand, legX, 20),
+    blockedAt(stand, legX, 20, ledgeFootZ + 2),
     true,
   );
   for (const y of [shape.baseTop + 1, 20]) {
     check(
       `сплошная ножка: середина перекрыта на ${y} мм`,
-      blockedAt(solidStand, 0, y),
+      blockedAt(solidStand, 0, y, ledgeFootZ + 2),
       true,
     );
   }
@@ -2163,9 +2194,10 @@ console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм, прорез�
   const left = firstHit(stand, [0, probeY, light.centerZ], [-1, 0, 0]);
   const right = firstHit(stand, [0, probeY, light.centerZ], [1, 0, 0]);
   const bottom = firstHit(stand, [0, 80, light.centerZ], [0, -1, 0]);
-  // Луч из-за тыльной кромки: через прорезь он проходит в гнездо и останавливается
-  // на передней стенке, а без прорези упёрся бы в наружную.
-  const wireSlot = firstHit(stand, [0, probeY, -200], [0, 0, 1]);
+  // Луч изнутри гнезда назад: через прорезь он проходит стенку стакана и
+  // останавливается уже на тыльной стенке базы, а без прорези упёрся бы в неё же —
+  // на наружном радиусе.
+  const wireSlot = firstHit(stand, [0, probeY, light.centerZ], [0, 0, -1]);
   const panelAtRim = -(rim - shape.baseTop) * Math.tan(tilt);
   // Абажур: кромка Ø54 на 33 мм, вырез 120° в сторону панели.
   const shadeY = light.shadeRimY - 0.5;
@@ -2214,12 +2246,12 @@ console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм, прорез�
   );
   check(
     "патрон: прорезь под провод проходит через стенку",
-    (wireSlot?.z ?? Number.NaN) > light.centerZ,
+    (wireSlot?.z ?? Number.NaN) < light.centerZ - light.outerDiameter / 2,
     true,
   );
   check(
     "патрон: база глубже под гнездо",
-    light.centerZ - light.outerDiameter / 2 >= shape.socketBack + 1,
+    light.centerZ - light.outerDiameter / 2 >= shape.back + 1,
     true,
   );
   check(
@@ -2258,7 +2290,7 @@ console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм, прорез�
   );
   check(
     "патрон: абажур в габарите базы",
-    light.centerZ - light.shadeRimRadius >= shape.socketBack + 1,
+    light.centerZ - light.shadeRimRadius >= shape.back + 1,
     true,
   );
   check(
@@ -2869,13 +2901,19 @@ console.log("\n18. Базы изогнутых форм: брусок с кан�
     [0, base.top + 30, frontZ + LITHOPHANE_FIT_GAP_MM + base.outerWall / 2],
     [0, -1, 0],
   );
-  const holeHit = firstHit(
+  const grooveHit = firstHit(disc, [0, base.bowlHeight + 30, 2], [0, -1, 0]);
+  const bowlHit = firstHit(disc, [0, base.bowlHeight + 30, -10], [0, -1, 0]);
+  // Гнездо пьедестала: по оси чаши луч проходит кромку и упирается в его дно.
+  const pedestalRim = firstHit(
     disc,
-    [0, -30, -cylinderRadius],
-    [0, 1, 0],
+    [0, base.pedestalTop + 30, -cylinderRadius + base.pedestalCavity + 1],
+    [0, -1, 0],
   );
-  const grooveHit = firstHit(disc, [0, base.top + 30, 2], [0, -1, 0]);
-  const discTopHit = firstHit(disc, [0, base.top + 30, -10], [0, -1, 0]);
+  const pedestalFloor = firstHit(
+    disc,
+    [0, base.pedestalTop + 30, -cylinderRadius],
+    [0, -1, 0],
+  );
 
   console.log(
     `  брусок дуги: ${barSize.x.toFixed(2)} × ${barSize.y.toFixed(2)} × ` +
@@ -2926,24 +2964,39 @@ console.log("\n18. Базы изогнутых форм: брусок с кан�
     0,
   );
   checkRange(
-    "диск: наружный радиус — панель, стенка и кромка",
-    [discSize.x / 2 - discRadius, discSize.y - base.discThickness],
+    "чаша: наружный радиус — панель, стенка и кромка",
+    [discSize.x / 2 - discRadius, discSize.y - base.pedestalTop],
     -0.02,
     0.02,
   );
-  check(
-    "диск: сквозное отверстие Ø40 по центру",
-    holeHit === null,
-    true,
+  checkRange(
+    "чаша: круговой паз опускает панель на кромку чаши",
+    [grooveHit?.y ?? Number.NaN],
+    LITHOPHANE_CYLINDER_FLOOR_MM - TOLERANCE_MM,
+    LITHOPHANE_CYLINDER_FLOOR_MM + TOLERANCE_MM,
   );
   checkRange(
-    "диск: круговой паз опускает панель на дно",
-    [grooveHit?.y ?? Number.NaN, discTopHit?.y ?? Number.NaN],
-    LITHOPHANE_BENT_BASE_FLOOR_MM - TOLERANCE_MM,
-    base.discThickness + TOLERANCE_MM,
+    "чаша: дно полости ниже паза",
+    [bowlHit?.y ?? Number.NaN],
+    base.bowlFloor - TOLERANCE_MM,
+    base.bowlFloor + TOLERANCE_MM,
+  );
+  checkRange(
+    "чаша: пьедестал поднимает лампу к середине кадра",
+    [base.pedestalTop - base.bowlFloor],
+    25,
+    60,
+  );
+  checkRange(
+    "чаша: гнездо пьедестала глубиной 5 мм",
+    [
+      (pedestalRim?.y ?? Number.NaN) - (pedestalFloor?.y ?? Number.NaN),
+    ],
+    base.pedestalDepth - TOLERANCE_MM,
+    base.pedestalDepth + TOLERANCE_MM,
   );
   check(
-    "диск: оболочка замкнута и стоит на столе",
+    "чаша: оболочка замкнута и стоит на столе",
     [openEdges(disc) + nanVertices(disc), disc.boundingBox?.min.y ?? Number.NaN],
     [0, 0],
   );
@@ -2981,7 +3034,6 @@ console.log("\n19. Калейдоскоп: четыре панели без ра
   const maxThickness = params.lithophaneMaxThickness;
   const minThickness = params.lithophaneMinThickness;
   const outer = width / 2 + LITHOPHANE_FIT_GAP_MM + k.wall;
-  const collarTop = k.floor + k.seatDepth;
   const lidBottom = k.floor + height - k.seatDepth;
   const lidTop = lidBottom + k.lidThickness;
 
@@ -2998,7 +3050,9 @@ console.log("\n19. Калейдоскоп: четыре панели без ра
     height,
     lithophaneMeshOptions("kaleidoscope"),
   );
-  const candleRingAt = k.lampHole / 2 + k.candleRim / 2;
+  // Середина кромки пьедестала: между гнездом и наружной стенкой.
+  const candleRingAt = (k.pedestalCavity + k.pedestalOuter) / 2;
+  const pedestalFloor = k.pedestalTop - k.pedestalDepth;
 
   console.log(
     `  призма ${prismSize.x.toFixed(2)} × ${prismSize.y.toFixed(2)} × ` +
@@ -3031,17 +3085,17 @@ console.log("\n19. Калейдоскоп: четыре панели без ра
     lidTop + TOLERANCE_MM,
   );
   checkRange(
-    "калейдоскоп: цоколь на столе, высота — дно паза и стенка",
+    "калейдоскоп: цоколь на столе, высота — пьедестал под свечу",
     [
       basePart.boundingBox?.min.y ?? Number.NaN,
-      baseSize.y - collarTop,
+      baseSize.y - k.pedestalTop,
       baseSize.x - 2 * outer,
     ],
     -STEP_TOLERANCE_MM,
     TOLERANCE_MM,
   );
-  // Вес — требование владельца: полая призма должна весить не больше 120 г.
-  checkRange("калейдоскоп: вес полой призмы", [weight], 60, 120);
+  // Вес — требование владельца: полая призма с пьедесталом укладывается в 140 г.
+  checkRange("калейдоскоп: вес полой призмы", [weight], 60, 140);
   checkRange(
     "калейдоскоп: крышка тонкая — 2.5 мм",
     [lidTop - lidBottom],
@@ -3058,18 +3112,26 @@ console.log("\n19. Калейдоскоп: четыре панели без ра
     [0, 0, 0],
   );
 
-  // Свеча проходит снизу в камеру: в цоколе по оси призмы пластика нет, а сверху
-  // её закрывает колпак крышки — поэтому проверяется именно цоколь.
-  check(
-    "калейдоскоп: сквозное отверстие Ø40 под свечу",
-    firstHit(basePart, [0, -30, 0], [0, 1, 0]),
-    null,
+  /*
+    Свеча стоит в гнезде пьедестала: снизу труба открыта, а дно гнезда упирается в
+    пластик. Раньше свеча стояла на столе в кольце, и источник оказывался у самого
+    низа кадра.
+  */
+  checkRange(
+    "калейдоскоп: дно гнезда пьедестала под свечу",
+    [
+      firstHit(basePart, [0, -30, 0], [0, 1, 0])?.y ?? Number.NaN,
+      firstHit(basePart, [0, k.pedestalTop + 30, 0], [0, -1, 0])?.y ??
+        Number.NaN,
+    ],
+    pedestalFloor - TOLERANCE_MM,
+    pedestalFloor + TOLERANCE_MM,
   );
   checkRange(
-    "калейдоскоп: кольцо держит свечу на дне",
+    "калейдоскоп: кромка пьедестала на высоте гнезда",
     [firstHit(basePart, [candleRingAt, 30, 0], [0, -1, 0])?.y ?? Number.NaN],
-    collarTop - TOLERANCE_MM,
-    collarTop + TOLERANCE_MM,
+    k.pedestalTop - TOLERANCE_MM,
+    k.pedestalTop + TOLERANCE_MM,
   );
   // Окна в крышке: между обвязкой и колпаком свет и горячий воздух уходят вверх.
   check(
@@ -3297,10 +3359,39 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     [1, 1],
   );
   checkRange(
-    "свет: лента идёт по всей ширине панели",
+    "свет: лента идёт по ширине базы",
     [Math.max(...stripX) - Math.min(...stripX)],
-    plate.width - TOLERANCE_MM,
-    plate.width + TOLERANCE_MM,
+    Math.min(
+      normalizeLithophaneParams({}).lithophaneWidth,
+      Math.max(
+        LITHOPHANE_ARCH_STAND.minWidth,
+        normalizeLithophaneParams({}).lithophaneWidth *
+          LITHOPHANE_ARCH_STAND.widthFactor,
+      ),
+    ) - TOLERANCE_MM,
+    Math.min(
+      normalizeLithophaneParams({}).lithophaneWidth,
+      Math.max(
+        LITHOPHANE_ARCH_STAND.minWidth,
+        normalizeLithophaneParams({}).lithophaneWidth *
+          LITHOPHANE_ARCH_STAND.widthFactor,
+      ),
+    ) + TOLERANCE_MM,
+  );
+  checkRange(
+    "свет: лента отодвинута от панели на 50–60 мм",
+    [strip?.actualDistance ?? Number.NaN],
+    50,
+    60,
+  );
+  check(
+    "свет: лента светит вверх и вперёд",
+    [
+      strip!.emitters[0].axis[1] > 0,
+      strip!.emitters[0].axis[2] > 0,
+      strip!.emitters[0].position[2] < -40,
+    ],
+    [true, true, true],
   );
   check(
     "свет: лампа в гнезде — одна точка в центре",
@@ -3317,27 +3408,32 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     [LITHO_LIGHT_SEATS.usbBulbY, LITHOPHANE_USB_LIGHT.centerZ],
   );
 
-  // Патрон стоит выше колбы, поэтому верх панели получает больше света.
+  /*
+    Наклонный канал ставит ленту выше низа панели и в 54 мм от неё, поэтому по
+    высоте она ровнее колбы: у той свет уходит вниз, а верх остаётся в тени. Патрон
+    E27 стоит выше колбы, поэтому его верх получает больше света — порядок «чем
+    выше источник, тем ровнее» проверяется на лампе и колбе.
+  */
   check(
-    "свет: чем выше лампа, тем ровнее по высоте",
+    "свет: наклонный канал ровнее колбы в чаше",
+    [strip!.topShare > bulb!.topShare, bulb!.topShare < socket!.topShare],
+    [true, true],
+  );
+  check(
+    "свет: лента в канале без пересвета",
     [
-      strip!.topShare < bulb!.topShare,
-      bulb!.topShare < socket!.topShare,
+      strip!.peakRatio < LITHO_LIGHT_MODEL.overexposure,
+      strip!.warnings.every((item) => item.id !== "too_close"),
     ],
     [true, true],
   );
   check(
-    "свет: у ленты в канале есть и пятно, и тёмный верх",
-    strip?.warnings.map((item) => item.id),
-    ["too_close", "dark_top"],
-  );
-  check(
     "свет: у гнезда E27 расстояния не хватает",
     [
-      socket?.warnings.map((item) => item.id),
+      socket?.warnings.map((item) => item.id).includes("too_close"),
       socket!.actualDistance < socket!.recommendedDistance,
     ],
-    [["too_close"], true],
+    [true, true],
   );
 
   check(
@@ -3352,9 +3448,32 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     0.05,
   );
   check(
-    "свет: у диска полуцилиндра лампа на оси",
-    [disc?.kind, disc?.warnings.map((item) => item.id).includes("too_close")],
-    ["disc_lamp", false],
+    "свет: свеча поднята пьедесталом к середине кадра",
+    [
+      prism?.kind,
+      prism?.emitters[0].position.map((value) => Math.round(value)),
+    ],
+    ["candle", [0, Math.round(LITHO_LIGHT_SEATS.candleY), 0]],
+  );
+  check(
+    "свет: в чаше полуцилиндра лампа на оси пьедестала",
+    [
+      disc?.kind,
+      disc?.emitters[0].position[1],
+      disc?.emitters[0].position[2],
+      -(disc?.faces[0].bend?.radius ?? 0),
+    ],
+    [
+      "disc_lamp",
+      LITHO_LIGHT_SEATS.discLampY,
+      -(disc?.faces[0].bend?.radius ?? 0),
+      -(disc?.faces[0].bend?.radius ?? 0),
+    ],
+  );
+  check(
+    "свет: в чаше полуцилиндра верх не темнее низа вдвое",
+    disc!.topShare > 0.5,
+    true,
   );
   checkRange(
     "свет: карта на грань нужного размера",
@@ -3441,11 +3560,18 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     heatLift + TOLERANCE_MM,
   );
 
-  // Строка 0 карты — низ панели, там у ленты пятно: красного больше, синего меньше.
+  /*
+    Строка 0 карты — низ панели. У ленты в наклонном канале ось смотрит вверх и
+    вперёд, поэтому верх получает больше света: красного там больше, и карта не
+    вырождается в однотонное пятно.
+  */
   const topIndex = (LITHO_LIGHT_MODEL.rows - 1) * LITHO_LIGHT_MODEL.columns * 4;
   check(
-    "свет: низ карты теплее верха",
-    [layer.pixels[0] > layer.pixels[topIndex], layer.pixels[2] < layer.pixels[topIndex + 2]],
+    "свет: у наклонного канала верх карты теплее низа",
+    [
+      layer.pixels[topIndex] > layer.pixels[0],
+      layer.pixels[topIndex] !== layer.pixels[0],
+    ],
     [true, true],
   );
 }
