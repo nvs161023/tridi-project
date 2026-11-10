@@ -78,10 +78,11 @@
  *      дуги, объём совпадает с плоской плитой (раньше веер тыла уходил внутрь
  *      цилиндра и «толстил» панель — на дуге на 40 %, на полуцилиндре втрое), а
  *      бюджет сетки считает нарезку тыла отдельным слагаемым;
- *  18. базы изогнутых форм: у дуги — брусок с пазом и каналом под ленту (канал
- *      открыт вверх, за каналом и перед панелью пластик), у полуцилиндра —
- *      плоский диск с круговым пазом, выборкой снизу и сквозным отверстием Ø40 по
- *      оси: лампа светит прямо внутрь панели, а не в её торец;
+ *  18. базы изогнутых форм: у дуги — брусок с пазом, каналом под ленту и щелью
+ *      под рассеиватель 2.4 × 6 мм (канал открыт вверх, за каналом и перед
+ *      панелью пластик), у полуцилиндра — плоский диск с круговым пазом,
+ *      выборкой снизу и сквозным отверстием Ø40 по оси: лампа светит прямо внутрь
+ *      панели, а не в её торец;
  *  19. калейдоскоп: четыре панели без рамок на полом цоколе под тонкой крышкой с
  *      окнами — призма 123.6 мм, вся деталь весит около 110 г вместо 381 г,
  *      отверстие Ø40 держит кольцо в центре дна, окна в крышке дают тягу, а на
@@ -157,6 +158,7 @@ import {
   lithophaneLightPlan,
   type LithoLightEmitter,
   type LithoLightFace,
+  type LithoLightPlan,
 } from "../lib/constructor/litho-light-calc";
 
 /** Допуск габарита и толщины, мм. */
@@ -2858,7 +2860,8 @@ console.log(
     под ленту, либо площадка Ø44 под стойку и стакан, либо гладкое дно.
 
     Проверяется разрез, которого не видно на предпросмотре: дно паза, глубина
-    канала и канавки, высота полки, пластик за выборкой, замкнутость и вес.
+    канала, щели под рассеиватель и канавки, высота полки, пластик за выборкой,
+    замкнутость и вес.
   */
   const base = LITHOPHANE_BENT_BASE;
   const width = 120;
@@ -2934,6 +2937,22 @@ console.log(
   const outerHit = firstHit(
     bar,
     [0, base.top + 30, frontZ + LITHOPHANE_FIT_GAP_MM + base.outerWall / 2],
+    [0, -1, 0],
+  );
+  /*
+    Паз под рассеиватель: луч в его середину падает в дно, а рядом — верх бруска.
+    На базе под лампу паза нет: на том же месте луч останавливается выше верха
+    бруска — там пластик полки и упора.
+  */
+  const sheetHit = firstHit(bar, [0, base.top + 30, base.diffuserU], [0, -1, 0]);
+  const beforeSheet = firstHit(
+    bar,
+    [0, base.top + 30, base.diffuserU + base.diffuserWidth],
+    [0, -1, 0],
+  );
+  const rampSheet = firstHit(
+    railUsb,
+    [0, base.top + 30, base.diffuserU],
     [0, -1, 0],
   );
   const grooveHit = firstHit(ring, [0, base.bowlHeight + 30, 2], [0, -1, 0]);
@@ -3017,6 +3036,38 @@ console.log(
     [behindHit?.y ?? Number.NaN, outerHit?.y ?? Number.NaN],
     base.top - TOLERANCE_MM,
     base.top + TOLERANCE_MM,
+  );
+  checkRange(
+    "брусок: паз рассеивателя глубиной 6 мм",
+    [(beforeSheet?.y ?? Number.NaN) - (sheetHit?.y ?? Number.NaN)],
+    base.diffuserDepth - TOLERANCE_MM,
+    base.diffuserDepth + TOLERANCE_MM,
+  );
+  check(
+    "брусок: паз рассеивателя держит лист 2 мм",
+    [
+      base.diffuserWidth > 2,
+      sheetHit !== null,
+      base.diffuserDepth > base.diffuserWidth,
+    ],
+    [true, true, true],
+  );
+  check(
+    "брусок: паз рассеивателя стоит между каналом и панелью",
+    [
+      base.diffuserU - base.diffuserWidth / 2 >
+        channelCenter + base.channelWidth / 2,
+      base.diffuserU + base.diffuserWidth / 2 < -LITHOPHANE_FIT_GAP_MM,
+    ],
+    [true, true],
+  );
+  check(
+    "брусок: под лампу паза нет — на его месте пластик",
+    [
+      rampSheet !== null,
+      (rampSheet?.y ?? Number.NaN) > base.top - base.diffuserDepth + 1,
+    ],
+    [true, true],
   );
   check(
     "брусок: оболочка замкнута",
@@ -3688,6 +3739,122 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     [strip?.maps[0].length ?? Number.NaN],
     LITHO_LIGHT_MODEL.columns * LITHO_LIGHT_MODEL.rows,
     LITHO_LIGHT_MODEL.columns * LITHO_LIGHT_MODEL.rows,
+  );
+
+  /*
+    Рассеиватель: лист в пазу базы. Он не добавляет свет, а перераспределяет уже
+    дошедший, поэтому проверяется не абсолют, а разница с той же сборкой без листа:
+    пик падает, рабочая зона растёт, средняя держится. Панель 180 × 155 — та, с
+    которой расчёт сам советует лист.
+  */
+  const wide = { lithophaneWidth: 180, lithophaneHeight: 155 };
+  const wideStrip = lithophaneLightPlan({
+    lithoMount: "arch",
+    lithoLightSource: "strip",
+    ...wide,
+  })!;
+  const wideSheet = lithophaneLightPlan({
+    lithoMount: "arch",
+    lithoLightSource: "strip",
+    lithoDiffuser: true,
+    ...wide,
+  })!;
+  const wideCurve = lithophaneLightPlan({
+    lithoShape: "curved",
+    lithoLightSource: "strip",
+    ...wide,
+  })!;
+  const wideCurveSheet = lithophaneLightPlan({
+    lithoShape: "curved",
+    lithoLightSource: "strip",
+    lithoDiffuser: true,
+    ...wide,
+  })!;
+  // Лист просят у лампы, патрона и в чаше: там паза нет, и план его не выдумывает.
+  const wideBulbSheet = lithophaneLightPlan({
+    lithoMount: "arch",
+    lithoLightSource: "usb_bulb",
+    lithoDiffuser: true,
+    ...wide,
+  })!;
+  const ringSheet = lithophaneLightPlan({
+    lithoShape: "cylinder",
+    lithoLightSource: "strip",
+    lithoDiffuser: true,
+    ...wide,
+  })!;
+  /** Доля узлов карты в рабочей зоне: от 0.6 до 1.6 средней. */
+  const greenShare = (plan: LithoLightPlan): number => {
+    const map = plan.maps[0] ?? [];
+    const green = map.filter(
+      (lux) => lux >= plan.average * 0.6 && lux <= plan.average * 1.6,
+    ).length;
+
+    return map.length > 0 ? green / map.length : 0;
+  };
+
+  check(
+    "свет: на широкой панели расчёт советует лист",
+    [
+      wideStrip.warnings.some((item) => item.id === "diffuser"),
+      wideSheet.warnings.some((item) => item.id === "diffuser"),
+      strip!.warnings.some((item) => item.id === "diffuser"),
+    ],
+    [true, false, false],
+  );
+  check(
+    "свет: лист размывает пятно — пик падает, рабочая зона растёт",
+    [
+      wideSheet.peakRatio < wideStrip.peakRatio - 0.1,
+      greenShare(wideSheet) > greenShare(wideStrip) + 0.05,
+      wideCurveSheet.peakRatio < wideCurve.peakRatio - 0.1,
+      greenShare(wideCurveSheet) > greenShare(wideCurve) + 0.05,
+    ],
+    [true, true, true, true],
+  );
+  check(
+    "свет: лист не добавляет свет — средняя падает на пропускание",
+    [
+      wideSheet.average < wideStrip.average,
+      wideSheet.average > wideStrip.average * 0.8,
+      wideSheet.maps.every((map) => map.every(Number.isFinite)),
+    ],
+    [true, true, true],
+  );
+  checkRange(
+    "свет: лист стоит в пазу базы, между лентой и панелью",
+    [wideSheet.diffuser?.gap ?? Number.NaN],
+    10,
+    wideStrip.actualDistance - 10,
+  );
+  check(
+    "свет: в бруске дуги лист ближе к панели, чем в базе арки",
+    [
+      (wideCurveSheet.diffuser?.gap ?? Number.NaN) <
+        (wideSheet.diffuser?.gap ?? 0),
+    ],
+    [true],
+  );
+  checkRange(
+    "свет: низ листа — дно паза, верх — на высоте листа",
+    [
+      (wideSheet.diffuser?.top ?? Number.NaN) -
+        (wideSheet.diffuser?.bottom ?? Number.NaN),
+    ],
+    LITHO_LIGHT_MODEL.diffuserSheetHeight,
+    LITHO_LIGHT_MODEL.diffuserSheetHeight,
+  );
+  check(
+    "свет: паз под лист есть только у ленты в плоской и изогнутой базе",
+    [
+      wideSheet.diffuserSupported,
+      wideCurveSheet.diffuserSupported,
+      wideBulbSheet.diffuserSupported,
+      wideBulbSheet.diffuser,
+      ringSheet.diffuserSupported,
+      ringSheet.diffuser,
+    ],
+    [true, true, false, null, false, null],
   );
 
   // Палитра карты: синий — провал, зелёный — рабочая зона, красный — пересвет.

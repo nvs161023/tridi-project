@@ -1053,6 +1053,19 @@ export function ConstructorClient({
     );
   }
 
+  /**
+   * Рассеиватель: лист матового акрила 2 мм в пазу базы.
+   *
+   * Паз напечатан всегда, а флаг только переключает расчёт: без листа карта света
+   * в предпросмотре прямая, с листом — размытая. Так человек видит, что даёт
+   * деталь, которую он, возможно, ещё не купил.
+   */
+  function updateLithoDiffuser(lithoDiffuser: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lithoDiffuser }),
+    );
+  }
+
   function updateLithoMount(lithoMount: LithophaneMount) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, lithoMount }),
@@ -1425,6 +1438,7 @@ export function ConstructorClient({
             onRemoveKeychainDecoration={removeKeychainDecoration}
             keychainReport={keychainImageReport}
             onLithoFrameChange={updateLithoFrame}
+            onLithoDiffuserChange={updateLithoDiffuser}
             onLithoLightSourceChange={updateLithoLightSource}
             onLithoMountChange={updateLithoMount}
             onLithoShapeChange={updateLithoShape}

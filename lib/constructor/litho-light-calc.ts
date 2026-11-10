@@ -112,7 +112,7 @@ export const LITHO_LIGHT_KIND_LABELS = {
  * свет ложится неровно, но фото читается.
  */
 export type LithoLightWarning = {
-  id: "too_close" | "dark_top" | "uneven_faces";
+  id: "too_close" | "dark_top" | "uneven_faces" | "diffuser";
   severity: "error" | "warning";
   /** Заголовок в одну строку: его читают в блоке расчёта. */
   title: string;
@@ -133,6 +133,13 @@ export type LithoLightPlan = {
   shape: LithophaneShape;
   emitters: LithoLightEmitter[];
   faces: LithoLightFace[];
+  /**
+   * Место листа-рассеивателя, если он включён и его паз напечатан: по нему карта
+   * света размывается. `null` — листа нет, карта прямая.
+   */
+  diffuser: LithoLightDiffuser | null;
+  /** Есть ли у этой сборки паз под лист: от него зависит переключатель в панели. */
+  diffuserSupported: boolean;
   columns: number;
   rows: number;
   maps: number[][];
@@ -182,6 +189,32 @@ export const LITHO_LIGHT_MODEL = {
   faceSpread: 0.25,
   /** Сколько точек раскладывается по каналу ленты. */
   stripEmitters: 13,
+  /**
+   * Рассеиватель: конус рассеяния, пропускание и высота листа.
+   *
+   * Лист опалового акрила 2 мм рассеивает свет вперёд конусом с полушириной
+   * `diffuserSpreadDeg`: точка листа светит на панель пятном радиуса
+   * `gap · tan(spread)`, где `gap` — расстояние от листа до тыла панели. Паз базы
+   * арки стоит на 19.4 мм, отсюда радиус размытия σ ≈ 23 мм — свет уходит из пятна
+   * лампы в кольцо вокруг, и пик падает с 2.2 до 1.7 средних.
+   *
+   * Пропускание 0.85 — потери на отражение и поглощение в 2 мм опала. Высота 70
+   * мм: выше лист упёрся бы в тыл наклонной панели, которая уходит назад на 12°,
+   * поэтому верх кадра освещён прямым светом мимо листа — так и считает
+   * `diffuserShare`.
+   */
+  diffuserSpreadDeg: 50,
+  diffuserTransmission: 0.85,
+  diffuserSheetHeight: 70,
+  /** Мягкий край листа в расчёте: переход от листа к прямому свету, мм. */
+  diffuserEdge: 10,
+  /**
+   * Ширина панели, с которой расчёт советует лист, мм.
+   *
+   * До 150 мм пятно лампы ещё укладывается в кадр: пик не выше двух средних.
+   * Дальше панель шире диаграммы, и без листа центр пересвечен при ровных краях.
+   */
+  diffuserPanelWidth: 150,
   /**
    * Высота светящейся части ленты над полом канала, мм.
    *
@@ -448,6 +481,171 @@ function panelLux(
   return total;
 }
 
+/**
+ * Рассеиватель в напечатанной базе: где стоит лист и сколько он размывает.
+ *
+ * `gap` — расстояние от листа до тыла панели, мм: от него зависит радиус
+ * размытия. `bottom` и `top` — низ и верх листа над столом: свет, идущий выше
+ * листа, доходит до панели прямым, и расчёт считает его прямым.
+ */
+export type LithoLightDiffuser = {
+  gap: number;
+  bottom: number;
+  top: number;
+};
+
+/** Гауссово ядро свёртки по одной оси, нормированное на единицу. */
+function gaussianKernel(sigmaSteps: number): number[] {
+  const half = Math.max(1, Math.ceil(sigmaSteps * 2.5));
+  const weights: number[] = [];
+  let total = 0;
+
+  for (let step = -half; step <= half; step += 1) {
+    const weight = Math.exp(-(step * step) / (2 * sigmaSteps * sigmaSteps));
+
+    weights.push(weight);
+    total += weight;
+  }
+
+  return weights.map((weight) => weight / total);
+}
+
+/**
+ * Размытие карты света: разделимая свёртка по ширине и высоте панели.
+ *
+ * Рассеиватель не меняет поток, а перераспределяет его: свёртка с гауссом
+ * сохраняет среднее, поэтому после неё средняя освещённость та же, а пик ниже.
+ * Края карты не заворачиваются — свет за кромку панели уходит, и там остаётся
+ * то, что даёт ближайшая точка.
+ */
+function blurMap(
+  map: readonly number[],
+  rows: number,
+  columns: number,
+  sigmaMm: number,
+  widthMm: number,
+  heightMm: number,
+): number[] {
+  const stepX = columns > 1 ? widthMm / (columns - 1) : widthMm;
+  const stepY = rows > 1 ? heightMm / (rows - 1) : heightMm;
+  const sigmaX = Math.max(0.01, sigmaMm / stepX);
+  const sigmaY = Math.max(0.01, sigmaMm / stepY);
+  const kernelX = gaussianKernel(sigmaX);
+  const kernelY = gaussianKernel(sigmaY);
+  const halfX = (kernelX.length - 1) / 2;
+  const halfY = (kernelY.length - 1) / 2;
+  const horizontal: number[] = new Array<number>(map.length).fill(0);
+  const result: number[] = new Array<number>(map.length).fill(0);
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      let total = 0;
+
+      for (let step = 0; step < kernelX.length; step += 1) {
+        const at = Math.min(
+          columns - 1,
+          Math.max(0, column + step - halfX),
+        );
+
+        total += (map[row * columns + at] ?? 0) * (kernelX[step] ?? 0);
+      }
+
+      horizontal[row * columns + column] = total;
+    }
+  }
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      let total = 0;
+
+      for (let step = 0; step < kernelY.length; step += 1) {
+        const at = Math.min(rows - 1, Math.max(0, row + step - halfY));
+
+        total += (horizontal[at * columns + column] ?? 0) * (kernelY[step] ?? 0);
+      }
+
+      result[row * columns + column] = total;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Доля света точки панели, прошедшая через лист рассеивателя.
+ *
+ * Луч от лампы к точке пересекает плоскость листа на высоте `y`: ниже верхней
+ * кромки свет прошёл через лист и размыт, выше — идёт прямо. Переход сглажен на
+ * `diffuserEdge`, иначе на карте была бы видна ступенька. Плоскость листа берётся
+ * параллельной панели на расстоянии `gap`: паз базы вертикален, а панель наклонена
+ * на 12°, и на 70 мм высоты расхождение меньше 15 мм — для доли света это
+ * округление.
+ */
+function diffuserShare(
+  face: LithoLightFace,
+  point: Vec3,
+  from: Vec3,
+  diffuser: LithoLightDiffuser,
+): number {
+  const fromDepth = dot(sub(from, face.origin), face.normal);
+
+  // Лампа ближе листа: между ней и панелью листа нет, свет идёт прямо.
+  if (fromDepth >= -diffuser.gap) {
+    return 0;
+  }
+
+  const t = (-diffuser.gap - fromDepth) / -fromDepth;
+  const crossing = add(from, scale(sub(point, from), t));
+  const edge = Math.max(1, LITHO_LIGHT_MODEL.diffuserEdge);
+
+  return Math.min(1, Math.max(0, (diffuser.top - crossing[1]) / edge));
+}
+
+/**
+ * Карта света с рассеивателем: размытая часть от листа плюс прямой свет мимо него.
+ *
+ * Доля `share` считается по каждому узлу сетки, поэтому лист не обрезает карту
+ * ступенькой: у нижней кромки свет размыт полностью, у верхней — идёт прямо.
+ * Пропускание листа снижает только размытую часть, из-за чего за листом панель
+ * темнее на 15 %.
+ */
+function diffusedMap(
+  face: LithoLightFace,
+  map: readonly number[],
+  emitters: readonly LithoLightEmitter[],
+  diffuser: LithoLightDiffuser,
+  columns: number,
+  rows: number,
+): number[] {
+  const sigma =
+    diffuser.gap *
+    Math.tan((LITHO_LIGHT_MODEL.diffuserSpreadDeg * Math.PI) / 180);
+  const blurred = blurMap(map, rows, columns, sigma, face.width, face.height);
+  const from = emittersCentroid(emitters);
+  const result: number[] = new Array<number>(columns * rows).fill(0);
+
+  for (let row = 0; row < rows; row += 1) {
+    const v = rows > 1 ? row / (rows - 1) : 0.5;
+
+    for (let column = 0; column < columns; column += 1) {
+      const u = columns > 1 ? column / (columns - 1) : 0.5;
+      const index = row * columns + column;
+      const share = diffuserShare(
+        face,
+        lithophaneFacePoint(face, u, v),
+        from,
+        diffuser,
+      );
+
+      result[index] =
+        (map[index] ?? 0) * (1 - share) +
+        (blurred[index] ?? 0) * share * LITHO_LIGHT_MODEL.diffuserTransmission;
+    }
+  }
+
+  return result;
+}
+
 /** Метрики карты света: без параметров и рекомендаций — их считает план. */
 export type LithoLightMetrics = {
   columns: number;
@@ -475,6 +673,7 @@ export function lithophaneLightMetrics(
   emitters: readonly LithoLightEmitter[],
   columns: number = LITHO_LIGHT_MODEL.columns,
   rows: number = LITHO_LIGHT_MODEL.rows,
+  diffuser: LithoLightDiffuser | null = null,
 ): LithoLightMetrics {
   const maps: number[][] = [];
   const faceMeans: number[] = [];
@@ -489,21 +688,33 @@ export function lithophaneLightMetrics(
   let topCount = 0;
 
   for (const face of faces) {
-    const map: number[] = new Array<number>(columns * rows).fill(0);
-    let faceSum = 0;
+    const direct: number[] = new Array<number>(columns * rows).fill(0);
 
     for (let row = 0; row < rows; row += 1) {
       const v = rows > 1 ? row / (rows - 1) : 0.5;
 
       for (let column = 0; column < columns; column += 1) {
         const u = columns > 1 ? column / (columns - 1) : 0.5;
-        const lux = panelLux(
+
+        direct[row * columns + column] = panelLux(
           lithophaneFacePoint(face, u, v),
           lithophaneFaceNormal(face, u),
           emitters,
         );
+      }
+    }
 
-        map[row * columns + column] = lux;
+    // Рассеиватель считается по готовой прямой карте: он не двигает лампу, а
+    // перераспределяет уже дошедший свет.
+    const map = diffuser
+      ? diffusedMap(face, direct, emitters, diffuser, columns, rows)
+      : direct;
+    let faceSum = 0;
+
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
+        const lux = map[row * columns + column] ?? 0;
+
         faceSum += lux;
         sum += lux;
         count += 1;
@@ -1189,6 +1400,51 @@ function lightSeat(
 }
 
 /**
+ * Место листа-рассеивателя: есть только там, где напечатан его паз.
+ *
+ * Паз стоит в верхней плоскости базы арки и в бруске дуги — там лист вставляется
+ * сверху и оказывается между лентой и панелью. У стойки USB-лампы и стакана
+ * патрона лист упёрся бы в саму стойку: они занимают середину базы, поэтому
+ * рассеиватель им не предлагается. В чаше полуцилиндра и в призме калейдоскопа
+ * листу негде стоять: свет там идёт от центра кольцом по всей дуге.
+ *
+ * Низ листа — дно паза, верх — на `diffuserSheetHeight` выше. Числа берутся из
+ * геометрии, поэтому расчёт и напечатанный паз не разъезжаются.
+ */
+function diffuserSeat(
+  normalized: LithophaneParams,
+  kind: LithoLightKind,
+): LithoLightDiffuser | null {
+  if (!normalized.lithoDiffuser || kind !== "strip") {
+    return null;
+  }
+
+  if (normalized.lithoShape === "flat") {
+    const stand = LITHOPHANE_ARCH_STAND;
+    const bottom = stand.baseTop - stand.diffuserDepth;
+
+    return {
+      gap: plateBack() - stand.diffuserZ,
+      bottom,
+      top: bottom + LITHO_LIGHT_MODEL.diffuserSheetHeight,
+    };
+  }
+
+  if (normalized.lithoShape === "curved") {
+    const base = LITHOPHANE_BENT_BASE;
+    const bottom = base.top - base.diffuserDepth;
+
+    return {
+      gap: plateBack() - base.diffuserU,
+      bottom,
+      top: bottom + LITHO_LIGHT_MODEL.diffuserSheetHeight,
+    };
+  }
+
+  return null;
+}
+
+/**
  * Полный расчёт по параметрам: источники, карта, рекомендации и предупреждения.
  *
  * Возвращает `null`, если свет ставить некуда: крепления вырезаны в рамке, поэтому
@@ -1211,31 +1467,68 @@ export function lithophaneLightPlan(
     return null;
   }
 
-  const metrics = lithophaneLightMetrics(seat.faces, seat.emitters);
+  const diffuser = diffuserSeat(normalized, seat.kind);
+  const metrics = lithophaneLightMetrics(
+    seat.faces,
+    seat.emitters,
+    undefined,
+    undefined,
+    diffuser,
+  );
   const face = seat.faces[0];
   const centroid = emittersCentroid(seat.emitters);
   const actualDistance = distanceToFace(face, centroid);
   const distance = recommendedDistance(face, seat.emitters);
   const height = lithophaneFacePoint(face, 0.5, 0.5)[1];
+  const warnings = lightWarnings({
+    kind: seat.kind,
+    metrics,
+    actualDistance,
+    recommendedDistance: distance,
+    actualHeight: centroid[1],
+    recommendedHeight: height,
+    plateHeight: plate.height,
+  });
+
+  /*
+    Рассеиватель не обязателен: лист — отдельная деталь, и без неё сборка
+    работает. Но на широкой панели лампа в базе светит пятном, поэтому о листе
+    стоит сказать один раз и с числом: до какого пика доходит карта.
+  */
+  const diffuserSupported =
+    seat.kind === "strip" &&
+    (normalized.lithoShape === "flat" || normalized.lithoShape === "curved");
+
+  if (
+    diffuserSupported &&
+    !diffuser &&
+    plate.width >= LITHO_LIGHT_MODEL.diffuserPanelWidth
+  ) {
+    warnings.push({
+      id: "diffuser",
+      severity: "warning",
+      title: "Рассеиватель сделает свет ровнее",
+      hint:
+        `Панель ${Math.round(plate.width)} мм шире ` +
+        `${LITHO_LIGHT_MODEL.diffuserPanelWidth} мм, и пик ярче средней в ` +
+        `${metrics.peakRatio.toFixed(1)} раза. Включите рассеиватель: паз под ` +
+        `лист 2 мм уже напечатан в базе, останется вставить лист матового ` +
+        `акрила — расчёт покажет свет с ним.`,
+    });
+  }
 
   return {
     kind: seat.kind,
     shape: normalized.lithoShape,
     emitters: seat.emitters,
     faces: seat.faces,
+    diffuser,
+    diffuserSupported,
     ...metrics,
     actualDistance,
     recommendedDistance: distance,
     recommendedHeight: height,
-    warnings: lightWarnings({
-      kind: seat.kind,
-      metrics,
-      actualDistance,
-      recommendedDistance: distance,
-      actualHeight: centroid[1],
-      recommendedHeight: height,
-      plateHeight: plate.height,
-    }),
+    warnings,
   };
 }
 

@@ -354,6 +354,8 @@ type ParameterPanelProps = {
   onBoxPresetChange: (preset: BoxPresetId) => void;
   /** Рамка литофана: отдельная деталь с пазом под плиту. */
   onLithoFrameChange: (hasFrame: boolean) => void;
+  /** Рассеиватель: лист матового акрила в пазу базы, размывает пятно лампы. */
+  onLithoDiffuserChange: (enabled: boolean) => void;
   /** Крепление литофана: подставка, настенные петли или ничего. */
   onLithoMountChange: (mount: LithophaneMount) => void;
   /**
@@ -1520,7 +1522,13 @@ function modelSummary(
  * крепления зашита в рамку, поэтому совет «поднять лампу» бесполезен — модель
  * говорит, чего добиваться рассеивателем или другим креплением.
  */
-function LithophaneLightReport({ params }: { params: ConstructorParams }) {
+function LithophaneLightReport({
+  params,
+  onLithoDiffuserChange,
+}: {
+  params: ConstructorParams;
+  onLithoDiffuserChange: (enabled: boolean) => void;
+}) {
   const plan = useMemo(() => lithophaneLightPlan(params), [params]);
 
   /*
@@ -1532,6 +1540,15 @@ function LithophaneLightReport({ params }: { params: ConstructorParams }) {
   if (!plan) {
     return null;
   }
+
+  /*
+    Паз напечатан в двух местах, и в тексте они называются по-разному: «паз базы
+    арки» в падеже паза и «в базе арки» в падеже места. У бруска дуги паз заметён
+    по дуге, поэтому лист там сгибают — об этом одна оговорка в конце.
+  */
+  const seatOf = plan.shape === "curved" ? "бруска дуги" : "базы арки";
+  const seatIn = plan.shape === "curved" ? "бруске дуги" : "базе арки";
+  const seatBend = plan.shape === "curved" ? " Лист 2 мм гнётся по дуге." : "";
 
   return (
     <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-3">
@@ -1576,14 +1593,36 @@ function LithophaneLightReport({ params }: { params: ConstructorParams }) {
       </p>
       {/*
         Лента в базе арки стоит ближе рекомендованного: 74 мм базы — это максимум,
-        который встаёт на стол. Здесь же говорится, где напечатан паз под лист.
+        который встаёт на стол. Паз под лист напечатан в базе арки и в бруске дуги,
+        поэтому переключатель есть только у форм с плоской панелью: у стойки
+        USB-лампы и стакана патрона он упёрся бы в стойку, а в чаше полуцилиндра и
+        в призме листу негде стоять.
       */}
-      {plan.kind === "strip" && plan.shape === "flat" ? (
-        <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
-          Паз под рассеиватель 2.4 × 6 мм уже напечатан в базе арки: вставьте в
-          него лист белого матового акрила 2 мм (около 100 × 30 мм) — он
-          разбивает пятно ленты, и подсветка становится ровной по всей высоте.
-        </p>
+      {plan.diffuserSupported ? (
+        <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-slate-950/40 p-3 transition-colors hover:border-white/25 hover:bg-white/5">
+          <input
+            checked={params.lithoDiffuser}
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            onChange={(event) => onLithoDiffuserChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-slate-200">
+              Рассеиватель
+            </span>
+            <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+              {plan.diffuser
+                ? `Лист 2 мм стоит в пазу ${seatOf} на ${plan.diffuser.gap.toFixed(
+                    0,
+                  )} мм от панели и на ${(
+                    plan.diffuser.top - plan.diffuser.bottom
+                  ).toFixed(0)} мм по высоте: он разбивает пятно ленты, и пик падает до ×${plan.peakRatio.toFixed(
+                    2,
+                  )} средней. Карта света в сцене уже считает его.${seatBend}`
+                : `В ${seatIn} напечатан паз под лист 2 мм: вставьте в него матовый акрил — расчёт пересчитает карту с ним, и станет видно, насколько ровнее ляжет свет.${seatBend}`}
+            </span>
+          </span>
+        </label>
       ) : null}
 
       {plan.warnings.length > 0 ? (
@@ -1650,6 +1689,7 @@ export function ParameterPanel({
   onBoxCellsChange,
   onBoxPresetChange,
   onLithoFrameChange,
+  onLithoDiffuserChange,
   onLithoMountChange,
   onLithoShapeChange,
   onLithoLightSourceChange,
@@ -4636,7 +4676,10 @@ export function ParameterPanel({
             рамки с зазором 0.2 мм.
           </p>
 
-          <LithophaneLightReport params={params} />
+          <LithophaneLightReport
+            onLithoDiffuserChange={onLithoDiffuserChange}
+            params={params}
+          />
         </>
       ) : (
         <>
