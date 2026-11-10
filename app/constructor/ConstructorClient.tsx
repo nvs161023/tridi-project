@@ -69,7 +69,6 @@ import {
   sanitizeQrCardPhone,
   listSignBlocks,
   listSignLetters,
-  lithophaneHasStand,
   lithophaneStlFileName,
   normalizeConstructorParams,
   nextPatternLayer,
@@ -89,7 +88,6 @@ import {
   type KeychainParams,
   type KeychainQrDecoration,
   type LithophaneBrightnessGrid,
-  type LithophaneBulb,
   type LithophaneMount,
   type LithophanePart,
   type LithophaneShape,
@@ -159,7 +157,6 @@ type SizeParam = Exclude<
   | "lithoFrame"
   | "lithoMount"
   | "lithoShape"
-  | "lithoBulb"
   | "lithophaneBrightness"
   | "planterShape"
   | "planterDrainage"
@@ -303,8 +300,7 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   }
 
   if (params.model === "lithophane") {
-    // Без рамки печатается одна плита рельефа: крепления крепятся к рамке,
-    // поэтому дополнительных файлов нет.
+    // Без рамки печатается одна плита рельефа, поэтому дополнительных файлов нет.
     if (!params.lithoFrame) {
       return [
         {
@@ -317,14 +313,9 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
       ];
     }
 
-    // Первый файл — собранный литофан: плита уже вставлена в рамку, а кольцо
-    // монорельса стоит на своём расстоянии. Дальше детали по отдельности:
-    // рельеф и рамка есть всегда, крепление — только у короба и монорельса.
+    // Первый файл — собранный литофан: плита уже вставлена в рамку. Дальше детали
+    // по отдельности: рельеф и рамка есть всегда.
     const parts: LithophanePart[] = ["relief", "frame"];
-
-    if (lithophaneHasStand(params.lithoMount)) {
-      parts.push("mount");
-    }
 
     return [
       {
@@ -1032,7 +1023,7 @@ export function ConstructorClient({
     );
   }
 
-  /** Крепление литофана: короб под LED-матрицу, монорельс с кольцом или ничего. */
+  /** Крепление литофана: сейчас доступно только «без подставки». */
   function updateLithoMount(lithoMount: LithophaneMount) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, lithoMount }),
@@ -1042,36 +1033,12 @@ export function ConstructorClient({
   /**
    * Форма панели: плоская или круглая.
    *
-   * Крепление при этом не сбрасывается: обе формы держат короб и рельс на тылу
-   * рамки, поэтому выбор переезжает вместе с панелью.
+   * Кадры секторов при этом не сбрасываются: вернувшись к кругу, человек
+   * получает те же четыре фотографии.
    */
   function updateLithoShape(lithoShape: LithophaneShape) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, lithoShape }),
-    );
-  }
-
-  /**
-   * Цоколь лампы на кольце монорельса.
-   *
-   * От него зависят отверстие площадки (14.6 мм у E14, 28.6 мм у E27) и бортик
-   * под штатную гайку, поэтому кольцо пересобирается вместе с выбором.
-   */
-  function updateLithoBulb(lithoBulb: LithophaneBulb) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, lithoBulb }),
-    );
-  }
-
-  /**
-   * Расстояние от панели до площадки патрона.
-   *
-   * Кольцо печатается на этом месте рельса: слайдер задаёт и положение каретки
-   * в сборке, и длину рельса в детали.
-   */
-  function updateLithoRailDistance(lithoRailDistance: number) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, lithoRailDistance }),
     );
   }
 
@@ -1419,8 +1386,6 @@ export function ConstructorClient({
             onLithoFrameChange={updateLithoFrame}
             onLithoMountChange={updateLithoMount}
             onLithoShapeChange={updateLithoShape}
-            onLithoBulbChange={updateLithoBulb}
-            onLithoRailDistanceChange={updateLithoRailDistance}
             onLithophaneBrightnessChange={updateLithophaneBrightness}
             onLithophaneSideBrightnessChange={updateLithophaneSideBrightness}
             onModelChange={updateModel}

@@ -1,5 +1,5 @@
 /**
- * Тест геометрии литофана: рельеф, рамка, две системы крепления и круглая панель.
+ * Тест геометрии литофана: рельеф, рамка и круглая панель на четыре фото.
  *
  * Основные правила, которые закреплены здесь:
  *   • кадр вписывается в плиту по правилу contain, а не растягивается;
@@ -7,8 +7,10 @@
  *   • у каждой детали замкнутая оболочка, а шаг сетки не больше 0.3 мм;
  *   • плоская и круглая панели собираются по одной системе координат: тыл рамки
  *     лежит в плоскости Z = 0, лицо смотрит в +Z;
- *   • крепление — короб под LED-плату или монорельс с подвижным кольцом;
- *     старых подставок (ножка, арка, база, подвес) в модели больше нет.
+ *   • креплений нет: `lithoMount` знает только `none`, поэтому за панелью ничего
+ *     не торчит и рамка печатается плоской;
+ *   • у круглой панели четыре сектора по 90°, между ними канавка 1.5 × 0.5 мм,
+ *     а на оси — плоский диск Ø4 мм.
  *
  * Что проверяется:
  *   1. кадр не растягивается: чёрный круг в центре кадра 3:2 и 1:1 остаётся
@@ -22,11 +24,10 @@
  *      плита 210 мм ещё проходит по бюджету, а 215 мм — уже нет;
  *   5. слайдеры толщин задают размах: при 0.8…3.5 мм белый кадр печатается на
  *      0.8 мм, чёрный — на 3.5 мм, а по умолчанию минимум 0.8 и максимум 3.0;
- *   6. круглый рельеф: габарит равен диаметру плиты, оболочка замкнута, вершин
- *      нет NaN, у каждого из четырёх секторов своё фото;
- *   7. группы материалов: рельеф и крепление — одна сетка с двумя группами,
- *      группы покрывают все индексы, а сборка с креплением глубже и выше
- *      сборки без крепления;
+ *   6. группы материалов: рельеф и рамка — одна сетка с двумя группами, группы
+ *      покрывают все индексы, а детали «рельеф» и «рамка» красятся одной;
+ *   7. за панелью ничего нет: тыл рамки в плоскости Z = 0, сборка не глубже
+ *      рамки, над панелью пластика нет, а без рамки печатается только плита;
  *   8. uv идут по плите: по ним карта свечения ложится на рельеф без сдвига;
  *   9. углы рамки скруглены: наружные дугой 6 мм, окно — дугой 2 мм, а плита
  *      входит в окно с зазором 0.2 мм по всему периметру, включая углы;
@@ -37,17 +38,15 @@
  *  12. умный выбор кадра: снимок без прозрачности — фото, знак с прозрачным
  *      фоном — логотип с контрастом 0.6…3.5 мм, поля карты свечения белые, а
  *      минимальная толщина слайдера опущена до 0.6 мм;
- *  13. короб под LED: глубина 34 мм, стенки 2.5 мм, окно под провод в тыльной
- *      стенке открыто, ложемент платы на месте, а отсекатель — отдельная
- *      замкнутая деталь, которая перекрывает плату по краям;
- *  14. монорельс: два рельса за кромками рамки длиной «расстояние + выступ»,
- *      упор на дальнем конце, лапа впереди панели; кольцо ездит по рельсу и
- *      печатается отдельной деталью;
- *  15. кольцо: отверстие площадки равно резьбе цоколя (14.6 мм у E14, 28.6 мм
- *      у E27), бортик под штатную гайку стоит на тыльной стороне, козырёк
- *      выходит к панели, а при смене расстояния кольцо сдвигается целиком;
- *  16. список креплений и форм: только `none`/`led_box`/`socket_rail` и
- *      `flat`/`round`; старые значения нормализуются, а не падают.
+ *  13. крепления: в списке только `none`, деталь `mount` не принимается, а
+ *      старые `led_box` и `socket_rail` нормализуются в `none`, а не падают;
+ *  14. круглая панель: диаметр плиты, замкнутость, бюджет треугольников и своё
+ *      фото у каждого из четырёх секторов;
+ *  15. секторы: канавка 1.5 × 0.5 мм на границе, плоский диск Ø4 мм в центре с
+ *      одной толщиной и полная толщина кадра в середине сектора;
+ *  16. uv секторов и карта четырёх кадров: каждый сектор лежит в своём квадранте,
+ *      а пустой слот повторяет первый кадр;
+ *  17. вес собранной панели в пределах разумного у обеих форм.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -65,13 +64,10 @@ import {
   LITHOPHANE_FRAME_CORNER_RADIUS_MM,
   LITHOPHANE_FRAME_OPENING_RADIUS_MM,
   LITHOPHANE_FRAME_WIDTH_MM,
-  LITHOPHANE_LED_BOX,
   LITHOPHANE_RELIEF_GROUP,
-  LITHOPHANE_SOCKET_RAIL,
-  LITHOPHANE_SOCKETS,
+  LITHOPHANE_SECTOR_GROOVE,
   createLithophaneFrameGeometry,
   createLithophaneGeometry,
-  createLithophaneMountGeometry,
   createLithophaneReliefGeometry,
   lithophanePlateSize,
 } from "../lib/constructor/lithophane-geometry";
@@ -84,9 +80,16 @@ import {
   lithophaneImageKind,
   lithophaneTrimBounds,
 } from "../lib/constructor/lithophane-image";
+import { createLithophaneSectorMapData } from "../lib/constructor/lithophane-sectors";
 import {
   CONSTRUCTOR_LIMITS,
+  LITHOPHANE_MOUNTS,
+  LITHOPHANE_MOUNT_LABELS,
+  LITHOPHANE_PARTS,
+  LITHOPHANE_SIDE_IMAGE_SLOTS,
   LITHOPHANE_VERTEX_STEP_MM,
+  isLithophaneMount,
+  isLithophanePart,
   lithophaneMeshSize,
   normalizeLithophaneParams,
   type LithophaneBrightnessGrid,
@@ -953,9 +956,9 @@ for (const [brightness, expected] of [
 }
 
 
-console.log("\n6. Группы материалов и сборка с креплением");
+console.log("\n6. Группы материалов и сборка");
 {
-  const all = createLithophaneGeometry(mountParams("led_box"), "all");
+  const all = createLithophaneGeometry(panelParams(), "all");
   const groups = all.groups.map((group) => group.materialIndex);
   const covered = all.groups.reduce((sum, group) => sum + group.count, 0);
 
@@ -967,47 +970,53 @@ console.log("\n6. Группы материалов и сборка с креп�
   );
   check("первая группа — рельеф", all.groups[0]?.materialIndex, LITHOPHANE_RELIEF_GROUP);
   check(
-    "вторая группа — крепление и рамка",
+    "вторая группа — рамка",
     all.groups[1]?.materialIndex,
     LITHOPHANE_DETAIL_GROUP,
   );
 
-  const relief = createLithophaneGeometry(mountParams("led_box"), "relief");
-  const frame = createLithophaneGeometry(mountParams("led_box"), "frame");
-  const mount = createLithophaneGeometry(mountParams("led_box"), "mount");
+  const relief = createLithophaneGeometry(panelParams(), "relief");
+  const frame = createLithophaneGeometry(panelParams(), "frame");
 
   check("деталь «рельеф» — одна группа", relief.groups.length, 1);
   check("деталь «рамка» — одна группа", frame.groups.length, 1);
-  check("деталь «крепление» — одна группа", mount.groups.length, 1);
 
-  for (const geometry of [all, relief, frame, mount]) {
+  for (const geometry of [all, relief, frame]) {
     geometry.dispose();
   }
 }
 
-console.log("\n7. Сборка глубже и выше чистой рамки, а крепление — съёмное");
+console.log("\n7. За панелью ничего не торчит: рамка плоская");
 {
-  const bare = createLithophaneFrameGeometry(mountParams("none"));
-  const boxed = createLithophaneFrameGeometry(mountParams("led_box"));
-  const railed = createLithophaneFrameGeometry(mountParams("socket_rail"));
+  const frame = createLithophaneFrameGeometry(panelParams());
+  const assembled = createLithophaneGeometry(panelParams(), "all");
 
+  frame.computeBoundingBox();
+  assembled.computeBoundingBox();
+
+  checkRange("тыл рамки в плоскости Z = 0", [frame.boundingBox?.min.z ?? 99], -0.01, 0.01);
   checkRange(
-    "короб углубляет деталь на 34 мм",
-    [boxSize(boxed).z - boxSize(bare).z],
-    LITHOPHANE_LED_BOX.depth - 0.5,
-    LITHOPHANE_LED_BOX.depth + 0.5,
+    "глубина рамки — только накладка",
+    [boxSize(frame).z],
+    LITHOPHANE_FIT_GAP_MM,
+    5,
   );
   checkRange(
-    "монорельс удлиняет деталь на расстояние и выступ",
-    [boxSize(railed).z - boxSize(bare).z],
-    80 + LITHOPHANE_SOCKET_RAIL.railTail + 6,
-    80 + LITHOPHANE_SOCKET_RAIL.railTail + 12,
+    "сборка не глубже рамки",
+    [boxSize(assembled).z - boxSize(frame).z],
+    -0.01,
+    0.01,
   );
-  checkRange(
-    "рельсы поднимают габарит на 8 мм с каждой стороны",
-    [boxSize(railed).y],
-    80 + 2 * LITHOPHANE_SOCKET_RAIL.railOffset,
-    80 + 2 * LITHOPHANE_SOCKET_RAIL.railOffset + 4.1,
+  check(
+    "за панелью нет деталей",
+    (assembled.boundingBox?.min.z ?? 99) >= -0.01,
+    true,
+  );
+  check("рамка без крепления замкнута", openEdges(frame), 0);
+  check(
+    "над панелью ничего не торчит",
+    hits(assembled, [0, 84, -20], [0, 0, 1]),
+    false,
   );
 
   const frameless = createLithophaneGeometry(
@@ -1020,9 +1029,8 @@ console.log("\n7. Сборка глубже и выше чистой рамки,
   checkRange("без рамки высота плиты", [boxSize(frameless).y], 79.9, 80.1);
   frameless.dispose();
 
-  for (const geometry of [bare, boxed, railed]) {
-    geometry.dispose();
-  }
+  frame.dispose();
+  assembled.dispose();
 }
 
 console.log("\n8. uv рельефа: карта свечения ложится на плиту");
@@ -1555,218 +1563,36 @@ function sectorThickness(
   return count > 0 ? sum / count : 0;
 }
 
-/** Параметры панели с креплением: одна сетка яркости и выбранный монтаж. */
-function mountParams(
-  mount: LithophaneParams["lithoMount"],
+/** Параметры собранной панели: 120 × 80, серый кадр и рамка. */
+function panelParams(
   extra: Partial<LithophaneParams> = {},
 ): Partial<LithophaneParams> {
-  return {
-    ...reliefParams(120, 80, flatFrame(), true),
-    lithoMount: mount,
-    ...extra,
-  };
+  return { ...reliefParams(120, 80, flatFrame(), true), ...extra };
 }
 
-
-console.log("\n13. Короб под LED: ложемент, окно под провод и отсекатель");
+console.log("\n13. Крепления: остался только пункт «Без подставки»");
 {
-  const params = mountParams("led_box");
-  const frame = createLithophaneFrameGeometry(params);
-  const size = boxSize(frame);
+  check("в списке креплений только none", LITHOPHANE_MOUNTS.join(","), "none");
+  check("подпись крепления", LITHOPHANE_MOUNT_LABELS.none, "Без подставки");
+  check("деталей литофана три", LITHOPHANE_PARTS.join(","), "relief,frame,all");
+  check("деталь «крепление» больше не принимается", isLithophanePart("mount"), false);
+  check("старое крепление не проходит проверку", isLithophaneMount("led_box"), false);
+  check("старый монорельс из проекта не проходит", isLithophaneMount("socket_rail"), false);
 
-  checkRange(
-    "глубина короба: 34 мм за тылом рамки",
-    [size.z],
-    LITHOPHANE_LED_BOX.depth + 4,
-    LITHOPHANE_LED_BOX.depth + 6,
-  );
-  checkRange("рамка с коробом вписана в панель по X", [size.x], 119.9, 120.1);
-  checkRange("рамка с коробом вписана в панель по Y", [size.y], 79.9, 80.1);
-  check("оболочка рамки с коробом замкнута", openEdges(frame), 0);
-  check("в коробе нет NaN", nanVertices(frame), 0);
-  check("окно под провод открыто", hits(frame, [0, 40, -60], [0, 0, 1]), false);
-  check(
-    "тыльная стенка вокруг окна на месте",
-    hits(frame, [20, 40, -60], [0, 0, 1]),
-    true,
-  );
-
-  const baffle = createLithophaneMountGeometry(params);
-
-  check("оболочка отсекателя замкнута", openEdges(baffle), 0);
-  check("в отсекателе нет NaN", nanVertices(baffle), 0);
-  checkRange(
-    "отсекатель сидит внутри короба",
-    [boxSize(baffle).z],
-    LITHOPHANE_LED_BOX.baffleHeight,
-    LITHOPHANE_LED_BOX.depth - 10,
-  );
-  check(
-    "тубус отсекателя открыт по центру",
-    hits(baffle, [0, 40, -40], [0, 0, 1]),
-    false,
-  );
-  check(
-    "стенка отсекателя перекрывает край платы",
-    hits(baffle, [25, 40, -40], [0, 0, 1]),
-    true,
-  );
-
-  const roundFrame = createLithophaneFrameGeometry(
-    mountParams("led_box", { lithoShape: "round", lithophaneWidth: 120 }),
-  );
-
-  checkRange(
-    "у круглой панели короб тоже 34 мм",
-    [boxSize(roundFrame).z],
-    LITHOPHANE_LED_BOX.depth + 4,
-    LITHOPHANE_LED_BOX.depth + 6,
-  );
-  check("круглый короб замкнут", openEdges(roundFrame), 0);
-}
-
-
-console.log("\n14. Монорельс: рельсы, упор, лапа и подвижное кольцо");
-{
-  const distance = 80;
-  const params = mountParams("socket_rail", { lithoRailDistance: distance });
-  const frame = createLithophaneFrameGeometry(params);
-  const size = boxSize(frame);
-  const railLength = distance + LITHOPHANE_SOCKET_RAIL.railTail;
-  const ring = createLithophaneMountGeometry(params);
-
-  ring.computeBoundingBox();
-  const ringBox = boxSize(ring);
-  const ringFront = Math.abs(ring.boundingBox?.max.z ?? 0);
-
-  checkRange(
-    "длина рельса: лапа, расстояние и упор",
-    [size.z],
-    railLength + 12,
-    railLength + 16,
-  );
-  checkRange(
-    "рельсы выходят за кромки панели на 8 мм",
-    [size.y],
-    80 + 2 * LITHOPHANE_SOCKET_RAIL.railOffset,
-    80 + 2 * LITHOPHANE_SOCKET_RAIL.railOffset + 4.1,
-  );
-  check("рамка с рельсами замкнута", openEdges(frame), 0);
-  check("в рельсах нет NaN", nanVertices(frame), 0);
-  check("между рельсами свободно", hits(frame, [0, 40, -150], [0, 0, 1]), false);
-  check("рельс на месте снизу", hits(frame, [0, -3, -120], [0, 0, 1]), true);
-
-  check("кольцо замкнуто", openEdges(ring), 0);
-  check("в кольце нет NaN", nanVertices(ring), 0);
-  checkRange(
-    "кольцо стоит на заданном расстоянии",
-    [ringFront],
-    distance - LITHOPHANE_SOCKET_RAIL.visorLength - 0.1,
-    distance - LITHOPHANE_SOCKET_RAIL.visorLength + 0.1,
-  );
-  checkRange(
-    "козырёк и захваты в габарите кольца",
-    [ringBox.z],
-    LITHOPHANE_SOCKET_RAIL.visorLength,
-    LITHOPHANE_SOCKET_RAIL.visorLength +
-      LITHOPHANE_SOCKET_RAIL.carriageLength +
-      6,
-  );
-  check(
-    "отверстие площадки открыто",
-    hits(ring, [0, 40, -140], [0, 0, 1]),
-    false,
-  );
-  check(
-    "бортик под гайку стоит на тыльной стороне",
-    hits(
-      ring,
-      [
-        LITHOPHANE_SOCKETS.e27.nut / 2 + LITHOPHANE_SOCKET_RAIL.nutClearance + 1,
-        40,
-        -140,
-      ],
-      [0, 0, 1],
-    ),
-    true,
-  );
-  check(
-    "козырёк закрывает лампу сверху",
-    hits(ring, [0, 120, -distance + 20], [0, -1, 0]),
-    true,
-  );
-
-  const farRing = createLithophaneMountGeometry(
-    mountParams("socket_rail", { lithoRailDistance: 110 }),
-  );
-
-  farRing.computeBoundingBox();
-  checkRange(
-    "кольцо ездит по рельсу вместе с расстоянием",
-    [(ring.boundingBox?.min.z ?? 0) - (farRing.boundingBox?.min.z ?? 0)],
-    29.9,
-    30.1,
-  );
-
-  const e14Ring = createLithophaneMountGeometry(
-    mountParams("socket_rail", { lithoBulb: "e14" }),
-  );
+  const legacy = {
+    lithoMount: "socket_rail",
+  } as unknown as Partial<LithophaneParams>;
 
   check(
-    "E14: на радиусе 10 мм площадка",
-    hits(e14Ring, [10, 40, -140], [0, 0, 1]),
-    true,
-  );
-  check(
-    "E27: на радиусе 10 мм отверстие",
-    hits(ring, [10, 40, -140], [0, 0, 1]),
-    false,
-  );
-}
-
-console.log("\n15. Список креплений и форм: старых подставок нет");
-{
-  check(
-    "старое крепление снимается",
-    normalizeLithophaneParams({ lithoMount: "arch" as never }).lithoMount,
+    "старый проект открывается без крепления",
+    normalizeLithophaneParams(legacy).lithoMount,
     "none",
   );
   check(
-    "старый полуцилиндр становится плоской панелью",
-    normalizeLithophaneParams({ lithoShape: "cylinder" as never }).lithoShape,
-    "flat",
-  );
-  check(
-    "калейдоскоп тоже нормализуется в плоскую",
-    normalizeLithophaneParams({ lithoShape: "kaleidoscope" as never }).lithoShape,
-    "flat",
-  );
-  check(
-    "незнакомый цоколь — E27",
-    normalizeLithophaneParams({ lithoBulb: "e40" as never }).lithoBulb,
-    "e27",
-  );
-  check(
-    "расстояние зажимается границами слайдера",
-    normalizeLithophaneParams({ lithoRailDistance: 400 }).lithoRailDistance,
-    CONSTRUCTOR_LIMITS.lithoRailDistance.max,
-  );
-  check(
-    "без рамки крепления нет",
-    normalizeLithophaneParams({ lithoFrame: false, lithoMount: "led_box" })
-      .lithoMount,
+    "без рамки крепления тоже нет",
+    normalizeLithophaneParams({ lithoFrame: false }).lithoMount,
     "none",
   );
-
-  let threw = false;
-
-  try {
-    createLithophaneMountGeometry(mountParams("none"));
-  } catch {
-    threw = true;
-  }
-
-  check("у «без подставки» нет отдельной детали", threw, true);
 
   const roundPlate = lithophanePlateSize({
     lithoShape: "round",
@@ -1778,13 +1604,12 @@ console.log("\n15. Список креплений и форм: старых п�
   check("у круга плита квадратна по габариту", roundPlate.width, roundPlate.height);
 }
 
-console.log("\n16. Круглая панель: полярная сетка и четыре сектора");
+console.log("\n14. Круглая панель: полярная сетка и четыре сектора");
 {
   const params: Partial<LithophaneParams> = {
     lithoShape: "round",
     lithophaneWidth: 120,
     lithoFrame: true,
-    lithoMount: "none",
   };
   const plate = lithophanePlateSize(params);
   const relief = createLithophaneReliefGeometry(params);
@@ -1806,55 +1631,221 @@ console.log("\n16. Круглая панель: полярная сетка и �
     1_000_000,
   );
 
-  const main = new Array<number>(400 * 400).fill(255);
-  const dark = new Array<number>(400 * 400).fill(0);
-  const sectors = createLithophaneReliefGeometry({
+  const frames = [255, 200, 128, 40].map((value) => flatFrame(value, 400, 400));
+  const four = createLithophaneReliefGeometry({
     ...params,
-    lithophaneBrightness: main,
+    lithophaneBrightness: frames[0].brightness,
     lithophaneBrightnessWidth: 400,
     lithophaneBrightnessHeight: 400,
-    lithophaneSideBrightness: [
-      { brightness: dark, width: 400, height: 400 },
-      null,
-      null,
-    ],
+    lithophaneSideBrightness: [frames[1], frames[2], frames[3]],
   });
   const radius = plate.width / 2;
   const centerY = radius;
+  const thicknesses = [0, 1, 2, 3].map((sector) =>
+    sectorThickness(four, centerY, radius, sector * 90 + 10, sector * 90 + 80),
+  );
 
-  checkRange(
-    "сектор 1 светлый: основной кадр",
-    [sectorThickness(sectors, centerY, radius, 10, 80)],
-    0.5,
-    1.2,
+  check(
+    "у каждого сектора свой кадр",
+    thicknesses.every(
+      (value, index) => index === 0 || thicknesses[index - 1] < value,
+    ),
+    true,
   );
-  checkRange(
-    "сектор 2 тёмный: своё фото",
-    [sectorThickness(sectors, centerY, radius, 100, 170)],
-    2.6,
-    5,
-  );
-  checkRange(
-    "сектор 4 повторяет основной кадр",
-    [sectorThickness(sectors, centerY, radius, 280, 350)],
-    0.5,
-    1.2,
-  );
+  checkRange("самый светлый сектор на минимуме", [thicknesses[0]], 0.5, 1.2);
+  checkRange("самый тёмный сектор у максимума", [thicknesses[3]], 2.4, 3.2);
+  four.dispose();
+  relief.dispose();
 }
 
-console.log("\n17. Вес сборок: короб и монорельс");
+console.log("\n15. Секторы: канавка 1.5 × 0.5 мм и плоский диск Ø4 мм");
 {
-  for (const mount of ["led_box", "socket_rail"] as const) {
-    const all = createLithophaneGeometry(mountParams(mount), "all");
+  const groove = LITHOPHANE_SECTOR_GROOVE;
+  const darkFrame = flatFrame(0, 400, 400);
+  const params: Partial<LithophaneParams> = {
+    lithoShape: "round",
+    lithophaneWidth: 120,
+    lithoFrame: true,
+    lithophaneBrightness: darkFrame.brightness,
+    lithophaneBrightnessWidth: darkFrame.width,
+    lithophaneBrightnessHeight: darkFrame.height,
+  };
+  const plate = lithophanePlateSize(params);
+  const radius = plate.width / 2;
+  const minThickness = CONSTRUCTOR_LIMITS.lithophaneMinThickness.defaultValue;
+  const maxThickness = CONSTRUCTOR_LIMITS.lithophaneMaxThickness.defaultValue;
+  // Чёрный кадр печатается на максимуме: лицо сектора — это и есть поверхность,
+  // от которой считается глубина канавки.
+  const surface = maxThickness;
+  const hubThickness = minThickness + (maxThickness - minThickness) / 2;
+  const relief = createLithophaneReliefGeometry(params);
+  const position = relief.getAttribute("position");
+  const quarter = Math.PI / 2;
+  let hubMin = Number.POSITIVE_INFINITY;
+  let hubMax = Number.NEGATIVE_INFINITY;
+  let boundaryMin = Number.POSITIVE_INFINITY;
+  let sectorMax = Number.NEGATIVE_INFINITY;
+  let grooveHalfWidth = 0;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index);
+    const y = position.getY(index) - radius;
+    const z = position.getZ(index);
+    const distance = Math.hypot(x, y);
+
+    if (z <= 0 || distance > radius - LITHOPHANE_BORDER_MM) {
+      continue;
+    }
+
+    if (distance <= groove.hubRadius - 0.2) {
+      hubMin = Math.min(hubMin, z);
+      hubMax = Math.max(hubMax, z);
+      continue;
+    }
+
+    let angle = Math.atan2(x, y);
+
+    if (angle < 0) {
+      angle += Math.PI * 2;
+    }
+
+    const wrapped = ((angle % quarter) + quarter) % quarter;
+    const toBoundary = Math.min(wrapped, quarter - wrapped);
+    const fromBoundary = distance * Math.sin(toBoundary);
+
+    if (distance >= 20 && distance <= 40) {
+      if (fromBoundary <= 0.15) {
+        boundaryMin = Math.min(boundaryMin, z);
+      }
+
+      if (fromBoundary >= 4) {
+        sectorMax = Math.max(sectorMax, z);
+      }
+    }
+
+    if (distance >= 29 && distance <= 31 && z < surface - 0.01) {
+      grooveHalfWidth = Math.max(grooveHalfWidth, fromBoundary);
+    }
+  }
+
+  checkRange(
+    "плоский диск в центре: одна толщина",
+    [hubMin, hubMax],
+    hubThickness - 0.01,
+    hubThickness + 0.01,
+  );
+  checkRange("середина сектора: полная толщина кадра", [sectorMax], surface - 0.01, surface + 0.01);
+  checkRange(
+    "канавка на границе секторов: 0.5 мм",
+    [surface - boundaryMin],
+    groove.depth - 0.06,
+    groove.depth + 0.01,
+  );
+  checkRange(
+    "ширина канавки: около 1.5 мм",
+    [grooveHalfWidth * 2],
+    1.1,
+    1.9,
+  );
+  check("рельеф с канавками замкнут", openEdges(relief), 0);
+  check("в рельефе с канавками нет NaN", nanVertices(relief), 0);
+  relief.dispose();
+}
+
+console.log("\n16. uv секторов и карта четырёх кадров");
+{
+  const white = flatFrame(255, 400, 400);
+  const dark = flatFrame(0, 400, 400);
+  const params: Partial<LithophaneParams> = {
+    lithoShape: "round",
+    lithophaneWidth: 120,
+    lithoFrame: true,
+    lithophaneBrightness: white.brightness,
+    lithophaneBrightnessWidth: white.width,
+    lithophaneBrightnessHeight: white.height,
+    lithophaneSideBrightness: [
+      { brightness: dark.brightness, width: 400, height: 400 },
+      null,
+      null,
+    ],
+  };
+  const plate = lithophanePlateSize(params);
+  const radius = plate.width / 2;
+  const relief = createLithophaneReliefGeometry(params);
+  const position = relief.getAttribute("position");
+  const uv = relief.getAttribute("uv");
+  const quarter = Math.PI / 2;
+  let wrongQuadrant = 0;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index);
+    const y = position.getY(index) - radius;
+    const z = position.getZ(index);
+    const distance = Math.hypot(x, y);
+
+    if (z <= 0 || distance < radius * 0.3) {
+      continue;
+    }
+
+    let angle = Math.atan2(x, y);
+
+    if (angle < 0) {
+      angle += Math.PI * 2;
+    }
+
+    const sector = Math.min(3, Math.floor(angle / quarter));
+    const u = uv?.getX(index) ?? 0;
+    const v = uv?.getY(index) ?? 0;
+    const right = u >= 0.5;
+    const top = v < 0.5;
+
+    if (right !== (sector === 0 || sector === 1) || top !== (sector === 0 || sector === 3)) {
+      wrongQuadrant += 1;
+    }
+  }
+
+  check("uv каждого сектора лежит в своём квадранте", wrongQuadrant, 0);
+
+  const map = createLithophaneSectorMapData([white, dark, null, null], 100);
+  const pixel = (u: number, v: number): number => {
+    const column = Math.floor(u * map.side);
+    const row = Math.floor(v * map.side);
+
+    return map.data[(row * map.side + column) * 4];
+  };
+
+  check("сторона карты — две стороны кадра", map.side, 100);
+  check("сектор 1 в правом верхнем квадранте", pixel(0.75, 0.25), 255);
+  check("сектор 2 в правом нижнем квадранте", pixel(0.75, 0.75), 0);
+  check("пустой сектор 3 повторяет первый кадр", pixel(0.25, 0.75), 255);
+  check("пустой сектор 4 повторяет первый кадр", pixel(0.25, 0.25), 255);
+  check(
+    "слотов под кадры остальных секторов три",
+    LITHOPHANE_SIDE_IMAGE_SLOTS,
+    3,
+  );
+  relief.dispose();
+}
+
+console.log("\n17. Вес сборок: плоская панель и круглая");
+{
+  for (const shape of ["flat", "round"] as const) {
+    const all = createLithophaneGeometry(
+      panelParams({ lithoShape: shape }),
+      "all",
+    );
     const volume = calculateGeometryVolumeMm3(all);
     const weight = calculateGeometryWeightGrams(all);
 
-    checkRange(`сборка «${mount}» имеет объём`, [volume], 1000, 1_500_000);
-    checkRange(`сборка «${mount}» весит разумно`, [weight], 5, 500);
-    console.log(`       вес сборки «${mount}»: ${weight.toFixed(1)} г`);
+    checkRange(`сборка «${shape}» имеет объём`, [volume], 1000, 1_500_000);
+    checkRange(`сборка «${shape}» весит разумно`, [weight], 5, 500);
+    console.log(`       вес сборки «${shape}»: ${weight.toFixed(1)} г`);
     all.dispose();
   }
 }
+
+
+
 
 console.log("");
 if (failures > 0) {

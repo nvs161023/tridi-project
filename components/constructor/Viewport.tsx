@@ -9,13 +9,16 @@ import {
   Color,
   DataTexture,
   DoubleSide,
+  LinearFilter,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   PCFShadowMap,
   PlaneGeometry,
   PMREMGenerator,
+  RGBAFormat,
   Scene as ThreeScene,
+  SRGBColorSpace,
   Vector3,
 } from "three";
 import type { Group, PerspectiveCamera } from "three";
@@ -34,12 +37,12 @@ import {
   keychainFontUrl,
   keychainShapeLabel,
   keychainTextDecoration,
-  lithophaneHasStand,
   vasePatternLabel,
   type ConstructorParams,
   type KeychainFontId,
 } from "@/lib/constructor/params";
 import { calculateGeometryWeightGrams } from "@/lib/constructor/geometry-volume";
+import { createLithophaneSectorMapData } from "@/lib/constructor/lithophane-sectors";
 import {
   createKeychainGeometry,
   type KeychainBuildReport,
@@ -437,6 +440,14 @@ type LithophaneModelProps = {
   geometry: BufferGeometry;
   /** Рельеф плоской панели красится плоскостями: так видно высоту пикселя. */
   faceted: boolean;
+  /**
+   * Общая карта четырёх кадров круглой панели.
+   *
+   * Рельеф круга размечен координатами `uv` по квадрантам этой карты, поэтому
+   * предпросмотр показывает те же четыре фото, что уйдут в печать. У плоской
+   * панели карты нет: её рельеф остаётся пластиком.
+   */
+  sectorMap: DataTexture | null;
 };
 
 /**
@@ -448,17 +459,29 @@ type LithophaneModelProps = {
  * `LITHOPHANE_DETAIL_GROUP`). Рельеф плоской панели выводится с `flatShading`:
  * нормаль каждой грани совпадает с высотой пикселя, и на свету видно, где фото
  * толще. У круглой панели фасетки полярной сетки стоят под углом друг к другу,
- * поэтому затенение гладкое — дуга выходит скруглённой сама. Рамка и крепление
- * идут гладким материалом: их нормали посчитаны после сварки вершин.
+ * поэтому затенение гладкое — дуга выходит скруглённой сама. Рамка идёт гладким
+ * материалом: её нормали посчитаны после сварки вершин.
+ *
+ * Кадры секторов ложатся на рельеф картой (`sectorMap`) и слегка светятся: так
+ * видно, что у каждого сектора своя фотография, а не только рельеф. Рамка карту
+ * не читает.
  *
  * Материалы создаются один раз на смену формы и освобождаются при размонтировании.
  */
-function LithophaneModel({ faceted, geometry }: LithophaneModelProps) {
+function LithophaneModel({
+  faceted,
+  geometry,
+  sectorMap,
+}: LithophaneModelProps) {
   const materials = useMemo(
     () => [
       new MeshStandardMaterial({
-        color: STUDIO_MODEL_TINTS.lithophane,
+        color: sectorMap ? 0xffffff : STUDIO_MODEL_TINTS.lithophane,
+        emissive: sectorMap ? 0xffffff : 0x000000,
+        emissiveIntensity: sectorMap ? 0.35 : 0,
+        emissiveMap: sectorMap,
         flatShading: faceted,
+        map: sectorMap,
         metalness: STUDIO_PLASTIC.metalness,
         roughness: STUDIO_PLASTIC.roughness,
       }),
@@ -468,7 +491,7 @@ function LithophaneModel({ faceted, geometry }: LithophaneModelProps) {
         roughness: STUDIO_PLASTIC.roughness,
       }),
     ],
-    [faceted],
+    [faceted, sectorMap],
   );
 
   useEffect(
@@ -771,9 +794,17 @@ type SceneProps = {
   framing: Framing;
   /** Показан оборот брелока: сцена переворачивает пластину лицом вниз. */
   keychainBack: boolean;
+  /** Карта четырёх кадров круглой панели: рельеф показывает по фото на сектор. */
+  lithophaneSectorMap: DataTexture | null;
 };
 
-function Scene({ framing, geometry, keychainBack, params }: SceneProps) {
+function Scene({
+  framing,
+  geometry,
+  keychainBack,
+  lithophaneSectorMap,
+  params,
+}: SceneProps) {
   // Радиус студии считается по габаритам модели: свет и карта теней должны
   // покрывать её целиком при любой высоте и ширине.
   const span = studioSpan(framing.height, framing.footprint);
@@ -816,6 +847,7 @@ function Scene({ framing, geometry, keychainBack, params }: SceneProps) {
         <LithophaneModel
           faceted={params.lithoShape === "flat"}
           geometry={geometry}
+          sectorMap={lithophaneSectorMap}
         />
       ) : params.model === "planter" ? (
         <ZUpModel color={STUDIO_MODEL_TINTS.planter} geometry={geometry} />
@@ -1089,6 +1121,49 @@ export function Viewport({
   );
 
   /**
+   * Общая карта четырёх кадров круглой панели.
+   *
+   * Геометрия круга размечена `uv` по квадрантам этой карты, поэтому в сцене
+   * видно ровно то, что уйдёт в печать: по фото на сектор, пустой слот повторяет
+   * первый кадр. Карта пересобирается только при замене фотографий — от правки
+   * толщин ссылки на массивы не меняются.
+   */
+  const lithophaneSectorMap = useMemo(() => {
+    if (params.model !== "lithophane" || params.lithoShape !== "round") {
+      return null;
+    }
+
+    if (!lithophanePreview) {
+      return null;
+    }
+
+    const map = createLithophaneSectorMapData(
+      [lithophanePreview, ...lithophaneSidePreview],
+      LITHOPHANE_PREVIEW_RESOLUTION * 2,
+    );
+    const texture = new DataTexture(
+      map.data,
+      map.side,
+      map.side,
+      RGBAFormat,
+    );
+
+    texture.colorSpace = SRGBColorSpace;
+    texture.magFilter = LinearFilter;
+    texture.minFilter = LinearFilter;
+    texture.needsUpdate = true;
+
+    return texture;
+  }, [lithophanePreview, lithophaneSidePreview, params.lithoShape, params.model]);
+
+  useEffect(
+    () => () => {
+      lithophaneSectorMap?.dispose();
+    },
+    [lithophaneSectorMap],
+  );
+
+  /**
    * Профиль и сетка пересчитываются только при изменении параметров или
    * загрузке шрифта. Смена камеры, света или материала не создаёт новую
    * геометрию. Пока шрифт не пришёл, брелок показывается без имени, а
@@ -1251,14 +1326,10 @@ export function Viewport({
     }
 
     if (params.model === "lithophane") {
-      // С подставкой сборка наклонена и стоит на базе 6–9 мм, а у изогнутой
-      // панели габарит по X не совпадает с шириной развёртки: у полуцилиндра
-      // силуэт вдвое уже, у дуги чуть шире. В этих случаях габарит берём из
-      // готовой сетки — камера не должна обрезать верх рамки.
-      if (
-        params.lithoShape !== "flat" ||
-        lithophaneHasStand(params.lithoMount)
-      ) {
+      // У круглой панели габарит по X равен диаметру, а у плоской — ширине
+      // рамки: в обоих случаях он берётся из готовой сетки, чтобы камера не
+      // обрезала верх рамки.
+      if (params.lithoShape !== "flat") {
         geometry.computeBoundingBox();
         const box = geometry.boundingBox;
 
@@ -1392,6 +1463,7 @@ export function Viewport({
             framing={framing}
             geometry={geometry}
             keychainBack={keychainBack}
+            lithophaneSectorMap={lithophaneSectorMap}
             params={params}
           />
         </Canvas>

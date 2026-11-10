@@ -5,10 +5,10 @@ import {
 } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import { lithophaneContainRect } from "@/lib/constructor/lithophane-image";
+import { lithophaneSectorUv } from "@/lib/constructor/lithophane-sectors";
 import {
   LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
   lithophaneFaceBrightness,
-  lithophaneHasStand,
   lithophaneMeshSize,
   lithophaneRoundMeshSize,
   normalizeLithophaneParams,
@@ -18,7 +18,7 @@ import {
 } from "@/lib/constructor/params";
 
 /**
- * Геометрия литофана: рельеф, рамка и две системы крепления.
+ * Геометрия литофана: рельеф и рамка.
  *
  * Всё стоит в плоскости XY нижней кромкой на Y = 0, лицо смотрит в +Z, а тыл
  * рамки лежит в плоскости Z = 0. Рельеф — heightfield по габаритам плиты: шаг
@@ -37,15 +37,12 @@ import {
  * они светлые. После выборки яркость проходит через лёгкий unsharp и контраст:
  * без них площадное усреднение размывало тонкие штрихи логотипа до «каши».
  *
- * Деталей не больше четырёх, и каждая — отдельный замкнутый объект:
+ * Деталей три, и каждая — отдельный замкнутый объект:
  *   `relief` — плита с плоским тылом и рельефом на лице; углы скруглены на
  *              радиус окна рамки, чтобы плита входила в него с зазором;
  *   `frame`  — скруглённое кольцо с задней полкой (плита садится на неё с
  *              зазором 0.2 мм) и передней накладкой, которая прижимает её край;
- *              наружные углы — дугой 6 мм, окно — дугой 2 мм. К рамке крепится
- *              основание выбранной системы: короб или два рельса;
- *   `mount`  — съёмная деталь крепления: отсекатель короба или подвижное кольцо
- *              монорельса;
+ *              наружные углы — дугой 6 мм, окно — дугой 2 мм;
  *   `all`    — сборка для проверки и печати одним файлом.
  *
  * Вычитания тел (CSG) нет: детали собираются из пересекающихся замкнутых кусков
@@ -57,7 +54,9 @@ import {
  * Круглая панель (`lithoShape === "round"`) собирается полярной сеткой: кольца
  * и секторы вместо строк и столбцов. Внутри сектора точка считается в долях
  * радиуса и угла, поэтому кадр ложится в четверть диска, а четыре сектора дают
- * четыре разных фото на одной панели.
+ * четыре разных фото на одной панели. Границы секторов прорезаны канавкой
+ * (`LITHOPHANE_SECTOR_GROOVE`), а на оси круга лежит плоский диск — иначе в
+ * центре сходились бы четыре кадра сразу.
  */
 
 /** Ширина бортика рамки по периметру, мм. */
@@ -129,128 +128,41 @@ export const LITHOPHANE_FRAME_LIP_MM = 2.4;
 export const LITHOPHANE_FRAME_RIM_MM = 0.4;
 
 /**
- * Короб под светодиодную плату: закрытый бокс на тыльной стороне рамки.
+ * Разделители секторов круглой панели.
  *
- * Короб вписан в контур рамки с отступом `inset` и открыт вперёд, в окно
- * рамки, — свет платы уходит только на тыл панели. Плата ложится в ложемент на
- * тыльной стенке: там же окно под провод, а вокруг платы стоит воротник, в
- * который вставляется отсекатель. Отсекатель — отдельная деталь (`mount`): его
- * тубус выходит на 8 мм вперёд и срезает косой свет платы, который иначе бил бы
- * в кромку кадра и в стенки короба.
+ * Четыре кадра на одном диске сходятся лучами из центра, и без разделителя
+ * границы картинок сливаются: глаз не видит, где кончается один кадр. Поэтому
+ * по каждой границе прорезана канавка от плоского диска на оси до бортика.
  *
- * Глубина 34 мм — стандарт светодиодных матриц: плата с радиатором и драйвером
- * укладывается целиком, а короб за панелью 120 × 80 не перевешивает её.
+ * Ширина 1.5 мм — чуть шире двух линий сопла 0.4 мм: канавка пропечатывается
+ * стенками, а не одной нитью. Глубина 0.5 мм считается от соседней поверхности
+ * лица, то есть от того пикселя, который лежит у края канавки. Дно не опускается
+ * ниже `floor`: на светлом участке плита и так 0.8 мм, и вычитать полмиллиметра
+ * до нуля нельзя — дно повисло бы дырой.
+ *
+ * `hubRadius` — радиус плоского диска на оси: 2 мм, то есть Ø 4 мм. В центре
+ * сходятся все четыре кадра, и без диска получался бы артефакт в одну вершину.
  */
-export const LITHOPHANE_LED_BOX = {
-  /** Глубина короба по Z: от тыла рамки до внешней плоскости тыльной стенки. */
-  depth: 34,
-  /** Толщина стенок и тыльной стенки, мм. */
-  wall: 2.5,
-  /** Отступ наружного контура короба от контура рамки, мм. */
-  inset: 2,
-  /**
-   * Ложемент платы: ширина полки под плату, высота бортика и зазор посадки, мм.
-   *
-   * Плата стоит на тыльной стенке внутри бортика: бортик держит её от сдвига, а
-   * отсекатель прижимает сверху. Зазор 0.4 мм — обычный допуск печати, поэтому
-   * плата 60 × 60 входит без подгонки.
-   */
-  boardShelf: 4,
-  boardRim: 6,
-  boardFit: 0.4,
-  /** Верхний предел ложемента: платы больше 90 мм в короб не ставят. */
-  boardMax: 90,
-  /**
-   * Окно под провод в тыльной стенке, мм.
-   *
-   * Стоит на оси короба: у платы разъём обычно по центру тыла, и провод уходит
-   * назад горизонтально, не перегибаясь через бортик.
-   */
-  wireWidth: 14,
-  wireHeight: 8,
-  /**
-   * Отсекатель: ширина стенки, высота тубуса и выступ фланца, мм.
-   *
-   * Фланец ложится на полку ложемента и фиксирует плату; тубус на 8 мм
-   * выходит вперёд и работает как бленда — свет идёт только в окно рамки.
-   */
-  baffleWall: 2.5,
-  baffleHeight: 8,
-  baffleFlange: 4,
-} as const;
 
-/**
- * Монорельс с кольцом: две направляющие и подвижная каретка под патрон.
- *
- * Рельсы идут вдоль Z за верхней и нижней кромками рамки: они на 8 мм выходят
- * за габарит панели, поэтому не упираются в её силуэт, а нижний рельс служит
- * ещё и подставкой — литофан стоит на нём и на передней лапе. По рельсам ездит
- * кольцо-каретка: два С-образных захвата обнимают рельс сверху и снизу, боковые
- * стойки соединяют их, в центре — площадка под патрон на трёх спицах.
- *
- * Патрон фиксируется штатной гайкой: в площадке круглое отверстие под резьбу
- * (14.6 мм у E14, 28.6 мм у E27), с тыльной стороны — бортик, в который гайка
- * входит как в ключ. Гайка прижимает патрон к плоской площадке, а бортик не
- * даёт ей проворачиваться. Козырёк над кольцом закрывает лампу сверху: свет
- * уходит на панель, а не в глаза.
- */
-export const LITHOPHANE_SOCKET_RAIL = {
-  /** Сечение рельса: высота по Y и глубина по Z, мм. */
-  railHeight: 10,
-  railDepth: 9,
-  /** Насколько рельс выходит за кромку панели, мм. */
-  railOffset: 8,
-  /** Зазор каретки на рельсе: 0.3 мм — свободный ход без люфта. */
-  carriageGap: 0.3,
-  /** Толщина стенок каретки и кольца, мм. */
-  carriageWall: 2.5,
-  /** Длина захвата каретки вдоль рельса, мм. */
-  carriageLength: 12,
-  /** Толщина боковых стоек и спиц, мм. */
-  frameThickness: 6,
-  /** Ширина боковых стоек и спиц, мм. */
-  frameWidth: 10,
-  /**
-   * Площадка патрона: толщина, диаметр, высота и стенка бортика под гайку, мм.
-   *
-   * Диаметр площадки — не больше `min(ширина, высота) − 4`: на панели 40 мм
-   * остаётся 36 мм, и кольцо E14 всё равно влезает. Бортик на 0.6 мм шире гайки
-   * по наружному диаметру: гайка входит внутрь и не проворачивается.
-   */
-  padThickness: 8,
-  padMaxDiameter: 52,
-  rimHeight: 4,
-  rimWall: 2.5,
-  nutClearance: 0.6,
-  /** Козырёк: вылет к панели, толщина и высота передней губы, мм. */
-  visorLength: 35,
-  visorThickness: 3,
-  visorLip: 14,
-  /** Выступ рельса за площадку патрона: столько нужно, чтобы каретка не сходила. */
-  railTail: 24,
+export const LITHOPHANE_SECTOR_GROOVE = {
+  /** Ширина канавки по лицу, мм. */
+  width: 1.5,
+  /** Глубина от соседней поверхности лица, мм. */
+  depth: 0.5,
+  /** Минимальная толщина под дном канавки, мм. */
+  floor: 0.25,
+  /** Радиус плоского диска в центре, мм. */
+  hubRadius: 2,
 } as const;
-
-/**
- * Цоколи: резьба, гайка и высота бортика под неё.
- *
- * `thread` — диаметр резьбы патрона с зазором посадки: 14.6 и 28.6 мм. `nut` —
- * наружный диаметр штатной гайки: 22 мм у E14 и 30 мм у E27, — по нему
- * считается бортик площадки.
- */
-export const LITHOPHANE_SOCKETS = {
-  e14: { thread: 14.6, nut: 22 },
-  e27: { thread: 28.6, nut: 30 },
-} as const;
-
 
 /**
  * Группы материалов в собранной сетке литофана.
  *
  * Группа — диапазон индексов, а не отдельный меш: сборка остаётся одной сеткой,
  * и вес, габарит и STL считаются как раньше. Предпросмотр красит рельеф
- * плоскостями (`flatShading`): по граням читается высота пикселя. Рамка и
- * крепление идут вторым материалом со сглаженными нормалями — они должны
- * выглядеть литыми и матовыми.
+ * плоскостями (`flatShading`): по граням читается высота пикселя. Рамка идёт
+ * вторым материалом со сглаженными нормалями — она должна выглядеть литой и
+ * матовой.
  */
 export const LITHOPHANE_RELIEF_GROUP = 0;
 export const LITHOPHANE_DETAIL_GROUP = 1;
@@ -269,6 +181,11 @@ type Point3 = readonly [number, number, number];
 /** Индекс вершины в массиве positions. */
 function vertexIndex(positions: number[]): number {
   return positions.length / 3;
+}
+
+/** Зажимает значение в 0–1: доли перехода у канавки секторов и плоского диска. */
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
 /**
@@ -1091,94 +1008,6 @@ export function createLithophaneReliefGeometry(
   );
 }
 
-/**
- * Замкнутый параллелепипед по двум углам.
- *
- * Короб, рельсы и кольцо — набор коробок и колец: так каждая деталь состоит из
- * нескольких замкнутых оболочек, которые объединяются с нахлёстом. Все грани
- * получают свои вершины, поэтому рёбра остаются острыми.
- */
-function createBoxBody(
-  x0: number,
-  x1: number,
-  y0: number,
-  y1: number,
-  z0: number,
-  z1: number,
-): BufferGeometry {
-  const positions: number[] = [];
-  const indices: number[] = [];
-
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [x0, y0, z0],
-      [x1, y0, z0],
-      [x1, y1, z0],
-      [x0, y1, z0],
-    ],
-    [0, 0, -1],
-  );
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [x0, y0, z1],
-      [x1, y0, z1],
-      [x1, y1, z1],
-      [x0, y1, z1],
-    ],
-    [0, 0, 1],
-  );
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [x0, y0, z0],
-      [x1, y0, z0],
-      [x1, y0, z1],
-      [x0, y0, z1],
-    ],
-    [0, -1, 0],
-  );
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [x0, y1, z0],
-      [x1, y1, z0],
-      [x1, y1, z1],
-      [x0, y1, z1],
-    ],
-    [0, 1, 0],
-  );
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [x0, y0, z0],
-      [x0, y1, z0],
-      [x0, y1, z1],
-      [x0, y0, z1],
-    ],
-    [-1, 0, 0],
-  );
-  addQuadFace(
-    indices,
-    positions,
-    [
-      [x1, y0, z0],
-      [x1, y1, z0],
-      [x1, y1, z1],
-      [x1, y0, z1],
-    ],
-    [1, 0, 0],
-  );
-
-  return finalizeGeometry(positions, indices);
-}
-
 /** Точка контура в плоскости XY, мм. */
 type Point2 = readonly [number, number];
 
@@ -1422,9 +1251,8 @@ function createCircularRingBody(options: CircularRingOptions): BufferGeometry {
  * остаётся целой, а не превращается в овал. У круглой панели те же два кольца
  * строятся по кругу, без скруглений.
  *
- * Основание крепления печатается вместе с рамкой: короб или два рельса врастают
- * в её тыл на `BODY_OVERLAP_MM`. Так деталь остаётся одной печатной единицей, а
- * съёмной будет только подвижная часть — отсекатель или кольцо.
+ * Других деталей у рамки нет: крепления, короба и рельсы из конструктора убраны,
+ * поэтому за панелью ничего не торчит и рама печатается плоской.
  */
 export function createLithophaneFrameGeometry(
   params: Partial<LithophaneParams>,
@@ -1486,697 +1314,21 @@ export function createLithophaneFrameGeometry(
     );
   }
 
-  if (normalized.lithoMount === "led_box") {
-    bodies.push(...createLedBoxBodies(metrics, round));
-  }
-
-  if (normalized.lithoMount === "socket_rail") {
-    bodies.push(...createSocketRailBodies(normalized, metrics));
-  }
-
   // Рамка собирается из нескольких тел, но печатается одной деталью: сварка
   // вершин и пересчёт нормалей делают её поверхность гладкой — на предпросмотре
   // она читается литой и матовой, а не набором плоскостей.
   return smoothGeometryNormals(mergeBodies(bodies, "рамки"));
 }
 
-/**
- * Короб под светодиодную плату: замкнутые тела детали «рамка».
- *
- * Короб вписан в контур рамки с отступом `inset` и стоит на её тылу. Внутри три
- * уровня: тыльная стенка с окном под провод, ложемент платы на ней, и полка под
- * фланец отсекателя ближе к панели. Плата ложится в ложемент между бортиком и
- * фланцем: бортик держит её от сдвига, фланец прижимает к стенке.
- *
- * У плоской панели короб прямоугольный, у круглой — цилиндрический: контур
- * круглой рамки не вмещает углы прямоугольного бокса. Окно под провод у
- * прямоугольного короба прямоугольное (собрано из четырёх кусков стенки), у
- * цилиндрического — круглое Ø 10 мм: провод выходит по оси платы.
- */
-function createLedBoxBodies(
-  metrics: FrameMetrics,
-  round: boolean,
-): BufferGeometry[] {
-  const box = LITHOPHANE_LED_BOX;
-  const overlap = BODY_OVERLAP_MM;
-  const { width, height } = metrics;
-  const depth = box.depth;
-  const wall = box.wall;
-  const backOuter = -depth;
-  const backInner = backOuter + wall;
-
-  if (round) {
-    const bodies: BufferGeometry[] = [];
-    const outerRadius = width / 2 - box.inset;
-    const innerRadius = outerRadius - wall;
-    const segments = Math.ceil((Math.PI * outerRadius) / 0.5);
-    const pocketRadius = Math.max(
-      10,
-      Math.min(innerRadius - 10, box.boardMax / 2),
-    );
-    const shelfInner = pocketRadius + box.boardFit;
-    const shelfOuter = shelfInner + box.boardShelf;
-    const rimOuter = shelfInner + 2.5;
-    const baffleInner = Math.max(6, pocketRadius - 8);
-    const flangeOuter = baffleInner + 5;
-    const centerY = height / 2;
-
-    bodies.push(
-      // Тыльная стенка — кольцо: круглое окно под провод по оси платы.
-      createCircularRingBody({
-        centerY,
-        outerRadius: outerRadius - 0.25,
-        innerRadius: 5,
-        z0: backOuter,
-        z1: backInner + overlap,
-        segments,
-      }),
-      // Боковая стенка: труба от тыльной стенки до тыла рамки.
-      createCircularRingBody({
-        centerY,
-        outerRadius,
-        innerRadius,
-        z0: backOuter,
-        z1: overlap,
-        segments,
-      }),
-      // Ложемент: полка под плату и бортик вокруг неё.
-      createCircularRingBody({
-        centerY,
-        outerRadius: shelfOuter,
-        innerRadius: shelfInner,
-        z0: backInner - overlap,
-        z1: backInner + 2,
-        segments,
-      }),
-      createCircularRingBody({
-        centerY,
-        outerRadius: rimOuter,
-        innerRadius: shelfInner + 0.4,
-        z0: backInner + 2 - overlap,
-        z1: backInner + box.boardRim,
-        segments,
-      }),
-    );
-
-    // Два кронштейна под фланец отсекателя: сверху и снизу от площадки платы.
-    const bracketZ0 = backInner + box.boardRim + 4;
-    const bracketHalf = Math.min(12, innerRadius / 2);
-
-    for (const direction of [-1, 1]) {
-      const from = centerY + direction * flangeOuter;
-      const to = centerY + direction * Math.min(outerRadius - 0.5, innerRadius + 2);
-
-      bodies.push(
-        createBoxBody(
-          -bracketHalf,
-          bracketHalf,
-          Math.min(from, to),
-          Math.max(from, to),
-          bracketZ0,
-          bracketZ0 + 2.5,
-        ),
-      );
-    }
-
-    return bodies;
-  }
-
-  return createRectLedBoxBodies(metrics);
-}
-
-/**
- * Прямоугольный короб плоской панели.
- *
- * Стенки и ложемент — те же четыре полосы, что у цилиндрического: короб открыт
- * только вперёд, в окно рамки. Кронштейны стоят сверху и снизу от площадки
- * платы, поэтому фланец отсекателя ложится на них и не качается.
- */
-function createRectLedBoxBodies(metrics: FrameMetrics): BufferGeometry[] {
-  const box = LITHOPHANE_LED_BOX;
-  const overlap = BODY_OVERLAP_MM;
-  const { width, height } = metrics;
-  const wall = box.wall;
-  const halfWidth = width / 2 - box.inset;
-  const boxBottom = box.inset;
-  const boxTop = height - box.inset;
-  const innerHalfWidth = halfWidth - wall;
-  const innerBottom = boxBottom + wall;
-  const innerTop = boxTop - wall;
-  const backOuter = -box.depth;
-  const backInner = backOuter + wall;
-  const wireHalf = box.wireWidth / 2;
-  const wireTop = height / 2 + box.wireHeight / 2;
-  const wireBottom = height / 2 - box.wireHeight / 2;
-  // Полка ложемента не выходит за стенки: на панели 40 мм свободного места
-  // меньше, чем плата 60 мм, и ложемент сжимается вместе с коробом.
-  const pocket = Math.max(
-    12,
-    Math.min(
-      2 * (innerHalfWidth - box.boardShelf - 0.8),
-      innerTop - innerBottom - 2 * box.boardShelf - 1.6,
-      box.boardMax,
-    ),
-  );
-  const centerY = height / 2;
-  const shelfInner = pocket / 2 + box.boardFit;
-  const shelfOuter = shelfInner + box.boardShelf;
-  const rimOuter = shelfInner + 0.4 + 2.5;
-  const rimInner = shelfInner + 0.4;
-  const bodies: BufferGeometry[] = [
-    // Тыльная стенка четырьмя кусками вокруг окна под провод.
-    createBoxBody(-halfWidth, halfWidth, wireTop, boxTop, backOuter, backInner),
-    createBoxBody(
-      -halfWidth,
-      halfWidth,
-      boxBottom,
-      wireBottom,
-      backOuter,
-      backInner,
-    ),
-    createBoxBody(
-      -halfWidth,
-      -wireHalf,
-      wireBottom,
-      wireTop,
-      backOuter,
-      backInner,
-    ),
-    createBoxBody(
-      wireHalf,
-      halfWidth,
-      wireBottom,
-      wireTop,
-      backOuter,
-      backInner,
-    ),
-    // Стенки: от тыльной стенки до тыла рамки с нахлёстом.
-    createBoxBody(
-      -halfWidth,
-      -innerHalfWidth + overlap,
-      boxBottom,
-      boxTop,
-      backInner - overlap,
-      overlap,
-    ),
-    createBoxBody(
-      innerHalfWidth - overlap,
-      halfWidth,
-      boxBottom,
-      boxTop,
-      backInner - overlap,
-      overlap,
-    ),
-    createBoxBody(
-      -innerHalfWidth,
-      innerHalfWidth,
-      boxBottom,
-      innerBottom + overlap,
-      backInner - overlap,
-      overlap,
-    ),
-    createBoxBody(
-      -innerHalfWidth,
-      innerHalfWidth,
-      innerTop - overlap,
-      boxTop,
-      backInner - overlap,
-      overlap,
-    ),
-  ];
-
-
-
-  // Ложемент платы: полка из четырёх полос и бортик вокруг неё.
-  for (const [z0, z1, inner, outerHalf] of [
-    [backInner - overlap, backInner + 2, shelfInner, shelfOuter],
-    [
-      backInner + 2 - overlap,
-      backInner + box.boardRim,
-      rimInner,
-      rimOuter,
-    ],
-  ] as const) {
-    bodies.push(
-      createBoxBody(
-        -outerHalf,
-        outerHalf,
-        centerY - outerHalf,
-        centerY - inner,
-        z0,
-        z1,
-      ),
-      createBoxBody(
-        -outerHalf,
-        outerHalf,
-        centerY + inner,
-        centerY + outerHalf,
-        z0,
-        z1,
-      ),
-      createBoxBody(
-        -outerHalf,
-        -inner,
-        centerY - outerHalf,
-        centerY + outerHalf,
-        z0,
-        z1,
-      ),
-      createBoxBody(
-        inner,
-        outerHalf,
-        centerY - outerHalf,
-        centerY + outerHalf,
-        z0,
-        z1,
-      ),
-    );
-  }
-
-  // Кронштейны под фланец отсекателя: сверху и снизу от площадки платы.
-  const flangeHalf = Math.max(10, pocket / 2 - 3);
-  const bracketZ0 = backInner + box.boardRim + 4;
-  const bracketHalf = Math.min(12, innerHalfWidth / 2);
-
-  for (const direction of [-1, 1]) {
-    const wallDistance =
-      direction < 0 ? centerY - innerBottom : innerTop - centerY;
-    const from = centerY + direction * flangeHalf;
-    const to =
-      centerY + direction * Math.max(flangeHalf + 1, wallDistance + 2);
-    const y0 = Math.min(from, to);
-    const y1 = Math.max(from, to);
-
-    if (y1 - y0 > 0.5) {
-      bodies.push(
-        createBoxBody(
-          -bracketHalf,
-          bracketHalf,
-          y0,
-          y1,
-          bracketZ0,
-          bracketZ0 + 2.5,
-        ),
-      );
-    }
-  }
-
-  return bodies;
-}
-
-/**
- * Отсекатель короба: съёмная деталь «крепление».
- *
- * Квадратный (у плоской панели) или круглый (у круглой) тубус входит в короб и
- * садится фланцем на кронштейны. Тубус выходит на 8 мм вперёд и на 8 мм
- * перекрывает плату по краям: косые лучи, которые иначе били бы в кромку кадра
- * и в стенки короба, срезаются его стенкой, а на панель идёт ровное пятно.
- *
- * Задняя плоскость тубуса стоит в 0.5 мм над платой: фланец прижимает плату к
- * тыльной стенке, поэтому она не гремит и не сползает по ложементу.
- */
-function createLedBaffleGeometry(normalized: LithophaneParams): BufferGeometry {
-  const box = LITHOPHANE_LED_BOX;
-  const overlap = BODY_OVERLAP_MM;
-  const round = normalized.lithoShape === "round";
-  const width = normalized.lithophaneWidth;
-  const height = round ? width : normalized.lithophaneHeight;
-  const centerY = height / 2;
-  const wall = box.baffleWall;
-  const backInner = -box.depth + box.wall;
-  const tubeFront = backInner + box.boardRim + 4 - box.baffleHeight;
-  const flangeZ0 = backInner + box.boardRim + 4;
-  const flangeZ1 = flangeZ0 + 2.5;
-  const bodies: BufferGeometry[] = [];
-
-  if (round) {
-    const outerRadius = width / 2 - box.inset;
-    const innerRadius = outerRadius - box.wall;
-    const segments = Math.ceil((Math.PI * outerRadius) / 0.5);
-    const pocketRadius = Math.max(
-      10,
-      Math.min(innerRadius - 10, box.boardMax / 2),
-    );
-    const tubeOuter = Math.max(12, pocketRadius - 8 + wall);
-    const tubeInner = tubeOuter - wall;
-    const flangeOuter = tubeOuter + 5;
-
-    bodies.push(
-      createCircularRingBody({
-        centerY,
-        outerRadius: tubeOuter,
-        innerRadius: tubeInner,
-        z0: tubeFront - overlap,
-        z1: flangeZ0,
-        segments,
-      }),
-      createCircularRingBody({
-        centerY,
-        outerRadius: flangeOuter,
-        innerRadius: tubeInner,
-        z0: flangeZ0 - overlap,
-        z1: flangeZ1,
-        segments,
-      }),
-    );
-
-    return mergeBodies(bodies, "отсекателя");
-  }
-
-  const halfWidth = width / 2 - box.inset;
-  const innerHalfWidth = halfWidth - box.wall;
-  const innerBottom = box.inset + box.wall;
-  const innerTop = height - box.inset - box.wall;
-  // Полка ложемента не выходит за стенки: на панели 40 мм свободного места
-  // меньше, чем плата 60 мм, и ложемент сжимается вместе с коробом.
-  const pocket = Math.max(
-    12,
-    Math.min(
-      2 * (innerHalfWidth - box.boardShelf - 0.8),
-      innerTop - innerBottom - 2 * box.boardShelf - 1.6,
-      box.boardMax,
-    ),
-  );
-  const tubeOuter = pocket / 2 - 8 + wall;
-  const tubeInner = tubeOuter - wall;
-  const flangeOuter = tubeOuter + 5;
-
-  for (const [z0, z1, outerHalf] of [
-    [tubeFront - overlap, flangeZ0, tubeOuter],
-    [flangeZ0 - overlap, flangeZ1, flangeOuter],
-  ] as const) {
-    bodies.push(
-      createBoxBody(
-        -outerHalf,
-        outerHalf,
-        centerY - outerHalf,
-        centerY - tubeInner,
-        z0,
-        z1,
-      ),
-      createBoxBody(
-        -outerHalf,
-        outerHalf,
-        centerY + tubeInner,
-        centerY + outerHalf,
-        z0,
-        z1,
-      ),
-      createBoxBody(
-        -outerHalf,
-        -tubeInner,
-        centerY - tubeInner,
-        centerY + tubeInner,
-        z0,
-        z1,
-      ),
-      createBoxBody(
-        tubeInner,
-        outerHalf,
-        centerY - tubeInner,
-        centerY + tubeInner,
-        z0,
-        z1,
-      ),
-    );
-  }
-
-  return mergeBodies(bodies, "отсекателя");
-}
-
-/**
- * Полуширина рельса по X, мм.
- *
- * Рельс не доходит до края панели на 14 мм с каждой стороны: по углам рамки
- * остаётся место для скругления, и каретка не выходит за силуэт детали. Минимум
- * 12 мм — иначе на панели 40 мм рельс выродился бы в точку.
- */
-function socketRailHalf(width: number): number {
-  return Math.max(12, width / 2 - 14);
-}
-
-/**
- * Монорельс: две направляющие за верхней и нижней кромками рамки.
- *
- * Рельсы выходят за габарит панели на `railOffset` 8 мм: сверху они не спорят с
- * кадром, а снизу работают подставкой — литофан стоит на нижнем рельсе и на
- * передней лапе, поэтому центр тяжести панели остаётся внутри опоры. Длина
- * рельса — расстояние до кольца плюс `railTail`: на дальнем конце стоит упор,
- * за который каретка не уезжает.
- *
- * Рельс входит в тыл рамки на `BODY_OVERLAP_MM`, поэтому вся система печатается
- * одной деталью с рамкой. У круглой панели рельс касается окружности в самой
- * нижней и самой верхней точке — там же, где у прямоугольной стоит его полка.
- */
-function createSocketRailBodies(
-  normalized: LithophaneParams,
-  metrics: FrameMetrics,
-): BufferGeometry[] {
-  const rail = LITHOPHANE_SOCKET_RAIL;
-  const overlap = BODY_OVERLAP_MM;
-  const { width, height } = metrics;
-  const halfWidth = socketRailHalf(width);
-  const endZ = -(normalized.lithoRailDistance + rail.railTail);
-  const bottom = -rail.railOffset;
-  const top = height + rail.railOffset - rail.railHeight;
-  const bodies: BufferGeometry[] = [];
-
-  for (const y0 of [bottom, top]) {
-    bodies.push(
-      createBoxBody(
-        -halfWidth,
-        halfWidth,
-        y0,
-        y0 + rail.railHeight,
-        endZ,
-        overlap,
-      ),
-      // Упор: каретка упирается в него раньше, чем сойдёт с рельса.
-      createBoxBody(
-        -halfWidth - 2,
-        halfWidth + 2,
-        y0 - 2,
-        y0 + rail.railHeight + 2,
-        endZ - 4,
-        endZ,
-      ),
-    );
-  }
-
-  // Лапа: пятно опоры впереди панели, чтобы литофан не опрокидывался.
-  bodies.push(createBoxBody(-halfWidth, halfWidth, bottom, 0, -2, 12));
-
-  return bodies;
-}
-
-
-/**
- * Кольцо монорельса: каретка с площадкой под патрон.
- *
- * Два С-образных захвата висят на рельсах: снизу — стенка, по бокам — щёки,
- * сверху проём. Такая каретка ставится на рельс снизу и держится собственным
- * весом, а вдоль рельса едет до упора. Боковые стойки связывают захваты, три
- * спицы держат площадку патрона.
- *
- * Патрон фиксируется штатной гайкой: резьба проходит сквозь отверстие площадки,
- * гайка ложится на её плоскую тыльную плоскость и входит внутрь бортика —
- * бортик работает ключом и не даёт гайке провернуться. Козырёк над кольцом
- * закрывает лампу сверху, поэтому свет уходит на панель, а не в глаза.
- */
-function createSocketRingGeometry(
-  normalized: LithophaneParams,
-): BufferGeometry {
-  const rail = LITHOPHANE_SOCKET_RAIL;
-  const socket = LITHOPHANE_SOCKETS[normalized.lithoBulb];
-  const overlap = BODY_OVERLAP_MM;
-  const width = normalized.lithophaneWidth;
-  const height =
-    normalized.lithoShape === "round"
-      ? width
-      : normalized.lithophaneHeight;
-  const gap = rail.carriageGap;
-  const wall = rail.carriageWall;
-  const length = rail.carriageLength;
-  const front = -normalized.lithoRailDistance;
-  const back = front - length;
-  const halfWidth = socketRailHalf(width);
-  const bottom = -rail.railOffset;
-  const top = height + rail.railOffset - rail.railHeight;
-  const bodies: BufferGeometry[] = [];
-
-  for (const y0 of [bottom, top]) {
-    // Стенка под рельсом: на ней каретка и висит.
-    bodies.push(
-      createBoxBody(
-        -halfWidth - gap - wall,
-        halfWidth + gap + wall,
-        y0 - gap - wall,
-        y0 - gap,
-        back,
-        front,
-      ),
-      createBoxBody(
-        -halfWidth - gap - wall,
-        -halfWidth - gap,
-        y0 - gap - wall,
-        y0 + rail.railHeight + gap,
-        back,
-        front,
-      ),
-      createBoxBody(
-        halfWidth + gap,
-        halfWidth + gap + wall,
-        y0 - gap - wall,
-        y0 + rail.railHeight + gap,
-        back,
-        front,
-      ),
-    );
-  }
-
-  // Боковые стойки: от нижнего захвата до верхнего, во всю глубину каретки.
-  const barOuter = halfWidth + gap + wall;
-  const barInner = barOuter - rail.frameWidth;
-  const barBottom = bottom - gap - wall;
-  const barTop = top + rail.railHeight + gap;
-
-  for (const sign of [-1, 1]) {
-    const x0 = sign < 0 ? -barOuter : barInner;
-    const x1 = sign < 0 ? -barInner : barOuter;
-
-    bodies.push(createBoxBody(x0, x1, barBottom, barTop, back, front));
-  }
-
-
-
-  // Площадка патрона: кольцо вокруг резьбы, бортик под гайку и спицы.
-  const padDiameter = Math.max(
-    socket.thread + 10,
-    Math.min(rail.padMaxDiameter, Math.max(30, Math.min(width, height) - 4)),
-  );
-  const padRadius = padDiameter / 2;
-  const centerY = height / 2;
-  const padZ0 = front - rail.padThickness;
-  const segments = Math.ceil((Math.PI * padRadius) / 0.5);
-
-  bodies.push(
-    createCircularRingBody({
-      centerY,
-      outerRadius: padRadius,
-      innerRadius: socket.thread / 2,
-      z0: padZ0,
-      z1: front,
-      segments,
-    }),
-    createCircularRingBody({
-      centerY,
-      outerRadius: socket.nut / 2 + rail.nutClearance + rail.rimWall,
-      innerRadius: socket.nut / 2 + rail.nutClearance,
-      z0: padZ0 - rail.rimHeight,
-      z1: padZ0 + overlap,
-      segments,
-    }),
-  );
-
-  const spokeHalf = rail.frameWidth / 2;
-
-  for (const [from, to] of [
-    [-barInner + overlap, -padRadius + 2],
-    [padRadius - 2, barInner - overlap],
-  ] as const) {
-    if (Math.abs(to - from) > 2) {
-      bodies.push(
-        createBoxBody(
-          Math.min(from, to),
-          Math.max(from, to),
-          centerY - spokeHalf,
-          centerY + spokeHalf,
-          padZ0,
-          front,
-        ),
-      );
-    }
-  }
-
-  const upperSpokeFrom = centerY + padRadius - 2;
-  const upperSpokeTo = barTop - overlap;
-
-  if (upperSpokeTo - upperSpokeFrom > 2) {
-    bodies.push(
-      createBoxBody(
-        -spokeHalf,
-        spokeHalf,
-        upperSpokeFrom,
-        upperSpokeTo,
-        padZ0,
-        front,
-      ),
-    );
-  }
-
-  // Козырёк: полка под верхним захватом и губа на её переднем крае.
-  const visorTop = top - gap - wall + overlap;
-  const visorBottom = visorTop - rail.visorThickness;
-  const visorHalf = Math.min(halfWidth, width / 2 - 8);
-  const visorFront = front + rail.visorLength;
-
-  bodies.push(
-    createBoxBody(
-      -visorHalf,
-      visorHalf,
-      visorBottom,
-      visorTop,
-      front - overlap,
-      visorFront,
-    ),
-    createBoxBody(
-      -visorHalf,
-      visorHalf,
-      visorBottom - rail.visorLip,
-      visorBottom + overlap,
-      visorFront - rail.visorThickness,
-      visorFront,
-    ),
-  );
-
-  return mergeBodies(bodies, "кольца");
-}
-
-
-/**
- * Съёмная деталь крепления отдельным файлом.
- *
- * У короба это отсекатель, у монорельса — кольцо с площадкой патрона. У
- * `none` отдельной детали нет: функция бросает ошибку, чтобы сборка не отдала
- * пустой STL вместо крепления.
- */
-export function createLithophaneMountGeometry(
-  params: Partial<LithophaneParams>,
-): BufferGeometry {
-  const normalized = normalizeLithophaneParams(params);
-
-  if (!lithophaneHasStand(normalized.lithoMount)) {
-    throw new Error("У выбранного крепления нет отдельной печатной детали.");
-  }
-
-  return smoothGeometryNormals(
-    normalized.lithoMount === "socket_rail"
-      ? createSocketRingGeometry(normalized)
-      : createLedBaffleGeometry(normalized),
-  );
-}
 
 /**
  * Сборка литофана: деталь по имени или всё вместе.
  *
  * Плита ставится на заднюю полку рамки: по X и Y она уже окна на зазор посадки,
- * по Z — на плоскость полки. Крепление (`mount`) в сборку входит отдельной
- * деталью: петли и кольцо не печатаются с рамкой, но в собранном виде стоят на
- * своих местах.
+ * по Z — на плоскость полки.
  *
  * Группы материалов: рельеф идёт первым, поэтому его диапазон индексов занимает
- * начало сетки; рамка и крепление красятся вторым материалом со сглаженными
- * нормалями.
+ * начало сетки; рамка красится вторым материалом со сглаженными нормалями.
  */
 export function createLithophaneGeometry(
   params: Partial<LithophaneParams>,
@@ -2194,13 +1346,6 @@ export function createLithophaneGeometry(
   if (part === "frame") {
     return markPartGroup(
       createLithophaneFrameGeometry(normalized),
-      LITHOPHANE_DETAIL_GROUP,
-    );
-  }
-
-  if (part === "mount") {
-    return markPartGroup(
-      createLithophaneMountGeometry(normalized),
       LITHOPHANE_DETAIL_GROUP,
     );
   }
@@ -2229,10 +1374,6 @@ export function createLithophaneGeometry(
     metrics.plateBack,
   );
 
-  if (lithophaneHasStand(normalized.lithoMount)) {
-    bodies.push(createLithophaneMountGeometry(normalized));
-  }
-
   return assignMaterialGroups(mergeBodies(bodies, "литофана"), reliefIndices);
 }
 
@@ -2249,6 +1390,17 @@ export function createLithophaneGeometry(
  * (`lithophaneBrightness`), у остальных — слоты `lithophaneSideBrightness`.
  * Пустой слот повторяет основной кадр (см. `lithophaneFaceBrightness`), поэтому
  * одна фотография печатается на всех четырёх.
+ *
+ * Границы секторов — лучи из центра под 0°, 90°, 180° и 270° от оси Y. По
+ * каждому лучу лицо прорезано канавкой `LITHOPHANE_SECTOR_GROOVE`: глубина
+ * считается от поверхности соседних пикселей и плавно спадает к краям канавки,
+ * поэтому стенки выходят скруглёнными, а не ступенькой. Канавка заканчивается у
+ * бортика и у плоского диска на оси — в бортик и в центр она не заходит.
+ *
+ * Плоский диск `hubRadius` убирает главный артефакт четырёх кадров: в центре
+ * сходятся четыре разных пикселя, и веер полярной сетки показывал из них
+ * «вертушку». Диск держит постоянную толщину — середину перепада, — а за его
+ * краем толщина за один шаг кольца переходит в рельеф.
  *
  * Оболочка замкнута тремя частями: лицо с толщиной по яркости, плоский тыл и
  * боковина по кромке. Бортик `borderWidth` и фаска работают так же, как у
@@ -2275,38 +1427,108 @@ function createRoundReliefBody(
     borderWidth > 0 ? Math.min(LITHOPHANE_BORDER_CHAMFER_MM, borderWidth) : 0;
   const borderFlat = borderWidth - chamferWidth;
   const grids = lithophaneFaceBrightness(normalized);
+  const groove = LITHOPHANE_SECTOR_GROOVE;
+  const grooveHalfWidth = groove.width / 2;
+  const grooveFloor = Math.min(groove.floor, minThickness);
+  /**
+   * Ширина перехода от плоского диска к рельефу и от канавки к бортику, мм.
+   *
+   * Один шаг кольца — 0.4 мм. Без перехода на краю диска стояла бы стенка
+   * высотой до перепада толщин, а на печати это уступ из десятка слоёв.
+   */
+  const SECTOR_SEAM_RAMP_MM = 0.4;
+  // Плоский диск держит середину перепада: не самое тонкое и не самое толстое
+  // место панели, поэтому на просвет он не превращается ни в дыру, ни в пятно.
+  const hubThickness = minThickness + thicknessRange / 2;
   const positions: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
 
-  const brightnessAt = (radiusFraction: number, angle: number): number => {
+  /**
+   * Номер сектора и место точки в его кадре.
+   *
+   * Угол отсчитывается от оси Y по часовой стрелке, поэтому сектор — это
+   * `floor(угол / 90°)`, а остаток угла задаёт положение внутри кадра.
+   */
+  const sectorSample = (
+    radiusFraction: number,
+    angle: number,
+  ): { sector: number; u: number; v: number } => {
     const sector = Math.min(3, Math.floor(angle / (Math.PI / 2)));
     const local = angle - sector * (Math.PI / 2);
     const x = radiusFraction * Math.sin(local);
     const y = radiusFraction * Math.cos(local);
-    const grid = grids[sector];
-    let u: number;
-    let v: number;
 
     if (sector === 0) {
-      u = 0.5 + x / 2;
-      v = 0.5 - y / 2;
-    } else if (sector === 1) {
-      u = 0.5 + x / 2;
-      v = 0.5 + y / 2;
-    } else if (sector === 2) {
-      u = 0.5 - x / 2;
-      v = 0.5 + y / 2;
-    } else {
-      u = 0.5 - x / 2;
-      v = 0.5 - y / 2;
+      return { sector, u: 0.5 + x / 2, v: 0.5 - y / 2 };
     }
 
-    return sharpenBrightness(grid.brightness, grid.width, grid.height, u, v);
+    if (sector === 1) {
+      return { sector, u: 0.5 + x / 2, v: 0.5 + y / 2 };
+    }
+
+    if (sector === 2) {
+      return { sector, u: 0.5 - x / 2, v: 0.5 + y / 2 };
+    }
+
+    return { sector, u: 0.5 - x / 2, v: 0.5 - y / 2 };
+  };
+
+  const brightnessAt = (radiusFraction: number, angle: number): number => {
+    const sample = sectorSample(radiusFraction, angle);
+    const grid = grids[sample.sector];
+
+    return sharpenBrightness(
+      grid.brightness,
+      grid.width,
+      grid.height,
+      sample.u,
+      sample.v,
+    );
+  };
+
+  /**
+   * Глубина канавки в точке, мм.
+   *
+   * Расстояние до ближайшего луча-границы считается точно: `r · sin φ`, где φ —
+   * угол до луча. На самом луче оно нулевое, на краю канавки — половина ширины.
+   * Профиль smoothstep даёт скруглённое дно.
+   */
+  const grooveDepthAt = (
+    radiusMm: number,
+    angle: number,
+    edgeDistance: number,
+  ): number => {
+    const quarter = Math.PI / 2;
+    const wrapped = ((angle % quarter) + quarter) % quarter;
+    const toBoundary = Math.min(wrapped, quarter - wrapped);
+    const distance = Math.abs(radiusMm * Math.sin(toBoundary));
+    const t = 1 - distance / grooveHalfWidth;
+
+    if (t <= 0) {
+      return 0;
+    }
+
+    const profile = t * t * (3 - 2 * t);
+    // Канавка не заходит ни под бортик, ни в плоский диск.
+    const hubFade = clamp01(
+      (radiusMm - groove.hubRadius) / SECTOR_SEAM_RAMP_MM,
+    );
+    const borderFade = clamp01(
+      (edgeDistance - borderWidth) / SECTOR_SEAM_RAMP_MM,
+    );
+
+    return groove.depth * profile * Math.min(hubFade, borderFade);
   };
 
   const thicknessAt = (radiusFraction: number, angle: number): number => {
-    const edgeDistance = radius * (1 - radiusFraction);
+    const radiusMm = radius * radiusFraction;
+    const edgeDistance = radius - radiusMm;
+
+    // Плоский диск на оси: кадра и рельефа у него нет.
+    if (radiusMm <= groove.hubRadius) {
+      return hubThickness;
+    }
 
     if (edgeDistance <= borderFlat) {
       return maxThickness;
@@ -2315,16 +1537,19 @@ function createRoundReliefBody(
     const photoThickness =
       maxThickness -
       thicknessRange * (brightnessAt(radiusFraction, angle) / 255);
-
-    if (edgeDistance >= borderWidth) {
-      return photoThickness;
-    }
-
-    return (
-      maxThickness +
-      (photoThickness - maxThickness) *
-        ((edgeDistance - borderFlat) / chamferWidth)
+    const surface =
+      edgeDistance >= borderWidth
+        ? photoThickness
+        : maxThickness +
+          (photoThickness - maxThickness) *
+            ((edgeDistance - borderFlat) / chamferWidth);
+    const hubBlend = clamp01(
+      (radiusMm - groove.hubRadius) / SECTOR_SEAM_RAMP_MM,
     );
+    const blended = hubThickness + (surface - hubThickness) * hubBlend;
+    const cut = grooveDepthAt(radiusMm, angle, edgeDistance);
+
+    return Math.max(grooveFloor, blended - cut);
   };
 
   const pushVertex = (
@@ -2335,9 +1560,11 @@ function createRoundReliefBody(
     const x = radius * radiusFraction * Math.sin(angle);
     const y = centerY + radius * radiusFraction * Math.cos(angle);
     const index = positions.length / 3;
+    const sample = sectorSample(radiusFraction, angle);
+    const uv = lithophaneSectorUv(sample.sector, sample.u, sample.v);
 
     positions.push(x, y, z);
-    uvs.push(0.5 + x / diameter, 0.5 - (y - centerY) / diameter);
+    uvs.push(uv.u, uv.v);
 
     return index;
   };

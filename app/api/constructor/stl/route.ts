@@ -55,7 +55,6 @@ import {
   isKeychainRotation,
   isKeychainTextAlign,
   isLithophaneBrightness,
-  isLithophaneBulb,
   isLithophaneMount,
   isLithophanePart,
   isLithophaneShape,
@@ -76,7 +75,6 @@ import {
   keychainThicknessLimits,
   keychainQrCardSpec,
   listSignBlocks,
-  lithophaneHasStand,
   lithophaneMeshSize,
   lithophaneStlFileName,
   normalizeBoxParams,
@@ -1073,18 +1071,13 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
  * присылает готовую сетку, и серверу не нужно декодировать изображение.
  *
  * Рамка и крепление необязательны: старый клиент их не присылает и получает
- * значения по умолчанию. Крепление проверяется по списку — от него зависит,
- * появится ли съёмная деталь, — а нормализация сама снимает крепление, когда
- * рамка выключена. Цоколь лампы и расстояние до площадки патрона — тоже из
- * списков и границ слайдера: от цоколя зависит отверстие кольца, от расстояния
- * — длина рельса. Форма панели бывает только `flat` и `round`: старый проект с
- * изогнутой панелью нормализуется в плоскую, а не падает. Деталь (`part`) — из
- * списка, причём `frame`, `mount` и `all` без рамки отклоняются: без неё в файле
- * нечего собирать. Деталь `mount` (отсекатель короба или кольцо монорельса)
- * имеет смысл только при выбранном креплении — иначе клиент просит файл,
- * которого нет в сборке. Кадры остальных секторов круглой панели
- * необязательны: их нет у старого клиента, и тогда одна картинка повторяется
- * по всему диску.
+ * значения по умолчанию. Крепление проверяется по списку — сейчас в нём только
+ * `none`, а нормализация сама снимает крепление, когда рамка выключена. Форма
+ * панели бывает только `flat` и `round`: старый проект с изогнутой панелью
+ * нормализуется в плоскую, а не падает. Деталь (`part`) — из списка, причём
+ * `frame` и `all` без рамки отклоняются: без неё в файле нечего собирать. Кадры
+ * остальных секторов круглой панели необязательны: их нет у старого клиента, и
+ * тогда одна картинка повторяется по всему диску.
  */
 function parseLithophaneParams(
   body: Record<string, unknown>,
@@ -1101,8 +1094,6 @@ function parseLithophaneParams(
     lithoFrame = DEFAULT_LITHOPHANE_PARAMS.lithoFrame,
     lithoMount = DEFAULT_LITHOPHANE_PARAMS.lithoMount,
     lithoShape = DEFAULT_LITHOPHANE_PARAMS.lithoShape,
-    lithoBulb = DEFAULT_LITHOPHANE_PARAMS.lithoBulb,
-    lithoRailDistance = DEFAULT_LITHOPHANE_PARAMS.lithoRailDistance,
     part = "all",
   } = body;
 
@@ -1133,24 +1124,15 @@ function parseLithophaneParams(
       lithophaneBrightnessWidth,
       lithophaneBrightnessHeight,
     ) ||
-    // Кадры остальных граней калейдоскопа необязательны: старый клиент их не
-    // присылает, и одна картинка повторяется на всех четырёх гранях.
+    // Кадры остальных секторов необязательны: старый клиент их не присылает, и
+    // одна картинка повторяется на всех четырёх.
     (lithophaneSideBrightness !== undefined &&
       !isLithophaneSideBrightness(lithophaneSideBrightness)) ||
     typeof lithoFrame !== "boolean" ||
     !isLithophaneMount(lithoMount) ||
     !isLithophaneShape(lithoShape) ||
-    !isLithophaneBulb(lithoBulb) ||
-    !isNumberInRange(
-      lithoRailDistance,
-      CONSTRUCTOR_LIMITS.lithoRailDistance.min,
-      CONSTRUCTOR_LIMITS.lithoRailDistance.max,
-    ) ||
     !isLithophanePart(part) ||
-    (!lithoFrame && part !== "relief") ||
-    // Деталь «mount» — отсекатель короба или кольцо монорельса: она есть
-    // только при выбранном креплении.
-    (part === "mount" && !lithophaneHasStand(lithoMount))
+    (!lithoFrame && part !== "relief")
   ) {
     return null;
   }
@@ -1172,7 +1154,7 @@ function parseLithophaneParams(
       lithophaneBrightness: grid.brightness,
       lithophaneBrightnessWidth: grid.width,
       lithophaneBrightnessHeight: grid.height,
-      // Слоты граней нормализуются той же функцией, что и в предпросмотре:
+      // Слоты секторов нормализуются той же функцией, что и в предпросмотре:
       // испорченный слот заменяется пустым, а недостающие дополняются.
       lithophaneSideBrightness: resolveLithophaneSideBrightness(
         lithophaneSideBrightness,
@@ -1180,8 +1162,6 @@ function parseLithophaneParams(
       lithoFrame,
       lithoMount,
       lithoShape,
-      lithoBulb,
-      lithoRailDistance,
     }),
     part,
   };

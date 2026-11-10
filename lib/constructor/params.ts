@@ -194,17 +194,6 @@ export const CONSTRUCTOR_LIMITS = {
     defaultValue: 3,
     decimals: 1,
   },
-  // Расстояние от панели до площадки патрона на монорельсе, мм. 60 мм — патрон
-  // E14 уже упирается в панель колбой, 120 мм — предел, после которого рельс
-  // длиннее лампы втрое и деталь теряет смысл на полке. Шаг 5 мм совпадает с
-  // шагом остальных габаритов литофана.
-  lithoRailDistance: {
-    min: 60,
-    max: 120,
-    step: 5,
-    defaultValue: 80,
-    decimals: 0,
-  },
   planterSize: { min: 60, max: 200, step: 5, defaultValue: 120, decimals: 0 },
   planterHeight: { min: 50, max: 200, step: 5, defaultValue: 110, decimals: 0 },
   planterWall: { min: 1.2, max: 4, step: 0.2, defaultValue: 2, decimals: 1 },
@@ -1702,15 +1691,11 @@ export function lithophaneRoundMeshSize(diameter: number): {
 /**
  * Форма панели литофана.
  *
- * `flat` — плоская плита: рельеф идёт по плоскости, рамка держит её по контуру,
- * а крепление собирается сзади. `round` — круглая «таблетка»: панель режется
- * полярной сеткой, а кадр делится на четыре сектора, поэтому на один диск
- * помещается до четырёх разных фотографий. Диаметр круга — `lithophaneWidth`,
- * высота панели у круга не читается.
- *
- * Крепления есть у обеих форм и строятся в той же системе координат: тыл рамки
- * лежит в плоскости Z = 0, панель смотрит в +Z. Поэтому короб и монорельс не
- * зависят от того, прямоугольная панель или круглая.
+ * `flat` — плоская плита: рельеф идёт по плоскости, рамка держит её по контуру.
+ * `round` — круглая «таблетка»: панель режется полярной сеткой, а лицо делится
+ * на четыре сектора по 90°, поэтому на один диск помещается до четырёх разных
+ * фотографий. Диаметр круга — `lithophaneWidth`, высота панели у круга не
+ * читается.
  */
 export const LITHOPHANE_SHAPES = ["flat", "round"] as const;
 
@@ -1725,76 +1710,28 @@ export const LITHOPHANE_SHAPE_LABELS = {
 /**
  * Как литофан крепится и чем подсвечивается.
  *
- * `none` — только плита и рамка: крепление и подсветку человек делает сам.
- * `led_box` — закрытый короб за панелью глубиной 34 мм под стандартную
- * светодиодную плату (круглую Ø до 90 мм или квадратную того же габарита): плата
- * ложится в ложемент на тыльной стенке, провод выходит через окно в ней же, а
- * съёмный отсекатель-тубус не даёт свету бить в края кадра. `socket_rail` —
- * монорельс: две направляющие за верхней и нижней кромками рамки, по ним ездит
- * кольцо с площадкой под патрон E14/E27, расстояние до панели задаётся
- * слайдером `lithoRailDistance`, а козырёк над лампой закрывает её сверху.
+ * `none` — только плита и рамка: подставку и подсветку человек делает сам.
+ * Прежние системы (короб под светодиодную плату и монорельс с подвижным
+ * кольцом) удалены целиком: направляющих, каретки, кольца, цоколя и отсекателя
+ * в коде больше нет. Поле остаётся точкой подключения новых креплений.
  */
-export const LITHOPHANE_MOUNTS = ["none", "led_box", "socket_rail"] as const;
+export const LITHOPHANE_MOUNTS = ["none"] as const;
 
 export type LithophaneMount = (typeof LITHOPHANE_MOUNTS)[number];
 
 /** Подписи креплений: по ним клиент строит кнопки выбора. */
 export const LITHOPHANE_MOUNT_LABELS = {
   none: "Без подставки",
-  led_box: "Короб под LED-матрицу",
-  socket_rail: "Монорельс с кольцом (E14/E27)",
 } as const satisfies Record<LithophaneMount, string>;
-
-/**
- * Цоколь лампы, под который точится площадка кольца.
- *
- * `e14` — миньон: резьба 14 мм, гайка 22 мм, колба короче, поэтому кольцо можно
- * придвинуть к панели ближе. `e27` — стандарт: резьба 27 мм, гайка 30 мм,
- * колба длиннее, и на маленькой панели площадка под неё не помещается.
- */
-export const LITHOPHANE_BULBS = ["e14", "e27"] as const;
-
-export type LithophaneBulb = (typeof LITHOPHANE_BULBS)[number];
-
-/** Подписи цоколей: по ним клиент строит выбор лампы. */
-export const LITHOPHANE_BULB_LABELS = {
-  e14: "E14 (миньон)",
-  e27: "E27 (стандарт)",
-} as const satisfies Record<LithophaneBulb, string>;
-
-/**
- * Нужна ли отдельная печатная деталь крепления.
- *
- * У короба и у монорельса своя съёмная деталь: у `led_box` — отсекатель-тубус,
- * который вставляется в короб и держит плату, у `socket_rail` — кольцо с
- * площадкой под патрон. Одним предикатом проверяют список деталей в панели,
- * сборку и запрос STL — иначе интерфейс обещал бы файл, которого API не соберёт.
- */
-export function lithophaneHasStand(mount: LithophaneMount): boolean {
-  return mount === "led_box" || mount === "socket_rail";
-}
-
-/**
- * Есть ли у формы панели крепления.
- *
- * Обе формы держат крепление на тыльной стороне рамки: короб вписан в её контур,
- * а рельсы идут за верхней и нижней кромками. Предикат оставлен отдельной
- * функцией, потому что крепление требует рамки: без рамки панель тонкая и
- * крепить его не к чему.
- */
-export function lithophaneShapeHasMounts(shape: LithophaneShape): boolean {
-  return shape === "flat" || shape === "round";
-}
 
 /**
  * Детали литофана: что выгружать в STL.
  *
  * Рельеф и рамка печатаются отдельно и собираются без клея: плита входит в паз
- * рамки с зазором 0.2 мм. Крепление — третья деталь: у короба это отсекатель,
- * у монорельса — подвижное кольцо. `all` — собранный вид для проверки и печати
- * одним файлом.
+ * рамки с зазором 0.2 мм. `all` — собранный вид для проверки и печати одним
+ * файлом.
  */
-export const LITHOPHANE_PARTS = ["relief", "frame", "mount", "all"] as const;
+export const LITHOPHANE_PARTS = ["relief", "frame", "all"] as const;
 
 export type LithophanePart = (typeof LITHOPHANE_PARTS)[number];
 
@@ -1802,7 +1739,6 @@ export type LithophanePart = (typeof LITHOPHANE_PARTS)[number];
 export const LITHOPHANE_PART_LABELS = {
   relief: "Рельеф",
   frame: "Рамка",
-  mount: "Крепление",
   all: "Все детали",
 } as const satisfies Record<LithophanePart, string>;
 
@@ -1863,29 +1799,13 @@ export type LithophaneParams = {
    */
   lithoShape: LithophaneShape;
   /**
-   * Крепление: короб под светодиодную плату, монорельс с кольцом или ничего.
+   * Крепление литофана.
    *
-   * Обе системы крепятся к тыльной стороне рамки, поэтому доступны и плоской
-   * панели, и круглой. Геометрию короба задаёт `LITHOPHANE_LED_BOX`, рельса и
-   * кольца — `LITHOPHANE_SOCKET_RAIL`.
+   * Сейчас доступно одно значение — `none`: печатается только панель с рамкой.
+   * Поле остаётся в состоянии и в API, чтобы новые крепления подключались без
+   * переделки панели, предпросмотра и запроса STL.
    */
   lithoMount: LithophaneMount;
-  /**
-   * Цоколь лампы на кольце монорельса: E14 или E27.
-   *
-   * От него зависят диаметр отверстия площадки, размер бортика под гайку и
-   * ширина кольца. Значение переживает смену крепления: вернувшись к рельсу,
-   * человек получает тот же цоколь.
-   */
-  lithoBulb: LithophaneBulb;
-  /**
-   * Расстояние от панели до площадки патрона, мм.
-   *
-   * Читает только `socket_rail`: кольцо ездит по рельсу и фиксируется в этом
-   * положении. Меньше 60 мм колба упирается в панель, больше 120 мм рельс
-   * становится длиннее самой лампы.
-   */
-  lithoRailDistance: number;
 };
 
 /** Сетка яркости вместе с её размерами: массив без полей не читается. */
@@ -2188,11 +2108,9 @@ function createDemoLithophaneBrightness(): number[] {
 /**
  * Литофан по умолчанию: 120 × 80 мм, рельеф 0.8–3 мм, рамка и без крепления.
  *
- * Рамка включена сразу: без неё плита 0.8–3 мм стоит только на ребре, а
- * крепление крепится к её тыльной стороне. Крепление по умолчанию не выбрано:
- * сначала человек видит саму панель и рамку, а короб под LED-плату или монорельс
- * добавляет осознанно. После загрузки фотографии массив яркости заменяется
- * яркостью кадра.
+ * Рамка включена сразу: без неё плита 0.8–3 мм стоит только на ребре, а держать
+ * её нечем. Крепление по умолчанию не выбрано: сначала человек видит саму панель
+ * и рамку. После загрузки фотографии массив яркости заменяется яркостью кадра.
  */
 export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   lithophaneWidth: CONSTRUCTOR_LIMITS.lithophaneWidth.defaultValue,
@@ -2212,10 +2130,6 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   // Плоская панель — форма из референсов и прежнее поведение конструктора:
   // круглую выбирают осознанно, когда нужен ночник на четыре фото.
   lithoShape: "flat",
-  // Короб работает с любой платой; цоколь и расстояние нужны монорельсу.
-  // E27 — стандарт, а 80 мм — середина хода кольца.
-  lithoBulb: "e27",
-  lithoRailDistance: CONSTRUCTOR_LIMITS.lithoRailDistance.defaultValue,
 };
 
 
@@ -2903,20 +2817,7 @@ export function isLithophaneShape(value: unknown): value is LithophaneShape {
   );
 }
 
-/**
- * Проверка цоколя лампы из формы или API.
- *
- * Незнакомое значение — это не ошибка ввода: старый проект без поля получает
- * E27, а не падение сборки.
- */
-export function isLithophaneBulb(value: unknown): value is LithophaneBulb {
-  return (
-    typeof value === "string" &&
-    (LITHOPHANE_BULBS as readonly string[]).includes(value)
-  );
-}
-
-/** Проверка детали литофана: рельеф, рамка, крепление или всё сразу. */
+/** Проверка детали литофана: рельеф, рамка или всё сразу. */
 export function isLithophanePart(value: unknown): value is LithophanePart {
   return (
     typeof value === "string" &&
@@ -4267,12 +4168,10 @@ function normalizeBoxCells(
  * испорченные данные заменяются демонстрационным рельефом, чтобы предпросмотр
  * не падал.
  *
- * Крепление без рамки невозможно: короб и рельсы крепятся к тыльной стороне
- * рамки. Поэтому при выключенной рамке `lithoMount` принудительно становится
- * `none`, и панель не обещает крепление, которого в файле не будет.
- *
- * Цоколь и расстояние до лампы не сбрасываются при смене крепления: выбор
- * остаётся в состоянии, а геометрия читает его только у `socket_rail`.
+ * Крепление без рамки невозможно, поэтому при выключенной рамке `lithoMount`
+ * принудительно становится `none`. Старые сохранённые проекты приносят `led_box`
+ * и `socket_rail`: таких креплений больше нет, и они схлопываются в `none`, а не
+ * роняют сборку.
  */
 export function normalizeLithophaneParams(
   params: Partial<LithophaneParams>,
@@ -4302,9 +4201,6 @@ export function normalizeLithophaneParams(
   const requestedMount = isLithophaneMount(params.lithoMount)
     ? params.lithoMount
     : DEFAULT_LITHOPHANE_PARAMS.lithoMount;
-  const lithoBulb = isLithophaneBulb(params.lithoBulb)
-    ? params.lithoBulb
-    : DEFAULT_LITHOPHANE_PARAMS.lithoBulb;
   const brightness = resolveLithophaneBrightness(params);
   const sideBrightness = resolveLithophaneSideBrightness(
     params.lithophaneSideBrightness,
@@ -4328,12 +4224,6 @@ export function normalizeLithophaneParams(
     lithoFrame,
     lithoMount: lithoFrame ? requestedMount : "none",
     lithoShape,
-    lithoBulb,
-    lithoRailDistance: snap(
-      params.lithoRailDistance ??
-        DEFAULT_LITHOPHANE_PARAMS.lithoRailDistance,
-      CONSTRUCTOR_LIMITS.lithoRailDistance,
-    ),
   };
 }
 
