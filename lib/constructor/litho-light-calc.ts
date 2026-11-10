@@ -35,9 +35,6 @@ import {
   BODY_OVERLAP_MM,
   LITHOPHANE_ARCH_STAND,
   LITHOPHANE_ARCH_STRIP,
-  LITHOPHANE_BENT_BASE,
-  LITHOPHANE_BENT_BASE_FLOOR_MM,
-  LITHOPHANE_CYLINDER_FLOOR_MM,
   LITHOPHANE_FIT_GAP_MM,
   LITHOPHANE_FRAME_SEAT_MM,
   LITHOPHANE_KALEIDOSCOPE,
@@ -896,156 +893,6 @@ function flatEmitters(
   );
 }
 
-/**
- * Тыл изогнутой панели: цилиндр радиуса изгиба вокруг оси (0, *, −R).
- *
- * Сборка изогнутой формы не наклоняется и не садится на базу — панель стоит
- * нижней кромкой в пазу рельса, поэтому вся плита поднята на дно паза. Радиус
- * полуцилиндра выводится из ширины (`R = ширина / π`), у изогнутой панели берётся
- * из слайдера — ровно как в `lithophaneBendRadius`.
- */
-function bentFace(
-  normalized: LithophaneParams,
-  plate: { width: number; height: number },
-): LithoLightFace {
-  const radius =
-    normalized.lithoShape === "cylinder"
-      ? normalized.lithophaneWidth / Math.PI
-      : normalized.lithoCurveRadius;
-  // У полуцилиндра панель стоит на кромке чаши, у изогнутой — на бруске дуги.
-  const floor =
-    normalized.lithoShape === "cylinder"
-      ? LITHOPHANE_CYLINDER_FLOOR_MM
-      : LITHOPHANE_BENT_BASE_FLOOR_MM;
-
-  return {
-    origin: [
-      0,
-      floor + plateFrameWidth(normalized, plate) + LITHOPHANE_FIT_GAP_MM,
-      plateBack(),
-    ],
-    right: [1, 0, 0],
-    up: [0, 1, 0],
-    normal: [0, 0, 1],
-    width: plate.width,
-    height: plate.height,
-    bend: { radius, backOffset: plateBack() },
-  };
-}
-
-/**
- * Источники изогнутых форм: лента в базе, USB-лампа или патрон E27 на полке.
- *
- * У изогнутой панели лента лежит в канале бруска, заметённого по дуге: он идёт
- * за пазом рамки, повторяя её прогиб, а канал вынесен назад на 26 мм, поэтому
- * точки ленты встают на радиус `R − (зазор + отступ + канал)`. У полуцилиндра
- * ленте отведена круговая канавка в дне чаши — кольцо точек по всему
- * полуцилиндру. USB-лампа и патрон стоят на полке базы: у бруска на оси панели,
- * в чаше — в её центре, на оси вращения. «Без подсветки» источника не даёт.
- */
-function bentSeat(
-  normalized: LithophaneParams,
-  plate: { width: number; height: number },
-): LithoLightSeat | null {
-  const face = bentFace(normalized, plate);
-  const kind = normalized.lithoLightSource;
-
-  if (kind === "none") {
-    return null;
-  }
-
-  if (kind === "usb_bulb" || kind === "socket") {
-    const cylinder = normalized.lithoShape === "cylinder";
-    const shelf = cylinder
-      ? LITHOPHANE_BENT_BASE.perchTop
-      : LITHOPHANE_BENT_BASE.railTop;
-    /*
-      Ось скобы над полкой та же, что у тела: у бруска дуги — `bentAxisAbove`,
-      в полуцилиндре — `bentCylinderAxisAbove`. В чаше лампа стоит на оси
-      вращения ниже середины кадра, поэтому там её поднимают выше.
-    */
-    const above = cylinder
-      ? LITHOPHANE_LAMP_CLAMP.bentCylinderAxisAbove[kind]
-      : LITHOPHANE_LAMP_CLAMP.bentAxisAbove[kind];
-    // В чаше лампа стоит на оси вращения, на бруске — на оси скобы.
-    const z = cylinder
-      ? -(face.bend?.radius ?? 0)
-      : LITHOPHANE_LAMP_CLAMP.bentAxisZ;
-
-    return {
-      kind,
-      faces: [face],
-      emitters: [
-        {
-          position: [0, shelf + above, z],
-          axis: [0, 0, 1],
-          lobe: 0,
-          intensity:
-            kind === "usb_bulb"
-              ? LITHO_LIGHT_MODEL.candelas.usbBulb
-              : LITHO_LIGHT_MODEL.candelas.socket,
-        },
-      ],
-    };
-  }
-
-  const base = LITHOPHANE_BENT_BASE;
-  const radius = face.bend?.radius ?? 0;
-
-  if (normalized.lithoShape === "cylinder") {
-    const ring =
-      radius -
-      (LITHOPHANE_FIT_GAP_MM +
-        base.bowlWall +
-        base.ringInset +
-        base.channelWidth / 2);
-    const y =
-      base.bowlFloor - base.channelDepth + LITHO_LIGHT_MODEL.stripLift;
-    const count = LITHO_LIGHT_MODEL.stripEmitters;
-
-    return {
-      kind: "strip",
-      faces: [face],
-      emitters: Array.from({ length: count }, (_, index) => {
-        const angle = (2 * Math.PI * index) / count;
-
-        return {
-          position: [
-            ring * Math.sin(angle),
-            y,
-            -radius + ring * Math.cos(angle),
-          ],
-          axis: [0, 1, 0],
-          lobe: 1,
-          intensity: LITHO_LIGHT_MODEL.candelas.strip / count,
-        };
-      }),
-    };
-  }
-
-  const radial =
-    radius - (LITHOPHANE_FIT_GAP_MM + base.channelGap + base.channelWidth / 2);
-  const y = base.top - base.channelDepth + LITHO_LIGHT_MODEL.stripLift;
-  const half = plate.width / 2;
-
-  return {
-    kind: "strip",
-    faces: [face],
-    emitters: stripEmitterLine(
-      LITHO_LIGHT_MODEL.stripEmitters,
-      LITHO_LIGHT_MODEL.candelas.strip,
-      (offset) => {
-        const angle = (offset * half) / radius;
-
-        return [
-          radial * Math.sin(angle),
-          y,
-          -radius + radial * Math.cos(angle),
-        ];
-      },
-    ),
-  };
-}
 
 /**
  * Призма калейдоскопа: четыре панели вокруг свечи.
@@ -1345,11 +1192,10 @@ function flatLightKind(normalized: LithophaneParams): LithoLightKind | null {
 /**
  * Грань и источники по форме и креплению: единственное место, где они выбираются.
  *
- * Плоская панель светит тем, что выбрано в параметрах, и только в арке или в коробе
- * подвеса. Изогнутая панель и полуцилиндр тоже читают `lithoLightSource`: лента
- * ложится в канал бруска или в круговую канавку чаши, USB-лампа и патрон встают на
- * полку базы. Призма держит свечу в пьедестале: другой источник внутрь камеры не
- * встаёт.
+ * Плоская панель светит тем, что выбрано в параметрах, и только в арке или в
+ * коробе подвеса. Призма держит свечу в пьедестале: другой источник внутрь камеры
+ * не встаёт. У круглого плафона расчёта нет: это абажур без своей базы, лампу в
+ * него ставят отдельно.
  */
 function lightSeat(
   normalized: LithophaneParams,
@@ -1357,13 +1203,6 @@ function lightSeat(
 ): LithoLightSeat | null {
   if (normalized.lithoShape === "kaleidoscope") {
     return kaleidoscopeSeat(normalized, plate);
-  }
-
-  if (
-    normalized.lithoShape === "curved" ||
-    normalized.lithoShape === "cylinder"
-  ) {
-    return bentSeat(normalized, plate);
   }
 
   const kind = flatLightKind(normalized);
@@ -1382,11 +1221,9 @@ function lightSeat(
 /**
  * Место листа-рассеивателя: паз напечатан в каждой базе, где ставится источник.
  *
- * У арки лист вставляется сверху в щель верхней плоскости базы, у бруска дуги —
- * в такую же щель, заметённую по дуге, у полуцилиндра лист гнётся в кольцо и
- * встаёт в круговое седло. Паз режется при любом источнике: лист входит в
- * комплект, и без него панель качается в пазу. У призмы калейдоскопа паза нет:
- * там свет горит в камере за четырьмя плитами.
+ * У арки лист вставляется сверху в щель верхней плоскости базы. Паз режется при
+ * любом источнике: лист входит в комплект, и без него панель качается в пазу. У
+ * призмы калейдоскопа паза нет: там свет горит в камере за четырьмя плитами.
  *
  * Низ листа — дно паза, верх — на высоту панели выше: лист кроится по тому же
  * размеру, что и кадр, иначе верх кадра остаётся без размытия. Числа берутся из
@@ -1396,41 +1233,21 @@ function diffuserSeat(
   normalized: LithophaneParams,
   kind: LithoLightKind,
 ): LithoLightDiffuser | null {
-  if (!normalized.lithoDiffuser || kind === "candle") {
+  if (
+    !normalized.lithoDiffuser ||
+    kind === "candle" ||
+    normalized.lithoShape !== "flat"
+  ) {
     return null;
   }
 
   // Лист кроится по панели, а не по светящейся части кадра.
   const sheet = normalized.lithophaneHeight;
-
-  if (normalized.lithoShape === "flat") {
-    const stand = LITHOPHANE_ARCH_STAND;
-    const bottom = stand.baseTop - stand.diffuserDepth;
-
-    return {
-      gap: plateBack() - stand.diffuserZ,
-      bottom,
-      top: bottom + sheet,
-    };
-  }
-
-  if (normalized.lithoShape === "curved") {
-    const base = LITHOPHANE_BENT_BASE;
-    const bottom = base.top - base.diffuserDepth;
-
-    return {
-      gap: plateBack() - base.diffuserU,
-      bottom,
-      top: bottom + sheet,
-    };
-  }
-
-  // Полуцилиндр: лист гнётся в кольцо по седлу, его низ — дно кругового паза.
-  const base = LITHOPHANE_BENT_BASE;
-  const bottom = base.cradleHeight - base.cradleDepth;
+  const stand = LITHOPHANE_ARCH_STAND;
+  const bottom = stand.baseTop - stand.diffuserDepth;
 
   return {
-    gap: base.diffuserInset,
+    gap: plateBack() - stand.diffuserZ,
     bottom,
     top: bottom + sheet,
   };
@@ -1440,15 +1257,16 @@ function diffuserSeat(
  * Полный расчёт по параметрам: источники, карта, рекомендации и предупреждения.
  *
  * Возвращает `null`, если свет ставить некуда: крепления вырезаны в рамке, поэтому
- * без неё сборка — одна плита, а у ножки, массивной базы и «без подсветки»
- * источника нет. Предпросмотр в этом случае не рисует ни ламп, ни карты.
+ * без неё сборка — одна плита, у ножки, массивной базы и «без подсветки» источника
+ * нет, а круглый плафон вообще не держит лампу. Предпросмотр в этом случае не
+ * рисует ни ламп, ни карты.
  */
 export function lithophaneLightPlan(
   params: Partial<LithophaneParams>,
 ): LithoLightPlan | null {
   const normalized = normalizeLithophaneParams(params);
 
-  if (!normalized.lithoFrame) {
+  if (!normalized.lithoFrame || normalized.lithoShape === "round") {
     return null;
   }
 

@@ -72,21 +72,18 @@
  *      только в её окно, канал под ленту 10 × 2 мм с полом на 8.5 мм, окно под
  *      провод 6 × 5 мм на уровне пола канала, две петли по 10 мм с выступом
  *      12 мм и карманом под шляпку шурупа, короб вписан в контур рамки;
- *  17. форма панели: вершины изогнутой панели и полуцилиндра рождаются сразу в
- *      цилиндрических координатах (готовую сетку никто не гнёт), поэтому вершины
- *      лица общие, нормали гладкие и муара от фасеток нет; заворот равен длине
- *      дуги, объём совпадает с плоской плитой (раньше веер тыла уходил внутрь
- *      цилиндра и «толстил» панель — на дуге на 40 %, на полуцилиндре втрое), а
- *      бюджет сетки считает нарезку тыла отдельным слагаемым;
- *  18. базы изогнутых форм: у дуги — брусок с пазом, каналом под ленту и щелью
- *      под рассеиватель 2.4 × 6 мм (канал открыт вверх, за каналом и перед
- *      панелью пластик), у полуцилиндра — плоский диск с круговым пазом,
- *      выборкой снизу и сквозным отверстием Ø40 по оси: лампа светит прямо внутрь
- *      панели, а не в её торец;
- *  19. калейдоскоп: четыре панели без рамок на полом цоколе под тонкой крышкой с
+ *  17. круглый плафон: панели рождаются сразу на цилиндре, ширина панели равна
+ *      дуге её сектора плюс перехлёст на стыке, тыл лежит на радиусе, лицо
+ *      доходит до наружного диаметра, камера внутри пустая (луч из оси встречает
+ *      только две стенки одной панели), а число групп материалов равно числу
+ *      панелей; две панели дают то же кольцо из двух широких полуокружностей;
+ *  18. калейдоскоп: четыре панели без рамок на полом цоколе под тонкой крышкой с
  *      окнами — призма 123.6 мм, вся деталь весит около 110 г вместо 381 г,
  *      отверстие Ø40 держит кольцо в центре дна, окна в крышке дают тягу, а на
- *      каждой грани может быть свой кадр (пустой слот повторяет предыдущий).
+ *      каждой грани может быть свой кадр (пустой слот повторяет предыдущий);
+ *  19. свет: где стоят лампы и как ложится свет — обратные квадраты, канал под
+ *      ленту, скобы, гнездо E27, лист-рассеиватель и карта света; у круглого
+ *      плафона расчёта нет: лампу в него ставят отдельно.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -99,11 +96,8 @@ import { DoubleSide, Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 import {
   LITHOPHANE_ARCH_STAND,
   LITHOPHANE_ARCH_STRIP,
-  LITHOPHANE_BENT_BASE,
-  LITHOPHANE_BENT_BASE_FLOOR_MM,
   LITHOPHANE_BORDER_CHAMFER_MM,
   LITHOPHANE_BORDER_MM,
-  LITHOPHANE_CYLINDER_FLOOR_MM,
   LITHOPHANE_DETAIL_GROUP,
   LITHOPHANE_FIT_GAP_MM,
   LITHOPHANE_FRAME_CORNER_RADIUS_MM,
@@ -112,6 +106,7 @@ import {
   LITHOPHANE_KALEIDOSCOPE,
   LITHOPHANE_LAMP_CLAMP,
   LITHOPHANE_RELIEF_GROUP,
+  LITHOPHANE_ROUND,
   LITHOPHANE_STAND_SHAPES,
   LITHOPHANE_STAND_TILT_DEG,
   LITHOPHANE_WALL_BOX,
@@ -140,17 +135,13 @@ import {
   lithophaneFaceBrightness,
   lithophaneMeshOptions,
   lithophaneMeshSize,
+  lithophanePanelCount,
   lithophaneShapeHasBase,
-  lithophaneShapeHasMounts,
   normalizeLithophaneParams,
   type LithophaneBrightnessGrid,
   type LithophaneParams,
-  type LithophaneShape,
 } from "../lib/constructor/params";
-import {
-  calculateGeometryVolumeMm3,
-  calculateGeometryWeightGrams,
-} from "../lib/constructor/geometry-volume";
+import { calculateGeometryWeightGrams } from "../lib/constructor/geometry-volume";
 import {
   LITHO_LIGHT_MODEL,
   LITHO_LIGHT_SEATS,
@@ -977,43 +968,6 @@ function downwardFaces(geometry: BufferGeometry, fromY: number): number {
   return count;
 }
 
-/**
- * Профиль изгиба: расстояние вершин от оси и угол заворота, градусы.
- *
- * Ось изгиба лежит на тыле детали (Z = −R), поэтому у плоской детали вершины
- * стоят на разных расстояниях от неё, а у изогнутой — на R + толщина: это и есть
- * признак цилиндра. Угол считается от плоскости симметрии, поэтому у
- * полуцилиндра он доходит до ±90°, а размах говорит, на сколько градусов
- * завернулась панель.
- */
-function bendProfile(
-  geometry: BufferGeometry,
-  radius: number,
-): { minRadius: number; maxRadius: number; minAngle: number; maxAngle: number } {
-  const position = geometry.getAttribute("position");
-  let minRadius = Number.POSITIVE_INFINITY;
-  let maxRadius = Number.NEGATIVE_INFINITY;
-  let minAngle = Number.POSITIVE_INFINITY;
-  let maxAngle = Number.NEGATIVE_INFINITY;
-
-  for (let vertex = 0; vertex < position.count; vertex += 1) {
-    const x = position.getX(vertex);
-    const z = position.getZ(vertex);
-
-    minRadius = Math.min(minRadius, Math.hypot(x, z + radius));
-    maxRadius = Math.max(maxRadius, Math.hypot(x, z + radius));
-    minAngle = Math.min(
-      minAngle,
-      (Math.atan2(x, z + radius) * 180) / Math.PI,
-    );
-    maxAngle = Math.max(
-      maxAngle,
-      (Math.atan2(x, z + radius) * 180) / Math.PI,
-    );
-  }
-
-  return { minRadius, maxRadius, minAngle, maxAngle };
-}
 
 
 console.log("\n1. Кадр не растягивается: contain вместо центрального квадрата");
@@ -2704,55 +2658,6 @@ console.log("\n16. Подвес: световой короб, окно под п
 }
 
 /**
- * Сколько треугольников приходится в среднем на вершину лица, штук.
- *
- * Гладкие нормали возможны только тогда, когда вершины лица общие: у регулярной
- * сетки каждая внутренняя вершина принадлежит шести треугольникам. Если грани
- * разложены на собственные вершины (плоское затенение), среднее падает до двух —
- * именно так лицо и превращалось в муар на цилиндре.
- *
- * Считаются вершины на радиусе не меньше `fromRadius`: у изогнутой плиты это
- * лицо, у плоской — его аналог по толщине.
- */
-function faceVertexReuse(
-  geometry: BufferGeometry,
-  radius: number | null,
-  fromRadius: number,
-): number {
-  const position = geometry.getAttribute("position");
-  const index = geometry.getIndex();
-  const triangles = (index?.count ?? position.count) / 3;
-  const used = new Map<number, number>();
-
-  for (let triangle = 0; triangle < triangles; triangle += 1) {
-    for (let corner = 0; corner < 3; corner += 1) {
-      const vertex = index
-        ? index.getX(triangle * 3 + corner)
-        : triangle * 3 + corner;
-      const radial =
-        radius === null
-          ? position.getZ(vertex)
-          : Math.hypot(
-              position.getX(vertex),
-              position.getZ(vertex) + radius,
-            );
-
-      if (radial >= fromRadius) {
-        used.set(vertex, (used.get(vertex) ?? 0) + 1);
-      }
-    }
-  }
-
-  let total = 0;
-
-  for (const count of used.values()) {
-    total += count;
-  }
-
-  return used.size > 0 ? total / used.size : 0;
-}
-
-/**
  * Толщина панели вдоль нормали грани призмы.
  *
  * Луч идёт снаружи к оси через середину грани: первые два попадания — лицо и тыл
@@ -2791,655 +2696,170 @@ function prismFaceThickness(
   return hits.length >= 2 ? hits[1].distance - hits[0].distance : Number.NaN;
 }
 
-
-console.log("\n17. Форма панели: вершины рождаются сразу на цилиндре");
+console.log("\n17. Круглый плафон: кольцо изогнутых панелей без базы");
 
 {
   /*
-    Изогнутая панель и полуцилиндр считаются в цилиндрических координатах:
-    развёртка (x, y, z) отображается в x' = (R + z)·sin(x / R) и
-    z' = (R + z)·cos(x / R) − R. Готовую сетку больше никто не гнёт, поэтому
-    фасетки лица не деформируются, а нормали по общим вершинам остаются гладкими.
+    Круглый плафон — полый цилиндр, стенки которого собраны из двух-четырёх
+    изогнутых панелей. Панель рождается сразу на цилиндре радиуса «диаметр / 2 −
+    максимальная толщина»: бортик печатается на максимальной толщине и доходит
+    ровно до заданного диаметра, а лицо фото остаётся чуть глубже. Ширина панели
+    равна дуге её сектора плюс перехлёст на стыке, поэтому кольцо замкнуто без
+    совпадающих плоскостей.
 
-    Раздел проверяет то, что видно только на числах:
-      — плита лежит на цилиндре нужного радиуса, заворот равен длине дуги;
-      — лицо гладкое: у ровного кадра нормали смотрят по радиусу, а не по
-        фасеткам 0.3 мм (именно это давало муар на предпросмотре);
-      — объём совпадает с плоской плитой. Раньше тыл собирался веером от центра,
-        и на полуцилиндре его лучи уходили внутрь на 12 мм: панель «толстела»
-        втрое, а на дуге — на 40 %;
-      — число треугольников укладывается в бюджет сетки, который теперь считает
-        нарезку тыла отдельным слагаемым.
+    Проверяется то, чего не видно на предпросмотре: панели стоят на цилиндре (тыл
+    на радиусе, лицо — на наружном диаметре), камера внутри пустая, оболочки
+    замкнуты, габарит равен диаметру, а число групп материалов совпадает с числом
+    панелей — у каждой панели свой кадр.
   */
-  const width = 120;
+  const diameter = 120;
   const height = 80;
-  const radius = CONSTRUCTOR_LIMITS.lithoCurveRadius.defaultValue;
-  const maxThickness = CONSTRUCTOR_LIMITS.lithophaneMaxThickness.defaultValue;
-  const minThickness = CONSTRUCTOR_LIMITS.lithophaneMinThickness.defaultValue;
-  const even = flatFrame(255);
-  const curved: Partial<LithophaneParams> = {
-    lithophaneWidth: width,
+  const maxThickness = 3;
+  const panels = 4;
+  const params = normalizeLithophaneParams({
+    lithophaneWidth: diameter,
     lithophaneHeight: height,
-    lithoShape: "curved",
-    lithophaneBrightness: even.brightness,
-    lithophaneBrightnessWidth: even.width,
-    lithophaneBrightnessHeight: even.height,
-  };
-  const plate = lithophanePlateSize(curved);
-  const halfPlate = plate.width / 2;
-  const halfWidth = width / 2;
-  // Передняя плоскость рамки: у плоской рамки это её габарит по Z. У изогнутой
-  // габарит по Z — это ещё и прогиб, поэтому толщину берём у плоской.
-  const frontZ = boxSize(
-    createLithophaneFrameGeometry({
-      lithophaneWidth: width,
-      lithophaneHeight: height,
-    }),
-  ).z;
-  const sagArc = radius * (1 - Math.cos(halfPlate / radius));
-  const sagProjection =
-    radius - Math.sqrt(radius * radius - halfPlate * halfPlate);
-  const relief = createLithophaneReliefGeometry(curved);
-  const frame = createLithophaneFrameGeometry(curved);
-  const reliefBend = bendProfile(relief, radius);
-  const frameBend = bendProfile(frame, radius);
-  const flatRelief = createLithophaneReliefGeometry({
-    ...curved,
-    lithoShape: "flat",
+    lithophaneMaxThickness: maxThickness,
+    lithoShape: "round",
+    lithophanePanels: panels,
   });
-  const flatVolume = calculateGeometryVolumeMm3(flatRelief);
-  const curvedVolume = calculateGeometryVolumeMm3(relief);
-  const cylinderRelief = createLithophaneReliefGeometry({
-    ...curved,
-    lithoShape: "cylinder",
-  });
-  const cylinderVolume = calculateGeometryVolumeMm3(cylinderRelief);
+  const radius = diameter / 2 - maxThickness;
+  const plate = lithophanePlateSize(params);
+  const geometry = createLithophaneGeometry(params);
+  const size = boxSize(geometry);
   const mesh = lithophaneMeshSize(
     plate.width,
     plate.height,
-    lithophaneMeshOptions("curved"),
+    lithophaneMeshOptions("round", panels),
   );
+  const position = geometry.getAttribute("position");
+  let minRadial = Number.POSITIVE_INFINITY;
+  let maxRadial = Number.NEGATIVE_INFINITY;
 
-  relief.computeBoundingBox();
-  const reliefBack = -(relief.boundingBox?.min.z ?? Number.NaN);
-  // Общие вершины лица — условие гладких нормалей: у регулярной сетки на
-  // внутреннюю вершину приходится шесть треугольников, у плоского затенения —
-  // два, и именно тогда фасетки 0.3 мм складывались в муар.
-  const faceReuse = faceVertexReuse(relief, radius, radius + minThickness - 0.01);
+  for (let vertex = 0; vertex < position.count; vertex += 1) {
+    const radial = Math.hypot(position.getX(vertex), position.getZ(vertex));
 
-  console.log(
-    `  дуга R${radius}: плита уходит назад на ${reliefBack.toFixed(3)} мм ` +
-      `(по дуге ${sagArc.toFixed(3)}, по проекции ${sagProjection.toFixed(3)}), ` +
-      `заворот ${frameBend.minAngle.toFixed(2)}…${frameBend.maxAngle.toFixed(2)}°`,
-  );
-  console.log(
-    `  объём: плоская ${(flatVolume / 1000).toFixed(3)} см³, дуга ` +
-      `${(curvedVolume / 1000).toFixed(3)}, полуцилиндр ` +
-      `${(cylinderVolume / 1000).toFixed(3)}; общих вершин лица — ` +
-      `${faceReuse.toFixed(2)} треугольника на вершину`,
-  );
+    minRadial = Math.min(minRadial, radial);
+    maxRadial = Math.max(maxRadial, radial);
+  }
 
-  check(
-    "дуга: по умолчанию радиус 250 мм",
-    normalizeLithophaneParams({ lithoShape: "curved" }).lithoCurveRadius,
-    radius,
+  // Луч из пустой камеры наружу: на пути две стенки одной панели — тыл и лицо.
+  // Высота выбрана между рядами сетки: луч через центр веера попал бы в вершину,
+  // где сходятся десятки треугольников.
+  const object = new Mesh(
+    geometry,
+    new MeshBasicMaterial({ side: DoubleSide }),
   );
-  check(
-    "дуга: радиус встаёт на шаг слайдера",
-    normalizeLithophaneParams({ lithoCurveRadius: 137 }).lithoCurveRadius,
-    140,
-  );
-  check(
-    "дуга: незнакомая форма превращается в плоскую",
-    normalizeLithophaneParams({
-      lithoShape: "spiral" as unknown as LithophaneShape,
-    }).lithoShape,
-    "flat",
-  );
-  // Вершины плиты лежат на цилиндре: от оси Z = −R расстояние равно R, а лицо
-  // рельефа отстоит от тыла не дальше максимальной толщины.
-  checkRange(
-    "дуга: плита лежит на цилиндре радиуса R",
-    [reliefBend.minRadius - radius, reliefBend.maxRadius - radius - maxThickness],
-    -TOLERANCE_MM,
-    TOLERANCE_MM,
-  );
-  checkRange(
-    "дуга: прогиб по z = R − √(R² − x²)",
-    [reliefBack],
-    sagArc - TOLERANCE_MM,
-    sagProjection + TOLERANCE_MM,
-  );
-  checkRange(
-    "дуга: угол заворота равен длине дуги",
-    [
-      reliefBend.maxAngle - (halfPlate / radius) * (180 / Math.PI),
-      reliefBend.minAngle + (halfPlate / radius) * (180 / Math.PI),
-    ],
-    -0.05,
-    0.05,
-  );
-  // Рамка рождается на цилиндре тем же отображением, но её контур шире окна:
-  // угол считается по половине габарита панели, лицо отстоит на frontZ.
-  checkRange(
-    "дуга: рамка идёт по тому же цилиндру",
-    [
-      frameBend.minRadius - radius,
-      frameBend.maxRadius - radius - frontZ,
-      frameBend.maxAngle - (halfWidth / radius) * (180 / Math.PI),
-    ],
-    -0.05,
-    0.05,
-  );
-  // Главная проверка от муара: у ровного кадра лицо — идеальный цилиндр, и
-  // вершины у него общие, поэтому нормали считаются по сетке, а не по фасеткам.
-  checkRange(
-    "дуга: вершины лица общие — фасеток не видно",
-    [faceReuse],
-    5,
-    6.2,
-  );
-  // Объём не должен зависеть от формы: изгиб меняет его на доли процента.
-  checkRange(
-    "дуга: объём совпадает с плоской плитой",
-    [curvedVolume / flatVolume - 1, cylinderVolume / flatVolume - 1],
-    -0.01,
-    0.05,
-  );
-  check(
-    "дуга: плита укладывается в бюджет сетки",
-    triangleCount(relief) <= (mesh?.triangles ?? 0),
-    true,
-  );
-  check(
-    "дуга: бюджет сетки считает нарезку тыла",
-    mesh !== null && lithophaneMeshOptions("curved").fanStep > 0,
-    true,
-  );
-  check(
-    "дуга: оболочки замкнуты",
-    openEdges(relief) + openEdges(frame) + openEdges(flatRelief),
+  const across = new Raycaster(
+    new Vector3(0, height * 0.37, 0),
+    new Vector3(1, 0, 0),
     0,
+    diameter * 2,
+  ).intersectObject(object, false);
+  const half = createLithophaneGeometry(
+    normalizeLithophaneParams({ ...params, lithophanePanels: 2 }),
   );
-  check(
-    "дуга: NaN 0",
-    nanVertices(relief) + nanVertices(frame) + nanVertices(cylinderRelief),
-    0,
-  );
-  // Тыл изогнутой плиты режется на полосы вдоль лучей, поэтому треугольников у
-  // неё больше, чем у плоской, но не вдвое: веер не дробится на 0.3 мм.
-  check(
-    "дуга: нарезка тыла не больше половины лица",
-    triangleCount(relief) <= triangleCount(flatRelief) * 1.5,
-    true,
-  );
-
-  const assembly = createLithophaneGeometry({ ...curved, lithoMount: "arch" });
-  const assemblySize = boxSize(assembly);
+  const halfSize = boxSize(half);
+  const weight = calculateGeometryWeightGrams(geometry);
 
   console.log(
-    `  сборка дуги: ${assemblySize.x.toFixed(2)} × ${assemblySize.y.toFixed(2)} × ` +
-      `${assemblySize.z.toFixed(2)} мм, вес ` +
-      `${calculateGeometryWeightGrams(assembly).toFixed(1)} г`,
+    `  плафон Ø${diameter} × ${height}: панель ${plate.width.toFixed(2)} × ${plate.height.toFixed(2)} мм, ` +
+      `кольцо ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)} мм, ` +
+      `вес ${weight.toFixed(1)} г`,
   );
 
-  checkRange(
-    "дуга: сборка стоит на столе и поднимает панель на дно паза",
-    [
-      assembly.boundingBox?.min.y ?? Number.NaN,
-      assemblySize.y - (height + LITHOPHANE_BENT_BASE_FLOOR_MM),
-    ],
-    -TOLERANCE_MM,
-    TOLERANCE_MM,
-  );
-  check("дуга: сборка замкнута", openEdges(assembly), 0);
-
-  relief.dispose();
-  frame.dispose();
-  flatRelief.dispose();
-  cylinderRelief.dispose();
-  assembly.dispose();
-}
-
-
-console.log(
-  "\n18. Базы изогнутых форм: брусок по дуге и чаша, источник по выбору",
-);
-
-{
-  /*
-    У изогнутой панели база — брусок, заметённый по её дуге: паз под нижнюю
-    кромку и две выборки в верхней плоскости. Лента лежит в канале, вынесенном на
-    20 мм назад: у самой панели она давала пересвет по центру и тёмные края. Между
-    каналом и пазом панели — паз под лист-рассеиватель 2.4 × 6 мм: лист входит
-    сверху и стоит на пути света. Паз режется при любом источнике, потому что лист
-    входит в комплект. Под USB-лампу и патрон E27 за бруском стоит узкая лапка 4 мм,
-    на ней — седло со скобой.
-
-    У полуцилиндра база — низкая обойма (6 мм) с круговым пазом под панель, за ней
-    лоток с круговой канавкой под ленту на трёх спицах и седло листа-рассеивателя.
-    Под USB-лампу и патрон в середине стоит стойка-седло со скобой, а лотка нет:
-    лента и лампа — разные источники.
-
-    Проверяется разрез, которого не видно на предпросмотре: дно паза, глубина
-    канала и канавки, щели под рассеиватель, лапка, спицы, замкнутость и вес.
-  */
-  const base = LITHOPHANE_BENT_BASE;
-  const width = 120;
-  const height = 80;
-  const plate = { lithophaneWidth: width, lithophaneHeight: height };
-  const bar = createLithophaneGeometry(
-    normalizeLithophaneParams({ ...plate, lithoShape: "curved" }),
-    "stand",
-  );
-  const railUsb = createLithophaneGeometry(
-    normalizeLithophaneParams({
-      ...plate,
-      lithoShape: "curved",
-      lithoLightSource: "usb_bulb",
-    }),
-    "stand",
-  );
-  const railSocket = createLithophaneGeometry(
-    normalizeLithophaneParams({
-      ...plate,
-      lithoShape: "curved",
-      lithoLightSource: "socket",
-    }),
-    "stand",
-  );
-  const ring = createLithophaneGeometry(
-    normalizeLithophaneParams({ ...plate, lithoShape: "cylinder" }),
-    "stand",
-  );
-  const bowlUsb = createLithophaneGeometry(
-    normalizeLithophaneParams({
-      ...plate,
-      lithoShape: "cylinder",
-      lithoLightSource: "usb_bulb",
-    }),
-    "stand",
-  );
-  const bowlSocket = createLithophaneGeometry(
-    normalizeLithophaneParams({
-      ...plate,
-      lithoShape: "cylinder",
-      lithoLightSource: "socket",
-    }),
-    "stand",
-  );
-  const frontZ = boxSize(
-    createLithophaneFrameGeometry({
-      lithophaneWidth: width,
-      lithophaneHeight: height,
-    }),
-  ).z;
-  const cylinderRadius = width / Math.PI;
-  // Кромка обоймы стоит на зазоре посадки за тылом панели: панель входит в паз,
-  // а её тыл остаётся от кромки на `LITHOPHANE_FIT_GAP_MM`.
-  const discRadius =
-    cylinderRadius + frontZ + LITHOPHANE_FIT_GAP_MM + base.discRim;
-  // Канал ленты стоит за тылом панели: зазор посадки, отступ и середина канала.
-  const channelCenter =
-    -(LITHOPHANE_FIT_GAP_MM + base.channelGap + base.channelWidth / 2);
-  // За каналом остаётся внутренняя стенка: её середина — проверка материала.
-  const behindChannel =
-    channelCenter - base.channelWidth / 2 - base.innerRun / 2;
-  // Кольцевая канавка ленты в лотке обоймы: от середины кольца до оси вращения.
-  const ringOuter =
-    cylinderRadius - LITHOPHANE_FIT_GAP_MM - base.bowlWall - base.ringInset;
-  const ringCenter = ringOuter - base.channelWidth / 2;
-  // Середина пролёта между кольцом ленты и обоймой: там стоит спица.
-  const spokeRadius = (ringOuter + cylinderRadius) / 2;
-  // Седло листа в обойме: его середина — радиус кольца вокруг оси.
-  const cradleMiddle = cylinderRadius - base.diffuserInset;
-  const barSize = boxSize(bar);
-  const ringSize = boxSize(ring);
-  const seatHit = firstHit(bar, [0, base.top + 30, 0], [0, -1, 0]);
-  const channelHit = firstHit(
-    bar,
-    [0, base.top + 30, channelCenter],
-    [0, -1, 0],
-  );
-  const behindHit = firstHit(bar, [0, base.top + 30, behindChannel], [0, -1, 0]);
-  const outerHit = firstHit(
-    bar,
-    [0, base.top + 30, frontZ + LITHOPHANE_FIT_GAP_MM + base.outerWall / 2],
-    [0, -1, 0],
-  );
-  /*
-    Паз под рассеиватель: луч в его середину падает в дно паза, а рядом — верх
-    бруска. Паз режется при любом источнике — лист входит в комплект, поэтому под
-    лампой на том же месте тоже дно паза.
-  */
-  const sheetHit = firstHit(bar, [0, base.top + 30, base.diffuserU], [0, -1, 0]);
-  const beforeSheet = firstHit(
-    bar,
-    [0, base.top + 30, base.diffuserU + base.diffuserWidth],
-    [0, -1, 0],
-  );
-  const lampSheetHit = firstHit(
-    railUsb,
-    [0, base.top + 30, base.diffuserU],
-    [0, -1, 0],
-  );
-  // Под лампой канала нет: на его месте узкая лапка на `footHeight`. Стойка скобы
-  // стоит как раз над каналом, поэтому лапку пробим у её дальнего конца, за
-  // стойкой, а на середине канала проверяем, что полки на верху бруска там нет.
-  const lampFootHit = firstHit(
-    railUsb,
-    [0, base.top + 30, base.footBack + 2],
-    [0, -1, 0],
-  );
-  const lampChannelHit = firstHit(
-    railUsb,
-    [0, base.top + 30, channelCenter],
-    [0, -1, 0],
-  );
-  // Кромка обоймы — между круговым пазом и наружной стенкой.
-  const collarRimHit = firstHit(
-    ring,
-    [0, base.bowlHeight + 30, frontZ + LITHOPHANE_FIT_GAP_MM + base.discRim / 2],
-    [0, -1, 0],
-  );
-  const grooveHit = firstHit(ring, [0, base.bowlHeight + 30, 2], [0, -1, 0]);
-  // Кольцевая канавка: луч идёт мимо панели в дно канавки.
-  const ringHit = firstHit(
-    ring,
-    [0, base.bowlHeight + 30, -cylinderRadius + ringCenter],
-    [0, -1, 0],
-  );
-  // Седло листа: луч падает в паз кольца на стороне +Z.
-  const cradleHit = firstHit(
-    ring,
-    [0, base.cradleHeight + 30, -cylinderRadius + cradleMiddle],
-    [0, -1, 0],
-  );
-  // Спица и пролёт между спицами: по +X луч упирается в спицу, по +Z — в пустоту.
-  const spokeHit = firstHit(
-    ring,
-    [spokeRadius, base.bowlFloor + 30, -cylinderRadius],
-    [0, -1, 0],
-  );
-  const gapHit = firstHit(
-    ring,
-    [0, base.bowlFloor + 30, -cylinderRadius + spokeRadius],
-    [0, -1, 0],
-  );
-  // Под лампу кольца ленты нет: лоток со спицами не печатается.
-  const lampGapHit = firstHit(
-    bowlUsb,
-    [spokeRadius, base.bowlFloor + 30, -cylinderRadius],
-    [0, -1, 0],
-  );
-  /*
-    Скобы изогнутых баз: та же скоба, что в арке, но её поднимает стойка над верхом
-    бруска дуги и над обоймой полуцилиндра. Ось по Z у бруска — `bentAxisZ` (скоба
-    стоит там же, где стояла стойка), в обойме — ось вращения, то есть её центр.
-  */
-  const clamp = LITHOPHANE_LAMP_CLAMP;
-  const railSocketClamp = clampProbe(
-    railSocket,
-    "socket",
-    base.railTop + clamp.bentAxisAbove.socket,
-    clamp.bentAxisZ,
-  );
-  const bowlSocketClamp = clampProbe(
-    bowlSocket,
-    "socket",
-    base.perchTop + clamp.bentCylinderAxisAbove.socket,
-    -cylinderRadius,
-  );
-  const railUsbClamp = clampProbe(
-    railUsb,
-    "usb_bulb",
-    base.railTop + clamp.bentAxisAbove.usb_bulb,
-    clamp.bentAxisZ,
-  );
-
-  console.log(
-    `  брусок дуги: ${barSize.x.toFixed(2)} × ${barSize.y.toFixed(2)} × ` +
-      `${barSize.z.toFixed(2)} мм, вес ` +
-      `${calculateGeometryWeightGrams(bar).toFixed(1)} г; брусок с USB: ` +
-      `${boxSize(railUsb).z.toFixed(2)} мм по глубине, вес ` +
-      `${calculateGeometryWeightGrams(railUsb).toFixed(1)} г; обойма с лентой: ` +
-      `Ø${ringSize.x.toFixed(2)} × ${ringSize.y.toFixed(2)} мм, вес ` +
-      `${calculateGeometryWeightGrams(ring).toFixed(1)} г; обойма с патроном: ` +
-      `${boxSize(bowlSocket).y.toFixed(2)} мм, вес ` +
-      `${calculateGeometryWeightGrams(bowlSocket).toFixed(1)} г`,
-  );
-
-  // Сменные крепления остаются только у плоской панели: у изогнутых своя база.
   check(
-    "базы: сменные крепления только у плоской формы",
+    "плафон: плита — дуга сектора с перехлёстом",
     [
-      lithophaneShapeHasMounts("flat"),
-      lithophaneShapeHasMounts("curved"),
-      lithophaneShapeHasMounts("cylinder"),
-      lithophaneShapeHasMounts("kaleidoscope"),
+      Math.abs(
+        plate.width -
+          ((2 * Math.PI * radius) / panels + LITHOPHANE_ROUND.seamOverlapMm),
+      ) < 1e-6,
+      plate.height,
     ],
-    [true, false, false, false],
-  );
-  checkRange(
-    "брусок: высота базы",
-    [barSize.y],
-    base.top - TOLERANCE_MM,
-    base.top + TOLERANCE_MM,
-  );
-  checkRange(
-    "брусок: дно паза на высоте стенки под ним",
-    [seatHit?.y ?? Number.NaN],
-    LITHOPHANE_BENT_BASE_FLOOR_MM - TOLERANCE_MM,
-    LITHOPHANE_BENT_BASE_FLOOR_MM + TOLERANCE_MM,
-  );
-  checkRange(
-    "брусок: канал под ленту глубиной 2 мм",
-    [channelHit?.y ?? Number.NaN],
-    base.top - base.channelDepth - TOLERANCE_MM,
-    base.top - base.channelDepth + TOLERANCE_MM,
-  );
-  checkRange(
-    "брусок: за каналом и перед панелью есть пластик",
-    [behindHit?.y ?? Number.NaN, outerHit?.y ?? Number.NaN],
-    base.top - TOLERANCE_MM,
-    base.top + TOLERANCE_MM,
-  );
-  checkRange(
-    "брусок: паз рассеивателя глубиной 6 мм",
-    [(beforeSheet?.y ?? Number.NaN) - (sheetHit?.y ?? Number.NaN)],
-    base.diffuserDepth - TOLERANCE_MM,
-    base.diffuserDepth + TOLERANCE_MM,
+    [true, height],
   );
   check(
-    "брусок: паз рассеивателя держит лист 2 мм",
+    "плафон: бюджет делит сетку на панели",
     [
-      base.diffuserWidth > 2,
-      sheetHit !== null,
-      base.diffuserDepth > base.diffuserWidth,
+      lithophaneMeshOptions("round", 3).copies,
+      lithophaneMeshOptions("round", 3).fanStep > 0,
+      mesh !== null,
     ],
-    [true, true, true],
+    [3, true, true],
   );
   check(
-    "брусок: паз рассеивателя стоит между каналом и панелью",
+    "плафон: число панелей из параметров",
     [
-      base.diffuserU - base.diffuserWidth / 2 >
-        channelCenter + base.channelWidth / 2,
-      base.diffuserU + base.diffuserWidth / 2 < -LITHOPHANE_FIT_GAP_MM,
+      lithophanePanelCount({ lithoShape: "round", lithophanePanels: 3 }),
+      lithophanePanelCount({ lithoShape: "kaleidoscope", lithophanePanels: 3 }),
     ],
-    [true, true],
+    [3, 4],
   );
   checkRange(
-    "брусок: паз рассеивателя режется и под лампой",
-    [lampSheetHit?.y ?? Number.NaN],
-    base.top - base.diffuserDepth - TOLERANCE_MM,
-    base.top - base.diffuserDepth + TOLERANCE_MM,
+    "плафон: габарит равен наружному диаметру",
+    [size.x, size.z],
+    diameter - 0.05,
+    diameter + 0.05,
+  );
+  checkRange(
+    "плафон: высота панелей",
+    [size.y],
+    height - TOLERANCE_MM,
+    height + TOLERANCE_MM,
+  );
+  checkRange(
+    "плафон: тыл панели лежит на радиусе",
+    [minRadial],
+    radius - TOLERANCE_MM,
+    radius + TOLERANCE_MM,
+  );
+  checkRange(
+    "плафон: лицо доходит до наружного радиуса",
+    [maxRadial],
+    diameter / 2 - TOLERANCE_MM,
+    diameter / 2 + TOLERANCE_MM,
   );
   check(
-    "брусок: оболочка замкнута",
-    openEdges(bar) + nanVertices(bar),
-    0,
-  );
-  checkRange(
-    "брусок: канал отодвинут от панели на 20 мм",
-    [
-      Math.abs(channelCenter) -
-        LITHOPHANE_FIT_GAP_MM -
-        base.channelWidth / 2,
-    ],
-    Math.abs(base.channelGap) - TOLERANCE_MM,
-    Math.abs(base.channelGap) + TOLERANCE_MM,
-  );
-  checkRange(
-    "обойма: наружный радиус — панель, стенка и кромка",
-    [ringSize.x / 2 - discRadius],
-    -0.02,
-    0.02,
-  );
-  checkRange(
-    "обойма: высота кромки",
-    [collarRimHit?.y ?? Number.NaN],
-    base.bowlHeight - TOLERANCE_MM,
-    base.bowlHeight + TOLERANCE_MM,
-  );
-  checkRange(
-    "обойма: круговой паз опускает панель на кромку",
-    [grooveHit?.y ?? Number.NaN],
-    LITHOPHANE_CYLINDER_FLOOR_MM - TOLERANCE_MM,
-    LITHOPHANE_CYLINDER_FLOOR_MM + TOLERANCE_MM,
-  );
-  checkRange(
-    "обойма: кольцевая канавка под ленту глубиной 2 мм",
-    [ringHit?.y ?? Number.NaN],
-    base.bowlFloor - base.channelDepth - TOLERANCE_MM,
-    base.bowlFloor - base.channelDepth + TOLERANCE_MM,
-  );
-  checkRange(
-    "обойма: седло листа опускает его на дно паза",
-    [cradleHit?.y ?? Number.NaN],
-    base.cradleHeight - base.cradleDepth - TOLERANCE_MM,
-    base.cradleHeight - base.cradleDepth + TOLERANCE_MM,
-  );
-  check(
-    "обойма: седло стоит между лентой и панелью",
-    [
-      cradleMiddle > ringCenter + base.channelWidth / 2,
-      cradleMiddle < cylinderRadius,
-      base.cradleWidth > base.diffuserWidth,
-    ],
-    [true, true, true],
-  );
-  check(
-    "обойма: кольцо ленты держат спицы, а не сплошной лоток",
-    [spokeHit?.y ?? Number.NaN, gapHit],
-    [base.bowlFloor, null],
-  );
-  check(
-    "обойма: оболочка замкнута и стоит на столе",
-    [
-      openEdges(ring) + nanVertices(ring),
-      ring.boundingBox?.min.y ?? Number.NaN,
-    ],
+    "плафон: оболочки панелей замкнуты",
+    [openEdges(geometry), nanVertices(geometry)],
     [0, 0],
   );
-
-  // Источник выбирается: под лампу за бруском встаёт лапка, а не полка во всю ширину.
-  checkRange(
-    "брусок: под лампой на месте канала лапка",
-    [lampFootHit?.y ?? Number.NaN],
-    base.footHeight - TOLERANCE_MM,
-    base.footHeight + TOLERANCE_MM,
+  check(
+    "плафон: у каждой панели своя группа материалов",
+    [geometry.groups.length, panels],
+    [panels, 4],
   );
   check(
-    "брусок: на месте канала ленты под лампой полки нет",
-    [(lampChannelHit?.y ?? 0) > base.railTop],
-    [true],
-  );
-  checkRange(
-    "брусок: лапка доходит до тыльной кромки",
-    [boxSize(railUsb).z, boxSize(railSocket).z],
-    Math.abs(base.footBack) + TOLERANCE_MM,
-    Math.abs(base.footBack) + 20,
-  );
-  checkRange(
-    "брусок: скоба поднимает лампу над брусом",
-    [railSocketClamp.cradle - base.railTop],
-    10,
-    20,
-  );
-  check(
-    "обойма под лампу: кольца ленты и спиц нет",
-    [lampGapHit],
-    [null],
-  );
-  checkRange(
-    "обойма: скоба поднята над кромкой обоймы",
-    [bowlSocketClamp.cradle - base.perchTop],
-    10,
-    20,
-  );
-  checkRange(
-    "скобы изогнутых баз: гнездо Ø39.8 мм под патрон",
-    [railSocketClamp.boreRadius * 2, bowlSocketClamp.boreRadius * 2],
-    clamp.socketBore - 0.1,
-    clamp.socketBore,
-  );
-  checkRange(
-    "скоба бруска: гнездо Ø13.4 мм под USB-лампу",
-    [railUsbClamp.boreRadius * 2],
-    clamp.usbBore - 0.1,
-    clamp.usbBore,
-  );
-  check(
-    "лапка бруска: шире седла и уже бруска",
+    "плафон: камера пустая — луч из оси встречает только две стенки",
     [
-      clampPostWidth("socket") + base.footBleed > clampPostWidth("socket"),
-      clampPostWidth("socket") + base.footBleed < barSize.x,
+      across.length,
+      Math.abs((across[0]?.distance ?? 0) - radius) < 0.05,
+      (across[1]?.distance ?? 0) > radius + 0.5,
     ],
-    [true, true],
+    [2, true, true],
+  );
+  check(
+    "плафон: две панели тоже дают замкнутое кольцо",
+    [half.groups.length, openEdges(half), nanVertices(half)],
+    [2, 0, 0],
   );
   checkRange(
-    "базы изогнутых форм: самый тяжёлый держатель до 70 г",
-    [
-      Math.max(
-        ...[bar, railUsb, railSocket, ring, bowlUsb, bowlSocket].map((body) =>
-          calculateGeometryWeightGrams(body),
-        ),
-      ),
-    ],
-    0,
-    70,
+    "плафон: кольцо из двух панелей того же диаметра",
+    [halfSize.x, halfSize.z],
+    diameter - 0.05,
+    diameter + 0.05,
   );
   check(
-    "базы с лампой: оболочки замкнуты",
-    [
-      openEdges(railUsb) + nanVertices(railUsb),
-      openEdges(railSocket) + nanVertices(railSocket),
-      openEdges(bowlUsb) + nanVertices(bowlUsb),
-      openEdges(bowlSocket) + nanVertices(bowlSocket),
-    ],
-    [0, 0, 0, 0],
+    "плафон: деталь «рамка» не нужна — отдаются панели",
+    createLithophaneGeometry(params, "frame").groups.length,
+    panels,
   );
-  check(
-    "базы с лампой: печать без поддержек",
-    [
-      downwardFaces(railUsb, base.top + 0.5),
-      downwardFaces(railSocket, base.top + 0.5),
-      downwardFaces(bowlUsb, base.top + 0.5),
-      downwardFaces(bowlSocket, base.top + 0.5),
-    ],
-    [0, 0, 0, 0],
-  );
-
-  bar.dispose();
-  railUsb.dispose();
-  railSocket.dispose();
-  ring.dispose();
-  bowlUsb.dispose();
-  bowlSocket.dispose();
+  checkRange("плафон: вес кольца из четырёх панелей", [weight], 30, 120);
 }
 
 
-console.log("\n19. Калейдоскоп: четыре панели без рамок, полый цоколь и крышка");
+console.log("\n18. Калейдоскоп: четыре панели без рамок, полый цоколь и крышка");
 
 {
   /*
@@ -3496,14 +2916,13 @@ console.log("\n19. Калейдоскоп: четыре панели без ра
   );
 
   check(
-    "калейдоскоп: база есть у всех форм, кроме плоской",
+    "калейдоскоп: база есть только у призмы",
     [
       lithophaneShapeHasBase("flat"),
-      lithophaneShapeHasBase("curved"),
-      lithophaneShapeHasBase("cylinder"),
+      lithophaneShapeHasBase("round"),
       lithophaneShapeHasBase("kaleidoscope"),
     ],
-    [false, true, true, true],
+    [false, false, true],
   );
   checkRange(
     "калейдоскоп: квадратная призма по наружной стенке цоколя",
@@ -3699,7 +3118,7 @@ console.log("\n19. Калейдоскоп: четыре панели без ра
   mixedPrism.dispose();
 }
 
-console.log("\n20. Свет: где стоят лампы и как ложится свет");
+console.log("\n19. Свет: где стоят лампы и как ложится свет");
 
 {
   /*
@@ -3748,23 +3167,9 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     lithoLightSource: "socket",
   });
   const prism = lithophaneLightPlan({ lithoShape: "kaleidoscope" });
-  const curvedStrip = lithophaneLightPlan({ lithoShape: "curved" });
-  const ringStrip = lithophaneLightPlan({ lithoShape: "cylinder" });
-  const railBulb = lithophaneLightPlan({
-    lithoShape: "curved",
-    lithoLightSource: "usb_bulb",
-  });
-  const railSocket = lithophaneLightPlan({
-    lithoShape: "curved",
-    lithoLightSource: "socket",
-  });
-  const bowlBulb = lithophaneLightPlan({
-    lithoShape: "cylinder",
-    lithoLightSource: "usb_bulb",
-  });
-  const bowlSocket = lithophaneLightPlan({
-    lithoShape: "cylinder",
-    lithoLightSource: "socket",
+  const roundPlan = lithophaneLightPlan({
+    lithoShape: "round",
+    lithoLightSource: "strip",
   });
   const stripSpots = strip?.emitters.map((item) => item.position) ?? [];
   const stripX = stripSpots.map((point) => point[0]);
@@ -3968,97 +3373,10 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     ["candle", [0, Math.round(LITHO_LIGHT_SEATS.candleY), 0]],
   );
   /*
-    Источник у изогнутых форм теперь выбирается. Лента в чаше уложена кольцом по
-    всему полуцилиндру, а лампа и патрон стоят на полке базы: их центр считается
-    от полки, поэтому у дуги и в чаше он разный.
+    У круглого плафона расчёта нет: это абажур без своей базы, лампу в него
+    ставят отдельно. Форм `curved` и `cylinder` в конструкторе больше нет.
   */
-  const bowlRadius = -(bowlBulb?.faces[0].bend?.radius ?? 0);
-  const ringSpots = ringStrip?.emitters.map((item) => item.position) ?? [];
-  const ringRadius = ringSpots.map((point) =>
-    Math.hypot(point[0], point[2] - bowlRadius),
-  );
-  const shelf = LITHOPHANE_BENT_BASE;
-  const clamp = LITHOPHANE_LAMP_CLAMP;
-
-  check(
-    "свет: в чаше лента уложена кольцом по всему полуцилиндру",
-    [
-      ringStrip?.kind,
-      ringSpots.length,
-      Math.max(...ringRadius) - Math.min(...ringRadius) < 0.01,
-      new Set(ringSpots.map((point) => point[1].toFixed(3))).size,
-    ],
-    ["strip", LITHO_LIGHT_MODEL.stripEmitters, true, 1],
-  );
-  check(
-    "свет: в чаше лампа и патрон стоят на площадке по оси",
-    [
-      bowlBulb?.kind,
-      bowlBulb?.emitters[0].position.map((value) => Math.round(value)),
-      bowlSocket?.kind,
-      bowlSocket?.emitters[0].position.map((value) => Math.round(value)),
-    ],
-    [
-      "usb_bulb",
-      [
-        0,
-        Math.round(shelf.perchTop + clamp.bentCylinderAxisAbove.usb_bulb),
-        Math.round(bowlRadius),
-      ],
-      "socket",
-      [
-        0,
-        Math.round(shelf.perchTop + clamp.bentCylinderAxisAbove.socket),
-        Math.round(bowlRadius),
-      ],
-    ],
-  );
-  check(
-    "свет: на рельсе дуги лампа и патрон стоят на полке",
-    [
-      railBulb?.kind,
-      railBulb?.emitters[0].position.map((value) => Math.round(value)),
-      railSocket?.kind,
-      railSocket?.emitters[0].position.map((value) => Math.round(value)),
-    ],
-    [
-      "usb_bulb",
-      [
-        0,
-        Math.round(shelf.railTop + clamp.bentAxisAbove.usb_bulb),
-        clamp.bentAxisZ,
-      ],
-      "socket",
-      [
-        0,
-        Math.round(shelf.railTop + clamp.bentAxisAbove.socket),
-        clamp.bentAxisZ,
-      ],
-    ],
-  );
-  check(
-    "свет: «без подсветки» у изогнутой панели плана нет",
-    lithophaneLightPlan({ lithoShape: "curved", lithoLightSource: "none" }),
-    null,
-  );
-  check(
-    "свет: лента в рельсе дуги отодвинута от панели",
-    [
-      curvedStrip?.kind,
-      curvedStrip!.actualDistance > 25,
-    ],
-    ["strip", true],
-  );
-  check(
-    "свет: лампа в чаше светит ровнее ленты в дне",
-    [bowlBulb!.topShare > ringStrip!.topShare, bowlSocket!.topShare > ringStrip!.topShare],
-    [true, true],
-  );
-  check(
-    "свет: в чаше полуцилиндра верх не темнее низа вдвое",
-    bowlBulb!.topShare > 0.5,
-    true,
-  );
+  check("свет: у круглого плафона источника в сборке нет", roundPlan, null);
   checkRange(
     "свет: карта на грань нужного размера",
     [strip?.maps[0].length ?? Number.NaN],
@@ -4084,28 +3402,11 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     lithoDiffuser: true,
     ...wide,
   })!;
-  const wideCurve = lithophaneLightPlan({
-    lithoShape: "curved",
-    lithoLightSource: "strip",
-    ...wide,
-  })!;
-  const wideCurveSheet = lithophaneLightPlan({
-    lithoShape: "curved",
-    lithoLightSource: "strip",
-    lithoDiffuser: true,
-    ...wide,
-  })!;
-  // Паз под лист напечатан у всех форм со светом: у арки, у бруска дуги и в
-  // полуцилиндре. Лист кроится по панели, поэтому закрывает весь путь света.
+  // Паз под лист напечатан только в базе арки: лист кроится по панели и
+  // закрывает весь путь света.
   const wideBulbSheet = lithophaneLightPlan({
     lithoMount: "arch",
     lithoLightSource: "usb_bulb",
-    lithoDiffuser: true,
-    ...wide,
-  })!;
-  const ringSheet = lithophaneLightPlan({
-    lithoShape: "cylinder",
-    lithoLightSource: "strip",
     lithoDiffuser: true,
     ...wide,
   })!;
@@ -4139,10 +3440,8 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     [
       wideSheet.peakRatio < wideStrip.peakRatio - 0.1,
       greenShare(wideSheet) > greenShare(wideStrip) + 0.05,
-      wideCurveSheet.peakRatio < wideCurve.peakRatio - 0.1,
-      greenShare(wideCurveSheet) > greenShare(wideCurve) + 0.05,
     ],
-    [true, true, true, true],
+    [true, true],
   );
   /*
     Лист не добавляет свет, а перераспределяет его: средняя падает не только на
@@ -4166,13 +3465,9 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     wideStrip.actualDistance - 10,
   );
   check(
-    "свет: лист во всех базах стоит дальше 10 мм от панели",
-    [
-      (wideSheet.diffuser?.gap ?? 0) > 10,
-      (wideCurveSheet.diffuser?.gap ?? 0) > 10,
-      (ringSheet.diffuser?.gap ?? 0) > 10,
-    ],
-    [true, true, true],
+    "свет: лист стоит в базе на одном расстоянии от панели",
+    [(wideSheet.diffuser?.gap ?? 0) > 10],
+    [true],
   );
   checkRange(
     "свет: низ листа — дно паза, верх — на высоту панели",
@@ -4184,18 +3479,15 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     wide.lithophaneHeight,
   );
   check(
-    "свет: паз под лист есть у всех форм со светом, кроме призмы",
+    "свет: паз под лист есть у арки, у призмы света в камере нет",
     [
       wideSheet.diffuserSupported,
-      wideCurveSheet.diffuserSupported,
       wideBulbSheet.diffuserSupported,
       (wideBulbSheet.diffuser?.gap ?? 0) > 0,
-      ringSheet.diffuserSupported,
-      Math.round(ringSheet.diffuser?.gap ?? 0),
       prismSheet.diffuserSupported,
       prismSheet.diffuser,
     ],
-    [true, true, true, true, true, 12, false, null],
+    [true, true, true, false, null],
   );
 
   // Палитра карты: синий — провал, зелёный — рабочая зона, красный — пересвет.

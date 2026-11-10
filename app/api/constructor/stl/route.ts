@@ -77,8 +77,10 @@ import {
   keychainQrCardSpec,
   listSignBlocks,
   lithophaneHasStand,
+  lithophaneMeshOptions,
   lithophaneMeshSize,
   lithophaneShapeHasBase,
+  lithophaneShapeHasFrame,
   lithophaneShapeHasMounts,
   lithophaneStlFileName,
   normalizeBoxParams,
@@ -1104,7 +1106,7 @@ function parseLithophaneParams(
     lithoFrame = DEFAULT_LITHOPHANE_PARAMS.lithoFrame,
     lithoMount = DEFAULT_LITHOPHANE_PARAMS.lithoMount,
     lithoShape = DEFAULT_LITHOPHANE_PARAMS.lithoShape,
-    lithoCurveRadius = DEFAULT_LITHOPHANE_PARAMS.lithoCurveRadius,
+    lithophanePanels = DEFAULT_LITHOPHANE_PARAMS.lithophanePanels,
     lithoLightSource = DEFAULT_LITHOPHANE_PARAMS.lithoLightSource,
     part = "all",
   } = body;
@@ -1136,24 +1138,26 @@ function parseLithophaneParams(
       lithophaneBrightnessWidth,
       lithophaneBrightnessHeight,
     ) ||
-    // Кадры остальных граней калейдоскопа необязательны: старый клиент их не
-    // присылает, и одна картинка повторяется на всех четырёх гранях.
+    // Кадры остальных панелей необязательны: старый клиент их не присылает, и
+    // одна картинка повторяется на всех панелях.
     (lithophaneSideBrightness !== undefined &&
       !isLithophaneSideBrightness(lithophaneSideBrightness)) ||
     typeof lithoFrame !== "boolean" ||
     !isLithophaneMount(lithoMount) ||
     !isLithophaneShape(lithoShape) ||
     !isNumberInRange(
-      lithoCurveRadius,
-      CONSTRUCTOR_LIMITS.lithoCurveRadius.min,
-      CONSTRUCTOR_LIMITS.lithoCurveRadius.max,
+      lithophanePanels,
+      CONSTRUCTOR_LIMITS.lithophanePanels.min,
+      CONSTRUCTOR_LIMITS.lithophanePanels.max,
     ) ||
     !isLithophaneLightSource(lithoLightSource) ||
     !isLithophanePart(part) ||
-    (!lithoFrame && part !== "relief") ||
+    // У плафона и калейдоскопа съёмной рамки нет: их панели печатаются всегда,
+    // поэтому деталь «frame» к ним не относится, а флаг рамки не читается.
+    (part === "frame" && !lithophaneShapeHasFrame(lithoShape)) ||
+    (lithophaneShapeHasFrame(lithoShape) && !lithoFrame && part !== "relief") ||
     // Деталь «stand»: у плоской формы это выбранное крепление с ножкой или
-    // основанием, у изогнутой панели, полуцилиндра и калейдоскопа — их
-    // собственная база, которая печатается при любой форме, кроме плоской.
+    // основанием, у калейдоскопа — собственный цоколь.
     (part === "stand" &&
       !(
         lithophaneShapeHasBase(lithoShape) ||
@@ -1188,7 +1192,7 @@ function parseLithophaneParams(
       lithoFrame,
       lithoMount,
       lithoShape,
-      lithoCurveRadius,
+      lithophanePanels,
       lithoLightSource,
     }),
     part,
@@ -1751,8 +1755,16 @@ export async function POST(request: Request): Promise<Response> {
   // списывается, а пользователь видит причину, а не 500.
   if (parsed.model === "lithophane") {
     const plate = lithophanePlateSize(parsed.params);
+    const mesh = lithophaneMeshSize(
+      plate.width,
+      plate.height,
+      lithophaneMeshOptions(
+        parsed.params.lithoShape,
+        parsed.params.lithophanePanels,
+      ),
+    );
 
-    if (lithophaneMeshSize(plate.width, plate.height) === null) {
+    if (mesh === null) {
       return errorResponse(
         422,
         "lithophane_mesh_too_large",

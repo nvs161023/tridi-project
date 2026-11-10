@@ -29,7 +29,6 @@ import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 import {
   COASTER_PATTERN_LABELS,
   JEWELRY_CONFIG_LABELS,
-  LITHOPHANE_MOUNT_LABELS,
   LITHOPHANE_PREVIEW_RESOLUTION,
   LITHOPHANE_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
@@ -40,7 +39,8 @@ import {
   keychainShapeLabel,
   keychainTextDecoration,
   lithophaneHasStand,
-  lithophaneShapeHasMounts,
+  lithophanePanelCount,
+  lithophaneShapeHasFrame,
   vasePatternLabel,
   type ConstructorParams,
   type KeychainFontId,
@@ -59,7 +59,6 @@ import {
 } from "@/lib/constructor/heat-transfer-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import {
-  LITHO_LIGHT_KIND_LABELS,
   lithophaneHeatColor,
   lithophaneHeatMesh,
   lithophaneLightPlan,
@@ -67,7 +66,6 @@ import {
   type LithoLightPlan,
 } from "@/lib/constructor/litho-light-calc";
 import {
-  LITHOPHANE_KALEIDOSCOPE,
   createLithophaneGeometry,
   lithophanePlateSize,
 } from "@/lib/constructor/lithophane-geometry";
@@ -1143,9 +1141,10 @@ function Scene({
   const lampDistance = span * STUDIO_BACKLIGHT.distance;
 
   /*
-    Габариты плиты: карта свечения строится под их пропорции, а не под кадр.
-    Зависимости — только габариты панели и флаг рамки: массив яркости сюда не
-    входит, поэтому движение слайдера толщин не пересобирает текстуру.
+    Габариты плиты: карта свечения строится под их пропорции, а не под кадр. У
+    плафона плита — одна изогнутая панель, поэтому в расчёт входят форма и число
+    панелей. Зависимости — только габариты: массив яркости сюда не входит,
+    поэтому движение слайдера толщин не пересобирает текстуру.
   */
   const lithophanePlate = useMemo(
     () =>
@@ -1153,14 +1152,20 @@ function Scene({
         ? lithophanePlateSize({
             lithophaneWidth: params.lithophaneWidth,
             lithophaneHeight: params.lithophaneHeight,
+            lithophaneMaxThickness: params.lithophaneMaxThickness,
             lithoFrame: params.lithoFrame,
+            lithoShape: params.lithoShape,
+            lithophanePanels: params.lithophanePanels,
           })
         : null,
     [
       params.model,
       params.lithophaneWidth,
       params.lithophaneHeight,
+      params.lithophaneMaxThickness,
       params.lithoFrame,
+      params.lithoShape,
+      params.lithophanePanels,
     ],
   );
 
@@ -1193,15 +1198,20 @@ function Scene({
           /*
             Плана нет — значит, ленту или лампу в этой сборке не ставят. Тогда за
             панелью стоит общий свет, как окно: смотреть деталь на просвет можно,
-            но к конкретному креплению он не относится. Тень он не отбрасывает —
-            у подсветки рассеянный свет, и вторая карта теней только удорожала бы
-            кадр.
+            но к конкретному креплению он не относится. У плафона лампа встаёт на
+            его ось, внутрь пустой камеры, — так светятся все панели сразу. Тень он
+            не отбрасывает: у подсветки рассеянный свет, и вторая карта теней
+            только удорожала бы кадр.
           */
           <pointLight
             color={STUDIO_BACKLIGHT.color}
             decay={2}
             intensity={STUDIO_BACKLIGHT.illuminance * lampDistance * lampDistance}
-            position={[0, framing.height * 0.55, -lampDistance]}
+            position={
+              params.lithoShape === "round"
+                ? [0, framing.height * 0.5, 0]
+                : [0, framing.height * 0.55, -lampDistance]
+            }
           />
         )
       ) : null}
@@ -1587,15 +1597,24 @@ export function Viewport({
   );
 
   /**
-   * Кадры граней калейдоскопа: основа и три слота.
+   * Кадры панелей: основа и слоты остальных панелей.
    *
-   * Пустой слот повторяет предыдущую грань — ровно как в
+   * Пустой слот повторяет предыдущую панель — ровно как в
    * `lithophaneFaceBrightness` при построении геометрии. Поэтому рельеф и
-   * текстура на каждой грани совпадают: в предпросмотре видно то же фото, что
+   * текстура на каждой панели совпадают: в предпросмотре видно то же фото, что
    * напечатается.
    */
+  /**
+   * Сколько панелей у формы: по нему собираются карты панелей и группы сетки.
+   */
+  const lithophanePanels =
+    params.model === "lithophane" ? lithophanePanelCount(params) : 0;
+
   const lithophaneFaces = useMemo(() => {
-    if (params.model !== "lithophane" || params.lithoShape !== "kaleidoscope") {
+    if (
+      params.model !== "lithophane" ||
+      lithophaneShapeHasFrame(params.lithoShape)
+    ) {
       return null;
     }
 
@@ -1606,7 +1625,7 @@ export function Viewport({
     const sides = lithophaneSidePreview ?? [];
     const frames = [lithophanePreview];
 
-    for (let index = 1; index < LITHOPHANE_KALEIDOSCOPE.sides; index += 1) {
+    for (let index = 1; index < lithophanePanels; index += 1) {
       frames.push(sides[index - 1] ?? frames[index - 1]);
     }
 
@@ -1614,6 +1633,7 @@ export function Viewport({
   }, [
     lithophanePreview,
     lithophaneSidePreview,
+    lithophanePanels,
     params.lithoShape,
     params.model,
   ]);
@@ -1781,10 +1801,9 @@ export function Viewport({
     }
 
     if (params.model === "lithophane") {
-      // С подставкой сборка наклонена и стоит на базе 6–9 мм, а у изогнутой
-      // панели габарит по X не совпадает с шириной развёртки: у полуцилиндра
-      // силуэт вдвое уже, у дуги чуть шире. В этих случаях габарит берём из
-      // готовой сетки — камера не должна обрезать верх рамки.
+      // С подставкой сборка наклонена и стоит на базе 6–9 мм, а у плафона и
+      // призмы габарит по X не совпадает с шириной развёртки. В этих случаях
+      // габарит берём из готовой сетки — камера не должна обрезать верх.
       if (
         params.lithoShape !== "flat" ||
         lithophaneHasStand(params.lithoMount)
@@ -1863,7 +1882,7 @@ export function Viewport({
           : params.model === "box"
             ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
             : params.model === "lithophane"
-              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, ${params.lithoFrame ? `рамка, ${lithophaneShapeHasMounts(params.lithoShape) ? `крепление «${LITHOPHANE_MOUNT_LABELS[params.lithoMount]}»` : `форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»`}` : "без рамки"}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}${heatMap ? ", включена карта света" : ""}`
+              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»${lithophaneShapeHasFrame(params.lithoShape) ? `, ${params.lithoFrame ? "рамка" : "без рамки"}` : ""}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}${heatMap ? ", включена карта света" : ""}`
               : params.model === "planter"
                 ? `3D-предпросмотр кашпо «${PLANTER_SHAPE_LABELS[params.planterShape]}» ${params.planterSize} миллиметров по ключу и высотой ${params.planterHeight} миллиметров, стенка ${params.planterWall} миллиметров, ${params.planterDrainage ? "с дренажными отверстиями и поддоном" : "без поддона"}`
                 : params.model === "coaster"
@@ -2016,9 +2035,9 @@ export function Viewport({
 
         {params.model === "lithophane" && heatMap ? (
           /*
-            Легенда карты: полоска той же палитры и подписи краёв. Абсолютные
-            люксы здесь не нужны — карта показывает ровность, поэтому шкала
-            подписана словами, а не числами.
+            Легенда карты: полоска той же палитры и подписи краёв. Люксы здесь не
+            показываются: карта отвечает на вопрос о ровности, а числа — дело
+            расчёта, которого в интерфейсе больше нет.
           */
           <div className="pointer-events-none absolute top-3 right-3 w-40 rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-[0.65rem] text-slate-300 backdrop-blur">
             <div
@@ -2032,9 +2051,7 @@ export function Viewport({
             </div>
             <p className="mt-1 leading-snug text-slate-400">
               {lithophaneLight
-                ? `${LITHO_LIGHT_KIND_LABELS[lithophaneLight.kind]}: ${(
-                    lithophaneLight.average / 1000
-                  ).toFixed(2)} клк в среднем`
+                ? "Ровность света по панели"
                 : "Источника в этой сборке нет"}
             </p>
           </div>
