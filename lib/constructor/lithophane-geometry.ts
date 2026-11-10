@@ -22,6 +22,7 @@ import {
   lithophaneShapeHasMounts,
   normalizeLithophaneParams,
   type LithophaneBrightnessGrid,
+  type LithophaneLightSeat,
   type LithophaneLightSource,
   type LithophaneMount,
   type LithophaneParams,
@@ -2101,6 +2102,14 @@ export const LITHOPHANE_ARCH_STAND = {
    * 120 × 80 88 мм на стол не встают — они и вынесены в подсказку панели.
    */
   back: -64,
+  /**
+   * Тыльная кромка базы без канала под ленту, мм.
+   *
+   * Под открытую лампу и «без подсветки» в базе нет выборок: за панелью стоят
+   * только штанга и скобы держателя, поэтому база кончается за пазом рамки.
+   * 30 мм вместо 64 — это пластик, который на полке некуда девать.
+   */
+  openBack: -30,
   front: 10,
   /** Высота площадки базы над столом, мм. */
   baseTop: 10,
@@ -2197,98 +2206,139 @@ export const LITHOPHANE_ARCH_STRIP = {
 } as const;
 
 /**
- * USB-лампа в базе открытой арки: круглая стойка с чашей под колбу.
+ * Открытая скоба под патрон E27 и ножку USB-лампы.
  *
- * Штекер Type-A — 12 × 4.5 мм и 12 мм длиной, поэтому канал Ø14.2: запас на
- * сторону, чтобы лампа входила от руки. Канал проходит сквозь стойку и упирается
- * в верх базы — штекер стоит на ней, до стола не достаёт, а лампа не висит на
- * стенках. Колба Ø20–28 мм ложится в чашу на кромке стойки: дно чаши сходится к
- * каналу, поэтому лампа центрируется сама и не качается.
+ * Владелец показал, как это делают на Cults3D: за панелью стоит не чаша с
+ * абажуром, а простая скоба, в которую патрон входит с натягом, и открытая лампа
+ * светит прямо на тыл литофана. Скоба — недокрученное кольцо: тело вращения с
+ * проёмом 150° сверху, его стенки пружинят, патрон вставляется вдоль оси с натягом
+ * 0.2 мм и держится трением, а провод свободно выходит назад через открытый торец.
+ * Дна у гнезда нет: скоба — кольцо, патрон проходит насквозь. Наружная дуга кольца
+ * ниже оси смотрит вниз, поэтому снизу скобу держит седло стойки
+ * (`createClampSaddleBodies`): печатаются только вертикальные стенки и вогнутая
+ * полка, и поддержек деталь не требует.
  *
- * Стойка — тело вращения, а не призма с пропилом: подошва Ø34 входит в базу на
- * 1 мм, пояс Ø28 на 15 мм и кромка Ø34 на 26 мм дают силуэт вазы, и с лица
- * крепление читается одной плавной деталью. Чаша — конус с плавной образующей,
- * её поверхность смотрит вверх, поэтому стойка печатается без поддержек, а
- * канал и чаша закрыты сверху: штекера и провода не видно. Передняя точка
- * стойки стоит на 5 мм позади плоскости панели — из зала крепление не заметно.
+ * Ось гнезда горизонтальна и смотрит в панель: лампа направлена прямо на кадр, как
+ * в референсе. Отсюда расстояния: у колбы A60 центр стекла на 30 мм впереди кромки
+ * гнезда, а сама колба тянется ещё на 45 мм, поэтому ближняя скоба стоит от панели
+ * дальше, чем светит, — иначе колба упиралась бы в литофан. Панель наклонена на
+ * 12°, поэтому её плоскость на высоте гнезда уходит назад: расчёт света берёт
+ * настоящее расстояние до плоскости, а не координату Z.
  */
-export const LITHOPHANE_USB_LIGHT = {
-  /** Ось стойки по Z, мм. */
-  centerZ: -27,
-  /** Радиус и высота подошвы, пояса и кромки, мм. */
-  footRadius: 17,
-  footY: 5,
-  waistRadius: 14,
-  waistY: 15,
-  rimRadius: 17,
-  rimY: 26,
-  /** Ширина кольцевой кромки чаши, мм. */
-  rimWidth: 2,
-  /** Радиус канала под штекер, мм. */
-  channelRadius: 7.1,
-  /** Глубина чаши: на сколько её дно ниже кромки, мм. */
-  bowlDepth: 6,
-  /** Провис управляющей точки чаши: доля её глубины. */
-  bowlBelly: 0.25,
-  /** Отрезков на оборот стойки и на образующую чаши. */
-  segments: 96,
-  bowlSegments: 12,
+export const LITHOPHANE_LAMP_CLAMP = {
+  /** Гнездо под патрон E27: патрон Ø40 входит с натягом 0.2 мм, мм. */
+  socketBore: 39.8,
+  /** Гнездо под гибкую ножку USB-лампы Ø12, мм. */
+  usbBore: 13.4,
+  /** Толщина стенки скобы, мм. */
+  wall: 2,
+  /** Длина скобы вдоль оси гнезда, мм. */
+  length: 20,
+  /** Оборот скобы: остальные 150° — проём сверху, через него стенки пружинят. */
+  sweepDeg: 210,
+  /** Отрезков на дугу скобы: 48 дают круг с ошибкой 0.02 мм. */
+  segments: 48,
+  /** Высота оси гнезда над столом в базе арки, мм. */
+  axisY: 52,
+  /**
+   * Гнёзда в держателе арки: ось скобы, мм от плоскости панели.
+   *
+   * Ближнее — то же, что на референсе: патрон почти у панели, деталь компактная.
+   * Дальнее отодвигает лампу на 120 мм: пик падает с ×6 до ×1.4, и карта зеленеет.
+   */
+  socketAxis: { near: 78, far: 120 },
+  /** То же для USB-лампы: её гибкая ножка сама выносит колбу вперёд на 25 мм. */
+  usbAxis: { near: 60, far: 115 },
+  /** Вылет центра колбы от кромки гнезда, мм: радиус A60 и головка USB-лампы. */
+  socketBulbReach: 30,
+  usbBulbReach: 25,
+  /** Диаметр колбы A60, мм: по нему считается зазор до панели. */
+  socketBulbDiameter: 60,
+  /** Ось скобы у изогнутых форм: на полке бруска дуги и в чаше полуцилиндра, мм. */
+  bentAxisZ: -28,
+  /** Ось скобы над полкой изогнутой базы, мм: там высота лампы прежняя. */
+  bentAxisAbove: { socket: 33, usb_bulb: 23 },
+  /** Ширина и высота несущей штанги за панелью, мм. */
+  beamWidth: 12,
+  beamHeight: 6,
+  /**
+   * Стойка-седло под скобу: ширина по X и глубина по Z, мм.
+   *
+   * Верх стойки повторяет наружную дугу кольца (см. `createClampSaddleBodies`), и
+   * ширина седла — это ширина нависания кольца: ниже оси наружная стенка смотрит
+   * вниз, и стойка с плоским верхом оставила бы эту дугу в воздухе. У кольца Ø44
+   * нависание доходит до 16 мм от оси, поэтому седлу патрона нужно 32 мм; ножке
+   * USB-лампы Ø17 хватает 20 мм. Шире самого кольца седло не бывает: его полка
+   * повторяет стенку, а за габарит скобы деталь не выходит.
+   */
+  postWidth: 20,
+  /** Ширина седла под патрон E27: кольцо Ø44 не встаёт на стойку 20 мм. */
+  socketPostWidth: 32,
+  postDepth: 20,
 } as const;
 
+/** Скоба какого гнезда: патрон E27 или ножка USB-лампы. */
+export type LithophaneClampKind = "socket" | "usb_bulb";
+
 /**
- * Патрон E27 в базе открытой арки: стакан с гнездом, прорезью под провод и
- * наклонным абажуром.
+ * Ширина стойки-седла под скобу, мм.
  *
- * Пластиковый патрон E27 — Ø40 мм и 30–40 мм высотой, поэтому гнездо Ø40 × 15 мм:
- * половина патрона прячется в стакане, вторая остаётся над базой под лампу.
- * Стенка 2 мм, дно гнезда на 3 мм выше верха базы — стакан стоит на базе, а не
- * висит на ней. Прорезь 18° во всю высоту стенки обращена назад: провод выходит
- * из патрона и уходит за тыльную кромку базы.
- *
- * Абажур — наклонный отражатель вокруг гнезда: конус от кромки стакана к
- * кромке Ø54 на 33 мм с вырезом 120° в сторону панели. Свет лампы идёт прямо в
- * кадр через вырез, а всё, что уходит назад и в стороны, конус возвращает вверх
- * на тыл панели. Вырез шире угла панели (панель 120 мм перекрывает ±68° от оси
- * гнезда), поэтому отражённый свет не бьёт в глаза из-за литофана. Кромка
- * абажура выше стакана на 9 мм, а его корень утоплен в стенку стакана — деталь
- * печатается как есть: наружная поверхность конуса наклонена на 29°.
- * База под патрон глубже на 10 мм: кромка абажура Ø54 не выходит за неё.
+ * Считается в одном месте: по ней строится седло и её же проверяет
+ * `check:lithophane`. У седла верх повторяет наружную дугу кольца, поэтому шире
+ * самого кольца оно не бывает — иначе полка вышла бы за стенку и легла бы в
+ * пустоту. Патрону E27 нужна вся ширина нависания кольца Ø44, ножке USB-лампы
+ * Ø17 хватает `postWidth`.
  */
-export const LITHOPHANE_SOCKET_LIGHT = {
-  /** Наружный диаметр стакана, мм. */
-  outerDiameter: 44,
-  /** Гнездо под патрон и его глубина, мм. */
-  cavityDiameter: 40,
-  cavityDepth: 15,
-  /** Дно гнезда над верхом базы, мм. */
-  floorAboveBase: 3,
-  /** Центр гнезда по Z, мм. */
-  centerZ: -28,
-  /** Прорезь под провод: угол сектора, градусы. */
-  wireSlotDeg: 18,
-  /** Отрезков на оборот стакана: 96 сторон дают круг с ошибкой 0.01 мм. */
-  segments: 96,
-  /** Абажур: радиус и высота кромки, радиус и высота корня, мм. */
-  shadeRootRadius: 21,
-  shadeRootY: 22,
-  shadeRimRadius: 27,
-  shadeRimY: 33,
-  /** Толщина стенки абажура по кромке, мм. */
-  shadeWidth: 2,
-  /** Вырез в сторону панели: угол и начало сектора от +Z, градусы. */
-  shadeSweepDeg: 240,
-  shadeStartDeg: 60,
-} as const;
+export function clampPostWidth(light: LithophaneClampKind): number {
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+  const bore = light === "socket" ? clamp.socketBore : clamp.usbBore;
+  const outer = bore / 2 + clamp.wall;
+  const wanted = light === "socket" ? clamp.socketPostWidth : clamp.postWidth;
+
+  return Math.min(wanted, 2 * (outer - BODY_OVERLAP_MM));
+}
+
+/** Гнездо скобы в держателе арки для выбранного источника, мм от панели. */
+function clampAxisZ(
+  light: LithophaneClampKind,
+  seat: LithophaneLightSeat,
+): number {
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+
+  return light === "socket" ? clamp.socketAxis[seat] : clamp.usbAxis[seat];
+}
+
+/**
+ * Центр свечения лампы в держателе арки, мм в координатах подставки.
+ *
+ * Ось скобы горизонтальна, поэтому колба висит на одной высоте с гнездом и
+ * сдвинута к панели на свой вылет. Расчёт света берёт эту точку, а не повторяет
+ * арифметику профиля.
+ */
+export function lithophaneClampBulb(
+  light: LithophaneClampKind,
+  seat: LithophaneLightSeat,
+): readonly [number, number, number] {
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+  const reach =
+    light === "socket" ? clamp.socketBulbReach : clamp.usbBulbReach;
+
+  return [0, clamp.axisY, -clampAxisZ(light, seat) + reach];
+}
 
 /**
  * Тыльная кромка базы арки, мм.
  *
- * Канал под ленту, стойка под USB-лампу и стакан с абажуром под патрон E27
- * укладываются в общую базу: кромка абажура Ø54 при центре гнезда −28 доходит до
- * −55, а тыльная кромка стоит на −64 — деталь целиком лежит на базе.
+ * Канал под ленту вырезан в скате задней стенки, поэтому под ленту база глубже:
+ * деталь уходит на `shape.back`. Под открытую лампу и «без подсветки» в базе нет
+ * выборок, и лишние 34 мм глубины стоили бы 60 г пластика: за панелью остаются
+ * только штанга со скобами.
  */
-function archBaseBack(shape: typeof LITHOPHANE_ARCH_STAND): number {
-  return shape.back;
+function archBaseBack(
+  shape: typeof LITHOPHANE_ARCH_STAND,
+  light: LithophaneLightSource,
+): number {
+  return light === "strip" ? shape.back : shape.openBack;
 }
 
 /**
@@ -2414,10 +2464,10 @@ function createStandProfile(
  * что низ рамки не упирается в глухую стену. Канал под ленту начинается сразу за
  * тыльной стенкой паза: лента стоит в базе и светит вверх, на тыл кадра.
  *
- * Канал, паз под рассеиватель и наклонный скат нужны только ленте. Под USB-лампу
- * и патрон E27 база остаётся гладкой: стойка с чашей под колбу и стакан с
- * абажуром собираются отдельными телами (`createUsbPodBody`,
- * `createSocketLightBody`).
+ * Канал, паз под рассеиватель, наклонный скат и высокая тыльная стенка нужны
+ * только ленте. Под открытую лампу и «без подсветки» база — ровная планка под
+ * пазом рамки: лампу держит отдельный держатель за панелью
+ * (`createArchLampBodies`), и выборок в базе нет.
  */
 function createArchBaseProfile(
   shape: typeof LITHOPHANE_ARCH_STAND,
@@ -2434,9 +2484,9 @@ function createArchBaseProfile(
   const seatFloor = baseTop - shape.seatDepth * cos;
   const seatBack = -LITHOPHANE_FIT_GAP_MM;
   const seatFront = frameDepth + LITHOPHANE_FIT_GAP_MM;
-  const back = archBaseBack(shape);
-  // Канал и паз под рассеиватель нужны только ленте: под USB-лампу и патрон в
-  // базе не должно быть лишних выборок.
+  const back = archBaseBack(shape, light);
+  // Канал и паз под рассеиватель нужны только ленте: под открытую лампу в базе не
+  // должно быть лишних выборок, а её держатель стоит отдельной деталью.
   const withStrip = light === "strip";
   // Скат клина: от верхней кромки тыльной стенки вниз-вперёд до площадки базы.
   const ledgeFoot = archLedgePoint(
@@ -2459,17 +2509,19 @@ function createArchBaseProfile(
   return [
     { y: 0, z: shape.front },
     { y: 0, z: back },
-    { y: shape.leanTop, z: back },
-    // Канал под светодиодную ленту 8–10 мм в скате задней стенки.
+    // Тыльная стенка со скатом и каналом ленты — только под ленту: без неё база
+    // кончается на верхней площадке и за панелью ничего не держит.
     ...(withStrip
       ? [
+          { y: shape.leanTop, z: back },
+          // Канал под светодиодную ленту 8–10 мм в скате задней стенки.
           { y: channelHigh.y, z: channelHigh.z },
           channelFloor(channelHigh),
           channelFloor(channelLow),
           { y: channelLow.y, z: channelLow.z },
+          { y: ledgeFoot.y, z: ledgeFoot.z },
         ]
-      : []),
-    { y: ledgeFoot.y, z: ledgeFoot.z },
+      : [{ y: baseTop, z: back }]),
     // Паз под рассеиватель: вертикальная щель в верхней плоскости базы.
     ...(withStrip
       ? [
@@ -2519,69 +2571,179 @@ function createArchLegProfile(
 }
 
 /**
- * Образующая чаши под колбу USB-лампы: пары (радиус, высота) от кромки к каналу.
+ * Профиль скобы в плоскости (радиус, осевая координата): кольцо со стенкой.
  *
- * Квадратичная кривая Безье с провисом: управляющая точка ниже хорды, поэтому
- * дно чаши получается воронкой — колба ложится в неё и сама съезжает к центру.
- * Двенадцать отрезков дают ошибку 0.02 мм: больше на чаше не нужно, а лишние
- * грани только удлиняют сетку.
+ * Обход замкнут: задний торец, наружная стенка, передний торец, гнездо. Дна у
+ * гнезда нет — скоба открыта с обоих концов, поэтому патрон проходит насквозь, а
+ * провод выходит назад.
  */
-function usbBowlCurve(): [number, number][] {
-  const light = LITHOPHANE_USB_LIGHT;
-  const edge = light.rimRadius - light.rimWidth;
-  const bottom = light.rimY - light.bowlDepth;
-  const controlRadius = (edge + light.channelRadius) / 2;
-  const controlHeight =
-    (light.rimY + bottom) / 2 - light.bowlDepth * light.bowlBelly;
-  const points: [number, number][] = [];
+function clampProfile(bore: number): [number, number][] {
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+  const inner = bore / 2;
+  const outer = inner + clamp.wall;
+  const half = clamp.length / 2;
 
-  for (let step = 0; step <= light.bowlSegments; step += 1) {
-    const t = step / light.bowlSegments;
-    const rest = 1 - t;
-
-    points.push([
-      rest * rest * edge +
-        2 * rest * t * controlRadius +
-        t * t * light.channelRadius,
-      rest * rest * light.rimY + 2 * rest * t * controlHeight + t * t * bottom,
-    ]);
-  }
-
-  return points;
+  return [
+    [inner, -half],
+    [outer, -half],
+    [outer, half],
+    [inner, half],
+  ];
 }
 
 /**
- * Стойка под USB-лампу: тело вращения — подошва, пояс, кромка, чаша и канал.
+ * Скоба-зажим вокруг горизонтальной оси: лампа входит с натягом и смотрит в панель.
  *
- * Профиль замкнут и обходится по наружной стороне: подошва Ø34 на 5 мм (на 1 мм
- * внутрь базы — по этому стыку стойка срастается с базой), пояс Ø28 на 15 мм,
- * кромка Ø34 на 26 мм, кольцо кромки 2 мм, чаша к каналу Ø14.2 на 20 мм и канал
- * вниз до подошвы. Канал открыт только снизу, а его перекрывает верх базы:
- * штекер вставляют сверху через чашу, и он стоит на базе, не доставая до стола.
- * Торцы поворота не строятся: профиль заметает полный оборот, и его начало с
- * концом совпадает.
+ * Тело вращения строится вокруг вертикальной оси, поэтому после заметания скоба
+ * ложится на бок: `rotateX(90°)` переводит ось вращения в +Z, а проём, вырезанный
+ * сверху (начало 255° при обороте 210°), остаётся открытым вверх. Через него
+ * стенки пружинят, когда в гнездо вдавливают патрон, и в него видно цоколь при
+ * сборке. Торцы заметания закрыты: это кольца скобы, а не открытые срезы, — так
+ * деталь остаётся замкнутой и печатается без поддержек.
+ *
+ * `axisY` — высота оси над столом, `axisZ` — положение кромки гнезда по Z.
  */
-function createUsbPodBody(): BufferGeometry {
-  const light = LITHOPHANE_USB_LIGHT;
-  const bowl = usbBowlCurve();
-  const profile: (readonly [number, number])[] = [
-    [light.channelRadius, light.footY],
-    [light.footRadius, light.footY],
-    [light.waistRadius, light.waistY],
-    [light.rimRadius, light.rimY],
-    [light.rimRadius - light.rimWidth, light.rimY],
-    // Кромка уже есть в первой точке чаши — она и замыкает кольцо.
-    ...bowl.slice(1),
-  ];
+function createClampBody(
+  light: LithophaneClampKind,
+  axisY: number,
+  axisZ: number,
+): BufferGeometry {
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+  const gap = 360 - clamp.sweepDeg;
+  const bore = light === "socket" ? clamp.socketBore : clamp.usbBore;
 
   return createRevolvedBody(
-    profile,
-    light.centerZ,
+    clampProfile(bore),
     0,
-    360,
-    light.segments,
-    false,
+    180 + gap / 2,
+    clamp.sweepDeg,
+    clamp.segments,
+  )
+    .rotateX(Math.PI / 2)
+    .translate(0, axisY, axisZ);
+}
+
+/**
+ * Стойка-седло под скобу: столб, верх которого повторяет наружную дугу кольца.
+ *
+ * Кольцо ниже оси смотрит наружной стенкой вниз, поэтому на стойку с плоским
+ * верхом ложится только узкая полоса дна, а нижняя дуга висит в воздухе — у
+ * патрона Ø44 это нависание в 16 мм, и без поддержек оно провисает. Седло
+ * повторяет снизу ту же дугу: печатаются только вертикальные стенки и вогнутая
+ * полка, а скоба лежит на стойке всей нижней половиной.
+ *
+ * Полка проведена по радиусу на `BODY_OVERLAP_MM` меньше наружного: по этому
+ * нахлёсту деталь срастается, а стенка скобы остаётся почти 2 мм — гнездо седло
+ * не задевает. Ширина седла — `clampPostWidth`: это ширина нависания кольца,
+ * шире самого кольца седло не бывает.
+ *
+ * `foot` — высота пятака под седлом. Пятак на 2 мм шире седла: под кромками
+ * остаётся горизонтальная полка, и печать опирается на неё, а не начинает кромки
+ * в воздухе. В базе арки пятак стоит на столе, и седло встаёт на штангу; у
+ * изогнутых форм он не нужен — там седло само входит в тело базы.
+ */
+function createClampSaddleBodies(
+  light: LithophaneClampKind,
+  axisY: number,
+  axisZ: number,
+  foot = 0,
+): BufferGeometry[] {
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+  const bore = light === "socket" ? clamp.socketBore : clamp.usbBore;
+  const outer = bore / 2 + clamp.wall;
+  // Полка седла: скоба входит в стойку на нахлёст, гнездо остаётся чистым.
+  const perch = outer - BODY_OVERLAP_MM;
+  const half = clampPostWidth(light) / 2;
+  // Дуга полки идёт через низ кольца от кромки до кромки. Угол кромки считается от
+  // оси кольца: там, где дуга доходит до половины ширины седла.
+  const edge = Math.acos(Math.min(1, half / perch));
+  const steps = Math.max(
+    6,
+    Math.round((clamp.segments * (Math.PI - 2 * edge)) / (2 * Math.PI)),
   );
+  const z0 = axisZ - clamp.postDepth / 2;
+  const z1 = axisZ + clamp.postDepth / 2;
+  const bodies: BufferGeometry[] = [];
+
+  if (foot > 0) {
+    const pad = half + 2;
+
+    bodies.push(
+      createSectionPrismBody(
+        [
+          [-pad, 0],
+          [pad, 0],
+          [pad, foot],
+          [-pad, foot],
+        ],
+        z0,
+        z1,
+      ),
+    );
+  }
+
+  // Седло садится в пятак на нахлёст — по этому стыку тела срастаются.
+  const seat = foot > 0 ? foot - BODY_OVERLAP_MM : 0;
+  const section: [number, number][] = [
+    [-half, seat],
+    [half, seat],
+  ];
+
+  for (let step = 0; step <= steps; step += 1) {
+    const angle = -edge - ((Math.PI - 2 * edge) * step) / steps;
+
+    section.push([perch * Math.cos(angle), axisY + perch * Math.sin(angle)]);
+  }
+
+  bodies.push(createSectionPrismBody(section, z0, z1));
+
+  return bodies;
+}
+
+/**
+ * Держатель лампы в базе арки: штанга по столу, стойки и две скобы.
+ *
+ * Обе скобы печатаются всегда: ближняя повторяет референс с Cults3D (патрон почти
+ * у панели, деталь компактная), дальняя отодвигает лампу на 120 мм, и карта света
+ * зеленеет. Человек переставляет патрон между ними при сборке, а расчёт света
+ * берёт то гнездо, что выбрано в параметрах.
+ *
+ * Штанга начинается в теле базы и идёт по столу назад: она связывает скобы в одну
+ * деталь и даёт подставке глубину, без которой лампа на 52 мм опрокинула бы её.
+ */
+function createArchLampBodies(
+  light: LithophaneClampKind,
+  baseBack: number,
+): BufferGeometry[] {
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+  const axes = light === "socket" ? clamp.socketAxis : clamp.usbAxis;
+  const seats: readonly LithophaneLightSeat[] = ["near", "far"];
+  // Штанга на 4 мм длиннее дальней скобы: её задний торец уходит за гнездо.
+  const rear = -(Math.max(axes.near, axes.far) + clamp.length / 2 + 4);
+  const bodies = [
+    // Штанга на 2 мм заходит в базу — по этому стыку детали срастаются.
+    createProfilePrismBody(
+      [
+        { y: 0, z: baseBack + 2 },
+        { y: 0, z: rear },
+        { y: clamp.beamHeight, z: rear },
+        { y: clamp.beamHeight, z: baseBack + 2 },
+      ],
+      -clamp.beamWidth / 2,
+      clamp.beamWidth / 2,
+    ),
+  ];
+
+  for (const seat of seats) {
+    const axisZ = -axes[seat];
+
+    bodies.push(
+      ...createClampSaddleBodies(light, clamp.axisY, axisZ, clamp.beamHeight),
+      createClampBody(light, clamp.axisY, axisZ),
+    );
+  }
+
+  return bodies;
 }
 
 /**
@@ -2674,6 +2836,75 @@ function createProfilePrismBody(
       end[1],
       start[1],
       [0, from.z - to.z, to.y - from.y],
+    );
+  }
+
+  return finalizeGeometry(positions, indices);
+}
+
+/**
+ * Замкнутая призма по сечению в плоскости (X, Y), выдавленная по Z от z0 до z1.
+ *
+ * Отличие от `createProfilePrismBody` одно: сечение — готовые пары (x, y), а не
+ * объекты профиля. Так удобнее седлу скобы: его полка повторяет дугу кольца,
+ * лежащего в плоскости XY, и точки считаются из угла. Торцы разбивает
+ * `ShapeUtils.triangulateShape` — полка седла вогнутая, веер из одной вершины на
+ * ней не работает.
+ */
+function createSectionPrismBody(
+  section: readonly (readonly [number, number])[],
+  z0: number,
+  z1: number,
+): BufferGeometry {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const outline = section.map(([x, y]) => new Vector2(x, y));
+  const samples = ShapeUtils.isClockWise(outline) ? outline.reverse() : outline;
+  const triangles = ShapeUtils.triangulateShape(samples, []);
+
+  for (const [z, normal] of [
+    [z0, [0, 0, -1]],
+    [z1, [0, 0, 1]],
+  ] as const) {
+    for (const triangle of triangles) {
+      const first = vertexIndex(positions);
+
+      for (const corner of triangle) {
+        positions.push(samples[corner].x, samples[corner].y, z);
+      }
+
+      addOrientedTriangle(
+        indices,
+        positions,
+        first,
+        first + 1,
+        first + 2,
+        normal,
+      );
+    }
+  }
+
+  const rings = samples.map((point) => {
+    const first = vertexIndex(positions);
+
+    positions.push(point.x, point.y, z0, point.x, point.y, z1);
+
+    return [first, first + 1] as const;
+  });
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const next = (index + 1) % samples.length;
+    const from = samples[index];
+    const to = samples[next];
+
+    addOrientedQuad(
+      indices,
+      positions,
+      rings[index][0],
+      rings[next][0],
+      rings[next][1],
+      rings[index][1],
+      [to.y - from.y, from.x - to.x, 0],
     );
   }
 
@@ -2841,70 +3072,6 @@ function createRevolvedBody(
 }
 
 /**
- * Стакан под патрон E27: тело вращения с прорезью под провод.
- *
- * Профиль в плоскости (радиус, высота): наружная стенка Ø44 от низа до кромки
- * гнезда, кромка 2 мм, внутренняя стенка Ø40 вниз до дна и дно. Низ стакана
- * уходит в базу на 4 мм — по этому стыку он срастается с базой, и отдельного
- * шва нет. Дно гнезда на 3 мм выше верха базы: патрон стоит в стакане, а не
- * висит на его стенках. Прорезь 18° обращена назад (θ = 180°): провод выходит из
- * патрона и уходит за тыльную кромку базы.
- */
-function createSocketLightBody(baseTop: number): BufferGeometry {
-  const light = LITHOPHANE_SOCKET_LIGHT;
-  const outerRadius = light.outerDiameter / 2;
-  const cavityRadius = light.cavityDiameter / 2;
-  const floor = baseTop + light.floorAboveBase;
-  const rim = floor + light.cavityDepth;
-  const bottom = baseTop - 4;
-
-  return createRevolvedBody(
-    [
-      [0, bottom],
-      [outerRadius, bottom],
-      [outerRadius, rim],
-      [cavityRadius, rim],
-      [cavityRadius, floor],
-      [0, floor],
-    ],
-    light.centerZ,
-    180 + light.wireSlotDeg / 2,
-    360 - light.wireSlotDeg,
-    light.segments,
-  );
-}
-
-/**
- * Абажур патрона: наклонный отражатель вокруг стакана.
- *
- * Профиль — треугольник: корень на радиусе 21 мм и высоте 22 мм утоплен в стенку
- * стакана (Ø40…Ø44), кромка Ø54 стоит на 33 мм, её кольцо 2 мм. Обе поверхности
- * сходятся в корне, поэтому нижней грани у абажура нет: наружная наклонена на
- * 29°, внутренняя — на 20°, и деталь печатается без поддержек. Корень внутри
- * стенки стакана даёт сварку по всему кольцу, а не касание по кромке.
- *
- * Сектор 240° начинается от 60°: вырез 120° смотрит на панель. Лампа светит в
- * кадр напрямую через вырез, а всё, что уходит назад и в стороны, конус
- * возвращает вверх на тыл панели. Панель 120 мм шириной перекрывает ±68° от оси
- * гнезда, поэтому отражённый свет не выходит за литофан и не слепит.
- */
-function createSocketShadeBody(): BufferGeometry {
-  const light = LITHOPHANE_SOCKET_LIGHT;
-
-  return createRevolvedBody(
-    [
-      [light.shadeRootRadius, light.shadeRootY],
-      [light.shadeRimRadius, light.shadeRimY],
-      [light.shadeRimRadius - light.shadeWidth, light.shadeRimY],
-    ],
-    light.centerZ,
-    light.shadeStartDeg,
-    light.shadeSweepDeg,
-    light.segments,
-  );
-}
-
-/**
  * База изогнутой панели: изогнутый брусок по дуге панели.
  *
  * Сечение зависит от источника света. Под ленту снаружи перед панелью узкая
@@ -2951,10 +3118,10 @@ export const LITHOPHANE_BENT_BASE = {
   diffuserWidth: 2.4,
   diffuserDepth: 6,
   /**
-   * Полка под стойку USB-лампы и стакан патрона E27: глубина начала подъёма,
+   * Полка под стойку-седло USB-лампы и патрона E27: глубина начала подъёма,
    * высота полки и тыльная кромка, мм.
    *
-   * Полка выше базы: стойка USB поднимает колбу к середине кадра, а стакан
+   * Полка выше базы: стойка USB поднимает колбу к середине кадра, а седло
    * ставит цоколь лампы E27 так, чтобы её колба светила ровно по высоте панели.
    * Пандус от паза к полке наклонён на 19° — печатается без поддержки.
    */
@@ -2985,7 +3152,8 @@ export const LITHOPHANE_BENT_BASE = {
    */
   ringInset: 1,
   /**
-   * Площадка под стойку USB-лампы и стакан E27 в чаше: радиус и высота, мм.
+   * Площадка под стойку-седло USB-лампы и патрона E27 в чаше: радиус и высота,
+   * мм.
    *
    * Конус от дна к площадке поднимает лампу к середине кадра: колба USB-лампы
    * выходит на 66 мм, лампа E27 — на 76 мм при середине кадра 71 мм. Конус
@@ -3106,7 +3274,7 @@ function bentBaseSection(
   const slotOuter = frontZ + LITHOPHANE_FIT_GAP_MM;
   const outer = slotOuter + base.outerWall;
   const withStrip = light === "strip";
-  // Полка нужна тем источникам, которые стоят на базе стойкой или стаканом.
+  // Полка нужна тем источникам, которые стоят на базе стойкой-седлом.
   const withShelf = light === "usb_bulb" || light === "socket";
   const channelFloor = base.top - base.channelDepth;
   const channelNear = slotInner - base.channelGap;
@@ -3271,36 +3439,31 @@ function baseArcSegments(sweepDeg: number): number {
 /**
  * Тела лампы на полке базы изогнутой формы и в чаше полуцилиндра.
  *
- * Стойка USB-лампы и стакан патрона E27 — те же тела, что в базе арки: их
- * подошва садится на верх базы с нахлёстом 5 и 4 мм, поэтому на полке высотой
- * `perchTop` тела поднимаются на `perchTop − baseTop` арки. `axisZ` — ось, на
- * которую встаёт лампа: у бруска дуги тело остаётся на своём месте, в чаше
- * переезжает в её центр.
+ * Скоба та же, что в базе арки, но выше полки её поднимает стойка: у бруска дуги и
+ * в чаше лампа стоит над верхом базы, поэтому ось скобы — это верх полки плюс
+ * `bentAxisAbove`. Высота лампы прежняя: в чаше полуцилиндра патрон E27 висит на
+ * 75 мм, USB-лампа — на 65 мм.
+ *
+ * `axisZ` — ось, на которую встаёт лампа: у бруска дуги скоба остаётся на своём
+ * месте (`bentAxisZ`), в чаше переезжает в её центр.
  */
 function bentLampBodies(
   light: LithophaneLightSource,
   perchTop: number,
   axisZ?: number,
 ): BufferGeometry[] {
-  const lift = perchTop - LITHOPHANE_ARCH_STAND.baseTop;
-
-  if (light === "socket") {
-    const shift =
-      axisZ === undefined ? 0 : axisZ - LITHOPHANE_SOCKET_LIGHT.centerZ;
-
-    return [
-      createSocketLightBody(perchTop).translate(0, 0, shift),
-      createSocketShadeBody().translate(0, lift, shift),
-    ];
+  if (light !== "socket" && light !== "usb_bulb") {
+    return [];
   }
 
-  if (light === "usb_bulb") {
-    const shift = axisZ === undefined ? 0 : axisZ - LITHOPHANE_USB_LIGHT.centerZ;
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+  const axisY = perchTop + clamp.bentAxisAbove[light];
+  const axis = axisZ ?? clamp.bentAxisZ;
 
-    return [createUsbPodBody().translate(0, lift, shift)];
-  }
-
-  return [];
+  return [
+    ...createClampSaddleBodies(light, axisY, axis),
+    createClampBody(light, axisY, axis),
+  ];
 }
 
 /**
@@ -3310,9 +3473,9 @@ function bentLampBodies(
  * который завёрнута ширина (w / R). Паз повторяет дугу с точностью до фасетки
  * 1.5°. Под ленту в бруске вырезан канал, вынесенный на 26 мм назад: у панели
  * лента светила в упор и давала пересвеченный центр с тёмными краями. Под
- * USB-лампу и патрон E27 на бруске стоит полка, и стойка со стаканом встают на
- * неё теми же телами, что в арке. Торцы дуги закрыты плоскостями профиля: деталь
- * замкнута.
+ * USB-лампу и патрон E27 на бруске стоит полка, и стойка-седло со скобой встаёт
+ * на неё теми же телами, что в арке. Торцы дуги закрыты плоскостями профиля:
+ * деталь замкнута.
  *
  * У полуцилиндра панель опускается в круговой паз чаши. Внутри чаши источник
  * выбирает сам форму дна: под ленту — круговая канавка по всему полуцилиндру,
@@ -3816,9 +3979,10 @@ export function createLithophaneStandGeometry(
  * Тела базы открытой арки для выбранного источника света.
  *
  * Лента и «без подсветки» — одна призма во всю ширину: все выборки вырезаны в её
- * профиле. Под патрон E27 добавляются стакан с прорезью под провод и абажур, под
- * USB-лампу — стойка с чашей. Оба тела вращения стоят на базе и пересекаются с
- * ней, а не касаются: в собранном файле это один объект, и шва по стыку нет.
+ * профиле. Под открытую лампу добавляется держатель за панелью — штанга по столу,
+ * две стойки и две скобы (`createArchLampBodies`). Штанга на 2 мм заходит в базу,
+ * стойки стоят на ней, скобы надеты на стойки: в собранном файле это один объект,
+ * и шва по стыкам нет.
  */
 function createArchBaseBodies(
   shape: typeof LITHOPHANE_ARCH_STAND,
@@ -3834,13 +3998,8 @@ function createArchBaseBodies(
     ),
   ];
 
-  if (light === "socket") {
-    bodies.push(
-      createSocketLightBody(shape.baseTop),
-      createSocketShadeBody(),
-    );
-  } else if (light === "usb_bulb") {
-    bodies.push(createUsbPodBody());
+  if (light === "socket" || light === "usb_bulb") {
+    bodies.push(...createArchLampBodies(light, archBaseBack(shape, light)));
   }
 
   return bodies;
@@ -3858,9 +4017,9 @@ function createArchBaseBodies(
  *
  * Проём между ножками считается по ширине базы: на панели 120 × 80 это
  * 110.4 − 2 × 6 = 98.4 мм — под ленту 8–10 мм с запасом, а опора разнесена
- * почти на всю ширину рамки, поэтому панель не качается. Стойка с чашей под
- * USB-лампу и стакан с абажуром под патрон стоят в середине и выше ножек не
- * поднимаются: свет остаётся открытым с обеих сторон.
+ * почти на всю ширину рамки, поэтому панель не качается. Стойка-седло со скобой
+ * под USB-лампу и патрон E27 стоит за панелью на штанге и выше ножек не
+ * поднимается: свет остаётся открытым с обеих сторон.
  */
 function createArchStandGeometry(
   normalized: LithophaneParams,

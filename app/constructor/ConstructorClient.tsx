@@ -92,6 +92,7 @@ import {
   type KeychainParams,
   type KeychainQrDecoration,
   type LithophaneBrightnessGrid,
+  type LithophaneLightSeat,
   type LithophaneLightSource,
   type LithophaneMount,
   type LithophanePart,
@@ -1098,6 +1099,19 @@ export function ConstructorClient({
   }
 
   /**
+   * Гнездо скобы: ближнее или дальнее.
+   *
+   * Читает только арка под патрон и USB-лампу: в её держателе напечатаны две
+   * скобы, и лампа переставляется между ними при сборке. Выбор переживает смену
+   * источника и формы — вернувшись на арку, человек получает то же гнездо.
+   */
+  function updateLithoLightSeat(lithoLightSeat: LithophaneLightSeat) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lithoLightSeat }),
+    );
+  }
+
+  /**
    * Браузер уже сжал фотографию до 400 пикселей по длинной стороне и отдал
    * сетку яркости вместе с её размерами. Массив идёт в общее состояние как
    * есть: API принимает те же числа, поэтому сервер не декодирует картинку
@@ -1440,6 +1454,7 @@ export function ConstructorClient({
             onLithoFrameChange={updateLithoFrame}
             onLithoDiffuserChange={updateLithoDiffuser}
             onLithoLightSourceChange={updateLithoLightSource}
+            onLithoLightSeatChange={updateLithoLightSeat}
             onLithoMountChange={updateLithoMount}
             onLithoShapeChange={updateLithoShape}
             onLithophaneBrightnessChange={updateLithophaneBrightness}

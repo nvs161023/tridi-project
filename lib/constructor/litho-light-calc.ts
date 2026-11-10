@@ -41,11 +41,11 @@ import {
   LITHOPHANE_FIT_GAP_MM,
   LITHOPHANE_FRAME_SEAT_MM,
   LITHOPHANE_KALEIDOSCOPE,
-  LITHOPHANE_SOCKET_LIGHT,
+  LITHOPHANE_LAMP_CLAMP,
   LITHOPHANE_STAND_SHAPES,
   LITHOPHANE_STAND_TILT_DEG,
-  LITHOPHANE_USB_LIGHT,
   LITHOPHANE_WALL_BOX,
+  lithophaneClampBulb,
   lithophanePlateSize,
 } from "@/lib/constructor/lithophane-geometry";
 import {
@@ -241,11 +241,11 @@ export const LITHO_LIGHT_MODEL = {
 /**
  * Где стоит лампа в напечатанном креплении, мм над столом.
  *
- * Числа выведены из геометрии, а не выбраны на глаз: у колбы USB-лампы это центр
- * стеклянного шара в чаше, у патрона E27 — центр колбы Ø60, надетой на цоколь, у
- * свечи в призме — центр пламени в гнезде пьедестала. Крепления держат источник в
- * единственном положении, поэтому и расчёт берёт его отсюда. У изогнутых форм
- * лампа стоит на полке базы, поэтому её центр считается от полки, а не от стола.
+ * Числа выведены из геометрии, а не выбраны на глаз: у открытой лампы это центр
+ * колбы в скобе (`lithophaneClampBulb`), у свечи в призме — центр пламени в гнезде
+ * пьедестала. Крепления держат источник в единственном положении, поэтому и
+ * расчёт берёт его оттуда. У изогнутых форм лампа стоит на полке базы, поэтому её
+ * центр считается от полки, а не от стола.
  */
 
 /** Дно гнезда пьедестала призмы, мм: на нём стоит свеча. */
@@ -256,36 +256,13 @@ const CANDLE_FLOOR_MM =
 const CANDLE_FLAME_MM = 18;
 
 export const LITHO_LIGHT_SEATS = {
-  /** Диаметр колбы USB-лампы, мм: в чашу ложатся Ø20–28, берём середину. */
-  bulbDiameter: 26,
-  /** Центр колбы USB-лампы: дно чаши плюс радиус шара. */
-  usbBulbY:
-    LITHOPHANE_USB_LIGHT.rimY - LITHOPHANE_USB_LIGHT.bowlDepth + 13,
   /**
-   * Центр свечения лампы E27: дно гнезда плюс радиус колбы.
+   * Диаметр колбы лампы, мм.
    *
-   * Гнездо держит цоколь, а светит колба: она начинается над гнездом и имеет
-   * радиус 30 мм (A60 Ø60), поэтому центр свечения — дно гнезда плюс этот радиус.
-   * Винтовая лампа, вкрученная до конца, оказывается почти против середины панели
-   * — так и задумано: иначе низ горел бы, а верх уходил в тень.
+   * Берётся из грушевидной колбы A60 (Ø60) и колбы USB-лампы (Ø20–28): по нему
+   * считается только подсказка о пятне — у открытой лампы светит вся колба.
    */
-  socketY:
-    LITHOPHANE_ARCH_STAND.baseTop +
-    LITHOPHANE_SOCKET_LIGHT.floorAboveBase +
-    30,
-  /**
-   * Центр колбы USB-лампы над полкой базы изогнутой формы, мм.
-   *
-   * Стойка та же, что в арке: её колба на `usbBulbY` при базе 10 мм, значит над
-   * полкой она поднимается на `usbBulbY − baseTop`.
-   */
-  usbBulbAbove:
-    LITHOPHANE_USB_LIGHT.rimY -
-    LITHOPHANE_USB_LIGHT.bowlDepth +
-    13 -
-    LITHOPHANE_ARCH_STAND.baseTop,
-  /** Центр колбы патрона над полкой: дно гнезда плюс радиус лампы A60. */
-  socketAbove: LITHOPHANE_SOCKET_LIGHT.floorAboveBase + 30,
+  bulbDiameter: LITHOPHANE_LAMP_CLAMP.socketBulbDiameter,
   /**
    * Пламя свечи в пьедестале калейдоскопа, мм.
    *
@@ -858,32 +835,17 @@ function flatEmitters(
 ): LithoLightEmitter[] {
   const candelas = LITHO_LIGHT_MODEL.candelas;
 
-  if (kind === "usb_bulb") {
+  // Лампа в открытой скобе смотрит в панель, а не вверх: ось скобы
+  // горизонтальна, поэтому центр колбы стоит на высоте гнезда и сдвинут к панели
+  // на свой вылет. Какое из двух гнёзд занято, говорит параметр `lithoLightSeat`.
+  if (kind === "usb_bulb" || kind === "socket") {
     return [
       {
-        position: [
-          0,
-          LITHO_LIGHT_SEATS.usbBulbY,
-          LITHOPHANE_USB_LIGHT.centerZ,
-        ],
-        axis: [0, 1, 0],
+        position: lithophaneClampBulb(kind, normalized.lithoLightSeat),
+        axis: [0, 0, 1],
         lobe: 0,
-        intensity: candelas.usbBulb,
-      },
-    ];
-  }
-
-  if (kind === "socket") {
-    return [
-      {
-        position: [
-          0,
-          LITHO_LIGHT_SEATS.socketY,
-          LITHOPHANE_SOCKET_LIGHT.centerZ,
-        ],
-        axis: [0, 1, 0],
-        lobe: 0,
-        intensity: candelas.socket,
+        intensity:
+          kind === "usb_bulb" ? candelas.usbBulb : candelas.socket,
       },
     ];
   }
@@ -996,16 +958,12 @@ function bentSeat(
     const shelf = cylinder
       ? LITHOPHANE_BENT_BASE.perchTop
       : LITHOPHANE_BENT_BASE.railTop;
-    const above =
-      kind === "usb_bulb"
-        ? LITHO_LIGHT_SEATS.usbBulbAbove
-        : LITHO_LIGHT_SEATS.socketAbove;
-    // В чаше лампа стоит на оси вращения, на бруске — на оси панели.
+    // Ось скобы над полкой та же, что у тела: `bentAxisAbove` из геометрии.
+    const above = LITHOPHANE_LAMP_CLAMP.bentAxisAbove[kind];
+    // В чаше лампа стоит на оси вращения, на бруске — на оси скобы.
     const z = cylinder
       ? -(face.bend?.radius ?? 0)
-      : kind === "usb_bulb"
-        ? LITHOPHANE_USB_LIGHT.centerZ
-        : LITHOPHANE_SOCKET_LIGHT.centerZ;
+      : LITHOPHANE_LAMP_CLAMP.bentAxisZ;
 
     return {
       kind,
@@ -1013,7 +971,7 @@ function bentSeat(
       emitters: [
         {
           position: [0, shelf + above, z],
-          axis: [0, 1, 0],
+          axis: [0, 0, 1],
           lobe: 0,
           intensity:
             kind === "usb_bulb"
@@ -1269,9 +1227,12 @@ function lightWarnings(verdict: LithoLightVerdict): LithoLightWarning[] {
   const lampY = Math.round(verdict.actualHeight);
   const plateY = Math.round(verdict.recommendedHeight);
   /*
-    Верх темнее низа всегда: лампа стоит ниже середины кадра. Пока разрыв в
-    пределах допуска — молчим, дальше предупреждаем, а когда верх едва виден
-    (`darkTop`) — это уже ошибка: кадр читается на треть высоты.
+    Верх обычно темнее низа: источник стоит ниже середины кадра. Но правило не
+    всеобщее — в арке скоба держит лампу на середине панели, и наклонный тыл ловит
+    её свет снизу: верх выходит даже светлее. Поэтому считаем не «верх темнее», а
+    насколько он ушёл в тень: пока разрыв в пределах допуска — молчим, дальше
+    предупреждаем, а когда верх едва виден (`darkTop`) — это уже ошибка: кадр
+    читается на треть высоты.
   */
   const shaded = metrics.topShare < 1 - LITHO_LIGHT_MODEL.maxVerticalFalloff;
   const severity: LithoLightWarning["severity"] =

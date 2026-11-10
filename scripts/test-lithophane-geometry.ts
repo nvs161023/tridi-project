@@ -110,17 +110,19 @@ import {
   LITHOPHANE_FRAME_OPENING_RADIUS_MM,
   LITHOPHANE_FRAME_WIDTH_MM,
   LITHOPHANE_KALEIDOSCOPE,
+  LITHOPHANE_LAMP_CLAMP,
   LITHOPHANE_RELIEF_GROUP,
-  LITHOPHANE_SOCKET_LIGHT,
   LITHOPHANE_STAND_SHAPES,
   LITHOPHANE_STAND_TILT_DEG,
-  LITHOPHANE_USB_LIGHT,
   LITHOPHANE_WALL_BOX,
+  clampPostWidth,
   createLithophaneFrameGeometry,
   createLithophaneGeometry,
   createLithophaneReliefGeometry,
   createLithophaneStandGeometry,
+  lithophaneClampBulb,
   lithophanePlateSize,
+  type LithophaneClampKind,
 } from "../lib/constructor/lithophane-geometry";
 import {
   LITHOPHANE_LOGO_MAX_THICKNESS_MM,
@@ -774,6 +776,91 @@ function firstHit(
 }
 
 /**
+ * Края стойки-седла по глубине, мм: задний и передний Z её низа.
+ *
+ * Стойка стоит под скобой, а в держателе арки их две: луч снаружи упёрся бы в
+ * чужую. Поэтому края ищутся по вершинам в окне своей стойки — у самого низа, за
+ * штангой и над ней, где проходят только стенки седла. За габарит стойки по Z
+ * ничего не выходит, так что самые дальние вершины окна и есть её торцы.
+ */
+function postDepthEdges(
+  geometry: BufferGeometry,
+  light: LithophaneClampKind,
+  axisZ: number,
+): { rear: number; front: number } {
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+  const half = clampPostWidth(light) / 2;
+  const position = geometry.getAttribute("position");
+  let rear = Number.POSITIVE_INFINITY;
+  let front = Number.NEGATIVE_INFINITY;
+
+  for (let id = 0; id < position.count; id += 1) {
+    const x = Math.abs(position.getX(id));
+    const y = position.getY(id);
+    const z = position.getZ(id);
+
+    if (x < clamp.beamWidth / 2 + 1 || x > half + 0.5) {
+      continue;
+    }
+
+    if (y > clamp.beamHeight || Math.abs(z - axisZ) > clamp.postDepth / 2) {
+      continue;
+    }
+
+    rear = Math.min(rear, z);
+    front = Math.max(front, z);
+  }
+
+  return {
+    rear: Number.isFinite(rear) ? rear : Number.NaN,
+    front: Number.isFinite(front) ? front : Number.NaN,
+  };
+}
+
+/**
+ * Замеры открытой скобы, мм.
+ *
+ * Скоба — тело вращения с вырезанным сверху сектором, её ось горизонтальна и
+ * смотрит в панель; `axisY` и `axisZ` задают ось так же, как при постройке тела.
+ * Лучи разведены так, чтобы отделить гнездо от стенки: изнутри гнезда луч
+ * упирается в его стенку, снаружи — в наружную, а сверху он входит в проём и
+ * останавливается на дне гнезда. Если бы проёма не было, луч сверху остановился
+ * бы на внешней стенке скобы.
+ *
+ * Заднюю и переднюю кромки стойки луч не поймает: они утоплены в седло и в тело
+ * базы, — их ищет `postDepthEdges` по вершинам.
+ */
+function clampProbe(
+  geometry: BufferGeometry,
+  light: LithophaneClampKind,
+  axisY: number,
+  axisZ: number,
+): {
+  axisY: number;
+  axisZ: number;
+  boreRadius: number;
+  outerRadius: number;
+  cradle: number;
+  postRear: number;
+  postFront: number;
+} {
+  const inside = firstHit(geometry, [0, axisY, axisZ], [-1, 0, 0]);
+  const outside = firstHit(geometry, [40, axisY, axisZ], [-1, 0, 0]);
+  const above = firstHit(geometry, [0, 200, axisZ], [0, -1, 0]);
+  const depth = postDepthEdges(geometry, light, axisZ);
+
+  return {
+    axisY,
+    axisZ,
+    boreRadius: -(inside?.x ?? Number.NaN),
+    outerRadius: outside?.x ?? Number.NaN,
+    cradle: above?.y ?? Number.NaN,
+    postRear: depth.rear,
+    postFront: depth.front,
+  };
+}
+
+/**
  * Непрерывные участки отсортированных замеров со шагом сканирования.
  *
  * Замеры собираются циклом по сетке точек, поэтому разрыв между соседними
@@ -817,28 +904,37 @@ function contiguousRuns(
 }
 
 /**
- * Сколько граней выше `fromY` смотрят вниз круче 45°.
+ * Сколько граней выше `fromY` смотрят вниз круче 45° и висят в воздухе.
+ *
  * Это проверка печати без поддержек: вертикальная стенка (нормаль
  * горизонтальная) и наклон до 45° печатаются сами, а поверхность, которая
  * смотрит вниз круче, провисает. Считаются только треугольники целиком выше
  * `fromY` — низ базы и её паз лежат на столе и поддержек не требуют.
+ *
+ * Деталь собрана из перекрывающихся тел, а не из булевой суммы: низ скобы утоплен
+ * в стойку, и в сетке остались грани, которые смотрят вниз, но лежат внутри
+ * сплошного пластика. Поэтому из-под каждой нависающей грани пускается луч вниз:
+ * если он во что-то попал раньше стола, грань печатается на этом теле, а не в
+ * воздухе. У настоящего нависания под ним пусто до самого стола.
  */
 function downwardFaces(geometry: BufferGeometry, fromY: number): number {
+  const mesh = new Mesh(geometry);
   const index = geometry.getIndex();
   const position = geometry.getAttribute("position");
   const triangles = (index?.count ?? position.count) / 3;
+  const corners = [0, 1, 2].map(() => new Vector3());
   let count = 0;
 
   for (let triangle = 0; triangle < triangles; triangle += 1) {
-    const corners = [0, 1, 2].map((corner) => {
+    for (let corner = 0; corner < 3; corner += 1) {
       const id = index ? index.getX(triangle * 3 + corner) : triangle * 3 + corner;
 
-      return new Vector3(
+      corners[corner].set(
         position.getX(id),
         position.getY(id),
         position.getZ(id),
       );
-    });
+    }
 
     if (Math.min(...corners.map((corner) => corner.y)) <= fromY) {
       continue;
@@ -853,7 +949,19 @@ function downwardFaces(geometry: BufferGeometry, fromY: number): number {
     }
 
     // cos 45° — граница между нависанием и наклонной стенкой.
-    if (normal.normalize().y < -Math.SQRT1_2) {
+    if (normal.normalize().y > -Math.SQRT1_2) {
+      continue;
+    }
+
+    const origin = new Vector3()
+      .addVectors(corners[0], corners[1])
+      .add(corners[2])
+      .divideScalar(3)
+      .addScaledVector(normal, -0.05);
+    // Луч идёт от грани до стола: попадание в тело ниже — это опора.
+    const under = new Raycaster(origin, new Vector3(0, -1, 0), 0, origin.y);
+
+    if (under.intersectObject(mesh, false).length === 0) {
       count += 1;
     }
   }
@@ -2023,15 +2131,22 @@ console.log("\n13. Открытая арка: проём под свет, кан
   solidStand.dispose();
 }
 
-console.log("\n14. USB-лампа: стойка с чашей и каналом под штекер");
+console.log(
+  "\n14. USB-лампа: открытая скоба с двумя гнёздами вместо стойки с чашей",
+);
 
 {
   /*
-    Владелец предложил питать литофан обычной USB mini LED лампой: штекер Type-A
-    12 × 4.5 мм и пластиковая колба Ø20–28 мм. Раздел проверяет крепление под
-    неё: канал под штекер, чашу под колбу, силуэт стойки и печать без поддержек.
-    Стойка — тело вращения, а не призма с пропилом: оболочка цельная, а штекер
-    вставляют сверху через чашу, и он стоит на базе.
+    Владелец попросил убрать громоздкую стойку с чашей и каналом под штекер:
+    вместо неё за панелью стоит открытая скоба, в которую ножка USB-лампы входит с
+    натягом 0.2 мм. Гнездо проходит насквозь, сверху вырезан сектор 150°, поэтому
+    стенки скобы пружинят, а деталь печатается без поддержек. Гнёзд в держателе
+    два: ближнее повторяет компактный референс, дальнее отодвигает лампу — так
+    свет ложится ровно.
+
+    Проверяется не только диаметр гнезда, но и то, что скоба стоит на стойке:
+    полоса касания кольца — единственная её опора, и если она выходит за стойку,
+    печать начинает её в воздухе.
   */
   const params: Partial<LithophaneParams> = {
     lithophaneWidth: 120,
@@ -2039,144 +2154,168 @@ console.log("\n14. USB-лампа: стойка с чашей и каналом 
     lithoFrame: true,
     lithoMount: "arch",
     lithoLightSource: "usb_bulb",
+    lithoLightSeat: "near",
   };
   const shape = LITHOPHANE_ARCH_STAND;
-  const usb = LITHOPHANE_USB_LIGHT;
-  const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
-  const stand = createLithophaneStandGeometry(params);
-  const size = boxSize(stand);
-  const centerZ = usb.centerZ;
-  // Канал под штекер: луч поперёк стойки и луч сверху, который проходит чашу с
-  // каналом насквозь и останавливается на верхе базы.
-  const channel = firstHit(stand, [0, 10, centerZ], [1, 0, 0]);
-  const channelFloor = firstHit(stand, [0, 60, centerZ], [0, -1, 0]);
-  // Чаша в стороне от канала: чем дальше от оси, тем выше её дно.
-  const offsets = [0, 8, 11, 14];
-  const bowlProfile = offsets.map((offset) => {
-    const hit = firstHit(stand, [-offset, 60, centerZ], [0, -1, 0]);
-
-    return hit ? hit.y : Number.NaN;
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+  const boreRadius = clamp.usbBore / 2;
+  const outerRadius = boreRadius + clamp.wall;
+  // Дуга скобы собрана из отрезков: хорда короче радиуса на 0.09 %, у патрона это
+  // 0.04 мм. Отсюда допуск замеров — гнездо проверяется только сверху.
+  const facetToleranceMm = 0.1;
+  const near = createLithophaneStandGeometry(params);
+  const far = createLithophaneStandGeometry({
+    ...params,
+    lithoLightSeat: "far",
   });
-  // Наружная стенка стойки: луч сбоку на 5 мм выше пояса. Изнутри он упёрся бы
-  // в чашу, поэтому начинается он между стойкой и ножкой.
-  const podEdge = firstHit(stand, [30, usb.waistY + 5, centerZ], [-1, 0, 0]);
-  const edgeHalf =
-    usb.waistRadius +
-    ((usb.rimRadius - usb.waistRadius) * 5) / (usb.rimY - usb.waistY);
-  // За пазом рамки канала под ленту быть не должно: база под лампу гладкая.
-  const plainBase = firstHit(stand, [0, 60, -3], [0, -1, 0]);
-  // Под каналом база замкнута: штекер стоит на ней, а не уходит в стол.
-  const underChannel = firstHit(stand, [0, -5, centerZ], [0, 1, 0]);
-  const panelAboveRim = -(usb.rimY - shape.baseTop) * Math.tan(tilt);
-  const position = stand.getAttribute("position");
-  let podTop = 0;
-
-  for (let index = 0; index < position.count; index += 1) {
-    // Ножки стоят по краям базы, поэтому в середине остаётся только стойка.
-    if (Math.abs(position.getX(index)) < usb.rimRadius) {
-      podTop = Math.max(podTop, position.getY(index));
-    }
-  }
-
-  console.log(
-    `  подставка ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ` +
-      `${size.z.toFixed(2)} мм, канал Ø` +
-      `${((channel?.x ?? Number.NaN) * 2).toFixed(2)} мм до ` +
-      `${(channelFloor?.y ?? Number.NaN).toFixed(2)} мм`,
+  const bare = createLithophaneStandGeometry({
+    ...params,
+    lithoLightSource: "none",
+  });
+  const nearClamp = clampProbe(
+    near,
+    "usb_bulb",
+    clamp.axisY,
+    -clamp.usbAxis.near,
   );
-  console.log(
-    `  стойка Ø${((podEdge?.x ?? Number.NaN) * 2).toFixed(2)} мм до ` +
-      `${podTop.toFixed(2)} мм, чаша ` +
-      `${bowlProfile.map((value) => value.toFixed(2)).join(", ")}`,
+  const farClamp = clampProbe(far, "usb_bulb", clamp.axisY, -clamp.usbAxis.far);
+  const nearBulb = lithophaneClampBulb("usb_bulb", "near");
+  const farBulb = lithophaneClampBulb("usb_bulb", "far");
+  const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
+  // Колба USB-лампы — Ø20–28 мм, берём большую: зазор до панели в худшем случае.
+  const bulbRadius = 14;
+  const planeAtBulb = (y: number) => -(y - shape.baseTop) * Math.tan(tilt);
+  const size = boxSize(far);
+  const beam = firstHit(
+    far,
+    [0, 200, -(clamp.usbAxis.near + clamp.usbAxis.far) / 2],
+    [0, -1, 0],
   );
+  const beamRear = firstHit(far, [0, clamp.beamHeight / 2, -400], [0, 0, 1]);
+  const holderWeight =
+    calculateGeometryWeightGrams(far) - calculateGeometryWeightGrams(bare);
 
-  check("usb: подставка замкнута", openEdges(stand), 0);
-  check("usb: NaN 0", nanVertices(stand), 0);
-  checkRange(
-    "usb: канал под штекер Ø14.2 мм",
-    [(channel?.x ?? Number.NaN) * 2],
-    usb.channelRadius * 2 - TOLERANCE_MM,
-    usb.channelRadius * 2 + TOLERANCE_MM,
+  check(
+    "usb: скоба замкнута, вершин без координат нет",
+    [openEdges(near) + openEdges(far), nanVertices(near) + nanVertices(far)],
+    [0, 0],
   );
   checkRange(
-    "usb: канал проходит сквозь чашу",
-    [bowlProfile[0] - shape.baseTop],
+    "usb: гнездо Ø13.4 мм в обоих гнёздах",
+    [nearClamp.boreRadius * 2, farClamp.boreRadius * 2],
+    clamp.usbBore - facetToleranceMm,
+    clamp.usbBore,
+  );
+  checkRange(
+    "usb: стенка скобы 2 мм",
+    [
+      nearClamp.outerRadius - nearClamp.boreRadius,
+      farClamp.outerRadius - farClamp.boreRadius,
+    ],
+    clamp.wall - facetToleranceMm,
+    clamp.wall + facetToleranceMm,
+  );
+  checkRange(
+    "usb: скоба лежит дном гнезда на стойке",
+    [nearClamp.cradle, farClamp.cradle],
+    clamp.axisY - boreRadius - facetToleranceMm,
+    clamp.axisY - boreRadius,
+  );
+  check(
+    "usb: два гнезда — ближнее и дальнее",
+    [nearClamp.axisZ, farClamp.axisZ],
+    [-clamp.usbAxis.near, -clamp.usbAxis.far],
+  );
+  checkRange(
+    "usb: дальнее гнездо отодвигает лампу",
+    [clamp.usbAxis.far - clamp.usbAxis.near],
+    40,
+    70,
+  );
+  checkRange(
+    "usb: стойка стоит по центру скобы",
+    [
+      nearClamp.postRear - (nearClamp.axisZ - clamp.postDepth / 2),
+      nearClamp.postFront - (nearClamp.axisZ + clamp.postDepth / 2),
+      farClamp.postRear - (farClamp.axisZ - clamp.postDepth / 2),
+      farClamp.postFront - (farClamp.axisZ + clamp.postDepth / 2),
+    ],
     -TOLERANCE_MM,
     TOLERANCE_MM,
   );
-  checkRange(
-    "usb: штекер стоит на базе, а не на столе",
-    [channelFloor?.y ?? Number.NaN],
-    shape.baseTop - TOLERANCE_MM,
-    shape.baseTop + TOLERANCE_MM,
+  // Полоса касания кольца — тангенс: 2·√((r + стенка)² − r²) по X и длина скобы
+  // по Z. Она должна целиком стоять на стойке.
+  check(
+    "usb: плоская полоса скобы целиком стоит на стойке",
+    [
+      2 * Math.sqrt(outerRadius ** 2 - boreRadius ** 2) <= clampPostWidth("usb_bulb"),
+      clamp.length <= clamp.postDepth,
+    ],
+    [true, true],
   );
   checkRange(
-    "usb: под каналом база замкнута",
-    [underChannel?.y ?? Number.NaN],
-    -TOLERANCE_MM,
-    TOLERANCE_MM,
+    "usb: штанга на столе держит оба гнезда",
+    [beam?.y ?? Number.NaN],
+    clamp.beamHeight - TOLERANCE_MM,
+    clamp.beamHeight + TOLERANCE_MM,
+  );
+  checkRange(
+    "usb: штанга доходит за дальнее гнездо",
+    [-(beamRear?.z ?? Number.NaN)],
+    clamp.usbAxis.far + clamp.length / 2,
+    clamp.usbAxis.far + clamp.length / 2 + 8,
   );
   check(
-    "usb: чаша поднимается от канала к кромке",
-    bowlProfile[1] < bowlProfile[2] &&
-      bowlProfile[2] < bowlProfile[3] &&
-      bowlProfile[3] <= usb.rimY,
-    true,
-  );
-  // Луч на 8 мм от оси попадает не в самую глубокую точку чаши, а на 0.6 мм
-  // выше: глубина 6 мм — это дно у канала, поэтому допуск снизу свободный.
-  checkRange(
-    "usb: дно чаши ниже кромки на 6 мм",
-    [usb.rimY - bowlProfile[1]],
-    5,
-    usb.bowlDepth + 0.1,
-  );
-  checkRange(
-    "usb: наружная стенка стойки — конус от пояса к кромке",
-    [(podEdge?.x ?? Number.NaN) - edgeHalf],
-    -0.2,
-    0.2,
-  );
-  checkRange(
-    "usb: стойка не выше кромки",
-    [podTop - usb.rimY],
-    -TOLERANCE_MM,
-    TOLERANCE_MM,
-  );
-  checkRange(
-    "usb: канала под ленту в базе нет",
-    [plainBase?.y ?? Number.NaN],
-    shape.baseTop - TOLERANCE_MM,
-    shape.baseTop + TOLERANCE_MM,
+    "usb: лампа висит на вылете из гнезда и смотрит в панель",
+    [nearBulb[1], nearBulb[2] - nearClamp.axisZ],
+    [clamp.axisY, clamp.usbBulbReach],
   );
   check(
-    "usb: стойка стоит за панелью с зазором",
-    centerZ + usb.rimRadius < panelAboveRim - 1,
-    true,
+    "usb: колба не задевает наклонную панель",
+    [
+      nearBulb[2] + bulbRadius < planeAtBulb(nearBulb[1]) - 1,
+      farBulb[2] + bulbRadius < planeAtBulb(farBulb[1]) - 1,
+    ],
+    [true, true],
   );
-  check(
-    "usb: стойка не выходит за базу",
-    centerZ - usb.rimRadius > shape.back + 1,
-    true,
+  checkRange(
+    "usb: держатель с двумя скобами по весу",
+    [holderWeight],
+    30,
+    65,
   );
+  checkRange("usb: деталь компактная по глубине", [size.z], 120, 150);
   check(
     "usb: печать без поддержек",
-    downwardFaces(stand, shape.baseTop + 0.5),
+    downwardFaces(far, shape.baseTop + 0.5),
     0,
   );
 
-  stand.dispose();
+  console.log(
+    `  вес держателя ${holderWeight.toFixed(1)} г, габарит ` +
+      `${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)} мм`,
+  );
+
+  near.dispose();
+  far.dispose();
+  bare.dispose();
 }
 
-console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм, прорезь под провод и абажур");
+console.log(
+  "\n15. Патрон E27: скоба Ø40 под натяг, два гнезда и зазор под колбу",
+);
 
 {
   /*
-    Патрон E27 — Ø40 мм: гнездо глубиной 15 мм прячет половину патрона, вторая
-    половина остаётся над базой под лампу. Гнездо круглое, поэтому это тело
-    вращения, а не призма: оболочка стакана собирается поворотом профиля, а
-    прорезь под провод — просто пропущенный сектор. Абажур — второй сектор того
-    же вращения: конус вокруг стакана с вырезом в сторону панели.
+    Патрон E27 — Ø40 мм, поэтому скоба вокруг него крупная, но всё равно открытая:
+    кольцо с проёмом 150° сверху, стенка 2 мм, гнездо проходит насквозь. Колба A60
+    выходит из гнезда на 30 мм вперёд, поэтому ближнее гнездо держит патрон почти у
+    панели — как на референсе, — а дальнее отодвигает его на 120 мм: с такого
+    расстояния пик освещённости падает с ×6 до ×1.4, и карта света зеленеет.
+
+    Проверяется и то, что колба не задевает литофан: панель наклонена на 12°, её
+    плоскость на высоте гнезда уходит назад, и зазор считается до плоскости, а не
+    до координаты Z.
   */
   const params: Partial<LithophaneParams> = {
     lithophaneWidth: 120,
@@ -2184,124 +2323,135 @@ console.log("\n15. Патрон E27: гнездо Ø40 × 15 мм, прорез�
     lithoFrame: true,
     lithoMount: "arch",
     lithoLightSource: "socket",
+    lithoLightSeat: "near",
   };
   const shape = LITHOPHANE_ARCH_STAND;
-  const light = LITHOPHANE_SOCKET_LIGHT;
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+  const boreRadius = clamp.socketBore / 2;
+  const outerRadius = boreRadius + clamp.wall;
+  const facetToleranceMm = 0.1;
+  const near = createLithophaneStandGeometry(params);
+  const far = createLithophaneStandGeometry({
+    ...params,
+    lithoLightSeat: "far",
+  });
+  const bare = createLithophaneStandGeometry({
+    ...params,
+    lithoLightSource: "none",
+  });
+  const nearClamp = clampProbe(
+    near,
+    "socket",
+    clamp.axisY,
+    -clamp.socketAxis.near,
+  );
+  const farClamp = clampProbe(
+    far,
+    "socket",
+    clamp.axisY,
+    -clamp.socketAxis.far,
+  );
+  const nearBulb = lithophaneClampBulb("socket", "near");
+  const farBulb = lithophaneClampBulb("socket", "far");
   const tilt = (LITHOPHANE_STAND_TILT_DEG * Math.PI) / 180;
-  const stand = createLithophaneStandGeometry(params);
-  const size = boxSize(stand);
-  const floor = shape.baseTop + light.floorAboveBase;
-  const rim = floor + light.cavityDepth;
-  const probeY = floor + light.cavityDepth / 2;
-  const left = firstHit(stand, [0, probeY, light.centerZ], [-1, 0, 0]);
-  const right = firstHit(stand, [0, probeY, light.centerZ], [1, 0, 0]);
-  const bottom = firstHit(stand, [0, 80, light.centerZ], [0, -1, 0]);
-  // Луч изнутри гнезда назад: через прорезь он проходит стенку стакана и
-  // останавливается уже на тыльной стенке базы, а без прорези упёрся бы в неё же —
-  // на наружном радиусе.
-  const wireSlot = firstHit(stand, [0, probeY, light.centerZ], [0, 0, -1]);
-  const panelAtRim = -(rim - shape.baseTop) * Math.tan(tilt);
-  // Абажур: кромка Ø54 на 33 мм, вырез 120° в сторону панели.
-  const shadeY = light.shadeRimY - 0.5;
-  const shadeEdge = firstHit(stand, [-200, shadeY, light.centerZ], [1, 0, 0]);
-  const shadeBack = firstHit(stand, [0, shadeY, light.centerZ], [0, 0, -1]);
-  const shadeGap = firstHit(stand, [0, shadeY, 200], [0, 0, -1]);
-  const panelAtShade = -(light.shadeRimY - shape.baseTop) * Math.tan(tilt);
+  const bulbRadius = clamp.socketBulbDiameter / 2;
+  const planeAtBulb = (y: number) => -(y - shape.baseTop) * Math.tan(tilt);
+  const size = boxSize(far);
+  const holderWeight =
+    calculateGeometryWeightGrams(far) - calculateGeometryWeightGrams(bare);
 
-  console.log(
-    `  подставка ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ` +
-      `${size.z.toFixed(2)} мм, гнездо ` +
-      `${((right?.x ?? Number.NaN) - (left?.x ?? Number.NaN)).toFixed(2)} × ` +
-      `${(rim - (bottom?.y ?? Number.NaN)).toFixed(2)} мм`,
-  );
-  console.log(
-    `  дно гнезда на ${floor.toFixed(2)} мм, кромка на ${rim.toFixed(2)} мм, ` +
-      `прорезь ${light.wireSlotDeg}°: провод проходит на ` +
-      `${(wireSlot?.z ?? Number.NaN).toFixed(2)} мм`,
-  );
-  console.log(
-    `  абажур Ø${(-(shadeEdge?.x ?? Number.NaN) * 2).toFixed(2)} мм на ` +
-      `${light.shadeRimY} мм, сзади закрыт на ` +
-      `${(light.centerZ - (shadeBack?.z ?? Number.NaN)).toFixed(2)} мм, ` +
-      `из-за панели виден на ${(shadeGap?.z ?? Number.NaN).toFixed(2)} мм`,
-  );
-
-  check("патрон: подставка замкнута", openEdges(stand), 0);
-  check("патрон: NaN 0", nanVertices(stand), 0);
-  checkRange(
-    "патрон: гнездо Ø40 мм",
-    [(right?.x ?? Number.NaN) - (left?.x ?? Number.NaN)],
-    light.cavityDiameter - 0.05,
-    light.cavityDiameter + 0.05,
+  check(
+    "патрон: скоба замкнута, вершин без координат нет",
+    [openEdges(near) + openEdges(far), nanVertices(near) + nanVertices(far)],
+    [0, 0],
   );
   checkRange(
-    "патрон: глубина гнезда 15 мм",
-    [rim - (bottom?.y ?? Number.NaN)],
-    light.cavityDepth - TOLERANCE_MM,
-    light.cavityDepth + TOLERANCE_MM,
+    "патрон: гнездо Ø39.8 мм — натяг 0.2 мм",
+    [nearClamp.boreRadius * 2, farClamp.boreRadius * 2],
+    clamp.socketBore - facetToleranceMm,
+    clamp.socketBore,
   );
   checkRange(
-    "патрон: дно гнезда выше верха базы",
-    [(bottom?.y ?? Number.NaN) - shape.baseTop],
-    light.floorAboveBase - TOLERANCE_MM,
-    light.floorAboveBase + TOLERANCE_MM,
-  );
-  check(
-    "патрон: прорезь под провод проходит через стенку",
-    (wireSlot?.z ?? Number.NaN) < light.centerZ - light.outerDiameter / 2,
-    true,
-  );
-  check(
-    "патрон: база глубже под гнездо",
-    light.centerZ - light.outerDiameter / 2 >= shape.back + 1,
-    true,
-  );
-  check(
-    "патрон: стакан не наезжает на панель",
-    light.centerZ + light.outerDiameter / 2 < panelAtRim - 1,
-    true,
+    "патрон: стенка скобы 2 мм",
+    [
+      nearClamp.outerRadius - nearClamp.boreRadius,
+      farClamp.outerRadius - farClamp.boreRadius,
+    ],
+    clamp.wall - facetToleranceMm,
+    clamp.wall + facetToleranceMm,
   );
   checkRange(
-    "патрон: абажур Ø54 по кромке",
-    [-(shadeEdge?.x ?? Number.NaN) * 2],
-    (light.shadeRimRadius - 0.5) * 2,
-    light.shadeRimRadius * 2,
+    "патрон: скоба лежит дном гнезда на стойке",
+    [nearClamp.cradle, farClamp.cradle],
+    clamp.axisY - boreRadius - facetToleranceMm,
+    clamp.axisY - boreRadius,
   );
   check(
-    "патрон: абажур выше стакана",
-    light.shadeRimY > rim,
-    true,
+    "патрон: два гнезда — ближнее и дальнее",
+    [nearClamp.axisZ, farClamp.axisZ],
+    [-clamp.socketAxis.near, -clamp.socketAxis.far],
   );
   checkRange(
-    "патрон: абажур закрыт сзади на радиус кромки",
-    [light.centerZ - (shadeBack?.z ?? Number.NaN)],
-    light.shadeRimRadius - light.shadeWidth - 1,
-    light.shadeRimRadius + 1,
+    "патрон: дальнее гнездо ставит лампу в 90–120 мм от панели",
+    [clamp.socketAxis.far],
+    90,
+    120,
   );
-  // Луч из-за панели проходит вырез и останавливается только на тылу абажура.
+  checkRange(
+    "патрон: стойка стоит по центру скобы",
+    [
+      nearClamp.postRear - (nearClamp.axisZ - clamp.postDepth / 2),
+      nearClamp.postFront - (nearClamp.axisZ + clamp.postDepth / 2),
+      farClamp.postRear - (farClamp.axisZ - clamp.postDepth / 2),
+      farClamp.postFront - (farClamp.axisZ + clamp.postDepth / 2),
+    ],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
   check(
-    "патрон: абажур открыт в сторону панели",
-    (shadeGap?.z ?? Number.NaN) < light.centerZ - 10,
-    true,
+    "патрон: плоская полоса скобы целиком стоит на стойке",
+    [
+      2 * Math.sqrt(outerRadius ** 2 - boreRadius ** 2) <= clampPostWidth("socket"),
+      clamp.length <= clamp.postDepth,
+    ],
+    [true, true],
   );
   check(
-    "патрон: кромка абажура не наезжает на панель",
-    light.centerZ + light.shadeRimRadius * Math.cos(Math.PI / 3) <
-      panelAtShade - 1,
-    true,
+    "патрон: лампа висит на вылете из гнезда и смотрит в панель",
+    [nearBulb[1], nearBulb[2] - nearClamp.axisZ],
+    [clamp.axisY, clamp.socketBulbReach],
   );
   check(
-    "патрон: абажур в габарите базы",
-    light.centerZ - light.shadeRimRadius >= shape.back + 1,
-    true,
+    "патрон: колба не задевает наклонную панель",
+    [
+      nearBulb[2] + bulbRadius < planeAtBulb(nearBulb[1]) - 1,
+      farBulb[2] + bulbRadius < planeAtBulb(farBulb[1]) - 1,
+    ],
+    [true, true],
   );
+  // Седло патрона шире, чем у USB-лампы: кольцо Ø43.8 нависает на 32 мм, и
+  // стойка повторяет эту дугу целиком, поэтому деталь тяжелее.
+  checkRange(
+    "патрон: держатель с двумя скобами по весу",
+    [holderWeight],
+    30,
+    75,
+  );
+  checkRange("патрон: деталь компактная по глубине", [size.z], 130, 160);
   check(
     "патрон: печать без поддержек",
-    downwardFaces(stand, shape.baseTop + 0.5),
+    downwardFaces(far, shape.baseTop + 0.5),
     0,
   );
 
-  stand.dispose();
+  console.log(
+    `  вес держателя ${holderWeight.toFixed(1)} г, габарит ` +
+      `${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)} мм`,
+  );
+
+  near.dispose();
+  far.dispose();
+  bare.dispose();
 }
 
 console.log("\n16. Подвес: световой короб, окно под провод и петли");
@@ -2979,16 +3129,29 @@ console.log(
     [0, base.perchTop + 40, -cylinderRadius + base.pedestalRadius - 3],
     [0, -1, 0],
   );
-  // Стакан патрона: луч в стенку кромки и луч в дно гнезда.
-  const socketRimHit = firstHit(
-    bowlSocket,
-    [0, base.perchTop + 40, -cylinderRadius + LITHOPHANE_SOCKET_LIGHT.outerDiameter / 2 - 1],
-    [0, -1, 0],
+  /*
+    Скобы изогнутых баз: та же скоба, что в арке, но её поднимает стойка над полкой
+    бруска дуги и над площадкой в чаше. Ось по Z у бруска — `bentAxisZ` (скоба стоит
+    там же, где стояла стойка), в чаше — ось вращения чаши, то есть её центр.
+  */
+  const clamp = LITHOPHANE_LAMP_CLAMP;
+  const railSocketClamp = clampProbe(
+    railSocket,
+    "socket",
+    base.railTop + clamp.bentAxisAbove.socket,
+    clamp.bentAxisZ,
   );
-  const socketCavityHit = firstHit(
+  const bowlSocketClamp = clampProbe(
     bowlSocket,
-    [0, base.perchTop + 40, -cylinderRadius + 12],
-    [0, -1, 0],
+    "socket",
+    base.perchTop + clamp.bentAxisAbove.socket,
+    -cylinderRadius,
+  );
+  const railUsbClamp = clampProbe(
+    railUsb,
+    "usb_bulb",
+    base.railTop + clamp.bentAxisAbove.usb_bulb,
+    clamp.bentAxisZ,
   );
 
   console.log(
@@ -3131,10 +3294,10 @@ console.log(
     Math.abs(base.railBack) + 20,
   );
   checkRange(
-    "рельс: стакан патрона поднимает лампу над полкой",
-    [boxSize(railSocket).y],
-    base.railTop + 20,
-    base.railTop + 40,
+    "рельс: скоба поднимает лампу над полкой",
+    [railSocketClamp.cradle - base.railTop],
+    10,
+    20,
   );
   checkRange(
     "чаша: площадка под лампу на 43 мм",
@@ -3143,12 +3306,30 @@ console.log(
     base.perchTop + TOLERANCE_MM,
   );
   checkRange(
-    "чаша: гнездо стакана глубиной 15 мм",
+    "чаша: скоба поднята над площадкой",
+    [bowlSocketClamp.cradle - base.perchTop],
+    10,
+    20,
+  );
+  checkRange(
+    "скобы изогнутых баз: гнездо Ø39.8 мм под патрон",
+    [railSocketClamp.boreRadius * 2, bowlSocketClamp.boreRadius * 2],
+    clamp.socketBore - 0.1,
+    clamp.socketBore,
+  );
+  checkRange(
+    "скоба бруска: гнездо Ø13.4 мм под USB-лампу",
+    [railUsbClamp.boreRadius * 2],
+    clamp.usbBore - 0.1,
+    clamp.usbBore,
+  );
+  check(
+    "чаша: скоба Ø43.8 встаёт на площадку Ø44",
     [
-      (socketRimHit?.y ?? Number.NaN) - (socketCavityHit?.y ?? Number.NaN),
+      2 * (clamp.socketBore / 2 + clamp.wall) <= 2 * base.pedestalRadius,
+      clampPostWidth("socket") <= 2 * base.pedestalRadius,
     ],
-    LITHOPHANE_SOCKET_LIGHT.cavityDepth - TOLERANCE_MM,
-    LITHOPHANE_SOCKET_LIGHT.cavityDepth + TOLERANCE_MM,
+    [true, true],
   );
   check(
     "базы с лампой: оболочки замкнуты",
@@ -3157,6 +3338,16 @@ console.log(
       openEdges(railSocket) + nanVertices(railSocket),
       openEdges(bowlUsb) + nanVertices(bowlUsb),
       openEdges(bowlSocket) + nanVertices(bowlSocket),
+    ],
+    [0, 0, 0, 0],
+  );
+  check(
+    "базы с лампой: печать без поддержек",
+    [
+      downwardFaces(railUsb, base.top + 0.5),
+      downwardFaces(railSocket, base.top + 0.5),
+      downwardFaces(bowlUsb, base.top + 0.5),
+      downwardFaces(bowlSocket, base.top + 0.5),
     ],
     [0, 0, 0, 0],
   );
@@ -3589,30 +3780,61 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     ],
     [true, true, true],
   );
+  /*
+    Скоба держит лампу в одном из двух гнёзд, и по умолчанию выбрано дальнее:
+    в ближнем E27 светит с 78 мм и пересвечивает центр, а с 120 мм пик падает до
+    ×1.4 и карта зеленеет. Поэтому план по умолчанию — это дальнее гнездо, а
+    ближнее проверяется отдельно: оно обязано остаться «слишком близко».
+  */
+  const farSocket = lithophaneClampBulb("socket", "far");
+  const farBulb = lithophaneClampBulb("usb_bulb", "far");
+  const nearSocket = lithophaneLightPlan({
+    lithoMount: "arch",
+    lithoLightSource: "socket",
+    lithoLightSeat: "near",
+  });
+  const nearBulb = lithophaneLightPlan({
+    lithoMount: "arch",
+    lithoLightSource: "usb_bulb",
+    lithoLightSeat: "near",
+  });
+
   check(
-    "свет: лампа в гнезде — одна точка в центре",
+    "свет: лампа в скобе — одна точка в дальнем гнезде",
     [
       socket?.kind,
       socket?.emitters.length,
       socket?.emitters[0].position.map((value) => Math.round(value)),
     ],
-    ["socket", 1, [0, LITHO_LIGHT_SEATS.socketY, LITHOPHANE_SOCKET_LIGHT.centerZ]],
+    ["socket", 1, farSocket.map((value) => Math.round(value))],
   );
   check(
-    "свет: колба USB стоит в чаше стойки",
+    "свет: колба USB стоит в дальнем гнезде скобы",
     [bulb?.emitters[0].position[1], bulb?.emitters[0].position[2]],
-    [LITHO_LIGHT_SEATS.usbBulbY, LITHOPHANE_USB_LIGHT.centerZ],
+    [farBulb[1], farBulb[2]],
+  );
+  check(
+    "свет: в ближнем гнезде лампа стоит ближе к панели",
+    [
+      nearSocket!.emitters[0].position[2] > farSocket[2],
+      nearBulb!.emitters[0].position[2] > farBulb[2],
+    ],
+    [true, true],
   );
 
   /*
-    Наклонный канал ставит ленту выше низа панели и в 54 мм от неё, поэтому по
-    высоте она ровнее колбы: у той свет уходит вниз, а верх остаётся в тени. Патрон
-    E27 стоит выше колбы, поэтому его верх получает больше света — порядок «чем
-    выше источник, тем ровнее» проверяется на лампе и колбе.
+    Наклонный канал ставит ленту выше низа панели и в 54 мм от неё: по высоте она
+    ровнее колбы, а ровность здесь — близость к единице, а не «верх светлее низа».
+    У лампы в скобе источник стоит на середине панели, и наклонный тыл ловит её
+    свет снизу: верх выходит светлее низа, то есть от единицы она уходит дальше —
+    и у ножки USB-лампы, и у патрона E27.
   */
   check(
-    "свет: наклонный канал ровнее колбы в чаше",
-    [strip!.topShare > bulb!.topShare, bulb!.topShare < socket!.topShare],
+    "свет: наклонный канал ровнее лампы в скобе",
+    [
+      Math.abs(Math.log(strip!.topShare)) < Math.abs(Math.log(bulb!.topShare)),
+      Math.abs(Math.log(strip!.topShare)) < Math.abs(Math.log(socket!.topShare)),
+    ],
     [true, true],
   );
   check(
@@ -3624,12 +3846,21 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     [true, true],
   );
   check(
-    "свет: у гнезда E27 расстояния не хватает",
+    "свет: дальнее гнездо E27 светит ровнее ближнего и без пересвета",
     [
-      socket?.warnings.map((item) => item.id).includes("too_close"),
-      socket!.actualDistance < socket!.recommendedDistance,
+      socket!.peakRatio < nearSocket!.peakRatio,
+      socket!.peakRatio < LITHO_LIGHT_MODEL.overexposure,
     ],
     [true, true],
+  );
+  check(
+    "свет: в ближнем гнезде E27 расстояния не хватает",
+    [
+      nearSocket?.warnings.map((item) => item.id).includes("too_close"),
+      nearSocket!.actualDistance < nearSocket!.recommendedDistance,
+      nearBulb?.warnings.map((item) => item.id).includes("too_close"),
+    ],
+    [true, true, true],
   );
 
   check(
@@ -3662,6 +3893,7 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     Math.hypot(point[0], point[2] - bowlRadius),
   );
   const shelf = LITHOPHANE_BENT_BASE;
+  const clamp = LITHOPHANE_LAMP_CLAMP;
 
   check(
     "свет: в чаше лента уложена кольцом по всему полуцилиндру",
@@ -3683,9 +3915,17 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
     ],
     [
       "usb_bulb",
-      [0, Math.round(shelf.perchTop + LITHO_LIGHT_SEATS.usbBulbAbove), Math.round(bowlRadius)],
+      [
+        0,
+        Math.round(shelf.perchTop + clamp.bentAxisAbove.usb_bulb),
+        Math.round(bowlRadius),
+      ],
       "socket",
-      [0, Math.round(shelf.perchTop + LITHO_LIGHT_SEATS.socketAbove), Math.round(bowlRadius)],
+      [
+        0,
+        Math.round(shelf.perchTop + clamp.bentAxisAbove.socket),
+        Math.round(bowlRadius),
+      ],
     ],
   );
   check(
@@ -3700,14 +3940,14 @@ console.log("\n20. Свет: где стоят лампы и как ложитс
       "usb_bulb",
       [
         0,
-        Math.round(shelf.railTop + LITHO_LIGHT_SEATS.usbBulbAbove),
-        LITHOPHANE_USB_LIGHT.centerZ,
+        Math.round(shelf.railTop + clamp.bentAxisAbove.usb_bulb),
+        clamp.bentAxisZ,
       ],
       "socket",
       [
         0,
-        Math.round(shelf.railTop + LITHO_LIGHT_SEATS.socketAbove),
-        LITHOPHANE_SOCKET_LIGHT.centerZ,
+        Math.round(shelf.railTop + clamp.bentAxisAbove.socket),
+        clamp.bentAxisZ,
       ],
     ],
   );

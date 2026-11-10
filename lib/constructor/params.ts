@@ -1799,10 +1799,10 @@ export const LITHOPHANE_MOUNT_LABELS = {
  * Источники света, под которые в базе открытой арки вырезано крепление.
  *
  * `strip` — канал 10 × 2 мм под светодиодную ленту и канавка под провод;
- * `usb_bulb` — круглая стойка за панелью с каналом Ø14.2 мм под штекер Type-A и
- * чашей под колбу; `socket` — цилиндрическое гнездо Ø40 × 15 мм под пластиковый
- * патрон E27 с прорезью под провод и абажуром Ø54 мм; `none` — база без
- * выборок, подсветку ставят отдельно.
+ * `usb_bulb` — открытая скоба Ø13.4 мм за панелью, в неё вставляется гибкая
+ * ножка USB-лампы; `socket` — открытая скоба Ø39.8 мм под патрон E27: патрон
+ * входит с натягом и светит прямо на тыл панели; `none` — база без выборок,
+ * подсветку ставят отдельно.
  */
 export const LITHOPHANE_LIGHT_SOURCES = [
   "strip",
@@ -1821,6 +1821,24 @@ export const LITHOPHANE_LIGHT_SOURCE_LABELS = {
   socket: "LED-патрон (E14/E27)",
   none: "Без подсветки",
 } as const satisfies Record<LithophaneLightSource, string>;
+
+/**
+ * Какое гнездо скобы занимает лампа.
+ *
+ * В одном держателе напечатаны две скобы: ближняя — как на референсе с Cults3D,
+ * патрон почти у панели и деталь компактная; дальняя отодвигает лампу на 120 мм,
+ * и карта света зеленеет. Расчёт берёт то гнездо, которое выбрано, а человек
+ * переставляет патрон между ними при сборке.
+ */
+export const LITHOPHANE_LIGHT_SEATS = ["near", "far"] as const;
+
+export type LithophaneLightSeat = (typeof LITHOPHANE_LIGHT_SEATS)[number];
+
+/** Подписи гнёзд: по ним клиент строит выбор положения лампы. */
+export const LITHOPHANE_LIGHT_SEAT_LABELS = {
+  near: "Ближнее гнездо (компактно)",
+  far: "Дальнее гнездо (ровный свет)",
+} as const satisfies Record<LithophaneLightSeat, string>;
 
 /**
  * Нужна ли отдельная деталь подставки.
@@ -1961,6 +1979,14 @@ export type LithophaneParams = {
    * источник, который выбирал. Призма калейдоскопа держит свечу в пьедестале.
    */
   lithoLightSource: LithophaneLightSource;
+  /**
+   * Гнездо скобы, в которое вставлена лампа: ближнее или дальнее.
+   *
+   * У открытой арки в держателе напечатаны обе скобы, поэтому расчёт света берёт
+   * выбранное положение: близкое даёт пятно (пик ×6), дальнее — ровную карту.
+   * У изогнутых форм скоба одна, и значение там не читается.
+   */
+  lithoLightSeat: LithophaneLightSeat;
   /**
    * Рассеиватель: лист матового акрила 2 мм в пазу базы, между лампой и панелью.
    *
@@ -2299,6 +2325,9 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   // Канал под ленту — самый дешёвый свет: лента 8–10 мм лежит в базе и светит
   // на тыл кадра, ничего докупать не нужно.
   lithoLightSource: "strip",
+  // Дальнее гнездо по умолчанию: карта света на нём зелёная, а ближнее человек
+  // выбирает осознанно, когда важнее компактность детали на полке.
+  lithoLightSeat: "far",
   // Рассеиватель — отдельная деталь, которой у человека может не быть:
   // по умолчанию её нет, а расчёт подсказывает её для больших панелей.
   lithoDiffuser: false,
@@ -3000,6 +3029,21 @@ export function isLithophaneLightSource(
   return (
     typeof value === "string" &&
     (LITHOPHANE_LIGHT_SOURCES as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Проверка гнезда скобы из формы или API.
+ *
+ * Как и у источника, незнакомое значение — не ошибка ввода: старый проект без
+ * поля получает дальнее гнездо, где карта света ровнее.
+ */
+export function isLithophaneLightSeat(
+  value: unknown,
+): value is LithophaneLightSeat {
+  return (
+    typeof value === "string" &&
+    (LITHOPHANE_LIGHT_SEATS as readonly string[]).includes(value)
   );
 }
 
@@ -4397,6 +4441,11 @@ export function normalizeLithophaneParams(
   const lithoLightSource = isLithophaneLightSource(params.lithoLightSource)
     ? params.lithoLightSource
     : DEFAULT_LITHOPHANE_PARAMS.lithoLightSource;
+  // Гнездо переживает смену источника и крепления, как и сам источник: у ленты
+  // оно просто не читается, а вернувшись к патрону, человек получает свой выбор.
+  const lithoLightSeat = isLithophaneLightSeat(params.lithoLightSeat)
+    ? params.lithoLightSeat
+    : DEFAULT_LITHOPHANE_PARAMS.lithoLightSeat;
   const brightness = resolveLithophaneBrightness(params);
   const sideBrightness = resolveLithophaneSideBrightness(
     params.lithophaneSideBrightness,
@@ -4425,6 +4474,7 @@ export function normalizeLithophaneParams(
       CONSTRUCTOR_LIMITS.lithoCurveRadius,
     ),
     lithoLightSource,
+    lithoLightSeat,
     // Флаг не зависит ни от формы, ни от крепления: лист либо вставлен, либо нет.
     lithoDiffuser:
       params.lithoDiffuser ?? DEFAULT_LITHOPHANE_PARAMS.lithoDiffuser,
