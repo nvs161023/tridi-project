@@ -2427,7 +2427,7 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   lithophaneSideBrightness: [null, null, null],
   lithoFrame: true,
   lithoMount: "none",
-  // Миньон по умолчанию: в барабан Ø45 он входит с гнездом под гайку, а E27
+  // Миньон по умолчанию: в барабан Ø35 он входит с гнездом под гайку, а E27
   // выбирают осознанно, когда нужен свет поярче.
   lithoRailSocket: "e14",
   // 40 мм — между навесом и панелью остаётся 20 мм, а полоз сидит на шине
