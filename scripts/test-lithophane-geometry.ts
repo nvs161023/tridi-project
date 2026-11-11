@@ -3699,7 +3699,7 @@ console.log("\n20. Монорельс: шина 20 × 5 на столе, бар�
     [plainSize.x, plainSize.y],
   );
   checkRange(
-    "рельс: шина уходит назад на 40 мм",
+    `рельс: шина уходит назад на ${rail.depth} мм`,
     [plainBack - frameBack],
     rail.depth - TOLERANCE_MM,
     rail.depth + TOLERANCE_MM,
@@ -3718,21 +3718,24 @@ console.log("\n20. Монорельс: шина 20 × 5 на столе, бар�
 {
   /*
     Каретка — вторая печатная деталь: цилиндрический барабан Ø45 × 45 мм с
-    каналом под шину, полозом на всю длину и полукруглым козырьком. Барабан лежит
-    на оси патрона вдоль Z: лицевая плоскость уходит от панели на
+    каналом под шину, полозом на всю длину барабана и козырьком-навесом. Барабан
+    лежит на оси патрона вдоль Z: лицевая плоскость уходит от панели на
     lithoRailDistance, ось патрона проходит через центр на высоте 22.5 мм, поэтому
     верх барабана — ровно 45 мм от стола.
 
     Снизу вырезан продольный канал 20.4 × 5.2 мм: шина 20 × 5 проходит в него с
-    зазором 0.2 мм, а по бокам канала идут два полоза на всю длину барабана до
-    панели — на них каретка стоит на столе и не опрокидывается назад. Патрон
-    вставляется с тыла, гайка садится в шестигранное гнездо с лицевой стороны (у
-    E27 она не помещается над каналом, и гнезда нет), провод выходит вниз через
-    прорезь в канал. Козырёк — половина кольца Ø45 над осью: она выступает на
-    20 мм к панели и закрывает верх, оставляя низ открытым.
+    зазором 0.2 мм, а по бокам канала идут два полоза на всю длину барабана — на
+    них каретка стоит на столе, а шина ведёт её вдоль Z. Патрон вставляется с
+    тыла, гайка садится в шестигранное гнездо с лицевой стороны (у E27 она не
+    помещается над каналом, и гнезда нет), провод выходит вниз через прорезь в
+    канал. Козырёк — горизонтальная плита 30 × 3 мм над патроном: её низ поднят
+    на 19.5 мм над осью, то есть выше гнезда, верх совпадает с барабаном, а к
+    панели она выступает на 20 мм. Перед отверстием навес не опускается, поэтому
+    лампочка E14/E27 входит в гнездо и вкручивается рукой.
 
     Проверяются оба патрона: диаметр сквозного гнезда, ось, глубина под гайку,
-    канал и полоз, лицевая и задняя плоскости, козырёк и замкнутость оболочки.
+    канал и полоз, лицевая и задняя плоскости, навес, свободный коридор перед
+    гнездом и замкнутость оболочки.
   */
   const rail = LITHOPHANE_RAIL;
   const carriage = LITHOPHANE_CARRIAGE;
@@ -3765,25 +3768,67 @@ console.log("\n20. Монорельс: шина 20 × 5 на столе, бар�
   );
 
   /*
-    На обоих концах диапазона lithoRailDistance полоз тянется за тыл шины, а
+    На обоих концах диапазона lithoRailDistance шина входит в канал барабана, а
     козырёк не доходит до панели: каретка не соскакивает и не задевает рельеф.
+    Заодно проверяется коридор перед гнездом: его глубина равна расстоянию до
+    панели, и ни полоз, ни навес в него не заходят.
   */
   for (const distance of [
     CONSTRUCTOR_LIMITS.lithoRailDistance.min,
     CONSTRUCTOR_LIMITS.lithoRailDistance.max,
   ]) {
-    const shifted = lithophaneCarriageMetrics(
-      normalizeLithophaneParams({ ...railParams, lithoRailDistance: distance }),
+    const params: Partial<LithophaneParams> = {
+      ...railParams,
+      lithoRailDistance: distance,
+    };
+    const shifted = lithophaneCarriageMetrics(normalizeLithophaneParams(params));
+    // Перекрытие канала и шины по Z: на нём каретка держится на рельсе.
+    const engagement =
+      Math.min(shifted.plateFront, 0) - Math.max(shifted.plateBack, -rail.depth);
+    const geometry = createLithophaneCarriageGeometry(params);
+    const object = new Mesh(
+      geometry,
+      new MeshBasicMaterial({ side: DoubleSide }),
+    );
+    // Первое попадание луча спереди: NaN — перед лицом барабана пластика нет.
+    const frontProbe = (x: number, y: number): number => {
+      const hits = new Raycaster(
+        new Vector3(x, y, distance + 40),
+        new Vector3(0, 0, -1),
+        0,
+        distance + 100,
+      ).intersectObject(object, false);
+
+      return hits.length === 0 ? Number.NaN : hits[0].point.z;
+    };
+    const corridor: number[] = [];
+
+    for (const x of [-12, 0, 12]) {
+      for (const y of [4, 8, shifted.socketY, 30, shifted.visorBottom - 1]) {
+        corridor.push(frontProbe(x, y));
+      }
+    }
+
+    checkRange(
+      `каретка на ${distance} мм: шина входит в канал на ${engagement} мм`,
+      [engagement],
+      rail.width / 2 - TOLERANCE_MM,
+      carriage.length + TOLERANCE_MM,
+    );
+    check(
+      `каретка на ${distance} мм: козырёк не доходит до панели, зазор ${-shifted.visorFront} мм`,
+      shifted.visorFront <= -carriage.panelClearance,
+      true,
+    );
+    check(
+      `каретка на ${distance} мм: перед гнездом свободно ${-shifted.plateFront} мм`,
+      corridor.every(
+        (z) => Number.isNaN(z) || z <= shifted.plateFront + TOLERANCE_MM,
+      ),
+      true,
     );
 
-    check(
-      `каретка на ${distance} мм: полоз накрывает шину, козырёк не доходит до панели`,
-      [
-        shifted.plateBack <= -rail.depth,
-        shifted.visorFront <= -carriage.panelClearance,
-      ],
-      [true, true],
-    );
+    geometry.dispose();
   }
 
   for (const socketId of LITHOPHANE_RAIL_SOCKETS) {
@@ -3972,35 +4017,48 @@ console.log("\n20. Монорельс: шина 20 × 5 на столе, бар�
         carriage.skidHeight,
       true,
     );
+    // Полоз кончается на лицевой плоскости: перед барабаном каретка не стоит.
     checkRange(
-      `каретка ${socketId}: полоз на столе до ${-metrics.shoeFront} мм от панели`,
-      [hitY(skidHalf - 0.1, -10, metrics.shoeFront - 1, 1)],
-      -TOLERANCE_MM,
-      TOLERANCE_MM,
-    );
-    check(
-      `каретка ${socketId}: зазор ${carriage.panelClearance} мм от полоза до панели`,
-      Number.isNaN(hitY(skidHalf - 0.1, -10, metrics.shoeFront + 1, 1)),
-      true,
+      `каретка ${socketId}: полоз кончается на лице барабана`,
+      [hitZ(skidHalf - 0.1, carriage.skidHeight - 1, true)],
+      metrics.plateFront - TOLERANCE_MM,
+      metrics.plateFront + TOLERANCE_MM,
     );
     /*
-      Козырёк — половина кольца Ø45 над осью: он выступает от лицевой плоскости на
-      `visorRun`, закрывает верх и оставляет низ барабана открытым.
+      Козырёк — горизонтальный навес над патроном: низ плиты поднят на
+      `visorLift` над осью (выше верхней границы гнезда), верх совпадает с
+      барабаном, а к панели плита выступает на `visorRun`. Перед отверстием навес
+      не опускается, поэтому лампочка входит в гнездо и вкручивается рукой.
     */
+    const visorUnder = hitY(0, 0, metrics.plateFront + 5, 1);
+    const visorOver = hitY(0, 60, metrics.plateFront + 5, -1);
+
     checkRange(
-      `каретка ${socketId}: козырёк выступает к панели на ${-metrics.plateFront + metrics.visorFront} мм`,
-      [hitZ(0, metrics.plateTop - 1, true)],
+      `каретка ${socketId}: навес начинается на ${carriage.visorLift} мм выше оси патрона`,
+      [visorUnder],
+      metrics.socketY + carriage.visorLift - TOLERANCE_MM,
+      metrics.socketY + carriage.visorLift + TOLERANCE_MM,
+    );
+    checkRange(
+      `каретка ${socketId}: верх навеса вровень с барабаном`,
+      [visorOver],
+      metrics.plateTop - TOLERANCE_MM,
+      metrics.plateTop + TOLERANCE_MM,
+    );
+    checkRange(
+      `каретка ${socketId}: навес ${visorOver - visorUnder} мм толщиной`,
+      [visorOver - visorUnder],
+      carriage.diameter / 2 - carriage.visorLift - TOLERANCE_MM,
+      carriage.diameter / 2 - carriage.visorLift + TOLERANCE_MM,
+    );
+    checkRange(
+      `каретка ${socketId}: навес выступает к панели на ${-metrics.plateFront + metrics.visorFront} мм`,
+      [hitZ(0, metrics.visorBottom + 1, true)],
       metrics.visorFront - TOLERANCE_MM,
       metrics.visorFront + TOLERANCE_MM,
     );
     checkRange(
-      `каретка ${socketId}: козырёк ${carriage.visorThickness} мм толщиной`,
-      [hitY(0, 0, metrics.visorFront - 1, 1)],
-      metrics.socketY + radius - carriage.visorThickness - TOLERANCE_MM,
-      metrics.socketY + radius - carriage.visorThickness + TOLERANCE_MM,
-    );
-    checkRange(
-      `каретка ${socketId}: козырёк закрывает только верх барабана`,
+      `каретка ${socketId}: навес не опускается перед патроном`,
       [hitZ(skidHalf - 1, metrics.socketY - 10, true)],
       metrics.plateFront - TOLERANCE_MM,
       metrics.plateFront + TOLERANCE_MM,
