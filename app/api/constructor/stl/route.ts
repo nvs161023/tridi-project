@@ -1166,7 +1166,7 @@ function parseLithophaneParams(
     // поэтому деталь «frame» к ним не относится, а флаг рамки не читается.
     (part === "frame" && !lithophaneShapeHasFrame(lithoShape)) ||
     (lithophaneShapeHasFrame(lithoShape) && !lithoFrame && part !== "relief") ||
-    // Деталь «carriage»: каретка нужна только монорельсу плоской панели.
+    // Деталь «carriage»: кольцо-держатель нужно только стойке плоской панели.
     (part === "carriage" &&
       !lithophaneHasRail(lithoMount, lithoShape, lithoFrame)) ||
     // Деталь «stand»: у плоской формы это выбранное крепление с ножкой или
