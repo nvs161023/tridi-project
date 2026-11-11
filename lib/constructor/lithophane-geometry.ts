@@ -256,113 +256,88 @@ export const LITHOPHANE_RAIL = {
 } as const;
 
 /**
- * Каретка монорельса: полый конус под патрон с гнутым навесом над лампой.
+ * Держатель патрона на монорельсе: плоское кольцо Ø50 × 5 мм с козырьком.
  *
- * Конус Ø33 → Ø22 длиной 45 мм лежит на оси патрона вдоль Z: его лицевая
- * плоскость смотрит на панель, ось патрона проходит через центр на высоте 20 мм.
- * Конус полый — стенка `wall`, внутри полость под резьбу и корпус патрона, —
- * поэтому деталь весит меньше прежнего барабана. Снизу вырезан продольный проём
- * `channelWidth`: через него выходит провод и под ним свободно проходит шина, а по
- * бокам проёма стоят два полоза `skidWidth` — каретка опирается на стол, а шина
- * ведёт её вдоль Z. Полоз повторяет низ конуса и сходит на нет у лица, поэтому
- * каретка стоит на нём всей длиной и не опрокидывается.
+ * Каретка-барабан заменена кольцом: патрон стандартный — с наружной резьбой и
+ * штатной гайкой, — поэтому кольцу не нужны ни корпус, ни полость. Кольцо просто
+ * зажимается между фланцем патрона и его же гайкой: отверстие равно резьбе
+ * (Ø14.6 у E14 и Ø28.6 у E27), наружный Ø50 — это мясо вокруг гайки E27
+ * (33 мм под ключ, 38.1 мм по вершинам).
  *
- * Лицевой пятак толще стенки (`face`): в нём утоплен шестигранный паз под гайку
- * E14, и под гайкой остаётся миллиметр мяса. Гайка E27 (33 мм) в конус Ø33 не
- * входит, поэтому у E27 паз не режется и патрон держится одной резьбой. От гнезда
- * до проёма идёт прорезь `slotWidth` под провод.
+ * Лицо кольца смотрит на панель: в нём утоплена круглая зенковка под фланец
+ * патрона (`flangeDepth`), поэтому патрон садится ровно, а не на кромку
+ * отверстия. С тыла — плоская площадка с шестигранным гнездом под штатную гайку:
+ * гайка не проворачивается под ключом. Между дном зенковки и гнездом остаётся
+ * 2 мм мяса.
  *
- * Козырёк — гнутый навес над лампой: он продолжает макушку конуса, плавно
- * опускается к панели на `visorDrop` и выступает на `visorRun`. Низ навеса поднят
- * выше гнезда, поэтому перед отверстием нет ни стенки, ни губы: лампочка входит в
- * гнездо и вкручивается рукой.
+ * Кольцо висит на полозе: его ось поднята на `axisY`, низ кольца выше верха
+ * шины на `railGap`. Полоз — коробка `skidWidth` шириной с продольным пазом
+ * снизу: паз шире шины 14 × 5 на зазор с каждой стороны, открыт снизу и с торцов,
+ * поэтому кольцо надевается на рельс сверху и едет по нему, а печатается полоз
+ * без поддержек.
+ *
+ * Козырёк — тонкая (2 мм) гнутая пластина поверх макушки кольца: выступает к
+ * панели на `visorRun`, плавно опускается к носу на `visorDrop` и закрывает
+ * патрон от глаз. Хвост навеса врезан в кольцо на `BODY_OVERLAP_MM`, поэтому
+ * козырёк и кольцо спекаются в одну деталь.
  */
 export const LITHOPHANE_CARRIAGE = {
+  /** Наружный радиус кольца, мм: Ø50 вокруг гайки E27. */
+  ringRadius: 25,
+  /** Толщина кольца вдоль оси патрона, мм. */
+  ringDepth: 5,
   /**
-   * Радиусы конуса каретки: лицевой и тыльный, мм.
+   * Ось кольца и патрона над столом, мм.
    *
-   * Ровный барабан Ø35 заменён конусом: у панели Ø33, на тылу Ø22. Лицо всё же
-   * 33, а не 30: резьбе E27 (Ø28.6) нужна полость Ø29 при стенке 2 мм, а низ
-   * козырька должен лечь на макушку выше гнезда (36.5 − 2 = 34.5 > 34.3 — верха
-   * резьбы E27). Тыл ужат до Ø22, поэтому каретка ниже и легче прежней.
+   * Кольцо Ø50 висит на полозе: при оси 31 мм его низ на 6 мм, а верх шины — на
+   * 5 мм, поэтому между ними остаётся `railGap`. Ниже ось опускать нельзя:
+   * кольцо ляжет на шину, и полоз перестанет быть опорой.
    */
-  frontRadius: 16.5,
-  backRadius: 11,
-  /** Толщина стенки конуса, мм. */
-  wall: 2,
-  /**
-   * Толщина лицевого пятака, мм.
-   *
-   * Он толще стенки: паз под гайку утоплен на `nutDepth`, и под ним остаётся
-   * `nutFloor` мяса — иначе гайка продавила бы тонкое дно паза.
-   */
-  face: 3,
-  /** Мясо пятака под пазом гайки, мм. */
-  nutFloor: 1,
-  /** Длина каретки вдоль оси патрона, мм. */
-  length: 45,
-  /**
-   * Глубина прямой части конуса от лица, мм.
-   *
-   * В полости прямой части живёт корпус патрона: сужать её раньше нельзя, иначе
-   * патрон не сядет на пятак. Дальше радиус плавно сходит к тылу Ø22.
-   */
-  collar: 28,
-  /**
-   * Ось конуса и патрона над столом, мм.
-   *
-   * Каретка стоит на полозьях, а не на столе: ось поднята так, чтобы конус прошёл
-   * над шиной с зазором, а резьба E27 (радиус 14.3 мм) не задевала проём снизу.
-   */
-  axisY: 20,
-  /** Глубина шестигранного паза под гайку патрона, мм. */
+  axisY: 31,
+  /** Глубина круглой зенковки под фланец патрона с лица, мм. */
+  flangeDepth: 1,
+  /** Зазор зенковки под фланец по диаметру, мм. */
+  flangeClearance: 0.4,
+  /** Глубина шестигранного гнезда под гайку с тыла, мм. */
   nutDepth: 2,
-  /** Зазор шестигранного паза под гайку на сторону, мм. */
+  /** Зазор шестигранного гнезда под гайку на сторону, мм. */
   nutClearance: 0.2,
   /**
-   * Мясо конуса вокруг шестигранного паза, мм.
+   * Полоз: длина вдоль шины, ширина и верх над столом, мм.
    *
-   * Меньше прежнего: у конуса Ø33 на паз E14 остаётся 0.7 мм в углах — предел
-   * печати, зато гайка E14 по-прежнему утоплена в лицо. Гайка E27 (33 мм) в
-   * конус не входит, и у E27 паз не режется.
+   * Верх полоза на 2 мм выше низа кольца: полоз заходит в мясо кольца, и они
+   * спекаются в одну деталь — кольцо не висит на тонкой кромке. Длина 20 мм
+   * держит кольцо от качания вдоль рельса; на дальнем положении каретки полоз
+   * укорачивается до остатка шины (см. `lithophaneCarriageMetrics`).
    */
-  nutMargin: 0.6,
-  /** Прорезь под провод от гнезда до проёма снизу, мм. */
-  slotWidth: 6,
-  /**
-   * Проём снизу: под ним проходит шина, через него выходит провод, мм.
-   *
-   * Проём шире канала шины (14.4 с зазором): конус висит над рельсом, а не
-   * садится на него, и каретку ведут полозья по бокам проёма.
-   */
-  channelWidth: 16,
-  /** Пара полозьев по бокам проёма: общая ширина, мм. */
-  skidWidth: 21,
+  skidLength: 20,
+  skidWidth: 18,
+  skidTop: 8,
+  /** Зазор между низом кольца и верхом шины, мм. */
+  railGap: 1,
   /** Зазор между козырьком и панелью, мм. */
   panelClearance: 3,
   /**
-   * Козырёк: вылет вперёд, ширина, толщина, хвост в пятаке и провис носа, мм.
+   * Козырёк: вылет к панели, ширина, толщина, хвост в кольце и провис носа, мм.
    *
-   * Навес продолжает макушку конуса и плавно опускается к панели на `visorDrop`:
-   * это не плита, а гнутый козырёк. Низ навеса поднят выше гнезда E27, поэтому
-   * лампа вкручивается рукой, а хвост утоплен в лицевой пятак — козырёк остаётся
-   * частью каретки, а не отдельной деталью.
+   * Пластина лежит на макушке кольца и плавно опускается к панели на
+   * `visorDrop`: это не плита, а гнутый навес. Низ навеса поднят выше резьбы
+   * E27, поэтому лампа вкручивается рукой, а хвост утоплен в кольцо — козырёк
+   * остаётся частью держателя, а не отдельной деталью.
    */
   visorRun: 20,
   visorWidth: 30,
   visorThickness: 2,
-  /**
-   * Насколько хвост навеса утоплен в лицевой пятак, мм.
-   *
-   * Пятак толще стенки, поэтому хвост заходит в его мясо и не режет полость:
-   * навес и каретка спекаются в одну деталь.
-   */
   visorTail: 2,
   visorDrop: 5,
   /** Скругление носа навеса в плане, мм. */
   visorRadius: 6,
   /** Фаска на кромках навеса: по бокам и по низу, мм. */
   visorChamfer: 0.6,
+  /** Сегментов по наружной дуге кольца: 48 — круг читается гладким. */
+  ringSegments: 48,
+  /** Сегментов у круглых отверстий и зенковки. */
+  boreSegments: 24,
 } as const;
 
 
@@ -2040,69 +2015,59 @@ function createRailBodies(): BufferGeometry[] {
   ];
 }
 
-/** Габариты каретки: барабан, гнездо патрона, полоз и козырёк, мм. */
+/** Габариты держателя патрона: кольцо, карманы патрона, полоз и козырёк, мм. */
 export type CarriageMetrics = {
-  /** Ось патрона над столом, мм. */
+  /** Ось кольца и патрона над столом, мм. */
   socketY: number;
-  /** Верх конуса у лицевой плоскости, мм. */
-  plateTop: number;
-  /** Радиус конуса у лица и на тылу, мм. */
-  frontRadius: number;
-  backRadius: number;
-  /** Радиус полости у лица и на тылу: снаружи на `wall` больше, мм. */
-  frontCavity: number;
-  backCavity: number;
-  /** Лицевая (к панели) и задняя плоскости каретки по Z, мм. */
+  /** Наружный радиус кольца, мм. */
+  ringRadius: number;
+  /** Верх и низ кольца над столом, мм. */
+  ringTop: number;
+  ringBottom: number;
+  /** Радиус сквозного отверстия под резьбу патрона, мм. */
+  boreRadius: number;
+  /** Толщина кольца вдоль оси патрона, мм. */
+  ringDepth: number;
+  /** Лицевая (к панели) и задняя плоскости кольца по Z, мм. */
   plateFront: number;
   plateBack: number;
-  /** Верх рельса, мм. */
-  railTop: number;
-  /** Канал под рельс с зазором на сторону: ширина и глубина, мм. */
-  railSlotWidth: number;
-  railSlotDepth: number;
-  /** Проём снизу: под ним проходит шина, мм. */
-  channelWidth: number;
-  /** Просвет между низом конуса и верхом шины, мм. */
+  /** Круглая зенковка под фланец патрона с лица: радиус и глубина, мм. */
+  flangeRadius: number;
+  flangeDepth: number;
+  /** Шестигранное гнездо под гайку: под ключ, по вершинам и глубиной, мм. */
+  nutFlats: number;
+  nutRadius: number;
+  nutDepth: number;
+  /** Полоз: длина, ширина, верх и паз под шину, мм. */
+  skidLength: number;
+  skidWidth: number;
+  skidTop: number;
+  skidPocketWidth: number;
+  skidPocketDepth: number;
+  /** Просвет между низом кольца и верхом шины, мм. */
   railGap: number;
-  /** Низ навеса у лица, его нос и провис носа, мм. */
+  /** Низ навеса у лица, его нос, провис, ширина и толщина, мм. */
   visorBottom: number;
   visorFront: number;
   visorDrop: number;
-  /** Резьба патрона: диаметр сквозного отверстия. */
+  visorWidth: number;
+  visorThickness: number;
+  /** Резьба патрона: диаметр сквозного отверстия, мм. */
   thread: number;
-  /** Гайка патрона: размер под ключ. */
+  /** Гайка патрона: размер под ключ, мм. */
   nut: number;
-  /** Глубина шестигранного паза: 0, если гайка в конус не входит, мм. */
-  nutDepth: number;
 };
 
 /**
- * Радиус конуса каретки на глубине `z` от лицевой плоскости, мм.
+ * Габариты держателя патрона по нормализованным параметрам.
  *
- * У лица конус прямой: в его полости живёт корпус патрона, и сужать её раньше
- * времени нельзя. Дальше радиус сходит к тылу по сглаженной кривой — на стыке
- * нет ни ступеньки, ни ребра, поэтому силуэт читается одним конусом.
- */
-export function lithophaneCarriageRadiusAt(
-  metrics: CarriageMetrics,
-  z: number,
-): number {
-  const { frontRadius, backRadius, plateFront, plateBack } = metrics;
-  const { collar } = LITHOPHANE_CARRIAGE;
-  const taper = Math.max(1, plateFront - plateBack - collar);
-  const depth = plateFront - z;
-  const t = Math.min(1, Math.max(0, (depth - collar) / taper));
-
-  return frontRadius - (frontRadius - backRadius) * t * t * (3 - 2 * t);
-}
-
-/**
- * Габариты каретки по нормализованным параметрам.
+ * Экспортируется для теста геометрии: кольцо, карманы патрона, полоз и козырёк
+ * считаются здесь, а сетка только повторяет эти числа. Нос навеса обрезан
+ * зазором `panelClearance`, поэтому козырёк никогда не доходит до рельефа.
  *
- * Экспортируется для теста геометрии: конус, проём снизу и козырёк считаются
- * здесь, а сетка только повторяет эти числа. Нос навеса обрезан зазором
- * `panelClearance`, поэтому козырёк никогда не доходит до рельефа.
- * Гайка E27 (33 мм) не входит в конус Ø33, поэтому паз остаётся только у E14.
+ * Полоз кончается там же, где шина: на дальнем положении каретки (`lithoRailDistance`
+ * 90 мм) от шины остаётся 10 мм, и полоз укорачивается до них — иначе кольцо
+ * свисало бы с торца рельса.
  */
 export function lithophaneCarriageMetrics(
   normalized: LithophaneParams,
@@ -2110,58 +2075,51 @@ export function lithophaneCarriageMetrics(
   const carriage = LITHOPHANE_CARRIAGE;
   const rail = LITHOPHANE_RAIL;
   const socket = LITHOPHANE_RAIL_SOCKET_SIZES[normalized.lithoRailSocket];
-  const nutFlats = socket.nut + 2 * carriage.nutClearance;
-  const nutRadius = nutFlats / Math.sqrt(3);
-  const nutDepth =
-    nutRadius + carriage.nutMargin <= carriage.frontRadius &&
-    carriage.axisY - nutFlats / 2 >=
-      rail.thickness + rail.clearance + carriage.nutMargin &&
-    carriage.face - carriage.nutDepth >= carriage.nutFloor
-      ? carriage.nutDepth
-      : 0;
-  // Лицевая плоскость каретки смотрит на панель, ось патрона проходит по ней.
+  // Лицевая плоскость кольца смотрит на панель, ось патрона проходит по ней.
   const plateFront = -normalized.lithoRailDistance;
+  const nutFlats = socket.nut + 2 * carriage.nutClearance;
   // Нос навеса не доходит до рельефа на `panelClearance`: у панели он короче.
   const visorFront = Math.min(
     plateFront + carriage.visorRun,
     -carriage.panelClearance,
   );
-  // Низ конуса у проёма: по нему видно, что каретка висит над шиной.
-  const channelHalf = carriage.channelWidth / 2;
-  const shellBottom =
-    carriage.axisY -
-    Math.sqrt(carriage.frontRadius ** 2 - channelHalf ** 2);
+  const skidLength = Math.min(
+    carriage.skidLength,
+    Math.max(0, plateFront + rail.depth),
+  );
 
   return {
     socketY: carriage.axisY,
-    plateTop: carriage.axisY + carriage.frontRadius,
-    frontRadius: carriage.frontRadius,
-    backRadius: carriage.backRadius,
-    frontCavity: carriage.frontRadius - carriage.wall,
-    backCavity: carriage.backRadius - carriage.wall,
+    ringRadius: carriage.ringRadius,
+    ringTop: carriage.axisY + carriage.ringRadius,
+    ringBottom: carriage.axisY - carriage.ringRadius,
+    boreRadius: socket.thread / 2,
+    ringDepth: carriage.ringDepth,
     plateFront,
-    plateBack: plateFront - carriage.length,
-    railTop: rail.thickness,
-    railSlotWidth: rail.width + 2 * rail.clearance,
-    railSlotDepth: rail.thickness + rail.clearance,
-    channelWidth: carriage.channelWidth,
-    railGap: shellBottom - rail.thickness,
-    // Навес висит над патроном: его низ выше верхней границы гнезда, а нос не
-    // доходит до рельефа на `panelClearance`.
-    visorBottom: carriage.axisY + carriage.frontRadius - carriage.visorThickness,
+    plateBack: plateFront - carriage.ringDepth,
+    // Зенковка — по фланцу патрона: он того же габарита, что и гайка.
+    flangeRadius: (socket.nut + carriage.flangeClearance) / 2,
+    flangeDepth: carriage.flangeDepth,
+    nutFlats,
+    nutRadius: nutFlats / Math.sqrt(3),
+    nutDepth: carriage.nutDepth,
+    skidLength,
+    skidWidth: carriage.skidWidth,
+    skidTop: carriage.skidTop,
+    skidPocketWidth: rail.width + 2 * rail.clearance,
+    skidPocketDepth: rail.thickness + rail.clearance,
+    railGap: carriage.axisY - carriage.ringRadius - rail.thickness,
+    // Низ навеса — внутренняя дуга хвоста: она врезана в кольцо на нахлёст.
+    visorBottom:
+      carriage.axisY + carriage.ringRadius - BODY_OVERLAP_MM,
     visorFront,
     visorDrop: carriage.visorDrop,
+    visorWidth: carriage.visorWidth,
+    visorThickness: carriage.visorThickness,
     thread: socket.thread,
     nut: socket.nut,
-    nutDepth,
   };
 }
-
-/** Шаг секций конуса каретки вдоль Z, мм. */
-const LITHOPHANE_CARRIAGE_STEP_MM = 2;
-
-/** Насколько полоз заходит в проём, чтобы спечься со стенкой, мм. */
-const LITHOPHANE_CARRIAGE_SKID_INSET_MM = 0.1;
 
 /** Шаг секций навеса вдоль Z: по нему раскладывается провис носа, мм. */
 const LITHOPHANE_VISOR_STEP_MM = 1.5;
@@ -2169,25 +2127,48 @@ const LITHOPHANE_VISOR_STEP_MM = 1.5;
 /** Точек на дугу навеса: по ним гнётся козырёк и скругляется нос. */
 const LITHOPHANE_VISOR_ARC_SEGMENTS = 12;
 
+/** Круг в плоскости XY без замыкающей точки: контур кольца и его отверстий. */
+function circlePoints(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  steps: number,
+): Point2[] {
+  return arcPoints(centerX, centerY, radius, 0, 360, steps).slice(0, -1);
+}
+
+/**
+ * Шестигранник под гайку: вершины через 60°, грань смотрит вверх.
+ *
+ * Наружный радиус по вершинам на 15.5 % больше размера под ключ, поэтому гнездо
+ * под гайку E27 (33 мм) занимает 38.1 мм по вершинам и остаётся внутри Ø50.
+ */
+function nutPocketPoints(centerY: number, radius: number): Point2[] {
+  return Array.from(
+    { length: 6 },
+    (_, index): Point2 => {
+      const angle = (Math.PI / 3) * index;
+
+      return [radius * Math.cos(angle), centerY + radius * Math.sin(angle)];
+    },
+  );
+}
+
+
 
 
 /**
- * Каретка монорельса отдельной деталью: полый конус Ø33 → Ø22 с навесом.
+ * Держатель патрона отдельной деталью: плоское кольцо Ø50 × 5 мм с козырьком.
  *
- * Конус лежит на оси патрона вдоль Z: лицевая плоскость смотрит на панель, ось
- * патрона проходит через центр на высоте 20 мм. У лица радиус `frontRadius`,
- * дальше он сходит к тылу по сглаженной кривой (`lithophaneCarriageRadiusAt`),
- * поэтому зад каретки ниже и легче прежнего барабана. Стенка `wall`, полость
- * повторяет конус: патрон входит в неё с тыла и держится лицевым пятаком, а не
- * сплошным цилиндром. Снизу вырезан проём `channelWidth`: в нём свободно
- * проходит шина, а по бокам проёма стоят два полоза `skidWidth` — каретка едет
- * на них вдоль Z и стоит на столе. Полоз повторяет низ конуса и потому не
- * отрывается от стенки ни у лица, ни в тылу.
+ * Кольцо лежит плоскостью XY: лицо смотрит на панель, ось патрона проходит через
+ * центр на высоте `axisY`. Отверстие равно резьбе патрона — патрон вставляется с
+ * лица, его фланец тонет в зенковке, а штатная гайка садится в шестигранное
+ * гнездо с тыла и зажимает кольцо. Ни корпуса, ни полости у детали нет: это
+ * плоское кольцо, а не барабан.
  *
- * Лицевой пятак толще стенки (`face`): в нём утоплен шестигранный паз под гайку
- * E14, и под гайкой остаётся `nutFloor` мяса. Гайка E27 (33 мм) в конус Ø33 не
- * входит, поэтому у E27 паз не режется и патрон держится одной резьбой. От
- * гнезда до проёма идёт прорезь `slotWidth` под провод.
+ * Снизу к кольцу примыкает полоз с продольным пазом: паз надевается на шину
+ * 14 × 5 сверху, поэтому кольцо едет по рельсу, а не по столу. Сверху лежит
+ * гнутый козырёк — тонкая пластина, которая закрывает патрон от глаз.
  */
 export function createLithophaneCarriageGeometry(
   params: Partial<LithophaneParams>,
@@ -2197,186 +2178,81 @@ export function createLithophaneCarriageGeometry(
   const metrics = lithophaneCarriageMetrics(normalized);
   const {
     socketY,
+    ringRadius,
+    boreRadius,
     plateFront,
     plateBack,
-    channelWidth,
-    thread,
-    nut,
+    flangeRadius,
+    flangeDepth,
+    nutRadius,
     nutDepth,
+    skidLength,
+    skidWidth,
+    skidTop,
+    skidPocketWidth,
+    skidPocketDepth,
   } = metrics;
-  const bodies: BufferGeometry[] = [];
-  const slotHalf = carriage.slotWidth / 2;
-  const channelHalf = channelWidth / 2;
-  // Низ конуса на кромке проёма: там кончается стенка и туда приходит полоз.
-  const wallBase = (radius: number): number =>
-    socketY - Math.sqrt(Math.max(0, radius ** 2 - channelHalf ** 2));
-  /*
-    Полость срезана тем же проёмом, что и конус снаружи: сечение стенки —
-    скоба. Её плечи стоят над проёмом, а низ полости в него открыт.
-  */
-  const cavityBase = (radius: number): number =>
-    socketY -
-    Math.sqrt(Math.max(0, (radius - carriage.wall) ** 2 - channelHalf ** 2));
-  // Верх конуса у лица: дуга от правой кромки проёма через верх к левой.
-  const frontBase = wallBase(carriage.frontRadius);
-  const frontDeg = (Math.atan2(frontBase - socketY, channelHalf) * 180) / Math.PI;
-  const topArc = arcPoints(
-    0,
-    socketY,
-    carriage.frontRadius,
-    frontDeg,
-    180 - 2 * frontDeg,
-    48,
-  );
-  const boreRadius = thread / 2;
-  const nutFlats = nut + 2 * carriage.nutClearance;
-  const nutRadius = nutFlats / Math.sqrt(3);
-  const hexHalf = nutRadius / 2;
-  const pocketBottom = socketY - nutFlats / 2;
-  const hitY = socketY - Math.sqrt(Math.max(0, boreRadius ** 2 - slotHalf ** 2));
-  const fromDeg = (Math.atan2(hitY - socketY, -slotHalf) * 180) / Math.PI;
-  const toDeg = (Math.atan2(hitY - socketY, slotHalf) * 180) / Math.PI;
-  // Дуга гнезда идёт по часовой стрелке: прорезь снизу остаётся открытой.
-  const boreArc = arcPoints(
-    0,
-    socketY,
-    boreRadius,
-    fromDeg,
-    toDeg - fromDeg - 360,
-    24,
-  );
-  // Пятак с гнездом патрона, прорезью под провод и проёмом снизу.
-  const boreOutline: Point2[] = [
-    ...topArc,
-    [-slotHalf, frontBase],
-    ...boreArc,
-    [slotHalf, frontBase],
-  ];
-  // Пятак E14: тот же контур, но с шестигранным пазом под гайку.
-  const hexOutline: Point2[] =
-    nutDepth > 0
-      ? [
-          ...topArc,
-          [-slotHalf, frontBase],
-          [-slotHalf, pocketBottom],
-          [-hexHalf, pocketBottom],
-          [-nutRadius, socketY],
-          [-hexHalf, socketY + nutFlats / 2],
-          [hexHalf, socketY + nutFlats / 2],
-          [nutRadius, socketY],
-          [hexHalf, pocketBottom],
-          [slotHalf, pocketBottom],
-          [slotHalf, frontBase],
-        ]
-      : boreOutline;
-  const faceBack = plateFront - carriage.face;
-  const nutLayer = plateFront - nutDepth;
-  /*
-    Стенка — лофт по Z: на каждом шаге сечение пересчитывается под текущий
-    радиус, поэтому конус выходит гладким, без ступенек. Как и в плоском пятке,
-    сечение — скоба: снаружи круг срезан проёмом, внутри полость срезана им же.
-    Спереди стенка нахлёстом входит в лицевой пятак.
-  */
-  const wallOutline = (radius: number): Point2[] => {
-    const outerDeg =
-      (Math.atan2(wallBase(radius) - socketY, channelHalf) * 180) / Math.PI;
-    const innerDeg =
-      (Math.atan2(cavityBase(radius) - socketY, channelHalf) * 180) / Math.PI;
+  const ring = circlePoints(0, socketY, ringRadius, carriage.ringSegments);
+  const bore = circlePoints(0, socketY, boreRadius, carriage.boreSegments);
+  const flange = circlePoints(0, socketY, flangeRadius, carriage.boreSegments);
+  const nutPocket = nutPocketPoints(socketY, nutRadius);
+  const pocketHalf = skidPocketWidth / 2;
+  const skidHalf = skidWidth / 2;
+  // Полоз не выходит вперёд лица и не свисает за тыл шины.
+  const skidFront = plateFront - BODY_OVERLAP_MM;
+  const skidBack = plateFront - skidLength;
 
-    return [
-      ...arcPoints(0, socketY, radius, outerDeg, 180 - 2 * outerDeg, 48),
-      ...arcPoints(
-        0,
-        socketY,
-        radius - carriage.wall,
-        180 - innerDeg,
-        2 * innerDeg - 180,
-        40,
-      ),
-    ];
-  };
-  const wallEnd = faceBack + BODY_OVERLAP_MM;
-  const sectionZs: number[] = [];
-  for (
-    let z = plateBack;
-    z < wallEnd - LITHOPHANE_CARRIAGE_STEP_MM / 2;
-    z += LITHOPHANE_CARRIAGE_STEP_MM
-  ) {
-    sectionZs.push(z);
-  }
-  sectionZs.push(wallEnd);
-
-  /*
-    Полоз: полоса по боку проёма на всю длину конуса. Его верх повторяет низ
-    конуса и нахлёстом заходит в стенку, поэтому они спекаются в одну деталь, а
-    каретка стоит на столе всей длиной и не опрокидывается. Внутренняя грань
-    полоза чуть заходит в проём: так он спекается со стенкой и сбоку, без
-    совпадающих плоскостей.
-  */
-  const skidHalf = carriage.skidWidth / 2;
-  const skidInner = channelHalf - LITHOPHANE_CARRIAGE_SKID_INSET_MM;
-  const skidSections = (
-    side: 1 | -1,
-  ): { z: number; outline: Point2[] }[] =>
-    sectionZs.map((z) => {
-      const radius = lithophaneCarriageRadiusAt(metrics, z);
-      const innerTop = wallBase(radius) + BODY_OVERLAP_MM;
-      const outerTop =
-        socketY -
-        Math.sqrt(Math.max(0, radius ** 2 - skidHalf ** 2)) +
-        BODY_OVERLAP_MM;
-      const outline: Point2[] =
-        side > 0
-          ? [
-              [skidInner, 0],
-              [skidHalf, 0],
-              [skidHalf, outerTop],
-              [skidInner, innerTop],
-            ]
-          : [
-              [-skidInner, 0],
-              [-skidInner, innerTop],
-              [-skidHalf, outerTop],
-              [-skidHalf, 0],
-            ];
-
-      return { z, outline };
-    });
-
-  /*
-    Пятак толще стенки: слой без паза держит гайку на глубине `nutDepth`, а у
-    E27 паз не режется, и весь пятак — один слой.
-  */
-  bodies.push(
-    createLoftBody(
-      sectionZs.map((z) => ({
-        z,
-        outline: wallOutline(lithophaneCarriageRadiusAt(metrics, z)),
-      })),
+  const bodies: BufferGeometry[] = [
+    /*
+      Кольцо — три слоя по Z: гнездо гайки с тыла, сквозное отверстие под резьбу и
+      зенковка под фланец с лица. Слои нахлёстнуты на `BODY_OVERLAP_MM` в мясо
+      соседа, но не в его карман: глубина кармана остаётся ровной, а слайсер
+      видит одно тело.
+    */
+    createPlateBody(
+      ring,
+      [nutPocket],
+      plateBack,
+      plateBack + nutDepth + BODY_OVERLAP_MM,
     ),
-    createPlateBody(boreOutline, [], faceBack, nutLayer),
-    createLoftBody(skidSections(1)),
-    createLoftBody(skidSections(-1)),
+    createPlateBody(ring, [bore], plateBack + nutDepth, plateFront - flangeDepth),
+    createPlateBody(
+      ring,
+      [flange],
+      plateFront - flangeDepth - BODY_OVERLAP_MM,
+      plateFront,
+    ),
+    /*
+      Полоз: две губки и мост над пазом. Паз шире шины на зазор с каждой стороны,
+      открыт снизу и с торцов — кольцо надевается на рельс сверху и едет по нему,
+      а печатается полоз без поддержек. Мост лежит выше паза и нахлёстом входит в
+      губки, поэтому полоз — одна оболочка, а не три коробки встык.
+    */
+    createBoxBody(-skidHalf, -pocketHalf, 0, skidTop, skidBack, skidFront),
+    createBoxBody(pocketHalf, skidHalf, 0, skidTop, skidBack, skidFront),
+    createBoxBody(
+      -pocketHalf - BODY_OVERLAP_MM,
+      pocketHalf + BODY_OVERLAP_MM,
+      skidPocketDepth,
+      skidTop,
+      skidBack,
+      skidFront,
+    ),
     ...createCarriageVisorBodies(normalized),
-  );
-
-  if (nutDepth > 0) {
-    bodies.push(
-      createPlateBody(hexOutline, [], nutLayer - BODY_OVERLAP_MM, plateFront),
-    );
-  }
+  ];
 
   return smoothGeometryNormals(mergeBodies(bodies, "каретки"));
 }
 
 /**
- * Козырёк каретки: гнутый полукруглый навес над патроном.
+ * Козырёк держателя: тонкая гнутая пластина над патроном.
  *
- * Навес — продолжение верхней части конуса: та же толщина `visorThickness`, тот
- * же радиус, что у лица каретки, но не кольцо, а дуга по хорде `visorWidth`.
- * Хвост уходит в лицевой пятак на `visorTail`, дальше навес идёт над лампой и
- * опускается к носу на `visorDrop`. Снизу и с боков лампа остаётся открытой:
- * навес только срезает свет сверху, а лампочка вкручивается рукой.
+ * Навес лежит на макушке кольца: наружный радиус на `BODY_OVERLAP_MM` больше
+ * кольца, внутренний — на `visorThickness` меньше. Внутренняя дуга врезается в
+ * мясо кольца на этот нахлёст, поэтому козырёк и кольцо спекаются без совпадающих
+ * плоскостей. Хвост уходит в кольцо на `visorTail`, дальше пластина идёт над
+ * лампой и опускается к носу на `visorDrop`. Снизу и с боков патрон остаётся
+ * открытым: навес только срезает свет сверху, а лампа вкручивается рукой.
  *
  * Провис начинается за серединой вылета: над резьбой патрона навес идёт ровно,
  * иначе его низ задел бы резьбу E27 (Ø28.6 мм). Нос скруглён в плане на
@@ -2390,9 +2266,9 @@ function createCarriageVisorBodies(
   normalized: LithophaneParams,
 ): BufferGeometry[] {
   const carriage = LITHOPHANE_CARRIAGE;
-  const { socketY, plateFront, visorFront } =
+  const { socketY, plateFront, visorFront, ringRadius } =
     lithophaneCarriageMetrics(normalized);
-  const outer = carriage.frontRadius;
+  const outer = ringRadius + carriage.visorThickness - BODY_OVERLAP_MM;
   const inner = outer - carriage.visorThickness;
   const halfWidth = carriage.visorWidth / 2;
   // Провис: ровно над резьбой, плавно вниз за серединой вылета.

@@ -86,14 +86,13 @@
  *      плафона расчёта нет: лампу в него ставят отдельно;
  *  20. монорельс: узкая шина 14 × 5 мм лежит на столе, нахлёстом входит в тыл
  *      рамки и уходит назад на 100 мм с продольным пазом 6 × 2 мм — полки паза
- *      поднимаются до верха шины, а дно канала лежит на 3 мм; каретка — полый
- *      конус Ø33 → Ø22 длиной 45 мм со стенкой 2 мм и осью патрона на 20 мм,
- *      проёмом 16 мм под шину, парой полозьев 21 мм на всю длину конуса и гнутым
- *      козырьком 30 × 2 мм, который плавно опускается к панели на 5 мм, сквозным
- *      гнездом патрона (Ø14.6 или Ø28.6), шестигранным гнездом на 2 мм под гайку
- *      E14 и прорезью под провод в канал; оболочка замкнута, каретка весит около
- *      13.6 г у E14 и 12.5 г у E27, а круглый плафон и калейдоскоп от монорельса
- *      не меняются.
+ *      поднимаются до верха шины, а дно канала лежит на 3 мм; держатель патрона —
+ *      плоское кольцо Ø50 × 5 мм с осью на 31 мм, сквозным отверстием под резьбу
+ *      (Ø14.6 или Ø28.6), зенковкой 1 мм под фланец патрона с лица и шестигранным
+ *      гнездом 2 мм под штатную гайку с тыла; снизу полоз 18 мм с пазом под шину,
+ *      сверху гнутый козырёк 30 × 2 мм с вылетом 20 мм и провисом носа 5 мм;
+ *      оболочка замкнута, кольцо в сборе весит около 14.3 г у E14 и 11.0 г у E27,
+ *      а круглый плафон и калейдоскоп от монорельса не меняются.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -104,6 +103,7 @@ import type { BufferGeometry } from "three";
 import { DoubleSide, Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
 
 import {
+  BODY_OVERLAP_MM,
   LITHOPHANE_ARCH_STAND,
   LITHOPHANE_ARCH_STRIP,
   LITHOPHANE_BORDER_CHAMFER_MM,
@@ -129,7 +129,6 @@ import {
   createLithophaneReliefGeometry,
   createLithophaneStandGeometry,
   lithophaneCarriageMetrics,
-  lithophaneCarriageRadiusAt,
   lithophaneClampBulb,
   lithophanePlateSize,
   lithophaneRailMetrics,
@@ -3604,7 +3603,7 @@ console.log("\n19. Свет: где стоят лампы и как ложитс
 }
 
 console.log(
-  `\n20. Монорельс: шина ${LITHOPHANE_RAIL.width} × 5 на столе, полый конус Ø${2 * LITHOPHANE_CARRIAGE.frontRadius} → Ø${2 * LITHOPHANE_CARRIAGE.backRadius} и козырёк`,
+  `\n20. Монорельс: шина ${LITHOPHANE_RAIL.width} × 5 на столе, плоское кольцо Ø${2 * LITHOPHANE_CARRIAGE.ringRadius} × ${LITHOPHANE_CARRIAGE.ringDepth} и козырёк`,
 );
 
 {
@@ -3722,30 +3721,26 @@ console.log(
 
 {
   /*
-    Каретка — вторая печатная деталь: полый конус Ø33 → Ø22 × 45 мм с проёмом
-    под шину, парой полозьев на всю длину и гнутым козырьком-навесом. Конус лежит
-    на оси патрона вдоль Z: лицевая плоскость уходит от панели на
-    lithoRailDistance, ось патрона проходит через центр на высоте 20 мм, поэтому
-    верх каретки у лица — 36.5 мм от стола.
+    Держатель патрона — вторая печатная деталь: плоское кольцо Ø50 × 5 мм,
+    полоз с пазом под шину и тонкий гнутый козырёк. Кольцо лежит плоскостью XY:
+    лицо уходит от панели на lithoRailDistance, ось патрона проходит через центр
+    на высоте 31 мм, поэтому верх кольца — 56 мм, а низ — 6 мм над столом.
 
-    Стенка 2 мм, полость повторяет конус: патрон входит в неё с тыла, а не в
-    сплошной цилиндр, — поэтому деталь весит около 15 г вместо 80. Снизу вырезан
-    продольный проём 16 мм: шина 14 × 5 проходит в него с зазором, а по бокам
-    проёма идут два полоза 21 мм — на них каретка стоит на столе, а шина ведёт её
-    вдоль Z. Полоз повторяет низ конуса: у лица он ниже, к тылу поднимается вместе
-    с конусом. Патрон вставляется с тыла, гайка садится в шестигранное гнездо с
-    лицевой стороны (гайка E27 в Ø33 не входит, и гнезда у неё нет), провод
-    выходит вниз через прорезь в проём.
+    Патрон стандартный, с наружной резьбой и штатной гайкой: отверстие кольца
+    равно резьбе (Ø14.6 у E14 и Ø28.6 у E27). С лица утоплена круглая зенковка
+    под фланец патрона, с тыла — плоская площадка с шестигранным гнездом под
+    гайку, чтобы она не проворачивалась; между дном зенковки и гнездом остаётся
+    2 мм мяса. Никакого барабана и полости у детали нет.
 
-    Козырёк — гнутый полукруглый навес: дуга продолжает макушку конуса, над
-    резьбой идёт ровно, а к носу опускается на 5 мм. Окон в нём нет, снизу и с
-    боков лампа открыта, поэтому лампочка E14/E27 входит в гнездо и вкручивается
-    рукой.
+    Снизу кольца — полоз 18 мм шириной с продольным пазом 14.4 × 5.2 мм: паз
+    открыт снизу и с торцов, поэтому кольцо надевается на шину 14 × 5 сверху и
+    едет по рельсу, а не по столу. Козырёк — пластина 2 мм поверх макушки
+    кольца: выступает к панели на 20 мм и опускается к носу на 5 мм.
 
-    Проверяются оба патрона: диаметр сквозного гнезда, ось, глубина под гайку,
-    стенка и полость у лица и у тыла, проём и полоз, лицевая и задняя плоскости,
-    навес без окон с провисом носа, свободный коридор перед гнездом, вес деталей и
-    замкнутость оболочки.
+    Проверяются оба патрона: наружный Ø50 и толщина 5, сквозное отверстие под
+    резьбу, зенковка под фланец, шестигранное гнездо под гайку и мясо между ними,
+    полоз с пазом на столе, козырёк без окон с провисом носа, свободный коридор
+    перед кольцом, вес деталей и замкнутость оболочки.
   */
   const rail = LITHOPHANE_RAIL;
   const carriage = LITHOPHANE_CARRIAGE;
@@ -3756,41 +3751,64 @@ console.log(
     lithoMount: "rail",
   };
   const base = lithophaneCarriageMetrics(normalizeLithophaneParams(railParams));
-  const radius = carriage.frontRadius;
-  // Проём под шину и полоз: шина проходит под конусом с зазором.
-  const channelHalf = base.channelWidth / 2;
-  const skidHalf = carriage.skidWidth / 2;
+  const skidHalf = base.skidWidth / 2;
 
   check(
-    "каретка: проём шире шины, шина проходит под стенкой",
-    [base.channelWidth > rail.width + 2 * rail.clearance, base.railGap > 0],
-    [true, true],
+    `кольцо: наружный Ø${2 * base.ringRadius} и толщина ${base.ringDepth} мм`,
+    [2 * base.ringRadius, base.plateFront - base.plateBack],
+    [2 * carriage.ringRadius, carriage.ringDepth],
   );
   check(
-    "каретка: ось патрона над столом, верх конуса у лица",
-    [base.socketY, base.plateTop],
-    [carriage.axisY, carriage.axisY + carriage.frontRadius],
+    `кольцо: ось патрона на ${carriage.axisY} мм, верх ${base.ringTop} и низ ${base.ringBottom}`,
+    [base.socketY, base.ringTop, base.ringBottom],
+    [
+      carriage.axisY,
+      carriage.axisY + carriage.ringRadius,
+      carriage.axisY - carriage.ringRadius,
+    ],
   );
   check(
-    "каретка: конус Ø33 у лица, Ø22 у тыла",
-    [2 * carriage.frontRadius, 2 * carriage.backRadius],
-    [33, 22],
+    `кольцо: внутреннее отверстие равно резьбе Ø${base.thread}`,
+    [2 * base.boreRadius],
+    [LITHOPHANE_RAIL_SOCKET_SIZES.e14.thread],
   );
   check(
-    "каретка: стенка конуса 2 мм у лица",
-    [carriage.frontRadius - base.frontCavity],
-    [carriage.wall],
+    `кольцо: зенковка Ø${2 * base.flangeRadius} шире отверстия на ${(base.flangeRadius - base.boreRadius).toFixed(1)} мм`,
+    [
+      base.flangeRadius > base.boreRadius,
+      base.flangeDepth,
+      base.plateFront - base.flangeDepth - (base.plateBack + base.nutDepth),
+    ],
+    [true, carriage.flangeDepth, 2],
   );
   check(
-    "каретка: конус 45 мм длиной",
-    [base.plateFront - base.plateBack],
-    [carriage.length],
+    `кольцо: шестигранное гнездо ${base.nut} мм под ключ на ${base.nutDepth} мм`,
+    [base.nut, base.nutDepth, base.nutFlats],
+    [
+      LITHOPHANE_RAIL_SOCKET_SIZES.e14.nut,
+      carriage.nutDepth,
+      LITHOPHANE_RAIL_SOCKET_SIZES.e14.nut + 2 * carriage.nutClearance,
+    ],
+  );
+  check(
+    `полоз: паз ${base.skidPocketWidth} × ${base.skidPocketDepth} шире шины ${rail.width} × ${rail.thickness}`,
+    [
+      base.skidPocketWidth > rail.width,
+      base.skidPocketDepth > rail.thickness,
+      base.railGap,
+    ],
+    [true, true, carriage.railGap],
+  );
+  check(
+    `полоз: верх ${base.skidTop} мм входит в кольцо с низом ${base.ringBottom} мм`,
+    [base.skidTop > base.ringBottom, base.skidWidth],
+    [true, carriage.skidWidth],
   );
 
   /*
-    На обоих концах диапазона lithoRailDistance шина входит в проём каретки, а
-    козырёк не доходит до панели: каретка не соскакивает и не задевает рельеф.
-    Заодно проверяется коридор перед гнездом: его глубина равна расстоянию до
+    На обоих концах диапазона lithoRailDistance полоз остаётся на шине, а козырёк
+    не доходит до панели: кольцо не соскакивает с рельса и не задевает рельеф.
+    Заодно проверяется коридор перед кольцом: его глубина равна расстоянию до
     панели, и ни полоз, ни навес в него не заходят.
   */
   for (const distance of [
@@ -3802,15 +3820,14 @@ console.log(
       lithoRailDistance: distance,
     };
     const shifted = lithophaneCarriageMetrics(normalizeLithophaneParams(params));
-    // Перекрытие проёма и шины по Z: на нём каретка держится на рельсе.
-    const engagement =
-      Math.min(shifted.plateFront, 0) - Math.max(shifted.plateBack, -rail.depth);
+    // Тыл полоза и его длина: на дальнем положении полоз короче остатка шины.
+    const skidBack = shifted.plateFront - shifted.skidLength;
     const geometry = createLithophaneCarriageGeometry(params);
     const object = new Mesh(
       geometry,
       new MeshBasicMaterial({ side: DoubleSide }),
     );
-    // Первое попадание луча спереди: NaN — перед лицом каретки пластика нет.
+    // Первое попадание луча спереди: NaN — перед лицом кольца пластика нет.
     const frontProbe = (x: number, y: number): number => {
       const hits = new Raycaster(
         new Vector3(x, y, distance + 40),
@@ -3830,19 +3847,18 @@ console.log(
       }
     }
 
-    checkRange(
-      `каретка на ${distance} мм: шина входит в проём на ${engagement} мм`,
-      [engagement],
-      rail.width / 2 - TOLERANCE_MM,
-      carriage.length + TOLERANCE_MM,
+    check(
+      `кольцо на ${distance} мм: полоз ${shifted.skidLength} мм не свисает с шины`,
+      skidBack >= -rail.depth - TOLERANCE_MM,
+      true,
     );
     check(
-      `каретка на ${distance} мм: козырёк не доходит до панели, зазор ${-shifted.visorFront} мм`,
+      `кольцо на ${distance} мм: козырёк не доходит до панели, зазор ${-shifted.visorFront} мм`,
       shifted.visorFront <= -carriage.panelClearance,
       true,
     );
     check(
-      `каретка на ${distance} мм: перед гнездом свободно ${-shifted.plateFront} мм`,
+      `кольцо на ${distance} мм: перед гнездом свободно ${-shifted.plateFront} мм`,
       corridor.every(
         (z) => Number.isNaN(z) || z <= shifted.plateFront + TOLERANCE_MM,
       ),
@@ -3851,7 +3867,6 @@ console.log(
 
     geometry.dispose();
   }
-
   for (const socketId of LITHOPHANE_RAIL_SOCKETS) {
     const socket = LITHOPHANE_RAIL_SOCKET_SIZES[socketId];
     const params: Partial<LithophaneParams> = {
@@ -3862,34 +3877,38 @@ console.log(
       normalizeLithophaneParams(params),
     );
     const geometry = createLithophaneCarriageGeometry(params);
-    // Верх и низ каретки: по ним видно, что барабан стоит на полозе, а не висит.
-    const top = geometry.boundingBox?.max.y ?? 0;
+    // Верх и низ детали: по ним видно, что кольцо стоит на полозе, а не висит.
+    const size = boxSize(geometry);
     const bottom = geometry.boundingBox?.min.y ?? 0;
     const object = new Mesh(
       geometry,
       new MeshBasicMaterial({ side: DoubleSide }),
     );
-    // Луч из-за плиты: `true` — пластика на пути нет, отверстие сквозное.
+    // Луч из-за кольца: `true` — пластика на пути нет, отверстие сквозное.
     const through = (x: number, y: number): boolean =>
       new Raycaster(
         new Vector3(x, y, -60),
         new Vector3(0, 0, 1),
         0,
-        160,
+        200,
       ).intersectObject(object, false).length === 0;
-    // Первое попадание луча, мм по Z: NaN — луч прошёл деталь насквозь. Сзади луч
-    // стартует за тылом барабана, иначе он начинается уже внутри детали.
-    const hitZ = (x: number, y: number, fromFront: boolean): number => {
+    // Первое попадание луча вдоль Z из точки `from`: NaN — луч прошёл мимо.
+    const hitZ = (
+      x: number,
+      y: number,
+      from: number,
+      direction: 1 | -1,
+    ): number => {
       const hits = new Raycaster(
-        new Vector3(x, y, fromFront ? 60 : metrics.plateBack - 5),
-        new Vector3(0, 0, fromFront ? -1 : 1),
+        new Vector3(x, y, from),
+        new Vector3(0, 0, direction),
         0,
-        160,
+        200,
       ).intersectObject(object, false);
 
       return hits.length === 0 ? Number.NaN : hits[0].point.z;
     };
-    // Первое попадание луча вдоль Y из точки (x, y, z): NaN — пластика нет.
+    // Первое попадание луча вдоль Y: NaN — пластика нет.
     const hitY = (
       x: number,
       y: number,
@@ -3906,237 +3925,269 @@ console.log(
       return hits.length === 0 ? Number.NaN : hits[0].point.y;
     };
     /*
-      Отверстие патрона меряется изнутри пятака: луч выходит из оси гнезда в
-      стенку и находит её на радиусе резьбы. Снаружи этого не сделать — козырёк и
-      полоз проходят над осью, а в полом барабане за пятаком пусто.
+      Отверстие патрона меряется изнутри кольца: луч выходит из оси в стенку и
+      находит её на радиусе резьбы. Плоскость пробы — середина слоя с отверстием
+      между зенковкой и гнездом, где снаружи ещё мясо кольца.
     */
     const hitX = (sign: 1 | -1, z: number): number => {
       const hits = new Raycaster(
         new Vector3(0, metrics.socketY, z),
         new Vector3(sign, 0, 0),
         0,
-        2 * radius,
+        2 * metrics.ringRadius,
       ).intersectObject(object, false);
 
       return hits.length === 0 ? Number.NaN : hits[0].point.x * sign;
     };
-    /*
-      Две плоскости проб по Z. `boreZ` — слой пятака под пазом гайки: там есть
-      только отверстие патрона, и луч из оси видит резьбу. `wallZ` — полая часть
-      сразу за пятаком, где конус ещё прямой: луч из оси упирается в полость, а не
-      в гнездо. Тыл для этого не годится — там конус уже сошёлся.
-    */
-    const boreZ =
-      metrics.plateFront -
-      carriage.nutDepth -
-      (carriage.face - carriage.nutDepth) / 2;
-    const wallZ = metrics.plateFront - 5;
+    const boreZ = metrics.plateFront - metrics.flangeDepth - 1;
+    // Проба кольца — в мясе между гнездом и наружной дугой.
+    const rimX = metrics.ringRadius - 1.5;
+
 
     check(
-      `каретка ${socketId}: конус Ø${2 * carriage.frontRadius} у лица`,
+      `кольцо ${socketId}: Ø${(2 * metrics.ringRadius).toFixed(2)} снаружи`,
       [
-        !through(radius - 0.3, metrics.socketY),
-        !through(-radius + 0.3, metrics.socketY),
-        through(radius + 0.3, metrics.socketY),
-        through(-radius - 0.3, metrics.socketY),
+        !through(metrics.ringRadius - 0.3, metrics.socketY),
+        !through(-metrics.ringRadius + 0.3, metrics.socketY),
+        through(metrics.ringRadius + 0.3, metrics.socketY),
+        through(-metrics.ringRadius - 0.3, metrics.socketY),
       ],
       [true, true, true, true],
     );
     checkRange(
-      `каретка ${socketId}: полоз на столе`,
+      `кольцо ${socketId}: габарит по X ${size.x.toFixed(2)} мм`,
+      [size.x],
+      2 * metrics.ringRadius - TOLERANCE_MM,
+      2 * metrics.ringRadius + TOLERANCE_MM,
+    );
+    checkRange(
+      `кольцо ${socketId}: полоз на столе`,
       [bottom],
       -TOLERANCE_MM,
       TOLERANCE_MM,
     );
     checkRange(
-      `каретка ${socketId}: верх каретки у лица на ${base.plateTop} мм`,
-      [top],
-      base.plateTop - TOLERANCE_MM,
-      base.plateTop + TOLERANCE_MM,
-    );
-    /*
-      Тыл каретки ниже лица: конус сходится к тылу по сглаженной кривой, и его
-      макушка опускается до `axisY + radius(z)`. Ожидание берётся из той же
-      функции, по которой строится лофт: сетка обязана повторять эти числа.
-    */
-    const rearZ = metrics.plateBack + 2;
-    const rearRadius = lithophaneCarriageRadiusAt(metrics, rearZ);
-
-    checkRange(
-      `каретка ${socketId}: к тылу конус сходится до Ø${(2 * rearRadius).toFixed(1)} мм`,
-      [hitY(0, 60, rearZ, -1)],
-      carriage.axisY + rearRadius - TOLERANCE_MM,
-      carriage.axisY + rearRadius + TOLERANCE_MM,
+      `кольцо ${socketId}: верх ${size.y.toFixed(2)} мм — козырёк над кольцом`,
+      [size.y],
+      metrics.ringTop +
+        metrics.visorThickness -
+        BODY_OVERLAP_MM -
+        TOLERANCE_MM,
+      metrics.ringTop +
+        metrics.visorThickness -
+        BODY_OVERLAP_MM +
+        TOLERANCE_MM,
     );
     checkRange(
-      `каретка ${socketId}: полость Ø${2 * base.frontCavity} мм у лица, стенка ${carriage.wall} мм`,
-      [hitX(1, wallZ) * 2, hitX(-1, wallZ) * 2],
-      2 * base.frontCavity - 0.3,
-      2 * base.frontCavity + TOLERANCE_MM,
+      `кольцо ${socketId}: лицо в ${-metrics.plateFront} мм от панели`,
+      [hitZ(rimX, metrics.socketY, 60, -1)],
+      metrics.plateFront - TOLERANCE_MM,
+      metrics.plateFront + TOLERANCE_MM,
     );
     checkRange(
-      `каретка ${socketId}: полость сходится к тылу до Ø${(2 * (rearRadius - carriage.wall)).toFixed(1)} мм`,
-      [hitX(1, rearZ) * 2, hitX(-1, rearZ) * 2],
-      2 * (rearRadius - carriage.wall) - 0.3,
-      2 * (rearRadius - carriage.wall) + TOLERANCE_MM,
+      `кольцо ${socketId}: тыл на ${metrics.ringDepth} мм позади лица`,
+      [hitZ(rimX, metrics.socketY, metrics.plateBack - 30, 1)],
+      metrics.plateBack - TOLERANCE_MM,
+      metrics.plateBack + TOLERANCE_MM,
     );
     checkRange(
-      `каретка ${socketId}: отверстие патрона Ø${socket.thread}`,
+      `кольцо ${socketId}: отверстие патрона Ø${socket.thread}`,
       // 24-гранник вписан в окружность резьбы: стенка ближе вершины на доли мм.
       [hitX(1, boreZ) * 2, hitX(-1, boreZ) * 2],
       socket.thread - 0.25,
       socket.thread + TOLERANCE_MM,
     );
     check(
-      `каретка ${socketId}: отверстие патрона сквозное`,
+      `кольцо ${socketId}: отверстие патрона сквозное`,
       through(0, metrics.socketY),
       true,
     );
     checkRange(
-      `каретка ${socketId}: ось гнезда на ${carriage.axisY} мм от стола`,
-      // Верх отверстия ищется изнутри пятака: снаружи его закрывает козырёк.
+      `кольцо ${socketId}: ось на ${metrics.socketY} мм от стола`,
       [hitY(0, metrics.socketY, boreZ, 1) - socket.thread / 2],
-      carriage.axisY - TOLERANCE_MM,
-      carriage.axisY + TOLERANCE_MM,
+      metrics.socketY - TOLERANCE_MM,
+      metrics.socketY + TOLERANCE_MM,
     );
-    // Проба лица — на высоте оси, но сбоку от гнезда, прорези и козырька:
-    // у E27 отверстие Ø28.6 доходит до x = 14.3, поэтому луч идёт по x = 15.
-    checkRange(
-      `каретка ${socketId}: лицевая плоскость в ${-metrics.plateFront} мм от панели`,
-      [hitZ(radius - 1.5, metrics.socketY, true)],
-      metrics.plateFront - TOLERANCE_MM,
-      metrics.plateFront + TOLERANCE_MM,
-    );
-    checkRange(
-      `каретка ${socketId}: тыл каретки на ${carriage.length} мм позади лица`,
-      // Луч идёт по макушке тыльного сечения: там стенка конуса, а не полость.
-      [hitZ(0, carriage.axisY + carriage.backRadius - 1, false)],
-      metrics.plateBack - TOLERANCE_MM,
-      metrics.plateBack + TOLERANCE_MM,
-    );
-    if (metrics.nutDepth > 0) {
-      /*
-        Проба гнезда — сбоку от отверстия патрона и выше канала: там гнездо
-        открыто с лица, а за ним на глубине `nutDepth` видно дно.
-      */
-      checkRange(
-        `каретка ${socketId}: шестигранное гнездо под гайку ${metrics.nut} мм`,
-        [metrics.nut],
-        socket.nut - TOLERANCE_MM,
-        socket.nut + TOLERANCE_MM,
-      );
-      checkRange(
-        `каретка ${socketId}: гнездо утоплено на ${carriage.nutDepth} мм`,
-        // За гнездом начинается задний слой: он держит гайку на глубине.
-        [hitZ(metrics.nut / 2 - 2, metrics.socketY, true)],
-        metrics.plateFront - carriage.nutDepth - TOLERANCE_MM,
-        metrics.plateFront - carriage.nutDepth + TOLERANCE_MM,
-      );
-    } else {
-      // Гайка E27 (33 мм) в конус Ø33 не входит: гнезда нет, лицо целое.
-      check(
-        `каретка ${socketId}: гайка ${metrics.nut} мм в конус Ø${2 * carriage.frontRadius} не входит, гнезда нет`,
-        [metrics.nutDepth, hitZ(radius - 1.5, metrics.socketY, true)],
-        [0, metrics.plateFront],
-      );
-    }
 
+    checkRange(
+      `кольцо ${socketId}: зенковка под фланец Ø${(2 * metrics.flangeRadius).toFixed(1)} мм`,
+      [
+        hitX(1, metrics.plateFront - 0.5) * 2,
+        hitX(-1, metrics.plateFront - 0.5) * 2,
+      ],
+      2 * metrics.flangeRadius - 0.25,
+      2 * metrics.flangeRadius + TOLERANCE_MM,
+    );
+    checkRange(
+      `кольцо ${socketId}: зенковка утоплена на ${metrics.flangeDepth} мм`,
+      [
+        hitZ(
+          (metrics.boreRadius + metrics.flangeRadius) / 2,
+          metrics.socketY,
+          60,
+          -1,
+        ),
+      ],
+      metrics.plateFront - metrics.flangeDepth - TOLERANCE_MM,
+      metrics.plateFront - metrics.flangeDepth + TOLERANCE_MM,
+    );
+    checkRange(
+      `кольцо ${socketId}: гнездо под гайку ${metrics.nut} мм утоплено на ${metrics.nutDepth} мм`,
+      [
+        hitZ(
+          metrics.nutFlats / 2 - 1.5,
+          metrics.socketY,
+          metrics.plateBack - 30,
+          1,
+        ),
+      ],
+      metrics.plateBack + metrics.nutDepth - TOLERANCE_MM,
+      metrics.plateBack + metrics.nutDepth + TOLERANCE_MM,
+    );
+    checkRange(
+      `кольцо ${socketId}: гнездо ${metrics.nutFlats.toFixed(1)} мм под ключ`,
+      [hitY(0, metrics.socketY, metrics.plateBack + 1, 1) - metrics.socketY],
+      metrics.nutFlats / 2 - TOLERANCE_MM,
+      metrics.nutFlats / 2 + TOLERANCE_MM,
+    );
+    checkRange(
+      `кольцо ${socketId}: гнездо ${(2 * metrics.nutRadius).toFixed(1)} мм по вершинам`,
+      [
+        hitX(1, metrics.plateBack + 1) * 2,
+        hitX(-1, metrics.plateBack + 1) * 2,
+      ],
+      2 * metrics.nutRadius - 0.25,
+      2 * metrics.nutRadius + TOLERANCE_MM,
+    );
+    checkRange(
+      `кольцо ${socketId}: мясо между зенковкой и гнездом 2 мм`,
+      [
+        metrics.plateFront -
+          metrics.flangeDepth -
+          (metrics.plateBack + metrics.nutDepth),
+      ],
+      2 - TOLERANCE_MM,
+      2 + TOLERANCE_MM,
+    );
+
+    /*
+      Полоз: две губки 18 мм общей шириной и мост над пазом. Паз шире шины на
+      зазор с каждой стороны и открыт снизу — кольцо надевается на рельс сверху;
+      губки стоят на столе, а мост над пазом держит кольцо.
+    */
+    checkRange(
+      `кольцо ${socketId}: губка полоза до стола`,
+      [hitY(skidHalf - 0.1, -20, metrics.plateFront - 12, 1)],
+      -TOLERANCE_MM,
+      TOLERANCE_MM,
+    );
+    checkRange(
+      `кольцо ${socketId}: мост над пазом на ${metrics.skidPocketDepth.toFixed(1)} мм`,
+      [hitY(0, -20, metrics.plateFront - 12, 1)],
+      metrics.skidPocketDepth - TOLERANCE_MM,
+      metrics.skidPocketDepth + TOLERANCE_MM,
+    );
     check(
-      `каретка ${socketId}: прорезь под провод открыта в проём`,
-      // Проба в прорези: от отверстия патрона вниз до проёма пластика нет.
-      through(0, metrics.socketY - socket.thread / 2 + 1),
+      `кольцо ${socketId}: паз открыт снизу и с торцов — шина проходит насквозь`,
+      through(0, rail.thickness / 2),
       true,
     );
-    /*
-      Проём под шину: снизу конуса вырезана продольная полоса `channelWidth`, шина
-      14 × 5 проходит под стенкой с зазором `railGap`, а по бокам проёма идут два
-      полоза на всю длину каретки. Луч снизу находит низ полоза на столе, а в самом
-      проёме упирается в стенку конуса уже над шиной — на высоте `railTop + railGap`.
-    */
     check(
-      `каретка ${socketId}: проём ${metrics.channelWidth} мм, шина проходит с зазором ${metrics.railGap.toFixed(2)} мм`,
+      `кольцо ${socketId}: за губкой полоза пластика нет`,
+      Number.isNaN(hitY(skidHalf + 0.1, -20, metrics.plateFront - 12, 1)),
+      true,
+    );
+    check(
+      `кольцо ${socketId}: полоз ${metrics.skidWidth} мм шириной`,
       [
-        hitY(channelHalf + 0.1, -10, metrics.plateFront - 5, 1),
-        hitY(channelHalf - 0.2, -10, metrics.plateFront - 5, 1) >
-          metrics.railTop + TOLERANCE_MM,
-        through(0, metrics.railTop / 2),
+        !through(skidHalf - 0.1, 1),
+        !through(-skidHalf + 0.1, 1),
+        through(skidHalf + 0.1, 1),
+        through(-skidHalf - 0.1, 1),
       ],
-      [0, true, true],
+      [true, true, true, true],
     );
     checkRange(
-      `каретка ${socketId}: полоз ${carriage.skidWidth} мм шириной`,
-      [
-        hitY(channelHalf + 0.1, -10, metrics.plateFront - 5, 1),
-        hitY(skidHalf - 0.1, -10, metrics.plateFront - 5, 1),
-      ],
-      -TOLERANCE_MM,
-      TOLERANCE_MM,
-    );
-    // Полоз идёт на всю длину конуса: у тыла он тоже стоит на столе.
-    checkRange(
-      `каретка ${socketId}: полоз идёт на всю длину каретки`,
-      [hitY(skidHalf - 0.1, -10, metrics.plateBack + 2, 1)],
-      -TOLERANCE_MM,
-      TOLERANCE_MM,
-    );
-    // Полоз кончается за лицевой плоскостью: перед кареткой она не стоит.
-    checkRange(
-      `каретка ${socketId}: полоз не выходит вперёд лица`,
-      [hitZ(skidHalf - 0.1, 1, true)],
-      metrics.plateFront - carriage.face - TOLERANCE_MM,
+      `кольцо ${socketId}: полоз не выходит вперёд лица`,
+      [hitZ(skidHalf - 0.1, 1, 60, -1)],
+      metrics.plateFront - BODY_OVERLAP_MM - TOLERANCE_MM,
       metrics.plateFront + TOLERANCE_MM,
     );
-    /*
-      За полозом пластика у стола нет: следующий пластик выше кромки полоза — это
-      уже стенка конуса. Значит, на столе каретка стоит только полозьями.
-    */
-    check(
-      `каретка ${socketId}: за полозом конуса нет, стол держит только полоз`,
-      hitY(skidHalf + 0.1, -10, metrics.plateFront - 5, 1) > TOLERANCE_MM,
-      true,
+    checkRange(
+      `кольцо ${socketId}: полоз ${metrics.skidLength} мм длиной`,
+      [hitZ(skidHalf - 0.1, 1, metrics.plateBack - 40, 1)],
+      metrics.plateFront - metrics.skidLength - TOLERANCE_MM,
+      metrics.plateFront - metrics.skidLength + TOLERANCE_MM,
     );
+    checkRange(
+      `кольцо ${socketId}: паз ${metrics.skidPocketWidth} мм — шире шины на ${rail.clearance} мм на сторону`,
+      [metrics.skidPocketWidth - rail.width],
+      2 * rail.clearance - 0.01,
+      2 * rail.clearance + 0.01,
+    );
+    checkRange(
+      `кольцо ${socketId}: паз ${metrics.skidPocketDepth} мм — глубже верха шины на ${rail.clearance} мм`,
+      [metrics.skidPocketDepth - rail.thickness],
+      rail.clearance - 0.01,
+      rail.clearance + 0.01,
+    );
+
     /*
-      Козырёк — гнутый навес: дуга продолжает макушку конуса, над резьбой идёт
-      ровно, а к носу опускается на `visorDrop`. Окон в нём нет: луч снизу находит
-      сплошную дугу в любой точке пролёта. Снизу и с боков лампа открыта, поэтому
-      патрон вкручивается рукой.
+      Козырёк — гнутая пластина на макушке кольца: лежит на нём с нахлёстом,
+      над резьбой идёт ровно, а к носу опускается на `visorDrop`. Окон в нём нет:
+      луч снизу находит сплошную дугу в любой точке пролёта. Снизу и с боков
+      патрон открыт, поэтому лампа вкручивается рукой.
     */
     const visorUnder = hitY(0, 0, metrics.plateFront + 5, 1);
     const visorOver = hitY(0, 60, metrics.plateFront + 5, -1);
     const noseTop = hitY(0, 60, metrics.visorFront - TOLERANCE_MM, -1);
 
     check(
-      `каретка ${socketId}: навес поднят выше гнезда на ${(visorUnder - metrics.socketY - socket.thread / 2).toFixed(1)} мм`,
-      visorUnder > metrics.socketY + socket.thread / 2,
-      true,
+      `кольцо ${socketId}: навес поднят выше резьбы на ${(visorUnder - metrics.socketY - socket.thread / 2).toFixed(1)} мм`,
+      [visorUnder > metrics.socketY + socket.thread / 2],
+      [true],
     );
     checkRange(
-      `каретка ${socketId}: верх навеса вровень с конусом`,
-      [visorOver],
-      metrics.plateTop - TOLERANCE_MM,
-      metrics.plateTop + TOLERANCE_MM,
+      `кольцо ${socketId}: навес лежит на кольце с нахлёстом`,
+      [hitY(0, 60, metrics.plateFront - 1, -1)],
+      metrics.ringTop +
+        metrics.visorThickness -
+        BODY_OVERLAP_MM -
+        TOLERANCE_MM,
+      metrics.ringTop +
+        metrics.visorThickness -
+        BODY_OVERLAP_MM +
+        TOLERANCE_MM,
     );
     checkRange(
-      `каретка ${socketId}: навес ${carriage.visorThickness} мм толщиной`,
+      `кольцо ${socketId}: навес ${metrics.visorThickness} мм толщиной`,
       [visorOver - visorUnder],
-      carriage.visorThickness - TOLERANCE_MM,
-      carriage.visorThickness + TOLERANCE_MM,
+      metrics.visorThickness - TOLERANCE_MM,
+      metrics.visorThickness + TOLERANCE_MM,
     );
     checkRange(
-      `каретка ${socketId}: нос навеса опущен на ${carriage.visorDrop} мм`,
+      `кольцо ${socketId}: нос навеса опущен на ${metrics.visorDrop} мм`,
       [noseTop],
-      metrics.plateTop - carriage.visorDrop - TOLERANCE_MM,
-      metrics.plateTop - carriage.visorDrop + TOLERANCE_MM,
+      metrics.ringTop +
+        metrics.visorThickness -
+        BODY_OVERLAP_MM -
+        metrics.visorDrop -
+        TOLERANCE_MM,
+      metrics.ringTop +
+        metrics.visorThickness -
+        BODY_OVERLAP_MM -
+        metrics.visorDrop +
+        TOLERANCE_MM,
     );
     checkRange(
-      `каретка ${socketId}: навес выступает к панели на ${metrics.visorFront - metrics.plateFront} мм`,
+      `кольцо ${socketId}: навес выступает к панели на ${metrics.visorFront - metrics.plateFront} мм`,
       // Луч идёт по середине носа: там дуга сплошная, без скругления в плане.
-      [hitZ(0, noseTop - 1, true)],
+      [hitZ(0, noseTop - 1, 60, -1)],
       metrics.visorFront - TOLERANCE_MM,
       metrics.visorFront + TOLERANCE_MM,
     );
     check(
-      `каретка ${socketId}: навес сплошной — окон нет`,
+      `кольцо ${socketId}: навес сплошной — окон нет`,
       [
         !Number.isNaN(hitY(-12, 0, metrics.plateFront + 5, 1)),
         !Number.isNaN(hitY(12, 0, metrics.plateFront + 5, 1)),
@@ -4144,25 +4195,25 @@ console.log(
       [true, true],
     );
     check(
-      `каретка ${socketId}: навес открыт с боков — лампа вкручивается`,
+      `кольцо ${socketId}: навес открыт с боков — лампа вкручивается`,
       [
         Number.isNaN(
-          hitY(carriage.visorWidth / 2 + 1, 60, metrics.plateFront + 5, -1),
+          hitY(metrics.visorWidth / 2 + 1, 60, metrics.plateFront + 5, -1),
         ),
         Number.isNaN(
-          hitY(-carriage.visorWidth / 2 - 1, 60, metrics.plateFront + 5, -1),
+          hitY(-metrics.visorWidth / 2 - 1, 60, metrics.plateFront + 5, -1),
         ),
       ],
       [true, true],
     );
     check(
-      `каретка ${socketId}: оболочка замкнута, NaN нет`,
+      `кольцо ${socketId}: оболочка замкнута, NaN нет`,
       [openEdges(geometry), nanVertices(geometry)],
       [0, 0],
     );
     /*
-      Вес деталей: каретка должна оставаться лёгкой (до 25 г), а рамка с рельсом
-      и кареткой вместе — до 60 г. Числа считаются по сплошному объёму сетки, как
+      Вес деталей: кольцо должно оставаться лёгким (до 20 г), а рамка с рельсом
+      и кольцом вместе — до 45 г. Числа считаются по сплошному объёму сетки, как
       и подпись веса в интерфейсе.
     */
     const frame = createLithophaneGeometry(params, "frame");
@@ -4170,27 +4221,28 @@ console.log(
     const assemblyWeight = carriageWeight + calculateGeometryWeightGrams(frame);
 
     checkRange(
-      `каретка ${socketId}: вес каретки ${carriageWeight.toFixed(1)} г`,
+      `кольцо ${socketId}: вес детали ${carriageWeight.toFixed(1)} г`,
       [carriageWeight],
       0,
-      25,
+      20,
     );
     checkRange(
-      `каретка ${socketId}: вес сборки с рамкой ${assemblyWeight.toFixed(1)} г`,
+      `кольцо ${socketId}: вес сборки с рамкой ${assemblyWeight.toFixed(1)} г`,
       [assemblyWeight],
       0,
-      60,
+      45,
     );
 
     frame.dispose();
     geometry.dispose();
   }
 
+
   /*
     Крепление читается только у плоской формы и только вместе с рамкой: у куба и
     круглого плафона панели собираются своим кодом, и монорельс туда не попадает.
     Отдельной деталью `carriage` отдаётся ровно та же сетка, что и из функции
-    каретки, — по ней же считается вес и STL.
+    кольца, — по ней же считается вес и STL.
   */
   check(
     "рельс: только плоская панель с рамкой",
@@ -4229,7 +4281,7 @@ console.log(
   });
 
   check(
-    "каретка: деталь `carriage` — та же сетка, что из функции каретки",
+    "кольцо: деталь `carriage` — та же сетка, что из функции кольца",
     [boxSize(carriagePart), carriagePart.getAttribute("position").count],
     [boxSize(carriageBody), carriageBody.getAttribute("position").count],
   );
@@ -4237,6 +4289,7 @@ console.log(
   carriagePart.dispose();
   carriageBody.dispose();
 }
+
 
 console.log("");
 
