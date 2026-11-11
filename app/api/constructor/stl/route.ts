@@ -1111,6 +1111,7 @@ function parseLithophaneParams(
     lithophanePanels = DEFAULT_LITHOPHANE_PARAMS.lithophanePanels,
     lithoLightSource = DEFAULT_LITHOPHANE_PARAMS.lithoLightSource,
     lithoRailSocket = DEFAULT_LITHOPHANE_PARAMS.lithoRailSocket,
+    lithoRailDistance = DEFAULT_LITHOPHANE_PARAMS.lithoRailDistance,
     part = "all",
   } = body;
 
@@ -1155,6 +1156,11 @@ function parseLithophaneParams(
     ) ||
     !isLithophaneLightSource(lithoLightSource) ||
     !isLithophaneRailSocket(lithoRailSocket) ||
+    !isNumberInRange(
+      lithoRailDistance,
+      CONSTRUCTOR_LIMITS.lithoRailDistance.min,
+      CONSTRUCTOR_LIMITS.lithoRailDistance.max,
+    ) ||
     !isLithophanePart(part) ||
     // У плафона и калейдоскопа съёмной рамки нет: их панели печатаются всегда,
     // поэтому деталь «frame» к ним не относится, а флаг рамки не читается.
@@ -1202,6 +1208,7 @@ function parseLithophaneParams(
       lithophanePanels,
       lithoLightSource,
       lithoRailSocket,
+      lithoRailDistance,
     }),
     part,
   };

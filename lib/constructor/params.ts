@@ -205,6 +205,18 @@ export const CONSTRUCTOR_LIMITS = {
     defaultValue: 4,
     decimals: 0,
   },
+  // Расстояние от плоскости панели до оси патрона на каретке. По нему каретка
+  // стоит на рельсе: 35 мм — плита только-только выходит из-за направляющей
+  // рельса (30 мм) и не задевает её, 60 мм — уходит в тыл. Полоз каретки длиной
+  // 36 мм оставляет на рельсе не меньше 8 мм на любом конце диапазона, поэтому
+  // каретка не соскакивает.
+  lithoRailDistance: {
+    min: 35,
+    max: 60,
+    step: 5,
+    defaultValue: 40,
+    decimals: 0,
+  },
   planterSize: { min: 60, max: 200, step: 5, defaultValue: 120, decimals: 0 },
   planterHeight: { min: 50, max: 200, step: 5, defaultValue: 110, decimals: 0 },
   planterWall: { min: 1.2, max: 4, step: 0.2, defaultValue: 2, decimals: 1 },
@@ -2062,6 +2074,13 @@ export type LithophaneParams = {
    */
   lithoRailSocket: LithophaneRailSocket;
   /**
+   * Расстояние от плоскости панели до оси патрона, мм.
+   *
+   * Читает только каретка монорельса: по нему она стоит на рельсе, а рельс
+   * остаётся на тылу рамки. Значение переживает смену формы и крепления.
+   */
+  lithoRailDistance: number;
+  /**
    * Источник света в базе: лента, USB-лампа, патрон E27 или ничего.
    *
    * Читает открытая арка: в её базе вырезан канал под ленту, полка со стойкой
@@ -2409,9 +2428,12 @@ export const DEFAULT_LITHOPHANE_PARAMS: LithophaneParams = {
   lithophaneSideBrightness: [null, null, null],
   lithoFrame: true,
   lithoMount: "none",
-  // Миньон по умолчанию: каретка 40 × 40 мм держит его с запасом, а E27
+  // Миньон по умолчанию: каретка 30 × 34 мм держит его с запасом, а E27
   // выбирают осознанно, когда нужен свет поярче.
   lithoRailSocket: "e14",
+  // 40 мм — лампа стоит между кареткой и панелью с запасом под козырёк, а
+  // полоз 36 мм ещё накрывает 26 из 30 мм рельса.
+  lithoRailDistance: CONSTRUCTOR_LIMITS.lithoRailDistance.defaultValue,
   // Плоская панель — форма из референсов и прежнее поведение конструктора:
   // плафон и калейдоскоп выбирают осознанно.
   lithoShape: "flat",
@@ -4550,6 +4572,13 @@ export function normalizeLithophaneParams(
   const lithoRailSocket = isLithophaneRailSocket(params.lithoRailSocket)
     ? params.lithoRailSocket
     : DEFAULT_LITHOPHANE_PARAMS.lithoRailSocket;
+  // Расстояние переживает смену крепления и патрона, как и сам патрон: у
+  // подставки оно не читается, а вернувшись к монорельсу, человек получает свой
+  // выбор.
+  const lithoRailDistance = snap(
+    params.lithoRailDistance ?? DEFAULT_LITHOPHANE_PARAMS.lithoRailDistance,
+    CONSTRUCTOR_LIMITS.lithoRailDistance,
+  );
   // Источник света не зависит от крепления: у сплошной ножки выборок нет, но
   // выбор человека остаётся, и на арке он получит то же гнездо, что и раньше.
   const lithoLightSource = isLithophaneLightSource(params.lithoLightSource)
@@ -4583,6 +4612,7 @@ export function normalizeLithophaneParams(
     lithoFrame,
     lithoMount: lithoFrame ? requestedMount : "none",
     lithoRailSocket,
+    lithoRailDistance,
     lithoShape,
     lithophanePanels,
     lithoLightSource,

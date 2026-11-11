@@ -1112,6 +1112,18 @@ export function ConstructorClient({
   }
 
   /**
+   * Расстояние от панели до оси патрона на каретке.
+   *
+   * Слайдер двигает каретку по рельсу: рельс остаётся на тылу рамки, а полоз
+   * каретки всё равно накрывает его на любом конце диапазона.
+   */
+  function updateLithoRailDistance(lithoRailDistance: number) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, lithoRailDistance }),
+    );
+  }
+
+  /**
    * Форма панели: плоская, круглый плафон или калейдоскоп.
    *
    * Крепление при этом не сбрасывается: у плафона и призмы его просто не печатают,
@@ -1479,6 +1491,7 @@ export function ConstructorClient({
             onLithoFrameChange={updateLithoFrame}
             onLithoMountChange={updateLithoMount}
             onLithoRailSocketChange={updateLithoRailSocket}
+            onLithoRailDistanceChange={updateLithoRailDistance}
             onLithoShapeChange={updateLithoShape}
             onLithophanePanelsChange={updateLithophanePanels}
             onLithophaneBrightnessChange={updateLithophaneBrightness}
