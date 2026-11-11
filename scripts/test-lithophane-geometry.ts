@@ -84,15 +84,17 @@
  *  19. свет: где стоят лампы и как ложится свет — обратные квадраты, канал под
  *      ленту, скобы, гнездо E27, лист-рассеиватель и карта света; у круглого
  *      плафона расчёта нет: лампу в него ставят отдельно;
- *  20. стойка: колонна 14 × 5 мм от стола до верхней кромки панели с продольным
- *      пазом 6 × 2 мм и выносной частью на середине высоты — по ней едет
- *      держатель патрона; кольцо Ø50 × 5 мм встаёт осью на середину панели (у
- *      80 мм это 40, у 160 мм — 80), у низкой панели упирается в предел 31 мм;
- *      сквозное отверстие под резьбу (Ø14.6 или Ø28.6), зенковка 1 мм под фланец
- *      патрона с лица и шестигранное гнездо 2 мм под штатную гайку с тыла; снизу
- *      полоз 18 мм с пазом под шину, сверху гнутый козырёк 30 × 2 мм с вылетом
- *      20 мм и провисом носа 5 мм; оболочка замкнута, кольцо весит около 14.3 г
- *      у E14 и 11.0 г у E27, а плафон и калейдоскоп от стойки не меняются.
+ *  20. нижний полоз: узкая шина 14 × 5 мм лежит на столе, нахлёстом входит в тыл
+ *      рамки и уходит назад на 100 мм с продольным пазом 6 × 2 мм — полки паза
+ *      поднимаются до верха шины, а дно канала лежит на 3 мм; держатель патрона —
+ *      плоское кольцо Ø50 × 5 мм на одной вертикальной ножке 5.6 × 10 мм: ножка
+ *      стоит на дне паза и едет по нему вдоль Z, а ось кольца сама встаёт на
+ *      половину высоты панели (40 мм у 80 мм, 80 у 160), у низкой панели —
+ *      на предел 31 мм; сквозное отверстие под резьбу (Ø14.6 или Ø28.6), зенковка
+ *      1 мм под фланец патрона с лица и шестигранное гнездо 2 мм под штатную гайку
+ *      с тыла; сверху гнутый козырёк 30 × 2 мм с вылетом 20 мм и провисом носа
+ *      5 мм; оболочка замкнута, кольцо в сборе весит около 14.3 г у E14 и 11.0 г у
+ *      E27, а круглый плафон и калейдоскоп от полоза не меняются.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -3603,21 +3605,21 @@ console.log("\n19. Свет: где стоят лампы и как ложитс
 }
 
 console.log(
-  `\n20. Монорельс: стойка ${LITHOPHANE_RAIL.width} × ${LITHOPHANE_RAIL.thickness} от стола до верха панели, кольцо Ø${2 * LITHOPHANE_CARRIAGE.ringRadius} × ${LITHOPHANE_CARRIAGE.ringDepth} на середине высоты`,
+  `\n20. Нижний полоз: шина ${LITHOPHANE_RAIL.width} × 5 на столе, кольцо Ø${2 * LITHOPHANE_CARRIAGE.ringRadius} × ${LITHOPHANE_CARRIAGE.ringDepth} на ножке и козырёк`,
 );
 
 {
   /*
-    Стойка — колонна 14 × 5 мм по центру тыла плоской рамки: она идёт от стола
-    (Y = 0) до верхней кромки панели и нахлёстом входит в тыл рамки, поэтому
-    растёт из рамки одной деталью. В её тыле вырезан продольный паз 6 × 2 мм на
-    всю высоту, а из паза на середине высоты выходит выносная часть — та же шина
-    14 × 5 мм, выдвинутая назад на 100 мм: по ней кольцо едет вдоль Z.
+    Полоз — узкая шина 14 × 5 мм по центру нижней кромки тыла плоской рамки: она
+    лежит на столе (Y = 0) и нахлёстом входит в тыл нижней полки рамки, поэтому
+    растёт из рамки одной деталью. Назад шина уходит на 100 мм и несёт продольный
+    паз 6 × 2 мм: полки паза поднимаются до верха 5 мм, а между ними остаётся
+    канал с дном на 3 мм, открытый сверху и с торцов.
 
-    Проверяется то, чего не видно на предпросмотре: верх колонны, её ширина и
-    толщина, дно паза, верх и низ выносной части и высота оси патрона. Луч сверху
-    вниз говорит, на какой высоте начинается пластик, луч снизу вверх — где он
-    кончается, а NaN — что под точкой его нет.
+    Проверяется то, чего не видно на предпросмотре: верх шины, дно канала, ширина
+    паза и шины, выступ назад и то, что полоз печатается вместе с рамкой. Луч
+    идёт сверху вниз: замер говорит, на какой высоте начинается пластик, а NaN —
+    что под точкой его нет.
   */
   const width = 120;
   const height = 80;
@@ -3628,10 +3630,10 @@ console.log(
     lithoFrame: true,
     lithoMount: "rail",
   };
-  const metrics = lithophaneRailMetrics(normalizeLithophaneParams(railParams));
+  const metrics = lithophaneRailMetrics();
   const slotHalf = rail.slotWidth / 2;
-  // Проба щеки паза — между стенкой паза и кромкой колонны.
-  const cheekProbe = (metrics.half + slotHalf) / 2;
+  // Проба полки — между стенкой паза и кромкой шины.
+  const shelfProbe = (metrics.half + slotHalf) / 2;
   const frame = createLithophaneFrameGeometry(railParams);
   const plainFrame = createLithophaneFrameGeometry({
     ...railParams,
@@ -3656,95 +3658,66 @@ console.log(
 
     return hits.length === 0 ? Number.NaN : hits[0].point.y;
   };
-  // Первое попадание луча снизу вверх: низ пластика над столом.
-  const frameHitUp = (x: number, z: number): number => {
-    const hits = new Raycaster(
-      new Vector3(x, -20, z),
-      new Vector3(0, 1, 0),
-      0,
-      200,
-    ).intersectObject(frameObject, false);
-
-    return hits.length === 0 ? Number.NaN : hits[0].point.y;
-  };
 
   checkRange(
-    `стойка: колонна ${rail.width} мм шириной от стола до ${height} мм`,
-    [frameHitY(cheekProbe, -1), frameHitY(-cheekProbe, -1)],
-    metrics.top - TOLERANCE_MM,
-    metrics.top + TOLERANCE_MM,
+    `полоз: шина ${rail.width} мм шириной, верх на ${rail.thickness} мм`,
+    [frameHitY(shelfProbe, -20), frameHitY(-shelfProbe, -20)],
+    rail.thickness - TOLERANCE_MM,
+    rail.thickness + TOLERANCE_MM,
   );
   check(
-    "стойка: колонна стоит на столе, за её кромкой пластика нет",
-    [
-      frameHitUp(cheekProbe, -1),
-      Number.isNaN(frameHitY(metrics.half + 0.1, -1)),
-      Number.isNaN(frameHitY(-metrics.half - 0.1, -1)),
-    ],
-    [0, true, true],
+    "полоз: за кромкой шины пластика нет",
+    Number.isNaN(frameHitY(metrics.half + 0.1, -20)),
+    true,
   );
   checkRange(
-    `стойка: паз ${rail.slotWidth} мм на всю высоту — над пазом пластика нет`,
-    [frameHitY(0, -rail.thickness + 1), frameHitY(0, -rail.thickness - 0.1)],
-    metrics.armTop - TOLERANCE_MM,
-    metrics.armTop + TOLERANCE_MM,
+    "полоз: дно канала на 3 мм",
+    [frameHitY(0, -20), frameHitY(slotHalf - 0.1, -20)],
+    metrics.floor - TOLERANCE_MM,
+    metrics.floor + TOLERANCE_MM,
   );
   checkRange(
-    "стойка: у паза дно на 3 мм, щёки до верха панели",
-    [
-      frameHitY(0, -rail.slotDepth - 1),
-      frameHitY(slotHalf + 0.1, -rail.thickness + 1),
-    ],
-    metrics.top - TOLERANCE_MM,
-    metrics.top + TOLERANCE_MM,
+    "полоз: паз 6 мм шириной, полки до верха шины",
+    [frameHitY(slotHalf + 0.1, -20)],
+    rail.thickness - TOLERANCE_MM,
+    rail.thickness + TOLERANCE_MM,
   );
   checkRange(
-    `стойка: выносная часть на ${metrics.armBottom}…${metrics.armTop} мм — середина панели`,
-    [frameHitUp(0, -60), frameHitY(0, -60)],
-    metrics.armBottom - TOLERANCE_MM,
-    metrics.armTop + TOLERANCE_MM,
+    "полоз: канал открыт с торца, дно доходит до тыла шины",
+    [frameHitY(0, -rail.depth + 0.1)],
+    metrics.floor - TOLERANCE_MM,
+    metrics.floor + TOLERANCE_MM,
   );
   check(
-    "стойка: за кромкой выносной части пластика нет",
-    [
-      Number.isNaN(frameHitY(metrics.half + 0.1, -60)),
-      Number.isNaN(frameHitUp(-metrics.half - 0.1, -60)),
-    ],
-    [true, true],
-  );
-  check(
-    `стойка: выносная часть уходит назад на ${rail.depth} мм`,
-    [
-      frameHitY(0, -rail.depth + 0.1),
-      Number.isNaN(frameHitY(0, -rail.depth - 0.1)),
-    ],
-    [metrics.armTop, true],
+    "полоз: за тылом шины пластика нет",
+    Number.isNaN(frameHitY(0, -rail.depth - 0.1)),
+    true,
   );
   checkRange(
-    `стойка: колонна ${rail.thickness} мм толщиной — за её тылом только шина`,
-    [frameHitY(cheekProbe, -rail.thickness - 0.1)],
-    metrics.armTop - TOLERANCE_MM,
-    metrics.armTop + TOLERANCE_MM,
+    "полоз: шина доходит до тыла рамки",
+    [frameHitY(shelfProbe, -0.1)],
+    rail.thickness - TOLERANCE_MM,
+    rail.thickness + TOLERANCE_MM,
   );
   check(
-    "стойка: габарит панели не меняется",
+    "полоз: габарит панели не меняется",
     [frameSize.x, frameSize.y],
     [plainSize.x, plainSize.y],
   );
   checkRange(
-    `стойка: шина уходит назад на ${rail.depth} мм`,
+    `полоз: шина уходит назад на ${rail.depth} мм`,
     [plainBack - frameBack],
     rail.depth - TOLERANCE_MM,
     rail.depth + TOLERANCE_MM,
   );
   check(
-    "стойка: печатается вместе с рамкой одной деталью",
+    "полоз: печатается вместе с рамкой одной деталью",
     frame.getAttribute("position").count >
       plainFrame.getAttribute("position").count,
     true,
   );
   check(
-    "стойка: рамка со стойкой замкнута, NaN нет",
+    "полоз: оболочка рамки с полозом замкнута, NaN нет",
     [openEdges(frame), nanVertices(frame)],
     [0, 0],
   );
@@ -3755,95 +3728,11 @@ console.log(
 
 {
   /*
-    Высота каретки считается от панели, а не задана числом: ось патрона встаёт
-    на половину высоты литофана, и выносная часть печатается там же, поэтому у
-    высокой панели лампа светит в центр кадра, а не вниз.
-
-    У панели ниже 62 мм половина высоты ближе к столу, чем позволяет кольцо:
-    губки полоза висят на 31 мм под осью, и ось упирается в `minAxisY`.
-  */
-  const heightParams: Partial<LithophaneParams> = {
-    lithophaneWidth: 120,
-    lithoFrame: true,
-    lithoMount: "rail",
-  };
-
-  for (const panelHeight of [80, 160, 200]) {
-    const params = { ...heightParams, lithophaneHeight: panelHeight };
-    const metrics = lithophaneRailMetrics(normalizeLithophaneParams(params));
-
-    check(
-      `стойка: у панели ${panelHeight} мм ось сама встаёт на ${panelHeight / 2} мм`,
-      [metrics.axisY, metrics.armTop, metrics.top],
-      [
-        panelHeight / 2,
-        panelHeight / 2 -
-          LITHOPHANE_CARRIAGE.ringRadius -
-          LITHOPHANE_CARRIAGE.railGap,
-        panelHeight,
-      ],
-    );
-  }
-
-  const low = lithophaneRailMetrics(
-    normalizeLithophaneParams({ ...heightParams, lithophaneHeight: 40 }),
-  );
-
-  check(
-    "стойка: у панели 40 мм ось упирается в предел, губки не уходят под стол",
-    [low.axisY, low.armBottom],
-    [LITHOPHANE_CARRIAGE.minAxisY, 0],
-  );
-  check(
-    `стойка: предел ${LITHOPHANE_CARRIAGE.minAxisY} мм — это кольцо, зазор и шина`,
-    LITHOPHANE_CARRIAGE.minAxisY,
-    LITHOPHANE_CARRIAGE.ringRadius +
-      LITHOPHANE_CARRIAGE.railGap +
-      LITHOPHANE_RAIL.thickness,
-  );
-
-  /*
-    У высокой панели стойка та же деталь, но длиннее: лучи проверяют, что
-    колонна дошла до 160 мм, а выносная часть встала на 54 мм — напротив
-    середины кадра.
-  */
-  const tallParams: Partial<LithophaneParams> = {
-    ...heightParams,
-    lithophaneHeight: 160,
-  };
-  const tall = createLithophaneFrameGeometry(tallParams);
-  const tallObject = new Mesh(tall, new MeshBasicMaterial({ side: DoubleSide }));
-  const tallHitY = (x: number, z: number): number => {
-    const hits = new Raycaster(
-      new Vector3(x, 180, z),
-      new Vector3(0, -1, 0),
-      0,
-      240,
-    ).intersectObject(tallObject, false);
-
-    return hits.length === 0 ? Number.NaN : hits[0].point.y;
-  };
-  const tallMetrics = lithophaneRailMetrics(
-    normalizeLithophaneParams(tallParams),
-  );
-
-  check(
-    "стойка на 160 мм: колонна до верха, выносная часть на середине",
-    [tallHitY(5, -1), tallHitY(0, -60), tallMetrics.axisY],
-    [160, 54, 80],
-  );
-
-  tall.dispose();
-}
-
-{
-  /*
-    Держатель патрона — вторая печатная деталь: плоское кольцо Ø50 × 5 мм,
-    полоз с пазом под шину и тонкий гнутый козырёк. Кольцо лежит плоскостью XY:
-    лицо уходит от панели на lithoRailDistance, а ось патрона стоит на середине
-    высоты панели — у панели 80 мм это 40 мм, поэтому верх кольца 65 мм, а низ
-    15 мм над столом. Губки полоза свисают под шину до 9 мм: кольцо висит на
-    выносной части стойки, а не стоит на столе.
+    Держатель патрона — вторая печатная деталь: плоское кольцо Ø50 × 5 мм на одной
+    вертикальной ножке и тонкий гнутый козырёк. Кольцо лежит плоскостью XY: лицо
+    уходит от панели на lithoRailDistance, а ось патрона проходит через центр на
+    половине высоты панели — у 80 мм это 40 мм, поэтому верх кольца на 65 мм, а
+    низ на 15 мм над столом.
 
     Патрон стандартный, с наружной резьбой и штатной гайкой: отверстие кольца
     равно резьбе (Ø14.6 у E14 и Ø28.6 у E27). С лица утоплена круглая зенковка
@@ -3851,15 +3740,16 @@ console.log(
     гайку, чтобы она не проворачивалась; между дном зенковки и гнездом остаётся
     2 мм мяса. Никакого барабана и полости у детали нет.
 
-    Снизу кольца — полоз 18 мм шириной с продольным пазом 14.4 × 5.2 мм: паз
-    открыт снизу и с торцов, поэтому кольцо надевается на шину 14 × 5 сверху и
-    едет по ней вдоль Z. Козырёк — пластина 2 мм поверх макушки кольца:
-    выступает к панели на 20 мм и опускается к носу на 5 мм.
+    Снизу кольца — одна ножка 5.6 × 10 мм: по X она уже паза 6 мм на зазор с
+    каждой стороны и стоит на его дне на 3 мм, а верх врезан в мясо кольца.
+    Ножка скользит по пазу вдоль Z, поэтому кольцо едет по полозу, а не по столу.
+    Козырёк — пластина 2 мм поверх макушки кольца: выступает к панели на 20 мм и
+    опускается к носу на 5 мм.
 
     Проверяются оба патрона: наружный Ø50 и толщина 5, сквозное отверстие под
     резьбу, зенковка под фланец, шестигранное гнездо под гайку и мясо между ними,
-    полоз с пазом на шине, козырёк без окон с провисом носа, свободный коридор
-    перед кольцом, вес деталей и замкнутость оболочки.
+    высота оси по половине панели, ножка в пазу, козырёк без окон с провисом носа,
+    свободный коридор перед кольцом, вес деталей и замкнутость оболочки.
   */
   const rail = LITHOPHANE_RAIL;
   const carriage = LITHOPHANE_CARRIAGE;
@@ -3870,21 +3760,49 @@ console.log(
     lithoMount: "rail",
   };
   const base = lithophaneCarriageMetrics(normalizeLithophaneParams(railParams));
-  const skidHalf = base.skidWidth / 2;
+  // Ось патрона у панели заданной высоты: так проверяется авто-высота.
+  const axisFor = (height: number): number =>
+    lithophaneCarriageMetrics(
+      normalizeLithophaneParams({ ...railParams, lithophaneHeight: height }),
+    ).socketY;
 
   check(
     `кольцо: наружный Ø${2 * base.ringRadius} и толщина ${base.ringDepth} мм`,
     [2 * base.ringRadius, base.plateFront - base.plateBack],
     [2 * carriage.ringRadius, carriage.ringDepth],
   );
+  /*
+    Высота оси — половина высоты панели: кольцо само встаёт напротив центра кадра,
+    без отдельного слайдера. У низкой панели середина ниже полоза, поэтому ось
+    упирается в предел `minAxisY`: кольцо не ложится на шину.
+  */
   check(
-    `кольцо: ось патрона на середине панели — ${base.socketY} мм, верх ${base.ringTop} и низ ${base.ringBottom}`,
-    [base.socketY, base.ringTop, base.ringBottom],
-    [
-      railParams.lithophaneHeight! / 2,
-      railParams.lithophaneHeight! / 2 + carriage.ringRadius,
-      railParams.lithophaneHeight! / 2 - carriage.ringRadius,
-    ],
+    "кольцо: ось патрона — половина высоты панели",
+    [axisFor(80), axisFor(160), axisFor(200)],
+    [40, 80, 100],
+  );
+  check(
+    `кольцо: у панели 40 мм ось упирается в предел ${carriage.minAxisY} мм`,
+    [axisFor(40)],
+    [carriage.minAxisY],
+  );
+  checkRange(
+    `кольцо: ось на ${base.socketY} мм — половина панели 80 мм`,
+    [base.socketY],
+    40 - TOLERANCE_MM,
+    40 + TOLERANCE_MM,
+  );
+  checkRange(
+    `кольцо: верх ${base.ringTop} и низ ${base.ringBottom} мм`,
+    [base.ringTop, base.ringBottom],
+    15 - TOLERANCE_MM,
+    65 + TOLERANCE_MM,
+  );
+  checkRange(
+    `кольцо: у панели 40 мм низ кольца выше полоза на ${carriage.railGap} мм`,
+    [axisFor(40) - base.ringRadius - rail.thickness],
+    carriage.railGap - TOLERANCE_MM,
+    carriage.railGap + TOLERANCE_MM,
   );
   check(
     `кольцо: внутреннее отверстие равно резьбе Ø${base.thread}`,
@@ -3909,26 +3827,58 @@ console.log(
       LITHOPHANE_RAIL_SOCKET_SIZES.e14.nut + 2 * carriage.nutClearance,
     ],
   );
+  /*
+    Ножка — единственная опора кольца: она стоит на дне паза, поэтому её низ на
+    3 мм, а не на столе. Верх врезан в кольцо на `stemOverlap`, но остаётся ниже
+    отверстия патрона — иначе перекрыл бы резьбу.
+  */
   check(
-    `полоз: паз ${base.skidPocketWidth} × ${base.skidPocketDepth} шире шины ${rail.width} × ${rail.thickness}`,
-    [
-      base.skidPocketWidth > rail.width,
-      base.skidPocketDepth > rail.thickness,
-      base.railGap,
-    ],
-    [true, true, carriage.railGap],
+    `ножка: ${base.stemWidth} мм шириной — уже паза ${rail.slotWidth} мм`,
+    [base.stemWidth < rail.slotWidth],
+    [true],
   );
-  check(
-    `полоз: губки свисают до ${base.skidBase} мм — низ шины, верх входит в кольцо`,
-    [base.skidBase, base.skidBase + base.skidTop > base.ringBottom],
-    [base.ringBottom - carriage.railGap - rail.thickness, true],
+  checkRange(
+    `ножка: зазор в пазу ${(rail.slotWidth - base.stemWidth).toFixed(1)} мм — ${rail.clearance} мм на сторону`,
+    [rail.slotWidth - base.stemWidth],
+    2 * rail.clearance - TOLERANCE_MM,
+    2 * rail.clearance + TOLERANCE_MM,
+  );
+  checkRange(
+    `ножка: низ на дне паза ${base.stemBottom} мм`,
+    [base.stemBottom],
+    rail.thickness - rail.slotDepth - TOLERANCE_MM,
+    rail.thickness - rail.slotDepth + TOLERANCE_MM,
+  );
+  checkRange(
+    `ножка: верх ${base.stemTop} мм врезан в кольцо с низом ${base.ringBottom} мм`,
+    [base.stemTop - base.ringBottom],
+    carriage.stemOverlap - TOLERANCE_MM,
+    carriage.stemOverlap + TOLERANCE_MM,
+  );
+  checkRange(
+    `ножка: верх ниже отверстия патрона на ${(base.socketY - base.boreRadius - base.stemTop).toFixed(1)} мм`,
+    [base.socketY - base.boreRadius - base.stemTop],
+    3,
+    carriage.minAxisY,
+  );
+  checkRange(
+    `ножка: ${base.stemDepth} мм по Z, лицо на ${-base.stemFront} мм от панели`,
+    [base.stemDepth],
+    carriage.stemDepth - TOLERANCE_MM,
+    carriage.stemDepth + TOLERANCE_MM,
+  );
+  checkRange(
+    "ножка: лицо спрятано за лицом кольца на нахлёст",
+    [base.plateFront - base.stemFront],
+    BODY_OVERLAP_MM - TOLERANCE_MM,
+    BODY_OVERLAP_MM + TOLERANCE_MM,
   );
 
   /*
-    На обоих концах диапазона lithoRailDistance полоз остаётся на шине, а козырёк
-    не доходит ни до стойки, ни до панели: кольцо не соскакивает с выносной части
-    и не задевает рельеф. Заодно проверяется коридор перед кольцом: его глубина
-    равна расстоянию до панели, и ни полоз, ни навес в него не заходят.
+    На обоих концах диапазона lithoRailDistance ножка остаётся в пазу полоза, а
+    козырёк не доходит до панели: кольцо не соскакивает с полоза и не задевает
+    рельеф. Заодно проверяется коридор перед кольцом: его глубина равна расстоянию
+    до панели, и ни ножка, ни навес в него не заходят.
   */
   for (const distance of [
     CONSTRUCTOR_LIMITS.lithoRailDistance.min,
@@ -3939,8 +3889,6 @@ console.log(
       lithoRailDistance: distance,
     };
     const shifted = lithophaneCarriageMetrics(normalizeLithophaneParams(params));
-    // Тыл полоза и его длина: на дальнем положении полоз короче остатка шины.
-    const skidBack = shifted.plateFront - shifted.skidLength;
     const geometry = createLithophaneCarriageGeometry(params);
     const object = new Mesh(
       geometry,
@@ -3967,13 +3915,13 @@ console.log(
     }
 
     check(
-      `кольцо на ${distance} мм: полоз ${shifted.skidLength} мм не свисает с шины`,
-      skidBack >= -rail.depth - TOLERANCE_MM,
-      true,
+      `кольцо на ${distance} мм: ножка ${shifted.stemDepth.toFixed(1)} мм не свисает с полоза`,
+      [shifted.stemBack >= -rail.depth - TOLERANCE_MM, shifted.stemDepth > 1],
+      [true, true],
     );
     check(
-      `кольцо на ${distance} мм: козырёк не доходит до стойки и панели, зазор ${-shifted.visorFront} мм`,
-      shifted.visorFront <= -rail.thickness - carriage.panelClearance,
+      `кольцо на ${distance} мм: козырёк не доходит до панели, зазор ${-shifted.visorFront} мм`,
+      shifted.visorFront <= -carriage.panelClearance,
       true,
     );
     check(
@@ -3999,7 +3947,6 @@ console.log(
     // Верх и низ детали: по ним видно, что кольцо стоит на полозе, а не висит.
     const size = boxSize(geometry);
     const bottom = geometry.boundingBox?.min.y ?? 0;
-    const top = geometry.boundingBox?.max.y ?? 0;
     const object = new Mesh(
       geometry,
       new MeshBasicMaterial({ side: DoubleSide }),
@@ -4080,15 +4027,25 @@ console.log(
       2 * metrics.ringRadius - TOLERANCE_MM,
       2 * metrics.ringRadius + TOLERANCE_MM,
     );
+    // Кольцо стоит по центру панели: ось патрона не уходит ни влево, ни вправо.
     checkRange(
-      `кольцо ${socketId}: губки полоза свисают до ${metrics.skidBase} мм`,
-      [bottom],
-      metrics.skidBase - TOLERANCE_MM,
-      metrics.skidBase + TOLERANCE_MM,
+      `кольцо ${socketId}: ось патрона по центру панели`,
+      [
+        (geometry.boundingBox?.min.x ?? 0) + metrics.ringRadius,
+        (geometry.boundingBox?.max.x ?? 0) - metrics.ringRadius,
+      ],
+      -TOLERANCE_MM,
+      TOLERANCE_MM,
     );
     checkRange(
-      `кольцо ${socketId}: верх ${top.toFixed(2)} мм — козырёк над кольцом`,
-      [top],
+      `кольцо ${socketId}: низ детали ${bottom.toFixed(2)} мм — ножка на дне паза, а не на столе`,
+      [bottom],
+      metrics.stemBottom - TOLERANCE_MM,
+      metrics.stemBottom + TOLERANCE_MM,
+    );
+    checkRange(
+      `кольцо ${socketId}: верх ${(bottom + size.y).toFixed(2)} мм — козырёк над кольцом`,
+      [bottom + size.y],
       metrics.ringTop +
         metrics.visorThickness -
         BODY_OVERLAP_MM -
@@ -4191,74 +4148,53 @@ console.log(
     );
 
     /*
-      Полоз: две губки 18 мм общей шириной и мост над пазом. Паз шире шины на
-      зазор с каждой стороны и открыт снизу — кольцо надевается на шину сверху;
-      губки свисают до её низа, а мост лежит на её верху и держит кольцо.
+      Ножка: одна вертикальная пластина 5.6 × 10 мм от дна паза полоза до мяса
+      кольца. Она стоит на 3 мм — на дне канала, а не на столе, — и по X уже паза
+      6 мм на зазор с каждой стороны, поэтому входит в паз и не качается.
+      Пробы по ширине идут на 8 мм: там ножка уже вышла из паза, но до кольца ей
+      ещё далеко, поэтому луч видит только её.
     */
+    const stemHalfProbe = metrics.stemWidth / 2;
+    const stemProbeY = rail.thickness + 3;
+
     checkRange(
-      `кольцо ${socketId}: губка полоза свисает до низа шины`,
-      [hitY(skidHalf - 0.1, metrics.skidBase - 20, metrics.plateFront - 12, 1)],
-      metrics.skidBase - TOLERANCE_MM,
-      metrics.skidBase + TOLERANCE_MM,
+      `кольцо ${socketId}: ножка стоит на дне паза ${metrics.stemBottom} мм`,
+      [hitY(0, -20, metrics.stemFront - 5, 1)],
+      metrics.stemBottom - TOLERANCE_MM,
+      metrics.stemBottom + TOLERANCE_MM,
     );
     checkRange(
-      `кольцо ${socketId}: мост над пазом на ${metrics.skidPocketDepth.toFixed(1)} мм`,
-      [hitY(0, metrics.skidBase - 20, metrics.plateFront - 12, 1)],
-      metrics.skidBase + metrics.skidPocketDepth - TOLERANCE_MM,
-      metrics.skidBase + metrics.skidPocketDepth + TOLERANCE_MM,
+      `кольцо ${socketId}: верх ножки ${metrics.stemTop} мм в мясе кольца`,
+      [hitY(0, metrics.ringTop + 10, metrics.stemBack + 1, -1)],
+      metrics.stemTop - TOLERANCE_MM,
+      metrics.stemTop + TOLERANCE_MM,
     );
     check(
-      `кольцо ${socketId}: паз открыт снизу и с торцов — шина проходит насквозь`,
-      through(0, metrics.skidBase + rail.thickness / 2),
-      true,
-    );
-    check(
-      `кольцо ${socketId}: за губкой полоза пластика нет`,
-      Number.isNaN(
-        hitY(skidHalf + 0.1, metrics.skidBase - 20, metrics.plateFront - 12, 1),
-      ),
-      true,
-    );
-    check(
-      `кольцо ${socketId}: полоз ${metrics.skidWidth} мм шириной`,
+      `кольцо ${socketId}: ножка ${metrics.stemWidth} мм шириной — уже паза`,
       [
-        !through(skidHalf - 0.1, metrics.skidBase + 1),
-        !through(-skidHalf + 0.1, metrics.skidBase + 1),
-        through(skidHalf + 0.1, metrics.skidBase + 1),
-        through(-skidHalf - 0.1, metrics.skidBase + 1),
+        !through(stemHalfProbe - 0.1, stemProbeY),
+        !through(-stemHalfProbe + 0.1, stemProbeY),
+        through(stemHalfProbe + 0.1, stemProbeY),
+        through(-stemHalfProbe - 0.1, stemProbeY),
       ],
       [true, true, true, true],
     );
-    checkRange(
-      `кольцо ${socketId}: полоз не выходит вперёд лица`,
-      [hitZ(skidHalf - 0.1, metrics.skidBase + 1, 60, -1)],
-      metrics.plateFront - BODY_OVERLAP_MM - TOLERANCE_MM,
-      metrics.plateFront + TOLERANCE_MM,
+    check(
+      `кольцо ${socketId}: за ножкой пластика нет`,
+      Number.isNaN(hitY(stemHalfProbe + 0.1, -20, metrics.stemBack + 1, 1)),
+      true,
     );
     checkRange(
-      `кольцо ${socketId}: полоз ${metrics.skidLength} мм длиной`,
-      [
-        hitZ(
-          skidHalf - 0.1,
-          metrics.skidBase + 1,
-          metrics.plateBack - 40,
-          1,
-        ),
-      ],
-      metrics.plateFront - metrics.skidLength - TOLERANCE_MM,
-      metrics.plateFront - metrics.skidLength + TOLERANCE_MM,
+      `кольцо ${socketId}: ножка не выходит вперёд лица кольца`,
+      [hitZ(0, stemProbeY, 60, -1)],
+      metrics.stemFront - TOLERANCE_MM,
+      metrics.stemFront + TOLERANCE_MM,
     );
     checkRange(
-      `кольцо ${socketId}: паз ${metrics.skidPocketWidth} мм — шире шины на ${rail.clearance} мм на сторону`,
-      [metrics.skidPocketWidth - rail.width],
-      2 * rail.clearance - 0.01,
-      2 * rail.clearance + 0.01,
-    );
-    checkRange(
-      `кольцо ${socketId}: паз ${metrics.skidPocketDepth} мм — глубже верха шины на ${rail.clearance} мм`,
-      [metrics.skidPocketDepth - rail.thickness],
-      rail.clearance - 0.01,
-      rail.clearance + 0.01,
+      `кольцо ${socketId}: ножка ${metrics.stemDepth.toFixed(1)} мм по Z — пятно опоры`,
+      [hitZ(0, stemProbeY, metrics.plateBack - 40, 1)],
+      metrics.stemBack - TOLERANCE_MM,
+      metrics.stemBack + TOLERANCE_MM,
     );
 
     /*
@@ -4267,9 +4203,9 @@ console.log(
       луч снизу находит сплошную дугу в любой точке пролёта. Снизу и с боков
       патрон открыт, поэтому лампа вкручивается рукой.
     */
-    // Луч сверху начинается над козырьком: у высокой панели кольцо подросло.
-    const aboveVisor = metrics.ringTop + 20;
     const visorUnder = hitY(0, 0, metrics.plateFront + 5, 1);
+    // Начало луча сверху — над козырьком: кольцо теперь стоит на середине панели.
+    const aboveVisor = metrics.ringTop + 10;
     const visorOver = hitY(0, aboveVisor, metrics.plateFront + 5, -1);
     const noseTop = hitY(
       0,
@@ -4334,7 +4270,12 @@ console.log(
       `кольцо ${socketId}: навес открыт с боков — лампа вкручивается`,
       [
         Number.isNaN(
-          hitY(metrics.visorWidth / 2 + 1, aboveVisor, metrics.plateFront + 5, -1),
+          hitY(
+            metrics.visorWidth / 2 + 1,
+            aboveVisor,
+            metrics.plateFront + 5,
+            -1,
+          ),
         ),
         Number.isNaN(
           hitY(
@@ -4353,10 +4294,9 @@ console.log(
       [0, 0],
     );
     /*
-      Вес деталей: кольцо должно оставаться лёгким (до 20 г), а рамка со стойкой
-      и кольцом вместе — до 50 г. Стойка идёт на всю высоту панели и весит больше
-      прежней шины на столе, поэтому предел поднят с 45. Числа считаются по
-      сплошному объёму сетки, как и подпись веса в интерфейсе.
+      Вес деталей: кольцо должно оставаться лёгким (до 20 г), а рамка с рельсом
+      и кольцом вместе — до 45 г. Числа считаются по сплошному объёму сетки, как
+      и подпись веса в интерфейсе.
     */
     const frame = createLithophaneGeometry(params, "frame");
     const carriageWeight = calculateGeometryWeightGrams(geometry);
@@ -4372,7 +4312,7 @@ console.log(
       `кольцо ${socketId}: вес сборки с рамкой ${assemblyWeight.toFixed(1)} г`,
       [assemblyWeight],
       0,
-      50,
+      45,
     );
 
     frame.dispose();
@@ -4381,48 +4321,13 @@ console.log(
 
 
   /*
-    Автовысота: при смене высоты панели кольцо само поднимается на её середину.
-    Ось видна тремя независимыми способами — из габаритов стойки, от низа детали
-    и от её верха, — и все три дают половину высоты. У панели 80 мм это 40 мм, у
-    160 мм — 80 мм.
-  */
-  for (const panelHeight of [80, 160]) {
-    const params: Partial<LithophaneParams> = {
-      ...railParams,
-      lithophaneHeight: panelHeight,
-    };
-    const metrics = lithophaneCarriageMetrics(
-      normalizeLithophaneParams(params),
-    );
-    const geometry = createLithophaneCarriageGeometry(params);
-    geometry.computeBoundingBox();
-    const box = geometry.boundingBox;
-
-    checkRange(
-      `автовысота: у панели ${panelHeight} мм кольцо встаёт на ${panelHeight / 2} мм`,
-      [
-        metrics.socketY,
-        (box?.min.y ?? 0) + carriage.minAxisY,
-        (box?.max.y ?? 0) -
-          carriage.ringRadius -
-          carriage.visorThickness +
-          BODY_OVERLAP_MM,
-      ],
-      panelHeight / 2 - TOLERANCE_MM,
-      panelHeight / 2 + TOLERANCE_MM,
-    );
-
-    geometry.dispose();
-  }
-
-  /*
     Крепление читается только у плоской формы и только вместе с рамкой: у куба и
-    круглого плафона панели собираются своим кодом, и стойка туда не попадает.
+    круглого плафона панели собираются своим кодом, и монорельс туда не попадает.
     Отдельной деталью `carriage` отдаётся ровно та же сетка, что и из функции
     кольца, — по ней же считается вес и STL.
   */
   check(
-    "стойка: только плоская панель с рамкой",
+    "полоз: только плоская панель с рамкой",
     [
       lithophaneHasRail("rail", "flat", true),
       lithophaneHasRail("rail", "round", true),
@@ -4439,7 +4344,7 @@ console.log(
     const mounted = createLithophaneGeometry(base);
 
     check(
-      `${shape}: стойка не меняет деталь`,
+      `${shape}: монорельс не меняет деталь`,
       [boxSize(mounted), mounted.getAttribute("position").count],
       [boxSize(plain), plain.getAttribute("position").count],
     );
