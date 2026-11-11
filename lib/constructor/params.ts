@@ -1804,7 +1804,7 @@ export type LithophaneMount = (typeof LITHOPHANE_MOUNTS)[number];
 /** Подписи креплений: по ним клиент строит кнопки выбора. */
 export const LITHOPHANE_MOUNT_LABELS = {
   none: "Без подставки",
-  rail: "Полоз и кольцо на ножке",
+  rail: "Полоз и кольцо на салазках",
   arch: "Открытая арка со светом",
   stand: "Сплошная ножка",
   base: "Массивное основание",
@@ -1828,13 +1828,21 @@ export const LITHOPHANE_RAIL_SOCKET_LABELS = {
   e27: "E27 (Ø28.6 мм)",
 } as const satisfies Record<LithophaneRailSocket, string>;
 
-/** Резьба патрона и гайка под него, мм. */
+/**
+ * Резьба патрона, гайка под него и наружный диаметр кольца, мм.
+ *
+ * Кольцу достаточно обойти гайку: патрон держится на нём фланцем и этой же
+ * гайкой, корпуса и полости у детали нет. Поэтому наружный диаметр равен размеру
+ * гайки по вершинам плюс мясо — Ø32 под E14 (гайка 22 мм под ключ, 25.9 мм по
+ * вершинам) и Ø42 под E27 (33 мм под ключ, 38.1 мм по вершинам). Меньше кольцо
+ * сэкономит пластик, но шестигранное гнездо вылезет наружу.
+ */
 export const LITHOPHANE_RAIL_SOCKET_SIZES = {
-  e14: { thread: 14.6, nut: 22 },
-  e27: { thread: 28.6, nut: 33 },
+  e14: { thread: 14.6, nut: 22, ring: 32 },
+  e27: { thread: 28.6, nut: 33, ring: 42 },
 } as const satisfies Record<
   LithophaneRailSocket,
-  { thread: number; nut: number }
+  { thread: number; nut: number; ring: number }
 >;
 
 /**
@@ -1988,7 +1996,7 @@ export const LITHOPHANE_PART_LABELS = {
   relief: "Рельеф",
   frame: "Рамка с полозом",
   stand: "Подставка",
-  carriage: "Кольцо на ножке",
+  carriage: "Кольцо на салазках",
   all: "Все детали",
 } as const satisfies Record<LithophanePart, string>;
 

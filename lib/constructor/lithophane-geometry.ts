@@ -228,12 +228,14 @@ export const BODY_OVERLAP_MM = 0.2;
  *
  * Полоз печатается вместе с рамкой одной деталью. Шина 14 × 5 мм лежит на столе
  * (Y = 0) и нахлёстом входит в тыл нижней полки рамки, поэтому растёт из рамки,
- * а не висит на ней. Назад шина уходит на `depth` и несёт продольный паз 6 × 2 мм:
- * в нём стоит ножка кольца, и по нему же она едет вдоль Z. Паз открыт сверху и с
- * торцов, поэтому печатается без поддержек.
+ * а не висит на ней. Назад шина уходит на `depth` и несёт Т-образную
+ * направляющую: сверху открыта шейка 6 мм, под ней — карман 10 мм с фланками под
+ * 45°. Паз открыт с торцов, поэтому печатается без поддержек, а карман держит
+ * салазки ножки кольца: каретка едет по нему вдоль Z и не опрокидывается вперёд.
  *
- * Паз шире ножки на `clearance` с каждой стороны: ножка входит в него и не
- * качается, а кольцо стоит на полозе, а не на столе.
+ * Салазки уже кармана и шейки на `clearance` с каждой стороны: ножка входит в паз
+ * с торца, едет по нему без затирания, а фланки кармана не дают кольцу наклониться
+ * ни вперёд, ни назад.
  */
 export const LITHOPHANE_RAIL = {
   /** Ширина шины по X, мм. */
@@ -241,29 +243,36 @@ export const LITHOPHANE_RAIL = {
   /** Толщина шины на столе: верх рельса, мм. */
   thickness: 5,
   /**
-   * Выступ шины назад от тыла рамки, мм: по её пазу ножка кольца едет вдоль Z,
-   * поэтому шина длиннее хода ножки на всём диапазоне `lithoRailDistance`.
+   * Выступ шины назад от тыла рамки, мм: по её пазу каретка едет вдоль Z,
+   * поэтому шина длиннее хода салазок на всём диапазоне `lithoRailDistance`.
    */
   depth: 100,
-  /** Ширина и глубина продольного паза под ножку кольца, мм. */
+  /** Ширина шейки паза под ножку кольца, мм. */
   slotWidth: 6,
-  /** Глубина продольного паза, мм. */
-  slotDepth: 2,
-  /** Зазор между пазом и ножкой на сторону, мм. */
+  /** Высота шейки от верха шины вниз, мм. */
+  slotDepth: 1.5,
+  /**
+   * Ширина кармана под салазки на дне паза, мм.
+   *
+   * Фланки кармана идут под 45°, поэтому вылет кармана за шейку равен его высоте:
+   * дно кармана на `thickness − slotDepth − (cavityWidth − slotWidth) / 2` = 1.5 мм.
+   */
+  cavityWidth: 10,
+  /** Зазор между пазом и салазками на сторону, мм. */
   clearance: 0.2,
   /** Нахлёст шины с рамкой по Z, мм. */
   frameOverlap: BODY_OVERLAP_MM,
 } as const;
 
 /**
- * Держатель патрона на нижнем полозе: плоское кольцо Ø50 × 5 мм на одной
- * вертикальной ножке, с козырьком.
+ * Держатель патрона: плоское кольцо Ø32 (E14) или Ø42 (E27) на ножке с
+ * салазками и козырьком.
  *
  * Каретка-барабан заменена кольцом: патрон стандартный — с наружной резьбой и
  * штатной гайкой, — поэтому кольцу не нужны ни корпус, ни полость. Кольцо просто
  * зажимается между фланцем патрона и его же гайкой: отверстие равно резьбе
- * (Ø14.6 у E14 и Ø28.6 у E27), наружный Ø50 — это мясо вокруг гайки E27
- * (33 мм под ключ, 38.1 мм по вершинам).
+ * (Ø14.6 у E14 и Ø28.6 у E27), а наружный диаметр считается от гайки — см.
+ * `LITHOPHANE_RAIL_SOCKET_SIZES`.
  *
  * Лицо кольца смотрит на панель: в нём утоплена круглая зенковка под фланец
  * патрона (`flangeDepth`), поэтому патрон садится ровно, а не на кромку
@@ -271,31 +280,21 @@ export const LITHOPHANE_RAIL = {
  * гайка не проворачивается под ключом. Между дном зенковки и гнездом остаётся
  * 2 мм мяса.
  *
- * Кольцо стоит на одной ножке: снизу к нему примыкает вертикальная пластина
- * `stemWidth × stemDepth`, её низ опущен на дно паза полоза, а верх врезан в
- * мясо кольца. Ножка входит в паз полоза и едет по нему вдоль Z, поэтому кольцо
- * держится на полозе и не падает. Высота оси — половина высоты панели, так что
- * патрон сам оказывается напротив центра кадра.
+ * Кольцо стоит на ножке: снизу к нему примыкает вертикальная пластина
+ * `stemWidth × stemDepth`, а её низ расширен в салазки `sledWidth` с фланками под
+ * 45°. Салазки входят в Т-образный паз полоза с зазорами по бокам и едут по нему
+ * вдоль Z, поэтому каретка — отдельная подвижная деталь: её вставляют с торца
+ * шины и двигают слайдером «Расстояние до панели». Высота оси — половина высоты
+ * панели, так что патрон сам оказывается напротив центра кадра.
  *
- * Козырёк — тонкая (2 мм) гнутая пластина поверх макушки кольца: выступает к
- * панели на `visorRun`, плавно опускается к носу на `visorDrop` и закрывает
- * патрон от глаз. Хвост навеса врезан в кольцо на `BODY_OVERLAP_MM`, поэтому
- * козырёк и кольцо спекаются в одну деталь.
+ * Козырёк — тонкая (2 мм) гнутая пластина поверх макушки кольца, шириной в само
+ * кольцо: выступает к панели на `visorRun`, плавно опускается к носу на
+ * `visorDrop` и закрывает патрон от глаз. Хвост навеса врезан в кольцо на
+ * `BODY_OVERLAP_MM`, поэтому козырёк и кольцо спекаются в одну деталь.
  */
 export const LITHOPHANE_CARRIAGE = {
-  /** Наружный радиус кольца, мм: Ø50 вокруг гайки E27. */
-  ringRadius: 25,
   /** Толщина кольца вдоль оси патрона, мм. */
   ringDepth: 5,
-  /**
-   * Нижний предел оси патрона над столом, мм.
-   *
-   * Кольцо Ø50 висит над полозом: низ кольца на `ringRadius` ниже оси, ещё
-   * `railGap` до верха шины 5 мм. Вся деталь занимает `ringRadius + railGap +
-   * thickness` = 31 мм под осью, поэтому у панели ниже 62 мм ось не может встать
-   * на середину и упирается в этот предел — иначе кольцо легло бы на полоз.
-   */
-  minAxisY: 31,
   /** Глубина круглой зенковки под фланец патрона с лица, мм. */
   flangeDepth: 1,
   /** Зазор зенковки под фланец по диаметру, мм. */
@@ -305,35 +304,35 @@ export const LITHOPHANE_CARRIAGE = {
   /** Зазор шестигранного гнезда под гайку на сторону, мм. */
   nutClearance: 0.2,
   /**
-   * Ножка: толщина вдоль Z и нахлёст в мясо кольца, мм.
+   * Ножка: толщина вдоль Z и предельный нахлёст в мясо кольца, мм.
    *
-   * Ширина ножки — паз полоза минус зазор на сторону, она считается в
-   * `lithophaneCarriageMetrics`. Толщина 10 мм — это пятно опоры: ножка стоит в
-   * пазу на дне и не качается вдоль Z. Верх ножки врезан в кольцо на `stemOverlap`
-   * — ниже отверстия патрона, поэтому резьба остаётся свободной, а кольцо и ножка
-   * спекаются в одну деталь.
+   * Ширина ножки — шейка паза минус зазор на сторону, а ширина салазок — карман
+   * минус зазор; обе считаются в `lithophaneCarriageMetrics`. Толщина 10 мм — это
+   * пятно опоры: салазки стоят в кармане на дне и не качаются вдоль Z. Верх ножки
+   * врезан в кольцо снизу, но не глубже `stemOverlap` и не выше гнезда гайки:
+   * резьба и гайка остаются свободными, а кольцо и ножка спекаются в одну деталь.
    */
   stemDepth: 10,
   stemOverlap: 5,
   /**
    * Зазор между низом кольца и верхом шины, мм.
    *
-   * Кольцо висит над полозом на 1 мм: в пазу стоит только ножка, а само кольцо
-   * полоза не касается, поэтому его мясо не трётся о шину при перестановке.
+   * Кольцо висит над полозом на 1 мм: в пазу стоят только салазки, а само кольцо
+   * шины не касается, поэтому его мясо не трётся о рельс при перестановке.
    */
   railGap: 1,
   /** Зазор между козырьком и панелью, мм. */
   panelClearance: 3,
   /**
-   * Козырёк: вылет к панели, ширина, толщина, хвост в кольце и провис носа, мм.
+   * Козырёк: вылет к панели, толщина, хвост в кольце и провис носа, мм.
    *
    * Пластина лежит на макушке кольца и плавно опускается к панели на
-   * `visorDrop`: это не плита, а гнутый навес. Низ навеса поднят выше резьбы
-   * E27, поэтому лампа вкручивается рукой, а хвост утоплен в кольцо — козырёк
-   * остаётся частью держателя, а не отдельной деталью.
+   * `visorDrop`: это не плита, а гнутый навес. По ширине он равен кольцу, поэтому
+   * считается в `lithophaneCarriageMetrics`. Низ навеса поднят выше резьбы E27,
+   * поэтому лампа вкручивается рукой, а хвост утоплен в кольцо — козырёк остаётся
+   * частью держателя, а не отдельной деталью.
    */
   visorRun: 20,
-  visorWidth: 30,
   visorThickness: 2,
   visorTail: 2,
   visorDrop: 5,
@@ -1960,7 +1959,7 @@ function createLoftBody(
   return finalizeGeometry(positions, indices);
 }
 
-/** Габариты монорельса: ширина, выступ, паз и верх, мм. */
+/** Габариты монорельса: шина, шейка и карман Т-образного паза, мм. */
 export type RailMetrics = {
   /** Ширина шины, мм. */
   width: number;
@@ -1968,68 +1967,91 @@ export type RailMetrics = {
   half: number;
   /** Выступ шины назад от тыла рамки, мм. */
   depth: number;
-  /** Верх шины: на нём лежит полоз каретки, мм. */
+  /** Верх шины, мм. */
   top: number;
-  /** Дно продольного паза, мм. */
-  floor: number;
-  /** Ширина продольного паза, мм. */
+  /** Ширина шейки паза: в неё проходит ножка каретки, мм. */
   slotWidth: number;
-  /** Глубина продольного паза, мм. */
+  /** Высота шейки от верха шины вниз, мм. */
   slotDepth: number;
+  /** Ширина кармана под салазки на дне паза, мм. */
+  cavityWidth: number;
+  /** Дно кармана над столом, мм: на нём стоят салазки. */
+  cavityFloor: number;
+  /** Потолок кармана — низ фланок, которые держат салазки, мм. */
+  cavityCeiling: number;
+  /** Зазор между пазом и салазками на сторону, мм. */
+  clearance: number;
 };
 
 /**
  * Габариты монорельса.
  *
- * Экспортируется для теста геометрии: по этим числам проверяются ширина,
- * выступ и паз рельса, которые иначе пришлось бы выковыривать из готовой сетки.
- * От параметров панели шина не зависит — рельс одинаков у любой ширины.
+ * Экспортируется для теста геометрии: по этим числам проверяются шина, шейка и
+ * карман, которые иначе пришлось бы выковыривать из готовой сетки. От параметров
+ * панели шина не зависит — рельс одинаков у любой ширины.
+ *
+ * Дно кармана выводится из фланок под 45°: вылет кармана за шейку равен его
+ * высоте, поэтому `cavityFloor = top − slotDepth − (cavityWidth − slotWidth) / 2`.
  */
 export function lithophaneRailMetrics(): RailMetrics {
   const rail = LITHOPHANE_RAIL;
+  const cavityCeiling = rail.thickness - rail.slotDepth;
+  const flank = (rail.cavityWidth - rail.slotWidth) / 2;
 
   return {
     width: rail.width,
     half: rail.width / 2,
     depth: rail.depth,
     top: rail.thickness,
-    floor: rail.thickness - rail.slotDepth,
     slotWidth: rail.slotWidth,
     slotDepth: rail.slotDepth,
+    cavityWidth: rail.cavityWidth,
+    cavityFloor: cavityCeiling - flank,
+    cavityCeiling,
+    clearance: rail.clearance,
   };
 }
 
 /**
- * Полоз на нижней кромке тыла плоской рамки: шина 14 × 5 мм с пазом 6 × 2 мм.
+ * Полоз на нижней кромке тыла плоской рамки: шина 14 × 5 мм с Т-образным пазом.
  *
  * Шина лежит на столе (Y = 0) и нахлёстом `frameOverlap` входит в тыл нижней
  * полки рамки, поэтому полоз и рамка печатаются одним телом. Паз открыт сверху и
- * с торцов: он собран из левой и правой полок и дна, а между ними остаётся
- * продольный канал, в котором стоит ножка кольца.
+ * с торцов, а его сечение — шейка 6 мм над карманом 10 мм с фланками под 45°.
+ *
+ * Профиль режется одним замкнутым контуром (`createPlateBody`) и выдавливается по
+ * Z: так паз получается призматическим, а оболочка остаётся замкнутой без
+ * склейки брусков. Фланки под 45° печатаются нависанием, которое станок держит
+ * сам, — поддержек под карманом не нужно.
  */
 function createRailBodies(): BufferGeometry[] {
-  const { half, depth, top, floor, slotWidth } = lithophaneRailMetrics();
-  const slotHalf = slotWidth / 2;
+  const {
+    half,
+    depth,
+    top,
+    slotWidth,
+    cavityWidth,
+    cavityFloor,
+    cavityCeiling,
+  } = lithophaneRailMetrics();
+  const neckHalf = slotWidth / 2;
+  const cavityHalf = cavityWidth / 2;
   const front = LITHOPHANE_RAIL.frameOverlap;
-  const back = -depth;
-
-  return [
-    // Полки паза: от стола до верха шины по обе стороны от канала.
-    createBoxBody(-half, -slotHalf, 0, top, back, front),
-    createBoxBody(slotHalf, half, 0, top, back, front),
-    /*
-      Дно канала — нахлёстом в мясо полок на `BODY_OVERLAP_MM` с каждой стороны:
-      так у полок и дна нет общих рёбер, и оболочка полоза остаётся замкнутой.
-    */
-    createBoxBody(
-      -slotHalf - BODY_OVERLAP_MM,
-      slotHalf + BODY_OVERLAP_MM,
-      0,
-      floor,
-      back,
-      front,
-    ),
+  // Контур шины: низ на столе, сверху — шейка с карманом под салазки.
+  const outline: Point2[] = [
+    [-half, 0],
+    [half, 0],
+    [half, top],
+    [neckHalf, top],
+    [neckHalf, cavityCeiling],
+    [cavityHalf, cavityFloor],
+    [-cavityHalf, cavityFloor],
+    [-neckHalf, cavityCeiling],
+    [-neckHalf, top],
+    [-half, top],
   ];
+
+  return [createPlateBody(outline, [], -depth, front)];
 }
 
 /** Габариты держателя патрона: кольцо, карманы патрона, ножка и козырёк, мм. */
@@ -2055,13 +2077,20 @@ export type CarriageMetrics = {
   nutFlats: number;
   nutRadius: number;
   nutDepth: number;
-  /** Ножка: ширина, толщина, низ и верх над столом, лицо и тыл по Z, мм. */
+  /**
+   * Ножка и салазки: ширина ножки в шейке, ширина салазок на дне кармана, верх
+   * ножки над столом, лицо и тыл по Z, низ и верх салазок, мм.
+   */
   stemWidth: number;
+  sledWidth: number;
   stemDepth: number;
-  stemBottom: number;
   stemTop: number;
   stemFront: number;
   stemBack: number;
+  sledBottom: number;
+  sledTop: number;
+  /** Нижний предел оси патрона: кольцо не ложится на шину, мм. */
+  minAxisY: number;
   /** Низ навеса у лица, его нос, провис, ширина и толщина, мм. */
   visorBottom: number;
   visorFront: number;
@@ -2077,18 +2106,28 @@ export type CarriageMetrics = {
 /**
  * Габариты держателя патрона по нормализованным параметрам.
  *
- * Экспортируется для теста геометрии: кольцо, карманы патрона, ножка и козырёк
- * считаются здесь, а сетка только повторяет эти числа. Нос навеса обрезан
- * зазором `panelClearance`, поэтому козырёк никогда не доходит до рельефа.
+ * Экспортируется для теста геометрии: кольцо, карманы патрона, ножка с салазками
+ * и козырёк считаются здесь, а сетка только повторяет эти числа. Нос навеса
+ * обрезан зазором `panelClearance`, поэтому козырёк никогда не доходит до рельефа.
+ *
+ * Диаметр кольца берётся из патрона (`ring` в `LITHOPHANE_RAIL_SOCKET_SIZES`) —
+ * Ø32 у E14 и Ø42 у E27, — поэтому вместе с ним меняются верх и низ кольца, ширина
+ * козырька и предел оси. Козырёк равен кольцу по ширине: он закрывает патрон ровно
+ * на всю его макушку.
  *
  * Высота оси — половина высоты панели: кольцо встаёт напротив центра кадра, и у
  * высокой панели лампа не светит вниз. Ниже `minAxisY` ось опустить нельзя —
- * кольцо легло бы на полоз, — поэтому у панели ниже 62 мм ось стоит на пределе,
- * а не на середине.
+ * кольцо легло бы на шину, — поэтому у низкой панели ось стоит на пределе, а не
+ * на середине: `minAxisY = ringRadius + railGap + top`.
  *
- * Ножка опускается на дно паза полоза и кончается там, где кончается полоз: на
- * дальнем положении (`lithoRailDistance` 90 мм) от шины остаётся 10 мм, и ножка
- * укорачивается до них — иначе она свисала бы с торца полоза.
+ * Салазки опускаются на дно кармана полоза и кончаются там, где кончается полоз:
+ * на дальнем положении (`lithoRailDistance` 90 мм) от шины остаётся 10 мм, и
+ * ножка укорачивается до них — иначе салазки свисали бы с торца полоза.
+ *
+ * Верх ножки упирается в гнездо гайки: `stemTop` не выше нижней грани
+ * шестигранника (`socketY − nutFlats / 2`), иначе ножка перекрыла бы гайку в тылу
+ * кольца. Поэтому нахлёст в мясо кольца — `stemOverlap` или чуть меньше: у E14 это
+ * 4.6 мм, у E27 — 4.1 мм, и оба кармана патрона остаются свободными.
  */
 export function lithophaneCarriageMetrics(
   normalized: LithophaneParams,
@@ -2099,10 +2138,14 @@ export function lithophaneCarriageMetrics(
   const socket = LITHOPHANE_RAIL_SOCKET_SIZES[normalized.lithoRailSocket];
   // Лицевая плоскость кольца смотрит на панель, ось патрона проходит по ней.
   const plateFront = -normalized.lithoRailDistance;
-  // Половина высоты панели — до предела, ниже которого кольцо легло бы на полоз.
-  const socketY = Math.max(normalized.lithophaneHeight / 2, carriage.minAxisY);
-  const ringBottom = socketY - carriage.ringRadius;
+  const ringRadius = socket.ring / 2;
+  // Предел оси: кольцо висит над шиной на `railGap`, салазки — в кармане.
+  const minAxisY = ringRadius + carriage.railGap + railMetrics.top;
+  // Половина высоты панели — до предела, ниже которого кольцо легло бы на шину.
+  const socketY = Math.max(normalized.lithophaneHeight / 2, minAxisY);
+  const ringBottom = socketY - ringRadius;
   const nutFlats = socket.nut + 2 * carriage.nutClearance;
+  const nutRadius = nutFlats / Math.sqrt(3);
   // Нос навеса не доходит до рельефа на `panelClearance`: у панели он короче.
   const visorFront = Math.min(
     plateFront + carriage.visorRun,
@@ -2111,11 +2154,21 @@ export function lithophaneCarriageMetrics(
   // Ножка стоит за лицом кольца и не свисает за торец полоза.
   const stemFront = plateFront - BODY_OVERLAP_MM;
   const stemBack = Math.max(stemFront - carriage.stemDepth, -rail.depth);
+  /*
+    Верх ножки: она входит в мясо кольца снизу, но не достаёт до гнезда гайки.
+    Гнездо — шестигранник гранью вниз, поэтому его нижняя граница на
+    `socketY − nutFlats / 2`; зенковка фланца того же радиуса. Ножка кончается ниже
+    обоих карманов, иначе перекрыла бы гайку в тыльной части кольца.
+  */
+  const stemTop = Math.min(
+    ringBottom + carriage.stemOverlap,
+    socketY - nutFlats / 2 - BODY_OVERLAP_MM,
+  );
 
   return {
     socketY,
-    ringRadius: carriage.ringRadius,
-    ringTop: socketY + carriage.ringRadius,
+    ringRadius,
+    ringTop: socketY + ringRadius,
     ringBottom,
     boreRadius: socket.thread / 2,
     ringDepth: carriage.ringDepth,
@@ -2125,20 +2178,24 @@ export function lithophaneCarriageMetrics(
     flangeRadius: (socket.nut + carriage.flangeClearance) / 2,
     flangeDepth: carriage.flangeDepth,
     nutFlats,
-    nutRadius: nutFlats / Math.sqrt(3),
+    nutRadius,
     nutDepth: carriage.nutDepth,
-    // Ножка уже паза на зазор с каждой стороны и входит в него до дна.
+    // Ножка уже шейки, а салазки — кармана, на зазор с каждой стороны.
     stemWidth: rail.slotWidth - 2 * rail.clearance,
+    sledWidth: rail.cavityWidth - 2 * rail.clearance,
     stemDepth: stemFront - stemBack,
-    stemBottom: railMetrics.floor,
-    stemTop: ringBottom + carriage.stemOverlap,
+    stemTop,
     stemFront,
     stemBack,
+    // Салазки стоят на дне кармана, фланки кончаются на его потолке.
+    sledBottom: railMetrics.cavityFloor,
+    sledTop: railMetrics.cavityCeiling,
+    minAxisY,
     // Низ навеса — внутренняя дуга хвоста: она врезана в кольцо на нахлёст.
-    visorBottom: socketY + carriage.ringRadius - BODY_OVERLAP_MM,
+    visorBottom: socketY + ringRadius - BODY_OVERLAP_MM,
     visorFront,
     visorDrop: carriage.visorDrop,
-    visorWidth: carriage.visorWidth,
+    visorWidth: socket.ring,
     visorThickness: carriage.visorThickness,
     thread: socket.thread,
     nut: socket.nut,
@@ -2165,7 +2222,8 @@ function circlePoints(
  * Шестигранник под гайку: вершины через 60°, грань смотрит вверх.
  *
  * Наружный радиус по вершинам на 15.5 % больше размера под ключ, поэтому гнездо
- * под гайку E27 (33 мм) занимает 38.1 мм по вершинам и остаётся внутри Ø50.
+ * под гайку E27 (33 мм) занимает 38.1 мм по вершинам и остаётся внутри кольца
+ * Ø42: по углам гнезда остаётся 1.7 мм мяса.
  */
 function nutPocketPoints(centerY: number, radius: number): Point2[] {
   return Array.from(
@@ -2182,8 +2240,8 @@ function nutPocketPoints(centerY: number, radius: number): Point2[] {
 
 
 /**
- * Держатель патрона отдельной деталью: плоское кольцо Ø50 × 5 мм на ножке с
- * козырьком.
+ * Держатель патрона отдельной деталью: плоское кольцо Ø32 (E14) или Ø42 (E27)
+ * толщиной 5 мм на ножке с салазками и козырьком.
  *
  * Кольцо лежит плоскостью XY: лицо смотрит на панель, ось патрона проходит через
  * центр на середине высоты панели. Отверстие равно резьбе патрона — патрон
@@ -2191,9 +2249,11 @@ function nutPocketPoints(centerY: number, radius: number): Point2[] {
  * шестигранное гнездо с тыла и зажимает кольцо. Ни корпуса, ни полости у детали
  * нет: это плоское кольцо, а не барабан.
  *
- * Кольцо стоит на одной вертикальной ножке: она опускается в паз полоза до дна,
- * поэтому кольцо держится на полозе и едет по нему вдоль Z. Сверху лежит гнутый
- * козырёк — тонкая пластина, которая закрывает патрон от глаз.
+ * Кольцо стоит на ножке, низ которой расширен в салазки: они входят в Т-образный
+ * паз полоза с торца, стоят на дне кармана и едут по нему вдоль Z, поэтому кольцо
+ * держится на полозе, не опрокидывается вперёд и не соскакивает при сдвиге
+ * слайдером. Сверху лежит гнутый козырёк — тонкая пластина, которая закрывает
+ * патрон от глаз.
  */
 export function createLithophaneCarriageGeometry(
   params: Partial<LithophaneParams>,
@@ -2212,7 +2272,9 @@ export function createLithophaneCarriageGeometry(
     nutRadius,
     nutDepth,
     stemWidth,
-    stemBottom,
+    sledWidth,
+    sledBottom,
+    sledTop,
     stemTop,
     stemFront,
     stemBack,
@@ -2222,6 +2284,7 @@ export function createLithophaneCarriageGeometry(
   const flange = circlePoints(0, socketY, flangeRadius, carriage.boreSegments);
   const nutPocket = nutPocketPoints(socketY, nutRadius);
   const stemHalf = stemWidth / 2;
+  const sledHalf = sledWidth / 2;
 
   const bodies: BufferGeometry[] = [
     /*
@@ -2244,17 +2307,23 @@ export function createLithophaneCarriageGeometry(
       plateFront,
     ),
     /*
-      Ножка: одна вертикальная пластина от дна паза полоза до мяса кольца. Снизу
-      она стоит на дне канала (3 мм), сверху входит в кольцо на `stemOverlap` —
-      ниже отверстия патрона, поэтому резьба остаётся свободной. По X ножка уже
-      паза на зазор с каждой стороны, по Z она и есть то пятно, которым кольцо
-      едет по полозу.
+      Ножка с салазками — один призматический контур по всей толщине: снизу
+      салазки шириной `sledWidth` стоят на дне кармана, фланки под 45° сходятся к
+      шейке, а выше ножка идёт в `stemWidth` и входит в мясо кольца на
+      `stemOverlap` — ниже отверстия патрона, поэтому резьба остаётся свободной.
+      Фланки повторяют паз с зазором `clearance` по X, поэтому салазки входят в
+      паз с торца шины, едут по нему вдоль Z и не дают кольцу наклониться.
     */
-    createBoxBody(
-      -stemHalf,
-      stemHalf,
-      stemBottom,
-      stemTop,
+    createPlateBody(
+      [
+        [-sledHalf, sledBottom],
+        [sledHalf, sledBottom],
+        [stemHalf, sledTop],
+        [stemHalf, stemTop],
+        [-stemHalf, stemTop],
+        [-stemHalf, sledTop],
+      ],
+      [],
       stemBack,
       stemFront,
     ),
@@ -2286,11 +2355,12 @@ function createCarriageVisorBodies(
   normalized: LithophaneParams,
 ): BufferGeometry[] {
   const carriage = LITHOPHANE_CARRIAGE;
-  const { socketY, plateFront, visorFront, ringRadius } =
+  const { socketY, plateFront, visorFront, ringRadius, visorWidth } =
     lithophaneCarriageMetrics(normalized);
   const outer = ringRadius + carriage.visorThickness - BODY_OVERLAP_MM;
   const inner = outer - carriage.visorThickness;
-  const halfWidth = carriage.visorWidth / 2;
+  // Ширина навеса равна кольцу: он закрывает патрон на всю макушку.
+  const halfWidth = visorWidth / 2;
   // Провис: ровно над резьбой, плавно вниз за серединой вылета.
   const bendFrom = plateFront + (visorFront - plateFront) / 2;
   const bendRun = Math.max(0.001, visorFront - bendFrom);

@@ -85,16 +85,18 @@
  *      ленту, скобы, гнездо E27, лист-рассеиватель и карта света; у круглого
  *      плафона расчёта нет: лампу в него ставят отдельно;
  *  20. нижний полоз: узкая шина 14 × 5 мм лежит на столе, нахлёстом входит в тыл
- *      рамки и уходит назад на 100 мм с продольным пазом 6 × 2 мм — полки паза
- *      поднимаются до верха шины, а дно канала лежит на 3 мм; держатель патрона —
- *      плоское кольцо Ø50 × 5 мм на одной вертикальной ножке 5.6 × 10 мм: ножка
- *      стоит на дне паза и едет по нему вдоль Z, а ось кольца сама встаёт на
- *      половину высоты панели (40 мм у 80 мм, 80 у 160), у низкой панели —
- *      на предел 31 мм; сквозное отверстие под резьбу (Ø14.6 или Ø28.6), зенковка
- *      1 мм под фланец патрона с лица и шестигранное гнездо 2 мм под штатную гайку
- *      с тыла; сверху гнутый козырёк 30 × 2 мм с вылетом 20 мм и провисом носа
- *      5 мм; оболочка замкнута, кольцо в сборе весит около 14.3 г у E14 и 11.0 г у
- *      E27, а круглый плафон и калейдоскоп от полоза не меняются.
+ *      рамки и уходит назад на 100 мм. Её сечение — Т-образный паз: шейка 6 × 1.5
+ *      мм над карманом 10 мм с фланками под 45°, дно кармана на 1.5 мм. Держатель
+ *      патрона — плоское кольцо Ø32 (E14) или Ø42 (E27) толщиной 5 мм на ножке
+ *      5.6 × 10 мм, низ которой расширен в салазки 9.6 мм: их вставляют в паз с
+ *      торца шины, они едут по нему вдоль Z, а фланки не дают кольцу
+ *      опрокинуться. Ось кольца сама встаёт на половину высоты панели (40 мм у 80
+ *      мм, 80 у 160), у низкой панели — на предел 22 мм у E14 и 27 у E27;
+ *      сквозное отверстие под резьбу (Ø14.6 или Ø28.6), зенковка 1 мм под фланец
+ *      патрона с лица и шестигранное гнездо 2 мм под штатную гайку с тыла; сверху
+ *      гнутый козырёк шириной в кольцо и толщиной 2 мм с вылетом 20 мм и провисом
+ *      носа 5 мм; оболочка замкнута, кольцо в сборе весит около 7.1 г у E14 и 8.0
+ *      у E27, а круглый плафон и калейдоскоп от полоза не меняются.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -160,6 +162,7 @@ import {
   normalizeLithophaneParams,
   type LithophaneBrightnessGrid,
   type LithophaneParams,
+  type LithophaneRailSocket,
 } from "../lib/constructor/params";
 import { calculateGeometryWeightGrams } from "../lib/constructor/geometry-volume";
 import {
@@ -3605,21 +3608,22 @@ console.log("\n19. Свет: где стоят лампы и как ложитс
 }
 
 console.log(
-  `\n20. Нижний полоз: шина ${LITHOPHANE_RAIL.width} × 5 на столе, кольцо Ø${2 * LITHOPHANE_CARRIAGE.ringRadius} × ${LITHOPHANE_CARRIAGE.ringDepth} на ножке и козырёк`,
+  `\n20. Нижний полоз: шина ${LITHOPHANE_RAIL.width} × ${LITHOPHANE_RAIL.thickness} с Т-пазом, кольцо Ø${LITHOPHANE_RAIL_SOCKET_SIZES.e14.ring}/${LITHOPHANE_RAIL_SOCKET_SIZES.e27.ring} на салазках и козырёк`,
 );
 
 {
   /*
     Полоз — узкая шина 14 × 5 мм по центру нижней кромки тыла плоской рамки: она
     лежит на столе (Y = 0) и нахлёстом входит в тыл нижней полки рамки, поэтому
-    растёт из рамки одной деталью. Назад шина уходит на 100 мм и несёт продольный
-    паз 6 × 2 мм: полки паза поднимаются до верха 5 мм, а между ними остаётся
-    канал с дном на 3 мм, открытый сверху и с торцов.
+    растёт из рамки одной деталью. Назад шина уходит на 100 мм и несёт Т-образный
+    паз: сверху открыта шейка 6 мм на 1.5 мм вниз, под ней — карман 10 мм с
+    фланками под 45°, дно кармана на 1.5 мм. По пазу вдоль Z едут салазки каретки,
+    а фланки держат кольцо от опрокидывания.
 
-    Проверяется то, чего не видно на предпросмотре: верх шины, дно канала, ширина
-    паза и шины, выступ назад и то, что полоз печатается вместе с рамкой. Луч
-    идёт сверху вниз: замер говорит, на какой высоте начинается пластик, а NaN —
-    что под точкой его нет.
+    Проверяется то, чего не видно на предпросмотре: верх шины, дно кармана, ширина
+    шейки и кармана, фланки под 45°, выступ назад и то, что полоз печатается
+    вместе с рамкой. Луч идёт сверху вниз: замер говорит, на какой высоте
+    начинается пластик, а NaN — что под точкой его нет.
   */
   const width = 120;
   const height = 80;
@@ -3631,9 +3635,10 @@ console.log(
     lithoMount: "rail",
   };
   const metrics = lithophaneRailMetrics();
-  const slotHalf = rail.slotWidth / 2;
-  // Проба полки — между стенкой паза и кромкой шины.
-  const shelfProbe = (metrics.half + slotHalf) / 2;
+  const neckHalf = metrics.slotWidth / 2;
+  const cavityHalf = metrics.cavityWidth / 2;
+  // Проба полки — между стенкой кармана и кромкой шины.
+  const shelfProbe = (metrics.half + cavityHalf) / 2;
   const frame = createLithophaneFrameGeometry(railParams);
   const plainFrame = createLithophaneFrameGeometry({
     ...railParams,
@@ -3659,34 +3664,78 @@ console.log(
     return hits.length === 0 ? Number.NaN : hits[0].point.y;
   };
 
+  // Первое попадание луча сбоку от оси: NaN — пластика на пути нет.
+  const frameHitX = (y: number, z: number): number => {
+    const hits = new Raycaster(
+      new Vector3(0, y, z),
+      new Vector3(1, 0, 0),
+      0,
+      metrics.half + 1,
+    ).intersectObject(frameObject, false);
+
+    return hits.length === 0 ? Number.NaN : hits[0].point.x;
+  };
+
   checkRange(
-    `полоз: шина ${rail.width} мм шириной, верх на ${rail.thickness} мм`,
+    `полоз: шина ${rail.width} мм шириной, верх на ${metrics.top} мм`,
     [frameHitY(shelfProbe, -20), frameHitY(-shelfProbe, -20)],
-    rail.thickness - TOLERANCE_MM,
-    rail.thickness + TOLERANCE_MM,
+    metrics.top - TOLERANCE_MM,
+    metrics.top + TOLERANCE_MM,
   );
   check(
     "полоз: за кромкой шины пластика нет",
     Number.isNaN(frameHitY(metrics.half + 0.1, -20)),
     true,
   );
-  checkRange(
-    "полоз: дно канала на 3 мм",
-    [frameHitY(0, -20), frameHitY(slotHalf - 0.1, -20)],
-    metrics.floor - TOLERANCE_MM,
-    metrics.floor + TOLERANCE_MM,
+  check(
+    "полоз: паз Т-образный — карман шире шейки",
+    [
+      metrics.cavityWidth > metrics.slotWidth,
+      metrics.cavityFloor < metrics.cavityCeiling,
+    ],
+    [true, true],
   );
   checkRange(
-    "полоз: паз 6 мм шириной, полки до верха шины",
-    [frameHitY(slotHalf + 0.1, -20)],
-    rail.thickness - TOLERANCE_MM,
-    rail.thickness + TOLERANCE_MM,
+    `полоз: дно кармана на ${metrics.cavityFloor} мм`,
+    [frameHitY(0, -20), frameHitY(neckHalf - 0.1, -20)],
+    metrics.cavityFloor - TOLERANCE_MM,
+    metrics.cavityFloor + TOLERANCE_MM,
+  );
+  /*
+    Шейка открыта сверху, а над фланцем лежит сплошная полка: луч сверху за стенкой
+    шейки упирается в верх шины, а не проваливается в карман. Сбоку карман виден:
+    на 0.1 мм над дном луч уходит до `cavityHalf`, а под потолком — до шейки.
+  */
+  checkRange(
+    `полоз: над фланцем полка сплошная до ${metrics.top} мм`,
+    [frameHitY(neckHalf + 0.1, -20)],
+    metrics.top - TOLERANCE_MM,
+    metrics.top + TOLERANCE_MM,
+  );
+  const flankAtFloor = frameHitX(metrics.cavityFloor + 0.1, -20);
+  const flankAtCeiling = frameHitX(metrics.cavityCeiling - 0.1, -20);
+
+  checkRange(
+    `полоз: карман шире шейки — на дне ${metrics.cavityWidth} мм, под потолком ${metrics.slotWidth} мм`,
+    [flankAtFloor - cavityHalf, flankAtCeiling - neckHalf],
+    -0.1 - TOLERANCE_MM,
+    0.1 + TOLERANCE_MM,
+  );
+  // Фланки под 45°: на 2 мм высоты стенка кармана уходит внутрь на 2 мм.
+  checkRange(
+    "полоз: фланки кармана идут под 45°",
+    [
+      (flankAtFloor - flankAtCeiling) /
+        (metrics.cavityCeiling - metrics.cavityFloor - 0.2),
+    ],
+    1 - 2 * TOLERANCE_MM,
+    1 + 2 * TOLERANCE_MM,
   );
   checkRange(
-    "полоз: канал открыт с торца, дно доходит до тыла шины",
+    "полоз: паз открыт с торца, дно доходит до тыла шины",
     [frameHitY(0, -rail.depth + 0.1)],
-    metrics.floor - TOLERANCE_MM,
-    metrics.floor + TOLERANCE_MM,
+    metrics.cavityFloor - TOLERANCE_MM,
+    metrics.cavityFloor + TOLERANCE_MM,
   );
   check(
     "полоз: за тылом шины пластика нет",
@@ -3728,11 +3777,11 @@ console.log(
 
 {
   /*
-    Держатель патрона — вторая печатная деталь: плоское кольцо Ø50 × 5 мм на одной
-    вертикальной ножке и тонкий гнутый козырёк. Кольцо лежит плоскостью XY: лицо
-    уходит от панели на lithoRailDistance, а ось патрона проходит через центр на
-    половине высоты панели — у 80 мм это 40 мм, поэтому верх кольца на 65 мм, а
-    низ на 15 мм над столом.
+    Держатель патрона — вторая печатная деталь: плоское кольцо Ø32 (E14) или Ø42
+    (E27) толщиной 5 мм на ножке с салазками и тонкий гнутый козырёк. Кольцо лежит
+    плоскостью XY: лицо уходит от панели на lithoRailDistance, а ось патрона
+    проходит через центр на половине высоты панели — у 80 мм это 40 мм, поэтому
+    верх кольца E14 на 56 мм, а низ на 24 мм над столом.
 
     Патрон стандартный, с наружной резьбой и штатной гайкой: отверстие кольца
     равно резьбе (Ø14.6 у E14 и Ø28.6 у E27). С лица утоплена круглая зенковка
@@ -3740,18 +3789,21 @@ console.log(
     гайку, чтобы она не проворачивалась; между дном зенковки и гнездом остаётся
     2 мм мяса. Никакого барабана и полости у детали нет.
 
-    Снизу кольца — одна ножка 5.6 × 10 мм: по X она уже паза 6 мм на зазор с
-    каждой стороны и стоит на его дне на 3 мм, а верх врезан в мясо кольца.
-    Ножка скользит по пазу вдоль Z, поэтому кольцо едет по полозу, а не по столу.
-    Козырёк — пластина 2 мм поверх макушки кольца: выступает к панели на 20 мм и
-    опускается к носу на 5 мм.
+    Снизу кольца — одна ножка 5.6 × 10 мм, а её низ расширен в салазки 9.6 мм с
+    фланками под 45°: салазки входят в Т-образный паз полоза (шейка 6 мм над
+    карманом 10 мм) с зазорами 0.2 мм и стоят на дне кармана. Каретка едет по
+    полозу вдоль Z, а фланки не дают кольцу опрокинуться вперёд.
+    Козырёк — пластина 2 мм поверх макушки кольца, по его ширине: выступает к
+    панели на 20 мм и опускается к носу на 5 мм.
 
-    Проверяются оба патрона: наружный Ø50 и толщина 5, сквозное отверстие под
-    резьбу, зенковка под фланец, шестигранное гнездо под гайку и мясо между ними,
-    высота оси по половине панели, ножка в пазу, козырёк без окон с провисом носа,
-    свободный коридор перед кольцом, вес деталей и замкнутость оболочки.
+    Проверяются оба патрона: наружный Ø32 у E14 и Ø42 у E27 при толщине 5,
+    сквозное отверстие под резьбу, зенковка под фланец, шестигранное гнездо под
+    гайку и мясо между ними, высота оси по половине панели, салазки в пазу,
+    козырёк без окон с провисом носа, свободный коридор перед кольцом, вес деталей
+    и замкнутость оболочки.
   */
   const rail = LITHOPHANE_RAIL;
+  const railMetrics = lithophaneRailMetrics();
   const carriage = LITHOPHANE_CARRIAGE;
   const railParams: Partial<LithophaneParams> = {
     lithophaneWidth: 120,
@@ -3765,11 +3817,36 @@ console.log(
     lithophaneCarriageMetrics(
       normalizeLithophaneParams({ ...railParams, lithophaneHeight: height }),
     ).socketY;
+  // Ось патрона у панели с другим патроном: кольцо E27 выше и толще по мясу.
+  const socketFor = (socketId: LithophaneRailSocket) =>
+    lithophaneCarriageMetrics(
+      normalizeLithophaneParams({ ...railParams, lithoRailSocket: socketId }),
+    );
 
   check(
     `кольцо: наружный Ø${2 * base.ringRadius} и толщина ${base.ringDepth} мм`,
     [2 * base.ringRadius, base.plateFront - base.plateBack],
-    [2 * carriage.ringRadius, carriage.ringDepth],
+    [LITHOPHANE_RAIL_SOCKET_SIZES.e14.ring, carriage.ringDepth],
+  );
+  /*
+    Диаметр кольца выбирается патроном: гайке E14 (22 мм под ключ) хватает Ø32, а
+    гайке E27 (33 мм) — Ø42. Вместе с кольцом меняется и ширина козырька: он равен
+    кольцу, а не висит шире него.
+  */
+  check(
+    "кольцо: диаметр и козырёк меняются вместе с патроном",
+    [
+      LITHOPHANE_RAIL_SOCKETS.map((socketId) => [
+        socketFor(socketId).ringRadius * 2,
+        socketFor(socketId).visorWidth,
+      ]),
+    ],
+    [
+      LITHOPHANE_RAIL_SOCKETS.map((socketId) => [
+        LITHOPHANE_RAIL_SOCKET_SIZES[socketId].ring,
+        LITHOPHANE_RAIL_SOCKET_SIZES[socketId].ring,
+      ]),
+    ],
   );
   /*
     Высота оси — половина высоты панели: кольцо само встаёт напротив центра кадра,
@@ -3782,9 +3859,21 @@ console.log(
     [40, 80, 100],
   );
   check(
-    `кольцо: у панели 40 мм ось упирается в предел ${carriage.minAxisY} мм`,
+    `кольцо: у панели 40 мм ось упирается в предел ${base.minAxisY} мм`,
     [axisFor(40)],
-    [carriage.minAxisY],
+    [base.minAxisY],
+  );
+  check(
+    `кольцо: предел оси ${base.minAxisY} мм у E14 и ${socketFor("e27").minAxisY.toFixed(1)} мм у E27 = радиус + зазор ${carriage.railGap} + верх шины`,
+    LITHOPHANE_RAIL_SOCKETS.map((socketId) => {
+      const socketMetrics = socketFor(socketId);
+
+      return (
+        socketMetrics.minAxisY -
+        (socketMetrics.ringRadius + carriage.railGap + railMetrics.top)
+      );
+    }),
+    [0, 0],
   );
   checkRange(
     `кольцо: ось на ${base.socketY} мм — половина панели 80 мм`,
@@ -3792,11 +3881,10 @@ console.log(
     40 - TOLERANCE_MM,
     40 + TOLERANCE_MM,
   );
-  checkRange(
-    `кольцо: верх ${base.ringTop} и низ ${base.ringBottom} мм`,
-    [base.ringTop, base.ringBottom],
-    15 - TOLERANCE_MM,
-    65 + TOLERANCE_MM,
+  check(
+    `кольцо: верх ${base.ringTop} и низ ${base.ringBottom} мм — симметрично оси ${base.socketY} мм`,
+    [base.ringTop - base.socketY, base.socketY - base.ringBottom],
+    [base.ringRadius, base.ringRadius],
   );
   checkRange(
     `кольцо: у панели 40 мм низ кольца выше полоза на ${carriage.railGap} мм`,
@@ -3828,38 +3916,83 @@ console.log(
     ],
   );
   /*
-    Ножка — единственная опора кольца: она стоит на дне паза, поэтому её низ на
-    3 мм, а не на столе. Верх врезан в кольцо на `stemOverlap`, но остаётся ниже
-    отверстия патрона — иначе перекрыл бы резьбу.
+    Каретка стоит на салазках: низ ножки расширен в карман полоза, поэтому её низ —
+    дно кармана, а не стол и не верх шины. Фланки салазок кончаются на потолке
+    кармана, а выше идёт ножка в шейку паза: по X она уже шейки на зазор с каждой
+    стороны, поэтому каретка входит в паз с торца и едет по нему вдоль Z.
   */
   check(
-    `ножка: ${base.stemWidth} мм шириной — уже паза ${rail.slotWidth} мм`,
-    [base.stemWidth < rail.slotWidth],
+    `салазки: ${base.sledWidth} мм шириной — шире шейки ${rail.slotWidth} мм`,
+    [base.sledWidth > railMetrics.slotWidth],
     [true],
   );
   checkRange(
-    `ножка: зазор в пазу ${(rail.slotWidth - base.stemWidth).toFixed(1)} мм — ${rail.clearance} мм на сторону`,
-    [rail.slotWidth - base.stemWidth],
-    2 * rail.clearance - TOLERANCE_MM,
-    2 * rail.clearance + TOLERANCE_MM,
+    `салазки: зазор в кармане ${(railMetrics.cavityWidth - base.sledWidth).toFixed(1)} мм — ${railMetrics.clearance} мм на сторону`,
+    [railMetrics.cavityWidth - base.sledWidth],
+    2 * railMetrics.clearance - TOLERANCE_MM,
+    2 * railMetrics.clearance + TOLERANCE_MM,
   );
   checkRange(
-    `ножка: низ на дне паза ${base.stemBottom} мм`,
-    [base.stemBottom],
-    rail.thickness - rail.slotDepth - TOLERANCE_MM,
-    rail.thickness - rail.slotDepth + TOLERANCE_MM,
+    `салазки: стоят на дне кармана ${base.sledBottom} мм`,
+    [base.sledBottom],
+    railMetrics.cavityFloor - TOLERANCE_MM,
+    railMetrics.cavityFloor + TOLERANCE_MM,
+  );
+  checkRange(
+    `салазки: фланки до потолка кармана ${base.sledTop} мм`,
+    [base.sledTop],
+    railMetrics.cavityCeiling - TOLERANCE_MM,
+    railMetrics.cavityCeiling + TOLERANCE_MM,
+  );
+  check(
+    `ножка: ${base.stemWidth} мм шириной — уже шейки ${rail.slotWidth} мм`,
+    [base.stemWidth < railMetrics.slotWidth],
+    [true],
+  );
+  // Фланки под 45°: на высоту кармана (2 мм) салазки сужаются на столько же.
+  check(
+    "салазки: фланки под 45° сходятся ровно в ножку",
+    [base.sledWidth / 2 - (base.sledTop - base.sledBottom)],
+    [base.stemWidth / 2],
+  );
+  checkRange(
+    `ножка: зазор в шейке ${(railMetrics.slotWidth - base.stemWidth).toFixed(1)} мм — ${railMetrics.clearance} мм на сторону`,
+    [railMetrics.slotWidth - base.stemWidth],
+    2 * railMetrics.clearance - TOLERANCE_MM,
+    2 * railMetrics.clearance + TOLERANCE_MM,
   );
   checkRange(
     `ножка: верх ${base.stemTop} мм врезан в кольцо с низом ${base.ringBottom} мм`,
     [base.stemTop - base.ringBottom],
-    carriage.stemOverlap - TOLERANCE_MM,
+    BODY_OVERLAP_MM,
     carriage.stemOverlap + TOLERANCE_MM,
   );
+  /*
+    Гнездо гайки — ближайший к низу кольца карман патрона: он шестигранный, гранью
+    вниз, поэтому его нижняя граница на `socketY − nutFlats / 2`. Ножка кончается
+    ниже неё, поэтому гайка садится в гнездо у обоих патронов, а резьба остаётся
+    сквозной.
+  */
+  const socketGaps = LITHOPHANE_RAIL_SOCKETS.map((socketId) => {
+    const socketMetrics = socketFor(socketId);
+
+    return {
+      pocket: socketMetrics.socketY - socketMetrics.nutFlats / 2 - socketMetrics.stemTop,
+      bore: socketMetrics.socketY - socketMetrics.boreRadius - socketMetrics.stemTop,
+    };
+  });
+
   checkRange(
-    `ножка: верх ниже отверстия патрона на ${(base.socketY - base.boreRadius - base.stemTop).toFixed(1)} мм`,
-    [base.socketY - base.boreRadius - base.stemTop],
-    3,
-    carriage.minAxisY,
+    `ножка: верх ниже гнезда гайки на ${socketGaps[0].pocket.toFixed(1)} и ${socketGaps[1].pocket.toFixed(1)} мм`,
+    socketGaps.map(({ pocket }) => pocket),
+    BODY_OVERLAP_MM - TOLERANCE_MM,
+    BODY_OVERLAP_MM + TOLERANCE_MM,
+  );
+  checkRange(
+    `ножка: над ней до резьбы ${socketGaps[0].bore.toFixed(1)} и ${socketGaps[1].bore.toFixed(1)} мм мяса`,
+    socketGaps.map(({ bore }) => bore),
+    2,
+    10,
   );
   checkRange(
     `ножка: ${base.stemDepth} мм по Z, лицо на ${-base.stemFront} мм от панели`,
@@ -4038,10 +4171,10 @@ console.log(
       TOLERANCE_MM,
     );
     checkRange(
-      `кольцо ${socketId}: низ детали ${bottom.toFixed(2)} мм — ножка на дне паза, а не на столе`,
+      `кольцо ${socketId}: низ детали ${bottom.toFixed(2)} мм — салазки на дне кармана, а не на столе`,
       [bottom],
-      metrics.stemBottom - TOLERANCE_MM,
-      metrics.stemBottom + TOLERANCE_MM,
+      metrics.sledBottom - TOLERANCE_MM,
+      metrics.sledBottom + TOLERANCE_MM,
     );
     checkRange(
       `кольцо ${socketId}: верх ${(bottom + size.y).toFixed(2)} мм — козырёк над кольцом`,
@@ -4148,29 +4281,71 @@ console.log(
     );
 
     /*
-      Ножка: одна вертикальная пластина 5.6 × 10 мм от дна паза полоза до мяса
-      кольца. Она стоит на 3 мм — на дне канала, а не на столе, — и по X уже паза
-      6 мм на зазор с каждой стороны, поэтому входит в паз и не качается.
-      Пробы по ширине идут на 8 мм: там ножка уже вышла из паза, но до кольца ей
-      ещё далеко, поэтому луч видит только её.
+      Ножка с салазками: одна пластина от дна кармана полоза до мяса кольца. Внизу
+      она расширена до `sledWidth` и входит в карман, выше идёт ножка `stemWidth` в
+      шейку паза. Пробы по ширине идут на 8 мм: там ножка уже вышла из паза, но до
+      кольца ей ещё далеко, поэтому луч видит только её.
     */
     const stemHalfProbe = metrics.stemWidth / 2;
     const stemProbeY = rail.thickness + 3;
+    // Полуширина салазок на высоте y: луч вдоль X из оси симметрии.
+    const halfWidthAt = (y: number): number => {
+      const hits = new Raycaster(
+        new Vector3(0, y, metrics.stemFront - 5),
+        new Vector3(1, 0, 0),
+        0,
+        rail.width,
+      ).intersectObject(object, false);
+
+      return hits.length === 0 ? Number.NaN : hits[0].point.x;
+    };
 
     checkRange(
-      `кольцо ${socketId}: ножка стоит на дне паза ${metrics.stemBottom} мм`,
+      `кольцо ${socketId}: салазки стоят на дне кармана ${metrics.sledBottom} мм`,
       [hitY(0, -20, metrics.stemFront - 5, 1)],
-      metrics.stemBottom - TOLERANCE_MM,
-      metrics.stemBottom + TOLERANCE_MM,
+      metrics.sledBottom - TOLERANCE_MM,
+      metrics.sledBottom + TOLERANCE_MM,
+    );
+    // Фланки салазок повторяют паз: по 1 мм на 1 мм высоты к шейке.
+    const sledProbeY = metrics.sledBottom + 0.5;
+    // Полуширина на дне: луч видит фланец на 0.5 мм выше, поэтому досчитываем мм.
+    const sledHalfAtFloor = halfWidthAt(sledProbeY) + (sledProbeY - metrics.sledBottom);
+
+    checkRange(
+      `кольцо ${socketId}: салазки ${metrics.sledWidth} мм на дне кармана`,
+      [2 * sledHalfAtFloor],
+      metrics.sledWidth - TOLERANCE_MM,
+      metrics.sledWidth + TOLERANCE_MM,
     );
     checkRange(
-      `кольцо ${socketId}: верх ножки ${metrics.stemTop} мм в мясе кольца`,
+      `кольцо ${socketId}: фланки салазок сходятся к шейке под 45°`,
+      [halfWidthAt(sledProbeY) - halfWidthAt(sledProbeY + 1)],
+      1 - TOLERANCE_MM,
+      1 + TOLERANCE_MM,
+    );
+    /*
+      Гнездо гайки остаётся свободным: луч из-за кольца упирается в его дно, а не в
+      ножку. Проба идёт у нижней грани шестигранника, где ножка ближе всего.
+    */
+    const pocketProbeY = metrics.socketY - metrics.nutFlats / 2 + 1;
+
+    checkRange(
+      `кольцо ${socketId}: ножка не заходит в гнездо гайки`,
+      [
+        hitZ(-0.5, pocketProbeY, metrics.plateBack - 30, 1),
+        hitZ(0.5, pocketProbeY, metrics.plateBack - 30, 1),
+      ],
+      metrics.plateBack + metrics.nutDepth - TOLERANCE_MM,
+      metrics.plateBack + metrics.nutDepth + TOLERANCE_MM,
+    );
+    checkRange(
+      `кольцо ${socketId}: верх ножки ${metrics.stemTop.toFixed(1)} мм в мясе кольца`,
       [hitY(0, metrics.ringTop + 10, metrics.stemBack + 1, -1)],
       metrics.stemTop - TOLERANCE_MM,
       metrics.stemTop + TOLERANCE_MM,
     );
     check(
-      `кольцо ${socketId}: ножка ${metrics.stemWidth} мм шириной — уже паза`,
+      `кольцо ${socketId}: ножка ${metrics.stemWidth} мм шириной — уже шейки`,
       [
         !through(stemHalfProbe - 0.1, stemProbeY),
         !through(-stemHalfProbe + 0.1, stemProbeY),
@@ -4180,8 +4355,8 @@ console.log(
       [true, true, true, true],
     );
     check(
-      `кольцо ${socketId}: за ножкой пластика нет`,
-      Number.isNaN(hitY(stemHalfProbe + 0.1, -20, metrics.stemBack + 1, 1)),
+      `кольцо ${socketId}: за салазками пластика нет`,
+      Number.isNaN(hitY(metrics.sledWidth / 2 + 0.1, -20, metrics.stemBack + 1, 1)),
       true,
     );
     checkRange(
