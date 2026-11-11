@@ -99,8 +99,8 @@
 | Команда | Что делает |
 |---|---|
 | `npm run dev` | Дев-сервер (`next dev --turbopack`) |
-| `npm run build` | `ensure:tsconfig` + продакшн-сборка |
-| `npm run build:amvera` | То же для хостинга: `clean` + `ensure:tsconfig` + `check:imports` + сборка в режиме `standalone` + копирование `public` и `.next/static` в `.next/standalone` |
+| `npm run build` | `ensure:tsconfig` + продакшн-сборка (`next build`; проверки типов и линта на сборке выключены в `next.config.ts` — их гоняют локальные гейты) |
+| `npm run build:amvera` | То же для хостинга: `clean` + `ensure:tsconfig` + `check:imports` + сборка в режиме `standalone` с `NODE_OPTIONS=--max-old-space-size=2048` + копирование `public` и `.next/static` в `.next/standalone` |
 | `npm run start` | Запуск собранного приложения |
 | `npm run lint` | ESLint (`eslint-config-next`) |
 | `npm run check:docs` | Проверка сводки `PROJECT.md` вместе с данными: все упомянутые пути существуют, числа уроков/блоков/вопросов совпадают, заявленные `total_*` и `practice_minutes` не разошлись с содержимым |
@@ -3858,8 +3858,8 @@ Self-hosted Supabase на сервере в РФ: используются то�
 Приложение живёт на **Amvera Cloud** (node 22, `amvera.yml`):
 
 - `build.additionalCommands`: `npm run build:amvera` — `clean` + `ensure:tsconfig` +
-  `check:imports` + `next build --turbopack` + копирование `public` и `.next/static`
-  в `.next/standalone`;
+  `check:imports` + `next build --turbopack` (с `NODE_OPTIONS=--max-old-space-size=2048`) +
+  копирование `public` и `.next/static` в `.next/standalone`;
 - `output: "standalone"` в `next.config.ts` — сборка сама складывает рантайм в
   `.next/standalone` (~80 МБ), поэтому блок `artifacts` из `amvera.yml` убран: маски
   исключений (`!.next/cache`) платформа игнорировала («No files matched the pattern»),
@@ -3874,6 +3874,14 @@ Self-hosted Supabase на сервере в РФ: используются то�
   различает, Windows — нет, поэтому локально всё собиралось, а на Amvera падало «module not found»;
 - `.npmrc` → `include=optional` — гарантирует установку `@tailwindcss/oxide-linux-x64-gnu`
   (Tailwind 4 ставит нативный бинарник как optional-зависимость, а установка идёт с `--omit=optional`);
+- `NODE_OPTIONS=--max-old-space-size=2048` перед `next build` — у контейнера Amvera не хватает
+  памяти по умолчанию: сборка умирала с **SIGTERM** ровно на шаге «Linting and checking validity of
+  types». Флаг поднимает старую кучу Node до 2 ГБ; синтаксис `VAR=value команда` — это `sh`, поэтому
+  `build:amvera` рассчитан на Linux и локально на Windows запускается только `npm run build`;
+- `typescript.ignoreBuildErrors` и `eslint.ignoreDuringBuilds` в `next.config.ts` — второй `tsc` по
+  всему проекту и ESLint на сборке давали ту самую пиковую память. Оба гейта прогоняются локально
+  перед пушем (`npx tsc --noEmit`, `npm run lint`), поэтому в продакшн-сборке они только дублируют
+  работу; ошибка типов всё равно всплывает локально, а не на хостинге;
 - devDependencies (`typescript`, `tailwindcss`) нужны самой сборке, поэтому установка
   зависимостей на Amvera должна идти с `--include=dev`; отдельного `npm ci` в
   `build:amvera` больше нет — зависимости ставит сборка платформы.
@@ -12068,3 +12076,16 @@ API принимает `lithoShape` и `lithoCurveRadius` строго по сп
 Тесты: раздел 20 переписан под каретку — 374 проверки в двадцати разделах. Т-паз проверяется лучами сбоку: на 0.1 мм над дном стенка кармана на 5 мм, под потолком — на 3, фланки идут под 45°; сверху за стенкой шейки полка сплошная. Дальше — кольцо Ø32/Ø42 и его карманы по патрону, предел оси по формуле для обоих патронов, салазки 9.6 мм с зазором 0.2 мм на сторону и фланками под 45°, ножка 5.6 × 10 мм над ними, её верх ниже гнезда гайки (0.2 мм запаса у обоих патронов) и свободное гнездо по лучам, козырёк во всю ширину кольца, коридор перед кольцом на обоих концах слайдера, веса и отсутствие NaN.
 
 Проверки: `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm run check:lithophane`, `npm run check:docs`, `npm run check:imports`, `npm run check:style` — зелёные.
+
+## 2026-11: сборка без проверок типов и линта, куча Node 2 ГБ
+
+Amvera гасила сборку с SIGTERM на шаге «Linting and checking validity of types» — это OOM, а не ошибка кода. На этом шаге `next build` после самой сборки заново поднимает TypeScript по всему проекту и прогоняет ESLint: пиковая память контейнера заканчивалась, платформа убивала процесс и оставляла на сайте предыдущий контейнер.
+
+Проверки выключены в `next.config.ts` — `typescript.ignoreBuildErrors` и `eslint.ignoreDuringBuilds`. Это безопасно, потому что оба гейта стоят в локальном наборе перед пушем: `npx tsc --noEmit` и `npm run lint` ловят ошибку типов на машине разработчика, а не на хостинге. В логе сборки теперь две строки — «Skipping validation of types» и «Skipping linting», — и шаг, на котором падало, просто исчез.
+
+Памяти добавлено и самой сборке: в `package.json` команда `build:amvera` запускает `NODE_OPTIONS=--max-old-space-size=2048 next build --turbopack`, то есть старая куча Node поднята до 2 ГБ вместо умолчания. Синтаксис `VAR=value команда` — это `sh`, поэтому команда живёт только на Linux-Amvera; локально на Windows по-прежнему `npm run build`.
+
+`tsconfig.json` лежит в git с самого начала: в `.gitignore` есть `next-env.d.ts` и `*.tsbuildinfo`, а самого конфига там нет. Поэтому `ensure:tsconfig` не может пожаловаться «НЕ НАЙДЕН» — файл уже в индексе, и `git add -f tsconfig.json` это только подтверждает.
+
+Проверки: `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm run check:docs`, `npm run check:imports` — зелёные; сборка печатает «Skipping validation of types» и «Skipping linting».
+

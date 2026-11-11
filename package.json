@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "npm run ensure:tsconfig && next build",
-    "build:amvera": "npm run clean && npm run ensure:tsconfig && npm run check:imports && next build --turbopack && node -e \"const fs=require('fs');fs.cpSync('public','.next/standalone/public',{recursive:true});fs.cpSync('.next/static','.next/standalone/.next/static',{recursive:true})\"",
+    "build:amvera": "npm run clean && npm run ensure:tsconfig && npm run check:imports && NODE_OPTIONS=--max-old-space-size=2048 next build --turbopack && node -e \"const fs=require('fs');fs.cpSync('public','.next/standalone/public',{recursive:true});fs.cpSync('.next/static','.next/standalone/.next/static',{recursive:true})\"",
     "check:docs": "node scripts/check-docs.mjs",
     "check:imports": "node scripts/check-imports.mjs",
     "check:style": "node scripts/style-check.mjs",

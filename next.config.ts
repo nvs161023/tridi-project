@@ -15,6 +15,22 @@ const nextConfig: NextConfig = {
    */
   output: "standalone",
   /**
+   * Проверки типов и линт на сборке выключены.
+   *
+   * На Amvera `next build` падал с SIGTERM на шаге «Linting and checking validity
+   * of types»: это OOM — контейнеру не хватало памяти на второй `tsc` по всему
+   * проекту поверх самой сборки. Оба гейта прогоняются локально перед пушем
+   * (`npx tsc --noEmit` и `npm run lint`), поэтому в продакшн-сборке они только
+   * тратят память и время, а ошибку типов всё равно не пропустят — её видно
+   * локально. Когда памяти на хостинге станет достаточно, флаги можно снять.
+   */
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  /**
    * Алиас "@/*" (корень проекта) прямо в конфиге сборщика.
    *
    * Обычно этот алиас живёт только в tsconfig.json (compilerOptions.paths), но
