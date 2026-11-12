@@ -2747,8 +2747,9 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
 
     Проверяется то, чего не видно на предпросмотре: панели стоят на цилиндре (тыл
     на радиусе, лицо — на наружном диаметре), камера внутри пустая, оболочки
-    замкнуты, габарит равен диаметру, а число групп материалов совпадает с числом
-    панелей — у каждой панели свой кадр.
+    замкнуты, габарит равен диаметру (по козырьку крышки), а число групп
+    материалов совпадает с числом панелей плюс крепление — у каждой панели свой
+    кадр.
   */
   const diameter = 120;
   const height = 80;
@@ -2769,6 +2770,7 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
   const geometry = createLithophaneGeometry(params);
   const panelsOnly = createLithophaneGeometry(params, "relief");
   const basePart = createLithophaneGeometry(params, "stand");
+  const coverPart = createLithophaneGeometry(params, "top_cover");
   const size = boxSize(geometry);
   const baseSize = boxSize(basePart);
   const mesh = lithophaneMeshSize(
@@ -2809,14 +2811,17 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
   const halfSize = boxSize(half);
   const weight = calculateGeometryWeightGrams(geometry);
   const baseWeight = calculateGeometryWeightGrams(basePart);
+  const coverWeight = calculateGeometryWeightGrams(coverPart);
+  const coverSize = boxSize(coverPart);
   const base = lithophaneRoundBaseMetrics(params);
 
   console.log(
     `  плафон Ø${diameter} × ${height}: панель ${plate.width.toFixed(2)} × ${plate.height.toFixed(2)} мм, ` +
       `сборка ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)} мм, ` +
       `основание Ø${(baseSize.x).toFixed(2)} × ${baseSize.y.toFixed(2)} мм, ` +
-      `вес ${weight.toFixed(1)} г (панели ${(weight - baseWeight).toFixed(1)}, ` +
-      `основание ${baseWeight.toFixed(1)})`,
+      `крышка Ø${coverSize.x.toFixed(2)} × ${coverSize.y.toFixed(2)} мм, ` +
+      `вес ${weight.toFixed(1)} г (панели ${(weight - baseWeight - coverWeight).toFixed(1)}, ` +
+      `основание ${baseWeight.toFixed(1)}, крышка ${coverWeight.toFixed(1)})`,
   );
 
   check(
@@ -2884,16 +2889,16 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
     [4, 1],
   );
   checkRange(
-    "плафон: габарит равен наружному диаметру",
+    "плафон: габарит равен наружному диаметру козырька",
     [size.x, size.z],
-    diameter - 0.05,
-    diameter + 0.05,
+    base.visorRadius * 2 - 0.05,
+    base.visorRadius * 2 + 0.05,
   );
   checkRange(
     "плафон: основание поднимает кольцо на дно паза",
     [size.y],
-    height + base.panelLift - TOLERANCE_MM,
-    height + base.panelLift + TOLERANCE_MM,
+    base.visorTop - TOLERANCE_MM,
+    base.visorTop + TOLERANCE_MM,
   );
   checkRange(
     "плафон: тыл панели лежит на радиусе",
@@ -2915,7 +2920,7 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
     [0, 0],
   );
   check(
-    "плафон: у каждой панели своя группа, основание — последняя",
+    "плафон: у каждой панели своя группа, крепление — последнее",
     [geometry.groups.length, panels + 1],
     [panels + 1, 5],
   );
@@ -2936,8 +2941,8 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
   checkRange(
     "плафон: кольцо из двух панелей того же диаметра",
     [halfSize.x, halfSize.z],
-    diameter - 0.05,
-    diameter + 0.05,
+    base.visorRadius * 2 - 0.05,
+    base.visorRadius * 2 + 0.05,
   );
   check(
     "плафон: деталь «рамка» не нужна — отдаются панели",
@@ -4943,19 +4948,26 @@ console.log(
 
 
 
-console.log("\n22. Основание плафона: диск с пазом, стакан под патрон и авто-деление");
+console.log(
+  "\n22. Основание плафона: кольцо со спицами и крышка-козырёк",
+);
 
 {
   /*
-    Круглому плафону не хватало низа: кольцо панелей висело в воздухе. Теперь
-    под ним лежит круглый диск по наружному диаметру с кольцевым пазом
-    2.5 × 3 мм, а в центре — стакан под патрон E14 или E27. Панель входит в паз
-    шипом: её низ стесан с лица до 2.2 мм, потому что бортик 3 мм в канавку не
-    проходит. Провод выходит через сквозное окно 6 × 6 мм по оси.
+    Круглому плафону не хватало низа: кольцо панелей висело в воздухе. Сплошной
+    диск по наружному диаметру оказался тяжёлым, поэтому теперь по краю идёт
+    кольцо с пазом 2.5 × 3 мм, в центре — ступица под патрон E14 или E27, а
+    между ними четыре спицы 8 × 4 мм по осям X и Z. Свет лампы уходит вниз сквозь
+    них, а провод выходит через окно 6 × 6 мм в дне ступицы.
 
-    Раздел проверяет числа, которые не видно на предпросмотре: диаметр диска
-    равен наружному диаметру плафона, дно паза стоит на 1 мм от стола, стенка
-    стакана 3 мм, гнездо равно кольцу патрона, а окно действительно сквозное.
+    Сверху плафон закрывает крышка-козырёк: кольцо с тем же пазом снизу и
+    отверстием вентиляции Ø20 в центре. Она выступает за панели на 8 мм и на 5 мм
+    за кольцо основания, поэтому свет не бьёт в потолок и в глаза.
+
+    Раздел проверяет числа, которые не видно на предпросмотре: вес спицованного
+    основания, четыре спицы и пустоту между ними, дно паза на 1 мм от стола,
+    стенку ступицы 3 мм, гнездо по кольцу патрона, глубину паза крышки и то, что
+    её шип входит в паз не до конца.
   */
   const diameter = 120;
   const height = 80;
@@ -4977,19 +4989,30 @@ console.log("\n22. Основание плафона: диск с пазом, с
   });
   const base = lithophaneRoundBaseMetrics(twoPhotos);
   const baseE27 = lithophaneRoundBaseMetrics(e27);
+  const small = lithophaneRoundBaseMetrics(
+    normalizeLithophaneParams({
+      lithophaneWidth: 40,
+      lithophaneHeight: 40,
+      lithoShape: "round",
+    }),
+  );
   const assembled = createLithophaneGeometry(twoPhotos);
   const panels = createLithophaneGeometry(twoPhotos, "relief");
   const basePart = createLithophaneGeometry(twoPhotos, "stand");
+  const coverPart = createLithophaneGeometry(twoPhotos, "top_cover");
   const explicitBase = createRoundBaseGeometry(twoPhotos);
   const solo = createLithophaneGeometry(onePhoto);
   const standPart = createLithophaneGeometry(twoPhotos, "stand");
   const assembledSize = boxSize(assembled);
   const baseSize = boxSize(basePart);
+  const coverSize = boxSize(coverPart);
   const soloSize = boxSize(solo);
   const baseWeight = calculateGeometryWeightGrams(basePart);
+  const coverWeight = calculateGeometryWeightGrams(coverPart);
   const material = new MeshBasicMaterial({ side: DoubleSide });
   const object = new Mesh(basePart, material);
   const whole = new Mesh(assembled, material);
+  const coverObject = new Mesh(coverPart, material);
   // Луч сверху вниз: ось проходит через окно под провод, мимо окна — пластик.
   const fromTop = (x: number, z: number) =>
     new Raycaster(
@@ -5003,7 +5026,22 @@ console.log("\n22. Основание плафона: диск с пазом, с
   const groove =
     60 -
     (fromTop(0, -(base.backRadius + base.grooveWidth / 2))[0]?.distance ?? 0);
-  // Боковой луч на высоте гнезда: наружная стенка стакана и внутренняя.
+  // Середина спицы по оси X: сверху её верх, толщина — от стола до верха.
+  const spokeRadial = (base.spokeInner + base.spokeOuter) / 2;
+  const spokeTop = 60 - (fromTop(spokeRadial, 0)[0]?.distance ?? 0);
+  // Между спицами — пусто: луч под 45° не встречает пластика основания.
+  const betweenSpokes = fromTop(
+    spokeRadial / Math.SQRT2,
+    -spokeRadial / Math.SQRT2,
+  );
+  // Поперёк спицы на высоте 2 мм: ширина бруска.
+  const spokeSide = new Raycaster(
+    new Vector3(spokeRadial, 2, 40),
+    new Vector3(0, 0, -1),
+    0,
+    200,
+  ).intersectObject(object, false);
+  // Боковой луч на высоте гнезда: наружная стенка ступицы и внутренняя.
   const cupSide = new Raycaster(
     new Vector3(100, 10, 0),
     new Vector3(-1, 0, 0),
@@ -5011,15 +5049,33 @@ console.log("\n22. Основание плафона: диск с пазом, с
     200,
   ).intersectObject(object, false);
   // Луч по радиусу на высоте шипа: внутри паза стоит панель толщиной 2.2 мм.
+  // Направление под 30°: по осям X и Z идут спицы и стыки панелей, и луч по оси
+  // читал бы сразу два тела.
+  const tenonAngle = Math.PI / 6;
   const tenonHits = new Raycaster(
-    new Vector3(70, base.panelLift + 1, 0),
-    new Vector3(-1, 0, 0),
+    new Vector3(
+      70 * Math.cos(tenonAngle),
+      base.panelLift + 1,
+      -70 * Math.sin(tenonAngle),
+    ),
+    new Vector3(-Math.cos(tenonAngle), 0, Math.sin(tenonAngle)),
     0,
     200,
   ).intersectObject(whole, false);
   const tenonGaps = tenonHits
     .slice(1)
     .map((hit, index) => hit.distance - tenonHits[index].distance);
+  // Крышка: луч снизу вверх по оси проходит в вентиляцию, по пазу — в потолок.
+  const fromBottom = (x: number, z: number) =>
+    new Raycaster(
+      new Vector3(x, -5, z),
+      new Vector3(0, 1, 0),
+      0,
+      60,
+    ).intersectObject(coverObject, false);
+  const ventHits = fromBottom(0, 0);
+  const coverCeiling = (fromBottom(0, -base.grooveInner - base.grooveWidth / 2)[0]
+    ?.distance ?? 0) - 5;
   const ringWidth =
     2 * Math.PI * (diameter / 2 - onePhoto.lithophaneMaxThickness) +
     LITHOPHANE_ROUND.seamOverlapMm;
@@ -5027,19 +5083,22 @@ console.log("\n22. Основание плафона: диск с пазом, с
   console.log(
     `  основание Ø${baseSize.x.toFixed(2)} × ${baseSize.y.toFixed(2)} мм, ` +
       `паз ${base.grooveWidth.toFixed(2)} × ${base.grooveDepth.toFixed(2)} мм ` +
-      `(дно на ${groove.toFixed(2)} мм), стакан Ø${(base.cupOuter * 2).toFixed(2)} ` +
+      `(дно на ${groove.toFixed(2)} мм), ступица Ø${(base.cupOuter * 2).toFixed(2)} ` +
       `с гнездом Ø${(base.cupBore * 2).toFixed(2)}, вес ${baseWeight.toFixed(1)} г; ` +
+      `спиц ${base.spokeCount} по ${base.spokeWidth} мм; ` +
+      `крышка Ø${coverSize.x.toFixed(2)} × ${coverSize.y.toFixed(2)} мм, ` +
+      `вес ${coverWeight.toFixed(1)} г; ` +
       `2 фото — ${panels.groups.length} панели, 1 фото — ${solo.groups.length - 1}`,
   );
 
   checkRange(
-    "основание: диск по наружному диаметру плафона",
-    [baseSize.x, baseSize.z],
-    diameter - 0.05,
-    diameter + 0.05,
+    "основание: кольцо выступает за панель на 3 мм",
+    [baseSize.x / 2, baseSize.z / 2],
+    base.discRadius - TOLERANCE_MM,
+    base.discRadius + TOLERANCE_MM,
   );
   checkRange(
-    "основание: высота диска и стакана",
+    "основание: высота кольца и ступицы",
     [baseSize.y],
     base.cupTop - TOLERANCE_MM,
     base.cupTop + TOLERANCE_MM,
@@ -5052,7 +5111,7 @@ console.log("\n22. Основание плафона: диск с пазом, с
   );
   check("основание: окно под провод сквозное", axis.length, 0);
   checkRange(
-    "основание: стенка стакана",
+    "основание: стенка ступицы",
     [(cupSide[1]?.distance ?? 0) - (cupSide[0]?.distance ?? 0)],
     LITHOPHANE_ROUND_BASE.cupWall - TOLERANCE_MM,
     LITHOPHANE_ROUND_BASE.cupWall + TOLERANCE_MM,
@@ -5064,6 +5123,47 @@ console.log("\n22. Основание плафона: диск с пазом, с
       LITHOPHANE_RAIL_SOCKET_SIZES.e14.ring,
       LITHOPHANE_RAIL_SOCKET_SIZES.e27.ring,
     ],
+  );
+  const spokeHits = fromTop(spokeRadial, 0);
+
+  checkRange(
+    "основание: спица толщиной 4 мм",
+    [(spokeHits[1]?.distance ?? 0) - (spokeHits[0]?.distance ?? 0)],
+    LITHOPHANE_ROUND_BASE.thickness - TOLERANCE_MM,
+    LITHOPHANE_ROUND_BASE.thickness + TOLERANCE_MM,
+  );
+  checkRange(
+    "основание: спица заподлицо с кольцом",
+    [spokeTop],
+    base.thickness - TOLERANCE_MM,
+    base.thickness + TOLERANCE_MM,
+  );
+  checkRange(
+    "основание: спица шириной 8 мм",
+    [(spokeSide[1]?.distance ?? 0) - (spokeSide[0]?.distance ?? 0)],
+    LITHOPHANE_ROUND_BASE.spokeWidth - TOLERANCE_MM,
+    LITHOPHANE_ROUND_BASE.spokeWidth + TOLERANCE_MM,
+  );
+  check(
+    "основание: между спицами пусто",
+    [betweenSpokes.length, base.spokes],
+    [0, true],
+  );
+  check(
+    "основание: четыре спицы по осям, а не сплошной диск",
+    [base.spokeCount, base.spokeInner < base.spokeOuter],
+    [4, true],
+  );
+  check(
+    "основание: на малом диаметре спиц нет, но деталь цельная",
+    [small.spokes, small.cupOuter > small.grooveInner],
+    [false, true],
+  );
+  checkRange(
+    "основание: спицованное кольцо легче прежнего диска",
+    [baseWeight],
+    15,
+    40,
   );
   check(
     "основание: шип уже бортика и паза",
@@ -5091,21 +5191,21 @@ console.log("\n22. Основание плафона: диск с пазом, с
     ],
   );
   check(
-    "основание: сборка — две панели и основание",
+    "основание: сборка — две панели и кольцо с крышкой",
     [panels.groups.length, assembled.groups.length, openEdges(assembled)],
     [2, 3, 0],
   );
   checkRange(
-    "основание: сборка по наружному диаметру",
+    "основание: сборка по наружному диаметру козырька",
     [assembledSize.x, assembledSize.z],
-    diameter - 0.05,
-    diameter + 0.05,
+    base.visorRadius * 2 - 0.05,
+    base.visorRadius * 2 + 0.05,
   );
   checkRange(
-    "основание: панели стоят на дне паза",
+    "основание: сборка до верха козырька",
     [assembledSize.y],
-    height + base.panelLift - TOLERANCE_MM,
-    height + base.panelLift + TOLERANCE_MM,
+    base.visorTop - TOLERANCE_MM,
+    base.visorTop + TOLERANCE_MM,
   );
   check(
     "основание: одна панель — цельное кольцо на 360°",
@@ -5116,6 +5216,74 @@ console.log("\n22. Основание плафона: диск с пазом, с
       soloSize.y > height,
     ],
     [true, 2, 0, true],
+  );
+  checkRange(
+    "крышка: козырёк выступает за панель на 8 мм",
+    [coverSize.x / 2],
+    diameter / 2 +
+      LITHOPHANE_ROUND_BASE.rimOverhang +
+      LITHOPHANE_ROUND_BASE.visorOverhang -
+      TOLERANCE_MM,
+    diameter / 2 +
+      LITHOPHANE_ROUND_BASE.rimOverhang +
+      LITHOPHANE_ROUND_BASE.visorOverhang +
+      TOLERANCE_MM,
+  );
+  checkRange(
+    "крышка: свес за кольцо основания",
+    [coverSize.x / 2 - base.discRadius],
+    LITHOPHANE_ROUND_BASE.visorOverhang - TOLERANCE_MM,
+    LITHOPHANE_ROUND_BASE.visorOverhang + TOLERANCE_MM,
+  );
+  checkRange(
+    "крышка: толщина козырька",
+    [coverSize.y],
+    base.visorThickness - TOLERANCE_MM,
+    base.visorThickness + TOLERANCE_MM,
+  );
+  check("крышка: вентиляция Ø20 сквозная", ventHits.length, 0);
+  check(
+    "крышка: глубина паза равна толщине середины",
+    [coverCeiling, base.visorPlate],
+    [base.visorPlate, base.visorPlate],
+  );
+  checkRange(
+    "крышка: паз той же ширины, что у основания",
+    [base.grooveWidth],
+    LITHOPHANE_ROUND_BASE.grooveWidth - TOLERANCE_MM,
+    LITHOPHANE_ROUND_BASE.grooveWidth + TOLERANCE_MM,
+  );
+  checkRange(
+    "крышка: шип панели входит в паз не до конца",
+    [base.visorBottom + base.visorGrooveDepth - base.panelTop],
+    LITHOPHANE_ROUND_BASE.visorLift - 1e-6,
+    LITHOPHANE_ROUND_BASE.visorLift + 1e-6,
+  );
+  check(
+    "крышка: одна замкнутая оболочка без NaN",
+    [openEdges(coverPart), nanVertices(coverPart)],
+    [0, 0],
+  );
+  checkRange(
+    "крышка: вес козырька",
+    [coverWeight],
+    25,
+    60,
+  );
+  check(
+    "подписи плафона: панели, основание со спицами и крышка-козырёк",
+    [
+      lithophanePartLabel("relief", "none", "round"),
+      lithophanePartLabel("stand", "none", "round"),
+      lithophanePartLabel("top_cover", "none", "round"),
+      lithophanePartLabel("stand"),
+    ],
+    [
+      "Панели плафона",
+      "Основание плафона (спицы)",
+      "Верхняя крышка (козырёк)",
+      LITHOPHANE_PART_LABELS.stand,
+    ],
   );
   check(
     "основание: плоская панель не изменилась",
@@ -5141,6 +5309,7 @@ console.log("\n22. Основание плафона: диск с пазом, с
   panels.dispose();
   basePart.dispose();
   explicitBase.dispose();
+  coverPart.dispose();
   solo.dispose();
   standPart.dispose();
   material.dispose();

@@ -310,39 +310,40 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
 
   if (params.model === "lithophane") {
     // У плафона и калейдоскопа съёмной рамки нет: их панели печатаются вместе со
-    // своей сборкой, поэтому файл один. У плафона отдельным файлом идёт ещё
-    // круглое основание с кольцевым пазом и стаканом под патрон: панели в него
-    // вставляются, а печатать его с кольцом нельзя — внутри осталась бы
-    // закрытая полость стакана.
+    // своей сборкой, поэтому файл один. У плафона отдельными файлами идут ещё
+    // две детали: основание со спицами и крышка-козырёк. Печатать их с кольцом
+    // нельзя: внутри осталась бы закрытая полость ступицы, а панели уже заняли
+    // кольцо.
     if (!lithophaneShapeHasFrame(params.lithoShape)) {
-      const assembled = {
-        id: "lithophane-all",
-        label: "Скачать STL",
-        description: "Собранный литофан одним файлом",
-        request: { part: "all" as const },
-        fileName: lithophaneStlFileName(params, "all"),
-      };
-
       if (params.lithoShape !== "round") {
-        return [assembled];
+        return [
+          {
+            id: "lithophane-all",
+            label: "Скачать STL",
+            description: "Собранный литофан одним файлом",
+            request: { part: "all" as const },
+            fileName: lithophaneStlFileName(params, "all"),
+          },
+        ];
       }
 
-      const baseLabel = lithophanePartLabel(
-        "stand",
-        params.lithoMount,
-        params.lithoShape,
-      );
+      // Круглый плафон: панели, основание и крышка тремя файлами. Подписи берут
+      // форму в расчёт — у плафона `stand` это основание, а не подставка.
+      return (["relief", "stand", "top_cover"] as const).map((part) => {
+        const label = lithophanePartLabel(
+          part,
+          params.lithoMount,
+          params.lithoShape,
+        );
 
-      return [
-        assembled,
-        {
-          id: "lithophane-stand",
-          label: baseLabel,
-          description: `${baseLabel} отдельным файлом`,
-          request: { part: "stand" as const },
-          fileName: lithophaneStlFileName(params, "stand"),
-        },
-      ];
+        return {
+          id: `lithophane-${part}`,
+          label,
+          description: `${label} отдельным файлом`,
+          request: { part },
+          fileName: lithophaneStlFileName(params, part),
+        };
+      });
     }
 
     // Без рамки печатается одна плита рельефа: крепления вырезаны в рамке,
