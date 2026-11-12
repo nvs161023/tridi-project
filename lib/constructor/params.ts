@@ -194,12 +194,13 @@ export const CONSTRUCTOR_LIMITS = {
     defaultValue: 3,
     decimals: 1,
   },
-  // Число панелей круглого плафона: две — две широкие панели по половине
-  // окружности, три и четыре — более узкие секторы. Пять и больше режут дугу на
-  // секторы уже 72°: на плафоне 120 мм это 30 мм ширины, и фото на такой полоске
-  // не читается.
+  // Число панелей круглого плафона. Ручного слайдера больше нет: плафон делится
+  // ровно на столько панелей, сколько загружено фото, поэтому границы — это один
+  // цельный абажур (360°) и четыре панели по 90°. Пять и больше не бывает: слотов
+  // под отдельные фото всего три. Границы остались для нормализации сохранённых
+  // проектов и проверки API, а значение в состоянии всегда вычисленное.
   lithophanePanels: {
-    min: 2,
+    min: 1,
     max: 4,
     step: 1,
     defaultValue: 4,
@@ -1976,29 +1977,59 @@ export function lithophaneShapeHasFrame(shape: LithophaneShape): boolean {
  * Есть ли у формы своя база, вырезанная в её геометрии.
  *
  * У калейдоскопа база — часть самой детали: рельс по квадрату и пьедестал под
- * свечу. Круглый плафон базы не имеет: это только панели-стенки, а внутренняя
- * камера остаётся пустой под лампу.
+ * свечу. У круглого плафона база тоже есть, но это отдельная деталь (диск с
+ * пазом и стаканом под патрон, см. `createLithophaneStandGeometry`), поэтому
+ * предикат отвечает только за встроенные цоколи.
  */
 export function lithophaneShapeHasBase(shape: LithophaneShape): boolean {
   return shape === "kaleidoscope";
 }
 
 /**
+ * Сколько фото загружено: основной кадр и заполненные слоты подряд.
+ *
+ * Первый кадр есть всегда (до загрузки это демонстрационный рельеф), а слоты
+ * заполняются по порядку: пустой слот обрывает цепочку, потому что панель без
+ * фото в середине кольца разорвала бы плафон. Так единица означает «одно фото»,
+ * двойка — «два разных кадра» и так далее до четырёх.
+ */
+export function lithophaneLoadedFaceCount(
+  params: Pick<LithophaneParams, "lithophaneSideBrightness">,
+): number {
+  let faces = 1;
+
+  for (const slot of params.lithophaneSideBrightness ?? []) {
+    if (!slot) {
+      break;
+    }
+
+    faces += 1;
+  }
+
+  return faces;
+}
+
+/**
  * Число панелей рельефа у формы.
  *
  * Плоская панель — одна плита, калейдоскоп — четыре грани, круглый плафон —
- * выбранное число от двух до четырёх. По этому числу считаются копии сетки в
- * бюджете треугольников, слоты загрузки фото и группы материалов в сцене.
+ * столько панелей, сколько загружено разных фото: один кадр печатается цельным
+ * кольцом на 360°, два делят окружность пополам, три — по 120°, четыре — по
+ * 90°. По этому числу считаются копии сетки в бюджете треугольников, группы
+ * материалов в сцене и ширина каждой панели.
  */
 export function lithophanePanelCount(
-  params: Pick<LithophaneParams, "lithoShape" | "lithophanePanels">,
+  params: Pick<
+    LithophaneParams,
+    "lithoShape" | "lithophanePanels" | "lithophaneSideBrightness"
+  >,
 ): number {
   if (params.lithoShape === "kaleidoscope") {
     return LITHOPHANE_KALEIDOSCOPE_SIDES;
   }
 
   if (params.lithoShape === "round") {
-    return params.lithophanePanels;
+    return lithophaneLoadedFaceCount(params);
   }
 
   return 1;
@@ -2009,7 +2040,8 @@ export function lithophanePanelCount(
  *
  * Рельеф и рамка печатаются отдельно и собираются без клея: плита входит в
  * паз рамки с зазором 0.2 мм. Подставка — третья деталь, она нужна только при
- * `lithoMount === "stand"` или `"base"`. Кольцо (`carriage`) — деталь полоза:
+ * `lithoMount === "stand"` или `"base"`, а у круглого плафона это его основание:
+ * диск с кольцевым пазом и стаканом под патрон. Кольцо (`carriage`) — деталь полоза:
  * её печатают, когда `lithophaneHasRail`, и вставляют ножкой в паз, врезанный в
  * тыл рамки. `cover` — задняя крышка короба под LED-панель: она нужна только при
  * `lithophaneHasLedBox` и вставляется в паз на тылу короба. `all` — собранный вид
@@ -2037,18 +2069,25 @@ export const LITHOPHANE_PART_LABELS = {
 } as const satisfies Record<LithophanePart, string>;
 
 /**
- * Подпись детали с учётом крепления.
+ * Подпись детали с учётом крепления и формы.
  *
  * Полоз и короб наращивают одну и ту же рамку, но печатаются с ней разными
  * деталями: «Рамка с полозом» и «Рамка с коробом» точнее одного общего слова.
  * Крышка короба — самостоятельная деталь, ей крепление в подписи не нужно.
+ * У круглого плафона деталь `stand` — это не подставка, а круглое основание с
+ * пазом и стаканом под патрон, поэтому подпись называет его своим словом.
  */
 export function lithophanePartLabel(
   part: LithophanePart,
   mount: LithophaneMount = "none",
+  shape: LithophaneShape = "flat",
 ): string {
   if (part === "frame" && mount === "led_box") {
     return "Рамка с коробом";
+  }
+
+  if (part === "stand" && shape === "round") {
+    return "Основание плафона";
   }
 
   return LITHOPHANE_PART_LABELS[part];
@@ -2112,11 +2151,13 @@ export type LithophaneParams = {
    */
   lithoShape: LithophaneShape;
   /**
-   * Число панелей круглого плафона: от двух до четырёх.
+   * Число панелей рельефа: у плафона — вычисленное по числу фото, у призмы —
+   * четыре.
    *
-   * Читается только при `lithoShape === "round"`: каждая панель занимает свой
-   * сектор окружности, а на каждую можно загрузить отдельное фото. Значение
-   * переживает смену формы, как и источник света.
+   * Поле осталось от прежнего слайдера «Число панелей». Теперь у круглого
+   * плафона оно равно числу загруженных кадров (см. `lithophanePanelCount`):
+   * один кадр — цельное кольцо на 360°, четыре — четыре панели по 90°.
+   * Плоская панель и калейдоскоп значение не читают.
    */
   lithophanePanels: number;
   /**
@@ -4620,10 +4661,6 @@ export function normalizeLithophaneParams(
   const lithoShape = isLithophaneShape(params.lithoShape)
     ? params.lithoShape
     : DEFAULT_LITHOPHANE_PARAMS.lithoShape;
-  const lithophanePanels = snap(
-    params.lithophanePanels ?? DEFAULT_LITHOPHANE_PARAMS.lithophanePanels,
-    CONSTRUCTOR_LIMITS.lithophanePanels,
-  );
   const requestedMount = isLithophaneMount(params.lithoMount)
     ? params.lithoMount
     : DEFAULT_LITHOPHANE_PARAMS.lithoMount;
@@ -4653,6 +4690,20 @@ export function normalizeLithophaneParams(
   const sideBrightness = resolveLithophaneSideBrightness(
     params.lithophaneSideBrightness,
   );
+  /*
+    Число панелей плафона больше не выбирается слайдером: оно равно числу
+    загруженных фото — 1 кадр печатается цельным кольцом, 2–4 делят окружность
+    на равные секторы. Поле остаётся в состоянии, чтобы бюджет сетки, запрос STL
+    и панель читали одно и то же вычисленное значение; у плоской панели и
+    калейдоскопа оно по-прежнему берётся из параметров.
+  */
+  const lithophanePanels =
+    lithoShape === "round"
+      ? lithophaneLoadedFaceCount({ lithophaneSideBrightness: sideBrightness })
+      : snap(
+          params.lithophanePanels ?? DEFAULT_LITHOPHANE_PARAMS.lithophanePanels,
+          CONSTRUCTOR_LIMITS.lithophanePanels,
+        );
 
   return {
     lithophaneWidth: snap(

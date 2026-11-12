@@ -310,15 +310,37 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
 
   if (params.model === "lithophane") {
     // У плафона и калейдоскопа съёмной рамки нет: их панели печатаются вместе со
-    // своей сборкой, поэтому файл один.
+    // своей сборкой, поэтому файл один. У плафона отдельным файлом идёт ещё
+    // круглое основание с кольцевым пазом и стаканом под патрон: панели в него
+    // вставляются, а печатать его с кольцом нельзя — внутри осталась бы
+    // закрытая полость стакана.
     if (!lithophaneShapeHasFrame(params.lithoShape)) {
+      const assembled = {
+        id: "lithophane-all",
+        label: "Скачать STL",
+        description: "Собранный литофан одним файлом",
+        request: { part: "all" as const },
+        fileName: lithophaneStlFileName(params, "all"),
+      };
+
+      if (params.lithoShape !== "round") {
+        return [assembled];
+      }
+
+      const baseLabel = lithophanePartLabel(
+        "stand",
+        params.lithoMount,
+        params.lithoShape,
+      );
+
       return [
+        assembled,
         {
-          id: "lithophane-all",
-          label: "Скачать STL",
-          description: "Собранный литофан одним файлом",
-          request: { part: "all" },
-          fileName: lithophaneStlFileName(params, "all"),
+          id: "lithophane-stand",
+          label: baseLabel,
+          description: `${baseLabel} отдельным файлом`,
+          request: { part: "stand" as const },
+          fileName: lithophaneStlFileName(params, "stand"),
         },
       ];
     }
@@ -384,9 +406,13 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
         fileName: lithophaneStlFileName(params, "all"),
       },
       ...parts.map((part) => {
-        // Подпись зависит от крепления: короб и полоз наращивают одну рамку,
-        // но печатаются с ней разными деталями.
-        const label = lithophanePartLabel(part, params.lithoMount);
+        // Подпись зависит от крепления и формы: короб и полоз наращивают одну
+        // рамку, а у плафона деталь `stand` — его основание.
+        const label = lithophanePartLabel(
+          part,
+          params.lithoMount,
+          params.lithoShape,
+        );
 
         return {
           id: `lithophane-${part}`,
@@ -1145,19 +1171,6 @@ export function ConstructorClient({
   }
 
   /**
-   * Число панелей круглого плафона.
-   *
-   * Две панели дают половину абажура, три и четыре — замкнутое кольцо. Слоты фото
-   * не сбрасываются: панель 2 берёт первый слот, и вернувшись к четырём человек
-   * получает свои кадры на месте.
-   */
-  function updateLithophanePanels(lithophanePanels: number) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, lithophanePanels }),
-    );
-  }
-
-  /**
    * Браузер уже сжал фотографию до 400 пикселей по длинной стороне и отдал
    * сетку яркости вместе с её размерами. Массив идёт в общее состояние как
    * есть: API принимает те же числа, поэтому сервер не декодирует картинку
@@ -1502,7 +1515,6 @@ export function ConstructorClient({
             onLithoRailSocketChange={updateLithoRailSocket}
             onLithoRailDistanceChange={updateLithoRailDistance}
             onLithoShapeChange={updateLithoShape}
-            onLithophanePanelsChange={updateLithophanePanels}
             onLithophaneBrightnessChange={updateLithophaneBrightness}
             onLithophaneSideBrightnessChange={updateLithophaneSideBrightness}
             onModelChange={updateModel}

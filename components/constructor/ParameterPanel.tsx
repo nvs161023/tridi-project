@@ -375,8 +375,6 @@ type ParameterPanelProps = {
    * У плафона и призмы съёмной рамки нет: их панели печатаются своей сборкой.
    */
   onLithoShapeChange: (shape: LithophaneShape) => void;
-  /** Число панелей круглого плафона: две, три или четыре. */
-  onLithophanePanelsChange: (panels: number) => void;
   /**
    * Готовая сетка яркости из canvas: 0 — чёрный, 255 — белый.
    *
@@ -1589,7 +1587,6 @@ export function ParameterPanel({
   onLithoRailSocketChange,
   onLithoRailDistanceChange,
   onLithoShapeChange,
-  onLithophanePanelsChange,
   onLithophaneBrightnessChange,
   onLithophaneSideBrightnessChange,
   onPlanterShapeChange,
@@ -1728,19 +1725,29 @@ export function ParameterPanel({
     DEFAULT_LITHOPHANE_PARAMS.lithophaneBrightness;
 
   /**
-   * Сколько панелей у формы: у плафона — выбранное число, у призмы — четыре.
+   * Сколько панелей у формы: у плафона — по числу загруженных фото, у призмы —
+   * четыре.
    *
-   * По нему строятся слоты загрузки фото: первая панель берёт основной кадр, а
-   * остальные — слоты `lithophaneSideBrightness` по порядку.
+   * По нему строится подпись: первая панель берёт основной кадр, а остальные —
+   * слоты `lithophaneSideBrightness` по порядку.
    */
   const lithophanePanels =
     params.model === "lithophane" ? lithophanePanelCount(params) : 1;
 
-  /** Номера остальных панелей: у первой кадр загружается основным полем. */
-  const extraPanels = Array.from(
-    { length: Math.max(0, lithophanePanels - 1) },
-    (_, index) => index + 2,
-  );
+  /**
+   * Номера остальных панелей: у первой кадр загружается основным полем.
+   *
+   * У плафона слоты показываются всегда — ими и задаётся число панелей: пустой
+   * второй слот означает цельное кольцо на 360°, два фото делят его пополам.
+   * Если прятать пустые слоты, второе фото загрузить было бы некуда.
+   */
+  const extraPanels =
+    params.model === "lithophane" && params.lithoShape === "round"
+      ? [2, 3, 4]
+      : Array.from(
+          { length: Math.max(0, lithophanePanels - 1) },
+          (_, index) => index + 2,
+        );
 
   /** Сетка слотов: одна панель — один столбец, четыре — три. */
   const extraPanelGrid =
@@ -4335,12 +4342,12 @@ export function ParameterPanel({
               <div className="mt-4">
                 <p className="text-xs font-semibold text-slate-200">
                   {params.lithoShape === "round"
-                    ? `Панели 2–${lithophanePanels}`
+                    ? `Панели плафона · сейчас ${lithophanePanels} из 4`
                     : "Грани 2–4"}
                 </p>
                 <p className="mt-1 text-xs leading-relaxed text-slate-300">
                   {params.lithoShape === "round"
-                    ? `У плафона ${lithophanePanels} панели, и на каждой может быть своё фото. Пустая панель повторяет предыдущую, поэтому одного кадра тоже достаточно — он напечатается по всему кругу.`
+                    ? "Плафон делится сам, по числу загруженных фото. Пусто во втором слоте — одна цельная панель на 360°; два фото — две панели по 180°; три — по 120°; четыре — по 90°. Пустой слот не добавляет панель, а обрывает цепочку."
                     : "У калейдоскопа четыре грани, и на каждой может быть своё фото. Пустая грань повторяет предыдущую, поэтому одного кадра тоже достаточно — он напечатается на всех четырёх сторонах."}
                 </p>
 
@@ -4477,24 +4484,23 @@ export function ParameterPanel({
 
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
               {params.lithoShape === "round"
-                ? "Круглый плафон: панели рождаются сразу на цилиндре и занимают соседние секторы окружности — ширина каждой равна дуге сектора, поэтому фото не сжимается к краям. Верх и низ открыты, внутри остаётся пустая камера под лампу: на диаметре 120 мм это около 114 мм."
+                ? "Круглый плафон: панели рождаются сразу на цилиндре и занимают соседние секторы окружности — ширина каждой равна дуге сектора, поэтому фото не сжимается к краям. Число панелей считается само по загруженным фото, а снизу плафон стоит на круглом основании с кольцевым пазом и стаканом под патрон."
                 : params.lithoShape === "kaleidoscope"
                   ? "Калейдоскоп: четыре панели без рамок стоят под 90° на полом цоколе — их края входят в паз цоколя и паз тонкой крышки. На каждой грани может быть своё фото; пустая грань повторяет предыдущую, а свет свечи выходит через рельеф."
                   : "Плоская панель: рельеф идёт по плоскости, рамка собирается отдельной деталью. Подсветку и подставку ставят отдельно."}
             </p>
 
             {params.lithoShape === "round" ? (
-              <div className="mt-5">
-                <NumberSlider
-                  hint="Сколько панелей в кольце. Две — две широкие панели по половине окружности, четыре — четыре узкие по четверти. Камера внутри остаётся пустой при любом числе."
-                  label="Число панелей"
-                  max={CONSTRUCTOR_LIMITS.lithophanePanels.max}
-                  min={CONSTRUCTOR_LIMITS.lithophanePanels.min}
-                  onChange={onLithophanePanelsChange}
-                  step={CONSTRUCTOR_LIMITS.lithophanePanels.step}
-                  unit="шт."
-                  value={params.lithophanePanels}
-                />
+              <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                <p className="text-xs font-semibold text-slate-200">
+                  Панелей: {lithophanePanels} — по числу загруженных фото
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                  Слайдера больше нет: один кадр печатается цельным кольцом на
+                  360°, два разных фото делят окружность на две панели по 180°,
+                  три — по 120°, четыре — по 90°. Пусто во втором слоте — значит
+                  панель одна.
+                </p>
               </div>
             ) : null}
           </div>

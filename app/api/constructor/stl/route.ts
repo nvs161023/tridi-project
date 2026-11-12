@@ -82,6 +82,7 @@ import {
   lithophaneHasStand,
   lithophaneMeshOptions,
   lithophaneMeshSize,
+  lithophanePanelCount,
   lithophaneShapeHasBase,
   lithophaneShapeHasFrame,
   lithophaneShapeHasMounts,
@@ -1175,9 +1176,11 @@ function parseLithophaneParams(
     (part === "cover" &&
       !lithophaneHasLedBox(lithoMount, lithoShape, lithoFrame)) ||
     // Деталь «stand»: у плоской формы это выбранное крепление с ножкой или
-    // основанием, у калейдоскопа — собственный цоколь.
+    // основанием, у калейдоскопа — собственный цоколь, у круглого плафона —
+    // круглое основание с пазом и стаканом под патрон.
     (part === "stand" &&
       !(
+        lithoShape === "round" ||
         lithophaneShapeHasBase(lithoShape) ||
         (lithophaneShapeHasMounts(lithoShape) && lithophaneHasStand(lithoMount))
       ))
@@ -1778,9 +1781,11 @@ export async function POST(request: Request): Promise<Response> {
     const mesh = lithophaneMeshSize(
       plate.width,
       plate.height,
+      // Число копий у плафона равно числу загруженных фото: бюджет считается
+      // по тем же панелям, которые соберёт геометрия.
       lithophaneMeshOptions(
         parsed.params.lithoShape,
-        parsed.params.lithophanePanels,
+        lithophanePanelCount(parsed.params),
       ),
     );
 

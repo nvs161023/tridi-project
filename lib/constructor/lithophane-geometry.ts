@@ -22,6 +22,7 @@ import {
   lithophaneHasStand,
   lithophaneMeshOptions,
   lithophaneMeshSize,
+  lithophanePanelCount,
   lithophaneShapeHasBase,
   lithophaneShapeHasMounts,
   normalizeLithophaneParams,
@@ -1282,6 +1283,12 @@ function createReliefBody(
   cornerRadius: number,
   grid: LithophaneBrightnessGrid,
   radius: number | null,
+  /**
+   * Шип нижней кромки, мм: высота и толщина. У панели плафона низ входит в
+   * кольцевой паз основания, а паз уже бортика, поэтому нижние миллиметры
+   * стесаны с лица. У плоской панели шипа нет.
+   */
+  tenon: { height: number; thickness: number } | null = null,
 ): BufferGeometry {
   const minThickness = normalized.lithophaneMinThickness;
   const maxThickness = normalized.lithophaneMaxThickness;
@@ -1289,12 +1296,12 @@ function createReliefBody(
   const brightnessWidth = grid.width;
   const brightnessHeight = grid.height;
   // Шаг и число копий — по форме панели: калейдоскоп печатает четыре плиты,
-  // плафон — от двух до четырёх, и все они делят один бюджет треугольников (см.
-  // `lithophaneMeshOptions`).
+  // плафон — столько, сколько загружено фото, и все они делят один бюджет
+  // треугольников (см. `lithophaneMeshOptions`).
   const mesh = lithophaneMeshSize(
     plateWidth,
     plateHeight,
-    lithophaneMeshOptions(normalized.lithoShape, normalized.lithophanePanels),
+    lithophaneMeshOptions(normalized.lithoShape, lithophanePanelCount(normalized)),
   );
 
   if (mesh === null) {
@@ -1377,6 +1384,13 @@ function createReliefBody(
             : maxThickness +
               (photoThickness - maxThickness) *
                 ((edgeDistance - borderFlat) / chamferWidth);
+      }
+
+      // Шип нижней кромки: у плафона плита продолжается в паз основания, а паз
+      // шириной 2.5 мм уже бортика. Нижние миллиметры стесаны с лица — деталь
+      // входит в канавку от руки, а над пазом видна уже полная кромка.
+      if (tenon !== null && fromBottom <= tenon.height) {
+        thickness = Math.min(thickness, tenon.thickness);
       }
 
       nodes.push(x, y, thickness);
@@ -4205,6 +4219,143 @@ export const LITHOPHANE_ROUND = {
   seamOverlapMm: 0.4,
 } as const;
 
+/**
+ * Основание круглого плафона: диск с кольцевым пазом и стаканом под патрон.
+ *
+ * Панели плафона висят в воздухе — у них нет ни цоколя, ни рамки. Основание
+ * замыкает абажур снизу: диск по наружному диаметру плафона, кольцевой паз по
+ * его краю и стакан в центре. Панель входит в паз шипом и стоит на дне канавки,
+ * поэтому кольцо держится ровно, не качается и снимается вверх.
+ *
+ * Паз шириной 2.5 мм уже бортика панели (3 мм на максимальной толщине), поэтому
+ * низ каждой панели стесан с лица до 2.2 мм — шип. Стес идёт на 3.4 мм от
+ * кромки: над пазом видна уже полная кромка, а ступенька прячется внутри.
+ *
+ * Стакан — держатель лампы: наружная стенка растёт прямо от диска, дно на 3 мм,
+ * гнездо внутри рассчитано на корпус патрона E14 или E27 (`lithoRailSocket`,
+ * `ring` из `LITHOPHANE_RAIL_SOCKET_SIZES`). Патрон вставляется корпусом сверху,
+ * цоколь смотрит вверх, а провод уходит вниз через квадратное окно 6 × 6 мм в
+ * дне стакана и в диске — окно сквозное и открыто под столом. Такая печать не
+ * требует поддержек: сначала диск и дно, потом стенки вверх.
+ */
+export const LITHOPHANE_ROUND_BASE = {
+  /** Толщина диска, мм: под пазом остаётся дно 1 мм. */
+  thickness: 4,
+  /** Глубина кольцевого паза под нижнюю кромку панели, мм. */
+  grooveDepth: 3,
+  /** Ширина паза по радиусу, мм. */
+  grooveWidth: 2.5,
+  /** Зазор между шипом панели и стенкой паза на сторону, мм. */
+  grooveClearance: 0.15,
+  /**
+   * Высота шипа панели над нижней кромкой, мм: чуть выше паза, чтобы ступенька
+   * от стеса осталась внутри канавки.
+   */
+  tenonHeight: 3.4,
+  /** Толщина шипа, когда бортик панели шире паза, мм. */
+  tenonMax: 2.2,
+  /** Сегментов окружности диска: фасетка около 1°. */
+  segments: 96,
+  /** Стенка стакана, мм. */
+  cupWall: 3,
+  /** Дно гнезда над верхом диска, мм. */
+  cupFloor: 3,
+  /** Высота стакана над столом, мм. */
+  cupHeight: 25,
+  /** Окно под провод: сторона квадрата, мм. */
+  wireSize: 6,
+} as const;
+
+/** Габариты основания плафона: диск, паз, шип панели и стакан под патрон. */
+export type RoundBaseMetrics = {
+  /** Наружный радиус диска, мм: половина наружного диаметра плафона. */
+  discRadius: number;
+  /** Толщина диска, мм. */
+  thickness: number;
+  /** Радиус тыла панелей, мм: на нём стоит шип. */
+  backRadius: number;
+  /** Внутренний и наружный радиусы кольцевого паза, мм. */
+  grooveInner: number;
+  grooveOuter: number;
+  /** Ширина и глубина паза, мм. */
+  grooveWidth: number;
+  grooveDepth: number;
+  /** Толщина шипа панели, мм: бортик панели, стесанный под паз. */
+  tenonThickness: number;
+  /** Высота шипа, мм. */
+  tenonHeight: number;
+  /** Высота дна паза над столом, мм. */
+  grooveFloorY: number;
+  /** Насколько панели подняты от стола: дно паза минус нахлёст, мм. */
+  panelLift: number;
+  /** Наружный радиус стакана и радиус его гнезда, мм. */
+  cupOuter: number;
+  cupBore: number;
+  /** Верх стакана над столом и дно гнезда, мм. */
+  cupTop: number;
+  cupFloor: number;
+  /** Сторона сквозного окна под провод, мм. */
+  wireSize: number;
+  /** Число панелей: по нему строится кольцо. */
+  panels: number;
+};
+
+/**
+ * Габариты основания по параметрам плафона.
+ *
+ * Экспортируется для теста: паз, шип и стакан заданы числами, а сетка только
+ * повторяет их. Паз стоит на радиусе тыла панелей: внутренняя стенка отступает
+ * на зазор, поэтому шип входит от руки. Стакан считается по выбранному патрону:
+ * гнездо равно наружному диаметру кольца патрона (32 мм у E14, 42 мм у E27), а
+ * стенка 3 мм даёт наружный диаметр 38 и 48 мм.
+ */
+export function lithophaneRoundBaseMetrics(
+  normalized: LithophaneParams,
+): RoundBaseMetrics {
+  const base = LITHOPHANE_ROUND_BASE;
+  const socket = LITHOPHANE_RAIL_SOCKET_SIZES[normalized.lithoRailSocket];
+  const discRadius = Math.max(1, normalized.lithophaneWidth / 2);
+  const backRadius = Math.max(
+    1,
+    normalized.lithophaneWidth / 2 - normalized.lithophaneMaxThickness,
+  );
+  const grooveInner = Math.max(0, backRadius - base.grooveClearance);
+  const grooveOuter = Math.min(discRadius, grooveInner + base.grooveWidth);
+  // Шип не может быть шире бортика панели: у тонкой панели он стесан сильнее,
+  // и в пазу остаётся свободный ход — деталь всё равно держится стенками.
+  const tenonThickness = Math.min(
+    base.tenonMax,
+    base.grooveWidth - 2 * base.grooveClearance,
+    normalized.lithophaneMaxThickness - base.grooveClearance * 2,
+  );
+  const cupBore = socket.ring;
+
+  return {
+    discRadius,
+    thickness: base.thickness,
+    backRadius,
+    grooveInner,
+    grooveOuter,
+    grooveWidth: grooveOuter - grooveInner,
+    grooveDepth: base.grooveDepth,
+    tenonThickness,
+    tenonHeight: base.tenonHeight,
+    // Панель входит в паз на нахлёст: её низ на 0.2 мм ниже дна канавки, как у
+    // остальных деталей проекта. Иначе панель и дно паза легли бы плоскость в
+    // плоскость, и в объединённой сетке слайсер увидел бы две грани в одном
+    // месте, а не одно тело.
+    grooveFloorY: base.thickness - base.grooveDepth,
+    panelLift:
+      base.thickness - base.grooveDepth - BODY_OVERLAP_MM,
+    cupOuter: (cupBore + 2 * base.cupWall) / 2,
+    cupBore: cupBore / 2,
+    cupTop: base.cupHeight,
+    cupFloor: base.thickness + base.cupFloor,
+    wireSize: base.wireSize,
+    panels: lithophanePanelCount(normalized),
+  };
+}
+
 /** Габариты круглого плафона: радиус тыла, длина панели по дуге и высота. */
 type RoundMetrics = {
   /** Радиус тыла панелей, мм: рельеф растёт наружу от него. */
@@ -4222,11 +4373,12 @@ type RoundMetrics = {
  *
  * Радиус считается от наружного диаметра: максимальная толщина — это бортик,
  * который печатается по всему периметру панели, поэтому именно он задаёт
- * габарит. Длина панели — дуга её сектора: `2πR / N` плюс перехлёст. Высота
- * берётся как у плоской панели, из того же слайдера.
+ * габарит. Длина панели — дуга её сектора: `2πR / N` плюс перехлёст, где N —
+ * число загруженных фото (один кадр даёт цельное кольцо на 360°). Высота берётся
+ * как у плоской панели, из того же слайдера.
  */
 function roundMetrics(normalized: LithophaneParams): RoundMetrics {
-  const panels = Math.max(2, Math.round(normalized.lithophanePanels));
+  const panels = Math.max(1, lithophanePanelCount(normalized));
   const radius = Math.max(
     1,
     normalized.lithophaneWidth / 2 - normalized.lithophaneMaxThickness,
@@ -4249,12 +4401,25 @@ function roundMetrics(normalized: LithophaneParams): RoundMetrics {
  * Ось панели стоит в (0, y, −R), поэтому сдвиг на R переносит её в ось плафона,
  * а поворот вокруг Y ставит панель на её сектор. Пустой слот панели повторяет
  * предыдущий кадр — одна картинка печатается на всём кольце.
+ *
+ * `lift` поднимает панели в основание: низ каждой входит в кольцевой паз и
+ * лежит на его дне, поэтому в собранном виде кольцо стоит на диске, а не
+ * висит над ним. Шип нижней кромки (см. `tenon` в `createReliefBody`) уже
+ * бортика панели — он и проходит в канавку 2.5 мм.
  */
-function createRoundPanelsGeometry(normalized: LithophaneParams): {
+function createRoundPanelsGeometry(
+  normalized: LithophaneParams,
+  lift = 0,
+): {
   geometry: BufferGeometry;
   spans: number[];
 } {
   const round = roundMetrics(normalized);
+  const base = lithophaneRoundBaseMetrics(normalized);
+  const tenon = {
+    height: base.tenonHeight,
+    thickness: base.tenonThickness,
+  };
   const faces = lithophaneFaceBrightness(normalized);
   const bodies: BufferGeometry[] = [];
   const spans: number[] = [];
@@ -4268,15 +4433,121 @@ function createRoundPanelsGeometry(normalized: LithophaneParams): {
       0,
       faces[panel] ?? faces[0],
       round.radius,
+      tenon,
     );
 
-    plate.translate(0, 0, round.radius);
+    plate.translate(0, lift, round.radius);
     plate.rotateY((panel * 2 * Math.PI) / round.panels);
     spans.push(plate.getIndex()?.count ?? 0);
     bodies.push(plate);
   }
 
   return { geometry: mergeBodies(bodies, "панелей плафона"), spans };
+}
+
+/**
+ * Основание плафона отдельной деталью: диск, кольцевой паз и стакан под лампу.
+ *
+ * Диск строится тремя плитами (`createPlateBody`) и печатается одним телом:
+ *   • середина — круг радиусом паза с квадратным окном под провод;
+ *   • наружный борт — кольцо от паза до наружного диаметра плафона;
+ *   • дно паза — кольцо толщиной 1 мм, на котором стоят панели.
+ * Плиты перекрываются на `BODY_OVERLAP_MM`: в объединённой сетке нет
+ * совпадающих плоскостей, и слайсер видит одно тело.
+ *
+ * Стакан растёт от диска: дно на 3 мм (плита с тем же окном под провод) и
+ * стенка трубой (`createRevolvedBody`). Гнездо внутри равно наружному диаметру
+ * кольца патрона, поэтому в него встаёт корпус E14 или E27, а цоколь смотрит
+ * вверх. Провод проходит через окно в дне гнезда и в диске — оно сквозное.
+ *
+ * Плиты строятся в плоскости XY и выдавливаются по Z; перенос `rotateX(-π/2)`
+ * кладёт их на стол: контурная ось Y становится −Z, выдавливание — высотой.
+ */
+export function createRoundBaseGeometry(
+  params: Partial<LithophaneParams>,
+): BufferGeometry {
+  const normalized = normalizeLithophaneParams(params);
+  const base = lithophaneRoundBaseMetrics(normalized);
+  const round = LITHOPHANE_ROUND_BASE;
+  const overlap = BODY_OVERLAP_MM;
+  const wireHalf = base.wireSize / 2;
+  // Окно под провод — квадрат по оси: штекер и вилка проходят целиком, а не
+  // продеваются по одному проводу.
+  const wireHole: Point2[] = [
+    [-wireHalf, -wireHalf],
+    [wireHalf, -wireHalf],
+    [wireHalf, wireHalf],
+    [-wireHalf, wireHalf],
+  ];
+  const circle = (radius: number): Point2[] =>
+    circlePoints(0, 0, Math.max(0.01, radius), round.segments);
+  const plates: BufferGeometry[] = [];
+  // Середина диска: от оси до внутренней стенки паза, с окном под провод.
+  const middle = createPlateBody(
+    circle(base.grooveInner),
+    [wireHole],
+    0,
+    base.thickness,
+  );
+
+  middle.rotateX(-Math.PI / 2);
+  plates.push(middle);
+
+  // Наружный борт паза. У тонкой панели паз доходит до края, и борта нет —
+  // тогда канавка открыта наружу, как проточка на торце диска.
+  if (base.discRadius - base.grooveOuter > overlap) {
+    const rim = createPlateBody(
+      circle(base.discRadius),
+      [circle(base.grooveOuter)],
+      0,
+      base.thickness,
+    );
+
+    rim.rotateX(-Math.PI / 2);
+    plates.push(rim);
+  }
+
+  // Дно паза: кольцо на 1 мм от стола, на нём стоит шип панели.
+  const grooveFloor = createPlateBody(
+    circle(base.grooveOuter + overlap),
+    [circle(Math.max(overlap, base.grooveInner - overlap))],
+    0,
+    Math.max(0.4, base.thickness - base.grooveDepth),
+  );
+
+  grooveFloor.rotateX(-Math.PI / 2);
+  plates.push(grooveFloor);
+
+  // Дно стакана: сплошная плита по наружному диаметру с окном под провод.
+  // Она на 0.2 мм заходит в диск — деталь остаётся одним телом.
+  const cupFloor = createPlateBody(
+    circle(base.cupOuter),
+    [wireHole],
+    base.thickness - overlap,
+    base.cupFloor,
+  );
+
+  cupFloor.rotateX(-Math.PI / 2);
+  plates.push(cupFloor);
+
+  // Стенка стакана: труба от дна до верха, гнездо внутри остаётся открытым.
+  const cupWall = createRevolvedBody(
+    [
+      [base.cupBore, base.cupFloor - overlap],
+      [base.cupOuter, base.cupFloor - overlap],
+      [base.cupOuter, base.cupTop],
+      [base.cupBore, base.cupTop],
+    ],
+    0,
+    0,
+    360,
+    round.segments,
+    false,
+  );
+
+  plates.push(cupWall);
+
+  return mergeBodies(plates, "основания плафона");
 }
 
 /**
@@ -4722,8 +4993,9 @@ function createKaleidoscopeGeometry(
  *
  * У калейдоскопа база — его собственная часть: панели встают в паз рельсов, а не
  * в наклонную стойку (см. `lithophaneShapeHasBase`). Поэтому сменные подставки с
- * наклоном к нему не применяются. У круглого плафона базы нет вовсе: деталь
- * `stand` возвращает его панели, чтобы запрос не падал.
+ * наклоном к нему не применяются. У круглого плафона база тоже своя — круглое
+ * основание с кольцевым пазом и стаканом под патрон (см.
+ * `createRoundBaseGeometry`), поэтому деталь `stand` возвращает его.
  *
  * База держит литофан на столе: спереди её край выходит за рамку, сзади уходит
  * на 38–52 мм — центр тяжести наклонённой панели остаётся над опорой. У сплошных
@@ -4747,9 +5019,10 @@ export function createLithophaneStandGeometry(
 ): BufferGeometry {
   const normalized = normalizeLithophaneParams(params);
 
-  // У плафона отдельной базы нет: единственная его деталь — панели.
+  // У плафона база — собственное основание: диск с кольцевым пазом и стаканом
+  // под патрон. Панели входят в паз шипом, поэтому деталь `stand` — это диск.
   if (normalized.lithoShape === "round") {
-    return createRoundPanelsGeometry(normalized).geometry;
+    return createRoundBaseGeometry(normalized);
   }
 
   // Калейдоскоп держится на собственном цоколе: рельсы по квадрату и пьедестал
@@ -4869,8 +5142,9 @@ function createArchStandGeometry(
  * открытой арки входят в тыл рамки, а низ рамки опущен в её паз, поэтому детали
  * держатся друг за друга.
  * Без рамки крепления нет (его паз вырезан в рамке), поэтому `all` возвращает
- * плиту. Круглый плафон отдаёт кольцо панелей при любой детали: рамки и базы у
- * него нет. Калейдоскоп собирается из четырёх панелей на цоколе с полом и
+ * плиту. Круглый плафон отдаёт кольцо панелей, а в сборке — кольцо на круглом
+ * основании с пазом и стаканом под патрон (см. `createRoundBaseGeometry`).
+ * Калейдоскоп собирается из четырёх панелей на цоколе с полом и
  * крышкой (см. `createKaleidoscopeGeometry`).
  * Если деталь недоступна — например, `frame` при выключенной рамке, — функция
  * отдаёт рельеф: предпросмотр не должен падать из-за состояния формы. API такие
@@ -4886,13 +5160,33 @@ export function createLithophaneGeometry(
 ): BufferGeometry {
   const normalized = normalizeLithophaneParams(params);
 
-  // Круглый плафон — только панели: съёмной рамки и отдельной базы у него нет,
-  // поэтому детали `relief`, `frame` и `all` дают одно и то же кольцо. Группы по
-  // панелям остаются: в сцене у каждой панели своя карта свечения.
+  // Круглый плафон — кольцо панелей на своём основании. Съёмной рамки у него
+  // нет, поэтому детали `relief` и `frame` дают одно и то же кольцо, деталь
+  // `stand` — основание, а `all` — собранный абажур: панели, опущенные шипом в
+  // кольцевой паз диска. Группы по панелям остаются: в сцене у каждой панели
+  // своя карта свечения, а основание замыкает список материалом крепления.
   if (normalized.lithoShape === "round") {
-    const panels = createRoundPanelsGeometry(normalized);
+    if (part === "stand") {
+      return markPartGroup(
+        createRoundBaseGeometry(normalized),
+        LITHOPHANE_DETAIL_GROUP,
+      );
+    }
 
-    return assignFaceGroups(panels.geometry, panels.spans);
+    const base = lithophaneRoundBaseMetrics(normalized);
+    const panels = createRoundPanelsGeometry(normalized, base.panelLift);
+
+    if (part !== "all") {
+      return assignFaceGroups(panels.geometry, panels.spans);
+    }
+
+    return assignFaceGroups(
+      mergeBodies(
+        [panels.geometry, createRoundBaseGeometry(normalized)],
+        "плафона",
+      ),
+      panels.spans,
+    );
   }
 
   if (part === "relief" || !normalized.lithoFrame) {

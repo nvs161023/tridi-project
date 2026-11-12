@@ -130,6 +130,7 @@ import {
   LITHOPHANE_RAIL,
   LITHOPHANE_RELIEF_GROUP,
   LITHOPHANE_ROUND,
+  LITHOPHANE_ROUND_BASE,
   LITHOPHANE_STAND_SHAPES,
   LITHOPHANE_STAND_TILT_DEG,
   LITHOPHANE_WALL_BOX,
@@ -140,11 +141,13 @@ import {
   createLithophaneLedBoxCoverGeometry,
   createLithophaneReliefGeometry,
   createLithophaneStandGeometry,
+  createRoundBaseGeometry,
   lithophaneCarriageMetrics,
   lithophaneClampBulb,
   lithophaneLedBoxMetrics,
   lithophanePlateSize,
   lithophaneRailMetrics,
+  lithophaneRoundBaseMetrics,
   type LithophaneClampKind,
 } from "../lib/constructor/lithophane-geometry";
 import {
@@ -2731,7 +2734,7 @@ function prismFaceThickness(
   return hits.length >= 2 ? hits[1].distance - hits[0].distance : Number.NaN;
 }
 
-console.log("\n17. Круглый плафон: кольцо изогнутых панелей без базы");
+console.log("\n17. Круглый плафон: кольцо изогнутых панелей на круглом основании");
 
 {
   /*
@@ -2751,23 +2754,29 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
   const height = 80;
   const maxThickness = 3;
   const panels = 4;
+  // Четыре панели — четыре загруженных фото: число панелей теперь считается по
+  // слотам, а не слайдером.
+  const photos = [flatFrame(), flatFrame(), flatFrame()];
   const params = normalizeLithophaneParams({
     lithophaneWidth: diameter,
     lithophaneHeight: height,
     lithophaneMaxThickness: maxThickness,
     lithoShape: "round",
-    lithophanePanels: panels,
+    lithophaneSideBrightness: photos,
   });
   const radius = diameter / 2 - maxThickness;
   const plate = lithophanePlateSize(params);
   const geometry = createLithophaneGeometry(params);
+  const panelsOnly = createLithophaneGeometry(params, "relief");
+  const basePart = createLithophaneGeometry(params, "stand");
   const size = boxSize(geometry);
+  const baseSize = boxSize(basePart);
   const mesh = lithophaneMeshSize(
     plate.width,
     plate.height,
     lithophaneMeshOptions("round", panels),
   );
-  const position = geometry.getAttribute("position");
+  const position = panelsOnly.getAttribute("position");
   let minRadial = Number.POSITIVE_INFINITY;
   let maxRadial = Number.NEGATIVE_INFINITY;
 
@@ -2792,15 +2801,22 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
     diameter * 2,
   ).intersectObject(object, false);
   const half = createLithophaneGeometry(
-    normalizeLithophaneParams({ ...params, lithophanePanels: 2 }),
+    normalizeLithophaneParams({
+      ...params,
+      lithophaneSideBrightness: [flatFrame(), null, null],
+    }),
   );
   const halfSize = boxSize(half);
   const weight = calculateGeometryWeightGrams(geometry);
+  const baseWeight = calculateGeometryWeightGrams(basePart);
+  const base = lithophaneRoundBaseMetrics(params);
 
   console.log(
     `  плафон Ø${diameter} × ${height}: панель ${plate.width.toFixed(2)} × ${plate.height.toFixed(2)} мм, ` +
-      `кольцо ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)} мм, ` +
-      `вес ${weight.toFixed(1)} г`,
+      `сборка ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)} мм, ` +
+      `основание Ø${(baseSize.x).toFixed(2)} × ${baseSize.y.toFixed(2)} мм, ` +
+      `вес ${weight.toFixed(1)} г (панели ${(weight - baseWeight).toFixed(1)}, ` +
+      `основание ${baseWeight.toFixed(1)})`,
   );
 
   check(
@@ -2824,12 +2840,48 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
     [3, true, true],
   );
   check(
-    "плафон: число панелей из параметров",
+    "плафон: число панелей — по числу загруженных фото",
     [
-      lithophanePanelCount({ lithoShape: "round", lithophanePanels: 3 }),
-      lithophanePanelCount({ lithoShape: "kaleidoscope", lithophanePanels: 3 }),
+      [null, null, null],
+      [flatFrame(), null, null],
+      [flatFrame(), flatFrame(), null],
+      [flatFrame(), flatFrame(), flatFrame()],
+    ].map((slots) =>
+      lithophanePanelCount(
+        normalizeLithophaneParams({
+          lithoShape: "round",
+          lithophaneSideBrightness: slots,
+        }),
+      ),
+    ),
+    [1, 2, 3, 4],
+  );
+  check(
+    "плафон: слайдер панелей больше не читается",
+    lithophanePanelCount(
+      normalizeLithophaneParams({
+        lithoShape: "round",
+        lithophanePanels: 4,
+        lithophaneSideBrightness: [flatFrame(), null, null],
+      }),
+    ),
+    2,
+  );
+  check(
+    "калейдоскоп и плоская панель: число панелей не зависит от фото",
+    [
+      lithophanePanelCount({
+        lithoShape: "kaleidoscope",
+        lithophanePanels: 4,
+        lithophaneSideBrightness: [null, null, null],
+      }),
+      lithophanePanelCount({
+        lithoShape: "flat",
+        lithophanePanels: 4,
+        lithophaneSideBrightness: [flatFrame(), flatFrame(), flatFrame()],
+      }),
     ],
-    [3, 4],
+    [4, 1],
   );
   checkRange(
     "плафон: габарит равен наружному диаметру",
@@ -2838,10 +2890,10 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
     diameter + 0.05,
   );
   checkRange(
-    "плафон: высота панелей",
+    "плафон: основание поднимает кольцо на дно паза",
     [size.y],
-    height - TOLERANCE_MM,
-    height + TOLERANCE_MM,
+    height + base.panelLift - TOLERANCE_MM,
+    height + base.panelLift + TOLERANCE_MM,
   );
   checkRange(
     "плафон: тыл панели лежит на радиусе",
@@ -2855,15 +2907,17 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
     diameter / 2 - TOLERANCE_MM,
     diameter / 2 + TOLERANCE_MM,
   );
+  check("плафон: оболочки панелей замкнуты", openEdges(panelsOnly), 0);
+  check("плафон: основание — замкнутая оболочка", openEdges(basePart), 0);
   check(
-    "плафон: оболочки панелей замкнуты",
+    "плафон: сборка без дыр и NaN",
     [openEdges(geometry), nanVertices(geometry)],
     [0, 0],
   );
   check(
-    "плафон: у каждой панели своя группа материалов",
-    [geometry.groups.length, panels],
-    [panels, 4],
+    "плафон: у каждой панели своя группа, основание — последняя",
+    [geometry.groups.length, panels + 1],
+    [panels + 1, 5],
   );
   check(
     "плафон: камера пустая — луч из оси встречает только две стенки",
@@ -2877,7 +2931,7 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
   check(
     "плафон: две панели тоже дают замкнутое кольцо",
     [half.groups.length, openEdges(half), nanVertices(half)],
-    [2, 0, 0],
+    [3, 0, 0],
   );
   checkRange(
     "плафон: кольцо из двух панелей того же диаметра",
@@ -2890,7 +2944,7 @@ console.log("\n17. Круглый плафон: кольцо изогнутых 
     createLithophaneGeometry(params, "frame").groups.length,
     panels,
   );
-  checkRange("плафон: вес кольца из четырёх панелей", [weight], 30, 120);
+  checkRange("плафон: вес абажура с основанием", [weight], 60, 160);
 }
 
 
@@ -4888,6 +4942,209 @@ console.log(
 }
 
 
+
+console.log("\n22. Основание плафона: диск с пазом, стакан под патрон и авто-деление");
+
+{
+  /*
+    Круглому плафону не хватало низа: кольцо панелей висело в воздухе. Теперь
+    под ним лежит круглый диск по наружному диаметру с кольцевым пазом
+    2.5 × 3 мм, а в центре — стакан под патрон E14 или E27. Панель входит в паз
+    шипом: её низ стесан с лица до 2.2 мм, потому что бортик 3 мм в канавку не
+    проходит. Провод выходит через сквозное окно 6 × 6 мм по оси.
+
+    Раздел проверяет числа, которые не видно на предпросмотре: диаметр диска
+    равен наружному диаметру плафона, дно паза стоит на 1 мм от стола, стенка
+    стакана 3 мм, гнездо равно кольцу патрона, а окно действительно сквозное.
+  */
+  const diameter = 120;
+  const height = 80;
+  const twoPhotos = normalizeLithophaneParams({
+    lithophaneWidth: diameter,
+    lithophaneHeight: height,
+    lithoShape: "round",
+    // Второй слот заполнен — ровно две панели по 180°.
+    lithophaneSideBrightness: [flatFrame(), null, null],
+  });
+  const onePhoto = normalizeLithophaneParams({
+    lithophaneWidth: diameter,
+    lithophaneHeight: height,
+    lithoShape: "round",
+  });
+  const e27 = normalizeLithophaneParams({
+    ...twoPhotos,
+    lithoRailSocket: "e27",
+  });
+  const base = lithophaneRoundBaseMetrics(twoPhotos);
+  const baseE27 = lithophaneRoundBaseMetrics(e27);
+  const assembled = createLithophaneGeometry(twoPhotos);
+  const panels = createLithophaneGeometry(twoPhotos, "relief");
+  const basePart = createLithophaneGeometry(twoPhotos, "stand");
+  const explicitBase = createRoundBaseGeometry(twoPhotos);
+  const solo = createLithophaneGeometry(onePhoto);
+  const standPart = createLithophaneGeometry(twoPhotos, "stand");
+  const assembledSize = boxSize(assembled);
+  const baseSize = boxSize(basePart);
+  const soloSize = boxSize(solo);
+  const baseWeight = calculateGeometryWeightGrams(basePart);
+  const material = new MeshBasicMaterial({ side: DoubleSide });
+  const object = new Mesh(basePart, material);
+  const whole = new Mesh(assembled, material);
+  // Луч сверху вниз: ось проходит через окно под провод, мимо окна — пластик.
+  const fromTop = (x: number, z: number) =>
+    new Raycaster(
+      new Vector3(x, 60, z),
+      new Vector3(0, -1, 0),
+      0,
+      120,
+    ).intersectObject(object, false);
+  const axis = fromTop(0, 0);
+  // Луч начинает с высоты 60 мм: дно паза — это 60 минус путь луча.
+  const groove =
+    60 -
+    (fromTop(0, -(base.backRadius + base.grooveWidth / 2))[0]?.distance ?? 0);
+  // Боковой луч на высоте гнезда: наружная стенка стакана и внутренняя.
+  const cupSide = new Raycaster(
+    new Vector3(100, 10, 0),
+    new Vector3(-1, 0, 0),
+    0,
+    200,
+  ).intersectObject(object, false);
+  // Луч по радиусу на высоте шипа: внутри паза стоит панель толщиной 2.2 мм.
+  const tenonHits = new Raycaster(
+    new Vector3(70, base.panelLift + 1, 0),
+    new Vector3(-1, 0, 0),
+    0,
+    200,
+  ).intersectObject(whole, false);
+  const tenonGaps = tenonHits
+    .slice(1)
+    .map((hit, index) => hit.distance - tenonHits[index].distance);
+  const ringWidth =
+    2 * Math.PI * (diameter / 2 - onePhoto.lithophaneMaxThickness) +
+    LITHOPHANE_ROUND.seamOverlapMm;
+
+  console.log(
+    `  основание Ø${baseSize.x.toFixed(2)} × ${baseSize.y.toFixed(2)} мм, ` +
+      `паз ${base.grooveWidth.toFixed(2)} × ${base.grooveDepth.toFixed(2)} мм ` +
+      `(дно на ${groove.toFixed(2)} мм), стакан Ø${(base.cupOuter * 2).toFixed(2)} ` +
+      `с гнездом Ø${(base.cupBore * 2).toFixed(2)}, вес ${baseWeight.toFixed(1)} г; ` +
+      `2 фото — ${panels.groups.length} панели, 1 фото — ${solo.groups.length - 1}`,
+  );
+
+  checkRange(
+    "основание: диск по наружному диаметру плафона",
+    [baseSize.x, baseSize.z],
+    diameter - 0.05,
+    diameter + 0.05,
+  );
+  checkRange(
+    "основание: высота диска и стакана",
+    [baseSize.y],
+    base.cupTop - TOLERANCE_MM,
+    base.cupTop + TOLERANCE_MM,
+  );
+  checkRange(
+    "основание: дно паза на 1 мм от стола",
+    [groove],
+    base.grooveFloorY - TOLERANCE_MM,
+    base.grooveFloorY + TOLERANCE_MM,
+  );
+  check("основание: окно под провод сквозное", axis.length, 0);
+  checkRange(
+    "основание: стенка стакана",
+    [(cupSide[1]?.distance ?? 0) - (cupSide[0]?.distance ?? 0)],
+    LITHOPHANE_ROUND_BASE.cupWall - TOLERANCE_MM,
+    LITHOPHANE_ROUND_BASE.cupWall + TOLERANCE_MM,
+  );
+  check(
+    "основание: патрон E14 или E27 выбирает гнездо",
+    [base.cupBore * 2, baseE27.cupBore * 2],
+    [
+      LITHOPHANE_RAIL_SOCKET_SIZES.e14.ring,
+      LITHOPHANE_RAIL_SOCKET_SIZES.e27.ring,
+    ],
+  );
+  check(
+    "основание: шип уже бортика и паза",
+    [
+      Math.abs(base.tenonThickness - LITHOPHANE_ROUND_BASE.tenonMax) < 1e-6,
+      base.tenonThickness < base.grooveWidth,
+      base.tenonThickness < twoPhotos.lithophaneMaxThickness,
+    ],
+    [true, true, true],
+  );
+  check(
+    "основание: в пазу стоит шип 2.2 мм",
+    tenonGaps.some((gap) => Math.abs(gap - base.tenonThickness) < 0.05),
+    true,
+  );
+  check(
+    "основание: деталь «stand» — то же основание",
+    [
+      standPart.getAttribute("position").count,
+      explicitBase.getAttribute("position").count,
+    ],
+    [
+      basePart.getAttribute("position").count,
+      basePart.getAttribute("position").count,
+    ],
+  );
+  check(
+    "основание: сборка — две панели и основание",
+    [panels.groups.length, assembled.groups.length, openEdges(assembled)],
+    [2, 3, 0],
+  );
+  checkRange(
+    "основание: сборка по наружному диаметру",
+    [assembledSize.x, assembledSize.z],
+    diameter - 0.05,
+    diameter + 0.05,
+  );
+  checkRange(
+    "основание: панели стоят на дне паза",
+    [assembledSize.y],
+    height + base.panelLift - TOLERANCE_MM,
+    height + base.panelLift + TOLERANCE_MM,
+  );
+  check(
+    "основание: одна панель — цельное кольцо на 360°",
+    [
+      Math.abs(lithophanePlateSize(onePhoto).width - ringWidth) < 1e-6,
+      solo.groups.length,
+      openEdges(solo),
+      soloSize.y > height,
+    ],
+    [true, 2, 0, true],
+  );
+  check(
+    "основание: плоская панель не изменилась",
+    [
+      lithophanePanelCount({
+        lithoShape: "flat",
+        lithophanePanels: 4,
+        lithophaneSideBrightness: [flatFrame(), null, null],
+      }),
+      createLithophaneGeometry(
+        normalizeLithophaneParams({
+          lithophaneWidth: diameter,
+          lithophaneHeight: height,
+          lithoShape: "flat",
+          lithoFrame: true,
+        }),
+      ).groups.length,
+    ],
+    [1, 2],
+  );
+
+  assembled.dispose();
+  panels.dispose();
+  basePart.dispose();
+  explicitBase.dispose();
+  solo.dispose();
+  standPart.dispose();
+  material.dispose();
+}
 
 console.log("");
 
