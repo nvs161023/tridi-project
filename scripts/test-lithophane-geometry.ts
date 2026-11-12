@@ -119,6 +119,7 @@ import {
   LITHOPHANE_BORDER_CHAMFER_MM,
   LITHOPHANE_BORDER_MM,
   LITHOPHANE_CARRIAGE,
+  LITHOPHANE_CARRIAGE_OFFSET_MM,
   LITHOPHANE_DETAIL_GROUP,
   LITHOPHANE_FIT_GAP_MM,
   LITHOPHANE_FRAME_CORNER_RADIUS_MM,
@@ -3860,12 +3861,16 @@ console.log(
     гайку, чтобы она не проворачивалась; между дном зенковки и гнездом остаётся
     2 мм мяса. Никакого барабана и полости у детали нет.
 
-    Снизу кольца — одна ножка 5.6 × 10 мм, а её низ расширен в салазки 9.6 мм с
+    Снизу кольца — одна ножка 5.2 × 10 мм, а её низ расширен в салазки 9.2 мм с
     фланками под 45°: салазки входят в Т-образный паз полоза (шейка 6 мм над
-    карманом 10 мм) с зазорами 0.2 мм и стоят на дне кармана. Каретка едет по
+    карманом 10 мм) с зазорами 0.4 мм и стоят на дне кармана. Каретка едет по
     полозу вдоль Z, а фланки не дают кольцу опрокинуться вперёд.
     Козырёк — пластина 2 мм поверх макушки кольца, по его ширине: выступает к
     панели на 20 мм и опускается к носу на 5 мм.
+
+    Собранный вид отодвигает каретку от рамки: в пазу полоза она стоит вплотную
+    к рельсу, и слайсер спекает её с рамкой. Поэтому в общем STL каретка лежит
+    рядом на столе — на смещение `LITHOPHANE_CARRIAGE_OFFSET_MM` вбок.
 
     Проверяются оба патрона: наружный Ø32 у E14 и Ø42 у E27 при толщине 5,
     сквозное отверстие под резьбу, зенковка под фланец, шестигранное гнездо под
@@ -4021,10 +4026,11 @@ console.log(
     [true],
   );
   // Фланки под 45°: на высоту кармана (2 мм) салазки сужаются на столько же.
-  check(
+  checkRange(
     "салазки: фланки под 45° сходятся ровно в ножку",
     [base.sledWidth / 2 - (base.sledTop - base.sledBottom)],
-    [base.stemWidth / 2],
+    base.stemWidth / 2 - TOLERANCE_MM,
+    base.stemWidth / 2 + TOLERANCE_MM,
   );
   checkRange(
     `ножка: зазор в шейке ${(railMetrics.slotWidth - base.stemWidth).toFixed(1)} мм — ${railMetrics.clearance} мм на сторону`,
@@ -4614,6 +4620,66 @@ console.log(
     [boxSize(carriageBody), carriageBody.getAttribute("position").count],
   );
 
+  /*
+    Собранный вид отодвигает каретку от рамки: в пазу полоза она стоит вплотную
+    к рельсу, и слайсер спекает её с рамкой в одну деталь. Каретка уходит вбок на
+    `LITHOPHANE_CARRIAGE_OFFSET_MM` и опускается до стола — салазки висели на дне
+    кармана. Поэтому по X её вершины начинаются за рамкой, а низ лежит на нуле.
+  */
+  const railFrame = createLithophaneGeometry(railParams, "frame");
+  const frameHalf = boxSize(railFrame).x / 2;
+  const assembly = createLithophaneGeometry(railParams);
+
+  assembly.computeBoundingBox();
+  const assemblyBox = assembly.boundingBox;
+  const points = assembly.getAttribute("position");
+  let carriageMinX = Number.POSITIVE_INFINITY;
+  let carriageMinY = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < points.count; index += 1) {
+    const x = points.getX(index);
+
+    if (x <= frameHalf) {
+      continue;
+    }
+
+    carriageMinX = Math.min(carriageMinX, x);
+    carriageMinY = Math.min(carriageMinY, points.getY(index));
+  }
+
+  checkRange(
+    `сборка: каретка отъехала до ${(assemblyBox?.max.x ?? 0).toFixed(1)} мм по X`,
+    [assemblyBox?.max.x ?? 0],
+    LITHOPHANE_CARRIAGE_OFFSET_MM + base.ringRadius - TOLERANCE_MM,
+    LITHOPHANE_CARRIAGE_OFFSET_MM + base.ringRadius + TOLERANCE_MM,
+  );
+  check(
+    `сборка: каретка начинается за рамкой — ${(carriageMinX - frameHalf).toFixed(1)} мм зазора`,
+    carriageMinX > frameHalf,
+    true,
+  );
+  checkRange(
+    "сборка: каретка стоит на столе, а не в пазу",
+    [carriageMinY],
+    -TOLERANCE_MM,
+    TOLERANCE_MM,
+  );
+  check("полоз: зазор каретки 0.4 мм на сторону", rail.clearance, 0.4);
+  checkRange(
+    "полоз: ножка 5.2 мм в шейке 6 мм",
+    [base.stemWidth],
+    rail.slotWidth - 2 * rail.clearance - TOLERANCE_MM,
+    rail.slotWidth - 2 * rail.clearance + TOLERANCE_MM,
+  );
+  checkRange(
+    "полоз: салазки 9.2 мм в кармане 10 мм",
+    [base.sledWidth],
+    rail.cavityWidth - 2 * rail.clearance - TOLERANCE_MM,
+    rail.cavityWidth - 2 * rail.clearance + TOLERANCE_MM,
+  );
+
+  assembly.dispose();
+  railFrame.dispose();
   carriagePart.dispose();
   carriageBody.dispose();
 }

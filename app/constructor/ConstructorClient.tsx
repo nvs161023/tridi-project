@@ -360,10 +360,9 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
       ];
     }
 
-    // Первый файл — собранный литофан: плита уже вставлена в рамку и, если
-    // выбрана подставка, наклонена вместе с ней. Дальше детали по отдельности:
-    // рельеф и рамка есть всегда, подставка — только при ножке или массивном
-    // основании, петли подвеса — часть рамки.
+    // Штатный набор: первый файл — собранный литофан, дальше детали по
+    // отдельности. Рельеф и рамка есть всегда, подставка — только при ножке или
+    // массивном основании, петли подвеса — часть рамки.
     const parts: LithophanePart[] = ["relief", "frame"];
 
     // Подставка: у плоской формы — выбранное крепление с ножкой или основанием.
@@ -375,16 +374,14 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
     }
 
     // Полоз: врезан в тыл рамки и печатается вместе с ней, поэтому отдельный
-    // файл есть только у кольца на ножке.
-    if (
-      lithophaneHasRail(
-        params.lithoMount,
-        params.lithoShape,
-        params.lithoFrame,
-      )
-    ) {
-      parts.push("carriage");
-    }
+    // файл есть только у каретки. В общем STL каретка стоит в пазу, и слайсер
+    // спекает её с рамкой, поэтому у полоза собранный файл из скачивания уходит:
+    // на кнопках остаются три отдельные детали — рамка, каретка и панель.
+    const railed = lithophaneHasRail(
+      params.lithoMount,
+      params.lithoShape,
+      params.lithoFrame,
+    );
 
     // Короб под LED-панель тоже наращивает рамку и печатается вместе с ней:
     // отдельным файлом идёт только задняя крышка, которая держит панель.
@@ -398,6 +395,29 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
       parts.push("cover");
     }
 
+    // Подпись зависит от крепления и формы: короб и полоз наращивают одну
+    // рамку, а у плафона деталь `stand` — его основание.
+    const option = (part: LithophanePart): StlExportOption => {
+      const label = lithophanePartLabel(
+        part,
+        params.lithoMount,
+        params.lithoShape,
+      );
+
+      return {
+        id: `lithophane-${part}`,
+        label,
+        description: `${label} литофана отдельным файлом`,
+        request: { part },
+        fileName: lithophaneStlFileName(params, part),
+      };
+    };
+
+    if (railed) {
+      // Порядок — от главной детали: рамка с полозом, каретка и панель.
+      return (["frame", "carriage", "relief"] as const).map(option);
+    }
+
     return [
       {
         id: "lithophane-all",
@@ -406,23 +426,7 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
         request: { part: "all" },
         fileName: lithophaneStlFileName(params, "all"),
       },
-      ...parts.map((part) => {
-        // Подпись зависит от крепления и формы: короб и полоз наращивают одну
-        // рамку, а у плафона деталь `stand` — его основание.
-        const label = lithophanePartLabel(
-          part,
-          params.lithoMount,
-          params.lithoShape,
-        );
-
-        return {
-          id: `lithophane-${part}`,
-          label,
-          description: `${label} литофана отдельным файлом`,
-          request: { part },
-          fileName: lithophaneStlFileName(params, part),
-        };
-      }),
+      ...parts.map(option),
     ];
   }
 

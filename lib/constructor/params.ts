@@ -2043,7 +2043,7 @@ export function lithophanePanelCount(
  * `lithoMount === "stand"` или `"base"`, а у круглого плафона это его основание:
  * кольцо с пазом, спицы и ступица под патрон. Крышка (`top_cover`) — тоже
  * деталь плафона: кольцо-козырёк с пазом снизу, оно закрывает абажур сверху.
- * Кольцо (`carriage`) — деталь полоза: её печатают, когда `lithophaneHasRail`, и
+ * Каретка (`carriage`) — деталь полоза: её печатают, когда `lithophaneHasRail`, и
  * вставляют ножкой в паз, врезанный в тыл рамки. `cover` — задняя крышка короба
  * под LED-панель: она нужна только при `lithophaneHasLedBox` и вставляется в паз
  * на тылу короба. `all` — собранный вид для проверки и печати одним файлом.
@@ -2062,11 +2062,11 @@ export type LithophanePart = (typeof LITHOPHANE_PARTS)[number];
 
 /** Подписи деталей литофана для панели и имён файлов. */
 export const LITHOPHANE_PART_LABELS = {
-  relief: "Рельеф",
+  relief: "Панель",
   frame: "Рамка с полозом",
   stand: "Подставка",
   top_cover: "Верхняя крышка плафона",
-  carriage: "Кольцо на салазках",
+  carriage: "Каретка",
   cover: "Задняя крышка короба",
   all: "Все детали",
 } as const satisfies Record<LithophanePart, string>;

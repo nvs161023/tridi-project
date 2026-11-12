@@ -323,8 +323,14 @@ export const LITHOPHANE_RAIL = {
    * дно кармана на `thickness − slotDepth − (cavityWidth − slotWidth) / 2` = 1.5 мм.
    */
   cavityWidth: 10,
-  /** Зазор между пазом и салазками на сторону, мм. */
-  clearance: 0.2,
+  /**
+   * Зазор между пазом и салазками на сторону, мм.
+   *
+   * 0.4 мм — двойная посадка: каретку вставляют с торца шины рукой, а если её
+   * всё же печатают в сборе (print-in-place), зазор держит салазки и фланки
+   * раздельными и слайсер не спекает каретку с полозом.
+   */
+  clearance: 0.4,
   /** Нахлёст шины с рамкой по Z, мм. */
   frameOverlap: BODY_OVERLAP_MM,
 } as const;
@@ -411,6 +417,18 @@ export const LITHOPHANE_CARRIAGE = {
   boreSegments: 24,
 } as const;
 
+/**
+ * Смещение каретки в собранном виде, мм.
+ *
+ * В пазу полоза каретка стоит вплотную к рельсу, и в общем STL слайсер видит
+ * одну деталь с рамкой. На собранном виде каретку уводим вбок на это расстояние
+ * и опускаем на стол: она лежит рядом с рамкой отдельной деталью, а сборка
+ * остаётся наглядной.
+ *
+ * 150 мм хватает на всю ширину панели: у самой широкой (200 мм) полуширина
+ * рамки 104 мм, а кольцо E27 занимает ещё 21 мм.
+ */
+export const LITHOPHANE_CARRIAGE_OFFSET_MM = 150;
 
 type Point3 = readonly [number, number, number];
 
@@ -5469,8 +5487,13 @@ export function createLithophaneGeometry(
     bodies.push(createLithophaneStandGeometry(normalized));
   }
 
-  // Каретка встаёт на рельс рамки: на собранном виде её видно на месте, а в
-  // списке деталей она идёт отдельным файлом.
+  /*
+    Каретку на собранном виде отодвигаем от рамки. В пазу полоза она стоит
+    вплотную к рельсу, и слайсер спекает её с рамкой в одну деталь: торец шины
+    открыт, а паз занят. Рядом на столе каретка печатается отдельно и остаётся на
+    виду в сборке. Низ салазок висит на дне кармана, поэтому деталь опускается до
+    стола.
+  */
   if (
     lithophaneHasRail(
       normalized.lithoMount,
@@ -5478,7 +5501,15 @@ export function createLithophaneGeometry(
       normalized.lithoFrame,
     )
   ) {
-    bodies.push(createLithophaneCarriageGeometry(normalized));
+    const carriage = createLithophaneCarriageGeometry(normalized);
+
+    carriage.computeBoundingBox();
+    carriage.translate(
+      LITHOPHANE_CARRIAGE_OFFSET_MM,
+      -(carriage.boundingBox?.min.y ?? 0),
+      0,
+    );
+    bodies.push(carriage);
   }
 
   // Задняя крышка короба встаёт в паз на его тылу: на собранном виде короб
