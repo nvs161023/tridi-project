@@ -77,6 +77,7 @@ import {
   keychainThicknessLimits,
   keychainQrCardSpec,
   listSignBlocks,
+  lithophaneHasLedBox,
   lithophaneHasRail,
   lithophaneHasStand,
   lithophaneMeshOptions,
@@ -1169,6 +1170,10 @@ function parseLithophaneParams(
     // Деталь «carriage»: кольцо нужно только полозу плоской панели.
     (part === "carriage" &&
       !lithophaneHasRail(lithoMount, lithoShape, lithoFrame)) ||
+    // Деталь «cover»: задняя крышка закрывает короб под LED-панель, и без
+    // короба в сборке ей нечего закрывать.
+    (part === "cover" &&
+      !lithophaneHasLedBox(lithoMount, lithoShape, lithoFrame)) ||
     // Деталь «stand»: у плоской формы это выбранное крепление с ножкой или
     // основанием, у калейдоскопа — собственный цоколь.
     (part === "stand" &&

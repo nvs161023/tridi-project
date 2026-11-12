@@ -39,11 +39,14 @@ import {
   LITHOPHANE_FRAME_SEAT_MM,
   LITHOPHANE_KALEIDOSCOPE,
   LITHOPHANE_LAMP_CLAMP,
+  LITHOPHANE_LED_BOX,
   LITHOPHANE_STAND_SHAPES,
   LITHOPHANE_STAND_TILT_DEG,
   LITHOPHANE_WALL_BOX,
   lithophaneClampBulb,
+  lithophaneLedBoxMetrics,
   lithophanePlateSize,
+  type LithophaneLedBoxMetrics,
 } from "@/lib/constructor/lithophane-geometry";
 import {
   lithophaneHasStand,
@@ -92,7 +95,12 @@ export type LithoLightFace = {
 };
 
 /** Источник, под который в базе вырезано крепление. */
-export type LithoLightKind = "strip" | "usb_bulb" | "socket" | "candle";
+export type LithoLightKind =
+  | "strip"
+  | "usb_bulb"
+  | "socket"
+  | "candle"
+  | "panel";
 
 /** Подписи источников для панели конструктора. */
 export const LITHO_LIGHT_KIND_LABELS = {
@@ -100,6 +108,7 @@ export const LITHO_LIGHT_KIND_LABELS = {
   usb_bulb: "USB-лампа",
   socket: "Лампа E27 в патроне",
   candle: "Свеча",
+  panel: "LED-панель в коробе",
 } as const satisfies Record<LithoLightKind, string>;
 
 /**
@@ -128,7 +137,13 @@ export type LithoLightWarning = {
 export type LithoLightPlan = {
   kind: LithoLightKind;
   shape: LithophaneShape;
+  /**
+   * Точки расчёта карты. У LED-панели их больше, чем ламп в кадре: панель светит
+   * плоскостью, и карта считается суммой по густой сетке.
+   */
   emitters: LithoLightEmitter[];
+  /** Лампы предпросмотра: их и рисует сцена, их же видно на карте света. */
+  lights: LithoLightEmitter[];
   faces: LithoLightFace[];
   /**
    * Место листа-рассеивателя, если он включён и его паз напечатан: по нему карта
@@ -187,6 +202,16 @@ export const LITHO_LIGHT_MODEL = {
   /** Сколько точек раскладывается по каналу ленты. */
   stripEmitters: 13,
   /**
+   * Сетка точек LED-панели для расчёта: 13 × 9 на 105 × 65 мм короба.
+   *
+   * Шаг 8 мм — вдвое мельче, чем у ламп в кадре (4 × 3): панель стоит вплотную к
+   * плите, и расчёт по редким точкам рисовал бы пятно под каждой, хотя в жизни
+   * светит ровное поле. Сумма по густой сетке сходится к интегралу по плоскости,
+   * поэтому карта панели выходит ровной.
+   */
+  panelColumns: 13,
+  panelRows: 9,
+  /**
    * Рассеиватель: конус рассеяния, пропускание и мягкий край.
    *
    * Лист опалового акрила 2 мм рассеивает свет вперёд почти по Ламберту:
@@ -226,13 +251,16 @@ export const LITHO_LIGHT_MODEL = {
    * Лента 700 лм/м на канале 98 мм — около 1.7 кд на точку. USB-лампа 30 лм в
    * шар — 2.4 кд. Патрон E27 с лампой 6 Вт (470 лм) против панели — 30 кд, но
    * абажур возвращает на кадр только вырез 120°, остальное уходит вверх и в
-   * стороны. Свеча — 1.2 кд, как у чайной.
+   * стороны. Свеча — 1.2 кд, как у чайной. LED-панель 100 × 75 на 300 лм светит
+   * по Ламберту всей плоскостью — около 95 кд: это сила всей панели, и между
+   * точками её сетки она делится поровну.
    */
   candelas: {
     strip: 1.7,
     usbBulb: 2.4,
     socket: 30,
     candle: 1.2,
+    panel: 95,
   },
 } as const;
 
@@ -735,7 +763,13 @@ export function lithophaneLightMetrics(
 type LithoLightSeat = {
   kind: LithoLightKind;
   faces: LithoLightFace[];
+  /**
+   * Точки для расчёта карты. У LED-панели их густая сетка: панель стоит вплотную
+   * к плите, и по редким точкам сумма не сходилась бы к ровному полю.
+   */
   emitters: LithoLightEmitter[];
+  /** Лампы для предпросмотра: у всех источников, кроме панели, — те же точки. */
+  lights: LithoLightEmitter[];
 };
 
 /**
@@ -819,6 +853,65 @@ function flatFace(
 }
 
 /**
+ * Точки LED-панели короба: сетка `columns × rows` на плоскости её лица.
+ *
+ * Сила панели делится между точками поровну, поэтому средняя освещённость не
+ * зависит от густоты сетки — меняется только ровность карты. Расчёт берёт густую
+ * сетку (шаг 8 мм), предпросмотр — ту же функцию с сеткой ламп 4 × 3: каждая
+ * лампа получает суммарную силу своей доли точек.
+ */
+function panelEmitters(
+  led: LithophaneLedBoxMetrics,
+  columns: number,
+  rows: number,
+): LithoLightEmitter[] {
+  const intensity = LITHO_LIGHT_MODEL.candelas.panel / (columns * rows);
+  const emitters: LithoLightEmitter[] = [];
+
+  for (let row = 0; row < rows; row += 1) {
+    const y = led.centerY - led.panelHeight / 2 + ((row + 0.5) * led.panelHeight) / rows;
+
+    for (let column = 0; column < columns; column += 1) {
+      emitters.push({
+        position: [
+          -led.panelWidth / 2 + ((column + 0.5) * led.panelWidth) / columns,
+          y,
+          led.panelZ,
+        ],
+        axis: [0, 0, 1],
+        lobe: 1,
+        intensity,
+      });
+    }
+  }
+
+  return emitters;
+}
+
+/**
+ * Лампы для предпросмотра: у точки, ленты и свечи это те же источники.
+ *
+ * У LED-панели расчёт идёт по густой сетке, а в кадр ставятся двенадцать ламп.
+ * Разложение — та же функция с сеткой короба, поэтому суммарная сила света в
+ * кадре равна панели, а не её выборке.
+ */
+function flatLights(
+  normalized: LithophaneParams,
+  kind: LithoLightKind,
+  emitters: LithoLightEmitter[],
+): LithoLightEmitter[] {
+  if (kind !== "panel") {
+    return emitters;
+  }
+
+  return panelEmitters(
+    lithophaneLedBoxMetrics(normalized),
+    LITHOPHANE_LED_BOX.emittersX,
+    LITHOPHANE_LED_BOX.emittersY,
+  );
+}
+
+/**
  * Источники плоской панели: лента в канале, колба в чаше или патрон в стакане.
  *
  * Координаты канала взяты из профилей базы: у арки канал идёт сразу за пазом
@@ -850,6 +943,20 @@ function flatEmitters(
 
   const arch = LITHOPHANE_ARCH_STAND;
   const box = LITHOPHANE_WALL_BOX;
+
+  if (normalized.lithoMount === "led_box") {
+    /*
+      LED-панель светит всей плоскостью, а расчёт складывает точечные источники,
+      поэтому она раскладывается по сетке на плоскости своего лица. Точки смотрят в
+      плиту и светят по косинусу, как рассеиватель: сумма по сетке сходится к
+      интегралу по прямоугольнику, поэтому карта выходит ровной, а не в клетку.
+    */
+    return panelEmitters(
+      lithophaneLedBoxMetrics(normalized),
+      LITHO_LIGHT_MODEL.panelColumns,
+      LITHO_LIGHT_MODEL.panelRows,
+    );
+  }
 
   if (normalized.lithoMount === "hook") {
     // Короб подвеса: лента лежит на полке рамки у тыльной стенки и светит вверх.
@@ -933,17 +1040,21 @@ function kaleidoscopeSeat(
     });
   }
 
+  // Свеча стоит в кольце пьедестала: одна точка на оси призмы.
+  const candles: LithoLightEmitter[] = [
+    {
+      position: [0, LITHO_LIGHT_SEATS.candleY, 0],
+      axis: [0, 1, 0],
+      lobe: 0,
+      intensity: LITHO_LIGHT_MODEL.candelas.candle,
+    },
+  ];
+
   return {
     kind: "candle",
     faces,
-    emitters: [
-      {
-        position: [0, LITHO_LIGHT_SEATS.candleY, 0],
-        axis: [0, 1, 0],
-        lobe: 0,
-        intensity: LITHO_LIGHT_MODEL.candelas.candle,
-      },
-    ],
+    emitters: candles,
+    lights: candles,
   };
 }
 
@@ -1104,6 +1215,13 @@ function lightWarnings(verdict: LithoLightVerdict): LithoLightWarning[] {
     metrics.topShare < LITHO_LIGHT_MODEL.darkTop ? "error" : "warning";
 
   /*
+    LED-панель в коробе стоит вплотную к плите по конструкции: её прижимает полка,
+    и светит она не точкой, а всей плоскостью. Правила про пятно и про близость
+    источника к ней не относятся — пятна от плоскости не бывает.
+  */
+  const pointSource = verdict.kind !== "panel";
+
+  /*
     Пересвет — это в первую очередь пик к средней: 2.5 раза уже видно глазом. Второй
     признак — расстояние: если лампа ближе половины рекомендованного, пятно будет
     при любом потоке. Порог половины, а не трёх четвертей, потому что у ленты в
@@ -1111,6 +1229,7 @@ function lightWarnings(verdict: LithoLightVerdict): LithoLightWarning[] {
     на 54 мм лента светит ровно, хотя 88 мм формально ещё «не хватает».
   */
   if (
+    pointSource &&
     !verdict.sheetAvailable &&
     (metrics.peakRatio > LITHO_LIGHT_MODEL.overexposure ||
       verdict.actualDistance < verdict.recommendedDistance * 0.5)
@@ -1129,7 +1248,7 @@ function lightWarnings(verdict: LithoLightVerdict): LithoLightWarning[] {
     });
   }
 
-  if (!verdict.sheetAvailable && shaded) {
+  if (pointSource && !verdict.sheetAvailable && shaded) {
     warnings.push(
       verdict.kind === "strip"
         ? {
@@ -1180,6 +1299,11 @@ function flatLightKind(normalized: LithophaneParams): LithoLightKind | null {
     return "strip";
   }
 
+  // В коробе светит сама LED-панель: её ставят в полку, а не выбирают из списка.
+  if (normalized.lithoMount === "led_box") {
+    return "panel";
+  }
+
   if (normalized.lithoMount !== "arch") {
     return null;
   }
@@ -1211,10 +1335,13 @@ function lightSeat(
     return null;
   }
 
+  const emitters = flatEmitters(normalized, kind, plate);
+
   return {
     kind,
     faces: [flatFace(normalized, plate)],
-    emitters: flatEmitters(normalized, kind, plate),
+    emitters,
+    lights: flatLights(normalized, kind, emitters),
   };
 }
 
@@ -1223,7 +1350,9 @@ function lightSeat(
  *
  * У арки лист вставляется сверху в щель верхней плоскости базы. Паз режется при
  * любом источнике: лист входит в комплект, и без него панель качается в пазу. У
- * призмы калейдоскопа паза нет: там свет горит в камере за четырьмя плитами.
+ * призмы калейдоскопа паза нет: там свет горит в камере за четырьмя плитами. У
+ * короба под LED-панель его тоже нет: рассеиватель уже в корпусе панели, а
+ * лишний слой акрила только съел бы зазор до плиты.
  *
  * Низ листа — дно паза, верх — на высоту панели выше: лист кроится по тому же
  * размеру, что и кадр, иначе верх кадра остаётся без размытия. Числа берутся из
@@ -1236,6 +1365,7 @@ function diffuserSeat(
   if (
     !normalized.lithoDiffuser ||
     kind === "candle" ||
+    kind === "panel" ||
     normalized.lithoShape !== "flat"
   ) {
     return null;
@@ -1294,9 +1424,10 @@ export function lithophaneLightPlan(
     Рассеиватель не обязателен: лист — отдельная деталь, и без неё сборка
     работает. Но лампа в базе светит пятном, поэтому о листе стоит сказать один
     раз и с числом: до какого пика доходит карта. Паз напечатан у всех форм, где
-    ставится источник; у призмы калейдоскопа паза нет — свет горит в камере.
+    ставится источник; у призмы калейдоскопа и у короба под LED-панель паза нет —
+    там свет горит в камере или светит вся плоскость панели.
   */
-  const diffuserSupported = seat.kind !== "candle";
+  const diffuserSupported = seat.kind !== "candle" && seat.kind !== "panel";
   const warnings = lightWarnings({
     kind: seat.kind,
     metrics,
@@ -1350,6 +1481,7 @@ export function lithophaneLightPlan(
     kind: seat.kind,
     shape: normalized.lithoShape,
     emitters: seat.emitters,
+    lights: seat.lights,
     faces: seat.faces,
     diffuser,
     diffuserSupported,

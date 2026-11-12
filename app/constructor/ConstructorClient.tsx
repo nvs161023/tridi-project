@@ -47,7 +47,6 @@ import {
   DEFAULT_STAND_PARAMS,
   DEFAULT_VASE_PARAMS,
   JEWELRY_CONFIG_LABELS,
-  LITHOPHANE_PART_LABELS,
   LITHOPHANE_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
@@ -69,8 +68,10 @@ import {
   sanitizeQrCardPhone,
   listSignBlocks,
   listSignLetters,
+  lithophaneHasLedBox,
   lithophaneHasRail,
   lithophaneHasStand,
+  lithophanePartLabel,
   lithophaneShapeHasFrame,
   lithophaneShapeHasMounts,
   lithophaneStlFileName,
@@ -254,16 +255,6 @@ async function readServerMessage(response: Response): Promise<string | null> {
 }
 
 /**
- * Подпись детали литофана.
- *
- * Файлы деталей есть только у плоской панели: у плафона и калейдоскопа панели
- * печатаются одной сборкой, поэтому особых подписей не нужно.
- */
-function lithophanePartLabel(part: LithophanePart): string {
-  return LITHOPHANE_PART_LABELS[part];
-}
-
-/**
  * Файлы, которые можно скачать для текущей модели.
  *
  * У вывески и литофана файлов несколько: блок вывески печатается лицом и
@@ -372,6 +363,18 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
       parts.push("carriage");
     }
 
+    // Короб под LED-панель тоже наращивает рамку и печатается вместе с ней:
+    // отдельным файлом идёт только задняя крышка, которая держит панель.
+    if (
+      lithophaneHasLedBox(
+        params.lithoMount,
+        params.lithoShape,
+        params.lithoFrame,
+      )
+    ) {
+      parts.push("cover");
+    }
+
     return [
       {
         id: "lithophane-all",
@@ -380,13 +383,19 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
         request: { part: "all" },
         fileName: lithophaneStlFileName(params, "all"),
       },
-      ...parts.map((part) => ({
-        id: `lithophane-${part}`,
-        label: lithophanePartLabel(part),
-        description: `${lithophanePartLabel(part)} литофана отдельным файлом`,
-        request: { part },
-        fileName: lithophaneStlFileName(params, part),
-      })),
+      ...parts.map((part) => {
+        // Подпись зависит от крепления: короб и полоз наращивают одну рамку,
+        // но печатаются с ней разными деталями.
+        const label = lithophanePartLabel(part, params.lithoMount);
+
+        return {
+          id: `lithophane-${part}`,
+          label,
+          description: `${label} литофана отдельным файлом`,
+          request: { part },
+          fileName: lithophaneStlFileName(params, part),
+        };
+      }),
     ];
   }
 

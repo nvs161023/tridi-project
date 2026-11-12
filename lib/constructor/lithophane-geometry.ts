@@ -17,6 +17,7 @@ import {
   LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
   LITHOPHANE_RAIL_SOCKET_SIZES,
   lithophaneFaceBrightness,
+  lithophaneHasLedBox,
   lithophaneHasRail,
   lithophaneHasStand,
   lithophaneMeshOptions,
@@ -200,6 +201,69 @@ export const LITHOPHANE_WALL_BOX = {
   hookLip: 1.5,
   /** Отступ петли от боковой стенки короба, мм. */
   hookInset: 2,
+} as const;
+
+/**
+ * Короб под LED-панель: тонкий световой бокс за плоской рамкой.
+ *
+ * За рамкой стоит закрытый ящик глубиной `depth`: стенки наращивают её тыл теми
+ * же полосами, что и у подвеса, — скруглённые углы рамки остаются открытыми. На
+ * передине, сразу за тылом плиты, — полка `ledge` под квадратную LED-панель: она
+ * прижимает светящуюся плоскость к самой плите, поэтому свет ложится ровно и
+ * рельеф не расплывается. Панель вставляют с тыла и подпирает съёмная задняя
+ * крышка: её воротник входит в паз `coverGroove` на тылу короба, а в самой
+ * крышке — окно под провод.
+ *
+ * Паза под лист-рассеиватель здесь нет: у LED-панели рассеиватель уже в её
+ * корпусе, и лишний слой акрила только съел бы зазор до плиты.
+ */
+export const LITHOPHANE_LED_BOX = {
+  /**
+   * Глубина короба по Z: от тыла рамки до внешней плоскости задней крышки, мм.
+   *
+   * Пятнадцати хватает на панель до 7–8 мм с разъёмом и проводом: внутри
+   * остаётся карман `depth − ledgeDepth − coverGroove` ≈ 10 мм.
+   */
+  depth: 15,
+  /** Толщина стенок, мм. */
+  wall: 2.5,
+  /** Отступ наружного контура короба от контура рамки, мм. */
+  inset: 2,
+  /** Полка под LED-панель: выступ в просвет и длина по Z от тыла рамки, мм. */
+  ledge: 3,
+  ledgeDepth: 2.5,
+  /**
+   * Паз под заднюю крышку, мм: длина по Z и глубина с каждой стороны.
+   *
+   * Паз открыт назад, поэтому крышка вставляется с тыла, воротник входит в него
+   * с натягом по бокам и упирается в передний уступ — деталь держится трением и
+   * снимается рукой.
+   */
+  coverGroove: 2.4,
+  coverGrooveDepth: 1.2,
+  /** Толщина задней крышки и ширина её воротника, мм. */
+  coverThickness: 2,
+  coverFlange: 2,
+  /** Зазор воротника в пазу и до его переднего уступа, мм. */
+  coverClearance: 0.15,
+  /**
+   * Окно под провод в задней крышке, мм.
+   *
+   * Дно окна поднято над нижней кромкой крышки на `wireLift`: провод выходит из
+   * короба горизонтально и его не прижимает к столу, когда литофан стоит.
+   */
+  wireWidth: 8,
+  wireHeight: 8,
+  wireLift: 6,
+  /**
+   * Сетка точек LED-панели для расчёта света: по X и по Y.
+   *
+   * Панель — площадной источник, а расчёт складывает точечные. Двенадцать точек
+   * на просвете полки дают на карте ровное поле, но не превращают предпросмотр
+   * в гирлянду из лампочек.
+   */
+  emittersX: 4,
+  emittersY: 3,
 } as const;
 
 /**
@@ -588,6 +652,85 @@ function lithophaneFrameMetrics(normalized: LithophaneParams): FrameMetrics {
     // Плита входит в окно с зазором и повторяет его скругление: контуры
     // параллельны, поэтому зазор одинаков по всему периметру, включая углы.
     plateCornerRadius: Math.max(0, openingRadius - LITHOPHANE_FIT_GAP_MM),
+  };
+}
+
+/**
+ * Габариты короба под LED-панель, мм.
+ *
+ * Считаются в одном месте: по ним строятся стенки, крышка, крепление в сборке и
+ * точки светящейся панели в расчёте света. Короб вписан в контур рамки с
+ * отступом `inset` — скруглённые углы рамки остаются открытыми, — поэтому все
+ * размеры выведены из габарита рамки, а не заданы отдельно.
+ *
+ * По Z короб идёт от тыла рамки назад: полка под панель (`ledgeDepth`), карман
+ * под саму панель и паз под заднюю крышку у самого тыла. Плоскость лица панели —
+ * задняя плоскость полки: светит она вплотную к тылу плиты, поэтому карта света
+ * ровная, а рельеф не расплывается.
+ */
+export type LithophaneLedBoxMetrics = {
+  /** Наружный контур короба и его радиус, мм. */
+  outerWidth: number;
+  outerHeight: number;
+  outerRadius: number;
+  /** Просвет стенок: сюда входит панель. */
+  innerWidth: number;
+  innerHeight: number;
+  /** Центр короба по Y: он совпадает с центром рамки. */
+  centerY: number;
+  /**
+   * Плоскости по Z, мм: тыл рамки с нахлёстом, задняя плоскость полки, передний
+   * уступ паза под крышку и наружная плоскость крышки.
+   */
+  frontZ: number;
+  ledgeBackZ: number;
+  grooveFrontZ: number;
+  backZ: number;
+  /** Просвет полки под панель и плоскость её лица, мм. */
+  panelWidth: number;
+  panelHeight: number;
+  panelZ: number;
+  /** Просвет паза под крышку и его радиус, мм. */
+  grooveWidth: number;
+  grooveHeight: number;
+  grooveRadius: number;
+};
+
+export function lithophaneLedBoxMetrics(
+  params: Partial<LithophaneParams>,
+): LithophaneLedBoxMetrics {
+  const normalized = normalizeLithophaneParams(params);
+  const metrics = lithophaneFrameMetrics(normalized);
+  const box = LITHOPHANE_LED_BOX;
+  const outerWidth = metrics.width - 2 * box.inset;
+  const outerHeight = metrics.height - 2 * box.inset;
+  // Радиус короба меньше рамки на отступ: контуры параллельны, и полоса тыльной
+  // полки рамки остаётся ровной по всему периметру, включая углы.
+  const outerRadius = Math.max(0.5, metrics.cornerRadius - box.inset);
+  const innerWidth = outerWidth - 2 * box.wall;
+  const innerHeight = outerHeight - 2 * box.wall;
+  const backZ = -box.depth;
+
+  return {
+    outerWidth,
+    outerHeight,
+    outerRadius,
+    innerWidth,
+    innerHeight,
+    centerY: metrics.height / 2,
+    frontZ: BODY_OVERLAP_MM,
+    ledgeBackZ: -box.ledgeDepth,
+    grooveFrontZ: backZ + box.coverGroove,
+    backZ,
+    panelWidth: innerWidth - 2 * box.ledge,
+    panelHeight: innerHeight - 2 * box.ledge,
+    panelZ: -box.ledgeDepth,
+    grooveWidth: innerWidth + 2 * box.coverGrooveDepth,
+    grooveHeight: innerHeight + 2 * box.coverGrooveDepth,
+    grooveRadius: Math.max(
+      0.5,
+      outerRadius - (box.wall - box.coverGrooveDepth),
+    ),
   };
 }
 
@@ -1768,6 +1911,219 @@ function createWallBoxBodies(width: number, height: number): BufferGeometry[] {
 }
 
 /**
+ * Пояс стенки короба: окно контура и его радиус, мм.
+ *
+ * Пояса идут от передней плоскости к тылу, и у каждого своё окно: полка под
+ * панель уже просвета стенок, паз под крышку — шире. Материал между окнами
+ * соседних поясов и есть уступ.
+ */
+type LedBoxBand = {
+  innerWidth: number;
+  innerHeight: number;
+  innerRadius: number;
+};
+
+/**
+ * Стенки с уступами: замкнутая оболочка переменного окна.
+ *
+ * Обычное кольцо (`createRingBody`) держит одно окно на всю высоту, а короб под
+ * LED-панель — это как раз ступени: полка, карман, паз. Поэтому оболочка
+ * строится не из отдельных колец, а одной трубой: наружная стенка идёт одной
+ * полосой на всю глубину, внутренняя делится по поясам, а на стыках поясов
+ * ставится плоское кольцо-уступ. Оболочек с совпадающими плоскостями не
+ * остаётся, и объединённая сетка остаётся замкнутой без внутренних граней.
+ *
+ * `z` задаёт плоскости от передней к тыльной (по убыванию), `bands[i]` — окно
+ * между `z[i]` и `z[i + 1]`. У всех контуров одинаковое число точек
+ * (`roundedRectOutline`), поэтому уступ — это квады между парами `before[i]` и
+ * `after[i]`, без поиска соответствий.
+ */
+function createSteppedTubeBody(options: {
+  centerX: number;
+  centerY: number;
+  outerWidth: number;
+  outerHeight: number;
+  outerRadius: number;
+  z: readonly number[];
+  bands: readonly LedBoxBand[];
+}): BufferGeometry {
+  const { centerX, centerY, z, bands } = options;
+  const outer = roundedRectOutline(
+    options.outerWidth / 2,
+    options.outerHeight / 2,
+    options.outerRadius,
+  );
+  const inners = bands.map((band) =>
+    roundedRectOutline(
+      band.innerWidth / 2,
+      band.innerHeight / 2,
+      band.innerRadius,
+    ),
+  );
+  const count = outer.length;
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const at = (point: Point2, plane: number): Point3 => [
+    centerX + point[0],
+    centerY + point[1],
+    plane,
+  ];
+  const front = z[0];
+  const back = z[z.length - 1];
+
+  // Наружная стенка: снаружи короб — ровная призма, поэтому одна полоса на всю
+  // глубину. Нормаль ребра контура против часовой стрелки равна (dy, −dx, 0).
+  for (let index = 0; index < count; index += 1) {
+    const next = (index + 1) % count;
+    const dx = outer[next][0] - outer[index][0];
+    const dy = outer[next][1] - outer[index][1];
+
+    addQuadFace(
+      indices,
+      positions,
+      [
+        at(outer[index], back),
+        at(outer[next], back),
+        at(outer[next], front),
+        at(outer[index], front),
+      ],
+      [dy, -dx, 0],
+    );
+  }
+
+  // Внутренние стенки: у каждого пояса своё окно, и нормаль смотрит в просвет.
+  for (let bandIndex = 0; bandIndex < inners.length; bandIndex += 1) {
+    const inner = inners[bandIndex];
+    const z0 = z[bandIndex + 1];
+    const z1 = z[bandIndex];
+
+    for (let index = 0; index < count; index += 1) {
+      const next = (index + 1) % count;
+      const dx = inner[next][0] - inner[index][0];
+      const dy = inner[next][1] - inner[index][1];
+
+      addQuadFace(
+        indices,
+        positions,
+        [
+          at(inner[index], z0),
+          at(inner[next], z0),
+          at(inner[next], z1),
+          at(inner[index], z1),
+        ],
+        [-dy, dx, 0],
+      );
+    }
+  }
+
+  /*
+    Уступы на стыках поясов. Кольцо между двумя окнами смотрит в сторону
+    большего из них: если к тылу окно расширяется (полка под панель), уступ
+    виден с тыла, а если сужается (паз под крышку) — с переда.
+  */
+  for (let bandIndex = 1; bandIndex < inners.length; bandIndex += 1) {
+    const before = inners[bandIndex - 1];
+    const after = inners[bandIndex];
+    const zStep = z[bandIndex];
+    const wider =
+      bands[bandIndex].innerWidth > bands[bandIndex - 1].innerWidth ||
+      bands[bandIndex].innerHeight > bands[bandIndex - 1].innerHeight;
+    const normal: Point3 = [0, 0, wider ? -1 : 1];
+
+    for (let index = 0; index < count; index += 1) {
+      const next = (index + 1) % count;
+
+      addQuadFace(
+        indices,
+        positions,
+        [
+          at(before[index], zStep),
+          at(before[next], zStep),
+          at(after[next], zStep),
+          at(after[index], zStep),
+        ],
+        normal,
+      );
+    }
+  }
+
+  // Торцы: передний уходит в тыл рамки, тыльный закрывает крышка.
+  for (const [plane, outline, normal] of [
+    [front, inners[0], [0, 0, 1]],
+    [back, inners[inners.length - 1], [0, 0, -1]],
+  ] as const) {
+    for (let index = 0; index < count; index += 1) {
+      const next = (index + 1) % count;
+
+      addQuadFace(
+        indices,
+        positions,
+        [
+          at(outline[index], plane),
+          at(outline[next], plane),
+          at(outer[next], plane),
+          at(outer[index], plane),
+        ],
+        normal,
+      );
+    }
+  }
+
+  return finalizeGeometry(positions, indices);
+}
+
+/**
+ * Короб под LED-панель: стенки с полкой и пазом под заднюю крышку.
+ *
+ * Три пояса от рамки к тылу: полка под панель (её окно уже просвета на `ledge` —
+ * панель упирается в неё лицом), карман под саму панель с проводом и паз под
+ * воротник задней крышки. Печатается вместе с рамкой: передний торец заходит в
+ * её тыльную полку на нахлёст `BODY_OVERLAP_MM`, поэтому деталь держится за
+ * полку, а не за тонкий торец.
+ */
+function createLithophaneLedBoxBodies(
+  metrics: LithophaneLedBoxMetrics,
+): BufferGeometry[] {
+  const box = LITHOPHANE_LED_BOX;
+
+  return [
+    createSteppedTubeBody({
+      centerX: 0,
+      centerY: metrics.centerY,
+      outerWidth: metrics.outerWidth,
+      outerHeight: metrics.outerHeight,
+      outerRadius: metrics.outerRadius,
+      z: [
+        metrics.frontZ,
+        metrics.ledgeBackZ,
+        metrics.grooveFrontZ,
+        metrics.backZ,
+      ],
+      bands: [
+        {
+          innerWidth: metrics.panelWidth,
+          innerHeight: metrics.panelHeight,
+          innerRadius: Math.max(
+            0.5,
+            metrics.outerRadius - (box.wall + box.ledge),
+          ),
+        },
+        {
+          innerWidth: metrics.innerWidth,
+          innerHeight: metrics.innerHeight,
+          innerRadius: Math.max(0.5, metrics.outerRadius - box.wall),
+        },
+        {
+          innerWidth: metrics.grooveWidth,
+          innerHeight: metrics.grooveHeight,
+          innerRadius: metrics.grooveRadius,
+        },
+      ],
+    }),
+  ];
+}
+
+/**
  * Точки дуги окружности в плоскости XY, мм.
  *
  * Обход задаётся начальным углом и разверткой в градусах: отрицательная
@@ -1874,6 +2230,73 @@ function createPlateBody(
   }
 
   return finalizeGeometry(positions, indices);
+}
+
+/**
+ * Задняя крышка короба под LED-панель: пластина с воротником и окном под провод.
+ *
+ * Крышка закрывает тыл короба и держит панель: воротник `coverFlange` входит в
+ * паз на тылу короба, а пластина ложится на его заднюю плоскость. Зазор
+ * `coverClearance` оставлен и по бокам, и до переднего уступа паза — деталь
+ * вставляется от руки, держится трением и снимается одним движением. Окно под
+ * провод поднято над нижней кромкой на `wireLift`, поэтому провод выходит
+ * горизонтально и не подворачивается под короб.
+ *
+ * Пластина строится `createPlateBody` по контуру короба: окно под провод — это
+ * отверстие в контуре, а не вырез с края, иначе провод пришлось бы продевать.
+ * В сборке крышка стоит на 0.2 мм впереди своего места — нахлёст
+ * `BODY_OVERLAP_MM`, как у остальных деталей: иначе её пластина легла бы на
+ * заднюю плоскость короба ровно и в объединённой сетке остались бы две
+ * совпадающие грани.
+ */
+export function createLithophaneLedBoxCoverGeometry(
+  params: Partial<LithophaneParams>,
+): BufferGeometry {
+  const normalized = normalizeLithophaneParams(params);
+  const led = lithophaneLedBoxMetrics(normalized);
+  const box = LITHOPHANE_LED_BOX;
+  const frontZ = led.backZ + BODY_OVERLAP_MM;
+  const backZ = frontZ - box.coverThickness;
+  // Окно под провод: квадрат по центру нижней кромки крышки.
+  const wireHalf = box.wireWidth / 2;
+  const wireBottom = box.inset + box.wireLift;
+  const wireTop = wireBottom + box.wireHeight;
+  const wireHole: Point2[] = [
+    [-wireHalf, wireBottom],
+    [wireHalf, wireBottom],
+    [wireHalf, wireTop],
+    [-wireHalf, wireTop],
+  ];
+  // Пластина: контур короба, сдвинутый на его центр по Y, с окном под провод.
+  const plate = createPlateBody(
+    roundedRectOutline(
+      led.outerWidth / 2,
+      led.outerHeight / 2,
+      led.outerRadius,
+    ).map(([x, y]): Point2 => [x, y + led.centerY]),
+    [wireHole],
+    backZ,
+    frontZ,
+  );
+  const flangeWidth = led.grooveWidth - 2 * box.coverClearance;
+  const flangeHeight = led.grooveHeight - 2 * box.coverClearance;
+  const flangeRadius = Math.max(0.5, led.grooveRadius - box.coverClearance);
+  const flange = createRingBody({
+    centerX: 0,
+    centerY: led.centerY,
+    outerWidth: flangeWidth,
+    outerHeight: flangeHeight,
+    innerWidth: flangeWidth - 2 * box.coverFlange,
+    innerHeight: flangeHeight - 2 * box.coverFlange,
+    outerRadius: flangeRadius,
+    innerRadius: Math.max(0.5, flangeRadius - box.coverFlange),
+    // Воротник уходит в паз от пластины до его переднего уступа, не доставая до
+    // него на зазор: иначе крышка не села бы до конца.
+    z0: led.grooveFrontZ - box.coverClearance,
+    z1: frontZ,
+  });
+
+  return mergeBodies([plate, flange], "крышки");
 }
 
 /**
@@ -2487,6 +2910,19 @@ export function createLithophaneFrameGeometry(
     )
   ) {
     bodies.push(...createRailBodies());
+  }
+
+  // Короб под LED-панель — тоже часть рамки: он наращивает её тыл и печатается с
+  // ней одной деталью. Задняя крышка короба при этом отдельная деталь, иначе
+  // короб нечем было бы закрыть.
+  if (
+    lithophaneHasLedBox(
+      normalized.lithoMount,
+      normalized.lithoShape,
+      normalized.lithoFrame,
+    )
+  ) {
+    bodies.push(...createLithophaneLedBoxBodies(lithophaneLedBoxMetrics(normalized)));
   }
 
   // Рамка собирается из двух колец и, при подвесе, короба, но печатается одной
@@ -4498,6 +4934,16 @@ export function createLithophaneGeometry(
     );
   }
 
+  // Задняя крышка короба под LED-панель: отдельная деталь, потому что панель
+  // вставляют через тыл короба, а печатать её вместе с коробом нечем — внутри
+  // остался бы закрытый объём.
+  if (part === "cover") {
+    return markPartGroup(
+      createLithophaneLedBoxCoverGeometry(normalized),
+      LITHOPHANE_DETAIL_GROUP,
+    );
+  }
+
   const metrics = lithophaneFrameMetrics(normalized);
 
   // Калейдоскоп собирается по своей схеме: четыре панели без рамок, цоколь и
@@ -4560,6 +5006,19 @@ export function createLithophaneGeometry(
     )
   ) {
     bodies.push(createLithophaneCarriageGeometry(normalized));
+  }
+
+  // Задняя крышка короба встаёт в паз на его тылу: на собранном виде короб
+  // закрыт, а в списке деталей крышка идёт отдельным файлом. Переносить её не
+  // нужно — она построена в плоскостях сборки, как и короб.
+  if (
+    lithophaneHasLedBox(
+      normalized.lithoMount,
+      normalized.lithoShape,
+      normalized.lithoFrame,
+    )
+  ) {
+    bodies.push(createLithophaneLedBoxCoverGeometry(normalized));
   }
 
   return assignMaterialGroups(mergeBodies(bodies, "литофана"), reliefIndices);

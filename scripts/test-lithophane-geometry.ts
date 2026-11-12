@@ -96,7 +96,13 @@
  *      патрона с лица и шестигранное гнездо 2 мм под штатную гайку с тыла; сверху
  *      гнутый козырёк шириной в кольцо и толщиной 2 мм с вылетом 20 мм и провисом
  *      носа 5 мм; оболочка замкнута, кольцо в сборе весит около 7.1 г у E14 и 8.0
- *      у E27, а круглый плафон и калейдоскоп от полоза не меняются.
+ *      у E27, а круглый плафон и калейдоскоп от полоза не меняются;
+ *  21. короб под LED-панель: тонкий ящик 15 мм за тылом плоской рамки, полка
+ *      3 × 2.5 мм прижимает квадратную панель к плите, съёмная задняя крышка 2 мм
+ *      входит воротником в паз 2.4 × 1.2 мм и держится трением, а окно под провод
+ *      проходит насквозь. В расчёте света — площадка 13 × 9 точек с шагом 8 мм,
+ *      двенадцать ламп в кадре и ни одного предупреждения; подписи деталей
+ *      называют рамку по креплению.
  *
  * Запуск: `npm run check:lithophane`.
  *
@@ -120,6 +126,7 @@ import {
   LITHOPHANE_FRAME_WIDTH_MM,
   LITHOPHANE_KALEIDOSCOPE,
   LITHOPHANE_LAMP_CLAMP,
+  LITHOPHANE_LED_BOX,
   LITHOPHANE_RAIL,
   LITHOPHANE_RELIEF_GROUP,
   LITHOPHANE_ROUND,
@@ -130,10 +137,12 @@ import {
   createLithophaneCarriageGeometry,
   createLithophaneFrameGeometry,
   createLithophaneGeometry,
+  createLithophaneLedBoxCoverGeometry,
   createLithophaneReliefGeometry,
   createLithophaneStandGeometry,
   lithophaneCarriageMetrics,
   lithophaneClampBulb,
+  lithophaneLedBoxMetrics,
   lithophanePlateSize,
   lithophaneRailMetrics,
   type LithophaneClampKind,
@@ -150,14 +159,17 @@ import {
 import {
   CONSTRUCTOR_LIMITS,
   LITHOPHANE_KALEIDOSCOPE_PANEL_STEP_MM,
+  LITHOPHANE_PART_LABELS,
   LITHOPHANE_RAIL_SOCKETS,
   LITHOPHANE_RAIL_SOCKET_SIZES,
   LITHOPHANE_VERTEX_STEP_MM,
   lithophaneFaceBrightness,
+  lithophaneHasLedBox,
   lithophaneHasRail,
   lithophaneMeshOptions,
   lithophaneMeshSize,
   lithophanePanelCount,
+  lithophanePartLabel,
   lithophaneShapeHasBase,
   normalizeLithophaneParams,
   type LithophaneBrightnessGrid,
@@ -4546,6 +4558,335 @@ console.log(
   carriagePart.dispose();
   carriageBody.dispose();
 }
+
+
+console.log(
+  `\n21. Короб под LED-панель: ${LITHOPHANE_LED_BOX.depth} мм за тылом рамки, задняя крышка ${LITHOPHANE_LED_BOX.coverThickness} мм в пазу ${LITHOPHANE_LED_BOX.coverGroove} × ${LITHOPHANE_LED_BOX.coverGrooveDepth} мм`,
+);
+
+{
+  /*
+    Короб наращивает тыл плоской рамки: снаружи — ровная призма с отступом 2 мм от
+    контура рамки, внутри три пояса. Полка 3 мм сужает окно до просвета панели,
+    карман идёт на всю глубину стенок, а у тыла открыт паз под воротник задней
+    крышки. Стенка 2.5 мм и полка 2.5 мм по Z оставляют панели
+    15 − 2.5 − 2.4 = 10.1 мм под корпус с разъёмом и проводом.
+
+    Проверяется то, чего не видно на предпросмотре: наружный контур и просвет,
+    окно полки, ширина паза, плоскости по Z, выступ короба за тыл рамки, лучи
+    через окно панели, полку и стенку, посадка воротника крышки, замкнутость
+    оболочки, вес деталей и карта света от панели.
+  */
+  const box = LITHOPHANE_LED_BOX;
+  const boxParams: Partial<LithophaneParams> = {
+    lithophaneWidth: 120,
+    lithophaneHeight: 80,
+    lithoFrame: true,
+    lithoMount: "led_box",
+  };
+  const led = lithophaneLedBoxMetrics(boxParams);
+  const frame = createLithophaneGeometry(boxParams, "frame");
+  const cover = createLithophaneGeometry(boxParams, "cover");
+  const coverBody = createLithophaneLedBoxCoverGeometry(boxParams);
+  const plainFrame = createLithophaneGeometry(
+    { ...boxParams, lithoMount: "none" },
+    "frame",
+  );
+  const frameSize = boxSize(frame);
+  const plainSize = boxSize(plainFrame);
+  const coverSize = boxSize(cover);
+
+  /**
+   * Все попадания луча: по ним видно толщину пластины и зазор воротника.
+   *
+   * Материал двусторонний: у пластины лучи идут изнутри детали, и с односторонним
+   * материалом обратные грани не попадают в список.
+   */
+  const hitsAlong = (
+    geometry: BufferGeometry,
+    origin: readonly [number, number, number],
+    direction: readonly [number, number, number],
+  ): Vector3[] =>
+    new Raycaster(
+      new Vector3(...origin),
+      new Vector3(...direction).normalize(),
+      0,
+      400,
+    )
+      .intersectObject(
+        new Mesh(geometry, new MeshBasicMaterial({ side: DoubleSide })),
+        false,
+      )
+      .map((hit) => hit.point.clone());
+  /** Попадания луча из тыла вперёд, по центру высоты панели. */
+  const zHits = (geometry: BufferGeometry, x: number, y: number): number[] =>
+    hitsAlong(geometry, [x, y, -60], [0, 0, 1]).map((point) => point.z);
+
+  check(
+    `короб: наружный контур ${led.outerWidth} × ${led.outerHeight} мм — рамка минус отступ ${box.inset} мм`,
+    [led.outerWidth, led.outerHeight],
+    [120 - 2 * box.inset, 80 - 2 * box.inset],
+  );
+  check(
+    `короб: стенка ${box.wall} мм оставляет просвет ${led.innerWidth} × ${led.innerHeight} мм`,
+    [led.innerWidth, led.innerHeight],
+    [led.outerWidth - 2 * box.wall, led.outerHeight - 2 * box.wall],
+  );
+  check(
+    `короб: полка ${box.ledge} мм — окно под панель ${led.panelWidth} × ${led.panelHeight} мм`,
+    [led.panelWidth, led.panelHeight],
+    [led.innerWidth - 2 * box.ledge, led.innerHeight - 2 * box.ledge],
+  );
+  checkRange(
+    `короб: паз под крышку шире просвета на ${2 * box.coverGrooveDepth} мм`,
+    [led.grooveWidth - led.innerWidth, led.grooveHeight - led.innerHeight],
+    2 * box.coverGrooveDepth - TOLERANCE_MM,
+    2 * box.coverGrooveDepth + TOLERANCE_MM,
+  );
+  check(
+    `короб: полка ${box.ledgeDepth} мм от тыла рамки, паз — ${box.coverGroove} мм у тыла`,
+    [led.frontZ, led.ledgeBackZ, led.panelZ, led.grooveFrontZ, led.backZ],
+    [
+      BODY_OVERLAP_MM,
+      -box.ledgeDepth,
+      -box.ledgeDepth,
+      -box.depth + box.coverGroove,
+      -box.depth,
+    ],
+  );
+  checkRange(
+    `короб: глубина ${(frameSize.z - plainSize.z).toFixed(1)} мм за тылом рамки`,
+    [frameSize.z - plainSize.z],
+    box.depth - TOLERANCE_MM,
+    box.depth + TOLERANCE_MM,
+  );
+  check(
+    "короб: габарит рамки не меняется — короб внутри её контура",
+    [frameSize.x, frameSize.y],
+    [plainSize.x, plainSize.y],
+  );
+  // Окно под панель открыто насквозь: луч из тыла проходит короб и рамку.
+  check(
+    "короб: окно под панель открыто — панель светит вплотную к плите",
+    [zHits(frame, 0, led.centerY).length],
+    [0],
+  );
+  // Полка: луч из тыла упирается в её заднюю плоскость.
+  const ledgeX = (led.panelWidth / 2 + led.innerWidth / 2) / 2;
+
+  checkRange(
+    `короб: полка держит панель на ${box.ledgeDepth} мм от тыла рамки`,
+    [zHits(frame, ledgeX, led.centerY)[0]],
+    led.ledgeBackZ - TOLERANCE_MM,
+    led.ledgeBackZ + TOLERANCE_MM,
+  );
+  // Стенка: луч упирается в тыл короба — карман закрыт со всех сторон.
+  checkRange(
+    `короб: стенка ${box.wall} мм глухая — тыл на ${box.depth} мм`,
+    [zHits(frame, led.outerWidth / 2 - 1, led.centerY)[0]],
+    led.backZ - TOLERANCE_MM,
+    led.backZ + TOLERANCE_MM,
+  );
+
+  // Крышка: пластина по контуру короба, за ней воротник в пазу, окно под провод.
+  const plateHits = zHits(cover, 0, led.centerY);
+
+  check(
+    `крышка: пластина ${coverSize.x} × ${coverSize.y} мм по контуру короба`,
+    [coverSize.x, coverSize.y],
+    [led.outerWidth, led.outerHeight],
+  );
+  checkRange(
+    `крышка: пластина ${(plateHits[1] - plateHits[0]).toFixed(2)} мм толщиной`,
+    [plateHits[1] - plateHits[0]],
+    box.coverThickness - TOLERANCE_MM,
+    box.coverThickness + TOLERANCE_MM,
+  );
+  // Окно под провод — насквозь: провод из короба выходит в тыл.
+  check(
+    "крышка: окно под провод вырезано насквозь",
+    [
+      zHits(cover, 0, box.inset + box.wireLift + box.wireHeight / 2)
+        .length,
+    ],
+    [0],
+  );
+  // Воротник идёт по всему пазу с зазором на сторону: крышка снимается рукой.
+  const plateFrontZ = led.backZ + BODY_OVERLAP_MM;
+  const flange = hitsAlong(
+    cover,
+    [
+      -80,
+      led.centerY,
+      (led.grooveFrontZ - box.coverClearance + plateFrontZ) / 2,
+    ],
+    [1, 0, 0],
+  ).map((point) => point.x);
+
+  checkRange(
+    `крышка: воротник ${(2 * Math.abs(flange[0])).toFixed(2)} мм в пазу ${led.grooveWidth} мм с зазором ${box.coverClearance} мм на сторону`,
+    [2 * Math.abs(flange[0])],
+    led.grooveWidth - 2 * box.coverClearance - TOLERANCE_MM,
+    led.grooveWidth - 2 * box.coverClearance + TOLERANCE_MM,
+  );
+  check(
+    `крышка: паз ${box.coverGrooveDepth} мм не прорезает стенку ${box.wall} мм`,
+    [box.coverGrooveDepth < box.wall],
+    [true],
+  );
+  check(
+    "крышка: деталь `cover` — та же сетка, что из функции крышки",
+    [
+      boxSize(cover),
+      cover.getAttribute("position").count,
+      cover.getIndex()?.count,
+    ],
+    [
+      boxSize(coverBody),
+      coverBody.getAttribute("position").count,
+      coverBody.getIndex()?.count,
+    ],
+  );
+  check(
+    "крышка: оболочка замкнута, NaN нет",
+    [openEdges(cover), nanVertices(cover)],
+    [0, 0],
+  );
+  check(
+    "короб: оболочка рамки с коробом замкнута, NaN нет",
+    [openEdges(frame), nanVertices(frame)],
+    [0, 0],
+  );
+
+  /*
+    Вес: короб — это стенка по периметру 116 × 76 на глубину 15 мм, поэтому рамка
+    с ним остаётся лёгкой. Крышка — пластина с воротником.
+  */
+  const frameWeight = calculateGeometryWeightGrams(frame);
+  const coverWeight = calculateGeometryWeightGrams(cover);
+
+  checkRange(
+    `короб: вес рамки с коробом ${frameWeight.toFixed(1)} г`,
+    [frameWeight],
+    0,
+    60,
+  );
+  checkRange(
+    `крышка: вес детали ${coverWeight.toFixed(1)} г`,
+    [coverWeight],
+    0,
+    40,
+  );
+
+  /*
+    Свет: в коробе горит сама LED-панель, поэтому вид источника не выбирают.
+    Расчёт идёт по густой сетке точек на плоскости панели, а в кадр ставятся
+    двенадцать ламп той же суммарной силы. Паза под лист-рассеиватель у короба
+    нет: он уже в корпусе панели.
+  */
+  const plan = lithophaneLightPlan(boxParams);
+  const warnings = plan?.warnings.length ?? -1;
+
+  check(
+    `свет: короб светит панелью — ${plan?.emitters.length} точек в расчёте, ${plan?.lights.length} ламп в кадре`,
+    [plan?.kind, plan?.emitters.length, plan?.lights.length],
+    [
+      "panel",
+      LITHO_LIGHT_MODEL.panelColumns * LITHO_LIGHT_MODEL.panelRows,
+      box.emittersX * box.emittersY,
+    ],
+  );
+  check(
+    "свет: у короба нет паза под лист-рассеиватель",
+    [plan?.diffuserSupported, plan?.diffuser],
+    [false, null],
+  );
+  checkRange(
+    `свет: панель светит ровно — верх к низу ${plan?.topShare.toFixed(2)}`,
+    [plan?.topShare ?? 0],
+    0.9,
+    1.1,
+  );
+  checkRange(
+    `свет: перепад между точками панели ${plan?.peakRatio.toFixed(2)}`,
+    [plan?.peakRatio ?? Number.POSITIVE_INFINITY],
+    1,
+    2.5,
+  );
+  check(
+    "свет: предупреждений нет — панель не точка и рассеиватель не нужен",
+    [warnings],
+    [0],
+  );
+
+  /*
+    Крепление читается только у плоской формы и только вместе с рамкой: у
+    калейдоскопа и круглого плафона тыла рамки нет, и короб туда не попадает.
+  */
+  check(
+    "короб: только плоская панель с рамкой",
+    [
+      lithophaneHasLedBox("led_box", "flat", true),
+      lithophaneHasLedBox("led_box", "round", true),
+      lithophaneHasLedBox("led_box", "kaleidoscope", true),
+      lithophaneHasLedBox("led_box", "flat", false),
+      lithophaneHasLedBox("rail", "flat", true),
+    ],
+    [true, false, false, false, false],
+  );
+
+  for (const shape of ["round", "kaleidoscope"] as const) {
+    const shaped: Partial<LithophaneParams> = {
+      ...boxParams,
+      lithoShape: shape,
+    };
+    const plain = createLithophaneGeometry({ ...shaped, lithoMount: "none" });
+    const mounted = createLithophaneGeometry(shaped);
+
+    check(
+      `${shape}: короб не меняет деталь`,
+      [boxSize(mounted), mounted.getAttribute("position").count],
+      [boxSize(plain), plain.getAttribute("position").count],
+    );
+
+    plain.dispose();
+    mounted.dispose();
+  }
+
+  /*
+    Подписи деталей: короб наращивает ту же рамку, что и полоз, поэтому у рамки
+    подпись зависит от крепления, а у крышки и плиты — нет.
+  */
+  check(
+    "подписи: рамка называется по креплению",
+    [
+      lithophanePartLabel("frame", "led_box"),
+      lithophanePartLabel("frame", "rail"),
+      lithophanePartLabel("frame", "none"),
+    ],
+    ["Рамка с коробом", "Рамка с полозом", "Рамка с полозом"],
+  );
+  check(
+    "подписи: крышка и рельеф не зависят от крепления",
+    [
+      lithophanePartLabel("cover", "led_box"),
+      lithophanePartLabel("relief", "led_box"),
+      lithophanePartLabel("all", "led_box"),
+    ],
+    [
+      LITHOPHANE_PART_LABELS.cover,
+      LITHOPHANE_PART_LABELS.relief,
+      LITHOPHANE_PART_LABELS.all,
+    ],
+  );
+
+  frame.dispose();
+  cover.dispose();
+  coverBody.dispose();
+  plainFrame.dispose();
+
+}
+
 
 
 console.log("");

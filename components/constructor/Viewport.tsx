@@ -711,6 +711,10 @@ type LithophaneBacklightProps = {
 /**
  * Свет по расчёту: у ленты это линия точек по каналу, у лампы и свечи — одна.
  *
+ * Лампы берутся из `plan.lights`: у LED-панели короба расчёт идёт по густой сетке
+ * точек, а в кадре стоят двенадцать ламп той же суммарной силы — сто семнадцать
+ * источников слепили бы сцену и стоили бы кадра.
+ *
  * Расчёт отвечает в люксах, а студия живёт в условных единицах, поэтому канделы
  * умножаются на множитель, при котором средняя освещённость панели совпадает с
  * `STUDIO_BACKLIGHT.illuminance`: включённая подсветка не пересвечивает кадр, но
@@ -757,7 +761,7 @@ function LithophaneBacklight({
 
   return (
     <>
-      {plan.emitters.map((emitter, index) => (
+      {plan.lights.map((emitter, index) => (
         <pointLight
           color={STUDIO_BACKLIGHT.color}
           decay={2}
@@ -772,7 +776,7 @@ function LithophaneBacklight({
       ))}
 
       {heatMap
-        ? plan.emitters.map((emitter, index) => (
+        ? plan.lights.map((emitter, index) => (
             <mesh
               key={`bulb-${index}`}
               position={[
