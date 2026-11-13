@@ -10,6 +10,10 @@ import {
   jewelryLeafHeightMm,
 } from "@/lib/constructor/jewelry-leaf-geometry";
 import {
+  createJewelryDeerGeometry,
+  jewelryDeerPlan,
+} from "@/lib/constructor/jewelry-deer-geometry";
+import {
   addCylinder,
   addSolidPrism,
   circlePolygon,
@@ -18,10 +22,10 @@ import {
 /**
  * Геометрия подставки для украшений: диспетчер премиум-коллекции.
  *
- * `jewelryPreset` выбирает форму: лист-лоток собирает отдельный генератор
- * `jewelry-leaf-geometry.ts`, а древо и олень пока строятся прежней стойкой —
- * их собственные генераторы появятся следующими задачами. Ветка-наследник
- * оставляет сцену непустой, пока пресет выбран, но ещё не реализован.
+ * `jewelryPreset` выбирает форму: лист-лоток собирает `jewelry-leaf-geometry.ts`,
+ * бюст оленя — `jewelry-deer-geometry.ts`, а древо пока строится прежней
+ * стойкой. Ветка-наследник оставляет сцену непустой, пока пресет выбран, но ещё
+ * не реализован.
  *
  * Классическая стойка собирается из четырёх частей: диск-основание,
  * вертикальная стойка, перекладина под кольца и два рожка для цепочек. Набор
@@ -119,8 +123,9 @@ const JEWELRY_HORN_SIDES = 24;
  * Габарит модели для подписи и предпросмотра.
  *
  * У листа длина и ширина заданы ползунками, а высоту задаёт крючок: сама плита
- * ниже. У классической стойки габарит в плане равен диаметру основания, а
- * высота — ползунку.
+ * ниже. У оленя габарит в плане — это база и размах рогов, высота — рога. У
+ * классической стойки габарит в плане равен диаметру основания, а высота —
+ * ползунку.
  */
 export type JewelryStandMetrics = {
   readonly widthMm: number;
@@ -139,6 +144,16 @@ export function jewelryStandMetrics(
       widthMm: normalized.jewelryLeafLength,
       depthMm: normalized.jewelryLeafWidth,
       heightMm: jewelryLeafHeightMm(normalized),
+    };
+  }
+
+  if (normalized.jewelryPreset === "deer_bust") {
+    const plan = jewelryDeerPlan(normalized);
+
+    return {
+      widthMm: Math.max(plan.baseLengthMm, plan.antlerOuterXMm * 2),
+      depthMm: plan.baseWidthMm,
+      heightMm: plan.heightMm,
     };
   }
 
@@ -164,15 +179,19 @@ export function createJewelryStandGeometry(
     return createJewelryLeafGeometry(normalized);
   }
 
+  if (normalized.jewelryPreset === "deer_bust") {
+    return createJewelryDeerGeometry(normalized);
+  }
+
   return createJewelryPostStandGeometry(normalized);
 }
 
 /**
  * Классическая стойка на диск-основании.
  *
- * Это прежняя модель, которая остаётся веткой для двух ещё не собранных
- * пресетов. Когда у древа и оленя появятся свои генераторы, вызовы этой
- * функции уйдут из диспетчера.
+ * Это прежняя модель, которая остаётся веткой для ещё не собранного древа. Когда
+ * у `braided_tree` появится свой генератор, вызовы этой функции уйдут из
+ * диспетчера.
  */
 function createJewelryPostStandGeometry(
   normalized: JewelryStandParams,

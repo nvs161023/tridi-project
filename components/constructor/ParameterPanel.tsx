@@ -22,6 +22,14 @@ import {
   type StrokeHistogram,
 } from "@/lib/constructor/heat-transfer-import";
 import {
+  JEWELRY_DEER_ANTLER_BUD_RADIUS_MM,
+  JEWELRY_DEER_WEIGHT_DEPTH_MM,
+  JEWELRY_DEER_WEIGHT_DIAMETER_MM,
+  JEWELRY_DEER_WEIGHT_FLOOR_MM,
+  JEWELRY_DEER_WEIGHT_OFFSET_MM,
+  jewelryDeerHeightMm,
+} from "@/lib/constructor/jewelry-deer-geometry";
+import {
   JEWELRY_LEAF_MIN_THICKNESS_MM,
   jewelryLeafPlateThicknessMm,
 } from "@/lib/constructor/jewelry-leaf-geometry";
@@ -1499,6 +1507,21 @@ function modelSummary(
         {
           label: "Прожилки",
           value: `${params.jewelryLeafVeinDepth.toFixed(1)} мм`,
+        },
+      ];
+    }
+
+    if (params.jewelryPreset === "deer_bust") {
+      return [
+        {
+          label: "База",
+          value: `${params.deerBaseLength} × ${params.deerBaseWidth} мм`,
+        },
+        { label: "Рога", value: `${params.deerAntlerSpread} мм` },
+        { label: "Высота", value: `${jewelryDeerHeightMm(params)} мм` },
+        {
+          label: "Полость",
+          value: `Ø ${JEWELRY_DEER_WEIGHT_DIAMETER_MM} × ${JEWELRY_DEER_WEIGHT_DEPTH_MM} мм`,
         },
       ];
     }
@@ -3759,7 +3782,7 @@ export function ParameterPanel({
         <>
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Лист — плоский лоток для часов, колец и серёг. «Плетёное древо» и «Лесной олень» пока строятся прежней стойкой: их собственные генераторы в разработке."
+              hint="Лист — плоский лоток для часов, колец и серёг. «Лесной олень» — бюст с рогами на овальной базе и полостью под утяжелитель. «Плетёное древо» пока строится прежней стойкой: его генератор в разработке."
               label="Форма"
               onChange={onJewelryPresetChange}
               options={JEWELRY_PRESETS.map((jewelryPreset) => ({
@@ -3833,6 +3856,56 @@ export function ParameterPanel({
                 место — центр центральной жилки:{" "}
                 {JEWELRY_LEAF_MIN_THICKNESS_MM.toFixed(1)} мм. На черешке стоит
                 крючок для цепочек и браслетов.
+              </p>
+            </>
+          ) : params.jewelryPreset === "deer_bust" ? (
+            <>
+              <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+                <NumberSlider
+                  hint="Размах рогов от кончика до кончика. 80–100 мм — настольный бюст, 120–150 мм — витринный: рога выше и заметнее, но и модель выше."
+                  label="Размах рогов"
+                  max={CONSTRUCTOR_LIMITS.deerAntlerSpread.max}
+                  min={CONSTRUCTOR_LIMITS.deerAntlerSpread.min}
+                  onChange={(value) => onParamChange("deerAntlerSpread", value)}
+                  step={CONSTRUCTOR_LIMITS.deerAntlerSpread.step}
+                  unit="мм"
+                  value={params.deerAntlerSpread}
+                />
+
+                <NumberSlider
+                  hint="Овальная база по большой оси. 150–180 мм стоит уверенно с цепочкой на роге; 120–140 мм — компактная версия для полки."
+                  label="Длина базы"
+                  max={CONSTRUCTOR_LIMITS.deerBaseLength.max}
+                  min={CONSTRUCTOR_LIMITS.deerBaseLength.min}
+                  onChange={(value) => onParamChange("deerBaseLength", value)}
+                  step={CONSTRUCTOR_LIMITS.deerBaseLength.step}
+                  unit="мм"
+                  value={params.deerBaseLength}
+                />
+
+                <NumberSlider
+                  hint="Малая ось овала. Держите не уже двух третей длины: на узкой базе бюст качается вперёд, к морде."
+                  label="Ширина базы"
+                  max={CONSTRUCTOR_LIMITS.deerBaseWidth.max}
+                  min={CONSTRUCTOR_LIMITS.deerBaseWidth.min}
+                  onChange={(value) => onParamChange("deerBaseWidth", value)}
+                  step={CONSTRUCTOR_LIMITS.deerBaseWidth.step}
+                  unit="мм"
+                  value={params.deerBaseWidth}
+                />
+              </div>
+
+              <p className="mt-4 text-xs leading-relaxed text-slate-300">
+                Бюст и база — отдельные замкнутые тела, низ шеи утоплен в плиту,
+                поэтому деталь печатается одной штукой. Рога стоят под 52° к
+                столу, то есть в 38° от вертикали: поддержки не нужны. Бутоны
+                Ø {(JEWELRY_DEER_ANTLER_BUD_RADIUS_MM * 2).toFixed(1)} мм на
+                концах держат кольца. Полость Ø{" "}
+                {JEWELRY_DEER_WEIGHT_DIAMETER_MM} × {JEWELRY_DEER_WEIGHT_DEPTH_MM}{" "}
+                мм открыта вверх, дно под ней {JEWELRY_DEER_WEIGHT_FLOOR_MM} мм,
+                а центр сдвинут на {JEWELRY_DEER_WEIGHT_OFFSET_MM} мм вперёд — под
+                голову, где стоит центр тяжести. Монета в полости работает
+                противовесом и не даёт бюсту опрокинуться.
               </p>
             </>
           ) : (

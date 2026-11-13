@@ -1333,8 +1333,11 @@ function parseCoasterParams(
 /**
  * Строгая проверка параметров подставки для украшений.
  *
- * Высота стойки и диаметр основания проверяются в границах, набор держателей —
- * по списку: от него зависит, появятся ли в файле штанга и рожки.
+ * У каждой формы своя тройка размеров: у листа — тип, длина, ширина и глубина
+ * прожилок; у оленя — размах рогов и оси овальной базы; у классической стойки —
+ * высота, диаметр и набор держателей. Проверяются только поля выбранной формы,
+ * остальные игнорируются, даже если пришли вместе: клиент держит общий набор
+ * параметров и отправляет всё сразу.
  */
 function parseJewelryStandParams(
   body: Record<string, unknown>,
@@ -1345,6 +1348,9 @@ function parseJewelryStandParams(
     jewelryLeafLength,
     jewelryLeafWidth,
     jewelryLeafVeinDepth,
+    deerAntlerSpread,
+    deerBaseLength,
+    deerBaseWidth,
     jewelryHeight,
     jewelryBase,
     jewelryConfig,
@@ -1396,6 +1402,37 @@ function parseJewelryStandParams(
       jewelryLeafLength,
       jewelryLeafWidth,
       jewelryLeafVeinDepth,
+    });
+  }
+
+  if (preset === "deer_bust") {
+    // Бюсту не нужны ни высота стойки, ни её основание: размер задают овал базы
+    // и размах рогов, а толщина рогов зашита в генератор.
+    if (
+      !isNumberInRange(
+        deerAntlerSpread,
+        CONSTRUCTOR_LIMITS.deerAntlerSpread.min,
+        CONSTRUCTOR_LIMITS.deerAntlerSpread.max,
+      ) ||
+      !isNumberInRange(
+        deerBaseLength,
+        CONSTRUCTOR_LIMITS.deerBaseLength.min,
+        CONSTRUCTOR_LIMITS.deerBaseLength.max,
+      ) ||
+      !isNumberInRange(
+        deerBaseWidth,
+        CONSTRUCTOR_LIMITS.deerBaseWidth.min,
+        CONSTRUCTOR_LIMITS.deerBaseWidth.max,
+      )
+    ) {
+      return null;
+    }
+
+    return normalizeJewelryStandParams({
+      jewelryPreset: "deer_bust",
+      deerAntlerSpread,
+      deerBaseLength,
+      deerBaseWidth,
     });
   }
 
