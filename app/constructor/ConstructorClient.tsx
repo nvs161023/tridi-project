@@ -83,6 +83,7 @@ import {
   standStlFileName,
   vasePatternLabel,
   vaseStlFileName,
+  type BoxMagnetSize,
   type BoxPresetId,
   type CoasterPattern,
   type CoasterShape,
@@ -1094,6 +1095,24 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, hasLid }));
   }
 
+  function updateBoxMagnets(boxMagnets: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, boxMagnets }),
+    );
+  }
+
+  function updateBoxMagnetSize(boxMagnetSize: BoxMagnetSize) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, boxMagnetSize }),
+    );
+  }
+
+  function updateBoxStack(boxStack: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, boxStack }),
+    );
+  }
+
   /** Пресет меняет габариты, скругление и число перегородок одной кнопкой. */
   function updateBoxPreset(preset: BoxPresetId) {
     setParams((current) =>
@@ -1481,6 +1500,9 @@ export function ConstructorClient({
             exportingId={exportingId}
             exportOptions={exportOptions}
             onBoxPresetChange={updateBoxPreset}
+            onBoxMagnetsChange={updateBoxMagnets}
+            onBoxMagnetSizeChange={updateBoxMagnetSize}
+            onBoxStackChange={updateBoxStack}
             onCoasterPatternChange={updateCoasterPattern}
             onCoasterRimChange={updateCoasterRim}
             onCoasterShapeChange={updateCoasterShape}

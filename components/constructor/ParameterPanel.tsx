@@ -70,6 +70,9 @@ import {
   qrCardReport,
 } from "@/lib/constructor/qr-card-geometry";
 import {
+  BOX_MAGNET_SIZE_IDS,
+  BOX_MAGNET_SIZE_LABELS,
+  BOX_MAGNET_SPECS,
   BOX_PRESET_IDS,
   BOX_PRESET_LABELS,
   COASTER_PATTERNS,
@@ -129,6 +132,7 @@ import {
   lithophaneShapeHasFrame,
   sanitizeKeychainText,
   sanitizeSignText,
+  type BoxMagnetSize,
   type BoxPresetId,
   type CoasterPattern,
   type CoasterShape,
@@ -191,6 +195,9 @@ type SizeParam = Exclude<
   | "signChannelWidth"
   | "signBaseMount"
   | "hasLid"
+  | "boxMagnets"
+  | "boxMagnetSize"
+  | "boxStack"
   | "lithoFrame"
   | "lithoMount"
   | "lithoRailSocket"
@@ -344,6 +351,12 @@ type ParameterPanelProps = {
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
   onSignBaseMountChange: (mount: boolean) => void;
   onHasLidChange: (hasLid: boolean) => void;
+  /** Глухие пазы под магниты в дне корпуса и плите крышки. */
+  onBoxMagnetsChange: (enabled: boolean) => void;
+  /** Типоразмер магнита: 6 × 2 или 8 × 3 мм. */
+  onBoxMagnetSizeChange: (size: BoxMagnetSize) => void;
+  /** Кольцо-адаптер для штабелирования коробок. */
+  onBoxStackChange: (enabled: boolean) => void;
   /** Готовый набор перегородок и габаритов коробки. */
   onBoxPresetChange: (preset: BoxPresetId) => void;
   /** Рамка литофана: отдельная деталь с пазом под плиту. */
@@ -1540,6 +1553,9 @@ export function ParameterPanel({
   onSignChannelWidthChange,
   onSignBaseMountChange,
   onHasLidChange,
+  onBoxMagnetsChange,
+  onBoxMagnetSizeChange,
+  onBoxStackChange,
   onBoxPresetChange,
   onLithoFrameChange,
   onLithoMountChange,
@@ -1560,6 +1576,7 @@ export function ParameterPanel({
   onReset,
 }: ParameterPanelProps) {
   const isExporting = exportingId !== null;
+  const boxMagnetSpec = BOX_MAGNET_SPECS[params.boxMagnetSize];
   const keychainTextInputId = useId();
   const keychainTextHintId = `${keychainTextInputId}-hint`;
   const signTextInputId = useId();
@@ -4099,8 +4116,79 @@ export function ParameterPanel({
             </span>
           </label>
 
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Магниты и штабель
+            </legend>
+
+            <div className="mt-3 space-y-5">
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+                <input
+                  checked={params.boxMagnets}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  onChange={(event) =>
+                    onBoxMagnetsChange(event.target.checked)
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-200">
+                    Пазы под магниты
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                    Четыре глухих паза в углах дна корпуса и четыре ответных
+                    паза сверху крышки. Дно и плита локально толще, поэтому
+                    пазы не выходят на другую сторону.
+                  </span>
+                </span>
+              </label>
+
+              {params.boxMagnets ? (
+                <ParameterSelect
+                  hint={`Паз Ø${boxMagnetSpec.diameterMm.toFixed(1)} × ${boxMagnetSpec.depthMm.toFixed(1)} мм: запас 0.2 мм на клей и допуск печати. Магниты ставятся в четырёх углах, отступ от кромки учитывает скругление.`}
+                  label="Размер магнита"
+                  onChange={onBoxMagnetSizeChange}
+                  options={BOX_MAGNET_SIZE_IDS.map((size) => ({
+                    value: size,
+                    label: BOX_MAGNET_SIZE_LABELS[size],
+                  }))}
+                  value={params.boxMagnetSize}
+                />
+              ) : null}
+
+              <label
+                className={`flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors ${
+                  params.hasLid
+                    ? "cursor-pointer hover:border-white/25 hover:bg-white/5"
+                    : "cursor-not-allowed opacity-60"
+                }`}
+              >
+                <input
+                  checked={params.boxStack}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed"
+                  disabled={!params.hasLid}
+                  onChange={(event) => onBoxStackChange(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-slate-200">
+                    Штабелирование
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                    {params.hasLid
+                      ? "Кольцо-адаптер 3 мм печатается плошмя отдельной оболочкой справа от крышки. Внутренний размер больше корпуса на 0.5 мм: верхняя коробка входит с зазором 0.25 мм на сторону."
+                      : "Сначала включите крышку: кольцо кладётся на неё, без крышки штабель не собрать."}
+                  </span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Корпус и крышка — две отдельные замкнутые детали. Дно толщиной 2 мм,
+            {params.boxStack
+              ? "Корпус, крышка и кольцо штабеля — отдельные замкнутые детали."
+              : "Корпус и крышка — две отдельные замкнутые детали."}{" "}
+            Дно толщиной 2 мм{params.boxMagnets ? " (под пазы магнитов — толще)" : ""},
             перегородки врастают в стенки, а юбка крышки не доходит до их верха —
             после печати коробка не расслаивается и закрывается без зазора.
           </p>

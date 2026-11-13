@@ -17,14 +17,21 @@ import type { BufferGeometry } from "three";
 
 import {
   BOX_DIVIDER_TOP_GAP_MM,
+  BOX_FLOOR_THICKNESS_MM,
   BOX_LID_CLEARANCE_MM,
   BOX_LID_GAP_MM,
   BOX_LID_OVERHANG_MM,
   BOX_LID_PLATE_THICKNESS_MM,
   BOX_LID_SKIRT_HEIGHT_MM,
+  BOX_MAGNET_CEILING_MM,
+  BOX_MAGNET_EDGE_GAP_MM,
+  BOX_STACK_CLEARANCE_MM,
+  BOX_STACK_HEIGHT_MM,
+  boxMagnetPocketCenters,
   createBoxGeometry,
 } from "../lib/constructor/box-geometry";
 import {
+  BOX_MAGNET_SPECS,
   DEFAULT_BOX_PARAMS,
   boxStlFileName,
   normalizeBoxParams,
@@ -203,6 +210,45 @@ function volumeMm3(mesh: Mesh): number {
   return Math.abs(signedVolumeMm3(mesh));
 }
 
+/** Объём оболочек, все вершины которых лежат правее порога. */
+function signedVolumeRightOf(mesh: Mesh, minX: number): number {
+  let total = 0;
+
+  for (const [a, b, c] of mesh.triangles) {
+    const pa = mesh.vertices[a];
+    const pb = mesh.vertices[b];
+    const pc = mesh.vertices[c];
+
+    if (pa[0] < minX || pb[0] < minX || pc[0] < minX) {
+      continue;
+    }
+
+    total +=
+      pa[0] * (pb[1] * pc[2] - pb[2] * pc[1]) -
+      pa[1] * (pb[0] * pc[2] - pb[2] * pc[0]) +
+      pa[2] * (pb[0] * pc[1] - pb[1] * pc[0]);
+  }
+
+  return total / 6;
+}
+
+/** Вершины окружности паза на заданной высоте: их должно быть ровно 24. */
+function ringVertices(
+  mesh: Mesh,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  z: number,
+): number {
+  return mesh.vertices.filter(
+    (point) =>
+      Math.abs(point[2] - z) <= 1e-4 &&
+      Math.abs(
+        Math.hypot(point[0] - centerX, point[1] - centerY) - radius,
+      ) <= 1e-4,
+  ).length;
+}
+
 /** Границы выбранных вершин по одной оси. */
 function range(points: readonly Point[], axis: 0 | 1 | 2): [number, number] {
   let min = Infinity;
@@ -253,6 +299,38 @@ const cases: readonly Case[] = [
       boxDividersY: 1,
     },
   },
+  {
+    name: "магниты 6 × 2 и штабель 100 × 100 × 50",
+    params: {
+      boxWidth: 100,
+      boxDepth: 100,
+      boxHeight: 50,
+      boxWall: 1.6,
+      boxCornerRadius: 5,
+      boxDividersX: 1,
+      boxDividersY: 0,
+      hasLid: true,
+      boxMagnets: true,
+      boxMagnetSize: "6x2",
+      boxStack: true,
+    },
+  },
+  {
+    name: "магниты 8 × 3 на прямых углах",
+    params: {
+      boxWidth: 120,
+      boxDepth: 80,
+      boxHeight: 60,
+      boxWall: 1.6,
+      boxCornerRadius: 0,
+      boxDividersX: 1,
+      boxDividersY: 1,
+      hasLid: true,
+      boxMagnets: true,
+      boxMagnetSize: "8x3",
+      boxStack: false,
+    },
+  },
 ];
 
 console.log("Геометрия коробки:");
@@ -274,7 +352,12 @@ for (const testCase of cases) {
     ? params.boxWidth +
       BOX_LID_GAP_MM +
       params.boxWidth +
-      BOX_LID_OVERHANG_MM * 2
+      BOX_LID_OVERHANG_MM * 2 +
+      (params.boxStack
+        ? BOX_LID_GAP_MM +
+          params.boxWidth +
+          BOX_LID_OVERHANG_MM * 2
+        : 0)
     : params.boxWidth;
   const expectedDepth = params.hasLid
     ? params.boxDepth + BOX_LID_OVERHANG_MM * 2
@@ -320,14 +403,41 @@ for (const testCase of cases) {
     );
   }
 
+  const magnetSpec = BOX_MAGNET_SPECS[params.boxMagnetSize];
+  const expectedFloor = params.boxMagnets
+    ? Math.max(
+        BOX_FLOOR_THICKNESS_MM,
+        magnetSpec.depthMm + BOX_MAGNET_CEILING_MM,
+      )
+    : BOX_FLOOR_THICKNESS_MM;
+  const expectedPlate = params.boxMagnets
+    ? Math.max(
+        BOX_LID_PLATE_THICKNESS_MM,
+        magnetSpec.depthMm + BOX_MAGNET_CEILING_MM,
+      )
+    : BOX_LID_PLATE_THICKNESS_MM;
+  const lidWidth = params.boxWidth + BOX_LID_OVERHANG_MM * 2;
+  const lidDepth = params.boxDepth + BOX_LID_OVERHANG_MM * 2;
+  const bodyMinX = bounds.min.x;
+  const bodyMaxX = bodyMinX + params.boxWidth;
+  const lidMinX = bodyMaxX + BOX_LID_GAP_MM;
+  const lidMaxX = lidMinX + lidWidth;
+
   if (params.hasLid) {
-    const bodyPoints = mesh.vertices.filter((point) => point[0] < 0);
-    const lidPoints = mesh.vertices.filter((point) => point[0] > 0);
-    const skirtPoints = lidPoints.filter(
-      (point) => Math.abs(point[2] - BOX_LID_SKIRT_HEIGHT_MM) <= 1e-6,
+    const bodyPoints = mesh.vertices.filter(
+      (point) => point[0] >= bodyMinX - 1e-6 && point[0] <= bodyMaxX + 1e-6,
     );
-    const [bodyMinX, bodyMaxX] = range(bodyPoints, 0);
-    const [lidMinX, lidMaxX] = range(lidPoints, 0);
+    const lidPoints = mesh.vertices.filter(
+      (point) => point[0] >= lidMinX - 1e-6 && point[0] <= lidMaxX + 1e-6,
+    );
+    const skirtPoints = lidPoints.filter(
+      (point) =>
+        Math.abs(
+          point[2] - (expectedPlate + BOX_LID_SKIRT_HEIGHT_MM),
+        ) <= 1e-6,
+    );
+    const [actualBodyMinX, actualBodyMaxX] = range(bodyPoints, 0);
+    const [actualLidMinX, actualLidMaxX] = range(lidPoints, 0);
     const [lidMinZ, lidMaxZ] = range(lidPoints, 2);
     const [skirtMinX, skirtMaxX] = range(skirtPoints, 0);
     const [skirtMinY, skirtMaxY] = range(skirtPoints, 1);
@@ -338,24 +448,24 @@ for (const testCase of cases) {
 
     near(
       `${testCase.name}: зазор между корпусом и крышкой`,
-      lidMinX - bodyMaxX,
+      actualLidMinX - actualBodyMaxX,
       BOX_LID_GAP_MM,
     );
     near(
       `${testCase.name}: ширина корпуса без крышки`,
-      bodyMaxX - bodyMinX,
+      actualBodyMaxX - actualBodyMinX,
       params.boxWidth,
     );
     near(
       `${testCase.name}: плита крышки с навесом`,
-      lidMaxX - lidMinX,
-      params.boxWidth + BOX_LID_OVERHANG_MM * 2,
+      actualLidMaxX - actualLidMinX,
+      lidWidth,
     );
     near(`${testCase.name}: крышка лежит на столе`, lidMinZ, 0);
     near(
       `${testCase.name}: верх юбки`,
       lidMaxZ,
-      BOX_LID_PLATE_THICKNESS_MM + BOX_LID_SKIRT_HEIGHT_MM,
+      expectedPlate + BOX_LID_SKIRT_HEIGHT_MM,
     );
     near(
       `${testCase.name}: юбка по X с зазором`,
@@ -366,6 +476,153 @@ for (const testCase of cases) {
       `${testCase.name}: юбка по Y с зазором`,
       skirtMaxY - skirtMinY,
       skirtDepth,
+    );
+  }
+
+  if (params.boxMagnets) {
+    const radius = magnetSpec.diameterMm / 2;
+    const centers = boxMagnetPocketCenters(params);
+    const bodyCenterX = bodyMinX + params.boxWidth / 2;
+    const lidCenterX = lidMinX + lidWidth / 2;
+    const bodyPocketRings = centers.map(([offsetX, offsetY]) =>
+      ringVertices(mesh, bodyCenterX + offsetX, offsetY, radius, 0),
+    );
+    const lidPocketRings = centers.map(([offsetX, offsetY]) =>
+      ringVertices(mesh, lidCenterX + offsetX, offsetY, radius, 0),
+    );
+
+    check(
+      `${testCase.name}: четыре паза снизу корпуса`,
+      bodyPocketRings.every((count) => count === 24),
+      true,
+    );
+
+    if (params.hasLid) {
+      check(
+        `${testCase.name}: четыре паза сверху крышки`,
+        lidPocketRings.every((count) => count === 24),
+        true,
+      );
+    }
+
+    for (const [offsetX, offsetY] of centers) {
+      const bodyPocketX = bodyCenterX + offsetX;
+
+      check(
+        `${testCase.name}: паз не выходит за кромку по X`,
+        Math.min(bodyPocketX - bodyMinX, bodyMaxX - bodyPocketX) >
+          radius + BOX_MAGNET_EDGE_GAP_MM - 1e-6,
+        true,
+      );
+      check(
+        `${testCase.name}: паз не выходит за кромку по Y`,
+        Math.min(
+          offsetY + params.boxDepth / 2,
+          params.boxDepth / 2 - offsetY,
+        ) >
+          radius + BOX_MAGNET_EDGE_GAP_MM - 1e-6,
+        true,
+      );
+      check(
+        `${testCase.name}: потолок паза замыкает глубину`,
+        ringVertices(mesh, bodyPocketX, offsetY, radius, magnetSpec.depthMm) ===
+          24,
+        true,
+      );
+
+      if (params.hasLid) {
+        check(
+          `${testCase.name}: потолок паза крышки`,
+          ringVertices(
+            mesh,
+            lidCenterX + offsetX,
+            offsetY,
+            radius,
+            magnetSpec.depthMm,
+          ) === 24,
+          true,
+        );
+      }
+    }
+
+    check(
+      `${testCase.name}: над пазом остаётся пластик`,
+      expectedFloor - magnetSpec.depthMm >=
+        BOX_MAGNET_CEILING_MM - 1e-6,
+      true,
+    );
+    check(
+      `${testCase.name}: плита крышки толще паза`,
+      expectedPlate - magnetSpec.depthMm >=
+        BOX_MAGNET_CEILING_MM - 1e-6,
+      true,
+    );
+  }
+
+  if (params.boxStack && params.hasLid) {
+    const ringMinX = lidMaxX + BOX_LID_GAP_MM;
+    const ringMaxX = ringMinX + lidWidth;
+    const ringCenterX = (ringMinX + ringMaxX) / 2;
+    const ringPoints = mesh.vertices.filter(
+      (point) => point[0] >= ringMinX - 1e-6,
+    );
+    const [actualRingMinX, actualRingMaxX] = range(ringPoints, 0);
+    const [ringMinY, ringMaxY] = range(ringPoints, 1);
+    const [ringMinZ, ringMaxZ] = range(ringPoints, 2);
+    const innerWidth = params.boxWidth + BOX_STACK_CLEARANCE_MM * 2;
+    const innerDepth = params.boxDepth + BOX_STACK_CLEARANCE_MM * 2;
+    const outerRadius =
+      params.boxCornerRadius > 0
+        ? params.boxCornerRadius + BOX_LID_OVERHANG_MM
+        : 0;
+    const innerRadius = params.boxCornerRadius + BOX_STACK_CLEARANCE_MM;
+    const outerArea =
+      lidWidth * lidDepth - (4 - Math.PI) * outerRadius * outerRadius;
+    const innerArea =
+      innerWidth * innerDepth - (4 - Math.PI) * innerRadius * innerRadius;
+    const expectedRingVolume =
+      (outerArea - innerArea) * BOX_STACK_HEIGHT_MM;
+    const ringVolume = signedVolumeRightOf(mesh, ringMinX - 1e-6);
+
+    near(
+      `${testCase.name}: кольцо начинается после зазора`,
+      actualRingMinX - lidMaxX,
+      BOX_LID_GAP_MM,
+    );
+    near(
+      `${testCase.name}: кольцо по ширине крышки`,
+      actualRingMaxX - actualRingMinX,
+      lidWidth,
+    );
+    near(
+      `${testCase.name}: кольцо по глубине крышки`,
+      ringMaxY - ringMinY,
+      lidDepth,
+    );
+    near(`${testCase.name}: кольцо на столе`, ringMinZ, 0);
+    near(
+      `${testCase.name}: высота кольца`,
+      ringMaxZ - ringMinZ,
+      BOX_STACK_HEIGHT_MM,
+    );
+    check(
+      `${testCase.name}: внутренний размер кольца с зазором`,
+      ringPoints.some(
+        (point) =>
+          Math.abs(point[0] - (ringCenterX + innerWidth / 2)) <= 1e-4 &&
+          Math.abs(point[2]) <= 1e-4,
+      ),
+      true,
+    );
+    check(
+      `${testCase.name}: объём кольца сходится`,
+      Math.abs(ringVolume - expectedRingVolume) / expectedRingVolume < 0.02,
+      true,
+    );
+    check(
+      `${testCase.name}: кольцо — отдельная оболочка`,
+      ringVolume > 0,
+      true,
     );
   }
 }
@@ -395,6 +652,9 @@ check("старая ширина стала глубиной", legacy.boxDepth, 
 check("четыре старые ячейки — три перегородки", legacy.boxDividersX, 3);
 check("две старые ячейки — одна перегородка", legacy.boxDividersY, 1);
 check("старый проект остался без крышки", legacy.hasLid, false);
+check("старый проект без магнитов", legacy.boxMagnets, false);
+check("старый проект без штабеля", legacy.boxStack, false);
+check("типоразмер магнита по умолчанию", legacy.boxMagnetSize, "6x2");
 
 if (failures.length > 0) {
   console.error(`\nРасхождения (${failures.length}):`);

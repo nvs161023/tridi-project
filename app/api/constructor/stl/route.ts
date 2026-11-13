@@ -43,6 +43,7 @@ import {
   boxStlFileName,
   coasterStlFileName,
   hasDrawableSvgData,
+  isBoxMagnetSize,
   isCoasterPattern,
   isCoasterShape,
   isCustomSvgData,
@@ -997,7 +998,9 @@ function parseSignParams(
  * Размеры проверяются в своих границах, крышка — только настоящим boolean.
  * Количество перегородок — целое от 0 до 3 на каждую ось: геометрия строит
  * ровно столько брусков, сколько выбрал человек. Скругление углов разрешено
- * от 0 до 20 мм; при нуле корпус получается с прямыми углами.
+ * от 0 до 20 мм; при нуле корпус получается с прямыми углами. Магниты и
+ * штабелирование включаются только булевыми значениями, а типоразмер магнита
+ * обязан совпадать с одним из двух известных наборов.
  */
 function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
   const {
@@ -1009,6 +1012,9 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
     boxDividersX,
     boxDividersY,
     hasLid,
+    boxMagnets,
+    boxMagnetSize,
+    boxStack,
   } = body;
 
   if (
@@ -1049,7 +1055,10 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
     ) ||
     !Number.isInteger(boxDividersX) ||
     !Number.isInteger(boxDividersY) ||
-    typeof hasLid !== "boolean"
+    typeof hasLid !== "boolean" ||
+    typeof boxMagnets !== "boolean" ||
+    !isBoxMagnetSize(boxMagnetSize) ||
+    typeof boxStack !== "boolean"
   ) {
     return null;
   }
@@ -1063,6 +1072,9 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
     boxDividersX: boxDividersX as number,
     boxDividersY: boxDividersY as number,
     hasLid,
+    boxMagnets,
+    boxMagnetSize,
+    boxStack,
   });
 }
 

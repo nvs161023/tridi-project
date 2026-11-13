@@ -1499,6 +1499,38 @@ export type SignParams = {
  * в общем состоянии конструктора у каждой модели свои значения, поэтому
  * переключение вкладки не переносит 140 мм коробки в 60 мм брелока.
  */
+export const BOX_MAGNET_SIZE_IDS = ["6x2", "8x3"] as const;
+
+/** Типоразмер круглого магнита: диаметр × толщина в миллиметрах. */
+export type BoxMagnetSize = (typeof BOX_MAGNET_SIZE_IDS)[number];
+
+export const BOX_MAGNET_SIZE_LABELS = {
+  "6x2": "6 × 2 мм",
+  "8x3": "8 × 3 мм",
+} as const satisfies Record<BoxMagnetSize, string>;
+
+/**
+ * Размеры паза под магнит.
+ *
+ * Диаметр на 0.2 мм больше самого магнита: клей и допуск печати не должны
+ * выдавливать деталь наружу. Глубина на 0.2 мм больше толщины магнита — этот
+ * запас уходит под клей, а над пазом остаётся не меньше 0.4 мм пластика.
+ */
+export const BOX_MAGNET_SPECS = {
+  "6x2": { diameterMm: 6.2, depthMm: 2.2 },
+  "8x3": { diameterMm: 8.2, depthMm: 3.2 },
+} as const satisfies Record<
+  BoxMagnetSize,
+  { diameterMm: number; depthMm: number }
+>;
+
+export function isBoxMagnetSize(value: unknown): value is BoxMagnetSize {
+  return (
+    typeof value === "string" &&
+    (BOX_MAGNET_SIZE_IDS as readonly string[]).includes(value)
+  );
+}
+
 export type BoxParams = {
   /** Наружная ширина по X, мм. */
   boxWidth: number;
@@ -1516,6 +1548,12 @@ export type BoxParams = {
   boxDividersY: number;
   /** Печатать ли отдельную крышку с внутренней юбкой. */
   hasLid: boolean;
+  /** Вырезать ли по четыре глухих паза под магниты в дне и крышке. */
+  boxMagnets: boolean;
+  /** Типоразмер магнитов: 6 × 2 или 8 × 3 мм. */
+  boxMagnetSize: BoxMagnetSize;
+  /** Добавлять ли отдельное кольцо-адаптер для штабелирования. */
+  boxStack: boolean;
 };
 
 /** Пресеты коробки: разные наборы перегородок под типовые задачи. */
@@ -2433,6 +2471,9 @@ export const DEFAULT_BOX_PARAMS: BoxParams = {
   boxDividersX: CONSTRUCTOR_LIMITS.boxDividers.defaultValue,
   boxDividersY: CONSTRUCTOR_LIMITS.boxDividers.defaultValue,
   hasLid: true,
+  boxMagnets: false,
+  boxMagnetSize: "6x2",
+  boxStack: false,
 };
 
 /**
@@ -2453,6 +2494,9 @@ export const BOX_PRESETS: Record<BoxPresetId, BoxParams> = {
     boxDividersX: 2,
     boxDividersY: 1,
     hasLid: true,
+    boxMagnets: false,
+    boxMagnetSize: "6x2",
+    boxStack: false,
   },
   batteries: {
     boxWidth: 160,
@@ -2463,6 +2507,9 @@ export const BOX_PRESETS: Record<BoxPresetId, BoxParams> = {
     boxDividersX: 3,
     boxDividersY: 1,
     hasLid: true,
+    boxMagnets: false,
+    boxMagnetSize: "6x2",
+    boxStack: false,
   },
   free: {
     boxWidth: 180,
@@ -2473,6 +2520,9 @@ export const BOX_PRESETS: Record<BoxPresetId, BoxParams> = {
     boxDividersX: 1,
     boxDividersY: 1,
     hasLid: false,
+    boxMagnets: false,
+    boxMagnetSize: "6x2",
+    boxStack: false,
   },
 };
 
@@ -4540,9 +4590,10 @@ function legacyBoxDividers(cells: unknown, grid: unknown): number | undefined {
  * Проверяет и выравнивает параметры коробки.
  *
  * Числа зажимаются в границы слайдеров, количество перегородок — целое от 0
- * до 3. `hasLid` принимается только булевым значением: строка «false» из формы
- * не должна неожиданно включать крышку. Старые проекты с `boxLength` и сеткой
- * ячеек переводятся в новую модель без потери габаритов.
+ * до 3. `hasLid`, `boxMagnets` и `boxStack` принимаются только булевыми
+ * значениями: строка «false» из формы не должна неожиданно включать крышку или
+ * пазы. Неизвестный типоразмер магнита заменяется на 6 × 2 мм. Старые проекты с
+ * `boxLength` и сеткой ячеек переводятся в новую модель без потери габаритов.
  */
 export function normalizeBoxParams(params: BoxParamsInput): BoxParams {
   const legacy =
@@ -4555,6 +4606,10 @@ export function normalizeBoxParams(params: BoxParamsInput): BoxParams {
   const legacyDividersY = legacy
     ? legacyBoxDividers(params.cellsY, params.gridY)
     : undefined;
+  const hasLid =
+    typeof params.hasLid === "boolean"
+      ? params.hasLid
+      : DEFAULT_BOX_PARAMS.hasLid;
 
   return {
     boxWidth: snap(
@@ -4594,10 +4649,19 @@ export function normalizeBoxParams(params: BoxParamsInput): BoxParams {
       ),
       CONSTRUCTOR_LIMITS.boxDividers,
     ),
-    hasLid:
-      typeof params.hasLid === "boolean"
-        ? params.hasLid
-        : DEFAULT_BOX_PARAMS.hasLid,
+    hasLid,
+    boxMagnets:
+      typeof params.boxMagnets === "boolean"
+        ? params.boxMagnets
+        : DEFAULT_BOX_PARAMS.boxMagnets,
+    boxMagnetSize: isBoxMagnetSize(params.boxMagnetSize)
+      ? params.boxMagnetSize
+      : DEFAULT_BOX_PARAMS.boxMagnetSize,
+    boxStack:
+      hasLid &&
+      (typeof params.boxStack === "boolean"
+        ? params.boxStack
+        : DEFAULT_BOX_PARAMS.boxStack),
   };
 }
 

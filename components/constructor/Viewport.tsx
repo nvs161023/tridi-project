@@ -27,6 +27,7 @@ import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 
 import {
+  BOX_MAGNET_SIZE_LABELS,
   COASTER_PATTERN_LABELS,
   JEWELRY_CONFIG_LABELS,
   LITHOPHANE_PREVIEW_RESOLUTION,
@@ -1884,7 +1885,7 @@ export function Viewport({
         : params.model === "stand"
           ? `3D-предпросмотр подставки под телефон шириной ${params.standWidth} миллиметров, наклон ${params.standAngle} градусов, толщина телефона ${params.phoneThickness} миллиметров`
           : params.model === "box"
-            ? `3D-предпросмотр коробки ${params.boxWidth} на ${params.boxDepth} на ${params.boxHeight} миллиметров, перегородки ${params.boxDividersX} и ${params.boxDividersY}, скругление углов ${params.boxCornerRadius} миллиметров, ${params.hasLid ? "с крышкой" : "без крышки"}`
+            ? `3D-предпросмотр коробки ${params.boxWidth} на ${params.boxDepth} на ${params.boxHeight} миллиметров, перегородки ${params.boxDividersX} и ${params.boxDividersY}, скругление углов ${params.boxCornerRadius} миллиметров, ${params.hasLid ? "с крышкой" : "без крышки"}${params.boxMagnets ? `, пазы под магниты ${BOX_MAGNET_SIZE_LABELS[params.boxMagnetSize]}` : ""}${params.boxStack ? ", кольцо для штабелирования" : ""}`
             : params.model === "lithophane"
               ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»${lithophaneShapeHasFrame(params.lithoShape) ? `, ${params.lithoFrame ? "рамка" : "без рамки"}` : ""}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}${heatMap ? ", включена карта света" : ""}`
               : params.model === "planter"
