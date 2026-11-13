@@ -156,11 +156,17 @@ export const CONSTRUCTOR_LIMITS = {
   signLetterGap: { min: 2, max: 20, step: 1, defaultValue: 6, decimals: 0 },
   // Сколько букв печатается одним блоком: больше пяти деталь неудобно вешать.
   signBlockSize: { min: 1, max: 5, step: 1, defaultValue: 3, decimals: 0 },
-  boxLength: { min: 60, max: 220, step: 5, defaultValue: 140, decimals: 0 },
-  boxWidth: { min: 60, max: 220, step: 5, defaultValue: 100, decimals: 0 },
-  boxHeight: { min: 30, max: 160, step: 5, defaultValue: 60, decimals: 0 },
-  boxWall: { min: 0.8, max: 3, step: 0.1, defaultValue: 1.6, decimals: 1 },
-  boxGrid: { min: 1, max: 8, step: 1, defaultValue: 2, decimals: 0 },
+  boxWidth: { min: 40, max: 200, step: 5, defaultValue: 140, decimals: 0 },
+  boxDepth: { min: 40, max: 200, step: 5, defaultValue: 100, decimals: 0 },
+  boxHeight: { min: 40, max: 200, step: 5, defaultValue: 60, decimals: 0 },
+  // Стенка 1.2 мм — минимальная прочная толщина для бытового органайзера:
+  // тоньше периметр начинает пружинить и коробку ведёт после остывания.
+  boxWall: { min: 1.2, max: 3, step: 0.1, defaultValue: 1.6, decimals: 1 },
+  // Радиус задаёт и наружный контур, и внутреннюю полость. 5 мм убирают
+  // острые углы, но оставляют стенке одинаковую толщину по всему периметру.
+  boxCornerRadius: { min: 0, max: 20, step: 1, defaultValue: 5, decimals: 0 },
+  // Количество перегородок, а не ячеек: 0 — пустая коробка, 1 — пополам.
+  boxDividers: { min: 0, max: 3, step: 1, defaultValue: 1, decimals: 0 },
   lithophaneWidth: { min: 40, max: 200, step: 5, defaultValue: 120, decimals: 0 },
   lithophaneHeight: {
     min: 40,
@@ -1486,46 +1492,33 @@ export type SignParams = {
 
 
 /**
- * Коробка-органайзер: наружные габариты, стенка, сетка ячеек и крышка.
+ * Коробка-органайзер: наружные габариты, стенка, скругления, перегородки и
+ * крышка.
  *
  * Поля с префиксом `box` не пересекаются с длиной брелока и высотой вазы:
  * в общем состоянии конструктора у каждой модели свои значения, поэтому
  * переключение вкладки не переносит 140 мм коробки в 60 мм брелока.
  */
 export type BoxParams = {
-  /** Наружная длина по X, мм. */
-  boxLength: number;
-  /** Наружная ширина по Y, мм. */
+  /** Наружная ширина по X, мм. */
   boxWidth: number;
+  /** Наружная глубина по Y, мм. */
+  boxDepth: number;
   /** Высота стенок от стола, мм. */
   boxHeight: number;
-  /** Толщина наружных стенок и перегородок, мм. */
+  /** Толщина наружных стенок, мм. */
   boxWall: number;
-  /**
-   * Ширины ячеек по длине, мм. Массив задаёт пропорции: свободное место
-   * делится между ячейками, а перегородки остаются ровно `boxWall`. Поэтому
-   * сумма может не совпадать с внутренним размером — коробку масштабируют
-   * слайдеры габаритов, а не набор ячеек.
-   */
-  cellsX: number[];
-  /** Высоты ячеек по ширине, мм: те же правила, что у `cellsX`. */
-  cellsY: number[];
-  /**
-   * Количество ячеек по длине. Выводится из `cellsX.length`; отдельное поле
-   * нужно старым слайдерам и имени файла.
-   */
-  gridX: number;
-  /** Количество ячеек по ширине; выводится из `cellsY.length`. */
-  gridY: number;
-  /** Печатать ли отдельную крышку с бортиком. */
+  /** Радиус скругления наружных углов, мм. */
+  boxCornerRadius: number;
+  /** Количество перегородок, делящих ширину по X: от 0 до 3. */
+  boxDividersX: number;
+  /** Количество перегородок, делящих глубину по Y: от 0 до 3. */
+  boxDividersY: number;
+  /** Печатать ли отдельную крышку с внутренней юбкой. */
   hasLid: boolean;
 };
 
-/** Минимальная и максимальная ширина одной ячейки, мм. */
-export const BOX_CELL_MIN_MM = 5;
-export const BOX_CELL_MAX_MM = 220;
-
-/** Пресеты коробки: разные наборы ячеек под типовые задачи. */
+/** Пресеты коробки: разные наборы перегородок под типовые задачи. */
 export const BOX_PRESET_IDS = ["tools", "batteries", "free"] as const;
 
 export type BoxPresetId = (typeof BOX_PRESET_IDS)[number];
@@ -2427,61 +2420,58 @@ export const DEFAULT_SIGN_PARAMS: SignParams = {
 };
 
 /**
- * Коробка по умолчанию: 140 × 100 × 60 мм, сетка 2 × 2 и крышка.
- * Такой органайзер сразу показывает и стенки, и перегородки, и обе детали.
+ * Коробка по умолчанию: 140 × 100 × 60 мм, стенка 1.6 мм, скругление 5 мм,
+ * по одной перегородке вдоль каждой оси и крышка. Такой органайзер сразу
+ * показывает и скруглённый корпус, и перегородки, и обе детали.
  */
 export const DEFAULT_BOX_PARAMS: BoxParams = {
-  boxLength: CONSTRUCTOR_LIMITS.boxLength.defaultValue,
   boxWidth: CONSTRUCTOR_LIMITS.boxWidth.defaultValue,
+  boxDepth: CONSTRUCTOR_LIMITS.boxDepth.defaultValue,
   boxHeight: CONSTRUCTOR_LIMITS.boxHeight.defaultValue,
   boxWall: CONSTRUCTOR_LIMITS.boxWall.defaultValue,
-  cellsX: [68, 68],
-  cellsY: [48, 48],
-  gridX: 2,
-  gridY: 2,
+  boxCornerRadius: CONSTRUCTOR_LIMITS.boxCornerRadius.defaultValue,
+  boxDividersX: CONSTRUCTOR_LIMITS.boxDividers.defaultValue,
+  boxDividersY: CONSTRUCTOR_LIMITS.boxDividers.defaultValue,
   hasLid: true,
 };
 
 /**
  * Готовые коробки под три сценария.
  *
- * «Инструменты» — длинные ячейки под отвёртки и свёрла; «Батарейки» — шесть
- * узких отделений в ряд под AA/AAA; «Свободная сетка» — широкая ячейка слева
- * и две мелкие справа. Габариты тоже входят в пресет: иначе набор ячеек
- * пришлось бы вручную растягивать слайдерами, чтобы он стал удобным.
+ * «Инструменты» — длинная коробка с двумя перегородками по X и одной по Y;
+ * «Батарейки» — много узких отделений для AA/AAA; «Свободная» — просторная
+ * коробка с одной перегородкой и без крышки. Габариты входят в пресет:
+ * иначе число перегородок пришлось бы подгонять слайдерами вручную.
  */
 export const BOX_PRESETS: Record<BoxPresetId, BoxParams> = {
   tools: {
-    boxLength: 220,
-    boxWidth: 160,
+    boxWidth: 200,
+    boxDepth: 160,
     boxHeight: 60,
     boxWall: 1.6,
-    cellsX: [90, 45, 45],
-    cellsY: [70, 70],
-    gridX: 3,
-    gridY: 2,
+    boxCornerRadius: 5,
+    boxDividersX: 2,
+    boxDividersY: 1,
     hasLid: true,
   },
   batteries: {
-    boxLength: 160,
-    boxWidth: 120,
+    boxWidth: 160,
+    boxDepth: 120,
     boxHeight: 50,
     boxWall: 1.2,
-    cellsX: [16, 16, 16, 16, 16, 16],
-    cellsY: [50, 50],
-    gridX: 6,
-    gridY: 2,
+    boxCornerRadius: 3,
+    boxDividersX: 3,
+    boxDividersY: 1,
     hasLid: true,
   },
   free: {
-    boxLength: 180,
     boxWidth: 180,
+    boxDepth: 180,
     boxHeight: 60,
     boxWall: 1.6,
-    cellsX: [30, 60, 30],
-    cellsY: [45, 45, 45],
-    gridX: 3,
-    gridY: 3,
+    boxCornerRadius: 8,
+    boxDividersX: 1,
+    boxDividersY: 1,
     hasLid: false,
   },
 };
@@ -2900,18 +2890,18 @@ export function signStlFileName(
   return `tridi-vyveska-${signFileSlug(params.signText)}-b${blockIndex + 1}-${part}.stl`;
 }
 
-
 /**
  * Имя файла STL для коробки.
  *
- * Сетка записывается как `g2x3`, крышка — суффиксом `kryshka`: по имени видно,
- * лежит ли в файле вторая деталь. Толщина стенки важна для печати, поэтому
- * входит в имя как `t1.6`; значения уже выровнены normalizeBoxParams.
+ * Габариты записываются как `w140-d100-h60`, толщина `t1.6`, скругление
+ * `r5`, перегородки — `x1-y2`, крышка — суффиксом `kryshka`. По имени видно,
+ * лежит ли в файле вторая деталь и какие перегородки построены; значения уже
+ * выровнены normalizeBoxParams.
  */
 export function boxStlFileName(params: BoxParams): string {
   const lidSuffix = params.hasLid ? "-kryshka" : "";
 
-  return `tridi-korobka-l${params.boxLength}-w${params.boxWidth}-h${params.boxHeight}-t${params.boxWall}-g${params.gridX}x${params.gridY}${lidSuffix}.stl`;
+  return `tridi-korobka-w${params.boxWidth}-d${params.boxDepth}-h${params.boxHeight}-t${params.boxWall}-r${params.boxCornerRadius}-x${params.boxDividersX}-y${params.boxDividersY}${lidSuffix}.stl`;
 }
 
 /**
@@ -3376,38 +3366,6 @@ export function isCustomSvgData(value: unknown): value is string {
 /** Проверка, что из SVG действительно получится контур. */
 export function hasDrawableSvgData(value: string): boolean {
   return CUSTOM_SVG_CONTOUR.test(value);
-}
-
-/**
- * Проверка массива ячеек коробки.
- *
- * Каждая ячейка — конечное число от 5 до 220 мм, ячеек от 1 до 8. Массив
- * задаёт пропорции, но отрицательная или нулевая ширина сломала бы деление
- * свободного места, поэтому нули отклоняются, а не подменяются.
- */
-export function isBoxCells(value: unknown): value is number[] {
-  if (
-    !Array.isArray(value) ||
-    value.length < CONSTRUCTOR_LIMITS.boxGrid.min ||
-    value.length > CONSTRUCTOR_LIMITS.boxGrid.max
-  ) {
-    return false;
-  }
-
-  for (let index = 0; index < value.length; index += 1) {
-    const cell = value[index];
-
-    if (
-      typeof cell !== "number" ||
-      !Number.isFinite(cell) ||
-      cell < BOX_CELL_MIN_MM ||
-      cell > BOX_CELL_MAX_MM
-    ) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 /** Проверка ширины канала: под ленту подходят только 8 и 10 мм. */
@@ -4547,85 +4505,100 @@ export function normalizeSignParams(params: Partial<SignParams>): SignParams {
 }
 
 /**
+ * Поля, которые могли остаться в сохранённых проектах прежней версии.
+ *
+ * Старая коробка хранила длину/ширину (`boxLength`, `boxWidth`) и массив
+ * ячеек (`cellsX`, `gridX`). Новые поля важнее: старый формат распознаётся
+ * только когда `boxDepth` ещё нет, поэтому миграция не путает ширину с
+ * глубиной у свежих проектов.
+ */
+export type BoxParamsInput = Partial<BoxParams> & {
+  boxLength?: unknown;
+  cellsX?: unknown;
+  cellsY?: unknown;
+  gridX?: unknown;
+  gridY?: unknown;
+};
+
+/** Сколько перегородок соответствует старому числу ячеек. */
+function legacyBoxDividers(cells: unknown, grid: unknown): number | undefined {
+  const count =
+    typeof grid === "number" && Number.isFinite(grid)
+      ? grid
+      : Array.isArray(cells) && cells.length > 0
+        ? cells.length
+        : null;
+
+  if (count === null) {
+    return undefined;
+  }
+
+  return clamp(Math.round(count) - 1, 0, CONSTRUCTOR_LIMITS.boxDividers.max);
+}
+
+/**
  * Проверяет и выравнивает параметры коробки.
  *
- * Числа зажимаются в границы слайдеров, сетка — целые ячейки от 1 до 8.
- * `hasLid` принимается только булевым значением: строка «false» из формы не
- * должна неожиданно включать крышку. Остальные типы заменяются значением по
- * умолчанию.
+ * Числа зажимаются в границы слайдеров, количество перегородок — целое от 0
+ * до 3. `hasLid` принимается только булевым значением: строка «false» из формы
+ * не должна неожиданно включать крышку. Старые проекты с `boxLength` и сеткой
+ * ячеек переводятся в новую модель без потери габаритов.
  */
-export function normalizeBoxParams(params: Partial<BoxParams>): BoxParams {
-  const limit = CONSTRUCTOR_LIMITS.boxGrid;
-  const rawCellsX = Array.isArray(params.cellsX) ? params.cellsX : null;
-  const rawCellsY = Array.isArray(params.cellsY) ? params.cellsY : null;
-  const gridX = Math.round(
-    clamp(
-      params.gridX ?? rawCellsX?.length ?? DEFAULT_BOX_PARAMS.gridX,
-      limit.min,
-      limit.max,
-    ),
-  );
-  const gridY = Math.round(
-    clamp(
-      params.gridY ?? rawCellsY?.length ?? DEFAULT_BOX_PARAMS.gridY,
-      limit.min,
-      limit.max,
-    ),
-  );
+export function normalizeBoxParams(params: BoxParamsInput): BoxParams {
+  const legacy =
+    params.boxDepth === undefined && typeof params.boxLength === "number";
+  const width = legacy ? params.boxLength : params.boxWidth;
+  const depth = legacy ? params.boxWidth : params.boxDepth;
+  const legacyDividersX = legacy
+    ? legacyBoxDividers(params.cellsX, params.gridX)
+    : undefined;
+  const legacyDividersY = legacy
+    ? legacyBoxDividers(params.cellsY, params.gridY)
+    : undefined;
 
   return {
-    boxLength: snap(
-      params.boxLength ?? DEFAULT_BOX_PARAMS.boxLength,
-      CONSTRUCTOR_LIMITS.boxLength,
-    ),
     boxWidth: snap(
-      params.boxWidth ?? DEFAULT_BOX_PARAMS.boxWidth,
+      finiteNumber(width, DEFAULT_BOX_PARAMS.boxWidth),
       CONSTRUCTOR_LIMITS.boxWidth,
     ),
+    boxDepth: snap(
+      finiteNumber(depth, DEFAULT_BOX_PARAMS.boxDepth),
+      CONSTRUCTOR_LIMITS.boxDepth,
+    ),
     boxHeight: snap(
-      params.boxHeight ?? DEFAULT_BOX_PARAMS.boxHeight,
+      finiteNumber(params.boxHeight, DEFAULT_BOX_PARAMS.boxHeight),
       CONSTRUCTOR_LIMITS.boxHeight,
     ),
     boxWall: snap(
-      params.boxWall ?? DEFAULT_BOX_PARAMS.boxWall,
+      finiteNumber(params.boxWall, DEFAULT_BOX_PARAMS.boxWall),
       CONSTRUCTOR_LIMITS.boxWall,
     ),
-    cellsX: normalizeBoxCells(rawCellsX, gridX),
-    cellsY: normalizeBoxCells(rawCellsY, gridY),
-    gridX,
-    gridY,
+    boxCornerRadius: snap(
+      finiteNumber(
+        legacy ? undefined : params.boxCornerRadius,
+        DEFAULT_BOX_PARAMS.boxCornerRadius,
+      ),
+      CONSTRUCTOR_LIMITS.boxCornerRadius,
+    ),
+    boxDividersX: snap(
+      finiteNumber(
+        params.boxDividersX ?? legacyDividersX,
+        DEFAULT_BOX_PARAMS.boxDividersX,
+      ),
+      CONSTRUCTOR_LIMITS.boxDividers,
+    ),
+    boxDividersY: snap(
+      finiteNumber(
+        params.boxDividersY ?? legacyDividersY,
+        DEFAULT_BOX_PARAMS.boxDividersY,
+      ),
+      CONSTRUCTOR_LIMITS.boxDividers,
+    ),
     hasLid:
       typeof params.hasLid === "boolean"
         ? params.hasLid
         : DEFAULT_BOX_PARAMS.hasLid,
   };
-}
-
-/**
- * Приводит набор ячеек к количеству gridX/gridY.
- *
- * Если массив той же длины, его значения зажимаются в 5–220 мм и задают
- * пропорции. Если длина другая (например, старый слайдер поменял число
- * ячеек), массив заменяется равными единицами: геометрия всё равно делит
- * свободное место пропорционально, и ячейки получаются одинаковыми.
- */
-function normalizeBoxCells(
-  values: readonly unknown[] | null,
-  count: number,
-): number[] {
-  if (!values || values.length !== count) {
-    return Array.from({ length: count }, () => 1);
-  }
-
-  return Array.from({ length: count }, (_, index) => {
-    const value = values[index];
-
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      return 1;
-    }
-
-    return Math.round(clamp(value, BOX_CELL_MIN_MM, BOX_CELL_MAX_MM));
-  });
 }
 
 /**

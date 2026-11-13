@@ -1094,25 +1094,7 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, hasLid }));
   }
 
-  /**
-   * Ячейки приходят из текстового поля «20, 40, 20».
-   *
-   * Вместе с массивом обновляется gridX/gridY: normalizeBoxParams иначе
-   * сравнит новую длину со старым количеством ячеек, посчитает набор
-   * несовместимым и заменит пропорции равными единицами.
-   */
-  function updateBoxCells(axis: "x" | "y", cells: number[]) {
-    setParams((current) =>
-      normalizeConstructorParams({
-        ...current,
-        ...(axis === "x"
-          ? { cellsX: cells, gridX: cells.length }
-          : { cellsY: cells, gridY: cells.length }),
-      }),
-    );
-  }
-
-  /** Пресет меняет и ячейки, и габариты: набор должен помещаться в коробку. */
+  /** Пресет меняет габариты, скругление и число перегородок одной кнопкой. */
   function updateBoxPreset(preset: BoxPresetId) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, ...boxPresetParams(preset) }),
@@ -1498,7 +1480,6 @@ export function ConstructorClient({
             hasPro={hasPro}
             exportingId={exportingId}
             exportOptions={exportOptions}
-            onBoxCellsChange={updateBoxCells}
             onBoxPresetChange={updateBoxPreset}
             onCoasterPatternChange={updateCoasterPattern}
             onCoasterRimChange={updateCoasterRim}

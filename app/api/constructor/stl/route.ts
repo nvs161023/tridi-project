@@ -43,7 +43,6 @@ import {
   boxStlFileName,
   coasterStlFileName,
   hasDrawableSvgData,
-  isBoxCells,
   isCoasterPattern,
   isCoasterShape,
   isCustomSvgData,
@@ -996,49 +995,32 @@ function parseSignParams(
  * Строгая проверка параметров коробки.
  *
  * Размеры проверяются в своих границах, крышка — только настоящим boolean.
- * Сетка принимается двумя способами: новые массивы `cellsX`/`cellsY` с
- * ширинами ячеек 5–220 мм или старые целые `gridX`/`gridY` от 1 до 8.
- * Если массивы переданы, они главнее старых полей и проверяются поэлементно:
- * клиент отправляет оба набора сразу, но геометрия строится по ячейкам.
+ * Количество перегородок — целое от 0 до 3 на каждую ось: геометрия строит
+ * ровно столько брусков, сколько выбрал человек. Скругление углов разрешено
+ * от 0 до 20 мм; при нуле корпус получается с прямыми углами.
  */
 function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
   const {
-    boxLength,
     boxWidth,
+    boxDepth,
     boxHeight,
     boxWall,
-    gridX,
-    gridY,
-    cellsX,
-    cellsY,
+    boxCornerRadius,
+    boxDividersX,
+    boxDividersY,
     hasLid,
   } = body;
-  const hasCells = cellsX !== undefined || cellsY !== undefined;
-  const cellsAreValid = isBoxCells(cellsX) && isBoxCells(cellsY);
-  const gridsAreValid =
-    isNumberInRange(
-      gridX,
-      CONSTRUCTOR_LIMITS.boxGrid.min,
-      CONSTRUCTOR_LIMITS.boxGrid.max,
-    ) &&
-    isNumberInRange(
-      gridY,
-      CONSTRUCTOR_LIMITS.boxGrid.min,
-      CONSTRUCTOR_LIMITS.boxGrid.max,
-    ) &&
-    Number.isInteger(gridX) &&
-    Number.isInteger(gridY);
 
   if (
-    !isNumberInRange(
-      boxLength,
-      CONSTRUCTOR_LIMITS.boxLength.min,
-      CONSTRUCTOR_LIMITS.boxLength.max,
-    ) ||
     !isNumberInRange(
       boxWidth,
       CONSTRUCTOR_LIMITS.boxWidth.min,
       CONSTRUCTOR_LIMITS.boxWidth.max,
+    ) ||
+    !isNumberInRange(
+      boxDepth,
+      CONSTRUCTOR_LIMITS.boxDepth.min,
+      CONSTRUCTOR_LIMITS.boxDepth.max,
     ) ||
     !isNumberInRange(
       boxHeight,
@@ -1050,21 +1032,37 @@ function parseBoxParams(body: Record<string, unknown>): BoxParams | null {
       CONSTRUCTOR_LIMITS.boxWall.min,
       CONSTRUCTOR_LIMITS.boxWall.max,
     ) ||
-    typeof hasLid !== "boolean" ||
-    (hasCells ? !cellsAreValid : !gridsAreValid)
+    !isNumberInRange(
+      boxCornerRadius,
+      CONSTRUCTOR_LIMITS.boxCornerRadius.min,
+      CONSTRUCTOR_LIMITS.boxCornerRadius.max,
+    ) ||
+    !isNumberInRange(
+      boxDividersX,
+      CONSTRUCTOR_LIMITS.boxDividers.min,
+      CONSTRUCTOR_LIMITS.boxDividers.max,
+    ) ||
+    !isNumberInRange(
+      boxDividersY,
+      CONSTRUCTOR_LIMITS.boxDividers.min,
+      CONSTRUCTOR_LIMITS.boxDividers.max,
+    ) ||
+    !Number.isInteger(boxDividersX) ||
+    !Number.isInteger(boxDividersY) ||
+    typeof hasLid !== "boolean"
   ) {
     return null;
   }
 
   return normalizeBoxParams({
-    boxLength,
-    boxWidth,
-    boxHeight,
-    boxWall,
+    boxWidth: boxWidth as number,
+    boxDepth: boxDepth as number,
+    boxHeight: boxHeight as number,
+    boxWall: boxWall as number,
+    boxCornerRadius: boxCornerRadius as number,
+    boxDividersX: boxDividersX as number,
+    boxDividersY: boxDividersY as number,
     hasLid,
-    ...(cellsAreValid
-      ? { cellsX: cellsX as number[], cellsY: cellsY as number[] }
-      : { gridX: gridX as number, gridY: gridY as number }),
   });
 }
 

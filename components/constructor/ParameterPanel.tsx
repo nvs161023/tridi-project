@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
+import { useId, useMemo, useState, useEffect, type ChangeEvent } from "react";
 
 import { NumberSlider } from "@/components/constructor/NumberSlider";
 import { ParameterSelect } from "@/components/constructor/ParameterSelect";
@@ -70,8 +70,6 @@ import {
   qrCardReport,
 } from "@/lib/constructor/qr-card-geometry";
 import {
-  BOX_CELL_MAX_MM,
-  BOX_CELL_MIN_MM,
   BOX_PRESET_IDS,
   BOX_PRESET_LABELS,
   COASTER_PATTERNS,
@@ -346,9 +344,7 @@ type ParameterPanelProps = {
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
   onSignBaseMountChange: (mount: boolean) => void;
   onHasLidChange: (hasLid: boolean) => void;
-  /** Ширины или высоты ячеек коробки, введённые через запятую. */
-  onBoxCellsChange: (axis: "x" | "y", cells: number[]) => void;
-  /** Готовый набор ячеек и габаритов коробки. */
+  /** Готовый набор перегородок и габаритов коробки. */
   onBoxPresetChange: (preset: BoxPresetId) => void;
   /** Рамка литофана: отдельная деталь с пазом под плиту. */
   onLithoFrameChange: (hasFrame: boolean) => void;
@@ -1170,48 +1166,6 @@ async function heatTransferSvgFromFile(file: File): Promise<{
 }
 
 /**
- * Разбирает строку «20, 40, 20» в ширины ячеек.
- *
- * Пустые куски после запятой игнорируются, чтобы «20, » не считался ошибкой
- * во время набора. Ноль, отрицательное число и выход за 5–220 мм отклоняются:
- * геометрия делит свободное место пропорционально, и нулевая ячейка сломала бы
- * расчёт.
- */
-function parseBoxCellsInput(value: string): number[] | null {
-  const parts = value
-    .split(",")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
-
-  if (
-    parts.length < CONSTRUCTOR_LIMITS.boxGrid.min ||
-    parts.length > CONSTRUCTOR_LIMITS.boxGrid.max
-  ) {
-    return null;
-  }
-
-  const cells = parts.map((part) => Number(part));
-
-  if (
-    cells.some(
-      (cell) =>
-        !Number.isFinite(cell) ||
-        cell < BOX_CELL_MIN_MM ||
-        cell > BOX_CELL_MAX_MM,
-    )
-  ) {
-    return null;
-  }
-
-  return cells;
-}
-
-/** Обратное представление массива ячеек для поля ввода. */
-function formatBoxCells(cells: readonly number[]): string {
-  return cells.join(", ");
-}
-
-/**
  * Где стоит отверстие Ø5 мм у выбранного пресета.
  *
  * Числа берутся из констант геометрии, а не набираются здесь заново: подпись
@@ -1449,9 +1403,15 @@ function modelSummary(
 
   if (params.model === "box") {
     return [
-      { label: "Длина", value: `${params.boxLength} мм` },
-      { label: "Ширина", value: `${params.boxWidth} мм` },
-      { label: "Ячейки", value: `${params.gridX} × ${params.gridY}` },
+      {
+        label: "Габарит",
+        value: `${params.boxWidth} × ${params.boxDepth} × ${params.boxHeight} мм`,
+      },
+      { label: "Стенка", value: `${params.boxWall.toFixed(1)} мм` },
+      {
+        label: "Перегородки",
+        value: `${params.boxDividersX} + ${params.boxDividersY}`,
+      },
     ];
   }
 
@@ -1580,7 +1540,6 @@ export function ParameterPanel({
   onSignChannelWidthChange,
   onSignBaseMountChange,
   onHasLidChange,
-  onBoxCellsChange,
   onBoxPresetChange,
   onLithoFrameChange,
   onLithoMountChange,
@@ -1613,8 +1572,6 @@ export function ParameterPanel({
   const qrContentInputId = useId();
   const qrNameInputId = useId();
   const qrPhoneInputId = useId();
-  const boxCellsXInputId = useId();
-  const boxCellsYInputId = useId();
   const heatTransferInputId = useId();
   const heatTransferHintId = `${heatTransferInputId}-hint`;
   const [isProcessingImage, setIsProcessingImage] = useState(false);
@@ -1671,40 +1628,6 @@ export function ParameterPanel({
     strokes: StrokeHistogram;
     gridWidth: number;
   } | null>(null);
-  const [cellsXText, setCellsXText] = useState(() =>
-    formatBoxCells(params.cellsX),
-  );
-  const [cellsYText, setCellsYText] = useState(() =>
-    formatBoxCells(params.cellsY),
-  );
-  /**
-   * Последний набор ячеек, который пришёл в состояние.
-   *
-   * Поле ввода хранит текст как есть, чтобы можно было набрать «20, 40» без
-   * подмены на середине. Синхронизация нужна только когда ячейки поменял не
-   * текст, а пресет или слайдер количества: тогда ref отличается от параметров.
-   */
-  const appliedCellsX = useRef(formatBoxCells(params.cellsX));
-  const appliedCellsY = useRef(formatBoxCells(params.cellsY));
-
-  useEffect(() => {
-    const signature = params.cellsX.join(",");
-
-    if (signature !== appliedCellsX.current) {
-      appliedCellsX.current = signature;
-      setCellsXText(formatBoxCells(params.cellsX));
-    }
-  }, [params.cellsX]);
-
-  useEffect(() => {
-    const signature = params.cellsY.join(",");
-
-    if (signature !== appliedCellsY.current) {
-      appliedCellsY.current = signature;
-      setCellsYText(formatBoxCells(params.cellsY));
-    }
-  }, [params.cellsY]);
-
   /**
    * Картинка ушла из модели (её удалили или загрузился другой проект) — ошибка
    * обработки файла больше не нужна: она относилась к прежней карточке.
@@ -2111,39 +2034,6 @@ export function ParameterPanel({
     );
   }, [transferStrokes, params.heatTransferWidth]);
 
-  /**
-   * Текст поля ячеек уходит в состояние только когда строка разобралась.
-   *
-   * Незаконченный ввод («20, ») остаётся в поле и не отправляется в API:
-   * сервер требует от 1 до 8 ячеек по 5–220 мм, а промежуточная строка этому
-   * не соответствует.
-   */
-  function handleBoxCellsTextChange(axis: "x" | "y", value: string) {
-    if (axis === "x") {
-      setCellsXText(value);
-    } else {
-      setCellsYText(value);
-    }
-
-    const cells = parseBoxCellsInput(value);
-
-    if (!cells) {
-      return;
-    }
-
-    if (axis === "x") {
-      appliedCellsX.current = cells.join(",");
-    } else {
-      appliedCellsY.current = cells.join(",");
-    }
-
-    onBoxCellsChange(axis, cells);
-  }
-
-  const cellsXInvalid =
-    cellsXText.trim().length > 0 && parseBoxCellsInput(cellsXText) === null;
-  const cellsYInvalid =
-    cellsYText.trim().length > 0 && parseBoxCellsInput(cellsYText) === null;
   /**
    * NFC-карман для текущих параметров: сторона в свету, зазор под метку и слой
    * паузы. Считается теми же функциями, что и геометрия, поэтому подсказка не
@@ -4075,30 +3965,64 @@ export function ParameterPanel({
         <>
           <fieldset className="mt-6 border-t border-white/10 pt-5">
             <legend className="text-sm font-medium text-slate-200">
-              Сетка ячеек
+              Корпус
             </legend>
 
             <div className="mt-3 space-y-5">
               <NumberSlider
-                hint="Сколько секций по длине. Перегородки получают ту же толщину, что и наружные стенки."
-                label="Ячеек по длине"
-                max={CONSTRUCTOR_LIMITS.boxGrid.max}
-                min={CONSTRUCTOR_LIMITS.boxGrid.min}
-                onChange={(value) => onParamChange("gridX", value)}
-                step={CONSTRUCTOR_LIMITS.boxGrid.step}
-                unit="шт."
-                value={params.gridX}
+                hint="Наружный размер по X. 140–180 мм удобны для кабелей, крепежа и канцелярии."
+                label="Ширина"
+                max={CONSTRUCTOR_LIMITS.boxWidth.max}
+                min={CONSTRUCTOR_LIMITS.boxWidth.min}
+                onChange={(value) => onParamChange("boxWidth", value)}
+                step={CONSTRUCTOR_LIMITS.boxWidth.step}
+                unit="мм"
+                value={params.boxWidth}
               />
 
               <NumberSlider
-                hint="Сколько секций по ширине. 1 × 1 — простая коробка без внутренних перегородок."
-                label="Ячеек по ширине"
-                max={CONSTRUCTOR_LIMITS.boxGrid.max}
-                min={CONSTRUCTOR_LIMITS.boxGrid.min}
-                onChange={(value) => onParamChange("gridY", value)}
-                step={CONSTRUCTOR_LIMITS.boxGrid.step}
-                unit="шт."
-                value={params.gridY}
+                hint="Наружный размер по Y. Вместе с шириной задаёт площадь дна."
+                label="Глубина"
+                max={CONSTRUCTOR_LIMITS.boxDepth.max}
+                min={CONSTRUCTOR_LIMITS.boxDepth.min}
+                onChange={(value) => onParamChange("boxDepth", value)}
+                step={CONSTRUCTOR_LIMITS.boxDepth.step}
+                unit="мм"
+                value={params.boxDepth}
+              />
+
+              <NumberSlider
+                hint="Высота стенок от стола. Высокая коробка вмещает больше, но печатается дольше."
+                label="Высота"
+                max={CONSTRUCTOR_LIMITS.boxHeight.max}
+                min={CONSTRUCTOR_LIMITS.boxHeight.min}
+                onChange={(value) => onParamChange("boxHeight", value)}
+                step={CONSTRUCTOR_LIMITS.boxHeight.step}
+                unit="мм"
+                value={params.boxHeight}
+              />
+
+              <NumberSlider
+                decimals={CONSTRUCTOR_LIMITS.boxWall.decimals}
+                hint="Толщина наружных стенок. 1.2–1.6 мм — прочный бытовой органайзер; тоньше печатается быстрее, но гнётся."
+                label="Толщина стенки"
+                max={CONSTRUCTOR_LIMITS.boxWall.max}
+                min={CONSTRUCTOR_LIMITS.boxWall.min}
+                onChange={(value) => onParamChange("boxWall", value)}
+                step={CONSTRUCTOR_LIMITS.boxWall.step}
+                unit="мм"
+                value={params.boxWall}
+              />
+
+              <NumberSlider
+                hint="Радиус вертикальных углов. 0 — прямые углы, 5–10 мм — мягкий бытовой силуэт. Ограничен половиной меньшей стороны."
+                label="Скругление углов"
+                max={CONSTRUCTOR_LIMITS.boxCornerRadius.max}
+                min={CONSTRUCTOR_LIMITS.boxCornerRadius.min}
+                onChange={(value) => onParamChange("boxCornerRadius", value)}
+                step={CONSTRUCTOR_LIMITS.boxCornerRadius.step}
+                unit="мм"
+                value={params.boxCornerRadius}
               />
 
               <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-3">
@@ -4118,125 +4042,43 @@ export function ParameterPanel({
                   ))}
                 </div>
               </div>
-
-              <div>
-                <label
-                  className="text-sm font-medium text-slate-200"
-                  htmlFor={boxCellsXInputId}
-                >
-                  Ширины ячеек по длине, мм
-                </label>
-                <input
-                  aria-describedby={`${boxCellsXInputId}-hint`}
-                  aria-invalid={cellsXInvalid}
-                  autoComplete="off"
-                  className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  id={boxCellsXInputId}
-                  inputMode="decimal"
-                  onChange={(event) =>
-                    handleBoxCellsTextChange("x", event.target.value)
-                  }
-                  placeholder="20, 40, 20"
-                  spellCheck={false}
-                  type="text"
-                  value={cellsXText}
-                />
-                <p
-                  className={
-                    cellsXInvalid
-                      ? "mt-2 text-xs leading-relaxed text-rose-200"
-                      : "mt-2 text-xs leading-relaxed text-slate-300"
-                  }
-                  id={`${boxCellsXInputId}-hint`}
-                >
-                  Через запятую, от 1 до 8 чисел по 5–220 мм. Например: 20, 40,
-                  20. Размеры задают пропорции ячеек.
-                </p>
-              </div>
-
-              <div>
-                <label
-                  className="text-sm font-medium text-slate-200"
-                  htmlFor={boxCellsYInputId}
-                >
-                  Высоты ячеек по ширине, мм
-                </label>
-                <input
-                  aria-describedby={`${boxCellsYInputId}-hint`}
-                  aria-invalid={cellsYInvalid}
-                  autoComplete="off"
-                  className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-base font-medium text-white placeholder:text-slate-300 focus-visible:border-amber-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                  id={boxCellsYInputId}
-                  inputMode="decimal"
-                  onChange={(event) =>
-                    handleBoxCellsTextChange("y", event.target.value)
-                  }
-                  placeholder="45, 45"
-                  spellCheck={false}
-                  type="text"
-                  value={cellsYText}
-                />
-                <p
-                  className={
-                    cellsYInvalid
-                      ? "mt-2 text-xs leading-relaxed text-rose-200"
-                      : "mt-2 text-xs leading-relaxed text-slate-300"
-                  }
-                  id={`${boxCellsYInputId}-hint`}
-                >
-                  Через запятую, от 1 до 8 чисел по 5–220 мм. Например: 45, 45.
-                  Свободное место делится пропорционально.
-                </p>
-              </div>
             </div>
           </fieldset>
 
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Наружный размер по длинной стороне. 140–180 мм удобны для кабелей, крепежа и канцелярии."
-              label="Длина"
-              max={CONSTRUCTOR_LIMITS.boxLength.max}
-              min={CONSTRUCTOR_LIMITS.boxLength.min}
-              onChange={(value) => onParamChange("boxLength", value)}
-              step={CONSTRUCTOR_LIMITS.boxLength.step}
-              unit="мм"
-              value={params.boxLength}
-            />
+          <fieldset className="mt-6 border-t border-white/10 pt-5">
+            <legend className="text-sm font-medium text-slate-200">
+              Перегородки
+            </legend>
 
-            <NumberSlider
-              hint="Наружный размер по короткой стороне. Вместе с длиной задаёт размеры ячеек."
-              label="Ширина"
-              max={CONSTRUCTOR_LIMITS.boxWidth.max}
-              min={CONSTRUCTOR_LIMITS.boxWidth.min}
-              onChange={(value) => onParamChange("boxWidth", value)}
-              step={CONSTRUCTOR_LIMITS.boxWidth.step}
-              unit="мм"
-              value={params.boxWidth}
-            />
+            <div className="mt-3 space-y-5">
+              <NumberSlider
+                hint="Сколько перегородок поставить поперёк ширины. 0 — одна длинная секция."
+                label="Перегородок по X"
+                max={CONSTRUCTOR_LIMITS.boxDividers.max}
+                min={CONSTRUCTOR_LIMITS.boxDividers.min}
+                onChange={(value) => onParamChange("boxDividersX", value)}
+                step={CONSTRUCTOR_LIMITS.boxDividers.step}
+                unit="шт."
+                value={params.boxDividersX}
+              />
 
-            <NumberSlider
-              hint="Высота стенок и перегородок от стола. Высокая коробка вмещает больше, но печатается дольше."
-              label="Высота"
-              max={CONSTRUCTOR_LIMITS.boxHeight.max}
-              min={CONSTRUCTOR_LIMITS.boxHeight.min}
-              onChange={(value) => onParamChange("boxHeight", value)}
-              step={CONSTRUCTOR_LIMITS.boxHeight.step}
-              unit="мм"
-              value={params.boxHeight}
-            />
+              <NumberSlider
+                hint="Сколько перегородок поставить поперёк глубины. 0 — одна широкая секция."
+                label="Перегородок по Y"
+                max={CONSTRUCTOR_LIMITS.boxDividers.max}
+                min={CONSTRUCTOR_LIMITS.boxDividers.min}
+                onChange={(value) => onParamChange("boxDividersY", value)}
+                step={CONSTRUCTOR_LIMITS.boxDividers.step}
+                unit="шт."
+                value={params.boxDividersY}
+              />
 
-            <NumberSlider
-              decimals={CONSTRUCTOR_LIMITS.boxWall.decimals}
-              hint="Толщина наружных стенок и перегородок. 1.2–1.6 мм — прочный бытовой органайзер; 0.8 мм — быстрее, но тоньше."
-              label="Толщина стенки"
-              max={CONSTRUCTOR_LIMITS.boxWall.max}
-              min={CONSTRUCTOR_LIMITS.boxWall.min}
-              onChange={(value) => onParamChange("boxWall", value)}
-              step={CONSTRUCTOR_LIMITS.boxWall.step}
-              unit="мм"
-              value={params.boxWall}
-            />
-          </div>
+              <p className="text-xs leading-relaxed text-slate-300">
+                Перегородки толщиной 1.2 мм врастают в дно и стенки. Их верх на
+                2 мм ниже кромки: юбка крышки не упирается в разделители.
+              </p>
+            </div>
+          </fieldset>
 
           <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
             <input
@@ -4250,15 +4092,17 @@ export function ParameterPanel({
                 Крышка
               </span>
               <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                Отдельная плита с бортиком по периметру. Лежит рядом с корпусом
-                в том же STL и печатается без поддержек.
+                Отдельная плита с внутренней юбкой. Юбка входит в коробку с
+                зазором 0.2 мм на сторону, поэтому крышка держится трением.
+                Лежит рядом с корпусом в том же STL и печатается без поддержек.
               </span>
             </span>
           </label>
 
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Корпус и крышка — две отдельные замкнутые детали. Перегородки входят
-            в дно и стенки, поэтому после печати коробка не расслаивается.
+            Корпус и крышка — две отдельные замкнутые детали. Дно толщиной 2 мм,
+            перегородки врастают в стенки, а юбка крышки не доходит до их верха —
+            после печати коробка не расслаивается и закрывается без зазора.
           </p>
         </>
       ) : params.model === "lithophane" ? (

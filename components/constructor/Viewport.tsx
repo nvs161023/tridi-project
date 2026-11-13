@@ -1858,7 +1858,7 @@ export function Viewport({
         : params.model === "stand"
           ? `${params.standWidth} × ${Math.round(framing.height)} мм`
           : params.model === "box"
-            ? `${params.boxLength} × ${params.boxWidth} × ${params.boxHeight} мм`
+            ? `${params.boxWidth} × ${params.boxDepth} × ${params.boxHeight} мм`
             : params.model === "lithophane"
               ? `${params.lithophaneWidth} × ${params.lithophaneHeight} × ${params.lithophaneMaxThickness.toFixed(1)} мм`
               : params.model === "planter"
@@ -1884,7 +1884,7 @@ export function Viewport({
         : params.model === "stand"
           ? `3D-предпросмотр подставки под телефон шириной ${params.standWidth} миллиметров, наклон ${params.standAngle} градусов, толщина телефона ${params.phoneThickness} миллиметров`
           : params.model === "box"
-            ? `3D-предпросмотр коробки ${params.boxLength} на ${params.boxWidth} на ${params.boxHeight} миллиметров, сетка ${params.gridX} на ${params.gridY} ячеек, ${params.hasLid ? "с крышкой" : "без крышки"}`
+            ? `3D-предпросмотр коробки ${params.boxWidth} на ${params.boxDepth} на ${params.boxHeight} миллиметров, перегородки ${params.boxDividersX} и ${params.boxDividersY}, скругление углов ${params.boxCornerRadius} миллиметров, ${params.hasLid ? "с крышкой" : "без крышки"}`
             : params.model === "lithophane"
               ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»${lithophaneShapeHasFrame(params.lithoShape) ? `, ${params.lithoFrame ? "рамка" : "без рамки"}` : ""}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}${heatMap ? ", включена карта света" : ""}`
               : params.model === "planter"
