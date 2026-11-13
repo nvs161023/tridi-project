@@ -22,6 +22,10 @@ import {
   type StrokeHistogram,
 } from "@/lib/constructor/heat-transfer-import";
 import {
+  jewelryBaseIsNarrow,
+  jewelryStableBaseMm,
+} from "@/lib/constructor/jewelry-stand-geometry";
+import {
   KEYCHAIN_NFC_CLEARANCE_MM,
   KEYCHAIN_NFC_TAG_MM,
   keychainNfcLayers,
@@ -2144,6 +2148,20 @@ export function ParameterPanel({
       : null;
 
   /**
+   * Устойчивость стойки для украшений.
+   *
+   * Узкая база под высокой стойкой опрокидывается от лёгкого толчка: порог —
+   * `JEWELRY_STABILITY_BASE_RATIO` от высоты, его считает `jewelryBaseIsNarrow`.
+   * Совет берётся из `jewelryStableBaseMm`: он кратен шагу ползунка, поэтому его
+   * можно выставить сразу, а не подбирать на глаз.
+   */
+  const jewelryNarrowBase = jewelryBaseIsNarrow(
+    params.jewelryHeight,
+    params.jewelryBase,
+  );
+  const jewelryStableBaseLabel = jewelryStableBaseMm(params.jewelryHeight);
+
+  /**
    * Раскладка QR-визитки: матрица, размер модуля и причина отказа.
    *
    * Считается теми же функциями, что и геометрия, поэтому плашка «модуль 0.85 мм»
@@ -3739,10 +3757,20 @@ export function ParameterPanel({
             />
           </div>
 
+          {jewelryNarrowBase ? (
+            <p className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
+              Высокая стойка на узкой базе может быть неустойчивой, увеличьте
+              ширину базы: для высоты {params.jewelryHeight} мм надёжнее
+              Ø {jewelryStableBaseLabel} мм и больше, сейчас Ø{" "}
+              {params.jewelryBase} мм.
+            </p>
+          ) : null}
+
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
             Основание, стойка, штанга и рожки — отдельные замкнутые тела: каждое
-            входит в соседнее на миллиметр, поэтому стойка печатается одной
-            деталью без клея и поддержек.
+            входит в соседнее на полмиллиметра, поэтому стойка печатается одной
+            деталью без клея и поддержек. Штанга и рожки объёмные по Y: петля
+            цепочки свисает с рожка мимо колец, а не ложится на них.
           </p>
         </>
       ) : params.model === "pen_holder" ? (

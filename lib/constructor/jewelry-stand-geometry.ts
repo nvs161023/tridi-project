@@ -1,6 +1,7 @@
 import { BufferGeometry, Float32BufferAttribute } from "three";
 
 import {
+  CONSTRUCTOR_LIMITS,
   normalizeJewelryStandParams,
   type JewelryStandParams,
 } from "@/lib/constructor/params";
@@ -18,6 +19,12 @@ import {
  * `rings` оставляет только перекладину, `necklace` — только рожки, `combo` —
  * обе части.
  *
+ * Перекладина идёт по оси X, рожки — по оси Y: держатели стоят в
+ * перпендикулярных плоскостях, поэтому цепочка свисает с рожка мимо колец, как
+ * бы узко ни было основание. Рожок — наклон до 45° и вертикальный штырь на
+ * конце: торец штыря лежит ровно на высоте стойки, поэтому габарит по Z
+ * совпадает с ползунком, а петля находит седло в углу между наклоном и штырём.
+ *
  * Все части пересекаются: стойка начинается внутри основания, перекладина
  * проходит сквозь стойку, рожки растут из её верхней части. Каждая часть при
  * этом замкнута, поэтому деталь печатается одним телом без поддержек — наклон
@@ -27,25 +34,25 @@ import {
  */
 
 /** Высота диска-основания, мм: низкий центр тяжести против опрокидывания. */
-const JEWELRY_BASE_HEIGHT_MM = 8;
+export const JEWELRY_BASE_HEIGHT_MM = 8;
 
 /** Насколько стойка уходит внутрь основания, мм: запас на слияние тел. */
 const JEWELRY_JOIN_MM = 1;
 
 /** Радиус стойки, мм: держит вес нескольких колец и не гнётся. */
-const JEWELRY_POST_RADIUS_MM = 5.5;
+export const JEWELRY_POST_RADIUS_MM = 5.5;
 
-/** Радиус перекладины под кольца, мм. */
-const JEWELRY_BAR_RADIUS_MM = 4.2;
+/** Радиус перекладины под кольца, мм: глубина по Y равна её диаметру, 8.4 мм. */
+export const JEWELRY_BAR_RADIUS_MM = 4.2;
 
-/** Радиус рожка для цепочки, мм: 6.8 мм в диаметре — цепочка не соскакивает. */
-const JEWELRY_HORN_RADIUS_MM = 3.4;
+/** Радиус рожка для цепочки, мм: петля ложится на рожок, а не мимо него. */
+export const JEWELRY_HORN_RADIUS_MM = 3.4;
 
 /** Длина перекладины в долях диаметра основания. */
 const JEWELRY_BAR_LENGTH_RATIO = 0.8;
 
 /** Высота перекладины в долях общей высоты стойки. */
-const JEWELRY_BAR_HEIGHT_RATIO = 0.62;
+export const JEWELRY_BAR_HEIGHT_RATIO = 0.62;
 
 /** Вынос рожка от оси в долях диаметра основания. */
 const JEWELRY_HORN_LENGTH_RATIO = 0.34;
@@ -56,8 +63,36 @@ const JEWELRY_HORN_RISE_RATIO = 0.16;
 /** Минимальный подъём рожка, мм: на низкой стойке наклон иначе слишком крутой. */
 const JEWELRY_HORN_MIN_RISE_MM = 16;
 
-/** Отступ кончика рожка от верха стойки, мм: торцы не лежат в одной плоскости. */
-const JEWELRY_HORN_TOP_MARGIN_MM = 1;
+/**
+ * Вертикальный штырь на конце рожка, мм.
+ *
+ * Штырь забирает верх рожка: его торец лежит ровно на высоте стойки, поэтому
+ * габарит по Z совпадает с ползунком. Наклонная часть остаётся ниже штыря даже
+ * с учётом скоса торца: рожок не круче 45°, значит торец встаёт не выше 2.4 мм
+ * над осью, а штырь — на все 4 мм.
+ */
+const JEWELRY_HORN_TIP_STUB_MM = 4;
+
+/**
+ * Радиус штыря, мм: на 0.1 мм толще рожка.
+ *
+ * Ровно тот же радиус срастил бы торец рожка и низ штыря вершина-в-вершину: на
+ * общем ребре сошлись бы четыре треугольника, и сетка перестала бы быть
+ * манифолдной. Лишняя десятая миллиметра расводит вершины и заодно даёт петле
+ * микроскопический бортик.
+ */
+export const JEWELRY_HORN_STUB_RADIUS_MM = JEWELRY_HORN_RADIUS_MM + 0.1;
+
+/** Насколько штырь уходит внутрь рожка, мм: запас на слияние тел. */
+const JEWELRY_HORN_STUB_JOIN_MM = 0.5;
+
+/**
+ * Доля высоты, ниже которой основание считается узким, мм/мм.
+ *
+ * Порог взят из расчёта опрокидывания: 160/50 даёт 8.4°, 160/80 — 19.4°,
+ * 160/90 — 24°. Ниже 0.55·H стойка с подвеской валится от лёгкого толчка.
+ */
+export const JEWELRY_STABILITY_BASE_RATIO = 0.55;
 
 /** Число сторон круглых частей, шт.: 48 сегментов хватает для гладкой стойки. */
 const JEWELRY_BASE_SIDES = 64;
@@ -111,29 +146,41 @@ export function createJewelryStandGeometry(
   }
 
   if (withNecklace) {
+    // Рожки стоят в плоскости Y: цепочка свисает по Y, а перекладина колец идёт
+    // по X, поэтому петля проходит мимо колец даже на узком основании.
     // Кончик выходит за стойку минимум на два своих диаметра, иначе цепочка
     // упирается в стойку и рожок бесполезен на маленьком основании.
-    const tipX = Math.max(
+    const tipY = Math.max(
       normalized.jewelryBase * JEWELRY_HORN_LENGTH_RATIO,
       JEWELRY_POST_RADIUS_MM + JEWELRY_HORN_RADIUS_MM * 2,
     );
-    const rootX = JEWELRY_POST_RADIUS_MM - JEWELRY_HORN_RADIUS_MM / 2;
+    const rootY = JEWELRY_POST_RADIUS_MM - JEWELRY_HORN_RADIUS_MM / 2;
     const rise = Math.max(
       JEWELRY_HORN_MIN_RISE_MM,
       height * JEWELRY_HORN_RISE_RATIO,
     );
     // Вынос не больше подъёма: наклон рожка к вертикали остаётся в пределах 45°,
     // поэтому принтер кладёт его без поддержек даже на большом основании.
-    const run = Math.min(tipX - rootX, rise);
-    const tipZ = height - JEWELRY_HORN_TOP_MARGIN_MM;
-    const rootZ = tipZ - rise;
+    const run = Math.min(tipY - rootY, rise);
+    // Штырь забирает верх рожка: его торец лежит ровно на высоте стойки.
+    const stubZ = height - JEWELRY_HORN_TIP_STUB_MM;
+    const rootZ = stubZ - rise;
 
     for (const side of [-1, 1]) {
       addCylinder(
         positions,
-        [side * rootX, 0, rootZ],
-        [side * (rootX + run), 0, tipZ],
+        [0, side * rootY, rootZ],
+        [0, side * (rootY + run), stubZ],
         JEWELRY_HORN_RADIUS_MM,
+        JEWELRY_HORN_SIDES,
+      );
+      // Вертикальный штырь — седло для петли и стопор для края цепочки. Внутрь
+      // рожка он уходит на полмиллиметра, чтобы тела слились без зазора.
+      addCylinder(
+        positions,
+        [0, side * (rootY + run), stubZ - JEWELRY_HORN_STUB_JOIN_MM],
+        [0, side * (rootY + run), height],
+        JEWELRY_HORN_STUB_RADIUS_MM,
         JEWELRY_HORN_SIDES,
       );
     }
@@ -146,4 +193,34 @@ export function createJewelryStandGeometry(
   geometry.computeBoundingBox();
 
   return geometry;
+}
+
+/**
+ * Порог устойчивости: диаметр основания, ниже которого стойка опрокидывается.
+ *
+ * Произведение округляется до шести знаков: `160 × 0.55` в двоичной дроби даёт
+ * 88.00000000000001, и без округления ползунок на 90 мм считался бы узким.
+ */
+function jewelryStableThresholdMm(heightMm: number): number {
+  return Number((heightMm * JEWELRY_STABILITY_BASE_RATIO).toFixed(6));
+}
+
+/** Основание уже порога: высокая стойка валится от лёгкого толчка. */
+export function jewelryBaseIsNarrow(heightMm: number, baseMm: number): boolean {
+  return baseMm < jewelryStableThresholdMm(heightMm);
+}
+
+/**
+ * Диаметр основания, при котором высокая стойка стоит уверенно.
+ *
+ * Порог — `JEWELRY_STABILITY_BASE_RATIO` от высоты, округлённый вверх до шага
+ * ползунка: панель советует ровно то значение, которое можно выставить, а не
+ * «примерно 88 мм». Границы ползунка соблюдаются с обеих сторон.
+ */
+export function jewelryStableBaseMm(heightMm: number): number {
+  const limits = CONSTRUCTOR_LIMITS.jewelryBase;
+  const wanted =
+    Math.ceil(jewelryStableThresholdMm(heightMm) / limits.step) * limits.step;
+
+  return Math.min(limits.max, Math.max(limits.min, wanted));
 }

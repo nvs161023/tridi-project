@@ -13,6 +13,7 @@
     "check:keychain": "node --import ./scripts/register-alias.mjs scripts/test-keychain-image.ts",
     "check:lithophane": "node --import ./scripts/register-alias.mjs scripts/test-lithophane-geometry.ts",
     "check:box": "node --import ./scripts/register-alias.mjs scripts/test-box-geometry.ts",
+    "check:jewelry": "node --import ./scripts/register-alias.mjs scripts/test-jewelry-geometry.ts",
     "stats:lesson": "node scripts/lesson-stats.mjs",
     "shots:vase": "node --import ./scripts/register-alias.mjs scripts/vase-render.mjs",
     "shots:recipes": "node --import ./scripts/register-alias.mjs scripts/vase-render.mjs --recipes 1",
