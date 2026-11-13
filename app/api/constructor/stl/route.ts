@@ -48,6 +48,8 @@ import {
   isCoasterShape,
   isCustomSvgData,
   isJewelryConfig,
+  isJewelryLeafType,
+  isJewelryPreset,
   isKeychainDecorationKind,
   isKeychainDecorationSide,
   isKeychainFontId,
@@ -1337,7 +1339,65 @@ function parseCoasterParams(
 function parseJewelryStandParams(
   body: Record<string, unknown>,
 ): JewelryStandParams | null {
-  const { jewelryHeight, jewelryBase, jewelryConfig } = body;
+  const {
+    jewelryPreset,
+    jewelryLeafType,
+    jewelryLeafLength,
+    jewelryLeafWidth,
+    jewelryLeafVeinDepth,
+    jewelryHeight,
+    jewelryBase,
+    jewelryConfig,
+  } = body;
+
+  // Старый клиент не присылает пресет вовсе: он умеет только стойку, поэтому
+  // собираем её из прежних полей, а не отвечаем 400. Новый клиент без выбора
+  // получает лоток-лист — он открывается первым в коллекции.
+  const legacyRequest =
+    jewelryPreset === undefined &&
+    (jewelryHeight !== undefined ||
+      jewelryBase !== undefined ||
+      jewelryConfig !== undefined);
+  const preset = legacyRequest
+    ? "braided_tree"
+    : (jewelryPreset ?? "leaf_tray");
+
+  if (!isJewelryPreset(preset)) {
+    return null;
+  }
+
+  if (preset === "leaf_tray") {
+    // Лотку-листу высота стойки и набор держателей не нужны: у него своя тройка
+    // размеров, и старые поля в запросе игнорируются, даже если пришли вместе.
+    if (
+      !isJewelryLeafType(jewelryLeafType) ||
+      !isNumberInRange(
+        jewelryLeafLength,
+        CONSTRUCTOR_LIMITS.jewelryLeafLength.min,
+        CONSTRUCTOR_LIMITS.jewelryLeafLength.max,
+      ) ||
+      !isNumberInRange(
+        jewelryLeafWidth,
+        CONSTRUCTOR_LIMITS.jewelryLeafWidth.min,
+        CONSTRUCTOR_LIMITS.jewelryLeafWidth.max,
+      ) ||
+      !isNumberInRange(
+        jewelryLeafVeinDepth,
+        CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth.min,
+        CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth.max,
+      )
+    ) {
+      return null;
+    }
+
+    return normalizeJewelryStandParams({
+      jewelryPreset: "leaf_tray",
+      jewelryLeafType,
+      jewelryLeafLength,
+      jewelryLeafWidth,
+      jewelryLeafVeinDepth,
+    });
+  }
 
   if (
     !isNumberInRange(
@@ -1356,6 +1416,7 @@ function parseJewelryStandParams(
   }
 
   return normalizeJewelryStandParams({
+    jewelryPreset: preset,
     jewelryHeight,
     jewelryBase,
     jewelryConfig,

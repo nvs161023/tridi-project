@@ -30,6 +30,8 @@ import {
   BOX_MAGNET_SIZE_LABELS,
   COASTER_PATTERN_LABELS,
   JEWELRY_CONFIG_LABELS,
+  JEWELRY_LEAF_TYPE_LABELS,
+  JEWELRY_PRESET_LABELS,
   LITHOPHANE_PREVIEW_RESOLUTION,
   LITHOPHANE_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
@@ -1867,7 +1869,9 @@ export function Viewport({
                 : params.model === "coaster"
                   ? `${params.coasterSize} × ${params.coasterThickness} мм`
                   : params.model === "jewelry_stand"
-                    ? `${params.jewelryBase} × ${params.jewelryHeight} мм`
+                    ? params.jewelryPreset === "leaf_tray"
+                      ? `${params.jewelryLeafLength} × ${params.jewelryLeafWidth} мм`
+                      : `${params.jewelryBase} × ${params.jewelryHeight} мм`
                     : params.model === "pen_holder"
                       ? `${params.penSize} × ${params.penHeight} мм`
                       : params.model === "heat_transfer"
@@ -1893,7 +1897,9 @@ export function Viewport({
                 : params.model === "coaster"
                   ? `3D-предпросмотр подставки под кружку ${params.coasterSize} миллиметров, толщина ${params.coasterThickness} миллиметров, узор «${COASTER_PATTERN_LABELS[params.coasterPattern]}», ${params.coasterRim ? "с бортиком" : "без бортика"}`
                   : params.model === "jewelry_stand"
-                    ? `3D-предпросмотр подставки для украшений высотой ${params.jewelryHeight} миллиметров на основании ${params.jewelryBase} миллиметров, «${JEWELRY_CONFIG_LABELS[params.jewelryConfig]}»`
+                    ? params.jewelryPreset === "leaf_tray"
+                      ? `3D-предпросмотр лотка для украшений «${JEWELRY_LEAF_TYPE_LABELS[params.jewelryLeafType]}» ${params.jewelryLeafLength} на ${params.jewelryLeafWidth} миллиметров, глубина прожилок ${params.jewelryLeafVeinDepth} миллиметра, горизонтальная плита с плоским дном и крючком для цепочек`
+                      : `3D-предпросмотр подставки для украшений высотой ${params.jewelryHeight} миллиметров на основании ${params.jewelryBase} миллиметров, «${JEWELRY_CONFIG_LABELS[params.jewelryConfig]}», «${JEWELRY_PRESET_LABELS[params.jewelryPreset]}»`
                     : params.model === "pen_holder"
                       ? `3D-предпросмотр органайзера для ручек «${PEN_SHAPE_LABELS[params.penShape]}» ${params.penSize} миллиметров по ключу и высотой ${params.penHeight} миллиметров, стенка ${params.penWall} миллиметров, ${params.penSections} отделений`
                       : params.model === "heat_transfer"

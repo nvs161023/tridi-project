@@ -6,18 +6,27 @@ import {
   type JewelryStandParams,
 } from "@/lib/constructor/params";
 import {
+  createJewelryLeafGeometry,
+  jewelryLeafHeightMm,
+} from "@/lib/constructor/jewelry-leaf-geometry";
+import {
   addCylinder,
   addSolidPrism,
   circlePolygon,
 } from "@/lib/constructor/prism-mesh";
 
 /**
- * Геометрия подставки для украшений.
+ * Геометрия подставки для украшений: диспетчер премиум-коллекции.
  *
- * Стойка собирается из четырёх частей: диск-основание, вертикальная стойка,
- * перекладина под кольца и два рожка для цепочек. Набор задаёт `jewelryConfig`:
- * `rings` оставляет только перекладину, `necklace` — только рожки, `combo` —
- * обе части.
+ * `jewelryPreset` выбирает форму: лист-лоток собирает отдельный генератор
+ * `jewelry-leaf-geometry.ts`, а древо и олень пока строятся прежней стойкой —
+ * их собственные генераторы появятся следующими задачами. Ветка-наследник
+ * оставляет сцену непустой, пока пресет выбран, но ещё не реализован.
+ *
+ * Классическая стойка собирается из четырёх частей: диск-основание,
+ * вертикальная стойка, перекладина под кольца и два рожка для цепочек. Набор
+ * задаёт `jewelryConfig`: `rings` оставляет только перекладину, `necklace` —
+ * только рожки, `combo` — обе части.
  *
  * Перекладина идёт по оси X, рожки — по оси Y: держатели стоят в
  * перпендикулярных плоскостях, поэтому цепочка свисает с рожка мимо колец, как
@@ -106,10 +115,68 @@ const JEWELRY_HORN_SIDES = 24;
  * Функция принимает частичные параметры: недостающие поля берутся из значений
  * по умолчанию, поэтому предпросмотр может вызвать её с любым набором.
  */
+/**
+ * Габарит модели для подписи и предпросмотра.
+ *
+ * У листа длина и ширина заданы ползунками, а высоту задаёт крючок: сама плита
+ * ниже. У классической стойки габарит в плане равен диаметру основания, а
+ * высота — ползунку.
+ */
+export type JewelryStandMetrics = {
+  readonly widthMm: number;
+  readonly depthMm: number;
+  readonly heightMm: number;
+};
+
+/** Габарит подставки по её параметрам, без сборки меша. */
+export function jewelryStandMetrics(
+  params: Partial<JewelryStandParams>,
+): JewelryStandMetrics {
+  const normalized = normalizeJewelryStandParams(params);
+
+  if (normalized.jewelryPreset === "leaf_tray") {
+    return {
+      widthMm: normalized.jewelryLeafLength,
+      depthMm: normalized.jewelryLeafWidth,
+      heightMm: jewelryLeafHeightMm(normalized),
+    };
+  }
+
+  return {
+    widthMm: normalized.jewelryBase,
+    depthMm: normalized.jewelryBase,
+    heightMm: normalized.jewelryHeight,
+  };
+}
+
+/**
+ * Геометрия подставки для украшений для набора параметров.
+ *
+ * Функция принимает частичные параметры: недостающие поля берутся из значений
+ * по умолчанию, поэтому предпросмотр может вызвать её с любым набором.
+ */
 export function createJewelryStandGeometry(
   params: Partial<JewelryStandParams>,
 ): BufferGeometry {
   const normalized = normalizeJewelryStandParams(params);
+
+  if (normalized.jewelryPreset === "leaf_tray") {
+    return createJewelryLeafGeometry(normalized);
+  }
+
+  return createJewelryPostStandGeometry(normalized);
+}
+
+/**
+ * Классическая стойка на диск-основании.
+ *
+ * Это прежняя модель, которая остаётся веткой для двух ещё не собранных
+ * пресетов. Когда у древа и оленя появятся свои генераторы, вызовы этой
+ * функции уйдут из диспетчера.
+ */
+function createJewelryPostStandGeometry(
+  normalized: JewelryStandParams,
+): BufferGeometry {
   const positions: number[] = [];
   const height = normalized.jewelryHeight;
   const baseRadius = normalized.jewelryBase / 2;

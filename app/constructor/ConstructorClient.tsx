@@ -47,6 +47,8 @@ import {
   DEFAULT_STAND_PARAMS,
   DEFAULT_VASE_PARAMS,
   JEWELRY_CONFIG_LABELS,
+  JEWELRY_LEAF_TYPE_LABELS,
+  JEWELRY_PRESET_LABELS,
   LITHOPHANE_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
   PLANTER_SHAPE_LABELS,
@@ -89,6 +91,8 @@ import {
   type CoasterShape,
   type ConstructorParams,
   type JewelryConfig,
+  type JewelryLeafType,
+  type JewelryPreset,
   type KeychainDecoration,
   type KeychainDecorationKind,
   type KeychainParams,
@@ -1263,6 +1267,25 @@ export function ConstructorClient({
     );
   }
 
+  /**
+   * Смена пресета коллекции.
+   *
+   * Пресеты делят одно поле `model: "jewelry_stand"`, поэтому параметры соседей
+   * не сбрасываются: вернувшись к листу, пользователь получает свои длину,
+   * ширину и глубину прожилок.
+   */
+  function updateJewelryPreset(jewelryPreset: JewelryPreset) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, jewelryPreset }),
+    );
+  }
+
+  function updateJewelryLeafType(jewelryLeafType: JewelryLeafType) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, jewelryLeafType }),
+    );
+  }
+
   function updatePenShape(penShape: PenShape) {
     setParams((current) => normalizeConstructorParams({ ...current, penShape }));
   }
@@ -1512,6 +1535,8 @@ export function ConstructorClient({
             onHeatTransferSvgChange={updateHeatTransferSvg}
             onHolePlacementChange={updateHolePlacement}
             onJewelryConfigChange={updateJewelryConfig}
+            onJewelryPresetChange={updateJewelryPreset}
+            onJewelryLeafTypeChange={updateJewelryLeafType}
             onKeychainPresetChange={updateKeychainPreset}
             onKeychainDecorationChange={updateKeychainDecoration}
             onAddKeychainText={addKeychainTextDecoration}
@@ -1635,10 +1660,21 @@ export function ConstructorClient({
                     {params.coasterRim ? "с бортиком" : "без бортика"}
                   </>
                 ) : params.model === "jewelry_stand" ? (
-                  <>
-                    {JEWELRY_CONFIG_LABELS[params.jewelryConfig]} ·{" "}
-                    {params.jewelryBase} × {params.jewelryHeight} мм
-                  </>
+                  params.jewelryPreset === "leaf_tray" ? (
+                    <>
+                      {JEWELRY_PRESET_LABELS[params.jewelryPreset]} ·{" "}
+                      {JEWELRY_LEAF_TYPE_LABELS[
+                        params.jewelryLeafType
+                      ].toLowerCase()}{" "}
+                      · {params.jewelryLeafLength} × {params.jewelryLeafWidth} мм
+                    </>
+                  ) : (
+                    <>
+                      {JEWELRY_PRESET_LABELS[params.jewelryPreset]} ·{" "}
+                      {JEWELRY_CONFIG_LABELS[params.jewelryConfig]} ·{" "}
+                      {params.jewelryBase} × {params.jewelryHeight} мм
+                    </>
+                  )
                 ) : params.model === "pen_holder" ? (
                   <>
                     {PEN_SHAPE_LABELS[params.penShape]} · {params.penSize} ×{" "}

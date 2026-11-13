@@ -230,6 +230,29 @@ export const CONSTRUCTOR_LIMITS = {
   coasterThickness: { min: 3, max: 10, step: 1, defaultValue: 5, decimals: 0 },
   jewelryHeight: { min: 60, max: 160, step: 5, defaultValue: 100, decimals: 0 },
   jewelryBase: { min: 50, max: 120, step: 5, defaultValue: 80, decimals: 0 },
+  // Лист-лоток: длина и ширина задают габарит, глубина прожилок — рельеф.
+  jewelryLeafLength: {
+    min: 120,
+    max: 170,
+    step: 5,
+    defaultValue: 150,
+    decimals: 0,
+  },
+  jewelryLeafWidth: {
+    min: 80,
+    max: 120,
+    step: 5,
+    defaultValue: 100,
+    decimals: 0,
+  },
+  // Глубина считается вниз от лица: 1 мм — тонкие жилки, 3 мм — глубокие ложа.
+  jewelryLeafVeinDepth: {
+    min: 1,
+    max: 3,
+    step: 0.1,
+    defaultValue: 2,
+    decimals: 1,
+  },
   // Габарит «под ключ»: стаканчик должен вмещать ручку и не падать от веса.
   penSize: { min: 50, max: 120, step: 5, defaultValue: 80, decimals: 0 },
   penHeight: { min: 60, max: 160, step: 5, defaultValue: 100, decimals: 0 },
@@ -1392,6 +1415,39 @@ export const JEWELRY_CONFIG_LABELS = {
 } as const satisfies Record<JewelryConfig, string>;
 
 /**
+ * Три формы премиум-коллекции.
+ *
+ * `braided_tree` и `deer_bust` пока строятся классической стойкой: их геометрия
+ * появится отдельными задачами. `leaf_tray` — плоский лист-лоток, и именно он
+ * проверяет каркас пресетов: одно поле параметров, один генератор, один набор
+ * тестов.
+ */
+export const JEWELRY_PRESETS = [
+  "braided_tree",
+  "deer_bust",
+  "leaf_tray",
+] as const;
+
+export type JewelryPreset = (typeof JEWELRY_PRESETS)[number];
+
+export const JEWELRY_PRESET_LABELS = {
+  braided_tree: "Плетёное древо",
+  deer_bust: "Лесной олень",
+  leaf_tray: "Фигуристые листья",
+} as const satisfies Record<JewelryPreset, string>;
+
+/** Силуэт листа: разная полуширина вдоль длины, а не три отдельных генератора. */
+export const JEWELRY_LEAF_TYPES = ["monstera", "fern", "oak"] as const;
+
+export type JewelryLeafType = (typeof JEWELRY_LEAF_TYPES)[number];
+
+export const JEWELRY_LEAF_TYPE_LABELS = {
+  monstera: "Монстера",
+  fern: "Папоротник",
+  oak: "Дуб",
+} as const satisfies Record<JewelryLeafType, string>;
+
+/**
  * Подставка для украшений: высота стойки, диаметр основания и набор держателей.
  *
  * Основание — диск, на котором лежат часы и серьги, стойка держит штангу для
@@ -1399,12 +1455,28 @@ export const JEWELRY_CONFIG_LABELS = {
  * входят друг в друга, поэтому стойка печатается одной деталью без поддержек.
  */
 export type JewelryStandParams = {
+  /** Форма коллекции: именно она выбирает генератор. */
+  jewelryPreset: JewelryPreset;
   /** Высота стойки от стола, мм; выше подставки ничего не выступает. */
   jewelryHeight: number;
   /** Диаметр основания, мм. */
   jewelryBase: number;
-  /** Какие держатели строить: штанга, рожки или оба. */
+  /**
+   * Какие держатели строить у классической стойки.
+   *
+   * Поле осталось от прежней модели: старые проекты и запросы приходят с ним, и
+   * API не должно отвечать ошибкой. Новые формы его не читают — у листа свои
+   * держатели, а древо и олень получат собственные.
+   */
   jewelryConfig: JewelryConfig;
+  /** Силуэт листа: монстера, папоротник или дуб. */
+  jewelryLeafType: JewelryLeafType;
+  /** Длина листа вместе с черешком, мм. */
+  jewelryLeafLength: number;
+  /** Ширина листа в самом широком месте, мм. */
+  jewelryLeafWidth: number;
+  /** Глубина прожилок вниз от лица, мм: в них ложатся кольца. */
+  jewelryLeafVeinDepth: number;
 };
 
 /**
@@ -2420,11 +2492,22 @@ export const DEFAULT_COASTER_PARAMS: CoasterParams = {
   coasterRim: true,
 };
 
-/** Стойка по умолчанию: 100 мм на основании Ø 80 мм, штанга и рожки вместе. */
+/**
+ * Подставка по умолчанию: лист монстеры 150 × 100 мм.
+ *
+ * Лист — единственная форма, которая уже собирается своим генератором, поэтому
+ * она и открывается по умолчанию. Высота и основание классической стойки
+ * остаются в наборе: их читают пресеты древа и оленя, когда те появятся.
+ */
 export const DEFAULT_JEWELRY_STAND_PARAMS: JewelryStandParams = {
+  jewelryPreset: "leaf_tray",
   jewelryHeight: CONSTRUCTOR_LIMITS.jewelryHeight.defaultValue,
   jewelryBase: CONSTRUCTOR_LIMITS.jewelryBase.defaultValue,
   jewelryConfig: "combo",
+  jewelryLeafType: "monstera",
+  jewelryLeafLength: CONSTRUCTOR_LIMITS.jewelryLeafLength.defaultValue,
+  jewelryLeafWidth: CONSTRUCTOR_LIMITS.jewelryLeafWidth.defaultValue,
+  jewelryLeafVeinDepth: CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth.defaultValue,
 };
 
 /** Органайзер по умолчанию: Ø 80 × 100 мм, стенка 1.6 мм, два отделения. */
@@ -2832,11 +2915,22 @@ export function coasterStlFileName(params: CoasterParams): string {
 /**
  * Имя файла STL для подставки украшений.
  *
- * Набор держателей входит в имя: `rings`, `necklace` или `combo` — иначе три
- * разные стойки одного размера попали бы в папку загрузок под одним именем.
+ * Имя собирается из формы и её главных чисел: у листа это длина, ширина и
+ * глубина прожилок, у стойки — высота и основание. Иначе два разных листа
+ * одного размера попали бы в папку загрузок под одним именем, а браузер добавил
+ * бы «(1)».
+ *
+ * Пресет пишется через дефис (`braided-tree`): подчёркивание допустимо в имени
+ * файла, но дефис уже разделяет остальные суффиксы, и имя читается одинаково.
  */
 export function jewelryStandStlFileName(params: JewelryStandParams): string {
-  return `tridi-podstavka-ukrasheniy-${params.jewelryConfig}-h${params.jewelryHeight}-d${params.jewelryBase}.stl`;
+  const preset = params.jewelryPreset.replace(/_/g, "-");
+
+  if (params.jewelryPreset === "leaf_tray") {
+    return `tridi-podstavka-ukrasheniy-${preset}-${params.jewelryLeafType}-l${params.jewelryLeafLength}-w${params.jewelryLeafWidth}-v${formatMillimetres(params.jewelryLeafVeinDepth)}.stl`;
+  }
+
+  return `tridi-podstavka-ukrasheniy-${preset}-h${params.jewelryHeight}-d${params.jewelryBase}.stl`;
 }
 
 /**
@@ -3389,6 +3483,22 @@ export function isJewelryConfig(value: unknown): value is JewelryConfig {
   return (
     typeof value === "string" &&
     (JEWELRY_CONFIGS as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка формы премиум-коллекции из формы или API. */
+export function isJewelryPreset(value: unknown): value is JewelryPreset {
+  return (
+    typeof value === "string" &&
+    (JEWELRY_PRESETS as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка силуэта листа из формы или API. */
+export function isJewelryLeafType(value: unknown): value is JewelryLeafType {
+  return (
+    typeof value === "string" &&
+    (JEWELRY_LEAF_TYPES as readonly string[]).includes(value)
   );
 }
 
@@ -4401,15 +4511,20 @@ export function normalizeCoasterParams(
 }
 
 /**
- * Проверяет и выравнивает параметры стойки для украшений.
+ * Проверяет и выравнивает параметры подставки для украшений.
  *
- * Высота и основание выравниваются по 5 мм. Набор держателей принимается только
- * из трёх известных значений: от него зависит, какие тела строит геометрия.
+ * Форма принимается только из трёх известных пресетов, силуэт листа — из трёх
+ * известных типов. Старое поле `jewelryConfig` остаётся в наборе и
+ * нормализуется как раньше, но на выбор генератора больше не влияет: запрос
+ * старого клиента получает дефолтную форму, а не ошибку.
  */
 export function normalizeJewelryStandParams(
   params: Partial<JewelryStandParams>,
 ): JewelryStandParams {
   return {
+    jewelryPreset: isJewelryPreset(params.jewelryPreset)
+      ? params.jewelryPreset
+      : DEFAULT_JEWELRY_STAND_PARAMS.jewelryPreset,
     jewelryHeight: snap(
       params.jewelryHeight ?? DEFAULT_JEWELRY_STAND_PARAMS.jewelryHeight,
       CONSTRUCTOR_LIMITS.jewelryHeight,
@@ -4421,6 +4536,23 @@ export function normalizeJewelryStandParams(
     jewelryConfig: isJewelryConfig(params.jewelryConfig)
       ? params.jewelryConfig
       : DEFAULT_JEWELRY_STAND_PARAMS.jewelryConfig,
+    jewelryLeafType: isJewelryLeafType(params.jewelryLeafType)
+      ? params.jewelryLeafType
+      : DEFAULT_JEWELRY_STAND_PARAMS.jewelryLeafType,
+    jewelryLeafLength: snap(
+      params.jewelryLeafLength ??
+        DEFAULT_JEWELRY_STAND_PARAMS.jewelryLeafLength,
+      CONSTRUCTOR_LIMITS.jewelryLeafLength,
+    ),
+    jewelryLeafWidth: snap(
+      params.jewelryLeafWidth ?? DEFAULT_JEWELRY_STAND_PARAMS.jewelryLeafWidth,
+      CONSTRUCTOR_LIMITS.jewelryLeafWidth,
+    ),
+    jewelryLeafVeinDepth: snap(
+      params.jewelryLeafVeinDepth ??
+        DEFAULT_JEWELRY_STAND_PARAMS.jewelryLeafVeinDepth,
+      CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth,
+    ),
   };
 }
 

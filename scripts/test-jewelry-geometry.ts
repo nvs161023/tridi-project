@@ -17,6 +17,14 @@
 import type { BufferGeometry } from "three";
 
 import {
+  JEWELRY_LEAF_BOWL_DEPTH_MM,
+  JEWELRY_LEAF_MIN_THICKNESS_MM,
+  jewelryLeafHalfWidthAt,
+  jewelryLeafHeightMm,
+  jewelryLeafPlateThicknessMm,
+  jewelryLeafReliefMm,
+} from "../lib/constructor/jewelry-leaf-geometry";
+import {
   JEWELRY_BAR_HEIGHT_RATIO,
   JEWELRY_BAR_RADIUS_MM,
   JEWELRY_HORN_RADIUS_MM,
@@ -25,10 +33,12 @@ import {
   JEWELRY_STABILITY_BASE_RATIO,
   createJewelryStandGeometry,
   jewelryBaseIsNarrow,
+  jewelryStandMetrics,
   jewelryStableBaseMm,
 } from "../lib/constructor/jewelry-stand-geometry";
 import {
   JEWELRY_CONFIGS,
+  JEWELRY_LEAF_TYPES,
   jewelryStandStlFileName,
   normalizeJewelryStandParams,
   type JewelryConfig,
@@ -250,6 +260,71 @@ function range(points: readonly Point[], axis: 0 | 1 | 2): [number, number] {
 }
 
 
+/**
+ * Треугольники-потолки, которые действительно висят в воздухе.
+ *
+ * Нависание считается по нормали: если она смотрит вниз круче 45° к вертикали,
+ * слайсеру нужна поддержка. Два вида потолков не в счёт: дно на столе и нижние
+ * торцы крючка, утопленные в плиту — над ними есть материал, и слайсер
+ * объединяет тела. Поэтому потолок внутри плиты пропускается, а всё, что выше
+ * её лица, обязано быть пустым.
+ */
+function overhangTriangles(
+  mesh: Mesh,
+  plateMm: number,
+  params: {
+    readonly jewelryLeafLength: number;
+    readonly jewelryLeafType: "monstera" | "fern" | "oak";
+  },
+): number {
+  let count = 0;
+
+  for (const [a, b, c] of mesh.triangles) {
+    const pa = mesh.vertices[a];
+    const pb = mesh.vertices[b];
+    const pc = mesh.vertices[c];
+    const centerX = (pa[0] + pb[0] + pc[0]) / 3;
+    const centerY = (pa[1] + pb[1] + pc[1]) / 3;
+    const centerZ = (pa[2] + pb[2] + pc[2]) / 3;
+
+    if (centerZ <= 0.01) {
+      continue;
+    }
+
+    const ux = pb[0] - pa[0];
+    const uy = pb[1] - pa[1];
+    const uz = pb[2] - pa[2];
+    const vx = pc[0] - pa[0];
+    const vy = pc[1] - pa[1];
+    const vz = pc[2] - pa[2];
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const length = Math.hypot(nx, ny, nz);
+
+    if (length <= 0 || nz / length >= -Math.SQRT1_2) {
+      continue;
+    }
+
+    const t = Math.min(
+      1,
+      Math.max(
+        0,
+        (centerX + params.jewelryLeafLength / 2) / params.jewelryLeafLength,
+      ),
+    );
+    const insidePlate =
+      centerZ <= plateMm &&
+      Math.abs(centerY) <= jewelryLeafHalfWidthAt(params, t) + 1e-6;
+
+    if (!insidePlate) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
 interface Case {
   readonly height: number;
   readonly base: number;
@@ -271,6 +346,7 @@ console.log("Габарит, рожки и глубина штанги");
 for (const testCase of cases) {
   const name = `H${testCase.height}/D${testCase.base}/${testCase.config}`;
   const geometry = createJewelryStandGeometry({
+    jewelryPreset: "braided_tree",
     jewelryHeight: testCase.height,
     jewelryBase: testCase.base,
     jewelryConfig: testCase.config,
@@ -407,6 +483,7 @@ console.log("\nТело детали");
 
 for (const solid of solids) {
   const geometry = createJewelryStandGeometry({
+    jewelryPreset: "braided_tree",
     jewelryHeight: solid.case.height,
     jewelryBase: solid.case.base,
     jewelryConfig: solid.case.config,
@@ -428,7 +505,10 @@ for (const solid of solids) {
 
 /** Треугольников в сетке выбранного режима. */
 function triangleCount(config: JewelryConfig): number {
-  const geometry = createJewelryStandGeometry({ jewelryConfig: config });
+  const geometry = createJewelryStandGeometry({
+    jewelryPreset: "braided_tree",
+    jewelryConfig: config,
+  });
 
   return geometry.getAttribute("position").count / 3;
 }
@@ -459,17 +539,22 @@ check("160/120 устойчива", jewelryBaseIsNarrow(160, 120), false);
 console.log("\nИмя STL и границы ползунков");
 
 const filename = jewelryStandStlFileName(
-  normalizeJewelryStandParams({ jewelryHeight: 100, jewelryBase: 80 }),
+  normalizeJewelryStandParams({
+    jewelryPreset: "braided_tree",
+    jewelryHeight: 100,
+    jewelryBase: 80,
+  }),
 );
 
 check(
   "имя файла",
   filename,
-  "tridi-podstavka-ukrasheniy-combo-h100-d80.stl",
+  "tridi-podstavka-ukrasheniy-braided-tree-h100-d80.stl",
 );
 check("имя файла только ASCII", /^[\x20-\x7E]+$/.test(filename), true);
 
 const clamped = normalizeJewelryStandParams({
+  jewelryPreset: "braided_tree",
   jewelryHeight: 500,
   jewelryBase: 5,
   jewelryConfig: "combo",
@@ -482,6 +567,154 @@ check("высота за ползунком ужата до максимума",
 check("основание за ползунком поднято до минимума", clamped.jewelryBase, 50);
 near("высота ужатой детали", clampedMaxZ - clampedMinZ, 160);
 near("габарит ужатой детали по X", clampedMaxX - clampedMinX, 50);
+
+console.log("\nЛоток-лист: силуэт и рельеф");
+
+/** Базовая конфигурация листа: крайние значения проверяются отдельно. */
+const leafCase = {
+  jewelryPreset: "leaf_tray" as const,
+  jewelryLeafType: "monstera" as const,
+  jewelryLeafLength: 150,
+  jewelryLeafWidth: 100,
+  jewelryLeafVeinDepth: 2,
+};
+
+let widestHalfMm = 0;
+let widestT = 0;
+
+for (let index = 0; index <= 1000; index += 1) {
+  const t = index / 1000;
+  const half = jewelryLeafHalfWidthAt(leafCase, t);
+
+  if (half > widestHalfMm) {
+    widestHalfMm = half;
+    widestT = t;
+  }
+}
+
+near("лист: ширина равна ползунку", widestHalfMm * 2, 100);
+check(
+  "лист: самое широкое место — средняя треть",
+  widestT > 0.35 && widestT < 0.65,
+  true,
+);
+near("лист: плита над ложем", jewelryLeafPlateThicknessMm(2), 4.5);
+near("лист: минимальная толщина", JEWELRY_LEAF_MIN_THICKNESS_MM, 1.6);
+near(
+  "лист: глубина в центре жилки",
+  jewelryLeafReliefMm(leafCase, 0, 0),
+  2 + JEWELRY_LEAF_BOWL_DEPTH_MM,
+);
+near(
+  "лист: у края рельеф затухает",
+  jewelryLeafReliefMm(leafCase, 0, widestHalfMm - 0.1),
+  0,
+);
+check(
+  "лист: рельеф не глубже жилки и ложа",
+  jewelryLeafReliefMm(leafCase, 0, 0) <=
+    leafCase.jewelryLeafVeinDepth + JEWELRY_LEAF_BOWL_DEPTH_MM + 1e-9,
+  true,
+);
+
+const leafMetrics = jewelryStandMetrics(leafCase);
+
+near("лист: метрика длины", leafMetrics.widthMm, 150);
+near("лист: метрика ширины", leafMetrics.depthMm, 100);
+near(
+  "лист: метрика высоты",
+  leafMetrics.heightMm,
+  jewelryLeafHeightMm(leafCase),
+);
+check(
+  "по умолчанию строится лист",
+  jewelryStandMetrics({}).heightMm > 15,
+  true,
+);
+
+console.log("\nЛоток-лист: тело детали");
+
+const leafGeometry = createJewelryStandGeometry(leafCase);
+const leafMesh = weld(leafGeometry);
+const leafVolume = volumeMm3(leafMesh) / 1000;
+const [leafMinX, leafMaxX] = range(leafMesh.vertices, 0);
+const [leafMinY, leafMaxY] = range(leafMesh.vertices, 1);
+const [leafMinZ, leafMaxZ] = range(leafMesh.vertices, 2);
+const leafPlate = jewelryLeafPlateThicknessMm(leafCase.jewelryLeafVeinDepth);
+
+check("лист: открытых рёбер", openEdges(leafMesh), 0);
+check("лист: вырожденных треугольников", degenerateTriangles(leafMesh), 0);
+check("лист: NaN вершин", nanVertices(leafGeometry), 0);
+check("лист: объём положительный", leafVolume > 0, true);
+check(
+  "лист: объём в коридоре 30–80 см³",
+  leafVolume >= 30 && leafVolume <= 80,
+  true,
+);
+console.log(`  · объём ${leafVolume.toFixed(1)} см³`);
+
+expectNear("лист: низ на столе", leafMinZ, 0, 1e-4);
+expectNear("лист: длина по X", leafMaxX - leafMinX, 150, 0.02);
+expectNear("лист: ширина по Y", leafMaxY - leafMinY, 100, 0.6);
+expectNear(
+  "лист: высота вместе с крючком",
+  leafMaxZ - leafMinZ,
+  jewelryLeafHeightMm(leafCase),
+  0.05,
+);
+check(
+  "лист: нет нависаний круче 45°",
+  overhangTriangles(leafMesh, leafPlate, leafCase),
+  0,
+);
+
+console.log("\nЛоток-лист: три силуэта");
+
+for (const leafType of JEWELRY_LEAF_TYPES) {
+  const silhouette = createJewelryStandGeometry({
+    ...leafCase,
+    jewelryLeafType: leafType,
+  });
+  const mesh = weld(silhouette);
+  const [minY, maxY] = range(mesh.vertices, 1);
+
+  check(`${leafType}: открытых рёбер`, openEdges(mesh), 0);
+  check(`${leafType}: NaN вершин`, nanVertices(silhouette), 0);
+  check(
+    `${leafType}: объём положительный`,
+    volumeMm3(mesh) > 0,
+    true,
+  );
+  expectNear(`${leafType}: ширина`, maxY - minY, 100, 0.6);
+}
+
+console.log("\nЛоток-лист: имя файла и границы ползунков");
+
+const leafFileName = jewelryStandStlFileName(
+  normalizeJewelryStandParams(leafCase),
+);
+
+check(
+  "лист: имя файла",
+  leafFileName,
+  "tridi-podstavka-ukrasheniy-leaf-tray-monstera-l150-w100-v2.stl",
+);
+check(
+  "лист: имя файла только ASCII",
+  /^[\x20-\x7E]+$/.test(leafFileName),
+  true,
+);
+
+const clampedLeaf = normalizeJewelryStandParams({
+  jewelryPreset: "leaf_tray",
+  jewelryLeafLength: 500,
+  jewelryLeafWidth: 5,
+  jewelryLeafVeinDepth: 9,
+});
+
+check("лист: длина ужата", clampedLeaf.jewelryLeafLength, 170);
+check("лист: ширина поднята", clampedLeaf.jewelryLeafWidth, 80);
+check("лист: глубина ужата", clampedLeaf.jewelryLeafVeinDepth, 3);
 
 if (failures.length > 0) {
   console.error(`\nРасхождения (${failures.length}):`);

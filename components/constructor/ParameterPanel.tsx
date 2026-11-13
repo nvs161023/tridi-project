@@ -22,6 +22,10 @@ import {
   type StrokeHistogram,
 } from "@/lib/constructor/heat-transfer-import";
 import {
+  JEWELRY_LEAF_MIN_THICKNESS_MM,
+  jewelryLeafPlateThicknessMm,
+} from "@/lib/constructor/jewelry-leaf-geometry";
+import {
   jewelryBaseIsNarrow,
   jewelryStableBaseMm,
 } from "@/lib/constructor/jewelry-stand-geometry";
@@ -88,6 +92,10 @@ import {
   DEFAULT_LITHOPHANE_PARAMS,
   JEWELRY_CONFIGS,
   JEWELRY_CONFIG_LABELS,
+  JEWELRY_LEAF_TYPES,
+  JEWELRY_LEAF_TYPE_LABELS,
+  JEWELRY_PRESETS,
+  JEWELRY_PRESET_LABELS,
   KEYCHAIN_DECORATION_DEPTH_LIMITS,
   KEYCHAIN_DECORATION_KIND_LABELS,
   KEYCHAIN_DECORATION_OFFSET_LIMITS,
@@ -142,6 +150,8 @@ import {
   type CoasterShape,
   type ConstructorParams,
   type JewelryConfig,
+  type JewelryLeafType,
+  type JewelryPreset,
   type KeychainDecoration,
   type KeychainDecorationKind,
   type KeychainDecorationSide,
@@ -423,6 +433,10 @@ type ParameterPanelProps = {
   onCoasterRimChange: (enabled: boolean) => void;
   /** Набор держателей стойки для украшений. */
   onJewelryConfigChange: (config: JewelryConfig) => void;
+  /** Форма премиум-коллекции: лист, древо или олень. */
+  onJewelryPresetChange: (preset: JewelryPreset) => void;
+  /** Силуэт листа-лотка. */
+  onJewelryLeafTypeChange: (leafType: JewelryLeafType) => void;
   /** Форма органайзера для ручек в плане. */
   onPenShapeChange: (shape: PenShape) => void;
   /** Разметка логотипа термопринта: текст SVG или контур, собранный из PNG. */
@@ -1469,7 +1483,28 @@ function modelSummary(
   }
 
   if (params.model === "jewelry_stand") {
+    if (params.jewelryPreset === "leaf_tray") {
+      return [
+        {
+          label: "Габарит",
+          value: `${params.jewelryLeafLength} × ${params.jewelryLeafWidth} мм`,
+        },
+        { label: "Лист", value: JEWELRY_LEAF_TYPE_LABELS[params.jewelryLeafType] },
+        {
+          label: "Толщина",
+          value: `${jewelryLeafPlateThicknessMm(
+            params.jewelryLeafVeinDepth,
+          ).toFixed(1)} мм`,
+        },
+        {
+          label: "Прожилки",
+          value: `${params.jewelryLeafVeinDepth.toFixed(1)} мм`,
+        },
+      ];
+    }
+
     return [
+      { label: "Форма", value: JEWELRY_PRESET_LABELS[params.jewelryPreset] },
       { label: "Высота", value: `${params.jewelryHeight} мм` },
       { label: "Основание", value: `Ø ${params.jewelryBase} мм` },
       { label: "Держатели", value: JEWELRY_CONFIG_LABELS[params.jewelryConfig] },
@@ -1574,6 +1609,8 @@ export function ParameterPanel({
   onCoasterPatternChange,
   onCoasterRimChange,
   onJewelryConfigChange,
+  onJewelryPresetChange,
+  onJewelryLeafTypeChange,
   onPenShapeChange,
   onHeatTransferSvgChange,
   onHeatTransferMirrorChange,
@@ -3722,56 +3759,145 @@ export function ParameterPanel({
         <>
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Штанга держит кольца и серьги, рожки — цепочки и браслеты. «Кольца и цепочки» строит оба держателя на одной стойке."
-              label="Держатели"
-              onChange={onJewelryConfigChange}
-              options={JEWELRY_CONFIGS.map((jewelryConfig) => ({
-                label: JEWELRY_CONFIG_LABELS[jewelryConfig],
-                value: jewelryConfig,
+              hint="Лист — плоский лоток для часов, колец и серёг. «Плетёное древо» и «Лесной олень» пока строятся прежней стойкой: их собственные генераторы в разработке."
+              label="Форма"
+              onChange={onJewelryPresetChange}
+              options={JEWELRY_PRESETS.map((jewelryPreset) => ({
+                label: JEWELRY_PRESET_LABELS[jewelryPreset],
+                value: jewelryPreset,
               }))}
-              value={params.jewelryConfig}
+              value={params.jewelryPreset}
             />
           </div>
 
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Высота стойки от стола. Штанга для колец стоит выше середины, рожки для цепочек заканчиваются у самого верха: 100–130 мм удобно для стола."
-              label="Высота"
-              max={CONSTRUCTOR_LIMITS.jewelryHeight.max}
-              min={CONSTRUCTOR_LIMITS.jewelryHeight.min}
-              onChange={(value) => onParamChange("jewelryHeight", value)}
-              step={CONSTRUCTOR_LIMITS.jewelryHeight.step}
-              unit="мм"
-              value={params.jewelryHeight}
-            />
+          {params.jewelryPreset === "leaf_tray" ? (
+            <>
+              <div className="mt-6 border-t border-white/10 pt-5">
+                <ParameterSelect
+                  hint="Монстера — широкий лист с вырезами, папоротник — узкий с зубцами, дуб — округлый с мягкой волной. Силуэт меняет только край: прожилки и ложа остаются."
+                  label="Тип листа"
+                  onChange={onJewelryLeafTypeChange}
+                  options={JEWELRY_LEAF_TYPES.map((leafType) => ({
+                    label: JEWELRY_LEAF_TYPE_LABELS[leafType],
+                    value: leafType,
+                  }))}
+                  value={params.jewelryLeafType}
+                />
+              </div>
 
-            <NumberSlider
-              hint="Диаметр основания. Чем шире база, тем устойчивее стойка и больше места для часов и серёг; штанга и рожки масштабируются вместе с ней."
-              label="Основание"
-              max={CONSTRUCTOR_LIMITS.jewelryBase.max}
-              min={CONSTRUCTOR_LIMITS.jewelryBase.min}
-              onChange={(value) => onParamChange("jewelryBase", value)}
-              step={CONSTRUCTOR_LIMITS.jewelryBase.step}
-              unit="мм"
-              value={params.jewelryBase}
-            />
-          </div>
+              <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+                <NumberSlider
+                  hint="Длина вместе с черешком. Лист 150–170 мм закрывает часы, кольца и серьги сразу; 120–140 мм удобнее для узкой полки."
+                  label="Длина"
+                  max={CONSTRUCTOR_LIMITS.jewelryLeafLength.max}
+                  min={CONSTRUCTOR_LIMITS.jewelryLeafLength.min}
+                  onChange={(value) => onParamChange("jewelryLeafLength", value)}
+                  step={CONSTRUCTOR_LIMITS.jewelryLeafLength.step}
+                  unit="мм"
+                  value={params.jewelryLeafLength}
+                />
 
-          {jewelryNarrowBase ? (
-            <p className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
-              Высокая стойка на узкой базе может быть неустойчивой, увеличьте
-              ширину базы: для высоты {params.jewelryHeight} мм надёжнее
-              Ø {jewelryStableBaseLabel} мм и больше, сейчас Ø{" "}
-              {params.jewelryBase} мм.
-            </p>
-          ) : null}
+                <NumberSlider
+                  hint="Ширина в самом широком месте. Уже 90 мм кольца лежат в один ряд, шире 110 мм — остаётся место для часов и серёг."
+                  label="Ширина"
+                  max={CONSTRUCTOR_LIMITS.jewelryLeafWidth.max}
+                  min={CONSTRUCTOR_LIMITS.jewelryLeafWidth.min}
+                  onChange={(value) => onParamChange("jewelryLeafWidth", value)}
+                  step={CONSTRUCTOR_LIMITS.jewelryLeafWidth.step}
+                  unit="мм"
+                  value={params.jewelryLeafWidth}
+                />
 
-          <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Основание, стойка, штанга и рожки — отдельные замкнутые тела: каждое
-            входит в соседнее на полмиллиметра, поэтому стойка печатается одной
-            деталью без клея и поддержек. Штанга и рожки объёмные по Y: петля
-            цепочки свисает с рожка мимо колец, а не ложится на них.
-          </p>
+                <NumberSlider
+                  hint="Глубина канавок вниз от лица. На 1 мм жилки читаются как гравировка, на 3 мм кольцо садится в ложу и не скатывается."
+                  label="Глубина прожилок"
+                  max={CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth.max}
+                  min={CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth.min}
+                  onChange={(value) =>
+                    onParamChange("jewelryLeafVeinDepth", value)
+                  }
+                  step={CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth.step}
+                  unit="мм"
+                  value={params.jewelryLeafVeinDepth}
+                />
+              </div>
+
+              <p className="mt-4 text-xs leading-relaxed text-slate-300">
+                Плита лежит на столе всей площадью: дно плоское, поэтому деталь
+                печатается без поддержек, а прожилки и ложа только снимают
+                материал сверху. По краю остаётся ободок толщиной{" "}
+                {jewelryLeafPlateThicknessMm(
+                  params.jewelryLeafVeinDepth,
+                ).toFixed(1)}{" "}
+                мм, между жилками — пологие ложа глубиной 0.9 мм. Самое тонкое
+                место — центр центральной жилки:{" "}
+                {JEWELRY_LEAF_MIN_THICKNESS_MM.toFixed(1)} мм. На черешке стоит
+                крючок для цепочек и браслетов.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-4 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
+                «{JEWELRY_PRESET_LABELS[params.jewelryPreset]}» ещё в
+                разработке: сейчас для него строится классическая стойка.
+                Параметры ниже временно управляют ею.
+              </p>
+
+              <div className="mt-6 border-t border-white/10 pt-5">
+                <ParameterSelect
+                  hint="Штанга держит кольца и серьги, рожки — цепочки и браслеты. «Кольца и цепочки» строит оба держателя на одной стойке."
+                  label="Держатели"
+                  onChange={onJewelryConfigChange}
+                  options={JEWELRY_CONFIGS.map((jewelryConfig) => ({
+                    label: JEWELRY_CONFIG_LABELS[jewelryConfig],
+                    value: jewelryConfig,
+                  }))}
+                  value={params.jewelryConfig}
+                />
+              </div>
+
+              <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+                <NumberSlider
+                  hint="Высота стойки от стола. Штанга для колец стоит выше середины, рожки для цепочек заканчиваются у самого верха: 100–130 мм удобно для стола."
+                  label="Высота"
+                  max={CONSTRUCTOR_LIMITS.jewelryHeight.max}
+                  min={CONSTRUCTOR_LIMITS.jewelryHeight.min}
+                  onChange={(value) => onParamChange("jewelryHeight", value)}
+                  step={CONSTRUCTOR_LIMITS.jewelryHeight.step}
+                  unit="мм"
+                  value={params.jewelryHeight}
+                />
+
+                <NumberSlider
+                  hint="Диаметр основания. Чем шире база, тем устойчивее стойка и больше места для часов и серёг; штанга и рожки масштабируются вместе с ней."
+                  label="Основание"
+                  max={CONSTRUCTOR_LIMITS.jewelryBase.max}
+                  min={CONSTRUCTOR_LIMITS.jewelryBase.min}
+                  onChange={(value) => onParamChange("jewelryBase", value)}
+                  step={CONSTRUCTOR_LIMITS.jewelryBase.step}
+                  unit="мм"
+                  value={params.jewelryBase}
+                />
+              </div>
+
+              {jewelryNarrowBase ? (
+                <p className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
+                  Высокая стойка на узкой базе может быть неустойчивой, увеличьте
+                  ширину базы: для высоты {params.jewelryHeight} мм надёжнее
+                  Ø {jewelryStableBaseLabel} мм и больше, сейчас Ø{" "}
+                  {params.jewelryBase} мм.
+                </p>
+              ) : null}
+
+              <p className="mt-4 text-xs leading-relaxed text-slate-300">
+                Основание, стойка, штанга и рожки — отдельные замкнутые тела:
+                каждое входит в соседнее на полмиллиметра, поэтому стойка
+                печатается одной деталью без клея и поддержек. Штанга и рожки
+                объёмные по Y: петля цепочки свисает с рожка мимо колец, а не
+                ложится на них.
+              </p>
+            </>
+          )}
         </>
       ) : params.model === "pen_holder" ? (
         <>
