@@ -1674,6 +1674,13 @@ export function ConstructorClient({
                       {params.deerBaseLength} × {params.deerBaseWidth} мм · рога{" "}
                       {params.deerAntlerSpread} мм
                     </>
+                  ) : params.jewelryPreset === "braided_tree" ? (
+                    <>
+                      {JEWELRY_PRESET_LABELS[params.jewelryPreset]} ·{" "}
+                      {params.treeHeight} × Ø{params.treeBaseDiameter} мм ·{" "}
+                      {params.treeBranchCount} ветви · плетение{" "}
+                      {Math.round(params.treeTwist * 100)}%
+                    </>
                   ) : (
                     <>
                       {JEWELRY_PRESET_LABELS[params.jewelryPreset]} ·{" "}

@@ -34,6 +34,16 @@ import {
   jewelryLeafPlateThicknessMm,
 } from "@/lib/constructor/jewelry-leaf-geometry";
 import {
+  JEWELRY_TREE_BASE_HEIGHT_MM,
+  JEWELRY_TREE_BRANCH_BUD_RADIUS_MM,
+  JEWELRY_TREE_BRANCH_RADIUS_MM,
+  JEWELRY_TREE_CROWN_START_SHARE,
+  JEWELRY_TREE_HOLE_PITCH_MM,
+  JEWELRY_TREE_HOLE_RADIUS_MM,
+  JEWELRY_TREE_STRAND_ELEVATION_DEG,
+  jewelryTreeHeightMm,
+} from "@/lib/constructor/jewelry-tree-geometry";
+import {
   jewelryBaseIsNarrow,
   jewelryStableBaseMm,
 } from "@/lib/constructor/jewelry-stand-geometry";
@@ -1522,6 +1532,21 @@ function modelSummary(
         {
           label: "Полость",
           value: `Ø ${JEWELRY_DEER_WEIGHT_DIAMETER_MM} × ${JEWELRY_DEER_WEIGHT_DEPTH_MM} мм`,
+        },
+      ];
+    }
+
+    if (params.jewelryPreset === "braided_tree") {
+      return [
+        { label: "База", value: `Ø ${params.treeBaseDiameter} мм` },
+        {
+          label: "Высота",
+          value: `${jewelryTreeHeightMm(params)} мм`,
+        },
+        { label: "Ветви", value: `${params.treeBranchCount} шт.` },
+        {
+          label: "Плетение",
+          value: `${Math.round(params.treeTwist * 100)} %`,
         },
       ];
     }
@@ -3908,12 +3933,76 @@ export function ParameterPanel({
                 противовесом и не даёт бюсту опрокинуться.
               </p>
             </>
+          ) : params.jewelryPreset === "braided_tree" ? (
+            <>
+              <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+                <NumberSlider
+                  hint="Высота от стола до верхушки косы. 160–180 мм — витринный размер, 120–140 мм — настольный: выше 220 мм коса из четырёх прядей гнётся под весом серёг."
+                  label="Высота"
+                  max={CONSTRUCTOR_LIMITS.treeHeight.max}
+                  min={CONSTRUCTOR_LIMITS.treeHeight.min}
+                  onChange={(value) => onParamChange("treeHeight", value)}
+                  step={CONSTRUCTOR_LIMITS.treeHeight.step}
+                  unit="мм"
+                  value={params.treeHeight}
+                />
+
+                <NumberSlider
+                  hint="Диаметр корневой базы. Ряды сетки серёг идут в долях диаметра, поэтому узкая база 80–90 мм даёт компактную сетку под кольца, широкая 140 мм — витринную. На 120 мм сетка держит четыре ряда."
+                  label="База"
+                  max={CONSTRUCTOR_LIMITS.treeBaseDiameter.max}
+                  min={CONSTRUCTOR_LIMITS.treeBaseDiameter.min}
+                  onChange={(value) => onParamChange("treeBaseDiameter", value)}
+                  step={CONSTRUCTOR_LIMITS.treeBaseDiameter.step}
+                  unit="мм"
+                  value={params.treeBaseDiameter}
+                />
+
+                <NumberSlider
+                  hint="Сколько ветвей растёт из ствола. Верхние несут крючки под цепочки, нижние — прямые штыри под кольца; больше шести ветвей крючки на одном стволе цепляют друг друга."
+                  label="Ветви"
+                  max={CONSTRUCTOR_LIMITS.treeBranchCount.max}
+                  min={CONSTRUCTOR_LIMITS.treeBranchCount.min}
+                  onChange={(value) => onParamChange("treeBranchCount", value)}
+                  step={CONSTRUCTOR_LIMITS.treeBranchCount.step}
+                  unit="шт."
+                  value={params.treeBranchCount}
+                />
+
+                <NumberSlider
+                  hint="Сила плетения: 0 — пряди идут вертикально, 1 — предельный шаг витка. Круче генератор уже не закрутит: подъём пряди держится не ниже 48°, иначе принтеру нужны поддержки."
+                  label="Плетение"
+                  max={CONSTRUCTOR_LIMITS.treeTwist.max}
+                  min={CONSTRUCTOR_LIMITS.treeTwist.min}
+                  onChange={(value) => onParamChange("treeTwist", value)}
+                  step={CONSTRUCTOR_LIMITS.treeTwist.step}
+                  unit="доля"
+                  value={params.treeTwist}
+                />
+              </div>
+
+              <p className="mt-4 text-xs leading-relaxed text-slate-300">
+                Коса — четыре пряди вокруг сердечника: каждая поднимается не положе{" "}
+                {JEWELRY_TREE_STRAND_ELEVATION_DEG}°, поэтому ствол печатается без
+                поддержек даже при полном плетении. Выше{" "}
+                {Math.round(JEWELRY_TREE_CROWN_START_SHARE * 100)} % высоты пряди
+                сходятся в бутон и замирают к моменту печати верхушки. Ветви растут
+                вокруг ствола по золотому сечению: верхние загибаются крючком с
+                бутоном Ø {(JEWELRY_TREE_BRANCH_BUD_RADIUS_MM * 2).toFixed(1)} мм,
+                нижние стоят прямым штырём Ø{" "}
+                {(JEWELRY_TREE_BRANCH_RADIUS_MM * 2).toFixed(1)} мм. В плите — сетка
+                отверстий Ø {(JEWELRY_TREE_HOLE_RADIUS_MM * 2).toFixed(1)} мм с шагом
+                около {JEWELRY_TREE_HOLE_PITCH_MM} мм: серьги висят парами, не задевая
+                друг друга. Плита {JEWELRY_TREE_BASE_HEIGHT_MM} мм высотой с
+                корневой юбкой: низкий центр тяжести держит древо с цепочками.
+              </p>
+            </>
           ) : (
             <>
-              <p className="mt-4 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
-                «{JEWELRY_PRESET_LABELS[params.jewelryPreset]}» ещё в
-                разработке: сейчас для него строится классическая стойка.
-                Параметры ниже временно управляют ею.
+              <p className="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs leading-relaxed text-slate-300">
+                Резервная ветка: так собирается классическая стойка для запросов без
+                пресета. В коллекции её нет — лист, олень и древо строятся своими
+                генераторами.
               </p>
 
               <div className="mt-6 border-t border-white/10 pt-5">

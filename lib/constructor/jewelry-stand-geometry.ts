@@ -14,6 +14,10 @@ import {
   jewelryDeerPlan,
 } from "@/lib/constructor/jewelry-deer-geometry";
 import {
+  createJewelryTreeGeometry,
+  jewelryTreePlan,
+} from "@/lib/constructor/jewelry-tree-geometry";
+import {
   addCylinder,
   addSolidPrism,
   circlePolygon,
@@ -23,9 +27,9 @@ import {
  * Геометрия подставки для украшений: диспетчер премиум-коллекции.
  *
  * `jewelryPreset` выбирает форму: лист-лоток собирает `jewelry-leaf-geometry.ts`,
- * бюст оленя — `jewelry-deer-geometry.ts`, а древо пока строится прежней
- * стойкой. Ветка-наследник оставляет сцену непустой, пока пресет выбран, но ещё
- * не реализован.
+ * бюст оленя — `jewelry-deer-geometry.ts`, плетёное древо —
+ * `jewelry-tree-geometry.ts`. Классическая стойка осталась запасной веткой:
+ * ни один пресет её не выбирает, и вызов доходит до неё только из старого кода.
  *
  * Классическая стойка собирается из четырёх частей: диск-основание,
  * вертикальная стойка, перекладина под кольца и два рожка для цепочек. Набор
@@ -157,6 +161,18 @@ export function jewelryStandMetrics(
     };
   }
 
+  if (normalized.jewelryPreset === "braided_tree") {
+    const plan = jewelryTreePlan(normalized);
+
+    // Ветви и бусины остаются над базой, поэтому габарит в плане равен её
+    // диаметру. Удвоенный вынос — страховка на случай правки вылета ветвей.
+    return {
+      widthMm: Math.max(normalized.treeBaseDiameter, plan.reachMm * 2),
+      depthMm: Math.max(normalized.treeBaseDiameter, plan.reachMm * 2),
+      heightMm: plan.heightMm,
+    };
+  }
+
   return {
     widthMm: normalized.jewelryBase,
     depthMm: normalized.jewelryBase,
@@ -183,15 +199,20 @@ export function createJewelryStandGeometry(
     return createJewelryDeerGeometry(normalized);
   }
 
+  if (normalized.jewelryPreset === "braided_tree") {
+    return createJewelryTreeGeometry(normalized);
+  }
+
   return createJewelryPostStandGeometry(normalized);
 }
 
 /**
  * Классическая стойка на диск-основании.
  *
- * Это прежняя модель, которая остаётся веткой для ещё не собранного древа. Когда
- * у `braided_tree` появится свой генератор, вызовы этой функции уйдут из
- * диспетчера.
+ * Это прежняя модель. Пресеты коллекции её больше не выбирают: запрос без
+ * пресета получает лист, а старый запрос с высотой и держателями — древо.
+ * Функция остаётся запасной веткой диспетчера до отдельной чистки: её поля
+ * `jewelryHeight`, `jewelryBase` и `jewelryConfig` ещё живут в параметрах.
  */
 function createJewelryPostStandGeometry(
   normalized: JewelryStandParams,

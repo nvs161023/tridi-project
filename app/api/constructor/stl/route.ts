@@ -1334,8 +1334,9 @@ function parseCoasterParams(
  * Строгая проверка параметров подставки для украшений.
  *
  * У каждой формы своя тройка размеров: у листа — тип, длина, ширина и глубина
- * прожилок; у оленя — размах рогов и оси овальной базы; у классической стойки —
- * высота, диаметр и набор держателей. Проверяются только поля выбранной формы,
+ * прожилок; у оленя — размах рогов и оси овальной базы; у древа — высота, диаметр
+ * базы, число ветвей и сила плетения; у классической стойки — высота, диаметр и
+ * набор держателей. Проверяются только поля выбранной формы,
  * остальные игнорируются, даже если пришли вместе: клиент держит общий набор
  * параметров и отправляет всё сразу.
  */
@@ -1351,6 +1352,10 @@ function parseJewelryStandParams(
     deerAntlerSpread,
     deerBaseLength,
     deerBaseWidth,
+    treeHeight,
+    treeBaseDiameter,
+    treeBranchCount,
+    treeTwist,
     jewelryHeight,
     jewelryBase,
     jewelryConfig,
@@ -1433,6 +1438,44 @@ function parseJewelryStandParams(
       deerAntlerSpread,
       deerBaseLength,
       deerBaseWidth,
+    });
+  }
+
+  if (preset === "braided_tree") {
+    // Древу не нужны ни высота классической стойки, ни её держатели: косу и
+    // ветви задают четыре своих числа, а сетка серёг выводится из базы.
+    if (
+      !isNumberInRange(
+        treeHeight,
+        CONSTRUCTOR_LIMITS.treeHeight.min,
+        CONSTRUCTOR_LIMITS.treeHeight.max,
+      ) ||
+      !isNumberInRange(
+        treeBaseDiameter,
+        CONSTRUCTOR_LIMITS.treeBaseDiameter.min,
+        CONSTRUCTOR_LIMITS.treeBaseDiameter.max,
+      ) ||
+      !isNumberInRange(
+        treeBranchCount,
+        CONSTRUCTOR_LIMITS.treeBranchCount.min,
+        CONSTRUCTOR_LIMITS.treeBranchCount.max,
+      ) ||
+      !Number.isInteger(treeBranchCount) ||
+      !isNumberInRange(
+        treeTwist,
+        CONSTRUCTOR_LIMITS.treeTwist.min,
+        CONSTRUCTOR_LIMITS.treeTwist.max,
+      )
+    ) {
+      return null;
+    }
+
+    return normalizeJewelryStandParams({
+      jewelryPreset: "braided_tree",
+      treeHeight,
+      treeBaseDiameter,
+      treeBranchCount,
+      treeTwist,
     });
   }
 
