@@ -26,11 +26,15 @@ import {
  * опускается внутрь коробки. Зазор 0.2 мм на сторону даёт плотную посадку,
  * но позволяет снять крышку руками.
  *
- * Пазы под магниты — глухие цилиндры в четырёх углах дна и плиты: дно и плита
- * локально толще паза, а нижняя крышка детали триангулируется вместе с
- * отверстиями. Кольцо штабеля — отдельная замкнутая оболочка справа от
- * крышки; она повторяет габарит крышки снаружи и оставляет 0.25 мм на сторону
- * для дна верхней коробки.
+ * Пазы под магниты — глухие цилиндры в четырёх угловых стойках верхней кромки
+ * корпуса и в ответных угловых гнёздах плиты крышки. Пазы корпуса открыты
+ * сверху и идут вниз, пазы крышки открыты снизу и идут вверх: когда крышка
+ * закрыта, торцы магнитов встречаются на плоскости кромки. Чтобы цилиндр
+ * диаметром 6.2 или 8.2 мм поместился в стенке, угол корпуса локально утолщён
+ * внутрь. Юбка крышки в этих углах вырезана: иначе она заняла бы тот же объём,
+ * что и стойки корпуса. Кольцо штабеля — отдельная замкнутая оболочка справа
+ * от крышки; она повторяет габарит крышки снаружи и оставляет 0.25 мм на
+ * сторону для дна верхней коробки.
  */
 
 /** Зазор между юбкой крышки и внутренней стенкой коробки на сторону, мм. */
@@ -73,7 +77,7 @@ const BOX_JOIN_MM = 0.4;
 /** Отступ от наружного контура, чтобы брусок не выглянул за скругление. */
 const BOX_EDGE_MARGIN_MM = 0.4;
 
-/** Минимальная толщина пластика над глухим пазом магнита, мм. */
+/** Минимальная толщина пластика за глухим пазом магнита, мм. */
 export const BOX_MAGNET_CEILING_MM = 0.4;
 
 /** Минимальная толщина наружной стенки вокруг паза магнита, мм. */
@@ -97,7 +101,7 @@ const EPSILON = 1e-9;
 type Point2 = readonly [number, number];
 type Point3 = readonly [number, number, number];
 
-/** Глухой цилиндрический паз: центр, радиус и глубина от нижней плоскости. */
+/** Глухой цилиндрический паз: центр, радиус и глубина от плоскости входа. */
 type MagnetPocket = {
   center: Point2;
   radius: number;
@@ -512,20 +516,23 @@ function addRoundedPrism(
 }
 
 /**
- * Добавляет стенки и потолок одного глухого паза.
+ * Добавляет стенки и глухое дно одного цилиндрического паза.
  *
  * Нормаль стенки смотрит к оси паза: пластик лежит снаружи, а паз — пустота.
- * Потолок смотрит вниз, потому что над ним остаётся пластик. Вместе с дыркой
- * в нижней крышке эти грани замыкают паз, и он не сообщается с полостью.
+ * `opening` говорит, с какой стороны вставляют магнит. У паза сверху дно
+ * смотрит вверх, у паза снизу — вниз; в обоих случаях эта грань отделяет
+ * пустоту от пластика и замыкает оболочку вместе с отверстием в крышке детали.
  */
 function addMagnetPocket(
   positions: number[],
   pocket: MagnetPocket,
-  z0: number,
+  openingZ: number,
+  opening: "top" | "bottom",
 ): void {
   const [centerX, centerY] = pocket.center;
   const contour = circleContour(centerX, centerY, pocket.radius);
-  const z1 = z0 + pocket.depth;
+  const z0 = opening === "bottom" ? openingZ : openingZ - pocket.depth;
+  const z1 = opening === "bottom" ? openingZ + pocket.depth : openingZ;
 
   for (let index = 0; index < contour.length; index += 1) {
     const current = contour[index];
@@ -543,15 +550,21 @@ function addMagnetPocket(
     );
   }
 
-  addContourCap(positions, contour, z1, [0, 0, -1]);
+  addContourCap(
+    positions,
+    contour,
+    opening === "bottom" ? z1 : z0,
+    opening === "bottom" ? [0, 0, -1] : [0, 0, 1],
+  );
 }
 
 /**
- * Плита с глухими пазами снизу.
+ * Плита с глухими пазами с одной стороны.
  *
- * Нижняя крышка триангулируется вместе с отверстиями, стенки пазов поднимаются
- * до глубины, а потолок каждого паза закрывает пустоту. Верхняя крышка остаётся
- * сплошной, поэтому паз не выходит на лицевую сторону.
+ * Отверстия вырезаются в той крышке, с которой вставляют магниты. Стенки пазов
+ * идут вглубь, а противоположная грань остаётся сплошной. Так плита крышки
+ * получает пазы снизу, хотя печатается отверстиями вверх — после переворота
+ * они смотрят на корпус.
  */
 function addPerforatedPrism(
   positions: number[],
@@ -559,6 +572,7 @@ function addPerforatedPrism(
   z0: number,
   z1: number,
   pockets: readonly MagnetPocket[],
+  opening: "top" | "bottom",
 ): void {
   if (pockets.length === 0) {
     addRoundedPrism(positions, contour, z0, z1);
@@ -569,12 +583,28 @@ function addPerforatedPrism(
     circleContour(pocket.center[0], pocket.center[1], pocket.radius),
   );
 
-  addContourHolesCap(positions, contour, holes, z0, [0, 0, -1]);
-  addContourCap(positions, contour, z1, [0, 0, 1]);
+  addContourHolesCap(
+    positions,
+    contour,
+    holes,
+    opening === "bottom" ? z0 : z1,
+    opening === "bottom" ? [0, 0, -1] : [0, 0, 1],
+  );
+  addContourCap(
+    positions,
+    contour,
+    opening === "bottom" ? z1 : z0,
+    opening === "bottom" ? [0, 0, 1] : [0, 0, -1],
+  );
   addContourSides(positions, contour, z0, z1, true);
 
   for (const pocket of pockets) {
-    addMagnetPocket(positions, pocket, z0);
+    addMagnetPocket(
+      positions,
+      pocket,
+      opening === "bottom" ? z0 : z1,
+      opening,
+    );
   }
 }
 
@@ -593,13 +623,83 @@ function addRoundedRing(
 }
 
 /**
+ * Внутренний контур корпуса с угловыми стойками под магниты.
+ *
+ * Пазы диаметром 6.2 и 8.2 мм не помещаются в стенку 1.2–3 мм. В четырёх углах
+ * полость поэтому обрезана квадратными стойками: их внутренняя граница отстоит
+ * от центра паза на радиус плюс BOX_MAGNET_EDGE_GAP_MM. Стойка сливается со
+ * стенками, а её верхняя грань входит в общее кольцо кромки. Без магнитов
+ * возвращается обычный скруглённый прямоугольник.
+ */
+function boxInnerContour(params: BoxParams, centerX: number): Point2[] {
+  const halfWidth = Math.max(params.boxWidth / 2 - params.boxWall, 0);
+  const halfDepth = Math.max(params.boxDepth / 2 - params.boxWall, 0);
+  const radius = Math.max(params.boxCornerRadius - params.boxWall, 0);
+
+  if (!params.boxMagnets) {
+    return roundedRectContour(
+      centerX,
+      0,
+      halfWidth * 2,
+      halfDepth * 2,
+      radius,
+    );
+  }
+
+  const spec = BOX_MAGNET_SPECS[params.boxMagnetSize];
+  const pocketRadius = spec.diameterMm / 2;
+  const centers = boxMagnetPocketCenters(params);
+  const offsetX = Math.abs(centers[0][0]);
+  const offsetY = Math.abs(centers[0][1]);
+  const notchX = offsetX - pocketRadius - BOX_MAGNET_EDGE_GAP_MM;
+  const notchY = offsetY - pocketRadius - BOX_MAGNET_EDGE_GAP_MM;
+
+  if (
+    notchX <= EPSILON ||
+    notchY <= EPSILON ||
+    notchX >= halfWidth ||
+    notchY >= halfDepth
+  ) {
+    return roundedRectContour(
+      centerX,
+      0,
+      halfWidth * 2,
+      halfDepth * 2,
+      radius,
+    );
+  }
+
+  const left = centerX - halfWidth;
+  const right = centerX + halfWidth;
+  const bottom = -halfDepth;
+  const top = halfDepth;
+  const innerLeft = centerX - notchX;
+  const innerRight = centerX + notchX;
+
+  return [
+    [innerLeft, bottom],
+    [innerRight, bottom],
+    [innerRight, -notchY],
+    [right, -notchY],
+    [right, notchY],
+    [innerRight, notchY],
+    [innerRight, top],
+    [innerLeft, top],
+    [innerLeft, notchY],
+    [left, notchY],
+    [left, -notchY],
+    [innerLeft, -notchY],
+  ];
+}
+
+/**
  * Замкнутый лоток: наружные стенки, дно и полость.
  *
  * Наружный контур идёт от стола до кромки, внутренний — от дна до кромки.
  * Верхнее кольцо между ними закрывает торец стенки, а дно и нижняя крышка
  * замыкают оболочку. Это одна оболочка: у дна и стенки нет стыка, который
- * слайсер мог бы посчитать щелью. Если переданы пазы, нижняя крышка строится
- * с отверстиями, а стенки и потолки пазов остаются частью той же оболочки.
+ * слайсер мог бы посчитать щелью. Пазы магнитов открыты сверху: в верхнем
+ * кольце вырезаны отверстия, а стенки и дно пазов продолжают ту же оболочку.
  */
 function addTray(
   positions: number[],
@@ -609,22 +709,29 @@ function addTray(
   floor: number,
   pockets: readonly MagnetPocket[] = [],
 ): void {
+  addContourCap(positions, outer, 0, [0, 0, -1]);
+  addContourSides(positions, outer, 0, height, true);
+
   if (pockets.length === 0) {
-    addContourCap(positions, outer, 0, [0, 0, -1]);
+    addContourRingCap(positions, outer, inner, height, [0, 0, 1]);
   } else {
     const holes = pockets.map((pocket) =>
       circleContour(pocket.center[0], pocket.center[1], pocket.radius),
     );
 
-    addContourHolesCap(positions, outer, holes, 0, [0, 0, -1]);
+    addContourHolesCap(
+      positions,
+      outer,
+      [inner, ...holes],
+      height,
+      [0, 0, 1],
+    );
 
     for (const pocket of pockets) {
-      addMagnetPocket(positions, pocket, 0);
+      addMagnetPocket(positions, pocket, height, "top");
     }
   }
 
-  addContourSides(positions, outer, 0, height, true);
-  addContourRingCap(positions, outer, inner, height, [0, 0, 1]);
   addContourSides(positions, inner, floor, height, false);
   addContourCap(positions, inner, floor, [0, 0, 1]);
 }
@@ -783,9 +890,14 @@ function addDividers(
  * зазором BOX_LID_CLEARANCE_MM. Наружная плита шире корпуса на 2 мм, поэтому
  * её край ложится на кромку стенки и не проваливается внутрь.
  *
- * В печати пазы магнитов открыты снизу плиты; после переворота эта сторона
- * становится верхом крышки. Толщина плиты приходит из `magnetFloorThickness`,
- * чтобы паз остался глухим.
+ * Пазы магнитов печатаются открытыми вверх: после переворота они смотрят вниз,
+ * навстречу пазам корпуса. Отверстие идёт от верхней плоскости плиты вниз, а
+ * нижняя плоскость остаётся сплошной. В четырёх углах юбка разорвана: там
+ * стоят гнёзда магнитов, которые при закрытой крышке опускаются на угловые
+ * стойки корпуса. Толщина плиты приходит из `magnetPlateThickness`, чтобы над
+ * пазом остался пластик BOX_MAGNET_CEILING_MM. Магнит вклеивают заподлицо со
+ * входом паза и противоположным полюсом к корпусному: оба паза печатаются
+ * открытыми вверх, и после переворота одноимённые полюса оттолкнулись бы.
  */
 function addLid(
   positions: number[],
@@ -824,34 +936,103 @@ function addLid(
     0,
   );
 
-  addPerforatedPrism(positions, plate, 0, plateThickness, pockets);
+  addPerforatedPrism(
+    positions,
+    plate,
+    0,
+    plateThickness,
+    pockets,
+    "top",
+  );
 
   if (skirtInnerWidth <= 0 || skirtInnerDepth <= 0) {
     return;
   }
 
-  const skirtOuter = roundedRectContour(
-    centerX,
-    0,
-    skirtOuterWidth,
-    skirtOuterDepth,
-    skirtOuterRadius,
-  );
-  const skirtInner = roundedRectContour(
-    centerX,
-    0,
-    skirtInnerWidth,
-    skirtInnerDepth,
-    skirtInnerRadius,
-  );
+  if (pockets.length === 0) {
+    const skirtOuter = roundedRectContour(
+      centerX,
+      0,
+      skirtOuterWidth,
+      skirtOuterDepth,
+      skirtOuterRadius,
+    );
+    const skirtInner = roundedRectContour(
+      centerX,
+      0,
+      skirtInnerWidth,
+      skirtInnerDepth,
+      skirtInnerRadius,
+    );
 
-  addRoundedRing(
-    positions,
-    skirtOuter,
-    skirtInner,
-    plateThickness - BOX_JOIN_MM,
-    plateThickness + BOX_LID_SKIRT_HEIGHT_MM,
-  );
+    addRoundedRing(
+      positions,
+      skirtOuter,
+      skirtInner,
+      plateThickness - BOX_JOIN_MM,
+      plateThickness + BOX_LID_SKIRT_HEIGHT_MM,
+    );
+    return;
+  }
+
+  const spec = BOX_MAGNET_SPECS[params.boxMagnetSize];
+  const radius = spec.diameterMm / 2;
+  const centers = boxMagnetPocketCenters(params);
+  const offsetX = Math.abs(centers[0][0]);
+  const offsetY = Math.abs(centers[0][1]);
+  const halfWidth = params.boxWidth / 2 - params.boxWall;
+  const halfDepth = params.boxDepth / 2 - params.boxWall;
+  const limitX =
+    offsetX - radius - BOX_MAGNET_EDGE_GAP_MM - BOX_LID_CLEARANCE_MM;
+  const limitY =
+    offsetY - radius - BOX_MAGNET_EDGE_GAP_MM - BOX_LID_CLEARANCE_MM;
+  const thickness = BOX_LID_SKIRT_THICKNESS_MM;
+  const z0 = plateThickness - BOX_JOIN_MM;
+  const z1 = plateThickness + BOX_LID_SKIRT_HEIGHT_MM;
+
+  // Четыре прямых отрезка юбки между угловыми стойками. На углах остаются
+  // окна под гнёзда магнитов, поэтому юбка не упирается в стойки корпуса.
+  if (limitX > 0) {
+    addBox(
+      positions,
+      centerX - limitX,
+      centerX + limitX,
+      -halfDepth + BOX_LID_CLEARANCE_MM,
+      -halfDepth + BOX_LID_CLEARANCE_MM + thickness,
+      z0,
+      z1,
+    );
+    addBox(
+      positions,
+      centerX - limitX,
+      centerX + limitX,
+      halfDepth - BOX_LID_CLEARANCE_MM - thickness,
+      halfDepth - BOX_LID_CLEARANCE_MM,
+      z0,
+      z1,
+    );
+  }
+
+  if (limitY > 0) {
+    addBox(
+      positions,
+      centerX - halfWidth + BOX_LID_CLEARANCE_MM,
+      centerX - halfWidth + BOX_LID_CLEARANCE_MM + thickness,
+      -limitY,
+      limitY,
+      z0,
+      z1,
+    );
+    addBox(
+      positions,
+      centerX + halfWidth - BOX_LID_CLEARANCE_MM - thickness,
+      centerX + halfWidth - BOX_LID_CLEARANCE_MM,
+      -limitY,
+      limitY,
+      z0,
+      z1,
+    );
+  }
 }
 
 /**
@@ -910,8 +1091,8 @@ function magnetPockets(
   }));
 }
 
-/** Толщина дна или плиты, при которой паз остаётся глухим. */
-function magnetFloorThickness(params: BoxParams, base: number): number {
+/** Толщина плиты крышки, при которой паз остаётся глухим. */
+function magnetPlateThickness(params: BoxParams, base: number): number {
   if (!params.boxMagnets) {
     return base;
   }
@@ -980,15 +1161,8 @@ export function createBoxGeometry(params: Partial<BoxParams>): BufferGeometry {
   const lidCenterX =
     bodyCenterX + normalized.boxWidth / 2 + BOX_LID_GAP_MM + lidWidth / 2;
   const ringCenterX = lidCenterX + lidWidth / 2 + BOX_LID_GAP_MM + lidWidth / 2;
-  const innerRadius = Math.max(
-    normalized.boxCornerRadius - normalized.boxWall,
-    0,
-  );
-  const floorThickness = magnetFloorThickness(
-    normalized,
-    BOX_FLOOR_THICKNESS_MM,
-  );
-  const plateThickness = magnetFloorThickness(
+  const floorThickness = BOX_FLOOR_THICKNESS_MM;
+  const plateThickness = magnetPlateThickness(
     normalized,
     BOX_LID_PLATE_THICKNESS_MM,
   );
@@ -999,13 +1173,7 @@ export function createBoxGeometry(params: Partial<BoxParams>): BufferGeometry {
     normalized.boxDepth,
     normalized.boxCornerRadius,
   );
-  const inner = roundedRectContour(
-    bodyCenterX,
-    0,
-    normalized.boxWidth - normalized.boxWall * 2,
-    normalized.boxDepth - normalized.boxWall * 2,
-    innerRadius,
-  );
+  const inner = boxInnerContour(normalized, bodyCenterX);
 
   addTray(
     positions,

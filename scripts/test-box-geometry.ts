@@ -404,12 +404,7 @@ for (const testCase of cases) {
   }
 
   const magnetSpec = BOX_MAGNET_SPECS[params.boxMagnetSize];
-  const expectedFloor = params.boxMagnets
-    ? Math.max(
-        BOX_FLOOR_THICKNESS_MM,
-        magnetSpec.depthMm + BOX_MAGNET_CEILING_MM,
-      )
-    : BOX_FLOOR_THICKNESS_MM;
+  const expectedFloor = BOX_FLOOR_THICKNESS_MM;
   const expectedPlate = params.boxMagnets
     ? Math.max(
         BOX_LID_PLATE_THICKNESS_MM,
@@ -484,24 +479,89 @@ for (const testCase of cases) {
     const centers = boxMagnetPocketCenters(params);
     const bodyCenterX = bodyMinX + params.boxWidth / 2;
     const lidCenterX = lidMinX + lidWidth / 2;
-    const bodyPocketRings = centers.map(([offsetX, offsetY]) =>
+    const bodyMouthZ = params.boxHeight;
+    const bodyCeilingZ = bodyMouthZ - magnetSpec.depthMm;
+    const lidMouthZ = expectedPlate;
+    const lidCeilingZ = lidMouthZ - magnetSpec.depthMm;
+    const bodyMouthRings = centers.map(([offsetX, offsetY]) =>
+      ringVertices(mesh, bodyCenterX + offsetX, offsetY, radius, bodyMouthZ),
+    );
+    const bodyCeilingRings = centers.map(([offsetX, offsetY]) =>
+      ringVertices(mesh, bodyCenterX + offsetX, offsetY, radius, bodyCeilingZ),
+    );
+    const bodyFloorRings = centers.map(([offsetX, offsetY]) =>
       ringVertices(mesh, bodyCenterX + offsetX, offsetY, radius, 0),
     );
-    const lidPocketRings = centers.map(([offsetX, offsetY]) =>
+    const lidMouthRings = centers.map(([offsetX, offsetY]) =>
+      ringVertices(mesh, lidCenterX + offsetX, offsetY, radius, lidMouthZ),
+    );
+    const lidCeilingRings = centers.map(([offsetX, offsetY]) =>
+      ringVertices(mesh, lidCenterX + offsetX, offsetY, radius, lidCeilingZ),
+    );
+    const lidFloorRings = centers.map(([offsetX, offsetY]) =>
       ringVertices(mesh, lidCenterX + offsetX, offsetY, radius, 0),
     );
 
     check(
-      `${testCase.name}: четыре паза снизу корпуса`,
-      bodyPocketRings.every((count) => count === 24),
+      `${testCase.name}: четыре паза открыты сверху корпуса`,
+      bodyMouthRings.every((count) => count === 24),
+      true,
+    );
+    check(
+      `${testCase.name}: дно паза корпуса на глубине`,
+      bodyCeilingRings.every((count) => count === 24),
+      true,
+    );
+    check(
+      `${testCase.name}: в дне корпуса пазов нет`,
+      bodyFloorRings.every((count) => count === 0),
       true,
     );
 
     if (params.hasLid) {
       check(
-        `${testCase.name}: четыре паза сверху крышки`,
-        lidPocketRings.every((count) => count === 24),
+        `${testCase.name}: четыре паза открыты снизу крышки после переворота`,
+        lidMouthRings.every((count) => count === 24),
         true,
+      );
+      check(
+        `${testCase.name}: дно паза крышки на глубине`,
+        lidCeilingRings.every((count) => count === 24),
+        true,
+      );
+      check(
+        `${testCase.name}: в верхней плоскости крышки пазов нет`,
+        lidFloorRings.every((count) => count === 0),
+        true,
+      );
+    }
+
+    if (params.hasLid) {
+      check(
+        `${testCase.name}: пазы крышки соосны пазам корпуса по X и Y`,
+        centers.every(
+          ([offsetX, offsetY]) =>
+            ringVertices(
+              mesh,
+              bodyCenterX + offsetX,
+              offsetY,
+              radius,
+              bodyMouthZ,
+            ) === 24 &&
+            ringVertices(
+              mesh,
+              lidCenterX + offsetX,
+              offsetY,
+              radius,
+              lidMouthZ,
+            ) === 24,
+        ),
+        true,
+      );
+      near(
+        `${testCase.name}: после переворота торец паза крышки ложится на кромку`,
+        params.boxHeight - (lidMouthZ - expectedPlate),
+        params.boxHeight,
       );
     }
 
@@ -525,8 +585,13 @@ for (const testCase of cases) {
       );
       check(
         `${testCase.name}: потолок паза замыкает глубину`,
-        ringVertices(mesh, bodyPocketX, offsetY, radius, magnetSpec.depthMm) ===
-          24,
+        ringVertices(
+          mesh,
+          bodyPocketX,
+          offsetY,
+          radius,
+          bodyCeilingZ,
+        ) === 24,
         true,
       );
 
@@ -538,7 +603,7 @@ for (const testCase of cases) {
             lidCenterX + offsetX,
             offsetY,
             radius,
-            magnetSpec.depthMm,
+            lidCeilingZ,
           ) === 24,
           true,
         );
@@ -546,9 +611,8 @@ for (const testCase of cases) {
     }
 
     check(
-      `${testCase.name}: над пазом остаётся пластик`,
-      expectedFloor - magnetSpec.depthMm >=
-        BOX_MAGNET_CEILING_MM - 1e-6,
+      `${testCase.name}: дно корпуса осталось базовой толщины`,
+      expectedFloor === BOX_FLOOR_THICKNESS_MM,
       true,
     );
     check(
