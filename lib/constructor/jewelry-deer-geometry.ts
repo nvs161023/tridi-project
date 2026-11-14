@@ -1,14 +1,22 @@
-/**
+﻿/**
  * Геометрия бюста «Лесной олень».
  *
  * Вторая форма премиум-коллекции: овальная база с полостью под утяжелитель и
- * стилизованный бюст без глаз, ушей и носа. Узнаваемость держится на рогах,
+ * стилизованный бюст без глаз, ушей и ноздрей. Узнаваемость держится на рогах,
  * поэтому лицо остаётся гладкой поверхностью — это приём классической
  * скульптуры, а не упрощение.
  *
- * Бюст — один лофт по станциям от груди до кончика морды. Кольца стоят
- * перпендикулярно оси, поэтому на повороте к морде они наклоняются, и голова
- * получает «изгиб», а не трубу. Сечения — эллипсы: шея уже по X, чем по глубине.
+ * Бюст — один лофт по кольцам с шагом 2 мм от раструба на базе до кончика морды.
+ * Опорных сечений семь: пятка раструба, его плечо, основание шеи, середина шеи,
+ * затылок, морда и нос. Между ними профиль идёт по сглаживающей кривой, поэтому
+ * в силуэте нет углов, а не пять конусов. Кольца стоят перпендикулярно оси,
+ * поэтому на повороте к морде они наклоняются, и голова получает изгиб, а не
+ * трубу. Сечения — эллипсы: шея уже по X, чем по глубине.
+ *
+ * Рога растут из верхней части затылка, а не из макушки морды: корень заложен
+ * внутри черепа около сечения затылка, ствол выходит наружу уже над ним и уходит
+ * вверх и в стороны. Морда вынесена вперёд на 40 мм от оси шеи, поэтому рога с
+ * ней не встречаются.
  *
  * Рога — четыре трубы на сторону: ствол и три отростка. Каждый сегмент поднят
  * над столом не меньше 45°, то есть отклонён от вертикали не больше 45°: это и
@@ -103,47 +111,169 @@ const JEWELRY_DEER_BUST_SIDES = 40;
 /** Число сторон базы, шт.: 96 держит овал гладким на любом размере. */
 const JEWELRY_DEER_BASE_SIDES = 96;
 
-/** Низ бюста над столом, мм: миллиметр уходит внутрь базы на слияние. */
-const JEWELRY_DEER_BUST_Z0_MM = 4.5;
+/** Низ бюста — раструб на плите: пятка профиля утоплена в базу на слияние. */
+const JEWELRY_DEER_BUST_FOOT_MM = 4;
 
-/** Высота корня рога над столом в долях масштаба, мм. */
-const JEWELRY_DEER_ANTLER_ROOT_HEIGHT_MM = 62;
+/** Высота корня рога над столом, мм: верхняя часть затылка. */
+const JEWELRY_DEER_ANTLER_ROOT_HEIGHT_MM = 76;
 
-/** Вынос корня рога от оси в долях масштаба, мм. */
+/** Вынос корня рога от оси, мм: внутри черепа, не на кромке. */
 const JEWELRY_DEER_ANTLER_ROOT_X_MM = 6;
 
-/** Положение корня рога по Y в долях масштаба, мм: внутри затылка. */
-const JEWELRY_DEER_ANTLER_ROOT_Y_MM = -9;
+/** Положение корня рога по Y, мм: ось затылка, позади морды. */
+const JEWELRY_DEER_ANTLER_ROOT_Y_MM = 6;
 
 /** Куда уходит кончик ствола по Y, мм: рога слегка зачёсаны назад. */
-const JEWELRY_DEER_ANTLER_TIP_Y_MM = 2;
+const JEWELRY_DEER_ANTLER_TIP_Y_MM = 12;
 
-/**
- * Станции бюста при базе 150 мм: `hMm` — высота над низом бюста.
- *
- * Шея узкая, грудь широкая, морда вытянутая и поднятая. Радиусы растут только
- * там, где ось ещё почти вертикальна: рост радиуса на наклонной оси добавляет
- * к нависанию свой угол, а сумма обязана остаться ниже 45°.
- */
-const JEWELRY_DEER_STATIONS: readonly {
+/** Сечение профиля бюста: центр в плоскости (Y, Z) и полуоси эллипса, мм. */
+type JewelryDeerProfileSection = {
   readonly yMm: number;
-  readonly hMm: number;
+  readonly zMm: number;
   readonly rxMm: number;
   readonly ryMm: number;
-}[] = [
-  { yMm: 14, hMm: 0, rxMm: 17, ryMm: 12 },
-  { yMm: 13, hMm: 8, rxMm: 19, ryMm: 13 },
-  { yMm: 10, hMm: 20, rxMm: 15, ryMm: 11 },
-  { yMm: 6, hMm: 32, rxMm: 10.5, ryMm: 9 },
-  { yMm: 2, hMm: 43, rxMm: 9.5, ryMm: 8.5 },
-  { yMm: -1, hMm: 52, rxMm: 11, ryMm: 11 },
-  { yMm: -5, hMm: 61, rxMm: 12.5, ryMm: 13 },
-  { yMm: -9, hMm: 68, rxMm: 12.5, ryMm: 13.5 },
-  { yMm: -13, hMm: 75, rxMm: 10, ryMm: 11 },
-  { yMm: -17, hMm: 81, rxMm: 7, ryMm: 8 },
-  { yMm: -21, hMm: 87, rxMm: 4.5, ryMm: 5 },
-  { yMm: -24, hMm: 91, rxMm: 2.5, ryMm: 2.5 },
+};
+
+/**
+ * Профиль бюста при базе 150 мм: семь опорных сечений от пятки до носа.
+ *
+ * Записан так, как его читает скульптор: `zMm` — высота над столом, `yMm` —
+ * сдвиг вперёд-назад от оси базы. Олень смотрит в −Y, поэтому морда уходит в
+ * минус. Ноль по Y выбран так, чтобы пятка раструба осталась позади полости под
+ * утяжелитель: её передний край на полтора миллиметра дальше от центра, чем
+ * край полости, иначе монету было бы не опустить.
+ *
+ * Пять средних сечений — из ТЗ: шея 40 × 20 мм в основании сужается до 25 × 15
+ * на середине, к затылку расходится до 30 × 25, морда 15 × 10 вытянута на 20 мм
+ * вперёд, а нос 8 × 8 срезан на 5 мм вниз. Два нижних сечения — раструб: без
+ * него шея выглядит воткнутой в блин.
+ */
+const JEWELRY_DEER_PROFILE: readonly JewelryDeerProfileSection[] = [
+  { yMm: 16, zMm: JEWELRY_DEER_BUST_FOOT_MM, rxMm: 27, ryMm: 14 },
+  { yMm: 16, zMm: 7, rxMm: 23, ryMm: 11.5 },
+  { yMm: 16, zMm: 10, rxMm: 20, ryMm: 10 },
+  { yMm: 11, zMm: 40, rxMm: 12.5, ryMm: 7.5 },
+  { yMm: 6, zMm: 70, rxMm: 15, ryMm: 12.5 },
+  { yMm: -14, zMm: 90, rxMm: 7.5, ryMm: 5 },
+  { yMm: -24, zMm: 85, rxMm: 4, ryMm: 4 },
 ];
+
+/** Шаг колец лофта, мм: на коротком отрезке профиля колец меньше, на длинном больше. */
+const JEWELRY_DEER_RING_STEP_MM = 2;
+
+/**
+ * Касательные Фрича—Карлсона для набора опор.
+ *
+ * Обычная кривая Эрмита даёт выбросы: на пятке профиля высота шла 4 → 7 → 10 →
+ * 40, и `z` между 7 и 10 сначала опускался до 6.8 — кольца перехлёстывались.
+ * Здесь касательная на опоре не круче утроенной меньшей из соседних секущих, а
+ * на перегибе равна нулю, поэтому кривая не выходит за пределы между опорами и
+ * не разворачивается назад.
+ */
+function monotoneTangents(values: readonly number[]): number[] {
+  const last = values.length - 1;
+  const secants = values
+    .slice(0, last)
+    .map((value, index) => values[index + 1] - value);
+
+  return values.map((_, index) => {
+    if (index === 0) {
+      return secants[0] ?? 0;
+    }
+
+    if (index === last) {
+      return secants[last - 1] ?? 0;
+    }
+
+    const before = secants[index - 1];
+    const after = secants[index];
+
+    if (before * after <= 0) {
+      return 0;
+    }
+
+    const average = (before + after) / 2;
+
+    return (
+      Math.sign(average) *
+      Math.min(
+        Math.abs(average),
+        3 * Math.abs(before),
+        3 * Math.abs(after),
+      )
+    );
+  });
+}
+
+/** Кубическая кривая Эрмита между двумя опорами с заданными касательными, 0…1. */
+function hermite(
+  from: number,
+  to: number,
+  fromTangent: number,
+  toTangent: number,
+  u: number,
+): number {
+  const u2 = u * u;
+  const u3 = u2 * u;
+
+  return (
+    (2 * u3 - 3 * u2 + 1) * from +
+    (u3 - 2 * u2 + u) * fromTangent +
+    (-2 * u3 + 3 * u2) * to +
+    (u3 - u2) * toTangent
+  );
+}
+
+/**
+ * Станции лофта по профилю: центры и полуоси идут по одной гладкой кривой.
+ *
+ * Без промежуточных колец бюст был бы набором усечённых конусов с изломом на
+ * каждом сечении — это и читалось как «шар на конусе». Кольца ставятся с шагом
+ * `JEWELRY_DEER_RING_STEP_MM` по длине отрезка, а не поровну: на морде ось
+ * разворачивается на 70°, и при равномерной сетке весь разворот приходился на
+ * одну пару колец. Крайние сечения не сдвигаются: кривая проходит через них точно.
+ */
+function profileStations(): JewelryDeerStation[] {
+  const profile = JEWELRY_DEER_PROFILE;
+  const last = profile.length - 1;
+  const yTangents = monotoneTangents(profile.map((section) => section.yMm));
+  const zTangents = monotoneTangents(profile.map((section) => section.zMm));
+  const rxTangents = monotoneTangents(profile.map((section) => section.rxMm));
+  const ryTangents = monotoneTangents(profile.map((section) => section.ryMm));
+  const stations: JewelryDeerStation[] = [];
+
+  for (let index = 0; index < last; index += 1) {
+    const from = profile[index];
+    const to = profile[index + 1];
+    const segmentMm = Math.hypot(to.yMm - from.yMm, to.zMm - from.zMm);
+    const samples = Math.max(
+      2,
+      Math.ceil(segmentMm / JEWELRY_DEER_RING_STEP_MM),
+    );
+
+    for (let step = 0; step < samples; step += 1) {
+      const u = step / samples;
+
+      stations.push({
+        yMm: hermite(from.yMm, to.yMm, yTangents[index], yTangents[index + 1], u),
+        zMm: hermite(from.zMm, to.zMm, zTangents[index], zTangents[index + 1], u),
+        rxMm: hermite(from.rxMm, to.rxMm, rxTangents[index], rxTangents[index + 1], u),
+        ryMm: hermite(from.ryMm, to.ryMm, ryTangents[index], ryTangents[index + 1], u),
+      });
+    }
+  }
+
+  const nose = profile[last];
+
+  stations.push({
+    yMm: nose.yMm,
+    zMm: nose.zMm,
+    rxMm: nose.rxMm,
+    ryMm: nose.ryMm,
+  });
+
+  return stations;
+}
 
 /**
  * Отростки рога: доля длины ствола, длина и направление.
@@ -208,7 +338,6 @@ export type JewelryDeerPlan = {
   readonly pocketFloorMm: number;
   readonly scale: number;
   readonly stations: readonly JewelryDeerStation[];
-  readonly noseCapMm: number;
   readonly antlerSpreadMm: number;
   /** Крайняя точка рогов по X от оси, мм: размах с учётом толщины бутона. */
   readonly antlerOuterXMm: number;
@@ -274,16 +403,26 @@ function stationToVec(station: JewelryDeerStation): Vec3 {
 }
 
 
+/** Скалярное произведение. */
+function dot(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
 /**
  * Базис кольца, перпендикулярного оси.
  *
- * `e1` берётся из мировой вертикали, поэтому у стоящего бюста кольцо всегда
- * смотрит «шириной» по X: слайдеры длины и ширины читаются однозначно. У рогов
- * ось наклонена, и `e1` уезжает в сторону — это нормально, труба круглая.
+ * `e1` — проекция мировой X на плоскость кольца, поэтому у стоящего бюста
+ * полуось `rx` всегда идёт по ширине, и слайдеры длины и ширины читаются
+ * однозначно. Проекция, а не векторное произведение с Y, нужна из-за морды: на
+ * склоне к носу касательная уходит в −Y, и прежняя опора переключалась на X —
+ * кольцо разворачивалось на 90° и морду перекручивало. Здесь направление
+ * меняется непрерывно, пока ось не совпадёт с X, а у рогов этого не бывает.
  */
 function ringBasis(tangent: Vec3): { e1: Vec3; e2: Vec3 } {
-  const reference: Vec3 = Math.abs(tangent[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
-  const e1 = normalize(cross(reference, tangent));
+  const reference: Vec3 = Math.abs(tangent[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+  const e1 = normalize(
+    subtract(reference, multiply(tangent, dot(reference, tangent))),
+  );
 
   return { e1, e2: cross(tangent, e1) };
 }
@@ -389,17 +528,15 @@ export function jewelryDeerPlan(
   const antlerSpreadMm = normalized.deerAntlerSpread;
   const scale = baseLengthMm / 150;
 
-  const stations = JEWELRY_DEER_STATIONS.map((station) => ({
+  const stations = profileStations().map((station) => ({
     yMm: station.yMm * scale,
-    zMm: JEWELRY_DEER_BUST_Z0_MM + station.hMm * scale,
+    zMm: station.zMm * scale,
     rxMm: station.rxMm * scale,
     ryMm: station.ryMm * scale,
   }));
   const noseStation = stations[stations.length - 1];
-  const noseCapMm = Math.min(noseStation.rxMm, noseStation.ryMm);
 
-  const rootZ =
-    JEWELRY_DEER_BUST_Z0_MM + JEWELRY_DEER_ANTLER_ROOT_HEIGHT_MM * scale;
+  const rootZ = JEWELRY_DEER_ANTLER_ROOT_HEIGHT_MM * scale;
   const rootX = JEWELRY_DEER_ANTLER_ROOT_X_MM * scale;
   const rootY = JEWELRY_DEER_ANTLER_ROOT_Y_MM * scale;
   // Крайняя точка бутона отстоит от его центра на полный радиус: скруглённая
@@ -481,7 +618,10 @@ export function jewelryDeerPlan(
     );
   }
 
-  const noseTopMm = noseStation.zMm + noseCapMm;
+  // Верх морды — верх последнего кольца: носовая площадка закрыта плоской гранью,
+  // поэтому припуска на скругление нет.
+  const noseTopMm =
+    noseStation.zMm + Math.max(noseStation.rxMm, noseStation.ryMm);
   const heightMm = Math.round(Math.max(noseTopMm, antlerTopMm) * 100) / 100;
 
   return {
@@ -494,7 +634,6 @@ export function jewelryDeerPlan(
     pocketFloorMm: JEWELRY_DEER_WEIGHT_FLOOR_MM,
     scale,
     stations,
-    noseCapMm,
     antlerSpreadMm,
     antlerOuterXMm,
     antlers,
@@ -714,10 +853,10 @@ function addRoundedCap(
 
 
 /**
- * Бюст: лофт по станциям от груди до морды.
+ * Бюст: лофт по станциям профиля от раструба на базе до кончика морды.
  *
- * Низ закрыт плоской крышкой и утоплен в базу, верх — скруглённый кончик морды
- * высотой в радиус последнего кольца. Глаз, ушей и носа нет: силуэт держат
+ * Низ закрыт плоской крышкой и утоплен в базу, верх — плоская носовая площадка
+ * в плоскости последнего кольца. Глаз, ушей и ноздрей нет: силуэт держат
  * рога, а гладкая голова читается как скульптура.
  */
 function addDeerBust(positions: number[], plan: JewelryDeerPlan): void {
@@ -754,13 +893,11 @@ function addDeerBust(positions: number[], plan: JewelryDeerPlan): void {
 
   const last = rings.length - 1;
 
-  addRoundedCap(
-    positions,
-    centers[last],
-    tangents[last],
-    plan.noseCapMm,
-    rings[last],
-  );
+  // Кончик морды — плоская носовая площадка в плоскости последнего кольца.
+  // Скруглённая крышка здесь не годится: морда смотрит вперёд и вниз, и низ
+  // полусферы нависал бы над столом сильнее 45°. Плоская грань наклонена вместе
+  // с кольцом — это и есть «плавный скос вниз» из ТЗ, только читаемый печатью.
+  addRingFan(positions, centers[last], rings[last], true);
 }
 
 /** Одна труба рога: конус, стенки, крышки и бутон на конце. */

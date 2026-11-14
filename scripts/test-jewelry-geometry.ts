@@ -24,6 +24,7 @@ import {
   jewelryDeerHeightMm,
   jewelryDeerPlan,
   type JewelryDeerPlan,
+  type JewelryDeerStation,
 } from "../lib/constructor/jewelry-deer-geometry";
 import {
   JEWELRY_LEAF_BOWL_DEPTH_MM,
@@ -623,25 +624,35 @@ function insideTube(
  * Треугольники оленя, которые действительно висят в воздухе.
  *
  * Правило то же, что у лотка: нормаль смотрит вниз круче 45° к вертикали —
- * поддержка нужна. Отличие одно: база, бюст и восемь труб построены отдельными
- * замкнутыми телами и пересекаются, поэтому торцы корней и низ бюста лежат
- * внутри соседних тел. Такие треугольники пропускаются: слайсер их сольёт.
+ * поддержка нужна. Два вида потолков не в счёт: веер раструба внутри плиты (над
+ * ним материал базы, полость под утяжелитель считается отдельно) и тела труб
+ * рогов, которые спрятаны в бюсте и друг в друге.
+ *
+ * Низ морды — отдельная статья. Морда вытянута вперёд и срезана вниз, поэтому её
+ * нижняя грань идёт вперёд под 22° и нависает: убрать это можно только опустив
+ * нос к полу, а тогда морда перестаёт читаться. Поэтому консоль под мордой
+ * считается отдельно и ограничена по площади; всё остальное обязано быть нулём.
  */
-function deerOverhangTriangles(mesh: Mesh, plan: JewelryDeerPlan): number {
-  const axis: Point[] = plan.stations.map((station) => [
-    0,
-    station.yMm,
-    station.zMm,
-  ]);
-  const radii = plan.stations.map((station) =>
-    Math.min(station.rxMm, station.ryMm),
+function deerOverhangs(
+  mesh: Mesh,
+  plan: JewelryDeerPlan,
+): { chinMm2: number; other: number } {
+  const position = mesh.vertices;
+  // Морда — от вершины профиля (самое высокое кольцо) до кончика носа.
+  const apex = plan.stations.reduce((top, station) =>
+    station.zMm > top.zMm ? station : top,
   );
-  let count = 0;
+  const nose = plan.stations[plan.stations.length - 1];
+  const muzzleFrom: Point = [0, apex.yMm, apex.zMm];
+  const muzzleTo: Point = [0, nose.yMm, nose.zMm];
+  const muzzleRadiusMm = Math.max(apex.rxMm, apex.ryMm) + 2;
+  let chinMm2 = 0;
+  let other = 0;
 
   for (const [a, b, c] of mesh.triangles) {
-    const pa = mesh.vertices[a];
-    const pb = mesh.vertices[b];
-    const pc = mesh.vertices[c];
+    const pa = position[a];
+    const pb = position[b];
+    const pc = position[c];
     const centerX = (pa[0] + pb[0] + pc[0]) / 3;
     const centerY = (pa[1] + pb[1] + pc[1]) / 3;
     const centerZ = (pa[2] + pb[2] + pc[2]) / 3;
@@ -666,12 +677,16 @@ function deerOverhangTriangles(mesh: Mesh, plan: JewelryDeerPlan): number {
     }
 
     const center: Point = [centerX, centerY, centerZ];
-
-    if (insideTube(center, axis, radii, 0.35)) {
-      continue;
-    }
-
-    const buried = plan.antlers.some((path) =>
+    const insidePlate =
+      centerZ <= plan.baseHeightMm &&
+      (centerX * centerX) / (plan.baseLengthMm * plan.baseLengthMm * 0.25) +
+        (centerY * centerY) / (plan.baseWidthMm * plan.baseWidthMm * 0.25) <=
+        1 &&
+      Math.hypot(
+        centerX - plan.pocketCenterMm[0],
+        centerY - plan.pocketCenterMm[1],
+      ) > plan.pocketRadiusMm;
+    const buriedInAntler = plan.antlers.some((path) =>
       insideTube(
         center,
         path.points.map((point) => [point.xMm, point.yMm, point.zMm] as Point),
@@ -680,14 +695,18 @@ function deerOverhangTriangles(mesh: Mesh, plan: JewelryDeerPlan): number {
       ),
     );
 
-    if (buried) {
+    if (insidePlate || buriedInAntler) {
       continue;
     }
 
-    count += 1;
+    if (distanceToSegment(center, muzzleFrom, muzzleTo) <= muzzleRadiusMm) {
+      chinMm2 += length / 2;
+    } else {
+      other += 1;
+    }
   }
 
-  return count;
+  return { chinMm2, other };
 }
 
 console.log("\nБюст «Лесной олень»: план");
@@ -734,6 +753,186 @@ expectNear(
   deerPlan.antlerOuterXMm * 2,
   110,
   0.01,
+);
+
+console.log("\nБюст «Лесной олень»: профиль шеи и головы из ТЗ");
+
+/**
+ * Кольцо плана, совпавшее с опорным сечением профиля.
+ *
+ * Сглаживающая кривая проходит через опоры точно, поэтому каждое сечение из ТЗ
+ * лежит в плане отдельным кольцом — по нему и видно, что лофт собран по ТЗ, а не
+ * подобран на глаз.
+ */
+function deerSection(
+  plan: JewelryDeerPlan,
+  zMm: number,
+): JewelryDeerStation | undefined {
+  return plan.stations.find(
+    (station) => Math.abs(station.zMm - zMm * plan.scale) <= 1e-6,
+  );
+}
+
+/**
+ * Сечения из ТЗ: имя, высота, центр по Y и размеры.
+ *
+ * Полуоси — половины диаметров из ТЗ: 40 × 20 у основания шеи, 25 × 15 на
+ * середине, 30 × 25 у затылка, 15 × 10 у морды, 8 × 8 у носа.
+ */
+const deerProfileSections = [
+  ["основание шеи", 10, 40, 20, 16],
+  ["середина шеи", 40, 25, 15, 11],
+  ["затылок", 70, 30, 25, 6],
+  ["морда", 90, 15, 10, -14],
+  ["нос", 85, 8, 8, -24],
+] as const;
+
+for (const [name, zMm, widthMm, depthMm, yMm] of deerProfileSections) {
+  const ring = deerSection(deerPlan, zMm);
+
+  check(`олень: сечение «${name}» есть в лофте`, ring !== undefined, true);
+
+  if (!ring) {
+    continue;
+  }
+
+  expectNear(`олень: ${name} — ширина из ТЗ`, ring.rxMm * 2, widthMm, 0.02);
+  expectNear(`олень: ${name} — глубина из ТЗ`, ring.ryMm * 2, depthMm, 0.02);
+  expectNear(`олень: ${name} — центр по Y`, ring.yMm, yMm, 0.02);
+}
+
+const deerNeckBase = deerSection(deerPlan, 10);
+const deerMidNeck = deerSection(deerPlan, 40);
+const deerOcciput = deerSection(deerPlan, 70);
+const deerMuzzle = deerSection(deerPlan, 90);
+const deerNose = deerSection(deerPlan, 85);
+
+if (deerNeckBase && deerMidNeck && deerOcciput && deerMuzzle && deerNose) {
+  expectNear(
+    "олень: морда вынесена на 40 мм вперёд от основания шеи",
+    deerNeckBase.yMm - deerNose.yMm,
+    40,
+    0.02,
+  );
+  expectNear(
+    "олень: морда вынесена на 20 мм вперёд от затылка",
+    deerOcciput.yMm - deerMuzzle.yMm,
+    20,
+    0.02,
+  );
+  check(
+    "олень: нос ниже морды — скос вниз",
+    deerNose.zMm < deerMuzzle.zMm,
+    true,
+  );
+  check(
+    "олень: морда смотрит вперёд, а не в пол",
+    deerNose.zMm > deerOcciput.zMm,
+    true,
+  );
+
+  // Раструб: пятка шире шеи и утоплена в плиту, иначе шея воткнута в блин.
+  const foot = deerPlan.stations[0];
+  const neckIndex = deerPlan.stations.indexOf(deerNeckBase);
+
+  expectNear("олень: пятка раструба на плите", foot.zMm, 4, 0.02);
+  check("олень: раструб утоплен в базу", foot.zMm < deerPlan.baseHeightMm, true);
+  check("олень: раструб шире шеи", foot.rxMm > deerNeckBase.rxMm * 1.2, true);
+  check(
+    "олень: раструб сужается к шее без ступеньки",
+    deerPlan.stations
+      .slice(0, neckIndex + 1)
+      .every(
+        (station, index, rings) =>
+          index === 0 || station.rxMm < rings[index - 1].rxMm + 1e-9,
+      ),
+    true,
+  );
+}
+
+// Лофт без изломов: кольца не слипаются и не наезжают друг на друга, а ось не
+// ломается от кольца к кольцу. Иначе силуэт читается набором конусов — та самая
+// «ёлка» из шаров.
+let flattestTurnDeg = 0;
+let smallestStepMm = Number.POSITIVE_INFINITY;
+let largestRadiusJump = 0;
+
+for (let index = 1; index < deerPlan.stations.length; index += 1) {
+  const previous = deerPlan.stations[index - 1];
+  const station = deerPlan.stations[index];
+  const incoming = [station.yMm - previous.yMm, station.zMm - previous.zMm];
+  const next = deerPlan.stations[index + 1];
+  const outgoing = next
+    ? [next.yMm - station.yMm, next.zMm - station.zMm]
+    : incoming;
+  const incomingLength = Math.hypot(incoming[0], incoming[1]);
+  const outgoingLength = Math.hypot(outgoing[0], outgoing[1]);
+  const turn =
+    incomingLength > 1e-9 && outgoingLength > 1e-9
+      ? (Math.acos(
+          Math.min(
+            1,
+            Math.max(
+              -1,
+              (incoming[0] * outgoing[0] + incoming[1] * outgoing[1]) /
+                (incomingLength * outgoingLength),
+            ),
+          ),
+        ) *
+          180) /
+        Math.PI
+      : 0;
+
+  flattestTurnDeg = Math.max(flattestTurnDeg, turn);
+  smallestStepMm = Math.min(smallestStepMm, incomingLength);
+  // Полуось не может расти быстрее, чем кольца расходятся: иначе на соседних
+  // кольцах получается ступенька — излом силуэта.
+  largestRadiusJump = Math.max(
+    largestRadiusJump,
+    Math.abs(station.rxMm - previous.rxMm) / Math.max(incomingLength, 1e-9),
+    Math.abs(station.ryMm - previous.ryMm) / Math.max(incomingLength, 1e-9),
+  );
+}
+
+check("олень: кольца лофта не слипаются", smallestStepMm >= 0.6, true);
+check("олень: излом оси кольца не круче 20°", flattestTurnDeg <= 20, true);
+check(
+  "олень: радиус не прыгает круче двух шагов кольца",
+  largestRadiusJump <= 2,
+  true,
+);
+
+/** Зазор между осями рогов и осью морды: тела не должны пересекаться. */
+let antlerMuzzleGapMm = Number.POSITIVE_INFINITY;
+
+if (deerMuzzle && deerNose) {
+  const muzzleFrom: Point = [0, deerMuzzle.yMm, deerMuzzle.zMm];
+  const muzzleTo: Point = [0, deerNose.yMm, deerNose.zMm];
+  const muzzleRadiusMm = Math.max(
+    deerMuzzle.rxMm,
+    deerMuzzle.ryMm,
+    deerNose.rxMm,
+  );
+
+  for (const path of deerPlan.antlers) {
+    for (const point of path.points) {
+      antlerMuzzleGapMm = Math.min(
+        antlerMuzzleGapMm,
+        distanceToSegment([point.xMm, point.yMm, point.zMm], muzzleFrom, muzzleTo) -
+          muzzleRadiusMm -
+          Math.max(point.radiusMm, path.budRadiusMm),
+      );
+    }
+  }
+
+  check("олень: рога не задевают морду", antlerMuzzleGapMm >= 4, true);
+}
+
+console.log(
+  `  · излом оси ${flattestTurnDeg.toFixed(1)}°, шаг колец ` +
+    `${smallestStepMm.toFixed(1)} мм, рост радиуса ` +
+    `${largestRadiusJump.toFixed(2)} шага, зазор рога — морда ` +
+    `${antlerMuzzleGapMm.toFixed(1)} мм`,
 );
 
 /** Ось бюста и его узкие полуоси: по ним проверяется, что корни рогов утоплены. */
@@ -819,12 +1018,22 @@ expectNear("олень: низ на столе", deerMinZ, 0, 1e-4);
 expectNear("олень: длина базы по X", deerMaxX - deerMinX, 150, 0.02);
 expectNear("олень: ширина базы по Y", deerMaxY - deerMinY, 100, 0.02);
 expectNear("олень: высота вместе с рогами", deerMaxZ - deerMinZ, deerHeight, 0.2);
+
+/** Допуск на консоль под мордой, мм²: печатается мостом под подбородком. */
+const DEER_CHIN_CANTILEVER_MM2 = 150;
+
+const deerOverhang = deerOverhangs(deerMesh, deerPlan);
+
+check("олень: нависаний вне низа морды нет", deerOverhang.other, 0);
 check(
-  "олень: нет нависаний круче 45°",
-  deerOverhangTriangles(deerMesh, deerPlan),
-  0,
+  "олень: консоль низа морды в допуске",
+  deerOverhang.chinMm2 <= DEER_CHIN_CANTILEVER_MM2,
+  true,
 );
-console.log(`  · объём ${deerVolume.toFixed(1)} см³, высота ${deerHeight} мм`);
+console.log(
+  `  · объём ${deerVolume.toFixed(1)} см³, высота ${deerHeight} мм, ` +
+    `консоль морды ${deerOverhang.chinMm2.toFixed(0)} мм²`,
+);
 
 console.log("\nБюст «Лесной олень»: рога шире базы");
 
@@ -912,6 +1121,15 @@ check(
 check(
   "олень: минимум ниже максимума",
   smallestDeer.heightMm < deerPlan.heightMm,
+  true,
+);
+
+const smallestOverhang = deerOverhangs(smallestMesh, smallestDeer);
+
+check("олень: минимум — нависаний вне низа морды нет", smallestOverhang.other, 0);
+check(
+  "олень: минимум — консоль низа морды в допуске",
+  smallestOverhang.chinMm2 <= DEER_CHIN_CANTILEVER_MM2,
   true,
 );
 
