@@ -38,9 +38,7 @@ import {
   jewelryStandMetrics,
 } from "../lib/constructor/jewelry-stand-geometry";
 import {
-  JEWELRY_TREE_BASE_HEIGHT_MM,
-  JEWELRY_TREE_HOLE_RADIUS_MM,
-  JEWELRY_TREE_STRAND_ELEVATION_DEG,
+  JEWELRY_TREE_MIN_ELEVATION_DEG,
   jewelryTreeHeightMm,
   jewelryTreePlan,
   type JewelryTreePlan,
@@ -872,35 +870,6 @@ function strandElevationDeg(points: readonly JewelryTreePoint[]): number {
 }
 
 /**
- * Насколько прядь закручивается вокруг ствола, градусы.
- *
- * Азимут считается по тем же точкам, что уходят в сетку: сумма поворотов от
- * корня к верхушке. При нулевом плетении она равна нулю, при максимальном —
- * растёт вместе с витками.
- */
-function strandAzimuthSpreadDeg(points: readonly JewelryTreePoint[]): number {
-  let spread = 0;
-
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const from = Math.atan2(points[index].yMm, points[index].xMm);
-    const to = Math.atan2(points[index + 1].yMm, points[index + 1].xMm);
-    let delta = to - from;
-
-    if (delta > Math.PI) {
-      delta -= Math.PI * 2;
-    }
-
-    if (delta < -Math.PI) {
-      delta += Math.PI * 2;
-    }
-
-    spread += Math.abs(delta);
-  }
-
-  return (spread * 180) / Math.PI;
-}
-
-/**
  * Треугольники древа, которые действительно висят в воздухе.
  *
  * Правило прежнее: нормаль смотрит вниз круче 45° к вертикали — поддержка нужна.
@@ -910,7 +879,7 @@ function strandAzimuthSpreadDeg(points: readonly JewelryTreePoint[]): number {
  * обязано быть пустым.
  */
 function treeOverhangTriangles(mesh: Mesh, plan: JewelryTreePlan): number {
-  const tubes = [plan.core, ...plan.strands, ...plan.branches].map((tube) => ({
+  const tubes = [plan.trunk, ...plan.branches].map((tube) => ({
     centers: tube.points.map(
       (point): Point => [point.xMm, point.yMm, point.zMm],
     ),
@@ -981,144 +950,127 @@ const treePlan = jewelryTreePlan(treeCase);
 
 near("древо: радиус базы", treePlan.baseRadiusMm, 60);
 check("древо: высота ползунка — габарит", jewelryTreeHeightMm(treeCase), 180);
-near("древо: плита", treePlan.baseHeightMm, JEWELRY_TREE_BASE_HEIGHT_MM);
-check("древо: четыре пряди", treePlan.strands.length, 4);
-check("древо: сердечник один", treePlan.core.points.length > 0, true);
-near(
-  "древо: пряди касаются друг друга",
-  treePlan.strandOffsetMm + treePlan.strandRadiusMm,
-  treePlan.trunkRadiusMm,
+check(
+  "древо: чаша — борт выше дна",
+  treePlan.dish.rimZMm > treePlan.dish.floorZMm,
+  true,
 );
-check("древо: все пряди одной толщины", 
-  treePlan.strands.every(
-    (strand) => strand.points[0].radiusMm === treePlan.strandRadiusMm,
+near("древо: чаша по базе", treePlan.dish.outerRadiusMm, 60);
+check(
+  "древо: чаша внутри базы",
+  treePlan.dish.profile.every(
+    (point) => point.radiusMm <= treePlan.baseRadiusMm + 1e-9,
   ),
   true,
 );
-
-const treeStrandFloor = Math.min(
-  ...treePlan.strands.map((strand) => strandElevationDeg(strand.points)),
-);
-
 check(
-  "древо: прядь поднимается не положе 48°",
-  treeStrandFloor >= JEWELRY_TREE_STRAND_ELEVATION_DEG - 1e-6,
+  "древо: чаша стоит на столе",
+  treePlan.dish.profile.some((point) => Math.abs(point.zMm) <= 1e-9),
   true,
 );
+check("древо: основные ветви по ползунку", treePlan.mainBranchCount, 4);
 check(
-  "древо: ветви и коса не положе 45°",
+  "древо: каждая ветвь ветвится дважды",
+  treePlan.twigCount,
+  treePlan.mainBranchCount * 2,
+);
+check("древо: штырь у каждой ветви", treePlan.thornCount, treePlan.mainBranchCount);
+check(
+  "древо: ствол и ветви не положе 45°",
   treePlan.flattestSurfaceDeg >= 45,
   true,
 );
-check("древо: ветвей по ползунку", treePlan.branches.length, 4);
 check(
-  "древо: крючки и штыри делят ветви",
-  treePlan.hookCount + treePlan.postCount,
-  treePlan.branches.length,
-);
-check(
-  "древо: крючки выше штырей",
-  Math.min(
-    ...treePlan.branches
-      .filter((branch) => branch.kind === "hook")
-      .map((branch) => branch.points[0].zMm),
-  ) >
-    Math.max(
-      ...treePlan.branches
-        .filter((branch) => branch.kind === "post")
-        .map((branch) => branch.points[0].zMm),
-    ),
-  true,
-);
-check(
-  "древо: ветви не выше верхушки",
+  "древо: подъём у ствола не ниже предела",
   treePlan.branches.every((branch) => {
-    const last = branch.points[branch.points.length - 1];
+    if (branch.kind === "thorn") {
+      return true;
+    }
 
-    return last.zMm + last.radiusMm <= treePlan.crownZMm;
+    return (
+      strandElevationDeg(branch.points.slice(0, 2)) >=
+      JEWELRY_TREE_MIN_ELEVATION_DEG - 1e-6
+    );
   }),
   true,
 );
 check(
   "древо: ветви растут из ствола",
-  treePlan.branches.every((branch) => branch.points[0].zMm > treePlan.trunkRootZMm),
+  treePlan.branches.every(
+    (branch) => branch.points[0].zMm > treePlan.trunkRootZMm,
+  ),
+  true,
+);
+check(
+  "древо: ветви не выше габарита",
+  treePlan.branches.every((branch) => {
+    const last = branch.points[branch.points.length - 1];
+
+    return last.zMm + last.radiusMm <= treePlan.heightMm + 1e-6;
+  }),
+  true,
+);
+check(
+  "древо: ствол выше нижней ветви",
+  treePlan.crownZMm > treePlan.branches[0].points[0].zMm,
   true,
 );
 
 const looseTree = jewelryTreePlan({ ...treeCase, treeTwist: 0 });
 const tightTree = jewelryTreePlan({ ...treeCase, treeTwist: 1 });
 
-check("древо: без плетения витков нет", looseTree.twistTurns, 0);
-check(
-  "древо: плетение усиливает виток",
-  tightTree.twistTurns > treePlan.twistTurns && treePlan.twistTurns > 0,
-  true,
-);
-check(
-  "древо: предел плетения держит 48°",
-  Math.min(
-    ...tightTree.strands.map((strand) => strandElevationDeg(strand.points)),
-  ) >= JEWELRY_TREE_STRAND_ELEVATION_DEG - 1e-6,
-  true,
-);
-check(
-  "древо: без плетения прядь не закручивается",
-  Math.max(
-    ...looseTree.strands.map((strand) => strandAzimuthSpreadDeg(strand.points)),
-  ) <= 1e-6,
-  true,
-);
-check(
-  "древо: с плетением прядь обходит ствол",
-  Math.min(
-    ...tightTree.strands.map((strand) => strandAzimuthSpreadDeg(strand.points)),
-  ) > 30,
-  true,
-);
+/** Насколько ветвь уходит от прямой: стрелка прогиба в долях хорды. */
+const treeBranchBendRatio = (
+  points: readonly JewelryTreePoint[],
+): number => {
+  const head = points[0];
+  const tail = points[points.length - 1];
+  const dx = tail.xMm - head.xMm;
+  const dy = tail.yMm - head.yMm;
+  const chordMm = Math.hypot(dx, dy) || 1;
+  let bendMm = 0;
 
-const treeHoles = treePlan.holes;
-let treeHoleGap = Infinity;
-
-for (let index = 0; index < treeHoles.length; index += 1) {
-  for (let other = index + 1; other < treeHoles.length; other += 1) {
-    treeHoleGap = Math.min(
-      treeHoleGap,
-      Math.hypot(
-        treeHoles[other].xMm - treeHoles[index].xMm,
-        treeHoles[other].yMm - treeHoles[index].yMm,
-      ),
+  for (const point of points) {
+    bendMm = Math.max(
+      bendMm,
+      Math.abs(dx * (point.yMm - head.yMm) - dy * (point.xMm - head.xMm)) /
+        chordMm,
     );
   }
-}
 
-check("древо: отверстия есть", treeHoles.length >= 40, true);
+  return bendMm / chordMm;
+};
+
+const treeBranchSpreadDeg = (plan: typeof treePlan): number =>
+  Math.max(
+    ...plan.branches.map((branch) => treeBranchBendRatio(branch.points)),
+  );
+
 check(
-  "древо: между отверстиями не меньше 2 мм",
-  treeHoleGap - JEWELRY_TREE_HOLE_RADIUS_MM * 2 >= 2,
+  "древо: изгиб уводит ветви в сторону",
+  treeBranchSpreadDeg(tightTree) > treeBranchSpreadDeg(looseTree) + 0.03,
   true,
 );
 check(
-  "древо: отверстия внутри базы",
-  treeHoles.every(
-    (hole) =>
-      Math.hypot(hole.xMm, hole.yMm) + hole.radiusMm <= treePlan.baseRadiusMm,
-  ),
+  "древо: изгиб не поднимает крону выше предела",
+  tightTree.heightMm <= treeCase.treeHeight + 1e-6 &&
+    looseTree.heightMm <= treeCase.treeHeight + 1e-6,
+  true,
+);
+
+check(
+  "древо: без изгиба ветви идут по лучу",
+  treeBranchSpreadDeg(looseTree) < 0.05,
   true,
 );
 check(
-  "древо: юбка не выходит за базу",
-  treePlan.skirt.outerRadiusMm < treePlan.baseRadiusMm,
+  "древо: с изгибом ветви уходят в сторону",
+  treeBranchSpreadDeg(tightTree) > 0.085,
   true,
 );
 check(
-  "древо: фаска юбки — 45°",
-  treePlan.skirt.bevelMm <=
-    (treePlan.skirt.topMm - treePlan.skirt.bottomMm) / 2 + 1e-9,
-  true,
-);
-check(
-  "древо: юбка утоплена в плиту",
-  treePlan.skirt.bottomMm < treePlan.baseHeightMm,
+  "древо: изгиб не ломает подъём",
+  tightTree.flattestSurfaceDeg >= 45 && looseTree.flattestSurfaceDeg >= 45,
   true,
 );
 
@@ -1146,24 +1098,24 @@ check(
   true,
 );
 check(
-  "древо: план равен базе",
-  Math.abs(treePlanWidth - treeCase.treeBaseDiameter) <= 1e-6,
+  "древо: план не уже базы",
+  treePlanWidth >= treeCase.treeBaseDiameter - 1e-4,
   true,
 );
 check(
-  "древо: ветви не выходят за базу",
+  "древо: ветви в пределах выноса",
   treePlan.branches.every((branch) => {
     const last = branch.points[branch.points.length - 1];
 
     return (
       Math.hypot(last.xMm, last.yMm) + last.radiusMm <=
-      treePlan.baseRadiusMm + 1e-9
+      treePlan.reachMm + 1e-6
     );
   }),
   true,
 );
 check(
-  "древо: нависаний над плитой",
+  "древо: нависаний нет",
   treeOverhangTriangles(treeMesh, treePlan),
   0,
 );
@@ -1236,20 +1188,13 @@ for (const corner of treeCorners) {
   expect(`${name}: объём`, volume > 0, "пустая сетка");
   expect(
     `${name}: ветвей по ползунку`,
-    plan.branches.length === expected.treeBranchCount,
-    `${plan.branches.length} вместо ${expected.treeBranchCount}`,
+    plan.mainBranchCount === expected.treeBranchCount,
+    `${plan.mainBranchCount} вместо ${expected.treeBranchCount}`,
   );
   expect(
-    `${name}: сетка серёг`,
-    plan.holes.length >= 24,
-    `${plan.holes.length} отверстий`,
-  );
-  expect(
-    `${name}: отверстия в плите`,
-    plan.holes.every(
-      (hole) => Math.hypot(hole.xMm, hole.yMm) + hole.radiusMm <= plan.baseRadiusMm,
-    ),
-    "отверстие вышло за базу",
+    `${name}: ветвление кроны`,
+    plan.twigCount === plan.mainBranchCount * 2,
+    `${plan.twigCount} веточек`,
   );
   expect(
     `${name}: нависаний нет`,
@@ -1259,7 +1204,7 @@ for (const corner of treeCorners) {
 
   console.log(
     `  ${failures.length === before ? "✓" : "✗"} ${name}: ${maxZ.toFixed(2)} мм, ` +
-      `${plan.holes.length} отверстий, ${volume.toFixed(1)} см³`,
+      `${plan.branches.length} ветвей, ${volume.toFixed(1)} см³`,
   );
 }
 
@@ -1296,12 +1241,18 @@ check(
 );
 check(
   "древо: минимум — три ветви",
-  smallestTreePlan.branches.length,
+  smallestTreePlan.mainBranchCount,
   3,
 );
 check(
-  "древо: минимум — сетка серёг не режется",
-  smallestTreePlan.holes.length >= 24,
+  "древо: минимум — крона ветвится",
+  smallestTreePlan.twigCount >= 6 &&
+    smallestTreePlan.branches.length > smallestTreePlan.mainBranchCount,
+  true,
+);
+check(
+  "древо: минимум — чаша не ниже трёх миллиметров",
+  smallestTreePlan.dish.rimZMm >= 3,
   true,
 );
 

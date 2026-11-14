@@ -1668,7 +1668,7 @@ export function ConstructorClient({
                     <>
                       {JEWELRY_PRESET_LABELS[params.jewelryPreset]} ·{" "}
                       {params.treeHeight} × Ø{params.treeBaseDiameter} мм ·{" "}
-                      {params.treeBranchCount} ветви · плетение{" "}
+                      {params.treeBranchCount} ветви · изгиб{" "}
                       {Math.round(params.treeTwist * 100)}%
                     </>
                   )

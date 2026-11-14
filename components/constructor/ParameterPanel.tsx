@@ -34,13 +34,9 @@ import {
   jewelryLeafPlateThicknessMm,
 } from "@/lib/constructor/jewelry-leaf-geometry";
 import {
-  JEWELRY_TREE_BASE_HEIGHT_MM,
   JEWELRY_TREE_BRANCH_BUD_RADIUS_MM,
   JEWELRY_TREE_BRANCH_RADIUS_MM,
-  JEWELRY_TREE_CROWN_START_SHARE,
-  JEWELRY_TREE_HOLE_PITCH_MM,
-  JEWELRY_TREE_HOLE_RADIUS_MM,
-  JEWELRY_TREE_STRAND_ELEVATION_DEG,
+  JEWELRY_TREE_MIN_ELEVATION_DEG,
   jewelryTreeHeightMm,
 } from "@/lib/constructor/jewelry-tree-geometry";
 import {
@@ -3779,7 +3775,7 @@ export function ParameterPanel({
         <>
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Лист — плоский лоток для часов, колец и серёг. «Лесной олень» — бюст с рогами на овальной базе и полостью под утяжелитель. «Плетёное древо» пока строится прежней стойкой: его генератор в разработке."
+              hint="Лист — плоский лоток для часов, колец и серёг. «Лесной олень» — бюст с рогами на овальной базе и полостью под утяжелитель. «Плетёное древо» — живое дерево в чаше: ствол с раструбом, ярусы ветвей с развилками и штыри под кольца."
               label="Форма"
               onChange={onJewelryPresetChange}
               options={JEWELRY_PRESETS.map((jewelryPreset) => ({
@@ -3909,7 +3905,7 @@ export function ParameterPanel({
             <>
               <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
                 <NumberSlider
-                  hint="Высота от стола до верхушки косы. 160–180 мм — витринный размер, 120–140 мм — настольный: выше 220 мм коса из четырёх прядей гнётся под весом серёг."
+                  hint="Высота от стола до верхушки ствола. 160–180 мм — витринный размер, 120–140 мм — настольный: выше 220 мм длинные ветви с цепочками гнутся под весом украшений."
                   label="Высота"
                   max={CONSTRUCTOR_LIMITS.treeHeight.max}
                   min={CONSTRUCTOR_LIMITS.treeHeight.min}
@@ -3931,7 +3927,7 @@ export function ParameterPanel({
                 />
 
                 <NumberSlider
-                  hint="Сколько ветвей растёт из ствола. Верхние несут крючки под цепочки, нижние — прямые штыри под кольца; больше шести ветвей крючки на одном стволе цепляют друг друга."
+                  hint="Сколько основных ветвей растёт из ствола. Каждая ветвится ещё на две, а на нижней трети сидит штырь под кольцо; больше шести ветвей дают слишком плотную крону."
                   label="Ветви"
                   max={CONSTRUCTOR_LIMITS.treeBranchCount.max}
                   min={CONSTRUCTOR_LIMITS.treeBranchCount.min}
@@ -3942,8 +3938,8 @@ export function ParameterPanel({
                 />
 
                 <NumberSlider
-                  hint="Сила плетения: 0 — пряди идут вертикально, 1 — предельный шаг витка. Круче генератор уже не закрутит: подъём пряди держится не ниже 48°, иначе принтеру нужны поддержки."
-                  label="Плетение"
+                  hint="Насколько ветви расходятся в стороны на развилках: 0 — строгие ярусы, 1 — раскидистая крона с сильным боковым изгибом. Подъём ветви держится не ниже 52°, поэтому поддержки не нужны."
+                  label="Изгиб ветвей"
                   max={CONSTRUCTOR_LIMITS.treeTwist.max}
                   min={CONSTRUCTOR_LIMITS.treeTwist.min}
                   onChange={(value) => onParamChange("treeTwist", value)}
@@ -3954,19 +3950,15 @@ export function ParameterPanel({
               </div>
 
               <p className="mt-4 text-xs leading-relaxed text-slate-300">
-                Коса — четыре пряди вокруг сердечника: каждая поднимается не положе{" "}
-                {JEWELRY_TREE_STRAND_ELEVATION_DEG}°, поэтому ствол печатается без
-                поддержек даже при полном плетении. Выше{" "}
-                {Math.round(JEWELRY_TREE_CROWN_START_SHARE * 100)} % высоты пряди
-                сходятся в бутон и замирают к моменту печати верхушки. Ветви растут
-                вокруг ствола по золотому сечению: верхние загибаются крючком с
-                бутоном Ø {(JEWELRY_TREE_BRANCH_BUD_RADIUS_MM * 2).toFixed(1)} мм,
-                нижние стоят прямым штырём Ø{" "}
-                {(JEWELRY_TREE_BRANCH_RADIUS_MM * 2).toFixed(1)} мм. В плите — сетка
-                отверстий Ø {(JEWELRY_TREE_HOLE_RADIUS_MM * 2).toFixed(1)} мм с шагом
-                около {JEWELRY_TREE_HOLE_PITCH_MM} мм: серьги висят парами, не задевая
-                друг друга. Плита {JEWELRY_TREE_BASE_HEIGHT_MM} мм высотой с
-                корневой юбкой: низкий центр тяжести держит древо с цепочками.
+                Ствол ведёт плавную дугу с раструбом у корня и поднимается не
+                положе {JEWELRY_TREE_MIN_ELEVATION_DEG}°, поэтому печатается без
+                поддержек. Из ствола ярусами растут ветви: каждая ветвится ещё на
+                две и заканчивается крючком с бусиной Ø{" "}
+                {(JEWELRY_TREE_BRANCH_BUD_RADIUS_MM * 2).toFixed(1)} мм — кольцо
+                сползает по уклону и остаётся на ней. Штырь под кольцо Ø{" "}
+                {(JEWELRY_TREE_BRANCH_RADIUS_MM * 2).toFixed(1)} мм стоит на
+                нижней трети ветви. Ствол врастает в чашу-лоток: мелочь и серьги
+                падают в неё, а не на стол.
               </p>
             </>
           )}

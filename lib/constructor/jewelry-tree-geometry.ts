@@ -1,224 +1,143 @@
 /**
  * Геометрия древа «Плетёное древо».
  *
- * Третья форма премиум-коллекции: круглая плита с корневой юбкой, витой ствол,
- * спиральные ветви и сетка сквозных отверстий под серьги.
+ * Третья форма премиум-коллекции: чаша-лоток для украшений, из дна которой
+ * растёт живое дерево — изогнутый ствол с раструбом у корня, ярусы ветвей с
+ * развилками и загнутыми вверх крючками, на которые вешают кольца, серьги и
+ * цепочки. Композиция повторяет классические подставки-деревья: чаша ловит
+ * мелочь, крона держит украшения.
  *
- * Ствол — коса из четырёх прядей. Прядь это труба, ось которой обвивает ось
- * древа: каждая стоит на своём радиусе и сдвинута по фазе на четверть витка,
- * поэтому с любого ракурса видно, что ствол сплетён, а не процарапан. Между
- * прядями остаётся канал, его закрывает сердечник — тонкая труба по оси: коса
- * получается сплошной, а ложбинки между прядями остаются глубокими.
+ * Ствол не цилиндр: ось ведёт плавную дугу, радиус падает кверху на две трети,
+ * а у самого дна добавляется раструб — расширение вниз, как у настоящего корня.
+ * Раструб разгоняется медленнее 45°, поэтому первые слои ложатся без поддержек.
  *
- * Число витков не задаётся напрямую. Слайдер `treeTwist` выбирает долю от
- * предела, при котором ось пряди ещё поднимается не положе 48° к столу: у трубы,
- * наклонённой на α, самая нижняя точка поверхности наклонена на те же α, и
- * правило 45° переводится в правило «ось не положе 45°». Предел ищется делением
- * пополам по тем же станциям, по которым строятся кольца, поэтому коса остаётся
- * печатаемой при любом сочетании высоты и диаметра базы.
+ * Ветви строятся рекурсией: основная ветвь выходит из ствола под 52°…58° к
+ * столу, по пути плавно загибается до 84°…88° — так получается крючок, с
+ * которого не соскальзывает кольцо. От основной ветви отходят две дочерние,
+ * от них — ещё по одной: три уровня дают ажурную крону, а не метёлку.
+ * Скорость роста радиуса вдоль трубы ограничена, поэтому утолщение-бусина на
+ * конце не создаёт нависания круче 45° при любом ползунке.
  *
- * Ветви растут из ствола по спирали: азимут каждой следующей сдвинут на угол
- * золотого сечения, высота — своя, а подъём держится 60°. Верхние ветви длиннее
- * и заканчиваются бусиной: кольцо надевают на ветвь, оно сползает по уклону и
- * останавливается на бусине. Загиба крюка вниз нет намеренно: нисходящий загиб
- * обязан пройти через горизонталь, а труба, ось которой ближе 45° к столу, уже
- * требует поддержек. Вместо него ветвь уходит по дуге в сторону — на 40° по
- * азимуту, — и утолщается: этого хватает, чтобы кольцо не соскальзывало.
- * Нижние ветви — короткие прямые штыри под 66°: на них висят браслеты.
+ * Чаша — тело вращения: плоское дно на столе, вертикальная внешняя стенка с
+ * фаской 45° у кромки, скруглённый борт и наклонённая внутрь внутренняя стенка.
+ * Такая оболочка замкнута без булевых операций и печатается без поддержек.
  *
- * База — плита Ø120 × 5 мм с сеткой сквозных отверстий Ø1.2: крючок серьги
- * проходит насквозь, стенки отверстий вертикальные, поэтому мостов нет. По краю
- * плиты стоит корневая юбка — кольцо с волнистым контуром и скруглённой кромкой:
- * это «корни» древа и одновременно утяжеляющий борт. Плита и юбка выдавлены из
- * контуров: у плиты в контуре 111 отверстий, и только выдавливание даёт
- * замкнутую оболочку без булевых операций.
- *
- * Все тела замкнуты по отдельности и пересекаются: низ косы уходит в плиту,
- * корни ветвей — в сердечник. Слайсер объединяет их при печати.
+ * Все тела замкнуты по отдельности и пересекаются: низ ствола уходит в дно
+ * чаши, корни ветвей — в ствол. Слайсер объединяет их при печати.
  *
  * Система координат общая для коллекции: Z вверх, низ на z = 0, центр базы в
  * начале координат.
  */
 
-import {
-  BufferGeometry,
-  ExtrudeGeometry,
-  Float32BufferAttribute,
-  Path,
-  Shape,
-  Vector2,
-} from "three";
+import { BufferGeometry, Float32BufferAttribute } from "three";
 
 import {
   normalizeJewelryStandParams,
   type JewelryStandParams,
 } from "@/lib/constructor/params";
-import { circlePolygon, type Point2 } from "@/lib/constructor/prism-mesh";
 
-/** Высота плиты базы, мм: держит косу и не заваливает древо вперёд. */
-export const JEWELRY_TREE_BASE_HEIGHT_MM = 5;
+/** Подъём основной ветви у ствола, градусы: пять градусов запаса к правилу 45°. */
+export const JEWELRY_TREE_MIN_ELEVATION_DEG = 50;
 
-/** Радиус ствола у основания в долях радиуса базы: 0.115·60 = 6.9 мм (Ø13.8). */
-const JEWELRY_TREE_TRUNK_RADIUS_SHARE = 0.115;
+/** Радиус ветви у ствола, мм: Ø5 держит кольцо и не ломается при печати. */
+export const JEWELRY_TREE_BRANCH_RADIUS_MM = 2.5;
 
-/**
- * Смещение оси пряди от оси древа в долях наружного радиуса косы.
- *
- * Четыре пряди стоят через 90°, соседние центры отстоят на d·√2. Касание
- * (r = d/√2) даёт d = R/(1 + 1/√2) = 0.586·R — отсюда и число: пряди не
- * расходятся и не слипаются в гладкий цилиндр.
- */
-const JEWELRY_TREE_STRAND_OFFSET_SHARE = 0.586;
+/** Радиус бусины на конце ветви, мм: Ø5 — кольцо останавливается на крючке. */
+export const JEWELRY_TREE_BRANCH_BUD_RADIUS_MM = 2.6;
 
-/** Радиус пряди в долях наружного радиуса косы: 1 − 0.586, ровно до касания. */
-const JEWELRY_TREE_STRAND_RADIUS_SHARE = 0.414;
+/** Радиус ствола у корня в долях высоты: H180 → Ø12.2, H100 → Ø6.8. */
+const JEWELRY_TREE_TRUNK_RADIUS_SHARE = 0.034;
 
-/** Радиус сердечника в долях наружного радиуса косы: 0.34 закрывает канал. */
-const JEWELRY_TREE_CORE_SHARE = 0.34;
+/** Пределы радиуса ствола, мм. */
+const JEWELRY_TREE_TRUNK_MIN_RADIUS_MM = 3.2;
+const JEWELRY_TREE_TRUNK_MAX_RADIUS_MM = 7;
 
-/** Сужение косы кверху: 0.25 — на верхушке ствол на четверть тоньше. */
-const JEWELRY_TREE_TRUNK_TAPER = 0.25;
+/** Радиус верхушки ствола: 0.34 корня — ствол заметно тоньше к кроне. */
+const JEWELRY_TREE_TRUNK_TIP_SHARE = 0.34;
 
-/** Доля высоты, с которой пряди начинают сходиться в почку. */
-export const JEWELRY_TREE_CROWN_START_SHARE = 0.8;
+/** Изгиб оси ствола в долях радиуса чаши: дуга, а не штырь. */
+const JEWELRY_TREE_TRUNK_SWAY_SHARE = 0.1;
 
-/** Остаток смещения прядей на верхушке: коса сходится в одно тело. */
-const JEWELRY_TREE_CROWN_OFFSET_SHARE = 0.38;
+/** Станций ствола: 26 колец дают ровную дугу без граней. */
+const JEWELRY_TREE_TRUNK_SAMPLES = 26;
 
-/** Сужение самой пряди к верхушке: 0.12 — коса сходится плотнее. */
-const JEWELRY_TREE_STRAND_TIP_TAPER = 0.12;
+/** Число сторон ствола: 16 при Ø12 дают хорду 2.3 мм. */
+const JEWELRY_TREE_TRUNK_SIDES = 16;
 
-/** Доля высоты, после которой фаза витка замирает: почка не завивается. */
-const JEWELRY_TREE_PHASE_FREEZE_SHARE = 0.88;
-
-/** Максимум производной smoothstep на участке: по нему считается предел витка. */
-const JEWELRY_TREE_PHASE_PROFILE_PEAK = 1.5 / JEWELRY_TREE_PHASE_FREEZE_SHARE;
-
-/** Подъём оси пряди, градусы: 48° — три градуса запаса к правилу 45°. */
-export const JEWELRY_TREE_STRAND_ELEVATION_DEG = 48;
-
-/** Станций у пряди: 26 колец на 170 мм оставляют хорды по 6.5 мм. */
-const JEWELRY_TREE_STRAND_SAMPLES = 26;
-
-/** Число сторон пряди: Ø4.7 при 16 сегментах даёт хорду 0.9 мм. */
-const JEWELRY_TREE_STRAND_SIDES = 16;
-
-/** Число сторон сердечника и ветвей: они тоньше, двенадцати хватает. */
+/** Число сторон ветвей: они тоньше, двенадцати хватает. */
 const JEWELRY_TREE_BRANCH_SIDES = 12;
 
-/** Насколько коса уходит в плиту, мм: склейка тел без видимого стыка. */
-const JEWELRY_TREE_STRAND_EMBED_MM = 2.8;
-
-/** Число прядей в косе: четыре дают «над-под» с любого ракурса. */
-const JEWELRY_TREE_STRAND_COUNT = 4;
+/** Станций ветви: 16 колец хватает на плавный крючок. */
+const JEWELRY_TREE_BRANCH_STEPS = 16;
 
 /** Колец в скруглённой крышке: три дают сферу без плоских граней. */
 const JEWELRY_TREE_CAP_STEPS = 3;
 
-/** Подъём верхней ветви, градусы: 60° — 12° запаса под бусину и загиб. */
-const JEWELRY_TREE_HOOK_ELEVATION_DEG = 60;
+/** Длина основной ветви в долях радиуса чаши: крона шире лотка. */
+const JEWELRY_TREE_BRANCH_REACH_SHARE = 1.5;
 
-/** Подъём нижнего штыря, градусы: 66° — штырь круче ветви и короче её. */
-const JEWELRY_TREE_POST_ELEVATION_DEG = 66;
+/** Сужение ветви к концу: 0.42 корня — тонкий крючок. */
+const JEWELRY_TREE_BRANCH_TIP_SHARE = 0.42;
 
-/** Радиус ветви у ствола, мм: Ø4.4 держит кольцо и браслет. */
-export const JEWELRY_TREE_BRANCH_RADIUS_MM = 2.2;
+/** Множитель длины дочерней ветви и её радиус у развилки. */
+const JEWELRY_TREE_CHILD_LENGTH_SHARE = 0.54;
+const JEWELRY_TREE_CHILD_RADIUS_SHARE = 0.66;
 
-/** Радиус ветви перед бусиной, мм: Ø3.2 — ветвь не хрупче пряди. */
-const JEWELRY_TREE_BRANCH_TIP_RADIUS_MM = 1.6;
+/** Множитель длины веточки третьего уровня. */
+const JEWELRY_TREE_TWIG_LENGTH_SHARE = 0.52;
 
-/** Радиус бусины на конце верхней ветви, мм: Ø5.2 — кольцо не соскальзывает. */
-export const JEWELRY_TREE_BRANCH_BUD_RADIUS_MM = 2.6;
+/** Подъём веточек-крючков у их концов, градусы. */
+const JEWELRY_TREE_BRANCH_END_ELEVATION_DEG = 86;
 
-/** Длина бусины, мм: рост радиуса на 1 за 7 мм — нависание 8° к оси. */
-const JEWELRY_TREE_BRANCH_BUD_MM = 7;
+/** Боковой увод дочерних ветвей от родителя, градусы: 28…58 по ползунку изгиба. */
+const JEWELRY_TREE_CHILD_SWING_MIN_DEG = 28;
+const JEWELRY_TREE_CHILD_SWING_MAX_DEG = 58;
 
-/** Боковой загиб верхней ветви, градусы: больше 40° уже срывает подъём. */
-const JEWELRY_TREE_HOOK_CURL_DEG = 40;
+/** Штырь под кольцо: высота над ветвью, мм, и его радиус, мм. */
+const JEWELRY_TREE_THORN_LENGTH_MM = 7;
+const JEWELRY_TREE_THORN_RADIUS_MM = 1.35;
 
-/** Доли длины ветви, на которых работает загиб: середина, подальше от бусины. */
-const JEWELRY_TREE_HOOK_CURL_FROM_SHARE = 0.3;
-const JEWELRY_TREE_HOOK_CURL_TO_SHARE = 0.9;
+/** Доля высоты, где сидят ярусы основных ветвей: от нижнего до верхнего. */
+const JEWELRY_TREE_BRANCH_ROOT_BAND = [0.3, 0.66] as const;
 
-/** Вынос верхней ветви в долях радиуса базы: 0.42·60 = 25 мм. */
-const JEWELRY_TREE_HOOK_REACH_SHARE = 0.42;
+/** Доли высоты, где сидят верхние ветви, и их длина в долях основной. */
+const JEWELRY_TREE_CROWN_ROOT_SHARES = [0.7, 0.78, 0.86] as const;
+const JEWELRY_TREE_CROWN_LENGTH_SHARE = 0.34;
 
-/** Длина нижнего штыря в долях высоты древа и её пределы, мм. */
-const JEWELRY_TREE_POST_LENGTH_SHARE = 0.15;
-const JEWELRY_TREE_POST_MIN_LENGTH_MM = 18;
-const JEWELRY_TREE_POST_MAX_LENGTH_MM = 40;
-
-/** Запас под ветви на верхушке, мм: ветвь не выходит выше ползунка высоты. */
-const JEWELRY_TREE_HOOK_HEADROOM_MM = 2;
-
-/** Доли высоты, где сидят верхние ветви: под самой почкой. */
-const JEWELRY_TREE_HOOK_ROOT_BAND = [0.56, 0.74] as const;
-
-/** Доли высоты, где сидят нижние штыри: середина ствола. */
-const JEWELRY_TREE_POST_ROOT_BAND = [0.26, 0.42] as const;
-
-/** Шаг азимута между ветвями в долях оборота: 0.618 — золотое сечение. */
+/** Шаг азимута между основными ветвями: золотое сечение даёт естественный ряд. */
 const JEWELRY_TREE_BRANCH_AZIMUTH_STEP = 0.61803;
 
-/** Доли длины верхней ветви, где стоят кольца: сгущение к бусине. */
-const JEWELRY_TREE_HOOK_SAMPLES = [
-  0, 0.2, 0.38, 0.54, 0.68, 0.8, 0.88, 0.94, 1,
-] as const;
+/** Запас под бусину на верхушке, мм: крона не пробивает ползунок высоты. */
+const JEWELRY_TREE_TOP_HEADROOM_MM = 1.4;
 
-/** Доли длины нижнего штыря: пять колец на прямой штырь. */
-const JEWELRY_TREE_POST_SAMPLES = [0, 0.3, 0.55, 0.78, 0.92, 1] as const;
+/** Число сегментов чаши: 96 на Ø120 дают хорду 3.9 мм. */
+const JEWELRY_TREE_DISH_SIDES = 96;
 
-/** Число сторон плиты: 60 сегментов на Ø120 дают хорду 6.3 мм. */
-const JEWELRY_TREE_BASE_SIDES = 60;
+/** Глубина борта в долях радиуса чаши и её пределы, мм. */
+const JEWELRY_TREE_DISH_RIM_SHARE = 0.2;
+const JEWELRY_TREE_DISH_MIN_RIM_MM = 9;
+const JEWELRY_TREE_DISH_MAX_RIM_MM = 18;
 
-/** Отступ юбки от кромки плиты, мм: плита видна по краю на три миллиметра. */
-const JEWELRY_TREE_SKIRT_INSET_MM = 3;
+/** Толщина дна в долях радиуса, мм и пределы. */
+const JEWELRY_TREE_DISH_FLOOR_SHARE = 0.06;
+const JEWELRY_TREE_DISH_MIN_FLOOR_MM = 2.6;
+const JEWELRY_TREE_DISH_MAX_FLOOR_MM = 5;
 
-/** Ширина кольца юбки, мм: девять — корни читаются, но не съедают сетку. */
-const JEWELRY_TREE_SKIRT_WIDTH_MM = 9;
+/** Толщина стенки чаши в долях радиуса, мм и пределы. */
+const JEWELRY_TREE_DISH_WALL_SHARE = 0.055;
+const JEWELRY_TREE_DISH_MIN_WALL_MM = 2.2;
+const JEWELRY_TREE_DISH_MAX_WALL_MM = 3.4;
 
-/** Высота юбки над плитой, мм. */
-const JEWELRY_TREE_SKIRT_HEIGHT_MM = 7;
+/** Скругление кромки чаши: 45° — фаска, которая печатается без поддержек. */
+const JEWELRY_TREE_DISH_EDGE_SHARE = 0.03;
+const JEWELRY_TREE_DISH_MIN_EDGE_MM = 1.6;
+const JEWELRY_TREE_DISH_MAX_EDGE_MM = 2.6;
 
-/** Насколько юбка утоплена в плиту, мм: дно скрыто внутри, тел внахлёст. */
-const JEWELRY_TREE_SKIRT_EMBED_MM = 1;
-
-/** Скругление кромки юбки, мм: 45°, предел печати без поддержек. */
-const JEWELRY_TREE_SKIRT_BEVEL_MM = 1.2;
-
-/** Лепестков у корневого контура и шагов контура на оборот. */
-const JEWELRY_TREE_SKIRT_LOBES = 5;
-const JEWELRY_TREE_SKIRT_STEPS = 60;
-
-/** Амплитуда лепестков в долях радиуса юбки: контур уходит только внутрь. */
-const JEWELRY_TREE_SKIRT_LOBE_SHARE = 0.06;
-
-/** Радиус отверстия под серьгу, мм: крючок Ø0.8 проходит с запасом. */
-export const JEWELRY_TREE_HOLE_RADIUS_MM = 0.6;
-
-/** Шаг сетки отверстий, мм: 6 — серьги не задевают друг друга. */
-export const JEWELRY_TREE_HOLE_PITCH_MM = 6;
-
-/** Число сторон отверстия: 16 дают погрешность хорды 0.01 мм. */
-const JEWELRY_TREE_HOLE_SIDES = 16;
-
-/** Ряды сетки в долях диаметра базы: 0.15…0.30, между стволом и юбкой. */
-const JEWELRY_TREE_HOLE_RING_SHARES = [0.15, 0.2, 0.25, 0.3] as const;
-
-/** Минимум отверстий в ряду: у внутреннего кольца иначе их почти нет. */
-const JEWELRY_TREE_HOLE_RING_MIN_COUNT = 6;
-
-/** Станций поиска предела витка: деление пополам сходится за 40 шагов. */
-const JEWELRY_TREE_TWIST_STEPS = 40;
-
-/** Насколько сердечник короче косы, мм: его торец прячется в почке. */
-const JEWELRY_TREE_CORE_TRIM_MM = 1.2;
+/** Наклон внутренней стенки чаши: доля глубины, уходящая к центру. */
+const JEWELRY_TREE_DISH_TAPER_SHARE = 0.12;
 
 
-/** Вектор в миллиметрах. */
-type Vec3 = [number, number, number];
-
-/** Точка оси трубы с радиусом, мм. */
+/** Точка оси трубы: центр кольца и его радиус. */
 export type JewelryTreePoint = {
   readonly xMm: number;
   readonly yMm: number;
@@ -226,66 +145,55 @@ export type JewelryTreePoint = {
   readonly radiusMm: number;
 };
 
-/** Одна труба древа: прядь, сердечник, верхняя ветвь или нижний штырь. */
+/** Труба плана: ствол, ветвь, веточка или штырь под кольцо. */
 export type JewelryTreeTube = {
   readonly id: string;
-  readonly kind: "strand" | "core" | "hook" | "post";
+  readonly kind: "trunk" | "branch" | "twig" | "thorn";
   readonly points: readonly JewelryTreePoint[];
 };
 
-/** Отверстие сетки: центр в плоскости стола и радиус, мм. */
-export type JewelryTreeHole = {
-  readonly xMm: number;
-  readonly yMm: number;
+/** Точка профиля чаши в плоскости (радиус, высота). */
+export type JewelryTreeDishPoint = {
   readonly radiusMm: number;
+  readonly zMm: number;
+};
+
+/** Чаша-лоток: внешний радиус, высота борта и профиль тела вращения. */
+export type JewelryTreeDish = {
+  readonly outerRadiusMm: number;
+  readonly rimZMm: number;
+  readonly floorZMm: number;
+  readonly wallThicknessMm: number;
+  readonly profile: readonly JewelryTreeDishPoint[];
 };
 
 /**
- * Корневая юбка по кромке плиты.
+ * План древа: чаша, ствол, ветви и габарит.
  *
- * Контур волнистый и уходит только внутрь: деталь не выходит за диаметр базы,
- * а лепестки читаются как корни. Кромка скруглена на `bevelMm` — это ровно 45°,
- * поэтому первый слой печатается без поддержек.
+ * План считается без three.js: по нему строятся и геометрия, и подписи, и
+ * проверки в `scripts/test-jewelry-geometry.ts`.
  */
-export type JewelryTreeSkirt = {
-  readonly outerRadiusMm: number;
-  readonly innerRadiusMm: number;
-  readonly bottomMm: number;
-  readonly topMm: number;
-  readonly bevelMm: number;
-  readonly lobes: number;
-  readonly lobeShare: number;
-};
-
-/** План древа: всё, что считается один раз и проверяется тестом. */
 export type JewelryTreePlan = {
   readonly baseRadiusMm: number;
   readonly baseHeightMm: number;
-  /** Высота, с которой начинается коса: она утоплена в плиту. */
   readonly trunkRootZMm: number;
+  readonly trunkSpanMm: number;
   readonly trunkRadiusMm: number;
   readonly trunkTipRadiusMm: number;
-  readonly trunkSpanMm: number;
-  /** Фактическое число витков фазы после выбора предела. */
-  readonly twistTurns: number;
-  readonly strandOffsetMm: number;
-  readonly strandRadiusMm: number;
-  readonly coreRadiusMm: number;
-  readonly strands: readonly JewelryTreeTube[];
-  readonly core: JewelryTreeTube;
+  readonly trunk: JewelryTreeTube;
   readonly branches: readonly JewelryTreeTube[];
-  readonly hookCount: number;
-  readonly postCount: number;
-  readonly holes: readonly JewelryTreeHole[];
-  readonly skirt: JewelryTreeSkirt;
-  /** Верхушка косы с учётом скруглённой крышки, мм. */
+  readonly mainBranchCount: number;
+  readonly twigCount: number;
+  readonly thornCount: number;
+  readonly dish: JewelryTreeDish;
   readonly crownZMm: number;
-  /** Наибольший вынос от оси, мм: ограничивает габарит в плане. */
   readonly reachMm: number;
-  /** Самый пологий участок поверхности, градусы: должен быть не ниже 45. */
   readonly flattestSurfaceDeg: number;
   readonly heightMm: number;
 };
+
+/** Тройка координат. */
+type Vec3 = [number, number, number];
 
 /** Сложение векторов. */
 function addVector(a: Vec3, b: Vec3): Vec3 {
@@ -303,15 +211,15 @@ function multiplyVector(v: Vec3, factor: number): Vec3 {
 }
 
 /** Длина вектора. */
-function vectorLength(v: Vec3): number {
+function lengthVector(v: Vec3): number {
   return Math.hypot(v[0], v[1], v[2]);
 }
 
-/** Единичный вектор; нулевой остаётся вертикальным, чтобы не делить на ноль. */
+/** Единичный вектор; нулевой остаётся нулевым. */
 function normalizeVector(v: Vec3): Vec3 {
-  const size = vectorLength(v);
+  const length = lengthVector(v);
 
-  return size > 1e-12 ? multiplyVector(v, 1 / size) : [0, 0, 1];
+  return length > 1e-9 ? multiplyVector(v, 1 / length) : [0, 0, 0];
 }
 
 /** Векторное произведение. */
@@ -323,7 +231,13 @@ function crossVector(a: Vec3, b: Vec3): Vec3 {
   ];
 }
 
-/** Гладкая ступень 0…1: у неё ограничена производная, а значит и нависание. */
+/**
+ * Плавная ступенька от 0 до 1.
+ *
+ * Скачок производной на концах отсутствует, поэтому радиус и подъём меняются
+ * без изломов, а значит и без нависания: там, где считается нависание, важна
+ * производная, а не сама кривая.
+ */
 function smoothstep(edge0: number, edge1: number, value: number): number {
   if (edge1 <= edge0) {
     return value >= edge1 ? 1 : 0;
@@ -345,10 +259,177 @@ function degreesToRadians(degrees: number): number {
 }
 
 /**
- * План древа: коса, сердечник, ветви, сетка отверстий и габарит.
+ * Профиль чаши-лотка.
  *
- * План считается без three.js: по нему строятся и геометрия, и подписи, и
- * проверки в `scripts/test-jewelry-geometry.ts`.
+ * Обход идёт по границе материала: от нижнего полюса наружу по дну, вверх по
+ * внешней стенке, через скруглённую кромку внутрь, вниз по внутренней стенке и
+ * к центру дна. При таком обходе нормали всех стенок смотрят наружу, а дно
+ * лежит на столе — тело получается замкнутым и печатается без поддержек.
+ */
+function treeDish(baseRadiusMm: number): JewelryTreeDish {
+  const rimZMm = clampNumber(
+    baseRadiusMm * JEWELRY_TREE_DISH_RIM_SHARE,
+    JEWELRY_TREE_DISH_MIN_RIM_MM,
+    JEWELRY_TREE_DISH_MAX_RIM_MM,
+  );
+  const floorZMm = clampNumber(
+    baseRadiusMm * JEWELRY_TREE_DISH_FLOOR_SHARE,
+    JEWELRY_TREE_DISH_MIN_FLOOR_MM,
+    JEWELRY_TREE_DISH_MAX_FLOOR_MM,
+  );
+  const wallThicknessMm = clampNumber(
+    baseRadiusMm * JEWELRY_TREE_DISH_WALL_SHARE,
+    JEWELRY_TREE_DISH_MIN_WALL_MM,
+    JEWELRY_TREE_DISH_MAX_WALL_MM,
+  );
+  const edgeMm = clampNumber(
+    baseRadiusMm * JEWELRY_TREE_DISH_EDGE_SHARE,
+    JEWELRY_TREE_DISH_MIN_EDGE_MM,
+    JEWELRY_TREE_DISH_MAX_EDGE_MM,
+  );
+  const innerRimRadiusMm = baseRadiusMm - wallThicknessMm;
+  const innerFloorRadiusMm =
+    innerRimRadiusMm - (rimZMm - floorZMm) * JEWELRY_TREE_DISH_TAPER_SHARE;
+  const profile: JewelryTreeDishPoint[] = [
+    { radiusMm: 0, zMm: 0 },
+    { radiusMm: baseRadiusMm * 0.55, zMm: 0 },
+    { radiusMm: baseRadiusMm - edgeMm, zMm: 0 },
+    { radiusMm: baseRadiusMm, zMm: edgeMm },
+    { radiusMm: baseRadiusMm, zMm: rimZMm - edgeMm * 0.9 },
+    { radiusMm: baseRadiusMm - edgeMm * 0.9, zMm: rimZMm },
+    { radiusMm: innerRimRadiusMm, zMm: rimZMm - edgeMm * 0.6 },
+    { radiusMm: innerFloorRadiusMm, zMm: floorZMm + edgeMm },
+    { radiusMm: baseRadiusMm * 0.6, zMm: floorZMm },
+    { radiusMm: 0, zMm: floorZMm },
+  ];
+
+  return {
+    outerRadiusMm: baseRadiusMm,
+    rimZMm,
+    floorZMm,
+    wallThicknessMm,
+    profile,
+  };
+}
+
+
+/** Что нужно для одной трубы: корень, направление, длина и радиусы. */
+type JewelryBranchSpec = {
+  readonly root: Vec3;
+  readonly azimuthRad: number;
+  readonly startElevationDeg: number;
+  readonly endElevationDeg: number;
+  readonly swingRad: number;
+  readonly lengthMm: number;
+  readonly rootRadiusMm: number;
+  readonly tipRadiusMm: number;
+  readonly budRadiusMm: number;
+  readonly tipLimitZMm: number;
+};
+
+/**
+ * Один проход роста ветви по станциям.
+ *
+ * Подъём растёт по smoothstep от старта к концу, поэтому ветвь сначала уходит в
+ * сторону, а затем загибается вверх — крюк для кольца. Радиус падает к концу и
+ * на последних станциях подрастает в бусину: кольцо сползает по уклону и
+ * останавливается на ней.
+ */
+function growBranchOnce(
+  spec: JewelryBranchSpec,
+  lengthMm: number,
+): JewelryTreePoint[] {
+  const startElevationRad = degreesToRadians(spec.startElevationDeg);
+  const endElevationRad = degreesToRadians(spec.endElevationDeg);
+  const stepMm = lengthMm / JEWELRY_TREE_BRANCH_STEPS;
+  const points: JewelryTreePoint[] = [];
+  let x = spec.root[0];
+  let y = spec.root[1];
+  let z = spec.root[2];
+  let previousRadiusMm = spec.rootRadiusMm;
+
+  for (let index = 0; index <= JEWELRY_TREE_BRANCH_STEPS; index += 1) {
+    const share = index / JEWELRY_TREE_BRANCH_STEPS;
+    const elevationRad =
+      startElevationRad +
+      (endElevationRad - startElevationRad) * smoothstep(0.32, 1, share);
+    const azimuthRad =
+      spec.azimuthRad + spec.swingRad * smoothstep(0.12, 1, share);
+    const taper =
+      spec.rootRadiusMm +
+      (spec.tipRadiusMm - spec.rootRadiusMm) * Math.pow(share, 0.9);
+    const bud =
+      (spec.budRadiusMm - spec.tipRadiusMm) * smoothstep(0.78, 1, share);
+    // Рост радиуса вдоль оси «съедает» подъём: бусина не имеет права расти
+    // быстрее, чем позволяет запас до 46°. Иначе на короткой ветви, поджатой
+    // потолком кроны, бусина превращается в нависающий гриб.
+    const growthLimit =
+      Math.tan(degreesToRadians((elevationRad * 180) / Math.PI - 46)) *
+      stepMm;
+    const radiusMm = Math.min(
+      taper + bud,
+      previousRadiusMm + Math.max(growthLimit, 0),
+    );
+
+    points.push({ xMm: x, yMm: y, zMm: z, radiusMm });
+    previousRadiusMm = radiusMm;
+
+    const horizontalMm = Math.cos(elevationRad) * stepMm;
+
+    x += horizontalMm * Math.cos(azimuthRad);
+    y += horizontalMm * Math.sin(azimuthRad);
+    z += Math.sin(elevationRad) * stepMm;
+  }
+
+  return points;
+}
+
+/**
+ * Ветвь с подгонкой под потолок кроны.
+ *
+ * Верхушка ветви вместе с бусиной не должна пробивать ползунок высоты, поэтому
+ * длина укорачивается, пока кончик не опустится под предел. Хватает одного-двух
+ * проходов: высота кончика почти пропорциональна длине.
+ */
+function growBranch(spec: JewelryBranchSpec): JewelryTreePoint[] {
+  let lengthMm = Math.max(spec.lengthMm, 2);
+  let points = growBranchOnce(spec, lengthMm);
+  const allowedRiseMm = spec.tipLimitZMm - spec.root[2] - spec.budRadiusMm;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const riseMm = points[points.length - 1].zMm - spec.root[2];
+
+    if (riseMm <= allowedRiseMm) {
+      break;
+    }
+
+    const scale = allowedRiseMm > 1 ? (allowedRiseMm / riseMm) * 0.97 : 0.4;
+
+    lengthMm *= clampNumber(scale, 0.3, 0.95);
+    points = growBranchOnce(spec, lengthMm);
+  }
+
+  return points;
+}
+
+/** Точка ломаной по доле длины: развилки сидят точно на ветви. */
+function branchPointAt(
+  points: readonly JewelryTreePoint[],
+  share: number,
+): JewelryTreePoint {
+  const index = Math.round(clampNumber(share, 0, 1) * (points.length - 1));
+
+  return points[index];
+}
+
+
+/**
+ * План древа: чаша, ствол, ярусы ветвей и габарит.
+ *
+ * Ствол ведёт плавную дугу, его радиус падает кверху, а у дна добавлен раструб
+ * корня. Ветви строятся рекурсией: основная, две дочерние и веточка третьего
+ * уровня. Порядок ярусов и азимутов держит крону ажурной: соседние ветви не
+ * слипаются, кольца на них не цепляют друг друга.
  */
 export function jewelryTreePlan(
   params: Partial<JewelryStandParams> = {},
@@ -356,279 +437,232 @@ export function jewelryTreePlan(
   const normalized = normalizeJewelryStandParams(params);
   const baseRadiusMm = normalized.treeBaseDiameter / 2;
   const heightMm = normalized.treeHeight;
-  const trunkRootZMm =
-    JEWELRY_TREE_BASE_HEIGHT_MM - JEWELRY_TREE_STRAND_EMBED_MM;
-  const trunkRadiusMm = baseRadiusMm * JEWELRY_TREE_TRUNK_RADIUS_SHARE;
-
-  /** Наружный радиус косы на доле высоты: сужение начинается выше плиты. */
-  const outerRadiusAt = (share: number): number =>
-    trunkRadiusMm *
-    (1 - JEWELRY_TREE_TRUNK_TAPER * smoothstep(0.12, 0.74, share));
-
-  /** Смещение оси пряди от оси древа, мм: к верхушке пряди сходятся. */
-  const strandOffsetAt = (share: number): number =>
-    outerRadiusAt(share) *
-    JEWELRY_TREE_STRAND_OFFSET_SHARE *
-    (1 -
-      (1 - JEWELRY_TREE_CROWN_OFFSET_SHARE) *
-        smoothstep(JEWELRY_TREE_CROWN_START_SHARE, 1, share));
-
-  /** Радиус пряди, мм. */
-  const strandRadiusAt = (share: number): number =>
-    outerRadiusAt(share) *
-    JEWELRY_TREE_STRAND_RADIUS_SHARE *
-    (1 - JEWELRY_TREE_STRAND_TIP_TAPER * smoothstep(0.5, 1, share));
-
-  /** Радиус сердечника, мм: он повторяет сужение косы. */
-  const coreRadiusAt = (share: number): number =>
-    outerRadiusAt(share) * JEWELRY_TREE_CORE_SHARE;
-
-  // Коса занимает всю высоту, кроме скруглённой крышки: её полусфера поднимает
-  // верхушку на радиус последнего кольца, и вместе они дают ровно ползунок.
-  const crownCapMm = strandRadiusAt(1);
+  const dish = treeDish(baseRadiusMm);
+  const trunkRootZMm = dish.floorZMm - 0.8;
+  const trunkRadiusMm = clampNumber(
+    heightMm * JEWELRY_TREE_TRUNK_RADIUS_SHARE,
+    JEWELRY_TREE_TRUNK_MIN_RADIUS_MM,
+    JEWELRY_TREE_TRUNK_MAX_RADIUS_MM,
+  );
+  const trunkTipRadiusMm = trunkRadiusMm * JEWELRY_TREE_TRUNK_TIP_SHARE;
   const trunkSpanMm = Math.max(
-    heightMm - trunkRootZMm - crownCapMm,
-    heightMm * 0.8,
+    heightMm - trunkRootZMm - trunkTipRadiusMm,
+    heightMm * 0.7,
   );
-  const zAt = (share: number): number => trunkRootZMm + share * trunkSpanMm;
-  const crownZMm = zAt(1) + crownCapMm;
+  const swayAzimuthRad = Math.PI * 0.25;
+  const swayMm = baseRadiusMm * JEWELRY_TREE_TRUNK_SWAY_SHARE;
 
-  const strandShares: number[] = [];
+  /** Точка оси ствола: пологая дуга от корня к верхушке. */
+  const axisAt = (share: number): Vec3 => {
+    const bowMm = swayMm * Math.sin(Math.PI * share);
 
-  for (let index = 0; index <= JEWELRY_TREE_STRAND_SAMPLES; index += 1) {
-    strandShares.push(index / JEWELRY_TREE_STRAND_SAMPLES);
-  }
-
-  /** Фаза витка на доле высоты: у почки она замирает, иначе коса завивается. */
-  const strandPhaseAt = (share: number, turns: number): number =>
-    Math.PI * 2 * turns * smoothstep(0, JEWELRY_TREE_PHASE_FREEZE_SHARE, share);
-
-  /**
-   * Самый пологий участок оси пряди при данном числе витков, градусы.
-   *
-   * Считается по хордам тех же станций, по которым строятся кольца: слайсер
-   * видит именно хорды, а не гладкую кривую.
-   */
-  const strandElevationDeg = (turns: number): number => {
-    let worst = 180;
-    let previous: Vec3 | null = null;
-
-    for (const share of strandShares) {
-      const offset = strandOffsetAt(share);
-      const phase = strandPhaseAt(share, turns);
-      const point: Vec3 = [
-        offset * Math.cos(phase),
-        offset * Math.sin(phase),
-        zAt(share),
-      ];
-
-      if (previous) {
-        const run = Math.hypot(point[0] - previous[0], point[1] - previous[1]);
-        const rise = point[2] - previous[2];
-
-        worst = Math.min(worst, (Math.atan2(rise, run) * 180) / Math.PI);
-      }
-
-      previous = point;
-    }
-
-    return worst;
+    return [
+      bowMm * Math.cos(swayAzimuthRad),
+      bowMm * Math.sin(swayAzimuthRad),
+      trunkRootZMm + share * trunkSpanMm,
+    ];
   };
 
-  // Верхняя граница поиска: витки, при которых даже максимум производной фазы и
-  // максимальное смещение пряди дают уклон круче предела. За ней решение лежит
-  // заведомо, поэтому деление пополам всегда находит край.
-  const twistCeiling =
-    (trunkSpanMm * Math.tan(degreesToRadians(JEWELRY_TREE_STRAND_ELEVATION_DEG))) /
-    (Math.PI * 2 * JEWELRY_TREE_PHASE_PROFILE_PEAK * Math.max(strandOffsetAt(0), 1e-6));
-  let twistTurns = 0;
+  /** Радиус ствола: раструб у корня, сужение к верхушке. */
+  const trunkRadiusAt = (share: number): number =>
+    trunkRadiusMm *
+    (1 - (1 - JEWELRY_TREE_TRUNK_TIP_SHARE) * Math.pow(share, 0.85)) *
+    (1 + 0.6 * (1 - smoothstep(0, 0.18, share)));
 
-  if (normalized.treeTwist > 0) {
-    let low = 0;
-    let high = Math.max(twistCeiling * 2, 0.05);
+  const trunkPoints: JewelryTreePoint[] = [];
 
-    for (let step = 0; step < JEWELRY_TREE_TWIST_STEPS; step += 1) {
-      const middle = (low + high) / 2;
+  for (let index = 0; index <= JEWELRY_TREE_TRUNK_SAMPLES; index += 1) {
+    const share = index / JEWELRY_TREE_TRUNK_SAMPLES;
+    const [x, y, z] = axisAt(share);
 
-      if (strandElevationDeg(middle) >= JEWELRY_TREE_STRAND_ELEVATION_DEG) {
-        low = middle;
-      } else {
-        high = middle;
-      }
-    }
-
-    twistTurns = low * normalized.treeTwist;
-  }
-
-  const strands: JewelryTreeTube[] = [];
-
-  for (let index = 0; index < JEWELRY_TREE_STRAND_COUNT; index += 1) {
-    const baseAngle = (Math.PI * 2 * index) / JEWELRY_TREE_STRAND_COUNT;
-
-    strands.push({
-      id: `strand-${index + 1}`,
-      kind: "strand",
-      points: strandShares.map((share) => {
-        const offset = strandOffsetAt(share);
-        const angle = baseAngle + strandPhaseAt(share, twistTurns);
-
-        return {
-          xMm: offset * Math.cos(angle),
-          yMm: offset * Math.sin(angle),
-          zMm: zAt(share),
-          radiusMm: strandRadiusAt(share),
-        };
-      }),
+    trunkPoints.push({
+      xMm: x,
+      yMm: y,
+      zMm: z,
+      radiusMm: trunkRadiusAt(share),
     });
   }
 
-  // Сердечник закрывает канал между прядями и заканчивается внутри почки: его
-  // скруглённый торец прячется под крышками прядей.
-  const core: JewelryTreeTube = {
-    id: "core",
-    kind: "core",
-    points: [0, 0.3, 0.6, 0.85, 1].map((share) => ({
-      xMm: 0,
-      yMm: 0,
-      zMm: trunkRootZMm + share * (trunkSpanMm - JEWELRY_TREE_CORE_TRIM_MM),
-      radiusMm: coreRadiusAt(share),
-    })),
+  const trunk: JewelryTreeTube = {
+    id: "trunk",
+    kind: "trunk",
+    points: trunkPoints,
   };
-
-  const branchCount = normalized.treeBranchCount;
-  const hookCount = Math.ceil(branchCount / 2);
-  const postCount = branchCount - hookCount;
-  const hookElevationRad = degreesToRadians(JEWELRY_TREE_HOOK_ELEVATION_DEG);
-  const postElevationRad = degreesToRadians(JEWELRY_TREE_POST_ELEVATION_DEG);
-  const curlRad = degreesToRadians(JEWELRY_TREE_HOOK_CURL_DEG);
-  const hookReachMm = baseRadiusMm * JEWELRY_TREE_HOOK_REACH_SHARE;
-  const postLengthMm = clampNumber(
-    heightMm * JEWELRY_TREE_POST_LENGTH_SHARE,
-    JEWELRY_TREE_POST_MIN_LENGTH_MM,
-    JEWELRY_TREE_POST_MAX_LENGTH_MM,
-  );
-
-  /** Доля высоты для ветви своего яруса: ярус растянут по своей полосе. */
-  const laneShare = (
-    lane: number,
-    count: number,
-    band: readonly [number, number],
-  ): number =>
-    count > 1
-      ? band[0] + ((band[1] - band[0]) * lane) / (count - 1)
-      : (band[0] + band[1]) / 2;
-
   const branches: JewelryTreeTube[] = [];
+  const crownLimitZMm = heightMm - JEWELRY_TREE_TOP_HEADROOM_MM;
+  const reachBaseMm = baseRadiusMm * JEWELRY_TREE_BRANCH_REACH_SHARE;
+  const mainCount = normalized.treeBranchCount;
+  const twist = normalized.treeTwist;
+  const childSwingDeg =
+    JEWELRY_TREE_CHILD_SWING_MIN_DEG +
+    (JEWELRY_TREE_CHILD_SWING_MAX_DEG - JEWELRY_TREE_CHILD_SWING_MIN_DEG) *
+      twist;
+  let twigCount = 0;
+  let thornCount = 0;
 
-  for (let index = 0; index < branchCount; index += 1) {
-    const isHook = index % 2 === 0;
-    const lane = Math.floor(index / 2);
-    const share = laneShare(
-      lane,
-      isHook ? hookCount : postCount,
-      isHook ? JEWELRY_TREE_HOOK_ROOT_BAND : JEWELRY_TREE_POST_ROOT_BAND,
-    );
-    // Азимут берётся по золотому сечению: соседние ветви расходятся не меньше
-    // чем на треть оборота, и кольца на них не цепляют друг друга.
+  /** Добавляет трубу в план и возвращает её точки: от них растут развилки. */
+  const addBranch = (
+    id: string,
+    kind: JewelryTreeTube["kind"],
+    spec: JewelryBranchSpec,
+  ): readonly JewelryTreePoint[] => {
+    const points = growBranch(spec);
+
+    branches.push({ id, kind, points });
+
+    return points;
+  };
+
+
+  for (let index = 0; index < mainCount; index += 1) {
+    const lane = mainCount > 1 ? index / (mainCount - 1) : 0.5;
+    const share =
+      JEWELRY_TREE_BRANCH_ROOT_BAND[0] +
+      (JEWELRY_TREE_BRANCH_ROOT_BAND[1] - JEWELRY_TREE_BRANCH_ROOT_BAND[0]) *
+        lane;
+    const root = axisAt(share);
     const azimuthRad =
-      Math.PI * 2 * ((index * JEWELRY_TREE_BRANCH_AZIMUTH_STEP) % 1);
-    const rootZMm = zAt(share);
+      Math.PI * 2 * ((index * JEWELRY_TREE_BRANCH_AZIMUTH_STEP + 0.08) % 1);
+    const rootRadiusMm = Math.max(
+      trunkRadiusAt(share) * 0.5,
+      JEWELRY_TREE_BRANCH_RADIUS_MM,
+    );
+    const lengthMm = reachBaseMm * (1.05 - 0.35 * share);
+    const points = addBranch(`branch-${index + 1}`, "branch", {
+      root,
+      azimuthRad,
+      startElevationDeg: JEWELRY_TREE_MIN_ELEVATION_DEG + 4 * lane,
+      endElevationDeg: JEWELRY_TREE_MIN_ELEVATION_DEG + 6 + 4 * lane,
+      swingRad:
+        degreesToRadians(12 + 26 * twist) * (index % 2 === 0 ? 1 : -1),
+      lengthMm,
+      rootRadiusMm,
+      tipRadiusMm: rootRadiusMm * JEWELRY_TREE_BRANCH_TIP_SHARE,
+      budRadiusMm: JEWELRY_TREE_BRANCH_BUD_RADIUS_MM,
+      tipLimitZMm: crownLimitZMm,
+    });
+    const childLengthMm = lengthMm * JEWELRY_TREE_CHILD_LENGTH_SHARE;
 
-    if (isHook) {
-      // Ветвь не выходит выше ползунка: под верхушкой косы остаётся запас, и
-      // скруглённая бусина на конце ветви тоже не пробивает потолок габарита.
-      const headroomMm = Math.max(
-        crownZMm -
-          rootZMm -
-          JEWELRY_TREE_HOOK_HEADROOM_MM -
-          JEWELRY_TREE_BRANCH_BUD_RADIUS_MM,
-        6,
+    // Две дочерние ветви: от середины и от верхней трети родителя.
+    for (let childIndex = 0; childIndex < 2; childIndex += 1) {
+      const anchor = branchPointAt(points, childIndex === 0 ? 0.44 : 0.68);
+      const childAzimuthRad =
+        azimuthRad +
+        degreesToRadians(childSwingDeg) * (childIndex === 0 ? -1 : 1);
+      const childRootRadiusMm =
+        anchor.radiusMm * JEWELRY_TREE_CHILD_RADIUS_SHARE;
+      const childPoints = addBranch(
+        `branch-${index + 1}-${childIndex + 1}`,
+        "branch",
+        {
+          root: [anchor.xMm, anchor.yMm, anchor.zMm],
+          azimuthRad: childAzimuthRad,
+          startElevationDeg: 58,
+          endElevationDeg: 64,
+          swingRad:
+            degreesToRadians(10 + 18 * twist) *
+            (childIndex === 0 ? -1 : 1),
+          lengthMm: childLengthMm,
+          rootRadiusMm: childRootRadiusMm,
+          tipRadiusMm: childRootRadiusMm * JEWELRY_TREE_BRANCH_TIP_SHARE,
+          budRadiusMm: JEWELRY_TREE_BRANCH_BUD_RADIUS_MM * 0.86,
+          tipLimitZMm: crownLimitZMm,
+        },
       );
-      const riseMm = Math.min(
-        hookReachMm * Math.tan(hookElevationRad),
-        headroomMm,
-      );
-      const lengthMm = riseMm / Math.sin(hookElevationRad);
-      const budLengthMm = Math.min(
-        JEWELRY_TREE_BRANCH_BUD_MM,
-        lengthMm * 0.3,
-      );
-      const budStartMm = lengthMm - budLengthMm;
 
-      // Радиус вдоль ветви: конус до бусины плюс smoothstep-утолщение на конце.
-      // Скорость утолщения ограничена, поэтому бусина не даёт нависания круче
-      // 8° к оси — с подъёмом 60° до правила 45° остаётся запас.
-      const radiusAt = (travelledMm: number): number => {
-        const taper =
-          JEWELRY_TREE_BRANCH_RADIUS_MM +
-          (JEWELRY_TREE_BRANCH_TIP_RADIUS_MM -
-            JEWELRY_TREE_BRANCH_RADIUS_MM) *
-            Math.min(1, travelledMm / Math.max(budStartMm, 1e-6));
-        const bud = smoothstep(budStartMm, lengthMm, travelledMm);
+      // Веточка третьего уровня: тонкая, почти вертикальная.
+      const twigAnchor = branchPointAt(childPoints, 0.58);
+      const twigRootRadiusMm = twigAnchor.radiusMm * 0.7;
 
-        return (
-          taper +
-          (JEWELRY_TREE_BRANCH_BUD_RADIUS_MM -
-            JEWELRY_TREE_BRANCH_TIP_RADIUS_MM) *
-            bud
-        );
-      };
-
-      branches.push({
-        id: `hook-${lane + 1}`,
-        kind: "hook",
-        points: JEWELRY_TREE_HOOK_SAMPLES.map((sample) => {
-          const travelledMm = lengthMm * sample;
-          const horizontalMm = travelledMm * Math.cos(hookElevationRad);
-          // Загиб идёт по азимуту, а не вниз: подъём остаётся прежним.
-          const angle =
-            azimuthRad +
-            curlRad *
-              smoothstep(
-                JEWELRY_TREE_HOOK_CURL_FROM_SHARE,
-                JEWELRY_TREE_HOOK_CURL_TO_SHARE,
-                sample,
-              );
-
-          return {
-            xMm: horizontalMm * Math.cos(angle),
-            yMm: horizontalMm * Math.sin(angle),
-            zMm: rootZMm + travelledMm * Math.sin(hookElevationRad),
-            radiusMm: radiusAt(travelledMm),
-          };
-        }),
+      addBranch(`twig-${index + 1}-${childIndex + 1}`, "twig", {
+        root: [twigAnchor.xMm, twigAnchor.yMm, twigAnchor.zMm],
+        azimuthRad:
+          childAzimuthRad + degreesToRadians(childSwingDeg * 0.5),
+        startElevationDeg: 66,
+        endElevationDeg: 72,
+        swingRad: degreesToRadians(8 + 14 * twist),
+        lengthMm: childLengthMm * JEWELRY_TREE_TWIG_LENGTH_SHARE,
+        rootRadiusMm: twigRootRadiusMm,
+        tipRadiusMm: twigRootRadiusMm * JEWELRY_TREE_BRANCH_TIP_SHARE,
+        budRadiusMm: JEWELRY_TREE_BRANCH_BUD_RADIUS_MM * 0.8,
+        tipLimitZMm: crownLimitZMm,
       });
-
-      continue;
+      twigCount += 1;
     }
 
-    branches.push({
-      id: `post-${lane + 1}`,
-      kind: "post",
-      points: JEWELRY_TREE_POST_SAMPLES.map((sample) => {
-        const travelledMm = postLengthMm * sample;
-        const horizontalMm = travelledMm * Math.cos(postElevationRad);
+    // Штырь под кольцо: вертикальный отросток на нижней части ветви.
+    const thornAnchor = branchPointAt(points, 0.3);
 
-        return {
-          xMm: horizontalMm * Math.cos(azimuthRad),
-          yMm: horizontalMm * Math.sin(azimuthRad),
-          zMm: rootZMm + travelledMm * Math.sin(postElevationRad),
-          radiusMm:
-            JEWELRY_TREE_BRANCH_RADIUS_MM +
-            (JEWELRY_TREE_BRANCH_TIP_RADIUS_MM -
-              JEWELRY_TREE_BRANCH_RADIUS_MM) *
-              sample,
-        };
-      }),
+    addBranch(`thorn-${index + 1}`, "thorn", {
+      root: [thornAnchor.xMm, thornAnchor.yMm, thornAnchor.zMm],
+      azimuthRad,
+      startElevationDeg: 84,
+      endElevationDeg: JEWELRY_TREE_BRANCH_END_ELEVATION_DEG,
+      swingRad: 0,
+      lengthMm: JEWELRY_TREE_THORN_LENGTH_MM,
+      rootRadiusMm: JEWELRY_TREE_THORN_RADIUS_MM,
+      tipRadiusMm: JEWELRY_TREE_THORN_RADIUS_MM * 0.74,
+      budRadiusMm: JEWELRY_TREE_BRANCH_BUD_RADIUS_MM * 0.76,
+      tipLimitZMm: crownLimitZMm,
     });
+    thornCount += 1;
   }
+
+  // Верхние ветви: короткие, почти вертикальные — они и дают макушку.
+  JEWELRY_TREE_CROWN_ROOT_SHARES.forEach((share, index) => {
+    const crownRootRadiusMm = Math.max(
+      trunkRadiusAt(share) * 0.55,
+      JEWELRY_TREE_THORN_RADIUS_MM * 1.4,
+    );
+
+    addBranch(`crown-${index + 1}`, "branch", {
+      root: axisAt(share),
+      azimuthRad: Math.PI * 2 * ((0.31 + index * 0.37) % 1),
+      startElevationDeg: 50,
+      endElevationDeg: 56,
+      swingRad: degreesToRadians(10 + 18 * twist),
+      lengthMm: reachBaseMm * JEWELRY_TREE_CROWN_LENGTH_SHARE,
+      rootRadiusMm: crownRootRadiusMm,
+      tipRadiusMm: crownRootRadiusMm * JEWELRY_TREE_BRANCH_TIP_SHARE,
+      budRadiusMm: JEWELRY_TREE_BRANCH_BUD_RADIUS_MM * 0.9,
+      tipLimitZMm: crownLimitZMm,
+    });
+  });
+
+
+  // Ствол и ветви строятся по долям высоты, поэтому верхушка может не дотянуть
+  // до ползунка доли миллиметра. Лёгкая растяжка по Z ставит габарит ровно на
+  // заданную высоту; углы от неё только круче, нависаний она не добавляет.
+  let rawTopMm = dish.rimZMm;
+
+  for (const tube of [trunk, ...branches]) {
+    for (const point of tube.points) {
+      rawTopMm = Math.max(rawTopMm, point.zMm + point.radiusMm);
+    }
+  }
+
+  const zScale = rawTopMm > 0 ? heightMm / rawTopMm : 1;
+  const fitPoints = (
+    points: readonly JewelryTreePoint[],
+  ): JewelryTreePoint[] =>
+    points.map((point) => ({ ...point, zMm: point.zMm * zScale }));
+  const fittedTrunk: JewelryTreeTube = {
+    ...trunk,
+    points: fitPoints(trunk.points),
+  };
+  const fittedBranches: JewelryTreeTube[] = branches.map((branch) => ({
+    ...branch,
+    points: fitPoints(branch.points),
+  }));
 
   // Самая пологая точка поверхности: у трубы с осью под α низ наклонён на α, а
   // рост радиуса «съедает» подъём на atan(Δr/L). Именно это число проверяет
   // тест, а не наклон оси.
   let flattestSurfaceDeg = 180;
+  let reachMm = baseRadiusMm;
+  let topMm = dish.rimZMm;
 
-  for (const tube of [core, ...strands, ...branches]) {
+  for (const tube of [fittedTrunk, ...fittedBranches]) {
     for (let index = 0; index < tube.points.length - 1; index += 1) {
       const from = tube.points[index];
       const to = tube.points[index + 1];
@@ -645,78 +679,30 @@ export function jewelryTreePlan(
 
       flattestSurfaceDeg = Math.min(flattestSurfaceDeg, surface);
     }
-  }
 
-  const holes: JewelryTreeHole[] = [];
-
-  JEWELRY_TREE_HOLE_RING_SHARES.forEach((ringShare, ringIndex) => {
-    const ringRadiusMm = normalized.treeBaseDiameter * ringShare;
-    const count = Math.max(
-      JEWELRY_TREE_HOLE_RING_MIN_COUNT,
-      Math.round((Math.PI * 2 * ringRadiusMm) / JEWELRY_TREE_HOLE_PITCH_MM),
-    );
-    // Ряды сдвинуты на полшага: отверстия соседних колец стоят в шахматном
-    // порядке, и серьги висят ровнее.
-    const phase = (ringIndex % 2) * (Math.PI / count);
-
-    for (let index = 0; index < count; index += 1) {
-      const angle = phase + (Math.PI * 2 * index) / count;
-
-      holes.push({
-        xMm: ringRadiusMm * Math.cos(angle),
-        yMm: ringRadiusMm * Math.sin(angle),
-        radiusMm: JEWELRY_TREE_HOLE_RADIUS_MM,
-      });
+    for (const point of tube.points) {
+      reachMm = Math.max(
+        reachMm,
+        Math.hypot(point.xMm, point.yMm) + point.radiusMm,
+      );
+      topMm = Math.max(topMm, point.zMm + point.radiusMm);
     }
-  });
-
-  const skirtOuterRadiusMm = baseRadiusMm - JEWELRY_TREE_SKIRT_INSET_MM;
-  const skirt: JewelryTreeSkirt = {
-    outerRadiusMm: skirtOuterRadiusMm,
-    innerRadiusMm: skirtOuterRadiusMm - JEWELRY_TREE_SKIRT_WIDTH_MM,
-    bottomMm: JEWELRY_TREE_BASE_HEIGHT_MM - JEWELRY_TREE_SKIRT_EMBED_MM,
-    topMm: JEWELRY_TREE_BASE_HEIGHT_MM + JEWELRY_TREE_SKIRT_HEIGHT_MM,
-    bevelMm: JEWELRY_TREE_SKIRT_BEVEL_MM,
-    lobes: JEWELRY_TREE_SKIRT_LOBES,
-    lobeShare: JEWELRY_TREE_SKIRT_LOBE_SHARE,
-  };
-
-  let reachMm = Math.max(baseRadiusMm, skirt.outerRadiusMm);
-  let topMm = crownZMm;
-
-  for (const tube of [core, ...strands, ...branches]) {
-    const points = tube.points;
-    const last = points[points.length - 1];
-
-    // Скруглённая крышка — полусфера радиусом с конец трубы: её верхняя точка
-    // лежит не выше центра плюс радиус, даже если ось наклонена. Так габарит
-    // остаётся верхней оценкой, а не приближением по вертикальной проекции оси.
-    reachMm = Math.max(
-      reachMm,
-      Math.hypot(last.xMm, last.yMm) + last.radiusMm,
-    );
-    topMm = Math.max(topMm, last.zMm + last.radiusMm);
   }
 
   return {
     baseRadiusMm,
-    baseHeightMm: JEWELRY_TREE_BASE_HEIGHT_MM,
+    baseHeightMm: dish.rimZMm,
     trunkRootZMm,
-    trunkRadiusMm,
-    trunkTipRadiusMm: outerRadiusAt(1),
     trunkSpanMm,
-    twistTurns,
-    strandOffsetMm: strandOffsetAt(0),
-    strandRadiusMm: strandRadiusAt(0),
-    coreRadiusMm: coreRadiusAt(0),
-    strands,
-    core,
-    branches,
-    hookCount,
-    postCount,
-    holes,
-    skirt,
-    crownZMm,
+    trunkRadiusMm,
+    trunkTipRadiusMm,
+    trunk: fittedTrunk,
+    branches: fittedBranches,
+    mainBranchCount: mainCount,
+    twigCount,
+    thornCount,
+    dish,
+    crownZMm: (trunkRootZMm + trunkSpanMm + trunkTipRadiusMm) * zScale,
     reachMm,
     flattestSurfaceDeg,
     heightMm: Math.round(topMm * 100) / 100,
@@ -729,6 +715,7 @@ export function jewelryTreeHeightMm(
 ): number {
   return jewelryTreePlan(params).heightMm;
 }
+
 
 /** Базис кольца, перпендикулярного оси. */
 function ringBasis(tangent: Vec3): { e1: Vec3; e2: Vec3 } {
@@ -752,13 +739,17 @@ function polylineTangents(centers: readonly Vec3[]): Vec3[] {
         ? subtractVector(centers[index], centers[index - 1])
         : forward;
 
-    tangents.push(normalizeVector(addVector(normalizeVector(backward), normalizeVector(forward))));
+    tangents.push(
+      normalizeVector(
+        addVector(normalizeVector(backward), normalizeVector(forward)),
+      ),
+    );
   }
 
   return tangents;
 }
 
-/** Веер треугольников: `upward` — нормаль вдоль оси, иначе против неё. */
+/** Веер из полюса к кольцу; `upward` задаёт сторону нормали. */
 function addRingFan(
   positions: number[],
   center: Vec3,
@@ -797,11 +788,12 @@ function addRingWalls(
   }
 }
 
+
 /**
  * Скруглённая крышка на конце трубы.
  *
  * Полусфера из трёх колец: у сферической поверхности нет граней под углом к
- * оси, а значит нет и нависания круче 45° — верхушки прядей и бусины ветвей
+ * оси, а значит нет и нависания круче 45° — верхушки ветвей и бусины
  * печатаются без поддержек.
  */
 function addRoundedCap(
@@ -845,8 +837,8 @@ function addRoundedCap(
 /**
  * Одна труба: кольца по станциям, глухой низ и скруглённый верх.
  *
- * Низ закрыт веером против оси: он всегда утоплен в соседнее тело (в плиту у
- * прядей и ветвей, в сердечник у ветвей), поэтому наружу не смотрит.
+ * Низ закрыт веером против оси: он всегда утоплен в соседнее тело (в дно чаши
+ * у ствола, в ствол или ветвь у побегов), поэтому наружу не смотрит.
  */
 function addTube(
   positions: number[],
@@ -899,136 +891,52 @@ function addTube(
   );
 }
 
-/** Контур для выдавливания: многоугольник по точкам кольца. */
-function polygonShape(points: readonly Point2[]): Shape {
-  const shape = new Shape();
-
-  shape.setFromPoints(points.map(([x, y]) => new Vector2(x, y)));
-
-  return shape;
-}
 
 /**
- * Выдавливание контура по Z с фаской.
+ * Чаша-лоток как тело вращения.
  *
- * Своя сетка тут не годится: у плиты в контуре 111 отверстий, и только
- * `ExtrudeGeometry` собирает такую оболочку без булевых операций. Фаска ровно
- * 45°, поэтому первый слой печатается без поддержек. Треугольники переносятся в
- * общий массив, геометрия three.js сразу освобождается.
+ * Профиль обходится по границе материала, поэтому нормали смотрят наружу, а
+ * полюса закрыты веерами: у внешнего дна — вниз, у внутреннего — вверх. Стенки
+ * вертикальные или наклонены наружу кверху, нависаний нет.
  */
-function addExtrudedShape(
-  positions: number[],
-  shape: Shape,
-  heightMm: number,
-  bottomMm: number,
-  bevelMm: number,
-): void {
-  const bevel = Math.max(bevelMm, 0);
-  const depthMm = Math.max(heightMm - bevel * 2, 0.01);
-  const geometry = new ExtrudeGeometry(shape, {
-    depth: depthMm,
-    bevelEnabled: bevel > 0,
-    bevelThickness: bevel,
-    bevelSize: bevel,
-    bevelOffset: 0,
-    bevelSegments: bevel > 0 ? 2 : 0,
-    curveSegments: 1,
-    steps: 1,
-  });
-  const flat = geometry.index ? geometry.toNonIndexed() : geometry;
-  const attribute = flat.getAttribute("position");
-  // Выдавливание идёт от нуля, а фаска добавляет по миллиметру с каждой стороны:
-  // сдвиг ставит низ детали на bottomMm, а верх — на bottomMm + heightMm.
-  const z0 = bottomMm + bevel;
+function addDish(positions: number[], plan: JewelryTreePlan): void {
+  const profile = plan.dish.profile;
+  const sides = JEWELRY_TREE_DISH_SIDES;
+  const rings: Vec3[][] = profile.map((point) => {
+    const ring: Vec3[] = [];
 
-  for (let index = 0; index < attribute.count; index += 1) {
-    positions.push(
-      attribute.getX(index),
-      attribute.getY(index),
-      attribute.getZ(index) + z0,
-    );
-  }
+    for (let step = 0; step < sides; step += 1) {
+      const angle = (Math.PI * 2 * step) / sides;
 
-  if (flat !== geometry) {
-    flat.dispose();
-  }
-
-  geometry.dispose();
-}
-
-/**
- * Плита базы с сеткой сквозных отверстий.
- *
- * Отверстия вырезаны в контуре, а не просверлены булевой операцией: стенки
- * получаются вертикальными, мостов нет, оболочка замкнута. Отверстия обходятся
- * по часовой стрелке — иначе стенка смотрит наружу и объём не сходится.
- */
-function addBasePlate(positions: number[], plan: JewelryTreePlan): void {
-  const shape = polygonShape(circlePolygon(plan.baseRadiusMm, JEWELRY_TREE_BASE_SIDES));
-
-  for (const hole of plan.holes) {
-    const contour = circlePolygon(hole.radiusMm, JEWELRY_TREE_HOLE_SIDES)
-      .reverse()
-      .map(([x, y]): Point2 => [x + hole.xMm, y + hole.yMm]);
-    const path = new Path();
-
-    path.setFromPoints(contour.map(([x, y]) => new Vector2(x, y)));
-    shape.holes.push(path);
-  }
-
-  addExtrudedShape(positions, shape, plan.baseHeightMm, 0, 0);
-}
-
-/**
- * Корневая юбка: кольцо с волнистым контуром по кромке плиты.
- *
- * Контур уходит только внутрь, поэтому деталь не выходит за диаметр базы, а
- * лепестки читаются как корни. Внутренний контур повторяет тот же сдвиг, так что
- * ширина кольца по всей окружности одинаковая.
- */
-function addSkirt(positions: number[], plan: JewelryTreePlan): void {
-  const skirt = plan.skirt;
-  const lobeDepthMm = skirt.outerRadiusMm * skirt.lobeShare;
-
-  /** Сдвиг контура внутрь: пять лепестков, на гребне сдвиг нулевой. */
-  const lobeShiftMm = (angle: number): number =>
-    -lobeDepthMm * (0.5 + 0.5 * Math.cos(skirt.lobes * angle));
-
-  const ringPolygon = (radiusMm: number, clockwise: boolean): Point2[] => {
-    const points: Point2[] = [];
-
-    for (let step = 0; step < JEWELRY_TREE_SKIRT_STEPS; step += 1) {
-      const angle = (Math.PI * 2 * step) / JEWELRY_TREE_SKIRT_STEPS;
-      const radius = radiusMm + lobeShiftMm(angle);
-
-      points.push([radius * Math.cos(angle), radius * Math.sin(angle)]);
+      ring.push([
+        point.radiusMm * Math.cos(angle),
+        point.radiusMm * Math.sin(angle),
+        point.zMm,
+      ]);
     }
 
-    return clockwise ? points.reverse() : points;
-  };
+    return ring;
+  });
 
-  const shape = polygonShape(ringPolygon(skirt.outerRadiusMm, false));
-  const inner = new Path();
+  for (let index = 0; index < profile.length - 1; index += 1) {
+    const from = profile[index];
+    const to = profile[index + 1];
 
-  inner.setFromPoints(
-    ringPolygon(skirt.innerRadiusMm, true).map(([x, y]) => new Vector2(x, y)),
-  );
-  shape.holes.push(inner);
-
-  addExtrudedShape(
-    positions,
-    shape,
-    skirt.topMm - skirt.bottomMm,
-    skirt.bottomMm,
-    skirt.bevelMm,
-  );
+    if (from.radiusMm <= 0) {
+      addRingFan(positions, [0, 0, from.zMm], rings[index + 1], false);
+    } else if (to.radiusMm <= 0) {
+      addRingFan(positions, [0, 0, to.zMm], rings[index], true);
+    } else {
+      addRingWalls(positions, rings[index], rings[index + 1]);
+    }
+  }
 }
 
 /**
- * Геометрия древа «Плетёное древо» для набора параметров.
+ * Геометрия древа для набора параметров.
  *
- * Деталь построена Z-вверх, центр базы в начале координат, низ на z = 0. Все тела
- * замкнуты по отдельности и пересекаются — слайсер объединит их при печати.
+ * Функция принимает частичные параметры: недостающие поля берутся из значений
+ * по умолчанию, поэтому предпросмотр может вызвать её с любым набором.
  */
 export function createJewelryTreeGeometry(
   params: Partial<JewelryStandParams> = {},
@@ -1036,15 +944,8 @@ export function createJewelryTreeGeometry(
   const plan = jewelryTreePlan(params);
   const positions: number[] = [];
 
-  addBasePlate(positions, plan);
-  addSkirt(positions, plan);
-
-  // Сердечник идёт первым: он самый толстый и закрывает канал между прядями.
-  addTube(positions, plan.core.points, JEWELRY_TREE_BRANCH_SIDES);
-
-  for (const strand of plan.strands) {
-    addTube(positions, strand.points, JEWELRY_TREE_STRAND_SIDES);
-  }
+  addDish(positions, plan);
+  addTube(positions, plan.trunk.points, JEWELRY_TREE_TRUNK_SIDES);
 
   for (const branch of plan.branches) {
     addTube(positions, branch.points, JEWELRY_TREE_BRANCH_SIDES);
@@ -1054,8 +955,6 @@ export function createJewelryTreeGeometry(
 
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
   geometry.computeVertexNormals();
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
 
   return geometry;
 }
