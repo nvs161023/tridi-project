@@ -113,15 +113,11 @@ const JEWELRY_TREE_TOP_HEADROOM_MM = 1.4;
 /** Число сегментов чаши: 96 на Ø120 дают хорду 3.9 мм. */
 const JEWELRY_TREE_DISH_SIDES = 96;
 
-/** Глубина борта в долях радиуса чаши и её пределы, мм. */
-const JEWELRY_TREE_DISH_RIM_SHARE = 0.2;
-const JEWELRY_TREE_DISH_MIN_RIM_MM = 9;
-const JEWELRY_TREE_DISH_MAX_RIM_MM = 18;
+/** Глубина борта от лица дна, мм: по ТЗ — бортик 10 мм по краю. */
+const JEWELRY_TREE_DISH_RIM_MM = 10;
 
-/** Толщина дна в долях радиуса, мм и пределы. */
-const JEWELRY_TREE_DISH_FLOOR_SHARE = 0.06;
-const JEWELRY_TREE_DISH_MIN_FLOOR_MM = 2.6;
-const JEWELRY_TREE_DISH_MAX_FLOOR_MM = 5;
+/** Толщина дна чаши, мм: по ТЗ — 3 мм сплошного дна под ложе. */
+const JEWELRY_TREE_DISH_FLOOR_MM = 3;
 
 /** Толщина стенки чаши в долях радиуса, мм и пределы. */
 const JEWELRY_TREE_DISH_WALL_SHARE = 0.055;
@@ -265,18 +261,15 @@ function degreesToRadians(degrees: number): number {
  * внешней стенке, через скруглённую кромку внутрь, вниз по внутренней стенке и
  * к центру дна. При таком обходе нормали всех стенок смотрят наружу, а дно
  * лежит на столе — тело получается замкнутым и печатается без поддержек.
+ *
+ * Дно 3 мм и борт 10 мм — размеры из ТЗ: база получается тарелкой, а не
+ * сплошным диском. Внутреннее пространство над дном вырезано целиком, поэтому
+ * пластик уходит только в дно, стенку и борт; дно остаётся плоским и лежит на
+ * столе, так что мостов и поддержек нет ни на одном ползунке.
  */
 function treeDish(baseRadiusMm: number): JewelryTreeDish {
-  const rimZMm = clampNumber(
-    baseRadiusMm * JEWELRY_TREE_DISH_RIM_SHARE,
-    JEWELRY_TREE_DISH_MIN_RIM_MM,
-    JEWELRY_TREE_DISH_MAX_RIM_MM,
-  );
-  const floorZMm = clampNumber(
-    baseRadiusMm * JEWELRY_TREE_DISH_FLOOR_SHARE,
-    JEWELRY_TREE_DISH_MIN_FLOOR_MM,
-    JEWELRY_TREE_DISH_MAX_FLOOR_MM,
-  );
+  const rimZMm = JEWELRY_TREE_DISH_RIM_MM;
+  const floorZMm = JEWELRY_TREE_DISH_FLOOR_MM;
   const wallThicknessMm = clampNumber(
     baseRadiusMm * JEWELRY_TREE_DISH_WALL_SHARE,
     JEWELRY_TREE_DISH_MIN_WALL_MM,

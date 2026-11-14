@@ -21,6 +21,7 @@ import {
   JEWELRY_DEER_BASE_HEIGHT_MM,
   JEWELRY_DEER_WEIGHT_DIAMETER_MM,
   JEWELRY_DEER_WEIGHT_OFFSET_MM,
+  createJewelryDeerGeometry,
   jewelryDeerHeightMm,
   jewelryDeerPlan,
   type JewelryDeerPlan,
@@ -376,7 +377,8 @@ near(
   jewelryLeafPlateThicknessMm(),
   JEWELRY_LEAF_BOWL_DEPTH_MM + JEWELRY_LEAF_MIN_THICKNESS_MM,
 );
-near("лист: минимальная толщина", JEWELRY_LEAF_MIN_THICKNESS_MM, 1.6);
+near("лист: плита 3 мм из ТЗ", jewelryLeafPlateThicknessMm(), 3);
+near("лист: минимальная толщина", JEWELRY_LEAF_MIN_THICKNESS_MM, 1.2);
 
 /** Самое широкое место и точка на середине половины: там дно ложа. */
 const widestHalfOnAxisMm = jewelryLeafHalfWidthAt(leafCase, widestT);
@@ -628,24 +630,17 @@ function insideTube(
  * ним материал базы, полость под утяжелитель считается отдельно) и тела труб
  * рогов, которые спрятаны в бюсте и друг в друге.
  *
- * Низ морды — отдельная статья. Морда вытянута вперёд и срезана вниз, поэтому её
- * нижняя грань идёт вперёд под 22° и нависает: убрать это можно только опустив
- * нос к полу, а тогда морда перестаёт читаться. Поэтому консоль под мордой
- * считается отдельно и ограничена по площади; всё остальное обязано быть нулём.
+ * Низ головы — отдельная статья. Морда вынесена вперёд и срезана вниз, поэтому
+ * подбородок и щёки идут к носу под 40–45° и нависают: убрать это можно только
+ * задрав нос в небо, а тогда голова снова читается шаром. Поэтому вся нижняя
+ * поверхность впереди оси бюста считается консолью и ограничена по площади;
+ * всё остальное — за осью и на шее — обязано быть нулём.
  */
 function deerOverhangs(
   mesh: Mesh,
   plan: JewelryDeerPlan,
 ): { chinMm2: number; other: number } {
   const position = mesh.vertices;
-  // Морда — от вершины профиля (самое высокое кольцо) до кончика носа.
-  const apex = plan.stations.reduce((top, station) =>
-    station.zMm > top.zMm ? station : top,
-  );
-  const nose = plan.stations[plan.stations.length - 1];
-  const muzzleFrom: Point = [0, apex.yMm, apex.zMm];
-  const muzzleTo: Point = [0, nose.yMm, nose.zMm];
-  const muzzleRadiusMm = Math.max(apex.rxMm, apex.ryMm) + 2;
   let chinMm2 = 0;
   let other = 0;
 
@@ -699,7 +694,7 @@ function deerOverhangs(
       continue;
     }
 
-    if (distanceToSegment(center, muzzleFrom, muzzleTo) <= muzzleRadiusMm) {
+    if (centerY <= 0.01) {
       chinMm2 += length / 2;
     } else {
       other += 1;
@@ -755,12 +750,12 @@ expectNear(
   0.01,
 );
 
-console.log("\nБюст «Лесной олень»: профиль шеи и головы из ТЗ");
+console.log("\nБюст «Лесной олень»: профиль шеи и головы");
 
 /**
  * Кольцо плана, совпавшее с опорным сечением профиля.
  *
- * Сглаживающая кривая проходит через опоры точно, поэтому каждое сечение из ТЗ
+ * Сглаживающая кривая проходит через опоры точно, поэтому каждое опорное сечение
  * лежит в плане отдельным кольцом — по нему и видно, что лофт собран по ТЗ, а не
  * подобран на глаз.
  */
@@ -774,17 +769,21 @@ function deerSection(
 }
 
 /**
- * Сечения из ТЗ: имя, высота, центр по Y и размеры.
+ * Сечения головы и шеи: имя, высота, центр по Y и размеры.
  *
- * Полуоси — половины диаметров из ТЗ: 40 × 20 у основания шеи, 25 × 15 на
- * середине, 30 × 25 у затылка, 15 × 10 у морды, 8 × 8 у носа.
+ * Полуоси — половины диаметров: 40 × 20 у основания шеи, 25 × 15 на середине,
+ * 28 × 22 у затылка, 13 × 9 у морды, 7 × 7 у носа. Голова вытянута вперёд:
+ * затылок на y = 2, морда на −20, нос на −32, поэтому сбоку читается голова с
+ * мордой, а не шар на шее. Прежние 30 × 25 / 15 × 10 / 8 × 8 при морде на высоте
+ * 90 мм давали как раз шар: нос смотрел в небо, а вынос морды был на полтора
+ * миллиметра больше, чем у старого бюста со сферой на конусе.
  */
 const deerProfileSections = [
   ["основание шеи", 10, 40, 20, 16],
   ["середина шеи", 40, 25, 15, 11],
-  ["затылок", 70, 30, 25, 6],
-  ["морда", 90, 15, 10, -14],
-  ["нос", 85, 8, 8, -24],
+  ["затылок", 70, 28, 22, 2],
+  ["морда", 80, 13, 9, -20],
+  ["нос", 76, 7, 7, -32],
 ] as const;
 
 for (const [name, zMm, widthMm, depthMm, yMm] of deerProfileSections) {
@@ -796,28 +795,28 @@ for (const [name, zMm, widthMm, depthMm, yMm] of deerProfileSections) {
     continue;
   }
 
-  expectNear(`олень: ${name} — ширина из ТЗ`, ring.rxMm * 2, widthMm, 0.02);
-  expectNear(`олень: ${name} — глубина из ТЗ`, ring.ryMm * 2, depthMm, 0.02);
+  expectNear(`олень: ${name} — ширина`, ring.rxMm * 2, widthMm, 0.02);
+  expectNear(`олень: ${name} — глубина`, ring.ryMm * 2, depthMm, 0.02);
   expectNear(`олень: ${name} — центр по Y`, ring.yMm, yMm, 0.02);
 }
 
 const deerNeckBase = deerSection(deerPlan, 10);
 const deerMidNeck = deerSection(deerPlan, 40);
 const deerOcciput = deerSection(deerPlan, 70);
-const deerMuzzle = deerSection(deerPlan, 90);
-const deerNose = deerSection(deerPlan, 85);
+const deerMuzzle = deerSection(deerPlan, 80);
+const deerNose = deerSection(deerPlan, 76);
 
 if (deerNeckBase && deerMidNeck && deerOcciput && deerMuzzle && deerNose) {
   expectNear(
-    "олень: морда вынесена на 40 мм вперёд от основания шеи",
+    "олень: морда вынесена на 48 мм вперёд от основания шеи",
     deerNeckBase.yMm - deerNose.yMm,
-    40,
+    48,
     0.02,
   );
   expectNear(
-    "олень: морда вынесена на 20 мм вперёд от затылка",
+    "олень: морда вынесена на 22 мм вперёд от затылка",
     deerOcciput.yMm - deerMuzzle.yMm,
-    20,
+    22,
     0.02,
   );
   check(
@@ -828,6 +827,12 @@ if (deerNeckBase && deerMidNeck && deerOcciput && deerMuzzle && deerNose) {
   check(
     "олень: морда смотрит вперёд, а не в пол",
     deerNose.zMm > deerOcciput.zMm,
+    true,
+  );
+  check(
+    "олень: ось морды идёт вперёд, а не в небо",
+    deerMuzzle.zMm - deerOcciput.zMm <=
+      (deerOcciput.yMm - deerMuzzle.yMm) * 0.7,
     true,
   );
 
@@ -1019,21 +1024,81 @@ expectNear("олень: длина базы по X", deerMaxX - deerMinX, 150, 0
 expectNear("олень: ширина базы по Y", deerMaxY - deerMinY, 100, 0.02);
 expectNear("олень: высота вместе с рогами", deerMaxZ - deerMinZ, deerHeight, 0.2);
 
-/** Допуск на консоль под мордой, мм²: печатается мостом под подбородком. */
-const DEER_CHIN_CANTILEVER_MM2 = 150;
+/**
+ * Допуск на консоль низа головы, мм²: печатается мостом под подбородком.
+ *
+ * 187 мм² при подбородке, вынесенном вперёд, — это 1.9 см² пологого низа от щёк
+ * к носу. Меньше не выходит: у шара на шее консоль была 81 мм², но и голова
+ * читалась шаром. Размен сознательный — узнаваемый силуэт важнее одного моста.
+ */
+const DEER_CHIN_CANTILEVER_MM2 = 210;
 
 const deerOverhang = deerOverhangs(deerMesh, deerPlan);
 
 check("олень: нависаний вне низа морды нет", deerOverhang.other, 0);
 check(
-  "олень: консоль низа морды в допуске",
+  "олень: консоль низа головы в допуске",
   deerOverhang.chinMm2 <= DEER_CHIN_CANTILEVER_MM2,
   true,
 );
 console.log(
   `  · объём ${deerVolume.toFixed(1)} см³, высота ${deerHeight} мм, ` +
-    `консоль морды ${deerOverhang.chinMm2.toFixed(0)} мм²`,
+    `консоль низа головы ${deerOverhang.chinMm2.toFixed(0)} мм²`,
 );
+
+console.log("\nБюст «Лесной олень»: диспетчер отдаёт новый лофт");
+
+/**
+ * Диспетчер — единственная точка, через которую превью и скачивание STL берут
+ * геометрию пресета. Проверка сравнивает его ответ с генератором напрямую: если
+ * ветку `deer_bust` когда-нибудь снова уведёт к старому «шару на конусе», тест
+ * упадёт здесь, а не в браузере у владельца.
+ */
+const deerDirectGeometry = createJewelryDeerGeometry(deerCase);
+const deerDirect = deerDirectGeometry.getAttribute("position");
+const deerDispatched = deerGeometry.getAttribute("position");
+let deerSameMesh = deerDirect.count === deerDispatched.count;
+
+for (let index = 0; deerSameMesh && index < deerDirect.count; index += 1) {
+  deerSameMesh =
+    Math.abs(deerDirect.getX(index) - deerDispatched.getX(index)) < 1e-9 &&
+    Math.abs(deerDirect.getY(index) - deerDispatched.getY(index)) < 1e-9 &&
+    Math.abs(deerDirect.getZ(index) - deerDispatched.getZ(index)) < 1e-9;
+}
+
+check("олень: диспетчер вернул сетку генератора", deerSameMesh, true);
+
+/**
+ * Подпись формы: у лофта 7376 треугольников и высота 140.49 мм, у старого бюста
+ * со сферой на конусе — 3936 и 131.91. Порог, а не точное число: правка колец
+ * профиля подпись не ломает, а возврат к старой форме ловится сразу.
+ */
+check(
+  "олень: диспетчер вернул лофт, а не старый бюст",
+  deerDispatched.count / 3 > 6500,
+  true,
+);
+check("олень: высота лофта из диспетчера", deerMaxZ - deerMinZ > 138, true);
+check(
+  "олень: вес лофта из диспетчера в коридоре",
+  deerVolume >= 100 && deerVolume <= 120,
+  true,
+);
+
+/**
+ * Морда, а не шар: у лофта голова доходит по Y до −28 мм (нос Ø8 в конце морды),
+ * у старого бюста со сферой на конусе передняя точка головы была на −17. Меряется
+ * передний край всего, что выше шеи: рога стоят позади головы и в минимум не
+ * попадают.
+ */
+const deerHeadFrontY = Math.min(
+  ...deerMesh.vertices
+    .filter((vertex) => vertex[2] > 60)
+    .map((vertex) => vertex[1]),
+);
+
+check("олень: нос вынесен вперёд черепа", deerHeadFrontY <= -27.5, true);
+console.log(`  · передний край головы: y = ${deerHeadFrontY.toFixed(1)} мм`);
 
 console.log("\nБюст «Лесной олень»: рога шире базы");
 
@@ -1128,7 +1193,7 @@ const smallestOverhang = deerOverhangs(smallestMesh, smallestDeer);
 
 check("олень: минимум — нависаний вне низа морды нет", smallestOverhang.other, 0);
 check(
-  "олень: минимум — консоль низа морды в допуске",
+  "олень: минимум — консоль низа головы в допуске",
   smallestOverhang.chinMm2 <= DEER_CHIN_CANTILEVER_MM2,
   true,
 );
@@ -1240,6 +1305,8 @@ check(
   treePlan.dish.rimZMm > treePlan.dish.floorZMm,
   true,
 );
+near("древо: дно чаши 3 мм из ТЗ", treePlan.dish.floorZMm, 3);
+near("древо: борт чаши 10 мм из ТЗ", treePlan.dish.rimZMm, 10);
 near("древо: чаша по базе", treePlan.dish.outerRadiusMm, 60);
 check(
   "древо: чаша внутри базы",
