@@ -272,6 +272,61 @@ export function addRingPrism(
 }
 
 /**
+ * Замкнутая чаша: дно и стенка одним телом.
+ *
+ * Наружная стенка идёт от стола до кромки, внутренняя — от плоскости дна до
+ * кромки, а дно закрывает полость снизу. В отличие от пары «плита + кольцо»,
+ * на стыке нет совпадающих торцов: каждое ребро общее ровно для двух
+ * треугольников, а объём сетки равен объёму детали.
+ *
+ * Низ чаши всегда стоит на Z = 0; `floorZ` задаёт верх дна, `topZ` — кромку.
+ */
+export function addCupPrism(
+  positions: number[],
+  outer: readonly Point2[],
+  inner: readonly Point2[],
+  floorZ: number,
+  topZ: number,
+): void {
+  const count = outer.length;
+
+  addPrismSides(positions, outer, 0, topZ);
+  addFanCap(positions, outer, 0, false);
+  addRingInnerSides(positions, inner, floorZ, topZ);
+  addFanCap(positions, inner, floorZ, true);
+
+  for (let index = 0; index < count; index += 1) {
+    const next = (index + 1) % count;
+    const [ox0, oy0] = outer[index];
+    const [ox1, oy1] = outer[next];
+    const [ix0, iy0] = inner[index];
+    const [ix1, iy1] = inner[next];
+
+    // Верхний торец смотрит в +Z и замыкает кольцо между стенками.
+    positions.push(
+      ox0,
+      oy0,
+      topZ,
+      ox1,
+      oy1,
+      topZ,
+      ix1,
+      iy1,
+      topZ,
+      ox0,
+      oy0,
+      topZ,
+      ix1,
+      iy1,
+      topZ,
+      ix0,
+      iy0,
+      topZ,
+    );
+  }
+}
+
+/**
  * Замкнутый цилиндр между двумя точками.
  *
  * Стойка, перекладина под кольца и рожки для цепочек наклонены, поэтому ось

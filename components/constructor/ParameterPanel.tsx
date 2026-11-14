@@ -3980,7 +3980,7 @@ export function ParameterPanel({
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
             <NumberSlider
-              hint="Габарит «под ключ»: у круга — диаметр, у квадрата и шестигранника — расстояние между гранями. 70–90 мм хватает на ручки, карандаши и ножницы."
+              hint="Габарит по X: у круга — диаметр, у квадрата — сторона, у шестигранника — ширина между вершинами. Глубина шестигранника меньше: 69.3 мм при ширине 80."
               label="Габарит"
               max={CONSTRUCTOR_LIMITS.penSize.max}
               min={CONSTRUCTOR_LIMITS.penSize.min}
@@ -4003,7 +4003,7 @@ export function ParameterPanel({
 
             <NumberSlider
               decimals={CONSTRUCTOR_LIMITS.penWall.decimals}
-              hint="Толщина стенки, дна и перегородок. 1.6–2 мм держат форму, 3 мм и больше — запас под грубую печать и тяжёлые канцелярские принадлежности."
+              hint="Толщина стенки и перегородок; дно всегда 3 мм. 1.6–2 мм держат форму, 3 мм и больше — запас под грубую печать и тяжёлые канцелярские принадлежности."
               label="Стенка"
               max={CONSTRUCTOR_LIMITS.penWall.max}
               min={CONSTRUCTOR_LIMITS.penWall.min}

@@ -1532,10 +1532,13 @@ export type JewelryStandParams = {
 };
 
 /**
- * Органайзер для ручек повторяет три формы кашпо: круг, квадрат и шестигранник.
- * Сечение строит тот же код, а подписи согласуют род со словом «органайзер».
+ * Формы органайзера для ручек: круг, квадрат и шестигранник.
+ *
+ * Список независим от кашпо, хотя значения пока совпадают. Иначе новая форма,
+ * добавленная для ручек, автоматически появилась бы в кашпо, где у неё другая
+ * геометрия и другие подписи.
  */
-export const PEN_SHAPES = PLANTER_SHAPES;
+export const PEN_SHAPES = ["round", "square", "hex"] as const;
 
 export type PenShape = (typeof PEN_SHAPES)[number];
 
@@ -1553,11 +1556,16 @@ export const PEN_SHAPE_LABELS = {
  * поэтому деталь печатается одним телом без клея и поддержек.
  */
 export type PenHolderParams = {
-  /** Габарит «под ключ», мм: диаметр или размер многоугольника. */
+  /**
+   * Габарит по X, мм: диаметр круга или ширина многоугольника.
+   *
+   * У правильного шестигранника глубина по Y меньше ширины: при 80 мм она
+   * равна `80 · √3 / 2 = 69.28` мм. Это честный габарит, а не ошибка формы.
+   */
   penSize: number;
   /** Высота стенки от стола, мм. */
   penHeight: number;
-  /** Толщина стенки, дна и перегородок, мм. */
+  /** Толщина стенки и перегородок, мм: дно фиксировано 3 мм. */
   penWall: number;
   /** Форма в плане: круг, квадрат или шестигранник. */
   penShape: PenShape;
@@ -3528,10 +3536,15 @@ export const isCoasterShape: (value: unknown) => value is CoasterShape =
 /**
  * Проверка формы органайзера для ручек.
  *
- * Набор форм общий с кашпо: сечение строит один и тот же код, а подписи в
- * списке согласуют род («круглый органайзер»).
+ * Проверяется собственный список, а не набор кашпо: иначе `squircle` или другая
+ * будущая форма ручек протекла бы в чужую модель через общий массив.
  */
-export const isPenShape: (value: unknown) => value is PenShape = isPlanterShape;
+export function isPenShape(value: unknown): value is PenShape {
+  return (
+    typeof value === "string" &&
+    (PEN_SHAPES as readonly string[]).includes(value)
+  );
+}
 
 /** Проверка рельефа подставки под кружку из формы или API. */
 export function isCoasterPattern(value: unknown): value is CoasterPattern {
@@ -4641,7 +4654,7 @@ export function normalizeJewelryStandParams(
  *
  * Габарит и высота выравниваются по 5 мм, стенка — по 0.2 мм. Число отделений
  * целое, от 1 до 4: в стаканчик 50 мм больше перегородок уже не помещается.
- * Форма принимается только из общего набора кашпо.
+ * Форма принимается только из собственного набора органайзера.
  */
 export function normalizePenHolderParams(
   params: Partial<PenHolderParams>,
