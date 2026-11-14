@@ -28,6 +28,7 @@ import {
 import {
   JEWELRY_LEAF_BOWL_DEPTH_MM,
   JEWELRY_LEAF_MIN_THICKNESS_MM,
+  jewelryLeafFaceMm,
   jewelryLeafHalfWidthAt,
   jewelryLeafHeightMm,
   jewelryLeafPlateThicknessMm,
@@ -45,6 +46,7 @@ import {
   type JewelryTreePoint,
 } from "../lib/constructor/jewelry-tree-geometry";
 import {
+  CONSTRUCTOR_LIMITS,
   JEWELRY_LEAF_TYPES,
   jewelryStandStlFileName,
   normalizeJewelryStandParams,
@@ -368,12 +370,23 @@ check(
   widestT > 0.35 && widestT < 0.65,
   true,
 );
-near("лист: плита над ложем", jewelryLeafPlateThicknessMm(2), 4.5);
-near("лист: минимальная толщина", JEWELRY_LEAF_MIN_THICKNESS_MM, 1.6);
 near(
-  "лист: глубина в центре жилки",
-  jewelryLeafReliefMm(leafCase, 0, 0),
-  2 + JEWELRY_LEAF_BOWL_DEPTH_MM,
+  "лист: плита над ложем",
+  jewelryLeafPlateThicknessMm(),
+  JEWELRY_LEAF_BOWL_DEPTH_MM + JEWELRY_LEAF_MIN_THICKNESS_MM,
+);
+near("лист: минимальная толщина", JEWELRY_LEAF_MIN_THICKNESS_MM, 1.6);
+
+/** Самое широкое место и точка на середине половины: там дно ложа. */
+const widestHalfOnAxisMm = jewelryLeafHalfWidthAt(leafCase, widestT);
+const dishPointY = widestHalfOnAxisMm / 2;
+const dishPointX =
+  -leafCase.jewelryLeafLength / 2 + widestT * leafCase.jewelryLeafLength;
+
+near(
+  "лист: глубина ложа",
+  jewelryLeafReliefMm(leafCase, dishPointX, dishPointY),
+  JEWELRY_LEAF_BOWL_DEPTH_MM,
 );
 near(
   "лист: у края рельеф затухает",
@@ -381,9 +394,27 @@ near(
   0,
 );
 check(
-  "лист: рельеф не глубже жилки и ложа",
-  jewelryLeafReliefMm(leafCase, 0, 0) <=
-    leafCase.jewelryLeafVeinDepth + JEWELRY_LEAF_BOWL_DEPTH_MM + 1e-9,
+  "лист: ложе не глубже плиты минус минимум",
+  jewelryLeafReliefMm(leafCase, dishPointX, dishPointY) <=
+    JEWELRY_LEAF_BOWL_DEPTH_MM + 1e-9,
+  true,
+);
+check(
+  "лист: центральная жилка выше ложа",
+  jewelryLeafFaceMm(leafCase, dishPointX, 0) >
+    jewelryLeafFaceMm(leafCase, dishPointX, dishPointY) + 0.5,
+  true,
+);
+check(
+  "лист: бортик выше центральной жилки",
+  jewelryLeafFaceMm(leafCase, dishPointX, widestHalfOnAxisMm - 0.2) >
+    jewelryLeafFaceMm(leafCase, dishPointX, 0),
+  true,
+);
+check(
+  "лист: лицо нигде не ниже минимальной толщины",
+  jewelryLeafFaceMm(leafCase, dishPointX, dishPointY) >=
+    JEWELRY_LEAF_MIN_THICKNESS_MM - 1e-9,
   true,
 );
 
@@ -410,7 +441,7 @@ const leafVolume = volumeMm3(leafMesh) / 1000;
 const [leafMinX, leafMaxX] = range(leafMesh.vertices, 0);
 const [leafMinY, leafMaxY] = range(leafMesh.vertices, 1);
 const [leafMinZ, leafMaxZ] = range(leafMesh.vertices, 2);
-const leafPlate = jewelryLeafPlateThicknessMm(leafCase.jewelryLeafVeinDepth);
+const leafPlate = jewelryLeafPlateThicknessMm();
 
 check("лист: открытых рёбер", openEdges(leafMesh), 0);
 check("лист: вырожденных треугольников", degenerateTriangles(leafMesh), 0);
@@ -456,6 +487,42 @@ for (const leafType of JEWELRY_LEAF_TYPES) {
     true,
   );
   expectNear(`${leafType}: ширина`, maxY - minY, 100, 0.6);
+}
+
+console.log("\nЛоток-лист: границы ползунков");
+
+for (const jewelryLeafWidth of [
+  CONSTRUCTOR_LIMITS.jewelryLeafWidth.min,
+  CONSTRUCTOR_LIMITS.jewelryLeafWidth.max,
+]) {
+  for (const jewelryLeafVeinDepth of [
+    CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth.min,
+    CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth.max,
+  ]) {
+    const extreme = {
+      ...leafCase,
+      jewelryLeafWidth,
+      jewelryLeafVeinDepth,
+    };
+    const geometry = createJewelryStandGeometry(extreme);
+    const mesh = weld(geometry);
+    const [minZ, maxZ] = range(mesh.vertices, 2);
+    const label = `лист W${jewelryLeafWidth}/V${jewelryLeafVeinDepth}`;
+
+    check(`${label}: открытых рёбер`, openEdges(mesh), 0);
+    check(`${label}: NaN вершин`, nanVertices(geometry), 0);
+    expectNear(
+      `${label}: высота`,
+      maxZ - minZ,
+      jewelryLeafHeightMm(extreme),
+      0.05,
+    );
+    check(
+      `${label}: нет нависаний круче 45°`,
+      overhangTriangles(mesh, jewelryLeafPlateThicknessMm(), extreme),
+      0,
+    );
+  }
 }
 
 console.log("\nЛоток-лист: имя файла и границы ползунков");

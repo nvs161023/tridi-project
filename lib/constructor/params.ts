@@ -243,7 +243,7 @@ export const CONSTRUCTOR_LIMITS = {
     defaultValue: 100,
     decimals: 0,
   },
-  // Глубина считается вниз от лица: 1 мм — тонкие жилки, 3 мм — глубокие ложа.
+  // Высота прожилок: 1 мм — тонкие рёбра, 3 мм — заметный гребень центральной жилки.
   jewelryLeafVeinDepth: {
     min: 1,
     max: 3,

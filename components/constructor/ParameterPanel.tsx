@@ -30,6 +30,7 @@ import {
   jewelryDeerHeightMm,
 } from "@/lib/constructor/jewelry-deer-geometry";
 import {
+  JEWELRY_LEAF_BOWL_DEPTH_MM,
   JEWELRY_LEAF_MIN_THICKNESS_MM,
   jewelryLeafPlateThicknessMm,
 } from "@/lib/constructor/jewelry-leaf-geometry";
@@ -1496,13 +1497,11 @@ function modelSummary(
         { label: "Лист", value: JEWELRY_LEAF_TYPE_LABELS[params.jewelryLeafType] },
         {
           label: "Толщина",
-          value: `${jewelryLeafPlateThicknessMm(
-            params.jewelryLeafVeinDepth,
-          ).toFixed(1)} мм`,
+          value: `${jewelryLeafPlateThicknessMm().toFixed(1)} мм`,
         },
         {
-          label: "Прожилки",
-          value: `${params.jewelryLeafVeinDepth.toFixed(1)} мм`,
+          label: "Жилки",
+          value: `+${params.jewelryLeafVeinDepth.toFixed(1)} мм`,
         },
       ];
     }
@@ -3825,8 +3824,8 @@ export function ParameterPanel({
                 />
 
                 <NumberSlider
-                  hint="Глубина канавок вниз от лица. На 1 мм жилки читаются как гравировка, на 3 мм кольцо садится в ложу и не скатывается."
-                  label="Глубина прожилок"
+                  hint="Насколько прожилки выступают над ложем. На 1 мм это тонкие рёбра-гравировка, на 3 мм центральная жилка становится заметным гребнем: она шире и выше, а боковые — её доля. Бока рёбер держатся 42°, поэтому поддержки не нужны."
+                  label="Высота прожилок"
                   max={CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth.max}
                   min={CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth.min}
                   onChange={(value) =>
@@ -3839,12 +3838,13 @@ export function ParameterPanel({
               </div>
 
               <p className="mt-4 text-xs leading-relaxed text-slate-300">
-                Плита лежит на столе всей площадью: дно плоское, поэтому деталь
-                печатается без поддержек, а прожилки и ложа только снимают
-                материал сверху. По краю поднимается бортик: плоский лист
-                читается как чаша-лоток, и кольца не скатываются на стол. Между
-                жилками — пологие ложа глубиной 0.9 мм. Самое тонкое место —
-                центр центральной жилки:{" "}
+                Лист — чаша, а не плоскость: на каждой половине пластины лежит
+                ложе глубиной {JEWELRY_LEAF_BOWL_DEPTH_MM.toFixed(1)} мм, между
+                ними поднимается ребро центральной жилки, а по кромке идёт
+                бортик-валик с округлым верхом. Дно плоское и лежит на столе
+                всей площадью, поэтому деталь печатается без поддержек: ложе
+                только снимает материал сверху, а рёбра растут кверху. Самое
+                тонкое место — дно ложа:{" "}
                 {JEWELRY_LEAF_MIN_THICKNESS_MM.toFixed(1)} мм. На черешке стоит
                 крючок для цепочек и браслетов.
               </p>

@@ -4,7 +4,7 @@
  * Лист — не тело вращения и не набор пересекающихся призм, а поле высот:
  * плоское дно лежит на столе, лицо повторяет рельеф. Такая схема печатается
  * без поддержек по построению — каждый следующий слой меньше предыдущего, ведь
- * все углубления только снимают материал сверху. Крючок — единственный
+ * всё, что есть на лице, растёт кверху от плоского дна. Крючок — единственный
  * наклонный элемент: его ось отклонена от вертикали на 39°, а нижний срез
  * утоплен в плиту, поэтому поддержки не нужны и ему.
  *
@@ -14,14 +14,17 @@
  * Контур задан полушириной `w(t)`, а не маской ячеек: край получается гладким
  * при любом шаге сетки.
  *
- * Рельеф — три наложенные функции, все гладкие (smoothstep):
+ * Лицо — сумма четырёх слагаемых (`leafFaceMm`), все гладкие (smoothstep):
  *
- * 1. центральная жилка — канавка вниз по оси листа;
- * 2. боковые жилки — отрезки от оси к краю, наклонённые к кончику;
- * 3. ложе между жилками — пологая впадина по всей пластине, в ней лежат кольца.
+ * 1. ложе — впадина на каждой половине пластины: ноль на жилке и у кромки,
+ *    максимум посередине. Так лист читается чашей, а не плоской плитой;
+ * 2. центральная жилка — выпуклое ребро по оси, самое высокое на листе;
+ * 3. боковые жилки — тонкие рёбра-лучи от оси к краю, наклонённые к кончику;
+ * 4. бортик — валик по кромке: подъём, верхушка и скруглённый край.
  *
- * Глубина каждой функции вниз от лица, поэтому верхняя поверхность нигде не
- * поднимается выше плиты, а самая тонкая точка — центр центральной жилки.
+ * Ложе снимает материал вниз, рёбра и бортик поднимаются вверх. Плита толще
+ * самого глубокого места ложа ровно на минимальную толщину, поэтому лист не
+ * просвечивает на любом ползунке, а рёбра не выходят за высоту бортика.
  */
 
 import { BufferGeometry, Float32BufferAttribute } from "three";
@@ -32,26 +35,37 @@ import {
   type JewelryStandParams,
 } from "@/lib/constructor/params";
 
-/** Толщина плиты в самой тонкой точке — под центральной жилкой, мм. */
+/** Толщина плиты в самой тонкой точке — на дне ложа, мм. */
 export const JEWELRY_LEAF_MIN_THICKNESS_MM = 1.6;
 
-/** Глубина пологого ложа между жилками, мм: кольцо лежит, а не катается. */
-export const JEWELRY_LEAF_BOWL_DEPTH_MM = 0.9;
+/** Глубина ложа на каждой половине пластины, мм: лист читается чашей. */
+export const JEWELRY_LEAF_BOWL_DEPTH_MM = 2.4;
 
-/** Ширина ободка по краю, где рельеф затухает до нуля, мм. */
+/** Ширина ободка по краю, где ложе и рёбра затухают до нуля, мм. */
 export const JEWELRY_LEAF_EDGE_BAND_MM = 3.5;
 
-/** Полуширина центральной жилки, мм. */
-export const JEWELRY_LEAF_CENTER_VEIN_HALF_MM = 1.6;
+/** Полуширина центральной жилки, мм: это ребро, а не канавка. */
+export const JEWELRY_LEAF_CENTER_VEIN_HALF_MM = 2.4;
 
-/** Полуширина боковой жилки, мм: уже центральной, но читается на слое 0.2. */
-export const JEWELRY_LEAF_SIDE_VEIN_HALF_MM = 1.1;
+/** Предел полуширины центральной жилки, мм: выше ребро шире и мягче. */
+const JEWELRY_LEAF_CENTER_VEIN_HALF_MAX_MM = 4.4;
+
+/** Полуширина боковой жилки, мм: тонкое ребро, читается и на слое 0.2. */
+export const JEWELRY_LEAF_SIDE_VEIN_HALF_MM = 1.2;
 
 /** Пар боковых жилок: пять пар дают шесть полос-лож между ними. */
 export const JEWELRY_LEAF_SIDE_VEIN_PAIRS = 5;
 
-/** Глубина боковой жилки в долях глубины центральной. */
-const JEWELRY_LEAF_SIDE_VEIN_RATIO = 0.72;
+/**
+ * Крутизна бока жилки: подъём ребра, делённый на его полуширину.
+ *
+ * Гладкий импульс поднимается на 1.5·высота за ширину, поэтому 0.6 даёт 42° —
+ * ребро печатается без поддержек и не «зализает» на слоях 0.2 мм.
+ */
+const JEWELRY_LEAF_RIB_SLOPE = 0.6;
+
+/** Доля подъёма боковой жилки от центральной на толстом ползунке. */
+const JEWELRY_LEAF_SIDE_VEIN_RATIO = 0.4;
 
 /** Полуширина черешка, мм: в неё входит крючок и остаётся мясо по краям. */
 const JEWELRY_LEAF_STEM_HALF_MM = 4.5;
@@ -95,13 +109,19 @@ const JEWELRY_LEAF_HOOK_INSET_MM = 18;
 /** Насколько начало наклонной части ниже лица плиты, мм: торец уходит в материал. */
 const JEWELRY_LEAF_HOOK_JOIN_MM = 1.2;
 
-/** Высота бортика к краю в долях ширины листа и её пределы, мм. */
-const JEWELRY_LEAF_RIM_SHARE = 0.11;
-const JEWELRY_LEAF_RIM_MIN_MM = 5;
-const JEWELRY_LEAF_RIM_MAX_MM = 12;
+/** Высота бортика в долях ширины листа и её пределы, мм. */
+const JEWELRY_LEAF_RIM_SHARE = 0.12;
+const JEWELRY_LEAF_RIM_MIN_MM = 7;
+const JEWELRY_LEAF_RIM_MAX_MM = 13;
 
 /** Доля полуширины, с которой начинается подъём бортика. */
 const JEWELRY_LEAF_RIM_START = 0.62;
+
+/** Доля полуширины, где бортик выходит на полную высоту. */
+const JEWELRY_LEAF_RIM_CREST_SHARE = 0.94;
+
+/** Насколько кромка ниже верхушки бортика: сверху выходит валик, а не стенка. */
+const JEWELRY_LEAF_RIM_CROWN_SHARE = 0.22;
 
 /**
  * Высота нижнего среза крючка над столом, мм.
@@ -135,13 +155,20 @@ const JEWELRY_LEAF_PROFILES: Record<JewelryLeafType, JewelryLeafProfile> = {
   oak: { exponent: 0.55, widthFactor: 1, lobes: 5, lobeDepth: 0.12 },
 };
 
+/** Ребро листа: полуширина и подъём над ложем, мм. */
+type JewelryLeafRib = {
+  readonly halfMm: number;
+  readonly riseMm: number;
+};
+
 /** План листа: всё, что считается один раз на генерацию. */
 type JewelryLeafPlan = {
   readonly lengthMm: number;
   readonly widthMm: number;
-  readonly veinDepthMm: number;
   readonly plateMm: number;
   readonly rimMm: number;
+  readonly centerRib: JewelryLeafRib;
+  readonly sideRib: JewelryLeafRib;
   readonly profile: JewelryLeafProfile;
   readonly amplitudeMm: number;
   readonly stepMm: number;
@@ -170,16 +197,47 @@ function pulse(halfWidthMm: number, distanceMm: number): number {
 }
 
 /**
- * Толщина плиты по глубине прожилок.
+ * Толщина плиты под самым глубоким местом ложа.
  *
- * Самая тонкая точка — пересечение центральной жилки с ложем: там снимается
- * `veinDepth + bowl`. Плита выше этой суммы ровно на минимальную толщину,
- * поэтому лист не просвечивает и не рвётся при печати на любом ползунке.
+ * Ложе снимает `bowlDepth`, а плита выше этой глубины ровно на минимальную
+ * толщину, поэтому лист не просвечивает и не рвётся при печати на любом
+ * ползунке. Рёбра растут вверх, поэтому на толщину не влияют.
  */
-export function jewelryLeafPlateThicknessMm(veinDepthMm: number): number {
-  return (
-    veinDepthMm + JEWELRY_LEAF_BOWL_DEPTH_MM + JEWELRY_LEAF_MIN_THICKNESS_MM
+export function jewelryLeafPlateThicknessMm(): number {
+  return JEWELRY_LEAF_BOWL_DEPTH_MM + JEWELRY_LEAF_MIN_THICKNESS_MM;
+}
+
+/**
+ * Рёбра по ползунку прожилок.
+ *
+ * Ползунок задаёт подъём центральной жилки, а её полуширина считается из
+ * постоянной крутизны: выше ребро — шире основание. Так бок ребра всегда 42°,
+ * и на слое 0.2 мм не появляется «зализанных» свесов. Боковые жилки — доля
+ * центральной: они тоньше и ниже, как на живом листе.
+ */
+function leafRibsMm(veinDepthMm: number): {
+  center: JewelryLeafRib;
+  side: JewelryLeafRib;
+} {
+  const centerHalfMm = clamp(
+    veinDepthMm / JEWELRY_LEAF_RIB_SLOPE,
+    JEWELRY_LEAF_CENTER_VEIN_HALF_MM,
+    JEWELRY_LEAF_CENTER_VEIN_HALF_MAX_MM,
   );
+
+  return {
+    center: {
+      halfMm: centerHalfMm,
+      riseMm: Math.min(veinDepthMm, JEWELRY_LEAF_RIB_SLOPE * centerHalfMm),
+    },
+    side: {
+      halfMm: JEWELRY_LEAF_SIDE_VEIN_HALF_MM,
+      riseMm:
+        JEWELRY_LEAF_RIB_SLOPE *
+        JEWELRY_LEAF_SIDE_VEIN_HALF_MM *
+        Math.min(1, veinDepthMm * JEWELRY_LEAF_SIDE_VEIN_RATIO),
+    },
+  };
 }
 
 /** Минимальная полуширина по длине: черешок толще, кончик тоньше. */
@@ -242,6 +300,7 @@ function leafAmplitudeMm(leafType: JewelryLeafType, widthMm: number): number {
 function leafPlan(params: JewelryStandParams): JewelryLeafPlan {
   const lengthMm = params.jewelryLeafLength;
   const widthMm = params.jewelryLeafWidth;
+  const ribs = leafRibsMm(params.jewelryLeafVeinDepth);
   const stepMm = clamp(
     Math.sqrt((lengthMm * widthMm) / JEWELRY_LEAF_CELL_MM2),
     JEWELRY_LEAF_STEP_MIN_MM,
@@ -251,13 +310,14 @@ function leafPlan(params: JewelryStandParams): JewelryLeafPlan {
   return {
     lengthMm,
     widthMm,
-    veinDepthMm: params.jewelryLeafVeinDepth,
-    plateMm: jewelryLeafPlateThicknessMm(params.jewelryLeafVeinDepth),
+    plateMm: jewelryLeafPlateThicknessMm(),
     rimMm: clamp(
       widthMm * JEWELRY_LEAF_RIM_SHARE,
       JEWELRY_LEAF_RIM_MIN_MM,
       JEWELRY_LEAF_RIM_MAX_MM,
     ),
+    centerRib: ribs.center,
+    sideRib: ribs.side,
     profile: JEWELRY_LEAF_PROFILES[params.jewelryLeafType],
     amplitudeMm: leafAmplitudeMm(params.jewelryLeafType, widthMm),
     stepMm,
@@ -304,40 +364,89 @@ function segmentDistanceMm(
 }
 
 /**
- * Глубина рельефа в точке по готовому плану, мм вниз от лица плиты.
+ * Профиль бортика по доле полуширины: подъём, верхушка и скруглённая кромка.
  *
- * План передаётся снаружи: на сетке 9 тысяч вершин повторять подбор амплитуды
- * и нормализацию параметров нельзя — это превратило бы предпросмотр в
- * многосекундную паузу.
+ * Верхушка стоит на `CREST_SHARE` полуширины, а у самой кромки лицо опускается
+ * на `CROWN_SHARE` высоты: снаружи выходит валик, а не стенка с плоским верхом.
+ * Опускание идёт внутрь листа, поэтому нависаний не добавляет.
  */
-function leafReliefMm(
+function rimProfile(absoluteS: number): number {
+  const a = clamp(absoluteS, 0, 1);
+
+  return (
+    smoothstep(JEWELRY_LEAF_RIM_START, JEWELRY_LEAF_RIM_CREST_SHARE, a) -
+    JEWELRY_LEAF_RIM_CROWN_SHARE * smoothstep(JEWELRY_LEAF_RIM_CREST_SHARE, 1, a)
+  );
+}
+
+/** Опорные величины в точке листа: положение вдоль и поперёк, затухание у кромки. */
+type JewelryLeafFrame = {
+  readonly t: number;
+  readonly s: number;
+  /** 1 внутри пластины, 0 у самой кромки: рельеф не срезает край в волос. */
+  readonly edgeFade: number;
+};
+
+function leafFrame(
   plan: JewelryLeafPlan,
   xMm: number,
   yMm: number,
-): number {
+): JewelryLeafFrame {
   const halfLength = plan.lengthMm / 2;
   const t = clamp((xMm + halfLength) / plan.lengthMm, 0, 1);
-  const halfWidth = leafHalfWidth(plan, t);
-  const edge = halfWidth - Math.abs(yMm);
+  const halfWidthMm = leafHalfWidth(plan, t);
+  const edge = halfWidthMm - Math.abs(yMm);
 
-  // У самого края рельеф не снимается: остаётся ободок толщиной плиты, он
-  // держит кольца и не даёт краю получиться толщиной в волос.
-  const edgeFade = smoothstep(0, JEWELRY_LEAF_EDGE_BAND_MM, edge);
+  return {
+    t,
+    s: clamp(yMm / Math.max(halfWidthMm, 1e-6), -1, 1),
+    edgeFade: smoothstep(0, JEWELRY_LEAF_EDGE_BAND_MM, edge),
+  };
+}
 
-  if (edgeFade <= 0) {
+/**
+ * Ложе: впадина на каждой половине пластины, мм вниз от лица плиты.
+ *
+ * `16·s²·(1 − |s|)²` — единичный импульс с максимумом на середине половины:
+ * ноль на жилке и на кромке, производная на концах нулевая, поэтому ложе
+ * переходит в ребро и в бортик без изломов. Так лист читается чашей с двумя
+ * ложами, между которыми проходит ребро центральной жилки.
+ */
+function leafDishMm(frame: JewelryLeafFrame): number {
+  if (frame.edgeFade <= 0) {
     return 0;
   }
 
-  // Жилки и ложе не доходят до черешка и кончика: там пластина узкая.
-  const alongFade = smoothstep(0.08, 0.2, t) * (1 - smoothstep(0.9, 0.99, t));
-  const ratio = clamp(yMm / Math.max(halfWidth, 1e-6), -1, 1);
-  const bowl = JEWELRY_LEAF_BOWL_DEPTH_MM * (1 - ratio * ratio) * alongFade;
-  const center =
-    plan.veinDepthMm *
-    pulse(JEWELRY_LEAF_CENTER_VEIN_HALF_MM, yMm) *
-    alongFade;
+  // Ложе не доходит до черешка и кончика: там пластина узкая.
+  const along = smoothstep(0.06, 0.2, frame.t) * (1 - smoothstep(0.82, 0.97, frame.t));
+  const absoluteS = Math.abs(frame.s);
 
-  let vein = center;
+  return (
+    JEWELRY_LEAF_BOWL_DEPTH_MM *
+    16 *
+    absoluteS *
+    absoluteS *
+    (1 - absoluteS) *
+    (1 - absoluteS) *
+    along *
+    frame.edgeFade
+  );
+}
+
+/** Подъём рёбер — центральной жилки и пяти пар боковых, мм над ложем. */
+function leafRibRiseMm(
+  plan: JewelryLeafPlan,
+  xMm: number,
+  yMm: number,
+  frame: JewelryLeafFrame,
+): number {
+  if (frame.edgeFade <= 0) {
+    return 0;
+  }
+
+  const along = smoothstep(0.06, 0.2, frame.t) * (1 - smoothstep(0.82, 0.96, frame.t));
+  const halfLength = plan.lengthMm / 2;
+  let rise = plan.centerRib.riseMm * pulse(plan.centerRib.halfMm, yMm);
 
   for (let index = 0; index < JEWELRY_LEAF_SIDE_VEIN_PAIRS; index += 1) {
     const rootT =
@@ -359,32 +468,72 @@ function leafReliefMm(
         tipX,
         side * tipY,
       );
-      const depth =
-        plan.veinDepthMm *
-        JEWELRY_LEAF_SIDE_VEIN_RATIO *
-        pulse(JEWELRY_LEAF_SIDE_VEIN_HALF_MM, distance);
+      const lateral =
+        plan.sideRib.riseMm * pulse(plan.sideRib.halfMm, distance);
 
-      vein = Math.max(vein, depth);
+      // Рёбра не суммируются: на пересечении с центральной жилкой сумма дала бы
+      // бугор выше ползунка и «зализанный» бок.
+      rise = Math.max(rise, lateral);
     }
   }
 
-  return edgeFade * (vein + bowl);
+  // На валике бортика рёбра не поднимаются: жилка вливается в кромку, а не
+  // ложится поверх неё бугром.
+  return rise * along * frame.edgeFade * (1 - rimProfile(Math.abs(frame.s)));
+}
+
+/** Подъём бортика-валика у кромки, мм. */
+function leafRimRiseMm(plan: JewelryLeafPlan, frame: JewelryLeafFrame): number {
+  // Бортик не выходит на черешок и гаснет у кончика: там пластина уже 2 мм, и
+  // высокий валик превратился бы в тонкий плавник.
+  const along =
+    smoothstep(0.04, 0.2, frame.t) * (1 - smoothstep(0.78, 0.96, frame.t));
+
+  return plan.rimMm * rimProfile(Math.abs(frame.s)) * along;
 }
 
 /**
- * Глубина рельефа в точке для тестов, мм вниз от лица плиты.
+ * Лицо листа в точке по готовому плану: высота над столом, мм.
  *
- * Проверка глубины жилки обращается к той же функции, что и генератор, поэтому
- * тест не повторяет формулы и не подтверждает сам себя.
+ * План передаётся снаружи: на сетке 9 тысяч вершин повторять подбор амплитуды
+ * и нормализацию параметров нельзя — это превратило бы предпросмотр в
+ * многосекундную паузу. Эту же функцию вызывает генератор меша, поэтому тест
+ * и модель считают одно и то же поле.
+ */
+function leafFaceMm(plan: JewelryLeafPlan, xMm: number, yMm: number): number {
+  const frame = leafFrame(plan, xMm, yMm);
+
+  return (
+    plan.plateMm -
+    leafDishMm(frame) +
+    leafRibRiseMm(plan, xMm, yMm, frame) +
+    leafRimRiseMm(plan, frame)
+  );
+}
+
+/**
+ * Глубина ложа в точке для тестов, мм вниз от лица плиты.
+ *
+ * Проверка минимальной толщины обращается к той же функции, что и генератор,
+ * поэтому тест не повторяет формулы и не подтверждает сам себя.
  */
 export function jewelryLeafReliefMm(
   params: Partial<JewelryStandParams>,
   xMm: number,
   yMm: number,
 ): number {
-  const normalized = normalizeJewelryStandParams(params);
+  const plan = leafPlan(normalizeJewelryStandParams(params));
 
-  return leafReliefMm(leafPlan(normalized), xMm, yMm);
+  return leafDishMm(leafFrame(plan, xMm, yMm));
+}
+
+/** Лицо листа в точке для тестов и подсказок панели, мм над столом. */
+export function jewelryLeafFaceMm(
+  params: Partial<JewelryStandParams>,
+  xMm: number,
+  yMm: number,
+): number {
+  return leafFaceMm(leafPlan(normalizeJewelryStandParams(params)), xMm, yMm);
 }
 
 /**
@@ -398,7 +547,7 @@ export function jewelryLeafHeightMm(
   params: Partial<JewelryStandParams>,
 ): number {
   const normalized = normalizeJewelryStandParams(params);
-  const plate = jewelryLeafPlateThicknessMm(normalized.jewelryLeafVeinDepth);
+  const plate = jewelryLeafPlateThicknessMm();
   const rim = clamp(
     normalized.jewelryLeafWidth * JEWELRY_LEAF_RIM_SHARE,
     JEWELRY_LEAF_RIM_MIN_MM,
@@ -615,18 +764,9 @@ export function createJewelryLeafGeometry(
     const bottomRow: number[] = [];
 
     for (let row = 0; row <= plan.rows; row += 1) {
-      const s = -1 + (2 * row) / plan.rows;
-      const y = s * halfWidth;
-      const relief = leafReliefMm(plan, x, y);
-      // Бортик поднимает край: плоская пластина читается как чаша-лоток, и
-      // кольца не скатываются со стола. У черешка и у кончика он сходит на нет.
-      const rimRise =
-        plan.rimMm *
-        smoothstep(JEWELRY_LEAF_RIM_START, 1, Math.abs(s)) *
-        smoothstep(0.04, 0.2, t) *
-        (1 - smoothstep(0.9, 1, t));
+      const y = (-1 + (2 * row) / plan.rows) * halfWidth;
 
-      topRow.push(pushVertex(x, y, plan.plateMm - relief + rimRise));
+      topRow.push(pushVertex(x, y, leafFaceMm(plan, x, y)));
       bottomRow.push(pushVertex(x, y, 0));
     }
 
