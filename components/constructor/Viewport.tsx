@@ -29,7 +29,6 @@ import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 import {
   BOX_MAGNET_SIZE_LABELS,
   COASTER_PATTERN_LABELS,
-  JEWELRY_CONFIG_LABELS,
   JEWELRY_LEAF_TYPE_LABELS,
   JEWELRY_PRESET_LABELS,
   LITHOPHANE_PREVIEW_RESOLUTION,
@@ -1875,9 +1874,7 @@ export function Viewport({
                       ? `${params.jewelryLeafLength} × ${params.jewelryLeafWidth} мм`
                       : params.jewelryPreset === "deer_bust"
                         ? `${params.deerBaseLength} × ${params.deerBaseWidth} × ${jewelryDeerHeightMm(params)} мм`
-                        : params.jewelryPreset === "braided_tree"
-                          ? `${params.treeBaseDiameter} × ${jewelryTreeHeightMm(params)} мм`
-                          : `${params.jewelryBase} × ${params.jewelryHeight} мм`
+                        : `${params.treeBaseDiameter} × ${jewelryTreeHeightMm(params)} мм`
                     : params.model === "pen_holder"
                       ? `${params.penSize} × ${params.penHeight} мм`
                       : params.model === "heat_transfer"
@@ -1907,9 +1904,7 @@ export function Viewport({
                       ? `3D-предпросмотр лотка для украшений «${JEWELRY_LEAF_TYPE_LABELS[params.jewelryLeafType]}» ${params.jewelryLeafLength} на ${params.jewelryLeafWidth} миллиметров, глубина прожилок ${params.jewelryLeafVeinDepth} миллиметра, горизонтальная плита с плоским дном и крючком для цепочек`
                       : params.jewelryPreset === "deer_bust"
                         ? `3D-предпросмотр бюста «Лесной олень» на овальной базе ${params.deerBaseLength} на ${params.deerBaseWidth} миллиметров, размах рогов ${params.deerAntlerSpread} миллиметров, высота ${jewelryDeerHeightMm(params)} миллиметров, полость под утяжелитель Ø 25 миллиметров`
-                        : params.jewelryPreset === "braided_tree"
-                          ? `3D-предпросмотр подставки «Плетёное древо» высотой ${jewelryTreeHeightMm(params)} миллиметров на корневой базе ${params.treeBaseDiameter} миллиметров, коса из четырёх прядей с плетением ${Math.round(params.treeTwist * 100)} процентов, ${params.treeBranchCount} ветвей с крючками и штырями, сетка отверстий под серьги`
-                          : `3D-предпросмотр подставки для украшений высотой ${params.jewelryHeight} миллиметров на основании ${params.jewelryBase} миллиметров, «${JEWELRY_CONFIG_LABELS[params.jewelryConfig]}», «${JEWELRY_PRESET_LABELS[params.jewelryPreset]}»`
+                        : `3D-предпросмотр подставки «Плетёное древо» высотой ${jewelryTreeHeightMm(params)} миллиметров на корневой базе ${params.treeBaseDiameter} миллиметров, коса из четырёх прядей с плетением ${Math.round(params.treeTwist * 100)} процентов, ${params.treeBranchCount} ветвей с крючками и штырями, сетка отверстий под серьги`
                     : params.model === "pen_holder"
                       ? `3D-предпросмотр органайзера для ручек «${PEN_SHAPE_LABELS[params.penShape]}» ${params.penSize} миллиметров по ключу и высотой ${params.penHeight} миллиметров, стенка ${params.penWall} миллиметров, ${params.penSections} отделений`
                       : params.model === "heat_transfer"

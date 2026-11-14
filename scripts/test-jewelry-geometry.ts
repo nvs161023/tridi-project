@@ -34,11 +34,8 @@ import {
   jewelryLeafReliefMm,
 } from "../lib/constructor/jewelry-leaf-geometry";
 import {
-  JEWELRY_STABILITY_BASE_RATIO,
   createJewelryStandGeometry,
-  jewelryBaseIsNarrow,
   jewelryStandMetrics,
-  jewelryStableBaseMm,
 } from "../lib/constructor/jewelry-stand-geometry";
 import {
   JEWELRY_TREE_BASE_HEIGHT_MM,
@@ -334,19 +331,13 @@ function overhangTriangles(
 }
 
 
-console.log("\nУстойчивость");
+console.log("\nНабор параметров");
 
-check("порог основания — 0.55 высоты", JEWELRY_STABILITY_BASE_RATIO, 0.55);
-check("H=60 советует Ø50", jewelryStableBaseMm(60), 50);
-check("H=100 советует Ø55", jewelryStableBaseMm(100), 55);
-check("H=120 советует Ø70", jewelryStableBaseMm(120), 70);
-check("H=160 советует Ø90", jewelryStableBaseMm(160), 90);
-check("60/50 устойчива", jewelryBaseIsNarrow(60, 50), false);
-check("100/50 неустойчива", jewelryBaseIsNarrow(100, 50), true);
-check("100/55 устойчива", jewelryBaseIsNarrow(100, 55), false);
-check("160/85 неустойчива", jewelryBaseIsNarrow(160, 85), true);
-check("160/90 устойчива", jewelryBaseIsNarrow(160, 90), false);
-check("160/120 устойчива", jewelryBaseIsNarrow(160, 120), false);
+const standKeys = normalizeJewelryStandParams({});
+
+check("старой высоты стойки нет", "jewelryHeight" in standKeys, false);
+check("старого основания нет", "jewelryBase" in standKeys, false);
+check("старого набора держателей нет", "jewelryConfig" in standKeys, false);
 
 
 console.log("\nЛоток-лист: силуэт и рельеф");

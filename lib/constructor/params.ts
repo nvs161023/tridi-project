@@ -228,8 +228,6 @@ export const CONSTRUCTOR_LIMITS = {
   planterWall: { min: 1.2, max: 4, step: 0.2, defaultValue: 2, decimals: 1 },
   coasterSize: { min: 60, max: 140, step: 5, defaultValue: 90, decimals: 0 },
   coasterThickness: { min: 3, max: 10, step: 1, defaultValue: 5, decimals: 0 },
-  jewelryHeight: { min: 60, max: 160, step: 5, defaultValue: 100, decimals: 0 },
-  jewelryBase: { min: 50, max: 120, step: 5, defaultValue: 80, decimals: 0 },
   // Лист-лоток: длина и ширина задают габарит, глубина прожилок — рельеф.
   jewelryLeafLength: {
     min: 120,
@@ -1463,17 +1461,6 @@ export type CoasterParams = {
   coasterRim: boolean;
 };
 
-/** Что держит стойка: кольца на штанге, цепочки на рожках или всё вместе. */
-export const JEWELRY_CONFIGS = ["rings", "necklace", "combo"] as const;
-
-export type JewelryConfig = (typeof JEWELRY_CONFIGS)[number];
-
-export const JEWELRY_CONFIG_LABELS = {
-  rings: "Кольца",
-  necklace: "Цепочки",
-  combo: "Кольца и цепочки",
-} as const satisfies Record<JewelryConfig, string>;
-
 /**
  * Три формы премиум-коллекции.
  *
@@ -1520,25 +1507,6 @@ export const JEWELRY_LEAF_TYPE_LABELS = {
 export type JewelryStandParams = {
   /** Форма коллекции: именно она выбирает генератор. */
   jewelryPreset: JewelryPreset;
-  /**
-   * Высота классической стойки, мм.
-   *
-   * Поле осталось от прежней модели вместе с `jewelryBase`: старые проекты и
-   * запросы приходят с ними, и API не должно отвечать ошибкой. Генераторы новые
-   * формы не читают — у древа своя высота `treeHeight`, — но запрос без пресета
-   * по-прежнему собирает древо из этой пары размеров.
-   */
-  jewelryHeight: number;
-  /** Диаметр основания классической стойки, мм: только для старых запросов. */
-  jewelryBase: number;
-  /**
-   * Какие держатели строить у классической стойки.
-   *
-   * Поле осталось от прежней модели: старые проекты и запросы приходят с ним, и
-   * API не должно отвечать ошибкой. Новые формы его не читают — у листа свои
-   * держатели, у оленя рога, у древа ветви.
-   */
-  jewelryConfig: JewelryConfig;
   /** Силуэт листа: монстера, папоротник или дуб. */
   jewelryLeafType: JewelryLeafType;
   /** Длина листа вместе с черешком, мм. */
@@ -2585,9 +2553,6 @@ export const DEFAULT_COASTER_PARAMS: CoasterParams = {
  */
 export const DEFAULT_JEWELRY_STAND_PARAMS: JewelryStandParams = {
   jewelryPreset: "leaf_tray",
-  jewelryHeight: CONSTRUCTOR_LIMITS.jewelryHeight.defaultValue,
-  jewelryBase: CONSTRUCTOR_LIMITS.jewelryBase.defaultValue,
-  jewelryConfig: "combo",
   jewelryLeafType: "monstera",
   jewelryLeafLength: CONSTRUCTOR_LIMITS.jewelryLeafLength.defaultValue,
   jewelryLeafWidth: CONSTRUCTOR_LIMITS.jewelryLeafWidth.defaultValue,
@@ -3573,14 +3538,6 @@ export function isCoasterPattern(value: unknown): value is CoasterPattern {
   return (
     typeof value === "string" &&
     (COASTER_PATTERNS as readonly string[]).includes(value)
-  );
-}
-
-/** Проверка набора держателей стойки для украшений. */
-export function isJewelryConfig(value: unknown): value is JewelryConfig {
-  return (
-    typeof value === "string" &&
-    (JEWELRY_CONFIGS as readonly string[]).includes(value)
   );
 }
 
@@ -4615,10 +4572,9 @@ export function normalizeCoasterParams(
  * известных типов. Размеры листа, оленя и древа нормализуются все сразу: у
  * каждой формы свои поля, и переключение пресета не должно терять чужие
  * значения. Число ветвей округляется до целого: ползунок шагает по одной ветви, а
- * сохранённый проект может принести дробь. Старые поля `jewelryHeight`,
- * `jewelryBase` и `jewelryConfig` остаются в наборе и нормализуются как раньше,
- * но на выбор генератора больше не влияют: запрос старого клиента получает
- * дефолтную форму, а не ошибку.
+ * сохранённый проект может принести дробь. Полей классической стойки больше нет:
+ * старые `jewelryHeight`, `jewelryBase` и `jewelryConfig` не читаются и не
+ * попадают в набор, поэтому форма берётся из пресета или из значения по умолчанию.
  */
 export function normalizeJewelryStandParams(
   params: Partial<JewelryStandParams>,
@@ -4627,17 +4583,6 @@ export function normalizeJewelryStandParams(
     jewelryPreset: isJewelryPreset(params.jewelryPreset)
       ? params.jewelryPreset
       : DEFAULT_JEWELRY_STAND_PARAMS.jewelryPreset,
-    jewelryHeight: snap(
-      params.jewelryHeight ?? DEFAULT_JEWELRY_STAND_PARAMS.jewelryHeight,
-      CONSTRUCTOR_LIMITS.jewelryHeight,
-    ),
-    jewelryBase: snap(
-      params.jewelryBase ?? DEFAULT_JEWELRY_STAND_PARAMS.jewelryBase,
-      CONSTRUCTOR_LIMITS.jewelryBase,
-    ),
-    jewelryConfig: isJewelryConfig(params.jewelryConfig)
-      ? params.jewelryConfig
-      : DEFAULT_JEWELRY_STAND_PARAMS.jewelryConfig,
     jewelryLeafType: isJewelryLeafType(params.jewelryLeafType)
       ? params.jewelryLeafType
       : DEFAULT_JEWELRY_STAND_PARAMS.jewelryLeafType,

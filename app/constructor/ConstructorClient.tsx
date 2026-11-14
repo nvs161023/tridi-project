@@ -46,7 +46,6 @@ import {
   DEFAULT_SIGN_PARAMS,
   DEFAULT_STAND_PARAMS,
   DEFAULT_VASE_PARAMS,
-  JEWELRY_CONFIG_LABELS,
   JEWELRY_LEAF_TYPE_LABELS,
   JEWELRY_PRESET_LABELS,
   LITHOPHANE_SHAPE_LABELS,
@@ -90,7 +89,6 @@ import {
   type CoasterPattern,
   type CoasterShape,
   type ConstructorParams,
-  type JewelryConfig,
   type JewelryLeafType,
   type JewelryPreset,
   type KeychainDecoration,
@@ -182,7 +180,6 @@ type SizeParam = Exclude<
   | "coasterShape"
   | "coasterPattern"
   | "coasterRim"
-  | "jewelryConfig"
   | "penShape"
   | "heatTransferSvg"
   | "heatTransferMirror"
@@ -1261,12 +1258,6 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, coasterRim }));
   }
 
-  function updateJewelryConfig(jewelryConfig: JewelryConfig) {
-    setParams((current) =>
-      normalizeConstructorParams({ ...current, jewelryConfig }),
-    );
-  }
-
   /**
    * Смена пресета коллекции.
    *
@@ -1534,7 +1525,6 @@ export function ConstructorClient({
             onHeatTransferMirrorChange={updateHeatTransferMirror}
             onHeatTransferSvgChange={updateHeatTransferSvg}
             onHolePlacementChange={updateHolePlacement}
-            onJewelryConfigChange={updateJewelryConfig}
             onJewelryPresetChange={updateJewelryPreset}
             onJewelryLeafTypeChange={updateJewelryLeafType}
             onKeychainPresetChange={updateKeychainPreset}
@@ -1674,18 +1664,12 @@ export function ConstructorClient({
                       {params.deerBaseLength} × {params.deerBaseWidth} мм · рога{" "}
                       {params.deerAntlerSpread} мм
                     </>
-                  ) : params.jewelryPreset === "braided_tree" ? (
+                  ) : (
                     <>
                       {JEWELRY_PRESET_LABELS[params.jewelryPreset]} ·{" "}
                       {params.treeHeight} × Ø{params.treeBaseDiameter} мм ·{" "}
                       {params.treeBranchCount} ветви · плетение{" "}
                       {Math.round(params.treeTwist * 100)}%
-                    </>
-                  ) : (
-                    <>
-                      {JEWELRY_PRESET_LABELS[params.jewelryPreset]} ·{" "}
-                      {JEWELRY_CONFIG_LABELS[params.jewelryConfig]} ·{" "}
-                      {params.jewelryBase} × {params.jewelryHeight} мм
                     </>
                   )
                 ) : params.model === "pen_holder" ? (

@@ -47,7 +47,6 @@ import {
   isCoasterPattern,
   isCoasterShape,
   isCustomSvgData,
-  isJewelryConfig,
   isJewelryLeafType,
   isJewelryPreset,
   isKeychainDecorationKind,
@@ -1335,10 +1334,11 @@ function parseCoasterParams(
  *
  * У каждой формы своя тройка размеров: у листа — тип, длина, ширина и глубина
  * прожилок; у оленя — размах рогов и оси овальной базы; у древа — высота, диаметр
- * базы, число ветвей и сила плетения; у классической стойки — высота, диаметр и
- * набор держателей. Проверяются только поля выбранной формы,
+ * базы, число ветвей и сила плетения. Проверяются только поля выбранной формы,
  * остальные игнорируются, даже если пришли вместе: клиент держит общий набор
- * параметров и отправляет всё сразу.
+ * параметров и отправляет всё сразу. Поля удалённой классической стойки
+ * (`jewelryHeight`, `jewelryBase`, `jewelryConfig`) тоже игнорируются: форма
+ * берётся из пресета, а без пресета открывается лоток-лист.
  */
 function parseJewelryStandParams(
   body: Record<string, unknown>,
@@ -1356,22 +1356,9 @@ function parseJewelryStandParams(
     treeBaseDiameter,
     treeBranchCount,
     treeTwist,
-    jewelryHeight,
-    jewelryBase,
-    jewelryConfig,
   } = body;
 
-  // Старый клиент не присылает пресет вовсе: он умеет только стойку, поэтому
-  // собираем её из прежних полей, а не отвечаем 400. Новый клиент без выбора
-  // получает лоток-лист — он открывается первым в коллекции.
-  const legacyRequest =
-    jewelryPreset === undefined &&
-    (jewelryHeight !== undefined ||
-      jewelryBase !== undefined ||
-      jewelryConfig !== undefined);
-  const preset = legacyRequest
-    ? "braided_tree"
-    : (jewelryPreset ?? "leaf_tray");
+  const preset = jewelryPreset ?? "leaf_tray";
 
   if (!isJewelryPreset(preset)) {
     return null;
@@ -1479,28 +1466,9 @@ function parseJewelryStandParams(
     });
   }
 
-  if (
-    !isNumberInRange(
-      jewelryHeight,
-      CONSTRUCTOR_LIMITS.jewelryHeight.min,
-      CONSTRUCTOR_LIMITS.jewelryHeight.max,
-    ) ||
-    !isNumberInRange(
-      jewelryBase,
-      CONSTRUCTOR_LIMITS.jewelryBase.min,
-      CONSTRUCTOR_LIMITS.jewelryBase.max,
-    ) ||
-    !isJewelryConfig(jewelryConfig)
-  ) {
-    return null;
-  }
-
-  return normalizeJewelryStandParams({
-    jewelryPreset: preset,
-    jewelryHeight,
-    jewelryBase,
-    jewelryConfig,
-  });
+  // Все три пресета разобраны выше, поэтому сюда доходит только неизвестная
+  // форма: отдаём 422, как и на прочие непрошедшие проверки.
+  return null;
 }
 
 /**
