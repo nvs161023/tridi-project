@@ -1677,6 +1677,9 @@ export function ConstructorClient({
                     {PEN_SHAPE_LABELS[params.penShape]} · {params.penSize} ×{" "}
                     {params.penHeight} мм · отделения: {params.penSections} · стенка{" "}
                     {params.penWall.toFixed(1)} мм
+                    {params.penRimSlope > 0
+                      ? ` · срез ${params.penRimSlope} мм`
+                      : ""}
                   </>
                 ) : params.model === "heat_transfer" ? (
                   <>

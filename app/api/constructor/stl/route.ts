@@ -1474,14 +1474,23 @@ function parseJewelryStandParams(
 /**
  * Строгая проверка параметров органайзера для ручек.
  *
- * Габарит, высота и стенка проверяются в границах слайдеров, форма — по списку
- * трёх силуэтов, число отделений — целое: половина перегородки не печатается,
- * а дробное значение сдвинуло бы хорду, по которой она подрезана.
+ * Габарит, высота, стенка и срез кромки проверяются в границах слайдеров,
+ * форма — по списку силуэтов, число отделений — целое: половина перегородки не
+ * печатается, а дробное значение сдвинуло бы хорду, по которой она подрезана.
+ * Старый клиент не присылает `penRimSlope`: отсутствующее поле означает ровный
+ * борт, а не ошибку запроса.
  */
 function parsePenHolderParams(
   body: Record<string, unknown>,
 ): PenHolderParams | null {
-  const { penSize, penHeight, penWall, penShape, penSections } = body;
+  const {
+    penSize,
+    penHeight,
+    penRimSlope = 0,
+    penWall,
+    penShape,
+    penSections,
+  } = body;
 
   if (
     !isNumberInRange(
@@ -1493,6 +1502,11 @@ function parsePenHolderParams(
       penHeight,
       CONSTRUCTOR_LIMITS.penHeight.min,
       CONSTRUCTOR_LIMITS.penHeight.max,
+    ) ||
+    !isNumberInRange(
+      penRimSlope,
+      CONSTRUCTOR_LIMITS.penRimSlope.min,
+      CONSTRUCTOR_LIMITS.penRimSlope.max,
     ) ||
     !isNumberInRange(
       penWall,
@@ -1513,6 +1527,7 @@ function parsePenHolderParams(
   return normalizePenHolderParams({
     penSize,
     penHeight,
+    penRimSlope,
     penWall,
     penShape,
     penSections,

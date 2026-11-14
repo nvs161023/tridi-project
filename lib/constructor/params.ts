@@ -317,6 +317,9 @@ export const CONSTRUCTOR_LIMITS = {
   penWall: { min: 1.2, max: 4, step: 0.2, defaultValue: 1.6, decimals: 1 },
   // Число отделений: больше четырёх в габарит 50 мм уже не помещаются.
   penSections: { min: 1, max: 4, step: 1, defaultValue: 2, decimals: 0 },
+  // Срез кромки — перепад высоты в мм: 30 мм ещё оставляет борт высотой
+  // минимум 30 мм при минимальной высоте детали 60 мм.
+  penRimSlope: { min: 0, max: 30, step: 1, defaultValue: 0, decimals: 0 },
   // Термопринт: лист A4 — 210 мм, поэтому 200 мм — самый крупный принт,
   // который ещё переносится на футболку целиком.
   heatTransferWidth: {
@@ -1532,13 +1535,13 @@ export type JewelryStandParams = {
 };
 
 /**
- * Формы органайзера для ручек: круг, квадрат и шестигранник.
+ * Формы органайзера для ручек: круг, квадрат, шестигранник и скруглённый квадрат.
  *
- * Список независим от кашпо, хотя значения пока совпадают. Иначе новая форма,
- * добавленная для ручек, автоматически появилась бы в кашпо, где у неё другая
- * геометрия и другие подписи.
+ * Список независим от кашпо. Иначе новая форма, добавленная для ручек,
+ * автоматически появилась бы в кашпо, где у неё другая геометрия и другие
+ * подписи.
  */
-export const PEN_SHAPES = ["round", "square", "hex"] as const;
+export const PEN_SHAPES = ["round", "square", "hex", "squircle"] as const;
 
 export type PenShape = (typeof PEN_SHAPES)[number];
 
@@ -1546,6 +1549,7 @@ export const PEN_SHAPE_LABELS = {
   round: "Круглый",
   square: "Квадратный",
   hex: "Шестигранный",
+  squircle: "Скруглённый квадрат",
 } as const satisfies Record<PenShape, string>;
 
 /**
@@ -1565,9 +1569,17 @@ export type PenHolderParams = {
   penSize: number;
   /** Высота стенки от стола, мм. */
   penHeight: number;
+  /**
+   * Перепад высоты верхней кромки, мм: передняя кромка ниже задней.
+   *
+   * 0 — ровный борт. Значение задаёт не угол, а вертикальный срез, поэтому
+   * при 20 мм передняя кромка опускается на 20 мм, а высота детали остаётся
+   * равной `penHeight`.
+   */
+  penRimSlope: number;
   /** Толщина стенки и перегородок, мм: дно фиксировано 3 мм. */
   penWall: number;
-  /** Форма в плане: круг, квадрат или шестигранник. */
+  /** Форма в плане: круг, квадрат, шестигранник или скруглённый квадрат. */
   penShape: PenShape;
   /** Сколько отделений делят полость: от 1 до 4. */
   penSections: number;
@@ -2574,10 +2586,11 @@ export const DEFAULT_JEWELRY_STAND_PARAMS: JewelryStandParams = {
   treeTwist: CONSTRUCTOR_LIMITS.treeTwist.defaultValue,
 };
 
-/** Органайзер по умолчанию: Ø 80 × 100 мм, стенка 1.6 мм, два отделения. */
+/** Органайзер по умолчанию: Ø 80 × 100 мм, стенка 1.6 мм, два отделения, ровный борт. */
 export const DEFAULT_PEN_HOLDER_PARAMS: PenHolderParams = {
   penSize: CONSTRUCTOR_LIMITS.penSize.defaultValue,
   penHeight: CONSTRUCTOR_LIMITS.penHeight.defaultValue,
+  penRimSlope: CONSTRUCTOR_LIMITS.penRimSlope.defaultValue,
   penWall: CONSTRUCTOR_LIMITS.penWall.defaultValue,
   penShape: "round",
   penSections: CONSTRUCTOR_LIMITS.penSections.defaultValue,
@@ -3007,11 +3020,15 @@ export function jewelryStandStlFileName(params: JewelryStandParams): string {
 /**
  * Имя файла STL для органайзера для ручек.
  *
- * Форма, габарит, высота, стенка и число отделений описывают деталь целиком:
- * по папке загрузок видно, какой стаканчик напечатан.
+ * Форма, габарит, высота, срез кромки, стенка и число отделений описывают
+ * деталь целиком: по папке загрузок видно, какой стаканчик напечатан.
+ * Нулевой срез суффикса не даёт — имя прежней детали не меняется.
  */
 export function penHolderStlFileName(params: PenHolderParams): string {
-  return `tridi-organajzer-${params.penShape}-d${params.penSize}-h${params.penHeight}-t${params.penWall}-s${params.penSections}.stl`;
+  const rimSlope =
+    params.penRimSlope > 0 ? `-skos${params.penRimSlope}` : "";
+
+  return `tridi-organajzer-${params.penShape}-d${params.penSize}-h${params.penHeight}-t${params.penWall}-s${params.penSections}${rimSlope}.stl`;
 }
 
 /**
@@ -4652,9 +4669,10 @@ export function normalizeJewelryStandParams(
 /**
  * Проверяет и выравнивает параметры органайзера для ручек.
  *
- * Габарит и высота выравниваются по 5 мм, стенка — по 0.2 мм. Число отделений
- * целое, от 1 до 4: в стаканчик 50 мм больше перегородок уже не помещается.
- * Форма принимается только из собственного набора органайзера.
+ * Габарит и высота выравниваются по 5 мм, стенка — по 0.2 мм, срез кромки — по
+ * 1 мм. Число отделений целое, от 1 до 4: в стаканчик 50 мм больше перегородок
+ * уже не помещается. Форма принимается только из собственного набора
+ * органайзера.
  */
 export function normalizePenHolderParams(
   params: Partial<PenHolderParams>,
@@ -4667,6 +4685,10 @@ export function normalizePenHolderParams(
     penHeight: snap(
       params.penHeight ?? DEFAULT_PEN_HOLDER_PARAMS.penHeight,
       CONSTRUCTOR_LIMITS.penHeight,
+    ),
+    penRimSlope: snap(
+      params.penRimSlope ?? DEFAULT_PEN_HOLDER_PARAMS.penRimSlope,
+      CONSTRUCTOR_LIMITS.penRimSlope,
     ),
     penWall: snap(
       params.penWall ?? DEFAULT_PEN_HOLDER_PARAMS.penWall,

@@ -326,6 +326,140 @@ export function addCupPrism(
   }
 }
 
+/** Боковые грани призмы с верхней кромкой, высота которой зависит от точки. */
+function addSidesToTop(
+  positions: number[],
+  points: readonly Point2[],
+  z0: number,
+  topZ: readonly number[],
+): void {
+  const count = points.length;
+
+  for (let index = 0; index < count; index += 1) {
+    const next = (index + 1) % count;
+    const [x0, y0] = points[index];
+    const [x1, y1] = points[next];
+    const z1a = topZ[index];
+    const z1b = topZ[next];
+
+    positions.push(
+      x0,
+      y0,
+      z0,
+      x1,
+      y1,
+      z0,
+      x1,
+      y1,
+      z1b,
+      x0,
+      y0,
+      z0,
+      x1,
+      y1,
+      z1b,
+      x0,
+      y0,
+      z1a,
+    );
+  }
+}
+
+/** Внутренние стенки чаши с наклонной верхней кромкой. */
+function addInnerSidesToTop(
+  positions: number[],
+  points: readonly Point2[],
+  z0: number,
+  topZ: readonly number[],
+): void {
+  const count = points.length;
+
+  for (let index = 0; index < count; index += 1) {
+    const next = (index + 1) % count;
+    const [x0, y0] = points[index];
+    const [x1, y1] = points[next];
+    const z1a = topZ[index];
+    const z1b = topZ[next];
+
+    positions.push(
+      x0,
+      y0,
+      z0,
+      x0,
+      y0,
+      z1a,
+      x1,
+      y1,
+      z1b,
+      x0,
+      y0,
+      z0,
+      x1,
+      y1,
+      z1b,
+      x1,
+      y1,
+      z0,
+    );
+  }
+}
+
+/**
+ * Замкнутая чаша с наклонной кромкой.
+ *
+ * `topAt` возвращает высоту верхней точки в координатах сечения. Внешняя
+ * стенка, внутренняя стенка и верхнее кольцо получают каждый свой Z, поэтому
+ * кромка остаётся одной гладкой поверхностью, а не ступенькой. При константном
+ * `topAt` обход вершин совпадает с `addCupPrism`.
+ */
+export function addSlopedCupPrism(
+  positions: number[],
+  outer: readonly Point2[],
+  inner: readonly Point2[],
+  floorZ: number,
+  topAt: (x: number, y: number) => number,
+): void {
+  const outerTop = outer.map(([x, y]) => topAt(x, y));
+  const innerTop = inner.map(([x, y]) => topAt(x, y));
+  const count = outer.length;
+
+  addSidesToTop(positions, outer, 0, outerTop);
+  addFanCap(positions, outer, 0, false);
+  addInnerSidesToTop(positions, inner, floorZ, innerTop);
+  addFanCap(positions, inner, floorZ, true);
+
+  for (let index = 0; index < count; index += 1) {
+    const next = (index + 1) % count;
+    const [ox0, oy0] = outer[index];
+    const [ox1, oy1] = outer[next];
+    const [ix0, iy0] = inner[index];
+    const [ix1, iy1] = inner[next];
+
+    // Верхнее кольцо замыкает стенку по наклонной плоскости: все четыре
+    // вершины лежат на `topAt`, поэтому грань остаётся плоской.
+    positions.push(
+      ox0,
+      oy0,
+      outerTop[index],
+      ox1,
+      oy1,
+      outerTop[next],
+      ix1,
+      iy1,
+      innerTop[next],
+      ox0,
+      oy0,
+      outerTop[index],
+      ix1,
+      iy1,
+      innerTop[next],
+      ix0,
+      iy0,
+      innerTop[index],
+    );
+  }
+}
+
 /**
  * Замкнутый цилиндр между двумя точками.
  *

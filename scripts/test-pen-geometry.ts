@@ -16,8 +16,11 @@ import type { BufferGeometry } from "three";
 
 import { calculateGeometryVolumeMm3, calculateGeometryWeightGrams } from "../lib/constructor/geometry-volume";
 import {
+  PEN_SQUIRCLE_EXPONENT,
   createPenHolderGeometry,
   penHolderContours,
+  penRimHeightAt,
+  superellipsePoints,
 } from "../lib/constructor/pen-holder-geometry";
 import {
   DEFAULT_PEN_HOLDER_PARAMS,
@@ -26,6 +29,7 @@ import {
   isPenShape,
   isPlanterShape,
   normalizePenHolderParams,
+  penHolderStlFileName,
   type PenHolderParams,
   type PenShape,
 } from "../lib/constructor/params";
@@ -229,6 +233,38 @@ function boundsOf(geometry: BufferGeometry): {
   };
 }
 
+/**
+ * Вершины, которые не лежат на ожидаемой наклонной кромке.
+ *
+ * Проверка берёт только верхние вершины, поэтому ступенька или забытая
+ * горизонтальная перегородка сразу дают ненулевое значение. Для теста
+ * используется деталь без перегородок: у перегородки верх на миллиметр ниже.
+ */
+function rimPlaneDeviation(
+  geometry: BufferGeometry,
+  params: PenHolderParams,
+): number {
+  const position = geometry.getAttribute("position");
+  const minTopZ = params.penHeight - params.penRimSlope - 1e-3;
+  let deviations = 0;
+
+  for (let index = 0; index < position.count; index += 1) {
+    const z = position.getZ(index);
+
+    if (z < minTopZ) {
+      continue;
+    }
+
+    const expected = penRimHeightAt(params, position.getY(index));
+
+    if (Math.abs(z - expected) > 1e-3) {
+      deviations += 1;
+    }
+  }
+
+  return deviations;
+}
+
 function pointOnSegment(point: Point2, a: Point2, b: Point2): boolean {
   const cross =
     (point[0] - a[0]) * (b[1] - a[1]) -
@@ -347,12 +383,43 @@ const cases: readonly Case[] = [
     expectedDepth: 80 * (Math.sqrt(3) / 2),
   },
   {
+    name: "скруглённый квадрат 80 / 100 / 1.6, 2 отделения",
+    params: {
+      penSize: 80,
+      penHeight: 100,
+      penWall: 1.6,
+      penShape: "squircle",
+      penSections: 2,
+    },
+  },
+  {
+    name: "круг 80 / 100 / 1.6, срез 20 мм, 2 отделения",
+    params: {
+      penSize: 80,
+      penHeight: 100,
+      penRimSlope: 20,
+      penWall: 1.6,
+      penShape: "round",
+      penSections: 2,
+    },
+  },
+  {
     name: "минимум 50 / 60 / 1.2, круг",
     params: {
       penSize: 50,
       penHeight: 60,
       penWall: 1.2,
       penShape: "round",
+      penSections: 2,
+    },
+  },
+  {
+    name: "минимум 50 / 60 / 4, скруглённый квадрат",
+    params: {
+      penSize: 50,
+      penHeight: 60,
+      penWall: 4,
+      penShape: "squircle",
       penSections: 2,
     },
   },
@@ -398,7 +465,7 @@ for (const testCase of cases) {
   near("вес = объём × 1.24", weight, (volume / 1000) * 1.24);
   check("вес в разумном диапазоне", weight > 1 && weight < 500, true);
 
-  if (params.penSections > 1) {
+  if (params.penSections > 1 && params.penRimSlope === 0) {
     const inner = penHolderContours(params).inner;
     const topPoints = dividerTopPoints(geometry, params);
     const inside = topPoints.every((point) => pointInPolygon(point, inner));
@@ -446,16 +513,16 @@ check(
 
 console.log("\nФормы и защита от протечки:");
 
-check("PEN_SHAPES", PEN_SHAPES.join(","), "round,square,hex");
+check("PEN_SHAPES", PEN_SHAPES.join(","), "round,square,hex,squircle");
 check("PEN_SHAPES не ссылается на PLANTER_SHAPES", Object.is(PEN_SHAPES, PLANTER_SHAPES), false);
 check("isPenShape(hex)", isPenShape("hex"), true);
-check("isPenShape(squircle)", isPenShape("squircle"), false);
+check("isPenShape(squircle)", isPenShape("squircle"), true);
 check("isPlanterShape(squircle)", isPlanterShape("squircle"), false);
 check(
   "неизвестная форма пена откатывается к кругу",
   normalizePenHolderParams({
     ...defaultParams("round"),
-    penShape: "squircle" as PenShape,
+    penShape: "oval" as PenShape,
   }).penShape,
   "round",
 );
@@ -464,6 +531,139 @@ check(
   PLANTER_SHAPES.join(","),
   "round,square,hex",
 );
+
+console.log("\nF2: суперэллипс и толщина стенки:");
+
+const squircleParams = defaultParams("squircle");
+const squircleContours = penHolderContours(squircleParams);
+const squirclePoints = superellipsePoints(squircleParams.penSize);
+
+near(
+  "суперэллипс попадает в правый край",
+  Math.max(...squirclePoints.map(([x]) => x)),
+  squircleParams.penSize / 2,
+);
+near(
+  "суперэллипс попадает в верхний край",
+  Math.max(...squirclePoints.map(([, y]) => y)),
+  squircleParams.penSize / 2,
+);
+
+const superellipseResidual = Math.max(
+  ...squirclePoints.map(([x, y]) => {
+    const half = squircleParams.penSize / 2;
+
+    return Math.abs(
+      Math.abs(x / half) ** PEN_SQUIRCLE_EXPONENT +
+        Math.abs(y / half) ** PEN_SQUIRCLE_EXPONENT -
+        1,
+    );
+  }),
+);
+
+check("точки лежат на |x/a|^4 + |y/a|^4 = 1", superellipseResidual < 1e-9, true);
+
+const squircleWallGap = Math.min(
+  ...squircleContours.outer.map((outer, index) => {
+    const inner = squircleContours.inner[index];
+
+    return Math.hypot(outer[0] - inner[0], outer[1] - inner[1]);
+  }),
+);
+
+check(
+  "внутренний контур смещён на стенку по нормали",
+  squircleWallGap >= squircleParams.penWall - 1e-6,
+  true,
+);
+
+console.log("\nF1: наклонная кромка:");
+
+check(
+  "срез нормализуется по шагу 1 мм",
+  normalizePenHolderParams({
+    ...defaultParams("round"),
+    penRimSlope: 12.4,
+  }).penRimSlope,
+  12,
+);
+check(
+  "срез ограничен сверху 30 мм",
+  normalizePenHolderParams({
+    ...defaultParams("round"),
+    penRimSlope: 31,
+  }).penRimSlope,
+  30,
+);
+check(
+  "имя STL содержит срез",
+  penHolderStlFileName({ ...DEFAULT_PEN_HOLDER_PARAMS, penRimSlope: 20 }),
+  "tridi-organajzer-round-d80-h100-t1.6-s2-skos20.stl",
+);
+check(
+  "нулевой срез не меняет имя STL",
+  penHolderStlFileName(DEFAULT_PEN_HOLDER_PARAMS),
+  "tridi-organajzer-round-d80-h100-t1.6-s2.stl",
+);
+
+const slopedParams = normalizePenHolderParams({
+  ...defaultParams("round"),
+  penRimSlope: 20,
+  penSections: 1,
+});
+const slopedGeometry = createPenHolderGeometry(slopedParams);
+const slopedBounds = boundsOf(slopedGeometry);
+const slopedMesh = weld(slopedGeometry);
+
+near("высота с наклоном остаётся полной", slopedBounds.height, 100);
+near(
+  "задняя кромка на высоте детали",
+  penRimHeightAt(slopedParams, 40),
+  100,
+);
+near(
+  "передняя кромка опущена на срез",
+  penRimHeightAt(slopedParams, -40),
+  80,
+);
+check("кромка — одна плоскость без ступеньки", rimPlaneDeviation(slopedGeometry, slopedParams), 0);
+check("у наклонной чаши нет открытых рёбер", openEdges(slopedMesh), 0);
+check("у наклонной чаши нет вырожденных треугольников", degenerateTriangles(slopedMesh), 0);
+check("нормали наклонной чаши смотрят наружу", signedVolumeMm3(slopedGeometry) > 0, true);
+
+const slopedSquircleParams = normalizePenHolderParams({
+  ...defaultParams("squircle"),
+  penRimSlope: 20,
+  penSections: 2,
+});
+const slopedSquircleGeometry = createPenHolderGeometry(slopedSquircleParams);
+const slopedSquircleMesh = weld(slopedSquircleGeometry);
+const slopedSquircleBounds = boundsOf(slopedSquircleGeometry);
+
+near("bbox X скруглённого квадрата с наклоном", slopedSquircleBounds.width, 80);
+near("bbox Y скруглённого квадрата с наклоном", slopedSquircleBounds.depth, 80);
+near("bbox Z скруглённого квадрата с наклоном", slopedSquircleBounds.height, 100);
+check("наклонный squircle замкнут", openEdges(slopedSquircleMesh), 0);
+check("наклонный squircle без вырожденных треугольников", degenerateTriangles(slopedSquircleMesh), 0);
+
+for (const shape of PEN_SHAPES) {
+  const params = normalizePenHolderParams({
+    ...defaultParams(shape),
+    penRimSlope: 20,
+    penSections: 1,
+  });
+  const geometry = createPenHolderGeometry(params);
+  const mesh = weld(geometry);
+
+  near(`наклон ${shape}: ширина по X`, boundsOf(geometry).width, 80);
+  near(`наклон ${shape}: высота по Z`, boundsOf(geometry).height, 100);
+  check(`наклон ${shape}: кромка плоская`, rimPlaneDeviation(geometry, params), 0);
+  check(`наклон ${shape}: чаша замкнута`, openEdges(mesh), 0);
+  geometry.dispose();
+}
+
+slopedGeometry.dispose();
+slopedSquircleGeometry.dispose();
 
 if (failures.length > 0) {
   console.log(`\nПровалено проверок: ${failures.length}`);
