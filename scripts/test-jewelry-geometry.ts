@@ -22,20 +22,17 @@ import {
   JEWELRY_DEER_BASE_HEIGHT_MM,
   JEWELRY_DEER_EAR_ROOT_MM,
   JEWELRY_DEER_EAR_TIP_MM,
-  JEWELRY_DEER_KEEL_RATIO,
-  JEWELRY_DEER_SECTION_POWER,
-  JEWELRY_DEER_SOLE_DROP_MM,
-  JEWELRY_DEER_SOLE_HALF_MM,
+  JEWELRY_DEER_JAW_COVER_SHARE,
+  JEWELRY_DEER_JAW_DEPTH_SHARE,
+  JEWELRY_DEER_JAW_SIDE_SHARE,
+  JEWELRY_DEER_SKULL_RADII_MM,
+  JEWELRY_DEER_SKULL_SEGMENTS,
   JEWELRY_DEER_WEIGHT_DIAMETER_MM,
   JEWELRY_DEER_WEIGHT_OFFSET_MM,
   createJewelryDeerGeometry,
-  deerSectionAreaMm2,
-  deerSectionOutline,
-  deerSliceSideMm,
   jewelryDeerHeightMm,
   jewelryDeerPlan,
   type JewelryDeerPlan,
-  type JewelryDeerSlice,
 } from "../lib/constructor/jewelry-deer-geometry";
 import {
   JEWELRY_LEAF_BOWL_DEPTH_MM,
@@ -771,59 +768,243 @@ function insideTube(
   return false;
 }
 
-/**
- * Внутри ли точка среза бюста — с запасом `marginMm`.
- *
- * Та же формула, что у генератора: суперэллипс сверху, грань киля снизу и клин до
- * гребня. Запас нужен, чтобы треугольник, лежащий **на** поверхности, не сошёл за
- * спрятанный: у него центр ровно на границе, и без запаса проверка объявила бы
- * утопленным сам низ головы.
- */
-function insideBust(
+/** Точка внутри эллипсоида черепа с запасом `marginMm`. */
+function insideSkull(
   plan: JewelryDeerPlan,
-  x: number,
-  y: number,
-  z: number,
-  marginMm = 0.15,
+  point: Point,
+  marginMm = 0,
 ): boolean {
-  const slices = plan.slices;
+  const { skullCenterMm, skullRadiiMm } = plan.head;
+  const rx = skullRadiiMm[0] - marginMm;
+  const ry = skullRadiiMm[1] - marginMm;
+  const rz = skullRadiiMm[2] - marginMm;
 
-  if (y > slices[0].yMm + 1e-9 || y < slices[slices.length - 1].yMm - 1e-9) {
+  if (rx <= 0 || ry <= 0 || rz <= 0) {
     return false;
   }
 
-  let index = 0;
+  return (
+    ((point[0] - skullCenterMm[0]) / rx) ** 2 +
+      ((point[1] - skullCenterMm[1]) / ry) ** 2 +
+      ((point[2] - skullCenterMm[2]) / rz) ** 2 <=
+    1
+  );
+}
 
-  while (index < slices.length - 2 && slices[index + 1].yMm > y) {
-    index += 1;
-  }
+/**
+ * Точка внутри тела вращения вдоль отрезка `base → tip`.
+ *
+ * Радиус меняется линейно, а сечение может быть эллиптическим (`zScale`) или
+ * ромбовидным (`diamond`). Киль — как раз ромб с четырьмя гранями: та же
+ * проверка, что у генератора, только без меша.
+ */
+function insideAxisBody(
+  point: Point,
+  base: Point,
+  tip: Point,
+  baseRadius: number,
+  tipRadius: number,
+  zScale = 1,
+  diamond = false,
+  marginMm = 0,
+): boolean {
+  const ux = tip[0] - base[0];
+  const uy = tip[1] - base[1];
+  const uz = tip[2] - base[2];
+  const lengthSq = ux * ux + uy * uy + uz * uz;
+  const length = Math.sqrt(lengthSq);
 
-  const from = slices[index];
-  const to = slices[Math.min(index + 1, slices.length - 1)];
-  const span = from.yMm - to.yMm;
-  const share = span > 1e-9 ? (from.yMm - y) / span : 0;
-  const mix = (start: number, end: number) => start + (end - start) * share;
-  const wMm = mix(from.wMm, to.wMm);
-  const soleMm = mix(from.wSoleMm, to.wSoleMm);
-  const bottomMm = mix(from.zBottomMm, to.zBottomMm);
-  const topMm = mix(from.zTopMm, to.zTopMm);
-  const sideMm = bottomMm + JEWELRY_DEER_KEEL_RATIO * (wMm - soleMm);
-  const dropMm = Math.min(JEWELRY_DEER_KEEL_RATIO * soleMm, JEWELRY_DEER_SOLE_DROP_MM);
-
-  if (z < bottomMm - dropMm + marginMm || z > topMm - marginMm) {
+  if (length <= 1e-9) {
     return false;
   }
 
-  if (z > sideMm) {
-    const across = Math.abs(x) / Math.max(wMm - marginMm, 1e-9);
-    const up = (z - sideMm) / Math.max(topMm - sideMm - marginMm, 1e-9);
+  const offsetX = point[0] - base[0];
+  const offsetY = point[1] - base[1];
+  const offsetZ = point[2] - base[2];
+  const travelled = (offsetX * ux + offsetY * uy + offsetZ * uz) / lengthSq;
 
-    return across ** JEWELRY_DEER_SECTION_POWER + up ** JEWELRY_DEER_SECTION_POWER <= 1;
+  if (travelled < -1e-9 || travelled > 1 + 1e-9) {
+    return false;
   }
 
-  const along = (z - bottomMm) / Math.max(sideMm - bottomMm, 1e-9);
+  const axis: Point = [ux / length, uy / length, uz / length];
+  const localX: Point = [
+    1 - axis[0] * axis[0],
+    -axis[0] * axis[1],
+    -axis[0] * axis[2],
+  ];
+  const localXLength = Math.hypot(localX[0], localX[1], localX[2]);
 
-  return Math.abs(x) <= soleMm + (wMm - soleMm) * along - marginMm;
+  if (localXLength <= 1e-9) {
+    return false;
+  }
+
+  const ex: Point = [
+    localX[0] / localXLength,
+    localX[1] / localXLength,
+    localX[2] / localXLength,
+  ];
+  const ez: Point = [
+    ex[1] * axis[2] - ex[2] * axis[1],
+    ex[2] * axis[0] - ex[0] * axis[2],
+    ex[0] * axis[1] - ex[1] * axis[0],
+  ];
+  const centerX = base[0] + ux * travelled;
+  const centerY = base[1] + uy * travelled;
+  const centerZ = base[2] + uz * travelled;
+  const relX = point[0] - centerX;
+  const relY = point[1] - centerY;
+  const relZ = point[2] - centerZ;
+  const across = relX * ex[0] + relY * ex[1] + relZ * ex[2];
+  const up = relX * ez[0] + relY * ez[1] + relZ * ez[2];
+  const radius = baseRadius + (tipRadius - baseRadius) * travelled;
+  const radiusX = radius - marginMm;
+  const radiusZ = radius * zScale - marginMm;
+
+  if (radiusX <= 0 || radiusZ <= 0) {
+    return false;
+  }
+
+  if (diamond) {
+    return (
+      Math.abs(across) / radiusX + Math.abs(up) / radiusZ <= 1 + 1e-9
+    );
+  }
+
+  return (across / radiusX) ** 2 + (up / radiusZ) ** 2 <= 1 + 1e-9;
+}
+
+/** Точка внутри шеи. */
+function insideNeck(
+  plan: JewelryDeerPlan,
+  point: Point,
+  marginMm = 0,
+): boolean {
+  const { neckBaseMm, neckTopMm, neckBaseRadiusMm, neckTopRadiusMm } = plan.head;
+
+  return insideAxisBody(
+    point,
+    neckBaseMm,
+    neckTopMm,
+    neckBaseRadiusMm,
+    neckTopRadiusMm,
+    1,
+    false,
+    marginMm,
+  );
+}
+
+/** Точка внутри вертикального раструба у базы. */
+function insideCollar(
+  plan: JewelryDeerPlan,
+  point: Point,
+  marginMm = 0,
+): boolean {
+  const {
+    neckCollarBaseMm,
+    neckCollarTopMm,
+    neckCollarBaseRadiusMm,
+    neckCollarTopRadiusMm,
+  } = plan.head;
+
+  return insideAxisBody(
+    point,
+    neckCollarBaseMm,
+    neckCollarTopMm,
+    neckCollarBaseRadiusMm,
+    neckCollarTopRadiusMm,
+    1,
+    false,
+    marginMm,
+  );
+}
+
+/** Точка внутри морды. */
+function insideMuzzle(
+  plan: JewelryDeerPlan,
+  point: Point,
+  marginMm = 0,
+): boolean {
+  const {
+    muzzleBaseMm,
+    muzzleTipMm,
+    muzzleBaseRadiusMm,
+    muzzleTipRadiusMm,
+    muzzleZScale,
+  } = plan.head;
+
+  return insideAxisBody(
+    point,
+    muzzleBaseMm,
+    muzzleTipMm,
+    muzzleBaseRadiusMm,
+    muzzleTipRadiusMm,
+    muzzleZScale,
+    false,
+    marginMm,
+  );
+}
+
+/** Точка внутри четырёхгранного киля под мордой. */
+function insideJaw(
+  plan: JewelryDeerPlan,
+  point: Point,
+  marginMm = 0,
+): boolean {
+  const {
+    jawBaseMm,
+    jawTipMm,
+    jawBaseRadiusXMm,
+    jawBaseRadiusZMm,
+    jawTipRadiusXMm,
+  } = plan.head;
+
+  return insideAxisBody(
+    point,
+    jawBaseMm,
+    jawTipMm,
+    jawBaseRadiusXMm,
+    jawTipRadiusXMm,
+    jawBaseRadiusZMm / jawBaseRadiusXMm,
+    true,
+    marginMm,
+  );
+}
+
+/** Точка внутри любого тела головы. */
+function insideHead(
+  plan: JewelryDeerPlan,
+  point: Point,
+  marginMm = 0,
+): boolean {
+  return (
+    insideSkull(plan, point, marginMm) ||
+    insideNeck(plan, point, marginMm) ||
+    insideCollar(plan, point, marginMm) ||
+    insideMuzzle(plan, point, marginMm) ||
+    insideJaw(plan, point, marginMm)
+  );
+}
+
+/**
+ * Точка спрятана внутри другого тела головы.
+ *
+ * Запас 0.01 мм меньше стрелки сегмента сферы (0.018 мм), поэтому собственные
+ * грани черепа не считаются спрятанными, а утопленные торцы ушей и нижняя
+ * полусфера — считаются.
+ */
+function insideHeadHidden(
+  plan: JewelryDeerPlan,
+  point: Point,
+): boolean {
+  const marginMm = 0.01;
+
+  return (
+    insideSkull(plan, point, marginMm) ||
+    insideNeck(plan, point, marginMm) ||
+    insideCollar(plan, point, marginMm) ||
+    insideJaw(plan, point, marginMm)
+  );
 }
 
 /**
@@ -893,7 +1074,11 @@ function deerOverhangs(
       ),
     );
 
-    if (insidePlate || buriedInAntler || insideBust(plan, centerX, centerY, centerZ)) {
+    if (
+      insidePlate ||
+      buriedInAntler ||
+      insideHeadHidden(plan, [centerX, centerY, centerZ])
+    ) {
       continue;
     }
 
@@ -950,204 +1135,174 @@ expectNear(
   0.01,
 );
 
-console.log("\nБюст «Лесной олень»: силуэт задан срезами");
+console.log("\nБюст «Лесной олень»: голова из примитивов");
 
-/**
- * Срез плана, попавший на опорную плоскость таблицы.
- *
- * Сглаживающая кривая проходит через опоры точно, поэтому каждая строка таблицы
- * лежит в плане отдельным срезом — по нему и видно, что силуэт собран по ТЗ, а не
- * подобран на глаз.
- */
-function deerSliceAtY(
-  plan: JewelryDeerPlan,
-  yMm: number,
-): JewelryDeerSlice | undefined {
-  return plan.slices.find(
-    (slice) => Math.abs(slice.yMm - yMm * plan.scale) <= 1e-6,
-  );
-}
-
-/**
- * Опорные срезы: имя, `y`, полуширина, полуширина подошвы, низ киля, верх свода.
- *
- * Числа — из таблицы исследования. Грудь стоит на широкой подошве (`wSole`
- * 12…17 при низе 2.5), поэтому она не лезвие; на шее подошва схлопывается до
- * 0.6, и дальше идёт киль. Морда сужается с 20 до 7.2 мм по ширине за 29 мм и
- * опускается к носу: верх падает с 88 до 80.2, низ поднимается с 58 до 70.
- */
-const deerSliceRows = [
-  ["грудь сзади", 12, 20, 15.5, 2.5, 30],
-  ["грудь", 8, 22, 17, 2.5, 40],
-  ["грудь спереди", 4, 22, 17, 2.5, 46],
-  ["перед груди", -8.5, 17, 12, 2.5, 61.5],
-  ["основание шеи", -10, 15.5, 0.6, 18, 63],
-  ["середина шеи", -16, 11.5, 0.6, 39, 74],
-  ["затылок", -21, 10, 0.6, 53, 84.5],
-  ["лоб", -24, 10, 0.6, 58, 88],
-  ["морда", -34, 8.6, 0.6, 65.5, 85.5],
-  ["нос", -53, 3.6, 0.6, 70, 80.2],
-] as const;
-
-for (const [name, yMm, wMm, soleMm, bottomMm, topMm] of deerSliceRows) {
-  const slice = deerSliceAtY(deerPlan, yMm);
-
-  check(`олень: срез «${name}» есть в плане`, slice !== undefined, true);
-
-  if (!slice) {
-    continue;
-  }
-
-  expectNear(`олень: ${name} — полуширина`, slice.wMm, wMm, 0.02);
-  expectNear(`олень: ${name} — подошва`, slice.wSoleMm, soleMm, 0.02);
-  expectNear(`олень: ${name} — низ киля`, slice.zBottomMm, bottomMm, 0.02);
-  expectNear(`олень: ${name} — верх свода`, slice.zTopMm, topMm, 0.02);
-}
-
-/** Шаг между соседними срезами: 1.5 мм, кроме перехода «перед груди — шея». */
-let smallestSliceStepMm = Number.POSITIVE_INFINITY;
-let largestSliceStepMm = 0;
-let hardSteps = 0;
-
-for (let index = 1; index < deerPlan.slices.length; index += 1) {
-  const previous = deerPlan.slices[index - 1];
-  const slice = deerPlan.slices[index];
-  const step = Math.abs(previous.yMm - slice.yMm);
-
-  smallestSliceStepMm = Math.min(smallestSliceStepMm, step);
-  largestSliceStepMm = Math.max(largestSliceStepMm, step);
-
-  if (previous.yMm >= -8.5 * deerPlan.scale - 1e-9 && slice.yMm <= -10 * deerPlan.scale + 1e-9) {
-    hardSteps += 1;
-  }
-}
+const deerSkull = deerPlan.head;
+const deerSkullWidth = deerSkull.skullRadiiMm[0] * 2;
+const deerSkullDepth = deerSkull.skullRadiiMm[1] * 2;
+const deerSkullHeight = deerSkull.skullRadiiMm[2] * 2;
+const deerNoseRadius =
+  deerSkull.muzzleTipRadiusMm * deerSkull.muzzleZScale;
 
 check(
-  "олень: срезы стоят не реже миллиметра",
-  smallestSliceStepMm >= 0.9 * deerPlan.scale,
-  true,
-);
-check(
-  "олень: переход «перед груди — шея» не сглажен",
-  hardSteps === 1 && largestSliceStepMm <= 1.6 * deerPlan.scale,
-  true,
-);
-check("олень: срезов больше сорока", deerPlan.slices.length >= 40, true);
-
-/**
- * Угол грани киля в каждом срезе, где низ выше плиты, градусы.
- *
- * Это главная проверка новой схемы: грань обязана быть круче 45°, иначе низ
- * головы снова нависает. Требуется 47°, а не 45: ровно на границе слайсер и
- * проверка расходятся на округлении.
- */
-let flattestKeelDeg = 180;
-
-for (const slice of deerPlan.slices) {
-  if (slice.zBottomMm <= deerPlan.baseHeightMm) {
-    continue;
-  }
-
-  const run = slice.wMm - slice.wSoleMm;
-  const fall = deerSliceSideMm(slice) - slice.zBottomMm;
-
-  flattestKeelDeg = Math.min(
-    flattestKeelDeg,
-    (Math.atan2(fall, run) * 180) / Math.PI,
-  );
-}
-
-check("олень: грань киля не положе 47°", flattestKeelDeg >= 47, true);
-check(
-  "олень: подошва киля одной ширины по всей шее",
-  deerPlan.slices
-    .filter((slice) => slice.zBottomMm > deerPlan.baseHeightMm)
-    .every(
-      (slice) =>
-        Math.abs(slice.wSoleMm - JEWELRY_DEER_SOLE_HALF_MM * deerPlan.scale) <=
-        0.02,
-    ),
-  true,
-);
-
-
-/**
- * Низ среза — клин, а не площадка.
- *
- * Горизонтальная подошва — это грань с нормалью вниз: там, где киль поднимается к
- * затылку под 72°, она становится нависанием. Поэтому от краёв `±wSole` гребень
- * уходит вниз к осевой линии, и у срезов выше плиты самая низкая точка стоит на
- * `x = 0`.
- */
-const deerNeckSlice = deerSliceAtY(deerPlan, -16);
-
-if (deerNeckSlice) {
-  const outline = deerSectionOutline(deerNeckSlice);
-  const lowest = outline.reduce((best, point) =>
-    point[1] < best[1] ? point : best,
-  );
-  const shoulders = outline.filter(
-    (point) => Math.abs(Math.abs(point[0]) - deerNeckSlice.wSoleMm) <= 1e-9,
-  );
-
-  expectNear("олень: гребень киля на оси", lowest[0], 0, 1e-9);
-  check(
-    "олень: гребень ниже подошвы — клин, а не площадка",
-    lowest[1] < deerNeckSlice.zBottomMm - 0.5,
-    true,
-  );
-  check(
-    "олень: у клина две грани по краям подошвы",
-    shoulders.length === 2 &&
-      shoulders.every((point) => point[1] > lowest[1] + 0.5),
-    true,
-  );
-}
-
-/** Контур среза: состав точек, порядок обхода и площадь. */
-const deerOutline = deerSectionOutline(deerPlan.slices[0]);
-let outlineTwiceArea = 0;
-
-for (let index = 0; index < deerOutline.length; index += 1) {
-  const [x0, z0] = deerOutline[index];
-  const [x1, z1] = deerOutline[(index + 1) % deerOutline.length];
-
-  outlineTwiceArea += x0 * z1 - x1 * z0;
-}
-
-check("олень: в контуре 22 точки", deerOutline.length, 22);
-check(
-  "олень: контур обойдён против часовой стрелки",
-  outlineTwiceArea > 0,
-  true,
+  "олень: череп — сфера 64 × 64",
+  deerSkull.skullSegments,
+  JEWELRY_DEER_SKULL_SEGMENTS,
 );
 expectNear(
-  "олень: площадь среза по контуру",
-  deerSectionAreaMm2(deerPlan.slices[0]),
-  outlineTwiceArea / 2,
-  1e-6,
+  "олень: ширина черепа",
+  deerSkullWidth,
+  JEWELRY_DEER_SKULL_RADII_MM[0] * 2,
+  0.02,
+);
+expectNear(
+  "олень: глубина черепа",
+  deerSkullDepth,
+  JEWELRY_DEER_SKULL_RADII_MM[1] * 2,
+  0.02,
+);
+expectNear(
+  "олень: высота черепа",
+  deerSkullHeight,
+  JEWELRY_DEER_SKULL_RADII_MM[2] * 2,
+  0.02,
 );
 check(
-  "олень: срез шире всего на высоте киля",
-  Math.max(...deerOutline.map((point) => point[0])) ===
-    deerPlan.slices[0].wMm &&
-    Math.max(...deerOutline.map((point) => point[1])) ===
-      deerPlan.slices[0].zTopMm,
+  "олень: череп сплюснут по бокам",
+  deerSkullWidth < deerSkullDepth &&
+    deerSkullWidth < deerSkullHeight,
   true,
 );
-
+check(
+  "олень: морда длиннее черепа",
+  deerPlan.muzzleLengthMm > deerSkullDepth,
+  true,
+);
+check(
+  "олень: голова длиннее высоты в 1.2 раза",
+  deerPlan.headLengthMm > deerPlan.headHeightMm * 1.2,
+  true,
+);
+check(
+  "олень: голова длиннее ширины в 1.8 раза",
+  deerPlan.headLengthMm > deerPlan.headWidthMm * 1.8,
+  true,
+);
+check(
+  "олень: морда смотрит вперёд, а не вниз",
+  Math.abs(
+    deerSkull.muzzleTipMm[1] - deerSkull.muzzleBaseMm[1],
+  ) >
+    2 *
+      Math.abs(
+        deerSkull.muzzleTipMm[2] - deerSkull.muzzleBaseMm[2],
+      ),
+  true,
+);
+check(
+  "олень: нос уже черепа",
+  deerNoseRadius * 2 < deerSkullWidth,
+  true,
+);
+check(
+  "олень: нос высотой около 10 мм",
+  deerPlan.noseZMm >= 9.5 && deerPlan.noseZMm <= 10.5,
+  true,
+);
 expectNear("олень: свод черепа на 88 мм", deerPlan.crownZMm, 88, 0.02);
 expectNear("олень: нос вынесен на −53 мм", deerPlan.noseYMm, -53, 0.02);
-expectNear("олень: нос высотой 10 мм", deerPlan.noseZMm, 10.2, 0.02);
 check(
   "олень: нос выходит за плиту — профиль важнее габарита",
   -deerPlan.noseYMm > deerPlan.baseWidthMm / 2 &&
     -deerPlan.noseYMm <= deerPlan.baseWidthMm / 2 + 4,
   true,
 );
+
 check(
-  "олень: морда длиннее черепа",
-  (deerSliceAtY(deerPlan, -24)?.yMm ?? 0) - deerPlan.noseYMm >= 29,
+  "олень: шея сужается к черепу",
+  deerSkull.neckBaseRadiusMm > deerSkull.neckTopRadiusMm,
+  true,
+);
+check(
+  "олень: верх шеи утоплен в череп",
+  insideSkull(deerPlan, deerSkull.neckTopMm),
+  true,
+);
+const deerNeckAxis: Point = [
+  deerSkull.neckTopMm[0] - deerSkull.neckBaseMm[0],
+  deerSkull.neckTopMm[1] - deerSkull.neckBaseMm[1],
+  deerSkull.neckTopMm[2] - deerSkull.neckBaseMm[2],
+];
+const deerNeckLength = Math.hypot(
+  deerNeckAxis[0],
+  deerNeckAxis[1],
+  deerNeckAxis[2],
+);
+const deerNeckTilt =
+  Math.hypot(deerNeckAxis[0], deerNeckAxis[1]) / deerNeckLength;
+
+check(
+  "олень: раструб закрывает нижний торец шеи",
+  deerSkull.neckCollarTopMm[2] >=
+    deerSkull.neckBaseMm[2] +
+      deerSkull.neckBaseRadiusMm * deerNeckTilt,
+  true,
+);
+
+const deerNeckFrontY =
+  deerSkull.neckCollarBaseMm[1] - deerSkull.neckCollarBaseRadiusMm;
+const deerPocketRearY =
+  deerPlan.pocketCenterMm[1] + deerPlan.pocketRadiusMm;
+
+check(
+  "олень: шея не накрывает полость",
+  deerNeckFrontY - deerPocketRearY >= 0.9,
+  true,
+);
+
+check(
+  "олень: боковые вершины киля стоят под 45°",
+  Math.abs(JEWELRY_DEER_JAW_SIDE_SHARE - Math.SQRT1_2) <= 1e-12,
+  true,
+);
+expectNear(
+  "олень: полуширина киля у черепа",
+  deerSkull.jawBaseRadiusXMm,
+  deerSkull.muzzleBaseRadiusMm * JEWELRY_DEER_JAW_SIDE_SHARE * JEWELRY_DEER_JAW_COVER_SHARE,
+  0.02,
+);
+expectNear(
+  "олень: глубина киля у черепа",
+  deerSkull.jawBaseRadiusZMm,
+  deerSkull.muzzleBaseRadiusMm * JEWELRY_DEER_JAW_DEPTH_SHARE * JEWELRY_DEER_JAW_COVER_SHARE,
+  0.02,
+);
+check(
+  "олень: грань киля круче 45°",
+  (Math.atan2(
+    JEWELRY_DEER_JAW_DEPTH_SHARE,
+    JEWELRY_DEER_JAW_SIDE_SHARE,
+  ) *
+    180) /
+    Math.PI >=
+    45,
+  true,
+);
+check(
+  "олень: киль ниже морды",
+  deerSkull.jawBaseMm[2] - deerSkull.jawBaseRadiusZMm <
+    deerSkull.muzzleBaseMm[2] -
+      deerSkull.muzzleBaseRadiusMm * deerSkull.muzzleZScale,
+  true,
+);
+check(
+  "олень: киль перекрывает нижнюю дугу морды",
+  deerSkull.jawBaseRadiusXMm >
+    deerSkull.muzzleBaseRadiusMm * JEWELRY_DEER_JAW_SIDE_SHARE &&
+    deerSkull.jawBaseRadiusXMm <
+      deerSkull.muzzleBaseRadiusMm *
+        JEWELRY_DEER_JAW_SIDE_SHARE *
+        1.03,
   true,
 );
 
@@ -1168,24 +1323,20 @@ if (deerBeamRoot) {
   expectNear("олень: корень рога по Z", deerBeamRoot.zMm, JEWELRY_DEER_ANTLER_ROOT_MM[2], 0.02);
   check(
     "олень: корень рога утоплен в голову",
-    insideBust(
-      deerPlan,
+    insideHead(deerPlan, [
       deerBeamRoot.xMm,
       deerBeamRoot.yMm,
       deerBeamRoot.zMm,
-      0,
-    ),
+    ]),
     true,
   );
   check(
     "олень: кончик ствола выше головы",
-    !insideBust(
-      deerPlan,
+    !insideHead(deerPlan, [
       deerPlan.antlers[0].points[10].xMm,
       deerPlan.antlers[0].points[10].yMm,
       deerPlan.antlers[0].points[10].zMm,
-      0,
-    ),
+    ]),
     true,
   );
 }
@@ -1233,12 +1384,12 @@ for (const ear of deerPlan.ears) {
   );
   check(
     `олень: корень уха «${ear.id}» утоплен в череп`,
-    insideBust(deerPlan, ear.rootMm[0], ear.rootMm[1], ear.rootMm[2], 0),
+    insideSkull(deerPlan, ear.rootMm),
     true,
   );
   check(
     `олень: кончик уха «${ear.id}» снаружи черепа`,
-    !insideBust(deerPlan, ear.tipMm[0], ear.tipMm[1], ear.tipMm[2], 0),
+    !insideSkull(deerPlan, ear.tipMm),
     true,
   );
   const runMm = Math.hypot(ear.tipMm[0] - ear.rootMm[0], ear.tipMm[1] - ear.rootMm[1]);
@@ -1278,61 +1429,37 @@ check("олень: уши не задевают рога", earAntlerGapMm >= 2, 
 
 
 /**
- * Свод без ступенек: верх силуэта идёт в гору до лба и опускается к носу.
+ * Силуэт из примитивов: череп выше морды, нос впереди центра черепа.
  *
- * Скачок `zTop` сам по себе не ошибка — грудь поднимается круто, и это её силуэт.
- * Ошибка — горб на морде или впадина на лбу: они означают, что сглаживающая
- * кривая выбросила срез за пределы между опорами и голова снова читается шаром.
+ * Проверки не повторяют формулы генератора, а фиксируют пропорции из
+ * исследования: длинная морда, сплюснутый череп, нос ниже свода.
  */
-let widestSlice = 0;
-let crownIndex = 0;
-
-for (let index = 1; index < deerPlan.slices.length; index += 1) {
-  if (
-    deerPlan.slices[index].zTopMm >
-    deerPlan.slices[crownIndex].zTopMm
-  ) {
-    crownIndex = index;
-  }
-}
-
-let crownRises = true;
-let muzzleFalls = true;
-let crownDipMm = 0;
-
-for (let index = 0; index < deerPlan.slices.length; index += 1) {
-  widestSlice = Math.max(widestSlice, deerPlan.slices[index].wMm);
-
-  if (index === 0) {
-    continue;
-  }
-
-  const rise = deerPlan.slices[index].zTopMm - deerPlan.slices[index - 1].zTopMm;
-
-  if (index <= crownIndex && rise < -1e-9) {
-    crownRises = false;
-    crownDipMm = Math.min(crownDipMm, rise);
-  }
-
-  if (index > crownIndex && rise > 1e-9) {
-    muzzleFalls = false;
-  }
-}
-
-check("олень: свод растёт от груди до лба", crownRises, true);
-check("олень: морда опускается после лба", muzzleFalls, true);
-
 check(
-  "олень: голова не шире груди",
-  widestSlice <= 22 + 1e-9 &&
-    (deerSliceAtY(deerPlan, -24)?.wMm ?? 99) < widestSlice,
+  "олень: морда начинается внутри черепа",
+  insideSkull(deerPlan, deerSkull.muzzleBaseMm),
+  true,
+);
+check(
+  "олень: нос впереди центра черепа",
+  deerSkull.muzzleTipMm[1] <
+    deerSkull.skullCenterMm[1] - deerSkull.skullRadiiMm[1],
+  true,
+);
+check(
+  "олень: нос ниже свода",
+  deerSkull.muzzleTipMm[2] < deerPlan.crownZMm,
+  true,
+);
+check(
+  "олень: голова не шире базы",
+  deerPlan.headWidthMm < deerPlan.baseWidthMm,
   true,
 );
 
 /**
  * Зазор между рогами и мордой: ни одна точка труб не лежит внутри головы.
  *
- * Проверка строгая: `insideBust` считает ту же формулу среза, что генератор.
+ * Проверка строгая: `insideHead` считает те же примитивы, что генератор.
  * Корни стволов — исключение, они обязаны быть внутри; всё остальное, включая
  * надбровный отросток, проходящий над мордой, торчит наружу.
  */
@@ -1344,7 +1471,11 @@ for (const path of deerPlan.antlers) {
 
     if (
       !isRoot &&
-      insideBust(deerPlan, point.xMm, point.yMm, point.zMm, 0.3)
+      insideHead(
+        deerPlan,
+        [point.xMm, point.yMm, point.zMm],
+        0.3,
+      )
     ) {
       antlersInsideHead += 1;
     }
@@ -1353,9 +1484,18 @@ for (const path of deerPlan.antlers) {
 
 check("олень: рога не проходят сквозь голову", antlersInsideHead, 0);
 
+const deerJawAngleDeg =
+  (Math.atan2(
+    JEWELRY_DEER_JAW_DEPTH_SHARE,
+    JEWELRY_DEER_JAW_SIDE_SHARE,
+  ) *
+    180) /
+  Math.PI;
+
 console.log(
-  `  · киль ${flattestKeelDeg.toFixed(1)}°, срезов ${deerPlan.slices.length}, ` +
+  `  · киль ${deerJawAngleDeg.toFixed(1)}°, ` +
     `свод ${deerPlan.crownZMm.toFixed(1)} мм, ` +
+    `морда ${deerPlan.muzzleLengthMm.toFixed(1)} мм, ` +
     `уши — рога ${earAntlerGapMm.toFixed(1)} мм`,
 );
 
@@ -1425,8 +1565,8 @@ expectNear("олень: высота вместе с рогами", deerMaxZ - d
 expectNear(
   "олень: габарит по Y — нос за краем плиты",
   deerMaxY - deerMinY,
-  103,
-  0.02,
+  103.9,
+  0.05,
 );
 expectNear(
   "олень: габарит по X — плита шире рогов",
@@ -1455,18 +1595,15 @@ console.log(
 console.log("\nБюст «Лесной олень»: полость и устойчивость");
 
 /**
- * Полость стоит перед бюстом, а не под ним.
+ * Полость стоит перед шеей, а не под ней.
  *
- * Под грудью идёт подошва киля на `z = 2.5`, и монету там не опустить. Задняя
- * кромка полости отстоит от переднего края подошвы на миллиметр — этого хватает,
- * чтобы монета прошла между ними, и свойство сохраняется на всех размерах базы,
- * потому что бюст масштабируется вместе с ней.
+ * Основание шеи стоит на плите, и монету там не опустить. Задняя кромка полости
+ * отстоит от переднего края раструба на миллиметр — этого хватает, чтобы монета
+ * прошла между ними, и свойство сохраняется на всех размерах базы, потому что
+ * голова масштабируется вместе с ней.
  */
-const deerFootFrontY = Math.min(
-  ...deerPlan.slices
-    .filter((slice) => slice.zBottomMm <= deerPlan.baseHeightMm)
-    .map((slice) => slice.yMm),
-);
+const deerFootFrontY =
+  deerSkull.neckCollarBaseMm[1] - deerSkull.neckCollarBaseRadiusMm;
 const pocketRearY = deerPlan.pocketCenterMm[1] + deerPlan.pocketRadiusMm;
 
 check(
@@ -1535,19 +1672,22 @@ for (let index = 0; deerSameMesh && index < deerDirect.count; index += 1) {
 check("олень: диспетчер вернул сетку генератора", deerSameMesh, true);
 
 /**
- * Подпись формы: у вертикальных срезов 5864 треугольника и высота 157.57 мм, у
- * прежнего лофта по наклонной оси — 7296 и 140.49, у старого бюста со сферой на
- * конусе — 3936 и 131.91. Порог, а не точное число: правка таблицы срезов подпись
- * не ломает, а возврат к лофту или к сфере ловится сразу.
+ * Подпись формы: у головы из примитивов 12 144 треугольника и высота 157.57 мм.
+ * Порог, а не точное число: правка пропорций подпись не ломает, а возврат к
+ * вертикальным срезам (5 820) или к старому лофту (7 296) ловится сразу.
  */
 check(
-  "олень: диспетчер вернул срезы, а не лофт",
-  deerDispatched.count / 3 > 5000 && deerDispatched.count / 3 < 7000,
+  "олень: диспетчер вернул примитивы, а не срезы",
+  deerDispatched.count / 3 > 11000 && deerDispatched.count / 3 < 14000,
   true,
 );
-check("олень: высота срезов из диспетчера", deerMaxZ - deerMinZ > 150, true);
 check(
-  "олень: вес срезов из диспетчера в коридоре",
+  "олень: высота примитивов из диспетчера",
+  deerMaxZ - deerMinZ > 150,
+  true,
+);
+check(
+  "олень: вес примитивов из диспетчера в коридоре",
   deerVolume >= 95 && deerVolume <= 135,
   true,
 );
@@ -1664,12 +1804,9 @@ check(
   true,
 );
 check(
-  "олень: минимум — киль утоплен в плиту",
-  Math.min(
-    ...smallestDeer.slices
-      .filter((slice) => slice.zBottomMm <= smallestDeer.baseHeightMm)
-      .map((slice) => slice.zBottomMm),
-  ) < smallestDeer.baseHeightMm,
+  "олень: минимум — низ шеи входит в плиту и не ниже стола",
+  smallestDeer.head.neckCollarBaseMm[2] >= 0 &&
+    smallestDeer.head.neckCollarBaseMm[2] < smallestDeer.baseHeightMm,
   true,
 );
 

@@ -2,48 +2,54 @@
  * Геометрия бюста «Лесной олень».
  *
  * Вторая форма премиум-коллекции: овальная база с полостью под утяжелитель и
- * стилизованный бюст без глаз и ноздрей. Узнаваемость держится на рогах и ушах,
- * а лицо остаётся гладкой поверхностью — это приём классической скульптуры, а не
- * упрощение.
+ * стилизованный бюст без глаз и ноздрей. Конструкция головы собрана из
+ * примитивов, а не из вертикальных срезов: череп — сплюснутая по бокам сфера
+ * 64 × 64, морда — усечённый конус, шея — цилиндр с раструбом к базе, уши —
+ * два сплюснутых конуса. Рога остаются трубами с бутонами: это рабочая часть
+ * держателя, а не декор.
  *
- * Бюст собран вертикальными срезами: вдоль Y от затылка к носу стоят плоские
- * сечения `y = const`, а силуэт задают три независимые кривые — верх `zTop(y)`,
- * низ `zBottom(y)` и полуширина `w(y)`. Профиль сбоку читается напрямую, как
- * рисунок: лоб на 88 мм, нос вынесен на 53 мм вперёд и опущен на 70…80 мм. В
- * прежней схеме силуэт был следствием наклона колец: ось головы задиралась вверх
- * на 24°, и бюст читался шаром с клювом.
+ * Пропорции взяты из `deer-research.md` §1 и §3.3: череп около 24 × 25 × 30 мм,
+ * морда длиннее черепа (≈30 мм) и вынесена вперёд, нос 7.2 × 10.2 мм, уши
+ * подняты на 53.6°. Сфера даёт гладкий свод, усечённый конус — сужение к носу,
+ * которое читается сбоку как морда, а не как клюв.
  *
- * Сечение — не эллипс, а «суперэллипс сверху, киль снизу»: верхняя половина
- * набрана дугой с показателем 2.6, а от самой широкой точки вниз идут две грани
- * под 49°. Это и есть решение задачи печати: у лофта по наклонной оси низ кольца
- * нависал под 66°, а грань киля круче 45° по построению, то есть поддержки не
- * нужны при любом наклоне морды.
+ * Печатность держится на трёх решениях. Нижняя половина черепа утоплена в
+ * наклонную шею, поэтому её полусфера не висит в воздухе. Под мордой идёт
+ * четырёхгранный киль: его грани круче 45°, и они закрывают нижнюю дугу конуса,
+ * которая иначе нависала бы над столом. Шея наклонена вперёд и расширяется к
+ * базе; её боковые нормали отклоняются от вертикали меньше чем на 28°.
  *
  * Рога растут из черепа: корень `(±4.5, −26, 84)` утоплен внутрь головы, ствол
  * выходит наружу над затылком и уходит вверх и в стороны под 52°. Четыре отростка
  * на сторону, первый — надбровный: он загибается над мордой и делает узнаваемым
- * именно оленя. Уши — узкие плавники за рогами: без них голова читается молотком.
- *
- * Рога и уши — трубы с растянутым «бутоном» на конце вместо шара: шар дал бы
- * нижнюю полусферу с нависанием 90°, а плавное утолщение укладывается в те же
- * 45° и держит кольцо. Каждый участок трубы поднят над столом не меньше 45°.
+ * именно оленя. Уши — конусы, направленные в стороны и вверх.
  *
  * База — эллиптическая плита 4 мм. Полость Ø25 × 2.5 мм открыта вверх, под ней
  * остаётся дно 1.5 мм, поэтому плита не сквозная и печатается без мостов. Центр
- * полости сдвинут на 22 мм вперёд, перед бюстом: под грудью стоит широкая
+ * полости сдвинут на 22 мм вперёд, перед бюстом: под шеей стоит широкая
  * подошва, и монету там не опустить, а перед оленем получается чаша-лоток под
  * кольца. Противовес для устойчивости не нужен: даже с грузом 200 г на кончике
  * рога при максимальном размахе запас по опрокидыванию больше единицы.
  *
- * Все тела замкнуты по отдельности и пересекаются: низ бюста уходит в базу на
- * миллиметр с половиной, корни рогов — в голову, корни отростков — в ствол.
- * Слайсер объединяет их при печати, булевых операций нет.
+ * Все тела замкнуты по отдельности и пересекаются: низ шеи уходит в базу, корни
+ * рогов — в голову, корни отростков — в ствол. Слайсер объединяет их при печати,
+ * булевых операций нет. После слияния примитивов нормали сглаживаются с порогом
+ * 45°, поэтому свод головы и бока труб гладкие, а кромка плиты остаётся острой.
  *
  * Система координат общая для коллекции: Z вверх, низ на z = 0, центр базы в
  * начале координат, олень смотрит в −Y.
  */
 
-import { BufferGeometry, Float32BufferAttribute } from "three";
+import {
+  BufferGeometry,
+  ConeGeometry,
+  CylinderGeometry,
+  Float32BufferAttribute,
+  Matrix4,
+  SphereGeometry,
+  Vector3,
+} from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import {
   normalizeJewelryStandParams,
@@ -71,12 +77,12 @@ export const JEWELRY_DEER_WEIGHT_FLOOR_MM = 1.5;
 /**
  * Сдвиг полости вперёд от центра базы, мм.
  *
- * Полость стоит **перед** бюстом, а не под ним. Под грудью идёт широкая подошва
- * киля на `z = 2.5`: монета оказалась бы под ней, и опустить её было бы некуда.
- * Перед оленем плита свободна от `y = −9.5` до `y = −34.5`, и получается
- * чаша-лоток под кольца — так же обыграна база у референсов из исследования.
- * Задняя кромка полости отстоит от переднего края подошвы на миллиметр, поэтому
- * монета проходит между ними.
+ * Полость стоит **перед** бюстом, а не под ним. Под шеей стоит раструб радиусом
+ * 14 мм: монета оказалась бы под ним, и опустить её было бы некуда. Перед оленем
+ * плита свободна от `y = −9.5` до `y = −34.5`, и получается чаша-лоток под
+ * кольца — так же обыграна база у референсов из исследования. Задняя кромка
+ * полости отстоит от переднего края раструба на миллиметр, поэтому монета
+ * проходит между ними.
  */
 export const JEWELRY_DEER_WEIGHT_OFFSET_MM = 22;
 
@@ -113,34 +119,97 @@ const JEWELRY_DEER_BUD_MAX_SHARE = 0.75;
 /** Число сторон рогов, шт.: 12 хватает, чтобы кольцо не цеплялось. */
 const JEWELRY_DEER_ANTLER_SIDES = 12;
 
-/** Число внутренних точек верхней дуги сечения, шт.: 18 даёт гладкий верх. */
-const JEWELRY_DEER_SECTION_ARCS = 18;
+/**
+ * Сегменты черепа, шт.: 64 × 64 дают гладкий свод без видимых граней.
+ *
+ * Ниже 48 сегментов на сфере видны полосы после сглаживания, выше 64 — растёт
+ * число треугольников, а силуэт не меняется: на габарите 24 × 30 мм шаг дуги
+ * при 64 сегментах меньше 1.5 мм.
+ */
+export const JEWELRY_DEER_SKULL_SEGMENTS = 64;
 
-/** Показатель суперэллипса верхней дуги: 2.6 — «круглая, но не мыльная» скула. */
-export const JEWELRY_DEER_SECTION_POWER = 2.6;
+/** Радиусы черепа, мм: сплюснут по бокам, вытянут вперёд и вверх. */
+export const JEWELRY_DEER_SKULL_RADII_MM = [11.8, 12, 15] as const;
 
+/** Центр черепа, мм: над шеей, свод на 88 мм. */
+export const JEWELRY_DEER_SKULL_CENTER_MM = [0, -22, 73] as const;
 
-/** Отношение «падение киля / вылет киля»: 1.15 — это 49° от горизонта. */
-export const JEWELRY_DEER_KEEL_RATIO = 1.15;
+/** Основание наклонной шеи, мм: начинается внутри раструба. */
+export const JEWELRY_DEER_NECK_BASE_MM = [0, 5.5, 10] as const;
 
-/** Полуширина нижней грани киля, мм: грань 1.2 мм, чтобы киль не был лезвием. */
-export const JEWELRY_DEER_SOLE_HALF_MM = 0.6;
+/** Верх шеи, мм: утоплен в череп, поэтому его полусфера не нависает. */
+export const JEWELRY_DEER_NECK_TOP_MM = [0, -22, 64] as const;
+
+/** Радиус шеи у основания, мм. */
+export const JEWELRY_DEER_NECK_BASE_RADIUS_MM = 12.8;
+
+/** Радиус шеи у черепа, мм: уже черепа, но закрывает его нижнюю половину. */
+export const JEWELRY_DEER_NECK_TOP_RADIUS_MM = 10.5;
 
 /**
- * Предел, на который гребень киля опускается ниже подошвы, мм.
+ * Раструб у базы: вертикальный цилиндр от стола до наклонной шеи, мм.
  *
- * Подошва — не горизонтальная площадка, а клин: от краёв `±wSole` гребень уходит
- * вниз до осевой линии. У шеи и морды, где `wSole = 0.6`, клин идёт ровно под
- * 49°: две грани, ни одной горизонтальной, и низ головы не нависает даже там, где
- * киль поднимается к затылку под 72°. Предел в 1 мм нужен груди: там подошва
- * 31 мм шириной, и клин на полную высоту (17.8 мм) пробил бы плиту насквозь.
- * Глубже миллиметра гребень не опускается, а широкий низ груди всё равно утоплен
- * в плиту, то есть в проверке нависаний не участвует.
+ * Наклонная шея не может опираться на стол нижним торцом: её торец повёрнут
+ * вместе с осью и частью ушёл бы ниже z = 0. Вертикальный раструб стоит на
+ * столе, а наклонная шея начинается внутри него — нижний торец спрятан, и
+ * деталь не проваливается под стол.
  */
-export const JEWELRY_DEER_SOLE_DROP_MM = 1;
+export const JEWELRY_DEER_NECK_COLLAR_BASE_MM = [0, 5.5, 0] as const;
 
-/** Шаг промежуточных сечений по Y, мм: 1.5 мм — сглаживающая кривая без граней. */
-const JEWELRY_DEER_SLICE_STEP_MM = 1.5;
+/** Верх раструба, мм: выше самой высокой точки нижнего торца шеи. */
+export const JEWELRY_DEER_NECK_COLLAR_TOP_MM = [0, 5.5, 17] as const;
+
+/** Радиус раструба у стола, мм: передняя кромка в миллиметре от полости. */
+export const JEWELRY_DEER_NECK_COLLAR_BASE_RADIUS_MM = 14;
+
+/** Радиус раструба у шеи, мм. */
+export const JEWELRY_DEER_NECK_COLLAR_TOP_RADIUS_MM = 13.5;
+
+/** Начало морды, мм: внутри черепа, чтобы конус не торчал торцом. */
+export const JEWELRY_DEER_MUZZLE_BASE_MM = [0, -20, 74] as const;
+
+/** Кончик носа, мм: длинная морда, вынесенная за плиту на 3 мм. */
+export const JEWELRY_DEER_MUZZLE_TIP_MM = [0, -53, 68] as const;
+
+/** Радиус морды у черепа, мм: по X; по Z он растянут в 1.39 раза. */
+export const JEWELRY_DEER_MUZZLE_BASE_RADIUS_MM = 8.3;
+
+/** Радиус морды у носа, мм: нос 7.2 × 10.2 мм после растяжения по Z. */
+export const JEWELRY_DEER_MUZZLE_TIP_RADIUS_MM = 3.6;
+
+/** Растяжение сечения морды: 1.39 даёт высоту носа 10.2 мм при ширине 7.2. */
+export const JEWELRY_DEER_MUZZLE_Z_SCALE = 1.39;
+
+/** Сегменты морды и шеи, шт.: 64 держат круглое сечение гладким. */
+export const JEWELRY_DEER_BODY_SEGMENTS = 64;
+
+/** Сегменты киля, шт.: четыре грани дают печатный клин под мордой. */
+export const JEWELRY_DEER_JAW_SEGMENTS = 4;
+
+/**
+ * Доля полуширины морды, на которой стоят боковые вершины киля.
+ *
+ * `1/√2` — это точки нижней дуги под 45°: выше них нормаль конуса уже не
+ * нависает, ниже — киль закрывает её своими гранями.
+ */
+export const JEWELRY_DEER_JAW_SIDE_SHARE = Math.SQRT1_2;
+
+/**
+ * Высота грани киля к его полуширине.
+ *
+ * 0.8 при боковой доле `1/√2` даёт наклон грани 48.5° к столу: нормаль
+ * отклоняется вниз только на 41.5°, то есть киль печатается без поддержки.
+ */
+export const JEWELRY_DEER_JAW_DEPTH_SHARE = 0.8;
+
+/**
+ * Перекрытие киля по отношению к морде: 1.5 %.
+ *
+ * Если боковая вершина киля попадает точно в вершину 64-гранной морды, сварка
+ * вершин в проверке объединяет два тела в не-многообразие. Полтора процента
+ * (0.09 мм на базе) дают зазор, достаточный для сварки, и не видны на глаз.
+ */
+export const JEWELRY_DEER_JAW_COVER_SHARE = 1.015;
 
 /** Число сторон базы, шт.: 96 держит овал гладким на любом размере. */
 const JEWELRY_DEER_BASE_SIDES = 96;
@@ -161,303 +230,54 @@ const JEWELRY_DEER_ANTLER_TIP_Y_MM = 2;
  */
 export const JEWELRY_DEER_EAR_ROOT_MM = [3.2, -20.2, 73.6] as const;
 
-/** Кончик уха, мм: подъём 53.6°, поэтому ухо-плавник не нависает. */
+/** Кончик уха, мм: подъём 53.6°, поэтому конус уха не нависает. */
 export const JEWELRY_DEER_EAR_TIP_MM = [11, -13, 88] as const;
 
-/** Полуширина уха, мм: ухо плоское, 4.4 мм в плоскости и 3.2 мм толщиной. */
+/** Полуширина уха, мм: конус сплюснут, 4.4 мм в плоскости и 3.2 мм толщиной. */
 const JEWELRY_DEER_EAR_HALF_WIDTH_MM = 2.2;
 
 /** Полутолщина уха, мм: по X, наружу от головы. */
 const JEWELRY_DEER_EAR_HALF_THICKNESS_MM = 1.6;
 
-/** Число сторон трубы уха, шт.: 10 хватает на плавник. */
-const JEWELRY_DEER_EAR_SIDES = 10;
+/** Число сторон конуса уха, шт.: 32 дают гладкий сплюснутый конус. */
+const JEWELRY_DEER_EAR_SIDES = 32;
 
 /**
- * Срез бюста: плоскость `y = const` и три кривые силуэта.
+ * Голова из примитивов: пропорции, по которым собирается меш.
  *
- * `w` — полуширина на самом широком месте, `wSole` — полуширина нижней грани
- * киля, `zBottom` — низ киля, `zTop` — верх свода. Высота самого широкого места
- * не хранится: она следует из правила 45° — `zSide = zBottom + 1.15·(w − wSole)`.
+ * Поля хранятся в миллиметрах при `scale = 1` и проверяются тестом. Геометрия
+ * читает те же числа, поэтому подпись, проверка пропорций и STL не расходятся.
  */
-export type JewelryDeerSlice = {
-  readonly yMm: number;
-  readonly wMm: number;
-  readonly wSoleMm: number;
-  readonly zBottomMm: number;
-  readonly zTopMm: number;
+export type JewelryDeerHead = {
+  /** Центр и радиусы сферы черепа: по X она сплюснута. */
+  readonly skullCenterMm: Vec3;
+  readonly skullRadiiMm: Vec3;
+  readonly skullSegments: number;
+  /** Шея: наклонный цилиндр с раструбом к базе. */
+  readonly neckBaseMm: Vec3;
+  readonly neckTopMm: Vec3;
+  readonly neckBaseRadiusMm: number;
+  readonly neckTopRadiusMm: number;
+  readonly neckCollarBaseMm: Vec3;
+  readonly neckCollarTopMm: Vec3;
+  readonly neckCollarBaseRadiusMm: number;
+  readonly neckCollarTopRadiusMm: number;
+
+  /** Морда: усечённый конус от черепа к носу. */
+  readonly muzzleBaseMm: Vec3;
+  readonly muzzleTipMm: Vec3;
+  readonly muzzleBaseRadiusMm: number;
+  readonly muzzleTipRadiusMm: number;
+  readonly muzzleZScale: number;
+  readonly muzzleSegments: number;
+  /** Киль под мордой: четырёхгранный конус, закрывающий нависание. */
+  readonly jawBaseMm: Vec3;
+  readonly jawTipMm: Vec3;
+  readonly jawBaseRadiusXMm: number;
+  readonly jawBaseRadiusZMm: number;
+  readonly jawTipRadiusXMm: number;
+  readonly jawTipRadiusZMm: number;
 };
-
-/**
- * Опорная строка таблицы срезов: срез плюс признак «не интерполировать».
- *
- * `hard` стоит на одном переходе — перед груди на шею. Ширина там падает
- * скачком, и сглаживающая кривая выдала бы промежуточное сечение с широкой
- * подошвой на высоте 11 мм, то есть горизонтальную площадку над столом. Пара
- * сечений на этом переходе выдаётся как есть, и передняя стенка груди получается
- * почти вертикальной, а подошва схлопывается на грани 51°.
- */
-type JewelryDeerSliceControl = JewelryDeerSlice & {
-  readonly hard?: true;
-};
-
-/**
- * Таблица бюста при базе 150 мм: 23 опорных срезов от задней кромки груди до носа.
- *
- * Записана так, как её читает скульптор: `yMm` — плоскость среза (олень смотрит
- * в −Y), `wMm` — полуширина, `wSoleMm` — полуширина нижней грани киля,
- * `zBottomMm` и `zTopMm` — нижняя и верхняя линии рисунка.
- *
- * Что где:
- * - `y = +12…−8.5` — грудь и плечи: `zBottom = 2.5` утоплен в плиту (4 мм), а
- *   `wSole` 12…17, поэтому грудь стоит на площадке, а не на лезвии;
- * - `−8.5 → −10` — перед груди: подошва схлопывается, низ поднимается с 2.5 до
- *   18, и дальше киль идёт по шее;
- * - `−10…−21` — шея: полуширина 15.5 → 10, киль поднимается 18 → 53;
- * - `−21…−24` — череп и лоб: самое широкое место головы 20 мм, свод 88;
- * - `−24…−53` — морда: 29 мм длиной, сужается с 20 до 7.2 мм по ширине и с 30 до
- *   10 мм по высоте. Сбоку это конус от щёк к носу, сверху — сужающийся клин.
- *
- * Нос на `y = −53` выходит за плиту на 3 мм: вынос морды важнее, чем совпадение
- * габарита с овалом, а свисает над столом только воздух на высоте 70 мм.
- */
-const JEWELRY_DEER_SLICES: readonly JewelryDeerSliceControl[] = [
-  { yMm: 12, wMm: 20, wSoleMm: 15.5, zBottomMm: 2.5, zTopMm: 30 },
-  { yMm: 8, wMm: 22, wSoleMm: 17, zBottomMm: 2.5, zTopMm: 40 },
-  { yMm: 4, wMm: 22, wSoleMm: 17, zBottomMm: 2.5, zTopMm: 46 },
-  { yMm: 0, wMm: 21, wSoleMm: 16, zBottomMm: 2.5, zTopMm: 51 },
-  { yMm: -4, wMm: 19.5, wSoleMm: 14.5, zBottomMm: 2.5, zTopMm: 56 },
-  { yMm: -7, wMm: 18, wSoleMm: 13, zBottomMm: 2.5, zTopMm: 60 },
-  { yMm: -8.5, wMm: 17, wSoleMm: 12, zBottomMm: 2.5, zTopMm: 61.5 },
-  { yMm: -10, wMm: 15.5, wSoleMm: 0.6, zBottomMm: 18, zTopMm: 63, hard: true },
-  { yMm: -12, wMm: 14, wSoleMm: 0.6, zBottomMm: 25, zTopMm: 66.5 },
-  { yMm: -14, wMm: 12.5, wSoleMm: 0.6, zBottomMm: 32, zTopMm: 70 },
-  { yMm: -16, wMm: 11.5, wSoleMm: 0.6, zBottomMm: 39, zTopMm: 74 },
-  { yMm: -18.5, wMm: 10.5, wSoleMm: 0.6, zBottomMm: 47, zTopMm: 79 },
-  { yMm: -21, wMm: 10, wSoleMm: 0.6, zBottomMm: 53, zTopMm: 84.5 },
-  { yMm: -24, wMm: 10, wSoleMm: 0.6, zBottomMm: 58, zTopMm: 88 },
-  { yMm: -27, wMm: 9.8, wSoleMm: 0.6, zBottomMm: 61, zTopMm: 87.5 },
-  { yMm: -30.5, wMm: 9.4, wSoleMm: 0.6, zBottomMm: 63.5, zTopMm: 86.5 },
-  { yMm: -34, wMm: 8.6, wSoleMm: 0.6, zBottomMm: 65.5, zTopMm: 85.5 },
-  { yMm: -37.5, wMm: 7.8, wSoleMm: 0.6, zBottomMm: 67, zTopMm: 84.2 },
-  { yMm: -41, wMm: 6.9, wSoleMm: 0.6, zBottomMm: 68.5, zTopMm: 83 },
-  { yMm: -44.5, wMm: 6, wSoleMm: 0.6, zBottomMm: 69.5, zTopMm: 82 },
-  { yMm: -48, wMm: 5.2, wSoleMm: 0.6, zBottomMm: 70, zTopMm: 81.2 },
-  { yMm: -51, wMm: 4.4, wSoleMm: 0.6, zBottomMm: 70, zTopMm: 80.6 },
-  { yMm: -53, wMm: 3.6, wSoleMm: 0.6, zBottomMm: 70, zTopMm: 80.2 },
-];
-
-
-/**
- * Касательные Фрича—Карлсона для набора опор.
- *
- * Обычная кривая Эрмита даёт выбросы: на пятке профиля высота шла 4 → 7 → 10 →
- * 40, и `z` между 7 и 10 сначала опускался до 6.8 — кольца перехлёстывались.
- * Здесь касательная на опоре не круче утроенной меньшей из соседних секущих, а
- * на перегибе равна нулю, поэтому кривая не выходит за пределы между опорами и
- * не разворачивается назад.
- */
-function monotoneTangents(values: readonly number[]): number[] {
-  const last = values.length - 1;
-  const secants = values
-    .slice(0, last)
-    .map((value, index) => values[index + 1] - value);
-
-  return values.map((_, index) => {
-    if (index === 0) {
-      return secants[0] ?? 0;
-    }
-
-    if (index === last) {
-      return secants[last - 1] ?? 0;
-    }
-
-    const before = secants[index - 1];
-    const after = secants[index];
-
-    if (before * after <= 0) {
-      return 0;
-    }
-
-    const average = (before + after) / 2;
-
-    return (
-      Math.sign(average) *
-      Math.min(
-        Math.abs(average),
-        3 * Math.abs(before),
-        3 * Math.abs(after),
-      )
-    );
-  });
-}
-
-/** Кубическая кривая Эрмита между двумя опорами с заданными касательными, 0…1. */
-function hermite(
-  from: number,
-  to: number,
-  fromTangent: number,
-  toTangent: number,
-  u: number,
-): number {
-  const u2 = u * u;
-  const u3 = u2 * u;
-
-  return (
-    (2 * u3 - 3 * u2 + 1) * from +
-    (u3 - 2 * u2 + u) * fromTangent +
-    (-2 * u3 + 3 * u2) * to +
-    (u3 - u2) * toTangent
-  );
-}
-
-/**
- * Срезы бюста: таблица, развёрнутая в гладкую последовательность плоскостей.
- *
- * Между опорами `w`, `wSole`, `zBottom` и `zTop` идут по одной кривой Эрмита с
- * касательными Фрича—Карлсона: кривая проходит через опоры точно и не выходит за
- * них, поэтому силуэт без изломов, но и без выбросов. Шаг 1.5 мм по Y: больше —
- * видно грани на морде, меньше — растёт число треугольников без пользы.
- *
- * Переход с `hard` выдаётся парой сечений без промежуточных: сглаживать там
- * нечего, ширина падает скачком, а интерполяция дала бы подошву на высоте 11 мм.
- */
-function deerSlices(): JewelryDeerSlice[] {
-  const slices = JEWELRY_DEER_SLICES;
-  const last = slices.length - 1;
-  const wTangents = monotoneTangents(slices.map((slice) => slice.wMm));
-  const soleTangents = monotoneTangents(slices.map((slice) => slice.wSoleMm));
-  const bottomTangents = monotoneTangents(slices.map((slice) => slice.zBottomMm));
-  const topTangents = monotoneTangents(slices.map((slice) => slice.zTopMm));
-  const result: JewelryDeerSlice[] = [];
-
-  for (let index = 0; index < last; index += 1) {
-    const from = slices[index];
-    const to = slices[index + 1];
-    const segmentMm = Math.abs(to.yMm - from.yMm);
-    const samples = to.hard
-      ? 1
-      : Math.max(1, Math.ceil(segmentMm / JEWELRY_DEER_SLICE_STEP_MM));
-
-    for (let step = 0; step < samples; step += 1) {
-      const u = step / samples;
-
-      result.push({
-        yMm: from.yMm + (to.yMm - from.yMm) * u,
-        wMm: hermite(from.wMm, to.wMm, wTangents[index], wTangents[index + 1], u),
-        wSoleMm: hermite(
-          from.wSoleMm,
-          to.wSoleMm,
-          soleTangents[index],
-          soleTangents[index + 1],
-          u,
-        ),
-        zBottomMm: hermite(
-          from.zBottomMm,
-          to.zBottomMm,
-          bottomTangents[index],
-          bottomTangents[index + 1],
-          u,
-        ),
-        zTopMm: hermite(
-          from.zTopMm,
-          to.zTopMm,
-          topTangents[index],
-          topTangents[index + 1],
-          u,
-        ),
-      });
-    }
-  }
-
-  const nose = slices[last];
-
-  result.push({
-    yMm: nose.yMm,
-    wMm: nose.wMm,
-    wSoleMm: nose.wSoleMm,
-    zBottomMm: nose.zBottomMm,
-    zTopMm: nose.zTopMm,
-  });
-
-  return result;
-}
-
-/** Высота среза, на которой он шире всего: киль начинается ровно здесь. */
-export function deerSliceSideMm(slice: JewelryDeerSlice): number {
-  return slice.zBottomMm + JEWELRY_DEER_KEEL_RATIO * (slice.wMm - slice.wSoleMm);
-}
-
-/**
- * Контур среза в плоскости (X, Z): гребень киля, две грани и суперэллипс сверху.
- *
- * Обход против часовой стрелки, если смотреть с носа (−Y), и начинается с правой
- * нижней вершины: правый бок вверх, дуга через свод влево, левый бок вниз, левая
- * грань киля к гребню на оси и правая грань обратно в начало. Такой порядок даёт
- * наружные нормали у стенок между срезами — на нём держится знак объёма и
- * watertight.
- *
- * Верх — суперэллипс с показателем 2.6: у круга скула «мыльная», у эллипса
- * слишком плоский верх, а 2.6 даёт круглый, но собранный свод. Ниже самой
- * широкой точки идут две грани `zSide − zBottom = 1.15·(w − wSole)`, то есть 49°
- * от горизонта, а под ними — клин до гребня на осевой линии. Ни одной
- * горизонтальной грани внизу нет: именно поэтому низ головы печатается без
- * поддержек там, где киль поднимается к затылку.
- */
-export function deerSectionOutline(
-  slice: JewelryDeerSlice,
-): readonly Point2[] {
-  const sideZ = deerSliceSideMm(slice);
-  const rise = slice.zTopMm - sideZ;
-  const drop = Math.min(
-    JEWELRY_DEER_KEEL_RATIO * slice.wSoleMm,
-    JEWELRY_DEER_SOLE_DROP_MM,
-  );
-  const points: Point2[] = [[slice.wSoleMm, slice.zBottomMm]];
-
-  points.push([slice.wMm, sideZ]);
-
-  for (let step = 1; step < JEWELRY_DEER_SECTION_ARCS; step += 1) {
-    const angle = (Math.PI * step) / JEWELRY_DEER_SECTION_ARCS;
-    const cos = Math.abs(Math.cos(angle));
-    const sin = Math.abs(Math.sin(angle));
-    const exponent = 2 / JEWELRY_DEER_SECTION_POWER;
-    const x = slice.wMm * Math.sign(Math.cos(angle)) * cos ** exponent;
-    const z = sideZ + rise * sin ** exponent;
-
-    points.push([x, z]);
-  }
-
-  points.push(
-    [-slice.wMm, sideZ],
-    [-slice.wSoleMm, slice.zBottomMm],
-    [0, slice.zBottomMm - drop],
-  );
-
-  return points;
-}
-
-/**
- * Площадь среза, мм²: площадь трапеции киля плюс площадь верхней дуги.
- *
- * Нужна не для меша, а для проверок: по ней считается центр тяжести (и запас
- * против опрокидывания) и то, что голова не тяжелее груди. Считается по тому же
- * контуру, который уходит в сетку, — расхождения с мешем не будет.
- */
-export function deerSectionAreaMm2(slice: JewelryDeerSlice): number {
-  const outline = deerSectionOutline(slice);
-  let twiceArea = 0;
-
-  for (let index = 0; index < outline.length; index += 1) {
-    const [x0, z0] = outline[index];
-    const [x1, z1] = outline[(index + 1) % outline.length];
-
-    twiceArea += x0 * z1 - x1 * z0;
-  }
-
-  return Math.abs(twiceArea) / 2;
-}
-
 
 /**
  * Отростки рога: доля длины ствола, длина и направление.
@@ -528,9 +348,17 @@ export type JewelryDeerPlan = {
   readonly pocketDepthMm: number;
   readonly pocketFloorMm: number;
   readonly scale: number;
-  /** Срезы от задней кромки груди до носа: `y` убывает. */
-  readonly slices: readonly JewelryDeerSlice[];
-  /** Нос: плоскость последнего среза и его габарит по высоте. */
+  /** Череп, шея, морда и киль — те же числа, что уходят в примитивы. */
+  readonly head: JewelryDeerHead;
+  /** Длина головы от затылка до носа, мм. */
+  readonly headLengthMm: number;
+  /** Ширина черепа, мм: сплюснутость по бокам. */
+  readonly headWidthMm: number;
+  /** Высота черепа, мм. */
+  readonly headHeightMm: number;
+  /** Длина морды по оси, мм: должна быть больше черепа. */
+  readonly muzzleLengthMm: number;
+  /** Нос: передняя точка и его габарит по высоте. */
   readonly noseYMm: number;
   readonly noseZMm: number;
   /** Верх свода, мм: макушка черепа без рогов. */
@@ -680,10 +508,11 @@ const JEWELRY_DEER_TINE_SAMPLES = [0, 0.32, 0.58, 0.78, 0.9, 1] as const;
 
 
 /**
- * План оленя: срезы, рога, уши, полость и габарит.
+ * План оленя: череп, шея, морда, киль, рога, уши, полость и габарит.
  *
  * План считается без three.js и без меша — по нему строятся и геометрия, и
- * подписи, и проверки в `scripts/test-jewelry-geometry.ts`.
+ * подписи, и проверки в `scripts/test-jewelry-geometry.ts`. Все размеры
+ * записаны для базы 150 мм и умножаются на `scale`, как ползунок длины.
  */
 export function jewelryDeerPlan(
   params: Partial<JewelryStandParams> = {},
@@ -694,18 +523,122 @@ export function jewelryDeerPlan(
   const antlerSpreadMm = normalized.deerAntlerSpread;
   const scale = baseLengthMm / 150;
 
-  // Таблица записана для базы 150 мм; ползунок длины тянет за собой весь бюст,
-  // включая низ киля: при базе 120 он на 3.2 мм, при 180 — на 4.8, и в обоих
-  // случаях остаётся ниже лица плиты (4 мм), то есть утопление сохраняется.
-  const slices = deerSlices().map((slice) => ({
-    yMm: slice.yMm * scale,
-    wMm: slice.wMm * scale,
-    wSoleMm: slice.wSoleMm * scale,
-    zBottomMm: slice.zBottomMm * scale,
-    zTopMm: slice.zTopMm * scale,
-  }));
-  const nose = slices[slices.length - 1];
-  const crownZMm = Math.max(...slices.map((slice) => slice.zTopMm));
+  const skullCenterMm: Vec3 = [
+    JEWELRY_DEER_SKULL_CENTER_MM[0] * scale,
+    JEWELRY_DEER_SKULL_CENTER_MM[1] * scale,
+    JEWELRY_DEER_SKULL_CENTER_MM[2] * scale,
+  ];
+  const skullRadiiMm: Vec3 = [
+    JEWELRY_DEER_SKULL_RADII_MM[0] * scale,
+    JEWELRY_DEER_SKULL_RADII_MM[1] * scale,
+    JEWELRY_DEER_SKULL_RADII_MM[2] * scale,
+  ];
+  const neckBaseMm: Vec3 = [
+    JEWELRY_DEER_NECK_BASE_MM[0] * scale,
+    JEWELRY_DEER_NECK_BASE_MM[1] * scale,
+    JEWELRY_DEER_NECK_BASE_MM[2] * scale,
+  ];
+  const neckTopMm: Vec3 = [
+    JEWELRY_DEER_NECK_TOP_MM[0] * scale,
+    JEWELRY_DEER_NECK_TOP_MM[1] * scale,
+    JEWELRY_DEER_NECK_TOP_MM[2] * scale,
+  ];
+  const neckCollarBaseMm: Vec3 = [
+    JEWELRY_DEER_NECK_COLLAR_BASE_MM[0] * scale,
+    JEWELRY_DEER_NECK_COLLAR_BASE_MM[1] * scale,
+    JEWELRY_DEER_NECK_COLLAR_BASE_MM[2] * scale,
+  ];
+  const neckCollarTopMm: Vec3 = [
+    JEWELRY_DEER_NECK_COLLAR_TOP_MM[0] * scale,
+    JEWELRY_DEER_NECK_COLLAR_TOP_MM[1] * scale,
+    JEWELRY_DEER_NECK_COLLAR_TOP_MM[2] * scale,
+  ];
+
+  const muzzleBaseMm: Vec3 = [
+    JEWELRY_DEER_MUZZLE_BASE_MM[0] * scale,
+    JEWELRY_DEER_MUZZLE_BASE_MM[1] * scale,
+    JEWELRY_DEER_MUZZLE_BASE_MM[2] * scale,
+  ];
+  const muzzleTipMm: Vec3 = [
+    JEWELRY_DEER_MUZZLE_TIP_MM[0] * scale,
+    JEWELRY_DEER_MUZZLE_TIP_MM[1] * scale,
+    JEWELRY_DEER_MUZZLE_TIP_MM[2] * scale,
+  ];
+  const muzzleBaseRadiusMm = JEWELRY_DEER_MUZZLE_BASE_RADIUS_MM * scale;
+  const muzzleTipRadiusMm = JEWELRY_DEER_MUZZLE_TIP_RADIUS_MM * scale;
+  const muzzleBaseRadiusZ = muzzleBaseRadiusMm * JEWELRY_DEER_MUZZLE_Z_SCALE;
+  const muzzleTipRadiusZ = muzzleTipRadiusMm * JEWELRY_DEER_MUZZLE_Z_SCALE;
+  // Киль стоит ниже оси морды на `r_z/√2` вдоль её поперечной оси. Смещение
+  // берётся не по мировому Z, а по местному Z конуса: только тогда боковые
+  // вершины киля лежат ровно на поверхности морды под 45°.
+  const muzzleAxis = normalize(subtract(muzzleTipMm, muzzleBaseMm));
+  const muzzleDown: Vec3 = [0, -muzzleAxis[2], muzzleAxis[1]];
+  const jawBaseMm: Vec3 = add(
+    muzzleBaseMm,
+    multiply(
+      muzzleDown,
+      muzzleBaseRadiusZ * JEWELRY_DEER_JAW_SIDE_SHARE,
+    ),
+  );
+  const jawTipMm: Vec3 = add(
+    muzzleTipMm,
+    multiply(
+      muzzleDown,
+      muzzleTipRadiusZ * JEWELRY_DEER_JAW_SIDE_SHARE,
+    ),
+  );
+  const head: JewelryDeerHead = {
+    skullCenterMm,
+    skullRadiiMm,
+    skullSegments: JEWELRY_DEER_SKULL_SEGMENTS,
+    neckBaseMm,
+    neckTopMm,
+    neckBaseRadiusMm: JEWELRY_DEER_NECK_BASE_RADIUS_MM * scale,
+    neckTopRadiusMm: JEWELRY_DEER_NECK_TOP_RADIUS_MM * scale,
+    neckCollarBaseMm,
+    neckCollarTopMm,
+    neckCollarBaseRadiusMm:
+      JEWELRY_DEER_NECK_COLLAR_BASE_RADIUS_MM * scale,
+    neckCollarTopRadiusMm:
+      JEWELRY_DEER_NECK_COLLAR_TOP_RADIUS_MM * scale,
+
+    muzzleBaseMm,
+    muzzleTipMm,
+    muzzleBaseRadiusMm,
+    muzzleTipRadiusMm,
+    muzzleZScale: JEWELRY_DEER_MUZZLE_Z_SCALE,
+    muzzleSegments: JEWELRY_DEER_BODY_SEGMENTS,
+    jawBaseMm,
+    jawTipMm,
+    jawBaseRadiusXMm:
+      muzzleBaseRadiusMm *
+      JEWELRY_DEER_JAW_SIDE_SHARE *
+      JEWELRY_DEER_JAW_COVER_SHARE,
+    jawBaseRadiusZMm:
+      muzzleBaseRadiusMm *
+      JEWELRY_DEER_JAW_DEPTH_SHARE *
+      JEWELRY_DEER_JAW_COVER_SHARE,
+    jawTipRadiusXMm:
+      muzzleTipRadiusMm *
+      JEWELRY_DEER_JAW_SIDE_SHARE *
+      JEWELRY_DEER_JAW_COVER_SHARE,
+    jawTipRadiusZMm:
+      muzzleTipRadiusMm *
+      JEWELRY_DEER_JAW_DEPTH_SHARE *
+      JEWELRY_DEER_JAW_COVER_SHARE,
+  };
+  const crownZMm = skullCenterMm[2] + skullRadiiMm[2];
+  const headWidthMm = skullRadiiMm[0] * 2;
+  const headHeightMm = skullRadiiMm[2] * 2;
+  const headBackY = skullCenterMm[1] + skullRadiiMm[1];
+  const headLengthMm = headBackY - muzzleTipMm[1];
+  const muzzleLengthMm = magnitude(
+    subtract(muzzleTipMm, muzzleBaseMm),
+  );
+  const noseZMm =
+    2 *
+    muzzleTipRadiusZ *
+    Math.sqrt(1 - muzzleAxis[2] ** 2);
 
   const rootZ = JEWELRY_DEER_ANTLER_ROOT_MM[2] * scale;
   const rootX = JEWELRY_DEER_ANTLER_ROOT_MM[0] * scale;
@@ -806,10 +739,9 @@ export function jewelryDeerPlan(
     );
   }
 
-  // Верх модели — нос или рога, что выше. Нос закрыт плоской гранью в плоскости
-  // последнего среза, поэтому припуска на скругление у него нет.
-  const noseTopMm = nose.zTopMm;
-  const heightMm = Math.round(Math.max(noseTopMm, antlerTopMm) * 100) / 100;
+  // Верх модели — рога или свод черепа, что выше. Нос ниже обоих, поэтому в
+  // габарит по Z не входит.
+  const heightMm = Math.round(Math.max(crownZMm, antlerTopMm) * 100) / 100;
 
   const ears: JewelryDeerEar[] = [-1, 1].map((side) => ({
     id: `ear-${side < 0 ? "left" : "right"}`,
@@ -836,9 +768,13 @@ export function jewelryDeerPlan(
     pocketDepthMm: JEWELRY_DEER_WEIGHT_DEPTH_MM,
     pocketFloorMm: JEWELRY_DEER_WEIGHT_FLOOR_MM,
     scale,
-    slices,
-    noseYMm: nose.yMm,
-    noseZMm: nose.zTopMm - nose.zBottomMm,
+    head,
+    headLengthMm,
+    headWidthMm,
+    headHeightMm,
+    muzzleLengthMm,
+    noseYMm: muzzleTipMm[1],
+    noseZMm,
     crownZMm,
     antlerSpreadMm,
     antlerOuterXMm,
@@ -1066,101 +1002,184 @@ function addDomeCap(
 }
 
 /**
- * Бюст: стопка вертикальных срезов от задней кромки груди до носа.
+ * Подготовка примитива к слиянию.
  *
- * Каждый срез — плоский контур в плоскости `y = const`; между соседними срезами
- * ставятся стенки, торцы закрываются веерами. Задняя крышка смотрит назад
- * (плоский срез бюста, как у классического портрета), носовая — вперёд.
- *
- * Низ у груди лежит на плите на `z = 2.5`, то есть утоплен в неё на 1.5 мм:
- * бюст и база — два отдельных замкнутых тела, их объединяет слайсер. Всё, что
- * ниже двух с половиной миллиметров, — это плита, а не голова, поэтому силуэт
- * снизу не нависает: от самой широкой точки среза вниз идут грани киля под 49°.
+ * У `SphereGeometry`, `CylinderGeometry` и `ConeGeometry` есть `uv` и индекс;
+ * `mergeGeometries` требует одинаковый набор атрибутов и одинаковое состояние
+ * индекса. Поэтому примитив разворачивается в неиндексированный вид, а `uv`
+ * удаляется: в STL он не нужен, а в памяти занимает больше, чем позиции.
  */
-function addDeerSlices(positions: number[], plan: JewelryDeerPlan): void {
-  const rings = plan.slices.map((slice) =>
-    deerSectionOutline(slice).map(
-      ([x, z]) => [x, slice.yMm, z] as Vec3,
-    ),
-  );
+function flattenPrimitive(geometry: BufferGeometry): BufferGeometry {
+  const flat = geometry.getIndex() ? geometry.toNonIndexed() : geometry;
 
-  // Задний торец: нормаль в +Y, то есть против хода от носа к затылку.
-  addRingFan(positions, ringCenter(plan.slices[0]), rings[0], false);
-
-  for (let index = 0; index < rings.length - 1; index += 1) {
-    addRingWalls(positions, rings[index], rings[index + 1]);
+  if (flat !== geometry) {
+    geometry.dispose();
   }
 
-  const last = rings.length - 1;
+  flat.deleteAttribute("uv");
+  flat.deleteAttribute("normal");
 
-  addRingFan(positions, ringCenter(plan.slices[last]), rings[last], true);
-}
-
-/** Центр торца среза: середина между низом киля и сводом, на оси X = 0. */
-function ringCenter(slice: JewelryDeerSlice): Vec3 {
-  return [0, slice.yMm, (slice.zBottomMm + slice.zTopMm) / 2];
+  return flat;
 }
 
 /**
- * Ухо: плоский плавник за рогом.
+ * Базис примитива: локальный Y смотрит вдоль оси, локальный X — наружу по X.
  *
- * Ухо — не лопатка и не шар: сечение узкое (4.4 × 3.2 мм), а ось поднята на
- * 53.6°. Поэтому самая пологая грань уха наклонена к столу на 53.6°, а не на
- * 20–30°, как у горизонтальной лопатки: печатается без поддержки и не спорит со
- * стволом рога, который проходит в 6 мм позади.
- *
- * Плоскость уха держится по Y: сбоку виден широкий силуэт, спереди — тонкая
- * полоска. Так ухо читается на витрине, где модель смотрят сбоку.
+ * Для всех тел головы ось лежит в плоскости YZ, поэтому мировой X всегда
+ * перпендикулярен ей и годится в базис без проекции. Локальный Z считается
+ * векторным произведением, чтобы обход треугольников остался правым.
  */
-function addDeerEar(positions: number[], ear: JewelryDeerEar): void {
-  const sides = JEWELRY_DEER_EAR_SIDES;
-  const axis = normalize(subtract(ear.tipMm, ear.rootMm));
-  const lengthMm = magnitude(subtract(ear.tipMm, ear.rootMm));
-  // `thin` смотрит наружу по X, `wide` — по Y: базис правый, обход кольца даёт
-  // наружные нормали стенок.
-  const thin = normalize(subtract([1, 0, 0], multiply(axis, dot([1, 0, 0], axis))));
-  const wide = cross(axis, thin);
-  const shares = [0, 0.3, 0.6, 0.82, 1] as const;
-  const rings = shares.map((share) => {
-    // К кончику ухо сужается: остриё плавника, а не обрубок трубы.
-    const taper = 1 - 0.45 * share;
-    const center = add(ear.rootMm, multiply(axis, lengthMm * share));
-    const ring: Vec3[] = [];
+function axisBasis(axis: Vec3): Matrix4 {
+  const xAxis = normalize(
+    subtract([1, 0, 0], multiply(axis, dot([1, 0, 0], axis))),
+  );
+  const zAxis = cross(xAxis, axis);
 
-    for (let step = 0; step < sides; step += 1) {
-      const angle = (Math.PI * 2 * step) / sides;
+  return new Matrix4().makeBasis(
+    new Vector3(xAxis[0], xAxis[1], xAxis[2]),
+    new Vector3(axis[0], axis[1], axis[2]),
+    new Vector3(zAxis[0], zAxis[1], zAxis[2]),
+  );
+}
 
-      ring.push(
-        add(
-          center,
-          add(
-            multiply(thin, Math.cos(angle) * ear.halfThicknessMm * taper),
-            multiply(wide, Math.sin(angle) * ear.halfWidthMm * taper),
-          ),
-        ),
-      );
-    }
+/**
+ * Усечённый конус или цилиндр между двумя точками.
+ *
+ * `CylinderGeometry` растёт вдоль +Y: верхнее кольцо получает радиус кончика,
+ * нижнее — радиус основания. После масштаба локального Z и поворота на базис
+ * тело встаёт вдоль оси; торцы остаются замкнутыми.
+ */
+function createAxisBody(options: {
+  readonly baseMm: Vec3;
+  readonly tipMm: Vec3;
+  readonly baseRadiusMm: number;
+  readonly tipRadiusMm: number;
+  readonly segments: number;
+  readonly zScale?: number;
+}): BufferGeometry {
+  const direction = subtract(options.tipMm, options.baseMm);
+  const lengthMm = magnitude(direction);
 
-    return ring;
-  });
-
-  // Корень утоплен в череп: торец наружу не смотрит.
-  addRingFan(positions, ear.rootMm, rings[0], false);
-
-  for (let index = 0; index < rings.length - 1; index += 1) {
-    addRingWalls(positions, rings[index], rings[index + 1]);
+  if (lengthMm <= 1e-9) {
+    throw new Error("Нулевая длина примитива головы");
   }
 
-  const last = rings.length - 1;
-  const tipCenter = add(ear.rootMm, multiply(axis, lengthMm));
-
-  addDomeCap(
-    positions,
-    tipCenter,
-    axis,
-    rings[last],
-    Math.min(ear.halfWidthMm, ear.halfThicknessMm) * 0.55,
+  const axis = multiply(direction, 1 / lengthMm);
+  const geometry = new CylinderGeometry(
+    options.tipRadiusMm,
+    options.baseRadiusMm,
+    lengthMm,
+    options.segments,
+    1,
+    false,
   );
+
+  geometry.scale(1, 1, options.zScale ?? 1);
+  geometry.applyMatrix4(axisBasis(axis));
+  geometry.translate(
+    (options.baseMm[0] + options.tipMm[0]) / 2,
+    (options.baseMm[1] + options.tipMm[1]) / 2,
+    (options.baseMm[2] + options.tipMm[2]) / 2,
+  );
+
+  return flattenPrimitive(geometry);
+}
+
+/** Сплюснутый конус уха: вершина на кончике, основание в черепе. */
+function createEarCone(
+  ear: JewelryDeerEar,
+  segments: number,
+): BufferGeometry {
+  const direction = subtract(ear.tipMm, ear.rootMm);
+  const lengthMm = magnitude(direction);
+  const axis = normalize(direction);
+  // `thin` — наружу по X, `wide` — вдоль плоскости уха. Базис правый:
+  // локальный X уходит в thin, локальный Y — в ось, локальный Z — в wide.
+  const thin = normalize(
+    subtract([1, 0, 0], multiply(axis, dot([1, 0, 0], axis))),
+  );
+  const wide = cross(thin, axis);
+  const geometry = new ConeGeometry(1, lengthMm, segments, 1, false);
+
+  geometry.scale(ear.halfThicknessMm, 1, ear.halfWidthMm);
+  geometry.applyMatrix4(
+    new Matrix4().makeBasis(
+      new Vector3(thin[0], thin[1], thin[2]),
+      new Vector3(axis[0], axis[1], axis[2]),
+      new Vector3(wide[0], wide[1], wide[2]),
+    ),
+  );
+  geometry.translate(
+    (ear.rootMm[0] + ear.tipMm[0]) / 2,
+    (ear.rootMm[1] + ear.tipMm[1]) / 2,
+    (ear.rootMm[2] + ear.tipMm[2]) / 2,
+  );
+
+  return flattenPrimitive(geometry);
+}
+
+/**
+ * Голова целиком: череп, шея, морда и киль.
+ *
+ * Череп — сфера с сегментами 64 × 64, сплюснутая по X: ширина 23.6 мм при
+ * высоте 30 и глубине 24. Шея — наклонный цилиндр с раструбом к базе; её верх
+ * утоплен в череп и закрывает нижнюю полусферу. Морда — усечённый конус от
+ * черепа к носу, а под ней четырёхгранный киль, который забирает себе нижнюю
+ * дугу, нависавшую бы над столом.
+ */
+function createDeerHeadGeometries(
+  head: JewelryDeerHead,
+): BufferGeometry[] {
+  const skull = new SphereGeometry(
+    1,
+    head.skullSegments,
+    head.skullSegments,
+  );
+
+  skull.scale(
+    head.skullRadiiMm[0],
+    head.skullRadiiMm[1],
+    head.skullRadiiMm[2],
+  );
+  skull.translate(
+    head.skullCenterMm[0],
+    head.skullCenterMm[1],
+    head.skullCenterMm[2],
+  );
+
+  const neck = createAxisBody({
+    baseMm: head.neckBaseMm,
+    tipMm: head.neckTopMm,
+    baseRadiusMm: head.neckBaseRadiusMm,
+    tipRadiusMm: head.neckTopRadiusMm,
+    segments: JEWELRY_DEER_BODY_SEGMENTS,
+  });
+  const collar = createAxisBody({
+    baseMm: head.neckCollarBaseMm,
+    tipMm: head.neckCollarTopMm,
+    baseRadiusMm: head.neckCollarBaseRadiusMm,
+    tipRadiusMm: head.neckCollarTopRadiusMm,
+    segments: JEWELRY_DEER_BODY_SEGMENTS,
+  });
+
+  const muzzle = createAxisBody({
+    baseMm: head.muzzleBaseMm,
+    tipMm: head.muzzleTipMm,
+    baseRadiusMm: head.muzzleBaseRadiusMm,
+    tipRadiusMm: head.muzzleTipRadiusMm,
+    segments: head.muzzleSegments,
+    zScale: head.muzzleZScale,
+  });
+  const jaw = createAxisBody({
+    baseMm: head.jawBaseMm,
+    tipMm: head.jawTipMm,
+    baseRadiusMm: head.jawBaseRadiusXMm,
+    tipRadiusMm: head.jawTipRadiusXMm,
+    segments: JEWELRY_DEER_JAW_SEGMENTS,
+    zScale: head.jawBaseRadiusZMm / head.jawBaseRadiusXMm,
+  });
+
+  return [flattenPrimitive(skull), neck, collar, muzzle, jaw];
 }
 
 /**
@@ -1229,26 +1248,46 @@ export function createJewelryDeerGeometry(
 ): BufferGeometry {
   const plan = jewelryDeerPlan(params);
   const positions: number[] = [];
+  const headParts: BufferGeometry[] = [
+    ...createDeerHeadGeometries(plan.head),
+    ...plan.ears.map((ear) => createEarCone(ear, JEWELRY_DEER_EAR_SIDES)),
+  ];
+  const headGeometry = mergeGeometries(headParts, false);
+
+  if (!headGeometry) {
+    throw new Error("Не удалось слить примитивы головы оленя");
+  }
+
+  const headPosition = headGeometry.getAttribute("position");
+
+  for (let index = 0; index < headPosition.count; index += 1) {
+    positions.push(
+      headPosition.getX(index),
+      headPosition.getY(index),
+      headPosition.getZ(index),
+    );
+  }
+
+  for (const part of headParts) {
+    part.dispose();
+  }
+
+  headGeometry.dispose();
 
   addDeerBase(positions, plan);
-  addDeerSlices(positions, plan);
 
   for (const path of plan.antlers) {
     addAntlerTube(positions, path);
-  }
-
-  for (const ear of plan.ears) {
-    addDeerEar(positions, ear);
   }
 
   const geometry = new BufferGeometry();
 
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
 
-  // Плоские нормали на лофте через 1.5 мм давали ступени: нормаль у грани своя,
-  // и свод читался полосами. Сглаживание убирает полосы и не скругляет кромку
-  // плиты — она круче порога сгиба.
-  const smoothed = applyCreasedNormals(geometry);
+  // Примитивы приходят с плоскими нормалями и мелкими гранями; после слияния
+  // сглаживаем всё, что сходится под углом до 45°. Свод черепа и конус морды
+  // читаются цельной поверхностью, а кромка плиты (90°) остаётся острой.
+  const smoothed = applyCreasedNormals(geometry, 45);
 
   smoothed.computeBoundingBox();
   smoothed.computeBoundingSphere();
