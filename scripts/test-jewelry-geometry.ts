@@ -39,7 +39,11 @@ import {
 } from "../lib/constructor/jewelry-deer-geometry";
 import {
   JEWELRY_LEAF_BOWL_DEPTH_MM,
+  JEWELRY_LEAF_CENTER_VEIN_HALF_MM,
   JEWELRY_LEAF_MIN_THICKNESS_MM,
+  JEWELRY_LEAF_RIM_BAND_MM,
+  JEWELRY_LEAF_RIM_MM,
+  JEWELRY_LEAF_SIDE_VEIN_HALF_MM,
   jewelryLeafFaceMm,
   jewelryLeafHalfWidthAt,
   jewelryLeafHeightMm,
@@ -246,6 +250,110 @@ function nanVertices(geometry: BufferGeometry): number {
   return count;
 }
 
+/**
+ * Мест, где нормали не сглажены, хотя сглаживать было что.
+ *
+ * `computeVertexNormals` раздаёт грани её собственную нормаль. У неиндексированной
+ * сетки вершина принадлежит ровно одной грани, поэтому получается плоское
+ * затенение: свод бюста из срезов через 1.5 мм читается ступенями, а прядь косы —
+ * шестнадцатигранником. Проверка ищет точки, где все грани вокруг лежат в пределах
+ * порога сгиба (значит, ребра там нет и нормаль обязана быть общей), но записанные
+ * нормали расходятся больше чем на градус. Там, где грани расходятся круче порога,
+ * разные нормали — это настоящее ребро, и оно правильное.
+ */
+function flatShadingSpots(geometry: BufferGeometry, creaseDegrees = 30): number {
+  const position = geometry.getAttribute("position");
+  const normal = geometry.getAttribute("normal");
+
+  if (!normal) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const faceCount = Math.floor(position.count / 3);
+  const faceNormals: Point[] = [];
+  const spots = new Map<string, { faces: number[]; slots: number[] }>();
+
+  for (let face = 0; face < faceCount; face += 1) {
+    const offset = face * 3;
+    const ax = position.getX(offset);
+    const ay = position.getY(offset);
+    const az = position.getZ(offset);
+    const ux = position.getX(offset + 1) - ax;
+    const uy = position.getY(offset + 1) - ay;
+    const uz = position.getZ(offset + 1) - az;
+    const vx = position.getX(offset + 2) - ax;
+    const vy = position.getY(offset + 2) - ay;
+    const vz = position.getZ(offset + 2) - az;
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const length = Math.hypot(nx, ny, nz);
+
+    faceNormals.push(
+      length > 0 ? [nx / length, ny / length, nz / length] : [0, 0, 0],
+    );
+
+    for (let corner = 0; corner < 3; corner += 1) {
+      const slot = offset + corner;
+      // Ключ с той же точностью 0.1 мкм, что у сглаживания: иначе тест делил бы
+      // точку на две и требовал от половинок разного.
+      const key =
+        `${Math.round(position.getX(slot) * 1e4)}:` +
+        `${Math.round(position.getY(slot) * 1e4)}:` +
+        `${Math.round(position.getZ(slot) * 1e4)}`;
+      const spot = spots.get(key);
+
+      if (spot) {
+        spot.faces.push(face);
+        spot.slots.push(slot);
+      } else {
+        spots.set(key, { faces: [face], slots: [slot] });
+      }
+    }
+  }
+
+  const cosCrease = Math.cos((creaseDegrees * Math.PI) / 180);
+  const cosTolerance = Math.cos((1 * Math.PI) / 180);
+  let count = 0;
+
+  for (const spot of spots.values()) {
+    let smooth = true;
+
+    for (let first = 0; first < spot.faces.length && smooth; first += 1) {
+      const a = faceNormals[spot.faces[first]];
+
+      for (let second = first + 1; second < spot.faces.length; second += 1) {
+        const b = faceNormals[spot.faces[second]];
+
+        if (a[0] * b[0] + a[1] * b[1] + a[2] * b[2] < cosCrease) {
+          smooth = false;
+          break;
+        }
+      }
+    }
+
+    if (!smooth) {
+      continue;
+    }
+
+    const reference = spot.slots[0];
+
+    for (const slot of spot.slots) {
+      const dot =
+        normal.getX(reference) * normal.getX(slot) +
+        normal.getY(reference) * normal.getY(slot) +
+        normal.getZ(reference) * normal.getZ(slot);
+
+      if (dot < cosTolerance) {
+        count += 1;
+        break;
+      }
+    }
+  }
+
+  return count;
+}
+
 function volumeMm3(mesh: Mesh): number {
   let total = 0;
 
@@ -387,8 +495,12 @@ near(
   jewelryLeafPlateThicknessMm(),
   JEWELRY_LEAF_BOWL_DEPTH_MM + JEWELRY_LEAF_MIN_THICKNESS_MM,
 );
-near("лист: плита 3 мм из ТЗ", jewelryLeafPlateThicknessMm(), 3);
+near("лист: плита 2.5 мм из ТЗ", jewelryLeafPlateThicknessMm(), 2.5);
 near("лист: минимальная толщина", JEWELRY_LEAF_MIN_THICKNESS_MM, 1.2);
+near("лист: бортик 5 мм по ТЗ", JEWELRY_LEAF_RIM_MM, 5);
+near("лист: бортик 2 мм по ТЗ", JEWELRY_LEAF_RIM_BAND_MM, 2);
+near("лист: жилка 1.5 мм по ТЗ", JEWELRY_LEAF_CENTER_VEIN_HALF_MM * 2, 1.5);
+near("лист: боковая жилка 1.5 мм по ТЗ", JEWELRY_LEAF_SIDE_VEIN_HALF_MM * 2, 1.5);
 
 /** Самое широкое место и точка на середине половины: там дно ложа. */
 const widestHalfOnAxisMm = jewelryLeafHalfWidthAt(leafCase, widestT);
@@ -423,6 +535,21 @@ check(
   jewelryLeafFaceMm(leafCase, dishPointX, widestHalfOnAxisMm - 0.2) >
     jewelryLeafFaceMm(leafCase, dishPointX, 0),
   true,
+);
+
+/**
+ * Гребень бортика стоит на 5 мм над плитой.
+ *
+ * Верхушка валика — на 78 % полосы от её начала: 2 мм полосы от кромки внутрь
+ * дают `widestHalf − 0.44`. Там ложе и жилки уже погашены, поэтому лицо равно
+ * плите плюс высота бортика — по этому числу и видно, что бортик из ТЗ, а не
+ * прежний вал высотой 12 мм.
+ */
+expectNear(
+  "лист: гребень бортика на 5 мм над плитой",
+  jewelryLeafFaceMm(leafCase, dishPointX, widestHalfOnAxisMm - 0.44),
+  jewelryLeafPlateThicknessMm() + JEWELRY_LEAF_RIM_MM,
+  0.05,
 );
 check(
   "лист: лицо нигде не ниже минимальной толщины",
@@ -459,13 +586,25 @@ const leafPlate = jewelryLeafPlateThicknessMm();
 check("лист: открытых рёбер", openEdges(leafMesh), 0);
 check("лист: вырожденных треугольников", degenerateTriangles(leafMesh), 0);
 check("лист: NaN вершин", nanVertices(leafGeometry), 0);
+check("лист: нормали сглажены", flatShadingSpots(leafGeometry), 0);
 check("лист: объём положительный", leafVolume > 0, true);
+
+/**
+ * Вес листа по ТЗ: 20–25 г.
+ *
+ * Плотность 1.24 г/см³ — та же, что в остальных проверках веса: PLA-филамент
+ * считает слайсер, а тесту хватает объёма и одной плотности на всю модель.
+ */
+const leafMassG = leafVolume * 1.24;
+
 check(
-  "лист: объём в коридоре 30–80 см³",
-  leafVolume >= 30 && leafVolume <= 80,
+  "лист: вес 20–25 г по ТЗ",
+  leafMassG >= 20 && leafMassG <= 25,
   true,
 );
-console.log(`  · объём ${leafVolume.toFixed(1)} см³`);
+console.log(
+  `  · объём ${leafVolume.toFixed(1)} см³, вес ${leafMassG.toFixed(1)} г`,
+);
 
 expectNear("лист: низ на столе", leafMinZ, 0, 1e-4);
 expectNear("лист: длина по X", leafMaxX - leafMinX, 150, 0.02);
@@ -1277,6 +1416,7 @@ const [plateMinY, plateMaxY] = range(deerPlate, 1);
 check("олень: открытых рёбер", openEdges(deerMesh), 0);
 check("олень: вырожденных треугольников", degenerateTriangles(deerMesh), 0);
 check("олень: NaN вершин", nanVertices(deerGeometry), 0);
+check("олень: нормали сглажены", flatShadingSpots(deerGeometry), 0);
 check("олень: объём положительный", deerVolume > 0, true);
 expectNear("олень: низ на столе", deerMinZ, 0, 1e-4);
 expectNear("олень: длина базы по X", plateMaxX - plateMinX, 150, 0.02);
@@ -1564,7 +1704,7 @@ function strandElevationDeg(points: readonly JewelryTreePoint[]): number {
  * обязано быть пустым.
  */
 function treeOverhangTriangles(mesh: Mesh, plan: JewelryTreePlan): number {
-  const tubes = [plan.trunk, ...plan.branches].map((tube) => ({
+  const tubes = [...plan.strands, ...plan.branches].map((tube) => ({
     centers: tube.points.map(
       (point): Point => [point.xMm, point.yMm, point.zMm],
     ),
@@ -1616,6 +1756,12 @@ function treeOverhangTriangles(mesh: Mesh, plan: JewelryTreePlan): number {
     }
 
     count += 1;
+
+    if (process.env.JEWELRY_DEBUG_OVERHANG === "1") {
+      console.log(
+        `    overhang at ${centerX.toFixed(2)}, ${centerY.toFixed(2)}, ${centerZ.toFixed(2)} normal ${(nz / length).toFixed(3)}`,
+      );
+    }
   }
 
   return count;
@@ -1772,7 +1918,9 @@ const treePlanWidth = Math.max(treeMaxX - treeMinX, treeMaxY - treeMinY);
 check("древо: открытых рёбер", openEdges(treeMesh), 0);
 check("древо: вырожденных треугольников", degenerateTriangles(treeMesh), 0);
 check("древо: NaN вершин", nanVertices(treeGeometry), 0);
+check("древо: нормали сглажены", flatShadingSpots(treeGeometry), 0);
 check("древо: объём положительный", treeVolume > 0, true);
+console.log(`  · bbox z ${treeMinZ.toFixed(4)} … ${treeMaxZ.toFixed(4)}`);
 check("древо: низ на столе", Math.abs(treeMinZ) <= 1e-6, true);
 check(
   "древо: высота совпадает с ползунком",

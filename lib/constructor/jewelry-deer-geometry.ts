@@ -54,6 +54,7 @@ import {
   addPrismSides,
   type Point2,
 } from "@/lib/constructor/prism-mesh";
+import { applyCreasedNormals } from "@/lib/constructor/mesh-normals";
 
 /** Высота овальной базы, мм: полость 2.5 мм плюс дно 1.5 мм. */
 export const JEWELRY_DEER_BASE_HEIGHT_MM = 4;
@@ -117,6 +118,7 @@ const JEWELRY_DEER_SECTION_ARCS = 18;
 
 /** Показатель суперэллипса верхней дуги: 2.6 — «круглая, но не мыльная» скула. */
 export const JEWELRY_DEER_SECTION_POWER = 2.6;
+
 
 /** Отношение «падение киля / вылет киля»: 1.15 — это 49° от горизонта. */
 export const JEWELRY_DEER_KEEL_RATIO = 1.15;
@@ -1242,10 +1244,15 @@ export function createJewelryDeerGeometry(
   const geometry = new BufferGeometry();
 
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  geometry.computeVertexNormals();
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
 
-  return geometry;
+  // Плоские нормали на лофте через 1.5 мм давали ступени: нормаль у грани своя,
+  // и свод читался полосами. Сглаживание убирает полосы и не скругляет кромку
+  // плиты — она круче порога сгиба.
+  const smoothed = applyCreasedNormals(geometry);
+
+  smoothed.computeBoundingBox();
+  smoothed.computeBoundingSphere();
+
+  return smoothed;
 }
 

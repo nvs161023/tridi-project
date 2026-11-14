@@ -34,49 +34,52 @@ import {
   type JewelryLeafType,
   type JewelryStandParams,
 } from "@/lib/constructor/params";
+import { applyCreasedNormals } from "@/lib/constructor/mesh-normals";
 
 /**
  * Толщина плиты в самой тонкой точке — на дне ложа, мм.
  *
- * 1.2 мм — шесть слоёв по 0.2: лист не просвечивает и не рвётся, но пластика в
- * плите на четверть меньше, чем при 1.6 мм. Вместе с ложем 1.8 мм это даёт ровно
- * 3 мм плиты из ТЗ.
+ * 1.2 мм — шесть слоёв по 0.2: лист не просвечивает и не рвётся даже там, где
+ * ложе снимает материал глубже всего.
  */
 export const JEWELRY_LEAF_MIN_THICKNESS_MM = 1.2;
 
 /**
  * Глубина ложа на каждой половине пластины, мм: лист читается чашей.
  *
- * Плита 3 мм = ложе 1.8 + минимальная толщина 1.2. Прежняя плита 4 мм (ложе 2.4
- * при толщине 1.6) весила на 7 г больше: 53.9 г против 46.8 на листе 150 × 100.
+ * Плита 2.5 мм = ложе 1.3 + минимальная толщина 1.2. По ТЗ лист — изящная
+ * пластина 2.5 мм: на плитах 4 и 3 мм лист 150 × 100 весил 53.9 и 46.8 г, а на
+ * 2.5 мм с тонким бортиком и тонкими жилками — около 20 г.
  */
-export const JEWELRY_LEAF_BOWL_DEPTH_MM = 1.8;
+export const JEWELRY_LEAF_BOWL_DEPTH_MM = 1.3;
 
 /** Ширина ободка по краю, где ложе и рёбра затухают до нуля, мм. */
 export const JEWELRY_LEAF_EDGE_BAND_MM = 3.5;
 
-/** Полуширина центральной жилки, мм: это ребро, а не канавка. */
-export const JEWELRY_LEAF_CENTER_VEIN_HALF_MM = 2.4;
+/**
+ * Полуширина центральной жилки, мм: 1.5 мм по ТЗ — ребро, а не вал.
+ *
+ * Прежняя жилка шириной 4.8 мм при подъёме 2 мм читалась гребнем и забирала
+ * пластик: на тонкой плите 2.5 мм такое ребро выглядит грубо.
+ */
+export const JEWELRY_LEAF_CENTER_VEIN_HALF_MM = 0.75;
 
-/** Предел полуширины центральной жилки, мм: выше ребро шире и мягче. */
-const JEWELRY_LEAF_CENTER_VEIN_HALF_MAX_MM = 4.4;
+/** Полуширина боковой жилки, мм: тоже 1.5 мм — жилки одной толщины по ТЗ. */
+export const JEWELRY_LEAF_SIDE_VEIN_HALF_MM = 0.75;
 
-/** Полуширина боковой жилки, мм: тонкое ребро, читается и на слое 0.2. */
-export const JEWELRY_LEAF_SIDE_VEIN_HALF_MM = 1.2;
+/** Предел подъёма жилки над ложем, мм: 1.5 мм по ТЗ. */
+export const JEWELRY_LEAF_VEIN_HEIGHT_MM = 1.5;
+
+/**
+ * Доля подъёма жилки от ползунка: 0.75 при ползунке 2 мм даёт ровно 1.5 мм.
+ *
+ * Ползунок «высота прожилок» остаётся рабочим: 1 мм даёт 0.75 мм, 3 мм — 1.5 мм
+ * (предел ТЗ), выше ребро на плите 2.5 мм уже спорит с бортиком.
+ */
+const JEWELRY_LEAF_VEIN_RISE_SHARE = 0.75;
 
 /** Пар боковых жилок: пять пар дают шесть полос-лож между ними. */
 export const JEWELRY_LEAF_SIDE_VEIN_PAIRS = 5;
-
-/**
- * Крутизна бока жилки: подъём ребра, делённый на его полуширину.
- *
- * Гладкий импульс поднимается на 1.5·высота за ширину, поэтому 0.6 даёт 42° —
- * ребро печатается без поддержек и не «зализает» на слоях 0.2 мм.
- */
-const JEWELRY_LEAF_RIB_SLOPE = 0.6;
-
-/** Доля подъёма боковой жилки от центральной на толстом ползунке. */
-const JEWELRY_LEAF_SIDE_VEIN_RATIO = 0.4;
 
 /** Полуширина черешка, мм: в неё входит крючок и остаётся мясо по краям. */
 const JEWELRY_LEAF_STEM_HALF_MM = 4.5;
@@ -94,11 +97,17 @@ const JEWELRY_LEAF_SIDE_VEIN_STEP = 0.14;
 /** Наклон боковой жилки к поперечной оси: конец пары забегает вперёд. */
 const JEWELRY_LEAF_SIDE_VEIN_RUN = 0.13;
 
-/** Площадь ячейки сетки, мм²: шаг растёт вместе с листом, а не с одной длиной. */
-const JEWELRY_LEAF_CELL_MM2 = 9000;
+/**
+ * Плотность сетки: шаг ячейки равен `√(длина · ширина / этого числа)`.
+ *
+ * Число названо делителем, а не площадью: чем оно больше, тем мельче сетка.
+ * 16 000 при листе 150 × 100 дают шаг 0.97 мм — на полосу бортика 2 мм
+ * приходится два узла, и валик читается, а не рассыпается на зубцы.
+ */
+const JEWELRY_LEAF_CELL_MM2 = 16000;
 
-/** Границы шага сетки, мм: мельче 1 мм сетка не нужна, крупнее 1.8 грубо. */
-const JEWELRY_LEAF_STEP_MIN_MM = 1;
+/** Границы шага сетки, мм: мельче 0.9 мм листу не нужно, крупнее 1.8 грубо. */
+const JEWELRY_LEAF_STEP_MIN_MM = 0.9;
 const JEWELRY_LEAF_STEP_MAX_MM = 1.8;
 
 /** Радиус трубы крючка, мм: в него проходит петля цепочки. */
@@ -120,16 +129,25 @@ const JEWELRY_LEAF_HOOK_INSET_MM = 18;
 /** Насколько начало наклонной части ниже лица плиты, мм: торец уходит в материал. */
 const JEWELRY_LEAF_HOOK_JOIN_MM = 1.2;
 
-/** Высота бортика в долях ширины листа и её пределы, мм. */
-const JEWELRY_LEAF_RIM_SHARE = 0.12;
-const JEWELRY_LEAF_RIM_MIN_MM = 7;
-const JEWELRY_LEAF_RIM_MAX_MM = 13;
+/**
+ * Высота бортика-валика по краю, мм: 5 мм по ТЗ.
+ *
+ * Бортик выше плиты вдвое, но он узкий: 2 мм полосы на плите 2.5 мм дают
+ * кромку-воротник, а не стенку. Валик держит цепочку на листе и не даёт
+ * пластине играть.
+ */
+export const JEWELRY_LEAF_RIM_MM = 5;
 
-/** Доля полуширины, с которой начинается подъём бортика. */
-const JEWELRY_LEAF_RIM_START = 0.62;
+/**
+ * Ширина бортика по полуширине листа, мм: 2 мм по ТЗ.
+ *
+ * Полоса отсчитывается от кромки внутрь и переводится в долю полуширины в
+ * каждой точке: на широкой части это те же 2 мм, у черешка полоса уже.
+ */
+export const JEWELRY_LEAF_RIM_BAND_MM = 2;
 
-/** Доля полуширины, где бортик выходит на полную высоту. */
-const JEWELRY_LEAF_RIM_CREST_SHARE = 0.94;
+/** Доля полосы бортика, где он выходит на полную высоту. */
+const JEWELRY_LEAF_RIM_CREST_SHARE = 0.78;
 
 /** Насколько кромка ниже верхушки бортика: сверху выходит валик, а не стенка. */
 const JEWELRY_LEAF_RIM_CROWN_SHARE = 0.22;
@@ -221,33 +239,23 @@ export function jewelryLeafPlateThicknessMm(): number {
 /**
  * Рёбра по ползунку прожилок.
  *
- * Ползунок задаёт подъём центральной жилки, а её полуширина считается из
- * постоянной крутизны: выше ребро — шире основание. Так бок ребра всегда 42°,
- * и на слое 0.2 мм не появляется «зализанных» свесов. Боковые жилки — доля
- * центральной: они тоньше и ниже, как на живом листе.
+ * Жилки одинаковой толщины — 1.5 мм по ТЗ — и центральная, и боковые: на плите
+ * 2.5 мм широкое ребро читается валом и спорит с бортиком. Ползунок задаёт
+ * подъём, а не ширину: 1 мм даёт 0.75 мм, 3 мм упирается в предел 1.5 мм.
  */
 function leafRibsMm(veinDepthMm: number): {
   center: JewelryLeafRib;
   side: JewelryLeafRib;
 } {
-  const centerHalfMm = clamp(
-    veinDepthMm / JEWELRY_LEAF_RIB_SLOPE,
-    JEWELRY_LEAF_CENTER_VEIN_HALF_MM,
-    JEWELRY_LEAF_CENTER_VEIN_HALF_MAX_MM,
+  const riseMm = clamp(
+    veinDepthMm * JEWELRY_LEAF_VEIN_RISE_SHARE,
+    JEWELRY_LEAF_VEIN_HEIGHT_MM * 0.4,
+    JEWELRY_LEAF_VEIN_HEIGHT_MM,
   );
 
   return {
-    center: {
-      halfMm: centerHalfMm,
-      riseMm: Math.min(veinDepthMm, JEWELRY_LEAF_RIB_SLOPE * centerHalfMm),
-    },
-    side: {
-      halfMm: JEWELRY_LEAF_SIDE_VEIN_HALF_MM,
-      riseMm:
-        JEWELRY_LEAF_RIB_SLOPE *
-        JEWELRY_LEAF_SIDE_VEIN_HALF_MM *
-        Math.min(1, veinDepthMm * JEWELRY_LEAF_SIDE_VEIN_RATIO),
-    },
+    center: { halfMm: JEWELRY_LEAF_CENTER_VEIN_HALF_MM, riseMm },
+    side: { halfMm: JEWELRY_LEAF_SIDE_VEIN_HALF_MM, riseMm },
   };
 }
 
@@ -322,11 +330,7 @@ function leafPlan(params: JewelryStandParams): JewelryLeafPlan {
     lengthMm,
     widthMm,
     plateMm: jewelryLeafPlateThicknessMm(),
-    rimMm: clamp(
-      widthMm * JEWELRY_LEAF_RIM_SHARE,
-      JEWELRY_LEAF_RIM_MIN_MM,
-      JEWELRY_LEAF_RIM_MAX_MM,
-    ),
+    rimMm: JEWELRY_LEAF_RIM_MM,
     centerRib: ribs.center,
     sideRib: ribs.side,
     profile: JEWELRY_LEAF_PROFILES[params.jewelryLeafType],
@@ -375,19 +379,40 @@ function segmentDistanceMm(
 }
 
 /**
- * Профиль бортика по доле полуширины: подъём, верхушка и скруглённая кромка.
+ * Где начинается полоса бортика по полуширине в точке `t`.
  *
- * Верхушка стоит на `CREST_SHARE` полуширины, а у самой кромки лицо опускается
- * на `CROWN_SHARE` высоты: снаружи выходит валик, а не стенка с плоским верхом.
- * Опускание идёт внутрь листа, поэтому нависаний не добавляет.
+ * Полоса задана в миллиметрах от кромки, а профиль рельефа считается в долях
+ * полуширины, поэтому 2 мм переводятся в долю заново в каждой точке: у черешка,
+ * где лопасть узкая, бортик не расползается на пол-листа.
  */
-function rimProfile(absoluteS: number): number {
-  const a = clamp(absoluteS, 0, 1);
+function rimBandStart(plan: JewelryLeafPlan, t: number): number {
+  const halfMm = Math.max(leafHalfWidth(plan, t), 1e-6);
+
+  return clamp(1 - JEWELRY_LEAF_RIM_BAND_MM / halfMm, 0, 1);
+}
+
+/**
+ * Профиль бортика внутри его полосы: подъём, верхушка и скруглённая кромка.
+ *
+ * `share` — положение внутри полосы: 0 у её начала, 1 у самой кромки. Верхушка
+ * стоит на `CREST_SHARE` полосы, а у кромки лицо опускается на `CROWN_SHARE`
+ * высоты: снаружи выходит валик, а не стенка с плоским верхом. Опускание идёт
+ * внутрь листа, поэтому нависаний не добавляет.
+ */
+function rimProfile(share: number): number {
+  const a = clamp(share, 0, 1);
 
   return (
-    smoothstep(JEWELRY_LEAF_RIM_START, JEWELRY_LEAF_RIM_CREST_SHARE, a) -
+    smoothstep(0, JEWELRY_LEAF_RIM_CREST_SHARE, a) -
     JEWELRY_LEAF_RIM_CROWN_SHARE * smoothstep(JEWELRY_LEAF_RIM_CREST_SHARE, 1, a)
   );
+}
+
+/** Положение точки внутри полосы бортика: 0 внутри листа, 1 на кромке. */
+function rimShare(plan: JewelryLeafPlan, frame: JewelryLeafFrame): number {
+  const start = rimBandStart(plan, frame.t);
+
+  return (Math.abs(frame.s) - start) / Math.max(1 - start, 1e-6);
 }
 
 /** Опорные величины в точке листа: положение вдоль и поперёк, затухание у кромки. */
@@ -490,7 +515,7 @@ function leafRibRiseMm(
 
   // На валике бортика рёбра не поднимаются: жилка вливается в кромку, а не
   // ложится поверх неё бугром.
-  return rise * along * frame.edgeFade * (1 - rimProfile(Math.abs(frame.s)));
+  return rise * along * frame.edgeFade * (1 - rimProfile(rimShare(plan, frame)));
 }
 
 /** Подъём бортика-валика у кромки, мм. */
@@ -500,7 +525,7 @@ function leafRimRiseMm(plan: JewelryLeafPlan, frame: JewelryLeafFrame): number {
   const along =
     smoothstep(0.04, 0.2, frame.t) * (1 - smoothstep(0.78, 0.96, frame.t));
 
-  return plan.rimMm * rimProfile(Math.abs(frame.s)) * along;
+  return plan.rimMm * rimProfile(rimShare(plan, frame)) * along;
 }
 
 /**
@@ -552,21 +577,16 @@ export function jewelryLeafFaceMm(
  *
  * Начало наклонной части спрятано в плите на `HOOK_JOIN`, дальше идут подъём и
  * вертикальный штырь. Метрика нужна предпросмотру: он пишет габарит, не
- * собирая меш.
+ * собирая меш. Плита берётся из плана, поэтому метрика живёт на тех же
+ * ползунках, что и геометрия.
  */
 export function jewelryLeafHeightMm(
   params: Partial<JewelryStandParams>,
 ): number {
-  const normalized = normalizeJewelryStandParams(params);
-  const plate = jewelryLeafPlateThicknessMm();
-  const rim = clamp(
-    normalized.jewelryLeafWidth * JEWELRY_LEAF_RIM_SHARE,
-    JEWELRY_LEAF_RIM_MIN_MM,
-    JEWELRY_LEAF_RIM_MAX_MM,
-  );
+  const plate = leafPlan(normalizeJewelryStandParams(params)).plateMm;
 
   return Math.max(
-    plate + rim,
+    plate + JEWELRY_LEAF_RIM_MM,
     plate -
       JEWELRY_LEAF_HOOK_JOIN_MM +
       JEWELRY_LEAF_HOOK_RISE_MM +
@@ -864,10 +884,15 @@ export function createJewelryLeafGeometry(
   const geometry = new BufferGeometry();
 
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  geometry.computeVertexNormals();
-  geometry.computeBoundingBox();
 
-  return geometry;
+  // Ложе и бортик набраны шагом до 1.8 мм: при плоских нормалях на поверхности
+  // были видны полосы сетки. Порог 35° сглаживает ложе и скругляет бортик, а
+  // жилки (63° к плоскости листа) остаются рёбрами.
+  const smoothed = applyCreasedNormals(geometry);
+
+  smoothed.computeBoundingBox();
+
+  return smoothed;
 }
 
 
