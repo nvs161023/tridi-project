@@ -95,6 +95,14 @@ const JEWELRY_LEAF_HOOK_INSET_MM = 18;
 /** Насколько начало наклонной части ниже лица плиты, мм: торец уходит в материал. */
 const JEWELRY_LEAF_HOOK_JOIN_MM = 1.2;
 
+/** Высота бортика к краю в долях ширины листа и её пределы, мм. */
+const JEWELRY_LEAF_RIM_SHARE = 0.11;
+const JEWELRY_LEAF_RIM_MIN_MM = 5;
+const JEWELRY_LEAF_RIM_MAX_MM = 12;
+
+/** Доля полуширины, с которой начинается подъём бортика. */
+const JEWELRY_LEAF_RIM_START = 0.62;
+
 /**
  * Высота нижнего среза крючка над столом, мм.
  *
@@ -133,6 +141,7 @@ type JewelryLeafPlan = {
   readonly widthMm: number;
   readonly veinDepthMm: number;
   readonly plateMm: number;
+  readonly rimMm: number;
   readonly profile: JewelryLeafProfile;
   readonly amplitudeMm: number;
   readonly stepMm: number;
@@ -244,6 +253,11 @@ function leafPlan(params: JewelryStandParams): JewelryLeafPlan {
     widthMm,
     veinDepthMm: params.jewelryLeafVeinDepth,
     plateMm: jewelryLeafPlateThicknessMm(params.jewelryLeafVeinDepth),
+    rimMm: clamp(
+      widthMm * JEWELRY_LEAF_RIM_SHARE,
+      JEWELRY_LEAF_RIM_MIN_MM,
+      JEWELRY_LEAF_RIM_MAX_MM,
+    ),
     profile: JEWELRY_LEAF_PROFILES[params.jewelryLeafType],
     amplitudeMm: leafAmplitudeMm(params.jewelryLeafType, widthMm),
     stepMm,
@@ -385,12 +399,18 @@ export function jewelryLeafHeightMm(
 ): number {
   const normalized = normalizeJewelryStandParams(params);
   const plate = jewelryLeafPlateThicknessMm(normalized.jewelryLeafVeinDepth);
+  const rim = clamp(
+    normalized.jewelryLeafWidth * JEWELRY_LEAF_RIM_SHARE,
+    JEWELRY_LEAF_RIM_MIN_MM,
+    JEWELRY_LEAF_RIM_MAX_MM,
+  );
 
-  return (
+  return Math.max(
+    plate + rim,
     plate -
-    JEWELRY_LEAF_HOOK_JOIN_MM +
-    JEWELRY_LEAF_HOOK_RISE_MM +
-    JEWELRY_LEAF_HOOK_STUB_MM
+      JEWELRY_LEAF_HOOK_JOIN_MM +
+      JEWELRY_LEAF_HOOK_RISE_MM +
+      JEWELRY_LEAF_HOOK_STUB_MM,
   );
 }
 
@@ -598,8 +618,15 @@ export function createJewelryLeafGeometry(
       const s = -1 + (2 * row) / plan.rows;
       const y = s * halfWidth;
       const relief = leafReliefMm(plan, x, y);
+      // Бортик поднимает край: плоская пластина читается как чаша-лоток, и
+      // кольца не скатываются со стола. У черешка и у кончика он сходит на нет.
+      const rimRise =
+        plan.rimMm *
+        smoothstep(JEWELRY_LEAF_RIM_START, 1, Math.abs(s)) *
+        smoothstep(0.04, 0.2, t) *
+        (1 - smoothstep(0.9, 1, t));
 
-      topRow.push(pushVertex(x, y, plan.plateMm - relief));
+      topRow.push(pushVertex(x, y, plan.plateMm - relief + rimRise));
       bottomRow.push(pushVertex(x, y, 0));
     }
 
