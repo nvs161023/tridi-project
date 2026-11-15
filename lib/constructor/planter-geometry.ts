@@ -8,10 +8,17 @@ import {
 
 import {
   DEFAULT_PLANTER_PART,
+  PLANTER_SELF_WATERING_INNER_FLOOR_MM,
+  PLANTER_SELF_WATERING_TRAY_HEIGHT_MM,
+  PLANTER_SIGHT_TUBE_HEIGHT_MM,
   PLANTER_TRAY_EXTRA_MM,
+  PLANTER_TRAY_FLOOR_MM,
   PLANTER_TRAY_GAP_MM,
   PLANTER_TRAY_HEIGHT_MM,
+  PLANTER_WICK_HOLE_RADIUS_MM,
   normalizePlanterParams,
+  planterFootprint,
+  planterLayout,
   type PlanterParams,
   type PlanterPart,
   type PlanterShape,
@@ -25,13 +32,18 @@ import {
 } from "@/lib/constructor/prism-mesh";
 
 /**
- * Геометрия кашпо с дренажом и поддоном.
+ * Геометрия кашпо с дренажом, поддоном и автополивом.
  *
  * Горшок стоит на столе плоским дном: отверстия проходят сквозь плиту насквозь
  * и открываются в поддон, когда горшок ставят внутрь. Поддон — отдельная чаша с
  * плоским дном; его внешний габарит считается от ширины горшка по самой широкой
- * части, а не от апофемы. Рядом в общем STL детали лежат с зазором
- * `PLANTER_TRAY_GAP_MM`, чтобы принтер не спаял их.
+ * части, а не от апофемы.
+ *
+ * Общий STL сначала пробует боковую раскладку с зазором `PLANTER_TRAY_GAP_MM`.
+ * Если пара шире 220 мм, горшок ставится на поддон: сверху остаётся только
+ * габарит поддона, а детали не пересекаются. У автополива горшок стоит на
+ * верхних упорах поддона, поэтому его внутреннее дно оказывается выше уровня
+ * воды, а фитиль свисает в резервуар.
  *
  * Стенка горшка — замкнутое кольцо-призма, дно — замкнутая плита с отверстиями.
  * Дно входит в стенку на половину её толщины, поэтому у деталей нет совпадающих
@@ -46,8 +58,41 @@ import {
 /** Толщина стенки поддона, мм. */
 const PLANTER_TRAY_WALL_MM = 2.4;
 
-/** Толщина дна поддона, мм. */
-const PLANTER_TRAY_FLOOR_MM = 2;
+/** Толщина верхнего упора, на который опирается горшок, мм. */
+const PLANTER_TRAY_LEDGE_MM = 4;
+
+/** Сколько упоров держат горшок в поддоне: у шестигранника по одному на грань. */
+const PLANTER_HEX_LEDGES = 6;
+
+/** Радиальный заход упора под дно горшка, мм. */
+const PLANTER_TRAY_LEDGE_OVERLAP_MM = 6;
+
+/** Полуширина упора по касательной, мм. */
+const PLANTER_TRAY_LEDGE_HALF_WIDTH_MM = 10;
+
+/** Стойки под центром дна: поддерживают горшок при печати общего STL. */
+const PLANTER_TRAY_POST_COUNT = 4;
+
+/** Радиус стойки поддона, мм. */
+const PLANTER_TRAY_POST_RADIUS_MM = 2.4;
+
+/** Насколько стойки отодвинуты от центра, доля апофемы горшка. */
+const PLANTER_TRAY_POST_RADIUS_RATIO = 0.55;
+
+/** Внешний радиус смотровой трубки, мм. */
+export const PLANTER_SIGHT_TUBE_OUTER_RADIUS_MM = 2.4;
+
+/** Внутренний радиус смотровой трубки: вода видна сверху, мм. */
+export const PLANTER_SIGHT_TUBE_INNER_RADIUS_MM = 1.2;
+
+/** Насколько трубка входит в стенку поддона, мм. */
+const PLANTER_SIGHT_TUBE_OVERLAP_MM = 1.2;
+
+/** Зазор под нижним торцом трубки: вода заходит в канал, мм. */
+export const PLANTER_SIGHT_TUBE_INLET_GAP_MM = 1;
+
+/** Число сторон смотровой трубки. */
+const PLANTER_SIGHT_TUBE_SIDES = 20;
 
 /** Радиус дренажного отверстия, мм: Ø 5 мм пропускает воду и держит грунт. */
 export const PLANTER_DRAIN_HOLE_RADIUS_MM = 2.5;
@@ -124,7 +169,34 @@ function sectionByApothem(shape: PlanterShape, apothem: number): Point2[] {
 
 
 /**
- * Плита дна: контур с необязательными дренажными отверстиями.
+ * Радиус внутренней стенки в заданном направлении.
+ *
+ * У многоугольника расстояние до грани меняется от апофемы до радиуса вершины.
+ * Для трубки важно поставить её точно между горшком и стенкой поддона на любой
+ * форме: формула повторяет контур, а не приближает его кругом.
+ */
+function sectionInnerRadiusAt(
+  shape: PlanterShape,
+  width: number,
+  wall: number,
+  angle: number,
+): number {
+  if (shape === "round") {
+    return width / 2 - wall;
+  }
+
+  const sides = PLANTER_SIDES[shape];
+  const step = (Math.PI * 2) / sides;
+  const firstFaceNormal = sectionStartAngle(shape) + Math.PI / sides;
+  const shifted =
+    (((angle - firstFaceNormal) % step) + step) % step;
+  const deltaFromFace = Math.min(shifted, step - shifted);
+
+  return (sectionApothem(shape, width) - wall) / Math.cos(deltaFromFace);
+}
+
+/**
+ * Плита дна: контур с необязательными круглыми отверстиями.
  *
  * Контур и отверстия вырезает `ExtrudeGeometry`: наружная граница — контур
  * горшка, отверстия — окружности, поэтому дно остаётся одной замкнутой деталью.
@@ -137,6 +209,7 @@ function addFloorPlate(
   holes: readonly Point2[],
   z0: number,
   thickness: number,
+  holeRadius = PLANTER_DRAIN_HOLE_RADIUS_MM,
 ): void {
   const shape = new Shape();
 
@@ -152,7 +225,7 @@ function addFloorPlate(
   for (const [x, y] of holes) {
     const hole = new Path();
 
-    hole.absarc(x, y, PLANTER_DRAIN_HOLE_RADIUS_MM, 0, Math.PI * 2, false);
+    hole.absarc(x, y, holeRadius, 0, Math.PI * 2, false);
     shape.holes.push(hole);
   }
 
@@ -173,6 +246,13 @@ function addFloorPlate(
   }
 
   plate.dispose();
+}
+
+/** Сдвигает по Z только треугольники, добавленные с индекса `start`. */
+function shiftZ(positions: number[], start: number, dz: number): void {
+  for (let index = start + 2; index < positions.length; index += 3) {
+    positions[index] += dz;
+  }
 }
 
 /**
@@ -220,6 +300,11 @@ export function planterDrainHoleCenters(
   params: Partial<PlanterParams>,
 ): Point2[] {
   const normalized = normalizePlanterParams(params);
+
+  if (normalized.planterSelfWatering) {
+    return [];
+  }
+
   const plateApothem =
     sectionApothem(normalized.planterShape, normalized.planterSize) -
     normalized.planterWall / 2;
@@ -228,16 +313,31 @@ export function planterDrainHoleCenters(
 }
 
 /**
+ * Центр фитильного отверстия автополива.
+ *
+ * Одно отверстие Ø 5 мм по центру внутреннего дна: фитиль проходит сквозь
+ * десятимиллиметровую плиту и свисает в резервуар поддона.
+ */
+export function planterWickHoleCenters(
+  params: Partial<PlanterParams>,
+): Point2[] {
+  return normalizePlanterParams(params).planterSelfWatering ? [[0, 0]] : [];
+}
+
+/**
  * Горшок в общий массив треугольников.
  *
  * Без дренажа это цельная чаша: дно и стенка — одно тело. С дренажом стенка
  * остаётся кольцом, а плита дна с отверстиями лежит на столе и заходит в стенку
- * на половину толщины. Сквозные отверстия ничем не перекрыты: вода уходит вниз.
+ * на половину толщины. У автополива плита толще: её верх на высоте 10 мм
+ * становится внутренним дном, а единственное отверстие — фитильное. Оно
+ * сквозное, поэтому вода не заперта в плите.
  */
 function appendPlanterPot(
   positions: number[],
   params: PlanterParams,
   offsetX: number,
+  offsetZ: number,
 ): void {
   const shape = params.planterShape;
   const outerApothem = sectionApothem(shape, params.planterSize);
@@ -251,26 +351,164 @@ function appendPlanterPot(
   );
 
   if (!params.planterDrainage) {
+    const start = positions.length;
+
     addCupPrism(positions, outline, inner, params.planterWall, params.planterHeight);
+    shiftZ(positions, start, offsetZ);
     return;
   }
 
-  addRingPrism(positions, outline, inner, 0, params.planterHeight);
+  addRingPrism(
+    positions,
+    outline,
+    inner,
+    offsetZ,
+    offsetZ + params.planterHeight,
+  );
 
   const plateApothem = outerApothem - params.planterWall / 2;
   const plate = offsetPoints(sectionByApothem(shape, plateApothem), offsetX);
+
+  if (params.planterSelfWatering) {
+    const wick = offsetPoints([[0, 0]], offsetX);
+
+    // Верх плиты на +10 мм — внутреннее дно; ниже остаётся тело для фитиля.
+    addFloorPlate(
+      positions,
+      plate,
+      wick,
+      offsetZ,
+      PLANTER_SELF_WATERING_INNER_FLOOR_MM,
+      PLANTER_WICK_HOLE_RADIUS_MM,
+    );
+    return;
+  }
+
   const holes = offsetPoints(drainHoleCenters(plateApothem), offsetX);
 
   // Дно стоит на Z = 0: первый слой лежит на столе, моста над полостью нет.
-  addFloorPlate(positions, plate, holes, 0, params.planterWall);
+  addFloorPlate(positions, plate, holes, offsetZ, params.planterWall);
+}
+
+/** Положение открытой смотровой трубки в системе отдельного поддона. */
+export type PlanterSightTube = {
+  centerX: number;
+  centerY: number;
+  outerRadius: number;
+  innerRadius: number;
+  z0: number;
+  z1: number;
+};
+
+/**
+ * Смотровая трубка автополива сбоку горшка.
+ *
+ * Трубка стоит в зазоре между горшком и внутренней стенкой поддона. Её низ
+ * открыт на дне резервуара, верх — выше кромки: вода поднимается в трубке и
+ * уровень виден сверху. Стенка горшка при этом остаётся целой, а трубка входит
+ * в стенку поддона только наружным слоем, поэтому резервуар не течёт.
+ */
+export function planterSightTube(
+  params: Partial<PlanterParams>,
+  offsetX = 0,
+): PlanterSightTube | null {
+  const normalized = normalizePlanterParams(params);
+
+  if (!normalized.planterSelfWatering) {
+    return null;
+  }
+
+  const shape = normalized.planterShape;
+  const trayWidth = normalized.planterSize + PLANTER_TRAY_EXTRA_MM;
+  const angle = shape === "hex" ? 0 : Math.PI / 4;
+  const innerBoundary = sectionInnerRadiusAt(
+    shape,
+    trayWidth,
+    PLANTER_TRAY_WALL_MM,
+    angle,
+  );
+  const centerRadius = innerBoundary - PLANTER_SIGHT_TUBE_OVERLAP_MM;
+
+  return {
+    centerX: centerRadius * Math.cos(angle) + offsetX,
+    centerY: centerRadius * Math.sin(angle),
+    outerRadius: PLANTER_SIGHT_TUBE_OUTER_RADIUS_MM,
+    innerRadius: PLANTER_SIGHT_TUBE_INNER_RADIUS_MM,
+    z0: PLANTER_TRAY_FLOOR_MM + PLANTER_SIGHT_TUBE_INLET_GAP_MM,
+    z1: PLANTER_SIGHT_TUBE_HEIGHT_MM,
+  };
+}
+
+/**
+ * Трубка индикатора — кольцевая призма с открытым сквозным каналом.
+ *
+ * `addRingPrism` закрывает только торцы стенки, а центральное отверстие
+ * остаётся сквозным: вода входит снизу и поднимается к открытому верху. При
+ * этом сама трубка — замкнутое тело, поэтому STL остаётся водонепроницаемым.
+ */
+function addSightTube(
+  positions: number[],
+  tube: PlanterSightTube,
+): void {
+  addRingPrism(
+    positions,
+    offsetPoints(
+      circlePolygon(tube.outerRadius, PLANTER_SIGHT_TUBE_SIDES),
+      tube.centerX,
+      tube.centerY,
+    ),
+    offsetPoints(
+      circlePolygon(tube.innerRadius, PLANTER_SIGHT_TUBE_SIDES),
+      tube.centerX,
+      tube.centerY,
+    ),
+    tube.z0,
+    tube.z1,
+  );
+}
+
+/** Верхний упор: прямоугольная пластина от стенки поддона под дно горшка. */
+function addTrayLedge(
+  positions: number[],
+  potApothem: number,
+  trayApothem: number,
+  angle: number,
+  z0: number,
+  z1: number,
+  offsetX: number,
+): void {
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  const tx = -uy;
+  const ty = ux;
+  const innerRadius = Math.max(0, potApothem - PLANTER_TRAY_LEDGE_OVERLAP_MM);
+  const outerRadius = trayApothem - 0.25;
+  const halfWidth = Math.min(
+    PLANTER_TRAY_LEDGE_HALF_WIDTH_MM,
+    Math.max(4, potApothem * 0.16),
+  );
+
+  const point = (radius: number, tangent: number): Point2 => [
+    radius * ux + tangent * tx + offsetX,
+    radius * uy + tangent * ty,
+  ];
+  const outline: Point2[] = [
+    point(innerRadius, -halfWidth),
+    point(outerRadius, -halfWidth),
+    point(outerRadius, halfWidth),
+    point(innerRadius, halfWidth),
+  ];
+
+  addFloorPlate(positions, outline, [], z0, z1 - z0);
 }
 
 /**
  * Поддон в общий массив треугольников.
  *
- * Это цельная чаша с плоским дном: внешняя стенка от стола, внутренняя — от
- * плоскости дна. Внешний габарит считается от ширины горшка, поэтому поддон
- * всегда шире его и не пересекается с ним.
+ * Обычный поддон — цельная чаша с плоским дном. У автополива он глубже, сверху
+ * появляются упоры под горшок и стойки под центром дна, а сбоку — открытая
+ * смотровая трубка. Упоры и стойки входят в чашу, поэтому резервуар остаётся
+ * водонепроницаемым: вода может выйти только через открытый верх трубки.
  */
 function appendPlanterTray(
   positions: number[],
@@ -285,14 +523,66 @@ function appendPlanterTray(
     sectionByApothem(shape, trayApothem - PLANTER_TRAY_WALL_MM),
     offsetX,
   );
+  const trayHeight = params.planterSelfWatering
+    ? PLANTER_SELF_WATERING_TRAY_HEIGHT_MM
+    : PLANTER_TRAY_HEIGHT_MM;
 
   addCupPrism(
     positions,
     outline,
     inner,
     PLANTER_TRAY_FLOOR_MM,
-    PLANTER_TRAY_HEIGHT_MM,
+    trayHeight,
   );
+
+  const potApothem = sectionApothem(shape, params.planterSize);
+  const ledgeCount = shape === "hex" ? PLANTER_HEX_LEDGES : 4;
+  const ledgeStep = (Math.PI * 2) / ledgeCount;
+  const firstLedge = shape === "hex" ? Math.PI / 6 : 0;
+
+  for (let index = 0; index < ledgeCount; index += 1) {
+    addTrayLedge(
+      positions,
+      potApothem,
+      trayApothem,
+      firstLedge + ledgeStep * index,
+      trayHeight - PLANTER_TRAY_LEDGE_MM,
+      trayHeight,
+      offsetX,
+    );
+  }
+
+  // Стойки держат центр дна при печати общего файла и не мешают фитилю.
+  const postRadius = potApothem * PLANTER_TRAY_POST_RADIUS_RATIO;
+
+  for (let index = 0; index < PLANTER_TRAY_POST_COUNT; index += 1) {
+    const angle =
+      Math.PI / PLANTER_TRAY_POST_COUNT +
+      (Math.PI * 2 * index) / PLANTER_TRAY_POST_COUNT;
+    const post = offsetPoints(
+      circlePolygon(PLANTER_TRAY_POST_RADIUS_MM, 16),
+      Math.cos(angle) * postRadius + offsetX,
+      Math.sin(angle) * postRadius,
+    );
+
+    addFloorPlate(
+      positions,
+      post,
+      [],
+      PLANTER_TRAY_FLOOR_MM,
+      trayHeight - PLANTER_TRAY_FLOOR_MM,
+    );
+  }
+
+  if (!params.planterSelfWatering) {
+    return;
+  }
+
+  const tube = planterSightTube(params, offsetX);
+
+  if (tube) {
+    addSightTube(positions, tube);
+  }
 }
 
 /** Собирает готовую геометрию из массива позиций без индексов. */
@@ -318,7 +608,7 @@ export function createPlanterPotGeometry(
   const normalized = normalizePlanterParams(params);
   const positions: number[] = [];
 
-  appendPlanterPot(positions, normalized, 0);
+  appendPlanterPot(positions, normalized, 0, 0);
 
   return planterGeometry(positions);
 }
@@ -345,9 +635,10 @@ export function createPlanterTrayGeometry(
  *
  * Функция принимает частичные параметры: недостающие поля берутся из значений
  * по умолчанию, поэтому предпросмотр может вызвать её с любым набором. `part`
- * выбирает экспорт: `pot` и `tray` центрируют одну деталь, `all` ставит горшок
- * и поддон рядом с зазором `PLANTER_TRAY_GAP_MM`. Пара центрируется по общему
- * габариту, поэтому её bbox симметричен относительно X = 0.
+ * выбирает экспорт: `pot` и `tray` центрируют одну деталь, `all` раскладывает
+ * пару по `planterLayout`: рядом с зазором 12 мм или горшком на поддоне. Во
+ * втором случае по X/Y остаётся габарит поддона, а детали соприкасаются только
+ * опорными плоскостями — объёмного пересечения нет.
  */
 export function createPlanterGeometry(
   params: Partial<PlanterParams>,
@@ -368,12 +659,28 @@ export function createPlanterGeometry(
   }
 
   const positions: number[] = [];
-  const trayWidth = normalized.planterSize + PLANTER_TRAY_EXTRA_MM;
-  const potOffsetX = -(trayWidth + PLANTER_TRAY_GAP_MM) / 2;
-  const trayOffsetX = (normalized.planterSize + PLANTER_TRAY_GAP_MM) / 2;
+  const layout = planterLayout(normalized);
 
-  appendPlanterPot(positions, normalized, potOffsetX);
-  appendPlanterTray(positions, normalized, trayOffsetX);
+  if (layout === "separate") {
+    // Такой набор API не выдаёт; предпросмотр остаётся хотя бы с горшком.
+    return createPlanterPotGeometry(normalized);
+  }
+
+  if (layout === "side") {
+    const trayWidth = normalized.planterSize + PLANTER_TRAY_EXTRA_MM;
+    const potOffsetX = -(trayWidth + PLANTER_TRAY_GAP_MM) / 2;
+    const trayOffsetX = (normalized.planterSize + PLANTER_TRAY_GAP_MM) / 2;
+
+    appendPlanterPot(positions, normalized, potOffsetX, 0);
+    appendPlanterTray(positions, normalized, trayOffsetX);
+
+    return planterGeometry(positions);
+  }
+
+  const footprint = planterFootprint(normalized);
+
+  appendPlanterTray(positions, normalized, 0);
+  appendPlanterPot(positions, normalized, 0, footprint.potBottomZ);
 
   return planterGeometry(positions);
 }

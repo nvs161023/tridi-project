@@ -1363,10 +1363,9 @@ export type VaseParams = {
 /**
  * Форма кашпо: круг, квадрат или шестигранник.
  *
- * `planterSize` у всех трёх форм означает один и тот же габарит «под ключ»:
- * диаметр у круга и расстояние между параллельными гранями у многоугольников.
- * Поэтому стенка одной толщины получается на любой форме, а поддон всегда
- * охватывает горшок.
+ * `planterSize` у всех трёх форм означает один и тот же габарит по самой широкой
+ * части: диаметр у круга и расстояние от угла до угла у многоугольников. Поэтому
+ * готовый bbox совпадает с числом на слайдере, а поддон всегда охватывает горшок.
  */
 export const PLANTER_SHAPES = ["round", "square", "hex"] as const;
 
@@ -1379,11 +1378,15 @@ export const PLANTER_SHAPE_LABELS = {
 } as const satisfies Record<PlanterShape, string>;
 
 /**
- * Кашпо: габарит, высота, стенка, форма и дренаж.
+ * Кашпо: габарит, высота, стенка, форма, дренаж и автополив.
  *
- * Дренажные отверстия Ø 5 мм проходят сквозь дно, а рядом с горшком в том же
- * STL печатается поддон: лишняя вода стекает в него и не остаётся под горшком.
- * Без дренажа дно глухое, и поддон не строится — деталь печатается одна.
+ * Дренажные отверстия Ø 5 мм проходят сквозь дно, а поддон печатается отдельной
+ * деталью: лишняя вода стекает в него и не остаётся под горшком. Без дренажа дно
+ * глухое, и поддон не строится — деталь печатается одна.
+ *
+ * Автополив включает глубокий поддон-резервуар: горшок стоит на нём сверху,
+ * внутреннее дно поднято на 10 мм, а вода поднимается к грунту по фитилю через
+ * отверстие Ø 5 мм. Флаг сам включает дренаж: без поддона резервуара не бывает.
  */
 export type PlanterParams = {
   /** Габарит по самой широкой части, мм: диаметр или расстояние по углам. */
@@ -1394,17 +1397,19 @@ export type PlanterParams = {
   planterWall: number;
   /** Форма в плане: круг, квадрат или шестигранник. */
   planterShape: PlanterShape;
-  /** Отверстия в дне и отдельный поддон рядом с горшком. */
+  /** Отверстия в дне и отдельный поддон. */
   planterDrainage: boolean;
+  /** Глубокий поддон-резервуар, внутреннее дно и фитиль. */
+  planterSelfWatering: boolean;
 };
 
 /**
  * Части набора кашпо для STL-экспорта.
  *
- * `all` — общий файл, где горшок и поддон лежат рядом с зазором
- * `PLANTER_TRAY_GAP_MM`; `pot` и `tray` — отдельные печатные детали. Часть не
- * входит в `PlanterParams`: она выбирается только на скачивании и не должна
- * сохраняться в проекте.
+ * `all` — общий файл по `planterLayout`: детали рядом с зазором
+ * `PLANTER_TRAY_GAP_MM` или горшок на поддоне, если пара шире 220 мм. `pot` и
+ * `tray` — отдельные печатные детали. Часть не входит в `PlanterParams`: она
+ * выбирается только на скачивании и не должна сохраняться в проекте.
  */
 export const PLANTER_PARTS = ["all", "pot", "tray"] as const;
 
@@ -1413,14 +1418,55 @@ export type PlanterPart = (typeof PLANTER_PARTS)[number];
 /** Экспорт по умолчанию: старый клиент без поля получает общий файл. */
 export const DEFAULT_PLANTER_PART: PlanterPart = "all";
 
-/** Зазор между горшком и поддоном на столе, мм. */
+/** Зазор между горшком и поддоном в боковой раскладке, мм. */
 export const PLANTER_TRAY_GAP_MM = 12;
 
 /** Насколько поддон шире реального габарита горшка, мм. */
 export const PLANTER_TRAY_EXTRA_MM = 16;
 
-/** Высота борта поддона, мм. */
+/** Высота борта обычного поддона, мм. */
 export const PLANTER_TRAY_HEIGHT_MM = 14;
+
+/** Толщина дна поддона, мм. */
+export const PLANTER_TRAY_FLOOR_MM = 2;
+
+/**
+ * Поле печати, под которое раскладывается общий STL, мм.
+ *
+ * 220 × 220 — распространённый размер стола. Если пара не влезает рядом,
+ * геометрия ставит горшок на поддон; отдельные файлы остаются всегда.
+ */
+export const PLANTER_PRINT_BED_MM = 220;
+
+/** Высота борта поддона с резервуаром автополива, мм. */
+export const PLANTER_SELF_WATERING_TRAY_HEIGHT_MM = 28;
+
+/** Глубина резервуара от дна поддона до кромки, мм. */
+export const PLANTER_SELF_WATERING_RESERVOIR_DEPTH_MM = 26;
+
+/** Высота внутреннего дна горшка от его нижней плоскости, мм. */
+export const PLANTER_SELF_WATERING_INNER_FLOOR_MM = 10;
+
+/** Радиус фитильного отверстия, мм: Ø 5 мм. */
+export const PLANTER_WICK_HOLE_RADIUS_MM = 2.5;
+
+/** Верх открытой смотровой трубки над кромкой поддона, мм. */
+export const PLANTER_SIGHT_TUBE_HEIGHT_MM = 34;
+
+/**
+ * Как детали лежат в общем STL.
+ *
+ * `single` — поддона нет; `side` — горшок и поддон рядом с зазором 12 мм;
+ * `nested` — горшок стоит на поддоне, поэтому габарит по X/Y равен поддону;
+ * `separate` — даже вложенная пара больше поля печати, общий файл не выдаётся.
+ */
+export const PLANTER_LAYOUTS = ["single", "side", "nested", "separate"] as const;
+
+export type PlanterLayout = (typeof PLANTER_LAYOUTS)[number];
+
+/** Подсказка, если общий STL физически не помещается на стол. */
+export const PLANTER_SEPARATE_FILES_HINT =
+  "Печатайте по отдельности, размер набора превышает поле печати";
 
 /** Подставка под кружку повторяет три формы кашпо: круг, квадрат и шестигранник. */
 export const COASTER_SHAPES = PLANTER_SHAPES;
@@ -2599,6 +2645,7 @@ export const DEFAULT_PLANTER_PARAMS: PlanterParams = {
   planterWall: CONSTRUCTOR_LIMITS.planterWall.defaultValue,
   planterShape: "round",
   planterDrainage: true,
+  planterSelfWatering: false,
 };
 
 /** Подставка под кружку по умолчанию: круглая Ø 90 × 5 мм с бортиком, гладкая. */
@@ -3012,17 +3059,19 @@ export function planterPartStlSuffix(part: PlanterPart): string {
  * Имя файла STL для кашпо.
  *
  * Габарит по самой широкой части записывается как `d`, высота и стенка — как
- * `h` и `t`. Суффикс `drenazh` говорит, что в файле есть отверстия и поддон.
- * Часть набора добавляет `-set`, `-pot` или `-tray`. Значения уже выровнены
- * normalizePlanterParams, поэтому лишних нулей в имени нет.
+ * `h` и `t`. Суффикс `drenazh` говорит, что в файле есть отверстия и поддон,
+ * `avtopoliv` — что поддон стал резервуаром с фитилём. Часть набора добавляет
+ * `-set`, `-pot` или `-tray`. Значения уже выровнены normalizePlanterParams,
+ * поэтому лишних нулей в имени нет.
  */
 export function planterStlFileName(
   params: PlanterParams,
   part: PlanterPart = DEFAULT_PLANTER_PART,
 ): string {
   const drainageSuffix = params.planterDrainage ? "-drenazh" : "";
+  const selfWateringSuffix = params.planterSelfWatering ? "-avtopoliv" : "";
 
-  return `tridi-kashpo-${params.planterShape}-d${params.planterSize}-h${params.planterHeight}-t${params.planterWall}${drainageSuffix}${planterPartStlSuffix(part)}.stl`;
+  return `tridi-kashpo-${params.planterShape}-d${params.planterSize}-h${params.planterHeight}-t${params.planterWall}${drainageSuffix}${selfWateringSuffix}${planterPartStlSuffix(part)}.stl`;
 }
 
 /**
@@ -4620,13 +4669,18 @@ export function normalizeKeychainParams(
  * Проверяет и выравнивает параметры кашпо.
  *
  * Три числа выравниваются по шагу слайдеров: габарит и высота — по 5 мм,
- * стенка — по 0.2 мм. Форма и дренаж принимаются только из своих наборов:
- * строка «false» из формы не должна включать отверстия, а незнакомая форма
- * заменяется круглой.
+ * стенка — по 0.2 мм. Форма и флаги принимаются только настоящими значениями:
+ * строка «false» из формы не должна включать отверстия, а автополив сам
+ * включает дренаж — резервуар без поддона не существует.
  */
 export function normalizePlanterParams(
   params: Partial<PlanterParams>,
 ): PlanterParams {
+  const planterSelfWatering =
+    typeof params.planterSelfWatering === "boolean"
+      ? params.planterSelfWatering
+      : DEFAULT_PLANTER_PARAMS.planterSelfWatering;
+
   return {
     planterSize: snap(
       params.planterSize ?? DEFAULT_PLANTER_PARAMS.planterSize,
@@ -4643,27 +4697,43 @@ export function normalizePlanterParams(
     planterShape: isPlanterShape(params.planterShape)
       ? params.planterShape
       : DEFAULT_PLANTER_PARAMS.planterShape,
-    planterDrainage:
-      typeof params.planterDrainage === "boolean"
+    planterDrainage: planterSelfWatering
+      ? true
+      : typeof params.planterDrainage === "boolean"
         ? params.planterDrainage
         : DEFAULT_PLANTER_PARAMS.planterDrainage,
+    planterSelfWatering,
   };
 }
 
 /** Габариты кашпо и поддона для подписей, предупреждений и тестов. */
 export type PlanterFootprint = {
-  /** Ширина пары в общем STL; без поддона — ширина горшка. */
+  /** Как детали лежат в общем STL. */
+  layout: PlanterLayout;
+  /** Ширина общего файла: пара рядом, вложенная пара или один горшок. */
   width: number;
-  /** Глубина пары: максимум из горшка и поддона. */
+  /** Глубина общего файла: максимум из деталей. */
   depth: number;
-  /** Высота самой высокой детали пары. */
+  /** Высота общего файла с учётом установки горшка на поддон. */
   height: number;
+  /** Ширина пары при боковой раскладке — для проверки лимита 220 мм. */
+  sideBySideWidth: number;
   potWidth: number;
   potDepth: number;
+  potHeight: number;
+  /** На какой высоте стоит горшок во вложенной раскладке. */
+  potBottomZ: number;
+  /** Реальный bbox поддона: у автополива его поднимает смотровая трубка. */
   trayWidth: number;
   trayDepth: number;
   trayHeight: number;
+  /** Высота борта без трубки: она задаёт глубину резервуара. */
+  trayBodyHeight: number;
+  /** Глубина резервуара автополива; 0 без него. */
+  reservoirDepth: number;
   hasTray: boolean;
+  /** Можно ли выдать общий STL, не превышая поле печати. */
+  hasCommonFile: boolean;
 };
 
 /**
@@ -4677,36 +4747,107 @@ function planterSectionDepth(shape: PlanterShape, width: number): number {
 }
 
 /**
- * Реальный внешний габарит горшка, поддона и пары.
+ * Раскладка набора: рядом, горшок на поддоне или только отдельные файлы.
+ *
+ * Сначала пробуем честную боковую раскладку с зазором 12 мм. Если она шире
+ * 220 мм, горшок ставится на поддон: по X/Y остаётся габарит поддона. Если даже
+ * так детали не влезают, общий файл не предлагается.
+ */
+export function planterLayout(params: Partial<PlanterParams>): PlanterLayout {
+  const normalized = normalizePlanterParams(params);
+
+  if (!normalized.planterDrainage) {
+    return "single";
+  }
+
+  const potWidth = normalized.planterSize;
+  const potDepth = planterSectionDepth(normalized.planterShape, potWidth);
+  const trayWidth = potWidth + PLANTER_TRAY_EXTRA_MM;
+  const trayDepth = planterSectionDepth(normalized.planterShape, trayWidth);
+  const sideBySideWidth = potWidth + PLANTER_TRAY_GAP_MM + trayWidth;
+
+  if (sideBySideWidth <= PLANTER_PRINT_BED_MM) {
+    return "side";
+  }
+
+  if (
+    Math.max(potWidth, trayWidth) <= PLANTER_PRINT_BED_MM &&
+    Math.max(potDepth, trayDepth) <= PLANTER_PRINT_BED_MM
+  ) {
+    return "nested";
+  }
+
+  return "separate";
+}
+
+/**
+ * Реальный внешний габарит горшка, поддона и общего файла.
  *
  * Поддон считается от габарита горшка по самой широкой части, а не от
- * апофемы: у шестигранника эти числа расходятся на 15 %, и старый поддон
- * оказывался уже горшка. Пара в общем STL получает зазор
- * `PLANTER_TRAY_GAP_MM`; функции геометрии берут те же константы.
+ * апофемы: у шестигранника эти числа расходятся на 15 %. В боковой раскладке
+ * пара получает зазор `PLANTER_TRAY_GAP_MM`; если она шире 220 мм, горшок
+ * ставится на поддон и X/Y общего файла равны поддону. У автополива горшок
+ * поднят на борт поддона, поэтому высота файла больше высоты горшка.
  */
 export function planterFootprint(
   params: Partial<PlanterParams>,
 ): PlanterFootprint {
   const normalized = normalizePlanterParams(params);
+  const layout = planterLayout(normalized);
   const hasTray = normalized.planterDrainage;
   const potWidth = normalized.planterSize;
   const potDepth = planterSectionDepth(normalized.planterShape, potWidth);
+  const potHeight = normalized.planterHeight;
   const trayWidth = potWidth + PLANTER_TRAY_EXTRA_MM;
   const trayDepth = planterSectionDepth(normalized.planterShape, trayWidth);
+  const trayBodyHeight = normalized.planterSelfWatering
+    ? PLANTER_SELF_WATERING_TRAY_HEIGHT_MM
+    : PLANTER_TRAY_HEIGHT_MM;
+  const trayHeight = normalized.planterSelfWatering
+    ? Math.max(trayBodyHeight, PLANTER_SIGHT_TUBE_HEIGHT_MM)
+    : PLANTER_TRAY_HEIGHT_MM;
+  const sideBySideWidth = potWidth + PLANTER_TRAY_GAP_MM + trayWidth;
+  const potBottomZ =
+    layout === "nested"
+      ? trayBodyHeight
+      : 0;
+  const nestedWidth = Math.max(potWidth, trayWidth);
+  const nestedDepth = Math.max(potDepth, trayDepth);
+  const width = !hasTray
+    ? potWidth
+    : layout === "side"
+      ? sideBySideWidth
+      : nestedWidth;
+  const depth = !hasTray
+    ? potDepth
+    : layout === "side"
+      ? Math.max(potDepth, trayDepth)
+      : nestedDepth;
+  const height = !hasTray
+    ? potHeight
+    : layout === "side"
+      ? Math.max(potHeight, trayHeight)
+      : Math.max(potBottomZ + potHeight, trayHeight);
 
   return {
-    width: hasTray ? potWidth + PLANTER_TRAY_GAP_MM + trayWidth : potWidth,
-    depth: hasTray ? Math.max(potDepth, trayDepth) : potDepth,
-    height: Math.max(
-      normalized.planterHeight,
-      hasTray ? PLANTER_TRAY_HEIGHT_MM : 0,
-    ),
+    layout,
+    width,
+    depth,
+    height,
+    sideBySideWidth,
     potWidth,
     potDepth,
+    potHeight,
+    potBottomZ,
     trayWidth,
     trayDepth,
-    trayHeight: PLANTER_TRAY_HEIGHT_MM,
+    trayHeight,
+    trayBodyHeight,
+    reservoirDepth: normalized.planterSelfWatering
+      ? PLANTER_SELF_WATERING_RESERVOIR_DEPTH_MM
+      : 0,
     hasTray,
+    hasCommonFile: layout !== "separate",
   };
 }
 

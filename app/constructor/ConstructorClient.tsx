@@ -49,6 +49,7 @@ import {
   JEWELRY_PRESET_LABELS,
   LITHOPHANE_SHAPE_LABELS,
   PEN_SHAPE_LABELS,
+  PLANTER_SEPARATE_FILES_HINT,
   PLANTER_SHAPE_LABELS,
   SIGN_PARTS,
   VASE_MAX_PATTERN_LAYERS,
@@ -480,16 +481,23 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   }
 
   if (params.model === "planter") {
-    // Горшок и поддон печатаются отдельными деталями: общий STL ставит их
-    // рядом с зазором 12 мм, чтобы принтер не спаял стенки. Поддона без
-    // дренажа нет — тогда остаётся один горшок.
+    // Детали всегда можно скачать по отдельности. Общий STL кладёт их рядом,
+    // пока пара влезает в 220 мм; иначе ставит горшок на поддон. Если даже так
+    // габарит больше стола, общей кнопки нет — только два отдельных файла.
     const footprint = planterFootprint(params);
+    const separateHint = footprint.hasCommonFile
+      ? ""
+      : ` · ${PLANTER_SEPARATE_FILES_HINT}`;
     const pot: StlExportOption = {
       id: "planter-pot",
       label: "Горшок",
-      description: `Горшок ${params.planterSize} × ${Math.round(
-        footprint.potDepth,
-      )} × ${params.planterHeight} мм, дно плоское`,
+      description: params.planterSelfWatering
+        ? `Горшок ${params.planterSize} × ${Math.round(
+            footprint.potDepth,
+          )} × ${params.planterHeight} мм · автополив, дно +10 мм${separateHint}`
+        : `Горшок ${params.planterSize} × ${Math.round(
+            footprint.potDepth,
+          )} × ${params.planterHeight} мм, дно плоское${separateHint}`,
       request: { planterPart: "pot" },
       fileName: planterStlFileName(params, "pot"),
     };
@@ -504,30 +512,47 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
       ];
     }
 
-    const bedNote =
-      footprint.width > 220 ? " · больше стола 220 мм" : "";
+    const tray: StlExportOption = {
+      id: "planter-tray",
+      label: "Поддон",
+      description: params.planterSelfWatering
+        ? `Поддон ${Math.round(footprint.trayWidth)} × ${Math.round(
+            footprint.trayDepth,
+          )} × ${footprint.trayHeight} мм · резервуар ${
+            footprint.reservoirDepth
+          } мм${separateHint}`
+        : `Поддон ${Math.round(footprint.trayWidth)} × ${Math.round(
+            footprint.trayDepth,
+          )} × ${footprint.trayHeight} мм${separateHint}`,
+      request: { planterPart: "tray" },
+      fileName: planterStlFileName(params, "tray"),
+    };
+    const options: StlExportOption[] = [];
 
-    return [
-      {
+    if (footprint.hasCommonFile) {
+      options.push({
         id: "planter-set",
         label: "Общий STL",
-        description: `Горшок и поддон рядом, зазор 12 мм: ${Math.round(
-          footprint.width,
-        )} × ${Math.round(footprint.depth)} мм${bedNote}`,
+        description:
+          footprint.layout === "side"
+            ? `Детали рядом, зазор 12 мм: ${Math.round(
+                footprint.width,
+              )} × ${Math.round(footprint.depth)} × ${Math.round(
+                footprint.height,
+              )} мм`
+            : `Горшок на поддоне${params.planterSelfWatering ? ", автополив" : ""}: ${Math.round(
+                footprint.width,
+              )} × ${Math.round(footprint.depth)} × ${Math.round(
+                footprint.height,
+              )} мм`,
         request: { planterPart: "all" },
         fileName: planterStlFileName(params, "all"),
-      },
-      pot,
-      {
-        id: "planter-tray",
-        label: "Поддон",
-        description: `Поддон ${Math.round(footprint.trayWidth)} × ${Math.round(
-          footprint.trayDepth,
-        )} × ${footprint.trayHeight} мм`,
-        request: { planterPart: "tray" },
-        fileName: planterStlFileName(params, "tray"),
-      },
-    ];
+      });
+    }
+
+    options.push(pot, tray);
+
+    return options;
   }
 
   // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
@@ -1330,7 +1355,25 @@ export function ConstructorClient({
 
   function updatePlanterDrainage(planterDrainage: boolean) {
     setParams((current) =>
-      normalizeConstructorParams({ ...current, planterDrainage }),
+      normalizeConstructorParams({
+        ...current,
+        planterDrainage,
+        planterSelfWatering: planterDrainage
+          ? current.planterSelfWatering
+          : false,
+      }),
+    );
+  }
+
+  function updatePlanterSelfWatering(planterSelfWatering: boolean) {
+    setParams((current) =>
+      normalizeConstructorParams({
+        ...current,
+        planterDrainage: planterSelfWatering
+          ? true
+          : current.planterDrainage,
+        planterSelfWatering,
+      }),
     );
   }
 
@@ -1661,6 +1704,7 @@ export function ConstructorClient({
             onRemovePatternLayer={removePatternLayer}
             onPenShapeChange={updatePenShape}
             onPlanterDrainageChange={updatePlanterDrainage}
+            onPlanterSelfWateringChange={updatePlanterSelfWatering}
             onPlanterShapeChange={updatePlanterShape}
             onQrCardSizeChange={updateQrCardSize}
             onQrCardTabChange={updateQrCardTab}
@@ -1753,7 +1797,13 @@ export function ConstructorClient({
                     {params.planterDrainage
                       ? `поддон ${planterFootprint(params).trayWidth} × ${Math.round(
                           planterFootprint(params).trayDepth,
-                        )} мм`
+                        )} × ${planterFootprint(params).trayHeight} мм · набор ${Math.round(
+                          planterFootprint(params).width,
+                        )} × ${Math.round(
+                          planterFootprint(params).depth,
+                        )} × ${Math.round(planterFootprint(params).height)} мм${
+                          params.planterSelfWatering ? " · автополив" : ""
+                        }`
                       : "без поддона"}
                   </>
                 ) : params.model === "coaster" ? (

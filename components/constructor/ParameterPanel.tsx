@@ -144,6 +144,10 @@ import {
   MODEL_TYPE_LABELS,
   PEN_SHAPES,
   PEN_SHAPE_LABELS,
+  PLANTER_PRINT_BED_MM,
+  PLANTER_SELF_WATERING_INNER_FLOOR_MM,
+  PLANTER_SELF_WATERING_RESERVOIR_DEPTH_MM,
+  PLANTER_SEPARATE_FILES_HINT,
   PLANTER_SHAPES,
   PLANTER_SHAPE_LABELS,
   planterFootprint,
@@ -443,6 +447,8 @@ type ParameterPanelProps = {
   onPlanterShapeChange: (shape: PlanterShape) => void;
   /** Дренажные отверстия и поддон рядом с горшком. */
   onPlanterDrainageChange: (enabled: boolean) => void;
+  /** Глубокий поддон-резервуар с фитилём и смотровой трубкой. */
+  onPlanterSelfWateringChange: (enabled: boolean) => void;
   /** Форма подставки под кружку в плане. */
   onCoasterShapeChange: (shape: CoasterShape) => void;
   /** Рельеф на лице подставки под кружку. */
@@ -1492,7 +1498,7 @@ function modelSummary(
       ];
     }
 
-    return [
+    const summary = [
       {
         label: "Горшок",
         value: `${footprint.potWidth} × ${Math.round(
@@ -1500,10 +1506,12 @@ function modelSummary(
         )} × ${params.planterHeight} мм`,
       },
       {
-        label: "С поддоном",
-        value: `${Math.round(footprint.width)} × ${Math.round(
-          footprint.depth,
-        )} мм`,
+        label: footprint.layout === "side" ? "Детали рядом" : "Набор",
+        value: footprint.hasCommonFile
+          ? `${Math.round(footprint.width)} × ${Math.round(
+              footprint.depth,
+            )} × ${Math.round(footprint.height)} мм`
+          : "по отдельности",
       },
       {
         label: "Поддон",
@@ -1512,6 +1520,15 @@ function modelSummary(
         )} × ${footprint.trayHeight} мм`,
       },
     ];
+
+    if (params.planterSelfWatering) {
+      summary.push({
+        label: "Резервуар",
+        value: `${footprint.reservoirDepth} мм · дно +${PLANTER_SELF_WATERING_INNER_FLOOR_MM}`,
+      });
+    }
+
+    return summary;
   }
 
   if (params.model === "coaster") {
@@ -1673,6 +1690,7 @@ export function ParameterPanel({
   onLithophaneSideBrightnessChange,
   onPlanterShapeChange,
   onPlanterDrainageChange,
+  onPlanterSelfWateringChange,
   onCoasterShapeChange,
   onCoasterPatternChange,
   onCoasterRimChange,
@@ -3687,15 +3705,48 @@ export function ParameterPanel({
               </span>
               <span className="mt-1 block text-xs leading-relaxed text-slate-300">
                 Отверстия Ø 5 мм проходят сквозь плоское дно. Поддон шире горшка
-                на 16 мм; в общем STL детали стоят рядом с зазором 12 мм. Если
-                пара больше стола, печатайте горшок и поддон отдельными файлами.
+                на 16 мм. Если пара с зазором 12 мм шире {PLANTER_PRINT_BED_MM} мм,
+                в общем STL горшок ставится на поддон; отдельные файлы остаются
+                всегда.
+              </span>
+            </span>
+          </label>
+
+          <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+            <input
+              checked={params.planterSelfWatering}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onChange={(event) => {
+                const enabled = event.target.checked;
+
+                onPlanterSelfWateringChange(enabled);
+
+                if (enabled) {
+                  onPlanterDrainageChange(true);
+                }
+              }}
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-200">
+                Система автополива
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                Поддон становится резервуаром на {PLANTER_SELF_WATERING_RESERVOIR_DEPTH_MM} мм.
+                В горшке появляется внутреннее дно на +{PLANTER_SELF_WATERING_INNER_FLOOR_MM} мм
+                и фитильное отверстие Ø 5 мм, а сбоку — открытая смотровая трубка:
+                вода в ней видна сверху, но стенки резервуара остаются целыми.
               </span>
             </span>
           </label>
 
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
             {params.planterDrainage
-              ? "Горшок и поддон — две отдельные замкнутые детали с плоским дном. Вода уходит из грунта через сквозные отверстия в поддон, а не растекается по столу. Отверстия кольцом появляются только там, где хватает места."
+              ? planterFootprint(params).hasCommonFile
+                ? params.planterSelfWatering
+                  ? "Горшок стоит на упорах поддона: внутреннее дно выше воды, фитиль свисает в резервуар, а смотровая трубка показывает остаток. Стенки горшка и резервуара не прорезаны."
+                  : "Горшок и поддон — две отдельные замкнутые детали с плоским дном. Вода уходит из грунта через сквозные отверстия в поддон, а не растекается по столу."
+                : PLANTER_SEPARATE_FILES_HINT
               : "Без дренажа дно глухое и печатается одна деталь. Для суккулентов это рабочий вариант, но поливать придётся аккуратно — лишней воде некуда уходить."}
           </p>
         </>

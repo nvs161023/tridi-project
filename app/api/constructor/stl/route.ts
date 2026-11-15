@@ -106,6 +106,7 @@ import {
   normalizeSignParams,
   normalizeVaseParams,
   penHolderStlFileName,
+  planterFootprint,
   planterStlFileName,
   resolveLithophaneBrightness,
   resolveLithophaneSideBrightness,
@@ -1214,11 +1215,11 @@ function parseLithophaneParams(
  * Строгая проверка параметров кашпо.
  *
  * Габарит по самой широкой части, высота и стенка проверяются в границах
- * слайдеров, форма — по списку трёх силуэтов, дренаж — только настоящим
- * boolean: строка «false» иначе включила бы отверстия и второй поддон в файле.
- * Часть набора приходит как `planterPart` (новый клиент) или `part` (старый
- * контракт аудита), по умолчанию — общий файл. Поддон без дренажа отклоняется:
- * иначе пользователь скачал бы деталь, которой нет в модели.
+ * слайдеров, форма — по списку трёх силуэтов, дренаж и автополив — только
+ * настоящим boolean: строка «false» иначе включила бы отверстия и второй поддон
+ * в файле. Часть набора приходит как `planterPart` (новый клиент) или `part`
+ * (старый контракт аудита), по умолчанию — общий файл. Поддон без дренажа
+ * отклоняется: иначе пользователь скачал бы деталь, которой нет в модели.
  */
 function parsePlanterParams(body: Record<string, unknown>): {
   params: PlanterParams;
@@ -1230,6 +1231,7 @@ function parsePlanterParams(body: Record<string, unknown>): {
     planterWall,
     planterShape,
     planterDrainage,
+    planterSelfWatering,
   } = body;
   const requestedPart =
     body.planterPart === undefined ? body.part : body.planterPart;
@@ -1253,22 +1255,31 @@ function parsePlanterParams(body: Record<string, unknown>): {
     ) ||
     !isPlanterShape(planterShape) ||
     typeof planterDrainage !== "boolean" ||
-    !isPlanterPart(part) ||
-    (part === "tray" && !planterDrainage)
+    (planterSelfWatering !== undefined &&
+      typeof planterSelfWatering !== "boolean") ||
+    !isPlanterPart(part)
   ) {
     return null;
   }
 
-  return {
-    params: normalizePlanterParams({
-      planterSize,
-      planterHeight,
-      planterWall,
-      planterShape,
-      planterDrainage,
-    }),
-    part,
-  };
+  const params = normalizePlanterParams({
+    planterSize,
+    planterHeight,
+    planterWall,
+    planterShape,
+    planterDrainage,
+    planterSelfWatering,
+  });
+
+  if (part === "tray" && !params.planterDrainage) {
+    return null;
+  }
+
+  if (part === "all" && !planterFootprint(params).hasCommonFile) {
+    return null;
+  }
+
+  return { params, part };
 }
 
 /**

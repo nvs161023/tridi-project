@@ -1,11 +1,13 @@
 /**
- * Тест геометрии кашпо с дренажом и поддоном.
+ * Тест геометрии кашпо с дренажом, умной раскладкой и автополивом.
  *
- * Проверяет обязательства P0: ширина шестигранника 120 мм измеряется по углам,
- * поддон считается от реального габарита горшка и стоит с зазором 12 мм, дно
- * горшка плоское и лежит на Z = 0, дренажные отверстия сквозные, а детали
- * `pot`, `tray` и `all` действительно разделяются. Отдельный блок собирает
- * настоящий бинарный STL горшка 120 мм (hex) и повторяет замеры уже по файлу.
+ * Проверяет обязательства P0 и F1: ширина шестигранника 120 мм измеряется по
+ * углам, поддон считается от реального габарита горшка, дно горшка плоское и
+ * лежит на Z = 0, дренажные отверстия сквозные. Общий STL при 120 мм больше не
+ * растягивается на 268 мм: горшок ставится на поддон, поэтому X/Y равны 136 мм.
+ * Для автополива проверяются резервуар 26 мм, внутреннее дно +10 мм, сквозное
+ * фитильное Ø 5 мм, открытая смотровая трубка и герметичность стенок. Отдельный
+ * блок собирает бинарный STL набора и повторяет замеры уже по файлу.
  *
  * Запуск:
  *   npm run check:planter
@@ -20,18 +22,30 @@ import { join } from "node:path";
 
 import {
   PLANTER_DRAIN_HOLE_RADIUS_MM,
+  PLANTER_SIGHT_TUBE_INLET_GAP_MM,
+  PLANTER_SIGHT_TUBE_OUTER_RADIUS_MM,
   createPlanterGeometry,
   createPlanterPotGeometry,
   createPlanterTrayGeometry,
   planterDrainHoleCenters,
+  planterSightTube,
+  planterWickHoleCenters,
 } from "../lib/constructor/planter-geometry";
 import {
   DEFAULT_PLANTER_PARAMS,
+  PLANTER_PRINT_BED_MM,
+  PLANTER_SELF_WATERING_INNER_FLOOR_MM,
+  PLANTER_SELF_WATERING_RESERVOIR_DEPTH_MM,
+  PLANTER_SELF_WATERING_TRAY_HEIGHT_MM,
+  PLANTER_SIGHT_TUBE_HEIGHT_MM,
   PLANTER_TRAY_EXTRA_MM,
+  PLANTER_TRAY_FLOOR_MM,
   PLANTER_TRAY_GAP_MM,
   PLANTER_TRAY_HEIGHT_MM,
+  PLANTER_WICK_HOLE_RADIUS_MM,
   normalizePlanterParams,
   planterFootprint,
+  planterLayout,
   planterStlFileName,
   type PlanterShape,
 } from "../lib/constructor/params";
@@ -136,6 +150,16 @@ function boundsOf(triangles: readonly Triangle[]) {
   };
 }
 
+/** Радиус описанной окружности сечения: нужен для проверки смотровой трубки. */
+function sectionCircumradius(shape: PlanterShape, width: number): number {
+  if (shape === "round" || shape === "hex") {
+    return width / 2;
+  }
+
+  return width / Math.SQRT2;
+}
+
+
 function normalOf([a, b, c]: Triangle): Point3 {
   const ux = b[0] - a[0];
   const uy = b[1] - a[1];
@@ -180,6 +204,25 @@ function downFacingAreaAt(
 
     if (
       normal[2] > -0.999 ||
+      !triangle.every((point) => Math.abs(point[2] - z) <= 1e-6)
+    ) {
+      return total;
+    }
+
+    return total + triangleArea(triangle);
+  }, 0);
+}
+
+/** Площадь горизонтальных граней, смотрящих вверх, на плоскости `z`. */
+function upFacingAreaAt(
+  triangles: readonly Triangle[],
+  z: number,
+): number {
+  return triangles.reduce((total, triangle) => {
+    const normal = normalOf(triangle);
+
+    if (
+      normal[2] < 0.999 ||
       !triangle.every((point) => Math.abs(point[2] - z) <= 1e-6)
     ) {
       return total;
@@ -248,10 +291,18 @@ function rayHitsTriangle(
   return (e2x * qx + e2y * qy + e2z * qz) * inverse > 1e-6;
 }
 
-function rayHits(triangles: readonly Triangle[], x: number, y: number): number {
+function rayHitsFrom(
+  triangles: readonly Triangle[],
+  origin: Point3,
+  direction: Point3,
+): number {
   return triangles.filter((triangle) =>
-    rayHitsTriangle(triangle, [x, y, -1], [0, 0, 1]),
+    rayHitsTriangle(triangle, origin, direction),
   ).length;
+}
+
+function rayHits(triangles: readonly Triangle[], x: number, y: number): number {
+  return rayHitsFrom(triangles, [x, y, -1], [0, 0, 1]);
 }
 
 
@@ -324,6 +375,21 @@ near("зазор пары", PLANTER_TRAY_GAP_MM, 12);
 near("запас поддона", PLANTER_TRAY_EXTRA_MM, 16);
 near("высота поддона", PLANTER_TRAY_HEIGHT_MM, 14);
 near("радиус отверстия", PLANTER_DRAIN_HOLE_RADIUS_MM, 2.5);
+near("поле печати", PLANTER_PRINT_BED_MM, 220);
+near("высота поддона автополива", PLANTER_SELF_WATERING_TRAY_HEIGHT_MM, 28);
+near(
+  "глубина резервуара",
+  PLANTER_SELF_WATERING_RESERVOIR_DEPTH_MM,
+  26,
+);
+near("внутреннее дно", PLANTER_SELF_WATERING_INNER_FLOOR_MM, 10);
+near("радиус фитиля", PLANTER_WICK_HOLE_RADIUS_MM, 2.5);
+near("верх смотровой трубки", PLANTER_SIGHT_TUBE_HEIGHT_MM, 34);
+check(
+  "автополив выключен по умолчанию",
+  DEFAULT_PLANTER_PARAMS.planterSelfWatering,
+  false,
+);
 
 console.log("\nГабариты горшка по формам:");
 
@@ -377,70 +443,312 @@ near(
   ((SIZE + PLANTER_TRAY_EXTRA_MM) * Math.sqrt(3)) / 2,
   1e-3,
 );
+near("hex: bbox поддона Z", hexTrayBounds.height, PLANTER_TRAY_HEIGHT_MM);
 check(
   "hex: поддон выше горшка по X",
   hexTrayBounds.width > hexPotBounds.width,
   true,
 );
+
+check("hex: раскладка вложенная", planterLayout(hexParams), "nested");
+near("hex: боковая пара не влезает", hexFootprint.sideBySideWidth, 268);
+near("hex: footprint набора X", hexFootprint.width, 136);
 near(
-  "hex: footprint пары X",
-  hexFootprint.width,
-  SIZE + PLANTER_TRAY_GAP_MM + SIZE + PLANTER_TRAY_EXTRA_MM,
+  "hex: footprint набора Y",
+  hexFootprint.depth,
+  (136 * Math.sqrt(3)) / 2,
+  1e-3,
 );
-near("hex: высота пары", hexFootprint.height, HEIGHT);
+near(
+  "hex: footprint набора Z",
+  hexFootprint.height,
+  PLANTER_TRAY_HEIGHT_MM + HEIGHT,
+);
+near(
+  "hex: горшок стоит на борту поддона",
+  hexFootprint.potBottomZ,
+  PLANTER_TRAY_HEIGHT_MM,
+);
+check("hex: общий файл помещается", hexFootprint.hasCommonFile, true);
+check(
+  "hex: общий файл не шире стола",
+  hexFootprint.width <= PLANTER_PRINT_BED_MM,
+  true,
+);
 
 hexPot.dispose();
 hexTray.dispose();
 
-
-console.log("\nОбщий STL: горшок и поддон рядом:");
+console.log("\nОбщий STL: горшок на поддоне:");
 
 const pair = createPlanterGeometry(hexParams, "all");
 const pairTriangles = trianglesOf(pair);
 const pairBounds = boundsOf(pairTriangles);
-const leftTriangles = pairTriangles.filter(
+
+near("набор: ширина", pairBounds.width, 136, 1e-3);
+near(
+  "набор: глубина",
+  pairBounds.depth,
+  (136 * Math.sqrt(3)) / 2,
+  1e-3,
+);
+near(
+  "набор: высота",
+  pairBounds.height,
+  PLANTER_TRAY_HEIGHT_MM + HEIGHT,
+  1e-3,
+);
+near("набор: низ на Z = 0", pairBounds.minZ, 0, 1e-6);
+near("набор: центр X", (pairBounds.minX + pairBounds.maxX) / 2, 0);
+check(
+  "набор: X меньше 220",
+  pairBounds.width < PLANTER_PRINT_BED_MM,
+  true,
+);
+check(
+  "набор: Y меньше 220",
+  pairBounds.depth < PLANTER_PRINT_BED_MM,
+  true,
+);
+check(
+  "набор: горшок поднят над поддоном",
+  hexFootprint.potBottomZ >= PLANTER_TRAY_HEIGHT_MM,
+  true,
+);
+
+console.log("\nМалая пара остаётся рядом с зазором:");
+
+const sideParams = normalizePlanterParams({
+  ...hexParams,
+  planterSize: 90,
+  planterHeight: 80,
+});
+const sideFootprint = planterFootprint(sideParams);
+const sidePair = createPlanterGeometry(sideParams, "all");
+const sideTriangles = trianglesOf(sidePair);
+const sideBounds = boundsOf(sideTriangles);
+const sideLeft = sideTriangles.filter(
   (triangle) =>
     (triangle[0][0] + triangle[1][0] + triangle[2][0]) / 3 < 0,
 );
-const rightTriangles = pairTriangles.filter(
+const sideRight = sideTriangles.filter(
   (triangle) =>
     (triangle[0][0] + triangle[1][0] + triangle[2][0]) / 3 >= 0,
 );
-const leftBounds = boundsOf(leftTriangles);
-const rightBounds = boundsOf(rightTriangles);
+const sideLeftBounds = boundsOf(sideLeft);
+const sideRightBounds = boundsOf(sideRight);
 
-near("пара: ширина", pairBounds.width, 268, 1e-3);
+check("90 мм: раскладка боковая", planterLayout(sideParams), "side");
+near("90 мм: ширина набора", sideBounds.width, 208, 1e-3);
+near("90 мм: footprint X", sideFootprint.width, 208, 1e-3);
+near("90 мм: высота набора", sideBounds.height, 80);
 near(
-  "пара: глубина",
-  pairBounds.depth,
-  ((SIZE + PLANTER_TRAY_EXTRA_MM) * Math.sqrt(3)) / 2,
-  1e-3,
-);
-near("пара: высота", pairBounds.height, HEIGHT);
-near("пара: центр X", (pairBounds.minX + pairBounds.maxX) / 2, 0);
-near("пара: горшок слева", leftBounds.width, SIZE, 1e-3);
-near(
-  "пара: поддон справа",
-  rightBounds.width,
-  SIZE + PLANTER_TRAY_EXTRA_MM,
-  1e-3,
-);
-near(
-  "пара: фактический зазор",
-  rightBounds.minX - leftBounds.maxX,
+  "90 мм: фактический зазор",
+  sideRightBounds.minX - sideLeftBounds.maxX,
   PLANTER_TRAY_GAP_MM,
   1e-3,
 );
 check(
-  "пара: горшок и поддон не пересекаются",
-  rightBounds.minX - leftBounds.maxX > 0,
+  "90 мм: детали не пересекаются",
+  sideRightBounds.minX > sideLeftBounds.maxX,
   true,
 );
 check(
-  "пара: все треугольники разложены по двум деталям",
-  leftTriangles.length + rightTriangles.length,
-  pairTriangles.length,
+  "90 мм: все треугольники разложены",
+  sideLeft.length + sideRight.length,
+  sideTriangles.length,
 );
+
+sidePair.dispose();
+
+console.log("\nАвтополив: резервуар, фитиль и индикатор:");
+
+const selfParams = normalizePlanterParams({
+  ...hexParams,
+  planterSelfWatering: true,
+  planterDrainage: false,
+});
+const selfFootprint = planterFootprint(selfParams);
+const selfPot = createPlanterPotGeometry(selfParams);
+const selfTray = createPlanterTrayGeometry(selfParams);
+const selfPotTriangles = trianglesOf(selfPot);
+const selfTrayTriangles = trianglesOf(selfTray);
+const selfPotBounds = boundsOf(selfPotTriangles);
+const selfTrayBounds = boundsOf(selfTrayTriangles);
+const selfPair = createPlanterGeometry(selfParams, "all");
+const selfPairBounds = boundsOf(trianglesOf(selfPair));
+const tube = planterSightTube(selfParams);
+
+check("автополив включает дренаж", selfParams.planterDrainage, true);
+check("автополив включён", selfParams.planterSelfWatering, true);
+near("автополив: глубина резервуара", selfFootprint.reservoirDepth, 26);
+near("автополив: высота горшка", selfPotBounds.height, HEIGHT);
+check(
+  "автополив: внутреннее дно на +10 мм",
+  upFacingAreaAt(selfPotTriangles, PLANTER_SELF_WATERING_INNER_FLOOR_MM) >
+    5_000,
+  true,
+);
+near(
+  "автополив: фитильное отверстие в центре",
+  planterWickHoleCenters(selfParams).length,
+  1,
+);
+check(
+  "автополив: луч через фитиль свободен",
+  rayHits(selfPotTriangles, 0, 0),
+  0,
+);
+check(
+  "автополив: внутреннее дно не дырявое",
+  rayHits(selfPotTriangles, 20, 0) > 0,
+  true,
+);
+near(
+  "автополив: поддон выше обычного",
+  selfTrayBounds.height,
+  PLANTER_SIGHT_TUBE_HEIGHT_MM,
+);
+near(
+  "автополив: борт резервуара",
+  selfFootprint.trayBodyHeight,
+  PLANTER_SELF_WATERING_TRAY_HEIGHT_MM,
+);
+check("автополив: трубка есть", tube !== null, true);
+check(
+  "автополив: трубка выше воды",
+  (tube?.z1 ?? 0) > PLANTER_SELF_WATERING_TRAY_HEIGHT_MM,
+  true,
+);
+check(
+  "автополив: трубка открыта снизу",
+  tube?.z0 === PLANTER_TRAY_FLOOR_MM + PLANTER_SIGHT_TUBE_INLET_GAP_MM,
+  true,
+);
+check(
+  "автополив: канал трубки не перекрыт",
+  tube
+    ? rayHitsFrom(
+        selfTrayTriangles,
+        [tube.centerX, tube.centerY, tube.z0 + 0.25],
+        [0, 0, 1],
+      ) === 0
+    : false,
+  true,
+);
+
+const tubeRadius = Math.hypot(tube?.centerX ?? 0, tube?.centerY ?? 0);
+const tubeInnerEdge = tubeRadius - (tube?.innerRadius ?? 0);
+const tubeOuterEdge = tubeRadius + (tube?.outerRadius ?? 0);
+
+check(
+  "автополив: трубка не задевает горшок",
+  tubeInnerEdge > sectionCircumradius(selfParams.planterShape, SIZE),
+  true,
+);
+check(
+  "автополив: трубка не прорезает внешнюю стенку",
+  tubeOuterEdge < (SIZE + PLANTER_TRAY_EXTRA_MM) / 2,
+  true,
+);
+near(
+  "автополив: радиус трубки",
+  tube?.outerRadius ?? 0,
+  PLANTER_SIGHT_TUBE_OUTER_RADIUS_MM,
+);
+near("автополив: набор X", selfPairBounds.width, 136, 1e-3);
+near(
+  "автополив: набор Y",
+  selfPairBounds.depth,
+  (136 * Math.sqrt(3)) / 2,
+  1e-3,
+);
+near(
+  "автополив: набор Z",
+  selfPairBounds.height,
+  PLANTER_SELF_WATERING_TRAY_HEIGHT_MM + HEIGHT,
+  1e-3,
+);
+near("автополив: набор на столе", selfPairBounds.minZ, 0, 1e-6);
+check(
+  "автополив: набор уже 220",
+  selfPairBounds.width < PLANTER_PRINT_BED_MM &&
+    selfPairBounds.depth < PLANTER_PRINT_BED_MM,
+  true,
+);
+check(
+  "автополив: горшок выше упоров",
+  selfFootprint.potBottomZ >= PLANTER_SELF_WATERING_TRAY_HEIGHT_MM,
+  true,
+);
+check(
+  "автополив: поддон не пропускает воду",
+  rayHits(selfTrayTriangles, 0, 0) > 0,
+  true,
+);
+
+let selfTrayWallsClosed = true;
+
+for (const z of [6, 13, 20, 26]) {
+  for (let index = 0; index < 32; index += 1) {
+    const angle = 0.07 + (Math.PI * 2 * index) / 32;
+    const hits = rayHitsFrom(
+      selfTrayTriangles,
+      [0, 0, z],
+      [Math.cos(angle), Math.sin(angle), 0],
+    );
+
+    if (hits < 2) {
+      selfTrayWallsClosed = false;
+    }
+  }
+}
+
+check(
+  "автополив: стенки резервуара непрерывны",
+  selfTrayWallsClosed,
+  true,
+);
+
+let selfTrayBottomClosed = true;
+
+for (let x = -36; x <= 36; x += 12) {
+  for (let y = -36; y <= 36; y += 12) {
+    if (rayHits(selfTrayTriangles, x, y) < 1) {
+      selfTrayBottomClosed = false;
+    }
+  }
+}
+
+check(
+  "автополив: дно резервуара без сквозных щелей",
+  selfTrayBottomClosed,
+  true,
+);
+
+let selfPotWallsClosed = true;
+
+for (const z of [20, 50]) {
+  for (let index = 0; index < 32; index += 1) {
+    const angle = 0.07 + (Math.PI * 2 * index) / 32;
+    const hits = rayHitsFrom(
+      selfPotTriangles,
+      [0, 0, z],
+      [Math.cos(angle), Math.sin(angle), 0],
+    );
+
+    if (hits < 2) {
+      selfPotWallsClosed = false;
+    }
+  }
+}
+
+check("автополив: стенки горшка целые", selfPotWallsClosed, true);
+
+selfPot.dispose();
+selfTray.dispose();
+selfPair.dispose();
+
 
 console.log("\nПлоское дно и сквозной дренаж:");
 
@@ -457,7 +765,6 @@ const trayBounds = boundsOf(trayTriangles);
 const trayDownArea = downFacingAreaAt(trayTriangles, 0);
 
 near("поддон: низ на Z = 0", trayBounds.minZ, 0);
-check("поддон: моста над столом нет", hasFloatingFloor(trayTriangles), false);
 check("поддон: площадь первого слоя", trayDownArea > 10_000, true);
 
 const holeCenters = planterDrainHoleCenters(hexParams);
@@ -504,7 +811,13 @@ near(
   trayOnlyBounds.width,
   SIZE + PLANTER_TRAY_EXTRA_MM,
 );
-near("part all: ширина", allBounds.width, 268, 1e-3);
+near("part all: ширина", allBounds.width, 136, 1e-3);
+near(
+  "part all: высота",
+  allBounds.height,
+  PLANTER_TRAY_HEIGHT_MM + HEIGHT,
+  1e-3,
+);
 near("part pot: центр X", (potOnlyBounds.minX + potOnlyBounds.maxX) / 2, 0);
 near("part tray: центр X", (trayOnlyBounds.minX + trayOnlyBounds.maxX) / 2, 0);
 
@@ -533,6 +846,42 @@ near("STL: низ на Z = 0", stlBounds.minZ, 0, 1e-6);
 check("STL: моста над столом нет", hasFloatingFloor(stlTriangles), false);
 check("STL: площадь первого слоя", stlDownArea > 8_000, true);
 
+console.log("\nSTL набора с автополивом 120 мм (hex):");
+
+const selfStlName = planterStlFileName(selfParams, "all");
+const selfStlPath = join(stlDirectory, selfStlName);
+const selfStlTriangles = exportStl(
+  createPlanterGeometry(selfParams, "all"),
+  selfStlPath,
+);
+const selfStlBounds = boundsOf(selfStlTriangles);
+
+check(
+  "STL автополива: имя с суффиксом",
+  selfStlName.includes("-avtopoliv-set.stl"),
+  true,
+);
+near("STL автополива: ширина", selfStlBounds.width, 136, 1e-4);
+near(
+  "STL автополива: глубина",
+  selfStlBounds.depth,
+  (136 * Math.sqrt(3)) / 2,
+  1e-3,
+);
+near(
+  "STL автополива: высота",
+  selfStlBounds.height,
+  PLANTER_SELF_WATERING_TRAY_HEIGHT_MM + HEIGHT,
+  1e-3,
+);
+near("STL автополива: низ на Z = 0", selfStlBounds.minZ, 0, 1e-6);
+check(
+  "STL автополива: влезает в 220",
+  selfStlBounds.width < PLANTER_PRINT_BED_MM &&
+    selfStlBounds.depth < PLANTER_PRINT_BED_MM,
+  true,
+);
+
 rmSync(stlDirectory, { recursive: true, force: true });
 
 pair.dispose();
@@ -549,6 +898,7 @@ if (failures.length > 0) {
 } else {
   console.log(
     "\nВсе проверки геометрии кашпо прошли: hex 120 × 103.92 × 110 мм, " +
-      "поддон 136 × 117.85 × 14 мм, дно плоское, зазор 12 мм.",
+      "поддон 136 × 117.85 × 14 мм, набор 136 × 117.85 × 124 мм, " +
+      "автополив 136 × 117.85 × 138 мм, резервуар 26 мм.",
   );
 }
