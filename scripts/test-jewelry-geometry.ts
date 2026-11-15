@@ -1,14 +1,14 @@
-/**
+﻿/**
  * Тест геометрии подставки для украшений.
  *
- * Три пресета коллекции: лоток-лист, гладкая скульптура оленя с рогами-деревом и
+ * Три пресета коллекции: лоток-лист, «Рогатое дерево» с кроной из рогов и
  * плетёное древо. Проверяется
  * то, что обещает панель: габарит по Z совпадает с высотой из ползунка, деталь
- * стоит на столе, сетка замкнута. У листа и древа нависаний круче 45° нет; у
- * оленя гладкие лофты корпуса и головы, а рога по-прежнему поднимаются не
- * положе 55°. Сетка неиндексированная, поэтому вершины свариваются по
- * координатам: без этого у каждого треугольника были бы свои вершины и проверка
- * рёбер не нашла бы ни одной пары.
+ * стоит на столе, сетка замкнута. У листа, рогатого дерева и древа нависаний
+ * круче 45° нет; у «Рогатого дерева» ствол сохраняет 60 мм, а рога по-прежнему
+ * поднимаются не положе 46°. Сетка неиндексированная, поэтому вершины
+ * свариваются по координатам: без этого у каждого треугольника были бы свои
+ * вершины и проверка рёбер не нашла бы ни одной пары.
  *
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-jewelry-geometry.ts
@@ -18,30 +18,23 @@
 import type { BufferGeometry } from "three";
 
 import {
-  JEWELRY_DEER_ANTLER_MIN_ELEVATION_DEG,
-  JEWELRY_DEER_BASE_HEIGHT_MM,
-  JEWELRY_DEER_BODY_POINTS,
-  JEWELRY_DEER_BODY_SECTIONS,
-  JEWELRY_DEER_EAR_PEAK_SECTION,
-  JEWELRY_DEER_HEAD_ANCHOR_SECTIONS,
-  JEWELRY_DEER_HEAD_ORIGIN_Z_MM,
-  JEWELRY_DEER_HEAD_PROFILE,
-  JEWELRY_DEER_HEAD_SECTION_POINTS,
-  JEWELRY_DEER_HEAD_SECTIONS,
-  JEWELRY_DEER_LEG_DIAMETER_MM,
-  JEWELRY_DEER_LEG_HEIGHT_MM,
-  JEWELRY_DEER_MAX_FOOTPRINT_MM,
-  JEWELRY_DEER_MAX_HEIGHT_MM,
-  JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM,
-  JEWELRY_DEER_TORSO_HEIGHT_MM,
-  JEWELRY_DEER_TORSO_LENGTH_MM,
-  JEWELRY_DEER_TORSO_WIDTH_MM,
-  JEWELRY_DEER_WEIGHT_DIAMETER_MM,
-  createJewelryDeerGeometry,
-  jewelryDeerHeightMm,
-  jewelryDeerPlan,
-  type JewelryDeerPlan,
-} from "../lib/constructor/jewelry-deer-geometry";
+  JEWELRY_ANTLER_TREE_ANTLER_MIN_ELEVATION_DEG,
+  JEWELRY_ANTLER_TREE_BASE_HEIGHT_MM,
+  JEWELRY_ANTLER_TREE_FLARE_RADIUS_MM,
+  JEWELRY_ANTLER_TREE_HOLE_COUNT,
+  JEWELRY_ANTLER_TREE_HOLE_DIAMETER_MM,
+  JEWELRY_ANTLER_TREE_MAX_FOOTPRINT_MM,
+  JEWELRY_ANTLER_TREE_MAX_HEIGHT_MM,
+  JEWELRY_ANTLER_TREE_MIN_ANTLER_DIAMETER_MM,
+  JEWELRY_ANTLER_TREE_TRUNK_BOTTOM_RADIUS_MM,
+  JEWELRY_ANTLER_TREE_TRUNK_HEIGHT_MM,
+  JEWELRY_ANTLER_TREE_TRUNK_SIDES,
+  JEWELRY_ANTLER_TREE_TRUNK_TOP_RADIUS_MM,
+  createJewelryAntlerTreeGeometry,
+  jewelryAntlerTreeHeightMm,
+  jewelryAntlerTreePlan,
+  type JewelryAntlerTreePlan,
+} from "../lib/constructor/jewelry-antler-tree-geometry";
 import {
   JEWELRY_LEAF_BOWL_DEPTH_MM,
   JEWELRY_LEAF_CENTER_VEIN_HALF_MM,
@@ -69,6 +62,7 @@ import {
 import {
   CONSTRUCTOR_LIMITS,
   JEWELRY_LEAF_TYPES,
+  JEWELRY_PRESETS,
   jewelryStandStlFileName,
   normalizeJewelryStandParams,
 } from "../lib/constructor/params";
@@ -776,79 +770,42 @@ function insideTube(
   return false;
 }
 
-/** Точка внутри гладкого корпуса: ближайшее эллиптическое сечение. */
-function insideBody(
-  plan: JewelryDeerPlan,
+/** Точка внутри ствола: радиус профиля на её высоте плюс запас. */
+function insideStem(
+  plan: JewelryAntlerTreePlan,
   point: Point,
   marginMm = 0,
 ): boolean {
-  let nearest = plan.body.sections[0];
-  let nearestDistance = Number.POSITIVE_INFINITY;
-
-  for (const section of plan.body.sections) {
-    const distance = Math.abs(point[1] - section.centerMm[1]);
-
-    if (distance < nearestDistance) {
-      nearest = section;
-      nearestDistance = distance;
-    }
-  }
-
-  if (nearestDistance > plan.body.lengthMm / 2 + 1e-6) {
+  if (
+    point[2] < plan.trunkRootZMm - marginMm ||
+    point[2] > plan.trunkTopZMm + marginMm
+  ) {
     return false;
   }
 
-  const radiusX = Math.max(0.01, nearest.radiusXMm - marginMm);
-  const radiusUp = Math.max(0.01, nearest.radiusUpMm - marginMm);
-  const normalizedX = (point[0] - nearest.centerMm[0]) / radiusX;
-  const normalizedUp = (point[2] - nearest.centerMm[2]) / radiusUp;
+  let radiusMm = plan.stemProfile[0].radiusMm;
 
-  return normalizedX * normalizedX + normalizedUp * normalizedUp <= 1.05;
-}
+  for (let index = 0; index < plan.stemProfile.length - 1; index += 1) {
+    const from = plan.stemProfile[index];
+    const to = plan.stemProfile[index + 1];
 
-/** Точка внутри гладкого лофта головы: эллипс ближайшего кольца. */
-function insideHead(
-  plan: JewelryDeerPlan,
-  point: Point,
-  marginMm = 0,
-): boolean {
-  let nearest = plan.head.sections[0];
-  let nearestDistance = Number.POSITIVE_INFINITY;
+    if (point[2] >= from.zMm && point[2] <= to.zMm) {
+      const share =
+        to.zMm > from.zMm ? (point[2] - from.zMm) / (to.zMm - from.zMm) : 0;
 
-  for (const section of plan.head.sections) {
-    const distance = Math.hypot(
-      point[0] - section.centerMm[0],
-      point[1] - section.centerMm[1],
-      point[2] - section.centerMm[2],
-    );
-
-    if (distance < nearestDistance) {
-      nearest = section;
-      nearestDistance = distance;
+      radiusMm = from.radiusMm + (to.radiusMm - from.radiusMm) * share;
+      break;
     }
   }
 
-  const dx = point[0] - nearest.centerMm[0];
-  const dy = point[1] - nearest.centerMm[1];
-  const dz = point[2] - nearest.centerMm[2];
-  const tangent = nearest.tangentMm;
-  const along = dx * tangent[0] + dy * tangent[1] + dz * tangent[2];
-  const upY = tangent[2];
-  const upZ = -tangent[1];
-  const up = dy * upY + dz * upZ;
-  const radiusX = Math.max(0.01, nearest.radiusXMm - marginMm);
-  const radiusUp = Math.max(0.01, nearest.radiusUpMm - marginMm);
-
-  return (
-    Math.abs(along) <= 12 &&
-    (dx * dx) / (radiusX * radiusX) +
-      (up * up) / (radiusUp * radiusUp) <=
-      1.08
-  );
+  return Math.hypot(point[0], point[1]) <= radiusMm + marginMm;
 }
 
-/** Точка внутри плиты или её полости: там потолки не считаются нависанием. */
-function insideBasePlate(plan: JewelryDeerPlan, point: Point): boolean {
+/** Точка внутри овального лотка: потолки там опираются на стол. */
+function insideBasePlate(
+  plan: JewelryAntlerTreePlan,
+  point: Point,
+): boolean {
   if (point[2] > plan.baseHeightMm + 1e-6) {
     return false;
   }
@@ -859,22 +816,11 @@ function insideBasePlate(plan: JewelryDeerPlan, point: Point): boolean {
   return x * x + y * y <= 1;
 }
 
-/** Точка внутри плинта: его низ лежит на лотке, потолки поддержаны. */
-function insidePlinth(plan: JewelryDeerPlan, point: Point): boolean {
-  // Ноги утоплены в плинт, но их нижние грани могут выходить на пару
-  // миллиметров выше лица плинта. Это всё ещё опирается на плинт.
-  if (point[2] > plan.plinth.topZMm + 4) {
-    return false;
-  }
-
-  const dx = (point[0] - plan.plinth.centerMm[0]) / (plan.plinth.widthMm / 2);
-  const dy = (point[1] - plan.plinth.centerMm[1]) / (plan.plinth.lengthMm / 2);
-
-  return dx * dx + dy * dy <= 1;
-}
-
-/** Нависания оленя: потолки, у которых есть опора или скрытый корень. */
-function deerOverhangs(mesh: Mesh, plan: JewelryDeerPlan): number {
+/** Нависания «Рогатого дерева»: потолки, у которых есть опора или скрытый корень. */
+function antlerTreeOverhangs(
+  mesh: Mesh,
+  plan: JewelryAntlerTreePlan,
+): number {
   let count = 0;
 
   for (const [a, b, c] of mesh.triangles) {
@@ -905,26 +851,20 @@ function deerOverhangs(mesh: Mesh, plan: JewelryDeerPlan): number {
     }
 
     const center: Point = [centerX, centerY, centerZ];
-    const tubes = plan.antlers.map((path) => path.points);
-
-    // Торцы корней утоплены в стволы и голову: их веера закрыты материалом, а
-    // не висят в воздухе. Плинт стоит на лотке, поэтому его низ тоже опирается.
-    const buried = tubes.some((points) =>
+    const buried = plan.antlers.some((path) =>
       insideTube(
         center,
-        points.map(
+        path.points.map(
           (point) => [point.xMm, point.yMm, point.zMm] as Point,
         ),
-        points.map((point) => point.radiusMm),
+        path.points.map((point) => point.radiusMm),
         0.35,
       ),
     );
 
     if (
       insideBasePlate(plan, center) ||
-      insidePlinth(plan, center) ||
-      insideBody(plan, center) ||
-      insideHead(plan, center) ||
+      insideStem(plan, center, 1.5) ||
       buried
     ) {
       continue;
@@ -936,285 +876,233 @@ function deerOverhangs(mesh: Mesh, plan: JewelryDeerPlan): number {
   return count;
 }
 
-console.log("\nОлень «Лесной олень»: гладкая фигура и крона");
+console.log("\nРогатое дерево: пресет и параметры");
 
-/** Витринный олень из референса: лоток 250 × 150, авторская высота около 420 мм. */
-const deerCase = {
-  jewelryPreset: "deer_bust" as const,
-  deerAntlerSpread: 230,
-  deerBaseLength: 250,
-  deerBaseWidth: 150,
+check(
+  "antler_tree есть в реестре пресетов",
+  JEWELRY_PRESETS.includes("antler_tree"),
+  true,
+);
+check(
+  "deer_bust удалён из реестра",
+  (JEWELRY_PRESETS as readonly string[]).includes("deer_bust"),
+  false,
+);
+
+/** Витринная конфигурация: лоток 250 × 150 и крона 230 мм. */
+const antlerCase = {
+  jewelryPreset: "antler_tree" as const,
+  antlerSpread: 230,
+  baseLength: 250,
+  baseWidth: 150,
 };
+const antlerPlan = jewelryAntlerTreePlan(antlerCase);
+const antlerHeight = jewelryAntlerTreeHeightMm(antlerCase);
 
-const deerPlan = jewelryDeerPlan(deerCase);
-const deerHeight = jewelryDeerHeightMm(deerCase);
-const deerSkull = deerPlan.head;
+near("рогатое дерево: длина лотка", antlerPlan.baseLengthMm, 250);
+near("рогатое дерево: ширина лотка", antlerPlan.baseWidthMm, 150);
+near(
+  "рогатое дерево: высота лотка",
+  antlerPlan.baseHeightMm,
+  JEWELRY_ANTLER_TREE_BASE_HEIGHT_MM,
+);
+check(
+  "рогатое дерево: полости под монету нет",
+  "pocketRadiusMm" in antlerPlan,
+  false,
+);
 
-near("олень: длина лотка", deerPlan.baseLengthMm, 250);
-near("олень: ширина лотка", deerPlan.baseWidthMm, 150);
+console.log("\nРогатое дерево: ствол и раструб");
+
+near(
+  "рогатое дерево: высота ствола 60 мм",
+  antlerPlan.trunkHeightMm,
+  JEWELRY_ANTLER_TREE_TRUNK_HEIGHT_MM,
+);
+near(
+  "рогатое дерево: рога начинаются на 60 мм над лотком",
+  antlerPlan.trunkTopZMm - antlerPlan.baseHeightMm,
+  JEWELRY_ANTLER_TREE_TRUNK_HEIGHT_MM,
+);
+near(
+  "рогатое дерево: нижний радиус 15",
+  antlerPlan.trunkBottomRadiusMm,
+  JEWELRY_ANTLER_TREE_TRUNK_BOTTOM_RADIUS_MM,
+);
+near(
+  "рогатое дерево: верхний радиус 10",
+  antlerPlan.trunkTopRadiusMm,
+  JEWELRY_ANTLER_TREE_TRUNK_TOP_RADIUS_MM,
+);
 check(
-  "олень: высота вписана в 240 мм",
-  deerPlan.heightMm <= JEWELRY_DEER_MAX_HEIGHT_MM + 1e-6,
+  "рогатое дерево: 32 сегмента ствола",
+  antlerPlan.trunkSides === JEWELRY_ANTLER_TREE_TRUNK_SIDES &&
+    antlerPlan.trunkSides === 32,
+  true,
+);
+near(
+  "рогатое дерево: радиус раструба",
+  antlerPlan.flareRadiusMm,
+  JEWELRY_ANTLER_TREE_FLARE_RADIUS_MM,
+);
+const flareEndRadiusMm =
+  antlerPlan.stemProfile.find(
+    (point) => point.zMm === antlerPlan.flareEndZMm,
+  )?.radiusMm ?? -1;
+
+near(
+  "рогатое дерево: раструб сходит к 15 мм",
+  flareEndRadiusMm,
+  JEWELRY_ANTLER_TREE_TRUNK_BOTTOM_RADIUS_MM,
+);
+check(
+  "рогатое дерево: радиус только убывает",
+  antlerPlan.stemProfile.every(
+    (point, index) =>
+      index === 0 ||
+      point.radiusMm <= antlerPlan.stemProfile[index - 1].radiusMm + 1e-9,
+  ),
   true,
 );
 check(
-  "олень: крупная фигура ужата масштабом",
-  deerPlan.fitScale < 1 && deerPlan.fitScale > 0.4,
+  "рогатое дерево: ствол начинается ниже лица лотка",
+  antlerPlan.trunkRootZMm < antlerPlan.baseHeightMm &&
+    antlerPlan.trunkRootZMm > 0,
+  true,
+);
+
+console.log("\nРогатое дерево: сетка отверстий под серьги");
+
+check(
+  "рогатое дерево: десять отверстий",
+  antlerPlan.holes.length === JEWELRY_ANTLER_TREE_HOLE_COUNT &&
+    JEWELRY_ANTLER_TREE_HOLE_COUNT === 10,
+  true,
+);
+near(
+  "рогатое дерево: диаметр отверстия 1.2",
+  antlerPlan.holeDiameterMm,
+  JEWELRY_ANTLER_TREE_HOLE_DIAMETER_MM,
+);
+check(
+  "рогатое дерево: отверстия не задевают раструб",
+  antlerPlan.holes.every(
+    (hole) =>
+      Math.hypot(hole.xMm, hole.yMm) - hole.radiusMm >
+      JEWELRY_ANTLER_TREE_FLARE_RADIUS_MM + 1.9,
+  ),
   true,
 );
 check(
-  "олень: габарит в плане не больше 250 × 250",
-  Math.max(
-    deerPlan.baseLengthMm,
-    deerPlan.baseWidthMm,
-    deerPlan.antlerOuterXMm * 2,
-  ) <= JEWELRY_DEER_MAX_FOOTPRINT_MM + 1e-6,
+  "рогатое дерево: отверстия вписаны в лоток",
+  antlerPlan.holes.every((hole) => {
+    const x = hole.xMm / (antlerPlan.baseLengthMm / 2);
+    const y = hole.yMm / (antlerPlan.baseWidthMm / 2);
+
+    return Math.hypot(x, y) + hole.radiusMm / 10 < 0.95;
+  }),
   true,
 );
 check(
-  "олень: ветви не тоньше Ø3 мм",
-  deerPlan.antlers.every(
+  "рогатое дерево: сетка не повторяет точки",
+  new Set(antlerPlan.holes.map((hole) => `${hole.xMm}:${hole.yMm}`)).size ===
+    JEWELRY_ANTLER_TREE_HOLE_COUNT,
+  true,
+);
+check(
+  "рогатое дерево: сетка стоит двумя колонками",
+  new Set(antlerPlan.holes.map((hole) => hole.xMm.toFixed(6))).size === 2,
+  true,
+);
+
+console.log("\nРогатое дерево: крона из 26 трубок");
+
+check("рогатое дерево: 26 труб рогов", antlerPlan.antlers.length, 26);
+check(
+  "рогатое дерево: два ствола и 24 ветви",
+  antlerPlan.antlers.filter((path) => path.kind === "beam").length === 2 &&
+    antlerPlan.antlers.filter((path) => path.kind === "tine").length === 24,
+  true,
+);
+check(
+  "рогатое дерево: ветви не тоньше Ø3 мм",
+  antlerPlan.antlers.every(
     (path) =>
       path.budRadiusMm * 2 >=
-        JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM - 1e-9 &&
+        JEWELRY_ANTLER_TREE_MIN_ANTLER_DIAMETER_MM - 1e-9 &&
       path.points.every(
         (point) =>
           point.radiusMm * 2 >=
-          JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM - 1e-9,
+          JEWELRY_ANTLER_TREE_MIN_ANTLER_DIAMETER_MM - 1e-9,
       ),
   ),
   true,
 );
-near("олень: высота лотка", deerPlan.baseHeightMm, JEWELRY_DEER_BASE_HEIGHT_MM);
-near(
-  "олень: дно и глубина полости дают высоту лотка",
-  deerPlan.pocketFloorMm + deerPlan.pocketDepthMm,
-  JEWELRY_DEER_BASE_HEIGHT_MM,
-);
-near(
-  "олень: радиус полости",
-  deerPlan.pocketRadiusMm,
-  JEWELRY_DEER_WEIGHT_DIAMETER_MM / 2,
-);
 check(
-  "олень: полость сбоку от фигуры",
-  deerPlan.pocketCenterMm[0] > 0 &&
-    deerPlan.pocketCenterMm[1] === 0 &&
-    deerPlan.pocketOffsetMm > 0,
+  "рогатое дерево: высота вписана в 240 мм",
+  antlerPlan.heightMm <= JEWELRY_ANTLER_TREE_MAX_HEIGHT_MM + 1e-6 &&
+    Math.abs(antlerHeight - antlerPlan.heightMm) < 1e-9,
   true,
 );
 check(
-  "олень: полость не задевает плинт",
-  deerPlan.pocketOffsetMm - deerPlan.pocketRadiusMm >
-    deerPlan.plinth.widthMm / 2 + 1.9,
+  "рогатое дерево: высота — это верх рогов",
+  Math.abs(antlerPlan.heightMm - antlerPlan.antlerTopZMm) < 0.01,
   true,
 );
 check(
-  "олень: полость вписана в лоток",
-  deerPlan.pocketOffsetMm + deerPlan.pocketRadiusMm <
-    deerPlan.baseLengthMm / 2,
+  "рогатое дерево: крона выше ствола",
+  antlerPlan.antlerTopZMm > antlerPlan.trunkTopZMm + 150,
   true,
 );
 check(
-  "олень: плинт шире и длиннее тела",
-  deerPlan.plinth.widthMm > deerPlan.body.widthMm &&
-    deerPlan.plinth.lengthMm > deerPlan.body.lengthMm,
-  true,
-);
-check(
-  "олень: корпус поднят над плинтом на ногах",
-  deerPlan.body.bottomZMm > deerPlan.plinth.topZMm &&
-    deerPlan.legs.every((leg) => {
-      const foot = leg.points[0];
-      const top = leg.points[leg.points.length - 1];
-
-      return (
-        Math.abs(foot.zMm - deerPlan.baseHeightMm) < 1e-9 &&
-        top.zMm > deerPlan.body.bottomZMm
-      );
-    }),
-  true,
-);
-check(
-  "олень: плинт стоит на лотке",
-  Math.abs(
-    deerPlan.plinth.topZMm - deerPlan.plinth.heightMm - deerPlan.baseHeightMm,
-  ) < 1e-9,
-  true,
-);
-check(
-  "олень: корпус — гладкий лофт 55 × 28 × 36",
-  deerPlan.body.sections.length === JEWELRY_DEER_BODY_SECTIONS + 1 &&
-    deerPlan.body.pointsPerSection === JEWELRY_DEER_BODY_POINTS &&
-    Math.abs(
-      deerPlan.body.lengthMm -
-        JEWELRY_DEER_TORSO_LENGTH_MM * deerPlan.fitScale,
-    ) < 1e-9 &&
-    Math.abs(
-      deerPlan.body.widthMm -
-        JEWELRY_DEER_TORSO_WIDTH_MM * deerPlan.fitScale,
-    ) < 1e-9 &&
-    Math.abs(
-      deerPlan.body.heightMm -
-        JEWELRY_DEER_TORSO_HEIGHT_MM * deerPlan.fitScale,
-    ) < 1e-9,
-  true,
-);
-check(
-  "олень: корпус состоит из эллиптических сечений",
-  deerPlan.body.sections.every(
-    (section) => section.radiusXMm > 0 && section.radiusUpMm > 0,
-  ),
-  true,
-);
-
-console.log("\nОлень «Лесной олень»: гладкая голова и восемь сечений");
-
-check(
-  "олень: сто колец по 64 точки",
-  deerSkull.sections.length === JEWELRY_DEER_HEAD_SECTIONS &&
-    deerSkull.sectionCount === JEWELRY_DEER_HEAD_SECTIONS &&
-    deerSkull.pointsPerSection === JEWELRY_DEER_HEAD_SECTION_POINTS,
-  true,
-);
-check(
-  "олень: восемь опорных сечений на своих кольцах",
-  deerSkull.anchors.length === 8 &&
-    deerSkull.anchors.every(
-      (anchor, index) =>
-        anchor.sectionIndex === JEWELRY_DEER_HEAD_ANCHOR_SECTIONS[index],
+  "рогатое дерево: рога не выходят за размах",
+  antlerPlan.antlers.every((path) =>
+    path.points.every(
+      (point) =>
+        Math.abs(point.xMm) + path.budRadiusMm <=
+        antlerPlan.antlerSpreadMm / 2 + 0.01,
     ),
-  true,
-);
-check(
-  "олень: размеры сечений совпадают с чертежом",
-  deerSkull.anchors.every((anchor, index) => {
-    const profile = JEWELRY_DEER_HEAD_PROFILE[index];
-
-    return (
-      anchor.widthMm === profile.widthMm &&
-      anchor.heightMm === profile.heightMm &&
-      Math.abs(
-        anchor.radiusXMm - (profile.widthMm / 2) * deerPlan.fitScale,
-      ) < 1e-9 &&
-      Math.abs(
-        anchor.radiusUpMm - (profile.heightMm / 2) * deerPlan.fitScale,
-      ) < 1e-9
-    );
-  }),
-  true,
-);
-check(
-  "олень: ось проходит точно через восемь точек чертежа",
-  deerSkull.anchors.every((anchor, index) => {
-    const profile = JEWELRY_DEER_HEAD_PROFILE[index];
-    const expectedZ =
-      deerPlan.baseHeightMm +
-      (JEWELRY_DEER_HEAD_ORIGIN_Z_MM + profile.heightYMm - deerPlan.baseHeightMm) *
-        deerPlan.fitScale;
-
-    return (
-      Math.abs(anchor.centerMm[0]) < 1e-9 &&
-      Math.abs(anchor.centerMm[1] - profile.forwardZMm * deerPlan.fitScale) <
-        1e-9 &&
-      Math.abs(anchor.centerMm[2] - expectedZ) < 1e-9
-    );
-  }),
-  true,
-);
-check(
-  "олень: кольца повёрнуты перпендикулярно оси",
-  deerSkull.sections.every(
-    (section) =>
-      Math.abs(
-        Math.hypot(...section.tangentMm) - 1,
-      ) < 1e-9,
   ),
   true,
 );
 check(
-  "олень: все сечения гладкие и положительные",
-  deerSkull.sections.every(
-    (section) => section.radiusXMm > 0 && section.radiusUpMm > 0,
-  ),
+  "рогатое дерево: габарит в плане не больше 250 × 250",
+  Math.max(
+    antlerPlan.baseLengthMm,
+    antlerPlan.baseWidthMm,
+    antlerPlan.antlerOuterXMm * 2,
+    antlerPlan.antlerOuterYMm * 2,
+  ) <=
+    JEWELRY_ANTLER_TREE_MAX_FOOTPRINT_MM + 1e-6,
   true,
 );
 check(
-  "олень: макушка выше корпуса",
-  deerPlan.crownZMm > deerPlan.body.topZMm + 20,
-  true,
-);
-check(
-  "олень: нос смотрит вперёд и вниз",
-  deerSkull.noseMm[1] <
-    deerSkull.anchors[4].centerMm[1] - 10 &&
-    deerSkull.noseMm[2] < deerSkull.anchors[4].centerMm[2] &&
-    deerSkull.noseMm[2] > deerPlan.baseHeightMm,
-  true,
-);
-check(
-  "олень: уши — два интегрированных лепестка",
-  deerPlan.ears.length === 2 &&
-    Math.abs(deerPlan.ears[0].tipMm[0] + deerPlan.ears[1].tipMm[0]) < 1e-9 &&
-    deerPlan.ears.every(
-      (ear) => ear.tipMm[2] > ear.rootMm[2],
-    ),
-  true,
-);
-check(
-  "олень: уши выходят за череп",
-  Math.abs(deerPlan.ears[0].tipMm[0]) >
-    deerSkull.sections[JEWELRY_DEER_EAR_PEAK_SECTION].radiusXMm + 1,
-  true,
-);
-check(
-  "олень: корни ушей внутри лофта",
-  deerPlan.ears.every((ear) => insideHead(deerPlan, ear.rootMm)),
+  "рогатое дерево: рога растут из верхушки ствола",
+  antlerPlan.antlerRootZMm < antlerPlan.trunkTopZMm &&
+    antlerPlan.antlerRootZMm > antlerPlan.trunkTopZMm - 12,
   true,
 );
 
-console.log("\nОлень «Лесной олень»: рога-дерево");
-
-check("олень: 26 труб рогов", deerPlan.antlers.length, 26);
-check(
-  "олень: на сторону два ствола и одиннадцать ветвей",
-  deerPlan.antlers.filter((path) => path.kind === "beam").length === 2 &&
-    deerPlan.antlers.filter((path) => path.kind === "tine").length === 24,
-  true,
-);
-check(
-  "олень: размах ужат клампом и не больше ползунка",
-  deerPlan.antlerSpreadMm > 0 &&
-    deerPlan.antlerSpreadMm < 230,
-  true,
-);
-check(
-  "олень: рога выше головы",
-  deerPlan.antlerTopZMm > deerPlan.crownZMm + 150,
-  true,
-);
-check(
-  "олень: высота совпадает с рогами",
-  Math.abs(deerHeight - deerPlan.antlerTopZMm) < 0.01,
-  true,
-);
-
-for (const beam of deerPlan.antlers.filter((path) => path.kind === "beam")) {
+for (const beam of antlerPlan.antlers.filter(
+  (path) => path.kind === "beam",
+)) {
   const root = beam.points[0];
 
   check(
-    `олень: корень ${beam.id} внутри головы`,
-    insideHead(deerPlan, [root.xMm, root.yMm, root.zMm], 0.2),
+    `рогатое дерево: корень ${beam.id} внутри ствола`,
+    insideStem(antlerPlan, [root.xMm, root.yMm, root.zMm], 0.2),
     true,
   );
 }
 
-for (const tine of deerPlan.antlers.filter((path) => path.kind === "tine")) {
+for (const tine of antlerPlan.antlers.filter(
+  (path) => path.kind === "tine",
+)) {
   const root = tine.points[0];
 
   check(
-    `олень: корень ${tine.id} утоплен в ствол`,
-    deerPlan.antlers.some(
+    `рогатое дерево: корень ${tine.id} утоплен в родителя`,
+    antlerPlan.antlers.some(
       (other) =>
         other !== tine &&
         insideTube(
@@ -1232,7 +1120,7 @@ for (const tine of deerPlan.antlers.filter((path) => path.kind === "tine")) {
 
 let flattestAntlerDeg = 180;
 
-for (const path of deerPlan.antlers) {
+for (const path of antlerPlan.antlers) {
   for (let index = 0; index < path.points.length - 1; index += 1) {
     const from = path.points[index];
     const to = path.points[index + 1];
@@ -1248,272 +1136,233 @@ for (const path of deerPlan.antlers) {
 }
 
 check(
-  "олень: каждая хорда рога не положе 55°",
-  flattestAntlerDeg >= JEWELRY_DEER_ANTLER_MIN_ELEVATION_DEG - 1e-6,
+  "рогатое дерево: каждая хорда рога не положе 46°",
+  flattestAntlerDeg >=
+    JEWELRY_ANTLER_TREE_ANTLER_MIN_ELEVATION_DEG - 1e-6,
   true,
 );
+
 check(
-  "олень: ветви не уходят за размах",
-  deerPlan.antlers.every((path) =>
-    path.points.every(
-      (point) => Math.abs(point.xMm) + path.budRadiusMm <= 115.01,
-    ),
+  "рогатое дерево: тела оленя удалены",
+  ["body", "head", "legs", "ears", "plinth"].every(
+    (key) => !(key in antlerPlan),
   ),
   true,
 );
 
-console.log("\nОлень «Лесной олень»: корпус, ноги и полость");
+console.log("\nРогатое дерево: тело детали");
 
-check("олень: четыре гладкие ноги", deerPlan.legs.length, 4);
+const antlerGeometry = createJewelryAntlerTreeGeometry(antlerCase);
+const antlerMesh = weld(antlerGeometry);
+const [antlerMinZ, antlerMaxZ] = range(antlerMesh.vertices, 2);
+const [antlerMinX, antlerMaxX] = range(antlerMesh.vertices, 0);
+const [antlerMinY, antlerMaxY] = range(antlerMesh.vertices, 1);
+const antlerVolume = volumeMm3(antlerMesh) / 1000;
+const antlerTriangles = antlerGeometry.getAttribute("position").count / 3;
+
+check("рогатое дерево: открытых рёбер", openEdges(antlerMesh), 0);
+check("рогатое дерево: NaN", nanVertices(antlerGeometry), 0);
 check(
-  "олень: ноги — шестнадцатигранные лофт-трубы",
-  deerPlan.legs.every((leg) => {
-    const foot = leg.points[0];
-    const top = leg.points[leg.points.length - 1];
-
-    return (
-      leg.sides === 16 &&
-      leg.points.length >= 4 &&
-      Math.abs(
-        foot.radiusMm * 2 -
-          JEWELRY_DEER_LEG_DIAMETER_MM * deerPlan.fitScale,
-      ) < 1e-9 &&
-      top.radiusMm > foot.radiusMm &&
-      Math.abs(
-        top.zMm -
-          foot.zMm -
-          JEWELRY_DEER_LEG_HEIGHT_MM * deerPlan.fitScale,
-      ) < 1e-9
-    );
-  }),
-  true,
-);
-check(
-  "олень: верхние сечения ног внутри корпуса",
-  deerPlan.legs.every((leg) => {
-    const top = leg.points[leg.points.length - 1];
-
-    return insideBody(deerPlan, [top.xMm, top.yMm, top.zMm]);
-  }),
-  true,
-);
-check(
-  "олень: лапы стоят на плинте",
-  deerPlan.legs.every((leg) => {
-    const foot = leg.points[0];
-    const point: Point = [foot.xMm, foot.yMm, foot.zMm];
-
-    return (
-      insidePlinth(deerPlan, point) &&
-      foot.zMm < deerPlan.plinth.topZMm
-    );
-  }),
-  true,
-);
-check(
-  "олень: ноги образуют прямоугольник stance",
-  new Set(
-    deerPlan.legs.map((leg) => {
-      const foot = leg.points[0];
-
-      return `${foot.xMm}:${foot.yMm}`;
-    }),
-  ).size === 4,
-  true,
-);
-check(
-  "олень: полость целиком в лотке",
-  deerPlan.pocketFloorMm > 0 &&
-    deerPlan.pocketFloorMm + deerPlan.pocketDepthMm <=
-      deerPlan.baseHeightMm + 1e-9,
-  true,
-);
-
-
-console.log("\nОлень «Лесной олень»: тело детали");
-
-const deerGeometry = createJewelryDeerGeometry(deerCase);
-const deerMesh = weld(deerGeometry);
-const [deerMinZ, deerMaxZ] = range(deerMesh.vertices, 2);
-const [deerMinX, deerMaxX] = range(deerMesh.vertices, 0);
-const [deerMinY, deerMaxY] = range(deerMesh.vertices, 1);
-const deerVolume = volumeMm3(deerMesh) / 1000;
-const deerTriangles = deerGeometry.getAttribute("position").count / 3;
-
-check("олень: открытых рёбер", openEdges(deerMesh), 0);
-check("олень: NaN", nanVertices(deerGeometry), 0);
-check("олень: вырожденных треугольников", degenerateTriangles(deerMesh), 0);
-check(
-  "олень: поверхность гладкая",
-  flatShadingSpots(deerGeometry, 60),
+  "рогатое дерево: вырожденных треугольников",
+  degenerateTriangles(antlerMesh),
   0,
 );
-check("олень: плотная гладкая сетка", deerTriangles < 100000, true);
 check(
-  "олень: сетка не потеряла рога",
-  deerTriangles > 15000,
+  "рогатое дерево: поверхность гладкая",
+  flatShadingSpots(antlerGeometry, 60),
+  0,
+);
+check(
+  "рогатое дерево: плотная сетка",
+  antlerTriangles > 10000 && antlerTriangles < 100000,
   true,
 );
-check("олень: низ на столе", Math.abs(deerMinZ) <= 1e-6, true);
 check(
-  "олень: высота совпадает с планом",
-  Math.abs(deerMaxZ - deerPlan.heightMm) <= HEIGHT_TOLERANCE_MM,
+  "рогатое дерево: низ на столе",
+  Math.abs(antlerMinZ) <= 1e-6,
   true,
 );
-expectNear("олень: габарит по X", deerMaxX - deerMinX, 250, 0.15);
-expectNear("олень: габарит по Y", deerMaxY - deerMinY, 150, 0.15);
-check("олень: нос не выходит за лоток", deerMinY >= -75.01, true);
-const deerOverhangCount = deerOverhangs(deerMesh, deerPlan);
+check(
+  "рогатое дерево: высота совпадает с планом",
+  Math.abs(antlerMaxZ - antlerPlan.heightMm) <= HEIGHT_TOLERANCE_MM,
+  true,
+);
+expectNear("рогатое дерево: габарит по X", antlerMaxX - antlerMinX, 250, 0.15);
+expectNear("рогатое дерево: габарит по Y", antlerMaxY - antlerMinY, 150, 0.15);
+check(
+  "рогатое дерево: STL не выше 240 мм",
+  antlerMaxZ <= JEWELRY_ANTLER_TREE_MAX_HEIGHT_MM + HEIGHT_TOLERANCE_MM,
+  true,
+);
+check(
+  "рогатое дерево: STL не шире 250 мм",
+  antlerMaxX - antlerMinX <=
+    JEWELRY_ANTLER_TREE_MAX_FOOTPRINT_MM + 1e-6 &&
+    antlerMaxY - antlerMinY <=
+      JEWELRY_ANTLER_TREE_MAX_FOOTPRINT_MM + 1e-6,
+  true,
+);
+
+const antlerOverhangCount = antlerTreeOverhangs(antlerMesh, antlerPlan);
 
 check(
-  "олень: нависания в бюджете 8 граней",
-  deerOverhangCount <= 8,
-  true,
+  "рогатое дерево: нависаний круче 45° нет",
+  antlerOverhangCount,
+  0,
 );
 check(
-  "олень: объём в коридоре",
-  deerVolume > 160 && deerVolume < 280,
-  true,
-);
-check(
-  "олень: STL не выше 240 мм",
-  deerMaxZ <= JEWELRY_DEER_MAX_HEIGHT_MM + HEIGHT_TOLERANCE_MM,
-  true,
-);
-check(
-  "олень: STL не шире 250 мм",
-  deerMaxX - deerMinX <= JEWELRY_DEER_MAX_FOOTPRINT_MM + 1e-6 &&
-    deerMaxY - deerMinY <= JEWELRY_DEER_MAX_FOOTPRINT_MM + 1e-6,
+  "рогатое дерево: объём в коридоре",
+  antlerVolume > 100 && antlerVolume < 400,
   true,
 );
 
 console.log(
-  `  · ${deerTriangles} треугольников, ${deerVolume.toFixed(1)} см³, ` +
-    `${deerOverhangCount} нависаний, ` +
-    `z ${deerMinZ.toFixed(2)}…${deerMaxZ.toFixed(2)} мм`,
+  `  · ${antlerTriangles} треугольников, ${antlerVolume.toFixed(1)} см³, ` +
+    `${antlerOverhangCount} нависаний, ` +
+    `z ${antlerMinZ.toFixed(2)}…${antlerMaxZ.toFixed(2)} мм`,
 );
 
-console.log("\nОлень «Лесной олень»: диспетчер и подписи");
+console.log("\nРогатое дерево: диспетчер и подписи");
 
-const deerDirect = createJewelryDeerGeometry(deerCase);
-const deerDispatched = deerGeometry.getAttribute("position");
-const deerDirectPosition = deerDirect.getAttribute("position");
-let deerSameMesh = deerDirectPosition.count === deerDispatched.count;
+const antlerDirect = createJewelryAntlerTreeGeometry(antlerCase);
+const antlerDispatched = antlerGeometry.getAttribute("position");
+const antlerDirectPosition = antlerDirect.getAttribute("position");
+let antlerSameMesh = antlerDirectPosition.count === antlerDispatched.count;
 
-for (let index = 0; deerSameMesh && index < deerDirectPosition.count; index += 1) {
-  deerSameMesh =
-    Math.abs(
-      deerDirectPosition.getX(index) - deerDispatched.getX(index),
-    ) < 1e-9 &&
-    Math.abs(
-      deerDirectPosition.getY(index) - deerDispatched.getY(index),
-    ) < 1e-9 &&
-    Math.abs(
-      deerDirectPosition.getZ(index) - deerDispatched.getZ(index),
-    ) < 1e-9;
+for (let index = 0; antlerSameMesh && index < antlerDirectPosition.count; index += 1) {
+  antlerSameMesh =
+    Math.abs(antlerDirectPosition.getX(index) - antlerDispatched.getX(index)) <
+      1e-9 &&
+    Math.abs(antlerDirectPosition.getY(index) - antlerDispatched.getY(index)) <
+      1e-9 &&
+    Math.abs(antlerDirectPosition.getZ(index) - antlerDispatched.getZ(index)) <
+      1e-9;
 }
 
-check("олень: диспетчер вернул сетку генератора", deerSameMesh, true);
-
-const deerMetrics = jewelryStandMetrics(deerCase);
-
-near("олень: метрика ширины", deerMetrics.widthMm, 250);
-near("олень: метрика глубины", deerMetrics.depthMm, 150);
 check(
-  "олень: метрика высоты",
-  Math.abs(deerMetrics.heightMm - deerHeight) <= HEIGHT_TOLERANCE_MM,
+  "рогатое дерево: диспетчер вернул сетку генератора",
+  antlerSameMesh,
   true,
 );
 
-const deerFileName = jewelryStandStlFileName(
-  normalizeJewelryStandParams(deerCase),
-);
+const antlerMetrics = jewelryStandMetrics(antlerCase);
 
+near("рогатое дерево: метрика ширины", antlerMetrics.widthMm, 250);
+near("рогатое дерево: метрика глубины", antlerMetrics.depthMm, 150);
 check(
-  "олень: имя файла",
-  deerFileName,
-  "tridi-podstavka-ukrasheniy-deer-bust-l250-w150-a230.stl",
-);
-check(
-  "олень: имя файла только ASCII",
-  /^[\x20-\x7E]+$/.test(deerFileName),
+  "рогатое дерево: метрика высоты",
+  Math.abs(antlerMetrics.heightMm - antlerHeight) <= HEIGHT_TOLERANCE_MM,
   true,
 );
 
-const clampedDeer = normalizeJewelryStandParams({
-  jewelryPreset: "deer_bust",
-  deerAntlerSpread: 500,
-  deerBaseLength: 5,
-  deerBaseWidth: 500,
+const antlerFileName = jewelryStandStlFileName(
+  normalizeJewelryStandParams(antlerCase),
+);
+
+check(
+  "рогатое дерево: имя файла",
+  antlerFileName,
+  "tridi-podstavka-ukrasheniy-antler-tree-l250-w150-a230.stl",
+);
+check(
+  "рогатое дерево: имя файла только ASCII",
+  /^[\x20-\x7E]+$/.test(antlerFileName),
+  true,
+);
+
+const clampedAntler = normalizeJewelryStandParams({
+  jewelryPreset: "antler_tree",
+  antlerSpread: 500,
+  baseLength: 5,
+  baseWidth: 500,
 });
 
-check("олень: размах ужат", clampedDeer.deerAntlerSpread, 230);
-check("олень: длина лотка поднята", clampedDeer.deerBaseLength, 150);
-check("олень: ширина лотка ужата", clampedDeer.deerBaseWidth, 150);
+check("рогатое дерево: размах ужат", clampedAntler.antlerSpread, 230);
+check("рогатое дерево: длина лотка поднята", clampedAntler.baseLength, 150);
+check("рогатое дерево: ширина лотка ужата", clampedAntler.baseWidth, 150);
 
-console.log("\nОлень «Лесной олень»: минимальный размер");
+console.log("\nРогатое дерево: минимальный размер");
 
-const smallestDeerCase = {
-  jewelryPreset: "deer_bust" as const,
-  deerAntlerSpread: 100,
-  deerBaseLength: 150,
-  deerBaseWidth: 100,
+const smallestAntlerCase = {
+  jewelryPreset: "antler_tree" as const,
+  antlerSpread: 100,
+  baseLength: 150,
+  baseWidth: 100,
 };
-const smallestDeer = jewelryDeerPlan(smallestDeerCase);
-const smallestGeometry = createJewelryDeerGeometry(smallestDeerCase);
-const smallestMesh = weld(smallestGeometry);
-const [smallestMinZ, smallestMaxZ] = range(smallestMesh.vertices, 2);
+const smallestAntler = jewelryAntlerTreePlan(smallestAntlerCase);
+const smallestAntlerGeometry =
+  createJewelryAntlerTreeGeometry(smallestAntlerCase);
+const smallestAntlerMesh = weld(smallestAntlerGeometry);
+const [smallestAntlerMinZ, smallestAntlerMaxZ] = range(
+  smallestAntlerMesh.vertices,
+  2,
+);
 
-check("олень: минимум — открытых рёбер", openEdges(smallestMesh), 0);
-check("олень: минимум — NaN", nanVertices(smallestGeometry), 0);
-check("олень: минимум — низ на столе", Math.abs(smallestMinZ) <= 1e-6, true);
 check(
-  "олень: минимум — высота из плана",
-  Math.abs(smallestMaxZ - smallestDeer.heightMm) <= HEIGHT_TOLERANCE_MM,
+  "рогатое дерево: минимум — открытых рёбер",
+  openEdges(smallestAntlerMesh),
+  0,
+);
+check(
+  "рогатое дерево: минимум — NaN",
+  nanVertices(smallestAntlerGeometry),
+  0,
+);
+check(
+  "рогатое дерево: минимум — низ на столе",
+  Math.abs(smallestAntlerMinZ) <= 1e-6,
   true,
 );
 check(
-  "олень: минимум — ветви не тоньше Ø3 мм",
-  smallestDeer.antlers.every(
+  "рогатое дерево: минимум — высота из плана",
+  Math.abs(smallestAntlerMaxZ - smallestAntler.heightMm) <=
+    HEIGHT_TOLERANCE_MM,
+  true,
+);
+check(
+  "рогатое дерево: минимум — ствол те же 60 мм",
+  smallestAntler.trunkHeightMm === JEWELRY_ANTLER_TREE_TRUNK_HEIGHT_MM &&
+    smallestAntler.trunkTopZMm - smallestAntler.baseHeightMm ===
+      JEWELRY_ANTLER_TREE_TRUNK_HEIGHT_MM,
+  true,
+);
+check(
+  "рогатое дерево: минимум — отверстия вписаны",
+  smallestAntler.holes.every((hole) => {
+    const x = hole.xMm / (smallestAntler.baseLengthMm / 2);
+    const y = hole.yMm / (smallestAntler.baseWidthMm / 2);
+
+    return Math.hypot(x, y) + hole.radiusMm / 10 < 0.95;
+  }),
+  true,
+);
+check(
+  "рогатое дерево: минимум — нависаний нет",
+  antlerTreeOverhangs(smallestAntlerMesh, smallestAntler),
+  0,
+);
+check(
+  "рогатое дерево: минимум — высота вписана в конверт",
+  smallestAntler.heightMm <= JEWELRY_ANTLER_TREE_MAX_HEIGHT_MM + 1e-6,
+  true,
+);
+check(
+  "рогатое дерево: минимум — рога не тоньше Ø3 мм",
+  smallestAntler.antlers.every(
     (path) =>
       path.budRadiusMm * 2 >=
-        JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM - 1e-9 &&
+        JEWELRY_ANTLER_TREE_MIN_ANTLER_DIAMETER_MM - 1e-9 &&
       path.points.every(
         (point) =>
           point.radiusMm * 2 >=
-          JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM - 1e-9,
+          JEWELRY_ANTLER_TREE_MIN_ANTLER_DIAMETER_MM - 1e-9,
       ),
   ),
   true,
 );
-check(
-  "олень: минимум — полость вписана",
-  smallestDeer.pocketOffsetMm + smallestDeer.pocketRadiusMm <
-    smallestDeer.baseLengthMm / 2,
-  true,
-);
-check(
-  "олень: минимум — голова остаётся гладким лофтом",
-  smallestDeer.head.sections.length === JEWELRY_DEER_HEAD_SECTIONS &&
-    smallestDeer.head.anchors.length === 8,
-  true,
-);
-check(
-  "олень: минимум — нависаний нет сверх бюджета",
-  deerOverhangs(smallestMesh, smallestDeer) <= 8,
-  true,
-);
-check(
-  "олень: минимум — высота вписана в конверт",
-  smallestDeer.heightMm <= JEWELRY_DEER_MAX_HEIGHT_MM + 1e-6,
-  true,
-);
 
-check(
-  "олень: минимум — масштаб мягче витринного",
-  smallestDeer.fitScale > deerPlan.fitScale,
-  true,
-);
+
+
 
 
 /**

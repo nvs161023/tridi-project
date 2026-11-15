@@ -9,9 +9,9 @@ import {
   jewelryLeafHeightMm,
 } from "@/lib/constructor/jewelry-leaf-geometry";
 import {
-  createJewelryDeerGeometry,
-  jewelryDeerPlan,
-} from "@/lib/constructor/jewelry-deer-geometry";
+  createJewelryAntlerTreeGeometry,
+  jewelryAntlerTreePlan,
+} from "@/lib/constructor/jewelry-antler-tree-geometry";
 import {
   createJewelryTreeGeometry,
   jewelryTreePlan,
@@ -21,10 +21,10 @@ import {
  * Геометрия подставки для украшений: диспетчер премиум-коллекции.
  *
  * `jewelryPreset` выбирает форму: лист-лоток собирает
- * `jewelry-leaf-geometry.ts`, гладкая скульптура оленя — `jewelry-deer-geometry.ts`, плетёное
- * древо — `jewelry-tree-geometry.ts`. Других веток нет: классическая стойка со
- * штангой и рожками удалена вместе со своими размерами и набором держателей,
- * поэтому каждый пресет сразу получает собственный генератор.
+ * `jewelry-leaf-geometry.ts`, «Рогатое дерево» — `jewelry-antler-tree-geometry.ts`,
+ * плетёное древо — `jewelry-tree-geometry.ts`. Других веток нет: классическая
+ * стойка со штангой и рожками удалена вместе со своими размерами и набором
+ * держателей, поэтому каждый пресет сразу получает собственный генератор.
  *
  * Детали построены Z-вверх; предпросмотр поворачивает меш, как корпус коробки.
  */
@@ -40,8 +40,8 @@ export type JewelryStandMetrics = {
  * Габарит подставки по её параметрам, без сборки меша.
  *
  * У листа длину и ширину задают ползунки, а высоту — крючок: сама плита ниже.
- * У оленя габарит в плане — база и размах рогов, высота — рога. У древа в плане
- * диаметр чаши-лотка, высота — верхушка ствола.
+ * У рогатого дерева габарит в плане — база и размах рогов, высота — крона.
+ * У древа в плане диаметр чаши-лотка, высота — верхушка ствола.
  */
 export function jewelryStandMetrics(
   params: Partial<JewelryStandParams>,
@@ -56,12 +56,12 @@ export function jewelryStandMetrics(
         heightMm: jewelryLeafHeightMm(normalized),
       };
 
-    case "deer_bust": {
-      const plan = jewelryDeerPlan(normalized);
+    case "antler_tree": {
+      const plan = jewelryAntlerTreePlan(normalized);
 
       return {
         widthMm: Math.max(plan.baseLengthMm, plan.antlerOuterXMm * 2),
-        depthMm: plan.baseWidthMm,
+        depthMm: Math.max(plan.baseWidthMm, plan.antlerOuterYMm * 2),
         heightMm: plan.heightMm,
       };
     }
@@ -95,8 +95,8 @@ export function createJewelryStandGeometry(
     case "leaf_tray":
       return createJewelryLeafGeometry(normalized);
 
-    case "deer_bust":
-      return createJewelryDeerGeometry(normalized);
+    case "antler_tree":
+      return createJewelryAntlerTreeGeometry(normalized);
 
     case "braided_tree":
       return createJewelryTreeGeometry(normalized);

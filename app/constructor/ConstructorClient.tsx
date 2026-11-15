@@ -1658,11 +1658,11 @@ export function ConstructorClient({
                       ].toLowerCase()}{" "}
                       · {params.jewelryLeafLength} × {params.jewelryLeafWidth} мм
                     </>
-                  ) : params.jewelryPreset === "deer_bust" ? (
+                  ) : params.jewelryPreset === "antler_tree" ? (
                     <>
                       {JEWELRY_PRESET_LABELS[params.jewelryPreset]} · база{" "}
-                      {params.deerBaseLength} × {params.deerBaseWidth} мм · рога{" "}
-                      {params.deerAntlerSpread} мм
+                      {params.baseLength} × {params.baseWidth} мм · рога{" "}
+                      {params.antlerSpread} мм
                     </>
                   ) : (
                     <>

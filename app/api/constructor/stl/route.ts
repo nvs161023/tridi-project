@@ -1333,12 +1333,12 @@ function parseCoasterParams(
  * Строгая проверка параметров подставки для украшений.
  *
  * У каждой формы своя тройка размеров: у листа — тип, длина, ширина и глубина
- * прожилок; у оленя — размах рогов и оси овальной базы; у древа — высота, диаметр
- * базы, число ветвей и сила плетения. Проверяются только поля выбранной формы,
- * остальные игнорируются, даже если пришли вместе: клиент держит общий набор
- * параметров и отправляет всё сразу. Поля удалённой классической стойки
- * (`jewelryHeight`, `jewelryBase`, `jewelryConfig`) тоже игнорируются: форма
- * берётся из пресета, а без пресета открывается лоток-лист.
+ * прожилок; у рогатого дерева — размах кроны и оси овальной базы; у древа —
+ * высота, диаметр базы, число ветвей и сила плетения. Проверяются только поля
+ * выбранной формы, остальные игнорируются, даже если пришли вместе: клиент держит
+ * общий набор параметров и отправляет всё сразу. Поля удалённой классической
+ * стойки (`jewelryHeight`, `jewelryBase`, `jewelryConfig`) тоже игнорируются:
+ * форма берётся из пресета, а без пресета открывается лоток-лист.
  */
 function parseJewelryStandParams(
   body: Record<string, unknown>,
@@ -1349,9 +1349,9 @@ function parseJewelryStandParams(
     jewelryLeafLength,
     jewelryLeafWidth,
     jewelryLeafVeinDepth,
-    deerAntlerSpread,
-    deerBaseLength,
-    deerBaseWidth,
+    antlerSpread,
+    baseLength,
+    baseWidth,
     treeHeight,
     treeBaseDiameter,
     treeBranchCount,
@@ -1397,34 +1397,34 @@ function parseJewelryStandParams(
     });
   }
 
-  if (preset === "deer_bust") {
-    // Оленю не нужны ни высота стойки, ни её основание: размер задают овальный
-    // лоток и размах рогов, а толщина ветвей зашита в генератор.
+  if (preset === "antler_tree") {
+    // Рогатому дереву не нужны ни высота стойки, ни её основание: размер задают
+    // овальный лоток и размах кроны, а сечение ствола зашито в генератор.
     if (
       !isNumberInRange(
-        deerAntlerSpread,
-        CONSTRUCTOR_LIMITS.deerAntlerSpread.min,
-        CONSTRUCTOR_LIMITS.deerAntlerSpread.max,
+        antlerSpread,
+        CONSTRUCTOR_LIMITS.antlerSpread.min,
+        CONSTRUCTOR_LIMITS.antlerSpread.max,
       ) ||
       !isNumberInRange(
-        deerBaseLength,
-        CONSTRUCTOR_LIMITS.deerBaseLength.min,
-        CONSTRUCTOR_LIMITS.deerBaseLength.max,
+        baseLength,
+        CONSTRUCTOR_LIMITS.baseLength.min,
+        CONSTRUCTOR_LIMITS.baseLength.max,
       ) ||
       !isNumberInRange(
-        deerBaseWidth,
-        CONSTRUCTOR_LIMITS.deerBaseWidth.min,
-        CONSTRUCTOR_LIMITS.deerBaseWidth.max,
+        baseWidth,
+        CONSTRUCTOR_LIMITS.baseWidth.min,
+        CONSTRUCTOR_LIMITS.baseWidth.max,
       )
     ) {
       return null;
     }
 
     return normalizeJewelryStandParams({
-      jewelryPreset: "deer_bust",
-      deerAntlerSpread,
-      deerBaseLength,
-      deerBaseWidth,
+      jewelryPreset: "antler_tree",
+      antlerSpread,
+      baseLength,
+      baseWidth,
     });
   }
 

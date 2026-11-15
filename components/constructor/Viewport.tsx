@@ -58,7 +58,7 @@ import {
   createHeatTransferGeometry,
   heatTransferThickness,
 } from "@/lib/constructor/heat-transfer-geometry";
-import { jewelryDeerHeightMm } from "@/lib/constructor/jewelry-deer-geometry";
+import { jewelryAntlerTreeHeightMm } from "@/lib/constructor/jewelry-antler-tree-geometry";
 import { jewelryTreeHeightMm } from "@/lib/constructor/jewelry-tree-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import {
@@ -446,7 +446,7 @@ type ZUpModelProps = {
  *
  * Геометрия этих моделей построена Z-вверх, как у коробки, поэтому поворот на
  * -90° вокруг X ставит детали на виртуальный стол. Сглаженные нормали сетки
- * дают оленю цельную поверхность без видимых граней.
+ * дают стволу и кроне цельную поверхность без видимых граней.
  */
 function ZUpModel({ geometry, color }: ZUpModelProps) {
   return (
@@ -1875,8 +1875,8 @@ export function Viewport({
                   : params.model === "jewelry_stand"
                     ? params.jewelryPreset === "leaf_tray"
                       ? `${params.jewelryLeafLength} × ${params.jewelryLeafWidth} мм`
-                      : params.jewelryPreset === "deer_bust"
-                        ? `${params.deerBaseLength} × ${params.deerBaseWidth} × ${jewelryDeerHeightMm(params)} мм`
+                      : params.jewelryPreset === "antler_tree"
+                        ? `${params.baseLength} × ${params.baseWidth} × ${jewelryAntlerTreeHeightMm(params)} мм`
                         : `${params.treeBaseDiameter} × ${jewelryTreeHeightMm(params)} мм`
                     : params.model === "pen_holder"
                       ? `${params.penSize} × ${params.penHeight} мм`
@@ -1905,8 +1905,8 @@ export function Viewport({
                   : params.model === "jewelry_stand"
                     ? params.jewelryPreset === "leaf_tray"
                       ? `3D-предпросмотр лотка для украшений «${JEWELRY_LEAF_TYPE_LABELS[params.jewelryLeafType]}» ${params.jewelryLeafLength} на ${params.jewelryLeafWidth} миллиметров, глубина прожилок ${params.jewelryLeafVeinDepth} миллиметра, горизонтальная плита с плоским дном и крючком для цепочек`
-                      : params.jewelryPreset === "deer_bust"
-                        ? `3D-предпросмотр подставки «Лесной олень»: гладкая скульптура на овальном лотке ${params.deerBaseLength} на ${params.deerBaseWidth} миллиметров, плавные корпус и голова, рога-дерево, высота ${jewelryDeerHeightMm(params)} миллиметров, полость под утяжелитель Ø 25 миллиметров`
+                      : params.jewelryPreset === "antler_tree"
+                        ? `3D-предпросмотр подставки «Рогатое дерево»: овальный лоток ${params.baseLength} на ${params.baseWidth} миллиметров, ствол с раструбом, крона из рогов размахом ${params.antlerSpread} миллиметров, высота ${jewelryAntlerTreeHeightMm(params)} миллиметров, десять отверстий под серьги`
                         : `3D-предпросмотр подставки «Плетёное древо» высотой ${jewelryTreeHeightMm(params)} миллиметров: чаша-лоток диаметром ${params.treeBaseDiameter} миллиметров, изогнутый ствол с ${params.treeBranchCount} ярусами ветвей, изгиб ветвей ${Math.round(params.treeTwist * 100)} процентов, крючки с бусинами и штыри под кольца`
                     : params.model === "pen_holder"
                       ? `3D-предпросмотр органайзера для ручек «${PEN_SHAPE_LABELS[params.penShape]}» ${params.penSize} миллиметров по ключу и высотой ${params.penHeight} миллиметров, стенка ${params.penWall} миллиметров, ${params.penSections} отделений${params.penRimSlope > 0 ? `, срез кромки ${params.penRimSlope} миллиметров` : ""}`

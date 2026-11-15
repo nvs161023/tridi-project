@@ -251,25 +251,25 @@ export const CONSTRUCTOR_LIMITS = {
     defaultValue: 2,
     decimals: 1,
   },
-  // Олень: размах рогов и овальный лоток. 230 мм — витринная крона; высота
-  // фигуры автоматически вписывается в 240 мм печатного поля.
-  deerAntlerSpread: {
+  // Рогатое дерево: размах кроны и овальный лоток. 230 мм — витринная крона;
+  // высота автоматически вписывается в 240 мм без изменения ствола.
+  antlerSpread: {
     min: 100,
     max: 230,
     step: 5,
     defaultValue: 230,
     decimals: 0,
   },
-  // Длина лотка: 250 мм — витринный размер с полем под часы и браслеты.
-  deerBaseLength: {
+  // Длина лотка по длинной оси: 250 мм — витринный размер с полем под часы.
+  baseLength: {
     min: 150,
     max: 250,
     step: 5,
     defaultValue: 250,
     decimals: 0,
   },
-  // Ширина лотка: 150 мм держит стоящего оленя и оставляет поле под украшения.
-  deerBaseWidth: {
+  // Ширина лотка: 150 мм оставляет поле вокруг сетки отверстий под серьги.
+  baseWidth: {
     min: 100,
     max: 150,
     step: 5,
@@ -1468,15 +1468,15 @@ export type CoasterParams = {
 /**
  * Три формы премиум-коллекции.
  *
- * У каждой свой генератор: `leaf_tray` — плоский лоток-лист, `deer_bust` —
- * стоящий гладкий олень на овальном лотке с рогами-деревом, `braided_tree` — живое
+ * У каждой свой генератор: `leaf_tray` — плоский лоток-лист, `antler_tree` —
+ * овальный лоток со стволом-раструбом и кроной из рогов, `braided_tree` — живое
  * дерево в чаше: ствол с раструбом, ярусы ветвей с развилками и штыри под
  * кольца. Общий диспетчер один, поэтому форма сразу выбирает генератор, а не
  * только подпись.
  */
 export const JEWELRY_PRESETS = [
   "braided_tree",
-  "deer_bust",
+  "antler_tree",
   "leaf_tray",
 ] as const;
 
@@ -1484,7 +1484,7 @@ export type JewelryPreset = (typeof JEWELRY_PRESETS)[number];
 
 export const JEWELRY_PRESET_LABELS = {
   braided_tree: "Плетёное древо",
-  deer_bust: "Лесной олень",
+  antler_tree: "Рогатое дерево",
   leaf_tray: "Фигуристые листья",
 } as const satisfies Record<JewelryPreset, string>;
 
@@ -1504,10 +1504,10 @@ export const JEWELRY_LEAF_TYPE_LABELS = {
  *
  * Общий набор один на всю коллекцию, потому что поля пресетов не пересекаются и
  * переключение формы не сбрасывает чужие размеры. Лист-лоток читает длину,
- * ширину и глубину прожилок; олень — размах рогов и оси овальной базы; древо —
- * высоту, диаметр базы, число ветвей и силу плетения. Все детали — отдельные
- * замкнутые тела, которые входят друг в друга, поэтому каждая форма печатается
- * одной деталью без поддержек.
+ * ширину и глубину прожилок; рогатое дерево — размах кроны и оси овальной базы;
+ * древо — высоту, диаметр базы, число ветвей и силу плетения. Все детали —
+ * отдельные замкнутые тела, которые входят друг в друга, поэтому каждая форма
+ * печатается одной деталью без поддержек.
  */
 export type JewelryStandParams = {
   /** Форма коллекции: именно она выбирает генератор. */
@@ -1521,11 +1521,11 @@ export type JewelryStandParams = {
   /** Глубина прожилок вниз от лица, мм: в них ложатся кольца. */
   jewelryLeafVeinDepth: number;
   /** Размах рогов от кончика до кончика, мм: ширина кроны. */
-  deerAntlerSpread: number;
+  antlerSpread: number;
   /** Длина овального лотка по большой оси, мм. */
-  deerBaseLength: number;
+  baseLength: number;
   /** Ширина овального лотка по малой оси, мм. */
-  deerBaseWidth: number;
+  baseWidth: number;
   /** Высота древа от стола до верхушки ствола, мм. */
   treeHeight: number;
   /** Диаметр круглой чаши-лотка, мм. */
@@ -2570,8 +2570,8 @@ export const DEFAULT_COASTER_PARAMS: CoasterParams = {
  * Подставка по умолчанию: лист монстеры 150 × 100 мм.
  *
  * Лист открывается первым: это самая простая форма коллекции, и на ней виден
- * весь каркас пресетов. Поля оленя и древа лежат рядом, чтобы переключение формы
- * не сбрасывало чужие размеры.
+ * весь каркас пресетов. Поля рогатого дерева и древа лежат рядом, чтобы
+ * переключение формы не сбрасывало чужие размеры.
  */
 export const DEFAULT_JEWELRY_STAND_PARAMS: JewelryStandParams = {
   jewelryPreset: "leaf_tray",
@@ -2579,9 +2579,9 @@ export const DEFAULT_JEWELRY_STAND_PARAMS: JewelryStandParams = {
   jewelryLeafLength: CONSTRUCTOR_LIMITS.jewelryLeafLength.defaultValue,
   jewelryLeafWidth: CONSTRUCTOR_LIMITS.jewelryLeafWidth.defaultValue,
   jewelryLeafVeinDepth: CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth.defaultValue,
-  deerAntlerSpread: CONSTRUCTOR_LIMITS.deerAntlerSpread.defaultValue,
-  deerBaseLength: CONSTRUCTOR_LIMITS.deerBaseLength.defaultValue,
-  deerBaseWidth: CONSTRUCTOR_LIMITS.deerBaseWidth.defaultValue,
+  antlerSpread: CONSTRUCTOR_LIMITS.antlerSpread.defaultValue,
+  baseLength: CONSTRUCTOR_LIMITS.baseLength.defaultValue,
+  baseWidth: CONSTRUCTOR_LIMITS.baseWidth.defaultValue,
   treeHeight: CONSTRUCTOR_LIMITS.treeHeight.defaultValue,
   treeBaseDiameter: CONSTRUCTOR_LIMITS.treeBaseDiameter.defaultValue,
   treeBranchCount: CONSTRUCTOR_LIMITS.treeBranchCount.defaultValue,
@@ -2995,10 +2995,9 @@ export function coasterStlFileName(params: CoasterParams): string {
  * Имя файла STL для подставки украшений.
  *
  * Имя собирается из формы и её главных чисел: у листа это длина, ширина и
- * глубина прожилок, у оленя — база и размах рогов, у древа — высота, база, число
- * ветвей и сила плетения. Иначе две разные формы одного размера попали бы в
- * папку загрузок под одним именем, а браузер добавил бы «(1)». Полость под
- * утяжелитель в имя не входит: её размер зашит в генератор и не меняется.
+ * глубина прожилок, у рогатого дерева — база и размах рогов, у древа — высота,
+ * база, число ветвей и сила плетения. Иначе две разные формы одного размера
+ * попали бы в папку загрузок под одним именем, а браузер добавил бы «(1)».
  *
  * Пресет пишется через дефис (`braided-tree`): подчёркивание допустимо в имени
  * файла, но дефис уже разделяет остальные суффиксы, и имя читается одинаково.
@@ -3012,8 +3011,8 @@ export function jewelryStandStlFileName(params: JewelryStandParams): string {
     return `tridi-podstavka-ukrasheniy-${preset}-${params.jewelryLeafType}-l${params.jewelryLeafLength}-w${params.jewelryLeafWidth}-v${formatMillimetres(params.jewelryLeafVeinDepth)}.stl`;
   }
 
-  if (params.jewelryPreset === "deer_bust") {
-    return `tridi-podstavka-ukrasheniy-${preset}-l${params.deerBaseLength}-w${params.deerBaseWidth}-a${params.deerAntlerSpread}.stl`;
+  if (params.jewelryPreset === "antler_tree") {
+    return `tridi-podstavka-ukrasheniy-${preset}-l${params.baseLength}-w${params.baseWidth}-a${params.antlerSpread}.stl`;
   }
 
   return `tridi-podstavka-ukrasheniy-${preset}-h${params.treeHeight}-d${params.treeBaseDiameter}-b${params.treeBranchCount}-t${Math.round(params.treeTwist * 100)}.stl`;
@@ -4601,8 +4600,8 @@ export function normalizeCoasterParams(
  * Проверяет и выравнивает параметры подставки для украшений.
  *
  * Форма принимается только из трёх известных пресетов, силуэт листа — из трёх
- * известных типов. Размеры листа, оленя и древа нормализуются все сразу: у
- * каждой формы свои поля, и переключение пресета не должно терять чужие
+ * известных типов. Размеры листа, рогатого дерева и древа нормализуются все
+ * сразу: у каждой формы свои поля, и переключение пресета не должно терять чужие
  * значения. Число ветвей округляется до целого: ползунок шагает по одной ветви, а
  * сохранённый проект может принести дробь. Полей классической стойки больше нет:
  * старые `jewelryHeight`, `jewelryBase` и `jewelryConfig` не читаются и не
@@ -4632,18 +4631,17 @@ export function normalizeJewelryStandParams(
         DEFAULT_JEWELRY_STAND_PARAMS.jewelryLeafVeinDepth,
       CONSTRUCTOR_LIMITS.jewelryLeafVeinDepth,
     ),
-    deerAntlerSpread: snap(
-      params.deerAntlerSpread ??
-        DEFAULT_JEWELRY_STAND_PARAMS.deerAntlerSpread,
-      CONSTRUCTOR_LIMITS.deerAntlerSpread,
+    antlerSpread: snap(
+      params.antlerSpread ?? DEFAULT_JEWELRY_STAND_PARAMS.antlerSpread,
+      CONSTRUCTOR_LIMITS.antlerSpread,
     ),
-    deerBaseLength: snap(
-      params.deerBaseLength ?? DEFAULT_JEWELRY_STAND_PARAMS.deerBaseLength,
-      CONSTRUCTOR_LIMITS.deerBaseLength,
+    baseLength: snap(
+      params.baseLength ?? DEFAULT_JEWELRY_STAND_PARAMS.baseLength,
+      CONSTRUCTOR_LIMITS.baseLength,
     ),
-    deerBaseWidth: snap(
-      params.deerBaseWidth ?? DEFAULT_JEWELRY_STAND_PARAMS.deerBaseWidth,
-      CONSTRUCTOR_LIMITS.deerBaseWidth,
+    baseWidth: snap(
+      params.baseWidth ?? DEFAULT_JEWELRY_STAND_PARAMS.baseWidth,
+      CONSTRUCTOR_LIMITS.baseWidth,
     ),
     treeHeight: snap(
       params.treeHeight ?? DEFAULT_JEWELRY_STAND_PARAMS.treeHeight,

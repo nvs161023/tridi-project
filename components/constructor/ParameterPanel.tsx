@@ -22,14 +22,17 @@ import {
   type StrokeHistogram,
 } from "@/lib/constructor/heat-transfer-import";
 import {
-  JEWELRY_DEER_ANTLER_MIN_ELEVATION_DEG,
-  JEWELRY_DEER_MAX_HEIGHT_MM,
-  JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM,
-  JEWELRY_DEER_WEIGHT_DEPTH_MM,
-  JEWELRY_DEER_WEIGHT_DIAMETER_MM,
-  JEWELRY_DEER_WEIGHT_FLOOR_MM,
-  jewelryDeerHeightMm,
-} from "@/lib/constructor/jewelry-deer-geometry";
+  JEWELRY_ANTLER_TREE_ANTLER_MIN_ELEVATION_DEG,
+  JEWELRY_ANTLER_TREE_FLARE_RADIUS_MM,
+  JEWELRY_ANTLER_TREE_HOLE_COUNT,
+  JEWELRY_ANTLER_TREE_HOLE_DIAMETER_MM,
+  JEWELRY_ANTLER_TREE_MAX_HEIGHT_MM,
+  JEWELRY_ANTLER_TREE_MIN_ANTLER_DIAMETER_MM,
+  JEWELRY_ANTLER_TREE_TRUNK_BOTTOM_RADIUS_MM,
+  JEWELRY_ANTLER_TREE_TRUNK_HEIGHT_MM,
+  JEWELRY_ANTLER_TREE_TRUNK_TOP_RADIUS_MM,
+  jewelryAntlerTreeHeightMm,
+} from "@/lib/constructor/jewelry-antler-tree-geometry";
 import {
   JEWELRY_LEAF_BOWL_DEPTH_MM,
   JEWELRY_LEAF_MIN_THICKNESS_MM,
@@ -439,7 +442,7 @@ type ParameterPanelProps = {
   onCoasterPatternChange: (pattern: CoasterPattern) => void;
   /** Бортик по краю подставки под кружку. */
   onCoasterRimChange: (enabled: boolean) => void;
-  /** Форма премиум-коллекции: лист, древо или олень. */
+  /** Форма премиум-коллекции: лист, рогатое дерево или древо. */
   onJewelryPresetChange: (preset: JewelryPreset) => void;
   /** Силуэт листа-лотка. */
   onJewelryLeafTypeChange: (leafType: JewelryLeafType) => void;
@@ -1507,17 +1510,17 @@ function modelSummary(
       ];
     }
 
-    if (params.jewelryPreset === "deer_bust") {
+    if (params.jewelryPreset === "antler_tree") {
       return [
         {
           label: "Лоток",
-          value: `${params.deerBaseLength} × ${params.deerBaseWidth} мм`,
+          value: `${params.baseLength} × ${params.baseWidth} мм`,
         },
-        { label: "Рога", value: `${params.deerAntlerSpread} мм` },
-        { label: "Высота", value: `${jewelryDeerHeightMm(params)} мм` },
+        { label: "Рога", value: `${params.antlerSpread} мм` },
+        { label: "Высота", value: `${jewelryAntlerTreeHeightMm(params)} мм` },
         {
-          label: "Полость",
-          value: `Ø ${JEWELRY_DEER_WEIGHT_DIAMETER_MM} × ${JEWELRY_DEER_WEIGHT_DEPTH_MM} мм`,
+          label: "Сетка",
+          value: `${JEWELRY_ANTLER_TREE_HOLE_COUNT} × Ø${JEWELRY_ANTLER_TREE_HOLE_DIAMETER_MM} мм`,
         },
       ];
     }
@@ -3775,7 +3778,7 @@ export function ParameterPanel({
         <>
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Лист — чаша-лоток для часов, колец и серёг: край поднят бортиком, внутри прожилки и ложа. «Лесной олень» — гладкая скульптура на овальном лотке: корпус и голова собраны лофтом по анатомическому профилю, рога ветвятся деревом и держат украшения. «Плетёное древо» — живое дерево в чаше: ствол с раструбом, ярусы ветвей с развилками и штыри под кольца."
+              hint="Лист — чаша-лоток для часов, колец и серёг: край поднят бортиком, внутри прожилки и ложа. «Рогатое дерево» — овальный лоток со стволом-раструбом и кроной из рогов: десять отверстий Ø1.2 мм держат серьги, а ветви — кольца и цепочки. «Плетёное древо» — живое дерево в чаше: ствол с раструбом, ярусы ветвей с развилками и штыри под кольца."
               label="Форма"
               onChange={onJewelryPresetChange}
               options={JEWELRY_PRESETS.map((jewelryPreset) => ({
@@ -3850,59 +3853,57 @@ export function ParameterPanel({
                 крючок для цепочек и браслетов.
               </p>
             </>
-          ) : params.jewelryPreset === "deer_bust" ? (
+          ) : params.jewelryPreset === "antler_tree" ? (
             <>
               <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
                 <NumberSlider
-                  hint={`Размах рогов от кончика до кончика. 100–150 мм — настольная фигура, 200–230 мм — витринная крона. Высота автоматически вписывается в ${JEWELRY_DEER_MAX_HEIGHT_MM} мм: крупная крона уменьшает всю фигуру пропорционально, поэтому деталь печатается на обычном столе.`}
+                  hint={`Размах рогов от кончика до кончика. 100–150 мм — настольная крона, 200–230 мм — витринная. Высота автоматически вписывается в ${JEWELRY_ANTLER_TREE_MAX_HEIGHT_MM} мм, а ствол сохраняет свои 60 мм.`}
                   label="Размах рогов"
-                  max={CONSTRUCTOR_LIMITS.deerAntlerSpread.max}
-                  min={CONSTRUCTOR_LIMITS.deerAntlerSpread.min}
-                  onChange={(value) => onParamChange("deerAntlerSpread", value)}
-                  step={CONSTRUCTOR_LIMITS.deerAntlerSpread.step}
+                  max={CONSTRUCTOR_LIMITS.antlerSpread.max}
+                  min={CONSTRUCTOR_LIMITS.antlerSpread.min}
+                  onChange={(value) => onParamChange("antlerSpread", value)}
+                  step={CONSTRUCTOR_LIMITS.antlerSpread.step}
                   unit="мм"
-                  value={params.deerAntlerSpread}
+                  value={params.antlerSpread}
                 />
 
                 <NumberSlider
-                  hint="Овальный лоток по большой оси. 250 мм — витринный размер 25 см с полем под часы и браслеты; 150–200 мм — компактная версия для полки."
+                  hint="Овальный лоток по длинной оси. 250 мм — витринный размер с полем под часы и браслеты; 150–200 мм — компактная версия для полки."
                   label="Длина базы"
-                  max={CONSTRUCTOR_LIMITS.deerBaseLength.max}
-                  min={CONSTRUCTOR_LIMITS.deerBaseLength.min}
-                  onChange={(value) => onParamChange("deerBaseLength", value)}
-                  step={CONSTRUCTOR_LIMITS.deerBaseLength.step}
+                  max={CONSTRUCTOR_LIMITS.baseLength.max}
+                  min={CONSTRUCTOR_LIMITS.baseLength.min}
+                  onChange={(value) => onParamChange("baseLength", value)}
+                  step={CONSTRUCTOR_LIMITS.baseLength.step}
                   unit="мм"
-                  value={params.deerBaseLength}
+                  value={params.baseLength}
                 />
 
                 <NumberSlider
-                  hint="Малая ось лотка. 150 мм держит гладкую фигуру оленя и плинт с запасом; на 100 мм остаётся только компактная настольная версия."
+                  hint="Малая ось лотка. 150 мм оставляет широкое поле вокруг сетки отверстий; на 100 мм серьги всё ещё входят, но лоток становится компактнее."
                   label="Ширина базы"
-                  max={CONSTRUCTOR_LIMITS.deerBaseWidth.max}
-                  min={CONSTRUCTOR_LIMITS.deerBaseWidth.min}
-                  onChange={(value) => onParamChange("deerBaseWidth", value)}
-                  step={CONSTRUCTOR_LIMITS.deerBaseWidth.step}
+                  max={CONSTRUCTOR_LIMITS.baseWidth.max}
+                  min={CONSTRUCTOR_LIMITS.baseWidth.min}
+                  onChange={(value) => onParamChange("baseWidth", value)}
+                  step={CONSTRUCTOR_LIMITS.baseWidth.step}
                   unit="мм"
-                  value={params.deerBaseWidth}
+                  value={params.baseWidth}
                 />
               </div>
 
               <p className="mt-4 text-xs leading-relaxed text-slate-300">
-                Гладкий олень собран лофтом: корпус, шея, голова и четыре
-                сужающиеся ноги. Голова идёт по восьми анатомическим сечениям и
-                ста промежуточным кольцам, уши вырастают прямо из черепа. Все
-                части пересекаются, низ ног утоплен в плинт, а рога растут из
-                макушки головы — деталь печатается одной штукой. Каждая хорда
-                рога поднимается не положе{" "}
-                {JEWELRY_DEER_ANTLER_MIN_ELEVATION_DEG}°, поэтому крона не
-                требует поддержек. Высота ограничена{" "}
-                {JEWELRY_DEER_MAX_HEIGHT_MM} мм, а ветви рогов после
-                масштабирования не тоньше Ø{JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM}{" "}
-                мм. Полость Ø{" "}
-                {JEWELRY_DEER_WEIGHT_DIAMETER_MM} × {JEWELRY_DEER_WEIGHT_DEPTH_MM}{" "}
-                мм открыта вверх, дно под ней {JEWELRY_DEER_WEIGHT_FLOOR_MM} мм.
-                Она стоит сбоку от фигуры, на свободном поле лотка, и не задевает
-                плинт. Монета утяжеляет лоток и держит длинные цепочки.
+                Овальный лоток держит ствол с раструбом: у лица радиус{" "}
+                {JEWELRY_ANTLER_TREE_FLARE_RADIUS_MM} мм, дальше ствол сходится
+                с {JEWELRY_ANTLER_TREE_TRUNK_BOTTOM_RADIUS_MM} до{" "}
+                {JEWELRY_ANTLER_TREE_TRUNK_TOP_RADIUS_MM} мм и поднимается на{" "}
+                {JEWELRY_ANTLER_TREE_TRUNK_HEIGHT_MM} мм до начала рогов.
+                Двадцать шесть трубок кроны растут вверх и в стороны; каждая
+                хорда поднимается не положе{" "}
+                {JEWELRY_ANTLER_TREE_ANTLER_MIN_ELEVATION_DEG}°, поэтому
+                поддержки не нужны. Ветви не тоньше Ø
+                {JEWELRY_ANTLER_TREE_MIN_ANTLER_DIAMETER_MM} мм. На лотке
+                вырезана сетка {JEWELRY_ANTLER_TREE_HOLE_COUNT} отверстий Ø
+                {JEWELRY_ANTLER_TREE_HOLE_DIAMETER_MM} мм под крючки серёг;
+                полости под монету больше нет.
               </p>
             </>
           ) : (
