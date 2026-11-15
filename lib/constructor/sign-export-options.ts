@@ -28,12 +28,16 @@ function actualReport(
 }
 
 /**
- * Кнопки вывески: общий STL блока и отдельные лицо, крышка и рельс.
+ * Кнопки вывески: общий STL блока и отдельные детали.
  *
  * Общий файл стоит первым у блока, если пакет влезает на стол 220 × 220 мм.
- * Внутри пакета крышка лежит над лицом, рядом с ним или повёрнута — это решает
- * `planSignPackage`. Если места нет, кнопки нет: остаются отдельные face,
- * cover и rail, а панель показывает `signExportNotice`.
+ * Внутри пакета задняя стенка лежит над лицом, рядом с ним или повёрнута — это
+ * решает `planSignPackage`. Если места нет, кнопки нет: остаются отдельные
+ * лицо и задняя стенка, а в съёмном режиме ещё и рельс; панель показывает
+ * `signExportNotice`.
+ *
+ * Рельс отдельной кнопкой есть только в съёмном режиме. В жёстком он уже
+ * напечатан вместе с задней стенкой, в режиме без рельса его нет вовсе.
  */
 export function signExportOptions(
   params: SignParams,
@@ -51,7 +55,11 @@ export function signExportOptions(
     const blockOptions: SignExportOption[] = [];
 
     if (layout?.package.fits) {
-      const contents = layout.coverWidth > 0 ? "лицо и крышка" : "лицо";
+      const coverContents =
+        params.signRailMode === "fixed"
+          ? "задняя стенка с рельсом"
+          : "задняя стенка";
+      const contents = layout.coverWidth > 0 ? `лицо и ${coverContents}` : "лицо";
 
       blockOptions.push({
         id: `sign-block-${block.index}-package`,
@@ -66,25 +74,36 @@ export function signExportOptions(
 
     const parts: ("face" | "cover" | "rail")[] = ["face"];
 
-    // У сплошной буквы крышки нет: пустой файл не предлагаем. Рельс скрыт и
-    // тогда, когда выбран режим «без рельса».
+    // У сплошной буквы задней стенки нет: пустой файл не предлагаем.
     if (!layout || layout.coverWidth > 0) {
       parts.push("cover");
     }
 
-    if (params.signRailMode !== "none") {
+    // В fixed рельс уже входит в cover, в none его нет: отдельная кнопка не
+    // нужна, иначе пользователь скачал бы пустой файл.
+    if (params.signRailMode === "detachable") {
       parts.push("rail");
     }
 
     for (const part of parts) {
       const label =
-        part === "face" ? "Лицо" : part === "cover" ? "Крышка" : "Рельс";
+        part === "face"
+          ? "Лицо"
+          : part === "cover"
+            ? params.signRailMode === "fixed"
+              ? "Задняя стенка с рельсом"
+              : "Задняя стенка"
+            : "Рельс";
       const lower = label.toLowerCase();
+      const description =
+        part === "cover" && params.signRailMode === "fixed"
+          ? `Блок ${block.index + 1} «${letters}»: стенка и рельс одной деталью`
+          : `Блок ${block.index + 1} «${letters}»: ${lower} отдельным файлом`;
 
       blockOptions.push({
         id: `sign-block-${block.index}-${part}`,
         label: `Блок ${block.index + 1}: ${label}`,
-        description: `Блок ${block.index + 1} «${letters}»: ${lower} отдельным файлом`,
+        description,
         request: { blockIndex: block.index, signPart: part },
         fileName: signStlFileName(params, block.index, part),
       });

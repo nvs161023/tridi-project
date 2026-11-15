@@ -2,10 +2,13 @@
  * Тест геометрии вывески.
  *
  * Проверяет то, что обещают панель и API: общий STL блока влезает на стол
- * 220 × 220 мм, при необходимости разворачивается, лицо и крышка не
- * пересекаются, а в каждой крышке есть сквозное отверстие под провод. Отдельно
- * проверяется честный отказ: блок 80/3 шире 220 мм, и общего файла для него
- * быть не должно — только лицо и крышка по отдельности.
+ * 220 × 220 мм, при необходимости разворачивается, лицо и задняя стенка не
+ * пересекаются, а в каждой стенке есть сквозное отверстие под провод. Отдельно
+ * проверяются три режима рельса: съёмный рельс с пазами, жёсткий рельс одной
+ * деталью со стенкой и плоская глухая стенка без рельса. Ножек нет ни в одном
+ * режиме: низ букв совпадает с базовой линией шрифта. Честный отказ тоже
+ * проверяется: блок 120/2 не помещается на стол, и общего файла для него быть
+ * не должно — только лицо и задняя стенка по отдельности.
  *
  * Запуск:
  *   npm run check:sign
@@ -15,13 +18,19 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { Mesh, Raycaster, Vector3, type BufferGeometry } from "three";
+import {
+  Mesh,
+  Raycaster,
+  ShapeGeometry,
+  Vector3,
+  type BufferGeometry,
+} from "three";
 import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import type { Font, FontData } from "three/examples/jsm/loaders/FontLoader.js";
 
 import { calculateGeometryWeightGrams } from "../lib/constructor/geometry-volume";
 import {
-  SIGN_FOOT_HEIGHT_MM,
+  SIGN_COVER_PLATE_MM,
   SIGN_FONT_URLS,
   SIGN_RAIL_HEIGHT_MM,
   SIGN_RAIL_THICKNESS_MM,
@@ -129,7 +138,14 @@ function footprint(geometry: BufferGeometry): { width: number; depth: number } {
   };
 }
 
-/** Минимум по оси между огибающими лица и крышки. */
+/** Есть ли в сетке хоть один треугольник: пустая деталь рельса это не ошибка. */
+function hasGeometry(geometry: BufferGeometry): boolean {
+  const position = geometry.getAttribute("position");
+
+  return position !== undefined && position.count > 0;
+}
+
+/** Минимум по оси между огибающими лица и задней стенки. */
 function gapBetween(
   face: SignPartBounds,
   cover: SignPartBounds,
@@ -262,6 +278,31 @@ const fontPath = path.join(
 const fontData = JSON.parse(readFileSync(fontPath, "utf8")) as FontData;
 const font = new FontLoader().parse(fontData);
 
+// Эталон высоты строки: контуры шрифта без стенок и рельса. Ножки добавляли
+// 15 мм снизу, поэтому совпадение с эталоном и есть проверка «ножек нет».
+const glyphHeightCache = new Map<string, number>();
+
+function glyphHeightOf(text: string): number {
+  const cached = glyphHeightCache.get(text);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const probe = new ShapeGeometry(font.generateShapes(text, 60));
+
+  probe.computeBoundingBox();
+
+  const height = probe.boundingBox
+    ? probe.boundingBox.max.y - probe.boundingBox.min.y
+    : 0;
+
+  probe.dispose();
+  glyphHeightCache.set(text, height);
+
+  return height;
+}
+
 const base = normalizeSignParams({
   signText: "ТРИ ДИ",
   signFont: "sans-bold",
@@ -332,15 +373,11 @@ for (const block of baseLayout.blocks) {
             0,
           )} мм (${hole.x.toFixed(1)}, ${hole.y.toFixed(1)})`,
       )
-      .join(", ")}; ножек ${block.feet}`,
+      .join(", ")}`,
   );
 }
 
-const totalFeet = baseLayout.blocks.reduce((sum, block) => sum + block.feet, 0);
-
-check("крайние буквы получили ножки", totalFeet >= 2, true);
-
-console.log("\nТрекинг, ножки и целостность букв");
+console.log("\nТрекинг и целостность букв");
 const placedLetters = baseLayout.blocks
   .flatMap((block) => block.letters)
   .sort((a, b) => a.left - b.left);
@@ -359,19 +396,42 @@ console.log(
     .join("")}`,
 );
 
-const footBottoms = baseLayout.blocks.flatMap((block) => block.footBottoms);
+const faceHeights = baseLayout.blocks.map((block) => block.faceHeight);
 
-check("ножки построены", footBottoms.length > 0, true);
-atMost(
-  "разброс низа ножек",
-  Math.max(...footBottoms) - Math.min(...footBottoms),
-  0.01,
+for (const block of baseLayout.blocks) {
+  const text = block.letters.map((letter) => letter.char).join("");
+
+  near(`блок ${block.blockIndex + 1}: высота как у шрифта`, block.faceHeight, glyphHeightOf(text));
+}
+console.log(
+  `    высота букв ${faceHeights.map((height) => height.toFixed(1)).join(", ")} мм; шрифт ${baseLayout.blocks
+    .map((block) => glyphHeightOf(block.letters.map((letter) => letter.char).join("")).toFixed(1))
+    .join(", ")} мм`,
 );
-near("низ ножек на общей линии", footBottoms[0] ?? Number.NaN, -SIGN_FOOT_HEIGHT_MM);
+
+for (const mode of ["detachable", "fixed", "none"] as const) {
+  const modeLayout =
+    mode === "detachable"
+      ? baseLayout
+      : layoutOf({ ...base, signRailMode: mode }, font);
+
+  for (const block of modeLayout.blocks) {
+    const text = block.letters.map((letter) => letter.char).join("");
+
+    near(`${mode}: блок ${block.blockIndex + 1} без ножек`, block.faceHeight, glyphHeightOf(text));
+  }
+}
 
 for (const blockIndex of [0, 1]) {
   for (const part of ["face", "cover", "rail"] as const) {
     const partGeometry = createSignBlockGeometry(base, font, blockIndex, part);
+
+    if (!hasGeometry(partGeometry)) {
+      check(`б${blockIndex + 1} ${part}: пустая деталь`, false, true);
+      partGeometry.dispose();
+      continue;
+    }
+
     const state = topology(partGeometry);
 
     check(`б${blockIndex + 1} ${part}: незамкнутых рёбер`, state.open, 0);
@@ -379,6 +439,29 @@ for (const blockIndex of [0, 1]) {
     check(`б${blockIndex + 1} ${part}: вырожденных граней`, state.degenerate, 0);
     check(`б${blockIndex + 1} ${part}: NaN`, state.nan, 0);
     partGeometry.dispose();
+  }
+}
+
+for (const mode of ["fixed", "none"] as const) {
+  for (const part of ["face", "cover"] as const) {
+    const modeGeometry = createSignBlockGeometry(
+      { ...base, signRailMode: mode },
+      font,
+      0,
+      part,
+    );
+
+    if (!hasGeometry(modeGeometry)) {
+      check(`${mode} ${part}: пустая деталь`, false, true);
+      modeGeometry.dispose();
+      continue;
+    }
+
+    const state = topology(modeGeometry);
+
+    check(`${mode} ${part}: незамкнутых рёбер`, state.open, 0);
+    check(`${mode} ${part}: неманифолдных рёбер`, state.nonManifold, 0);
+    modeGeometry.dispose();
   }
 }
 
@@ -412,10 +495,7 @@ const previewBox = preview.boundingBox;
 if (!previewBox) {
   failures.push("предпросмотр: нет габаритов");
 } else {
-  const coverage = frontCoverage(
-    preview,
-    previewBox.min.y + SIGN_FOOT_HEIGHT_MM + 6,
-  );
+  const coverage = frontCoverage(preview, previewBox.min.y + 6);
 
   check("спереди нет планки под буквами", coverage < 0.7, true);
   console.log(
@@ -427,12 +507,12 @@ if (!previewBox) {
   const weight = calculateGeometryWeightGrams(preview);
 
   check(
-    "буквы полые: у блока есть крышка",
+    "буквы полые: у блока есть задняя стенка",
     baseLayout.blocks.every((block) => block.coverWidth > 0),
     true,
   );
   atMost("вес всей вывески «ТРИ ДИ»", weight, 300);
-  console.log(`    вес лица, крышек и рельса ${weight.toFixed(0)} г`);
+  console.log(`    вес лица, задних стенок и рельса ${weight.toFixed(0)} г`);
 }
 
 const railPart = createSignBlockGeometry(base, font, 0, "rail");
@@ -478,7 +558,7 @@ coverPart.computeBoundingBox();
 
 if (coverPart.boundingBox) {
   atMost(
-    "крышка остаётся плоской",
+    "съёмная задняя стенка остаётся плоской",
     coverPart.boundingBox.max.z - coverPart.boundingBox.min.z,
     4,
   );
@@ -488,29 +568,159 @@ coverPart.dispose();
 railPart.dispose();
 preview.dispose();
 
-console.log("\nБез рельса: ножка у каждой буквы, рельса в отчёте нет");
-const feetOnly = layoutOf({ ...base, signRailMode: "none" }, font);
-const feetOnlyCount = feetOnly.blocks.reduce(
-  (sum, block) => sum + block.feet,
-  0,
+console.log("\nЖёсткий рельс: одна деталь со стенкой, без пазов и зазоров");
+const fixed = layoutOf({ ...base, signRailMode: "fixed" }, font);
+const fixedBlock = fixed.blocks[0];
+
+check(
+  "fixed: рельс в отчёте есть",
+  fixed.blocks.every((block) => block.rail !== null),
+  true,
+);
+check(
+  "fixed: отдельной детали рельса нет",
+  hasGeometry(createSignBlockGeometry({ ...base, signRailMode: "fixed" }, font, 0, "rail")),
+  false,
 );
 
-check("без рельса: ножек по числу букв", feetOnlyCount, 5);
+const fixedCover = createSignBlockGeometry(
+  { ...base, signRailMode: "fixed" },
+  font,
+  0,
+  "cover",
+);
+
+fixedCover.computeBoundingBox();
+
+const fixedCoverDepth = fixedCover.boundingBox
+  ? fixedCover.boundingBox.max.z - fixedCover.boundingBox.min.z
+  : 0;
+
+if (!fixedCover.boundingBox) {
+  failures.push("fixed: у задней стенки нет габаритов");
+} else {
+  // Плита стенки 2 мм и шип 1.6 мм дают 3.4 мм. Рельс уходит ещё на 3.8 мм
+  // назад от плиты: огибающая глубже 6 мм доказывает, что он напечатан в этой
+  // же детали, а не висит отдельно.
+  check(
+    "fixed: рельс входит в заднюю стенку",
+    fixedCoverDepth > 6,
+    true,
+  );
+}
+
+const fixedState = hasGeometry(fixedCover) ? topology(fixedCover) : null;
+
+if (fixedState) {
+  check("fixed cover: незамкнутых рёбер", fixedState.open, 0);
+  check("fixed cover: неманифолдных рёбер", fixedState.nonManifold, 0);
+} else {
+  failures.push("fixed: задняя стенка пустая");
+}
+
+fixedCover.dispose();
+
+if (fixedBlock) {
+  near(
+    "fixed: высота рельса",
+    (fixedBlock.rail?.maxY ?? 0) - (fixedBlock.rail?.minY ?? 0),
+    SIGN_RAIL_HEIGHT_MM,
+  );
+  near(
+    "fixed: толщина рельса",
+    (fixedBlock.rail?.maxZ ?? 0) - (fixedBlock.rail?.minZ ?? 0),
+    SIGN_RAIL_THICKNESS_MM,
+  );
+  check(
+    "fixed: рельс не выступает вперёд",
+    (fixedBlock.rail?.maxZ ?? 1) <= 0,
+    true,
+  );
+  console.log(
+    `    fixed: задняя стенка с рельсом ${fixedCoverDepth.toFixed(1)} мм по Z`,
+  );
+}
+
+const fixedOptions = signExportOptions(
+  normalizeSignParams({ ...base, signRailMode: "fixed" }),
+  fixed,
+);
+
 check(
-  "без рельса: рельс не строится",
-  feetOnly.blocks.every((block) => block.rail === null),
+  "fixed: кнопки рельса нет",
+  fixedOptions.some((option) => option.request.signPart === "rail"),
+  false,
+);
+check(
+  "fixed: кнопка стенки с рельсом есть",
+  fixedOptions.some((option) => option.request.signPart === "cover"),
   true,
 );
 
+console.log("\nБез рельса: плоская глухая стенка, рельса нет");
+const noneLayout = layoutOf({ ...base, signRailMode: "none" }, font);
+
+check(
+  "без рельса: рельс не строится",
+  noneLayout.blocks.every((block) => block.rail === null),
+  true,
+);
+check(
+  "без рельса: отверстий рельса нет",
+  noneLayout.blocks.every((block) =>
+    block.wireHoles.every((hole) => hole.source === "letter"),
+  ),
+  true,
+);
+check(
+  "без рельса: отдельной детали рельса нет",
+  hasGeometry(createSignBlockGeometry({ ...base, signRailMode: "none" }, font, 0, "rail")),
+  false,
+);
+
+const noneCover = createSignBlockGeometry(
+  { ...base, signRailMode: "none" },
+  font,
+  0,
+  "cover",
+);
+
+noneCover.computeBoundingBox();
+
+if (!noneCover.boundingBox) {
+  failures.push("без рельса: у задней стенки нет габаритов");
+} else {
+  near(
+    "без рельса: стенка ровно 2 мм, без шипа",
+    noneCover.boundingBox.max.z - noneCover.boundingBox.min.z,
+    SIGN_COVER_PLATE_MM,
+  );
+}
+
+const noneState = hasGeometry(noneCover) ? topology(noneCover) : null;
+
+if (noneState) {
+  check("без рельса cover: незамкнутых рёбер", noneState.open, 0);
+  check("без рельса cover: неманифолдных рёбер", noneState.nonManifold, 0);
+} else {
+  failures.push("без рельса: задняя стенка пустая");
+}
+noneCover.dispose();
+
 const noRailOptions = signExportOptions(
   normalizeSignParams({ ...base, signRailMode: "none" }),
-  feetOnly,
+  noneLayout,
 );
 
 check(
   "без рельса: кнопки рельса нет",
   noRailOptions.some((option) => option.request.signPart === "rail"),
   false,
+);
+check(
+  "без рельса: кнопка плоской стенки есть",
+  noRailOptions.some((option) => option.request.signPart === "cover"),
+  true,
 );
 
 console.log("\nУзкая сплошная буква: провод уходит в канал рельса");
@@ -532,8 +742,7 @@ if (!solidBlock) {
       2,
     SIGN_RAIL_WIRE_HOLE_MM,
   );
-  check("буква 1: ножка есть", solidBlock.feet > 0, true);
-  check("буква 1: крышки нет", solidBlock.coverWidth, 0);
+  check("буква 1: задней стенки нет", solidBlock.coverWidth, 0);
 
   const solidPackage = createSignBlockPackageGeometry(
     { ...base, signText: "1", signBlockSize: 1 },
@@ -541,7 +750,7 @@ if (!solidBlock) {
     0,
   );
 
-  check("буква 1: пакет без крышки собирается", solidPackage !== null, true);
+  check("буква 1: пакет без задней стенки собирается", solidPackage !== null, true);
   solidPackage?.dispose();
 
   const solidOptions = signExportOptions(
@@ -550,11 +759,44 @@ if (!solidBlock) {
   );
 
   check(
-    "буква 1: пустой кнопки крышки нет",
+    "буква 1: пустой кнопки задней стенки нет",
     solidOptions.some((option) => option.request.signPart === "cover"),
     false,
   );
 }
+
+// У сплошной буквы нет задней стенки, но в fixed рельс всё равно должен
+// печататься вместе с ней: проверяем, что деталь cover не пустая и рельс
+// входит в её габарит.
+const solidFixedParams = {
+  ...base,
+  signText: "1",
+  signBlockSize: 1,
+  signRailMode: "fixed" as const,
+};
+const solidFixed = layoutOf(solidFixedParams, font);
+const solidFixedPieces = createSignBlockGeometry(
+  solidFixedParams,
+  font,
+  0,
+  "cover",
+);
+
+check(
+  "буква 1 fixed: рельс в отчёте",
+  solidFixed.blocks[0]?.rail !== null,
+  true,
+);
+check(
+  "буква 1 fixed: рельс в детали",
+  hasGeometry(solidFixedPieces),
+  true,
+);
+const solidFixedState = topology(solidFixedPieces);
+
+check("буква 1 fixed: незамкнутых рёбер", solidFixedState.open, 0);
+check("буква 1 fixed: неманифолдных рёбер", solidFixedState.nonManifold, 0);
+solidFixedPieces.dispose();
 
 console.log("\n60/3: пакет по умолчанию");
 const baseReport = baseLayout.blocks[0];
@@ -598,7 +840,7 @@ if (!baseReport) {
     near("60/3: пакет стоит на Z = 0", geometry.boundingBox?.min.z ?? 1, 0);
     near("60/3: пакет стоит на Y = 0", geometry.boundingBox?.min.y ?? 1, 0);
     check(
-      "60/3: лицо и крышка не пересекаются",
+      "60/3: лицо и задняя стенка не пересекаются",
       packageReport.intersects,
       false,
     );
@@ -683,7 +925,7 @@ if (!tallBlock) {
     false,
   );
   check(
-    "120/2: лицо и крышка доступны",
+    "120/2: лицо и задняя стенка доступны",
     options.some((option) => option.request.signPart === "face") &&
       options.some((option) => option.request.signPart === "cover"),
     true,
@@ -749,7 +991,7 @@ console.log("\nПлан упаковки без геометрии");
 const planned = planSignPackage(210, 120, 60, 120);
 
 check("план поворачивает лицо", planned.faceRotated, true);
-check("план кладёт крышку рядом", planned.arrangement, "side");
+check("план кладёт заднюю стенку рядом", planned.arrangement, "side");
 atMost("план по X", planned.width, SIGN_PRINT_BED_MM);
 atMost("план по Y", planned.depth, SIGN_PRINT_BED_MM);
 

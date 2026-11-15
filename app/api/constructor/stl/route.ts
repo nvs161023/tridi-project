@@ -900,9 +900,11 @@ function parseKeychainParams(
  * Геометрия сама уменьшит буквы, если строка не влезает в 800 мм.
  *
  * `blockIndex` и `signPart` обязательны: каждая деталь печатается отдельным
- * файлом — лицо, крышка или рельс блока. Номер блока считается по listSignBlocks,
- * то есть по тем же правилам, что и в интерфейсе; номер вне списка и незнакомая
- * деталь отклоняются, иначе клиент получил бы пустой STL вместо ошибки.
+ * файлом — лицо, задняя стенка или рельс блока. Рельс отдельной деталью есть
+ * только в съёмном режиме; в жёстком он уже входит в заднюю стенку. Номер
+ * блока считается по listSignBlocks, то есть по тем же правилам, что и в
+ * интерфейсе; номер вне списка и незнакомая деталь отклоняются, иначе клиент
+ * получил бы пустой STL вместо ошибки.
  */
 function parseSignParams(
   body: Record<string, unknown>,
@@ -948,7 +950,10 @@ function parseSignParams(
     !isSignRailMode(signRailMode) ||
     typeof blockIndex !== "number" ||
     !Number.isInteger(blockIndex) ||
-    !isSignPart(signPart)
+    !isSignPart(signPart) ||
+    // В fixed рельс уже входит в заднюю стенку, в none его нет: отдельный
+    // файл рельса был бы пустым.
+    (signPart === "rail" && signRailMode !== "detachable")
   ) {
     return null;
   }
