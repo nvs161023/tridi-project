@@ -28,14 +28,16 @@ import {
  *   face  — отдельные полые буквы, без общей плиты; у крайних букв снизу
  *           продолжение нижнего штриха — ножка;
  *   cover — крышка 2 мм по контуру каждой буквы с шипом по краю, отверстием
- *           под провод и ключом под рельс;
- *   rail  — брус 12 × 6 мм за крышками с каналом Ø4 мм вдоль всей длины.
+ *           под провод и пазом под клипсу рельса;
+ *   rail  — тонкий брус 6 × 4 мм за крышками с открытым назад каналом Ø4 мм.
  *
  * Плиты под буквами больше нет: буквы не связаны спереди ни планкой, ни
- * перемычкой. Их держит рельс за крышками. Ключ крышки входит в открытый паз
- * рельса: в режиме `detachable` с зазором (рельс снимается), в режиме `fixed`
- * с натягом (после сборки проклеивается). Если рельс выключен, каждая буква
- * получает собственную ножку, а спереди по-прежнему нет общей планки.
+ * перемычкой. Их держит рельс за крышками. Клипса рельса — пластина 2 мм,
+ * которая утоплена в паз крышки: в режиме `detachable` с зазором (рельс
+ * снимается), в режиме `fixed` с натягом (после сборки проклеивается).
+ * Рельс не выходит за контур букв и стоит целиком за их задней плоскостью,
+ * поэтому спереди его не видно. Если рельс выключен, каждая буква получает
+ * собственную ножку, а спереди по-прежнему нет общей планки.
  *
  * Сборка камеры герметична: на заднем торце стенки каждой буквы идёт паз до
  * 2 × 1.5 мм, в него входит шип 1.4 мм высотой на краю крышки. Ширина шипа на
@@ -54,7 +56,7 @@ import {
  * Булевых операций в проекте нет, поэтому каждая оболочка собирается из
  * пересекающихся замкнутых тел: пластина лица на всю толщину, стенка с пазом
  * (нижний пояс и две губки паза), стенки вокруг отверстий буквы. Каждое тело
- * watertight, а слайсер объединяет их при печати. Ножка и ключ рельса — такие
+ * watertight, а слайсер объединяет их при печати. Ножка и клипса рельса — такие
  * же отдельные замкнутые тела, входящие в букву или крышку с перекрытием.
  *
  * Если штрих буквы тоньше, чем нужно камере, буква печатается сплошной:
@@ -114,47 +116,42 @@ const SIGN_LETTER_MIN_CHAMBER_MM = 3;
 /** Насколько стенки входят в лицо, мм: перекрытие надёжнее стыка встык. */
 const SIGN_LETTER_EMBED_MM = 0.2;
 
-/** Зазор между блоками при сборке, мм: рельсы стыкуются встык. */
-export const SIGN_BLOCK_JOINT_MM = 3;
-
-/** Боковой запас блока за крайними буквами, мм: место под ножку и рельс. */
-const SIGN_BLOCK_SIDE_MM = 6;
-
-/** Минимальная ширина блока, мм: иначе рельс короче ключей. */
-const SIGN_BLOCK_MIN_WIDTH_MM = 24;
-
 /** Толщина крышки, мм: плоская пластина по контуру буквы. */
 const SIGN_COVER_PLATE_MM = 2;
 
-/** Насколько шип и ключ входят в крышку, мм: перекрытие вместо стыка. */
+/** Насколько шип и клипса входят в крышку, мм: перекрытие вместо стыка. */
 const SIGN_COVER_WELD_MM = 0.2;
 
-/** Высота заднего рельса, мм: брус 12 × 6 из задания. */
-export const SIGN_RAIL_HEIGHT_MM = 12;
+/** Высота заднего рельса, мм: тонкий брус 6 × 4. */
+export const SIGN_RAIL_HEIGHT_MM = 6;
 
-/** Толщина заднего рельса, мм: брус 12 × 6 из задания. */
-export const SIGN_RAIL_THICKNESS_MM = 6;
+/** Толщина заднего рельса, мм: тонкий брус 6 × 4. */
+export const SIGN_RAIL_THICKNESS_MM = 4;
 
-/** Канал под провод в рельсе, мм: тот же Ø4, что и в крышке. */
+/**
+ * Ширина открытого канала под провод в рельсе, мм.
+ *
+ * При толщине рельса 4 мм закрытый канал Ø4 не оставляет стенок, поэтому
+ * канал открыт назад: лента и провод заводятся в него сзади и остаются
+ * скрытыми за буквами.
+ */
 export const SIGN_RAIL_WIRE_HOLE_MM = 4;
 
-/** Глубина паза в рельсе под ключ крышки, мм. */
-const SIGN_RAIL_SLOT_DEPTH_MM = 2.5;
+/** Ширина клипсы рельса вдоль надписи, мм: тонкий соединитель. */
+export const SIGN_RAIL_CLIP_WIDTH_MM = 2;
 
-/** Высота паза под ключ крышки, мм. */
-const SIGN_RAIL_SLOT_HEIGHT_MM = 5;
+/** Высота клипсы рельса, мм: помещается в нижний штрих. */
+const SIGN_RAIL_CLIP_HEIGHT_MM = 4;
 
-/** Нижняя кромка паза от низа рельса, мм: выше остаётся канал Ø4. */
-const SIGN_RAIL_SLOT_BOTTOM_MM = 0.5;
+/** Зазор клипсы в пазу для съёмного рельса, мм на сторону. */
+const SIGN_RAIL_CLIP_CLEARANCE_DETACHABLE_MM = 0.3;
 
-/** Длина ключа крышки вдоль рельса, мм. */
-const SIGN_RAIL_KEY_LENGTH_MM = 5;
-
-/** Зазор ключа в пазу для съёмного рельса, мм на сторону. */
-const SIGN_RAIL_KEY_CLEARANCE_DETACHABLE_MM = 0.3;
-
-/** Посадка ключа в пазу для жёсткого рельса, мм на сторону. */
-const SIGN_RAIL_KEY_CLEARANCE_FIXED_MM = 0.05;
+/**
+ * Посадка клипсы в пазу для жёсткого рельса, мм на сторону.
+ *
+ * Отрицательное значение — натяг: паз в крышке на 0.1 мм уже клипсы.
+ */
+const SIGN_RAIL_CLIP_CLEARANCE_FIXED_MM = -0.05;
 
 /** Длина ножки под нижним штрихом буквы, мм. */
 export const SIGN_FOOT_HEIGHT_MM = 15;
@@ -165,7 +162,7 @@ const SIGN_FOOT_WIDTH_MM = 6;
 /** Насколько ножка входит в нижний штрих буквы, мм. */
 const SIGN_FOOT_EMBED_MM = 2.5;
 
-/** На какой высоте над низом буквы ищется материал под ножку или ключ, мм. */
+/** На какой высоте над низом буквы ищется материал под ножку или клипсу, мм. */
 const SIGN_BOTTOM_PROBE_MM = 1;
 
 /** Раскладка пакета: крышка над лицом или рядом с ним. */
@@ -220,6 +217,13 @@ export type SignBlockPackageReport = {
   intersects: boolean;
 };
 
+/** Границы буквы в координатах блока: по ним проверяется равномерный трекинг. */
+export type SignLetterBounds = {
+  char: string;
+  left: number;
+  right: number;
+};
+
 /** Отчёт раскладки одного блока для панели и тестов. */
 export type SignBlockLayoutReport = {
   blockIndex: number;
@@ -231,6 +235,10 @@ export type SignBlockLayoutReport = {
   rail: SignPartBounds | null;
   /** Сколько ножек получил блок. */
   feet: number;
+  /** Низ каждой ножки, мм: у ровной вывески он одинаковый. */
+  footBottoms: number[];
+  /** Буквы блока с границами по X: зазоры между ними должны совпадать. */
+  letters: SignLetterBounds[];
   package: SignPackageLayout;
   wireHoles: SignWireHoleReport[];
 };
@@ -965,9 +973,9 @@ type SignBlock = {
  * итеративно: каждый шаг уменьшает его во столько раз, во сколько строка шире
  * SIGN_MAX_WIDTH_MM. Четырёх шагов хватает даже самому узкому шрифту.
  *
- * Блоки идут подряд с зазором SIGN_BLOCK_JOINT_MM. Если букв в блоке мало и
- * блок вышел бы уже SIGN_BLOCK_MIN_WIDTH_MM, буквы встают по его центру:
- * рельсу и ножкам нужно место.
+ * Блоки идут подряд с тем же зазором signLetterGap, что и буквы внутри блока:
+ * трекинг по всей строке равномерный, без широких стыков на границах блоков.
+ * Рельс каждого блока занимает ровно его ширину и не выходит за крайние буквы.
  */
 function layoutSignBlocks(
   params: SignParams,
@@ -999,11 +1007,10 @@ function layoutSignBlocks(
       const lettersWidth =
         chunk.reduce((sum, letter) => sum + unitWidth(letter.char) * size, 0) +
         params.signLetterGap * Math.max(chunk.length - 1, 0);
-      const width = Math.max(
-        lettersWidth + 2 * SIGN_BLOCK_SIDE_MM,
-        SIGN_BLOCK_MIN_WIDTH_MM,
-      );
-      let letterCursor = cursor + (width - lettersWidth) / 2;
+      // Боковых полей нет: рельс и лицо кончаются там же, где крайние буквы.
+      // Поэтому зазор до следующего блока равен обычному трекингу.
+      const width = lettersWidth;
+      let letterCursor = cursor;
       const placed = chunk.map((letter) => {
         const item = {
           index: letter.index,
@@ -1022,10 +1029,10 @@ function layoutSignBlocks(
         width,
         letters: placed,
       });
-      cursor += width + SIGN_BLOCK_JOINT_MM;
+      cursor += width + params.signLetterGap;
     }
 
-    return { blocks, width: Math.max(cursor - SIGN_BLOCK_JOINT_MM, 0) };
+    return { blocks, width: Math.max(cursor - params.signLetterGap, 0) };
   };
 
   let size = params.signFontSize;
@@ -1045,7 +1052,11 @@ type SignBlockParts = {
   face: BufferGeometry;
   cover: BufferGeometry;
   rail: BufferGeometry;
+  /** Габариты самого бруса 6 × 4 без клипс: клипсы уходят в пазы крышек. */
+  railCore: SignPartBounds | null;
   feet: number;
+  footBottoms: number[];
+  letters: SignLetterBounds[];
   wireHoles: SignWireHole[];
 };
 
@@ -1068,7 +1079,7 @@ function createCircleContour(center: Vector2, radius: number): Vector2[] {
   return points;
 }
 
-/** Прямоугольный контур: окно под ключ рельса в крышке. */
+/** Прямоугольный контур: паз под клипсу рельса в крышке. */
 function createRectContour(
   center: Vector2,
   width: number,
@@ -1270,7 +1281,8 @@ function createCoverTenon(
 function createLetterCover(
   letter: SignLetterShape,
   shift: number,
-  keyNotch: Vector2 | null = null,
+  clipNotch: Vector2 | null = null,
+  clipClearance = 0,
 ): { geometry: BufferGeometry; wire: SignWireHole | null } | null {
   const cavity = letter.cavity;
 
@@ -1286,12 +1298,13 @@ function createLetterCover(
     holes.push(createCircleContour(wire.center, wire.radius));
   }
 
-  if (keyNotch) {
+  if (clipNotch) {
+    // Паз ровно под клипсу: в съёмном режиме с зазором, в жёстком — с натягом.
     holes.push(
       createRectContour(
-        keyNotch,
-        SIGN_RAIL_KEY_LENGTH_MM + 0.6,
-        SIGN_RAIL_SLOT_HEIGHT_MM + 0.4,
+        clipNotch,
+        SIGN_RAIL_CLIP_WIDTH_MM + 2 * clipClearance,
+        SIGN_RAIL_CLIP_HEIGHT_MM + 2 * clipClearance,
       ),
     );
   }
@@ -1347,7 +1360,7 @@ type SignBottomInterval = {
  * Интервалы материала на горизонтальном срезе контура.
  *
  * Луч пересекает рёбра контура; чётные пары пересечений — материал. Нужен для
- * ножки и ключа рельса: оба должны стоять на нижнем штрихе буквы, а не висеть
+ * ножки и клипсы рельса: обе должны стоять на нижнем штрихе буквы, а не висеть
  * в её полости.
  */
 function horizontalIntervals(
@@ -1428,13 +1441,13 @@ function pickBottomInterval(
 /**
  * Ножка буквы: продолжение нижнего штриха вниз, а не общая планка.
  *
- * Ножка стоит по центру выбранного интервала материала, входит в штрих на
- * SIGN_FOOT_EMBED_MM и получает ту же глубину, что и буква. Спереди она читается
- * как удлинение штриха: отдельной полосы под всей надписью нет.
+ * Все ножки растут от одной линии Y = −SIGN_FOOT_HEIGHT_MM до Y =
+ * SIGN_FOOT_EMBED_MM. Поэтому вывеска стоит ровно, даже если у крайней буквы
+ * есть выносной элемент ниже базовой линии: высота ножек не зависит от буквы.
+ * Спереди ножка читается как удлинение нижнего штриха.
  */
 function createFoot(
   interval: SignBottomInterval,
-  letterBottom: number,
   depth: number,
 ): BufferGeometry | null {
   const width = Math.min(
@@ -1447,8 +1460,8 @@ function createFoot(
   }
 
   const center = (interval.left + interval.right) / 2;
-  const top = letterBottom + SIGN_FOOT_EMBED_MM;
-  const bottom = letterBottom - SIGN_FOOT_HEIGHT_MM;
+  const top = SIGN_FOOT_EMBED_MM;
+  const bottom = -SIGN_FOOT_HEIGHT_MM;
 
   return extrudeRegion(
     [
@@ -1463,88 +1476,96 @@ function createFoot(
   );
 }
 
+/** Зазор паза крышки под клипсу: плюс — люфт, минус — натяг. */
+function signRailClipClearance(mode: "detachable" | "fixed"): number {
+  return mode === "detachable"
+    ? SIGN_RAIL_CLIP_CLEARANCE_DETACHABLE_MM
+    : SIGN_RAIL_CLIP_CLEARANCE_FIXED_MM;
+}
+
 /**
- * Ключ на крышке под паз рельса.
+ * Клипса рельса: тонкая пластина 2 мм, утопленная в паз крышки.
  *
- * Ключ — прямоугольный брус вдоль X: спереди он входит в крышку на
- * SIGN_COVER_WELD_MM, сзади — в паз рельса. Для съёмного режима зазор 0.3 мм на
- * сторону, для жёсткого — 0.05 мм: тот же паз, но посадка с натягом.
+ * Клипса растёт из передней плоскости рельса, проходит сквозь паз крышки и на
+ * SIGN_COVER_WELD_MM входит в заднюю плоскость лица. В собранном виде она не
+ * выходит за габарит крышки с рельсом, поэтому спереди её не видно: наружу
+ * торчит только паз, закрытый самой клипсой. Ширина 2 мм и высота 4 мм входят
+ * в нижний штрих буквы.
  */
-function createRailKey(
+function createRailClip(
   centerX: number,
   railBottom: number,
-  mode: "detachable" | "fixed",
 ): BufferGeometry {
-  const clearance =
-    mode === "detachable"
-      ? SIGN_RAIL_KEY_CLEARANCE_DETACHABLE_MM
-      : SIGN_RAIL_KEY_CLEARANCE_FIXED_MM;
-  // Ключ растёт из задней плоскости лица, проходит через окно в крышке и
-  // входит в паз рельса. Крышка остаётся плоской и печатается без поддержек.
   const front = -SIGN_COVER_WELD_MM;
-  const back = SIGN_COVER_PLATE_MM + SIGN_RAIL_SLOT_DEPTH_MM - clearance;
-  const slotBottom = railBottom + SIGN_RAIL_SLOT_BOTTOM_MM;
-  const slotTop = slotBottom + SIGN_RAIL_SLOT_HEIGHT_MM;
+  const back = SIGN_COVER_PLATE_MM + SIGN_COVER_WELD_MM;
+  const bottom =
+    railBottom + (SIGN_RAIL_HEIGHT_MM - SIGN_RAIL_CLIP_HEIGHT_MM) / 2;
+  const top = bottom + SIGN_RAIL_CLIP_HEIGHT_MM;
 
   const geometry = extrudeRegion(
     [
-      new Vector2(front, slotBottom + clearance),
-      new Vector2(back, slotBottom + clearance),
-      new Vector2(back, slotTop - clearance),
-      new Vector2(front, slotTop - clearance),
+      new Vector2(front, bottom),
+      new Vector2(back, bottom),
+      new Vector2(back, top),
+      new Vector2(front, top),
     ],
     [],
-    SIGN_RAIL_KEY_LENGTH_MM,
+    SIGN_RAIL_CLIP_WIDTH_MM,
     0,
   );
 
   // Локальная ось выдавливания становится мировой X, локальная X — мировой −Z:
-  // ключ ложится поперёк рельса, а не вылезает вперёд.
+  // клипса ложится поперёк рельса, а не вылезает вперёд.
   geometry.rotateY(Math.PI / 2);
-  geometry.translate(centerX - SIGN_RAIL_KEY_LENGTH_MM / 2, 0, 0);
+  geometry.translate(centerX - SIGN_RAIL_CLIP_WIDTH_MM / 2, 0, 0);
 
   return geometry;
 }
 
 /**
- * Задний рельс блока: брус 12 × 6 мм с каналом Ø4 мм и пазом под ключи.
+ * Задний рельс блока: брус 6 × 4 мм с открытым назад каналом Ø4 мм.
  *
- * Рельс стоит за крышками: его передняя плоскость на z = −2 мм, задняя — на
- * z = −8 мм. Спереди он не виден. Паз открыт в переднюю плоскость, поэтому
- * крышки с ключами надеваются на рельс сзади; канал Ø4 мм идёт вдоль всей
- * длины и заканчивается открытыми торцами.
+ * Рельс стоит целиком за крышками: передняя плоскость на z = −2 мм, задняя —
+ * на z = −6 мм. Его длина равна ширине блока, то есть рельс не выходит за
+ * крайние буквы ни слева, ни справа. Канал открыт в заднюю плоскость: при
+ * толщине 4 мм закрытое отверстие Ø4 не оставило бы стенок. Провод и лента
+ * заводятся сзади и остаются скрытыми за буквами.
  */
 function createBlockRail(block: SignBlock, railBottom: number): BufferGeometry {
   const front = SIGN_COVER_PLATE_MM;
   const back = front + SIGN_RAIL_THICKNESS_MM;
   const top = railBottom + SIGN_RAIL_HEIGHT_MM;
-  const slotBottom = railBottom + SIGN_RAIL_SLOT_BOTTOM_MM;
-  const slotTop = slotBottom + SIGN_RAIL_SLOT_HEIGHT_MM;
-  const slotBack = front + SIGN_RAIL_SLOT_DEPTH_MM;
-  const wireCenter = new Vector2(
-    (front + back) / 2,
-    railBottom + SIGN_RAIL_HEIGHT_MM - 3,
+  const channelCenter = new Vector2(
+    back,
+    railBottom + SIGN_RAIL_HEIGHT_MM / 2,
   );
+  const channelRadius = SIGN_RAIL_WIRE_HOLE_MM / 2;
+  const channel: Vector2[] = [];
+  const channelSegments = 16;
+
+  // Полуокружность от нижней кромки канала через самую глубокую точку к
+  // верхней: она вырезает в задней стенке открытый желоб.
+  for (let step = 0; step <= channelSegments; step += 1) {
+    const angle = -Math.PI / 2 - (Math.PI * step) / channelSegments;
+
+    channel.push(
+      new Vector2(
+        channelCenter.x + Math.cos(angle) * channelRadius,
+        channelCenter.y + Math.sin(angle) * channelRadius,
+      ),
+    );
+  }
+
   const geometry = extrudeRegion(
     [
       new Vector2(front, railBottom),
       new Vector2(back, railBottom),
+      ...channel,
       new Vector2(back, top),
       new Vector2(front, top),
-      new Vector2(front, slotTop),
-      new Vector2(slotBack, slotTop),
-      new Vector2(slotBack, slotBottom),
-      new Vector2(front, slotBottom),
     ],
-    [
-      createCircleContour(
-        wireCenter,
-        SIGN_RAIL_WIRE_HOLE_MM / 2,
-      ),
-    ],
-    // Рельс перекрывает зазор до следующего блока: сегменты стыкуются встык
-    // и образуют одну направляющую, а каналы остаются соосными.
-    block.width + SIGN_BLOCK_JOINT_MM,
+    [],
+    block.width,
     0,
   );
 
@@ -1587,7 +1608,7 @@ function buildSignBlockParts(
   const lastIndex = letters[letters.length - 1].index;
   const railMode = params.signRailMode;
 
-  /** Точка на нижнем штрихе, где лицо получит ключ рельса. */
+  /** Точка на нижнем штрихе, где крышка получит паз под клипсу рельса. */
   type RailMount = {
     x: number;
   };
@@ -1597,6 +1618,14 @@ function buildSignBlockParts(
     const covers: BufferGeometry[] = [];
     const wireHoles: SignWireHole[] = [];
     const mounts: RailMount[] = [];
+    const letterBounds: SignLetterBounds[] = [];
+    const footBottoms: number[] = [];
+    const clipClearance =
+      railMode === "none"
+        ? 0
+        : signRailClipClearance(
+            railMode === "detachable" ? "detachable" : "fixed",
+          );
     let letterBottom = Infinity;
     let feet = 0;
 
@@ -1635,10 +1664,15 @@ function buildSignBlockParts(
       const letterMinY = box.min.y;
 
       letterBottom = Math.min(letterBottom, letterMinY);
+      letterBounds.push({
+        char: letter.char,
+        left: letter.left,
+        right: shift + box.max.x,
+      });
       body.translate(shift, 0, 0);
       bodies.push(body);
 
-      // Главная фигура глифа: у «Ё» и «Й» их две, ножка и ключ нужны только
+      // Главная фигура глифа: у «Ё» и «Й» их две, ножка и клипса нужны только
       // на основной букве, а не на диакритическом знаке.
       let mainShape = glyph.shapes[0];
 
@@ -1665,12 +1699,11 @@ function buildSignBlockParts(
         }
       }
 
-      let keyNotch: Vector2 | null = null;
+      let clipNotch: Vector2 | null = null;
 
       if (mainShape && railMode !== "none") {
-        // Ключ стоит на нижнем штрихе: там материал идёт на всю глубину.
-        // Середина паза выше, но ключ — вертикальная стойка, и нижней частью
-        // он входит в этот штрих. На узком штрихе ключ пропускается.
+        // Клипса стоит на нижнем штрихе: там материал идёт на всю глубину.
+        // Ширина клипсы всего 2 мм, поэтому она помещается и в узкой букве.
         const interval = pickBottomInterval(
           mainShape.outline,
           SIGN_BOTTOM_PROBE_MM,
@@ -1679,14 +1712,11 @@ function buildSignBlockParts(
 
         if (
           interval &&
-          interval.right - interval.left >= SIGN_RAIL_KEY_LENGTH_MM + 1
+          interval.right - interval.left >= SIGN_RAIL_CLIP_WIDTH_MM + 0.6
         ) {
           const center = (interval.left + interval.right) / 2;
 
-          keyNotch = new Vector2(
-            center,
-            SIGN_RAIL_SLOT_BOTTOM_MM + SIGN_RAIL_SLOT_HEIGHT_MM / 2,
-          );
+          clipNotch = new Vector2(center, SIGN_RAIL_HEIGHT_MM / 2);
           mounts.push({ x: shift + center });
         }
       }
@@ -1695,7 +1725,8 @@ function buildSignBlockParts(
         const cover = createLetterCover(
           shape,
           shift,
-          shape === mainShape ? keyNotch : null,
+          shape === mainShape ? clipNotch : null,
+          clipClearance,
         );
 
         if (cover) {
@@ -1736,17 +1767,23 @@ function buildSignBlockParts(
           }
 
           const center = (interval.left + interval.right) / 2;
-          const key = Math.round(center * 10);
+          const footKey = Math.round(center * 10);
 
-          if (used.has(key)) {
+          if (used.has(footKey)) {
             continue;
           }
 
-          used.add(key);
+          used.add(footKey);
 
-          const foot = createFoot(interval, letterMinY, params.signDepth);
+          const foot = createFoot(interval, params.signDepth);
 
           if (foot) {
+            foot.computeBoundingBox();
+
+            if (foot.boundingBox) {
+              footBottoms.push(foot.boundingBox.min.y);
+            }
+
             foot.translate(shift, 0, 0);
             bodies.push(foot);
             feet += 1;
@@ -1760,30 +1797,28 @@ function buildSignBlockParts(
       continue;
     }
 
-    // Базовая линия шрифта — Y = 0. Рельс всех блоков идёт по ней, поэтому
-    // сегменты стыкуются в одну горизонтальную направляющую, даже если у «Д»
-    // ножки опущены ниже строки.
+    // Базовая линия шрифта — Y = 0. Рельс каждого блока идёт по ней ровно на
+    // ширину блока: он скрыт за буквами и не образует общий брус через стыки.
     const railBottom = 0;
-    const rail =
-      railMode === "none"
-        ? createEmptyGeometry()
-        : createBlockRail(block, railBottom);
-
-    for (const mount of mounts) {
-      bodies.push(
-        createRailKey(
-          mount.x,
-          railBottom,
-          railMode === "detachable" ? "detachable" : "fixed",
-        ),
-      );
-    }
+    let rail = createEmptyGeometry();
+    let railCore: SignPartBounds | null = null;
 
     if (railMode !== "none") {
+      const core = createBlockRail(block, railBottom);
+
+      railCore = geometryBounds(core);
+
+      const railBodies: BufferGeometry[] = [core];
+
+      for (const mount of mounts) {
+        railBodies.push(createRailClip(mount.x, railBottom));
+      }
+
+      rail = mergeBodies(railBodies) ?? createEmptyGeometry();
       wireHoles.push({
         center: new Vector2(
           block.left + block.width / 2,
-          railBottom + SIGN_RAIL_HEIGHT_MM - 3,
+          railBottom + SIGN_RAIL_HEIGHT_MM / 2,
         ),
         radius: SIGN_RAIL_WIRE_HOLE_MM / 2,
         source: "rail",
@@ -1799,7 +1834,17 @@ function buildSignBlockParts(
       continue;
     }
 
-    built.push({ block, face, cover, rail, feet, wireHoles });
+    built.push({
+      block,
+      face,
+      cover,
+      rail,
+      railCore,
+      feet,
+      footBottoms,
+      letters: letterBounds,
+      wireHoles,
+    });
   }
 
   for (const glyph of cache.values()) {
@@ -1841,11 +1886,10 @@ type SignPackageCandidate = {
 /**
  * Порядок перебора раскладок.
  *
- * Сначала привычная: крышка над лицом, обе детали как в предпросмотре. Так
- * пакет 60/3 и 80/2 занимает 162.5 × 202.8 и 170.5 × 202.8 мм. Если глубина
- * больше 220 — крышка ставится рядом по X. Последний резерв — поворот обеих
- * деталей на 90° и боковая раскладка: так 120 «ИИ» из 210.7 × 244.9 мм
- * превращается в 202.8 × 210.7 мм и влезает на стол 220.
+ * Сначала привычная: крышка над лицом, обе детали как в предпросмотре. Если
+ * глубина больше 220 — крышка ставится рядом по X. Последний резерв — поворот
+ * обеих деталей на 90° и боковая раскладка: так высокий пакет 120 «ИИ»
+ * разворачивается и влезает на стол 220.
  */
 const SIGN_PACKAGE_CANDIDATES: readonly SignPackageCandidate[] = [
   { arrangement: "stack", faceRotated: false, coverRotated: false },
@@ -2112,9 +2156,7 @@ function blockLayoutReport(parts: SignBlockParts): SignBlockLayoutReport | null 
   }
 
   const cover = geometryBounds(parts.cover);
-  const rail = parts.rail.getAttribute("position")
-    ? geometryBounds(parts.rail)
-    : null;
+  const rail = parts.railCore;
   const faceWidth = face.maxX - face.minX;
   const faceHeight = face.maxY - face.minY;
   const coverWidth = cover ? cover.maxX - cover.minX : 0;
@@ -2128,6 +2170,8 @@ function blockLayoutReport(parts: SignBlockParts): SignBlockLayoutReport | null 
     coverHeight,
     rail,
     feet: parts.feet,
+    footBottoms: parts.footBottoms,
+    letters: parts.letters,
     package: planSignPackage(faceWidth, faceHeight, coverWidth, coverHeight),
     wireHoles: parts.wireHoles.map((wire) => ({
       blockIndex: parts.block.index,
@@ -2197,9 +2241,10 @@ export function createSignBlockPackageGeometry(
 /**
  * Собранная надпись одной сеткой: предпросмотр.
  *
- * Блоки стоят с зазором стыка, шипы входят в пазы — предпросмотр показывает
- * именно то, что получится после печати. Крышки в сборку не входят: они
- * закрывают камеры сзади и с лицевой стороны не видны.
+ * Блоки стоят с равномерным трекингом, шипы входят в пазы — предпросмотр
+ * показывает именно то, что получится после печати. В сборку входят лицо,
+ * крышки и рельс: так подпись веса учитывает все детали, а сзади не остаётся
+ * открытых камер.
  *
  * font = null допустим: шрифт ещё грузится, и пустая сетка честнее плиты,
  * которой в модели больше нет. report заполняется для панели: по нему видно,
@@ -2224,8 +2269,12 @@ export function createSignGeometry(
     return createEmptyGeometry();
   }
 
+  // В предпросмотр входит вся печатная сборка: лицо, крышки и рельс. Иначе
+  // подпись веса занижает расход пластика, а сзади видны незакрытые камеры.
   const previewBodies = built.flatMap((parts) =>
-    parts.rail.getAttribute("position") ? [parts.face, parts.rail] : [parts.face],
+    [parts.face, parts.cover, parts.rail].filter(
+      (body) => body.getAttribute("position") !== undefined,
+    ),
   );
   const merged = mergeBodies(previewBodies);
 

@@ -181,6 +181,79 @@ function frontCoverage(geometry: BufferGeometry, y: number): number {
   return material / samples;
 }
 
+/**
+ * Дефекты сетки: вырожденные треугольники, незамкнутые и неманифолдные рёбра.
+ *
+ * Оболочки букв пересекаются, но каждая остаётся замкнутой, поэтому открытых
+ * рёбер быть не должно: именно они дают «сломанные грани» и дыры в слайсере.
+ */
+function topology(geometry: BufferGeometry): {
+  open: number;
+  nonManifold: number;
+  degenerate: number;
+  nan: number;
+} {
+  const position = geometry.getAttribute("position");
+  const index = geometry.getIndex();
+  const triangles = (index ? index.count : position.count) / 3;
+  const edges = new Map<string, number>();
+  let degenerate = 0;
+  let nan = 0;
+  const keyOf = (id: number): string => {
+    const x = position.getX(id);
+    const y = position.getY(id);
+    const z = position.getZ(id);
+
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+      nan += 1;
+    }
+
+    return `${x.toFixed(3)}|${y.toFixed(3)}|${z.toFixed(3)}`;
+  };
+  const vertex = (corner: number): number =>
+    index ? index.getX(corner) : corner;
+
+  for (let corner = 0; corner < triangles * 3; corner += 3) {
+    const triangle = [
+      keyOf(vertex(corner)),
+      keyOf(vertex(corner + 1)),
+      keyOf(vertex(corner + 2)),
+    ];
+
+    if (new Set(triangle).size < 3) {
+      degenerate += 1;
+    }
+
+    for (let side = 0; side < 3; side += 1) {
+      const a = triangle[side];
+      const b = triangle[(side + 1) % 3];
+
+      if (a === b) {
+        continue;
+      }
+
+      const edge = a < b ? `${a}~${b}` : `${b}~${a}`;
+
+      edges.set(edge, (edges.get(edge) ?? 0) + 1);
+    }
+  }
+
+  let open = 0;
+  let nonManifold = 0;
+
+  for (const count of edges.values()) {
+    if (count % 2 !== 0) {
+      open += count;
+    }
+
+    if (count > 2) {
+      nonManifold += count;
+    }
+  }
+
+  return { open, nonManifold, degenerate, nan };
+}
+
 const fontPath = path.join(
   process.cwd(),
   "public",
@@ -193,7 +266,7 @@ const base = normalizeSignParams({
   signText: "ТРИ ДИ",
   signFont: "sans-bold",
   signFontSize: 60,
-  signDepth: 18,
+  signDepth: 12,
   signChannelWidth: 8,
   signLetterGap: 6,
   signBlockSize: 3,
@@ -241,6 +314,11 @@ for (const block of baseLayout.blocks) {
     (block.rail?.maxZ ?? 0) - (block.rail?.minZ ?? 0),
     SIGN_RAIL_THICKNESS_MM,
   );
+  near(
+    `блок ${block.blockIndex + 1}: рельс по ширине лица`,
+    (block.rail?.maxX ?? 0) - (block.rail?.minX ?? 0),
+    block.faceWidth,
+  );
   check(
     `блок ${block.blockIndex + 1}: канал рельса сквозной`,
     block.wireHoles.some((hole) => hole.source === "rail" && hole.through),
@@ -261,6 +339,69 @@ for (const block of baseLayout.blocks) {
 const totalFeet = baseLayout.blocks.reduce((sum, block) => sum + block.feet, 0);
 
 check("крайние буквы получили ножки", totalFeet >= 2, true);
+
+console.log("\nТрекинг, ножки и целостность букв");
+const placedLetters = baseLayout.blocks
+  .flatMap((block) => block.letters)
+  .sort((a, b) => a.left - b.left);
+const gaps = placedLetters
+  .slice(1)
+  .map((letter, index) => letter.left - placedLetters[index].right);
+const minGap = Math.min(...gaps);
+const maxGap = Math.max(...gaps);
+
+check("в строке все буквы", placedLetters.length, 5);
+atMost("разброс трекинга", maxGap - minGap, 0.05);
+near("трекинг равен зазору", (minGap + maxGap) / 2, base.signLetterGap);
+console.log(
+  `    зазоры ${gaps.map((gap) => gap.toFixed(2)).join(", ")} мм; буквы ${placedLetters
+    .map((letter) => letter.char)
+    .join("")}`,
+);
+
+const footBottoms = baseLayout.blocks.flatMap((block) => block.footBottoms);
+
+check("ножки построены", footBottoms.length > 0, true);
+atMost(
+  "разброс низа ножек",
+  Math.max(...footBottoms) - Math.min(...footBottoms),
+  0.01,
+);
+near("низ ножек на общей линии", footBottoms[0] ?? Number.NaN, -SIGN_FOOT_HEIGHT_MM);
+
+for (const blockIndex of [0, 1]) {
+  for (const part of ["face", "cover", "rail"] as const) {
+    const partGeometry = createSignBlockGeometry(base, font, blockIndex, part);
+    const state = topology(partGeometry);
+
+    check(`б${blockIndex + 1} ${part}: незамкнутых рёбер`, state.open, 0);
+    check(`б${blockIndex + 1} ${part}: неманифолдных рёбер`, state.nonManifold, 0);
+    check(`б${blockIndex + 1} ${part}: вырожденных граней`, state.degenerate, 0);
+    check(`б${blockIndex + 1} ${part}: NaN`, state.nan, 0);
+    partGeometry.dispose();
+  }
+}
+
+const facePart = createSignBlockGeometry(base, font, 0, "face");
+
+facePart.computeBoundingBox();
+
+if (!facePart.boundingBox) {
+  failures.push("лицо 60/3: нет габаритов");
+} else {
+  near(
+    "лицо 60/3: толщина букв",
+    facePart.boundingBox.max.z - facePart.boundingBox.min.z,
+    base.signDepth,
+  );
+  atMost(
+    "лицо 60/3: толщина не больше 12 мм",
+    facePart.boundingBox.max.z - facePart.boundingBox.min.z,
+    12,
+  );
+}
+
+facePart.dispose();
 
 console.log("\nЛицо без общей планки и вес");
 const preview = createSignGeometry(base, font);
@@ -285,8 +426,13 @@ if (!previewBox) {
 
   const weight = calculateGeometryWeightGrams(preview);
 
-  check("вес ниже прежних 1921 г", weight < 1921, true);
-  console.log(`    вес предпросмотра ${weight.toFixed(0)} г`);
+  check(
+    "буквы полые: у блока есть крышка",
+    baseLayout.blocks.every((block) => block.coverWidth > 0),
+    true,
+  );
+  atMost("вес всей вывески «ТРИ ДИ»", weight, 300);
+  console.log(`    вес лица, крышек и рельса ${weight.toFixed(0)} г`);
 }
 
 const railPart = createSignBlockGeometry(base, font, 0, "rail");
@@ -301,11 +447,6 @@ if (!railPart.boundingBox) {
     railPart.boundingBox.max.y - railPart.boundingBox.min.y,
     SIGN_RAIL_HEIGHT_MM,
   );
-  near(
-    "рельс отдельной детали: толщина",
-    railPart.boundingBox.max.z - railPart.boundingBox.min.z,
-    SIGN_RAIL_THICKNESS_MM,
-  );
 
   const railBox = railPart.boundingBox;
   const railMesh = new Mesh(railPart);
@@ -314,11 +455,12 @@ if (!railPart.boundingBox) {
 
   const channelRay = new Raycaster();
 
+  // Канал открыт в заднюю плоскость рельса: луч идёт по его середине.
   channelRay.set(
     new Vector3(
       railBox.min.x - 10,
-      railBox.min.y + SIGN_RAIL_HEIGHT_MM - 3,
-      (railBox.min.z + railBox.max.z) / 2,
+      railBox.min.y + SIGN_RAIL_HEIGHT_MM / 2,
+      railBox.min.z + 1,
     ),
     new Vector3(1, 0, 0),
   );
