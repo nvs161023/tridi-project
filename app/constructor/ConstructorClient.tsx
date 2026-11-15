@@ -80,6 +80,7 @@ import {
   normalizeConstructorParams,
   nextPatternLayer,
   penHolderStlFileName,
+  planterFootprint,
   planterStlFileName,
   signStlFileName,
   vasePatternLabel,
@@ -478,6 +479,57 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
     ];
   }
 
+  if (params.model === "planter") {
+    // Горшок и поддон печатаются отдельными деталями: общий STL ставит их
+    // рядом с зазором 12 мм, чтобы принтер не спаял стенки. Поддона без
+    // дренажа нет — тогда остаётся один горшок.
+    const footprint = planterFootprint(params);
+    const pot: StlExportOption = {
+      id: "planter-pot",
+      label: "Горшок",
+      description: `Горшок ${params.planterSize} × ${Math.round(
+        footprint.potDepth,
+      )} × ${params.planterHeight} мм, дно плоское`,
+      request: { planterPart: "pot" },
+      fileName: planterStlFileName(params, "pot"),
+    };
+
+    if (!params.planterDrainage) {
+      return [
+        {
+          ...pot,
+          id: "planter",
+          label: "Скачать STL",
+        },
+      ];
+    }
+
+    const bedNote =
+      footprint.width > 220 ? " · больше стола 220 мм" : "";
+
+    return [
+      {
+        id: "planter-set",
+        label: "Общий STL",
+        description: `Горшок и поддон рядом, зазор 12 мм: ${Math.round(
+          footprint.width,
+        )} × ${Math.round(footprint.depth)} мм${bedNote}`,
+        request: { planterPart: "all" },
+        fileName: planterStlFileName(params, "all"),
+      },
+      pot,
+      {
+        id: "planter-tray",
+        label: "Поддон",
+        description: `Поддон ${Math.round(footprint.trayWidth)} × ${Math.round(
+          footprint.trayDepth,
+        )} × ${footprint.trayHeight} мм`,
+        request: { planterPart: "tray" },
+        fileName: planterStlFileName(params, "tray"),
+      },
+    ];
+  }
+
   // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
   // с одним STL: ваза, брелок, коробка, кашпо, подставка для украшений,
   // органайзер для ручек и термопринт.
@@ -491,15 +543,13 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
           ? vaseStlFileName(params)
           : params.model === "keychain"
             ? keychainStlFileName(params)
-            : params.model === "planter"
-              ? planterStlFileName(params)
-              : params.model === "jewelry_stand"
-                ? jewelryStandStlFileName(params)
-                : params.model === "pen_holder"
-                  ? penHolderStlFileName(params)
-                  : params.model === "heat_transfer"
-                    ? heatTransferStlFileName(params)
-                    : boxStlFileName(params),
+            : params.model === "jewelry_stand"
+              ? jewelryStandStlFileName(params)
+              : params.model === "pen_holder"
+                ? penHolderStlFileName(params)
+                : params.model === "heat_transfer"
+                  ? heatTransferStlFileName(params)
+                  : boxStlFileName(params),
     },
   ];
 }
@@ -1697,8 +1747,14 @@ export function ConstructorClient({
                 ) : params.model === "planter" ? (
                   <>
                     {PLANTER_SHAPE_LABELS[params.planterShape]} ·{" "}
-                    {params.planterSize} × {params.planterHeight} мм ·{" "}
-                    {params.planterDrainage ? "дренаж и поддон" : "без дренажа"}
+                    {params.planterSize} ×{" "}
+                    {Math.round(planterFootprint(params).potDepth)} ×{" "}
+                    {params.planterHeight} мм ·{" "}
+                    {params.planterDrainage
+                      ? `поддон ${planterFootprint(params).trayWidth} × ${Math.round(
+                          planterFootprint(params).trayDepth,
+                        )} мм`
+                      : "без поддона"}
                   </>
                 ) : params.model === "coaster" ? (
                   <>

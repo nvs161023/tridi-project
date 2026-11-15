@@ -31,6 +31,7 @@ import {
 import {
   CONSTRUCTOR_LIMITS,
   DEFAULT_LITHOPHANE_PARAMS,
+  DEFAULT_PLANTER_PART,
   DEFAULT_SIGN_PARAMS,
   DEFAULT_VASE_PARAMS,
   KEYCHAIN_DECORATION_DEPTH_LIMITS,
@@ -68,6 +69,7 @@ import {
   isLithophaneShape,
   isLithophaneSideBrightness,
   isPenShape,
+  isPlanterPart,
   isPlanterShape,
   isSignChannelWidth,
   isSignFont,
@@ -125,6 +127,7 @@ import {
   type PatternLayer,
   type PenHolderParams,
   type PlanterParams,
+  type PlanterPart,
   type SignParams,
   type SignPart,
   type VaseParams,
@@ -1210,13 +1213,17 @@ function parseLithophaneParams(
 /**
  * Строгая проверка параметров кашпо.
  *
- * Габарит «под ключ», высота и стенка проверяются в границах слайдеров, форма —
- * по списку трёх силуэтов, дренаж — только настоящим boolean: строка «false»
- * иначе включила бы отверстия и второй поддон в файле.
+ * Габарит по самой широкой части, высота и стенка проверяются в границах
+ * слайдеров, форма — по списку трёх силуэтов, дренаж — только настоящим
+ * boolean: строка «false» иначе включила бы отверстия и второй поддон в файле.
+ * Часть набора приходит как `planterPart` (новый клиент) или `part` (старый
+ * контракт аудита), по умолчанию — общий файл. Поддон без дренажа отклоняется:
+ * иначе пользователь скачал бы деталь, которой нет в модели.
  */
-function parsePlanterParams(
-  body: Record<string, unknown>,
-): PlanterParams | null {
+function parsePlanterParams(body: Record<string, unknown>): {
+  params: PlanterParams;
+  part: PlanterPart;
+} | null {
   const {
     planterSize,
     planterHeight,
@@ -1224,6 +1231,9 @@ function parsePlanterParams(
     planterShape,
     planterDrainage,
   } = body;
+  const requestedPart =
+    body.planterPart === undefined ? body.part : body.planterPart;
+  const part = requestedPart ?? DEFAULT_PLANTER_PART;
 
   if (
     !isNumberInRange(
@@ -1242,18 +1252,23 @@ function parsePlanterParams(
       CONSTRUCTOR_LIMITS.planterWall.max,
     ) ||
     !isPlanterShape(planterShape) ||
-    typeof planterDrainage !== "boolean"
+    typeof planterDrainage !== "boolean" ||
+    !isPlanterPart(part) ||
+    (part === "tray" && !planterDrainage)
   ) {
     return null;
   }
 
-  return normalizePlanterParams({
-    planterSize,
-    planterHeight,
-    planterWall,
-    planterShape,
-    planterDrainage,
-  });
+  return {
+    params: normalizePlanterParams({
+      planterSize,
+      planterHeight,
+      planterWall,
+      planterShape,
+      planterDrainage,
+    }),
+    part,
+  };
 }
 
 /**
@@ -1593,7 +1608,7 @@ type ParsedConstructorRequest =
   | { model: "sign"; params: SignParams; block: number; part: SignPart }
   | { model: "box"; params: BoxParams }
   | { model: "lithophane"; params: LithophaneParams; part: LithophanePart }
-  | { model: "planter"; params: PlanterParams }
+  | { model: "planter"; params: PlanterParams; part: PlanterPart }
   | { model: "coaster"; params: CoasterParams; part: CoasterPart }
   | { model: "jewelry_stand"; params: JewelryStandParams }
   | { model: "pen_holder"; params: PenHolderParams }
@@ -1646,9 +1661,9 @@ function parseConstructorRequest(
   }
 
   if (model === "planter") {
-    const params = parsePlanterParams(body);
+    const planter = parsePlanterParams(body);
 
-    return params ? { model: "planter", params } : null;
+    return planter ? { model: "planter", ...planter } : null;
   }
 
   if (model === "coaster") {
@@ -1941,7 +1956,7 @@ export async function POST(request: Request): Promise<Response> {
           : parsed.model === "lithophane"
             ? createLithophaneGeometry(parsed.params, parsed.part)
             : parsed.model === "planter"
-              ? createPlanterGeometry(parsed.params)
+              ? createPlanterGeometry(parsed.params, parsed.part)
               : parsed.model === "coaster"
                 ? parsed.part === "holder"
                   ? createCoasterHolderGeometry(parsed.params)
@@ -1988,7 +2003,7 @@ export async function POST(request: Request): Promise<Response> {
               : parsed.model === "lithophane"
                 ? lithophaneStlFileName(parsed.params, parsed.part)
                 : parsed.model === "planter"
-                  ? planterStlFileName(parsed.params)
+                  ? planterStlFileName(parsed.params, parsed.part)
                   : parsed.model === "coaster"
                     ? parsed.part === "holder"
                       ? coasterHolderStlFileName()

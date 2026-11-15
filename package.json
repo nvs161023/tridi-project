@@ -15,6 +15,7 @@
     "check:box": "node --import ./scripts/register-alias.mjs scripts/test-box-geometry.ts",
     "check:pen": "node --import ./scripts/register-alias.mjs scripts/test-pen-geometry.ts",
     "check:coaster": "node --import ./scripts/register-alias.mjs scripts/test-coaster-geometry.ts",
+    "check:planter": "node --import ./scripts/register-alias.mjs scripts/test-planter-geometry.ts",
     "check:jewelry": "node --import ./scripts/register-alias.mjs scripts/test-jewelry-geometry.ts",
     "stats:lesson": "node scripts/lesson-stats.mjs",
     "shots:vase": "node --import ./scripts/register-alias.mjs scripts/vase-render.mjs",

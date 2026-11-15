@@ -7,11 +7,17 @@ import {
 } from "three";
 
 import {
+  DEFAULT_PLANTER_PART,
+  PLANTER_TRAY_EXTRA_MM,
+  PLANTER_TRAY_GAP_MM,
+  PLANTER_TRAY_HEIGHT_MM,
   normalizePlanterParams,
   type PlanterParams,
+  type PlanterPart,
   type PlanterShape,
 } from "@/lib/constructor/params";
 import {
+  addCupPrism,
   addRingPrism,
   circlePolygon,
   offsetPoints,
@@ -21,29 +27,21 @@ import {
 /**
  * Геометрия кашпо с дренажом и поддоном.
  *
- * Горшок стоит на столе кромкой стенки, а дно приподнято на PLANTER_JOIN_MM:
- * вода выходит через отверстия вниз и не задерживается под грунтом. Рядом в том
- * же STL печатается поддон — он шире горшка на PLANTER_TRAY_EXTRA_MM, поэтому
- * конденсат и лишняя вода остаются в нём.
+ * Горшок стоит на столе плоским дном: отверстия проходят сквозь плиту насквозь
+ * и открываются в поддон, когда горшок ставят внутрь. Поддон — отдельная чаша с
+ * плоским дном; его внешний габарит считается от ширины горшка по самой широкой
+ * части, а не от апофемы. Рядом в общем STL детали лежат с зазором
+ * `PLANTER_TRAY_GAP_MM`, чтобы принтер не спаял их.
  *
  * Стенка горшка — замкнутое кольцо-призма, дно — замкнутая плита с отверстиями.
- * Дно входит в стенку на половину её толщины, а по высоте начинается выше стола:
- * у деталей нет совпадающих плоскостей, и каждая оболочка сама по себе
- * watertight. Булевых операций в проекте нет — слайсер объединяет
- * пересекающиеся тела при печати, как у коробки-органайзера.
+ * Дно входит в стенку на половину её толщины, поэтому у деталей нет совпадающих
+ * плоскостей и каждая оболочка сама по себе watertight. Булевых операций в
+ * проекте нет — слайсер объединяет пересекающиеся тела при печати, как у
+ * коробки-органайзера.
  *
  * Деталь построена Z-вверх, как её ждёт слайсер. Предпросмотр поворачивает меш
  * так же, как корпус коробки.
  */
-
-/** Зазор между горшком и поддоном на столе, мм. */
-const PLANTER_TRAY_GAP_MM = 12;
-
-/** Насколько поддон шире горшка по габариту, мм. */
-const PLANTER_TRAY_EXTRA_MM = 16;
-
-/** Высота борта поддона, мм. */
-const PLANTER_TRAY_HEIGHT_MM = 14;
 
 /** Толщина стенки поддона, мм. */
 const PLANTER_TRAY_WALL_MM = 2.4;
@@ -52,16 +50,13 @@ const PLANTER_TRAY_WALL_MM = 2.4;
 const PLANTER_TRAY_FLOOR_MM = 2;
 
 /** Радиус дренажного отверстия, мм: Ø 5 мм пропускает воду и держит грунт. */
-const PLANTER_HOLE_RADIUS_MM = 2.5;
+export const PLANTER_DRAIN_HOLE_RADIUS_MM = 2.5;
 
 /** Сколько отверстий в кольце вокруг центрального, шт. */
 const PLANTER_HOLE_RING_COUNT = 6;
 
 /** Запас от края дна до отверстия, мм. */
 const PLANTER_HOLE_MARGIN_MM = 1.5;
-
-/** Насколько дно приподнято над столом, мм. */
-const PLANTER_JOIN_MM = 0.6;
 
 /** Число сторон круглого сечения: 64 отрезка дают гладкую стенку. */
 const PLANTER_ROUND_SIDES = 64;
@@ -73,31 +68,68 @@ const PLANTER_SIDES: Record<PlanterShape, number> = {
   hex: 6,
 };
 
-/**
- * Сечение детали в плане.
- *
- * `acrossFlats` — габарит «под ключ»: расстояние между параллельными гранями.
- * Поэтому радиус описанной окружности многоугольника больше половины габарита, а
- * у круга совпадает с ним. Квадрат повёрнут на 45°: его грани смотрят по осям, и
- * габарит по X и Y одинаковый.
- */
-function sectionPolygon(shape: PlanterShape, acrossFlats: number): Point2[] {
-  const sides = PLANTER_SIDES[shape];
-  const apothem = acrossFlats / 2;
-  const radius =
-    shape === "round" ? apothem : apothem / Math.cos(Math.PI / sides);
-  const start = shape === "square" ? Math.PI / 4 : 0;
-
-  return circlePolygon(radius, sides, start);
+/** Угол первой вершины: квадрат повёрнут гранями по осям. */
+function sectionStartAngle(shape: PlanterShape): number {
+  return shape === "square" ? Math.PI / 4 : 0;
 }
+
+/**
+ * Радиус описанной окружности для заданной ширины сечения.
+ *
+ * Ширина — расстояние между крайними точками по X, то есть габарит по самой
+ * широкой части. У шестигранника это расстояние от угла до угла: при запросе
+ * 120 мм готовый bbox тоже ровно 120 мм, а не 138.6 мм, как при габарите «под
+ * ключ». Круг и квадрат от этого пересчёта не меняются.
+ */
+function sectionRadiusForWidth(shape: PlanterShape, width: number): number {
+  const sides = PLANTER_SIDES[shape];
+  const unit = circlePolygon(1, sides, sectionStartAngle(shape));
+  const halfWidth = Math.max(...unit.map(([x]) => Math.abs(x)));
+
+  return width / (2 * halfWidth);
+}
+
+/** Апофема сечения: расстояние от центра до грани. */
+function sectionApothem(shape: PlanterShape, width: number): number {
+  return (
+    sectionRadiusForWidth(shape, width) * Math.cos(Math.PI / PLANTER_SIDES[shape])
+  );
+}
+
+/** Сечение по ширине: вершины стоят на окружности нужного радиуса. */
+function sectionPolygon(shape: PlanterShape, width: number): Point2[] {
+  return circlePolygon(
+    sectionRadiusForWidth(shape, width),
+    PLANTER_SIDES[shape],
+    sectionStartAngle(shape),
+  );
+}
+
+/**
+ * Сечение по апофеме — для внутренней стенки и плиты дна.
+ *
+ * Уменьшение апофемы на толщину стенки сдвигает каждую грань внутрь ровно на
+ * эту толщину. Поэтому стенка получается одинаковой на круге, квадрате и
+ * шестиграннике, а не тоньше на углах.
+ */
+function sectionByApothem(shape: PlanterShape, apothem: number): Point2[] {
+  const sides = PLANTER_SIDES[shape];
+
+  return circlePolygon(
+    apothem / Math.cos(Math.PI / sides),
+    sides,
+    sectionStartAngle(shape),
+  );
+}
+
 
 /**
  * Плита дна: контур с необязательными дренажными отверстиями.
  *
  * Контур и отверстия вырезает `ExtrudeGeometry`: наружная граница — контур
  * горшка, отверстия — окружности, поэтому дно остаётся одной замкнутой деталью.
- * Экструзия начинается от `z0`, а не от нуля: дно приподнято над столом, и его
- * нижняя плоскость не совпадает с нижней плоскостью стенки.
+ * Плита ставится на `z0 = 0`: её нижняя плоскость лежит на столе, а не висит
+ * мостом над полостью. Вода проходит через отверстия вниз, в поддон.
  */
 function addFloorPlate(
   positions: number[],
@@ -120,7 +152,7 @@ function addFloorPlate(
   for (const [x, y] of holes) {
     const hole = new Path();
 
-    hole.absarc(x, y, PLANTER_HOLE_RADIUS_MM, 0, Math.PI * 2, false);
+    hole.absarc(x, y, PLANTER_DRAIN_HOLE_RADIUS_MM, 0, Math.PI * 2, false);
     shape.holes.push(hole);
   }
 
@@ -155,9 +187,11 @@ function addFloorPlate(
 function drainHoleCenters(plateApothem: number): Point2[] {
   const centers: Point2[] = [[0, 0]];
   const freeApothem =
-    plateApothem - PLANTER_HOLE_RADIUS_MM - PLANTER_HOLE_MARGIN_MM;
+    plateApothem -
+    PLANTER_DRAIN_HOLE_RADIUS_MM -
+    PLANTER_HOLE_MARGIN_MM;
 
-  if (freeApothem < PLANTER_HOLE_RADIUS_MM * 2.4) {
+  if (freeApothem < PLANTER_DRAIN_HOLE_RADIUS_MM * 2.4) {
     return centers;
   }
 
@@ -176,86 +210,93 @@ function drainHoleCenters(plateApothem: number): Point2[] {
 }
 
 /**
- * Геометрия кашпо и поддона для набора параметров.
+ * Центры дренажных отверстий для набора параметров.
  *
- * Функция принимает частичные параметры: недостающие поля берутся из значений
- * по умолчанию, поэтому предпросмотр может вызвать её с любым набором.
+ * Возвращает координаты в системе отдельного горшка без смещения раскладки:
+ * тест и превью могут проверить, что луч из каждого отверстия проходит сквозь
+ * дно. Диаметр отверстий — `PLANTER_DRAIN_HOLE_RADIUS_MM * 2`.
  */
-export function createPlanterGeometry(
+export function planterDrainHoleCenters(
   params: Partial<PlanterParams>,
-): BufferGeometry {
+): Point2[] {
   const normalized = normalizePlanterParams(params);
-  const positions: number[] = [];
-  const wall = normalized.planterWall;
-  const outerApothem = normalized.planterSize / 2;
-  const innerApothem = outerApothem - wall;
-  const plateApothem = outerApothem - wall / 2;
+  const plateApothem =
+    sectionApothem(normalized.planterShape, normalized.planterSize) -
+    normalized.planterWall / 2;
 
-  const traySize = normalized.planterSize + PLANTER_TRAY_EXTRA_MM;
-  const trayInnerApothem = traySize / 2 - PLANTER_TRAY_WALL_MM;
+  return drainHoleCenters(plateApothem);
+}
 
-  // Горшок и поддон стоят рядом: пара центрируется по общему габариту.
-  const potOffsetX = normalized.planterDrainage
-    ? -(traySize + PLANTER_TRAY_GAP_MM) / 2
-    : 0;
-  const trayOffsetX =
-    potOffsetX + (normalized.planterSize + PLANTER_TRAY_GAP_MM + traySize) / 2;
-
-  const potOutline = offsetPoints(
-    sectionPolygon(normalized.planterShape, normalized.planterSize),
-    potOffsetX,
+/**
+ * Горшок в общий массив треугольников.
+ *
+ * Без дренажа это цельная чаша: дно и стенка — одно тело. С дренажом стенка
+ * остаётся кольцом, а плита дна с отверстиями лежит на столе и заходит в стенку
+ * на половину толщины. Сквозные отверстия ничем не перекрыты: вода уходит вниз.
+ */
+function appendPlanterPot(
+  positions: number[],
+  params: PlanterParams,
+  offsetX: number,
+): void {
+  const shape = params.planterShape;
+  const outerApothem = sectionApothem(shape, params.planterSize);
+  const outline = offsetPoints(
+    sectionPolygon(shape, params.planterSize),
+    offsetX,
   );
-  const potInner = offsetPoints(
-    sectionPolygon(normalized.planterShape, innerApothem * 2),
-    potOffsetX,
+  const inner = offsetPoints(
+    sectionByApothem(shape, outerApothem - params.planterWall),
+    offsetX,
   );
 
-  addRingPrism(positions, potOutline, potInner, 0, normalized.planterHeight);
-
-  const potFloor = offsetPoints(
-    sectionPolygon(normalized.planterShape, plateApothem * 2),
-    potOffsetX,
-  );
-  const holes = normalized.planterDrainage
-    ? offsetPoints(drainHoleCenters(plateApothem), potOffsetX)
-    : [];
-
-  // Дно той же толщины, что стенка, но выше стола: снизу остаётся выемка.
-  addFloorPlate(positions, potFloor, holes, PLANTER_JOIN_MM, wall);
-
-  if (normalized.planterDrainage) {
-    const trayOutline = offsetPoints(
-      sectionPolygon(normalized.planterShape, traySize),
-      trayOffsetX,
-    );
-    const trayInner = offsetPoints(
-      sectionPolygon(normalized.planterShape, trayInnerApothem * 2),
-      trayOffsetX,
-    );
-    const trayFloor = offsetPoints(
-      sectionPolygon(
-        normalized.planterShape,
-        (trayInnerApothem + PLANTER_TRAY_WALL_MM / 2) * 2,
-      ),
-      trayOffsetX,
-    );
-
-    addRingPrism(
-      positions,
-      trayOutline,
-      trayInner,
-      0,
-      PLANTER_TRAY_HEIGHT_MM,
-    );
-    addFloorPlate(
-      positions,
-      trayFloor,
-      [],
-      PLANTER_JOIN_MM,
-      PLANTER_TRAY_FLOOR_MM,
-    );
+  if (!params.planterDrainage) {
+    addCupPrism(positions, outline, inner, params.planterWall, params.planterHeight);
+    return;
   }
 
+  addRingPrism(positions, outline, inner, 0, params.planterHeight);
+
+  const plateApothem = outerApothem - params.planterWall / 2;
+  const plate = offsetPoints(sectionByApothem(shape, plateApothem), offsetX);
+  const holes = offsetPoints(drainHoleCenters(plateApothem), offsetX);
+
+  // Дно стоит на Z = 0: первый слой лежит на столе, моста над полостью нет.
+  addFloorPlate(positions, plate, holes, 0, params.planterWall);
+}
+
+/**
+ * Поддон в общий массив треугольников.
+ *
+ * Это цельная чаша с плоским дном: внешняя стенка от стола, внутренняя — от
+ * плоскости дна. Внешний габарит считается от ширины горшка, поэтому поддон
+ * всегда шире его и не пересекается с ним.
+ */
+function appendPlanterTray(
+  positions: number[],
+  params: PlanterParams,
+  offsetX: number,
+): void {
+  const shape = params.planterShape;
+  const trayWidth = params.planterSize + PLANTER_TRAY_EXTRA_MM;
+  const trayApothem = sectionApothem(shape, trayWidth);
+  const outline = offsetPoints(sectionPolygon(shape, trayWidth), offsetX);
+  const inner = offsetPoints(
+    sectionByApothem(shape, trayApothem - PLANTER_TRAY_WALL_MM),
+    offsetX,
+  );
+
+  addCupPrism(
+    positions,
+    outline,
+    inner,
+    PLANTER_TRAY_FLOOR_MM,
+    PLANTER_TRAY_HEIGHT_MM,
+  );
+}
+
+/** Собирает готовую геометрию из массива позиций без индексов. */
+function planterGeometry(positions: number[]): BufferGeometry {
   const geometry = new BufferGeometry();
 
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
@@ -263,4 +304,76 @@ export function createPlanterGeometry(
   geometry.computeBoundingBox();
 
   return geometry;
+}
+
+/**
+ * Только горшок, по центру начала координат.
+ *
+ * Отдельный файл печатается дном вниз. Если дренаж включён, отверстия сквозные,
+ * но поддона в этом файле нет — его скачивают отдельно.
+ */
+export function createPlanterPotGeometry(
+  params: Partial<PlanterParams>,
+): BufferGeometry {
+  const normalized = normalizePlanterParams(params);
+  const positions: number[] = [];
+
+  appendPlanterPot(positions, normalized, 0);
+
+  return planterGeometry(positions);
+}
+
+/**
+ * Только поддон, по центру начала координат.
+ *
+ * Поддон существует как отдельная деталь независимо от флага дренажа: API сам
+ * отклоняет `tray` без дренажа, а функция остаётся чистой геометрией.
+ */
+export function createPlanterTrayGeometry(
+  params: Partial<PlanterParams>,
+): BufferGeometry {
+  const normalized = normalizePlanterParams(params);
+  const positions: number[] = [];
+
+  appendPlanterTray(positions, normalized, 0);
+
+  return planterGeometry(positions);
+}
+
+/**
+ * Геометрия кашпо и поддона для набора параметров.
+ *
+ * Функция принимает частичные параметры: недостающие поля берутся из значений
+ * по умолчанию, поэтому предпросмотр может вызвать её с любым набором. `part`
+ * выбирает экспорт: `pot` и `tray` центрируют одну деталь, `all` ставит горшок
+ * и поддон рядом с зазором `PLANTER_TRAY_GAP_MM`. Пара центрируется по общему
+ * габариту, поэтому её bbox симметричен относительно X = 0.
+ */
+export function createPlanterGeometry(
+  params: Partial<PlanterParams>,
+  part: PlanterPart = DEFAULT_PLANTER_PART,
+): BufferGeometry {
+  if (part === "pot") {
+    return createPlanterPotGeometry(params);
+  }
+
+  if (part === "tray") {
+    return createPlanterTrayGeometry(params);
+  }
+
+  const normalized = normalizePlanterParams(params);
+
+  if (!normalized.planterDrainage) {
+    return createPlanterPotGeometry(normalized);
+  }
+
+  const positions: number[] = [];
+  const trayWidth = normalized.planterSize + PLANTER_TRAY_EXTRA_MM;
+  const potOffsetX = -(trayWidth + PLANTER_TRAY_GAP_MM) / 2;
+  const trayOffsetX = (normalized.planterSize + PLANTER_TRAY_GAP_MM) / 2;
+
+  appendPlanterPot(positions, normalized, potOffsetX);
+  appendPlanterTray(positions, normalized, trayOffsetX);
+
+  return planterGeometry(positions);
 }

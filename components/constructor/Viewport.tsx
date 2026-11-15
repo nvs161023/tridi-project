@@ -42,6 +42,7 @@ import {
   lithophaneHasStand,
   lithophanePanelCount,
   lithophaneShapeHasFrame,
+  planterFootprint,
   vasePatternLabel,
   type ConstructorParams,
   type KeychainFontId,
@@ -1973,6 +1974,8 @@ export function Viewport({
     [coasterHolder, geometry, params],
   );
 
+  const planterDims =
+    params.model === "planter" ? planterFootprint(params) : null;
   const sizeLabel =
     params.model === "vase"
       ? `${params.height} × Ø ${params.diameter} мм`
@@ -1983,7 +1986,15 @@ export function Viewport({
           : params.model === "lithophane"
             ? `${params.lithophaneWidth} × ${params.lithophaneHeight} × ${params.lithophaneMaxThickness.toFixed(1)} мм`
             : params.model === "planter"
-              ? `${params.planterSize} × ${params.planterHeight} мм`
+              ? planterDims?.hasTray
+                ? `${planterDims.potWidth} × ${Math.round(
+                    planterDims.potDepth,
+                  )} × ${params.planterHeight} мм · пара ${Math.round(
+                    planterDims.width,
+                  )} × ${Math.round(planterDims.depth)} мм`
+                : `${planterDims?.potWidth ?? params.planterSize} × ${Math.round(
+                    planterDims?.potDepth ?? params.planterSize,
+                  )} × ${params.planterHeight} мм`
               : params.model === "coaster"
                 ? coasterHolder
                   ? `держатель ${Math.round(coasterHolder.dimensions.width)} × ${Math.round(coasterHolder.dimensions.depth)} × ${Math.round(coasterHolder.dimensions.height)} мм · ${params.coasterCount} мест`
@@ -2013,7 +2024,7 @@ export function Viewport({
           : params.model === "lithophane"
             ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»${lithophaneShapeHasFrame(params.lithoShape) ? `, ${params.lithoFrame ? "рамка" : "без рамки"}` : ""}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}${heatMap ? ", включена карта света" : ""}`
             : params.model === "planter"
-              ? `3D-предпросмотр кашпо «${PLANTER_SHAPE_LABELS[params.planterShape]}» ${params.planterSize} миллиметров по ключу и высотой ${params.planterHeight} миллиметров, стенка ${params.planterWall} миллиметров, ${params.planterDrainage ? "с дренажными отверстиями и поддоном" : "без поддона"}`
+              ? `3D-предпросмотр кашпо «${PLANTER_SHAPE_LABELS[params.planterShape]}» шириной ${planterDims?.potWidth ?? params.planterSize} миллиметров по самой широкой части, глубиной ${Math.round(planterDims?.potDepth ?? params.planterSize)} миллиметров и высотой ${params.planterHeight} миллиметров, стенка ${params.planterWall} миллиметров, ${params.planterDrainage ? `с дренажными отверстиями и поддоном ${Math.round(planterDims?.trayWidth ?? params.planterSize)} на ${Math.round(planterDims?.trayDepth ?? params.planterSize)} миллиметров` : "без поддона"}`
               : params.model === "coaster"
                 ? `3D-предпросмотр подставки под кружку ${params.coasterSize} миллиметров, толщина ${params.coasterThickness} миллиметров, узор «${COASTER_PATTERN_LABELS[params.coasterPattern]}», ${params.coasterRim ? "с бортиком" : "без бортика"}${coasterHolder ? `, вертикальный держатель на ${params.coasterCount} подставок` : ""}`
                 : params.model === "jewelry_stand"

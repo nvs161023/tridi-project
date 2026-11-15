@@ -146,6 +146,7 @@ import {
   PEN_SHAPE_LABELS,
   PLANTER_SHAPES,
   PLANTER_SHAPE_LABELS,
+  planterFootprint,
   SIGN_CHANNEL_WIDTHS,
   SIGN_FONTS,
   SIGN_FONT_LABELS,
@@ -1476,10 +1477,40 @@ function modelSummary(
   }
 
   if (params.model === "planter") {
+    const footprint = planterFootprint(params);
+
+    if (!footprint.hasTray) {
+      return [
+        {
+          label: "Габарит",
+          value: `${footprint.potWidth} × ${Math.round(
+            footprint.potDepth,
+          )} × ${footprint.height} мм`,
+        },
+        { label: "Стенка", value: `${params.planterWall.toFixed(1)} мм` },
+        { label: "Поддон", value: "нет" },
+      ];
+    }
+
     return [
-      { label: "Габарит", value: `${params.planterSize} мм` },
-      { label: "Высота", value: `${params.planterHeight} мм` },
-      { label: "Стенка", value: `${params.planterWall.toFixed(1)} мм` },
+      {
+        label: "Горшок",
+        value: `${footprint.potWidth} × ${Math.round(
+          footprint.potDepth,
+        )} × ${params.planterHeight} мм`,
+      },
+      {
+        label: "С поддоном",
+        value: `${Math.round(footprint.width)} × ${Math.round(
+          footprint.depth,
+        )} мм`,
+      },
+      {
+        label: "Поддон",
+        value: `${Math.round(footprint.trayWidth)} × ${Math.round(
+          footprint.trayDepth,
+        )} × ${footprint.trayHeight} мм`,
+      },
     ];
   }
 
@@ -2322,12 +2353,14 @@ export function ParameterPanel({
   const nfcTopLabel = Number(nfcLayers.topMm.toFixed(2)).toString();
 
   /**
-   * Заголовок над компактными кнопками. У вывески и литофана файлов несколько —
-   * детали печатаются по отдельности, — поэтому список кнопок подписан: иначе
-   * «1 · крышка» и «2 · лицо» выглядели бы загадочно.
+   * Заголовок над компактными кнопками. У вывески, литофана и кашпо файлов
+   * несколько — детали печатаются по отдельности, — поэтому список кнопок
+   * подписан: иначе «1 · крышка» и «2 · лицо» выглядели бы загадочно.
    */
   const partsHeading =
-    params.model === "sign" || params.model === "lithophane"
+    params.model === "sign" ||
+    params.model === "lithophane" ||
+    (params.model === "planter" && params.planterDrainage)
       ? "Детали модели"
       : null;
 
@@ -3605,7 +3638,7 @@ export function ParameterPanel({
 
           <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
             <NumberSlider
-              hint="Габарит горшка «под ключ». Внутренняя полость меньше на две толщины стенки: для цветка с корневым комом оставьте запас 10–15 мм."
+              hint="Габарит по самой широкой части: диаметр круга или расстояние от угла до угла у шестигранника. Внутренняя полость меньше на две толщины стенки: для цветка с корневым комом оставьте запас 10–15 мм."
               label="Габарит"
               max={CONSTRUCTOR_LIMITS.planterSize.max}
               min={CONSTRUCTOR_LIMITS.planterSize.min}
@@ -3616,7 +3649,7 @@ export function ParameterPanel({
             />
 
             <NumberSlider
-              hint="Высота стенки от стола. Дно поднято над кромкой: вода выходит через отверстия и не задерживается под грунтом."
+              hint="Высота стенки от стола. Дно плоское и лежит на столе; отверстия проходят сквозь него и ведут в поддон."
               label="Высота"
               max={CONSTRUCTOR_LIMITS.planterHeight.max}
               min={CONSTRUCTOR_LIMITS.planterHeight.min}
@@ -3653,15 +3686,16 @@ export function ParameterPanel({
                 Дренаж и поддон
               </span>
               <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                Отверстия Ø 5 мм в дне и поддон шире горшка на 16 мм. Пара
-                печатается в одном STL рядом друг с другом с зазором 12 мм.
+                Отверстия Ø 5 мм проходят сквозь плоское дно. Поддон шире горшка
+                на 16 мм; в общем STL детали стоят рядом с зазором 12 мм. Если
+                пара больше стола, печатайте горшок и поддон отдельными файлами.
               </span>
             </span>
           </label>
 
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
             {params.planterDrainage
-              ? "Горшок и поддон — две отдельные замкнутые детали: вода уходит из грунта в поддон, а не растекается по столу. Отверстия кольцом появляются только на дне, где хватает места."
+              ? "Горшок и поддон — две отдельные замкнутые детали с плоским дном. Вода уходит из грунта через сквозные отверстия в поддон, а не растекается по столу. Отверстия кольцом появляются только там, где хватает места."
               : "Без дренажа дно глухое и печатается одна деталь. Для суккулентов это рабочий вариант, но поливать придётся аккуратно — лишней воде некуда уходить."}
           </p>
         </>

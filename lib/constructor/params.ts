@@ -1386,7 +1386,7 @@ export const PLANTER_SHAPE_LABELS = {
  * Без дренажа дно глухое, и поддон не строится — деталь печатается одна.
  */
 export type PlanterParams = {
-  /** Габарит «под ключ», мм: диаметр круга или размер многоугольника. */
+  /** Габарит по самой широкой части, мм: диаметр или расстояние по углам. */
   planterSize: number;
   /** Высота стенки от стола, мм. */
   planterHeight: number;
@@ -1397,6 +1397,30 @@ export type PlanterParams = {
   /** Отверстия в дне и отдельный поддон рядом с горшком. */
   planterDrainage: boolean;
 };
+
+/**
+ * Части набора кашпо для STL-экспорта.
+ *
+ * `all` — общий файл, где горшок и поддон лежат рядом с зазором
+ * `PLANTER_TRAY_GAP_MM`; `pot` и `tray` — отдельные печатные детали. Часть не
+ * входит в `PlanterParams`: она выбирается только на скачивании и не должна
+ * сохраняться в проекте.
+ */
+export const PLANTER_PARTS = ["all", "pot", "tray"] as const;
+
+export type PlanterPart = (typeof PLANTER_PARTS)[number];
+
+/** Экспорт по умолчанию: старый клиент без поля получает общий файл. */
+export const DEFAULT_PLANTER_PART: PlanterPart = "all";
+
+/** Зазор между горшком и поддоном на столе, мм. */
+export const PLANTER_TRAY_GAP_MM = 12;
+
+/** Насколько поддон шире реального габарита горшка, мм. */
+export const PLANTER_TRAY_EXTRA_MM = 16;
+
+/** Высота борта поддона, мм. */
+export const PLANTER_TRAY_HEIGHT_MM = 14;
 
 /** Подставка под кружку повторяет три формы кашпо: круг, квадрат и шестигранник. */
 export const COASTER_SHAPES = PLANTER_SHAPES;
@@ -2974,17 +2998,31 @@ export function keychainStlFileName(params: KeychainParams): string {
 }
 
 /**
+ * Суффикс имени файла для части набора кашпо.
+ *
+ * Общий файл помечается `-set`, отдельные детали — `-pot` и `-tray`: по папке
+ * загрузок сразу видно, что печатать. Суффикс общий для сервера и клиентской
+ * запасной подписи, поэтому имя в Content-Disposition и download совпадает.
+ */
+export function planterPartStlSuffix(part: PlanterPart): string {
+  return part === "all" ? "-set" : `-${part}`;
+}
+
+/**
  * Имя файла STL для кашпо.
  *
- * Габарит «под ключ» записывается как `d`, высота и стенка — как `h` и `t`.
- * Суффикс `drenazh` говорит, что в файле две детали: горшок с отверстиями и
- * поддон. Значения уже выровнены normalizePlanterParams, поэтому лишних нулей
- * в имени нет.
+ * Габарит по самой широкой части записывается как `d`, высота и стенка — как
+ * `h` и `t`. Суффикс `drenazh` говорит, что в файле есть отверстия и поддон.
+ * Часть набора добавляет `-set`, `-pot` или `-tray`. Значения уже выровнены
+ * normalizePlanterParams, поэтому лишних нулей в имени нет.
  */
-export function planterStlFileName(params: PlanterParams): string {
+export function planterStlFileName(
+  params: PlanterParams,
+  part: PlanterPart = DEFAULT_PLANTER_PART,
+): string {
   const drainageSuffix = params.planterDrainage ? "-drenazh" : "";
 
-  return `tridi-kashpo-${params.planterShape}-d${params.planterSize}-h${params.planterHeight}-t${params.planterWall}${drainageSuffix}.stl`;
+  return `tridi-kashpo-${params.planterShape}-d${params.planterSize}-h${params.planterHeight}-t${params.planterWall}${drainageSuffix}${planterPartStlSuffix(part)}.stl`;
 }
 
 /**
@@ -3575,6 +3613,14 @@ export function isPlanterShape(value: unknown): value is PlanterShape {
   return (
     typeof value === "string" &&
     (PLANTER_SHAPES as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка части набора кашпо, которую просит STL-экспорт. */
+export function isPlanterPart(value: unknown): value is PlanterPart {
+  return (
+    typeof value === "string" &&
+    (PLANTER_PARTS as readonly string[]).includes(value)
   );
 }
 
@@ -4601,6 +4647,66 @@ export function normalizePlanterParams(
       typeof params.planterDrainage === "boolean"
         ? params.planterDrainage
         : DEFAULT_PLANTER_PARAMS.planterDrainage,
+  };
+}
+
+/** Габариты кашпо и поддона для подписей, предупреждений и тестов. */
+export type PlanterFootprint = {
+  /** Ширина пары в общем STL; без поддона — ширина горшка. */
+  width: number;
+  /** Глубина пары: максимум из горшка и поддона. */
+  depth: number;
+  /** Высота самой высокой детали пары. */
+  height: number;
+  potWidth: number;
+  potDepth: number;
+  trayWidth: number;
+  trayDepth: number;
+  trayHeight: number;
+  hasTray: boolean;
+};
+
+/**
+ * Глубина правильного сечения по его ширине.
+ *
+ * Круг и квадрат одинаковы по X и Y. Шестигранник стоит вершиной на оси X:
+ * его ширина — расстояние от угла до угла, а глубина — между гранями.
+ */
+function planterSectionDepth(shape: PlanterShape, width: number): number {
+  return shape === "hex" ? (width * Math.sqrt(3)) / 2 : width;
+}
+
+/**
+ * Реальный внешний габарит горшка, поддона и пары.
+ *
+ * Поддон считается от габарита горшка по самой широкой части, а не от
+ * апофемы: у шестигранника эти числа расходятся на 15 %, и старый поддон
+ * оказывался уже горшка. Пара в общем STL получает зазор
+ * `PLANTER_TRAY_GAP_MM`; функции геометрии берут те же константы.
+ */
+export function planterFootprint(
+  params: Partial<PlanterParams>,
+): PlanterFootprint {
+  const normalized = normalizePlanterParams(params);
+  const hasTray = normalized.planterDrainage;
+  const potWidth = normalized.planterSize;
+  const potDepth = planterSectionDepth(normalized.planterShape, potWidth);
+  const trayWidth = potWidth + PLANTER_TRAY_EXTRA_MM;
+  const trayDepth = planterSectionDepth(normalized.planterShape, trayWidth);
+
+  return {
+    width: hasTray ? potWidth + PLANTER_TRAY_GAP_MM + trayWidth : potWidth,
+    depth: hasTray ? Math.max(potDepth, trayDepth) : potDepth,
+    height: Math.max(
+      normalized.planterHeight,
+      hasTray ? PLANTER_TRAY_HEIGHT_MM : 0,
+    ),
+    potWidth,
+    potDepth,
+    trayWidth,
+    trayDepth,
+    trayHeight: PLANTER_TRAY_HEIGHT_MM,
+    hasTray,
   };
 }
 
