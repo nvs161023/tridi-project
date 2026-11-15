@@ -42,6 +42,7 @@ import {
   KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS,
   boxStlFileName,
   coasterHolderStlFileName,
+  coasterSetStlFileName,
   coasterStlFileName,
   hasDrawableSvgData,
   isBoxMagnetSize,
@@ -132,6 +133,7 @@ import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import {
   createCoasterGeometry,
   createCoasterHolderGeometry,
+  createCoasterSetGeometry,
 } from "@/lib/constructor/coaster-geometry";
 import { createHeatTransferGeometry } from "@/lib/constructor/heat-transfer-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
@@ -1259,8 +1261,8 @@ function parsePlanterParams(
  * Форма и узор выбираются из списков: от них зависит и сечение плиты, и
  * геометрия рельефа. Бортик — только boolean, иначе он появился бы в файле
  * против выбора пользователя. Держатель необязателен: старый клиент без новых
- * полей получает одиночную подставку, а деталь `holder` без включённого
- * держателя отклоняется — иначе сервер собрал бы стойку, которой нет в наборе.
+ * полей получает одиночную подставку. Детали `holder` и `all` без включённого
+ * держателя отклоняются — иначе сервер собрал бы стойку, которой нет в наборе.
  */
 function parseCoasterParams(body: Record<string, unknown>): {
   params: CoasterParams;
@@ -1299,7 +1301,7 @@ function parseCoasterParams(body: Record<string, unknown>): {
       CONSTRUCTOR_LIMITS.coasterCount.max,
     ) ||
     !isCoasterPart(part) ||
-    (part === "holder" && coasterHolderType !== "vertical")
+    (part !== "coaster" && coasterHolderType !== "vertical")
   ) {
     return null;
   }
@@ -1938,7 +1940,9 @@ export async function POST(request: Request): Promise<Response> {
               : parsed.model === "coaster"
                 ? parsed.part === "holder"
                   ? createCoasterHolderGeometry(parsed.params)
-                  : createCoasterGeometry(parsed.params)
+                  : parsed.part === "all"
+                    ? createCoasterSetGeometry(parsed.params)
+                    : createCoasterGeometry(parsed.params)
                 : parsed.model === "jewelry_stand"
                   ? createJewelryStandGeometry(parsed.params)
                   : parsed.model === "pen_holder"
@@ -1983,7 +1987,9 @@ export async function POST(request: Request): Promise<Response> {
                   : parsed.model === "coaster"
                     ? parsed.part === "holder"
                       ? coasterHolderStlFileName()
-                      : coasterStlFileName(parsed.params)
+                      : parsed.part === "all"
+                        ? coasterSetStlFileName(parsed.params)
+                        : coasterStlFileName(parsed.params)
                     : parsed.model === "jewelry_stand"
                       ? jewelryStandStlFileName(parsed.params)
                       : parsed.model === "pen_holder"

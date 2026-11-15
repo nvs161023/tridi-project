@@ -1437,7 +1437,7 @@ export const COASTER_HOLDER_TYPE_LABELS = {
 } as const satisfies Record<CoasterHolderType, string>;
 
 /** Части набора, которые отдаёт STL-экспорт. */
-export const COASTER_PARTS = ["coaster", "holder"] as const;
+export const COASTER_PARTS = ["coaster", "holder", "all"] as const;
 
 export type CoasterPart = (typeof COASTER_PARTS)[number];
 
@@ -1445,12 +1445,14 @@ export type CoasterPart = (typeof COASTER_PARTS)[number];
  * Подставка под кружку: габарит, толщина, форма, рельеф и бортик.
  *
  * Бортик по краю — это не украшение: конденсат с холодного стакана стекает в
- * него, а не на стол. Волны и соты углублены в лицо на 0.8 мм и не доходят до
+ * него, а не на стол. Волны и соты углублены в лицо на 1.2 мм и не доходят до
  * фаски, поэтому кромка остаётся ровной, а кружка стоит устойчиво.
  *
- * Держатель — отдельная деталь набора. Он не входит в оболочку подставки:
- * `createCoasterHolderGeometry` строит его собственным телом, а `coasterCount`
- * задаёт число гнёзд и ширину основания.
+ * Держатель — отдельная деталь набора. В превью он стоит под подставками, а
+ * `createCoasterHolderGeometry` строит его собственным телом; `coasterCount`
+ * задаёт число гнёзд и ширину основания. Общий STL (`part: "all"`) собирает
+ * держатель и одну подставку в один файл, сдвигая стойку на 150 мм по X, чтобы
+ * детали не спекались при печати.
  */
 export type CoasterParams = {
   /** Габарит «под ключ», мм: диаметр или размер многоугольника. */
@@ -2987,6 +2989,20 @@ export function coasterStlFileName(params: CoasterParams): string {
  */
 export function coasterHolderStlFileName(): string {
   return "tridi-podstavka-derzhatel.stl";
+}
+
+/**
+ * Имя общего STL набора: подставка и держатель одним файлом.
+ *
+ * Суффикс `nabor` отличает файл от одиночной подставки и отдельного держателя,
+ * поэтому три кнопки в панели не перезаписывают загрузки друг друга.
+ */
+export function coasterSetStlFileName(params: CoasterParams): string {
+  const patternSuffix =
+    params.coasterPattern === "smooth" ? "" : `-${params.coasterPattern}`;
+  const rimSuffix = params.coasterRim ? "-bort" : "";
+
+  return `tridi-podstavka-kruzhka-nabor-${params.coasterShape}-d${params.coasterSize}-t${params.coasterThickness}${patternSuffix}${rimSuffix}.stl`;
 }
 
 /**

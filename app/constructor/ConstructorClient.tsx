@@ -56,6 +56,7 @@ import {
   boxPresetParams,
   boxStlFileName,
   coasterHolderStlFileName,
+  coasterSetStlFileName,
   coasterStlFileName,
   createKeychainImageDecoration,
   createKeychainTextDecoration,
@@ -433,11 +434,18 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   }
 
   if (params.model === "coaster") {
-    // Держатель — отдельная деталь набора: печатать его вместе с подставкой
-    // нельзя, иначе стойка и плита спекаются в один неразборный блок. Без
-    // держателя модель остаётся одним файлом, как раньше.
+    // В превью подставки стоят в гнёздах, но печатать такую сборку нельзя:
+    // стойка спечётся с плитами. Поэтому общий STL разносит детали по X, а
+    // отдельные файлы остаются для печати по одной детали и замены.
     if (params.coasterHolderType === "vertical") {
       return [
+        {
+          id: "coaster-set",
+          label: "Общий STL",
+          description: "Держатель и подставка одним файлом, детали разнесены",
+          request: { part: "all" },
+          fileName: coasterSetStlFileName(params),
+        },
         {
           id: "coaster",
           label: "Подставка",

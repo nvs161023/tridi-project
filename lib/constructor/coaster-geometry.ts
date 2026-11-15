@@ -1,4 +1,5 @@
 import { BufferGeometry, Float32BufferAttribute } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import { PLA_DENSITY_G_PER_CM3 } from "@/lib/constructor/geometry-volume";
 import {
@@ -63,10 +64,11 @@ const COASTER_CONTOUR_POINTS = 288;
 
 /**
  * Число кольцевых сечений верхней поверхности. Вместе с плотным контуром
- * подставка Ø100 выходит примерно на 35 тысяч треугольников: глубины 1.2 мм
- * хватает на два-три ряда вершин в стенке соты.
+ * подставка Ø100 выходит примерно на 60 тысяч треугольников: шаг по радиусу
+ * около 0.45 мм, поэтому плоское дно и линейная стенка соты получают несколько
+ * рядов вершин и не срезаются грубой сеткой.
  */
-const COASTER_SURFACE_RINGS = 56;
+const COASTER_SURFACE_RINGS = 100;
 
 /** Число сторон исходного многоугольника формы, шт. */
 const COASTER_SIDES: Record<CoasterShape, number> = {
@@ -152,9 +154,10 @@ function waveReliefMm(radius: number): number {
  *
  * Центры гексов стоят рядами с шагом `√3·R` по X и `1.5·R` по Y; нечётные ряды
  * сдвинуты на полшага. Для ближайшего центра считается гексагональное
- * расстояние `q`: 0 в центре, 1 на стенке. Внутри q ≤ 0.55 дно плоское на всю
- * глубину, дальше стенка поднимается по квадрату: у гребня наклон максимальный,
- * поэтому край соты получается резкой гранью, а не размытым smoothstep.
+ * расстояние `q`: 0 в центре, 1 на стенке. Внутри q ≤ 0.635 дно плоское на всю
+ * глубину 1.2 мм. Дальше высота растёт линейно до кромки, без smoothstep. На
+ * сетке STL Ø100 самая крутая грань стенки выходит 49.7°, то есть в заданном
+ * диапазоне 45–50°, а дно остаётся плоским.
  */
 function honeycombReliefMm(x: number, y: number): number {
   const radius = COASTER_HONEYCOMB_RADIUS_MM;
@@ -184,9 +187,11 @@ function honeycombReliefMm(x: number, y: number): number {
     }
   }
 
-  const wall = clamp((nearestQ - 0.55) / 0.45, 0, 1);
+  // Линейная стенка от плоского дна до гребня: резкая граница дна и грань
+  // около 50° вместо плавного скругления, которое делало вощину похожей на волны.
+  const wall = clamp((nearestQ - 0.635) / 0.365, 0, 1);
 
-  return COASTER_PATTERN_DEPTH_MM * (1 - Math.pow(wall, 2));
+  return COASTER_PATTERN_DEPTH_MM * (1 - wall);
 }
 
 /** Высота лица в точке: плоская кромка или углубление выбранного узора. */
@@ -504,10 +509,7 @@ export const COASTER_HOLDER_BASE_THICKNESS_MM = 3;
 export const COASTER_HOLDER_WALL_THICKNESS_MM = 3;
 
 /** Высота задней стенки от стола, мм. */
-export const COASTER_HOLDER_WALL_HEIGHT_MM = 50;
-
-/** Ширина продольного паза, мм. */
-export const COASTER_HOLDER_GROOVE_WIDTH_MM = 8;
+export const COASTER_HOLDER_WALL_HEIGHT_MM = 60;
 
 /** Глубина продольного паза, мм: равна толщине основания. */
 export const COASTER_HOLDER_GROOVE_DEPTH_MM = 3;
@@ -533,7 +535,7 @@ export const COASTER_HOLDER_DEPTH_MARGIN_MM = 10;
  * Основание лежит в XY, высота идёт по Z. Подставки стоят плоскостями YZ и
  * выстраиваются по X: ширина растёт от числа гнёзд, а глубина равна диаметру
  * подставки плюс 10 мм. Задняя стенка стоит сзади по Y и даёт упор на высоту
- * 50 мм; продольный паз идёт по X через все гнёзда и делится перегородками.
+ * 60 мм; продольный паз идёт по X через все гнёзда и делится перегородками.
  */
 export type CoasterHolderDimensions = {
   /** Ширина основания по X, мм. */
@@ -576,9 +578,10 @@ export function coasterHolderDimensionsMm(
   const count = normalized.coasterCount;
   const slotWidth =
     normalized.coasterThickness + COASTER_HOLDER_SLOT_CLEARANCE_MM * 2;
-  // Паз по умолчанию 8 мм. Толстая подставка (до 10 мм) в него не влезла бы,
-  // поэтому у таких наборов паз расширяется до посадочной ширины гнезда.
-  const grooveWidth = Math.max(COASTER_HOLDER_GROOVE_WIDTH_MM, slotWidth);
+  // Паз шире плиты ровно на 2 × 0.5 мм: подставка входит свободно, но не
+  // болтается. Ширина не фиксирована восемью миллиметрами и растёт вместе с
+  // толщиной вплоть до 10 мм.
+  const grooveWidth = slotWidth;
   const dividerPitch = slotWidth + COASTER_HOLDER_DIVIDER_THICKNESS_MM;
   const width =
     COASTER_HOLDER_BASE_MARGIN_MM * 2 +
@@ -773,7 +776,7 @@ function addHolderWall(
  * Геометрия вертикального держателя для набора подставок.
  *
  * Деталь отдельная: её сетка не пересекается с подставками и печатается своим
- * файлом. Основание 3 мм, задняя стенка 50 мм, перегородки 2 × 15 мм и
+ * файлом. Основание 3 мм, задняя стенка 60 мм, перегородки 2 × 15 мм и
  * продольный паз 8 × 3 мм. Высота ячеек ступенчатая, все стенки вертикальные,
  * поэтому нависаний больше 45° нет и поддержки не нужны.
  */
@@ -859,4 +862,45 @@ export function coasterHolderAnalyticWeightGrams(
   return (
     (coasterHolderAnalyticVolumeMm3(params) / 1000) * densityGramsPerCm3
   );
+}
+
+/**
+ * Смещение держателя в общем STL набора, мм.
+ *
+ * В превью подставки стоят в гнёздах, но печатать такую сборку нельзя: стойка
+ * спечётся с плитами. В общем файле держатель уезжает на 150 мм по X, а
+ * подставка остаётся в начале координат. Даже у самого широкого держателя
+ * (8 гнёзд, толщина 10 мм) левый край оказывается на X = 94 мм, поэтому зазор
+ * до подставки Ø140 остаётся не меньше 24 мм.
+ */
+export const COASTER_SET_HOLDER_OFFSET_MM = 150;
+
+/**
+ * Общий STL набора: одна подставка и держатель, разнесённые по X.
+ *
+ * Детали лежат на одном столе, но не касаются друг друга. Функция возвращает
+ * одну сетку из двух замкнутых оболочек — так же, как собранный литофан, — и
+ * сдвигает только держатель. Подставка остаётся в начале координат, чтобы её
+ * габарит и точка опоры совпадали с отдельным файлом.
+ */
+export function createCoasterSetGeometry(
+  params: Partial<CoasterParams>,
+): BufferGeometry {
+  const coasterGeometry = createCoasterGeometry(params);
+  const holderGeometry = createCoasterHolderGeometry(params);
+
+  holderGeometry.translate(COASTER_SET_HOLDER_OFFSET_MM, 0, 0);
+
+  const merged = mergeGeometries([coasterGeometry, holderGeometry], false);
+
+  coasterGeometry.dispose();
+  holderGeometry.dispose();
+
+  if (!merged) {
+    throw new Error("Не удалось собрать общий STL набора подставок.");
+  }
+
+  merged.computeBoundingBox();
+
+  return merged;
 }

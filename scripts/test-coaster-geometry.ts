@@ -8,8 +8,10 @@
  * число треугольников, объём и отсутствие нависаний проверяются уже по файлу.
  *
  * Отдельный блок проверяет вертикальный держатель: размеры гнёзд и зазор,
- * замкнутость сетки, аналитический объём, все варианты 4/6/8 и толщины 3–10 мм,
- * а также собственный STL держателя.
+ * заднюю стенку 60 мм, глубину «диаметр + 10», замкнутость сетки, аналитический
+ * объём, все варианты 4/6/8 и толщины 3–10 мм, а также собственный STL.
+ * Общий STL набора проверяется отдельно: подставка и держатель должны лежать
+ * двумя непересекающимися оболочками, а держатель — стоять на X = 150 мм.
  *
  * Запуск:
  *   npm run check:coaster
@@ -27,13 +29,13 @@ import {
   COASTER_HOLDER_BASE_THICKNESS_MM,
   COASTER_HOLDER_DIVIDER_HEIGHT_MM,
   COASTER_HOLDER_DIVIDER_THICKNESS_MM,
-  COASTER_HOLDER_GROOVE_WIDTH_MM,
   COASTER_HOLDER_SLOT_CLEARANCE_MM,
   COASTER_HOLDER_WALL_HEIGHT_MM,
   COASTER_PATTERN_DEPTH_MM,
   COASTER_PATTERN_MARGIN_MM,
   COASTER_RIM_RISE_MM,
   COASTER_RIM_WALL_MM,
+  COASTER_SET_HOLDER_OFFSET_MM,
   coasterAnalyticVolumeMm3,
   coasterAnalyticWeightGrams,
   coasterHolderAnalyticVolumeMm3,
@@ -41,6 +43,7 @@ import {
   coasterHolderDimensionsMm,
   createCoasterGeometry,
   createCoasterHolderGeometry,
+  createCoasterSetGeometry,
 } from "../lib/constructor/coaster-geometry";
 import {
   PLA_DENSITY_G_PER_CM3,
@@ -51,6 +54,7 @@ import {
   COASTER_PATTERNS,
   DEFAULT_COASTER_PARAMS,
   coasterHolderStlFileName,
+  coasterSetStlFileName,
   coasterStlFileName,
   normalizeCoasterParams,
   type CoasterParams,
@@ -148,6 +152,10 @@ function boundsOf(triangles: readonly Triangle[]) {
     width: maxX - minX,
     depth: maxY - minY,
     height: maxZ - minZ,
+    minX,
+    maxX,
+    minY,
+    maxY,
     minZ,
     maxZ,
   };
@@ -196,6 +204,34 @@ function triangleArea([a, b, c]: Triangle): number {
   return (
     Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2
   );
+}
+
+/**
+ * Минимум без spread.
+ *
+ * У плотной сетки Ø100 больше ста тысяч вершин, и `Math.min(...points)` здесь
+ * переполняет стек вызовов. Один проход по массиву считает то же значение без
+ * риска.
+ */
+function minOf(values: readonly number[]): number {
+  let minimum = Number.POSITIVE_INFINITY;
+
+  for (const value of values) {
+    minimum = Math.min(minimum, value);
+  }
+
+  return minimum;
+}
+
+/** Максимум без spread по тем же причинам, что и `minOf`. */
+function maxOf(values: readonly number[]): number {
+  let maximum = Number.NEGATIVE_INFINITY;
+
+  for (const value of values) {
+    maximum = Math.max(maximum, value);
+  }
+
+  return maximum;
 }
 function weld(triangles: readonly Triangle[]): {
   vertices: Point3[];
@@ -462,7 +498,7 @@ for (const testCase of cases) {
   } else {
     near(
       "глубина узора 1.2 мм",
-      params.coasterThickness - Math.min(...relief.map((point) => point[2])),
+      params.coasterThickness - minOf(relief.map((point) => point[2])),
       COASTER_PATTERN_DEPTH_MM,
       1e-5,
     );
@@ -493,8 +529,8 @@ for (const testCase of cases) {
     );
 
     if (params.coasterPattern !== "smooth") {
-      const reliefRadius = Math.max(
-        ...relief.map((point) => Math.hypot(point[0], point[1])),
+      const reliefRadius = maxOf(
+        relief.map((point) => Math.hypot(point[0], point[1])),
       );
 
       check(
@@ -574,8 +610,8 @@ check(
   trianglesOf(stlGeometry).length,
 );
 check(
-  "плотность сетки STL: 30 000–40 000 треугольников",
-  stlTriangles.length >= 30_000 && stlTriangles.length <= 40_000,
+  "плотность сетки STL: 58 000–62 000 треугольников",
+  stlTriangles.length >= 58_000 && stlTriangles.length <= 62_000,
   true,
 );
 near("габарит STL по X = 100", stlBounds.width, 100);
@@ -583,9 +619,29 @@ near("габарит STL по Y = 100", stlBounds.depth, 100);
 near("низ STL на Z = 0", stlBounds.minZ, 0);
 near(
   "глубина узора STL 1.2 мм",
-  stlParams.coasterThickness - Math.min(...stlRelief.map((point) => point[2])),
+  stlParams.coasterThickness - minOf(stlRelief.map((point) => point[2])),
   COASTER_PATTERN_DEPTH_MM,
   1e-5,
+);
+const stlWallSlopes = stlTriangles
+  .filter((triangle) =>
+    triangle.every(
+      (point) =>
+        point[2] > BOTTOM_Z + 1e-7 &&
+        point[2] < stlParams.coasterThickness - 1e-7 &&
+        Math.hypot(point[0], point[1]) <= stlPatternApothem + 1e-5,
+    ),
+  )
+  .map(
+    (triangle) =>
+      (Math.acos(Math.abs(normalOf(triangle)[2])) * 180) / Math.PI,
+  );
+const stlMaxWallSlope = maxOf(stlWallSlopes);
+
+check(
+  "стенка сот 45–50°",
+  stlMaxWallSlope >= 45 && stlMaxWallSlope <= 50,
+  true,
 );
 check(
   "нижняя плоскость STL плоская",
@@ -612,10 +668,9 @@ check(
 );
 check("подставок в наборе по умолчанию", DEFAULT_COASTER_PARAMS.coasterCount, 6);
 near("основание держателя", COASTER_HOLDER_BASE_THICKNESS_MM, 3);
-near("задняя стенка держателя", COASTER_HOLDER_WALL_HEIGHT_MM, 50);
+near("задняя стенка держателя", COASTER_HOLDER_WALL_HEIGHT_MM, 60);
 near("перегородка держателя", COASTER_HOLDER_DIVIDER_HEIGHT_MM, 15);
 near("толщина перегородки", COASTER_HOLDER_DIVIDER_THICKNESS_MM, 2);
-near("паз держателя по умолчанию", COASTER_HOLDER_GROOVE_WIDTH_MM, 8);
 near("зазор подставки в гнезде", COASTER_HOLDER_SLOT_CLEARANCE_MM, 0.5);
 
 const holderParams = normalizeCoasterParams({
@@ -631,10 +686,27 @@ const holderDims = coasterHolderDimensionsMm(holderParams);
 
 near("держатель: ширина", holderDims.width, 56);
 near("держатель: глубина", holderDims.depth, 100);
-near("держатель: высота", holderDims.height, 50);
+near("держатель: высота", holderDims.height, 60);
+near(
+  "держатель: ширина паза = толщина + 1",
+  holderDims.slotWidth,
+  holderParams.coasterThickness + 1,
+);
+near(
+  "держатель: глубина = диаметр + 10",
+  holderDims.depth,
+  holderParams.coasterSize + 10,
+);
+near(
+  "держатель: зазор до задней стенки",
+  holderDims.depth / 2 -
+    holderDims.wallThickness -
+    holderParams.coasterSize / 2,
+  2,
+);
 near("держатель: гнездо", holderDims.slotWidth, 6);
 near("держатель: шаг перегородок", holderDims.dividerPitch, 8);
-near("держатель: паз", holderDims.grooveWidth, 8);
+near("держатель: паз", holderDims.grooveWidth, holderParams.coasterThickness + 1);
 check("держатель: число гнёзд", holderDims.slotCenters.length, 6);
 near("держатель: первое гнездо", holderDims.slotCenters[0], -20);
 near("держатель: последнее гнездо", holderDims.slotCenters[5], 20);
@@ -807,6 +879,124 @@ check(
   overhangTriangles(holderStlTriangles).length,
   0,
 );
+
+console.log("\nОбщий STL набора: подставка и держатель рядом:");
+
+const setParams = normalizeCoasterParams({
+  ...stlParams,
+  coasterHolderType: "vertical",
+  coasterCount: 6,
+});
+const setHolderDims = coasterHolderDimensionsMm(setParams);
+const maxSetParams = normalizeCoasterParams({
+  ...setParams,
+  coasterSize: 140,
+  coasterThickness: 10,
+  coasterCount: 8,
+});
+const maxSetHolderDims = coasterHolderDimensionsMm(maxSetParams);
+const maxSetGap =
+  COASTER_SET_HOLDER_OFFSET_MM -
+  maxSetHolderDims.width / 2 -
+  maxSetParams.coasterSize / 2;
+
+check(
+  "общий STL: зазор сохраняется на максимальных размерах",
+  maxSetGap >= 20,
+  true,
+);
+const setGeometry = createCoasterSetGeometry(setParams);
+const setTriangles = trianglesOf(setGeometry);
+const setBounds = boundsOf(setTriangles);
+const holderLeftEdge =
+  COASTER_SET_HOLDER_OFFSET_MM - setHolderDims.width / 2;
+const coasterRightEdge = setParams.coasterSize / 2;
+const setCoasterTriangles = setTriangles.filter((triangle) =>
+  triangle.every((point) => point[0] <= coasterRightEdge + 1e-6),
+);
+const setHolderTriangles = setTriangles.filter((triangle) =>
+  triangle.every((point) => point[0] >= holderLeftEdge - 1e-6),
+);
+const setDirectory = mkdtempSync(join(tmpdir(), "tridi-coaster-set-"));
+const setPath = join(setDirectory, coasterSetStlFileName(setParams));
+
+check(
+  "общий STL: имя файла набора",
+  coasterSetStlFileName(setParams),
+  "tridi-podstavka-kruzhka-nabor-round-d100-t5-honeycomb-bort.stl",
+);
+near("общий STL: сдвиг держателя", COASTER_SET_HOLDER_OFFSET_MM, 150);
+check(
+  "общий STL: зазор между деталями",
+  holderLeftEdge - coasterRightEdge > 0,
+  true,
+);
+near("общий STL: левый край подставки", setBounds.minX, -coasterRightEdge);
+near(
+  "общий STL: правый край держателя",
+  setBounds.maxX,
+  COASTER_SET_HOLDER_OFFSET_MM + setHolderDims.width / 2,
+);
+near("общий STL: низ на Z = 0", setBounds.minZ, 0);
+check(
+  "общий STL: все треугольники подставки слева от держателя",
+  setCoasterTriangles.length,
+  stlTriangles.length,
+);
+check(
+  "общий STL: все треугольники держателя справа от подставки",
+  setHolderTriangles.length,
+  holderTriangles.length,
+);
+check(
+  "общий STL: треугольники не пересекаются по X",
+  setCoasterTriangles.length + setHolderTriangles.length,
+  setTriangles.length,
+);
+near(
+  "общий STL: объём = подставка + держатель",
+  calculateGeometryVolumeMm3(setGeometry),
+  stlAnalyticVolume + coasterHolderAnalyticVolumeMm3(setParams),
+  0.001,
+);
+
+const setMesh = new Mesh(setGeometry);
+
+setMesh.updateMatrixWorld(true);
+
+const setExported = new STLExporter().parse(setMesh, { binary: true });
+const setBytes = setExported as DataView;
+
+writeFileSync(
+  setPath,
+  Buffer.from(setBytes.buffer, setBytes.byteOffset, setBytes.byteLength),
+);
+
+const setStlTriangles = readBinaryStl(readFileSync(setPath));
+const setStlBounds = boundsOf(setStlTriangles);
+
+console.log(
+  `  файл набора: ${setPath} (${setStlTriangles.length} треугольников, ` +
+    `держатель с X = ${COASTER_SET_HOLDER_OFFSET_MM} мм)`,
+);
+near(
+  "общий STL в файле: габарит X",
+  setStlBounds.width,
+  setBounds.width,
+);
+check(
+  "общий STL в файле: число треугольников",
+  setStlTriangles.length,
+  setTriangles.length,
+);
+check(
+  "общий STL в файле: нависаний больше 45° нет",
+  overhangTriangles(setStlTriangles).length,
+  0,
+);
+
+setGeometry.dispose();
+rmSync(setDirectory, { recursive: true, force: true });
 
 holderGeometry.dispose();
 rmSync(holderDirectory, { recursive: true, force: true });
