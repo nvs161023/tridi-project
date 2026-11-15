@@ -75,7 +75,6 @@ import {
 import { lithophaneGlowPixels } from "@/lib/constructor/lithophane-image";
 import { createPenHolderGeometry } from "@/lib/constructor/pen-holder-geometry";
 import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
-import { createStandGeometry } from "@/lib/constructor/phone-stand-geometry";
 import {
   SIGN_FONT_URLS,
   createSignGeometry,
@@ -380,30 +379,6 @@ function KeychainModel({
       <mesh castShadow geometry={geometry} receiveShadow>
         <meshStandardMaterial
           color={STUDIO_MODEL_TINTS.keychain}
-          metalness={STUDIO_PLASTIC.metalness}
-          roughness={STUDIO_PLASTIC.roughness}
-        />
-      </mesh>
-    </group>
-  );
-}
-
-type StandModelProps = {
-  geometry: BufferGeometry;
-};
-
-/**
- * Подставка стоит на столе так же, как её печатает слайсер: геометрия
- * построена Z-вверх, поворот на -90° вокруг X поднимает спинку и губу.
- *
- * Цвет холоднее вазы — по нему видно, что деталь относится к подставке.
- */
-function StandModel({ geometry }: StandModelProps) {
-  return (
-    <group rotation={[-Math.PI / 2, 0, 0]}>
-      <mesh castShadow geometry={geometry} receiveShadow>
-        <meshStandardMaterial
-          color={STUDIO_MODEL_TINTS.stand}
           metalness={STUDIO_PLASTIC.metalness}
           roughness={STUDIO_PLASTIC.roughness}
         />
@@ -1239,8 +1214,6 @@ function Scene({
           lift={keychainLift}
           thickness={params.thickness}
         />
-      ) : params.model === "stand" ? (
-        <StandModel geometry={geometry} />
       ) : params.model === "box" ? (
         <BoxModel geometry={geometry} />
       ) : params.model === "lithophane" ? (
@@ -1431,7 +1404,7 @@ export function Viewport({
     }
   }, [params.model, params.decorations]);
 
-  // Смена модели возвращает лицо: у вазы и подставки оборота нет, а вернувшись к
+  // Смена модели возвращает лицо: у вазы оборота нет, а вернувшись к
   // брелоку, пользователь ждёт тот же вид, что и при первом открытии.
   useEffect(() => {
     if (params.model !== "keychain") {
@@ -1664,10 +1637,6 @@ export function Viewport({
       return createKeychainGeometry(params, fonts, keychainReport.current);
     }
 
-    if (params.model === "stand") {
-      return createStandGeometry(params);
-    }
-
     if (params.model === "sign") {
       return createSignGeometry(params, font);
     }
@@ -1743,10 +1712,9 @@ export function Viewport({
 
   /**
    * Габариты для камеры и подписи. У вывески ширина и высота зависят от
-   * надписи, у подставки — от наклона, у вазы — от наклона и органики, поэтому
-   * здесь они берутся из готовой сетки. Остальные модели считаются по
-   * параметрам: bounding box совпадает со слайдерами с точностью до амплитуды
-   * узора.
+   * надписи, у вазы — от наклона и органики, поэтому здесь они берутся из
+   * готовой сетки. Остальные модели считаются по параметрам: bounding box
+   * совпадает со слайдерами с точностью до амплитуды узора.
    */
   const framing = useMemo<Framing>(() => {
     if (params.model === "vase") {
@@ -1774,7 +1742,6 @@ export function Viewport({
     }
 
     if (
-      params.model === "stand" ||
       params.model === "planter" ||
       params.model === "coaster" ||
       params.model === "jewelry_stand" ||
@@ -1784,9 +1751,9 @@ export function Viewport({
       geometry.computeBoundingBox();
       const box = geometry.boundingBox;
 
-      // Подставка, кашпо, подставка под кружку, стойка украшений,
-      // органайзер для ручек и термопринт построены Z-вверх: после поворота
-      // меша высотой становится Z, а длиной и шириной — X и Y.
+      // Кашпо, подставка под кружку, стойка украшений, органайзер для ручек
+      // и термопринт построены Z-вверх: после поворота меша высотой становится
+      // Z, а длиной и шириной — X и Y.
       return {
         height: box ? Math.max(box.max.z - box.min.z, 1) : 1,
         footprint: box
@@ -1862,27 +1829,25 @@ export function Viewport({
       ? `${params.height} × Ø ${params.diameter} мм`
       : params.model === "keychain"
         ? `${params.length} × ${params.width} × ${params.thickness} мм`
-        : params.model === "stand"
-          ? `${params.standWidth} × ${Math.round(framing.height)} мм`
-          : params.model === "box"
-            ? `${params.boxWidth} × ${params.boxDepth} × ${params.boxHeight} мм`
-            : params.model === "lithophane"
-              ? `${params.lithophaneWidth} × ${params.lithophaneHeight} × ${params.lithophaneMaxThickness.toFixed(1)} мм`
-              : params.model === "planter"
-                ? `${params.planterSize} × ${params.planterHeight} мм`
-                : params.model === "coaster"
-                  ? `${params.coasterSize} × ${params.coasterThickness} мм`
-                  : params.model === "jewelry_stand"
-                    ? params.jewelryPreset === "leaf_tray"
-                      ? `${params.jewelryLeafLength} × ${params.jewelryLeafWidth} мм`
-                      : params.jewelryPreset === "antler_tree"
-                        ? `${params.baseLength} × ${params.baseWidth} × ${jewelryAntlerTreeHeightMm(params)} мм`
-                        : `${params.treeBaseDiameter} × ${jewelryTreeHeightMm(params)} мм`
-                    : params.model === "pen_holder"
-                      ? `${params.penSize} × ${params.penHeight} мм`
-                      : params.model === "heat_transfer"
-                        ? `${params.heatTransferWidth} × ${params.heatTransferHeight} × ${heatTransferThickness(params.heatTransferLayers).toFixed(1)} мм`
-                        : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
+        : params.model === "box"
+          ? `${params.boxWidth} × ${params.boxDepth} × ${params.boxHeight} мм`
+          : params.model === "lithophane"
+            ? `${params.lithophaneWidth} × ${params.lithophaneHeight} × ${params.lithophaneMaxThickness.toFixed(1)} мм`
+            : params.model === "planter"
+              ? `${params.planterSize} × ${params.planterHeight} мм`
+              : params.model === "coaster"
+                ? `${params.coasterSize} × ${params.coasterThickness} мм`
+                : params.model === "jewelry_stand"
+                  ? params.jewelryPreset === "leaf_tray"
+                    ? `${params.jewelryLeafLength} × ${params.jewelryLeafWidth} мм`
+                    : params.jewelryPreset === "antler_tree"
+                      ? `${params.baseLength} × ${params.baseWidth} × ${jewelryAntlerTreeHeightMm(params)} мм`
+                      : `${params.treeBaseDiameter} × ${jewelryTreeHeightMm(params)} мм`
+                  : params.model === "pen_holder"
+                    ? `${params.penSize} × ${params.penHeight} мм`
+                    : params.model === "heat_transfer"
+                      ? `${params.heatTransferWidth} × ${params.heatTransferHeight} × ${heatTransferThickness(params.heatTransferLayers).toFixed(1)} мм`
+                      : `${Math.round(framing.footprint)} × ${Math.round(framing.height)} мм`;
 
   const ariaLabel =
     params.model === "vase"
@@ -1892,27 +1857,25 @@ export function Viewport({
             keychainTextDecoration(params.decorations)?.content.trim() ||
             "без имени"
           }»${keychainBack ? ", показан оборот" : ", показано лицо"}`
-        : params.model === "stand"
-          ? `3D-предпросмотр подставки под телефон шириной ${params.standWidth} миллиметров, наклон ${params.standAngle} градусов, толщина телефона ${params.phoneThickness} миллиметров`
-          : params.model === "box"
-            ? `3D-предпросмотр коробки ${params.boxWidth} на ${params.boxDepth} на ${params.boxHeight} миллиметров, перегородки ${params.boxDividersX} и ${params.boxDividersY}, скругление углов ${params.boxCornerRadius} миллиметров, ${params.hasLid ? "с крышкой" : "без крышки"}${params.boxMagnets ? `, пазы под магниты ${BOX_MAGNET_SIZE_LABELS[params.boxMagnetSize]}` : ""}${params.boxStack ? ", кольцо для штабелирования" : ""}`
-            : params.model === "lithophane"
-              ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»${lithophaneShapeHasFrame(params.lithoShape) ? `, ${params.lithoFrame ? "рамка" : "без рамки"}` : ""}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}${heatMap ? ", включена карта света" : ""}`
-              : params.model === "planter"
-                ? `3D-предпросмотр кашпо «${PLANTER_SHAPE_LABELS[params.planterShape]}» ${params.planterSize} миллиметров по ключу и высотой ${params.planterHeight} миллиметров, стенка ${params.planterWall} миллиметров, ${params.planterDrainage ? "с дренажными отверстиями и поддоном" : "без поддона"}`
-                : params.model === "coaster"
-                  ? `3D-предпросмотр подставки под кружку ${params.coasterSize} миллиметров, толщина ${params.coasterThickness} миллиметров, узор «${COASTER_PATTERN_LABELS[params.coasterPattern]}», ${params.coasterRim ? "с бортиком" : "без бортика"}`
-                  : params.model === "jewelry_stand"
-                    ? params.jewelryPreset === "leaf_tray"
-                      ? `3D-предпросмотр лотка для украшений «${JEWELRY_LEAF_TYPE_LABELS[params.jewelryLeafType]}» ${params.jewelryLeafLength} на ${params.jewelryLeafWidth} миллиметров, глубина прожилок ${params.jewelryLeafVeinDepth} миллиметра, горизонтальная плита с плоским дном и крючком для цепочек`
-                      : params.jewelryPreset === "antler_tree"
-                        ? `3D-предпросмотр подставки «Рогатое дерево»: овальный лоток ${params.baseLength} на ${params.baseWidth} миллиметров, ствол с раструбом, крона из рогов размахом ${params.antlerSpread} миллиметров, высота ${jewelryAntlerTreeHeightMm(params)} миллиметров, десять отверстий под серьги`
-                        : `3D-предпросмотр подставки «Плетёное древо» высотой ${jewelryTreeHeightMm(params)} миллиметров: чаша-лоток диаметром ${params.treeBaseDiameter} миллиметров, изогнутый ствол с ${params.treeBranchCount} ярусами ветвей, изгиб ветвей ${Math.round(params.treeTwist * 100)} процентов, крючки с бусинами и штыри под кольца`
-                    : params.model === "pen_holder"
-                      ? `3D-предпросмотр органайзера для ручек «${PEN_SHAPE_LABELS[params.penShape]}» ${params.penSize} миллиметров по ключу и высотой ${params.penHeight} миллиметров, стенка ${params.penWall} миллиметров, ${params.penSections} отделений${params.penRimSlope > 0 ? `, срез кромки ${params.penRimSlope} миллиметров` : ""}`
-                      : params.model === "heat_transfer"
-                        ? `3D-предпросмотр термопринта ${params.heatTransferWidth} на ${params.heatTransferHeight} миллиметров, толщина ${heatTransferThickness(params.heatTransferLayers).toFixed(1)} миллиметра, ${params.heatTransferMirror ? "с зеркалом" : "без зеркала"}, ${params.heatTransferSvg ? "логотип загружен" : "логотип не загружен"}`
-                        : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
+        : params.model === "box"
+          ? `3D-предпросмотр коробки ${params.boxWidth} на ${params.boxDepth} на ${params.boxHeight} миллиметров, перегородки ${params.boxDividersX} и ${params.boxDividersY}, скругление углов ${params.boxCornerRadius} миллиметров, ${params.hasLid ? "с крышкой" : "без крышки"}${params.boxMagnets ? `, пазы под магниты ${BOX_MAGNET_SIZE_LABELS[params.boxMagnetSize]}` : ""}${params.boxStack ? ", кольцо для штабелирования" : ""}`
+          : params.model === "lithophane"
+            ? `3D-предпросмотр литофана ${params.lithophaneWidth} на ${params.lithophaneHeight} миллиметров, толщина рельефа от ${params.lithophaneMinThickness} до ${params.lithophaneMaxThickness} миллиметров, форма «${LITHOPHANE_SHAPE_LABELS[params.lithoShape]}»${lithophaneShapeHasFrame(params.lithoShape) ? `, ${params.lithoFrame ? "рамка" : "без рамки"}` : ""}${lithophaneBacklight ? ", включена подсветка на просвет" : ""}${heatMap ? ", включена карта света" : ""}`
+            : params.model === "planter"
+              ? `3D-предпросмотр кашпо «${PLANTER_SHAPE_LABELS[params.planterShape]}» ${params.planterSize} миллиметров по ключу и высотой ${params.planterHeight} миллиметров, стенка ${params.planterWall} миллиметров, ${params.planterDrainage ? "с дренажными отверстиями и поддоном" : "без поддона"}`
+              : params.model === "coaster"
+                ? `3D-предпросмотр подставки под кружку ${params.coasterSize} миллиметров, толщина ${params.coasterThickness} миллиметров, узор «${COASTER_PATTERN_LABELS[params.coasterPattern]}», ${params.coasterRim ? "с бортиком" : "без бортика"}`
+                : params.model === "jewelry_stand"
+                  ? params.jewelryPreset === "leaf_tray"
+                    ? `3D-предпросмотр лотка для украшений «${JEWELRY_LEAF_TYPE_LABELS[params.jewelryLeafType]}» ${params.jewelryLeafLength} на ${params.jewelryLeafWidth} миллиметров, глубина прожилок ${params.jewelryLeafVeinDepth} миллиметра, горизонтальная плита с плоским дном и крючком для цепочек`
+                    : params.jewelryPreset === "antler_tree"
+                      ? `3D-предпросмотр подставки «Рогатое дерево»: овальный лоток ${params.baseLength} на ${params.baseWidth} миллиметров, ствол с раструбом, крона из рогов размахом ${params.antlerSpread} миллиметров, высота ${jewelryAntlerTreeHeightMm(params)} миллиметров, десять отверстий под серьги`
+                      : `3D-предпросмотр подставки «Плетёное древо» высотой ${jewelryTreeHeightMm(params)} миллиметров: чаша-лоток диаметром ${params.treeBaseDiameter} миллиметров, изогнутый ствол с ${params.treeBranchCount} ярусами ветвей, изгиб ветвей ${Math.round(params.treeTwist * 100)} процентов, крючки с бусинами и штыри под кольца`
+                  : params.model === "pen_holder"
+                    ? `3D-предпросмотр органайзера для ручек «${PEN_SHAPE_LABELS[params.penShape]}» ${params.penSize} миллиметров по ключу и высотой ${params.penHeight} миллиметров, стенка ${params.penWall} миллиметров, ${params.penSections} отделений${params.penRimSlope > 0 ? `, срез кромки ${params.penRimSlope} миллиметров` : ""}`
+                    : params.model === "heat_transfer"
+                      ? `3D-предпросмотр термопринта ${params.heatTransferWidth} на ${params.heatTransferHeight} миллиметров, толщина ${heatTransferThickness(params.heatTransferLayers).toFixed(1)} миллиметра, ${params.heatTransferMirror ? "с зеркалом" : "без зеркала"}, ${params.heatTransferSvg ? "логотип загружен" : "логотип не загружен"}`
+                      : `3D-предпросмотр вывески шириной ${Math.round(framing.footprint)} и высотой ${Math.round(framing.height)} миллиметров, надпись «${params.signText.trim() || "без надписи"}», канал ${params.signChannelWidth} миллиметров`;
 
   return (
     <>

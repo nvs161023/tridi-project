@@ -596,7 +596,6 @@ type ModelCard = { id: ModelType; icon: string; title: string };
 const MODEL_CARDS: ModelCard[] = [
   { id: "vase", icon: "🏺", title: MODEL_TYPE_LABELS.vase },
   { id: "keychain", icon: "🔑", title: MODEL_TYPE_LABELS.keychain },
-  { id: "stand", icon: "📱", title: MODEL_TYPE_LABELS.stand },
   { id: "sign", icon: "🪧", title: MODEL_TYPE_LABELS.sign },
   { id: "box", icon: "📦", title: MODEL_TYPE_LABELS.box },
   { id: "lithophane", icon: "🖼️", title: MODEL_TYPE_LABELS.lithophane },
@@ -1430,14 +1429,6 @@ function modelSummary(
       { label: "Длина", value: `${params.length} мм` },
       { label: "Ширина", value: `${params.width} мм` },
       { label: "Толщина", value: `${params.thickness.toFixed(1)} мм` },
-    ];
-  }
-
-  if (params.model === "stand") {
-    return [
-      { label: "Наклон", value: `${params.standAngle}°` },
-      { label: "Телефон", value: `${params.phoneThickness} мм` },
-      { label: "Ширина", value: `${params.standWidth} мм` },
     ];
   }
 
@@ -3580,43 +3571,6 @@ export function ParameterPanel({
                 value={params.holePlacement}
               />
             ) : null}
-          </div>
-        </>
-      ) : params.model === "stand" ? (
-        <>
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
-            <NumberSlider
-              hint="Наклон спинки: 45° — телефон лежит почти как на столе, 75° — стоит почти вертикально. Рабочий диапазон 60–70°: экран видно, а центр тяжести остаётся над плитой."
-              label="Наклон"
-              max={CONSTRUCTOR_LIMITS.standAngle.max}
-              min={CONSTRUCTOR_LIMITS.standAngle.min}
-              onChange={(value) => onParamChange("standAngle", value)}
-              step={CONSTRUCTOR_LIMITS.standAngle.step}
-              unit="°"
-              value={params.standAngle}
-            />
-
-            <NumberSlider
-              hint="Толщина телефона вместе с чехлом. От неё зависит глубина жёлоба: запас 6 мм оставляет место разъёму и проводу зарядки."
-              label="Толщина телефона"
-              max={CONSTRUCTOR_LIMITS.phoneThickness.max}
-              min={CONSTRUCTOR_LIMITS.phoneThickness.min}
-              onChange={(value) => onParamChange("phoneThickness", value)}
-              step={CONSTRUCTOR_LIMITS.phoneThickness.step}
-              unit="мм"
-              value={params.phoneThickness}
-            />
-
-            <NumberSlider
-              hint="Ширина плиты и спинки. Высота подставки фиксированная — 100 мм, поэтому проверьте, что деталь влезает на стол принтера."
-              label="Ширина"
-              max={CONSTRUCTOR_LIMITS.standWidth.max}
-              min={CONSTRUCTOR_LIMITS.standWidth.min}
-              onChange={(value) => onParamChange("standWidth", value)}
-              step={CONSTRUCTOR_LIMITS.standWidth.step}
-              unit="мм"
-              value={params.standWidth}
-            />
           </div>
         </>
       ) : params.model === "planter" ? (

@@ -44,7 +44,6 @@ import {
   DEFAULT_PEN_HOLDER_PARAMS,
   DEFAULT_PLANTER_PARAMS,
   DEFAULT_SIGN_PARAMS,
-  DEFAULT_STAND_PARAMS,
   DEFAULT_VASE_PARAMS,
   JEWELRY_LEAF_TYPE_LABELS,
   JEWELRY_PRESET_LABELS,
@@ -81,7 +80,6 @@ import {
   penHolderStlFileName,
   planterStlFileName,
   signStlFileName,
-  standStlFileName,
   vasePatternLabel,
   vaseStlFileName,
   type BoxMagnetSize,
@@ -198,7 +196,6 @@ const MODEL_DEFAULT_PARAMS: Record<ModelType, Partial<ConstructorParams>> = {
   sign: DEFAULT_SIGN_PARAMS,
   box: DEFAULT_BOX_PARAMS,
   lithophane: DEFAULT_LITHOPHANE_PARAMS,
-  stand: DEFAULT_STAND_PARAMS,
   planter: DEFAULT_PLANTER_PARAMS,
   coaster: DEFAULT_COASTER_PARAMS,
   jewelry_stand: DEFAULT_JEWELRY_STAND_PARAMS,
@@ -433,7 +430,7 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   }
 
   // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
-  // с одним STL: ваза, брелок, коробка, подставка, кашпо, подставка под кружку,
+  // с одним STL: ваза, брелок, коробка, кашпо, подставка под кружку,
   // подставка для украшений, органайзер для ручек и термопринт.
   return [
     {
@@ -445,19 +442,17 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
           ? vaseStlFileName(params)
           : params.model === "keychain"
             ? keychainStlFileName(params)
-            : params.model === "stand"
-              ? standStlFileName(params)
-              : params.model === "planter"
-                ? planterStlFileName(params)
-                : params.model === "coaster"
-                  ? coasterStlFileName(params)
-                  : params.model === "jewelry_stand"
-                    ? jewelryStandStlFileName(params)
-                    : params.model === "pen_holder"
-                      ? penHolderStlFileName(params)
-                      : params.model === "heat_transfer"
-                        ? heatTransferStlFileName(params)
-                        : boxStlFileName(params),
+            : params.model === "planter"
+              ? planterStlFileName(params)
+              : params.model === "coaster"
+                ? coasterStlFileName(params)
+                : params.model === "jewelry_stand"
+                  ? jewelryStandStlFileName(params)
+                  : params.model === "pen_holder"
+                    ? penHolderStlFileName(params)
+                    : params.model === "heat_transfer"
+                      ? heatTransferStlFileName(params)
+                      : boxStlFileName(params),
     },
   ];
 }
@@ -1442,7 +1437,7 @@ export function ConstructorClient({
 
           <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300 lg:mt-2 lg:max-w-3xl lg:text-sm">
             Параметрические модели под ваш принтер: ваза с математическим узором,
-            брелок с именем, подставка под телефон, светодиодная вывеска с
+            брелок с именем, светодиодная вывеска с
             надписью, коробка-органайзер с сеткой и крышкой, литофан из
             фотографии, кашпо с поддоном, подставка под кружку, стойка для
             украшений, органайзер для ручек и термопринт логотипа.
@@ -1620,11 +1615,6 @@ export function ConstructorClient({
                     {keychainTextDecoration(params.decorations)?.content.trim()
                       ? ` · «${keychainTextDecoration(params.decorations)?.content.trim()}»`
                       : ""}
-                  </>
-                ) : params.model === "stand" ? (
-                  <>
-                    наклон {params.standAngle}° · телефон{" "}
-                    {params.phoneThickness} мм · ширина {params.standWidth} мм
                   </>
                 ) : params.model === "lithophane" ? (
                   <>

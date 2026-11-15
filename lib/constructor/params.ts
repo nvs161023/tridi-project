@@ -147,9 +147,6 @@ export const CONSTRUCTOR_LIMITS = {
   length: { min: 30, max: 100, step: 1, defaultValue: 60, decimals: 0 },
   width: { min: 20, max: 50, step: 1, defaultValue: 30, decimals: 0 },
   thickness: { min: 2, max: 5, step: 0.5, defaultValue: 3, decimals: 1 },
-  standAngle: { min: 45, max: 75, step: 1, defaultValue: 65, decimals: 0 },
-  phoneThickness: { min: 8, max: 15, step: 1, defaultValue: 11, decimals: 0 },
-  standWidth: { min: 60, max: 100, step: 5, defaultValue: 80, decimals: 0 },
   signFontSize: { min: 20, max: 120, step: 2, defaultValue: 60, decimals: 0 },
   // Меньше 11 мм полость буквы не вмещает ленту: 11 − 2 мм лица = 9 мм канала.
   signDepth: { min: 11, max: 40, step: 1, defaultValue: 18, decimals: 0 },
@@ -355,7 +352,6 @@ export const MODEL_TYPES = [
   "sign",
   "box",
   "lithophane",
-  "stand",
   "planter",
   "coaster",
   "jewelry_stand",
@@ -372,7 +368,6 @@ export const MODEL_TYPE_LABELS = {
   sign: "Вывеска",
   box: "Коробки",
   lithophane: "Литофан",
-  stand: "Подставка",
   planter: "Кашпо",
   coaster: "Подставка под кружку",
   jewelry_stand: "Подставка для украшений",
@@ -423,11 +418,6 @@ export const CONSTRUCTOR_TOOLS: readonly ConstructorTool[] = [
     id: "lithophane",
     title: "Генератор литофанов",
     desc: "Панели из фотографий: яркость пикселей превращается в толщину пластика, а рамка держит свет.",
-  },
-  {
-    id: "stand",
-    title: "Генератор подставок",
-    desc: "Настольные подставки под телефон с окном под кабель: наклон и ширина подбираются под корпус.",
   },
   {
     id: "planter",
@@ -1367,22 +1357,6 @@ export type VaseParams = {
    * воспроизводим.
    */
   vaseSeed: number;
-};
-
-/**
- * Подставка под телефон: наклон спинки, толщина корпуса и ширина ложа.
- *
- * Три числа задают всю деталь. Угол — наклон спинки от стола: телефон лежит на
- * ней экраном к пользователю. Толщина корпуса задаёт глубину жёлоба между
- * передней губой и спинкой, а ширина — длину профиля поперёк.
- */
-export type StandParams = {
-  /** Наклон спинки от стола, градусы: 45–75. */
-  standAngle: number;
-  /** Толщина телефона с чехлом, мм: глубина жёлоба под нижнюю кромку. */
-  phoneThickness: number;
-  /** Ширина подставки поперёк профиля, мм. */
-  standWidth: number;
 };
 
 /**
@@ -2541,13 +2515,6 @@ export const DEFAULT_KEYCHAIN_PARAMS: KeychainParams = {
   qrCardTab: DEFAULT_QR_CARD_SPEC.tab,
 };
 
-/** Подставка по умолчанию: наклон 65°, телефон 11 мм, ширина 80 мм. */
-export const DEFAULT_STAND_PARAMS: StandParams = {
-  standAngle: CONSTRUCTOR_LIMITS.standAngle.defaultValue,
-  phoneThickness: CONSTRUCTOR_LIMITS.phoneThickness.defaultValue,
-  standWidth: CONSTRUCTOR_LIMITS.standWidth.defaultValue,
-};
-
 /** Кашпо по умолчанию: круглое 120 × 110 мм, стенка 2 мм, дренаж и поддон. */
 export const DEFAULT_PLANTER_PARAMS: PlanterParams = {
   planterSize: CONSTRUCTOR_LIMITS.planterSize.defaultValue,
@@ -2778,7 +2745,6 @@ export type ConstructorParams = { model: ModelType } & VaseParams &
   SignParams &
   BoxParams &
   LithophaneParams &
-  StandParams &
   PlanterParams &
   CoasterParams &
   JewelryStandParams &
@@ -2793,7 +2759,6 @@ export const DEFAULT_CONSTRUCTOR_PARAMS: ConstructorParams = {
   ...DEFAULT_SIGN_PARAMS,
   ...DEFAULT_BOX_PARAMS,
   ...DEFAULT_LITHOPHANE_PARAMS,
-  ...DEFAULT_STAND_PARAMS,
   ...DEFAULT_PLANTER_PARAMS,
   ...DEFAULT_COASTER_PARAMS,
   ...DEFAULT_JEWELRY_STAND_PARAMS,
@@ -2950,17 +2915,6 @@ export function keychainStlFileName(params: KeychainParams): string {
   const shape = params.keychainPreset ?? DEFAULT_KEYCHAIN_PRESET_ID;
 
   return `tridi-brelyok-${shape}-l${params.length}-w${params.width}-t${params.thickness}${nfcSuffix}.stl`;
-}
-
-/**
- * Имя файла STL для подставки.
- *
- * В имени наклон, толщина телефона и ширина: по ним видно, под какой корпус
- * напечатана деталь. Значения уже выровнены normalizeStandParams, поэтому
- * лишних нулей нет.
- */
-export function standStlFileName(params: StandParams): string {
-  return `tridi-podstavka-a${params.standAngle}-t${params.phoneThickness}-w${params.standWidth}.stl`;
 }
 
 /**
@@ -4507,30 +4461,6 @@ export function normalizeKeychainParams(
 }
 
 /**
- * Проверяет и выравнивает параметры подставки.
- *
- * Все три числа — размеры, поэтому только выравнивание по шагу и границы. Угол
- * 45–75° держит телефон в равновесии: на меньшем наклоне он падает назад, на
- * большем — опрокидывается вперёд вместе с подставкой.
- */
-export function normalizeStandParams(params: Partial<StandParams>): StandParams {
-  return {
-    standAngle: snap(
-      params.standAngle ?? DEFAULT_STAND_PARAMS.standAngle,
-      CONSTRUCTOR_LIMITS.standAngle,
-    ),
-    phoneThickness: snap(
-      params.phoneThickness ?? DEFAULT_STAND_PARAMS.phoneThickness,
-      CONSTRUCTOR_LIMITS.phoneThickness,
-    ),
-    standWidth: snap(
-      params.standWidth ?? DEFAULT_STAND_PARAMS.standWidth,
-      CONSTRUCTOR_LIMITS.standWidth,
-    ),
-  };
-}
-
-/**
  * Проверяет и выравнивает параметры кашпо.
  *
  * Три числа выравниваются по шагу слайдеров: габарит и высота — по 5 мм,
@@ -5035,7 +4965,9 @@ export function normalizeLithophaneParams(
  *
  * Каждая группа полей проходит свою проверку: переключение вкладки не должно
  * терять настройки других моделей, а незнакомый `model` безопасно
- * превращается в вазу.
+ * превращается в вазу. Это же правило мигрирует сохранённые проекты, модель
+ * которых удалена из `MODEL_TYPES`: проект открывается вазой, а её поля
+ * отбрасываются при нормализации.
  */
 export function normalizeConstructorParams(
   params: Omit<Partial<ConstructorParams>, "patterns"> &
@@ -5051,7 +4983,6 @@ export function normalizeConstructorParams(
     ...normalizeSignParams(params),
     ...normalizeBoxParams(params),
     ...normalizeLithophaneParams(params),
-    ...normalizeStandParams(params),
     ...normalizePlanterParams(params),
     ...normalizeCoasterParams(params),
     ...normalizeJewelryStandParams(params),

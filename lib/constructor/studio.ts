@@ -116,7 +116,6 @@ export const STUDIO_PLASTIC = {
  */
 export const STUDIO_MODEL_TINTS = {
   keychain: "#f59e0b",
-  stand: "#38bdf8",
   box: "#34d399",
   lithophane: "#f1f5f9",
   planter: "#fbbf24",

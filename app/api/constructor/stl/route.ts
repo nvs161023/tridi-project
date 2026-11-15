@@ -97,14 +97,12 @@ import {
   normalizePenHolderParams,
   normalizePlanterParams,
   normalizeSignParams,
-  normalizeStandParams,
   normalizeVaseParams,
   penHolderStlFileName,
   planterStlFileName,
   resolveLithophaneBrightness,
   resolveLithophaneSideBrightness,
   signStlFileName,
-  standStlFileName,
   vaseGenerationDetails,
   vaseStlFileName,
   VASE_MAX_PATTERN_LAYERS,
@@ -123,7 +121,6 @@ import {
   type PlanterParams,
   type SignParams,
   type SignPart,
-  type StandParams,
   type VaseParams,
   type VasePatternInput,
 } from "@/lib/constructor/params";
@@ -138,7 +135,6 @@ import {
 } from "@/lib/constructor/lithophane-geometry";
 import { createPenHolderGeometry } from "@/lib/constructor/pen-holder-geometry";
 import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
-import { createStandGeometry } from "@/lib/constructor/phone-stand-geometry";
 import {
   SIGN_FONT_URLS,
   createSignBlockGeometry,
@@ -877,40 +873,6 @@ function parseKeychainParams(
 }
 
 /**
- * Строгая проверка параметров подставки под телефон.
- *
- * Наклон, толщина телефона и ширина подставки должны лежать в границах
- * слайдеров: от них зависят глубина жёлоба и высота спинки, поэтому выход за
- * границы отклоняется, а не подрезается к ближайшему шагу. Деталь цельная, без
- * выбранной части — в файл всегда попадает вся подставка.
- */
-function parseStandParams(body: Record<string, unknown>): StandParams | null {
-  const { standAngle, phoneThickness, standWidth } = body;
-
-  if (
-    !isNumberInRange(
-      standAngle,
-      CONSTRUCTOR_LIMITS.standAngle.min,
-      CONSTRUCTOR_LIMITS.standAngle.max,
-    ) ||
-    !isNumberInRange(
-      phoneThickness,
-      CONSTRUCTOR_LIMITS.phoneThickness.min,
-      CONSTRUCTOR_LIMITS.phoneThickness.max,
-    ) ||
-    !isNumberInRange(
-      standWidth,
-      CONSTRUCTOR_LIMITS.standWidth.min,
-      CONSTRUCTOR_LIMITS.standWidth.max,
-    )
-  ) {
-    return null;
-  }
-
-  return normalizeStandParams({ standAngle, phoneThickness, standWidth });
-}
-
-/**
  * Строгая проверка параметров вывески.
  *
  * Надпись — до 15 символов из набора шрифта, но не пустая: из пустой строки не
@@ -1597,7 +1559,6 @@ type ParsedConstructorRequest =
   | { model: "sign"; params: SignParams; block: number; part: SignPart }
   | { model: "box"; params: BoxParams }
   | { model: "lithophane"; params: LithophaneParams; part: LithophanePart }
-  | { model: "stand"; params: StandParams }
   | { model: "planter"; params: PlanterParams }
   | { model: "coaster"; params: CoasterParams }
   | { model: "jewelry_stand"; params: JewelryStandParams }
@@ -1648,12 +1609,6 @@ function parseConstructorRequest(
     const lithophane = parseLithophaneParams(body);
 
     return lithophane ? { model: "lithophane", ...lithophane } : null;
-  }
-
-  if (model === "stand") {
-    const params = parseStandParams(body);
-
-    return params ? { model: "stand", params } : null;
   }
 
   if (model === "planter") {
@@ -1951,33 +1906,31 @@ export async function POST(request: Request): Promise<Response> {
           ? createBoxGeometry(parsed.params)
           : parsed.model === "lithophane"
             ? createLithophaneGeometry(parsed.params, parsed.part)
-            : parsed.model === "stand"
-              ? createStandGeometry(parsed.params)
-              : parsed.model === "planter"
-                ? createPlanterGeometry(parsed.params)
-                : parsed.model === "coaster"
-                  ? createCoasterGeometry(parsed.params)
-                  : parsed.model === "jewelry_stand"
-                    ? createJewelryStandGeometry(parsed.params)
-                    : parsed.model === "pen_holder"
-                      ? createPenHolderGeometry(parsed.params)
-                      : parsed.model === "heat_transfer"
-                        ? createHeatTransferGeometry(parsed.params)
-                        : parsed.model === "keychain"
-                          ? createKeychainGeometry(
-                              parsed.params,
-                              await loadKeychainFonts(
-                                parsed.params.decorations,
-                              ),
-                            )
-                          : createSignBlockGeometry(
-                              parsed.params,
-                              await loadFont(
-                                SIGN_FONT_URLS[parsed.params.signFont],
-                              ),
-                              parsed.block,
-                              parsed.part,
-                            );
+            : parsed.model === "planter"
+              ? createPlanterGeometry(parsed.params)
+              : parsed.model === "coaster"
+                ? createCoasterGeometry(parsed.params)
+                : parsed.model === "jewelry_stand"
+                  ? createJewelryStandGeometry(parsed.params)
+                  : parsed.model === "pen_holder"
+                    ? createPenHolderGeometry(parsed.params)
+                    : parsed.model === "heat_transfer"
+                      ? createHeatTransferGeometry(parsed.params)
+                      : parsed.model === "keychain"
+                        ? createKeychainGeometry(
+                            parsed.params,
+                            await loadKeychainFonts(
+                              parsed.params.decorations,
+                            ),
+                          )
+                        : createSignBlockGeometry(
+                            parsed.params,
+                            await loadFont(
+                              SIGN_FONT_URLS[parsed.params.signFont],
+                            ),
+                            parsed.block,
+                            parsed.part,
+                          );
 
     try {
       const mesh = new Mesh(geometry);
@@ -1996,23 +1949,21 @@ export async function POST(request: Request): Promise<Response> {
               ? boxStlFileName(parsed.params)
               : parsed.model === "lithophane"
                 ? lithophaneStlFileName(parsed.params, parsed.part)
-                : parsed.model === "stand"
-                  ? standStlFileName(parsed.params)
-                  : parsed.model === "planter"
-                    ? planterStlFileName(parsed.params)
-                    : parsed.model === "coaster"
-                      ? coasterStlFileName(parsed.params)
-                      : parsed.model === "jewelry_stand"
-                        ? jewelryStandStlFileName(parsed.params)
-                        : parsed.model === "pen_holder"
-                          ? penHolderStlFileName(parsed.params)
-                          : parsed.model === "heat_transfer"
-                            ? heatTransferStlFileName(parsed.params)
-                            : signStlFileName(
-                                parsed.params,
-                                parsed.block,
-                                parsed.part,
-                              );
+                : parsed.model === "planter"
+                  ? planterStlFileName(parsed.params)
+                  : parsed.model === "coaster"
+                    ? coasterStlFileName(parsed.params)
+                    : parsed.model === "jewelry_stand"
+                      ? jewelryStandStlFileName(parsed.params)
+                      : parsed.model === "pen_holder"
+                        ? penHolderStlFileName(parsed.params)
+                        : parsed.model === "heat_transfer"
+                          ? heatTransferStlFileName(parsed.params)
+                          : signStlFileName(
+                              parsed.params,
+                              parsed.block,
+                              parsed.part,
+                            );
 
       // Запись появляется после успешной генерации: упавшая сборка не должна
       // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —
