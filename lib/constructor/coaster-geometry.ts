@@ -526,6 +526,15 @@ export const COASTER_HOLDER_SLOT_CLEARANCE_MM = 0.5;
 /** Поле основания за крайними разделителями, мм. */
 export const COASTER_HOLDER_BASE_MARGIN_MM = 3;
 
+/**
+ * Отступ переднего торца перегородки от переднего края основания, мм.
+ *
+ * Перегородки доходят только до этой границы: передняя часть круглой подставки
+ * выступает вперёд и не касается рёбер. Задняя стенка и основание остаются
+ * целыми, поэтому жёсткость держателя не меняется.
+ */
+export const COASTER_HOLDER_DIVIDER_FRONT_CLEARANCE_MM = 15;
+
 /** Запас глубины основания к диаметру подставки, мм. */
 export const COASTER_HOLDER_DEPTH_MARGIN_MM = 10;
 
@@ -546,6 +555,13 @@ export type CoasterHolderDimensions = {
   height: number;
   /** Число гнёзд. */
   count: number;
+  /**
+   * Толщина подставки по оси паза, мм: плита вместе с бортиком.
+   *
+   * Бортик поднимается над лицом на 2.5 мм, поэтому именно эта величина, а не
+   * `coasterThickness`, определяет ширину паза.
+   */
+  coasterStackThickness: number;
   /** Ширина гнезда между перегородками, мм. */
   slotWidth: number;
   /** Шаг перегородок: стенка и гнездо, мм. */
@@ -566,6 +582,8 @@ export type CoasterHolderDimensions = {
   wallThickness: number;
   /** Высота задней стенки, мм. */
   wallHeight: number;
+  /** Координата Y переднего торца перегородок, мм. */
+  dividerFrontY: number;
   /** Координаты центров гнёзд по X, мм: по ним ставятся подставки в превью. */
   slotCenters: readonly number[];
 };
@@ -576,11 +594,14 @@ export function coasterHolderDimensionsMm(
 ): CoasterHolderDimensions {
   const normalized = normalizeCoasterParams(params);
   const count = normalized.coasterCount;
+  const coasterStackThickness =
+    normalized.coasterThickness +
+    (normalized.coasterRim ? COASTER_RIM_RISE_MM : 0);
   const slotWidth =
-    normalized.coasterThickness + COASTER_HOLDER_SLOT_CLEARANCE_MM * 2;
-  // Паз шире плиты ровно на 2 × 0.5 мм: подставка входит свободно, но не
-  // болтается. Ширина не фиксирована восемью миллиметрами и растёт вместе с
-  // толщиной вплоть до 10 мм.
+    coasterStackThickness + COASTER_HOLDER_SLOT_CLEARANCE_MM * 2;
+  // В паз входит вся плита вместе с бортиком: при толщине 5 мм и бортике
+  // 2.5 мм посадочная толщина равна 7.5 мм, а паз — 8.5 мм. Если считать
+  // только `coasterThickness`, бортик врезается в боковые перегородки.
   const grooveWidth = slotWidth;
   const dividerPitch = slotWidth + COASTER_HOLDER_DIVIDER_THICKNESS_MM;
   const width =
@@ -593,6 +614,8 @@ export function coasterHolderDimensionsMm(
     COASTER_HOLDER_BASE_THICKNESS_MM + COASTER_HOLDER_DIVIDER_HEIGHT_MM,
   );
   const firstDivider = -width / 2 + COASTER_HOLDER_BASE_MARGIN_MM;
+  const dividerFrontY =
+    depth / 2 - COASTER_HOLDER_DIVIDER_FRONT_CLEARANCE_MM;
   const slotCenters = Array.from(
     { length: count },
     (_, index) =>
@@ -607,6 +630,7 @@ export function coasterHolderDimensionsMm(
     depth,
     height,
     count,
+    coasterStackThickness,
     slotWidth,
     dividerPitch,
     slotClearance: COASTER_HOLDER_SLOT_CLEARANCE_MM,
@@ -617,7 +641,25 @@ export function coasterHolderDimensionsMm(
     baseThickness: COASTER_HOLDER_BASE_THICKNESS_MM,
     wallThickness: COASTER_HOLDER_WALL_THICKNESS_MM,
     wallHeight: COASTER_HOLDER_WALL_HEIGHT_MM,
+    dividerFrontY,
     slotCenters,
+  };
+}
+
+/**
+ * Положение центра плиты в гнезде держателя, мм.
+ *
+ * X отсчитывается от центра гнезда: на него сдвигается толщина подставки с
+ * бортиком, чтобы зазоры до перегородок были одинаковыми. Z — высота центра
+ * плиты над столом; низ стоит ровно на основании.
+ */
+export function coasterPlacementInHolderMm(
+  dimensions: CoasterHolderDimensions,
+  coasterSize: number,
+): { centerOffsetX: number; centerZ: number } {
+  return {
+    centerOffsetX: dimensions.coasterStackThickness / 2,
+    centerZ: dimensions.baseThickness + coasterSize / 2,
   };
 }
 
@@ -668,6 +710,7 @@ function buildCoasterHolderGrid(
     bottom + dims.wallThickness,
     -dims.grooveWidth / 2,
     dims.grooveWidth / 2,
+    dims.dividerFrontY,
     bottom + dims.depth,
   ]);
   const columns = sortedUnique(xs);
@@ -685,9 +728,11 @@ function buildCoasterHolderGrid(
       const x1 = columns[column + 1];
       const xMid = (x0 + x1) / 2;
       const inWall = yMid < bottom + dims.wallThickness;
-      const inDivider = dividerBands.some(
-        ([start, end]) => xMid >= start && xMid <= end,
-      );
+      const inDivider =
+        yMid <= dims.dividerFrontY &&
+        dividerBands.some(
+          ([start, end]) => xMid >= start && xMid <= end,
+        );
       const inGroove =
         yMid > -dims.grooveWidth / 2 && yMid < dims.grooveWidth / 2;
       const height = inWall
@@ -777,7 +822,9 @@ function addHolderWall(
  *
  * Деталь отдельная: её сетка не пересекается с подставками и печатается своим
  * файлом. Основание 3 мм, задняя стенка 60 мм, перегородки 2 × 15 мм и
- * продольный паз 8 × 3 мм. Высота ячеек ступенчатая, все стенки вертикальные,
+ * продольный паз по толщине подставки вместе с бортиком. Передние торцы
+ * перегородок отступают от переднего края на 15 мм: круг выступает вперёд и не
+ * упирается в рёбра. Высота ячеек ступенчатая, все стенки вертикальные,
  * поэтому нависаний больше 45° нет и поддержки не нужны.
  */
 export function createCoasterHolderGeometry(
@@ -870,8 +917,8 @@ export function coasterHolderAnalyticWeightGrams(
  * В превью подставки стоят в гнёздах, но печатать такую сборку нельзя: стойка
  * спечётся с плитами. В общем файле держатель уезжает на 150 мм по X, а
  * подставка остаётся в начале координат. Даже у самого широкого держателя
- * (8 гнёзд, толщина 10 мм) левый край оказывается на X = 94 мм, поэтому зазор
- * до подставки Ø140 остаётся не меньше 24 мм.
+ * (8 гнёзд, толщина 10 мм с бортиком) левый край оказывается на X = 84 мм,
+ * поэтому зазор до подставки Ø140 остаётся не меньше 14 мм.
  */
 export const COASTER_SET_HOLDER_OFFSET_MM = 150;
 

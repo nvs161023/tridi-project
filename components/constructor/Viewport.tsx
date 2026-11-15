@@ -57,6 +57,7 @@ import {
   coasterAnalyticWeightGrams,
   coasterHolderAnalyticWeightGrams,
   coasterHolderDimensionsMm,
+  coasterPlacementInHolderMm,
   createCoasterGeometry,
   createCoasterHolderGeometry,
   type CoasterHolderDimensions,
@@ -451,8 +452,6 @@ type CoasterSetModelProps = {
   coasterGeometry: BufferGeometry;
   /** Размеры держателя: из них берутся координаты гнёзд. */
   dimensions: CoasterHolderDimensions;
-  /** Толщина подставки: на неё смещается центр плиты в гнезде. */
-  coasterThickness: number;
   /** Габарит подставки: по нему плита центрируется над основанием. */
   coasterSize: number;
 };
@@ -463,17 +462,16 @@ type CoasterSetModelProps = {
  * Держатель построен Z-вверх, как и подставка. Плиту поворачиваем двумя
  * вложенными поворотами: сначала вокруг Z на 90°, потом вокруг Y на 90°.
  * Вместе они переводят толщину подставки на ось X — вдоль паза, — а лицо
- * ставит вертикально. Смещение поднимает плиту на основание: низ стоит на его
- * верхней плоскости, а не уходит в пластик и не висит над столом.
+ * ставит вертикально. Центр берётся по полной посадочной толщине: бортик тоже
+ * входит в паз, поэтому плита не сдвигается в сторону перегородки.
  */
 function CoasterSetModel({
   holderGeometry,
   coasterGeometry,
   dimensions,
-  coasterThickness,
   coasterSize,
 }: CoasterSetModelProps) {
-  const baseTop = dimensions.baseThickness;
+  const placement = coasterPlacementInHolderMm(dimensions, coasterSize);
 
   return (
     <group rotation={[-Math.PI / 2, 0, 0]}>
@@ -488,9 +486,9 @@ function CoasterSetModel({
         <group
           key={slotCenter}
           position={[
-            slotCenter - coasterThickness / 2,
+            slotCenter - placement.centerOffsetX,
             0,
-            baseTop + coasterSize / 2,
+            placement.centerZ,
           ]}
         >
           <group rotation={[0, Math.PI / 2, 0]}>
@@ -1311,7 +1309,6 @@ function Scene({
           <CoasterSetModel
             coasterGeometry={geometry}
             coasterSize={params.coasterSize}
-            coasterThickness={params.coasterThickness}
             dimensions={coasterHolder.dimensions}
             holderGeometry={coasterHolder.geometry}
           />
