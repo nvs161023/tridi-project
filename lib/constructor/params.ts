@@ -225,6 +225,7 @@ export const CONSTRUCTOR_LIMITS = {
   planterWall: { min: 1.2, max: 4, step: 0.2, defaultValue: 2, decimals: 1 },
   coasterSize: { min: 60, max: 140, step: 5, defaultValue: 90, decimals: 0 },
   coasterThickness: { min: 3, max: 10, step: 1, defaultValue: 5, decimals: 0 },
+  coasterCount: { min: 4, max: 8, step: 1, defaultValue: 6, decimals: 0 },
   // Лист-лоток: длина и ширина задают габарит, глубина прожилок — рельеф.
   jewelryLeafLength: {
     min: 120,
@@ -1420,11 +1421,36 @@ export const COASTER_PATTERN_LABELS = {
 } as const satisfies Record<CoasterPattern, string>;
 
 /**
+ * Держатель для стекирования.
+ *
+ * Пока есть один вертикальный вариант: подставки вставляются в паз и стоят
+ * рядом, как тарелки в сушилке. `none` оставляет модель одиночной подставкой,
+ * поэтому старые проекты и API без нового поля открываются как раньше.
+ */
+export const COASTER_HOLDER_TYPES = ["none", "vertical"] as const;
+
+export type CoasterHolderType = (typeof COASTER_HOLDER_TYPES)[number];
+
+export const COASTER_HOLDER_TYPE_LABELS = {
+  none: "Без держателя",
+  vertical: "Вертикальный держатель",
+} as const satisfies Record<CoasterHolderType, string>;
+
+/** Части набора, которые отдаёт STL-экспорт. */
+export const COASTER_PARTS = ["coaster", "holder"] as const;
+
+export type CoasterPart = (typeof COASTER_PARTS)[number];
+
+/**
  * Подставка под кружку: габарит, толщина, форма, рельеф и бортик.
  *
  * Бортик по краю — это не украшение: конденсат с холодного стакана стекает в
  * него, а не на стол. Волны и соты углублены в лицо на 0.8 мм и не доходят до
  * фаски, поэтому кромка остаётся ровной, а кружка стоит устойчиво.
+ *
+ * Держатель — отдельная деталь набора. Он не входит в оболочку подставки:
+ * `createCoasterHolderGeometry` строит его собственным телом, а `coasterCount`
+ * задаёт число гнёзд и ширину основания.
  */
 export type CoasterParams = {
   /** Габарит «под ключ», мм: диаметр или размер многоугольника. */
@@ -1437,6 +1463,10 @@ export type CoasterParams = {
   coasterPattern: CoasterPattern;
   /** Бортик по краю, который собирает конденсат. */
   coasterRim: boolean;
+  /** Вертикальный держатель для набора или одиночная подставка. */
+  coasterHolderType: CoasterHolderType;
+  /** Сколько подставок входит в набор: 4–8, шаг 1. */
+  coasterCount: number;
 };
 
 /**
@@ -2531,6 +2561,8 @@ export const DEFAULT_COASTER_PARAMS: CoasterParams = {
   coasterShape: "round",
   coasterPattern: "smooth",
   coasterRim: true,
+  coasterHolderType: "none",
+  coasterCount: CONSTRUCTOR_LIMITS.coasterCount.defaultValue,
 };
 
 /**
@@ -2943,6 +2975,18 @@ export function coasterStlFileName(params: CoasterParams): string {
   const rimSuffix = params.coasterRim ? "-bort" : "";
 
   return `tridi-podstavka-kruzhka-${params.coasterShape}-d${params.coasterSize}-t${params.coasterThickness}${patternSuffix}${rimSuffix}.stl`;
+}
+
+/**
+ * Имя STL вертикального держателя.
+ *
+ * Держатель — отдельная деталь набора, поэтому и имя у него своё. Число гнёзд
+ * не входит в имя: файл один и тот же по назначению, а параметры печати
+ * пользователь видит в панели. Старое имя подставки при этом не меняется —
+ * ссылки на уже скачанные файлы остаются различимыми.
+ */
+export function coasterHolderStlFileName(): string {
+  return "tridi-podstavka-derzhatel.stl";
 }
 
 /**
@@ -3504,6 +3548,24 @@ export function isPlanterShape(value: unknown): value is PlanterShape {
  */
 export const isCoasterShape: (value: unknown) => value is CoasterShape =
   isPlanterShape;
+
+/** Проверка типа держателя из формы или API. */
+export function isCoasterHolderType(
+  value: unknown,
+): value is CoasterHolderType {
+  return (
+    typeof value === "string" &&
+    (COASTER_HOLDER_TYPES as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка детали набора, которую просит STL-экспорт. */
+export function isCoasterPart(value: unknown): value is CoasterPart {
+  return (
+    typeof value === "string" &&
+    (COASTER_PARTS as readonly string[]).includes(value)
+  );
+}
 
 /**
  * Проверка формы органайзера для ручек.
@@ -4523,6 +4585,13 @@ export function normalizeCoasterParams(
       typeof params.coasterRim === "boolean"
         ? params.coasterRim
         : DEFAULT_COASTER_PARAMS.coasterRim,
+    coasterHolderType: isCoasterHolderType(params.coasterHolderType)
+      ? params.coasterHolderType
+      : DEFAULT_COASTER_PARAMS.coasterHolderType,
+    coasterCount: snap(
+      params.coasterCount ?? DEFAULT_COASTER_PARAMS.coasterCount,
+      CONSTRUCTOR_LIMITS.coasterCount,
+    ),
   };
 }
 

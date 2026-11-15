@@ -55,7 +55,11 @@ import {
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
 import {
   coasterAnalyticWeightGrams,
+  coasterHolderAnalyticWeightGrams,
+  coasterHolderDimensionsMm,
   createCoasterGeometry,
+  createCoasterHolderGeometry,
+  type CoasterHolderDimensions,
 } from "@/lib/constructor/coaster-geometry";
 import {
   createHeatTransferGeometry,
@@ -436,6 +440,72 @@ function ZUpModel({ geometry, color }: ZUpModelProps) {
           roughness={STUDIO_PLASTIC.roughness}
         />
       </mesh>
+    </group>
+  );
+}
+
+type CoasterSetModelProps = {
+  /** Держатель целиком: основание, стенка и перегородки. */
+  holderGeometry: BufferGeometry;
+  /** Одна подставка; в превью она повторяется по гнёздам. */
+  coasterGeometry: BufferGeometry;
+  /** Размеры держателя: из них берутся координаты гнёзд. */
+  dimensions: CoasterHolderDimensions;
+  /** Толщина подставки: на неё смещается центр плиты в гнезде. */
+  coasterThickness: number;
+  /** Габарит подставки: по нему плита центрируется над основанием. */
+  coasterSize: number;
+};
+
+/**
+ * Набор с вертикальным держателем: стойка и подставки в её гнёздах.
+ *
+ * Держатель построен Z-вверх, как и подставка. Плиту поворачиваем двумя
+ * вложенными поворотами: сначала вокруг Z на 90°, потом вокруг Y на 90°.
+ * Вместе они переводят толщину подставки на ось X — вдоль паза, — а лицо
+ * ставит вертикально. Смещение поднимает плиту на основание: низ стоит на его
+ * верхней плоскости, а не уходит в пластик и не висит над столом.
+ */
+function CoasterSetModel({
+  holderGeometry,
+  coasterGeometry,
+  dimensions,
+  coasterThickness,
+  coasterSize,
+}: CoasterSetModelProps) {
+  const baseTop = dimensions.baseThickness;
+
+  return (
+    <group rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh castShadow geometry={holderGeometry} receiveShadow>
+        <meshStandardMaterial
+          color={STUDIO_MODEL_TINTS.coaster}
+          metalness={STUDIO_PLASTIC.metalness}
+          roughness={STUDIO_PLASTIC.roughness}
+        />
+      </mesh>
+      {dimensions.slotCenters.map((slotCenter) => (
+        <group
+          key={slotCenter}
+          position={[
+            slotCenter - coasterThickness / 2,
+            0,
+            baseTop + coasterSize / 2,
+          ]}
+        >
+          <group rotation={[0, Math.PI / 2, 0]}>
+            <group rotation={[0, 0, Math.PI / 2]}>
+              <mesh castShadow geometry={coasterGeometry} receiveShadow>
+                <meshStandardMaterial
+                  color={STUDIO_MODEL_TINTS.coaster}
+                  metalness={STUDIO_PLASTIC.metalness}
+                  roughness={STUDIO_PLASTIC.roughness}
+                />
+              </mesh>
+            </group>
+          </group>
+        </group>
+      ))}
     </group>
   );
 }
@@ -1091,10 +1161,16 @@ type SceneProps = {
   lithophaneFaces: LithophaneBrightnessGrid[] | null;
   /** Расчёт света: где стоят лампы и как они освещают панель. */
   lithophaneLight: LithoLightPlan | null;
+  /** Держатель набора подставок: `null` — модель без вертикальной стойки. */
+  coasterHolder: {
+    geometry: BufferGeometry;
+    dimensions: CoasterHolderDimensions;
+  } | null;
 };
 
 function Scene({
   backlight,
+  coasterHolder,
   framing,
   geometry,
   heatMap,
@@ -1231,7 +1307,17 @@ function Scene({
       ) : params.model === "planter" ? (
         <ZUpModel color={STUDIO_MODEL_TINTS.planter} geometry={geometry} />
       ) : params.model === "coaster" ? (
-        <ZUpModel color={STUDIO_MODEL_TINTS.coaster} geometry={geometry} />
+        coasterHolder ? (
+          <CoasterSetModel
+            coasterGeometry={geometry}
+            coasterSize={params.coasterSize}
+            coasterThickness={params.coasterThickness}
+            dimensions={coasterHolder.dimensions}
+            holderGeometry={coasterHolder.geometry}
+          />
+        ) : (
+          <ZUpModel color={STUDIO_MODEL_TINTS.coaster} geometry={geometry} />
+        )
       ) : params.model === "jewelry_stand" ? (
         <ZUpModel
           color={STUDIO_MODEL_TINTS.jewelry_stand}
@@ -1703,6 +1789,32 @@ export function Viewport({
   useEffect(() => () => geometry.dispose(), [geometry]);
 
   /**
+   * Держатель для превью набора.
+   *
+   * В сцене он появляется только при включённом вертикальном держателе. Сама
+   * подставка остаётся отдельной сеткой: её копии расставляет `CoasterSetModel`
+   * по центрам гнёзд, а STL при этом скачиваются двумя файлами.
+   */
+  const coasterHolder = useMemo(() => {
+    if (
+      params.model !== "coaster" ||
+      params.coasterHolderType !== "vertical"
+    ) {
+      return null;
+    }
+
+    return {
+      geometry: createCoasterHolderGeometry(params),
+      dimensions: coasterHolderDimensionsMm(params),
+    };
+  }, [params]);
+
+  useEffect(
+    () => () => coasterHolder?.geometry.dispose(),
+    [coasterHolder],
+  );
+
+  /**
    * Отчёт о картинке уходит наверх после коммита — когда сетка уже собрана.
    *
    * Зависимость — сама сетка: любая правка, меняющая геометрию, пересчитывает и
@@ -1741,6 +1853,20 @@ export function Viewport({
         height: params.thickness,
         footprint: Math.max(params.length, params.width),
         flat: true,
+      };
+    }
+
+    if (params.model === "coaster" && coasterHolder) {
+      // В наборе выше стойки стоят подставки: их габарит больше задней стенки
+      // 50 мм, поэтому высоту кадра задаёт плита, поднятая на основание.
+      return {
+        height:
+          coasterHolder.dimensions.baseThickness + params.coasterSize,
+        footprint: Math.max(
+          coasterHolder.dimensions.width,
+          coasterHolder.dimensions.depth,
+        ),
+        flat: false,
       };
     }
 
@@ -1818,17 +1944,20 @@ export function Viewport({
       footprint: box ? Math.max(box.max.x - box.min.x, 1) : 1,
       flat: false,
     };
-  }, [geometry, params]);
+  }, [coasterHolder, geometry, params]);
 
   // Вес в граммах для PLA: объём переводится в см³ и умножается на плотность
   // 1.24 г/см³. У подставки объём берётся аналитический: она строится одним
   // телом, поэтому пересечений, которые mesh-сумма посчитала бы дважды, нет.
+  // В наборе вес складывается из всех подставок и держателя.
   const materialWeightGrams = useMemo(
     () =>
       params.model === "coaster"
-        ? coasterAnalyticWeightGrams(params)
+        ? coasterAnalyticWeightGrams(params) *
+            (coasterHolder ? params.coasterCount : 1) +
+          (coasterHolder ? coasterHolderAnalyticWeightGrams(params) : 0)
         : calculateGeometryWeightGrams(geometry),
-    [geometry, params],
+    [coasterHolder, geometry, params],
   );
 
   const sizeLabel =
@@ -1843,7 +1972,9 @@ export function Viewport({
             : params.model === "planter"
               ? `${params.planterSize} × ${params.planterHeight} мм`
               : params.model === "coaster"
-                ? `${params.coasterSize} × ${params.coasterThickness} мм`
+                ? coasterHolder
+                  ? `держатель ${Math.round(coasterHolder.dimensions.width)} × ${Math.round(coasterHolder.dimensions.depth)} × ${Math.round(coasterHolder.dimensions.height)} мм · ${params.coasterCount} мест`
+                  : `${params.coasterSize} × ${params.coasterThickness} мм`
                 : params.model === "jewelry_stand"
                   ? params.jewelryPreset === "leaf_tray"
                     ? `${params.jewelryLeafLength} × ${params.jewelryLeafWidth} мм`
@@ -1871,7 +2002,7 @@ export function Viewport({
             : params.model === "planter"
               ? `3D-предпросмотр кашпо «${PLANTER_SHAPE_LABELS[params.planterShape]}» ${params.planterSize} миллиметров по ключу и высотой ${params.planterHeight} миллиметров, стенка ${params.planterWall} миллиметров, ${params.planterDrainage ? "с дренажными отверстиями и поддоном" : "без поддона"}`
               : params.model === "coaster"
-                ? `3D-предпросмотр подставки под кружку ${params.coasterSize} миллиметров, толщина ${params.coasterThickness} миллиметров, узор «${COASTER_PATTERN_LABELS[params.coasterPattern]}», ${params.coasterRim ? "с бортиком" : "без бортика"}`
+                ? `3D-предпросмотр подставки под кружку ${params.coasterSize} миллиметров, толщина ${params.coasterThickness} миллиметров, узор «${COASTER_PATTERN_LABELS[params.coasterPattern]}», ${params.coasterRim ? "с бортиком" : "без бортика"}${coasterHolder ? `, вертикальный держатель на ${params.coasterCount} подставок` : ""}`
                 : params.model === "jewelry_stand"
                   ? params.jewelryPreset === "leaf_tray"
                     ? `3D-предпросмотр лотка для украшений «${JEWELRY_LEAF_TYPE_LABELS[params.jewelryLeafType]}» ${params.jewelryLeafLength} на ${params.jewelryLeafWidth} миллиметров, глубина прожилок ${params.jewelryLeafVeinDepth} миллиметра, горизонтальная плита с плоским дном и крючком для цепочек`
@@ -1928,6 +2059,7 @@ export function Viewport({
         >
           <Scene
             backlight={lithophaneBacklight}
+            coasterHolder={coasterHolder}
             framing={framing}
             geometry={geometry}
             heatMap={heatMap}

@@ -55,6 +55,7 @@ import {
   VASE_SHAPE_LABELS,
   boxPresetParams,
   boxStlFileName,
+  coasterHolderStlFileName,
   coasterStlFileName,
   createKeychainImageDecoration,
   createKeychainTextDecoration,
@@ -85,6 +86,7 @@ import {
   type BoxMagnetSize,
   type BoxPresetId,
   type CoasterPattern,
+  type CoasterHolderType,
   type CoasterShape,
   type ConstructorParams,
   type JewelryLeafType,
@@ -178,6 +180,7 @@ type SizeParam = Exclude<
   | "coasterShape"
   | "coasterPattern"
   | "coasterRim"
+  | "coasterHolderType"
   | "penShape"
   | "heatTransferSvg"
   | "heatTransferMirror"
@@ -429,9 +432,42 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
     ];
   }
 
+  if (params.model === "coaster") {
+    // Держатель — отдельная деталь набора: печатать его вместе с подставкой
+    // нельзя, иначе стойка и плита спекаются в один неразборный блок. Без
+    // держателя модель остаётся одним файлом, как раньше.
+    if (params.coasterHolderType === "vertical") {
+      return [
+        {
+          id: "coaster",
+          label: "Подставка",
+          description: "Подставка под кружку",
+          request: { part: "coaster" },
+          fileName: coasterStlFileName(params),
+        },
+        {
+          id: "coaster-holder",
+          label: "Держатель",
+          description: `Стойка на ${params.coasterCount} подставок`,
+          request: { part: "holder" },
+          fileName: coasterHolderStlFileName(),
+        },
+      ];
+    }
+
+    return [
+      {
+        id: "coaster",
+        label: "Скачать STL",
+        request: {},
+        fileName: coasterStlFileName(params),
+      },
+    ];
+  }
+
   // Вывеска и литофан собрали набор файлов выше, поэтому здесь остаются модели
-  // с одним STL: ваза, брелок, коробка, кашпо, подставка под кружку,
-  // подставка для украшений, органайзер для ручек и термопринт.
+  // с одним STL: ваза, брелок, коробка, кашпо, подставка для украшений,
+  // органайзер для ручек и термопринт.
   return [
     {
       id: params.model,
@@ -444,15 +480,13 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
             ? keychainStlFileName(params)
             : params.model === "planter"
               ? planterStlFileName(params)
-              : params.model === "coaster"
-                ? coasterStlFileName(params)
-                : params.model === "jewelry_stand"
-                  ? jewelryStandStlFileName(params)
-                  : params.model === "pen_holder"
-                    ? penHolderStlFileName(params)
-                    : params.model === "heat_transfer"
-                      ? heatTransferStlFileName(params)
-                      : boxStlFileName(params),
+              : params.model === "jewelry_stand"
+                ? jewelryStandStlFileName(params)
+                : params.model === "pen_holder"
+                  ? penHolderStlFileName(params)
+                  : params.model === "heat_transfer"
+                    ? heatTransferStlFileName(params)
+                    : boxStlFileName(params),
     },
   ];
 }
@@ -1253,6 +1287,18 @@ export function ConstructorClient({
     setParams((current) => normalizeConstructorParams({ ...current, coasterRim }));
   }
 
+  function updateCoasterHolderType(coasterHolderType: CoasterHolderType) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, coasterHolderType }),
+    );
+  }
+
+  function updateCoasterCount(coasterCount: number) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, coasterCount }),
+    );
+  }
+
   /**
    * Смена пресета коллекции.
    *
@@ -1515,6 +1561,8 @@ export function ConstructorClient({
             onCoasterPatternChange={updateCoasterPattern}
             onCoasterRimChange={updateCoasterRim}
             onCoasterShapeChange={updateCoasterShape}
+            onCoasterHolderTypeChange={updateCoasterHolderType}
+            onCoasterCountChange={updateCoasterCount}
             onExport={exportStl}
             onHasLidChange={updateHasLid}
             onHeatTransferMirrorChange={updateHeatTransferMirror}
@@ -1638,6 +1686,9 @@ export function ConstructorClient({
                     {COASTER_PATTERN_LABELS[params.coasterPattern].toLowerCase()} ·{" "}
                     {params.coasterSize} × {params.coasterThickness} мм ·{" "}
                     {params.coasterRim ? "с бортиком" : "без бортика"}
+                    {params.coasterHolderType === "vertical"
+                      ? ` · держатель на ${params.coasterCount}`
+                      : ""}
                   </>
                 ) : params.model === "jewelry_stand" ? (
                   params.jewelryPreset === "leaf_tray" ? (

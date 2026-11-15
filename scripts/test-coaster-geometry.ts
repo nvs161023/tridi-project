@@ -7,6 +7,10 @@
  * поверхности, а для сот ещё собирается настоящий бинарный STL: габарит,
  * число треугольников, объём и отсутствие нависаний проверяются уже по файлу.
  *
+ * Отдельный блок проверяет вертикальный держатель: размеры гнёзд и зазор,
+ * замкнутость сетки, аналитический объём, все варианты 4/6/8 и толщины 3–10 мм,
+ * а также собственный STL держателя.
+ *
  * Запуск:
  *   npm run check:coaster
  *
@@ -20,13 +24,23 @@ import { join } from "node:path";
 
 import {
   COASTER_BEVEL_MM,
+  COASTER_HOLDER_BASE_THICKNESS_MM,
+  COASTER_HOLDER_DIVIDER_HEIGHT_MM,
+  COASTER_HOLDER_DIVIDER_THICKNESS_MM,
+  COASTER_HOLDER_GROOVE_WIDTH_MM,
+  COASTER_HOLDER_SLOT_CLEARANCE_MM,
+  COASTER_HOLDER_WALL_HEIGHT_MM,
   COASTER_PATTERN_DEPTH_MM,
   COASTER_PATTERN_MARGIN_MM,
   COASTER_RIM_RISE_MM,
   COASTER_RIM_WALL_MM,
   coasterAnalyticVolumeMm3,
   coasterAnalyticWeightGrams,
+  coasterHolderAnalyticVolumeMm3,
+  coasterHolderAnalyticWeightGrams,
+  coasterHolderDimensionsMm,
   createCoasterGeometry,
+  createCoasterHolderGeometry,
 } from "../lib/constructor/coaster-geometry";
 import {
   PLA_DENSITY_G_PER_CM3,
@@ -36,6 +50,7 @@ import {
 import {
   COASTER_PATTERNS,
   DEFAULT_COASTER_PARAMS,
+  coasterHolderStlFileName,
   coasterStlFileName,
   normalizeCoasterParams,
   type CoasterParams,
@@ -564,6 +579,214 @@ console.log(
 
 stlGeometry.dispose();
 rmSync(stlDirectory, { recursive: true, force: true });
+
+console.log("\nВертикальный держатель для стекирования:");
+
+check(
+  "держатель по умолчанию выключен",
+  DEFAULT_COASTER_PARAMS.coasterHolderType,
+  "none",
+);
+check("подставок в наборе по умолчанию", DEFAULT_COASTER_PARAMS.coasterCount, 6);
+near("основание держателя", COASTER_HOLDER_BASE_THICKNESS_MM, 3);
+near("задняя стенка держателя", COASTER_HOLDER_WALL_HEIGHT_MM, 50);
+near("перегородка держателя", COASTER_HOLDER_DIVIDER_HEIGHT_MM, 15);
+near("толщина перегородки", COASTER_HOLDER_DIVIDER_THICKNESS_MM, 2);
+near("паз держателя по умолчанию", COASTER_HOLDER_GROOVE_WIDTH_MM, 8);
+near("зазор подставки в гнезде", COASTER_HOLDER_SLOT_CLEARANCE_MM, 0.5);
+
+const holderParams = normalizeCoasterParams({
+  coasterSize: 90,
+  coasterThickness: 5,
+  coasterShape: "round",
+  coasterPattern: "smooth",
+  coasterRim: true,
+  coasterHolderType: "vertical",
+  coasterCount: 6,
+});
+const holderDims = coasterHolderDimensionsMm(holderParams);
+
+near("держатель: ширина", holderDims.width, 56);
+near("держатель: глубина", holderDims.depth, 100);
+near("держатель: высота", holderDims.height, 50);
+near("держатель: гнездо", holderDims.slotWidth, 6);
+near("держатель: шаг перегородок", holderDims.dividerPitch, 8);
+near("держатель: паз", holderDims.grooveWidth, 8);
+check("держатель: число гнёзд", holderDims.slotCenters.length, 6);
+near("держатель: первое гнездо", holderDims.slotCenters[0], -20);
+near("держатель: последнее гнездо", holderDims.slotCenters[5], 20);
+check(
+  "гнёзда не пересекаются",
+  holderDims.slotCenters.every(
+    (center, index) =>
+      index === 0 ||
+      center -
+        (holderDims.slotCenters[index - 1] ?? center) >=
+        holderDims.dividerPitch - 1e-9,
+  ),
+  true,
+);
+check(
+  "подставка входит в гнездо с зазором",
+  holderDims.slotWidth - holderParams.coasterThickness,
+  holderDims.slotClearance * 2,
+);
+
+const thinHolderDims = coasterHolderDimensionsMm({
+  ...holderParams,
+  coasterThickness: 10,
+});
+
+near("держатель: паз под толстую подставку", thinHolderDims.grooveWidth, 11);
+check(
+  "ширина растёт с числом подставок",
+  coasterHolderDimensionsMm({ ...holderParams, coasterCount: 8 }).width >
+    coasterHolderDimensionsMm({ ...holderParams, coasterCount: 4 }).width,
+  true,
+);
+
+const holderGeometry = createCoasterHolderGeometry(holderParams);
+const holderTriangles = trianglesOf(holderGeometry);
+const holderBounds = boundsOf(holderTriangles);
+const holderAnalyticVolume = coasterHolderAnalyticVolumeMm3(holderParams);
+
+near("держатель: габарит X", holderBounds.width, holderDims.width);
+near("держатель: габарит Y", holderBounds.depth, holderDims.depth);
+near("держатель: габарит Z", holderBounds.height, holderDims.height);
+near("держатель: низ на Z = 0", holderBounds.minZ, 0);
+check(
+  "держатель: низ плоский",
+  bottomTriangles(holderTriangles).every((triangle) =>
+    triangle.every((point) => point[2] === BOTTOM_Z),
+  ),
+  true,
+);
+check(
+  "держатель: грани замкнуты",
+  openEdges(holderTriangles),
+  0,
+);
+check(
+  "держатель: нет вырожденных треугольников",
+  degenerateTriangles(holderTriangles),
+  0,
+);
+check("держатель: нет NaN", nanVertices(holderTriangles), 0);
+near(
+  "держатель: объём меша = аналитический",
+  calculateGeometryVolumeMm3(holderGeometry),
+  holderAnalyticVolume,
+  0.001,
+);
+check(
+  "держатель: нависаний больше 45° нет",
+  overhangTriangles(holderTriangles).length,
+  0,
+);
+console.log(
+  `  держатель: ${holderDims.width} × ${holderDims.depth} × ${holderDims.height} мм, ` +
+    `объём ${(holderAnalyticVolume / 1000).toFixed(2)} см³, ` +
+    `вес ${coasterHolderAnalyticWeightGrams(holderParams).toFixed(2)} г`,
+);
+for (const count of [4, 6, 8]) {
+  for (const coasterThickness of [3, 5, 10]) {
+    const variant = normalizeCoasterParams({
+      ...holderParams,
+      coasterCount: count,
+      coasterThickness,
+    });
+    const variantDims = coasterHolderDimensionsMm(variant);
+    const variantGeometry = createCoasterHolderGeometry(variant);
+    const variantTriangles = trianglesOf(variantGeometry);
+    const variantBounds = boundsOf(variantTriangles);
+
+    check(
+      `держатель ${count} × ${coasterThickness} мм: гнёзд`,
+      variantDims.slotCenters.length,
+      count,
+    );
+    near(
+      `держатель ${count} × ${coasterThickness} мм: ширина`,
+      variantBounds.width,
+      variantDims.width,
+    );
+    near(
+      `держатель ${count} × ${coasterThickness} мм: глубина`,
+      variantBounds.depth,
+      variantDims.depth,
+    );
+    check(
+      `держатель ${count} × ${coasterThickness} мм: грани замкнуты`,
+      openEdges(variantTriangles),
+      0,
+    );
+    check(
+      `держатель ${count} × ${coasterThickness} мм: нет нависаний`,
+      overhangTriangles(variantTriangles).length,
+      0,
+    );
+    near(
+      `держатель ${count} × ${coasterThickness} мм: объём`,
+      calculateGeometryVolumeMm3(variantGeometry),
+      coasterHolderAnalyticVolumeMm3(variant),
+      0.001,
+    );
+    variantGeometry.dispose();
+  }
+}
+
+check(
+  "имя STL держателя",
+  coasterHolderStlFileName(),
+  "tridi-podstavka-derzhatel.stl",
+);
+
+const holderDirectory = mkdtempSync(join(tmpdir(), "tridi-coaster-holder-"));
+const holderPath = join(holderDirectory, coasterHolderStlFileName());
+const holderMesh = new Mesh(holderGeometry);
+
+holderMesh.updateMatrixWorld(true);
+
+const holderExported = new STLExporter().parse(holderMesh, { binary: true });
+const holderBytes = holderExported as DataView;
+
+writeFileSync(
+  holderPath,
+  Buffer.from(
+    holderBytes.buffer,
+    holderBytes.byteOffset,
+    holderBytes.byteLength,
+  ),
+);
+
+const holderStlTriangles = readBinaryStl(readFileSync(holderPath));
+const holderStlBounds = boundsOf(holderStlTriangles);
+
+console.log(
+  `  файл держателя: ${holderPath} (${holderStlTriangles.length} треугольников)`,
+);
+near("держатель STL: габарит X", holderStlBounds.width, holderDims.width);
+near("держатель STL: габарит Y", holderStlBounds.depth, holderDims.depth);
+near("держатель STL: габарит Z", holderStlBounds.height, holderDims.height);
+check(
+  "держатель STL: число треугольников",
+  holderStlTriangles.length,
+  holderTriangles.length,
+);
+near(
+  "держатель STL: объём = аналитический",
+  volumeOf(holderStlTriangles),
+  holderAnalyticVolume,
+  0.001,
+);
+check(
+  "держатель STL: нависаний больше 45° нет",
+  overhangTriangles(holderStlTriangles).length,
+  0,
+);
+
+holderGeometry.dispose();
+rmSync(holderDirectory, { recursive: true, force: true });
 
 if (failures.length > 0) {
   console.log(`\nПровалено проверок: ${failures.length}`);

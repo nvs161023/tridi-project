@@ -495,3 +495,367 @@ export function createCoasterGeometry(
 
   return geometry;
 }
+
+/** Толщина основания держателя, мм. */
+export const COASTER_HOLDER_BASE_THICKNESS_MM = 3;
+
+/** Толщина задней стенки, мм. */
+export const COASTER_HOLDER_WALL_THICKNESS_MM = 3;
+
+/** Высота задней стенки от стола, мм. */
+export const COASTER_HOLDER_WALL_HEIGHT_MM = 50;
+
+/** Ширина продольного паза, мм. */
+export const COASTER_HOLDER_GROOVE_WIDTH_MM = 8;
+
+/** Глубина продольного паза, мм: равна толщине основания. */
+export const COASTER_HOLDER_GROOVE_DEPTH_MM = 3;
+
+/** Толщина разделителей между подставками, мм. */
+export const COASTER_HOLDER_DIVIDER_THICKNESS_MM = 2;
+
+/** Высота разделителей над основанием, мм. */
+export const COASTER_HOLDER_DIVIDER_HEIGHT_MM = 15;
+
+/** Посадочный зазор с каждой стороны подставки, мм. */
+export const COASTER_HOLDER_SLOT_CLEARANCE_MM = 0.5;
+
+/** Поле основания за крайними разделителями, мм. */
+export const COASTER_HOLDER_BASE_MARGIN_MM = 3;
+
+/** Запас глубины основания к диаметру подставки, мм. */
+export const COASTER_HOLDER_DEPTH_MARGIN_MM = 10;
+
+/**
+ * Габариты и посадочные размеры вертикального держателя.
+ *
+ * Основание лежит в XY, высота идёт по Z. Подставки стоят плоскостями YZ и
+ * выстраиваются по X: ширина растёт от числа гнёзд, а глубина равна диаметру
+ * подставки плюс 10 мм. Задняя стенка стоит сзади по Y и даёт упор на высоту
+ * 50 мм; продольный паз идёт по X через все гнёзда и делится перегородками.
+ */
+export type CoasterHolderDimensions = {
+  /** Ширина основания по X, мм. */
+  width: number;
+  /** Глубина основания по Y, мм. */
+  depth: number;
+  /** Общая высота держателя по Z, мм. */
+  height: number;
+  /** Число гнёзд. */
+  count: number;
+  /** Ширина гнезда между перегородками, мм. */
+  slotWidth: number;
+  /** Шаг перегородок: стенка и гнездо, мм. */
+  dividerPitch: number;
+  /** Зазор подставки с каждой стороны, мм. */
+  slotClearance: number;
+  /** Ширина паза по Y, мм. */
+  grooveWidth: number;
+  /** Глубина паза, мм. */
+  grooveDepth: number;
+  /** Толщина разделителя, мм. */
+  dividerThickness: number;
+  /** Высота разделителя над основанием, мм. */
+  dividerHeight: number;
+  /** Толщина основания, мм. */
+  baseThickness: number;
+  /** Толщина задней стенки, мм. */
+  wallThickness: number;
+  /** Высота задней стенки, мм. */
+  wallHeight: number;
+  /** Координаты центров гнёзд по X, мм: по ним ставятся подставки в превью. */
+  slotCenters: readonly number[];
+};
+
+/** Размеры держателя по параметрам подставки. */
+export function coasterHolderDimensionsMm(
+  params: Partial<CoasterParams>,
+): CoasterHolderDimensions {
+  const normalized = normalizeCoasterParams(params);
+  const count = normalized.coasterCount;
+  const slotWidth =
+    normalized.coasterThickness + COASTER_HOLDER_SLOT_CLEARANCE_MM * 2;
+  // Паз по умолчанию 8 мм. Толстая подставка (до 10 мм) в него не влезла бы,
+  // поэтому у таких наборов паз расширяется до посадочной ширины гнезда.
+  const grooveWidth = Math.max(COASTER_HOLDER_GROOVE_WIDTH_MM, slotWidth);
+  const dividerPitch = slotWidth + COASTER_HOLDER_DIVIDER_THICKNESS_MM;
+  const width =
+    COASTER_HOLDER_BASE_MARGIN_MM * 2 +
+    (count + 1) * COASTER_HOLDER_DIVIDER_THICKNESS_MM +
+    count * slotWidth;
+  const depth = normalized.coasterSize + COASTER_HOLDER_DEPTH_MARGIN_MM;
+  const height = Math.max(
+    COASTER_HOLDER_WALL_HEIGHT_MM,
+    COASTER_HOLDER_BASE_THICKNESS_MM + COASTER_HOLDER_DIVIDER_HEIGHT_MM,
+  );
+  const firstDivider = -width / 2 + COASTER_HOLDER_BASE_MARGIN_MM;
+  const slotCenters = Array.from(
+    { length: count },
+    (_, index) =>
+      firstDivider +
+      COASTER_HOLDER_DIVIDER_THICKNESS_MM +
+      slotWidth / 2 +
+      index * dividerPitch,
+  );
+
+  return {
+    width,
+    depth,
+    height,
+    count,
+    slotWidth,
+    dividerPitch,
+    slotClearance: COASTER_HOLDER_SLOT_CLEARANCE_MM,
+    grooveWidth,
+    grooveDepth: COASTER_HOLDER_GROOVE_DEPTH_MM,
+    dividerThickness: COASTER_HOLDER_DIVIDER_THICKNESS_MM,
+    dividerHeight: COASTER_HOLDER_DIVIDER_HEIGHT_MM,
+    baseThickness: COASTER_HOLDER_BASE_THICKNESS_MM,
+    wallThickness: COASTER_HOLDER_WALL_THICKNESS_MM,
+    wallHeight: COASTER_HOLDER_WALL_HEIGHT_MM,
+    slotCenters,
+  };
+}
+
+/**
+ * Сетка высот держателя.
+ *
+ * Держатель — ступенчатое тело: основание, стенка и перегородки имеют разную
+ * высоту, а паз прорезан до стола. Строим его как набор прямоугольных ячеек по
+ * X/Y и выпускаем наружу только те грани, у которых соседа нет: внутренние
+ * грани не попадают в STL, поэтому тело остаётся замкнутым без двойного объёма.
+ */
+type CoasterHolderGrid = {
+  dims: CoasterHolderDimensions;
+  xs: number[];
+  ys: number[];
+  /** Высота ячейки по строкам Y и столбцам X; 0 — пустота паза. */
+  heights: number[][];
+  volumeMm3: number;
+};
+
+function sortedUnique(values: readonly number[]): number[] {
+  return [...new Set(values.map((value) => Number(value.toFixed(6))))].sort(
+    (a, b) => a - b,
+  );
+}
+
+function buildCoasterHolderGrid(
+  dims: CoasterHolderDimensions,
+): CoasterHolderGrid {
+  const left = -dims.width / 2;
+  const bottom = -dims.depth / 2;
+  const xs: number[] = [left, left + dims.width];
+  const dividerBands: [number, number][] = [];
+
+  for (let index = 0; index <= dims.count; index += 1) {
+    const start =
+      left +
+      COASTER_HOLDER_BASE_MARGIN_MM +
+      index * dims.dividerPitch;
+    const end = start + dims.dividerThickness;
+
+    dividerBands.push([start, end]);
+    xs.push(start, end);
+  }
+
+  const ys = sortedUnique([
+    bottom,
+    bottom + dims.wallThickness,
+    -dims.grooveWidth / 2,
+    dims.grooveWidth / 2,
+    bottom + dims.depth,
+  ]);
+  const columns = sortedUnique(xs);
+  const heights: number[][] = [];
+  let volumeMm3 = 0;
+
+  for (let row = 0; row < ys.length - 1; row += 1) {
+    const y0 = ys[row];
+    const y1 = ys[row + 1];
+    const yMid = (y0 + y1) / 2;
+    const rowHeights: number[] = [];
+
+    for (let column = 0; column < columns.length - 1; column += 1) {
+      const x0 = columns[column];
+      const x1 = columns[column + 1];
+      const xMid = (x0 + x1) / 2;
+      const inWall = yMid < bottom + dims.wallThickness;
+      const inDivider = dividerBands.some(
+        ([start, end]) => xMid >= start && xMid <= end,
+      );
+      const inGroove =
+        yMid > -dims.grooveWidth / 2 && yMid < dims.grooveWidth / 2;
+      const height = inWall
+        ? dims.wallHeight
+        : inDivider
+          ? dims.baseThickness + dims.dividerHeight
+          : inGroove
+            ? 0
+            : dims.baseThickness;
+
+      rowHeights.push(height);
+      volumeMm3 += (x1 - x0) * (y1 - y0) * height;
+    }
+
+    heights.push(rowHeights);
+  }
+
+  return { dims, xs: columns, ys, heights, volumeMm3 };
+}
+
+
+function addHolderTop(
+  positions: number[],
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  z: number,
+): void {
+  positions.push(
+    x0, y0, z, x1, y0, z, x1, y1, z,
+    x0, y0, z, x1, y1, z, x0, y1, z,
+  );
+}
+
+function addHolderBottom(
+  positions: number[],
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  z: number,
+): void {
+  positions.push(
+    x0, y0, z, x0, y1, z, x1, y1, z,
+    x0, y0, z, x1, y1, z, x1, y0, z,
+  );
+}
+
+function addHolderWall(
+  positions: number[],
+  side: "left" | "right" | "back" | "front",
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  z0: number,
+  z1: number,
+): void {
+  if (side === "right") {
+    positions.push(
+      x1, y0, z0, x1, y1, z0, x1, y1, z1,
+      x1, y0, z0, x1, y1, z1, x1, y0, z1,
+    );
+  } else if (side === "left") {
+    positions.push(
+      x0, y1, z0, x0, y0, z0, x0, y0, z1,
+      x0, y1, z0, x0, y0, z1, x0, y1, z1,
+    );
+  } else if (side === "front") {
+    positions.push(
+      x1, y1, z0, x0, y1, z0, x0, y1, z1,
+      x1, y1, z0, x0, y1, z1, x1, y1, z1,
+    );
+  } else {
+    positions.push(
+      x0, y0, z0, x1, y0, z0, x1, y0, z1,
+      x0, y0, z0, x1, y0, z1, x0, y0, z1,
+    );
+  }
+}
+
+
+
+/**
+ * Геометрия вертикального держателя для набора подставок.
+ *
+ * Деталь отдельная: её сетка не пересекается с подставками и печатается своим
+ * файлом. Основание 3 мм, задняя стенка 50 мм, перегородки 2 × 15 мм и
+ * продольный паз 8 × 3 мм. Высота ячеек ступенчатая, все стенки вертикальные,
+ * поэтому нависаний больше 45° нет и поддержки не нужны.
+ */
+export function createCoasterHolderGeometry(
+  params: Partial<CoasterParams>,
+): BufferGeometry {
+  const grid = buildCoasterHolderGrid(coasterHolderDimensionsMm(params));
+  const layers = sortedUnique([
+    0,
+    grid.dims.baseThickness,
+    grid.dims.baseThickness + grid.dims.dividerHeight,
+    grid.dims.height,
+  ]);
+  const positions: number[] = [];
+  const heightAt = (column: number, row: number): number =>
+    grid.heights[row]?.[column] ?? 0;
+
+  for (let row = 0; row < grid.ys.length - 1; row += 1) {
+    for (let column = 0; column < grid.xs.length - 1; column += 1) {
+      const x0 = grid.xs[column];
+      const x1 = grid.xs[column + 1];
+      const y0 = grid.ys[row];
+      const y1 = grid.ys[row + 1];
+      const height = heightAt(column, row);
+
+      if (height <= 0) {
+        continue;
+      }
+
+      addHolderTop(positions, x0, x1, y0, y1, height);
+      addHolderBottom(positions, x0, x1, y0, y1, 0);
+
+      for (let layer = 0; layer < layers.length - 1; layer += 1) {
+        const z0 = layers[layer];
+        const z1 = layers[layer + 1];
+
+        if (height <= z0) {
+          break;
+        }
+
+        if (heightAt(column + 1, row) <= z0) {
+          addHolderWall(positions, "right", x0, x1, y0, y1, z0, z1);
+        }
+
+        if (heightAt(column - 1, row) <= z0) {
+          addHolderWall(positions, "left", x0, x1, y0, y1, z0, z1);
+        }
+
+        if (heightAt(column, row + 1) <= z0) {
+          addHolderWall(positions, "front", x0, x1, y0, y1, z0, z1);
+        }
+
+        if (heightAt(column, row - 1) <= z0) {
+          addHolderWall(positions, "back", x0, x1, y0, y1, z0, z1);
+        }
+      }
+    }
+  }
+
+  const geometry = new BufferGeometry();
+
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+
+  return geometry;
+}
+
+/** Аналитический объём держателя в мм³: сумма объёмов ступенчатых ячеек. */
+export function coasterHolderAnalyticVolumeMm3(
+  params: Partial<CoasterParams>,
+): number {
+  return buildCoasterHolderGrid(
+    coasterHolderDimensionsMm(params),
+  ).volumeMm3;
+}
+
+/** Вес держателя в граммах при заданной плотности пластика. */
+export function coasterHolderAnalyticWeightGrams(
+  params: Partial<CoasterParams>,
+  densityGramsPerCm3: number = PLA_DENSITY_G_PER_CM3,
+): number {
+  return (
+    (coasterHolderAnalyticVolumeMm3(params) / 1000) * densityGramsPerCm3
+  );
+}

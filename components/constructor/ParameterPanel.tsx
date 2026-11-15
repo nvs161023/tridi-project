@@ -161,6 +161,7 @@ import {
   type BoxPresetId,
   type CoasterPattern,
   type CoasterShape,
+  type CoasterHolderType,
   type ConstructorParams,
   type JewelryLeafType,
   type JewelryPreset,
@@ -234,6 +235,7 @@ type SizeParam = Exclude<
   | "coasterShape"
   | "coasterPattern"
   | "coasterRim"
+  | "coasterHolderType"
   | "penShape"
   | "heatTransferSvg"
   | "heatTransferMirror"
@@ -442,6 +444,10 @@ type ParameterPanelProps = {
   onCoasterPatternChange: (pattern: CoasterPattern) => void;
   /** Бортик по краю подставки под кружку. */
   onCoasterRimChange: (enabled: boolean) => void;
+  /** Держатель набора: одиночная подставка или вертикальная стойка. */
+  onCoasterHolderTypeChange: (holderType: CoasterHolderType) => void;
+  /** Число подставок в наборе: задаёт число гнёзд держателя. */
+  onCoasterCountChange: (count: number) => void;
   /** Форма премиум-коллекции: лист, рогатое дерево или древо. */
   onJewelryPresetChange: (preset: JewelryPreset) => void;
   /** Силуэт листа-лотка. */
@@ -1633,6 +1639,8 @@ export function ParameterPanel({
   onCoasterShapeChange,
   onCoasterPatternChange,
   onCoasterRimChange,
+  onCoasterHolderTypeChange,
+  onCoasterCountChange,
   onJewelryPresetChange,
   onJewelryLeafTypeChange,
   onPenShapeChange,
@@ -3722,10 +3730,51 @@ export function ParameterPanel({
             </span>
           </label>
 
+          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
+            <input
+              checked={params.coasterHolderType === "vertical"}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onChange={(event) =>
+                onCoasterHolderTypeChange(
+                  event.target.checked ? "vertical" : "none",
+                )
+              }
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-200">
+                Держатель для стекирования
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
+                Отдельная деталь набора: основание с задней стенкой и пазом.
+                Подставки вставляются вертикально и стоят рядом, как тарелки в
+                сушилке.
+              </span>
+            </span>
+          </label>
+
+          {params.coasterHolderType === "vertical" ? (
+            <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+              <NumberSlider
+                hint="Сколько гнёзд в держателе. Ширина основания растёт вместе с числом подставок, глубина остаётся равна габариту подставки плюс 10 мм."
+                label="Подставок в наборе"
+                max={CONSTRUCTOR_LIMITS.coasterCount.max}
+                min={CONSTRUCTOR_LIMITS.coasterCount.min}
+                onChange={onCoasterCountChange}
+                step={CONSTRUCTOR_LIMITS.coasterCount.step}
+                unit="шт."
+                value={params.coasterCount}
+              />
+            </div>
+          ) : null}
+
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
             Подставка печатается одним замкнутым телом: низ лежит на столе
             плоской плоскостью, верхний край срезан фаской 1.5 × 1.5 мм под 45°.
             Узор не доходит до фаски 2.2 мм, поэтому кромка остаётся ровной.
+            {params.coasterHolderType === "vertical"
+              ? " Держатель скачивается отдельным STL: основание 3 мм, задняя стенка 50 мм, перегородки 15 мм и паз под толщину подставки."
+              : ""}
           </p>
         </>
       ) : params.model === "jewelry_stand" ? (

@@ -41,9 +41,12 @@ import {
   LITHOPHANE_MESH_TOO_LARGE_MESSAGE,
   KEYCHAIN_TEXT_LINE_HEIGHT_LIMITS,
   boxStlFileName,
+  coasterHolderStlFileName,
   coasterStlFileName,
   hasDrawableSvgData,
   isBoxMagnetSize,
+  isCoasterHolderType,
+  isCoasterPart,
   isCoasterPattern,
   isCoasterShape,
   isCustomSvgData,
@@ -108,6 +111,7 @@ import {
   VASE_MAX_PATTERN_LAYERS,
   type BoxParams,
   type CoasterParams,
+  type CoasterPart,
   type HeatTransferParams,
   type JewelryStandParams,
   type KeychainDecoration,
@@ -125,7 +129,10 @@ import {
   type VasePatternInput,
 } from "@/lib/constructor/params";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
-import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
+import {
+  createCoasterGeometry,
+  createCoasterHolderGeometry,
+} from "@/lib/constructor/coaster-geometry";
 import { createHeatTransferGeometry } from "@/lib/constructor/heat-transfer-geometry";
 import { createJewelryStandGeometry } from "@/lib/constructor/jewelry-stand-geometry";
 import { createKeychainGeometry } from "@/lib/constructor/keychain-geometry";
@@ -1251,17 +1258,23 @@ function parsePlanterParams(
  *
  * Форма и узор выбираются из списков: от них зависит и сечение плиты, и
  * геометрия рельефа. Бортик — только boolean, иначе он появился бы в файле
- * против выбора пользователя.
+ * против выбора пользователя. Держатель необязателен: старый клиент без новых
+ * полей получает одиночную подставку, а деталь `holder` без включённого
+ * держателя отклоняется — иначе сервер собрал бы стойку, которой нет в наборе.
  */
-function parseCoasterParams(
-  body: Record<string, unknown>,
-): CoasterParams | null {
+function parseCoasterParams(body: Record<string, unknown>): {
+  params: CoasterParams;
+  part: CoasterPart;
+} | null {
   const {
     coasterSize,
     coasterThickness,
     coasterShape,
     coasterPattern,
     coasterRim,
+    coasterHolderType = "none",
+    coasterCount = CONSTRUCTOR_LIMITS.coasterCount.defaultValue,
+    part = "coaster",
   } = body;
 
   if (
@@ -1277,18 +1290,32 @@ function parseCoasterParams(
     ) ||
     !isCoasterShape(coasterShape) ||
     !isCoasterPattern(coasterPattern) ||
-    typeof coasterRim !== "boolean"
+    typeof coasterRim !== "boolean" ||
+    !isCoasterHolderType(coasterHolderType) ||
+    !Number.isInteger(coasterCount) ||
+    !isNumberInRange(
+      coasterCount,
+      CONSTRUCTOR_LIMITS.coasterCount.min,
+      CONSTRUCTOR_LIMITS.coasterCount.max,
+    ) ||
+    !isCoasterPart(part) ||
+    (part === "holder" && coasterHolderType !== "vertical")
   ) {
     return null;
   }
 
-  return normalizeCoasterParams({
-    coasterSize,
-    coasterThickness,
-    coasterShape,
-    coasterPattern,
-    coasterRim,
-  });
+  return {
+    params: normalizeCoasterParams({
+      coasterSize,
+      coasterThickness,
+      coasterShape,
+      coasterPattern,
+      coasterRim,
+      coasterHolderType,
+      coasterCount,
+    }),
+    part,
+  };
 }
 
 /**
@@ -1560,7 +1587,7 @@ type ParsedConstructorRequest =
   | { model: "box"; params: BoxParams }
   | { model: "lithophane"; params: LithophaneParams; part: LithophanePart }
   | { model: "planter"; params: PlanterParams }
-  | { model: "coaster"; params: CoasterParams }
+  | { model: "coaster"; params: CoasterParams; part: CoasterPart }
   | { model: "jewelry_stand"; params: JewelryStandParams }
   | { model: "pen_holder"; params: PenHolderParams }
   | { model: "heat_transfer"; params: HeatTransferParams };
@@ -1618,9 +1645,9 @@ function parseConstructorRequest(
   }
 
   if (model === "coaster") {
-    const params = parseCoasterParams(body);
+    const coaster = parseCoasterParams(body);
 
-    return params ? { model: "coaster", params } : null;
+    return coaster ? { model: "coaster", ...coaster } : null;
   }
 
   if (model === "jewelry_stand") {
@@ -1909,7 +1936,9 @@ export async function POST(request: Request): Promise<Response> {
             : parsed.model === "planter"
               ? createPlanterGeometry(parsed.params)
               : parsed.model === "coaster"
-                ? createCoasterGeometry(parsed.params)
+                ? parsed.part === "holder"
+                  ? createCoasterHolderGeometry(parsed.params)
+                  : createCoasterGeometry(parsed.params)
                 : parsed.model === "jewelry_stand"
                   ? createJewelryStandGeometry(parsed.params)
                   : parsed.model === "pen_holder"
@@ -1952,7 +1981,9 @@ export async function POST(request: Request): Promise<Response> {
                 : parsed.model === "planter"
                   ? planterStlFileName(parsed.params)
                   : parsed.model === "coaster"
-                    ? coasterStlFileName(parsed.params)
+                    ? parsed.part === "holder"
+                      ? coasterHolderStlFileName()
+                      : coasterStlFileName(parsed.params)
                     : parsed.model === "jewelry_stand"
                       ? jewelryStandStlFileName(parsed.params)
                       : parsed.model === "pen_holder"
