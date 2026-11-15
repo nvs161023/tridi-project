@@ -4,6 +4,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { PLA_DENSITY_G_PER_CM3 } from "@/lib/constructor/geometry-volume";
 import {
   normalizeCoasterParams,
+  type CoasterHolderStyle,
   type CoasterParams,
   type CoasterPattern,
   type CoasterShape,
@@ -12,6 +13,7 @@ import { applyCreasedNormals } from "@/lib/constructor/mesh-normals";
 import {
   addFanCap,
   addPrismSides,
+  addSolidPrism,
   type Point2,
   type Point3,
 } from "@/lib/constructor/prism-mesh";
@@ -136,6 +138,28 @@ function sectionPolygon(shape: CoasterShape, acrossFlats: number): Point2[] {
 /** Ограничивает значение отрезком. */
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+/** Площадь выпуклого многоугольника в XY, мм². */
+function polygonAreaMm2(points: readonly Point2[]): number {
+  let doubleArea = 0;
+
+  for (let index = 0; index < points.length; index += 1) {
+    const [x0, y0] = points[index];
+    const [x1, y1] = points[(index + 1) % points.length];
+
+    doubleArea += x0 * y1 - x1 * y0;
+  }
+
+  return Math.abs(doubleArea) / 2;
+}
+
+/** Радиус описанной окружности сечения подставки, мм. */
+function sectionOuterRadius(shape: CoasterShape, acrossFlats: number): number {
+  return sectionPolygon(shape, acrossFlats).reduce(
+    (radius, [x, y]) => Math.max(radius, Math.hypot(x, y)),
+    0,
+  );
 }
 
 /**
@@ -551,22 +575,55 @@ export const COASTER_HOLDER_DIVIDER_FRONT_CLEARANCE_MM = 15;
 /** Запас глубины основания к диаметру подставки, мм. */
 export const COASTER_HOLDER_DEPTH_MARGIN_MM = 10;
 
+/** Толщина круглого основания накопителя, мм. */
+export const COASTER_ACCUMULATOR_BASE_THICKNESS_MM = 4;
+
+/** Номинальный диаметр стойки накопителя, мм. */
+export const COASTER_ACCUMULATOR_POST_DIAMETER_MM = 6;
+
+/** Число стоек накопителя: треножник под 120°. */
+export const COASTER_ACCUMULATOR_POST_COUNT = 3;
+
+/** Отступ центра стойки от края подставки, мм. */
+export const COASTER_ACCUMULATOR_POST_RING_CLEARANCE_MM = 2;
+
+/** Запас основания за описанной окружностью подставки, мм. */
+export const COASTER_ACCUMULATOR_BASE_MARGIN_MM = 5;
+
+/** Вертикальный зазор между подставками в стопке, мм. */
+export const COASTER_ACCUMULATOR_STACK_CLEARANCE_MM = 1.5;
+
+/** Свободная высота над верхней подставкой, мм. */
+export const COASTER_ACCUMULATOR_TOP_HEADROOM_MM = 10;
+
+/**
+ * Зазор от стойки до края стопки, мм.
+ *
+ * Стойка номинально стоит на радиусе «радиус подставки + 2», поэтому полный
+ * цилиндр Ø6 заходил бы в круг на 1 мм. Внутреннюю сторону стойки срезаем
+ * плоской лыской: центр остаётся на месте, наружная дуга касается края
+ * основания, а до подставки сохраняется этот зазор.
+ */
+export const COASTER_ACCUMULATOR_POST_GAP_MM = 0.5;
+
 /**
  * Габариты и посадочные размеры вертикального держателя.
  *
- * Основание лежит в XY, высота идёт по Z. Подставки стоят плоскостями YZ и
- * выстраиваются по X: ширина растёт от числа гнёзд, а глубина равна диаметру
- * подставки плюс 10 мм. Задняя стенка стоит сзади по Y и даёт упор на высоту
- * 60 мм; продольный паз идёт по X через все гнёзда и делится перегородками.
+ * Основание лежит в XY, высота идёт по Z. У горизонтальной стойки подставки
+ * стоят плоскостями YZ и выстраиваются по X, а у накопителя лежат стопкой по Z
+ * между тремя стойками. Поля стоек и стопки заполнены только для накопителя;
+ * `slotCenters` пуст, когда стиль вертикальный.
  */
 export type CoasterHolderDimensions = {
+  /** Стиль держателя, выбранный в панели. */
+  style: CoasterHolderStyle;
   /** Ширина основания по X, мм. */
   width: number;
   /** Глубина основания по Y, мм. */
   depth: number;
   /** Общая высота держателя по Z, мм. */
   height: number;
-  /** Число гнёзд. */
+  /** Число подставок в наборе. */
   count: number;
   /**
    * Толщина подставки по оси паза, мм: плита вместе с бортиком.
@@ -599,6 +656,20 @@ export type CoasterHolderDimensions = {
   dividerFrontY: number;
   /** Координаты центров гнёзд по X, мм: по ним ставятся подставки в превью. */
   slotCenters: readonly number[];
+  /** Центры стоек накопителя в XY, мм; у горизонтальной стойки пусто. */
+  postCenters: readonly Point2[];
+  /** Радиус описанной окружности подставки, мм; 0 у горизонтальной стойки. */
+  coasterOuterRadius: number;
+  /** Номинальный диаметр стойки, мм; 0 у горизонтальной стойки. */
+  postDiameter: number;
+  /** Радиус установки центров стоек, мм; 0 у горизонтальной стойки. */
+  postRingRadius: number;
+  /** Высота стойки над основанием, мм; 0 у горизонтальной стойки. */
+  postHeight: number;
+  /** Шаг подставок в стопке, мм; 0 у горизонтальной стойки. */
+  stackPitch: number;
+  /** Низ каждой подставки стопки по Z, мм; у горизонтальной стойки пусто. */
+  stackBottomZs: readonly number[];
 };
 
 /** Размеры держателя по параметрам подставки. */
@@ -610,6 +681,68 @@ export function coasterHolderDimensionsMm(
   const coasterStackThickness =
     normalized.coasterThickness +
     (normalized.coasterRim ? COASTER_RIM_RISE_MM : 0);
+
+  if (normalized.coasterHolderStyle === "vertical") {
+    const outerRadius = sectionOuterRadius(
+      normalized.coasterShape,
+      normalized.coasterSize,
+    );
+    const baseDiameter =
+      (outerRadius + COASTER_ACCUMULATOR_BASE_MARGIN_MM) * 2;
+    const postRingRadius =
+      outerRadius + COASTER_ACCUMULATOR_POST_RING_CLEARANCE_MM;
+    const stackPitch =
+      coasterStackThickness + COASTER_ACCUMULATOR_STACK_CLEARANCE_MM;
+    const postHeight =
+      count * stackPitch + COASTER_ACCUMULATOR_TOP_HEADROOM_MM;
+    const baseThickness = COASTER_ACCUMULATOR_BASE_THICKNESS_MM;
+    const postCenters = Array.from(
+      { length: COASTER_ACCUMULATOR_POST_COUNT },
+      (_, index): Point2 => {
+        const angle =
+          Math.PI / 2 +
+          (index * Math.PI * 2) / COASTER_ACCUMULATOR_POST_COUNT;
+
+        return [
+          postRingRadius * Math.cos(angle),
+          postRingRadius * Math.sin(angle),
+        ];
+      },
+    );
+    const stackBottomZs = Array.from(
+      { length: count },
+      (_, index) => baseThickness + index * stackPitch,
+    );
+
+    return {
+      style: "vertical",
+      width: baseDiameter,
+      depth: baseDiameter,
+      height: baseThickness + postHeight,
+      count,
+      coasterStackThickness,
+      slotWidth: 0,
+      dividerPitch: 0,
+      slotClearance: 0,
+      grooveWidth: 0,
+      grooveDepth: 0,
+      dividerThickness: 0,
+      dividerHeight: 0,
+      baseThickness,
+      wallThickness: 0,
+      wallHeight: 0,
+      dividerFrontY: 0,
+      slotCenters: [],
+      postCenters,
+      coasterOuterRadius: outerRadius,
+      postDiameter: COASTER_ACCUMULATOR_POST_DIAMETER_MM,
+      postRingRadius,
+      postHeight,
+      stackPitch,
+      stackBottomZs,
+    };
+  }
+
   const slotWidth =
     coasterStackThickness + COASTER_HOLDER_SLOT_CLEARANCE_MM * 2;
   // В паз входит вся плита вместе с бортиком: при толщине 5 мм и бортике
@@ -639,6 +772,7 @@ export function coasterHolderDimensionsMm(
   );
 
   return {
+    style: "horizontal",
     width,
     depth,
     height,
@@ -656,7 +790,79 @@ export function coasterHolderDimensionsMm(
     wallHeight: COASTER_HOLDER_WALL_HEIGHT_MM,
     dividerFrontY,
     slotCenters,
+    postCenters: [],
+    coasterOuterRadius: 0,
+    postDiameter: 0,
+    postRingRadius: 0,
+    postHeight: 0,
+    stackPitch: 0,
+    stackBottomZs: [],
   };
+}
+
+/**
+ * Сечение стойки накопителя в мировых координатах.
+ *
+ * Полный круг Ø6 срезан плоскостью со стороны стопки. Центр стойки остаётся на
+ * радиусе «радиус подставки + 2», наружная дуга доходит ровно до края основания,
+ * а лыска оставляет до подставки зазор `COASTER_ACCUMULATOR_POST_GAP_MM`.
+ * Сечение выпуклое, поэтому его можно выдавить той же призмой, что и основание.
+ */
+function accumulatorPostPolygon(
+  dims: CoasterHolderDimensions,
+  center: Point2,
+): Point2[] {
+  const [cx, cy] = center;
+  const radius = dims.postDiameter / 2;
+  const flatDistance =
+    dims.postRingRadius -
+    dims.coasterOuterRadius -
+    COASTER_ACCUMULATOR_POST_GAP_MM;
+  const halfChord = Math.sqrt(
+    Math.max(0, radius * radius - flatDistance * flatDistance),
+  );
+  const start = Math.atan2(-halfChord, -flatDistance);
+  const end = Math.atan2(halfChord, -flatDistance);
+  const sweep = end - start;
+  const steps = Math.max(12, Math.ceil((sweep / (Math.PI * 2)) * 96));
+  const angle = Math.atan2(cy, cx);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const points: Point2[] = [];
+
+  for (let index = 0; index <= steps; index += 1) {
+    const localAngle = start + (sweep * index) / steps;
+    const localX = radius * Math.cos(localAngle);
+    const localY = radius * Math.sin(localAngle);
+
+    // local X — наружу от центра основания, local Y — по касательной.
+    points.push([
+      cx + localX * cos - localY * sin,
+      cy + localX * sin + localY * cos,
+    ]);
+  }
+
+  return points;
+}
+
+/** Круглая база накопителя в XY, мм. */
+function accumulatorBasePolygon(
+  dims: CoasterHolderDimensions,
+): Point2[] {
+  return sectionPolygon("round", dims.width);
+}
+
+/** Аналитический объём накопителя: база и стойки без двойного учёта. */
+function accumulatorVolumeMm3(dims: CoasterHolderDimensions): number {
+  const baseArea = polygonAreaMm2(accumulatorBasePolygon(dims));
+  const postArea = polygonAreaMm2(
+    accumulatorPostPolygon(dims, dims.postCenters[0] ?? [0, 0]),
+  );
+
+  return (
+    baseArea * dims.baseThickness +
+    postArea * dims.postHeight * dims.postCenters.length
+  );
 }
 
 /**
@@ -831,19 +1037,66 @@ function addHolderWall(
 
 
 /**
+ * Накопитель: круглая база и три стойки, между которыми лежит стопка.
+ *
+ * Стойки стоят на верхней плоскости основания: их торцы совпадают с базой, а
+ * слайсер сливает тела на первом слое. Внутренние лыски стоек повторяют край
+ * стопки с зазором 0.5 мм, поэтому подставки проходят между стойками и не
+ * режутся ими.
+ */
+function createCoasterAccumulatorGeometry(
+  dims: CoasterHolderDimensions,
+): BufferGeometry {
+  const positions: number[] = [];
+  const baseBottom = 0;
+  const baseTop = dims.baseThickness;
+
+  addSolidPrism(
+    positions,
+    accumulatorBasePolygon(dims),
+    baseBottom,
+    baseTop,
+  );
+
+  for (const center of dims.postCenters) {
+    addSolidPrism(
+      positions,
+      accumulatorPostPolygon(dims, center),
+      baseTop,
+      baseTop + dims.postHeight,
+    );
+  }
+
+  const geometry = new BufferGeometry();
+
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+
+  return geometry;
+}
+
+/**
  * Геометрия вертикального держателя для набора подставок.
  *
  * Деталь отдельная: её сетка не пересекается с подставками и печатается своим
- * файлом. Основание 3 мм, задняя стенка 60 мм, перегородки 2 × 15 мм и
- * продольный паз по толщине подставки вместе с бортиком. Передние торцы
- * перегородок отступают от переднего края на 15 мм: круг выступает вперёд и не
- * упирается в рёбра. Высота ячеек ступенчатая, все стенки вертикальные,
- * поэтому нависаний больше 45° нет и поддержки не нужны.
+ * файлом. У горизонтальной стойки основание 3 мм, задняя стенка 60 мм,
+ * перегородки 2 × 15 мм и продольный паз по толщине подставки вместе с
+ * бортиком. Передние торцы перегородок отступают от переднего края на 15 мм:
+ * круг выступает вперёд и не упирается в рёбра. У накопителя база 4 мм и три
+ * стойки Ø6 под 120°. В обоих стилях все стенки вертикальные, поэтому
+ * нависаний больше 45° нет и поддержки не нужны.
  */
 export function createCoasterHolderGeometry(
   params: Partial<CoasterParams>,
 ): BufferGeometry {
-  const grid = buildCoasterHolderGrid(coasterHolderDimensionsMm(params));
+  const dims = coasterHolderDimensionsMm(params);
+
+  if (dims.style === "vertical") {
+    return createCoasterAccumulatorGeometry(dims);
+  }
+
+  const grid = buildCoasterHolderGrid(dims);
   const layers = sortedUnique([
     0,
     grid.dims.baseThickness,
@@ -905,13 +1158,21 @@ export function createCoasterHolderGeometry(
   return geometry;
 }
 
-/** Аналитический объём держателя в мм³: сумма объёмов ступенчатых ячеек. */
+/**
+ * Аналитический объём держателя в мм³.
+ *
+ * У горизонтальной стойки это сумма ступенчатых ячеек, у накопителя — база
+ * плюс три стойки. Стойки опираются на базу, но не входят в неё, поэтому
+ * двойного учёта пересечения нет.
+ */
 export function coasterHolderAnalyticVolumeMm3(
   params: Partial<CoasterParams>,
 ): number {
-  return buildCoasterHolderGrid(
-    coasterHolderDimensionsMm(params),
-  ).volumeMm3;
+  const dims = coasterHolderDimensionsMm(params);
+
+  return dims.style === "vertical"
+    ? accumulatorVolumeMm3(dims)
+    : buildCoasterHolderGrid(dims).volumeMm3;
 }
 
 /** Вес держателя в граммах при заданной плотности пластика. */
@@ -940,7 +1201,8 @@ export const COASTER_SET_BED_HEIGHT_MM = 250;
  * считается от габарита подставки и ширины держателя, поэтому между деталями
  * остаётся не меньше `COASTER_SET_PART_GAP_MM`. На дефолтном наборе 6 × Ø90
  * получается 105 мм. Если такая раскладка не влезает в поле 220 мм, общий STL
- * автоматически выбирает резервную: держатель за подставкой или на боку.
+ * автоматически выбирает резервную: держатель за подставкой, по диагонали для
+ * накопителя или на боку.
  */
 export function coasterSetHolderOffsetMm(
   params: Partial<CoasterParams>,
@@ -968,15 +1230,39 @@ function boxSize(box: {
 }
 
 /**
+ * Радиус описанной вокруг детали окружности в XY, мм.
+ *
+ * Детали набора стоят в начале координат, поэтому максимальный радиус вершины
+ * точнее ограничивающего бокса: у круга он равен радиусу, а не половине
+ * диагонали квадрата. По нему раскладка по диагонали разводит круглый
+ * накопитель и подставку на безопасное расстояние.
+ */
+function radialExtentMm(geometry: BufferGeometry): number {
+  const position = geometry.getAttribute("position");
+  let radius = 0;
+
+  for (let index = 0; index < position.count; index += 1) {
+    radius = Math.max(
+      radius,
+      Math.hypot(position.getX(index), position.getY(index)),
+    );
+  }
+
+  return radius;
+}
+
+/**
  * Общий STL набора: одна подставка и держатель, разнесённые по столу.
  *
  * Детали лежат на одном столе, но не касаются друг друга. Сначала держатель
  * ставится справа по X на `coasterSetHolderOffsetMm`. Если суммарный габарит
- * выходит за 220 мм, он переносится за подставку по Y. Для самых широких
- * наборов, которые не влезают и так, держатель поворачивается на бок, а при
- * необходимости поворачивается и подставка. Во всех вариантах между деталями
- * остаётся 15 мм, низ обеих оболочек лежит на Z = 0, а общий бокс не выходит за
- * 220 × 220 × 250 мм.
+ * выходит за 220 мм, он переносится за подставку по Y. Круглый накопитель, у
+ * которого широкое основание не оставляет места ни справа, ни сзади, ставится
+ * по диагонали: детали расходятся на 15 мм, а общий бокс остаётся в поле. Для
+ * остальных наборов, которые не влезают и так, держатель поворачивается на бок,
+ * а при необходимости поворачивается и подставка. Во всех вариантах между
+ * деталями остаётся 15 мм, низ обеих оболочек лежит на Z = 0, а общий бокс не
+ * выходит за 220 × 220 × 250 мм.
  */
 export function createCoasterSetGeometry(
   params: Partial<CoasterParams>,
@@ -998,6 +1284,7 @@ export function createCoasterSetGeometry(
 
   const coaster = boxSize(coasterBox);
   const holder = boxSize(holderBox);
+  const holderStyle = coasterHolderDimensionsMm(params).style;
   const bed = COASTER_SET_BED_MM;
   const bedHeight = COASTER_SET_BED_HEIGHT_MM;
   const gap = COASTER_SET_PART_GAP_MM;
@@ -1026,6 +1313,37 @@ export function createCoasterSetGeometry(
     coaster.width + gap + holder.height <= bed + 1e-9 &&
     Math.max(coaster.height, holder.depth) <= bedHeight + 1e-9;
 
+  // Накопитель не поворачиваем на бок: его стойки должны печататься снизу
+  // вверх. Вместо этого разводим круглые детали по диагонали. Радиусы
+  // описанных окружностей гарантируют зазор при любом повороте деталей вокруг
+  // оси Z, а сдвиг на 45° оставляет широкое основание в поле 220 мм.
+  const diagonalShift =
+    (radialExtentMm(coasterGeometry) +
+      radialExtentMm(holderGeometry) +
+      gap) /
+    Math.SQRT2;
+  const diagonalMinX = Math.min(
+    coasterBox.min.x,
+    diagonalShift + holderBox.min.x,
+  );
+  const diagonalMaxX = Math.max(
+    coasterBox.max.x,
+    diagonalShift + holderBox.max.x,
+  );
+  const diagonalMinY = Math.min(
+    coasterBox.min.y,
+    diagonalShift + holderBox.min.y,
+  );
+  const diagonalMaxY = Math.max(
+    coasterBox.max.y,
+    diagonalShift + holderBox.max.y,
+  );
+  const diagonalFits =
+    holderStyle === "vertical" &&
+    diagonalMaxX - diagonalMinX <= bed + 1e-9 &&
+    diagonalMaxY - diagonalMinY <= bed + 1e-9 &&
+    sideHeight <= bedHeight + 1e-9;
+
   if (sideFits) {
     holderGeometry.translate(
       preferredOffset - (holderBox.min.x + holderBox.max.x) / 2,
@@ -1036,6 +1354,12 @@ export function createCoasterSetGeometry(
     holderGeometry.translate(
       -(holderBox.min.x + holderBox.max.x) / 2,
       coasterBox.max.y + gap - holderBox.min.y,
+      0,
+    );
+  } else if (diagonalFits) {
+    holderGeometry.translate(
+      diagonalShift - (holderBox.min.x + holderBox.max.x) / 2,
+      diagonalShift - (holderBox.min.y + holderBox.max.y) / 2,
       0,
     );
   } else {

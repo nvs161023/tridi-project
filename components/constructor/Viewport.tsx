@@ -446,11 +446,11 @@ function ZUpModel({ geometry, color }: ZUpModelProps) {
 }
 
 type CoasterSetModelProps = {
-  /** Держатель целиком: основание, стенка и перегородки. */
+  /** Держатель целиком: основание, стенки или стойки. */
   holderGeometry: BufferGeometry;
-  /** Одна подставка; в превью она повторяется по гнёздам. */
+  /** Одна подставка; в превью она повторяется по гнёздам или стопке. */
   coasterGeometry: BufferGeometry;
-  /** Размеры держателя: из них берутся координаты гнёзд. */
+  /** Размеры держателя: из них берутся гнёзда и высоты стопки. */
   dimensions: CoasterHolderDimensions;
   /** Габарит подставки: по нему плита центрируется над основанием. */
   coasterSize: number;
@@ -482,28 +482,44 @@ function CoasterSetModel({
           roughness={STUDIO_PLASTIC.roughness}
         />
       </mesh>
-      {dimensions.slotCenters.map((slotCenter) => (
-        <group
-          key={slotCenter}
-          position={[
-            slotCenter - placement.centerOffsetX,
-            0,
-            placement.centerZ,
-          ]}
-        >
-          <group rotation={[0, Math.PI / 2, 0]}>
-            <group rotation={[0, 0, Math.PI / 2]}>
-              <mesh castShadow geometry={coasterGeometry} receiveShadow>
-                <meshStandardMaterial
-                  color={STUDIO_MODEL_TINTS.coaster}
-                  metalness={STUDIO_PLASTIC.metalness}
-                  roughness={STUDIO_PLASTIC.roughness}
-                />
-              </mesh>
+      {dimensions.style === "vertical"
+        ? dimensions.stackBottomZs.map((bottomZ) => (
+            <mesh
+              key={bottomZ}
+              castShadow
+              geometry={coasterGeometry}
+              position={[0, 0, bottomZ]}
+              receiveShadow
+            >
+              <meshStandardMaterial
+                color={STUDIO_MODEL_TINTS.coaster}
+                metalness={STUDIO_PLASTIC.metalness}
+                roughness={STUDIO_PLASTIC.roughness}
+              />
+            </mesh>
+          ))
+        : dimensions.slotCenters.map((slotCenter) => (
+            <group
+              key={slotCenter}
+              position={[
+                slotCenter - placement.centerOffsetX,
+                0,
+                placement.centerZ,
+              ]}
+            >
+              <group rotation={[0, Math.PI / 2, 0]}>
+                <group rotation={[0, 0, Math.PI / 2]}>
+                  <mesh castShadow geometry={coasterGeometry} receiveShadow>
+                    <meshStandardMaterial
+                      color={STUDIO_MODEL_TINTS.coaster}
+                      metalness={STUDIO_PLASTIC.metalness}
+                      roughness={STUDIO_PLASTIC.roughness}
+                    />
+                  </mesh>
+                </group>
+              </group>
             </group>
-          </group>
-        </group>
-      ))}
+          ))}
     </group>
   );
 }
@@ -1854,11 +1870,14 @@ export function Viewport({
     }
 
     if (params.model === "coaster" && coasterHolder) {
-      // В наборе выше стойки стоят подставки: их габарит больше задней стенки
-      // 50 мм, поэтому высоту кадра задаёт плита, поднятая на основание.
+      // У горизонтальной стойки подставки подняты над основанием, у
+      // накопителя кадр задаёт высота стоек: в обоих случаях это больше
+      // габарита одной плиты.
       return {
         height:
-          coasterHolder.dimensions.baseThickness + params.coasterSize,
+          coasterHolder.dimensions.style === "vertical"
+            ? coasterHolder.dimensions.height
+            : coasterHolder.dimensions.baseThickness + params.coasterSize,
         footprint: Math.max(
           coasterHolder.dimensions.width,
           coasterHolder.dimensions.depth,

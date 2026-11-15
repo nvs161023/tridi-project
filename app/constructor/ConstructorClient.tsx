@@ -87,6 +87,7 @@ import {
   type BoxMagnetSize,
   type BoxPresetId,
   type CoasterPattern,
+  type CoasterHolderStyle,
   type CoasterHolderType,
   type CoasterShape,
   type ConstructorParams,
@@ -182,6 +183,7 @@ type SizeParam = Exclude<
   | "coasterPattern"
   | "coasterRim"
   | "coasterHolderType"
+  | "coasterHolderStyle"
   | "penShape"
   | "heatTransferSvg"
   | "heatTransferMirror"
@@ -434,9 +436,10 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
   }
 
   if (params.model === "coaster") {
-    // В превью подставки стоят в гнёздах, но печатать такую сборку нельзя:
-    // стойка спечётся с плитами. Поэтому общий STL разносит детали по X, а
-    // отдельные файлы остаются для печати по одной детали и замены.
+    // В превью подставки стоят в гнёздах или стопкой, но печатать такую
+    // сборку нельзя: стойка спечётся с плитами. Поэтому общий STL разносит
+    // детали по столу с зазором 15 мм, а отдельные файлы остаются для печати
+    // по одной детали и замены.
     if (params.coasterHolderType === "vertical") {
       return [
         {
@@ -456,7 +459,9 @@ function buildExportOptions(params: ConstructorParams): StlExportOption[] {
         {
           id: "coaster-holder",
           label: "Держатель",
-          description: `Стойка на ${params.coasterCount} подставок`,
+          description: `${
+            params.coasterHolderStyle === "vertical" ? "Накопитель" : "Стойка"
+          } на ${params.coasterCount} подставок`,
           request: { part: "holder" },
           fileName: coasterHolderStlFileName(),
         },
@@ -1301,6 +1306,12 @@ export function ConstructorClient({
     );
   }
 
+  function updateCoasterHolderStyle(coasterHolderStyle: CoasterHolderStyle) {
+    setParams((current) =>
+      normalizeConstructorParams({ ...current, coasterHolderStyle }),
+    );
+  }
+
   function updateCoasterCount(coasterCount: number) {
     setParams((current) =>
       normalizeConstructorParams({ ...current, coasterCount }),
@@ -1570,6 +1581,7 @@ export function ConstructorClient({
             onCoasterRimChange={updateCoasterRim}
             onCoasterShapeChange={updateCoasterShape}
             onCoasterHolderTypeChange={updateCoasterHolderType}
+            onCoasterHolderStyleChange={updateCoasterHolderStyle}
             onCoasterCountChange={updateCoasterCount}
             onExport={exportStl}
             onHasLidChange={updateHasLid}
@@ -1695,7 +1707,11 @@ export function ConstructorClient({
                     {params.coasterSize} × {params.coasterThickness} мм ·{" "}
                     {params.coasterRim ? "с бортиком" : "без бортика"}
                     {params.coasterHolderType === "vertical"
-                      ? ` · держатель на ${params.coasterCount}`
+                      ? ` · ${
+                          params.coasterHolderStyle === "vertical"
+                            ? "накопитель"
+                            : "стойка"
+                        } на ${params.coasterCount}`
                       : ""}
                   </>
                 ) : params.model === "jewelry_stand" ? (

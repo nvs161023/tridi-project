@@ -46,6 +46,7 @@ import {
   coasterStlFileName,
   hasDrawableSvgData,
   isBoxMagnetSize,
+  isCoasterHolderStyle,
   isCoasterHolderType,
   isCoasterPart,
   isCoasterPattern,
@@ -1261,8 +1262,9 @@ function parsePlanterParams(
  * Форма и узор выбираются из списков: от них зависит и сечение плиты, и
  * геометрия рельефа. Бортик — только boolean, иначе он появился бы в файле
  * против выбора пользователя. Держатель необязателен: старый клиент без новых
- * полей получает одиночную подставку. Детали `holder` и `all` без включённого
- * держателя отклоняются — иначе сервер собрал бы стойку, которой нет в наборе.
+ * полей получает одиночную подставку и горизонтальный стиль. Детали `holder` и
+ * `all` без включённого держателя отклоняются — иначе сервер собрал бы стойку,
+ * которой нет в наборе.
  */
 function parseCoasterParams(body: Record<string, unknown>): {
   params: CoasterParams;
@@ -1275,6 +1277,7 @@ function parseCoasterParams(body: Record<string, unknown>): {
     coasterPattern,
     coasterRim,
     coasterHolderType = "none",
+    coasterHolderStyle = "horizontal",
     coasterCount = CONSTRUCTOR_LIMITS.coasterCount.defaultValue,
     part = "coaster",
   } = body;
@@ -1294,6 +1297,7 @@ function parseCoasterParams(body: Record<string, unknown>): {
     !isCoasterPattern(coasterPattern) ||
     typeof coasterRim !== "boolean" ||
     !isCoasterHolderType(coasterHolderType) ||
+    !isCoasterHolderStyle(coasterHolderStyle) ||
     !Number.isInteger(coasterCount) ||
     !isNumberInRange(
       coasterCount,
@@ -1314,6 +1318,7 @@ function parseCoasterParams(body: Record<string, unknown>): {
       coasterPattern,
       coasterRim,
       coasterHolderType,
+      coasterHolderStyle,
       coasterCount,
     }),
     part,

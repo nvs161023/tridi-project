@@ -27,6 +27,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  COASTER_ACCUMULATOR_BASE_THICKNESS_MM,
+  COASTER_ACCUMULATOR_POST_DIAMETER_MM,
+  COASTER_ACCUMULATOR_POST_GAP_MM,
+  COASTER_ACCUMULATOR_POST_RING_CLEARANCE_MM,
+  COASTER_ACCUMULATOR_STACK_CLEARANCE_MM,
+  COASTER_ACCUMULATOR_TOP_HEADROOM_MM,
   COASTER_BEVEL_MM,
   COASTER_HOLDER_BASE_MARGIN_MM,
   COASTER_HOLDER_BASE_THICKNESS_MM,
@@ -59,6 +65,8 @@ import {
   calculateGeometryWeightGrams,
 } from "../lib/constructor/geometry-volume";
 import {
+  COASTER_HOLDER_STYLE_LABELS,
+  COASTER_HOLDER_STYLES,
   COASTER_PATTERNS,
   DEFAULT_COASTER_PARAMS,
   coasterHolderStlFileName,
@@ -358,18 +366,35 @@ function bottomTriangles(triangles: readonly Triangle[]): Triangle[] {
   );
 }
 
-function overhangTriangles(triangles: readonly Triangle[]): Triangle[] {
+/**
+ * Нависания больше 45° с учётом опорных плоскостей.
+ *
+ * Горизонтальная грань, лежащая на столе или на уже напечатанной поверхности,
+ * нависанием не является: её печатает первый слой над опорой. По умолчанию
+ * опорой считается только `Z = 0`; накопитель добавляет верх основания, на
+ * котором стоят стойки.
+ */
+function overhangTriangles(
+  triangles: readonly Triangle[],
+  supportPlanes: readonly number[] = [BOTTOM_Z],
+): Triangle[] {
   return triangles.filter((triangle) => {
-    const flatBottom = triangle.every(
-      (point) => Math.abs(point[2] - BOTTOM_Z) <= 1e-7,
+    const normal = normalOf(triangle);
+
+    if (normal[2] >= 0) {
+      return false;
+    }
+
+    const supported = triangle.every((point) =>
+      supportPlanes.some((plane) => Math.abs(point[2] - plane) <= 1e-7),
     );
 
-    if (flatBottom) {
+    if (supported) {
       return false;
     }
 
     // Нависание больше 45° — нормаль, наклонённая вниз сильнее, чем cos 45°.
-    return normalOf(triangle)[2] < -Math.SQRT1_2;
+    return normal[2] < -Math.SQRT1_2;
   });
 }
 
@@ -1021,6 +1046,297 @@ check(
   overhangTriangles(holderStlTriangles).length,
   0,
 );
+
+console.log("\nВертикальный накопитель: стопка между тремя стойками:");
+
+check(
+  "стиль держателя по умолчанию",
+  DEFAULT_COASTER_PARAMS.coasterHolderStyle,
+  "horizontal",
+);
+check(
+  "стили держателя перечислены",
+  COASTER_HOLDER_STYLES.join(","),
+  "horizontal,vertical",
+);
+check(
+  "метка вертикального стиля",
+  COASTER_HOLDER_STYLE_LABELS.vertical,
+  "Вертикальный накопитель",
+);
+
+// Ø100 — самый крупный набор: боковая раскладка уже не помещается в 220 мм,
+// поэтому проверка заодно включает диагональное размещение деталей.
+const accumulatorParams = normalizeCoasterParams({
+  ...holderParams,
+  coasterSize: 100,
+  coasterHolderStyle: "vertical",
+});
+const accumulatorDims = coasterHolderDimensionsMm(accumulatorParams);
+
+near(
+  "накопитель: толщина базы",
+  accumulatorDims.baseThickness,
+  COASTER_ACCUMULATOR_BASE_THICKNESS_MM,
+);
+near(
+  "накопитель: диаметр стойки",
+  accumulatorDims.postDiameter,
+  COASTER_ACCUMULATOR_POST_DIAMETER_MM,
+);
+near(
+  "накопитель: радиус установки стоек",
+  accumulatorDims.postRingRadius,
+  accumulatorDims.coasterOuterRadius +
+    COASTER_ACCUMULATOR_POST_RING_CLEARANCE_MM,
+);
+near(
+  "накопитель: ширина = описанная окружность + 5 мм с каждой стороны",
+  accumulatorDims.width,
+  (accumulatorDims.coasterOuterRadius + 5) * 2,
+);
+check("накопитель: три стойки", accumulatorDims.postCenters.length, 3);
+near(
+  "накопитель: шаг стопки = толщина с бортиком + 1.5",
+  accumulatorDims.stackPitch,
+  accumulatorDims.coasterStackThickness +
+    COASTER_ACCUMULATOR_STACK_CLEARANCE_MM,
+);
+check(
+  "накопитель: низ каждой подставки",
+  accumulatorDims.stackBottomZs.length,
+  accumulatorParams.coasterCount,
+);
+near(
+  "накопитель: первая подставка на базе",
+  accumulatorDims.stackBottomZs[0],
+  accumulatorDims.baseThickness,
+);
+near(
+  "накопитель: последняя подставка стопки",
+  accumulatorDims.stackBottomZs[accumulatorDims.stackBottomZs.length - 1],
+  accumulatorDims.baseThickness +
+    (accumulatorParams.coasterCount - 1) * accumulatorDims.stackPitch,
+);
+near(
+  "накопитель: высота стоек",
+  accumulatorDims.postHeight,
+  accumulatorParams.coasterCount * accumulatorDims.stackPitch +
+    COASTER_ACCUMULATOR_TOP_HEADROOM_MM,
+);
+near(
+  "накопитель: высота детали",
+  accumulatorDims.height,
+  accumulatorDims.baseThickness + accumulatorDims.postHeight,
+);
+
+const accumulatorGeometry = createCoasterHolderGeometry(accumulatorParams);
+const accumulatorTriangles = trianglesOf(accumulatorGeometry);
+const accumulatorBounds = boundsOf(accumulatorTriangles);
+const accumulatorPosition = accumulatorGeometry.getAttribute("position");
+let minPostRadius = Number.POSITIVE_INFINITY;
+let maxPostRadius = 0;
+
+for (let index = 0; index < accumulatorPosition.count; index += 1) {
+  if (
+    accumulatorPosition.getZ(index) <=
+    accumulatorDims.baseThickness + 1e-6
+  ) {
+    continue;
+  }
+
+  const radius = Math.hypot(
+    accumulatorPosition.getX(index),
+    accumulatorPosition.getY(index),
+  );
+
+  minPostRadius = Math.min(minPostRadius, radius);
+  maxPostRadius = Math.max(maxPostRadius, radius);
+}
+
+const accumulatorStackTop =
+  accumulatorDims.stackBottomZs[accumulatorDims.stackBottomZs.length - 1] +
+  accumulatorDims.coasterStackThickness;
+
+near("накопитель: габарит X", accumulatorBounds.width, accumulatorDims.width);
+near("накопитель: габарит Y", accumulatorBounds.depth, accumulatorDims.depth);
+near(
+  "накопитель: габарит Z",
+  accumulatorBounds.height,
+  accumulatorDims.height,
+);
+near("накопитель: низ на Z = 0", accumulatorBounds.minZ, 0);
+check(
+  "накопитель: стойки не заходят в стопку",
+  minPostRadius >=
+    accumulatorDims.coasterOuterRadius + COASTER_ACCUMULATOR_POST_GAP_MM,
+  true,
+);
+check(
+  "накопитель: стойки не выходят за базу",
+  maxPostRadius <= accumulatorDims.width / 2 + 1e-6,
+  true,
+);
+check(
+  "накопитель: над верхней подставкой есть запас",
+  accumulatorBounds.maxZ - accumulatorStackTop >=
+    COASTER_ACCUMULATOR_TOP_HEADROOM_MM - 1e-6,
+  true,
+);
+check(
+  "накопитель: грани замкнуты",
+  openEdges(accumulatorTriangles),
+  0,
+);
+check(
+  "накопитель: нет вырожденных треугольников",
+  degenerateTriangles(accumulatorTriangles),
+  0,
+);
+check("накопитель: нет NaN", nanVertices(accumulatorTriangles), 0);
+near(
+  "накопитель: объём меша = аналитический",
+  calculateGeometryVolumeMm3(accumulatorGeometry),
+  coasterHolderAnalyticVolumeMm3(accumulatorParams),
+  0.001,
+);
+check(
+  "накопитель: нависаний больше 45° нет",
+  overhangTriangles(accumulatorTriangles, [
+    BOTTOM_Z,
+    accumulatorDims.baseThickness,
+  ]).length,
+  0,
+);
+console.log(
+  `  накопитель: ${accumulatorDims.width.toFixed(2)} × ` +
+    `${accumulatorDims.depth.toFixed(2)} × ${accumulatorDims.height.toFixed(2)} мм, ` +
+    `зазор до стопки ${(minPostRadius - accumulatorDims.coasterOuterRadius).toFixed(3)} мм, ` +
+    `запас сверху ${(accumulatorBounds.maxZ - accumulatorStackTop).toFixed(2)} мм`,
+);
+
+const accumulatorDirectory = mkdtempSync(
+  join(tmpdir(), "tridi-coaster-accumulator-"),
+);
+const accumulatorPath = join(
+  accumulatorDirectory,
+  coasterHolderStlFileName(),
+);
+const accumulatorMesh = new Mesh(accumulatorGeometry);
+
+accumulatorMesh.updateMatrixWorld(true);
+
+const accumulatorExported = new STLExporter().parse(accumulatorMesh, {
+  binary: true,
+});
+const accumulatorBytes = accumulatorExported as DataView;
+
+writeFileSync(
+  accumulatorPath,
+  Buffer.from(
+    accumulatorBytes.buffer,
+    accumulatorBytes.byteOffset,
+    accumulatorBytes.byteLength,
+  ),
+);
+
+const accumulatorStlTriangles = readBinaryStl(
+  readFileSync(accumulatorPath),
+);
+const accumulatorStlBounds = boundsOf(accumulatorStlTriangles);
+
+near(
+  "накопитель STL: габарит X",
+  accumulatorStlBounds.width,
+  accumulatorDims.width,
+);
+near(
+  "накопитель STL: габарит Y",
+  accumulatorStlBounds.depth,
+  accumulatorDims.depth,
+);
+near(
+  "накопитель STL: габарит Z",
+  accumulatorStlBounds.height,
+  accumulatorDims.height,
+);
+check(
+  "накопитель STL: число треугольников",
+  accumulatorStlTriangles.length,
+  accumulatorTriangles.length,
+);
+near(
+  "накопитель STL: объём = аналитический",
+  volumeOf(accumulatorStlTriangles),
+  coasterHolderAnalyticVolumeMm3(accumulatorParams),
+  0.001,
+);
+check(
+  "накопитель STL: нависаний больше 45° нет",
+  overhangTriangles(accumulatorStlTriangles, [
+    BOTTOM_Z,
+    accumulatorDims.baseThickness,
+  ]).length,
+  0,
+);
+rmSync(accumulatorDirectory, { recursive: true, force: true });
+
+console.log("\nОбщий STL набора: накопитель по диагонали:");
+
+const accumulatorSetGeometry = createCoasterSetGeometry(accumulatorParams);
+const accumulatorSetTriangles = trianglesOf(accumulatorSetGeometry);
+const accumulatorSetBounds = boundsOf(accumulatorSetTriangles);
+const accumulatorSetCenterX =
+  accumulatorSetBounds.maxX - accumulatorDims.width / 2;
+const accumulatorSetCenterY =
+  accumulatorSetBounds.maxY - accumulatorDims.depth / 2;
+
+check(
+  "набор с накопителем: габарит X не больше 220 мм",
+  accumulatorSetBounds.width <= COASTER_SET_BED_MM,
+  true,
+);
+check(
+  "набор с накопителем: габарит Y не больше 220 мм",
+  accumulatorSetBounds.depth <= COASTER_SET_BED_MM,
+  true,
+);
+check(
+  "набор с накопителем: габарит Z не больше 250 мм",
+  accumulatorSetBounds.height <= COASTER_SET_BED_HEIGHT_MM,
+  true,
+);
+near(
+  "набор с накопителем: высота без поворота на бок",
+  accumulatorSetBounds.height,
+  accumulatorDims.height,
+);
+check(
+  "набор с накопителем: детали разведены на 15 мм",
+  Math.hypot(accumulatorSetCenterX, accumulatorSetCenterY) >=
+    accumulatorDims.coasterOuterRadius +
+      accumulatorDims.width / 2 +
+      COASTER_SET_PART_GAP_MM -
+      1e-6,
+  true,
+);
+near(
+  "набор с накопителем: объём = подставка + накопитель",
+  calculateGeometryVolumeMm3(accumulatorSetGeometry),
+  coasterAnalyticVolumeMm3(accumulatorParams) +
+    coasterHolderAnalyticVolumeMm3(accumulatorParams),
+  // Сдвиг на 45° прибавляет к каждой координате иррациональное число, поэтому
+  // сумма объёмов после слияния сходится с аналитикой до сотых мм³.
+  0.01,
+);
+console.log(
+  `  набор с накопителем: ${accumulatorSetBounds.width.toFixed(2)} × ` +
+    `${accumulatorSetBounds.depth.toFixed(2)} × ` +
+    `${accumulatorSetBounds.height.toFixed(2)} мм`,
+);
+
+accumulatorSetGeometry.dispose();
+accumulatorGeometry.dispose();
 
 console.log("\nОбщий STL набора: подставка и держатель рядом:");
 

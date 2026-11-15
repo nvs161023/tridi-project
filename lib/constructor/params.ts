@@ -1436,6 +1436,23 @@ export const COASTER_HOLDER_TYPE_LABELS = {
   vertical: "Вертикальный держатель",
 } as const satisfies Record<CoasterHolderType, string>;
 
+/**
+ * Как держатель хранит подставки.
+ *
+ * `horizontal` — привычная стойка с пазом: подставки стоят вертикально, как
+ * тарелки в сушилке. `vertical` — накопитель-диспенсер: подставки лежат
+ * горизонтально стопкой между тремя стойками. Стиль не включает держатель сам:
+ * его по-прежнему выбирает `coasterHolderType`.
+ */
+export const COASTER_HOLDER_STYLES = ["horizontal", "vertical"] as const;
+
+export type CoasterHolderStyle = (typeof COASTER_HOLDER_STYLES)[number];
+
+export const COASTER_HOLDER_STYLE_LABELS = {
+  horizontal: "Горизонтальная стойка",
+  vertical: "Вертикальный накопитель",
+} as const satisfies Record<CoasterHolderStyle, string>;
+
 /** Части набора, которые отдаёт STL-экспорт. */
 export const COASTER_PARTS = ["coaster", "holder", "all"] as const;
 
@@ -1469,6 +1486,8 @@ export type CoasterParams = {
   coasterRim: boolean;
   /** Вертикальный держатель для набора или одиночная подставка. */
   coasterHolderType: CoasterHolderType;
+  /** Стойка с пазом или накопитель со стопкой. */
+  coasterHolderStyle: CoasterHolderStyle;
   /** Сколько подставок входит в набор: 4–8, шаг 1. */
   coasterCount: number;
 };
@@ -2566,6 +2585,7 @@ export const DEFAULT_COASTER_PARAMS: CoasterParams = {
   coasterPattern: "smooth",
   coasterRim: true,
   coasterHolderType: "none",
+  coasterHolderStyle: "horizontal",
   coasterCount: CONSTRUCTOR_LIMITS.coasterCount.defaultValue,
 };
 
@@ -3574,6 +3594,16 @@ export function isCoasterHolderType(
   return (
     typeof value === "string" &&
     (COASTER_HOLDER_TYPES as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка стиля держателя из формы или API. */
+export function isCoasterHolderStyle(
+  value: unknown,
+): value is CoasterHolderStyle {
+  return (
+    typeof value === "string" &&
+    (COASTER_HOLDER_STYLES as readonly string[]).includes(value)
   );
 }
 
@@ -4606,6 +4636,9 @@ export function normalizeCoasterParams(
     coasterHolderType: isCoasterHolderType(params.coasterHolderType)
       ? params.coasterHolderType
       : DEFAULT_COASTER_PARAMS.coasterHolderType,
+    coasterHolderStyle: isCoasterHolderStyle(params.coasterHolderStyle)
+      ? params.coasterHolderStyle
+      : DEFAULT_COASTER_PARAMS.coasterHolderStyle,
     coasterCount: snap(
       params.coasterCount ?? DEFAULT_COASTER_PARAMS.coasterCount,
       CONSTRUCTOR_LIMITS.coasterCount,

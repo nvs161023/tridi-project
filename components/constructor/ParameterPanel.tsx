@@ -98,6 +98,8 @@ import {
   BOX_MAGNET_SPECS,
   BOX_PRESET_IDS,
   BOX_PRESET_LABELS,
+  COASTER_HOLDER_STYLES,
+  COASTER_HOLDER_STYLE_LABELS,
   COASTER_PATTERNS,
   COASTER_PATTERN_LABELS,
   COASTER_SHAPES,
@@ -161,6 +163,7 @@ import {
   type BoxPresetId,
   type CoasterPattern,
   type CoasterShape,
+  type CoasterHolderStyle,
   type CoasterHolderType,
   type ConstructorParams,
   type JewelryLeafType,
@@ -236,6 +239,7 @@ type SizeParam = Exclude<
   | "coasterPattern"
   | "coasterRim"
   | "coasterHolderType"
+  | "coasterHolderStyle"
   | "penShape"
   | "heatTransferSvg"
   | "heatTransferMirror"
@@ -446,6 +450,8 @@ type ParameterPanelProps = {
   onCoasterRimChange: (enabled: boolean) => void;
   /** Держатель набора: одиночная подставка или вертикальная стойка. */
   onCoasterHolderTypeChange: (holderType: CoasterHolderType) => void;
+  /** Стиль держателя: стойка с пазом или накопитель со стопкой. */
+  onCoasterHolderStyleChange: (style: CoasterHolderStyle) => void;
   /** Число подставок в наборе: задаёт число гнёзд держателя. */
   onCoasterCountChange: (count: number) => void;
   /** Форма премиум-коллекции: лист, рогатое дерево или древо. */
@@ -1640,6 +1646,7 @@ export function ParameterPanel({
   onCoasterPatternChange,
   onCoasterRimChange,
   onCoasterHolderTypeChange,
+  onCoasterHolderStyleChange,
   onCoasterCountChange,
   onJewelryPresetChange,
   onJewelryLeafTypeChange,
@@ -3746,20 +3753,37 @@ export function ParameterPanel({
                 Держатель для стекирования
               </span>
               <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                Отдельная деталь набора: основание с задней стенкой и пазом.
-                Подставки вставляются вертикально и стоят рядом, как тарелки в
-                сушилке. Ширина паза — толщина подставки вместе с бортиком плюс
-                1 мм, глубина держателя — диаметр плюс 10 мм. Передние торцы
-                перегородок отступают назад на 15 мм: круг выступает вперёд и не
-                упирается в рёбра.
+                Отдельная деталь набора. Горизонтальная стойка держит подставки
+                вертикально в пазах, как тарелки в сушилке. Вертикальный
+                накопитель складывает их горизонтально стопкой между тремя
+                стойками, как в диспенсере.
               </span>
             </span>
           </label>
 
           {params.coasterHolderType === "vertical" ? (
-            <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+            <div className="mt-4 space-y-5 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+              <ParameterSelect
+                hint={
+                  params.coasterHolderStyle === "horizontal"
+                    ? "Основание с задней стенкой и пазом: подставки стоят рядом. Ширина паза — толщина подставки вместе с бортиком плюс 1 мм, глубина — диаметр плюс 10 мм."
+                    : "Круглая база 4 мм и три стойки Ø6 под 120°. Подставки лежат горизонтально стопкой с зазором 1.5 мм; высота стоек — число подставок × (толщина с бортиком + 1.5) + 10 мм запаса сверху."
+                }
+                label="Стиль держателя"
+                onChange={onCoasterHolderStyleChange}
+                options={COASTER_HOLDER_STYLES.map((style) => ({
+                  label: COASTER_HOLDER_STYLE_LABELS[style],
+                  value: style,
+                }))}
+                value={params.coasterHolderStyle}
+              />
+
               <NumberSlider
-                hint="Сколько гнёзд в держателе. Ширина основания растёт вместе с числом подставок, глубина остаётся равна габариту подставки плюс 10 мм."
+                hint={
+                  params.coasterHolderStyle === "horizontal"
+                    ? "Сколько гнёзд в стойке. Ширина основания растёт вместе с числом подставок, глубина остаётся равна габариту подставки плюс 10 мм."
+                    : "Сколько подставок входит в стопку. Каждая следующая поднимает все три стойки на толщину подставки с бортиком плюс 1.5 мм."
+                }
                 label="Подставок в наборе"
                 max={CONSTRUCTOR_LIMITS.coasterCount.max}
                 min={CONSTRUCTOR_LIMITS.coasterCount.min}
@@ -3776,7 +3800,11 @@ export function ParameterPanel({
             плоской плоскостью, верхний край срезан фаской 1.5 × 1.5 мм под 45°.
             Узор не доходит до фаски 2 мм, поэтому кромка остаётся ровной.
             {params.coasterHolderType === "vertical"
-              ? " Общий STL кладёт подставку и держатель рядом на поле 220 × 220 мм: сначала держатель сдвигается вбок на ширину набора плюс 15 мм, а если места не хватает — автоматически переносится назад или поворачивается. Отдельные файлы «Подставка» и «Держатель» остаются в панели скачивания. Задняя стенка держателя — 60 мм."
+              ? ` Общий STL кладёт подставку и держатель рядом на поле 220 × 220 мм. ${
+                  params.coasterHolderStyle === "vertical"
+                    ? "Круглый накопитель ставится рядом с подставкой, а если широкое основание не влезает — разводится по диагонали с зазором 15 мм. Стойки не пересекаются со стопкой и оставляют не меньше 10 мм над верхней подставкой."
+                    : "Сначала держатель сдвигается вбок на ширину набора плюс 15 мм, а если места не хватает — автоматически переносится назад или поворачивается. Задняя стенка держателя — 60 мм."
+                } Отдельные файлы «Подставка» и «Держатель» остаются в панели скачивания.`
               : ""}
           </p>
         </>
