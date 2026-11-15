@@ -1408,23 +1408,23 @@ export const COASTER_SHAPE_LABELS = {
   hex: "Шестигранная",
 } as const satisfies Record<CoasterShape, string>;
 
-/** Рельеф на лице подставки: без узора, кольца или точки. */
-export const COASTER_PATTERNS = ["plain", "rings", "dots"] as const;
+/** Узор на лице подставки: гладкое лицо, радиальные волны или соты. */
+export const COASTER_PATTERNS = ["smooth", "waves", "honeycomb"] as const;
 
 export type CoasterPattern = (typeof COASTER_PATTERNS)[number];
 
 export const COASTER_PATTERN_LABELS = {
-  plain: "Без узора",
-  rings: "Кольца",
-  dots: "Точки",
+  smooth: "Гладкая",
+  waves: "Волны",
+  honeycomb: "Соты",
 } as const satisfies Record<CoasterPattern, string>;
 
 /**
  * Подставка под кружку: габарит, толщина, форма, рельеф и бортик.
  *
  * Бортик по краю — это не украшение: конденсат с холодного стакана стекает в
- * него, а не на стол. Узор выступает над лицом на доли миллиметра, чтобы кружка
- * стояла устойчиво.
+ * него, а не на стол. Волны и соты углублены в лицо на 0.8 мм и не доходят до
+ * фаски, поэтому кромка остаётся ровной, а кружка стоит устойчиво.
  */
 export type CoasterParams = {
   /** Габарит «под ключ», мм: диаметр или размер многоугольника. */
@@ -2524,12 +2524,12 @@ export const DEFAULT_PLANTER_PARAMS: PlanterParams = {
   planterDrainage: true,
 };
 
-/** Подставка под кружку по умолчанию: круглая Ø 90 × 5 мм с бортиком и кольцами. */
+/** Подставка под кружку по умолчанию: круглая Ø 90 × 5 мм с бортиком, гладкая. */
 export const DEFAULT_COASTER_PARAMS: CoasterParams = {
   coasterSize: CONSTRUCTOR_LIMITS.coasterSize.defaultValue,
   coasterThickness: CONSTRUCTOR_LIMITS.coasterThickness.defaultValue,
   coasterShape: "round",
-  coasterPattern: "rings",
+  coasterPattern: "smooth",
   coasterRim: true,
 };
 
@@ -2935,11 +2935,11 @@ export function planterStlFileName(params: PlanterParams): string {
  * Имя файла STL для подставки под кружку.
  *
  * Узор и бортик попадают в имя суффиксами: по папке загрузок видно, какая
- * именно подставка напечатана. У ровной подставки без узора суффикса нет.
+ * именно подставка напечатана. У гладкой подставки суффикса узора нет.
  */
 export function coasterStlFileName(params: CoasterParams): string {
   const patternSuffix =
-    params.coasterPattern === "plain" ? "" : `-${params.coasterPattern}`;
+    params.coasterPattern === "smooth" ? "" : `-${params.coasterPattern}`;
   const rimSuffix = params.coasterRim ? "-bort" : "";
 
   return `tridi-podstavka-kruzhka-${params.coasterShape}-d${params.coasterSize}-t${params.coasterThickness}${patternSuffix}${rimSuffix}.stl`;

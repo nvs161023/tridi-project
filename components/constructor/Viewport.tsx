@@ -53,7 +53,10 @@ import {
   type KeychainBuildReport,
 } from "@/lib/constructor/keychain-geometry";
 import { createBoxGeometry } from "@/lib/constructor/box-geometry";
-import { createCoasterGeometry } from "@/lib/constructor/coaster-geometry";
+import {
+  coasterAnalyticWeightGrams,
+  createCoasterGeometry,
+} from "@/lib/constructor/coaster-geometry";
 import {
   createHeatTransferGeometry,
   heatTransferThickness,
@@ -1818,10 +1821,14 @@ export function Viewport({
   }, [geometry, params]);
 
   // Вес в граммах для PLA: объём переводится в см³ и умножается на плотность
-  // 1.24 г/см³. Округляем до десятых при выводе, как и остальные размеры.
+  // 1.24 г/см³. У подставки объём берётся аналитический: она строится одним
+  // телом, поэтому пересечений, которые mesh-сумма посчитала бы дважды, нет.
   const materialWeightGrams = useMemo(
-    () => calculateGeometryWeightGrams(geometry),
-    [geometry],
+    () =>
+      params.model === "coaster"
+        ? coasterAnalyticWeightGrams(params)
+        : calculateGeometryWeightGrams(geometry),
+    [geometry, params],
   );
 
   const sizeLabel =
