@@ -22,8 +22,9 @@ import {
   type StrokeHistogram,
 } from "@/lib/constructor/heat-transfer-import";
 import {
-  JEWELRY_DEER_ANTLER_BUD_RADIUS_MM,
   JEWELRY_DEER_ANTLER_MIN_ELEVATION_DEG,
+  JEWELRY_DEER_MAX_HEIGHT_MM,
+  JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM,
   JEWELRY_DEER_WEIGHT_DEPTH_MM,
   JEWELRY_DEER_WEIGHT_DIAMETER_MM,
   JEWELRY_DEER_WEIGHT_FLOOR_MM,
@@ -3853,7 +3854,7 @@ export function ParameterPanel({
             <>
               <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
                 <NumberSlider
-                  hint="Размах рогов от кончика до кончика. 100–150 мм — настольная фигура, 200–230 мм — витринная крона высотой около 41 см. Выше 256 мм печатайте по частям или уменьшайте размах: ветви длиннее и заметнее, но модель выше."
+                  hint={`Размах рогов от кончика до кончика. 100–150 мм — настольная фигура, 200–230 мм — витринная крона. Высота автоматически вписывается в ${JEWELRY_DEER_MAX_HEIGHT_MM} мм: крупная крона уменьшает всю фигуру пропорционально, поэтому деталь печатается на обычном столе.`}
                   label="Размах рогов"
                   max={CONSTRUCTOR_LIMITS.deerAntlerSpread.max}
                   min={CONSTRUCTOR_LIMITS.deerAntlerSpread.min}
@@ -3891,9 +3892,10 @@ export function ParameterPanel({
                 утоплен в плинт, поэтому деталь печатается одной штукой. Каждая
                 хорда рога поднимается не положе{" "}
                 {JEWELRY_DEER_ANTLER_MIN_ELEVATION_DEG}°, а низ морды идёт килем
-                под 49°: поддержки не нужны. Бутоны Ø{" "}
-                {(JEWELRY_DEER_ANTLER_BUD_RADIUS_MM * 2).toFixed(1)} мм на
-                кончиках держат кольца и серьги. Полость Ø{" "}
+                под 49°: поддержки не нужны. Высота ограничена{" "}
+                {JEWELRY_DEER_MAX_HEIGHT_MM} мм, а ветви рогов после
+                масштабирования не тоньше Ø{JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM}{" "}
+                мм. Полость Ø{" "}
                 {JEWELRY_DEER_WEIGHT_DIAMETER_MM} × {JEWELRY_DEER_WEIGHT_DEPTH_MM}{" "}
                 мм открыта вверх, дно под ней {JEWELRY_DEER_WEIGHT_FLOOR_MM} мм.
                 Она стоит сбоку от фигуры, на свободном поле лотка, и не задевает

@@ -22,6 +22,9 @@ import {
   JEWELRY_DEER_HEAD_BASE_DIAMETER_MM,
   JEWELRY_DEER_HEAD_SECTIONS,
   JEWELRY_DEER_HEAD_SECTION_POINTS,
+  JEWELRY_DEER_MAX_FOOTPRINT_MM,
+  JEWELRY_DEER_MAX_HEIGHT_MM,
+  JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM,
   JEWELRY_DEER_WEIGHT_DIAMETER_MM,
   createJewelryDeerGeometry,
   jewelryDeerHeightMm,
@@ -953,7 +956,7 @@ function deerOverhangs(mesh: Mesh, plan: JewelryDeerPlan): number {
 
 console.log("\nОлень «Лесной олень»: лежащая фигура и крона");
 
-/** Витринный олень из референса: лоток 250 × 150, высота около 410 мм. */
+/** Витринный олень из референса: лоток 250 × 150, авторская высота около 410 мм. */
 const deerCase = {
   jewelryPreset: "deer_bust" as const,
   deerAntlerSpread: 230,
@@ -967,6 +970,39 @@ const deerSkull = deerPlan.head;
 
 near("олень: длина лотка", deerPlan.baseLengthMm, 250);
 near("олень: ширина лотка", deerPlan.baseWidthMm, 150);
+check(
+  "олень: высота вписана в 240 мм",
+  deerPlan.heightMm <= JEWELRY_DEER_MAX_HEIGHT_MM + 1e-6,
+  true,
+);
+check(
+  "олень: крупная фигура ужата масштабом",
+  deerPlan.fitScale < 1 && deerPlan.fitScale > 0.5,
+  true,
+);
+check(
+  "олень: габарит в плане не больше 250 × 250",
+  Math.max(
+    deerPlan.baseLengthMm,
+    deerPlan.baseWidthMm,
+    deerPlan.antlerOuterXMm * 2,
+  ) <= JEWELRY_DEER_MAX_FOOTPRINT_MM + 1e-6,
+  true,
+);
+check(
+  "олень: ветви не тоньше Ø3 мм",
+  deerPlan.antlers.every(
+    (path) =>
+      path.budRadiusMm * 2 >=
+        JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM - 1e-9 &&
+      path.points.every(
+        (point) =>
+          point.radiusMm * 2 >=
+          JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM - 1e-9,
+      ),
+  ),
+  true,
+);
 near("олень: высота лотка", deerPlan.baseHeightMm, JEWELRY_DEER_BASE_HEIGHT_MM);
 near(
   "олень: дно и глубина полости дают высоту лотка",
@@ -1045,14 +1081,14 @@ check(
 );
 check(
   "олень: голова выше тела",
-  deerPlan.crownZMm > deerPlan.body.topZMm + 20 &&
+  deerPlan.crownZMm > deerPlan.body.topZMm + 10 &&
     deerPlan.head.spineNapeMm[2] > deerPlan.body.topZMm,
   true,
 );
 check(
   "олень: нос вынесен вперёд и остаётся над лотком",
   deerPlan.head.spineNoseMm[1] <
-      deerPlan.body.sections[0].centerMm[1] - 20 &&
+      deerPlan.body.sections[0].centerMm[1] - 10 &&
     deerPlan.head.spineNoseMm[1] > -deerPlan.baseWidthMm / 2 - 1e-6,
   true,
 );
@@ -1088,15 +1124,15 @@ check(
     deerPlan.antlers.filter((path) => path.kind === "tine").length === 24,
   true,
 );
-expectNear(
-  "олень: размах рогов как у ползунка",
-  deerPlan.antlerOuterXMm * 2,
-  230,
-  0.01,
+check(
+  "олень: размах ужат клампом и не больше ползунка",
+  deerPlan.antlerSpreadMm > 0 &&
+    deerPlan.antlerSpreadMm < 230,
+  true,
 );
 check(
   "олень: рога выше головы",
-  deerPlan.antlerTopZMm > deerPlan.crownZMm + 250,
+  deerPlan.antlerTopZMm > deerPlan.crownZMm + 150,
   true,
 );
 check(
@@ -1257,7 +1293,18 @@ check(
 );
 check(
   "олень: объём в коридоре",
-  deerVolume > 400 && deerVolume < 600,
+  deerVolume > 180 && deerVolume < 280,
+  true,
+);
+check(
+  "олень: STL не выше 240 мм",
+  deerMaxZ <= JEWELRY_DEER_MAX_HEIGHT_MM + HEIGHT_TOLERANCE_MM,
+  true,
+);
+check(
+  "олень: STL не шире 250 мм",
+  deerMaxX - deerMinX <= JEWELRY_DEER_MAX_FOOTPRINT_MM + 1e-6 &&
+    deerMaxY - deerMinY <= JEWELRY_DEER_MAX_FOOTPRINT_MM + 1e-6,
   true,
 );
 
@@ -1343,6 +1390,20 @@ check("олень: минимум — низ на столе", Math.abs(smallest
 check(
   "олень: минимум — высота из плана",
   Math.abs(smallestMaxZ - smallestDeer.heightMm) <= HEIGHT_TOLERANCE_MM,
+  true,
+);
+check(
+  "олень: минимум — ветви не тоньше Ø3 мм",
+  smallestDeer.antlers.every(
+    (path) =>
+      path.budRadiusMm * 2 >=
+        JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM - 1e-9 &&
+      path.points.every(
+        (point) =>
+          point.radiusMm * 2 >=
+          JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM - 1e-9,
+      ),
+  ),
   true,
 );
 check(

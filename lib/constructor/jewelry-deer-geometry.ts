@@ -30,6 +30,11 @@
  * булевых операций нет. После слияния нормали сглаживаются с порогом 60°,
  * поэтому лофты и трубы гладкие, а кромка лотка остаётся острой.
  *
+ * Высота фигуры ограничена 240 мм: если размах рогов поднимает крону выше,
+ * плинт, тело, голова и рога равномерно уменьшаются, а лоток с монетной
+ * полостью остаются заданного размера. Тонкие ветви при этом не опускаются
+ * ниже Ø3 мм, иначе они ломались бы при печати и использовании.
+ *
  * Система координат общая для коллекции: Z вверх, низ на z = 0, центр лотка в
  * начале координат, олень смотрит в −Y.
  */
@@ -46,6 +51,15 @@ import {
   type Point2,
 } from "@/lib/constructor/prism-mesh";
 import { applyCreasedNormals } from "@/lib/constructor/mesh-normals";
+
+/** Максимальная высота готовой модели, мм: поле печати обычного принтера. */
+export const JEWELRY_DEER_MAX_HEIGHT_MM = 240;
+
+/** Максимальный габарит модели по X и Y, мм: стол 250 × 250. */
+export const JEWELRY_DEER_MAX_FOOTPRINT_MM = 250;
+
+/** Минимальный диаметр ветви рога после масштабирования, мм. */
+export const JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM = 3;
 
 /** Высота овального лотка, мм: полость 2.5 мм плюс дно 2.5 мм. */
 export const JEWELRY_DEER_BASE_HEIGHT_MM = 5;
@@ -276,7 +290,8 @@ const JEWELRY_DEER_BASE_SIDES = 96;
  *
  * У лежащего оленя шея короткая: без сжатия голова уходит на 95 мм над телом и
  * фигура читается жирафом. 0.64 оставляет 51 мм, а рога по-прежнему начинаются
- * на макушке и держат общую высоту около 410 мм.
+ * на макушке. Авторская высота около 410 мм затем вписывается в 240 мм
+ * масштабом фигуры в `jewelryDeerPlan`.
  */
 const JEWELRY_DEER_HEAD_VERTICAL_SCALE = 0.64;
 
@@ -419,6 +434,8 @@ export type JewelryDeerPlan = {
   readonly pocketFloorMm: number;
   /** Масштаб головы относительно авторского лофта 150 мм. */
   readonly scale: number;
+  /** Масштаб фигуры поверх авторских размеров: 0…1, вписывает высоту в 240 мм. */
+  readonly fitScale: number;
   readonly plinth: JewelryDeerPlinth;
   readonly body: JewelryDeerBody;
   readonly legs: readonly JewelryDeerLeg[];
@@ -914,14 +931,15 @@ const JEWELRY_DEER_ANTLER_BRANCHES: readonly JewelryDeerAntlerBranchSpec[] = [
 
 
 /**
- * План оленя: лоток, плинт, тело, голова, ноги и крона рогов.
+ * План оленя до ограничения габарита.
  *
  * План считается без three.js и без меша — по нему строятся и геометрия, и
  * подписи, и проверки в `scripts/test-jewelry-geometry.ts`. Габарит фигуры
- * выводится из размеров лотка, а высота рогов — из размаха: на витринном
- * лотке 250 × 150 получается модель около 410 мм.
+ * выводится из размеров лотка, а высота рогов — из размаха. На максимальных
+ * ползунках авторская крона выходит около 410 мм, поэтому публичный
+ * `jewelryDeerPlan` дополнительно вписывает её в печатный конверт.
  */
-export function jewelryDeerPlan(
+function buildJewelryDeerPlan(
   params: Partial<JewelryStandParams> = {},
 ): JewelryDeerPlan {
   const normalized = normalizeJewelryStandParams(params);
@@ -1267,6 +1285,7 @@ export function jewelryDeerPlan(
     pocketDepthMm: JEWELRY_DEER_WEIGHT_DEPTH_MM,
     pocketFloorMm: JEWELRY_DEER_WEIGHT_FLOOR_MM,
     scale,
+    fitScale: 1,
     plinth,
     body,
     legs,
@@ -1282,6 +1301,199 @@ export function jewelryDeerPlan(
     antlerTopZMm: antlerTopMm,
     antlerSpreadMm,
     antlerOuterXMm,
+    antlers,
+    ears,
+    heightMm,
+  };
+}
+
+/**
+ * План оленя, вписанный в печатный конверт.
+ *
+ * Лоток и полость остаются ровно такими, какими их задали ползунки: монета
+ * должна входить в гнездо. Если крона поднимает фигуру выше 240 мм, масштаб
+ * применяется к плинту, телу, голове, ногам и рогам — ко всей фигуре поверх
+ * лотка. Равномерный масштаб не меняет углы наклона и пропорции, поэтому
+ * правило печати без поддержек сохраняется. Радиусы рогов после уменьшения
+ * поднимаются до Ø3 мм: ветви не становятся хрупкими.
+ */
+export function jewelryDeerPlan(
+  params: Partial<JewelryStandParams> = {},
+): JewelryDeerPlan {
+  const raw = buildJewelryDeerPlan(params);
+  // 0.01 мм запаса: после округления высоты и подъёма тонких бутонов кончик
+  // не должен оказаться ровно на пределе или на сотую выше него.
+  const availableMm =
+    JEWELRY_DEER_MAX_HEIGHT_MM - raw.baseHeightMm - 0.01;
+  const aboveBaseMm = raw.heightMm - raw.baseHeightMm;
+  const minimumRadiusMm = JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM / 2;
+  const byHeight =
+    aboveBaseMm > 1e-9 ? availableMm / aboveBaseMm : 1;
+  // Если бутон после масштаба станет тоньше минимума, его радиус поднимется
+  // обратно до 1.5 мм. Этот запас вычитается заранее, иначе кончик снова
+  // вылезет за 240 мм.
+  const byThickness =
+    aboveBaseMm > JEWELRY_DEER_ANTLER_BUD_RADIUS_MM + 1e-9
+      ? (availableMm - minimumRadiusMm) /
+        (aboveBaseMm - JEWELRY_DEER_ANTLER_BUD_RADIUS_MM)
+      : 1;
+  const footprintMm = Math.max(
+    raw.baseLengthMm,
+    raw.baseWidthMm,
+    raw.antlerOuterXMm * 2,
+  );
+  const byFootprint =
+    footprintMm > 1e-9 ? JEWELRY_DEER_MAX_FOOTPRINT_MM / footprintMm : 1;
+  const fitScale = clampNumber(
+    Math.min(1, byHeight, byThickness, byFootprint),
+    0.05,
+    1,
+  );
+
+  return scaleDeerFigure(raw, fitScale);
+}
+
+/**
+ * Равномерно масштабирует фигуру оленя, оставляя лоток и полость в покое.
+ *
+ * По Z масштаб считается от верхней грани лотка: низ плинта и утопленное тело
+ * остаются на своих местах, а крона опускается к столу. По X и Y все детали
+ * фигуры сжимаются к центру лотка, поэтому за габарит 250 мм они не выйдут.
+ */
+function scaleDeerFigure(
+  raw: JewelryDeerPlan,
+  factor: number,
+): JewelryDeerPlan {
+  const anchorZMm = raw.baseHeightMm;
+  const minimumRadiusMm = JEWELRY_DEER_MIN_ANTLER_DIAMETER_MM / 2;
+  const scalePoint = (point: Vec3): Vec3 => [
+    point[0] * factor,
+    point[1] * factor,
+    anchorZMm + (point[2] - anchorZMm) * factor,
+  ];
+  const scaleZ = (zMm: number): number =>
+    anchorZMm + (zMm - anchorZMm) * factor;
+
+  const plinth: JewelryDeerPlinth = {
+    ...raw.plinth,
+    centerMm: [
+      raw.plinth.centerMm[0] * factor,
+      raw.plinth.centerMm[1] * factor,
+    ],
+    lengthMm: raw.plinth.lengthMm * factor,
+    widthMm: raw.plinth.widthMm * factor,
+    heightMm: raw.plinth.heightMm * factor,
+    topZMm: scaleZ(raw.plinth.topZMm),
+  };
+  const body: JewelryDeerBody = {
+    ...raw.body,
+    sections: raw.body.sections.map((section) => ({
+      ...section,
+      centerMm: scalePoint(section.centerMm),
+      radiusXMm: section.radiusXMm * factor,
+      radiusUpMm: section.radiusUpMm * factor,
+    })),
+    lengthMm: raw.body.lengthMm * factor,
+    widthMm: raw.body.widthMm * factor,
+    heightMm: raw.body.heightMm * factor,
+    bottomZMm: scaleZ(raw.body.bottomZMm),
+    centerYMm: raw.body.centerYMm * factor,
+    topZMm: scaleZ(raw.body.topZMm),
+  };
+  const head: JewelryDeerHead = {
+    ...raw.head,
+    sections: raw.head.sections.map((section) => ({
+      ...section,
+      centerMm: scalePoint(section.centerMm),
+      radiusXMm: section.radiusXMm * factor,
+      radiusUpMm: section.radiusUpMm * factor,
+    })),
+    baseDiameterMm: raw.head.baseDiameterMm * factor,
+    skullDiameterMm: raw.head.skullDiameterMm * factor,
+    noseDiameterMm: raw.head.noseDiameterMm * factor,
+    spineStartMm: scalePoint(raw.head.spineStartMm),
+    spineNapeMm: scalePoint(raw.head.spineNapeMm),
+    spineNoseMm: scalePoint(raw.head.spineNoseMm),
+    crownZMm: scaleZ(raw.head.crownZMm),
+  };
+
+  const ears: JewelryDeerEar[] = raw.ears.map((ear) => ({
+    ...ear,
+    rootMm: scalePoint(ear.rootMm),
+    tipMm: scalePoint(ear.tipMm),
+    halfWidthMm: ear.halfWidthMm * factor,
+    halfThicknessMm: ear.halfThicknessMm * factor,
+  }));
+  const legs: JewelryDeerLeg[] = raw.legs.map((leg) => ({
+    ...leg,
+    points: leg.points.map((point) => ({
+      ...point,
+      xMm: point.xMm * factor,
+      yMm: point.yMm * factor,
+      zMm: scaleZ(point.zMm),
+      radiusMm: point.radiusMm * factor,
+    })),
+  }));
+  const antlers: JewelryDeerAntlerPath[] = raw.antlers.map((path) => ({
+    ...path,
+    points: path.points.map((point) => ({
+      ...point,
+      xMm: point.xMm * factor,
+      yMm: point.yMm * factor,
+      zMm: scaleZ(point.zMm),
+      radiusMm: Math.max(point.radiusMm * factor, minimumRadiusMm),
+    })),
+    budRadiusMm: Math.max(path.budRadiusMm * factor, minimumRadiusMm),
+  }));
+
+  let antlerTopZMm = 0;
+  let antlerOuterXMm = 0;
+
+  for (const path of antlers) {
+    for (const point of path.points) {
+      antlerTopZMm = Math.max(
+        antlerTopZMm,
+        point.zMm + point.radiusMm,
+      );
+      antlerOuterXMm = Math.max(
+        antlerOuterXMm,
+        Math.abs(point.xMm) + point.radiusMm,
+      );
+    }
+
+    const last = path.points[path.points.length - 1];
+
+    antlerTopZMm = Math.max(antlerTopZMm, last.zMm + path.budRadiusMm);
+    antlerOuterXMm = Math.max(
+      antlerOuterXMm,
+      Math.abs(last.xMm) + path.budRadiusMm,
+    );
+  }
+
+  const heightMm =
+    Math.round(
+      Math.max(antlerTopZMm, head.crownZMm, body.topZMm) * 100,
+    ) / 100;
+
+  return {
+    ...raw,
+    scale: raw.scale * factor,
+    fitScale: raw.fitScale * factor,
+    plinth,
+    body,
+    legs,
+    head,
+    headOffsetMm: scalePoint(raw.headOffsetMm),
+    headLengthMm: raw.headLengthMm * factor,
+    headWidthMm: raw.headWidthMm * factor,
+    headHeightMm: raw.headHeightMm * factor,
+    muzzleLengthMm: raw.muzzleLengthMm * factor,
+    noseYMm: raw.noseYMm * factor,
+    noseZMm: scaleZ(raw.noseZMm),
+    crownZMm: scaleZ(raw.crownZMm),
+    antlerTopZMm,
+    antlerOuterXMm,
+    antlerSpreadMm: antlerOuterXMm * 2,
     antlers,
     ears,
     heightMm,
